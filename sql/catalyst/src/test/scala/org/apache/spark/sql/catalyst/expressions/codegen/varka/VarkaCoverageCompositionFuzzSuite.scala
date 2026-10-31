@@ -267,8 +267,9 @@ class VarkaCoverageCompositionFuzzSuite
    * arbitrary pattern and an ordinary value. The one guard that reads a floating value is an
    * ANSI division's zero divisor (VARKA-342), so on the last attempt, `scale` 2, an input that
    * feeds such a divisor, `divisor` (see `failDivisorInputs`), draws `1.5` in place of either
-   * zero, and no guard declines it; the earlier attempts, and every other input at each attempt,
-   * keep both zeros.
+   * zero, and a row whose divisor is still computed to zero is drawn again
+   * (`redrawZeroDivisors`); the earlier attempts, and every other input at each attempt, keep
+   * both zeros.
    */
   private def floatingInput(dataType: DataType, rnd: Random, scale: Int,
       divisor: Boolean): Option[Long] = dataType match {
@@ -298,12 +299,29 @@ class VarkaCoverageCompositionFuzzSuite
   }
 
   /**
-   * The input indices `roots` read inside the divisor of an ANSI floating division, an
-   * `IntArith` `DIV` under `FAIL`: the only inputs whose zero a guard declines (VARKA-342).
+   * The ANSI floating divisions of `roots`, each an `IntArith` `DIV` under `FAIL` and listed
+   * once: the only guard whose zero divisor declines a batch (VARKA-342).
    */
+  private def failDivisions(roots: Seq[VarkaVectorIR]): Seq[VarkaVectorIR.IntArith] = {
+    // Each node is walked once: the outputs are a DAG, and a shared subtree walked once per path
+    // to it would cost exponentially many visits in the depth of the sharing.
+    val walked = scala.collection.mutable.Set.empty[VarkaVectorIR]
+    val divisions = Seq.newBuilder[VarkaVectorIR.IntArith]
+    def walk(node: VarkaVectorIR): Unit = if (walked.add(node)) {
+      node match {
+        case a: VarkaVectorIR.IntArith
+            if a.op == VarkaVectorIR.IntOp.DIV && a.mode == VarkaVectorIR.Overflow.FAIL =>
+          divisions += a
+        case _ =>
+      }
+      VarkaVectorIR.childrenOf(node).foreach(walk)
+    }
+    roots.foreach(walk)
+    divisions.result()
+  }
+
+  /** The input indices `roots` read inside the divisor of one of their `failDivisions`. */
   private def failDivisorInputs(roots: Seq[VarkaVectorIR]): Set[Int] = {
-    // Each walk visits a node once: the outputs are a DAG, and a shared subtree walked once per
-    // path to it would cost exponentially many visits in the depth of the sharing.
     val inputs = scala.collection.mutable.Set.empty[Int]
     val read = scala.collection.mutable.Set.empty[VarkaVectorIR]
     def reads(node: VarkaVectorIR): Unit = if (read.add(node)) {
@@ -312,18 +330,68 @@ class VarkaCoverageCompositionFuzzSuite
         case _ => VarkaVectorIR.childrenOf(node).foreach(reads)
       }
     }
-    val walked = scala.collection.mutable.Set.empty[VarkaVectorIR]
-    def walk(node: VarkaVectorIR): Unit = if (walked.add(node)) {
-      node match {
-        case a: VarkaVectorIR.IntArith
-            if a.op == VarkaVectorIR.IntOp.DIV && a.mode == VarkaVectorIR.Overflow.FAIL =>
-          reads(a.right)
-        case _ =>
-      }
-      VarkaVectorIR.childrenOf(node).foreach(walk)
-    }
-    roots.foreach(walk)
+    failDivisions(roots).foreach(d => reads(d.right))
     inputs.toSet
+  }
+
+  /** The tries `redrawZeroDivisors` gives a row before it leaves the batch to decline. */
+  private val DivisorRedraws = 16
+
+  /** Rows `redrawZeroDivisors` drew again, over the suite. */
+  private var divisorRowsRedrawn = 0
+
+  /**
+   * Makes every ANSI floating divisor of `roots` (`failDivisions`) non-zero on every row of
+   * `data`, the last attempt's values (`data(input)(row)`, a `FLOAT`'s bits sign-extended), so that
+   * no guard declines that attempt. Redrawing the inputs' own zeros is not enough: a divisor
+   * computed from them, `c1 - c2` or a product that underflows, is zero on rows whose inputs are
+   * not. So on each row where the reference evaluator gives some divisor the value `+0.0` or
+   * `-0.0` under one of `masks` (input and row to whether the input is null there: the null flags
+   * the kernel's bodies run), the row's `divisors` inputs are drawn again by `draw`, up to
+   * `DivisorRedraws` times; a divisor that stays zero, `c1 - c1`, leaves the batch to decline.
+   * Every other row and input keeps its draw, the zeros of the inputs no divisor reads among them.
+   * `long` says which harness the kernel runs in: its rows are those of the long lane, a mixed
+   * kernel's int lane in their low bits, with `lits` and `intLits` the two literal tables.
+   */
+  private def redrawZeroDivisors(roots: Seq[VarkaVectorIR], data: Array[Array[Long]],
+      masks: Seq[(Int, Int) => Boolean], long: Boolean, lits: Array[Long], intLits: Array[Int],
+      divisors: Set[Int], draw: Int => Long): Unit = {
+    val divisions = failDivisions(roots)
+    if (divisions.nonEmpty && data.nonEmpty) {
+      val length = data(0).length
+      def zeroAt(row: Int): Boolean = masks.exists { nullAt =>
+        val values = data.map(_(row))
+        val isNull = Array.tabulate(data.length)(nullAt(_, row))
+        divisions.exists(d => zeroDivisor(d.right, values, isNull, long, lits, intLits))
+      }
+      for (row <- 0 until length) {
+        var tries = 0
+        while (tries < DivisorRedraws && zeroAt(row)) {
+          if (tries == 0) divisorRowsRedrawn += 1
+          divisors.foreach(i => data(i)(row) = draw(i))
+          tries += 1
+        }
+      }
+    }
+  }
+
+  /**
+   * Whether the reference evaluator gives `divisor` the value `+0.0` or `-0.0` on a row; a null,
+   * or a node it has no value for, is not a zero.
+   */
+  private def zeroDivisor(divisor: VarkaVectorIR, values: Array[Long], isNull: Array[Boolean],
+      long: Boolean, lits: Array[Long], intLits: Array[Int]): Boolean = try {
+    divisor.laneType match {
+      case LaneType.FLOAT =>
+        val v = VarkaReference.value(divisor, values.map(_.toInt), isNull,
+          if (long) intLits else lits.map(_.toInt))
+        v.isPresent && (v.getAsInt == 0 || v.getAsInt == Int.MinValue)
+      case _ =>
+        val v = VarkaReference.mixedValue(divisor, values, isNull, intLits, lits)
+        v.isPresent && (v.getAsLong == 0L || v.getAsLong == Long.MinValue)
+    }
+  } catch {
+    case _: IllegalArgumentException => false
   }
 
   /** Kernels compared row by row and batches drawn again after a decline, per lane. */
@@ -338,8 +406,9 @@ class VarkaCoverageCompositionFuzzSuite
    * thousand either side of zero, a long-lane one by its type (`drawLong`), and a floating input
    * at either lane from its special values (`floatingInput`). A batch a guard declines is drawn
    * again twice, nearer zero each time and a bounded input clamped into its bound, the last
-   * within one to three, which no guard declines; each attempt keeps the length and null
-   * patterns. The test then asserts that every kernel was compared. Returns whether the kernel was.
+   * within one to three and with no ANSI divisor zero (`redrawZeroDivisors`), which no guard
+   * declines; each attempt keeps the length and null patterns. The test then asserts that every
+   * kernel was compared. Returns whether the kernel was.
    *
    * With `poisoned`, the batch's shape is not drawn but fixed (VARKA-138), `poisonedPatterns`,
    * and it runs through the masked body alone, at both fills: its other body would be the same
@@ -378,15 +447,21 @@ class VarkaCoverageCompositionFuzzSuite
       floatingInput(inputs(plan.inputOrdinals.get(i)).dataType, rnd, scale, divisors(i))
         .map(_.toInt).getOrElse(intInput(plan, i, scale, rnd))
     // The long harness at every 64-bit lane: a DOUBLE's rows and literals are its bits.
+    // The null flags the kernel's two bodies read: none, and the batch's own.
+    val masks = Seq[(Int, Int) => Boolean]((_, _) => false, (i, row) => patterns(i)(row))
     def attempt(scale: Int): Boolean = if (plan.lane(opts).bits() == java.lang.Long.SIZE) {
-      val data = Array.tabulate(numInputs) { i =>
+      def longValue(i: Int, scale: Int): Long = {
         val dataType = inputs(plan.inputOrdinals.get(i)).dataType
-        Array.fill(length)(floatingInput(dataType, rnd, scale, divisors(i))
-          .getOrElse(drawLong(rnd, dataType, scale)))
+        floatingInput(dataType, rnd, scale, divisors(i)).getOrElse(drawLong(rnd, dataType, scale))
       }
+      val data = Array.tabulate(numInputs)(i => Array.fill(length)(longValue(i, scale)))
       val lits = plan.longLiterals.asScala.map(_.longValue).toArray
       // A kernel of both lanes (VARKA-28) reads the int table beside the long one.
       val intLits = plan.literals.asScala.map(_.intValue).toArray
+      if (scale == 2) {
+        redrawZeroDivisors(roots, data, masks, long = true, lits, intLits, divisors,
+          longValue(_, scale))
+      }
       val batch = VarkaKernelCheck.LongBatch(length, patterns, data, forceMasked)
       if (poisoned) {
         VarkaKernelCheck.runOwnBodyLong(context, className, bytes, roots, numInputs, lits, batch,
@@ -396,8 +471,13 @@ class VarkaCoverageCompositionFuzzSuite
           batch, declineAllowed = true, spark = spark, intLits = intLits)
       }
     } else {
-      val data = Array.tabulate(numInputs)(i => Array.fill(length)(intValue(i, scale)))
+      val drawn = Array.tabulate(numInputs)(i => Array.fill(length)(intValue(i, scale).toLong))
       val lits = plan.literals.asScala.map(_.intValue).toArray
+      if (scale == 2) {
+        redrawZeroDivisors(roots, drawn, masks, long = false, lits.map(_.toLong), Array.empty,
+          divisors, intValue(_, scale).toLong)
+      }
+      val data = drawn.map(_.map(_.toInt))
       val batch = VarkaKernelCheck.Batch(length, patterns, data, forceMasked)
       if (poisoned) {
         VarkaKernelCheck.runOwnBody(context, className, bytes, roots, numInputs, lits, batch,
@@ -700,14 +780,22 @@ class VarkaCoverageCompositionFuzzSuite
     // the batch's own, and `quiet-null`'s column 0 all-null.
     val masks = Seq(nulls.map(_.map(_ => false)), nulls, nulls.zipWithIndex.map { case (z, i) =>
       if (i == 0) z.map(_ => true) else z })
+    val intLits =
+      if (isLong) plan.literals.asScala.map(_.intValue).toArray else Array.empty[Int]
     val answered = (0 until 3).iterator
-      .map(scale => Array.tabulate(n)(i => Array.fill(length)(value(i, scale))))
+      .map { scale =>
+        val d = Array.tabulate(n)(i => Array.fill(length)(value(i, scale)))
+        if (scale == 2) {
+          redrawZeroDivisors(plan.outputs.asScala.toSeq, d,
+            masks.map(z => (i: Int, row: Int) => z(i)(row)), isLong, lits, intLits, divisors,
+            value(_, scale))
+        }
+        d
+      }
       .find { d =>
         val rows = Array.tabulate(length)(r => Array.tabulate(n)(col => d(col)(r)))
         masks.forall { z =>
-          VarkaGuardSpecs.verdict(plan.outputs, n, lits,
-            if (isLong) plan.literals.asScala.map(_.intValue).toArray else Array.empty[Int],
-            opts, isLong, rows,
+          VarkaGuardSpecs.verdict(plan.outputs, n, lits, intLits, opts, isLong, rows,
             Array.tabulate(length)(r => Array.tabulate(n)(col => z(col)(r))),
             java.util.List.of()).answers()
         }
@@ -1116,6 +1204,45 @@ class VarkaCoverageCompositionFuzzSuite
         e.getMessage)
       info(e.getMessage.linesIterator.next())
     }
+  }
+
+  test("the last attempt draws a row again whose ANSI divisor is computed to zero, so the " +
+      "kernel is compared (VARKA-342)") {
+    // c0 / (c1 - c2) at DOUBLE under ANSI. The last attempt draws no zero for c1 or c2, but where
+    // c1 = c2 the divisor is still zero, which declines the batch: drawn so on every row, the
+    // batch declines, and once the rows are drawn again it is answered and compared.
+    val c = (0 until 3).map(new VarkaVectorIR.ColumnRef(_, LaneType.DOUBLE))
+    val roots = Seq[VarkaVectorIR](new VarkaVectorIR.IntArith(VarkaVectorIR.IntOp.DIV,
+      VarkaVectorIR.Overflow.FAIL, c(0), new VarkaVectorIR.IntArith(VarkaVectorIR.IntOp.SUB,
+        VarkaVectorIR.Overflow.WRAP, c(1), c(2))))
+    val divisors = failDivisorInputs(roots)
+    assert(divisors == Set(1, 2), s"divisor inputs $divisors")
+    kernelCounter += 1
+    val className = s"org.apache.spark.sql.varka.execution.VarkaCompositionDivisor$kernelCounter"
+    val bytes = VarkaLoopEmitter.emit(className, roots.asJava, 3, 0, null, null, VarkaMatrix.base)
+    val rnd = new Random(seed ^ 342L)
+    def draw(i: Int): Long = floatingInput(DoubleType, rnd, 2, divisors(i)).get
+    val length = 257
+    val data = Array.fill(3)(new Array[Long](length))
+    for (row <- 0 until length) {
+      data(0)(row) = draw(0)
+      data(1)(row) = draw(1)
+      data(2)(row) = data(1)(row)
+    }
+    val none = Seq.fill(3)((_: Int) => false)
+    def compared(label: String): Boolean = VarkaKernelCheck.runAndCompareLong(label, className,
+      bytes, roots, 3, Array.empty, VarkaKernelCheck.LongBatch(length, none, data.map(_.clone),
+        forceMasked = false), declineAllowed = true)
+    assert(!compared("c1 = c2 on every row"), "a batch of zero divisors was answered")
+    val dividends = data(0).clone
+    val before = divisorRowsRedrawn
+    redrawZeroDivisors(roots, data, Seq((_, _) => false), long = true, Array.empty, Array.empty,
+      divisors, draw)
+    assert(divisorRowsRedrawn > before, "no row was drawn again")
+    assert(data(0).sameElements(dividends), "the dividend, which no divisor reads, was drawn again")
+    assert(dividends.exists(b => b == 0L || b == Long.MinValue), "the dividend drew no zero")
+    assert(compared("drawn again"), "the batch declined after its zero divisors were drawn again")
+    info(s"${divisorRowsRedrawn - before} of $length rows drawn again")
   }
 
   test("random projections of coverage rows are fused or declined in bytes, never thrown") {
