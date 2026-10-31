@@ -97,7 +97,7 @@ public sealed interface VarkaEmitOption
 
     /**
      * Whether the fuzzer, its steering and the option matrix may vary an option of this reason;
-     * {@link VarkaEmitOption#drawn()} asks this and whether the option is shape-specific.
+     * {@link VarkaEmitOption#drawnInGeneral} asks this and whether the option is shape-specific.
      */
     public boolean drawn() {
       return this != FAULT_INJECTOR && this != MISCOMPILED;
@@ -162,28 +162,31 @@ public sealed interface VarkaEmitOption
   Rendering rendering();
 
   /**
-   * The one node kind whose emission reads this option, for an option no other emission reads,
+   * The one node kind whose emission reads {@code option}, for an option no other emission reads,
    * or empty for an option of the emission in general. Such an option changes no kernel without
    * that node, so varying it over shapes that lack one tests nothing and, in the fuzzer, shifts
-   * every later draw of a committed seed: {@link #drawn()} leaves it out of the general draws,
-   * the steering and the option matrix, and the sequence whose shapes hold the node draws it
-   * ({@code VarkaIrFuzzSuite}'s decimal draw for {@code decimalStore}). Only a {@link Choice}
-   * carries one so far.
+   * every later draw of a committed seed: {@link #drawnInGeneral} leaves it out of the general
+   * draws and the option matrix, and the fuzzer's decimal sequence and the steering draw it for a
+   * shape that holds the node ({@code VarkaIrFuzzSuite}'s decimal draw, {@code VarkaSteering}).
+   * Only a {@link Choice} carries one so far, as its {@code readOnlyBy} component.
    */
-  Optional<Class<? extends VarkaVectorIR>> readOnlyBy();
+  static Optional<Class<? extends VarkaVectorIR>> readOnlyBy(VarkaEmitOption option) {
+    return switch (option) {
+      case Flag _ -> Optional.empty();
+      case Count _ -> Optional.empty();
+      case Choice<?> choice -> choice.readOnlyBy();
+    };
+  }
 
   /**
-   * Whether the fuzzer's general draws, its steering and the option matrix vary this option: its
-   * reason is drawn ({@link Reason#drawn()}) and it is not read by one node kind alone
-   * ({@link #readOnlyBy()}). Each record answers through {@link #drawnInGeneral}: the interface
-   * keeps no default method, so that initializing a record never initializes it first
-   * (Error Prone's {@code ClassInitializationDeadlock}).
+   * Whether the fuzzer's general draws, its steering and the option matrix vary {@code option}:
+   * its reason is drawn ({@link Reason#drawn()}) and it is not read by one node kind alone
+   * ({@link #readOnlyBy}). A static method rather than a default one, so that initializing a
+   * record never initializes the interface first (Error Prone's
+   * {@code ClassInitializationDeadlock}).
    */
-  boolean drawn();
-
-  /** {@link #drawn()} for {@code option}. */
   static boolean drawnInGeneral(VarkaEmitOption option) {
-    return option.reason().drawn() && option.readOnlyBy().isEmpty();
+    return option.reason().drawn() && readOnlyBy(option).isEmpty();
   }
 
   /** Sets this option's default on a builder. */
@@ -224,16 +227,6 @@ public sealed interface VarkaEmitOption
       var builder = options.toBuilder();
       set.accept(builder, value);
       return builder.build();
-    }
-
-    @Override
-    public Optional<Class<? extends VarkaVectorIR>> readOnlyBy() {
-      return Optional.empty();
-    }
-
-    @Override
-    public boolean drawn() {
-      return VarkaEmitOption.drawnInGeneral(this);
     }
 
     @Override
@@ -287,16 +280,6 @@ public sealed interface VarkaEmitOption
     }
 
     @Override
-    public Optional<Class<? extends VarkaVectorIR>> readOnlyBy() {
-      return Optional.empty();
-    }
-
-    @Override
-    public boolean drawn() {
-      return VarkaEmitOption.drawnInGeneral(this);
-    }
-
-    @Override
     public void applyDefault(Builder builder) {
       set.accept(builder, defaultValue);
     }
@@ -326,7 +309,7 @@ public sealed interface VarkaEmitOption
    * An enum option: one of {@code type}'s constants. The three that predate the tags render by
    * position; a later one renders as a {@link ChoiceTag}, so that adding it leaves every other
    * variant's rendering as it was. {@code readOnlyBy} names the node kind whose emission alone
-   * reads it, if one does ({@link VarkaEmitOption#readOnlyBy()}).
+   * reads it, if one does ({@link VarkaEmitOption#readOnlyBy}).
    */
   record Choice<E extends Enum<E>>(String name, Reason reason, Class<E> type, E defaultValue,
       Function<VarkaEmitOptions, E> get, BiConsumer<Builder, E> set, Rendering rendering,
@@ -377,11 +360,6 @@ public sealed interface VarkaEmitOption
       }
       throw VarkaErrors.illegalArgument(
           name + " has no constant " + constant + "; it has " + constants());
-    }
-
-    @Override
-    public boolean drawn() {
-      return VarkaEmitOption.drawnInGeneral(this);
     }
 
     @Override

@@ -136,7 +136,7 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
 
   /** The options `randomOptions` draws, in the order it draws them. */
   private val fuzzedOptions = VarkaEmitOption.TABLE.asScala.toSeq
-    .filter(_.drawn)
+    .filter(o => VarkaEmitOption.drawnInGeneral(o))
     .sortBy(o => "with" + o.name.head.toUpper + o.name.tail)
 
   /**
@@ -146,13 +146,14 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
    * them after the rest.
    */
   private val decimalOptions = VarkaEmitOption.TABLE.asScala.toSeq
-    .filter(o => o.reason.drawn && o.readOnlyBy.toScala.contains(classOf[WidenDecimal]))
+    .filter(o => o.reason.drawn &&
+      VarkaEmitOption.readOnlyBy(o).toScala.contains(classOf[WidenDecimal]))
 
   /**
    * A random variant of the options record, drawn from the options table: every option but the
    * fault injectors, the miscompiled forms and those one node kind alone reads
-   * (`VarkaEmitOption.drawn`), in the order of their `with*` setters' names, a boolean as a
-   * coin, an enum as one of its constants, and an int one time in five from the values its table
+   * (`VarkaEmitOption.drawnInGeneral`), in the order of their `with*` setters' names, a boolean as
+   * a coin, an enum as one of its constants, and an int one time in five from the values its table
    * entry lists - a lanes override from the powers of two, the AVX level from the levels either
    * side of 3 where the 64-bit division changes lowering, the method byte budget from off, the
    * HotSpot limit and the smaller budgets that bring the size machinery down to the widths drawn
@@ -1405,7 +1406,7 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
     // SELECT_FROM arm is never fuzzed; or drawn by the general draws again, which would shift
     // every later draw of the committed seeds for a store none of their shapes holds.
     assert(decimalOptions.map(_.name) === Seq("decimalStore"))
-    assert(!fuzzedOptions.exists(_.readOnlyBy.isPresent))
+    assert(!fuzzedOptions.exists(o => VarkaEmitOption.readOnlyBy(o).isPresent))
     val arms = (0 until 64).map(k => drawLong(k, decimalSeed, decimal = true).options
       .decimalStore()).toSet
     assert(arms === VarkaEmitOptions.DecimalStore.values.toSet)

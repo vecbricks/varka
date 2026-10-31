@@ -43,10 +43,10 @@ final class VarkaSteering {
 
   /**
    * The options a mutation redraws: every option the fuzzer's general draws vary
-   * ({@link VarkaEmitOption#drawn()}), in a fixed order.
+   * ({@link VarkaEmitOption#drawnInGeneral}), in a fixed order.
    */
   private static final List<VarkaEmitOption> FUZZED = VarkaEmitOption.TABLE.stream()
-      .filter(VarkaEmitOption::drawn)
+      .filter(VarkaEmitOption::drawnInGeneral)
       .sorted(Comparator.comparing(VarkaEmitOption::name))
       .toList();
 
