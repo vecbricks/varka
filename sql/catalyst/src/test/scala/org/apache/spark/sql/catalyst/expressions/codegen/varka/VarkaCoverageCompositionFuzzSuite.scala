@@ -386,7 +386,8 @@ class VarkaCoverageCompositionFuzzSuite
    * Whether the reference evaluator gives `divisor` the value `+0.0` or `-0.0` on a row; a null,
    * or a node it has no value for, is not a zero. In the long harness the divisor is evaluated
    * at every lane as the harness evaluates an output, by `mixedValue` over both literal tables,
-   * a `FLOAT`'s bits in the low word; in the int harness every node is on the int row.
+   * a `FLOAT`'s bits in the low word; in the int harness every node is on the int row. Any
+   * exception from the reference is no value, so the row keeps its draw.
    */
   private def zeroDivisor(divisor: VarkaVectorIR, values: Array[Long], isNull: Array[Boolean],
       long: Boolean, lits: Array[Long], intLits: Array[Int]): Boolean = try {
@@ -401,7 +402,7 @@ class VarkaCoverageCompositionFuzzSuite
       case _ => v.getAsLong == 0L || v.getAsLong == Long.MinValue
     })
   } catch {
-    case _: IllegalArgumentException => false
+    case _: Exception => false
   }
 
   /**
@@ -1298,7 +1299,8 @@ class VarkaCoverageCompositionFuzzSuite
       declineAllowed = true), "a batch of zero divisors was answered")
   }
 
-  test("a FLOAT divisor is evaluated at its own lane in both harnesses (VARKA-342)") {
+  test("a FLOAT divisor is evaluated at its own lane in both harnesses, and a divisor the " +
+      "reference cannot evaluate is no zero (VARKA-342)") {
     // c0 + c1 at FLOAT, 1.5f + -1.5f = +0.0f. Its bits sign-extended in the long harness's row:
     // an evaluation that added them as integers would answer -0x800000 and miss the zero.
     val c = (0 until 2).map(new VarkaVectorIR.ColumnRef(_, LaneType.FLOAT))
@@ -1310,6 +1312,11 @@ class VarkaCoverageCompositionFuzzSuite
     assert(zeroDivisor(sum, row, noNulls, long = true, Array.empty, Array.empty))
     assert(zeroDivisor(sum, row, noNulls, long = false, Array.empty, Array.empty))
     assert(!zeroDivisor(sum, row, Array(true, false), long = true, Array.empty, Array.empty))
+    // A literal slot past the table throws no IllegalArgumentException; it is no value, not an
+    // aborted case.
+    val unreadable = new VarkaVectorIR.IntArith(VarkaVectorIR.IntOp.ADD,
+      VarkaVectorIR.Overflow.WRAP, c(0), new VarkaVectorIR.LiteralSlot(3, LaneType.FLOAT))
+    assert(!zeroDivisor(unreadable, row, noNulls, long = true, Array.empty, Array.empty))
   }
 
   test("random projections of coverage rows are fused or declined in bytes, never thrown") {
