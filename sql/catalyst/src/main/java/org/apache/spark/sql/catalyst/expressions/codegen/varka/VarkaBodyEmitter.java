@@ -1133,11 +1133,12 @@ final class VarkaBodyEmitter {
   private static void emitDecimalStore(CodeBuilder cb, Analysis analysis, Slots s, int o,
       VarkaVectorIR root) {
     int[] tmp = s.decimalStoreTmp.get(root);
-    if (analysis.lane != Lane.LONG || tmp == null || s.decimalZip == null) {
-      // Refused by name: the slots' layout is the long lane's, and without its locals the store
-      // would have nothing to interleave.
-      throw VarkaErrors.illegalState("a decimal output with no store planned in a "
-          + analysis.lane + " emission: " + VarkaVectorIR.canonical(root));
+    if (tmp == null || s.decimalZip == null) {
+      // Refused by name: without its locals the store would have nothing to interleave. The
+      // lane needs no check here: Analysis refuses a decimal output in an emission not driven
+      // at the long lane before any local is planned.
+      throw VarkaErrors.illegalState("a decimal output with no store planned: "
+          + VarkaVectorIR.canonical(root));
     }
     cb.dup();
     cb.astore(tmp[0]);                                          // lo
