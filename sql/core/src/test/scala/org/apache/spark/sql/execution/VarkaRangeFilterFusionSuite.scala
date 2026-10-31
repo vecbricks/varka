@@ -29,7 +29,6 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaEmitterTest
   VarkaLoopEmitter, VarkaVectorIR}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTestWatchdog
 import org.apache.spark.sql.catalyst.parser.CatalystSqlParser
-import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types.IntegerType
 
 /**
@@ -55,7 +54,9 @@ class VarkaRangeFilterFusionSuite extends SparkFunSuite with VarkaTestWatchdog {
     And(GreaterThanOrEqual(s, Literal(0)), chain)
   }
 
-  private val options = VarkaColumnarToRowExec.emitOptions(VarkaSessionEmit.of(SQLConf.get))
+  // The emitter's default level, as the test sessions pin it (TestSQLContext.overrideConfs):
+  // this suite has no session, so SQLConf.get would resolve the level from the runner's CPU.
+  private val options = VarkaColumnarToRowExec.emitOptions(VarkaSessionEmit.DEFAULTS)
 
   test("modified-q3 has 200 ranges") {
     assert(VarkaQ3Ranges.ranges.size == 200)

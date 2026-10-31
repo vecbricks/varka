@@ -30,7 +30,6 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaEmitterTest
   VarkaLoopEmitter}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTestWatchdog
 import org.apache.spark.sql.catalyst.parser.CatalystSqlParser
-import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types.IntegerType
 
 /**
@@ -57,7 +56,9 @@ class VarkaSplitConditionFusionSuite extends SparkFunSuite with VarkaTestWatchdo
   private def q3(n: Int): Expression =
     And(GreaterThanOrEqual(s, Literal(0)), parse(VarkaQ3Ranges.comparisons(n, "ss_sold_date_sk")))
 
-  private val comparisons = VarkaColumnarToRowExec.emitOptions(VarkaSessionEmit.of(SQLConf.get))
+  // The emitter's default level, as the test sessions pin it (TestSQLContext.overrideConfs):
+  // this suite has no session, so SQLConf.get would resolve the level from the runner's CPU.
+  private val comparisons = VarkaColumnarToRowExec.emitOptions(VarkaSessionEmit.DEFAULTS)
     .withRangeSets(false).withSplitConditions(false)
   private val split = comparisons.withSplitConditions(true)
 
