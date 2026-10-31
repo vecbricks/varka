@@ -13,45 +13,45 @@
             "99th percentile %" : 78.3,
             "worst %" : 488.0,
             "under-predicted %" : 50.1,
-            "under-predicted past the margin" : 1083,
-            "within 10% share" : 52.3
+            "under-predicted past the margin" : 1076,
+            "within 10% share" : 52.4
           },
           "500 to 1999 bytes" : {
-            "methods" : 25160,
+            "methods" : 25158,
             "median error %" : 3.8,
             "90th percentile %" : 10.5,
             "99th percentile %" : 21.0,
             "worst %" : 89.7,
             "under-predicted %" : 60.4,
-            "under-predicted past the margin" : 456,
+            "under-predicted past the margin" : 455,
             "within 10% share" : 88.6
           },
           "2000 to 7999 bytes" : {
-            "methods" : 6188,
+            "methods" : 6190,
             "median error %" : 2.5,
             "90th percentile %" : 13.2,
             "99th percentile %" : 15.1,
-            "worst %" : 28.1,
+            "worst %" : 28.0,
             "under-predicted %" : 32.3,
             "under-predicted past the margin" : 4,
             "within 10% share" : 86.5
           },
           "8000 bytes and over" : {
             "methods" : 208,
-            "median error %" : 1.5,
+            "median error %" : 1.6,
             "90th percentile %" : 3.1,
             "99th percentile %" : 5.0,
-            "worst %" : 5.2,
-            "under-predicted %" : 79.3,
+            "worst %" : 5.1,
+            "under-predicted %" : 78.4,
             "under-predicted past the margin" : 0,
             "within 10% share" : 100.0
           },
           "2000 bytes and over" : {
-            "methods" : 6396,
+            "methods" : 6398,
             "median error %" : 2.5,
             "90th percentile %" : 13.2,
             "99th percentile %" : 15.1,
-            "worst %" : 28.1,
+            "worst %" : 28.0,
             "under-predicted %" : 33.8,
             "under-predicted past the margin" : 4,
             "within 10% share" : 87.0
@@ -69,7 +69,7 @@
             "within 10% share" : 71.5
           },
           "500 to 1999 bytes" : {
-            "methods" : 25160,
+            "methods" : 25158,
             "median error %" : 2.6,
             "90th percentile %" : 9.0,
             "99th percentile %" : 20.3,
@@ -79,10 +79,10 @@
             "within 10% share" : 92.3
           },
           "2000 to 7999 bytes" : {
-            "methods" : 6188,
+            "methods" : 6190,
             "median error %" : 1.6,
             "90th percentile %" : 4.2,
-            "99th percentile %" : 8.3,
+            "99th percentile %" : 8.4,
             "worst %" : 32.1,
             "under-predicted %" : 52.2,
             "under-predicted past the margin" : 0,
@@ -99,12 +99,12 @@
             "within 10% share" : 100.0
           },
           "2000 bytes and over" : {
-            "methods" : 6396,
+            "methods" : 6398,
             "median error %" : 1.7,
             "90th percentile %" : 4.3,
             "99th percentile %" : 8.3,
             "worst %" : 32.1,
-            "under-predicted %" : 52.8,
+            "under-predicted %" : 52.9,
             "under-predicted past the margin" : 0,
             "within 10% share" : 99.5
           }
@@ -123,20 +123,20 @@
             "within 10% share" : 69.7
           },
           "500 to 1999 bytes" : {
-            "methods" : 25160,
+            "methods" : 25158,
             "median error %" : 12.2,
             "90th percentile %" : 63.2,
-            "99th percentile %" : 103.3,
+            "99th percentile %" : 103.0,
             "worst %" : 162.1,
             "under-predicted %" : 30.3,
             "under-predicted past the margin" : 1212,
             "within 10% share" : 45.2
           },
           "2000 to 7999 bytes" : {
-            "methods" : 6188,
+            "methods" : 6190,
             "median error %" : 11.3,
             "90th percentile %" : 72.9,
-            "99th percentile %" : 97.2,
+            "99th percentile %" : 97.1,
             "worst %" : 123.6,
             "under-predicted %" : 21.0,
             "under-predicted past the margin" : 2,
@@ -147,16 +147,16 @@
             "median error %" : 82.9,
             "90th percentile %" : 88.7,
             "99th percentile %" : 93.3,
-            "worst %" : 97.9,
+            "worst %" : 97.5,
             "under-predicted %" : 0.0,
             "under-predicted past the margin" : 0,
             "within 10% share" : 0.0
           },
           "2000 bytes and over" : {
-            "methods" : 6396,
+            "methods" : 6398,
             "median error %" : 12.1,
             "90th percentile %" : 74.7,
-            "99th percentile %" : 97.1,
+            "99th percentile %" : 97.0,
             "worst %" : 123.6,
             "under-predicted %" : 20.3,
             "under-predicted past the margin" : 2,
@@ -175,7 +175,7 @@
             "within 10% share" : 86.0
           },
           "500 to 1999 bytes" : {
-            "methods" : 25160,
+            "methods" : 25158,
             "median error %" : 0.7,
             "90th percentile %" : 10.0,
             "99th percentile %" : 31.6,
@@ -185,7 +185,7 @@
             "within 10% share" : 90.1
           },
           "2000 to 7999 bytes" : {
-            "methods" : 6188,
+            "methods" : 6190,
             "median error %" : 2.3,
             "90th percentile %" : 31.8,
             "99th percentile %" : 31.8,
@@ -205,7 +205,7 @@
             "within 10% share" : 77.9
           },
           "2000 bytes and over" : {
-            "methods" : 6396,
+            "methods" : 6398,
             "median error %" : 2.5,
             "90th percentile %" : 31.8,
             "99th percentile %" : 31.8,
@@ -223,7 +223,7 @@
           "methods" : 662,
           "median error %" : 3.0,
           "90th percentile %" : 6.6,
-          "99th percentile %" : 10.0,
+          "99th percentile %" : 10.1,
           "worst %" : 13.3,
           "under-predicted %" : 16.2,
           "under-predicted past the margin" : 0,
@@ -233,7 +233,7 @@
           "methods" : 0
         },
         "wide int" : {
-          "methods" : 3451,
+          "methods" : 3453,
           "median error %" : 2.4,
           "90th percentile %" : 6.1,
           "99th percentile %" : 10.7,
@@ -244,20 +244,20 @@
         },
         "wide long" : {
           "methods" : 647,
-          "median error %" : 2.2,
-          "90th percentile %" : 6.5,
-          "99th percentile %" : 9.7,
+          "median error %" : 2.1,
+          "90th percentile %" : 6.6,
+          "99th percentile %" : 9.8,
           "worst %" : 12.1,
-          "under-predicted %" : 37.6,
+          "under-predicted %" : 37.1,
           "under-predicted past the margin" : 0,
           "within 10% share" : 99.2
         },
         "size ladder" : {
           "methods" : 1540,
-          "median error %" : 10.6,
+          "median error %" : 10.5,
           "90th percentile %" : 14.0,
           "99th percentile %" : 15.6,
-          "worst %" : 15.8,
+          "worst %" : 15.7,
           "under-predicted %" : 0.8,
           "under-predicted past the margin" : 0,
           "within 10% share" : 49.9
@@ -275,9 +275,9 @@
         "cheap tails" : {
           "methods" : 8,
           "median error %" : 27.7,
-          "90th percentile %" : 28.1,
-          "99th percentile %" : 28.1,
-          "worst %" : 28.1,
+          "90th percentile %" : 28.0,
+          "99th percentile %" : 28.0,
+          "worst %" : 28.0,
           "under-predicted %" : 100.0,
           "under-predicted past the margin" : 4,
           "within 10% share" : 50.0
@@ -298,19 +298,19 @@
           "methods" : 0
         },
         "wide int" : {
-          "methods" : 3451,
+          "methods" : 3453,
           "median error %" : 10.6,
           "90th percentile %" : 23.0,
-          "99th percentile %" : 35.5,
+          "99th percentile %" : 34.9,
           "worst %" : 59.6,
-          "under-predicted %" : 12.3,
+          "under-predicted %" : 12.4,
           "under-predicted past the margin" : 2,
           "within 10% share" : 47.8
         },
         "wide long" : {
           "methods" : 647,
           "median error %" : 84.9,
-          "90th percentile %" : 97.0,
+          "90th percentile %" : 96.9,
           "99th percentile %" : 113.0,
           "worst %" : 123.6,
           "under-predicted %" : 0.0,
@@ -365,14 +365,14 @@
           "methods" : 0
         },
         "wide int" : {
-          "methods" : 3451,
+          "methods" : 3453,
           "median error %" : 1.6,
           "90th percentile %" : 4.4,
           "99th percentile %" : 8.9,
           "worst %" : 26.3,
           "under-predicted %" : 57.3,
           "under-predicted past the margin" : 0,
-          "within 10% share" : 99.3
+          "within 10% share" : 99.2
         },
         "wide long" : {
           "methods" : 647,
@@ -430,12 +430,12 @@
           "methods" : 0
         },
         "wide int" : {
-          "methods" : 3451,
+          "methods" : 3453,
           "median error %" : 2.8,
           "90th percentile %" : 10.4,
           "99th percentile %" : 19.7,
           "worst %" : 50.2,
-          "under-predicted %" : 46.5,
+          "under-predicted %" : 46.6,
           "under-predicted past the margin" : 0,
           "within 10% share" : 89.1
         },

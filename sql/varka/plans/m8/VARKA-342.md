@@ -430,6 +430,16 @@ Where the code departs from 2.1 to 2.5, and what is still owed:
   `signum` and `degrees` at both densities, the four interval sections staying the row path
   until step 4; in `VarkaFloatingBaselineBenchmark` the four arithmetic chains, beside the
   comparisons and choices already listed, the casts staying the row path until 343.
+- **The cost model's fitted table, refitted (31 October 2026).** `VarkaEmitCostSuite` had not
+  run on this step: its feature list built an integral `IntArith` `DIV`, which the IR refuses,
+  and `MathUnary` was on neither the list nor the awaiting-refit set. With both fixed, the
+  fitted `VarkaEmitCostTable` differed in 104 rows, by at most 0.57: the fit reads the
+  emitted classes of the fuzz sequences, whose guarded blocks the arm-chain walk above moved.
+  It is regenerated with `VARKA_COST_REGEN=true`; the register is unchanged, and
+  `emitted_bytes.json` holds under the new table, so no grouping moved. `emit_cost_audit.json`
+  is regenerated with it: its corpus counts two methods fewer in the 500 to 1,999 byte bin and two
+  more in the 2,000 to 7,999 byte one, its percentages move by at most 0.9 points, and the
+  methods under-predicted past the margin fall from 1,083 to 1,076 in its smallest bin.
 - **Still owed by this step:** the IR fuzz grammar's floating sequence (341's, which the grammar
   lacks: it draws no floating tree) and the Spark fuzzer's floating productions (3.10); the
   `--asm` check of 3.2 (no hsdis on the run that built this); the census cells (step 2).
