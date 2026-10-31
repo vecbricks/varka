@@ -20,6 +20,8 @@ package org.apache.spark.sql.execution.benchmark
 import scala.jdk.CollectionConverters._
 
 import org.apache.spark.sql.QueryTest
+import org.apache.spark.sql.catalyst.expressions.{AttributeReference, Expression, In, LessThan}
+import org.apache.spark.sql.catalyst.plans.logical.Filter
 import org.apache.spark.sql.execution.VarkaSharedSessions
 import org.apache.spark.sql.types.{BooleanType, DecimalType, TimeType}
 
@@ -53,16 +55,22 @@ class VarkaDecimalBaselineQueriesSuite extends QueryTest with VarkaSharedSession
       } ++ Seq("t", "tn").map(_ -> TimeType(VarkaDecimalBaselineBenchmark.TIME_PRECISION)) ++
         // The lane pair's own columns, written out rather than derived from the helpers that
         // build the table, so that the check does not test the generator against itself.
-        Seq("x20", "x20n", "y20", "y20n").map(_ -> DecimalType(20, 2))
+        Seq("x20", "x20n", "y20", "y20n").map(_ -> DecimalType(20, 2)) ++
+        Seq("w9", "w9n").map(_ -> DecimalType(9, 4)) ++
+        Seq("w18", "w18n").map(_ -> DecimalType(10, 2)) ++
+        Seq("x8", "x8n").map(_ -> DecimalType(8, 2))
       val schema = spark.table("varka_decimal").schema
       assert(schema.map(f => f.name -> f.dataType) === expected)
 
       val sections = VarkaDecimalBaselineBenchmark.sections().asScala
-      assert(sections.size === 52)
+      assert(sections.size === 88)
       // The result type of each shape, as Spark's decimal rules give it: the chain widens at each
       // node and is capped at 38, and the cast is the one the precision names. The time sections
       // are time_to_seconds, DECIMAL(14, 6), and the seconds with their fraction, DECIMAL(8, 6).
-      // The lane pair's five filters return the column, and its projected comparison a boolean.
+      // The lane pair's five filters return the column, and its projected comparison a boolean;
+      // so do the 64-bit comparisons' six shapes. The 64-bit arithmetic's three filters return
+      // x9, and its projections are x9 + y9, DECIMAL(10, 2), x9 - w9, DECIMAL(12, 4), and
+      // x8 * y9, DECIMAL(18, 4).
       val chain = Map(9 -> DecimalType(21, 4), 18 -> DecimalType(38, 7), 38 -> DecimalType(38, 6))
       val resultTypes = VarkaDecimalBaselineBenchmark.PRECISIONS.asScala.flatMap { p =>
         val own = DecimalType(p.precision, p.scale)
@@ -74,8 +82,27 @@ class VarkaDecimalBaselineQueriesSuite extends QueryTest with VarkaSharedSession
         VarkaDecimalBaselineBenchmark.PAIR_PRECISIONS.asScala.flatMap { p =>
           val own = DecimalType(p.precision, p.scale)
           Seq.fill(2)(Seq.fill(5)(own) :+ BooleanType).flatten
-        }
+        } ++
+        Seq(DecimalType(9, 2), DecimalType(18, 4)).flatMap { own =>
+          Seq.fill(2)(Seq.fill(5)(own) :+ BooleanType).flatten
+        } ++
+        Seq.fill(2)(Seq.fill(3)(DecimalType(9, 2)) ++
+          Seq(DecimalType(10, 2), DecimalType(12, 4), DecimalType(18, 4))).flatten
       assert(sections.map(s => spark.sql(s.query).schema.head.dataType) === resultTypes)
+      // The 64-bit comparisons stay within a long: coercion casts both sides of x < w to a
+      // common type of 18 digits or less, DECIMAL(11, 4) and DECIMAL(18, 4), and leaves x of an
+      // IN uncast, its literals being of x's scale.
+      def condition(query: String): Expression = spark.sql(query).queryExecution.analyzed
+        .collectFirst { case f: Filter => f.condition }.get
+      val rescaled = sections.filter(_.title.contains(" x < w filter")).map { s =>
+        condition(s.query).asInstanceOf[LessThan].left.dataType
+      }
+      assert(rescaled === Seq.fill(2)(DecimalType(11, 4)) ++ Seq.fill(2)(DecimalType(18, 4)))
+      for (s <- sections.filter(_.title.contains(" IN (c1, c2, c3) filter"))) {
+        withClue(s.title) {
+          assert(condition(s.query).asInstanceOf[In].value.isInstanceOf[AttributeReference])
+        }
+      }
       for (s <- sections) {
         withClue(s.title) {
           val answer = spark.sql(s.query)

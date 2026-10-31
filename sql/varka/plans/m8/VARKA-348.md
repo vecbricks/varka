@@ -454,3 +454,32 @@ verdict moved. The laptop has AVX-512, where `x86.ad` admits `AbsVL` (`evpabsq`)
 `MulVL` as one `vpmullq`; item 0.7's reading of the JDK is that the EPYC 7763 has neither, so its
 `ABS` cell is expected to read `F` and its multiply `I` as the emulation, which only the runner
 columns and the assembly can confirm.
+
+### 10.2 Step 2: the baseline addition
+
+*31 October 2026, on the unchanged code at `f0c1ab11c45`. The runner results at 256 and 128 bits
+come from `benchmark.yml` on the EPYC 7763 after the pull request, spliced into the class's
+committed files.*
+
+**What was built.** `VarkaDecimalBaselineBenchmark` gains 36 sections after its 52, each with no
+nulls and with one row in ten null: section 4's six shapes at `(9, 2)` and `(18, 4)`, and
+`VARKA-349.md` 4's three filters and three projections at `(9, 2)`, which that plan lands in this
+addition. The table gains `w9`, a `DECIMAL(9, 4)`, `w18`, a `DECIMAL(10, 2)`, and `x8`, a
+`DECIMAL(8, 2)`, after its existing columns. `VarkaDecimalBaselineQueriesSuite` checks the new
+columns' types, the 88 result types, that the rescaled comparisons' common types are
+`DECIMAL(11, 4)` and `DECIMAL(18, 4)`, and that no `IN` casts its column, and runs every section
+on both sessions. 349's projections are its arithmetic as decimal values (`x + y`, `x - w`,
+`x8 * y`), the forms its prediction 2 times after 157.
+
+**What the probe found.** Each section's `fuses` flag is set from a plan of it on an Arrow-cached
+Varka session. Of the 36, eight fuse whole on the unchanged code: `x <=> y` at both precisions,
+which 347's reader compiles at one scale, and the projected `x < y`, through row 27's boolean
+output. Eighteen fuse in part: the rescaled comparison, `-x < y`, `abs(x) < y` and 349's three
+filters. Spark infers `IS NOT NULL` of every column those filters read, 347's reader fuses the
+null tests as a filter of their own, and Spark's `Filter` applies the decimal condition above
+it, so those sections' varka on arm times a null-test kernel under the row path's condition, and
+the spark row path arm is their baseline. The four `IN` filters infer no null test and the six
+projections write a decimal, so those ten run on the row path. Section 4's sentence that the
+baseline is "on the unchanged code" holds for the varka off arm only; the fuse check passes
+because a section counts as fused when its plan holds any Varka node, so 348a's fusing of the
+condition itself will not move a flag.

@@ -74,15 +74,35 @@ import org.apache.spark.sql.VarkaBenchmark;
  * {@code x} and a {@code y} whose integer parts reach five times ten to the seventeenth, so most
  * unscaled values are past a long and the high word holds real bits there too.
  *
+ * <p>Thirty-six more sections time the 64-bit decimal forms the equal-scale comparison leaves out
+ * (VARKA-348, VARKA-349), each with no nulls and with one row in ten null. At {@code DECIMAL(9,
+ * 2)} and at {@code DECIMAL(18, 4)}: {@code x < w}, with {@code w} at another scale
+ * ({@code DECIMAL(9, 4)} and {@code DECIMAL(10, 2)}, so that the common type is {@code
+ * DECIMAL(11, 4)} and {@code DECIMAL(18, 4)} and one side is rescaled), {@code x IN (c1, c2,
+ * c3)}, {@code x <=> y}, {@code -x < y} and {@code abs(x) < y} as filters, and {@code x < y} as a
+ * projected value, the same shapes as the lane pair's but for the null test. At {@code DECIMAL(9,
+ * 2)} only, the arithmetic whose result stays within 18 digits: {@code x + y < z}, {@code x - w >
+ * 0} and {@code x8 * y < z} as filters, {@code x8} a {@code DECIMAL(8, 2)} whose product with
+ * {@code y} is a {@code DECIMAL(18, 4)}, and {@code x + y}, {@code x - w} and {@code x8 * y} as
+ * projections. The columns {@code w9}, {@code w18} and {@code x8} come last in the table, with
+ * integer parts at half their types' ranges.
+ *
  * <p>Each section has two arms, named so the labels survive the lanes landing:
  * {@code spark row path (varka off)}, a session without the Varka rule, and {@code varka on}, a
- * session with it. Today both are the row path, so they should tie.
+ * session with it. Where nothing fuses both are the row path, so they should tie.
  *
  * <p>A baseline is only one while nothing fuses: before any section is timed, the run checks
  * each section's plan on the Varka session against the section's {@code fuses} flag, the list of
  * the sections a row has fused, and fails when an unlisted section fuses or a listed one does not.
  * Row 347's reader fuses the comparison at precisions 9 and 18, whose two columns share a scale,
- * so those four sections are listed and time a kernel on the varka on arm; no other section is.
+ * and {@code x <=> y} there, and with row 27's boolean output the projected {@code x < y}, so
+ * those twelve sections are listed and time a kernel on the varka on arm. Eighteen more of the
+ * 64-bit sections are listed although their decimal condition runs on the row path: the
+ * rescaled comparison, {@code -x < y}, {@code abs(x) < y} and the three arithmetic filters.
+ * Spark infers {@code IS NOT NULL} of each column such a filter reads, the reader fuses those
+ * null tests as a filter of their own, and Spark's {@code Filter} applies the decimal condition
+ * above it, so the varka on arm there times a null-test kernel under the row path's condition,
+ * and the spark row path arm is the baseline. No other section is listed.
  * A row that starts to fuse a section lists it, so that its fusion cannot turn a baseline
  * section into a fused one unnoticed.
  *
@@ -147,6 +167,35 @@ public class VarkaDecimalBaselineBenchmark extends VarkaSqlBenchmarkBase {
       precision(38),
       new Precision(20, 2, "20", 500_000_000_000_000_000L));
 
+  /**
+   * The columns the 64-bit sections add after the lane pair's, each a precision whose suffix is
+   * the column's whole name: {@code w9}, a {@code DECIMAL(9, 4)} compared with and subtracted
+   * from {@code x9}; {@code w18}, a {@code DECIMAL(10, 2)} compared with {@code x18}; and
+   * {@code x8}, a {@code DECIMAL(8, 2)} multiplied by {@code y9}. Their integer parts reach half
+   * their types' ranges, so the product stays below 2.5 times ten to the twelfth, well inside the
+   * fourteen integer digits of its {@code DECIMAL(18, 4)}.
+   */
+  static final List<Precision> OPERAND_COLUMNS = List.of(
+      new Precision(9, 4, "w9", 50_000L),
+      new Precision(10, 2, "w18", 50_000_000L),
+      new Precision(8, 2, "x8", 500_000L));
+
+  /**
+   * The row of ten each column of {@link #OPERAND_COLUMNS} is null at in its nullable copy: none
+   * of the rows of {@code x}, {@code y} and {@code z} (1, 4 and 7), so that a section over a
+   * nullable {@code x} and {@code w} has two rows in ten null, as one over {@code x} and
+   * {@code y} has.
+   */
+  static final int OPERAND_NULL_ROW = 5;
+
+  /**
+   * The column of {@link #OPERAND_COLUMNS} at another scale that {@code x} of precision
+   * {@code precision} is compared with.
+   */
+  static String otherScale(int precision) {
+    return "w" + precision;
+  }
+
   /** The precision of the {@code TIME} column the two time sections read. */
   static final int TIME_PRECISION = 6;
 
@@ -206,7 +255,8 @@ public class VarkaDecimalBaselineBenchmark extends VarkaSqlBenchmarkBase {
    * suffix ({@code x9}, {@code y18}, ...) and no null, and the same values with one row in ten
    * null ({@code x9n}, ...), at a different row in each column; then {@code t}, a
    * {@code TIME(6)}, and {@code tn}, the same values with one row in ten null; then {@code x20}
-   * and {@code y20}, the {@code DECIMAL(20, 2)} pair, each with its nullable copy.
+   * and {@code y20}, the {@code DECIMAL(20, 2)} pair, each with its nullable copy; then the
+   * columns of {@link #OPERAND_COLUMNS}, each with its nullable copy.
    */
   static String tableSql(int rows) {
     List<String> values = new ArrayList<>();
@@ -222,6 +272,9 @@ public class VarkaDecimalBaselineBenchmark extends VarkaSqlBenchmarkBase {
     for (Precision p : pairOnlyPrecisions()) {
       seed = addColumns(p, PAIR_ROLES, seed, values, columns);
     }
+    for (Precision p : OPERAND_COLUMNS) {
+      addColumn(p.suffix(), p, seed++, OPERAND_NULL_ROW, values, columns);
+    }
     return "select " + String.join(", ", columns) + " from (select id, "
         + String.join(", ", values) + " from range(0, " + rows + "))";
   }
@@ -236,20 +289,38 @@ public class VarkaDecimalBaselineBenchmark extends VarkaSqlBenchmarkBase {
     int next = seed;
     int nullRow = 1;
     for (String role : roles) {
-      String name = role + p.suffix();
-      values.add(valueSql(p, next++) + " as " + name);
-      columns.add(name);
-      columns.add("case when id % 10 = " + nullRow + " then null else " + name + " end as "
-          + name + "n");
+      addColumn(role + p.suffix(), p, next++, nullRow, values, columns);
       nullRow += 3;
     }
     return next;
   }
 
   /**
+   * Adds the column {@code name} of precision {@code p} from {@code seed}, and its copy null at
+   * row {@code nullRow} of every ten.
+   */
+  private static void addColumn(String name, Precision p, int seed, int nullRow,
+      List<String> values, List<String> columns) {
+    values.add(valueSql(p, seed) + " as " + name);
+    columns.add(name);
+    columns.add("case when id % 10 = " + nullRow + " then null else " + name + " end as "
+        + name + "n");
+  }
+
+  /**
+   * The three literals of an {@code IN} section over {@code p}, at its scale so that coercion
+   * leaves the column as it is: two inside the range and the largest integer part but one.
+   */
+  static String inLiterals(Precision p) {
+    return "1234567." + "1".repeat(p.scale()) + ", -42." + "5".repeat(p.scale()) + ", "
+        + (p.maxIntegerPart() - 1) + "." + "9".repeat(p.scale());
+  }
+
+  /**
    * Every section, in the order they run: each precision, then each null density, then each
    * shape; then the two time producers at each null density; then the lane pair's six shapes,
-   * each precision, then each null density, then each shape.
+   * each precision, then each null density, then each shape; then the 64-bit comparisons' six
+   * shapes in the same order; then the 64-bit arithmetic's six at each null density.
    */
   static List<Section> sections() {
     List<Section> out = new ArrayList<>();
@@ -285,9 +356,7 @@ public class VarkaDecimalBaselineBenchmark extends VarkaSqlBenchmarkBase {
           "SELECT extract(SECOND FROM " + t + ") AS a FROM varka_decimal", false));
     }
     for (Precision p : PAIR_PRECISIONS) {
-      String digits = "9".repeat(p.scale());
-      String literals = "1234567." + "1".repeat(p.scale()) + ", -42." + "5".repeat(p.scale())
-          + ", " + (p.maxIntegerPart() - 1) + "." + digits;
+      String literals = inLiterals(p);
       for (String nulls : new String[] {"", "n"}) {
         String x = "x" + p.suffix() + nulls;
         String y = "y" + p.suffix() + nulls;
@@ -307,6 +376,56 @@ public class VarkaDecimalBaselineBenchmark extends VarkaSqlBenchmarkBase {
         out.add(new Section(type + " x < y as a value, " + density,
             "SELECT " + x + " < " + y + " AS a FROM varka_decimal", false));
       }
+    }
+    for (Precision p : List.of(precision(9), precision(18))) {
+      String literals = inLiterals(p);
+      for (String nulls : new String[] {"", "n"}) {
+        String x = "x" + p.suffix() + nulls;
+        String y = "y" + p.suffix() + nulls;
+        String w = otherScale(p.precision()) + nulls;
+        String density = nulls.isEmpty() ? "no nulls" : "one row in ten null";
+        String type = p.type();
+        String from = " FROM varka_decimal WHERE ";
+        // The rescaled comparison, the negation and abs fuse only the null tests the optimizer
+        // infers; IN infers none and runs on the row path; <=> and the projected comparison
+        // fuse whole.
+        out.add(new Section(type + " x < w filter, w at another scale, " + density,
+            "SELECT " + x + from + x + " < " + w, true));
+        out.add(new Section(type + " IN (c1, c2, c3) filter, " + density,
+            "SELECT " + x + from + x + " IN (" + literals + ")", false));
+        out.add(new Section(type + " <=> filter, " + density,
+            "SELECT " + x + from + x + " <=> " + y, true));
+        out.add(new Section(type + " -x < y filter, " + density,
+            "SELECT " + x + from + "-" + x + " < " + y, true));
+        out.add(new Section(type + " abs(x) < y filter, " + density,
+            "SELECT " + x + from + "abs(" + x + ") < " + y, true));
+        out.add(new Section(type + " x < y as a value, " + density,
+            "SELECT " + x + " < " + y + " AS a FROM varka_decimal", true));
+      }
+    }
+    for (String nulls : new String[] {"", "n"}) {
+      String x = "x9" + nulls;
+      String y = "y9" + nulls;
+      String z = "z9" + nulls;
+      String w = otherScale(9) + nulls;
+      String x8 = "x8" + nulls;
+      String density = nulls.isEmpty() ? "no nulls" : "one row in ten null";
+      String type = precision(9).type();
+      String from = " FROM varka_decimal WHERE ";
+      // The three filters fuse only their inferred null tests; the projections run on the row
+      // path, since a decimal output is not written yet.
+      out.add(new Section(type + " x + y < z filter, " + density,
+          "SELECT " + x + from + x + " + " + y + " < " + z, true));
+      out.add(new Section(type + " x - w > 0 filter, w at another scale, " + density,
+          "SELECT " + x + from + x + " - " + w + " > 0", true));
+      out.add(new Section(type + " x8 * y < z filter, x8 a DECIMAL(8, 2), " + density,
+          "SELECT " + x + from + x8 + " * " + y + " < " + z, true));
+      out.add(new Section(type + " x + y as a value, " + density,
+          "SELECT " + x + " + " + y + " AS a FROM varka_decimal", false));
+      out.add(new Section(type + " x - w as a value, w at another scale, " + density,
+          "SELECT " + x + " - " + w + " AS a FROM varka_decimal", false));
+      out.add(new Section(type + " x8 * y as a value, x8 a DECIMAL(8, 2), " + density,
+          "SELECT " + x8 + " * " + y + " AS a FROM varka_decimal", false));
     }
     return out;
   }
