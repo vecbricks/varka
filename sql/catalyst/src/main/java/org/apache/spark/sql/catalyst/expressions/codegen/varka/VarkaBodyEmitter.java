@@ -1208,7 +1208,7 @@ final class VarkaBodyEmitter {
     for (int o : outputIdx) {
       roots.add(outputs.get(o));
     }
-    s.setReach(Analysis.reachOf(roots), analysis);
+    s.setReach(Analysis.reachOf(roots));
     emitArmConditionsFirst(cb, dense, analysis, s, computed);
     for (int o : outputIdx) {
       VarkaVectorIR root = outputs.get(o);
@@ -1284,45 +1284,58 @@ final class VarkaBodyEmitter {
    * own chain conditions are not emitted yet: a guard under two {@code IfElse}s nested in the
    * condition, which its first use reaches under the first of them. So each such guard's chain
    * conditions are emitted, the same way, before the condition that holds it
-   * ({@link #emitChainConditions}).
+   * ({@link #emitChainConditions}). That order exists because the analysis leaves no two guards
+   * each inside the other's chain conditions ({@link Analysis#unqualifyArmCycles}).
    */
   private static void emitArmConditionsFirst(CodeBuilder cb, boolean dense, Analysis analysis,
       Slots s, Set<VarkaVectorIR> computed) {
     Set<VarkaVectorIR> done = new HashSet<>();
+    Set<VarkaVectorIR> inProgress = new HashSet<>();
     for (VarkaVectorIR node : analysis.topoOrder) {
-      emitChainConditions(cb, node, dense, analysis, s, computed, done);
+      emitChainConditions(cb, node, dense, analysis, s, computed, done, inProgress);
     }
   }
 
   /**
    * {@link #emitArmConditionsFirst} for one {@code node}: nothing unless it is a guard of this
    * body with several chains, else the condition of each step of each chain, each after the chain
-   * conditions of the guards inside it that are not computed yet. {@code done} holds the nodes
-   * already visited, so each is visited once.
+   * conditions of the guards inside it that are not computed yet, in topological order. {@code
+   * done} holds the nodes already visited, so each is visited once, and {@code inProgress} the
+   * guards whose conditions are being emitted: one reached again from inside them is a cycle the
+   * analysis should have unqualified, and is refused by name rather than emitted as a read of a
+   * mask local never stored.
    */
   private static void emitChainConditions(CodeBuilder cb, VarkaVectorIR node, boolean dense,
-      Analysis analysis, Slots s, Set<VarkaVectorIR> computed, Set<VarkaVectorIR> done) {
-    if (!analysis.refusals.containsKey(node) || !s.reach.contains(node) || !done.add(node)) {
+      Analysis analysis, Slots s, Set<VarkaVectorIR> computed, Set<VarkaVectorIR> done,
+      Set<VarkaVectorIR> inProgress) {
+    if (!analysis.refusals.containsKey(node) || !s.reaches(node) || done.contains(node)) {
       return;
     }
     List<List<Analysis.ArmStep>> chains = s.armChains(node, analysis);
     if (chains.size() < 2) {
+      done.add(node);
       return;
+    }
+    if (!inProgress.add(node)) {
+      throw VarkaErrors.illegalState("the guard of " + node + " is computed inside its own arm "
+          + "chains' conditions, through another guard's: Analysis.unqualifyArmCycles missed "
+          + "the cycle");
     }
     for (List<Analysis.ArmStep> chain : chains) {
       for (Analysis.ArmStep step : chain) {
         Cond cond = step.node().cond();
         if (!computed.contains(cond)) {
-          Set<VarkaVectorIR> inside = Analysis.reachOf(List.of(cond));
-          for (VarkaVectorIR inner : analysis.topoOrder) {
-            if (inside.contains(inner) && !computed.contains(inner)) {
-              emitChainConditions(cb, inner, dense, analysis, s, computed, done);
+          for (VarkaVectorIR inner : analysis.condReachInOrder(cond)) {
+            if (!computed.contains(inner)) {
+              emitChainConditions(cb, inner, dense, analysis, s, computed, done, inProgress);
             }
           }
         }
         emitCond(cb, cond, dense, analysis, s, computed);
       }
     }
+    inProgress.remove(node);
+    done.add(node);
   }
 
   /**

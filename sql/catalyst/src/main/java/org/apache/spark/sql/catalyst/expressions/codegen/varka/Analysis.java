@@ -444,7 +444,8 @@ final class Analysis {
    *
    * <p>Empty rather than absent is the unqualified answer, and the two are different: absent
    * means the walk has not reached the node. {@link #collectArmContexts} fills it once every
-   * root is analyzed, and only {@link #armChainsOf} reads it.
+   * root is analyzed, {@link #unqualifyArmCycles} empties a guard's entry where its conditions
+   * cannot be emitted before it, and only {@link #armChainsOf} reads it.
    */
   final Map<VarkaVectorIR, List<List<ArmStep>>> armChains = new HashMap<>();
 
@@ -453,6 +454,11 @@ final class Analysis {
    * a guard sits in, so a node used under more arms than this is guarded unqualified.
    */
   static final int MAX_ARM_CHAINS = 4;
+
+  /** {@link #condReach} of each condition asked for, kept once walked. */
+  private final Map<VarkaVectorIR, Set<VarkaVectorIR>> condReach = new HashMap<>();
+  /** {@link #condReachInOrder} of each condition asked for, kept once built. */
+  private final Map<VarkaVectorIR, List<VarkaVectorIR>> condReachInOrder = new HashMap<>();
 
   /**
    * per value node, which word its validity is - see {@link WordOwner}. Filled by
@@ -590,23 +596,109 @@ final class Analysis {
     // is, before the condition's word exists, so its guard cannot read it: such a node is
     // unqualified. Only a node of two chains or more is one: a chain through arms nested in the
     // condition, and one under the IfElse's own arm, since a use in a condition starts its own.
-    Map<VarkaVectorIR, Set<VarkaVectorIR>> condNodes = new HashMap<>();
     for (Map.Entry<VarkaVectorIR, List<List<ArmStep>>> e : armChains.entrySet()) {
       VarkaVectorIR node = e.getKey();
       boolean inOwnCondition = false;
       for (List<ArmStep> chain : e.getValue()) {
         for (ArmStep step : chain) {
-          inOwnCondition |= condNodes.computeIfAbsent(step.node().cond(), c -> {
-            Set<VarkaVectorIR> under = new HashSet<>();
-            collectReached(c, under);
-            return under;
-          }).contains(node);
+          inOwnCondition |= condReach(step.node().cond()).contains(node);
         }
       }
       if (inOwnCondition) {
         e.setValue(List.of());
       }
     }
+  }
+
+  /**
+   * Unqualifies the guards whose arm conditions cannot all be emitted before them. A guard of
+   * several chains reads, where its node is computed, the condition of every step of its chains,
+   * so the body emits those conditions ahead of its outputs ({@code
+   * VarkaBodyEmitter.emitArmConditionsFirst}); a condition computes every node inside it, so a
+   * guard of several chains inside one needs its own conditions emitted before it. Where guards
+   * need each other so in a cycle, no order emits each condition before the guards inside it: g's
+   * chain condition holds h and h's holds g, each sitting under an arm nested in the other's
+   * condition, which a DAG admits. The body once read a mask local never stored there, and the
+   * class failed to verify. Every guard on such a cycle is unqualified, as a guard inside its own
+   * chain's condition is ({@link #collectArmContexts}): it condemns wherever its node is
+   * computed, which declines more batches and never answers one wrongly.
+   *
+   * <p>Runs after {@link #collectRefusals}, since only a guard's chains are emitted first. A
+   * body's chains are a subset of these ({@link #armChainsIn}), so no body has a cycle once the
+   * kernel has none.
+   */
+  void unqualifyArmCycles() {
+    var guards = new ArrayList<VarkaVectorIR>();
+    for (VarkaVectorIR node : topoOrder) {
+      if (refusals.containsKey(node) && armChainsOf(node).size() > 1) {
+        guards.add(node);
+      }
+    }
+    if (guards.size() < 2) {
+      return;
+    }
+    // needs.get(g): the guards of several chains computed inside g's chain conditions.
+    Map<VarkaVectorIR, List<VarkaVectorIR>> needs = new HashMap<>();
+    for (VarkaVectorIR g : guards) {
+      Set<VarkaVectorIR> inside = new HashSet<>();
+      for (List<ArmStep> chain : armChainsOf(g)) {
+        for (ArmStep step : chain) {
+          inside.addAll(condReach(step.node().cond()));
+        }
+      }
+      var needed = new ArrayList<VarkaVectorIR>();
+      for (VarkaVectorIR h : guards) {
+        if (!h.equals(g) && inside.contains(h)) {
+          needed.add(h);
+        }
+      }
+      needs.put(g, needed);
+    }
+    // A guard is on a cycle where it needs itself through the others. Decided for every guard
+    // before any is unqualified, so the answer does not depend on the order they are visited in.
+    var onCycle = new ArrayList<VarkaVectorIR>();
+    for (VarkaVectorIR g : guards) {
+      Set<VarkaVectorIR> seen = new HashSet<>();
+      var pending = new ArrayList<>(needs.get(g));
+      while (!pending.isEmpty() && !seen.contains(g)) {
+        VarkaVectorIR h = pending.remove(pending.size() - 1);
+        if (seen.add(h)) {
+          pending.addAll(needs.get(h));
+        }
+      }
+      if (seen.contains(g)) {
+        onCycle.add(g);
+      }
+    }
+    for (VarkaVectorIR g : onCycle) {
+      armChains.put(g, List.of());
+    }
+  }
+
+  /**
+   * The nodes inside {@code cond}, {@code cond} included: what computing the condition computes.
+   * The same in every body, so walked once per condition.
+   */
+  Set<VarkaVectorIR> condReach(VarkaVectorIR cond) {
+    return condReach.computeIfAbsent(cond, c -> {
+      Set<VarkaVectorIR> under = new HashSet<>();
+      collectReached(c, under);
+      return under;
+    });
+  }
+
+  /** {@link #condReach} in {@link #topoOrder}'s order, children before parents. */
+  List<VarkaVectorIR> condReachInOrder(VarkaVectorIR cond) {
+    return condReachInOrder.computeIfAbsent(cond, c -> {
+      Set<VarkaVectorIR> under = condReach(c);
+      var ordered = new ArrayList<VarkaVectorIR>(under.size());
+      for (VarkaVectorIR node : topoOrder) {
+        if (under.contains(node)) {
+          ordered.add(node);
+        }
+      }
+      return List.copyOf(ordered);
+    });
   }
 
   private void assignArmChain(VarkaVectorIR node, List<ArmStep> chain) {

@@ -238,9 +238,9 @@ public final class VarkaLoopEmitter {
 
   /**
    * The analysis of {@code outputs} every emission starts from, in the one order its passes
-   * run: the roots, the arm contexts, the refusals, the word algebra and the bitmap pass. What
-   * depends on the grouping, the materialized prefixes, is planned by the caller once it has
-   * one.
+   * run: the roots, the arm contexts, the refusals and the arm cycles they leave, the word
+   * algebra and the bitmap pass. What depends on the grouping, the materialized prefixes, is
+   * planned by the caller once it has one.
    */
   private static Analysis analyze(List<VarkaVectorIR> outputs, int numInputs, int numLiterals,
       VarkaEmitOptions options) {
@@ -251,6 +251,7 @@ public final class VarkaLoopEmitter {
     analysis.requireOneStride();
     analysis.collectArmContexts(outputs);
     analysis.collectRefusals();
+    analysis.unqualifyArmCycles();
     analysis.collectWraps();
     analysis.planWordAlgebra();
     analysis.planBitmapPass(outputs);

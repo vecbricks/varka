@@ -171,15 +171,18 @@ final class Slots {
   final Map<VarkaVectorIR, Integer> condMask = new HashMap<>();
   /**
    * The nodes this body reaches from its roots, set by {@code VarkaBodyEmitter} before it emits
-   * them: which arm chains of a guard this body can qualify it by ({@link Analysis#armChainsIn}).
+   * them ({@link #setReach}): which arm chains of a guard this body can qualify it by
+   * ({@link Analysis#armChainsIn}).
    */
-  Set<VarkaVectorIR> reach;
+  private Set<VarkaVectorIR> reach;
   /**
-   * {@link Analysis#armChainsIn} of each node {@link #reach} holds, computed once per body with
-   * it ({@link #setReach}), so that the arm conditions emitted first, the guard's arm context and
-   * the mechanism a guard reached read one list rather than filtering the chains again each.
+   * {@link Analysis#armChainsIn} in this body of each node asked for ({@link #armChains}), kept
+   * once computed so that the arm conditions emitted first, the guard's arm context and the
+   * mechanism a guard reached read one list rather than filtering the chains again each.
+   * {@link #setReach} empties it, since the lists depend on {@link #reach}.
    */
-  private Map<VarkaVectorIR, List<List<Analysis.ArmStep>>> armChainsByNode;
+  private final Map<VarkaVectorIR, List<List<Analysis.ArmStep>>> armChainsByNode =
+      new HashMap<>();
   /** Per node this body uses more than once: the local its first vector lands in (DAG-CSE). */
   final Map<VarkaVectorIR, Integer> sharedSlot = new HashMap<>();
   /** Per Greatest/Least (masked): the two operand temporaries the substitution needs. */
@@ -471,23 +474,25 @@ final class Slots {
     return dstValSeg[o];
   }
 
-  /** Sets the nodes this body reaches and the arm chains each is qualified by in it. */
-  void setReach(Set<VarkaVectorIR> reached, Analysis analysis) {
+  // The nodes a body reaches, and the arm chains its guards are qualified by there.
+
+  /** Sets the nodes this body reaches, which the arm chains of its guards are filtered by. */
+  void setReach(Set<VarkaVectorIR> reached) {
     reach = reached;
-    armChainsByNode = new HashMap<>();
-    for (VarkaVectorIR node : reached) {
-      armChainsByNode.put(node, analysis.armChainsIn(node, reached));
-    }
+    armChainsByNode.clear();
+  }
+
+  /** Whether this body reaches {@code node} from its roots; see {@link #setReach}. */
+  boolean reaches(VarkaVectorIR node) {
+    return reach != null && reach.contains(node);
   }
 
   /**
-   * The arm chains {@code node}'s guard is qualified by in this body: {@link #setReach}'s list,
-   * or {@link Analysis#armChainsIn} itself for a node it did not reach.
+   * The arm chains {@code node}'s guard is qualified by in this body, {@link
+   * Analysis#armChainsIn} over {@link #reach}, computed the first time a node is asked for.
    */
   List<List<Analysis.ArmStep>> armChains(VarkaVectorIR node, Analysis analysis) {
-    List<List<Analysis.ArmStep>> chains =
-        armChainsByNode == null ? null : armChainsByNode.get(node);
-    return chains != null ? chains : analysis.armChainsIn(node, reach);
+    return armChainsByNode.computeIfAbsent(node, n -> analysis.armChainsIn(n, reach));
   }
 
   /** Every node under {@code root}, {@code root} included, added to {@code into}. */
