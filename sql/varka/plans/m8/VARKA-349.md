@@ -359,23 +359,40 @@ Declines that stay, each naming its row: the table of 2.6; the internals as sect
 
 ## 8. Questions for the owner
 
-1. **The three decimal internals and the census.** If step 1 confirms item 0.7's reading, no SQL
-   plan hands `UnscaledValue`, `MakeDecimal` or `CheckOverflow` to a node Varka fuses: Spark builds
-   them inside an aggregate, a window or an encoder, and evaluates them there. (a) Build them as
-   section 2 has them, with `built` coverage rows, and count `unscaled_value` fused when this row
-   lands (`make_decimal` with the store above 18). (b) Record the three as out of the census, with
-   the reason "evaluated by an operator Varka does not fuse", leaving the denominator as a constant
-   folded before Varka sees it does, and build none of them now; the guard-the-inputs
-   `CheckOverflow` form stays specified here for 350 and 360, which need the same rescale guard. (c)
-   Build them and leave them out of the count. *Recommended: (b)*: a census pair should stand for a
-   query that runs faster, and none would; (a) moves the count with no user-visible change, and the
-   work stays cheap to do when a later milestone fuses aggregates. If step 1 finds a plan that does
-   reach a fused node, the question is withdrawn and section 2 is built as written. If the owner
-   wants them built anyway, (c) is testable as it stands: the coverage suite and the harness compile
-   an expression wherever Spark would place it (the `built` rows, as `InSet`'s are), so the choice
-   is whether they count, not whether they can be tested. 2. **`MakeDecimal` above precision 18**
-   (2.4) depends on question 1: if the internals are not built, it does not arise; if they are, it
-   declines naming 359 unless row 157 admits a long-valued output above 18.
+1. **The three decimal internals and the census.** Step 1 confirms item 0.7 (10.1,
+   `results/VARKA-349-reachability.txt`): in every plan printed, `UnscaledValue` is evaluated in
+   the input of `HashAggregateExec`'s or `WindowExec`'s aggregate, `MakeDecimal` in
+   `HashAggregateExec`'s result expressions or `WindowExec`'s window expression, and
+   `CheckOverflow` in `SerializeFromObjectExec`'s serializer over a JVM object, at
+   `DECIMAL(38, 18)` for a `BigDecimal` Dataset and within precision 18 only for a `Dataset[Row]`
+   map. None reaches a `ProjectExec` or a `FilterExec`, and the trees are the same with Varka off.
+   The decimal adds Spark itself evaluates inside `sum` and `avg` are not this row's either: a
+   `BIGINT` or `DOUBLE` add after the rewrite, a decimal add of precision 19 or more without it.
+   So the question stands; it is not withdrawn. The options:
+   - (a) Build the three as section 2 has them, with `built` coverage rows (349b, after row
+     481's `NULL` mode, one or two days), and count `unscaled_value` fused when this row lands,
+     `make_decimal` with a store above 18. The census moves; no query runs faster until a later
+     milestone fuses an aggregate, a window or a serializer.
+   - (b) Record the three out of the census with the reason "evaluated by an operator Varka does
+     not fuse" (`HashAggregateExec`, `WindowExec`, `SerializeFromObjectExec`), as a constant folded
+     before Varka sees it is out of it, and build none of them now; 349b is dropped, and the
+     guard-the-inputs `CheckOverflow` form of 2.5 stays specified here for 350 and 360, which
+     need the same rescale guard.
+   - (c) Build them as in (a) and leave them out of the count: tested through the `built` rows,
+     which compile an expression wherever Spark would place it, as `InSet`'s are, at (a)'s cost
+     and with (b)'s census.
+
+   *Recommended: (b)*: a census pair should stand for a query that runs faster, and no query
+   would; (a) moves the count with no user-visible change, (c) spends 349b's days on kernels no
+   plan calls, and the work stays cheap to do when a later milestone fuses aggregates. Under any
+   answer, 10.1 records two findings for the rows that own them: an arithmetic inside an
+   aggregate's input (`sum(d8 * d9)`) stays in the aggregate, so 349a fuses it only where the
+   user's query puts it in a filter or a projection; and a widened window sum's cast reaches a
+   `ProjectExec` (360's shape).
+2. **`MakeDecimal` above precision 18** (2.4) depends on question 1: if the internals are not
+   built, it does not arise; if they are, it declines naming 359 unless row 157 admits a
+   long-valued output above 18. Step 1 shows Spark builds it at `DECIMAL(38, 2)` for
+   `sum(CAST(d8 AS DECIMAL(30, 2)))`.
 
 ## 9. Done when
 
@@ -392,4 +409,54 @@ the option matrix pass.
 
 ## 10. Outcome
 
-(Written when the work lands.)
+### 10.1 Step 1: the reachability reading, on the laptop
+
+Printed on 31 October 2026 at `f0c1ab11c45` in a Varka session built as the benchmarks build it
+(`VarkaArrowSessions.createSession(name, true, false, "local[1]")`, the table Arrow-cached),
+every physical tree compared with the same session's tree under Varka switched off; the trees,
+the aggregate buffers, update, merge and result expressions, the suite and the command are in
+`results/VARKA-349-reachability.txt`. Item 0.7 holds: no internal reaches a `ProjectExec` or a
+`FilterExec`, and every tree but one (X5 below) is the same with Varka off. One node per
+internal:
+
+- **`sum(d8)`** (Q1, Q1g, Q1p): `DecimalAggregates` makes it `MakeDecimal(sum(UnscaledValue(d8)),
+  18, 2)`. `UnscaledValue` is evaluated in `HashAggregateExec`'s update expression, inside the
+  aggregate's own input, and the sum is a `BIGINT` add (`coalesce(sum, 0L) + unscaledvalue(d8)`,
+  merge the same); `MakeDecimal` to `DECIMAL(18, 2)` is in `HashAggregateExec`'s result
+  expressions, the final aggregate's when the plan has a partial and a final one.
+- **`sum(CAST(d8 AS DECIMAL(30, 2)))`** (Q2): the cast is peeled, the same `BIGINT` sum, and
+  `MakeDecimal` to `DECIMAL(38, 2)` in the result expressions: the unguarded `p >= 19` form of
+  2.4, also in `HashAggregateExec`.
+- **`avg(d8)`** (Q3): `Average` over `UnscaledValue`, whose buffer is a `DOUBLE` sum and a
+  `BIGINT` count, so its adds and its quotient are floating; the result expressions divide by
+  the double `10^2` and cast to `DECIMAL(12, 6)`, in `HashAggregateExec`. No decimal arithmetic
+  is left in it.
+- **`sum(d8) OVER (PARTITION BY k ORDER BY rid ROWS ...)`** (Q4; `avg` as Q4b):
+  `MakeDecimal(sum(UnscaledValue(d8)) OVER (...), 18, 2)` sits whole in `WindowExec`'s window
+  expression, the `UnscaledValue` evaluated by the window's aggregate and the `MakeDecimal` by
+  its result projection; `avg`'s divide and cast to `DECIMAL(12, 6)` the same.
+- **The widened sum as a window** (Q4c, added): the window arm does not peel the cast, so
+  `CAST(d8 AS DECIMAL(30, 2))` is hoisted into a `ProjectExec` under the window's sort, a node
+  Varka's rule sees, and the window sums a `DECIMAL(38, 2)`. That cast is 360's, not this row's.
+- **A Dataset of `BigDecimal`** (D1, D2): `CheckOverflow` to `DECIMAL(38, 18)`, the encoders'
+  `SYSTEM_DEFAULT`, over `Decimal.apply` of the JVM object, in `SerializeFromObjectExec`'s
+  serializer; the deserializer reads `d8` with `toJavaBigDecimal` or `toBigDecimal`. A
+  `Dataset[Row]` map (D5, added) is the only path to a `CheckOverflow` within precision 18,
+  `DECIMAL(8, 2)` from the schema (`RowEncoder`), and its input is likewise a field of an
+  external `Row`, never a column.
+  A local `Seq(...).toDS()` (D3, D4) encodes on the driver into a `LocalTableScan`, `value +
+  value` folded with it.
+
+What Spark's own aggregates add is never this row's shape. `Sum` keeps a decimal of precision
+`p + 10`, so for `p <= 8` it is the `BIGINT` sum above and for `p >= 9` its add is at precision 19
+or more (X1, `sum(d18)`: a `DECIMAL(28, 2)` add in the update and merge expressions); `Average`
+is the double form for `p <= 11` and otherwise a decimal sum of precision 22 or more and
+`DecimalDivideWithOverflowCheck` (X2, `avg(d18)` to `DECIMAL(22, 6)`). Every such add is
+evaluated in `HashAggregateExec` and would be 360's.
+
+Where the user writes the arithmetic, it reaches the fused nodes outside an aggregate's input
+and not inside it: `sum(d8 * d9)` (X3) keeps its `DECIMAL(18, 4)` multiply, a 349a shape, in the
+aggregate's update expression, with no `Project` pulled out; `d8 + d9` as a grouping key (X4) is
+pulled into a `ProjectExec` (349c's projection, after 157); and `WHERE d8 * d9 > 0` (X5) reaches
+a `FilterExec`, of which Varka fuses today only the null tests, leaving the multiply in a row
+filter above its `VarkaFilterColumnarToRow`, the one tree that differs with Varka off.

@@ -1,0 +1,720 @@
+VARKA-349 step 1, the reachability reading (VARKA-349.md 0 item 7, 5 step 1), 31 October 2026,
+laptop, on f0c1ab11c45 (origin/master) with one throwaway test suite added and deleted after;
+the reading is written up in VARKA-349.md 10.1 and put to the owner in its section 8.
+Question: where does Spark evaluate the decimal internals (UnscaledValue, MakeDecimal,
+CheckOverflow) and the decimal +, -, * inside aggregates, windows and encoders, and does any of
+them reach a ProjectExec or FilterExec, the only nodes VarkaColumnarRule replaces?
+
+Command (JDK 25, sbt; the suite's source follows):
+  flock /home/max/proj/.varka-locks/heavy.lock env SPARK_LOCAL_IP=127.0.0.1 \
+    build/sbt 'sql/testOnly org.apache.spark.sql.execution.benchmark.Varka349ReachabilitySuite'
+
+Session: VarkaArrowSessions.createSession("varka-349-reachability", true, false, "local[1]")
+(Arrow cache, VarkaColumnarRule, one shuffle partition, AQE off) and VarkaArrowSessions.cache
+on the view t. "plain session" is the same session with spark.sql.codegen.varka.enabled=false,
+its physical tree compared with the Varka one after erasing expression ids, plan_ids and lambda
+names. Fixture columns as the coverage differential's decimal(long, p) form, d8 the plan's
+DECIMAL(8, 2) (VARKA-349.md 3 item 6).
+
+Construction sites of the three internals in sql/catalyst, sql/core and sql/api main sources
+(grep -rn "MakeDecimal(\|UnscaledValue(\|CheckOverflow(", toString lines and the
+StreamingJoinHelper match removed):
+  sql/catalyst/.../SerializerBuildHelper.scala:210  CheckOverflow, createSerializerForBigDecimal
+  sql/catalyst/.../SerializerBuildHelper.scala:219  CheckOverflow, createSerializerForAnyDecimal
+  sql/catalyst/.../SerializerBuildHelper.scala:228  CheckOverflow, createSerializerForBigInteger
+  sql/catalyst/.../optimizer/Optimizer.scala:3222-3223  window Sum: MakeDecimal, UnscaledValue
+  sql/catalyst/.../optimizer/Optimizer.scala:3230       window Average: UnscaledValue
+  sql/catalyst/.../optimizer/Optimizer.scala:3246-3247  widened Sum: MakeDecimal, UnscaledValue
+  sql/catalyst/.../optimizer/Optimizer.scala:3251       Sum: MakeDecimal, UnscaledValue
+  sql/catalyst/.../optimizer/Optimizer.scala:3263       widened Average: UnscaledValue
+  sql/catalyst/.../optimizer/Optimizer.scala:3269       Average: UnscaledValue
+  sql/catalyst/.../expressions/decimalExpressions.scala:106  MakeDecimal.apply (the companion)
+The encoders' decimal types (AgnosticEncoder.scala:289-291): Scala and Java BigDecimal are
+DecimalType.SYSTEM_DEFAULT, DECIMAL(38, 18); only RowEncoder (RowEncoder.scala:109) gives a
+schema's own type, so a Dataset[Row] map is the one way to a CheckOverflow at precision <= 18.
+
+---- suite source (deleted after the run) ----
+package org.apache.spark.sql.execution.benchmark
+
+import org.apache.spark.SparkFunSuite
+import org.apache.spark.sql.{Dataset, Encoders, SparkSession}
+import org.apache.spark.sql.catalyst.expressions._
+import org.apache.spark.sql.catalyst.expressions.aggregate.DeclarativeAggregate
+import org.apache.spark.sql.execution.{FilterExec, ProjectExec, SerializeFromObjectExec,
+  SparkPlan, VarkaColumnarToRowExec, VarkaProjectExec}
+import org.apache.spark.sql.execution.aggregate.BaseAggregateExec
+import org.apache.spark.sql.execution.window.WindowExec
+import org.apache.spark.sql.internal.SQLConf
+import org.apache.spark.sql.types.DecimalType
+
+/** Throwaway: VARKA-349 step 1, where Spark evaluates the decimal internals. */
+class Varka349ReachabilitySuite extends SparkFunSuite {
+
+  private def interesting(e: Expression): Boolean = e match {
+    case _: Add | _: Subtract | _: Multiply | _: Divide => true
+    case _: UnscaledValue | _: MakeDecimal | _: CheckOverflow => true
+    case c: Cast => c.dataType.isInstanceOf[DecimalType] ||
+      c.child.dataType.isInstanceOf[DecimalType]
+    case _ => false
+  }
+
+  private def found(where: String, es: Seq[Expression]): Seq[String] =
+    es.flatMap(_.collect { case e if interesting(e) => e }).map { e =>
+      s"    [$where] ${e.prettyName}: ${e.dataType.simpleString} <- " +
+        s"${e.children.map(_.dataType.simpleString).mkString(", ")}   ${e.sql.take(160)}"
+    }
+
+  private def nodeReport(p: SparkPlan): Seq[String] = p match {
+    case a: BaseAggregateExec =>
+      val name = a.getClass.getSimpleName
+      val aggs = a.aggregateExpressions.flatMap { ae =>
+        val head = s"  $name aggregate ${ae.mode} ${ae.aggregateFunction}: " +
+          s"${ae.aggregateFunction.dataType.simpleString}"
+        val body = ae.aggregateFunction match {
+          case d: DeclarativeAggregate =>
+            Seq(s"    buffer: ${d.aggBufferAttributes.map(x =>
+              s"${x.name}:${x.dataType.simpleString}").mkString(", ")}") ++
+              d.updateExpressions.map(e => s"    update: ${e.sql} : ${e.dataType.simpleString}") ++
+              d.mergeExpressions.map(e => s"    merge: ${e.sql} : ${e.dataType.simpleString}") ++
+              Seq(s"    evaluate: ${d.evaluateExpression.sql} : " +
+                s"${d.evaluateExpression.dataType.simpleString}") ++
+              found(s"$name.update", d.updateExpressions) ++
+              found(s"$name.merge", d.mergeExpressions) ++
+              found(s"$name.evaluate", Seq(d.evaluateExpression))
+          case other => Seq(s"    (imperative ${other.getClass.getSimpleName})")
+        }
+        head +: body
+      }
+      Seq(s"  $name groupingExpressions: ${a.groupingExpressions.map(_.sql).mkString(", ")}") ++
+        aggs ++
+        a.resultExpressions.map(e => s"  $name result: ${e.sql} : ${e.dataType.simpleString}") ++
+        found(s"$name.input", a.aggregateExpressions.flatMap(_.aggregateFunction.children)) ++
+        found(s"$name.result", a.resultExpressions)
+    case w: WindowExec =>
+      w.windowExpression.map(e => s"  WindowExec windowExpression: ${e.sql} : " +
+        s"${e.dataType.simpleString}") ++ found("WindowExec", w.windowExpression)
+    case s: SerializeFromObjectExec =>
+      s.serializer.map(e => s"  SerializeFromObjectExec serializer: ${e.sql} : " +
+        s"${e.dataType.simpleString}") ++ found("SerializeFromObjectExec", s.serializer)
+    case pr: ProjectExec =>
+      Seq(s"  ProjectExec: ${pr.projectList.map(_.sql).mkString(", ")}") ++
+        found("ProjectExec", pr.projectList)
+    case pr: VarkaProjectExec =>
+      Seq(s"  VarkaProjectExec: ${pr.projectList.map(_.sql).mkString(", ")}") ++
+        found("VarkaProjectExec", pr.projectList)
+    case pr: VarkaColumnarToRowExec =>
+      Seq(s"  VarkaColumnarToRowExec: ${pr.projectList.map(_.sql).mkString(", ")}") ++
+        found("VarkaColumnarToRowExec", pr.projectList)
+    case f: FilterExec =>
+      Seq(s"  FilterExec: ${f.condition.sql}") ++ found("FilterExec", Seq(f.condition))
+    case other =>
+      found(other.getClass.getSimpleName, other.expressions)
+  }
+
+  private def allNodes(p: SparkPlan): Seq[SparkPlan] =
+    p +: (p.children ++ p.subqueries).flatMap(allNodes)
+
+  private def report(title: String, df: Dataset[_], plain: SparkSession => Dataset[_]): Unit = {
+    df.collect()
+    val qe = df.queryExecution
+    val out = new StringBuilder
+    out ++= s"==== $title\n"
+    out ++= s"-- output schema: ${df.schema.simpleString}\n"
+    out ++= "-- optimized logical plan\n" + qe.optimizedPlan.treeString(verbose = true)
+    out ++= "-- interesting expressions per logical node\n"
+    qe.optimizedPlan.foreach { n =>
+      found(n.nodeName, n.expressions).foreach(l => out ++= l + "\n")
+    }
+    out ++= "-- physical plan (Varka session)\n" + qe.executedPlan.treeString
+    out ++= "-- per physical node\n"
+    allNodes(qe.executedPlan).foreach { n =>
+      nodeReport(n).foreach(l => out ++= l + "\n")
+    }
+    val varkaNodes = allNodes(qe.executedPlan).map(_.nodeName).filter(_.startsWith("Varka"))
+    out ++= s"-- Varka nodes in the plan: ${if (varkaNodes.isEmpty) "none"
+      else varkaNodes.mkString(", ")}\n"
+    val a = qe.executedPlan.treeString.replaceAll("#\\d+", "#").replaceAll("plan_id=\\d+", "plan_id=")
+      .replaceAll("\\$\\$Lambda[^,\\s]*", "\\$\\$Lambda")
+    spark.conf.set(SQLConf.VARKA_ENABLED.key, "false")
+    val b = try {
+      val plainDf = plain(spark)
+      plainDf.collect()
+      plainDf.queryExecution.executedPlan.treeString.replaceAll("#\\d+", "#").replaceAll("plan_id=\\d+", "plan_id=")
+      .replaceAll("\\$\\$Lambda[^,\\s]*", "\\$\\$Lambda")
+    } finally spark.conf.set(SQLConf.VARKA_ENABLED.key, "true")
+    out ++= s"-- plain session (spark.sql.codegen.varka.enabled=false): " +
+      s"${if (a == b) "same physical tree up to expression ids" else "differs:\n" + b}\n"
+    // scalastyle:off println
+    println(out.toString)
+    // scalastyle:on println
+  }
+
+  private var spark: SparkSession = _
+
+  test("VARKA-349 reachability") {
+    spark = VarkaArrowSessions.createSession("varka-349-reachability", true, false, "local[1]")
+    try {
+      def decimal(long: String, precision: Int): String =
+        s"CAST(CAST($long % ${BigInt(10).pow(precision)} AS DECIMAL(${precision + 1}, 0)) * " +
+          s"0.01 AS DECIMAL($precision, 2))"
+      spark.sql(
+        s"""SELECT id AS rid, id % 4 AS k, l,
+           |       ${decimal("l", 8)} AS d8, ${decimal("l", 9)} AS d9,
+           |       ${decimal("l", 18)} AS d18
+           |FROM (SELECT id, CASE WHEN id % 7 = 3 THEN NULL
+           |                      ELSE (id * 2654435761) - 1000000000000 END AS l
+           |      FROM range(0, 4096))""".stripMargin).createOrReplaceTempView("t")
+      VarkaArrowSessions.cache(spark, "t")
+      // scalastyle:off println
+      println(s"==== fixture schema: ${spark.table("t").schema.simpleString}")
+      println(s"==== Varka session conf ${SQLConf.VARKA_ENABLED.key}=" +
+        spark.conf.get(SQLConf.VARKA_ENABLED.key))
+      // scalastyle:on println
+
+      val window = "OVER (PARTITION BY k ORDER BY rid " +
+        "ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)"
+      val queries = Seq(
+        "Q1 sum(d8)" -> "SELECT sum(d8) FROM t",
+        "Q1g sum(d8) GROUP BY k" -> "SELECT k, sum(d8) FROM t GROUP BY k",
+        "Q1p sum(d8) GROUP BY k over three partitions (partial and final)" ->
+          "SELECT k, sum(d8) FROM (SELECT /*+ REPARTITION(3) */ * FROM t) GROUP BY k",
+        "Q2 sum(CAST(d8 AS DECIMAL(30, 2)))" ->
+          "SELECT sum(CAST(d8 AS DECIMAL(30, 2))) FROM t",
+        "Q3 avg(d8)" -> "SELECT avg(d8) FROM t",
+        s"Q4 sum(d8) $window" -> s"SELECT rid, sum(d8) $window AS s FROM t",
+        s"Q4b avg(d8) $window" -> s"SELECT rid, avg(d8) $window AS a FROM t",
+        s"Q4c sum(CAST(d8 AS DECIMAL(30, 2))) $window" ->
+          s"SELECT rid, sum(CAST(d8 AS DECIMAL(30, 2))) $window AS s FROM t",
+        "X1 sum(d18) (no DecimalAggregates rewrite)" -> "SELECT sum(d18) FROM t",
+        "X2 avg(d18) (no DecimalAggregates rewrite)" -> "SELECT avg(d18) FROM t",
+        "X3 sum(d8 * d9) (arithmetic in an aggregate's input)" ->
+          "SELECT sum(d8 * d9) FROM t",
+        "X4 d8 + d9 as a grouping key" ->
+          "SELECT d8 + d9 AS g, count(*) FROM t GROUP BY d8 + d9",
+        "X5 sum(d8 + d9) over a filter" ->
+          "SELECT sum(d8 + d9) FROM t WHERE d8 * d9 > 0")
+      queries.foreach { case (title, q) => report(title, spark.sql(q), _.sql(q)) }
+
+      val session = spark
+      import session.implicits._
+      report("D1 Dataset[java.math.BigDecimal] map(x => x.multiply(x))",
+        spark.table("t").select($"d8").as[java.math.BigDecimal]
+          .map(x => if (x == null) null else x.multiply(x))(Encoders.DECIMAL),
+        s => {
+          import s.implicits._
+          s.table("t").select($"d8").as[java.math.BigDecimal]
+            .map(x => if (x == null) null else x.multiply(x))(Encoders.DECIMAL)
+        })
+      report("D2 Dataset[scala BigDecimal] map(x => x + x)",
+        spark.table("t").select($"d8").as[BigDecimal]
+          .map(x => if (x == null) null else x + x),
+        s => {
+          import s.implicits._
+          s.table("t").select($"d8").as[BigDecimal].map(x => if (x == null) null else x + x)
+        })
+      val rowSchema = spark.table("t").select("d8").schema
+      report("D5 Dataset[Row] map(identity)(Encoders.row(d8 DECIMAL(8, 2)))",
+        spark.table("t").select("d8").map(r => r)(Encoders.row(rowSchema)),
+        s => s.table("t").select("d8").map(r => r)(Encoders.row(rowSchema)))
+      val local = Seq(BigDecimal("1.25"), BigDecimal("2.50")).toDS()
+      report("D3 Seq[BigDecimal].toDS() (encoded on the driver)", local.toDF(),
+        s => { import s.implicits._; Seq(BigDecimal("1.25"), BigDecimal("2.50")).toDS().toDF() })
+      report("D4 Dataset[BigDecimal] select(value + value) (SQL over the encoded column)",
+        local.selectExpr("value + value"),
+        s => {
+          import s.implicits._
+          Seq(BigDecimal("1.25"), BigDecimal("2.50")).toDS().selectExpr("value + value")
+        })
+    } finally {
+      spark.stop()
+    }
+  }
+}
+
+---- output ----
+The cached relation's own child (the fixture's Project over Range) is printed under every
+InMemoryRelation; it is shown once, in Q1, and cut from the other trees, as are blank lines and
+log lines. Nothing else is cut.
+
+==== fixture schema: struct<rid:bigint,k:bigint,l:bigint,d8:decimal(8,2),d9:decimal(9,2),d18:decimal(18,2)>
+==== Varka session conf spark.sql.codegen.varka.enabled=true
+==== Q1 sum(d8)
+-- output schema: struct<sum(d8):decimal(18,2)>
+-- optimized logical plan
+Aggregate [MakeDecimal(sum(UnscaledValue(d8#3)),18,2) AS sum(d8)#287]
++- Project [d8#3]
+   +- InMemoryRelation [rid#1L, k#2L, l#0L, d8#3, d9#4, d18#5], StorageLevel(disk, memory, deserialized, 1 replicas)
+         +- *(1) Project [id#6L AS rid#1L, (id#6L % 4) AS k#2L, l#0L, cast((cast((l#0L % 100000000) as decimal(9,0)) * 0.01) as decimal(8,2)) AS d8#3, cast((cast((l#0L % 1000000000) as decimal(10,0)) * 0.01) as decimal(9,2)) AS d9#4, cast((cast((l#0L % 1000000000000000000) as decimal(19,0)) * 0.01) as decimal(18,2)) AS d18#5]
+            +- *(1) Project [id#6L, CASE WHEN ((id#6L % 7) = 3) THEN null ELSE ((id#6L * 2654435761) - 1000000000000) END AS l#0L]
+               +- *(1) Range (0, 4096, step=1, splits=1)
+-- interesting expressions per logical node
+    [Aggregate] makedecimal: decimal(18,2) <- bigint   makedecimal(sum(unscaledvalue(t.d8)))
+    [Aggregate] unscaledvalue: bigint <- decimal(8,2)   unscaledvalue(t.d8)
+-- physical plan (Varka session)
+*(1) HashAggregate(keys=[], functions=[sum(UnscaledValue(d8#3))], output=[sum(d8)#287])
++- Scan In-memory table t [d8#3]
+      +- InMemoryRelation [rid#1L, k#2L, l#0L, d8#3, d9#4, d18#5], StorageLevel(disk, memory, deserialized, 1 replicas)
+            +- *(1) Project [id#6L AS rid#1L, (id#6L % 4) AS k#2L, l#0L, cast((cast((l#0L % 100000000) as decimal(9,0)) * 0.01) as decimal(8,2)) AS d8#3, cast((cast((l#0L % 1000000000) as decimal(10,0)) * 0.01) as decimal(9,2)) AS d9#4, cast((cast((l#0L % 1000000000000000000) as decimal(19,0)) * 0.01) as decimal(18,2)) AS d18#5]
+               +- *(1) Project [id#6L, CASE WHEN ((id#6L % 7) = 3) THEN null ELSE ((id#6L * 2654435761) - 1000000000000) END AS l#0L]
+                  +- *(1) Range (0, 4096, step=1, splits=1)
+-- per physical node
+  HashAggregateExec groupingExpressions: 
+  HashAggregateExec aggregate Complete sum(UnscaledValue(d8#3)): bigint
+    buffer: sum:bigint
+    update: coalesce((coalesce(sum, 0L) + unscaledvalue(t.d8)), sum) : bigint
+    merge: coalesce((coalesce(sum, 0L) + sum), sum) : bigint
+    evaluate: sum : bigint
+    [HashAggregateExec.update] add: bigint <- bigint, bigint   (coalesce(sum, 0L) + unscaledvalue(t.d8))
+    [HashAggregateExec.update] unscaledvalue: bigint <- decimal(8,2)   unscaledvalue(t.d8)
+    [HashAggregateExec.merge] add: bigint <- bigint, bigint   (coalesce(sum, 0L) + sum)
+  HashAggregateExec result: makedecimal(`sum(UnscaledValue(d8#3))`) AS `sum(d8)` : decimal(18,2)
+    [HashAggregateExec.input] unscaledvalue: bigint <- decimal(8,2)   unscaledvalue(t.d8)
+    [HashAggregateExec.result] makedecimal: decimal(18,2) <- bigint   makedecimal(`sum(UnscaledValue(d8#3))`)
+-- Varka nodes in the plan: none
+-- plain session (spark.sql.codegen.varka.enabled=false): same physical tree up to expression ids
+==== Q1g sum(d8) GROUP BY k
+-- output schema: struct<k:bigint,sum(d8):decimal(18,2)>
+-- optimized logical plan
+Aggregate [k#2L], [k#2L, MakeDecimal(sum(UnscaledValue(d8#3)),18,2) AS sum(d8)#605]
++- Project [k#2L, d8#3]
+   +- InMemoryRelation [rid#1L, k#2L, l#0L, d8#3, d9#4, d18#5], StorageLevel(disk, memory, deserialized, 1 replicas)
+-- interesting expressions per logical node
+    [Aggregate] makedecimal: decimal(18,2) <- bigint   makedecimal(sum(unscaledvalue(t.d8)))
+    [Aggregate] unscaledvalue: bigint <- decimal(8,2)   unscaledvalue(t.d8)
+-- physical plan (Varka session)
+*(1) HashAggregate(keys=[k#2L], functions=[sum(UnscaledValue(d8#3))], output=[k#2L, sum(d8)#605])
++- Scan In-memory table t [k#2L, d8#3]
+      +- InMemoryRelation [rid#1L, k#2L, l#0L, d8#3, d9#4, d18#5], StorageLevel(disk, memory, deserialized, 1 replicas)
+-- per physical node
+  HashAggregateExec groupingExpressions: t.k
+  HashAggregateExec aggregate Complete sum(UnscaledValue(d8#3)): bigint
+    buffer: sum:bigint
+    update: coalesce((coalesce(sum, 0L) + unscaledvalue(t.d8)), sum) : bigint
+    merge: coalesce((coalesce(sum, 0L) + sum), sum) : bigint
+    evaluate: sum : bigint
+    [HashAggregateExec.update] add: bigint <- bigint, bigint   (coalesce(sum, 0L) + unscaledvalue(t.d8))
+    [HashAggregateExec.update] unscaledvalue: bigint <- decimal(8,2)   unscaledvalue(t.d8)
+    [HashAggregateExec.merge] add: bigint <- bigint, bigint   (coalesce(sum, 0L) + sum)
+  HashAggregateExec result: t.k : bigint
+  HashAggregateExec result: makedecimal(`sum(UnscaledValue(d8#3))`) AS `sum(d8)` : decimal(18,2)
+    [HashAggregateExec.input] unscaledvalue: bigint <- decimal(8,2)   unscaledvalue(t.d8)
+    [HashAggregateExec.result] makedecimal: decimal(18,2) <- bigint   makedecimal(`sum(UnscaledValue(d8#3))`)
+-- Varka nodes in the plan: none
+-- plain session (spark.sql.codegen.varka.enabled=false): same physical tree up to expression ids
+==== Q1p sum(d8) GROUP BY k over three partitions (partial and final)
+-- output schema: struct<k:bigint,sum(d8):decimal(18,2)>
+-- optimized logical plan
+Aggregate [k#2L], [k#2L, MakeDecimal(sum(UnscaledValue(d8#3)),18,2) AS sum(d8)#927]
++- Repartition 3, true
+   +- Project [k#2L, d8#3]
+      +- InMemoryRelation [rid#1L, k#2L, l#0L, d8#3, d9#4, d18#5], StorageLevel(disk, memory, deserialized, 1 replicas)
+-- interesting expressions per logical node
+    [Aggregate] makedecimal: decimal(18,2) <- bigint   makedecimal(sum(unscaledvalue(__auto_generated_subquery_name.d8)))
+    [Aggregate] unscaledvalue: bigint <- decimal(8,2)   unscaledvalue(__auto_generated_subquery_name.d8)
+-- physical plan (Varka session)
+*(2) HashAggregate(keys=[k#2L], functions=[sum(UnscaledValue(d8#3))], output=[k#2L, sum(d8)#927])
++- Exchange hashpartitioning(k#2L, 1), ENSURE_REQUIREMENTS, [plan_id=111]
+   +- *(1) HashAggregate(keys=[k#2L], functions=[partial_sum(UnscaledValue(d8#3))], output=[k#2L, sum#1019L])
+      +- Exchange RoundRobinPartitioning(3), REPARTITION_BY_NUM, [plan_id=101]
+         +- Scan In-memory table t [k#2L, d8#3]
+               +- InMemoryRelation [rid#1L, k#2L, l#0L, d8#3, d9#4, d18#5], StorageLevel(disk, memory, deserialized, 1 replicas)
+-- per physical node
+  HashAggregateExec groupingExpressions: __auto_generated_subquery_name.k
+  HashAggregateExec aggregate Final sum(UnscaledValue(d8#3)): bigint
+    buffer: sum:bigint
+    update: coalesce((coalesce(sum, 0L) + unscaledvalue(__auto_generated_subquery_name.d8)), sum) : bigint
+    merge: coalesce((coalesce(sum, 0L) + sum), sum) : bigint
+    evaluate: sum : bigint
+    [HashAggregateExec.update] add: bigint <- bigint, bigint   (coalesce(sum, 0L) + unscaledvalue(__auto_generated_subquery_name.d8))
+    [HashAggregateExec.update] unscaledvalue: bigint <- decimal(8,2)   unscaledvalue(__auto_generated_subquery_name.d8)
+    [HashAggregateExec.merge] add: bigint <- bigint, bigint   (coalesce(sum, 0L) + sum)
+  HashAggregateExec result: __auto_generated_subquery_name.k : bigint
+  HashAggregateExec result: makedecimal(`sum(UnscaledValue(d8#3))`) AS `sum(d8)` : decimal(18,2)
+    [HashAggregateExec.input] unscaledvalue: bigint <- decimal(8,2)   unscaledvalue(__auto_generated_subquery_name.d8)
+    [HashAggregateExec.result] makedecimal: decimal(18,2) <- bigint   makedecimal(`sum(UnscaledValue(d8#3))`)
+  HashAggregateExec groupingExpressions: __auto_generated_subquery_name.k
+  HashAggregateExec aggregate Partial sum(UnscaledValue(d8#3)): bigint
+    buffer: sum:bigint
+    update: coalesce((coalesce(sum, 0L) + unscaledvalue(__auto_generated_subquery_name.d8)), sum) : bigint
+    merge: coalesce((coalesce(sum, 0L) + sum), sum) : bigint
+    evaluate: sum : bigint
+    [HashAggregateExec.update] add: bigint <- bigint, bigint   (coalesce(sum, 0L) + unscaledvalue(__auto_generated_subquery_name.d8))
+    [HashAggregateExec.update] unscaledvalue: bigint <- decimal(8,2)   unscaledvalue(__auto_generated_subquery_name.d8)
+    [HashAggregateExec.merge] add: bigint <- bigint, bigint   (coalesce(sum, 0L) + sum)
+  HashAggregateExec result: __auto_generated_subquery_name.k : bigint
+  HashAggregateExec result: sum : bigint
+    [HashAggregateExec.input] unscaledvalue: bigint <- decimal(8,2)   unscaledvalue(__auto_generated_subquery_name.d8)
+-- Varka nodes in the plan: none
+-- plain session (spark.sql.codegen.varka.enabled=false): same physical tree up to expression ids
+==== Q2 sum(CAST(d8 AS DECIMAL(30, 2)))
+-- output schema: struct<sum(CAST(d8 AS DECIMAL(30,2))):decimal(38,2)>
+-- optimized logical plan
+Aggregate [MakeDecimal(sum(UnscaledValue(d8#3)),38,2) AS sum(CAST(d8 AS DECIMAL(30,2)))#1247]
++- Project [d8#3]
+   +- InMemoryRelation [rid#1L, k#2L, l#0L, d8#3, d9#4, d18#5], StorageLevel(disk, memory, deserialized, 1 replicas)
+-- interesting expressions per logical node
+    [Aggregate] makedecimal: decimal(38,2) <- bigint   makedecimal(sum(unscaledvalue(t.d8)))
+    [Aggregate] unscaledvalue: bigint <- decimal(8,2)   unscaledvalue(t.d8)
+-- physical plan (Varka session)
+*(1) HashAggregate(keys=[], functions=[sum(UnscaledValue(d8#3))], output=[sum(CAST(d8 AS DECIMAL(30,2)))#1247])
++- Scan In-memory table t [d8#3]
+      +- InMemoryRelation [rid#1L, k#2L, l#0L, d8#3, d9#4, d18#5], StorageLevel(disk, memory, deserialized, 1 replicas)
+-- per physical node
+  HashAggregateExec groupingExpressions: 
+  HashAggregateExec aggregate Complete sum(UnscaledValue(d8#3)): bigint
+    buffer: sum:bigint
+    update: coalesce((coalesce(sum, 0L) + unscaledvalue(t.d8)), sum) : bigint
+    merge: coalesce((coalesce(sum, 0L) + sum), sum) : bigint
+    evaluate: sum : bigint
+    [HashAggregateExec.update] add: bigint <- bigint, bigint   (coalesce(sum, 0L) + unscaledvalue(t.d8))
+    [HashAggregateExec.update] unscaledvalue: bigint <- decimal(8,2)   unscaledvalue(t.d8)
+    [HashAggregateExec.merge] add: bigint <- bigint, bigint   (coalesce(sum, 0L) + sum)
+  HashAggregateExec result: makedecimal(`sum(UnscaledValue(d8#3))`) AS `sum(CAST(d8 AS DECIMAL(30,2)))` : decimal(38,2)
+    [HashAggregateExec.input] unscaledvalue: bigint <- decimal(8,2)   unscaledvalue(t.d8)
+    [HashAggregateExec.result] makedecimal: decimal(38,2) <- bigint   makedecimal(`sum(UnscaledValue(d8#3))`)
+-- Varka nodes in the plan: none
+-- plain session (spark.sql.codegen.varka.enabled=false): same physical tree up to expression ids
+==== Q3 avg(d8)
+-- output schema: struct<avg(d8):decimal(12,6)>
+-- optimized logical plan
+Aggregate [cast((avg(UnscaledValue(d8#3)) / 100.0) as decimal(12,6)) AS avg(d8)#1565]
++- Project [d8#3]
+   +- InMemoryRelation [rid#1L, k#2L, l#0L, d8#3, d9#4, d18#5], StorageLevel(disk, memory, deserialized, 1 replicas)
+-- interesting expressions per logical node
+    [Aggregate] cast: decimal(12,6) <- double   CAST((avg(unscaledvalue(t.d8)) / 100.0D) AS DECIMAL(12,6))
+    [Aggregate] divide: double <- double, double   (avg(unscaledvalue(t.d8)) / 100.0D)
+    [Aggregate] unscaledvalue: bigint <- decimal(8,2)   unscaledvalue(t.d8)
+-- physical plan (Varka session)
+*(1) HashAggregate(keys=[], functions=[avg(UnscaledValue(d8#3))], output=[avg(d8)#1565])
++- Scan In-memory table t [d8#3]
+      +- InMemoryRelation [rid#1L, k#2L, l#0L, d8#3, d9#4, d18#5], StorageLevel(disk, memory, deserialized, 1 replicas)
+-- per physical node
+  HashAggregateExec groupingExpressions: 
+  HashAggregateExec aggregate Complete avg(UnscaledValue(d8#3)): double
+    buffer: sum:double, count:bigint
+    update: (sum + coalesce(CAST(unscaledvalue(t.d8) AS DOUBLE), 0.0D)) : double
+    update: (IF((unscaledvalue(t.d8) IS NULL), count, (count + 1L))) : bigint
+    merge: (sum + sum) : double
+    merge: (count + count) : bigint
+    evaluate: (sum / CAST(count AS DOUBLE)) : double
+    [HashAggregateExec.update] add: double <- double, double   (sum + coalesce(CAST(unscaledvalue(t.d8) AS DOUBLE), 0.0D))
+    [HashAggregateExec.update] unscaledvalue: bigint <- decimal(8,2)   unscaledvalue(t.d8)
+    [HashAggregateExec.update] unscaledvalue: bigint <- decimal(8,2)   unscaledvalue(t.d8)
+    [HashAggregateExec.update] add: bigint <- bigint, bigint   (count + 1L)
+    [HashAggregateExec.merge] add: double <- double, double   (sum + sum)
+    [HashAggregateExec.merge] add: bigint <- bigint, bigint   (count + count)
+    [HashAggregateExec.evaluate] divide: double <- double, double   (sum / CAST(count AS DOUBLE))
+  HashAggregateExec result: CAST((`avg(UnscaledValue(d8#3))` / 100.0D) AS DECIMAL(12,6)) AS `avg(d8)` : decimal(12,6)
+    [HashAggregateExec.input] unscaledvalue: bigint <- decimal(8,2)   unscaledvalue(t.d8)
+    [HashAggregateExec.result] cast: decimal(12,6) <- double   CAST((`avg(UnscaledValue(d8#3))` / 100.0D) AS DECIMAL(12,6))
+    [HashAggregateExec.result] divide: double <- double, double   (`avg(UnscaledValue(d8#3))` / 100.0D)
+-- Varka nodes in the plan: none
+-- plain session (spark.sql.codegen.varka.enabled=false): same physical tree up to expression ids
+==== Q4 sum(d8) OVER (PARTITION BY k ORDER BY rid ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)
+-- output schema: struct<rid:bigint,s:decimal(18,2)>
+-- optimized logical plan
+Project [rid#1L, s#1886]
++- Window [MakeDecimal(sum(UnscaledValue(d8#3)) windowspecdefinition(k#2L, rid#1L ASC NULLS FIRST, specifiedwindowframe(RowFrame, unboundedpreceding$(), currentrow$())),18,2) AS s#1886], [k#2L], [rid#1L ASC NULLS FIRST]
+   +- Project [rid#1L, d8#3, k#2L]
+      +- InMemoryRelation [rid#1L, k#2L, l#0L, d8#3, d9#4, d18#5], StorageLevel(disk, memory, deserialized, 1 replicas)
+-- interesting expressions per logical node
+    [Window] makedecimal: decimal(18,2) <- bigint   makedecimal(sum(unscaledvalue(t.d8)) OVER (PARTITION BY t.k ORDER BY t.rid ASC NULLS FIRST ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW))
+    [Window] unscaledvalue: bigint <- decimal(8,2)   unscaledvalue(t.d8)
+-- physical plan (Varka session)
+*(2) Project [rid#1L, s#1886]
++- Window [MakeDecimal(sum(UnscaledValue(d8#3)) windowspecdefinition(k#2L, rid#1L ASC NULLS FIRST, specifiedwindowframe(RowFrame, unboundedpreceding$(), currentrow$())),18,2) AS s#1886], [k#2L], [rid#1L ASC NULLS FIRST]
+   +- *(1) Sort [k#2L ASC NULLS FIRST, rid#1L ASC NULLS FIRST], false, 0
+      +- Scan In-memory table t [rid#1L, d8#3, k#2L]
+            +- InMemoryRelation [rid#1L, k#2L, l#0L, d8#3, d9#4, d18#5], StorageLevel(disk, memory, deserialized, 1 replicas)
+-- per physical node
+  ProjectExec: t.rid, s
+  WindowExec windowExpression: makedecimal(sum(unscaledvalue(t.d8)) OVER (PARTITION BY t.k ORDER BY t.rid ASC NULLS FIRST ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)) AS s : decimal(18,2)
+    [WindowExec] makedecimal: decimal(18,2) <- bigint   makedecimal(sum(unscaledvalue(t.d8)) OVER (PARTITION BY t.k ORDER BY t.rid ASC NULLS FIRST ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW))
+    [WindowExec] unscaledvalue: bigint <- decimal(8,2)   unscaledvalue(t.d8)
+-- Varka nodes in the plan: none
+-- plain session (spark.sql.codegen.varka.enabled=false): same physical tree up to expression ids
+==== Q4b avg(d8) OVER (PARTITION BY k ORDER BY rid ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)
+-- output schema: struct<rid:bigint,a:decimal(12,6)>
+-- optimized logical plan
+Project [rid#1L, a#2142]
++- Window [cast((avg(UnscaledValue(d8#3)) windowspecdefinition(k#2L, rid#1L ASC NULLS FIRST, specifiedwindowframe(RowFrame, unboundedpreceding$(), currentrow$())) / 100.0) as decimal(12,6)) AS a#2142], [k#2L], [rid#1L ASC NULLS FIRST]
+   +- Project [rid#1L, d8#3, k#2L]
+      +- InMemoryRelation [rid#1L, k#2L, l#0L, d8#3, d9#4, d18#5], StorageLevel(disk, memory, deserialized, 1 replicas)
+-- interesting expressions per logical node
+    [Window] cast: decimal(12,6) <- double   CAST((avg(unscaledvalue(t.d8)) OVER (PARTITION BY t.k ORDER BY t.rid ASC NULLS FIRST ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) / 100.0D) AS DECIMAL(12,6
+    [Window] divide: double <- double, double   (avg(unscaledvalue(t.d8)) OVER (PARTITION BY t.k ORDER BY t.rid ASC NULLS FIRST ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) / 100.0D)
+    [Window] unscaledvalue: bigint <- decimal(8,2)   unscaledvalue(t.d8)
+-- physical plan (Varka session)
+*(2) Project [rid#1L, a#2142]
++- Window [cast((avg(UnscaledValue(d8#3)) windowspecdefinition(k#2L, rid#1L ASC NULLS FIRST, specifiedwindowframe(RowFrame, unboundedpreceding$(), currentrow$())) / 100.0) as decimal(12,6)) AS a#2142], [k#2L], [rid#1L ASC NULLS FIRST]
+   +- *(1) Sort [k#2L ASC NULLS FIRST, rid#1L ASC NULLS FIRST], false, 0
+      +- Scan In-memory table t [rid#1L, d8#3, k#2L]
+            +- InMemoryRelation [rid#1L, k#2L, l#0L, d8#3, d9#4, d18#5], StorageLevel(disk, memory, deserialized, 1 replicas)
+-- per physical node
+  ProjectExec: t.rid, a
+  WindowExec windowExpression: CAST((avg(unscaledvalue(t.d8)) OVER (PARTITION BY t.k ORDER BY t.rid ASC NULLS FIRST ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) / 100.0D) AS DECIMAL(12,6)) AS a : decimal(12,6)
+    [WindowExec] cast: decimal(12,6) <- double   CAST((avg(unscaledvalue(t.d8)) OVER (PARTITION BY t.k ORDER BY t.rid ASC NULLS FIRST ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) / 100.0D) AS DECIMAL(12,6
+    [WindowExec] divide: double <- double, double   (avg(unscaledvalue(t.d8)) OVER (PARTITION BY t.k ORDER BY t.rid ASC NULLS FIRST ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) / 100.0D)
+    [WindowExec] unscaledvalue: bigint <- decimal(8,2)   unscaledvalue(t.d8)
+-- Varka nodes in the plan: none
+-- plain session (spark.sql.codegen.varka.enabled=false): same physical tree up to expression ids
+==== Q4c sum(CAST(d8 AS DECIMAL(30, 2))) OVER (PARTITION BY k ORDER BY rid ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)
+-- output schema: struct<rid:bigint,s:decimal(38,2)>
+-- optimized logical plan
+Project [rid#1L, s#2400]
++- Window [sum(_w0#2402) windowspecdefinition(k#2L, rid#1L ASC NULLS FIRST, specifiedwindowframe(RowFrame, unboundedpreceding$(), currentrow$())) AS s#2400], [k#2L], [rid#1L ASC NULLS FIRST]
+   +- Project [rid#1L, cast(d8#3 as decimal(30,2)) AS _w0#2402, k#2L]
+      +- InMemoryRelation [rid#1L, k#2L, l#0L, d8#3, d9#4, d18#5], StorageLevel(disk, memory, deserialized, 1 replicas)
+-- interesting expressions per logical node
+    [Project] cast: decimal(30,2) <- decimal(8,2)   CAST(t.d8 AS DECIMAL(30,2))
+-- physical plan (Varka session)
+*(2) Project [rid#1L, s#2400]
++- Window [sum(_w0#2402) windowspecdefinition(k#2L, rid#1L ASC NULLS FIRST, specifiedwindowframe(RowFrame, unboundedpreceding$(), currentrow$())) AS s#2400], [k#2L], [rid#1L ASC NULLS FIRST]
+   +- *(1) Sort [k#2L ASC NULLS FIRST, rid#1L ASC NULLS FIRST], false, 0
+      +- *(1) Project [rid#1L, cast(d8#3 as decimal(30,2)) AS _w0#2402, k#2L]
+         +- Scan In-memory table t [d8#3, k#2L, rid#1L]
+               +- InMemoryRelation [rid#1L, k#2L, l#0L, d8#3, d9#4, d18#5], StorageLevel(disk, memory, deserialized, 1 replicas)
+-- per physical node
+  ProjectExec: t.rid, s
+  WindowExec windowExpression: sum(_w0) OVER (PARTITION BY t.k ORDER BY t.rid ASC NULLS FIRST ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS s : decimal(38,2)
+  ProjectExec: t.rid, CAST(t.d8 AS DECIMAL(30,2)) AS _w0, t.k
+    [ProjectExec] cast: decimal(30,2) <- decimal(8,2)   CAST(t.d8 AS DECIMAL(30,2))
+-- Varka nodes in the plan: none
+-- plain session (spark.sql.codegen.varka.enabled=false): same physical tree up to expression ids
+==== X1 sum(d18) (no DecimalAggregates rewrite)
+-- output schema: struct<sum(d18):decimal(28,2)>
+-- optimized logical plan
+Aggregate [sum(d18#5) AS sum(d18)#2661]
++- Project [d18#5]
+   +- InMemoryRelation [rid#1L, k#2L, l#0L, d8#3, d9#4, d18#5], StorageLevel(disk, memory, deserialized, 1 replicas)
+-- interesting expressions per logical node
+-- physical plan (Varka session)
+*(1) HashAggregate(keys=[], functions=[sum(d18#5)], output=[sum(d18)#2661])
++- Scan In-memory table t [d18#5]
+      +- InMemoryRelation [rid#1L, k#2L, l#0L, d8#3, d9#4, d18#5], StorageLevel(disk, memory, deserialized, 1 replicas)
+-- per physical node
+  HashAggregateExec groupingExpressions: 
+  HashAggregateExec aggregate Complete sum(d18#5): decimal(28,2)
+    buffer: sum:decimal(28,2), isEmpty:boolean
+    update: (IF((t.d18 IS NULL), sum, (sum + CAST(knownnotnull(t.d18) AS DECIMAL(28,2))))) : decimal(28,2)
+    update: (isEmpty AND (t.d18 IS NULL)) : boolean
+    merge: (IF((((NOT isEmpty) AND (sum IS NULL)) OR ((NOT isEmpty) AND (sum IS NULL))), CAST(NULL AS DECIMAL(28,2)), (knownnotnull(sum) + knownnotnull(sum)))) : decimal(28,2)
+    merge: (isEmpty AND isEmpty) : boolean
+    evaluate: (IF(isEmpty, CAST(NULL AS DECIMAL(28,2)), sum)) : decimal(28,2)
+    [HashAggregateExec.update] cast: decimal(28,2) <- decimal(18,2)   CAST(knownnotnull(t.d18) AS DECIMAL(28,2))
+  HashAggregateExec result: `sum(d18#5)` AS `sum(d18)` : decimal(28,2)
+-- Varka nodes in the plan: none
+-- plain session (spark.sql.codegen.varka.enabled=false): same physical tree up to expression ids
+==== X2 avg(d18) (no DecimalAggregates rewrite)
+-- output schema: struct<avg(d18):decimal(22,6)>
+-- optimized logical plan
+Aggregate [avg(d18#5) AS avg(d18)#2983]
++- Project [d18#5]
+   +- InMemoryRelation [rid#1L, k#2L, l#0L, d8#3, d9#4, d18#5], StorageLevel(disk, memory, deserialized, 1 replicas)
+-- interesting expressions per logical node
+-- physical plan (Varka session)
+*(1) HashAggregate(keys=[], functions=[avg(d18#5)], output=[avg(d18)#2983])
++- Scan In-memory table t [d18#5]
+      +- InMemoryRelation [rid#1L, k#2L, l#0L, d8#3, d9#4, d18#5], StorageLevel(disk, memory, deserialized, 1 replicas)
+-- per physical node
+  HashAggregateExec groupingExpressions: 
+  HashAggregateExec aggregate Complete avg(d18#5): decimal(22,6)
+    buffer: sum:decimal(28,2), count:bigint
+    update: (sum + coalesce(CAST(t.d18 AS DECIMAL(28,2)), 0.00BD)) : decimal(28,2)
+    update: (IF((t.d18 IS NULL), count, (count + 1L))) : bigint
+    merge: (sum + sum) : decimal(28,2)
+    merge: (count + count) : bigint
+    evaluate: (IF((count = 0L), CAST(NULL AS DECIMAL(22,6)), decimaldividewithoverflowcheck(sum, CAST(count AS DECIMAL(20,0))))) : decimal(22,6)
+    [HashAggregateExec.update] cast: decimal(28,2) <- decimal(18,2)   CAST(t.d18 AS DECIMAL(28,2))
+    [HashAggregateExec.update] add: bigint <- bigint, bigint   (count + 1L)
+    [HashAggregateExec.merge] add: bigint <- bigint, bigint   (count + count)
+    [HashAggregateExec.evaluate] cast: decimal(20,0) <- bigint   CAST(count AS DECIMAL(20,0))
+  HashAggregateExec result: `avg(d18#5)` AS `avg(d18)` : decimal(22,6)
+-- Varka nodes in the plan: none
+-- plain session (spark.sql.codegen.varka.enabled=false): same physical tree up to expression ids
+==== X3 sum(d8 * d9) (arithmetic in an aggregate's input)
+-- output schema: struct<sum((d8 * d9)):decimal(28,4)>
+-- optimized logical plan
+Aggregate [sum((d8#3 * d9#4)) AS sum((d8 * d9))#3305]
++- Project [d8#3, d9#4]
+   +- InMemoryRelation [rid#1L, k#2L, l#0L, d8#3, d9#4, d18#5], StorageLevel(disk, memory, deserialized, 1 replicas)
+-- interesting expressions per logical node
+    [Aggregate] multiply: decimal(18,4) <- decimal(8,2), decimal(9,2)   (t.d8 * t.d9)
+-- physical plan (Varka session)
+*(1) HashAggregate(keys=[], functions=[sum((d8#3 * d9#4))], output=[sum((d8 * d9))#3305])
++- Scan In-memory table t [d8#3, d9#4]
+      +- InMemoryRelation [rid#1L, k#2L, l#0L, d8#3, d9#4, d18#5], StorageLevel(disk, memory, deserialized, 1 replicas)
+-- per physical node
+  HashAggregateExec groupingExpressions: 
+  HashAggregateExec aggregate Complete sum((d8#3 * d9#4)): decimal(28,4)
+    buffer: sum:decimal(28,4), isEmpty:boolean
+    update: (IF(((t.d8 * t.d9) IS NULL), sum, (sum + CAST(knownnotnull((t.d8 * t.d9)) AS DECIMAL(28,4))))) : decimal(28,4)
+    update: (isEmpty AND ((t.d8 * t.d9) IS NULL)) : boolean
+    merge: (IF((((NOT isEmpty) AND (sum IS NULL)) OR ((NOT isEmpty) AND (sum IS NULL))), CAST(NULL AS DECIMAL(28,4)), (knownnotnull(sum) + knownnotnull(sum)))) : decimal(28,4)
+    merge: (isEmpty AND isEmpty) : boolean
+    evaluate: (IF(isEmpty, CAST(NULL AS DECIMAL(28,4)), sum)) : decimal(28,4)
+    [HashAggregateExec.update] multiply: decimal(18,4) <- decimal(8,2), decimal(9,2)   (t.d8 * t.d9)
+    [HashAggregateExec.update] cast: decimal(28,4) <- decimal(18,4)   CAST(knownnotnull((t.d8 * t.d9)) AS DECIMAL(28,4))
+    [HashAggregateExec.update] multiply: decimal(18,4) <- decimal(8,2), decimal(9,2)   (t.d8 * t.d9)
+    [HashAggregateExec.update] multiply: decimal(18,4) <- decimal(8,2), decimal(9,2)   (t.d8 * t.d9)
+  HashAggregateExec result: `sum((d8#3 * d9#4))` AS `sum((d8 * d9))` : decimal(28,4)
+    [HashAggregateExec.input] multiply: decimal(18,4) <- decimal(8,2), decimal(9,2)   (t.d8 * t.d9)
+-- Varka nodes in the plan: none
+-- plain session (spark.sql.codegen.varka.enabled=false): same physical tree up to expression ids
+==== X4 d8 + d9 as a grouping key
+-- output schema: struct<g:decimal(10,2),count(1):bigint>
+-- optimized logical plan
+Aggregate [_groupingexpression#3691], [_groupingexpression#3691 AS g#3626, count(1) AS count(1)#3628L]
++- Project [(d8#3 + d9#4) AS _groupingexpression#3691]
+   +- InMemoryRelation [rid#1L, k#2L, l#0L, d8#3, d9#4, d18#5], StorageLevel(disk, memory, deserialized, 1 replicas)
+-- interesting expressions per logical node
+    [Project] add: decimal(10,2) <- decimal(8,2), decimal(9,2)   (t.d8 + t.d9)
+-- physical plan (Varka session)
+*(1) HashAggregate(keys=[_groupingexpression#3691], functions=[count(1)], output=[g#3626, count(1)#3628L])
++- *(1) Project [(d8#3 + d9#4) AS _groupingexpression#3691]
+   +- Scan In-memory table t [d8#3, d9#4]
+         +- InMemoryRelation [rid#1L, k#2L, l#0L, d8#3, d9#4, d18#5], StorageLevel(disk, memory, deserialized, 1 replicas)
+-- per physical node
+  HashAggregateExec groupingExpressions: _groupingexpression
+  HashAggregateExec aggregate Complete count(1): bigint
+    buffer: count:bigint
+    update: (count + 1L) : bigint
+    merge: (count + count) : bigint
+    evaluate: count : bigint
+    [HashAggregateExec.update] add: bigint <- bigint, bigint   (count + 1L)
+    [HashAggregateExec.merge] add: bigint <- bigint, bigint   (count + count)
+  HashAggregateExec result: _groupingexpression AS g : decimal(10,2)
+  HashAggregateExec result: `count(1)` AS `count(1)` : bigint
+  ProjectExec: (t.d8 + t.d9) AS _groupingexpression
+    [ProjectExec] add: decimal(10,2) <- decimal(8,2), decimal(9,2)   (t.d8 + t.d9)
+-- Varka nodes in the plan: none
+-- plain session (spark.sql.codegen.varka.enabled=false): same physical tree up to expression ids
+==== X5 sum(d8 + d9) over a filter
+-- output schema: struct<sum((d8 + d9)):decimal(20,2)>
+-- optimized logical plan
+Aggregate [sum((d8#3 + d9#4)) AS sum((d8 + d9))#3953]
++- Project [d8#3, d9#4]
+   +- Filter ((isnotnull(d8#3) AND isnotnull(d9#4)) AND ((d8#3 * d9#4) > 0.0000))
+      +- InMemoryRelation [rid#1L, k#2L, l#0L, d8#3, d9#4, d18#5], StorageLevel(disk, memory, deserialized, 1 replicas)
+-- interesting expressions per logical node
+    [Aggregate] add: decimal(10,2) <- decimal(8,2), decimal(9,2)   (t.d8 + t.d9)
+    [Filter] multiply: decimal(18,4) <- decimal(8,2), decimal(9,2)   (t.d8 * t.d9)
+-- physical plan (Varka session)
+*(1) HashAggregate(keys=[], functions=[sum((d8#3 + d9#4))], output=[sum((d8 + d9))#3953])
++- *(1) Filter ((d8#3 * d9#4) > 0.0000)
+   +- VarkaFilterColumnarToRow (isnotnull(d8#3) AND isnotnull(d9#4)), ((isnotnull(d8#3) AND isnotnull(d9#4)) AND ((d8#3 * d9#4) > 0.0000))
+      +- Scan In-memory table t [d8#3, d9#4], [isnotnull(d8#3), isnotnull(d9#4), ((d8#3 * d9#4) > 0.0000)]
+            +- InMemoryRelation [rid#1L, k#2L, l#0L, d8#3, d9#4, d18#5], StorageLevel(disk, memory, deserialized, 1 replicas)
+-- per physical node
+  HashAggregateExec groupingExpressions: 
+  HashAggregateExec aggregate Complete sum((d8#3 + d9#4)): decimal(20,2)
+    buffer: sum:decimal(20,2), isEmpty:boolean
+    update: (IF(((t.d8 + t.d9) IS NULL), sum, (sum + CAST(knownnotnull((t.d8 + t.d9)) AS DECIMAL(20,2))))) : decimal(20,2)
+    update: (isEmpty AND ((t.d8 + t.d9) IS NULL)) : boolean
+    merge: (IF((((NOT isEmpty) AND (sum IS NULL)) OR ((NOT isEmpty) AND (sum IS NULL))), CAST(NULL AS DECIMAL(20,2)), (knownnotnull(sum) + knownnotnull(sum)))) : decimal(20,2)
+    merge: (isEmpty AND isEmpty) : boolean
+    evaluate: (IF(isEmpty, CAST(NULL AS DECIMAL(20,2)), sum)) : decimal(20,2)
+    [HashAggregateExec.update] add: decimal(10,2) <- decimal(8,2), decimal(9,2)   (t.d8 + t.d9)
+    [HashAggregateExec.update] cast: decimal(20,2) <- decimal(10,2)   CAST(knownnotnull((t.d8 + t.d9)) AS DECIMAL(20,2))
+    [HashAggregateExec.update] add: decimal(10,2) <- decimal(8,2), decimal(9,2)   (t.d8 + t.d9)
+    [HashAggregateExec.update] add: decimal(10,2) <- decimal(8,2), decimal(9,2)   (t.d8 + t.d9)
+  HashAggregateExec result: `sum((d8#3 + d9#4))` AS `sum((d8 + d9))` : decimal(20,2)
+    [HashAggregateExec.input] add: decimal(10,2) <- decimal(8,2), decimal(9,2)   (t.d8 + t.d9)
+  FilterExec: ((t.d8 * t.d9) > 0.0000BD)
+    [FilterExec] multiply: decimal(18,4) <- decimal(8,2), decimal(9,2)   (t.d8 * t.d9)
+    [VarkaFilterColumnarToRowExec] multiply: decimal(18,4) <- decimal(8,2), decimal(9,2)   (t.d8 * t.d9)
+    [InMemoryTableScanExec] multiply: decimal(18,4) <- decimal(8,2), decimal(9,2)   (t.d8 * t.d9)
+-- Varka nodes in the plan: VarkaFilterColumnarToRow
+-- plain session (spark.sql.codegen.varka.enabled=false): differs:
+*(1) HashAggregate(keys=[], functions=[sum((d8# + d9#))], output=[sum((d8 + d9))#])
++- *(1) Filter ((isnotnull(d8#) AND isnotnull(d9#)) AND ((d8# * d9#) > 0.0000))
+   +- Scan In-memory table t [d8#, d9#], [isnotnull(d8#), isnotnull(d9#), ((d8# * d9#) > 0.0000)]
+         +- InMemoryRelation [rid#L, k#L, l#L, d8#, d9#, d18#], StorageLevel(disk, memory, deserialized, 1 replicas)
+==== D1 Dataset[java.math.BigDecimal] map(x => x.multiply(x))
+-- output schema: struct<value:decimal(38,18)>
+-- optimized logical plan
+SerializeFromObject [CheckOverflow(static_invoke(Decimal.apply(input[0, java.math.BigDecimal, true])), DecimalType(38,18)) AS value#4283]
++- MapElements org.apache.spark.sql.execution.benchmark.Varka349ReachabilitySuite$$Lambda/0x00000000922c8980@6c7faf6b, class java.math.BigDecimal, [StructField(value,DecimalType(38,18),true)], obj#4281: java.math.BigDecimal
+   +- DeserializeToObject invoke(d8#3.toJavaBigDecimal()), obj#4279: java.math.BigDecimal
+      +- Project [d8#3]
+         +- InMemoryRelation [rid#1L, k#2L, l#0L, d8#3, d9#4, d18#5], StorageLevel(disk, memory, deserialized, 1 replicas)
+-- interesting expressions per logical node
+    [SerializeFromObject] checkoverflow: decimal(38,18) <- decimal(38,18)   static_invoke(Decimal.apply(input[0, java.math.BigDecimal, true]))
+-- physical plan (Varka session)
+*(1) SerializeFromObject [CheckOverflow(static_invoke(Decimal.apply(input[0, java.math.BigDecimal, true])), DecimalType(38,18)) AS value#4283]
++- *(1) MapElements org.apache.spark.sql.execution.benchmark.Varka349ReachabilitySuite$$Lambda/0x00000000922c8980@6c7faf6b, obj#4281: java.math.BigDecimal
+   +- *(1) DeserializeToObject invoke(d8#3.toJavaBigDecimal()), obj#4279: java.math.BigDecimal
+      +- Scan In-memory table t [d8#3]
+            +- InMemoryRelation [rid#1L, k#2L, l#0L, d8#3, d9#4, d18#5], StorageLevel(disk, memory, deserialized, 1 replicas)
+-- per physical node
+  SerializeFromObjectExec serializer: static_invoke(Decimal.apply(input[0, java.math.BigDecimal, true])) AS value : decimal(38,18)
+    [SerializeFromObjectExec] checkoverflow: decimal(38,18) <- decimal(38,18)   static_invoke(Decimal.apply(input[0, java.math.BigDecimal, true]))
+-- Varka nodes in the plan: none
+-- plain session (spark.sql.codegen.varka.enabled=false): same physical tree up to expression ids
+==== D2 Dataset[scala BigDecimal] map(x => x + x)
+-- output schema: struct<value:decimal(38,18)>
+-- optimized logical plan
+SerializeFromObject [CheckOverflow(static_invoke(Decimal.apply(input[0, scala.math.BigDecimal, true])), DecimalType(38,18)) AS value#4549]
++- MapElements org.apache.spark.sql.execution.benchmark.Varka349ReachabilitySuite$$Lambda/0x00000000922dc000@4682ad6b, class scala.math.BigDecimal, [StructField(value,DecimalType(38,18),true)], obj#4547: scala.math.BigDecimal
+   +- DeserializeToObject invoke(d8#3.toBigDecimal()), obj#4545: scala.math.BigDecimal
+      +- Project [d8#3]
+         +- InMemoryRelation [rid#1L, k#2L, l#0L, d8#3, d9#4, d18#5], StorageLevel(disk, memory, deserialized, 1 replicas)
+-- interesting expressions per logical node
+    [SerializeFromObject] checkoverflow: decimal(38,18) <- decimal(38,18)   static_invoke(Decimal.apply(input[0, scala.math.BigDecimal, true]))
+-- physical plan (Varka session)
+*(1) SerializeFromObject [CheckOverflow(static_invoke(Decimal.apply(input[0, scala.math.BigDecimal, true])), DecimalType(38,18)) AS value#4549]
++- *(1) MapElements org.apache.spark.sql.execution.benchmark.Varka349ReachabilitySuite$$Lambda/0x00000000922dc000@4682ad6b, obj#4547: scala.math.BigDecimal
+   +- *(1) DeserializeToObject invoke(d8#3.toBigDecimal()), obj#4545: scala.math.BigDecimal
+      +- Scan In-memory table t [d8#3]
+            +- InMemoryRelation [rid#1L, k#2L, l#0L, d8#3, d9#4, d18#5], StorageLevel(disk, memory, deserialized, 1 replicas)
+-- per physical node
+  SerializeFromObjectExec serializer: static_invoke(Decimal.apply(input[0, scala.math.BigDecimal, true])) AS value : decimal(38,18)
+    [SerializeFromObjectExec] checkoverflow: decimal(38,18) <- decimal(38,18)   static_invoke(Decimal.apply(input[0, scala.math.BigDecimal, true]))
+-- Varka nodes in the plan: none
+-- plain session (spark.sql.codegen.varka.enabled=false): same physical tree up to expression ids
+==== D5 Dataset[Row] map(identity)(Encoders.row(d8 DECIMAL(8, 2)))
+-- output schema: struct<d8:decimal(8,2)>
+-- optimized logical plan
+SerializeFromObject [if (invoke(assertnotnull(input[0, org.apache.spark.sql.Row, true]).isNullAt(0))) null else CheckOverflow(static_invoke(Decimal.fromDecimal(validateexternaltype(getexternalrowfield(assertnotnull(input[0, org.apache.spark.sql.Row, true]), 0, d8), DecimalType(8,2), ObjectType(class java.lang.Object)))), DecimalType(8,2)) AS d8#4812]
++- MapElements org.apache.spark.sql.execution.benchmark.Varka349ReachabilitySuite$$Lambda/0x00000000922ddd48@207b85a0, interface org.apache.spark.sql.Row, [StructField(d8,DecimalType(8,2),true)], obj#4810: org.apache.spark.sql.Row
+   +- DeserializeToObject createexternalrow(invoke(d8#3.toJavaBigDecimal()), StructField(d8,DecimalType(8,2),true)), obj#4808: org.apache.spark.sql.Row
+      +- Project [d8#3]
+         +- InMemoryRelation [rid#1L, k#2L, l#0L, d8#3, d9#4, d18#5], StorageLevel(disk, memory, deserialized, 1 replicas)
+-- interesting expressions per logical node
+    [SerializeFromObject] checkoverflow: decimal(8,2) <- decimal(8,2)   static_invoke(Decimal.fromDecimal(validateexternaltype(getexternalrowfield(assertnotnull(input[0, org.apache.spark.sql.Row, true]), 0, d8), DecimalType(8,2), Ob
+-- physical plan (Varka session)
+*(1) SerializeFromObject [if (invoke(assertnotnull(input[0, org.apache.spark.sql.Row, true]).isNullAt(0))) null else CheckOverflow(static_invoke(Decimal.fromDecimal(validateexternaltype(getexternalrowfield(assertnotnull(input[0, org.apache.spark.sql.Row, true]), 0, d8), DecimalType(8,2), ObjectType(class java.lang.Object)))), DecimalType(8,2)) AS d8#4812]
++- *(1) MapElements org.apache.spark.sql.execution.benchmark.Varka349ReachabilitySuite$$Lambda/0x00000000922ddd48@207b85a0, obj#4810: org.apache.spark.sql.Row
+   +- *(1) DeserializeToObject createexternalrow(invoke(d8#3.toJavaBigDecimal()), StructField(d8,DecimalType(8,2),true)), obj#4808: org.apache.spark.sql.Row
+      +- Scan In-memory table t [d8#3]
+            +- InMemoryRelation [rid#1L, k#2L, l#0L, d8#3, d9#4, d18#5], StorageLevel(disk, memory, deserialized, 1 replicas)
+-- per physical node
+  SerializeFromObjectExec serializer: (IF(invoke(assertnotnull(input[0, org.apache.spark.sql.Row, true]).isNullAt(0)), CAST(NULL AS DECIMAL(8,2)), static_invoke(Decimal.fromDecimal(validateexternaltype(getexternalrowfield(assertnotnull(input[0, org.apache.spark.sql.Row, true]), 0, d8), DecimalType(8,2), ObjectType(class java.lang.Object)))))) AS d8 : decimal(8,2)
+    [SerializeFromObjectExec] checkoverflow: decimal(8,2) <- decimal(8,2)   static_invoke(Decimal.fromDecimal(validateexternaltype(getexternalrowfield(assertnotnull(input[0, org.apache.spark.sql.Row, true]), 0, d8), DecimalType(8,2), Ob
+-- Varka nodes in the plan: none
+-- plain session (spark.sql.codegen.varka.enabled=false): same physical tree up to expression ids
+==== D3 Seq[BigDecimal].toDS() (encoded on the driver)
+-- output schema: struct<value:decimal(38,18)>
+-- optimized logical plan
+LocalRelation [value#5067]
+-- interesting expressions per logical node
+-- physical plan (Varka session)
+LocalTableScan [value#5067]
+-- per physical node
+-- Varka nodes in the plan: none
+-- plain session (spark.sql.codegen.varka.enabled=false): same physical tree up to expression ids
+==== D4 Dataset[BigDecimal] select(value + value) (SQL over the encoded column)
+-- output schema: struct<(value + value):decimal(38,17)>
+-- optimized logical plan
+LocalRelation [(value + value)#5082]
+-- interesting expressions per logical node
+-- physical plan (Varka session)
+LocalTableScan [(value + value)#5082]
+-- per physical node
+-- Varka nodes in the plan: none
+-- plain session (spark.sql.codegen.varka.enabled=false): same physical tree up to expression ids
+[info] - VARKA-349 reachability (6 seconds, 758 milliseconds)
+===== POSSIBLE THREAD LEAK IN SUITE o.a.s.sql.execution.benchmark.Varka349ReachabilitySuite, threads: shuffle-boss-6-1 (daemon=true), Cleaner-0 (daemon=true), files-client-8-1 (daemon=true), rpc-boss-3-1 (daemon=true) =====
+[info] Run completed in 7 seconds, 659 milliseconds.
+[info] Total number of tests run: 1
+[info] Suites: completed 1, aborted 0
