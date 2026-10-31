@@ -323,6 +323,21 @@ suites, as for every landed form.
    it comes and goes with the draw), and the planted-rollback search took composition 17, whose
    overflow the configuration already breaks unplanted, so it now counts only a composition that
    agrees without the plant.
+   *1 November 2026 (review of that fix):* three of its choices were replaced. The skip line came
+   and went with the draw and matched only by a name embedding the seed and the iteration count,
+   so it is gone again: under `checkIntOverflow=false` the Spark fuzzer reruns a disagreeing
+   composition with the check forced on, everything else equal, and counts one that then agrees
+   as a configuration wrap in its summary (the main test, the warmed arm and the pivot test); one
+   that still disagrees is a finding, shrunk with the check on. The planted-rollback search passed
+   over every composition that disagreed unplanted, even where the plant added a disagreement of
+   its own; it now compares, per forced output, the planted kind with the unplanted one, and the
+   warmed test runs its replay unplanted first and requires it to agree (under the same rerun
+   rule). It still finds composition 86, output 1, under the defaults, `arrowBatchSize=1` and
+   `checkIntOverflow=false`. And the shortcut moved into the verdict: `Guards` carries the
+   column sets (`VarkaBodyEmitter.shortcutColumnSets`, the one helper both driver forms emit
+   from), `verdict()` returns `Verdict.SHORTCUT` for a batch the shortcut takes, so every caller
+   gets the batch's answer, and `VarkaDomains` reports a partition outside the domain that the
+   shortcut answers whole, since its guard then went unexercised.
 
 ## 4. Predictions and costs
 
