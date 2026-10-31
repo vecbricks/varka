@@ -360,7 +360,15 @@ Predictions, registered before any of it is built:
    `varka-width-audit.yml` dispatch for the runner columns. Bytes unchanged for every existing
    shape.
 3. **157b, the producers:** 2.3's lowerings and proof rows, the harness and coverage rows, the
-   exhaustive check, the store's arms in the benchmark and the verdict per width.
+   exhaustive check, the store's arms in the benchmark and the verdict per width. *Added 31
+   October 2026, from 157a's review:* 157b also wires `VarkaDecimalCompiler.outputRoot` into the
+   producers' lowerings as the plan-time refusal of a decimal output the store cannot write, so
+   that a precision above 18 or a negative scale declines before it fuses rather than at the
+   allocator's assertion; and it restores `decimalStore`'s option-matrix configuration
+   (`decimalStore=SELECT_FROM`), which 157a drops on purpose while no end-to-end path builds a
+   `WidenDecimal`, either by taking the option out of `readOnlyBy` or by having
+   `VarkaMatrixRuns.configurations` include an option some producer's node reaches, and pins both
+   of its arms in `emitted_bytes.json` over the new coverage rows.
 
 | file | what |
 |---|---|
