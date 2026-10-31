@@ -118,6 +118,27 @@ class VarkaSparkFuzzSuite extends VarkaSparkDifferential {
     else if (forceAll) c.outputs.indices
     else Seq(it % c.outputs.size)
 
+  /** Whether the run's options turn the int overflow check off, as a matrix configuration does. */
+  private def overflowUnchecked: Boolean =
+    !VarkaColumnarToRowExec.currentEmitOptions.checkIntOverflow
+
+  /** Runs `body` with the int overflow check on and every other option as the run has it. */
+  private def withOverflowChecked[T](body: => T): T = {
+    val previous = VarkaColumnarToRowExec.currentEmitOptions
+    VarkaColumnarToRowExec.setEmitOptionsForTesting(previous.withCheckIntOverflow(true))
+    try body finally VarkaColumnarToRowExec.setEmitOptionsForTesting(previous)
+  }
+
+  /**
+   * Whether a disagreement `check` showed is the configuration's by design: with the overflow
+   * check off an overflowing lane wraps where the row engine raises or nulls, so a composition
+   * that disagrees there and agrees once the check is on, everything else equal, is a
+   * configuration wrap rather than a finding. Asked only after a disagreement, so a run at the
+   * defaults never pays for it, and not counted in the census.
+   */
+  private def configurationWrap(check: => Option[String]): Boolean =
+    overflowUnchecked && withoutCounting(withOverflowChecked(check)).isEmpty
+
   /**
    * The failure text of composition `it`, which showed `found`: the case shrunk, its reproducer
    * written under `target/varka-sparkfuzz/`, and the kind with the reproducer in one message. The
@@ -156,12 +177,17 @@ class VarkaSparkFuzzSuite extends VarkaSparkDifferential {
     var nested = 0
     var nestedErrored = 0
     var nestedFailed = 0
+    var wraps = 0
     val range = onlyIteration.map(k => k to k).getOrElse(0 until iterations)
     for (it <- range if failures.size < maxFailures) {
       val c = rectify(draw(rows, seed, it))
       val partitions = it % partitionEvery == 0
       val errorsBefore = bothErrored
-      val result = kindOf(c, partitions, forcesOf(c, it))
+      val result = kindOf(c, partitions, forcesOf(c, it)).filter { _ =>
+        val wrap = configurationWrap(kindOf(c, partitions, forcesOf(c, it)))
+        if (wrap) wraps += 1
+        !wrap
+      }
       val key = (if (it % 2 == 0) "safe" else "full") + (if (c.ansi) " ANSI on" else " ANSI off")
       pool(key) = pool.getOrElse(key, (0, 0)) match {
         case (n, e) => (n + 1, e + (if (bothErrored > errorsBefore) 1 else 0))
@@ -173,10 +199,21 @@ class VarkaSparkFuzzSuite extends VarkaSparkDifferential {
       }
       result.foreach { found =>
         if (firstFailure.isEmpty) firstFailure = Some(it)
-        failures += failureText(c, it, partitions, found)
+        // With the check off, a finding that survives the check is shrunk with it on (the
+        // shrink runs the kind again), so the shrinker cannot settle on an output that only wraps.
+        failures += (if (overflowUnchecked) {
+          withOverflowChecked(failureText(c, it, partitions, found)) +
+            "\n(shrunk with checkIntOverflow on, where the composition disagrees too)"
+        } else {
+          failureText(c, it, partitions, found)
+        })
       }
     }
     info(s"compared $compared, fused $fused, both errored $bothErrored")
+    if (overflowUnchecked) {
+      info(s"configuration wraps: $wraps compositions disagreed with checkIntOverflow off and " +
+        "agreed with it on, so each wrapped an overflow by design")
+    }
     pool.foreach { case (k, (n, e)) => info(s"  $k: $n compositions, $e errored on both sides") }
     info(s"  with nested trees: $nested compositions, $nestedErrored errored on both sides, " +
       s"$nestedFailed disagreed")
@@ -211,6 +248,7 @@ class VarkaSparkFuzzSuite extends VarkaSparkDifferential {
     val failures = scala.collection.mutable.ArrayBuffer.empty[String]
     val verdicts = scala.collection.mutable.TreeMap.empty[String, Int]
     var releasedEarly = 0
+    var wraps = 0
     val counts = new WarmedCounts
     val range: Seq[Int] =
       warmupSet.orElse(warmupOnly.map(Seq(_))).getOrElse(0 until warmupIterations)
@@ -227,8 +265,15 @@ class VarkaSparkFuzzSuite extends VarkaSparkDifferential {
         // Every composition starts from a cold shape, so that each one takes the handover.
         VarkaShapeCache.invalidateAll()
         val before = VarkaKernelWarmup.recentOutcomes().asScala.toSet
-        val result = warmedDisagreement(c, later, counts)
+        val firstResult = warmedDisagreement(c, later, counts)
         val outcomes = VarkaKernelWarmup.recentOutcomes().asScala.filterNot(before.contains)
+        // The checked run is a shape of its own (the options ride the shape key), so it takes
+        // the handover too; its counts are not the arm's.
+        val result = firstResult.filter { _ =>
+          val wrap = configurationWrap(warmedDisagreement(c, later, new WarmedCounts))
+          if (wrap) wraps += 1
+          !wrap
+        }
         outcomes.foreach { o =>
           verdicts(o.state().toString) = verdicts.getOrElse(o.state().toString, 0) + 1
         }
@@ -281,6 +326,10 @@ class VarkaSparkFuzzSuite extends VarkaSparkDifferential {
       evidence.foreach(_.close())
     }
     counts.summary.foreach(info(_))
+    if (overflowUnchecked) {
+      info(s"configuration wraps: $wraps compositions disagreed with checkIntOverflow off and " +
+        "agreed with it on")
+    }
     info(s"warm-up verdicts: ${verdicts.map { case (k, n) => s"$k $n" }.mkString(", ")}, " +
       s"of the releases $releasedEarly before the deadline")
     // An arm whose shapes stopped reaching the kernel would compare the row engine with itself.
@@ -433,7 +482,9 @@ class VarkaSparkFuzzSuite extends VarkaSparkDifferential {
       if (drawn.pivot.isDefined) {
         val c = rectify(drawn)
         if (c.conjuncts.nonEmpty) {
-          assert(kindOf(c, partitions = false, Nil).isEmpty, s"iteration $it: ${c.query}")
+          val kind = kindOf(c, partitions = false, Nil)
+          assert(kind.isEmpty || configurationWrap(kindOf(c, partitions = false, Nil)),
+            s"iteration $it: $kind: ${c.query}")
           checked += 1
         }
       }
