@@ -410,6 +410,61 @@ class VarkaGuardEdgeSuite extends SparkFunSuite with VarkaMatrixTests {
     }
   }
 
+  test("a guard of several chains inside the condition another guard's chain is emitted first " +
+      "for finds its own chains' conditions emitted") {
+    // r1 = if (c0 > c3) g else c3 and r2 = if (cond) g else c3, g = c1 - c2 checked: g has two
+    // chains, so both conditions are emitted ahead of the outputs, r1's first. r2's condition is
+    // if (c0 < c3) h else c3 < if (c0 > c2) h else c3, h = c1 + c2 checked, so emitting it
+    // computes h under the first inner arm, and h's guard ORs its two chains, the second inner
+    // condition's among them, which is not yet emitted: the body once read its missing slot and
+    // threw, and the task fell back to the row path. Each guard's chain conditions are now
+    // emitted before the condition that holds it.
+    val g = new IntArith(IntOp.SUB, Overflow.FAIL, new ColumnRef(1), new ColumnRef(2))
+    val h = new IntArith(IntOp.ADD, Overflow.FAIL, new ColumnRef(1), new ColumnRef(2))
+    val c = new IfElse(new Compare(CompareOp.LT, new ColumnRef(0), new ColumnRef(3)), h,
+      new ColumnRef(3))
+    val d = new IfElse(new Compare(CompareOp.GT, new ColumnRef(0), new ColumnRef(2)), h,
+      new ColumnRef(3))
+    val r1 = new IfElse(new Compare(CompareOp.GT, new ColumnRef(0), new ColumnRef(3)), g,
+      new ColumnRef(3))
+    val r2 = new IfElse(new Compare(CompareOp.LT, c, d), g, new ColumnRef(3))
+    val roots = Seq[VarkaVectorIR](r1, r2)
+    val o = options.withGuardUnderArm(true)
+    val guards = VarkaLoopEmitter.guardsForTest(roots.asJava, 4, 0, o)
+    assert(guards.get(g).arms().size == 2, s"g's chains: ${guards.get(g).arms()}")
+    assert(guards.get(h).arms().size == 2, s"h's chains: ${guards.get(h).arms()}")
+    val none: Seq[Int => Boolean] = Seq.fill(4)((_: Int) => false)
+    val nulls: Seq[Int => Boolean] = Seq.tabulate(4)(k => (i: Int) => (i + k) % 5 == 0)
+    // Row 3 overflows both sums where `overflow`; c0 decides which arms read them.
+    for ((label, overflow, c0) <- Seq(("no overflow", false, 1L), ("an overflow", true, 1L),
+        ("an overflow at c0 = c3", true, 2L))) {
+      val data = Array.tabulate(4, length) { (col, i) =>
+        col match {
+          case 0 => if (i == 3) c0 else (i % 4).toLong
+          case 1 => if (overflow && i == 3) Int.MaxValue.toLong else i.toLong
+          case 2 => if (overflow && i == 3) Int.MinValue.toLong + 1 else 2L
+          case _ => 2L
+        }
+      }
+      val name =
+        s"org.apache.spark.sql.varka.execution.VarkaGuardNested${classCounter.incrementAndGet()}"
+      val bytes = VarkaLoopEmitter.emit(name, roots.asJava, 4, 0, null, null, o)
+      val verdict = VarkaGuardSpec.verdict(roots, 4, Array.empty, o, long = false,
+        rowsOf(data, none))
+      val st = VarkaKernelCheck.runEachBodyStatus(label, name, bytes, roots, 4, Array.empty,
+        VarkaKernelCheck.Batch(length, none, data.map(_.map(_.toInt)), forceMasked = false))
+      assert(st.forall(verdict.admits), s"$label: statuses $st, verdict $verdict")
+      if (!overflow) {
+        assert(st.forall(_ == 0), s"$label: statuses $st")
+        for ((p, masked) <- Seq((none, false), (nulls, true))) {
+          assert(VarkaKernelCheck.runAndCompare(s"$label, masked=$masked", name, bytes, roots, 4,
+            Array.empty, VarkaKernelCheck.Batch(length, p, data.map(_.map(_.toInt)), masked)),
+            s"$label: a batch with no overflow declined")
+        }
+      }
+    }
+  }
+
   test("a guard above a FAIL lane that overflowed may fire on the wrapped value, and the kernel " +
       "names both reasons") {
     // `d - ym` at the one count whose negation overflows: `AddMonths(c0, IntNeg(FAIL, c1))`. The

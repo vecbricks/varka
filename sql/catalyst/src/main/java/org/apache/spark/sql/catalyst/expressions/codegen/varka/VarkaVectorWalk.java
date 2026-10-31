@@ -1334,7 +1334,7 @@ final class VarkaVectorWalk {
     if (reason != null) {
       analysis.reach(VarkaEmitMechanism.guard(reason));
     }
-    if (!analysis.armChainsIn(node, s.reach).isEmpty()) {
+    if (!s.armChains(node, analysis).isEmpty()) {
       analysis.reach(VarkaEmitMechanism.GUARD_UNDER_ARM);
     }
     if (s.guardAccByReason != null) {
@@ -1385,7 +1385,7 @@ final class VarkaVectorWalk {
    */
   private static void emitArmContext(CodeBuilder cb, VarkaVectorIR node, boolean dense,
       Analysis analysis, Slots s) {
-    List<List<ArmStep>> chains = analysis.armChainsIn(node, s.reach);
+    List<List<ArmStep>> chains = s.armChains(node, analysis);
     if (chains.size() == 1) {
       // One chain: each condition ANDed straight into the condemning mask.
       for (ArmStep step : chains.get(0)) {

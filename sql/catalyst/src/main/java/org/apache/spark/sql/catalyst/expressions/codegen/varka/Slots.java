@@ -174,6 +174,12 @@ final class Slots {
    * them: which arm chains of a guard this body can qualify it by ({@link Analysis#armChainsIn}).
    */
   Set<VarkaVectorIR> reach;
+  /**
+   * {@link Analysis#armChainsIn} of each node {@link #reach} holds, computed once per body with
+   * it ({@link #setReach}), so that the arm conditions emitted first, the guard's arm context and
+   * the mechanism a guard reached read one list rather than filtering the chains again each.
+   */
+  private Map<VarkaVectorIR, List<List<Analysis.ArmStep>>> armChainsByNode;
   /** Per node this body uses more than once: the local its first vector lands in (DAG-CSE). */
   final Map<VarkaVectorIR, Integer> sharedSlot = new HashMap<>();
   /** Per Greatest/Least (masked): the two operand temporaries the substitution needs. */
@@ -463,6 +469,25 @@ final class Slots {
           + "built: VarkaBodyEmitter.buildsValiditySegment missed a writer");
     }
     return dstValSeg[o];
+  }
+
+  /** Sets the nodes this body reaches and the arm chains each is qualified by in it. */
+  void setReach(Set<VarkaVectorIR> reached, Analysis analysis) {
+    reach = reached;
+    armChainsByNode = new HashMap<>();
+    for (VarkaVectorIR node : reached) {
+      armChainsByNode.put(node, analysis.armChainsIn(node, reached));
+    }
+  }
+
+  /**
+   * The arm chains {@code node}'s guard is qualified by in this body: {@link #setReach}'s list,
+   * or {@link Analysis#armChainsIn} itself for a node it did not reach.
+   */
+  List<List<Analysis.ArmStep>> armChains(VarkaVectorIR node, Analysis analysis) {
+    List<List<Analysis.ArmStep>> chains =
+        armChainsByNode == null ? null : armChainsByNode.get(node);
+    return chains != null ? chains : analysis.armChainsIn(node, reach);
   }
 
   /** Every node under {@code root}, {@code root} included, added to {@code into}. */
