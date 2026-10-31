@@ -302,20 +302,28 @@ class VarkaCoverageCompositionFuzzSuite
    * `IntArith` `DIV` under `FAIL`: the only inputs whose zero a guard declines (VARKA-342).
    */
   private def failDivisorInputs(roots: Seq[VarkaVectorIR]): Set[Int] = {
-    def reads(node: VarkaVectorIR): Set[Int] = node match {
-      case c: VarkaVectorIR.ColumnRef => Set(c.ordinal)
-      case _ => VarkaVectorIR.childrenOf(node).iterator.flatMap(reads).toSet
+    // Each walk visits a node once: the outputs are a DAG, and a shared subtree walked once per
+    // path to it would cost exponentially many visits in the depth of the sharing.
+    val inputs = scala.collection.mutable.Set.empty[Int]
+    val read = scala.collection.mutable.Set.empty[VarkaVectorIR]
+    def reads(node: VarkaVectorIR): Unit = if (read.add(node)) {
+      node match {
+        case c: VarkaVectorIR.ColumnRef => inputs += c.ordinal
+        case _ => VarkaVectorIR.childrenOf(node).foreach(reads)
+      }
     }
-    def walk(node: VarkaVectorIR): Set[Int] = {
-      val here = node match {
+    val walked = scala.collection.mutable.Set.empty[VarkaVectorIR]
+    def walk(node: VarkaVectorIR): Unit = if (walked.add(node)) {
+      node match {
         case a: VarkaVectorIR.IntArith
             if a.op == VarkaVectorIR.IntOp.DIV && a.mode == VarkaVectorIR.Overflow.FAIL =>
           reads(a.right)
-        case _ => Set.empty[Int]
+        case _ =>
       }
-      here ++ VarkaVectorIR.childrenOf(node).iterator.flatMap(walk)
+      VarkaVectorIR.childrenOf(node).foreach(walk)
     }
-    roots.iterator.flatMap(walk).toSet
+    roots.foreach(walk)
+    inputs.toSet
   }
 
   /** Kernels compared row by row and batches drawn again after a decline, per lane. */
