@@ -413,7 +413,7 @@ matrix pass.
 
 ## 10. Outcome
 
-(Written when the work lands; step 2's reading is below.)
+(Written when the work lands; the readings of steps 2 and 3 are below.)
 
 ### 10.1 Step 2: the census cells, on the laptop
 
@@ -498,3 +498,254 @@ prologue from `SPECIES_PREFERRED`; the measurement of section 4 reads the kernel
 VBMI2) before falling through to the BMI2 check; the two-lane refusal is the mask lowering of row
 374 (`x86.ad:1734-1744`), which the cells' `failed` lists show. Item 12 and the list above are
 corrected to that. The other line references of items 11 and 12 match the JDK source.
+
+### 10.2 Step 3: the leaf, the check, the registry and the Arrow admission
+
+*27 October 2026, on master at `a5ed9235723`, then merged with master at `08006d9aabf` (the
+floating lanes, #1054, and step 2's census cells of 10.1, #1062). This step's code does not read
+the census cells.*
+
+**What was built.** `DecimalColumn(ordinal, lane, precision)` in `VarkaVectorIR`, on the long lane
+and precision 1 to 18, rendering as `dec:<ordinal>:long:p<precision>`. `Analysis` records it in
+`decimalInputs`, which `loadInputSegment` tests first and maps at `length * 16` bytes, and refuses
+one column read both as it and as a `ColumnRef`. The walk loads `a` at `i * 16` and `b` a vector
+further on, both under `indexInRange` masks over `2 * lanes` longs in the epilogue, takes the low
+words by `a.rearrange(EVEN, b)` and the high words by the odd shuffle, and condemns a lane with
+`hi != lo >> 63`, `lo > 10^p - 1` or `lo < -(10^p - 1)` through `emitGuardCollect`: under the
+column's word in the masked body, folded into the body's accumulator and tested once at its end.
+The reason is `Refusal.DECIMAL_SLOT` (re-armed, unconditional), its bit `STATUS_DECIMAL_SLOT = 1
+<< 6`, named `decimal-slot` in `VarkaFallbackAccounting` and `docs/sql-varka.md`, its mechanism
+`GUARD_DECIMAL_SLOT`. The registry's `DECIMAL` is `UpToPrecision(LONG, 18, "359")`, lanes `LONG`
+(departure 7), conformance `Owed("Decimal", "348")`; `types.tsv` is regenerated. `VarkaLaneArrow`
+maps `DECIMAL` to `DecimalVector` with no allocator, and `isArrowBacked` holds a decimal input's
+field to `bitWidth == 128` and the column's scale (`decimalFieldMatches`).
+
+**Departures from 2.1, 2.2 and 2.4.**
+
+1. **The compiler declines a decimal column for now.** Once `VarkaTypes.lane` answers `LONG` for
+   `DECIMAL(10, 2)`, the long column arm of `VarkaTimeCompiler` would build a `ColumnRef` over it
+   and read its slots at eight bytes a row: a wrong answer, not a decline. A decimal arm ahead of
+   it declines with "the operators over a decimal are row 348's" until step 5 builds the reader.
+2. **The shuffles are `VectorShuffle.iota(species, start, 2, false)`**, built once a body after the
+   accumulators, not `fromOp`, which would take a lambda in emitted code. Without the wrap an index
+   past the first vector is partially wrapped and selects from the second, so the shuffle is the
+   census's `DEINTERLEAVE` (`AbstractShuffle.partiallyWrapIndex` in the JDK 25 source).
+3. **The evaluator reads each decimal input's scale from the child's attribute**, not from the
+   compiler as 2.4 has it: the attribute is the column the input reads, and
+   `CompiledVarkaProjection` stays as it is.
+4. **`Info.lane()`, which carries no precision, answers `LONG` for the decimal**, so `types.tsv`,
+   `VarkaLaneArrowSuite` and the oracles read it as on a lane; only `lane(DataType)` and
+   `declineReason(DataType)` read the precision and the scale. `dev/varka_new_lane.py` reads the new
+   `up_to_precision` admission as it reads `on_lane`, and owes `DecimalType`'s coverage column,
+   width-audit shape and census entry to step 5.
+5. **`IsNotNull` over the leaf is not admitted yet.** The null test reads the word alone, while
+   analyzing the leaf beneath it arms the slot check, which Spark's `IS NULL` never makes; step 5
+   decides the form with the reader.
+6. **Not built here, as the order has it:** the leaf at the int lane (step 4, its constructor
+   refuses `INT` today), the fuzz sequence (`VarkaIrFuzzSuite` and `VarkaEmitCostSuite` list the
+   node as out of the grammar and awaiting row 352's refit), the warm-up's shuffle calls and the
+   cost feature's price.
+7. **The registry lists the long lane alone**, not `LONG` and `INT` as 2.4 has it: a decimal leaf
+   refuses the int lane until step 4 builds that arm, so a listed `INT` would name a lane no
+   decimal kernel loads in. Step 4 adds it back with the arm.
+8. **Neither `Info.sparkValue` nor `Info.bits` answers for the decimal**, at the merge with #1054:
+   both read the id's lane, which is now `LONG`, while a decimal's lane bits are an unscaled value
+   and Spark's value is a `Decimal` at a scale the id does not carry. Both refuse it, as before.
+
+**The slot table** (`VarkaDecimalLoadSuite`, `ownJvm`): at 2, 4 and 8 long lanes, precision 1, 9,
+10 and 18, lengths 1 and 3 (no loop at all), 37 (the last row in the epilogue at every width) and
+64, both bodies, with nulls
+on every third row holding a random low word under a random or all-ones high word. Each declining
+slot - `10^p`, `-10^p`, high word 0 under a negative low word, -1 under a positive one, 1 over 5
+and over 0, and the long's two extremes under the wrong sign - is planted in the first group, a
+middle one and the last row, valid and then null; the bounds `10^p - 1` and `-(10^p - 1)`, 0 and
+-1 are planted the same way. The oracle reads the same `DecimalVector` through
+`ArrowColumnVector.getDecimal`: the kernel declines with `STATUS_DECIMAL_SLOT` exactly where some
+valid row raises, and answers every valid row's unscaled value otherwise, over the leaf alone and
+under a long add and as both operands of one (its shared local). All pass, as does an all-null
+batch of bad slots. `emitted_bytes.json`, `coverage.json`, `docs/sql-varka.md`'s table and
+`width_audit.json` do not move.
+
+**Where this met #1054** (the floating lanes), at the merge: `VarkaLaneArrow.of`'s null line,
+which now maps `FLOAT`, `DOUBLE` and `DECIMAL` and leaves `BOOLEAN` and `TIMESTAMP` unmapped;
+`VarkaTypesSuite.declineNamesTheType`, whose assertion that `DECIMAL(10, 2)` declines naming row
+347 is dropped (the decimal facts are in `decimalLaneReadsThePrecision`); `types.tsv`,
+regenerated; and `dev/varka_new_lane.py`'s `OWED`, which keeps both rows' entries.
+
+**The review's findings, and what was done** (27 October 2026, after the merge):
+
+1. **The golden suite's Arrow source keeps decimals out until step 5.** With the registry admitting
+   `decimal(p <= 18)`, `VarkaArrowSource.varkaTyped` would have cached every relation with a
+   decimal column through the Arrow cache, and the lift would have tried decimal literals. Neither
+   reaches a kernel: the compiler declines every operator over a decimal (departure 1), and the
+   lift keeps an entry only if the compiler fuses it. So the change would only have moved Spark's
+   row path onto the Arrow cache for the decimal-only relations. One explicit gate,
+   `VarkaArrowSource.sourced`, admits a type on a lane but not a decimal, for both paths. Step 5
+   drops the decimal clause with the reader. The suites were not run without the gate. With it,
+   `VarkaLiteralLiftSuite` and `VarkaGoldenExclusionsSuite` pass and the golden suite's Varka arm
+   passes over every golden file (789 tests, none failed, 1,098 s on the laptop).
+2. **The canonical IR parses the decimal leaf** (`dec:N:long:pP`; a missing precision, the int
+   lane and precision 19 are refused). `everyNodeTypeRoundTrips` also reaches `WidenLane`,
+   `NullSafeEqual`, `CondValue`, `BitOp` and `BitCount`, which it did not, and now checks that it
+   is complete: it collects the records under the sealed `VarkaVectorIR` and fails on any that no
+   tree reaches. The five boolean value nodes (`BoolColumn`, `CondConst`, `BoolCompare`, `CondIf`,
+   `BoolNullSafeEq`) have no parse arm at all; they are listed by name as not parsed yet, the
+   owner turning that gap into a row of its own, and the check fails if a tree reaches one of them
+   while it is still listed.
+3. **For the owner at step 5: the slot check is narrowed by the arms above the leaf.** Under
+   `guardUnderArm`, on by default, the condemning mask is ANDed with the `IfElse` arms the leaf sits
+   under (`VarkaVectorWalk.emitArmContext`), so a bad slot on a row whose arm is not taken does not
+   decline the batch. That matches Spark, which reads a column under `CASE WHEN` only where the arm
+   is taken, so the row engine raises on the same rows. Declining whatever the arm would be strictly
+   safer, and costs batches that Spark answers. Left as it is; step 5, which builds the first
+   operators that put the leaf under an arm, takes the decision.
+4. **The registry lists `LONG` alone** (departure 7); `types.tsv` regenerates with that one
+   column changed.
+5. **Three tests in `VarkaDecimalLoadSuite`**, all at 2, 4 and 8 long lanes:
+   `twoReasonsUnderExactStatus` runs the leaf under a `GuardedRange`, a body of two reasons, and
+   holds the status to the reason that fired under `exactRefusalStatus` and to both bits without
+   it; `perGroupBodiesUnderTheBudget` splits six outputs over the leaf into groups with a method
+   byte budget, checks that every group's loop builds the shuffles, and runs the slot cases; and
+   `mixedLanesBesideTheLeaf` runs `d + widen(i)`, a kernel the plan marks mixed, which takes
+   `emitMixedEpilogue`, through the slot table. None is owed to a later step.
+6. `VarkaKernelPlan` reads an input leaf's ordinal through `VarkaVectorIR.inputOrdinal`. That also
+   records a boolean column's lane, which nothing sizes by, since `loadInputSegment` tests a
+   boolean column first. `emitted_bytes.json` does not move.
+
+### 10.3 Step 5: the first reader
+
+*27 October 2026, on `varka-347-leaf` at `d279e924df5`, before step 4: the arms of 2.2 and 2.3
+are not built, so the reader reads through the default `rearrange` form alone.*
+
+**What was built.** `VarkaDecimalCompiler` compiles the operands of 2.5's forms. A comparison
+(`=`, `<`, `<=`, `>`, `>=`, `<=>`, and `<>` as the `NOT` of the equality) of two decimals of
+one scale is the existing `Compare` or `NullSafeEqual` over two unscaled longs: a decimal
+column admitted by the registry, as its `DecimalColumn`, or a literal, whose unscaled value at
+the scale takes a slot in the long table. `IS [NOT] NULL` of a decimal column is the existing
+`IsNotNull` over the leaf. No new node. The compiler's condition arms hand a decimal operand
+to this class before `compileNode`, and `VarkaTimeCompiler`'s decimal arm still declines a
+decimal column in a value position (a choice, an arithmetic or cast operand, an output), now
+naming rows 348 to 351.
+
+**Why the long compare is Spark's answer.** Two values of one scale `s` are `u1 / 10^s` and
+`u2 / 10^s`, so they compare as `u1` and `u2` do, and `Decimal.compare` compares by value (its
+long fields where both are compact, `BigDecimal.compareTo` otherwise). Where the precisions
+differ, `DecimalPrecisionTypeCoercion.decimalAndDecimal` casts both operands to
+`DECIMAL(max(p1 - s, p2 - s) + s, s)`: one scale, the larger precision, a cast that keeps every
+unscaled value and cannot fail in any mode, so the compiler reads it as its child, as it reads
+`TIME`'s widening precision cast. A literal arrives folded in a real query; in a tree only the
+analyzer resolved (the coverage suite's) it is the literal under the coercion's casts, which the
+compiler folds by evaluating them, declining where that fails. Operands of two scales decline
+naming row 348 (their rescale), and a comparison whose type is wider than 18 digits names 359.
+
+**The null test.** 10.2 departure 5 rested on Spark's `IS NULL` reading the validity alone. It
+does not: `IsNull.doGenCode` emits its child's code, and a column's code is
+`isNull = isNullAt(i); value = isNull ? default : getDecimal(i, p, s)`, in a filter
+(`FilterExec.genPredicate` evaluates the columns a predicate references before it), under
+`ColumnarToRowExec.genCodeColumnVector`, and in the interpreted `IsNull.eval`, which calls the
+child's `eval`. So Spark raises on a valid slot outside the precision under `d IS NULL` as under
+any reader, and the null test must check the slots. It does: `Analysis` admits a
+`DecimalColumn` under `IsNotNull`, `Slots.bodyUses` counts that edge, and the walk emits the
+leaf's load and check under the test and drops its value, in the masked body and in the dense
+one, whose rows are all valid. A null slot is never read, by Spark or by the kernel.
+
+**10.2 finding 3, decided: the slot check is not narrowed by the arms above it** (the owner
+confirmed this on 27 October 2026, after step 5 had built it: a decline is always Spark's answer,
+and a narrower check would need a proof that Spark never reads the column in any plan shape).
+`Analysis.armChainOf` answers the empty chain for a `DecimalColumn`. Spark reads a
+column where its code is first referenced: a filter's generated code reads every column its
+predicate references before the predicate, so a bad slot under a `CASE` arm Spark does not take
+still raises there, and narrowing the check by the arm would answer where Spark raises. Declining
+whatever the arm costs only batches holding a slot Spark's own writer never writes (0.4).
+
+**The gates lifted.** `VarkaTimeCompiler`'s decline of every decimal operator (10.2 departure 1)
+now covers the value positions only. `VarkaArrowSource.sourced` (10.2 finding 1) is gone: a
+relation with a decimal column of precision up to 18 is cached through the Arrow source and its
+decimal literals are lifted, for both golden paths.
+
+**Coverage.** A "DECIMAL columns" family of 17 predicate rows over `d9`, `d9b` (`DECIMAL(9,
+2)`), `d18` and `d18b` (`DECIMAL(18, 2)`): the six comparisons, `<>` and `<=>` at precision 9,
+a literal, `d9 < d18` across the two precisions, three comparisons and a literal at 18, and both
+null tests at both precisions. The coverage differential's fixtures derive the four columns from
+`l` and `l2`, so they carry both signs and the null patterns of the bigints in every fixture.
+The rows carry `DECIMAL_SLOT`, and `VarkaCoverageSuite.guardsOf` leaves it out of the domain
+check: no value of the column's type lies outside the check, so there is no domain to name.
+The columns join `VarkaEmittedBytesSuite`'s and `VarkaWidthAuditShapes`' lists; the width
+audit's probe writes a decimal input as sixteen-byte slots. `VarkaCoverageRows.readsDecimal`
+keeps the rows out of the composition fuzzer and `VarkaSparkFuzz`, as `readsNarrow` does the
+narrow ones: their batches are eight bytes a row, and drawing the type is row 352's. The
+template warm-up's long block calls `VectorShuffle.iota` and the two-vector `rearrange`, which
+the rows' kernels now reach (`VarkaWarmupReachSuite`).
+
+**Departures.**
+
+1. **The census marks nothing fused for `dec`.** The milestone plan's 2.8 counts a decimal pair
+   fused only when it fuses at every precision up to 38, so the nine entries 2.5 serves carry a
+   note and row 347 instead, and `dev/varka_new_lane.py`'s census line for `DecimalType` is owed
+   to row 359; its coverage and width-audit lines are gone. The coverage rows cast `dec` to
+   `dec` (the widening and the literal's cast), which the cast matrix never fuses as a value, so
+   `dev/varka_census.py` lists the pair in `CONTEXT_CASTS`, and `casts.tsv` names the context.
+2. **No decimal conformance suite.** `VarkaTypeConformance` builds four- and eight-byte batches
+   and holds them to an oracle that reads the type's internal value as a long; a decimal needs
+   sixteen-byte slots and a `Decimal`. The registry keeps `Owed("Decimal", "348")`.
+3. **The row `d9 > 5` was dropped**: type coercion makes the int literal a decimal by an `int`
+   to `dec` cast, a second cast pair no value form fuses, and `d9 = 0.42` covers the literal.
+
+**Tests.** `VarkaDecimalLoadSuite` gains three: the slot table over `IfElse(cond, 1, 0)` for
+`d IS NOT NULL` and `d IS NULL` (a valid bad slot declines in both bodies, a null one does not)
+and for `d < 5` and `d <=> 0`, and a bad slot under a `CASE` arm the batch never takes, which
+declines. The coverage differential runs the 17 rows end to end under both consumers on every
+fixture, and the golden suite's Varka arm, now over cached decimal relations and lifted decimal
+literals, passes over every golden file (789 tests, none failed, 1,058 s on the laptop);
+`served.json` is regenerated, its served executions up from 1,761 to 2,018. `emitted_bytes.json`
+adds the 17 rows and moves only the `option_arms` digests, which cover every shape;
+`width_audit.json` adds them at every width. `VarkaLiteralLiftSuite`, `VarkaGoldenExclusionsSuite`,
+`VarkaWarmupReachSuite`, the family suites and `VarkaTypesSuite` pass.
+
+**At 128 bits** (`width_audit.json` on the laptop, `MaxVectorSize=16`): every decimal row's kernel
+is the Java fallback for its two-lane long operations, the two-vector `rearrange` among them
+(`op=shuffle/rearrange vlen=2`), beside the compares, blends and mask casts every two-lane long
+kernel refuses; at 256 and 512 bits C2 refuses nothing in them. That is item 0.11's reading at
+the row's first reader, and question 4's decision waits on step 6's measurement of it.
+
+**Found on the way, fixed here.** `VarkaEmitterBudgetSuite`'s weight test had no row for
+`DecimalColumn`, a step 3 omission, and the leaf's weight of 8 counted its two mask `or` calls,
+which are not lane calls, and not its second load: it is 7, which moves no shape's bytes. A null
+test over a decimal of precision above 18 now declines naming row 359, as a comparison does.
+
+**Left by this step.** Section 3 item 2's end-to-end test, a declined batch whose bad slot
+reaches the row path and raises `NUMERIC_VALUE_OUT_OF_RANGE` there, is built in neither step 3
+nor this one; the slot table and the condition table are its oracles at the IR level until it
+is. It needs an Arrow source that writes a slot Spark's writer never writes, and is step 6's,
+beside the measurement's own fixtures.
+
+**Correction, 30 October 2026: the coverage answers run below the session.** The paragraph on
+tests above says the coverage differential runs the 17 rows end to end under both consumers on
+every fixture. That was so when it was written; row 509, which reached this branch with the
+merge `27511683ac9`, moved those checks below the session. At `1c75953cab8`
+`VarkaCoverageHarnessSuite` runs each of the 17 rows four ways with no session - the answer
+under both consumers, the null tests as `CASE` conditions, the partition oracle's true, false
+and unknown rows, and the ANSI form - 68 tests, over fixtures the Arrow cache's own iterators
+write from `VarkaCoverageDifferentialSuite.fixtureView`, which still derives `d9`, `d9b`, `d18`
+and `d18b`. The session suite keeps one decimal row, `d9 < d9b` under both consumers, as the
+family's end-to-end path.
+
+**The second review's findings** (30 October 2026, fixed on `varka-347-leaf` and merged here):
+
+1. **The registry separates the lane from the reader.** `UpToPrecision` carries `readerRow`, the
+   row that owes the first operator over the column, and `VarkaTypes.lane(DataType)` answers
+   empty while it is set; every consumer asks that one question. The leaf sets it to 348, which
+   kept `dbl > 1.5 AND dec > 1.0` fusing its double conjunct there (the filter's integral-read
+   test had counted the unread decimal); this branch empties it, and here the decimal conjunct
+   fuses and the double one goes to the row filter, as beside a bigint. The time compiler's
+   decimal arm declines any decimal column by type, the registry's reason first.
+2. **The digit check is one unsigned compare**, `(lo + B) UGT 2B`, proven in
+   `proofs/decimal_slot.smt2` at every precision and for any non-negative long bound. It moves
+   the 17 decimal rows' bytes and 128-bit refusal lists and the option arms' digests, nothing
+   else; the leaf's weight stays 7.
+3. **The decimal segment takes the mapping fault injector**, held by `VarkaDecimalLoadSuite`
+   over a condition root and by `VarkaReproductionEndToEndSuite` over a decimal filter, whose
+   file carries sixteen bytes a row and replays.
+4. `VarkaWithChildrenSuite` names `DecimalColumn` as drawn by no grammar, with the reason; the
+   bound reads Spark's `Decimal.POW_10` and `MAX_LONG_DIGITS`; the stride check runs once after
+   the walk.

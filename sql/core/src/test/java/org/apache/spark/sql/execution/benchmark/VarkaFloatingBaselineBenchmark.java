@@ -21,11 +21,6 @@ import java.util.List;
 
 import org.apache.spark.sql.SparkSession;
 import org.apache.spark.sql.VarkaBenchmark;
-import org.apache.spark.sql.execution.SparkPlan;
-import org.apache.spark.sql.execution.VarkaColumnarToRowExec;
-import org.apache.spark.sql.execution.VarkaFilterColumnarToRowExec;
-import org.apache.spark.sql.execution.VarkaFilterExec;
-import org.apache.spark.sql.execution.VarkaProjectExec;
 
 /**
  * The baseline for {@code DOUBLE} and {@code FLOAT} before Varka has a lane for them (VARKA-377):
@@ -41,9 +36,13 @@ import org.apache.spark.sql.execution.VarkaProjectExec;
  * session with it. Today both are the
  * row path, so they should tie.
  *
- * <p>A baseline is only one while nothing fuses: each section checks, before it is timed, that the
- * Varka session's plan for it holds no Varka node, and fails the run when a lane row has started to
- * fuse it. The results file is then the record of the code before that row.
+ * <p>A baseline is only one while nothing fuses: before any section is timed, the run checks
+ * each section's plan on the Varka session against the section's {@code fuses} flag, the list of
+ * the sections a row has fused, and fails when an unlisted section fuses or a listed one does not.
+ * The comparison and choice sections are listed, since the floating lanes order their values, and
+ * the results file notes each of them as fusing; the chain and the cast are still the row path in
+ * both arms. A row that starts to fuse another section lists it, so that its fusion cannot turn a
+ * baseline section into a fused one unnoticed.
  *
  * <p>To run this benchmark, on a GitHub runner (the results come back as an artifact):
  * <pre>
@@ -51,13 +50,26 @@ import org.apache.spark.sql.execution.VarkaProjectExec;
  *     -f expected-cpu="AMD EPYC 7763"
  *   (and again with -f extra-java-options=-XX:MaxVectorSize=16 for the 128-bit companion)
  * </pre>
+ * The run that measures a row which fuses unlisted sections against the committed files lifts
+ * the check with {@link VarkaSqlBenchmarkBase#FUSE_CHECK_PROPERTY}, still noting every section
+ * that fuses:
+ * <pre>
+ *   gh workflow run benchmark.yml -f class=VarkaFloatingBaselineBenchmark -f jdk=25 \
+ *     -f expected-cpu="AMD EPYC 7763" -f extra-java-options=-Dvarka.baseline.fuseCheck=false
+ *   gh workflow run benchmark.yml -f class=VarkaFloatingBaselineBenchmark -f jdk=25 \
+ *     -f expected-cpu="AMD EPYC 7763" \
+ *     -f extra-java-options="-XX:MaxVectorSize=16 -Dvarka.baseline.fuseCheck=false"
+ * </pre>
  */
 public class VarkaFloatingBaselineBenchmark extends VarkaSqlBenchmarkBase {
 
   static final int NUM_ROWS = 2_000_000;
 
-  /** A section: its title and its query. */
-  record Section(String title, String query) {}
+  /**
+   * A section: its title, its query, and whether the Varka session fuses it, which the run
+   * checks before it times anything.
+   */
+  record Section(String title, String query, boolean fuses) {}
 
   /**
    * The table: {@code x}, {@code y}, {@code z} as doubles and {@code f}, {@code g}, {@code h} as
@@ -93,25 +105,18 @@ public class VarkaFloatingBaselineBenchmark extends VarkaSqlBenchmarkBase {
         String density = nulls.isEmpty() ? "no nulls" : "one row in ten null";
         String type = t[0];
         out.add(new Section(type + " comparison, " + density,
-            "SELECT " + x + " FROM varka_floating WHERE " + x + " < " + y));
+            "SELECT " + x + " FROM varka_floating WHERE " + x + " < " + y, true));
         out.add(new Section(type + " arithmetic chain, " + density,
-            "SELECT (" + x + " + " + y + ") * " + z + " - " + x + " AS a FROM varka_floating"));
+            "SELECT (" + x + " + " + y + ") * " + z + " - " + x + " AS a FROM varka_floating",
+            false));
         out.add(new Section(type + " cast to " + t[4] + ", " + density,
-            "SELECT CAST(" + x + " AS " + t[4] + ") AS a FROM varka_floating"));
+            "SELECT CAST(" + x + " AS " + t[4] + ") AS a FROM varka_floating", false));
         out.add(new Section(type + " choice, " + density,
             "SELECT CASE WHEN " + x + " < " + y + " THEN " + x + " ELSE " + y
-                + " END AS a FROM varka_floating"));
+                + " END AS a FROM varka_floating", true));
       }
     }
     return out;
-  }
-
-  /** Whether the session's plan for {@code query} holds a Varka node. */
-  static boolean fuses(SparkSession session, String query) {
-    return session.sql(query).queryExecution().executedPlan().find(
-        p -> p instanceof VarkaColumnarToRowExec || p instanceof VarkaProjectExec
-            || p instanceof VarkaFilterExec || p instanceof VarkaFilterColumnarToRowExec)
-        .isDefined();
   }
 
   @Override
@@ -129,11 +134,7 @@ public class VarkaFloatingBaselineBenchmark extends VarkaSqlBenchmarkBase {
         VarkaArrowSessions.cache(session, "varka_floating");
       }
       for (Section s : sections()) {
-        if (fuses(varka, s.query())) {
-          SparkPlan plan = varka.sql(s.query()).queryExecution().executedPlan();
-          throw new IllegalStateException(s.title() + " fuses, so it is no longer a baseline: "
-              + s.query() + "\n" + plan.treeString());
-        }
+        requireBaseline(varka, s.title(), s.query(), s.fuses());
       }
       for (Section s : sections()) {
         section(s.title(), () -> {

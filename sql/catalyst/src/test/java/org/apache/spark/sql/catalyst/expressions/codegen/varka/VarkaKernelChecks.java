@@ -33,6 +33,7 @@ import java.util.concurrent.atomic.AtomicLong;
 
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaGeneratedClassLoader;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BoolColumn;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BoolOutput;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ColumnRef;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Cond;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.GuardedRange;
@@ -142,6 +143,18 @@ public final class VarkaKernelChecks {
     return ((length + 63) / 64) * 8L;
   }
 
+  /**
+   * The output stride {@link #sanitized} reads as a {@link BoolOutput}'s: its data is a bitmap of
+   * whole words, as a {@code BitVector} allocates it, not a value per row (VARKA-27).
+   */
+  static final long BIT_STRIDE = -1L;
+
+  /**
+   * What a {@link BoolOutput}'s data bitmap holds before the kernel runs: stale bits on every row,
+   * which the driver must zero, since the kernel ORs its known-true bits in.
+   */
+  private static final byte STALE_DATA = (byte) 0xA5;
+
   /** What a kernel's {@code run} is handed besides its buffers: the scratch address. */
   interface Run {
     int apply(long scratch);
@@ -171,7 +184,8 @@ public final class VarkaKernelChecks {
         }
         for (int o = 0; o < outData.length; o++) {
           if (outData[o] != 0L) {
-            VarkaMemorySanitizer.register("output data", o, outData[o], length * outStride[o]);
+            VarkaMemorySanitizer.register("output data", o, outData[o],
+                outStride[o] == BIT_STRIDE ? wordBytes(length) : length * outStride[o]);
           }
           VarkaMemorySanitizer.register("output validity", o, outValidity[o], wordBytes(length));
         }
@@ -1308,7 +1322,8 @@ public final class VarkaKernelChecks {
   /**
    * Output buffers for {@code roots} in {@code arena}: values at the lane's sentinel, so a lane
    * the kernel fails to write shows, and every validity byte, whole words to the last, at
-   * {@code fill}. A {@code Cond} root's data address is 0L, as the kernel contract says.
+   * {@code fill}. A {@code Cond} root's data address is 0L, as the kernel contract says; a
+   * {@link BoolOutput}'s data is a bitmap of whole words holding {@link #STALE_DATA}.
    */
   private static Outputs outputs(Arena arena, Lane lane, VarkaVectorIR[] roots,
       ValidityFill fill) {
@@ -1319,11 +1334,17 @@ public final class VarkaKernelChecks {
     long[] data = new long[n];
     long[] validity = new long[n];
     for (int o = 0; o < n; o++) {
-      VarkaVectorIR.LaneType rootLane = roots[o].laneType();
-      values[o] = VarkaEmitterFixtures.alloc(arena, length * lane.outputStride(roots[o], rootLane));
-      long sentinel = lane.sentinelOutput(roots[o], rootLane);
-      for (int i = 0; i < length; i++) {
-        lane.putOutput(roots[o], rootLane, values[o], i, sentinel);
+      if (roots[o] instanceof BoolOutput) {
+        values[o] = VarkaEmitterFixtures.alloc(arena, wordBytes(length));
+        values[o].fill(STALE_DATA);
+      } else {
+        VarkaVectorIR.LaneType rootLane = roots[o].laneType();
+        values[o] =
+            VarkaEmitterFixtures.alloc(arena, length * lane.outputStride(roots[o], rootLane));
+        long sentinel = lane.sentinelOutput(roots[o], rootLane);
+        for (int i = 0; i < length; i++) {
+          lane.putOutput(roots[o], rootLane, values[o], i, sentinel);
+        }
       }
       bits[o] = VarkaEmitterFixtures.alloc(arena, wordBytes(length));
       bits[o].fill(fill.value());
@@ -1342,7 +1363,8 @@ public final class VarkaKernelChecks {
     }
     long[] outStride = new long[roots.length];
     for (int o = 0; o < roots.length; o++) {
-      outStride[o] = lane.outputStride(roots[o], roots[o].laneType());
+      outStride[o] = roots[o] instanceof BoolOutput
+          ? BIT_STRIDE : lane.outputStride(roots[o], roots[o].laneType());
     }
     return sanitized(kernel, lane.length(), inStride, outStride, in.data(), in.validity(),
         out.data(), out.validity(), scratch -> lane.run(kernel, in.data(), in.validity(),
@@ -1494,7 +1516,26 @@ public final class VarkaKernelChecks {
         }
         for (int o = 0; o < n; o++) {
           var root = roots[o];
-          if (root instanceof Cond c) {
+          if (root instanceof BoolOutput b) {
+            // Spark's three-valued answer as two bitmaps: the data bit is the known-true row and
+            // the validity bit the known one, so an unknown row is null, never false.
+            var truth = lane.reference(b.cond(), values, isNull);
+            boolean known = truth != VarkaReference.Truth.UNKNOWN;
+            if (spark != null) {
+              agreeWithSpark(context, spark, o, i, values, isNull,
+                  known ? OptionalLong.of(truth.isTrue() ? 1L : 0L) : OptionalLong.empty());
+            }
+            for (int f = 0; f < runs; f++) {
+              boolean valid = bit(outs[f].bits()[o], i);
+              boolean data = bit(outs[f].values()[o], i);
+              if (valid != known || (known && data != truth.isTrue())) {
+                throw new IllegalStateException(context + fills.get(f).suffix() + ": boolean "
+                    + "output " + o + " row " + i + " differs (want " + truth + ", got "
+                    + (valid ? Boolean.toString(data) : "null") + ")"
+                    + evidence(values, isNull, nullCounts));
+              }
+            }
+          } else if (root instanceof Cond c) {
             var truth = lane.reference(c, values, isNull);
             if (spark != null) {
               agreeWithSpark(context, spark, o, i, values, isNull,
@@ -1545,6 +1586,16 @@ public final class VarkaKernelChecks {
                   + "output " + o + " has bits set past row " + (length - 1) + " in its last "
                   + "byte (0x" + Integer.toHexString(last) + ")");
             }
+            // A boolean output's data bitmap is zeroed by the driver and written to the batch's
+            // last row, so its last byte holds zeros past it as the validity does.
+            if (roots[o] instanceof BoolOutput) {
+              int lastData = outs[f].values()[o].get(ValueLayout.JAVA_BYTE, length / 8L) & 0xFF;
+              if (lastData >>> (length % 8) != 0) {
+                throw new IllegalStateException(context + fills.get(f).suffix() + ": data of "
+                    + "boolean output " + o + " has bits set past row " + (length - 1)
+                    + " in its last byte (0x" + Integer.toHexString(lastData) + ")");
+              }
+            }
           }
         }
       }
@@ -1558,17 +1609,20 @@ public final class VarkaKernelChecks {
   /**
    * The compared answers of one batch, folded for {@link VarkaAnswerLog}: per run (one per fill),
    * per output and per row, the validity bit and the value where valid; a selection output's
-   * value is its bit.
+   * value is its bit, and a boolean output's its data bit.
    */
   private static long digest(Lane lane, VarkaVectorIR[] roots, Outputs[] outs) {
     long h = VarkaAnswerLog.START;
     for (Outputs out : outs) {
       for (int o = 0; o < roots.length; o++) {
         boolean selection = roots[o] instanceof Cond;
+        boolean bitOutput = roots[o] instanceof BoolOutput;
         VarkaVectorIR.LaneType rootLane = roots[o].laneType();
         for (int i = 0; i < lane.length(); i++) {
           boolean bit = bit(out.bits()[o], i);
-          long value = bit && !selection ? lane.got(out.values()[o], i, roots[o], rootLane) : 0L;
+          long value = !bit || selection ? 0L
+              : bitOutput ? (bit(out.values()[o], i) ? 1L : 0L)
+              : lane.got(out.values()[o], i, roots[o], rootLane);
           h = VarkaAnswerLog.row(h, bit, value);
         }
       }

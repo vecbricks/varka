@@ -53,6 +53,16 @@ object VarkaCoverageRows {
    */
   def readsNarrow(executable: String): Boolean = narrowColumn.findFirstIn(executable).isDefined
 
+  private val decimalColumn = "\\b(d9|d9b|d18|d18b)\\b".r
+
+  /**
+   * Whether an executable row reads one of the table's DECIMAL columns, `d9`, `d9b`, `d18` or
+   * `d18b` (VARKA-347). The fuzzers that draw int and long columns leave these rows out for
+   * {@link #readsNarrow}'s reason: a decimal column is Arrow's sixteen-byte slot a row, which
+   * their batches and oracles do not build. Drawing the decimal type is VARKA-352's.
+   */
+  def readsDecimal(executable: String): Boolean = decimalColumn.findFirstIn(executable).isDefined
+
   case class Table(columns: Seq[Attribute], projections: Seq[Row], predicates: Seq[Row])
 
   /** The table at `path`, the committed file the coverage suite keeps. */

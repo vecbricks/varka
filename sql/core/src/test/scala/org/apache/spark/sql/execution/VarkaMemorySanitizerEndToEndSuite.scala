@@ -41,6 +41,22 @@ class VarkaMemorySanitizerEndToEndSuite
     body
   }
 
+  /**
+   * Caches a `varka_bools` view in both sessions: two nullable boolean columns `b` and `b2` beside
+   * an int `i`, over 100 rows. 100 is not a multiple of eight or of 64, so a bitmap read or
+   * written over it ends in a partial byte, a partial word and a partial lane group.
+   */
+  private def cacheBools(): Unit = {
+    val rows = (0 until 100).map { i =>
+      (if (i % 7 == 3) null: java.lang.Boolean else Boolean.box(i % 2 == 0),
+        if (i % 5 == 4) null: java.lang.Boolean else Boolean.box(i % 3 == 0), i)
+    }
+    for (session <- Seq(spark, varkaSpark)) {
+      session.createDataFrame(rows).toDF("b", "b2", "i").createOrReplaceTempView("varka_bools")
+      session.catalog.cacheTable("varka_bools")
+    }
+  }
+
   test("a Varka projection's kernel maps its buffers through the sanitizer") {
     withSanitizer {
       cacheDates(spark)
@@ -61,15 +77,26 @@ class VarkaMemorySanitizerEndToEndSuite
     withSanitizer {
       // A bit vector's data buffer holds (rows + 7) / 8 bytes, a thirty-second of what a lane's
       // width a row would map; 100 rows leave a partial last byte and a partial last group.
-      val rows = (0 until 100).map { i =>
-        (if (i % 7 == 3) null: java.lang.Boolean else Boolean.box(i % 2 == 0),
-          if (i % 5 == 4) null: java.lang.Boolean else Boolean.box(i % 3 == 0), i)
-      }
-      for (session <- Seq(spark, varkaSpark)) {
-        session.createDataFrame(rows).toDF("b", "b2", "i").createOrReplaceTempView("varka_bools")
-        session.catalog.cacheTable("varka_bools")
-      }
+      cacheBools()
       val query = "SELECT i FROM varka_bools WHERE b AND (NOT b2 OR i > 50) ORDER BY i"
+      val expected = spark.sql(query)
+      val before = VarkaMemorySanitizer.checked()
+      val actual = varkaSpark.sql(query)
+      assertFused(actual.queryExecution.executedPlan)
+      checkAnswer(actual, expected)
+      assertKernelsRan(actual.queryExecution.executedPlan)
+      assert(VarkaMemorySanitizer.checked() > before, "the kernel mapped nothing in a window")
+    }
+  }
+
+  test("a boolean output's kernel writes its data bitmap inside the buffer, a word at a time") {
+    withSanitizer {
+      // VARKA-27: a BOOLEAN output's data is a bitmap of whole words, which the guard admits and
+      // nothing past; 100 rows end in a partial word. Under -Dvarka.checkBothBodies (the option
+      // matrix sets both flags) the other body writes buffers of its own of the same size.
+      cacheBools()
+      val query = "SELECT i, b AND b2 AS c, (i > 50) OR b AS e, b <=> b2 AS n FROM varka_bools " +
+        "ORDER BY i"
       val expected = spark.sql(query)
       val before = VarkaMemorySanitizer.checked()
       val actual = varkaSpark.sql(query)

@@ -786,7 +786,8 @@ final class VarkaChronoCompiler {
       // own interval is whatever `dayRange` already says. Listed, not defaulted, so that a new
       // IR node is a compile error here until it is classified as one that carries a day
       // interval (above) or one that does not.
-      case VarkaVectorIR.ColumnRef _, LiteralSlot _, GuardedDay _, VarkaVectorIR.GuardedRange _,
+      case VarkaVectorIR.ColumnRef _, VarkaVectorIR.DecimalColumn _, LiteralSlot _, GuardedDay _,
+          VarkaVectorIR.GuardedRange _,
           VarkaVectorIR.WidenLane _, VarkaVectorIR.NarrowLane _, VarkaVectorIR.DateDiff _,
           VarkaVectorIR.DayOfWeek _, VarkaVectorIR.WeekDay _, DayOfWeekIso _, VarkaVectorIR.Year _,
           VarkaVectorIR.Month _, VarkaVectorIR.DayOfMonth _, VarkaVectorIR.Quarter _,
@@ -797,7 +798,7 @@ final class VarkaChronoCompiler {
           VarkaVectorIR.Or _, VarkaVectorIR.Not _, VarkaVectorIR.IsNotNull _,
           VarkaVectorIR.InRanges _, VarkaVectorIR.IntArith _, IntNeg _, VarkaVectorIR.ConstDivide _,
           VarkaVectorIR.BoundedDivide _, VarkaVectorIR.BitOp _, VarkaVectorIR.BitCount _,
-          VarkaVectorIR.CondValue _ ->
+          VarkaVectorIR.CondValue _, VarkaVectorIR.BoolOutput _ ->
           new Rebuilt(node, false, false);
     };
     VarkaValueRange.Range range =

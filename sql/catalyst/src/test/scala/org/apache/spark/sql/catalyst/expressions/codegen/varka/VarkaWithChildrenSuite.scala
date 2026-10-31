@@ -27,7 +27,8 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR._
  * `VarkaVectorIR.withChildren` is the inverse of `childrenOf` (VARKA-277): rebuilding a node over
  * its own children gives the node back, for every node type any grammar can draw - the narrow
  * conversion draw included, whose target-carrying conversions a one-argument rebuild would
- * silently change (VARKA-329) - and a replacement that does not type is refused by the
+ * silently change (VARKA-329), and the nulling draw, whose guards a three-argument rebuild would
+ * make failing ones (VARKA-481) - and a replacement that does not type is refused by the
  * constructor and not accepted silently.
  */
 class VarkaWithChildrenSuite extends SparkFunSuite {
@@ -42,8 +43,10 @@ class VarkaWithChildrenSuite extends SparkFunSuite {
       val long = drawLongShape(shapeRandom(LONG_FUZZ_SEED, k))
       val mixed = drawMixedShape(shapeRandom(MIXED_FUZZ_SEED, k))
       val narrow = drawNarrowShape(shapeRandom(NARROW_FUZZ_SEED, k))
+      val nulling = drawNullingShape(shapeRandom(NULLING_FUZZ_SEED, k))
+      val nullingLong = drawNullingLongShape(shapeRandom(NULLING_FUZZ_SEED, k))
       val drawn = int.roots.asScala ++ long.roots.asScala ++ mixed.roots.asScala ++
-        narrow.roots.asScala
+        narrow.roots.asScala ++ nulling.roots.asScala ++ nullingLong.roots.asScala
       for (root <- drawn; node <- nodes(root)) {
         val rebuilt = VarkaVectorIR.withChildren(node, VarkaVectorIR.childrenOf(node): _*)
         assert(rebuilt == node, s"${VarkaVectorIR.canonical(node)} rebuilt as " +
@@ -55,10 +58,14 @@ class VarkaWithChildrenSuite extends SparkFunSuite {
       Option(c.getPermittedSubclasses).map(_.toSeq).getOrElse(Seq(c))
     }.filter(_.isRecord).map(_.getSimpleName).toSet
     // The null-safe equality is in no grammar yet (VARKA-336 6): it is rebuilt directly below.
-    // The boolean-column nodes (VARKA-331) and the condition as a value (VARKA-460) are rebuilt
-    // directly below.
+    // The boolean-column nodes (VARKA-331), the condition as a value (VARKA-460) and the
+    // boolean output (VARKA-27) are rebuilt directly below.
+    // The decimal column (VARKA-347) is in no grammar yet either, and on purpose: a draw of it in
+    // a committed sequence would move every shape after it and the corpora the cost model is
+    // fitted on, so its sequence comes on a seed of its own (`VARKA-347.md` 3 item 5) and its
+    // fold into the corpora with row 352's refit. It is rebuilt directly below.
     val undrawn = permitted -- seen - "NullSafeEqual" - "BoolColumn" - "CondConst" -
-      "BoolCompare" - "CondIf" - "BoolNullSafeEq" - "CondValue"
+      "BoolCompare" - "CondIf" - "BoolNullSafeEq" - "CondValue" - "BoolOutput" - "DecimalColumn"
     assert(undrawn.isEmpty, s"the grammars never drew: ${undrawn.toSeq.sorted.mkString(", ")}")
   }
 
@@ -97,12 +104,20 @@ class VarkaWithChildrenSuite extends SparkFunSuite {
     val c = new BoolColumn(2)
     val nodes = Seq[VarkaVectorIR](a, new CondConst(Truth.NULL),
       new BoolCompare(CompareOp.LE, a, b), new CondIf(a, b, c), new BoolNullSafeEq(a, b),
-      new CondValue(new CondIf(a, b, c), LaneType.INT))
+      new CondValue(new CondIf(a, b, c), LaneType.INT), new BoolOutput(new CondIf(a, b, c)))
     for (node <- nodes) {
       assert(VarkaVectorIR.withChildren(node, VarkaVectorIR.childrenOf(node): _*) == node)
     }
     assert(VarkaVectorIR.withChildren(nodes(2), b, a) == new BoolCompare(CompareOp.LE, b, a))
     intercept[Exception](VarkaVectorIR.withChildren(nodes(4), a, new BoolColumn(1, LaneType.LONG)))
+  }
+
+  test("a decimal column, a leaf, is rebuilt as itself, and its parent over it") {
+    val dec = new DecimalColumn(0, LaneType.LONG, 9)
+    assert(VarkaVectorIR.withChildren(dec) == dec)
+    intercept[Exception](VarkaVectorIR.withChildren(dec, new ColumnRef(0, LaneType.LONG)))
+    val sum = new IntArith(IntOp.ADD, Overflow.WRAP, dec, new DecimalColumn(1, LaneType.LONG, 18))
+    assert(VarkaVectorIR.withChildren(sum, VarkaVectorIR.childrenOf(sum): _*) == sum)
   }
 
   test("a replacement is rebuilt in place, the node's other fields kept") {
@@ -111,6 +126,18 @@ class VarkaWithChildrenSuite extends SparkFunSuite {
     val guarded = new GuardedRange(col, -5L, 9L)
     val swapped = VarkaVectorIR.withChildren(guarded, other)
     assert(swapped == new GuardedRange(other, -5L, 9L))
+    // A nulling guard stays one: a rebuild through the three-argument form would make it fail.
+    val nulling = new GuardedRange(col, -5L, 9L, Overflow.NULL)
+    assert(VarkaVectorIR.withChildren(nulling, other) ==
+      new GuardedRange(other, -5L, 9L, Overflow.NULL))
+    // And the two render apart, so they never share a kernel, a failing guard's rendering
+    // carrying no mode.
+    assert(VarkaVectorIR.canonical(guarded) === "(guardedRange col:0 -5 9)")
+    assert(VarkaVectorIR.canonical(nulling) === "(guardedRange:NULL col:0 -5 9)")
+    // The reproduction's parser reads each rendering back as the node it came from.
+    for (node <- Seq(guarded, nulling)) {
+      assert(VarkaCanonicalIr.parse(VarkaVectorIR.canonical(node)) == node)
+    }
     val compare = new Compare(CompareOp.LT, col, other)
     assert(VarkaVectorIR.withChildren(compare, other, col) ==
       new Compare(CompareOp.LT, other, col))

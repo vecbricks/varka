@@ -17,6 +17,9 @@
 
 package org.apache.spark.sql.execution;
 
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
@@ -34,12 +37,19 @@ import scala.Tuple2;
 import scala.collection.immutable.Seq;
 import scala.jdk.javaapi.CollectionConverters;
 
+import org.apache.spark.sql.catalyst.InternalRow;
+import org.apache.spark.sql.catalyst.expressions.Alias;
+import org.apache.spark.sql.catalyst.expressions.AttributeReference;
 import org.apache.spark.sql.catalyst.expressions.Expression;
+import org.apache.spark.sql.catalyst.expressions.GenericInternalRow;
 import org.apache.spark.sql.catalyst.expressions.NamedExpression;
+import org.apache.spark.sql.catalyst.expressions.codegen.VarkaExpressionCompiler;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaMatrixRuns;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaSuite;
 import org.apache.spark.sql.internal.SQLConf;
+import org.apache.spark.sql.types.DataType;
+import org.apache.spark.sql.types.DataTypes;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
@@ -53,7 +63,8 @@ import org.junit.jupiter.api.TestFactory;
  * through {@link VarkaExpressionHarness}: each row's answer under both consumers - a projection
  * row through the columnar node's {@code project} and the row node's {@code projectFused}, a
  * predicate row through the filter evaluator - each predicate row's partition oracle
- * ({@link VarkaPartitionOracle}) and its null tests as CASE conditions, each row's ANSI form
+ * ({@link VarkaPartitionOracle}), its null tests as CASE conditions and its answer as a
+ * {@code BOOLEAN} output column (VARKA-27), each row's ANSI form
  * ({@link VarkaAnsiForm}), and the domains of the rows whose kernel can decline a batch
  * ({@link VarkaDomains}), the last two on fixtures of their own. Each row of each form is one
  * test under the name the end-to-end suite gave it, so the option matrix's record of what a
@@ -360,6 +371,129 @@ public final class VarkaCoverageHarnessSuite {
         String.join("\n", findings));
     assertTrue(findings.stream().anyMatch(x -> x.startsWith("rows neither true, false nor")),
         String.join("\n", findings));
+  }
+
+  // ---------------------------------------------------------------------------------------------
+  // Every predicate row as a boolean output (VARKA-27)
+  // ---------------------------------------------------------------------------------------------
+
+  /**
+   * Whether the output {@code c} of {@code list} is a bare column, which a projection forwards
+   * rather than fuses: read from the planned list, as {@link #folded} is, so that a row the
+   * optimizer reduces to its column counts as one too.
+   */
+  static boolean bareColumn(Seq<NamedExpression> list) {
+    for (NamedExpression e : CollectionConverters.asJava(list)) {
+      if (e instanceof Alias a && a.name().equals("c") && a.child() instanceof AttributeReference) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Whether the optimizer folded the output {@code c} of {@code list} to a constant, leaving
+   * nothing for Varka to fuse: over a column it knows to be non-nullable, {@code d IS NULL} is
+   * false.
+   */
+  static boolean folded(Seq<NamedExpression> list) {
+    for (NamedExpression e : CollectionConverters.asJava(list)) {
+      if (e instanceof Alias a && a.name().equals("c") && a.child().foldable()) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * One predicate row as {@code SELECT rid, (p) AS c} on one fixture, under both consumers: the
+   * rows Varka answers must be Spark's, a true, a false and a null each kept apart, and a kernel
+   * must have answered and left no output to the row path - but for a bare boolean column, which
+   * fuses nothing beside the forwarded {@code rid} and so must leave Spark's projection to run,
+   * and for an output Spark folded to a constant.
+   */
+  private static List<String> outputFindings(Row row, String name,
+      VarkaHarnessPlans.Fixture fixture, SQLConf conf) {
+    String sql = "SELECT rid, (" + row.executable() + ") AS c FROM t";
+    String context = name + ", " + sql;
+    VarkaHarnessPlans.Query q = withConf(conf,
+        () -> VarkaHarnessPlans.query(sql, fixture.columns()));
+    if (!(q instanceof VarkaHarnessPlans.Query.Projection p)) {
+      return List.of(context + ": did not stay a projection over the scan: " + q);
+    }
+    Seq<NamedExpression> list = p.list();
+    if (bareColumn(list)) {
+      // Under the conf the row runs with, since the emit options are read from it.
+      boolean fused = withConf(conf, () -> VarkaExpressionCompiler.compilePartial(list,
+          fixture.columns(), VarkaColumnarToRowExec$.MODULE$.currentEmitOptions()).isPresent());
+      return fused ? List.of(context + ": a bare column fused, where Spark's projection runs")
+          : List.of();
+    }
+    boolean mustServe = !folded(list);
+    var findings = new ArrayList<String>();
+    withConf(conf, () -> {
+      // The columnar consumer is the batch the Arrow cache stores: the kernel's BitVector.
+      for (VarkaExpressionHarness.Consumer consumer : VarkaExpressionHarness.Consumer.values()) {
+        VarkaExpressionHarness.Outcome o = VarkaExpressionHarness.projection(
+            context + ", " + consumer, list, fixture, conf, consumer);
+        findings.addAll(o.findings);
+        if (mustServe && (o.answered == 0 || o.residual > 0)) {
+          findings.add(context + ", " + consumer + ": no kernel served all of it ("
+              + o.answered + " answered, " + o.declined + " declined, " + o.residual
+              + " residual)");
+        }
+      }
+      return null;
+    });
+    return findings;
+  }
+
+  @TestFactory
+  Stream<DynamicTest> booleanOutputs() {
+    return predicates().stream().map(row -> DynamicTest.dynamicTest(row.family() + ": "
+        + row.sql() + " as a boolean output matches the row engine", () -> {
+          // Under the partition oracle's exclusions, so that the predicate reaches Varka as
+          // written: NullDownPropagation would turn (d < d2) IS NULL into null tests on the
+          // columns, and NullPropagation fold a null-safe row's null test.
+          SQLConf conf = excluding(conf(SQLConf.get().ansiEnabled()),
+              VarkaPartitionOracle.isNullSafe(row.executable())
+                  ? VarkaPartitionOracle.NULL_SAFE_REWRITES : VarkaPartitionOracle.REWRITES);
+          var findings = new ArrayList<String>();
+          for (Map.Entry<String, VarkaHarnessPlans.Fixture> f : FIXTURES.entrySet()) {
+            findings.addAll(outputFindings(row, f.getKey(), f.getValue(), conf));
+          }
+          assertTrue(findings.isEmpty(), String.join("\n", findings));
+        }));
+  }
+
+  @Test
+  @DisplayName("the boolean output check fails a null answered as false, and tells a bare "
+      + "column and a folded output apart")
+  void booleanOutputCheckFails() {
+    // No kernel answers a null as false on purpose, so the fault is planted in the answers: a
+    // kernel that wrote the validity as the data would give [rid, false] for Spark's
+    // [rid, null], which the row comparison must report.
+    DataType[] types = {DataTypes.IntegerType, DataTypes.BooleanType};
+    InternalRow want = new GenericInternalRow(new Object[] {4, null});
+    assertNull(VarkaExpressionHarness.sameRow(want, want, types));
+    assertNotNull(VarkaExpressionHarness.sameRow(want,
+        new GenericInternalRow(new Object[] {4, false}), types));
+    SQLConf conf = conf(SQLConf.get().ansiEnabled());
+    VarkaHarnessPlans.Fixture fixture = FIXTURES.get("varka_coverage_mixed");
+    withConf(conf, () -> {
+      assertTrue(bareColumn(projectionOf("SELECT rid, (b) AS c FROM t", fixture)));
+      assertFalse(bareColumn(projectionOf("SELECT rid, (NOT b) AS c FROM t", fixture)));
+      assertFalse(bareColumn(projectionOf("SELECT rid, (b <=> b2) AS c FROM t", fixture)));
+      assertTrue(folded(projectionOf("SELECT rid, (rid IS NULL) AS c FROM t", fixture)));
+      assertFalse(folded(projectionOf("SELECT rid, (d < d2) AS c FROM t", fixture)));
+      return null;
+    });
+  }
+
+  private static Seq<NamedExpression> projectionOf(String sql,
+      VarkaHarnessPlans.Fixture fixture) {
+    return ((VarkaHarnessPlans.Query.Projection) VarkaHarnessPlans.query(sql, fixture.columns()))
+        .list();
   }
 
   // ---------------------------------------------------------------------------------------------

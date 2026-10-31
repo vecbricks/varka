@@ -25,7 +25,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ColumnRef;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IntArith;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IntOp;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LaneType;
@@ -108,8 +107,11 @@ public final class VarkaKernelPlan {
       if (!nodes.add(node)) {
         continue;
       }
-      if (node instanceof ColumnRef c) {
-        inputLanes.putIfAbsent(c.ordinal(), c.lane());
+      // Each input leaf's lane, which sizes its data segment. A boolean column's lane is its
+      // siblings', but its segment is a bitmap, which loadInputSegment sizes before it asks this.
+      int ordinal = VarkaVectorIR.inputOrdinal(node);
+      if (ordinal >= 0) {
+        inputLanes.putIfAbsent(ordinal, node.laneType());
       }
       for (VarkaVectorIR child : VarkaVectorIR.childrenOf(node)) {
         operands.add(child);

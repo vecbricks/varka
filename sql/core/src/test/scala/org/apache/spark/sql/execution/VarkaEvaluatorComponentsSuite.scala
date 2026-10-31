@@ -18,6 +18,7 @@
 package org.apache.spark.sql.execution
 
 import java.io.File
+import java.lang.foreign.{Arena, MemorySegment, ValueLayout}
 import java.nio.file.Files
 
 import scala.collection.mutable
@@ -27,7 +28,8 @@ import org.apache.logging.log4j.Level
 import org.mockito.Mockito.{doAnswer, doThrow, mock, never, verify}
 
 import org.apache.spark.{SparkFunSuite, TaskContext}
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaEmitOptions, VarkaFusedKernel}
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaEmitOptions, VarkaFusedKernel,
+  VarkaReproduction}
 import org.apache.spark.sql.execution.metric.SQLMetric
 import org.apache.spark.sql.execution.varka.{VarkaBatchLedger, VarkaClassDump,
   VarkaFallbackAccounting, VarkaKernelRunner, VarkaReasonMetric}
@@ -193,7 +195,8 @@ class VarkaEvaluatorComponentsSuite extends SparkFunSuite {
     // naming several reasons, which a method of two reasons returns by default.
     val kernelBits = Seq(VarkaFusedKernel.STATUS_DAY_PRODUCER, VarkaFusedKernel.STATUS_MONTH_COUNT,
       VarkaFusedKernel.STATUS_MAKE_DATE, VarkaFusedKernel.STATUS_INT_OVERFLOW,
-      VarkaFusedKernel.STATUS_DAY_RANGE, VarkaFusedKernel.STATUS_VALUE_RANGE)
+      VarkaFusedKernel.STATUS_DAY_RANGE, VarkaFusedKernel.STATUS_VALUE_RANGE,
+      VarkaFusedKernel.STATUS_DECIMAL_SLOT)
     val evaluatorBits = Seq(VarkaKernelRunner.STATUS_INPUT_BOUND,
       VarkaKernelRunner.STATUS_DERIVED_INPUT, VarkaKernelRunner.STATUS_FORCED)
     val bits = kernelBits ++ evaluatorBits
@@ -286,6 +289,47 @@ class VarkaEvaluatorComponentsSuite extends SparkFunSuite {
       VarkaClassDump.dump(blocked.getAbsolutePath, "VarkaFusedProjection_b.java", first)
       assert(Files.readAllBytes(new File(blocked, "VarkaFusedProjection_b.class").toPath).toSeq ===
         first.toSeq)
+    }
+  }
+
+  test("the both-bodies check compares a boolean output's data bit by bit, where it is valid") {
+    // VARKA-27 2.5: a bit output's data is a bitmap, which the width-sliced compare would read
+    // as nothing. One output over 100 rows of a null-free batch, its two bodies' bitmaps planted:
+    // equal, they pass; one data bit flipped on a valid row fails; a data bit flipped under a
+    // null row is undefined data and passes.
+    val len = 100
+    val words = ((len + 63) / 64) * 8L
+    val arena = Arena.ofConfined()
+    try {
+      def bitmap(set: Int => Boolean): MemorySegment = {
+        val seg = arena.allocate(words, 8)
+        for (r <- 0 until len if set(r)) {
+          seg.set(ValueLayout.JAVA_BYTE, r / 8L,
+            (seg.get(ValueLayout.JAVA_BYTE, r / 8L) | (1 << (r % 8))).toByte)
+        }
+        seg
+      }
+      val valid = (r: Int) => r % 7 != 3
+      val known = (r: Int) => r % 3 == 0
+      def check(otherData: MemorySegment): Unit = {
+        VarkaKernelRunner.compareBodies("shape", len, true, Array(0L), Array(0),
+          Array(VarkaReproduction.KernelCall.BIT_OUTPUT),
+          new VarkaKernelRunner.BodyOutputs(
+            Array(bitmap(known).address()), Array(bitmap(valid).address())),
+          new VarkaKernelRunner.BodyOutputs(
+            Array(otherData.address()), Array(bitmap(valid).address())))
+      }
+      check(bitmap(known))
+      // Row 64 is valid and its data bit clear in the served body: the first bit of the second,
+      // partial word.
+      assert(valid(64) && !known(64))
+      val e = intercept[IllegalStateException](check(bitmap(r => known(r) || r == 64)))
+      assert(e.getMessage.contains("disagree on output 0 at row 64"), e.getMessage)
+      // Row 3 is null: its data bit is not compared.
+      assert(!valid(3))
+      check(bitmap(r => known(r) && r != 3))
+    } finally {
+      arena.close()
     }
   }
 }

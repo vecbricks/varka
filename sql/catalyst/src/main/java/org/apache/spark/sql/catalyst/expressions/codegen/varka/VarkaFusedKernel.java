@@ -43,6 +43,12 @@ package org.apache.spark.sql.catalyst.expressions.codegen.varka;
  * discipline above doubles as the selection invariant: a row the loop never writes reads as
  * unselected.
  *
+ * <p>Boolean outputs: an output whose IR root is a {@code BoolOutput} writes two bitmaps, an
+ * Arrow {@code BitVector}'s (VARKA-27). Its {@code dstData} is a bitmap of whole 64-bit words,
+ * {@code ((length + 63) / 64) * 8} bytes, which the kernel zeroes and may store a word at a
+ * time: a set bit means the condition is known true for that row. Its {@code dstValidity} is
+ * set where the condition is known, true or false, so an unknown row is null, never false.
+ *
  * <p>Status, and why {@code run} returns one: a lowering may be correct only over
  * part of its input domain - the narrowed civil-from-days variant is valid over a bounded day
  * range, and nothing at compile time can bound a column's values. Such a kernel detects the
@@ -80,11 +86,18 @@ public interface VarkaFusedKernel {
   int STATUS_DAY_RANGE = 1 << 4;
 
   /**
-   * A {@code GuardedRange}'s value outside the bounds it carries: a value the row engine throws
-   * on, or a date column's day outside the column bound the calendar lowering rests on
-   * (VARKA-379).
+   * A {@code FAIL} {@code GuardedRange}'s value outside the bounds it carries: a value the row
+   * engine throws on, or a date column's day outside the column bound the calendar lowering rests
+   * on (VARKA-379). A {@code NULL} one nulls the lane instead and reports nothing.
    */
   int STATUS_VALUE_RANGE = 1 << 5;
+
+  /**
+   * A {@code DecimalColumn}'s valid slot that holds no value of its type: a high word that is not
+   * the low word's sign, or more digits than the precision (VARKA-347). Spark's column reader
+   * raises on such a slot, so the row engine raises it again.
+   */
+  int STATUS_DECIMAL_SLOT = 1 << 6;
 
   /**
    * Runs the fused loop over one batch.

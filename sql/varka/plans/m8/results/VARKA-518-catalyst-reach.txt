@@ -1,0 +1,190 @@
+# The catalyst suites' reach record (VARKA-518), 30 October 2026, on the laptop (AMD Ryzen AI 9
+# HX PRO 370): catalyst's Varka suites at the defaults through dev/varka_matrix.sh, plain and
+# with -Dvarka.matrix.reachRecord, from builds of this branch (the timing suites
+# VarkaAssemblySuite and VarkaTierWitnessSuite left out, as the Build's suites step leaves them
+# out). Times are the suites' JUnit seconds; laptop numbers, not CI's. Matrix seconds are each
+# suite's seconds summed over the configurations, from config-suite-seconds.tsv of pull request
+# #1159 (option matrix runs 40961304094 and 40956699711); the seconds a record saves are those
+# times the share of the suite's tests the record lets each configuration skip.
+
+What the first recorded run met
+  plain run: 4 JVMs, 563 s; the recorded run: 4 JVMs, two of them halted by the watchdog
+  the recording broke in one JVM: VarkaEmitterContractSuite's test of a null options argument
+    reached the recorder before the emitter refused it, the recorder threw, and the record was
+    marked broken, which discards every module's record; the emitter now reports an emission
+    only once its arguments hold
+  one JVM wrote a JVM-wide line naming 7 configurations (denseValidityOnce=false,
+    driverOutputTable=false, elideUnreadLocals=false, methodByteBudget=0,
+    validityByBitmap=false, validityByWidth=false, validityByWord=true), which joins every test
+    of every module: VarkaShrinkerSuite and VarkaMemorySanitizerSuite emit kernels without
+    VarkaMatrixTests, so with no window open their kernels counted as the JVM's. They now open
+    the suite's window (VarkaReachWindow); rerun in one JVM with the 15 suites it shared, the
+    JVM-wide line is "-" and the moves are the two suites' own lines, which no test reads
+  the suites the watchdog halted, and the rest of their JVMs, were recorded again in one JVM a
+    suite
+
+Left out of the recording (VarkaTestReach.UNRECORDED), each for a measured reason
+  a test past the watchdog's 600 s recorded: VarkaExpressionCompilerSuite (two of its tests
+    also fail: the recompiles go through the shape cache and move its build count, 45 for 1
+    and 289 for 288), VarkaEmitCostAuditSuite, VarkaEmittedBytesSuite (87.3 s plain, 721.4 s
+    recorded before the halt, 0 matrix seconds), VarkaKernelPlanSuite, VarkaWarmupReachSuite
+  recording costs more than it saves: VarkaUnreadLocalsSuite (34.8 s plain, 473.4 recorded,
+    saves 247), VarkaEmitCostSuite (32.7 plain, 671.5 recorded, saves 459)
+  by the row: VarkaSmallTreeSuite, VarkaIrFuzzSuite, VarkaCoverageCompositionFuzzSuite, which
+    skip their own trees. Measured, they cost little to record against what a record would
+    save: 15.1 s plain and 73.3 recorded against 2848 saved, 325.9 and 438.3 against 1484,
+    113.9 and 366.6 against 1046, about 1.5 of the record's hours. Whether a test-level skip
+    over their own per-case filter is sound for the fuzzers, which draw options per case, wants
+    its own look before they are recorded.
+  the timing suites never record: the Build runs them in the quiet step, without the record.
+  Suites with no matrix seconds that cost a few seconds to record (VarkaCastMatrixSuite 11.2,
+  VarkaInliningCliffSuite 8.3, and smaller) are kept: no entry for a cost under 15 s.
+
+The recorded suites kept: 1058.8 s plain, 1802.1 s recorded, a cost of 743.3 s over the
+module's three Build jobs (on CI two JVMs a job, so more wall a job), against 12559 matrix
+seconds saved a run.
+
+Suite by suite (tests with a line; cost = recorded - plain; skip share over the 34 recorded
+configurations):
+  suite                                  tests  plain   recd    cost matrix  saved  skip
+  VarkaEmittedBytesSuite                     7   87.3  721.4  +634.1      0      0  0.04
+  VarkaUnreadLocalsSuite                     5   34.8  473.4  +438.6   1001    247  0.33
+  VarkaEmitCostSuite                         8   32.7  671.5  +638.8   1352    459  0.50
+  VarkaCastMatrixSuite                       2    1.4   12.6   +11.2      1      0  0.85
+  VarkaInliningCliffSuite                    2   17.5   25.8    +8.3     23      0  1.00
+  VarkaSuiteHarnessSuite                    31    2.7    6.3    +3.6      0      0  0.94
+  VarkaReachSuite                            3    0.0    1.3    +1.3      0      0  0.88
+  VarkaDivisorProofSuite                     2    3.7    4.9    +1.2      1      0  0.66
+  VarkaProbeOutputSuite                      5    0.0    0.4    +0.4      0      0  1.00
+  VarkaMethodNamesSuite                      5    0.0    0.7    +0.7      0      0  1.00
+  VarkaSpeciesGuardSuite                     5    0.0    0.1    +0.1      0      0  0.82
+  VarkaMatrixSuite                           9    0.1    0.1    +0.0      0      0  1.00
+  VarkaEmitOptionSuite                       8    0.1    0.0    -0.1      0      0  1.00
+  VarkaTestReachSuite                       10    0.1    0.0    -0.1      0      0  1.00
+  VarkaRangeSetCompilerSuite                 6    0.0    0.8    +0.8      1      1  1.00
+  VarkaSelectionBitmapSuite                  2    0.0    0.0    +0.0      0      0  1.00
+  VarkaTypesSuite                            6    0.0    1.5    +1.5      3      2  1.00
+  VarkaConjunctOrderSuite                   13    0.2    4.3    +4.1      7      5  0.98
+  VarkaEmitterFramesSuite                    3    1.1   43.9   +42.8    135     44  0.47
+  VarkaKernelReuseSuite                      4    3.3    2.0    -1.3      0      0  0.64
+  VarkaSelectionVectorOpsSuite               2    0.1    1.5    +1.4      5      4  1.00
+  VarkaCompilationWatchSuite                12    0.1    0.1    +0.0      4      3  0.83
+  VarkaInternalErrorSuite                    6    0.2    1.7    +1.5      6      4  1.00
+  VarkaPlatformSuite                         9    0.1    0.0    -0.1      4      3  1.00
+  VarkaReproductionSuite                    11    0.3    6.1    +5.8     17     11  0.93
+  VarkaBooleanConformanceSuite               7    0.2    4.6    +4.4     22     10  0.63
+  VarkaEmitterContractSuite                 11    0.2    2.0    +1.8     13      7  0.81
+  VarkaLaneTypeSuite                        18    0.1    0.6    +0.5     10      6  0.94
+  VarkaOperatorCensusSuite                   6   67.4   61.0    -6.4      0      0  1.00
+  VarkaFloatConformanceSuite                 7    0.3    0.7    +0.4     34     11  0.46
+  VarkaHugeMethodSuite                       2   33.0   21.3   -11.7     23      0  0.54
+  VarkaYearMonthIntervalConformanceSuite     7    1.7    0.6    -1.1     31     12  0.57
+  VarkaDoubleConformanceSuite                7    3.1    2.2    -0.9     38     13  0.46
+  VarkaChronoSuite                          20    0.2    1.1    +0.9     29     16  0.80
+  VarkaAllocationSamplerSuite                5    0.4    0.5    +0.1     24     16  1.00
+  VarkaGuardEdgeSuite                        8    0.4    2.2    +1.8     42     22  0.75
+  VarkaDeoptCycleSuite                       7    0.4    0.4    +0.0     34     24  1.00
+  VarkaIntConformanceSuite                   7    5.7    7.2    +1.5    400     32  0.11
+  VarkaFamilySwitchSuite                     5    0.3   32.9   +32.6    114     69  0.84
+  VarkaGeneratedClassLoaderSuite             5    2.1    1.4    -0.7     72     44  0.86
+  VarkaExactGroupingSuite                    6    5.4   28.5   +23.1    223     74  0.49
+  VarkaEmitterSplitDriverSuite               6    4.3   37.4   +33.1    181     86  0.69
+  VarkaKernelWarmupSuite                    14   18.0   36.3   +18.3    106     78  0.97
+  VarkaDayTimeIntervalConformanceSuite       7    4.0    8.3    +4.3    353     84  0.34
+  VarkaBigIntConformanceSuite                7    4.3    8.5    +4.2    378     89  0.34
+  VarkaEmitterBudgetSuite                   30   10.8   64.5   +53.7    393    148  0.56
+  VarkaRangeAnalysisSuite                   22    4.8    2.0    -2.8    141    100  1.00
+  VarkaEmitterLongLaneSuite                  7    3.0    3.0    +0.0    196    109  0.79
+  VarkaWidthAuditSuite                       5  406.4  281.7  -124.7      0      0  1.00
+  VarkaCoverageSuite                        12    8.7   30.2   +21.5    405    151  0.53
+  VarkaEmitterArithmeticSuite               30    1.8    3.3    +1.5    243    137  0.79
+  VarkaTimeConformanceSuite                  7    4.2    6.8    +2.6    353    144  0.60
+  VarkaEmitterNullSafeSuite                  7    3.3    4.3    +1.0    247    151  0.89
+  VarkaTimestampNtzConformanceSuite          7    4.9    7.2    +2.3    366    154  0.61
+  VarkaEmitterDivisionSuite                 34    5.7   11.7    +6.0    494    165  0.47
+  VarkaFamilyChainSuite                      2    3.5    3.6    +0.1    236    166  1.00
+  VarkaVectorTemplateWarmupSuite            12    5.3    1.6    -3.7    235    168  1.00
+  VarkaEmitterChronoSuite                   69    3.8   13.0    +9.2    420    183  0.62
+  VarkaEmitterNarrowSuite                   13    4.0    4.8    +0.8    314    187  0.86
+  VarkaDateConformanceSuite                  7    3.5    8.0    +4.5    377    191  0.72
+  VarkaEmitterBitwiseSuite                  10    6.8   13.5    +6.7    430    195  0.64
+  VarkaEmitterMixedLaneSuite                18    2.2    4.1    +1.9    373    194  0.77
+  VarkaShapeCacheSuite                      28    5.8   59.4   +53.6    403    252  0.87
+  VarkaSanitizedWarmupSuite                  2   11.5    3.5    -8.0    262    194  1.00
+  VarkaTinyIntConformanceSuite               7    5.4    8.4    +3.0    456    226  0.70
+  VarkaSmallIntConformanceSuite              7    5.2    8.6    +3.4    455    229  0.70
+  VarkaEmitterValiditySuite                 29    7.6    8.8    +1.2    521    239  0.67
+  VarkaMaskOfWordSuite                       5   23.9   74.7   +50.8    696    296  0.59
+  VarkaEmitterDriverTableSuite               7    6.8   36.6   +29.8    672    296  0.62
+  VarkaRangeRulesSuite                       9    1.7    2.3    +0.6    387    275  1.00
+  VarkaTimestampNtzCastSuite                 4    7.4    8.1    +0.7    874    512  0.85
+  VarkaSplitInliningSuite                    2   16.4   14.5    -1.9    797    574  1.00
+  VarkaCoverageCompositionFuzzSuite         15  113.9  366.6  +252.7   3504   1046  0.45
+  VarkaEmitterBoolSuite                     12   24.7   40.9   +16.2   1449    837  0.83
+  VarkaGroupingBoundSuite                    3  132.5  399.5  +267.0   3936   1157  0.42
+  VarkaVariantSuite                          7   32.3  181.6  +149.3   2856   1329  0.67
+  VarkaEmitterNarrowArithSuite              49   57.7   63.5    +5.8   3518   1228  0.49
+  VarkaIrFuzzSuite                          18  325.9  438.3  +112.4   4710   1484  0.50
+  VarkaAvx2SelectSuite                       6   54.7   56.6    +1.9   2649   1602  0.85
+  VarkaSmallTreeSuite                        6   15.1   73.3   +58.2   7026   2848  0.67
+
+Each configuration's share of catalyst's tests skipped, the left-out suites' tests counted as
+run, of the plain run's 1036 tests (787 with a line):
+  exactGrouping=false                                  skips 66.4%  runs  348 of 1036
+  narrowHalfSpecies=true                               skips 65.1%  runs  362 of 1036
+  guardDayProducers=false                              skips 64.9%  runs  364 of 1036
+  guardUnderArm=false                                  skips 64.8%  runs  365 of 1036
+  groupBudgetUnderPrediction=true                      skips 64.5%  runs  368 of 1036
+  groupBudget=64                                       skips 64.5%  runs  368 of 1036
+  useAVX=2                                             skips 64.2%  runs  371 of 1036
+  mulHiDivide=false                                    skips 64.2%  runs  371 of 1036
+  truncDate=RECOMPOSE                                  skips 63.8%  runs  375 of 1036
+  planSize=false                                       skips 63.8%  runs  375 of 1036
+  shareWholeNodes=false                                skips 63.7%  runs  376 of 1036
+  predictGrouping=false                                skips 63.2%  runs  381 of 1036
+  callSiteBudget=0                                     skips 63.1%  runs  382 of 1036
+  heavyGroupOutputs=0                                  skips 62.9%  runs  384 of 1036
+  narrowLanes=false                                    skips 62.5%  runs  389 of 1036
+  groupLocalSlots=false                                skips 62.3%  runs  391 of 1036
+  groupBudget=800                                      skips 61.9%  runs  395 of 1036
+  floorMod7=DIV                                        skips 61.8%  runs  396 of 1036
+  floorMod7=DIGIT_SUM                                  skips 61.7%  runs  397 of 1036
+  checkIntOverflow=false                               skips 60.3%  runs  411 of 1036
+  elideChronoMonth=false                               skips 58.5%  runs  430 of 1036
+  shareChronoPrefix=false                              skips 58.3%  runs  432 of 1036
+  neriSchneiderMonth=false                             skips 55.8%  runs  458 of 1036
+  julianMap=false                                      skips 53.1%  runs  486 of 1036
+  division=DOUBLE_RECIP                                skips 52.7%  runs  490 of 1036
+  division=DOUBLE_DIV                                  skips 52.6%  runs  491 of 1036
+  cse=false                                            skips 52.4%  runs  493 of 1036
+  validityByWord=true                                  skips 49.2%  runs  526 of 1036
+  validityByBitmap=false                               skips 38.4%  runs  638 of 1036
+  denseValidityOnce=false                              skips 33.1%  runs  693 of 1036
+  elideUnreadLocals=false                              skips 31.3%  runs  712 of 1036
+  validityByWidth=false                                skips 29.7%  runs  728 of 1036
+  driverOutputTable=false                              skips 28.7%  runs  739 of 1036
+  methodByteBudget=0                                   skips 28.4%  runs  742 of 1036
+  mean over the 34 recorded configurations: skips 55.6%
+
+The planner (dev/varka_matrix_bins.py plan, master's weights, catalyst's suites alone, the 48
+configurations of this build): without a record 75 bins, 35537 s in all; with this record 58
+bins, 27435 s. The sql record of option matrix run 40999948397 already carries a JVM-wide line
+naming 7 configurations, which the concatenated record joins to catalyst's tests too: with it
+60 bins, 28322 s, and the mean skip 48.0%. The matrix's catalyst hours before and after are
+the first matrix run on the merged commit's.
+
+Proof, five suites (VarkaEmitterValiditySuite, VarkaEmitterNullSafeSuite,
+VarkaTimestampNtzCastSuite, VarkaDateConformanceSuite, VarkaEmitterArithmeticSuite), one JVM
+each run: each test's emitted bytes logged as digests (an experiment patch, not committed) in a
+full run of the defaults and of each configuration, and the tests a run filtered by the record
+started
+  cse=false: bytes moved in 27 tests, the filtered run ran 28, missed 0; 4 tests the record
+    names did not run, all cancelled under any configuration (PinsDefaults)
+  julianMap=false: bytes moved in 13 tests, the filtered run ran 14, missed 0; 9 named and not
+    run, all cancelled under any configuration
+  the planted arm misdescribeAdd=true, which moves only AddDays' kernels (a wrong descriptor,
+    so the kernel throws NoSuchMethodError, which aborts a ScalaTest suite): recorded beside the
+    matrix's configurations, the record names 25 tests. A full run with those 25 listed in a
+    scratch skip list as expected to fail: 17 failed by the planted fault, all named; 2 named
+    passed (they compare bytes the arm moves alike); 5 named were PinsDefaults and 1 cancelled
+    at the defaults; no test the record does not name failed or aborted.

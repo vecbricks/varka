@@ -39,6 +39,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Bit
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BoolColumn;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BoolCompare;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BoolNullSafeEq;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BoolOutput;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BoundedDivide;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ColumnRef;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Compare;
@@ -52,6 +53,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Day
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.DayOfWeek;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.DayOfWeekIso;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.DayOfYear;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.DecimalColumn;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Greatest;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.GuardedDay;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.GuardedRange;
@@ -336,9 +338,17 @@ final class Analysis {
     DAY_RANGE(Family.REARMED, true, VarkaFusedKernel.STATUS_DAY_RANGE),
     /**
      * {@link GuardedRange}: the day guard's twin at either lane, with the bounds it carries - a
-     * value the row engine throws on, or a date column outside the column bound (VARKA-379).
+     * value the row engine throws on, or a date column outside the column bound (VARKA-379). A
+     * {@code NULL}-mode guard is not one: it nulls its lane and declines nothing.
      */
-    VALUE_RANGE(Family.REARMED, true, VarkaFusedKernel.STATUS_VALUE_RANGE);
+    VALUE_RANGE(Family.REARMED, true, VarkaFusedKernel.STATUS_VALUE_RANGE),
+    /**
+     * {@link DecimalColumn}: a valid slot whose high word is not its low word's sign, or whose
+     * value has more digits than the precision, which Spark's column reader raises on
+     * (VARKA-347). Unconditional, as the range guards are: without it the leaf would compute
+     * where Spark raises. It parks its low words while it compares them.
+     */
+    DECIMAL_SLOT(Family.REARMED, true, VarkaFusedKernel.STATUS_DECIMAL_SLOT);
 
     final Family family;
     final boolean parksValue;
@@ -500,6 +510,16 @@ final class Analysis {
    * is mapped at {@code (length + 7) / 8} bytes and not at a lane's width a row.
    */
   long boolInputs = 0L;
+  /**
+   * The inputs read as a {@link DecimalColumn}: their data buffer is Arrow's sixteen-byte decimal
+   * slots, so it is mapped at {@code length * 16} bytes and not at the long lane's eight a row.
+   */
+  long decimalInputs = 0L;
+  /**
+   * The inputs read as a {@link ColumnRef}, kept beside {@link #decimalInputs} so that one
+   * column read both as a decimal and as a plain long, two strides over one buffer, is refused.
+   */
+  private long valueInputs = 0L;
   private int opNodes = 0;
 
   Analysis(int numInputs, int numLiterals, VarkaEmitOptions options, VarkaKernelPlan plan) {
@@ -580,9 +600,16 @@ final class Analysis {
    * The arm chain to qualify {@code node}'s guard by: empty where the guard stays
    * unqualified. Behind {@link VarkaEmitOptions#guardUnderArm} so the change is measurable
    * against its own absence, the way every other guard decision here is.
+   *
+   * <p>A {@link DecimalColumn}'s slot check is never qualified (VARKA-347). Its failure is a read
+   * of the column, not of a value an arm computes, and Spark reads a column where it first
+   * references it: a filter's generated code evaluates every column its predicate references
+   * before the predicate ({@code FilterExec.genPredicate}), so a bad slot in an arm Spark does not
+   * take still raises there. Declining whatever the arm is never computes where Spark raises, and
+   * it costs only batches holding a slot Spark's own writer never writes.
    */
   List<ArmStep> armChainOf(VarkaVectorIR node) {
-    if (!options.guardUnderArm()) {
+    if (!options.guardUnderArm() || node instanceof DecimalColumn) {
       return List.of();
     }
     List<ArmStep> chain = armChain.get(node);
@@ -591,8 +618,8 @@ final class Analysis {
 
   /**
    * Whether {@code node}'s guard checks a column's stored values, null rows included: the column
-   * bound, the int-lane {@link GuardedRange} over a bare {@link ColumnRef} with the bounds
-   * {@link VarkaChrono#CONTRACT_MIN_DAYS} and {@link VarkaChrono#CONTRACT_MAX_DAYS} that
+   * bound, the int-lane {@code FAIL} {@link GuardedRange} over a bare {@link ColumnRef} with the
+   * bounds {@link VarkaChrono#CONTRACT_MIN_DAYS} and {@link VarkaChrono#CONTRACT_MAX_DAYS} that
    * {@code VarkaRangeAnalysis.guardColumns} wraps a date column in (VARKA-379). Every other guard
    * ANDs its condemning mask with the lanes' validity, so that a null lane's undefined value cannot
    * condemn the batch; this one does not, because turning the validity word into a lane mask costs
@@ -605,7 +632,8 @@ final class Analysis {
    * {@link Slots#rangeAcc}.
    */
   static boolean guardsStoredValues(VarkaVectorIR node) {
-    return node instanceof GuardedRange g && g.child() instanceof ColumnRef c
+    return node instanceof GuardedRange g && g.mode() == Overflow.FAIL
+        && g.child() instanceof ColumnRef c
         && c.lane() == VarkaVectorIR.LaneType.INT
         && g.lo() == VarkaChrono.CONTRACT_MIN_DAYS && g.hi() == VarkaChrono.CONTRACT_MAX_DAYS;
   }
@@ -685,7 +713,14 @@ final class Analysis {
           }
         }
         case GuardedDay n -> refuse(node, Refusal.DAY_RANGE);
-        case GuardedRange n -> refuse(node, Refusal.VALUE_RANGE);
+        // A NULL guard nulls the lanes outside its bounds, as a NULL IntArith does, and like it
+        // declines nothing.
+        case GuardedRange n -> {
+          if (n.mode() == Overflow.FAIL) {
+            refuse(node, Refusal.VALUE_RANGE);
+          }
+        }
+        case DecimalColumn n -> refuse(node, Refusal.DECIMAL_SLOT);
         // Everything else computes every lane it is given. Written out rather than defaulted.
         case ColumnRef n -> { }
         case LiteralSlot n -> { }
@@ -698,6 +733,7 @@ final class Analysis {
         case Least n -> { }
         case IfElse n -> { }
         case CondValue n -> { }
+        case BoolOutput n -> { }
         case DayOfWeek n -> { }
         case WeekDay n -> { }
         case DayOfWeekIso n -> { }
@@ -802,14 +838,14 @@ final class Analysis {
       // error here, so its author decides whether its value commutes with the reduction - a
       // narrow AND, OR or XOR does, a compare or a shift right does not - instead of falling
       // into "not ring" and leaving an unreduced int value for its readers.
-      case ColumnRef _, LiteralSlot _, WidenLane _, NarrowLane _, AddDays _, SubDays _,
-          AddMonths _, MakeDate _, GuardedDay _, GuardedRange _, NextDay _,
+      case ColumnRef _, DecimalColumn _, LiteralSlot _, WidenLane _, NarrowLane _, AddDays _,
+          SubDays _, AddMonths _, MakeDate _, GuardedDay _, GuardedRange _, NextDay _,
           TruncDateDynamic _, DateDiff _, Greatest _, Least _, DayOfWeek _,
           WeekDay _, DayOfWeekIso _, ThursdayOf _, Year _, Month _, DayOfMonth _, Quarter _,
           DayOfYear _, LastDay _, TruncDate _, WeekOfYear _, ConstDivide _, BoundedDivide _,
           BitOp _, BitCount _, Compare _, NullSafeEqual _, BoolColumn _, BoolCompare _,
           CondIf _, BoolNullSafeEq _, CondConst _, And _, Or _, Not _, IsNotNull _,
-          InRanges _, CondValue _ -> false;
+          InRanges _, CondValue _, BoolOutput _ -> false;
     };
   }
 
@@ -1035,7 +1071,10 @@ final class Analysis {
    * destination with no scratch. A tree that mixes the two - {@code datediff(greatest(d, d2),
    * greatest(d3, d4))} - needs a second live intermediate, and is declined rather than
    * served: it keeps its per-group write and its word, which is today's path and always
-   * right. {@code Cond} roots are not values and are never served.
+   * right. A root that writes bitmaps ({@link VarkaVectorIR#writesBitmaps}) is never served: a
+   * {@code Cond} root is not a value, and a {@code BoolOutput} root's validity is its condition's
+   * known word {@code kt | kf}, a function of the operands' values, so no boolean root has a pure
+   * word (`VARKA-27.md` 2.1).
    */
   void planBitmapPass(List<VarkaVectorIR> outputs) {
     served = new BitmapPass[outputs.size()];
@@ -1044,7 +1083,7 @@ final class Analysis {
     }
     for (int o = 0; o < outputs.size(); o++) {
       VarkaVectorIR root = outputs.get(o);
-      if (root instanceof Cond) {
+      if (VarkaVectorIR.writesBitmaps(root)) {
         continue;
       }
       WordExpr pure = pureWord.get(root);
@@ -1062,6 +1101,7 @@ final class Analysis {
   private WordOwner ownerOf(VarkaVectorIR node) {
     return switch (node) {
       case ColumnRef c -> new WordOwner.Input(c.ordinal());
+      case DecimalColumn c -> new WordOwner.Input(c.ordinal());
       case BoolColumn c -> new WordOwner.Input(c.ordinal());
       case LiteralSlot l -> WordOwner.Const.ALL_TRUE;
       case AddDays n -> andOwner(node, n.days(), n.offset());
@@ -1083,7 +1123,9 @@ final class Analysis {
       case DayOfWeekIso n -> wordOwner.get(n.days());
       case ThursdayOf n -> wordOwner.get(n.days());
       case GuardedDay n -> wordOwner.get(n.days());
-      case GuardedRange n -> wordOwner.get(n.child());
+      case GuardedRange n -> n.mode() == Overflow.NULL
+          ? new WordOwner.Own(node)
+          : wordOwner.get(n.child());
       case WidenLane n -> wordOwner.get(n.child());
       case NarrowLane n -> wordOwner.get(n.child());
       case Year n -> wordOwner.get(n.days());
@@ -1115,6 +1157,7 @@ final class Analysis {
   private WordExpr pureOf(VarkaVectorIR node) {
     return switch (node) {
       case ColumnRef c -> new WordExpr.Input(c.ordinal());
+      case DecimalColumn c -> new WordExpr.Input(c.ordinal());
       case BoolColumn c -> new WordExpr.Input(c.ordinal());
       case LiteralSlot l -> WordExpr.Const.ALL_TRUE;
       case AddDays n -> andExpr(pureWord.get(n.days()), pureWord.get(n.offset()));
@@ -1142,7 +1185,8 @@ final class Analysis {
       case DayOfWeekIso n -> pureWord.get(n.days());
       case ThursdayOf n -> pureWord.get(n.days());
       case GuardedDay n -> pureWord.get(n.days());
-      case GuardedRange n -> pureWord.get(n.child());
+      // A NULL guard's word, like a NULL IntArith's, follows the values and not the bitmaps.
+      case GuardedRange n -> n.mode() == Overflow.NULL ? null : pureWord.get(n.child());
       case WidenLane n -> pureWord.get(n.child());
       case NarrowLane n -> pureWord.get(n.child());
       case Year n -> pureWord.get(n.days());
@@ -1158,6 +1202,9 @@ final class Analysis {
       // The condition's known words, kt | kf: a function of the condition's operands' values,
       // not of their bitmaps alone.
       case CondValue n -> null;
+      // A boolean output's validity is the same kt | kf, so it has no pure word either
+      // (`VARKA-27.md` 2.1): no boolean root has a pure word.
+      case BoolOutput n -> null;
       case MakeDate n -> null;
       // A condition has no validity word; its known-true and known-false words are its own.
       case Compare _, NullSafeEqual _, CondConst _, BoolCompare _, CondIf _, BoolNullSafeEq _,
@@ -1218,6 +1265,20 @@ final class Analysis {
     referencedColumns |= set;
   }
 
+  /**
+   * Refuses a column read both as a {@link DecimalColumn} and as a {@link ColumnRef}: both are on
+   * the long lane, so {@link #registerInput}'s lane rule admits them, but one maps the buffer at
+   * sixteen bytes a row and the other at eight. Run once, after every root is analyzed, since
+   * the two reads can sit in different roots; it names the lowest such column.
+   */
+  void requireOneStride() {
+    long both = decimalInputs & valueInputs;
+    if (both != 0) {
+      throw VarkaErrors.illegalArgument("column " + Long.numberOfTrailingZeros(both)
+          + " is read both as a decimal and as a long column");
+    }
+  }
+
   private void analyze(VarkaVectorIR node) {
     // The lane rule, enforced per node, against a node disagreeing with the drive lane - which
     // would emit one lane's descriptors over the other's data. The plan refuses a narrow value
@@ -1252,7 +1313,14 @@ final class Analysis {
       requireOperand(r.position(), r.operand(), r.name());
     }
     switch (node) {
-      case ColumnRef c -> registerInput(node, c.ordinal(), c.lane());
+      case ColumnRef c -> {
+        registerInput(node, c.ordinal(), c.lane());
+        valueInputs |= 1L << c.ordinal();
+      }
+      case DecimalColumn c -> {
+        registerInput(node, c.ordinal(), c.lane());
+        decimalInputs |= 1L << c.ordinal();
+      }
       case LiteralSlot l -> {
         if (l.index() < 0 || l.index() >= numLiterals) {
           throw VarkaErrors.illegalArgument(
@@ -1302,7 +1370,12 @@ final class Analysis {
                 + name + " bounds: " + node);
           }
         }
+        // A NULL guard nulls a lane whose child is valid, which a dense body cannot hold: the
+        // reason nullsFromValidInputs exists, set here as a NULL IntArith sets it.
         analyzeOp(node, false, n.child());
+        if (n.mode() == Overflow.NULL) {
+          nullsFromValidInputs = true;
+        }
       }
       case Year n -> analyzeOp(node, false, n.days());
       case Month n -> analyzeOp(node, false, n.days());
@@ -1400,6 +1473,10 @@ final class Analysis {
       // condition's own flag (And, Or, the null-safe equality, the null test, CondIf), and so is
       // a null from valid inputs (CondConst(NULL)).
       case CondValue n -> analyzeOp(node, false, n.cond());
+      // Analyzed as CondValue: null where the condition is unknown, its flags the condition's,
+      // so a CondConst(NULL) under it keeps the kernel masked-only. The all-null shortcut
+      // excludes it outright (VarkaBodyEmitter.shortcutApplies), not through the flag.
+      case BoolOutput n -> analyzeOp(node, false, n.cond());
       case Compare n -> analyzeOp(node, false, n.left(), n.right());
       // A known answer from a null input (two nulls are equal), the flag IfElse and the picks
       // set; shortcutApplies excludes a condition root, so no shortcut changes.
@@ -1437,10 +1514,13 @@ final class Analysis {
         // a condition child's masks, which the condition lowering computes first. A column read
         // through a widening is the same word: an int column's IS NOT NULL in a long-lane
         // condition (VARKA-28).
+        // A decimal column's word is a column's too; its leaf is emitted under the test all the
+        // same, for the slot check Spark's IS NULL makes by reading the value (VARKA-347).
         VarkaVectorIR column = n.child() instanceof WidenLane w ? w.child() : n.child();
-        if (!(column instanceof ColumnRef) && !(n.child() instanceof Cond)) {
-          throw VarkaErrors.illegalArgument(
-              "IsNotNull child must be a ColumnRef, a widened one or a Cond, got " + n.child());
+        if (!(column instanceof ColumnRef) && !(n.child() instanceof DecimalColumn)
+            && !(n.child() instanceof Cond)) {
+          throw VarkaErrors.illegalArgument("IsNotNull child must be a ColumnRef, a widened one, "
+              + "a DecimalColumn or a Cond, got " + n.child());
         }
         if (lane == Lane.LONG && n.child() instanceof WidenLane
             && column.laneType().isNarrow()) {
@@ -1481,8 +1561,14 @@ final class Analysis {
       if (child instanceof Cond && !(node instanceof IfElse) && !(node instanceof And)
           && !(node instanceof Or) && !(node instanceof Not) && !(node instanceof IsNotNull)
           && !(node instanceof BoolCompare) && !(node instanceof CondIf)
-          && !(node instanceof BoolNullSafeEq) && !(node instanceof CondValue)) {
+          && !(node instanceof BoolNullSafeEq) && !(node instanceof CondValue)
+          && !(node instanceof BoolOutput)) {
         requireValue(child, "child of " + node.getClass().getSimpleName());
+      }
+      // A boolean output writes the output's two bitmaps itself, so it is a root or nothing.
+      if (child instanceof BoolOutput) {
+        throw VarkaErrors.illegalArgument("a boolean output below a root, under "
+            + node.getClass().getSimpleName() + ": " + child);
       }
       analyze(child);
       set |= columns.get(child);

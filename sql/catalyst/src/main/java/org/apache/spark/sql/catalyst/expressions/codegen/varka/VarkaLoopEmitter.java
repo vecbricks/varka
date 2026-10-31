@@ -245,6 +245,7 @@ public final class VarkaLoopEmitter {
     for (VarkaVectorIR root : outputs) {
       analysis.analyzeRoot(root);
     }
+    analysis.requireOneStride();
     analysis.collectArmContexts(outputs);
     analysis.collectRefusals();
     analysis.collectWraps();

@@ -41,6 +41,7 @@ import jdk.incubator.vector.VectorOperators.Binary;
 import jdk.incubator.vector.VectorOperators.Comparison;
 import jdk.incubator.vector.VectorOperators.Unary;
 import jdk.incubator.vector.VectorShape;
+import jdk.incubator.vector.VectorShuffle;
 import jdk.incubator.vector.VectorSpecies;
 
 import org.apache.spark.internal.SparkLogger;
@@ -735,6 +736,11 @@ final class VarkaVectorTemplateWarmup {
         a.intoMemorySegment(seg, 256, ByteOrder.LITTLE_ENDIAN, tail);
         acc += LongVector.fromMemorySegment(s, seg, 128, ByteOrder.LITTLE_ENDIAN).lane(0)
             + LongVector.fromMemorySegment(s, seg, 256, ByteOrder.LITTLE_ENDIAN, tail).lane(1);
+        // The decimal load's de-interleave (VARKA-347): the shuffle a body builds once, the
+        // even or the odd lanes of two vectors, and the two-vector rearrange that applies it to
+        // a pair of loads of sixteen-byte slots, the second a vector's bytes further on.
+        VectorShuffle<Long> lanes = VectorShuffle.iota(s, r & 1, 2, false);
+        acc += a.rearrange(lanes, b).lane(0) + s.vectorByteSize();
       }
       return acc;
     }

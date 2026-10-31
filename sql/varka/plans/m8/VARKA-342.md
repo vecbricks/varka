@@ -307,7 +307,9 @@ two for the cast and interval forms after 343.
 1. **The baseline**, its own pull request on the unchanged code:
    `VarkaFloatingArithmeticBaselineBenchmark`, over `x / y`, `x / 3.0D`, `try_divide(x, y)`,
    `sqrt(abs(x))`, `-x`, `signum(x)`, `degrees(x)`, `ym * x` and `dt / x`, with and without nulls,
-   `/` in LEGACY and ANSI; its fuse check behind a property, which 377's class gains too.
+   `/` in LEGACY and ANSI; its fuse check per section, against each class's list of the sections
+   a row has fused, which 377's class gains too, and lifted by a property for the measurement;
+   its results files at both widths from the EPYC runners, committed before it merges.
 2. **The census cells** (2.5), on the laptop and through the census workflow on both runners.
 3. **The same-lane forms**: the IR and emitter (2.1), the division (2.2), the functions (2.3), the
    reference, the compiler family, tests 3.1 to 3.6 and 3.8 to 3.11.
@@ -324,7 +326,7 @@ two for the cast and interval forms after 343.
 | `varka/VarkaEmitBudget.java`, `VarkaEmitCostRegister.java` | the `DIV` and `SQRT` features |
 | `sql/varka/proofs/fp_half_up.smt2` | 3.7's claim |
 | tests | the cells, the sweeps, the division, the coverage rows, the fuzz grammar, the reference |
-| benchmark | the baseline class, its results files at both widths |
+| benchmark | the baseline class, its results files at both widths from the EPYC runners |
 | generated | `coverage.json`, `docs/sql-varka.md`, `width_audit.json`, `emitted_bytes.json` |
 | generated | `operator_census.json`, `census.tsv` |
 

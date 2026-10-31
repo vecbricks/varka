@@ -75,6 +75,8 @@ public enum VarkaOperandPosition {
   public boolean admits(VarkaVectorIR node) {
     return switch (node) {
       case ColumnRef _ -> true;
+      // A decimal's unscaled value is no day count, month count, weekday or level.
+      case DecimalColumn _ -> false;
       case LiteralSlot _ -> switch (this) {
         case DAY_OFFSET, MONTH_COUNT, WEEKDAY -> true;
         case TRUNC_LEVEL -> false;
@@ -91,7 +93,7 @@ public enum VarkaOperandPosition {
            TruncDate _, TruncDateDynamic _, WeekOfYear _,
            Compare _, NullSafeEqual _, And _, Or _, Not _, IsNotNull _, InRanges _,
            BoolColumn _, CondConst _, BoolCompare _, CondIf _, BoolNullSafeEq _,
-           CondValue _ -> false;
+           CondValue _, BoolOutput _ -> false;
     };
   }
 
@@ -117,14 +119,15 @@ public enum VarkaOperandPosition {
           new Restricted(WEEKDAY, n.offset(), "next_day's weekday"));
       case TruncDateDynamic n -> List.of(
           new Restricted(TRUNC_LEVEL, n.level(), "trunc's level"));
-      case ColumnRef _, LiteralSlot _, DateDiff _, IfElse _, Greatest _, Least _, DayOfWeek _,
+      case ColumnRef _, DecimalColumn _, LiteralSlot _, DateDiff _, IfElse _, Greatest _, Least _,
+           DayOfWeek _,
            WeekDay _, DayOfWeekIso _, ThursdayOf _, MakeDate _, IntArith _, IntNeg _,
            ConstDivide _, BoundedDivide _, BitOp _, BitCount _, GuardedDay _, GuardedRange _,
            WidenLane _,
            NarrowLane _, Year _, Month _, DayOfMonth _, Quarter _, DayOfYear _, LastDay _,
            TruncDate _, WeekOfYear _, Compare _, NullSafeEqual _, And _, Or _, Not _, IsNotNull _,
            InRanges _, BoolColumn _, CondConst _, BoolCompare _, CondIf _, BoolNullSafeEq _,
-           CondValue _ -> List.of();
+           CondValue _, BoolOutput _ -> List.of();
     };
   }
 }

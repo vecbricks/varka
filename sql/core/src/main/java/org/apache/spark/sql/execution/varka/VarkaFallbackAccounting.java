@@ -110,11 +110,12 @@ public final class VarkaFallbackAccounting {
       VarkaFusedKernel.STATUS_DAY_PRODUCER, VarkaFusedKernel.STATUS_MONTH_COUNT,
       VarkaFusedKernel.STATUS_MAKE_DATE, VarkaFusedKernel.STATUS_INT_OVERFLOW,
       VarkaFusedKernel.STATUS_DAY_RANGE, VarkaFusedKernel.STATUS_VALUE_RANGE,
+      VarkaFusedKernel.STATUS_DECIMAL_SLOT,
       VarkaKernelRunner.STATUS_INPUT_BOUND, VarkaKernelRunner.STATUS_DERIVED_INPUT,
       VarkaKernelRunner.STATUS_FORCED};
   private static final String[] STATUS_NAMES = {
       "day-producer", "month-count", "make-date", "int-overflow", "day-range", "value-range",
-      "input-bound", "derived-input", "forced"};
+      "decimal-slot", "input-bound", "derived-input", "forced"};
 
   /** The reason a status bit outside {@link #STATUS_BITS} is counted under. */
   public static final String UNRECOGNISED = "unrecognised";

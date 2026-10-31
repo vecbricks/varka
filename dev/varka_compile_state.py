@@ -30,6 +30,8 @@ branch's Build saved (build_main.yml) is the closest to most pull requests. A ru
 state compiles clean.
 
 This prints `run=<id>` of that Build run, or `run=` when no recent run has an unexpired state.
+A run's state is looked up by its exact name (`artifacts?name=`): a Build that ran Spark's module
+matrix beside the Varka jobs holds more artifacts than one page of the plain listing shows.
 
   dev/varka_compile_state.py REPOSITORY      # in a step, with GH_TOKEN set
   dev/varka_compile_state.py --selftest
@@ -104,7 +106,7 @@ def main(argv):
     run = first_found(
         WORKFLOWS,
         runs_of,
-        lambda i: gh(f"repos/{repository}/actions/runs/{i}/artifacts")["artifacts"],
+        lambda i: gh(f"repos/{repository}/actions/runs/{i}/artifacts?name={ARTIFACT}")["artifacts"],
     )
     print(f"run={run if run is not None else ''}")
     return 0

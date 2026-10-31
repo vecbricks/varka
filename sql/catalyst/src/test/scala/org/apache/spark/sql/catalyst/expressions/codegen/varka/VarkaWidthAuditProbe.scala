@@ -102,6 +102,20 @@ object VarkaWidthAuditProbe {
     // scalastyle:on println
   }
 
+  /** The inputs `roots` read as a decimal column, whose buffer is sixteen bytes a row. */
+  private def decimalInputs(roots: Seq[VarkaVectorIR]): Set[Int] = {
+    val seen = new java.util.IdentityHashMap[VarkaVectorIR, Unit]()
+    def walk(n: VarkaVectorIR): Set[Int] = if (seen.containsKey(n)) Set.empty else {
+      seen.put(n, ())
+      val own = n match {
+        case c: VarkaVectorIR.DecimalColumn => Set(c.ordinal)
+        case _ => Set.empty[Int]
+      }
+      own ++ VarkaVectorIR.childrenOf(n).flatMap(walk)
+    }
+    roots.flatMap(walk).toSet
+  }
+
   private def runHot(shape: Shape, k: Int, loader: VarkaGeneratedClassLoader): Unit = {
     val className = CLASS_PREFIX + k
     // A shape a width has no lowering for is a `Declined` entry, decided by the compiler before
@@ -119,13 +133,25 @@ object VarkaWidthAuditProbe {
       val stride = if (wide) 8L else 4L
       // Small non-negative values: inside every guard, far from every overflow, so the
       // checked shapes compute rather than decline and both bodies run to the end.
+      // A decimal column (VARKA-347) is Arrow's sixteen-byte slot a row, the low word and its
+      // sign; its small values are inside every precision, so its slot check passes.
+      val decimals = decimalInputs(shape.roots)
       val inputs = (0 until shape.numInputs).map { c =>
-        val seg = arena.allocate(rows * stride, 64)
-        for (r <- 0 until rows) {
-          if (wide) seg.set(ValueLayout.JAVA_LONG, r * 8L, (r * 3L + c + 1) * 1000000L)
-          else seg.set(ValueLayout.JAVA_INT, r * 4L, r * 3 + c + 1)
+        if (decimals.contains(c)) {
+          val seg = arena.allocate(rows * 16L, 64)
+          for (r <- 0 until rows) {
+            seg.set(ValueLayout.JAVA_LONG, r * 16L, r * 3L + c + 1)
+            seg.set(ValueLayout.JAVA_LONG, r * 16L + 8L, 0L)
+          }
+          seg
+        } else {
+          val seg = arena.allocate(rows * stride, 64)
+          for (r <- 0 until rows) {
+            if (wide) seg.set(ValueLayout.JAVA_LONG, r * 8L, (r * 3L + c + 1) * 1000000L)
+            else seg.set(ValueLayout.JAVA_INT, r * 4L, r * 3 + c + 1)
+          }
+          seg
         }
-        seg
       }
       val validity = arena.allocate((rows + 7) / 8L, 8)
       validity.fill(0xFF.toByte)

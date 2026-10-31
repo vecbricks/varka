@@ -113,6 +113,7 @@ jobs:
           pandas=`./dev/is-changed.py -m $pyspark_pandas_modules`
           pyspark_periodic=`./dev/is-changed.py -m pyspark-periodic`
           pyspark_connect_old_client="$pyspark"
+          varka_sql=false
           if [[ "${{ github.repository }}" != 'apache/spark' ]]; then
             yarn=`./dev/is-changed.py -m yarn`
             kubernetes=`./dev/is-changed.py -m kubernetes`
@@ -123,6 +124,9 @@ jobs:
             sparkr=`./dev/is-changed.py -m sparkr`
             tpcds=`./dev/is-changed.py -m sql`
             docker=`./dev/is-changed.py -m docker-integration-tests`
+            # Whether the change builds catalyst or sql, either of which the Varka suites
+            # compile against: a change to them or to a module they depend on (see below).
+            varka_sql=$(./dev/is-changed.py -m catalyst,sql)
             # Skip PySpark, SparkR, TPC-DS when only static UI resources (JS/CSS/HTML) changed.
             # These tests are unaffected by UI static resource modifications.
             # Also we only run the very slow transpile changes when that logic changes
@@ -222,11 +226,25 @@ jobs:
           # matrix costs about ninety minutes and thirteen hundred job-minutes for it. Any file
           # outside that set - a shared hook, this workflow, a Spark source - keeps the matrix.
           # Documents alone are not a scoped change either; they have their own job.
+          # A Spark change that builds catalyst or sql also runs the classes job and sql's three
+          # Varka jobs beside the matrix: they write the classes archive, the reach record and
+          # the harness store that the option matrix dispatched on the commit reads, and without
+          # them it compiled for itself and ran every test under every configuration
+          # (m8/results/VARKA-matrix-bins-1030.txt). The test is the module graph's, not a list
+          # of Varka files: a review found such a list wrong both ways. A Spark-only edit of a
+          # shared hook (CodeGenerator, SQLConf, the Arrow serializer) changes the kernels; files
+          # the suites read, such as sql/varka/coverage.json, had been classed as documents; and
+          # CI tooling had been classed as code (section 6 there). Spark changes that build
+          # neither module are rare on this fork, so the four jobs they add cost little. Should
+          # the scope script fail, the run takes the widest choice and says so.
           varka_scope=spark
           if [ -n "${changed_files:-}" ]; then
-            varka_scope=$(echo "$changed_files" | ./dev/varka_scope.py)
+            if ! varka_scope=$(echo "$changed_files" | ./dev/varka_scope.py); then
+              echo "::warning::dev/varka_scope.py failed; running Spark's matrix"
+              varka_scope=spark
+            fi
           fi
-          echo "varka change scope: $varka_scope"
+          echo "varka change scope: $varka_scope, builds catalyst or sql: $varka_sql"
           build_core_utils=`./dev/is-changed.py -m "core,unsafe,kvstore,utils,utils-java,config,network-common,network-shuffle,sketch,variant,launcher"`
           varka_scoped=false
           if [ "$varka_scope" = "scoped" ] || [ "$varka_scope" = "docs" ]; then
@@ -245,9 +263,11 @@ jobs:
             docker=false
             java25=false
           fi
-          if [ "$varka_scope" = "scoped" ]; then
+          if [ "$varka_scope" = "scoped" ] \
+              || { [ "$varka_scope" = "spark" ] && [ "$varka_sql" = "true" ]; }; then
             varka_scoped=true
           fi
+          echo "varka jobs: $varka_scoped"
           # Documents cannot change Spark's generated documentation either; the first
           # documents-only run after this shipped spent 44 minutes in the Java 25 Maven build
           # and 14 in documentation generation for a plan file (VARKA-160.md section 5).
@@ -339,6 +359,7 @@ jobs:
               \"varka-docs\": \"$varka_docs\",
               \"varka-asm\": \"$varka_asm\",
               \"varka-scoped\": \"$varka_scoped\",
+              \"varka-scope\": \"$varka_scope\",
               \"pyspark\": \"$pyspark\",
               \"pyspark-pandas\": \"$pandas\",
               \"pyspark-periodic\": \"$pyspark_periodic\",
@@ -693,8 +714,10 @@ jobs:
   # The fork's queue (VARKA-255.md 3.1): a run that will precompile Spark and fan out behind it
   # - the module matrix, the PySpark groups, the Docker and Kubernetes jobs - waits here while
   # another such run is ahead of it, so two full-matrix runs never share the fork's job slots,
-  # and a pull request labelled ci-hold on vecbricks/varka stops here. A Varka-scoped or
-  # documents-only run skips this job and never waits: the precondition's scope override
+  # and a pull request labelled ci-hold on vecbricks/varka stops here. Such a run's Varka jobs,
+  # for a Spark change that builds catalyst or sql, wait here too, so the hold stops them. A
+  # Varka-scoped or documents-only run skips this job and never waits, and its Varka jobs run
+  # on a skipped admit: the precondition's scope override
   # resets every flag this condition reads, pyspark-periodic included, so the condition
   # itself needs no scope clause. The condition is Precompile Spark's, which now runs only
   # when this job succeeds, so the two cannot drift apart. It runs on ubuntu-latest, not
@@ -1381,9 +1404,23 @@ jobs:
   # them. It runs beside the Varka suites rather than in one of them, where it held that job
   # about five minutes past the others (VARKA-519). It is an optimization of another workflow, so
   # none of its steps fails the run: without its archive the matrix compiles for itself.
+  #
+  # A Spark change that builds catalyst or sql runs this job and sql's three beside Spark's module
+  # matrix (the precondition says why), and not catalyst's three: the module matrix runs every
+  # Varka suite of both modules, and catalyst's record nothing the option matrix reads. Such a
+  # change goes without catalyst's emitted-bytes verdict, its new tests' reruns and the lane walk,
+  # which a change confined to Varka's files gets. Nor do they save the dependency caches, their
+  # suites' times or the compile state: a Spark branch's entries would crowd the fork's cache and
+  # artifact quota, and its compile state must never become another pull request's base. These
+  # jobs wait on `admit` with the module matrix, so that a held run holds them; a run that skips
+  # `admit` - a Varka-scoped one, a documents-only one, the fork's master Build - runs them at
+  # once, and a held or failed `admit` skips them.
   varka-matrix-classes:
-    needs: [precondition]
-    if: fromJson(needs.precondition.outputs.required).varka-scoped == 'true'
+    needs: [precondition, admit]
+    if: >-
+      (!cancelled()) && needs.precondition.result == 'success'
+      && fromJson(needs.precondition.outputs.required).varka-scoped == 'true'
+      && (needs.admit.result == 'success' || needs.admit.result == 'skipped')
     name: "Varka option matrix classes"
     runs-on: ubuntu-latest
     timeout-minutes: 60
@@ -1462,8 +1499,11 @@ jobs:
         compression-level: 1
 
   varka-scoped:
-    needs: [precondition]
-    if: fromJson(needs.precondition.outputs.required).varka-scoped == 'true'
+    needs: [precondition, admit]
+    if: >-
+      (!cancelled()) && needs.precondition.result == 'success'
+      && fromJson(needs.precondition.outputs.required).varka-scoped == 'true'
+      && (needs.admit.result == 'success' || needs.admit.result == 'skipped')
     name: "Varka suites: ${{ matrix.module }} ${{ matrix.part }}"
     runs-on: ubuntu-latest
     # The suites under the defaults; a pull request's option configurations are its dispatched
@@ -1471,30 +1511,21 @@ jobs:
     timeout-minutes: 150
     strategy:
       fail-fast: false
+      # Each module times each share; sql's alone beside Spark's module matrix (see above).
+      # The scope is absent from the jobs a caller passes, which run both modules.
       matrix:
+        module: >-
+          ${{ fromJson(fromJson(needs.precondition.outputs.required).varka-scope == 'spark'
+          && '["sql"]' || '["catalyst", "sql"]') }}
+        shard: [0/3, 1/3, 2/3]
         include:
-          - module: catalyst
-            shard: 0/3
+          - shard: 0/3
             part: 1 of 3
             slug: 1of3
-          - module: catalyst
-            shard: 1/3
+          - shard: 1/3
             part: 2 of 3
             slug: 2of3
-          - module: catalyst
-            shard: 2/3
-            part: 3 of 3
-            slug: 3of3
-          - module: sql
-            shard: 0/3
-            part: 1 of 3
-            slug: 1of3
-          - module: sql
-            shard: 1/3
-            part: 2 of 3
-            slug: 2of3
-          - module: sql
-            shard: 2/3
+          - shard: 2/3
             part: 3 of 3
             slug: 3of3
     steps:
@@ -1534,15 +1565,21 @@ jobs:
     # Whether this job may save the dependency caches: on master always; on another branch only
     # when its change, measured from its merge base with Varka's master as checkout-and-sync sets
     # it, touches a file the keys hash, since only then can its key be one master lacks. A run
-    # with no merge base cannot tell, and saves.
+    # with no merge base cannot tell, and saves. A Spark change that runs these jobs beside the
+    # module matrix never saves: the rule was set when only Varka-scoped changes ran them, and a
+    # Spark branch that edits Spark's poms or build files would add its own copy of each cache.
     - name: Decide whether to save the dependency caches
       id: cache-save
+      env:
+        VARKA_SCOPE: ${{ fromJson(needs.precondition.outputs.required).varka-scope }}
       run: |
         build_files='(^|/)pom\.xml$|(^|/)plugins\.sbt$|^project/build\.properties$'
         build_files+='|^build/(mvn|sbt|sbt-launch-lib\.bash|spark-build-info)$'
         save=false
         if [ "$GITHUB_REF" = refs/heads/master ]; then
           save=true
+        elif [ "$VARKA_SCOPE" = spark ]; then
+          save=false
         elif [ -z "${VARKA_DIFF_BASE:-}" ] || [ -z "${VARKA_DIFF_HEAD:-}" ]; then
           save=true
         elif git diff --name-only "$VARKA_DIFF_BASE" "$VARKA_DIFF_HEAD" \
@@ -1563,11 +1600,11 @@ jobs:
       with:
         dir: target
     # The suites' JUnit times from this share's previous run, which the runner balances the
-    # job's JVMs by (VARKA-287.md 3.1); saved under this run's key, restored from the latest. Only
-    # the JVMs inside a job read them: the split between jobs reads the committed weights, since
-    # two jobs need not restore the same entry.
-    - name: Cache the Varka suites' times
-      uses: actions/cache@v4
+    # job's JVMs by (VARKA-287.md 3.1); restored from the latest, saved under this run's key at the
+    # job's end. Only the JVMs inside a job read them: the split between jobs reads the committed
+    # weights, since two jobs need not restore the same entry.
+    - name: Restore the Varka suites' times
+      uses: actions/cache/restore@v4
       with:
         path: target/varka-scoped
         key: varka-scoped-times-${{ matrix.module }}-${{ matrix.slug }}-${{ github.run_id }}
@@ -1649,16 +1686,21 @@ jobs:
         key: ${{ steps.build-cache.outputs.cache-primary-key }}
     # sql's first job saves the compile state its suites ran on, every module's target/scala-2.13,
     # for the next Builds to start from (VARKA-520). sql's classpath holds catalyst's, so this one
-    # state serves every Varka job.
+    # state serves every Varka job. Beside Spark's module matrix it saves none (see the classes
+    # job).
     - name: Save the compile state
-      if: matrix.module == 'sql' && matrix.shard == '0/3'
+      if: >-
+        matrix.module == 'sql' && matrix.shard == '0/3'
+        && fromJson(needs.precondition.outputs.required).varka-scope != 'spark'
       continue-on-error: true
       run: |
         find . -path ./target -prune -o -type d -path '*/target/scala-2.13' -print \
           | tar -czf target/varka-compile-state.tgz -T -
         ls -l target/varka-compile-state.tgz
     - name: Upload the compile state
-      if: matrix.module == 'sql' && matrix.shard == '0/3'
+      if: >-
+        matrix.module == 'sql' && matrix.shard == '0/3'
+        && fromJson(needs.precondition.outputs.required).varka-scope != 'spark'
       continue-on-error: true
       uses: actions/upload-artifact@v4
       with:
@@ -1732,6 +1774,16 @@ jobs:
       env:
         GH_TOKEN: ${{ github.token }}
       run: python3 dev/varka_new_tests.py fails-on-base ${{ matrix.module }}
+    # Saved only when every step passed, as actions/cache would, and never beside Spark's module
+    # matrix, where every Build would add entries of its own to the fork's cache quota.
+    - name: Save the Varka suites' times
+      if: >-
+        success() && fromJson(needs.precondition.outputs.required).varka-scope != 'spark'
+      continue-on-error: true
+      uses: actions/cache/save@v4
+      with:
+        path: target/varka-scoped
+        key: varka-scoped-times-${{ matrix.module }}-${{ matrix.slug }}-${{ github.run_id }}
 
   varka-docs:
     needs: [precondition]

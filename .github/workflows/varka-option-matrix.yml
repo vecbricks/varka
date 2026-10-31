@@ -75,17 +75,19 @@ jobs:
         java-version: '25'
     - name: Install the Varka engine
       uses: ./.github/actions/install-varka-engine
-    # A push of Varka files alone runs the Build's varka-scoped jobs, the first sql one of which
-    # archives the test classes of its commit: this takes that archive, waiting for it while the
-    # Build may still upload it, and compiles them itself only when no Build of the commit will
-    # (dev/varka_matrix_reuse.py). Any failure of the lookup or the download leaves the compile.
+    # A push that builds catalyst or sql runs the Build's varka-scoped jobs, beside Spark's
+    # matrix when it changes files outside Varka's, and their classes job archives the test
+    # classes of its commit: this takes that archive, waiting for it while the Build may still
+    # upload it, and compiles them itself only when no Build of the commit will
+    # (dev/varka_matrix_reuse.py), whose `missing` output says why. Any failure of the lookup or
+    # the download leaves the compile.
     - name: Find the Build's test classes
       id: reuse
       env:
         GH_TOKEN: ${{ github.token }}
       run: |
         ./dev/varka_matrix_reuse.py "$GITHUB_REPOSITORY" "$GITHUB_SHA" >> "$GITHUB_OUTPUT" ||
-          echo "run=" >> "$GITHUB_OUTPUT"
+          printf 'run=\nmissing=error\n' >> "$GITHUB_OUTPUT"
     - name: Download the Build's test classes
       if: steps.reuse.outputs.run != ''
       continue-on-error: true
@@ -96,16 +98,21 @@ jobs:
         run-id: ${{ steps.reuse.outputs.run }}
         github-token: ${{ github.token }}
     # The same Build's record of which configurations move each test (VarkaTestReach), taken
-    # only when every one of its varka-scoped jobs succeeded and left its part: a configuration
-    # then runs only the tests it moves, and without the record it runs every test.
+    # only when every one of its varka-scoped sql jobs succeeded and left its part: a
+    # configuration then runs only the tests it moves, and without the record it runs every
+    # test. The classes come about four minutes into a Build and the sql jobs finish four to six
+    # minutes later, so the lookup waits up to 10 minutes while they still run: the record saves
+    # about 136 bin-minutes, 4.5 minutes of bins at 30 slots (m8/results/
+    # VARKA-matrix-bins-1030.txt, sections 1 and 5).
     - name: Find the Build's reach
       id: reach
       if: steps.reuse.outputs.run != ''
       env:
         GH_TOKEN: ${{ github.token }}
+        REUSE_RUN: ${{ steps.reuse.outputs.run }}
       run: |
-        ./dev/varka_matrix_reuse.py reach "$GITHUB_REPOSITORY" "${{ steps.reuse.outputs.run }}" \
-          >> "$GITHUB_OUTPUT" || echo "reach=" >> "$GITHUB_OUTPUT"
+        ./dev/varka_matrix_reuse.py reach "$GITHUB_REPOSITORY" "$REUSE_RUN" --wait 10 \
+          >> "$GITHUB_OUTPUT" || printf 'reach=\nreach_state=error\n' >> "$GITHUB_OUTPUT"
     - name: Download the Build's reach
       if: steps.reach.outputs.reach == '1'
       continue-on-error: true
@@ -129,7 +136,15 @@ jobs:
         merge-multiple: true
         run-id: ${{ steps.reuse.outputs.run }}
         github-token: ${{ github.token }}
+    # Without the Build's reach record every configuration runs every test, which costs more
+    # bins and bin-minutes (m8/results/VARKA-matrix-bins-1030.txt), so the step names the reason
+    # in a warning annotation on the run; the run goes on all the same.
     - name: Build the test classes
+      env:
+        REUSE_RUN: ${{ steps.reuse.outputs.run }}
+        REUSE_MISSING: ${{ steps.reuse.outputs.missing }}
+        REUSE_REASON: ${{ steps.reuse.outputs.reason }}
+        REACH_STATE: ${{ steps.reach.outputs.reach_state }}
       run: |
         reused=0
         if [ -s target/varka-reuse/varka-matrix-build.tar ]; then
@@ -145,12 +160,44 @@ jobs:
           rm -f target/varka-reuse/varka-matrix-build.tar
         fi
         if [ "$reused" = 0 ]; then
+          if [ -n "$REUSE_RUN" ]; then
+            why="the test classes of Build run $REUSE_RUN did not download or unpack"
+          elif [ "$REUSE_MISSING" = classes ]; then
+            why="$REUSE_REASON; rerun that Build's classes job, then dispatch this again"
+          elif [ "$REUSE_MISSING" = late ]; then
+            why="$REUSE_REASON; wait for it, then dispatch this again"
+          elif [ "$REUSE_MISSING" = admit ]; then
+            why="$REUSE_REASON; dispatch the matrix after the Build finishes"
+          elif [ "$REUSE_MISSING" = none ]; then
+            why="$REUSE_REASON: a change that builds neither catalyst nor sql, a Build held by"
+            why+=" ci-hold, or no Build yet; dispatch this again once the Build's Varka jobs"
+            why+=" have run"
+          else
+            why="dev/varka_matrix_reuse.py or the GitHub API failed; see the step before"
+          fi
+          echo "::warning::No reach record, so every configuration runs every test: $why."
           ./dev/varka_matrix.sh --build-only --sbt-arg -Phive --out target/varka-matrix
         elif ls target/varka-reach/*/varka-reach.tsv > /dev/null 2>&1; then
           # The record holds for the commit it was made on, which is this one.
           cat target/varka-reach/*/varka-reach.tsv > target/varka-matrix/reach.tsv
-          echo "== the reach of Build run ${{ steps.reuse.outputs.run }}:" \
+          echo "== the reach of Build run $REUSE_RUN:" \
             "$(grep -vc '^#' target/varka-matrix/reach.tsv) tests"
+        else
+          case "$REACH_STATE" in
+            running)
+              why="the Varka sql jobs of Build run $REUSE_RUN were still running 10 minutes on,"
+              why+=" so their record is not written yet; dispatch this again once they finish"
+              ;;
+            failed)
+              why="a Varka sql job of Build run $REUSE_RUN failed or left no record" ;;
+            absent)
+              why="Build run $REUSE_RUN ran no Varka sql job" ;;
+            complete)
+              why="the reach record of Build run $REUSE_RUN did not download" ;;
+            *)
+              why="the lookup of Build run $REUSE_RUN's record failed; see the step before" ;;
+          esac
+          echo "::warning::No reach record, so every configuration runs every test: $why."
         fi
         # The harness store rides in the classpath's archive to the bins, as the reach does, and
         # only with the Build's classes, which it was written by.

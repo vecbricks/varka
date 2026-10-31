@@ -23,8 +23,9 @@
 
 This is the `admit` job of `.github/workflows/build_and_test.yml` (VARKA-255.md 3.1). The job
 runs only in a Build that will precompile Spark and fan out behind it - Spark's module matrix,
-the PySpark groups, the Docker and Kubernetes jobs - and `Precompile Spark` needs it to succeed.
-A Varka-scoped or documents-only run skips it and never waits.
+the PySpark groups, the Docker and Kubernetes jobs - and `Precompile Spark` needs it to succeed,
+as do the Varka jobs such a run starts when its change builds catalyst or sql, so `ci-hold` stops
+them too. A Varka-scoped or documents-only run skips it and never waits.
 
 The marker of a full run is its own `admit` job, read from the jobs API: one `in_progress` is a
 full run waiting, one that succeeded in a run still `queued` or `in_progress` is a full run that
@@ -588,6 +589,9 @@ class AdmitTest(unittest.TestCase):
         for key in ("build", "pyspark", "sparkr", "docker-integration-tests", "tpcds-1g"):
             self.assertIn(".%s == 'true'" % key, jobs["admit"])
             self.assertNotIn(".%s == 'true'" % key, jobs["precompile"])
+        # The Varka jobs a full run starts wait on this job too, so a held run holds them.
+        self.assertIn("needs: [precondition, admit]", jobs["varka-matrix-classes"])
+        self.assertIn("needs: [precondition, admit]", jobs["varka-scoped"])
 
 
 def job_blocks(workflow):

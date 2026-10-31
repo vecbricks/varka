@@ -542,7 +542,7 @@ public final class VarkaExpressionHarness {
    * differs: floating values by their raw bits, so a NaN's payload and a zero's sign count, as
    * they do in {@code VarkaSparkOracle}.
    */
-  private static @Nullable String sameRow(InternalRow want, InternalRow got, DataType[] types) {
+  static @Nullable String sameRow(InternalRow want, InternalRow got, DataType[] types) {
     for (int o = 0; o < types.length; o++) {
       boolean wantNull = want.isNullAt(o);
       boolean gotNull = got.isNullAt(o);

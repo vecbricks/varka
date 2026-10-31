@@ -1,0 +1,84 @@
+VARKA-537: the admission check's evidence - what the sweep steps run today, and where the
+scheduled Varka jobs run. Read 31 October 2026 from files already on the laptop and from the
+Actions API; nothing was run for this file.
+
+== 1. The gate's sweep step, as it ran (the varka-338 worktree's gate, 26 October 2026) ==
+Source: /home/max/proj/varka-338-impl/target/varka-gate/sweep.log (not committed; the log does
+not record its head). The step is dev/varka_gate.sh:169-172:
+  build/sbt -batch "project catalyst" 'set Test/javaOptions += "-Dvarka.sweep=true"' \
+    'testOnly *VarkaChronoSuite *VarkaEmitter*Suite -- -z opt-in'
+Extracted with
+  sed 's/\x1b\[[0-9;]*[A-Za-z]//g' sweep.log | grep -E '^\[info\] - .*opt-in|Test run finished|
+    Run completed|Total number of tests run|Tests: succeeded|Passed: Total|Total time|
+    ^\[info\] Varka[A-Za-z]*Suite:' | sed 's/ (opt-in: [^)]*)//'
+(the opt-in suffix of each test name cut for width). Suites that printed no test are dropped.
+The two "Run completed" lines before the last are the own-JVM children of
+VarkaEmitterBitwiseSuite and VarkaEmitterDivisionSuite, which run their whole suites; the first
+test of each carries its child's whole run and the rest read milliseconds (the replay).
+
+  [info] - the scalar makeDate round-trips every day of the covered years (444 milliseconds)
+  [info] - the decomposition matches java.time over the extended range, both forms (2 seconds, 131 milliseconds)
+  [info] - the scalar weekOfYear matches DateTimeUtils over the covered range (881 milliseconds)
+  [info] - the exhaustive sweep (1 second, 160 milliseconds)
+  Run completed in 2 minutes, 26 seconds.
+  Total number of tests run: 10
+  Tests: succeeded 10, failed 0, canceled 0, ignored 0, pending 0
+  [info] - ~ and bit_count match Spark over every int (2 minutes, 28 seconds)
+  [info] - the shifts match Spark over every int, with every count in [-64, 64] (4 milliseconds)
+  Run completed in 4 minutes, 5 seconds.
+  Total number of tests run: 34
+  Tests: succeeded 34, failed 0, canceled 0, ignored 0, pending 0
+  [info] - the emitted calendar kernels agree over the whole covered range under both double division forms (4 minutes, 7 seconds)
+  [info] - every divisor magnitude has a multiply-high pair that meets Theorem 5.1 (4 milliseconds)
+  [info] - the multiply-high form is exact over every int32 dividend for divisor 12 (3 milliseconds)
+  [info] - the multiply-high form is exact over every int32 dividend for divisor 2 (4 milliseconds)
+  [info] - the multiply-high form is exact over every int32 dividend for divisor 3 (5 milliseconds)
+  [info] - the multiply-high form is exact over every int32 dividend for divisor 7 (4 milliseconds)
+  [info] - the multiply-high form is exact over every int32 dividend for divisor 100 (6 milliseconds)
+  [info] - the multiply-high form is exact over every int32 dividend for divisor -3 (9 milliseconds)
+  [info] - the multiply-high form is exact over every int32 dividend for divisor -12 (5 milliseconds)
+  [info] - the multiply-high form is exact over every int32 dividend for divisor 60 (8 milliseconds)
+  [info] - the multiply-high form is exact over every int32 dividend for divisor 3600 (5 milliseconds)
+  [info] - the multiply-high form is exact over every int32 dividend for divisor 196611 (6 milliseconds)
+  [info] - the multiply-high form is exact over every int32 dividend for divisor -2147483648 (7 milliseconds)
+  [info] - the emitted trunc kernels match DateTimeUtils.truncDate over the whole covered range (21 seconds, 831 milliseconds)
+  [info] - the emitted dynamic trunc kernel matches DateTimeUtils.truncDate over the whole covered range at every level (29 seconds, 157 milliseconds)
+  [info] - the emitted calendar kernel matches LocalDate over its whole range (59 seconds, 750 milliseconds)
+  [info] - the emitted last_day kernel matches DateTimeUtils over its whole range (2 seconds, 168 milliseconds)
+  [info] Test run finished: 0 failed, 0 ignored, 0 total, 0.024s
+  [info] Test run finished: 0 failed, 0 ignored, 0 total, 0.001s
+  [info] Test run finished: 0 failed, 0 ignored, 0 total, 0.001s
+  [info] Run completed in 8 minutes, 49 seconds.
+  [info] Total number of tests run: 23
+  [info] Tests: succeeded 23, failed 0, canceled 0, ignored 0, pending 0
+  [info] Passed: Total 109, Failed 0, Errors 0, Passed 23, Skipped 86
+  [success] Total time: 576 s (0:09:36.0), completed Oct 26, 2026, 8:40:39 AM
+
+The three "Test run finished: ... 0 total" lines are the three JUnit classes the glob
+`*VarkaEmitter*Suite` matches - VarkaEmitterMixedLaneSuite, VarkaEmitterNarrowArithSuite and
+VarkaEmitterNarrowSuite - each running no test under ScalaTest's `-z`; "Skipped 86" is their
+tests. The step's status was ok, in 656 s with sbt's start (sweep.secs).
+
+The same step's time in the five gates still on the laptop (target/varka-gate/sweep.secs),
+each status ok:
+  varka-491-avx2-select   722 s   25 October
+  varka-482-switch        618 s   25 October
+  varka-480               718 s   25 October
+  varka-494-impl          761 s   26 October
+  varka-338-impl          656 s   26 October
+The newest dev/varka_nightly.sh log directory on the laptop is
+/home/max/proj/vecbricks-varka/target/varka-nightly/2026-09-26, so the nightly script's sweep
+step, the only place VarkaEmitterMixedLaneSuite's and VarkaEmitterYmDivideSuite's sweeps run,
+has not run in the five weeks since.
+
+== 2. Where the scheduled nightly runs ==
+  gh run list -R <repo> --workflow varka-fuzz.yml -L 6
+vecbricks/varka: six scheduled runs, 25 to 30 October, all success; the last, run 41023061386,
+started 07:55 UTC for a 02:00 schedule: "Nightly fuzz" 07:55:33 to 08:23:54 (28 min), "Every
+small tree, size 5" 07:55:34 to 08:38:21 (43 min), "Report a failed run" skipped.
+MaxGekk/spark: one run, a push on 25 October (run 40176688855), no scheduled run.
+Both repositories are public (gh repo view --json visibility).
+
+== 3. Where a sweep setting appears in CI ==
+  grep -rn -i 'sweep' .github/        -> nothing
+  grep -rn 'opt-in' .github/          -> nothing

@@ -1,0 +1,199 @@
+# Where a Varka-scoped Build's wall time goes, shard by shard (VARKA-516), 30 October 2026: six
+# Varka-scoped Builds of MaxGekk/spark, read-only. Job and step times from the Actions API, each
+# Varka job's phases from its log's timestamps, its CPU from the "Record the CPU and the vector
+# width" step's line, each suite's and test's seconds from the job's varka-scoped-junit-* artifact.
+# Nothing was rerun or dispatched. The replays of section 6 run dev/varka_suite_shards.py's own
+# placement over the measured seconds; nothing was run on the laptop.
+#
+# Commands:
+#   gh run list -R MaxGekk/spark -w Build -L 40
+#   gh api "repos/MaxGekk/spark/actions/runs/<run>/jobs?per_page=100"
+#   gh api repos/MaxGekk/spark/actions/jobs/<job>                       # a job's steps
+#   gh api --allow-escape-sequences repos/MaxGekk/spark/actions/jobs/<job>/logs
+#   gh run download <run> -R MaxGekk/spark -p 'varka-scoped-junit-*'
+#
+# A job's phases, from its log: setup is the job's start to the suites step's "== job" line
+# (checkout, caches, Java, the compile state's download and unpack); build is "== build:" to the
+# first "== 0 configuration(s)" line (sbt compiling what differs from the restored state); tests
+# is that line to the run's "defaults" report line, the module's suites over two JVMs at a time;
+# quiet+uploads runs to the new tests' step (the JIT-measuring suites alone, catalyst's platform
+# smoke, sql's first job's compile-state save and the artifact uploads); new-tests+post is the
+# rest (the change's new tests rerun five times, the fix check, post steps). A Build's wall is its
+# first job's start to its last job's end.
+
+## 1. The Builds read
+
+  run           branch                head         wall  precondition  linters end
+  41105632364  varka-339-baseline    35d74425c70  18.0           2.9         14.4
+  41103216280  varka-342-baseline    0ec82557973  15.9           2.9         15.2
+  41096264505  varka-27-boolout      278166b1594  18.1           2.0         14.1
+  41089478930  varka-157-baseline    ecf521fd517  16.3           2.1         12.3
+  41059844622  varka-481-baseline    202d0163b09  20.6           2.1         14.3
+  41099294241  varka-481-null-mode   fdbbb2a678a  43.5           1.9         17.4
+
+## 2. Each Varka job by phase (minutes; tests in seconds)
+
+  run         job             cpu     start  end total | setup build tests  quiet  new+post
+  41105632364 catalyst 1 of 3 9V45     2.9  12.4   9.6 |  1.9  0.7   394  0.3   0.1
+  41105632364 catalyst 2 of 3 7763     2.9  18.0  15.1 |  2.8  0.9   663  0.2   0.1
+  41105632364 catalyst 3 of 3 7763     2.9  14.3  11.4 |  1.9  0.9   512  0.0   0.1
+  41105632364 sql 1 of 3      9V45     2.9  11.1   8.2 |  1.7  1.2   235  0.5   0.9
+  41105632364 sql 2 of 3      7763     2.9  12.9  10.0 |  1.8  1.8   376  0.1   0.1
+  41105632364 sql 3 of 3      7763     2.9  12.9  10.1 |  1.9  1.8   309  0.0   1.3
+  41103216280 catalyst 1 of 3 8573C    2.9  15.9  13.0 |  2.2  0.8   561  0.5   0.1
+  41103216280 catalyst 2 of 3 9V45     2.9  11.4   8.6 |  1.8  0.7   349  0.2   0.1
+  41103216280 catalyst 3 of 3 7763     2.9  15.5  12.6 |  2.8  0.9   521  0.0   0.1
+  41103216280 sql 1 of 3      7763     2.9  13.5  10.6 |  2.2  1.7   358  0.7   0.1
+  41103216280 sql 2 of 3      8370C    2.9  14.7  11.8 |  3.5  1.7   365  0.1   0.4
+  41103216280 sql 3 of 3      7763     2.9  13.3  10.4 |  2.0  1.7   312  0.1   1.3
+  41096264505 catalyst 1 of 3 9V45     2.0  15.4  13.4 |  2.9  1.4   412  0.3   1.9
+  41096264505 catalyst 2 of 3 7763     2.0  18.1  16.1 |  2.9  1.9   653  0.3   0.1
+  41096264505 catalyst 3 of 3 9V74     2.0  17.0  15.0 |  2.8  2.0   530  0.0   1.3
+  41096264505 sql 1 of 3      8573C    2.0  12.4  10.4 |  2.3  1.9   317  0.6   0.3
+  41096264505 sql 2 of 3      7763     2.0  12.8  10.8 |  2.6  2.3   333  0.1   0.2
+  41096264505 sql 3 of 3      9V45     2.0   9.3   7.2 |  2.1  1.4   213  0.0   0.1
+  41089478930 catalyst 1 of 3 8573C    2.2  14.6  12.5 |  2.1  0.8   541  0.5   0.1
+  41089478930 catalyst 2 of 3 7763     2.1  16.1  13.9 |  1.9  0.9   649  0.2   0.1
+  41089478930 catalyst 3 of 3 8573C    2.1  12.5  10.4 |  2.2  0.8   436  0.0   0.1
+  41089478930 sql 1 of 3      7763     2.2  12.6  10.4 |  1.9  1.7   372  0.6   0.1
+  41089478930 sql 2 of 3      7763     2.2  11.5   9.4 |  2.0  1.6   331  0.1   0.1
+  41089478930 sql 3 of 3      7763     2.2  11.4   9.2 |  2.2  1.6   314  0.1   0.1
+  41059844622 catalyst 1 of 3 7763     4.1  20.3  16.2 |  2.8  1.4   670  0.6   0.3
+  41059844622 catalyst 2 of 3 7763     3.9  18.5  14.6 |  2.1  1.4   633  0.2   0.3
+  41059844622 catalyst 3 of 3 8573C    4.1  16.3  12.2 |  2.1  1.4   507  0.0   0.2
+  41059844622 sql 1 of 3      8573C    2.7  13.2  10.5 |  2.3  1.9   325  0.6   0.2
+  41059844622 sql 2 of 3      9V74     2.8  12.3   9.6 |  2.1  2.0   310  0.0   0.2
+  41059844622 sql 3 of 3      9V74     3.3  11.0   7.7 |  1.4  1.7   258  0.0   0.2
+  41099294241 catalyst 1 of 3 7763     2.0  18.1  16.1 |  1.9  1.6   674  0.6   0.8
+  41099294241 catalyst 2 of 3 9V74     2.0  17.7  15.7 |  2.0  1.6   637  0.2   1.3
+  41099294241 catalyst 3 of 3 7763     2.0  43.2  41.2 |  2.4  1.6   525  0.0  28.4
+  41099294241 sql 1 of 3      6973P-C  3.4  16.9  13.4 |  1.5  1.6   253  0.7   5.4
+  41099294241 sql 2 of 3      7763     3.8  18.6  14.9 |  2.0  2.4   414  0.1   3.5
+  41099294241 sql 3 of 3      7763     3.1  23.8  20.7 |  1.4  2.2   309  0.1  11.8
+
+## 3. The runners' CPUs over the 36 Varka jobs
+
+  7763     19
+  8573C    6
+  9V45     5
+  9V74     4
+  8370C    1
+  6973P-C  1
+
+## 4. The suites on the EPYC 7763 draws, median JUnit seconds over the jobs that ran them there
+
+  catalyst: 91 suites, 3091 s in all
+    VarkaWidthAuditSuite                      589.0  shared JVM
+    VarkaEmittedBytesSuite                    427.7  shared JVM
+    VarkaIrFuzzSuite                          381.4  own JVM
+    VarkaHugeMethodSuite                      283.5  shared JVM
+    VarkaCoverageCompositionFuzzSuite         230.6  own JVM
+    VarkaOperatorCensusSuite                  214.1  shared JVM
+    VarkaGroupingBoundSuite                   105.5  shared JVM
+    VarkaEmitterNarrowArithSuite               72.1  own JVM
+    VarkaExpressionCompilerSuite               58.9  shared JVM
+    VarkaAvx2SelectSuite                       54.1  own JVM
+    VarkaVariantSuite                          51.0  own JVM
+    VarkaWarmupReachSuite                      47.8  shared JVM
+  sql: 64 suites, 1875 s in all
+    VarkaSparkFuzzSuite                       362.3  shared JVM
+    VarkaCoverageHarnessSuite                 232.0  shared JVM
+    VarkaSeveralKernelsSuite                  183.1  shared JVM
+    VarkaGoldenCorpusSuite                    147.0  shared JVM
+    VarkaFloatingLaneSuite                    136.6  shared JVM
+    VarkaCodegenGiveUpSuite                    99.6  shared JVM
+
+  VarkaWidthAuditSuite by CPU (every job that ran it):
+    41105632364  EPYC 9V45 339.9 s: forced 128-bit 203.6, preferred  70.8, two censuses  65.1
+    41103216280  Xeon 8573C 483.5 s: forced 128-bit 291.0, preferred  97.7, two censuses  94.2
+    41099294241  EPYC 7763 589.7 s: forced 128-bit 351.6, preferred 124.4, two censuses 113.1
+    41096264505  EPYC 9V45 355.2 s: forced 128-bit 213.1, preferred  74.3, two censuses  67.3
+    41089478930  Xeon 8573C 466.1 s: forced 128-bit 283.4, preferred  93.2, two censuses  89.0
+    41059844622  EPYC 7763 588.4 s: forced 128-bit 362.5, preferred 117.0, two censuses 108.2
+  the slowest over the fastest CPU: 589.7 / 339.9 = 1.73. The suite forks one probe JVM per
+  census, one after another: the preferred width, the preferred width again, then 16, 32 and 64
+  bytes for the forced 128-bit test, which reads only the 128-bit census; the 32 and 64-byte
+  censuses feed only the census-file test, which cancels on every runner (the committed census's
+  host is the laptop's CPU), so on CI nothing asserts on them.
+
+## 5. Inside a job: its JVM lines, in launch order, two at a time
+
+  41059844622 catalyst-1of3 (EPYC 7763): 12 JVM lines, 1009 s of suites
+    seconds a line, launch order: [10, 45, 10, 24, 8, 8, 7, 8, 20, 9, 588, 270]
+    the last two are the shared JVMs; the longest suite, VarkaWidthAuditSuite, is alone in one
+    replayed two at a time in that order: 659 s; longest line first: 588 s; half the sum: 504 s
+  41105632364 catalyst-2of3 (EPYC 7763): 10 JVM lines, 1203 s of suites
+    seconds a line, launch order: [227, 42, 13, 5, 17, 6, 7, 7, 450, 430]
+    the last two are the shared JVMs; the longest suite, VarkaEmittedBytesSuite, is alone in one
+    replayed two at a time in that order: 657 s; longest line first: 657 s; half the sum: 602 s
+
+## 6. The split replayed over the 7763 medians
+
+Each line is a job's tests phase in seconds: the suites placed over the jobs by
+dev/varka_suite_shards.py's place() with the weights named, the job's shared suites over two JVMs
+the same way, its JVM lines run two at a time in the order named, 2 s a JVM's start; the quiet
+JIT-measuring suites are outside the phase. "own-first" is today's launch order (the own-JVM lines,
+then the two shared JVMs); "longest-first" launches the longest line first. "7763 refit" weights
+are the section 4 medians. The WidthAudit cases take the forced 128-bit test's 362.5 s on 7763 as
+three probes (16, 32 and 64 bytes) and keep one of them, or half of the test.
+
+  the current split, committed weights and own-first, against its measured 7763 tests phases:
+    catalyst 1 of 3   replay 673, measured 670 674
+    catalyst 2 of 3   replay 648, measured 663 653 649 633
+    catalyst 3 of 3   replay 523, measured 512 521 525
+    sql 1 of 3        replay 364, measured 358 372
+    sql 2 of 3        replay 332, measured 376 333 331 414
+    sql 3 of 3        replay 304, measured 309 312 314 309
+  so the replay is within 2.3% of every catalyst measurement on 7763; sql 2 of 3 measured up to
+  25% over it, in 41099294241
+
+  catalyst 3 jobs, committed  weights, own-first     [673, 648, 523]  slowest 673
+  catalyst 3 jobs, committed  weights, longest-first [591, 648, 489]  slowest 648
+  catalyst 3 jobs, 7763 refit weights, own-first     [654, 614, 571]  slowest 654
+  catalyst 3 jobs, 7763 refit weights, longest-first [591, 523, 531]  slowest 591
+  catalyst 3 jobs, 7763 refit as --update-weights writes it (each suite's mean over its 7763
+  jobs, not the median), longest-first [591, 530, 533]  slowest 591; own-first [625, 626, 561]
+  catalyst 4 jobs, committed  weights, own-first     [694, 480, 592, 361]  slowest 694
+  catalyst 4 jobs, committed  weights, longest-first [591, 430, 550, 348]  slowest 591
+  catalyst 4 jobs, 7763 refit weights, own-first     [668, 461, 396, 460]  slowest 668
+  catalyst 4 jobs, 7763 refit weights, longest-first [591, 430, 393, 395]  slowest 591
+
+  WidthAudit less two of its three probes (347 s):
+    catalyst 3 jobs, 7763 refit, longest-first [490, 489, 487]  slowest 490
+  WidthAudit less two of its three probes (347 s):
+    catalyst 4 jobs, 7763 refit, longest-first [430, 383, 363, 369]  slowest 430
+  WidthAudit less half of the test (408 s):
+    catalyst 3 jobs, 7763 refit, longest-first [500, 500, 498]  slowest 500
+  WidthAudit less half of the test (408 s):
+    catalyst 4 jobs, 7763 refit, longest-first [430, 410, 383, 372]  slowest 430
+
+  sql 2 jobs, 7763 refit, longest-first [468, 470]  slowest 470
+  sql 3 jobs, 7763 refit, longest-first [364, 312, 314]  slowest 364
+
+## 7. What else sits on the path
+
+The precondition ("Check changes", ubuntu-slim) runs alone before every other job: 1.9 to 2.9
+minutes in the six Builds, most of it the full-history checkout, 137 s in 41105632364 and 98 s in
+41089478930. Each Varka job's checkout takes about a minute more of its setup.
+
+The Linters job ("Linters, licenses, and dependencies") starts after the base image, about 4.5
+minutes in, and ends 12.3 to 15.2 minutes after the Build's first job in the five Builds without
+long new tests (section 1); its Scala linter step took 227 s in 41105632364 and 174 s in
+41089478930. It is the Build's next longest job once the Varka jobs end sooner.
+
+41099294241 is left out of the baseline: its catalyst 3 of 3 spent 1698 s in "The new tests of
+catalyst, rerun five times" (its log: "fails-on-base: not a pull request labelled fix"), the
+change's own new tests in the job its suite fell to, which no split of the suites moves. Its
+suites step and phases are kept in the tables above.
+
+The option matrix's classes job ("Varka option matrix classes") ended 6.6, 6.7, 6.5, 6.0, 7.2
+and 5.8 minutes after the first job, in the order of section 1, before any Varka suites job.
+
+A rerun: Build 40947407586 (varka-524-session-configs) has two attempts. Its second re-ran only
+the jobs the first failed: sql 1 of 3, whose JUnit upload had failed with "Failed to CreateArtifact:
+Unable to make request: ECONNRESET", and catalyst 3 of 3. catalyst 2 of 3 kept its first attempt's
+start, 20:17:35Z, and the run holds one varka-scoped-junit-catalyst-2of3 artifact. So no job there
+uploaded a JUnit artifact twice under one name.
+
+The split was the same in every Build: every catalyst job printed split digest de36b04d7e69 and
+its share, 27, 28 and 38 of 93 suites.

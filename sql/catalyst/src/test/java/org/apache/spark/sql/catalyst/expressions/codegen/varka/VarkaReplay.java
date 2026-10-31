@@ -214,7 +214,9 @@ public record VarkaReplay(VarkaFailureSignature expected, Optional<VarkaFailureS
       // lays them out; a projection's outputs are a vector each.
       ArrowBuf bitmaps = call.selectionBitmaps() ? buffer(allocator, owned, words * outputs) : null;
       for (int o = 0; o < outputs && bitmaps == null; o++) {
-        dstData[o] = buffer(allocator, owned, (long) rows * call.outputWidths().get(o));
+        // A bit output's data is a bitmap of whole words (KernelCall.BIT_OUTPUT).
+        dstData[o] = buffer(allocator, owned,
+            VarkaReproduction.KernelCall.outputDataBytes(call.outputWidths().get(o), rows));
         dstValidity[o] = buffer(allocator, owned, ((rows + 63L) / 64) * 8);
       }
       var srcData = new long[n];
@@ -257,7 +259,7 @@ public record VarkaReplay(VarkaFailureSignature expected, Optional<VarkaFailureS
           dst[o] = dstData[o].memoryAddress();
           dstValid[o] = dstValidity[o].memoryAddress();
           VarkaMemorySanitizer.guard("output data", o, dstData[o],
-              (long) len * call.outputWidths().get(o));
+              VarkaReproduction.KernelCall.outputDataBytes(call.outputWidths().get(o), len));
           VarkaMemorySanitizer.guard("output validity", o, dstValidity[o], words);
         }
         int[] ints = file.intLiterals().stream().mapToInt(Integer::intValue).toArray();

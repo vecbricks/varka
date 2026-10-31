@@ -26,7 +26,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTestWatchdog
 import org.apache.spark.sql.execution.vectorized.OnHeapColumnVector
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.test.SharedSparkSession
-import org.apache.spark.sql.types.{DateType, DoubleType, IntegerType, StringType}
+import org.apache.spark.sql.types.{DateType, DecimalType, DoubleType, IntegerType, StringType}
 import org.apache.spark.sql.util.ArrowUtils
 import org.apache.spark.sql.vectorized.ColumnarBatch
 
@@ -432,6 +432,21 @@ class VarkaFilterExecSuite extends QueryTest with SharedSparkSession with VarkaT
     val besideString = VarkaFusionReport.predicateLines(
       And(doubleResidual, EqualTo(s, Literal("a"))), withDouble :+ s)
     assert(besideString.head === "(f > 5.0D): fused", besideString)
+  }
+
+  test("a decimal conjunct joins the integral kernel, beside which a floating one stays with " +
+      "the row filter as beside a bigint") {
+    // `dbl > 1.5 AND dec > 1.0`: a decimal of precision up to 18 is read on the long lane by its
+    // comparisons (VARKA-347), so its conjunct fuses and counts as an integral read, and the
+    // floating conjunct goes to the row filter for the reason a bigint conjunct gives it. Before
+    // the reader the decimal was read by no kernel, and the floating conjunct kept the kernel.
+    val dec = AttributeReference("dec", DecimalType(10, 2))()
+    val decimalConjunct =
+      GreaterThan(dec, Literal.create(new java.math.BigDecimal("1.00"), DecimalType(10, 2)))
+    val lines = VarkaFusionReport.predicateLines(And(doubleResidual, decimalConjunct),
+      withDouble :+ dec)
+    assert(lines(1) === "(dec > 1.00BD): fused", lines)
+    assert(lines.head.contains("in a filter that also reads integral columns"), lines)
   }
 
   test("a nondeterministic filter is declined with its reason, conjunct by conjunct") {

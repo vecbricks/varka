@@ -575,7 +575,8 @@ private object VarkaCoverageDifferentialSuite {
    * cast the cached plans never evaluate (VARKA-498).
    *
    * The floating columns are derived too (VARKA-341), `floatingColumns` picked by `rid`, null
-   * where `d`, `d2`, `i` and `l2` are.
+   * where `d`, `d2`, `i` and `l2` are. The DECIMAL columns are derived from the bigints:
+   * `d9` and `d18` from `l`, `d9b` and `d18b` from `l2`.
    */
   def fixtureView(values: Seq[String], where: String = ""): String = {
     val withIds = values.zipWithIndex.map { case (v, rid) => s"($rid, ${v.stripPrefix("(")}" }
@@ -584,6 +585,11 @@ private object VarkaCoverageDifferentialSuite {
         s"THEN CAST($day AS TIMESTAMP_NTZ) + ($time - TIME'00:00:00') END"
     val floating = floatingColumns(Seq("d", "d2", "i", "l2").map(c =>
       s"CASE WHEN $c IS NOT NULL THEN rid % $floatingPicks END"))
+    // A DECIMAL(p, 2) column (VARKA-347) is the bigint's last p digits as hundredths: an exact
+    // product that always fits the type, null where the bigint is, and of both signs.
+    def decimal(long: String, precision: Int): String =
+      s"CAST(CAST($long % ${BigInt(10).pow(precision)} AS DECIMAL(${precision + 1}, 0)) * 0.01 " +
+        s"AS DECIMAL($precision, 2))"
     s"""SELECT rid, d, d2, i,
        |       CAST(m AS INTERVAL MONTH) AS ymm,
        |       CAST(y AS INTERVAL YEAR) AS ymy,
@@ -594,7 +600,11 @@ private object VarkaCoverageDifferentialSuite {
        |       CASE WHEN rid % 5 = 4 THEN NULL ELSE rid % 3 = 0 END AS b2,
        |       ${ntz("d", "t")} AS ntz,
        |       ${ntz("d2", "t2")} AS ntz2,
-       |       $floating
+       |       $floating,
+       |       ${decimal("l", 9)} AS d9,
+       |       ${decimal("l2", 9)} AS d9b,
+       |       ${decimal("l", 18)} AS d18,
+       |       ${decimal("l2", 18)} AS d18b
        |FROM VALUES ${withIds.mkString(",\n  ")}
        |AS v(rid, d, d2, i, m, y, mm, l, l2, t, t2, dt, dt2, y1, y2, s1, s2)$where""".stripMargin
   }
