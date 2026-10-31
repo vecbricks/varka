@@ -300,13 +300,22 @@ class VarkaEvaluatorComponentsSuite extends SparkFunSuite {
     } finally {
       VarkaSessionEmit.setHostForTesting(null)
     }
-    // The resolver's warning about an unreadable list is written once per JVM, not per query.
+    // The resolver's warning about an unreadable list is written once per JVM, not per query:
+    // exactly once on the first resolve, with the appender already listening, and never again.
+    // The flag is JVM-wide and the resolves above have set it, so it is forgotten first. An
+    // unreadable list off x86 changes no level and says nothing.
     val appender = new LogAppender("unreadable host features")
+    def warnings: Int = appender.loggingEvents.count(_.getMessage.getFormattedMessage
+      .contains("could not read this JVM's CPU features"))
     withLogAppender(appender, level = Some(Level.WARN)) {
-      (1 to 3).foreach(_ => VarkaSessionEmit.resolve(unread))
+      VarkaSessionEmit.resetUnreadableLoggedForTesting()
+      VarkaSessionEmit.resolve(new VarkaHostIsa.Reading("aarch64", "", "no such method"))
+      assert(warnings === 0, "an unreadable list off x86 was logged")
+      VarkaSessionEmit.resolve(unread)
+      assert(warnings === 1, "the first unreadable resolve on x86 was not logged once")
+      VarkaSessionEmit.resolve(unread)
+      assert(warnings === 1, "a second unreadable resolve was logged again")
     }
-    assert(appender.loggingEvents.count(_.getMessage.getFormattedMessage
-      .contains("could not read this JVM's CPU features")) <= 1)
   }
 
   test("an AVX-512 host without AVX512DQ, planted, resolves to the magic form") {
