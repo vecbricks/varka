@@ -730,9 +730,9 @@ public final class VarkaReference {
 
   /**
    * The value of {@code node} over a row of both lanes, sign-extended where the node is on the int
-   * lane; empty for a null. {@code row[c]} is column {@code c}'s value, an int column's widened,
-   * and {@code intLits} and {@code longLits} are the two literal tables, each lane's slots
-   * indexing its own.
+   * lane or is a {@code FLOAT}, whose bits are; empty for a null. {@code row[c]} is column
+   * {@code c}'s value, an int column's widened, and {@code intLits} and {@code longLits} are the
+   * two literal tables, each lane's slots indexing its own.
    *
    * <p>Written from the conversions' meaning, on top of the two single-lane evaluators rather
    * than beside them: each conversion is answered first - a widening is its int child's value,
@@ -746,7 +746,8 @@ public final class VarkaReference {
       int[] intLits, long[] longLits) {
     var rows = new MixedRow(row, isNull);
     VarkaVectorIR flat = rows.flatten(node, intLits, longLits);
-    if (flat.laneType() == LaneType.INT) {
+    // A FLOAT node is on the int row too, its bits there; `longValue` has no FLOAT arithmetic.
+    if (flat.laneType() == LaneType.INT || flat.laneType() == LaneType.FLOAT) {
       OptionalInt v = value(flat, rows.ints(), rows.nulls(), intLits);
       return v.isPresent() ? OptionalLong.of(v.getAsInt()) : OptionalLong.empty();
     }

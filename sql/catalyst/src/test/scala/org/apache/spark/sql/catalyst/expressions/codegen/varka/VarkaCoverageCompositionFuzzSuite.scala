@@ -384,19 +384,22 @@ class VarkaCoverageCompositionFuzzSuite
 
   /**
    * Whether the reference evaluator gives `divisor` the value `+0.0` or `-0.0` on a row; a null,
-   * or a node it has no value for, is not a zero.
+   * or a node it has no value for, is not a zero. In the long harness the divisor is evaluated
+   * at every lane as the harness evaluates an output, by `mixedValue` over both literal tables,
+   * a `FLOAT`'s bits in the low word; in the int harness every node is on the int row.
    */
   private def zeroDivisor(divisor: VarkaVectorIR, values: Array[Long], isNull: Array[Boolean],
       long: Boolean, lits: Array[Long], intLits: Array[Int]): Boolean = try {
-    divisor.laneType match {
-      case LaneType.FLOAT =>
-        val v = VarkaReference.value(divisor, values.map(_.toInt), isNull,
-          if (long) intLits else lits.map(_.toInt))
-        v.isPresent && (v.getAsInt == 0 || v.getAsInt == Int.MinValue)
-      case _ =>
-        val v = VarkaReference.mixedValue(divisor, values, isNull, intLits, lits)
-        v.isPresent && (v.getAsLong == 0L || v.getAsLong == Long.MinValue)
+    val v = if (long) {
+      VarkaReference.mixedValue(divisor, values, isNull, intLits, lits)
+    } else {
+      val i = VarkaReference.value(divisor, values.map(_.toInt), isNull, lits.map(_.toInt))
+      if (i.isPresent) java.util.OptionalLong.of(i.getAsInt) else java.util.OptionalLong.empty()
     }
+    v.isPresent && (divisor.laneType match {
+      case LaneType.FLOAT => v.getAsLong.toInt == 0 || v.getAsLong.toInt == Int.MinValue
+      case _ => v.getAsLong == 0L || v.getAsLong == Long.MinValue
+    })
   } catch {
     case _: IllegalArgumentException => false
   }
@@ -1293,6 +1296,20 @@ class VarkaCoverageCompositionFuzzSuite
     assert(!VarkaKernelCheck.runAndCompareLong("c1 - c1", className, bytes, roots, 2,
       Array.empty, VarkaKernelCheck.LongBatch(length, none, data, forceMasked = false),
       declineAllowed = true), "a batch of zero divisors was answered")
+  }
+
+  test("a FLOAT divisor is evaluated at its own lane in both harnesses (VARKA-342)") {
+    // c0 + c1 at FLOAT, 1.5f + -1.5f = +0.0f. Its bits sign-extended in the long harness's row:
+    // an evaluation that added them as integers would answer -0x800000 and miss the zero.
+    val c = (0 until 2).map(new VarkaVectorIR.ColumnRef(_, LaneType.FLOAT))
+    val sum = new VarkaVectorIR.IntArith(VarkaVectorIR.IntOp.ADD, VarkaVectorIR.Overflow.WRAP,
+      c(0), c(1))
+    val row = Array(java.lang.Float.floatToRawIntBits(1.5f).toLong,
+      java.lang.Float.floatToRawIntBits(-1.5f).toLong)
+    val noNulls = Array(false, false)
+    assert(zeroDivisor(sum, row, noNulls, long = true, Array.empty, Array.empty))
+    assert(zeroDivisor(sum, row, noNulls, long = false, Array.empty, Array.empty))
+    assert(!zeroDivisor(sum, row, Array(true, false), long = true, Array.empty, Array.empty))
   }
 
   test("random projections of coverage rows are fused or declined in bytes, never thrown") {
