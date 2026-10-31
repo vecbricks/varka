@@ -21,7 +21,8 @@ import java.time.{Duration, LocalTime}
 
 import org.apache.spark.{SparkArithmeticException, SparkDateTimeException}
 import org.apache.spark.sql.{QueryTest, Row, SparkSession}
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTestWatchdog
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaEmitOptions, VarkaHostIsa,
+  VarkaTestWatchdog}
 import org.apache.spark.sql.execution.columnar.InMemoryTableScanExec
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types.{DayTimeIntervalType, LongType, StructField, StructType, TimeType}
@@ -161,14 +162,79 @@ class VarkaTimeArithmeticSuite extends QueryTest with VarkaMaybeThrows with Vark
     // form of the 64-bit division - the lowering a host without intrinsified converts takes -
     // through the same plan and the same cache path, with the row engine as the oracle for it
     // as for the conversion form. The switch is a session property, so it is set on the fused
-    // session alone and unset in a finally.
+    // session alone and set back to the session's pinned -1 in a finally (an unset would leave
+    // the conf's default, which may resolve from the host).
     varkaSpark.conf.set(SQLConf.VARKA_EMIT_USE_AVX.key, "2")
     try {
       for (field <- Seq("hour", "minute", "second")) checkBoth(s"$field(t)")
       checkBoth("time_trunc('MINUTE', t)")
       checkBoth("time_diff('HOUR', t, t2)")
     } finally {
-      varkaSpark.conf.unset(SQLConf.VARKA_EMIT_USE_AVX.key)
+      varkaSpark.conf.set(SQLConf.VARKA_EMIT_USE_AVX.key, "-1")
+    }
+  }
+
+  /** The session emit settings every Varka node of `plan` was planned with. */
+  private def plannedEmit(plan: SparkPlan): Seq[VarkaSessionEmit] = collect(plan) {
+    case p: VarkaProjectExec => p.sessionEmit
+    case f: VarkaFilterExec => f.sessionEmit
+    case f: VarkaFilterColumnarToRowExec => f.sessionEmit
+    case c: VarkaColumnarToRowExec => c.sessionEmit
+  }
+
+  /** Runs `body` with the fused session asking for its level from the host, then re-pins it. */
+  private def resolvingFromHost(body: => Unit): Unit = {
+    varkaSpark.conf.set(SQLConf.VARKA_EMIT_USE_AVX.key, VarkaSessionEmit.USE_AVX_FROM_HOST.toString)
+    try body finally varkaSpark.conf.set(SQLConf.VARKA_EMIT_USE_AVX.key, "-1")
+  }
+
+  test("a session resolving its level on a host whose converts fall back plans the magic form") {
+    // VARKA-538 test 3.2: a fallback host, planted, makes the driver resolve level 2; the plan
+    // carries that record to the executors, whose compile reads it, and the answers stay the
+    // row engine's. A converting host, planted, leaves the emitter's default.
+    resolvingFromHost {
+      VarkaSessionEmit.setHostForTesting(
+        new VarkaHostIsa.Reading("amd64", "avx, avx2, fma", null))
+      try {
+        val plan = varkaSpark.sql(s"SELECT hour(t) AS v FROM $day").queryExecution.executedPlan
+        assert(plannedEmit(plan).nonEmpty, plan.treeString)
+        assert(plannedEmit(plan).forall(_.useAVX === 2), plan.treeString)
+        assert(plannedEmit(plan).forall(e =>
+          VarkaColumnarToRowExec.emitOptions(e).convertsFallBack()))
+        checkBoth("hour(t)")
+        checkBoth("time_diff('HOUR', t, t2)")
+      } finally {
+        VarkaSessionEmit.setHostForTesting(null)
+      }
+      VarkaSessionEmit.setHostForTesting(
+        new VarkaHostIsa.Reading("amd64", "avx, avx2, avx512f, avx512dq, avx512vl", null))
+      try {
+        val plan = varkaSpark.sql(s"SELECT hour(t) AS v FROM $day").queryExecution.executedPlan
+        assert(plannedEmit(plan).forall(_.useAVX === VarkaEmitOptions.USE_AVX_UNKNOWN),
+          plan.treeString)
+      } finally {
+        VarkaSessionEmit.setHostForTesting(null)
+      }
+    }
+  }
+
+  test("a session resolving its level from this JVM plans what the JVM's features say") {
+    // VARKA-538 test 3.6, nothing planted: the real export, the reflective read and of(conf)
+    // on whatever CPU runs the suite - the magic form on an AVX2 runner, the conversion form
+    // on an AVX-512 one - and the answers are the row engine's either way.
+    resolvingFromHost {
+      val plan = varkaSpark.sql(s"SELECT hour(t) AS v FROM $day").queryExecution.executedPlan
+      val emits = plannedEmit(plan)
+      assert(emits.nonEmpty, plan.treeString)
+      val host = VarkaHostIsa.host()
+      // The level, not the options' predicate: a matrix configuration may set a base level the
+      // session's unknown leaves in place.
+      val expected = if (host.conversionsFallBack()) 2 else VarkaEmitOptions.USE_AVX_UNKNOWN
+      assert(emits.forall(_.useAVX === expected), s"$emits on a host reading $host")
+      if (System.getProperty("os.arch") == "amd64") {
+        assert(host.readable(), s"the feature query failed on x86: ${host.failure()}")
+      }
+      for (field <- Seq("hour", "minute", "second")) checkBoth(s"$field(t)")
     }
   }
 

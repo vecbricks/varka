@@ -55,7 +55,8 @@ import com.sun.management.HotSpotDiagnosticMXBean;
  * <p><b>One field is reachable from SQL; the rest are test-only.</b>
  * {@link #useAVX} has a session configuration in front of it,
  * {@code spark.sql.codegen.varka.emit.useAVX}, because which division lowering is right is a
- * property of the machine and a machine can be wrong about itself. Every other field on this
+ * property of the machine; the session resolves it from the driver's JVM where the conf asks for
+ * that ({@code VarkaSessionEmit.of}, {@link VarkaHostIsa}), never here. Every other field on this
  * record is set by a suite, a fuzz iteration or a benchmark arm through a test hook, and no
  * configuration reaches it. The distinction decides what the bytes oracle has to pin: the
  * emissions a user can select are pinned per value in {@code emitted_bytes.json}'s
@@ -594,12 +595,11 @@ public record VarkaEmitOptions(
   /**
    * What {@code -XX:UseAVX} reads on the JVM running this code, asked once.
    *
-   * <p>The flag is HotSpot's own gate for its AVX code paths, which is the closest thing the
-   * JVM exposes to the question the emitter actually has: whether a {@code LongVector} to
-   * {@code DoubleVector} conversion becomes one instruction or a Java fallback. The two are
-   * not the same question - that conversion's intrinsic wants AVX512DQ specifically, and a
-   * level is not a feature list - so this describes the host rather than promising anything
-   * about it. {@code dev/varka_canary/L2DProbe.java} is what settles a given machine.
+   * <p>The flag is HotSpot's own gate for its AVX code paths. It is not the question the
+   * emitter has about the conversions - whether a {@code LongVector} to {@code DoubleVector}
+   * conversion becomes one instruction wants AVX512DQ, a feature - which {@link VarkaHostIsa}
+   * answers from HotSpot's feature list. Below level 3 the two agree, since HotSpot clears
+   * every AVX-512 feature there; {@code VarkaMaskGuard} reads the level for another question.
    */
   public static final int HOST_USE_AVX = readUseAVX();
 
@@ -609,6 +609,11 @@ public record VarkaEmitOptions(
   /**
    * Whether this level is one where the long-to-double conversions do not become instructions,
    * so a 64-bit constant division takes the magic-number form instead of converting.
+   *
+   * <p>The level is a target, not a reading of the host: below 3 it is exact, since HotSpot
+   * clears AVX512DQ there, and a host enters only through the session, which resolves a JVM
+   * without AVX512DQ to level 2 ({@code VarkaSessionEmit.of}, {@link VarkaHostIsa}). Kept a
+   * function of the record alone, so one rendering never names two bodies.
    *
    * <p>It lives here rather than in the emitter because {@link #canonical()} has to ask the
    * same question: a level that changes a lowering has to reach the shape key, and one that
