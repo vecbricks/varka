@@ -437,6 +437,9 @@ Context, not questions:
    SMT proving the formulas for both arms. (a) Keep both arms. (b) Cut to one arm, the default.
    *Recommended: (b)*: the arms differ only in the narrowing's instruction, which `narrow_wrap.smt2`
    and `narrow_range.smt2` prove for both, and the narrow-source sweeps stay on both arms.
+   *The owner chose (b) (31 October 2026):* one arm per tree for the int and year-month sweeps,
+   24 sweeps, since `narrow_wrap.smt2` and `narrow_range.smt2` prove the narrowing for both arms;
+   the narrow-source sweeps stay on both arms. The 2^32 sweeps are 332b's.
 
 ## 9. Done when
 
@@ -451,4 +454,68 @@ build and the option matrix pass.
 
 ## 10. Outcome
 
-(Written when the work lands.)
+### 10.1 332a, the integral and boolean casts (31 October 2026, branch `varka-332-integral-casts`)
+
+*A correction to section 0 first:* item 11 and section 2.3 say row 481 "has no start" and that its
+`NULL` mode is built nowhere. Row 481's first step merged in #1176 (`GuardedRange`'s `NULL` mode,
+its reference arm and its `narrow_range.smt2` claims), so 332b builds on a node that exists. 332a
+still declines every `TRY` narrowing, as section 5 assigns them to 332b, so no shape's bytes move.
+
+What was built, per item of section 5 step 2:
+
+- **The target table** (2.1): `VarkaIntegralCastCompiler`, one `Kind` per pair (`WIDEN`, `NARROW`,
+  `TEST`, `SELECT`) chosen from the two types, no arm per pair; the ranges in
+  `VarkaTypes.integralRange`, beside the lane, a function of the lane rather than a component of
+  each registry entry (open point 1). Row 28's three arms stay in `arithmeticArm`, and the family
+  claims none of them.
+- **The narrow load and store at the long width** (2.5): `VarkaKernelPlan.longNarrowRefusal`
+  admits a narrow column under a `WidenLane` to the long lane (or a null test) and a long value
+  narrowed to a narrow type at a root, and nothing else narrow; the load reads twice the long
+  lanes of the narrow type into the int species of the long width, low half, then `I2L`, and the
+  kernel is a mixed one, so its loop bound already covers the whole int vector the load reads. The
+  store converts with `L2I` and stores through the narrow species under the group's mask. The part
+  form at the long width is not built: a byte column at two long lanes (128 bits) declines by name
+  ("a BYTE column has no load at 2 long lanes"), the decline section 7 lists.
+- **The narrowings in LEGACY and ANSI**: `NarrowLane(g(x), target)`, `g` a `FAIL` range guard under
+  ANSI; a `BIGINT` source is one `NarrowLane` to the narrow target (not `L2I` then a second
+  narrowing node), its `L2I` emitted at the store.
+- **The selects**: `CondValue` admits the narrow lanes (a floating lane is refused); a condition of
+  boolean leaves alone is moved to the target's lane, so `CAST(b AS TINYINT)` runs in the byte lane
+  under the native arm; any other condition is valued at its own lane and converted.
+- **The tests**: `VarkaEmitterIntegralCastSuite` - every `TINYINT` and `SMALLINT` value through
+  every target in the three modes on both arms (3.1), `BOOLEAN` to each integral type at every
+  length to 129 with both data bits under a null, the named cases of 3.4 from `SMALLINT`, `INT` and
+  `BIGINT` each beside a null, and the long-width load and store at 2, 4 and 8 long lanes. The
+  conformance suites take the new `casts_fused.tsv` answers: a fused LEGACY or TRY cast form is
+  compared with Spark, an ANSI one still only held to declining over the shared fixture, until
+  332b's in-range value sets (3.6) close the done-when's clause of 27 October.
+- **The sweeps of narrow and boolean sources**: the exhaustive tests above; at 2^16 rows they are
+  ordinary tests, not opt-in sweeps.
+- **The SMT sections for `bigint`**: `sql/varka/proofs/casts.smt2` (18 checks; Z3 and cvc5 each
+  under a second): the `L2I`-and-store wrap is reduction mod `2^w` for every long, and the guard
+  holds exactly where Spark raises, for `INT`, `SMALLINT` and `TINYINT`. `narrow_range.smt2`'s int
+  claim already covers the 16-bit sources, every short being an int, so it is unchanged.
+- **Coverage rows**: the families "Integral casts" and "Integral cast predicates", 20 rows, two
+  of them casts of a computed value (`CAST(i + 1 AS TINYINT)`, `CAST(i < 5 AS TINYINT)`), which
+  the family switch suite needs to see the family's switch name a failure.
+- **The family**: `VarkaFamily.INTEGRAL_CAST`, switch `integralCast`; its condition claim
+  (`VarkaNodeCompiler.castConditions`) is reached from `compileCond`.
+- **The default groups**: `dev/varka_census.py`'s `cast_rows` marks `TIME` to an integral type,
+  `TIME` to `TIME` and `DATE` to a number or `BOOLEAN` `unclaimed` (`dt` to `dt` was already 103's).
+
+Not built in 332a, each with its reason: the IR grammar's productions for the casts (3.7) and the
+Spark-level fuzzer's cast productions, left to the next step for budget. The warm-up (2.6): the
+long-width load names the species and conversions the widened int-driven load already warms, so
+it needed nothing; what `VarkaWarmupReachSuite` found missing was the narrow and long
+`CondValue`'s masked scalar add (`ByteVector.add(byte, VectorMask)` and its short and long kin),
+now one call each in the lane blocks of `VarkaVectorTemplateWarmup`.
+
+Bytes: every existing coverage and fuzz shape keeps its bytes; `emitted_bytes.json` gains the new
+rows' entries, and only the option-arm digests that hash every shape move, as the coverage set grew.
+
+Open points for the lead:
+
+1. The target ranges are `VarkaTypes.integralRange(lane)`, derived from the lane, not a field of
+   each registry entry as 2.1 words it; rows 343 and 350 read the same function.
+2. `SMALLINT` to `TINYINT` under the native arm drives at the int lane (two narrow lanes in one
+   tree), so no `S2B` is emitted, as 2.2 expects until a census cell exists.
