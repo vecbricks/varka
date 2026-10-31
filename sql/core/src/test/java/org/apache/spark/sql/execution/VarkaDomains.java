@@ -395,9 +395,7 @@ public final class VarkaDomains {
         if (kernel.isEmpty()) {
           continue;
         }
-        var shortcut = new ArrayList<Boolean>();
-        List<Verdict> verdicts =
-            verdicts(kernel.get(), options, fixture, outcome.batches, shortcut);
+        List<Verdict> verdicts = verdicts(kernel.get(), options, fixture, outcome.batches);
         mayBatches += (int) verdicts.stream().filter(v -> v.may() != 0).count();
         boolean anyMust = verdicts.stream().anyMatch(v -> v.must() != 0);
         // The domain itself is what is held here: no batch inside it or under IS NULL may be one
@@ -409,11 +407,8 @@ public final class VarkaDomains {
         }
         // Outside, a batch the all-null shortcut answers is the one exception: its guards never
         // run, and every output is null, as Spark's is.
-        boolean allCondemned = true;
-        for (int b = 0; b < verdicts.size(); b++) {
-          allCondemned &= verdicts.get(b).must() != 0 || shortcut.get(b);
-        }
-        if (partition.equals("outside") && !allCondemned) {
+        if (partition.equals("outside")
+            && !verdicts.stream().allMatch(v -> v.must() != 0 || v.shortcut())) {
           findings.add(where + ": the domain excludes batches the verdict answers: "
               + render(verdicts));
         }
@@ -458,7 +453,7 @@ public final class VarkaDomains {
   /** A verdict in the accounting's words: the bits a batch must decline with, and may. */
   private static String render(Verdict v) {
     if (v.answers()) {
-      return "answer";
+      return v.shortcut() ? "answer (the all-null shortcut)" : "answer";
     }
     return (v.must() != 0 ? VarkaFallbackAccounting.describeStatus(v.must()) : "nothing")
         + (v.may() != 0 ? " (may " + VarkaFallbackAccounting.describeStatus(v.may()) + ")" : "");
@@ -509,14 +504,12 @@ public final class VarkaDomains {
    * {@code kernel}: the rows read as the kernel reads them - epoch days, month counts,
    * nanoseconds, a floating value's raw bits - and the evaluator's per-batch input bound applied
    * first, as the runner applies it: a live lane outside it declines the batch with
-   * {@code STATUS_INPUT_BOUND} and the kernel's guards never run. Then the kernel's all-null
-   * shortcut ({@link VarkaGuardSpecs#allNullShortcut}): a batch in which every output reads a
-   * column null on every row is answered before any guard runs, which {@code shortcut} records
-   * per batch.
+   * {@code STATUS_INPUT_BOUND} and the kernel's guards never run. Then the verdict itself, which
+   * is the batch's: one the kernel's all-null shortcut answers is {@link Verdict#SHORTCUT}.
    */
   private static List<Verdict> verdicts(CompiledVarkaProjection kernel,
       VarkaEmitOptions options, VarkaHarnessPlans.Fixture fixture,
-      List<VarkaExpressionHarness.Batch> batches, List<Boolean> shortcut) {
+      List<VarkaExpressionHarness.Batch> batches) {
     // The long harness at every 64-bit lane, DOUBLE's bits included.
     boolean isLong = kernel.lane(options).bits() == Long.SIZE;
     var guards = new VarkaGuardSpecs.Guards(kernel.outputs(), kernel.inputOrdinals().size(),
@@ -550,11 +543,7 @@ public final class VarkaDomains {
           outside |= !isNull[r][b.inputIndex()] && (v < b.lo() || v > b.hi());
         }
       }
-      boolean answered = !outside && VarkaGuardSpecs.allNullShortcut(kernel.outputs(),
-          ordinals.size(), kernel.numLiterals(), options, isNull);
-      shortcut.add(answered);
       out.add(outside ? new Verdict(VarkaKernelRunner.STATUS_INPUT_BOUND, 0)
-          : answered ? Verdict.ANSWER
           : VarkaGuardSpecs.verdict(guards, lits, intLits, values, isNull, List.of()));
     }
     return out;
