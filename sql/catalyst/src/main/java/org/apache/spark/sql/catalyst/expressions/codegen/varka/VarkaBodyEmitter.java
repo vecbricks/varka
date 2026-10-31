@@ -129,10 +129,11 @@ final class VarkaBodyEmitter {
       cb.iload(analysis.lane.pLength);
       cb.invokestatic(SUPPORT, "zeroBitOutputData", ZERO_BIT_OUTPUT_DATA);
     }
-    if (shortcutApplies(dense, outputs, analysis)) {
+    long[] shortcut = shortcutColumnSets(dense, outputs, analysis);
+    if (shortcut != null) {
       Label live = cb.newLabel();
       cb.aload(P_NULL_COUNT);
-      cb.loadConstant(tableConstant(shortcutColumns(analysis, outputs), "all-null shortcut"));
+      cb.loadConstant(tableConstant(shortcutColumns(shortcut), "all-null shortcut"));
       cb.iload(analysis.lane.pLength);
       cb.invokestatic(SUPPORT, "everyOutputReadsAnAllNullColumn", EVERY_OUTPUT_ALL_NULL);
       cb.ifeq(live);
@@ -166,11 +167,11 @@ final class VarkaBodyEmitter {
         }
       }
     }
-    if (shortcutApplies(dense, outputs, analysis)) {
+    long[] shortcut = shortcutColumnSets(dense, outputs, analysis);
+    if (shortcut != null) {
       Label live = cb.newLabel();
       boolean firstOutput = true;
-      for (VarkaVectorIR root : outputs) {
-        long set = analysis.columns.get(root);
+      for (long set : shortcut) {
         boolean firstColumn = true;
         for (int i = 0; i < analysis.numInputs; i++) {
           if ((set >>> i & 1L) != 0) {
@@ -523,15 +524,23 @@ final class VarkaBodyEmitter {
   }
 
   /**
-   * The column sets the masked driver's all-null shortcut reads, one per output in order (bit
-   * {@code i} for input {@code i}), or null where it emits no shortcut ({@link #shortcutApplies}):
-   * for the verdict that models the batches the shortcut answers before any guard runs.
+   * The column sets the driver's all-null shortcut reads, one per output in order (bit {@code i}
+   * for input {@code i}), or null where it emits no shortcut ({@link #shortcutApplies}). The one
+   * place they are computed: both driver forms emit their test from them (the table driver as
+   * {@link #shortcutColumns}, the unrolled one as an OR of the {@code dead} flags per set), and
+   * the verdict that models the batches the shortcut answers reads them through
+   * {@code VarkaLoopEmitter.shortcutColumnSetsForTest}, so the model cannot drift from the bytes.
    */
-  static long[] shortcutColumnSets(List<VarkaVectorIR> outputs, Analysis analysis) {
-    if (!shortcutApplies(false, outputs, analysis)) {
+  static long[] shortcutColumnSets(boolean dense, List<VarkaVectorIR> outputs,
+      Analysis analysis) {
+    if (!shortcutApplies(dense, outputs, analysis)) {
       return null;
     }
-    return outputs.stream().mapToLong(analysis.columns::get).toArray();
+    long[] sets = new long[outputs.size()];
+    for (int o = 0; o < sets.length; o++) {
+      sets[o] = analysis.columns.get(outputs.get(o));
+    }
+    return sets;
   }
 
   /**
@@ -1628,12 +1637,12 @@ final class VarkaBodyEmitter {
   /**
    * The table {@code VarkaVectorSupport.everyOutputReadsAnAllNullColumn} reads under
    * {@code driverOutputTable}: per output, the count of the columns it reads, then their
-   * ordinals - the sets the unrolled shortcut ORs the {@code dead} flags of.
+   * ordinals - the sets the unrolled shortcut ORs the {@code dead} flags of, both from
+   * {@link #shortcutColumnSets}.
    */
-  private static String shortcutColumns(Analysis analysis, List<VarkaVectorIR> outputs) {
+  private static String shortcutColumns(long[] sets) {
     StringBuilder table = new StringBuilder();
-    for (VarkaVectorIR root : outputs) {
-      long set = analysis.columns.get(root);
+    for (long set : sets) {
       table.append((char) Long.bitCount(set));
       for (int i = 0; i < Long.SIZE; i++) {
         if ((set >>> i & 1L) != 0) {

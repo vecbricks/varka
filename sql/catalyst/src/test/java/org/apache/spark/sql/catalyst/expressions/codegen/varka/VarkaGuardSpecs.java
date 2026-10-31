@@ -192,7 +192,8 @@ public final class VarkaGuardSpecs {
    */
   public static boolean allNullShortcut(List<VarkaVectorIR> roots, int numInputs,
       int numLiterals, VarkaEmitOptions options, boolean[][] isNull) {
-    long[] sets = VarkaLoopEmitter.shortcutColumnsForTest(roots, numInputs, numLiterals, options);
+    long[] sets =
+        VarkaLoopEmitter.shortcutColumnSetsForTest(roots, numInputs, numLiterals, options);
     if (sets == null || isNull.length == 0) {
       return false;
     }
