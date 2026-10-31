@@ -43,11 +43,14 @@ import org.apache.spark.sql.catalyst.expressions.Alias;
 import org.apache.spark.sql.catalyst.expressions.AttributeReference;
 import org.apache.spark.sql.catalyst.expressions.BoundReference;
 import org.apache.spark.sql.catalyst.expressions.CaseWhen;
+import org.apache.spark.sql.catalyst.expressions.Coalesce;
 import org.apache.spark.sql.catalyst.expressions.Expression;
 import org.apache.spark.sql.catalyst.expressions.GenericInternalRow;
 import org.apache.spark.sql.catalyst.expressions.Greatest;
 import org.apache.spark.sql.catalyst.expressions.IsNotNull;
+import org.apache.spark.sql.catalyst.expressions.IsNull;
 import org.apache.spark.sql.catalyst.expressions.Literal;
+import org.apache.spark.sql.catalyst.expressions.NaNvl;
 import org.apache.spark.sql.catalyst.expressions.NamedExpression;
 import org.apache.spark.sql.catalyst.expressions.NumericEvalContext$;
 import org.apache.spark.sql.catalyst.expressions.UnaryMinus;
@@ -508,11 +511,17 @@ public final class VarkaCoverageHarnessSuite {
     // once covered every output of such a row, and so excused the wrong pick. A CASE that returns
     // x + x2 passes its open payload on, which the relaxation once decided by comparing the bits
     // of two evaluations of that open payload, the CASE's and the sum's, which need not agree.
+    // A pick that returns a third column's NaN beside an open sum it did not return - x3 first
+    // in a coalesce, x3 the else of a CASE whose condition is false, x3 the nanvl of a NaN sum -
+    // is held to x3's bits: the relaxation once opened a node over any open child, returned or
+    // not.
     double first = Double.longBitsToDouble(0x7ff8000000000001L);
     double second = Double.longBitsToDouble(0xfff8000000000000L);
-    InternalRow input = new GenericInternalRow(new Object[] {first, second});
+    double third = Double.longBitsToDouble(0x7ff8000000000002L);
+    InternalRow input = new GenericInternalRow(new Object[] {first, second, third});
     Expression x = new BoundReference(0, DataTypes.DoubleType, true);
     Expression x2 = new BoundReference(1, DataTypes.DoubleType, true);
+    Expression x3 = new BoundReference(2, DataTypes.DoubleType, true);
     List<Expression> outputs = List.of(
         new Greatest(CollectionConverters.asScala(List.of(x, x2)).toSeq()),
         new Add(x, x2, NumericEvalContext$.MODULE$.fromSQLConf(SQLConf.get())),
@@ -521,9 +530,18 @@ public final class VarkaCoverageHarnessSuite {
         new CaseWhen(CollectionConverters.asScala(List.of(new Tuple2<Expression, Expression>(
             new IsNotNull(x), new Add(x, x2, NumericEvalContext$.MODULE$.fromSQLConf(
                 SQLConf.get()))))).toSeq(),
-            scala.Option.apply(Literal.create(0.0d, DataTypes.DoubleType))));
-    DataType[] types =
-        {DataTypes.DoubleType, DataTypes.DoubleType, DataTypes.DoubleType, DataTypes.DoubleType};
+            scala.Option.apply(Literal.create(0.0d, DataTypes.DoubleType))),
+        new Coalesce(CollectionConverters.asScala(List.of(x3, new Add(x, x2,
+            NumericEvalContext$.MODULE$.fromSQLConf(SQLConf.get())))).toSeq()),
+        new CaseWhen(CollectionConverters.asScala(List.of(new Tuple2<Expression, Expression>(
+            new IsNull(x), new Add(x, x2, NumericEvalContext$.MODULE$.fromSQLConf(
+                SQLConf.get()))))).toSeq(),
+            scala.Option.apply(x3)),
+        new NaNvl(new Add(x, x2, NumericEvalContext$.MODULE$.fromSQLConf(SQLConf.get())), x3));
+    // The outputs whose payload is Spark's to the bit: a planted other NaN must fail on them.
+    var held = java.util.Set.of(0, 4, 5, 6);
+    DataType[] types = new DataType[outputs.size()];
+    java.util.Arrays.fill(types, DataTypes.DoubleType);
     var spark = new Object[outputs.size()];
     var other = new Object[outputs.size()];
     for (int o = 0; o < outputs.size(); o++) {
@@ -540,14 +558,17 @@ public final class VarkaCoverageHarnessSuite {
     assertTrue(unfixed.test(2), "-(x + x2) does not pass its child's open payload on");
     assertTrue(unfixed.test(3),
         "CASE WHEN x IS NOT NULL THEN x + x2 ELSE 0 END does not pass the sum's open payload on");
+    assertFalse(unfixed.test(4), "coalesce(x3, x + x2) returning x3 is excused");
+    assertFalse(unfixed.test(5), "CASE WHEN x IS NULL THEN x + x2 ELSE x3 END is excused");
+    assertFalse(unfixed.test(6), "nanvl(x + x2, x3) returning x3 is excused");
     InternalRow want = new GenericInternalRow(spark);
     for (int o = 0; o < outputs.size(); o++) {
       var got = spark.clone();
       got[o] = other[o];
       String difference =
           VarkaExpressionHarness.sameRow(want, new GenericInternalRow(got), types, unfixed);
-      if (o == 0) {
-        assertNotNull(difference, "the harness missed greatest(x, x2) returning the other NaN");
+      if (held.contains(o)) {
+        assertNotNull(difference, "the harness missed output " + o + " returning another NaN");
       } else {
         assertNull(difference, "output " + o + "'s open payload was held: " + difference);
       }

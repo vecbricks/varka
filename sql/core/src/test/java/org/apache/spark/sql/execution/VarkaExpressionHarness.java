@@ -28,15 +28,22 @@ import java.util.function.Supplier;
 import javax.annotation.Nullable;
 
 import org.apache.arrow.memory.ArrowBuf;
+import scala.Tuple2;
 import scala.collection.immutable.Seq;
 import scala.jdk.javaapi.CollectionConverters;
 
 import org.apache.spark.sql.catalyst.InternalRow;
 import org.apache.spark.sql.catalyst.expressions.Attribute;
 import org.apache.spark.sql.catalyst.expressions.BinaryArithmetic;
+import org.apache.spark.sql.catalyst.expressions.CaseWhen;
+import org.apache.spark.sql.catalyst.expressions.Coalesce;
 import org.apache.spark.sql.catalyst.expressions.Expression;
 import org.apache.spark.sql.catalyst.expressions.GenericInternalRow;
+import org.apache.spark.sql.catalyst.expressions.Greatest;
+import org.apache.spark.sql.catalyst.expressions.If;
 import org.apache.spark.sql.catalyst.expressions.InterpretedUnsafeProjection;
+import org.apache.spark.sql.catalyst.expressions.Least;
+import org.apache.spark.sql.catalyst.expressions.NaNvl;
 import org.apache.spark.sql.catalyst.expressions.NamedExpression;
 import org.apache.spark.sql.catalyst.expressions.UnsafeProjection;
 import org.apache.spark.sql.catalyst.expressions.UnsafeRow;
@@ -555,17 +562,23 @@ public final class VarkaExpressionHarness {
    * payload and C2's commuted add either ({@code VARKA-342.md} 5.1). Structured on the expression
    * as the kernel checks' {@code VarkaKernelChecks.unfixedNaN} is on the IR: an arithmetic over
    * one NaN operand returns that NaN, so its payload is fixed by the operand's; a node of one
-   * child (a negation, an {@code abs}, a square root, a cast) passes its child's on; any other
-   * node is open where a floating child it may return - one whose value is a NaN - is. So a pick
-   * between two column NaNs - {@code greatest}, {@code coalesce}, a {@code CASE} - is held to
-   * Spark's bits, and one that may return an open NaN is not.
+   * child (a negation, an {@code abs}, a square root, a cast) passes its child's on. A pick
+   * passes on the payload of the one child it returns on the row, and of no other: an {@code IF}
+   * or a {@code CASE} the branch its conditions take, a {@code coalesce} its first non-null
+   * child, a {@code nanvl} its second where its first is a NaN, a {@code greatest} or
+   * {@code least} its first child whose value is a NaN (Spark's fold keeps the first of equal
+   * values, and every NaN compares equal to every other). Any other node is open where a
+   * floating child it may return - one whose value is a NaN - is. So a pick between two column
+   * NaNs is held to Spark's bits, as is a pick of a column NaN beside an open NaN it did not
+   * return, and one that returns an open NaN is not.
    *
    * <p>The rule reads no payload it decides is open. Which values are NaNs is the same on every
    * tier, and an arithmetic over two NaNs compares the operands' bits only once neither is open,
    * when each is a column's, a literal's or a NaN whose payload this rule fixes: the same on
    * every tier too. Comparing the bits of a node's value with a child's, as this once did, read
-   * two evaluations of an open payload, which need not agree. A subexpression that raises on the
-   * row decides nothing.
+   * two evaluations of an open payload, which need not agree. The conditions that choose a
+   * branch read no payload either: a comparison, {@code isnan} or a null test holds alike of every
+   * NaN. A subexpression that raises on the row decides nothing.
    */
   static boolean unfixedNaN(Expression e, InternalRow row) {
     if (!isFloating(e.dataType())) {
@@ -583,6 +596,18 @@ public final class VarkaExpressionHarness {
     if (children.size() == 1) {
       return unfixedNaN(children.get(0), row);
     }
+    if (e instanceof If || e instanceof CaseWhen || e instanceof Coalesce || e instanceof NaNvl) {
+      Expression taken = returned(e, row);
+      return taken != null && nanBits(taken, row) != null && unfixedNaN(taken, row);
+    }
+    if (e instanceof Greatest || e instanceof Least) {
+      for (Expression child : children) {
+        if (nanBits(child, row) != null) {
+          return unfixedNaN(child, row);
+        }
+      }
+      return false;
+    }
     for (Expression child : children) {
       if (isFloating(child.dataType()) && nanBits(child, row) != null
           && unfixedNaN(child, row)) {
@@ -590,6 +615,40 @@ public final class VarkaExpressionHarness {
       }
     }
     return false;
+  }
+
+  /**
+   * The child whose value the pick {@code e} returns on {@code row}: an {@code IF}'s or a
+   * {@code CASE}'s branch its conditions take, a {@code coalesce}'s first non-null child, a
+   * {@code nanvl}'s second where its first is a NaN and its first elsewhere; null where none is
+   * (a {@code CASE} of no else that takes no branch, a {@code coalesce} of nulls) or a condition
+   * raises.
+   */
+  private static @Nullable Expression returned(Expression e, InternalRow row) {
+    try {
+      if (e instanceof If i) {
+        return Boolean.TRUE.equals(i.predicate().eval(row)) ? i.trueValue() : i.falseValue();
+      }
+      if (e instanceof CaseWhen c) {
+        for (Tuple2<Expression, Expression> b : CollectionConverters.asJava(c.branches())) {
+          if (Boolean.TRUE.equals(b._1().eval(row))) {
+            return b._2();
+          }
+        }
+        return c.elseValue().isDefined() ? c.elseValue().get() : null;
+      }
+      if (e instanceof NaNvl n) {
+        return nanBits(n.left(), row) != null ? n.right() : n.left();
+      }
+      for (Expression child : CollectionConverters.asJava(e.children())) {
+        if (child.eval(row) != null) {
+          return child;
+        }
+      }
+      return null;
+    } catch (Exception | AssertionError ex) {
+      return null;
+    }
   }
 
   private static boolean isFloating(DataType t) {
