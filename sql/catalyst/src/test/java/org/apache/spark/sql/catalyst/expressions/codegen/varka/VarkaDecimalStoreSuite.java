@@ -87,17 +87,6 @@ public class VarkaDecimalStoreSuite {
   /** The lane overrides the tables run at; 1 bakes none, so it is the preferred species. */
   private static final int[] WIDTHS = {1, 2, 4, 8};
 
-  /** The lane overrides this class's tables run at. */
-  int[] widths() {
-    return WIDTHS;
-  }
-
-  /** A width as a case names it: the baked lane count, or the preferred species' for 1. */
-  static String label(int lanes) {
-    return lanes == 1
-        ? "the preferred species' " + LongVector.SPECIES_PREFERRED.length() + " long lanes"
-        : lanes + " long lanes";
-  }
   /** As the load's table: under one group, a last row in the epilogue at every width, none. */
   private static final int[] LENGTHS = {1, 3, 37, 64};
   private static final long MAX = 999_999_999_999_999_999L;
@@ -140,6 +129,18 @@ public class VarkaDecimalStoreSuite {
     List<String> errors = VarkaEmitterTestSupport.verify(emitted.bytes());
     assertTrue(errors.isEmpty(), () -> "the class does not verify: " + errors);
     return VarkaEmitterFixtures.load(emitted).kernel();
+  }
+
+  /** The lane overrides this class's tables run at. */
+  int[] widths() {
+    return WIDTHS;
+  }
+
+  /** A width as a case names it: the baked lane count, or the preferred species' for 1. */
+  static String label(int lanes) {
+    return lanes == 1
+        ? "the preferred species' " + LongVector.SPECIES_PREFERRED.length() + " long lanes"
+        : lanes + " long lanes";
   }
 
   private static VarkaEmitOptions options(int lanes, DecimalStore arm) {
@@ -390,11 +391,11 @@ public class VarkaDecimalStoreSuite {
         List<String> loops = VarkaEmitterTestSupport.methodNames(bytes).stream()
             .filter(m -> m.startsWith("loopDense")).toList();
         assertTrue(loops.size() >= 2,
-            () -> "no split at " + lanes + " lanes under " + budget + " bytes: " + loops);
+            () -> "no split at " + label(lanes) + " under " + budget + " bytes: " + loops);
         for (String loop : loops) {
           // Two interleaves a body, each from its own iota.
           assertEquals(2, invocations(bytes, loop, "addIndex"),
-              () -> loop + " does not build the two interleaves at " + lanes + " lanes");
+              () -> loop + " does not build the two interleaves at " + label(lanes));
         }
         VarkaFusedKernel k = kernel(roots, 1, outputs, split);
         for (int length : LENGTHS) {
@@ -476,14 +477,14 @@ public class VarkaDecimalStoreSuite {
       long[][] expected = {new long[length]};
       java.util.Arrays.fill(expected[0], literals[0]);
       var base = options(lanes, DecimalStore.REARRANGE);
-      check("exact at " + lanes, kernel(roots, 1, 1, base), b, null, literals, expected);
+      check("exact at " + label(lanes), kernel(roots, 1, 1, base), b, null, literals, expected);
       VarkaFusedKernel shortMapped = kernel(roots, 1, 1, base.withMisdescribeDataBytes(-4));
       assertThrows(IndexOutOfBoundsException.class,
-          () -> check("short at " + lanes, shortMapped, b, null, literals, expected));
+          () -> check("short at " + label(lanes), shortMapped, b, null, literals, expected));
       if (VarkaMemorySanitizer.ENABLED) {
         VarkaFusedKernel longMapped = kernel(roots, 1, 1, base.withMisdescribeDataBytes(4096));
         var violation = assertThrows(VarkaMemoryViolation.class,
-            () -> check("long at " + lanes, longMapped, b, null, literals, expected));
+            () -> check("long at " + label(lanes), longMapped, b, null, literals, expected));
         assertTrue(violation.getMessage().contains("the nearest is output data 0"),
             violation.getMessage());
       }

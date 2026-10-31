@@ -1410,7 +1410,7 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
       .decimalStore()).toSet
     assert(arms === VarkaEmitOptions.DecimalStore.values.toSet)
     val general = (0 until 64).map(k => drawLong(k).options.decimalStore()).toSet
-    assert(general === Set(VarkaEmitOptions.DEFAULTS.decimalStore()))
+    assert(general === Set(VarkaMatrix.base.decimalStore()))
   }
 
   test("the nulling draw reaches a nulling range guard at both lanes, and the committed draws " +
