@@ -467,8 +467,10 @@ nulls and with one row in ten null: section 4's six shapes at `(9, 2)` and `(18,
 addition. The table gains `w9`, a `DECIMAL(9, 4)`, `w18`, a `DECIMAL(10, 2)`, and `x8`, a
 `DECIMAL(8, 2)`, after its existing columns. `VarkaDecimalBaselineQueriesSuite` checks the new
 columns' types, the 88 result types, that the rescaled comparisons' common types are
-`DECIMAL(11, 4)` and `DECIMAL(18, 4)`, and that no `IN` casts its column, and runs every section
-on both sessions. 349's projections are its arithmetic as decimal values (`x + y`, `x - w`,
+`DECIMAL(11, 4)`, both sides cast, and `DECIMAL(18, 4)`, only `w18` cast, that 349's three
+filters compare at `DECIMAL(10, 2)`, `DECIMAL(12, 4)` and `DECIMAL(18, 4)`, that none of the
+eight `IN` filters casts its column, and that no arithmetic operand of a filter over the columns
+with no null answers a null, and runs every section on both sessions. 349's projections are its arithmetic as decimal values (`x + y`, `x - w`,
 `x8 * y`), the forms its prediction 2 times after 157.
 
 **What the probe found.** Each section's `fuses` flag is set from a plan of it on an Arrow-cached
@@ -480,6 +482,18 @@ null tests as a filter of their own, and Spark's `Filter` applies the decimal co
 it, so those sections' varka on arm times a null-test kernel under the row path's condition, and
 the spark row path arm is their baseline. The four `IN` filters infer no null test and the six
 projections write a decimal, so those ten run on the row path. Section 4's sentence that the
-baseline is "on the unchanged code" holds for the varka off arm only; the fuse check passes
-because a section counts as fused when its plan holds any Varka node, so 348a's fusing of the
-condition itself will not move a flag.
+baseline is "on the unchanged code" holds for the varka off arm only.
+
+**The three-valued fuse check.** A section counted as fused when its plan held any Varka node,
+so the eighteen above would have read as fused and 348a's fusing of the condition itself would
+have moved no flag. `VarkaSqlBenchmarkBase` now has a `Fusion` class per section: `NONE`, no
+Varka node; `NULL_TESTS`, Varka filters holding only `IS NOT NULL` and `IS NULL` conjuncts while
+a row `FilterExec`, or a `ProjectExec` that computes, evaluates the rest; and `WHOLE`, a Varka
+node and no row operator evaluating any of the section. A plan that is none of the three, Varka
+fusing more than null tests under a row operator that still computes, has no class and fails
+the check whatever the section expects. The decimal class states a class for each of its 88
+sections, from the probe's plans: 12 `WHOLE` (the four equal-scale comparisons at precisions 9
+and 18 that row 347 fused, and the eight above), 18 `NULL_TESTS` and 58 `NONE`. The run fails
+when a plan's class differs from the section's, so 348a moves the eighteen to `WHOLE` as it
+fuses them, and the results file notes the class of each section that fuses. The other baseline
+classes keep their boolean flags, which mean any Varka node as before.

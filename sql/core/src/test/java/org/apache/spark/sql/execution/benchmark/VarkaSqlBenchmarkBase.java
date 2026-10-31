@@ -38,7 +38,14 @@ import org.apache.spark.sql.RuntimeConfig;
 import org.apache.spark.sql.SaveMode;
 import org.apache.spark.sql.SparkSession;
 import org.apache.spark.sql.VarkaBenchmarkBase;
+import org.apache.spark.sql.catalyst.expressions.And;
+import org.apache.spark.sql.catalyst.expressions.Attribute;
+import org.apache.spark.sql.catalyst.expressions.Expression;
+import org.apache.spark.sql.catalyst.expressions.IsNotNull;
+import org.apache.spark.sql.catalyst.expressions.IsNull;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions;
+import org.apache.spark.sql.execution.FilterExec;
+import org.apache.spark.sql.execution.ProjectExec;
 import org.apache.spark.sql.execution.SparkPlan;
 import org.apache.spark.sql.execution.VarkaColumnarToRowExec;
 import org.apache.spark.sql.execution.VarkaFilterColumnarToRowExec;
@@ -61,9 +68,9 @@ import org.apache.spark.sql.internal.SQLConf;
  *       not set before, so no case leaks a setting into the next.</li>
  *   <li>{@link #noop}, the trait's {@code noop()}: a query run to the end, its rows dropped.</li>
  *   <li>{@link #note}, a line of the results file outside a table, such as a rung's facts.</li>
- *   <li>{@link #fusedPlan}, a query's plan when it holds a Varka node, and
- *       {@link #requireBaseline}, a baseline benchmark's check that a section fuses only when
- *       its class lists it as fusing.</li>
+ *   <li>{@link #fusedPlan}, a query's plan when it holds a Varka node, {@link #fusion}, how
+ *       much of a plan Varka fuses, and {@link #requireBaseline}, a baseline benchmark's check
+ *       that a section fuses only as its class lists it.</li>
  *   <li>{@link #stopLeftoverSessions} and {@link #clearSessions}, for a benchmark that makes its
  *       own sessions, and {@link #withEmitOptions} for one that compares emitter designs.</li>
  * </ul>
@@ -167,10 +174,7 @@ public abstract class VarkaSqlBenchmarkBase extends VarkaBenchmarkBase {
    */
   public static Optional<SparkPlan> fusedPlan(SparkSession session, String query) {
     SparkPlan plan = session.sql(query).queryExecution().executedPlan();
-    boolean fused = plan.find(
-        p -> p instanceof VarkaColumnarToRowExec || p instanceof VarkaProjectExec
-            || p instanceof VarkaFilterExec || p instanceof VarkaFilterColumnarToRowExec)
-        .isDefined();
+    boolean fused = plan.find(VarkaSqlBenchmarkBase::isVarkaNode).isDefined();
     return fused ? Optional.of(plan) : Optional.empty();
   }
 
@@ -268,6 +272,82 @@ public abstract class VarkaSqlBenchmarkBase extends VarkaBenchmarkBase {
   }
 
   /**
+   * How much of a baseline section the Varka session fuses: the expectation a section states and
+   * {@link #requireBaseline(SparkSession, String, String, Fusion)} checks against its plan.
+   *
+   * <ul>
+   *   <li>{@code NONE}: the plan holds no Varka node, so both arms run the row path.</li>
+   *   <li>{@code NULL_TESTS}: every Varka node is a filter whose conjuncts are only {@code IS NOT
+   *       NULL} and {@code IS NULL} tests, such as those the optimizer infers from a condition
+   *       that is null-intolerant, and a row {@code FilterExec}, or a {@code ProjectExec} that
+   *       computes rather than selects columns, still evaluates the rest of the section. The
+   *       varka on arm then times a null-test kernel under the row path's expression, and the
+   *       spark row path arm is the baseline.</li>
+   *   <li>{@code WHOLE}: the plan holds a Varka node and no row operator that evaluates any of
+   *       the section's expression, so the varka on arm times a kernel and not the row path.</li>
+   * </ul>
+   *
+   * <p>A plan that is none of the three, a Varka node fusing more than null tests while a row
+   * operator still computes part of the section, has no class: {@link #fusion} answers empty for
+   * it, and the check refuses it whatever the section expects.
+   */
+  public enum Fusion { NONE, NULL_TESTS, WHOLE }
+
+  /**
+   * The {@link Fusion} class of {@code plan}, or empty when it fits none. A row operator counts
+   * wherever it is in the plan, which for a baseline's single filter or projection over a cached
+   * scan is above the Varka node.
+   */
+  public static Optional<Fusion> fusion(SparkPlan plan) {
+    if (plan.find(VarkaSqlBenchmarkBase::isVarkaNode).isEmpty()) {
+      return Optional.of(Fusion.NONE);
+    }
+    if (plan.find(VarkaSqlBenchmarkBase::computesOnRows).isEmpty()) {
+      return Optional.of(Fusion.WHOLE);
+    }
+    boolean beyondNullTests =
+        plan.find(p -> isVarkaNode(p) && !fusesOnlyNullTests(p)).isDefined();
+    return beyondNullTests ? Optional.empty() : Optional.of(Fusion.NULL_TESTS);
+  }
+
+  /** Whether {@code p} is one of the nodes the Varka rule plans, which {@link #fusedPlan} finds. */
+  private static boolean isVarkaNode(SparkPlan p) {
+    return p instanceof VarkaColumnarToRowExec || p instanceof VarkaProjectExec
+        || p instanceof VarkaFilterExec || p instanceof VarkaFilterColumnarToRowExec;
+  }
+
+  /**
+   * Whether {@code p} is a row operator that evaluates part of a query: Spark's filter, or its
+   * projection when an entry is more than a column passed through.
+   */
+  private static boolean computesOnRows(SparkPlan p) {
+    return switch (p) {
+      case FilterExec filter -> true;
+      case ProjectExec project -> project.projectList().exists(e -> !(e instanceof Attribute));
+      default -> false;
+    };
+  }
+
+  /** Whether {@code p} is a Varka filter whose condition is only null tests. */
+  private static boolean fusesOnlyNullTests(SparkPlan p) {
+    return switch (p) {
+      case VarkaFilterExec filter -> onlyNullTests(filter.condition());
+      case VarkaFilterColumnarToRowExec filter -> onlyNullTests(filter.condition());
+      default -> false;
+    };
+  }
+
+  /** Whether every conjunct of {@code condition} is an {@code IS NOT NULL} or {@code IS NULL}. */
+  private static boolean onlyNullTests(Expression condition) {
+    return switch (condition) {
+      case And and -> onlyNullTests(and.left()) && onlyNullTests(and.right());
+      case IsNotNull test -> true;
+      case IsNull test -> true;
+      default -> false;
+    };
+  }
+
+  /**
    * Checks that {@code varka} fuses {@code query} exactly when the section says it does, and
    * notes each section that fuses in the results file. {@code fuses} is the section's entry in
    * its class's list of expected fusers: a section a row has fused is listed by that row, so a
@@ -275,6 +355,8 @@ public abstract class VarkaSqlBenchmarkBase extends VarkaBenchmarkBase {
    * under the label of the row path. A listed section that no longer fuses fails too, since the
    * list would then misstate the file. {@link #FUSE_CHECK_PROPERTY} set to {@code false} lifts
    * both checks for the run that measures a row, and every section that fuses is still noted.
+   * A section counts as fusing when its plan holds any Varka node, whatever a row operator above
+   * it still evaluates; a class that needs to tell those apart states a {@link Fusion} instead.
    */
   protected final void requireBaseline(
       SparkSession varka, String title, String query, boolean fuses) {
@@ -291,6 +373,40 @@ public abstract class VarkaSqlBenchmarkBase extends VarkaBenchmarkBase {
     }
     if (plan.isPresent()) {
       note(title + ": fuses on the varka on arm, so it times a kernel there, not the row path");
+    }
+  }
+
+  /**
+   * Checks that {@code varka} fuses {@code query} as much as {@code expected} says, the
+   * section's {@link Fusion} class, and notes in the results file each section that fuses and
+   * how. A row that changes how a section fuses, from nothing to its null tests or from its
+   * null tests to the whole section, sets the section's new class, so a later row that fuses
+   * more of a section than listed fails the run rather than timing a kernel under the label of
+   * the row path, and a section that fuses less than listed fails too. {@link
+   * #FUSE_CHECK_PROPERTY} set to {@code false} lifts the check for the run that measures a row,
+   * and every section that fuses is still noted with its class.
+   */
+  protected final void requireBaseline(
+      SparkSession varka, String title, String query, Fusion expected) {
+    SparkPlan plan = varka.sql(query).queryExecution().executedPlan();
+    Optional<Fusion> measured = fusion(plan);
+    if (fuseCheck() && !measured.equals(Optional.of(expected))) {
+      throw new IllegalStateException(title + " is listed as " + expected + " but "
+          + measured.map(f -> "plans as " + f).orElse("fits no fusion class")
+          + "; a row that changes how it fuses lists its new class: " + query + "\n"
+          + plan.treeString());
+    }
+    if (measured.isEmpty()) {
+      note(title + ": fuses more than its null tests on the varka on arm, under a row operator "
+          + "that computes the rest");
+      return;
+    }
+    switch (measured.get()) {
+      case NONE -> { }
+      case NULL_TESTS -> note(title + ": fuses only its null tests on the varka on arm, so it "
+          + "times a null-test kernel there under the row path's condition");
+      case WHOLE -> note(title + ": fuses whole on the varka on arm, so it times a kernel there, "
+          + "not the row path");
     }
   }
 }

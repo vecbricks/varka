@@ -20,10 +20,11 @@ package org.apache.spark.sql.execution.benchmark
 import scala.jdk.CollectionConverters._
 
 import org.apache.spark.sql.QueryTest
-import org.apache.spark.sql.catalyst.expressions.{AttributeReference, Expression, In, LessThan}
+import org.apache.spark.sql.catalyst.expressions.{Abs, AttributeReference, BinaryArithmetic,
+  BinaryComparison, Cast, Expression, In, UnaryMinus}
 import org.apache.spark.sql.catalyst.plans.logical.Filter
 import org.apache.spark.sql.execution.VarkaSharedSessions
-import org.apache.spark.sql.types.{BooleanType, DecimalType, TimeType}
+import org.apache.spark.sql.types.{BooleanType, DataType, DecimalType, TimeType}
 
 /**
  * The decimal baseline's sections, run at a small scale on both sessions in every build, so a
@@ -33,9 +34,9 @@ import org.apache.spark.sql.types.{BooleanType, DecimalType, TimeType}
  * to start fusing these queries.
  *
  * Two further checks keep the table what the benchmark claims: every column has the declared
- * precision and scale, and a section over the columns with no null returns no null, so a value
- * that overflowed its type into a null (with ANSI mode off) fails here rather than going into the
- * timed run as a cheap null.
+ * precision and scale, and a section over the columns with no null returns no null, nor does
+ * any arithmetic operand of a filter's condition there, so a value that overflowed its type into
+ * a null (with ANSI mode off) fails here rather than going into the timed run as a cheap null.
  */
 class VarkaDecimalBaselineQueriesSuite extends QueryTest with VarkaSharedSessions {
 
@@ -89,18 +90,60 @@ class VarkaDecimalBaselineQueriesSuite extends QueryTest with VarkaSharedSession
         Seq.fill(2)(Seq.fill(3)(DecimalType(9, 2)) ++
           Seq(DecimalType(10, 2), DecimalType(12, 4), DecimalType(18, 4))).flatten
       assert(sections.map(s => spark.sql(s.query).schema.head.dataType) === resultTypes)
-      // The 64-bit comparisons stay within a long: coercion casts both sides of x < w to a
-      // common type of 18 digits or less, DECIMAL(11, 4) and DECIMAL(18, 4), and leaves x of an
-      // IN uncast, its literals being of x's scale.
       def condition(query: String): Expression = spark.sql(query).queryExecution.analyzed
         .collectFirst { case f: Filter => f.condition }.get
-      val rescaled = sections.filter(_.title.contains(" x < w filter")).map { s =>
-        condition(s.query).asInstanceOf[LessThan].left.dataType
+      def comparison(query: String): BinaryComparison = condition(query) match {
+        case c: BinaryComparison => c
+        case other => fail(s"$other is not a comparison")
       }
-      assert(rescaled === Seq.fill(2)(DecimalType(11, 4)) ++ Seq.fill(2)(DecimalType(18, 4)))
-      for (s <- sections.filter(_.title.contains(" IN (c1, c2, c3) filter"))) {
+      // A side of a comparison of two columns: the column itself when it has the common type,
+      // or a cast of it to the common type when it does not.
+      def side(e: Expression, common: DataType): String = e match {
+        case a: AttributeReference if a.dataType == common => "column"
+        case Cast(a: AttributeReference, `common`, _, _) if a.dataType != common => "cast"
+        case other => fail(s"$other is neither a column of $common nor a cast of one to it")
+      }
+      // The 64-bit comparisons stay within a long: coercion takes x < w to a common type of 18
+      // digits or less, DECIMAL(11, 4) at precision 9, where both sides are cast to it, and
+      // DECIMAL(18, 4) at precision 18, x18's own type, where only w18 is.
+      val rescaled = sections.filter(_.title.contains(" x < w filter")).map { s =>
+        val c = comparison(s.query)
+        val common = c.left.dataType
+        (common, side(c.left, common), side(c.right, common))
+      }
+      assert(rescaled === Seq.fill(2)((DecimalType(11, 4), "cast", "cast")) ++
+        Seq.fill(2)((DecimalType(18, 4), "column", "cast")))
+      // So do the three arithmetic filters of 349: x9 + y9 < z9 compares at DECIMAL(10, 2),
+      // x9 - w9 > 0 at DECIMAL(12, 4) and x8 * y9 < z9 at DECIMAL(18, 4).
+      val arithmetic = sections.filter(s => Seq(" x + y < z filter", " x - w > 0 filter",
+        " x8 * y < z filter").exists(s.title.contains)).map(s => comparison(s.query).left.dataType)
+      assert(arithmetic === Seq.fill(2)(
+        Seq(DecimalType(10, 2), DecimalType(12, 4), DecimalType(18, 4))).flatten)
+      // No IN casts its column, its literals being of the column's scale: the eight IN filters,
+      // the lane pair's at precisions 38 and 20 and the 64-bit ones at 9 and 18, each at both
+      // densities.
+      val ins = sections.filter(_.title.contains(" IN (c1, c2, c3) filter"))
+      assert(ins.size === 8)
+      for (s <- ins) {
         withClue(s.title) {
           assert(condition(s.query).asInstanceOf[In].value.isInstanceOf[AttributeReference])
+        }
+      }
+      // A filter over the columns with no null returns its column, which says nothing of the
+      // condition, so each arithmetic operand of its condition is run as a value instead and
+      // must return no null: the negation and abs of the lane pair's and the 64-bit filters
+      // (eight) and the three arithmetic filters' sums, difference and product.
+      val operands = for {
+        s <- sections if s.title.endsWith("no nulls") && s.query.contains(" WHERE ")
+        e <- condition(s.query).collect {
+          case e @ (_: BinaryArithmetic | _: UnaryMinus | _: Abs) => e
+        }
+      } yield s.title -> e.sql
+      assert(operands.size === 11)
+      for ((title, operand) <- operands) {
+        withClue(s"$title: $operand") {
+          assert(spark.sql(s"SELECT $operand AS a FROM varka_decimal WHERE $operand IS NULL")
+            .count() === 0)
         }
       }
       for (s <- sections) {
