@@ -561,9 +561,8 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
       Row("dt <= dt2"),
       Row("dt IS NULL"),
       Row("CAST(TIME'12:34:56.789' AS TIME(6)) = t",
-        "a TIME literal is already TIME(6), so the cast keeps its precision and compiles to its " +
-          "operand, as a widening from TIME(0) or TIME(3) does (a plan's SimplifyCasts removes " +
-          "this one); a narrowing declines"),
+        "a TIME literal is already TIME(6), so the cast is the identity the optimizer removes; " +
+          "a widening from TIME(0) or TIME(3) fuses and a narrowing declines"),
       Row("(l > l2) IS NULL", "the unknown partition at the long lane (VARKA-334)" + pushedNote),
       Row("(t < t2) IS NOT NULL", "the long lane's" + pushedNote),
       Row("l <=> l2", "null-safe equality at the long lane (VARKA-336)"),
