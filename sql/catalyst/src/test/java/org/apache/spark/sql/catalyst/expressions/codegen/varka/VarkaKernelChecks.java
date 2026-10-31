@@ -38,6 +38,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Col
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Cond;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.GuardedRange;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.NarrowLane;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WidenDecimal;
 
 /**
  * The fuzzers' row-by-row check of one emitted kernel against {@link VarkaReference}, at the int
@@ -895,11 +896,53 @@ public final class VarkaKernelChecks {
       return VarkaReference.longCond(cond, values, isNull, lits);
     }
 
+    @Override public long outputStride(VarkaVectorIR root, VarkaVectorIR.LaneType rootLane) {
+      return root instanceof WidenDecimal ? DECIMAL_SLOT : stride();
+    }
+
+    @Override public void putOutput(VarkaVectorIR root, VarkaVectorIR.LaneType rootLane,
+        MemorySegment d, int i, long v) {
+      if (root instanceof WidenDecimal) {
+        putSlot(d, i, v);
+      } else {
+        put(d, i, v);
+      }
+    }
+
     @Override public long got(MemorySegment out, int i, VarkaVectorIR root,
         VarkaVectorIR.LaneType rootLane) {
-      return root instanceof NarrowLane ? out.get(ValueLayout.JAVA_INT, i * 4L)
+      return root instanceof WidenDecimal ? slot(out, i)
+          : root instanceof NarrowLane ? out.get(ValueLayout.JAVA_INT, i * 4L)
           : out.get(ValueLayout.JAVA_LONG, i * 8L);
     }
+  }
+
+  /** The bytes of an Arrow decimal slot, which a {@link WidenDecimal} root writes a row. */
+  private static final long DECIMAL_SLOT = 16L;
+
+  /**
+   * Writes {@code v} into row {@code i}'s decimal slot as Arrow's writer does: the word, then its
+   * sign extension. A sentinel written so reads back through {@link #slot} like a stored value,
+   * so an unwritten slot shows as a wrong value rather than as a wrong high word.
+   */
+  private static void putSlot(MemorySegment d, int i, long v) {
+    d.set(ValueLayout.JAVA_LONG, i * DECIMAL_SLOT, v);
+    d.set(ValueLayout.JAVA_LONG, i * DECIMAL_SLOT + 8, v >> 63);
+  }
+
+  /**
+   * Row {@code i}'s decimal slot as its unscaled value. A high word that is not the low word's
+   * sign extension is a slot Spark's {@code ArrowColumnVector} raises on, so it fails here
+   * whatever the row's validity: the store writes every row, null ones too.
+   */
+  private static long slot(MemorySegment out, int i) {
+    long lo = out.get(ValueLayout.JAVA_LONG, i * DECIMAL_SLOT);
+    long hi = out.get(ValueLayout.JAVA_LONG, i * DECIMAL_SLOT + 8);
+    if (hi != lo >> 63) {
+      throw new IllegalStateException("decimal slot of row " + i + " holds the high word " + hi
+          + " under the low word " + lo + ", not its sign extension");
+    }
+    return lo;
   }
 
   /**
@@ -942,6 +985,9 @@ public final class VarkaKernelChecks {
     }
 
     @Override public long outputStride(VarkaVectorIR root, VarkaVectorIR.LaneType rootLane) {
+      if (root instanceof WidenDecimal) {
+        return DECIMAL_SLOT;
+      }
       return width(rootLane == VarkaVectorIR.LaneType.INT
           ? VarkaVectorIR.LaneType.INT : VarkaVectorIR.LaneType.LONG);
     }
@@ -965,7 +1011,9 @@ public final class VarkaKernelChecks {
 
     @Override public void putOutput(VarkaVectorIR root, VarkaVectorIR.LaneType rootLane,
         MemorySegment d, int i, long v) {
-      if (outputStride(root, rootLane) == 4L) {
+      if (root instanceof WidenDecimal) {
+        putSlot(d, i, v);
+      } else if (outputStride(root, rootLane) == 4L) {
         d.set(ValueLayout.JAVA_INT, i * 4L, (int) v);
       } else {
         put(d, i, v);
@@ -1004,7 +1052,8 @@ public final class VarkaKernelChecks {
 
     @Override public long got(MemorySegment out, int i, VarkaVectorIR root,
         VarkaVectorIR.LaneType rootLane) {
-      return outputStride(root, rootLane) == 4L ? out.get(ValueLayout.JAVA_INT, i * 4L)
+      return root instanceof WidenDecimal ? slot(out, i)
+          : outputStride(root, rootLane) == 4L ? out.get(ValueLayout.JAVA_INT, i * 4L)
           : out.get(ValueLayout.JAVA_LONG, i * 8L);
     }
   }

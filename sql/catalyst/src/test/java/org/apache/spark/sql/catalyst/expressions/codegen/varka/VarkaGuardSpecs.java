@@ -27,6 +27,7 @@ import java.util.Map;
 import java.util.Set;
 
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.*;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WidenDecimal;
 
 /**
  * Which batches a kernel must decline, may decline, or must answer, decided from the inputs and
@@ -431,7 +432,7 @@ public final class VarkaGuardSpecs {
       case ColumnRef _, DecimalColumn _, LiteralSlot _, DateDiff _, IfElse _, Greatest _, Least _,
           DayOfWeek _, WeekDay _, DayOfWeekIso _, NextDay _, ThursdayOf _, Chrono _, ConstDivide _,
           BoundedDivide _, BitOp _, BitCount _, Cond _, CondValue _, BoolOutput _, WidenLane _,
-          NarrowLane _ ->
+          NarrowLane _, WidenDecimal _ ->
           throw new IllegalArgumentException("no guard spec for " + reason + " on " + node);
     };
   }

@@ -134,9 +134,18 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
   private val matrixReach = new VarkaReach.Tally
   private val lengths = Seq(1, 3, 7, 15, 16, 17, 33, 64, 65, 100, 257, 1000)
 
+  /**
+   * The option only a decimal output reads (VARKA-157). It is drawn by the decimal sequence alone
+   * (`drawLong` with `decimal`): no shape of the other sequences holds a decimal output, so a draw
+   * of it there would change no kernel and shift every later draw of the committed seeds.
+   */
+  private val decimalStore = VarkaEmitOption.named("decimalStore")
+    .asInstanceOf[VarkaEmitOption.Choice[VarkaEmitOptions.DecimalStore]]
+
   /** The options `randomOptions` draws, in the order it draws them. */
   private val fuzzedOptions = VarkaEmitOption.TABLE.asScala.toSeq
     .filter(_.reason.drawn)
+    .filterNot(_ == decimalStore)
     .sortBy(o => "with" + o.name.head.toUpper + o.name.tail)
 
   /**
@@ -325,10 +334,13 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
    * has to be caught reading it.
    */
   private def drawLong(iteration: Int, drawSeed: Long = longSeed,
-      base: VarkaEmitOptions = VarkaMatrix.base, nulling: Boolean = false): VarkaFuzzCase = {
+      base: VarkaEmitOptions = VarkaMatrix.base, nulling: Boolean = false,
+      decimal: Boolean = false): VarkaFuzzCase = {
     val rnd = VarkaIrGrammar.shapeRandom(drawSeed, iteration)
     val drawn =
-      if (nulling) VarkaIrGrammar.drawNullingLongShape(rnd) else VarkaIrGrammar.drawLongShape(rnd)
+      if (decimal) VarkaIrGrammar.drawDecimalShape(rnd)
+      else if (nulling) VarkaIrGrammar.drawNullingLongShape(rnd)
+      else VarkaIrGrammar.drawLongShape(rnd)
     val roots = drawn.roots
     val (numInputs, numLiterals) = (drawn.numInputs, drawn.numLiterals)
     val lits = Array.fill(numLiterals)(VarkaIrGrammar.within(rnd, longLiteralBound))
@@ -336,7 +348,9 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
     val patternIds = Seq.fill(numInputs)(rnd.nextInt(patternNames.length))
     val patterns = patternIds.map(pattern(rnd, _, length))
     val forceMasked = length > 1 && rnd.nextInt(4) == 0
-    val options = randomOptions(rnd, base)
+    val drawnOptions = randomOptions(rnd, base)
+    val options = if (!decimal) drawnOptions
+      else decimalStore.withIndex(drawnOptions, rnd.nextInt(decimalStore.constants.size))
     val data =
       Array.tabulate(numInputs, length)((_, _) => VarkaIrGrammar.within(rnd, longColumnBound))
 
@@ -993,9 +1007,11 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
     // carries no high word for its check: its slot table is `VarkaDecimalLoadSuite`'s, and its
     // fuzz sequence, on a seed of its own so that no shape here moves, is a later step of the row
     // (`VARKA-347.md` 3 item 5).
+    // The decimal output (VARKA-157) has its own draw, on its own seed, so that no shape here
+    // moves: the decimal-store test above runs it.
     val missing = permitted -- seen - "NarrowLane" - "WidenLane" - "NullSafeEqual" -
       "BoolColumn" - "CondConst" - "BoolCompare" - "CondIf" - "BoolNullSafeEq" - "CondValue" -
-      "BoolOutput" - "DecimalColumn"
+      "BoolOutput" - "DecimalColumn" - "WidenDecimal"
     assert(missing.isEmpty,
       s"the generator never built: ${missing.toSeq.sorted.mkString(", ")} - add an arm, or " +
         "state here why the node type is deliberately out of the fuzzer's reach")
@@ -1020,9 +1036,11 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
       VarkaIrGrammar.drawLongShape(VarkaIrGrammar.shapeRandom(longSeed, k)).roots.asScala
         .foreach(collectNodeTypes(_, seen))
     }
-    // The null-safe equality is out of this corpus for the reason the int one gives above.
+    // The null-safe equality is out of this corpus for the reason the int one gives above, and
+    // the decimal output for the reason given there: its draw is a sequence of its own.
     val missing = laneGeneric.map(_.getSimpleName) -- seen - "NullSafeEqual" - "BoolColumn" -
-      "CondConst" - "BoolCompare" - "CondIf" - "BoolNullSafeEq" - "CondValue" - "BoolOutput"
+      "CondConst" - "BoolCompare" - "CondIf" - "BoolNullSafeEq" - "CondValue" - "BoolOutput" -
+      "WidenDecimal"
     assert(missing.isEmpty,
       s"the long-lane generator never built: ${missing.toSeq.sorted.mkString(", ")} - add an " +
         "arm to LongShapes, or state here why the node type is deliberately out of its reach")
@@ -1340,6 +1358,41 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
     }
     reportReach(reach)
     reportSkipped()
+  }
+
+  // The decimal store (VARKA-157): its own draw at the long lane, a decimal output over a long
+  // tree beside plain and narrowed long roots, run against the reference evaluator. The harness
+  // reads each slot's low word and fails on a high word that is not its sign extension.
+  private val decimalSeed =
+    sys.props.get("varka.fuzz.seed").map(_.toLong).getOrElse(VarkaIrGrammar.DECIMAL_FUZZ_SEED)
+
+  test(s"random IR trees with decimal outputs match the reference evaluator " +
+      s"(seed $decimalSeed, $iterations iterations)") {
+    val reach = VarkaEmitReach.attach(randomTrace, "decimal-store draws")
+    try {
+      val ks = only.map(Seq(_)).getOrElse(0 until iterations)
+      for (k <- ks) {
+        runChecked(drawLong(k, decimalSeed, decimal = true))
+      }
+    } finally {
+      VarkaEmitReach.detach(randomTrace)
+    }
+    reportReach(reach)
+    reportSkipped()
+  }
+
+  test("the decimal draw reaches a decimal output over a guarded and an unguarded child, and " +
+      "the committed draws hold none") {
+    def decimals(roots: java.util.List[VarkaVectorIR]): Seq[WidenDecimal] =
+      roots.asScala.toSeq.collect { case w: WidenDecimal => w }
+    val draws = 0 until 2000
+    val drawn = draws.flatMap(k => decimals(
+      VarkaIrGrammar.drawDecimalShape(VarkaIrGrammar.shapeRandom(decimalSeed, k)).roots))
+    assert(drawn.exists(_.child().isInstanceOf[GuardedRange]), "no guarded decimal child drawn")
+    assert(drawn.exists(!_.child().isInstanceOf[GuardedRange]), "every decimal child is guarded")
+    val committed = draws.flatMap(k =>
+      decimals(VarkaIrGrammar.drawLongShape(VarkaIrGrammar.shapeRandom(longSeed, k)).roots))
+    assert(committed.isEmpty, s"a committed draw holds a decimal output: ${committed.headOption}")
   }
 
   test("the nulling draw reaches a nulling range guard at both lanes, and the committed draws " +

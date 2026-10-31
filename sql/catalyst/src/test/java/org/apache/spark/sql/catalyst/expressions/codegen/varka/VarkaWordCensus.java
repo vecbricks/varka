@@ -36,6 +36,7 @@ import org.apache.spark.sql.catalyst.expressions.Attribute;
 import org.apache.spark.sql.catalyst.expressions.NamedExpression;
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaExpressionCompiler;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.*;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WidenDecimal;
 import org.apache.spark.sql.types.DataType;
 import org.apache.spark.sql.types.DataTypes;
 import org.apache.spark.sql.types.YearMonthIntervalType$;
@@ -181,7 +182,7 @@ public final class VarkaWordCensus {
           : null;
       case MakeDate _, IntArith _, IntNeg _, ConstDivide _, BoundedDivide _, Cond _,
           CondValue _, BoolOutput _, GuardedDay _, GuardedRange _, WidenLane _,
-          NarrowLane _ -> null;
+          NarrowLane _, WidenDecimal _ -> null;
     };
   }
 
