@@ -328,6 +328,56 @@ unchanged; the PR Build and the option matrix pass.
 
 ## 9. Outcome
 
+### 9.1 What was built, 31 October 2026
+
+Three commits on `varka-538-host-isa`, the row's pull request of section 5 step 2; the default
+flip is the last of them, so that it can wait for step 1's numbers or be dropped without the
+rest moving.
+
+1. **The host fact (2.1).** `varka/VarkaHostIsa.java` reads `VectorSupport.getCPUFeatures()`
+   once, reflectively, into a `Reading` (arch, feature list, failure); `conversionsFallBack()` is
+   true only for an x86 arch, a list that was read and no `avx512dq` among its names (matched as
+   a name, not a prefix). `--add-exports=java.base/jdk.internal.vm.vector=ALL-UNNAMED` is in
+   `JavaModuleOptions`, the sbt test options, Maven's `extraJavaTestArgs` and the census and
+   width-audit forks. `sql/varka/bench/pom.xml`'s own copy of the list is left as it is: its
+   tests run stock Spark, and the fork's runs come through `spark-submit`, which reads
+   `JavaModuleOptions`. `VarkaHostIsaSuite` is test 3.1.
+2. **The session (2.2).** `emit.useAVX` accepts `-2`; `VarkaSessionEmit.of` resolves it on the
+   driver, to `2` where the host falls back and to the emitter's default otherwise or where the
+   list is unread, which `resolve` logs once a JVM. The record never holds `-2`, so the plan
+   carries the resolved level to the executors. A planted host goes through
+   `VarkaSessionEmit.setHostForTesting` and the two-argument `of`. Tests 3.2 and 3.3 are in
+   `VarkaEvaluatorComponentsSuite` (the binding) and `VarkaTimeArithmeticSuite` (planned and run:
+   `hour(t)` and `time_diff('HOUR', t, t2)`, the long lane's constant divisions, against the row
+   engine); test 3.6 is in `VarkaTimeArithmeticSuite`, since the components suite has no session.
+   The pin of `-1` is in `TestSQLContext.overrideConfs`, `VarkaSharedSessions`,
+   `VarkaAutoRegistrationSuite`, `VarkaSizeLadderJitProbe` and `CaseWhenInliningProbe`.
+   `VarkaFallbackReasonSuite` needs no line: its `varkaSpark.newSession()` inherits the builder's
+   options. `VarkaArrowSessions` is not pinned: every caller is a benchmark or the cold-path
+   profiler probe, and the benchmarks keep the default. `VarkaTimeArithmeticSuite`'s switch test
+   set the level back with `unset`, which would leave the conf's default; it now sets `-1`.
+   `VarkaErrorContextSuite`'s out-of-range value is `-3`.
+3. **The readers (2.3, 2.4).** The width audit's known refusal keys on the probe's
+   `conversionsFallBack()`, with a planted test of the key (3.5); the census holds the host fact
+   to `long.L2D`, `double.D2L` and `long.L2F` at the host's flags and under `-XX:UseAVX=2` (3.4),
+   and its `host` block records `use_avx` and the feature list. The javadocs of `useAVX`,
+   `HOST_USE_AVX`, `convertsFallBack` and `takesMagicDivide`, the conf's doc,
+   `docs/sql-varka.md` and `VarkaTimeBenchmark`'s comment say the level is a target and the host
+   enters through the session. Rows 30, 343 and 344 say "once row 538 feeds it the host".
+4. **The flip**, its own commit: the default becomes `-2`, and test 3.6 runs it.
+
+### 9.2 What was measured on the laptop
+
+* Prediction 3, the laptop's half: the host fact converts at the laptop's flags and falls back
+  under `-XX:UseAVX=2`, and each agrees with the census cells measured under the same flags, at
+  every width (the census suite, 8 tests). The EPYC 7763 and the Neoverse N2 halves are the
+  census workflow's runs on CI.
+* Prediction 2: `emitted_bytes.json`, `width_audit.json` and `coverage.json` unchanged on the
+  laptop (their suites pass with the files untouched). `operator_census.json` was regenerated on
+  the laptop: its `host` block gained the two fields, and no verdict and no `bytes_per_row` moved.
+* Prediction 1 is not scored: step 1's two runs on the EPYC 7763 are dispatched by the lead, and
+  the flip merges only if the magic form beats the fallback at both widths.
+
 ## 10. Open points for the lead
 
 1. **One place for the Varka SQL test sessions' conf.** Settled in 2.2: `TestSQLContext` plus the
@@ -340,3 +390,10 @@ unchanged; the PR Build and the option matrix pass.
    `VARKA-121.md` 5.1's file. The kernel pair is cheaper; the surface arm is the user's view.
    Settled: the kernel pair in `benchmark.yml`, which scores prediction 1 directly; the surface arm
    stays row 121's.
+5. **Step 1's two runs write one file.** `benchmark.yml` names the results
+   `VarkaTimeBenchmark-jdk25-results.txt` whatever `-XX:MaxVectorSize` says, so both runs go out
+   with `create-commit=false` and their artifacts are committed under `m8/results/` as
+   `VARKA-538-epyc-7763-256bit-results.txt` and `-128bit-results.txt`, in the step's own pull
+   request on unchanged code.
+6. **`VarkaArrowSessions` is not pinned** (9.1 item 2), against 2.2's list of six: it builds only
+   benchmark sessions, and 2.2 keeps the default for benchmarks.
