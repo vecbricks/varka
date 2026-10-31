@@ -268,23 +268,6 @@ public abstract class VarkaSqlBenchmarkBase extends VarkaBenchmarkBase {
   }
 
   /**
-   * Fails the run when {@code varka}'s plan for {@code query} holds a Varka node: a baseline is
-   * only one while nothing fuses, and its results file is the record of the code before the row
-   * that fuses it. {@link #FUSE_CHECK_PROPERTY} set to {@code false} lifts the check. A baseline
-   * that writes its results calls {@link #requireBaseline(SparkSession, String, String, boolean)}
-   * instead, which also notes in the file each section that fuses.
-   */
-  protected static void requireBaseline(SparkSession varka, String title, String query) {
-    if (!fuseCheck()) {
-      return;
-    }
-    fusedPlan(varka, query).ifPresent(plan -> {
-      throw new IllegalStateException(title + " fuses, so it is no longer a baseline: " + query
-          + "\n" + plan.treeString());
-    });
-  }
-
-  /**
    * Checks that {@code varka} fuses {@code query} exactly when the section says it does, and
    * notes each section that fuses in the results file. {@code fuses} is the section's entry in
    * its class's list of expected fusers: a section a row has fused is listed by that row, so a
