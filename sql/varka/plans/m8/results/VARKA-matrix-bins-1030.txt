@@ -1,0 +1,322 @@
+# Why the option matrix grew from 106 bins to 126, and how to bring its wall back to 30 minutes,
+# 30 October 2026. CI numbers only (MaxGekk/spark Actions, .github/workflows/
+# varka-option-matrix.yml), read with gh run view / gh api GETs and artifact downloads; nothing
+# was rerun or dispatched. A bin-minute is one bin job's started-to-completed minute. A JVM
+# second (JVM-s) is one runner JVM's wall second, from the bins' runs/*/*/seconds files; a bin
+# runs two JVMs at a time, so lane minutes = JVM-s / 2 / 60.
+
+## The runs
+
+  run           branch                    head         reuse  reach  bins  plan s  bin-min
+  41035158315   varka-481-baseline        b0dc7f554b2  yes    1749   106   50387   696.1
+  41052708388   varka-528-harness-store   2d2759d88bc  no     none   126   59882   832.5
+  41062859573   varka-481-baseline        202d0163b09  yes    1749   106   50394   (running)
+
+  run           build+plan  bins phase  report  wall   median bin  longest  median wait
+  41035158315   1.3 min     33.9 min    0.5     35.8   6.6 min     12.0     15.8 min
+  41052708388   11.7 min    58.9 min    0.5     71.2   6.8 min     10.8     23.3 min
+
+"plan s" is the plan step's own summary line ("106 bins, the longest 480 s, 50387 s in all").
+The job list has 106 and 126 bin jobs (b000..b105, b000..b125), plus the build, report and
+report-failure jobs, which is where 107/127 or 109/129 counts come from. The wall is the build
+job's start to the report job's end; for 41052708388 that is 12:05:10 to 13:16:24 UTC, 71.2
+minutes (the brief's 64 minutes was likely taken from a different start point).
+
+Commands:
+  gh api "repos/MaxGekk/spark/actions/runs/<run>/jobs?per_page=30&page=<p>"   # job times
+  gh api --allow-escape-sequences repos/MaxGekk/spark/actions/jobs/<build job>/logs
+  gh run download <run> -R MaxGekk/spark -p 'varka-option-matrix-b[0-9]*'     # every bin's runs
+  gh run download <run> -R MaxGekk/spark -n varka-option-matrix-report
+  gh api "repos/MaxGekk/spark/actions/runs?head_sha=<sha>"                    # the commit's Build
+  gh api "repos/MaxGekk/spark/actions/runs/<Build>/artifacts" and .../jobs
+
+## 1. Where the 20 extra bins come from
+
+The build-and-plan log of 41052708388 says:
+  no Build of this commit archives the test classes, after 3 s
+  == build: sql's test classes, its test classpath and JVM options
+  126 bins, the longest 480 s, 59882 s in all
+where 41035158315's says:
+  == the test classes of Build run 41022383513
+  == the reach of Build run 41022383513: 1749 tests
+  106 bins, the longest 480 s, 50387 s in all
+
+So the 528 run found no Build archive. It compiled the classes itself (11.7 minutes instead of
+1.3) and had no reach record. Without a record every configuration runs every sql test
+(dev/varka_matrix_reuse.py, varka_matrix_bins.py reach_share returns 1.0).
+
+Why there was no archive: Build 41032415239 of 2d2759d88bc ran with "Check changes" printing
+  changed files vs base: 14
+  varka change scope: spark
+  { ... "varka-scoped": "false", ... }
+so "Varka suites: sql/catalyst" and "Varka option matrix classes" were skipped, and the run
+uploaded no varka-option-matrix-build, varka-matrix-reach-* or varka-harness-store-* artifact.
+Instead it ran Spark's full module matrix (09:18 to 11:41 UTC). The scope is "spark" because #1178
+edits .github/workflows/build_and_test.yml. #1178's description already says its own Build
+"runs Spark's module jobs rather than the Varka-only path and won't write a store". The same
+mechanism also removed the classes archive and the reach record.
+
+The JUnit reports confirm the growth is all sql suites under configurations the record had
+filtered (run 1 = 41035158315, run 2 = 41052708388):
+
+  by module   run1 JVM-s  JVMs  tests | run2 JVM-s  JVMs  tests | delta
+  sql            28326      85  61828 |    44399    120  85205 | +16073
+  catalyst       43230    1334  36081 |    41774   1334  36067 |  -1456 (noise)
+  total          71556          97909 |    86173         121272
+
+Catalyst is unchanged because it never reads the record (build_and_test.yml: "The catalyst
+suites do not [record] ... they filter their own trees instead (VarkaReach)"). +16073 JVM-s / 2
+lanes / 60 = +134 lane minutes, about the 136 extra bin-minutes (832.5 - 696.1) and the 20
+extra bins of about 7 minutes.
+
+Per configuration, the sql tests a configuration runs jump to the full 2525 wherever the record
+had cut them, for example:
+  groupLocalSlots=false     tests 1001 -> 2525   JVM-s 1391 -> 2039
+  heavyGroupOutputs=0       tests  946 -> 2524   JVM-s 1360 -> 2031
+  division=DOUBLE_RECIP     tests 2202 -> 2525   JVM-s 1203 -> 1980
+  julianMap=false           tests 2190 -> 2525   JVM-s 1092 -> 1884
+  groupBudgetUnderPrediction=true  1054 -> 2525  JVM-s 1012 -> 1793
+while configurations the record barely cut stay level (lanesOverride=4 1982 -> 1991,
+driverOutputTable=false 2017 -> 1986).
+
+Per sql suite, configurations run and JUnit seconds summed over them (run1 | run2):
+  VarkaDifferentialSuite          35 cfgs  1654 s | 49 cfgs  3606 s  +1952
+  VarkaGoldenCorpusSuite          32       1727   | 49       3447    +1720
+  VarkaFloatingLaneSuite          24       1617   | 49       3334    +1717
+  VarkaSparkFuzzSuite             48       7157   | 49       8865    +1708
+  VarkaSizeLadderJitSuite         22        864   | 49       1926    +1062
+  VarkaCoverageHarnessSuite       38       1035   | 49       2067    +1033
+  VarkaCoverageDifferentialSuite  31        971   | 49       1985    +1014
+  VarkaFarDaySuite                37       1017   | 49       1688     +671
+  VarkaLongLaneSuite              24        633   | 49       1258     +625
+  VarkaTimeArithmeticSuite        24        439   | 49        864     +425
+No configuration, module or suite was added. Both runs have the same 49 configurations (46 for
+catalyst, where the three arrowBatchSize ones are left out) and the same 1334 catalyst JVMs.
+The only difference is which sql tests each configuration ran.
+
+## 2. Was it #1178's change?
+
+The code change did not do it. #1178 (3875255ff86, 14 files) touches the harness classes,
+VarkaHarnessStore, the workflows, varka_matrix.sh, varka_matrix_archive.sh and
+varka_scoped_suites.sh. It touches neither VarkaTestReach nor the reach reading in
+varka_matrix_bins.py. The third run 41062859573 (reach present, 1749 tests, 106 bins, 50394 s
+planned) matches the first (1749 tests, 106 bins, 50387 s).
+
+The branch's state did it: its Build had scope "spark", which skips the Varka-scoped jobs.
+Without those jobs there is no classes archive, no reach record and no harness store. This will
+recur on any Varka pull request that also touches a path outside Varka's scope (a workflow, a
+Spark source). Its matrix then compiles for itself and runs unfiltered.
+
+Caveat on the "clean comparison": 41062859573's head 202d0163b09 does NOT contain 3875255ff86
+(git merge-base --is-ancestor says no). It is one more 481 commit, not master merged in, and
+its Build 41059844622 uploaded no varka-harness-store-* artifact. No matrix has yet run on a
+commit that contains #1178 and has a Varka-scoped Build, so the harness store's effect on the
+matrix is still unmeasured. The plan-only branches' Builds at 13:01 UTC (41059826684,
+41059829264, 41059860623) uploaded no reach or store. The fork's post-merge master Build of
+3875255ff86 ("Build / Varka master after each merge (JDK 25)", 41062626402) did run the
+Varka-scoped jobs. It uploaded the classes archive, three varka-matrix-reach-sql-* parts holding
+1758 tests (against 1749 in Build 41022383513, which run 1 read) and varka-harness-store-sql-1of3
+and -2of3 (6.4 MB and 4.7 MB; sql 3 of 3 wrote none). So #1178 leaves the record's size about
+where it was (+9 tests), and a matrix dispatched on master at 3875255ff86 or later would be the
+first to measure the store.
+
+What #1178 adds or saves in the matrix, from the JUnit reports:
+  VarkaHarnessParitySuite (new, 43 s at the defaults on the laptop): 0 runs in the matrix of
+    41052708388: dev/varka_matrix.sh line 171 leaves it out ("checks that the answer harness
+    plans as a session does, not an answer"), so it costs only the PR Build.
+  VarkaHarnessStoreSuite: 49 runs, 13 s in all.
+  Harness suites the store speeds up, run 1 (with reach): VarkaCoverageHarnessSuite 1035 s,
+    VarkaTimeHarnessSuite 262 s, VarkaDifferentialHarnessSuite 133 s = 1430 s. At #1178's
+    laptop ratio (58.3 s -> 15.6 s under cse=false) that is about 1000 JVM-s saved, about 8
+    bin-minutes. The net effect on the matrix is small either way.
+
+## 3. Where the bin-minutes go (run 41035158315, with the reach record)
+
+696.1 bin-minutes = 596 lane minutes of JVMs (71556 JVM-s / 2 / 60)
+                  + about 53 of per-bin setup (sampled bins: checkout 13 s, Java 7 s, classpath
+                    download 7 s, unpack 1 s, about 30 s a bin, x 106 bins)
+                  + about 47 of lane imbalance (one lane idle while the other finishes).
+
+Module split: catalyst 43230 JVM-s (60%), sql 28326 (40%).
+Catalyst per configuration: median 898 JVM-s (749 to 1645, the defaults highest). Sql per
+configuration: median 423 (161 to 1457). The catalyst suites run whole under all 46
+configurations:
+  VarkaSmallTreeSuite                 5029 s  109.3 s/run   (filters its own trees, VarkaReach)
+  VarkaIrFuzzSuite                    4104     89.2         (VarkaReach)
+  VarkaGroupingBoundSuite             3711     80.7
+  VarkaEmitterNarrowArithSuite        3560     77.4
+  VarkaCoverageCompositionFuzzSuite   3145     68.4         (VarkaReach)
+  VarkaAvx2SelectSuite                2458     53.4
+  VarkaVariantSuite                   2026     44.0
+  VarkaEmitterBoolSuite               1412     30.7
+  VarkaEmitCostSuite                  1085     23.6
+  VarkaUnreadLocalsSuite               909     19.8
+  catalyst JUnit seconds: tree suites that filter themselves (SmallTree, IrFuzz,
+  CompositionFuzz, LaneType) 12286 s; every other catalyst suite 28573 s, unfiltered.
+  JVM start gap: 2371 s over 1334 JVMs, 1.8 s each, small.
+Sql, after the record:
+  VarkaSparkFuzzSuite                 7157 s  149.1 s/run  48 of 49 cfgs (the record barely
+                                                            cuts it)
+  VarkaSeveralKernelsSuite            2949     60.2        49
+  VarkaCodegenGiveUpSuite             2906     59.3        49
+  VarkaGoldenCorpusSuite              1727     54.0        32
+  VarkaDifferentialSuite              1654     47.3        35
+  VarkaFloatingLaneSuite              1617     67.4        24
+  VarkaCoverageHarnessSuite           1035     27.2        38
+The four fuzz suites (SparkFuzz, SmallTree, IrFuzz, CompositionFuzz) are 19435 s, about 162
+bin-minutes.
+
+## 4. The floor
+
+floor = bin-minutes / slots + build-and-plan + report. The workflow caps bins at max-parallel:
+30, not 40, so both are given:
+
+  run           bin-min  /30 + build + report   /40 + build + report   observed wall
+  41035158315    696.1   23.2 + 1.3 + 0.5 = 25.0  17.4 + 1.8 = 19.2     35.8
+  41052708388    832.5   27.8 + 11.7 + 0.5 = 40.0 20.8 + 12.2 = 33.0    71.2
+  41015017569    701.6   23.4 + 1.7 + 0.4 = 25.5                        27.0
+  41019814599    716.8   23.9 + 1.4 + 0.4 = 25.7                        27.9
+
+About 2 minutes of ramp and tail come on top of the formula (first and last waves).
+
+Concurrent bins, sampled every 2 minutes of the bins phase:
+  41015017569 (27.0 min): 15 30 30 30 30 30 30 30 30 30 30 30 11
+  41019814599 (27.9 min): 23 30 30 30 30 29 30 30 30 30 30 30 14 1
+  41035158315 (35.8 min): 30 30 30 24 17 16 17 18 19 20 21 22 23 23 23 22 8
+  41052708388 (71.2 min): 4 29 29 30 20 12 12 13 14 16 14 14 15 16 16 16 18 17 14 14 15 15 15
+                          12 8 2 0 1 1 1
+Bin-minutes have held at 690 to 740 in every run with a reach record today: 40997021617 739.1,
+40999948397 725.5, 41015017569 701.6, 41019814599 716.8, 41024147127 691.6, 41029070956 710.7,
+41041260625 723.6. The 30-minute goal is already met when the matrix holds its 30 slots (27.0
+and 27.9 minutes). The misses come from slot sharing. 41035158315 overlapped the 528 branch's
+full-Spark Build (09:18 to 11:41 UTC) and fell to 16 to 23 bins. 41052708388 overlapped two
+SPARK-* branch Builds (10:37 to 12:53 and 12:01 to 12:27 UTC; non-Varka branches, so scope
+spark by the detector's rule, not read from their logs) and the four Varka Builds started at
+13:01 UTC, and fell to 12 to 18. On top of that, 41052708388 compiled for itself (+10.4
+minutes) and ran without the record (+136 bin-minutes).
+
+## Options, ranked by minutes saved on a typical run
+
+1. Never let the matrix run without the Build's classes and reach. Against run 2 this saves 10.4
+   minutes of build and 136 bin-minutes (4.5 minutes at 30 slots): floor 40.0 -> 25.0. It is
+   safe because it is the matrix's normal path. Ways (a choice for the lead):
+   (a) "Check changes" runs the sql Varka-scoped jobs and the classes job whenever Varka files
+       changed, even when the scope is "spark". This costs those jobs' slots on such PRs.
+   (b) The matrix's build job warns or fails at once when it would run without a reach record,
+       so the dispatch is not wasted. This is the cheapest option and adds no CI work.
+   (c) Dispatch the matrix only on a commit whose Build ran Varka-scoped. This is a rule, with no
+       code.
+2. Hold all 30 slots, with no bin-minute change: dispatch or admit the matrix only when no
+   full-Spark Build is running. dev/varka_ci_admit.py already admits full-matrix Builds
+   (--concurrent 2); it could also count the matrix. At 696 bin-minutes, this turns 35.8 into
+   about 27. Saves about 9 minutes. Safe; nothing verified changes.
+   Raising max-parallel to 40 when the fork is idle gives 17.4 + 1.8 + 2 = about 21 minutes,
+   about 6 more, but it collides with the rule that concurrent runs fit in 40 together. Owner
+   decision.
+3. A reach record for catalyst's non-tree suites (GroupingBound, EmitterNarrowArith,
+   Avx2Select, Variant, EmitterBool, EmitCost, ...: 28573 s, run whole under all 46
+   configurations). The stated reason catalyst records nothing is the tree suites' kernel
+   volume, which does not apply to these. If the record cut them as it cuts sql (sql
+   configuration median 423 JVM-s against the defaults' 1071), 30 to 60% of 28573 s is 70 to 140
+   bin-minutes, 2.3 to 4.7 minutes at 30 slots. ESTIMATE, not measured. It keeps the same
+   contract as sql's record: a configuration skips only tests whose kernels it leaves
+   unchanged. Two things to verify first: the cost of recording at the defaults in the catalyst
+   PR jobs, and that these suites' tests map to kernels the way the sql ones do.
+4. Packing: about 47 bin-minutes of lane imbalance and about 53 of per-bin setup. Packing lanes
+   closer to the target (best fit instead of first fit, or units cut finer) might recover 20 to
+   30 bin-minutes, about 1 minute. Fewer, longer bins would cut setup but lengthen the tail.
+   Safe; small.
+5. Let #1178's harness store take effect. It needs only a Varka-scoped Build of a commit that
+   contains #1178. Estimated about 8 bin-minutes (0.3 minutes). Safe; already merged; unmeasured.
+6. Fewer fuzz draws per configuration, or seeds split across configurations (the four fuzz
+   suites are about 162 bin-minutes). This WEAKENS what each configuration verifies. Not
+   recommended without the owner's decision.
+7. The build-and-plan job is 1.3 to 1.7 minutes when it reuses the Build, so there is nothing to
+   gain there. It costs 11.7 minutes only on the self-compile path, which option 1 removes.
+
+Combined, 1 + 3 + 4 + 5 give about 696 - 105 - 25 - 8 = about 560 bin-minutes. At 30 slots that
+is 18.7 + 1.8 + 2 = about 22.5 minutes. At the about 17 slots a full-Spark Build leaves, it is
+33 + 3.8 = about 37 minutes, still a miss. Bin-minute cuts give headroom, but a reliable 30
+minutes needs option 2 (slots) as well as option 1 (the record).
+
+## Not determined
+
+- The matrix with #1178 in effect: no matrix has run yet on a commit containing #1178 with a
+  Varka-scoped Build. 41062859573 does not contain it; master's Build 41062626402 has the store
+  and the record, so a matrix dispatched on master would be the first to measure it.
+- How much a catalyst reach record would cut (option 3 is an estimate from sql's ratio).
+- 41062859573's bin-minutes and wall: it was still queued when this was written. Its plan
+  (106 bins, 50394 s, 1749 reach tests) is known.
+- Lane imbalance and setup were split by sampling 12 bins of 41035158315 for step times, not
+  every bin.
+
+## 5. The Varka jobs beside a full run: slots and timing
+
+Read with gh api "repos/MaxGekk/spark/actions/runs/<run>/jobs?per_page=100" (started_at,
+completed_at), for the Build's Varka jobs gated on `admit` beside Spark's module matrix.
+
+Jobs running at once in full-Spark Build 41032415239 (skipped jobs left out), every 2 minutes
+from 09:22 UTC; admit 09:22:50 to 09:22:57, Precompile Spark 09:23:51 to 09:42:17 (18.4 min):
+  09:22 1  09:24 9  09:26 4  09:28 3  09:30 5  09:32 4 ... 09:42 4  09:44 10  09:46 10
+  09:48 14  09:50 20 ... 09:58 20  10:00 19  10:02 18  10:04 18  10:06 17  10:08 17
+So a full run holds 3 to 5 slots while Spark precompiles and 20 at its widest, from 09:50.
+
+The Varka jobs, started together right after the precondition, minutes to completion:
+  Build         classes  sql 1/3  sql 2/3  sql 3/3  catalyst (3)
+  41022383513   4.0      10.2     8.2      9.3      9.6 15.2 12.4
+  41062626402   3.9      8.7      8.4      9.3      12.0 14.2 11.3
+Both started from a saved compile state. Started at admit, the classes job and sql's three add 4
+slots to the precompile phase (3 to 5 slots) and finish before the fan-out at 18.4 minutes, so
+the widest point stays at 20. A Build without a compile state compiles clean and runs longer;
+none was read here, so how far such a Build's sql jobs reach into the fan-out is not measured.
+Should they reach it, the run holds up to 24 slots until they finish.
+
+The sql jobs finished 4.2 to 6.2 minutes after the classes job uploaded in 41022383513 and 4.5
+to 5.4 minutes after in 41062626402. A matrix that takes the classes the moment they are uploaded
+thus finds the reach record still being written; waiting up to 10 minutes for it covers both
+Builds, and the record saves about 136 bin-minutes (section 1), 4.5 minutes of bins at 30 slots.
+
+## 6. The rule the fix settled on
+
+The first version of the fix ran the classes job and sql's three Varka jobs beside Spark's
+module matrix when the change held "Varka code", a file test (modules.has_varka_code). A second
+review of that fix found the test wrong both ways:
+- Spark-only edits of the shared hooks (CodeGenerator, SQLConf, the Arrow serializer) change the
+  kernels the suites emit, yet left no record.
+- Files the suites read (sql/varka/coverage.json, plans/m8/casts.tsv, the census tables,
+  plans/figures/*.py, dev/varka_matrix_shards.py) were classed as documents.
+- CI tooling and fixtures (dev/varka_ci_ledger_fixtures/*, dev/varka_matrix_bins.py, ...) were
+  classed as code.
+
+The rule now: when the scope is "spark" and the change builds catalyst or sql
+(dev/is-changed.py -m catalyst,sql, which follows the module graph, so a core change counts),
+the Build runs the classes job and sql's three Varka jobs beside the module matrix, and not
+catalyst's three. A Spark change that builds neither (Python, docs/ pages, another module) runs
+none. has_varka_code and its list of record files are gone. In such a Build:
+- The four jobs need `admit`, so a run labelled ci-hold holds them, and they start when the run
+  is admitted. A run that skips `admit` (Varka-scoped, documents only) runs them at once.
+- They save no dependency cache, no per-run `varka-scoped-times-...-<run_id>` cache entry and
+  no `varka-compile-state` artifact: a Spark branch would add its own entries to the fork's
+  cache quota, and its compile state must never become another pull request's base.
+- The admit job admits runs as before (--concurrent 2). A later review proposed admitting a run
+  with the Varka jobs alone, since one that compiles clean may hold about 24 slots at its fan-out
+  (section 5) and two of them would pass the fork's 40; that rule was dropped to keep the fix
+  small, and the overlap is left unmeasured.
+
+The option matrix's lookup (dev/varka_matrix_reuse.py) waits for such a Build: up to 30 minutes
+while it is still queued in its admit job, two minutes for a classes job not yet listed after
+the precondition and the admit (succeeded or skipped), and up to 10 minutes for the reach record,
+ending that wait as soon as one sql job has failed and retrying a failed API poll three times.
+Each way it ends without the record names the reason and what to do in a warning.
+
+The cost it leaves: both the module matrix's sql shards and the Varka sql jobs run the sql Varka
+suites in such a Build. Spark's build has no suite-name filter to drop them from the module
+matrix, and the module matrix splits sql by ScalaTest tags while the Varka jobs pick suites by
+name (plus ArrowCachedBatchSerializerSuite), so a name filter could miss or over-cut. Its cost is
+the Varka jobs themselves, from the two Builds in section 5: sql's three took 8.2 to 10.2 minutes
+each and the classes job 3.9 to 4.0, about 31 duplicate job-minutes per spark-scope Build.
+
+A later row could remove them: make the module matrix's sql shards write the reach record and
+the harness store themselves (VARKA_REACH_RECORD, VARKA_HARNESS_STORE) and upload them as the
+Varka sql jobs do, so the option matrix reads those and the extra sql jobs go away; the classes
+job stays.
