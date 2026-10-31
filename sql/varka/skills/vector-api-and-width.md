@@ -531,6 +531,8 @@ bytes a row for the laptop.
 | de-interleave, from decimal slots | long | `dec_rearrange`, `dec_compress` (with its `unslice` splice), `dec_tail` (masked loads and store) | I | I | F | 347 |
 | de-interleave, from decimal slots | long | `dec_selectFrom2` (the two-vector `selectFrom`) | I | I | I | 347 |
 | de-interleave, from decimal slots | int | `dec_int_splice` (two de-interleaves, `L2I` parts 0 and -1, `or`) | I | I | F | 347 |
+| the interleave, into decimal slots | long | `dec_zip_rearrange`, `dec_zip_rearrange_lanewise` and `dec_zip_tail` (the two-vector `rearrange`, its shuffle from `makeZip` or built lanewise; the masked stores) | I | I | F | 157 |
+| the interleave, into decimal slots | long | `dec_zip_selectFrom2`, `dec_zip_selectFrom2_lanewise` (the two-vector `selectFrom`, its index vector from `makeZip` or built lanewise), `dec_zip_segments` (the column and the slots mapped, no zip) | I | I | I | 157 |
 | decimal check | long | `dec_check_rearrange`, `dec_check_compress`, `dec_check_offset`, and the masked `dec_check_rearrange_masked`, `dec_check_offset_masked` | I | I | F | 347 |
 | long lanewise | long | `NE`, `GT`, `LT` | I | I | F | 347 |
 | long lanewise | long | `ASHR` | I | I | I | 347 |
@@ -555,6 +557,17 @@ the table reads as on the laptop):
 The full cells are in `plans/m8/results/VARKA-376-census-epyc-7763.json` and
 `VARKA-376-census-neoverse-n2.json`. Rows 30, 343 and 344 design their long-to-double conversions
 against the EPYC cells; row 358's `tanh` meets the Neoverse cell.
+
+**`I` says nothing of what a loop's prologue allocates.** The decimal store's cells build their
+zip once a call, as a kernel's prologue does, and every one reads `I` at 512 and 256 bits; but the
+`makeZip` cells allocate about twice what the `dec_zip_segments` baseline does, which maps the same
+two segments, and the lanewise cells allocate exactly that (`VARKA-157.md` 10.1). `makeZip` fills
+its indices through a lambda that C2 does not scalar-replace, so a once-a-batch shuffle or index
+vector is built from `LongVector.zero(s).addIndex(1)` and lanewise arithmetic instead. Read a
+cell's allocation against a baseline cell that maps what it maps, not against the `I+A` threshold.
+And the second-species tell skips a class of the fork's own width: `LongVector::addIndex` is a
+virtual call, and C2's printer reports its devirtualization as "callee changed to" the preferred
+species' class.
 
 What it says on the laptop (AMD Ryzen AI 9 HX PRO 370, JDK 25.0.4.1):
 
