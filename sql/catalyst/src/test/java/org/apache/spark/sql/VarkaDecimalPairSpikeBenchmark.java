@@ -114,9 +114,11 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitterTestS
  *
  * <p>Run it with {@code -XX:CompileCommand=dontinline,<this class>::loop*} so that each loop is a
  * compile unit of its own, at {@code -XX:MaxVectorSize=64}, {@code 32} and {@code 16} for the
- * three widths. {@code -Dvarka.pair.forms=p,a,s} (a subset) and {@code
- * -Dvarka.pair.rungs=l2,l3,pastl3} (a subset) narrow a run; {@code -Dvarka.bench.only} narrows it
- * to the arms whose label holds a string.
+ * three widths; the run refuses to start without that command. {@code -Dvarka.pair.forms=p,a,s}
+ * (a subset) and {@code -Dvarka.pair.rungs=l2,l3,pastl3} (a subset) narrow a run; {@code
+ * -Dvarka.bench.only} narrows it to the arms whose label holds a string. Each is for
+ * investigation only, refused when {@code SPARK_GENERATE_BENCHMARK_FILES} would write the results
+ * file, and a selection that leaves no arm fails the run.
  *
  * <pre>
  *   build/sbt 'set Test/javaOptions ++= Seq("-XX:MaxVectorSize=32", "-XX:CompileCommand=\
@@ -137,12 +139,23 @@ public class VarkaDecimalPairSpikeBenchmark extends VarkaBenchmarkBase {
   private record Rung(String name, int numRows, String level) {}
 
   /**
-   * The rungs: two columns and a product of 8192 rows are 512 KB, within a 1 MB or 512 KB L2
-   * (the laptop's, the EPYC 7763's); of 262144 rows 16 MB, within the 32 MB L3 of an EPYC 7763
-   * core complex and at the edge of the laptop's 16 MB; of 4194304 rows 256 MB, past either.
+   * The rungs, by the working set of the largest arm, PRODUCT's: two input columns of 16 bytes a
+   * row and a product of 32, 64 bytes a row. At 4096 rows that is 64 * 4096 = 256 KB, half the
+   * 512 KB L2 of an EPYC 7763 core and a quarter of the laptop's 1 MB, so the rung stays in L2
+   * with room for the stack, the selection words and the hardware prefetcher's overshoot (8192
+   * rows would fill the 7763's L2 exactly). Of 262144 rows it is 16 MB, within the 32 MB L3 of an
+   * EPYC 7763 core complex and at the edge of the laptop's 16 MB; of 4194304 rows 256 MB, past
+   * either.
+   *
+   * <p>A rung allocates more native memory than its largest arm touches, 240 bytes a row: the
+   * columns {@code x}, {@code y} and {@code wild} of 16 bytes a row and the product's four words
+   * of 32 (80 in all); one output for each operation that stores, reused by its arms, 16 bytes a
+   * row for each of the four that store slots and 32 for PRODUCT (96); and the {@code BigInteger}
+   * answer of each of those four, 16 bytes a row each (64). The outputs and answers live until
+   * the rung's cases have run, so at 4194304 rows the rung holds 960 MB.
    */
   private static final List<Rung> LADDER = List.of(
-      new Rung("l2", 8192, "in L2, 512 KB"),
+      new Rung("l2", 4096, "in L2, 256 KB"),
       new Rung("l3", 262144, "in L3, 16 MB"),
       new Rung("pastl3", 4194304, "past L3, 256 MB"));
 
@@ -204,6 +217,12 @@ public class VarkaDecimalPairSpikeBenchmark extends VarkaBenchmarkBase {
   private static final LongVector A_NB = LongVector.fromArray(LS,
       alternate(NBL, NBH ^ Long.MIN_VALUE), 0);
 
+  /** The two bounds' words broadcast, as P compares a lane group's high and low words. */
+  private static final LongVector P_BH = LongVector.broadcast(LS, BH);
+  private static final LongVector P_BL = LongVector.broadcast(LS, BL);
+  private static final LongVector P_NBH = LongVector.broadcast(LS, NBH);
+  private static final LongVector P_NBL = LongVector.broadcast(LS, NBL);
+
   /**
    * The rescale's constants (`VARKA-363.md` 2.3; `results/VARKA-363-magic.txt`, the row
    * {@code k = 6} of a 128-bit dividend): the magnitude {@code n <= 10^38 - 1} shifted right by
@@ -258,11 +277,7 @@ public class VarkaDecimalPairSpikeBenchmark extends VarkaBenchmarkBase {
 
   /** The rows of a lane group outside {@code (-10^38, 10^38)}. */
   private static VectorMask<Long> outOfPrecision(LongVector hi, LongVector lo) {
-    var bh = LongVector.broadcast(LS, BH);
-    var bl = LongVector.broadcast(LS, BL);
-    var nbh = LongVector.broadcast(LS, NBH);
-    var nbl = LongVector.broadcast(LS, NBL);
-    return lt128(hi, lo, bh, bl).and(lt128(nbh, nbl, hi, lo)).not();
+    return lt128(hi, lo, P_BH, P_BL).and(lt128(P_NBH, P_NBL, hi, lo)).not();
   }
 
   /** The high word of {@code -x}: {@code -hi}, less the borrow of a nonzero low word. */
@@ -1009,12 +1024,23 @@ public class VarkaDecimalPairSpikeBenchmark extends VarkaBenchmarkBase {
     };
   }
 
-  /** Row {@code i}'s {@code y}: {@code x} itself one row in eight, its high word with another
-   *  low word one in eight, and otherwise independent. */
+  /**
+   * Row {@code i}'s {@code y}: {@code x} itself one row in eight, its high word with another low
+   * word one in eight, and otherwise independent. The other low word is drawn on the side of
+   * {@code x}'s that is toward zero, at most it for a positive {@code x} and at least it for a
+   * negative one, so {@code |y| <= |x|} and {@code y} stays within {@code DECIMAL(38)} even when
+   * {@code x} is an extreme.
+   */
   private static BigInteger columnY(int i, BigInteger x, Random r) {
     return switch (i % 8) {
       case 0 -> x;
-      case 1 -> x.shiftRight(64).shiftLeft(64).add(BigInteger.valueOf(r.nextLong() >>> 1));
+      case 1 -> {
+        BigInteger high = x.shiftRight(64).shiftLeft(64);
+        BigInteger low = x.subtract(high);
+        BigInteger room = x.signum() < 0 ? TWO64.subtract(low) : low.add(BigInteger.ONE);
+        BigInteger step = new BigInteger(64, r).mod(room);
+        yield x.signum() < 0 ? x.add(step) : x.subtract(step);
+      }
       default -> inPrecision(r);
     };
   }
@@ -1116,9 +1142,17 @@ public class VarkaDecimalPairSpikeBenchmark extends VarkaBenchmarkBase {
     };
   }
 
-  /** The output segment an arm of {@code op} writes into, of the expected's size. */
+  /**
+   * The output segment the arms of {@code op} write into, of the expected's size, which each arm
+   * of the operation reuses; none, {@code MemorySegment.NULL}, for an operation that writes
+   * selection words.
+   */
   static MemorySegment outputFor(Op op, int n, Arena arena) {
-    return arena.allocate(op.output == Output.PRODUCT ? n * 32L + 64 : n * 16L + 64, 64);
+    return switch (op.output) {
+      case WORDS -> MemorySegment.NULL;
+      case SLOTS -> arena.allocate(n * 16L + 64, 64);
+      case PRODUCT -> arena.allocate(n * 32L + 64, 64);
+    };
   }
 
   /**
@@ -1156,9 +1190,12 @@ public class VarkaDecimalPairSpikeBenchmark extends VarkaBenchmarkBase {
       Data d = data(arena, n);
       for (Op op : Op.values()) {
         Expected e = expected(op, d, arena);
+        MemorySegment out = outputFor(op, n, arena);
         for (Arm arm : arms()) {
           if (arm.op() == op) {
-            MemorySegment out = outputFor(op, n, arena);
+            // The output is shared, so it is cleared first: a loop that wrote nothing would
+            // otherwise pass on the previous arm's bytes.
+            out.fill((byte) 0);
             long[] words = new long[n / 64];
             arm.loop().apply(d.input(op.input), d.y(), out, words, n);
             requireAgrees(arm, e, out, words, n, "at " + n + " rows");
@@ -1244,10 +1281,27 @@ public class VarkaDecimalPairSpikeBenchmark extends VarkaBenchmarkBase {
           + " can be shown compiled; run on a HotSpot JVM with the DiagnosticCommand MBean", e);
     }
     boolean dontInline = ManagementFactory.getRuntimeMXBean().getInputArguments().stream()
-        .anyMatch(a -> a.startsWith("-XX:CompileCommand") && a.contains("dontinline"));
-    require(dontInline, "no -XX:CompileCommand=dontinline,"
-        + VarkaDecimalPairSpikeBenchmark.class.getName() + "::loop* is set, so"
-        + " a loop may be inlined into the drive and show no code of its own in the code list");
+        .anyMatch(VarkaDecimalPairSpikeBenchmark::keepsTheLoopsOutOfLine);
+    require(dontInline, "no " + DONTINLINE_LOOPS + " is set, so a loop may be inlined into the"
+        + " drive and show no code of its own in the code list");
+  }
+
+  /** The compile command that keeps every loop of this class a compile unit of its own. */
+  static final String DONTINLINE_LOOPS = "-XX:CompileCommand=dontinline,"
+      + VarkaDecimalPairSpikeBenchmark.class.getName() + "::loop*";
+
+  /**
+   * Whether the JVM argument {@code arg} is {@link #DONTINLINE_LOOPS}, with the class named in
+   * HotSpot's slash form or its dotted one and the method after {@code ::} or a dot. A
+   * {@code dontinline} of some other pattern does not keep these loops out of line, and is not it.
+   */
+  static boolean keepsTheLoopsOutOfLine(String arg) {
+    String prefix = "-XX:CompileCommand=dontinline,";
+    if (!arg.startsWith(prefix)) {
+      return false;
+    }
+    String pattern = arg.substring(prefix.length()).strip().replace('/', '.').replace("::", ".");
+    return pattern.equals(VarkaDecimalPairSpikeBenchmark.class.getName() + ".loop*");
   }
 
   private static void drive(Arm arm, MemorySegment in, MemorySegment y, MemorySegment out,
@@ -1292,6 +1346,25 @@ public class VarkaDecimalPairSpikeBenchmark extends VarkaBenchmarkBase {
   // The benchmark
   // ---------------------------------------------------------------------------------------
 
+  /**
+   * Refuses a run narrowed by {@code -Dvarka.pair.forms} or {@code -Dvarka.pair.rungs} that would
+   * write the results file, as the base class does for its own selectors, then runs the base's.
+   * The check comes first because the base's {@code main} empties the committed file on opening.
+   */
+  @Override
+  public void main(String[] args) {
+    boolean writesResults = "1".equals(System.getenv("SPARK_GENERATE_BENCHMARK_FILES"));
+    for (String property : List.of(FORMS_PROPERTY, RUNGS_PROPERTY)) {
+      String value = System.getProperty(property);
+      if (writesResults && value != null) {
+        throw new IllegalArgumentException("-D" + property + "=" + value + " runs part of a"
+            + " benchmark, which must not be written to its results file: unset"
+            + " SPARK_GENERATE_BENCHMARK_FILES, or drop the property");
+      }
+    }
+    super.main(args);
+  }
+
   @Override
   public void runBenchmarkSuite(String[] mainArgs) {
     var forms = selectedForms();
@@ -1301,7 +1374,10 @@ public class VarkaDecimalPairSpikeBenchmark extends VarkaBenchmarkBase {
     var arms = arms().stream()
         .filter(a -> forms.contains(a.form()))
         .filter(a -> only().map(a.label()::contains).orElse(true)).toList();
-    if (dryRun() || arms.isEmpty()) {
+    require(!arms.isEmpty(), "no arm is in forms " + forms.stream().map(Form::token).toList()
+        + only().map(o -> " with a label holding \"" + o + "\"").orElse("")
+        + ", so the run would time nothing");
+    if (dryRun()) {
       return;
     }
     requireHarness();
@@ -1326,15 +1402,20 @@ public class VarkaDecimalPairSpikeBenchmark extends VarkaBenchmarkBase {
           continue;
         }
         Expected e = expected(op, d, arena);
+        // One output for the operation, which its arms take in turn; each clears it before the
+        // run it checks, so that an arm is never credited with the previous arm's bytes.
+        MemorySegment out = outputFor(op, n, arena);
         for (Arm arm : ofOp) {
           MemorySegment in = d.input(op.input);
-          MemorySegment out = outputFor(op, n, arena);
           long[] words = new long[n / 64];
+          out.fill((byte) 0);
           arm.loop().apply(in, d.y(), out, words, n);
           requireAgrees(arm, e, out, words, n, "before it is timed");
           var settled = new AtomicBoolean();
           benchmark.addTimerCase(arm.label(), timer -> {
             if (settled.compareAndSet(false, true)) {
+              out.fill((byte) 0);
+              Arrays.fill(words, 0L);
               driveToCompiledCode(arm, in, d.y(), out, words, n, reps);
               // The output the compiled code wrote, not the first call's: the check before the
               // timing ran the loop in the interpreter, where the Vector API is its Java code.

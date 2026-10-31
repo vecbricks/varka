@@ -18,6 +18,7 @@
 package org.apache.spark.sql;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.lang.foreign.Arena;
@@ -88,6 +89,8 @@ public final class VarkaDecimalPairSpikeSuite {
         BigInteger y = d.ys()[i];
         assertTrue(x.abs().compareTo(bound) < 0, "x out of precision at row " + i);
         assertEquals(x, VarkaDecimalPairSpikeBenchmark.slot(d.x(), i));
+        assertTrue(y.abs().compareTo(bound) < 0, "y out of precision at row " + i);
+        assertEquals(y, VarkaDecimalPairSpikeBenchmark.slot(d.y(), i));
         wild += d.wilds()[i].abs().compareTo(bound) >= 0 ? 1 : 0;
         lt += x.compareTo(y) < 0 ? 1 : 0;
         equal += x.equals(y) ? 1 : 0;
@@ -104,5 +107,22 @@ public final class VarkaDecimalPairSpikeSuite {
       assertTrue(lowZeroNegative > 0, "no negative value with a zero low word");
       assertTrue(ties > n / 97, ties + " HALF_UP ties");
     }
+  }
+
+  @Test
+  @DisplayName("the harness accepts only a dontinline command that names this class's loops")
+  void harnessNamesTheLoops() {
+    String name = VarkaDecimalPairSpikeBenchmark.class.getName();
+    String slashed = name.replace('.', '/');
+    assertTrue(VarkaDecimalPairSpikeBenchmark.keepsTheLoopsOutOfLine(
+        VarkaDecimalPairSpikeBenchmark.DONTINLINE_LOOPS));
+    assertTrue(VarkaDecimalPairSpikeBenchmark.keepsTheLoopsOutOfLine(
+        "-XX:CompileCommand=dontinline," + slashed + ".loop*"));
+    assertFalse(VarkaDecimalPairSpikeBenchmark.keepsTheLoopsOutOfLine(
+        "-XX:CompileCommand=dontinline,java.lang.String::indexOf"));
+    assertFalse(VarkaDecimalPairSpikeBenchmark.keepsTheLoopsOutOfLine(
+        "-XX:CompileCommand=dontinline," + name + "::loopCheckP"));
+    assertFalse(VarkaDecimalPairSpikeBenchmark.keepsTheLoopsOutOfLine(
+        "-XX:CompileCommand=print," + name + "::loop*"));
   }
 }
