@@ -73,7 +73,8 @@ import org.apache.spark.sql.types.YearMonthIntervalType;
  * answers. Each such row runs over the edges fixture, which straddles every guard's bound, cut
  * as TLP cuts a table - the rows inside the domain, outside it and where it is unknown, each
  * partition a fixture of its own - as a projection and as a filter. Inside and under IS NULL
- * the kernel serves every batch and declines nothing; outside, every batch declines; and each
+ * the kernel serves every batch and declines nothing; outside, every batch declines but one the
+ * kernel's all-null shortcut answers before any guard runs, every output null; and each
  * batch's status is the one {@code VarkaGuardSpecs}' verdict on its rows calls for, exact under
  * {@code exactRefusalStatus}. The answers are the harness's: Spark's on every batch a kernel
  * answers.
@@ -185,7 +186,9 @@ public final class VarkaDomains {
         "dt", "INTERVAL '106751991 04:00:54.775807' DAY TO SECOND"));
     rows.add(row("dt", "INTERVAL '-106751991 04:00:54.775808' DAY TO SECOND"));
     // Each guard on one operand alone beside a null in the other: the guard declines the batch
-    // though the row's value is null.
+    // though the row's value is null, wherever the batch holds a valid value in that column. A
+    // batch null on every row there, as each is at one row a batch, takes the all-null shortcut,
+    // which answers before any guard runs.
     rows.add(row("d", "NULL", "dt", "INTERVAL '-106751991 04:00:54.775808' DAY TO SECOND"));
     rows.add(row("d2", "NULL", "d", day(lastNtzDay + 1)));
     var months = new ArrayList<>(around(minMonths, maxMonths));
@@ -392,7 +395,9 @@ public final class VarkaDomains {
         if (kernel.isEmpty()) {
           continue;
         }
-        List<Verdict> verdicts = verdicts(kernel.get(), options, fixture, outcome.batches);
+        var shortcut = new ArrayList<Boolean>();
+        List<Verdict> verdicts =
+            verdicts(kernel.get(), options, fixture, outcome.batches, shortcut);
         mayBatches += (int) verdicts.stream().filter(v -> v.may() != 0).count();
         boolean anyMust = verdicts.stream().anyMatch(v -> v.must() != 0);
         // The domain itself is what is held here: no batch inside it or under IS NULL may be one
@@ -402,7 +407,13 @@ public final class VarkaDomains {
           findings.add(where + ": the domain admits batches the verdict condemns: "
               + render(verdicts));
         }
-        if (partition.equals("outside") && !verdicts.stream().allMatch(v -> v.must() != 0)) {
+        // Outside, a batch the all-null shortcut answers is the one exception: its guards never
+        // run, and every output is null, as Spark's is.
+        boolean allCondemned = true;
+        for (int b = 0; b < verdicts.size(); b++) {
+          allCondemned &= verdicts.get(b).must() != 0 || shortcut.get(b);
+        }
+        if (partition.equals("outside") && !allCondemned) {
           findings.add(where + ": the domain excludes batches the verdict answers: "
               + render(verdicts));
         }
@@ -498,11 +509,14 @@ public final class VarkaDomains {
    * {@code kernel}: the rows read as the kernel reads them - epoch days, month counts,
    * nanoseconds, a floating value's raw bits - and the evaluator's per-batch input bound applied
    * first, as the runner applies it: a live lane outside it declines the batch with
-   * {@code STATUS_INPUT_BOUND} and the kernel's guards never run.
+   * {@code STATUS_INPUT_BOUND} and the kernel's guards never run. Then the kernel's all-null
+   * shortcut ({@link VarkaGuardSpecs#allNullShortcut}): a batch in which every output reads a
+   * column null on every row is answered before any guard runs, which {@code shortcut} records
+   * per batch.
    */
   private static List<Verdict> verdicts(CompiledVarkaProjection kernel,
       VarkaEmitOptions options, VarkaHarnessPlans.Fixture fixture,
-      List<VarkaExpressionHarness.Batch> batches) {
+      List<VarkaExpressionHarness.Batch> batches, List<Boolean> shortcut) {
     // The long harness at every 64-bit lane, DOUBLE's bits included.
     boolean isLong = kernel.lane(options).bits() == Long.SIZE;
     var guards = new VarkaGuardSpecs.Guards(kernel.outputs(), kernel.inputOrdinals().size(),
@@ -536,7 +550,11 @@ public final class VarkaDomains {
           outside |= !isNull[r][b.inputIndex()] && (v < b.lo() || v > b.hi());
         }
       }
+      boolean answered = !outside && VarkaGuardSpecs.allNullShortcut(kernel.outputs(),
+          ordinals.size(), kernel.numLiterals(), options, isNull);
+      shortcut.add(answered);
       out.add(outside ? new Verdict(VarkaKernelRunner.STATUS_INPUT_BOUND, 0)
+          : answered ? Verdict.ANSWER
           : VarkaGuardSpecs.verdict(guards, lits, intLits, values, isNull, List.of()));
     }
     return out;

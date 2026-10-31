@@ -523,6 +523,18 @@ final class VarkaBodyEmitter {
   }
 
   /**
+   * The column sets the masked driver's all-null shortcut reads, one per output in order (bit
+   * {@code i} for input {@code i}), or null where it emits no shortcut ({@link #shortcutApplies}):
+   * for the verdict that models the batches the shortcut answers before any guard runs.
+   */
+  static long[] shortcutColumnSets(List<VarkaVectorIR> outputs, Analysis analysis) {
+    if (!shortcutApplies(false, outputs, analysis)) {
+      return null;
+    }
+    return outputs.stream().mapToLong(analysis.columns::get).toArray();
+  }
+
+  /**
    * The species, the lane count and the loop bound. The species is read with getstatic so it
    * stays a JIT constant - what lets C2 intrinsify the calls - and it is the concrete one this
    * emission was built for where the width-specialised validity helpers are in use, so the class

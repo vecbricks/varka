@@ -514,13 +514,18 @@ class VarkaSparkFuzzSuite extends VarkaSparkDifferential {
    * every output forced in turn, and the kind of the change; shared by the two tests below. The
    * compositions are the coverage rows' alone (`drawRows`): a nested tree meets the planted
    * rollback's branch without a force (VARKA-298.md 9), and these tests are about the force.
+   * A composition that disagrees without the planted rollback too is not the plant's change but
+   * the configuration's - with `checkIntOverflow` off a drawn overflow wraps where the row engine
+   * raises - so it is passed over: only the planted bug's own failure is counted.
    */
-  private lazy val plantedFirst: Option[(Int, String)] = withPlantedRollback() {
-    (0 until 300).iterator.map { it =>
-      val c = rectify(drawRows(rows, plantedSeed, it))
-      (it, kindOf(c, partitions = false, c.outputs.indices))
-    }.collectFirst { case (it, Some(kind)) => (it, kind) }
-  }
+  private lazy val plantedFirst: Option[(Int, String)] =
+    (0 until 300).iterator.flatMap { it =>
+      val (c, planted) = withPlantedRollback() {
+        val c = rectify(drawRows(rows, plantedSeed, it))
+        (c, kindOf(c, partitions = false, c.outputs.indices))
+      }
+      planted.filter(_ => kindOf(c, partitions = false, c.outputs.indices).isEmpty).map((it, _))
+    }.nextOption()
 
   test("a forced output finds a rollback that truncates one input too far") {
     // The unforced comparison meets the planted rollback's branch too rarely to see it

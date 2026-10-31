@@ -219,6 +219,19 @@ public final class VarkaLoopEmitter {
   }
 
   /**
+   * The all-null shortcut's column sets for {@code outputs}, one per output, or null where the
+   * masked driver emits none ({@link VarkaBodyEmitter#shortcutColumnSets}): a batch in which
+   * every output reads a column that is null on every row returns before any guard runs, which
+   * the verdict beside {@link #guardsForTest} has to know.
+   */
+  static long[] shortcutColumnsForTest(List<VarkaVectorIR> outputs, int numInputs,
+      int numLiterals, VarkaEmitOptions options) {
+    outputs = List.copyOf(outputs);
+    return VarkaBodyEmitter.shortcutColumnSets(outputs,
+        analyze(outputs, numInputs, numLiterals, options));
+  }
+
+  /**
    * The plan's reading of the drivers under {@code planSize}: the two drivers built by
    * themselves over the first grouping of {@code outputs} and measured ({@link #driverAlone}),
    * for the suite that holds them to the drivers of the built class, byte for byte.

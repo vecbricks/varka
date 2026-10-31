@@ -309,6 +309,20 @@ suites, as for every landed form.
    (the two families' `covers` text), `width_audit.json`, `emitted_bytes.json` (new shapes only),
    `census.tsv`'s fused column.
 10. **The PR build and the dispatched option matrix** over the new and changed suites.
+   *31 October 2026 (step 2's matrix, run 41239405318):* three failures, none a wrong answer.
+   Under `arrowBatchSize=1` the two rows of item 3's note above, a null `ntz2` beside a day past
+   the cast's and a null `ntz` beside the least interval, are each a batch of their own, null on
+   every row in the null column, so the masked driver's all-null shortcut returns before the
+   guard runs and every output is null, Spark's answer; the verdict, per row, still said decline.
+   At the defaults the same rows decline because their batch holds valid values in that column.
+   `VarkaDomains` now models the shortcut (`VarkaGuardSpecs.allNullShortcut`, from the emitter's
+   own column sets): such a batch must answer, outside the domain too. Under
+   `checkIntOverflow=false` the five coverage rows and the grammar's NTZ forms move every draw of
+   the Spark fuzzer's seeds: composition 177 wraps `try_subtract(i, 1)` at `Int.MinValue`, by
+   design, so its skip line is back (VARKA-507 removed it as stale when a shift drew no overflow;
+   it comes and goes with the draw), and the planted-rollback search took composition 17, whose
+   overflow the configuration already breaks unplanted, so it now counts only a composition that
+   agrees without the plant.
 
 ## 4. Predictions and costs
 

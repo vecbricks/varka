@@ -182,6 +182,37 @@ public final class VarkaGuardSpecs {
   }
 
   /**
+   * Whether the masked driver's all-null shortcut answers a batch of the kernel of {@code roots}
+   * whose nulls are {@code isNull[r][c]}: the driver returns before any guard runs, with every
+   * output null, when each output reads at least one column that is null on every row of the
+   * batch ({@code VarkaBodyEmitter.shortcutApplies} says which kernels emit it). The verdict
+   * above is per row and joins its rows', so it cannot see this: a guard on one operand beside a
+   * null in the other must decline a batch where that column also holds a valid row, and is
+   * never reached where every row of the batch is null there, as at one row a batch.
+   */
+  public static boolean allNullShortcut(List<VarkaVectorIR> roots, int numInputs,
+      int numLiterals, VarkaEmitOptions options, boolean[][] isNull) {
+    long[] sets = VarkaLoopEmitter.shortcutColumnsForTest(roots, numInputs, numLiterals, options);
+    if (sets == null || isNull.length == 0) {
+      return false;
+    }
+    long allNull = 0L;
+    for (int c = 0; c < numInputs; c++) {
+      boolean every = true;
+      for (boolean[] row : isNull) {
+        every &= row[c];
+      }
+      allNull |= every ? 1L << c : 0L;
+    }
+    for (long set : sets) {
+      if ((set & allNull) == 0L) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /**
    * The reference evaluator's values and conditions on one row, at one lane: the row at 64 bits,
    * and at 32 for the int lane's reference. At the long lane both tables are read, a kernel of
    * both lanes indexing each lane's own, and a node of either lane is answered
