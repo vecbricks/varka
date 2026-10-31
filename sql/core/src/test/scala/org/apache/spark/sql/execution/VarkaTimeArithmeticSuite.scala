@@ -218,10 +218,12 @@ class VarkaTimeArithmeticSuite extends QueryTest with VarkaMaybeThrows with Vark
     }
   }
 
-  test("a session resolving its level from this JVM plans what the JVM's features say") {
-    // VARKA-538 test 3.6, nothing planted: the real export, the reflective read and of(conf)
-    // on whatever CPU runs the suite - the magic form on an AVX2 runner, the conversion form
-    // on an AVX-512 one - and the answers are the row engine's either way.
+  test("a session at the default level plans what the JVM's features say") {
+    // VARKA-538 test 3.6, nothing planted: the conf's own default, the real export, the
+    // reflective read and of(conf) on whatever CPU runs the suite - the magic form on an AVX2
+    // runner, the conversion form on an AVX-512 one - and the answers are the row engine's
+    // either way. The suite's session pins -1, so the default is set back for the test.
+    assert(SQLConf.VARKA_EMIT_USE_AVX.defaultValue.contains(VarkaSessionEmit.USE_AVX_FROM_HOST))
     resolvingFromHost {
       val plan = varkaSpark.sql(s"SELECT hour(t) AS v FROM $day").queryExecution.executedPlan
       val emits = plannedEmit(plan)

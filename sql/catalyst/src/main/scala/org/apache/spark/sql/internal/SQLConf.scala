@@ -3128,7 +3128,7 @@ object SQLConf {
     .checkValue(_ >= -2,
       "the level is -2 to resolve it from the host, -1 for the emitter's default or a" +
         " -XX:UseAVX value")
-    .createWithDefault(-1)
+    .createWithDefault(-2)
 
   val VARKA_EMIT_EXACT_REFUSAL_STATUS =
     buildConf("spark.sql.codegen.varka.emit.exactRefusalStatus")
