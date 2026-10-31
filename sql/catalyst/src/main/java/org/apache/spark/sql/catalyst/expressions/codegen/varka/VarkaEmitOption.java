@@ -179,10 +179,10 @@ public sealed interface VarkaEmitOption
   }
 
   /**
-   * Whether the fuzzer's general draws, its steering and the option matrix vary {@code option}:
-   * its reason is drawn ({@link Reason#drawn()}) and it is not read by one node kind alone
-   * ({@link #readOnlyBy}). A static method rather than a default one, so that initializing a
-   * record never initializes the interface first (Error Prone's
+   * Whether the fuzzer's general draws and the option matrix vary {@code option}, and the
+   * steering for any case: its reason is drawn ({@link Reason#drawn()}) and it is not read by one
+   * node kind alone ({@link #readOnlyBy}). A static method rather than a default one, so that
+   * initializing a record never initializes the interface first (Error Prone's
    * {@code ClassInitializationDeadlock}).
    */
   static boolean drawnInGeneral(VarkaEmitOption option) {
