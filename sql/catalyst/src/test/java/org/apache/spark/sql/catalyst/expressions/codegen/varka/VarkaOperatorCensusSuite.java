@@ -29,6 +29,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -42,6 +43,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -315,9 +317,9 @@ public final class VarkaOperatorCensusSuite {
     command.addAll(flags);
     command.add("-XX:+PrintFlagsFinal");
     command.add("-version");
-    var output = run(command);
+    List<String> output = run(command);
     for (String line : output) {
-      var m = Pattern.compile("\\s*\\S+\\s+MaxVectorSize\\s+=\\s+(\\d+)").matcher(line);
+      Matcher m = Pattern.compile("\\s*\\S+\\s+MaxVectorSize\\s+=\\s+(\\d+)").matcher(line);
       if (m.find()) {
         return Integer.parseInt(m.group(1));
       }
@@ -499,7 +501,22 @@ public final class VarkaOperatorCensusSuite {
    */
   record HostFact(boolean fallsBack, int useAVX, String features) { }
 
-  static HostFact hostFact(String... flags) throws IOException, InterruptedException {
+  /** The host facts forked so far, per flag set: one JVM start each, however often asked. */
+  private static final Map<List<String>, HostFact> HOST_FACTS = new HashMap<>();
+
+  /** The host fact of a JVM under {@code flags}, forked on the first ask for that flag set. */
+  static synchronized HostFact hostFact(String... flags)
+      throws IOException, InterruptedException {
+    List<String> key = List.of(flags);
+    HostFact known = HOST_FACTS.get(key);
+    if (known == null) {
+      known = forkHostFact(flags);
+      HOST_FACTS.put(key, known);
+    }
+    return known;
+  }
+
+  private static HostFact forkHostFact(String... flags) throws IOException, InterruptedException {
     var command = new ArrayList<String>();
     command.add(javaBin());
     command.add("--add-modules");
@@ -534,26 +551,24 @@ public final class VarkaOperatorCensusSuite {
 
   /**
    * Holds the host fact of a JVM under {@code flags} to the conversion cells measured under the
-   * same flags, at every width it runs: a fallback answer exactly where a cell reads F.
+   * same flags, at every width it runs: a fallback answer exactly where a cell reads F. At the
+   * host's own flags the census has measured the cells already, so only another flag set forks.
    */
   private static void holdHostFactToCells(String... flags) throws Exception {
-    var fact = hostFact(flags);
-    var widths = new TreeSet<Integer>();
-    for (int requested : WIDTHS_BYTES) {
-      var withSize = new ArrayList<>(List.of(flags));
-      withSize.add("-XX:MaxVectorSize=" + requested);
-      widths.add(effectiveBytes(withSize));
-    }
+    HostFact fact = hostFact(flags);
+    Map<Integer, Map<String, Reading>> byWidth =
+        flags.length == 0 ? census().byWidth : conversionCells(flags);
     var disagree = new ArrayList<String>();
-    for (int bytes : widths) {
+    for (Map.Entry<Integer, Map<String, Reading>> width : byWidth.entrySet()) {
       for (String cell : DQ_CELLS) {
-        var reading = fork(cell, bytes, flags);
+        Reading reading = width.getValue().get(cell);
+        assertTrue(reading != null, cell + " is not a census cell");
         if (reading.skipped() != null) {
           continue;
         }
         boolean fellBack = reading.verdict() == Verdict.FALLBACK;
         if (fellBack != fact.fallsBack()) {
-          disagree.add(bytes * 8 + " bits: " + cell + " reads " + reading.verdict().label
+          disagree.add(width.getKey() + " bits: " + cell + " reads " + reading.verdict().label
               + " (" + reading.failed() + ")");
         }
       }
@@ -561,6 +576,26 @@ public final class VarkaOperatorCensusSuite {
     assertTrue(disagree.isEmpty(), "under " + List.of(flags) + " (UseAVX " + fact.useAVX()
         + ") VarkaHostIsa answers fallsBack=" + fact.fallsBack() + " from [" + fact.features()
         + "], and the census disagrees:\n  " + String.join("\n  ", disagree));
+  }
+
+  /** The conversion cells forked under {@code flags}, per width in bits as the census keys it. */
+  private static Map<Integer, Map<String, Reading>> conversionCells(String... flags)
+      throws IOException, InterruptedException {
+    var widths = new TreeSet<Integer>();
+    for (int requested : WIDTHS_BYTES) {
+      List<String> withSize = new ArrayList<>(List.of(flags));
+      withSize.add("-XX:MaxVectorSize=" + requested);
+      widths.add(effectiveBytes(withSize));
+    }
+    var byWidth = new TreeMap<Integer, Map<String, Reading>>();
+    for (int bytes : widths) {
+      var readings = new LinkedHashMap<String, Reading>();
+      for (String cell : DQ_CELLS) {
+        readings.put(cell, fork(cell, bytes, flags));
+      }
+      byWidth.put(bytes * 8, readings);
+    }
+    return byWidth;
   }
 
   @Test
@@ -574,8 +609,7 @@ public final class VarkaOperatorCensusSuite {
   void hostFactUnderAvx2() throws Exception {
     // HotSpot clears every AVX-512 feature below level 3, so on an AVX-512 host this is the
     // fallback answer measured against real cells; on an AVX2 host it repeats the host's flags.
-    assumeTrue(System.getProperty("os.arch", "").matches("amd64|x86_64"),
-        "UseAVX is an x86 flag");
+    assumeTrue(VarkaHostIsa.isX86(System.getProperty("os.arch", "")), "UseAVX is an x86 flag");
     holdHostFactToCells("-XX:UseAVX=2");
   }
 
@@ -628,7 +662,7 @@ public final class VarkaOperatorCensusSuite {
     host.put("jdk", System.getProperty("java.runtime.version"));
     // Why the conversion cells read as they do: the level and HotSpot's feature list, which
     // VarkaHostIsa reads in the fork (VARKA-538).
-    var fact = hostFact();
+    HostFact fact = hostFact();
     host.put("use_avx", fact.useAVX());
     host.put("features", fact.features());
     var doc = ordered();
@@ -650,9 +684,8 @@ public final class VarkaOperatorCensusSuite {
   @DisplayName("sql/varka/operator_census.json is this host's census, per width")
   void censusFileIsThisHosts() throws Exception {
     var path = file();
-    String rendered = render();
     if ("true".equals(System.getenv("VARKA_CENSUS_REGEN"))) {
-      Files.writeString(path, rendered);
+      Files.writeString(path, render());
       return;
     }
     assertTrue(Files.exists(path), path + " is missing; generate it with\n"
@@ -662,7 +695,8 @@ public final class VarkaOperatorCensusSuite {
     assumeTrue(committed.get("host").get("cpu").asText().equals(cpuModel()),
         "the committed census is " + committed.get("host").get("cpu").asText() + "'s and this is "
             + cpuModel() + "; a census is compared only where it was taken");
-    var now = mapper.readTree(rendered);
+    // Rendered only past the skip: it forks the host fact, which a skipped comparison never reads.
+    JsonNode now = mapper.readTree(render());
     var moved = new ArrayList<String>();
     now.get("widths").fieldNames().forEachRemaining(bits -> {
       now.get("widths").get(bits).fieldNames().forEachRemaining(cell -> {
