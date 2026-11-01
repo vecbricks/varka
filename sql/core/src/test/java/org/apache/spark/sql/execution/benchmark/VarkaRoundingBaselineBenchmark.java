@@ -35,8 +35,9 @@ import org.apache.spark.sql.internal.SQLConf;
  * Spark plans as {@code FLOOR(CAST(i AS DOUBLE))}; {@code round(i, -2)} and {@code bround(i, -2)};
  * {@code truncate(l, -3)}; {@code round(l, -3)} under ANSI; {@code factorial(k)} over values in
  * {@code [-2, 22]}, null outside {@code [0, 20]}; and {@code width_bucket(x, -2.0E8, 2.0E8, 10)}
- * with literal bounds; and {@code rint(xw)}, {@code floor(xw)} and {@code ceil(xw)} under LEGACY
- * over a wide double column; each with no nulls and with one row in ten null.
+ * with literal bounds; {@code floor(xw)} and {@code ceil(xw)} under LEGACY over a wide double
+ * column; and {@code floor(xwf)} and {@code ceil(xwf)} under ANSI over a finite wide one; each
+ * with no nulls and with one row in ten null.
  *
  * <p>A section whose generated code depends on {@code spark.sql.ansi.enabled} pins the mode and
  * names it in its title, since Spark compiles a different expression per mode even where both
@@ -52,16 +53,19 @@ import org.apache.spark.sql.internal.SQLConf;
  * and {@code l} stays far from the long's edge. {@code rint}, {@code factorial} and
  * {@code width_bucket} compile the same code in both modes and run in the session's default one.
  *
- * <p>The sections over {@code xw} time the rounding on wide data: infinities, NaN and values past
- * {@code 2^51} at every batch, where row 344b's bounded AVX2 arm declines, so that the arm's
- * fallback is measured before 344b picks its default (added by the owner's word, 1 November
- * 2026). They run under LEGACY only, since ANSI's {@code floor} and {@code ceil} raise on an
- * infinity and would end the run; {@code rint(xw)} compiles alike in both modes and is pinned to
- * LEGACY with the other two, so the three read as one group. Under LEGACY Spark compiles
- * {@code floor} and {@code ceil} as {@code (long) java.lang.Math.floor(c)}, the Java narrowing
+ * <p>The sections over {@code xw} and {@code xwf} time {@code floor} and {@code ceil} on wide
+ * data: values past {@code 2^51} at every batch, where row 344b's bounded AVX2 arm declines, so
+ * that the arm's fallback is measured in both modes before 344b picks its default (added by the
+ * owner's word, 1 November 2026). {@code rint} has no bounded arm, so it is timed over {@code x}
+ * only. The sections over {@code xw} run under LEGACY only, since ANSI's {@code floor} and
+ * {@code ceil} raise on an infinity or a value past the long range and would end the run. Under
+ * LEGACY Spark compiles them as {@code (long) java.lang.Math.floor(c)}, the Java narrowing
  * conversion, so NaN answers 0, {@code +Infinity} and every value from {@code 2^63} up answer
  * {@code Long.MAX_VALUE}, and {@code -Infinity} and every value below {@code -2^63} answer
- * {@code Long.MIN_VALUE}; {@code rint} answers NaN and the infinities unchanged.
+ * {@code Long.MIN_VALUE}. The sections over {@code xwf} run under ANSI, Spark 4's default and the
+ * mode of row 344's prediction 3, over values that are all inside the long range or NaN, so none
+ * raises: {@code MathUtils.doubleToLong} raises only on a value that is not NaN and lies below
+ * {@code -2^63} or from {@code 2^63} up, and lets NaN through to {@code (long) NaN}, which is 0.
  *
  * <p>Each section has two arms, named so the labels survive the row landing:
  * {@code spark row path (varka off)}, a session without the Varka rule, and {@code varka on}, a
@@ -124,10 +128,10 @@ public class VarkaRoundingBaselineBenchmark extends VarkaSqlBenchmarkBase {
       String resultType, boolean nullInputs, NullRule nulls) {}
 
   /**
-   * The table: {@code x} a {@code DOUBLE}, {@code i} and {@code k} {@code INT}s and {@code l} a
-   * {@code BIGINT} and {@code xw} a {@code DOUBLE} with wide values, with no null, and
-   * {@code x_n} to {@code xw_n} the same values with one row in ten null, at a different row in
-   * each column. Each column is a hash of the row's id, so any
+   * The table: {@code x} a {@code DOUBLE}, {@code i} and {@code k} {@code INT}s, {@code l} a
+   * {@code BIGINT}, and {@code xw} and {@code xwf} {@code DOUBLE}s with wide values, with no null,
+   * and {@code x_n} to {@code xwf_n} the same values with one row in ten null, at a different row
+   * in each column. Each column is a hash of the row's id, so any
    * few thousand rows reach every region below, as the queries suite checks.
    *
    * <ul>
@@ -170,6 +174,16 @@ public class VarkaRoundingBaselineBenchmark extends VarkaSqlBenchmarkBase {
    *       smaller share would not change that, since one wide row declines a batch, until it
    *       were so sparse as to leave most batches whole and the section a measure of the share
    *       chosen.</li>
+   *   <li>{@code xwf} is {@code xw} without the values ANSI raises on: one row in eight is
+   *       {@code 0.0} and another {@code -0.0}; one row in two is ordinary,
+   *       {@code hash(id, 5) / 7.0}; one row in four is wide, {@code hash(id, 5) / 7.0} scaled by
+   *       {@code 2^(24 + id % 11)} as {@code xw}'s first wide rows are, within {@code +-2^62.2}
+   *       (a hash is below {@code 2^31} in magnitude, over 7, times at most {@code 2^34}), which
+   *       leaves a factor of about 1.7 to {@code 2^63}, mostly past {@code 2^51} and many past
+   *       {@code 2^52}; and one row in a thousand is NaN, none among {@code xwf_n}'s nulls. It
+   *       holds no infinity and nothing past the long range. Its wide share is {@code xw}'s, at
+   *       the same ids, so every 4096-row batch holds about a thousand wide rows and declines under
+   *       344b's bounded arm, for the reason {@code xw}'s does, without the saturating values.</li>
    * </ul>
    */
   static String tableSql(int rows) {
@@ -182,12 +196,13 @@ public class VarkaRoundingBaselineBenchmark extends VarkaSqlBenchmarkBase {
    */
   static String tableSql(String ids) {
     return """
-        select x, i, l, k, xw,
+        select x, i, l, k, xw, xwf,
                case when id %% 10 = 5 then null else x end as x_n,
                case when id %% 10 = 3 then null else i end as i_n,
                case when id %% 10 = 1 then null else l end as l_n,
                case when id %% 10 = 7 then null else k end as k_n,
-               case when id %% 10 = 9 then null else xw end as xw_n
+               case when id %% 10 = 9 then null else xw end as xw_n,
+               case when id %% 10 = 6 then null else xwf end as xwf_n
         from (select id,
                      case when id %% 1000 = 11 then double('NaN')
                           when id %% 8 = 0 then 0.0d
@@ -205,16 +220,26 @@ public class VarkaRoundingBaselineBenchmark extends VarkaSqlBenchmarkBase {
                           when id %% 8 = 3 then hash(id, 5) / 7.0d * power(2.0d, 24 + id %% 11)
                           when id %% 8 = 7 then hash(id, 5) / 7.0d
                                * power(2.0d, 36 + pmod(hash(id, 6), 960))
-                          else hash(id, 5) / 7.0d end as xw
+                          else hash(id, 5) / 7.0d end as xw,
+                     case when id %% 1000 = 11 then double('NaN')
+                          when id %% 8 = 0 then 0.0d
+                          when id %% 8 = 4 then -0.0d
+                          when id %% 8 in (3, 7) then hash(id, 5) / 7.0d
+                               * power(2.0d, 24 + id %% 11)
+                          else hash(id, 5) / 7.0d end as xwf
               from %s)""".formatted(ids);
   }
 
-  /** A function whose code depends on the mode: its title, its expression, its result type. */
-  private record Moded(String title, String expr, String resultType) {}
+  /**
+   * A function over one column: its title, its expression, its result type. The list it is in
+   * sets the modes it is timed in.
+   */
+  private record Form(String title, String expr, String resultType) {}
 
   /**
    * Every section, in the order they run: each null density, then each function, a function
-   * timed in both modes LEGACY first.
+   * timed in both modes LEGACY first, then the wide columns, {@code xw} under LEGACY and
+   * {@code xwf} under ANSI.
    */
   static List<Section> sections() {
     List<Section> out = new ArrayList<>();
@@ -227,17 +252,18 @@ public class VarkaRoundingBaselineBenchmark extends VarkaSqlBenchmarkBase {
       String l = "l" + nulls;
       String k = "k" + nulls;
       String xw = "xw" + nulls;
+      String xwf = "xwf" + nulls;
       String density = ", " + (nullInputs ? "one row in ten null" : "no nulls");
       String from = " AS a FROM " + VIEW;
       out.add(new Section("DOUBLE rint(x)" + density, "SELECT rint(" + x + ")" + from,
           Map.of(), false, "DOUBLE", nullInputs, NullRule.INPUT));
-      for (Moded f : List.of(
-          new Moded("DOUBLE floor(x)", "floor(" + x + ")", "BIGINT"),
-          new Moded("DOUBLE ceil(x)", "ceil(" + x + ")", "BIGINT"),
-          new Moded("INT floor(i)", "floor(" + i + ")", "BIGINT"),
-          new Moded("INT round(i, -2)", "round(" + i + ", -2)", "INT"),
-          new Moded("INT bround(i, -2)", "bround(" + i + ", -2)", "INT"),
-          new Moded("BIGINT truncate(l, -3)", "truncate(" + l + ", -3)", "BIGINT"))) {
+      for (Form f : List.of(
+          new Form("DOUBLE floor(x)", "floor(" + x + ")", "BIGINT"),
+          new Form("DOUBLE ceil(x)", "ceil(" + x + ")", "BIGINT"),
+          new Form("INT floor(i)", "floor(" + i + ")", "BIGINT"),
+          new Form("INT round(i, -2)", "round(" + i + ", -2)", "INT"),
+          new Form("INT bround(i, -2)", "bround(" + i + ", -2)", "INT"),
+          new Form("BIGINT truncate(l, -3)", "truncate(" + l + ", -3)", "BIGINT"))) {
         for (String mode : new String[] {"LEGACY", "ANSI"}) {
           out.add(new Section(f.title() + ", " + mode + density, "SELECT " + f.expr() + from,
               mode.equals("ANSI") ? ansi : legacy, false, f.resultType(), nullInputs,
@@ -252,12 +278,17 @@ public class VarkaRoundingBaselineBenchmark extends VarkaSqlBenchmarkBase {
       out.add(new Section("DOUBLE width_bucket(x, lo, hi, 10)" + density,
           "SELECT width_bucket(" + x + ", " + BUCKET_BOUNDS + ")" + from,
           Map.of(), false, "BIGINT", nullInputs, NullRule.INPUT_OR_NAN));
-      for (Moded f : List.of(
-          new Moded("DOUBLE rint(xw)", "rint(" + xw + ")", "DOUBLE"),
-          new Moded("DOUBLE floor(xw)", "floor(" + xw + ")", "BIGINT"),
-          new Moded("DOUBLE ceil(xw)", "ceil(" + xw + ")", "BIGINT"))) {
+      for (Form f : List.of(
+          new Form("DOUBLE floor(xw)", "floor(" + xw + ")", "BIGINT"),
+          new Form("DOUBLE ceil(xw)", "ceil(" + xw + ")", "BIGINT"))) {
         out.add(new Section(f.title() + ", LEGACY" + density, "SELECT " + f.expr() + from,
             legacy, false, f.resultType(), nullInputs, NullRule.INPUT));
+      }
+      for (Form f : List.of(
+          new Form("DOUBLE floor(xwf)", "floor(" + xwf + ")", "BIGINT"),
+          new Form("DOUBLE ceil(xwf)", "ceil(" + xwf + ")", "BIGINT"))) {
+        out.add(new Section(f.title() + ", ANSI" + density, "SELECT " + f.expr() + from,
+            ansi, false, f.resultType(), nullInputs, NullRule.INPUT));
       }
     }
     return out;

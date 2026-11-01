@@ -40,10 +40,13 @@ import org.apache.spark.sql.internal.SQLConf
  * only spot-check); `i` over both halves of the int range; `l` past `2^52` and not past `2^54`; `k`
  * at both ends of `[-2, 22]`; `xw` with a fraction, at both zeros, NaN and both infinities, past
  * `2^51`, past `2^52` inside the long range and past `2^63`, with no finite value overflowed to an
- * infinity. Under LEGACY it also checks `floor` and `ceil` over `xw`'s NaN, infinities and values
- * past the long range on both sessions: Spark compiles them as `(long) Math.floor(c)` and
- * `(long) Math.ceil(c)`, so NaN answers 0 and the rest saturate at `Long.MaxValue` or
- * `Long.MinValue`, rather than null. A section over the columns with no null must answer no null,
+ * infinity; `xwf` with a fraction, at both zeros and NaN, past `2^51` and past `2^52`, with no
+ * infinity and every value inside `2^62.2`. Under LEGACY it also checks `floor` and `ceil` over
+ * `xw`'s NaN, infinities and values past the long range on both sessions: Spark compiles them as
+ * `(long) Math.floor(c)` and `(long) Math.ceil(c)`, so NaN answers 0 and the rest saturate at
+ * `Long.MaxValue` or `Long.MinValue`, rather than null. Under ANSI it checks that `floor` and
+ * `ceil` over every row of `xwf` and `xwf_n` raise nothing on either session and answer what
+ * LEGACY answers, NaN giving 0. A section over the columns with no null must answer no null,
  * except `factorial`, which must answer null exactly on the rows of `k` outside `[0, 20]`, and
  * `width_bucket`, null exactly on the NaN rows of `x`, so a value that left its type into a null
  * fails here rather than going into the timed run as a cheap null. A section over the columns with
@@ -157,8 +160,40 @@ class VarkaRoundingBaselineQueriesSuite extends QueryTest with VarkaSharedSessio
         }
       }
 
+      val f = spark.sql(
+        s"""select count_if(isnan(xwf)), count_if(abs(xwf) = $inf),
+           |       count_if(cast(xwf as string) = '0.0'), count_if(cast(xwf as string) = '-0.0'),
+           |       count_if(not isnan(xwf) and xwf % 1 <> 0),
+           |       count_if(abs(xwf) > power(2, 51) and abs(xwf) <= power(2, 52)),
+           |       count_if(abs(xwf) > power(2, 52)),
+           |       max(if(isnan(xwf), 0, abs(xwf))) <= power(2, 62.2),
+           |       count_if(xwf_n is null), count_if(isnan(xwf_n))
+           |from $view""".stripMargin).head()
+      assert(f.getLong(0) === rows / 1000 && f.getLong(1) === 0)
+      assert(f.getLong(2) === rows / 8 && f.getLong(3) === rows / 8)
+      assert(f.getLong(4) > rows / 3)
+      assert(f.getLong(5) > 0 && f.getLong(6) > 0)
+      assert(f.getBoolean(7))
+      // The NaN rows of xwf keep their value in xwf_n.
+      assert(f.getLong(8) === rows / 10 && f.getLong(9) === rows / 1000)
+      // ANSI's floor and ceil over xwf raise nothing, answer 0 on NaN and agree with LEGACY,
+      // where no value of xwf saturates, on both sessions. Each answer is paired with its input,
+      // so the comparison is row by row.
+      val finite =
+        s"select xwf, floor(xwf), ceil(xwf), xwf_n, floor(xwf_n), ceil(xwf_n) from $view"
+      val legacyFinite = withBothConf(SQLConf.ANSI_ENABLED.key, "false") {
+        spark.sql(finite).collect().toSeq
+      }
+      withBothConf(SQLConf.ANSI_ENABLED.key, "true") {
+        val ansiFinite = spark.sql(finite)
+        checkAnswer(ansiFinite, legacyFinite)
+        checkAnswer(varkaSpark.sql(finite), legacyFinite)
+        assert(ansiFinite.toDF("v", "fl", "ce", "v_n", "fl_n", "ce_n")
+          .where("isnan(v) and fl = 0 and ce = 0").count() === rows / 1000)
+      }
+
       val sections = VarkaRoundingBaselineBenchmark.sections().asScala.toSeq
-      assert(sections.size === 38)
+      assert(sections.size === 40, sections.map(_.title).mkString("sections:\n", "\n", ""))
       assert(sections.map(_.title).distinct.size === sections.size)
       for (s <- sections) {
         withClue(s.title) {
