@@ -510,6 +510,20 @@ committed files:
 ## 5. Order, files and size
 
 1. **The baseline** (4), its own pull request.
+   *1 November 2026, as built:* `VarkaRoundingBaselineBenchmark` over `rint(x)`, `floor(x)` and
+   `ceil(x)` in LEGACY and ANSI, `floor(i)`, `round(i, -2)`, `bround(i, -2)`, `truncate(l, -3)`,
+   `round(l, -3)` in ANSI, `factorial(k)` over `[-2, 22]` and
+   `width_bucket(x, -2.0E8, 2.0E8, 10)`, each with no nulls and with one row in ten null, under
+   the shared fuse check (`VarkaSqlBenchmarkBase.requireBaseline`, lifted by
+   `-Dvarka.baseline.fuseCheck=false`), and `VarkaRoundingBaselineQueriesSuite` over the table's
+   first 2,000 rows. `x` holds ties, both zeros and NaN at one row in a thousand, and stays
+   inside `2^31 / 7` with no infinity: an infinity ends an ANSI `floor` run, and a share past
+   `2^51`, however small, would decline every batch of 344b's `MAGIC` arm and leave its
+   prediction 4.4 nothing to time. `l` spreads over the bit lengths up to 54, about one row in
+   forty past `2^52` and none past the `2^55` guard 2.5 plans for `k = 3`, nor near the long's
+   edge, where ANSI's `round` raises. No section is listed as fusing, and none plans a Varka node
+   (the class's dry run, 1 November 2026). The results files at both widths come from the EPYC
+   runners and are committed before it merges.
 2. **The census cells** (2.8), on the laptop and through the census workflow on both runners,
    the gather's cell among them, which sets `factorialForm`'s per-host default (2.6).
 3. **344a, after 341 only**: `RoundToIntegral` with `RINT`, its lowering, the reference, the
@@ -544,7 +558,7 @@ committed files:
 | `varka/VarkaEmitBudget.java`, `VarkaEmitCostRegister.java` | the rounding features |
 | `sql/varka/proofs/fp_round.smt2`, the long-lane proof file, `VarkaProofFiles.java` | 3.2, 3.6 |
 | tests | cells, twin, sweep, exhaustion, probe, coverage rows, fuzz grammar, reference |
-| benchmark | the baseline class, its results files at both widths |
+| benchmark | the baseline class, its results files at both widths from the EPYC runners |
 | generated | `coverage.json`, `docs/sql-varka.md`, `width_audit.json`, `emitted_bytes.json` |
 | generated | `operator_census.json`, `census.tsv` |
 
