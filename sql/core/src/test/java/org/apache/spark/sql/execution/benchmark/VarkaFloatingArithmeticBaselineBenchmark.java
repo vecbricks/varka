@@ -40,15 +40,18 @@ import org.apache.spark.sql.internal.SQLConf;
  *
  * <p>Each section has two arms, named so the labels survive the row landing:
  * {@code spark row path (varka off)}, a session without the Varka rule, and {@code varka on}, a
- * session with it. Today both are the row path, so they should tie.
+ * session with it. In the committed results, timed before row 342 fused anything, both are the
+ * row path and tie.
  *
  * <p>A baseline is only one while nothing fuses: before any section is timed, the run checks
  * each section's plan on the Varka session against the section's {@link Fusion} class, the
  * record of how much of it a row has fused, and fails when the plan's class differs
  * ({@link VarkaSqlBenchmarkBase#requireBaseline(SparkSession, String, String, Fusion)}); the
- * results file notes the class of each section that fuses. Every section is {@code NONE} today.
- * A row that fuses more of a section sets its new class, so that its fusion cannot turn a
- * baseline section into a fused one unnoticed.
+ * results file notes the class of each section that fuses. The sections over {@code DOUBLE}
+ * alone are {@code WHOLE}, since row 342's floating arithmetic fuses them (`VARKA-342.md` 5.1);
+ * the two interval forms are {@code NONE}, waiting for 343's conversions. A row that fuses more
+ * of a section sets its new class, so that its fusion cannot turn a baseline section into a
+ * fused one unnoticed.
  *
  * <p>To run this benchmark, on a GitHub runner (the results come back as an artifact):
  * <pre>
@@ -132,20 +135,20 @@ public class VarkaFloatingArithmeticBaselineBenchmark extends VarkaSqlBenchmarkB
       String density = ", " + (nulls.isEmpty() ? "no nulls" : "one row in ten null");
       String from = " AS a FROM " + VIEW;
       out.add(new Section("DOUBLE x / y, LEGACY" + density,
-          "SELECT " + x + " / " + y + from, legacy, Fusion.NONE));
+          "SELECT " + x + " / " + y + from, legacy, Fusion.WHOLE));
       out.add(new Section("DOUBLE x / y, ANSI" + density,
-          "SELECT " + x + " / " + y + from, ansi, Fusion.NONE));
+          "SELECT " + x + " / " + y + from, ansi, Fusion.WHOLE));
       out.add(new Section("DOUBLE x / 3.0D" + density,
-          "SELECT " + x + " / 3.0D" + from, Map.of(), Fusion.NONE));
+          "SELECT " + x + " / 3.0D" + from, Map.of(), Fusion.WHOLE));
       out.add(new Section("DOUBLE try_divide(x, y)" + density,
-          "SELECT try_divide(" + x + ", " + y + ")" + from, Map.of(), Fusion.NONE));
+          "SELECT try_divide(" + x + ", " + y + ")" + from, Map.of(), Fusion.WHOLE));
       out.add(new Section("DOUBLE sqrt(abs(x))" + density,
-          "SELECT sqrt(abs(" + x + "))" + from, Map.of(), Fusion.NONE));
-      out.add(new Section("DOUBLE -x" + density, "SELECT -" + x + from, Map.of(), Fusion.NONE));
+          "SELECT sqrt(abs(" + x + "))" + from, Map.of(), Fusion.WHOLE));
+      out.add(new Section("DOUBLE -x" + density, "SELECT -" + x + from, Map.of(), Fusion.WHOLE));
       out.add(new Section("DOUBLE signum(x)" + density,
-          "SELECT signum(" + x + ")" + from, Map.of(), Fusion.NONE));
+          "SELECT signum(" + x + ")" + from, Map.of(), Fusion.WHOLE));
       out.add(new Section("DOUBLE degrees(x)" + density,
-          "SELECT degrees(" + x + ")" + from, Map.of(), Fusion.NONE));
+          "SELECT degrees(" + x + ")" + from, Map.of(), Fusion.WHOLE));
       out.add(new Section("year-month interval ym * x" + density,
           "SELECT " + ym + " * " + x + from, Map.of(), Fusion.NONE));
       out.add(new Section("day-time interval dt / x" + density,

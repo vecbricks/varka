@@ -66,6 +66,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IsN
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LastDay;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Least;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LiteralSlot;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.MathUnary;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.MakeDate;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Month;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.NarrowLane;
@@ -332,6 +333,13 @@ final class Analysis {
      */
     INT_OVERFLOW(Family.CHECKED, false, VarkaFusedKernel.STATUS_INT_OVERFLOW),
     /**
+     * A FAIL-mode floating {@link IntArith} {@code DIV}: a live lane whose divisor is
+     * {@code 0.0} or {@code -0.0}, which Spark's ANSI division raises on. The node's own
+     * correctness, so never behind an option. The divisor is tested off the operand stack, so it
+     * parks nothing.
+     */
+    DIVIDE_BY_ZERO(Family.SELF, false, VarkaFusedKernel.STATUS_DIVIDE_BY_ZERO),
+    /**
      * {@link GuardedDay}: the day range, re-armed by the compiler. Unconditional, because the
      * compiler admits the expression on the strength of this check ({@code VARKA-93.md} 3.4).
      */
@@ -427,17 +435,30 @@ final class Analysis {
   }
 
   /**
-   * for each node, the chain of {@code IfElse} arms every one of its uses sits under, innermost
-   * last - or the empty list where its uses do not agree on one, which includes a use outside any
-   * arm and a use in a condition. A guard on a node with a non-empty chain condemns the batch
-   * only on the lanes that chain selects; a guard on a node with the empty chain condemns as it
-   * always has.
+   * for each node, the chains of {@code IfElse} arms its uses sit under, each innermost last - or
+   * the empty list where some use sits under no arm, which includes a use outside any arm and a
+   * use in a condition. A guard on a node with chains condemns the batch only on the lanes some
+   * chain selects, the OR of each chain's AND; a guard on a node with no chain condemns as it
+   * always has. A chain whose steps include another's selects a subset of its lanes and is not
+   * kept, and past {@link #MAX_ARM_CHAINS} chains the node is unqualified.
    *
    * <p>Empty rather than absent is the unqualified answer, and the two are different: absent
    * means the walk has not reached the node. {@link #collectArmContexts} fills it once every
-   * root is analyzed, and only {@link #armChainOf} reads it.
+   * root is analyzed, {@link #unqualifyArmCycles} empties a guard's entry where its conditions
+   * cannot be emitted before it, and only {@link #armChainsOf} reads it.
    */
-  final Map<VarkaVectorIR, List<ArmStep>> armChain = new HashMap<>();
+  final Map<VarkaVectorIR, List<List<ArmStep>>> armChains = new HashMap<>();
+
+  /**
+   * The most arm chains a guard is qualified by: each is a few mask operations more in the body
+   * a guard sits in, so a node used under more arms than this is guarded unqualified.
+   */
+  static final int MAX_ARM_CHAINS = 4;
+
+  /** {@link #condReach} of each condition asked for, kept once walked. */
+  private final Map<VarkaVectorIR, Set<VarkaVectorIR>> condReach = new HashMap<>();
+  /** {@link #condReachInOrder} of each condition asked for, kept once built. */
+  private final Map<VarkaVectorIR, List<VarkaVectorIR>> condReachInOrder = new HashMap<>();
 
   /**
    * per value node, which word its validity is - see {@link WordOwner}. Filled by
@@ -544,45 +565,176 @@ final class Analysis {
   }
 
   /**
-   * The context walk: assigns every node the arm chain its uses agree on, by the rule in
-   * {@code VARKA-79.md} 3.3 - narrow only where every use sits under one and the same
-   * innermost arm chain, and keep the unqualified guard for anything else.
+   * The context walk: assigns every node the arm chains its uses sit under, by the rule in
+   * {@code VARKA-79.md} 3.3 widened to several chains: a guard condemns only where some arm that
+   * uses its node is live, and stays unqualified where a use sits under no arm.
    *
    * <p>It is its own walk rather than a stack in {@link #analyze}, because that one memoises
    * on {@code analyzed} and returns on a repeated node without descending: a node used twice
-   * would have its subtree's context recorded from the first use only. Here a node whose
-   * recorded chain disagrees with the chain it is reached by is demoted to the empty list and
-   * the demotion is pushed down its subtree, so a shared subtree under two different arms
-   * ends unqualified all the way down. That terminates because a node's state only ever moves
-   * unvisited -&gt; a chain -&gt; empty, so each is rewritten at most twice.
+   * would have its subtree's context recorded from the first use only. Here a node reached by a
+   * chain it does not yet cover takes the chain and pushes it down its subtree; one reached with
+   * no chain, or past {@link #MAX_ARM_CHAINS}, is demoted to the empty list and the demotion is
+   * pushed down. That terminates because a node's covered lanes only grow, from unvisited through
+   * its chains to empty, and the chains are drawn from the finitely many arm paths of the DAG.
+   *
+   * <p>A two-output shape that shares a division under arms of different conditions, as in
+   * {@code IF(y = 0, 0, x / y)} beside {@code CASE WHEN y <> 0 THEN x / y ELSE x END}, keeps
+   * both arms: with the one chain the walk once kept, the node fell to the empty list and its
+   * guard condemned every live zero divisor, every batch of such data declining.
    *
    * <p>A condition's subtree is entered with the empty chain, never the enclosing one: an
    * {@code IfElse} computes its condition on every lane it is itself computed on, so a guard
    * inside a condition must stay unqualified. That is 3.2's rule and it falls out here rather
-   * than being checked at the guard.
+   * than being checked at the guard. A pass after the walk then unqualifies a node that sits
+   * inside the condition of an arm one of its chains runs through.
    */
   void collectArmContexts(List<VarkaVectorIR> outputs) {
     for (VarkaVectorIR root : outputs) {
       assignArmChain(root, List.of());
     }
+    // A node inside the condition of an arm it is qualified by is computed while that condition
+    // is, before the condition's word exists, so its guard cannot read it: such a node is
+    // unqualified. Only a node of two chains or more is one: a chain through arms nested in the
+    // condition, and one under the IfElse's own arm, since a use in a condition starts its own.
+    for (Map.Entry<VarkaVectorIR, List<List<ArmStep>>> e : armChains.entrySet()) {
+      VarkaVectorIR node = e.getKey();
+      boolean inOwnCondition = false;
+      for (List<ArmStep> chain : e.getValue()) {
+        for (ArmStep step : chain) {
+          inOwnCondition |= condReach(step.node().cond()).contains(node);
+        }
+      }
+      if (inOwnCondition) {
+        e.setValue(List.of());
+      }
+    }
+  }
+
+  /**
+   * Unqualifies the guards whose arm conditions cannot all be emitted before them. A guard of
+   * several chains reads, where its node is computed, the condition of every step of its chains,
+   * so the body emits those conditions ahead of its outputs ({@code
+   * VarkaBodyEmitter.emitArmConditionsFirst}); a condition computes every node inside it, so a
+   * guard of several chains inside one needs its own conditions emitted before it. Where guards
+   * need each other so in a cycle, no order emits each condition before the guards inside it: g's
+   * chain condition holds h and h's holds g, each sitting under an arm nested in the other's
+   * condition, which a DAG admits. The body once read a mask local never stored there, and the
+   * class failed to verify. Every guard on such a cycle is unqualified, as a guard inside its own
+   * chain's condition is ({@link #collectArmContexts}): it condemns wherever its node is
+   * computed, which declines more batches and never answers one wrongly.
+   *
+   * <p>Runs after {@link #collectRefusals}, since only a guard's chains are emitted first. A
+   * body's chains are a subset of these ({@link #armChainsIn}), so no body has a cycle once the
+   * kernel has none.
+   */
+  void unqualifyArmCycles() {
+    var guards = new ArrayList<VarkaVectorIR>();
+    for (VarkaVectorIR node : topoOrder) {
+      if (refusals.containsKey(node) && armChainsOf(node).size() > 1) {
+        guards.add(node);
+      }
+    }
+    if (guards.size() < 2) {
+      return;
+    }
+    // needs.get(g): the guards of several chains computed inside g's chain conditions.
+    Map<VarkaVectorIR, List<VarkaVectorIR>> needs = new HashMap<>();
+    for (VarkaVectorIR g : guards) {
+      Set<VarkaVectorIR> inside = new HashSet<>();
+      for (List<ArmStep> chain : armChainsOf(g)) {
+        for (ArmStep step : chain) {
+          inside.addAll(condReach(step.node().cond()));
+        }
+      }
+      var needed = new ArrayList<VarkaVectorIR>();
+      for (VarkaVectorIR h : guards) {
+        if (!h.equals(g) && inside.contains(h)) {
+          needed.add(h);
+        }
+      }
+      needs.put(g, needed);
+    }
+    // A guard is on a cycle where it needs itself through the others. Decided for every guard
+    // before any is unqualified, so the answer does not depend on the order they are visited in.
+    var onCycle = new ArrayList<VarkaVectorIR>();
+    for (VarkaVectorIR g : guards) {
+      Set<VarkaVectorIR> seen = new HashSet<>();
+      var pending = new ArrayList<>(needs.get(g));
+      while (!pending.isEmpty() && !seen.contains(g)) {
+        VarkaVectorIR h = pending.remove(pending.size() - 1);
+        if (seen.add(h)) {
+          pending.addAll(needs.get(h));
+        }
+      }
+      if (seen.contains(g)) {
+        onCycle.add(g);
+      }
+    }
+    for (VarkaVectorIR g : onCycle) {
+      armChains.put(g, List.of());
+    }
+  }
+
+  /**
+   * The nodes inside {@code cond}, {@code cond} included: what computing the condition computes.
+   * The same in every body, so walked once per condition.
+   */
+  Set<VarkaVectorIR> condReach(VarkaVectorIR cond) {
+    return condReach.computeIfAbsent(cond, c -> {
+      Set<VarkaVectorIR> under = new HashSet<>();
+      collectReached(c, under);
+      return under;
+    });
+  }
+
+  /** {@link #condReach} in {@link #topoOrder}'s order, children before parents. */
+  List<VarkaVectorIR> condReachInOrder(VarkaVectorIR cond) {
+    return condReachInOrder.computeIfAbsent(cond, c -> {
+      Set<VarkaVectorIR> under = condReach(c);
+      var ordered = new ArrayList<VarkaVectorIR>(under.size());
+      for (VarkaVectorIR node : topoOrder) {
+        if (under.contains(node)) {
+          ordered.add(node);
+        }
+      }
+      return List.copyOf(ordered);
+    });
   }
 
   private void assignArmChain(VarkaVectorIR node, List<ArmStep> chain) {
-    List<ArmStep> existing = armChain.get(node);
-    if (existing != null) {
-      if (existing.isEmpty() || existing.equals(chain)) {
-        return;
-      }
-      chain = List.of();
+    List<List<ArmStep>> existing = armChains.get(node);
+    if (existing != null && existing.isEmpty()) {
+      return;
     }
-    armChain.put(node, chain);
+    List<List<ArmStep>> next;
+    if (chain.isEmpty()) {
+      next = List.of();
+    } else if (existing == null) {
+      next = List.of(chain);
+    } else {
+      for (List<ArmStep> had : existing) {
+        if (chain.containsAll(had)) {
+          return;
+        }
+      }
+      var grown = new ArrayList<List<ArmStep>>();
+      for (List<ArmStep> had : existing) {
+        if (!had.containsAll(chain)) {
+          grown.add(had);
+        }
+      }
+      grown.add(chain);
+      next = grown.size() > MAX_ARM_CHAINS ? List.of() : List.copyOf(grown);
+    }
+    armChains.put(node, next);
+    List<ArmStep> pushed = next.isEmpty() ? List.of() : chain;
     if (node instanceof IfElse n) {
       assignArmChain(n.cond(), List.of());
-      assignArmChain(n.thenNode(), extend(chain, n, true));
-      assignArmChain(n.elseNode(), extend(chain, n, false));
+      assignArmChain(n.thenNode(), extend(pushed, n, true));
+      assignArmChain(n.elseNode(), extend(pushed, n, false));
     } else {
       for (VarkaVectorIR child : childrenOf(node)) {
-        assignArmChain(child, chain);
+        assignArmChain(child, pushed);
       }
     }
   }
@@ -597,9 +749,11 @@ final class Analysis {
   }
 
   /**
-   * The arm chain to qualify {@code node}'s guard by: empty where the guard stays
+   * The arm chains to qualify {@code node}'s guard by, ORed: empty where the guard stays
    * unqualified. Behind {@link VarkaEmitOptions#guardUnderArm} so the change is measurable
-   * against its own absence, the way every other guard decision here is.
+   * against its own absence, the way every other guard decision here is. A guard over a column's
+   * stored values keeps a single chain only: with several it stays unqualified, so that a loop
+   * keeps it as the lane-wise min and max of {@link #accumulatesRange}.
    *
    * <p>A {@link DecimalColumn}'s slot check is never qualified (VARKA-347). Its failure is a read
    * of the column, not of a value an arm computes, and Spark reads a column where it first
@@ -608,12 +762,69 @@ final class Analysis {
    * take still raises there. Declining whatever the arm is never computes where Spark raises, and
    * it costs only batches holding a slot Spark's own writer never writes.
    */
-  List<ArmStep> armChainOf(VarkaVectorIR node) {
+  List<List<ArmStep>> armChainsOf(VarkaVectorIR node) {
     if (!options.guardUnderArm() || node instanceof DecimalColumn) {
       return List.of();
     }
-    List<ArmStep> chain = armChain.get(node);
-    return chain == null ? List.of() : chain;
+    List<List<ArmStep>> chains = armChains.get(node);
+    if (chains == null || (chains.size() > 1 && guardsStoredValues(node))) {
+      return List.of();
+    }
+    return chains;
+  }
+
+  /**
+   * {@link #armChainsOf} in one body: the chains whose arms the body emits, {@code reach} being
+   * the nodes it reaches from its roots. A node shared by outputs of two groups is computed and
+   * guarded in each, and a chain through the other group's arms has no condition in this body;
+   * that group's own guard condemns there, so the kernel's status still ORs every chain.
+   *
+   * <p>Not inside a date whose prefix is materialized ({@link #materialized}): a group that loads
+   * the prefix computes neither the date nor the guards under it, which the producing group ran
+   * for it. A chain this body would drop is then guarded nowhere, and a lane only that chain's
+   * arm takes would read an unchecked value, so such a guard stays unqualified in the body that
+   * computes it: it declines more batches and never answers one wrongly.
+   */
+  List<List<ArmStep>> armChainsIn(VarkaVectorIR node, Set<VarkaVectorIR> reach) {
+    List<List<ArmStep>> chains = armChainsOf(node);
+    if (chains.size() < 2 || reach == null) {
+      return chains;
+    }
+    var kept = new ArrayList<List<ArmStep>>();
+    for (List<ArmStep> chain : chains) {
+      boolean emitted = true;
+      for (ArmStep step : chain) {
+        emitted &= reach.contains(step.node());
+      }
+      if (emitted) {
+        kept.add(chain);
+      }
+    }
+    if (kept.size() < chains.size() && underMaterializedDate(node)) {
+      return List.of();
+    }
+    return List.copyOf(kept);
+  }
+
+  /** Whether {@code node} is computed inside a date whose prefix {@link #materialized} holds. */
+  private boolean underMaterializedDate(VarkaVectorIR node) {
+    for (VarkaVectorIR date : materialized.keySet()) {
+      Set<VarkaVectorIR> under = new HashSet<>();
+      collectReached(date, under);
+      if (under.contains(node)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /** The nodes reached from {@code roots}, each once: what a body over them emits. */
+  static Set<VarkaVectorIR> reachOf(List<VarkaVectorIR> roots) {
+    Set<VarkaVectorIR> reach = new HashSet<>();
+    for (VarkaVectorIR root : roots) {
+      collectReached(root, reach);
+    }
+    return reach;
   }
 
   /**
@@ -650,7 +861,7 @@ final class Analysis {
     // Not at the int lane of a kernel driven at the long one: the accumulators are the driving
     // lane's vectors, and an int vector's upper lanes, which are not the group's rows, would
     // reach the min.
-    return loop && guardsStoredValues(node) && armChainOf(node).isEmpty()
+    return loop && guardsStoredValues(node) && armChainsOf(node).isEmpty()
         && laneOf(node) == lane;
   }
 
@@ -701,6 +912,13 @@ final class Analysis {
         // this condition reads the lane: its product of two narrow operands is exact in the int
         // lane, so the widened arm checks it with the lane's own range compare, and the native
         // arm would widen it - either way it needs its refusal like any other checked node.
+        // A floating division's zero test under FAIL is its own correctness, so it is never
+        // behind checkIntOverflow; no other floating node has a check.
+        case IntArith n when n.laneType().isFloating() -> {
+          if (n.op() == IntOp.DIV && n.mode() == Overflow.FAIL) {
+            refuse(node, Refusal.DIVIDE_BY_ZERO);
+          }
+        }
         case IntArith n -> {
           if (checksIntOverflow(n) && n.mode() == Overflow.FAIL
               && (n.op() != IntOp.MUL || n.laneType().isNarrow())) {
@@ -750,6 +968,7 @@ final class Analysis {
         case BoundedDivide n -> { }
         case BitOp n -> { }
         case BitCount n -> { }
+        case MathUnary n -> { }
         case Compare n -> { }
         case NullSafeEqual n -> { }
         case BoolColumn n -> { }
@@ -843,7 +1062,8 @@ final class Analysis {
           TruncDateDynamic _, DateDiff _, Greatest _, Least _, DayOfWeek _,
           WeekDay _, DayOfWeekIso _, ThursdayOf _, Year _, Month _, DayOfMonth _, Quarter _,
           DayOfYear _, LastDay _, TruncDate _, WeekOfYear _, ConstDivide _, BoundedDivide _,
-          BitOp _, BitCount _, Compare _, NullSafeEqual _, BoolColumn _, BoolCompare _,
+          BitOp _, BitCount _, MathUnary _, Compare _, NullSafeEqual _, BoolColumn _,
+          BoolCompare _,
           CondIf _, BoolNullSafeEq _, CondConst _, And _, Or _, Not _, IsNotNull _,
           InRanges _, CondValue _, BoolOutput _ -> false;
     };
@@ -870,10 +1090,12 @@ final class Analysis {
    * {@code NULL}), whose overflow check the option emits or leaves out. The option's reads go
    * through it - the check's scratch in {@link Slots}, and whether a narrow node reduces as a
    * ring node ({@link #loweredUnchecked}) - and {@link Refusal#INT_OVERFLOW} is its {@code FAIL}
-   * half. A {@code WRAP} node has no check to skip.
+   * half. A {@code WRAP} node has no check to skip, and neither has a floating division: its
+   * {@code FAIL} or {@code NULL} mode is the zero test, which the option does not read.
    */
   static boolean readsCheckIntOverflow(VarkaVectorIR node) {
-    return (node instanceof IntArith arith && arith.mode() != Overflow.WRAP)
+    return (node instanceof IntArith arith && arith.mode() != Overflow.WRAP
+        && !arith.laneType().isFloating())
         || (node instanceof IntNeg neg && neg.mode() != Overflow.WRAP);
   }
 
@@ -1150,6 +1372,7 @@ final class Analysis {
       case BoundedDivide n -> wordOwner.get(n.child());
       case BitOp n -> andOwner(node, n.left(), n.right());
       case BitCount n -> wordOwner.get(n.child());
+      case MathUnary n -> wordOwner.get(n.child());
       case DayOfWeek n -> wordOwner.get(n.days());
       case WeekDay n -> wordOwner.get(n.days());
       case DayOfWeekIso n -> wordOwner.get(n.days());
@@ -1210,6 +1433,7 @@ final class Analysis {
       case BoundedDivide n -> pureWord.get(n.child());
       case BitOp n -> andExpr(pureWord.get(n.left()), pureWord.get(n.right()));
       case BitCount n -> pureWord.get(n.child());
+      case MathUnary n -> pureWord.get(n.child());
       case Greatest n -> orExpr(pureWord.get(n.left()), pureWord.get(n.right()));
       case Least n -> orExpr(pureWord.get(n.left()), pureWord.get(n.right()));
       case DayOfWeek n -> pureWord.get(n.days());
@@ -1460,6 +1684,8 @@ final class Analysis {
       // operand nulls the result and nothing else does.
       case BitOp n -> analyzeOp(node, false, n.left(), n.right());
       case BitCount n -> analyzeOp(node, false, n.child());
+      // A floating math function computes every lane and nulls none.
+      case MathUnary n -> analyzeOp(node, false, n.child());
       case ConstDivide n -> {
         // A division by a non-zero constant cannot overflow or null a lane, so it carries no
         // overflow mode and joins no validity: it is its child's word exactly, the way

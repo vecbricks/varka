@@ -41,9 +41,10 @@ import org.apache.spark.sql.VarkaBenchmark;
  * record of how much of it a row has fused, and fails when the plan's class differs
  * ({@link VarkaSqlBenchmarkBase#requireBaseline(SparkSession, String, String, Fusion)}). The
  * comparison and choice sections are {@code WHOLE}, since the floating lanes order their values,
- * and the results file notes each of them as fusing; the chain and the cast are {@code NONE},
- * still the row path in both arms. A row that fuses more of a section sets its new class, so
- * that its fusion cannot turn a baseline section into a fused one unnoticed.
+ * and so is the chain, since the floating arithmetic fuses (VARKA-342); the results file notes
+ * each of them as fusing, and the cast is {@code NONE}, still the row path in both arms. A row
+ * that fuses more of a section sets its new class, so that its fusion cannot turn a baseline
+ * section into a fused one unnoticed.
  *
  * <p>To run this benchmark, on a GitHub runner (the results come back as an artifact):
  * <pre>
@@ -110,7 +111,7 @@ public class VarkaFloatingBaselineBenchmark extends VarkaSqlBenchmarkBase {
             Fusion.WHOLE));
         out.add(new Section(type + " arithmetic chain, " + density,
             "SELECT (" + x + " + " + y + ") * " + z + " - " + x + " AS a FROM varka_floating",
-            Fusion.NONE));
+            Fusion.WHOLE));
         out.add(new Section(type + " cast to " + t[4] + ", " + density,
             "SELECT CAST(" + x + " AS " + t[4] + ") AS a FROM varka_floating",
             Fusion.NONE));
