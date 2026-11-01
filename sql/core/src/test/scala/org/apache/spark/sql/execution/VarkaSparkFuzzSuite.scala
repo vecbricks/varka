@@ -215,29 +215,49 @@ class VarkaSparkFuzzSuite extends VarkaSparkDifferential {
    * written under `target/varka-sparkfuzz/`, and the kind with the reproducer in one message. The
    * checks it runs are not counted in the census, and its note names the error rerun's arm when
    * it is not the default, which the replay then takes (`VarkaErrorRerun.ofNote`).
+   *
+   * `checked` shrinks with the int overflow check on, as a run that turns it off does for a
+   * finding that is not a configuration wrap, so the shrinker cannot settle on an output that only
+   * wraps; the reproducer then names `checkIntOverflow=true` as its options. A finding that does
+   * not show with the check on at all is reported unshrunk, under the run's own options, rather
+   * than shrunk against a kind it no longer has.
    */
-  private def failureText(c: Case, it: Int, partitions: Boolean, found: String): String = {
+  private def failureText(
+      c: Case, it: Int, partitions: Boolean, found: String, checked: Boolean = false): String = {
     // A kind may carry a prefix ("at two partitions only, "), so a forced one is found anywhere.
     def isForced(kind: String): Boolean = kind.contains("with an output forced")
-    val (kind, small) = withoutCounting {
+    def underOptions[T](body: => T): T = if (checked) withOverflowChecked(body) else body
+    val shrunk: Option[(String, Case)] = withoutCounting(underOptions {
       // A forced disagreement is shrunk with the one output that shows it forced, so the
       // reproducer can name it; a forced kind that needs every force names none.
       val forced = if (!isForced(found)) c
         else c.copy(force = forcesOf(c, it).find(k => kindOf(c, partitions, Seq(k)).isDefined))
-      val kind = kindOf(forced, partitions, forced.force.toSeq).getOrElse(found)
-      // A kind that no longer needs the force (the first run's was not repeatable) keeps none, so
-      // the reproducer does not name a force its kind does not depend on.
-      val start = if (isForced(kind)) forced else forced.copy(force = None)
-      (kind, shrink(start, kind, x => kindOf(x, partitions, x.force.toSeq)))
+      val again = kindOf(forced, partitions, forced.force.toSeq)
+      // Under the run's own options a kind that does not repeat keeps the first run's; under the
+      // check it means the finding needs the check off, and it is not shrunk.
+      (if (checked) again else again.orElse(Some(found))).map { kind =>
+        // A kind that no longer needs the force (the first run's was not repeatable) keeps none,
+        // so the reproducer does not name a force its kind does not depend on.
+        val start = if (isForced(kind)) forced else forced.copy(force = None)
+        (kind, shrink(start, kind, x => kindOf(x, partitions, x.force.toSeq)))
+      }
+    })
+    val (kind, small, options, how) = shrunk match {
+      case Some((k, x)) if checked => (k, x, Some("checkIntOverflow=true"),
+        ", shrunk with checkIntOverflow on, where the composition disagrees too")
+      case Some((k, x)) => (k, x, None, "")
+      case None => (found, c, None,
+        ", not shrunk: with checkIntOverflow on the composition agrees, yet the disagreement " +
+          "is not an overflow wrap")
     }
     val text = render(Reproducer("regression", s"seed $seed iteration $it${errorRerun.noteSuffix}",
       small.ansi, kind, small.select, small.where, small.fixture, small.pivot.map(rowText),
-      small.force))
+      small.force, options))
     val dir = getWorkspaceFilePath("sql", "core", "target", "varka-sparkfuzz")
     Files.createDirectories(dir)
     val file = dir.resolve(s"$seed-$it.sql")
     Files.write(file, text.getBytes(StandardCharsets.UTF_8))
-    s"$kind (seed $seed, iteration $it), reproducer written to $file:\n$text"
+    s"$kind (seed $seed, iteration $it$how), reproducer written to $file:\n$text"
   }
 
   test(s"random compositions agree with the row engine (seed $seed, $iterations of them)") {
@@ -270,14 +290,7 @@ class VarkaSparkFuzzSuite extends VarkaSparkDifferential {
       }
       result.foreach { found =>
         if (firstFailure.isEmpty) firstFailure = Some(it)
-        // With the check off, a finding that survives the check is shrunk with it on (the
-        // shrink runs the kind again), so the shrinker cannot settle on an output that only wraps.
-        failures += (if (overflowUnchecked) {
-          withOverflowChecked(failureText(c, it, partitions, found)) +
-            "\n(shrunk with checkIntOverflow on, where the composition disagrees too)"
-        } else {
-          failureText(c, it, partitions, found)
-        })
+        failures += failureText(c, it, partitions, found, checked = overflowUnchecked)
       }
     }
     info(s"compared $compared, fused $fused, both errored $bothErrored")
@@ -634,6 +647,9 @@ class VarkaSparkFuzzSuite extends VarkaSparkDifferential {
       "with an output forced to decline, values differ", "year(d) AS c0, i + 1 AS c1", None,
       fixtureSql(Seq(Seq("1", "2"))), None, Some(1))
     assert(parse(render(r)) == r)
+    val withOptions = r.copy(options = Some("checkIntOverflow=true"))
+    assert(render(withOptions).contains("\n-- options: checkIntOverflow=true\n"))
+    assert(parse(render(withOptions)) == withOptions)
   }
 
   /**
