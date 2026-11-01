@@ -375,8 +375,42 @@ rest moving.
 * Prediction 2: `emitted_bytes.json`, `width_audit.json` and `coverage.json` unchanged on the
   laptop (their suites pass with the files untouched). `operator_census.json` was regenerated on
   the laptop: its `host` block gained the two fields, and no verdict and no `bytes_per_row` moved.
-* Prediction 1 is not scored: step 1's two runs on the EPYC 7763 are dispatched by the lead, and
-  the flip merges only if the magic form beats the fallback at both widths.
+* Prediction 1 is not scored here: step 1's two runs on the EPYC 7763 were dispatched by the
+  lead, and 9.3 scores them.
+
+### 9.3 Step 1's gate, and the owner's answer, 1 November 2026
+
+`VarkaTimeBenchmark` ran twice on an EPYC 7763 runner through `benchmark.yml`, on the fork's
+master at `f0c1ab11c45`, before this row's code: run 41244851241 at the runner's own 256 bits and
+run 41251482916 under `-XX:MaxVectorSize=16`, so the long species is 128 bits. Both are committed
+as `results/VARKA-538-epyc-7763-256bit-results.txt` and `-128bit-results.txt`, each with its
+`-provenance.txt`. Nanoseconds a row of the int64 arms, 16384 rows (in L2):
+
+| extract | 256 bits: conversion | magic | 128 bits: conversion | magic |
+|---|---|---|---|---|
+| `hour` | 12.4 | 0.6 | 21.4 | 44.7 |
+| `minute` | 26.9 | 2.2 | 47.8 | 97.3 |
+| `second` | 41.6 | 4.3 | 73.3 | 141.2 |
+| all three | 40.8 | 4.2 | 75.4 | 138.5 |
+
+The other three row counts (in L3, leaving L3, past L3) read the same within a few percent.
+
+* **Prediction 1 holds at 256 bits and fails at 128.** At 256 bits the magic form is 10 to 20
+  times faster than the conversion form (at least twice, as predicted); at 128 bits it is about
+  half as fast, on every extract and row count. So the gate of section 7 question 1, the magic
+  form beating the fallback at both widths, failed its 128-bit arm.
+* **The owner's answer, 1 November 2026: (b), flip with a width condition.** The default stays
+  `-2`, and `-2` resolves to level `2` only where the conversions fall back **and** the
+  preferred `LongVector` species, which honours `-XX:MaxVectorSize`, is at least 256 bits wide;
+  otherwise, a 128-bit species or one whose width could not be read included, it leaves the
+  emitter's default. The rule is `VarkaSessionEmit.resolve`, against `MAGIC_MIN_LONG_BITS = 256`;
+  the width is `VarkaHostIsa.Reading.longBits`, read with the feature list from the emitter's
+  own `Lane.LONG` preferred lane count, so a test plants it with the list. The resolved level
+  still travels with the plan.
+* **Tests.** `VarkaEvaluatorComponentsSuite` resolves a planted fallback host at 512 and 256
+  bits to `2` and at 128 and 0 bits to the default, and a converting host or an unread list to
+  the default at every width; test 3.6 expects the width-aware level on the running JVM. The
+  conf's doc and `docs/sql-varka.md` state the condition.
 
 ## 10. Open points for the lead
 
@@ -394,6 +428,7 @@ rest moving.
    `VarkaTimeBenchmark-jdk25-results.txt` whatever `-XX:MaxVectorSize` says, so both runs go out
    with `create-commit=false` and their artifacts are committed under `m8/results/` as
    `VARKA-538-epyc-7763-256bit-results.txt` and `-128bit-results.txt`, in the step's own pull
-   request on unchanged code.
+   request on unchanged code. Settled otherwise: the runs measured the fork's master before this
+   row's code, and their files, with their provenance, came in with the row's pull request (9.3).
 6. **`VarkaArrowSessions` is not pinned** (9.1 item 2), against 2.2's list of six: it builds only
    benchmark sessions, and 2.2 keeps the default for benchmarks.

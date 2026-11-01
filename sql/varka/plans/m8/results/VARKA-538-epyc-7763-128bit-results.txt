@@ -1,0 +1,160 @@
+OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1017-azure
+AMD EPYC 7763 64-Core Processor
+TIME extracts over 16384 rows - both forms in L2:                                                     Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+hour: nanoseconds of day, int64 lanes, conversion form (shipped)                                                  0              0           0         46.8          21.4       1.0X
+hour: nanoseconds of day, int64 lanes, conversion form, narrowed store (shipped)                                  0              0           0         45.2          22.1       1.0X
+hour: nanoseconds of day, int64 lanes, conversion form, narrowed store, half species                              0              0           0         43.9          22.8       0.9X
+hour: nanoseconds of day, int64 lanes, magic form (the AVX2 lowering)                                             1              1           0         22.4          44.7       0.5X
+hour: seconds of day, int32 lanes, emitted (shipped: multiply-high, VARKA-149)                                    0              0           0        854.0           1.2      18.2X
+hour: seconds of day, int32 lanes, emitted (the double route it replaced)                                         0              0           0       1314.6           0.8      28.1X
+hour: seconds of day, int32 lanes, emitted bounded multiply                                                       0              0           0      11855.3           0.1     253.3X
+hour: seconds of day, int32 lanes, hand-written magic multiply                                                    0              0           0      12487.8           0.1     266.8X
+minute: nanoseconds of day, int64 lanes, conversion form (shipped)                                                1              1           0         20.9          47.8       0.4X
+minute: nanoseconds of day, int64 lanes, conversion form, narrowed store (shipped)                                1              1           0         19.7          50.8       0.4X
+minute: nanoseconds of day, int64 lanes, conversion form, narrowed store, half species                            1              1           0         20.0          50.0       0.4X
+minute: nanoseconds of day, int64 lanes, magic form (the AVX2 lowering)                                           2              2           0         10.3          97.3       0.2X
+minute: seconds of day, int32 lanes, emitted (shipped: multiply-high, VARKA-149)                                  0              0           0        339.2           2.9       7.2X
+minute: seconds of day, int32 lanes, emitted (the double route it replaced)                                       0              0           0        412.8           2.4       8.8X
+minute: seconds of day, int32 lanes, emitted bounded multiply                                                     0              0           0       6390.0           0.2     136.5X
+minute: seconds of day, int32 lanes, hand-written magic multiply                                                  0              0           0       6649.4           0.2     142.1X
+second: nanoseconds of day, int64 lanes, conversion form (shipped)                                                1              1           0         13.6          73.3       0.3X
+second: nanoseconds of day, int64 lanes, conversion form, narrowed store (shipped)                                1              1           0         13.0          76.7       0.3X
+second: nanoseconds of day, int64 lanes, conversion form, narrowed store, half species                            1              1           0         13.2          75.6       0.3X
+second: nanoseconds of day, int64 lanes, magic form (the AVX2 lowering)                                           2              2           0          7.1         141.2       0.2X
+second: seconds of day, int32 lanes, emitted (shipped: multiply-high, VARKA-149)                                  0              0           0        325.2           3.1       7.0X
+second: seconds of day, int32 lanes, emitted (the double route it replaced)                                       0              0           0        391.9           2.6       8.4X
+second: seconds of day, int32 lanes, emitted bounded multiply                                                     0              0           0       4673.1           0.2      99.9X
+second: seconds of day, int32 lanes, hand-written magic multiply                                                  0              0           0       4782.3           0.2     102.2X
+hour, minute, second: nanoseconds of day, int64 lanes, conversion form (shipped)                                  1              1           0         13.3          75.4       0.3X
+hour, minute, second: nanoseconds of day, int64 lanes, conversion form, narrowed store (shipped)                  1              1           0         12.9          77.7       0.3X
+hour, minute, second: nanoseconds of day, int64 lanes, conversion form, narrowed store, half species              1              1           0         13.4          74.4       0.3X
+hour, minute, second: nanoseconds of day, int64 lanes, magic form (the AVX2 lowering)                             2              2           1          7.2         138.5       0.2X
+hour, minute, second: seconds of day, int32 lanes, emitted (shipped: multiply-high, VARKA-149)                    0              0           0        322.4           3.1       6.9X
+hour, minute, second: seconds of day, int32 lanes, emitted (the double route it replaced)                         0              0           0        388.4           2.6       8.3X
+hour, minute, second: seconds of day, int32 lanes, emitted bounded multiply                                       0              0           0       3658.8           0.3      78.2X
+hour, minute, second: seconds of day, int32 lanes, hand-written magic multiply                                    0              0           0       3768.2           0.3      80.5X
+the split itself: nanoseconds to (seconds, nanoseconds within), int64 lanes, both halves stored wide              0              0           0         38.8          25.8       0.8X
+floor: nanoseconds of day copied, int64 lanes                                                                     0              0           0       5799.6           0.2     123.9X
+floor: seconds of day copied, int32 lanes                                                                         0              0           0      11855.3           0.1     253.3X
+
+OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1017-azure
+AMD EPYC 7763 64-Core Processor
+TIME extracts over 262144 rows - both forms in L3:                                                    Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+hour: nanoseconds of day, int64 lanes, conversion form (shipped)                                                  7              7           0         39.9          25.1       1.0X
+hour: nanoseconds of day, int64 lanes, conversion form, narrowed store (shipped)                                  7              7           0         39.3          25.4       1.0X
+hour: nanoseconds of day, int64 lanes, conversion form, narrowed store, half species                              7              7           0         39.4          25.4       1.0X
+hour: nanoseconds of day, int64 lanes, magic form (the AVX2 lowering)                                            12             12           0         22.1          45.2       0.6X
+hour: seconds of day, int32 lanes, emitted (shipped: multiply-high, VARKA-149)                                    0              0           0        847.7           1.2      21.2X
+hour: seconds of day, int32 lanes, emitted (the double route it replaced)                                         0              0           0       1279.2           0.8      32.0X
+hour: seconds of day, int32 lanes, emitted bounded multiply                                                       0              0           0       9063.2           0.1     227.1X
+hour: seconds of day, int32 lanes, hand-written magic multiply                                                    0              0           0       9348.3           0.1     234.2X
+minute: nanoseconds of day, int64 lanes, conversion form (shipped)                                               13             13           0         20.4          48.9       0.5X
+minute: nanoseconds of day, int64 lanes, conversion form, narrowed store (shipped)                               14             14           0         18.9          52.8       0.5X
+minute: nanoseconds of day, int64 lanes, conversion form, narrowed store, half species                           13             14           0         19.6          51.1       0.5X
+minute: nanoseconds of day, int64 lanes, magic form (the AVX2 lowering)                                          26             27           1         10.0          99.8       0.3X
+minute: seconds of day, int32 lanes, emitted (shipped: multiply-high, VARKA-149)                                  1              1           0        338.4           3.0       8.5X
+minute: seconds of day, int32 lanes, emitted (the double route it replaced)                                       1              1           0        411.4           2.4      10.3X
+minute: seconds of day, int32 lanes, emitted bounded multiply                                                     0              0           0       6261.2           0.2     156.9X
+minute: seconds of day, int32 lanes, hand-written magic multiply                                                  0              0           0       6377.1           0.2     159.8X
+second: nanoseconds of day, int64 lanes, conversion form (shipped)                                               20             20           0         13.3          75.4       0.3X
+second: nanoseconds of day, int64 lanes, conversion form, narrowed store (shipped)                               20             21           0         12.8          77.9       0.3X
+second: nanoseconds of day, int64 lanes, conversion form, narrowed store, half species                           20             21           0         12.9          77.2       0.3X
+second: nanoseconds of day, int64 lanes, magic form (the AVX2 lowering)                                          37             38           1          7.1         141.6       0.2X
+second: seconds of day, int32 lanes, emitted (shipped: multiply-high, VARKA-149)                                  1              1           0        324.6           3.1       8.1X
+second: seconds of day, int32 lanes, emitted (the double route it replaced)                                       1              1           0        390.7           2.6       9.8X
+second: seconds of day, int32 lanes, emitted bounded multiply                                                     0              0           0       4598.5           0.2     115.2X
+second: seconds of day, int32 lanes, hand-written magic multiply                                                  0              0           0       4674.9           0.2     117.1X
+hour, minute, second: nanoseconds of day, int64 lanes, conversion form (shipped)                                 20             20           0         13.1          76.3       0.3X
+hour, minute, second: nanoseconds of day, int64 lanes, conversion form, narrowed store (shipped)                 21             22           1         12.3          81.6       0.3X
+hour, minute, second: nanoseconds of day, int64 lanes, conversion form, narrowed store, half species             20             20           0         13.2          76.0       0.3X
+hour, minute, second: nanoseconds of day, int64 lanes, magic form (the AVX2 lowering)                            36             37           0          7.2         138.5       0.2X
+hour, minute, second: seconds of day, int32 lanes, emitted (shipped: multiply-high, VARKA-149)                    1              1           0        321.2           3.1       8.0X
+hour, minute, second: seconds of day, int32 lanes, emitted (the double route it replaced)                         1              1           0        387.1           2.6       9.7X
+hour, minute, second: seconds of day, int32 lanes, emitted bounded multiply                                       0              0           0       3466.1           0.3      86.8X
+hour, minute, second: seconds of day, int32 lanes, hand-written magic multiply                                    0              0           0       3507.5           0.3      87.9X
+the split itself: nanoseconds to (seconds, nanoseconds within), int64 lanes, both halves stored wide              7              7           1         38.0          26.3       1.0X
+floor: nanoseconds of day copied, int64 lanes                                                                     0              0           0       4686.7           0.2     117.4X
+floor: seconds of day copied, int32 lanes                                                                         0              0           0       9408.7           0.1     235.7X
+
+OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1017-azure
+AMD EPYC 7763 64-Core Processor
+TIME extracts over 1000000 rows - the long form leaves L3:                                            Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+hour: nanoseconds of day, int64 lanes, conversion form (shipped)                                                 25             26           0         39.7          25.2       1.0X
+hour: nanoseconds of day, int64 lanes, conversion form, narrowed store (shipped)                                 26             27           1         38.4          26.0       1.0X
+hour: nanoseconds of day, int64 lanes, conversion form, narrowed store, half species                             26             26           1         39.1          25.6       1.0X
+hour: nanoseconds of day, int64 lanes, magic form (the AVX2 lowering)                                            45             46           1         22.1          45.3       0.6X
+hour: seconds of day, int32 lanes, emitted (shipped: multiply-high, VARKA-149)                                    1              1           0        844.3           1.2      21.3X
+hour: seconds of day, int32 lanes, emitted (the double route it replaced)                                         1              1           0       1295.0           0.8      32.6X
+hour: seconds of day, int32 lanes, emitted bounded multiply                                                       0              0           0       9691.6           0.1     244.2X
+hour: seconds of day, int32 lanes, hand-written magic multiply                                                    0              0           0       9941.6           0.1     250.5X
+minute: nanoseconds of day, int64 lanes, conversion form (shipped)                                               49             50           0         20.4          49.1       0.5X
+minute: nanoseconds of day, int64 lanes, conversion form, narrowed store (shipped)                               52             54           4         19.1          52.4       0.5X
+minute: nanoseconds of day, int64 lanes, conversion form, narrowed store, half species                           51             52           1         19.7          50.7       0.5X
+minute: nanoseconds of day, int64 lanes, magic form (the AVX2 lowering)                                         100            103           5         10.0         100.0       0.3X
+minute: seconds of day, int32 lanes, emitted (shipped: multiply-high, VARKA-149)                                  3              3           0        334.8           3.0       8.4X
+minute: seconds of day, int32 lanes, emitted (the double route it replaced)                                       2              2           0        407.8           2.5      10.3X
+minute: seconds of day, int32 lanes, emitted bounded multiply                                                     0              0           0       6438.4           0.2     162.2X
+minute: seconds of day, int32 lanes, hand-written magic multiply                                                  0              0           0       6560.6           0.2     165.3X
+second: nanoseconds of day, int64 lanes, conversion form (shipped)                                               75             78          10         13.3          74.9       0.3X
+second: nanoseconds of day, int64 lanes, conversion form, narrowed store (shipped)                               78             78           0         12.9          77.8       0.3X
+second: nanoseconds of day, int64 lanes, conversion form, narrowed store, half species                           77             77           0         13.1          76.5       0.3X
+second: nanoseconds of day, int64 lanes, magic form (the AVX2 lowering)                                         143            144           0          7.0         143.0       0.2X
+second: seconds of day, int32 lanes, emitted (shipped: multiply-high, VARKA-149)                                  3              3           0        320.6           3.1       8.1X
+second: seconds of day, int32 lanes, emitted (the double route it replaced)                                       3              3           0        387.4           2.6       9.8X
+second: seconds of day, int32 lanes, emitted bounded multiply                                                     0              0           0       4721.6           0.2     119.0X
+second: seconds of day, int32 lanes, hand-written magic multiply                                                  0              0           0       4784.5           0.2     120.5X
+hour, minute, second: nanoseconds of day, int64 lanes, conversion form (shipped)                                 77             79           5         13.0          77.2       0.3X
+hour, minute, second: nanoseconds of day, int64 lanes, conversion form, narrowed store (shipped)                 81             82           1         12.3          81.1       0.3X
+hour, minute, second: nanoseconds of day, int64 lanes, conversion form, narrowed store, half species             76             77           1         13.1          76.2       0.3X
+hour, minute, second: nanoseconds of day, int64 lanes, magic form (the AVX2 lowering)                           140            141           0          7.2         139.8       0.2X
+hour, minute, second: seconds of day, int32 lanes, emitted (shipped: multiply-high, VARKA-149)                    3              3           0        317.0           3.2       8.0X
+hour, minute, second: seconds of day, int32 lanes, emitted (the double route it replaced)                         3              3           0        383.3           2.6       9.7X
+hour, minute, second: seconds of day, int32 lanes, emitted bounded multiply                                       0              0           0       3612.4           0.3      91.0X
+hour, minute, second: seconds of day, int32 lanes, hand-written magic multiply                                    0              0           0       3722.0           0.3      93.8X
+the split itself: nanoseconds to (seconds, nanoseconds within), int64 lanes, both halves stored wide             26             28           6         37.8          26.4       1.0X
+floor: nanoseconds of day copied, int64 lanes                                                                     0              0           0       4878.5           0.2     122.9X
+floor: seconds of day copied, int32 lanes                                                                         0              0           0       9763.6           0.1     246.0X
+
+OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1017-azure
+AMD EPYC 7763 64-Core Processor
+TIME extracts over 8388608 rows - both forms past L3:                                                 Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+hour: nanoseconds of day, int64 lanes, conversion form (shipped)                                                214            215           1         39.1          25.6       1.0X
+hour: nanoseconds of day, int64 lanes, conversion form, narrowed store (shipped)                                217            218           1         38.7          25.9       1.0X
+hour: nanoseconds of day, int64 lanes, conversion form, narrowed store, half species                            216            219           5         38.8          25.8       1.0X
+hour: nanoseconds of day, int64 lanes, magic form (the AVX2 lowering)                                           387            388           1         21.7          46.2       0.6X
+hour: seconds of day, int32 lanes, emitted (shipped: multiply-high, VARKA-149)                                   10             10           0        827.1           1.2      21.1X
+hour: seconds of day, int32 lanes, emitted (the double route it replaced)                                         7              7           0       1267.0           0.8      32.4X
+hour: seconds of day, int32 lanes, emitted bounded multiply                                                       2              2           0       4507.6           0.2     115.2X
+hour: seconds of day, int32 lanes, hand-written magic multiply                                                    2              2           0       4547.9           0.2     116.2X
+minute: nanoseconds of day, int64 lanes, conversion form (shipped)                                              415            416           0         20.2          49.5       0.5X
+minute: nanoseconds of day, int64 lanes, conversion form, narrowed store (shipped)                              442            444           2         19.0          52.7       0.5X
+minute: nanoseconds of day, int64 lanes, conversion form, narrowed store, half species                          430            432           1         19.5          51.3       0.5X
+minute: nanoseconds of day, int64 lanes, magic form (the AVX2 lowering)                                         838            853          27         10.0          99.9       0.3X
+minute: seconds of day, int32 lanes, emitted (shipped: multiply-high, VARKA-149)                                 25             25           0        332.5           3.0       8.5X
+minute: seconds of day, int32 lanes, emitted (the double route it replaced)                                      21             21           0        405.4           2.5      10.4X
+minute: seconds of day, int32 lanes, emitted bounded multiply                                                     2              2           0       3923.1           0.3     100.3X
+minute: seconds of day, int32 lanes, hand-written magic multiply                                                  2              2           0       4039.3           0.2     103.2X
+second: nanoseconds of day, int64 lanes, conversion form (shipped)                                              626            627           1         13.4          74.6       0.3X
+second: nanoseconds of day, int64 lanes, conversion form, narrowed store (shipped)                              655            659           6         12.8          78.1       0.3X
+second: nanoseconds of day, int64 lanes, conversion form, narrowed store, half species                          651            653           1         12.9          77.7       0.3X
+second: nanoseconds of day, int64 lanes, magic form (the AVX2 lowering)                                        1214           1216           1          6.9         144.8       0.2X
+second: seconds of day, int32 lanes, emitted (shipped: multiply-high, VARKA-149)                                 26             26           0        319.1           3.1       8.2X
+second: seconds of day, int32 lanes, emitted (the double route it replaced)                                      22             22           0        384.5           2.6       9.8X
+second: seconds of day, int32 lanes, emitted bounded multiply                                                     2              3           0       3556.4           0.3      90.9X
+second: seconds of day, int32 lanes, hand-written magic multiply                                                  2              2           0       3604.6           0.3      92.1X
+hour, minute, second: nanoseconds of day, int64 lanes, conversion form (shipped)                                650            662          24         12.9          77.4       0.3X
+hour, minute, second: nanoseconds of day, int64 lanes, conversion form, narrowed store (shipped)                679            680           1         12.4          80.9       0.3X
+hour, minute, second: nanoseconds of day, int64 lanes, conversion form, narrowed store, half species            640            641           1         13.1          76.3       0.3X
+hour, minute, second: nanoseconds of day, int64 lanes, magic form (the AVX2 lowering)                          1184           1185           1          7.1         141.2       0.2X
+hour, minute, second: seconds of day, int32 lanes, emitted (shipped: multiply-high, VARKA-149)                   27             27           0        315.1           3.2       8.1X
+hour, minute, second: seconds of day, int32 lanes, emitted (the double route it replaced)                        22             22           0        378.8           2.6       9.7X
+hour, minute, second: seconds of day, int32 lanes, emitted bounded multiply                                       4              5           0       1919.5           0.5      49.1X
+hour, minute, second: seconds of day, int32 lanes, hand-written magic multiply                                    4              4           0       2006.7           0.5      51.3X
+the split itself: nanoseconds to (seconds, nanoseconds within), int64 lanes, both halves stored wide            231            238          13         36.2          27.6       0.9X
+floor: nanoseconds of day copied, int64 lanes                                                                     5              5           0       1689.6           0.6      43.2X
+floor: seconds of day copied, int32 lanes                                                                         2              2           0       4346.6           0.2     111.1X
+
