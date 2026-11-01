@@ -294,6 +294,21 @@ public final class VarkaDecimalArithmeticSuite {
   }
 
   @Test
+  @DisplayName("a constant of any shape takes one slot: abs(-1.25) and 1.5 + 2.25 fold whole, "
+      + "with no negation or add left in the kernel")
+  void constantsFoldWhole() {
+    List<Attribute> columns = List.of(VarkaSqlResolve.column("a", new DecimalType(9, 2)));
+    for (Object[] row : new Object[][] {{"a < abs(-1.25)", 125L}, {"a < 1.5 + 2.25", 375L}}) {
+      String sql = (String) row[0];
+      CompiledVarkaPredicate compiled = compile(parse(sql, columns, false), columns);
+      assertEquals(List.of(row[1]), compiled.fused().longLiterals(), sql);
+      String tree = compiled.fused().outputs().stream().map(VarkaVectorIR::canonical).toList()
+          .toString();
+      assertTrue(!tree.contains("(abs:") && !tree.contains("(int:"), () -> sql + ": " + tree);
+    }
+  }
+
+  @Test
   @DisplayName("a sample of every fused class, at the operands' bounds, zero, one and random "
       + "values, gives BigDecimal's exact result")
   void sampledClasses() {
