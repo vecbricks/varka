@@ -31,7 +31,10 @@ import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, AttributeReference, Cast,
   DateAdd, EvalMode, Expression}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTestWatchdog
-import org.apache.spark.sql.execution.columnar.{ArrowCachedBatch, InMemoryTableScanExec}
+import org.apache.spark.sql.execution.adaptive.{AdaptiveSparkPlanExec, QueryStageExec,
+  TableCacheQueryStageExec}
+import org.apache.spark.sql.execution.columnar.{ArrowCachedBatch, ArrowCachedBatchSerializer,
+  InMemoryTableScanExec}
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types.{DateType, Decimal, DecimalType, IntegerType}
 import org.apache.spark.sql.util.ArrowUtils
@@ -305,6 +308,7 @@ class VarkaDecimalReadPathSuite extends QueryTest with VarkaSharedSessions
     try withConfs(session, path.confs) {
       val probe = path.read.probe(session, query("try_cast(a AS INT)"))
       path.check(probe)
+      checkCacheFlags(probe)
       assert(cachedReads(probe) == Seq(path.table.name),
         s"the query does not read the cached ${path.table.name}")
       val legacy = withConfs(session, Seq(SQLConf.ANSI_ENABLED.key -> "false")) {
@@ -319,6 +323,41 @@ class VarkaDecimalReadPathSuite extends QueryTest with VarkaSharedSessions
         .getOrElse(fail(s"the casts answered $seen, by none of ${readings.map(_.name)}"))
     } finally {
       VarkaColumnarToRowExec.setDeclineKernelForTesting(false)
+    }
+  }
+
+  /**
+   * Fails if a Varka node in `plan` reads the Arrow cache's batches but
+   * `VarkaColumnarRule.readsArrowCache` says it does not: a columnar node the walk does not pass
+   * between the node and the scan, which would leave the node reading the batch's own rows by the
+   * double rule. The cache's batches reach a node when every node below it down to the scan is a
+   * query stage or a unary columnar node; a node of another kind among them is named.
+   */
+  private def checkCacheFlags(plan: SparkPlan): Unit = {
+    // The nodes between `p` and an Arrow cache scan whose batches `p` hands up, or None.
+    def toCache(p: SparkPlan): Option[Seq[SparkPlan]] = p match {
+      case stage: QueryStageExec => toCache(stage.plan)
+      case scan: InMemoryTableScanExec =>
+        if (scan.relation.cacheBuilder.serializer.isInstanceOf[ArrowCachedBatchSerializer]) {
+          Some(Nil)
+        } else {
+          None
+        }
+      case node: UnaryExecNode if node.supportsColumnar => toCache(node.child).map(node +: _)
+      case _ => None
+    }
+    val children = collect(plan) {
+      case v: VarkaColumnarToRowExec => v.child
+      case v: VarkaProjectExec => v.child
+      case v: VarkaFilterExecBase => v.child
+    }
+    for (child <- children; between <- toCache(child)) {
+      val unknown = between.filterNot(n => n.isInstanceOf[VarkaProjectExec] ||
+        n.isInstanceOf[VarkaFilterExec])
+      assert(unknown.isEmpty && VarkaColumnarRule.readsArrowCache(child),
+        s"a Varka node over ${child.nodeName} reads the Arrow cache's batches, through the " +
+          s"nodes readsArrowCache does not pass ${unknown.map(_.nodeName)}, but its flag is " +
+          s"off:\n${plan.treeString}")
     }
   }
 
@@ -542,6 +581,63 @@ class VarkaDecimalReadPathSuite extends QueryTest with VarkaSharedSessions
       } finally {
         VarkaColumnarToRowExec.setDeclineKernelForTesting(false)
       }
+    }
+  }
+
+  test("readsArrowCache passes the Varka nodes and query stages Varka plans over the cache") {
+    val query = overFilterOnB.build("try_cast(a AS INT)", fused)
+    // The plan has no exchange, so adaptive execution plans it only when forced to.
+    withConfs(varkaSpark, Seq(SQLConf.ADAPTIVE_EXECUTION_ENABLED.key -> "true",
+        SQLConf.ADAPTIVE_EXECUTION_FORCE_APPLY.key -> "true")) {
+      val df = varkaSpark.sql(query)
+      df.collect()
+      val plan = df.queryExecution.executedPlan
+      checkCacheFlags(plan)
+      assert(plan.isInstanceOf[AdaptiveSparkPlanExec], s"expected AQE:\n${plan.treeString}")
+      val (projection, filter) = collectFirst(plan) {
+        case v @ VarkaColumnarToRowExec(_, f: VarkaFilterExec, _) => (v, f)
+      }.getOrElse(fail(s"expected a Varka projection over a Varka filter:\n${plan.treeString}"))
+      assert(filter.child.isInstanceOf[TableCacheQueryStageExec],
+        s"expected the filter over the cache's query stage:\n${plan.treeString}")
+      assert(VarkaColumnarRule.readsArrowCache(filter.child))
+      assert(VarkaColumnarRule.readsArrowCache(projection.child))
+      // A columnar Varka projection over the filter, as the columnar-out cells build it: a node
+      // over it reads the cache through both Varka nodes and the stage.
+      val columnar = varkaSpark.withActive(
+        VarkaProjectExec(projection.projectList, filter, projection.sessionEmit))
+      assert(VarkaColumnarRule.readsArrowCache(columnar))
+    }
+  }
+
+  test("an iterator over the row view fails once the view is rebound or released") {
+    val allocator = ArrowUtils.rootAllocator.newChildAllocator("rp-stale", 0, Long.MaxValue)
+    val schema = DecimalType(18, 2)
+    def batchOf(unscaled: Long): ColumnarBatch = {
+      val vector = new DecimalVector(new Field("x",
+        FieldType.nullable(new ArrowType.Decimal(18, 2, 128)), null), allocator)
+      vector.allocateNew(1)
+      vector.setSafe(0, unscaled)
+      vector.setValueCount(1)
+      new ColumnarBatch(Array(new ArrowColumnVector(vector)), 1)
+    }
+    val first = batchOf(1250L)
+    val second = batchOf(3700L)
+    try {
+      val view = VarkaRowView.of(Seq(AttributeReference("x", schema)()))
+      val stale = view.rows(first)
+      assert(stale.hasNext)
+      val current = view.rows(second)
+      Seq(() => stale.hasNext, () => stale.next()).foreach { read =>
+        val e = intercept[IllegalStateException](read())
+        assert(e.getMessage.contains("moved to another batch"))
+      }
+      assert(current.next().getDecimal(0, 18, 2).toString === "37.00")
+      view.release()
+      intercept[IllegalStateException](current.hasNext)
+    } finally {
+      first.close()
+      second.close()
+      allocator.close()
     }
   }
 

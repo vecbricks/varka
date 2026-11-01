@@ -685,7 +685,8 @@ public abstract class VarkaEvaluatorBase {
    *
    * <p>The rows are those of one batch at a time: an iterator from here is valid until the next
    * call, and every caller reads a batch's rows before it asks for the next batch's, as the
-   * one-batch-at-a-time pull of every Varka node does.
+   * one-batch-at-a-time pull of every Varka node does. An iterator over the view throws
+   * {@code IllegalStateException} once a later call or the task's completion has rebound it.
    */
   public final java.util.Iterator<InternalRow> inputRows(ColumnarBatch input) {
     @Nullable VarkaRowView view = rowView;

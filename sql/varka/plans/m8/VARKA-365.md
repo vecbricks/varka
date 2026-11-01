@@ -723,3 +723,41 @@ with no nested column, is unchanged and answers as before. Each new cell was che
 without its fix: the evaluator forced to the view whatever its child, the non-cache cell answered
 by the exact rule; the field check removed, the scale cell read 1.25.
 
+
+### 13.6 Review fixes, 1 November 2026
+
+* **One batch at a time, enforced.** `VarkaRowView` counts its bindings: `rows()` and `release()`
+  each start a new one, and the view's own row iterator throws `IllegalStateException` from
+  `hasNext` and `next` once its binding is stale. Before, an iterator from an earlier `rows()`
+  read the next batch's columns after a rebind, and the javadoc said such a read failed. The row
+  an iterator hands out is reused and not checked itself, as `ColumnarBatch.rowIterator`'s is
+  not; a wrapped decimal column's reads still fail after a release. A batch the view wraps no
+  column of is read through its own `rowIterator`, which a rebind cannot reach. The view's
+  `InertBatch` is gone: the iterator builds a `ColumnarBatchRow` over the view's columns, the
+  same two allocations a batch made before.
+* **Which nodes `readsArrowCache` passes.** Any query stage, to the plan it wraps (a
+  `TableCacheQueryStageExec` over the scan; every other stage wraps an exchange and gives false),
+  and the two columnar Varka nodes, `VarkaProjectExec` and `VarkaFilterExec`, whose batches
+  forward their input's vectors. A fully structural rule - any unary columnar node - is not
+  sound, since such a node may compute its columns rather than forward them, so the list stays.
+  Its limit: a columnar node of another kind between a Varka node and the cache scan, which
+  Spark does not plant there, leaves the flag off, and the node reads that batch's own rows by
+  the double rule. `VarkaDecimalReadPathSuite` checks every plan its cells run for such a node
+  (`checkCacheFlags`: every Varka node whose input batches are the cache's, through query stages
+  and unary columnar nodes, must have the flag on), and a new cell pins the shape Varka plans: a
+  Varka filter under a Varka projection, over the cache's query stage, under adaptive execution.
+* **The accessor path.** The `changePrecision` failure branch and the null check after
+  `isNullAt` are removed: `ArrowColumnVector` builds the value with `Decimal.apply`, which
+  rescales and raises past the precision, so a valid row's value is never null and is already
+  at the read's precision and scale. Behaviour is unchanged.
+* **The Decimal256 javadoc.** The view wraps only an `ArrowColumnVector` over a `DecimalVector`,
+  Arrow Java's class for every decimal field narrower than 256 bits. A `Decimal256Vector` never
+  reaches it: the cache writes 128-bit fields only (`ArrowUtils.toArrowType`), its row reader
+  (`ArrowColumnReader`) casts its vector to `DecimalVector`, and `ArrowColumnVector` refuses a
+  `Decimal256Vector` when it is built (`_LEGACY_ERROR_TEMP_3160`).
+* **Cleanups.** `of()` finds the small-decimal columns in one pass, `rows()` fills the view's
+  columns in one loop, and the wrapper's no-op `closeIfFreeable` is dropped (the default calls
+  its no-op `close`).
+
+The suite goes from thirty-four cells to thirty-six: the plan-shape cell and a cell that a stale
+iterator throws, after a rebind and after a release.

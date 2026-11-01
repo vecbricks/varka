@@ -18,7 +18,9 @@
 package org.apache.spark.sql.execution;
 
 import java.nio.ByteOrder;
+import java.util.Arrays;
 import java.util.Iterator;
+import java.util.NoSuchElementException;
 
 import javax.annotation.Nullable;
 
@@ -36,6 +38,7 @@ import org.apache.spark.sql.vectorized.ArrowColumnVector;
 import org.apache.spark.sql.vectorized.ColumnVector;
 import org.apache.spark.sql.vectorized.ColumnarArray;
 import org.apache.spark.sql.vectorized.ColumnarBatch;
+import org.apache.spark.sql.vectorized.ColumnarBatchRow;
 import org.apache.spark.sql.vectorized.ColumnarMap;
 import org.apache.spark.unsafe.types.UTF8String;
 
@@ -56,7 +59,14 @@ import org.apache.spark.unsafe.types.UTF8String;
  * meet long-backed values; a row of a columnar batch reads through {@code ArrowColumnVector},
  * whose small-decimal accessor builds a {@code BigDecimal}-backed one.
  *
- * <p>A column the view reads takes one of two paths, chosen when the batch is bound:
+ * <p>The view wraps a column only when it is an {@code ArrowColumnVector} over a
+ * {@code DecimalVector}, Arrow Java's class for every decimal field narrower than 256 bits. A
+ * {@code Decimal256Vector} is another class and never reaches the view: the cache never writes
+ * one ({@code ArrowUtils.toArrowType} maps every {@code DecimalType} to a 128-bit field, and
+ * {@code ArrowColumnReader} casts its vector to {@code DecimalVector}), and
+ * {@code ArrowColumnVector} refuses one when it is built ({@code _LEGACY_ERROR_TEMP_3160}), so no
+ * columnar batch carries one. A wrapped column takes one of two paths, chosen when the batch is
+ * bound:
  *
  * <ul>
  *   <li>The cache's row reader's, when the Arrow field is a 128-bit decimal at the scale of the
@@ -68,8 +78,9 @@ import org.apache.spark.unsafe.types.UTF8String;
  *       ({@code ArrowCachedBatchSerializer.compactDecimalUnscaledOffset}).
  *   <li>The accessor's, for a field at another scale or width: {@code ArrowColumnVector} reads
  *       the value, rescaling it, and the view makes that value long-backed in place, as
- *       {@code UnsafeRowWriter.write} and the row would. Varka's kernels decline such a batch to
- *       the row path already.
+ *       {@code UnsafeRowWriter.write} and the row would. That covers a narrower
+ *       {@code DecimalVector} field, such as a 64-bit one from another writer. Varka's kernels
+ *       decline such a batch to the row path already.
  * </ul>
  *
  * <p><b>Known limit.</b> Vanilla's cache scan reads with the row reader only when every column
@@ -83,15 +94,26 @@ import org.apache.spark.unsafe.types.UTF8String;
  * answers the low word. For every well-formed value the two readers agree.
  *
  * <p>The view is never handed to a kernel, whose Arrow checks it would fail, nor to another
- * operator. It owns none of the input's vectors, so its close is a no-op, as is each wrapper's.
- * It is reused: {@link #rows} rebinds it, so a batch's rows must be read before the next batch's
- * rows are asked for, as every caller's one-batch-at-a-time pull does. It drops its references
- * to a batch's vectors on the next {@link #rows} and at the evaluator's task completion
- * ({@link #release}), so a read after either fails rather than reaching a vector its owner may
- * have freed. On the row reader's path a decimal read allocates one {@code Decimal}, as
- * {@code UnsafeRow.getDecimal} does, where the accessor allocates a {@code BigDecimal}, a Scala
- * {@code BigDecimal} and a {@code Decimal}. The decimal columns are found once, from the
- * schema; a batch allocates nothing here beyond its own row iterator.
+ * operator. It owns none of the input's vectors, so each wrapper's close is a no-op.
+ *
+ * <p><b>One batch at a time.</b> The view is one shared set of columns that {@link #rows}
+ * rebinds, so a batch's rows must be read before the next batch's rows are asked for, as every
+ * caller's one-batch-at-a-time pull does. The contract is enforced: the view counts its bindings,
+ * {@link #rows} and {@link #release} each starting a new one, and an iterator it returned throws
+ * {@code IllegalStateException} from {@code hasNext} and {@code next} once its binding is no
+ * longer the current one, rather than reading the next batch's columns. The row an iterator hands
+ * out is reused by every {@code next}, as {@code ColumnarBatch.rowIterator}'s is, and is not
+ * checked itself: a caller that keeps a row past {@code next} breaks the iterator's contract
+ * already. After a {@link #release} a wrapped decimal column's reads fail too, since the wrapper
+ * has dropped its vector. A batch the view wraps no column of is read through its own
+ * {@code rowIterator}, which reads that batch alone and so is untouched by a rebind.
+ *
+ * <p>The view drops its references to a batch's vectors on the next {@link #rows} and at the
+ * evaluator's task completion ({@link #release}). On the row reader's path a decimal read
+ * allocates one {@code Decimal}, as {@code UnsafeRow.getDecimal} does, where the accessor
+ * allocates a {@code BigDecimal}, a Scala {@code BigDecimal} and a {@code Decimal}. The decimal
+ * columns are found once, from the schema; a batch allocates nothing here beyond its row
+ * iterator and that iterator's row.
  */
 final class VarkaRowView {
 
@@ -108,7 +130,8 @@ final class VarkaRowView {
   private final int[] ordinals;
   private final LongBackedDecimals[] decimals;
   private ColumnVector[] columns = new ColumnVector[0];
-  private ColumnarBatch view = new InertBatch(columns);
+  // The current binding, which rows() and release() each advance; see the class comment.
+  private long generation;
 
   private VarkaRowView(int[] ordinals, DecimalType[] types) {
     this.ordinals = ordinals;
@@ -121,27 +144,21 @@ final class VarkaRowView {
   /** A view for batches of {@code schema}, or null when it has no decimal the view reads. */
   static @Nullable VarkaRowView of(Seq<Attribute> schema) {
     int width = schema.length();
+    int[] ordinals = new int[width];
+    DecimalType[] types = new DecimalType[width];
     int count = 0;
     for (int i = 0; i < width; i++) {
-      if (smallDecimal(schema.apply(i)) != null) {
+      @Nullable DecimalType type = smallDecimal(schema.apply(i));
+      if (type != null) {
+        ordinals[count] = i;
+        types[count] = type;
         count++;
       }
     }
     if (count == 0) {
       return null;
     }
-    int[] ordinals = new int[count];
-    DecimalType[] types = new DecimalType[count];
-    int k = 0;
-    for (int i = 0; i < width; i++) {
-      @Nullable DecimalType type = smallDecimal(schema.apply(i));
-      if (type != null) {
-        ordinals[k] = i;
-        types[k] = type;
-        k++;
-      }
-    }
-    return new VarkaRowView(ordinals, types);
+    return new VarkaRowView(Arrays.copyOf(ordinals, count), Arrays.copyOf(types, count));
   }
 
   private static @Nullable DecimalType smallDecimal(Attribute attribute) {
@@ -167,22 +184,28 @@ final class VarkaRowView {
     }
     if (columns.length != width) {
       columns = new ColumnVector[width];
-      view = new InertBatch(columns);
     }
+    // The ordinals ascend, so one cursor walks them beside the columns.
+    int k = 0;
     for (int i = 0; i < width; i++) {
-      columns[i] = input.column(i);
-    }
-    for (int k = 0; k < ordinals.length; k++) {
-      if (decimals[k].bound()) {
-        columns[ordinals[k]] = decimals[k];
+      ColumnVector column = input.column(i);
+      if (k < ordinals.length && ordinals[k] == i) {
+        if (decimals[k].bound()) {
+          column = decimals[k];
+        }
+        k++;
       }
+      columns[i] = column;
     }
-    view.setNumRows(input.numRows());
-    return view.rowIterator();
+    return new Rows(this, generation, new ColumnarBatchRow(columns), input.numRows());
   }
 
-  /** Drops the view's references to the last batch's vectors. */
+  /**
+   * Drops the view's references to the last batch's vectors and ends its binding, so that an
+   * iterator {@link #rows} returned for it throws.
+   */
   void release() {
+    generation++;
     for (int i = 0; i < columns.length; i++) {
       columns[i] = null;
     }
@@ -191,19 +214,47 @@ final class VarkaRowView {
     }
   }
 
-  /** A batch over vectors it does not own: closing it leaves them to the input batch's owner. */
-  private static final class InertBatch extends ColumnarBatch {
+  /**
+   * The rows of one binding of the view, as {@code ColumnarBatch.rowIterator} reads a batch's,
+   * failing once the view has moved on (see the class comment).
+   */
+  private static final class Rows implements Iterator<InternalRow> {
 
-    InertBatch(ColumnVector[] columns) {
-      super(columns);
+    private final VarkaRowView owner;
+    private final long generation;
+    private final ColumnarBatchRow row;
+    private final int numRows;
+    private int rowId;
+
+    Rows(VarkaRowView owner, long generation, ColumnarBatchRow row, int numRows) {
+      this.owner = owner;
+      this.generation = generation;
+      this.row = row;
+      this.numRows = numRows;
+    }
+
+    private void checkCurrent() {
+      if (owner.generation != generation) {
+        throw new IllegalStateException(
+            "a Varka row view's iterator read after the view moved to another batch or was "
+                + "released");
+      }
     }
 
     @Override
-    public void close() {
+    public boolean hasNext() {
+      checkCurrent();
+      return rowId < numRows;
     }
 
     @Override
-    public void closeIfFreeable() {
+    public InternalRow next() {
+      checkCurrent();
+      if (rowId >= numRows) {
+        throw new NoSuchElementException();
+      }
+      row.rowId = rowId++;
+      return row;
     }
   }
 
@@ -260,20 +311,16 @@ final class VarkaRowView {
         long unscaled = buffer.getLong((long) rowId * DecimalVector.TYPE_WIDTH + UNSCALED_OFFSET);
         return Decimal.createUnsafe(unscaled, precision, scale);
       }
-      // What UnsafeRowWriter.write stores for the accessor's value and UnsafeRow hands back.
+      // What UnsafeRowWriter.write stores for the accessor's value and UnsafeRow hands back. The
+      // value is not null, the row being valid, and already at (precision, scale): the accessor
+      // builds it with Decimal.apply, which rescales and raises past the precision.
       Decimal value = c.getDecimal(rowId, precision, scale);
-      if (value == null || !value.changePrecision(precision, scale)) {
-        return null;
-      }
       return value.set(value.toUnscaledLong(), precision, scale);
     }
 
+    // The wrapper owns no vector; the input batch's owner closes the one it wraps.
     @Override
     public void close() {
-    }
-
-    @Override
-    public void closeIfFreeable() {
     }
 
     @Override
