@@ -30,20 +30,24 @@ below, read on 1 November 2026 with `gh api` GETs. Nothing was dispatched.
    uploaded with `retention-days: 1` (`build_and_test.yml:1498` for the archive, `:1718` for the
    reach). A
    Sunday run whose master has not moved since Saturday morning finds them expired.
-5. **The schedule's guard.** `varka-option-matrix.yml`'s build job runs a `schedule` event only
+5. **The schedule's guards.** `varka-option-matrix.yml`'s build job runs a `schedule` event only
    on vecbricks/varka (`:31-46`). The fork already carries the file at its master and fires the
    cron: run 41296023350, on 1 November 2026 at 10:06 UTC, ended `skipped` at the guard. The cron
    says Sunday 03:00 UTC, and the runs fired late. vecbricks/varka's last three scheduled runs
    started at 08:18, 07:56 and 09:53 UTC (40176071516, 39109529723, 38129966925), and the
-   fork's at 10:06.
+   fork's at 10:06. The workflow's last job, `report-failure` (`:474-499`, row 393's mechanism),
+   runs on a failed scheduled run only on vecbricks/varka too (`:481`), "where issues are on"
+   (`:477`). It opens or comments on an issue through the composite action
+   `report-scheduled-failure` with the job's own token. On MaxGekk/spark issues are off:
+   `gh api repos/MaxGekk/spark --jq .has_issues` gives `false`, and vecbricks/varka's `true`.
 6. **On vecbricks/varka the workflow is `disabled_manually`** (since 29 October 2026,
    `m8/results/VARKA-522-weekly-run.txt`). Its last scheduled run, 40176071516, took 211 minutes
    on the twelve shards from before the fan-out.
 7. **Matrices overlap on the fork today.** On 1 November 2026, PR matrices 41292290507 (09:15 to
    09:45), 41288798840 (09:25 to 09:51) and 41294753812 (09:49 to 10:15) ran partly side by side.
-   The workflow has no `concurrency` group. What serializes them is the push chains' gate
-   (`~/proj/.varka-chains/chain3.sh:13`, `matrix_running`, any run of the workflow not
-   completed) and the owner's practice.
+   The workflow has no `concurrency` group. What serializes them is the owner's push chains,
+   laptop scripts outside this repository that wait while any run of the workflow is not
+   completed, and the owner's practice.
 8. **The slot budget.** The bins job has `max-parallel: 30` (`varka-option-matrix.yml:261`),
    a literal. Row 505 (planned) adds an instruction-set axis of about 8 bins with slots of its own
    beside the 30, on every dispatch. By the owner's word of 1 November 2026 (`VARKA-505.md` 7,
@@ -67,6 +71,14 @@ below, read on 1 November 2026 with `gh api` GETs. Nothing was dispatched.
   dispatches run in about 36 minutes (`VARKA-matrix-bins-1030.txt`), which is the comparison
   the timing step reads against.
 
+### Corrections from the plan's review (1 November 2026)
+
+The first draft turned only the build job's guard, which left `report-failure` on
+vecbricks/varka (2.1, question 5). Its `wait` job used the chains' test, which matches the run's
+own and lets two weekly-path runs wait on each other, and it cited a laptop script outside the
+repository; 2.3 now defines the test in the workflow. Its parallelism subtracted the build and
+report jobs, neither of which runs beside the bins (2.4).
+
 ## 1. Goal and non-goal
 
 **Goal.** Every Sunday the option matrix runs on the fork, from the fork's master. It reuses that
@@ -79,11 +91,26 @@ matrix (row 531). No baseline kept for pull requests (row 531's steps 2 and 3).
 
 ## 2. Design
 
-### 2.1 The guard turns to the fork
+### 2.1 The guards turn to the fork
 
 The build job's condition admits `schedule` on `MaxGekk/spark` instead of vecbricks/varka, and
 the comment says why: the fork has 40 slots and the master Build, and vecbricks/varka has
 neither. On vecbricks/varka the workflow stays `disabled_manually` (question 3).
+
+`report-failure`'s condition (`:481`) turns with it, or a failed weekly on the fork would report
+to nobody, and its comment at `:476-477` ("where issues are on") turns with it. Turning it
+alone is not enough, since issues are off on the fork (item 5). The action would then fail its
+calls, put the report on the job summary and fail the job, which only someone reading the run
+would see (**[I]**: the action's text describes that path for GitHub being unreachable; the plan
+did not check how `dev/varka_scheduled_failure.py` meets a repository with issues off).
+Question 5 asks the owner to turn issues on for MaxGekk/spark, which makes the mechanism work
+unchanged. If the owner prefers not to, the
+fallback is that summary and a red `report-failure` job. GitHub notifies a failed scheduled run
+to the user who last changed the cron line (**[I]**: on the fork that line arrives by the sync,
+and the plan did not check who GitHub treats as its author). Opening the issue on
+vecbricks/varka from the fork would need a token with `issues: write` there, kept as a fork
+secret, which the job's own token is not and which the sync's manual practice (row 525)
+deliberately does without.
 
 ### 2.2 The lookup reads the master Build
 
@@ -100,21 +127,39 @@ compiling on its own, as today (question 2).
 ### 2.3 The weekly waits for the other matrices
 
 A job of its own, `wait`, ahead of `build` and run only on the scheduled path, polls every two
-minutes until no other run of
-`varka-option-matrix.yml` is `queued` or `in_progress`, using the same test as the chains'
-`matrix_running`. It does the same for an upstream pull request's Build on the fork
-(`upstream-pr-ci-shares-fork-slots`: such a Build doubled a matrix's wall). It stops waiting
-after five hours, ends with a warning annotation naming the runs it waited on, and does not run
-that week (question 1). While it waits it holds one slot, and the chains' `matrix_running` sees
-it, so the PR matrices dispatched after it queue behind it. The matrices then run one at a time
-in both directions.
+minutes. The test is a step of the workflow itself, a `gh api` listing of
+`actions/workflows/varka-option-matrix.yml/runs` on `$GITHUB_REPOSITORY` with every status other
+than `completed`. It holds the run while any other run is ahead of it:
+
+- a run is never ahead of itself: the listing drops `github.run_id`;
+- a run with a lower id is ahead, whatever it is doing;
+- a run with a higher id is ahead only once it has got past its own wait: its `wait` job is
+  `completed`, whatever its conclusion, or it has no `wait` job (its `actions/runs/<id>/jobs`
+  listing). The test reads only the `wait` job, since a job blocked on `needs` may list as
+  `queued` while its predecessor still runs, which would make two waiting runs each see the
+  other as ahead. A plain dispatch has no `wait` job, so it is ahead as soon as it starts; an
+  `as-weekly` dispatch (2.5) has one and is tested as a scheduled run.
+
+So two runs on the weekly path never wait on each other: the lower id goes first, and the higher
+waits for it. A PR matrix that is already running holds the weekly back, and one dispatched while
+the weekly waits goes ahead of it, which keeps a pull request's matrix first. The wait does the
+same for an upstream pull request's Build on the fork, any run of `build_main.yml` not completed
+whose head branch starts `SPARK-` (`upstream-pr-ci-shares-fork-slots`: such a Build doubled a
+matrix's wall). It stops waiting after five hours, ends with a warning annotation naming the runs
+it waited on, and does not run that week (question 1). While it waits it holds one slot, and the
+chains' gate sees it as a running matrix, so a chain holds its push until the weekly is done.
 
 ### 2.4 The parallelism from the free slots
 
-After the wait, the plan step counts the fork's jobs `queued` or `in_progress` across its runs.
-It sets the bins' parallelism to the smaller of the matrix's shape and 40 less those jobs, less
-the build and report jobs' two. The shape is 30, or 38 before row 505's axis lands, since then
-the axis has no slots to keep. A dispatched run keeps 30. The number goes to the bins job as
+After the wait, the plan step counts the fork's jobs `queued` or `in_progress` across its runs,
+leaving out its own build job. That job ends before the first bin starts, and the report job
+starts after the last bin ends, so neither holds a slot beside the bins. It sets the bins'
+parallelism to the smaller of the matrix's shape and 40 less those jobs. The shape is 30, or 38
+before row 505's axis lands, the row's own bound, which leaves two slots for jobs that start
+while the bins run (a pull request's Build, a sync). A dispatched run keeps 30. On a quiet fork
+the count is 0 and the shape binds, so the run takes 38. The first draft also subtracted the
+build and report jobs, and counted its own build job among the jobs, so a quiet fork gave 37 and
+the 38 of P2 and test 3 could not be reached. The number goes to the bins job as
 `max-parallel: ${{ fromJSON(needs.build.outputs.parallel) }}` (**[I]**: the plan did not check
 that `strategy.max-parallel` takes an expression over `needs`. If it does not, the bins split
 into a 30-wide job and a second job for the rest, as row 505's axis is planned). The planner
@@ -143,8 +188,9 @@ and lets the owner rerun a week the wait skipped.
 - P1: a scheduled run with the master Build's reach plans about the 106 bins of a
   reach-filtered dispatch, and runs within 5 minutes of its wall at the same parallelism, about
   36 minutes (`VARKA-matrix-bins-1030.txt`, run 41035158315).
-- P2: at 38 slots, before row 505, the bins phase is shorter by at most a fifth of the 30-slot
-  run's. Fewer waves are the gain, and the slowest bin bounds it.
+- P2: at 38 slots, a quiet fork's count before row 505 (2.4), the bins phase is shorter by at
+  most a fifth of the 30-slot run's: 106 bins are about 3.5 bin lengths deep at 30 and 2.8 at
+  38. Fewer waves are the gain, and the slowest bin bounds it.
 - P3: the wait step adds nothing on a quiet Sunday and up to its five-hour bound on a busy one.
   Item 5's fire times put the cron in the owner's morning, when the chains run, so at least one
   of the two timed runs waits more than ten minutes (**[I]**: from one Sunday's runs, item 7).
@@ -155,7 +201,7 @@ and lets the owner rerun a week the wait skipped.
 
 | File | Change |
 |---|---|
-| `varka-option-matrix.yml` | guard, wait step, free slots, `max-parallel`, `as-weekly` |
+| `varka-option-matrix.yml` | both guards, `wait` job, free slots, `max-parallel`, `as-weekly` |
 | `dev/varka_matrix_reuse.py` | `varka-master.yml` runs, `expired`, selftests |
 | `dev/varka_matrix_bins.py` | `--slots`, selftests |
 | `sql/varka/skills/` (the CI file) | where the weekly runs and how it waits |
@@ -168,7 +214,7 @@ Order:
 3. the `as-weekly` dispatch on the fork's master after the merge;
 4. the two Sundays.
 
-Size: small, as the row says. It is three files and one waiting step.
+Size: small, as the row says. It is three files and one waiting job.
 
 ## 6. Out of this row
 
@@ -202,6 +248,13 @@ Size: small, as the row says. It is three files and one waiting step.
    axis's own slots, so the weekly also covers the instruction sets. The row's "up to 38" then
    applies only before the axis.
 
+5. **Issues on the fork.** `report-failure` turns to the fork with the schedule (2.1), but issues
+   are off on MaxGekk/spark (item 5). Options: (a) turn issues on there, so the mechanism works
+   unchanged; (b) leave them off, and a failed weekly shows only as the run's summary and a red
+   `report-failure` job; (c) open the issue on vecbricks/varka with a fork secret holding a
+   token for it. Recommended: (a). It is one setting, needs no token, and keeps row 393's rule
+   that a failed scheduled run reaches the owner the same day.
+
 ## 8. Done when
 
 - the Sunday schedule runs on the fork and is skipped on vecbricks/varka;
@@ -209,6 +262,7 @@ Size: small, as the row says. It is three files and one waiting step.
   re-dispatching it when the artifacts have expired;
 - it waits for any other option matrix to finish, and plans its parallelism from the free slots
   within the matrix's shape;
+- a failed scheduled run on the fork reaches the owner by `report-failure` (question 5);
 - two scheduled runs are timed in `m8/results/VARKA-522-weekly-run.txt`.
 
 ## 9. Open points for the lead

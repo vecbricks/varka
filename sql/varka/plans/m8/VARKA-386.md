@@ -22,10 +22,15 @@ varka-388:sql/varka/plans/m7/VARKA-388.md`. It is not in master's tree (question
 3. **A dry merge of that upstream master into Varka's master** (`git merge-tree`, nothing written)
    has two content conflicts. One is `.github/workflows/update_build_status.yml` (SPARK-59293).
    The other is `sql/core/.../columnar/ArrowCachedBatchSerializer.scala` (SPARK-60707 and
-   SPARK-60776, which Varka's cached-batch serializer also edits). Of the four files the upstream
-   commit touches, Varka has edited only `basicPhysicalOperators.scala`, with a three-line comment
-   that names `VarkaConjunctOrder.codegenOrder` as a port. Varka's `SQLConf.scala` edits are
-   elsewhere in that file, and they merge clean in the dry run.
+   SPARK-60776, which Varka's cached-batch serializer also edits). The upstream commit touches
+   four files. Against the last sync's upstream base, Varka has edited two of them:
+   - `basicPhysicalOperators.scala`, where two comment lines replace one to name
+     `VarkaConjunctOrder.codegenOrder` as a port of `generatePredicateCode`;
+   - `SQLConf.scala`, where Varka's own confs (158 lines added) sit elsewhere in the file.
+
+   Both merge clean in the dry run, and the merged file keeps Varka's comment beside the new
+   `precedingNotNullChecks`. Varka has not edited `docs/sql-migration-guide.md` or
+   `WholeStageCodegenSuite.scala`.
 4. **The work for that semantics was built against an earlier revision of the upstream pull
    request.** The branch `varka-388` (17 October 2026, unpushed as a pull request) carries:
    - a cherry-pick of the pull request's first revision (`4c019f800c5`, 225 lines added);
@@ -89,6 +94,13 @@ varka-388:sql/varka/plans/m7/VARKA-388.md`. It is not in master's tree (question
 - Size: medium, not small to medium. The row carries a port of the merged placement rule and
   sits behind an upstream sync.
 
+### Corrections from the plan's review (1 November 2026)
+
+The first draft said the reproducer's flip was the sync's only Varka edit while listing three,
+and said Varka had edited one of the upstream commit's four files while naming a second. Item 3
+and 2.1 now count from the files: Varka has edited two of the four, and the sync carries the
+reproducer and its README line only, the comment moving to this row's pull request.
+
 ## 1. Goal and non-goal
 
 **Goal.** A Varka filter raises, or answers, as Spark's filter does after SPARK-60315 in each of
@@ -106,11 +118,17 @@ or join conditions, which Varka does not fuse (`VARKA-388.md` 3.6).
 ### 2.1 The sync first
 
 A `varka-sync-apache-<MMDD>` pull request merges apache/spark's master, which holds
-`930c571628d`, into Varka's master. It resolves the two conflicts of item 3 and updates the
-three-line comment in `basicPhysicalOperators.scala` to name the new helpers. It flips the 386
-reproducer to `status: regression` and edits `sql/varka/fuzz/spark/README.txt` to match, since
-its own Build fails otherwise (item 6). That flip is the only Varka edit it carries. This row's
-pull request branches from the sync's head and opens the same day (question 1).
+`930c571628d`, into Varka's master. Beyond the merge it carries only what its own Build needs:
+
+- the resolutions of the two conflicts of item 3, neither in a file the upstream commit touches;
+- the 386 reproducer flipped to `status: regression`, and the README line that names its status
+  (`sql/varka/fuzz/spark/README.txt:2`), since the sync's Build fails otherwise (item 6).
+
+Those two files are the only Varka edits it makes. The comment in `basicPhysicalOperators.scala`
+merges clean and still states its rule, that a change be mirrored in
+`codegenOrder`, so it waits for this row's pull request, which ports
+the helpers it would name (2.2). This row's pull request branches from the sync's head and opens
+the same day (question 1).
 
 ### 2.2 `codegenOrder` follows the merged placement
 
@@ -195,8 +213,9 @@ the branch's two merges. `VARKA-388.md` becomes this row's record (question 3).
 
 | File | Change |
 |---|---|
-| sync pull request | upstream merged, two conflicts, the comment, the reproducer's status |
+| sync pull request | upstream merged, two conflicts, the reproducer's status and its README line |
 | `.../codegen/VarkaConjunctOrder.java` | `codegenOrder` with the flag, three orders |
+| `sql/core/.../execution/basicPhysicalOperators.scala` | Varka's comment names the new helpers |
 | `sql/core/.../execution/VarkaFilterExec.scala` | `fallbackCondition` passes the legacy conf |
 | `VarkaConjunctOrderSuite.java`, `VarkaDifferentialSuite.scala` | 3.1 to 3.3 |
 | `dev/varka_nightly.sh` | the nested-tree switch gone |
