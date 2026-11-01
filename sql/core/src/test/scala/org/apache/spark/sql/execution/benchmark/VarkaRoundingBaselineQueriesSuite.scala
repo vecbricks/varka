@@ -21,7 +21,7 @@ import scala.jdk.CollectionConverters._
 
 import org.apache.spark.sql.QueryTest
 import org.apache.spark.sql.execution.VarkaSharedSessions
-import org.apache.spark.sql.types._
+import org.apache.spark.sql.execution.benchmark.VarkaRoundingBaselineBenchmark.NullRule
 
 /**
  * The rounding baseline's sections, run at a small scale on both sessions in every build, so a
@@ -31,24 +31,23 @@ import org.apache.spark.sql.types._
  * only: whether a section fuses is the benchmark's own check, made when it is timed, since row
  * 344 is meant to start fusing these queries.
  *
- * The fixture is the benchmark's table over its first 2000 ids. Its columns are hashes of the
- * id, so these rows already reach the regions the benchmark's javadoc states, which the suite
- * checks before it runs the sections: `x` with a fraction, at a tie, at `0.0` and `-0.0` told
- * apart by their sign, NaN, below, inside and above the bucket bounds, and inside `2^31 / 7`;
- * `i` over both halves of the int range; `l` past `2^52` and not past `2^54`; `k` at both ends of
- * `[-2, 22]`. A section over the columns with no null must answer no null, except `factorial`,
- * which must answer null exactly on the rows of `k` outside `[0, 20]`, and `width_bucket`, null
- * exactly on the NaN rows of `x`, so a value that left its type into a null fails here rather
- * than going into the timed run as a cheap null. A section over the columns with one row in ten
- * null must answer exactly those nulls, besides the same rows of `k_n` and `x_n`.
+ * The fixture is the benchmark's table over its first 2000 ids. Its columns are hashes of the id,
+ * so these rows already reach the regions the benchmark's javadoc states, which the suite checks
+ * before it runs the sections: `x` with a fraction, at a tie, at `0.0` and `-0.0` told apart by
+ * their sign, NaN, below, inside and above the bucket bounds, and inside `2^31 / 7` with the ties
+ * inside `2^28 + 0.5` (bounds the table's construction guarantees for every id, which these rows
+ * only spot-check); `i` over both halves of the int range; `l` past `2^52` and not past `2^54`; `k`
+ * at both ends of `[-2, 22]`. A section over the columns with no null must answer no null, except
+ * `factorial`, which must answer null exactly on the rows of `k` outside `[0, 20]`, and
+ * `width_bucket`, null exactly on the NaN rows of `x`, so a value that left its type into a null
+ * fails here rather than going into the timed run as a cheap null. A section over the columns with
+ * one row in ten null must answer exactly those nulls, besides the same rows of `k_n` and `x_n`.
+ * Each section carries its own result type and null rule, so adding or reordering sections cannot
+ * pair one with another's expectations.
  */
 class VarkaRoundingBaselineQueriesSuite extends QueryTest with VarkaSharedSessions {
 
   private val rows = 2000
-
-  /** The result type of each function, in the order `sections()` lists them for one density. */
-  private val resultTypes = Seq(DoubleType, LongType, LongType, LongType, LongType, LongType,
-    IntegerType, IntegerType, LongType, LongType, LongType, LongType)
 
   /** Runs `body` with the section's SQL settings on both sessions; a section has at most one. */
   private def withSettings(s: VarkaRoundingBaselineBenchmark.Section)(body: => Unit): Unit = {
@@ -73,7 +72,8 @@ class VarkaRoundingBaselineQueriesSuite extends QueryTest with VarkaSharedSessio
            |       count_if(cast(x as string) = '0.0'), count_if(cast(x as string) = '-0.0'),
            |       count_if(isnan(x)),
            |       count_if(not isnan(x) and abs(x) % 1 <> 0 and abs(x) % 1 <> 0.5),
-           |       max(if(isnan(x), 0, abs(x))) <= power(2, 31) / 7,
+           |       max(if(isnan(x), 0, abs(x))) <= power(2, 31) / 7
+           |         and max(if(abs(x) % 1 = 0.5, abs(x), 0)) <= power(2, 28) + 0.5,
            |       count_if(x < -2.0E8), count_if(x >= -2.0E8 and x < 2.0E8), count_if(x >= 2.0E8),
            |       min(i) < -power(2, 30), max(i) > power(2, 30),
            |       count_if(abs(l) > power(2, 52)), max(abs(l)) <= power(2, 54),
@@ -99,22 +99,21 @@ class VarkaRoundingBaselineQueriesSuite extends QueryTest with VarkaSharedSessio
       val nan = rows / 1000L
 
       val sections = VarkaRoundingBaselineBenchmark.sections().asScala.toSeq
-      assert(sections.size === 2 * resultTypes.size)
-      for ((s, index) <- sections.zipWithIndex) {
+      assert(sections.size === 32)
+      assert(sections.map(_.title).distinct.size === sections.size)
+      for (s <- sections) {
         withClue(s.title) {
           withSettings(s) {
             val answer = spark.sql(s.query)
             assert(answer.schema.map(_.name) === Seq("a"))
-            assert(answer.schema.head.dataType === resultTypes(index % resultTypes.size))
+            assert(answer.schema.head.dataType.sql === s.resultType)
             checkAnswer(varkaSpark.sql(s.query), answer)
-            val noNulls = s.title.endsWith("no nulls")
-            val inputNulls = if (noNulls) 0L else rows / 10L
-            val nulls = if (s.query.contains("factorial")) {
-              if (noNulls) factorialNulls else factorialNullsN
-            } else if (s.query.contains("width_bucket")) {
-              inputNulls + nan
-            } else {
-              inputNulls
+            val inputNulls = if (s.nullInputs) rows / 10L else 0L
+            val nulls = s.nulls match {
+              case NullRule.INPUT => inputNulls
+              case NullRule.INPUT_OR_NAN => inputNulls + nan
+              case NullRule.INPUT_OR_OUTSIDE_FACTORIAL =>
+                if (s.nullInputs) factorialNullsN else factorialNulls
             }
             assert(answer.where("a IS NULL").count() === nulls)
           }
