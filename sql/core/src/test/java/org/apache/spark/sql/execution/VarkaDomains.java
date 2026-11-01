@@ -414,18 +414,18 @@ public final class VarkaDomains {
         }
         // But a partition none of whose batches reached the guards left them unexercised: a
         // batch the all-null shortcut answers and one the input bound declines are both settled
-        // before any guard runs. That is a finding when some row outside could have reached
-        // them - every operand within the input bounds - and the fixture owes it a batch of its
-        // own. A domain that is the input bound itself has no such row, and nothing outside it
-        // can reach a guard.
-        int inBounds = rowsWithinInputBounds(kernel.get(), options, fixture);
-        if (partition.equals("outside") && !verdicts.isEmpty() && inBounds > 0
+        // before any guard runs. That is a finding when some row could have reached them in a
+        // batch of its own - inside the input bounds and not answered by the shortcut - and the
+        // fixture owes it one. A domain that is the input bound itself has no such row, and
+        // nothing outside it can reach a guard.
+        int reaching = rowsReachingGuards(kernel.get(), options, fixture);
+        if (partition.equals("outside") && !verdicts.isEmpty() && reaching > 0
             && verdicts.stream().noneMatch(VarkaDomains::reachesGuards)) {
           long shortcuts = verdicts.stream().filter(Verdict::shortcut).count();
           findings.add(where + ": no batch outside the domain reached the guards ("
               + shortcuts + " answered by the all-null shortcut, " + (verdicts.size() - shortcuts)
-              + " declined by the input bound), though " + inBounds + " of its rows are within "
-              + "the input bounds, so the guard was not exercised");
+              + " declined by the input bound), though " + reaching + " of its rows would reach "
+              + "them in a batch of their own, so the guard was not exercised");
         }
         for (int b = 0; b < verdicts.size(); b++) {
           VarkaExpressionHarness.Batch batch = outcome.batches.get(b);
@@ -466,27 +466,19 @@ public final class VarkaDomains {
   }
 
   /**
-   * How many of {@code fixture}'s rows have every non-null input of {@code kernel} within the
-   * kernel's input bounds, read as {@link #verdicts} reads them: the rows a batch of their own
-   * would take past the input bound to the guards.
+   * How many of {@code fixture}'s rows a batch of their own would take to the guards: the verdict
+   * of each row alone, read by {@link #reachesGuards}. A row with a live input outside the input
+   * bounds is declined before any guard runs, and so is answered one the all-null shortcut takes,
+   * such as a row whose bounded inputs are all NULL; neither counts.
    */
-  private static int rowsWithinInputBounds(CompiledVarkaProjection kernel,
+  private static int rowsReachingGuards(CompiledVarkaProjection kernel,
       VarkaEmitOptions options, VarkaHarnessPlans.Fixture fixture) {
-    List<Integer> ordinals = kernel.inputOrdinals();
-    List<Attribute> columns = CollectionConverters.asJava(fixture.columns());
-    int count = 0;
-    for (InternalRow row : fixture.rows()) {
-      boolean within = true;
-      for (VarkaInputBound b : kernel.inputBounds()) {
-        int o = ordinals.get(b.inputIndex());
-        if (!row.isNullAt(o)) {
-          long v = laneValue(row, o, columns.get(o).dataType());
-          within &= v >= b.lo() && v <= b.hi();
-        }
-      }
-      count += within ? 1 : 0;
+    var alone = new ArrayList<VarkaExpressionHarness.Batch>();
+    for (int r = 0; r < fixture.rows().size(); r++) {
+      alone.add(new VarkaExpressionHarness.Batch(r, 1, VarkaExpressionHarness.Batch.ANSWERED));
     }
-    return count;
+    return (int) verdicts(kernel, options, fixture, alone).stream()
+        .filter(VarkaDomains::reachesGuards).count();
   }
 
   /**
