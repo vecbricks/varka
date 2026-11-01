@@ -534,3 +534,13 @@ Open points for the lead:
    each registry entry as 2.1 words it; rows 343 and 350 read the same function.
 2. `SMALLINT` to `TINYINT` under the native arm drives at the int lane (two narrow lanes in one
    tree), so no `S2B` is emitted, as 2.2 expects until a census cell exists.
+3. Two declines section 7 does not list, both in a kernel driven at the long lane, and recorded in
+   the ANSI form's declined list (`VarkaAnsiForm.DECLINED`): a narrow choice beside a bigint
+   (`coalesce(y2, CAST(l AS TINYINT))`), and a narrow literal the predicate compiler lifts to the
+   long lane (`y1 = 5Y` as a `CASE` condition between bigint arms), which declines as it did
+   before 332a, since the long kernel's slots name no int-lane broadcast for it. Neither is a
+   cast; a narrow choice and literal at the long width would sit with 343's floating casts, which
+   meet the same long-width narrow values, or a row of their own. Suggested: 343's plan decides.
+4. `java.util.Random`'s first draw over consecutive seeds varies only in its low bits, so a draw
+   of `nextInt(4)` first took two of four compositions over a thousand seeds; the cast grammar
+   discards one value first. A lesson for `skills/testing-and-debugging.md`, not written here.
