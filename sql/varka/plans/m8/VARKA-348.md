@@ -513,3 +513,18 @@ boolean overload is gone, and a probe on an Arrow-cached Varka session found eac
 sections where its flag had it: the sections flagged as fusing are `WHOLE` and the rest `NONE`,
 so none of them hid a null-test fusion. `VarkaDecimalBaselineQueriesSuite` asserts each
 section's class in every build under the emitter's default options.
+
+**The fuse check after the second review.** It corrects four points of the paragraph above. The
+check no longer compiles a Varka projection again: the node's own classification, the compile that
+serves its EXPLAIN, is visible to `sql` and read in place, so the check records no compile under
+the compile observer. A Varka projection that only forwards or renames columns, which the rule's
+pre stage plans over a Varka filter whose output it narrows, compiles to no kernel and now counts
+as computing nothing, where its empty classification had read as `PARTIAL`. Under adaptive
+execution the plan's wrappers are leaves and the columnar rules run as each stage is created, so
+the search had read every adaptive plan as `NONE`; it now reads an `AdaptiveSparkPlanExec` through
+its final plan and a query stage through its plan, and exempts adaptive execution's shuffle read.
+And a row operator decides first: with one, a plan is `NULL_TESTS` only when every Varka node is a
+null-test filter, so a Varka projection beside a row operator gives no class, never `PARTIAL`. The
+floating, floating arithmetic and `TIMESTAMP_NTZ` suites now assert each section's class in every
+build too, under `PinsDefaults` as the decimal and `TIMESTAMP_NTZ` arithmetic suites do, and every
+listed class matched its plan.
