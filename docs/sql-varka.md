@@ -683,6 +683,66 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `if(dt < dt2, dt, dt2)` | `predicate`, `condition` |  |  | per-lane: compare to mask, blend, mask cast, mask broadcast |
 | `coalesce(dt, dt2)` | `condition` |  |  | per-lane: blend, mask broadcast |
 
+#### Choice and nulls on every type
+
+| Expression | Switches | Domain | Notes | 128-bit lanes |
+|---|---|---|---|---|
+| `if(i < 0, i, i + 1)` | `predicate`, `condition`, `intArithmetic` | `i < 2147483647` | an int branch is a column, a literal or int arithmetic; the checked add is qualified by its arm, so only a row taking the ELSE can overflow | vector |
+| `CASE WHEN d < d2 THEN i ELSE datediff(d, d2) END` | `calendar`, `predicate`, `condition` |  |  | vector |
+| `coalesce(i, datediff(d, d2))` | `calendar`, `condition` |  |  | vector |
+| `coalesce(i, 0)` | `condition` |  |  | vector |
+| `zeroifnull(i)` | `condition` |  | rewritten to coalesce(i, 0) | vector |
+| `greatest(i, 7)` | `intArithmetic` |  |  | vector |
+| `least(i, -7)` | `intArithmetic` |  |  | vector |
+| `greatest(i, -2147483648)` | `intArithmetic` |  | the int minimum beside a null is the minimum, not a null | vector |
+| `least(i, 2147483647)` | `intArithmetic` |  | the int maximum beside a null | vector |
+| `greatest(i, CAST(NULL AS INT))` | `intArithmetic` |  | a NULL operand is the null leaf, which the pick skips as it skips a null column: the answer is i, and null only where i is | vector |
+| `least(i, NULL, -2147483648)` | `intArithmetic` |  | the null leaf beside the int minimum | vector |
+| `greatest(d, NULL, d2)` | `intArithmetic` |  |  | vector |
+| `least(ym, NULL)` | `intArithmetic` |  |  | vector |
+| `nvl2(d, i, 0)` | `predicate`, `condition` |  | rewritten to if(d IS NOT NULL, i, 0) | vector |
+| `CASE WHEN d < d2 THEN i END` | `predicate`, `condition` |  | the missing ELSE is the null of the int lane | vector |
+| `if(d < d2, i, NULL)` | `predicate`, `condition` |  |  | vector |
+| `nullif(i, 3)` | `predicate`, `condition` |  | rewritten to if(i = 3, NULL, i); over a computed operand the optimizer evaluates it in a projection of its own, a second kernel | vector |
+| `nullifzero(i)` | `predicate`, `condition` |  | rewritten to if(i = 0, NULL, i) | vector |
+| `CASE WHEN d < d2 THEN d END` | `predicate`, `condition` |  |  | vector |
+| `if(d < d2, NULL, d)` | `predicate`, `condition` |  |  | vector |
+| `nullif(d, d2)` | `predicate`, `condition` |  |  | vector |
+| `nvl2(d2, d, d2)` | `predicate`, `condition` |  |  | vector |
+| `CASE WHEN d < d2 THEN ym END` | `predicate`, `condition` |  |  | vector |
+| `nullif(ym, INTERVAL '1-2' YEAR TO MONTH)` | `predicate`, `condition` |  |  | vector |
+| `nvl2(d, ym, INTERVAL '0-1' YEAR TO MONTH)` | `predicate`, `condition` |  |  | vector |
+| `CASE WHEN l < l2 THEN l END` | `predicate`, `condition` |  | the missing ELSE is the null of the long lane | per-lane: compare to mask, mask cast, blend, mask broadcast |
+| `if(d < d2, l, NULL)` | `predicate`, `condition` |  | a date condition lifted to the long lane beside the null | per-lane: compare to mask, mask cast, blend, mask broadcast, load or store, mask test |
+| `nullif(l, l2)` | `predicate`, `condition` |  |  | per-lane: compare to mask, mask cast, blend, mask broadcast |
+| `nullifzero(l)` | `predicate`, `condition`, `intArithmetic` |  |  | per-lane: compare to mask, mask cast, blend, mask broadcast, load or store, mask test |
+| `zeroifnull(l)` | `condition`, `intArithmetic` |  |  | per-lane: blend, mask broadcast, load or store, mask test |
+| `nvl2(l2, l, l2)` | `predicate`, `condition` |  |  | per-lane: blend, mask broadcast |
+| `greatest(l, -9223372036854775808L)` | `intArithmetic` |  | the bigint minimum beside a null | per-lane: blend, mask broadcast |
+| `least(l, 9223372036854775807L)` | `intArithmetic` |  | the bigint maximum beside a null | per-lane: blend, mask broadcast |
+| `greatest(l, NULL, -9223372036854775808L)` | `intArithmetic` |  | the null leaf of the long lane beside the bigint minimum | per-lane: blend, mask broadcast |
+| `CASE WHEN t < t2 THEN t END` | `predicate`, `condition` |  |  | per-lane: compare to mask, mask cast, blend, mask broadcast |
+| `nullif(t, t2)` | `predicate`, `condition` |  |  | per-lane: compare to mask, mask cast, blend, mask broadcast |
+| `nvl2(t2, t, t2)` | `predicate`, `condition` |  |  | per-lane: blend, mask broadcast |
+| `greatest(t, TIME '00:00:00')` | `intArithmetic` |  | the first TIME beside a null | per-lane: blend, mask broadcast |
+| `least(t, TIME '23:59:59.999999')` | `intArithmetic` |  | the last TIME beside a null | per-lane: blend, mask broadcast |
+| `least(t, NULL)` | `intArithmetic` |  |  | per-lane: blend, mask broadcast |
+| `CASE WHEN dt < dt2 THEN dt END` | `predicate`, `condition` |  |  | per-lane: compare to mask, mask cast, blend, mask broadcast |
+| `nullif(dt, dt2)` | `predicate`, `condition` |  |  | per-lane: compare to mask, mask cast, blend, mask broadcast |
+| `nvl2(dt2, dt, dt2)` | `predicate`, `condition` |  |  | per-lane: blend, mask broadcast |
+| `greatest(dt, NULL)` | `intArithmetic` |  |  | per-lane: blend, mask broadcast |
+
+#### BETWEEN on every type
+
+| Predicate | Switches | Domain | Notes | 128-bit lanes |
+|---|---|---|---|---|
+| `i BETWEEN 1 AND 9` | `predicate` |  |  | vector |
+| `d BETWEEN DATE '2000-01-01' AND d2` | `predicate` |  |  | vector |
+| `ym BETWEEN INTERVAL '-1-0' YEAR TO MONTH AND INTERVAL '1-0' YEAR TO MONTH` | `predicate` |  |  | vector |
+| `l BETWEEN l2 AND 5000000000` | `predicate` |  |  | per-lane: compare to mask, mask logic, mask cast |
+| `t BETWEEN t2 AND TIME '23:59:59'` | `predicate` |  |  | per-lane: compare to mask, mask logic, mask cast |
+| `dt BETWEEN dt2 AND INTERVAL '1' DAY` | `predicate` |  |  | per-lane: compare to mask, mask logic, mask cast |
+
 #### TIMESTAMP_NTZ columns
 
 | Predicate | Switches | Domain | Notes | 128-bit lanes |
@@ -871,19 +931,19 @@ operands (a row counts once for each type it reads):
 <!-- BEGIN generated verification counts -->
 | Type | Rows | refinement | proof | exhaustive | owed | differential |
 | :--- | ---: | ---: | ---: | ---: | ---: | ---: |
-| `bigint` | 48 | 0 | 2 | 0 | 2 | 44 |
+| `bigint` | 58 | 0 | 2 | 0 | 2 | 54 |
 | `bool` | 23 | 0 | 0 | 13 | 0 | 10 |
 | `byte` | 26 | 0 | 0 | 0 | 8 | 18 |
-| `date` | 87 | 17 | 0 | 1 | 0 | 69 |
+| `date` | 101 | 17 | 0 | 1 | 0 | 83 |
 | `dec` | 17 | 0 | 0 | 0 | 0 | 17 |
 | `double` | 37 | 0 | 0 | 0 | 0 | 37 |
-| `dt` | 20 | 2 | 0 | 0 | 0 | 18 |
+| `dt` | 25 | 2 | 0 | 0 | 0 | 23 |
 | `float` | 29 | 0 | 0 | 0 | 0 | 29 |
-| `int` | 75 | 14 | 2 | 0 | 1 | 58 |
+| `int` | 94 | 14 | 2 | 0 | 1 | 77 |
 | `ntz` | 24 | 0 | 1 | 0 | 0 | 23 |
 | `short` | 25 | 0 | 0 | 0 | 8 | 17 |
-| `time` | 34 | 6 | 0 | 0 | 2 | 26 |
-| `ym` | 30 | 7 | 2 | 0 | 2 | 19 |
+| `time` | 41 | 6 | 0 | 0 | 2 | 33 |
+| `ym` | 35 | 7 | 2 | 0 | 2 | 24 |
 <!-- END generated verification counts -->
 
 ## Glossary
