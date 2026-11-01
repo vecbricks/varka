@@ -24,8 +24,7 @@ import scala.jdk.OptionConverters._
 import scala.util.Try
 
 import org.apache.spark.sql.{DataFrame, QueryTest, SparkSession}
-import org.apache.spark.sql.catalyst.expressions.{Expression, NamedExpression}
-import org.apache.spark.sql.catalyst.expressions.codegen.VarkaExpressionCompiler
+import org.apache.spark.sql.catalyst.expressions.codegen.PartialVarkaProjection
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaKernelWarmup,
   VarkaLoopEmitter, VarkaMatrixRuns, VarkaTestWatchdog, VarkaVectorIR}
 import org.apache.spark.sql.internal.SQLConf
@@ -394,7 +393,7 @@ trait VarkaSparkDifferential extends QueryTest with VarkaSharedSessions with Var
       cacheFixture(fixture)
       try queries.exists { query =>
         Try(varkaSpark.sql(query).queryExecution.executedPlan).toOption.exists { plan =>
-          collect(plan) { case v if isVarkaNode(v) => v }.exists { node =>
+          collect(plan) { case v if v.nodeName.startsWith("Varka") => v }.exists { node =>
             VarkaLoopEmitter.readsCheckIntOverflowForTest(kernelOutputs(node).asJava)
           }
         }
@@ -402,24 +401,21 @@ trait VarkaSparkDifferential extends QueryTest with VarkaSharedSessions with Var
     })
   }
 
-  /** The output trees of every kernel a Varka node compiles, compiled as the node compiles them. */
+  /**
+   * The output trees of every kernel a Varka node runs, read from the compile the node itself holds
+   * (its `classification`), so they are the plan's own and not a compile that could drift from it.
+   * A filter's absorbed `narrowing` is a row projection, not a kernel. A Varka node this does not
+   * name fails the check rather than reading as one with no kernels.
+   */
   private def kernelOutputs(node: SparkPlan): Seq[VarkaVectorIR] = {
-    def project(list: Seq[NamedExpression], child: SparkPlan, emit: VarkaSessionEmit) =
-      VarkaExpressionCompiler.compilePartial(list, child.output,
-        VarkaColumnarToRowExec.emitOptions(emit), emit.familiesOff).toScala.toSeq
-        .flatMap(_.kernels().asScala.flatMap(_.outputs().asScala))
-    def predicate(condition: Expression, child: SparkPlan, emit: VarkaSessionEmit) =
-      VarkaExpressionCompiler.compilePredicate(condition, child.output,
-        VarkaColumnarToRowExec.emitOptions(emit), emit.familiesOff).toScala.toSeq
-        .flatMap(_.fused().outputs().asScala)
+    def project(c: java.util.Optional[PartialVarkaProjection]) =
+      c.toScala.toSeq.flatMap(_.kernels().asScala.flatMap(_.outputs().asScala))
     node match {
-      case p: VarkaColumnarToRowExec => project(p.projectList, p.child, p.sessionEmit)
-      case p: VarkaProjectExec => project(p.projectList, p.child, p.sessionEmit)
-      case f: VarkaFilterExec => predicate(f.condition, f.child, f.sessionEmit)
-      case f: VarkaFilterColumnarToRowExec =>
-        predicate(f.condition, f.child, f.sessionEmit) ++
-          f.narrowing.toSeq.flatMap(project(_, f.child, f.sessionEmit))
-      case _ => Nil
+      case p: VarkaColumnarToRowExec => project(p.classification)
+      case p: VarkaProjectExec => project(p.classification)
+      case f: VarkaFilterExecBase =>
+        f.classification.toScala.toSeq.flatMap(_.fused().outputs().asScala)
+      case other => fail(s"the overflow pin cannot read the kernels of ${other.nodeName}")
     }
   }
 
