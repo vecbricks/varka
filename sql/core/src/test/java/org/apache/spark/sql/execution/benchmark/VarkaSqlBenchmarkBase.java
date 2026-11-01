@@ -47,7 +47,6 @@ import org.apache.spark.sql.catalyst.expressions.IsNotNull;
 import org.apache.spark.sql.catalyst.expressions.IsNull;
 import org.apache.spark.sql.catalyst.expressions.NamedExpression;
 import org.apache.spark.sql.catalyst.expressions.codegen.PartialVarkaProjection;
-import org.apache.spark.sql.catalyst.expressions.codegen.VarkaExpressionCompiler;
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaOutputSpec;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions;
 import org.apache.spark.sql.execution.ColumnarToRowTransition;
@@ -57,11 +56,9 @@ import org.apache.spark.sql.execution.ProjectExec;
 import org.apache.spark.sql.execution.RowToColumnarTransition;
 import org.apache.spark.sql.execution.SparkPlan;
 import org.apache.spark.sql.execution.VarkaColumnarToRowExec;
-import org.apache.spark.sql.execution.VarkaColumnarToRowExec$;
 import org.apache.spark.sql.execution.VarkaFilterColumnarToRowExec;
 import org.apache.spark.sql.execution.VarkaFilterExec;
 import org.apache.spark.sql.execution.VarkaProjectExec;
-import org.apache.spark.sql.execution.VarkaSessionEmit;
 import org.apache.spark.sql.execution.WholeStageCodegenExec;
 import org.apache.spark.sql.execution.exchange.Exchange;
 import org.apache.spark.sql.internal.SQLConf;
@@ -374,28 +371,24 @@ public abstract class VarkaSqlBenchmarkBase extends VarkaBenchmarkBase {
   /**
    * Whether {@code p} is a Varka projection that leaves an entry to its per-row fallback: an
    * entry its kernel declines ({@code ResidualOutput}), which the node evaluates row by row
-   * beside the kernel's. The node keeps its classification private, so this compiles the
-   * projection again the way the node does, from its own list, child output and session emit
-   * settings, and the two agree since the compile is a pure function of those.
+   * beside the kernel's. It reads the node's own classification, the compile that also serves
+   * its EXPLAIN and its residual-entry metric, so the check compiles nothing of its own.
    */
   private static boolean leavesEntriesToRows(SparkPlan p) {
     return switch (p) {
       case VarkaProjectExec project ->
-          leavesEntriesToRows(project.projectList(), project.child(), project.sessionEmit());
+          leavesEntriesToRows(project.projectList(), project.classification());
       case VarkaColumnarToRowExec project ->
-          leavesEntriesToRows(project.projectList(), project.child(), project.sessionEmit());
+          leavesEntriesToRows(project.projectList(), project.classification());
       default -> false;
     };
   }
 
   private static boolean leavesEntriesToRows(
-      Seq<NamedExpression> projectList, SparkPlan child, VarkaSessionEmit emit) {
-    Optional<PartialVarkaProjection> partial = VarkaExpressionCompiler.compilePartial(
-        projectList, child.output(), VarkaColumnarToRowExec$.MODULE$.emitOptions(emit),
-        emit.familiesOff());
+      Seq<NamedExpression> projectList, Optional<PartialVarkaProjection> classification) {
     // A projection none of whose entries compiles is not planned as a Varka node, so an empty
-    // compile here would mean the two disagree; it counts as left to rows, the safe side.
-    return partial.map(projection -> projection.specs().stream()
+    // classification here would mean the two disagree; it counts as left to rows, the safe side.
+    return classification.map(projection -> projection.specs().stream()
         .anyMatch(spec -> spec instanceof VarkaOutputSpec.ResidualOutput)).orElse(true);
   }
 
