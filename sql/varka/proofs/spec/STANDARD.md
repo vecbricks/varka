@@ -135,6 +135,10 @@ and `-a` are the exact integer results when they lie in `[lo, hi]`, and raise 22
 A `DECIMAL(p, s)` value (C4's exact numeric of precision `p` and scale `s`, `p <= 18` on the long
 lane) is the algebraic value `u / 10^s` of its unscaled lane value `u`, with range
 `|u| <= 10^p - 1`; its monadic minus is `-u / 10^s`, within the range for every `u` in it.
+The sum and difference of two `DECIMAL` values `u1 / 10^s1` and `u2 / 10^s2` have scale
+`S = max(s1, s2)` and their product scale `s1 + s2`, each precision the implementation's (SQL-92
+6.12 SR 2), and each value is exact: `u1 * 10^(S - s1) +- u2 * 10^(S - s2)` at scale `S`, and
+`u1 * u2` at scale `s1 + s2`; a result outside its type's precision raises 22003 (VARKA-349).
 
 **Truncates or floors:** does not divide. `-2147483647 - 1 = -2147483648`, in range;
 `-2147483648 - 1` raises 22003.

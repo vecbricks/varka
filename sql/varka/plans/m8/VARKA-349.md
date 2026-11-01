@@ -570,6 +570,29 @@ and a new `d8` (`DECIMAL(8, 2)`, derived from `l2` in the differential's fixture
 the suggested home 350 (section 7). `dt_times_num`, `dt_div_num`, `pmod` and `try_mod` did not
 name 349.
 
+**The specification.** `spec/STANDARD.md` 4.1 gains, after 348's sentence on the value of a
+`DECIMAL`, the result scales of `+`, `-` and `*` from SQL-92 6.12 SR 2 and their exact values,
+which the refinement section restates.
+
+**Test time, on the laptop.** `VarkaDecimalArithmeticSuite`'s nine tests take 4.8 s, the sweep
+among them; the bytes oracle's new test under a second; the IR fuzzer's own JVM ran its decimal
+sequence's 300 draws in 2 minutes 47 seconds with the three arithmetic picks, against 348a's
+2 minutes 45 seconds for the whole suite's JVM, a run each, so no cost is read from the pair.
+
+**Prediction 6, scored.** No existing shape's bytes moved: against 348a's branch the oracle's 22
+changed entries are all `option_arms` digests and nothing was removed. The digests moved with the
+new coverage rows, which each digest covers, and not with a flag, since none was added.
+
+**Left for the merge and for later.**
+
+- `VarkaDecimalBaselineQueriesSuite` on 348's baseline branch states a fusion class per section,
+  and this row's three filters there (`x + y < z`, `x - w > 0`, `x8 * y < z`) are `NULL_TESTS` on
+  the unchanged code; 349a fuses them whole, so whichever of the baseline pull request and 349a
+  merges second moves those three sections to `WHOLE`.
+- `VarkaConjunctOrder.errorFreeNode` still counts decimal `+`, `-` and `*` as able to raise.
+  Within 18 digits none can, but only a residual conjunct beside a fused one reads it, and the
+  conservative answer orders such a filter as Spark's codegen would; left unchanged.
+
 ### Departures (1 November 2026)
 
 - **`d8 * d9 <= d18` cannot fuse.** The product is `DECIMAL(18, 4)` and `d18` is
