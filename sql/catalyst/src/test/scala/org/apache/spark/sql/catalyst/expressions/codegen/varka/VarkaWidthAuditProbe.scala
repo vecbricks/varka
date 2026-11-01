@@ -62,6 +62,8 @@ object VarkaWidthAuditProbe {
    */
   val FEATURES_FAILURE_PREFIX = "VARKA_AUDIT_FEATURES_FAILURE="
   val FEATURES_FAILURE_END = " VARKA_AUDIT_FAILURE_END"
+  /** How [[featuresFailureIn]]'s answer for a garbled failure line starts. */
+  val FEATURES_FAILURE_UNKNOWN = "failure text unknown: "
   val SHAPE_BEGIN_PREFIX = "VARKA_AUDIT_SHAPE_BEGIN "
   val SHAPE_END_PREFIX = "VARKA_AUDIT_SHAPE_END "
   val SHAPE_NAME_END = " VARKA_AUDIT_NAME_END"
@@ -88,8 +90,7 @@ object VarkaWidthAuditProbe {
     println(USE_AVX_PREFIX + VarkaEmitOptions.HOST_USE_AVX)
     println(CONVERSIONS_FALL_BACK_PREFIX + VarkaHostIsa.conversionsFallBack())
     println(FEATURES_PREFIX + VarkaHostIsa.features())
-    println(FEATURES_FAILURE_PREFIX +
-      oneLine(Option(VarkaHostIsa.host().failure()).getOrElse("")) + FEATURES_FAILURE_END)
+    println(featuresFailureLine(VarkaHostIsa.host().failure()))
     val entries: Seq[Entry] = VarkaWidthAuditShapes.all(new File(args(0)))
       .filter(s => args.length == 1 || s.name.contains(args(1)))
     val loader = new VarkaGeneratedClassLoader(getClass.getClassLoader)
@@ -116,6 +117,32 @@ object VarkaWidthAuditProbe {
     println(DONE)
     // scalastyle:on println
   }
+
+  /**
+   * The line `main` prints for the feature read: `failure` (null where the list was read, so
+   * nothing stands between the marks) folded by [[oneLine]] and closed with the end mark.
+   */
+  private[varka] def featuresFailureLine(failure: String): String =
+    FEATURES_FAILURE_PREFIX + oneLine(Option(failure).getOrElse("")) + FEATURES_FAILURE_END
+
+  /**
+   * The feature read `line` reports, as the parent reads it: None where the line carries no
+   * [[FEATURES_FAILURE_PREFIX]], `Some(None)` where nothing stands between the marks (the list
+   * was read), `Some(Some(text))` for the failure text between them. A line with the prefix and
+   * no end mark was garbled by another writer, so whatever follows the prefix may be a glued
+   * record rather than the failure: the answer is then a text saying the failure is unknown,
+   * which no failure kind matches, never the rest of the line.
+   */
+  private[varka] def featuresFailureIn(line: String): Option[Option[String]] =
+    VarkaProbeOutput.after(line, FEATURES_FAILURE_PREFIX).map { rest =>
+      val at = rest.indexOf(FEATURES_FAILURE_END)
+      if (at < 0) {
+        Some(FEATURES_FAILURE_UNKNOWN + "the probe's line had the start mark but no end mark: " +
+          line.trim)
+      } else {
+        Some(rest.substring(0, at).trim).filter(_.nonEmpty)
+      }
+    }
 
   /**
    * `text` with its backslashes, line breaks and other control characters written as escapes,

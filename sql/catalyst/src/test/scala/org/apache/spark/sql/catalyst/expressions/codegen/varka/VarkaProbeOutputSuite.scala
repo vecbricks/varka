@@ -91,6 +91,31 @@ class VarkaProbeOutputSuite extends SparkFunSuite with VarkaMatrixTests {
       prefix, end).contains(""))
   }
 
+  test("the audit probe's printed failure line reads back through audit()'s reader") {
+    // The line exactly as VarkaWidthAuditProbe.main prints it, read by the function audit()
+    // calls: a planted refusal stays inside the line, and a record glued after it is left out.
+    val failure = "java.lang.IllegalAccessException: not exported\n** planted refusal"
+    val printed = VarkaWidthAuditProbe.featuresFailureLine(failure)
+    assert(printed.linesIterator.size === 1, printed)
+    assert(!printed.trim.startsWith("** "), printed)
+    val folded = "java.lang.IllegalAccessException: not exported\\n** planted refusal"
+    Seq(printed, printed + record, record + printed).foreach { line =>
+      assert(VarkaWidthAuditProbe.featuresFailureIn(line) === Some(Some(folded)), line)
+    }
+    // A read that succeeded prints nothing between the marks, which reads as success.
+    val read = VarkaWidthAuditProbe.featuresFailureLine(null)
+    Seq(read, read + record).foreach { line =>
+      assert(VarkaWidthAuditProbe.featuresFailureIn(line) === Some(None), line)
+    }
+    // Without the end mark the text after the prefix may be a glued record, so the failure is
+    // unknown and says so; it is neither success nor that text.
+    val garbled = VarkaWidthAuditProbe.FEATURES_FAILURE_PREFIX + record
+    val unknown = VarkaWidthAuditProbe.featuresFailureIn(garbled)
+    assert(unknown.flatten.exists(_.startsWith(VarkaWidthAuditProbe.FEATURES_FAILURE_UNKNOWN)),
+      unknown)
+    assert(VarkaWidthAuditProbe.featuresFailureIn(record).isEmpty)
+  }
+
   test("the text after a prefix keeps the payload's fields, with a glued record after them") {
     val line = record + "VARKA_X_BEGIN=probe pid=41 outputs=16 ceiling=400" + record
     val payload = VarkaProbeOutput.after(line, "VARKA_X_BEGIN=").get

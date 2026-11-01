@@ -147,9 +147,8 @@ class VarkaWidthAuditSuite extends SparkFunSuite with VarkaTestWatchdog {
           fallsBack = Some(v.trim.startsWith("true"))
         }
         // The probe folds the failure onto one line and closes it, so a compile record glued
-        // after it is left out.
-        VarkaProbeOutput.between(line, FEATURES_FAILURE_PREFIX, FEATURES_FAILURE_END)
-          .foreach(f => featuresFailure = Some(Option(f).filter(_.nonEmpty)))
+        // after it is left out; a line without the end mark reads as an unknown failure.
+        featuresFailureIn(line).foreach(f => featuresFailure = Some(f))
         VarkaProbeOutput.after(line, FEATURES_PREFIX).foreach { f =>
           logInfo(s"the audit probe's JVM reports the features: ${f.trim}")
         }
@@ -342,8 +341,8 @@ class VarkaWidthAuditSuite extends SparkFunSuite with VarkaTestWatchdog {
         assert(converts.isEmpty,
           s"on $cpuModel at ${census.preferredBits} bits (UseAVX ${census.useAVX}): feature " +
             s"list unreadable in the audit probe's JVM ($failure), so the converts' refusal " +
-            "below cannot be keyed on its answer; the fork's --add-exports of " +
-            "java.base/jdk.internal.vm.vector is the likely cause:\n" +
+            "below cannot be keyed on its answer; an IllegalAccessException there means " +
+            "the fork's --add-exports of java.base/jdk.internal.vm.vector is missing:\n" +
             converts.toSeq.distinct.map(o => s"    ** $o").mkString("\n"))
       }
     val refused = census.refusals.map { case (name, ops) =>
@@ -498,6 +497,30 @@ class VarkaWidthAuditSuite extends SparkFunSuite with VarkaTestWatchdog {
           .mkString("\n"))
   }
 
+  /**
+   * Fails on a feature read that failed for a cause this tree controls, and names that cause.
+   * `VarkaHostIsa` keeps the exception's `toString`, so the text starts with its class: an
+   * inaccessible method is the missing --add-exports (`fix` says where it belongs) and fails. A
+   * garbled probe line, whose failure text is unknown, fails too, before any class is matched in
+   * it, since the class there may come from a glued record. Any other cause - a JDK without the
+   * method or its class, a native that is not registered - is the JDK's, not the tree's, so the
+   * test is cancelled with a log line.
+   */
+  private def holdFeatureRead(jvm: String, failure: Option[String], fix: String): Unit =
+    failure.foreach { text =>
+      if (text.startsWith(FEATURES_FAILURE_UNKNOWN)) {
+        fail(s"$jvm's feature read cannot be judged: $text")
+      } else if (Seq("IllegalAccessException", "InaccessibleObjectException", "does not export")
+          .exists(text.contains)) {
+        fail(s"$jvm could not read its feature list: the query is not exported to it ($text); " +
+          fix)
+      } else {
+        logInfo(s"$jvm's JDK has no usable HotSpot feature query ($text), so the host's answer " +
+          "cannot be checked here")
+        cancel(s"$jvm's JDK has no usable HotSpot feature query: $text")
+      }
+    }
+
   test("the converts' refusal is admitted only where the host says its converts fall back") {
     // Test 3.5 of VARKA-538: the key is the host's answer, so a fallback host reported as
     // converting must fail the preferred-width invariant on the L2D/D2L line, and a host that
@@ -513,13 +536,10 @@ class VarkaWidthAuditSuite extends SparkFunSuite with VarkaTestWatchdog {
     // quietly turning every DQ-less host into one whose converts the census expects to lower.
     val suite = VarkaHostIsa.host()
     if (suite.x86()) {
-      assert(atPreferred.featuresFailure.isEmpty,
-        s"the audit probe's JVM could not read its feature list " +
-          s"(${atPreferred.featuresFailure.getOrElse("")}); audit() must pass --add-exports of " +
-          "java.base/jdk.internal.vm.vector")
-      assert(suite.readable(),
-        s"this JVM could not read its feature list (${suite.failure()}); the build's test " +
-          "options must export java.base/jdk.internal.vm.vector")
+      holdFeatureRead("the audit probe's JVM", atPreferred.featuresFailure,
+        "audit() must pass --add-exports of java.base/jdk.internal.vm.vector")
+      holdFeatureRead("this JVM", Option(suite.failure()),
+        "the build's test options must export java.base/jdk.internal.vm.vector")
     }
     // The two answers are held to each other only like for like. The fork inherits none of this
     // JVM's -XX options, so a suite run under -XX:UseAVX=2 on an AVX-512 host answers
