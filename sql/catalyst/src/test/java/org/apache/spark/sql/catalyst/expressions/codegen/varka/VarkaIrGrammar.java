@@ -173,6 +173,14 @@ public final class VarkaIrGrammar {
    */
   public static final long CAST_FUZZ_SEED = 20261031L;
 
+  /**
+   * The seed of {@link #drawUnsignedLongShape}, a sequence of its own for the reason
+   * {@link #NARROW_FUZZ_SEED} gives: the unsigned compares (VARKA-359) drawn into the long
+   * corpus would move its committed blocks. {@code VarkaIrFuzzSuite} runs it against the
+   * reference evaluator; nothing pins its bytes.
+   */
+  public static final long UNSIGNED_FUZZ_SEED = 20261101L;
+
   // The generator's magnitude bounds saturate rather than wrap, in *every* arm that combines
   // two of them - `boundsOf` and the generator alike. Four nested multiplies of a column's own
   // bound pass 2^63, and a bound that came back negative would let `fitsUnderChrono` admit an
@@ -1300,7 +1308,7 @@ public final class VarkaIrGrammar {
     public Cond cond(int depth) {
       budget -= 1;
       if (depth == 0 || budget <= 1 || rnd.nextInt(3) == 0) {
-        CompareOp[] ops = CompareOp.values();
+        CompareOp[] ops = CompareOp.signed().toArray(new CompareOp[0]);
         CompareOp op = ops[rnd.nextInt(ops.length)];
         VarkaVectorIR left = value(depth).node();
         return new Compare(op, left, value(depth).node());
@@ -1375,10 +1383,23 @@ public final class VarkaIrGrammar {
     return drawLongShape(rnd, true);
   }
 
+  /**
+   * {@link #drawLongShape}'s twin whose comparisons include the unsigned ones (VARKA-359), drawn
+   * in {@link #UNSIGNED_FUZZ_SEED}'s sequence.
+   */
+  public static DrawnLong drawUnsignedLongShape(Random rnd) {
+    return drawLongShape(rnd, false, true);
+  }
+
   private static DrawnLong drawLongShape(Random rnd, boolean nullingGuards) {
+    return drawLongShape(rnd, nullingGuards, false);
+  }
+
+  private static DrawnLong drawLongShape(Random rnd, boolean nullingGuards,
+      boolean unsignedCompares) {
     int numInputs = 1 + rnd.nextInt(3);
     int numLiterals = rnd.nextInt(3);
-    var shapes = new LongShapes(rnd, numInputs, numLiterals, nullingGuards);
+    var shapes = new LongShapes(rnd, numInputs, numLiterals, nullingGuards, unsignedCompares);
     int depth = 1 + rnd.nextInt(4);
     List<VarkaVectorIR> roots;
     if (rnd.nextInt(5) == 0) {
@@ -1457,6 +1478,7 @@ public final class VarkaIrGrammar {
     private final int numInputs;
     private final int numLiterals;
     private final boolean nullingGuards;
+    private final boolean unsignedCompares;
     private int budget = 20;
 
     public LongShapes(Random rnd, int numInputs, int numLiterals) {
@@ -1465,10 +1487,21 @@ public final class VarkaIrGrammar {
 
     /** With {@code nullingGuards}, the range guard is a nulling one a third of the time. */
     public LongShapes(Random rnd, int numInputs, int numLiterals, boolean nullingGuards) {
+      this(rnd, numInputs, numLiterals, nullingGuards, false);
+    }
+
+    /**
+     * With {@code unsignedCompares}, a comparison draws from every {@link CompareOp}, the four
+     * unsigned members among them; without it from the five signed ones, so that the committed
+     * corpora draw what they always drew.
+     */
+    public LongShapes(Random rnd, int numInputs, int numLiterals, boolean nullingGuards,
+        boolean unsignedCompares) {
       this.rnd = rnd;
       this.numInputs = numInputs;
       this.numLiterals = numLiterals;
       this.nullingGuards = nullingGuards;
+      this.unsignedCompares = unsignedCompares;
     }
 
     private static boolean saturated(long bound) {
@@ -1587,7 +1620,8 @@ public final class VarkaIrGrammar {
     public Cond cond(int depth) {
       budget -= 1;
       if (depth == 0 || budget <= 1 || rnd.nextInt(3) == 0) {
-        CompareOp[] ops = CompareOp.values();
+        CompareOp[] ops = unsignedCompares
+            ? CompareOp.values() : CompareOp.signed().toArray(new CompareOp[0]);
         CompareOp op = ops[rnd.nextInt(ops.length)];
         VarkaVectorIR left = value(depth).node();
         return new Compare(op, left, value(depth).node());
@@ -1889,7 +1923,7 @@ public final class VarkaIrGrammar {
     public Cond intCond(int depth) {
       budget -= 1;
       if (depth == 0 || budget <= 1 || rnd.nextInt(3) == 0) {
-        CompareOp[] ops = CompareOp.values();
+        CompareOp[] ops = CompareOp.signed().toArray(new CompareOp[0]);
         CompareOp op = ops[rnd.nextInt(ops.length)];
         VarkaVectorIR left = intValue(depth).node();
         return new Compare(op, left, intValue(depth).node());
@@ -1911,7 +1945,7 @@ public final class VarkaIrGrammar {
     public Cond longCond(int depth) {
       budget -= 1;
       if (depth == 0 || budget <= 1 || rnd.nextInt(3) == 0) {
-        CompareOp[] ops = CompareOp.values();
+        CompareOp[] ops = CompareOp.signed().toArray(new CompareOp[0]);
         CompareOp op = ops[rnd.nextInt(ops.length)];
         VarkaVectorIR left = longValue(depth).node();
         return new Compare(op, left, longValue(depth).node());
@@ -1955,7 +1989,7 @@ public final class VarkaIrGrammar {
       if (rnd.nextBoolean()) {
         return longCond(depth);
       }
-      CompareOp[] ops = CompareOp.values();
+      CompareOp[] ops = CompareOp.signed().toArray(new CompareOp[0]);
       CompareOp op = ops[rnd.nextInt(ops.length)];
       VarkaVectorIR narrow = new NarrowLane(longValue(Math.max(0, depth - 1)).node(),
           LaneType.INT);

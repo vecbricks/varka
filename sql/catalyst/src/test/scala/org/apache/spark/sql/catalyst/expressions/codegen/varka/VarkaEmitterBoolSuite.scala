@@ -19,6 +19,8 @@ package org.apache.spark.sql.catalyst.expressions.codegen.varka
 import java.lang.foreign.{Arena, ValueLayout}
 import java.util.{Collections, List => JList}
 
+import scala.jdk.CollectionConverters._
+
 import org.apache.spark.sql.catalyst.expressions
 import org.apache.spark.sql.catalyst.expressions.{Expression, Literal}
 import org.apache.spark.sql.catalyst.expressions.codegen.{CompiledVarkaProjection,
@@ -265,7 +267,7 @@ class VarkaEmitterBoolSuite extends VarkaEmitterTestBase with VarkaOwnJvm {
 
   test("boolean comparisons, null-safe equality, choice and constants over every leaf state") {
     val consts = Seq(Truth.TRUE, Truth.FALSE, Truth.NULL).map(new CondConst(_))
-    val cmp = CompareOp.values().toSeq.map(op => new BoolCompare(op, b0, b1))
+    val cmp = CompareOp.signed().asScala.toSeq.map(op => new BoolCompare(op, b0, b1))
     sweep(cmp, 2, "boolean comparison")
     sweep(Seq(new BoolNullSafeEq(b0, b1), new Not(new BoolNullSafeEq(b0, b1))), 2, "<=>")
     sweep(Seq(new CondIf(b0, b1, b2), new CondIf(new IsNotNull(b0), b0, b1),
@@ -463,7 +465,7 @@ class VarkaEmitterBoolSuite extends VarkaEmitterTestBase with VarkaOwnJvm {
   private def boolForms(x: Cond, y: Cond, z: Cond): Seq[Cond] =
     Seq(x, new Not(x), new And(x, y), new Or(x, new Not(y)), new IsNotNull(x),
       new Not(new IsNotNull(x))) ++
-      CompareOp.values().toSeq.map(op => new BoolCompare(op, x, y)) ++
+      CompareOp.signed().asScala.toSeq.map(op => new BoolCompare(op, x, y)) ++
       Seq(new BoolNullSafeEq(x, y), new CondIf(x, y, z), new CondIf(new IsNotNull(x), x, y),
         new CondConst(Truth.TRUE, x.laneType()), new CondConst(Truth.FALSE, x.laneType()))
 

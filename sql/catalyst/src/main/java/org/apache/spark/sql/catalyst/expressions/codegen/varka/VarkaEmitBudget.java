@@ -637,7 +637,8 @@ final class VarkaEmitBudget {
       case Greatest n when n.laneType().isFloating() -> FLOATING_ORDER_WEIGHT;
       case Least n when n.laneType().isFloating() -> FLOATING_ORDER_WEIGHT;
       // One lanewise op each: the add or subtract, the min or max, the blend (its condition is a
-      // node of its own), the narrowing conversion, the compare.
+      // node of its own), the narrowing conversion, the compare (an unsigned one too: it is the
+      // lane's own compare operator, intrinsic at more than two long lanes, VARKA-376 9).
       case AddDays _, SubDays _, DateDiff _, Greatest _, Least _, WidenLane _,
           NarrowLane _, ConvertLane _, Compare _, NullSafeEqual _ -> 1;
       // The blend, plus the shift pair a narrow pick may reduce with at the int lane.

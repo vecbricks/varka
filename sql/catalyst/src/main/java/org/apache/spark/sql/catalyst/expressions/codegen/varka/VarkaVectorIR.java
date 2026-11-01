@@ -446,8 +446,32 @@ public sealed interface VarkaVectorIR
     return n.mode() == Overflow.FAIL ? "" : ":" + n.mode().name();
   }
 
-  /** The comparison a {@link Compare} node performs; lane math is signed integer ordering. */
-  enum CompareOp { LT, LE, GT, GE, EQ }
+  /**
+   * The comparison a {@link Compare} node performs. The first five are the lane's own ordering,
+   * signed for an integral lane and IEEE's (with Spark's NaN rules) for a floating one; the four
+   * unsigned members order an integral lane's bits as an unsigned number, the
+   * {@code VectorOperators} of the same names and {@code Long.compareUnsigned}. No SQL
+   * expression maps to an unsigned member: they are the words' compares of a 128-bit decimal
+   * (a pair's low words, VARKA-359) and an add's carry (VARKA-360).
+   */
+  enum CompareOp {
+    LT, LE, GT, GE, EQ, ULT, ULE, UGT, UGE;
+
+    private static final List<CompareOp> SIGNED = List.of(LT, LE, GT, GE, EQ);
+
+    /** Whether the comparison reads the lanes' bits as unsigned numbers. */
+    public boolean isUnsigned() {
+      return switch (this) {
+        case LT, LE, GT, GE, EQ -> false;
+        case ULT, ULE, UGT, UGE -> true;
+      };
+    }
+
+    /** The five members every lane has, in declaration order, which a boolean compare takes. */
+    public static List<CompareOp> signed() {
+      return SIGNED;
+    }
+  }
 
   /**
    * The period {@link TruncDate} rounds a date down to. {@code WEEK} is deliberately
@@ -1339,6 +1363,10 @@ public sealed interface VarkaVectorIR
   record Compare(CompareOp op, VarkaVectorIR left, VarkaVectorIR right, int hash) implements Cond {
     public Compare {
       requireSameLane("a comparison", left, right);
+      if (op.isUnsigned() && left.laneType().isFloating()) {
+        throw VarkaErrors.illegalArgument("an unsigned comparison " + op + " takes an integral "
+            + "lane, not " + left.laneType());
+      }
       hash = hashOf(op, left, right);
     }
 
@@ -1429,6 +1457,9 @@ public sealed interface VarkaVectorIR
   record BoolCompare(CompareOp op, Cond left, Cond right, int hash) implements Cond {
     public BoolCompare {
       requireSameLane("a boolean comparison", left, right);
+      if (op.isUnsigned()) {
+        throw VarkaErrors.illegalArgument("a boolean comparison has no unsigned form: " + op);
+      }
       hash = hashOf(op, left, right);
     }
 

@@ -279,7 +279,7 @@ public final class VarkaIrSeries {
           () -> flatMap(splits(n - 1, 2).iterator(), s ->
               flatMap(value(s[0]).iterator(), a ->
                   flatMap(value(s[1]).iterator(), b ->
-                      map(Arrays.asList(CompareOp.values()).iterator(),
+                      map(CompareOp.signed().iterator(),
                           op -> new Compare(op, a.node(), b.node()))))),
           () -> flatMap(splits(n - 1, 2).iterator(), s ->
               flatMap(cond(s[0]).iterator(), a ->
