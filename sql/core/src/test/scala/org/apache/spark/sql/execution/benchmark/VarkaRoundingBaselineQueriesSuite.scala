@@ -22,6 +22,7 @@ import scala.jdk.CollectionConverters._
 import org.apache.spark.sql.QueryTest
 import org.apache.spark.sql.execution.VarkaSharedSessions
 import org.apache.spark.sql.execution.benchmark.VarkaRoundingBaselineBenchmark.NullRule
+import org.apache.spark.sql.internal.SQLConf
 
 /**
  * The rounding baseline's sections, run at a small scale on both sessions in every build, so a
@@ -37,8 +38,13 @@ import org.apache.spark.sql.execution.benchmark.VarkaRoundingBaselineBenchmark.N
  * their sign, NaN, below, inside and above the bucket bounds, and inside `2^31 / 7` with the ties
  * inside `2^28 + 0.5` (bounds the table's construction guarantees for every id, which these rows
  * only spot-check); `i` over both halves of the int range; `l` past `2^52` and not past `2^54`; `k`
- * at both ends of `[-2, 22]`. A section over the columns with no null must answer no null, except
- * `factorial`, which must answer null exactly on the rows of `k` outside `[0, 20]`, and
+ * at both ends of `[-2, 22]`; `xw` with a fraction, at both zeros, NaN and both infinities, past
+ * `2^51`, past `2^52` inside the long range and past `2^63`, with no finite value overflowed to an
+ * infinity. Under LEGACY it also checks `floor` and `ceil` over `xw`'s NaN, infinities and values
+ * past the long range on both sessions: Spark compiles them as `(long) Math.floor(c)` and
+ * `(long) Math.ceil(c)`, so NaN answers 0 and the rest saturate at `Long.MaxValue` or
+ * `Long.MinValue`, rather than null. A section over the columns with no null must answer no null,
+ * except `factorial`, which must answer null exactly on the rows of `k` outside `[0, 20]`, and
  * `width_bucket`, null exactly on the NaN rows of `x`, so a value that left its type into a null
  * fails here rather than going into the timed run as a cheap null. A section over the columns with
  * one row in ten null must answer exactly those nulls, besides the same rows of `k_n` and `x_n`.
@@ -98,8 +104,61 @@ class VarkaRoundingBaselineQueriesSuite extends QueryTest with VarkaSharedSessio
       assert(r.getLong(18) === rows / 1000)
       val nan = rows / 1000L
 
+      val longEdge = "9.223372036854775807E18"
+      val inf = "double('Infinity')"
+      val w = spark.sql(
+        s"""select count_if(isnan(xw)), count_if(xw = $inf), count_if(xw = -$inf),
+           |       count_if(abs(xw) = $inf),
+           |       count_if(cast(xw as string) = '0.0'), count_if(cast(xw as string) = '-0.0'),
+           |       count_if(not isnan(xw) and xw % 1 <> 0),
+           |       count_if(abs(xw) > power(2, 51) and abs(xw) <= power(2, 52)),
+           |       count_if(abs(xw) > power(2, 52) and abs(xw) <= $longEdge),
+           |       count_if(not isnan(xw) and abs(xw) <> $inf and abs(xw) > $longEdge),
+           |       count_if(xw_n is null), count_if(isnan(xw_n)), count_if(abs(xw_n) = $inf)
+           |from $view""".stripMargin).head()
+      assert(w.getLong(0) === rows / 1000)
+      assert(w.getLong(1) === rows / 1000 && w.getLong(2) === rows / 1000)
+      // Only the two infinite rows: no finite value's scaling overflowed to an infinity.
+      assert(w.getLong(3) === 2 * rows / 1000)
+      assert(w.getLong(4) === rows / 8 && w.getLong(5) === rows / 8)
+      assert(w.getLong(6) > rows / 3)
+      assert(w.getLong(7) > 0 && w.getLong(8) > 0)
+      // About one row in eight is scaled past the long range.
+      assert(w.getLong(9) > rows / 10)
+      assert(w.getLong(10) === rows / 10)
+      // The NaN and infinite rows of xw keep their value in xw_n.
+      assert(w.getLong(11) === rows / 1000 && w.getLong(12) === 2 * rows / 1000)
+      // LEGACY's floor and ceil answer 0 for NaN and saturate on the infinities and past the long
+      // range, rather than null, alike on both sessions.
+      withBothConf(SQLConf.ANSI_ENABLED.key, "false") {
+        val edges = Seq("floor", "ceil").map { f =>
+          s"""count_if(isnan(xw) and $f(xw) = 0),
+             |count_if(xw = $inf and $f(xw) = ${Long.MaxValue}),
+             |count_if(xw = -$inf and $f(xw) = ${Long.MinValue}),
+             |count_if(xw >= power(2, 63) and xw < $inf),
+             |count_if(xw >= power(2, 63) and xw < $inf and $f(xw) = ${Long.MaxValue}),
+             |count_if(xw < -power(2, 63) and xw > -$inf),
+             |count_if(xw < -power(2, 63) and xw > -$inf and $f(xw) = ${Long.MinValue})
+             |""".stripMargin
+        }.mkString(", ")
+        val query = s"select $edges from $view"
+        val legacy = spark.sql(query).head()
+        assert(varkaSpark.sql(query).head() === legacy)
+        for (base <- Seq(0, 7)) {
+          assert(legacy.getLong(base) === rows / 1000)
+          assert(legacy.getLong(base + 1) === rows / 1000)
+          assert(legacy.getLong(base + 2) === rows / 1000)
+          // Every finite value past the long range saturates, about one row in sixteen on each
+          // side, so the infinities alone cannot meet the check.
+          assert(legacy.getLong(base + 3) > rows / 25)
+          assert(legacy.getLong(base + 4) === legacy.getLong(base + 3))
+          assert(legacy.getLong(base + 5) > rows / 25)
+          assert(legacy.getLong(base + 6) === legacy.getLong(base + 5))
+        }
+      }
+
       val sections = VarkaRoundingBaselineBenchmark.sections().asScala.toSeq
-      assert(sections.size === 32)
+      assert(sections.size === 38)
       assert(sections.map(_.title).distinct.size === sections.size)
       for (s <- sections) {
         withClue(s.title) {

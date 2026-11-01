@@ -530,6 +530,24 @@ committed files:
    plans for `k = 3`, nor near the long's edge, where ANSI's `round` raises. No section is listed
    as fusing, and none plans a Varka node (the class's dry run, 1 November 2026). The results
    files at both widths come from the EPYC runners and are committed before it merges.
+   *Added by the owner's word, 1 November 2026, to measure the fallback's cost on wide data
+   before 344b picks its default arm:* a wide double column `xw`, and `rint(xw)`, `floor(xw)`
+   and `ceil(xw)` under LEGACY only, with and without nulls, six sections, 38 in all. ANSI's
+   `floor` and `ceil` raise on an infinity, and `rint` compiles alike in both modes, so it is
+   pinned with them. `xw` is `0.0` at one row in eight and `-0.0` at another; ordinary,
+   `hash(id, 5) / 7.0`, at one row in two; and wide at one row in four, `hash(id, 5) / 7.0`
+   scaled at one row in eight by `2^(24 + id % 11)`, inside `2^62.2` and mostly past `2^51`, many
+   past `2^52`, and at the other by `2^(36 + pmod(hash(id, 6), 960))`, up to `2^1023.2`, near
+   `Double.MAX_VALUE` and nearly all past the long range, where LEGACY's `floor` and `ceil`
+   saturate; NaN, `+Infinity` and `-Infinity` at one row in a thousand each, none among `xw_n`'s
+   nulls (one row in ten). The wide rows fall at every fourth id, so every 4096-row batch holds
+   about a thousand and every batch declines under 344b's bounded `MAGIC` arm, against none over
+   `x`: the two columns time the arm's two ends, and a smaller share would change nothing until it
+   left most batches whole. Under LEGACY Spark compiles `floor` and `ceil` over a double as
+   `(long) java.lang.Math.floor(c)` and `(long) java.lang.Math.ceil(c)` (`Floor` and `Ceil` in
+   `mathExpressions.scala`), so NaN answers 0, `+Infinity` and every value from `2^63` up
+   `Long.MAX_VALUE`, and `-Infinity` and every value below `-2^63` `Long.MIN_VALUE`; the queries
+   suite checks those rows on both sessions. None of the six fuses today.
 2. **The census cells** (2.8), on the laptop and through the census workflow on both runners,
    the gather's cell among them, which sets `factorialForm`'s per-host default (2.6).
 3. **344a, after 341 only**: `RoundToIntegral` with `RINT`, its lowering, the reference, the
