@@ -5742,6 +5742,15 @@ driver's EXPLAIN. **Done when** a cluster whose driver and executors differ in v
 each executor's best form, shown by a test that plants a different host on the executor side, and
 the fusion report names the executor's choice.
 
+### Item 128. `round` and `bround` of an integral type at a negative scale
+
+*Added 1 November 2026 from `m8/READING_COMET.md`.* `round(i, -2)` and `bround(i, -2)` over
+`TINYINT` to `BIGINT` round to a power of ten that can leave the type: LEGACY wraps and ANSI
+raises. No milestone 8 row claims these forms over the narrow types (row 344a builds the integral
+`round` over `INT` and `BIGINT`), so they are a scope item rather than a row. **Done when** the
+forms fuse over every integral type with Spark's answers in LEGACY, ANSI and TRY, the wrap and the
+raise each a named case.
+
 ## 5. Ordering
 
 The survey supports an order this time rather than an argument. Item 8 leads
