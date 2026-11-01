@@ -54,10 +54,11 @@ import org.apache.spark.sql.VarkaBenchmark;
  * <p>A baseline is only one while nothing fuses: before anything is timed, the run checks each
  * section's plan on the Varka session against the section's {@link Fusion} class, the record of
  * how much of it a step of VARKA-339 has fused, and fails when the plan's class differs
- * ({@link VarkaSqlBenchmarkBase#requireBaseline(SparkSession, String, String, Fusion)}). Every
- * section is {@code NONE} today; each step sets the class of the sections it fuses, so the same
- * class and the same labels time the fused code. A section of any other class must also run as
- * a kernel over every batch, none handed back to the row path
+ * ({@link VarkaSqlBenchmarkBase#requireBaseline(SparkSession, String, String, Fusion)}). Step 2
+ * fuses the chain and the interval column sum, at both densities, and they are {@code WHOLE}; the
+ * other sections are {@code NONE}. Each later step sets the class of the sections it fuses, so the
+ * same class and the same labels time the fused code. A section of any other class than
+ * {@code NONE} must also run as a kernel over every batch, none handed back to the row path
  * ({@link VarkaSizeLadder#varkaFused}), or the run fails rather than time the row path under the
  * {@code varka on} label. That holds with {@value VarkaSqlBenchmarkBase#FUSE_CHECK_PROPERTY} set
  * to {@code false} too, which lifts only the plan check.
@@ -148,9 +149,9 @@ public class VarkaTimestampNtzArithmeticBaselineBenchmark extends VarkaSqlBenchm
       String density = nulls.isEmpty() ? "no nulls" : "one row in ten null";
       String from = " AS v FROM varka_ntz_arith";
       out.add(new Section("TIMESTAMP_NTZ arithmetic chain, " + density,
-          "SELECT " + a + " + (" + b + " - " + c + ") - INTERVAL '1' HOUR" + from, Fusion.NONE));
+          "SELECT " + a + " + (" + b + " - " + c + ") - INTERVAL '1' HOUR" + from, Fusion.WHOLE));
       out.add(new Section("TIMESTAMP_NTZ plus a day-time interval column, " + density,
-          "SELECT " + a + " + " + dt + from, Fusion.NONE));
+          "SELECT " + a + " + " + dt + from, Fusion.WHOLE));
       out.add(new Section("TIMESTAMP_NTZ plus INTERVAL '1' MONTH, " + density,
           "SELECT " + a + " + INTERVAL '1' MONTH" + from, Fusion.NONE));
       out.add(new Section("TIMESTAMP_NTZ timestampadd(HOUR, q, ntz), " + density,

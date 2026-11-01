@@ -89,9 +89,10 @@ case class VarkaProjectExec(
   override lazy val metrics: Map[String, SQLMetric] =
     VarkaExecMetrics.projectionMetrics(sparkContext, true).asScala.toMap
 
-  // One driver-side compilation serves EXPLAIN, the residual-entry count below and the baseline
-  // benchmarks' fusion check (`VarkaSqlBenchmarkBase.fusion`, which is why it is visible to
-  // `sql`), rather than the same pure compile once per consumer (VARKA-21's review).
+  // One driver-side compilation serves EXPLAIN, the residual-entry count below, the Spark
+  // differential's overflow pin (`VarkaSparkDifferential.pinnedOptions`) and the baseline
+  // benchmarks' fusion check (`VarkaSqlBenchmarkBase.fusion`), which is why it is visible to
+  // `sql`, rather than the same pure compile once per consumer (VARKA-21's review).
   @transient private[sql] lazy val classification =
     VarkaExpressionCompiler.compilePartial(projectList, child.output,
       VarkaColumnarToRowExec.emitOptions(sessionEmit), sessionEmit.familiesOff)

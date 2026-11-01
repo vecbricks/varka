@@ -41,7 +41,8 @@ import org.apache.spark.sql.VarkaBenchmark;
  * ({@link VarkaSqlBenchmarkBase#requireBaseline(SparkSession, String, String, Fusion)}). The
  * comparison, the cast and the choice are {@code WHOLE}, since the {@code TIMESTAMP_NTZ} lane
  * fuses them (VARKA-338), and the results file notes each of them as fusing; the arithmetic
- * chain is {@code NONE}, still the row path in both arms. A row that fuses more of a section
+ * chain is {@code WHOLE} too, as VARKA-339 fuses the difference and the interval sums, though the
+ * committed results time it on the row path in both arms. A row that fuses more of a section
  * sets its new class, so that its fusion cannot turn a baseline section into a fused one
  * unnoticed.
  *
@@ -98,7 +99,7 @@ public class VarkaTimestampNtzBaselineBenchmark extends VarkaSqlBenchmarkBase {
           "SELECT " + a + " FROM varka_ntz WHERE " + a + " < " + b, Fusion.WHOLE));
       out.add(new Section("TIMESTAMP_NTZ arithmetic chain, " + density,
           "SELECT " + a + " + (" + b + " - " + c + ") - INTERVAL '1' HOUR AS v FROM varka_ntz",
-          Fusion.NONE));
+          Fusion.WHOLE));
       out.add(new Section("TIMESTAMP_NTZ cast to DATE, " + density,
           "SELECT CAST(" + a + " AS DATE) AS v FROM varka_ntz", Fusion.WHOLE));
       out.add(new Section("TIMESTAMP_NTZ choice, " + density,

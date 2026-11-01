@@ -40,9 +40,9 @@ import org.apache.spark.sql.types.{DayTimeIntervalType, IntegerType, TimestampNT
  * (DATETIME_OVERFLOW or ARITHMETIC_OVERFLOW) rather than in the timed run.
  *
  * The fuse check is the benchmark's own, made here too: each section's plan has the fusion class
- * the section lists, `NONE` for every section while the class is a baseline. A step of VARKA-339
- * that fuses a section sets its class, and this check follows it; with the benchmark's fuse check
- * property set to false it is skipped, as the benchmark's plan check is.
+ * the section lists, `NONE` for every section while the class was step 1's baseline. A step of
+ * VARKA-339 that fuses a section sets its class, and this check follows it; with the benchmark's
+ * fuse check property set to false it is skipped, as the benchmark's plan check is.
  */
 class VarkaTimestampNtzArithmeticBaselineQueriesSuite extends QueryTest with VarkaSharedSessions {
 
