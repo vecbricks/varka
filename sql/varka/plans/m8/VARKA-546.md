@@ -243,4 +243,28 @@ Size: medium.
 
 ## 10. Outcome
 
-To be filled in when the build lands.
+Built on 1 November 2026: (iii) and (i) as section 5 lists them; (ii) waits for question 1.
+
+- **The demonstration** (`results/VARKA-546-demo.txt`). Without the driver, both orders stop on
+  four files: `docs/sql-varka.md`, `coverage.json`, `emitted_bytes.json`, `width_audit.json`.
+  With it, both merges exit 0 with no unmerged path, give the same tree (`6f3eb1d5acf`) and
+  pass `--check`. `width_audit.json` merged per key with nothing owed. Owed: `emitted_bytes.json`
+  (the 22 `option_arms` digests and the place of the two rows), `coverage.json` (the place of
+  the two rows) and the docs file's generated blocks. `dev/varka_regen_generated.sh --dry-run`
+  prints one sbt call: coverage, bytes, coverage again, then the census.
+- **A stale file on CI.** `--check` fails a `coverage.json` row that the width audit and the
+  bytes file lack, printing the width audit's command with its host and the bytes command.
+  `--self-test` runs this case, the merge cases, the round trip of the three committed JSON
+  files, and a two-branch merge in a temporary repository. Both run in the docs job. Neither
+  has run on CI yet, because nothing was pushed.
+- **Predictions.** P1 held: no markers, and what was owed is what P1 named (the census was not
+  touched in the demonstration). P2 held for the demonstration's merge: the width audit owed
+  nothing. Item 2's 22 historical resolutions were not replayed. P3 held: one command, the
+  bytes suite plus two coverage runs, and no width audit.
+- **Not planned.** When both sides add rows at the same place in the docs table, the merge keeps
+  one side's block until the coverage run rewrites it. So the merge commit can lack the other
+  row in the docs table. The block is owed and the coverage suite fails until it is
+  regenerated (section 9, item 2).
+- **Left.** The lead runs `dev/varka_precommit.sh --install-hook` in the main checkout once this
+  merges. The two checks run green on the pull request's Build. Question 1, then (ii) for
+  `option_arms` as its own row if the answer is (b).
