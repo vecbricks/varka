@@ -44,7 +44,7 @@ isnull|ALL|bool|bool,int,bigint,date,time,ym,dt,byte,short,ntz,float,double|plum
 isnotnull|ALL|bool|bool,int,bigint,date,time,ym,dt,byte,short,ntz,float,double|plumbing|333,334,359,329,347|a validity read; item 93 over a predicate; dec to precision 18 at one scale fuses (347) and counts fused with 359's wider ones (2.8)
 equal_null|ALL|bool||semantics|336,331,329,341,338,359|null-tolerant: item 34; bool is 331's BoolNullSafeEq, byte/short 329, float/double 341, ntz 338, dec 359
 and|bool|bool|bool|done|331,27|fused as a condition, over a BOOLEAN column too (331); a BOOLEAN output is row 27
-in|ALL|bool|date,ym,byte,short,int,bigint,time,dt,ntz,float,double|plumbing|333,341,348,359,329,497|NaN equals NaN in Spark's IN
+in|ALL|bool|date,ym,byte,short,int,bigint,time,dt,ntz,float,double|plumbing|341,348,359,329,497|NaN equals NaN in Spark's IN
 not|bool|bool|bool|done|331,27|fused as a condition, over a BOOLEAN column too (331); a BOOLEAN output is row 27
 or|bool|bool|bool|done|331,27|fused as a condition, over a BOOLEAN column too (331); a BOOLEAN output is row 27
 <=>|ALL|bool|bool,int,bigint,date,time,ym,dt,byte,short,ntz,float,double|semantics|336,331,329,341,338,359,347|null-tolerant: item 34; bool is 331's BoolNullSafeEq, byte/short 329, float/double 341, ntz 338, dec 359; dec to precision 18 at one scale fuses (347) and counts fused with 359's wider ones (2.8)
@@ -186,7 +186,7 @@ bitmap_bit_position|bigint|bigint|bigint|done||a mask over a blend, proven by SM
 
 [implicit]
 try_cast|Cast|conversion|ALL|ALL||semantics|332,343,350,364,365,366,368|the parser's TRY mode: null instead of an error
-in_set|InSet|predicate|ALL|bool|date,ym,byte,short,int,bigint,time,dt,ntz,float,double|plumbing|333,341,348,359,329,497|IN over many literals
+in_set|InSet|predicate|ALL|bool|date,ym,byte,short,int,bigint,time,dt,ntz,float,double|plumbing|341,348,359,329,497|IN over many literals
 date_minus_date|SubtractDates|datetime|date|dt||semantics|39|row 39: days times micros per day, exact
 ntz_minus_ntz|SubtractTimestamps|datetime|ntz|dt||semantics|339|plain long arithmetic in UTC, exact or raise
 time_minus_time|SubtractTimes|datetime|time|dt|time|done||

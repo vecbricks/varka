@@ -318,7 +318,11 @@ Explicitly out of this row: any new type's choice shapes, `IS NULL` over a predi
    (1, its broadcast) and the cost model's list of nodes awaiting a refit. `CASE` without ELSE,
    `IF(c, x, NULL)`, `nullif` and `nullifzero` fuse on the six types.
 4. `between`, `nvl2` and `zeroifnull`: rows only, through the resolver's `With` rewrite (3.5a).
-   `IN` on `INT`, `BIGINT`, `TIME` and the day-time interval is row 497's arm; see below.
+   `IN` on `INT`, `BIGINT`, `TIME` and the day-time interval is row 497's arm, merged into this
+   branch (`git merge`, its three commits to `7774da7cd6f`): one arm over every lane, with its own
+   coverage rows for the four types in both list forms. So 3.3 is built by 497, not here: this
+   row adds no `IN` row of its own, and the census's `in` and `in_set` entries no longer name it.
+   The one conflict was the condition compiler's imports.
 5. The census regenerated. The op counts and prediction 1's benchmark are below.
 
 **Generated files, each by its documented regeneration, every diff read.** `coverage.json` and

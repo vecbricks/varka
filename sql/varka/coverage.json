@@ -3388,8 +3388,8 @@
     "casts" : [ ],
     "operands" : [ "Add:int", "If:int", "LessThan:date" ],
     "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled", "spark.sql.codegen.varka.family.condition.enabled", "spark.sql.codegen.varka.family.intArithmetic.enabled" ],
-    "domain" : "i < 2147483647",
-    "note" : "an int branch is a column, a literal or int arithmetic; the checked add runs on every lane, whichever branch a row takes",
+    "domain" : "d < d2 OR i < 2147483647",
+    "note" : "an int branch is a column, a literal or int arithmetic; the checked add is qualified by its arm, so only a row taking the ELSE can overflow",
     "verified" : "differential"
   }, {
     "sql" : "CASE WHEN d < d2 THEN i ELSE datediff(d, d2) END",
