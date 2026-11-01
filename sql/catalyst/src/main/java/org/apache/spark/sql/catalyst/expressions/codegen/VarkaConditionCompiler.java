@@ -1053,13 +1053,15 @@ final class VarkaConditionCompiler {
   }
 
   /**
-   * Compiles the operand of a validity predicate, which must be a predicate itself or land on a
-   * bare column. A predicate compiles as a condition, whose validity is whether it is known. A
-   * value must land on a bare column: the emitter reads the column's per-lane-group validity
-   * word, and only a column's word is live before value emission (the recorded milestone-3
-   * restriction). As in {@code compileCoalesce} above, the {@code ColumnRef} match is a proxy for
-   * "bare column" that depends on every relabel expression compiling to {@code ColumnRef}
-   * staying a null-intolerant identity.
+   * Compiles the operand of a validity predicate, which must be a predicate itself, a decimal
+   * value, or land on a bare column. A predicate compiles as a condition, whose validity is
+   * whether it is known. A decimal value of any form {@code VarkaDecimalCompiler} builds has its
+   * validity derived from its leaves' words ({@code VarkaDecimalCompiler.nullTested}), so it
+   * need not be a bare column. Any other value must land on a bare column: the emitter reads the
+   * column's per-lane-group validity word, and only a column's word is live before value
+   * emission (the recorded milestone-3 restriction). As in {@code compileCoalesce} above, the
+   * {@code ColumnRef} match is a proxy for "bare column" that depends on every relabel
+   * expression compiling to {@code ColumnRef} staying a null-intolerant identity.
    *
    * <p>The column may be a date or an {@code IntegerType} one. Both are the same int32 lane and
    * the same validity word, and the int case is not optional: Spark's optimizer infers

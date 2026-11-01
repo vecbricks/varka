@@ -24,3 +24,19 @@ kernel:      7.0.0-1017-azure
 cpu:         AMD EPYC 7763 64-Core Processor
 datapath:    45.0 / 90.0 / 90.0 lane-ops/ns at 128 / 256 / 512 bits; 256:128 = 2.00 (control), 512:256 = 1.00 (dev/varka_datapath.sh)
 pinned to:   none (the runner is not pinned)
+
+The 24 sections over DECIMAL(38, 10) and DECIMAL(20, 2) (the IN (c1, c2, c3), <=>, IS NULL,
+-x < y and abs(x) < y filters and x < y as a value, no nulls and one row in ten null) were
+spliced in from a later run of the same class, whose provenance is:
+
+benchmark:   *.VarkaDecimalBaselineBenchmark
+where:       a GitHub-hosted runner, through .github/workflows/benchmark.yml
+run:         https://github.com/MaxGekk/spark/actions/runs/41235267549
+commit:      2297f833e3b (varka-359-baseline of MaxGekk/spark)
+date:        2026-10-31T20:05:46Z
+inputs:      jdk=25 scala=2.13 num-splits=1 extra-java-options=<none>
+jdk:         OpenJDK Runtime Environment Zulu25.38+109-CA (build 25.0.5.0.3+1-LTS)
+kernel:      7.0.0-1017-azure
+cpu:         AMD EPYC 7763 64-Core Processor
+datapath:    45.0 / 90.1 / 90.1 lane-ops/ns at 128 / 256 / 512 bits; 256:128 = 2.00 (control), 512:256 = 1.00 (dev/varka_datapath.sh)
+pinned to:   none (the runner is not pinned)

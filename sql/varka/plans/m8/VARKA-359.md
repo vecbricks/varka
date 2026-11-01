@@ -345,7 +345,11 @@ Predictions, registered before the spike and the build:
 
 ## 5. Order, files and size
 
-1. **The baseline addition** (4), its own pull request.
+1. **The baseline addition** (4), its own pull request. Done (31 October 2026): merged as
+   `f0c1ab11c45`, its 24 sections' runner results committed in
+   `VarkaDecimalBaselineBenchmark-jdk25-runner-epyc7763-results.txt` (256 bits, run 41235267549)
+   and its `-128bit` companion (`-XX:MaxVectorSize=16`, run 41237311797), both on `2297f833e3b`;
+   none fuses, and each section's two arms tie.
 2. **The spike** (2.1), its own pull request: the benchmark, its results files, the verdict in
    section 10 of this file, and census cells for the unsigned compares over slots if the loops
    need any the census lacks.
