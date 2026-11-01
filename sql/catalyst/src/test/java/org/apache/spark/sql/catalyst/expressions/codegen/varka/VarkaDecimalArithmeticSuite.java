@@ -37,6 +37,7 @@ import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.vector.DecimalVector;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 import org.apache.spark.sql.catalyst.expressions.Add;
 import org.apache.spark.sql.catalyst.expressions.Attribute;
@@ -55,7 +56,6 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Lan
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LiteralSlot;
 import org.apache.spark.sql.internal.SQLConf;
 import org.apache.spark.sql.internal.SQLConf$;
-import org.apache.spark.sql.types.DataType;
 import org.apache.spark.sql.types.DecimalType;
 import org.apache.spark.sql.util.ArrowUtils;
 
@@ -197,15 +197,12 @@ public final class VarkaDecimalArithmeticSuite {
     List<Attribute> columns = List.of(VarkaSqlResolve.column("a", wide),
         VarkaSqlResolve.column("b", wide));
     // Spark types every product it builds by its rule, capped at 38, so only a node that states
-    // another type reaches the mistyped check with a rule past 38 digits.
-    Expression m = new Multiply(new BoundReference(0, wide, true),
+    // another type reaches the mistyped check with a rule past 38 digits: a spy, since javac
+    // cannot subclass a Scala tree node.
+    Multiply m = Mockito.spy(new Multiply(new BoundReference(0, wide, true),
         new BoundReference(1, wide, true),
-        NumericEvalContext$.MODULE$.apply(EvalMode$.MODULE$.LEGACY(), false)) {
-      @Override
-      public DataType dataType() {
-        return new DecimalType(10, 0);
-      }
-    };
+        NumericEvalContext$.MODULE$.apply(EvalMode$.MODULE$.LEGACY(), false)));
+    Mockito.doReturn(new DecimalType(10, 0)).when(m).dataType();
     List<VarkaConjunctSpec> specs = VarkaExpressionCompiler.explainPredicate(new EqualTo(m, m),
         seq(columns), VarkaMatrixRuns.BASE);
     assertEquals(1, specs.size());
