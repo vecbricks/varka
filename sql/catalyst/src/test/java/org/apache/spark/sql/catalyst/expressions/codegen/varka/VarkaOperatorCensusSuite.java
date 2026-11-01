@@ -102,6 +102,11 @@ public final class VarkaOperatorCensusSuite {
    * callees ({@code printinlining.cpp}, {@code at_bci}), so two species at separate call sites
    * print nothing: no two-species cell of the catalog trips the tell at any width, which is why
    * the census asserts only its absence in the one-species cells, not its presence.
+   *
+   * <p>A class of the fork's own preferred width is no second species: a virtual call on a lane's
+   * shared class, such as {@code LongVector::addIndex}, prints "callee changed to" the preferred
+   * species' class when C2 devirtualizes it ({@link #secondSpecies}), which the decimal store's
+   * iota does with one species (VARKA-157).
    */
   private static final Pattern BIMORPHIC = Pattern.compile(
       "callee changed to\\s+jdk\\.incubator\\.vector\\.[A-Z][a-z]+(64|128|256|512|Max)"
@@ -185,7 +190,7 @@ public final class VarkaOperatorCensusSuite {
           segments.get(segments.size() - 1).add(new Line(m.group(1).length(),
               Integer.parseInt(m.group(2)), m.group(3), m.group(4), m.group(5)));
         }
-        bimorphic |= BIMORPHIC.matcher(raw).find();
+        bimorphic |= secondSpecies(raw, bits);
       }
     }
     assertTrue(done && bits > 0, "the census probe did not finish; its output:\n"
@@ -224,6 +229,21 @@ public final class VarkaOperatorCensusSuite {
     }
     return new Reading(bits, skipped, alloc, List.copyOf(intrinsics), List.copyOf(failed),
         bimorphic);
+  }
+
+  /**
+   * Whether {@code line} re-targets a call site to a species class of another width than the
+   * fork's preferred {@code bits}: the {@link #BIMORPHIC} tell, less the devirtualized calls of
+   * the one species the fork runs.
+   */
+  static boolean secondSpecies(String line, int bits) {
+    Matcher m = BIMORPHIC.matcher(line);
+    while (m.find()) {
+      if (!m.group(1).equals(String.valueOf(bits))) {
+        return true;
+      }
+    }
+    return false;
   }
 
   private static String after(String line, String marker) {
@@ -469,6 +489,10 @@ public final class VarkaOperatorCensusSuite {
       assertFalse(BIMORPHIC.matcher(prefix + callee).find(), "read as a second species: "
           + callee);
     }
+    // A devirtualized call of the fork's own species is no second species; another width's is.
+    String own = "jdk.incubator.vector.Long512Vector::addIndex (6 bytes)";
+    assertFalse(secondSpecies(prefix + own, 512), "read as a second species: " + own);
+    assertTrue(secondSpecies(prefix + own, 256), "not read as a second species: " + own);
   }
 
   @Test

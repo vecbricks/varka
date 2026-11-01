@@ -598,8 +598,8 @@ keeps its high-word check and drops the digit check: a valid `10^17` at precisio
 its rescale by `10^2` wraps to a negative value, and the slot table's check fails, which the test
 asserts at every width.
 
-**The IR fuzzer's decimal sequence.** `VarkaIrGrammar.drawDecimalShape`, on its own seed
-(`DECIMAL_FUZZ_SEED`, so no committed shape moves), draws one to three decimal columns at
+**The IR fuzzer's decimal sequence.** `VarkaIrGrammar.drawDecimalValueShape`, on its own seed
+(`DECIMAL_VALUE_FUZZ_SEED`, so no committed shape moves), draws one to three decimal columns at
 precisions biased to 1, 2, 9, 10, 17 and 18, and over them the forms of 2.1: a rescale at a `k`
 the drawn value's digits allow, a negation, `abs`, an `IfElse`, both picks, the comparisons, the
 null-safe equality and the null test, literals at their digits' bounds and inside. The suite

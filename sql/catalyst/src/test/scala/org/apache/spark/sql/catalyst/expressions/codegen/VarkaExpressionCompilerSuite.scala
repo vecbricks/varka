@@ -975,6 +975,30 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     }
   }
 
+  test("a decimal output root is admitted up to precision 18, and a wider one declines naming " +
+      "row 359 before it fuses") {
+    // The admission 157b's producers call where a decimal-valued root meets its output's type
+    // (VarkaDecimalCompiler.outputRoot): no lowering builds such a root yet, so this is its
+    // caller. The store writes a long and its sign extension, so a wider type would be written
+    // wrongly, and the evaluator's allocator only asserts what this refuses.
+    val value = new ColumnRef(0, LaneType.LONG)
+    for (t <- Seq(DecimalType(1, 0), DecimalType(10, 2), DecimalType(18, 6))) {
+      val sink = new DeclineSink(childOutput, false)
+      val root = VarkaDecimalCompiler.outputRoot(Literal.create(null, t), value, sink)
+      assert(root.toScala === Some(new VarkaVectorIR.WidenDecimal(value)), t)
+      assert(sink.take().isEmpty, t)
+    }
+    for (t <- Seq(DecimalType(19, 0), DecimalType(30, 4), DecimalType(38, 18))) {
+      val sink = new DeclineSink(childOutput, false)
+      assert(VarkaDecimalCompiler.outputRoot(Literal.create(null, t), value, sink).isEmpty, t)
+      val reason = sink.take().get.reason
+      assert(reason.contains(s"a ${t.simpleString} output"), reason)
+      assert(reason.contains("row 359's"), reason)
+    }
+    intercept[IllegalArgumentException](VarkaDecimalCompiler.outputRoot(
+      Literal(1L), value, new DeclineSink(childOutput, false)))
+  }
+
   test("a TIME unit or level that is not a literal, or not a unit, declines with the reason") {
     // The divisor is part of the kernel's shape, so a unit that is not known at compile time
     // would need a kernel per distinct value - the same rule trunc(d, fmt) applies. An unknown

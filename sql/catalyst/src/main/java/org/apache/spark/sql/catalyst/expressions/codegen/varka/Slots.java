@@ -89,6 +89,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Tru
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.TruncDateDynamic;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WeekDay;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WeekOfYear;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WidenDecimal;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WidenLane;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Year;
 
@@ -332,6 +333,21 @@ final class Slots {
    * words. Null in every other body, which keeps its locals numbered as they were.
    */
   int[] decimalShuffle;
+
+  /**
+   * In a body that stores a {@link WidenDecimal} root, the decimal store's two interleaves built
+   * once in its prologue: the shuffles {@code Z0} and {@code Z1}, or under
+   * {@code decimalStore=SELECT_FROM} the index vectors {@code I0} and {@code I1}
+   * ({@code VarkaBodyEmitter.emitDecimalStore}). Null in every other body, which keeps its locals
+   * numbered as they were.
+   */
+  int[] decimalZip;
+
+  /**
+   * Per {@link WidenDecimal} root: its words {@code lo} and their sign extensions {@code hi},
+   * parked because each of the two interleaves reads both.
+   */
+  final Map<VarkaVectorIR, int[]> decimalStoreTmp = new HashMap<>();
 
   /**
    * {@link InRanges}' three locals: the value it tests (a vector), the loop's range index (an
@@ -932,6 +948,12 @@ final class Slots {
           if (node instanceof DecimalColumn) {
             s.decimalTmp.put(node, new int[] {slot++, slot++});
           }
+          if (node instanceof WidenDecimal) {
+            if (s.decimalZip == null) {
+              s.decimalZip = new int[] {slot++, slot++};
+            }
+            s.decimalStoreTmp.put(node, new int[] {slot++, slot++});
+          }
           if (node instanceof MakeDate) {
             int[] tmp = new int[MAKE_DATE_TMP_COUNT];
             for (int k = 0; k < MAKE_DATE_TMP_COUNT; k++) {
@@ -1037,6 +1059,7 @@ final class Slots {
           : s.wordRef.get(n.child());
       case WidenLane n -> s.wordRef.get(n.child());
       case NarrowLane n -> s.wordRef.get(n.child());
+      case WidenDecimal n -> s.wordRef.get(n.child());
       case Year n -> s.wordRef.get(n.days());
       case Month n -> s.wordRef.get(n.days());
       case DayOfMonth n -> s.wordRef.get(n.days());
@@ -1334,8 +1357,9 @@ final class Slots {
     for (int o : outputIdx) {
       VarkaVectorIR root = outputs.get(o);
       // A root that writes bitmaps stores nothing under the mask: the lane count truncates them.
+      // Nor does a decimal store, which masks its two halves by the slots' longs.
       if (!VarkaVectorIR.writesBitmaps(root) && !(root instanceof NarrowLane)
-          && analysis.laneOf(root) == analysis.lane) {
+          && !(root instanceof WidenDecimal) && analysis.laneOf(root) == analysis.lane) {
         return true;
       }
     }
@@ -1529,6 +1553,7 @@ final class Slots {
         // it - a root write, a guard, or a consumer above.
         case WidenLane g -> { }
         case NarrowLane g -> { }
+        case WidenDecimal g -> { }
         // The rest read no word here. A value node's own word, where it needs one, is
         // demanded by its root write, by a guard below, or by a consumer above it; a leaf
         // owns no word at all; and `IfElse`'s blend reads its branches' words through the
@@ -1597,6 +1622,7 @@ final class Slots {
         case GuardedRange x -> demand(analysis.wordOwner.get(x.child()));
         case WidenLane x -> demand(analysis.wordOwner.get(x.child()));
         case NarrowLane x -> demand(analysis.wordOwner.get(x.child()));
+        case WidenDecimal x -> demand(analysis.wordOwner.get(x.child()));
         case SubDays x -> { demand(analysis.wordOwner.get(x.days()));
           demand(analysis.wordOwner.get(x.offset())); }
         case NextDay x -> { demand(analysis.wordOwner.get(x.days()));

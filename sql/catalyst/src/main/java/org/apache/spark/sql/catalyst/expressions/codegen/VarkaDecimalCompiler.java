@@ -51,6 +51,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Int
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LaneType;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Overflow;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Truth;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WidenDecimal;
 import org.apache.spark.sql.types.Decimal;
 import org.apache.spark.sql.types.DecimalType;
 
@@ -82,6 +83,8 @@ import org.apache.spark.sql.types.DecimalType;
  * a rescale is needed); a cast that lowers the scale or the integral digits, or one from an
  * integral type (row 350); a negative scale (the milestone plan's 2.8); and every operator no
  * arm here claims yet.
+ *
+ * <p>A decimal-valued output root, once a lowering builds one, is admitted by {@link #outputRoot}.
  */
 final class VarkaDecimalCompiler {
 
@@ -245,6 +248,29 @@ final class VarkaDecimalCompiler {
       return sink.decline("a comparison of decimals of two scales with no cast to one", whole);
     }
     return Optional.of(List.of(l.get().unscaled(), r.get().unscaled()));
+  }
+
+  /**
+   * The output root of {@code value}, the unscaled long-lane value of the decimal-valued
+   * {@code whole}, or empty with the reason noted: {@code WidenDecimal(value)}, whose store writes
+   * each row's word and its sign extension into the output's sixteen-byte slot, where the
+   * output's type admits that store ({@code VarkaTypes.decimalOutputDeclineReason}), and a
+   * decline naming row 359 for a precision above 18, so such a shape never fuses rather than
+   * reaching the evaluator's allocator, which refuses it too. The binding that knows an output's
+   * type calls it, and only for an output root (`VARKA-157.md` 2.1); no lowering builds a
+   * decimal-valued root before 157b's producers, so its tests are its only callers until then.
+   */
+  static Optional<VarkaVectorIR> outputRoot(Expression whole, VarkaVectorIR value,
+      DeclineSink sink) {
+    if (!(whole.dataType() instanceof DecimalType type)) {
+      throw VarkaErrors.illegalArgument("a decimal output root over a "
+          + whole.dataType().simpleString() + ": " + whole);
+    }
+    Optional<String> refused = VarkaTypes.decimalOutputDeclineReason(type);
+    if (refused.isPresent()) {
+      return sink.decline(refused.get(), whole);
+    }
+    return Optional.of(new WidenDecimal(value));
   }
 
   /**

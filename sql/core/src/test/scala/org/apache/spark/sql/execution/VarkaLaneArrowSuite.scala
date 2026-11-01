@@ -25,7 +25,7 @@ import org.apache.arrow.vector.types.pojo.{ArrowType, Field, FieldType}
 
 import org.apache.spark.SparkFunSuite
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaTypeId, VarkaTypes}
-import org.apache.spark.sql.types.DecimalType
+import org.apache.spark.sql.types.{DataType, Decimal, DecimalType}
 
 /**
  * The evaluator's Arrow table held to the type registry (VARKA-494): a type has a vector exactly
@@ -59,7 +59,9 @@ class VarkaLaneArrowSuite extends SparkFunSuite {
       for (id <- VarkaTypeId.values(); v = VarkaLaneArrow.of(id)
           if v != null && v.allocate() != null) {
         val info = VarkaTypes.info(id)
-        for (form <- info.forms().asScala) {
+        // A decimal wider than a long is no form the store writes (row 359's), and its allocator
+        // refuses it; the last test holds that.
+        for (form <- info.forms().asScala if !wideDecimal(form)) {
           val vector = VarkaLaneArrow.allocate("x", form, allocator)
           try {
             assert(v.vectorClass().isInstance(vector), s"${form.sql}: ${vector.getClass}")
@@ -81,10 +83,41 @@ class VarkaLaneArrowSuite extends SparkFunSuite {
     }
   }
 
-  test("a decimal column is read and not written, and its field must say 128 bits and the scale") {
+  private def wideDecimal(form: DataType): Boolean = form match {
+    case d: DecimalType => d.precision > Decimal.MAX_LONG_DIGITS
+    case _ => false
+  }
+
+  test("a decimal output of precision 18 or less is written to a vector of Spark's own field, " +
+      "and a wider one fails the allocator's assertion") {
     val allocator = new RootAllocator(Long.MaxValue)
     try {
-      assert(VarkaLaneArrow.allocate("x", DecimalType(10, 2), allocator) === null)
+      for ((p, s) <- Seq((1, 0), (10, 2), (18, 6))) {
+        val vector = VarkaLaneArrow.allocate("x", DecimalType(p, s), allocator)
+        try {
+          // The field Spark's writer builds, so ArrowColumnVector reads it with its long accessor
+          // and the cache's statistics see the type's precision and scale.
+          assert(vector.getField.getType === new ArrowType.Decimal(p, s, 128))
+          assert(VarkaLaneArrow.decimalFieldMatches(vector, s))
+          assert(vector.asInstanceOf[BaseFixedWidthVector].getTypeWidth === 16)
+        } finally {
+          vector.close()
+        }
+      }
+      // The plan refuses the wider output before it fuses (VarkaTypes'
+      // decimalOutputDeclineReason); the allocator asks again, as an assertion.
+      val e = intercept[IllegalStateException](
+        VarkaLaneArrow.allocate("x", DecimalType(19, 2), allocator))
+      assert(e.getMessage.contains("row 359"), e.getMessage)
+      assert(e.getMessage.contains("the plan admitted it"), e.getMessage)
+    } finally {
+      allocator.close()
+    }
+  }
+
+  test("a decimal column's field must say 128 bits and the scale") {
+    val allocator = new RootAllocator(Long.MaxValue)
+    try {
       def vector(bitWidth: Int, scale: Int): DecimalVector = new DecimalVector(
         new Field("d", FieldType.nullable(new ArrowType.Decimal(10, scale, bitWidth)), null),
         allocator)

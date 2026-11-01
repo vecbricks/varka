@@ -42,6 +42,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.*;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WidenDecimal;
 import org.apache.spark.sql.internal.SQLConf;
 
 /**
@@ -102,6 +103,9 @@ public final class VarkaReproductionSuite {
         // A decimal column beside an int one widened to its lane.
         new IntArith(IntOp.ADD, Overflow.WRAP, new DecimalColumn(2, LaneType.LONG, 9),
             new WidenLane(new ColumnRef(0), LaneType.LONG)),
+        // A decimal output over a long column's arithmetic.
+        new WidenDecimal(new IntArith(IntOp.ADD, Overflow.WRAP, x,
+            new LiteralSlot(0, LaneType.LONG))),
         new CondValue(new NullSafeEqual(new ColumnRef(0), new LiteralSlot(0)), LaneType.INT),
         new BitCount(new BitOp(BitOpKind.XOR, new ColumnRef(0), new LiteralSlot(0))),
         // A floating lane's square root over its IEEE division, whose zero divisor nulls a lane.

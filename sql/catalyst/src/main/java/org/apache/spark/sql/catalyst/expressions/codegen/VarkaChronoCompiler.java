@@ -788,7 +788,8 @@ final class VarkaChronoCompiler {
       // interval (above) or one that does not.
       case VarkaVectorIR.ColumnRef _, VarkaVectorIR.DecimalColumn _, LiteralSlot _, GuardedDay _,
           VarkaVectorIR.GuardedRange _,
-          VarkaVectorIR.WidenLane _, VarkaVectorIR.NarrowLane _, VarkaVectorIR.DateDiff _,
+          VarkaVectorIR.WidenLane _, VarkaVectorIR.NarrowLane _, VarkaVectorIR.WidenDecimal _,
+          VarkaVectorIR.DateDiff _,
           VarkaVectorIR.DayOfWeek _, VarkaVectorIR.WeekDay _, DayOfWeekIso _, VarkaVectorIR.Year _,
           VarkaVectorIR.Month _, VarkaVectorIR.DayOfMonth _, VarkaVectorIR.Quarter _,
           VarkaVectorIR.DayOfYear _, VarkaVectorIR.TruncDateDynamic _, VarkaVectorIR.WeekOfYear _,
