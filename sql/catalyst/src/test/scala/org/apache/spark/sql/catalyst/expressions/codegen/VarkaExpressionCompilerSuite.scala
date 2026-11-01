@@ -1960,15 +1960,29 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     assert(partial.declines.asScala(0).reason ===
       "no null leaf for type tinyint, the missing ELSE of a CASE WHEN")
     assert(partial.declines.asScala(1) != null)
-    // A branch that is not an int, which the analyzer's coercion never leaves under an int
-    // choice, is named by the choice's SQL keyword and its position.
+    // A branch that is not an int is named by the choice's SQL keyword and its position. The
+    // analyzer's coercion never leaves one under an int choice, and Catalyst refuses the mixed
+    // types when asked for the choice's type, so each choice here states its type itself. Its
+    // children are bound already, so that binding, which copies a node whose children it
+    // rewrites, keeps the choice as built.
+    val (bd, bd2, bi) = (BoundReference(0, DateType, nullable = true),
+      BoundReference(1, DateType, nullable = true), BoundReference(2, IntegerType, nullable = true))
+    val blt = LessThan(bd, bd2)
     val notInt = VarkaExpressionCompiler.compilePartial(
-      Seq(out(If(lt, i, d)), out(CaseWhen(Seq((lt, i)), Some(d))),
-        out(Coalesce(Seq(i, d))), out(DateAdd(d, Literal(1)))), childOutput).get
+      Seq(
+        out(new If(blt, bi, bd) { override def dataType: DataType = IntegerType }),
+        out(new CaseWhen(Seq((blt, bi)), Some(bd)) {
+          override def dataType: DataType = IntegerType }),
+        out(new Coalesce(Seq(bi, bd)) { override def dataType: DataType = IntegerType }),
+        out(new Greatest(Seq(bi, bd)) { override def dataType: DataType = IntegerType }),
+        out(new Least(Seq(bd, bi)) { override def dataType: DataType = IntegerType }),
+        out(DateAdd(d, Literal(1)))), childOutput).get
     assert(notInt.declines.asScala.toSeq.sortBy(_._1.intValue).map(_._2.reason) === Seq(
       "a branch of an int IF is not an int column or literal",
       "a branch of an int CASE is not an int column or literal",
-      "an operand of an int COALESCE is not an int column or literal"))
+      "an operand of an int COALESCE is not an int column or literal",
+      "an operand of an int GREATEST is not an int column or literal",
+      "an operand of an int LEAST is not an int column or literal"))
   }
 
   test("IS [NOT] NULL compile; nvl and nvl2 arrive through their replacements") {
