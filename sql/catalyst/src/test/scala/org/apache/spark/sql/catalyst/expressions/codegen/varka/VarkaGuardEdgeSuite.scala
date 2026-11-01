@@ -388,11 +388,24 @@ class VarkaGuardEdgeSuite extends SparkFunSuite with VarkaMatrixTests {
       new IfElse(new Compare(CompareOp.GT, new ColumnRef(0), new LiteralSlot(0)),
         new Year(producer), new Year(new ColumnRef(0))))
     val o = options.withGuardUnderArm(true).withHeavyGroupOutputs(0)
-    assert(VarkaLoopEmitter.guardsForTest(roots.asJava, 2, 1, o).get(producer).arms().size == 2)
+    // The structure under test needs the outputs split into two groups and the prefix
+    // materialized by one for the other. The options that decide either are pinned at their
+    // defaults, so a configuration that keeps one group (a zero method or call-site budget, no
+    // size plan, no grouping prediction) or computes the prefix in each group (no prefix
+    // materialized or shared) still emits it. The kernel under the configuration's own options
+    // must give the same statuses and answers, whatever its shape.
+    val d = VarkaEmitOptions.DEFAULTS
+    val pinned = o.withMethodByteBudget(d.methodByteBudget).withCallSiteBudget(d.callSiteBudget)
+      .withPlanSize(d.planSize).withPredictGrouping(d.predictGrouping)
+      .withMaterializeChronoPrefix(d.materializeChronoPrefix)
+      .withShareChronoPrefix(d.shareChronoPrefix)
+    assert(VarkaLoopEmitter.guardsForTest(roots.asJava, 2, 1, pinned).get(producer).arms()
+      .size == 2)
     val none: Seq[Int => Boolean] = Seq.fill(2)((_: Int) => false)
     val bit = VarkaFusedKernel.STATUS_DAY_PRODUCER
-    for ((label, past) <- Seq(("row 1 past the range under b's arm", true),
-        ("every day in range", false))) {
+    val variants = Seq("pinned" -> pinned) ++ (if (o == pinned) Nil else Seq("unpinned" -> o))
+    for ((variant, eo) <- variants; (label, past) <- Seq(
+        ("row 1 past the range under b's arm", true), ("every day in range", false))) {
       val data = Array.tabulate(2, length) { (c, i) =>
         val day = if (i % 2 == 0) 100L else cut + 100L
         if (c == 0) day
@@ -401,19 +414,21 @@ class VarkaGuardEdgeSuite extends SparkFunSuite with VarkaMatrixTests {
       }
       val name =
         s"org.apache.spark.sql.varka.execution.VarkaGuardLoaded${classCounter.incrementAndGet()}"
-      val bytes = VarkaLoopEmitter.emit(name, roots.asJava, 2, 1, null, null, o)
-      val methods = VarkaEmitterTestSupport.methodNames(bytes).asScala
-      assert(methods.contains("loopDense1") && methods.contains("scratchBytesPerRow"),
-        s"$label: the outputs should split into two groups over a materialized prefix: $methods")
+      val bytes = VarkaLoopEmitter.emit(name, roots.asJava, 2, 1, null, null, eo)
+      if (eo eq pinned) {
+        val methods = VarkaEmitterTestSupport.methodNames(bytes).asScala
+        assert(methods.contains("loopDense1") && methods.contains("scratchBytesPerRow"),
+          s"$label: the outputs should split into two groups over a materialized prefix: $methods")
+      }
       val st = VarkaKernelCheck.runEachBodyStatus(label, name, bytes, roots, 2, Array(cut),
         VarkaKernelCheck.Batch(length, none, data.map(_.map(_.toInt)), forceMasked = false))
       if (past) {
-        assert(st.forall(_ == bit), s"$label: statuses $st, every body must decline")
+        assert(st.forall(_ == bit), s"$variant, $label: statuses $st, every body must decline")
       } else {
-        assert(st.forall(_ == 0), s"$label: statuses $st")
+        assert(st.forall(_ == 0), s"$variant, $label: statuses $st")
         assert(VarkaKernelCheck.runAndCompare(label, name, bytes, roots, 2, Array(cut),
           VarkaKernelCheck.Batch(length, none, data.map(_.map(_.toInt)), forceMasked = false)),
-          s"$label: a batch in range declined or answered wrongly")
+          s"$variant, $label: a batch in range declined or answered wrongly")
       }
     }
   }
