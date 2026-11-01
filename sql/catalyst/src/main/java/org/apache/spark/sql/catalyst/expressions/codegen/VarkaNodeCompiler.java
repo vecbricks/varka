@@ -520,11 +520,14 @@ final class VarkaNodeCompiler {
       // The casts between DATE and TIMESTAMP_NTZ (VARKA-338), and with them the coercion that
       // makes `d < ntz` a comparison of `CAST(d AS TIMESTAMP_NTZ)` with the NTZ value. Neither
       // reads the session zone: Spark converts at UTC both ways. The identity cast is its child.
-      case Cast c when isNtz(c) && DataTypes.DateType.equals(c.child().dataType()) ->
+      case Cast c when VarkaTypes.isNtz(c.dataType())
+          && DataTypes.DateType.equals(c.child().dataType()) ->
           () -> ntzOfDate(c, inputs, literals, sink);
-      case Cast c when DataTypes.DateType.equals(c.dataType()) && isNtz(c.child()) ->
+      case Cast c when DataTypes.DateType.equals(c.dataType())
+          && VarkaTypes.isNtz(c.child().dataType()) ->
           () -> dateOfNtz(c, inputs, literals, sink);
-      case Cast c when isNtz(c) && isNtz(c.child()) ->
+      case Cast c when VarkaTypes.isNtz(c.dataType())
+          && VarkaTypes.isNtz(c.child().dataType()) ->
           () -> compileNode(c.child(), inputs, literals, sink);
       // A narrow value promoted to the int lane, which is what Catalyst's coercion inserts where
       // a TINYINT or SMALLINT meets an int - `greatest(y1, y2) < i` arrives as
@@ -803,10 +806,6 @@ final class VarkaNodeCompiler {
     VarkaVectorIR down = new BitOp(BitOpKind.AND, new BitOp(BitOpKind.SHR, y, sink.longSlot(63)),
         sink.longSlot(1 - odd));
     return new ConstDivide(new IntArith(IntOp.ADD, Overflow.WRAP, y, down), odd, bound);
-  }
-
-  private static boolean isNtz(Expression e) {
-    return DataTypes.TimestampNTZType.equals(e.dataType());
   }
 
   private static VarkaVectorIR greatest(VarkaVectorIR left, VarkaVectorIR right) {
