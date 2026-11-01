@@ -150,7 +150,7 @@ A root-only node `WidenDecimal(VarkaVectorIR child)` on the long lane, as `m5/PL
 its value is its child's, unchanged, and its store writes each lane's word and that word's sign
 extension into the lane's slot. `Analysis` refuses it under any other node and in a kernel not
 driven at the long lane, as `emitDecimalLoad` refuses its leaf in another emission. It renders as
-`wdec(<child>)`, so a decimal root never shares a kernel class with a `BIGINT` root of the same
+`(wdec <child>)`, so a decimal root never shares a kernel class with a `BIGINT` root of the same
 tree; it carries no precision or scale, since its bytes depend on neither, and the evaluator takes
 both from the output's type. The reference evaluator passes the value through and asserts
 `|u| <= 10^18 - 1`. `VarkaCanonicalIr` gains its parse arm, which the completeness check of
@@ -360,7 +360,15 @@ Predictions, registered before any of it is built:
    `varka-width-audit.yml` dispatch for the runner columns. Bytes unchanged for every existing
    shape.
 3. **157b, the producers:** 2.3's lowerings and proof rows, the harness and coverage rows, the
-   exhaustive check, the store's arms in the benchmark and the verdict per width.
+   exhaustive check, the store's arms in the benchmark and the verdict per width. *Added 31
+   October 2026, from 157a's review:* 157b also wires `VarkaDecimalCompiler.outputRoot` into the
+   producers' lowerings as the plan-time refusal of a decimal output the store cannot write, so
+   that a precision above 18 or a negative scale declines before it fuses rather than at the
+   allocator's assertion; and it restores `decimalStore`'s option-matrix configuration
+   (`decimalStore=SELECT_FROM`), which 157a drops on purpose while no end-to-end path builds a
+   `WidenDecimal`, either by taking the option out of `readOnlyBy` or by having
+   `VarkaMatrixRuns.configurations` include an option some producer's node reaches, and pins both
+   of its arms in `emitted_bytes.json` over the new coverage rows.
 
 | file | what |
 |---|---|
@@ -441,4 +449,130 @@ oracle is unchanged for every existing shape; and the PR build and the option ma
 
 ## 10. Outcome
 
-(Written when the work lands.)
+(157b and the measurement are still to come; the readings of 157a are below.)
+
+### 10.1 Step 2 (157a): the store
+
+*31 October 2026, on master at `23a256d0db5`, branch `varka-157-store`. 2.1's rendering is
+corrected above from `wdec(<child>)` to `(wdec <child>)`, the form `VARKA-502.md` 9 item 2 asks
+for: the canonical parser reads only `(head child...)`.*
+
+**What was built, against step 2's list.**
+
+- **The node.** `WidenDecimal(child)` in `VarkaVectorIR`, over a long-lane value and not a
+  condition, rendering `(wdec <child>)`; `Analysis` refuses it below a root ("a decimal output
+  below a root") and in an emission not driven at the long lane. `VarkaCanonicalIr` has its
+  `wdec` arm, and `VarkaReproductionSuite`'s `theRest()` reaches it, so `everyNodeTypeRoundTrips`
+  stays complete. The reference evaluator passes the value through and raises past
+  `+-(10^18 - 1)`.
+- **The helper and both arms.** `VarkaBodyEmitter.emitDecimalStore` parks `lo`, computes
+  `hi = lo >> 63` and hands both to `emitInterleavedStore`, which takes the two word vectors from
+  its caller, as 2.1 asks so that 359's pair store can call it. The `Choice` `decimalStore`
+  (`REARRANGE`, the default, and `SELECT_FROM`), `Reason.MACHINE`, renders as a new
+  `ChoiceTag`, `|decimalStore=SELECT_FROM`, so that the defaults' rendering and every existing
+  variant's are unchanged (a `Choice` rendered by position would have changed every variant's).
+  Its entry names `WidenDecimal` as the one node kind that reads it (`VarkaEmitOption.readOnlyBy`,
+  a `Choice` component that the interface's static `readOnlyBy(option)` answers for every option),
+  and the static `VarkaEmitOption.drawnInGeneral` leaves such an option out of the general fuzz
+  draws and the option matrix's configurations. The steering's mutations redraw it for a case
+  whose shape holds a `WidenDecimal`, after the general options, so a case without one mutates
+  exactly as before (`VarkaSteering.mutable`).
+- **The segment.** `emitOutputSegments` maps a `WidenDecimal` root at `length * 16` bytes, tested
+  before the narrowed branch, through `loadDecimalSegment`, which the mapping fault injector
+  moves. The epilogue's two stores are masked by `indexInRange(0, 2 * lanes)` and
+  `indexInRange(n, 2 * lanes)`; a mixed kernel stores in its long groups. The slot addressing,
+  offset and masks of a slot half are `VarkaVectorWalk.emitDecimalSlotHalf`, which the decimal
+  load calls too. The interleave's index for part `k` is `L / 2 + (L % 2) * n` with
+  `L = k * n + i`; the first form built, `i / 2 + (i % 2) * n + k * n / 2`, holds only at an even
+  lane count and stored `(v, v)` at one long lane.
+- **The admission and the allocator.** `VarkaTypes.decimalOutputDeclineReason` refuses a decimal
+  output above precision 18, naming row 359 from the DECIMAL entry's `UpToPrecision`, or of a
+  negative scale, and `VarkaDecimalCompiler.outputRoot`, which wraps a decimal-valued output root
+  in `WidenDecimal`, declines with it, so such a shape never fuses. No lowering builds a
+  decimal-valued root yet: 157b's producers call `outputRoot`, and until then
+  `VarkaExpressionCompilerSuite` is its caller. `VarkaLaneArrow.of(DECIMAL)` builds the
+  destination from Spark's field (`Decimal(p, s, 128)`) and asks the same reason again, as an
+  assertion (an `IllegalStateException`); `VarkaLaneArrowSuite` holds both.
+- **Warm-up and budget.** The template warm-up's long block builds the lanewise zip, the
+  two-vector `rearrange` under it, the two-vector `selectFrom` and the two stores, whole and
+  masked; `VarkaWarmupReachSuite` reads the decimal draw's kernels as part of its corpus. The
+  budget weight is 4 (the sign shift, the two interleaves, the second store), held by
+  `VarkaEmitterBudgetSuite`, which counts the prologue's zip as overhead, as a leaf's load is. The
+  cost feature `WidenDecimal` is on row 352's awaiting-refit list in `VarkaEmitCostSuite`.
+- **The store table and the guard page.** `VarkaDecimalStoreSuite` (`ownJvm`): `WidenDecimal` over a
+  long column at 2, 4 and 8 lanes, and `VarkaDecimalStoreOneLaneSuite` runs the same tables at the
+  preferred species (`lanesOverride=1`, which bakes no width) in a JVM under
+  `-XX:MaxVectorSize=8`, where that species is one long lane (six of its tests failed on the first
+  index form, a slot read back as `(-42, -42)`). The tables are `VarkaDecimalStoreTables`, which
+  both classes extend; the refusals, which no width changes, are the first class's alone, and the
+  host's preferred species is not run unbaked beside the baked width it equals. The decimal load
+  is split the same way: `VarkaDecimalLoadOneLaneSuite` runs `VarkaDecimalLoadTables` at one long
+  lane, and passed there on its first run, with no change to the load; lengths 1, 3, 37 and 64, both bodies, both arms,
+  with 0, -1, `10^18 - 1`, `-(10^18 - 1)`, 1, -10 and random values of both signs planted at the
+  first group, a middle one and the last row; each valid slot equals `DecimalVector.set(int,
+  long)`'s bytes and reads back through `ArrowColumnVector.getDecimal` as `Decimal(u, 18, 0)`.
+  Beside it the store over arithmetic, `mixedLanesBesideTheStore`, `perGroupBodiesUnderTheBudget`
+  (six outputs split by the byte budget, each loop body building its two zips), the refusals, the
+  mapping fault injector, short and, under the sanitizer, long, and `guardPage`: the slots end on an
+  `mmap`ed page whose successor is `PROT_NONE`. A store with a wrong high word fails five of the
+  seven tests (a planted `lo >> 1`).
+- **The fuzz sequence.** `VarkaIrGrammar.drawDecimalShape` on `DECIMAL_FUZZ_SEED`: a decimal root,
+  over a long tree under a nulling guard of `+-(10^18 - 1)` where its bound does not fit, beside
+  plain and narrowed long roots. `VarkaIrFuzzSuite` runs it against the reference evaluator, the
+  harness (`VarkaKernelChecks`) reading each slot and failing on a high word that is not the sign
+  extension, and holds that the committed draws hold no decimal output.
+- **The census cells.** Six cells in `VarkaOperatorCensusCatalog`, from a long segment into slot
+  segments, both mapped once a call: the two forms with their zip from `makeZip` and built
+  lanewise, the epilogue's masked form, and `dec_zip_segments`, which maps the two segments and
+  stores with no zip, the baseline the allocation is read against. The laptop column is in
+  `operator_census.json`, which gains those cells and nothing else.
+
+**What the cells say.**
+
+| cell | 512 | 256 | 128 |
+| :-- | :-- | :-- | :-- |
+| `long.dec_zip_segments` | I | I | I |
+| `long.dec_zip_rearrange` (`makeZip`) | I | I | F |
+| `long.dec_zip_selectFrom2` (`makeZip`) | I | I | I |
+| `long.dec_zip_rearrange_lanewise` | I | I | F |
+| `long.dec_zip_selectFrom2_lanewise` | I | I | I |
+| `long.dec_zip_tail` (lanewise) | I | I | F |
+
+1. **`makeZip` allocates in a prologue, the lanewise form does not.** At 512 and 256 bits the
+   lanewise cells allocate what `dec_zip_segments` does, the two segments a call maps, and the
+   `makeZip` cells about twice that, its lambda's indices not scalar-replaced; every cell is under
+   the `I+A` threshold, so the verdict alone does not show it. By 2.2's rule the emitter builds
+   the zip lanewise, and the `makeZip` cells stay as the reason.
+2. **At 128 bits only `selectFrom` is native**, as 0.9 had it on an AVX-512VL host: the
+   `rearrange` forms and the masked tail fall back (`rearrangeOp`, `blend`, the mask loads and
+   stores), so 2.2's row-27 rule stands for the measurement.
+3. **The second-species tell misfired on the iota.** `LongVector::addIndex` is a virtual call,
+   and C2's printer reports its devirtualization as "callee changed to `Long512Vector`", which the
+   tell read as a second species in every lanewise cell. The tell now skips a class of the fork's
+   own width (`VarkaOperatorCensusSuite.secondSpecies`), with a self-test.
+
+**Departures.**
+
+- **`decimalOutputs` is not a bitmask.** `emitOutputSegments` tests the root itself
+  (`root instanceof WidenDecimal`); the bitmask 2.2 names would hold the same bit for an output
+  whose root is in hand where it is read, and would cap the outputs at 64.
+- **The fuzzer draws `decimalStore` in the decimal sequence only.** Drawn in `randomOptions`, it
+  shifted every later draw of the committed seeds and moved the named draws of VARKA-323's
+  variant test, for an option no shape of theirs reads. The exclusion is the option's own
+  attribute (`readOnlyBy`), which the general draws and the option matrix read through
+  `drawnInGeneral`, and `VarkaSteering` per case; the decimal sequence draws the options `WidenDecimal` alone reads after
+  the rest, both arms of `decimalStore` among its draws.
+- **`emitted_bytes.json` is unchanged**, not moved as 3 item 7 predicted: no coverage row and no
+  shape of the committed fuzz sequences stores a decimal yet, so no digest moves, and `decimalStore`
+  reaches no configuration (`VarkaMatrixRuns.configurations` skips an option `drawnInGeneral` leaves out;
+  the first build of the branch had added `decimalStore=SELECT_FROM`, a matrix configuration
+  rerunning every suite for no kernel they emit), so it has no pinned arm. The shared slot
+  addressing leaves the decimal load's digests, its coverage rows', unchanged. The store's bytes
+  reach the oracle with 157b's coverage rows.
+- **The budget suite counts the prologue's zip as overhead**, not as weight: it is built once a
+  body, whatever the number of decimal roots.
+
+**Left for 157b and the runners.** The runner columns of the six cells wait on a
+`varka-width-audit.yml` dispatch on the branch (EPYC 7763 at 256 and 128 bits, Neoverse N2 at
+128); 157b's producers, proof rows, harness and coverage rows, the exhaustive check, the
+benchmark's store arms and the verdict per width.

@@ -17,7 +17,9 @@
 
 package org.apache.spark.sql.catalyst.expressions.codegen.varka;
 
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Random;
@@ -41,11 +43,50 @@ final class VarkaSteering {
   private VarkaSteering() {
   }
 
-  /** The options a mutation redraws: every option the fuzzer draws, in a fixed order. */
+  /**
+   * The options a mutation of any case redraws: every option the fuzzer's general draws vary
+   * ({@link VarkaEmitOption#drawnInGeneral}), in a fixed order.
+   */
   private static final List<VarkaEmitOption> FUZZED = VarkaEmitOption.TABLE.stream()
-      .filter(o -> o.reason().drawn())
+      .filter(VarkaEmitOption::drawnInGeneral)
       .sorted(Comparator.comparing(VarkaEmitOption::name))
       .toList();
+
+  /**
+   * The options a mutation of {@code c} redraws: {@link #FUZZED}, then, in table order, each drawn
+   * option one node kind alone reads ({@link VarkaEmitOption#readOnlyBy}) whose node {@code c}'s
+   * shape holds, as {@code decimalStore} for a shape with a {@code WidenDecimal}. A case whose
+   * shape holds no such node gets {@code FUZZED} itself, so its mutations draw the sequence they
+   * always drew; one that holds it can have that option changed too.
+   */
+  static List<VarkaEmitOption> mutable(VarkaFuzzCase c) {
+    List<VarkaEmitOption> read = new ArrayList<>();
+    for (VarkaEmitOption option : VarkaEmitOption.TABLE) {
+      if (option.reason().drawn() && VarkaEmitOption.readOnlyBy(option)
+          .filter(kind -> holds(c.roots(), kind)).isPresent()) {
+        read.add(option);
+      }
+    }
+    if (read.isEmpty()) {
+      return FUZZED;
+    }
+    List<VarkaEmitOption> all = new ArrayList<>(FUZZED);
+    all.addAll(read);
+    return List.copyOf(all);
+  }
+
+  /** Whether a node of {@code kind} is anywhere in the trees of {@code roots}. */
+  private static boolean holds(List<VarkaVectorIR> roots, Class<? extends VarkaVectorIR> kind) {
+    var pending = new ArrayDeque<VarkaVectorIR>(roots);
+    while (!pending.isEmpty()) {
+      VarkaVectorIR node = pending.pop();
+      if (kind.isInstance(node)) {
+        return true;
+      }
+      Collections.addAll(pending, VarkaVectorIR.childrenOf(node));
+    }
+    return false;
+  }
 
   /**
    * What makes a steered step keep its case: a set of mechanisms no earlier emission reached, or
@@ -128,7 +169,8 @@ final class VarkaSteering {
         return VarkaVariantChecks.caseOf(c, v).withLabel(c.label() + " -> " + v.kind());
       }
     }
-    VarkaEmitOption option = FUZZED.get(rnd.nextInt(FUZZED.size()));
+    List<VarkaEmitOption> mutable = mutable(c);
+    VarkaEmitOption option = mutable.get(rnd.nextInt(mutable.size()));
     VarkaEmitOptions options = switch (option) {
       case VarkaEmitOption.Flag flag -> flag.with(c.options(), !flag.value(c.options()));
       case VarkaEmitOption.Choice<?> choice when choice.constants().size() < 2 -> c.options();
