@@ -718,8 +718,8 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
     // standing in for a null would answer the extreme where Spark answers the other operand.
     Family("Choice and nulls on every type", predicates = false, Seq(
       Row("if(d < d2, i, i + 1)", "an int branch is a column, a literal or int arithmetic; the "
-        + "checked add runs on every lane, whichever branch a row takes",
-        domain = Some(s"i < ${Int.MaxValue}")),
+        + "checked add is qualified by its arm, so only a row taking the ELSE can overflow",
+        domain = Some(s"d < d2 OR i < ${Int.MaxValue}")),
       Row("CASE WHEN d < d2 THEN i ELSE datediff(d, d2) END"),
       Row("coalesce(i, datediff(d, d2))"),
       Row("coalesce(i, 0)"),
