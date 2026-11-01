@@ -372,11 +372,11 @@ public final class VarkaKernelPlan {
 
   /**
    * Whether every narrow node of {@code root} is one {@link #longNarrowRefusal} names, read by a
-   * node it names.
+   * node it names: the root by {@link LongNarrowRole#atRoot}, every other narrow node by what its
+   * reader takes ({@link #longNarrowReader}).
    */
   private static boolean loweredAtLong(VarkaVectorIR root) {
-    if (root.laneType().isNarrow() && !(root instanceof NarrowLane) && !isNarrowCond(root)
-        && !(root instanceof VarkaVectorIR.BoolOutput)) {
+    if (root.laneType().isNarrow() && !longNarrowRole(root).atRoot()) {
       return false;
     }
     var seen = new HashSet<VarkaVectorIR>();
@@ -386,17 +386,9 @@ public final class VarkaKernelPlan {
       if (!seen.add(node)) {
         continue;
       }
-      boolean valueReader = node instanceof WidenLane || node instanceof VarkaVectorIR.IsNotNull
-          || node instanceof VarkaVectorIR.Compare || node instanceof VarkaVectorIR.NullSafeEqual
-          || (node instanceof NarrowLane && node.equals(root));
-      boolean condReader = node instanceof VarkaVectorIR.And || node instanceof VarkaVectorIR.Or
-          || node instanceof VarkaVectorIR.Not || node instanceof VarkaVectorIR.IsNotNull
-          || node instanceof VarkaVectorIR.BoolOutput;
+      LongNarrowReader reader = longNarrowReader(node);
       for (VarkaVectorIR child : VarkaVectorIR.childrenOf(node)) {
-        boolean lowered = !child.laneType().isNarrow()
-            || (valueReader && isNarrowLeafAtLong(child))
-            || (condReader && isNarrowCond(child));
-        if (!lowered) {
+        if (child.laneType().isNarrow() && !reader.takes(longNarrowRole(child))) {
           return false;
         }
         todo.push(child);
@@ -406,21 +398,152 @@ public final class VarkaKernelPlan {
   }
 
   /**
-   * A narrow column, or a long value narrowed to a narrow type. A narrow literal is not one: the
-   * long kernel's slots name no int-lane broadcast for it, and the compiler folds the literal a
-   * cast widens into a long one.
+   * What a narrow-typed node is in a kernel driven at the long lane (`VARKA-332.md` 2.5), the one
+   * classification both this plan's refusal ({@link #longNarrowRefusal}) and {@code Analysis}'
+   * lane rule read: the plan asks whether each narrow node is read by a node that takes it, the
+   * analysis whether a node may sit in a long emission at all.
    */
-  private static boolean isNarrowLeafAtLong(VarkaVectorIR node) {
-    return node instanceof VarkaVectorIR.ColumnRef
-        || (node instanceof NarrowLane n && n.target().isNarrow()
-            && n.child().laneType() == LaneType.LONG);
+  enum LongNarrowRole {
+    /** A {@code TINYINT} or {@code SMALLINT} column: the narrow load at the long width. */
+    COLUMN,
+    /**
+     * A narrowing of a long value to a narrow type: {@code L2I}, then the shift pair's wrap, or at
+     * a root the narrow store. Lowered wherever a value is read.
+     */
+    NARROWING,
+    /**
+     * A narrowing of an int or narrow value ({@code CAST(s AS TINYINT)}): the narrow store takes
+     * it at a root, and nothing reads it elsewhere.
+     */
+    NARROWING_AT_ROOT,
+    /** A comparison of narrow values, or a connective over such comparisons. */
+    COND,
+    /** A boolean output over a narrow condition. */
+    OUTPUT,
+    /**
+     * Any other node - a narrow literal, whose broadcast the long kernel's slots do not name,
+     * narrow arithmetic, a narrow choice: no lowering at the long lane.
+     */
+    NONE;
+
+    /** A value a widening, a null test or a comparison reads. */
+    boolean isValue() {
+      return this == COLUMN || this == NARROWING;
+    }
+
+    /** A narrow-typed root the long kernel stores or writes. */
+    boolean atRoot() {
+      return this == NARROWING || this == NARROWING_AT_ROOT || this == COND || this == OUTPUT;
+    }
   }
 
-  /** A comparison of narrow values, or a connective over such comparisons. */
-  private static boolean isNarrowCond(VarkaVectorIR node) {
-    return node instanceof VarkaVectorIR.Compare || node instanceof VarkaVectorIR.NullSafeEqual
-        || node instanceof VarkaVectorIR.And || node instanceof VarkaVectorIR.Or
-        || node instanceof VarkaVectorIR.Not;
+  /** {@code node}'s {@link LongNarrowRole}, read as if {@code node} were narrow-typed. */
+  static LongNarrowRole longNarrowRole(VarkaVectorIR node) {
+    return switch (node) {
+      case VarkaVectorIR.ColumnRef c -> LongNarrowRole.COLUMN;
+      case NarrowLane n -> !n.target().isNarrow() ? LongNarrowRole.NONE
+          : switch (n.child().laneType()) {
+            case LONG -> LongNarrowRole.NARROWING;
+            case BYTE, SHORT, INT -> LongNarrowRole.NARROWING_AT_ROOT;
+            case FLOAT, DOUBLE -> LongNarrowRole.NONE;
+          };
+      case VarkaVectorIR.Compare c -> LongNarrowRole.COND;
+      case VarkaVectorIR.NullSafeEqual e -> LongNarrowRole.COND;
+      case VarkaVectorIR.And a -> LongNarrowRole.COND;
+      case VarkaVectorIR.Or o -> LongNarrowRole.COND;
+      case VarkaVectorIR.Not n -> LongNarrowRole.COND;
+      case VarkaVectorIR.BoolOutput b -> LongNarrowRole.OUTPUT;
+      case VarkaVectorIR.Cond c -> LongNarrowRole.NONE;
+      case VarkaVectorIR.Chrono c -> LongNarrowRole.NONE;
+      case VarkaVectorIR.DecimalColumn c -> LongNarrowRole.NONE;
+      case VarkaVectorIR.LiteralSlot l -> LongNarrowRole.NONE;
+      case VarkaVectorIR.GuardedDay g -> LongNarrowRole.NONE;
+      case VarkaVectorIR.GuardedRange g -> LongNarrowRole.NONE;
+      case WidenLane w -> LongNarrowRole.NONE;
+      case VarkaVectorIR.AddDays a -> LongNarrowRole.NONE;
+      case VarkaVectorIR.SubDays a -> LongNarrowRole.NONE;
+      case VarkaVectorIR.DateDiff d -> LongNarrowRole.NONE;
+      case IntArith a -> LongNarrowRole.NONE;
+      case VarkaVectorIR.IntNeg n -> LongNarrowRole.NONE;
+      case VarkaVectorIR.ConstDivide d -> LongNarrowRole.NONE;
+      case VarkaVectorIR.BoundedDivide d -> LongNarrowRole.NONE;
+      case VarkaVectorIR.BitOp b -> LongNarrowRole.NONE;
+      case VarkaVectorIR.BitCount b -> LongNarrowRole.NONE;
+      case VarkaVectorIR.IfElse i -> LongNarrowRole.NONE;
+      case VarkaVectorIR.CondValue c -> LongNarrowRole.NONE;
+      case VarkaVectorIR.Greatest g -> LongNarrowRole.NONE;
+      case VarkaVectorIR.Least l -> LongNarrowRole.NONE;
+      case VarkaVectorIR.DayOfWeek d -> LongNarrowRole.NONE;
+      case VarkaVectorIR.WeekDay d -> LongNarrowRole.NONE;
+      case VarkaVectorIR.DayOfWeekIso d -> LongNarrowRole.NONE;
+      case VarkaVectorIR.NextDay d -> LongNarrowRole.NONE;
+      case VarkaVectorIR.ThursdayOf d -> LongNarrowRole.NONE;
+      case VarkaVectorIR.AddMonths a -> LongNarrowRole.NONE;
+      case VarkaVectorIR.MakeDate m -> LongNarrowRole.NONE;
+    };
+  }
+
+  /** What a node reads of its narrow children in a kernel driven at the long lane. */
+  private enum LongNarrowReader {
+    /** A widening, a comparison or a narrowing: a narrow value. */
+    VALUE,
+    /** A connective or a boolean output: a narrow condition. */
+    COND,
+    /** A null test: either. */
+    VALUE_OR_COND,
+    /** Any other node: no narrow child. */
+    NONE;
+
+    boolean takes(LongNarrowRole child) {
+      return switch (this) {
+        case VALUE -> child.isValue();
+        case COND -> child == LongNarrowRole.COND;
+        case VALUE_OR_COND -> child.isValue() || child == LongNarrowRole.COND;
+        case NONE -> false;
+      };
+    }
+  }
+
+  /** {@code node}'s {@link LongNarrowReader}. */
+  private static LongNarrowReader longNarrowReader(VarkaVectorIR node) {
+    return switch (node) {
+      case WidenLane w -> LongNarrowReader.VALUE;
+      case NarrowLane n -> LongNarrowReader.VALUE;
+      case VarkaVectorIR.Compare c -> LongNarrowReader.VALUE;
+      case VarkaVectorIR.NullSafeEqual e -> LongNarrowReader.VALUE;
+      case VarkaVectorIR.IsNotNull n -> LongNarrowReader.VALUE_OR_COND;
+      case VarkaVectorIR.And a -> LongNarrowReader.COND;
+      case VarkaVectorIR.Or o -> LongNarrowReader.COND;
+      case VarkaVectorIR.Not n -> LongNarrowReader.COND;
+      case VarkaVectorIR.BoolOutput b -> LongNarrowReader.COND;
+      case VarkaVectorIR.Cond c -> LongNarrowReader.NONE;
+      case VarkaVectorIR.Chrono c -> LongNarrowReader.NONE;
+      case VarkaVectorIR.ColumnRef c -> LongNarrowReader.NONE;
+      case VarkaVectorIR.DecimalColumn c -> LongNarrowReader.NONE;
+      case VarkaVectorIR.LiteralSlot l -> LongNarrowReader.NONE;
+      case VarkaVectorIR.GuardedDay g -> LongNarrowReader.NONE;
+      case VarkaVectorIR.GuardedRange g -> LongNarrowReader.NONE;
+      case VarkaVectorIR.AddDays a -> LongNarrowReader.NONE;
+      case VarkaVectorIR.SubDays a -> LongNarrowReader.NONE;
+      case VarkaVectorIR.DateDiff d -> LongNarrowReader.NONE;
+      case IntArith a -> LongNarrowReader.NONE;
+      case VarkaVectorIR.IntNeg n -> LongNarrowReader.NONE;
+      case VarkaVectorIR.ConstDivide d -> LongNarrowReader.NONE;
+      case VarkaVectorIR.BoundedDivide d -> LongNarrowReader.NONE;
+      case VarkaVectorIR.BitOp b -> LongNarrowReader.NONE;
+      case VarkaVectorIR.BitCount b -> LongNarrowReader.NONE;
+      case VarkaVectorIR.IfElse i -> LongNarrowReader.NONE;
+      case VarkaVectorIR.CondValue c -> LongNarrowReader.NONE;
+      case VarkaVectorIR.Greatest g -> LongNarrowReader.NONE;
+      case VarkaVectorIR.Least l -> LongNarrowReader.NONE;
+      case VarkaVectorIR.DayOfWeek d -> LongNarrowReader.NONE;
+      case VarkaVectorIR.WeekDay d -> LongNarrowReader.NONE;
+      case VarkaVectorIR.DayOfWeekIso d -> LongNarrowReader.NONE;
+      case VarkaVectorIR.NextDay d -> LongNarrowReader.NONE;
+      case VarkaVectorIR.ThursdayOf d -> LongNarrowReader.NONE;
+      case VarkaVectorIR.AddMonths a -> LongNarrowReader.NONE;
+      case VarkaVectorIR.MakeDate m -> LongNarrowReader.NONE;
+    };
   }
 
   /**
