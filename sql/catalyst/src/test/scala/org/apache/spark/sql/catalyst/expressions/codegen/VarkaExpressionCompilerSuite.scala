@@ -23,7 +23,7 @@ import scala.jdk.OptionConverters._
 import org.apache.spark.{SparkArithmeticException, SparkFunSuite}
 import org.apache.spark.sql.catalyst.analysis.BinaryArithmeticWithDatetimeResolver
 import org.apache.spark.sql.catalyst.analysis.FunctionRegistry
-import org.apache.spark.sql.catalyst.expressions.{Abs, Add, AddMonths, Alias, And, Attribute, AttributeReference, BoundReference, CaseWhen, Cast, Coalesce, Concat, CurrentTime, DateAdd, DateAddYMInterval, DateDiff, DateFromUnixDate, DateSub, DayOfMonth, DayOfWeek, DayOfYear, Divide, DivideYMInterval, EqualNullSafe, EqualTo, EvalMode, Expression, Extract, ExtractANSIIntervalDays, ExtractANSIIntervalMonths, ExtractANSIIntervalYears, GreaterThan, Greatest, HoursOfTime, If, In, InSet, IsNotNull, IsNull, LastDay, Least, LessThan, LessThanOrEqual, Literal, MakeDate, MakeTime, MakeYMInterval, MinutesOfTime, Month, Multiply, MultiplyYMInterval, NamedExpression, NextDay, Not, NumericEvalContext, Nvl, Nvl2, Or, Quarter, Rand, Remainder, SecondsOfTime, SecondsOfTimeWithFraction, Subtract, SubtractDates, SubtractTimes, TimeAddInterval, TimeDiff, TimeExpression, TimeFromMicros, TimeFromMillis, TimeFromSeconds, TimestampAddInterval, TimeToMicros, TimeToMillis, TimeToSeconds, TimeTrunc, ToTime, TruncDate, UnaryMinus, UnixDate, Upper, WeekDay, WeekOfYear, Year, YearOfWeek}
+import org.apache.spark.sql.catalyst.expressions.{Abs, Add, AddMonths, Alias, And, Attribute, AttributeReference, BoundReference, CaseWhen, Cast, Coalesce, Concat, CurrentTime, DateAdd, DateAddYMInterval, DateDiff, DateFromUnixDate, DateSub, DayOfMonth, DayOfWeek, DayOfYear, Divide, DivideYMInterval, EqualNullSafe, EqualTo, EvalMode, Expression, Extract, ExtractANSIIntervalDays, ExtractANSIIntervalMonths, ExtractANSIIntervalYears, GreaterThan, Greatest, HoursOfTime, If, In, InheritAnalysisRules, InSet, IsNotNull, IsNull, LastDay, Least, LessThan, LessThanOrEqual, Literal, MakeDate, MakeTime, MakeYMInterval, MinutesOfTime, Month, Multiply, MultiplyYMInterval, NamedExpression, NextDay, Not, NumericEvalContext, Nvl, Nvl2, Or, Quarter, Rand, Remainder, RuntimeReplaceable, SecondsOfTime, SecondsOfTimeWithFraction, Subtract, SubtractDates, SubtractTimes, TimeAddInterval, TimeDiff, TimeExpression, TimeFromMicros, TimeFromMillis, TimeFromSeconds, TimestampAddInterval, TimeToMicros, TimeToMillis, TimeToSeconds, TimeTrunc, ToTime, TruncDate, UnaryMinus, UnixDate, Upper, WeekDay, WeekOfYear, Year, YearOfWeek}
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaOutputSpec.{ForwardedOutput, FusedOutput, KernelOutput}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaChrono, VarkaDerivedKind, VarkaEmitOptions, VarkaEmitterTestSupport, VarkaLoopEmitter, VarkaMatrix, VarkaShapeCache, VarkaVectorIR}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaKernelWarmup, VarkaShapeKey}
@@ -36,7 +36,7 @@ import org.apache.spark.sql.catalyst.optimizer.ReplaceExpressions
 import org.apache.spark.sql.catalyst.plans.logical.{OneRowRelation, Project}
 import org.apache.spark.sql.catalyst.util.IntervalUtils
 import org.apache.spark.sql.internal.SQLConf
-import org.apache.spark.sql.types.{BooleanType, ByteType, DateType, DayTimeIntervalType, Decimal, DecimalType, DoubleType, FloatType, IntegerType, LongType, ShortType, StringType, TimestampNTZType, TimestampType, TimeType, YearMonthIntervalType}
+import org.apache.spark.sql.types.{BooleanType, ByteType, DataType, DateType, DayTimeIntervalType, Decimal, DecimalType, DoubleType, FloatType, IntegerType, LongType, ShortType, StringType, TimestampNTZType, TimestampType, TimeType, YearMonthIntervalType}
 import org.apache.spark.unsafe.types.UTF8String
 import org.apache.spark.util.Utils
 
@@ -1814,7 +1814,8 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
 
   /**
    * The values of an IN per column, for the order test: each list holds values in no order, and
-   * the floating ones hold both zeros and two NaN payloads, which are four distinct bit patterns.
+   * the floating ones hold both zeros and two NaN payloads, four bit patterns that Spark's IN
+   * reads as two values.
    */
   private def inCases: Seq[(Attribute, Seq[Any])] = Seq(
     d -> Seq(20, 5, -3),
@@ -1832,9 +1833,14 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     inDt -> Seq(86400000000L, -1L, 172800000000L))
 
   test("IN keeps each value once in ascending bit order, whatever order its list or set has") {
-    // A value's lane bits, sign-extended: what orders the literal tables.
+    // A value's lane bits, sign-extended: what orders the literal tables. A floating value is
+    // kept as Spark's IN tells values apart, both zeros as 0.0 and every NaN as the one NaN.
     def bits(v: Any): Long = v match {
+      case f: Float if f.isNaN => java.lang.Float.floatToRawIntBits(Float.NaN).toLong
+      case f: Float if f == 0.0f => 0L
       case f: Float => java.lang.Float.floatToRawIntBits(f).toLong
+      case x: Double if x.isNaN => java.lang.Double.doubleToRawLongBits(Double.NaN)
+      case x: Double if x == 0.0 => 0L
       case x: Double => java.lang.Double.doubleToRawLongBits(x)
       case b: Byte => b.toLong
       case s: Short => s.toLong
@@ -1860,11 +1866,53 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
         DayTimeIntervalType()).contains(column.dataType)
       assert((first._2, first._3) === (if (longTable) (Nil, sorted)
         else (sorted.map(_.toInt), Nil)), column.dataType)
-      // An InSet is an IN over its set's values: Scala's set keeps one of two equal zeros, so it
-      // is compared with the IN of what it holds, whatever order the set iterates in.
+      // An InSet is an IN over its set's values: Scala's set keeps one of two equal zeros, and
+      // either way it is the IN of the whole list, whatever order the set iterates in.
       val set = values.toSet
-      assert(shape(InSet(column, set)) === shape(in(set.toSeq)), column.dataType)
+      assert(shape(InSet(column, set)) === first, column.dataType)
     }
+  }
+
+  test("a floating IN keeps the values Spark's IN tells apart: one zero, one NaN") {
+    // Spark's answers, which the merged literals must keep: In compares through
+    // SQLOrderingUtil's order, InSet through its set and its NaN test, and both find -0.0 equal
+    // to 0.0 and a NaN of one payload equal to a NaN of another.
+    val payloadNaN = java.lang.Double.longBitsToDouble(0x7ff8000000000001L)
+    for (in <- Seq(
+        (v: Double, vs: Seq[Double]) => In(Literal(v), vs.map(Literal(_))).eval(),
+        (v: Double, vs: Seq[Double]) => InSet(Literal(v), vs.toSet[Any]).eval())) {
+      assert(in(-0.0, Seq(0.0)) === true)
+      assert(in(0.0, Seq(-0.0)) === true)
+      assert(in(Double.NaN, Seq(payloadNaN)) === true)
+      assert(in(payloadNaN, Seq(Double.NaN)) === true)
+      assert(in(1.0, Seq(0.0, Double.NaN)) === false)
+    }
+    // So the four patterns are two literals, and they count as two against the cap: with
+    // fourteen other values beside them, eighteen elements are sixteen literals, and fuse.
+    val values = (1 to 14).map(_.toDouble) ++ Seq(0.0, -0.0, Double.NaN, payloadNaN)
+    val compiled = VarkaExpressionCompiler.compilePredicate(
+      In(inDouble, values.map(Literal(_))), inOutput).toScala
+    assert(compiled.exists(_.specs.asScala.forall(_.fused)))
+    assert(compiled.get.fused.longLiterals.asScala.map(_.longValue).toSeq ===
+      ((1 to 14).map(v => java.lang.Double.doubleToRawLongBits(v.toDouble)) ++
+        Seq(0L, java.lang.Double.doubleToRawLongBits(Double.NaN))).sorted)
+  }
+
+  test("an empty IN list declines with its own reason") {
+    assert(declineReason(If(In(d, Nil), d, d2)) === "IN list is empty")
+    assert(declineReason(If(InSet(d, Set.empty[Any]), d, d2)) === "IN list is empty")
+  }
+
+  test("an IN value compiled off its type's lane declines rather than slot its literals there") {
+    // A value whose type says INT but which compiles onto the byte lane: slotted at the byte
+    // lane, the literal 300 would be 44 and match a byte 44. The guard declines it instead.
+    val intOnByteLane = If(
+      In(Relabeled(by, IntegerType), Seq(Literal(300), Literal(1))), d, d2)
+    assert(declineReason(intOnByteLane) === "an IN value off its type's lane")
+    // A floating type over an int-lane value: its bits compared as ints are not its equality.
+    val floatOnIntLane = If(In(Relabeled(d, FloatType), Seq(Literal(1.5f))), d, d2)
+    assert(declineReason(floatOnIntLane) ===
+      "one kernel holds one lane, and this mixes the INT and FLOAT lanes")
   }
 
   test("coalesce lowers onto the validity condition; guarded operands are columns") {
@@ -3223,4 +3271,16 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
       assert(position.longLiterals.asScala.toSeq === Seq(0L, 1L, 32767L))
     }
   }
+}
+
+/**
+ * A value whose type is `dataType` but which compiles as `replacement`, whatever that one's type:
+ * the compiler reads a `RuntimeReplaceable` through its replacement, so this puts a value on a lane
+ * other than its type's, which no analyzed plan does.
+ */
+private case class Relabeled(replacement: Expression, override val dataType: DataType)
+  extends RuntimeReplaceable with InheritAnalysisRules {
+  override def parameters: Seq[Expression] = Seq(replacement)
+  override protected def withNewChildInternal(newChild: Expression): Expression =
+    copy(replacement = newChild)
 }

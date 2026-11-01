@@ -351,3 +351,41 @@ Row 348a's decimal `IN` goes through this arm. It needs:
    (2.4).
 4. **The slots** need nothing: a decimal is on the long lane, so `bitsSlot` puts the unscaled
    longs in the long table.
+
+### 10.4 The review's fixes
+
+A code review of the three commits above found these, each checked against the code first.
+
+1. **The lane guard was weaker than its comment.** `compileIn` declined a value off its type's
+   lane only across the 64-bit boundary or where a lane was floating, so an `INT` value compiled
+   onto the byte lane would have slotted its literals there, `300` as `44`. It now declines
+   unless the compiled lane is the type's own: the floating case with the lane-mix reason, any
+   other with "an IN value off its type's lane". A same-kind wider lane is not admitted: no
+   lowering puts a value on a lane other than its type's, since every widening is a cast that
+   changes the type too, so it would admit nothing reachable. Both declines are pinned by a
+   compiler-suite test over a hand-built `RuntimeReplaceable` whose type is not its
+   replacement's, the only way to reach them.
+2. **One registry lookup per node.** The arm is `case In in -> inArm(...)`, which looks the type
+   up once and answers `null`, unclaimed, for a type with no lane of its own; the literal's type
+   is compared by `VarkaTypes.idOf`, with no `Optional`. `inType` and its redundant
+   `lane(type).isEmpty()` check are gone.
+3. **`Info.bits(null)`** threw a `NullPointerException` building its message; it now throws the
+   intended illegal argument, "null is not a DOUBLE value on a lane" (`VarkaTypesSuite`).
+4. **Floating literals are kept by Spark's equality, not their bits.** This corrects 2.2's
+   "two NaNs with different payloads stay two elements" and 10.1.6, which kept that rule. Spark's
+   `In.eval` compares through `SQLOrderingUtil.compareDoubles` (`x == y` first, then
+   `Double.compare`), so `-0.0` equals `0.0` and every NaN every other NaN; `InSet.eval` finds
+   the zeros equal in its Scala set and any NaN through its `isNaN` test, and its generated code
+   asks the same set and the same test. The lane's EQ, `(isNaN(l) & isNaN(r)) | l == r`, is that equality, so the
+   answers were right, but the two zeros and each NaN payload were separate EQ leaves, each
+   counted against the cap of 16. `compileIn` now keeps a floating literal under
+   `sparkEqualityKey`, `0.0` for both zeros and the canonical NaN for every NaN. A test pins
+   Spark's answers for both `In` and `InSet`, and that eighteen elements of sixteen distinct
+   values fuse.
+5. **An empty list** declines with "IN list is empty" instead of the null-element reason. Spark
+   answers false (or null over a null value under its legacy flag), and its optimizer folds an
+   empty `IN` before a plan reaches Varka, so only a hand-built tree arrives; fusing it as false
+   would serve nothing a query sends.
+6. **Not taken: routing `compileNode`'s literal arms through `bitsSlot`**, so that every literal
+   of a lane is slotted by one dispatch. It touches every literal arm, not this row's, and is an
+   open point for the row that next reworks the literal arms.
