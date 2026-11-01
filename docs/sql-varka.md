@@ -1925,6 +1925,18 @@ The real current edges, stated with their numbers where they have one:
   batch, and the row engine recomputes it and raises. So the error is Spark's
   own, from the engine that can attribute it to a row - at the cost of one
   fallback for the batch that contains it.
+* **A decimal cast to `INT`, `SMALLINT` or `TINYINT` can answer differently
+  with Varka on.** Spark's ANSI and TRY casts of a `DECIMAL` of precision up to
+  18 to those types follow one of two rules, chosen by how the value was read:
+  exactly, from a value read as a row, or through a double, from a value read
+  through `ArrowColumnVector`. With Varka off, a query reads the Arrow cache as
+  rows and gets the exact rule. With Varka on, a cast left beside a fused
+  output, or answered by the fallback over the batch's own rows, reads the
+  vectors and gets the double rule: `0.999999999999999999` as
+  `DECIMAL(18, 18)` casts to 1 rather than 0, and `2147483647.99999999` as
+  `DECIMAL(18, 8)` raises `CAST_OVERFLOW` (null under `try_cast`) rather than
+  answering 2147483647. `VarkaDecimalReadPathSuite` pins each path, and
+  `sql/varka/plans/m8/VARKA-365.md` 10 records the finding and its open fix.
 * **The row-consumer read-back can cost more than fusion saves**: cheap
   chains commit at 0.8x and residual-heavy at 0.6x, while heavy shapes win
   through rows (`dayofweek` 1.2x, `CASE WHEN` 1.1x) - the ~25 ns/row

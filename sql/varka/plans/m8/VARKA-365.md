@@ -9,6 +9,12 @@ against the work, and nothing past section 2 starts before it.*
 the same day (section 9). Sections 2 and 3 stand as written; section 8 now follows (iii)'s branch,
 and the parts of sections 4 to 7 marked (i) or (ii) are not built.*
 
+***Refreshed 1 November 2026 at `9c9f6ef5895` (section 10).** The admission run was made, and it
+does not find what section 2 predicted: vanilla Spark answers the three casts over the Arrow cache
+by the exact rule on every path the run tried, and only Varka, reading the batches through
+`ArrowColumnVector`, answers by the double rule. Option (iii)'s premise is reversed by it, so what
+the row builds past its suite is put back to the lead (section 10.4).*
+
 ## 1. Where this came from
 
 Owner's decision A1 (14 October 2026, `m8/PLAN.md` 2.8): the fork's Arrow readers build a
@@ -248,7 +254,16 @@ filing the upstream JIRA without the owner's yes.
 
 ## 9. Outcome
 
-*To be written when the work lands.*
+*Written 1 November 2026, at `9c9f6ef5895`.* Built: `VarkaDecimalReadPathSuite` (sql/core), the
+admission run of section 2 and now the regression test, over nine paths rather than three
+(section 10.2 says why); a line in `docs/sql-varka.md`'s limitations stating what the suite found;
+and the upstream JIRA's text, 9.2 below, rewritten for what the run observed. Not built: the
+coverage note, since no coverage row exists for a cast that declines, so the limitations line
+carries it; and nothing in any reader or in Varka's exec nodes, whose fix is the lead's to choose
+(10.4). Prediction 6.1 #2 (the suite under 30 s): its nine tests ran in 5 s and the suite in 8.4 s
+in a warm sql JVM, about 0.3 of the bound, inside the table's band for short sql/core suites over
+one cached view (VARKA-318's 0.37). Prediction 6.1 #3 (the disagreement exactly as section 2 says):
+wrong in its attribution, section 10. Prediction 6.1 #1 belonged to option (i) and was not run.
 
 ### 9.1 The owner's answer to question 3, 16 October 2026
 
@@ -275,3 +290,121 @@ which stay as the record. What changes elsewhere, as 3.1 (iii) laid out:
   precision) gets the decision it asked for: it is reported upstream as its own finding, in the
   JIRA whose text this section will record, and the fork does not patch it.
 * The row shrinks from medium to small: no reader, configuration, register entry or consumer test.
+
+### 9.2 The upstream JIRA's text, filed only with the owner's yes
+
+Recorded 1 November 2026; not filed.
+
+> **Title:** The ANSI and TRY cast of a small-precision decimal to INT, SMALLINT or TINYINT depends
+> on how the value was read
+>
+> `Decimal.roundToNumeric`, behind `roundToInt`, `roundToShort` and `roundToByte`, has two rules: a
+> long-backed `Decimal` truncates its unscaled long and checks it exactly, a `BigDecimal`-backed one
+> converts to a double and range-checks its floor and ceiling. They disagree near the range's ends
+> and near whole numbers: `CAST(0.999999999999999999BD AS DECIMAL(18, 18))` cast to `INT` under ANSI
+> is 0 on the first rule and 1 on the second, and `2147483647.99999999` as `DECIMAL(18, 8)` is
+> `2147483647` on the first and raises `CAST_OVERFLOW` (null under `try_cast`) on the second.
+> `roundToLong` uses `longValueExact` and is exact on both.
+>
+> Which backing a value has depends on the reader, not on the type or the data. Below precision 19,
+> `UnsafeRow.getDecimal` and the Parquet readers give a long-backed value, so does
+> `ArrowCachedBatchSerializer`'s row reader (it writes the unscaled low word into the `UnsafeRow`),
+> while `ArrowColumnVector.SmallDecimalAccessor` builds a `BigDecimal`-backed one on purpose
+> (SPARK-59443, "Keep BigDecimal-backed Decimal semantics"). An expression that reads a
+> `ColumnarBatchRow` over Arrow vectors directly - a columnar consumer of the Arrow cache, the
+> Python and R Arrow runners' output - meets the double rule; the same column copied into an
+> `UnsafeRow` first meets the exact one. So the answer of one cast can change with a plan's shape.
+> Proposal: one rule below precision 19, most naturally the exact one, the one SQL's semantics and
+> every row reader give.
+>
+> A second, separate finding in the same reader: `ArrowCachedBatchSerializer`'s fast path for
+> `DecimalType` up to precision 18 reads only the low word of the sixteen-byte slot, with no check
+> that the high word is its sign extension or that the value fits the declared precision, where
+> `ArrowColumnVector` checks both and raises. A slot holding a value outside its precision is
+> silently truncated to its low word on the row path.
+
+## 10. Refresh, 1 November 2026: what the admission run found
+
+### 10.1 What moved on master since 16 October
+
+Re-read at `9c9f6ef5895`. `ArrowColumnVector`, `ArrowColumnReader`, `ArrowCachedBatchSerializer`
+and `Decimal.roundToNumeric` are as section 2 reads them, and upstream's master
+(`upstream/master`, 31 October 2026) carries the same row reader and the same accessor, so both
+behaviours, and the missing high-word check, are vanilla Spark's and not the fork's. Row 347 merged
+Varka's 64-bit decimal load (`DecimalColumn`, with the high-word and digit check
+`ArrowColumnVector` makes) and the comparisons over it; no cast of a decimal fuses yet
+(`m8/casts_fused.tsv` has every `dec` pair declined), so a decimal-to-integral cast with Varka on
+is a residual output or the fallback's. Row 157's decimal outputs are unmerged and change nothing
+here.
+
+### 10.2 The run, and why it has nine paths
+
+Section 2 item 3 and the row's done-when assumed that, with Varka off, the cache's columnar path
+reads through `ArrowColumnVector` and its row path through `ArrowColumnReader`. Two facts the
+reading missed decide it otherwise:
+
+1. `InMemoryTableScanExec.supportsRowBased` is true (SPARK-37369), so a row consumer gets rows
+   from the scan even with the vectorized reader on and no `ColumnarToRowExec` is inserted: with
+   Varka off, every SQL read of the Arrow cache goes through `convertCachedBatchToInternalRow`,
+   and only a columnar consumer - a Varka node - reads `ArrowColumnVector`.
+2. `UnsafeRowWriter.write(ordinal, Decimal, p, s)` writes `toUnscaledLong` for `p <= 18`, and
+   `UnsafeRow.getDecimal` reads it back long-backed. So every copy into an `UnsafeRow` before the
+   cast gives the exact rule: the row reader's columnar fallback (its `UnsafeProjection` over the
+   batch, for a table with an array), `ColumnarToRowExec` without whole-stage code, and Varka's
+   fallback when `VarkaInputRows` copies the row because a column is read twice.
+
+`build/sbt 'sql/testOnly *VarkaDecimalReadPathSuite'` runs nine tests, all passing as pinned (`a` is
+`0.999999999999999999`, `b` is `2147483647.99999999`):
+
+| Path | Rule | `CAST(a)`, `CAST(b)`, `try_cast(a)`, `try_cast(b)` |
+|---|---|---|
+| Varka off, vectorized reader on (the default) | exact | 0, 2147483647, 0, 2147483647 |
+| Varka off, vectorized reader off | exact | the same |
+| Varka off, a table with an array (the row reader's fallback) | exact | the same |
+| Varka off, whole-stage code off | exact | the same |
+| Varka on, a cast nothing fuses beside (no Varka node) | exact | the same |
+| Varka on, a residual beside a fused output, served | double | 1, `CAST_OVERFLOW`, 1, null |
+| Varka on, the same with a column read twice | double | the same |
+| Varka on, the fallback over the batch's own rows (all declined) | double | the same |
+| Varka on, fallback over a copied row (column read twice) | exact | 0, 2147483647, 0, 2147483647 |
+
+LEGACY truncates on every path (0 and 2147483647). A first draft forced the decline with section
+2's `date_add` past the guard; the kernel served that batch on current master, so the suite uses
+`VarkaColumnarToRowExec.setDeclineKernelForTesting` instead, and each cell checks its plan: no Varka
+node and no columnar-to-row transition for the row reads, `numVarkaBatches` above or at zero for
+the served and declined ones.
+
+### 10.3 What it means
+
+The disagreement of risk 10 is real, but it is not between two upstream paths: vanilla Spark over
+the Arrow cache follows the exact rule wherever a SQL query reads it, and **Varka on answers the
+three casts differently from Varka off** whenever the cast is a residual output beside a fused one
+or is answered by the fallback without a copy. That is a wrong answer by the house rule (row
+answers follow vanilla Spark always), present on master today, before any decimal-cast kernel.
+Within Varka the answer also depends on whether some column is read twice (`VarkaInputRows`). Option
+(iii)'s reason, as 9.1 records it, was that the double rule is "what Varka's fallback reads through
+`ArrowColumnVector`" and so vanilla's column-path rule; the run shows vanilla Spark's SQL path never
+reads the cache that way, so (iii) as written would have 350 build the rule that departs from
+vanilla Spark.
+
+### 10.4 Open points for the lead
+
+1. **Which rule 350's kernel builds for the ANSI and TRY casts to `INT`, `SMALLINT` and `TINYINT`
+   below precision 19.** By the house rule and this run, the exact rule (integer arithmetic, SMT at
+   full width, as A1 had it) - but without A1's reader change, since vanilla already gives it.
+   `m8/PLAN.md` 2.2, 2.8, 5, rows 350 and 364, risk 10 and `m8/casts.tsv`'s semantics and proof
+   columns for the three pairs (via `m8/census_curated.txt`) all say the double rule since
+   16 October; this refresh leaves them as they are, for the lead's answer.
+2. **Varka's own reads of a decimal.** For Varka on to agree with Varka off today, the residual
+   outputs (`mergeProjection` over `ColumnarBatchRow`) and the fallback (`VarkaInputRows`) would
+   read a decimal of precision 18 or less long-backed, as the row reader hands it: for example by
+   always copying a referenced small decimal into the `UnsafeRow` `VarkaInputRows` builds, or a
+   Varka-side wrapper over the batch's rows. That is a change in Varka's exec nodes, not in an
+   upstream reader, so it does not reopen question 3; it is not built here, and whether it is this
+   row's, a new row, or the debt register's is the lead's call. The suite's three double-rule cells
+   are the test it would flip.
+3. **Whether a Varka filter's residual condition shows the same split** (`WHERE CAST(a AS INT) =
+   1` beside a fused conjunct). Not run; the same `ColumnarBatchRow` read suggests it does.
+4. **The JIRA's text** (9.2) now proposes the exact rule and names the columnar consumers as the
+   ones that differ; filed only with the owner's yes, as before.
+
