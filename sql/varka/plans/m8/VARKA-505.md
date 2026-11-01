@@ -163,11 +163,19 @@ Size: medium, as the row says.
    - (c) the axis runs only on dispatches whose branch touches the emitter or the IR.
 
    Recommended: (b), since (c) would miss row 396's class on a change elsewhere.
+
+   *1 November 2026, by the owner's word:* (b). The axis's bins take slots of their own beside
+   the matrix's 30, about 8; the push chains' job ceiling drops by the axis's bins, and rows 522
+   and 531 wait for a PR matrix to finish.
 2. **Arm on every dispatch.** An Arm bin needs its own classpath download and JDK. Should Arm be
    on every dispatch, or on the weekly run only? Recommended: every dispatch, since the 128-bit
    NEON path is where the narrow lanes' part form (row 479) runs natively.
+
+   *1 November 2026, by the owner's word:* every dispatch.
 3. **Row 503's decline under `w128`.** Recommended: list its two-lane declines in `skips.tsv`
    under `isa=w128` until row 503 merges, rather than wait on it.
+
+   *1 November 2026, by the owner's word:* as recommended; the skips go when row 503 merges.
 
 ## 8. Done when
 
@@ -181,8 +189,8 @@ Size: medium, as the row says.
 
 ## 9. Open points for the lead
 
-1. The row's budget sentence needs the owner's restatement (question 1) before the build. The
-   rest of the design does not depend on which option is picked.
+1. The row's budget sentence is restated by the owner's answer to question 1: (b), the axis's
+   own slots.
 2. Seven of the 89 AVX2 bins were EPYC 9V74s reporting `UseAVX=2`, a CPU that elsewhere in the
    same runs reports `UseAVX=3`. So a CPU model in a results file is not evidence of the
    instruction set. Worth a line in `sql/varka/skills/benchmarking.md` whatever this row decides.
