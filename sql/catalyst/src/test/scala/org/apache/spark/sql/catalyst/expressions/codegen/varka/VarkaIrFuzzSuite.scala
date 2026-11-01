@@ -1521,6 +1521,8 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
             case VarkaVectorIR.IntOp.MUL => "product"
             case VarkaVectorIR.IntOp.ADD => "sum"
             case VarkaVectorIR.IntOp.SUB => "difference"
+            // The floating division (VARKA-342); the decimal draw builds none.
+            case VarkaVectorIR.IntOp.DIV => "division"
           })
           case m: VarkaVectorIR.IntNeg => seen += (if (m.abs()) "abs" else "neg")
           case _: VarkaVectorIR.IfElse => seen += "choice"
