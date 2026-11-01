@@ -355,3 +355,41 @@ it changed; items 1 to 7 stand as the first round wrote them, item 1 reverted by
     projection and int-lane case fuses whole (`compare int32, output int64` among them), and
     `VarkaTwoLaneLongBenchmark` notes the plans section 6's after file records.
     `VarkaBooleanOutputBenchmark` stops at `d < d2` as item 6 says.
+
+## 11. Combined with VARKA-538's host reading, 1 November 2026
+
+VARKA-538 (#1255) merged first and gave the session a host reading of its own:
+`VarkaHostIsa.Reading` (the JVM's `os.arch` and HotSpot's feature list), read once on the driver,
+resolved by `VarkaSessionEmit.of(conf, host)`, with `setHostForTesting` planting one. This row's
+default read a second host fact, so the merge of master into the branch folded the two into one
+reading (corrects 3.1's "`HOST_USE_AVX` reads a level (the JVM is x86)"):
+
+1. **One reading.** `VarkaKernelPlan.twoLaneMasksFallBack(Reading)` answers the reading's `x86()`
+   and this JVM's `Lane.LONG.preferredLanes == 2`; `HOST_TWO_LANE_MASKS_FALL_BACK` is that of
+   `VarkaHostIsa.host()`, and `VarkaSessionEmit.of(conf, host)` takes the unset setting's default
+   from the same `host` its `useAVX=-2` level resolves from, so a planted host moves both. The
+   pure form is `twoLaneMasksFallBack(boolean x86, int preferredLongLanes)`. The lane count is not
+   in the reading: it is the running JVM's species, the one the kernels are emitted at, and
+   `Reading` stays VARKA-538's record unchanged.
+2. **The semantics kept.** The refusal applies on an x86 JVM whose preferred long species has two
+   lanes and never on aarch64; the session setting still overrides the host's answer either way;
+   the compiler still never reads the static. `serialVersionUID` stays 3, one bump over master's
+   2, since VARKA-538 added no component.
+3. **Where it is not the same fact.** x86 was "the `UseAVX` flag reads a level", which only
+   HotSpot on x86 has; it is now `os.arch` naming `amd64` or `x86_64`. The two differ only on an
+   x86 JVM that is not HotSpot, or one whose diagnostic bean fails to answer, where the refusal
+   now applies at two long lanes. The feature list's readability is not consulted: a JVM started
+   without VARKA-538's export still knows its architecture.
+4. **Tests.** `VarkaTwoLaneConditionSuite`'s host test takes the boolean form and planted
+   readings; `VarkaEvaluatorComponentsSuite` holds the default to the reading (an aarch64 reading
+   never refuses, a planted host moves the one-argument binding, a set value beats either host),
+   and VARKA-538's resolution test sets the refusal off so its whole-record comparisons hold on a
+   two-lane x86 host too.
+5. **Regenerated and checked.** `width_audit.json` on the laptop, then `docs/sql-varka.md`: against
+   master only the 66 predicate rows at 128 bits move, to this row's decline, and the audit's
+   description; 256 and 512 bits are unchanged. Passing: `VarkaTwoLaneConditionSuite`,
+   `VarkaWidthAuditSuite`, `VarkaCoverageSuite`, `VarkaEmittedBytesSuite`, `VarkaHostIsaSuite`,
+   `VarkaProbeOutputSuite` and `VarkaOperatorCensusSuite` in catalyst, and through
+   `dev/varka_matrix.sh --defaults` `VarkaLongLaneSuite`, `VarkaFilterExecSuite`,
+   `VarkaEvaluatorComponentsSuite`, `VarkaBooleanOutputQueriesSuite`, `VarkaCoverageHarnessSuite`,
+   `VarkaTimeArithmeticSuite` and the two host suites, each in its own JVM under its flags.
