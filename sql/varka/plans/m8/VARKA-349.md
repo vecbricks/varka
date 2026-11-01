@@ -618,3 +618,15 @@ new coverage rows, which each digest covers, and not with a flag, since none was
 - **The one-kernel test also covers precision loss and lives beside the oracle.** It is a test
   of `VarkaEmittedBytesSuite` over the family's rows, as section 3 item 3 says; the oracle pins
   each row once.
+- **A literal operand of `+` or `-` folds in `sum()`, not in `rescale()`.** Section 2.2 and "What
+  was built" above say a literal operand is rescaled at compile time by 348's `rescale`; 348a's
+  review took that branch out of `rescale()`, since a comparison's or a choice's literal folds
+  under coercion's cast before it gets there. An arithmetic operand has no such cast, so the
+  third merge of `varka-348-conditions` (`cd54af3d775`) gave `sum()` its own fold, `atScale`,
+  which takes the literal's unscaled value at the result's scale into one slot. The old branch
+  had also left the literal's own slot in the long table unused; the fold does not, which moved
+  the emitted bytes of `d9 + 1.5 < d9b`.
+- **The 18-digit declines of `+`, `-` and `*` are named in `wideReason`.** 348a's review put one
+  width check at the top of `value()`, ahead of every arm, so the arms' own checks past 18 digits
+  could no longer be reached; the merge moved their reasons, rows 359 to 363 as listed above,
+  into `wideReason`, and the arms keep only the check that a node is typed by Spark's rule.
