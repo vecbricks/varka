@@ -1,5 +1,14 @@
 # VARKA-350: The 64-bit decimal casts
 
+***Corrected 1 November 2026 (`VARKA-365.md` 11).** The owner decided that Varka follows vanilla
+Spark, which answers the ANSI and TRY casts of a decimal of precision up to 18 to `INT`,
+`SMALLINT` and `TINYINT` by the exact rule on every SQL read of the Arrow cache, and row 365 made
+Varka's own row reads hand such a decimal long-backed. So this row builds the exact rule for those
+three casts, integer arithmetic proven by SMT, and the double rule is row 364's alone, above
+precision 18. Wherever this plan says the kernel follows the double rule below precision 19, or
+reads its answer off the `BigDecimal`-backed column, that text is superseded by this note and is
+reworked when the row is built.*
+
 ## 0. What exists now (admission check)
 
 From master at `6e207c226fb` (30 October 2026; Varka paths under

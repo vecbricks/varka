@@ -155,6 +155,9 @@ public class VarkaKernelEvaluator extends VarkaEvaluatorBase {
   private StructType residualSchema;
   private UnsafeProjection residualProjection;
   private RowToColumnConverter residualConverter;
+  // The input batch as the residual entries read its rows: a small decimal long-backed, as
+  // vanilla Spark's row path hands it.
+  private final VarkaRowView residualRows = new VarkaRowView();
 
   /**
    * @param operatorName the exec node this evaluator serves, for the telemetry names above
@@ -475,7 +478,7 @@ public class VarkaKernelEvaluator extends VarkaEvaluatorBase {
         ? OffHeapColumnVector.allocateColumns(len, residualSchema)
         : OnHeapColumnVector.allocateColumns(len, residualSchema);
     try {
-      Iterator<InternalRow> rows = input.rowIterator();
+      Iterator<InternalRow> rows = residualRows.of(input).rowIterator();
       while (rows.hasNext()) {
         residualConverter.convert(residualProjection.apply(rows.next()), vectors);
       }

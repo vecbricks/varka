@@ -311,6 +311,9 @@ private[sql] class VarkaColumnarToRowEvaluatorFactory(
     // batches actually take - `toRow` on the all-fused kernel path, `mergeProjection` on the
     // mixed kernel path, `fallbackProjection` on the fallback path.
     private lazy val inputRows = new VarkaInputRows(projectList, childOutput)
+    // The input batch as the fallback and the merge read its rows: a small decimal long-backed,
+    // as vanilla Spark's row path hands it.
+    private val rowView = new VarkaRowView
     private lazy val fallbackProjection = UnsafeProjection.create(projectList, inputRows.attributes)
     private lazy val toRow = {
       val outputAttrs = projectList.map(_.toAttribute)
@@ -378,7 +381,7 @@ private[sql] class VarkaColumnarToRowEvaluatorFactory(
     }
 
     private def fallback(input: ColumnarBatch): Iterator[InternalRow] = {
-      input.rowIterator().asScala.map(row => fallbackProjection(inputRows(row)))
+      rowView.of(input).rowIterator().asScala.map(row => fallbackProjection(inputRows(row)))
     }
 
     private def runKernels(input: ColumnarBatch): Iterator[InternalRow] = {
@@ -396,7 +399,7 @@ private[sql] class VarkaColumnarToRowEvaluatorFactory(
             // Every entry fused: the fused batch is the whole output.
             fusedBatch.rowIterator().asScala.map(toRow)
           case Some(merge) =>
-            val inputRows = input.rowIterator()
+            val inputRows = rowView.of(input).rowIterator()
             val fusedRows = fusedBatch.rowIterator()
             val joined = new JoinedRow
             new Iterator[InternalRow] {

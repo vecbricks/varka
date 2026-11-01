@@ -15,6 +15,11 @@ by the exact rule on every path the run tried, and only Varka, reading the batch
 `ArrowColumnVector`, answers by the double rule. Option (iii)'s premise is reversed by it, so what
 the row builds past its suite is put back to the lead (section 10.4).*
 
+***Decided and built, 1 November 2026 (section 11).** The owner: "Varka should follow vanilla
+Spark". Question 3's answer, option (iii), stands, no change to Spark's readers, and now means the
+exact rule; the row fixes Varka's own row reads of a small decimal, and the upstream JIRA stays
+held.*
+
 ## 1. Where this came from
 
 Owner's decision A1 (14 October 2026, `m8/PLAN.md` 2.8): the fork's Arrow readers build a
@@ -410,3 +415,107 @@ vanilla Spark.
 4. **The JIRA's text** (9.2) now proposes the exact rule and names the columnar consumers as the
    ones that differ; filed only with the owner's yes, as before.
 
+
+## 11. Decided and built, 1 November 2026
+
+### 11.1 The owner's decisions
+
+Given section 10, the owner decided on 1 November 2026:
+
+1. **"Varka should follow vanilla Spark."** Question 3 of `m8/PLAN.md` section 7 is confirmed:
+   option (iii) stands, no change to Spark's readers. Its reason - row answers follow vanilla Spark
+   - now means the exact rule below precision 19, since section 10 found vanilla Spark on it on
+   every SQL read of the Arrow cache. 9.1's "the kernel reproduces vanilla Spark's column-path rule,
+   the double rule" is superseded; `m8/PLAN.md` carries the correction wherever it cites the
+   answer, each place dated.
+2. **Fix it inside this row**: 10.4 items 1 to 3 are answered here.
+3. **The upstream JIRA is held**: its text stays in 9.2 and is not filed.
+
+### 11.2 The fix: Varka's row views read a small decimal long-backed
+
+`VarkaRowView` (sql/core, `org.apache.spark.sql.execution`, Java) is the input batch as Varka's
+row-by-row evaluations read it: the same column vectors, except that an `ArrowColumnVector` over a
+`DecimalVector` of declared precision up to 18 is wrapped in a column whose `getDecimal` reads the
+slot's low word and returns `Decimal.createUnsafe(unscaled, precision, scale)` - the long-backed
+value `UnsafeRow.getDecimal` returns to vanilla Spark's operators. Every other read goes to the
+wrapped vector. A slot whose high word is not its low word's sign extension (a value outside its
+precision), and a read at a scale other than the vector's, go to `ArrowColumnVector` as before:
+Varka's decimal load declines the first (row 347), and the view does not copy the row reader's
+truncation of it (9.2's second finding). A batch with no such column is returned unchanged.
+
+The view is used wherever a Varka node evaluates expressions over the rows of an input batch:
+
+* `VarkaColumnarToRowExec`: the merge projection beside the kernel's output (residual entries), and
+  the fallback;
+* `VarkaKernelEvaluator.projectResiduals`: the residual entries of the columnar-out projection;
+* `VarkaVectorProjection.project`: the columnar-out projection's fallback;
+* `VarkaFilterExec`'s two evaluators: the fallback predicate, columnar-out and row-out.
+
+The kernels keep reading the input batch itself, whose Arrow checks the view would fail. The
+row-out filter's selected-row copy, the columnar-out filter's generic compaction and
+`VarkaInputRows`' copy evaluate no expression over a decimal - they copy it, and the copy writes
+`toUnscaledLong` either way - so they are left as they are. Nothing in `ArrowColumnVector`,
+`ArrowColumnReader` or any other Spark reader changes.
+
+**Allocation (reading, not measured).** The view is built on a node's first batch that has such a
+column and rebound for each later one: one `ColumnarBatch`, one array and one wrapper per decimal
+column per evaluator, nothing per batch after that. Per value, `ArrowColumnVector`'s accessor
+builds a `java.math.BigDecimal`, wraps it in a Scala `BigDecimal` and a `Decimal`, and `Decimal.set`
+rescales it and counts its digits; the view builds one `Decimal` from the unscaled long, as
+`UnsafeRow.getDecimal` does, and the casts then take `roundToNumeric`'s long branch instead of the
+double conversion. So a changed path does strictly less per decimal read than before, and a
+schema with no small Arrow decimal pays one type check per column per batch. No benchmark was run,
+since nothing here can be slower per row than what it replaces; one more virtual call per decimal
+read (the wrapper) is the only added step.
+
+### 11.3 The suite, before and after
+
+`VarkaDecimalReadPathSuite` keeps its nine paths and adds three for a cast left in a filter beside
+a fused conjunct (`WHERE date_add(d, 30) > DATE'2020-07-01' AND <cast> IN (0, 2147483647)`, which
+returns the row under the exact rule and nothing, or `CAST_OVERFLOW`, under the double rule):
+Varka off, Varka on with the kernel serving the batch, and Varka on with every batch declined.
+
+| Path | Before | After |
+|---|---|---|
+| Varka off, four paths (10.2's table) | exact | exact |
+| Varka on, a cast nothing fuses beside | exact | exact |
+| Varka on, a residual beside a fused output, served | double | exact |
+| Varka on, the same with a column read twice | double | exact |
+| Varka on, the fallback over the batch's own rows | double | exact |
+| Varka on, the fallback over a copied row | exact | exact |
+| Varka off, the cast in a filter | exact | exact |
+| Varka on, the cast left beside a fused conjunct, served | exact | exact |
+| Varka on, the same, the fallback | double | exact |
+
+The "before" column for the first nine paths is 10.2's run; for the filter's three, a run with the
+projection's fix in and the filter's not. The leftover filter splits as 10.4 item 3 suspected, but
+only on the fallback: served, the residual `FilterExec` above the Varka filter reads the rows the
+filter copied into `UnsafeRow`s, long-backed, and answers by the exact rule; declined, the Varka
+filter's fallback evaluates the whole condition over the batch's own rows and met the double rule,
+which `VarkaFilterExec`'s two fallbacks now read through the view. (A first draft of the shape, with
+`date_add(d, i) > DATE'2000-01-01'` after the cast, fused nothing: the rule left the whole filter
+to Spark, so the conjunct was changed to the one `VarkaFilterExecSuite` fuses; each filter cell
+checks that its plan holds a `FilterExec` over a Varka filter.)
+
+### 11.4 What changed in the plans
+
+`m8/PLAN.md`: the owner's-answer note under the decisions, 1.1's proof item, 2.2, 2.8, 2.10 (d),
+5, rows 350, 364 and 365, the two wave tables, risk 10 (removed), question 3 and 10.1 item 3, each
+with a dated note that leaves the earlier text as the record. `m8/casts.tsv`'s semantics and proof
+columns for the three pairs, regenerated by `dev/varka_census.py` from its rule text (the columns
+are the script's, not `census_curated.txt`'s): the exact rule up to precision 18, SMT for it, the
+double rule above, the sampled arm for it. `VARKA-350.md` carries a dated note at its head: it
+builds the exact rule. `docs/sql-varka.md`'s limitations bullet is removed, since Varka on now
+answers as Varka off. Section 9's "not built: nothing in any reader or in Varka's exec nodes" and
+its 9.1 are superseded by this section; section 8's coverage note is not needed.
+
+### 11.5 Open points
+
+1. The held JIRA (9.2) still describes the double rule as what a columnar consumer meets; that
+   stays true of upstream's Python and R Arrow runners, which this row does not touch.
+2. **An unexplained filter decline.** The leftover-filter shape's first draft, `WHERE <cast> IN
+   (0, 2147483647) AND date_add(d, i) > DATE'2000-01-01'`, fused no conjunct: the rule left the
+   whole filter to Spark, although the projection fuses `date_add(d, i)` over the same table. The
+   draft that fuses changed two things at once - the conjunct's position and a literal offset for
+   the column `i` - so which one decides is not known. It may be a gap in the filter compiler
+   rather than a property of the test, and is left for the lead.

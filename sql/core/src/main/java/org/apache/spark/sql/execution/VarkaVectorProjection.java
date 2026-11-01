@@ -54,8 +54,9 @@ import org.apache.spark.sql.vectorized.ColumnarBatch;
  * safe to write directly. The direct write saves the {@code UnsafeRow} and the converter's pass
  * over it, about a tenth of the row path's time; see {@code VARKA-230.md} 2.
  *
- * <p>Either way the projection reads its input through {@link VarkaInputRows}. Both projections are
- * compiled on first use, so a task that never takes the row path compiles neither.
+ * <p>Either way the projection reads its input through {@link VarkaRowView}, which hands a small
+ * decimal long-backed as vanilla Spark's row path does, and {@link VarkaInputRows}. Both
+ * projections are compiled on first use, so a task that never takes the row path compiles neither.
  */
 final class VarkaVectorProjection {
 
@@ -69,6 +70,7 @@ final class VarkaVectorProjection {
   private MutableProjection direct;
   private UnsafeProjection unsafe;
   private RowToColumnConverter converter;
+  private final VarkaRowView rowView = new VarkaRowView();
 
   VarkaVectorProjection(Seq<NamedExpression> projectList, Seq<Attribute> childOutput) {
     this.projectList = projectList;
@@ -113,7 +115,7 @@ final class VarkaVectorProjection {
     if (inputRows == null) {
       inputRows = new VarkaInputRows(expressions(), childOutput);
     }
-    Iterator<InternalRow> rows = input.rowIterator();
+    Iterator<InternalRow> rows = rowView.of(input).rowIterator();
     int count = 0;
     if (writesDirectly) {
       if (direct == null) {

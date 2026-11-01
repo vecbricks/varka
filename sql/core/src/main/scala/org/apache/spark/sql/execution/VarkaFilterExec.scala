@@ -231,6 +231,10 @@ private[sql] class VarkaFilterEvaluatorFactory(
       condition, childOutput, offHeapColumnVectorEnabled, "Filter",
       classDumpDirectory, varkaMetrics, sessionEmit, warmupEnabled)
 
+    // The input batch as the fallback predicate reads its rows: a small decimal long-backed, as
+    // vanilla Spark's row path hands it.
+    private val rowView = new VarkaRowView
+
     // The per-row predicate and converter behind the fallback. Lazy: a task the
     // kernel serves end to end never pays the Janino compile.
     private lazy val fallbackPredicate: BasePredicate = {
@@ -336,7 +340,7 @@ private[sql] class VarkaFilterEvaluatorFactory(
       val batch = new ColumnarBatch(vectors.toArray)
       try {
         val writable = vectors.toArray[WritableColumnVector]
-        val rows = input.rowIterator()
+        val rows = rowView.of(input).rowIterator()
         var rowCount = 0
         var stopped = false
         while (!stopped && rows.hasNext) {
@@ -484,6 +488,10 @@ private[sql] class VarkaFilterToRowEvaluatorFactory(
       condition, childOutput, false, "FilterToRow", classDumpDirectory, varkaMetrics,
       sessionEmit, warmupEnabled)
 
+    // The input batch as the fallback predicate reads its rows: a small decimal long-backed, as
+    // vanilla Spark's row path hands it.
+    private val rowView = new VarkaRowView
+
     // The emitted rows hold their own bytes (an UnsafeProjection copy), so they outlive the
     // input batch exactly as VarkaColumnarToRowExec's rows do; the fallback predicate is the
     // per-row form of the whole condition (see VarkaFilterExecBase). Both lazy.
@@ -566,7 +574,7 @@ private[sql] class VarkaFilterToRowEvaluatorFactory(
     }
 
     private def fallback(input: ColumnarBatch): Iterator[InternalRow] = {
-      input.rowIterator().asScala.filter { row =>
+      rowView.of(input).rowIterator().asScala.filter { row =>
         val selected = fallbackPredicate.eval(row)
         if (selected) numOutputRows += 1
         selected
