@@ -417,10 +417,15 @@ public final class VarkaEmitterNarrowSuite {
       // takes it (VARKA-480); a narrow value under one still has no lowering.
       assertTrue(VarkaKernelPlan.refusalOf(List.of(lifted), arm.options()).isEmpty(),
           arm.name());
-      Optional<String> load = VarkaKernelPlan.refusalOf(List.of(value), arm.options());
-      assertTrue(load.isEmpty() || load.get().startsWith("a BYTE column has no load at ")
-          || load.get().startsWith("a narrow column needs a baked lane count"),
-          arm.name() + ": " + load);
+      // The outcome from the species the load names: none where no long lane count is baked,
+      // and otherwise a byte species of twice the long lanes, served where the width has it.
+      int longLanes = Lane.emitLanes(arm.options(), Lane.LONG);
+      Optional<String> expected = longLanes == 0
+          ? Optional.of("a narrow column needs a baked lane count to be widened to the long lane")
+          : Lane.widenLanes(2 * longLanes, Lane.BYTE) == 2 * longLanes ? Optional.empty()
+          : Optional.of("a BYTE column has no load at " + longLanes + " long lanes");
+      assertEquals(expected, VarkaKernelPlan.refusalOf(List.of(value), arm.options()),
+          arm.name());
       assertEquals(Optional.of("a narrow value under a bigint kernel has no lowering"),
           VarkaKernelPlan.refusalOf(List.of(computed), arm.options()), arm.name());
     }
