@@ -630,3 +630,19 @@ new coverage rows, which each digest covers, and not with a flag, since none was
   width check at the top of `value()`, ahead of every arm, so the arms' own checks past 18 digits
   could no longer be reached; the merge moved their reasons, rows 359 to 363 as listed above,
   into `wideReason`, and the arms keep only the check that a node is typed by Spark's rule.
+
+### The second review of 349a (1 November 2026)
+
+- **One constant fold.** `value()` folded a literal under casts, and `sum()` and `product()`
+  folded a tree of literals; a decimal constant of any shape, Spark's `foldable` (a superset of a
+  literal under casts, since a cast is foldable where its child is), now folds once at the top of
+  `value()`, and `valid()` reads the same test. `atScale` keeps its fold, which takes the
+  operand's value at the result's scale. `emitted_bytes.json` and `coverage.json` did not move;
+  `VarkaDecimalArithmeticSuite` holds `abs(-1.25)` and `1.5 + 2.25` to one slot each.
+- **The type rule is one record**, `ResultType`, read by `sum`, `product` and their wide
+  reasons, and the mistyped check renders the rule's type from its two ints: past 38 digits
+  `DecimalType` throws, which a spied product typed `DECIMAL(10, 0)` over two `DECIMAL(20, 0)`
+  columns, rule 41 digits, now declines instead.
+- The default decline names row 351 and says a quotient or a remainder is no row's in this
+  milestone, and the time compiler's reason for a decimal column as a value names 157 for an
+  output and 350 and 366 for its casts.
