@@ -452,6 +452,16 @@ Where the code departs from 2.1 to 2.5, and what is still owed:
   fuzzer redraws a zero divisor, is later work. The square root is rebuilt directly in
   `VarkaWithChildrenSuite`, which no grammar reaches, and the proof renderer skips `DIV` over
   integral operands, which the IR refuses.
+- **The option matrix's fixes (1 November 2026).** Under `heavyGroupOutputs=0` and
+  `shareWholeNodes=false`, two outputs sharing a guarded day under arms of different conditions
+  split into two groups over a materialized date prefix: the loading group computes neither the
+  day nor its guard, and the producing group kept only its own arm's chain, so its dense body
+  answered a row only the other arm takes with an unchecked day. `Analysis.armChainsIn` now
+  leaves such a guard unqualified in the group that computes it, and a `VarkaGuardEdgeSuite` test
+  pins the split at defaults. That declines more batches of the split shape; keeping the
+  qualification by refusing to materialize such a prefix is the alternative, not taken. Under
+  `guardUnderArm=false` the three tests whose subject is the division's arm qualification fail
+  by design, and `sql/varka/matrix/skips.tsv` lists them.
 - **Still owed by this step:** the IR fuzz grammar's floating sequence (341's, which the grammar
   lacks: it draws no floating tree) and the Spark fuzzer's floating productions (3.10); the
   `--asm` check of 3.2 (no hsdis on the run that built this); the census cells (step 2).
