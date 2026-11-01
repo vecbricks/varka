@@ -2889,7 +2889,73 @@ final class VarkaProofFiles {
         "(assert (not (= (dec.absLanewise u) (abs u))))"));
     check(out, "the two abs forms agree on every long", "unsat", List.of(u,
         "(assert (jlong.in u))", "(assert (not (= (dec.absLanewise u) (dec.absBlend u))))"));
+    decimal64Arithmetic(out, pow, max);
     return out.toString();
+  }
+
+  /**
+   * {@code decimal64.smt2}'s arithmetic (VARKA-349): {@code +} and {@code -} of two operands
+   * rescaled to the result's scale, and {@code *} of the unscaled values, each one wrapping long
+   * operation that is exact and within the result's precision wherever that precision is at most
+   * 18. {@code VarkaDecimalArithmeticSuite}'s sweep holds the reduction to every precision pair:
+   * each fused pair's rescaled operands have at most {@code P - 1} digits for {@code +} and
+   * {@code -}, and its operands at most {@code P - 1} digits between them for {@code *}.
+   */
+  private static void decimal64Arithmetic(StringBuilder out, long[] pow, int max) {
+    out.append("""
+
+        ; The arithmetic (VARKA-349). A sum or difference typed DECIMAL(P, S) is
+        ;
+        ;   IntArith(ADD | SUB, WRAP, rescale(a, S - s1), rescale(b, S - s2))   jlong.add, jlong.sub
+        ;
+        ; whose rescaled operands each have at most P - 1 digits, and a product typed
+        ; DECIMAL(p1 + p2 + 1, s1 + s2) is IntArith(MUL, WRAP, a, b), jlong.mul, with no rescale.
+        ; The sum is linear. The product is in two layers, so that no check both multiplies two
+        ; unknowns and wraps: a bound on the exact product per operand precision pair, then the
+        ; wrap's identity on any integer within that bound, a free z. Within 18 digits the exact
+        ; result always fits the type, so Spark's precision check never fires in any mode.
+        """);
+    String ab = "(declare-const a Int) (declare-const b Int)";
+    for (int p = 2; p <= max; p++) {
+      long in = pow[p - 1] - 1;
+      long res = pow[p] - 1;
+      for (String[] op : new String[][] {{"+", "jlong.add", "+"}, {"-", "jlong.sub", "-"}}) {
+        check(out, "P = " + p + ": |a|, |b| <= " + in + " give a " + op[0] + " b with no wrap, "
+            + "within " + p + " digits", "unsat", List.of(ab,
+                "(assert (and (dec.in a " + in + ") (dec.in b " + in + ")))",
+                "(assert (not (and (= (" + op[1] + " a b) (" + op[2] + " a b)) "
+                    + "(dec.in (" + op[2] + " a b) " + res + "))))"));
+      }
+      check(out, "and with the operands one digit wider, " + p + " digits each, a + b leaves "
+          + "the type", "sat", List.of(ab,
+              "(assert (and (dec.in a " + res + ") (dec.in b " + res + ")))",
+              "(assert (not (dec.in (+ a b) " + res + ")))"));
+    }
+    String xy = "(declare-const x Int) (declare-const y Int)";
+    for (int p1 = 1; p1 < max; p1++) {
+      for (int p2 = 1; p1 + p2 < max; p2++) {
+        long m1 = pow[p1] - 1;
+        long m2 = pow[p2] - 1;
+        long n = pow[p1 + p2] - 1;
+        check(out, "p1 = " + p1 + ", p2 = " + p2 + ": |x| <= " + m1 + " and |y| <= " + m2
+            + " give |x * y| <= " + n, "unsat", List.of(xy,
+                "(assert (and (dec.in x " + m1 + ") (dec.in y " + m2 + ")))",
+                "(assert (not (dec.in (* x y) " + n + ")))"));
+      }
+    }
+    String z = "(declare-const z Int)";
+    for (int n = 2; n < max; n++) {
+      long bound = pow[n] - 1;
+      long res = pow[n + 1] - 1;
+      check(out, "P = " + (n + 1) + ": any product of operands of " + n + " digits between them, "
+          + "|z| <= " + bound + ", is its own wrap, within " + (n + 1) + " digits", "unsat",
+          List.of(z, "(assert (dec.in z " + bound + "))",
+              "(assert (not (and (= (jlong.wrap z) z) (dec.in z " + res + "))))"));
+    }
+    BigInteger wide = BigInteger.TEN.pow(10).subtract(BigInteger.ONE).pow(2);
+    check(out, "and two operands of ten digits each, a product typed past the lane, can wrap",
+        "sat", List.of(z, "(assert (dec.in z " + wide + "))",
+            "(assert (not (= (jlong.wrap z) z)))"));
   }
 
   /** A long as a 64-bit SMT-LIB bit-vector literal. */

@@ -114,6 +114,7 @@ final class VarkaRefinementFile {
     makeDate(out);
     intervals(out);
     times(out);
+    decimalArithmetic(out);
     return out.toString();
   }
 
@@ -981,6 +982,90 @@ final class VarkaRefinementFile {
                 List.of("(assert (and vt vu (= t " + (23 * HOUR + 30 * MINUTE) + ") (= u "
                     + (HOUR / NANOS_PER_MICROS) + ")))"), "(and vt (not " + inDay + "))"),
             mayDecline)));
+  }
+
+  // -----------------------------------------------------------------------------------------
+  // Decimal arithmetic within 18 digits (VARKA-349).
+  // -----------------------------------------------------------------------------------------
+
+  /** The operand types of each decimal arithmetic coverage row, named as the rows read. */
+  private record DecimalOp(String name, char op, int p1, int s1, int p2, int s2) { }
+
+  private static final List<DecimalOp> DECIMAL_OPS = List.of(
+      new DecimalOp("d9 + d9b", '+', 9, 2, 9, 2),
+      new DecimalOp("d9 - d8", '-', 9, 2, 8, 2),
+      new DecimalOp("d9 + 1.5", '+', 9, 2, 2, 1),
+      new DecimalOp("d8 * d9", '*', 8, 2, 9, 2),
+      new DecimalOp("d9 * 0.5", '*', 9, 2, 1, 1));
+
+  /**
+   * Decimal {@code +}, {@code -} and {@code *} whose result type is within 18 digits, per
+   * coverage row's operand types: the operands are the unscaled low words, any long, and a valid
+   * one outside its precision is where Spark's reader raises and the leaf declines
+   * ({@code decimal_slot.smt2}); the result is the exact unscaled value at the result's scale,
+   * which Spark nulls (LEGACY, TRY) or raises on (ANSI; the standard's 22003) only past the
+   * result's precision. A sum's kernel is the rescales and the add in the prelude's wrapping
+   * operators; a product's multiplies two unknowns, so its exact product is the free {@code z}
+   * with {@code decimal64.smt2}'s bound on it as the premise, the operator standing for the
+   * form, and its kernel the wrap of {@code z}. A literal operand is a column of its type here,
+   * which covers the one value it holds.
+   */
+  private static void decimalArithmetic(StringBuilder out) {
+    section(out, "STANDARD.md 4.1, SQL-92 6.12: decimal + - * within 18 digits (VARKA-349)");
+    long[] pow = org.apache.spark.sql.types.Decimal.POW_10();
+    for (DecimalOp d : DECIMAL_OPS) {
+      int s = d.op() == '*' ? d.s1() + d.s2() : Math.max(d.s1(), d.s2());
+      int p = d.op() == '*' ? d.p1() + d.p2() + 1
+          : Math.max(d.p1() - d.s1(), d.p2() - d.s2()) + s + 1;
+      String inA = inPrecision("a", pow[d.p1()] - 1);
+      String inB = inPrecision("b", pow[d.p2()] - 1);
+      var setup = new ArrayList<String>(List.of("(declare-const a Int) (declare-const va Bool) "
+          + "(declare-const b Int) (declare-const vb Bool)\n"
+          + "(assert (and (jlong.in a) (jlong.in b)))"));
+      var definitions = new ArrayList<String>();
+      String exact;
+      String kernel;
+      if (d.op() == '*') {
+        setup.add("(declare-const z Int)");
+        setup.add("(assert (=> (and " + inA + " " + inB + ") "
+            + inPrecision("z", pow[d.p1() + d.p2()] - 1) + "))");
+        definitions.add("(assert (= z (* a b)))");
+        exact = "z";
+        kernel = "(jlong.wrap z)";
+      } else {
+        String fn = d.op() == '+' ? "jlong.add" : "jlong.sub";
+        String sym = d.op() == '+' ? "+" : "-";
+        exact = "(" + sym + " " + scaled("a", pow[s - d.s1()], false) + " "
+            + scaled("b", pow[s - d.s2()], false) + ")";
+        kernel = "(" + fn + " " + scaled("a", pow[s - d.s1()], true) + " "
+            + scaled("b", pow[s - d.s2()], true) + ")";
+      }
+      String slot = "(or (and va (not " + inA + ")) (and vb (not " + inB + ")))";
+      String overflow = "(and va vb (not " + inPrecision(exact, pow[p] - 1) + "))";
+      String type = " (DECIMAL(" + d.p1() + ", " + d.s1() + ") " + d.op() + " DECIMAL(" + d.p2()
+          + ", " + d.s2() + ") is DECIMAL(" + p + ", " + s + "))";
+      String differs = "(not (= " + kernel + " " + exact + "))";
+      refine(out, new Refinement(d.name() + type + ", Spark mode ANSI and standard mode, a "
+          + "decline wherever a slot leaves its precision", setup, definitions, "true", "true",
+          "(and va vb)", "(or " + slot + " " + overflow + ")", "(and va vb)", slot,
+          "(and va vb)", differs, List.of()));
+      refine(out, new Refinement(d.name() + type + ", Spark mode LEGACY and TRY, null past the "
+          + "result's precision", setup, definitions, "true", "true", "(and va vb)", slot,
+          "(and va vb (not " + overflow + "))", slot, "(and va vb)", differs, List.of()));
+    }
+  }
+
+  /** {@code v} within {@code b} in magnitude. */
+  private static String inPrecision(String v, long b) {
+    return "(and (<= (- " + b + ") " + v + ") (<= " + v + " " + b + "))";
+  }
+
+  /** {@code v} times {@code factor}, exactly or as the kernel's wrapping multiply. */
+  private static String scaled(String v, long factor, boolean kernel) {
+    if (factor == 1) {
+      return v;
+    }
+    return kernel ? "(jlong.mul " + v + " " + factor + ")" : "(* " + v + " " + factor + ")";
   }
 
   // -----------------------------------------------------------------------------------------

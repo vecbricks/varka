@@ -85,7 +85,7 @@ log10|double|double||ulp|367,358|StrictMath
 log1p|double|double||ulp|367,358|StrictMath
 log2|double|double||ulp|367,358|StrictMath.log over a constant
 ln|double|double||ulp|367,358|StrictMath
-mod|NUM|same||semantics|30,95,104,346,349,363|integral is semantics (zero divisor); floating by the one-FMA remainder (346)
+mod|NUM|same||semantics|30,95,104,346,363|integral is semantics (zero divisor); floating by the one-FMA remainder (346); decimal: a remainder by a variable divisor, which the long lane has no vector division for; unclaimed, suggested home row 30 (VARKA-349.md 7)
 negative|NUM,IVL|same|byte,short,int,ym|semantics|330,104,103,342,348,359|the minimum value overflows
 pmod|NUM|same||semantics|30,104,346,363|integral is semantics (item 33's sign rule; pmod(-1, Int.MinValue) is Int.MaxValue, SPARK-59934); floating by the one-FMA remainder (346)
 positive|NUM,IVL|same||plumbing|333|rewritten to its child
@@ -105,17 +105,17 @@ tan|double|double||ulp|367,356|Math
 cot|double|double||ulp|367,356|1 / Math.tan
 tanh|double|double||ulp|367,357|Math
 width_bucket|double,IVL,time|bigint||semantics|344|bucket arithmetic over doubles
-+|NUM,IVL|same|byte,short,int,ym|semantics|330,104,103,342,349,360|integral overflow modes; decimal result scale; date and timestamp sums are other classes
--|NUM,IVL|same|byte,short,int,ym|semantics|330,104,103,342,349,360|date, timestamp and time differences are other classes
-*|NUM|same|byte,short,int~|semantics|330,95,104,342,349,361,362|fused for int in `year(d) * 2`; interval products are other classes
++|NUM,IVL|same|byte,short,int,ym|semantics|330,104,103,342,349,360|integral overflow modes; decimal result scale; date and timestamp sums are other classes; decimal: fused where the result is within 18 digits (349a, a filter until 157); the pair counts with 360 at every precision to 38
+-|NUM,IVL|same|byte,short,int,ym|semantics|330,104,103,342,349,360|date, timestamp and time differences are other classes; decimal: fused where the result is within 18 digits (349a, a filter until 157); the pair counts with 360 at every precision to 38
+*|NUM|same|byte,short,int~|semantics|330,95,104,342,349,361,362|fused for int in `year(d) * 2`; interval products are other classes; decimal: fused where the result is within 18 digits (349a, a filter until 157); the pair counts with 361 and 362 at every precision to 38
 /|double,dec!|same||semantics|342|zero divisor null or error; decimal division is out of milestone 8
 div|INTEGRAL,dec!,IVL|bigint||semantics|30,104,103|zero divisor null or error; over INT a long-lane divide over two widening casts (corrects item 33); a decimal div divides decimals, out of milestone 8
-%|NUM|same||semantics|30,95,104,346,349,363|integral is semantics (zero divisor); floating by the one-FMA remainder (346)
-try_add|NUM,IVL|same|byte,short,int|semantics|330,104,342,349,360|overflow gives null; over ym and dt it is `TryEval`, which no row builds (`m9/SCOPE.md` item 125)
+%|NUM|same||semantics|30,95,104,346,363|integral is semantics (zero divisor); floating by the one-FMA remainder (346); decimal: a remainder by a variable divisor, which the long lane has no vector division for; unclaimed, suggested home row 30 (VARKA-349.md 7)
+try_add|NUM,IVL|same|byte,short,int|semantics|330,104,342,349,360|overflow gives null; over ym and dt it is `TryEval`, which no row builds (`m9/SCOPE.md` item 125); decimal: fused where the result is within 18 digits (349a, a filter until 157); the pair counts with 360 at every precision to 38
 try_divide|double,dec!|same||semantics|342|zero divisor gives null; decimal division is out of milestone 8
 try_mod|NUM|same||semantics|30,104,346,363|floating by the one-FMA remainder (346)
-try_subtract|NUM,IVL|same|byte,short,int|semantics|330,104,342,349,360|overflow gives null; over ym and dt it is `TryEval`, which no row builds (`m9/SCOPE.md` item 125)
-try_multiply|NUM|same|byte,short|semantics|330,104,342,349,361,362|overflow gives null
+try_subtract|NUM,IVL|same|byte,short,int|semantics|330,104,342,349,360|overflow gives null; over ym and dt it is `TryEval`, which no row builds (`m9/SCOPE.md` item 125); decimal: fused where the result is within 18 digits (349a, a filter until 157); the pair counts with 360 at every precision to 38
+try_multiply|NUM|same|byte,short|semantics|330,104,342,349,361,362|overflow gives null; decimal: fused where the result is within 18 digits (349a, a filter until 157); the pair counts with 361 and 362 at every precision to 38
 shiftleft|int,bigint|same|int,bigint|done||item 32; byte and short widen to int first; a bigint shifted by an int column fuses (335b, 20 October 2026), the count widened to the long lane
 shiftright|int,bigint|same|int,bigint|done||item 32; a bigint shifted by an int column fuses (335b, 20 October 2026)
 shiftrightunsigned|int,bigint|same|int,bigint|done||item 32; a bigint shifted by an int column fuses (335b, 20 October 2026)
@@ -198,9 +198,9 @@ datetime_sub|DatetimeSub|datetime|date,ntz,IVL|date,ntz|date,ym|plumbing|339|the
 ntz_plus_dt|TimestampAddInterval|datetime|ntz,dt|ntz||semantics|339|UTC, so plain arithmetic; exact or raise
 ntz_plus_ym|TimestampAddYMInterval|datetime|ntz,ym|ntz||semantics|339|calendar months on the date part
 timestampadd|TimestampAdd|datetime|bigint,ntz|ntz||semantics|339|units up to a week are arithmetic, months and years calendar
-ym_times_num|MultiplyYMInterval|interval|ym,NUM|ym|ym~,int~|semantics|103,329,342,349|fused in `make_ym_interval(year(d), month(d)) * 2`; HALF_UP from fractions; an integral literal factor over a stored column is row 103's guard (103a)
+ym_times_num|MultiplyYMInterval|interval|ym,NUM|ym|ym~,int~|semantics|103,329,342|fused in `make_ym_interval(year(d), month(d)) * 2`; HALF_UP from fractions; an integral literal factor over a stored column is row 103's guard (103a); a decimal column factor is a product past 64 bits and a HALF_UP division by 10^s; unclaimed, suggested home rows 361 and 363 (VARKA-349.md 7)
 dt_times_num|MultiplyDTInterval|interval|dt,NUM|dt||semantics|103,342,361,363|checked multiply; HALF_UP from fractions; an integral or decimal literal and an integral column are row 103's; a floating factor is 342's lowering
-ym_div_num|DivideYMInterval|interval|ym,NUM|ym||semantics|89,342,349|HALF_UP division
+ym_div_num|DivideYMInterval|interval|ym,NUM|ym||semantics|89,342,363|HALF_UP division; a decimal divisor is a division by a variable, claimed by row 363 and declined until one is planned (VARKA-349.md 7)
 dt_div_num|DivideDTInterval|interval|dt,NUM|dt||semantics|103,342,361,363|HALF_UP division; an integral or decimal literal and an integral column are row 103's; a floating factor is 342's lowering
 extract_ym_years|ExtractANSIIntervalYears|interval|ym|int|ym|done||
 extract_ym_months|ExtractANSIIntervalMonths|interval|ym|byte||plumbing|329|matched today only to decline: its result is a byte
@@ -211,7 +211,7 @@ extract_dt_seconds|ExtractANSIIntervalSeconds|interval|dt|dec||plumbing|103,157|
 known_not_null|KnownNotNull|internals|ALL|same||plumbing|333|a relabel the optimizer adds
 known_fp_normalized|KnownFloatingPointNormalized|internals|FLOAT|same||plumbing|337|a relabel around NaN and -0.0 normalization; uncounted, by the owner's answer of 30 October 2026 (VARKA-337.md 8 point 5, option (a)): Spark inserts it only for join, window and aggregate keys, never in a Project or Filter, so no coverage row can hold it
 normalize_nan_and_zero|NormalizeNaNAndZero|internals|FLOAT|same||plumbing|337|the optimizer's canonical NaN and +0.0 before a key or a hash: one node, shared with the hash input (m8/PLAN.md 2.7); uncounted, by the owner's answer of 30 October 2026 (VARKA-337.md 8 point 5, option (a)): Spark inserts it only for join, window and aggregate keys, never in a Project or Filter, so no coverage row can hold it
-try_eval|TryEval|internals|ALL|same||semantics|330,342,349|the try_ functions' wrapper: every error raised anywhere in its subtree becomes null
+try_eval|TryEval|internals|ALL|same||semantics|330,342|the try_ functions' wrapper: every error raised anywhere in its subtree becomes null; over a decimal subtree: no 64-bit decimal arithmetic raises, so it waits for the rows whose decimal nodes do; unclaimed, suggested home row 350 (VARKA-349.md 7)
 
 # By the owner's answer of 1 November 2026 to VARKA-349.md 8 question 1, option (b): Spark builds
 # these three only inside an aggregate, a window or an encoder's serializer, never in a Project or

@@ -787,6 +787,17 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `d18 IS NULL` | `predicate` |  |  | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
 | `d18 IS NOT NULL` | `predicate` |  |  | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
 
+#### DECIMAL arithmetic
+
+| Predicate | Switches | Domain | Notes | 128-bit lanes |
+|---|---|---|---|---|
+| `d9 + d9b < d18` | `predicate` |  | DECIMAL(10, 2), compared at DECIMAL(18, 2): the sum under the rescale-free cast coercion puts over it | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
+| `d9 - d8 >= d9b` | `predicate` |  | DECIMAL(10, 2) against DECIMAL(9, 2) | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
+| `d8 * d9 <= d9b` | `predicate` |  | DECIMAL(18, 4), the widest product of the long lane; d9b is rescaled by 10^2 to meet it | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
+| `try_add(d9, d9b) > d18` | `predicate` |  | the TRY form is the same kernel: no sum within 18 digits overflows | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
+| `d9 * 0.5 > d9b` | `predicate` |  | the literal is DECIMAL(1, 1), its unscaled 5 a slot; the product is DECIMAL(11, 3) | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
+| `d9 + 1.5 < d9b` | `predicate` |  | the literal is rescaled to the sum's scale at compile time | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
+
 #### Time arithmetic
 
 | Expression | Switches | Domain | Notes | 128-bit lanes |
@@ -826,7 +837,7 @@ operands (a row counts once for each type it reads):
 | `bool` | 23 | 0 | 0 | 13 | 0 | 10 |
 | `byte` | 26 | 0 | 0 | 0 | 8 | 18 |
 | `date` | 86 | 17 | 0 | 1 | 0 | 68 |
-| `dec` | 17 | 0 | 0 | 0 | 0 | 17 |
+| `dec` | 23 | 0 | 0 | 0 | 0 | 23 |
 | `double` | 20 | 0 | 0 | 0 | 0 | 20 |
 | `dt` | 15 | 2 | 0 | 0 | 0 | 13 |
 | `float` | 20 | 0 | 0 | 0 | 0 | 20 |

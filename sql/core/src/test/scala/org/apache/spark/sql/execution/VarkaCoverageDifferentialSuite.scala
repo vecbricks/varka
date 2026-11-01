@@ -576,7 +576,7 @@ private object VarkaCoverageDifferentialSuite {
    *
    * The floating columns are derived too (VARKA-341), `floatingColumns` picked by `rid`, null
    * where `d`, `d2`, `i` and `l2` are. The DECIMAL columns are derived from the bigints:
-   * `d9` and `d18` from `l`, `d9b` and `d18b` from `l2`.
+   * `d9` and `d18` from `l`, `d9b`, `d18b` and `d8` from `l2`.
    */
   def fixtureView(values: Seq[String], where: String = ""): String = {
     val withIds = values.zipWithIndex.map { case (v, rid) => s"($rid, ${v.stripPrefix("(")}" }
@@ -604,7 +604,8 @@ private object VarkaCoverageDifferentialSuite {
        |       ${decimal("l", 9)} AS d9,
        |       ${decimal("l2", 9)} AS d9b,
        |       ${decimal("l", 18)} AS d18,
-       |       ${decimal("l2", 18)} AS d18b
+       |       ${decimal("l2", 18)} AS d18b,
+       |       ${decimal("l2", 8)} AS d8
        |FROM VALUES ${withIds.mkString(",\n  ")}
        |AS v(rid, d, d2, i, m, y, mm, l, l2, t, t2, dt, dt2, y1, y2, s1, s2)$where""".stripMargin
   }

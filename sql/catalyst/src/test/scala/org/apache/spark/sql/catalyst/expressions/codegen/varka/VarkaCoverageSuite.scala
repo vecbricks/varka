@@ -128,9 +128,13 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
   private val d9b = AttributeReference("d9b", DecimalType(9, 2))()
   private val d18 = AttributeReference("d18", DecimalType(18, 2))()
   private val d18b = AttributeReference("d18b", DecimalType(18, 2))()
+  // DECIMAL(8, 2) (VARKA-349), so that a product with d9 is DECIMAL(18, 4), within the long
+  // lane, where d9 * d9b is DECIMAL(19, 4).
+  private val d8 = AttributeReference("d8", DecimalType(8, 2))()
 
   private val columns: Seq[Attribute] = Seq(d, d2, i, ymm, ymy, ym, l, l2, t, t2, dt, dt2, b, b2,
-    y1, y2, s1, s2, ntz, ntz2, x, x2, f, f2, d9, d9b, d18, d18b)
+    y1, y2, s1, s2, ntz, ntz2, x, x2, f, f2, d9, d9b, d18, d18b,
+    d8)
 
   /**
    * One documented expression. `sql` is both what the table prints and what the check
@@ -781,6 +785,23 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
       Row("d9 IS NOT NULL"),
       Row("d18 IS NULL"),
       Row("d18 IS NOT NULL"))),
+
+    // Decimal +, - and * whose result stays within 18 digits (VARKA-349), under a comparison:
+    // a sum or difference is one long add or subtract of the operands rescaled to the result's
+    // scale, a product one long multiply. Within 18 digits the exact result always fits Spark's
+    // result type, so its precision check never fires, the three modes answer alike, and one
+    // kernel serves LEGACY, ANSI and TRY; no row names a domain.
+    Family("DECIMAL arithmetic", predicates = true, Seq(
+      Row("d9 + d9b < d18", "DECIMAL(10, 2), compared at DECIMAL(18, 2): the sum under the "
+        + "rescale-free cast coercion puts over it"),
+      Row("d9 - d8 >= d9b", "DECIMAL(10, 2) against DECIMAL(9, 2)"),
+      Row("d8 * d9 <= d9b", "DECIMAL(18, 4), the widest product of the long lane; d9b is "
+        + "rescaled by 10^2 to meet it"),
+      Row("try_add(d9, d9b) > d18", "the TRY form is the same kernel: no sum within 18 digits "
+        + "overflows"),
+      Row("d9 * 0.5 > d9b", "the literal is DECIMAL(1, 1), its unscaled 5 a slot; the product "
+        + "is DECIMAL(11, 3)"),
+      Row("d9 + 1.5 < d9b", "the literal is rescaled to the sum's scale at compile time"))),
 
     Family("Time arithmetic", predicates = false, Seq(
       Row("t - t2", "a day-time interval, the nanosecond difference divided by a thousand"),
