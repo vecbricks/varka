@@ -344,7 +344,22 @@ digest over every shape, which a new row moves by construction; `census.tsv`.
    each, `nullifzero` and `zeroifnull` two each. The difference from 71 is `in` and `in_set`
    (row 497's rows), `positive` and `known_not_null` (3.5a), and the entries whose other types
    rows 329, 331, 338 and 341 fused since the plan was written. Held.
-3. *The coverage differential's added time under 20 s*: scored in the sql/core run below.
+3. *The coverage differential's added time under 20 s*: 2.7 s for the 43 rows, held at a
+   ratio of 0.14 - 1.6 s over their 105 tests in `VarkaCoverageHarnessSuite` (from its JUnit
+   report) and 1.1 s for the two family tests in `VarkaCoverageDifferentialSuite`, which since
+   VARKA-509 runs one row a family. The estimate priced a session query per row that the harness
+   no longer makes. Entered in the calibration table (`skills/calibration/VARKA-333-6.1-3.md`).
+
+**Tests run locally, under the shared locks**, on the branch with row 497 and master merged:
+`VarkaCoverageSuite`, `VarkaEmittedBytesSuite`, `VarkaWidthAuditSuite`, `VarkaIrFuzzSuite`,
+`VarkaProofFilesSuite`, `VarkaExpressionCompilerSuite`, the thirteen `*ConformanceSuite`s,
+`VarkaLaneTypeSuite`, `VarkaEmitCostSuite`, `VarkaEmitterBudgetSuite`, `VarkaReproductionSuite`
+and `VarkaCoverageCompositionFuzzSuite` in catalyst; `VarkaCoverageHarnessSuite`,
+`VarkaCoverageDifferentialSuite`, `VarkaKernelEvaluatorSuite` and `VarkaHarnessParitySuite` in
+sql/core. No proof file changed, so `dev/varka_prove.sh` was not run. The harness found the one
+thing the catalyst suites could not: 42 entries of `VarkaAnsiForm`'s declined list (an int-valued
+row as a later `coalesce` argument, item 55) went stale the moment int `coalesce` fused, and were
+removed.
 
 **Open points for the lead.**
 

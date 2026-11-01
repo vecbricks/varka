@@ -3380,15 +3380,15 @@
     "note" : "",
     "verified" : "differential"
   }, {
-    "sql" : "if(d < d2, i, i + 1)",
-    "executable" : "if(d < d2, i, i + 1)",
+    "sql" : "if(i < 0, i, i + 1)",
+    "executable" : "if(i < 0, i, i + 1)",
     "family" : "Choice and nulls on every type",
     "form" : "projection",
     "catalyst" : [ "Add", "If", "LessThan" ],
     "casts" : [ ],
-    "operands" : [ "Add:int", "If:int", "LessThan:date" ],
+    "operands" : [ "Add:int", "If:int", "LessThan:int" ],
     "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled", "spark.sql.codegen.varka.family.condition.enabled", "spark.sql.codegen.varka.family.intArithmetic.enabled" ],
-    "domain" : "d < d2 OR i < 2147483647",
+    "domain" : "i < 2147483647",
     "note" : "an int branch is a column, a literal or int arithmetic; the checked add is qualified by its arm, so only a row taking the ELSE can overflow",
     "verified" : "differential"
   }, {
