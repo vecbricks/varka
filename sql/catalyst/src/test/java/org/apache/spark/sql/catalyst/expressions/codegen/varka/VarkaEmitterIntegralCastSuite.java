@@ -530,7 +530,7 @@ public final class VarkaEmitterIntegralCastSuite {
 
   @Test
   @DisplayName("an INT narrowed to a narrow type inside a BIGINT kernel answers as Spark does at "
-      + "every baked long width")
+      + "every baked long width and with no lane count baked")
   public void intNarrowedInsideALongKernel() {
     // The narrowing away from a store at the long width (`VARKA-332.md` 2.5): the int value is
     // loaded into the low half of the int species, wrapped there by the shift pair, and read by a
@@ -538,12 +538,22 @@ public final class VarkaEmitterIntegralCastSuite {
     long[] ints = {0, 1, -1, 127, 128, -128, -129, 255, 32767, 32768, -32768, -32769, 65535,
         Integer.MAX_VALUE, Integer.MIN_VALUE};
     long[] longs = {0, 1, -1, 127, -128, 128, 32767, -32768, Long.MAX_VALUE, Long.MIN_VALUE};
+    // Each baked long width this JVM serves, and the unbaked form: no lane count, so the mixed
+    // kernel reads the preferred species and masks its int stores throughout.
+    List<VarkaEmitOptions> arms = new ArrayList<>();
     for (int lanes : new int[] {2, 4, 8}) {
       VarkaEmitOptions options = VarkaMatrixRuns.BASE.toBuilder().lanesOverride(lanes).build();
-      if (Lane.emitLanes(options, Lane.LONG) != lanes) {
-        continue;
+      if (Lane.emitLanes(options, Lane.LONG) == lanes) {
+        arms.add(options);
       }
-      String at = " at " + lanes + " long lanes";
+    }
+    int baked = arms.size();
+    // Every JVM serves two or four long lanes; only a configuration that bakes none runs none.
+    assertTrue(baked > 0 || !VarkaMatrixRuns.BASE.validityByWidth(), "no baked long width ran");
+    arms.add(VarkaMatrixRuns.BASE.toBuilder().validityByWidth(false).build());
+    for (VarkaEmitOptions options : arms) {
+      int lanes = Lane.emitLanes(options, Lane.LONG);
+      String at = lanes == 0 ? " with no lane count baked" : " at " + lanes + " long lanes";
       for (Type narrow : List.of(TINYINT, SMALLINT)) {
         for (Mode mode : List.of(LEGACY, ANSI)) {
           Expression back = cast(cast(INT.column(), narrow, mode), BIGINT, LEGACY);
