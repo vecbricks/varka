@@ -37,9 +37,11 @@ import org.apache.spark.sql.types.{DateType, DoubleType, FloatType, StructField,
  * several payloads, so a pick that returned the wrong one of two NaNs would show.
  *
  * The comparisons, `<=>`, `greatest`, `least`, `IN`, `isnan` and `nanvl` are lowered in
- * Spark's order and checked over every pair of the special values. What still declines - the
- * arithmetic, the casts, a floating value beside an integral one in a kernel - is pinned at
- * the end, with the query still answering as the row engine does.
+ * Spark's order and checked over every pair of the special values. The arithmetic (VARKA-342)
+ * is checked over the same pairs, in every mode, a NaN computed from two NaNs of different
+ * payloads compared by being NaN. What still declines - the casts, the remainder, a floating
+ * value beside an integral one in a kernel - is pinned at the end, with the query still
+ * answering as the row engine does.
  */
 class VarkaFloatingLaneSuite extends QueryTest with VarkaSharedSessions with VarkaTestWatchdog {
 
@@ -170,6 +172,44 @@ class VarkaFloatingLaneSuite extends QueryTest with VarkaSharedSessions with Var
     }
   }
 
+  /**
+   * The answer's cells as [[bits]] gives them, with every NaN in the first `relaxed` columns as
+   * one value: the NaN rule for an operation over two columns, whose NaN payload from two NaN
+   * operands Java does not fix - it depends on the tier and on how C2 ordered the operands
+   * (`VARKA-342.md` 0.6 and 5.1). Every later column is compared bit for bit.
+   */
+  private def nanAsOne(df: DataFrame, relaxed: Int): Seq[Seq[Any]] = bits(df).map(_.zipWithIndex
+    .map {
+      case (("double", b: Long), k)
+          if k < relaxed && java.lang.Double.isNaN(java.lang.Double.longBitsToDouble(b)) =>
+        ("double", "NaN")
+      case (("float", b: Int), k)
+          if k < relaxed && java.lang.Float.isNaN(java.lang.Float.intBitsToFloat(b)) =>
+        ("float", "NaN")
+      case (other, _) => other
+    })
+
+  /**
+   * [[checkFused]] for an arithmetic form, under `ansi`: its first `relaxed` columns by the NaN
+   * rule, every other column bit for bit.
+   */
+  private def checkFusedArith(query: String, ansi: Boolean, relaxed: Int = 1): Unit =
+      names.foreach { fixture =>
+    val q = query.replace("$t", fixture)
+    withAnsi(ansi) {
+      val actual = varkaSpark.sql(q)
+      val expected = expectedSql(q, actual)
+      val plan = actual.queryExecution.executedPlan
+      withClue(s"$fixture (ansi=$ansi): $q") {
+        assertFused(plan)
+        checkAnswer(actual, expected)
+        assert(nanAsOne(actual, relaxed).sortBy(_.toString) ===
+          nanAsOne(expected, relaxed).sortBy(_.toString))
+        assertKernelsRan(plan)
+      }
+    }
+  }
+
   /** One query on every fixture: no Varka node, and the row engine's answer. */
   private def checkDeclined(query: String): Unit = names.foreach { fixture =>
     val q = query.replace("$t", fixture)
@@ -266,7 +306,67 @@ class VarkaFloatingLaneSuite extends QueryTest with VarkaSharedSessions with Var
   }
 
   // -----------------------------------------------------------------------------------------
-  // What still declines, by name: arithmetic, the casts, and a floating value beside an
+  // The arithmetic (VARKA-342): one answer in every mode, the division's zero divisor apart.
+  // -----------------------------------------------------------------------------------------
+
+  // One projection of every form, so that the session runs the path once a mode: the forms'
+  // answers, cell by cell and bit by bit, are the harness's and VarkaEmitterFloatingArithSuite's.
+  // The forms over two columns come first, the NaN rule's; the rest move a NaN's bits or take
+  // them from one NaN operand, and are compared bit for bit.
+  private val twoColumnForms = Seq("x1 + x2", "x1 - x2", "x1 * x2", "try_divide(x1, x2)",
+    "try_add(x1, x2)", "(x1 + x2) * x2 - x1", "f1 + f2", "f1 * f2", "f2 - f1")
+  private val arithmetic = (twoColumnForms ++ Seq("x2 / 3.0D", "sqrt(x1)", "degrees(x2)",
+    "radians(x1)", "-x1", "abs(x2)", "signum(x1)", "-f1", "abs(f2)"))
+    .zipWithIndex.map { case (e, k) => s"$e AS v$k" }.mkString(", ")
+
+  test("the floating arithmetic fuses and matches the row engine in both modes, x1 / x2 null " +
+      "on a zero divisor in the legacy one") {
+    for (ansi <- Seq(false, true)) {
+      checkFusedArith(s"SELECT $arithmetic FROM $$t", ansi, twoColumnForms.size)
+    }
+    checkFusedArith("SELECT x1 / x2 AS v FROM $t", ansi = false)
+  }
+
+  test("a division whose divisor a choice guards fuses under ANSI over batches holding zeros") {
+    for (q <- Seq("SELECT IF(x2 = 0.0D, 0.0D, x1 / x2) AS v FROM $t",
+        "SELECT CASE WHEN x2 <> 0.0D THEN x1 / x2 ELSE x1 END AS v FROM $t")) {
+      checkFusedArith(q, ansi = true)
+    }
+  }
+
+  test("one division shared by two outputs under arms of different conditions fuses under ANSI " +
+      "over batches holding zeros") {
+    // Both outputs read the one `x1 / x2`, each under its own arm. Its guard is qualified by the
+    // OR of the two arms, so a zero divisor that every arm reading it sends elsewhere condemns no
+    // batch; with the arms collapsed to none, every batch holding a zero divisor declined.
+    val q = "SELECT IF(x2 = 0.0D, 0.0D, x1 / x2) AS a, " +
+      "CASE WHEN x2 <> 0.0D THEN x1 / x2 ELSE x1 END AS b FROM $t"
+    checkFusedArith(q, ansi = true, relaxed = 2)
+    // The pairs fixture divides by both zeros, in every batch: none declines.
+    withAnsi(true) {
+      val actual = varkaSpark.sql(q.replace("$t", "varka_float_pairs"))
+      actual.collect()
+      val node = collectFirst(actual.queryExecution.executedPlan) { case v if isVarkaNode(v) => v }
+        .getOrElse(fail("no Varka node"))
+      assert(node.metrics("numFallbackBatchesDeclined").value === 0L)
+    }
+  }
+
+  test("x1 / x2 under ANSI raises DIVIDE_BY_ZERO through the row engine on a zero divisor") {
+    // The pairs fixture divides by both zeros; the batch declines and the row engine raises.
+    withAnsi(true) {
+      val q = "SELECT x1 / x2 AS v FROM varka_float_pairs"
+      val actual = varkaSpark.sql(q)
+      assertFused(actual.queryExecution.executedPlan)
+      val e = intercept[org.apache.spark.SparkArithmeticException](actual.collect())
+      assert(e.getCondition === "DIVIDE_BY_ZERO", e.getMessage)
+      // A fixture with no live zero divisor answers, fused.
+      checkFusedArith("SELECT x1 / x2 AS v FROM $t WHERE x2 IS NULL OR x2 <> 0.0D", ansi = true)
+    }
+  }
+
+  // -----------------------------------------------------------------------------------------
+  // What still declines, by name: the casts, the remainder, and a floating value beside an
   // integral one in a kernel.
   // -----------------------------------------------------------------------------------------
 
@@ -276,20 +376,26 @@ class VarkaFloatingLaneSuite extends QueryTest with VarkaSharedSessions with Var
   private val d = AttributeReference("d", DateType)()
   private val output: Seq[Attribute] = Seq(d, x1, x2, f1)
 
-  test("EXPLAIN names why a floating cast or sum declines, and fuses the picks") {
+  test("EXPLAIN names why a floating cast or remainder declines, and fuses the picks and sum") {
     val lines = VarkaFusionReport.lines(Seq(
       Alias(Coalesce(Seq(x1, x2)), "a")(),
       Alias(Greatest(Seq(x1, x2)), "b")(),
       Alias(org.apache.spark.sql.catalyst.expressions.Cast(f1, DoubleType), "c")(),
-      Alias(org.apache.spark.sql.catalyst.expressions.Add(x1, x2), "e")()), output)
-    assert(lines.size == 4, lines)
+      Alias(org.apache.spark.sql.catalyst.expressions.Remainder(x1, x2), "e")(),
+      Alias(org.apache.spark.sql.catalyst.expressions.Add(x1, x2), "g")()), output)
+    assert(lines.size == 5, lines)
     assert(lines.head.endsWith(": fused"), lines)
     assert(lines(1).endsWith(": fused"), lines)
     assert(lines(2).contains("a cast to or from a floating type (row 343)"), lines)
-    assert(lines(3).contains("floating arithmetic (row 342)"), lines)
+    assert(lines(3).contains("a floating remainder (row 346)"), lines)
+    assert(lines(4).endsWith(": fused"), lines)
   }
 
-  Seq("CAST(f1 AS DOUBLE)", "x1 + x2", "-x1", "abs(f1)").foreach { expr =>
+  // The divisors are literals: the fixtures' zero divisors raise under ANSI on both sides.
+  private val declined = Seq("CAST(f1 AS DOUBLE)", "x1 % 2.5D", "pmod(f1, 2.5F)",
+    "CAST(f1 AS DOUBLE) / 2.0D")
+
+  declined.foreach { expr =>
     test(s"SELECT $expr declines and answers as the row engine does") {
       checkDeclined(s"SELECT $expr AS v FROM $$t")
     }

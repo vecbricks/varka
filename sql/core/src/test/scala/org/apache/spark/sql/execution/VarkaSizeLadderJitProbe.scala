@@ -20,6 +20,7 @@ package org.apache.spark.sql.execution
 import org.apache.spark.internal.config.UI.UI_ENABLED
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.catalyst.expressions.codegen.CodeGenerator
+import org.apache.spark.sql.internal.SQLConf
 
 /**
  * The child process behind [[VarkaSizeLadderJitSuite]] (VARKA-171). Launched in a forked JVM under
@@ -47,6 +48,8 @@ object VarkaSizeLadderJitProbe {
     val n = args(0).toInt
     val spark = SparkSession.builder().master("local[1]").appName("ladder-jit")
       .config(UI_ENABLED.key, false)
+      // The emitter's default level, not the host's: see TestSQLContext.overrideConfs.
+      .config(SQLConf.VARKA_EMIT_USE_AVX.key, "-1")
       .getOrCreate()
     try {
       val entries = (1 to n).map(k =>

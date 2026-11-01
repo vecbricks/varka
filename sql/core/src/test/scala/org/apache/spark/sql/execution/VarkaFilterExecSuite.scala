@@ -19,7 +19,7 @@ package org.apache.spark.sql.execution
 
 import org.apache.spark.TaskContext
 import org.apache.spark.sql.QueryTest
-import org.apache.spark.sql.catalyst.expressions.{Add, Alias, And, Attribute, AttributeReference, DateAdd, EqualTo, GreaterThan, IsNotNull, LessThan, Literal, Rand}
+import org.apache.spark.sql.catalyst.expressions.{Alias, And, Attribute, AttributeReference, DateAdd, EqualTo, GreaterThan, IsNotNull, LessThan, Literal, Pow, Rand}
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaExpressionCompiler
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaFallbackEvent, VarkaJfrTestSupport}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTestWatchdog
@@ -462,8 +462,10 @@ class VarkaFilterExecSuite extends QueryTest with SharedSparkSession with VarkaT
     val child = TestColumnarBatchPlan(Nil, withDouble)
     val eligible = FilterExec(dLess10, child)
     val mixed = FilterExec(And(dLess10, doubleResidual), child)
-    // A double comparison alone fuses on the DOUBLE lane; double arithmetic does not.
-    val ineligible = FilterExec(GreaterThan(Add(doubleAttr, Literal(1.0d)), Literal(5.0d)), child)
+    // A double comparison alone fuses on the DOUBLE lane, and so does double arithmetic since
+    // VARKA-342; `pow` is in no family, so a filter over it is left to Spark.
+    val ineligible = FilterExec(GreaterThan(Pow(doubleAttr, Literal(2.0d)), Literal(5.0d)), child)
+    assert(VarkaExpressionCompiler.compilePredicate(ineligible.condition, withDouble).isEmpty)
     val rowChild = FilterExec(dLess10, ColumnarToRowExec(child))
 
     withSQLConf(SQLConf.VARKA_ENABLED.key -> "true") {

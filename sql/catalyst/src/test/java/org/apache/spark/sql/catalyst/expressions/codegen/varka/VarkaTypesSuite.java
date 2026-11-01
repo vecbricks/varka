@@ -229,6 +229,14 @@ public final class VarkaTypesSuite {
     assertTrue(VarkaTypes.lane(negative).isEmpty());
     assertEquals("a decimal(10,-2) column: a negative scale is declined everywhere (the "
         + "milestone plan's 2.8)", VarkaTypes.declineReason(negative).orElseThrow());
+    // An output shares a column's rules, the precision's reason its store's own.
+    assertEquals("a decimal(19,2) output: precision above 18 does not fit the long a slot's low "
+        + "word holds, and its two-word store is row 359's",
+        VarkaTypes.decimalOutputDeclineReason(DataTypes.createDecimalType(19, 2)).orElseThrow());
+    assertEquals("a decimal(10,-2) output: a negative scale is declined everywhere (the "
+        + "milestone plan's 2.8)", VarkaTypes.decimalOutputDeclineReason(negative).orElseThrow());
+    assertTrue(VarkaTypes.decimalOutputDeclineReason(DataTypes.createDecimalType(18, 4))
+        .isEmpty());
     // The id-level answer, which carries no precision and asks for no reader, is the lane the
     // admitted ones have.
     assertEquals(LaneType.LONG, VarkaTypes.info(VarkaTypeId.DECIMAL).lane().orElse(null));

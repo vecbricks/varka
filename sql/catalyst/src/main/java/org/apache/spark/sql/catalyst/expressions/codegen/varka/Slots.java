@@ -73,6 +73,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IsN
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LastDay;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Least;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LiteralSlot;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.MathUnary;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.MakeDate;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Month;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.NarrowLane;
@@ -88,6 +89,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Tru
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.TruncDateDynamic;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WeekDay;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WeekOfYear;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WidenDecimal;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WidenLane;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Year;
 
@@ -168,6 +170,20 @@ final class Slots {
   final Set<VarkaVectorIR> ownCond = new HashSet<>();
   /** Per condition node, dense body: the single mask local. */
   final Map<VarkaVectorIR, Integer> condMask = new HashMap<>();
+  /**
+   * The nodes this body reaches from its roots, set by {@code VarkaBodyEmitter} before it emits
+   * them ({@link #setReach}): which arm chains of a guard this body can qualify it by
+   * ({@link Analysis#armChainsIn}).
+   */
+  private Set<VarkaVectorIR> reach;
+  /**
+   * {@link Analysis#armChainsIn} in this body of each node asked for ({@link #armChains}), kept
+   * once computed so that the arm conditions emitted first, the guard's arm context and the
+   * mechanism a guard reached read one list rather than filtering the chains again each.
+   * {@link #setReach} empties it, since the lists depend on {@link #reach}.
+   */
+  private final Map<VarkaVectorIR, List<List<Analysis.ArmStep>>> armChainsByNode =
+      new HashMap<>();
   /** Per node this body uses more than once: the local its first vector lands in (DAG-CSE). */
   final Map<VarkaVectorIR, Integer> sharedSlot = new HashMap<>();
   /** Per Greatest/Least (masked): the two operand temporaries the substitution needs. */
@@ -319,6 +335,21 @@ final class Slots {
   int[] decimalShuffle;
 
   /**
+   * In a body that stores a {@link WidenDecimal} root, the decimal store's two interleaves built
+   * once in its prologue: the shuffles {@code Z0} and {@code Z1}, or under
+   * {@code decimalStore=SELECT_FROM} the index vectors {@code I0} and {@code I1}
+   * ({@code VarkaBodyEmitter.emitDecimalStore}). Null in every other body, which keeps its locals
+   * numbered as they were.
+   */
+  int[] decimalZip;
+
+  /**
+   * Per {@link WidenDecimal} root: its words {@code lo} and their sign extensions {@code hi},
+   * parked because each of the two interleaves reads both.
+   */
+  final Map<VarkaVectorIR, int[]> decimalStoreTmp = new HashMap<>();
+
+  /**
    * {@link InRanges}' three locals: the value it tests (a vector), the loop's range index (an
    * int) and the mask it accumulates (a {@code VectorMask}).
    */
@@ -457,6 +488,35 @@ final class Slots {
           + "built: VarkaBodyEmitter.buildsValiditySegment missed a writer");
     }
     return dstValSeg[o];
+  }
+
+  // The nodes a body reaches, and the arm chains its guards are qualified by there.
+
+  /** Sets the nodes this body reaches, which the arm chains of its guards are filtered by. */
+  void setReach(Set<VarkaVectorIR> reached) {
+    reach = reached;
+    armChainsByNode.clear();
+  }
+
+  /**
+   * Whether this body reaches {@code node} from its roots; see {@link #setReach}. A body emitted
+   * without it fails here rather than answering that it reaches nothing, which would skip its
+   * guards' arm conditions silently.
+   */
+  boolean reaches(VarkaVectorIR node) {
+    if (reach == null) {
+      throw VarkaErrors.illegalState("a body asked which nodes it reaches before "
+          + "Slots.setReach was called: VarkaBodyEmitter sets it before it emits a body");
+    }
+    return reach.contains(node);
+  }
+
+  /**
+   * The arm chains {@code node}'s guard is qualified by in this body, {@link
+   * Analysis#armChainsIn} over {@link #reach}, computed the first time a node is asked for.
+   */
+  List<List<Analysis.ArmStep>> armChains(VarkaVectorIR node, Analysis analysis) {
+    return armChainsByNode.computeIfAbsent(node, n -> analysis.armChainsIn(n, reach));
   }
 
   /** Every node under {@code root}, {@code root} included, added to {@code into}. */
@@ -845,6 +905,8 @@ final class Slots {
           // nullsFromValidInputs for it and `emit` then builds none, so its dense slots are planned
           // and never used. Harmless, and worth knowing before counting dense locals against a
           // method budget.
+          // A floating division's zero test reads its divisor off the stack and parks nothing:
+          // checksIntOverflow leaves a floating node out.
           if (node instanceof IntArith && analysis.checksIntOverflow(node)) {
             s.intArithTmp.put(node, new int[] {slot++, slot++, slot++});
           }
@@ -885,6 +947,12 @@ final class Slots {
           }
           if (node instanceof DecimalColumn) {
             s.decimalTmp.put(node, new int[] {slot++, slot++});
+          }
+          if (node instanceof WidenDecimal) {
+            if (s.decimalZip == null) {
+              s.decimalZip = new int[] {slot++, slot++};
+            }
+            s.decimalStoreTmp.put(node, new int[] {slot++, slot++});
           }
           if (node instanceof MakeDate) {
             int[] tmp = new int[MAKE_DATE_TMP_COUNT];
@@ -991,6 +1059,7 @@ final class Slots {
           : s.wordRef.get(n.child());
       case WidenLane n -> s.wordRef.get(n.child());
       case NarrowLane n -> s.wordRef.get(n.child());
+      case WidenDecimal n -> s.wordRef.get(n.child());
       case Year n -> s.wordRef.get(n.days());
       case Month n -> s.wordRef.get(n.days());
       case DayOfMonth n -> s.wordRef.get(n.days());
@@ -1012,6 +1081,7 @@ final class Slots {
       case BoundedDivide n -> s.wordRef.get(n.child());
       case BitOp n -> andRef(s.wordRef.get(n.left()), s.wordRef.get(n.right()));
       case BitCount n -> s.wordRef.get(n.child());
+      case MathUnary n -> s.wordRef.get(n.child());
       // Greatest/Least (OR) and IfElse (blend) always compute their own word.
       default -> Integer.MIN_VALUE;
     };
@@ -1287,8 +1357,9 @@ final class Slots {
     for (int o : outputIdx) {
       VarkaVectorIR root = outputs.get(o);
       // A root that writes bitmaps stores nothing under the mask: the lane count truncates them.
+      // Nor does a decimal store, which masks its two halves by the slots' longs.
       if (!VarkaVectorIR.writesBitmaps(root) && !(root instanceof NarrowLane)
-          && analysis.laneOf(root) == analysis.lane) {
+          && !(root instanceof WidenDecimal) && analysis.laneOf(root) == analysis.lane) {
         return true;
       }
     }
@@ -1482,6 +1553,7 @@ final class Slots {
         // it - a root write, a guard, or a consumer above.
         case WidenLane g -> { }
         case NarrowLane g -> { }
+        case WidenDecimal g -> { }
         // The rest read no word here. A value node's own word, where it needs one, is
         // demanded by its root write, by a guard below, or by a consumer above it; a leaf
         // owns no word at all; and `IfElse`'s blend reads its branches' words through the
@@ -1521,6 +1593,7 @@ final class Slots {
         case BoundedDivide x -> { }
         case BitOp x -> { }
         case BitCount x -> { }
+        case MathUnary x -> { }
         case IfElse x -> { }
         // Its word is the condition's two known words ORed, and the condition demands its
         // operands' words in its own arms; its own word is demanded like any value node's.
@@ -1549,6 +1622,7 @@ final class Slots {
         case GuardedRange x -> demand(analysis.wordOwner.get(x.child()));
         case WidenLane x -> demand(analysis.wordOwner.get(x.child()));
         case NarrowLane x -> demand(analysis.wordOwner.get(x.child()));
+        case WidenDecimal x -> demand(analysis.wordOwner.get(x.child()));
         case SubDays x -> { demand(analysis.wordOwner.get(x.days()));
           demand(analysis.wordOwner.get(x.offset())); }
         case NextDay x -> { demand(analysis.wordOwner.get(x.days()));
@@ -1599,6 +1673,7 @@ final class Slots {
         case BitOp x -> { demand(analysis.wordOwner.get(x.left()));
           demand(analysis.wordOwner.get(x.right())); }
         case BitCount x -> { }
+        case MathUnary x -> { }
         case Compare x -> { }
         case NullSafeEqual x -> { }
         case BoolColumn x -> { }

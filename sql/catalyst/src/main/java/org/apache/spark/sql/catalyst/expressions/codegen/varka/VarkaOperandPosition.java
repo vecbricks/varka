@@ -20,6 +20,7 @@ package org.apache.spark.sql.catalyst.expressions.codegen.varka;
 import java.util.List;
 
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.*;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WidenDecimal;
 
 /**
  * The operand positions whose node kinds the emitter restricts, which kinds each admits, and
@@ -87,9 +88,11 @@ public enum VarkaOperandPosition {
       };
       case AddDays _, SubDays _, DateDiff _, IfElse _, Greatest _, Least _, DayOfWeek _,
            WeekDay _, DayOfWeekIso _, NextDay _, ThursdayOf _, AddMonths _, MakeDate _,
-           ConstDivide _, BoundedDivide _, BitOp _, BitCount _, GuardedDay _, GuardedRange _,
+           ConstDivide _, BoundedDivide _, BitOp _, BitCount _, MathUnary _, GuardedDay _,
+           GuardedRange _,
            WidenLane _,
-           NarrowLane _, Year _, Month _, DayOfMonth _, Quarter _, DayOfYear _, LastDay _,
+           NarrowLane _, WidenDecimal _, Year _, Month _, DayOfMonth _, Quarter _, DayOfYear _,
+           LastDay _,
            TruncDate _, TruncDateDynamic _, WeekOfYear _,
            Compare _, NullSafeEqual _, And _, Or _, Not _, IsNotNull _, InRanges _,
            BoolColumn _, CondConst _, BoolCompare _, CondIf _, BoolNullSafeEq _,
@@ -122,9 +125,11 @@ public enum VarkaOperandPosition {
       case ColumnRef _, DecimalColumn _, LiteralSlot _, DateDiff _, IfElse _, Greatest _, Least _,
            DayOfWeek _,
            WeekDay _, DayOfWeekIso _, ThursdayOf _, MakeDate _, IntArith _, IntNeg _,
-           ConstDivide _, BoundedDivide _, BitOp _, BitCount _, GuardedDay _, GuardedRange _,
+           ConstDivide _, BoundedDivide _, BitOp _, BitCount _, MathUnary _, GuardedDay _,
+           GuardedRange _,
            WidenLane _,
-           NarrowLane _, Year _, Month _, DayOfMonth _, Quarter _, DayOfYear _, LastDay _,
+           NarrowLane _, WidenDecimal _, Year _, Month _, DayOfMonth _, Quarter _, DayOfYear _,
+           LastDay _,
            TruncDate _, WeekOfYear _, Compare _, NullSafeEqual _, And _, Or _, Not _, IsNotNull _,
            InRanges _, BoolColumn _, CondConst _, BoolCompare _, CondIf _, BoolNullSafeEq _,
            CondValue _, BoolOutput _ -> List.of();

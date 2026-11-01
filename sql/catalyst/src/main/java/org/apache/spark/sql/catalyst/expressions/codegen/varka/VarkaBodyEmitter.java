@@ -27,6 +27,7 @@ import java.lang.classfile.Label;
 import java.lang.constant.ClassDesc;
 import java.lang.constant.ConstantDescs;
 import java.lang.constant.MethodTypeDesc;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
@@ -37,6 +38,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.Analysis.BitmapPa
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BoolOutput;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Cond;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.NarrowLane;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WidenDecimal;
 
 /**
  * The methods of the emitted class, and the lane-group step they all run.
@@ -223,6 +225,7 @@ final class VarkaBodyEmitter {
     emitInputState(cb, dense, analysis, s);
     emitSpecies(cb, analysis, s);
     emitLiterals(cb, analysis, s);
+    emitDecimalZip(cb, analysis, s);
     if (s.guardAcc != null) {
       // An empty mask: no lane has been found out of range yet. One per reason under
       // `exactRefusalStatus`.
@@ -276,6 +279,68 @@ final class VarkaBodyEmitter {
       cb.invokestatic(VECTOR_SHUFFLE, "iota", SHUFFLE_IOTA);
       cb.astore(s.decimalShuffle[start]);
     }
+  }
+
+  /**
+   * The decimal store's two interleaves, once a body ({@code Slots#decimalZip}): for part
+   * {@code k} the index vector whose lane {@code i} is {@code L / 2 + (L % 2) * n}, with
+   * {@code L = k * n + i} the long's place among the group's {@code 2n} longs of slots and
+   * {@code n} the long lane count. It picks the word of row {@code L / 2} on an even {@code L}
+   * and, past the first vector, that row's sign extension on an odd one. At an even {@code n} it
+   * is {@code i / 2 + (i % 2) * n + k * n / 2}; at one long lane only the general form holds, as
+   * part 1's single long is row 0's high word, not its low one. Under
+   * {@code REARRANGE} it is converted to a shuffle, whose indices past {@code n} select from the
+   * second vector of the two-vector {@code rearrange}; under {@code SELECT_FROM} it is the
+   * two-vector {@code selectFrom}'s index vector as it is.
+   *
+   * <p>It is built lanewise, from {@code LongVector.zero(species).addIndex(1)}, and not by
+   * {@code VectorShuffle.makeZip}, which fills its indices through a lambda: the census cells
+   * read {@code makeZip} in a prologue as allocating on every call at 512 and 256 bits, and the
+   * lanewise form as allocating nothing but the segments a call maps (`VARKA-157.md` 10). Nothing
+   * is emitted in a body with no decimal output.
+   */
+  private static void emitDecimalZip(CodeBuilder cb, Analysis analysis, Slots s) {
+    if (s.decimalZip == null) {
+      return;
+    }
+    for (int part = 0; part < 2; part++) {
+      cb.aload(s.species);
+      cb.invokestatic(LONG_VECTOR, "zero", LONG_ZERO);
+      cb.iconst_1();
+      cb.invokevirtual(LONG_VECTOR, "addIndex", LONG_ADD_INDEX);   // [iota]
+      if (part == 1) {
+        emitLongLaneCount(cb, analysis, s);
+        cb.invokevirtual(LONG_VECTOR, "add", LONG_SCALAR);         // [L = iota + n]
+      }
+      cb.dup();
+      cb.getstatic(VECTOR_OPERATORS, "LSHR", VO_BINARY);
+      cb.loadConstant(1L);
+      cb.invokevirtual(LONG_VECTOR, "lanewise", LONG_LANEWISE_BINARY);
+      cb.swap();                                                  // [L >>> 1, L]
+      cb.loadConstant(1L);
+      cb.invokevirtual(LONG_VECTOR, "and", LONG_SCALAR);
+      emitLongLaneCount(cb, analysis, s);
+      cb.invokevirtual(LONG_VECTOR, "mul", LONG_SCALAR);           // [L >>> 1, (L & 1) * n]
+      cb.invokevirtual(LONG_VECTOR, "add", LONG_VV);
+      if (analysis.options.decimalStore() == VarkaEmitOptions.DecimalStore.REARRANGE) {
+        cb.invokevirtual(LONG_VECTOR, "toShuffle", TO_SHUFFLE);
+      }
+      cb.astore(s.decimalZip[part]);
+    }
+  }
+
+  /**
+   * The long lane count {@code n} as a long: the baked constant, or the species' length where
+   * none is baked.
+   */
+  private static void emitLongLaneCount(CodeBuilder cb, Analysis analysis, Slots s) {
+    if (analysis.lanes != 0) {
+      cb.loadConstant((long) analysis.lanes);
+      return;
+    }
+    cb.aload(s.species);
+    cb.invokeinterface(VECTOR_SPECIES, "length", SPECIES_LENGTH);
+    cb.i2l();
   }
 
   private static List<Integer> allOutputs(List<VarkaVectorIR> outputs) {
@@ -355,7 +420,11 @@ final class VarkaBodyEmitter {
       List<VarkaVectorIR> outputs, List<Integer> prologueOutputs, Analysis analysis, Slots s) {
     for (int o : prologueOutputs) {
       VarkaVectorIR root = outputs.get(o);
-      if (!VarkaVectorIR.writesBitmaps(root)) {
+      if (root instanceof WidenDecimal) {
+        // A decimal output writes Arrow's sixteen-byte slot a row, whatever the driving lane's
+        // stride; tested first, as a decimal input's segment is.
+        loadDecimalSegment(cb, analysis, P_DST_DATA, o, s.dstSeg[o]);
+      } else if (!VarkaVectorIR.writesBitmaps(root)) {
         // An output whose stored lane is not the emission's - an int-valued root of a kernel
         // driven at the long lane, or a narrow root of one driven at the int lane - writes its
         // own width a row, not the driving lane's.
@@ -1068,6 +1137,70 @@ final class VarkaBodyEmitter {
   }
 
   /**
+   * The store of a {@link WidenDecimal} root: {@code [long vector] -> []}, Arrow's sixteen-byte
+   * slot a row, the word {@code lo} and its sign extension {@code hi = lo >> 63} (VARKA-157 2.2).
+   *
+   * <p>A lane group of {@code n} rows is {@code 2n} longs of slots, so it is two vectors:
+   * {@code out0} holds the first {@code n} longs, {@code (lo0, hi0, lo1, hi1, ...)}, and is stored
+   * at the group's first slot, {@code i * 16}, and {@code out1} holds the rest, stored one vector
+   * further on; at one long lane they are row 0's low word and its high word. Each is taken by
+   * the prologue's interleave of its part ({@link #emitDecimalZip}): {@code lo.rearrange(Zk,
+   * hi)}, or under {@code SELECT_FROM} {@code Ik.selectFrom(lo, hi)}. Both stores are whole in
+   * the loop; in the epilogue they are masked to the {@code 2 * lanes} longs of the remaining
+   * rows, {@code indexInRange(0, 2 * lanes)} and {@code indexInRange(n, 2 * lanes)}, the decimal
+   * load's two masks from the one slot addressing both use
+   * ({@code VarkaVectorWalk.emitDecimalSlotHalf}), so neither writes past the batch. A null row
+   * is stored like a valid one; no reader reads its slot.
+   */
+  private static void emitDecimalStore(CodeBuilder cb, Analysis analysis, Slots s, int o,
+      VarkaVectorIR root) {
+    int[] tmp = s.decimalStoreTmp.get(root);
+    if (tmp == null || s.decimalZip == null) {
+      // Refused by name: without its locals the store would have nothing to interleave. The
+      // lane needs no check here: Analysis refuses a decimal output in an emission not driven
+      // at the long lane before any local is planned.
+      throw VarkaErrors.illegalState("a decimal output with no store planned: "
+          + VarkaVectorIR.canonical(root));
+    }
+    cb.dup();
+    cb.astore(tmp[0]);                                          // lo
+    cb.getstatic(VECTOR_OPERATORS, "ASHR", VO_BINARY);
+    cb.loadConstant((long) (Long.SIZE - 1));
+    cb.invokevirtual(LONG_VECTOR, "lanewise", LONG_LANEWISE_BINARY);
+    cb.astore(tmp[1]);                                          // hi = lo >> 63
+    emitInterleavedStore(cb, analysis, s, o, tmp[0], tmp[1]);
+  }
+
+  /**
+   * The interleaved store of two word vectors parked in {@code lo} and {@code hi}, row {@code r}'s
+   * slot taking lane {@code r} of each: the two halves {@code out0} and {@code out1} of
+   * {@link #emitDecimalStore}, whole in the loop and masked in the epilogue. It takes the high
+   * words from the caller, so a store whose high words are values of their own, a decimal wider
+   * than a long (row 359), shares it.
+   */
+  private static void emitInterleavedStore(CodeBuilder cb, Analysis analysis, Slots s, int o,
+      int lo, int hi) {
+    Lane lane = Lane.LONG;
+    boolean select = analysis.options.decimalStore() == VarkaEmitOptions.DecimalStore.SELECT_FROM;
+    for (int part = 0; part < 2; part++) {
+      if (select) {
+        cb.aload(s.decimalZip[part]);
+        cb.aload(lo);
+        cb.aload(hi);
+        cb.invokevirtual(LONG_VECTOR, "selectFrom", SELECT_FROM_TWO);
+      } else {
+        cb.aload(lo);
+        cb.aload(s.decimalZip[part]);
+        cb.aload(hi);
+        cb.invokevirtual(LONG_VECTOR, "rearrange", REARRANGE_TWO);
+      }
+      VarkaVectorWalk.emitDecimalSlotHalf(cb, s, s.dstSeg[o], part);
+      cb.invokevirtual(lane.vector, "intoMemorySegment",
+          s.epilogue ? lane.intoMemorySegmentMasked : lane.intoMemorySegmentDense);
+    }
+  }
+
+  /**
    * A narrow root of a kernel driven at the int lane: {@code [int vector] -> []}, one or two
    * bytes a row at {@code (long) i * stride}, converted with {@code I2B} or {@code I2S} into the
    * narrow species the widening load reads - part 0 holds the group's lanes whatever its width -
@@ -1224,6 +1357,12 @@ final class VarkaBodyEmitter {
     s.emittedUnshared.clear();
     s.emittedFragments.clear();
     planFragmentsReadingMonth(outputs, outputIdx, dense, s, analysis);
+    var roots = new ArrayList<VarkaVectorIR>();
+    for (int o : outputIdx) {
+      roots.add(outputs.get(o));
+    }
+    s.setReach(Analysis.reachOf(roots));
+    emitArmConditionsFirst(cb, dense, analysis, s, computed);
     for (int o : outputIdx) {
       VarkaVectorIR root = outputs.get(o);
       if (root instanceof Cond cond) {
@@ -1252,7 +1391,9 @@ final class VarkaBodyEmitter {
       }
       emitValue(cb, root, dense, analysis, s, computed);
       Lane stored = Lane.of(root.laneType());
-      if (root instanceof NarrowLane narrowRoot && narrowRoot.target().isNarrow()) {
+      if (root instanceof WidenDecimal) {
+        emitDecimalStore(cb, analysis, s, o, root);
+      } else if (root instanceof NarrowLane narrowRoot && narrowRoot.target().isNarrow()) {
         // A narrow-typed value computed on the int lane - a choice one of whose guards or
         // branches is int-typed (VARKA-329): the value arrived widened and is truncated once,
         // here, into the narrow species of the int species' width.
@@ -1282,6 +1423,74 @@ final class VarkaBodyEmitter {
         emitRootValidityOr(cb, dense, analysis, s, o, root);
       }
     }
+  }
+
+  /**
+   * Emits, ahead of the body's outputs, the conditions of every arm chain a guard in this body is
+   * qualified by where it has several ({@link Analysis#armChainsIn}). A node shared by two
+   * outputs is computed at its first use, inside the first output's subtree, and its guard ANDs
+   * the OR of its chains there, so the second output's condition must already be in its slot.
+   * {@code emitCond} memoises through {@code computed}, so the output that owns the condition
+   * reads it back rather than computing it again. A guard with one chain sits under that chain's
+   * own conditions, which its {@code IfElse} emits first, and no shape without a guard of several
+   * chains emits anything here.
+   *
+   * <p>A condition emitted here can compute, inside it, another guard of several chains whose
+   * own chain conditions are not emitted yet: a guard under two {@code IfElse}s nested in the
+   * condition, which its first use reaches under the first of them. So each such guard's chain
+   * conditions are emitted, the same way, before the condition that holds it
+   * ({@link #emitChainConditions}). That order exists because the analysis leaves no two guards
+   * each inside the other's chain conditions ({@link Analysis#unqualifyArmCycles}).
+   */
+  private static void emitArmConditionsFirst(CodeBuilder cb, boolean dense, Analysis analysis,
+      Slots s, Set<VarkaVectorIR> computed) {
+    Set<VarkaVectorIR> done = new HashSet<>();
+    Set<VarkaVectorIR> inProgress = new HashSet<>();
+    for (VarkaVectorIR node : analysis.topoOrder) {
+      emitChainConditions(cb, node, dense, analysis, s, computed, done, inProgress);
+    }
+  }
+
+  /**
+   * {@link #emitArmConditionsFirst} for one {@code node}: nothing unless it is a guard of this
+   * body with several chains, else the condition of each step of each chain, each after the chain
+   * conditions of the guards inside it that are not computed yet, in topological order. {@code
+   * done} holds the nodes already visited, so each is visited once, and {@code inProgress} the
+   * guards whose conditions are being emitted: one reached again from inside them is a cycle the
+   * analysis should have unqualified, and is refused by name rather than emitted as a read of a
+   * mask local never stored.
+   */
+  private static void emitChainConditions(CodeBuilder cb, VarkaVectorIR node, boolean dense,
+      Analysis analysis, Slots s, Set<VarkaVectorIR> computed, Set<VarkaVectorIR> done,
+      Set<VarkaVectorIR> inProgress) {
+    if (!analysis.refusals.containsKey(node) || !s.reaches(node) || done.contains(node)) {
+      return;
+    }
+    List<List<Analysis.ArmStep>> chains = s.armChains(node, analysis);
+    if (chains.size() < 2) {
+      done.add(node);
+      return;
+    }
+    if (!inProgress.add(node)) {
+      throw VarkaErrors.illegalState("the guard of " + node + " is computed inside its own arm "
+          + "chains' conditions, through another guard's: Analysis.unqualifyArmCycles missed "
+          + "the cycle");
+    }
+    for (List<Analysis.ArmStep> chain : chains) {
+      for (Analysis.ArmStep step : chain) {
+        Cond cond = step.node().cond();
+        if (!computed.contains(cond)) {
+          for (VarkaVectorIR inner : analysis.condReachInOrder(cond)) {
+            if (!computed.contains(inner)) {
+              emitChainConditions(cb, inner, dense, analysis, s, computed, done, inProgress);
+            }
+          }
+        }
+        emitCond(cb, cond, dense, analysis, s, computed);
+      }
+    }
+    inProgress.remove(node);
+    done.add(node);
   }
 
   /**
@@ -1692,7 +1901,7 @@ final class VarkaBodyEmitter {
    */
   private static void loadInputSegment(CodeBuilder cb, Analysis analysis, Slots s, int i) {
     if ((analysis.decimalInputs >>> i & 1L) != 0) {
-      loadDecimalSegment(cb, analysis, i, s.srcSeg[i]);
+      loadDecimalSegment(cb, analysis, P_SRC_DATA, i, s.srcSeg[i]);
     } else if ((analysis.boolInputs >>> i & 1L) != 0) {
       // A boolean column's data is a bitmap, the size of its validity bitmap, whatever the lane.
       loadSegment(cb, P_SRC_DATA, i, s.validityBytes, s.srcSeg[i]);
@@ -1704,13 +1913,14 @@ final class VarkaBodyEmitter {
   }
 
   /**
-   * A decimal column's data segment, {@code length * 16} bytes: one Arrow slot a row. The fault
+   * A decimal column's or a decimal output's data segment, {@code length * 16} bytes: one Arrow
+   * slot a row, from {@code arrayParam}, the inputs' or the outputs' addresses. The fault
    * injector of a wrong mapping (VARKA-315) moves it as {@link #emitSizes} moves
    * {@code dataBytes}, so a wrong decimal mapping is caught as any other one is.
    */
   private static void loadDecimalSegment(
-      CodeBuilder cb, Analysis analysis, int index, int destSlot) {
-    cb.aload(P_SRC_DATA);
+      CodeBuilder cb, Analysis analysis, int arrayParam, int index, int destSlot) {
+    cb.aload(arrayParam);
     cb.loadConstant(index);
     cb.laload();
     cb.iload(analysis.lane.pLength);

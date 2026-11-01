@@ -454,6 +454,8 @@ public final class VarkaEmitDump {
       case "ym", "interval year to month" -> DataTypes.createYearMonthIntervalType();
       // The long lane's three types (VARKA-29): one 64-bit column each.
       case "bigint", "long" -> DataTypes.LongType;
+      case "double" -> DataTypes.DoubleType;
+      case "float", "real" -> DataTypes.FloatType;
       case "time" -> new TimeType(TimeType.MICROS_PRECISION());
       case "dt", "interval day to second" -> DataTypes.createDayTimeIntervalType();
       default -> {
