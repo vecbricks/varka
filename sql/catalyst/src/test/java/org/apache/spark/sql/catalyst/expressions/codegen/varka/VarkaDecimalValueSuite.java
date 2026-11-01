@@ -18,12 +18,14 @@
 package org.apache.spark.sql.catalyst.expressions.codegen.varka;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.math.BigDecimal;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -116,6 +118,36 @@ public final class VarkaDecimalValueSuite {
     assertEquals(1, specs.size());
     String reason = specs.get(0).decline().map(d -> d.reason()).orElse("fused");
     assertTrue(reason.contains("359") && reason.contains("360"), () -> "declined: " + reason);
+  }
+
+  @Test
+  @DisplayName("a null test, a CASE and a coalesce nested twenty deep through their conditions "
+      + "compile in time linear in the depth, each condition compiled once")
+  void nestedConditionsCompileOnce() {
+    List<Attribute> columns = List.of(VarkaSqlResolve.column("a", new DecimalType(9, 2)),
+        VarkaSqlResolve.column("b", new DecimalType(9, 2)),
+        VarkaSqlResolve.column("c", new DecimalType(9, 2)));
+    int depth = 20;
+    // Each level's condition reads the level below, so a compile that compiles a condition twice
+    // per level, once for the value and once for its validity, takes 2^20 steps.
+    String nullTest = "a";
+    String caseWhen = "a";
+    String coalesce = "a";
+    for (int i = 0; i < depth; i++) {
+      nullTest = "IF((" + nullTest + ") IS NOT NULL, b, c)";
+      caseWhen = "CASE WHEN (" + caseWhen + ") IS NULL THEN a WHEN b > c THEN b ELSE c END";
+      coalesce = "coalesce(IF((" + coalesce + ") > b, a, c), b)";
+    }
+    for (String sql : List.of("(" + nullTest + ") IS NULL", "(" + caseWhen + ") IS NOT NULL",
+        "(" + coalesce + ") > c")) {
+      Expression e = VarkaSqlResolve.parse(sql, seq(columns));
+      assertTimeoutPreemptively(Duration.ofSeconds(20), () -> {
+        List<VarkaConjunctSpec> specs =
+            VarkaExpressionCompiler.explainPredicate(e, seq(columns), VarkaMatrixRuns.BASE);
+        assertEquals(1, specs.size());
+        assertTrue(specs.get(0).decline().isEmpty(), () -> "declined: " + specs.get(0));
+      }, () -> "compiling " + depth + " levels of " + sql.substring(0, 40) + " took over 20 s");
+    }
   }
 
   private static scala.collection.immutable.Seq<Attribute> seq(List<Attribute> columns) {

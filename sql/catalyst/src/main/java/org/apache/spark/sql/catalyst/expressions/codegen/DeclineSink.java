@@ -18,9 +18,11 @@ package org.apache.spark.sql.catalyst.expressions.codegen;
 
 import java.util.ArrayList;
 import java.util.EnumSet;
+import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.Set;
@@ -89,6 +91,10 @@ final class DeclineSink {
   private final List<VarkaFamily> used = new ArrayList<>();
   private final List<Bound> bounds = new ArrayList<>();
   private final LinkedHashMap<Long, Integer> longLiterals = new LinkedHashMap<>();
+  /** The decimal compiler's choice conditions compiled in its current call; see below. */
+  private final Map<Expression, VarkaVectorIR.Cond> decimalConditions = new IdentityHashMap<>();
+  private int decimalDepth;
+  private boolean decimalProbe;
   private VarkaDecline first;
 
   DeclineSink(Seq<Attribute> childOutput, boolean rangeSets) {
@@ -219,6 +225,47 @@ final class DeclineSink {
     while (longLiterals.size() > mark) {
       longLiterals.pollLastEntry();
     }
+  }
+
+  /**
+   * Enters a call of the decimal compiler from outside it ({@code VarkaDecimalCompiler}'s
+   * comparison operands or null test); each is left by {@link #exitDecimal}. While one is open
+   * the compiler keeps each choice condition it compiles ({@link #decimalCondition}), so that a
+   * condition read for a value and again for its validity is compiled once; the conditions are
+   * dropped when the outermost call is left, before any table is rolled back to an entry's marks.
+   */
+  void enterDecimal() {
+    decimalDepth++;
+  }
+
+  /** Leaves the call {@link #enterDecimal} entered. */
+  void exitDecimal() {
+    if (--decimalDepth == 0) {
+      decimalConditions.clear();
+      decimalProbe = false;
+    }
+  }
+
+  /** The condition the open decimal call compiled for {@code predicate}, or null. */
+  VarkaVectorIR.Cond decimalCondition(Expression predicate) {
+    return decimalConditions.get(predicate);
+  }
+
+  /** Keeps {@code cond}, compiled from {@code predicate}, for the open decimal call. */
+  void decimalCondition(Expression predicate, VarkaVectorIR.Cond cond) {
+    decimalConditions.put(predicate, cond);
+  }
+
+  /** Whether the decimal compiler is compiling a value only for its declines. */
+  boolean decimalProbe() {
+    return decimalProbe;
+  }
+
+  /** Sets {@link #decimalProbe}, returning the value it had. */
+  boolean decimalProbe(boolean probe) {
+    boolean was = decimalProbe;
+    decimalProbe = probe;
+    return was;
   }
 
   /** The long literal table in slot order, for the compiled plan. */

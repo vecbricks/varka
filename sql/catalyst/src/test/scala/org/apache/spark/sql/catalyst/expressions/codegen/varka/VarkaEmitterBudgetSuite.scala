@@ -321,6 +321,8 @@ class VarkaEmitterBudgetSuite extends VarkaEmitterTestBase with VarkaOwnJvm {
       (new IntArith(IntOp.ADD, Overflow.FAIL, lc, lc1), 2, 0, VarkaMatrix.base),
       (new IntNeg(Overflow.WRAP, c), 1, 0, VarkaMatrix.base),
       (new IntNeg(Overflow.FAIL, lc), 1, 0, VarkaMatrix.base),
+      // A decimal's abs, the long lane's only: the blend the defaults emit.
+      (new IntNeg(Overflow.WRAP, lc, true), 1, 0, VarkaMatrix.base),
       (new ConstDivide(c, 7), 1, 0, VarkaMatrix.base),
       (new ConstDivide(lc, 60, ConstDivide.EXACT_DIVIDEND_BOUND), 1, 0, avx2),
       (BoundedDivide.of(c, 3600, 86400), 1, 0, VarkaMatrix.base),

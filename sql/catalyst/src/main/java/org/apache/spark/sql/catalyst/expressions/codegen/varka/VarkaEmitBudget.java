@@ -615,8 +615,10 @@ final class VarkaEmitBudget {
       // the larger form, as below, since the arm and the readers are not known here.
       case IntArith n -> n.mode() != Overflow.WRAP ? 5 : n.laneType().isNarrow() ? 3 : 1;
       // The negation or abs, plus one compare where the mode checks, plus the shift pair a
-      // wrapping narrow one may reduce with.
-      case IntNeg n -> n.mode() != Overflow.WRAP ? 2 : n.laneType().isNarrow() ? 3 : 1;
+      // wrapping narrow one may reduce with. A long-lane abs, a decimal's, is the negation, a
+      // compare with zero and a blend: the larger of its two forms, as above, the lanewise ABS of
+      // `decimalAbsLanewise` being one call.
+      case IntNeg n -> n.mode() != Overflow.WRAP ? 2 : n.laneType().isNarrow() || n.abs() ? 3 : 1;
       // At a floating lane a compare is Spark's order built from IEEE compares and NaN tests,
       // and a pick is that compare and its blend: about five lane calls each.
       case Compare n when n.left().laneType().isFloating() -> FLOATING_ORDER_WEIGHT;
