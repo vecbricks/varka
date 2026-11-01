@@ -309,6 +309,16 @@ class VarkaDecimalReadPathSuite extends QueryTest with VarkaSharedSessions
     }
   }
 
+  /**
+   * A plan whose scan selects an array, which sends vanilla's row path through its
+   * `UnsafeProjection` over the batch rather than the row reader, and `batches` of the plan.
+   */
+  private def selectsArray(batches: SparkPlan => Unit): SparkPlan => Unit = { plan =>
+    assert(collect(plan) { case scan: InMemoryTableScanExec => scan.output }.flatten
+      .exists(_.name == "arr"), s"expected the scan to select arr:\n${plan.treeString}")
+    batches(plan)
+  }
+
   /** A plan that reads the cache as rows: no Varka node and no columnar-to-row transition. */
   private def rowRead(plan: SparkPlan): Unit = {
     assertNotFused(plan)
@@ -327,6 +337,14 @@ class VarkaDecimalReadPathSuite extends QueryTest with VarkaSharedSessions
     p => assert(varkaBatches(p) > 0, s"the kernel served no batch:\n${p.treeString}")
   private val declined: SparkPlan => Unit =
     p => assert(varkaBatches(p) == 0, s"the kernel served a batch:\n${p.treeString}")
+  /** No batch served, and the Varka filter's decimal-slot guard declined at least one. */
+  private val declinedBySlots: SparkPlan => Unit = { p =>
+    declined(p)
+    val bySlots = collect(p) {
+      case f: VarkaFilterExec => f.metrics.get("numDeclinedBatches[decimal-slot]").map(_.value)
+    }.flatten.sum
+    assert(bySlots > 0, s"the filter's decimal-slot guard declined no batch:\n${p.treeString}")
+  }
   /** A plan with a Varka node, for a query that raises before its metrics can say more. */
   private val fusedPlan: SparkPlan => Unit = p => assertFused(p)
 
@@ -349,6 +367,9 @@ class VarkaDecimalReadPathSuite extends QueryTest with VarkaSharedSessions
   }
 
   private val alone = QueryShape((cast, t) => s"SELECT $cast AS r FROM ${t.name}", false)
+  /** The same beside the array, which the scan then selects. */
+  private val besideArray =
+    QueryShape((cast, t) => s"SELECT $cast AS r, size(arr) AS n FROM ${t.name}", false)
   private val besideFused =
     QueryShape((cast, t) => s"SELECT $cast AS r, date_add(d, i) AS f FROM ${t.name}", false)
   private val besideFusedTwice = QueryShape((cast, t) =>
@@ -377,8 +398,9 @@ class VarkaDecimalReadPathSuite extends QueryTest with VarkaSharedSessions
     ("Varka off, the vectorized reader off",
       Path(() => spark, fused, Seq(SQLConf.CACHE_VECTORIZED_READER_ENABLED.key -> "false"),
         alone, declineAll = false, rowRead), ExactRule),
-    ("Varka off, the row reader's columnar fallback for a table with an array",
-      Path(() => spark, array, Nil, alone, declineAll = false, rowRead), ExactRule),
+    ("Varka off, the row reader's columnar fallback for a scan that selects an array",
+      Path(() => spark, array, Nil, besideArray, declineAll = false, selectsArray(rowRead)),
+      ExactRule),
     ("Varka off, without whole-stage code",
       Path(() => spark, fused, Seq(SQLConf.WHOLESTAGE_CODEGEN_ENABLED.key -> "false"),
         alone, declineAll = false, rowRead), ExactRule),
@@ -443,7 +465,7 @@ class VarkaDecimalReadPathSuite extends QueryTest with VarkaSharedSessions
     ("malformed slots: Varka on, a filter on the decimal, its kernel declining the slots and " +
       "its columnar fallback answering",
       Path(() => varkaSpark, bad, Nil, overFilterOnB, declineAll = false,
-        overFilter(declined)), LowWords),
+        overFilter(declinedBySlots)), LowWords),
     ("malformed slots: Varka on, columnar out, a residual cast beside a fused output, the " +
       "kernel serving",
       Path(() => varkaSpark, bad, Nil, besideFused, declineAll = false, served, AsBatches),
@@ -456,14 +478,14 @@ class VarkaDecimalReadPathSuite extends QueryTest with VarkaSharedSessions
       LowWords),
 
     ("malformed slots beside an array: Varka off, the projection over the batch",
-      Path(() => spark, badArray, Nil, besideFusedAndArray, declineAll = false, rowRead),
-      Raises),
+      Path(() => spark, badArray, Nil, besideFusedAndArray, declineAll = false,
+        selectsArray(rowRead)), Raises),
     ("malformed slots beside an array: Varka on, a residual cast beside a fused output",
-      Path(() => varkaSpark, badArray, Nil, besideFusedAndArray, declineAll = false, fusedPlan),
-      Raises),
+      Path(() => varkaSpark, badArray, Nil, besideFusedAndArray, declineAll = false,
+        selectsArray(fusedPlan)), Raises),
     ("malformed slots beside an array: Varka on, the fallback",
-      Path(() => varkaSpark, badArray, Nil, besideFusedAndArray, declineAll = true, fusedPlan),
-      Raises))
+      Path(() => varkaSpark, badArray, Nil, besideFusedAndArray, declineAll = true,
+        selectsArray(fusedPlan)), Raises))
 
   paths.foreach { case (name, path, expected) =>
     test(s"$name: the decimal-to-INT casts follow $expected") {

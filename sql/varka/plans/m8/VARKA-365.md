@@ -379,6 +379,11 @@ reading missed decide it otherwise:
 | Varka on, the fallback over the batch's own rows (all declined) | double | the same |
 | Varka on, fallback over a copied row (column read twice) | exact | 0, 2147483647, 0, 2147483647 |
 
+*Note, 1 November 2026 (12.3):* the third row did not take the fallback it names. Its query
+selected only `a`, and vanilla picks its reader by the columns the scan selects, so the row reader
+read it. The cell now selects the array beside the cast and checks that the scan does; it still
+answers by the exact rule, since the projection over the batch writes the unscaled long back.
+
 LEGACY truncates on every path (0 and 2147483647). A first draft forced the decline with section
 2's `date_add` past the guard; the kernel served that batch on current master, so the suite uses
 `VarkaColumnarToRowExec.setDeclineKernelForTesting` instead, and each cell checks its plan: no Varka
@@ -605,9 +610,15 @@ runs the two LEGACY casts and the four ANSI and TRY casts and names the reading 
   high word is 1. Vanilla's row reader answers 1 and 2147483647 on all six casts. Four Varka-off
   cells and ten Varka-on cells - row out and columnar out, served and declined, both filters'
   fallbacks and copies, and the filter on `b > 0`, whose kernel declines the batch by its guard
-  (the cell checks that it served none) - all answer the same. `rp_bad_array` is the same beside
-  an array the query selects: vanilla's projection raises `NUMERIC_VALUE_OUT_OF_RANGE` on all six,
-  and Varka on, served and declined, raises the same.
+  (the cell checks that it served none and that the filter counted a `decimal-slot` decline) -
+  all answer the same. `rp_bad_array` is the same beside an array the query selects: vanilla's
+  projection raises `NUMERIC_VALUE_OUT_OF_RANGE` on all six, and Varka on raises the same, with
+  the kernel left to serve and with every batch declined. Those two cells raise before the metrics
+  can say which path answered, so they check only that the plan holds a Varka node and that its
+  scan selects the array; what tells them apart is the decline hook.
+* **The array cell of 10.2.** Its query selected only `a`, so the row reader, not the projection
+  over the batch, read it (a check on the scan's columns failed on the old shape). It now selects
+  the array beside the cast and checks that the scan does; it answers by the exact rule.
 
 Each new cell was checked to fail without its fix, by changing the code locally, running the
 suite and restoring it:
