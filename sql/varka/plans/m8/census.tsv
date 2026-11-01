@@ -619,10 +619,10 @@ extract_dt_days	ExtractANSIIntervalDays	implicit: interval	in		dt	int			plumbing
 extract_dt_hours	ExtractANSIIntervalHours	implicit: interval	in		dt	byte		byte	plumbing	103	division by a constant
 extract_dt_minutes	ExtractANSIIntervalMinutes	implicit: interval	in		dt	byte		byte	plumbing	103	division by a constant
 extract_dt_seconds	ExtractANSIIntervalSeconds	implicit: interval	in		dt	dec		dec	plumbing	103,157	a DECIMAL(8,6) result
-check_overflow	CheckOverflow	implicit: decimal internals	in		dec	dec		dec	semantics	349,359,363	null or error when a value leaves its precision
-make_decimal	MakeDecimal	implicit: decimal internals	in		bigint	dec		dec	plumbing	349	a relabel of an unscaled long
-unscaled_value	UnscaledValue	implicit: decimal internals	in		dec	bigint		dec	plumbing	349	a relabel to the unscaled long
 known_not_null	KnownNotNull	implicit: internals	in		bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt		bool,byte,short,float,double,dec,ntz	plumbing	333	a relabel the optimizer adds
 known_fp_normalized	KnownFloatingPointNormalized	implicit: internals	in		float,double	float,double		float,double	plumbing	337	a relabel around NaN and -0.0 normalization; uncounted, by the owner's answer of 30 October 2026 (VARKA-337.md 8 point 5, option (a)): Spark inserts it only for join, window and aggregate keys, never in a Project or Filter, so no coverage row can hold it
 normalize_nan_and_zero	NormalizeNaNAndZero	implicit: internals	in		float,double	float,double		float,double	plumbing	337	the optimizer's canonical NaN and +0.0 before a key or a hash: one node, shared with the hash input (m8/PLAN.md 2.7); uncounted, by the owner's answer of 30 October 2026 (VARKA-337.md 8 point 5, option (a)): Spark inserts it only for join, window and aggregate keys, never in a Project or Filter, so no coverage row can hold it
 try_eval	TryEval	implicit: internals	in		bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt		bool,byte,short,float,double,dec,ntz	semantics	330,342,349	the try_ functions' wrapper: every error raised anywhere in its subtree becomes null
+check_overflow	CheckOverflow	implicit: decimal internals	out	evaluated by an operator Varka does not fuse (HashAggregateExec, WindowExec, SerializeFromObjectExec)							
+make_decimal	MakeDecimal	implicit: decimal internals	out	evaluated by an operator Varka does not fuse (HashAggregateExec, WindowExec, SerializeFromObjectExec)							
+unscaled_value	UnscaledValue	implicit: decimal internals	out	evaluated by an operator Varka does not fuse (HashAggregateExec, WindowExec, SerializeFromObjectExec)							
