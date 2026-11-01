@@ -40,6 +40,7 @@ import org.junit.jupiter.api.Test;
 
 import org.apache.spark.sql.catalyst.expressions.Add;
 import org.apache.spark.sql.catalyst.expressions.Attribute;
+import org.apache.spark.sql.catalyst.expressions.BoundReference;
 import org.apache.spark.sql.catalyst.expressions.EqualTo;
 import org.apache.spark.sql.catalyst.expressions.EvalMode$;
 import org.apache.spark.sql.catalyst.expressions.Expression;
@@ -54,6 +55,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Lan
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LiteralSlot;
 import org.apache.spark.sql.internal.SQLConf;
 import org.apache.spark.sql.internal.SQLConf$;
+import org.apache.spark.sql.types.DataType;
 import org.apache.spark.sql.types.DecimalType;
 import org.apache.spark.sql.util.ArrowUtils;
 
@@ -185,6 +187,31 @@ public final class VarkaDecimalArithmeticSuite {
       String want = op == Op.MUL ? "rows 362 and 363" : "rows 359 and 360";
       assertTrue(reason.contains(want), () -> op.sql + " over " + wide + ": " + reason);
     }
+  }
+
+  @Test
+  @DisplayName("a hand-built product typed DECIMAL(10, 0) whose rule gives 41 digits declines as "
+      + "mistyped, its message rendering a type no DecimalType can hold")
+  void mistypedPastThirtyEightDeclines() {
+    var wide = new DecimalType(20, 0);
+    List<Attribute> columns = List.of(VarkaSqlResolve.column("a", wide),
+        VarkaSqlResolve.column("b", wide));
+    // Spark types every product it builds by its rule, capped at 38, so only a node that states
+    // another type reaches the mistyped check with a rule past 38 digits.
+    Expression m = new Multiply(new BoundReference(0, wide, true),
+        new BoundReference(1, wide, true),
+        NumericEvalContext$.MODULE$.apply(EvalMode$.MODULE$.LEGACY(), false)) {
+      @Override
+      public DataType dataType() {
+        return new DecimalType(10, 0);
+      }
+    };
+    List<VarkaConjunctSpec> specs = VarkaExpressionCompiler.explainPredicate(new EqualTo(m, m),
+        seq(columns), VarkaMatrixRuns.BASE);
+    assertEquals(1, specs.size());
+    String reason = specs.get(0).decline().map(d -> d.reason()).orElse("fused");
+    assertTrue(reason.contains("typed decimal(10,0) where Spark's rule gives decimal(41,0)"),
+        () -> "declined: " + reason);
   }
 
   @Test
