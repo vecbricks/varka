@@ -40,6 +40,7 @@ import org.apache.spark.sql.catalyst.expressions.EqualTo;
 import org.apache.spark.sql.catalyst.expressions.EvalMode;
 import org.apache.spark.sql.catalyst.expressions.Expression;
 import org.apache.spark.sql.catalyst.expressions.Greatest;
+import org.apache.spark.sql.catalyst.expressions.LessThan;
 import org.apache.spark.sql.catalyst.expressions.NamedExpression;
 import org.apache.spark.sql.catalyst.expressions.codegen.CompiledVarkaProjection;
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaDecline;
@@ -521,6 +522,55 @@ public final class VarkaEmitterIntegralCastSuite {
           } else {
             assertTrue(compared instanceof String reason && widthDecline(reason),
                 at + ": " + compared);
+          }
+        }
+      }
+    }
+  }
+
+  @Test
+  @DisplayName("an INT narrowed to a narrow type inside a BIGINT kernel answers as Spark does at "
+      + "every baked long width")
+  public void intNarrowedInsideALongKernel() {
+    // The narrowing away from a store at the long width (`VARKA-332.md` 2.5): the int value is
+    // loaded into the low half of the int species, wrapped there by the shift pair, and read by a
+    // widening back to the long lane or, through one, by a comparison with a bigint column.
+    long[] ints = {0, 1, -1, 127, 128, -128, -129, 255, 32767, 32768, -32768, -32769, 65535,
+        Integer.MAX_VALUE, Integer.MIN_VALUE};
+    long[] longs = {0, 1, -1, 127, -128, 128, 32767, -32768, Long.MAX_VALUE, Long.MIN_VALUE};
+    for (int lanes : new int[] {2, 4, 8}) {
+      VarkaEmitOptions options = VarkaMatrixRuns.BASE.toBuilder().lanesOverride(lanes).build();
+      if (Lane.emitLanes(options, Lane.LONG) != lanes) {
+        continue;
+      }
+      String at = " at " + lanes + " long lanes";
+      for (Type narrow : List.of(TINYINT, SMALLINT)) {
+        for (Mode mode : List.of(LEGACY, ANSI)) {
+          Expression back = cast(cast(INT.column(), narrow, mode), BIGINT, LEGACY);
+          Object up = compile(back, List.of(INT.column()), options);
+          assertTrue(up instanceof Kernel, back.sql() + " " + mode.name() + at + ": " + up);
+          Expression less = new LessThan(back, BIGINT.column());
+          Object compared = compile(less, List.of(INT.column(), BIGINT.column()), options);
+          assertTrue(compared instanceof Kernel,
+              less.sql() + " " + mode.name() + at + ": " + compared);
+          // Under ANSI a batch holding an int outside the target declines, so the values inside
+          // it run too and are answered.
+          List<long[]> sources = mode == LEGACY ? List.of(ints)
+              : List.of(ints, within(ints, narrow.range()));
+          for (long[] src : sources) {
+            String where = mode.name() + " over " + src.length + " ints" + at;
+            runAll((Kernel) up, batches(src), back.sql() + " " + where);
+            int rows = src.length * longs.length;
+            var data = new long[2][rows];
+            var isNull = new boolean[2][rows];
+            for (int r = 0; r < rows; r++) {
+              data[0][r] = src[r % src.length];
+              data[1][r] = longs[r / src.length];
+              isNull[0][r] = r % 17 == 5;
+              isNull[1][r] = r % 19 == 7;
+            }
+            runAll((Kernel) compared, List.of(new LongBatch(rows, isNull, data, false),
+                new LongBatch(rows, isNull, data, true)), less.sql() + " " + where);
           }
         }
       }

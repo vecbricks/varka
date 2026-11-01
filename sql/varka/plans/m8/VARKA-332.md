@@ -471,10 +471,12 @@ What was built, per item of section 5 step 2:
 - **The narrow load and store at the long width** (2.5): a long kernel emits a narrow value at
   the int lane, in the int species of the long width, low half, as it emits an int one.
   `VarkaKernelPlan.longNarrowRefusal` admits the narrow nodes that need nothing narrow-specific
-  there - a narrow column, a long value narrowed to a narrow type, and a comparison of them,
-  read by a widening, a null test or a comparison, and a narrow-typed root narrowing an int
-  value - and declines every other narrow node: a narrow literal (open point 3), narrow
-  arithmetic, a narrow choice beside a bigint. The load reads twice the long lanes of the narrow type into the int
+  there - a narrow column, an int or long value narrowed to a narrow type, and a comparison of
+  them, read by a widening, a null test, a comparison or a narrowing, and a narrow-typed root
+  narrowing a narrow value - and declines every other narrow node: a narrow literal (open point
+  3), narrow arithmetic, a narrow choice beside a bigint. The int narrowing away from a store
+  (`CAST(i AS TINYINT) < l`, `CAST(CAST(i AS SMALLINT) AS BIGINT)`) is the shift pair's wrap at
+  the int lane, the lowering the walk already had; review finding 4 of 1 November admitted it. The load reads twice the long lanes of the narrow type into the int
   species, then `I2L`; the kernel is a mixed one, so its loop bound already covers the whole int
   vector the load reads. A narrowing at a root converts with `L2I` and stores through the narrow
   species under the group's mask; away from a root it is `L2I` and the shift pair's wrap. The part

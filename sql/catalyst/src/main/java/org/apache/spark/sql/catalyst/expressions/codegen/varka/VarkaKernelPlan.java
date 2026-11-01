@@ -337,11 +337,12 @@ public final class VarkaKernelPlan {
    * (`VARKA-332.md` 2.5). A long kernel emits a narrow value at the int lane, in the int species
    * of the long species' width, low half, as it emits an int one, so it lowers the narrow nodes
    * that need nothing narrow-specific there: a {@code TINYINT} or {@code SMALLINT} column - the
-   * narrow load at the long width, read into the int species; a long value narrowed to a narrow
-   * type, {@code L2I} and the shift pair's wrap, or at a root nothing else reads {@code L2I} and
-   * the narrow store; and a comparison of such values, with the connectives and the boolean
-   * output over it. A value may be read by a widening, a null test or a comparison, and a
-   * narrow-typed root may be a narrowing of an int value, which the narrow store takes as it is.
+   * narrow load at the long width, read into the int species; an int or long value narrowed to a
+   * narrow type, the shift pair's wrap at the int lane after {@code L2I} for a long one, or at a
+   * root nothing else reads the narrow store; and a comparison of such values, with the
+   * connectives and the boolean output over it. A value may be read by a widening, a null test,
+   * a comparison or a narrowing, and a narrow-typed root may be a narrowing of a narrow value,
+   * which the narrow store takes as it is.
    * Any other narrow node under a long kernel - a narrow literal, narrow arithmetic, a narrow
    * choice - has no lowering there and declines. The load reads as
    * many narrow lanes as the int species has, twice the long lanes, where the Vector API has that
@@ -407,13 +408,14 @@ public final class VarkaKernelPlan {
     /** A {@code TINYINT} or {@code SMALLINT} column: the narrow load at the long width. */
     COLUMN,
     /**
-     * A narrowing of a long value to a narrow type: {@code L2I}, then the shift pair's wrap, or at
-     * a root the narrow store. Lowered wherever a value is read.
+     * A narrowing of an int or long value to a narrow type: the shift pair's wrap at the int lane,
+     * after {@code L2I} where the child is long, or at a root the narrow store. Lowered wherever a
+     * value is read.
      */
     NARROWING,
     /**
-     * A narrowing of an int or narrow value ({@code CAST(s AS TINYINT)}): the narrow store takes
-     * it at a root, and nothing reads it elsewhere.
+     * A narrowing of a narrow value ({@code CAST(s AS TINYINT)}): the narrow store takes it at a
+     * root, and nothing reads it elsewhere.
      */
     NARROWING_AT_ROOT,
     /** A comparison of narrow values, or a connective over such comparisons. */
@@ -443,8 +445,8 @@ public final class VarkaKernelPlan {
       case VarkaVectorIR.ColumnRef c -> LongNarrowRole.COLUMN;
       case NarrowLane n -> !n.target().isNarrow() ? LongNarrowRole.NONE
           : switch (n.child().laneType()) {
-            case LONG -> LongNarrowRole.NARROWING;
-            case BYTE, SHORT, INT -> LongNarrowRole.NARROWING_AT_ROOT;
+            case INT, LONG -> LongNarrowRole.NARROWING;
+            case BYTE, SHORT -> LongNarrowRole.NARROWING_AT_ROOT;
             case FLOAT, DOUBLE -> LongNarrowRole.NONE;
           };
       case VarkaVectorIR.Compare c -> LongNarrowRole.COND;
