@@ -130,7 +130,7 @@ jobs:
       # and whether the loop allocates. The regeneration writes this host's cells over the
       # committed laptop file in the checkout, and a cell that reads F here is the finding, so the
       # step continues and the summary reads the file either way. It forks one short JVM per cell
-      # and per width the host runs: 126 cells, so 126 forks at one width and up to 378 at three.
+      # and per width the host runs: 129 cells, so 129 forks at one width and up to 387 at three.
       # The suite runs up to four forks at a time (a quarter of the cores); the timeout is generous.
       continue-on-error: true
       timeout-minutes: 30

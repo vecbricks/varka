@@ -254,6 +254,25 @@ public final class VarkaOperatorCensusProbe {
     }
   }
 
+  static void op_un_long() {
+    for (int i = 0; i < ROWS; i += LS.length()) {
+      LongVector.fromArray(LS, LA, i).lanewise(UnOp.OP).intoArray(LO, i);
+    }
+  }
+
+  /**
+   * The constant of {@code op_mulc_long}, broadcast once outside the loop as the emitter's
+   * literal slots are, from an array element so that C2 cannot fold it as a literal.
+   */
+  private static final long[] SCALE = {10_000L};
+
+  static void op_mulc_long() {
+    var scale = LongVector.broadcast(LS, SCALE[0]);
+    for (int i = 0; i < ROWS; i += LS.length()) {
+      LongVector.fromArray(LS, LA, i).lanewise(BinOp.OP, scale).intoArray(LO, i);
+    }
+  }
+
   static void op_bin_float() {
     for (int i = 0; i < ROWS; i += FS.length()) {
       FloatVector.fromArray(FS, FA, i).lanewise(BinOp.OP, FloatVector.fromArray(FS, FB, i))
@@ -1064,6 +1083,8 @@ public final class VarkaOperatorCensusProbe {
         case "load.s2i" -> op_load_s2i();
         case "two.fullshort" -> op_two_fullshort();
         case "bin.long" -> op_bin_long();
+        case "un.long" -> op_un_long();
+        case "mulc.long" -> op_mulc_long();
         case "bin.float" -> op_bin_float();
         case "bin.double" -> op_bin_double();
         case "shift.byte" -> op_shift_byte();
