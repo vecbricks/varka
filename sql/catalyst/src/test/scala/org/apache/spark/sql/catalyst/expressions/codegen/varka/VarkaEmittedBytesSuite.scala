@@ -710,7 +710,8 @@ class VarkaEmittedBytesSuite extends SparkFunSuite with VarkaTestWatchdog {
       .filter(_.get("family").asText() == "DECIMAL arithmetic")
       .map(e => e.get("executable").asText()).toSeq
     assert(rows.nonEmpty, "no DECIMAL arithmetic rows in coverage.json")
-    def asTry(c: NumericEvalContext) = NumericEvalContext(EvalMode.TRY, c.allowDecimalPrecisionLoss)
+    def asTry(c: NumericEvalContext): NumericEvalContext =
+      NumericEvalContext(EvalMode.TRY, c.allowDecimalPrecisionLoss)
     def tryMode(e: Expression): Expression = e.transformUp {
       case a: Add if a.dataType.isInstanceOf[DecimalType] =>
         a.copy(evalContext = asTry(a.evalContext))
