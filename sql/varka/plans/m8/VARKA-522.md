@@ -184,6 +184,9 @@ Size: small, as the row says. It is three files and one waiting step.
    (a) skip that week with a warning, (b) run anyway beside the other matrix, or (c) wait
    without a bound up to the job's six-hour limit? Recommended: (a). (b) breaks the 1 November
    rule, and `as-weekly` reruns a skipped week by hand.
+
+   *1 November 2026, by the owner's word:* (a), skip that week with a warning.
+
 2. **The expired archive.** Should the weekly (a) re-dispatch the master Build and wait (2.2),
    (b) keep master's classes archive and reach for 8 days, at 354 MB per master Build and several
    Builds a day, or (c) compile for itself and run without reach? Recommended: (a). It costs one
@@ -192,6 +195,9 @@ Size: small, as the row says. It is three files and one waiting step.
    anyway. Should it stay `disabled_manually`, or be enabled for dispatches? Recommended: leave
    it disabled, so nothing starts a matrix on 20 slots by accident, and say so in the workflow's
    comment.
+
+   *1 November 2026, by the owner's word:* leave it disabled.
+
 4. **The weekly's shape once row 505 lands.** Recommended: the dispatch shape, 30 bins plus the
    axis's own slots, so the weekly also covers the instruction sets. The row's "up to 38" then
    applies only before the axis.

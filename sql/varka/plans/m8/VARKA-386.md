@@ -228,6 +228,9 @@ Size: medium.
 
    Recommended: (a). A sync is reviewed as upstream's change and a Varka pull request as Varka's,
    and the window is hours.
+
+   *1 November 2026, by the owner's word:* (a), the sync merges alone and this row's pull request follows the same day.
+
 2. **The planner's three orders.** Holding a fused conjunct to every order (2.3) demotes a
    conjunct that only one session's order needs. Recommended: keep it, as row 380 and
    `varka-388` did, so EXPLAIN does not depend on a session conf. The fusion cost is measured
