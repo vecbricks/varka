@@ -163,11 +163,15 @@ public abstract class VarkaSqlBenchmarkBase extends VarkaBenchmarkBase {
    */
   public static Optional<SparkPlan> fusedPlan(SparkSession session, String query) {
     SparkPlan plan = session.sql(query).queryExecution().executedPlan();
-    boolean fused = plan.find(
+    return holdsVarkaNode(plan) ? Optional.of(plan) : Optional.empty();
+  }
+
+  /** Whether {@code plan} holds a Varka node: a fused projection or filter. */
+  public static boolean holdsVarkaNode(SparkPlan plan) {
+    return plan.find(
         p -> p instanceof VarkaColumnarToRowExec || p instanceof VarkaProjectExec
             || p instanceof VarkaFilterExec || p instanceof VarkaFilterColumnarToRowExec)
         .isDefined();
-    return fused ? Optional.of(plan) : Optional.empty();
   }
 
   /**

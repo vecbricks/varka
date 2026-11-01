@@ -260,7 +260,8 @@ object VarkaColumnarRule extends ColumnarRule with Logging {
       mkVarka: (Expression, SparkPlan, Option[Expression]) => SparkPlan): Option[SparkPlan] = {
     val session = VarkaSessionEmit.of(SQLConf.get)
     val compiled = VarkaExpressionCompiler.compilePredicate(condition, child.output,
-      VarkaColumnarToRowExec.emitOptions(session), session.familiesOff)
+      VarkaColumnarToRowExec.emitOptions(session), session.familiesOff,
+      session.declineTwoLaneConditions)
     compiled.toScala.map { predicate =>
       val residual = predicate.residualConjuncts.asScala.reduceLeftOption(And(_, _))
       // With residual conjuncts split off, a batch the kernel cannot serve is refiltered with

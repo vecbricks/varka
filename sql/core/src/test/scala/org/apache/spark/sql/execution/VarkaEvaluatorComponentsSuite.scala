@@ -29,7 +29,7 @@ import org.mockito.Mockito.{doAnswer, doThrow, mock, never, verify}
 
 import org.apache.spark.{SparkFunSuite, TaskContext}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaEmitOptions, VarkaFusedKernel,
-  VarkaHostIsa, VarkaReproduction}
+  VarkaHostIsa, VarkaKernelPlan, VarkaReproduction}
 import org.apache.spark.sql.execution.metric.SQLMetric
 import org.apache.spark.sql.execution.varka.{VarkaBatchLedger, VarkaClassDump,
   VarkaFallbackAccounting, VarkaKernelRunner, VarkaReasonMetric}
@@ -268,21 +268,28 @@ class VarkaEvaluatorComponentsSuite extends SparkFunSuite {
     // the options - which would move every shape key and emitted class - and an explicit false
     // that cannot override a base with the setting on.
     val conf = new SQLConf
-    // The emitter's default level, so the binding is held without the host (VARKA-538).
+    // The emitter's default level, so the binding is held without the host (VARKA-538). Unset,
+    // the two-lane refusal is the host's answer (VARKA-503); everything else is unset.
     conf.setConf(SQLConf.VARKA_EMIT_USE_AVX, VarkaEmitOptions.USE_AVX_UNKNOWN)
-    assert(VarkaSessionEmit.of(conf) === VarkaSessionEmit.DEFAULTS)
+    val host = VarkaKernelPlan.HOST_TWO_LANE_MASKS_FALL_BACK
+    assert(VarkaSessionEmit.of(conf) === new VarkaSessionEmit(
+      VarkaEmitOptions.USE_AVX_UNKNOWN, null, java.util.Set.of(), host))
     val base = VarkaEmitOptions.DEFAULTS
     assert(VarkaSessionEmit.DEFAULTS.apply(base) eq base)
     conf.setConf(SQLConf.VARKA_EMIT_USE_AVX, 2)
     conf.setConfString(SQLConf.VARKA_EMIT_EXACT_REFUSAL_STATUS.key, "true")
     val session = VarkaSessionEmit.of(conf)
-    assert(session === new VarkaSessionEmit(2, java.lang.Boolean.TRUE))
+    assert(session === new VarkaSessionEmit(2, java.lang.Boolean.TRUE, java.util.Set.of(), host))
     assert(session.apply(base) === base.withUseAVX(2).withExactRefusalStatus(true))
     conf.setConfString(SQLConf.VARKA_EMIT_EXACT_REFUSAL_STATUS.key, "false")
     val exactBase = base.withExactRefusalStatus(true)
     assert(VarkaSessionEmit.of(conf).apply(exactBase) === exactBase.withExactRefusalStatus(false)
       .withUseAVX(2))
     intercept[IllegalArgumentException](new VarkaSessionEmit(-2, null))
+    for (set <- Seq(true, false)) {
+      conf.setConfString(SQLConf.VARKA_DECLINE_TWO_LANE_CONDITIONS.key, set.toString)
+      assert(VarkaSessionEmit.of(conf).declineTwoLaneConditions === set)
+    }
   }
 
   test("a session asking for the host's level resolves it once, from the host's features") {
@@ -294,6 +301,9 @@ class VarkaEvaluatorComponentsSuite extends SparkFunSuite {
     val arm = new VarkaHostIsa.Reading("aarch64", "fp, asimd, sve", null)
     val unread = new VarkaHostIsa.Reading("amd64", "", "IllegalAccessException: no export")
     val conf = new SQLConf
+    // The two-lane refusal is resolved from the same reading (VARKA-503), and an x86 reading on a
+    // two-lane JVM would set it; set off here, the records compare alike on every host.
+    conf.setConfString(SQLConf.VARKA_DECLINE_TWO_LANE_CONDITIONS.key, "false")
     conf.setConf(SQLConf.VARKA_EMIT_USE_AVX, VarkaSessionEmit.USE_AVX_FROM_HOST)
     assert(VarkaSessionEmit.of(conf, fallsBack).useAVX === 2)
     assert(VarkaSessionEmit.of(conf, fallsBack).apply(VarkaEmitOptions.DEFAULTS)
@@ -334,6 +344,31 @@ class VarkaEvaluatorComponentsSuite extends SparkFunSuite {
       }
     } finally {
       VarkaSessionEmit.setUnreadableLoggedForTesting(loggedBefore)
+    }
+  }
+
+  test("a session's two-lane default comes from the host reading its level comes from") {
+    // VARKA-503 over VARKA-538's reading. Catches: a default read from a second host fact that a
+    // planted host does not move, an aarch64 reading that refuses, and a set value the host
+    // overrides. The lane count is this JVM's, so an x86 reading is held to the kernel plan's
+    // answer for it rather than to a constant.
+    val x86 = new VarkaHostIsa.Reading("amd64", "avx, avx2", null)
+    val arm = new VarkaHostIsa.Reading("aarch64", "fp, asimd", null)
+    val conf = new SQLConf
+    assert(!VarkaSessionEmit.of(conf, arm).declineTwoLaneConditions)
+    assert(VarkaSessionEmit.of(conf, x86).declineTwoLaneConditions ===
+      VarkaKernelPlan.twoLaneMasksFallBack(x86))
+    assert(VarkaSessionEmit.of(conf, VarkaHostIsa.host()).declineTwoLaneConditions ===
+      VarkaKernelPlan.HOST_TWO_LANE_MASKS_FALL_BACK)
+    VarkaSessionEmit.setHostForTesting(arm)
+    try {
+      assert(!VarkaSessionEmit.of(conf).declineTwoLaneConditions)
+    } finally {
+      VarkaSessionEmit.setHostForTesting(null)
+    }
+    for (set <- Seq(true, false); host <- Seq(x86, arm)) {
+      conf.setConfString(SQLConf.VARKA_DECLINE_TWO_LANE_CONDITIONS.key, set.toString)
+      assert(VarkaSessionEmit.of(conf, host).declineTwoLaneConditions === set, host)
     }
   }
 

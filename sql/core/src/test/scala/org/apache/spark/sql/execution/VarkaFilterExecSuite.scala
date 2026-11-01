@@ -21,12 +21,14 @@ import org.apache.spark.TaskContext
 import org.apache.spark.sql.QueryTest
 import org.apache.spark.sql.catalyst.expressions.{Alias, And, Attribute, AttributeReference, DateAdd, EqualTo, GreaterThan, IsNotNull, LessThan, Literal, Pow, Rand}
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaExpressionCompiler
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaFallbackEvent, VarkaJfrTestSupport}
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaEmitOptions, VarkaFallbackEvent,
+  VarkaJfrTestSupport, VarkaKernelPlan}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTestWatchdog
 import org.apache.spark.sql.execution.vectorized.OnHeapColumnVector
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.test.SharedSparkSession
-import org.apache.spark.sql.types.{DateType, DecimalType, DoubleType, IntegerType, StringType}
+import org.apache.spark.sql.types.{DateType, DecimalType, DoubleType, IntegerType, LongType,
+  StringType}
 import org.apache.spark.sql.util.ArrowUtils
 import org.apache.spark.sql.vectorized.ColumnarBatch
 
@@ -447,6 +449,21 @@ class VarkaFilterExecSuite extends QueryTest with SharedSparkSession with VarkaT
       withDouble :+ dec)
     assert(lines(1) === "(dec > 1.00BD): fused", lines)
     assert(lines.head.contains("in a filter that also reads integral columns"), lines)
+  }
+
+  test("a long conjunct stays with the row filter where x86 has two long lanes (VARKA-503)") {
+    val l = AttributeReference("l", LongType)()
+    val l2 = AttributeReference("l2", LongType)()
+    val d2 = AttributeReference("d2", DateType)()
+    val columns = Seq(attrD, d2, l, l2)
+    def lines(twoLaneHost: Boolean): Seq[String] = VarkaFusionReport.predicateLines(
+      And(LessThan(attrD, d2), LessThan(l, l2)), columns, VarkaEmitOptions.DEFAULTS,
+      java.util.Set.of(), twoLaneHost)
+    // On the two-lane host the date conjunct is an int kernel of its own, and the long one is
+    // the row filter's with the reason; elsewhere both fuse, on the long lane.
+    assert(lines(true) === Seq("(d < d2): fused",
+      s"(l < l2): residual (${VarkaKernelPlan.TWO_LANE_CONDITION_REASON}: (l < l2))"))
+    assert(lines(false) === Seq("(d < d2): fused", "(l < l2): fused"))
   }
 
   test("a nondeterministic filter is declined with its reason, conjunct by conjunct") {

@@ -60,6 +60,10 @@ trait VarkaSharedSessions extends SharedSparkSession with AdaptiveSparkPlanHelpe
       .set(StaticSQLConf.SPARK_CACHE_SERIALIZER.key,
         classOf[ArrowCachedBatchSerializer].getName)
       .set(SQLConf.CACHE_VECTORIZED_READER_ENABLED.key, "true")
+      // The suites check the kernels' answers, at 128 bits too: on an x86 host whose long
+      // species has two lanes the compiler would leave every long filter condition to the row
+      // engine (VARKA-503), and the narrow step would then test the row engine against itself.
+      .set(SQLConf.VARKA_DECLINE_TWO_LANE_CONDITIONS.key, "false")
     // A sort's memory page, 1 MB rather than the up to 64 MB Spark sizes from the heap and the
     // cores: every task of a sort allocates and zeroes one, and the suites sort a few rows in
     // hundreds of queries, so the differential suite spent half its time in the allocator

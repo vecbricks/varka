@@ -120,7 +120,8 @@ private[sql] trait VarkaFilterExecBase extends UnaryExecNode with PredicateHelpe
   // plan (VARKA-313).
   @transient private lazy val fusionLines =
     VarkaFusionReport.predicateLines(wholeCondition.getOrElse(condition), child.output,
-      VarkaColumnarToRowExec.emitOptions(sessionEmit), sessionEmit.familiesOff)
+      VarkaColumnarToRowExec.emitOptions(sessionEmit), sessionEmit.familiesOff,
+      sessionEmit.declineTwoLaneConditions)
 
   // The predicate the tasks compile (`VarkaFilterEvaluator.predicate`), compiled once on the
   // driver as they compile it, for the Spark differential's overflow pin
@@ -128,7 +129,8 @@ private[sql] trait VarkaFilterExecBase extends UnaryExecNode with PredicateHelpe
   // plan holds, rather than a compile of its own that could drift from the node's.
   @transient private[sql] lazy val classification =
     VarkaExpressionCompiler.compilePredicate(condition, child.output,
-      VarkaColumnarToRowExec.emitOptions(sessionEmit), sessionEmit.familiesOff)
+      VarkaColumnarToRowExec.emitOptions(sessionEmit), sessionEmit.familiesOff,
+      sessionEmit.declineTwoLaneConditions)
 
   // The question for a filter is "why didn't my predicate fuse?", answered per conjunct.
   // The condition renders as FilterExec renders its own - a plain line, because

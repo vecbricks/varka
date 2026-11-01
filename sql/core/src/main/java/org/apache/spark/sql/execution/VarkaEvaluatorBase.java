@@ -290,6 +290,14 @@ public abstract class VarkaEvaluatorBase {
     return sessionEmit.familiesOff();
   }
 
+  /**
+   * Whether the session leaves a filter's long-lane condition to the row engine (VARKA-503), which
+   * a filter evaluator's compiler call passes for the reason it passes the families off.
+   */
+  protected boolean declineTwoLaneConditions() {
+    return sessionEmit.declineTwoLaneConditions();
+  }
+
   // ---- the plan ------------------------------------------------------------------------------
 
   private CompiledVarkaProjection plan() {

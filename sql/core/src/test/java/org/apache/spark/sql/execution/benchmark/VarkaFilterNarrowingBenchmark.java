@@ -21,10 +21,6 @@ import java.util.List;
 
 import org.apache.spark.sql.SparkSession;
 import org.apache.spark.sql.VarkaBenchmark;
-import org.apache.spark.sql.execution.VarkaColumnarToRowExec;
-import org.apache.spark.sql.execution.VarkaFilterColumnarToRowExec;
-import org.apache.spark.sql.execution.VarkaFilterExec;
-import org.apache.spark.sql.execution.VarkaProjectExec;
 
 /**
  * Whether a Varka filter keeps the columnar path when it narrows its output (VARKA-145).
@@ -115,11 +111,7 @@ public class VarkaFilterNarrowingBenchmark extends VarkaSqlBenchmarkBase {
               "SELECT i, i2 FROM varka_narrowing WHERE i > 50000"));
 
       for (Case c : cases) {
-        boolean fused = varka.sql(c.query()).queryExecution().executedPlan()
-            .find(p -> p instanceof VarkaColumnarToRowExec || p instanceof VarkaProjectExec
-                || p instanceof VarkaFilterExec || p instanceof VarkaFilterColumnarToRowExec)
-            .isDefined();
-        if (!fused) {
+        if (!holdsVarkaNode(varka.sql(c.query()).queryExecution().executedPlan())) {
           throw new IllegalStateException(c.name() + " did not fuse: " + c.query());
         }
       }
