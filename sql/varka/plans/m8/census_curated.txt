@@ -6,6 +6,8 @@
 # [implicit]: operators with no registry entry of their own, built by the parser, by type
 # coercion or by the analyzer and the optimizer,
 #   name | class | family | types | result | fused today | need | rows | note
+# [implicit excluded]: implicit operators out of the census, each with its reason,
+#   name | class | family | reason
 #
 # Types are bool byte short int bigint float double dec date ntz time ym dt, or a group:
 # (dec is DECIMAL up to precision 38: an unscaled long to 18, a 128-bit lane pair above)
@@ -206,10 +208,17 @@ extract_dt_days|ExtractANSIIntervalDays|interval|dt|int||plumbing|103|fused toda
 extract_dt_hours|ExtractANSIIntervalHours|interval|dt|byte||plumbing|103|division by a constant
 extract_dt_minutes|ExtractANSIIntervalMinutes|interval|dt|byte||plumbing|103|division by a constant
 extract_dt_seconds|ExtractANSIIntervalSeconds|interval|dt|dec||plumbing|103,157|a DECIMAL(8,6) result
-check_overflow|CheckOverflow|decimal internals|dec|dec||semantics|349,359,363|null or error when a value leaves its precision
-make_decimal|MakeDecimal|decimal internals|bigint|dec||plumbing|349|a relabel of an unscaled long
-unscaled_value|UnscaledValue|decimal internals|dec|bigint||plumbing|349|a relabel to the unscaled long
 known_not_null|KnownNotNull|internals|ALL|same||plumbing|333|a relabel the optimizer adds
 known_fp_normalized|KnownFloatingPointNormalized|internals|FLOAT|same||plumbing|337|a relabel around NaN and -0.0 normalization; uncounted, by the owner's answer of 30 October 2026 (VARKA-337.md 8 point 5, option (a)): Spark inserts it only for join, window and aggregate keys, never in a Project or Filter, so no coverage row can hold it
 normalize_nan_and_zero|NormalizeNaNAndZero|internals|FLOAT|same||plumbing|337|the optimizer's canonical NaN and +0.0 before a key or a hash: one node, shared with the hash input (m8/PLAN.md 2.7); uncounted, by the owner's answer of 30 October 2026 (VARKA-337.md 8 point 5, option (a)): Spark inserts it only for join, window and aggregate keys, never in a Project or Filter, so no coverage row can hold it
 try_eval|TryEval|internals|ALL|same||semantics|330,342,349|the try_ functions' wrapper: every error raised anywhere in its subtree becomes null
+
+# By the owner's answer of 1 November 2026 to VARKA-349.md 8 question 1, option (b): Spark builds
+# these three only inside an aggregate, a window or an encoder's serializer, never in a Project or
+# a Filter (VARKA-349.md 10.1), so they leave the census as a constant folded before Varka sees it
+# does. CheckOverflow's guard-the-inputs form stays specified in VARKA-349.md 2.5 for rows 350
+# and 360.
+[implicit excluded]
+check_overflow|CheckOverflow|decimal internals|evaluated by an operator Varka does not fuse (HashAggregateExec, WindowExec, SerializeFromObjectExec)
+make_decimal|MakeDecimal|decimal internals|evaluated by an operator Varka does not fuse (HashAggregateExec, WindowExec, SerializeFromObjectExec)
+unscaled_value|UnscaledValue|decimal internals|evaluated by an operator Varka does not fuse (HashAggregateExec, WindowExec, SerializeFromObjectExec)
