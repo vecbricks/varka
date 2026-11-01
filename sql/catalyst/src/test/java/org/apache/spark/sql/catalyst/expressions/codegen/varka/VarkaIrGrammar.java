@@ -60,6 +60,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Lan
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LastDay;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Least;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LiteralSlot;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.MathUnary;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.MakeDate;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Month;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.NarrowLane;
@@ -76,6 +77,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Tru
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.TruncLevel;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WeekDay;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WeekOfYear;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WidenDecimal;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WidenLane;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Year;
 
@@ -143,6 +145,14 @@ public final class VarkaIrGrammar {
    * the reference evaluator; nothing pins its bytes.
    */
   public static final long NULLING_FUZZ_SEED = 20261030L;
+
+  /**
+   * The seed of {@link #drawDecimalShape}, the decimal store's sequence (VARKA-157 3 item 6): a
+   * sequence of its own for the reason {@link #NARROW_FUZZ_SEED} gives, so no committed corpus or
+   * hash moves. {@code VarkaIrFuzzSuite} runs it against the reference evaluator; nothing pins
+   * its bytes.
+   */
+  public static final long DECIMAL_FUZZ_SEED = 20261031L;
 
   // The generator's magnitude bounds saturate rather than wrap, in *every* arm that combines
   // two of them - `boundsOf` and the generator alike. Four nested multiplies of a column's own
@@ -319,6 +329,8 @@ public final class VarkaIrGrammar {
       // A mask or a shift reaches any int; the count is at most 64.
       case BitOp n -> new Bounds(INT_LANE_BOUND, guard(n.left(), n.right()));
       case BitCount n -> new Bounds(Long.SIZE, guard(n.child()));
+      // The grammar draws no floating tree, whose values have no integer bound.
+      case MathUnary n -> throw new IllegalArgumentException("a floating node: " + n);
       // A condition as a value is 0 or 1; its condition's operands may hold producers.
       case CondValue n -> new Bounds(1L, guard(n.cond()));
       // A root of two bitmaps: no magnitude, only the producers its condition may hold.
@@ -341,6 +353,9 @@ public final class VarkaIrGrammar {
         Bounds b = boundsOf(n.child());
         yield new Bounds(b.value() <= Integer.MAX_VALUE ? b.value() : 1L << 31, b.guarded());
       }
+      // The decimal store keeps every value: its child's magnitude, which its draw keeps within
+      // eighteen digits.
+      case WidenDecimal n -> boundsOf(n.child());
     };
   }
 
@@ -1014,6 +1029,25 @@ public final class VarkaIrGrammar {
     return new DrawnLong(roots, numInputs, numLiterals);
   }
 
+  /**
+   * A long-lane shape whose first root, and a random share of the others, is a decimal output: a
+   * {@code WidenDecimal} over a long subtree within eighteen digits ({@link LongShapes#decimal}).
+   * The other roots are {@link LongShapes#root}'s, so a decimal store shares its kernel with plain
+   * and narrowed long stores. From {@link #DECIMAL_FUZZ_SEED}.
+   */
+  public static DrawnLong drawDecimalShape(Random rnd) {
+    int numInputs = 1 + rnd.nextInt(3);
+    int numLiterals = rnd.nextInt(3);
+    var shapes = new LongShapes(rnd, numInputs, numLiterals);
+    int depth = 1 + rnd.nextInt(4);
+    int count = 1 + rnd.nextInt(3);
+    var drawn = new ArrayList<VarkaVectorIR>();
+    for (int i = 0; i < count; i++) {
+      drawn.add(i == 0 || rnd.nextInt(2) == 0 ? shapes.decimal(depth) : shapes.root(depth));
+    }
+    return new DrawnLong(distinct(drawn), numInputs, numLiterals);
+  }
+
   /** {@link #drawWideShape}'s twin at the long lane. */
   public static DrawnLong drawWideLongShape(Random rnd) {
     int numInputs = 1 + rnd.nextInt(3);
@@ -1220,6 +1254,19 @@ public final class VarkaIrGrammar {
         return new NarrowLane(v.node(), LaneType.INT);
       }
       return v.node();
+    }
+
+    /**
+     * A decimal output root over a value tree: its value has to fit eighteen digits, as every
+     * producer's does by its range, so a tree whose bound does not is put under a nulling range
+     * guard of {@code +-(10^18 - 1)}, which the reference answers as a null where a lane is
+     * outside it. A bound the tree saturated is a wrapped value, whose lanes can be anywhere.
+     */
+    public VarkaVectorIR decimal(int depth) {
+      Gen v = value(depth);
+      long max = VarkaReference.MAX_DECIMAL_UNSCALED;
+      return new WidenDecimal(v.bound() <= max ? v.node()
+          : new GuardedRange(v.node(), -max, max, Overflow.NULL));
     }
   }
 

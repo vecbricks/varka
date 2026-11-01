@@ -72,6 +72,15 @@ public final class VarkaOperatorCensusProbe {
   public static final String LOOP_MARKER = "VARKA_CENSUS_LOOP=";
   public static final String DONE_PREFIX = "VARKA_CENSUS_DONE=";
 
+  /**
+   * The argument that makes the probe print this JVM's host fact instead of running an entry:
+   * {@code VarkaHostIsa.conversionsFallBack()} and the feature list it was read from (VARKA-538).
+   */
+  public static final String HOST_ENTRY = "host";
+  public static final String FALLS_BACK_PREFIX = "VARKA_CENSUS_FALLS_BACK=";
+  public static final String USE_AVX_PREFIX = "VARKA_CENSUS_USE_AVX=";
+  public static final String FEATURES_PREFIX = "VARKA_CENSUS_FEATURES=";
+
   /** The system property that names the {@code VectorOperators} constant a loop applies. */
   public static final String OPERATOR_PROPERTY = "varka.census.operator";
 
@@ -808,6 +817,141 @@ public final class VarkaOperatorCensusProbe {
     }
   }
 
+  /**
+   * The decimal store's two buffers (VARKA-157 2.2): a long column, eight bytes a row, that the
+   * store reads as the group's unscaled values, and the sixteen-byte slots it writes, low word
+   * first. Each loop maps both afresh, as a kernel maps its input and its output once a batch, so
+   * a call allocates the two segments and nothing else is the store's. In a holder so that only
+   * the store's entries allocate them.
+   */
+  private static final class Store {
+    static final long COLUMN_BYTES = ROWS * 8L;
+    static final long SLOT_BYTES = ROWS * 16L;
+    static final long COLUMN = column(Arena.global().allocate(COLUMN_BYTES, 64)).address();
+    static final long SLOTS = Arena.global().allocate(SLOT_BYTES, 64).address();
+
+    private static MemorySegment column(MemorySegment column) {
+      for (int i = 0; i < ROWS; i++) {
+        column.set(ValueLayout.JAVA_LONG, i * 8L, i * 7L - 3000);
+      }
+      return column;
+    }
+
+    static LongVector load(MemorySegment column, int i) {
+      return LongVector.fromMemorySegment(LS, column, i * 8L, ByteOrder.LITTLE_ENDIAN);
+    }
+
+    /** {@code out0} at the group's first slot and {@code out1} one vector further on. */
+    static void store(MemorySegment slots, int i, LongVector out0, LongVector out1) {
+      out0.intoMemorySegment(slots, i * 16L, ByteOrder.LITTLE_ENDIAN);
+      out1.intoMemorySegment(slots, i * 16L + LS.vectorByteSize(), ByteOrder.LITTLE_ENDIAN);
+    }
+
+    /**
+     * The zip's index vector of {@code part} built lanewise, without the lambda {@code makeZip}
+     * fills its indices through, as the emitter's prologue builds it: lane {@code i} is
+     * {@code L / 2 + (L % 2) * n} with {@code L = part * n + i}.
+     */
+    static LongVector zipIndex(int part) {
+      int n = LS.length();
+      var at = LongVector.zero(LS).addIndex(1).add((long) part * n);
+      return at.lanewise(VectorOperators.LSHR, 1)
+          .add(at.and(1L).mul(n));
+    }
+  }
+
+  /**
+   * The store's two segments and its loads and stores with no zip at all: the allocation a zip
+   * cell reads against, since mapping a column and its slots once a call is the kernel's own.
+   */
+  static void op_dec_zip_segments() {
+    var column = VarkaSegments.map(Store.COLUMN, Store.COLUMN_BYTES);
+    var slots = VarkaSegments.map(Store.SLOTS, Store.SLOT_BYTES);
+    for (int i = 0; i < ROWS; i += LS.length()) {
+      var lo = Store.load(column, i);
+      var hi = lo.lanewise(VectorOperators.ASHR, 63);
+      Store.store(slots, i, lo, hi);
+    }
+  }
+
+  /**
+   * The decimal store by the two-vector {@code rearrange} under {@code makeZip}, built in the
+   * call as a body's prologue builds it: each lane's word and its sign extension, interleaved.
+   */
+  static void op_dec_zip_rearrange() {
+    var column = VarkaSegments.map(Store.COLUMN, Store.COLUMN_BYTES);
+    var slots = VarkaSegments.map(Store.SLOTS, Store.SLOT_BYTES);
+    var z0 = VectorShuffle.makeZip(LS, 0);
+    var z1 = VectorShuffle.makeZip(LS, 1);
+    for (int i = 0; i < ROWS; i += LS.length()) {
+      var lo = Store.load(column, i);
+      var hi = lo.lanewise(VectorOperators.ASHR, 63);
+      Store.store(slots, i, lo.rearrange(z0, hi), lo.rearrange(z1, hi));
+    }
+  }
+
+  /** The same store by the two-vector {@code selectFrom} over {@code makeZip}'s index vectors. */
+  static void op_dec_zip_selectFrom2() {
+    var column = VarkaSegments.map(Store.COLUMN, Store.COLUMN_BYTES);
+    var slots = VarkaSegments.map(Store.SLOTS, Store.SLOT_BYTES);
+    var i0 = (LongVector) VectorShuffle.makeZip(LS, 0).toVector();
+    var i1 = (LongVector) VectorShuffle.makeZip(LS, 1).toVector();
+    for (int i = 0; i < ROWS; i += LS.length()) {
+      var lo = Store.load(column, i);
+      var hi = lo.lanewise(VectorOperators.ASHR, 63);
+      Store.store(slots, i, i0.selectFrom(lo, hi), i1.selectFrom(lo, hi));
+    }
+  }
+
+  /** The {@code rearrange} store with its shuffles built lanewise ({@code Store.zipIndex}). */
+  static void op_dec_zip_rearrange_lanewise() {
+    var column = VarkaSegments.map(Store.COLUMN, Store.COLUMN_BYTES);
+    var slots = VarkaSegments.map(Store.SLOTS, Store.SLOT_BYTES);
+    var z0 = Store.zipIndex(0).toShuffle();
+    var z1 = Store.zipIndex(1).toShuffle();
+    for (int i = 0; i < ROWS; i += LS.length()) {
+      var lo = Store.load(column, i);
+      var hi = lo.lanewise(VectorOperators.ASHR, 63);
+      Store.store(slots, i, lo.rearrange(z0, hi), lo.rearrange(z1, hi));
+    }
+  }
+
+  /** The {@code selectFrom} store with its index vectors built lanewise. */
+  static void op_dec_zip_selectFrom2_lanewise() {
+    var column = VarkaSegments.map(Store.COLUMN, Store.COLUMN_BYTES);
+    var slots = VarkaSegments.map(Store.SLOTS, Store.SLOT_BYTES);
+    var i0 = Store.zipIndex(0);
+    var i1 = Store.zipIndex(1);
+    for (int i = 0; i < ROWS; i += LS.length()) {
+      var lo = Store.load(column, i);
+      var hi = lo.lanewise(VectorOperators.ASHR, 63);
+      Store.store(slots, i, i0.selectFrom(lo, hi), i1.selectFrom(lo, hi));
+    }
+  }
+
+  /**
+   * The store's epilogue form: the column loaded under {@code indexInRange} over the rows, and
+   * both halves stored under masks over the slots' longs, as the load's two masks are. The limit
+   * stops one row short of the buffer, so the last group of every call is partial. Its shuffles
+   * are built lanewise, as the kernel's prologue builds them.
+   */
+  static void op_dec_zip_tail() {
+    var column = VarkaSegments.map(Store.COLUMN, Store.COLUMN_BYTES);
+    var slots = VarkaSegments.map(Store.SLOTS, Store.SLOT_BYTES);
+    var z0 = Store.zipIndex(0).toShuffle();
+    var z1 = Store.zipIndex(1).toShuffle();
+    int limit = ROWS - 1;
+    for (int i = 0; i < ROWS; i += LS.length()) {
+      var lo = LongVector.fromMemorySegment(LS, column, i * 8L, ByteOrder.LITTLE_ENDIAN,
+          LS.indexInRange(i, limit));
+      var hi = lo.lanewise(VectorOperators.ASHR, 63);
+      lo.rearrange(z0, hi).intoMemorySegment(slots, i * 16L, ByteOrder.LITTLE_ENDIAN,
+          LS.indexInRange(2 * i, 2 * limit));
+      lo.rearrange(z1, hi).intoMemorySegment(slots, i * 16L + LS.vectorByteSize(),
+          ByteOrder.LITTLE_ENDIAN, LS.indexInRange(2 * i + LS.length(), 2 * limit));
+    }
+  }
+
   static void op_mask_fromLong_byte() {
     for (int i = 0; i < ROWS; i += BS.length()) {
       var a = ByteVector.fromArray(BS, BA, i);
@@ -994,6 +1138,12 @@ public final class VarkaOperatorCensusProbe {
         case "dec.check.offset.masked" -> op_dec_check_offset_masked();
         case "dec.tail" -> op_dec_tail();
         case "dec.int.splice" -> op_dec_int_splice();
+        case "dec.zip.rearrange" -> op_dec_zip_rearrange();
+        case "dec.zip.selectFrom2" -> op_dec_zip_selectFrom2();
+        case "dec.zip.rearrange.lanewise" -> op_dec_zip_rearrange_lanewise();
+        case "dec.zip.selectFrom2.lanewise" -> op_dec_zip_selectFrom2_lanewise();
+        case "dec.zip.tail" -> op_dec_zip_tail();
+        case "dec.zip.segments" -> op_dec_zip_segments();
         case "mask.fromLong.byte" -> op_mask_fromLong_byte();
         case "mask.toLong.byte" -> op_mask_toLong_byte();
         case "mask.fromLong.int" -> op_mask_fromLong_int();
@@ -1032,6 +1182,13 @@ public final class VarkaOperatorCensusProbe {
   }
 
   public static void main(String[] args) {
+    if (args[0].equals(HOST_ENTRY)) {
+      System.out.println(FALLS_BACK_PREFIX + VarkaHostIsa.conversionsFallBack());
+      System.out.println(USE_AVX_PREFIX + VarkaEmitOptions.HOST_USE_AVX);
+      System.out.println(FEATURES_PREFIX + VarkaHostIsa.features());
+      System.out.println(DONE_PREFIX + HOST_ENTRY);
+      return;
+    }
     var entry = VarkaOperatorCensusCatalog.named(args[0]);
     int bits = IS.vectorBitSize();
     System.out.println(BEGIN_PREFIX + entry.name() + " bits=" + bits);

@@ -17,13 +17,16 @@
 
 package org.apache.spark.sql.catalyst.expressions.codegen
 
+import java.io.IOException
+
 import scala.jdk.CollectionConverters._
 import scala.jdk.OptionConverters._
 
 import org.apache.spark.{SparkArithmeticException, SparkFunSuite}
+import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.BinaryArithmeticWithDatetimeResolver
 import org.apache.spark.sql.catalyst.analysis.FunctionRegistry
-import org.apache.spark.sql.catalyst.expressions.{Abs, Add, AddMonths, Alias, And, Attribute, AttributeReference, BoundReference, CaseWhen, Cast, Coalesce, Concat, CurrentTime, DateAdd, DateAddYMInterval, DateDiff, DateFromUnixDate, DateSub, DayOfMonth, DayOfWeek, DayOfYear, Divide, DivideYMInterval, EqualNullSafe, EqualTo, EvalMode, Expression, Extract, ExtractANSIIntervalDays, ExtractANSIIntervalMonths, ExtractANSIIntervalYears, GreaterThan, Greatest, HoursOfTime, If, In, InSet, IsNotNull, IsNull, LastDay, Least, LessThan, LessThanOrEqual, Literal, MakeDate, MakeTime, MakeYMInterval, MinutesOfTime, Month, Multiply, MultiplyYMInterval, NamedExpression, NextDay, Not, NumericEvalContext, Nvl, Nvl2, Or, Quarter, Rand, Remainder, SecondsOfTime, SecondsOfTimeWithFraction, Subtract, SubtractDates, SubtractTimes, TimeAddInterval, TimeDiff, TimeExpression, TimeFromMicros, TimeFromMillis, TimeFromSeconds, TimestampAddInterval, TimeToMicros, TimeToMillis, TimeToSeconds, TimeTrunc, ToTime, TruncDate, UnaryMinus, UnixDate, Upper, WeekDay, WeekOfYear, Year, YearOfWeek}
+import org.apache.spark.sql.catalyst.expressions.{Abs, Add, AddMonths, Alias, And, Attribute, AttributeReference, BoundReference, CaseWhen, Cast, Coalesce, Concat, CurrentTime, DateAdd, DateAddYMInterval, DateDiff, DateFromUnixDate, DateSub, DayOfMonth, DayOfWeek, DayOfYear, Divide, DivideYMInterval, EqualNullSafe, EqualTo, EvalMode, Expression, Extract, ExtractANSIIntervalDays, ExtractANSIIntervalMonths, ExtractANSIIntervalYears, GreaterThan, Greatest, HoursOfTime, If, In, InheritAnalysisRules, InSet, IsNotNull, IsNull, LastDay, LeafExpression, Least, LessThan, LessThanOrEqual, Literal, MakeDate, MakeTime, MakeYMInterval, MinutesOfTime, Month, Multiply, MultiplyYMInterval, NamedExpression, NextDay, Not, NumericEvalContext, Nvl, Nvl2, Or, Quarter, Rand, Remainder, RuntimeReplaceable, SecondsOfTime, SecondsOfTimeWithFraction, Subtract, SubtractDates, SubtractTimes, TimeAddInterval, TimeDiff, TimeExpression, TimeFromMicros, TimeFromMillis, TimeFromSeconds, TimestampAddInterval, TimeToMicros, TimeToMillis, TimeToSeconds, TimeTrunc, ToTime, TruncDate, UnaryMinus, UnixDate, Upper, WeekDay, WeekOfYear, Year, YearOfWeek}
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaOutputSpec.{ForwardedOutput, FusedOutput, KernelOutput}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaChrono, VarkaDerivedKind, VarkaEmitOptions, VarkaEmitterTestSupport, VarkaLoopEmitter, VarkaMatrix, VarkaShapeCache, VarkaVectorIR}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaKernelWarmup, VarkaShapeKey}
@@ -36,7 +39,7 @@ import org.apache.spark.sql.catalyst.optimizer.ReplaceExpressions
 import org.apache.spark.sql.catalyst.plans.logical.{OneRowRelation, Project}
 import org.apache.spark.sql.catalyst.util.IntervalUtils
 import org.apache.spark.sql.internal.SQLConf
-import org.apache.spark.sql.types.{BooleanType, ByteType, DateType, DayTimeIntervalType, Decimal, DecimalType, DoubleType, IntegerType, LongType, ShortType, StringType, TimestampNTZType, TimestampType, TimeType, YearMonthIntervalType}
+import org.apache.spark.sql.types.{BooleanType, ByteType, DataType, DateType, DayTimeIntervalType, Decimal, DecimalType, DoubleType, FloatType, IntegerType, LongType, ShortType, StringType, TimestampNTZType, TimestampType, TimeType, YearMonthIntervalType}
 import org.apache.spark.unsafe.types.UTF8String
 import org.apache.spark.util.Utils
 
@@ -50,6 +53,7 @@ import org.apache.spark.util.Utils
  * VARKA-12's partial eligibility, and the shapes that decline.
  */
 class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog {
+  import VarkaExpressionCompilerSuite.{Relabeled, ThrowsChecked}
 
   /** The bound every `TIME` division states: a time of day is a count of nanoseconds in one. */
   private val nanosPerDay = 86400000000000L
@@ -975,6 +979,30 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     }
   }
 
+  test("a decimal output root is admitted up to precision 18, and a wider one declines naming " +
+      "row 359 before it fuses") {
+    // The admission 157b's producers call where a decimal-valued root meets its output's type
+    // (VarkaDecimalCompiler.outputRoot): no lowering builds such a root yet, so this is its
+    // caller. The store writes a long and its sign extension, so a wider type would be written
+    // wrongly, and the evaluator's allocator only asserts what this refuses.
+    val value = new ColumnRef(0, LaneType.LONG)
+    for (t <- Seq(DecimalType(1, 0), DecimalType(10, 2), DecimalType(18, 6))) {
+      val sink = new DeclineSink(childOutput, false)
+      val root = VarkaDecimalCompiler.outputRoot(Literal.create(null, t), value, sink)
+      assert(root.toScala === Some(new VarkaVectorIR.WidenDecimal(value)), t)
+      assert(sink.take().isEmpty, t)
+    }
+    for (t <- Seq(DecimalType(19, 0), DecimalType(30, 4), DecimalType(38, 18))) {
+      val sink = new DeclineSink(childOutput, false)
+      assert(VarkaDecimalCompiler.outputRoot(Literal.create(null, t), value, sink).isEmpty, t)
+      val reason = sink.take().get.reason
+      assert(reason.contains(s"a ${t.simpleString} output"), reason)
+      assert(reason.contains("row 359's"), reason)
+    }
+    intercept[IllegalArgumentException](VarkaDecimalCompiler.outputRoot(
+      Literal(1L), value, new DeclineSink(childOutput, false)))
+  }
+
   test("a TIME unit or level that is not a literal, or not a unit, declines with the reason") {
     // The divisor is part of the kernel's shape, so a unit that is not known at compile time
     // would need a kernel per distinct value - the same rule trunc(d, fmt) applies. An unknown
@@ -1799,6 +1827,125 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     val p2 = VarkaExpressionCompiler.compilePartial(
       Seq(withNull, out(DateAdd(d, Literal(1)))), childOutput).get
     assert(p2.declines.asScala(0).reason === "IN list has a null or non-literal element")
+    // The elements are read in order and the reading stops at the one that passes the cap, so a
+    // non-literal element after it is never read and the cap is the reason.
+    val pastCap = If(In(d, (1 to 17).map(k => Literal(k * 3, DateType)) :+ DateAdd(d, Literal(1))),
+      d, d2)
+    assert(declineReason(pastCap) === "IN list longer than the fused cap of 16")
+  }
+
+  // The columns of the IN order test below beside the suite's own: one of each type an IN reads.
+  private val inYm = AttributeReference("inYm", YearMonthIntervalType())()
+  private val inFloat = AttributeReference("inFloat", FloatType)()
+  private val inDouble = AttributeReference("inDouble", DoubleType)()
+  private val inNtz = AttributeReference("inNtz", TimestampNTZType)()
+  private val inLong = AttributeReference("inLong", LongType)()
+  private val inTime = AttributeReference("inTime", TimeType(6))()
+  private val inDt = AttributeReference("inDt", DayTimeIntervalType())()
+  private val inOutput: Seq[Attribute] =
+    childOutput ++ Seq(inYm, inFloat, inDouble, inNtz, inLong, inTime, inDt)
+
+  /**
+   * The values of an IN per column, for the order test: each list holds values in no order, and
+   * the floating ones hold both zeros and two NaN payloads, four bit patterns that Spark's IN
+   * reads as two values.
+   */
+  private def inCases: Seq[(Attribute, Seq[Any])] = Seq(
+    d -> Seq(20, 5, -3),
+    inYm -> Seq(14, -3, 0),
+    by -> Seq(3.toByte, (-1).toByte, 100.toByte),
+    sh -> Seq(300.toShort, (-7).toShort, 0.toShort),
+    inFloat -> Seq(1.5f, 0.0f, -0.0f, Float.NaN, java.lang.Float.intBitsToFloat(0x7fc00001),
+      -2.5f),
+    inDouble -> Seq(1.5, 0.0, -0.0, Double.NaN,
+      java.lang.Double.longBitsToDouble(0x7ff8000000000001L), -2.5),
+    inNtz -> Seq(5000000000L, -1L, 42L),
+    i -> Seq(12, 3, Int.MinValue),
+    inLong -> Seq(5000000000L, Long.MinValue, 0L),
+    inTime -> Seq(43200000000000L, 0L, 21600000000000L),
+    inDt -> Seq(86400000000L, -1L, 172800000000L))
+
+  test("IN keeps each value once in ascending bit order, whatever order its list or set has") {
+    // A value's lane bits, sign-extended: what orders the literal tables. A floating value is
+    // kept as Spark's IN tells values apart, both zeros as 0.0 and every NaN as the one NaN.
+    def bits(v: Any): Long = v match {
+      case f: Float if f.isNaN => java.lang.Float.floatToRawIntBits(Float.NaN).toLong
+      case f: Float if f == 0.0f => 0L
+      case f: Float => java.lang.Float.floatToRawIntBits(f).toLong
+      case x: Double if x.isNaN => java.lang.Double.doubleToRawLongBits(Double.NaN)
+      case x: Double if x == 0.0 => 0L
+      case x: Double => java.lang.Double.doubleToRawLongBits(x)
+      case b: Byte => b.toLong
+      case s: Short => s.toLong
+      case i: Int => i.toLong
+      case l: Long => l
+    }
+    def shape(condition: Expression): (String, Seq[Int], Seq[Long]) = {
+      val compiled = VarkaExpressionCompiler.compilePredicate(condition, inOutput).toScala
+      assert(compiled.exists(_.specs.asScala.forall(_.fused)), s"$condition did not fuse")
+      val fused = compiled.get.fused
+      (VarkaVectorIR.canonical(fused.outputs.asScala.head),
+        fused.literals.asScala.map(_.intValue).toSeq,
+        fused.longLiterals.asScala.map(_.longValue).toSeq)
+    }
+    for ((column, values) <- inCases) {
+      def in(vs: Seq[Any]): Expression = In(column, vs.map(v => Literal(v, column.dataType)))
+      val first = shape(in(values))
+      // The reversed list with its first value again is the same kernel.
+      assert(shape(in(values.reverse :+ values.head)) === first, column.dataType)
+      // The literals take their table's slots in ascending order of their bits, each once.
+      val sorted = values.map(bits).distinct.sorted
+      val longTable = Seq(DoubleType, TimestampNTZType, LongType, TimeType(6),
+        DayTimeIntervalType()).contains(column.dataType)
+      assert((first._2, first._3) === (if (longTable) (Nil, sorted)
+        else (sorted.map(_.toInt), Nil)), column.dataType)
+      // An InSet is an IN over its set's values: Scala's set keeps one of two equal zeros, and
+      // either way it is the IN of the whole list, whatever order the set iterates in.
+      val set = values.toSet
+      assert(shape(InSet(column, set)) === first, column.dataType)
+    }
+  }
+
+  test("a floating IN keeps the values Spark's IN tells apart: one zero, one NaN") {
+    // Spark's answers, which the merged literals must keep: In compares through
+    // SQLOrderingUtil's order, InSet through its set and its NaN test, and both find -0.0 equal
+    // to 0.0 and a NaN of one payload equal to a NaN of another.
+    val payloadNaN = java.lang.Double.longBitsToDouble(0x7ff8000000000001L)
+    for (in <- Seq(
+        (v: Double, vs: Seq[Double]) => In(Literal(v), vs.map(Literal(_))).eval(),
+        (v: Double, vs: Seq[Double]) => InSet(Literal(v), vs.toSet[Any]).eval())) {
+      assert(in(-0.0, Seq(0.0)) === true)
+      assert(in(0.0, Seq(-0.0)) === true)
+      assert(in(Double.NaN, Seq(payloadNaN)) === true)
+      assert(in(payloadNaN, Seq(Double.NaN)) === true)
+      assert(in(1.0, Seq(0.0, Double.NaN)) === false)
+    }
+    // So the four patterns are two literals, and they count as two against the cap: with
+    // fourteen other values beside them, eighteen elements are sixteen literals, and fuse.
+    val values = (1 to 14).map(_.toDouble) ++ Seq(0.0, -0.0, Double.NaN, payloadNaN)
+    val compiled = VarkaExpressionCompiler.compilePredicate(
+      In(inDouble, values.map(Literal(_))), inOutput).toScala
+    assert(compiled.exists(_.specs.asScala.forall(_.fused)))
+    assert(compiled.get.fused.longLiterals.asScala.map(_.longValue).toSeq ===
+      ((1 to 14).map(v => java.lang.Double.doubleToRawLongBits(v.toDouble)) ++
+        Seq(0L, java.lang.Double.doubleToRawLongBits(Double.NaN))).sorted)
+  }
+
+  test("an empty IN list declines with its own reason") {
+    assert(declineReason(If(In(d, Nil), d, d2)) === "IN list is empty")
+    assert(declineReason(If(InSet(d, Set.empty[Any]), d, d2)) === "IN list is empty")
+  }
+
+  test("an IN value compiled off its type's lane declines rather than slot its literals there") {
+    // A value whose type says INT but which compiles onto the byte lane: slotted at the byte
+    // lane, the literal 300 would be 44 and match a byte 44. The guard declines it instead.
+    val intOnByteLane = If(
+      In(Relabeled(by, IntegerType), Seq(Literal(300), Literal(1))), d, d2)
+    assert(declineReason(intOnByteLane) === "an IN value off its type's lane")
+    // A floating type over an int-lane value: its bits compared as ints are not its equality.
+    val floatOnIntLane = If(In(Relabeled(d, FloatType), Seq(Literal(1.5f))), d, d2)
+    assert(declineReason(floatOnIntLane) ===
+      "one kernel holds one lane, and this mixes the INT and FLOAT lanes")
   }
 
   test("coalesce lowers onto the validity condition; guarded operands are columns") {
@@ -2483,7 +2630,7 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
 
 
   // ---------------------------------------------------------------------------------------------
-  // The long lane (VARKA-29): three types, comparisons only
+  // The long lane (VARKA-29): three types, their comparisons and IN
   // ---------------------------------------------------------------------------------------------
 
   private val l = AttributeReference("l", LongType)()
@@ -2700,15 +2847,38 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     assert(orMix.exists(_.fused.lane(VarkaEmitOptions.DEFAULTS) == LaneType.LONG))
   }
 
-  test("long arithmetic and IN stay declined: they are VARKA-104 and VARKA-102, not this one") {
+  test("long arithmetic stays declined: it is VARKA-104's") {
     val add = VarkaExpressionCompiler.compilePartial(
       Seq(out(DateAdd(d, Literal(1))), out(Add(l, Literal(1L)))), withLong).get
     assert(add.specs.asScala.toSeq === Seq(new FusedOutput(0), VarkaOutputSpec.RESIDUAL))
     assert(add.declines.asScala(1).reason === "unsupported expression")
+  }
+
+  test("a bigint IN beside a date comparison fuses both conjuncts at the long lane") {
     val in = VarkaExpressionCompiler.compilePredicate(
       And(GreaterThan(d, d2), In(l, Seq(Literal(1L), Literal(2L)))), withLong).get
-    assert(in.specs.asScala.toSeq.map(_.fused) === Seq(true, false))
-    assert(in.specs.get(1).decline.get.reason === "unsupported predicate")
+    assert(in.specs.asScala.forall(_.fused))
+    assert(in.fused.lane(VarkaEmitOptions.DEFAULTS) === LaneType.LONG)
+    assert(in.fused.longLiterals.asScala.toSeq === Seq(1L, 2L))
+  }
+
+  test("an IN element folds when it is a constant of the value's type, as coercion's cast is") {
+    // `l IN (5000000000, 42)` resolves with the int literal under a cast to BIGINT.
+    val folded = VarkaExpressionCompiler.compilePredicate(
+      In(l, Seq(Literal(5000000000L), Cast(Literal(42), LongType))), withLong).get
+    assert(folded.specs.asScala.forall(_.fused))
+    assert(folded.fused.longLiterals.asScala.toSeq === Seq(42L, 5000000000L))
+    // An element whose evaluation throws - an ANSI cast out of the int range - is not read: the
+    // row engine raises it.
+    val overflow = Cast(Literal(5000000000L), IntegerType, None, EvalMode.ANSI)
+    assert(declineReason(If(In(i, Seq(Literal(1), overflow)), d, d2)) ===
+      "IN list has a null or non-literal element")
+    // An element that is no constant stays declined.
+    assert(declineReason(If(In(i, Seq(Literal(1), Add(i, Literal(1)))), d, d2)) ===
+      "IN list has a null or non-literal element")
+    // A checked exception out of an element's evaluation declines the list like any other throw.
+    assert(declineReason(If(In(i, Seq(Literal(1), ThrowsChecked())), d, d2)) ===
+      "IN list has a null or non-literal element")
   }
 
   // --- VARKA-169: the emitter's size decline, taken at plan time -------------------------------
@@ -3152,5 +3322,32 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
         s"replaced=$replaced")
       assert(position.longLiterals.asScala.toSeq === Seq(0L, 1L, 32767L))
     }
+  }
+}
+
+object VarkaExpressionCompilerSuite {
+
+  /**
+   * A value whose type is `dataType` but which compiles as `replacement`, whatever that one's
+   * type: the compiler reads a `RuntimeReplaceable` through its replacement, so this puts a value
+   * on a lane other than its type's, which no analyzed plan does.
+   */
+  private case class Relabeled(replacement: Expression, override val dataType: DataType)
+    extends RuntimeReplaceable with InheritAnalysisRules {
+    override def parameters: Seq[Expression] = Seq(replacement)
+    override protected def withNewChildInternal(newChild: Expression): Expression =
+      copy(replacement = newChild)
+  }
+
+  /**
+   * A foldable INT constant whose evaluation throws a checked exception, as Scala code may
+   * without declaring it: an `IN` element the compiler evaluates must decline on it, not let it
+   * fail the plan.
+   */
+  private case class ThrowsChecked() extends LeafExpression with CodegenFallback {
+    override def foldable: Boolean = true
+    override def nullable: Boolean = false
+    override def dataType: DataType = IntegerType
+    override def eval(input: InternalRow): Any = throw new IOException("checked, from Scala")
   }
 }

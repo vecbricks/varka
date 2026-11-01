@@ -1529,7 +1529,7 @@ halving when a page exceeds sixteen megabytes and doubling below four, with a
 retry on a too-large page; that is the batch policy variable-width outputs will
 need when Item 3 produces strings. `InCodeGenerator` switches `IN` from a
 `lookupswitch` to a hash set at eight values, a tipping point it measured
-between five and ten for scalar code; this engine's `compileInList` sorts the
+between five and ten for scalar code; this engine's `compileIn` sorts the
 literals and compares, and the point where that chain loses to another
 membership test in lanes is a measurement not yet made.
 
@@ -2493,7 +2493,7 @@ over, at cache-write cost and with no new Vector API. BLU's frequency
 partitioning gives common values short codes and orders each partition so range
 predicates work on codes (pp. 2-3); its rule of a cheap redundant minimum and
 maximum check ahead of a long `IN` list (p. 4) is a one-rule change to
-`compileInList` that composes with batch bounds to skip the chain for a whole
+`compileIn` that composes with batch bounds to skip the chain for a whole
 batch, and its evaluate-once-over-the-dictionary is Items 16, 18 and 19. The
 Bloom paper's lane algorithm probes one hash per lane per iteration, gathers
 32-bit words, permutes finished lanes to the tail and refills with a masked
@@ -2558,7 +2558,7 @@ steppings these papers measured.
 4. Milestone 5 measures the OR-the-flags overflow form against range-derived
    guards on long multiply, and reads Data Blocks' 64-bit result as the
    expectation to beat.
-5. `compileInList` gains BLU's cheap bounds check ahead of the chain; the Bloom
+5. `compileIn` gains BLU's cheap bounds check ahead of the chain; the Bloom
    item carries Spark's recipe and its first arm.
 6. A per-shape time-to-tier-4 ladder and a batches-below-C2 counter join the
    cold-start benchmark; Kohn's remaining-time rule is a decline rule for tiny
@@ -5641,15 +5641,15 @@ declined by a recorded refusal (as row 503 does); items 101 and 119 are its reme
 
 ### Item 121. Generated files that concurrent pull requests do not hand-merge
 
-*Added 27 October 2026 on the owner's word.* `coverage.json`, `emitted_bytes.json`,
-`width_audit.json`, `types.tsv`, `census.tsv`, `casts_fused.tsv` and the docs table are each one
-file every type row regenerates, so nearly every merge of master into an open pull request
-conflicts in them, and the resolution is to take a side and regenerate by hand. Either regenerate
-them in CI on the merge result (a job that commits the regenerated files, or that fails a pull
-request whose files are stale with the command to run), or shard each by family or row so that two
-rows touch different files. **Done when** two pull requests that each add coverage rows merge with
-master in either order without a conflict in a generated file, and a stale file fails CI with its
-regeneration command.
+*Moved to milestone 8 as row 546 on 1 November 2026 by the owner's word.* *Added 27 October 2026 on
+the owner's word.* `coverage.json`, `emitted_bytes.json`, `width_audit.json`, `types.tsv`,
+`census.tsv`, `casts_fused.tsv` and the docs table are each one file every type row regenerates, so
+nearly every merge of master into an open pull request conflicts in them, and the resolution is to
+take a side and regenerate by hand. Either regenerate them in CI on the merge result (a job that
+commits the regenerated files, or that fails a pull request whose files are stale with the command
+to run), or shard each by family or row so that two rows touch different files. **Done when** two
+pull requests that each add coverage rows merge with master in either order without a conflict in a
+generated file, and a stale file fails CI with its regeneration command.
 
 ### Item 122. The option matrix only where a change can move it
 
@@ -5721,6 +5721,35 @@ where `ExtractANSIIntervalDays` fuses only inside `d + CAST(i AS INTERVAL DAY)`)
 finding becomes a row only when it serves the milestone's done-when. **Done when** `d + dt` over a
 stored `INTERVAL DAY` column fuses with a coverage row, a day beyond the date arm's guard declining
 to the row engine's error.
+
+### Item 127. Choose each CPU-dependent form on the executor that runs it
+
+*Added 1 November 2026 by the owner's word, from row 503's known limit (`m8/VARKA-503.md`, risk 5,
+on branch `varka-503-two-lane-decline`).* Three of milestone 8's choices depend on the CPU: row
+538's 64-bit division form (the host's AVX level), row 503's refusal of a long-driven filter
+condition at two long lanes on x86, and row 359a's decline of the 128-bit pair's filters on the same
+hosts. Each reads the driver's CPU once at planning (`VarkaHostIsa`,
+`HOST_TWO_LANE_MASKS_FALL_BACK`), resolves it into `VarkaSessionEmit` and ships it with the plan, so
+planning, EXPLAIN and every executor's compile agree and committed outputs are the same on every
+machine. Where the executors' vector width differs from the driver's, the choice is wrong for them:
+a driver at 128 bits declines filters that AVX2 or AVX-512 executors would run faster, and a wide or
+aarch64 driver lets two-lane x86 executors fuse filters that run the Vector API's Java fallback at
+about half the row path's speed. Answers are right either way. The item moves each choice to the
+executor that compiles the kernel: a two-lane refusal becomes the kernel's own decline, falling
+back by batch instead of being planned out; the division form keys the executor's shape cache by
+its own CPU reading; and the fusion report says where an executor chose differently from the
+driver's EXPLAIN. **Done when** a cluster whose driver and executors differ in vector width runs
+each executor's best form, shown by a test that plants a different host on the executor side, and
+the fusion report names the executor's choice.
+
+### Item 128. `round` and `bround` of an integral type at a negative scale
+
+*Added 1 November 2026 from `m8/READING_COMET.md`.* `round(i, -2)` and `bround(i, -2)` over
+`TINYINT` to `BIGINT` round to a power of ten that can leave the type: LEGACY wraps and ANSI
+raises. No milestone 8 row claims these forms over the narrow types (row 344a builds the integral
+`round` over `INT` and `BIGINT`), so they are a scope item rather than a row. **Done when** the
+forms fuse over every integral type with Spark's answers in LEGACY, ANSI and TRY, the wrap and the
+raise each a named case.
 
 ## 5. Ordering
 

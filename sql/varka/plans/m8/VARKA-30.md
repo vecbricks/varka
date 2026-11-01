@@ -232,7 +232,7 @@ them to constants (2.4).
 ### 2.3 The lowering per host
 
 The host is `convertsFallBack()` (`varka/VarkaEmitOptions.java:619-621`), already in the shape key,
-which 376's census confirms per runner class (item 0.14).
+once row 538 feeds it the host, which 376's census confirms per runner class (item 0.14).
 
 | form | AVX512DQ (laptop) | AVX2 (EPYC 7763) | NEON and SVE (Neoverse N2) |
 |---|---|---|---|

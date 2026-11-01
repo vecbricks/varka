@@ -120,6 +120,7 @@ final class VarkaEmitCost {
       case ConstDivide n -> name + '/' + n.laneType() + (n.divisor() < 0 ? "/neg" : "/pos");
       case BitOp n -> name + '/' + n.op() + '/' + n.laneType();
       case BitCount n -> name + '/' + n.laneType();
+      case VarkaVectorIR.MathUnary n -> name + '/' + n.fn() + '/' + n.laneType();
       // A failing guard collects into the batch's status and a nulling one clears its own word:
       // two lowerings, so the NULL mode is its own feature, the FAIL key unchanged beside it.
       case GuardedRange n -> name + (n.mode() == Overflow.NULL ? "/NULL/" : "/") + n.laneType();
@@ -140,6 +141,7 @@ final class VarkaEmitCost {
       // One lowering whatever their operands: the record name alone.
       case VarkaVectorIR.AddDays _, VarkaVectorIR.SubDays _, VarkaVectorIR.DateDiff _,
           VarkaVectorIR.GuardedDay _, VarkaVectorIR.WidenLane _, VarkaVectorIR.NarrowLane _,
+          VarkaVectorIR.WidenDecimal _,
           VarkaVectorIR.DayOfWeek _, VarkaVectorIR.WeekDay _, VarkaVectorIR.DayOfWeekIso _,
           VarkaVectorIR.NextDay _, VarkaVectorIR.ThursdayOf _, VarkaVectorIR.AddMonths _,
           VarkaVectorIR.Year _, VarkaVectorIR.Month _, VarkaVectorIR.DayOfMonth _,

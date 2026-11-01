@@ -1,0 +1,22 @@
+VARKA-342: signum's lowering, op counts (laptop, 30 October 2026)
+
+Command, on the branch varka-342-float-arith before its review-fix commit:
+  dev/varka_emit.sh "signum(x)" "abs(x)" "x > 0.0D" --columns x:double --table
+Scale: the emitter suite's op counts, the vector and mask invocations of the method, the
+column's load and the output's store included (abs: load, ABS, store = 3).
+
+| expression | defaults |
+|---|---|
+| `signum(x)` | 15 |
+| `abs(x)` | 3 |
+| `x > 0.0D` | declined: unsupported expression: (x > 0.0D) |
+
+The built form: IfElse(x < 0.0, -1.0, IfElse(x > 0.0 AND NOT (x = NaN), 1.0, x)), three
+compares in Spark's order, the connectives and two blends.
+
+Predicted, not measured: the candidate cheaper form, the bits of 1.0 ORed with x's sign bit and
+blended over x where x is neither zero nor NaN:
+  load x, reinterpret as long, AND the sign bit (scalar operand), OR the bits of 1.0 (scalar
+  operand), reinterpret as double, compare EQ 0.0, test IS_NAN, the mask OR, the blend, store
+  = 10 on the same scale, against 15. A prediction for the option arm's pair benchmark to
+  score; the op count is not the speed.

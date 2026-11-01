@@ -788,7 +788,8 @@ final class VarkaChronoCompiler {
       // interval (above) or one that does not.
       case VarkaVectorIR.ColumnRef _, VarkaVectorIR.DecimalColumn _, LiteralSlot _, GuardedDay _,
           VarkaVectorIR.GuardedRange _,
-          VarkaVectorIR.WidenLane _, VarkaVectorIR.NarrowLane _, VarkaVectorIR.DateDiff _,
+          VarkaVectorIR.WidenLane _, VarkaVectorIR.NarrowLane _, VarkaVectorIR.WidenDecimal _,
+          VarkaVectorIR.DateDiff _,
           VarkaVectorIR.DayOfWeek _, VarkaVectorIR.WeekDay _, DayOfWeekIso _, VarkaVectorIR.Year _,
           VarkaVectorIR.Month _, VarkaVectorIR.DayOfMonth _, VarkaVectorIR.Quarter _,
           VarkaVectorIR.DayOfYear _, VarkaVectorIR.TruncDateDynamic _, VarkaVectorIR.WeekOfYear _,
@@ -798,7 +799,7 @@ final class VarkaChronoCompiler {
           VarkaVectorIR.Or _, VarkaVectorIR.Not _, VarkaVectorIR.IsNotNull _,
           VarkaVectorIR.InRanges _, VarkaVectorIR.IntArith _, IntNeg _, VarkaVectorIR.ConstDivide _,
           VarkaVectorIR.BoundedDivide _, VarkaVectorIR.BitOp _, VarkaVectorIR.BitCount _,
-          VarkaVectorIR.CondValue _, VarkaVectorIR.BoolOutput _ ->
+          VarkaVectorIR.MathUnary _, VarkaVectorIR.CondValue _, VarkaVectorIR.BoolOutput _ ->
           new Rebuilt(node, false, false);
     };
     VarkaValueRange.Range range =

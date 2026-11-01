@@ -848,6 +848,7 @@ public final class VarkaHarnessStore {
               case VarkaEmitOption.Positional _ -> "positional";
               case VarkaEmitOption.FlagTag t -> "flag " + t.token() + " " + t.when();
               case VarkaEmitOption.CountTag t -> "count " + t.prefix();
+              case VarkaEmitOption.ChoiceTag t -> "choice " + t.prefix();
             })
             .append('|').append(option.text(VarkaEmitOptions.DEFAULTS));
         for (VarkaEmitOption.Arm arm : option.arms()) {

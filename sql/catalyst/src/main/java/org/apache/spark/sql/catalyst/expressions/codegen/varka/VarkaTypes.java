@@ -23,6 +23,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.function.BiFunction;
 
 import javax.annotation.Nullable;
@@ -218,21 +219,40 @@ public final class VarkaTypes {
      * row or {@code eval} gives for the type. A floating value's bits are its raw ones, so a
      * NaN's payload and a zero's sign survive the round trip.
      */
-    public long bits(Object sparkValue) {
+    public long bits(@Nullable Object sparkValue) {
       if (admission instanceof Admission.UpToPrecision) {
         throw unscaled();
       }
+      OptionalLong bits = laneBits(sparkValue);
+      if (bits.isEmpty()) {
+        String value = sparkValue == null ? "null" : "a " + sparkValue.getClass().getSimpleName();
+        throw VarkaErrors.illegalArgument(value + " is not a " + sql + " value on a lane");
+      }
+      return bits.getAsLong();
+    }
+
+    /**
+     * {@link #bits} for a value that need not be one of the type's: its lane bits, or empty for a
+     * null, for a value of another class, and for every decimal, whose lane bits are an unscaled
+     * value at a scale the type id does not carry. An {@code IN} list's literals are read through
+     * it, so a list the lane cannot hold declines where {@link #bits} would throw.
+     */
+    public OptionalLong laneBits(@Nullable Object sparkValue) {
+      if (sparkValue == null || admission instanceof Admission.UpToPrecision) {
+        return OptionalLong.empty();
+      }
+      LaneType lane = lane().orElse(null);
       return switch (sparkValue) {
-        case Boolean b when admission instanceof Admission.AsCondition -> b ? 1L : 0L;
-        case Float f when lane().orElse(null) == LaneType.FLOAT -> Float.floatToRawIntBits(f);
-        case Double d when lane().orElse(null) == LaneType.DOUBLE ->
-            Double.doubleToRawLongBits(d);
-        case Byte b when lane().orElse(null) == LaneType.BYTE -> b;
-        case Short h when lane().orElse(null) == LaneType.SHORT -> h;
-        case Integer i when lane().orElse(null) == LaneType.INT -> i;
-        case Long l when lane().orElse(null) == LaneType.LONG -> l;
-        default -> throw VarkaErrors.illegalArgument("a " + sparkValue.getClass().getSimpleName()
-            + " is not a " + sql + " value on a lane");
+        case Boolean b when admission instanceof Admission.AsCondition ->
+            OptionalLong.of(b ? 1L : 0L);
+        case Float f when lane == LaneType.FLOAT -> OptionalLong.of(Float.floatToRawIntBits(f));
+        case Double d when lane == LaneType.DOUBLE ->
+            OptionalLong.of(Double.doubleToRawLongBits(d));
+        case Byte b when lane == LaneType.BYTE -> OptionalLong.of(b);
+        case Short h when lane == LaneType.SHORT -> OptionalLong.of(h);
+        case Integer i when lane == LaneType.INT -> OptionalLong.of(i);
+        case Long l when lane == LaneType.LONG -> OptionalLong.of(l);
+        default -> OptionalLong.empty();
       };
     }
 
@@ -356,16 +376,9 @@ public final class VarkaTypes {
         case Admission.OnLane on -> Optional.empty();
         case Admission.UpToPrecision up -> {
           DecimalType d = (DecimalType) dataType;
-          if (d.scale() < 0) {
-            yield Optional.of(column + ": a negative scale is declined everywhere (the "
-                + "milestone plan's 2.8)");
-          }
-          if (!up.admits(d)) {
-            yield Optional.of(column + ": precision above " + up.maxPrecision() + " is row "
-                + up.widerRow() + "'s");
-          }
-          yield up.readerRow().map(row -> column + ": no operator over a decimal is built yet, "
-              + "row " + row + "'s");
+          Optional<String> unfit = unfitReason(up, d, column, "is row " + up.widerRow() + "'s");
+          yield unfit.isPresent() ? unfit : up.readerRow().map(row -> column
+              + ": no operator over a decimal is built yet, row " + row + "'s");
         }
         case Admission.AsCondition c -> Optional.of(column + " read as a value, which row "
             + c.valuesRow() + " builds; it is read as a condition");
@@ -374,6 +387,48 @@ public final class VarkaTypes {
         case Admission.Declined d -> Optional.of(column + ": " + d.decision());
       };
     });
+  }
+
+  /**
+   * Why a kernel cannot store an output of {@code type}, or empty where the decimal store writes
+   * it: the plan-time admission of a {@code WidenDecimal} root against its output's type,
+   * which the compiler asks where it wraps a decimal-valued root
+   * ({@code VarkaDecimalCompiler.outputRoot}), so a shape the store would write wrongly never
+   * fuses. The store writes a long
+   * and its sign extension into each slot, so it takes the precisions a long holds, the
+   * admission's {@link Admission.UpToPrecision#admits}, and refuses the others through the rules
+   * a column of the type is refused by ({@link #unfitReason}): a negative scale is declined
+   * everywhere, in a column's words, and a wider precision in the store's own, since the value
+   * does not fit the long a slot's low word holds and the two-word store is the row the table
+   * names ({@code widerRow}, 359).
+   * The reader's row does not matter here: the store needs no operator over a decimal column.
+   * The evaluator's allocator asks it again, as an assertion that no such output got through.
+   */
+  public static Optional<String> decimalOutputDeclineReason(DecimalType type) {
+    if (!(info(VarkaTypeId.DECIMAL).admission() instanceof Admission.UpToPrecision up)) {
+      throw VarkaErrors.illegalState("DECIMAL's admission is not by precision");
+    }
+    return unfitReason(up, type, "a " + type.simpleString() + " output", "does not fit the long "
+        + "a slot's low word holds, and its two-word store is row " + up.widerRow() + "'s");
+  }
+
+  /**
+   * Why a value of {@code type} has not {@code up}'s lane, naming it as {@code noun} ("a
+   * decimal(30,4) column", "... output"), or empty where it fits: a negative scale, declined
+   * everywhere, or a precision above the lane's, followed by the caller's {@code wider} reason.
+   * The rules of both a column ({@link #declineReason}) and an output
+   * ({@link #decimalOutputDeclineReason}), each giving its own reason for a wider precision.
+   */
+  private static Optional<String> unfitReason(Admission.UpToPrecision up, DecimalType type,
+      String noun, String wider) {
+    if (type.scale() < 0) {
+      return Optional.of(noun + ": a negative scale is declined everywhere (the milestone plan's "
+          + "2.8)");
+    }
+    if (!up.admits(type)) {
+      return Optional.of(noun + ": precision above " + up.maxPrecision() + " " + wider);
+    }
+    return Optional.empty();
   }
 
   private static final Map<VarkaTypeId, Info> TABLE = table();
