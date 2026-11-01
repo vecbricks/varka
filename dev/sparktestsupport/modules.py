@@ -112,6 +112,11 @@ varka_docs_regexes = (
     r"dev/varka_census\.py$",
     r"dev/varka_catalogue_move\.sh$",
     r"sql/varka/coverage\.json$",
+    # The generated files' merge driver and its check, and the per-row files it checks
+    # against the coverage table (VARKA-546).
+    r"dev/varka_generated_merge\.py$",
+    r"dev/varka_regen_generated\.sh$",
+    r"sql/varka/(width_audit|emitted_bytes)\.json$",
     r"sql/catalyst/src/main/scala/org/apache/spark/sql/catalyst/analysis/FunctionRegistry\.scala$",
 )
 

@@ -1,0 +1,10 @@
+# Generated files merged per key by dev/varka_generated_merge.py (VARKA-546), so that two
+# branches adding coverage rows never hand-merge them. The driver itself is set in the clone's
+# config by dev/varka_precommit.sh --install-hook; without it git merges these as text.
+coverage.json merge=varka-generated
+emitted_bytes.json merge=varka-generated
+width_audit.json merge=varka-generated
+types.tsv merge=varka-generated
+plans/m8/census.tsv merge=varka-generated
+plans/m8/casts.tsv merge=varka-generated
+plans/m8/casts_fused.tsv merge=varka-generated

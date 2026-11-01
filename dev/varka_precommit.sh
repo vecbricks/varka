@@ -226,6 +226,20 @@ if [ "${1:-}" = "--install-hook" ]; then
     '[ -x "$top/dev/varka_msg_check.py" ] || exit 0; exec "$top/dev/varka_msg_check.py" commit "$1"'
   install_hook pre-push \
     '[ -x "$top/dev/varka_prepush.sh" ] || exit 0; exec "$top/dev/varka_prepush.sh" "$@"'
+  # The merge driver for the generated files (VARKA-546), which sql/varka/.gitattributes names.
+  # Git runs it from the worktree's top, so it finds the script of the branch being merged into;
+  # a branch that predates the script falls back to git's own text merge. The docs file sits
+  # outside sql/varka, and a docs/.gitattributes would not be Varka-scoped, so its rule goes to
+  # the repository's info/attributes, which every worktree reads.
+  git config merge.varka-generated.name "Varka generated files, merged per key"
+  driver='if [ -x dev/varka_generated_merge.py ]; then dev/varka_generated_merge.py driver'
+  driver+=' %O %A %B %P; else git merge-file -L ours -L base -L theirs %A %O %B; fi'
+  git config merge.varka-generated.driver "$driver"
+  attributes="$(git rev-parse --git-common-dir)/info/attributes"
+  mkdir -p "$(dirname "$attributes")"
+  rule='docs/sql-varka.md merge=varka-generated'
+  grep -qxF "$rule" "$attributes" 2>/dev/null || echo "$rule" >> "$attributes"
+  echo "installed the varka-generated merge driver and $attributes"
   exit 0
 fi
 
