@@ -489,6 +489,9 @@ job; 369's count arm; row 433. Stays as it is: the steering A/B (opt-in, `VARKA-
    every lane's landing, which 2.10 forbids. The caveat: refit A prices the floating lanes only
    after 341's kernels merge.
 
+   *1 November 2026, by the owner's word:* (a): two refits, A in 352a and B at the close, each
+   paired.
+
 ## 9. Done when
 
 Row 352's text holds, with the corrections above: every type's descriptor has no `Owed` site; the IR
