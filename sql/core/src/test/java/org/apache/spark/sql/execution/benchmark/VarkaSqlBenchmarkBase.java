@@ -421,12 +421,12 @@ public abstract class VarkaSqlBenchmarkBase extends VarkaBenchmarkBase {
   /**
    * Checks that {@code varka} fuses {@code query} as much as {@code expected} says, the
    * section's {@link Fusion} class, and notes in the results file each section that fuses and
-   * how. A row that changes how a section fuses, from nothing to its null tests or from its
-   * null tests to the whole section, sets the section's new class, so a later row that fuses
-   * more of a section than listed fails the run rather than timing a kernel under the label of
-   * the row path, and a section that fuses less than listed fails too. {@link
-   * #FUSE_CHECK_PROPERTY} set to {@code false} lifts the check for the run that measures a row,
-   * and every section that fuses is still noted with its class.
+   * how. A row that changes how a section fuses, from nothing to its null tests, from its null
+   * tests to part or the whole of the section, or from part to the whole, sets the section's new
+   * class, so a later row that fuses more of a section than listed fails the run rather than
+   * timing a kernel under the label of the row path, and a section that fuses less than listed
+   * fails too. {@link #FUSE_CHECK_PROPERTY} set to {@code false} lifts the check for the run that
+   * measures a row, and every section that fuses is still noted with its class.
    */
   protected final void requireBaseline(
       SparkSession varka, String title, String query, Fusion expected) {

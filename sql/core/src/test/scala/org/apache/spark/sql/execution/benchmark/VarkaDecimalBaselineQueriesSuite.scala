@@ -24,7 +24,7 @@ import scala.jdk.CollectionConverters._
 import org.apache.spark.sql.QueryTest
 import org.apache.spark.sql.catalyst.expressions.{Abs, AttributeReference, BinaryArithmetic,
   BinaryComparison, Cast, Expression, In, UnaryMinus}
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaEmitOptions, VarkaMatrix}
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaMatrix.PinsDefaults
 import org.apache.spark.sql.catalyst.plans.logical.Filter
 import org.apache.spark.sql.execution.VarkaSharedSessions
 import org.apache.spark.sql.types.{BooleanType, DataType, DecimalType, TimeType}
@@ -173,15 +173,14 @@ class VarkaDecimalBaselineQueriesSuite extends QueryTest with VarkaSharedSession
     }
   }
 
-  test("each section of the decimal baseline fuses as its class lists it") {
+  test("each section of the decimal baseline fuses as its class lists it", PinsDefaults) {
     // The benchmark's own check, made here too, so a change to how a section fuses fails a pull
     // request rather than the runner dispatch that times it. The benchmark plans under the
-    // emitter's default options, so an option matrix configuration, under which a section may
-    // fuse differently, does not run it; nor does the run that lifts the benchmark's check.
+    // emitter's default options, so the classes pin the defaults, and an option matrix
+    // configuration, under which a section may fuse differently, cancels the test; so does the
+    // run that lifts the benchmark's check.
     assume(VarkaSqlBenchmarkBase.fuseCheck(),
       s"-D${VarkaSqlBenchmarkBase.FUSE_CHECK_PROPERTY}=false times the sections fused")
-    assume(VarkaMatrix.base == VarkaEmitOptions.DEFAULTS,
-      "the sections' classes are those of the emitter's default options")
     withTable(100) {
       for (s <- VarkaDecimalBaselineBenchmark.sections().asScala) {
         withClue(s.title) {
@@ -192,9 +191,8 @@ class VarkaDecimalBaselineQueriesSuite extends QueryTest with VarkaSharedSession
     }
   }
 
-  test("the fusion classes tell a row operator and a declined entry from a fused section") {
-    assume(VarkaMatrix.base == VarkaEmitOptions.DEFAULTS,
-      "the classes below are those of the emitter's default options")
+  test("the fusion classes tell a row operator and a declined entry from a fused section",
+      PinsDefaults) {
     withTable(100) {
       def fusion(query: String): Optional[VarkaSqlBenchmarkBase.Fusion] =
         VarkaSqlBenchmarkBase.fusion(varkaSpark.sql(query).queryExecution.executedPlan)
