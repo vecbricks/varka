@@ -159,7 +159,8 @@ JIT can fold into the comparison. A scan of 20 million cached rows took about 12
 way, but that is one run of one shape. On these numbers the change would pay where values
 change often.
 
-No Spark ticket proposes this yet. The nearest ones are about the same cost from other sides:
+[SPARK-60786](https://issues.apache.org/jira/browse/SPARK-60786) proposes it. Two tickets
+meet the same cost from other sides:
 [SPARK-60048](https://issues.apache.org/jira/browse/SPARK-60048) keys whole-stage codegen's
 split decision by a digest that ignores literal values, since a literal that changes on every
 run, such as `current_timestamp()`, makes the stage decide afresh each time; and
