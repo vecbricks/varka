@@ -312,11 +312,15 @@ is `L2I` then the narrow store of the int lane. Both are written once for 343's
 
 **The baseline first, its own pull request on the unchanged code:**
 `VarkaIntegralCastBaselineBenchmark` in sql/core, on `VarkaFloatingBaselineBenchmark`'s pattern
-(two arms, a fuse check, `benchmark.yml` on the EPYC 7763 at 256 and 128 bits): `CAST(i AS
-TINYINT)` in the three modes, `CAST(l AS SMALLINT)` and `CAST(y AS BIGINT)`, `CAST(b AS INT)` and
-`WHERE CAST(i AS BOOLEAN)`, `CAST(i AS INTERVAL YEAR)` and `CAST(dt AS BIGINT)`, without and with
-one row in ten null. The fuse check expects no Varka node in those sections; a control section,
-`CAST(i AS BIGINT)`, already fuses and is labelled so, its check inverted.
+(two arms, a fuse check, `benchmark.yml` on the EPYC 7763 at 256 and 128 bits), as built:
+`CAST(... AS TINYINT)` from an `INT` in the three modes, LEGACY over `i`, ANSI over `j` and
+`try_cast` over `k`, with LEGACY's `CAST(k AS TINYINT)` as the `try_cast`'s twin over the same
+values; `CAST(l AS SMALLINT)` under LEGACY and `CAST(y AS BIGINT)`; `CAST(b AS INT)`; the bare
+`WHERE CAST(i AS BOOLEAN)` under `spark.sql.constraintPropagation.enabled=false`;
+`CAST(m AS INTERVAL YEAR)` and `CAST(dt AS BIGINT)`; each without and with one row in ten null
+(`i_n` to `dt_n`). Section 5 item 1 says why each reads its column. The fuse check expects no
+Varka node in those sections; a control section, `CAST(i AS BIGINT)`, already fuses and is
+labelled so, its check inverted.
 
 Predictions, registered before the build:
 
@@ -331,6 +335,33 @@ Predictions, registered before the build:
 ## 5. Order, files and size
 
 1. **The baseline** (4), its own pull request.
+   *31 October 2026, as built:* `VarkaIntegralCastBaselineBenchmark` and its queries suite,
+   under the shared fuse check (`VarkaSqlBenchmarkBase.requireBaseline`, lifted by
+   `-Dvarka.baseline.fuseCheck=false`). Section 4 reads a column per cast, not `i` alone, since a
+   value out of range raises under ANSI and, for the interval cast, in every mode, and an exception
+   ends the run: LEGACY's `CAST(i AS TINYINT)` reads `i`, the whole int range, so nearly every
+   row wraps; ANSI's reads `j`, inside the byte range; `try_cast` reads `k`, past the byte range
+   at one row in a hundred, half on each side (Spark's TRY path raises and catches an exception
+   per row out of range, so a larger share would time mostly exceptions). A LEGACY `CAST(k AS
+   TINYINT)` reads `k` too, at both densities, and section 4's prediction 1 is scored against that
+   pair, the two modes over the same values, not against LEGACY over `i`, nearly every row of
+   which is out of range. `CAST(m AS INTERVAL YEAR)` reads `m`, inside `[-178956970, 178956970]`
+   and at both ends of it. `CAST(l AS SMALLINT)` runs in
+   LEGACY, which wraps, over a `l` spread over every bit length. `y` is a `TINYINT` (3.5's `y1`),
+   so `CAST(y AS BIGINT)` is the narrow load at the long width of 2.5, not a year-month cast.
+   `dt` is an `INTERVAL DAY TO SECOND` of both signs with microseconds, so `CAST(dt AS BIGINT)`
+   is the truncating division by `10^6` and a negative value with a fraction truncates toward
+   zero; every value is under `2^31` seconds, inside 2.4's `2^52` microsecond guard, so 332b's
+   measurement times that kernel rather than declined batches. The filter times the bare
+   `WHERE CAST(i AS BOOLEAN)` at both densities, under `spark.sql.constraintPropagation.enabled`
+   off on both sessions: with it on, the optimizer infers `i_n IS NOT NULL` from the cast over
+   `i_n`, and that conjunct fuses into a `VarkaFilterColumnarToRow` under Spark's `Filter` while
+   the cast declines. The setting changes only constraint inference, so both arms still time
+   Spark's own plan of the bare cast, and both densities time one condition. `i` is zero at one
+   row in eight, so the filter drops some rows. A probe planned every section on an Arrow-cached
+   Varka session: each declines but the control `CAST(i AS BIGINT)`, which fuses and is the one
+   section listed as fusing. The results files at both widths come from the EPYC runners and are
+   committed before it merges.
 2. **332a, the integral and boolean casts**: the target table, the narrow load and store at the long
    width, the narrowings in LEGACY and ANSI, the tests, the selects (`CondValue` at narrow lanes),
    the sweeps of narrow and boolean sources, the SMT sections for `bigint`, coverage rows, the
