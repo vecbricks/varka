@@ -497,6 +497,13 @@ trait VarkaSparkDifferential extends QueryTest with VarkaSharedSessions with Var
     }
 
   /**
+   * Waits until no warm-up is queued or running, counting a wait that times out in `counts`, so
+   * that a warm-up a run queued cannot finish inside the next composition and land in its tally.
+   */
+  protected def awaitWarmupIdle(counts: WarmedCounts): Unit =
+    if (!VarkaKernelWarmup.awaitIdle(warmupWaitMillis)) counts.notIdle += 1
+
+  /**
    * Runs `body` with the warm-up's deadline at `seconds`, restoring what was set before. The
    * warmed arm shortens it: about one small kernel in fifteen never gets its verdict and waits
    * out the whole deadline, a minute in production, and a release at any deadline hands the

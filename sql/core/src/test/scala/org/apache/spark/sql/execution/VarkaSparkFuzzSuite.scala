@@ -339,11 +339,15 @@ class VarkaSparkFuzzSuite extends VarkaSparkDifferential {
         val firstResult = warmedDisagreement(c, later, counts)
         val outcomes = VarkaKernelWarmup.recentOutcomes().asScala.filterNot(before.contains)
         // The checked run is a shape of its own (the options ride the shape key), so it takes
-        // the handover too; its counts are not the arm's.
+        // the handover too; its counts are not the arm's, but a wait that timed out is.
         val result = firstResult.filter { kind =>
           // A disagreement over the other data is probed over that data.
           val over = if (kind.startsWith("over other data")) fixtureSql(later) else c.fixture
-          val wrap = configurationWrap(c, over)(warmedDisagreement(c, later, new WarmedCounts))
+          val checkedCounts = new WarmedCounts
+          val wrap = configurationWrap(c, over)(checkedRerun(c, later, checkedCounts))
+          counts.notIdle += checkedCounts.notIdle
+          // The checked run's warm-ups finish here, not inside the next composition's tally.
+          awaitWarmupIdle(counts)
           if (wrap) wraps += 1
           !wrap
         }
@@ -413,6 +417,23 @@ class VarkaSparkFuzzSuite extends VarkaSparkDifferential {
         s"only ${counts.handedOver} of ${counts.compositions} compositions were handed over")
     }
     assert(failures.isEmpty, failures.mkString("\n"))
+  }
+
+  /**
+   * The warmed arm's run of `c` again, for [[configurationWrap]] to make under the check: an
+   * agreement counts only if the run reached its kernel, since `warmedDisagreement` finds nothing
+   * in a shape that never left the row path. A run that did not is made once more, the shape now
+   * warmed or warming, and one that still did not is a disagreement of its own, never a wrap.
+   */
+  private def checkedRerun(
+      c: Case, later: Vector[Vector[String]], counts: WarmedCounts): Option[String] = {
+    val first = warmedDisagreement(c, later, counts)
+    val found = if (first.isDefined || counts.kernelRuns > 0) first
+      else warmedDisagreement(c, later, counts)
+    found.orElse {
+      if (counts.kernelRuns > 0) None
+      else Some("with checkIntOverflow on, no run reached the kernel")
+    }
   }
 
   // ---- the expected-errors list (VARKA-319) -------------------------------------------------
