@@ -454,3 +454,113 @@ verdict moved. The laptop has AVX-512, where `x86.ad` admits `AbsVL` (`evpabsq`)
 `MulVL` as one `vpmullq`; item 0.7's reading of the JDK is that the EPYC 7763 has neither, so its
 `ABS` cell is expected to read `F` and its multiply `I` as the emulation, which only the runner
 columns and the assembly can confirm.
+
+### 10.2 Step 2: the baseline addition
+
+*31 October 2026, on the unchanged code at `f0c1ab11c45`. The runner results at 256 and 128 bits
+come from `benchmark.yml` on the EPYC 7763 after the pull request, spliced into the class's
+committed files.*
+
+**What was built.** `VarkaDecimalBaselineBenchmark` gains 36 sections after its 52, each with no
+nulls and with one row in ten null: section 4's six shapes at `(9, 2)` and `(18, 4)`, and
+`VARKA-349.md` 4's three filters and three projections at `(9, 2)`, which that plan lands in this
+addition. The table gains `w9`, a `DECIMAL(9, 4)`, `w18`, a `DECIMAL(10, 2)`, and `x8`, a
+`DECIMAL(8, 2)`, after its existing columns. `VarkaDecimalBaselineQueriesSuite` checks the new
+columns' types, the 88 result types, that the rescaled comparisons' common types are
+`DECIMAL(11, 4)`, both sides cast, and `DECIMAL(18, 4)`, only `w18` cast, that 349's three
+filters compare at `DECIMAL(10, 2)`, `DECIMAL(12, 4)` and `DECIMAL(18, 4)`, that none of the
+eight `IN` filters casts its column, and that no arithmetic operand of a filter over the columns
+with no null answers a null, and runs every section on both sessions. 349's projections are its
+arithmetic as decimal values (`x + y`, `x - w`, `x8 * y`), the forms its prediction 2 times after
+157.
+
+**What the probe found.** Each section's `fuses` flag is set from a plan of it on an Arrow-cached
+Varka session. Of the 36, eight fuse whole on the unchanged code: `x <=> y` at both precisions,
+which 347's reader compiles at one scale, and the projected `x < y`, through row 27's boolean
+output. Eighteen fuse in part: the rescaled comparison, `-x < y`, `abs(x) < y` and 349's three
+filters. Spark infers `IS NOT NULL` of every column those filters read, 347's reader fuses the
+null tests as a filter of their own, and Spark's `Filter` applies the decimal condition above
+it, so those sections' varka on arm times a null-test kernel under the row path's condition, and
+the spark row path arm is their baseline. The four `IN` filters infer no null test and the six
+projections write a decimal, so those ten run on the row path. Section 4's sentence that the
+baseline is "on the unchanged code" holds for the varka off arm only.
+
+**The three-valued fuse check.** A section counted as fused when its plan held any Varka node,
+so the eighteen above would have read as fused and 348a's fusing of the condition itself would
+have moved no flag. `VarkaSqlBenchmarkBase` now has a `Fusion` class per section: `NONE`, no
+Varka node; `NULL_TESTS`, Varka filters holding only `IS NOT NULL` and `IS NULL` conjuncts while
+a row `FilterExec`, or a `ProjectExec` that computes, evaluates the rest; and `WHOLE`, a Varka
+node and no row operator evaluating any of the section. A plan that is none of the three, Varka
+fusing more than null tests under a row operator that still computes, has no class and fails
+the check whatever the section expects. The decimal class states a class for each of its 88
+sections, from the probe's plans: 12 `WHOLE` (the four equal-scale comparisons at precisions 9
+and 18 that row 347 fused, and the eight above), 18 `NULL_TESTS` and 58 `NONE`. The run fails
+when a plan's class differs from the section's, so 348a moves the eighteen to `WHOLE` as it
+fuses them, and the results file notes the class of each section that fuses.
+
+**The fuse check after review.** A row operator is now every operator outside Varka except a
+leaf (the cached scan), an exchange, a transition between columns and rows, the whole-stage
+codegen node and its input adapter, and a `ProjectExec` that only passes columns through or
+renames them; so an aggregate, a sort, a window, an expand, a generate or a join above a Varka
+node takes a plan out of `WHOLE`, and an operator nobody listed fails the check rather than
+reading as fused. A fourth class, `PARTIAL`, is a plan with no row operator but a Varka
+projection that leaves an entry to its per-row fallback: the check compiles the projection again
+as the node does, since the node keeps its classification private, and finds the entries its
+kernel declined. No baseline section is `PARTIAL` today. A batch the kernel cannot serve and
+hands to the row path is decided when the plan runs, so no plan class shows it. The floating,
+floating arithmetic and both `TIMESTAMP_NTZ` baselines now state a class per section too, the
+boolean overload is gone, and a probe on an Arrow-cached Varka session found each of their
+sections where its flag had it: the sections flagged as fusing are `WHOLE` and the rest `NONE`,
+so none of them hid a null-test fusion. `VarkaDecimalBaselineQueriesSuite` asserts each
+section's class in every build under the emitter's default options.
+
+**The fuse check after the second review.** It corrects four points of the paragraph above. The
+check no longer compiles a Varka projection again: the node's own classification, the compile that
+serves its EXPLAIN, is visible to `sql` and read in place, so the check records no compile under
+the compile observer. A Varka projection that only forwards or renames columns, which the rule's
+pre stage plans over a Varka filter whose output it narrows, compiles to no kernel and now counts
+as computing nothing, where its empty classification had read as `PARTIAL`. Under adaptive
+execution the plan's wrappers are leaves and the columnar rules run as each stage is created, so
+the search had read every adaptive plan as `NONE`; it now reads an `AdaptiveSparkPlanExec` through
+its final plan and a query stage through its plan, and exempts adaptive execution's shuffle read.
+And a row operator decides first: with one, a plan is `NULL_TESTS` only when every Varka node is a
+null-test filter, so a Varka projection beside a row operator gives no class, never `PARTIAL`. The
+floating, floating arithmetic and `TIMESTAMP_NTZ` suites now assert each section's class in every
+build too, under `PinsDefaults` as the decimal and `TIMESTAMP_NTZ` arithmetic suites do, and every
+listed class matched its plan.
+
+### 10.3 Step 4: 348a, the conditions
+
+*1 November 2026, on branch `varka-348-conditions` from the census branch (`218de0b8219`).*
+
+**The foundation, built first so that row 349a can branch from it.** `VarkaDecimalCompiler` has
+the record `Scaled(unscaled, type)`, its compact constructor holding the long lane, a precision
+from 1 to 18 and a non-negative scale; `value()`, one switch over the forms, which folds a
+literal tree first, reads a column through its leaf and a widening or rescaling cast through
+`rescale`; and `rescale(Scaled, k, sink)`, the identity at `k = 0`, a literal's multiplied
+constant in a slot of its own, and otherwise `IntArith(MUL, WRAP, u, slot(10^k))`, throwing at
+`p + k > 18`. A comparison's operands now come from `value()` on each side. The 17 rows of row
+347 compile to the trees they compiled to before, so no existing shape's bytes move.
+
+**`decimal64.smt2`** is rendered by `VarkaProofFiles` from Spark's `Decimal.POW_10` and
+`DecimalColumn.MAX_LONG_PRECISION`, in 346 checks: the rescale exact and within `p + k` digits
+at each of the 153 pairs with `p + k <= 18`, the one-past check at each of the 18
+precisions, the comparison lemma at each of the 170 pairs of
+scales, the negation, both forms of `abs`, and their agreement on every long. Z3 holds it in
+0.15 s and cvc5 in 0.47 s on the laptop, far under the plan's ten seconds per solver.
+
+### Departures from the plan
+
+- **The rescale's one-past witness is not a wrap at every precision.** Section 3 item 3 says that
+  at `p + k = 19` "the wrap has a witness". It has one at every `p` from 2 to 18, but at `p = 1`,
+  `k = 18` the largest product is `9 * 10^18`, below `2^63`, so no lane wraps; the product is
+  past 18 digits, which the type rule declines before any multiply is built. The file states,
+  per pair, which of the two it shows.
+- **The hand-built-tree guard holds the scales equal, not the types.** Section 2.3 says that "two
+  different types after `value()` decline". Two values of one scale compare as their unscaled
+  longs whatever their precisions, and row 347 accepted one scale at two precisions, so the
+  guard declines two scales only.
+- **`IN` and `InSet` are not in 348a.** Row 497's single `IN` arm exists only as a plan
+  (`varka-497-499-plan`, #1179), so, as section 5 item 3 allows, 348a lands without them, writes
+  no fifth arm, and leaves out the coverage rows `d9 IN (1.25, 2.5, 3)` and the eleven-literal
+  `InSet`; a follow-up adds the reader case to 497's arm.

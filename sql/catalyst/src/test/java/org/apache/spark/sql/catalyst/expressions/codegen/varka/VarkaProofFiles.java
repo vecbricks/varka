@@ -93,6 +93,7 @@ final class VarkaProofFiles {
     files.put("narrow_deferred.smt2", narrowDeferred());
     files.put("ym_divide.smt2", ymDivide());
     files.put("decimal_slot.smt2", decimalSlot());
+    files.put("decimal64.smt2", decimal64());
     files.put("refinement.smt2", VarkaRefinementFile.render());
     return files;
   }
@@ -2789,6 +2790,105 @@ final class VarkaProofFiles {
             "(assert (bvsge b #x0000000000000000))",
             "(assert (not (= (dec.unsigned lo b (bvmul b #x0000000000000002)) "
                 + "(dec.signed lo b))))"));
+    return out.toString();
+  }
+
+  // -----------------------------------------------------------------------------------------
+  // The 64-bit decimal's rescale, comparison, negation and abs (VARKA-348).
+  // -----------------------------------------------------------------------------------------
+
+  /**
+   * {@code decimal64.smt2}: the lemmas the long lane's decimal forms rest on, over integers, every
+   * multiplier a constant rendered from Spark's {@code Decimal.POW_10} up to
+   * {@link VarkaVectorIR.DecimalColumn#MAX_LONG_PRECISION}. The rescale by {@code 10^k} of a value
+   * within {@code p} digits does not wrap and stays within {@code p + k} digits wherever
+   * {@code p + k <= 18}, and at {@code p + k = 19} the file says per pair whether it can wrap; a
+   * comparison of the rescaled long is the comparison of the two rationals; and within 18 digits
+   * the negation does not wrap and both forms of {@code abs} are the magnitude.
+   */
+  static String decimal64() {
+    int max = VarkaVectorIR.DecimalColumn.MAX_LONG_PRECISION;
+    long[] pow = org.apache.spark.sql.types.Decimal.POW_10();
+    var out = new StringBuilder(LICENSE);
+    out.append("""
+        ; The 64-bit decimal (VarkaDecimalCompiler, VARKA-348). A DECIMAL(p, s) value on the long
+        ; lane is an unscaled long u, the value u / 10^s, with |u| <= 10^p - 1 on every valid lane
+        ; (the leaf's slot check for a column, decimal_slot.smt2). The compiler builds:
+        ;
+        ;   rescale by k digits:  IntArith(MUL, WRAP, u, 10^k), when p + k <= 18     jlong.mul
+        ;   a comparison:         Compare(op, u1 * 10^k, u2), s2 = s1 + k            <, <=, =
+        ;   negation:             IntNeg(WRAP, u)                                   jlong.neg
+        ;   abs, the blend:       IfElse(u < 0, IntNeg(WRAP, u), u)
+        ;   abs, lanewise ABS:    Math.abs's definition, u < 0 ? -u : u, wrapping
+        ;
+        ; Every claim is linear, since every multiplier is a constant. The rescale is proven at
+        ; every (p, k) with p + k <= 18; a narrower operand's range is inside the widest one's, so
+        ; the comparison lemma is stated at the widest left operand each k allows.
+        """);
+    out.append(rendered("QF_NIA"));
+    out.append("""
+
+        (define-fun dec.in ((u Int) (b Int)) Bool (and (<= (- b) u) (<= u b)))
+        (define-fun dec.absBlend ((u Int)) Int (ite (< u 0) (jlong.neg u) u))
+        (define-fun dec.absLanewise ((u Int)) Int (jlong.wrap (ite (< u 0) (- u) u)))
+        """);
+    String u = "(declare-const u Int)";
+    for (int p = 1; p <= max; p++) {
+      long b = pow[p] - 1;
+      for (int k = 1; p + k <= max; k++) {
+        long nb = pow[p + k] - 1;
+        check(out, "p = " + p + ", k = " + k + ": |u| <= " + b + " gives u * " + pow[k]
+            + " with no wrap, within " + (p + k) + " digits", "unsat", List.of(u,
+                "(assert (dec.in u " + b + "))",
+                "(assert (not (and (= (jlong.mul u " + pow[k] + ") (* u " + pow[k] + ")) "
+                    + "(dec.in (* u " + pow[k] + ") " + nb + "))))"));
+      }
+      int k = max + 1 - p;
+      BigInteger top = BigInteger.valueOf(b).multiply(BigInteger.TEN.pow(k));
+      boolean wraps = top.compareTo(BigInteger.valueOf(Long.MAX_VALUE)) > 0;
+      check(out, "p = " + p + ", k = " + k + ", one digit past the lane: "
+          + (wraps ? "some u within the precision wraps"
+              : "no u wraps yet, but the product is past 18 digits, which the type rule "
+                  + "declines"), "sat", List.of(u,
+              "(assert (dec.in u " + b + "))",
+              wraps ? "(assert (not (= (jlong.mul u " + BigInteger.TEN.pow(k) + ") (* u "
+                  + BigInteger.TEN.pow(k) + "))))"
+                  : "(assert (not (dec.in (* u " + BigInteger.TEN.pow(k) + ") "
+                      + (pow[max] - 1) + ")))"));
+    }
+    String u12 = "(declare-const u1 Int) (declare-const u2 Int)";
+    for (int k = 1; k < max; k++) {
+      long b1 = pow[max - k] - 1;
+      long b2 = pow[max] - 1;
+      for (int s1 = 0; s1 + k <= max; s1++) {
+        long d1 = pow[s1];
+        long d2 = pow[s1 + k];
+        // u1 / d1 op u2 / d2, both denominators positive, is u1 * d2 op u2 * d1.
+        String lhs = "(* u1 " + d2 + ")";
+        String rhs = "(* u2 " + d1 + ")";
+        String code = "(jlong.mul u1 " + pow[k] + ")";
+        check(out, "k = " + k + ", scales " + s1 + " and " + (s1 + k) + ": <, <= and = of u1 * "
+            + pow[k] + " and u2 are those of u1 / 10^" + s1 + " and u2 / 10^" + (s1 + k),
+            "unsat", List.of(u12,
+                "(assert (and (dec.in u1 " + b1 + ") (dec.in u2 " + b2 + ")))",
+                "(assert (not (and (= (< " + code + " u2) (< " + lhs + " " + rhs + ")) "
+                    + "(= (<= " + code + " u2) (<= " + lhs + " " + rhs + ")) "
+                    + "(= (= " + code + " u2) (= " + lhs + " " + rhs + ")))))"));
+      }
+    }
+    long b = pow[max] - 1;
+    check(out, "|u| <= " + b + " gives a negation with no wrap", "unsat", List.of(u,
+        "(assert (dec.in u " + b + "))", "(assert (not (= (jlong.neg u) (- u))))"));
+    check(out, "and the long lane's minimum, outside the bound, negates to itself", "sat",
+        List.of(u, "(assert (= u jlong.MIN))", "(assert (= (jlong.neg u) u))"));
+    check(out, "|u| <= " + b + " gives abs as the blend u < 0 ? -u : u equal to |u|, within the "
+        + "precision", "unsat", List.of(u, "(assert (dec.in u " + b + "))",
+            "(assert (not (and (= (dec.absBlend u) (abs u)) (dec.in (dec.absBlend u) " + b
+                + "))))"));
+    check(out, "and as the lanewise ABS", "unsat", List.of(u, "(assert (dec.in u " + b + "))",
+        "(assert (not (= (dec.absLanewise u) (abs u))))"));
+    check(out, "the two abs forms agree on every long", "unsat", List.of(u,
+        "(assert (jlong.in u))", "(assert (not (= (dec.absLanewise u) (dec.absBlend u))))"));
     return out.toString();
   }
 
