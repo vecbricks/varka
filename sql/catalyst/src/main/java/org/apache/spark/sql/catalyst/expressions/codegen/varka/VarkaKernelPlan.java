@@ -131,13 +131,15 @@ public final class VarkaKernelPlan {
       }
       // A narrow value fills the int species of the long species' width, as an int one does, so
       // the kernel converts between lanes (VARKA-332): a narrow column read as a value, and any
-      // other narrow node but a narrowing at its store. A column read for its word alone is not.
+      // other narrow node. A narrowing to a narrow type at its store counts too: it stores a
+      // narrow species of twice the long lanes, which the loop bound of a kernel that converts
+      // between lanes leaves room for, so its loop body stores whole (`emitNarrowTypeStore`).
+      // A column read for its word alone is not.
       for (VarkaVectorIR root : roots) {
         mixed |= !VarkaVectorIR.narrowValuesIn(root).isEmpty();
       }
       for (VarkaVectorIR node : nodes) {
-        mixed |= node.laneType().isNarrow() && !(node instanceof VarkaVectorIR.ColumnRef)
-            && !storeNarrowings.contains(node);
+        mixed |= node.laneType().isNarrow() && !(node instanceof VarkaVectorIR.ColumnRef);
       }
     }
     return new VarkaKernelPlan(Optional.empty(), drive, lanes, mixed, Set.copyOf(storeNarrowings),

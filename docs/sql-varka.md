@@ -651,8 +651,8 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `CAST(s1 AS TINYINT)` | `integralCast` | `s1 BETWEEN -128 AND 127` | the low byte under the legacy mode; under ANSI a value past the byte range declines and the row engine raises CAST_OVERFLOW; exhaustive | vector |
 | `CAST(i AS TINYINT)` | `integralCast` | `i BETWEEN -128 AND 127` | the int narrowed at its store; checked under ANSI; the wrap and the range compare proven in casts.smt2 | vector |
 | `CAST(i AS SMALLINT)` | `integralCast` | `i BETWEEN -32768 AND 32767` | the short twin; casts.smt2 | vector |
-| `CAST(l AS TINYINT)` | `integralCast` | `l BETWEEN -128 AND 127` | the bigint narrowed at its store, L2I and the byte store; checked under ANSI; casts.smt2 | per-lane: compare to mask, mask logic, mask broadcast, mask test |
-| `CAST(l AS SMALLINT)` | `integralCast` | `l BETWEEN -32768 AND 32767` | the short twin; casts.smt2 | per-lane: compare to mask, mask logic, mask broadcast, mask test |
+| `CAST(l AS TINYINT)` | `integralCast` | `l BETWEEN -128 AND 127` | the bigint narrowed at its store, L2I and the byte store; checked under ANSI; casts.smt2 | per-lane: compare to mask, mask logic, mask broadcast, mask test, load or store |
+| `CAST(l AS SMALLINT)` | `integralCast` | `l BETWEEN -32768 AND 32767` | the short twin; casts.smt2 | per-lane: compare to mask, mask logic, mask broadcast, mask test, load or store |
 | `CAST(b AS TINYINT)` | `integralCast` |  | 1 where true, 0 where false, null where null, in the byte lane under the native arm; every leaf state in the exhaustive suite | vector |
 | `CAST(b AS SMALLINT)` | `integralCast` |  | the short twin; exhaustive | vector |
 | `CAST(b AS INT)` | `integralCast` |  | the int lane; exhaustive | vector |

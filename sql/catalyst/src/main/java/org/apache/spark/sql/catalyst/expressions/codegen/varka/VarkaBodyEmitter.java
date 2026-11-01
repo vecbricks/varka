@@ -1046,10 +1046,12 @@ final class VarkaBodyEmitter {
    * A narrow root of a kernel driven at the int lane: {@code [int vector] -> []}, one or two
    * bytes a row at {@code (long) i * stride}, converted with {@code I2B} or {@code I2S} into the
    * narrow species the widening load reads - part 0 holds the group's lanes whatever its width -
-   * and stored whole in a loop body where that species is no wider than a group, under the mask
-   * of its first {@code lanes} lanes otherwise and in an epilogue. The truncation is Spark's
-   * {@code CAST(int AS TINYINT)} under {@code LEGACY}, which is what a {@code TINYINT}
-   * expression's result is.
+   * and stored whole in a loop body where that species is no wider than an int group, under the
+   * mask of its first {@code lanes} lanes otherwise and in an epilogue. In a kernel driven at the
+   * long lane the same holds of the int group of the long width, whose loop bound leaves room for
+   * it; AVX2 has no masked byte or short store, so a masked one in the loop scalarises. The
+   * truncation is Spark's {@code CAST(int AS TINYINT)} under {@code LEGACY}, which is what a
+   * {@code TINYINT} expression's result is.
    */
   private static void emitNarrowTypeStore(
       CodeBuilder cb, Lane stored, Analysis analysis, Slots s, int o) {
@@ -1078,12 +1080,17 @@ final class VarkaBodyEmitter {
     cb.loadConstant(stored.byteStride);
     cb.lmul();
     cb.getstatic(BYTE_ORDER, "LITTLE_ENDIAN", BYTE_ORDER);
-    if (s.epilogue || speciesLanes > analysis.lanesOf(Lane.INT) || analysis.lane == Lane.LONG) {
+    // In a kernel driven at the long lane the group is the low half of the int species, and the
+    // store is whole in the loop only where the loop bound leaves room for the whole species:
+    // the kernel converts between lanes, which every narrow store at the long lane makes it
+    // (`VarkaKernelPlan.of`), and its lane count is baked, so that the species is the int
+    // width's own rather than the preferred one. The upper half's rows are the next lane
+    // group's, which that group stores over, as `emitLowHalfStore` does (VARKA-332).
+    boolean wholeFits = analysis.lane != Lane.LONG || (analysis.mixed() && analysis.lanes != 0);
+    if (s.epilogue || speciesLanes > analysis.lanesOf(Lane.INT) || !wholeFits) {
       // The mask is not the epilogue's alone: a narrow species wider than the int group writes
       // past the group's own rows, and in the last iteration there is no next group to write
       // over them - so a store of such a species is always under the mask of the group's lanes.
-      // In a kernel driven at the long lane the group is the low half of the int species, so
-      // its narrow store is always under the mask too (VARKA-332).
       cb.getstatic(stored.vector, species, VECTOR_SPECIES);
       cb.loadConstant(0);
       cb.iload(s.lanes);

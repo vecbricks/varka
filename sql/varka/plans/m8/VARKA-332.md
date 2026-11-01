@@ -476,10 +476,14 @@ What was built, per item of section 5 step 2:
   narrowing a narrow value - and declines every other narrow node: a narrow literal (open point
   3), narrow arithmetic, a narrow choice beside a bigint. The int narrowing away from a store
   (`CAST(i AS TINYINT) < l`, `CAST(CAST(i AS SMALLINT) AS BIGINT)`) is the shift pair's wrap at
-  the int lane, the lowering the walk already had; review finding 4 of 1 November admitted it. The load reads twice the long lanes of the narrow type into the int
-  species, then `I2L`; the kernel is a mixed one, so its loop bound already covers the whole int
-  vector the load reads. A narrowing at a root converts with `L2I` and stores through the narrow
-  species under the group's mask; away from a root it is `L2I` and the shift pair's wrap. The part
+  the int lane, the lowering the walk already had; review finding 4 of 1 November admitted it.
+  The load reads twice the long lanes of the narrow type into the int species, then `I2L`; the
+  kernel is a mixed one, so its loop bound already covers the whole int vector the load reads. A
+  narrowing at a root converts with `L2I` and stores through the narrow species of the int
+  width; a narrow store makes the kernel a mixed one too, so the store is whole in the loop body
+  and masked only in the epilogue (review finding 5: AVX2 has no masked byte or short store, and
+  the masked form scalarised the loop), and masked throughout where no lane count is baked. Away
+  from a root it is `L2I` and the shift pair's wrap. The part
   form at the long width is not built: a byte column at two long lanes (128 bits) declines by name
   ("a BYTE column has no load at 2 long lanes"), the decline section 7 lists.
 - **The narrowings in LEGACY and ANSI**: `NarrowLane(g(x), target)`, `g` a `FAIL` range guard under
