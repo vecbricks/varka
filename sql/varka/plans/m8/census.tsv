@@ -31,7 +31,7 @@ or	Or	predicateExpressions	in		bool	bool	bool	bool	done	331,27	fused as a condit
 <	LessThan	predicateExpressions	in		bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bool	bool,byte,short,int,bigint,float,double,date,ntz,time,ym,dt	bool,byte,short,float,double,dec,ntz	semantics	341,348,359,329,347	Spark's NaN ordering on floats; dec to precision 18 at one scale fuses (347) and counts fused with 359's wider ones (2.8)
 <=	LessThanOrEqual	predicateExpressions	in		bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bool	bool,byte,short,int,bigint,float,double,date,ntz,time,ym,dt	bool,byte,short,float,double,dec,ntz	semantics	341,348,359,329,347	Spark's NaN ordering on floats; dec to precision 18 at one scale fuses (347) and counts fused with 359's wider ones (2.8)
 !	Not	predicateExpressions	in		bool	bool		bool	plumbing	331,27	alias of not
-abs	Abs	mathExpressions	in		byte,short,int,bigint,float,double,dec,ym,dt	byte,short,int,bigint,float,double,dec,ym,dt	byte,short,ym	byte,short,float,double,dec	semantics	330,104,103,342,348,359	the minimum value overflows: wraps or throws
+abs	Abs	mathExpressions	in		byte,short,int,bigint,float,double,dec,ym,dt	byte,short,int,bigint,float,double,dec,ym,dt	byte,short,float,double,ym	byte,short,float,double,dec	semantics	330,104,103,342,348,359	the minimum value overflows: wraps or throws
 greatest	Greatest	mathExpressions	in		bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	byte,short,bigint,float,double,date,ntz,time,ym,dt	bool,byte,short,float,double,dec,ntz	semantics	333,341,348,359,329	NaN is the greatest float
 least	Least	mathExpressions	in		bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	byte,short,bigint,float,double,date,ntz,time,ym,dt	bool,byte,short,float,double,dec,ntz	semantics	333,341,348,359,329	NaN is the greatest float
 rand	Rand	mathExpressions	out	nondeterministic: seeded per partition, its answer depends on row order							
@@ -54,7 +54,7 @@ cos	Cos	mathExpressions	in		double	double		double	ulp	367,356	Math
 sec	Sec	mathExpressions	in		double	double		double	ulp	367,356	1 / Math.cos
 cosh	Cosh	mathExpressions	in		double	double		double	ulp	367,357	Math
 conv	Conv	mathExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-degrees	ToDegrees	mathExpressions	in		double	double		double	plumbing	342	Math.toDegrees is one multiply, bit-exact
+degrees	ToDegrees	mathExpressions	in		double	double	double	double	done	342	Math.toDegrees is one multiply, bit-exact
 e	EulerNumber	mathExpressions	out	a constant per query: folded to a literal before Varka sees it							
 exp	Exp	mathExpressions	in		double	double		double	ulp	367,358	StrictMath
 expm1	Expm1	mathExpressions	in		double	double		double	ulp	367,358	StrictMath
@@ -68,37 +68,37 @@ log1p	Log1p	mathExpressions	in		double	double		double	ulp	367,358	StrictMath
 log2	Log2	mathExpressions	in		double	double		double	ulp	367,358	StrictMath.log over a constant
 ln	Log	mathExpressions	in		double	double		double	ulp	367,358	StrictMath
 mod	Remainder	mathExpressions	in		byte,short,int,bigint,float,double,dec	byte,short,int,bigint,float,double,dec		byte,short,float,double,dec	semantics	30,95,104,346,349,363	integral is semantics (zero divisor); floating by the one-FMA remainder (346)
-negative	UnaryMinus	mathExpressions	in		byte,short,int,bigint,float,double,dec,ym,dt	byte,short,int,bigint,float,double,dec,ym,dt	byte,short,int,ym	byte,short,float,double,dec	semantics	330,104,103,342,348,359	the minimum value overflows
+negative	UnaryMinus	mathExpressions	in		byte,short,int,bigint,float,double,dec,ym,dt	byte,short,int,bigint,float,double,dec,ym,dt	byte,short,int,float,double,ym	byte,short,float,double,dec	semantics	330,104,103,342,348,359	the minimum value overflows
 pi	Pi	mathExpressions	out	a constant per query: folded to a literal before Varka sees it							
 pmod	Pmod	mathExpressions	in		byte,short,int,bigint,float,double,dec	byte,short,int,bigint,float,double,dec		byte,short,float,double,dec	semantics	30,104,346,363	integral is semantics (item 33's sign rule; pmod(-1, Int.MinValue) is Int.MaxValue, SPARK-59934); floating by the one-FMA remainder (346)
 positive	UnaryPositive	mathExpressions	in		byte,short,int,bigint,float,double,dec,ym,dt	byte,short,int,bigint,float,double,dec,ym,dt		byte,short,float,double,dec	plumbing	333	rewritten to its child
 pow	Pow	mathExpressions	in		double	double		double	ulp	367,358	StrictMath; fused behind the guard on fdlibm's weak branch, its exact exponents as exact nodes (358)
 power	Pow	mathExpressions	in		double	double		double	ulp	367,358	alias of pow
-radians	ToRadians	mathExpressions	in		double	double		double	plumbing	342	Math.toRadians is one multiply, bit-exact
+radians	ToRadians	mathExpressions	in		double	double	double	double	done	342	Math.toRadians is one multiply, bit-exact
 rint	Rint	mathExpressions	in		double	double		double	semantics	344	round half even to an integer, the 2^52 construction
 round	Round	mathExpressions	in		byte,short,int,bigint,float,double,dec	byte,short,int,bigint,float,double,dec		byte,short,float,double,dec	semantics	344,346,351,363	HALF_UP; integral and decimal are semantics, double by the tie test over the shortest decimal for scales 0 to 22, a band declined (346)
 truncate	Truncate	mathExpressions	in		byte,short,int,bigint,float,double,dec	byte,short,int,bigint,float,double,dec		byte,short,float,double,dec	semantics	344,346,351,363	ROUND_DOWN to a scale; integral and decimal are semantics, double as round (346)
 sign	Signum	mathExpressions	in		double,ym,dt	double		double	plumbing	342	exact: a compare and a blend
-signum	Signum	mathExpressions	in		double,ym,dt	double		double	plumbing	342	alias of sign
+signum	Signum	mathExpressions	in		double,ym,dt	double	double	double	plumbing	342	alias of sign
 sin	Sin	mathExpressions	in		double	double		double	ulp	367,356	Math
 csc	Csc	mathExpressions	in		double	double		double	ulp	367,356	1 / Math.sin
 sinh	Sinh	mathExpressions	in		double	double		double	ulp	367,357	Math
-sqrt	Sqrt	mathExpressions	in		double	double		double	plumbing	342	IEEE 754 rounds sqrt correctly, so a lane is bit-exact
+sqrt	Sqrt	mathExpressions	in		double	double	double	double	done	342	IEEE 754 rounds sqrt correctly, so a lane is bit-exact
 tan	Tan	mathExpressions	in		double	double		double	ulp	367,356	Math
 cot	Cot	mathExpressions	in		double	double		double	ulp	367,356	1 / Math.tan
 tanh	Tanh	mathExpressions	in		double	double		double	ulp	367,357	Math
 width_bucket	WidthBucket	mathExpressions	in		double,time,ym,dt	bigint		double	semantics	344	bucket arithmetic over doubles
-+	Add	mathExpressions	in		byte,short,int,bigint,float,double,dec,ym,dt	byte,short,int,bigint,float,double,dec,ym,dt	byte,short,int,ym	byte,short,float,double,dec	semantics	330,104,103,342,349,360	integral overflow modes; decimal result scale; date and timestamp sums are other classes
--	Subtract	mathExpressions	in		byte,short,int,bigint,float,double,dec,ym,dt	byte,short,int,bigint,float,double,dec,ym,dt	byte,short,int,ym	byte,short,float,double,dec	semantics	330,104,103,342,349,360	date, timestamp and time differences are other classes
-*	Multiply	mathExpressions	in		byte,short,int,bigint,float,double,dec	byte,short,int,bigint,float,double,dec	byte,short,int	byte,short,float,double,dec	semantics	330,95,104,342,349,361,362	fused for int in `year(d) * 2`; interval products are other classes
-/	Divide	mathExpressions	in	declined dec: owner's decision, 14 October 2026	double	double		double	semantics	342	zero divisor null or error; decimal division is out of milestone 8
++	Add	mathExpressions	in		byte,short,int,bigint,float,double,dec,ym,dt	byte,short,int,bigint,float,double,dec,ym,dt	byte,short,int,float,double,ym	byte,short,float,double,dec	semantics	330,104,103,342,349,360	integral overflow modes; decimal result scale; date and timestamp sums are other classes
+-	Subtract	mathExpressions	in		byte,short,int,bigint,float,double,dec,ym,dt	byte,short,int,bigint,float,double,dec,ym,dt	byte,short,int,float,double,ym	byte,short,float,double,dec	semantics	330,104,103,342,349,360	date, timestamp and time differences are other classes
+*	Multiply	mathExpressions	in		byte,short,int,bigint,float,double,dec	byte,short,int,bigint,float,double,dec	byte,short,int,float,double	byte,short,float,double,dec	semantics	330,95,104,342,349,361,362	fused for int in `year(d) * 2`; interval products are other classes
+/	Divide	mathExpressions	in	declined dec: owner's decision, 14 October 2026	double	double	double	double	done	342	zero divisor null or error; decimal division is out of milestone 8
 div	IntegralDivide	mathExpressions	in	declined dec: owner's decision, 14 October 2026	byte,short,int,bigint,ym,dt	bigint		byte,short	semantics	30,104,103	zero divisor null or error; over INT a long-lane divide over two widening casts (corrects item 33); a decimal div divides decimals, out of milestone 8
 %	Remainder	mathExpressions	in		byte,short,int,bigint,float,double,dec	byte,short,int,bigint,float,double,dec		byte,short,float,double,dec	semantics	30,95,104,346,349,363	integral is semantics (zero divisor); floating by the one-FMA remainder (346)
-try_add	TryAdd	mathExpressions	in		byte,short,int,bigint,float,double,dec,ym,dt	byte,short,int,bigint,float,double,dec,ym,dt	byte,short,int	byte,short,float,double,dec	semantics	330,104,342,349,360	overflow gives null; over ym and dt it is `TryEval`, which no row builds (`m9/SCOPE.md` item 125)
-try_divide	TryDivide	mathExpressions	in	declined dec: owner's decision, 14 October 2026	double	double		double	semantics	342	zero divisor gives null; decimal division is out of milestone 8
+try_add	TryAdd	mathExpressions	in		byte,short,int,bigint,float,double,dec,ym,dt	byte,short,int,bigint,float,double,dec,ym,dt	byte,short,int,float,double	byte,short,float,double,dec	semantics	330,104,342,349,360	overflow gives null; over ym and dt it is `TryEval`, which no row builds (`m9/SCOPE.md` item 125)
+try_divide	TryDivide	mathExpressions	in	declined dec: owner's decision, 14 October 2026	double	double	double	double	done	342	zero divisor gives null; decimal division is out of milestone 8
 try_mod	TryMod	mathExpressions	in		byte,short,int,bigint,float,double,dec	byte,short,int,bigint,float,double,dec		byte,short,float,double,dec	semantics	30,104,346,363	floating by the one-FMA remainder (346)
-try_subtract	TrySubtract	mathExpressions	in		byte,short,int,bigint,float,double,dec,ym,dt	byte,short,int,bigint,float,double,dec,ym,dt	byte,short,int	byte,short,float,double,dec	semantics	330,104,342,349,360	overflow gives null; over ym and dt it is `TryEval`, which no row builds (`m9/SCOPE.md` item 125)
-try_multiply	TryMultiply	mathExpressions	in		byte,short,int,bigint,float,double,dec	byte,short,int,bigint,float,double,dec	byte,short	byte,short,float,double,dec	semantics	330,104,342,349,361,362	overflow gives null
+try_subtract	TrySubtract	mathExpressions	in		byte,short,int,bigint,float,double,dec,ym,dt	byte,short,int,bigint,float,double,dec,ym,dt	byte,short,int,float,double	byte,short,float,double,dec	semantics	330,104,342,349,360	overflow gives null; over ym and dt it is `TryEval`, which no row builds (`m9/SCOPE.md` item 125)
+try_multiply	TryMultiply	mathExpressions	in		byte,short,int,bigint,float,double,dec	byte,short,int,bigint,float,double,dec	byte,short,float,double	byte,short,float,double,dec	semantics	330,104,342,349,361,362	overflow gives null
 unhex	Unhex	mathExpressions	out	STRING input or output: owner's decision, 14 October 2026							
 randstr	RandStr	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026							
 try_to_binary	TryToBinary	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026							
