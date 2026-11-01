@@ -920,13 +920,13 @@ final class Analysis {
           }
         }
         case IntArith n -> {
-          if (options.checkIntOverflow() && n.mode() == Overflow.FAIL
+          if (checksIntOverflow(n) && n.mode() == Overflow.FAIL
               && (n.op() != IntOp.MUL || n.laneType().isNarrow())) {
             refuse(node, Refusal.INT_OVERFLOW);
           }
         }
         case IntNeg n -> {
-          if (options.checkIntOverflow() && n.mode() == Overflow.FAIL) {
+          if (checksIntOverflow(n) && n.mode() == Overflow.FAIL) {
             refuse(node, Refusal.INT_OVERFLOW);
           }
         }
@@ -1019,7 +1019,7 @@ final class Analysis {
     for (VarkaVectorIR parent : topoOrder) {
       // A wrapping narrow `abs` at the int lane leaves 128 for -128, which no reader may take:
       // it is not congruent-safe as an operand, so it reduces its own result wherever it is.
-      if (parent instanceof IntNeg n && n.abs() && loweredUnchecked(n.laneType(), n.mode())) {
+      if (parent instanceof IntNeg n && n.abs() && loweredUnchecked(n, n.laneType())) {
         wrapAt.add(parent);
       }
       boolean ring = isNarrowRing(parent);
@@ -1048,8 +1048,8 @@ final class Analysis {
    */
   private boolean isNarrowRing(VarkaVectorIR node) {
     return switch (node) {
-      case IntArith n -> loweredUnchecked(n.laneType(), n.mode());
-      case IntNeg n -> !n.abs() && loweredUnchecked(n.laneType(), n.mode());
+      case IntArith n -> loweredUnchecked(n, n.laneType());
+      case IntNeg n -> !n.abs() && loweredUnchecked(n, n.laneType());
       // A blend picks lanes and so commutes with the reduction: a narrow pick of two unreduced
       // arms reduces once, where its own reader needs it, rather than once in each arm.
       case IfElse n -> n.laneType().isNarrow();
@@ -1069,9 +1069,43 @@ final class Analysis {
     };
   }
 
-  /** Whether a node of {@code lane} declared {@code mode} wraps in the emitted kernel. */
-  private boolean loweredUnchecked(VarkaVectorIR.LaneType lane, Overflow mode) {
-    return lane.isNarrow() && (mode == Overflow.WRAP || !options.checkIntOverflow());
+  /** Whether {@code node}, of {@code lane}, wraps in the emitted kernel. */
+  private boolean loweredUnchecked(VarkaVectorIR node, VarkaVectorIR.LaneType lane) {
+    return lane.isNarrow() && !checksIntOverflow(node);
+  }
+
+  /**
+   * Whether {@code node} is emitted with its overflow check: it is one whose emission reads
+   * {@link VarkaEmitOptions#checkIntOverflow} ({@link #readsCheckIntOverflow}), and the option is
+   * on. Every read of the option asks it: the {@code FAIL} refusals, the check's scratch in
+   * {@link Slots} and {@link #loweredUnchecked}.
+   */
+  boolean checksIntOverflow(VarkaVectorIR node) {
+    return options.checkIntOverflow() && readsCheckIntOverflow(node);
+  }
+
+  /**
+   * Whether {@code node}'s emission depends on {@link VarkaEmitOptions#checkIntOverflow}: an int
+   * add, subtract, multiply or negation in Spark's ANSI or TRY evaluation ({@code FAIL} or
+   * {@code NULL}), whose overflow check the option emits or leaves out. The option's reads go
+   * through it - the check's scratch in {@link Slots}, and whether a narrow node reduces as a
+   * ring node ({@link #loweredUnchecked}) - and {@link Refusal#INT_OVERFLOW} is its {@code FAIL}
+   * half. A {@code WRAP} node has no check to skip, and neither has a floating division: its
+   * {@code FAIL} or {@code NULL} mode is the zero test, which the option does not read.
+   */
+  static boolean readsCheckIntOverflow(VarkaVectorIR node) {
+    return (node instanceof IntArith arith && arith.mode() != Overflow.WRAP
+        && !arith.laneType().isFloating())
+        || (node instanceof IntNeg neg && neg.mode() != Overflow.WRAP);
+  }
+
+  /** Whether a node under {@code roots} is one {@link #readsCheckIntOverflow} names. */
+  static boolean anyReadsCheckIntOverflow(List<VarkaVectorIR> roots) {
+    var reached = new HashSet<VarkaVectorIR>();
+    for (VarkaVectorIR root : roots) {
+      collectReached(root, reached);
+    }
+    return reached.stream().anyMatch(Analysis::readsCheckIntOverflow);
   }
 
   /** Adds {@code node} and everything under it to {@code into}, each node once. */

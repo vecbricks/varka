@@ -222,6 +222,31 @@ public final class VarkaLoopEmitter {
   }
 
   /**
+   * The all-null shortcut's column sets for {@code outputs}, one per output, or null where the
+   * masked driver emits none: {@link VarkaBodyEmitter#shortcutColumnSets}, the sets both driver
+   * forms emit their test from. A batch in which every output reads a column that is null on
+   * every row returns before any guard runs, which the verdict beside {@link #guardsForTest} has
+   * to know.
+   */
+  static long[] shortcutColumnSetsForTest(List<VarkaVectorIR> outputs, int numInputs,
+      int numLiterals, VarkaEmitOptions options) {
+    outputs = List.copyOf(outputs);
+    return VarkaBodyEmitter.shortcutColumnSets(false, outputs,
+        analyze(outputs, numInputs, numLiterals, options));
+  }
+
+  /**
+   * Whether a kernel over {@code outputs} is emitted differently with
+   * {@link VarkaEmitOptions#checkIntOverflow} on and off: some node under them is one whose
+   * emission reads the option ({@link Analysis#readsCheckIntOverflow}, the test the emitter's own
+   * reads go through). For a differential that runs such a kernel with the check on where its
+   * configuration turns it off, and every other kernel as the configuration has it.
+   */
+  public static boolean readsCheckIntOverflowForTest(List<VarkaVectorIR> outputs) {
+    return Analysis.anyReadsCheckIntOverflow(List.copyOf(outputs));
+  }
+
+  /**
    * The plan's reading of the drivers under {@code planSize}: the two drivers built by
    * themselves over the first grouping of {@code outputs} and measured ({@link #driverAlone}),
    * for the suite that holds them to the drivers of the built class, byte for byte.

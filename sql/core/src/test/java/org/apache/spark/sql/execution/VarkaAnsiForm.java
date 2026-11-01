@@ -23,6 +23,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.Supplier;
 
 import scala.jdk.javaapi.CollectionConverters;
@@ -273,7 +274,7 @@ public final class VarkaAnsiForm {
         + "the left side rejected (m9/SCOPE.md item 96)";
     for (String sql : List.of("make_date(2021, i, 1)", "add_months(d, i)", "d + ym", "d - ym",
         "ym - ymm", "ym + ym", "i + 1", "year(d) + i", "y1 + y2", "y1 - y2", "y1 * y2", "-y1",
-        "abs(y1)", "s1 + s2", "s1 - s2", "s1 * s2", "-s1", "abs(s1)", "x / x2")) {
+        "abs(y1)", "s1 + s2", "s1 - s2", "s1 * s2", "-s1", "abs(s1)", "x / x2", "ntz + dt")) {
       out.put(sql + "\t" + FALSE_AND, unqualified);
     }
     return Map.copyOf(out);
@@ -291,7 +292,8 @@ public final class VarkaAnsiForm {
       Map.entry("CAST_OVERFLOW", "d + CAST(i AS INTERVAL DAY)"),
       Map.entry("DATETIME_FIELD_OUT_OF_BOUNDS.WITHOUT_SUGGESTION", "make_date(2021, i, 1)"),
       Map.entry("DIVIDE_BY_ZERO", "x / x2"),
-      Map.entry("INTERVAL_ARITHMETIC_OVERFLOW.WITH_SUGGESTION", "ym - ymm"));
+      Map.entry("INTERVAL_ARITHMETIC_OVERFLOW.WITH_SUGGESTION", "ym - ymm"),
+      Map.entry("java.lang.ArithmeticException", "ntz + dt"));
 
   /**
    * The condition Spark's interpreter raises evaluating {@code expression} over the fixture's
@@ -316,7 +318,14 @@ public final class VarkaAnsiForm {
     return out;
   }
 
-  private static Optional<String> condition(Supplier<List<InternalRow>> values) {
+  /**
+   * The condition {@code values} raises, or empty. Spark's one overflow with no condition, the
+   * TIMESTAMP_NTZ arithmetic's long overflow from {@code java.lang.Math}'s exact arithmetic, is
+   * named by its class, as {@code VarkaMaybeThrows.raised} names an error with no condition for
+   * the end-to-end suite ({@link #isExactLongOverflow}); any other error is the harness's own
+   * and is thrown.
+   */
+  static Optional<String> condition(Supplier<List<InternalRow>> values) {
     try {
       values.get();
       return Optional.empty();
@@ -324,8 +333,35 @@ public final class VarkaAnsiForm {
       if (e instanceof SparkThrowable t && t.getCondition() != null) {
         return Optional.of(t.getCondition());
       }
+      if (e instanceof ArithmeticException a && isExactLongOverflow(a)) {
+        return Optional.of(e.getClass().getName());
+      }
       throw e;
     }
+  }
+
+  /** The methods of {@code java.lang.Math} whose long overflow Spark raises with no condition. */
+  private static final Set<String> EXACT_LONG_METHODS =
+      Set.of("addExact", "subtractExact", "multiplyExact", "negateExact");
+
+  /**
+   * Whether {@code e} is the overflow of {@code Math}'s exact long arithmetic: the message
+   * {@code long overflow}, thrown from one of {@link #EXACT_LONG_METHODS}. Or the JVM's
+   * preallocated {@code ArithmeticException}, with no message and no stack trace: once such a
+   * site has trapped often enough, C2 throws that shared instance in place of the overflow
+   * ({@code inline_math_mathExact}, under the default {@code OmitStackTraceInFastThrow}), as
+   * {@code VarkaMaybeThrows.sameError} records. That instance is also what a hot implicit
+   * division by zero throws, so it cannot be told apart; a {@code / by zero} with its message,
+   * an int overflow, or a long overflow thrown anywhere but {@code Math} is the harness's own.
+   */
+  static boolean isExactLongOverflow(ArithmeticException e) {
+    StackTraceElement[] trace = e.getStackTrace();
+    if (e.getMessage() == null) {
+      return trace.length == 0;
+    }
+    return e.getMessage().equals("long overflow") && trace.length > 0
+        && trace[0].getClassName().equals("java.lang.Math")
+        && EXACT_LONG_METHODS.contains(trace[0].getMethodName());
   }
 
   /**

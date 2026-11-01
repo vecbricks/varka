@@ -25,7 +25,7 @@ import org.apache.spark.internal.Logging
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.{Attribute, BasePredicate, Expression, IsNotNull, LeafExpression, NamedExpression, Predicate, PredicateHelper, SortOrder, UnsafeProjection}
-import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenFallback, VarkaConjunctOrder}
+import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenFallback, VarkaConjunctOrder, VarkaExpressionCompiler}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaSelectionBitmap
 import org.apache.spark.sql.catalyst.plans.physical.Partitioning
 import org.apache.spark.sql.catalyst.types.DataTypeUtils
@@ -120,6 +120,14 @@ private[sql] trait VarkaFilterExecBase extends UnaryExecNode with PredicateHelpe
   // plan (VARKA-313).
   @transient private lazy val fusionLines =
     VarkaFusionReport.predicateLines(wholeCondition.getOrElse(condition), child.output,
+      VarkaColumnarToRowExec.emitOptions(sessionEmit), sessionEmit.familiesOff)
+
+  // The predicate the tasks compile (`VarkaFilterEvaluator.predicate`), compiled once on the
+  // driver as they compile it, for the Spark differential's overflow pin
+  // (`VarkaSparkDifferential.pinnedOptions`, which is why it is visible to `sql`): the kernel the
+  // plan holds, rather than a compile of its own that could drift from the node's.
+  @transient private[sql] lazy val classification =
+    VarkaExpressionCompiler.compilePredicate(condition, child.output,
       VarkaColumnarToRowExec.emitOptions(sessionEmit), sessionEmit.familiesOff)
 
   // The question for a filter is "why didn't my predicate fuse?", answered per conjunct.

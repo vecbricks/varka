@@ -889,9 +889,9 @@ final class Slots {
           // nullsFromValidInputs for it and `emit` then builds none, so its dense slots are planned
           // and never used. Harmless, and worth knowing before counting dense locals against a
           // method budget.
-          // A floating division's zero test reads its divisor off the stack and parks nothing.
-          if (analysis.options.checkIntOverflow() && node instanceof IntArith n
-              && n.mode() != Overflow.WRAP && !n.laneType().isFloating()) {
+          // A floating division's zero test reads its divisor off the stack and parks nothing:
+          // checksIntOverflow leaves a floating node out.
+          if (node instanceof IntArith && analysis.checksIntOverflow(node)) {
             s.intArithTmp.put(node, new int[] {slot++, slot++, slot++});
           }
           // The magic-number division builds its floor by hand, which needs the quotient, its
