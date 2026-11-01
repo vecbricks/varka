@@ -47,12 +47,17 @@ import org.apache.spark.sql.catalyst.expressions.NamedExpression;
 import org.apache.spark.sql.catalyst.expressions.codegen.PartialVarkaProjection;
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaOutputSpec;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions;
+import org.apache.spark.sql.execution.BaseSubqueryExec;
+import org.apache.spark.sql.execution.CoalesceExec;
 import org.apache.spark.sql.execution.ColumnarToRowTransition;
 import org.apache.spark.sql.execution.InputAdapter;
 import org.apache.spark.sql.execution.LeafExecNode;
+import org.apache.spark.sql.execution.LimitExec;
 import org.apache.spark.sql.execution.ProjectExec;
 import org.apache.spark.sql.execution.RowToColumnarTransition;
+import org.apache.spark.sql.execution.ReusedSubqueryExec;
 import org.apache.spark.sql.execution.SparkPlan;
+import org.apache.spark.sql.execution.UnionExec;
 import org.apache.spark.sql.execution.VarkaColumnarToRowExec;
 import org.apache.spark.sql.execution.VarkaFilterColumnarToRowExec;
 import org.apache.spark.sql.execution.VarkaFilterExec;
@@ -62,6 +67,7 @@ import org.apache.spark.sql.execution.adaptive.AQEShuffleReadExec;
 import org.apache.spark.sql.execution.adaptive.AdaptiveSparkPlanExec;
 import org.apache.spark.sql.execution.adaptive.QueryStageExec;
 import org.apache.spark.sql.execution.exchange.Exchange;
+import org.apache.spark.sql.execution.exchange.ReusedExchangeExec;
 import org.apache.spark.sql.internal.SQLConf;
 
 /**
@@ -182,7 +188,8 @@ public abstract class VarkaSqlBenchmarkBase extends VarkaBenchmarkBase {
    * The executed plan of {@code query} on {@code session} when it holds a Varka node - a fused
    * projection or filter - and empty when it does not. The plan comes back so that a caller
    * refusing a section that fuses can show the tree without planning the query a second time.
-   * Under adaptive execution the plan is searched as {@link #operators} reads it.
+   * Under adaptive execution the plan is searched as {@link #operators} reads it, which runs its
+   * stages once; the benchmarks' sessions ({@code VarkaArrowSessions}) run with it off.
    */
   public static Optional<SparkPlan> fusedPlan(SparkSession session, String query) {
     SparkPlan plan = session.sql(query).queryExecution().executedPlan();
@@ -279,7 +286,7 @@ public abstract class VarkaSqlBenchmarkBase extends VarkaBenchmarkBase {
    *       the rest of the section. The varka on arm then times a null-test kernel under the row
    *       path's expression, and the spark row path arm is the baseline.</li>
    *   <li>{@code PARTIAL}: no row operator evaluates any of the section, but a Varka projection
-   *       leaves an entry to its own per-row fallback ({@link #leavesEntriesToRows}): the entry
+   *       leaves an entry to its own per-row fallback ({@link #residue}): the entry
    *       its kernel declines is evaluated row by row inside the Varka node, so the varka on arm
    *       times a kernel and the row path's expression together.</li>
    *   <li>{@code WHOLE}: the plan holds a Varka node, no row operator, and no Varka projection
@@ -287,9 +294,10 @@ public abstract class VarkaSqlBenchmarkBase extends VarkaBenchmarkBase {
    *       path.</li>
    * </ul>
    *
-   * <p>A plan that is none of these, a Varka node fusing more than null tests while a row
-   * operator still computes part of the section, has no class: {@link #fusion} answers empty for
-   * it, and the check refuses it whatever the section expects.
+   * <p>A plan that is none of these has no class: a Varka node fusing more than null tests while a
+   * row operator still computes part of the section, or a Varka projection that computes but whose
+   * classification is empty, which the rule never plans, so the check cannot say what it fuses.
+   * {@link #fusion} answers empty for it, and the check refuses it whatever the section expects.
    *
    * <p>A row operator decides first. Without one, a plan is {@code PARTIAL} or {@code WHOLE} by
    * its Varka projections, whatever its Varka filters fuse, null tests only included. With one, it
@@ -316,9 +324,13 @@ public abstract class VarkaSqlBenchmarkBase extends VarkaBenchmarkBase {
     if (operators.stream().noneMatch(VarkaSqlBenchmarkBase::isVarkaNode)) {
       return Optional.of(Fusion.NONE);
     }
+    var residues = operators.stream().map(VarkaSqlBenchmarkBase::residue).toList();
+    if (residues.contains(Residue.UNCLASSIFIED)) {
+      return Optional.empty();
+    }
     if (operators.stream().noneMatch(VarkaSqlBenchmarkBase::computesOnRows)) {
-      return operators.stream().noneMatch(VarkaSqlBenchmarkBase::leavesEntriesToRows)
-          ? Optional.of(Fusion.WHOLE) : Optional.of(Fusion.PARTIAL);
+      return residues.contains(Residue.ENTRIES_LEFT_TO_ROWS)
+          ? Optional.of(Fusion.PARTIAL) : Optional.of(Fusion.WHOLE);
     }
     boolean beyondNullTests =
         operators.stream().anyMatch(p -> isVarkaNode(p) && !fusesOnlyNullTests(p));
@@ -333,6 +345,10 @@ public abstract class VarkaSqlBenchmarkBase extends VarkaBenchmarkBase {
    * rather than to its initial plan; reading it materializes the stages under the final one, as
    * running the query would. A stage adaptive execution finds empty is replaced by an empty
    * relation, which holds no Varka node, since none runs.
+   *
+   * <p>The plans of an operator's subqueries are read too, a scalar subquery's or a pruning
+   * filter's, since they run with the section; a reused subquery is read through the subquery
+   * it reuses, and a reused exchange through the exchange it reuses, both leaves otherwise.
    */
   static List<SparkPlan> operators(SparkPlan plan) {
     var out = new ArrayList<SparkPlan>();
@@ -344,8 +360,19 @@ public abstract class VarkaSqlBenchmarkBase extends VarkaBenchmarkBase {
     switch (p) {
       case AdaptiveSparkPlanExec adaptive -> addOperators(adaptive.finalPhysicalPlan(), out);
       case QueryStageExec stage -> addOperators(stage.plan(), out);
+      case ReusedExchangeExec reused -> {
+        out.add(reused);
+        addOperators(reused.child(), out);
+      }
+      case ReusedSubqueryExec reused -> {
+        out.add(reused);
+        addOperators(reused.child(), out);
+      }
       default -> {
         out.add(p);
+        for (SparkPlan subquery : CollectionConverters.asJava(p.subqueries())) {
+          addOperators(subquery, out);
+        }
         for (SparkPlan child : CollectionConverters.asJava(p.children())) {
           addOperators(child, out);
         }
@@ -363,13 +390,20 @@ public abstract class VarkaSqlBenchmarkBase extends VarkaBenchmarkBase {
    * Whether {@code p} is a row operator that evaluates part of a query. Every operator outside
    * Varka is one, a filter, an aggregate, a sort, a window, an expand, a generate or a join
    * alike, except those that only move rows or batches without evaluating an expression over
-   * them: a leaf, which for a baseline is the scan of its cached table; an exchange; a
-   * transition between columns and rows; adaptive execution's read of a shuffle's partitions;
-   * the whole-stage codegen node and its input adapter, which wrap the operators they compile,
-   * each found on its own; and a projection whose every entry is a column passed through or
-   * renamed. So an operator this list does not name counts as row work, and a plan that gains
-   * one fails the check rather than reading as fused. Adaptive execution's own wrappers never
-   * reach here: {@link #operators} reads through them.
+   * them: a leaf, the source both arms read alike, which for a baseline is the scan of its cached
+   * table; an exchange, and a reused one; a transition between columns and rows; adaptive
+   * execution's read of a shuffle's partitions; a limit, a union and a coalesce of partitions; a
+   * subquery's node, which runs its plan and holds the result; the whole-stage codegen node and
+   * its input adapter, which wrap the operators they compile, each found on its own; and a
+   * projection whose every entry is a column passed through or renamed. So an operator this list
+   * does not name counts as row work, and a plan that gains one fails the check rather than
+   * reading as fused. Adaptive execution's own wrappers never reach here: {@link #operators}
+   * reads through them.
+   *
+   * <p>Two choices made deliberately. A range is a leaf, exempt like a scan though it generates
+   * its values: it is a source that no Varka node can read directly, since it is not Arrow, and a
+   * baseline's lies under its cached table, which is not searched. A limit that sorts first,
+   * {@code TakeOrderedAndProjectExec}, is not a {@code LimitExec} and counts as row work.
    */
   private static boolean computesOnRows(SparkPlan p) {
     if (isVarkaNode(p)) {
@@ -383,6 +417,10 @@ public abstract class VarkaSqlBenchmarkBase extends VarkaBenchmarkBase {
       case WholeStageCodegenExec codegen -> false;
       case InputAdapter adapter -> false;
       case AQEShuffleReadExec read -> false;
+      case LimitExec limit -> false;
+      case UnionExec union -> false;
+      case CoalesceExec coalesce -> false;
+      case BaseSubqueryExec subquery -> false;
       case ProjectExec project -> project.projectList().exists(e -> !passesThrough(e));
       default -> true;
     };
@@ -394,34 +432,41 @@ public abstract class VarkaSqlBenchmarkBase extends VarkaBenchmarkBase {
         || entry instanceof Alias alias && alias.child() instanceof Attribute;
   }
 
+  /** What a Varka projection leaves to its per-row fallback, read by {@link #residue}. */
+  private enum Residue { NONE_LEFT, ENTRIES_LEFT_TO_ROWS, UNCLASSIFIED }
+
   /**
-   * Whether {@code p} is a Varka projection that leaves an entry to its per-row fallback: an
-   * entry its kernel declines ({@code ResidualOutput}), which the node evaluates row by row
-   * beside the kernel's. It reads the node's own classification, the compile that also serves
-   * its EXPLAIN and its residual-entry metric, so the check compiles nothing of its own.
+   * What {@code p} leaves to its per-row fallback when it is a Varka projection: an entry its
+   * kernel declines ({@code ResidualOutput}), which the node evaluates row by row beside the
+   * kernel's. It reads the node's own classification, the compile that also serves its EXPLAIN
+   * and its residual-entry metric, so the check compiles nothing of its own. Any other operator
+   * leaves nothing.
    */
-  private static boolean leavesEntriesToRows(SparkPlan p) {
+  private static Residue residue(SparkPlan p) {
     return switch (p) {
-      case VarkaProjectExec project ->
-          leavesEntriesToRows(project.projectList(), project.classification());
+      case VarkaProjectExec project -> residue(project.projectList(), project.classification());
       case VarkaColumnarToRowExec project ->
-          leavesEntriesToRows(project.projectList(), project.classification());
-      default -> false;
+          residue(project.projectList(), project.classification());
+      default -> Residue.NONE_LEFT;
     };
   }
 
-  private static boolean leavesEntriesToRows(
+  private static Residue residue(
       Seq<NamedExpression> projectList, Optional<PartialVarkaProjection> classification) {
     // A projection that only forwards or renames columns computes nothing, and compiles to no
     // kernel: the rule's pre stage plans one over a Varka filter whose output it narrows.
     if (projectList.forall(VarkaSqlBenchmarkBase::passesThrough)) {
-      return false;
+      return Residue.NONE_LEFT;
     }
     // Any other projection none of whose entries compiles is not planned as a Varka node, so an
-    // empty classification here would mean the two disagree; it counts as left to rows, the safe
-    // side.
-    return classification.map(projection -> projection.specs().stream()
-        .anyMatch(spec -> spec instanceof VarkaOutputSpec.ResidualOutput)).orElse(true);
+    // empty classification here means the two disagree, and the plan gets no class at all: any
+    // class, PARTIAL included, could match what a section lists.
+    if (classification.isEmpty()) {
+      return Residue.UNCLASSIFIED;
+    }
+    return classification.get().specs().stream()
+        .anyMatch(spec -> spec instanceof VarkaOutputSpec.ResidualOutput)
+        ? Residue.ENTRIES_LEFT_TO_ROWS : Residue.NONE_LEFT;
   }
 
   /** Whether {@code p} is a Varka filter whose condition is only null tests. */
@@ -452,6 +497,10 @@ public abstract class VarkaSqlBenchmarkBase extends VarkaBenchmarkBase {
    * timing a kernel under the label of the row path, and a section that fuses less than listed
    * fails too. {@link #FUSE_CHECK_PROPERTY} set to {@code false} lifts the check for the run that
    * measures a row, and every section that fuses is still noted with its class.
+   *
+   * <p>The check plans {@code query} once before the section is timed. Under adaptive execution
+   * reading the plan runs its stages ({@link #operators}); the benchmarks' sessions
+   * ({@code VarkaArrowSessions}) run with it off, so planning alone reads the plan there.
    */
   protected final void requireBaseline(
       SparkSession varka, String title, String query, Fusion expected) {

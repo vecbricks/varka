@@ -474,11 +474,11 @@ with no null answers a null, and runs every section on both sessions. 349's proj
 arithmetic as decimal values (`x + y`, `x - w`, `x8 * y`), the forms its prediction 2 times after
 157.
 
-**What the probe found.** Each section's `fuses` flag is set from a plan of it on an Arrow-cached
-Varka session. Of the 36, eight fuse whole on the unchanged code: `x <=> y` at both precisions,
-which 347's reader compiles at one scale, and the projected `x < y`, through row 27's boolean
-output. Eighteen fuse in part: the rescaled comparison, `-x < y`, `abs(x) < y` and 349's three
-filters. Spark infers `IS NOT NULL` of every column those filters read, 347's reader fuses the
+**What the probe found.** Each section's fusion class is set from a plan of it on an
+Arrow-cached Varka session. Of the 36, eight fuse whole on the unchanged code: `x <=> y` at both
+precisions, which 347's reader compiles at one scale, and the projected `x < y`, through row 27's
+boolean output. Eighteen fuse in part: the rescaled comparison, `-x < y`, `abs(x) < y` and 349's
+three filters. Spark infers `IS NOT NULL` of every column those filters read, 347's reader fuses the
 null tests as a filter of their own, and Spark's `Filter` applies the decimal condition above
 it, so those sections' varka on arm times a null-test kernel under the row path's condition, and
 the spark row path arm is their baseline. The four `IN` filters infer no null test and the six
@@ -537,3 +537,13 @@ baseline's control, `WHOLE`, and their suites assert each section's class under 
 the other five do; every listed class matched its plan. The merge of VARKA-339 also made the
 arithmetic chain of both `TIMESTAMP_NTZ` baselines and the arithmetic baseline's interval column
 sum fused sections, and their class is `WHOLE`, which their suites' checks confirm.
+
+**The fuse check after the third review.** A Varka projection that computes but has an empty
+classification, which the rule never plans, now gives a plan no class rather than `PARTIAL`, a
+class a section could list. The search reads each operator's subqueries and reads a reused
+exchange or subquery through what it reuses, and a limit, a union and a coalesce now only move
+rows, as the list of exempt operators always meant; a range stays an exempt leaf, a source both
+arms read alike, and `TakeOrderedAndProjectExec`, which sorts, stays row work. The
+`TIMESTAMP_NTZ` arithmetic baseline holds only its `WHOLE` sections to the batch check of
+`VarkaSizeLadder.varkaFused`, which finds a Varka projection and its metrics; every class still
+matched its plan.

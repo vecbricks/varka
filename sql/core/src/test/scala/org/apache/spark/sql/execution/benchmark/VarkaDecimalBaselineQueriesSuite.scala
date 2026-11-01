@@ -26,9 +26,12 @@ import org.apache.spark.sql.catalyst.expressions.{Abs, Alias, AttributeReference
   BinaryComparison, Cast, Expression, In, UnaryMinus}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaMatrix.PinsDefaults
 import org.apache.spark.sql.catalyst.plans.logical.Filter
-import org.apache.spark.sql.execution.{ProjectExec, SparkPlan, VarkaColumnarRule,
-  VarkaColumnarToRowExec, VarkaFilterExec, VarkaProjectExec, VarkaSharedSessions}
+import org.apache.spark.sql.execution.{CoalesceExec, CollectLimitExec, GlobalLimitExec,
+  LocalLimitExec, ProjectExec, RangeExec, SparkPlan, UnionExec, VarkaColumnarRule,
+  VarkaColumnarToRowExec, VarkaFilterColumnarToRowExec, VarkaFilterExec, VarkaProjectExec,
+  VarkaSharedSessions}
 import org.apache.spark.sql.execution.adaptive.AdaptiveSparkPlanExec
+import org.apache.spark.sql.execution.exchange.{ReusedExchangeExec, ShuffleExchangeExec}
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types.{BooleanType, DataType, DecimalType, TimeType}
 
@@ -281,6 +284,79 @@ class VarkaDecimalBaselineQueriesSuite extends QueryTest with VarkaSharedSession
         case p @ VarkaProjectExec(_, _: VarkaFilterExec, _) => p
       }.isDefined, plan.treeString)
       assert(VarkaSqlBenchmarkBase.fusion(plan) === Optional.of(VarkaSqlBenchmarkBase.Fusion.WHOLE))
+    }
+  }
+
+  test("a Varka projection that computes with no classification gives no class",
+      PinsDefaults) {
+    withTable(100) {
+      // The rule plans a Varka projection only when one of its entries compiles, so this node is
+      // built: the PARTIAL plan's projection keeping only the 128-bit comparison its kernel
+      // declines. The check cannot tell what such a node fuses, so the plan fits no class, not
+      // PARTIAL, which a section could list.
+      val partial = varkaSpark.sql("SELECT x9 < y9 AS a, x38 < y38 AS b FROM varka_decimal")
+        .queryExecution.executedPlan
+      val declined = partial.transform {
+        case p: VarkaColumnarToRowExec => p.copy(projectList = p.projectList.filter(_.name == "b"))
+        case p: VarkaProjectExec => p.copy(projectList = p.projectList.filter(_.name == "b"))
+      }
+      assert(declined.collectFirst {
+        case p: VarkaColumnarToRowExec => p.classification
+        case p: VarkaProjectExec => p.classification
+      } === Some(Optional.empty()), declined.treeString)
+      assert(VarkaSqlBenchmarkBase.fusion(declined) === Optional.empty())
+    }
+  }
+
+  test("the fusion classes read a subquery's plan and a reused exchange's", PinsDefaults) {
+    withTable(100) {
+      def plan(query: String): SparkPlan = varkaSpark.sql(query).queryExecution.executedPlan
+      def isVarka(p: SparkPlan): Boolean = p match {
+        case _: VarkaColumnarToRowExec | _: VarkaProjectExec | _: VarkaFilterExec |
+            _: VarkaFilterColumnarToRowExec => true
+        case _ => false
+      }
+      // The outer filter's 128-bit comparison is the row path's; the scalar subquery holds a
+      // Varka filter and an aggregate over its rows. Read without the subquery, the plan would
+      // read as at most its null tests fused.
+      val nested = plan("SELECT x9 FROM varka_decimal WHERE x38 < " +
+        "(SELECT max(y38) FROM varka_decimal WHERE x9 <=> y9)")
+      assert(nested.subqueriesAll.exists(_.exists(isVarka)), nested.treeString)
+      assert(VarkaSqlBenchmarkBase.fusion(nested) === Optional.empty())
+      // A reused exchange is a leaf; it is read through the exchange it reuses, here one over a
+      // partial aggregate, which is row work.
+      val grouped = plan("SELECT x9, count(*) AS c FROM varka_decimal WHERE x9 <=> y9 GROUP BY x9")
+      val exchange = grouped.collectFirst { case e: ShuffleExchangeExec => e }
+      assert(exchange.isDefined, grouped.treeString)
+      assert(VarkaSqlBenchmarkBase.fusion(ReusedExchangeExec(exchange.get.output, exchange.get))
+        === Optional.empty())
+    }
+  }
+
+  test("a limit, a union and a coalesce only move a fused section's rows", PinsDefaults) {
+    withTable(100) {
+      val whole = Optional.of(VarkaSqlBenchmarkBase.Fusion.WHOLE)
+      val filtered = varkaSpark.sql("SELECT x9 FROM varka_decimal WHERE x9 <=> y9")
+        .queryExecution.executedPlan
+      assert(VarkaSqlBenchmarkBase.fusion(filtered) === whole)
+      // Built over the fused plan, as the rules would place them, since a baseline's query has
+      // none of them: none evaluates an expression, so the plan stays WHOLE.
+      assert(VarkaSqlBenchmarkBase.fusion(LocalLimitExec(10, filtered)) === whole)
+      assert(VarkaSqlBenchmarkBase.fusion(GlobalLimitExec(10, LocalLimitExec(10, filtered))) ===
+        whole)
+      assert(VarkaSqlBenchmarkBase.fusion(CollectLimitExec(10, filtered)) === whole)
+      assert(VarkaSqlBenchmarkBase.fusion(UnionExec(Seq(filtered, filtered))) === whole)
+      assert(VarkaSqlBenchmarkBase.fusion(CoalesceExec(1, filtered)) === whole)
+      // A range is a leaf, exempt like the cached scan: a source both arms read alike.
+      val range = varkaSpark.range(10).queryExecution.executedPlan.collectFirst {
+        case r: RangeExec => r
+      }
+      assert(range.isDefined)
+      assert(VarkaSqlBenchmarkBase.fusion(UnionExec(Seq(filtered, range.get))) === whole)
+      // A limit that sorts first is row work.
+      assert(VarkaSqlBenchmarkBase.fusion(varkaSpark.sql(
+        "SELECT x9 FROM varka_decimal WHERE x9 <=> y9 ORDER BY x9 LIMIT 10")
+        .queryExecution.executedPlan) === Optional.empty())
     }
   }
 }
