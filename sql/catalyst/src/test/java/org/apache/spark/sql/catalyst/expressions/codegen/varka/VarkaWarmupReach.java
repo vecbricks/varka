@@ -378,6 +378,12 @@ final class VarkaWarmupReach {
       VarkaIrGrammar.DrawnLong l = VarkaIrGrammar.drawLongShape(
           VarkaIrGrammar.shapeRandom(VarkaIrGrammar.LONG_FUZZ_SEED, k));
       shapes.add(new Shape("long fuzz shape " + k, l.roots(), l.numInputs(), l.numLiterals()));
+      // The decimal store's draw (VARKA-157): no coverage row stores a decimal yet, so its
+      // interleave reaches the corpus through these.
+      VarkaIrGrammar.DrawnLong w = VarkaIrGrammar.drawDecimalShape(
+          VarkaIrGrammar.shapeRandom(VarkaIrGrammar.DECIMAL_FUZZ_SEED, k));
+      shapes.add(new Shape("decimal fuzz shape " + k, w.roots(), w.numInputs(),
+          w.numLiterals()));
     }
     return shapes;
   }

@@ -80,6 +80,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Tru
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Truth;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WeekDay;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WeekOfYear;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WidenDecimal;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WidenLane;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Year;
 
@@ -313,6 +314,12 @@ final class VarkaVectorWalk {
             emitShapeConversion(cb, analysis.laneOf(n.child()), analysis.laneOf(node), analysis);
           }
         }
+      }
+      case WidenDecimal n -> {
+        // The value is the child's; the root's store widens it into the slots
+        // (VarkaBodyEmitter.emitDecimalStore). The word is the child's.
+        emitValue(cb, n.child(), dense, analysis, s, computed);
+        line(cb, analysis, node);
       }
       case GuardedRange n -> {
         // The day guard's twin at whichever lane the child is on, with the bounds the node
@@ -555,7 +562,8 @@ final class VarkaVectorWalk {
    * {@code rearrange} under the prologue's even-lane shuffle takes lanes {@code 0, 2, 4, ...} of
    * {@code a} and then of {@code b} - the low words, in row order - and the odd-lane shuffle the
    * high words the same way ({@code Slots#decimalShuffle}). In the epilogue both loads are masked
-   * to the {@code 2 * lanes} longs of the remaining rows, so neither reads past the batch.
+   * to the {@code 2 * lanes} longs of the remaining rows, so neither reads past the batch
+   * ({@link #emitDecimalSlotHalf}).
    *
    * <p>The check condemns a lane whose high word is not {@code lo >> 63} or whose low word is
    * outside {@code [-(10^p - 1), 10^p - 1]}: the odd shuffle, a shift, an add and two compares,
@@ -580,36 +588,9 @@ final class VarkaVectorWalk {
     line(cb, analysis, c);
     for (int half = 0; half < 2; half++) {
       cb.aload(s.species);
-      cb.aload(s.srcSeg(c.ordinal()));
-      cb.iload(s.iVar);
-      cb.i2l();
-      cb.loadConstant(DECIMAL_SLOT_BYTES);
-      cb.lmul();
-      if (half == 1) {
-        cb.aload(s.species);
-        cb.invokeinterface(VECTOR_SPECIES, "vectorByteSize", SPECIES_LENGTH);
-        cb.i2l();
-        cb.ladd();
-      }
-      cb.getstatic(BYTE_ORDER, "LITTLE_ENDIAN", BYTE_ORDER);
-      if (s.epilogue) {
-        // The longs of the remaining rows' slots that this vector covers: from 0 in `a`, from
-        // the vector's length in `b`, up to 2 * lanes.
-        cb.aload(s.species);
-        if (half == 0) {
-          cb.loadConstant(0);
-        } else {
-          cb.aload(s.species);
-          cb.invokeinterface(VECTOR_SPECIES, "length", SPECIES_LENGTH);
-        }
-        cb.iload(s.lanes);
-        cb.iconst_1();
-        cb.ishl();
-        cb.invokeinterface(VECTOR_SPECIES, "indexInRange", INDEX_IN_RANGE);
-        cb.invokestatic(lane.vector, "fromMemorySegment", lane.fromMemorySegmentMasked);
-      } else {
-        cb.invokestatic(lane.vector, "fromMemorySegment", lane.fromMemorySegmentDense);
-      }
+      emitDecimalSlotHalf(cb, s, s.srcSeg(c.ordinal()), half);
+      cb.invokestatic(lane.vector, "fromMemorySegment",
+          s.epilogue ? lane.fromMemorySegmentMasked : lane.fromMemorySegmentDense);
       cb.astore(halves[half]);
     }
     // lo = a.rearrange(EVEN, b), parked for the check and left on the stack for the parent.
@@ -638,6 +619,47 @@ final class VarkaVectorWalk {
     cb.invokevirtual(lane.vector, "compare", lane.compareVI);
     cb.invokevirtual(VECTOR_MASK, "or", MASK_BINARY);
     emitGuardCollect(cb, c, dense ? null : s.wordRef.get(c), dense, analysis, s);
+  }
+
+  /**
+   * Where half {@code half} of a lane group's sixteen-byte slots lies, the operands a long
+   * vector's {@code fromMemorySegment} or {@code intoMemorySegment} takes after its species or
+   * its vector: {@code [] -> [segment, offset, LITTLE_ENDIAN]}, and in the epilogue the mask too.
+   * A group of {@code n} rows is {@code 2n} longs, so half 0 is the vector at the group's first
+   * slot, {@code i * 16}, and half 1 the vector one {@code vectorByteSize} further on; at one long
+   * lane that is the row's low word and then its high word. The epilogue's masks cover the longs
+   * of the remaining rows' slots each half holds: from 0 in half 0, from the vector's length in
+   * half 1, up to {@code 2 * lanes}, so neither half reads or writes past the batch. The decimal
+   * load and the decimal store ({@code VarkaBodyEmitter.emitInterleavedStore}) both address their
+   * slots here.
+   */
+  static void emitDecimalSlotHalf(CodeBuilder cb, Slots s, int segment, int half) {
+    cb.aload(segment);
+    cb.iload(s.iVar);
+    cb.i2l();
+    cb.loadConstant(DECIMAL_SLOT_BYTES);
+    cb.lmul();
+    if (half == 1) {
+      cb.aload(s.species);
+      cb.invokeinterface(VECTOR_SPECIES, "vectorByteSize", SPECIES_LENGTH);
+      cb.i2l();
+      cb.ladd();
+    }
+    cb.getstatic(BYTE_ORDER, "LITTLE_ENDIAN", BYTE_ORDER);
+    if (!s.epilogue) {
+      return;
+    }
+    cb.aload(s.species);
+    if (half == 0) {
+      cb.loadConstant(0);
+    } else {
+      cb.aload(s.species);
+      cb.invokeinterface(VECTOR_SPECIES, "length", SPECIES_LENGTH);
+    }
+    cb.iload(s.lanes);
+    cb.iconst_1();
+    cb.ishl();
+    cb.invokeinterface(VECTOR_SPECIES, "indexInRange", INDEX_IN_RANGE);
   }
 
   /** {@code a.rearrange(shuffle, b)} over the two parked halves of a decimal lane group. */
