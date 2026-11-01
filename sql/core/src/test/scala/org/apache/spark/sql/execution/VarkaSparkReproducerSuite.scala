@@ -43,11 +43,15 @@ class VarkaSparkReproducerSuite extends VarkaSparkDifferential {
    * the per-row arm's one-row batches can show a kind the default does not.
    */
   private def verdict(r: Reproducer): Option[String] = {
-    // The options it was found under, or where it names none, the pin a run of it would take.
-    val options = r.options.orElse(pinnedOptions(r.fixture, r.select, r.where, r.ansi))
-    val now = withEmitOptions(options) {
-      disagreement(r.fixture, r.select, r.where, r.ansi, partitions = true, r.pivot,
-        r.force.toSeq, rerun = VarkaErrorRerun.ofNote(r.note))
+    // The options it was found under, and over them the pin a run of it would take, decided
+    // under those options, unless they set `checkIntOverflow` themselves.
+    val setsCheck = r.options.exists(_.split(',').exists(_.trim.startsWith("checkIntOverflow=")))
+    val now = withEmitOptions(r.options) {
+      val pin = if (setsCheck) None else pinnedOptions(r.fixture, r.select, r.where, r.ansi)
+      withEmitOptions(pin) {
+        disagreement(r.fixture, r.select, r.where, r.ansi, partitions = true, r.pivot,
+          r.force.toSeq, rerun = VarkaErrorRerun.ofNote(r.note))
+      }
     }
     if (r.status == "regression") {
       now.map(kind => s"a regression disagrees again: $kind")

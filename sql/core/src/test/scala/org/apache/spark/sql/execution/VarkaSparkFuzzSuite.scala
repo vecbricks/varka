@@ -58,6 +58,10 @@ import org.apache.spark.sql.execution.VarkaSparkFuzz._
  * composition's first query on the row path while its kernel compiles, the next ones on the
  * kernel, then the kernel over other data, every run against the row engine. Its budget is
  * `-Dvarka.sparkfuzz.warmupIterations` (default 8, about ten seconds).
+ *
+ * Where the run turns `checkIntOverflow` off, a composition whose kernels read the option runs
+ * with it pinned on (`pinnedOptions`), so this suite does not exercise the unchecked lowering of
+ * those kernels; `VarkaCoverageHarnessSuite` covers that lowering under the matrix.
  */
 class VarkaSparkFuzzSuite extends VarkaSparkDifferential {
 
@@ -124,11 +128,13 @@ class VarkaSparkFuzzSuite extends VarkaSparkDifferential {
 
   /**
    * The options `c` runs under, laid over the run's own (`pinnedOptions`): the int overflow check
-   * pinned on where the run turns it off and a kernel of `c` reads it, and nothing otherwise. The
-   * row engine is not affected, so every disagreement either way is a finding.
+   * pinned on where the run turns it off and a kernel of `c` over its fixture or any of `over`
+   * reads it, and nothing otherwise. The row engine is not affected, so every disagreement either
+   * way is a finding. Decided under the run's own options, never inside a pin, where it is None.
    */
-  private def optionsOf(c: Case): Option[String] =
-    pinnedOptions(c.fixture, c.select, c.where, c.ansi)
+  private def optionsOf(c: Case, over: Seq[String] = Nil): Option[String] =
+    (c.fixture +: over).iterator
+      .flatMap(f => pinnedOptions(f, c.select, c.where, c.ansi)).nextOption()
 
   /**
    * How many compositions ran with the check pinned on and how many under the configuration's own
@@ -138,9 +144,9 @@ class VarkaSparkFuzzSuite extends VarkaSparkDifferential {
     var pinned = 0
     var unchecked = 0
 
-    /** `c`'s options, counted. */
-    def of(c: Case): Option[String] = {
-      val options = optionsOf(c)
+    /** `c`'s options over its fixture and `over`, counted. */
+    def of(c: Case, over: Seq[String] = Nil): Option[String] = {
+      val options = optionsOf(c, over)
       if (overflowUnchecked) {
         if (options.isDefined) pinned += 1 else unchecked += 1
       }
@@ -152,35 +158,40 @@ class VarkaSparkFuzzSuite extends VarkaSparkDifferential {
   }
 
   /**
-   * The failure text of composition `it`, which showed `found` under `options`: the case shrunk
-   * under the same options, its reproducer written under `target/varka-sparkfuzz/` with them, and
-   * the kind with the reproducer in one message. The checks it runs are not counted in the census,
-   * and its note names the error rerun's arm when it is not the default, which the replay then
-   * takes (`VarkaErrorRerun.ofNote`).
+   * The failure text of composition `it`, which showed `found` under `options`: the case shrunk,
+   * each smaller candidate under its own options ([[optionsOf]]), since one may fuse checked
+   * arithmetic `c` did not, its reproducer written under `target/varka-sparkfuzz/` with the
+   * shrunk case's options, and the kind with the reproducer in one message. The checks it runs
+   * are not counted in the census, and its note names the error rerun's arm when it is not the
+   * default, which the replay then takes (`VarkaErrorRerun.ofNote`).
    */
   private def failureText(c: Case, it: Int, partitions: Boolean, found: String,
       options: Option[String] = None): String = {
     // A kind may carry a prefix ("at two partitions only, "), so a forced one is found anywhere.
     def isForced(kind: String): Boolean = kind.contains("with an output forced")
-    val (kind, small) = withoutCounting(withEmitOptions(options) {
-      // A forced disagreement is shrunk with the one output that shows it forced, so the
-      // reproducer can name it; a forced kind that needs every force names none.
-      val forced = if (!isForced(found)) c
-        else c.copy(force = forcesOf(c, it).find(k => kindOf(c, partitions, Seq(k)).isDefined))
-      val kind = kindOf(forced, partitions, forced.force.toSeq).getOrElse(found)
-      // A kind that no longer needs the force (the first run's was not repeatable) keeps none, so
-      // the reproducer does not name a force its kind does not depend on.
-      val start = if (isForced(kind)) forced else forced.copy(force = None)
-      (kind, shrink(start, kind, x => kindOf(x, partitions, x.force.toSeq)))
-    })
+    val (kind, small) = withoutCounting {
+      val (kind, start) = withEmitOptions(options) {
+        // A forced disagreement is shrunk with the one output that shows it forced, so the
+        // reproducer can name it; a forced kind that needs every force names none.
+        val forced = if (!isForced(found)) c
+          else c.copy(force = forcesOf(c, it).find(k => kindOf(c, partitions, Seq(k)).isDefined))
+        val kind = kindOf(forced, partitions, forced.force.toSeq).getOrElse(found)
+        // A kind that no longer needs the force (the first run's was not repeatable) keeps none,
+        // so the reproducer does not name a force its kind does not depend on.
+        (kind, if (isForced(kind)) forced else forced.copy(force = None))
+      }
+      (kind, shrink(start, kind,
+        x => withEmitOptions(optionsOf(x))(kindOf(x, partitions, x.force.toSeq))))
+    }
+    val smallOptions = withoutCounting(optionsOf(small))
     val text = render(Reproducer("regression", s"seed $seed iteration $it${errorRerun.noteSuffix}",
       small.ansi, kind, small.select, small.where, small.fixture, small.pivot.map(rowText),
-      small.force, options))
+      small.force, smallOptions))
     val dir = getWorkspaceFilePath("sql", "core", "target", "varka-sparkfuzz")
     Files.createDirectories(dir)
     val file = dir.resolve(s"$seed-$it.sql")
     Files.write(file, text.getBytes(StandardCharsets.UTF_8))
-    val under = options.map(o => s", with $o").getOrElse("")
+    val under = smallOptions.map(o => s", with $o").getOrElse("")
     s"$kind (seed $seed, iteration $it$under), reproducer written to $file:\n$text"
   }
 
@@ -271,7 +282,9 @@ class VarkaSparkFuzzSuite extends VarkaSparkDifferential {
         }
         val later = laterData(c, new Random(~seed * 31L + it), safe = it % 2 == 0,
           wide = (it / 2) % 2 == 1)
-        val options = pins.of(c)
+        // Decided over every fixture the replays run, the other data too, so the pin does not
+        // depend on which data the kernel first met.
+        val options = pins.of(c, Seq(fixtureSql(later)))
         // Every composition starts from a cold shape, so that each one takes the handover.
         VarkaShapeCache.invalidateAll()
         val before = VarkaKernelWarmup.recentOutcomes().asScala.toSet
@@ -322,7 +335,9 @@ class VarkaSparkFuzzSuite extends VarkaSparkDifferential {
           Files.createDirectories(dir)
           val file = dir.resolve(s"$seed-warmed-$it.sql")
           Files.write(file, text.getBytes(StandardCharsets.UTF_8))
-          failures += s"$kind (seed $seed, iteration $it), reproducer written to $file:\n$text"
+          val under = options.map(o => s", with $o").getOrElse("")
+          failures += s"$kind (seed $seed, iteration $it$under), reproducer written to " +
+            s"$file:\n$text"
         }
       }
     } finally {
