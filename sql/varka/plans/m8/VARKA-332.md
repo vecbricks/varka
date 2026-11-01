@@ -165,8 +165,8 @@ from a table keyed by (source, target), so no pair has a hand-written arm:
 `g(x, lo, hi)` is the identity under LEGACY for an integral narrowing (the wrap), and a range guard
 otherwise: declining in ANSI and, for the interval casts, in LEGACY; nulling in TRY (2.3). The
 ranges are the target types' `MIN_VALUE` and `MAX_VALUE` and section 0 item 5's bounds, held in
-one place (`VarkaTypes`' entry for the target, beside its lane), so rows 343 and 350 read the same
-numbers.
+one place, `VarkaTypes.integralRange(lane)`, a function of the target's lane beside the lane
+registry rather than a field of each registry entry, so rows 343 and 350 read the same numbers.
 
 The new arms live in `VarkaIntegralCastCompiler`, a family of their own, `INTEGRAL_CAST`
 (`varka/VarkaFamily.java`), with its switch, as 343 plans `FLOATING_CAST`. Row 28's four existing
@@ -471,10 +471,10 @@ What was built, per item of section 5 step 2:
 - **The narrow load and store at the long width** (2.5): a long kernel emits a narrow value at
   the int lane, in the int species of the long width, low half, as it emits an int one.
   `VarkaKernelPlan.longNarrowRefusal` admits the narrow nodes that need nothing narrow-specific
-  there - a narrow column, a narrow literal, a long value narrowed to a narrow type, and a
-  comparison of them, read by a widening, a null test or a comparison, and a narrow-typed root
-  narrowing an int value - and declines every other narrow node (narrow arithmetic or a narrow
-  choice beside a bigint). The load reads twice the long lanes of the narrow type into the int
+  there - a narrow column, a long value narrowed to a narrow type, and a comparison of them,
+  read by a widening, a null test or a comparison, and a narrow-typed root narrowing an int
+  value - and declines every other narrow node: a narrow literal (open point 3), narrow
+  arithmetic, a narrow choice beside a bigint. The load reads twice the long lanes of the narrow type into the int
   species, then `I2L`; the kernel is a mixed one, so its loop bound already covers the whole int
   vector the load reads. A narrowing at a root converts with `L2I` and stores through the narrow
   species under the group's mask; away from a root it is `L2I` and the shift pair's wrap. The part
@@ -531,7 +531,7 @@ rows' entries, and only the option-arm digests that hash every shape move, as th
 Open points for the lead:
 
 1. The target ranges are `VarkaTypes.integralRange(lane)`, derived from the lane, not a field of
-   each registry entry as 2.1 words it; rows 343 and 350 read the same function.
+   each registry entry; the lead kept the function (1 November 2026), and 2.1 now says so.
 2. `SMALLINT` to `TINYINT` under the native arm drives at the int lane (two narrow lanes in one
    tree), so no `S2B` is emitted, as 2.2 expects until a census cell exists.
 3. Two declines section 7 does not list, both in a kernel driven at the long lane, and recorded in
