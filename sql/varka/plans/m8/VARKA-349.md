@@ -508,3 +508,82 @@ aggregate's update expression, with no `Project` pulled out; `d8 + d9` as a grou
 pulled into a `ProjectExec` (349c's projection, after 157); and `WHERE d8 * d9 > 0` (X5) reaches
 a `FilterExec`, of which Varka fuses today only the null tests, leaving the multiply in a row
 filter above its `VarkaFilterColumnarToRow`, the one tree that differs with Varka off.
+
+### 10.2 Step 3: 349a, the arithmetic
+
+*1 November 2026, on branch `varka-349-arith` from row 348a's foundation commit (`c96259f3825`,
+`Scaled`, `value()`, `rescale` and `decimal64.smt2`), with this plan's branch merged in.*
+
+**What was built.** `VarkaDecimalCompiler.value()` gains three arms and an unwrap: `Add` and
+`Subtract` rescale both operands to the result's scale `S` with 348's `rescale` and build one
+`IntArith(ADD | SUB, WRAP)`; `Multiply` builds one `IntArith(MUL, WRAP)` over the unscaled values,
+with no rescale; a `RuntimeReplaceable` is read through its replacement, so `try_add`,
+`try_subtract` and `try_multiply` reach the same arms as `Add`, `Subtract` and `Multiply` in TRY
+mode. The result's `Scaled` type is the node's own `dataType()`, Spark's `resultDecimalType`; the
+compiler recomputes the exact precision only to decide and to name the decline: past 18 digits a
+sum or difference declines naming row 360 (360 and 363 past 38), a product row 361 (362 and 363
+past 38), an operand past 18 digits rows 359 and 360 under `+` and `-` and rows 362 and 363 under
+`*`, and a node typed other than Spark's rule within 18 digits, which no analysed tree holds,
+declines rather than computing at a type it does not have. A two-literal tree folds to its
+constant. The arms are reached only through `value()`, so they fuse under a comparison, the only
+decimal consumer before row 157's store; `VarkaNodeCompiler` gains no arm.
+
+**Tests.** `VarkaDecimalArithmeticSuite` (JUnit) holds the decision to Spark's own result type
+over every pair of operand types with `1 <= p <= 18` and `0 <= s <= p`, 189 types and 35721 pairs
+per operator, and checks on every fused pair the reduction the lemmas below rest on; runs kernels
+over the edges of section 3 item 2 and over 40 random fused type pairs per operator, at the
+operands' bounds, zero, one and random values, each against `BigDecimal`; and checks that the ANSI
+and `try_` forms compile to the LEGACY form's tree. `VarkaEmittedBytesSuite`'s new test compiles
+each "DECIMAL arithmetic" coverage row in six spellings (ANSI off and on, precision loss on and
+off, each also with every decimal operator in TRY mode) and asserts one set of method hashes at
+both widths.
+
+**Proofs.** `decimal64.smt2` gains, in `VarkaProofFiles.decimal64Arithmetic`: per result
+precision `P` from 2 to 18, `+` and `-` of operands within `P - 1` digits exact and within `P`
+digits, with a `sat` witness that operands of `P` digits leave the type; per operand precision
+pair with `p1 + p2 <= 17`, the product bounded by `10^(p1 + p2) - 1` (the ring layer, a product of
+two unknowns with constant bounds); per `n` from 2 to 17, any integer within `10^n - 1` its own
+wrap and within `n + 1` digits (the wrap layer, linear); and a `sat` witness that two ten-digit
+operands' product can wrap. `decimal64.smt2` now holds 550 checks, 204 of them this row's; on the
+laptop Z3 holds it in 0.14 s and cvc5 in 1.72 s, against 0.15 s and 0.47 s for 348's 346 checks.
+`refinement.smt2` gains a section of decimal `+`, `-` and `*` per coverage row's operand types, in
+Spark mode ANSI with standard mode and in LEGACY and TRY, 50 checks; the whole file holds under Z3
+in 3.15 s and under cvc5 in 4.75 s.
+
+**Coverage rows.** A "DECIMAL arithmetic" family of six predicates over 347's columns and a new
+`d8` (`DECIMAL(8, 2)`, derived from `l2` in the differential's fixture): `d9 + d9b < d18`,
+`d9 - d8 >= d9b`, `d8 * d9 <= d9b`, `try_add(d9, d9b) > d18`, `d9 * 0.5 > d9b` and
+`d9 + 1.5 < d9b`.
+
+**Census.** No pair moves (section 6). The notes of `+`, `-`, `*` and their `try_` forms say the
+64-bit form fuses within 18 digits; `mod` and `%` lose 349 with the suggested home row 30,
+`ym_times_num` with 361 and 363, `ym_div_num` passes to 363's claim, and `try_eval` loses 349 with
+the suggested home 350 (section 7). `dt_times_num`, `dt_div_num`, `pmod` and `try_mod` did not
+name 349.
+
+### Departures (1 November 2026)
+
+- **`d8 * d9 <= d18` cannot fuse.** The product is `DECIMAL(18, 4)` and `d18` is
+  `DECIMAL(18, 2)`, so coercion compares at `DECIMAL(20, 4)` and the cast declines naming 359.
+  Section 3 item 6 checked the arithmetic's result type and not the comparison's common type; the
+  row is `d8 * d9 <= d9b`, compared at `DECIMAL(18, 4)`.
+- **Rows that wait on 348a's later commits.** `d9 - d9s4 > 0` and `-(d9 + d9b) = d9s4` need
+  348's `d9s4` fixture and its `UnaryMinus` arm, `try_multiply(d8, d9) IS NULL` its null test over
+  a `Scaled` value; none was on the foundation commit. `d9 - d8 >= d9b` and
+  `try_add(d9, d9b) > d18` stand in for the difference and the `try_` form until a merge of
+  `varka-348-conditions` brings them.
+- **The literal row multiplies by `0.5`, not `3`.** An integral literal reaches the compiler as
+  `CAST(3 AS DECIMAL(1, 0))`, which `value()` folds into a slot, so `d9 * 3 > d9b` fuses; but the
+  census registers the integral-to-decimal cast as row 350's and never fused, and its lint
+  refuses a coverage row that holds one. The row is `d9 * 0.5 > d9b`, and `d9 * 3` waits for 350
+  (section 7 already names 350 for an integral operand).
+- **The coverage rows are differential, the arithmetic refined alone.** Each row composes the
+  arithmetic with a decimal comparison, which no `refinement.smt2` section states yet (348a's), so
+  under row 490's rule ("each operation must be refined") the rows name `differential`; the
+  arithmetic's sections exist for them to cite once the comparison's does.
+- **`decimalMulIntInputs` is not built here.** Section 2.3's arm is measured and read in 349c
+  (section 5 item 5); with no reading on the AVX2 runner it would be an option with nothing to
+  decide it, so 349a builds the arithmetic without it and the flag lands with its reading.
+- **The one-kernel test also covers precision loss and lives beside the oracle.** It is a test
+  of `VarkaEmittedBytesSuite` over the family's rows, as section 3 item 3 says; the oracle pins
+  each row once.
