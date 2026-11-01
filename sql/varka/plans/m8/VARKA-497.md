@@ -271,6 +271,7 @@ Built 1 November 2026 on `varka-497-in-arm`, in the two commits 5 asks for.
    `floatingIn`, `floatingBits`, `compileInList` and `compileLongInList` are gone; `isFloating`
    stays for `isnan`. While the merge stood alone, a set `IN_HELD` kept `INT`, `BIGINT`, `TIME`
    and the day-time interval unclaimed, so they declined with "unsupported predicate" as before.
+   (`inType` became `inArm` in 10.4.2.)
 2. **`Info.laneBits`** is `bits`'s switch with an empty answer for a null, a value of another
    class and a decimal; `bits` keeps its decimal throw ahead of it and throws on its empty.
 3. **`bitsSlot`** in `VarkaNodeCompiler` is the lane-to-table dispatch, and `nanSlot` calls it.
@@ -281,9 +282,9 @@ Built 1 November 2026 on `varka-497-in-arm`, in the two commits 5 asks for.
    lane" (2.1's generalised reason); no shape reaches either.
 5. **Departure: the guard is not the bare lane.** `VarkaTypes.lane` answers `LONG` for a
    `DECIMAL` of precision 18 or less since row 347's reader, so 2.1's guard would claim decimal
-   `IN` and decline it as "IN list has a null or non-literal element". `inType` asks for an
-   `OnLane` admission as well, which leaves decimal `IN` with the predicate's general decline,
-   as on master (10.3).
+   `IN` and decline it as "IN list has a null or non-literal element". `inType` (`inArm` since
+   10.4.2) asks for an `OnLane` admission as well, which leaves decimal `IN` with the
+   predicate's general decline, as on master (10.3).
 6. **The proof.** On the merge alone, `VARKA_BYTES_REGEN`, `VARKA_COVERAGE_REGEN` and
    `VARKA_AUDIT_REGEN` over `VarkaEmittedBytesSuite`, `VarkaCoverageSuite` and
    `VarkaWidthAuditSuite` left `emitted_bytes.json` (its `option_arms` digests included),
@@ -335,8 +336,9 @@ Built 1 November 2026 on `varka-497-in-arm`, in the two commits 5 asks for.
 
 Row 348a's decimal `IN` goes through this arm. It needs:
 
-1. **The guard.** `inType` asks for an `OnLane` admission, and a decimal's is `UpToPrecision`.
-   348a admits it there, for a type whose `UpToPrecision.reads` holds.
+1. **The guard.** `inArm` claims an `OnLane` admission only, in a switch over `Admission`, and a
+   decimal's is `UpToPrecision`, whose case answers unclaimed. 348a admits it in that case, for a
+   type whose `UpToPrecision.reads` holds.
 2. **The literal.** `laneBits` answers empty for every decimal. It cannot read one: a `Decimal`'s
    lane bits are its unscaled long at the value type's scale, and the `Info` entry has no scale.
    348a needs a form that is given the `DecimalType`, such as
@@ -401,3 +403,31 @@ A code review of the three commits above found these, each checked against the c
 7. **Not taken: routing `compileNode`'s literal arms through `bitsSlot`**, so that every literal
    of a lane is slotted by one dispatch. It touches every literal arm, not this row's, and is an
    open point for the row that next reworks the literal arms.
+
+### 10.5 The second review's fixes
+
+A second review of the branch found these, each checked against the code first.
+
+1. **A non-runtime throw out of an element's evaluation failed the plan.** `constantBits` caught
+   `RuntimeException` only, so a checked exception thrown by Scala code, or an `Error`, escaped
+   planning where the list should decline. It now catches what Spark's `NonFatal` admits, as
+   `VarkaSizeAdmission` does, and rethrows the rest; a compiler-suite test pins the decline for a
+   foldable element that throws an `IOException`. `inFamily`'s catch in `VarkaNodeCompiler` is
+   left as it is: it labels a throw with its family rather than declining, and the planning
+   catch it feeds (`VarkaExpressionCompiler.planning`) fails the query on any throw by design,
+   so widening it is a change to three sites that predate this row.
+2. **The cap is checked as the elements are read.** `compileIn` read, evaluated and boxed every
+   element before it compared the distinct count with `MAX_IN_LITERALS`, and an `InSet` can hold
+   thousands. It now reads them one at a time and declines at the first null or non-literal
+   element or at the value that passes the cap, so a list that is both too long and holds a null
+   names whichever comes first. The value is still compiled after the list is read, not before
+   as the review suggested: compiling it takes slots, which a list that declines would then have
+   taken for nothing.
+3. **`inArm` switches over `Admission`** with a case for each of its five records and no
+   `default`, in place of a negated `instanceof OnLane`. `Info.laneBits`'s
+   `instanceof UpToPrecision` is left: it is one guard with no cast, like `bits` and
+   `sparkValue` above it, not a dispatch over the set.
+4. **One element reader.** `inArm` lost its `Function` parameter, and `inElements` and
+   `setElements` are one `inElements` that switches once on `In` or `InSet` and hands
+   `compileIn` an iterator.
+5. **`Relabeled`**, the test's relabelling expression, moved into the suite's companion object.
