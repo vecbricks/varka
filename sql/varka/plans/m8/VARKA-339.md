@@ -338,6 +338,26 @@ suites, as for every landed form.
    from), `verdict()` returns `Verdict.SHORTCUT` for a batch the shortcut takes, so every caller
    gets the batch's answer, and `VarkaDomains` reports a partition outside the domain that the
    shortcut answers whole, since its guard then went unexercised.
+   *1 November 2026 (second review):* the configuration-wrap excuse above is gone. Two review
+   rounds found it unsound - a wrong ancestor above a wrapping child was excused, under ANSI one
+   overflow error masked every other wrong row, a NULL against a value from any cause passed as a
+   wrap, the filter path was never probed, the checked rerun could legitimately never reach the
+   kernel - and each disagreement cost a query per subtree. It is replaced by a rule with no
+   excuse in it: under `checkIntOverflow=false` a composition any of whose kernels holds a node
+   whose emission reads the option (`Analysis.readsCheckIntOverflow`, an int add, subtract,
+   multiply or negation in `FAIL` or `NULL` mode, the test the emitter's own reads of the option
+   now go through) runs with the check pinned on, every other composition under the
+   configuration's own options, and every disagreement is a finding, its reproducer naming the
+   options it ran under. The decision is static, from the kernels the composition's queries
+   compile, and the same per-composition options serve the main test, the warmed arm, the pivot
+   test, both planted tests and the reproducer replay, which pins a reproducer that names no
+   options; its `checkIntOverflow=false` skip line is therefore stale and removed. At seed
+   20261008 the main test pins 86 of 200 compositions and runs 114 under the configuration's own
+   options (it asserts a fifth at least run unchecked), the warmed arm pins 1 of 8, and the
+   planted search still finds composition 86, output 1, unpinned, under the defaults,
+   `arrowBatchSize=1` and `checkIntOverflow=false`. `VarkaDomains` now counts a row as able to
+   reach a guard only if its own one-row batch does, by the same verdict, so a row whose bounded
+   inputs are all NULL, which the shortcut answers, no longer counts.
 
 ## 4. Predictions and costs
 
