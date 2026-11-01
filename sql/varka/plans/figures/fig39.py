@@ -17,14 +17,10 @@
 
 """Figure 39: what a click costs - the mean milliseconds of a short query over a cached table
 with the same value each time or a new one, each bar split into the part spent in Janino and
-the rest; and below, as a separate measurement on another build and CPU, the same comparison for
-an integer written into the source against one passed to the class as a reference, the change
-Spark already makes for strings. The upper block reads the "mean of 40 queries" table of the
-stock Spark 4.2.0 run (sql/varka/demo/compiles/times-jdk25-output.txt); the lower block reads the
-reference block of this repository's benchmark results
-(sql/core/benchmarks/CodegenRecompileBenchmark-jdk25-results.txt), since the stand-in expression
-it needs is test code and exists only there. Each block names its own build and CPU and has its
-own axis, so the two are not read as one measurement."""
+the rest, from the "mean of 40 queries" table of the stock Spark 4.2.0 run
+(sql/varka/demo/compiles/times-jdk25-output.txt). Figure 61 draws the same bars for this
+repository's benchmark of an integer passed to the class (`draw` below serves both), a separate
+measurement on another build and CPU, so the two are separate figures."""
 
 import os
 import re
@@ -75,70 +71,52 @@ def short(name):
     return re.sub(r"\s+\d+-Core Processor$", "", name)
 
 
-stock = means(STOCK)
-fork = means(FORK)
-assert len(stock) == 1, len(stock)
-assert len(fork) == 2, len(fork)
-# The fork's first block is the 4.2.0 run's arms on the other build; the figure shows its second.
-reference = fork[1]
+def draw(name, seed, title, where, rows):
+    """One figure of one block of bars over its own axis, with the legend below."""
+    r = Rough(1000, 160 + 40 * len(rows) + 110, seed=seed)
+    r.text(40, 44, title, size=32)
+    r.text(
+        40,
+        84,
+        "SELECT count(*) over 100,000 cached rows, mean of 40 queries, ms; local mode, JDK 25, "
+        "GitHub runners",
+        size=17,
+        color=GREY,
+    )
+    r.text(40, 120, where, size=16, color=GREY)
+    x0, x1, label = 360, 900, 340
+    top = 10.0 * (int(max(ms for _, _, ms, _ in rows) / 10) + 1)
 
-r = Rough(1000, 715, seed=3901)
-r.text(40, 44, "What a click costs", size=32)
-r.text(
-    40,
-    84,
-    "SELECT count(*) over 100,000 cached rows, mean of 40 queries, ms; local mode, JDK 25, "
-    "GitHub runners",
-    size=17,
-    color=GREY,
-)
+    def px(ms):
+        return x0 + (x1 - x0) * ms / top
 
-X0, X1, LABEL = 360, 900, 340
-MAX = 10.0 * (int(max(ms for b in (stock[0], reference) for _, _, ms, _ in b) / 10) + 1)
-
-
-def px(ms):
-    return X0 + (X1 - X0) * ms / MAX
-
-
-def bar(y, label, classes, ms, janino):
-    r.text(LABEL, y + 16, label, size=18, anchor="end")
-    if janino > 0:
-        r.rect(X0, y, px(janino) - X0, 30, fill=JANINO, solid=True)
-    r.rect(px(janino), y, px(ms) - px(janino), 30, fill=REST, solid=True)
-    r.text(px(ms) + 10, y + 16, "%s ms, %d classes" % (("%.2f" % ms), classes), size=17)
-
-
-def block(y, title, where, rows):
-    """A titled block of bars with its own axis; returns the y below it."""
-    r.text(40, y, title, size=22)
-    r.text(40, y + 26, where, size=16, color=GREY)
-    y += 46
-    for label, classes, ms, janino in rows:
-        bar(y, label, classes, ms, janino)
+    y = 140
+    for name_, classes, ms, janino in rows:
+        r.text(label, y + 16, name_, size=18, anchor="end")
+        if janino > 0:
+            r.rect(x0, y, px(janino) - x0, 30, fill=JANINO, solid=True)
+        r.rect(px(janino), y, px(ms) - px(janino), 30, fill=REST, solid=True)
+        r.text(px(ms) + 10, y + 16, "%s ms, %d classes" % (("%.2f" % ms), classes), size=17)
         y += 40
-    r.arrow(X0, y + 4, X1 + 20, y + 4)
-    for ms in range(0, int(MAX) + 1, 10):
+    r.arrow(x0, y + 4, x1 + 20, y + 4)
+    for ms in range(0, int(top) + 1, 10):
         r.line(px(ms), y - 2, px(ms), y + 10)
         r.text(px(ms), y + 28, "%d" % ms, size=16, anchor="middle", color=GREY)
-    return y + 44
+    y += 44
+    r.rect(x0, y + 8, 22, 18, fill=JANINO, solid=True)
+    r.text(x0 + 30, y + 17, "Janino compiling", size=17)
+    r.rect(x0 + 200, y + 8, 22, 18, fill=REST, solid=True)
+    r.text(x0 + 230, y + 17, "everything else", size=17)
+    finish(r, name)
 
 
-y = block(
-    130,
-    "the value in the query",
-    "stock Spark 4.2.0, %s" % short(cpu(STOCK)),
-    stock[0],
-)
-y = block(
-    y + 30,
-    "an integer in the source, or passed to the class",
-    "a separate run: this repository's Spark (master-based, Varka off), %s" % short(cpu(FORK)),
-    reference,
-)
-
-r.rect(X0, y + 8, 22, 18, fill=JANINO, solid=True)
-r.text(X0 + 30, y + 17, "Janino compiling", size=17)
-r.rect(X0 + 200, y + 8, 22, 18, fill=REST, solid=True)
-r.text(X0 + 230, y + 17, "everything else", size=17)
-finish(r, "fig39-what-a-click-costs")
+if __name__ == "__main__":
+    stock = means(STOCK)
+    assert len(stock) == 1, len(stock)
+    draw(
+        "fig39-what-a-click-costs",
+        3901,
+        "What a click costs",
+        "stock Spark 4.2.0, %s" % short(cpu(STOCK)),
+        stock[0],
+    )
