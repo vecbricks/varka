@@ -297,17 +297,32 @@ def option_names():
     return names
 
 
+def joined(text):
+    """A source with its string literals split by `+` joined back, so a test name written across
+    lines reads as the one name the suite runs it under."""
+    return re.sub(r'"\s*\+\s*s?"', "", text)
+
+
 def suite_text(suite):
-    """The suite's source with string literals split by `+` joined back, or None if absent."""
+    """The suite's joined source (see `joined`), or None if absent."""
     hits = git("ls-files", f"*/{suite}.scala", f"*/{suite}.java").split()
     if not hits:
         return None
-    return re.sub(r'"\s*\+\s*s?"', "", read(hits[0]))
+    return joined(read(hits[0]))
+
+
+_TEST_SOURCES = {}
 
 
 def inherited_test(test):
-    """Whether some test source names the test: a suite may take its tests from a parent."""
-    return bool(git("grep", "-l", "-F", test, "HEAD", "--", "sql/*/src/test/*", check=False))
+    """Whether some test source names the test: a suite may take its tests from a parent. The
+    sources are read as they stand in the tree being committed and joined like the suite's own,
+    so a name split across lines in a parent is found, and a rename and its skip line can land in
+    one commit."""
+    if ROOT not in _TEST_SOURCES:
+        files = git("ls-files", "sql/*/src/test/*.scala", "sql/*/src/test/*.java").split()
+        _TEST_SOURCES[ROOT] = [joined(read(f)) for f in files if "Varka" in f]
+    return any(test in text or test in unescape(text) for text in _TEST_SOURCES[ROOT])
 
 
 def names_tests_at_run_time(text):
@@ -550,6 +565,26 @@ def selftest():
             {"m/src/main/java/B.java": lic},
             "license-header",
             False,
+        )
+        tables = "sql/m/src/test/java/VarkaShapeTables.java"
+        suite = "sql/m/src/test/java/VarkaShapeSuite.java"
+        split = lic + '@DisplayName("a name split "\n      + "across two lines")\nvoid t() {}\n'
+        skip = "a=1\tVarkaShapeSuite\t%s\tfails\tthe reason\n"
+        case(
+            "a skip line naming a test its parent splits across lines",
+            {
+                tables: split,
+                suite: lic + "class VarkaShapeSuite {}\n",
+                SKIPS: skip % "a name split across two lines",
+            },
+            "skips-tsv",
+            False,
+        )
+        case(
+            "a skip line naming no test",
+            {SKIPS: skip % "a name nobody wrote"},
+            "skips-tsv",
+            True,
         )
         case("a new excluded JSON file", {"m/x.json": "{}\n"}, "license-header", False)
         case(
