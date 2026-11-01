@@ -462,7 +462,67 @@ scored; and the PR build and the option matrix pass.
 
 ## 10. Outcome
 
-(Written when the work lands.)
+(Written when the work lands; the spike's reading is below.)
+
+### 10.1 Step 2: the spike's reading, the laptop beside the EPYC 7763
+
+*1 November 2026, at `5c660201b35`. The laptop (AMD Ryzen AI 9 HX PRO 370, JDK 25.0.4.1, pinned
+to the four fast cores, both heavy locks held, canary ok) at `-XX:MaxVectorSize=64`, `32` and
+`16`, written to `sql/catalyst/benchmarks/VarkaDecimalPairSpikeBenchmark-jdk25-laptop-results.txt`
+and its `-laptop-256bit` and `-laptop-128bit` companions, each with a provenance file. The EPYC
+7763 columns are the two `-runner-epyc7763` files of #1250. The laptop's datapath is 256 bits
+wide (`dev/varka_datapath.sh` read 512:256 as 1.14 against a 256:128 control of 2.01), so its
+512-bit column is eight long lanes issued as two 256-bit halves: double-pumped, not a wider
+machine. Every arm settled at level 4, the 128-bit fallbacks included.*
+
+Nanoseconds a row, P / A / S (the arithmetic P / S), from the files' `Per Row(ns)` column:
+
+| section | rung | laptop 512 | laptop 256 | laptop 128 | EPYC 256 | EPYC 128 |
+|---|---|---|---|---|---|---|
+| the load and its 10^38 check | in L2 | 0.4 / 0.4 / 0.6 | 0.5 / 0.7 / 0.6 | 63.3 / 32.7 / 0.6 | 0.9 / 1.5 / 1.6 | 135.3 / 66.9 / 1.6 |
+| | in L3 | 0.4 / 0.4 / 0.8 | 0.5 / 0.7 / 0.8 | 65.2 / 33.0 / 0.8 | 0.9 / 1.5 / 1.8 | 137.5 / 67.0 / 1.8 |
+| | past L3 | 0.4 / 0.4 / 0.9 | 0.6 / 0.7 / 0.9 | 63.7 / 32.7 / 0.9 | 1.1 / 1.6 / 1.9 | 136.3 / 66.6 / 1.9 |
+| `x < y` into a selection word | in L2 | 0.3 / 0.3 / 0.6 | 0.3 / 0.5 / 0.6 | 71.0 / 20.7 / 0.6 | 1.0 / 1.0 / 1.4 | 165.2 / 43.7 / 1.4 |
+| | in L3 | 0.3 / 0.3 / 4.3 | 0.3 / 0.5 / 4.4 | 73.8 / 23.2 / 4.5 | 1.1 / 1.0 / 5.9 | 168.7 / 44.7 / 5.9 |
+| | past L3 | 0.6 / 0.6 / 4.7 | 0.6 / 0.6 / 4.6 | 72.1 / 23.7 / 5.5 | 1.5 / 1.5 / 6.2 | 168.7 / 45.2 / 6.3 |
+| `-x` stored | in L2 | 0.2 / 0.1 / 0.5 | 0.3 / 0.2 / 0.5 | 60.7 / 30.5 / 0.5 | 1.0 / 0.6 / 0.7 | 143.2 / 68.0 / 0.7 |
+| | in L3 | 0.3 / 0.2 / 0.5 | 0.3 / 0.3 / 0.5 | 62.0 / 30.4 / 0.5 | 1.1 / 0.6 / 0.8 | 143.4 / 67.4 / 0.8 |
+| | past L3 | 0.7 / 0.7 / 0.8 | 0.7 / 0.7 / 0.8 | 60.7 / 30.2 / 0.8 | 1.3 / 1.1 / 1.2 | 142.8 / 67.8 / 1.3 |
+| `x * y` into 256 bits | in L2 | 2.0 / 3.2 | 2.2 / 3.2 | 56.8 / 3.3 | 5.4 / 7.1 | 142.9 / 7.0 |
+| | in L3 | 2.2 / 5.3 | 2.4 / 5.3 | 57.9 / 5.4 | 5.5 / 10.6 | 143.1 / 10.6 |
+| | past L3 | 2.6 / 5.6 | 2.8 / 5.6 | 57.6 / 6.9 | 5.6 / 10.9 | 141.8 / 11.0 |
+| `HALF_UP` of `x / 10^6` | in L2 | 2.2 / 3.4 | 2.5 / 3.6 | 112.8 / 3.7 | 5.5 / 7.0 | 232.9 / 7.1 |
+| | in L3 | 2.2 / 7.9 | 2.5 / 8.4 | 116.9 / 8.3 | 5.6 / 13.1 | 233.1 / 13.1 |
+| | past L3 | 2.3 / 7.9 | 2.5 / 7.9 | 114.3 / 8.4 | 5.6 / 14.0 | 233.1 / 14.0 |
+
+At the laptop's speeds the one-decimal `Per Row(ns)` column cannot separate P from A, so the rule
+below is read on the `Rate(M/s)` column, which the harness derives from each arm's best time: the
+comparison by minimums AGENTS.md asks for.
+
+**The rule** (the 359a plan's 11.3, on the load and `x < y` at the in-L3 and past-L3 rungs):
+
+- *A against P, at 512 bits:* the load is P's, 2771.8 against A's 2643.3 M rows/s in L3 and
+  2565.8 against 2433.2 past it; `x < y` is A 3511.4 against P 3206.4 in L3 and a tie past it,
+  1693.6 against 1698.3. Nowhere near 1.3x, and P leads the load. *At 256 bits:* P leads the load,
+  1882.6 against 1417.4 and 1814.0 against 1392.6, and `x < y`, 3006.7 against 2050.5 in L3, ties
+  past L3 at 1711.6 against 1655.8. Rule 2 does not hold at either width.
+- *S against P, at 512 and 256 bits:* S is slower on both sections at both rungs (the load
+  1205.8 against 2771.8 in L3 at 512, `x < y` 226.0 against 3006.7 in L3 at 256). Rule 3 does
+  not hold.
+- *At 128 bits* A beats P on both sections at both rungs by about two to three times (the load
+  30.3 against 15.3 M rows/s in L3, `x < y` 43.1 against 13.6), so rule 2's words, read alone,
+  are met there - as they already are by the EPYC's 128-bit column (67.0 against 137.5 ns a row
+  on the load). Both are two-lane x86 columns where P and A are the Java fallback and S runs at
+  the speed of the wider widths; the 359a plan's 11.4 decides that case (every 359a condition
+  declines there, S is a row of its own) and its 11.3 reads rule 1 as holding on the EPYC with
+  that column in it, so the laptop's 128-bit column is read the same way and does not trigger the
+  ask.
+
+**Verdict: build P.** Neither A nor S wins by the rule's margin at 256 or 512 bits on either host;
+the laptop's 512-bit column, double-pumped on its 256-bit datapath, agrees with its 256-bit one.
+The reading also shows the arithmetic travelling as section 2.1 expects: P's product and rescale
+lead S at 512 and 256 bits on the laptop as on the EPYC (2.2 against 5.3 and 2.2 against 7.9 ns a
+row in L3 at 512), and S leads everything at 128 bits.
 
 ## 11. 359a, the build plan (1 November 2026)
 
