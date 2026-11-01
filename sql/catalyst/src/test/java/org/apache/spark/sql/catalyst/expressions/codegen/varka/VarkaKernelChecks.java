@@ -1393,8 +1393,12 @@ public final class VarkaKernelChecks {
   /**
    * Output buffers for {@code roots} in {@code arena}: values at the lane's sentinel, so a lane
    * the kernel fails to write shows, and every validity byte, whole words to the last, at
-   * {@code fill}. A {@code Cond} root's data address is 0L, as the kernel contract says; a
-   * {@link BoolOutput}'s data is a bitmap of whole words holding {@link #STALE_DATA}.
+   * {@code fill}. A sentinel can be a legitimate answer - {@code Byte.MIN_VALUE} is
+   * {@code CAST(128 AS TINYINT)} - so the all-valid fill's buffers hold its complement instead,
+   * which differs from it at every width: {@link #runLoaded} compares both runs with one answer,
+   * so an unwritten lane shows in at least one of them. A {@code Cond} root's data address is 0L,
+   * as the kernel contract says; a {@link BoolOutput}'s data is a bitmap of whole words holding
+   * {@link #STALE_DATA}.
    */
   private static Outputs outputs(Arena arena, Lane lane, VarkaVectorIR[] roots,
       ValidityFill fill) {
@@ -1413,6 +1417,9 @@ public final class VarkaKernelChecks {
         values[o] =
             VarkaEmitterFixtures.alloc(arena, length * lane.outputStride(roots[o], rootLane));
         long sentinel = lane.sentinelOutput(roots[o], rootLane);
+        if (fill == ValidityFill.ONES) {
+          sentinel = ~sentinel;
+        }
         for (int i = 0; i < length; i++) {
           lane.putOutput(roots[o], rootLane, values[o], i, sentinel);
         }
