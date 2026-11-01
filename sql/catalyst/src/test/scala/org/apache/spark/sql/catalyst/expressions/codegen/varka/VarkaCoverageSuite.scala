@@ -743,9 +743,9 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
     // The extremes beside nulls hold greatest and least to their null-skipping blend: a sentinel
     // standing in for a null would answer the extreme where Spark answers the other operand.
     Family("Choice and nulls on every type", predicates = false, Seq(
-      Row("if(d < d2, i, i + 1)", "an int branch is a column, a literal or int arithmetic; the "
+      Row("if(i < 0, i, i + 1)", "an int branch is a column, a literal or int arithmetic; the "
         + "checked add is qualified by its arm, so only a row taking the ELSE can overflow",
-        domain = Some(s"d < d2 OR i < ${Int.MaxValue}")),
+        domain = Some(s"i < ${Int.MaxValue}")),
       Row("CASE WHEN d < d2 THEN i ELSE datediff(d, d2) END"),
       Row("coalesce(i, datediff(d, d2))"),
       Row("coalesce(i, 0)"),

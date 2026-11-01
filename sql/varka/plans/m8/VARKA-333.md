@@ -211,8 +211,11 @@ rely on.
   relabels is an open point (section 9).
 * **`CASE WHEN d < d2 THEN i ELSE i * 2 END` became `... ELSE datediff(d, d2) END`**: a checked
   multiply over a bare int column declines without a bound, as the integer arithmetic family's own
-  note says, and `if(d < d2, i, i + 1)` carries its checked add's domain, since the add runs on
-  every lane whichever branch a row takes.
+  note says. Item 55's `if(c, i, i + 1)` is the row `if(i < 0, i, i + 1)`, whose domain is
+  `i < 2147483647`: the checked add is qualified by its arm (`guardUnderArm`), so only a row
+  taking the ELSE can overflow. With `d < d2` as the condition the domain was
+  `d < d2 OR i < 2147483647`, and no row of the harness's fixtures fell outside it, so the row
+  could not be held to its domain.
 
 ### 3.6 Registered op counts
 
@@ -308,7 +311,7 @@ Explicitly out of this row: any new type's choice shapes, `IS NULL` over a predi
 1. Section 2's run, refreshed in 2.1 and committed first.
 2. The typed arm (3.1): `choiceValue` takes the int operand's rule at the branches of `IF` and
    `CASE WHEN` and the operands of `coalesce`, `greatest` and `least` when the whole expression
-   is an `INT`. `if(d < d2, i, i + 1)`, `coalesce(i, 0)`, `greatest(i, 7)` and the rest fuse;
+   is an `INT`. `if(i < 0, i, i + 1)`, `coalesce(i, 0)`, `greatest(i, 7)` and the rest fuse;
    `compileNode`'s leaves and `compileOffset` are untouched, and `date_add(d, i)`'s bytes in
    `emitted_bytes.json` did not move.
 3. The null leaf (3.2): `NullValue(lane)` in the IR, its analysis (`nullsFromValidInputs`, so
