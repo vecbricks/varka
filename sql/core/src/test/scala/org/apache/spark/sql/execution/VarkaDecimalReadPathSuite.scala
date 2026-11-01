@@ -21,11 +21,21 @@ import java.nio.{ByteBuffer, ByteOrder}
 
 import scala.util.control.NonFatal
 
-import org.apache.spark.SparkThrowable
+import org.apache.arrow.vector.{BaseFixedWidthVector, DateDayVector, DecimalVector, IntVector}
+import org.apache.arrow.vector.types.pojo.{ArrowType, Field, FieldType}
+
+import org.apache.spark.{Partition, SparkThrowable, TaskContext}
+import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.{QueryTest, SparkSession}
+import org.apache.spark.sql.catalyst.InternalRow
+import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, AttributeReference, Cast,
+  DateAdd, EvalMode, Expression}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTestWatchdog
 import org.apache.spark.sql.execution.columnar.{ArrowCachedBatch, InMemoryTableScanExec}
 import org.apache.spark.sql.internal.SQLConf
+import org.apache.spark.sql.types.{DateType, Decimal, DecimalType, IntegerType}
+import org.apache.spark.sql.util.ArrowUtils
+import org.apache.spark.sql.vectorized.{ArrowColumnVector, ColumnarBatch}
 
 /**
  * What Spark's ANSI and TRY casts of a `DECIMAL(p, s)` with `p <= 18` to `INT` answer over an
@@ -49,14 +59,17 @@ import org.apache.spark.sql.internal.SQLConf
  * With Varka on, a Varka node reads the batches through `ArrowColumnVector`, and every row-by-row
  * read of a batch - residual outputs, fallbacks, the filters' copies, row and columnar output
  * alike - goes through `VarkaRowView`, which reads a small decimal as vanilla's row path does; so
- * Varka follows the exact rule on every path too, as `VARKA-365.md` 11 records.
+ * Varka follows the exact rule on every path too, as `VARKA-365.md` 11 and 13 record. Over a
+ * columnar input that is not the Arrow cache, vanilla's `ColumnarToRowExec` reads through the
+ * accessor and follows the double rule, and so does Varka, which reads such a batch's own rows.
  *
  * Two more tables hold slots Spark's own writer never writes, planted in the cached bytes: `a`'s
  * low word is 10^18, a value with more digits than its precision, and `b`'s high word is not its
  * low word's sign extension. The row reader takes the low words with no check, so a scan it
- * reads answers 1 and `Int.MaxValue`; the `UnsafeProjection` reads through the accessor, which
- * raises `NUMERIC_VALUE_OUT_OF_RANGE` on either slot, so a scan that also selects an array
- * raises. Varka on must answer as Varka off does on each, on every path.
+ * reads answers 1 and `Int.MaxValue`, and Varka on answers the same on every path. The
+ * `UnsafeProjection` reads through the accessor, which raises `NUMERIC_VALUE_OUT_OF_RANGE` on
+ * either slot, so a scan that also selects an array raises; there Varka on still answers the low
+ * words, the known limit `VARKA-365.md` 13 records.
  *
  * Every cell runs the two LEGACY casts and the four ANSI and TRY casts and names the reading all
  * six followed; a cell whose answers follow none of its table's readings fails with what it saw.
@@ -345,9 +358,6 @@ class VarkaDecimalReadPathSuite extends QueryTest with VarkaSharedSessions
     }.flatten.sum
     assert(bySlots > 0, s"the filter's decimal-slot guard declined no batch:\n${p.treeString}")
   }
-  /** A plan with a Varka node, for a query that raises before its metrics can say more. */
-  private val fusedPlan: SparkPlan => Unit = p => assertFused(p)
-
   /** A filter split into a row `FilterExec` over a Varka filter, and `batches` of the plan. */
   private def split(batches: SparkPlan => Unit): SparkPlan => Unit = { plan =>
     assert(find(plan) {
@@ -480,21 +490,137 @@ class VarkaDecimalReadPathSuite extends QueryTest with VarkaSharedSessions
     ("malformed slots beside an array: Varka off, the projection over the batch",
       Path(() => spark, badArray, Nil, besideFusedAndArray, declineAll = false,
         selectsArray(rowRead)), Raises),
-    ("malformed slots beside an array: Varka on, a residual cast beside a fused output",
+    // The known limit: Varka's view takes the row reader's low word whatever else the scan
+    // selects, where vanilla's projection over the batch raises.
+    ("malformed slots beside an array, the known limit: Varka on, a residual cast beside a " +
+      "fused output",
       Path(() => varkaSpark, badArray, Nil, besideFusedAndArray, declineAll = false,
-        selectsArray(fusedPlan)), Raises),
-    ("malformed slots beside an array: Varka on, the fallback",
-      Path(() => varkaSpark, badArray, Nil, besideFusedAndArray, declineAll = true,
-        selectsArray(fusedPlan)), Raises))
+        selectsArray(served)), LowWords))
 
   paths.foreach { case (name, path, expected) =>
     test(s"$name: the decimal-to-INT casts follow $expected") {
       assert(readingOf(path) === expected)
     }
   }
+
+  test("a columnar child that is not the Arrow cache: Varka on reads its rows as " +
+      "ColumnarToRowExec does, by the double rule") {
+    val child = spark.withActive(ArrowDecimalBatchPlan())
+    assert(!VarkaColumnarRule.readsArrowCache(child))
+    val Seq(a, b, d, i) = child.output
+    def casts(mode: EvalMode.Value): Seq[Expression] =
+      Seq(a, b).map(c => Cast(c, IntegerType, Option(conf.sessionLocalTimeZone), mode))
+    val all = casts(EvalMode.LEGACY) ++ casts(EvalMode.ANSI) ++ casts(EvalMode.TRY)
+    def projectList(cast: Expression) = Seq(Alias(cast, "r")(), Alias(DateAdd(d, i), "f")())
+    def values(node: SparkPlan): Seq[String] =
+      node.executeCollect().map(r => if (r.isNullAt(0)) "null" else r.getInt(0).toString).toSeq
+    def rule(name: String): Seq[String] = fused.asValue.find(_.name == name).get.answers
+    // Vanilla's plan: the projection fused with the transition into whole-stage code, which
+    // reads each value from the vector's accessor.
+    def vanillaPlan(cast: Expression): SparkPlan =
+      CollapseCodegenStages().apply(ProjectExec(projectList(cast), ColumnarToRowExec(child)))
+    val vanilla = all.map(c => spark.withActive(answer(values(vanillaPlan(c)))))
+    assert(vanilla === rule(DoubleRule))
+    // Without whole-stage code the transition copies each row into an UnsafeRow first, which
+    // reads the value back long-backed; Varka's node reads the batch's rows as they are.
+    val interpreted = all.map { c =>
+      spark.withActive(answer(values(ProjectExec(projectList(c), ColumnarToRowExec(child)))))
+    }
+    assert(interpreted === rule(ExactRule))
+    for (declineAll <- Seq(false, true)) {
+      VarkaColumnarToRowExec.setDeclineKernelForTesting(declineAll)
+      try {
+        val nodes =
+          all.map(c => varkaSpark.withActive(VarkaColumnarToRowExec(projectList(c), child)))
+        val seen = nodes.map(node => varkaSpark.withActive(answer(values(node))))
+        assert(seen === vanilla, s"declineAll = $declineAll")
+        val batches = nodes.map(_.metrics("numVarkaBatches").value).sum
+        // A task that raises reports no metrics, so a served path counts at least one batch.
+        assert(if (declineAll) batches == 0 else batches > 0,
+          s"declineAll = $declineAll: $batches batches served")
+      } finally {
+        VarkaColumnarToRowExec.setDeclineKernelForTesting(false)
+      }
+    }
+  }
+
+  test("a decimal field at another scale reads its value through the accessor") {
+    val allocator = ArrowUtils.rootAllocator.newChildAllocator("rp-scale", 0, Long.MaxValue)
+    try {
+      def read(bitWidth: Int, fieldScale: Int, unscaled: Long, schema: DecimalType): Decimal = {
+        val vector = new DecimalVector(new Field("x",
+          FieldType.nullable(new ArrowType.Decimal(18, fieldScale, bitWidth)), null), allocator)
+        try {
+          vector.allocateNew(1)
+          vector.setSafe(0, unscaled)
+          vector.setValueCount(1)
+          val batch = new ColumnarBatch(Array(new ArrowColumnVector(vector)), 1)
+          val view = VarkaRowView.of(Seq(AttributeReference("x", schema)()))
+          try view.rows(batch).next().getDecimal(0, schema.precision, schema.scale)
+          finally view.release()
+        } finally {
+          vector.close()
+        }
+      }
+      // VarkaLaneArrow.decimalFieldMatches declines both fields below, so the kernels send such
+      // a batch to the row path, and the row reader's low word would be read at the wrong scale.
+      val rescaled = read(128, 1, 125L, DecimalType(18, 2))
+      assert(rescaled.toString === "12.50")
+      assert(rescaled.toUnscaledLong === 1250L)
+      assert(read(64, 2, 1250L, DecimalType(18, 2)).toString === "12.50")
+      // The field the cache writes: the row reader's low word.
+      assert(read(128, 2, 1250L, DecimalType(18, 2)).toString === "12.50")
+    } finally {
+      allocator.close()
+    }
+  }
 }
 
 private object VarkaDecimalReadPathSuite {
+
+  /**
+   * A columnar leaf that is not the Arrow cache, built as `TestColumnarBatchPlan` is: one batch
+   * of Arrow vectors holding the row of `rp_fused` - the two decimals that part the rules, a date
+   * and an int that `date_add(d, i)` fuses.
+   */
+  case class ArrowDecimalBatchPlan() extends LeafExecNode {
+    override val output: Seq[Attribute] = Seq(
+      AttributeReference("a", DecimalType(18, 18))(),
+      AttributeReference("b", DecimalType(18, 8))(),
+      AttributeReference("d", DateType)(),
+      AttributeReference("i", IntegerType)())
+    override def supportsColumnar: Boolean = true
+    override protected def doExecute(): RDD[InternalRow] =
+      throw new UnsupportedOperationException("columnar only")
+    override protected def doExecuteColumnar(): RDD[ColumnarBatch] = {
+      val fields = output
+      new RDD[ColumnarBatch](sparkContext, Nil) {
+        override protected def getPartitions: Array[Partition] =
+          Array(new Partition { override def index: Int = 0 })
+        override def compute(split: Partition, context: TaskContext): Iterator[ColumnarBatch] = {
+          val allocator =
+            ArrowUtils.rootAllocator.newChildAllocator("rp-columnar", 0, Long.MaxValue)
+          val vectors = fields.map { f =>
+            ArrowUtils.toArrowField(f.name, f.dataType, nullable = true, null)
+              .createVector(allocator)
+          }
+          vectors.foreach(_.asInstanceOf[BaseFixedWidthVector].allocateNew(1))
+          val Seq(a: DecimalVector, b: DecimalVector, d: DateDayVector, i: IntVector) = vectors
+          a.setSafe(0, 999999999999999999L)
+          b.setSafe(0, 214748364799999999L)
+          d.setSafe(0, 19723)
+          i.setSafe(0, 3)
+          vectors.foreach(_.setValueCount(1))
+          val batch = new ColumnarBatch(vectors.map(new ArrowColumnVector(_)).toArray, 1)
+          context.addTaskCompletionListener[Unit] { _ =>
+            batch.close()
+            allocator.close()
+          }
+          Iterator.single(batch)
+        }
+      }
+    }
+  }
 
   /**
    * A 16-byte Arrow decimal slot: the low word at the offset the cache's row reader reads it

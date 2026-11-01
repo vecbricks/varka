@@ -117,7 +117,7 @@ public class VarkaEvaluatorOverheadBenchmark extends VarkaSqlBenchmarkBase {
     return new Shape(expression.sql(), input, metrics -> new VarkaProjectEvaluatorFactory(
         seq(List.of(out)), seq(input), false, Option.empty(),
         SQLMetrics.createMetric(sc, "rows"), SQLMetrics.createMetric(sc, "batches"), metrics,
-        VarkaSessionEmit.DEFAULTS, false).createEvaluator());
+        VarkaSessionEmit.DEFAULTS, false, false).createEvaluator());
   }
 
   private Shape filter(Expression condition, List<Attribute> input) {
@@ -125,7 +125,7 @@ public class VarkaEvaluatorOverheadBenchmark extends VarkaSqlBenchmarkBase {
     return new Shape("filter " + condition.sql(), input, metrics -> new VarkaFilterEvaluatorFactory(
         condition, seq(input), false, Option.empty(),
         SQLMetrics.createMetric(sc, "rows"), SQLMetrics.createMetric(sc, "batches"), metrics,
-        VarkaSessionEmit.DEFAULTS, false, Option.empty()).createEvaluator());
+        VarkaSessionEmit.DEFAULTS, false, Option.empty(), false).createEvaluator());
   }
 
   private List<Shape> shapes() {

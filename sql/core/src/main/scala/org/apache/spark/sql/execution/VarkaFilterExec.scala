@@ -195,7 +195,8 @@ case class VarkaFilterExec(
       VarkaExecMetrics.fromNode(metrics.getOrElse(_, null)),
       sessionEmit = sessionEmit,
       warmupEnabled = conf.varkaWarmupEnabled,
-      wholeCondition = Some(fallbackCondition))
+      wholeCondition = Some(fallbackCondition),
+      readsArrowCache = VarkaColumnarRule.readsArrowCache(child))
     if (conf.usePartitionEvaluator) {
       child.executeColumnar().mapPartitionsWithEvaluator(evaluatorFactory)
     } else {
@@ -217,7 +218,8 @@ private[sql] class VarkaFilterEvaluatorFactory(
     varkaMetrics: VarkaExecMetrics,
     sessionEmit: VarkaSessionEmit = VarkaSessionEmit.DEFAULTS,
     warmupEnabled: Boolean = false,
-    wholeCondition: Option[Expression] = None)
+    wholeCondition: Option[Expression] = None,
+    readsArrowCache: Boolean = false)
     extends PartitionEvaluatorFactory[ColumnarBatch, ColumnarBatch] with Logging {
 
   override def createEvaluator(): PartitionEvaluator[ColumnarBatch, ColumnarBatch] = {
@@ -229,7 +231,7 @@ private[sql] class VarkaFilterEvaluatorFactory(
 
     private val kernels = new VarkaFilterEvaluator(
       condition, childOutput, offHeapColumnVectorEnabled, "Filter",
-      classDumpDirectory, varkaMetrics, sessionEmit, warmupEnabled)
+      classDumpDirectory, varkaMetrics, sessionEmit, warmupEnabled, readsArrowCache)
 
     // The per-row predicate and converter behind the fallback. Lazy: a task the
     // kernel serves end to end never pays the Janino compile.
@@ -446,7 +448,8 @@ case class VarkaFilterColumnarToRowExec(
       VarkaExecMetrics.fromNode(metrics.getOrElse(_, null)),
       sessionEmit = sessionEmit,
       warmupEnabled = conf.varkaWarmupEnabled,
-      wholeCondition = Some(fallbackCondition))
+      wholeCondition = Some(fallbackCondition),
+      readsArrowCache = VarkaColumnarRule.readsArrowCache(child))
     if (conf.usePartitionEvaluator) {
       child.executeColumnar().mapPartitionsWithEvaluator(evaluatorFactory)
     } else {
@@ -468,7 +471,8 @@ private[sql] class VarkaFilterToRowEvaluatorFactory(
     varkaMetrics: VarkaExecMetrics,
     sessionEmit: VarkaSessionEmit = VarkaSessionEmit.DEFAULTS,
     warmupEnabled: Boolean = false,
-    wholeCondition: Option[Expression] = None)
+    wholeCondition: Option[Expression] = None,
+    readsArrowCache: Boolean = false)
     extends PartitionEvaluatorFactory[ColumnarBatch, InternalRow] with Logging {
 
   override def createEvaluator(): PartitionEvaluator[ColumnarBatch, InternalRow] = {
@@ -482,7 +486,7 @@ private[sql] class VarkaFilterToRowEvaluatorFactory(
     // keeps the constructor honest about what this node allocates (nothing but the bitmap).
     private val kernels = new VarkaFilterEvaluator(
       condition, childOutput, false, "FilterToRow", classDumpDirectory, varkaMetrics,
-      sessionEmit, warmupEnabled)
+      sessionEmit, warmupEnabled, readsArrowCache)
 
     // The emitted rows hold their own bytes (an UnsafeProjection copy), so they outlive the
     // input batch exactly as VarkaColumnarToRowExec's rows do; the fallback predicate is the

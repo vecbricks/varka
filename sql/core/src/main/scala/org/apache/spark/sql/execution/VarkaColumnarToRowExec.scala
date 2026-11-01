@@ -161,7 +161,8 @@ case class VarkaColumnarToRowExec(
       longMetric("numInputBatches"),
       varkaMetrics,
       sessionEmit = sessionEmit,
-      warmupEnabled = conf.varkaWarmupEnabled)
+      warmupEnabled = conf.varkaWarmupEnabled,
+      readsArrowCache = VarkaColumnarRule.readsArrowCache(child))
     if (conf.usePartitionEvaluator) {
       child.executeColumnar().mapPartitionsWithEvaluator(evaluatorFactory)
     } else {
@@ -286,7 +287,8 @@ private[sql] class VarkaColumnarToRowEvaluatorFactory(
     numInputBatches: SQLMetric,
     varkaMetrics: VarkaExecMetrics,
     sessionEmit: VarkaSessionEmit = VarkaSessionEmit.DEFAULTS,
-    warmupEnabled: Boolean = false)
+    warmupEnabled: Boolean = false,
+    readsArrowCache: Boolean = false)
     extends PartitionEvaluatorFactory[ColumnarBatch, InternalRow] with Logging {
 
   override def createEvaluator(): PartitionEvaluator[ColumnarBatch, InternalRow] = {
@@ -319,7 +321,7 @@ private[sql] class VarkaColumnarToRowEvaluatorFactory(
 
     private val kernels = new VarkaKernelEvaluator(
       projectList, childOutput, offHeapColumnVectorEnabled, "ProjectToRow",
-      classDumpDirectory, varkaMetrics, sessionEmit, warmupEnabled)
+      classDumpDirectory, varkaMetrics, sessionEmit, warmupEnabled, readsArrowCache)
 
     // Merge-at-row (see 2.3): for a projection with forwarded or residual entries the
     // kernels produce only the fused columns, and this projection - over the input row joined
@@ -400,9 +402,7 @@ private[sql] class VarkaColumnarToRowEvaluatorFactory(
             val fusedRows = fusedBatch.rowIterator()
             val joined = new JoinedRow
             new Iterator[InternalRow] {
-              // The two run out together. Both are asked, not short-circuited, because the
-              // input's iterator drops its view of the batch when it reports the end.
-              override def hasNext: Boolean = fusedRows.hasNext & inputRows.hasNext
+              override def hasNext: Boolean = fusedRows.hasNext
               override def next(): InternalRow =
                 merge(joined(inputRows.next(), fusedRows.next()))
             }

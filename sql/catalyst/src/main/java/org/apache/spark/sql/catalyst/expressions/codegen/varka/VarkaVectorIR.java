@@ -492,11 +492,12 @@ public sealed interface VarkaVectorIR
    * a low word with more than {@code precision} digits. What Spark answers on such a slot depends
    * on how it reads the batch: the Arrow cache's row reader takes the low word with no check,
    * and {@code ArrowColumnVector}'s decimal accessor raises. A batch with such a slot declines
-   * with {@code STATUS_DECIMAL_SLOT}, and the fallback reads it as vanilla Spark's row path would
-   * read that batch (VARKA-365), raising where vanilla raises and answering where it answers. A
-   * null slot is never read by Spark, so whatever it holds never declines. The check is part of
-   * the leaf rather than a node above it because without it the leaf would compute over a slot
-   * Spark may raise on, and it is unconditional, as {@link GuardedRange}'s is.
+   * with {@code STATUS_DECIMAL_SLOT}, and the fallback reads it as vanilla Spark reads that
+   * source: the low word over the Arrow cache, through the accessor (raising) over any other
+   * (VARKA-365, which records one known limit). A null slot is never read by Spark, so whatever
+   * it holds never declines. The check is part of the leaf rather than a node above it because
+   * without it the leaf would compute over a slot Spark may raise on, and it is unconditional, as
+   * {@link GuardedRange}'s is.
    *
    * <p>It renders as {@code dec:} with the ordinal, the lane and the precision, so it shares no
    * kernel with a {@code BIGINT} {@link ColumnRef} of the same ordinal, and two precisions, whose

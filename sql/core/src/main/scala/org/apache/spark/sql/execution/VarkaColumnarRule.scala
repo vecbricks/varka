@@ -191,6 +191,23 @@ object VarkaColumnarRule extends ColumnarRule with Logging {
     case _ => None
   }
 
+  /**
+   * Whether a Varka node over `child` reads Spark's Arrow cache: an `InMemoryTableScanExec` under
+   * [[ArrowCachedBatchSerializer]] (in its query stage under adaptive execution), or a columnar
+   * Varka node over one, whose output forwards the cache's columns. Vanilla Spark reads that
+   * cache as rows, a small decimal long-backed, so a node over it reads its input's rows through
+   * `VarkaRowView` (VARKA-365); over any other columnar child it reads the batch's own rows, as
+   * vanilla's `ColumnarToRowExec` does.
+   */
+  private[execution] def readsArrowCache(child: SparkPlan): Boolean = child match {
+    case stage: TableCacheQueryStageExec => readsArrowCache(stage.plan)
+    case scan: InMemoryTableScanExec =>
+      scan.relation.cacheBuilder.serializer.isInstanceOf[ArrowCachedBatchSerializer]
+    case varka: VarkaProjectExec => readsArrowCache(varka.child)
+    case varka: VarkaFilterExec => readsArrowCache(varka.child)
+    case _ => false
+  }
+
   // The compiler is the single eligibility oracle: a projection is fused exactly when
   // at least one entry compiles to the vector IR - nested chains, shared subtrees and
   // predication included - with bare columns forwarded and the rest evaluated per row.
