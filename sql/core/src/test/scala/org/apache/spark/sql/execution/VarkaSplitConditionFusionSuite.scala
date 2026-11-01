@@ -26,11 +26,10 @@ import org.apache.spark.sql.catalyst.expressions.{And, AttributeReference, Expre
   GreaterThanOrEqual, Literal}
 import org.apache.spark.sql.catalyst.expressions.codegen.{CompiledVarkaPredicate,
   VarkaExpressionCompiler}
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaEmitOptions,
-  VarkaEmitterTestSupport, VarkaLoopEmitter}
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaEmitterTestSupport,
+  VarkaLoopEmitter}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTestWatchdog
 import org.apache.spark.sql.catalyst.parser.CatalystSqlParser
-import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types.IntegerType
 
 /**
@@ -57,14 +56,9 @@ class VarkaSplitConditionFusionSuite extends SparkFunSuite with VarkaTestWatchdo
   private def q3(n: Int): Expression =
     And(GreaterThanOrEqual(s, Literal(0)), parse(VarkaQ3Ranges.comparisons(n, "ss_sold_date_sk")))
 
-  // The conf's settings with the emitter's default level, as the test sessions pin it
-  // (TestSQLContext.overrideConfs): this suite has no session, so SQLConf.get alone would
-  // resolve the level from the runner's CPU. Only the level is pinned; the rest is the conf's.
-  private val comparisons = {
-    val conf = VarkaSessionEmit.of(SQLConf.get)
-    VarkaColumnarToRowExec.emitOptions(new VarkaSessionEmit(VarkaEmitOptions.USE_AVX_UNKNOWN,
-      conf.exactRefusalStatus, conf.familiesOff))
-  }
+  // The emitter's own defaults at the unknown level, as a session that sets nothing gets them:
+  // a fixed value, so the options depend on neither the runner's CPU nor a conf left set.
+  private val comparisons = VarkaColumnarToRowExec.emitOptions(VarkaSessionEmit.DEFAULTS)
     .withRangeSets(false).withSplitConditions(false)
   private val split = comparisons.withSplitConditions(true)
 

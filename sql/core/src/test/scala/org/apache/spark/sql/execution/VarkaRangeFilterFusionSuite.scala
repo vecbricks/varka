@@ -25,11 +25,10 @@ import org.apache.spark.sql.catalyst.analysis.UnresolvedAttribute
 import org.apache.spark.sql.catalyst.expressions.{And, AttributeReference, Expression,
   GreaterThanOrEqual, Literal}
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaExpressionCompiler
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaEmitOptions,
-  VarkaEmitterTestSupport, VarkaLoopEmitter, VarkaVectorIR}
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaEmitterTestSupport,
+  VarkaLoopEmitter, VarkaVectorIR}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTestWatchdog
 import org.apache.spark.sql.catalyst.parser.CatalystSqlParser
-import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types.IntegerType
 
 /**
@@ -55,14 +54,9 @@ class VarkaRangeFilterFusionSuite extends SparkFunSuite with VarkaTestWatchdog {
     And(GreaterThanOrEqual(s, Literal(0)), chain)
   }
 
-  // The conf's settings with the emitter's default level, as the test sessions pin it
-  // (TestSQLContext.overrideConfs): this suite has no session, so SQLConf.get alone would
-  // resolve the level from the runner's CPU. Only the level is pinned; the rest is the conf's.
-  private val options = {
-    val conf = VarkaSessionEmit.of(SQLConf.get)
-    VarkaColumnarToRowExec.emitOptions(new VarkaSessionEmit(VarkaEmitOptions.USE_AVX_UNKNOWN,
-      conf.exactRefusalStatus, conf.familiesOff))
-  }
+  // The emitter's own defaults at the unknown level, as a session that sets nothing gets them:
+  // a fixed value, so the options depend on neither the runner's CPU nor a conf left set.
+  private val options = VarkaColumnarToRowExec.emitOptions(VarkaSessionEmit.DEFAULTS)
 
   test("modified-q3 has 200 ranges") {
     assert(VarkaQ3Ranges.ranges.size == 200)
