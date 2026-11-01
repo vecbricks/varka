@@ -484,8 +484,6 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `i <= 7` | `predicate` |  |  | vector |
 | `i >= 7` | `predicate` |  |  | vector |
 | `i IS NULL` | `predicate` |  |  | vector |
-| `i IN (3, 1, 12)` | `predicate` |  | an int IN, the same equality chain as a date's | vector |
-| `i IN (11 to 16 int literals)` | `predicate` |  | an IN list this long arrives from the optimizer as an InSet and fuses the same way | vector |
 | `ym = INTERVAL '1-2' YEAR TO MONTH` | `predicate` |  |  | vector |
 | `ym < INTERVAL '1-2' YEAR TO MONTH` | `predicate` |  |  | vector |
 | `ym <= INTERVAL '1-2' YEAR TO MONTH` | `predicate` |  |  | vector |
@@ -521,19 +519,13 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `dt >= dt2` | `predicate` |  |  | per-lane: compare to mask, mask cast |
 | `dt <= dt2` | `predicate` |  |  | per-lane: compare to mask, mask cast |
 | `dt IS NULL` | `predicate` |  |  | per-lane: mask broadcast, mask logic, mask cast |
-| `CAST(TIME'12:34:56.789' AS TIME(6)) = t` | `predicate` |  | the widening cast written out; a narrowing one floors the nanoseconds and declines | per-lane: compare to mask, mask cast |
+| `CAST(TIME'12:34:56.789' AS TIME(6)) = t` | `predicate` |  | a TIME literal is already TIME(6), so the cast is the identity the optimizer removes; a widening from TIME(0) or TIME(3) fuses and a narrowing declines | per-lane: compare to mask, mask cast |
 | `(l > l2) IS NULL` | `predicate` |  | the unknown partition at the long lane (VARKA-334); a default session's NullDownPropagation pushes the test onto the columns, so this form reaches Varka as written only with that rule excluded | per-lane: mask broadcast, mask logic, mask cast, compare to mask |
 | `(t < t2) IS NOT NULL` | `predicate` |  | the long lane's; a default session's NullDownPropagation pushes the test onto the columns, so this form reaches Varka as written only with that rule excluded | per-lane: mask cast, mask broadcast, compare to mask |
 | `l <=> l2` | `predicate` |  | null-safe equality at the long lane (VARKA-336) | per-lane: compare to mask, mask cast |
 | `equal_null(l, l2)` | `predicate` |  |  | per-lane: compare to mask, mask cast |
 | `t <=> t2` | `predicate` |  |  | per-lane: compare to mask, mask cast |
 | `dt <=> dt2` | `predicate` |  |  | per-lane: compare to mask, mask cast |
-| `l IN (5000000000, 42L, 0L)` | `predicate` |  | the long lane's equality chain, each literal a slot in its own table; an int literal arrives under a cast, which a query's optimizer folds and this table writes folded | per-lane: compare to mask, mask logic, mask cast |
-| `l IN (11 to 16 bigint literals)` | `predicate` |  | an IN list this long arrives from the optimizer as an InSet and fuses the same way | per-lane: compare to mask, mask logic, mask cast |
-| `t IN (TIME'12:00:00.000000', TIME'06:00:00.000000')` | `predicate` |  | literals of the column's precision, so no cast reaches the column | per-lane: compare to mask, mask logic, mask cast |
-| `t IN (11 to 16 TIME literals)` | `predicate` |  | an IN list this long arrives from the optimizer as an InSet and fuses the same way | per-lane: compare to mask, mask logic, mask cast |
-| `dt IN (INTERVAL '2 00:00:00' DAY TO SECOND, INTERVAL '1 00:00:00' DAY TO SECOND)` | `predicate` |  |  | per-lane: compare to mask, mask logic, mask cast |
-| `dt IN (11 to 16 day-time literals)` | `predicate` |  | an IN list this long arrives from the optimizer as an InSet and fuses the same way | per-lane: compare to mask, mask logic, mask cast |
 
 #### Boolean columns
 
@@ -683,59 +675,6 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `if(dt < dt2, dt, dt2)` | `predicate`, `condition` |  |  | per-lane: compare to mask, blend, mask cast, mask broadcast |
 | `coalesce(dt, dt2)` | `condition` |  |  | per-lane: blend, mask broadcast |
 
-#### Choice and nulls on every type
-
-| Expression | Switches | Domain | Notes | 128-bit lanes |
-|---|---|---|---|---|
-| `if(d < d2, i, i + 1)` | `predicate`, `condition`, `intArithmetic` | `d < d2 OR i < 2147483647` | an int branch is a column, a literal or int arithmetic; the checked add is qualified by its arm, so only a row taking the ELSE can overflow | vector |
-| `CASE WHEN d < d2 THEN i ELSE datediff(d, d2) END` | `calendar`, `predicate`, `condition` |  |  | vector |
-| `coalesce(i, datediff(d, d2))` | `calendar`, `condition` |  |  | vector |
-| `coalesce(i, 0)` | `condition` |  |  | vector |
-| `zeroifnull(i)` | `condition` |  | rewritten to coalesce(i, 0) | vector |
-| `greatest(i, 7)` | `intArithmetic` |  |  | vector |
-| `least(i, -7)` | `intArithmetic` |  |  | vector |
-| `greatest(i, -2147483648)` | `intArithmetic` |  | the int minimum beside a null is the minimum, not a null | vector |
-| `least(i, 2147483647)` | `intArithmetic` |  | the int maximum beside a null | vector |
-| `nvl2(d, i, 0)` | `predicate`, `condition` |  | rewritten to if(d IS NOT NULL, i, 0) | vector |
-| `CASE WHEN d < d2 THEN i END` | `predicate`, `condition` |  | the missing ELSE is the null of the int lane | vector |
-| `if(d < d2, i, NULL)` | `predicate`, `condition` |  |  | vector |
-| `nullif(i, 3)` | `predicate`, `condition` |  | rewritten to if(i = 3, NULL, i); over a computed operand the optimizer evaluates it in a projection of its own, a second kernel | vector |
-| `nullifzero(i)` | `predicate`, `condition` |  | rewritten to if(i = 0, NULL, i) | vector |
-| `CASE WHEN d < d2 THEN d END` | `predicate`, `condition` |  |  | vector |
-| `if(d < d2, NULL, d)` | `predicate`, `condition` |  |  | vector |
-| `nullif(d, d2)` | `predicate`, `condition` |  |  | vector |
-| `nvl2(d2, d, d2)` | `predicate`, `condition` |  |  | vector |
-| `CASE WHEN d < d2 THEN ym END` | `predicate`, `condition` |  |  | vector |
-| `nullif(ym, INTERVAL '1-2' YEAR TO MONTH)` | `predicate`, `condition` |  |  | vector |
-| `nvl2(d, ym, INTERVAL '0-1' YEAR TO MONTH)` | `predicate`, `condition` |  |  | vector |
-| `CASE WHEN l < l2 THEN l END` | `predicate`, `condition` |  | the missing ELSE is the null of the long lane | per-lane: compare to mask, mask cast, blend, mask broadcast |
-| `if(d < d2, l, NULL)` | `predicate`, `condition` |  | a date condition lifted to the long lane beside the null | per-lane: compare to mask, mask cast, blend, mask broadcast, load or store, mask test |
-| `nullif(l, l2)` | `predicate`, `condition` |  |  | per-lane: compare to mask, mask cast, blend, mask broadcast |
-| `nullifzero(l)` | `predicate`, `condition`, `intArithmetic` |  |  | per-lane: compare to mask, mask cast, blend, mask broadcast, load or store, mask test |
-| `zeroifnull(l)` | `condition`, `intArithmetic` |  |  | per-lane: blend, mask broadcast, load or store, mask test |
-| `nvl2(l2, l, l2)` | `predicate`, `condition` |  |  | per-lane: blend, mask broadcast |
-| `greatest(l, -9223372036854775808L)` | `intArithmetic` |  | the bigint minimum beside a null | per-lane: blend, mask broadcast |
-| `least(l, 9223372036854775807L)` | `intArithmetic` |  | the bigint maximum beside a null | per-lane: blend, mask broadcast |
-| `CASE WHEN t < t2 THEN t END` | `predicate`, `condition` |  |  | per-lane: compare to mask, mask cast, blend, mask broadcast |
-| `nullif(t, t2)` | `predicate`, `condition` |  |  | per-lane: compare to mask, mask cast, blend, mask broadcast |
-| `nvl2(t2, t, t2)` | `predicate`, `condition` |  |  | per-lane: blend, mask broadcast |
-| `greatest(t, TIME '00:00:00')` | `intArithmetic` |  | the first TIME beside a null | per-lane: blend, mask broadcast |
-| `least(t, TIME '23:59:59.999999')` | `intArithmetic` |  | the last TIME beside a null | per-lane: blend, mask broadcast |
-| `CASE WHEN dt < dt2 THEN dt END` | `predicate`, `condition` |  |  | per-lane: compare to mask, mask cast, blend, mask broadcast |
-| `nullif(dt, dt2)` | `predicate`, `condition` |  |  | per-lane: compare to mask, mask cast, blend, mask broadcast |
-| `nvl2(dt2, dt, dt2)` | `predicate`, `condition` |  |  | per-lane: blend, mask broadcast |
-
-#### BETWEEN on every type
-
-| Predicate | Switches | Domain | Notes | 128-bit lanes |
-|---|---|---|---|---|
-| `i BETWEEN 1 AND 9` | `predicate` |  |  | vector |
-| `d BETWEEN DATE '2000-01-01' AND d2` | `predicate` |  |  | vector |
-| `ym BETWEEN INTERVAL '-1-0' YEAR TO MONTH AND INTERVAL '1-0' YEAR TO MONTH` | `predicate` |  |  | vector |
-| `l BETWEEN l2 AND 5000000000` | `predicate` |  |  | per-lane: compare to mask, mask logic, mask cast |
-| `t BETWEEN t2 AND TIME '23:59:59'` | `predicate` |  |  | per-lane: compare to mask, mask logic, mask cast |
-| `dt BETWEEN dt2 AND INTERVAL '1' DAY` | `predicate` |  |  | per-lane: compare to mask, mask logic, mask cast |
-
 #### TIMESTAMP_NTZ columns
 
 | Predicate | Switches | Domain | Notes | 128-bit lanes |
@@ -765,6 +704,16 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `coalesce(ntz, ntz2)` | `condition` |  |  | per-lane: blend, mask broadcast |
 | `CAST(d AS TIMESTAMP_NTZ)` | `intArithmetic` | `unix_date(d) BETWEEN -106751991 AND 106751991` | Spark multiplies with multiplyExact in every mode, so a day past the bound raises under LEGACY and ANSI and is null under TRY, on the row engine the guard sends its batch to | per-lane: compare to mask, mask logic, mask broadcast, mask test |
 | `CAST(ntz AS DATE)` | `intArithmetic` |  | cannot fail: every quotient is a day an int holds | vector |
+
+#### TIMESTAMP_NTZ arithmetic
+
+| Expression | Switches | Domain | Notes | 128-bit lanes |
+|---|---|---|---|---|
+| `ntz - ntz2` | `time` | `if(ntz IS NULL OR ntz2 IS NULL, NULL, try_subtract(ntz, ntz2) IS NOT NULL)` | a day-time interval in microseconds; a difference past the long raises in every mode | per-lane: compare to mask, mask logic, mask broadcast, mask test |
+| `ntz2 - d` | `time`, `intArithmetic` | `unix_date(d) BETWEEN -106751991 AND 106751991 AND if(ntz2 IS NULL OR d IS NULL, NULL, try_subtract(ntz2, d) IS NOT NULL)` | type coercion casts the date to TIMESTAMP_NTZ, its midnight, under the cast's day guard, then subtracts it | per-lane: compare to mask, mask logic, mask broadcast, mask test, load or store |
+| `ntz + dt` | `time` | `if(ntz IS NULL OR dt IS NULL, NULL, try_add(ntz, dt) IS NOT NULL)` | a value past the long raises in every mode | per-lane: compare to mask, mask logic, mask broadcast, mask test |
+| `ntz - dt` | `time` | `dt <> INTERVAL '-106751991 04:00:54.775808' DAY TO SECOND AND if(ntz IS NULL OR dt IS NULL, NULL, try_subtract(ntz, dt) IS NOT NULL)` | the interval's negation is folded into a checked subtraction; Spark negates with negateExact in every mode, so the least interval, which it raises on, is guarded | per-lane: compare to mask, mask logic, mask broadcast, mask test |
+| `ntz + INTERVAL '1' DAY` | `time` | `if(ntz IS NULL, NULL, try_add(ntz, INTERVAL '1' DAY) IS NOT NULL)` | a literal interval takes a slot in the long lane's table | per-lane: compare to mask, mask logic, mask broadcast, mask test |
 
 #### DOUBLE columns
 
@@ -883,19 +832,19 @@ operands (a row counts once for each type it reads):
 <!-- BEGIN generated verification counts -->
 | Type | Rows | refinement | proof | exhaustive | owed | differential |
 | :--- | ---: | ---: | ---: | ---: | ---: | ---: |
-| `bigint` | 57 | 0 | 2 | 0 | 2 | 53 |
+| `bigint` | 46 | 0 | 2 | 0 | 2 | 42 |
 | `bool` | 23 | 0 | 0 | 13 | 0 | 10 |
 | `byte` | 26 | 0 | 0 | 0 | 8 | 18 |
-| `date` | 100 | 17 | 0 | 1 | 0 | 82 |
+| `date` | 87 | 17 | 0 | 1 | 0 | 69 |
 | `dec` | 17 | 0 | 0 | 0 | 0 | 17 |
 | `double` | 20 | 0 | 0 | 0 | 0 | 20 |
-| `dt` | 21 | 2 | 0 | 0 | 0 | 19 |
+| `dt` | 18 | 2 | 0 | 0 | 0 | 16 |
 | `float` | 20 | 0 | 0 | 0 | 0 | 20 |
-| `int` | 91 | 14 | 2 | 0 | 1 | 74 |
-| `ntz` | 19 | 0 | 1 | 0 | 0 | 18 |
+| `int` | 72 | 14 | 2 | 0 | 1 | 55 |
+| `ntz` | 24 | 0 | 1 | 0 | 0 | 23 |
 | `short` | 25 | 0 | 0 | 0 | 8 | 17 |
-| `time` | 40 | 6 | 0 | 0 | 2 | 32 |
-| `ym` | 34 | 7 | 2 | 0 | 2 | 23 |
+| `time` | 32 | 6 | 0 | 0 | 2 | 24 |
+| `ym` | 30 | 7 | 2 | 0 | 2 | 19 |
 <!-- END generated verification counts -->
 
 ## Glossary
@@ -1759,7 +1708,7 @@ coverage table, and regenerated by the same command:
 | :--- | :--- | :--- |
 | `spark.sql.codegen.varka.family.calendar.enabled` | `true` | The calendar family: day arithmetic (date_add, date_sub, datediff, unix_date, date_from_unix_date), the calendar fields (year to weekofyear), make_date, last_day, next_day, trunc, add_months and a date plus a year-month interval. |
 | `spark.sql.codegen.varka.family.interval.enabled` | `true` | The interval family: year-month interval arithmetic, negation and abs, make_ym_interval, the year and month extractions, the multiply by an int and the casts between year-month intervals and ints. |
-| `spark.sql.codegen.varka.family.time.enabled` | `true` | The time family: the TIME functions (hour, minute, second, time_trunc, time_diff, the conversions to and from micros and millis, a time plus a day-time interval) and the casts to TIME and to a day-time interval. |
+| `spark.sql.codegen.varka.family.time.enabled` | `true` | The time family: the TIME functions (hour, minute, second, time_trunc, time_diff, the conversions to and from micros and millis, a time plus a day-time interval), the casts to TIME and to a day-time interval, and TIMESTAMP_NTZ minus TIMESTAMP_NTZ and a TIMESTAMP_NTZ plus or minus a day-time interval. |
 | `spark.sql.codegen.varka.family.predicate.enabled` | `true` | The predicate family: the comparisons, IN over dates and year-month intervals, IS NULL and IS NOT NULL, AND, OR and NOT, wherever they sit: a filter's predicates, so that no filter fuses, and the conditions of IF and CASE WHEN. |
 | `spark.sql.codegen.varka.family.condition.enabled` | `true` | The condition family: the conditionals IF, CASE WHEN and coalesce (the comparisons in their conditions are the predicate family's). |
 | `spark.sql.codegen.varka.family.intArithmetic.enabled` | `true` | The int arithmetic family: +, -, * and unary minus over int, tinyint and smallint operands and abs over the narrow two, checked under ANSI, greatest and least, the casts between int and bigint, and a tinyint or smallint widened to int. |

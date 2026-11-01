@@ -188,6 +188,20 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
   /** The days `CAST(d AS TIMESTAMP_NTZ)` converts without overflow: the cast's range guard. */
   private val ntzDayBound = s"unix_date(d) BETWEEN -$maxDateDiffDays AND $maxDateDiffDays"
   /**
+   * The domain of an NTZ arithmetic row: unknown where an operand is null, and otherwise whether
+   * Spark's `try_` form of the row has a value, which it has exactly where the row does not
+   * raise. Spark's own arithmetic is the bound, since no SQL spells an NTZ value as its count.
+   * A row whose kernel also guards one operand alone puts that guard first, `guard AND domain`:
+   * the guard is false on that operand's value whatever the other operand holds, null included,
+   * and three-valued AND keeps it false there.
+   */
+  private def ntzDomain(tried: String, operands: String*): String =
+    s"if(${operands.map(_ + " IS NULL").mkString(" OR ")}, NULL, $tried IS NOT NULL)"
+
+  /** The least day-time interval, the one `negateExact` refuses. */
+  private val leastInterval = "INTERVAL '-106751991 04:00:54.775808' DAY TO SECOND"
+
+  /**
    * NTZ literals the differential fixtures hold (a date column at a time column's value): under
    * one-row batches the cache's statistics drop every batch a literal cannot match, and a literal
    * no row holds would leave no batch for a kernel.
@@ -553,7 +567,8 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
       Row("dt <= dt2"),
       Row("dt IS NULL"),
       Row("CAST(TIME'12:34:56.789' AS TIME(6)) = t",
-        "the widening cast written out; a narrowing one floors the nanoseconds and declines"),
+        "a TIME literal is already TIME(6), so the cast is the identity the optimizer removes; " +
+          "a widening from TIME(0) or TIME(3) fuses and a narrowing declines"),
       Row("(l > l2) IS NULL", "the unknown partition at the long lane (VARKA-334)" + pushedNote),
       Row("(t < t2) IS NOT NULL", "the long lane's" + pushedNote),
       Row("l <=> l2", "null-safe equality at the long lane (VARKA-336)"),
@@ -795,7 +810,8 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
       Row("dt BETWEEN dt2 AND INTERVAL '1' DAY"))),
 
     // TIMESTAMP_NTZ on the long lane (VARKA-338): microseconds since the epoch with no zone,
-    // compared and chosen by the long lane's nodes as a bigint is; its arithmetic is row 339's.
+    // compared and chosen by the long lane's nodes as a bigint is; its arithmetic is the family
+    // after the two.
     Family("TIMESTAMP_NTZ columns", predicates = true, Seq(
       Row("ntz < ntz2"),
       Row("ntz <= ntz2"),
@@ -828,6 +844,26 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
         "a day past the bound raises under LEGACY and ANSI and is null under TRY, on the row " +
         "engine the guard sends its batch to", domain = Some(ntzDayBound)),
       Row("CAST(ntz AS DATE)", "cannot fail: every quotient is a day an int holds"))),
+
+    // TIMESTAMP_NTZ arithmetic (VARKA-339): Spark reads an NTZ value at UTC, so the difference
+    // and the day-time interval sums are `subtractExact` and `addExact` of the counts in every
+    // evaluation mode, and a value past the long raises under LEGACY and ANSI alike. The kernel
+    // computes them with the checked long subtract and add, and a batch with an overflowing row
+    // goes to the row engine, which raises.
+    Family("TIMESTAMP_NTZ arithmetic", predicates = false, Seq(
+      Row("ntz - ntz2", "a day-time interval in microseconds; a difference past the long " +
+        "raises in every mode", domain = Some(ntzDomain("try_subtract(ntz, ntz2)", "ntz", "ntz2"))),
+      Row("ntz2 - d", "type coercion casts the date to TIMESTAMP_NTZ, its midnight, under the " +
+        "cast's day guard, then subtracts it", domain = Some(s"$ntzDayBound AND " +
+          ntzDomain("try_subtract(ntz2, d)", "ntz2", "d"))),
+      Row("ntz + dt", "a value past the long raises in every mode",
+        domain = Some(ntzDomain("try_add(ntz, dt)", "ntz", "dt"))),
+      Row("ntz - dt", "the interval's negation is folded into a checked subtraction; Spark " +
+        "negates with negateExact in every mode, so the least interval, which it raises on, is " +
+        "guarded", domain = Some(s"dt <> $leastInterval AND " +
+          ntzDomain("try_subtract(ntz, dt)", "ntz", "dt"))),
+      Row("ntz + INTERVAL '1' DAY", "a literal interval takes a slot in the long lane's table",
+        domain = Some(ntzDomain("try_add(ntz, INTERVAL '1' DAY)", "ntz"))))),
 
     // DOUBLE and FLOAT on their own lanes (VARKA-341), in Spark's order: NaN equals NaN and is
     // above every other value, and -0.0 equals 0.0. A comparison is the IEEE compare corrected

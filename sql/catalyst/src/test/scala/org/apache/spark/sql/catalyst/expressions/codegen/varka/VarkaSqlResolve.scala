@@ -73,7 +73,10 @@ object VarkaSqlResolve {
    * folds it before Varka sees a plan: it is how SQL writes NaN and the infinities, which have
    * no literal of their own, and the compiler declines a floating cast. A cast of a `NULL`
    * literal is folded to the typed null for the same reason: `if(c, x, NULL)` arrives at Varka
-   * as `If(c, x, Literal(null, t))`.
+   * as `If(c, x, Literal(null, t))`. And a cast to its child's own type is its child, as the
+   * optimizer's `SimplifyCasts` makes it: the analyzer writes one over the datetime arithmetic
+   * it rewrites (`ntz + dt` arrives as `Cast(TimestampAddInterval(ntz, dt), TIMESTAMP_NTZ)`), and
+   * no plan Varka sees still holds it.
    *
    * A `With`, which `nullif` and `between` resolve to, is rewritten by the optimizer's own
    * `RewriteWithExpression`, as a session's optimizer rewrites it before Varka sees a plan: over
@@ -105,6 +108,7 @@ object VarkaSqlResolve {
         case c @ Cast(Literal(_, StringType), DoubleType | FloatType, _, _) =>
           Literal.create(c.eval(), c.dataType)
         case Cast(Literal(null, _), t, _, _) => Literal(null, t)
+        case Cast(child, dataType, _, _) if child.dataType == dataType => child
       }
       case other =>
         throw new IllegalArgumentException(
