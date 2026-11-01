@@ -57,9 +57,10 @@ public final class VarkaKernelPlan {
     /** A floating conjunct of a filter whose kernel is integral, which it cannot join yet. */
     FLOATING_CONDITION,
     /**
-     * A condition root of a kernel driven at the long lane, on an x86 host whose long species has
-     * two lanes and whose masks C2 does not lower: a refusal of the host, not of the roots, so
-     * the compiler asks for it at admission ({@link #admit}) and {@link #of} never makes it.
+     * A condition root that compares or tests at the long lane, on an x86 host whose long
+     * species has two lanes and whose masks C2 does not lower: a refusal of the host, not of the
+     * roots, so the compiler asks for it at admission ({@link #admit}) and {@link #of} never
+     * makes it.
      */
     TWO_LANE_CONDITION
   }
@@ -164,9 +165,9 @@ public final class VarkaKernelPlan {
       twoLaneMasksFallBack(VarkaEmitOptions.HOST_USE_AVX, Lane.LONG.preferredLanes);
 
   /** The reason a filter's condition records where {@link #hostRefusal} refuses it. */
-  public static final String TWO_LANE_CONDITION_REASON = "a filter's condition in a kernel driven "
-      + "at the LONG lane, on an x86 host whose long species has two lanes: C2 lowers no "
-      + "two-lane mask there, and the selection would run the Vector API's Java fallback";
+  public static final String TWO_LANE_CONDITION_REASON = "a filter's condition that compares at "
+      + "the LONG lane, on an x86 host whose long species has two lanes: C2 lowers no two-lane "
+      + "mask there, and the selection would run the Vector API's Java fallback";
 
   /**
    * Whether a host with this {@code UseAVX} level and this many lanes in its preferred long
@@ -206,9 +207,16 @@ public final class VarkaKernelPlan {
 
   /**
    * The refusal of a filter's long-lane condition on a host whose long masks fall back
-   * (VARKA-503): a condition root - a filter's conjunct or a selection output - of a kernel
-   * driven at the long lane, whether the compare itself is on the long lane ({@code l < l2},
-   * {@code i < l}) or on the int half of a kernel that reads a long column ({@code hour(t) = 12}).
+   * (VARKA-503): a condition root - a filter's conjunct or a selection output - whose tree holds a
+   * condition at the long lane, a compare or test whose mask is the long species' ({@code l < l2},
+   * {@code i < l} with {@code i} widened, {@code l IS NOT NULL}). A condition that compares at
+   * the int lane of a kernel that reads a long column ({@code hour(t) = 12},
+   * {@code CAST(ntz AS DATE) = d}) makes its mask at the int species, which has four lanes at
+   * 128 bits and which C2 lowers, so it is admitted. The tree is walked, so a long condition
+   * anywhere under the root refuses it, not only at the root. A value node's own check - the
+   * range guard of a narrowing {@code CAST} - is not a condition and does not refuse, though its
+   * masks are the long species': no filter of that kind was measured ({@code m8/VARKA-503.md}
+   * 7).
    *
    * <p>Only the condition roots, and not every kernel that makes a long mask, because that is
    * where the measurement put the loss. At two long lanes under {@code -XX:UseAVX=2} the long
@@ -227,11 +235,27 @@ public final class VarkaKernelPlan {
       return Optional.empty();
     }
     for (VarkaVectorIR root : roots) {
-      if (root instanceof VarkaVectorIR.Cond) {
+      if (root instanceof VarkaVectorIR.Cond && comparesAtLongLane(root)) {
         return Optional.of(new Refusal(Kind.TWO_LANE_CONDITION, TWO_LANE_CONDITION_REASON));
       }
     }
     return Optional.empty();
+  }
+
+  /** Whether {@code root}'s tree holds a condition whose mask is at the long lane. */
+  private static boolean comparesAtLongLane(VarkaVectorIR root) {
+    var pending = new ArrayDeque<VarkaVectorIR>();
+    pending.push(root);
+    while (!pending.isEmpty()) {
+      VarkaVectorIR node = pending.pop();
+      if (node instanceof VarkaVectorIR.Cond && node.laneType() == LaneType.LONG) {
+        return true;
+      }
+      for (VarkaVectorIR child : VarkaVectorIR.childrenOf(node)) {
+        pending.push(child);
+      }
+    }
+    return false;
   }
 
   // -------------------------------------------------------------------------------------------

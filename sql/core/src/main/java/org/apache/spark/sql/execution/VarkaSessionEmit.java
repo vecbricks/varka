@@ -56,8 +56,8 @@ import org.apache.spark.sql.internal.SQLConf;
  *        it is not laid over the options; it travels here because the compile at planning and the
  *        evaluator's compile in a task must decline alike, and every caller of the compiler passes
  *        it beside {@code VarkaColumnarToRowExec.emitOptions}.
- * @param declineTwoLaneConditions whether a filter's condition in a kernel driven at the long
- *        lane is left to the row engine, as an x86 host whose long species has two lanes needs
+ * @param declineTwoLaneConditions whether a filter's condition that compares at the long lane
+ *        is left to the row engine, as an x86 host whose long species has two lanes needs
  *        ({@code spark.sql.codegen.varka.declineTwoLaneConditions}, VARKA-503; unset, the host's
  *        answer, {@link VarkaKernelPlan#HOST_TWO_LANE_MASKS_FALL_BACK}). Not an emit option, for
  *        the reason the families off are not: it decides which conjuncts the predicate compiler

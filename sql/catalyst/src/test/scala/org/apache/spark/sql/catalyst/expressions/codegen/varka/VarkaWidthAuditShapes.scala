@@ -45,10 +45,11 @@ object VarkaWidthAuditShapes {
 
   /**
    * One audited thing: a kernel the probe emits and runs, or a coverage row this JVM's width
-   * refuses to compile - a narrow column whose widening load the width cannot name, which is
-   * an answer about the row rather than an error (VARKA-329). Since the part-form widening
-   * load, every audited width names one, so no row takes this branch today: it describes the
-   * mechanism, not the current census.
+   * refuses to compile, which is an answer about the row rather than an error (VARKA-329). Since
+   * the part-form widening load every audited width names a narrow column's load, so a row
+   * declines only where the host refuses a filter's long-lane condition (VARKA-503): on x86 at
+   * two long lanes, a predicate row with such a conjunct, whether or not its other conjuncts
+   * fused.
    */
   sealed trait Entry {
     def name: String
@@ -133,33 +134,44 @@ object VarkaWidthAuditShapes {
         .map(_.elements().asScala.map(_.asText()).toSet).getOrElse(Set.empty[String])
       val resolved = asCatalystClaims(
         VarkaSqlResolve.resolve(CatalystSqlParser.parseExpression(executable), columns), catalyst)
-      val compiled =
-        if (form == "predicate") {
-          // On the host's own terms: an x86 host at two long lanes refuses a long filter
-          // condition (VARKA-503), which is this width's answer as a narrow load's is.
-          VarkaExpressionCompiler.compilePredicate(resolved, columns, VarkaEmitOptions.DEFAULTS,
-            java.util.Set.of(), VarkaKernelPlan.HOST_TWO_LANE_MASKS_FALL_BACK).toScala.map(_.fused)
-        } else {
-          VarkaExpressionCompiler.compile(Seq(Alias(resolved, "c")()), columns).toScala
+      if (form == "predicate") {
+        predicateRow(sql, resolved)
+      } else {
+        VarkaExpressionCompiler.compile(Seq(Alias(resolved, "c")()), columns).toScala match {
+          case Some(c) => Shape(sql, c.outputs.asScala.toSeq, c.inputOrdinals.size, c.numLiterals)
+          case None => Declined(sql, VarkaExpressionCompiler.declines(
+            Seq(Alias(resolved, "c")()), columns).asScala.values.map(_.reason).mkString("; "))
         }
-      compiled match {
-        case Some(c) => Shape(sql, c.outputs.asScala.toSeq, c.inputOrdinals.size, c.numLiterals)
-        case None => Declined(sql, declineReason(form, resolved))
       }
     }
   }
 
-  /** Why the compiler declined a row at this width, from the compile that explains one. */
-  private def declineReason(form: String, resolved: Expression): String =
-    if (form == "predicate") {
-      VarkaExpressionCompiler.explainAndCompilePredicate(resolved, columns,
-        VarkaEmitOptions.DEFAULTS, java.util.Set.of(),
-        VarkaKernelPlan.HOST_TWO_LANE_MASKS_FALL_BACK).specs.asScala
-        .flatMap(_.decline.toScala).map(_.reason).mkString("; ")
-    } else {
-      VarkaExpressionCompiler.declines(Seq(Alias(resolved, "c")()), columns).asScala
-        .values.map(_.reason).mkString("; ")
+  /**
+   * A predicate row on the host's own terms: an x86 host at two long lanes refuses a long filter
+   * condition (VARKA-503), which is this width's answer as a narrow load's is. A row any of whose
+   * conjuncts the compiler left to the row filter is declined, though the others fused: its
+   * kernel is not the row's, so C2's verdict on it would record the row as vectorized when part
+   * of it runs on the row path. The reason names the refused conjunct where another one fused.
+   */
+  private def predicateRow(sql: String, resolved: Expression): Entry = {
+    val explained = VarkaExpressionCompiler.explainAndCompilePredicate(resolved, columns,
+      VarkaEmitOptions.DEFAULTS, java.util.Set.of(), VarkaKernelPlan.HOST_TWO_LANE_MASKS_FALL_BACK)
+    val specs = explained.specs.asScala.toSeq
+    val refused = specs.filterNot(_.fused)
+    explained.compiled.toScala match {
+      case Some(c) if refused.isEmpty =>
+        val p = c.fused
+        Shape(sql, p.outputs.asScala.toSeq, p.inputOrdinals.size, p.numLiterals)
+      case _ =>
+        val partly = specs.exists(_.fused)
+        Declined(sql, refused.flatMap { spec =>
+          spec.decline.toScala.map { d =>
+            if (partly) s"the conjunct ${spec.conjunct.sql}, the rest fused: ${d.reason}"
+            else d.reason
+          }
+        }.mkString("; "))
     }
+  }
 
   /**
    * The constructions the rows do not reach. Each is one thing the emitter builds from a

@@ -34,7 +34,9 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Com
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.CompareOp;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Greatest;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IfElse;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IsNotNull;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LaneType;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.NarrowLane;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WidenLane;
 
 /**
@@ -89,6 +91,20 @@ public final class VarkaTwoLaneConditionSuite {
     // The blends make long masks too, and still beat the row path at two lanes.
     assertTrue(admit(new IfElse(new Compare(CompareOp.LT, L, L2), L, L2), true).isEmpty());
     assertTrue(admit(new Greatest(L, L2), true).isEmpty());
+  }
+
+  @Test
+  @DisplayName("an int condition in a kernel driven at the long lane is admitted on the two-lane "
+      + "host, its mask at the int species")
+  void intConditionOverLongRead() {
+    // `CAST(l AS INT) < i`: the kernel reads a long column and is driven at the long lane, but
+    // the compare and its mask are at the int lane, whose 128-bit species has four lanes.
+    var narrowed = new Compare(CompareOp.LT, new NarrowLane(L), I);
+    assertEquals(LaneType.LONG, VarkaKernelPlan.of(List.of(narrowed), VarkaMatrixRuns.BASE)
+        .drive());
+    assertTrue(admit(narrowed, true).isEmpty());
+    // A test over a long compare's known-ness is a long condition: `(l < l2) IS NOT NULL`.
+    assertTrue(admit(new IsNotNull(new Compare(CompareOp.LT, L, L2)), true).isPresent());
   }
 
   @Test
