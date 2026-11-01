@@ -741,6 +741,16 @@ final class VarkaVectorTemplateWarmup {
         // a pair of loads of sixteen-byte slots, the second a vector's bytes further on.
         VectorShuffle<Long> lanes = VectorShuffle.iota(s, r & 1, 2, false);
         acc += a.rearrange(lanes, b).lane(0) + s.vectorByteSize();
+        // The decimal store's interleave (VARKA-157): the index vector a body builds once,
+        // lanewise from an iota, as a shuffle or as the two-vector selectFrom's indices, and the
+        // two stores of the interleaved slots, whole and under a mask.
+        LongVector at = LongVector.zero(s).addIndex(1).add((long) (r & 1) * s.length());
+        LongVector zip = at.lanewise(VectorOperators.LSHR, 1L)
+            .add(at.and(1L).mul((long) s.length()));
+        LongVector out = a.rearrange(zip.toShuffle(), b);
+        out.intoMemorySegment(seg, 128, ByteOrder.LITTLE_ENDIAN);
+        zip.selectFrom(a, b).intoMemorySegment(seg, 128, ByteOrder.LITTLE_ENDIAN, tail);
+        acc += out.lane(0);
       }
       return acc;
     }

@@ -19,6 +19,7 @@ package org.apache.spark.sql.catalyst.expressions.codegen.varka
 
 import scala.jdk.CollectionConverters._
 
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions.DecimalStore
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaMatrix.PinsDefaults
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaMethodNames.{isEpilogue, isLoop}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR._
@@ -378,7 +379,8 @@ class VarkaEmitterBudgetSuite extends VarkaEmitterTestBase with VarkaOwnJvm {
       (new ConstDivide(new GuardedRange(c, -999L, 999L), 60, 1000L), 1, 0, VarkaMatrix.base),
       (new NarrowLane(new IntNeg(Overflow.WRAP, lc)), 1, 0, VarkaMatrix.base),
       (new WidenLane(new IntNeg(Overflow.WRAP, c)), 1, 0, VarkaMatrix.base),
-      (new DecimalColumn(0, LaneType.LONG, 9), 1, 0, VarkaMatrix.base))
+      (new DecimalColumn(0, LaneType.LONG, 9), 1, 0, VarkaMatrix.base),
+      (new WidenDecimal(new IntNeg(Overflow.WRAP, lc)), 1, 0, VarkaMatrix.base))
     // The calendar nodes whose own tail reads no month, so their prefix elides the month step.
     def elidesMonthStep(n: VarkaVectorIR): Boolean =
       VarkaEmitBudget.isChrono(n) && !VarkaChronoLowering.tailReadsMarchMonth(n)
@@ -408,7 +410,13 @@ class VarkaEmitterBudgetSuite extends VarkaEmitterTestBase with VarkaOwnJvm {
       // A boolean column reads its data word as bits, not as a vector load.
       val loads = if (root.isInstanceOf[IsNotNull]) 0
         else inputs - all.collect { case b: BoolColumn => b.ordinal }.size
-      val overhead = loads + lits + store
+      // The decimal store's two interleaves are built once a body, in its prologue, and are paid
+      // as a leaf's load is, by no weight: per part an iota (zero, addIndex), the second part's
+      // offset, its half, its parity times the lane count and their sum, and under
+      // REARRANGE the conversion to a shuffle (VarkaBodyEmitter.emitDecimalZip).
+      val zip = if (!all.exists(_.isInstanceOf[WidenDecimal])) 0
+        else 2 * 6 + 1 + (if (options.decimalStore() == DecimalStore.REARRANGE) 2 else 0)
+      val overhead = loads + lits + store + zip
       val expected = all.toSeq.map(emits).sum
       val emitted = laneCalls(emitMulti(Seq(root), inputs, lits, options)._2) - overhead
       assert(emitted === expected,

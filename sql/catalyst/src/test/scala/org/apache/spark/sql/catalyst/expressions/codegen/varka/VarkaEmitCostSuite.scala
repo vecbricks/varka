@@ -83,7 +83,8 @@ class VarkaEmitCostSuite extends VarkaEmitterTestBase with VarkaOwnJvm {
     // MathUnary exists at a floating lane only, and the floating lanes are unpriced
     // (`VarkaEmitCostFit.PRICED_LANES`, VARKA-342 5.1).
     val awaitingRefit = Set("NullSafeEqual", "BoolColumn", "CondConst", "BoolCompare", "CondIf",
-      "BoolNullSafeEq", "CondValue", "BoolOutput", "DecimalColumn", "NullValue", "MathUnary")
+      "BoolNullSafeEq", "CondValue", "BoolOutput", "DecimalColumn", "NullValue",
+      "WidenDecimal", "MathUnary")
     assert(awaitingRefit.forall(t => !expected.exists(f => f == t || f.startsWith(t + "/"))),
       s"${awaitingRefit.toSeq.sorted} is priced: take it off the list of nodes awaiting a refit")
     val unnamed = irTypes().filterNot(awaitingRefit.contains)

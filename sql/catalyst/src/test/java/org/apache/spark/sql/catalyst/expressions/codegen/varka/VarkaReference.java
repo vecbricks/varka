@@ -29,6 +29,7 @@ import java.util.function.IntBinaryOperator;
 import java.util.function.LongBinaryOperator;
 
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.*;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WidenDecimal;
 import org.apache.spark.sql.catalyst.util.DateTimeUtils;
 import org.apache.spark.sql.catalyst.util.DateTimeUtils$;
 import org.apache.spark.sql.catalyst.util.SQLOrderingUtil;
@@ -61,6 +62,11 @@ public final class VarkaReference {
 
   private VarkaReference() {
   }
+
+  /** The largest unscaled value of a {@code DECIMAL(18, s)}, which a decimal output may hold. */
+  static final long MAX_DECIMAL_UNSCALED =
+      org.apache.spark.sql.types.Decimal.POW_10()[
+          org.apache.spark.sql.types.Decimal.MAX_LONG_DIGITS()] - 1L;
 
   /** Kleene's three truth values; only {@link #TRUE} selects a THEN branch. */
   public enum Truth {
@@ -108,6 +114,8 @@ public final class VarkaReference {
       // (VARKA-329): the reference narrows it the way the store does, a truncation to the
       // output lane, so a wrapped answer still has to agree row by row.
       case NarrowLane n -> map(n.child(), row, isNull, lits, v -> narrow(n.target(), v));
+      case WidenDecimal n ->
+          throw new IllegalArgumentException("a decimal output is on the long lane: " + n);
       // Widening a narrow child into the int lane changes no value: the column's stored byte or
       // short sign-extends to the drawn int, which is the row this evaluator reads (VARKA-329).
       // A widening into the long lane is still the mixed evaluator's.
@@ -499,6 +507,18 @@ public final class VarkaReference {
       // conformance path alone truncates it, after this, to hold a LEGACY CAST(x AS INT) to
       // Spark's answer (VarkaKernelChecks.runLoadedLong with Spark's answers).
       case NarrowLane n -> longValue(n.child(), row, isNull, lits);
+      // The decimal store writes the child's value unchanged, as its slot's low word, and its
+      // sign extension: a value of at most eighteen digits, which every producer guarantees by
+      // its range (VARKA-157 2.1) and this evaluator asserts.
+      case WidenDecimal n -> {
+        var c = longValue(n.child(), row, isNull, lits);
+        if (c.isPresent()
+            && (c.getAsLong() < -MAX_DECIMAL_UNSCALED || c.getAsLong() > MAX_DECIMAL_UNSCALED)) {
+          throw new IllegalArgumentException("a decimal output past eighteen digits: "
+              + c.getAsLong() + " from " + VarkaVectorIR.canonical(n));
+        }
+        yield c;
+      }
       case WidenLane n -> throw new IllegalArgumentException(
           "a widening reads int rows, and is evaluated through mixedValue: " + n);
       // At the DOUBLE lane by Spark's ordering, the first of two equal operands kept.

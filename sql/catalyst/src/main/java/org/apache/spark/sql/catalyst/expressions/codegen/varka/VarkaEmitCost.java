@@ -142,6 +142,7 @@ final class VarkaEmitCost {
       // One lowering whatever their operands: the record name alone.
       case VarkaVectorIR.AddDays _, VarkaVectorIR.SubDays _, VarkaVectorIR.DateDiff _,
           VarkaVectorIR.GuardedDay _, VarkaVectorIR.WidenLane _, VarkaVectorIR.NarrowLane _,
+          VarkaVectorIR.WidenDecimal _,
           VarkaVectorIR.DayOfWeek _, VarkaVectorIR.WeekDay _, VarkaVectorIR.DayOfWeekIso _,
           VarkaVectorIR.NextDay _, VarkaVectorIR.ThursdayOf _, VarkaVectorIR.AddMonths _,
           VarkaVectorIR.Year _, VarkaVectorIR.Month _, VarkaVectorIR.DayOfMonth _,

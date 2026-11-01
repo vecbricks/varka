@@ -56,6 +56,7 @@ public record VarkaOperatorCensusCatalog(String name, String family, String loop
   private static final String MATH = "math";
   private static final String UNSIGNED = "unsigned long compares";
   private static final String DEINTERLEAVE = "the de-interleave";
+  private static final String INTERLEAVE = "the interleave";
   private static final String MASKS = "masks";
   private static final String TWO_SPECIES = "two species";
   private static final String PLANTED = "planted";
@@ -189,6 +190,15 @@ public record VarkaOperatorCensusCatalog(String name, String family, String loop
           "fromBitsCoerced", "347"),
       of("long", "dec_tail", DEINTERLEAVE, "dec.tail", "loadMasked", "347"),
       of("int", "dec_int_splice", DEINTERLEAVE, "dec.int.splice", "convert", "347"),
+      of("long", "dec_zip_segments", INTERLEAVE, "dec.zip.segments", "store", "157"),
+      of("long", "dec_zip_rearrange", INTERLEAVE, "dec.zip.rearrange", "rearrangeOp", "157"),
+      of("long", "dec_zip_selectFrom2", INTERLEAVE, "dec.zip.selectFrom2",
+          "selectFromTwoVectorOp", "157"),
+      of("long", "dec_zip_rearrange_lanewise", INTERLEAVE, "dec.zip.rearrange.lanewise",
+          "rearrangeOp", "157"),
+      of("long", "dec_zip_selectFrom2_lanewise", INTERLEAVE, "dec.zip.selectFrom2.lanewise",
+          "selectFromTwoVectorOp", "157"),
+      of("long", "dec_zip_tail", INTERLEAVE, "dec.zip.tail", "storeMasked", "157"),
       of("long", "NE", LONG_LANEWISE, "cmp.long", "compare", "347"),
       of("long", "GT", LONG_LANEWISE, "cmp.long", "compare", "347"),
       of("long", "LT", LONG_LANEWISE, "cmp.long", "compare", "347"),
