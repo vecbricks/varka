@@ -394,6 +394,10 @@ where those say otherwise.
   decimal column being its own node - rather than "not a bare date column".
 * **`nullLeaf` is an exhaustive switch over the type ids**, each type outside the six declining
   with the reason in a comment beside it, so a new type id is a compile error there.
+* **Row 497's second review round is merged** (to `ff3f16ad565`): its `IN` arm reads a foldable
+  element of the value's type as a constant and stops reading at the cap. The code merged
+  without a conflict; `docs/sql-varka.md` and `emitted_bytes.json` conflicted and were
+  regenerated on the merged tree, as were the other generated files.
 
 **Open points for the lead.**
 

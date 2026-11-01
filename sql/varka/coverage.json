@@ -2252,16 +2252,16 @@
     "note" : "",
     "verified" : "differential"
   }, {
-    "sql" : "l IN (5000000000, 42L, 0L)",
-    "executable" : "l IN (5000000000, 42L, 0L)",
+    "sql" : "l IN (5000000000, 42, 0)",
+    "executable" : "l IN (5000000000, 42, 0)",
     "family" : "Long-lane predicates",
     "form" : "predicate",
-    "catalyst" : [ "In" ],
-    "casts" : [ ],
-    "operands" : [ "In:bigint" ],
+    "catalyst" : [ "Cast", "In" ],
+    "casts" : [ "int>bigint:ansi" ],
+    "operands" : [ "Cast:int", "In:bigint" ],
     "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
     "domain" : "",
-    "note" : "the long lane's equality chain, each literal a slot in its own table; an int literal arrives under a cast, which a query's optimizer folds and this table writes folded",
+    "note" : "the long lane's equality chain, each literal a slot in its own table; an int literal arrives under coercion's cast to BIGINT, which the arm reads as the constant it is",
     "verified" : "differential"
   }, {
     "sql" : "l IN (11 to 16 bigint literals)",

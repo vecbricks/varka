@@ -575,9 +575,9 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
       Row("equal_null(l, l2)"),
       Row("t <=> t2"),
       Row("dt <=> dt2"),
-      Row("l IN (5000000000, 42L, 0L)",
+      Row("l IN (5000000000, 42, 0)",
         "the long lane's equality chain, each literal a slot in its own table; an int literal "
-          + "arrives under a cast, which a query's optimizer folds and this table writes folded"),
+          + "arrives under coercion's cast to BIGINT, which the arm reads as the constant it is"),
       Row("l IN (11 to 16 bigint literals)",
         "an IN list this long arrives from the optimizer as an InSet and fuses the same way",
         Some(InSet(l, (1 to 11).map(v => v.toLong.asInstanceOf[Any]).toSet)),
