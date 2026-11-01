@@ -250,14 +250,18 @@ Cost: medium, as the row says; about three days after the baseline.
    improves something): `VarkaTimestampNtzFieldsBaselineBenchmark`, `year(ntz)`, `weekofyear(ntz)`,
    `hour(ntz)`, `CAST(ntz AS TIME)`, `CAST(tm AS TIMESTAMP_NTZ)` and `make_timestamp_ntz(d, tm)`,
    each with and without nulls, its fuse check behind a property so the after-run reuses it.
-   Built as planned: the shared `VarkaSqlBenchmarkBase.requireBaseline` over each section's
+   Built as planned, with `CAST(ntz AS TIME(3))` added so step 4's truncation has a baseline too,
+   fourteen sections in all: the shared `VarkaSqlBenchmarkBase.requireBaseline` over each section's
    `fuses` flag, none set at step 1 (each section's plan read on an Arrow-cached Varka session),
    and a listed section must run fused over every batch (`VarkaSizeLadder.varkaFused`).
    `VarkaTimestampNtzFieldsBaselineQueriesSuite` checks the same list at pull-request time with
    the fused cast to `DATE` as its positive control, and that the fixture reaches 3's regions:
    timestamps on both sides of the epoch, days before 15 October 1582 and at a year's ends, both
-   ends of the day pinned in `ntz` and `tm`, dates of both signs, and every day inside `ntzDay`'s
-   guard, so the after-run's date sections fuse whole.
+   ends of the day pinned in `ntz` and `tm`, `weekofyear` crossing the year both ways, every hour
+   off the pinned rows, dates of both signs, and every day inside `ntzDay`'s guard, so the
+   after-run's date sections fuse whole. Each section carries its result type, the null columns it
+   reads and whether it reads the current date, which `CAST(tm AS TIMESTAMP_NTZ)` does: its pair is
+   run again once if a midnight falls between the two sessions' runs.
 2. **The helpers** (2.1) and the mixed-lane test (3.1).
 3. **The date fields** (2.2) with the sweep and the flipped test.
 4. **The time of day** (2.3): the three fields and the cast to `TIME`.

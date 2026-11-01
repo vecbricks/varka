@@ -19,11 +19,11 @@ package org.apache.spark.sql.execution.benchmark
 
 import scala.jdk.CollectionConverters._
 
-import org.apache.spark.sql.QueryTest
+import org.apache.spark.sql.{QueryTest, Row}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaChrono
 import org.apache.spark.sql.execution.VarkaSharedSessions
 import org.apache.spark.sql.internal.SQLConf
-import org.apache.spark.sql.types.{DataType, DateType, IntegerType, TimestampNTZType, TimeType}
+import org.apache.spark.sql.types.{DateType, TimestampNTZType, TimeType}
 
 /**
  * The TIMESTAMP_NTZ fields baseline's sections, run at a small scale on both sessions in every
@@ -35,10 +35,14 @@ import org.apache.spark.sql.types.{DataType, DateType, IntegerType, TimestampNTZ
  * so these rows already reach the regions the benchmark's javadoc states, which the suite checks
  * before it runs the sections: timestamps on both sides of the epoch, those before it with a time
  * of day other than midnight, days before the Gregorian reform, days at a year's ends where
- * `weekofyear`'s Thursday shift crosses into the next or the last year, every hour, both ends of
- * the day in `ntz` and in `tm` at their pinned rows, dates on both sides of the epoch, and every
- * day inside the date fields' guard. A section over the columns with no null must answer no null;
- * one over the columns with one row in ten null must answer exactly the nulls its columns hold.
+ * `weekofyear`'s Thursday shift crosses into the next or the last year, every hour off the pinned
+ * rows, both ends of the day in `ntz` and in `tm` at their pinned rows, dates on both sides of the
+ * epoch, and every day inside the date fields' guard. A section answers the type its `Section`
+ * names and exactly the nulls of the null columns it reads, each null at its own row of ten.
+ *
+ * `CAST(tm AS TIMESTAMP_NTZ)` takes the query's current date, so a midnight between the two
+ * sessions' runs changes its answer; such a section's pair is run again once when the current
+ * date read before and after it differ.
  *
  * The fuse check is the benchmark's own, made here too: a section fuses exactly when its class
  * lists it as fusing, and none is listed while the class is a baseline. A step of VARKA-340 that
@@ -50,10 +54,6 @@ class VarkaTimestampNtzFieldsBaselineQueriesSuite extends QueryTest with VarkaSh
   import VarkaTimestampNtzFieldsBaselineBenchmark._
 
   private val rows = 2000
-
-  /** The result type of each section, in the order `sections()` lists them for one density. */
-  private val resultTypes: Seq[DataType] = Seq(IntegerType, IntegerType, IntegerType,
-    TimeType(TimeType.MICROS_PRECISION), TimestampNTZType, TimestampNTZType)
 
   /** Runs `body` with `table` cached on both sessions as the benchmark's view. */
   private def withView(table: String)(body: => Unit): Unit = {
@@ -74,11 +74,27 @@ class VarkaTimestampNtzFieldsBaselineQueriesSuite extends QueryTest with VarkaSh
     }
   }
 
-  /** The nulls a section answers: none over the null-free columns, else its columns' nulls. */
-  private def expectedNulls(s: Section, nullRows: Int): Int =
-    if (s.title.endsWith("no nulls")) 0
-    else if (s.query.contains("make_timestamp_ntz")) 2 * nullRows
-    else nullRows
+  private def currentDate(): Row = spark.sql("SELECT current_date()").head()
+
+  /**
+   * Runs `s` on `spark`, checks that `varkaSpark` answers it alike, and returns the answer. A
+   * section that reads the current date is run again once if a midnight fell during its pair.
+   */
+  private def answerOnBoth(s: Section): Seq[Row] = {
+    def pair(): Seq[Row] = {
+      val answer = spark.sql(s.query).collect().toSeq
+      checkAnswer(varkaSpark.sql(s.query), answer)
+      answer
+    }
+    if (!s.readsCurrentDate) {
+      pair()
+    } else {
+      val before = currentDate()
+      try pair() catch {
+        case _: Exception if currentDate() != before => pair()
+      }
+    }
+  }
 
   test("every section of the TIMESTAMP_NTZ fields baseline runs, and both sessions answer it " +
     "alike") {
@@ -90,47 +106,54 @@ class VarkaTimestampNtzFieldsBaselineQueriesSuite extends QueryTest with VarkaSh
         types ++ types.map { case (n, t) => (n + "n") -> t })
 
       val epoch = "timestamp_ntz'1970-01-01 00:00:00'"
+      val pinned = "cast(ntz as time) in (time'00:00:00', time'23:59:59.999999')"
       val r = spark.sql(
-        s"""select count_if(ntz < $epoch), count_if(ntz >= $epoch),
-           |       count_if(ntz < $epoch and cast(ntz as time) <> time'00:00:00'),
-           |       count_if(ntz < timestamp_ntz'1582-10-15 00:00:00'),
-           |       count_if(dayofyear(ntz) <= 3 or dayofyear(ntz) >= 363),
-           |       min(hour(ntz)), max(hour(ntz)),
-           |       count_if(cast(ntz as time) = time'00:00:00'),
-           |       count_if(cast(ntz as time) = time'23:59:59.999999'),
-           |       count_if(tm = time'00:00:00'), count_if(tm = time'23:59:59.999999'),
-           |       min(unix_date(cast(ntz as date))), max(unix_date(cast(ntz as date))),
-           |       min(unix_date(d)), max(unix_date(d)),
-           |       count_if(ntzn is null), count_if(tmn is null), count_if(dn is null),
-           |       count_if(tmn is null and dn is null)
+        s"""select count_if(ntz < $epoch) as before_epoch, count_if(ntz >= $epoch) as after_epoch,
+           |       count_if(ntz < $epoch and cast(ntz as time) <> time'00:00:00')
+           |         as before_epoch_timed,
+           |       count_if(ntz < timestamp_ntz'1582-10-15 00:00:00') as julian,
+           |       count_if((month(ntz) = 12 and weekofyear(ntz) = 1)
+           |         or (month(ntz) = 1 and weekofyear(ntz) >= 52)) as week_crosses_year,
+           |       count(distinct case when not $pinned then hour(ntz) end) as free_hours,
+           |       count_if(cast(ntz as time) = time'00:00:00') as ntz_midnight,
+           |       count_if(cast(ntz as time) = time'23:59:59.999999') as ntz_day_end,
+           |       count_if(tm = time'00:00:00') as tm_midnight,
+           |       count_if(tm = time'23:59:59.999999') as tm_day_end,
+           |       min(unix_date(cast(ntz as date))) as ntz_min_day,
+           |       max(unix_date(cast(ntz as date))) as ntz_max_day,
+           |       min(unix_date(d)) as d_min_day, max(unix_date(d)) as d_max_day,
+           |       count_if(ntzn is null) as ntz_nulls, count_if(tmn is null) as tm_nulls,
+           |       count_if(dn is null) as d_nulls,
+           |       count_if(tmn is null and dn is null) as tm_and_d_nulls
            |from $VIEW""".stripMargin).head()
-      assert(r.getLong(0) > rows / 3 && r.getLong(1) > rows / 3)
-      assert(r.getLong(2) > rows / 3)
+      def long(name: String): Long = r.getAs[Long](name)
+      def int(name: String): Int = r.getAs[Int](name)
+      assert(long("before_epoch") > rows / 3 && long("after_epoch") > rows / 3)
+      assert(long("before_epoch_timed") > rows / 3)
       // Day -141427, 15 October 1582, lies just below the middle of the spread.
-      assert(r.getLong(3) > rows / 3)
-      assert(r.getLong(4) > 0)
-      assert(r.getInt(5) === 0 && r.getInt(6) === 23)
+      assert(long("julian") > rows / 3)
+      // Some of the last days of December in week 1 of the next year, or some of the first days
+      // of January in the last week of the year before.
+      assert(long("week_crosses_year") > 0)
+      // Every hour of the day, off the rows pinned to its ends.
+      assert(long("free_hours") === 24)
       // Each end of the day at its pinned rows, two in two thousand.
-      assert(r.getLong(7) === rows / 1000 && r.getLong(8) === rows / 1000)
-      assert(r.getLong(9) === rows / 1000 && r.getLong(10) === rows / 1000)
+      assert(long("ntz_midnight") === rows / 1000 && long("ntz_day_end") === rows / 1000)
+      assert(long("tm_midnight") === rows / 1000 && long("tm_day_end") === rows / 1000)
       // Every day inside the date fields' guard, a year above the narrow lane's floor.
-      assert(r.getInt(11) >= -MAX_DAYS && r.getInt(12) <= MAX_DAYS)
-      assert(r.getInt(11) < -MAX_DAYS / 2 && r.getInt(12) > MAX_DAYS / 2)
-      assert(r.getInt(13) < -MAX_DAYS / 2 && r.getInt(14) > MAX_DAYS / 2)
-      assert(r.getInt(13) >= -MAX_DAYS && r.getInt(14) <= MAX_DAYS)
-      assert(r.getLong(15) === rows / 10 && r.getLong(16) === rows / 10)
-      assert(r.getLong(17) === rows / 10 && r.getLong(18) === 0)
+      assert(int("ntz_min_day") >= -MAX_DAYS && int("ntz_max_day") <= MAX_DAYS)
+      assert(int("ntz_min_day") < -MAX_DAYS / 2 && int("ntz_max_day") > MAX_DAYS / 2)
+      assert(int("d_min_day") < -MAX_DAYS / 2 && int("d_max_day") > MAX_DAYS / 2)
+      assert(int("d_min_day") >= -MAX_DAYS && int("d_max_day") <= MAX_DAYS)
+      assert(long("ntz_nulls") === rows / 10 && long("tm_nulls") === rows / 10)
+      assert(long("d_nulls") === rows / 10 && long("tm_and_d_nulls") === 0)
 
-      val sections = VarkaTimestampNtzFieldsBaselineBenchmark.sections().asScala.toSeq
-      assert(sections.size === 2 * resultTypes.size)
-      for ((s, index) <- sections.zipWithIndex) {
+      for (s <- sections().asScala) {
         withClue(s.title) {
-          val answer = spark.sql(s.query)
-          assert(answer.schema.map(_.name) === Seq("v"))
-          assert(answer.schema.head.dataType === resultTypes(index % resultTypes.size))
-          val collected = answer.collect().toSeq
-          checkAnswer(varkaSpark.sql(s.query), collected)
-          assert(collected.count(_.isNullAt(0)) === expectedNulls(s, rows / 10))
+          val schema = spark.sql(s.query).schema
+          assert(schema.map(f => f.name -> f.dataType) === Seq("v" -> s.resultType))
+          val answer = answerOnBoth(s)
+          assert(answer.count(_.isNullAt(0)) === s.nullColumns * rows / 10)
         }
       }
     }
@@ -176,10 +199,8 @@ class VarkaTimestampNtzFieldsBaselineQueriesSuite extends QueryTest with VarkaSh
     withView(table) {
       for (s <- sections().asScala) {
         withClue(s.title) {
-          val answer = spark.sql(s.query).collect().toSeq
-          checkAnswer(varkaSpark.sql(s.query), answer)
-          val nulls = answer.count(_.isNullAt(0))
-          assert(nulls === (if (s.title.endsWith("no nulls")) 0 else 2))
+          val nulls = answerOnBoth(s).count(_.isNullAt(0))
+          assert(nulls === (if (s.nullColumns > 0) 2 else 0))
         }
       }
     }

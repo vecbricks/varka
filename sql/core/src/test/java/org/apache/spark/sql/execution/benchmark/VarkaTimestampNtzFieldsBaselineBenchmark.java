@@ -22,11 +22,14 @@ import java.util.List;
 import org.apache.spark.sql.SparkSession;
 import org.apache.spark.sql.VarkaBenchmark;
 import org.apache.spark.sql.internal.SQLConf;
+import org.apache.spark.sql.types.DataType;
+import org.apache.spark.sql.types.DataTypes;
+import org.apache.spark.sql.types.TimeType;
 
 /**
  * The baseline for the {@code TIMESTAMP_NTZ} fields and the casts between {@code TIMESTAMP_NTZ}
  * and {@code TIME} before Varka fuses them (VARKA-340 5, step 1): Spark's row path over an
- * Arrow-cached table, in six sections per null density, so that the row's later steps report what
+ * Arrow-cached table, in seven sections per null density, so that the row's later steps report what
  * they change against a committed file.
  *
  * <p>The sections, each with no nulls and with one row in ten null in each column, and the step
@@ -40,6 +43,7 @@ import org.apache.spark.sql.internal.SQLConf;
  *       (step 3, 2.2);</li>
  *   <li>{@code hour(ntz)}, a field of the time of day (step 4, 2.3);</li>
  *   <li>{@code CAST(ntz AS TIME)}, the nanosecond of the day at precision 6 (step 4, 2.3);</li>
+ *   <li>{@code CAST(ntz AS TIME(3))}, the same truncated to milliseconds (step 4, 2.3);</li>
  *   <li>{@code CAST(tm AS TIMESTAMP_NTZ)}, which the optimizer rewrites to
  *       {@code make_timestamp_ntz} over the query's current date (step 5, 2.4);</li>
  *   <li>{@code make_timestamp_ntz(d, tm)} over a date column and a time column (step 5, 2.4).</li>
@@ -123,10 +127,19 @@ public class VarkaTimestampNtzFieldsBaselineBenchmark extends VarkaSqlBenchmarkB
   static final int TM_DAY_END = 27;
 
   /**
-   * A section: its title, its query, and whether the Varka session fuses it, the entry a step of
-   * VARKA-340 sets for each section it fuses.
+   * A section: its title, its query, the type of its one column {@code v}, how many of the null
+   * columns it reads ({@code 0} over the columns with no null), whether its answer depends on the
+   * query's current date, and whether the Varka session fuses it, the entry a step of VARKA-340
+   * sets for each section it fuses.
    */
-  record Section(String title, String query, boolean fuses) {}
+  record Section(String title, String query, DataType resultType, int nullColumns,
+      boolean readsCurrentDate, boolean fuses) {
+    Section {
+      if (nullColumns < 0) {
+        throw new IllegalArgumentException(title + ": negative null column count " + nullColumns);
+      }
+    }
+  }
 
   /**
    * A whole number of days spread evenly over {@code -MAX_DAYS} to {@code MAX_DAYS}, from
@@ -173,24 +186,32 @@ public class VarkaTimestampNtzFieldsBaselineBenchmark extends VarkaSqlBenchmarkB
   /** Every section, in the order they run: each null density, then each form. */
   static List<Section> sections() {
     List<Section> out = new ArrayList<>();
+    DataType integer = DataTypes.IntegerType;
+    DataType ntzType = DataTypes.TimestampNTZType;
     for (String nulls : new String[] {"", "n"}) {
       String ntz = "ntz" + nulls;
       String tm = "tm" + nulls;
       String d = "d" + nulls;
       String density = ", " + (nulls.isEmpty() ? "no nulls" : "one row in ten null");
       String from = " AS v FROM " + VIEW;
+      // How many null columns a section over one or two columns reads.
+      int one = nulls.isEmpty() ? 0 : 1;
+      int two = 2 * one;
       out.add(new Section("TIMESTAMP_NTZ year(ntz)" + density,
-          "SELECT year(" + ntz + ")" + from, false));
+          "SELECT year(" + ntz + ")" + from, integer, one, false, false));
       out.add(new Section("TIMESTAMP_NTZ weekofyear(ntz)" + density,
-          "SELECT weekofyear(" + ntz + ")" + from, false));
+          "SELECT weekofyear(" + ntz + ")" + from, integer, one, false, false));
       out.add(new Section("TIMESTAMP_NTZ hour(ntz)" + density,
-          "SELECT hour(" + ntz + ")" + from, false));
+          "SELECT hour(" + ntz + ")" + from, integer, one, false, false));
       out.add(new Section("TIMESTAMP_NTZ CAST(ntz AS TIME)" + density,
-          "SELECT CAST(" + ntz + " AS TIME)" + from, false));
+          "SELECT CAST(" + ntz + " AS TIME)" + from, new TimeType(TimeType.MICROS_PRECISION()),
+          one, false, false));
+      out.add(new Section("TIMESTAMP_NTZ CAST(ntz AS TIME(3))" + density,
+          "SELECT CAST(" + ntz + " AS TIME(3))" + from, new TimeType(3), one, false, false));
       out.add(new Section("TIMESTAMP_NTZ CAST(tm AS TIMESTAMP_NTZ)" + density,
-          "SELECT CAST(" + tm + " AS TIMESTAMP_NTZ)" + from, false));
+          "SELECT CAST(" + tm + " AS TIMESTAMP_NTZ)" + from, ntzType, one, true, false));
       out.add(new Section("TIMESTAMP_NTZ make_timestamp_ntz(d, tm)" + density,
-          "SELECT make_timestamp_ntz(" + d + ", " + tm + ")" + from, false));
+          "SELECT make_timestamp_ntz(" + d + ", " + tm + ")" + from, ntzType, two, false, false));
     }
     return out;
   }
