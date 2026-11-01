@@ -58,6 +58,8 @@ class VarkaAutoRegistrationSuite extends QueryTest with SharedSparkSession with 
       // The test checks that the kernels served the query; with the warm-up on, a new shape's
       // first batches would take the row path until its kernel is compiled.
       .config(SQLConf.VARKA_WARMUP_ENABLED.key, "false")
+      // The emitter's default level, not the host's: see TestSQLContext.overrideConfs.
+      .config(SQLConf.VARKA_EMIT_USE_AVX.key, "-1")
       .getOrCreate()
     SparkSession.clearActiveSession()
     SparkSession.clearDefaultSession()

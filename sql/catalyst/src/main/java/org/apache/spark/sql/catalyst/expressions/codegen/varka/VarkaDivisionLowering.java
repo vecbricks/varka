@@ -344,8 +344,10 @@ final class VarkaDivisionLowering {
   /**
    * Whether this division takes the magic-number form instead of the conversion one.
    *
-   * <p>Only at the long lane, and only where the JVM says its converts will not become
-   * instructions. {@code L2D} and {@code D2L} do not intrinsify under {@code -XX:UseAVX=2}:
+   * <p>Only at the long lane, and only where the options' level says the converts will not
+   * become instructions ({@link VarkaEmitOptions#convertsFallBack()}); a session takes that level
+   * from the driver's JVM where it asks for the host's (VARKA-538). {@code L2D} and
+   * {@code D2L} do not intrinsify under {@code -XX:UseAVX=2}:
    * {@code dev/varka_canary/L2DProbe.java} reads 22 refused conversions there against none at
    * the default level, which is a fact about lowering and not about speed. Which of the two
    * forms is faster on such a host is VARKA-88 step 4's A/B and is not yet measured; this

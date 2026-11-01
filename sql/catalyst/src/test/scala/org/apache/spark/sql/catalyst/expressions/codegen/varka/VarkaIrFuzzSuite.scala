@@ -1033,9 +1033,12 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
     // The decimal column (VARKA-347) is out of these corpora for the same reason: its slot table
     // is `VarkaDecimalLoadSuite`'s, and its fuzz sequence is the decimal draw below, on a seed of
     // its own so that no shape here moves (VARKA-348).
+    // The floating math function (VARKA-342) is out with the floating lanes: the grammar draws no
+    // floating tree yet, the floating sequence `VARKA-341.md` 5.1 owes, and a production is a row
+    // of the same refit. `VarkaEmitterFloatingArithSuite` and the coverage rows cover it.
     val missing = permitted -- seen - "NarrowLane" - "WidenLane" - "NullSafeEqual" -
       "BoolColumn" - "CondConst" - "BoolCompare" - "CondIf" - "BoolNullSafeEq" - "CondValue" -
-      "BoolOutput" - "DecimalColumn"
+      "BoolOutput" - "DecimalColumn" - "MathUnary"
     assert(missing.isEmpty,
       s"the generator never built: ${missing.toSeq.sorted.mkString(", ")} - add an arm, or " +
         "state here why the node type is deliberately out of the fuzzer's reach")

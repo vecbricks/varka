@@ -47,6 +47,8 @@ object CaseWhenInliningProbe {
     val builder = SparkSession.builder().master("local[1]").appName("CaseWhenInliningProbe")
       .config(SQLConf.ADAPTIVE_EXECUTION_ENABLED.key, "false")
       .config("spark.ui.enabled", "false")
+      // The emitter's default level, not the host's: see TestSQLContext.overrideConfs.
+      .config(SQLConf.VARKA_EMIT_USE_AVX.key, "-1")
     val spark = split.foldLeft(builder) { case (b, (k, v)) => b.config(k, v) }.getOrCreate()
     try {
       val whens = (1 to branches).map(k => s"WHEN v = $k THEN v * $k").mkString(" ")

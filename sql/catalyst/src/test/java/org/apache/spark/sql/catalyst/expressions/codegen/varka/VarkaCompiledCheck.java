@@ -826,6 +826,10 @@ public final class VarkaCompiledCheck {
       if (!verdict(guards, template).answers()) {
         return Optional.empty();
       }
+      Optional<Edges> zero = zeroDivisorEdge(guards, template);
+      if (zero.isPresent()) {
+        return zero;
+      }
       for (int col = 0; col < numInputs; col++) {
         if (!isLong && col == c.levelOrdinal()) {
           continue;
@@ -864,6 +868,32 @@ public final class VarkaCompiledCheck {
           row[col] = decline;
           return Optional.of(new Edges(guards, template, col, answer, decline,
               verdict(guards, row)));
+        }
+      }
+      return Optional.empty();
+    }
+
+    /**
+     * A FAIL division's edge, where its divisor is a column: a zero divisor is two bit patterns,
+     * not the end of a range the bisection above could find, so the column is set to {@code -0.0}
+     * directly, the zero a test of the bits {@code 0} alone would miss. The answer side is the
+     * drawn row, which the caller has seen answered.
+     */
+    private Optional<Edges> zeroDivisorEdge(VarkaGuardSpecs.Guards guards, long[] template) {
+      for (var g : guards.guards()) {
+        if (g.reason() == Analysis.Refusal.DIVIDE_BY_ZERO
+            && g.node() instanceof VarkaVectorIR.IntArith n
+            && n.right() instanceof VarkaVectorIR.ColumnRef divisor) {
+          int col = divisor.ordinal();
+          long negativeZero = divisor.lane() == LaneType.DOUBLE ? Long.MIN_VALUE
+              : Integer.MIN_VALUE;
+          long[] row = template.clone();
+          row[col] = negativeZero;
+          var declined = verdict(guards, row);
+          if (!declined.answers()) {
+            return Optional.of(new Edges(guards, template, col, template[col], negativeZero,
+                declined));
+          }
         }
       }
       return Optional.empty();

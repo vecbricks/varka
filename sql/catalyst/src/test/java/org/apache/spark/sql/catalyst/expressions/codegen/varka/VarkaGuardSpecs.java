@@ -42,8 +42,8 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.*;
  * applies:
  *
  * <ul>
- *   <li>qualified by an arm chain (non-empty): it condemns the row only where the chain selects
- *       it, and then the row <b>must</b> be declined; elsewhere the arm masks it and the row must
+ *   <li>qualified by arm chains (non-empty): it condemns the row only where some chain selects
+ *       it, and then the row <b>must</b> be declined; elsewhere the arms mask it and the row must
  *       be answered;</li>
  *   <li>unqualified: where the row reaches the node through arms it takes, it <b>must</b> be
  *       declined; where only through arms it does not take, it <b>may</b> be declined, by that
@@ -130,8 +130,12 @@ public final class VarkaGuardSpecs {
    */
   public record Shift(Analysis.Refusal reason, long lo, long hi) { }
 
-  /** One guarded node: the reason its guard refuses for and the arm chain that qualifies it. */
-  record Guarded(VarkaVectorIR node, Analysis.Refusal reason, List<Analysis.ArmStep> chain) { }
+  /**
+   * One guarded node: the reason its guard refuses for and the arm chains that qualify it, ORed;
+   * none for an unqualified guard.
+   */
+  record Guarded(VarkaVectorIR node, Analysis.Refusal reason,
+      List<List<Analysis.ArmStep>> chains) { }
 
   /**
    * A kernel's guards, read once: {@code roots} emitted under {@code options}, at the long lane
@@ -337,10 +341,14 @@ public final class VarkaGuardSpecs {
       int bit = guarded.reason().status;
       Verdict must = new Verdict(bit, 0);
       Verdict may = new Verdict(0, bit);
-      if (!guarded.chain().isEmpty()) {
-        boolean selected = true;
-        for (var step : guarded.chain()) {
-          selected &= values.holds(step.node().cond()) == step.thenBranch();
+      if (!guarded.chains().isEmpty()) {
+        boolean selected = false;
+        for (var chain : guarded.chains()) {
+          boolean all = true;
+          for (var step : chain) {
+            all &= values.holds(step.node().cond()) == step.thenBranch();
+          }
+          selected |= all;
         }
         if (selected) {
           v = v.or(fired ? must : may);
@@ -396,6 +404,11 @@ public final class VarkaGuardSpecs {
 
   /** Whether {@code node} is FAIL-mode arithmetic whose exact result on the row leaves the lane. */
   private static boolean overflows(VarkaVectorIR node, Values values) {
+    // A floating node overflows to an infinity, which is an answer; the FAIL division's zero
+    // divisor is its own guard's, and leaves no wrapped value above it.
+    if (node.laneType().isFloating()) {
+      return false;
+    }
     BigInteger[] lane = laneBounds(node.laneType());
     if (node instanceof IntArith n && n.mode() == Overflow.FAIL) {
       BigInteger l = values.value(n.left());
@@ -404,6 +417,7 @@ public final class VarkaGuardSpecs {
         case ADD -> l.add(r);
         case SUB -> l.subtract(r);
         case MUL -> l.multiply(r);
+        case DIV -> throw new IllegalArgumentException("no integral division: " + n);
       }, lane);
     }
     if (node instanceof IntNeg n && n.mode() == Overflow.FAIL) {
@@ -450,6 +464,9 @@ public final class VarkaGuardSpecs {
           pair(VarkaChrono.MONTH_ARITH_MIN_MONTHS, VarkaChrono.MONTH_ARITH_MAX_MONTHS);
       case MAKE_DATE -> pair(VarkaChrono.MAKE_DATE_MIN_YEAR, VarkaChrono.MAKE_DATE_MAX_YEAR);
       case INT_OVERFLOW -> laneBounds(node.laneType());
+      // The zero divisor is a test of two bit patterns, not a range: fires() reads it first.
+      case DIVIDE_BY_ZERO -> throw new IllegalArgumentException(
+          "a zero divisor has no bound: " + node);
       case VALUE_RANGE -> {
         if (!(node instanceof GuardedRange g)) {
           throw new IllegalArgumentException("a value range on " + node);
@@ -483,6 +500,9 @@ public final class VarkaGuardSpecs {
    */
   private static boolean fires(VarkaVectorIR node, Analysis.Refusal reason, Values values,
       boolean isLong, List<Shift> shifts) {
+    if (reason == Analysis.Refusal.DIVIDE_BY_ZERO) {
+      return zeroDivisor((IntArith) node, values);
+    }
     BigInteger[] b = bound(node, reason, isLong, shifts);
     return switch (node) {
       case AddDays n -> outside(sum(values, n.days(), n.offset(), false), b);
@@ -510,6 +530,7 @@ public final class VarkaGuardSpecs {
           case ADD -> l.add(r);
           case SUB -> l.subtract(r);
           case MUL -> l.multiply(r);
+          case DIV -> throw new IllegalArgumentException("no integral division: " + n);
         }, b);
       }
       case IntNeg n -> {
@@ -522,10 +543,27 @@ public final class VarkaGuardSpecs {
       // class does not know, which is the case to add.
       case ColumnRef _, DecimalColumn _, LiteralSlot _, DateDiff _, IfElse _, Greatest _, Least _,
           DayOfWeek _, WeekDay _, DayOfWeekIso _, NextDay _, ThursdayOf _, Chrono _, ConstDivide _,
-          BoundedDivide _, BitOp _, BitCount _, Cond _, CondValue _, BoolOutput _, WidenLane _,
-          NarrowLane _ ->
+          BoundedDivide _, BitOp _, BitCount _, MathUnary _, Cond _, CondValue _, BoolOutput _,
+          WidenLane _, NarrowLane _ ->
           throw new IllegalArgumentException("no guard spec for " + reason + " on " + node);
     };
+  }
+
+  /**
+   * Whether a FAIL division's guard fires on the row: both operands valid and the divisor
+   * {@code 0.0} or {@code -0.0}, Spark's {@code x == 0}, which no NaN meets. The values are the
+   * lane's bits, a {@code FLOAT}'s sign-extended, so the two zeros are {@code 0} and the lane's
+   * sign bit.
+   */
+  private static boolean zeroDivisor(IntArith n, Values values) {
+    BigInteger l = values.value(n.left());
+    BigInteger r = l == null ? null : values.value(n.right());
+    if (r == null) {
+      return false;
+    }
+    long bits = r.longValue();
+    long negativeZero = n.laneType() == LaneType.DOUBLE ? Long.MIN_VALUE : Integer.MIN_VALUE;
+    return bits == 0L || bits == negativeZero;
   }
 
   /** The two operands' sum, or difference where {@code subtract}; null where either is null. */

@@ -1480,6 +1480,11 @@ final class VarkaProofFiles {
       String ab = ends(intRange(operands[0], table));
       String cd = ends(intRange(operands[1], table));
       for (VarkaVectorIR.IntOp op : VarkaVectorIR.IntOp.values()) {
+        // A lanewise divide is a floating lane's only (VARKA-342): the IR refuses it over these
+        // int operands, and an integral division is the ConstDivide pinned below.
+        if (op == VarkaVectorIR.IntOp.DIV) {
+          continue;
+        }
         var node = new VarkaVectorIR.IntArith(op, VarkaVectorIR.Overflow.WRAP, operands[0],
             operands[1]);
         pinEnds(eqs, "ra." + op.name().toLowerCase(Locale.ROOT), ab + " " + cd,

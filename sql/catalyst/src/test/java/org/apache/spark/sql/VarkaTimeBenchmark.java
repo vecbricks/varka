@@ -155,7 +155,10 @@ public class VarkaTimeBenchmark extends VarkaBenchmarkBase {
   // The shapes, in both representations
   // ---------------------------------------------------------------------------------------
 
-  /** The magic form of the 64-bit division, which an AVX2-only host takes without asking. */
+  /**
+   * The magic form of the 64-bit division, which a session resolving its level from an AVX2-only
+   * host takes (VARKA-538).
+   */
   private static final VarkaEmitOptions MAGIC_FORM = VarkaEmitOptions.DEFAULTS.withUseAVX(2);
 
   /** The int lane's conversion through double lanes, the reference arm (VARKA-149). */

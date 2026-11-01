@@ -3111,18 +3111,23 @@ object SQLConf {
     .internal()
     .doc("The -XX:UseAVX level the Varka emitter lowers for, where a lowering depends on it:" +
       " 3 or above takes the conversions through double lanes for a 64-bit division, 2 the" +
-      " magic-number form, because the converts do not become instructions below AVX-512." +
-      " -1, the default, leaves the emitter's own default, which is not the host's level on" +
-      " purpose - a host-dependent default would make the shape hashes and the committed" +
-      " emitted bytes describe one machine. The level is part of the shape hash, so a session" +
-      " that sets it emits and caches its own classes. A benchmark or an A/B sets it; nothing" +
-      " else needs to.")
+      " magic-number form, because the converts do not become instructions without AVX512DQ." +
+      " -2 resolves it from the driver's JVM: level 2 where HotSpot's feature list lacks" +
+      " AVX512DQ, the emitter's default otherwise, and the emitter's default where the list" +
+      " cannot be read (it needs --add-exports=java.base/jdk.internal.vm.vector=ALL-UNNAMED," +
+      " which Spark's module options carry). The driver's host decides for the whole plan," +
+      " and on a mixed cluster both forms are correct. -1 leaves the emitter's own default," +
+      " which is not the host's level on purpose: the shape hashes and the committed emitted" +
+      " bytes describe no one machine. An explicit level wins over the host. The level is part" +
+      " of the shape hash, so a session at a level emits and caches its own classes.")
     .version("5.0.0")
     // An emitter lowering choice: it changes how a kernel computes a value, never what a view
     // body resolves to.
     .withBindingPolicy(ConfigBindingPolicy.NOT_APPLICABLE)
     .intConf
-    .checkValue(_ >= -1, "the level is -1 for the emitter's default or a -XX:UseAVX value")
+    .checkValue(_ >= -2,
+      "the level is -2 to resolve it from the host, -1 for the emitter's default or a" +
+        " -XX:UseAVX value")
     .createWithDefault(-1)
 
   val VARKA_EMIT_EXACT_REFUSAL_STATUS =

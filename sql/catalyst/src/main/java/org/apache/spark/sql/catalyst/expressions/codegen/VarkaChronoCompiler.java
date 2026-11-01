@@ -798,7 +798,7 @@ final class VarkaChronoCompiler {
           VarkaVectorIR.Or _, VarkaVectorIR.Not _, VarkaVectorIR.IsNotNull _,
           VarkaVectorIR.InRanges _, VarkaVectorIR.IntArith _, IntNeg _, VarkaVectorIR.ConstDivide _,
           VarkaVectorIR.BoundedDivide _, VarkaVectorIR.BitOp _, VarkaVectorIR.BitCount _,
-          VarkaVectorIR.CondValue _, VarkaVectorIR.BoolOutput _ ->
+          VarkaVectorIR.MathUnary _, VarkaVectorIR.CondValue _, VarkaVectorIR.BoolOutput _ ->
           new Rebuilt(node, false, false);
     };
     VarkaValueRange.Range range =
