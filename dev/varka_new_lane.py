@@ -110,10 +110,10 @@ def vector_classes():
 def spark_types():
     """Each lane's Spark types: the type registry's entries read on a lane, from its committed
     table (`sql/varka/types.tsv`, written by `VarkaTypesSuite` from `VarkaTypes`). A decimal is
-    read on its lane up to a precision (`up_to_precision`), and is checked there like the rest."""
+    read on its lane in bands of precision (`by_precision`), and is checked there like the rest."""
     out = {}
     for row in types_rows():
-        if row["admission"] in ("on_lane", "up_to_precision"):
+        if row["admission"] in ("on_lane", "by_precision"):
             out.setdefault(row["lane"], []).extend(row["spark"].split(","))
     return out
 
