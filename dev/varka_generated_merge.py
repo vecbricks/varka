@@ -267,9 +267,13 @@ def merge_docs(base_path, ours_path, theirs_path, owed):
     """`git merge-file` over the docs file; a conflict inside a generated block takes one side
     and owes the coverage run that rewrites the block. Returns the text and whether a conflict
     outside every block is left with its markers."""
+    # The parser below reads the two-section markers, so the style is pinned against a clone
+    # whose merge.conflictStyle is diff3 or zdiff3.
     proc = subprocess.run(
         [
             "git",
+            "-c",
+            "merge.conflictStyle=merge",
             "merge-file",
             "-p",
             "-L",
@@ -338,6 +342,13 @@ def driver(base_path, ours_path, theirs_path, repo_path):
     owed = Owed()
     real = False
     try:
+        if (
+            name == "coverage.json"
+            and len({read(base_path), read(ours_path), read(theirs_path)}) == 3
+        ):
+            # Both sides moved the coverage table: the census reads it, so it is owed even when
+            # every row merged exactly.
+            owed.add("the census, which reads coverage.json")
         if name.endswith(".json"):
             text = merge_json(read(base_path), read(ours_path), read(theirs_path), owed)
         elif name in TSV_KEYS:
@@ -529,7 +540,7 @@ def self_test():
             ) as f:
                 f.write(render_json(doc) + "\n")
             expect(check(tmp) == 1, "a stale width audit passed the check")
-    failed += end_to_end(expect)
+    end_to_end(expect)
     print(f"self-test: {cases} case(s), {failed} failed")
     return 1 if failed else 0
 
@@ -572,6 +583,8 @@ def end_to_end(expect):
         git("config", "user.name", "t")
         git("config", "commit.gpgsign", "false")
         git("config", "core.hooksPath", "/dev/null")
+        # A clone whose conflict style is diff3 must merge the same way.
+        git("config", "merge.conflictStyle", "diff3")
         git(
             "config",
             "merge.varka-generated.driver",
@@ -622,7 +635,6 @@ def end_to_end(expect):
         with open(os.path.join(tmp, "d", "doc.md"), encoding="utf-8") as f:
             expect("<<<<<<<" in f.read(), "the prose conflict lost its markers")
         git("merge", "--abort", check=False)
-    return 0
 
 
 def main(argv):
