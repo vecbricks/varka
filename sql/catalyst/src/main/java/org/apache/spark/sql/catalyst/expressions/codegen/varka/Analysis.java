@@ -1332,7 +1332,7 @@ final class Analysis {
     }
     int count = 0;
     for (VarkaVectorIR node : topoOrder) {
-      if (node instanceof LiteralSlot l && l.lane() == of.laneType) {
+      if (node instanceof LiteralSlot l && laneOf(l) == of) {
         count = Math.max(count, l.index() + 1);
       }
     }

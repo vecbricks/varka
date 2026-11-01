@@ -91,7 +91,11 @@ final class VarkaFloatingCastCompiler {
     if (DataTypes.BooleanType.equals(child.dataType())) {
       return booleanValue(c, inputs, literals, sink).flatMap(x -> converted(x, target));
     }
-    Optional<VarkaVectorIR> x = VarkaNodeCompiler.compileNode(child, inputs, literals, sink);
+    // An int is read through the int operand rule, the one place a bare INT column or literal
+    // becomes its leaf; every other source is a node compileNode lowers.
+    Optional<VarkaVectorIR> x = DataTypes.IntegerType.equals(child.dataType())
+        ? VarkaNodeCompiler.intOperand(child, inputs, literals, sink)
+        : VarkaNodeCompiler.compileNode(child, inputs, literals, sink);
     if (x.isEmpty()) {
       return x;
     }

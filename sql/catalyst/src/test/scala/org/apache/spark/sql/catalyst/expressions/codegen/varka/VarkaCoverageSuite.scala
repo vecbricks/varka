@@ -867,7 +867,7 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
       Row("f * i", "the int cast to a float beside the float column, at one lane count"),
       Row("x - l", "the bigint cast to a double in a kernel driven at the long lane"),
       Row("f + x", "the float widened exactly to meet the double"),
-      Row("i / 2", "an int division is a double division over its casts"),
+      Row("i / 2.0D", "an int division is a double division over its cast"),
       Row("CAST(x AS BOOLEAN)", "x != 0: a NaN is true and both zeros false, as a BOOLEAN output"),
       Row("CAST(f AS BOOLEAN)"))),
     Family("Floating casts as conditions", predicates = true, Seq(

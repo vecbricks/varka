@@ -700,8 +700,11 @@ final class Slots {
     if (usedLiterals != null) {
       for (VarkaVectorIR node : body) {
         if (node instanceof VarkaVectorIR.LiteralSlot l) {
-          if (mixed && l.lane() != analysis.lane.laneType) {
-            usedOtherLiterals.computeIfAbsent(l.lane(), k -> new java.util.BitSet())
+          // By the lane the literal is emitted at: a narrow literal of a 32-bit kernel is the
+          // int drive's, widened as its column is.
+          Lane at = analysis.laneOf(l);
+          if (mixed && at != analysis.lane) {
+            usedOtherLiterals.computeIfAbsent(at.laneType, k -> new java.util.BitSet())
                 .set(l.index());
           } else {
             usedLiterals.set(l.index());
