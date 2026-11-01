@@ -104,7 +104,9 @@ not restate it.
   `CheckOverflow` node itself, a guarded rescale (item 6). The `MakeDecimal` guard is real too
   (item 5).
 - **The three internals may reach no fused node** (item 7). If step 1 confirms it, what fuses them
-  is a question for the owner (section 8).
+  is a question for the owner (section 8). *1 November 2026, by the owner's word (section 8,
+  question 1 (b)):* step 1 confirmed it, and the three are out of the census and not built by this
+  row.
 - **The arithmetic is mode-free; the internals are not.** "LEGACY and ANSI giving the same bytes"
   holds for `+`, `-`, `*` and their `try_` forms. `MakeDecimal` and `CheckOverflow` carry their own
   `nullOnOverflow`, so their two dispositions are two kernels.
@@ -119,6 +121,12 @@ and `CheckOverflow` fuse within precision 18 with their guards, as section 8's a
 this row: a result above precision 18 (360 for `+` and `-`, 361 and 362 for `*`), a rescale down
 (350's casts and 363), division (out of the milestone), `%`, `mod` and `pmod`, the interval
 products and quotients, an integral operand's cast (350), the store (157).
+
+*1 November 2026, by the owner's word (section 8, question 1 (b)):* `MakeDecimal`, `UnscaledValue`
+and `CheckOverflow` are not this row's goal any more. The census records them out with the reason
+"evaluated by an operator Varka does not fuse" (`HashAggregateExec`, `WindowExec`,
+`SerializeFromObjectExec`), and none is built; `CheckOverflow`'s guard-the-inputs form (2.5) stays
+specified for rows 350 and 360. The row is the arithmetic, 349a and 349c.
 
 ## 2. Design
 
@@ -168,6 +176,10 @@ AVX-512DQ the arm can only lose two shifts, and stays off there.
   wider operator it is 359's sign extension (`VARKA-359.md` 2.2). This row does not build the
   `NULL` mode; 349b waits for 481.
 
+*1 November 2026, by the owner's word (section 8, question 1 (b)):* neither form is built and 349b
+is dropped, so question 2, `MakeDecimal` above precision 18, lapses. The text above stays as the
+design a later milestone that fuses an aggregate or a window would start from.
+
 ### 2.5 `CheckOverflow`
 
 `CheckOverflow(x, (p, s), nullOnOverflow)` with `k = s - x.type.scale()`:
@@ -185,6 +197,11 @@ The order matters and is tested: Trino's fixture, `184467440737095517` at `(18, 
 `(18, 2)`, must be null under `nullOnOverflow` and raise without it. The planted fault for row 504
 is the multiply-then-check order (the rescale first, then the guard at `10^p - 1`) under a test
 flag, refuted by the proof and failed by the slot table and the differential.
+
+*1 November 2026, by the owner's word (section 8, question 1 (b)):* this row does not build
+`CheckOverflow`. The form above, its order, Trino's fixture and the planted fault stay specified
+here for rows 350 and 360, which need the same rescale guard; whichever builds the guard takes them
+with it.
 
 ### 2.6 Where the 64-bit form stops
 
@@ -205,7 +222,8 @@ flag, refuted by the proof and failed by the slot table and the differential.
 At two long lanes on x86 the rule is 348's (`VARKA-348.md` 2.8). The decimal arms go in
 `VarkaDecimalCompiler`, reached from `VarkaNodeCompiler`'s `Add`, `Subtract` and `Multiply` ahead
 of the int arms, beside which row 104 adds the `BIGINT` arms (adjacent switch arms; whichever merges
-second rebases), and from new arms for the three internals. The reference evaluator has `IntArith`
+second rebases), and from new arms for the three internals (none, since the owner's answer of
+1 November 2026, section 8). The reference evaluator has `IntArith`
 and `GuardedRange`, and gets the `NULL` mode with 481. The cost model and the budget
 need nothing new; the warm-up's long block gains the multiply's forms if `VarkaWarmupReachSuite`
 finds them missing.
@@ -266,6 +284,12 @@ finds them missing.
    fuzzer's decimal sequence (348's) gains the three operators and the two guards.
 8. **The generated files** in `ADDING_A_TYPE.md`'s order, no existing shape's bytes moving.
 
+*1 November 2026, by the owner's word (section 8, question 1 (b)):* the internals' parts of this
+section are not built by this row: item 4's guards' tables, item 5's `MakeDecimal` and
+`CheckOverflow` lemmas and the refinement check 2 declines they bring, `EXTENSIONS.md`'s three
+internals, item 6's `built` rows and item 7's two guards in the IR fuzzer. `CheckOverflow`'s table,
+lemma, fixture and planted fault go with its form to rows 350 and 360 (2.5).
+
 ## 4. The baseline, and predictions
 
 **The baseline first, on the unchanged code, in the same pull request as 348's baseline
@@ -296,7 +320,8 @@ Predictions, registered before the build:
 2. **The baseline addition** (4), with 348's.
 3. **349a, the arithmetic:** the arms of 2.2 and 2.3, the type rule and its sweep, the edges, the
    one-kernel test, the `+`, `-` and `*` lemmas and refinement rows, the predicate coverage rows.
-4. **349b, the internals**, after row 481's `NULL` mode, as section 8 answers.
+4. **349b, the internals**, after row 481's `NULL` mode, as section 8 answers. *Dropped on
+   1 November 2026 by the owner's answer to section 8, question 1 (b).*
 5. **349c, after 157:** the projections' rows, the `decimalMulIntInputs` reading and measurement,
    the measurement against the baseline at both widths and 512 bits on the laptop, scored.
 
@@ -319,6 +344,11 @@ some sixty linear checks to `decimal64.smt2`, priced at VARKA-245's observed rat
 calibration table. It rests on 347, on 348 (its `value()` and `decimal64.smt2`), 157 for 349c and
 481 for the `NULL` mode.
 
+*1 November 2026, by the owner's word (section 8, question 1 (b)):* with 349b dropped the row is
+medium in two pull requests after the reading, 349a about three days and 349c one after 157; the
+file table's "the arms of 2.2 to 2.5" is the arms of 2.2 and 2.3, and the row no longer rests on
+481, whose `NULL` mode only the internals used.
+
 ## 6. Census unlock
 
 Under the milestone plan's 2.8 and 359's answered question 2 (a), an arithmetic pair counts only
@@ -331,6 +361,14 @@ counts is section 8's question. The census's `make_decimal` note, "a relabel of 
 is corrected to name its guard. Seven more entries name 349 in their `rows` column - `%`, `mod`,
 `pmod` and the four interval products and quotients by a decimal - and are not this row's work;
 349a marks them unclaimed with a suggested home (section 7).
+
+*1 November 2026, by the owner's word (section 8, question 1 (b)):* none of the three counts. They
+are recorded out of the census in `census_curated.txt`'s `[implicit excluded]` section with the
+reason "evaluated by an operator Varka does not fuse (HashAggregateExec, WindowExec,
+SerializeFromObjectExec)", which `dev/varka_census.py` writes into `census.tsv`'s reason column, as
+a constant folded before Varka sees it is out; the in-scope count falls from 183 entries to 180 and
+the entry-and-type pairs from 881 to 878. The `make_decimal` note's correction lapses with the
+entry, and `check_overflow`'s claim by 359 and 363 leaves the census with it.
 
 ## 7. Out of this row, and declines that stay
 
@@ -356,8 +394,17 @@ integral-to-decimal casts at 64 bits in their text; that overlap is the owner's 
 flagged here, as in `VARKA-348.md` 7, not resolved.
 
 Declines that stay, each naming its row: the table of 2.6; the internals as section 8 answers.
+*Since 1 November 2026 (section 8):* the internals are out of the census and not built, so none
+of them is a decline of this row.
 
 ## 8. Questions for the owner
+
+Answered by the owner on 1 November 2026: **(b)** to question 1 - `UnscaledValue`, `MakeDecimal`
+and `CheckOverflow` are recorded out of the census with the reason "evaluated by an operator Varka
+does not fuse" (`HashAggregateExec`, `WindowExec`, `SerializeFromObjectExec`), none of them is
+built now, 349b is dropped, and the guard-the-inputs `CheckOverflow` form of 2.5 stays specified
+for rows 350 and 360. Question 2 lapses under (b). The census record is `census_curated.txt`'s
+`[implicit excluded]` section (section 6).
 
 1. **The three decimal internals and the census.** Step 1 confirms item 0.7 (10.1,
    `results/VARKA-349-reachability.txt`): in every plan printed, `UnscaledValue` is evaluated in
@@ -403,9 +450,10 @@ every operand pair whose result type is within precision 18, as conditions in 34
 `decimal64.smt2` proves the no-overflow claim for every result precision, the rescales by 348's
 lemma, and the guards under both solvers, with refinement sections for each new coverage row; the
 internals stand as section 8 answers, with Trino's fixture and the planted fault where
-`CheckOverflow` is built; the measurement against the baseline is committed at both widths with its
-predictions scored; the bytes oracle is unchanged for every existing shape; and the PR build and
-the option matrix pass.
+`CheckOverflow` is built (*since 1 November 2026, section 8 (b): out of the census and not built,
+the fixture and the fault going with 2.5's form to 350 and 360*); the measurement against the
+baseline is committed at both widths with its predictions scored; the bytes oracle is unchanged for
+every existing shape; and the PR build and the option matrix pass.
 
 ## 10. Outcome
 

@@ -27,7 +27,8 @@ for each name whose inputs and result can all lie in the milestone's type set, t
 admits there, its result, the types Varka fuses today, and what is left to do. Every other name
 is excluded with a reason, by section or by name, below. Operators the parser or the analyzer
 builds without a registry entry (CheckOverflow, SubtractTimestamps, try_cast, ...) are listed in
-the curated file's [implicit] section.
+the curated file's [implicit] section, and those excluded with a reason in its
+[implicit excluded] section.
 
 The script fails rather than guess when the two halves disagree: a registered name with neither
 a curated row nor an exclusion, a curated name the registry no longer has, a class named in the
@@ -404,6 +405,7 @@ def build():
     sections = curated_sections()
     curated = {r[0]: r for r in parse_table(sections["registered"], 7)}
     implicit = parse_table(sections["implicit"], 9)
+    implicit_out = parse_table(sections.get("implicit excluded", ""), 4)
     cov = coverage_index()
     classes = defined_classes()
     errors = []
@@ -432,6 +434,12 @@ def build():
         r = row("implicit", name, cls, types, result, fused, need, rows, note, cov, errors)
         r[2] = "implicit: " + family
         out.append(r)
+    for name, cls, family, reason in implicit_out:
+        if cls not in classes:
+            errors.append(f"{name}: class {cls} is not defined in the sources")
+        if name in {r[0] for r in implicit}:
+            errors.append(f"{name}: both an implicit entry and excluded ({reason})")
+        out.append([name, cls, "implicit: " + family, "out", reason, "", "", "", "", "", "", ""])
     return out, errors
 
 
@@ -526,7 +534,8 @@ def summary(out):
     lines.append("section: registered / in scope")
     for s, n in sections.items():
         lines.append(f"  {s}: {n} / {ins.get(s, 0)}")
-    lines.append(f"  implicit: {len(implicit)} / {ins.get('implicit', 0) + len(implicit)}")
+    implicit_in = [r for r in implicit if r[3] == "in"]
+    lines.append(f"  implicit: {len(implicit)} / {len(implicit_in)}")
     lines.append("")
     reasons = collections.Counter(r[4] for r in out if r[3] == "out")
     lines.append("excluded, by reason:")
