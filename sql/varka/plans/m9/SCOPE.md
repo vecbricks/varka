@@ -5641,15 +5641,15 @@ declined by a recorded refusal (as row 503 does); items 101 and 119 are its reme
 
 ### Item 121. Generated files that concurrent pull requests do not hand-merge
 
-*Added 27 October 2026 on the owner's word.* `coverage.json`, `emitted_bytes.json`,
-`width_audit.json`, `types.tsv`, `census.tsv`, `casts_fused.tsv` and the docs table are each one
-file every type row regenerates, so nearly every merge of master into an open pull request
-conflicts in them, and the resolution is to take a side and regenerate by hand. Either regenerate
-them in CI on the merge result (a job that commits the regenerated files, or that fails a pull
-request whose files are stale with the command to run), or shard each by family or row so that two
-rows touch different files. **Done when** two pull requests that each add coverage rows merge with
-master in either order without a conflict in a generated file, and a stale file fails CI with its
-regeneration command.
+*Moved to milestone 8 as row 546 on 1 November 2026 by the owner's word.* *Added 27 October 2026 on
+the owner's word.* `coverage.json`, `emitted_bytes.json`, `width_audit.json`, `types.tsv`,
+`census.tsv`, `casts_fused.tsv` and the docs table are each one file every type row regenerates, so
+nearly every merge of master into an open pull request conflicts in them, and the resolution is to
+take a side and regenerate by hand. Either regenerate them in CI on the merge result (a job that
+commits the regenerated files, or that fails a pull request whose files are stale with the command
+to run), or shard each by family or row so that two rows touch different files. **Done when** two
+pull requests that each add coverage rows merge with master in either order without a conflict in a
+generated file, and a stale file fails CI with its regeneration command.
 
 ### Item 122. The option matrix only where a change can move it
 
