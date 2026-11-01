@@ -651,9 +651,10 @@ final class VarkaVectorWalk {
    * lanes the IR converts between are the int and the long one; a narrow value is widened once at
    * its load and narrowed once at its store, so a conversion node over one names the lane it is
    * already emitted at and emits nothing, and any other pair is a lowering this emitter has not
-   * built.
+   * built. The one form of the conversion: a long kernel's narrowing store converts through it
+   * too ({@code VarkaBodyEmitter.emitNarrowStore}), into the low half of the int species.
    */
-  private static void emitShapeConversion(
+  static void emitShapeConversion(
       CodeBuilder cb, Lane from, Lane to, Analysis analysis) {
     if (from == to) {
       return;

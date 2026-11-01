@@ -1035,29 +1035,11 @@ final class VarkaBodyEmitter {
       }
       return;
     }
-    // The int species of the long species' width: twice the long lane count, or the preferred
-    // species where no count is baked, which the long lane's preferred species matches in bits.
-    String intSpecies = Lane.INT.speciesField(analysis.lanes == 0 ? 0 : analysis.lanes * 2);
-    cb.getstatic(VECTOR_OPERATORS, "L2I", VO_CONVERSION);
-    cb.getstatic(INT_VECTOR, intSpecies, VECTOR_SPECIES);
-    cb.loadConstant(0);
-    cb.invokevirtual(VECTOR, "convertShape", CONVERT_SHAPE);
-    cb.checkcast(INT_VECTOR);                                   // [ints, low half live]
+    // `L2I` into the int species of the long species' width: twice the long lane count, or the
+    // preferred species where no count is baked, which the long lane's preferred species matches
+    // in bits.
+    VarkaVectorWalk.emitShapeConversion(cb, Lane.LONG, Lane.INT, analysis); // [ints, low half]
     emitLowHalfStore(cb, analysis, s, o);
-  }
-
-  /**
-   * {@code [long vector] -> [int vector]}: {@code L2I}, part 0, into the int species of the long
-   * species' width, so the group's values fill the low half of the int lanes and the upper half is
-   * zero, as {@link #emitNarrowStore} converts before its low-half store.
-   */
-  private static void emitLowHalfConversion(CodeBuilder cb, Analysis analysis) {
-    String intSpecies = Lane.INT.speciesField(analysis.lanes == 0 ? 0 : analysis.lanes * 2);
-    cb.getstatic(VECTOR_OPERATORS, "L2I", VO_CONVERSION);
-    cb.getstatic(INT_VECTOR, intSpecies, VECTOR_SPECIES);
-    cb.loadConstant(0);
-    cb.invokevirtual(VECTOR, "convertShape", CONVERT_SHAPE);
-    cb.checkcast(INT_VECTOR);
   }
 
   /**
@@ -1254,7 +1236,7 @@ final class VarkaBodyEmitter {
         // store (VARKA-332) arrives in the long lane and takes `L2I` into the low half first.
         if (analysis.lane == Lane.LONG && analysis.narrowsAtStore(root)
             && narrowRoot.child().laneType() == VarkaVectorIR.LaneType.LONG) {
-          emitLowHalfConversion(cb, analysis);
+          VarkaVectorWalk.emitShapeConversion(cb, Lane.LONG, Lane.INT, analysis);
         }
         emitNarrowTypeStore(cb, stored, analysis, s, o);
       } else if (analysis.narrowsAtStore(root)) {
