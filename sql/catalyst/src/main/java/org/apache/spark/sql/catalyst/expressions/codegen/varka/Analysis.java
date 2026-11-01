@@ -702,13 +702,13 @@ final class Analysis {
         // lane, so the widened arm checks it with the lane's own range compare, and the native
         // arm would widen it - either way it needs its refusal like any other checked node.
         case IntArith n -> {
-          if (options.checkIntOverflow() && n.mode() == Overflow.FAIL
+          if (checksIntOverflow(n) && n.mode() == Overflow.FAIL
               && (n.op() != IntOp.MUL || n.laneType().isNarrow())) {
             refuse(node, Refusal.INT_OVERFLOW);
           }
         }
         case IntNeg n -> {
-          if (options.checkIntOverflow() && n.mode() == Overflow.FAIL) {
+          if (checksIntOverflow(n) && n.mode() == Overflow.FAIL) {
             refuse(node, Refusal.INT_OVERFLOW);
           }
         }
@@ -851,7 +851,17 @@ final class Analysis {
 
   /** Whether {@code node}, of {@code lane}, wraps in the emitted kernel. */
   private boolean loweredUnchecked(VarkaVectorIR node, VarkaVectorIR.LaneType lane) {
-    return lane.isNarrow() && (!readsCheckIntOverflow(node) || !options.checkIntOverflow());
+    return lane.isNarrow() && !checksIntOverflow(node);
+  }
+
+  /**
+   * Whether {@code node} is emitted with its overflow check: it is one whose emission reads
+   * {@link VarkaEmitOptions#checkIntOverflow} ({@link #readsCheckIntOverflow}), and the option is
+   * on. Every read of the option asks it: the {@code FAIL} refusals, the check's scratch in
+   * {@link Slots} and {@link #loweredUnchecked}.
+   */
+  boolean checksIntOverflow(VarkaVectorIR node) {
+    return options.checkIntOverflow() && readsCheckIntOverflow(node);
   }
 
   /**
