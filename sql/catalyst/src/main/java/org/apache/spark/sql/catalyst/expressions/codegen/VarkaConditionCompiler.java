@@ -24,6 +24,7 @@ import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.TreeSet;
 import java.util.function.BinaryOperator;
+import java.util.function.Function;
 import java.util.function.Supplier;
 
 import javax.annotation.Nullable;
@@ -56,6 +57,7 @@ import org.apache.spark.sql.catalyst.expressions.Or;
 import org.apache.spark.sql.catalyst.expressions.RuntimeReplaceable;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaErrors;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaFamily;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTypeId;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTypes;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ColumnRef;
@@ -784,25 +786,11 @@ final class VarkaConditionCompiler {
       // reads: each literal is read as its lane bits through the type registry, so the chain is
       // the same over dates, narrow and floating values and the long lane's types, and the EQ is
       // the lane's own, under which `-0.0 IN (0.0)` and `NaN IN (NaN)` are true as Spark's
-      // ordering says. `In` holds its elements as literals, `InSet` as the values themselves.
-      case In in when inType(in.value().dataType()).isPresent() -> () -> {
-        VarkaTypes.Info info = inType(in.value().dataType()).get();
-        List<OptionalLong> elements = new ArrayList<>();
-        for (Expression element : CollectionConverters.asJava(in.list())) {
-          elements.add(element instanceof Literal l
-              && VarkaTypes.of(l.dataType()).equals(Optional.of(info.id()))
-              ? info.laneBits(l.value()) : OptionalLong.empty());
-        }
-        return compileIn(in.value(), info, elements, in, inputs, literals, sink);
-      };
-      case InSet inSet when inType(inSet.child().dataType()).isPresent() -> () -> {
-        VarkaTypes.Info info = inType(inSet.child().dataType()).get();
-        List<OptionalLong> elements = new ArrayList<>();
-        for (Object element : CollectionConverters.asJava(inSet.hset())) {
-          elements.add(info.laneBits(element));
-        }
-        return compileIn(inSet.child(), info, elements, inSet, inputs, literals, sink);
-      };
+      // ordering says, so the literals Spark finds equal are kept once. `In` holds its elements
+      // as literals, `InSet` as the values themselves.
+      case In in -> inArm(in.value(), in, info -> inElements(in, info), inputs, literals, sink);
+      case InSet inSet ->
+          inArm(inSet.child(), inSet, info -> setElements(inSet, info), inputs, literals, sink);
       // The floating lanes' own test (VARKA-341): `isnan`, total, as the lane's EQ against NaN.
       case IsNaN n when isFloating(n.child().dataType()) ->
           () -> isNaN(n.child(), inputs, literals, sink);
@@ -853,19 +841,48 @@ final class VarkaConditionCompiler {
   }
 
   /**
-   * The registry's entry for the value of an {@code IN} the arm compiles, or empty for one it
-   * leaves unclaimed: the value's type has to be read on a lane, and the registry has to read
-   * its literals, which {@link VarkaTypes.Info#laneBits} does for every type whose lane is its
-   * own. A decimal's literal is a {@code Decimal} at the value's scale rather than lane bits, so
-   * a decimal {@code IN} is left to the predicate's general decline (VARKA-348).
+   * The arm of an {@code IN} over {@code value}, or {@code null} for one it leaves unclaimed: the
+   * registry has to read the value's literals, which {@link VarkaTypes.Info#laneBits} does for
+   * every type whose admission is a lane of its own. A decimal's literal is a {@code Decimal} at
+   * the value's scale rather than lane bits, so a decimal {@code IN} is left to the predicate's
+   * general decline (VARKA-348). The type is looked up once, here, and the arm reads its
+   * elements against the entry it found.
    */
-  private static Optional<VarkaTypes.Info> inType(DataType type) {
-    if (VarkaTypes.lane(type).isEmpty()) {
-      return Optional.empty();
+  private static @Nullable Supplier<Optional<Cond>> inArm(
+      Expression value,
+      Expression whole,
+      Function<VarkaTypes.Info, List<OptionalLong>> elements,
+      VarkaSlotTable inputs,
+      VarkaSlotTable literals,
+      DeclineSink sink) {
+    VarkaTypeId id = VarkaTypes.idOf(value.dataType());
+    if (id == null) {
+      return null;
     }
-    VarkaTypes.Info info = VarkaTypes.info(VarkaTypes.of(type).orElseThrow());
-    return info.admission() instanceof VarkaTypes.Admission.OnLane
-        ? Optional.of(info) : Optional.empty();
+    VarkaTypes.Info info = VarkaTypes.info(id);
+    if (!(info.admission() instanceof VarkaTypes.Admission.OnLane)) {
+      return null;
+    }
+    return () -> compileIn(value, info, elements.apply(info), whole, inputs, literals, sink);
+  }
+
+  /** {@code In}'s elements as lane bits: a literal of the value's type, empty for anything else. */
+  private static List<OptionalLong> inElements(In in, VarkaTypes.Info info) {
+    List<OptionalLong> elements = new ArrayList<>();
+    for (Expression element : CollectionConverters.asJava(in.list())) {
+      elements.add(element instanceof Literal l && VarkaTypes.idOf(l.dataType()) == info.id()
+          ? info.laneBits(l.value()) : OptionalLong.empty());
+    }
+    return elements;
+  }
+
+  /** {@code InSet}'s elements as lane bits: its set holds the values themselves. */
+  private static List<OptionalLong> setElements(InSet inSet, VarkaTypes.Info info) {
+    List<OptionalLong> elements = new ArrayList<>();
+    for (Object element : CollectionConverters.asJava(inSet.hset())) {
+      elements.add(info.laneBits(element));
+    }
+    return elements;
   }
 
   /**
@@ -873,17 +890,20 @@ final class VarkaConditionCompiler {
    * dedup and sort them - Kleene OR is commutative and EQ is pure, so the order is free, and a
    * canonical order keeps the literal slots and the shape hash deterministic ({@code InSet} hands
    * the values over as an unordered set) - then a <b>balanced</b> pairwise fold of OR over the EQ
-   * leaves. Sign-extended to a long, the bits of an int lane sort as its ints do, and a floating
-   * value's raw bits keep two NaN payloads apart as two elements and the two zeros as two. The
-   * fold shape is part of the cap arithmetic: balanced, {@code MaxInLiterals} literals are
-   * {@code ceil(log2 n) + 1} levels and {@code 2n - 1} op nodes; a right-nested fold would hit the
-   * emitter's depth cap at 15. Above the cap, or with any non-literal or null element, the entry
-   * declines with its reason.
+   * leaves. Sign-extended to a long, the bits of an int lane sort as its ints do; a floating
+   * value is kept under {@link #sparkEqualityKey}, so both zeros are one element and every NaN
+   * one, as Spark's {@code IN} has them. The fold shape is part of the cap arithmetic:
+   * balanced, {@code MaxInLiterals} literals are {@code ceil(log2 n) + 1} levels and
+   * {@code 2n - 1} op nodes; a right-nested fold would hit the emitter's depth cap at 15. Above
+   * the cap, with any non-literal or null element, or with no element, the entry declines with
+   * its reason.
    *
-   * <p>Each literal takes a slot on the compiled value's lane, in the table of that lane's width
-   * ({@link VarkaNodeCompiler#bitsSlot}), so it meets the value on its own lane. A value whose
-   * lane is not its type's declines: the two must at least share a table and, where either is
-   * floating, be the same lane, since a float's bits compared as ints are not its equality.
+   * <p>The value has to compile onto its type's own lane, and each literal takes a slot on that
+   * lane, in the table of its width ({@link VarkaNodeCompiler#bitsSlot}). A value on any other
+   * lane declines: an int's literal slotted on a narrower lane would be truncated ({@code 300}
+   * on the byte lane is {@code 44}), and a float's bits compared as ints are not its equality.
+   * No compiled value is on another lane than its type's, since every widening is a cast that
+   * changes the type as well, so the decline guards against a lowering that breaks that rule.
    */
   private static Optional<Cond> compileIn(
       Expression value,
@@ -893,17 +913,20 @@ final class VarkaConditionCompiler {
       VarkaSlotTable inputs,
       VarkaSlotTable literals,
       DeclineSink sink) {
+    if (elements.isEmpty()) {
+      // Spark's answer is false, or null over a null value under its legacy flag; the optimizer
+      // folds it before a plan reaches here, so only a hand-built tree arrives.
+      sink.note("IN list is empty", whole);
+      return Optional.empty();
+    }
+    LaneType own = info.lane().orElseThrow();
     TreeSet<Long> values = new TreeSet<>();
     for (OptionalLong element : elements) {
       if (element.isEmpty()) {
         sink.note("IN list has a null or non-literal element", whole);
         return Optional.empty();
       }
-      values.add(element.getAsLong());
-    }
-    if (values.isEmpty()) {
-      sink.note("IN list has a null or non-literal element", whole);
-      return Optional.empty();
+      values.add(sparkEqualityKey(element.getAsLong(), own));
     }
     if (values.size() > VarkaNodeCompiler.MAX_IN_LITERALS) {
       sink.note("IN list longer than the fused cap of " + VarkaNodeCompiler.MAX_IN_LITERALS, whole);
@@ -915,12 +938,11 @@ final class VarkaConditionCompiler {
       return Optional.empty();
     }
     LaneType at = compiledValue.get().laneType();
-    LaneType own = info.lane().orElseThrow();
-    if (at != own && (at.isFloating() || own.isFloating())) {
-      notMixed(whole, sink, at, own);
-      return Optional.empty();
-    }
-    if ((at.bits() == 64) != (own.bits() == 64)) {
+    if (at != own) {
+      if (at.isFloating() || own.isFloating()) {
+        notMixed(whole, sink, at, own);
+        return Optional.empty();
+      }
       return sink.decline("an IN value off its type's lane", whole);
     }
     List<Cond> leaves = new ArrayList<>();
@@ -929,6 +951,30 @@ final class VarkaConditionCompiler {
           VarkaNodeCompiler.bitsSlot(v, at, literals, sink)));
     }
     return Optional.of(balancedOr(leaves));
+  }
+
+  /**
+   * The bits an IN literal is kept under, one per value Spark's {@code IN} tells apart: the bits
+   * themselves on an integral lane, and on a floating one {@code 0.0}'s for both zeros and the
+   * canonical NaN's for every NaN. {@code In} compares through {@code SQLOrderingUtil}'s order,
+   * where {@code -0.0} equals {@code 0.0} and every NaN every other, and {@code InSet} finds the
+   * zeros equal and any NaN by its NaN test; the lane's EQ is that equality too. So the values
+   * this merges are one leaf of the chain, and one literal against the cap.
+   */
+  private static long sparkEqualityKey(long bits, LaneType lane) {
+    return switch (lane) {
+      case FLOAT -> {
+        float f = Float.intBitsToFloat((int) bits);
+        yield Float.isNaN(f) ? Float.floatToRawIntBits(Float.NaN)
+            : f == 0.0f ? 0L : bits;
+      }
+      case DOUBLE -> {
+        double x = Double.longBitsToDouble(bits);
+        yield Double.isNaN(x) ? Double.doubleToRawLongBits(Double.NaN)
+            : x == 0.0d ? 0L : bits;
+      }
+      case BYTE, SHORT, INT, LONG -> bits;
+    };
   }
 
   /** Pairwise-reduces conditions into a balanced OR tree; the base of the cap arithmetic. */

@@ -256,6 +256,11 @@ public final class VarkaTypesSuite {
     assertEquals(7L, VarkaTypes.info(VarkaTypeId.LONG).bits(7L));
     // A value of another type is refused, not converted: a Long is not a DOUBLE's value.
     assertThrows(IllegalArgumentException.class, () -> dbl.bits(7L));
+    // A null is refused by name, not with the NullPointerException naming its class would throw.
+    IllegalArgumentException ofNull =
+        assertThrows(IllegalArgumentException.class, () -> dbl.bits(null));
+    assertTrue(ofNull.getMessage().contains("null is not a DOUBLE value on a lane"),
+        ofNull.getMessage());
     assertThrows(IllegalArgumentException.class,
         () -> VarkaTypes.info(VarkaTypeId.DECIMAL).sparkValue(0L));
   }

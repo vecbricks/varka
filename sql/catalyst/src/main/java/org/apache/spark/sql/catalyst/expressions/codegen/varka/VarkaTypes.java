@@ -219,14 +219,14 @@ public final class VarkaTypes {
      * row or {@code eval} gives for the type. A floating value's bits are its raw ones, so a
      * NaN's payload and a zero's sign survive the round trip.
      */
-    public long bits(Object sparkValue) {
+    public long bits(@Nullable Object sparkValue) {
       if (admission instanceof Admission.UpToPrecision) {
         throw unscaled();
       }
       OptionalLong bits = laneBits(sparkValue);
       if (bits.isEmpty()) {
-        throw VarkaErrors.illegalArgument("a " + sparkValue.getClass().getSimpleName()
-            + " is not a " + sql + " value on a lane");
+        String value = sparkValue == null ? "null" : "a " + sparkValue.getClass().getSimpleName();
+        throw VarkaErrors.illegalArgument(value + " is not a " + sql + " value on a lane");
       }
       return bits.getAsLong();
     }
