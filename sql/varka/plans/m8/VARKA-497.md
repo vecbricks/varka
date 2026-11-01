@@ -259,4 +259,38 @@ matrix is dispatched on the branch.
 
 ## 10. Outcome
 
-(Written when the work lands.)
+Built 1 November 2026 on `varka-497-in-arm`, in the two commits 5 asks for.
+
+### 10.1 The merge (5.1)
+
+1. **One arm pair.** `condArm` has one `In` and one `InSet` case, guarded by `inType`: the value's
+   type has a lane (`VarkaTypes.lane`) and an `OnLane` admission, whose literals the registry
+   reads. `In` reads a `Literal` of the value's `VarkaTypeId` through `Info.laneBits`, `InSet` its
+   raw elements through the same; both go to `compileIn`, `compileInList`'s body over
+   `OptionalLong` with its checks in its order. The four pairs, `literalDays`, `narrowValue`,
+   `floatingIn`, `floatingBits`, `compileInList` and `compileLongInList` are gone; `isFloating`
+   stays for `isnan`. While the merge stood alone, a set `IN_HELD` kept `INT`, `BIGINT`, `TIME`
+   and the day-time interval unclaimed, so they declined with "unsupported predicate" as before.
+2. **`Info.laneBits`** is `bits`'s switch with an empty answer for a null, a value of another
+   class and a decimal; `bits` keeps its decimal throw ahead of it and throws on its empty.
+3. **`bitsSlot`** in `VarkaNodeCompiler` is the lane-to-table dispatch, and `nanSlot` calls it.
+4. **The slot's lane is the compiled value's**, as the three integral folds had it (2.2's
+   "slots"): a literal takes `bitsSlot(bits, value.laneType())`. A value whose lane differs from
+   its type's declines when either is floating, with the lane-mix reason `floatingIn`'s
+   `sameLane` gave, and when the two lanes' tables differ, with "an IN value off its type's
+   lane" (2.1's generalised reason); no shape reaches either.
+5. **Departure: the guard is not the bare lane.** `VarkaTypes.lane` answers `LONG` for a
+   `DECIMAL` of precision 18 or less since row 347's reader, so 2.1's guard would claim decimal
+   `IN` and decline it as "IN list has a null or non-literal element". `inType` asks for an
+   `OnLane` admission as well, which leaves decimal `IN` with the predicate's general decline,
+   as on master (10.3).
+6. **The proof.** On the merge alone, `VARKA_BYTES_REGEN`, `VARKA_COVERAGE_REGEN` and
+   `VARKA_AUDIT_REGEN` over `VarkaEmittedBytesSuite`, `VarkaCoverageSuite` and
+   `VarkaWidthAuditSuite` left `emitted_bytes.json` (its `option_arms` digests included),
+   `coverage.json` and `width_audit.json` byte-identical (prediction 1: held). The order test
+   (3.2) passed on master's four arms before the merge was written, and again after; it covers
+   `DATE`, the year-month interval, `TINYINT`, `SMALLINT`, `FLOAT` and `DOUBLE` (each with `0.0`,
+   `-0.0` and two NaN payloads) and `TIMESTAMP_NTZ`. `VarkaExpressionCompilerSuite`,
+   `VarkaFamilyChainSuite`, `VarkaEmitCostAuditSuite`, `VarkaOperatorCensusSuite`,
+   `VarkaCoverageCompositionFuzzSuite`, `VarkaIrFuzzSuite` and `VarkaProofFilesSuite` passed with
+   `emit_cost_audit.json` and `operator_census.json` unmoved.

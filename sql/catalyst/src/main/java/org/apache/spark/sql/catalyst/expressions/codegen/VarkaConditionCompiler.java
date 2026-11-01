@@ -21,9 +21,8 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
-import java.util.OptionalInt;
 import java.util.OptionalLong;
-import java.util.TreeMap;
+import java.util.Set;
 import java.util.TreeSet;
 import java.util.function.BinaryOperator;
 import java.util.function.Supplier;
@@ -58,6 +57,7 @@ import org.apache.spark.sql.catalyst.expressions.Or;
 import org.apache.spark.sql.catalyst.expressions.RuntimeReplaceable;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaErrors;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaFamily;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTypeId;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTypes;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ColumnRef;
@@ -69,7 +69,6 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.InR
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LaneType;
 import org.apache.spark.sql.types.DataType;
 import org.apache.spark.sql.types.DataTypes;
-import org.apache.spark.sql.types.YearMonthIntervalType;
 
 /**
  * Two families of the compiler, each with its own switch (VARKA-318). The predicate family is the
@@ -568,13 +567,6 @@ final class VarkaConditionCompiler {
     return DataTypes.FloatType.equals(t) || DataTypes.DoubleType.equals(t);
   }
 
-  /** A floating literal's raw bits, for a deterministic order of a set's elements. */
-  private static long floatingBits(Expression literal) {
-    Object v = ((Literal) literal).value();
-    return v instanceof Float f ? Float.floatToRawIntBits(f)
-        : v instanceof Double d ? Double.doubleToRawLongBits(d) : Long.MAX_VALUE;
-  }
-
   /**
    * {@code isnan(x)}, which is total: true where {@code x} is NaN and false everywhere else, a
    * null {@code x} included. It is {@code x = NaN} under the lane's equality, which is true
@@ -619,50 +611,6 @@ final class VarkaConditionCompiler {
       return Optional.empty();
     }
     return Optional.of(new IfElse(test.get(), right.get(), left.get()));
-  }
-
-  /**
-   * IN over a floating value: an EQ chain joined by OR, each EQ the lane's, so a NaN element
-   * matches a NaN value and {@code 0.0} matches {@code -0.0}, as {@code In}'s ordering and
-   * {@code InSet}'s set both answer. A null value leaves every comparison unknown and the OR
-   * unknown, which is SQL's IN. The elements are kept once each and sorted by their bits, as
-   * {@link #compileInList} keeps the integral lanes' days, so the literal slots and the shape
-   * hash do not depend on the order the list or the set gave them in. A null or non-literal
-   * element declines, as the other lanes' lists do, and so does a list over the fused cap.
-   */
-  private static Optional<Cond> floatingIn(
-      Expression value,
-      List<Expression> elements,
-      Expression whole,
-      VarkaSlotTable inputs,
-      VarkaSlotTable literals,
-      DeclineSink sink) {
-    if (elements.isEmpty() || elements.stream().anyMatch(
-        e -> !(e instanceof Literal l) || l.value() == null)) {
-      sink.note("IN list has a null or non-literal element", whole);
-      return Optional.empty();
-    }
-    TreeMap<Long, Expression> byBits = new TreeMap<>();
-    for (Expression element : elements) {
-      byBits.putIfAbsent(floatingBits(element), element);
-    }
-    if (byBits.size() > VarkaNodeCompiler.MAX_IN_LITERALS) {
-      sink.note("IN list longer than the fused cap of " + VarkaNodeCompiler.MAX_IN_LITERALS, whole);
-      return Optional.empty();
-    }
-    Optional<VarkaVectorIR> x = VarkaNodeCompiler.compileNode(value, inputs, literals, sink);
-    if (x.isEmpty()) {
-      return Optional.empty();
-    }
-    List<Cond> leaves = new ArrayList<>();
-    for (Expression element : byBits.values()) {
-      Optional<VarkaVectorIR> lit = VarkaNodeCompiler.compileNode(element, inputs, literals, sink);
-      if (lit.isEmpty() || !sameLane(whole, sink, x.get(), lit.get())) {
-        return Optional.empty();
-      }
-      leaves.add(new Compare(CompareOp.EQ, x.get(), lit.get()));
-    }
-    return Optional.of(balancedOr(leaves));
   }
 
   /** {@code greatest} and {@code least}: every operand compiled, then folded from the left. */
@@ -781,82 +729,34 @@ final class VarkaConditionCompiler {
       };
       case Coalesce c when c.dataType().equals(DataTypes.BooleanType) -> () -> boolCoalesce(expr,
           CollectionConverters.asJava(c.children()), inputs, literals, sink);
-      // IN over date literals: an EQ chain joined by OR, which the mask algebra
-      // makes exactly SQL's IN inside a condition - a null value leaves every comparison
-      // unknown, the OR of unknowns is unknown, and an unknown condition falls to ELSE.
-      case In in when isDateOrInterval(in.value().dataType()) -> () -> {
-        List<OptionalInt> elements = new ArrayList<>();
+      // IN over literals: an EQ chain joined by OR, which the mask algebra makes exactly SQL's
+      // IN inside a condition - a null value leaves every comparison unknown, the OR of unknowns
+      // is unknown, and an unknown condition falls to ELSE. One arm serves every type a lane
+      // reads: each literal is read as its lane bits through the type registry, so the chain is
+      // the same over dates, narrow and floating values and the long lane's types, and the EQ is
+      // the lane's own, under which `-0.0 IN (0.0)` and `NaN IN (NaN)` are true as Spark's
+      // ordering says. `In` holds its elements as literals, `InSet` as the values themselves.
+      case In in when inType(in.value().dataType()).isPresent() -> () -> {
+        VarkaTypes.Info info = inType(in.value().dataType()).get();
+        List<OptionalLong> elements = new ArrayList<>();
         for (Expression element : CollectionConverters.asJava(in.list())) {
-          elements.add(literalDays(element));
+          elements.add(element instanceof Literal l
+              && VarkaTypes.of(l.dataType()).equals(Optional.of(info.id()))
+              ? info.laneBits(l.value()) : OptionalLong.empty());
         }
-        return compileInList(in.value(), elements, in, inputs, literals, sink);
+        return compileIn(in.value(), info, elements, in, inputs, literals, sink);
       };
-      case InSet inSet when isDateOrInterval(inSet.child().dataType()) -> () -> {
-        // InSet's set is unordered; compileInList sorts, which is what keeps the literal
-        // slots and the shape hash deterministic across runs.
-        List<OptionalInt> elements = new ArrayList<>();
+      case InSet inSet when inType(inSet.child().dataType()).isPresent() -> () -> {
+        VarkaTypes.Info info = inType(inSet.child().dataType()).get();
+        List<OptionalLong> elements = new ArrayList<>();
         for (Object element : CollectionConverters.asJava(inSet.hset())) {
-          elements.add(
-              element instanceof Integer days ? OptionalInt.of(days) : OptionalInt.empty());
+          elements.add(info.laneBits(element));
         }
-        return compileInList(inSet.child(), elements, inSet, inputs, literals, sink);
+        return compileIn(inSet.child(), info, elements, inSet, inputs, literals, sink);
       };
-      // IN over narrow literals (VARKA-329): the same EQ chain. A tinyint or smallint value is
-      // an int in a narrower lane, so the elements are read as ints and the chain's slots take
-      // the value's own lane.
-      case In in
-          when VarkaTypes.lane(in.value().dataType()).filter(LaneType::isNarrow).isPresent() ->
-          () -> {
-        List<OptionalInt> elements = new ArrayList<>();
-        for (Expression element : CollectionConverters.asJava(in.list())) {
-          elements.add(narrowValue(element));
-        }
-        return compileInList(in.value(), elements, in, inputs, literals, sink);
-      };
-      case InSet inSet
-          when VarkaTypes.lane(inSet.child().dataType()).filter(LaneType::isNarrow).isPresent() ->
-          () -> {
-        List<OptionalInt> elements = new ArrayList<>();
-        for (Object element : CollectionConverters.asJava(inSet.hset())) {
-          elements.add(element instanceof Byte b ? OptionalInt.of(b.intValue())
-              : element instanceof Short s ? OptionalInt.of(s.intValue())
-              : OptionalInt.empty());
-        }
-        return compileInList(inSet.child(), elements, inSet, inputs, literals, sink);
-      };
-      // The floating lanes' own tests (VARKA-341): `isnan`, and IN as an EQ chain whose EQ is
-      // the lane's, so `-0.0 IN (0.0)` and `NaN IN (NaN)` are true as Spark's ordering says.
+      // The floating lanes' own test (VARKA-341): `isnan`, total, as the lane's EQ against NaN.
       case IsNaN n when isFloating(n.child().dataType()) ->
           () -> isNaN(n.child(), inputs, literals, sink);
-      case In in when isFloating(in.value().dataType()) ->
-          () -> floatingIn(in.value(), CollectionConverters.asJava(in.list()), in, inputs,
-              literals, sink);
-      case InSet inSet when isFloating(inSet.child().dataType()) -> () -> {
-        List<Expression> elements = new ArrayList<>();
-        for (Object element : CollectionConverters.asJava(inSet.hset())) {
-          elements.add(Literal.create(element, inSet.child().dataType()));
-        }
-        return floatingIn(inSet.child(), elements, inSet, inputs, literals, sink);
-      };
-      // IN over TIMESTAMP_NTZ literals (VARKA-338): the same EQ chain at the long lane, each
-      // literal's microseconds a slot in the long table. A bigint IN takes the same chain but is
-      // left declined here, for the rows that build the bigint operations (rows 104 and 102).
-      case In in when DataTypes.TimestampNTZType.equals(in.value().dataType()) -> () -> {
-        List<OptionalLong> elements = new ArrayList<>();
-        for (Expression element : CollectionConverters.asJava(in.list())) {
-          elements.add(element instanceof Literal l && l.value() instanceof Long micros
-              ? OptionalLong.of(micros) : OptionalLong.empty());
-        }
-        return compileLongInList(in.value(), elements, in, inputs, literals, sink);
-      };
-      case InSet inSet when DataTypes.TimestampNTZType.equals(inSet.child().dataType()) -> () -> {
-        List<OptionalLong> elements = new ArrayList<>();
-        for (Object element : CollectionConverters.asJava(inSet.hset())) {
-          elements.add(element instanceof Long micros ? OptionalLong.of(micros)
-              : OptionalLong.empty());
-        }
-        return compileLongInList(inSet.child(), elements, inSet, inputs, literals, sink);
-      };
       case And and -> () -> {
         Optional<Cond> left = compileCond(and.left(), inputs, literals, sink);
         if (left.isEmpty()) {
@@ -903,93 +803,49 @@ final class VarkaConditionCompiler {
     };
   }
 
-  private static boolean isDateOrInterval(DataType dataType) {
-    return dataType.equals(DataTypes.DateType) || dataType instanceof YearMonthIntervalType;
-  }
+  /**
+   * The types whose {@code IN} is declined while the arm reads their literals: they wait for
+   * their coverage rows, which land beside their admission.
+   */
+  private static final Set<VarkaTypeId> IN_HELD = Set.of(
+      VarkaTypeId.INT, VarkaTypeId.LONG, VarkaTypeId.TIME, VarkaTypeId.DT_INTERVAL);
 
   /**
-   * The int a narrow literal holds, as {@link #literalDays} reads a date's: values of a narrow
-   * type are ints in a narrower lane, so an {@code IN} list of them folds to ints exactly.
+   * The registry's entry for the value of an {@code IN} the arm compiles, or empty for one it
+   * leaves unclaimed: the value's type has to be read on a lane, and the registry has to read
+   * its literals, which {@link VarkaTypes.Info#laneBits} does for every type whose lane is its
+   * own. A decimal's literal is a {@code Decimal} at the value's scale rather than lane bits, so
+   * a decimal {@code IN} is left to the predicate's general decline (VARKA-348).
    */
-  private static OptionalInt narrowValue(Expression e) {
-    if (e instanceof Literal l) {
-      if (l.value() instanceof Byte b) {
-        return OptionalInt.of(b.intValue());
-      }
-      if (l.value() instanceof Short s) {
-        return OptionalInt.of(s.intValue());
-      }
+  private static Optional<VarkaTypes.Info> inType(DataType type) {
+    if (VarkaTypes.lane(type).isEmpty()) {
+      return Optional.empty();
     }
-    return OptionalInt.empty();
+    VarkaTypes.Info info = VarkaTypes.info(VarkaTypes.of(type).orElseThrow());
+    return info.admission() instanceof VarkaTypes.Admission.OnLane
+        && !IN_HELD.contains(info.id()) ? Optional.of(info) : Optional.empty();
   }
 
   /**
-   * The int a date or year-month interval literal holds - epoch days for one, a month count for
-   * the other - or empty for anything else (null included). Both are int32 lanes and an
-   * {@code IN} list is type-homogeneous, so one function serves both; the type gate is on the
-   * {@code In} arms, which is where the value's own type decides.
+   * Compiles an IN list whose elements are lane bits, empty for a null or non-literal element:
+   * dedup and sort them - Kleene OR is commutative and EQ is pure, so the order is free, and a
+   * canonical order keeps the literal slots and the shape hash deterministic ({@code InSet} hands
+   * the values over as an unordered set) - then a <b>balanced</b> pairwise fold of OR over the EQ
+   * leaves. Sign-extended to a long, the bits of an int lane sort as its ints do, and a floating
+   * value's raw bits keep two NaN payloads apart as two elements and the two zeros as two. The
+   * fold shape is part of the cap arithmetic: balanced, {@code MaxInLiterals} literals are
+   * {@code ceil(log2 n) + 1} levels and {@code 2n - 1} op nodes; a right-nested fold would hit the
+   * emitter's depth cap at 15. Above the cap, or with any non-literal or null element, the entry
+   * declines with its reason.
+   *
+   * <p>Each literal takes a slot on the compiled value's lane, in the table of that lane's width
+   * ({@link VarkaNodeCompiler#bitsSlot}), so it meets the value on its own lane. A value whose
+   * lane is not its type's declines: the two must at least share a table and, where either is
+   * floating, be the same lane, since a float's bits compared as ints are not its equality.
    */
-  private static OptionalInt literalDays(Expression e) {
-    if (e instanceof Literal l && l.value() instanceof Integer days
-        && (l.dataType().equals(DataTypes.DateType)
-            || l.dataType() instanceof YearMonthIntervalType)) {
-      return OptionalInt.of(days);
-    }
-    return OptionalInt.empty();
-  }
-
-  /**
-   * Compiles an IN list: dedup and sort the literal days - Kleene OR is commutative and EQ is
-   * pure, so the order is free, and a canonical order keeps the literal slots and the shape hash
-   * deterministic ({@code InSet} hands the values over as an unordered set) - then a
-   * <b>balanced</b> pairwise fold of OR over the EQ leaves. The fold shape is part of the cap
-   * arithmetic: balanced, {@code MaxInLiterals} literals are {@code ceil(log2 n) + 1} levels and
-   * {@code 2n - 1} op nodes; a right-nested fold would hit the emitter's depth cap at 15. Above
-   * the cap, or with any non-literal or null element, the entry declines with its reason.
-   */
-  private static Optional<Cond> compileInList(
+  private static Optional<Cond> compileIn(
       Expression value,
-      List<OptionalInt> elements,
-      Expression whole,
-      VarkaSlotTable inputs,
-      VarkaSlotTable literals,
-      DeclineSink sink) {
-    TreeSet<Integer> days = new TreeSet<>();
-    for (OptionalInt element : elements) {
-      if (element.isEmpty()) {
-        sink.note("IN list has a null or non-literal element", whole);
-        return Optional.empty();
-      }
-      days.add(element.getAsInt());
-    }
-    if (days.isEmpty()) {
-      sink.note("IN list has a null or non-literal element", whole);
-      return Optional.empty();
-    }
-    if (days.size() > VarkaNodeCompiler.MAX_IN_LITERALS) {
-      sink.note("IN list longer than the fused cap of " + VarkaNodeCompiler.MAX_IN_LITERALS, whole);
-      return Optional.empty();
-    }
-    Optional<VarkaVectorIR> compiledValue = VarkaNodeCompiler.compileNode(
-        value, inputs, literals, sink);
-    if (compiledValue.isEmpty()) {
-      return Optional.empty();
-    }
-    List<Cond> leaves = new ArrayList<>();
-    for (int d : days) {
-      leaves.add(new Compare(
-          CompareOp.EQ, compiledValue.get(),
-          VarkaNodeCompiler.slot(d, compiledValue.get().laneType(), literals)));
-    }
-    return Optional.of(balancedOr(leaves));
-  }
-
-  /**
-   * {@link #compileInList} at the long lane: the same dedup, sort, cap and balanced fold, over
-   * long literals, each in a slot of the long table.
-   */
-  private static Optional<Cond> compileLongInList(
-      Expression value,
+      VarkaTypes.Info info,
       List<OptionalLong> elements,
       Expression whole,
       VarkaSlotTable inputs,
@@ -1016,12 +872,19 @@ final class VarkaConditionCompiler {
     if (compiledValue.isEmpty()) {
       return Optional.empty();
     }
-    if (compiledValue.get().laneType() != LaneType.LONG) {
-      return sink.decline("an IN value that is not on the long lane", whole);
+    LaneType at = compiledValue.get().laneType();
+    LaneType own = info.lane().orElseThrow();
+    if (at != own && (at.isFloating() || own.isFloating())) {
+      notMixed(whole, sink, at, own);
+      return Optional.empty();
+    }
+    if ((at.bits() == 64) != (own.bits() == 64)) {
+      return sink.decline("an IN value off its type's lane", whole);
     }
     List<Cond> leaves = new ArrayList<>();
     for (long v : values) {
-      leaves.add(new Compare(CompareOp.EQ, compiledValue.get(), sink.longSlot(v)));
+      leaves.add(new Compare(CompareOp.EQ, compiledValue.get(),
+          VarkaNodeCompiler.bitsSlot(v, at, literals, sink)));
     }
     return Optional.of(balancedOr(leaves));
   }
