@@ -22,12 +22,12 @@ import java.util.Optional
 import scala.jdk.CollectionConverters._
 
 import org.apache.spark.sql.QueryTest
-import org.apache.spark.sql.catalyst.expressions.{Abs, AttributeReference, BinaryArithmetic,
+import org.apache.spark.sql.catalyst.expressions.{Abs, Alias, AttributeReference, BinaryArithmetic,
   BinaryComparison, Cast, Expression, In, UnaryMinus}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaMatrix.PinsDefaults
 import org.apache.spark.sql.catalyst.plans.logical.Filter
-import org.apache.spark.sql.execution.{VarkaColumnarRule, VarkaColumnarToRowExec, VarkaFilterExec,
-  VarkaProjectExec, VarkaSharedSessions}
+import org.apache.spark.sql.execution.{ProjectExec, VarkaColumnarRule, VarkaColumnarToRowExec,
+  VarkaFilterExec, VarkaProjectExec, VarkaSharedSessions}
 import org.apache.spark.sql.types.{BooleanType, DataType, DecimalType, TimeType}
 
 /**
@@ -199,8 +199,23 @@ class VarkaDecimalBaselineQueriesSuite extends QueryTest with VarkaSharedSession
         VarkaSqlBenchmarkBase.fusion(varkaSpark.sql(query).queryExecution.executedPlan)
       val fused = "FROM varka_decimal WHERE x9 <=> y9"
       assert(fusion(s"SELECT x9 $fused") === Optional.of(VarkaSqlBenchmarkBase.Fusion.WHOLE))
-      // A row projection that only renames a column above the Varka filter computes nothing.
-      assert(fusion(s"SELECT x9 AS r $fused") === Optional.of(VarkaSqlBenchmarkBase.Fusion.WHOLE))
+      // The rule folds a rename above the Varka filter into the filter's to-row node, so the plan
+      // keeps no row projection and the rename is part of the fused node.
+      val renamed = varkaSpark.sql(s"SELECT x9 AS r $fused").queryExecution.executedPlan
+      assert(!renamed.exists(_.isInstanceOf[ProjectExec]), renamed.treeString)
+      assert(VarkaSqlBenchmarkBase.fusion(renamed) ===
+        Optional.of(VarkaSqlBenchmarkBase.Fusion.WHOLE))
+      // A row projection that only renames a column does reach the classifier where a rule keeps
+      // it, so it is built here over the fused plan: it computes nothing, and the plan stays
+      // WHOLE, while one that computes over the column is row work beside the fused filter.
+      val filtered = varkaSpark.sql(s"SELECT x9 $fused").queryExecution.executedPlan
+      val x9 = filtered.output.head
+      assert(VarkaSqlBenchmarkBase.fusion(ProjectExec(Seq(Alias(x9, "r")()), filtered)) ===
+        Optional.of(VarkaSqlBenchmarkBase.Fusion.WHOLE))
+      assert(VarkaSqlBenchmarkBase.fusion(ProjectExec(Seq(x9), filtered)) ===
+        Optional.of(VarkaSqlBenchmarkBase.Fusion.WHOLE))
+      assert(VarkaSqlBenchmarkBase.fusion(ProjectExec(Seq(Alias(UnaryMinus(x9), "r")()),
+        filtered)) === Optional.empty())
       // An aggregate or a sort above it evaluates over rows, so the plan fits no class.
       assert(fusion(s"SELECT count(*) AS c $fused") === Optional.empty())
       assert(fusion(s"SELECT x9 $fused ORDER BY x9") === Optional.empty())
