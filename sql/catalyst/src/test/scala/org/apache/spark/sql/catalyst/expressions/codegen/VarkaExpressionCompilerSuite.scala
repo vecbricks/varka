@@ -36,7 +36,7 @@ import org.apache.spark.sql.catalyst.optimizer.ReplaceExpressions
 import org.apache.spark.sql.catalyst.plans.logical.{OneRowRelation, Project}
 import org.apache.spark.sql.catalyst.util.IntervalUtils
 import org.apache.spark.sql.internal.SQLConf
-import org.apache.spark.sql.types.{BooleanType, ByteType, DateType, DayTimeIntervalType, Decimal, DecimalType, DoubleType, IntegerType, LongType, ShortType, StringType, TimestampNTZType, TimestampType, TimeType, YearMonthIntervalType}
+import org.apache.spark.sql.types.{BooleanType, ByteType, DateType, DayTimeIntervalType, Decimal, DecimalType, DoubleType, FloatType, IntegerType, LongType, ShortType, StringType, TimestampNTZType, TimestampType, TimeType, YearMonthIntervalType}
 import org.apache.spark.unsafe.types.UTF8String
 import org.apache.spark.util.Utils
 
@@ -1803,6 +1803,72 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     assert(p2.declines.asScala(0).reason === "IN list has a null or non-literal element")
   }
 
+  // The columns of the IN order test below beside the suite's own: one of each type an IN reads.
+  private val inYm = AttributeReference("inYm", YearMonthIntervalType())()
+  private val inFloat = AttributeReference("inFloat", FloatType)()
+  private val inDouble = AttributeReference("inDouble", DoubleType)()
+  private val inNtz = AttributeReference("inNtz", TimestampNTZType)()
+  private val inLong = AttributeReference("inLong", LongType)()
+  private val inTime = AttributeReference("inTime", TimeType(6))()
+  private val inDt = AttributeReference("inDt", DayTimeIntervalType())()
+  private val inOutput: Seq[Attribute] =
+    childOutput ++ Seq(inYm, inFloat, inDouble, inNtz, inLong, inTime, inDt)
+
+  /**
+   * The values of an IN per column, for the order test: each list holds values in no order, and
+   * the floating ones hold both zeros and two NaN payloads, which are four distinct bit patterns.
+   */
+  private def inCases: Seq[(Attribute, Seq[Any])] = Seq(
+    d -> Seq(20, 5, -3),
+    inYm -> Seq(14, -3, 0),
+    by -> Seq(3.toByte, (-1).toByte, 100.toByte),
+    sh -> Seq(300.toShort, (-7).toShort, 0.toShort),
+    inFloat -> Seq(1.5f, 0.0f, -0.0f, Float.NaN, java.lang.Float.intBitsToFloat(0x7fc00001),
+      -2.5f),
+    inDouble -> Seq(1.5, 0.0, -0.0, Double.NaN,
+      java.lang.Double.longBitsToDouble(0x7ff8000000000001L), -2.5),
+    inNtz -> Seq(5000000000L, -1L, 42L),
+    i -> Seq(12, 3, Int.MinValue),
+    inLong -> Seq(5000000000L, Long.MinValue, 0L),
+    inTime -> Seq(43200000000000L, 0L, 21600000000000L),
+    inDt -> Seq(86400000000L, -1L, 172800000000L))
+
+  test("IN keeps each value once in ascending bit order, whatever order its list or set has") {
+    // A value's lane bits, sign-extended: what orders the literal tables.
+    def bits(v: Any): Long = v match {
+      case f: Float => java.lang.Float.floatToRawIntBits(f).toLong
+      case x: Double => java.lang.Double.doubleToRawLongBits(x)
+      case b: Byte => b.toLong
+      case s: Short => s.toLong
+      case i: Int => i.toLong
+      case l: Long => l
+    }
+    def shape(condition: Expression): (String, Seq[Int], Seq[Long]) = {
+      val compiled = VarkaExpressionCompiler.compilePredicate(condition, inOutput).toScala
+      assert(compiled.exists(_.specs.asScala.forall(_.fused)), s"$condition did not fuse")
+      val fused = compiled.get.fused
+      (VarkaVectorIR.canonical(fused.outputs.asScala.head),
+        fused.literals.asScala.map(_.intValue).toSeq,
+        fused.longLiterals.asScala.map(_.longValue).toSeq)
+    }
+    for ((column, values) <- inCases) {
+      def in(vs: Seq[Any]): Expression = In(column, vs.map(v => Literal(v, column.dataType)))
+      val first = shape(in(values))
+      // The reversed list with its first value again is the same kernel.
+      assert(shape(in(values.reverse :+ values.head)) === first, column.dataType)
+      // The literals take their table's slots in ascending order of their bits, each once.
+      val sorted = values.map(bits).distinct.sorted
+      val longTable = Seq(DoubleType, TimestampNTZType, LongType, TimeType(6),
+        DayTimeIntervalType()).contains(column.dataType)
+      assert((first._2, first._3) === (if (longTable) (Nil, sorted)
+        else (sorted.map(_.toInt), Nil)), column.dataType)
+      // An InSet is an IN over its set's values: Scala's set keeps one of two equal zeros, so it
+      // is compared with the IN of what it holds, whatever order the set iterates in.
+      val set = values.toSet
+      assert(shape(InSet(column, set)) === shape(in(set.toSeq)), column.dataType)
+    }
+  }
+
   test("coalesce lowers onto the validity condition; guarded operands are columns") {
     val compiled = VarkaExpressionCompiler.compile(
       Seq(out(Coalesce(Seq(d, d2, Literal(7, DateType))))), childOutput).get
@@ -2506,7 +2572,7 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
 
 
   // ---------------------------------------------------------------------------------------------
-  // The long lane (VARKA-29): three types, comparisons only
+  // The long lane (VARKA-29): three types, their comparisons and IN
   // ---------------------------------------------------------------------------------------------
 
   private val l = AttributeReference("l", LongType)()
@@ -2723,15 +2789,19 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     assert(orMix.exists(_.fused.lane(VarkaEmitOptions.DEFAULTS) == LaneType.LONG))
   }
 
-  test("long arithmetic and IN stay declined: they are VARKA-104 and VARKA-102, not this one") {
+  test("long arithmetic stays declined: it is VARKA-104's") {
     val add = VarkaExpressionCompiler.compilePartial(
       Seq(out(DateAdd(d, Literal(1))), out(Add(l, Literal(1L)))), withLong).get
     assert(add.specs.asScala.toSeq === Seq(new FusedOutput(0), VarkaOutputSpec.RESIDUAL))
     assert(add.declines.asScala(1).reason === "unsupported expression")
+  }
+
+  test("a bigint IN beside a date comparison fuses both conjuncts at the long lane") {
     val in = VarkaExpressionCompiler.compilePredicate(
       And(GreaterThan(d, d2), In(l, Seq(Literal(1L), Literal(2L)))), withLong).get
-    assert(in.specs.asScala.toSeq.map(_.fused) === Seq(true, false))
-    assert(in.specs.get(1).decline.get.reason === "unsupported predicate")
+    assert(in.specs.asScala.forall(_.fused))
+    assert(in.fused.lane(VarkaEmitOptions.DEFAULTS) === LaneType.LONG)
+    assert(in.fused.longLiterals.asScala.toSeq === Seq(1L, 2L))
   }
 
   // --- VARKA-169: the emitter's size decline, taken at plan time -------------------------------

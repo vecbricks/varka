@@ -506,6 +506,11 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
       Row("i <= 7"),
       Row("i >= 7"),
       Row("i IS NULL"),
+      Row("i IN (3, 1, 12)", "an int IN, the same equality chain as a date's"),
+      Row("i IN (11 to 16 int literals)",
+        "an IN list this long arrives from the optimizer as an InSet and fuses the same way",
+        Some(InSet(i, (1 to 11).map(v => v.asInstanceOf[Any]).toSet)),
+        Some((1 to 11).mkString("i IN (", ", ", ")"))),
       Row(s"ym = ${ymLiteral(14)}"),
       Row(s"ym < ${ymLiteral(14)}"),
       Row(s"ym <= ${ymLiteral(14)}"),
@@ -519,8 +524,9 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
       Row("ym IS NULL"),
       Row("ym IS NOT NULL"))),
 
-    // The long lane (VARKA-29): three types, comparisons only. Arithmetic over them is task
-    // 104 (`bigint`), 102 (`TIME`) and 103 (intervals), and stays out of this table until then.
+    // The long lane (VARKA-29): three types, their comparisons and IN. Arithmetic over them is
+    // VARKA-104 (`bigint`), VARKA-102 (`TIME`) and VARKA-103 (intervals), and stays out of this
+    // table until then. The short IN lists hold values the differential fixtures hold.
     Family("Long-lane predicates", predicates = true, Seq(
       Row("l > l2"),
       Row("l = l2"),
@@ -553,7 +559,27 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
       Row("l <=> l2", "null-safe equality at the long lane (VARKA-336)"),
       Row("equal_null(l, l2)"),
       Row("t <=> t2"),
-      Row("dt <=> dt2"))),
+      Row("dt <=> dt2"),
+      Row("l IN (5000000000, 42L, 0L)",
+        "the long lane's equality chain, each literal a slot in its own table; an int literal "
+          + "arrives under a cast, which a query's optimizer folds and this table writes folded"),
+      Row("l IN (11 to 16 bigint literals)",
+        "an IN list this long arrives from the optimizer as an InSet and fuses the same way",
+        Some(InSet(l, (1 to 11).map(v => v.toLong.asInstanceOf[Any]).toSet)),
+        Some((1 to 11).map(v => s"${v}L").mkString("l IN (", ", ", ")"))),
+      Row("t IN (TIME'12:00:00.000000', TIME'06:00:00.000000')",
+        "literals of the column's precision, so no cast reaches the column"),
+      Row("t IN (11 to 16 TIME literals)",
+        "an IN list this long arrives from the optimizer as an InSet and fuses the same way",
+        Some(InSet(t, (1 to 11).map(h => (h * 3600000000000L).asInstanceOf[Any]).toSet)),
+        Some((1 to 11).map(h =>
+          f"TIME'$h%02d:00:00.000000'").mkString("t IN (", ", ", ")"))),
+      Row("dt IN (INTERVAL '2 00:00:00' DAY TO SECOND, INTERVAL '1 00:00:00' DAY TO SECOND)"),
+      Row("dt IN (11 to 16 day-time literals)",
+        "an IN list this long arrives from the optimizer as an InSet and fuses the same way",
+        Some(InSet(dt, (1 to 11).map(n => (n * 86400000000L).asInstanceOf[Any]).toSet)),
+        Some((1 to 11).map(n =>
+          s"INTERVAL '$n 00:00:00' DAY TO SECOND").mkString("dt IN (", ", ", ")"))))),
 
     // A BOOLEAN column is a condition leaf: the data bitmap and the validity bitmap are both
     // read as words, so every connective, comparison and choice composes with it.
