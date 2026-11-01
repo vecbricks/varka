@@ -311,11 +311,18 @@ Built 1 November 2026 on `varka-497-in-arm`, in the two commits 5 asks for.
    optimizer folds but the coverage table's resolution does not. The arm reads literals only, so
    `l IN (5000000000, 42, 0)` declined in the table. The `TIME` literals are written at
    precision 6, so no cast reaches the column (2.3).
-3. **The order test** covers the four admitted types as well.
-4. **The flipped test (3.4).** "long arithmetic stays declined: it is VARKA-104's" keeps the
+3. **The order test** covers the four admitted types as well. It ran in 173 ms.
+   **Prediction 4 is only half scored.** The local logs give no time for each coverage row: the
+   harness's dynamic JUnit tests print no time per test. So the rows' cost goes unscored here and
+   no calibration row is added. The PR Build's step table is where to read it.
+4. **The `TIME` shape (2.3).** `dev/varka_emit.sh` was not run. Two results stand in for it.
+   Both `t IN` rows fuse in the coverage table, and a narrowing cast on the column would have
+   declined them. Their `width_audit.json` entries have the long-lane comparisons' kinds, with
+   no cast of their own.
+5. **The flipped test (3.4).** "long arithmetic stays declined: it is VARKA-104's" keeps the
    `Add` half. "a bigint IN beside a date comparison fuses both conjuncts at the long lane"
    asserts both conjuncts fused, the kernel on `LONG`, and the long table `1, 2`.
-5. **Generated files.** `emitted_bytes.json` gains the eight rows at 4 and 16 lanes and its eleven
+6. **Generated files.** `emitted_bytes.json` gains the eight rows at 4 and 16 lanes and its eleven
    `option_arms` digests move. No other entry changes (prediction 2: held). `width_audit.json`
    gains the eight rows at both widths: the long-lane rows have the comparisons' `not supported`
    kinds plus the mask-logic line every `IN` chain has, and the int rows have none.
