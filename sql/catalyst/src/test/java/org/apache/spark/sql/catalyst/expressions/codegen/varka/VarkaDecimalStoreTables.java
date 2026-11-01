@@ -368,8 +368,7 @@ abstract class VarkaDecimalStoreTables {
   }
 
   @Test
-  @DisplayName("six decimal outputs split into groups by the method byte budget each build the "
-      + "interleave in their own body")
+  @DisplayName("six decimal outputs split by the method byte budget build their own interleaves")
   void perGroupBodiesUnderTheBudget() {
     int outputs = 6;
     var column = new ColumnRef(0, LaneType.LONG);
