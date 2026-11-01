@@ -412,12 +412,16 @@ public final class VarkaDomains {
           findings.add(where + ": the domain excludes batches the verdict answers: "
               + render(verdicts));
         }
-        // But a partition whose every batch takes it declined nothing, so its guard went
-        // unexercised: the fixture owes it a row with every operand valid at each batch size.
+        // But a partition none of whose batches reached the guards left them unexercised: a
+        // batch the all-null shortcut answers and one the input bound declines are both settled
+        // before any guard runs, so the fixture owes it a row with every operand valid and in
+        // bounds at each batch size.
         if (partition.equals("outside") && !verdicts.isEmpty()
-            && verdicts.stream().allMatch(Verdict::shortcut)) {
-          findings.add(where + ": every batch outside the domain is answered by the all-null "
-              + "shortcut, so nothing outside was declined and the guard was not exercised");
+            && verdicts.stream().noneMatch(VarkaDomains::reachesGuards)) {
+          long shortcuts = verdicts.stream().filter(Verdict::shortcut).count();
+          findings.add(where + ": no batch outside the domain reached the guards ("
+              + shortcuts + " answered by the all-null shortcut, " + (verdicts.size() - shortcuts)
+              + " declined by the input bound), so the guard was not exercised");
         }
         for (int b = 0; b < verdicts.size(); b++) {
           VarkaExpressionHarness.Batch batch = outcome.batches.get(b);
@@ -455,6 +459,14 @@ public final class VarkaDomains {
     var ids = new TreeSet<Integer>();
     rows.forEach(r -> ids.add(r.getInt(rid)));
     return ids.stream().map(String::valueOf).collect(Collectors.joining(", "));
+  }
+
+  /**
+   * Whether a batch's verdict came from the guards: not the all-null shortcut's answer and not
+   * the input bound's decline, which {@link #verdicts} gives before any guard runs.
+   */
+  private static boolean reachesGuards(Verdict v) {
+    return !v.shortcut() && v.must() != VarkaKernelRunner.STATUS_INPUT_BOUND;
   }
 
   /** A verdict in the accounting's words: the bits a batch must decline with, and may. */
