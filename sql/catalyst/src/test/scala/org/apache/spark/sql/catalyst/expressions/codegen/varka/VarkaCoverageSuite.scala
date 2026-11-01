@@ -816,6 +816,38 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
     Family("DOUBLE columns choosing values", predicates = false, floatingChoices("x", "x2")),
     Family("FLOAT columns", predicates = true, floatingPredicates("f", "f2", "F", FloatType)),
     Family("FLOAT columns choosing values", predicates = false, floatingChoices("f", "f2")),
+    // The floating arithmetic (VARKA-342): the IEEE operation in every mode, the operands in
+    // Spark's order and no rewrite, so each is exact by construction; only the division has a
+    // mode, its zero divisor's disposal.
+    Family("Floating arithmetic", predicates = false, Seq(
+      Row("x + x2", "the IEEE sum in every mode: an infinity or a NaN is an answer"),
+      Row("x - x2"),
+      Row("x * x2", "no multiply and add is contracted into an FMA"),
+      Row("x / x2", "a zero divisor of either sign raises under ANSI, so the batch declines and "
+        + "the row engine raises; the legacy mode and try_divide answer null",
+        domain = Some("CASE WHEN x IS NOT NULL THEN x2 <> 0.0D END")),
+      Row("x / 3.0D", "a non-zero literal divisor has no zero test"),
+      Row("1.5D - x", "a literal on the left"),
+      Row("try_divide(x, x2)", "the legacy division: null on a zero divisor in every mode"),
+      Row("try_add(x, x2)", "the same sum: a floating sum has no overflow"),
+      Row("try_multiply(x, x2)", "the same product"),
+      Row("try_subtract(f, f2)", "the same difference"),
+      Row("try_subtract(x, x2)"),
+      Row("try_add(f, f2)"),
+      Row("try_multiply(f, f2)"),
+      Row("(x + x2) * x2 - x", "the floating baseline's chain"),
+      Row("-x", "the sign bit flipped, a NaN's payload kept"),
+      Row("abs(x)", "the sign bit cleared, a NaN's payload kept"),
+      Row("sqrt(x)", "IEEE's correctly rounded square root, Math.sqrt's bits"),
+      Row("signum(x)", "both zeros and NaN answer themselves, as Math.signum does"),
+      Row("degrees(x)", "one multiply by Math.toDegrees(1.0), which is the JDK's own formula"),
+      Row("radians(x)", "one multiply by Math.toRadians(1.0)"),
+      Row("f + f2", "the float sum, rounded once"),
+      Row("f - f2"),
+      Row("f * f2"),
+      Row("f * 2.5F"),
+      Row("-f"),
+      Row("abs(f)"))),
 
     // DECIMAL of precision up to 18 (VARKA-347, carrying row 348's equal-scale comparisons and
     // null tests): two values of one scale compare as their unscaled longs. Each kernel checks
@@ -1024,12 +1056,13 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
     assert(findings.isEmpty,
       "the domain column disagrees with the guards the kernels carry:\n  " +
         findings.mkString("\n  "))
-    // Counted, not assumed: rows on both sides, and the five reasons the table's rows carry all
+    // Counted, not assumed: rows on both sides, and the six reasons the table's rows carry all
     // represented somewhere, or the check would hold a table that carries no guard to nothing.
     val guarded = all.filter(_._2.domain.isDefined)
     assert(guarded.nonEmpty && guarded.size < all.size, s"${guarded.size} of ${all.size} guarded")
     val reasons = guarded.flatMap { case (f, r) => guardsOf(f, r) }.toSet
-    assert(reasons == Set("INPUT_BOUND", "INT_OVERFLOW", "MAKE_DATE", "MONTH_COUNT", "VALUE_RANGE"),
+    assert(reasons == Set("DIVIDE_BY_ZERO", "INPUT_BOUND", "INT_OVERFLOW", "MAKE_DATE",
+        "MONTH_COUNT", "VALUE_RANGE"),
       s"the guards the table's rows carry: $reasons")
     logInfo(s"${guarded.size} of ${all.size} rows carry a guard: " + guarded.map {
       case (f, r) => s"${r.sql} (${guardsOf(f, r).mkString(", ")})"
