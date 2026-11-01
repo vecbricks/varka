@@ -576,7 +576,7 @@ private object VarkaCoverageDifferentialSuite {
    *
    * The floating columns are derived too (VARKA-341), `floatingColumns` picked by `rid`, null
    * where `d`, `d2`, `i` and `l2` are. The DECIMAL columns are derived from the bigints:
-   * `d9` and `d18` from `l`, `d9b`, `d18b` and `d8` from `l2`.
+   * `d9`, `d18` and `d9s4` from `l`, `d9b`, `d18b`, `d16s9` and `d8` from `l2`.
    */
   def fixtureView(values: Seq[String], where: String = ""): String = {
     val withIds = values.zipWithIndex.map { case (v, rid) => s"($rid, ${v.stripPrefix("(")}" }
@@ -585,11 +585,12 @@ private object VarkaCoverageDifferentialSuite {
         s"THEN CAST($day AS TIMESTAMP_NTZ) + ($time - TIME'00:00:00') END"
     val floating = floatingColumns(Seq("d", "d2", "i", "l2").map(c =>
       s"CASE WHEN $c IS NOT NULL THEN rid % $floatingPicks END"))
-    // A DECIMAL(p, 2) column (VARKA-347) is the bigint's last p digits as hundredths: an exact
-    // product that always fits the type, null where the bigint is, and of both signs.
-    def decimal(long: String, precision: Int): String =
-      s"CAST(CAST($long % ${BigInt(10).pow(precision)} AS DECIMAL(${precision + 1}, 0)) * 0.01 " +
-        s"AS DECIMAL($precision, 2))"
+    // A DECIMAL(p, s) column (VARKA-347, VARKA-348) is the bigint's last p digits over 10^s: an
+    // exact product that always fits the type, null where the bigint is, and of both signs.
+    def decimal(long: String, precision: Int, scale: Int = 2): String =
+      s"CAST(CAST($long % ${BigInt(10).pow(precision)} AS DECIMAL(${precision + 1}, 0)) * " +
+        s"${BigDecimal(1).bigDecimal.movePointLeft(scale).toPlainString} " +
+        s"AS DECIMAL($precision, $scale))"
     s"""SELECT rid, d, d2, i,
        |       CAST(m AS INTERVAL MONTH) AS ymm,
        |       CAST(y AS INTERVAL YEAR) AS ymy,
@@ -605,6 +606,8 @@ private object VarkaCoverageDifferentialSuite {
        |       ${decimal("l2", 9)} AS d9b,
        |       ${decimal("l", 18)} AS d18,
        |       ${decimal("l2", 18)} AS d18b,
+       |       ${decimal("l", 9, 4)} AS d9s4,
+       |       ${decimal("l2", 16, 9)} AS d16s9,
        |       ${decimal("l2", 8)} AS d8
        |FROM VALUES ${withIds.mkString(",\n  ")}
        |AS v(rid, d, d2, i, m, y, mm, l, l2, t, t2, dt, dt2, y1, y2, s1, s2)$where""".stripMargin

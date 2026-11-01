@@ -512,7 +512,9 @@ filter above its `VarkaFilterColumnarToRow`, the one tree that differs with Vark
 ### 10.2 Step 3: 349a, the arithmetic
 
 *1 November 2026, on branch `varka-349-arith` from row 348a's foundation commit (`c96259f3825`,
-`Scaled`, `value()`, `rescale` and `decimal64.smt2`), with this plan's branch merged in.*
+`Scaled`, `value()`, `rescale` and `decimal64.smt2`), with this plan's branch merged in, and
+`varka-348-conditions` merged again at `6643a4f6765` for 348a's negation, null tests over values,
+`d9s4` and `d16s9` fixtures and refinement section.*
 
 **What was built.** `VarkaDecimalCompiler.value()` gains three arms and an unwrap: `Add` and
 `Subtract` rescale both operands to the result's scale `S` with 348's `rescale` and build one
@@ -532,8 +534,10 @@ decimal consumer before row 157's store; `VarkaNodeCompiler` gains no arm.
 over every pair of operand types with `1 <= p <= 18` and `0 <= s <= p`, 189 types and 35721 pairs
 per operator, and checks on every fused pair the reduction the lemmas below rest on; runs kernels
 over the edges of section 3 item 2 and over 40 random fused type pairs per operator, at the
-operands' bounds, zero, one and random values, each against `BigDecimal`; and checks that the ANSI
-and `try_` forms compile to the LEGACY form's tree. `VarkaEmittedBytesSuite`'s new test compiles
+operands' bounds, zero, one and random values, each against `BigDecimal`; checks that the ANSI
+and `try_` forms compile to the LEGACY form's tree, and runs `IS NULL` and `IS NOT NULL` over a
+sum, a difference and a product, which `value()`'s companion `valid()` reads as the AND of the
+operands' validity. `VarkaEmittedBytesSuite`'s new test compiles
 each "DECIMAL arithmetic" coverage row in six spellings (ANSI off and on, precision loss on and
 off, each also with every decimal operator in TRY mode) and asserts one set of method hashes at
 both widths.
@@ -546,14 +550,17 @@ two unknowns with constant bounds); per `n` from 2 to 17, any integer within `10
 wrap and within `n + 1` digits (the wrap layer, linear); and a `sat` witness that two ten-digit
 operands' product can wrap. `decimal64.smt2` now holds 550 checks, 204 of them this row's; on the
 laptop Z3 holds it in 0.14 s and cvc5 in 1.72 s, against 0.15 s and 0.47 s for 348's 346 checks.
-`refinement.smt2` gains a section of decimal `+`, `-` and `*` per coverage row's operand types, in
-Spark mode ANSI with standard mode and in LEGACY and TRY, 50 checks; the whole file holds under Z3
-in 3.15 s and under cvc5 in 4.75 s.
+`refinement.smt2` gains a section beside 348a's that refines each coverage row below whole, its
+comparison included, through the five queries in Spark mode ANSI with standard mode (raised past
+the result's precision) and in LEGACY and TRY (null there), a product's exact value a free `z`
+bounded by the ring layer. Its 95 checks take the file from 276 to 371, from 3.04 s to 3.10 s
+under Z3 and from 4.55 s to 4.74 s under cvc5 on the laptop.
 
-**Coverage rows.** A "DECIMAL arithmetic" family of six predicates over 347's columns and a new
-`d8` (`DECIMAL(8, 2)`, derived from `l2` in the differential's fixture): `d9 + d9b < d18`,
-`d9 - d8 >= d9b`, `d8 * d9 <= d9b`, `try_add(d9, d9b) > d18`, `d9 * 0.5 > d9b` and
-`d9 + 1.5 < d9b`.
+**Coverage rows.** A "DECIMAL arithmetic" family of ten predicates over 347's and 348's columns
+and a new `d8` (`DECIMAL(8, 2)`, derived from `l2` in the differential's fixture):
+`d9 + d9b < d18`, `d9 - d8 >= d9b`, `d8 * d9 <= d9b`, `try_add(d9, d9b) > d18`,
+`d9 * 0.5 > d9b`, `d9 + 1.5 < d9b`, `d9 - d9s4 > 0.00`, `d9 + d16s9 > d9s4`,
+`-(d9 + d9b) = d9s4` and `try_multiply(d8, d9) IS NULL`, each verified by its refinement.
 
 **Census.** No pair moves (section 6). The notes of `+`, `-`, `*` and their `try_` forms say the
 64-bit form fuses within 18 digits; `mod` and `%` lose 349 with the suggested home row 30,
@@ -567,20 +574,19 @@ name 349.
   `DECIMAL(18, 2)`, so coercion compares at `DECIMAL(20, 4)` and the cast declines naming 359.
   Section 3 item 6 checked the arithmetic's result type and not the comparison's common type; the
   row is `d8 * d9 <= d9b`, compared at `DECIMAL(18, 4)`.
-- **Rows that wait on 348a's later commits.** `d9 - d9s4 > 0` and `-(d9 + d9b) = d9s4` need
-  348's `d9s4` fixture and its `UnaryMinus` arm, `try_multiply(d8, d9) IS NULL` its null test over
-  a `Scaled` value; none was on the foundation commit. `d9 - d8 >= d9b` and
-  `try_add(d9, d9b) > d18` stand in for the difference and the `try_` form until a merge of
-  `varka-348-conditions` brings them.
+- **`d9 - d9s4 > 0` compares with `0.00`.** An integral literal is the cast the next bullet
+  describes, so the row's zero is a decimal literal. The row and `-(d9 + d9b) = d9s4` and
+  `try_multiply(d8, d9) IS NULL` came with the second merge of `varka-348-conditions`, which
+  brought `d9s4`, the negation and the null test over a value; `d9 - d8 >= d9b` and
+  `try_add(d9, d9b) > d18`, written before it, stay.
 - **The literal row multiplies by `0.5`, not `3`.** An integral literal reaches the compiler as
   `CAST(3 AS DECIMAL(1, 0))`, which `value()` folds into a slot, so `d9 * 3 > d9b` fuses; but the
   census registers the integral-to-decimal cast as row 350's and never fused, and its lint
   refuses a coverage row that holds one. The row is `d9 * 0.5 > d9b`, and `d9 * 3` waits for 350
   (section 7 already names 350 for an integral operand).
-- **The coverage rows are differential, the arithmetic refined alone.** Each row composes the
-  arithmetic with a decimal comparison, which no `refinement.smt2` section states yet (348a's), so
-  under row 490's rule ("each operation must be refined") the rows name `differential`; the
-  arithmetic's sections exist for them to cite once the comparison's does.
+- **The refinements are per row, not per operator.** Section 3 item 5 speaks of the arithmetic's
+  refinement rows; 348a refines each of its rows whole, comparison included, and these follow it,
+  so that every row names a refinement under row 490's rule rather than `differential`.
 - **`decimalMulIntInputs` is not built here.** Section 2.3's arm is measured and read in 349c
   (section 5 item 5); with no reading on the AVX2 runner it would be an option with nothing to
   decide it, so 349a builds the arithmetic without it and the flag lands with its reading.

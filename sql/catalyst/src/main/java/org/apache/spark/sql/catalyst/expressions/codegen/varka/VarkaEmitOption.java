@@ -479,7 +479,16 @@ public sealed interface VarkaEmitOption
       // for the JDKs that fix the rule (VARKA-491). Its tag keeps the default's rendering empty.
       new Flag("fromLongMasks", Reason.MISCOMPILED, false,
           VarkaEmitOptions::fromLongMasks, Builder::fromLongMasks,
-          new FlagTag("fromLongMasks", true)));
+          new FlagTag("fromLongMasks", true)),
+      // A long-lane abs is a decimal's (VARKA-348 2.6): the compare, negation and blend by
+      // default, intrinsic on every x86 host at 256 and 512 bits; the lanewise ABS is the arm,
+      // intrinsic only with AVX-512, measured against the blend there.
+      new Flag("decimalAbsLanewise", Reason.MACHINE, false,
+          VarkaEmitOptions::decimalAbsLanewise, Builder::decimalAbsLanewise,
+          new FlagTag("decimalAbsLanewise", true)),
+      new Flag("dropDecimalBound", Reason.FAULT_INJECTOR, false,
+          VarkaEmitOptions::dropDecimalBound, Builder::dropDecimalBound,
+          new FlagTag("dropDecimalBound", true)));
 
   /** The option with this name. */
   static VarkaEmitOption named(String name) {

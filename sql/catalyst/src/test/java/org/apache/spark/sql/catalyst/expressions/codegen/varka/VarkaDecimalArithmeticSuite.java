@@ -299,6 +299,25 @@ public final class VarkaDecimalArithmeticSuite {
   }
 
   @Test
+  @DisplayName("a null test over a sum or a product is null exactly where an operand is, at the "
+      + "operands' bounds too, in TRY mode as in LEGACY")
+  void nullTestOverArithmetic() {
+    var t1 = new DecimalType(8, 2);
+    var t2 = new DecimalType(9, 2);
+    List<Attribute> columns = List.of(VarkaSqlResolve.column("a", t1),
+        VarkaSqlResolve.column("b", t2), VarkaSqlResolve.column("c", t2));
+    long a = 99_999_999L;
+    long b = 999_999_999L;
+    var rows = List.of(new Triple(a, b, 0L), new Triple(-a, b, 0L), new Triple(null, b, 0L),
+        new Triple(a, null, 0L), new Triple(null, null, 0L), new Triple(0L, -b, 0L));
+    for (String sql : List.of("try_multiply(a, b) IS NULL", "a * b IS NULL",
+        "try_add(a, b) IS NULL", "a - b IS NOT NULL")) {
+      boolean not = sql.endsWith("NOT NULL");
+      run(sql, columns, rows, r -> (r.a() == null || r.b() == null) != not, null);
+    }
+  }
+
+  @Test
   @DisplayName("a try_ form and an ANSI form compile to the LEGACY form's tree and literals")
   void oneTreeInEveryMode() {
     var t1 = new DecimalType(8, 2);

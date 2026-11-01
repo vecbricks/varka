@@ -620,15 +620,18 @@ final class VarkaVectorWalk {
     // inside moves to [0, 2B]; one above B lands past 2B, wrapping or not, and one below -B
     // wraps to at least 2^63 + B, past 2B too. It holds for any bound that is a non-negative
     // long (decimal_slot.smt2), and 2B fits one at precision 18 or less.
-    long bound = c.bound();
-    cb.aload(low);
-    cb.getstatic(VECTOR_OPERATORS, "ADD", VO_ASSOCIATIVE);
-    cb.loadConstant(bound);
-    cb.invokevirtual(lane.vector, "lanewise", lane.integral().lanewiseBinaryI());
-    cb.getstatic(VECTOR_OPERATORS, "UGT", VO_COMPARISON);
-    cb.loadConstant(2 * bound);
-    cb.invokevirtual(lane.vector, "compare", lane.compareVI);
-    cb.invokevirtual(VECTOR_MASK, "or", MASK_BINARY);
+    // The fault injector dropDecimalBound leaves the digit check out (VARKA-348 3 item 1).
+    if (!analysis.options.dropDecimalBound()) {
+      long bound = c.bound();
+      cb.aload(low);
+      cb.getstatic(VECTOR_OPERATORS, "ADD", VO_ASSOCIATIVE);
+      cb.loadConstant(bound);
+      cb.invokevirtual(lane.vector, "lanewise", lane.integral().lanewiseBinaryI());
+      cb.getstatic(VECTOR_OPERATORS, "UGT", VO_COMPARISON);
+      cb.loadConstant(2 * bound);
+      cb.invokevirtual(lane.vector, "compare", lane.compareVI);
+      cb.invokevirtual(VECTOR_MASK, "or", MASK_BINARY);
+    }
     emitGuardCollect(cb, c, dense ? null : s.wordRef.get(c), dense, analysis, s);
   }
 
@@ -921,7 +924,9 @@ final class VarkaVectorWalk {
    * {@code -128} is 128 rather than -128, so it reduces where a consumer cannot take the
    * unreduced value. A narrow {@code abs} is the same node with the lanewise {@code ABS}: the
    * same check on the same operand, and at the int lane a reduction of its own result wherever
-   * it is read ({@link Analysis#wrapAt}).
+   * it is read ({@link Analysis#wrapAt}). A long-lane {@code abs} is a decimal's and wraps: by
+   * default a compare with zero, a negation and a blend, and the lanewise {@code ABS} under
+   * {@code decimalAbsLanewise}.
    */
   private static void emitIntNeg(CodeBuilder cb, IntNeg n, boolean dense, Analysis analysis,
       Slots s, Set<VarkaVectorIR> computed) {
@@ -938,7 +943,24 @@ final class VarkaVectorWalk {
       emitOverflowMask(cb, n.mode(), n, dense, analysis, s);
     }
     if (n.abs() && !n.laneType().isNarrow()) {
-      throw VarkaErrors.illegalArgument("abs is a narrow lane's node only: " + n);
+      if (n.laneType() != VarkaVectorIR.LaneType.LONG || n.mode() != Overflow.WRAP) {
+        throw VarkaErrors.illegalArgument("abs off the narrow lanes is a wrapping long one, a "
+            + "decimal's: " + n);
+      }
+      if (!analysis.options.decimalAbsLanewise()) {
+        // x < 0 ? -x : x as x.blend(x.neg(), x.compare(LT, 0)): the compare and the blend are
+        // intrinsic at 256 and 512 bits on every x86 host, where the lanewise ABS needs AVX-512.
+        cb.dup();
+        cb.dup();
+        cb.getstatic(VECTOR_OPERATORS, "NEG", VO_UNARY);
+        cb.invokevirtual(lane.vector, "lanewise", lane.integral().lanewiseUnary());
+        cb.swap();
+        cb.getstatic(VECTOR_OPERATORS, "LT", VO_COMPARISON);
+        lane.pushScalar(cb, 0L);
+        cb.invokevirtual(lane.vector, "compare", lane.compareVI);
+        cb.invokevirtual(lane.vector, "blend", lane.blend);
+        return;
+      }
     }
     cb.getstatic(VECTOR_OPERATORS, n.abs() ? "ABS" : "NEG", VO_UNARY);
     cb.invokevirtual(lane.vector, "lanewise", lane.integral().lanewiseUnary());

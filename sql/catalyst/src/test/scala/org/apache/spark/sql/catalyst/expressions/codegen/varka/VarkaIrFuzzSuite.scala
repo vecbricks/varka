@@ -816,7 +816,11 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
     val (armSkips, arm) = variantsOf(2026101307006L, 32279)
     assert(armSkips == 0 && arm.get("untaken arm replaced compared").contains(1), arm)
     assert(firstChoiceOver(2026101300002L, 195413, VarkaVariants.Kind.BESIDE_A_STRANGER))
-    val (strangerSkips, stranger) = variantsOf(2026101300002L, 195413)
+    // The stranger's draw runs under the matrix base rather than its drawn options: a drawn
+    // option added to the table shifts every later coin of the draw (VARKA-348's
+    // decimalAbsLanewise did), and whether the stranger fits depends on the size options.
+    val (strangerSkips, stranger) = variantsOf(2026101300002L, 195413,
+      c => c.withOptions(VarkaMatrix.base))
     assert(strangerSkips == 0 && stranger.get("beside a stranger compared").contains(1), stranger)
   }
 
@@ -989,10 +993,9 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
     // boolean output (VARKA-27) are out for the same reason: they are covered by
     // `VarkaEmitterBoolSuite` and the coverage rows, and a grammar production is a row of the
     // refit that reprices the model (VARKA-352).
-    // The decimal column (VARKA-347) is out for the same reason, and because a row of lane values
-    // carries no high word for its check: its slot table is `VarkaDecimalLoadSuite`'s, and its
-    // fuzz sequence, on a seed of its own so that no shape here moves, is a later step of the row
-    // (`VARKA-347.md` 3 item 5).
+    // The decimal column (VARKA-347) is out of these corpora for the same reason: its slot table
+    // is `VarkaDecimalLoadSuite`'s, and its fuzz sequence is the decimal draw below, on a seed of
+    // its own so that no shape here moves (VARKA-348).
     val missing = permitted -- seen - "NarrowLane" - "WidenLane" - "NullSafeEqual" -
       "BoolColumn" - "CondConst" - "BoolCompare" - "CondIf" - "BoolNullSafeEq" - "CondValue" -
       "BoolOutput" - "DecimalColumn"
@@ -1340,6 +1343,90 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
     }
     reportReach(reach)
     reportSkipped()
+  }
+
+  // The 64-bit decimal (VARKA-348): its own draw over decimal columns, each column's slots
+  // written as Arrow holds them - the low word and its sign - and its valid rows inside the
+  // column's precision, its bounds among them; a null row holds the lane's extremes, outside
+  // every precision, which the leaf's check must not read. Not shrunk, as the mixed draw is not:
+  // a failure names its seed and iteration for a replay.
+  private val decimalSeed =
+    sys.props.get("varka.fuzz.seed").map(_.toLong).getOrElse(VarkaIrGrammar.DECIMAL_FUZZ_SEED)
+
+  private def runOneDecimal(iteration: Int): Unit = {
+    val rnd = VarkaIrGrammar.shapeRandom(decimalSeed, iteration)
+    val drawn = VarkaIrGrammar.drawDecimalShape(rnd)
+    val roots = drawn.roots
+    val numInputs = drawn.precisions().length
+    val length = lengths(rnd.nextInt(lengths.length))
+    val patternIds = Seq.fill(numInputs)(rnd.nextInt(patternNames.length))
+    val patterns = patternIds.map(pattern(rnd, _, length))
+    val forceMasked = length > 1 && rnd.nextInt(4) == 0
+    val options = randomOptions(rnd, VarkaMatrix.base)
+    val data = Array.tabulate(numInputs, length) { (c, _) =>
+      val bound = org.apache.spark.sql.types.Decimal.POW_10(drawn.precisions()(c)) - 1
+      rnd.nextInt(8) match {
+        case 0 => bound
+        case 1 => -bound
+        case 2 => 0L
+        case _ => VarkaIrGrammar.within(rnd, bound)
+      }
+    }
+    val label = s"lane=decimal seed=$decimalSeed iteration=$iteration " +
+      s"roots=${roots.asScala.map(r => VarkaVectorIR.canonical(r)).mkString("[", ", ", "]")} " +
+      s"options=${if (options.isDefault) "(defaults)" else options.canonical()} " +
+      s"length=$length patterns=${patternIds.map(patternNames).mkString(",")} " +
+      s"literals=${drawn.lits.mkString(",")} forceMasked=$forceMasked"
+    val className = "org.apache.spark.sql.varka.execution.VarkaFusedFuzzDecimal" +
+      classCounter.addAndGet(1)
+    def emitWith(o: VarkaEmitOptions): Array[Byte] = VarkaLoopEmitter.emitTraced(
+      className, roots, numInputs, drawn.lits.length, o, randomTrace)
+    emitOrSkip(label, options)(emitWith).foreach { bytes =>
+      VarkaKernelChecks.runAndCompareLong(label, className, bytes, roots, numInputs, drawn.lits,
+        new VarkaKernelChecks.LongBatch(length,
+          Array.tabulate(numInputs, length)((c, i) => patterns(c)(i)), data, forceMasked),
+        false, null)
+    }
+  }
+
+  test(s"random decimal IR trees - rescales, negation, abs, choices and picks over decimal " +
+      s"slots - match the reference evaluator (seed $decimalSeed, $iterations iterations)") {
+    val reach = VarkaEmitReach.attach(randomTrace, "decimal draws")
+    try {
+      val ks = only.map(Seq(_)).getOrElse(0 until iterations)
+      ks.foreach(runOneDecimal)
+    } finally {
+      VarkaEmitReach.detach(randomTrace)
+    }
+    reportReach(reach)
+    reportSkipped()
+  }
+
+  test("the decimal draw reaches every form it is for: a rescale at both ends of k, a negation, "
+      + "abs, a choice, both picks and a null test") {
+    val seen = scala.collection.mutable.Set.empty[String]
+    for (k <- 0 until 500) {
+      val drawn = VarkaIrGrammar.drawDecimalShape(VarkaIrGrammar.shapeRandom(decimalSeed, k))
+      def walk(n: VarkaVectorIR): Unit = {
+        n match {
+          case m: VarkaVectorIR.IntArith if m.op() == VarkaVectorIR.IntOp.MUL => seen += "rescale"
+          case m: VarkaVectorIR.IntNeg => seen += (if (m.abs()) "abs" else "neg")
+          case _: VarkaVectorIR.IfElse => seen += "choice"
+          case _: VarkaVectorIR.Greatest => seen += "greatest"
+          case _: VarkaVectorIR.Least => seen += "least"
+          case _: VarkaVectorIR.IsNotNull => seen += "null test"
+          case _ =>
+        }
+        VarkaVectorIR.childrenOf(n).foreach(walk)
+      }
+      drawn.roots.asScala.foreach(walk)
+      val factors = drawn.lits.toSet
+      if (factors.contains(10L)) seen += "k = 1"
+      if (factors.contains(org.apache.spark.sql.types.Decimal.POW_10(17))) seen += "k = 17"
+    }
+    val wanted = Set("rescale", "abs", "neg", "choice", "greatest", "least", "null test",
+      "k = 1", "k = 17")
+    assert((wanted -- seen).isEmpty, s"never drawn: ${(wanted -- seen).toSeq.sorted}")
   }
 
   test("the nulling draw reaches a nulling range guard at both lanes, and the committed draws " +

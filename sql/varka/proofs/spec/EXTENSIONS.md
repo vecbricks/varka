@@ -72,6 +72,8 @@ of 2020; 2024-12-30 is week 1 of 2025.
 | `last_day(d)` | `days(Y, M, L(Y, M))` | `L` the month's length |
 | `next_day(d, w)` | `n + 1 + mod(w - 1 - n, 7)` for weekday `w` as Spark's `DateTimeUtils.getNextDateForDayOfWeek` numbers it: the first day after `d`, never `d` itself | a name that is not a weekday is null, or `ILLEGAL_DAY_OF_WEEK` under ANSI |
 | `make_date(y, m, dd)` | `days(y, m, dd)` | `overflow_yields_null`: a day that does not exist is null, or 22023 under ANSI; any year int32 days reach (`proleptic_range`) |
+| `abs(x)` over a `DECIMAL(p, s)` | `abs(u) / 10^s` | never leaves the precision, so it raises in no mode (VARKA-348) |
+| `greatest(x, y)`, `least(x, y)` over decimals of one type | the larger or smaller of the values, a null operand skipped, null only when every operand is | Spark's `ordering.gt` and `ordering.lt` over the values (VARKA-348) |
 | `trunc(d, 'YEAR')`, `'MONTH'`, `'QUARTER'` | `days(Y, 1, 1)`, `days(Y, M, 1)`, `days(Y, 3 * quot(M - 1, 3) + 1, 1)` | an unknown level is null |
 | `add_months(d, k)` | 4.13 with `k` months: the standard's definition patched by `clamp_to_month_end` | Spark's name; the same function as `d + ym`, raising 22003 past int32 days |
 | `make_ym_interval(y, mo)` | `12 * y + mo` months, exact; past int32, `INTERVAL_ARITHMETIC_OVERFLOW`, 22015 | `make_ym_interval(1, -18)` is minus six months: the fields are added, not sign-and-magnitude (C5) |
