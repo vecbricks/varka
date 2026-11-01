@@ -418,14 +418,19 @@ class VarkaSparkFuzzSuite extends VarkaSparkDifferential {
   }
 
   test("a condition on no entry fails the fuzzer's check, naming the condition and the case") {
-    // `i / 0` raises DIVIDE_BY_ZERO under ANSI on both engines, which the list does not hold.
-    val planted = oneRowCase("i / 0", 5, ansi = true)
-      .copy(outputs = Vector("year(d)", "i / 0", "month(d)"))
+    // An index past the array raises INVALID_ARRAY_INDEX_IN_ELEMENT_AT under ANSI on both
+    // engines, which the list does not hold. (`i / 0`, the example here before VARKA-342, raises
+    // DIVIDE_BY_ZERO, which the list now holds for the floating division.)
+    val outOfBounds = "element_at(array(1, 2), i)"
+    val planted = oneRowCase(outOfBounds, 5, ansi = true)
+      .copy(outputs = Vector("year(d)", outOfBounds, "month(d)"))
     val found = kindOf(planted, partitions = false, Nil)
-    assert(found.exists(k => k.contains("DIVIDE_BY_ZERO") && k.contains("the row engine")), found)
+    assert(found.exists(k => k.contains("INVALID_ARRAY_INDEX_IN_ELEMENT_AT") &&
+      k.contains("the row engine")), found)
     val text = failureText(planted, 999999, partitions = false, found.get)
-    assert(text.contains("unexpected error condition DIVIDE_BY_ZERO"), text)
-    assert(text.contains("iteration 999999") && text.contains("-- select: i / 0 AS c0"), text)
+    assert(text.contains("unexpected error condition INVALID_ARRAY_INDEX_IN_ELEMENT_AT"), text)
+    assert(text.contains("iteration 999999") &&
+      text.contains(s"-- select: $outOfBounds AS c0"), text)
   }
 
   test("a condition on the list passes the fuzzer's check") {

@@ -60,6 +60,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Lan
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LastDay;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Least;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LiteralSlot;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.MathUnary;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.MakeDate;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Month;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.NarrowLane;
@@ -319,6 +320,8 @@ public final class VarkaIrGrammar {
       // A mask or a shift reaches any int; the count is at most 64.
       case BitOp n -> new Bounds(INT_LANE_BOUND, guard(n.left(), n.right()));
       case BitCount n -> new Bounds(Long.SIZE, guard(n.child()));
+      // The grammar draws no floating tree, whose values have no integer bound.
+      case MathUnary n -> throw new IllegalArgumentException("a floating node: " + n);
       // A condition as a value is 0 or 1; its condition's operands may hold producers.
       case CondValue n -> new Bounds(1L, guard(n.cond()));
       // A root of two bitmaps: no magnitude, only the producers its condition may hold.

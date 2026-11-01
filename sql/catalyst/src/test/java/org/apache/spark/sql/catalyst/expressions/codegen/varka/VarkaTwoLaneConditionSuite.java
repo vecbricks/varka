@@ -59,15 +59,24 @@ public final class VarkaTwoLaneConditionSuite {
   }
 
   @Test
-  @DisplayName("the host test is x86 at two long lanes, at every AVX level and nowhere else")
+  @DisplayName("the host test is x86 at two long lanes, and nowhere else")
   void hostTest() {
-    for (int level = 0; level <= 3; level++) {
-      assertTrue(VarkaKernelPlan.twoLaneMasksFallBack(level, 2), "UseAVX=" + level);
-      assertFalse(VarkaKernelPlan.twoLaneMasksFallBack(level, 4), "UseAVX=" + level);
-      assertFalse(VarkaKernelPlan.twoLaneMasksFallBack(level, 8), "UseAVX=" + level);
+    assertTrue(VarkaKernelPlan.twoLaneMasksFallBack(true, 2));
+    assertFalse(VarkaKernelPlan.twoLaneMasksFallBack(true, 4));
+    assertFalse(VarkaKernelPlan.twoLaneMasksFallBack(true, 8));
+    // aarch64: two-lane masks are lowered there.
+    assertFalse(VarkaKernelPlan.twoLaneMasksFallBack(false, 2));
+    // The reading's form takes the architecture from the reading, whatever its feature list,
+    // and the lanes from this JVM's long species.
+    boolean twoLanes = Lane.LONG.preferredLanes == 2;
+    for (String arch : List.of("amd64", "x86_64")) {
+      assertEquals(twoLanes, VarkaKernelPlan.twoLaneMasksFallBack(
+          new VarkaHostIsa.Reading(arch, "", "unread")), arch);
     }
-    // aarch64 and any JVM without the flag: two-lane masks are lowered there.
-    assertFalse(VarkaKernelPlan.twoLaneMasksFallBack(VarkaEmitOptions.USE_AVX_UNKNOWN, 2));
+    assertFalse(VarkaKernelPlan.twoLaneMasksFallBack(
+        new VarkaHostIsa.Reading("aarch64", "fp, asimd", null)));
+    assertEquals(VarkaKernelPlan.twoLaneMasksFallBack(VarkaHostIsa.host()),
+        VarkaKernelPlan.HOST_TWO_LANE_MASKS_FALL_BACK);
   }
 
   @Test

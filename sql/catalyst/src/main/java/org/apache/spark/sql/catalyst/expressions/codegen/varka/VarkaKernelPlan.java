@@ -155,13 +155,15 @@ public final class VarkaKernelPlan {
 
   /**
    * Whether this JVM is a host where a long-lane condition root is refused: x86, where the long
-   * species has two lanes. Read once; see {@link #twoLaneMasksFallBack}. It is the default of the
-   * session setting {@code spark.sql.codegen.varka.declineTwoLaneConditions}, which is what the
-   * compiler is handed; the compiler never reads this field itself, so a compile with no session
-   * answers alike on every host.
+   * species has two lanes. Read once, from the host reading the session's level comes from
+   * ({@link VarkaHostIsa#host()}); see {@link #twoLaneMasksFallBack(VarkaHostIsa.Reading)}. It is
+   * the answer a session that does not set
+   * {@code spark.sql.codegen.varka.declineTwoLaneConditions} resolves on this JVM, and that
+   * setting is what the compiler is handed; the compiler never reads this field itself, so a
+   * compile with no session answers alike on every host.
    */
   public static final boolean HOST_TWO_LANE_MASKS_FALL_BACK =
-      twoLaneMasksFallBack(VarkaEmitOptions.HOST_USE_AVX, Lane.LONG.preferredLanes);
+      twoLaneMasksFallBack(VarkaHostIsa.host());
 
   /** The reason a filter's condition records where {@link #hostRefusal} refuses it. */
   public static final String TWO_LANE_CONDITION_REASON = "a filter's condition in a kernel driven "
@@ -169,8 +171,20 @@ public final class VarkaKernelPlan {
       + "two-lane mask there, and the selection would run the Vector API's Java fallback";
 
   /**
-   * Whether a host with this {@code UseAVX} level and this many lanes in its preferred long
-   * species runs every mask of the long species as the Vector API's Java fallback.
+   * Whether {@code host}, read on this JVM, runs every mask of the long species as the Vector
+   * API's Java fallback: {@link #twoLaneMasksFallBack(boolean, int)} of the reading's
+   * architecture and this JVM's preferred long species. The lane count is the running JVM's own,
+   * as the species the kernels are emitted at is, so a planted reading changes the architecture
+   * alone. Public for the session in sql/core, which resolves its default here from the reading
+   * it resolves its level from, and which cannot reach the lanes itself.
+   */
+  public static boolean twoLaneMasksFallBack(VarkaHostIsa.Reading host) {
+    return twoLaneMasksFallBack(host.x86(), Lane.LONG.preferredLanes);
+  }
+
+  /**
+   * Whether a host on x86 or not, with this many lanes in its preferred long species, runs every
+   * mask of the long species as the Vector API's Java fallback.
    *
    * <p>C2 on x86 refuses {@code VectorLoadMask}, {@code VectorStoreMask} and
    * {@code VectorMaskCast} at {@code vlen == 2} whatever the instruction set
@@ -179,13 +193,13 @@ public final class VarkaKernelPlan {
    * ({@code m7/VARKA-374.md} 2: the same 18-fold loss under {@code UseAVX=1}, {@code 2} and
    * {@code 3} capped to 16 bytes). So the test is not the AVX level, as
    * {@link VarkaEmitOptions#convertsFallBack} is for the conversions, but "x86 at two long
-   * lanes". A JVM with no {@code UseAVX} flag is not x86: aarch64's back end lowers two-lane
-   * masks, and nothing is refused there. The count is the host's preferred species and never an
-   * emit option's {@code lanesOverride}, so a suite that emits two long lanes on a wider host
-   * still runs them, as answer checks.
+   * lanes", x86 as the host reading's {@code os.arch} names it ({@link VarkaHostIsa#isX86}):
+   * aarch64's back end lowers two-lane masks, and nothing is refused there. The count is the
+   * host's preferred species and never an emit option's {@code lanesOverride}, so a suite that
+   * emits two long lanes on a wider host still runs them, as answer checks.
    */
-  static boolean twoLaneMasksFallBack(int useAVX, int preferredLongLanes) {
-    return useAVX != VarkaEmitOptions.USE_AVX_UNKNOWN && preferredLongLanes == 2;
+  static boolean twoLaneMasksFallBack(boolean x86, int preferredLongLanes) {
+    return x86 && preferredLongLanes == 2;
   }
 
   /**

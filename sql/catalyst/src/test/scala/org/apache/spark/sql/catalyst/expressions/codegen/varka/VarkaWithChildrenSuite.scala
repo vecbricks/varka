@@ -64,8 +64,13 @@ class VarkaWithChildrenSuite extends SparkFunSuite {
     // a committed sequence would move every shape after it and the corpora the cost model is
     // fitted on, so its sequence comes on a seed of its own (`VARKA-347.md` 3 item 5) and its
     // fold into the corpora with row 352's refit. It is rebuilt directly below.
+    // The floating square root (VARKA-342) is in no grammar for the same reason: the grammars
+    // draw no floating tree, whose values have no integer bound, and a floating draw would move
+    // the committed sequences. `VarkaEmitterFloatingArithSuite` holds it to the reference, and it
+    // is rebuilt directly below.
     val undrawn = permitted -- seen - "NullSafeEqual" - "BoolColumn" - "CondConst" -
-      "BoolCompare" - "CondIf" - "BoolNullSafeEq" - "CondValue" - "BoolOutput" - "DecimalColumn"
+      "BoolCompare" - "CondIf" - "BoolNullSafeEq" - "CondValue" - "BoolOutput" - "DecimalColumn" -
+      "MathUnary"
     assert(undrawn.isEmpty, s"the grammars never drew: ${undrawn.toSeq.sorted.mkString(", ")}")
   }
 
@@ -118,6 +123,18 @@ class VarkaWithChildrenSuite extends SparkFunSuite {
     intercept[Exception](VarkaVectorIR.withChildren(dec, new ColumnRef(0, LaneType.LONG)))
     val sum = new IntArith(IntOp.ADD, Overflow.WRAP, dec, new DecimalColumn(1, LaneType.LONG, 18))
     assert(VarkaVectorIR.withChildren(sum, VarkaVectorIR.childrenOf(sum): _*) == sum)
+  }
+
+  test("a floating square root is rebuilt over its own child, and refuses an integral one") {
+    val x = new ColumnRef(0, LaneType.DOUBLE)
+    val quotient = new IntArith(IntOp.DIV, Overflow.NULL, x, new ColumnRef(1, LaneType.DOUBLE))
+    for (node <- Seq(new MathUnary(MathFn.SQRT, x), new MathUnary(MathFn.SQRT, quotient))) {
+      assert(VarkaVectorIR.withChildren(node, VarkaVectorIR.childrenOf(node): _*) == node)
+    }
+    assert(VarkaVectorIR.withChildren(new MathUnary(MathFn.SQRT, x), quotient) ==
+      new MathUnary(MathFn.SQRT, quotient))
+    intercept[Exception](
+      VarkaVectorIR.withChildren(new MathUnary(MathFn.SQRT, x), new ColumnRef(0)))
   }
 
   test("a replacement is rebuilt in place, the node's other fields kept") {
