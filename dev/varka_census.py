@@ -378,6 +378,11 @@ def defined_classes():
 VIA = {
     "ifnull": "Coalesce",
     "nvl": "Coalesce",
+    "zeroifnull": "Coalesce",
+    "nvl2": "If",
+    "nullif": "If",
+    "nullifzero": "If",
+    "between": "GreaterThanOrEqual",
     "when": "CaseWhen",
     "date_diff": "DateDiff",
     "dateadd": "DateAdd",

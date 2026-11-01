@@ -127,7 +127,7 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
       new ColumnRef(0), new AddDays(new ColumnRef(1), new LiteralSlot(0)))))
   }
 
-  test("CASE WHEN right-folds into nested IfElse; no ELSE declines") {
+  test("CASE WHEN right-folds into nested IfElse; no ELSE is the null leaf") {
     val expr = CaseWhen(
       Seq(
         LessThan(d, d2) -> DateAdd(d, Literal(1)),
@@ -145,10 +145,12 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
         new AddDays(c0, new LiteralSlot(1)),
         c1))))
     assert(compiled.outputTypes.asScala.toSeq === Seq(DateType))
-    // No ELSE means a null-literal branch, which breaks the dense body's all-valid invariant.
+    // No ELSE is the null of the date's lane (VARKA-333), a kernel with no dense body.
     assert(VarkaExpressionCompiler.compile(
       Seq(out(CaseWhen(Seq(LessThan(d, d2) -> DateAdd(d, Literal(1))), None))),
-      childOutput).isEmpty)
+      childOutput).get.outputs.asScala.toSeq === Seq(new IfElse(
+        new Compare(CompareOp.LT, c0, c1), new AddDays(c0, new LiteralSlot(0)),
+        new VarkaVectorIR.NullValue(LaneType.INT))))
   }
 
   test("n-ary greatest left-folds; connectives, NOT and date literals compile") {
@@ -1815,6 +1817,27 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
       childOutput).get
     assert(partial.declines.asScala(0).reason ===
       "coalesce operand before the last is not a bare date column")
+  }
+
+  test("a missing ELSE and a NULL branch are the null leaf of the result's lane, and an int " +
+      "choice takes int branches (VARKA-333)") {
+    val lt = LessThan(d, d2)
+    val compiled = VarkaExpressionCompiler.compile(
+      Seq(out(CaseWhen(Seq((lt, d)), None)), out(If(lt, i, Literal(null, IntegerType))),
+        out(Greatest(Seq(i, Literal(7))))), childOutput).get
+    val (c0, c1, c2) = (new ColumnRef(0), new ColumnRef(1), new ColumnRef(2))
+    val cmp = new Compare(CompareOp.LT, c0, c1)
+    val nullInt = new VarkaVectorIR.NullValue(LaneType.INT)
+    assert(compiled.outputs.asScala.toSeq === Seq(new IfElse(cmp, c0, nullInt),
+      new IfElse(cmp, c2, nullInt), new IRGreatest(c2, new LiteralSlot(0))))
+    // A type the null leaf does not serve yet keeps a reason naming it, and an int is still
+    // no date: a date choice over a cast of an int column declines rather than reading it.
+    val partial = VarkaExpressionCompiler.compilePartial(
+      Seq(out(CaseWhen(Seq((lt, by)), None)), out(If(lt, Cast(i, DateType), d)),
+        out(DateAdd(d, Literal(1)))), childOutput).get
+    assert(partial.declines.asScala(0).reason ===
+      "no null leaf for type tinyint, the missing ELSE of a CASE WHEN")
+    assert(partial.declines.asScala(1) != null)
   }
 
   test("IS [NOT] NULL compile; nvl and nvl2 arrive through their replacements") {

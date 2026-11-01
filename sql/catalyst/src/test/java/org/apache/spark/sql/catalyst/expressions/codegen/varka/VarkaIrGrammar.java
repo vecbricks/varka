@@ -40,6 +40,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Con
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.CondConst;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.CondIf;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.CondValue;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.NullValue;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ConstDivide;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.DateDiff;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.DayOfMonth;
@@ -321,6 +322,8 @@ public final class VarkaIrGrammar {
       case BitCount n -> new Bounds(Long.SIZE, guard(n.child()));
       // A condition as a value is 0 or 1; its condition's operands may hold producers.
       case CondValue n -> new Bounds(1L, guard(n.cond()));
+      // Null everywhere, its vector zero, and no producer below it.
+      case NullValue n -> new Bounds(0L, guard(new VarkaVectorIR[0]));
       // A root of two bitmaps: no magnitude, only the producers its condition may hold.
       case BoolOutput n -> new Bounds(1L, guard(n.cond()));
       // The dynamic form moves the date down like the literal one, whatever the level; the
@@ -679,6 +682,11 @@ public final class VarkaIrGrammar {
           Cond c = cond(depth - 1);
           Gen a = value(depth - 1);
           Gen b = value(depth - 1);
+          // In the nulling draw, one in four chooses against the lane's null, the missing ELSE
+          // of a CASE WHEN (VARKA-333); the committed draws take nothing more here.
+          if (nullingGuards && rnd.nextInt(4) == 0) {
+            return new Gen(new IfElse(c, a.node(), new NullValue(LaneType.INT)), a.bound());
+          }
           return new Gen(new IfElse(c, a.node(), b.node()), Math.max(a.bound(), b.bound()));
         }
         case 6:
@@ -1177,6 +1185,9 @@ public final class VarkaIrGrammar {
           Cond c = cond(depth - 1);
           Gen a = value(depth - 1);
           Gen b = value(depth - 1);
+          if (nullingGuards && rnd.nextInt(4) == 0) {
+            return new Gen(new IfElse(c, a.node(), new NullValue(LaneType.LONG)), a.bound());
+          }
           return new Gen(new IfElse(c, a.node(), b.node()), Math.max(a.bound(), b.bound()));
         }
       }

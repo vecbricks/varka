@@ -1490,6 +1490,8 @@ final class Slots {
         case ColumnRef c -> { }
         case DecimalColumn c -> { }
         case LiteralSlot l -> { }
+        // Writes its all-clear word itself and reads none.
+        case VarkaVectorIR.NullValue x -> { }
         case AddDays x -> { }
         case SubDays x -> { }
         case DateDiff x -> { }
@@ -1578,6 +1580,7 @@ final class Slots {
         case ColumnRef x -> { }
         case DecimalColumn x -> { }
         case LiteralSlot x -> { }
+        case VarkaVectorIR.NullValue x -> { }
         case DayOfWeek x -> { }
         case WeekDay x -> { }
         case DayOfWeekIso x -> { }

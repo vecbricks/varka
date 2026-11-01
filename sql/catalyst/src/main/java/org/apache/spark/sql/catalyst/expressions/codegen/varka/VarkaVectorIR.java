@@ -58,6 +58,7 @@ import org.apache.spark.sql.types.Decimal;
  */
 public sealed interface VarkaVectorIR
     permits VarkaVectorIR.ColumnRef, VarkaVectorIR.DecimalColumn, VarkaVectorIR.LiteralSlot,
+            VarkaVectorIR.NullValue,
             VarkaVectorIR.AddDays, VarkaVectorIR.SubDays, VarkaVectorIR.DateDiff,
             VarkaVectorIR.IfElse, VarkaVectorIR.CondValue, VarkaVectorIR.BoolOutput,
             VarkaVectorIR.Greatest, VarkaVectorIR.Least, VarkaVectorIR.DayOfWeek,
@@ -158,6 +159,7 @@ public sealed interface VarkaVectorIR
       case NullSafeEqual n -> n.left().laneType();
       case BoolColumn n -> n.lane();
       case CondConst n -> n.lane();
+      case NullValue n -> n.lane();
       case BoolCompare n -> n.left().laneType();
       case CondIf n -> n.cond().laneType();
       case BoolNullSafeEq n -> n.left().laneType();
@@ -209,7 +211,7 @@ public sealed interface VarkaVectorIR
       case BoolColumn b -> b.ordinal();
       case LiteralSlot _, IntArith _, IntNeg _, ConstDivide _, BoundedDivide _, BitOp _,
           BitCount _, Greatest _, Least _, IfElse _, CondValue _, BoolOutput _, Compare _,
-          NullSafeEqual _, CondConst _,
+          NullSafeEqual _, CondConst _, NullValue _,
           BoolCompare _, CondIf _, BoolNullSafeEq _, And _, Or _, Not _, IsNotNull _,
           InRanges _, AddDays _, SubDays _, DateDiff _, GuardedDay _, GuardedRange _, WidenLane _,
           NarrowLane _, DayOfWeek _, WeekDay _, DayOfWeekIso _, NextDay _, ThursdayOf _,
@@ -284,7 +286,7 @@ public sealed interface VarkaVectorIR
           lanes.add(c.laneType());
         }
       }
-      case LiteralSlot _, BoolColumn _, CondConst _, DecimalColumn _ -> { }
+      case LiteralSlot _, BoolColumn _, CondConst _, DecimalColumn _, NullValue _ -> { }
       case WidenLane _, NarrowLane _, AddDays _, SubDays _, AddMonths _, MakeDate _,
           IntArith _, IntNeg _, GuardedDay _, GuardedRange _, NextDay _, TruncDateDynamic _,
           DateDiff _, Greatest _, Least _, IfElse _, CondValue _, BoolOutput _, DayOfWeek _,
@@ -327,7 +329,7 @@ public sealed interface VarkaVectorIR
           && needsNarrowSpecies(c, seen);
       case ColumnRef c -> c.laneType().isNarrow();
       case LiteralSlot l -> l.laneType().isNarrow();
-      case BoolColumn _, CondConst _, DecimalColumn _ -> false;
+      case BoolColumn _, CondConst _, DecimalColumn _, NullValue _ -> false;
       case NarrowLane n -> n.target().isNarrow() || needsNarrowSpecies(n.child(), seen);
       case WidenLane _, AddDays _, SubDays _, AddMonths _, MakeDate _, IntArith _, IntNeg _,
           GuardedDay _, GuardedRange _, NextDay _, TruncDateDynamic _, DateDiff _, Greatest _,
@@ -547,6 +549,27 @@ public sealed interface VarkaVectorIR
 
     public LiteralSlot(int index) {
       this(index, LaneType.INT);
+    }
+  }
+
+  /**
+   * The null of a value lane: a value that is null on every row, its vector zero and its
+   * validity word all clear. It is the branch a {@code CASE WHEN} without an {@code ELSE} lacks
+   * and the {@code NULL} of {@code IF(c, x, NULL)}, which is what {@code nullif} and
+   * {@code nullifzero} become after the optimizer (`VARKA-333.md` 3.2). It reads nothing and holds
+   * no slot, so it is structure and in the shape, as {@link CondConst} is. A null from valid
+   * inputs, which a dense body cannot hold: {@code Analysis} sets {@code nullsFromValidInputs}
+   * for a kernel holding one, so every batch takes the masked body, where the blend of
+   * {@link IfElse} answers null wherever it chooses this branch. The int and long lanes only,
+   * which carry the six types the row admits it for; another lane is refused until a row that
+   * needs it tests its emission, as {@link CondValue}'s narrow lanes are.
+   */
+  record NullValue(LaneType lane) implements VarkaVectorIR {
+    public NullValue {
+      Objects.requireNonNull(lane, "lane");
+      if (lane != LaneType.INT && lane != LaneType.LONG) {
+        throw VarkaErrors.illegalArgument("NullValue at the " + lane + " lane is untested");
+      }
     }
   }
 
@@ -1620,6 +1643,7 @@ public sealed interface VarkaVectorIR
           "(nullSafeEq " + canonical(n.left()) + " " + canonical(n.right()) + ")";
       case BoolColumn n -> "bool:" + n.ordinal() + laneTag(n.lane());
       case CondConst n -> "(condConst:" + n.value().name() + laneTag(n.lane()) + ")";
+      case NullValue n -> "(null:" + n.lane().name() + ")";
       case BoolCompare n ->
           "(boolCmp:" + n.op().name() + " " + canonical(n.left()) + " "
               + canonical(n.right()) + ")";
@@ -1716,6 +1740,7 @@ public sealed interface VarkaVectorIR
           + lineOf.applyAsInt(n.right()) + ")";
       case BoolColumn n -> "bool:" + n.ordinal() + laneTag(n.lane());
       case CondConst n -> "(condConst:" + n.value().name() + laneTag(n.lane()) + ")";
+      case NullValue n -> "(null:" + n.lane().name() + ")";
       case BoolCompare n -> "(boolCmp:" + n.op().name() + " " + lineOf.applyAsInt(n.left()) + " "
           + lineOf.applyAsInt(n.right()) + ")";
       case CondIf n -> "(condIf " + lineOf.applyAsInt(n.cond()) + " "
@@ -1825,6 +1850,7 @@ public sealed interface VarkaVectorIR
       case NullSafeEqual n -> new VarkaVectorIR[] {n.left(), n.right()};
       case BoolColumn n -> new VarkaVectorIR[0];
       case CondConst n -> new VarkaVectorIR[0];
+      case NullValue n -> new VarkaVectorIR[0];
       case BoolCompare n -> new VarkaVectorIR[] {n.left(), n.right()};
       case CondIf n -> new VarkaVectorIR[] {n.cond(), n.thenCond(), n.elseCond()};
       case BoolNullSafeEq n -> new VarkaVectorIR[] {n.left(), n.right()};
@@ -1897,6 +1923,7 @@ public sealed interface VarkaVectorIR
       case NullSafeEqual n -> new NullSafeEqual(children[0], children[1]);
       case BoolColumn n -> n;
       case CondConst n -> n;
+      case NullValue n -> n;
       case BoolCompare n -> new BoolCompare(n.op(), asCond(children[0]), asCond(children[1]));
       case CondIf n -> new CondIf(asCond(children[0]), asCond(children[1]), asCond(children[2]));
       case BoolNullSafeEq n -> new BoolNullSafeEq(asCond(children[0]), asCond(children[1]));

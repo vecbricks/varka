@@ -103,6 +103,9 @@ public final class VarkaReproductionSuite {
         new IntArith(IntOp.ADD, Overflow.WRAP, new DecimalColumn(2, LaneType.LONG, 9),
             new WidenLane(new ColumnRef(0), LaneType.LONG)),
         new CondValue(new NullSafeEqual(new ColumnRef(0), new LiteralSlot(0)), LaneType.INT),
+        // The missing ELSE of a CASE WHEN, at the long lane, whose lane the leaf names.
+        new IfElse(new Compare(CompareOp.LT, x, new LiteralSlot(0, LaneType.LONG)), x,
+            new VarkaVectorIR.NullValue(LaneType.LONG)),
         new BitCount(new BitOp(BitOpKind.XOR, new ColumnRef(0), new LiteralSlot(0))),
         // Over comparisons: the parser reads no boolean-column leaf yet.
         new BoolOutput(new Or(new Not(new IsNotNull(new ColumnRef(0))),

@@ -993,9 +993,11 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
     // carries no high word for its check: its slot table is `VarkaDecimalLoadSuite`'s, and its
     // fuzz sequence, on a seed of its own so that no shape here moves, is a later step of the row
     // (`VARKA-347.md` 3 item 5).
+    // The null leaf (VARKA-333) is drawn by the nulling draw only, on its own seed, so that no
+    // shape here moves; the test of the nulling draw's reach below holds it to both lanes.
     val missing = permitted -- seen - "NarrowLane" - "WidenLane" - "NullSafeEqual" -
       "BoolColumn" - "CondConst" - "BoolCompare" - "CondIf" - "BoolNullSafeEq" - "CondValue" -
-      "BoolOutput" - "DecimalColumn"
+      "BoolOutput" - "DecimalColumn" - "NullValue"
     assert(missing.isEmpty,
       s"the generator never built: ${missing.toSeq.sorted.mkString(", ")} - add an arm, or " +
         "state here why the node type is deliberately out of the fuzzer's reach")
@@ -1368,6 +1370,29 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
       nulling(VarkaIrGrammar.drawShape(VarkaIrGrammar.shapeRandom(seed, k)).roots) ++
         nulling(VarkaIrGrammar.drawLongShape(VarkaIrGrammar.shapeRandom(longSeed, k)).roots))
     assert(committed.isEmpty, s"a committed draw holds a nulling guard: ${committed.headOption}")
+  }
+
+  test("the nulling draw reaches the null leaf at both lanes, and the committed draws hold " +
+      "none") {
+    // The missing ELSE of a CASE WHEN (VARKA-333), drawn in the nulling draw only, so that the
+    // corpora `emitted_bytes.json` pins do not move: reached at each lane, never committed.
+    def nulls(roots: java.util.List[VarkaVectorIR]): Seq[VarkaVectorIR.NullValue] = {
+      def walk(n: VarkaVectorIR): Seq[VarkaVectorIR.NullValue] = (n match {
+        case v: VarkaVectorIR.NullValue => Seq(v)
+        case _ => Seq.empty
+      }) ++ VarkaVectorIR.childrenOf(n).toSeq.flatMap(walk)
+      roots.asScala.toSeq.flatMap(walk)
+    }
+    val draws = 0 until 2000
+    val drawn = draws.flatMap(k => nulls(
+      VarkaIrGrammar.drawNullingShape(VarkaIrGrammar.shapeRandom(nullingSeed, k)).roots) ++
+      nulls(VarkaIrGrammar.drawNullingLongShape(VarkaIrGrammar.shapeRandom(nullingSeed, k)).roots))
+    assert(drawn.exists(_.lane() == LaneType.INT), "no int-lane null leaf was drawn")
+    assert(drawn.exists(_.lane() == LaneType.LONG), "no long-lane null leaf was drawn")
+    val committed = draws.flatMap(k =>
+      nulls(VarkaIrGrammar.drawShape(VarkaIrGrammar.shapeRandom(seed, k)).roots) ++
+        nulls(VarkaIrGrammar.drawLongShape(VarkaIrGrammar.shapeRandom(longSeed, k)).roots))
+    assert(committed.isEmpty, s"a committed draw holds a null leaf: ${committed.headOption}")
   }
 
   test("the mixed-lane generator reaches both conversions, the calendar under a widening and a " +

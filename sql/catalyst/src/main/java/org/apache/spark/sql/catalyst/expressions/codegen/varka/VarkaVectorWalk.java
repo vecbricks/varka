@@ -202,6 +202,18 @@ final class VarkaVectorWalk {
         }
       }
       case DecimalColumn c -> emitDecimalLoad(cb, c, dense, analysis, s);
+      case VarkaVectorIR.NullValue n -> {
+        // A broadcast zero, null on every lane: its word is all clear. Only the masked bodies
+        // reach it, since a kernel holding one has no dense body (nullsFromValidInputs).
+        line(cb, analysis, node);
+        cb.aload(s.species(lane));
+        lane.pushScalar(cb, 0);
+        cb.invokestatic(lane.vector, "broadcast", lane.broadcast);
+        if (!dense && s.ownWord.contains(node)) {
+          cb.loadConstant(0L);
+          storeWord(cb, s, s.wordRef.get(node));
+        }
+      }
       case LiteralSlot l -> {
         line(cb, analysis, node);
         int[] broadcast = s.broadcastSlots(lane);

@@ -20,6 +20,7 @@ package org.apache.spark.sql.catalyst.expressions.codegen.varka
 import org.apache.spark.sql.catalyst.analysis.{SimpleAnalyzer, UnresolvedAttribute}
 import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, AttributeReference,
   BindReferences, Cast, Expression, Literal, NamedExpression}
+import org.apache.spark.sql.catalyst.optimizer.RewriteWithExpression
 import org.apache.spark.sql.catalyst.parser.CatalystSqlParser
 import org.apache.spark.sql.catalyst.plans.logical.{LocalRelation, Project}
 import org.apache.spark.sql.types.{DataType, DoubleType, FloatType, StringType}
@@ -70,7 +71,15 @@ object VarkaSqlResolve {
    *
    * A string literal cast to `DOUBLE` or `FLOAT` is folded to its value, as Spark's optimizer
    * folds it before Varka sees a plan: it is how SQL writes NaN and the infinities, which have
-   * no literal of their own, and the compiler declines a floating cast.
+   * no literal of their own, and the compiler declines a floating cast. A cast of a `NULL`
+   * literal is folded to the typed null for the same reason: `if(c, x, NULL)` arrives at Varka
+   * as `If(c, x, Literal(null, t))`.
+   *
+   * A `With`, which `nullif` and `between` resolve to, is rewritten by the optimizer's own
+   * `RewriteWithExpression`, as a session's optimizer rewrites it before Varka sees a plan: over
+   * a column the common expression is inlined (`nullif(i, 3)` is `If(i = 3, NULL, i)`), and
+   * over a computed one it moves to a projection of its own below, a plan of two projections,
+   * so there the `With` is kept as the analyzer left it (`VARKA-333.md` 2.1).
    */
   def resolve(e: Expression, columns: Seq[Attribute]): Expression = {
     val byName = columns.map(a => a.name -> a).toMap
@@ -82,10 +91,20 @@ object VarkaSqlResolve {
     // Functions are left to the analyzer, whose registry is the builtin one: a lookup before it
     // runs would hand `hour(t + dt)` its argument still uncoerced, and the builder-backed
     // functions assert that their arguments are resolved.
-    SimpleAnalyzer.execute(Project(Seq(Alias(bound, "a")()), LocalRelation(columns))) match {
+    val analyzed =
+      SimpleAnalyzer.execute(Project(Seq(Alias(bound, "a")()), LocalRelation(columns)))
+    // Only a rewrite that stays one projection is taken: one that moves a common expression
+    // into a projection below leaves the `With` in place, which the compiler declines, and a
+    // domain that resolves through this method still resolves.
+    val rewritten = RewriteWithExpression(analyzed) match {
+      case p @ Project(Seq(_: Alias), _: LocalRelation) => p
+      case _ => analyzed
+    }
+    rewritten match {
       case Project(Seq(a: Alias), _) => a.child.transformUp {
         case c @ Cast(Literal(_, StringType), DoubleType | FloatType, _, _) =>
           Literal.create(c.eval(), c.dataType)
+        case Cast(Literal(null, _), t, _, _) => Literal(null, t)
       }
       case other =>
         throw new IllegalArgumentException(

@@ -605,6 +605,8 @@ final class VarkaEmitBudget {
       // The leaves' loads and broadcasts are paid once per column and literal, not per node.
       // A boolean column and a constant are leaves: a data word read and a constant, no lane call.
       case ColumnRef _, LiteralSlot _, BoolColumn _, CondConst _ -> 0;
+      // Its broadcast zero; the all-clear word is a scalar store.
+      case NullValue _ -> 1;
       // A column's load is paid as a leaf's, and the rest per node: the second of its two loads,
       // the two shuffles that take the low and the high words, the sign shift and its compare,
       // and the add and unsigned compare of the digit check. The OR that gathers the compares
