@@ -28,9 +28,11 @@ import org.junit.jupiter.api.Test;
  * vector is 64 bits, where the preferred species holds one long and the emitter bakes no width for
  * it ({@code Lane.emitLanes}). A lane group is then one slot, its low word alone in the first
  * vector and its high word alone in the second, so the odd-lane shuffle's one index must select
- * from the second vector and the epilogue's second mask starts at the vector's one lane - a case
- * no even lane count reaches. HotSpot sizes the preferred shape from {@code MaxVectorSize} and
- * falls back to 64 bits when a long vector does not fit it
+ * from the second vector - a case no even lane count reaches. The run checks that addressing of
+ * both halves at one lane, the slot check's decline and the null handling; it has no epilogue
+ * case, since every length divides into groups of one slot, so the second mask of a group cut
+ * short is the baked widths' alone. HotSpot sizes the preferred shape from
+ * {@code MaxVectorSize} and falls back to 64 bits when a long vector does not fit it
  * ({@code VectorShape.getMaxVectorBitSize}), so the flag gives that species on every host. The
  * tests no width changes are {@link VarkaDecimalLoadSuite}'s alone.
  */

@@ -77,8 +77,9 @@ import org.apache.spark.sql.vectorized.ArrowColumnVector;
  * body (no null) and the masked one (nulls on every third row), under both arms of
  * {@code decimalStore}; a test whose subject does not depend on the width is
  * {@link VarkaDecimalStoreSuite}'s alone. Two classes run the tables, each in a JVM of its own:
- * {@code VarkaDecimalStoreSuite} at two, four and eight long lanes, baked, which are several
- * species of the long lane and so refused by the shared JVM (VARKA-246); and
+ * {@code VarkaDecimalStoreSuite} at two, four and eight long lanes, baked, and at the host's
+ * preferred species unbaked, which are several species of the long lane and so refused by the
+ * shared JVM (VARKA-246); and
  * {@link VarkaDecimalStoreOneLaneSuite} at the preferred species of a JVM where it is one long
  * lane, where the interleave's index has no second half to step into.
  */

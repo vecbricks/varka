@@ -39,9 +39,9 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Ove
 /**
  * The decimal load's tables ({@link VarkaDecimalLoadTables}) at two, four and eight long lanes,
  * each baked, and the decimal column's shape key, refusals and bounds, which no width changes.
- * The host's preferred species is one of the three on every host the suites run on; one long
- * lane, which no baked width reaches, is {@link VarkaDecimalLoadOneLaneSuite}'s. In a JVM of its
- * own: the widths are several species of the long lane, which the shared JVM refuses (VARKA-246).
+ * The unbaked preferred species is run only at one long lane, which no baked width reaches, by
+ * {@link VarkaDecimalLoadOneLaneSuite}. In a JVM of its own: the widths are several species of
+ * the long lane, which the shared JVM refuses (VARKA-246).
  */
 @VarkaSuite(ownJvm = true)
 public final class VarkaDecimalLoadSuite extends VarkaDecimalLoadTables {

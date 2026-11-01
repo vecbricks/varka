@@ -36,16 +36,19 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Wid
 
 /**
  * The decimal store's tables ({@link VarkaDecimalStoreTables}) at two, four and eight long lanes,
- * each baked, and the decimal output's shape key and refusals, which no width changes. The host's
- * preferred species is one of the three on every host the suites run on, so it is not run again
- * unbaked; one long lane, which no baked width reaches, is {@link VarkaDecimalStoreOneLaneSuite}'s.
- * In a JVM of its own: the widths are several species of the long lane, which the shared JVM
- * refuses (VARKA-246).
+ * each baked, and at {@code lanesOverride=1}, the unbaked preferred species
+ * ({@code Lane.emitLanes}), labelled as such ({@link VarkaDecimalStoreTables#label}); and the
+ * decimal output's shape key and refusals, which no width changes. The unbaked kernel runs on
+ * {@code SPECIES_PREFERRED} and the general validity helpers, not a named species and its
+ * width's own, so it is a different emission from the baked width of the same count, and this
+ * is its one run at more than one lane; one long lane, which no baked width reaches, is
+ * {@link VarkaDecimalStoreOneLaneSuite}'s. In a JVM of its own: the widths are several species of
+ * the long lane, which the shared JVM refuses (VARKA-246).
  */
 @VarkaSuite(ownJvm = true)
 public final class VarkaDecimalStoreSuite extends VarkaDecimalStoreTables {
 
-  private static final int[] WIDTHS = {2, 4, 8};
+  private static final int[] WIDTHS = {1, 2, 4, 8};
 
   @Override
   int[] widths() {

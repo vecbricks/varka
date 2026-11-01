@@ -82,7 +82,8 @@ abstract class VarkaDecimalLoadTables {
   /**
    * Batches shorter than one lane group at every width but the narrowest, so no loop runs and the
    * epilogue's second vector is all masked off; one whose last row is in the epilogue at every
-   * width; and one with no epilogue.
+   * baked width; and one with no epilogue. At one lane every length is whole groups, so none
+   * reaches an epilogue there.
    */
   private static final int[] LENGTHS = {1, 3, 37, 64};
   private static final int SCALE = 0;
