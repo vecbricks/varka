@@ -598,6 +598,13 @@ that the pair counts with 359, 360 and 363; `rows` gains 348 on `when`, `ifnull`
 `in` and `in_set` say they wait on 497's arm, and `abs` and `negative` that their overflow note
 is not a decimal's. The registry's `Owed("Decimal", "348")` names 359, as section 7 says.
 
+**Test time, on the laptop.** `VarkaDecimalLoadSuite`'s 17 tests take 2.7 s in their own JVM,
+the three new ones included, so section 5's "seconds" for the slot table holds.
+`VarkaIrFuzzSuite`'s own JVM ran 2 minutes 45 seconds with the decimal sequence's 300 draws and
+its 500-draw reach test; the run does not print a test's own time, so the sequence's share is read
+from the Build's JUnit report. Both solvers hold `decimal64.smt2` in under half a second and the
+refinement's 60 new checks add under a tenth of a second.
+
 ### Departures from the plan
 
 - **The rescale's one-past witness is not a wrap at every precision.** Section 3 item 3 says that
