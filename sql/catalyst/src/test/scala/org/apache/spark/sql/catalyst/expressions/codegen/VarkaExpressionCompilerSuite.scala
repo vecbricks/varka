@@ -17,13 +17,16 @@
 
 package org.apache.spark.sql.catalyst.expressions.codegen
 
+import java.io.IOException
+
 import scala.jdk.CollectionConverters._
 import scala.jdk.OptionConverters._
 
 import org.apache.spark.{SparkArithmeticException, SparkFunSuite}
+import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.BinaryArithmeticWithDatetimeResolver
 import org.apache.spark.sql.catalyst.analysis.FunctionRegistry
-import org.apache.spark.sql.catalyst.expressions.{Abs, Add, AddMonths, Alias, And, Attribute, AttributeReference, BoundReference, CaseWhen, Cast, Coalesce, Concat, CurrentTime, DateAdd, DateAddYMInterval, DateDiff, DateFromUnixDate, DateSub, DayOfMonth, DayOfWeek, DayOfYear, Divide, DivideYMInterval, EqualNullSafe, EqualTo, EvalMode, Expression, Extract, ExtractANSIIntervalDays, ExtractANSIIntervalMonths, ExtractANSIIntervalYears, GreaterThan, Greatest, HoursOfTime, If, In, InheritAnalysisRules, InSet, IsNotNull, IsNull, LastDay, Least, LessThan, LessThanOrEqual, Literal, MakeDate, MakeTime, MakeYMInterval, MinutesOfTime, Month, Multiply, MultiplyYMInterval, NamedExpression, NextDay, Not, NumericEvalContext, Nvl, Nvl2, Or, Quarter, Rand, Remainder, RuntimeReplaceable, SecondsOfTime, SecondsOfTimeWithFraction, Subtract, SubtractDates, SubtractTimes, TimeAddInterval, TimeDiff, TimeExpression, TimeFromMicros, TimeFromMillis, TimeFromSeconds, TimestampAddInterval, TimeToMicros, TimeToMillis, TimeToSeconds, TimeTrunc, ToTime, TruncDate, UnaryMinus, UnixDate, Upper, WeekDay, WeekOfYear, Year, YearOfWeek}
+import org.apache.spark.sql.catalyst.expressions.{Abs, Add, AddMonths, Alias, And, Attribute, AttributeReference, BoundReference, CaseWhen, Cast, Coalesce, Concat, CurrentTime, DateAdd, DateAddYMInterval, DateDiff, DateFromUnixDate, DateSub, DayOfMonth, DayOfWeek, DayOfYear, Divide, DivideYMInterval, EqualNullSafe, EqualTo, EvalMode, Expression, Extract, ExtractANSIIntervalDays, ExtractANSIIntervalMonths, ExtractANSIIntervalYears, GreaterThan, Greatest, HoursOfTime, If, In, InheritAnalysisRules, InSet, IsNotNull, IsNull, LastDay, LeafExpression, Least, LessThan, LessThanOrEqual, Literal, MakeDate, MakeTime, MakeYMInterval, MinutesOfTime, Month, Multiply, MultiplyYMInterval, NamedExpression, NextDay, Not, NumericEvalContext, Nvl, Nvl2, Or, Quarter, Rand, Remainder, RuntimeReplaceable, SecondsOfTime, SecondsOfTimeWithFraction, Subtract, SubtractDates, SubtractTimes, TimeAddInterval, TimeDiff, TimeExpression, TimeFromMicros, TimeFromMillis, TimeFromSeconds, TimestampAddInterval, TimeToMicros, TimeToMillis, TimeToSeconds, TimeTrunc, ToTime, TruncDate, UnaryMinus, UnixDate, Upper, WeekDay, WeekOfYear, Year, YearOfWeek}
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaOutputSpec.{ForwardedOutput, FusedOutput, KernelOutput}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaChrono, VarkaDerivedKind, VarkaEmitOptions, VarkaEmitterTestSupport, VarkaLoopEmitter, VarkaMatrix, VarkaShapeCache, VarkaVectorIR}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaKernelWarmup, VarkaShapeKey}
@@ -50,7 +53,7 @@ import org.apache.spark.util.Utils
  * VARKA-12's partial eligibility, and the shapes that decline.
  */
 class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog {
-  import VarkaExpressionCompilerSuite.Relabeled
+  import VarkaExpressionCompilerSuite.{Relabeled, ThrowsChecked}
 
   /** The bound every `TIME` division states: a time of day is a count of nanoseconds in one. */
   private val nanosPerDay = 86400000000000L
@@ -2844,6 +2847,9 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     // An element that is no constant stays declined.
     assert(declineReason(If(In(i, Seq(Literal(1), Add(i, Literal(1)))), d, d2)) ===
       "IN list has a null or non-literal element")
+    // A checked exception out of an element's evaluation declines the list like any other throw.
+    assert(declineReason(If(In(i, Seq(Literal(1), ThrowsChecked())), d, d2)) ===
+      "IN list has a null or non-literal element")
   }
 
   // --- VARKA-169: the emitter's size decline, taken at plan time -------------------------------
@@ -3302,5 +3308,17 @@ object VarkaExpressionCompilerSuite {
     override def parameters: Seq[Expression] = Seq(replacement)
     override protected def withNewChildInternal(newChild: Expression): Expression =
       copy(replacement = newChild)
+  }
+
+  /**
+   * A foldable INT constant whose evaluation throws a checked exception, as Scala code may
+   * without declaring it: an `IN` element the compiler evaluates must decline on it, not let it
+   * fail the plan.
+   */
+  private case class ThrowsChecked() extends LeafExpression with CodegenFallback {
+    override def foldable: Boolean = true
+    override def nullable: Boolean = false
+    override def dataType: DataType = IntegerType
+    override def eval(input: InternalRow): Any = throw new IOException("checked, from Scala")
   }
 }

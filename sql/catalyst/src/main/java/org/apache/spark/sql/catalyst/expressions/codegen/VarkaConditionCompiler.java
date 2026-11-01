@@ -19,18 +19,19 @@ package org.apache.spark.sql.catalyst.expressions.codegen;
 
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.TreeSet;
 import java.util.function.BinaryOperator;
-import java.util.function.Function;
 import java.util.function.Supplier;
 
 import javax.annotation.Nullable;
 
 import scala.Tuple2;
 import scala.jdk.javaapi.CollectionConverters;
+import scala.util.control.NonFatal;
 
 import org.apache.spark.sql.catalyst.expressions.And;
 import org.apache.spark.sql.catalyst.expressions.BinaryComparison;
@@ -737,9 +738,8 @@ final class VarkaConditionCompiler {
       // the lane's own, under which `-0.0 IN (0.0)` and `NaN IN (NaN)` are true as Spark's
       // ordering says, so the literals Spark finds equal are kept once. `In` holds its elements
       // as literals, `InSet` as the values themselves.
-      case In in -> inArm(in.value(), in, info -> inElements(in, info), inputs, literals, sink);
-      case InSet inSet ->
-          inArm(inSet.child(), inSet, info -> setElements(inSet, info), inputs, literals, sink);
+      case In in -> inArm(in.value(), in, inputs, literals, sink);
+      case InSet inSet -> inArm(inSet.child(), inSet, inputs, literals, sink);
       // The floating lanes' own test (VARKA-341): `isnan`, total, as the lane's EQ against NaN.
       case IsNaN n when isFloating(n.child().dataType()) ->
           () -> isNaN(n.child(), inputs, literals, sink);
@@ -800,7 +800,6 @@ final class VarkaConditionCompiler {
   private static @Nullable Supplier<Optional<Cond>> inArm(
       Expression value,
       Expression whole,
-      Function<VarkaTypes.Info, List<OptionalLong>> elements,
       VarkaSlotTable inputs,
       VarkaSlotTable literals,
       DeclineSink sink) {
@@ -809,19 +808,30 @@ final class VarkaConditionCompiler {
       return null;
     }
     VarkaTypes.Info info = VarkaTypes.info(id);
-    if (!(info.admission() instanceof VarkaTypes.Admission.OnLane)) {
-      return null;
-    }
-    return () -> compileIn(value, info, elements.apply(info), whole, inputs, literals, sink);
+    return switch (info.admission()) {
+      case VarkaTypes.Admission.OnLane onLane ->
+          () -> compileIn(value, info, whole, inputs, literals, sink);
+      case VarkaTypes.Admission.UpToPrecision upTo -> null;
+      case VarkaTypes.Admission.AsCondition condition -> null;
+      case VarkaTypes.Admission.Owed owed -> null;
+      case VarkaTypes.Admission.Declined declined -> null;
+    };
   }
 
-  /** {@code In}'s elements as lane bits, each through {@link #constantBits}. */
-  private static List<OptionalLong> inElements(In in, VarkaTypes.Info info) {
-    List<OptionalLong> elements = new ArrayList<>();
-    for (Expression element : CollectionConverters.asJava(in.list())) {
-      elements.add(constantBits(element, info));
-    }
-    return elements;
+  /**
+   * The elements of {@code whole}, an {@code In} or an {@code InSet}, as lane bits, read one at a
+   * time as the iterator is advanced, so that a list longer than the cap is read only up to the
+   * element that passes it: an {@code InSet} can hold thousands. {@code In} holds expressions,
+   * each read through {@link #constantBits}, and {@code InSet} the values themselves.
+   */
+  private static Iterator<OptionalLong> inElements(Expression whole, VarkaTypes.Info info) {
+    return switch (whole) {
+      case In in -> CollectionConverters.asJava(in.list()).stream()
+          .map(element -> constantBits(element, info)).iterator();
+      case InSet inSet ->
+          CollectionConverters.asJava(inSet.hset()).stream().map(info::laneBits).iterator();
+      default -> throw VarkaErrors.illegalArgument("not an IN: " + whole);
+    };
   }
 
   /**
@@ -829,7 +839,9 @@ final class VarkaConditionCompiler {
    * a foldable expression evaluated once here, such as the cast type coercion puts over an int
    * literal in a bigint {@code IN}, which a query's optimizer folds and a hand-built tree may
    * not. Empty for anything else, and for an element whose evaluation throws - an ANSI cast out
-   * of range - which the row engine then raises on the row.
+   * of range - which the row engine then raises on the row. Any throw Spark's {@code NonFatal}
+   * admits declines, a checked one out of Scala code as well, so that the list stays on the row
+   * engine instead of failing the plan; a fatal one, such as running out of memory, propagates.
    */
   private static OptionalLong constantBits(Expression element, VarkaTypes.Info info) {
     if (!element.foldable() || VarkaTypes.idOf(element.dataType()) != info.id()) {
@@ -840,18 +852,12 @@ final class VarkaConditionCompiler {
     }
     try {
       return info.laneBits(element.eval(null));
-    } catch (RuntimeException e) {
+    } catch (Throwable t) {
+      if (!NonFatal.apply(t)) {
+        throw t;
+      }
       return OptionalLong.empty();
     }
-  }
-
-  /** {@code InSet}'s elements as lane bits: its set holds the values themselves. */
-  private static List<OptionalLong> setElements(InSet inSet, VarkaTypes.Info info) {
-    List<OptionalLong> elements = new ArrayList<>();
-    for (Object element : CollectionConverters.asJava(inSet.hset())) {
-      elements.add(info.laneBits(element));
-    }
-    return elements;
   }
 
   /**
@@ -865,7 +871,9 @@ final class VarkaConditionCompiler {
    * balanced, {@code MaxInLiterals} literals are {@code ceil(log2 n) + 1} levels and
    * {@code 2n - 1} op nodes; a right-nested fold would hit the emitter's depth cap at 15. Above
    * the cap, with any non-literal or null element, or with no element, the entry declines with
-   * its reason.
+   * its reason. The elements are read in order and the reading stops at the first that declines
+   * the list - a null or non-literal one, or the one whose value passes the cap - so a list
+   * that is both too long and holds a null names whichever its reading meets first.
    *
    * <p>The value has to compile onto its type's own lane, and each literal takes a slot on that
    * lane, in the table of its width ({@link VarkaNodeCompiler#bitsSlot}). A value on any other
@@ -877,12 +885,12 @@ final class VarkaConditionCompiler {
   private static Optional<Cond> compileIn(
       Expression value,
       VarkaTypes.Info info,
-      List<OptionalLong> elements,
       Expression whole,
       VarkaSlotTable inputs,
       VarkaSlotTable literals,
       DeclineSink sink) {
-    if (elements.isEmpty()) {
+    Iterator<OptionalLong> elements = inElements(whole, info);
+    if (!elements.hasNext()) {
       // Spark's answer is false, or null over a null value under its legacy flag; the optimizer
       // folds it before a plan reaches here, so only a hand-built tree arrives.
       sink.note("IN list is empty", whole);
@@ -890,16 +898,18 @@ final class VarkaConditionCompiler {
     }
     LaneType own = info.lane().orElseThrow();
     TreeSet<Long> values = new TreeSet<>();
-    for (OptionalLong element : elements) {
+    while (elements.hasNext()) {
+      OptionalLong element = elements.next();
       if (element.isEmpty()) {
         sink.note("IN list has a null or non-literal element", whole);
         return Optional.empty();
       }
       values.add(sparkEqualityKey(element.getAsLong(), own));
-    }
-    if (values.size() > VarkaNodeCompiler.MAX_IN_LITERALS) {
-      sink.note("IN list longer than the fused cap of " + VarkaNodeCompiler.MAX_IN_LITERALS, whole);
-      return Optional.empty();
+      if (values.size() > VarkaNodeCompiler.MAX_IN_LITERALS) {
+        sink.note("IN list longer than the fused cap of " + VarkaNodeCompiler.MAX_IN_LITERALS,
+            whole);
+        return Optional.empty();
+      }
     }
     // A comparison's operand: an int column is read as one here as in `i = 5`.
     Optional<VarkaVectorIR> compiledValue = operand(value, inputs, literals, sink);
