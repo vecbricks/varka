@@ -420,7 +420,12 @@ Also out: a `BOOLEAN` value output (27), the floating, decimal and string casts,
 Declines that stay, each naming its row: an ANSI or interval batch holding a value Spark raises
 on (the row engine raises it), a day-time value past `2^52` microseconds under a sub-day unit
 (2.4, row 30), a narrow value in a long kernel at a lane count with no byte species (329's
-refusal).
+refusal), and a narrow value narrowed again away from its store in a long kernel
+(`CAST(CAST(s AS TINYINT) AS BIGINT)`, `CAST(s AS TINYINT) < l`: "a narrow value under a bigint
+kernel has no lowering"; `VarkaKernelPlan.LongNarrowRole.NARROWING_AT_ROOT`). The last is no
+design hole: the narrow column is loaded at the int lane there, so the walk's int-lane wrap
+likely lowers it as it lowers an int narrowing, and admitting it is a candidate for 343's plan,
+which meets the same long-width narrow values.
 
 ## 8. Questions for the owner
 
@@ -518,7 +523,10 @@ What was built, per item of section 5 step 2:
   `NULL` range guard, the test and the select - over a column of each integral type and a
   `BOOLEAN` one, at every lane, and `VarkaIrFuzzSuite` runs it against the reference with the
   other corpora's lengths, null patterns and options; a reach test holds every composition, mode
-  and lane drawn. Its first run found a real fault: a `CondValue` root at a narrow lane over a
+  and lane drawn. Since review finding 2 it also draws a narrowing read by another node (widened
+  back, compared, or under a connective), and the run bounds each shape class: a draw is refused
+  for its width alone, and each class of 20 draws or more fuses at least 15% of them. Its first
+  run found a real fault: a `CondValue` root at a narrow lane over a
   boolean column reads no narrow column, so the plan's narrow refusal, which asked only whether a
   tree reads a narrow value, let it through at a width with no baked lane count, and its store
   then named the preferred narrow species and wrote past the batch. A narrow-typed value root now
