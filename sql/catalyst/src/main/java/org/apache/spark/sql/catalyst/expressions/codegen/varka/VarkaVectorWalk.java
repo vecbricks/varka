@@ -164,9 +164,10 @@ final class VarkaVectorWalk {
     // Under CSE a node visited twice has a shared slot, decided by the body's use count
     // (Slots.bodyUses). A second visit without one means the count ran low, and the walk would
     // quietly emit the node's subtree again; that is a planning error, refused here, as the
-    // word check refuses a word the liveness pass got wrong. A literal is never shared.
+    // word check refuses a word the liveness pass got wrong. A literal and the null of a lane
+    // are never shared (Slots), and are emitted again at each use.
     if (shared == null && analysis.options.cse() && !(node instanceof LiteralSlot)
-        && !s.emittedUnshared.add(node)) {
+        && !(node instanceof VarkaVectorIR.NullValue) && !s.emittedUnshared.add(node)) {
       throw VarkaErrors.illegalState("the body visits " + VarkaVectorIR.canonical(node)
           + " twice without a shared slot: its use count (Slots.bodyUses) is too low");
     }

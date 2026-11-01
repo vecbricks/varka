@@ -1372,10 +1372,12 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
     assert(committed.isEmpty, s"a committed draw holds a nulling guard: ${committed.headOption}")
   }
 
-  test("the nulling draw reaches the null leaf at both lanes, and the committed draws hold " +
-      "none") {
-    // The missing ELSE of a CASE WHEN (VARKA-333), drawn in the nulling draw only, so that the
-    // corpora `emitted_bytes.json` pins do not move: reached at each lane, never committed.
+  test("the nulling draw reaches the null leaf at both lanes and at each of its positions, and " +
+      "the committed draws hold none") {
+    // The null of a choice (VARKA-333), drawn in the nulling draw only, so that the corpora
+    // `emitted_bytes.json` pins do not move: reached at each lane, as a choice's ELSE and its
+    // THEN, as an operand of greatest and least, and twice in one tree, where CSE leaves the two
+    // equal leaves unshared and the walk emits each; never committed.
     def nulls(roots: java.util.List[VarkaVectorIR]): Seq[VarkaVectorIR.NullValue] = {
       def walk(n: VarkaVectorIR): Seq[VarkaVectorIR.NullValue] = (n match {
         case v: VarkaVectorIR.NullValue => Seq(v)
@@ -1383,12 +1385,30 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
       }) ++ VarkaVectorIR.childrenOf(n).toSeq.flatMap(walk)
       roots.asScala.toSeq.flatMap(walk)
     }
+    // The parents of the null leaves in one tree, by the position the leaf holds.
+    def positions(root: VarkaVectorIR): Seq[String] = {
+      val isNull = (n: VarkaVectorIR) => n.isInstanceOf[VarkaVectorIR.NullValue]
+      (root match {
+        case n: IfElse if isNull(n.elseNode()) => Seq("else")
+        case n: IfElse if isNull(n.thenNode()) => Seq("then")
+        case n: Greatest if isNull(n.left()) || isNull(n.right()) => Seq("pick")
+        case n: Least if isNull(n.left()) || isNull(n.right()) => Seq("pick")
+        case _ => Seq.empty
+      }) ++ VarkaVectorIR.childrenOf(root).toSeq.flatMap(positions)
+    }
     val draws = 0 until 2000
-    val drawn = draws.flatMap(k => nulls(
-      VarkaIrGrammar.drawNullingShape(VarkaIrGrammar.shapeRandom(nullingSeed, k)).roots) ++
-      nulls(VarkaIrGrammar.drawNullingLongShape(VarkaIrGrammar.shapeRandom(nullingSeed, k)).roots))
+    val trees = draws.flatMap(k =>
+      VarkaIrGrammar.drawNullingShape(VarkaIrGrammar.shapeRandom(nullingSeed, k)).roots
+        .asScala ++
+        VarkaIrGrammar.drawNullingLongShape(VarkaIrGrammar.shapeRandom(nullingSeed, k)).roots
+          .asScala)
+    val drawn = nulls(trees.asJava)
     assert(drawn.exists(_.lane() == LaneType.INT), "no int-lane null leaf was drawn")
     assert(drawn.exists(_.lane() == LaneType.LONG), "no long-lane null leaf was drawn")
+    val reached = trees.flatMap(positions).toSet
+    assert(reached === Set("else", "then", "pick"), s"the null leaf's positions reached: $reached")
+    assert(trees.exists(t => nulls(java.util.List.of(t)).size >= 2),
+      "no tree holds the null leaf twice")
     val committed = draws.flatMap(k =>
       nulls(VarkaIrGrammar.drawShape(VarkaIrGrammar.shapeRandom(seed, k)).roots) ++
         nulls(VarkaIrGrammar.drawLongShape(VarkaIrGrammar.shapeRandom(longSeed, k)).roots))

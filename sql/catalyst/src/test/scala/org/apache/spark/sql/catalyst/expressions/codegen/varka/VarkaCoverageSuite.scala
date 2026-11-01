@@ -769,6 +769,11 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
       Row("least(i, -7)"),
       Row("greatest(i, -2147483648)", "the int minimum beside a null is the minimum, not a null"),
       Row("least(i, 2147483647)", "the int maximum beside a null"),
+      Row("greatest(i, CAST(NULL AS INT))", "a NULL operand is the null leaf, which the pick "
+        + "skips as it skips a null column: the answer is i, and null only where i is"),
+      Row("least(i, NULL, -2147483648)", "the null leaf beside the int minimum"),
+      Row("greatest(d, NULL, d2)"),
+      Row("least(ym, NULL)"),
       Row("nvl2(d, i, 0)", "rewritten to if(d IS NOT NULL, i, 0)"),
       Row("CASE WHEN d < d2 THEN i END", "the missing ELSE is the null of the int lane"),
       Row("if(d < d2, i, NULL)"),
@@ -790,14 +795,18 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
       Row("nvl2(l2, l, l2)"),
       Row("greatest(l, -9223372036854775808L)", "the bigint minimum beside a null"),
       Row("least(l, 9223372036854775807L)", "the bigint maximum beside a null"),
+      Row("greatest(l, NULL, -9223372036854775808L)", "the null leaf of the long lane beside "
+        + "the bigint minimum"),
       Row("CASE WHEN t < t2 THEN t END"),
       Row("nullif(t, t2)"),
       Row("nvl2(t2, t, t2)"),
       Row("greatest(t, TIME '00:00:00')", "the first TIME beside a null"),
       Row("least(t, TIME '23:59:59.999999')", "the last TIME beside a null"),
+      Row("least(t, NULL)"),
       Row("CASE WHEN dt < dt2 THEN dt END"),
       Row("nullif(dt, dt2)"),
-      Row("nvl2(dt2, dt, dt2)"))),
+      Row("nvl2(dt2, dt, dt2)"),
+      Row("greatest(dt, NULL)"))),
 
     // BETWEEN over a column is two comparisons and an AND once the optimizer has inlined its
     // `With`; over a computed operand the operand is a projection of its own below.

@@ -370,6 +370,31 @@ thing the catalyst suites could not: 42 entries of `VarkaAnsiForm`'s declined li
 row as a later `coalesce` argument, item 55) went stale the moment int `coalesce` fused, and were
 removed.
 
+**The review's fixes, recorded on 1 November 2026.** They correct 3.5a and the paragraphs above
+where those say otherwise.
+
+* **The nulling draw takes the null leaf at four positions**, not only as an `IF`'s ELSE: one
+  `IF` in four there is `IF(c, a, NULL)`, `IF(c, NULL, a)`, `greatest` or `least` with the null
+  on either side, or `CASE WHEN c THEN NULL WHEN c2 THEN a END`, the leaf twice in one tree. The
+  second branch is drawn only when the test is not taken, so the committed draws, which never
+  take it, draw what they always have: `emitted_bytes.json`'s fuzz blocks did not move. The reach
+  test holds the draw to every position and to a tree with the leaf twice.
+* **CSE never shares the null leaf**, as it never shares a literal: `Slots` gives it no shared
+  slot and the walk emits its broadcast zero and all-clear word at each use. It is not hoisted
+  into a broadcast local as a literal is. No committed shape moved for it: every row's leaf is
+  used once, and the twice-drawn tree is checked by the nulling fuzz run.
+* **A `NULL` operand of `greatest` and `least` has rows**: `greatest(i, CAST(NULL AS INT))`,
+  `least(i, NULL, -2147483648)`, `greatest(d, NULL, d2)`, `least(ym, NULL)`, the bigint minimum
+  beside the long lane's null, `least(t, NULL)` and `greatest(dt, NULL)`, with a compiler test of
+  the IR they compile to. Regenerated: 7 coverage rows, 84 `emitted_bytes.json` entries and 7
+  width-audit entries added, nothing else changed but the 22 `option_arms` digests.
+* **The decline reasons say the rule**: an int choice's branch that is not an int is named by
+  the SQL keyword and its noun ("a branch of an int CASE", "an operand of an int COALESCE"), and
+  a `coalesce` operand before the last is "not a bare column" - any lane's plain column, a
+  decimal column being its own node - rather than "not a bare date column".
+* **`nullLeaf` is an exhaustive switch over the type ids**, each type outside the six declining
+  with the reason in a comment beside it, so a new type id is a compile error there.
+
 **Open points for the lead.**
 
 1. `positive` and `known_not_null`: the optimizer removes both before Varka, so neither can

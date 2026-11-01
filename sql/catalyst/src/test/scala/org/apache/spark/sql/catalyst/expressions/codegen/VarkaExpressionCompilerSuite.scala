@@ -1930,7 +1930,7 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
       Seq(out(Coalesce(Seq(DateAdd(d, Literal(1)), d2))), out(DateAdd(d, Literal(1)))),
       childOutput).get
     assert(partial.declines.asScala(0).reason ===
-      "coalesce operand before the last is not a bare date column")
+      "coalesce operand before the last is not a bare column")
   }
 
   test("a missing ELSE and a NULL branch are the null leaf of the result's lane, and an int " +
@@ -1944,6 +1944,14 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     val nullInt = new VarkaVectorIR.NullValue(LaneType.INT)
     assert(compiled.outputs.asScala.toSeq === Seq(new IfElse(cmp, c0, nullInt),
       new IfElse(cmp, c2, nullInt), new IRGreatest(c2, new LiteralSlot(0))))
+    // A NULL operand of greatest or least is the null leaf too, which the pick skips as it skips
+    // any null operand; three operands fold from the left.
+    val picks = VarkaExpressionCompiler.compile(
+      Seq(out(Greatest(Seq(i, Literal(null, IntegerType)))),
+        out(Least(Seq(Literal(null, DateType), d, Literal(null, DateType))))), childOutput).get
+    val (p0, p1) = (new ColumnRef(0), new ColumnRef(1))
+    assert(picks.outputs.asScala.toSeq === Seq(new IRGreatest(p0, nullInt),
+      new IRLeast(new IRLeast(nullInt, p1), nullInt)))
     // A type the null leaf does not serve yet keeps a reason naming it, and an int is still
     // no date: a date choice over a cast of an int column declines rather than reading it.
     val partial = VarkaExpressionCompiler.compilePartial(
@@ -1952,6 +1960,15 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     assert(partial.declines.asScala(0).reason ===
       "no null leaf for type tinyint, the missing ELSE of a CASE WHEN")
     assert(partial.declines.asScala(1) != null)
+    // A branch that is not an int, which the analyzer's coercion never leaves under an int
+    // choice, is named by the choice's SQL keyword and its position.
+    val notInt = VarkaExpressionCompiler.compilePartial(
+      Seq(out(If(lt, i, d)), out(CaseWhen(Seq((lt, i)), Some(d))),
+        out(Coalesce(Seq(i, d))), out(DateAdd(d, Literal(1)))), childOutput).get
+    assert(notInt.declines.asScala.toSeq.sortBy(_._1.intValue).map(_._2.reason) === Seq(
+      "a branch of an int IF is not an int column or literal",
+      "a branch of an int CASE is not an int column or literal",
+      "an operand of an int COALESCE is not an int column or literal"))
   }
 
   test("IS [NOT] NULL compile; nvl and nvl2 arrive through their replacements") {

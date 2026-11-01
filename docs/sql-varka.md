@@ -696,6 +696,10 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `least(i, -7)` | `intArithmetic` |  |  | vector |
 | `greatest(i, -2147483648)` | `intArithmetic` |  | the int minimum beside a null is the minimum, not a null | vector |
 | `least(i, 2147483647)` | `intArithmetic` |  | the int maximum beside a null | vector |
+| `greatest(i, CAST(NULL AS INT))` | `intArithmetic` |  | a NULL operand is the null leaf, which the pick skips as it skips a null column: the answer is i, and null only where i is | vector |
+| `least(i, NULL, -2147483648)` | `intArithmetic` |  | the null leaf beside the int minimum | vector |
+| `greatest(d, NULL, d2)` | `intArithmetic` |  |  | vector |
+| `least(ym, NULL)` | `intArithmetic` |  |  | vector |
 | `nvl2(d, i, 0)` | `predicate`, `condition` |  | rewritten to if(d IS NOT NULL, i, 0) | vector |
 | `CASE WHEN d < d2 THEN i END` | `predicate`, `condition` |  | the missing ELSE is the null of the int lane | vector |
 | `if(d < d2, i, NULL)` | `predicate`, `condition` |  |  | vector |
@@ -716,14 +720,17 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `nvl2(l2, l, l2)` | `predicate`, `condition` |  |  | per-lane: blend, mask broadcast |
 | `greatest(l, -9223372036854775808L)` | `intArithmetic` |  | the bigint minimum beside a null | per-lane: blend, mask broadcast |
 | `least(l, 9223372036854775807L)` | `intArithmetic` |  | the bigint maximum beside a null | per-lane: blend, mask broadcast |
+| `greatest(l, NULL, -9223372036854775808L)` | `intArithmetic` |  | the null leaf of the long lane beside the bigint minimum | per-lane: blend, mask broadcast |
 | `CASE WHEN t < t2 THEN t END` | `predicate`, `condition` |  |  | per-lane: compare to mask, mask cast, blend, mask broadcast |
 | `nullif(t, t2)` | `predicate`, `condition` |  |  | per-lane: compare to mask, mask cast, blend, mask broadcast |
 | `nvl2(t2, t, t2)` | `predicate`, `condition` |  |  | per-lane: blend, mask broadcast |
 | `greatest(t, TIME '00:00:00')` | `intArithmetic` |  | the first TIME beside a null | per-lane: blend, mask broadcast |
 | `least(t, TIME '23:59:59.999999')` | `intArithmetic` |  | the last TIME beside a null | per-lane: blend, mask broadcast |
+| `least(t, NULL)` | `intArithmetic` |  |  | per-lane: blend, mask broadcast |
 | `CASE WHEN dt < dt2 THEN dt END` | `predicate`, `condition` |  |  | per-lane: compare to mask, mask cast, blend, mask broadcast |
 | `nullif(dt, dt2)` | `predicate`, `condition` |  |  | per-lane: compare to mask, mask cast, blend, mask broadcast |
 | `nvl2(dt2, dt, dt2)` | `predicate`, `condition` |  |  | per-lane: blend, mask broadcast |
+| `greatest(dt, NULL)` | `intArithmetic` |  |  | per-lane: blend, mask broadcast |
 
 #### BETWEEN on every type
 
@@ -893,19 +900,19 @@ operands (a row counts once for each type it reads):
 <!-- BEGIN generated verification counts -->
 | Type | Rows | refinement | proof | exhaustive | owed | differential |
 | :--- | ---: | ---: | ---: | ---: | ---: | ---: |
-| `bigint` | 57 | 0 | 2 | 0 | 2 | 53 |
+| `bigint` | 58 | 0 | 2 | 0 | 2 | 54 |
 | `bool` | 23 | 0 | 0 | 13 | 0 | 10 |
 | `byte` | 26 | 0 | 0 | 0 | 8 | 18 |
-| `date` | 100 | 17 | 0 | 1 | 0 | 82 |
+| `date` | 101 | 17 | 0 | 1 | 0 | 83 |
 | `dec` | 17 | 0 | 0 | 0 | 0 | 17 |
 | `double` | 20 | 0 | 0 | 0 | 0 | 20 |
-| `dt` | 24 | 2 | 0 | 0 | 0 | 22 |
+| `dt` | 25 | 2 | 0 | 0 | 0 | 23 |
 | `float` | 20 | 0 | 0 | 0 | 0 | 20 |
-| `int` | 91 | 14 | 2 | 0 | 1 | 74 |
+| `int` | 93 | 14 | 2 | 0 | 1 | 76 |
 | `ntz` | 24 | 0 | 1 | 0 | 0 | 23 |
 | `short` | 25 | 0 | 0 | 0 | 8 | 17 |
-| `time` | 40 | 6 | 0 | 0 | 2 | 32 |
-| `ym` | 34 | 7 | 2 | 0 | 2 | 23 |
+| `time` | 41 | 6 | 0 | 0 | 2 | 33 |
+| `ym` | 35 | 7 | 2 | 0 | 2 | 24 |
 <!-- END generated verification counts -->
 
 ## Glossary

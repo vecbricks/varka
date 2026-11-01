@@ -21,6 +21,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Random;
+import java.util.function.Supplier;
 
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.AddDays;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.AddMonths;
@@ -412,6 +413,31 @@ public final class VarkaIrGrammar {
     return new Gen(new GuardedRange(a.node(), lo, hi, Overflow.NULL), a.bound());
   }
 
+  /**
+   * A choice with the lane's null ({@link NullValue}), the nulling draw's four positions for it
+   * (VARKA-333): the missing ELSE of a {@code CASE WHEN} ({@code IF(c, a, NULL)}), the null
+   * branch of {@code nullif} ({@code IF(c, NULL, a)}), an operand of {@code greatest} or
+   * {@code least}, which skip it, and the null twice in one tree,
+   * {@code CASE WHEN c THEN NULL WHEN c2 THEN a END}, whose two equal leaves CSE counts twice and
+   * never shares (Slots), so the walk emits each. {@code second} draws {@code c2}, and only for
+   * the last. The null leaves' bound is 0, so each shape's is {@code a}'s.
+   */
+  static Gen nullChoice(Random rnd, Cond c, Gen a, LaneType lane, Supplier<Cond> second) {
+    var nul = new NullValue(lane);
+    VarkaVectorIR node = switch (rnd.nextInt(4)) {
+      case 0 -> new IfElse(c, a.node(), nul);
+      case 1 -> new IfElse(c, nul, a.node());
+      case 2 -> {
+        boolean first = rnd.nextBoolean();
+        VarkaVectorIR l = first ? nul : a.node();
+        VarkaVectorIR r = first ? a.node() : nul;
+        yield rnd.nextBoolean() ? new Greatest(l, r) : new Least(l, r);
+      }
+      default -> new IfElse(c, nul, new IfElse(second.get(), a.node(), nul));
+    };
+    return new Gen(node, a.bound());
+  }
+
   /** {@code roots} without repeats, each kept where it first appears. */
   private static List<VarkaVectorIR> distinct(List<VarkaVectorIR> roots) {
     return List.copyOf(new LinkedHashSet<>(roots));
@@ -681,12 +707,13 @@ public final class VarkaIrGrammar {
         case 5: {
           Cond c = cond(depth - 1);
           Gen a = value(depth - 1);
-          Gen b = value(depth - 1);
-          // In the nulling draw, one in four chooses against the lane's null, the missing ELSE
-          // of a CASE WHEN (VARKA-333); the committed draws take nothing more here.
+          // In the nulling draw, one in four is a choice with the lane's null (VARKA-333),
+          // decided before the second branch is drawn; the committed draws never take the test,
+          // so they draw exactly what they always have.
           if (nullingGuards && rnd.nextInt(4) == 0) {
-            return new Gen(new IfElse(c, a.node(), new NullValue(LaneType.INT)), a.bound());
+            return nullChoice(rnd, c, a, LaneType.INT, () -> cond(depth - 1));
           }
+          Gen b = value(depth - 1);
           return new Gen(new IfElse(c, a.node(), b.node()), Math.max(a.bound(), b.bound()));
         }
         case 6:
@@ -1184,10 +1211,10 @@ public final class VarkaIrGrammar {
         default: {
           Cond c = cond(depth - 1);
           Gen a = value(depth - 1);
-          Gen b = value(depth - 1);
           if (nullingGuards && rnd.nextInt(4) == 0) {
-            return new Gen(new IfElse(c, a.node(), new NullValue(LaneType.LONG)), a.bound());
+            return nullChoice(rnd, c, a, LaneType.LONG, () -> cond(depth - 1));
           }
+          Gen b = value(depth - 1);
           return new Gen(new IfElse(c, a.node(), b.node()), Math.max(a.bound(), b.bound()));
         }
       }

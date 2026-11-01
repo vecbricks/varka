@@ -479,7 +479,7 @@ class VarkaKernelEvaluatorSuite extends QueryTest with SharedSparkSession with V
       Alias(DateAdd(attrD, Literal(1)), "fused")())
     val coalesceLines = VarkaFusionReport.lines(computed, childOutput)
     assert(coalesceLines(0).contains(
-      "coalesce operand before the last is not a bare date column"), coalesceLines(0))
+      "coalesce operand before the last is not a bare column"), coalesceLines(0))
   }
 
   // ---------------------------------------------------------------------------------------------

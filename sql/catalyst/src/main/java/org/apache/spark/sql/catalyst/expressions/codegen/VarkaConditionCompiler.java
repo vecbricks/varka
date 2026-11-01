@@ -42,12 +42,14 @@ import org.apache.spark.sql.catalyst.expressions.EqualTo;
 import org.apache.spark.sql.catalyst.expressions.Expression;
 import org.apache.spark.sql.catalyst.expressions.GreaterThan;
 import org.apache.spark.sql.catalyst.expressions.GreaterThanOrEqual;
+import org.apache.spark.sql.catalyst.expressions.Greatest;
 import org.apache.spark.sql.catalyst.expressions.If;
 import org.apache.spark.sql.catalyst.expressions.In;
 import org.apache.spark.sql.catalyst.expressions.InSet;
 import org.apache.spark.sql.catalyst.expressions.IsNaN;
 import org.apache.spark.sql.catalyst.expressions.IsNotNull;
 import org.apache.spark.sql.catalyst.expressions.IsNull;
+import org.apache.spark.sql.catalyst.expressions.Least;
 import org.apache.spark.sql.catalyst.expressions.LessThan;
 import org.apache.spark.sql.catalyst.expressions.LessThanOrEqual;
 import org.apache.spark.sql.catalyst.expressions.Literal;
@@ -69,9 +71,6 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.InR
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LaneType;
 import org.apache.spark.sql.types.DataType;
 import org.apache.spark.sql.types.DataTypes;
-import org.apache.spark.sql.types.DayTimeIntervalType;
-import org.apache.spark.sql.types.TimeType;
-import org.apache.spark.sql.types.YearMonthIntervalType;
 
 /**
  * Two families of the compiler, each with its own switch (VARKA-318). The predicate family is the
@@ -123,9 +122,10 @@ final class VarkaConditionCompiler {
       // Coalesce right-folds onto the validity condition: `coalesce(a, b)` is
       // `IfElse(IsNotNull(a), a, b)`, whose masked validity - (kT & valid(a)) | (~kT & valid(b))
       // with kT = valid(a) - reduces to valid(a) | valid(b), exactly SQL's coalesce. Every
-      // operand before the last must be a bare date column (the IsNotNull child restriction);
-      // `nvl`/`ifnull` arrive here already rewritten to Coalesce by the optimizer, and `nvl2`
-      // arrives as `If(IsNotNull(...), ...)` and rides the same condition node.
+      // operand before the last must be a bare column read as plain values, of any lane - a
+      // decimal column, its own node, is not one (the IsNotNull child restriction); `nvl`/`ifnull`
+      // arrive here already rewritten to Coalesce by the optimizer, and `nvl2` arrives as
+      // `If(IsNotNull(...), ...)` and rides the same condition node.
       case Coalesce c when c.children().nonEmpty() ->
           () -> compileCoalesce(c, CollectionConverters.asJava(c.children()), 0, inputs,
               literals, sink);
@@ -253,29 +253,56 @@ final class VarkaConditionCompiler {
       VarkaSlotTable inputs,
       VarkaSlotTable literals,
       DeclineSink sink) {
-    if (e instanceof Literal l && l.value() == null) {
-      return nullLeaf(l, sink);
+    if (isNullLiteral(e)) {
+      return nullLeaf(e, sink);
     }
     if (DataTypes.IntegerType.equals(whole.dataType())) {
       return VarkaNodeCompiler.compileIntOperand(
-          e, "an operand of an int " + whole.prettyName(), inputs, literals, sink);
+          e, intChoicePosition(whole), inputs, literals, sink);
     }
     return VarkaNodeCompiler.compileNode(e, inputs, literals, sink);
   }
 
   /**
+   * The position {@link #choiceValue} names when an int choice's value is not an int: a branch
+   * of {@code IF} or {@code CASE} (its {@code ELSE} included), an operand of {@code COALESCE},
+   * {@code GREATEST} or {@code LEAST}, written with the SQL keyword. Only those five reach
+   * {@code choiceValue}, so another expression is a caller's error.
+   */
+  private static String intChoicePosition(Expression whole) {
+    return switch (whole) {
+      case If i -> "a branch of an int IF";
+      case CaseWhen c -> "a branch of an int CASE";
+      case Coalesce c -> "an operand of an int COALESCE";
+      case Greatest g -> "an operand of an int GREATEST";
+      case Least l -> "an operand of an int LEAST";
+      default -> throw VarkaErrors.illegalState(
+          "a choice value of " + whole.nodeName() + ", which is no choice");
+    };
+  }
+
+  /**
    * The null of {@code e}'s type as a value ({@link VarkaVectorIR.NullValue}): the missing ELSE
    * of a {@code CASE WHEN}, or a {@code NULL} literal at a choice's position. It exists for the
-   * six types the int and long lanes carry as plain values, {@code DATE}, {@code INT}, the
-   * year-month interval, {@code BIGINT}, {@code TIME} and the day-time interval; any other type
-   * declines with its name, until the row that adds the type's choices tests its null.
+   * six types the int and long lanes carry as plain values; every other type declines with its
+   * name, until the row that adds the type's choices tests its null (VARKA-333.md section 9,
+   * open point 3).
    */
   private static Optional<VarkaVectorIR> nullLeaf(Expression e, DeclineSink sink) {
     DataType t = e.dataType();
-    boolean plain = DataTypes.DateType.equals(t) || DataTypes.IntegerType.equals(t)
-        || DataTypes.LongType.equals(t) || t instanceof YearMonthIntervalType
-        || t instanceof DayTimeIntervalType || t instanceof TimeType;
-    Optional<LaneType> lane = plain ? VarkaTypes.lane(t) : Optional.empty();
+    Optional<LaneType> lane = VarkaTypes.of(t).flatMap(id -> switch (id) {
+      case DATE, INT, YM_INTERVAL -> Optional.of(LaneType.INT);
+      case LONG, TIME, DT_INTERVAL -> Optional.of(LaneType.LONG);
+      // A boolean choice is a condition, whose null is CondConst's, not a value's.
+      case BOOLEAN -> Optional.empty();
+      // The narrow and floating lanes: NullValue refuses them until their emission is tested.
+      case BYTE, SHORT, FLOAT, DOUBLE -> Optional.empty();
+      // A decimal to precision 18 and an NTZ ride the long lane, but their own rows add their
+      // choices' null and its coverage rows.
+      case DECIMAL, TIMESTAMP_NTZ -> Optional.empty();
+      // No lane reads it as values.
+      case TIMESTAMP -> Optional.empty();
+    });
     if (lane.isEmpty()) {
       return sink.decline("no null leaf for type " + t.simpleString()
           + (e instanceof CaseWhen ? ", the missing ELSE of a CASE WHEN" : ""), e);
@@ -579,13 +606,15 @@ final class VarkaConditionCompiler {
 
   /**
    * The Coalesce right-fold from operand {@code from}. Every operand except the last compiles and
-   * must be a bare date column: {@code IsNotNull} reads the per-input validity word, which only a
-   * column has before value emission (the recorded milestone-3 restriction) - a computed operand
-   * declines with its own reason. The {@code ColumnRef} match below is a proxy for "this operand
-   * is a bare column" that is exact only because every {@code compileNode} arm producing a
-   * {@code ColumnRef} today is either an actual column read or a null-intolerant identity relabel
-   * ({@code unix_date}/{@code date_from_unix_date} and the identity date {@code Cast}) - a future
-   * relabel that changes nullability or value would silently break this guard.
+   * must be a bare column the lanes read as plain values ({@code ColumnRef}), whatever its lane,
+   * so a decimal column ({@code DecimalColumn}) is not one: {@code IsNotNull} reads the per-input
+   * validity word, which only a column has before value emission (the recorded milestone-3
+   * restriction) - a computed operand, or a {@code NULL} literal, declines with its own reason.
+   * The {@code ColumnRef} match below is a proxy for "this operand is a bare column" that is
+   * exact only because every {@code compileNode} arm producing a {@code ColumnRef} today is either
+   * an actual column read or a null-intolerant identity relabel ({@code unix_date}/{@code
+   * date_from_unix_date} and the identity date {@code Cast}) - a future relabel that changes
+   * nullability or value would silently break this guard.
    */
   private static Optional<VarkaVectorIR> compileCoalesce(
       Expression whole,
@@ -610,7 +639,7 @@ final class VarkaConditionCompiler {
       }
       return Optional.of(new IfElse(new VarkaVectorIR.IsNotNull(ref), ref, rest.get()));
     }
-    return sink.decline("coalesce operand before the last is not a bare date column", head);
+    return sink.decline("coalesce operand before the last is not a bare column", head);
   }
 
   /** Whether {@code t} is {@code FLOAT} or {@code DOUBLE}. */
