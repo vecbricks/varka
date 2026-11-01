@@ -528,3 +528,12 @@ null-test filter, so a Varka projection beside a row operator gives no class, ne
 floating, floating arithmetic and `TIMESTAMP_NTZ` suites now assert each section's class in every
 build too, under `PinsDefaults` as the decimal and `TIMESTAMP_NTZ` arithmetic suites do, and every
 listed class matched its plan.
+
+**Two more baselines, from master.** The floating cast and integral cast baselines (VARKA-343,
+VARKA-332) came in with merges of master still stating a boolean flag per section, which the
+removed overload no longer took, so the branch's `sql` tests did not compile after the first of
+those merges. Both now state a class per section, every one `NONE` but the integral cast
+baseline's control, `WHOLE`, and their suites assert each section's class under `PinsDefaults` as
+the other five do; every listed class matched its plan. The merge of VARKA-339 also made the
+arithmetic chain of both `TIMESTAMP_NTZ` baselines and the arithmetic baseline's interval column
+sum fused sections, and their class is `WHOLE`, which their suites' checks confirm.
