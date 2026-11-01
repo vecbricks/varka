@@ -238,7 +238,14 @@ if [ "${1:-}" = "--install-hook" ]; then
   attributes="$(git rev-parse --git-common-dir)/info/attributes"
   mkdir -p "$(dirname "$attributes")"
   rule='docs/sql-varka.md merge=varka-generated'
-  grep -qxF "$rule" "$attributes" 2>/dev/null || echo "$rule" >> "$attributes"
+  # A file someone else wrote may lack its final newline, and the rule would join its last
+  # line; any rule already naming the docs file's merge, however spaced, is kept as it is.
+  if ! grep -qE '^docs/sql-varka\.md[[:space:]]+merge=' "$attributes" 2>/dev/null; then
+    if [ -s "$attributes" ] && [ -n "$(tail -c1 "$attributes")" ]; then
+      echo >> "$attributes"
+    fi
+    echo "$rule" >> "$attributes"
+  fi
   echo "installed the varka-generated merge driver and $attributes"
   exit 0
 fi

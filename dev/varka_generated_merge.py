@@ -19,6 +19,7 @@
 
   dev/varka_generated_merge.py driver BASE OURS THEIRS PATH  # the git merge driver
   dev/varka_generated_merge.py --check      # fail on a generated file missing a coverage row
+  dev/varka_generated_merge.py --check --no-audit  # the same, the width audit left owed
   dev/varka_generated_merge.py --self-test  # the merge's cases, in a temporary repository
 
 Every type row regenerates the same few files - coverage.json, emitted_bytes.json,
@@ -28,14 +29,18 @@ added rows (VARKA-546). Most of each file is per row: a coverage expression keye
 a row's method digests, a shape's width-audit refusals, a TSV row keyed by its leading columns.
 This driver merges those parts per key, exactly, and writes the file back in the form the suite
 writes (Jackson's pretty printer for the JSON files, which `render_json` reproduces byte for
-byte). What it cannot compute - a digest over every row (`option_arms`), the docs file's
-counts, two rows added at the same place in a list whose order the suite's source decides - it
-writes from one side, chosen so that the result is the same whichever side is "ours", and
-lists as owed: on stderr, and in `$(git rev-parse --git-path varka-regen-owed)`, which
-`dev/varka_regen_generated.sh` reads to run only the owed regenerations, in order.
+byte). Only the structures a suite's writer sorts (`RULES`) are merged as sorted; every other
+list keeps its sides' order. What it cannot compute - a digest over every row (`option_arms`),
+a docs block both sides changed, two rows added at the same place in a list whose order the
+suite's source decides, a value list inside one row that both sides changed, a TSV header both
+sides changed, a file whose keys repeat - it writes from one side, chosen so that the result
+is the same whichever side is "ours", and lists as owed: on stderr, and in
+`$(git rev-parse --git-path varka-regen-owed)`, which `dev/varka_regen_generated.sh` reads to
+run only the owed regenerations, in order.
 
 So a generated file never ends a merge with conflict markers. A conflict in the docs file's
-prose, outside its generated blocks, is a real one and is left with its markers.
+prose, outside its generated blocks, is a real one and is left with its markers, and so is any
+conflict in a file the driver cannot read or fails on, which it hands to git's text merge.
 
 Installed by `dev/varka_precommit.sh --install-hook`; `sql/varka/.gitattributes` names the
 files. `--check` is the CI half: the width audit's own check is cancelled on any CPU but the
@@ -44,6 +49,7 @@ file's host, so CI could not see a width audit (or a bytes file) missing a cover
 
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -94,6 +100,12 @@ class Owed:
         self.paths.append(path or "<root>")
 
 
+def show(path, suffix=""):
+    """A path (a tuple of keys) as the dotted text the owed list prints."""
+    text = ".".join(str(k) for k in path)
+    return f"{text} ({suffix})" if text and suffix else text or suffix
+
+
 def canon(value):
     return json.dumps(value, sort_keys=True, ensure_ascii=False)
 
@@ -107,7 +119,42 @@ def is_sorted(keys):
     return all(a < b for a, b in zip(keys, keys[1:]))
 
 
-def merge_value(base, ours, theirs, path, owed):
+class Rules:
+    """Which structures of one file its writer sorts, as path patterns: a tuple of regular
+    expressions, one per key of the path, each matching the whole key. Only a declared
+    structure is merged as sorted; any other keeps the anchor placement below, however its keys
+    happen to fall, since two short key lists can be sorted by coincidence."""
+
+    def __init__(self, sorted_maps=(), sorted_sets=()):
+        self.sorted_maps = sorted_maps
+        self.sorted_sets = sorted_sets
+
+    @staticmethod
+    def _matches(patterns, path):
+        return any(
+            len(p) == len(path) and all(re.fullmatch(r, str(k)) for r, k in zip(p, path))
+            for p in patterns
+        )
+
+    def sorted_map(self, path):
+        return self._matches(self.sorted_maps, path)
+
+    def sorted_set(self, path):
+        return self._matches(self.sorted_sets, path)
+
+
+# What each file's writer sorts: the width audit's per-width shape maps
+# (`VarkaWidthAuditSuite`, `verdicts(census).toSeq.sortBy(_._1)`) and the coverage table's
+# admitted classes (`VarkaCoverageSuite`, `.toSeq.sorted`). A row's own value lists (a coverage
+# row's `catalyst` or `switches`, a shape's refusals) are sorted too, but they are values of one
+# row: both sides changing one is owed, never a union.
+RULES = {
+    "width_audit.json": Rules(sorted_maps=((r"widths", r"\d+"),)),
+    "coverage.json": Rules(sorted_sets=((r"catalyst_classes_admitted",),)),
+}
+
+
+def merge_value(base, ours, theirs, path, owed, rules):
     """Three-way merge of one JSON value; `base` is MISSING when both sides added it."""
     if canon(ours) == canon(theirs):
         return ours
@@ -126,6 +173,7 @@ def merge_value(base, ours, theirs, path, owed):
             make=lambda k, v: (k, v),
             path=path,
             owed=owed,
+            rules=rules,
         )
         return dict(items)
     if isinstance(ours, list) and isinstance(theirs, list):
@@ -141,55 +189,64 @@ def merge_value(base, ours, theirs, path, owed):
                 make=lambda k, v: v,
                 path=path,
                 owed=owed,
+                rules=rules,
             )
-        if all(isinstance(x, str) for x in every) and all(is_sorted(s) for s in (b, ours, theirs)):
+        if (
+            rules.sorted_set(path)
+            and all(isinstance(x, str) for x in every)
+            and all(is_sorted(s) for s in (b, ours, theirs))
+        ):
             # A sorted set (`catalyst_classes_admitted`): a three-way set merge, kept sorted.
             bs, os_, ts = set(b), set(ours), set(theirs)
             return sorted((bs & os_ & ts) | (os_ - bs) | (ts - bs))
-    owed.add(path)
+    owed.add(show(path))
     return pick(ours, theirs)
 
 
-def merge_seq(base, ours, theirs, key, value, make, path, owed):
+def merge_seq(base, ours, theirs, key, value, make, path, owed, rules):
     """Three-way merge of an ordered sequence of keyed entries.
 
     Entries in all three merge by value; an entry one side deleted is dropped unless the other
     changed it; each side's additions follow the base entry that precedes them on that side.
-    Where both sides add after the same base entry, the two groups go in the order of their
-    first keys, so the result does not depend on which side is ours, and the place is owed
-    unless every side's keys are sorted, when the result is sorted too.
+    Where both sides add after the same base entry, the two groups go in the order of the
+    groups themselves (their first differing key), so the result does not depend on which side
+    is ours, and the place is owed - unless the file's writer sorts this structure (`Rules`)
+    and every side's keys are sorted, when the result is sorted too. A side whose keys repeat
+    is not a keyed sequence: the whole sequence is owed and taken from one side.
     """
-    bmap = {key(e): value(e) for e in base}
-    omap = {key(e): value(e) for e in ours}
-    tmap = {key(e): value(e) for e in theirs}
     bkeys = [key(e) for e in base]
     okeys = [key(e) for e in ours]
     tkeys = [key(e) for e in theirs]
+    if any(len(set(s)) != len(s) for s in (bkeys, okeys, tkeys)):
+        owed.add(show(path, "keys not unique"))
+        return pick(ours, theirs)
+    bmap = {key(e): value(e) for e in base}
+    omap = {key(e): value(e) for e in ours}
+    tmap = {key(e): value(e) for e in theirs}
     merged = {}
     for k in bkeys:
-        sub = f"{path}.{k}" if path else str(k)
+        sub = path + (k,)
         in_o, in_t = k in omap, k in tmap
         if in_o and in_t:
-            merged[k] = merge_value(bmap[k], omap[k], tmap[k], sub, owed)
+            merged[k] = merge_value(bmap[k], omap[k], tmap[k], sub, owed, rules)
         elif in_o and canon(omap[k]) != canon(bmap[k]):
-            owed.add(sub)
+            owed.add(show(sub))
             merged[k] = omap[k]
         elif in_t and canon(tmap[k]) != canon(bmap[k]):
-            owed.add(sub)
+            owed.add(show(sub))
             merged[k] = tmap[k]
     for k in okeys + tkeys:
         if k in bmap or k in merged:
             continue
-        sub = f"{path}.{k}" if path else str(k)
         if k in omap and k in tmap:
-            merged[k] = merge_value(MISSING, omap[k], tmap[k], sub, owed)
+            merged[k] = merge_value(MISSING, omap[k], tmap[k], path + (k,), owed, rules)
         else:
             merged[k] = omap[k] if k in omap else tmap[k]
     for side in (okeys, tkeys):
         kept = [k for k in side if k in bmap]
         if kept != [k for k in bkeys if k in set(kept)]:
-            owed.add(f"{path} (order)" if path else "order")
-    if all(is_sorted(s) for s in (bkeys, okeys, tkeys)):
+            owed.add(show(path, "order"))
+    if rules.sorted_map(path) and all(is_sorted(s) for s in (bkeys, okeys, tkeys)):
         order = sorted(merged)
     else:
         groups = {}
@@ -206,8 +263,11 @@ def merge_seq(base, ours, theirs, key, value, make, path, owed):
         def place(anchor):
             o, t = groups.get(anchor, [[], []])
             if o and t and o != t:
-                owed.add(f"{path} (order after {anchor})" if path else f"order after {anchor}")
-                first, second = (o, t) if o[0] <= t[0] else (t, o)
+                owed.add(show(path, f"order after {anchor}"))
+                # The whole groups, compared from their first differing key, so that two
+                # groups starting with the same key (both sides added it) still order the same
+                # whichever side is ours.
+                first, second = (o, t) if o <= t else (t, o)
             else:
                 first, second = o or t, []
             for k in first + second:
@@ -224,32 +284,60 @@ def merge_seq(base, ours, theirs, key, value, make, path, owed):
     return [make(k, merged[k]) for k in order]
 
 
-def merge_json(base_text, ours_text, theirs_text, owed):
-    base = json.loads(base_text) if base_text.strip() else {}
-    merged = merge_value(base, json.loads(ours_text), json.loads(theirs_text), "", owed)
+def reject_duplicates(pairs):
+    """A JSON object with a repeated key is not the suites' form: `json.loads` would keep one
+    value silently, so the driver falls back to a text merge instead."""
+    keys = [k for k, _ in pairs]
+    if len(set(keys)) != len(keys):
+        raise ValueError("an object repeats a key")
+    return dict(pairs)
+
+
+def merge_json(base_text, ours_text, theirs_text, owed, rules):
+    def load(text):
+        return json.loads(text, object_pairs_hook=reject_duplicates)
+
+    base = load(base_text) if base_text.strip() else {}
+    merged = merge_value(base, load(ours_text), load(theirs_text), (), owed, rules)
     return render_json(merged) + "\n"
 
 
-# The leading columns that key a row of each generated TSV.
-TSV_KEYS = {"types.tsv": 1, "census.tsv": 1, "casts.tsv": 2, "casts_fused.tsv": 2}
+# The leading columns that key a row of each generated TSV: the columns unique in the committed
+# file, which `merge_tsv` checks again on every side of every merge. `casts_fused.tsv` has one
+# row per form pair of a cast, so (from, to) repeats and its key takes the two type columns too.
+TSV_KEYS = {"types.tsv": 1, "census.tsv": 1, "casts.tsv": 2, "casts_fused.tsv": 4}
 
 
 def merge_tsv(base_text, ours_text, theirs_text, key_columns, owed):
-    """The same merge over a TSV's rows; the comment lines and the header are one value."""
+    """The same merge over a TSV's rows. The comment lines and the header are text, merged
+    whole: when they differ between two sides that both changed the file, or any side has a
+    comment among its rows or a repeated key, the file is owed and written from one side,
+    since rows under two headers are not one table. No writer sorts its TSV, so the rows keep
+    the anchor placement."""
+    if ours_text == theirs_text or base_text == theirs_text:
+        return ours_text
+    if base_text == ours_text:
+        return theirs_text
 
     def split(text):
         lines = text.splitlines()
         n = 0
         while n < len(lines) and lines[n].startswith("#"):
             n += 1
-        head = lines[: n + 1]
-        rows = [(tuple(r.split("\t")[:key_columns]), r) for r in lines[n + 1 :]]
-        return head, rows
+        head, body = lines[: n + 1], lines[n + 1 :]
+        if any(r.startswith("#") for r in body):
+            return head, None
+        return head, [(tuple(r.split("\t")[:key_columns]), r) for r in body]
 
-    bh, br = split(base_text)
+    _, br = split(base_text)
     oh, orows = split(ours_text)
     th, trows = split(theirs_text)
-    head = merge_value(bh, oh, th, "header", owed)
+    # Both sides changed the file, so a header or comment that differs between them is a
+    # change one side made under rows the other side wrote to the old header.
+    if oh != th or None in (br, orows, trows):
+        owed.add("the file, whose header or comments a side changed")
+        return pick(ours_text, theirs_text)
+    head = oh
     rows = merge_seq(
         br,
         orows,
@@ -257,10 +345,37 @@ def merge_tsv(base_text, ours_text, theirs_text, key_columns, owed):
         key=lambda e: e[0],
         value=lambda e: e[1],
         make=lambda k, v: v,
-        path="",
+        path=(),
         owed=owed,
+        rules=Rules(),
     )
+    if rows and not isinstance(rows[0], str):
+        # A repeated key: merge_seq took one side's entries whole.
+        rows = [r for _, r in rows]
     return "\n".join(head + rows) + "\n"
+
+
+def merge_text(name, base_text, ours_text, theirs_text, owed):
+    """The merge of one generated JSON or TSV file, chosen by its file name."""
+    if name.endswith(".json"):
+        return merge_json(base_text, ours_text, theirs_text, owed, RULES.get(name, Rules()))
+    return merge_tsv(base_text, ours_text, theirs_text, TSV_KEYS[name], owed)
+
+
+def generated_blocks(path):
+    """The text of each `BEGIN generated` block of a docs file, by the block's name."""
+    with open(path, encoding="utf-8") as f:
+        lines = f.read().splitlines(keepends=True)
+    blocks, name = {}, None
+    for line in lines:
+        if line.startswith("<!-- END generated"):
+            name = None
+        elif name is not None:
+            blocks[name] += line
+        elif line.startswith("<!-- BEGIN generated"):
+            name = line.strip()[len("<!-- BEGIN generated") : -len("-->")].strip()
+            blocks[name] = ""
+    return blocks
 
 
 def merge_docs(base_path, ours_path, theirs_path, owed):
@@ -291,6 +406,14 @@ def merge_docs(base_path, ours_path, theirs_path, owed):
     )
     if proc.returncode < 0 or proc.returncode > 127:
         raise RuntimeError(proc.stderr)
+    # A block both sides changed is owed even when merge-file merged it cleanly: its lines are
+    # rendered from every row (the verification counts), so a line-wise union of two renders is
+    # neither side's, nor the merged rows'.
+    blocks = [generated_blocks(p) for p in (base_path, ours_path, theirs_path)]
+    for name in sorted(set().union(*blocks)):
+        b, o, t = (x.get(name) for x in blocks)
+        if o != b and t != b and o != t:
+            owed.add(f"generated block {name}")
     out, real = [], False
     in_block = False
     lines = proc.stdout.splitlines(keepends=True)
@@ -349,18 +472,22 @@ def driver(base_path, ours_path, theirs_path, repo_path):
             # Both sides moved the coverage table: the census reads it, so it is owed even when
             # every row merged exactly.
             owed.add("the census, which reads coverage.json")
-        if name.endswith(".json"):
-            text = merge_json(read(base_path), read(ours_path), read(theirs_path), owed)
-        elif name in TSV_KEYS:
-            text = merge_tsv(
-                read(base_path), read(ours_path), read(theirs_path), TSV_KEYS[name], owed
-            )
+        if (
+            name in ("census.tsv", "casts.tsv")
+            and len({read(base_path), read(ours_path), read(theirs_path)}) == 3
+        ):
+            # Rendered from the inputs by dev/varka_census.py, which rewrites it in a second.
+            owed.add("the census, rendered from its inputs")
+        if name.endswith(".json") or name in TSV_KEYS:
+            text = merge_text(name, read(base_path), read(ours_path), read(theirs_path), owed)
         elif name.endswith(".md"):
             text, real = merge_docs(base_path, ours_path, theirs_path, owed)
         else:
             raise ValueError(f"no merge rule for {repo_path}")
-    except (ValueError, KeyError, IndexError) as e:
-        # A side that is not the generated form (markers, hand edits): git's text merge.
+    except Exception as e:
+        # A side that is not the generated form (markers, hand edits), or any fault of this
+        # driver: git's text merge, which leaves markers where it conflicts, so a merge never
+        # ends on a clean-looking file the driver did not finish.
         print(f"varka merge: {repo_path}: {e}; falling back to a text merge", file=sys.stderr)
         return subprocess.run(
             [
@@ -401,8 +528,9 @@ AUDIT_REGEN = "VARKA_AUDIT_REGEN=true build/sbt 'catalyst/testOnly *VarkaWidthAu
 BYTES_REGEN = "VARKA_BYTES_REGEN=true build/sbt 'catalyst/testOnly *VarkaEmittedBytesSuite'"
 
 
-def check(root):
-    """The coverage rows every per-row generated file must carry, read without a JVM."""
+def check(root, audit=True):
+    """The coverage rows every per-row generated file must carry, read without a JVM. With
+    `audit` false the width audit is not read: a regeneration on another CPU left it owed."""
 
     def load(rel):
         with open(os.path.join(root, rel), encoding="utf-8") as f:
@@ -410,12 +538,13 @@ def check(root):
 
     coverage = load("sql/varka/coverage.json")
     rows = [e["sql"] for e in coverage["expressions"]]
+    row_set = set(rows)
     errors = []
-    audit = load("sql/varka/width_audit.json")
-    host = audit.get("host", {}).get("cpu", "?")
-    for width, shapes in audit["widths"].items():
+    widths = load("sql/varka/width_audit.json") if audit else {"widths": {}}
+    host = widths.get("host", {}).get("cpu", "?")
+    for width, shapes in widths["widths"].items():
         missing = [r for r in rows if r not in shapes]
-        extra = [s for s in shapes if s not in rows and not s.startswith("construction: ")]
+        extra = [s for s in shapes if s not in row_set and not s.startswith("construction: ")]
         if missing or extra:
             errors.append(
                 f"sql/varka/width_audit.json at {width} bits is stale: "
@@ -425,12 +554,14 @@ def check(root):
                 + f". Regenerate it on its host ({host}) with\n  {AUDIT_REGEN}"
             )
     emitted = load("sql/varka/emitted_bytes.json")
-    expected = [r for r in rows if r not in set(emitted.get("coverage_rows_skipped", []))]
+    skipped = set(emitted.get("coverage_rows_skipped", []))
+    expected = [r for r in rows if r not in skipped]
+    expected_set = set(expected)
     for lanes, sections in emitted["lanes"].items():
         have = sections.get("coverage", {})
         if list(have) != expected:
             missing = [r for r in expected if r not in have]
-            extra = [r for r in have if r not in expected]
+            extra = [r for r in have if r not in expected_set]
             what = (
                 f"no digests for {missing[:3]}"
                 if missing
@@ -469,43 +600,53 @@ def self_test():
             failed += 1
             print("self-test FAILED: " + what, file=sys.stderr)
 
+    def merged(name, b, o, t):
+        """`merge_text` on JSON values or TSV texts, with what it owed."""
+        owed = Owed()
+        if name.endswith(".json"):
+            b, o, t = (render_json(x) + "\n" for x in (b, o, t))
+            return json.loads(merge_text(name, b, o, t, owed)), owed.paths
+        return merge_text(name, b, o, t, owed), owed.paths
+
     # Per-key merges, in both orders.
     # The coverage table's rows are in the suite's order, not sorted.
     base = {
         "expressions": [{"sql": "z", "v": 1}, {"sql": "a", "v": 1}],
         "arms": {"x": "0"},
-        "classes": ["A", "C"],
+        "catalyst_classes_admitted": ["A", "C"],
     }
     left = {
         "expressions": [{"sql": "z", "v": 1}, {"sql": "b", "v": 2}, {"sql": "a", "v": 1}],
         "arms": {"x": "1"},
-        "classes": ["A", "B", "C"],
+        "catalyst_classes_admitted": ["A", "B", "C"],
     }
     right = {
         "expressions": [{"sql": "z", "v": 1}, {"sql": "c", "v": 3}, {"sql": "a", "v": 1}],
         "arms": {"x": "2"},
-        "classes": ["A", "C", "D"],
+        "catalyst_classes_admitted": ["A", "C", "D"],
     }
-    o1, o2 = Owed(), Owed()
-    m1 = merge_value(base, left, right, "", o1)
-    m2 = merge_value(base, right, left, "", o2)
+    m1, o1 = merged("coverage.json", base, left, right)
+    m2, _ = merged("coverage.json", base, right, left)
     expect(canon(m1) == canon(m2), "the merge depends on which side is ours")
     expect([e["sql"] for e in m1["expressions"]] == ["z", "b", "c", "a"], "row order")
-    expect(m1["classes"] == ["A", "B", "C", "D"], "the sorted set merge")
-    expect(sorted(o1.paths) == ["arms.x", "expressions (order after z)"], f"owed {o1.paths}")
-    # A sorted map stays sorted and owes nothing.
-    o = Owed()
-    m = merge_value(
-        {"a": [], "d": []}, {"a": [], "b": [], "d": []}, {"a": [], "c": [], "d": []}, "", o
+    expect(m1["catalyst_classes_admitted"] == ["A", "B", "C", "D"], "the sorted set merge")
+    expect(sorted(o1) == ["arms.x", "expressions (order after z)"], f"owed {o1}")
+    # The width audit's per-width maps, which the suite sorts, stay sorted and owe nothing.
+    m, o = merged(
+        "width_audit.json",
+        {"widths": {"128": {"a": [], "d": []}}},
+        {"widths": {"128": {"a": [], "b": [], "d": []}}},
+        {"widths": {"128": {"a": [], "c": [], "d": []}}},
     )
-    expect(list(m) == ["a", "b", "c", "d"] and not o.paths, f"sorted map {list(m)} {o.paths}")
+    expect(list(m["widths"]["128"]) == ["a", "b", "c", "d"] and not o, f"sorted map {m} {o}")
+    review_cases(expect, merged)
     # One side's change against an unchanged other side is taken, not owed.
     o = Owed()
-    m = merge_value({"k": 1, "j": 1}, {"k": 2, "j": 1}, {"k": 1, "j": 3}, "", o)
+    m = merge_value({"k": 1, "j": 1}, {"k": 2, "j": 1}, {"k": 1, "j": 3}, (), o, Rules())
     expect(m == {"k": 2, "j": 3} and not o.paths, "independent edits")
     # A deletion against an unchanged entry.
     o = Owed()
-    m = merge_value({"k": 1, "j": 1}, {"j": 1}, {"k": 1, "j": 1}, "", o)
+    m = merge_value({"k": 1, "j": 1}, {"j": 1}, {"k": 1, "j": 1}, (), o, Rules())
     expect(m == {"j": 1} and not o.paths, "a deletion")
     # TSV rows keyed by the leading columns.
     o = Owed()
@@ -543,6 +684,162 @@ def self_test():
     end_to_end(expect)
     print(f"self-test: {cases} case(s), {failed} failed")
     return 1 if failed else 0
+
+
+def review_cases(expect, merged):
+    """The cases a review of the driver reproduced, one or more per finding."""
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    # 1. casts_fused.tsv has one row per form pair, so (from, to) repeats; a row added to it
+    # must keep every committed row.
+    p = os.path.join(root, "sql", "varka", "plans", "m8", "casts_fused.tsv")
+    if os.path.exists(p):
+        with open(p, encoding="utf-8") as f:
+            text = f.read()
+        more = text + "zz\tzz\tZZ\tZZ\tdeclined\tdeclined\tdeclined\n"
+        t, o = merged("casts_fused.tsv", text, more, text)
+        expect(t == more and not o, "1: casts_fused.tsv lost rows to a key that is not unique")
+    # 1. A TSV whose key repeats in the committed file is owed, never merged by that key.
+    t, o = merged(
+        "types.tsv", "id\tx\nA\t1\nA\t2\n", "id\tx\nA\t1\nA\t2\nB\t1\n", "id\tx\nA\t1\nA\t2\nC\t1\n"
+    )
+    expect(t.count("A\t") == 2 and o, f"1: a repeated key merged silently: {t!r} {o}")
+    # 2. Two groups added after the same anchor whose first keys are equal.
+    b = {"m": {"z": 1, "a": 1}}
+    lft = {"m": {"z": 1, "b": 1, "c": 1, "a": 1}}
+    rgt = {"m": {"z": 1, "b": 1, "d": 1, "a": 1}}
+    m1, _ = merged("coverage.json", b, lft, rgt)
+    m2, _ = merged("coverage.json", b, rgt, lft)
+    expect(list(m1["m"]) == list(m2["m"]), f"2: order depends on ours: {m1} {m2}")
+    # 3. Both sides add a column: one header line, and the file is owed.
+    t, o = merged(
+        "types.tsv", "# c\nid\tx\nA\t1\n", "# c\nid\tx\ty\nA\t1\t\n", "# c\nid\tx\tz\nA\t1\t\n"
+    )
+    heads = [x for x in t.splitlines() if x.startswith("id")]
+    expect(len(heads) == 1 and o, f"3: header lines merged as rows: {t!r} {o}")
+    # 3. Both sides add a different comment line: owed, not a union of the two.
+    t, o = merged("types.tsv", "# c\nid\tx\n", "# c\n# d\nid\tx\n", "# c\n# e\nid\tx\n")
+    expect(not ("# d" in t and "# e" in t) and o, f"3: comment lines merged as a set: {t!r}")
+    # 3. A value list inside a row that both sides changed is owed, not a union.
+    m, o = merged(
+        "coverage.json",
+        {"expressions": [{"sql": "q", "switches": ["a"]}]},
+        {"expressions": [{"sql": "q", "switches": ["a", "b"]}]},
+        {"expressions": [{"sql": "q", "switches": ["a", "c"]}]},
+    )
+    expect(o == ["expressions.q.switches"], f"3: a row's switches merged as a set: {m} {o}")
+    m, o = merged(
+        "width_audit.json",
+        {"widths": {"128": {"s": []}}},
+        {"widths": {"128": {"s": ["x"]}}},
+        {"widths": {"128": {"s": ["y"]}}},
+    )
+    expect(o == ["widths.128.s"], f"3: a shape's refusals merged as a set: {m} {o}")
+    # 6. Rows whose keys happen to be sorted in a structure the writer does not sort.
+    t, o = merged("types.tsv", "id\nA\nZ\n", "id\nA\nB\nZ\n", "id\nA\nC\nZ\n")
+    expect(o == ["order after ('A',)"], f"6: coincidentally sorted rows were sorted: {o}")
+    m, o = merged(
+        "coverage.json",
+        {"columns": {"a": 1, "d": 1}},
+        {"columns": {"a": 1, "b": 1, "d": 1}},
+        {"columns": {"a": 1, "c": 1, "d": 1}},
+    )
+    expect(o == ["columns (order after a)"], f"6: a map's place was not owed: {o}")
+    # 7. Both sides change a generated block, on different lines, so merge-file is clean.
+    with tempfile.TemporaryDirectory() as tmp:
+
+        def doc(one, two):
+            path = os.path.join(tmp, f"{one}{two}.md")
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(
+                    "# Doc\n\n<!-- BEGIN generated counts -->\n"
+                    f"| a | {one} |\n| b | 0 |\n| c | 0 |\n| d | {two} |\n"
+                    "<!-- END generated counts -->\n"
+                )
+            return path
+
+        o = Owed()
+        text, real = merge_docs(doc(0, 0), doc(1, 0), doc(0, 1), o)
+        expect(
+            "| a | 1 |" in text and "| d | 1 |" in text and not real and o.paths,
+            f"7: a block both sides changed was not owed: {o.paths}",
+        )
+        # 8. Any failure inside the merge falls back to git's text merge, never a traceback.
+        saved = globals()["merge_text"]
+
+        def boom(*args):
+            raise RuntimeError("boom")
+
+        globals()["merge_text"] = boom
+        try:
+            paths = [os.path.join(tmp, n) for n in ("b.json", "o.json", "t.json")]
+            for n, path in enumerate(paths):
+                with open(path, "w", encoding="utf-8") as f:
+                    f.write(f'{{ "k" : {n} }}\n')
+            rc = driver(*paths, "sql/varka/coverage.json")
+            with open(paths[1], encoding="utf-8") as f:
+                ok = rc != 0 and "<<<<<<<" in f.read()
+        except Exception as e:
+            ok = False
+            print(f"self-test: 8: {e!r}", file=sys.stderr)
+        finally:
+            globals()["merge_text"] = saved
+        expect(ok, "8: an unexpected error escaped the driver")
+        # 9. The installer: an info/attributes without a final newline, installed twice.
+        repo = os.path.join(tmp, "repo")
+        env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+        subprocess.run(["git", "init", "-q", repo], check=True, env=env)
+        attributes = os.path.join(repo, ".git", "info", "attributes")
+        os.makedirs(os.path.dirname(attributes), exist_ok=True)
+        with open(attributes, "w", encoding="utf-8") as f:
+            f.write("x merge=foo")
+        for _ in range(2):
+            subprocess.run(
+                [os.path.join(root, "dev", "varka_precommit.sh"), "--install-hook"],
+                cwd=repo,
+                env=env,
+                capture_output=True,
+            )
+        with open(attributes, encoding="utf-8") as f:
+            lines = f.read().splitlines()
+        expect(
+            lines == ["x merge=foo", "docs/sql-varka.md merge=varka-generated"],
+            f"9: the installer wrote {lines}",
+        )
+    # 4. The per-row files the check reads run the docs job, and still count as code.
+    sys.path.insert(0, os.path.join(root, "dev"))
+    try:
+        from sparktestsupport import modules
+    finally:
+        sys.path.pop(0)
+    for rel in ("sql/varka/width_audit.json", "sql/varka/emitted_bytes.json"):
+        expect(
+            modules.varka_change_scope([rel]) == "scoped" and modules.varka_docs.contains_file(rel),
+            f"4: {rel} is {modules.varka_change_scope([rel])!r} to the build's precondition",
+        )
+    # 5. The width audit owed on another CPU is skipped with a reason and the rest still runs;
+    # the CPU's name is trimmed as the suite trims it.
+    with open(os.path.join(root, "sql", "varka", "width_audit.json"), encoding="utf-8") as f:
+        host = json.load(f)["host"]["cpu"]
+    with tempfile.TemporaryDirectory() as tmp:
+        for cpu, skipped in (("Another CPU", True), (host + "  ", False)):
+            info = os.path.join(tmp, "cpuinfo")
+            with open(info, "w", encoding="utf-8") as f:
+                f.write(f"processor\t: 0\nmodel name\t: {cpu}\n")
+            run = subprocess.run(
+                [os.path.join(root, "dev", "varka_regen_generated.sh"), "--all", "--dry-run"],
+                cwd=root,
+                env={**os.environ, "VARKA_CPUINFO": info},
+                capture_output=True,
+                text=True,
+            )
+            out = run.stdout + run.stderr
+            expect(
+                run.returncode == 0
+                and ("owed on its host" in out) == skipped
+                and ("VarkaWidthAuditSuite" in out) != skipped
+                and "VarkaEmittedBytesSuite" in out,
+                f"5: on {cpu!r} the regeneration printed (exit {run.returncode}): {out}",
+            )
 
 
 def end_to_end(expect):
@@ -640,9 +937,9 @@ def end_to_end(expect):
 def main(argv):
     if len(argv) == 6 and argv[1] == "driver":
         return driver(*argv[2:])
-    if argv[1:] == ["--check"]:
+    if argv[1:] in (["--check"], ["--check", "--no-audit"]):
         root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        return check(root)
+        return check(root, audit=len(argv) == 2)
     if argv[1:] == ["--self-test"]:
         return self_test()
     print(__doc__, file=sys.stderr)

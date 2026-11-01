@@ -28,9 +28,10 @@
 # coverage.json), the bytes file (likewise), coverage again (the docs read the width audit), and
 # last the census, which reads them all and costs a second. The JVM steps run in one sbt call,
 # under the heavy slot's lock when VARKA_HEAVY_LOCK names one (or ~/proj/.varka-locks/heavy.lock
-# exists), with SPARK_LOCAL_IP=127.0.0.1. The width audit is refused on a CPU that is not the
-# file's host: its census is that CPU's (VarkaWidthAuditSuite). The owed list is cleared only
-# after every step passed.
+# exists), with SPARK_LOCAL_IP=127.0.0.1. On a CPU that is not the width audit's host the audit
+# is skipped and left owed, since its census is that CPU's (VarkaWidthAuditSuite), and the rest
+# runs; VARKA_CPUINFO names another cpuinfo file for the self-test. The owed list is cleared
+# only after every step passed.
 set -euo pipefail
 
 top="$(git rev-parse --show-toplevel)"
@@ -69,14 +70,21 @@ if want sql/varka/coverage.json || want docs/sql-varka.md || [ $audit = 1 ] || [
 then
   coverage=1
 fi
+# The width audit is that host's census (VarkaWidthAuditSuite), so on any other CPU it is
+# skipped and stays owed; the rest runs. The CPU's name is read as the suite reads it: the
+# first "model name" line, after its first colon, trimmed.
+audit_skipped=0
 if [ $audit = 1 ]; then
   read_host='import json; print(json.load(open("sql/varka/width_audit.json"))["host"]["cpu"])'
   host="$(python3 -c "$read_host")"
-  cpu="$(sed -n 's/^model name[[:space:]]*: //p' /proc/cpuinfo 2>/dev/null | head -1)"
-  if [ "$host" != "$cpu" ]; then
-    echo "varka regen: width_audit.json is $host's census and this is ${cpu:-another CPU};" \
-      "regenerate it on that host" >&2
-    exit 1
+  line="$(grep -m1 '^model name' "${VARKA_CPUINFO:-/proc/cpuinfo}" 2>/dev/null || true)"
+  cpu="${line#*:}"
+  cpu="${cpu#"${cpu%%[![:space:]]*}"}"
+  cpu="${cpu%"${cpu##*[![:space:]]}"}"
+  if [ -z "$line" ] || [ "$host" != "$cpu" ]; then
+    echo "varka regen: skipping width_audit.json, owed on its host: it is $host's census" \
+      "and this is ${cpu:-another CPU}; run dev/varka_regen_generated.sh there" >&2
+    audit=0; audit_skipped=1
   fi
 fi
 if [ $coverage = 1 ]; then
@@ -105,6 +113,13 @@ if [ ${#steps[@]} -gt 0 ]; then
 fi
 python3 dev/varka_census.py > /dev/null
 python3 dev/varka_census.py --check
-python3 dev/varka_generated_merge.py --check
-rm -f "$owed"
-echo "varka regen: done; review git diff and commit the regenerated files"
+if [ $audit_skipped = 1 ]; then
+  python3 dev/varka_generated_merge.py --check --no-audit
+  echo sql/varka/width_audit.json > "$owed"
+  echo "varka regen: done but for width_audit.json, still owed on its host;" \
+    "review git diff and commit the regenerated files"
+else
+  python3 dev/varka_generated_merge.py --check
+  rm -f "$owed"
+  echo "varka regen: done; review git diff and commit the regenerated files"
+fi
