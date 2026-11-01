@@ -59,11 +59,12 @@ import org.apache.spark.sql.internal.StaticSQLConf;
  *
  * <p>Each Varka case asserts that its query actually fused before it is timed: a benchmark whose
  * subject silently fell back to the row engine would report the row engine twice and call the
- * ratio 1.0. The exception is a filter whose condition compares at the long lane, on an x86 host
- * whose long species has two lanes (the 128-bit companion's): the compiler refuses that condition
- * there (VARKA-503), so the case is checked to have declined for that reason, by the compiler's
- * own report, and its arm is labelled {@code row path (varka declined: two long lanes)}, the row
- * path it times.
+ * ratio 1.0. A fused case must also hold no row {@code FilterExec}, so a conjunct left to the row
+ * filter cannot pass as fused. The exception is a long filter on an x86 host whose long species
+ * has two lanes (the 128-bit companion's): the compiler refuses a condition in a kernel driven at
+ * the long lane there (VARKA-503), so the case is checked to have declined for that reason, by
+ * the compiler's own report, and its section carries a note that its Varka arm times the row
+ * path. The case keeps its name, so the two widths' files pair row by row.
  *
  * <p>To run this benchmark:
  * <pre>
@@ -173,49 +174,55 @@ public class VarkaLongLaneThroughputBenchmark extends VarkaSqlBenchmarkBase {
     session.sql("select count(*) from varka_long_pairs_big").collect();
   }
 
-  /** The label of a Varka arm that fused. */
-  static final String FUSED_ARM = "varka (SIMD)";
-
   /**
-   * The label of a Varka arm whose condition the compiler refused on an x86 host whose long
-   * species has two lanes (VARKA-503): it times Spark's row path, so its label says so rather than
-   * presenting the row path's timing as Varka's.
+   * The note a section carries for a Varka arm whose condition the compiler refused on an x86
+   * host whose long species has two lanes (VARKA-503): the arm times Spark's row path there. The
+   * fact is a note and not the case's name, so that a case keeps one name on every host and
+   * {@code dev/varka_bench_diff.py} pairs the 128-bit companion's rows with the wide file's.
    */
-  static final String DECLINED_ARM = "row path (varka declined: two long lanes)";
+  static final String DECLINED_NOTE =
+      ": varka declined on this host (two long lanes), so its varka arm times the row path";
+
+  /** Whether {@code plan} fused whole: it holds a Varka node and no row {@code FilterExec}. */
+  private static boolean fusedWhole(SparkPlan plan) {
+    return holdsVarkaNode(plan) && plan.find(p -> p instanceof FilterExec).isEmpty();
+  }
 
   private static void requireFused(SparkSession session, String name, String query) {
     SparkPlan plan = session.sql(query).queryExecution().executedPlan();
-    if (!holdsVarkaNode(plan)) {
-      throw new IllegalStateException(name + " did not fuse, so this case would time the row "
-          + "engine twice: " + query + "\n" + plan.treeString());
+    if (!fusedWhole(plan)) {
+      throw new IllegalStateException(name + " did not fuse whole, so this case would time the "
+          + "row engine under Varka's name: " + query + "\n" + plan.treeString());
     }
   }
 
   /**
-   * The label of {@code query}'s Varka arm: {@link #FUSED_ARM} where its plan holds a Varka
-   * node, {@link #DECLINED_ARM} where the compiler says it declined the plan's row filter for the
-   * two-lane refusal, and a failure for any other plan, which would time the row engine twice
-   * under Varka's name. The reason is the compiler's own, from the report EXPLAIN renders, for
-   * the condition of the row filter the plan holds and under the session's settings.
+   * Whether {@code query}'s Varka arm declined for the two-lane refusal: false where its plan
+   * fused whole, true where it holds no Varka node and the compiler says it declined the plan's
+   * row filter for that refusal, and a failure for any other plan - a Varka node under a residual
+   * row filter among them - which would time the row engine, wholly or in part, under Varka's
+   * name. The reason is the compiler's own, from the report EXPLAIN renders, for the condition of
+   * the row filter the plan holds and under the session's settings.
    */
-  private static String varkaArm(SparkSession session, String name, String query) {
+  private static boolean declinedTwoLane(SparkSession session, String name, String query) {
     SparkPlan plan = session.sql(query).queryExecution().executedPlan();
-    if (holdsVarkaNode(plan)) {
-      return FUSED_ARM;
+    if (fusedWhole(plan)) {
+      return false;
     }
     Option<SparkPlan> filter = plan.find(p -> p instanceof FilterExec);
-    if (filter.isDefined()) {
+    if (!holdsVarkaNode(plan) && filter.isDefined()) {
       FilterExec f = (FilterExec) filter.get();
       VarkaSessionEmit emit = VarkaSessionEmit.of(session.sessionState().conf());
       Seq<String> lines = VarkaFusionReport.predicateLines(f.condition(), f.child().output(),
           VarkaColumnarToRowExec$.MODULE$.emitOptions(emit), emit.familiesOff(),
           emit.declineTwoLaneConditions());
       if (lines.exists(l -> l.contains(VarkaKernelPlan.TWO_LANE_CONDITION_REASON))) {
-        return DECLINED_ARM;
+        return true;
       }
     }
-    throw new IllegalStateException(name + " did not fuse, and not for the two-lane refusal, so "
-        + "this case would time the row engine twice: " + query + "\n" + plan.treeString());
+    throw new IllegalStateException(name + " did not fuse whole, and not for the two-lane "
+        + "refusal, so this case would time the row engine under Varka's name: " + query + "\n"
+        + plan.treeString());
   }
 
   /** {@link #runPair} over the {@link #NUM_ROWS} table. */
@@ -232,26 +239,32 @@ public class VarkaLongLaneThroughputBenchmark extends VarkaSqlBenchmarkBase {
   private void runPair(SparkSession baseline, SparkSession varka, String name, String intQuery,
       String longQuery, int rows) {
     requireFused(varka, name + " (int lane)", intQuery);
-    String longArm = varkaArm(varka, name + " (long lane)", longQuery);
+    boolean longDeclined = declinedTwoLane(varka, name + " (long lane)", longQuery);
     section(name, () -> {
+      if (longDeclined) {
+        note("int64 lane" + DECLINED_NOTE);
+      }
       VarkaBenchmark benchmark = benchmark(
           name + " over " + rows + " Arrow-cached rows", rows).timed().build();
       benchmark.addCase("int32 lane, baseline (Janino)", i -> noop(baseline.sql(intQuery)));
       benchmark.addCase("int32 lane, varka (SIMD)", i -> noop(varka.sql(intQuery)));
       benchmark.addCase("int64 lane, baseline (Janino)", i -> noop(baseline.sql(longQuery)));
-      benchmark.addCase("int64 lane, " + longArm, i -> noop(varka.sql(longQuery)));
+      benchmark.addCase("int64 lane, varka (SIMD)", i -> noop(varka.sql(longQuery)));
       runCases(benchmark);
     });
   }
 
   /** A long-lane shape with no int twin - the {@code TIME} and interval columns. */
   private void runSingle(SparkSession baseline, SparkSession varka, String name, String query) {
-    String arm = varkaArm(varka, name, query);
+    boolean declined = declinedTwoLane(varka, name, query);
     section(name, () -> {
+      if (declined) {
+        note(name + DECLINED_NOTE);
+      }
       VarkaBenchmark benchmark = benchmark(
           name + " over " + NUM_ROWS + " Arrow-cached rows", NUM_ROWS).timed().build();
       benchmark.addCase("baseline (Janino)", i -> noop(baseline.sql(query)));
-      benchmark.addCase(arm, i -> noop(varka.sql(query)));
+      benchmark.addCase("varka (SIMD)", i -> noop(varka.sql(query)));
       runCases(benchmark);
     });
   }
@@ -336,8 +349,10 @@ public class VarkaLongLaneThroughputBenchmark extends VarkaSqlBenchmarkBase {
             new Case("compare int32, output none (count)",
                 "SELECT count(*) FROM varka_long_pairs_big WHERE i > 50000"));
         for (Case c : cases) {
-          String arm = varkaArm(varka, c.name(), c.query());
-          benchmark.addCase(c.name() + ", " + arm, i -> noop(varka.sql(c.query())));
+          if (declinedTwoLane(varka, c.name(), c.query())) {
+            note(c.name() + DECLINED_NOTE);
+          }
+          benchmark.addCase(c.name() + ", varka (SIMD)", i -> noop(varka.sql(c.query())));
         }
         runCases(benchmark);
       });
