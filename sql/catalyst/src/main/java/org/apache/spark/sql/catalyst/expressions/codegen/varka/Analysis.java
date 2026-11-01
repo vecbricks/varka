@@ -778,6 +778,12 @@ final class Analysis {
    * the nodes it reaches from its roots. A node shared by outputs of two groups is computed and
    * guarded in each, and a chain through the other group's arms has no condition in this body;
    * that group's own guard condemns there, so the kernel's status still ORs every chain.
+   *
+   * <p>Not inside a date whose prefix is materialized ({@link #materialized}): a group that loads
+   * the prefix computes neither the date nor the guards under it, which the producing group ran
+   * for it. A chain this body would drop is then guarded nowhere, and a lane only that chain's
+   * arm takes would read an unchecked value, so such a guard stays unqualified in the body that
+   * computes it: it declines more batches and never answers one wrongly.
    */
   List<List<ArmStep>> armChainsIn(VarkaVectorIR node, Set<VarkaVectorIR> reach) {
     List<List<ArmStep>> chains = armChainsOf(node);
@@ -794,7 +800,22 @@ final class Analysis {
         kept.add(chain);
       }
     }
+    if (kept.size() < chains.size() && underMaterializedDate(node)) {
+      return List.of();
+    }
     return List.copyOf(kept);
+  }
+
+  /** Whether {@code node} is computed inside a date whose prefix {@link #materialized} holds. */
+  private boolean underMaterializedDate(VarkaVectorIR node) {
+    for (VarkaVectorIR date : materialized.keySet()) {
+      Set<VarkaVectorIR> under = new HashSet<>();
+      collectReached(date, under);
+      if (under.contains(node)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /** The nodes reached from {@code roots}, each once: what a body over them emits. */

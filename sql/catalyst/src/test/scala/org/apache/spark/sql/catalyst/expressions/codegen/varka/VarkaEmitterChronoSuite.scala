@@ -1182,8 +1182,10 @@ class VarkaEmitterChronoSuite extends VarkaEmitterTestBase {
       // use needs the guard on every lane.
       "in an arm and bare" ->
         Seq(new IfElse(cond, producer, new Year(new ColumnRef(0))), producer),
-      // (b) used under two different conditions: the second condition's word does not exist
-      // where the node is first emitted, which is why the rule refuses the disjunction.
+      // (b) used under two different conditions: the guard is qualified by the OR of the two
+      // arms, both conditions emitted ahead of the outputs, and lane 1 takes the second arm.
+      // Split into two groups over a materialized prefix, the group that computes the guard
+      // keeps it unqualified, since the other loads the prefix and guards nothing.
       "under two conditions" -> Seq(
         new IfElse(cond, producer, new Year(new ColumnRef(0))),
         new IfElse(new Compare(CompareOp.GT, new ColumnRef(0), new LiteralSlot(0)),

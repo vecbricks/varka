@@ -371,6 +371,53 @@ class VarkaGuardEdgeSuite extends SparkFunSuite with VarkaMatrixTests {
     }
   }
 
+  test("a guard of two chains under a date whose prefix one group materializes for another " +
+      "stays unqualified there") {
+    // a = if (c0 < cut) year(c0 + c1) else year(c0) and b = if (c0 > cut) year(c0 + c1) else
+    // year(c0): the guarded day under both years has two chains, one per output. Split into two
+    // groups (heavyGroupOutputs = 0), the first group materializes the date's prefix and the
+    // second loads it, so the second computes neither the day nor its guard. The first once kept
+    // only a's chain, since b's arm is not in its body, and its dense body answered row 1, which
+    // takes b's arm with a day past the narrow range: an unchecked year. The guard is now
+    // unqualified in the group that computes it.
+    val cut = 5000
+    val producer = new AddDays(new ColumnRef(0), new ColumnRef(1))
+    val roots = Seq[VarkaVectorIR](
+      new IfElse(new Compare(CompareOp.LT, new ColumnRef(0), new LiteralSlot(0)),
+        new Year(producer), new Year(new ColumnRef(0))),
+      new IfElse(new Compare(CompareOp.GT, new ColumnRef(0), new LiteralSlot(0)),
+        new Year(producer), new Year(new ColumnRef(0))))
+    val o = options.withGuardUnderArm(true).withHeavyGroupOutputs(0)
+    assert(VarkaLoopEmitter.guardsForTest(roots.asJava, 2, 1, o).get(producer).arms().size == 2)
+    val none: Seq[Int => Boolean] = Seq.fill(2)((_: Int) => false)
+    val bit = VarkaFusedKernel.STATUS_DAY_PRODUCER
+    for ((label, past) <- Seq(("row 1 past the range under b's arm", true),
+        ("every day in range", false))) {
+      val data = Array.tabulate(2, length) { (c, i) =>
+        val day = if (i % 2 == 0) 100L else cut + 100L
+        if (c == 0) day
+        else if (past && i == 1) VarkaChrono.NARROW_MAX_DAYS + 1L - day
+        else (i % 5).toLong
+      }
+      val name =
+        s"org.apache.spark.sql.varka.execution.VarkaGuardLoaded${classCounter.incrementAndGet()}"
+      val bytes = VarkaLoopEmitter.emit(name, roots.asJava, 2, 1, null, null, o)
+      val methods = VarkaEmitterTestSupport.methodNames(bytes).asScala
+      assert(methods.contains("loopDense1") && methods.contains("scratchBytesPerRow"),
+        s"$label: the outputs should split into two groups over a materialized prefix: $methods")
+      val st = VarkaKernelCheck.runEachBodyStatus(label, name, bytes, roots, 2, Array(cut),
+        VarkaKernelCheck.Batch(length, none, data.map(_.map(_.toInt)), forceMasked = false))
+      if (past) {
+        assert(st.forall(_ == bit), s"$label: statuses $st, every body must decline")
+      } else {
+        assert(st.forall(_ == 0), s"$label: statuses $st")
+        assert(VarkaKernelCheck.runAndCompare(label, name, bytes, roots, 2, Array(cut),
+          VarkaKernelCheck.Batch(length, none, data.map(_.map(_.toInt)), forceMasked = false)),
+          s"$label: a batch in range declined or answered wrongly")
+      }
+    }
+  }
+
   test("a guard inside the condition of an arm it sits under is unqualified, and its kernel " +
       "verifies") {
     // if (if (c0 < c3) c1 + c2 else c3 > c3) c1 + c2 else c3: the checked sum is used under an
