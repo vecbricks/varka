@@ -848,6 +848,21 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `(-d18) IS NOT NULL` | `predicate` |  | a negation is null where its operand is | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
 | `CASE WHEN d9 < d9b THEN d9 ELSE d9s4 END > 0.0` | `predicate` |  | a choice at DECIMAL(11, 4) under a comparison; the branch of the smaller scale carries its rescale | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
 
+#### DECIMAL arithmetic
+
+| Predicate | Switches | Domain | Notes | 128-bit lanes |
+|---|---|---|---|---|
+| `d9 + d9b < d18` | `predicate` |  | DECIMAL(10, 2), compared at DECIMAL(18, 2): the sum under the rescale-free cast coercion puts over it | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
+| `d9 - d8 >= d9b` | `predicate` |  | DECIMAL(10, 2) against DECIMAL(9, 2) | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
+| `d8 * d9 <= d9b` | `predicate` |  | DECIMAL(18, 4), the widest product of the long lane; d9b is rescaled by 10^2 to meet it | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
+| `try_add(d9, d9b) > d18` | `predicate` |  | the TRY form is the same kernel: no sum within 18 digits overflows | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
+| `d9 * 0.5 > d9b` | `predicate` |  | the literal is DECIMAL(1, 1), its unscaled 5 a slot; the product is DECIMAL(11, 3) | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
+| `d9 + 1.5 < d9b` | `predicate` |  | the literal is rescaled to the sum's scale at compile time | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
+| `d9 - d9s4 > 0.00` | `predicate` |  | DECIMAL(12, 4): d9 is rescaled by 10^2 before the subtract | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
+| `d9 + d16s9 > d9s4` | `predicate` |  | DECIMAL(17, 9): a rescale of 10^7 under the add | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
+| `-(d9 + d9b) = d9s4` | `predicate` |  | the negation of a sum, compared at DECIMAL(12, 4) | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
+| `try_multiply(d8, d9) IS NULL` | `predicate` |  | null only where an operand is: no product within 18 digits overflows, so TRY's null past the precision never fires | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
+
 #### Time arithmetic
 
 | Expression | Switches | Domain | Notes | 128-bit lanes |
@@ -887,7 +902,7 @@ operands (a row counts once for each type it reads):
 | `bool` | 23 | 0 | 0 | 13 | 0 | 10 |
 | `byte` | 26 | 0 | 0 | 0 | 8 | 18 |
 | `date` | 87 | 17 | 0 | 1 | 0 | 69 |
-| `dec` | 29 | 12 | 0 | 0 | 0 | 17 |
+| `dec` | 39 | 22 | 0 | 0 | 0 | 17 |
 | `double` | 37 | 0 | 0 | 0 | 0 | 37 |
 | `dt` | 20 | 2 | 0 | 0 | 0 | 18 |
 | `float` | 29 | 0 | 0 | 0 | 0 | 29 |
