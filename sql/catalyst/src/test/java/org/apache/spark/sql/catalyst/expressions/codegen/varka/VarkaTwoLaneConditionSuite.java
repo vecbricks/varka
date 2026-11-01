@@ -67,7 +67,7 @@ public final class VarkaTwoLaneConditionSuite {
   @DisplayName("the host test is x86 at two long lanes or fewer, and nowhere else")
   void hostTest() {
     for (String arch : List.of("amd64", "x86_64")) {
-      var x86 = new VarkaHostIsa.Reading(arch, "", "unread");
+      var x86 = new VarkaHostIsa.Reading(arch, "", "unread", 0);
       // One lane is -XX:MaxVectorSize=8, where C2 lowers no mask either.
       assertTrue(VarkaKernelPlan.twoLaneMasksFallBack(x86, 1), arch);
       assertTrue(VarkaKernelPlan.twoLaneMasksFallBack(x86, 2), arch);
@@ -75,7 +75,7 @@ public final class VarkaTwoLaneConditionSuite {
       assertFalse(VarkaKernelPlan.twoLaneMasksFallBack(x86, 8), arch);
     }
     // aarch64: two-lane masks are lowered there.
-    var arm = new VarkaHostIsa.Reading("aarch64", "fp, asimd", null);
+    var arm = new VarkaHostIsa.Reading("aarch64", "fp, asimd", null, 128);
     assertFalse(VarkaKernelPlan.twoLaneMasksFallBack(arm, 1));
     assertFalse(VarkaKernelPlan.twoLaneMasksFallBack(arm, 2));
     // The reading's form takes the architecture from the reading, whatever its feature list,
@@ -83,7 +83,7 @@ public final class VarkaTwoLaneConditionSuite {
     boolean fewLanes = Lane.LONG.preferredLanes <= 2;
     for (String arch : List.of("amd64", "x86_64")) {
       assertEquals(fewLanes, VarkaKernelPlan.twoLaneMasksFallBack(
-          new VarkaHostIsa.Reading(arch, "", "unread")), arch);
+          new VarkaHostIsa.Reading(arch, "", "unread", 0)), arch);
     }
     assertFalse(VarkaKernelPlan.twoLaneMasksFallBack(arm));
   }

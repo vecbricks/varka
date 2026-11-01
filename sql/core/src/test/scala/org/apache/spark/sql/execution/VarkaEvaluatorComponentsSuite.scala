@@ -296,10 +296,10 @@ class VarkaEvaluatorComponentsSuite extends SparkFunSuite {
     // VARKA-538 test 3.2. Catches: a fallback host left at the conversion form, a converting
     // or unknown host moved off the emitter's default, an explicit level the host overrides,
     // and an unreadable feature list that throws or logs on every query.
-    val fallsBack = new VarkaHostIsa.Reading("amd64", "avx, avx2, fma", null)
-    val converts = new VarkaHostIsa.Reading("amd64", "avx2, avx512f, avx512dq", null)
-    val arm = new VarkaHostIsa.Reading("aarch64", "fp, asimd, sve", null)
-    val unread = new VarkaHostIsa.Reading("amd64", "", "IllegalAccessException: no export")
+    val fallsBack = new VarkaHostIsa.Reading("amd64", "avx, avx2, fma", null, 256)
+    val converts = new VarkaHostIsa.Reading("amd64", "avx2, avx512f, avx512dq", null, 512)
+    val arm = new VarkaHostIsa.Reading("aarch64", "fp, asimd, sve", null, 128)
+    val unread = new VarkaHostIsa.Reading("amd64", "", "IllegalAccessException: no export", 256)
     val conf = new SQLConf
     // The two-lane refusal is resolved from the same reading (VARKA-503), and an x86 reading on a
     // two-lane JVM would set it; set off here, the records compare alike on every host.
@@ -335,7 +335,7 @@ class VarkaEvaluatorComponentsSuite extends SparkFunSuite {
     val loggedBefore = VarkaSessionEmit.setUnreadableLoggedForTesting(false)
     try {
       withLogAppender(appender, level = Some(Level.WARN)) {
-        VarkaSessionEmit.resolve(new VarkaHostIsa.Reading("aarch64", "", "no such method"))
+        VarkaSessionEmit.resolve(new VarkaHostIsa.Reading("aarch64", "", "no such method", 128))
         assert(warnings === 0, "an unreadable list off x86 was logged")
         VarkaSessionEmit.resolve(unread)
         assert(warnings === 1, "the first unreadable resolve on x86 was not logged once")
@@ -352,8 +352,8 @@ class VarkaEvaluatorComponentsSuite extends SparkFunSuite {
     // or fewer", a default read from a second host fact that a planted host does not move, an
     // aarch64 reading that refuses, and a set value the host overrides. The lane counts are
     // stated, so each answer is held to a constant and not to the kernel plan's own test.
-    val x86 = new VarkaHostIsa.Reading("amd64", "avx, avx2", null)
-    val arm = new VarkaHostIsa.Reading("aarch64", "fp, asimd", null)
+    val x86 = new VarkaHostIsa.Reading("amd64", "avx, avx2", null, 256)
+    val arm = new VarkaHostIsa.Reading("aarch64", "fp, asimd", null, 128)
     val conf = new SQLConf
     for ((host, lanes, refuses) <- Seq((x86, 1, true), (x86, 2, true), (x86, 4, false),
         (x86, 8, false), (arm, 2, false))) {
@@ -374,12 +374,51 @@ class VarkaEvaluatorComponentsSuite extends SparkFunSuite {
     }
   }
 
+  test("a host's level takes the magic form only at a long species of 256 bits or more") {
+    // VARKA-538 9.3: on the EPYC 7763 the magic form beat the conversions' fallback 20 to 1 at
+    // 256 bits and lost 1 to 2 at 128, so a fallback host resolves to level 2 only where its
+    // preferred long species is at least 256 bits wide. Catches: the width ignored (a 128-bit
+    // fallback host at level 2), the bound off by one width (a 256-bit host left at the
+    // default), and the width read where the features already said no (a converting host or an
+    // unread list moved to 2 at any width).
+    val avx2 = "avx, avx2, fma"
+    def at(features: String, failure: String, bits: Int): Int = VarkaSessionEmit.resolve(
+      new VarkaHostIsa.Reading("amd64", features, failure, bits))
+    val unknown = VarkaEmitOptions.USE_AVX_UNKNOWN
+    assert(at(avx2, null, 512) === 2)
+    assert(at(avx2, null, 256) === 2)
+    assert(at(avx2, null, 128) === unknown)
+    assert(at(avx2, null, 0) === unknown, "an unread width")
+    for (bits <- Seq(0, 128, 256, 512)) {
+      assert(at("avx2, avx512f, avx512dq", null, bits) === unknown, s"converting at $bits")
+      val loggedBefore = VarkaSessionEmit.setUnreadableLoggedForTesting(true)
+      try {
+        assert(at("", "IllegalAccessException: no export", bits) === unknown, s"unread at $bits")
+      } finally {
+        VarkaSessionEmit.setUnreadableLoggedForTesting(loggedBefore)
+      }
+    }
+    // The bound is the constant the plan's verdict names, and it reaches the planner's binding.
+    assert(VarkaSessionEmit.MAGIC_MIN_LONG_BITS === 256)
+    val conf = new SQLConf
+    // The two-lane refusal reads this JVM's lanes for a planted x86 host (VARKA-503); set off,
+    // the record compares with DEFAULTS under -XX:MaxVectorSize=16 too.
+    conf.setConfString(SQLConf.VARKA_DECLINE_TWO_LANE_CONDITIONS.key, "false")
+    conf.setConf(SQLConf.VARKA_EMIT_USE_AVX, VarkaSessionEmit.USE_AVX_FROM_HOST)
+    VarkaSessionEmit.setHostForTesting(new VarkaHostIsa.Reading("amd64", avx2, null, 128))
+    try {
+      assert(VarkaSessionEmit.of(conf) === VarkaSessionEmit.DEFAULTS)
+    } finally {
+      VarkaSessionEmit.setHostForTesting(null)
+    }
+  }
+
   test("an AVX-512 host without AVX512DQ, planted, resolves to the magic form") {
     // VARKA-538 test 3.3: UseAVX=3 with avx512f and no avx512dq is the Xeon Phi class, which no
     // AMD host can make the JVM report, so the fact is planted. The level would say "converts";
     // the feature HotSpot's matcher asks for says they fall back.
     val knights = new VarkaHostIsa.Reading("amd64",
-      "avx, avx2, avx512f, avx512cd, avx512er, avx512pf", null)
+      "avx, avx2, avx512f, avx512cd, avx512er, avx512pf", null, 512)
     assert(knights.conversionsFallBack())
     val conf = new SQLConf
     conf.setConf(SQLConf.VARKA_EMIT_USE_AVX, VarkaSessionEmit.USE_AVX_FROM_HOST)

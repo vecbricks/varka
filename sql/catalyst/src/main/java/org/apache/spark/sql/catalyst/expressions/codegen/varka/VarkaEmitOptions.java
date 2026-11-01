@@ -642,8 +642,9 @@ public record VarkaEmitOptions(
    *
    * <p>The level is a target, not a reading of the host: below 3 it is exact, since HotSpot
    * clears AVX512DQ there, and a host enters only through the session, which resolves a JVM
-   * without AVX512DQ to level 2 ({@code VarkaSessionEmit.of}, {@link VarkaHostIsa}). Kept a
-   * function of the record alone, so one rendering never names two bodies.
+   * without AVX512DQ whose preferred long species is 256 bits or more to level 2
+   * ({@code VarkaSessionEmit.of}, {@link VarkaHostIsa}). Kept a function of the record alone,
+   * so one rendering never names two bodies.
    *
    * <p>It lives here rather than in the emitter because {@link #canonical()} has to ask the
    * same question: a level that changes a lowering has to reach the shape key, and one that
