@@ -663,15 +663,40 @@ class VarkaSparkFuzzSuite extends VarkaSparkDifferential {
   }
 
   /**
+   * Runs `body` under the options the planted tests select and replay with: the run's, with the
+   * int overflow check on where the run turns it off, so that a drawn overflow raises or nulls as
+   * the row engine does instead of wrapping, and every disagreement left is the plant's to show.
+   * Selection and replay both take it, so the composition and output chosen are the ones replayed.
+   */
+  private def underPlantedOptions[T](body: => T): T =
+    if (overflowUnchecked) withOverflowChecked(body) else body
+
+  /**
+   * A disagreement's kind without what may change between two runs of one composition: the
+   * prefix a raise's rerun adds and the conditions a race may choose
+   * (`VarkaErrorRerun.withoutConditions`), and an unexpected condition's name. What stays says
+   * which comparison failed and how, the forced output's included.
+   */
+  private def kindClass(kind: String): String = {
+    val core = kind.stripPrefix("at two partitions only, ")
+    val forced = "with an output forced to decline, "
+    val (prefix, rest) =
+      if (core.startsWith(forced)) (forced, core.stripPrefix(forced)) else ("", core)
+    val unexpected = "unexpected error condition"
+    prefix + (if (rest.startsWith(unexpected)) unexpected
+      else VarkaErrorRerun.withoutConditions(rest).toScala.getOrElse("error classes differ"))
+  }
+
+  /**
    * The first composition of the planted seed whose answer the planted rollback changes, the
    * output whose force shows the change, and the kind of the change; shared by the two tests
-   * below. The compositions are the coverage rows' alone (`drawRows`): a nested tree meets the
-   * planted rollback's branch without a force (VARKA-298.md 9), and these tests are about the
-   * force. A composition may disagree without the plant too - with `checkIntOverflow` off a
-   * drawn overflow wraps where the row engine raises - so what is counted is the plant's own
-   * change: per forced output, a planted kind the same run without the plant does not show.
+   * below, and found under [[underPlantedOptions]], as they replay it. The compositions are the
+   * coverage rows' alone (`drawRows`): a nested tree meets the planted rollback's branch without a
+   * force (VARKA-298.md 9), and these tests are about the force. What is counted is the plant's
+   * own change: per forced output, a planted kind whose class ([[kindClass]]) the same run
+   * without the plant does not show.
    */
-  private lazy val plantedFirst: Option[(Int, Int, String)] =
+  private lazy val plantedFirst: Option[(Int, Int, String)] = underPlantedOptions {
     (0 until 300).iterator.flatMap { it =>
       val c = rectify(drawRows(rows, plantedSeed, it))
       def planted(forces: Seq[Int]): Option[String] =
@@ -681,11 +706,13 @@ class VarkaSparkFuzzSuite extends VarkaSparkDifferential {
         None
       } else {
         c.outputs.indices.iterator.flatMap { k =>
-          planted(Seq(k)).filter(p => !kindOf(c, partitions = false, Seq(k)).contains(p))
-            .map((it, k, _))
+          planted(Seq(k)).filter { p =>
+            !kindOf(c, partitions = false, Seq(k)).exists(kindClass(_) == kindClass(p))
+          }.map((it, k, _))
         }.nextOption()
       }
     }.nextOption()
+  }
 
   test("a forced output finds a rollback that truncates one input too far") {
     // The unforced comparison meets the planted rollback's branch too rarely to see it
@@ -713,17 +740,13 @@ class VarkaSparkFuzzSuite extends VarkaSparkDifferential {
       if (planted) withPlantedRollback(Some(k))(run) else withForcedOutput(k)(run)
     }
     // The same replay without the plant must agree, or what the planted one finds is not the
-    // plant's. With the overflow check off, one that agrees once the check is on is the
-    // configuration's wrap (as in the main test), and both replays then run with the check on.
-    val unplanted = replay(planted = false, new WarmedCounts)
-    val checked = unplanted.isDefined && overflowUnchecked
-    def underTest[T](body: => T): T = if (checked) withOverflowChecked(body) else body
-    val baseline = if (checked) underTest(replay(planted = false, new WarmedCounts)) else unplanted
+    // plant's. Both run under the options the composition was selected with.
+    val baseline = underPlantedOptions(replay(planted = false, new WarmedCounts))
     assert(baseline.isEmpty, s"composition $it, output $k forced, without the plant: $baseline")
     val counts = new WarmedCounts
-    val found = underTest(replay(planted = true, counts))
+    val found = underPlantedOptions(replay(planted = true, counts))
     info(s"composition $it, output $k forced" +
-      (if (checked) ", with checkIntOverflow on" else "") +
+      (if (overflowUnchecked) ", with checkIntOverflow on" else "") +
       s": ${found.getOrElse("no disagreement")}")
     // A shape that went to its kernel without a warm-up would pass the check below untested.
     assert(counts.rowPathRuns > 0, "no run took the row path while the kernel warmed")
