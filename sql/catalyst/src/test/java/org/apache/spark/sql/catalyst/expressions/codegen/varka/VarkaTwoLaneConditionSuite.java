@@ -94,17 +94,30 @@ public final class VarkaTwoLaneConditionSuite {
   }
 
   @Test
-  @DisplayName("an int condition in a kernel driven at the long lane is admitted on the two-lane "
-      + "host, its mask at the int species")
+  @DisplayName("an int condition in a kernel driven at the long lane is refused on the two-lane "
+      + "host and admitted elsewhere")
   void intConditionOverLongRead() {
-    // `CAST(l AS INT) < i`: the kernel reads a long column and is driven at the long lane, but
-    // the compare and its mask are at the int lane, whose 128-bit species has four lanes.
+    // `CAST(l AS INT) < i`: the compare is at the int lane, but the kernel reads a long column
+    // and is driven at the long lane, whose own masks - the narrowing's range guard among them -
+    // run the Java fallback at two lanes.
     var narrowed = new Compare(CompareOp.LT, new NarrowLane(L), I);
     assertEquals(LaneType.LONG, VarkaKernelPlan.of(List.of(narrowed), VarkaMatrixRuns.BASE)
         .drive());
-    assertTrue(admit(narrowed, true).isEmpty());
+    assertTrue(admit(narrowed, true).isPresent());
+    assertTrue(admit(narrowed, false).isEmpty());
     // A test over a long compare's known-ness is a long condition: `(l < l2) IS NOT NULL`.
     assertTrue(admit(new IsNotNull(new Compare(CompareOp.LT, L, L2)), true).isPresent());
+  }
+
+  @Test
+  @DisplayName("the null test Spark infers for a nullable long column is refused on the two-lane "
+      + "host")
+  void inferredNullTest() {
+    // `isnotnull(l)`, which the optimizer adds beside every comparison of a nullable bigint,
+    // TIME, interval or short decimal: with it refused too, a filter over such columns alone
+    // has no conjunct left to fuse there.
+    assertTrue(admit(new IsNotNull(L), true).isPresent());
+    assertTrue(admit(new IsNotNull(L), false).isEmpty());
   }
 
   @Test

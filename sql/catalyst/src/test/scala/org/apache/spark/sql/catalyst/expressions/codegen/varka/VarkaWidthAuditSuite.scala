@@ -349,10 +349,12 @@ class VarkaWidthAuditSuite extends SparkFunSuite with VarkaTestWatchdog {
         "empty list is a shape C2 refused nothing in. A shape the compiler declines at a width " +
         "has no call for C2 to judge and is recorded as 'declined: <the compiler's reason>' " +
         "instead. No shape declines for want of a narrow lowering since VARKA-329's part-form " +
-        "byte widening load; on an x86 host whose long species has two lanes the compiler " +
-        "refuses a filter condition that compares at the long lane (VARKA-503), so a predicate " +
-        "row with such a conjunct reads declined at that width, its reason naming the " +
-        "conjunct where the row's other conjuncts fused. The census is a " +
+        "byte widening load. A predicate row any of whose conjuncts the compiler leaves to the " +
+        "row filter, for any reason, reads declined, its reason naming that conjunct where " +
+        "the row's other conjuncts fused; on an x86 host whose long species has two lanes the " +
+        "compiler refuses every filter condition in a kernel driven at the long lane " +
+        "(VARKA-503), so every predicate row with a conjunct over a long column reads " +
+        "declined at that width. The census is a " +
         "property of the CPU and the JDK, so the host is part of the record."),
       "host" -> ordered(
         "cpu" -> cpuModel,

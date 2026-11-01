@@ -46,10 +46,11 @@ object VarkaWidthAuditShapes {
   /**
    * One audited thing: a kernel the probe emits and runs, or a coverage row this JVM's width
    * refuses to compile, which is an answer about the row rather than an error (VARKA-329). Since
-   * the part-form widening load every audited width names a narrow column's load, so a row
-   * declines only where the host refuses a filter's long-lane condition (VARKA-503): on x86 at
-   * two long lanes, a predicate row with such a conjunct, whether or not its other conjuncts
-   * fused.
+   * the part-form widening load every audited width names a narrow column's load. A predicate
+   * row declines where any of its conjuncts is left to the row filter, for whatever reason,
+   * whether or not the others fused, its reason naming that conjunct where they did
+   * ([[predicateRow]]); on x86 at two long lanes that is every row with a conjunct over a long
+   * column, which the host refuses (VARKA-503).
    */
   sealed trait Entry {
     def name: String
@@ -149,9 +150,10 @@ object VarkaWidthAuditShapes {
   /**
    * A predicate row on the host's own terms: an x86 host at two long lanes refuses a long filter
    * condition (VARKA-503), which is this width's answer as a narrow load's is. A row any of whose
-   * conjuncts the compiler left to the row filter is declined, though the others fused: its
-   * kernel is not the row's, so C2's verdict on it would record the row as vectorized when part
-   * of it runs on the row path. The reason names the refused conjunct where another one fused.
+   * conjuncts the compiler left to the row filter, for this or any other reason, is declined,
+   * though the others fused: its kernel is not the row's, so C2's verdict on it would record the
+   * row as vectorized when part of it runs on the row path. The reason names the refused
+   * conjunct where another one fused.
    */
   private def predicateRow(sql: String, resolved: Expression): Entry = {
     val explained = VarkaExpressionCompiler.explainAndCompilePredicate(resolved, columns,
