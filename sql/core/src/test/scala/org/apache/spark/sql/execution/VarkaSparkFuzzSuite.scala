@@ -26,8 +26,7 @@ import scala.jdk.OptionConverters._
 import scala.util.Random
 
 import org.apache.spark.sql.DataFrame
-import org.apache.spark.sql.catalyst.analysis.UnresolvedAttribute
-import org.apache.spark.sql.catalyst.expressions.{Cast, Expression, Literal}
+import org.apache.spark.sql.catalyst.expressions.Cast
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaCatalystGrammar,
   VarkaJitEvidence, VarkaKernelWarmth, VarkaKernelWarmup, VarkaShapeCache}
 import org.apache.spark.sql.catalyst.plans.logical.Filter
@@ -123,133 +122,57 @@ class VarkaSparkFuzzSuite extends VarkaSparkDifferential {
   private def overflowUnchecked: Boolean =
     !VarkaColumnarToRowExec.currentEmitOptions.checkIntOverflow
 
-  /** Runs `body` with the int overflow check on and every other option as the run has it. */
-  private def withOverflowChecked[T](body: => T): T = {
-    val previous = VarkaColumnarToRowExec.currentEmitOptions
-    VarkaColumnarToRowExec.setEmitOptionsForTesting(previous.withCheckIntOverflow(true))
-    try body finally VarkaColumnarToRowExec.setEmitOptionsForTesting(previous)
-  }
+  /**
+   * The options `c` runs under, laid over the run's own (`pinnedOptions`): the int overflow check
+   * pinned on where the run turns it off and a kernel of `c` reads it, and nothing otherwise. The
+   * row engine is not affected, so every disagreement either way is a finding.
+   */
+  private def optionsOf(c: Case): Option[String] =
+    pinnedOptions(c.fixture, c.select, c.where, c.ansi)
 
   /**
-   * Whether a disagreement `check` showed over `fixture` is the configuration's by design: with
-   * the overflow check off an overflowing lane wraps where the row engine raises or nulls. Two
-   * things must hold. The composition agrees once the check is on, everything else equal; and the
-   * disagreement is shown to be the wrap itself ([[wrapEvidence]]), since a check-on rerun that
-   * agrees proves only that the checked emission differs, not that a row overflowed. Asked only
-   * after a disagreement, so a run at the defaults never pays for it, and not counted in the
-   * census.
+   * How many compositions ran with the check pinned on and how many under the configuration's own
+   * options, where the run turns the check off; one test's tally.
    */
-  private def configurationWrap(c: Case, fixture: String)(check: => Option[String]): Boolean =
-    overflowUnchecked && withoutCounting {
-      withOverflowChecked(check).isEmpty && wrapEvidence(c, fixture)
-    }
+  private class Pins {
+    var pinned = 0
+    var unchecked = 0
 
-  /**
-   * How one expression, evaluated alone over the whole fixture, compares between the row engine
-   * and Varka with the run's options: the same, different only as an overflow wrap is, or
-   * different otherwise.
-   */
-  private sealed trait Probe
-  private case object ProbeAgrees extends Probe
-  private case object ProbeWraps extends Probe
-  private case object ProbeDiffers extends Probe
-
-  /**
-   * `text` as the one output of a query over `fz`, on both engines. An unchecked lane that
-   * overflows shows in one of two ways, and only these are a wrap: the row engine raises an
-   * overflow condition where Varka answers (a checked mode that fails), or the row engine's rows
-   * differ from Varka's only by a NULL where Varka has a value (a mode that nulls). A value
-   * against another value is not a wrap, whatever the check does.
-   */
-  private def probe(text: String): Probe = {
-    val query = s"SELECT $text AS c0 FROM fz"
-    (outcome(spark, query), outcome(varkaSpark, query)) match {
-      case (off, on) if off == on => ProbeAgrees
-      case (Right(off), Right(on)) if off.size == on.size && off.diff(on).forall(_ == "[null]") =>
-        ProbeWraps
-      case (Left(raised), Right(_)) if raised.contains("OVERFLOW") => ProbeWraps
-      case _ => ProbeDiffers
-    }
-  }
-
-  /**
-   * The probe of `e` and the probes of the differences that start in it: each node that differs
-   * while every child of it agrees, which is where a wrong value first appears. A column or a
-   * literal agrees without a query; a node whose text does not run alone agrees too, so its
-   * parent is probed in its place.
-   */
-  private def differencesIn(e: Expression): (Probe, Seq[Probe]) = {
-    val children = e.children.map(differencesIn)
-    val self = e match {
-      case _: Literal | _: UnresolvedAttribute => ProbeAgrees
-      case _ => scala.util.Try(e.sql).toOption.map(probe).getOrElse(ProbeAgrees)
-    }
-    val starts = if (self != ProbeAgrees && children.forall(_._1 == ProbeAgrees)) Seq(self)
-      else Nil
-    (self, children.flatMap(_._2) ++ starts)
-  }
-
-  /**
-   * Whether the disagreement of `c` over `fixture` is an overflow wrap and nothing else: every
-   * output and every conjunct (as drawn, before rectification) is taken apart and each node
-   * probed alone over the whole fixture, and at least one difference starts somewhere, and every
-   * one that does is a wrap ([[probe]]). A wrong value on a row that did not overflow, beside a
-   * wrap in the same batch or not, starts a difference of its own that is not a wrap, and stays
-   * a finding. The fixture is one partition, so a probe that raises names the first raising
-   * row's condition on both engines rather than the first failing task's.
-   */
-  private def wrapEvidence(c: Case, fixture: String): Boolean = withAnsi(c.ansi) {
-    cacheFixture(fixture, _.coalesce(1))
-    try {
-      val starts = (c.outputs ++ c.conjuncts.map(_.sql)).flatMap { text =>
-        differencesIn(spark.sessionState.sqlParser.parseExpression(text))._2
+    /** `c`'s options, counted. */
+    def of(c: Case): Option[String] = {
+      val options = optionsOf(c)
+      if (overflowUnchecked) {
+        if (options.isDefined) pinned += 1 else unchecked += 1
       }
-      starts.nonEmpty && starts.forall(_ == ProbeWraps)
-    } finally {
-      uncacheFixture()
+      options
     }
+
+    def summary: String = s"with checkIntOverflow off: $pinned compositions ran with it pinned " +
+      s"on, as a kernel of theirs reads it, and $unchecked under the configuration's own options"
   }
 
   /**
-   * The failure text of composition `it`, which showed `found`: the case shrunk, its reproducer
-   * written under `target/varka-sparkfuzz/`, and the kind with the reproducer in one message. The
-   * checks it runs are not counted in the census, and its note names the error rerun's arm when
-   * it is not the default, which the replay then takes (`VarkaErrorRerun.ofNote`).
-   *
-   * `checked` shrinks with the int overflow check on, as a run that turns it off does for a
-   * finding that is not a configuration wrap, so the shrinker cannot settle on an output that only
-   * wraps; the reproducer then names `checkIntOverflow=true` as its options. A finding that does
-   * not show with the check on at all is reported unshrunk, under the run's own options, rather
-   * than shrunk against a kind it no longer has.
+   * The failure text of composition `it`, which showed `found` under `options`: the case shrunk
+   * under the same options, its reproducer written under `target/varka-sparkfuzz/` with them, and
+   * the kind with the reproducer in one message. The checks it runs are not counted in the census,
+   * and its note names the error rerun's arm when it is not the default, which the replay then
+   * takes (`VarkaErrorRerun.ofNote`).
    */
-  private def failureText(
-      c: Case, it: Int, partitions: Boolean, found: String, checked: Boolean = false): String = {
+  private def failureText(c: Case, it: Int, partitions: Boolean, found: String,
+      options: Option[String] = None): String = {
     // A kind may carry a prefix ("at two partitions only, "), so a forced one is found anywhere.
     def isForced(kind: String): Boolean = kind.contains("with an output forced")
-    def underOptions[T](body: => T): T = if (checked) withOverflowChecked(body) else body
-    val shrunk: Option[(String, Case)] = withoutCounting(underOptions {
+    val (kind, small) = withoutCounting(withEmitOptions(options) {
       // A forced disagreement is shrunk with the one output that shows it forced, so the
       // reproducer can name it; a forced kind that needs every force names none.
       val forced = if (!isForced(found)) c
         else c.copy(force = forcesOf(c, it).find(k => kindOf(c, partitions, Seq(k)).isDefined))
-      val again = kindOf(forced, partitions, forced.force.toSeq)
-      // Under the run's own options a kind that does not repeat keeps the first run's; under the
-      // check it means the finding needs the check off, and it is not shrunk.
-      (if (checked) again else again.orElse(Some(found))).map { kind =>
-        // A kind that no longer needs the force (the first run's was not repeatable) keeps none,
-        // so the reproducer does not name a force its kind does not depend on.
-        val start = if (isForced(kind)) forced else forced.copy(force = None)
-        (kind, shrink(start, kind, x => kindOf(x, partitions, x.force.toSeq)))
-      }
+      val kind = kindOf(forced, partitions, forced.force.toSeq).getOrElse(found)
+      // A kind that no longer needs the force (the first run's was not repeatable) keeps none, so
+      // the reproducer does not name a force its kind does not depend on.
+      val start = if (isForced(kind)) forced else forced.copy(force = None)
+      (kind, shrink(start, kind, x => kindOf(x, partitions, x.force.toSeq)))
     })
-    val (kind, small, options, how) = shrunk match {
-      case Some((k, x)) if checked => (k, x, Some("checkIntOverflow=true"),
-        ", shrunk with checkIntOverflow on, where the composition disagrees too")
-      case Some((k, x)) => (k, x, None, "")
-      case None => (found, c, None,
-        ", not shrunk: with checkIntOverflow on the composition agrees, yet the disagreement " +
-          "is not an overflow wrap")
-    }
     val text = render(Reproducer("regression", s"seed $seed iteration $it${errorRerun.noteSuffix}",
       small.ansi, kind, small.select, small.where, small.fixture, small.pivot.map(rowText),
       small.force, options))
@@ -257,7 +180,8 @@ class VarkaSparkFuzzSuite extends VarkaSparkDifferential {
     Files.createDirectories(dir)
     val file = dir.resolve(s"$seed-$it.sql")
     Files.write(file, text.getBytes(StandardCharsets.UTF_8))
-    s"$kind (seed $seed, iteration $it$how), reproducer written to $file:\n$text"
+    val under = options.map(o => s", with $o").getOrElse("")
+    s"$kind (seed $seed, iteration $it$under), reproducer written to $file:\n$text"
   }
 
   test(s"random compositions agree with the row engine (seed $seed, $iterations of them)") {
@@ -268,17 +192,14 @@ class VarkaSparkFuzzSuite extends VarkaSparkDifferential {
     var nested = 0
     var nestedErrored = 0
     var nestedFailed = 0
-    var wraps = 0
+    val pins = new Pins
     val range = onlyIteration.map(k => k to k).getOrElse(0 until iterations)
     for (it <- range if failures.size < maxFailures) {
       val c = rectify(draw(rows, seed, it))
       val partitions = it % partitionEvery == 0
+      val options = pins.of(c)
       val errorsBefore = bothErrored
-      val result = kindOf(c, partitions, forcesOf(c, it)).filter { _ =>
-        val wrap = configurationWrap(c, c.fixture)(kindOf(c, partitions, forcesOf(c, it)))
-        if (wrap) wraps += 1
-        !wrap
-      }
+      val result = withEmitOptions(options)(kindOf(c, partitions, forcesOf(c, it)))
       val key = (if (it % 2 == 0) "safe" else "full") + (if (c.ansi) " ANSI on" else " ANSI off")
       pool(key) = pool.getOrElse(key, (0, 0)) match {
         case (n, e) => (n + 1, e + (if (bothErrored > errorsBefore) 1 else 0))
@@ -290,14 +211,11 @@ class VarkaSparkFuzzSuite extends VarkaSparkDifferential {
       }
       result.foreach { found =>
         if (firstFailure.isEmpty) firstFailure = Some(it)
-        failures += failureText(c, it, partitions, found, checked = overflowUnchecked)
+        failures += failureText(c, it, partitions, found, options)
       }
     }
     info(s"compared $compared, fused $fused, both errored $bothErrored")
-    if (overflowUnchecked) {
-      info(s"configuration wraps: $wraps compositions disagreed with checkIntOverflow off and " +
-        "agreed with it on, so each wrapped an overflow by design")
-    }
+    if (overflowUnchecked) info(pins.summary)
     pool.foreach { case (k, (n, e)) => info(s"  $k: $n compositions, $e errored on both sides") }
     info(s"  with nested trees: $nested compositions, $nestedErrored errored on both sides, " +
       s"$nestedFailed disagreed")
@@ -322,6 +240,13 @@ class VarkaSparkFuzzSuite extends VarkaSparkDifferential {
         s"only $forcedApplied of $forcedRuns forced outputs changed the plan")
     }
     info(s"first disagreement at iteration ${firstFailure.getOrElse("none")}")
+    // A pin that took every composition would leave the configuration nothing to test. About half
+    // the compositions hold no checked arithmetic, so a fifth is far from the edge.
+    if (overflowUnchecked && pins.pinned + pins.unchecked >= 50) {
+      assert(pins.unchecked * 5 >= pins.pinned + pins.unchecked,
+        s"only ${pins.unchecked} of ${pins.pinned + pins.unchecked} compositions ran with " +
+          "checkIntOverflow off")
+    }
     assert(failures.isEmpty, failures.mkString("\n"))
   }
 
@@ -332,7 +257,7 @@ class VarkaSparkFuzzSuite extends VarkaSparkDifferential {
     val failures = scala.collection.mutable.ArrayBuffer.empty[String]
     val verdicts = scala.collection.mutable.TreeMap.empty[String, Int]
     var releasedEarly = 0
-    var wraps = 0
+    val pins = new Pins
     val counts = new WarmedCounts
     val range: Seq[Int] =
       warmupSet.orElse(warmupOnly.map(Seq(_))).getOrElse(0 until warmupIterations)
@@ -346,24 +271,12 @@ class VarkaSparkFuzzSuite extends VarkaSparkDifferential {
         }
         val later = laterData(c, new Random(~seed * 31L + it), safe = it % 2 == 0,
           wide = (it / 2) % 2 == 1)
+        val options = pins.of(c)
         // Every composition starts from a cold shape, so that each one takes the handover.
         VarkaShapeCache.invalidateAll()
         val before = VarkaKernelWarmup.recentOutcomes().asScala.toSet
-        val firstResult = warmedDisagreement(c, later, counts)
+        val result = withEmitOptions(options)(warmedDisagreement(c, later, counts))
         val outcomes = VarkaKernelWarmup.recentOutcomes().asScala.filterNot(before.contains)
-        // The checked run is a shape of its own (the options ride the shape key), so it takes
-        // the handover too; its counts are not the arm's, but a wait that timed out is.
-        val result = firstResult.filter { kind =>
-          // A disagreement over the other data is probed over that data.
-          val over = if (kind.startsWith("over other data")) fixtureSql(later) else c.fixture
-          val checkedCounts = new WarmedCounts
-          val wrap = configurationWrap(c, over)(checkedRerun(c, later, checkedCounts))
-          counts.notIdle += checkedCounts.notIdle
-          // The checked run's warm-ups finish here, not inside the next composition's tally.
-          awaitWarmupIdle(counts)
-          if (wrap) wraps += 1
-          !wrap
-        }
         outcomes.foreach { o =>
           verdicts(o.state().toString) = verdicts.getOrElse(o.state().toString, 0) + 1
         }
@@ -404,7 +317,7 @@ class VarkaSparkFuzzSuite extends VarkaSparkDifferential {
           val text = render(Reproducer("warmed", s"seed $seed iteration $it, the warm-up on: " +
             s"-Dvarka.sparkfuzz.seed=$seed -Dvarka.sparkfuzz.warmupOnly=$it", c.ansi, kind,
             c.select, c.where, if (overLater) fixtureSql(later) else c.fixture,
-            if (overLater) None else c.pivot.map(rowText)))
+            if (overLater) None else c.pivot.map(rowText), options = options))
           val dir = getWorkspaceFilePath("sql", "core", "target", "varka-sparkfuzz")
           Files.createDirectories(dir)
           val file = dir.resolve(s"$seed-warmed-$it.sql")
@@ -416,10 +329,7 @@ class VarkaSparkFuzzSuite extends VarkaSparkDifferential {
       evidence.foreach(_.close())
     }
     counts.summary.foreach(info(_))
-    if (overflowUnchecked) {
-      info(s"configuration wraps: $wraps compositions disagreed with checkIntOverflow off and " +
-        "agreed with it on")
-    }
+    if (overflowUnchecked) info(pins.summary)
     info(s"warm-up verdicts: ${verdicts.map { case (k, n) => s"$k $n" }.mkString(", ")}, " +
       s"of the releases $releasedEarly before the deadline")
     // An arm whose shapes stopped reaching the kernel would compare the row engine with itself.
@@ -430,23 +340,6 @@ class VarkaSparkFuzzSuite extends VarkaSparkDifferential {
         s"only ${counts.handedOver} of ${counts.compositions} compositions were handed over")
     }
     assert(failures.isEmpty, failures.mkString("\n"))
-  }
-
-  /**
-   * The warmed arm's run of `c` again, for [[configurationWrap]] to make under the check: an
-   * agreement counts only if the run reached its kernel, since `warmedDisagreement` finds nothing
-   * in a shape that never left the row path. A run that did not is made once more, the shape now
-   * warmed or warming, and one that still did not is a disagreement of its own, never a wrap.
-   */
-  private def checkedRerun(
-      c: Case, later: Vector[Vector[String]], counts: WarmedCounts): Option[String] = {
-    val first = warmedDisagreement(c, later, counts)
-    val found = if (first.isDefined || counts.kernelRuns > 0) first
-      else warmedDisagreement(c, later, counts)
-    found.orElse {
-      if (counts.kernelRuns > 0) None
-      else Some("with checkIntOverflow on, no run reached the kernel")
-    }
   }
 
   // ---- the expected-errors list (VARKA-319) -------------------------------------------------
@@ -589,10 +482,8 @@ class VarkaSparkFuzzSuite extends VarkaSparkDifferential {
       if (drawn.pivot.isDefined) {
         val c = rectify(drawn)
         if (c.conjuncts.nonEmpty) {
-          val kind = kindOf(c, partitions = false, Nil)
-          assert(kind.isEmpty ||
-            configurationWrap(c, c.fixture)(kindOf(c, partitions = false, Nil)),
-            s"iteration $it: $kind: ${c.query}")
+          val kind = withEmitOptions(optionsOf(c))(kindOf(c, partitions = false, Nil))
+          assert(kind.isEmpty, s"iteration $it: $kind: ${c.query}")
           checked += 1
         }
       }
@@ -679,15 +570,6 @@ class VarkaSparkFuzzSuite extends VarkaSparkDifferential {
   }
 
   /**
-   * Runs `body` under the options the planted tests select and replay with: the run's, with the
-   * int overflow check on where the run turns it off, so that a drawn overflow raises or nulls as
-   * the row engine does instead of wrapping, and every disagreement left is the plant's to show.
-   * Selection and replay both take it, so the composition and output chosen are the ones replayed.
-   */
-  private def underPlantedOptions[T](body: => T): T =
-    if (overflowUnchecked) withOverflowChecked(body) else body
-
-  /**
    * A disagreement's kind without what may change between two runs of one composition: the
    * prefix a raise's rerun adds and the conditions a race may choose
    * (`VarkaErrorRerun.withoutConditions`), and an unexpected condition's name. What stays says
@@ -706,36 +588,41 @@ class VarkaSparkFuzzSuite extends VarkaSparkDifferential {
   /**
    * The first composition of the planted seed whose answer the planted rollback changes, the
    * output whose force shows the change, and the kind of the change; shared by the two tests
-   * below, and found under [[underPlantedOptions]], as they replay it. The compositions are the
+   * below, each composition under its own options ([[optionsOf]]), as they replay it, and those
+   * options with it. The compositions are the
    * coverage rows' alone (`drawRows`): a nested tree meets the planted rollback's branch without a
    * force (VARKA-298.md 9), and these tests are about the force. What is counted is the plant's
    * own change: per forced output, a planted kind whose class ([[kindClass]]) the same run
    * without the plant does not show.
    */
-  private lazy val plantedFirst: Option[(Int, Int, String)] = underPlantedOptions {
+  private lazy val plantedFirst: Option[(Int, Int, String, Option[String])] =
     (0 until 300).iterator.flatMap { it =>
       val c = rectify(drawRows(rows, plantedSeed, it))
-      def planted(forces: Seq[Int]): Option[String] =
-        withPlantedRollback()(kindOf(c, partitions = false, forces))
-      // Every output forced at once first, the one run most compositions need.
-      if (planted(c.outputs.indices).isEmpty) {
-        None
-      } else {
-        c.outputs.indices.iterator.flatMap { k =>
-          planted(Seq(k)).filter { p =>
-            !kindOf(c, partitions = false, Seq(k)).exists(kindClass(_) == kindClass(p))
-          }.map((it, k, _))
-        }.nextOption()
+      val options = optionsOf(c)
+      withEmitOptions(options) {
+        def planted(forces: Seq[Int]): Option[String] =
+          withPlantedRollback()(kindOf(c, partitions = false, forces))
+        // Every output forced at once first, the one run most compositions need.
+        if (planted(c.outputs.indices).isEmpty) {
+          None
+        } else {
+          c.outputs.indices.iterator.flatMap { k =>
+            planted(Seq(k)).filter { p =>
+              !kindOf(c, partitions = false, Seq(k)).exists(kindClass(_) == kindClass(p))
+            }.map((it, k, _, options))
+          }.nextOption()
+        }
       }
     }.nextOption()
-  }
 
   test("a forced output finds a rollback that truncates one input too far") {
     // The unforced comparison meets the planted rollback's branch too rarely to see it
     // (VARKA-296.md 2), and forcing every output of each composition does.
     val found = plantedFirst
     info(s"seed $plantedSeed: the planted rollback first changes an answer at composition " +
-      found.map { case (it, k, _) => s"$it, output $k forced" }.getOrElse("none of 300"))
+      found.map { case (it, k, _, options) =>
+        s"$it, output $k forced${options.map(o => s", with $o").getOrElse("")}"
+      }.getOrElse("none of 300"))
     assert(found.exists(_._3.startsWith("with an output forced to decline")), found)
   }
 
@@ -744,7 +631,7 @@ class VarkaSparkFuzzSuite extends VarkaSparkDifferential {
     // with the warm-up on the runs on the row path must pass and the first run with a kernel
     // fail: the arm compares both sides of the switch, and keeps them apart.
     assume(VarkaKernelWarmup.canWarm(), "this JVM cannot warm kernels")
-    val (it, k, _) = plantedFirst
+    val (it, k, _, options) = plantedFirst
       .getOrElse(fail(s"seed $plantedSeed: the planted rollback changed no answer in 300"))
     val c = rectify(drawRows(rows, plantedSeed, it))
     val later = laterData(c, new Random(plantedSeed), safe = true, wide = false)
@@ -757,12 +644,11 @@ class VarkaSparkFuzzSuite extends VarkaSparkDifferential {
     }
     // The same replay without the plant must agree, or what the planted one finds is not the
     // plant's. Both run under the options the composition was selected with.
-    val baseline = underPlantedOptions(replay(planted = false, new WarmedCounts))
+    val baseline = withEmitOptions(options)(replay(planted = false, new WarmedCounts))
     assert(baseline.isEmpty, s"composition $it, output $k forced, without the plant: $baseline")
     val counts = new WarmedCounts
-    val found = underPlantedOptions(replay(planted = true, counts))
-    info(s"composition $it, output $k forced" +
-      (if (overflowUnchecked) ", with checkIntOverflow on" else "") +
+    val found = withEmitOptions(options)(replay(planted = true, counts))
+    info(s"composition $it, output $k forced" + options.map(o => s", with $o").getOrElse("") +
       s": ${found.getOrElse("no disagreement")}")
     // A shape that went to its kernel without a warm-up would pass the check below untested.
     assert(counts.rowPathRuns > 0, "no run took the row path while the kernel warmed")

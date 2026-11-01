@@ -24,8 +24,10 @@ import scala.jdk.OptionConverters._
 import scala.util.Try
 
 import org.apache.spark.sql.{DataFrame, QueryTest, SparkSession}
+import org.apache.spark.sql.catalyst.expressions.{Expression, NamedExpression}
+import org.apache.spark.sql.catalyst.expressions.codegen.VarkaExpressionCompiler
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaKernelWarmup,
-  VarkaTestWatchdog}
+  VarkaLoopEmitter, VarkaMatrixRuns, VarkaTestWatchdog, VarkaVectorIR}
 import org.apache.spark.sql.internal.SQLConf
 
 /**
@@ -351,6 +353,76 @@ trait VarkaSparkDifferential extends QueryTest with VarkaSharedSessions with Var
   protected def uncacheFixture(): Unit =
     for (session <- Seq(spark, varkaSpark)) session.catalog.uncacheTable("fz")
 
+  // ---- the int overflow check, pinned per composition (VARKA-339) ---------------------------
+
+  /** Runs `body` with `options`, as `name=value[,name=value]`, laid over the run's own. */
+  protected def withEmitOptions[T](options: Option[String])(body: => T): T = options match {
+    case None => body
+    case Some(spec) =>
+      val previous = VarkaColumnarToRowExec.currentEmitOptions
+      VarkaColumnarToRowExec.setEmitOptionsForTesting(VarkaMatrixRuns.parseOver(previous, spec))
+      try body finally VarkaColumnarToRowExec.setEmitOptionsForTesting(previous)
+  }
+
+  /**
+   * The options a check of `select` over `where` runs under, laid over the run's own: none, or
+   * `checkIntOverflow=true` where the run turns the check off and a kernel of the check reads it
+   * ([[readsCheckIntOverflow]]). With the check off such a kernel wraps an overflowing lane where
+   * the row engine raises or nulls, by design, so the check runs with it on and is compared as
+   * strictly as any other; every other check runs under the configuration's own options.
+   */
+  protected def pinnedOptions(
+      fixture: String, select: String, where: Option[String], ansi: Boolean): Option[String] =
+    if (VarkaColumnarToRowExec.currentEmitOptions.checkIntOverflow) None
+    else if (readsCheckIntOverflow(fixture, select, where, ansi)) Some("checkIntOverflow=true")
+    else None
+
+  /**
+   * Whether a kernel that a check of `select` over `where` compiles under the run's options reads
+   * `checkIntOverflow` (`VarkaLoopEmitter.readsCheckIntOverflowForTest`, the emitter's own test).
+   * The queries are the check's on Varka: the composition, and with a filter the outputs alone and
+   * the filter's other two partitions; a forced run declines an output of the first. Each is
+   * planned, not run, over the fixture registered as the check registers it, under `ansi`, which
+   * decides whether an arithmetic node is checked at all.
+   */
+  private def readsCheckIntOverflow(
+      fixture: String, select: String, where: Option[String], ansi: Boolean): Boolean = {
+    val queries = querySql(select, where) +: where.toSeq.flatMap { w =>
+      Seq(None, Some(s"NOT ($w)"), Some(s"($w) IS NULL")).map(querySql(select, _))
+    }
+    withFloatingPruningOff(select +: where.toSeq)(withAnsi(ansi) {
+      cacheFixture(fixture)
+      try queries.exists { query =>
+        Try(varkaSpark.sql(query).queryExecution.executedPlan).toOption.exists { plan =>
+          collect(plan) { case v if isVarkaNode(v) => v }.exists { node =>
+            VarkaLoopEmitter.readsCheckIntOverflowForTest(kernelOutputs(node).asJava)
+          }
+        }
+      } finally uncacheFixture()
+    })
+  }
+
+  /** The output trees of every kernel a Varka node compiles, compiled as the node compiles them. */
+  private def kernelOutputs(node: SparkPlan): Seq[VarkaVectorIR] = {
+    def project(list: Seq[NamedExpression], child: SparkPlan, emit: VarkaSessionEmit) =
+      VarkaExpressionCompiler.compilePartial(list, child.output,
+        VarkaColumnarToRowExec.emitOptions(emit), emit.familiesOff).toScala.toSeq
+        .flatMap(_.kernels().asScala.flatMap(_.outputs().asScala))
+    def predicate(condition: Expression, child: SparkPlan, emit: VarkaSessionEmit) =
+      VarkaExpressionCompiler.compilePredicate(condition, child.output,
+        VarkaColumnarToRowExec.emitOptions(emit), emit.familiesOff).toScala.toSeq
+        .flatMap(_.fused().outputs().asScala)
+    node match {
+      case p: VarkaColumnarToRowExec => project(p.projectList, p.child, p.sessionEmit)
+      case p: VarkaProjectExec => project(p.projectList, p.child, p.sessionEmit)
+      case f: VarkaFilterExec => predicate(f.condition, f.child, f.sessionEmit)
+      case f: VarkaFilterColumnarToRowExec =>
+        predicate(f.condition, f.child, f.sessionEmit) ++
+          f.narrowing.toSeq.flatMap(project(_, f.child, f.sessionEmit))
+      case _ => Nil
+    }
+  }
+
   // ---- the warmed arm (VARKA-327) ---------------------------------------------------------
 
   /** `VarkaKernelWarmup.DEADLINE_PROPERTY`, which is package-private to the warm-up. */
@@ -495,13 +567,6 @@ trait VarkaSparkDifferential extends QueryTest with VarkaSharedSessions with Var
         if (!VarkaKernelWarmup.awaitIdle(warmupWaitMillis)) counts.notIdle += 1
       }
     }
-
-  /**
-   * Waits until no warm-up is queued or running, counting a wait that times out in `counts`, so
-   * that a warm-up a run queued cannot finish inside the next composition and land in its tally.
-   */
-  protected def awaitWarmupIdle(counts: WarmedCounts): Unit =
-    if (!VarkaKernelWarmup.awaitIdle(warmupWaitMillis)) counts.notIdle += 1
 
   /**
    * Runs `body` with the warm-up's deadline at `seconds`, restoring what was set before. The

@@ -845,8 +845,8 @@ final class Slots {
           // nullsFromValidInputs for it and `emit` then builds none, so its dense slots are planned
           // and never used. Harmless, and worth knowing before counting dense locals against a
           // method budget.
-          if (analysis.options.checkIntOverflow() && node instanceof IntArith n
-              && n.mode() != Overflow.WRAP) {
+          if (analysis.options.checkIntOverflow() && node instanceof IntArith
+              && Analysis.readsCheckIntOverflow(node)) {
             s.intArithTmp.put(node, new int[] {slot++, slot++, slot++});
           }
           // The magic-number division builds its floor by hand, which needs the quotient, its

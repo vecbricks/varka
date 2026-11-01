@@ -21,7 +21,6 @@ import java.nio.file.Files
 
 import scala.jdk.CollectionConverters._
 
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaMatrixRuns
 import org.apache.spark.sql.execution.VarkaSparkFuzz._
 
 /**
@@ -44,7 +43,9 @@ class VarkaSparkReproducerSuite extends VarkaSparkDifferential {
    * the per-row arm's one-row batches can show a kind the default does not.
    */
   private def verdict(r: Reproducer): Option[String] = {
-    val now = withOptions(r.options) {
+    // The options it was found under, or where it names none, the pin a run of it would take.
+    val options = r.options.orElse(pinnedOptions(r.fixture, r.select, r.where, r.ansi))
+    val now = withEmitOptions(options) {
       disagreement(r.fixture, r.select, r.where, r.ansi, partitions = true, r.pivot,
         r.force.toSeq, rerun = VarkaErrorRerun.ofNote(r.note))
     }
@@ -58,15 +59,6 @@ class VarkaSparkReproducerSuite extends VarkaSparkDifferential {
     } else {
       None
     }
-  }
-
-  /** Runs `body` with a reproducer's `options` applied over the options the run has. */
-  private def withOptions[T](options: Option[String])(body: => T): T = options match {
-    case None => body
-    case Some(spec) =>
-      val previous = VarkaColumnarToRowExec.currentEmitOptions
-      VarkaColumnarToRowExec.setEmitOptionsForTesting(VarkaMatrixRuns.parseOver(previous, spec))
-      try body finally VarkaColumnarToRowExec.setEmitOptionsForTesting(previous)
   }
 
   test("every saved reproducer is a regression that now agrees or a known one that still differs") {

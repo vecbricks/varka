@@ -233,6 +233,17 @@ public final class VarkaLoopEmitter {
   }
 
   /**
+   * Whether a kernel over {@code outputs} is emitted differently with
+   * {@link VarkaEmitOptions#checkIntOverflow} on and off: some node under them is one whose
+   * emission reads the option ({@link Analysis#readsCheckIntOverflow}, the test the emitter's own
+   * reads go through). For a differential that runs such a kernel with the check on where its
+   * configuration turns it off, and every other kernel as the configuration has it.
+   */
+  public static boolean readsCheckIntOverflowForTest(List<VarkaVectorIR> outputs) {
+    return Analysis.anyReadsCheckIntOverflow(List.copyOf(outputs));
+  }
+
+  /**
    * The plan's reading of the drivers under {@code planSize}: the two drivers built by
    * themselves over the first grouping of {@code outputs} and measured ({@link #driverAlone}),
    * for the suite that holds them to the drivers of the built class, byte for byte.
