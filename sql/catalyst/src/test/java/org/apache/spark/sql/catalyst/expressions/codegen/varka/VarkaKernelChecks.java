@@ -444,7 +444,10 @@ public final class VarkaKernelChecks {
         : new LongLane(batch, lits, false, decimalColumns(roots));
   }
 
-  /** The inputs {@code roots} read as a decimal column, as a bit per input ordinal. */
+  /**
+   * The inputs {@code roots} read as a decimal column, as a bit per input ordinal. A decimal
+   * column at ordinal 64 or above has no bit, and throws rather than being read as a long column.
+   */
   static long decimalColumns(List<VarkaVectorIR> roots) {
     long bits = 0L;
     var seen = new HashSet<VarkaVectorIR>();
@@ -452,7 +455,11 @@ public final class VarkaKernelChecks {
     while (!todo.isEmpty()) {
       VarkaVectorIR node = todo.pop();
       if (seen.add(node)) {
-        if (node instanceof VarkaVectorIR.DecimalColumn c && c.ordinal() < Long.SIZE) {
+        if (node instanceof VarkaVectorIR.DecimalColumn c) {
+          if (c.ordinal() >= Long.SIZE) {
+            throw new IllegalArgumentException("a decimal column at ordinal " + c.ordinal()
+                + " is past the " + Long.SIZE + " this check's bit set holds");
+          }
           bits |= 1L << c.ordinal();
         }
         todo.addAll(Arrays.asList(VarkaVectorIR.childrenOf(node)));
