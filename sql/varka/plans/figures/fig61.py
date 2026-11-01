@@ -30,6 +30,8 @@ draw(
     "fig61-an-integer-passed-to-the-class",
     6101,
     "An integer passed to the class",
-    "this repository's Spark (master-based, Varka off), %s" % short(cpu(FORK)),
+    "SELECT count(*) FROM t WHERE i % 1000000 = <value> over 100,000 cached rows, mean of 40 "
+    "queries, ms; local mode, JDK 25, GitHub runner",
+    "vecbricks/varka's Spark (master-based, Varka off), %s" % short(cpu(FORK)),
     fork[1],
 )

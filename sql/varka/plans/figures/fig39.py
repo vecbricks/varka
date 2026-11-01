@@ -71,21 +71,27 @@ def short(name):
     return re.sub(r"\s+\d+-Core Processor$", "", name)
 
 
-def draw(name, seed, title, where, rows):
-    """One figure of one block of bars over its own axis, with the legend below."""
+def shared_top():
+    """The axis end both figures use, so their bars are drawn to one scale: the next ten ms past
+    the slowest row of either run."""
+    rows = means(STOCK)[0] + means(FORK)[1]
+    return 10.0 * (int(max(ms for _, _, ms, _ in rows) / 10) + 1)
+
+
+def draw(name, seed, title, subtitle, where, rows):
+    """One figure of one block of bars on the shared axis, with the legend below."""
     r = Rough(1000, 160 + 40 * len(rows) + 110, seed=seed)
     r.text(40, 44, title, size=32)
     r.text(
         40,
         84,
-        "SELECT count(*) over 100,000 cached rows, mean of 40 queries, ms; local mode, JDK 25, "
-        "GitHub runners",
+        subtitle,
         size=17,
         color=GREY,
     )
     r.text(40, 120, where, size=16, color=GREY)
     x0, x1, label = 360, 900, 340
-    top = 10.0 * (int(max(ms for _, _, ms, _ in rows) / 10) + 1)
+    top = shared_top()
 
     def px(ms):
         return x0 + (x1 - x0) * ms / top
@@ -117,6 +123,8 @@ if __name__ == "__main__":
         "fig39-what-a-click-costs",
         3901,
         "What a click costs",
+        "SELECT count(*) over 100,000 cached rows, mean of 40 queries, ms; local mode, JDK 25, "
+        "GitHub runners",
         "stock Spark 4.2.0, %s" % short(cpu(STOCK)),
         stock[0],
     )

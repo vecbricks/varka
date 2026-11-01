@@ -8,9 +8,9 @@ experiment was measured on stock Spark 4.2.0; how is at the end.
 
 > **In short**
 >
-> 1. Whole-stage codegen turns each `WholeStageCodegenExec` subtree into Java source, Janino
->    compiles it, and `CodeGenerator` caches the class by that source. Integers, longs, doubles,
->    dates and timestamps are written into the source, so a new value is a new class. Strings and
+> 1. Spark turns each stage of a query into Java source, Janino compiles it, and `CodeGenerator`
+>    caches the class by that source. Numbers of every fixed width, booleans, dates, timestamps,
+>    times and intervals are written into the source, so a new value is a new class. Strings and
 >    decimals are passed to the class instead, so a new one is not.
 > 2. A named parameter doesn't help: Spark binds `:p` as a literal before it plans.
 > 3. One new integer cost five compiles on a driver and two executors.
@@ -20,8 +20,9 @@ experiment was measured on stock Spark 4.2.0; how is at the end.
 ## Why the same query compiles again
 
 Whole-stage codegen turns each codegen stage, a `WholeStageCodegenExec` subtree of the physical
-plan, into one Java source string. Janino, the in-memory Java compiler Spark embeds, compiles it
-into a class, which `CodeGenerator` caches with the source text as the key. So "does this query
+plan, into one Java source string; a cached table's batch filter is generated the same way, as a
+predicate class. Janino, the in-memory Java compiler Spark embeds, compiles each source into a
+class, which `CodeGenerator` caches with the source text as the key. So "does this query
 compile again?" is the question "is its source text new?".
 
 ![Two paths for a value](figures/svg/fig38-two-paths-for-a-value.svg)
@@ -29,9 +30,10 @@ compile again?" is the question "is its source text new?".
 *Figure 1. How a value in a `WHERE` clause reaches the generated class. The class counts are
 Spark's own counter (`CodegenMetrics`) in local mode, from `literals-jdk25-output.txt`.*
 
-How a value gets into the class depends on its type. `Literal.doGenCode` writes a boolean, an
-integer, a date or a year-month interval as its digits, a long, timestamp or day-time interval
-with an `L`, a float or a double with an `F` or a `D`. Every other type goes through
+How a value gets into the class depends on its type. `Literal.doGenCode` writes a boolean as
+`true` or `false`; a byte or a short with its cast, `(byte)5`; an integer, a date or a year-month
+interval as its digits; a long, a timestamp with or without a time zone, a time or a day-time
+interval with an `L`; a float or a double with an `F` or a `D`. Every other type goes through
 `CodegenContext.addReferenceObj`, which stores the value in the class's `references` array and
 writes only a read of it:
 
@@ -56,22 +58,22 @@ generated.
 *Figure 2. One query with a new integer on a driver and two executors, from
 `executors-jdk25-output.txt`: one compile on the driver, two on each executor.*
 
-A new integer compiles three classes in every JVM that runs the stage:
+A new integer compiles one class on the driver and two on each executor:
 
 - **The stage on the driver.** The driver compiles it first, to check that it compiles and to
   read the size of every method. That is where the 64 KB fallback and the 8000-byte check of
   our earlier posts are decided. Then it ships the source, not the class, to the executors.
 - **The stage again on each executor.** Every executor compiles the source into a cache of its
-  own. Even one JVM compiles it twice: the cache is keyed by the source and by the class loader
-  of the thread that compiles
-  ([SPARK-44795](https://issues.apache.org/jira/browse/SPARK-44795)), and a task runs under the
-  executor's class loader, not the driver's.
+  own.
 - **The cached table's batch filter** (`SpecificPredicate`) on each executor, which prunes
   cached batches by their statistics and holds the value too.
 
-In local mode the driver and the executor are one JVM, so one new integer is the three classes
-of Figure 1. And a new class starts in the JVM's bytecode interpreter, so each compile is paid
-twice: once in Janino, and again while the class runs slowly.
+In local mode the driver and the executor are one JVM, and it still compiles the stage twice: the
+cache is keyed by the source and by the class loader of the thread that compiles
+([SPARK-44795](https://issues.apache.org/jira/browse/SPARK-44795)), and a task runs under the
+executor's class loader, not the driver's. So one new integer is the three classes of Figure 1. And
+a new class starts in the JVM's bytecode interpreter, so each compile is paid twice: once in Janino,
+and again while the class runs slowly.
 
 ## What a click costs
 
@@ -148,8 +150,8 @@ that both count the same rows.
 
 ![An integer passed to the class](figures/svg/fig61-an-integer-passed-to-the-class.svg)
 
-*Figure 6. The same comparison as Figure 3 for an integer written into the source against one
-passed to the class; this repository's Spark, master-based with Varka off, on an AMD EPYC 7763,
+*Figure 6. Figure 3's comparison, on the same scale, for an integer written into the source against
+one passed to the class; this repository's Spark, master-based with Varka off, on an AMD EPYC 7763,
 from `CodegenRecompileBenchmark-jdk25-results.txt`. Not comparable with Figure 3.*
 
 With a new value each time, the literal compiled 2 classes a query and took about 43 ms; passed
@@ -161,9 +163,10 @@ change often.
 
 [SPARK-60786](https://issues.apache.org/jira/browse/SPARK-60786) proposes it. Two tickets
 meet the same cost from other sides:
-[SPARK-60048](https://issues.apache.org/jira/browse/SPARK-60048) keys whole-stage codegen's
-split decision by a digest that ignores literal values, since a literal that changes on every
-run, such as `current_timestamp()`, makes the stage decide afresh each time; and
+[SPARK-60048](https://issues.apache.org/jira/browse/SPARK-60048), open, proposes keying
+whole-stage codegen's split decision (on Spark's master since SPARK-33301, not in 4.2.0) by a
+digest that ignores literal values, since a literal that changes on every run, such as
+`current_timestamp()`, makes the stage decide afresh each time; and
 [SPARK-27871](https://issues.apache.org/jira/browse/SPARK-27871) fixed generated variable names
 that changed on every run and defeated the same cache.
 
