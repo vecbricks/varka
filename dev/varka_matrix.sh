@@ -181,6 +181,44 @@ EXCLUDED=(
 # The gate runs every suite; the matrix leaves out the ones above.
 [ "$defaults_only" = 1 ] && EXCLUDED=()
 
+# The @VarkaSuite(...) annotation of a Java file on one line, comments dropped; nothing when the
+# file has none. It is read whole, from its first line to the parenthesis that closes it, since
+# one with several flags wraps to stay within 100 columns: the reader counts parentheses outside
+# string literals and comments, drops a line's // comment and every /* */ comment, a block one
+# across lines too, so a comment or a parenthesis inside a flag ends nothing early. Both the
+# suite search (whether a suite runs alone) and own_jvm_flags read this one line.
+annotation_text() {
+  awk '
+    !on && /^@VarkaSuite\(/ { on = 1 }
+    on {
+      out = ""; quoted = 0
+      for (k = 1; k <= length($0); k++) {
+        c = substr($0, k, 1)
+        if (block) {
+          if (c == "*" && substr($0, k + 1, 1) == "/") { block = 0; k++ }
+          continue
+        }
+        if (quoted) {
+          if (c == "\\") { out = out c substr($0, k + 1, 1); k++; continue }
+          if (c == "\"") quoted = 0
+        } else if (c == "\"") {
+          quoted = 1
+        } else if (c == "/" && substr($0, k + 1, 1) == "/") {
+          break
+        } else if (c == "/" && substr($0, k + 1, 1) == "*") {
+          block = 1; k++; continue
+        } else if (c == "(") {
+          depth++
+        } else if (c == ")") {
+          depth--
+        }
+        out = out c
+        if (!quoted && depth == 0 && c == ")") { printf "%s\n", out; exit }
+      }
+      printf "%s ", out
+    }' "$1"
+}
+
 # Every concrete Varka suite of a module, by its source file, minus the exclusions and the
 # --suites / --skip-suites filters, one fully qualified name a line: the ScalaTest classes named
 # Varka...Suite under src/test/scala, and the JUnit classes named Varka...Suite under @VarkaSuite
@@ -194,7 +232,13 @@ module_suites() {
   while IFS= read -r file; do
     [ -n "$marker" ] && ! grep -qE "$marker" "$file" && continue
     own=""
-    grep -qE "$own_re" "$file" && own="@own "
+    # A Java suite's annotation is read joined, as own_jvm_flags reads it, so `ownJvm = true` on a
+    # wrapped line still marks it; a Scala suite's mixin is on its class line.
+    if [ -n "$marker" ]; then
+      annotation_text "$file" | grep -qE "$own_re" && own="@own "
+    else
+      grep -qE "$own_re" "$file" && own="@own "
+    fi
     pkg=$(sed -n 's/^package \([^;]*\);\{0,1\}$/\1/p' "$file" | head -1)
     for cls in $(grep -oE "$class_re" "$file" | awk '{print $NF}'); do
       skip=0
@@ -332,45 +376,14 @@ echo "== ${#configs[@]} configuration(s) and the defaults, $total suites," \
 
 # The JVM flags a JUnit suite that runs alone asks its child for (@VarkaSuite(jvmFlags = {...}),
 # VARKA-491), one a line: its JVM here takes them in the child's place, after the run's own
-# options, so a flag given twice is the suite's. A Scala suite has none. The annotation is read
-# whole, from its first line to the parenthesis that closes it, joined into one line, since one
-# with several flags wraps to stay within 100 columns: the reader counts parentheses outside
-# string literals and drops a line's // comment, so a trailing comment or a parenthesis inside a
-# flag ends nothing early.
+# options, so a flag given twice is the suite's. A Scala suite has none. The annotation is the
+# one line annotation_text joins it into, as the suite search reads it.
 own_jvm_flags() {
   local module=$1 suite=$2 file
   file="${module_root[$module]}/java/${suite//.//}.java"
   [ -f "$file" ] || return 0
   annotation_text "$file" | grep -E "$JAVA_OWN" | grep -oE 'jvmFlags *= *\{[^}]*\}' \
     | grep -oE '"[^"]*"' | tr -d '"'
-}
-
-# The @VarkaSuite(...) annotation of a Java file on one line, comments dropped; nothing when the
-# file has none.
-annotation_text() {
-  awk '
-    !on && /^@VarkaSuite\(/ { on = 1 }
-    on {
-      out = ""; quoted = 0
-      for (k = 1; k <= length($0); k++) {
-        c = substr($0, k, 1)
-        if (quoted) {
-          if (c == "\\") { out = out c substr($0, k + 1, 1); k++; continue }
-          if (c == "\"") quoted = 0
-        } else if (c == "\"") {
-          quoted = 1
-        } else if (c == "/" && substr($0, k + 1, 1) == "/") {
-          break
-        } else if (c == "(") {
-          depth++
-        } else if (c == ")") {
-          depth--
-        }
-        out = out c
-        if (!quoted && depth == 0 && c == ")") { printf "%s\n", out; exit }
-      }
-      printf "%s ", out
-    }' "$1"
 }
 
 # One JVM's suites under one configuration, in runs/<configuration>/<module>[-<k>]/. The runner
