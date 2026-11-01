@@ -1349,8 +1349,15 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
       s"options=${if (options.isDefault) "(defaults)" else options.canonical()} " +
       s"length=$length patterns=${patternIds.map(patternNames).mkString(",")} " +
       s"forceMasked=$forceMasked"
-    if (VarkaKernelPlan.refusalOf(roots, options).isPresent) {
-      castRefused.incrementAndGet()
+    val category = castCategory(root)
+    castDrawn(category) = castDrawn.getOrElse(category, 0) + 1
+    val refusal = VarkaKernelPlan.refusalOf(roots, options)
+    if (refusal.isPresent) {
+      // A cast draw is refused only for its width: a narrow column the width has no species for,
+      // or a lane count the options do not bake. A bigint narrowed at its store loads nothing
+      // narrow and is served at every width, so it is never refused.
+      assert(castWidthRefusal(refusal.get) && category != CastBigintStore,
+        s"$label: a $category draw refused for a reason other than its width: ${refusal.get}")
       return
     }
     val className = "org.apache.spark.sql.varka.execution.VarkaFusedFuzzCast" +
@@ -1366,8 +1373,43 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
         case e: VirtualMachineError => throw e
         case t: Throwable => fail(s"$label: ${Option(t.getMessage).getOrElse(t.toString)}", t)
       }
+      castFused(category) = castFused.getOrElse(category, 0) + 1
     }
   }
+
+  private val CastBigintStore = "bigint narrowed at its store"
+
+  /**
+   * The shape class of a cast draw, which the run bounds per class: the narrow load at the long
+   * width, a bigint's L2I store, a narrowing read by another node, and the rest.
+   */
+  private def castCategory(root: VarkaVectorIR): String = {
+    def source(n: VarkaVectorIR): VarkaVectorIR = n match {
+      case g: GuardedRange => source(g.child())
+      case other => other
+    }
+    def readsNarrowing(n: VarkaVectorIR): Boolean =
+      n.isInstanceOf[NarrowLane] || VarkaVectorIR.childrenOf(n).exists(readsNarrowing(_))
+    root match {
+      case w: WidenLane => w.child() match {
+        case _: NarrowLane => "narrowing read by another node"
+        case c: ColumnRef if c.lane().isNarrow && w.target() == LaneType.LONG =>
+          "narrow column loaded at the long width"
+        case _ => "widening"
+      }
+      case n: NarrowLane =>
+        if (source(n.child()).laneType() == LaneType.LONG) CastBigintStore
+        else "narrowing at its store"
+      case _: CondValue => "select"
+      case c: Cond => if (readsNarrowing(c)) "narrowing read by another node" else "test"
+      case other => fail(s"not a cast draw: $other")
+    }
+  }
+
+  /** Whether {@code reason} is a refusal for the drawn width alone (VarkaKernelPlan). */
+  private def castWidthRefusal(reason: String): Boolean =
+    reason.contains("has no load at") || reason.contains("has no widening load at") ||
+      reason.contains("needs a baked")
 
   /** One compiled cast draw through the harness of its drive lane. */
   private def runCast(label: String, className: String, bytes: Array[Byte],
@@ -1383,8 +1425,19 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
     }
   }
 
-  /** The cast draws the plan refused at their drawn width, reported after the run. */
-  private val castRefused = new AtomicInteger(0)
+  /** The cast draws per {@link #castCategory}, and those that fused and answered. */
+  private val castDrawn = scala.collection.mutable.Map.empty[String, Int]
+  private val castFused = scala.collection.mutable.Map.empty[String, Int]
+
+  /**
+   * The share of a class's draws that must fuse: the rest are refused for their width, which the
+   * options draw at random, so a regression refusing a class at every width shows as a class
+   * under it. At the committed seed and the defaults the lowest class, a narrowing at its store
+   * in a kernel at the int lane, fuses a third of its draws (16 of 48 on 1 November 2026), and a
+   * configuration that bakes a lane count fuses more. A class with fewer than 20 draws is not
+   * bounded.
+   */
+  private val castFusedFloor = 0.15
 
   test(s"random integral casts match the reference evaluator (seed $castSeed, " +
       s"$iterations iterations)") {
@@ -1397,7 +1450,17 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
     } finally {
       VarkaEmitReach.detach(randomTrace)
     }
-    logInfo(s"cast draws refused at their width: ${castRefused.get()}")
+    val counts = castDrawn.keys.toSeq.sorted.map { c =>
+      s"$c ${castFused.getOrElse(c, 0)}/${castDrawn(c)}"
+    }
+    logInfo(s"cast draws fused per class: ${counts.mkString(", ")}")
+    if (only.isEmpty) {
+      for ((c, drawn) <- castDrawn if drawn >= 20) {
+        val fused = castFused.getOrElse(c, 0)
+        assert(fused >= castFusedFloor * drawn,
+          s"only $fused of $drawn $c draws fused; counts: ${counts.mkString(", ")}")
+      }
+    }
     reportReach(reach)
     reportSkipped()
   }
@@ -1405,21 +1468,29 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
   test("the cast draw reaches each composition and each guard mode, at every lane") {
     val seen = scala.collection.mutable.Set.empty[String]
     for (k <- 0 until 2000) {
-      VarkaIrGrammar.drawCastShape(VarkaIrGrammar.shapeRandom(castSeed, k)) match {
-        case w: WidenLane => seen += s"widen to ${w.target()}"
-        case n: NarrowLane => n.child() match {
+      val root = VarkaIrGrammar.drawCastShape(VarkaIrGrammar.shapeRandom(castSeed, k))
+      (root, castCategory(root)) match {
+        case (w: WidenLane, "narrowing read by another node") =>
+          seen += s"narrowing read by a widening to ${w.target()}"
+        case (w: WidenLane, _) => seen += s"widen to ${w.target()}"
+        case (n: NarrowLane, _) => n.child() match {
           case g: GuardedRange => seen += s"narrow to ${n.target()} ${g.mode()}"
           case _ => seen += s"narrow to ${n.target()} WRAP"
         }
-        case c: CondValue => seen += s"select at ${c.lane()}"
-        case t: Cond => seen += s"test at ${t.laneType()}"
-        case other => fail(s"not a cast: $other")
+        case (c: CondValue, _) => seen += s"select at ${c.lane()}"
+        case (t: Cond, "narrowing read by another node") =>
+          seen += s"narrowing read by ${t.getClass.getSimpleName} at ${t.laneType()}"
+        case (t: Cond, _) => seen += s"test at ${t.laneType()}"
+        case (other, _) => fail(s"not a cast: $other")
       }
     }
     val wanted = Seq("SHORT", "INT", "LONG").map(t => s"widen to $t") ++
       (for (t <- Seq("BYTE", "SHORT", "INT"); m <- Seq("WRAP", "FAIL", "NULL"))
         yield s"narrow to $t $m") ++
-      Seq("BYTE", "SHORT", "INT", "LONG").flatMap(l => Seq(s"select at $l", s"test at $l"))
+      Seq("BYTE", "SHORT", "INT", "LONG").flatMap(l => Seq(s"select at $l", s"test at $l")) ++
+      Seq("SHORT", "INT", "LONG").map(t => s"narrowing read by a widening to $t") ++
+      (for (n <- Seq("Compare", "NullSafeEqual", "Not", "And", "Or"); l <- Seq("BYTE", "SHORT"))
+        yield s"narrowing read by $n at $l")
     assert((wanted.toSet -- seen).isEmpty, s"never drawn: ${(wanted.toSet -- seen).toSeq.sorted}")
   }
 

@@ -483,8 +483,9 @@ public final class VarkaIrGrammar {
    * {@link #CAST_COLUMNS}: a widening of a column to a wider lane; a narrowing to a narrower one,
    * bare (the wrap) or over a range guard of the target's range in {@code FAIL} or {@code NULL}
    * mode; the test {@code NOT(x = 0)}, the zero literal slot 0 of the column's lane; and a
-   * {@code BOOLEAN} column's value at any integral lane. One root a draw: two roots of different
-   * lanes would be two kernels.
+   * {@code BOOLEAN} column's value at any integral lane; and a narrowing read by another node
+   * ({@link #narrowingRead}), so a narrowing away from a store is fuzzed too. One root a draw: two
+   * roots of different lanes would be two kernels.
    */
   public static VarkaVectorIR drawCastShape(Random rnd) {
     LaneType[] lanes = CAST_COLUMNS.toArray(new LaneType[0]);
@@ -492,7 +493,8 @@ public final class VarkaIrGrammar {
     // bound of four reads the high ones: over a thousand draws it took two compositions of the
     // four, so the composition is drawn after one discarded value.
     rnd.nextLong();
-    return switch (rnd.nextInt(4)) {
+    return switch (rnd.nextInt(5)) {
+      case 4 -> narrowingRead(rnd);
       case 0 -> {
         int from = rnd.nextInt(3);
         int to = from + 1 + rnd.nextInt(3 - from);
@@ -501,14 +503,7 @@ public final class VarkaIrGrammar {
       case 1 -> {
         int from = 1 + rnd.nextInt(3);
         int to = rnd.nextInt(from);
-        VarkaVectorIR x = new ColumnRef(from, lanes[from]);
-        VarkaTypes.IntegralRange range = VarkaTypes.integralRange(lanes[to]);
-        VarkaVectorIR guarded = switch (rnd.nextInt(3)) {
-          case 0 -> x;
-          case 1 -> new GuardedRange(x, range.min(), range.max(), Overflow.FAIL);
-          default -> new GuardedRange(x, range.min(), range.max(), Overflow.NULL);
-        };
-        yield new NarrowLane(guarded, lanes[to]);
+        yield narrowing(rnd, from, lanes[to]);
       }
       case 2 -> {
         int from = rnd.nextInt(4);
@@ -520,6 +515,75 @@ public final class VarkaIrGrammar {
         yield new CondValue(new BoolColumn(CAST_BOOL_COLUMN, lane), lane);
       }
     };
+  }
+
+  /**
+   * Column {@code from} of {@link #CAST_COLUMNS} narrowed to {@code to}: bare (the wrap) or over a
+   * range guard of the target's range in {@code FAIL} or {@code NULL} mode.
+   */
+  private static VarkaVectorIR narrowing(Random rnd, int from, LaneType to) {
+    VarkaVectorIR x = new ColumnRef(from, CAST_COLUMNS.get(from));
+    VarkaTypes.IntegralRange range = VarkaTypes.integralRange(to);
+    VarkaVectorIR guarded = switch (rnd.nextInt(3)) {
+      case 0 -> x;
+      case 1 -> new GuardedRange(x, range.min(), range.max(), Overflow.FAIL);
+      default -> new GuardedRange(x, range.min(), range.max(), Overflow.NULL);
+    };
+    return new NarrowLane(guarded, to);
+  }
+
+  /**
+   * A narrowing to {@code TINYINT} or {@code SMALLINT} that another node reads, the path a
+   * narrowing away from a store takes in `VarkaVectorWalk`: widened back to a wider lane
+   * ({@code WidenLane(NarrowLane(l, BYTE), LONG)}), compared with a column of its target or a
+   * second narrowing, or such comparisons under {@code AND}, {@code OR}, {@code NOT} or
+   * {@code <=>}. A narrowing widened to the long lane narrows an int or a bigint, the sources a
+   * kernel at the long lane reads as a value; a narrow source narrowed there is a store's alone.
+   */
+  private static VarkaVectorIR narrowingRead(Random rnd) {
+    LaneType to = rnd.nextBoolean() ? LaneType.BYTE : LaneType.SHORT;
+    int target = CAST_COLUMNS.indexOf(to);
+    return switch (rnd.nextInt(3)) {
+      case 0 -> {
+        int widenTo = target + 1 + rnd.nextInt(CAST_COLUMNS.size() - 1 - target);
+        // A narrow-typed root is a store or a condition, never a widening, at the long lane: the
+        // widening to SHORT narrows a short or an int. To INT, any wider source; to BIGINT an
+        // int or a bigint.
+        int from = switch (CAST_COLUMNS.get(widenTo)) {
+          case SHORT -> 1 + rnd.nextInt(2);
+          case INT -> target + 1 + rnd.nextInt(CAST_COLUMNS.size() - 1 - target);
+          case LONG -> 2 + rnd.nextInt(2);
+          case BYTE, FLOAT, DOUBLE -> throw new IllegalStateException(
+              "no widening of a narrowing to " + CAST_COLUMNS.get(widenTo));
+        };
+        yield new WidenLane(narrowing(rnd, from, to), CAST_COLUMNS.get(widenTo));
+      }
+      case 1 -> narrowCompare(rnd, to, target);
+      default -> {
+        Cond left = narrowCompare(rnd, to, target);
+        yield switch (rnd.nextInt(3)) {
+          case 0 -> new Not(left);
+          case 1 -> new And(left, narrowCompare(rnd, to, target));
+          default -> new Or(left, narrowCompare(rnd, to, target));
+        };
+      }
+    };
+  }
+
+  /**
+   * A narrowing of the int or bigint column to {@code to} compared with column {@code target} (of
+   * lane {@code to}) or with a second such narrowing, under any comparison or {@code <=>}. Not a
+   * narrow source: beside a bigint narrowing the comparison is a long kernel's, where a narrowed
+   * narrow value is a store's alone (`VarkaKernelPlan.LongNarrowRole`).
+   */
+  private static Cond narrowCompare(Random rnd, LaneType to, int target) {
+    VarkaVectorIR left = narrowing(rnd, 2 + rnd.nextInt(2), to);
+    VarkaVectorIR right = rnd.nextBoolean() ? new ColumnRef(target, to)
+        : narrowing(rnd, 2 + rnd.nextInt(2), to);
+    CompareOp[] ops = CompareOp.values();
+    int pick = rnd.nextInt(ops.length + 1);
+    return pick == ops.length ? new NullSafeEqual(left, right)
+        : new Compare(ops[pick], left, right);
   }
 
   /**
