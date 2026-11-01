@@ -22,7 +22,6 @@ import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.Set;
@@ -92,7 +91,8 @@ final class DeclineSink {
   private final List<Bound> bounds = new ArrayList<>();
   private final LinkedHashMap<Long, Integer> longLiterals = new LinkedHashMap<>();
   /** The decimal compiler's choice conditions compiled in its current call; see below. */
-  private final Map<Expression, VarkaVectorIR.Cond> decimalConditions = new IdentityHashMap<>();
+  private final IdentityHashMap<Expression, VarkaVectorIR.Cond> decimalConditions =
+      new IdentityHashMap<>();
   private int decimalDepth;
   private boolean decimalProbe;
   private VarkaDecline first;

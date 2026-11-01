@@ -652,3 +652,23 @@ refinement's 60 new checks add under a tenth of a second.
   (`varka-497-499-plan`, #1179), so, as section 5 item 3 allows, 348a lands without them, writes
   no fifth arm, and leaves out the coverage rows `d9 IN (1.25, 2.5, 3)` and the eleven-literal
   `InSet`; a follow-up adds the reader case to 497's arm.
+
+### 10.4 The second review of 348a (1 November 2026)
+
+- **A null test compiled its value's conditions twice.** `nullTested` compiled the value, for its
+  declines, and then its validity, and both compiled every `IF` and `CASE` condition inside it;
+  `coalesce` did the same for each operand. A condition that holds a null test of the level
+  below therefore doubled the compile at every level. The value is now compiled as a probe that
+  compiles no condition and whose table entries are rolled back, and a condition compiled within
+  one call of the compiler is kept on the sink and reused, so each is compiled once;
+  `VarkaDecimalValueSuite` compiles the three nested shapes twenty levels deep within a 20 s
+  bound. The `CASE` validity compiles its branches in the value's order, so the leaves keep
+  their slots; `emitted_bytes.json` and `coverage.json` did not move.
+- **A long-lane `abs` weighed 1.** The defaults emit the compare, the negation and the blend, so
+  `weightOf` weighs it 3, the larger form, as it does for every node whose arm it cannot see;
+  the register holds the row. The cost model's feature for it does not tell the two lowerings
+  apart, and no abs feature has a price yet; that waits for row 352's refit.
+- `column()` declines a decimal column the registry puts off the long lane or past 18 digits
+  instead of building a `Scaled` its record refuses; the default decline names rows 349 and 351
+  and says a quotient or a remainder is no row's in this milestone (`VARKA-363.md` 7); the
+  kernel check's decimal column set throws past ordinal 63 instead of dropping the column.
