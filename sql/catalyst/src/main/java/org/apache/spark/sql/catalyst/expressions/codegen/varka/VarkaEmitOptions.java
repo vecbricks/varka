@@ -489,6 +489,13 @@ import com.sun.management.HotSpotDiagnosticMXBean;
  *        folds away where it is off, is right on every host and JDK; true is the losing arm, an
  *        AND a site cheaper on x86 below AVX-512, kept for the A/B and for the JDKs that fix the
  *        rule ({@code m9/SCOPE.md} item 114).
+ * @param decimalAbsLanewise whether a long-lane {@code abs}, which only a decimal's unscaled value
+ *        reaches (VARKA-348 2.6), is the lanewise {@code ABS}, one {@code evpabsq} where x86 has
+ *        AVX-512 and the Vector API's allocating Java fallback below it, rather than a compare
+ *        with zero, a negation and a blend, which every host makes intrinsic at 256 and 512
+ *        bits. False, the blend, is the default; true is the arm, kept to be measured against
+ *        the blend on a host with AVX-512. Either gives {@code |u|} for every value within 18
+ *        digits ({@code decimal64.smt2}).
  */
 public record VarkaEmitOptions(
     int groupBudget,
@@ -538,7 +545,8 @@ public record VarkaEmitOptions(
     boolean groupBudgetUnderPrediction,
     boolean dropStackMaps,
     int misdescribeDataBytes,
-    boolean fromLongMasks) {
+    boolean fromLongMasks,
+    boolean decimalAbsLanewise) {
 
   /**
    * The three mod-7 lowerings. {@link #MAGIC} is what ships: two 15-bit digit-sum folds followed
@@ -651,7 +659,8 @@ public record VarkaEmitOptions(
           VarkaEmitBudget.HUGE_METHOD_LIMIT,
           true, true, true, true,
           VarkaEmitBudget.CALL_SITE_BUDGET, VarkaEmitBudget.HEAVY_GROUP_OUTPUTS,
-          true, true, true, true, true, true, true, 0, 0, 0, false, false, false, 0, false);
+          true, true, true, true, true, true, true, 0, 0, 0, false, false, false, 0, false,
+          false);
 
   public VarkaEmitOptions {
     if (groupBudget < 1) {
@@ -754,6 +763,7 @@ public record VarkaEmitOptions(
       b.dropStackMaps = dropStackMaps;
       b.misdescribeDataBytes = misdescribeDataBytes;
       b.fromLongMasks = fromLongMasks;
+      b.decimalAbsLanewise = decimalAbsLanewise;
     return b;
   }
 
@@ -807,6 +817,7 @@ public record VarkaEmitOptions(
     private boolean dropStackMaps;
     private int misdescribeDataBytes;
     private boolean fromLongMasks;
+    private boolean decimalAbsLanewise;
 
     private Builder() {
     }
@@ -1051,6 +1062,11 @@ public record VarkaEmitOptions(
       return this;
     }
 
+    public Builder decimalAbsLanewise(boolean lanewise) {
+      this.decimalAbsLanewise = lanewise;
+      return this;
+    }
+
     public VarkaEmitOptions build() {
       return new VarkaEmitOptions(
           groupBudget, fusedCeiling, cse, shareChronoPrefix, denseValidityOnce,
@@ -1064,7 +1080,7 @@ public record VarkaEmitOptions(
           severalKernels,
           elideUnreadLocals, planSize, misdescribeDriverBytes, forceResidualAt,
           misdescribeRollback, exactRefusalStatus, groupBudgetUnderPrediction, dropStackMaps,
-          misdescribeDataBytes, fromLongMasks);
+          misdescribeDataBytes, fromLongMasks, decimalAbsLanewise);
     }
   }
 

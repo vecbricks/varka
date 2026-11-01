@@ -110,7 +110,7 @@ class VarkaEmitOptionSuite extends SparkFunSuite with VarkaTestWatchdog {
         "forceResidualAt", "misdescribeRollback", "dropStackMaps", "misdescribeDataBytes")) {
       assert(reasonOf(name) === Reason.FAULT_INJECTOR, name)
     }
-    for (name <- Seq("division", "useAVX")) {
+    for (name <- Seq("division", "useAVX", "decimalAbsLanewise")) {
       assert(reasonOf(name) === Reason.MACHINE, name)
     }
     for (name <- Seq("checkIntOverflow", "guardDayProducers")) {

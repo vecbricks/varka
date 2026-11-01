@@ -786,6 +786,18 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `d9 IS NOT NULL` | `predicate` |  |  | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
 | `d18 IS NULL` | `predicate` |  |  | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
 | `d18 IS NOT NULL` | `predicate` |  |  | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
+| `d9 < d9s4` | `predicate` |  | both sides at DECIMAL(11, 4): d9's unscaled value times 100, exact since nine digits times 10^2 stay within eleven (decimal64.smt2) | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
+| `d9 = d9s4` | `predicate` |  |  | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
+| `d9 <=> d9s4` | `predicate` |  |  | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
+| `d16s9 >= d9s4` | `predicate` |  | at DECIMAL(16, 9): d9s4 times 10^5 | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
+| `d18 > 1.5` | `predicate` |  | the literal takes its slot at the column's scale, 150 | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
+| `d9 = 0.425` | `predicate` |  | at DECIMAL(10, 3): the column times 10, the literal 425 | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
+| `-d9 < d9b` | `predicate` |  | a negation, which cannot overflow: an unscaled value within 18 digits is never the long lane's minimum | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
+| `abs(d9) >= d9b` | `predicate` |  | a compare with zero, a negation and a blend; the lanewise ABS is the decimalAbsLanewise option | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
+| `greatest(d9, d9s4) > d9b` | `predicate` |  | the null-skipping pick at DECIMAL(11, 4), each branch carrying its rescale | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
+| `coalesce(d9, d9b) IS NULL` | `predicate` |  | null where every operand is: the validity of each leaf, ORed, and every leaf's slots checked | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
+| `(-d18) IS NOT NULL` | `predicate` |  | a negation is null where its operand is | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
+| `CASE WHEN d9 < d9b THEN d9 ELSE d9s4 END > 0.0` | `predicate` |  | a choice at DECIMAL(11, 4) under a comparison; the branch of the smaller scale carries its rescale | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
 
 #### Time arithmetic
 
@@ -826,7 +838,7 @@ operands (a row counts once for each type it reads):
 | `bool` | 23 | 0 | 0 | 13 | 0 | 10 |
 | `byte` | 26 | 0 | 0 | 0 | 8 | 18 |
 | `date` | 86 | 17 | 0 | 1 | 0 | 68 |
-| `dec` | 17 | 0 | 0 | 0 | 0 | 17 |
+| `dec` | 29 | 12 | 0 | 0 | 0 | 17 |
 | `double` | 20 | 0 | 0 | 0 | 0 | 20 |
 | `dt` | 15 | 2 | 0 | 0 | 0 | 13 |
 | `float` | 20 | 0 | 0 | 0 | 0 | 20 |

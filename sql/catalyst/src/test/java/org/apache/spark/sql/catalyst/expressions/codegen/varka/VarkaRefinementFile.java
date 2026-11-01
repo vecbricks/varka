@@ -24,6 +24,7 @@ import java.util.List;
 
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaChronoLowering.ChronoDivide;
 import org.apache.spark.sql.catalyst.util.DateTimeConstants;
+import org.apache.spark.sql.types.Decimal;
 
 /**
  * {@code refinement.smt2} (VARKA-245): the kernels as refinements of the specification under
@@ -114,6 +115,7 @@ final class VarkaRefinementFile {
     makeDate(out);
     intervals(out);
     times(out);
+    decimals(out);
     return out.toString();
   }
 
@@ -986,6 +988,112 @@ final class VarkaRefinementFile {
   // -----------------------------------------------------------------------------------------
   // Shared.
   // -----------------------------------------------------------------------------------------
+
+  // -----------------------------------------------------------------------------------------
+  // The 64-bit decimal (VARKA-348).
+  // -----------------------------------------------------------------------------------------
+
+  /** A decimal column operand: its lane value {@code u}, validity {@code v} and type. */
+  private record Dec(String u, String v, int precision, int scale) {
+    /** The precision's largest unscaled value, from Spark's own table of powers. */
+    long bound() {
+      return Decimal.POW_10()[precision] - 1L;
+    }
+
+    String declare() {
+      return "(declare-const " + u + " Int) (declare-const " + v + " Bool)\n(assert (jlong.in "
+          + u + "))";
+    }
+
+    /** Spark's column reader raises on a valid slot outside the precision. */
+    String outside() {
+      return "(and " + v + " (> (abs " + u + ") " + bound() + "))";
+    }
+  }
+
+  private static long pow10(int k) {
+    return Decimal.POW_10()[k];
+  }
+
+  /**
+   * One decimal predicate row, Spark mode, which here is also standard mode: no decimal operation
+   * of these rows wraps, rounds or raises past its operands' precision. Every operand is a column
+   * whose lane value the specification reads as {@code u / 10^s} (STANDARD.md 4.1); the
+   * specification raises where Spark's column reader does, on a valid slot outside the precision,
+   * and the kernel declines exactly there, by its leaf's slot check ({@code decimal_slot.smt2}).
+   * The kernel's truth {@code k} and the specification's {@code t} are conditions, compared on
+   * the lanes where the specification's answer is known.
+   */
+  private static void decimalRow(StringBuilder out, String name, List<Dec> cols,
+      List<String> defs, String kernelValid, String specValid, String k, String t) {
+    var setup = new ArrayList<String>();
+    for (Dec c : cols) {
+      setup.add(c.declare());
+    }
+    setup.addAll(defs);
+    String raises = cols.size() == 1 ? cols.get(0).outside() : "(or " + String.join(" ",
+        cols.stream().map(Dec::outside).toList()) + ")";
+    refine(out, new Refinement(name, setup, "true", "true", specValid, raises, specValid, raises,
+        kernelValid, "(not (= " + k + " " + t + "))", List.of()));
+  }
+
+  private static void decimals(StringBuilder out) {
+    section(out, "STANDARD.md 4.1, 4.2, 4.5, 4.8, 4.9 and EXTENSIONS.md 3: the 64-bit decimal");
+    var d9 = new Dec("a", "va", 9, 2);
+    var d9b = new Dec("b", "vb", 9, 2);
+    var d9s4 = new Dec("c", "vc", 9, 4);
+    var d16s9 = new Dec("e", "ve", 16, 9);
+    var d18 = new Dec("a", "va", 18, 2);
+    String ab = "(and va vc)";
+    // Two scales: the kernel compares u1 * 10^k with u2, the specification the rationals,
+    // u1 / 10^s1 against u2 / 10^s2, as u1 * 10^s2 against u2 * 10^s1.
+    for (String op : List.of("<", "=")) {
+      decimalRow(out, "d9 " + op + " d9s4, Spark mode: at DECIMAL(11, 4), d9 times 100",
+          List.of(d9, d9s4), List.of(), ab, ab, "(" + op + " (jlong.mul a 100) c)",
+          "(" + op + " (* a " + pow10(4) + ") (* c " + pow10(2) + "))");
+    }
+    decimalRow(out, "d9 <=> d9s4, Spark mode: total, true where both are null", List.of(d9, d9s4),
+        List.of(), "true", "true",
+        "(or (and va vc (= (jlong.mul a 100) c)) (and (not va) (not vc)))",
+        "(or (and va vc (= (* a " + pow10(4) + ") (* c " + pow10(2) + "))) "
+            + "(and (not va) (not vc)))");
+    decimalRow(out, "d16s9 >= d9s4, Spark mode: at DECIMAL(16, 9), d9s4 times 10^5",
+        List.of(d16s9, d9s4), List.of(), "(and ve vc)", "(and ve vc)",
+        "(>= e (jlong.mul c " + pow10(5) + "))",
+        "(>= (* e " + pow10(4) + ") (* c " + pow10(9) + "))");
+    decimalRow(out, "d18 > 1.5, Spark mode: the literal's slot at scale 2, 150", List.of(d18),
+        List.of(), "va", "va", "(> a 150)", "(> (* a 10) (* 15 100))");
+    decimalRow(out, "d9 = 0.425, Spark mode: at DECIMAL(10, 3), the column times 10 and the "
+        + "literal 425", List.of(d9), List.of(), "va", "va", "(= (jlong.mul a 10) 425)",
+        "(= (* a 1000) (* 425 100))");
+    decimalRow(out, "-d9 < d9b, Spark mode: the wrapping negation", List.of(d9, d9b), List.of(),
+        "(and va vb)", "(and va vb)", "(< (jlong.neg a) b)", "(< (- a) b)");
+    decimalRow(out, "abs(d9) >= d9b, Spark mode: the blend, which decimal64.smt2 shows the "
+        + "lanewise ABS equal to", List.of(d9, d9b), List.of(), "(and va vb)", "(and va vb)",
+        "(>= (ite (< a 0) (jlong.neg a) a) b)", "(>= (abs a) b)");
+    // greatest at DECIMAL(11, 4), null-skipping, compared with d9b rescaled to it.
+    decimalRow(out, "greatest(d9, d9s4) > d9b, Spark mode: the null-skipping pick at DECIMAL(11, "
+        + "4)", List.of(d9, d9s4, d9b), List.of(
+            "(define-fun ka () Int (jlong.mul a 100))",
+            "(define-fun kg () Int (ite (and va vc) (ite (> ka c) ka c) (ite va ka c)))",
+            "(define-fun sa () Int (* a 100))",
+            "(define-fun sg () Int (ite (and va vc) (ite (> sa c) sa c) (ite va sa c)))"),
+        "(and (or va vc) vb)", "(and (or va vc) vb)", "(> kg (jlong.mul b 100))",
+        "(> sg (* b 100))");
+    decimalRow(out, "coalesce(d9, d9b) IS NULL, Spark mode: null where every operand is",
+        List.of(d9, d9b), List.of(), "true", "true", "(and (not va) (not vb))",
+        "(and (not va) (not vb))");
+    decimalRow(out, "(-d18) IS NOT NULL, Spark mode: a negation is null where its operand is",
+        List.of(d18), List.of(), "true", "true", "va", "va");
+    // The CASE at DECIMAL(11, 4): its condition known true takes d9 rescaled, otherwise d9s4.
+    decimalRow(out, "CASE WHEN d9 < d9b THEN d9 ELSE d9s4 END > 0.0, Spark mode: a choice at "
+        + "DECIMAL(11, 4) under a comparison", List.of(d9, d9b, d9s4), List.of(
+            "(define-fun kt () Bool (and va vb (< a b)))",
+            "(define-fun kx () Int (ite kt (jlong.mul a 100) c))",
+            "(define-fun sx () Int (ite kt (* a 100) c))",
+            "(define-fun vx () Bool (ite kt va vc))"),
+        "vx", "vx", "(> kx 0)", "(> sx 0)");
+  }
 
   private static void section(StringBuilder out, String title) {
     out.append("\n; ").append("-".repeat(95)).append("\n; ").append(title).append("\n; ")

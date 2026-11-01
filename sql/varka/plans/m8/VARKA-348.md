@@ -549,6 +549,25 @@ precisions, the comparison lemma at each of the 170 pairs of
 scales, the negation, both forms of `abs`, and their agreement on every long. Z3 holds it in
 0.15 s and cvc5 in 0.47 s on the laptop, far under the plan's ten seconds per solver.
 
+**Negation, `abs`, the choices and the null tests.** `value()` builds `UnaryMinus` and `Abs` as
+`IntNeg(WRAP, u)` and `IntNeg(WRAP, u, abs = true)`, `If` and `CASE WHEN` with an `ELSE` as the
+right fold of `IfElse` over conditions lifted to the long lane, `Coalesce` as the fold of
+`IfElse(valid(head), head, rest)`, and `Greatest` and `Least` as the existing picks; a `CASE`
+without `ELSE` declines naming row 333. The emitter lowers a long-lane `abs` as
+`x.blend(x.neg(), x.compare(LT, 0))` by default and as the lanewise `ABS` under the new flag
+`decimalAbsLanewise` (`Reason.MACHINE`, off), and the reference evaluator answers it with
+`Math.abs`. `IntNeg`'s javadoc says a decimal negation is `WRAP` by its bound.
+
+**The coverage rows.** Two fixture columns, `d9s4` (`DECIMAL(9, 4)`, from `l`'s last nine
+digits) and `d16s9` (`DECIMAL(16, 9)`, from `l2`'s last sixteen), in `VarkaCoverageSuite`, the
+bytes and width-audit copies and the differential's view. Twelve predicate rows: `d9 < d9s4`,
+`d9 = d9s4`, `d9 <=> d9s4`, `d16s9 >= d9s4`, `d18 > 1.5`, `d9 = 0.425`, `-d9 < d9b`,
+`abs(d9) >= d9b`, `greatest(d9, d9s4) > d9b`, `coalesce(d9, d9b) IS NULL`, `(-d18) IS NOT NULL`
+and `CASE WHEN d9 < d9b THEN d9 ELSE d9s4 END > 0.0`, each refined whole in a decimal section of
+`refinement.smt2`. Regenerated in `ADDING_A_TYPE.md`'s order, `emitted_bytes.json` adds the
+twelve at both widths, no existing row's hash moves, and the option-arm digests move, as
+prediction 6 said.
+
 ### Departures from the plan
 
 - **The rescale's one-past witness is not a wrap at every precision.** Section 3 item 3 says that
@@ -560,6 +579,19 @@ scales, the negation, both forms of `abs`, and their agreement on every long. Z3
   different types after `value()` decline". Two values of one scale compare as their unscaled
   longs whatever their precisions, and row 347 accepted one scale at two precisions, so the
   guard declines two scales only.
+- **A null test over a computed value derives its validity from the leaves.** Section 2.3 has
+  `IS [NOT] NULL` over any value be `IsNotNull(unscaled)`. The IR's `IsNotNull` reads a column's
+  validity word or a condition's known-ness, never a computed node's word, which only exists
+  during its value walk (the node's javadoc, the milestone-3 restriction). So
+  `VarkaDecimalCompiler.valid` builds the validity as a total condition over the leaves: a
+  column's word through a rescale, a negation or `abs`; `CondIf` over the branches' validity for
+  `If` and `CASE`; the OR of the operands' for `coalesce`, `greatest` and `least`. Every leaf of
+  the value is still a leaf of the test, so its slot check still runs. `coalesce` uses the same
+  validity for its heads, so a computed head fuses, where the date lane's `coalesce` declines one.
+- **The `CASE` row compares with `0.0`, not `0`.** Section 3 item 4 lists `... END > 0`. The
+  integer literal arrives as a cast from `INT` to a decimal, which the census check counts as a
+  cast that never fuses bare (row 350's); `0.0` keeps the row's subject, a choice under a
+  comparison, and the integral literal still folds in real queries.
 - **`IN` and `InSet` are not in 348a.** Row 497's single `IN` arm exists only as a plan
   (`varka-497-499-plan`, #1179), so, as section 5 item 3 allows, 348a lands without them, writes
   no fifth arm, and leaves out the coverage rows `d9 IN (1.25, 2.5, 3)` and the eleven-literal

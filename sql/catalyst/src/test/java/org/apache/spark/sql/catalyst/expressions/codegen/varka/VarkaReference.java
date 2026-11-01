@@ -453,10 +453,13 @@ public final class VarkaReference {
           yield c;
         }
         long v = c.getAsLong();
+        // A long-lane abs is a decimal's: Math.abs, which wraps at the lane's minimum as the
+        // negation does.
+        long r = n.abs() ? Math.abs(v) : -v;
         yield switch (n.mode()) {
-          case WRAP -> OptionalLong.of(-v);
+          case WRAP -> OptionalLong.of(r);
           // The lane's own most negative value, whose negation is itself.
-          case FAIL, NULL -> v == Long.MIN_VALUE ? OptionalLong.empty() : OptionalLong.of(-v);
+          case FAIL, NULL -> v == Long.MIN_VALUE ? OptionalLong.empty() : OptionalLong.of(r);
         };
       }
       case ConstDivide n -> {

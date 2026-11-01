@@ -1078,10 +1078,10 @@ final class VarkaConditionCompiler {
     if (child.dataType().equals(DataTypes.BooleanType)) {
       return compileCond(child, inputs, literals, sink).map(VarkaVectorIR.IsNotNull::new);
     }
-    // A decimal column's null test reads its word, over the decimal leaf (VARKA-347).
+    // A decimal value's null test reads its leaves' words, over the decimal leaf (VARKA-347,
+    // VARKA-348).
     if (VarkaDecimalCompiler.isDecimal(child)) {
-      return VarkaDecimalCompiler.nullTested(whole, child, inputs, sink)
-          .map(VarkaVectorIR.IsNotNull::new);
+      return VarkaDecimalCompiler.nullTested(child, inputs, literals, sink);
     }
     Optional<VarkaVectorIR> compiled;
     if (child instanceof BoundReference br && br.dataType().equals(DataTypes.IntegerType)) {
