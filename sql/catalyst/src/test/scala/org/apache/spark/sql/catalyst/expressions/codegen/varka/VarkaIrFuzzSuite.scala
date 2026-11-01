@@ -1418,14 +1418,38 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
     // Catches: the steering's options taken from the general draws alone, so a mutant of a
     // decimal case never changes its store; or the store offered for every case, which would
     // shift every general case's steered sequence for an option none of their shapes reads.
+    // Also catches a variant's replacement pool offering a decimal or boolean output, which a
+    // mutation would place under an arm: the emitter refuses either below a root.
     val inGeneral = VarkaEmitOption.TABLE.asScala.toSeq
       .filter(o => VarkaEmitOption.drawnInGeneral(o)).sortBy(_.name)
-    assert(VarkaSteering.mutable(drawLong(0)).asScala.toSeq === inGeneral)
+    val firstGeneral = VarkaSteering.mutable(drawLong(0))
+    assert(firstGeneral.asScala.toSeq === inGeneral)
+    for (k <- 0 until 500) {
+      assert(VarkaSteering.mutable(drawLong(k)) eq firstGeneral, s"general draw $k")
+    }
+    def outputBelowARoot(roots: java.util.List[VarkaVectorIR]): Option[VarkaVectorIR] = {
+      var found: Option[VarkaVectorIR] = None
+      for (r <- roots.asScala; c <- VarkaVectorIR.childrenOf(r)) {
+        VarkaVariants.walk(c, n => n match {
+          case _: WidenDecimal | _: BoolOutput if found.isEmpty => found = Some(n)
+          case _ =>
+        })
+      }
+      found
+    }
+    for (k <- 0 until 64) {
+      val pool = VarkaVariants.valueSubtrees(drawLong(k, decimalSeed, decimal = true).roots)
+      assert(!pool.asScala.exists(n => n.isInstanceOf[WidenDecimal] || n.isInstanceOf[BoolOutput]),
+        s"decimal draw $k: an output in the replacement pool")
+    }
     val decimal = drawLong(0, decimalSeed, decimal = true)
     assert(VarkaSteering.mutable(decimal).asScala.toSeq === inGeneral ++ decimalOptions)
     val rnd = new Random(decimalSeed)
-    assert((0 until 2000).exists(k => VarkaSteering.mutate(decimal, rnd, k).options
-      .decimalStore() != decimal.options.decimalStore()),
+    val mutants = (0 until 2000).map(step => VarkaSteering.mutate(decimal, rnd, step))
+    for (m <- mutants; below <- outputBelowARoot(m.roots)) {
+      fail(s"${m.label}: an output below a root: $below")
+    }
+    assert(mutants.exists(_.options.decimalStore() != decimal.options.decimalStore()),
       "no mutation of a decimal case changed decimalStore")
   }
 
