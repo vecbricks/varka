@@ -1418,8 +1418,9 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
     // Catches: the steering's options taken from the general draws alone, so a mutant of a
     // decimal case never changes its store; or the store offered for every case, which would
     // shift every general case's steered sequence for an option none of their shapes reads.
-    // Also catches a variant's replacement pool offering a decimal or boolean output, which a
-    // mutation would place under an arm: the emitter refuses either below a root.
+    // Also catches a variant's replacement pool offering the case's decimal output, which a
+    // mutation would place under an arm: the emitter refuses one below a root. No draw holds a
+    // boolean output; VarkaVariantSuite checks that half on a hand-built pool.
     val inGeneral = VarkaEmitOption.TABLE.asScala.toSeq
       .filter(o => VarkaEmitOption.drawnInGeneral(o)).sortBy(_.name)
     val firstGeneral = VarkaSteering.mutable(drawLong(0))
@@ -1439,18 +1440,38 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
     }
     for (k <- 0 until 64) {
       val pool = VarkaVariants.valueSubtrees(drawLong(k, decimalSeed, decimal = true).roots)
-      assert(!pool.asScala.exists(n => n.isInstanceOf[WidenDecimal] || n.isInstanceOf[BoolOutput]),
-        s"decimal draw $k: an output in the replacement pool")
+      assert(!pool.asScala.exists(_.isInstanceOf[WidenDecimal]),
+        s"decimal draw $k: a decimal output in the replacement pool")
     }
-    val decimal = drawLong(0, decimalSeed, decimal = true)
-    assert(VarkaSteering.mutable(decimal).asScala.toSeq === inGeneral ++ decimalOptions)
-    val rnd = new Random(decimalSeed)
-    val mutants = (0 until 2000).map(step => VarkaSteering.mutate(decimal, rnd, step))
-    for (m <- mutants; below <- outputBelowARoot(m.roots)) {
-      fail(s"${m.label}: an output below a root: $below")
-    }
-    assert(mutants.exists(_.options.decimalStore() != decimal.options.decimalStore()),
-      "no mutation of a decimal case changed decimalStore")
+    assert(VarkaSteering.mutable(drawLong(0, decimalSeed, decimal = true)).asScala.toSeq ===
+      inGeneral ++ decimalOptions)
+    // Before the fix the pool held the case's decimal output, a long-lane tree, so it was
+    // offered wherever an untaken arm is on the long lane: a long column the case does not read
+    // stands in for it to find such a case. Its mutants are built until one changed
+    // decimalStore and one replaced an untaken arm, each checked for an output below a root.
+    def armOnTheLongLane(c: VarkaFuzzCase): Boolean =
+      c.roots.asScala.exists(_.isInstanceOf[WidenDecimal]) && VarkaVariants.untakenArm(c.roots,
+        c.numInputs, VarkaVariantChecks.armOracle(c),
+        java.util.List.of[VarkaVectorIR](new ColumnRef(c.numInputs, LaneType.LONG)), 0).isPresent
+    val untaken = " -> " + VarkaVariants.Kind.UNTAKEN_ARM
+    val shown = (0 until 64).iterator.map(k => (k, drawLong(k, decimalSeed, decimal = true)))
+      .filter { case (_, c) => armOnTheLongLane(c) }
+      .exists { case (k, c) =>
+        val rnd = new Random(decimalSeed)
+        var storeChanged = false
+        var armReplaced = false
+        var step = 0
+        while (step < 2000 && !(storeChanged && armReplaced)) {
+          val m = VarkaSteering.mutate(c, rnd, step)
+          outputBelowARoot(m.roots).foreach(n => fail(s"${m.label}: an output below a root: $n"))
+          storeChanged ||= m.options.decimalStore() != c.options.decimalStore()
+          armReplaced ||= m.label.endsWith(untaken)
+          step += 1
+        }
+        assert(storeChanged, s"decimal draw $k: no mutation changed decimalStore")
+        armReplaced
+      }
+    assert(shown, "no decimal draw of 64 with an untaken long-lane arm had a mutant replace it")
   }
 
   test("the nulling draw reaches a nulling range guard at both lanes, and the committed draws " +

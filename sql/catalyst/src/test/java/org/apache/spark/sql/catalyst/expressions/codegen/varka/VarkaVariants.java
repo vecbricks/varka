@@ -246,8 +246,8 @@ final class VarkaVariants {
 
   /**
    * Every arm of an {@code IfElse} that no row of the batch takes, as {@code oracle} reads the
-   * batch, replaced by a tree from {@code pool}: of the arm's lane, not a condition, not a
-   * root-only node ({@link #rootOnly}), and printing differently from the arm. The pool is
+   * batch, replaced by a tree from {@code pool}: of the arm's lane, not excluded from a pool
+   * ({@link #excludedFromPool}), and printing differently from the arm. The pool is
    * scanned from {@code rotation}, so successive trees meet different replacements. Empty where
    * no arm is untaken or no replacement fits. Defined for that batch only: on another the arm
    * may be taken, and the replacement may then leave a range an enclosing guard was drawn for,
@@ -413,15 +413,14 @@ final class VarkaVariants {
   }
 
   /**
-   * The distinct value subtrees under {@code roots}, in walk order: a replacement pool. A
-   * condition or a root-only node ({@link #rootOnly}) is left out, as a subtree to place below
-   * an arm, though its children are not.
+   * The distinct value subtrees under {@code roots}, in walk order: a replacement pool. A node
+   * {@link #excludedFromPool} is left out, though its children are not.
    */
   static List<VarkaVectorIR> valueSubtrees(List<VarkaVectorIR> roots) {
     var seen = new LinkedHashMap<String, VarkaVectorIR>();
     for (VarkaVectorIR r : roots) {
       walk(r, n -> {
-        if (!(n instanceof Cond) && !rootOnly(n)) {
+        if (!excludedFromPool(n)) {
           seen.putIfAbsent(VarkaVectorIR.canonical(n), n);
         }
       });
@@ -430,12 +429,20 @@ final class VarkaVariants {
   }
 
   /**
-   * Whether {@code node} is kept out of a replacement pool, as a tree a variant must not place
-   * below an arm: a decimal or a boolean output, which the emitter's analysis refuses anywhere but
-   * at a root, and {@code NarrowLane}.
+   * Whether {@code node} is kept out of a replacement pool, as a tree a variant does not place
+   * below an arm. The one filter {@link #valueSubtrees} and every replacement read, since a
+   * caller may hand {@link #untakenArm} a pool of its own:
+   * <ul>
+   *   <li>a condition, which is no value an arm can hold;</li>
+   *   <li>{@code WidenDecimal} and {@code BoolOutput}, a decimal and a boolean output, which the
+   *   emitter's analysis refuses anywhere but at a root;</li>
+   *   <li>{@code NarrowLane}, which the emitter takes below a root as well: the variants have
+   *   left it out since they were written (VARKA-278), when the series drew one at a root
+   *   alone (VARKA-269).</li>
+   * </ul>
    */
-  private static boolean rootOnly(VarkaVectorIR node) {
-    return node instanceof WidenDecimal || node instanceof BoolOutput
+  private static boolean excludedFromPool(VarkaVectorIR node) {
+    return node instanceof Cond || node instanceof WidenDecimal || node instanceof BoolOutput
         || node instanceof NarrowLane;
   }
 
@@ -453,7 +460,7 @@ final class VarkaVariants {
     String text = VarkaVectorIR.canonical(arm);
     for (int k = 0; k < pool.size(); k++) {
       VarkaVectorIR t = pool.get(Math.floorMod(rotation + k, pool.size()));
-      if (!(t instanceof Cond) && !rootOnly(t) && t.laneType() == arm.laneType()
+      if (!excludedFromPool(t) && t.laneType() == arm.laneType()
           && !VarkaVectorIR.canonical(t).equals(text)) {
         return Optional.of(t);
       }
