@@ -318,7 +318,8 @@ clears the AVX-512 bits (`:996-1000`); its names are separated by `", "` and DQ 
 ## 8. Done when
 
 On a host without AVX512DQ, a session that sets no level takes the magic form of the 64-bit
-constant division, read from the JVM's features (or, under question 1 (b), the predicate and the
+constant division at a preferred long species of 256 bits or more (9.3), read from the JVM's
+features (or, under question 1 (b), the predicate and the
 three plans say what it means); the planted AVX-512 host without DQ takes it too; test 3.6 passes
 on the PR Build's runners with nothing planted; the census test passes on the EPYC 7763 and on
 the Neoverse N2 on CI, and on the laptop at both flag sets, because the laptop's Ryzen AI 9 HX 370
