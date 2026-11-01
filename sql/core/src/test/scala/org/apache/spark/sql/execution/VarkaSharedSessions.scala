@@ -123,6 +123,8 @@ trait VarkaSharedSessions extends SharedSparkSession with AdaptiveSparkPlanHelpe
     // a shape's first batch: with the warm-up on, a new shape's first query takes the row path
     // and such a comparison would compare the row engine with itself.
     .config(SQLConf.VARKA_WARMUP_ENABLED.key, "false")
+    // The emitter's default level, not the host's: see TestSQLContext.overrideConfs.
+    .config(SQLConf.VARKA_EMIT_USE_AVX.key, "-1")
     .getOrCreate()
 
   protected def date(value: String): java.sql.Date = java.sql.Date.valueOf(value)

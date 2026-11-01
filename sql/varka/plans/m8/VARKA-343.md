@@ -72,7 +72,8 @@ paths under `sql/catalyst/src/main/scala/org/apache/spark/sql/catalyst/`), from 
      reinterpretation and no `long` shift by a vector count.
    - The host gate exists: `VarkaEmitOptions.convertsFallBack` answers `UseAVX < 3` and reaches
      the shape key (`varka/VarkaEmitOptions.java:594-621`); the 64-bit constant division reads
-     it (`varka/VarkaDivisionLowering.java:361`). The `useAVX` option sets it in a test.
+     it (`varka/VarkaDivisionLowering.java:361`). The `useAVX` option sets it in a test, and a
+     session sets it from the driver's JVM once row 538 feeds it the host.
 6. **Two exactness traps, checked here.** `BIGINT` to `FLOAT` through `DOUBLE` rounds twice:
    `2^53 + 2^29 + 1` gives `2^53` against `2^53 + 2^30` (2.7, checked again in Python). And the
    magic number rounds where the cast truncates: `rawbits(x + 0x1.8p52) - 0x4338000000000000` is
@@ -150,7 +151,8 @@ two rows to land builds it.
 | `D2L` | `convertShape` | assembly (below), or the truncated magic | `convertShape` |
 | `F2L` | `convertShape` | `F2D`, then `D2L`'s form | `convertShape` |
 
-The host is `convertsFallBack()` (item 0.5), already in the shape key. The AVX2 forms live in a
+The host is `convertsFallBack()` (item 0.5), already in the shape key, once row 538 feeds it the
+host. The AVX2 forms live in a
 `VarkaConversionLowering` beside `VarkaDivisionLowering`; `M = 0x1.8p52`, `MB` its bits:
 
 - **`L2D`, split** (whole range): `hi = v >> 32`, `lo = v & 0xFFFFFFFF`; `dh = (bitsToDouble(hi +

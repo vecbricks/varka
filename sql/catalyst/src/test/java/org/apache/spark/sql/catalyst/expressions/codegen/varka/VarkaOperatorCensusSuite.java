@@ -29,6 +29,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -42,6 +43,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -100,6 +102,11 @@ public final class VarkaOperatorCensusSuite {
    * callees ({@code printinlining.cpp}, {@code at_bci}), so two species at separate call sites
    * print nothing: no two-species cell of the catalog trips the tell at any width, which is why
    * the census asserts only its absence in the one-species cells, not its presence.
+   *
+   * <p>A class of the fork's own preferred width is no second species: a virtual call on a lane's
+   * shared class, such as {@code LongVector::addIndex}, prints "callee changed to" the preferred
+   * species' class when C2 devirtualizes it ({@link #secondSpecies}), which the decimal store's
+   * iota does with one species (VARKA-157).
    */
   private static final Pattern BIMORPHIC = Pattern.compile(
       "callee changed to\\s+jdk\\.incubator\\.vector\\.[A-Z][a-z]+(64|128|256|512|Max)"
@@ -183,7 +190,7 @@ public final class VarkaOperatorCensusSuite {
           segments.get(segments.size() - 1).add(new Line(m.group(1).length(),
               Integer.parseInt(m.group(2)), m.group(3), m.group(4), m.group(5)));
         }
-        bimorphic |= BIMORPHIC.matcher(raw).find();
+        bimorphic |= secondSpecies(raw, bits);
       }
     }
     assertTrue(done && bits > 0, "the census probe did not finish; its output:\n"
@@ -222,6 +229,21 @@ public final class VarkaOperatorCensusSuite {
     }
     return new Reading(bits, skipped, alloc, List.copyOf(intrinsics), List.copyOf(failed),
         bimorphic);
+  }
+
+  /**
+   * Whether {@code line} re-targets a call site to a species class of another width than the
+   * fork's preferred {@code bits}: the {@link #BIMORPHIC} tell, less the devirtualized calls of
+   * the one species the fork runs.
+   */
+  static boolean secondSpecies(String line, int bits) {
+    Matcher m = BIMORPHIC.matcher(line);
+    while (m.find()) {
+      if (!m.group(1).equals(String.valueOf(bits))) {
+        return true;
+      }
+    }
+    return false;
   }
 
   private static String after(String line, String marker) {
@@ -304,10 +326,20 @@ public final class VarkaOperatorCensusSuite {
 
   /** The vector size in bytes the JVM settles on when asked for {@code requested}. */
   private static int effectiveBytes(int requested) throws IOException, InterruptedException {
-    var output = run(List.of(javaBin(), "-XX:MaxVectorSize=" + requested,
-        "-XX:+PrintFlagsFinal", "-version"));
+    return effectiveBytes(List.of("-XX:MaxVectorSize=" + requested));
+  }
+
+  /** The same, for a JVM started with {@code flags}, which name the vector size asked for. */
+  private static int effectiveBytes(List<String> flags)
+      throws IOException, InterruptedException {
+    var command = new ArrayList<String>();
+    command.add(javaBin());
+    command.addAll(flags);
+    command.add("-XX:+PrintFlagsFinal");
+    command.add("-version");
+    List<String> output = run(command);
     for (String line : output) {
-      var m = Pattern.compile("\\s*\\S+\\s+MaxVectorSize\\s+=\\s+(\\d+)").matcher(line);
+      Matcher m = Pattern.compile("\\s*\\S+\\s+MaxVectorSize\\s+=\\s+(\\d+)").matcher(line);
       if (m.find()) {
         return Integer.parseInt(m.group(1));
       }
@@ -323,6 +355,8 @@ public final class VarkaOperatorCensusSuite {
     command.add("--add-modules");
     command.add("jdk.incubator.vector");
     command.add("--enable-native-access=ALL-UNNAMED");
+    // VarkaHostIsa's feature query, which the host-fact test reads in the fork (VARKA-538).
+    command.add("--add-exports=java.base/jdk.internal.vm.vector=ALL-UNNAMED");
     command.add("-XX:+UnlockDiagnosticVMOptions");
     command.add("-Xbatch");
     command.add("-XX:CompileCommand=quiet");
@@ -455,6 +489,10 @@ public final class VarkaOperatorCensusSuite {
       assertFalse(BIMORPHIC.matcher(prefix + callee).find(), "read as a second species: "
           + callee);
     }
+    // A devirtualized call of the fork's own species is no second species; another width's is.
+    String own = "jdk.incubator.vector.Long512Vector::addIndex (6 bytes)";
+    assertFalse(secondSpecies(prefix + own, 512), "read as a second species: " + own);
+    assertTrue(secondSpecies(prefix + own, 256), "not read as a second species: " + own);
   }
 
   @Test
@@ -476,6 +514,131 @@ public final class VarkaOperatorCensusSuite {
         + String.join("\n  ", unread));
     assertTrue(bimorphic.isEmpty(), "a second species reached a one-species fork:\n  "
         + String.join("\n  ", bimorphic));
+  }
+
+  /**
+   * What a JVM started with {@code flags} says about its converts.
+   *
+   * @param fallsBack {@code VarkaHostIsa.conversionsFallBack()} in that JVM
+   * @param useAVX its {@code UseAVX} level, -1 where it has none
+   * @param features the feature list it was read from, empty where unread
+   */
+  record HostFact(boolean fallsBack, int useAVX, String features) { }
+
+  /** The host facts forked so far, per flag set: one JVM start each, however often asked. */
+  private static final Map<List<String>, HostFact> HOST_FACTS = new HashMap<>();
+
+  /** The host fact of a JVM under {@code flags}, forked on the first ask for that flag set. */
+  static synchronized HostFact hostFact(String... flags)
+      throws IOException, InterruptedException {
+    List<String> key = List.of(flags);
+    HostFact known = HOST_FACTS.get(key);
+    if (known == null) {
+      known = forkHostFact(flags);
+      HOST_FACTS.put(key, known);
+    }
+    return known;
+  }
+
+  private static HostFact forkHostFact(String... flags) throws IOException, InterruptedException {
+    var command = new ArrayList<String>();
+    command.add(javaBin());
+    command.add("--add-modules");
+    command.add("jdk.incubator.vector");
+    command.add("--add-exports=java.base/jdk.internal.vm.vector=ALL-UNNAMED");
+    command.addAll(List.of(flags));
+    command.add("-cp");
+    command.add(classpath());
+    command.add(PROBE);
+    command.add(VarkaOperatorCensusProbe.HOST_ENTRY);
+    Boolean fallsBack = null;
+    int useAVX = VarkaEmitOptions.USE_AVX_UNKNOWN;
+    String features = null;
+    for (String line : run(command)) {
+      String f = after(line, VarkaOperatorCensusProbe.FALLS_BACK_PREFIX);
+      String u = after(line, VarkaOperatorCensusProbe.USE_AVX_PREFIX);
+      String l = after(line, VarkaOperatorCensusProbe.FEATURES_PREFIX);
+      if (f != null) {
+        fallsBack = Boolean.parseBoolean(f.strip());
+      } else if (u != null) {
+        useAVX = Integer.parseInt(u.strip());
+      } else if (l != null) {
+        features = l.strip();
+      }
+    }
+    assertTrue(fallsBack != null && features != null, "the host probe printed no host fact");
+    return new HostFact(fallsBack, useAVX, features);
+  }
+
+  /** The cells whose verdict the host fact predicts: the 64-bit floating conversions. */
+  private static final List<String> DQ_CELLS = List.of("long.L2D", "double.D2L", "long.L2F");
+
+  /**
+   * Holds the host fact of a JVM under {@code flags} to the conversion cells measured under the
+   * same flags, at every width it runs: a fallback answer exactly where a cell reads F. Only the
+   * conversion cells fork, never the whole catalog, and always here, so the answer does not
+   * depend on whether another test took the census first.
+   */
+  private static void holdHostFactToCells(String... flags) throws Exception {
+    HostFact fact = hostFact(flags);
+    Map<Integer, Map<String, Reading>> byWidth = conversionCells(flags);
+    var disagree = new ArrayList<String>();
+    for (Map.Entry<Integer, Map<String, Reading>> width : byWidth.entrySet()) {
+      for (String cell : DQ_CELLS) {
+        Reading reading = width.getValue().get(cell);
+        assertTrue(reading != null, cell + " is not a census cell");
+        if (reading.skipped() != null) {
+          continue;
+        }
+        boolean fellBack = reading.verdict() == Verdict.FALLBACK;
+        if (fellBack != fact.fallsBack()) {
+          disagree.add(width.getKey() + " bits: " + cell + " reads " + reading.verdict().label
+              + " (" + reading.failed() + ")");
+        }
+      }
+    }
+    assertTrue(disagree.isEmpty(), "under " + List.of(flags) + " (UseAVX " + fact.useAVX()
+        + ") VarkaHostIsa answers fallsBack=" + fact.fallsBack() + " from [" + fact.features()
+        + "], and the census disagrees:\n  " + String.join("\n  ", disagree));
+  }
+
+  /**
+   * The conversion cells forked under {@code flags}, per width in bits as the census keys it.
+   * Under no flags each width is resolved from {@code -XX:MaxVectorSize=<n>} alone, as
+   * {@link #census()} resolves it.
+   */
+  private static Map<Integer, Map<String, Reading>> conversionCells(String... flags)
+      throws IOException, InterruptedException {
+    var widths = new TreeSet<Integer>();
+    for (int requested : WIDTHS_BYTES) {
+      List<String> withSize = new ArrayList<>(List.of(flags));
+      withSize.add("-XX:MaxVectorSize=" + requested);
+      widths.add(effectiveBytes(withSize));
+    }
+    var byWidth = new TreeMap<Integer, Map<String, Reading>>();
+    for (int bytes : widths) {
+      var readings = new LinkedHashMap<String, Reading>();
+      for (String cell : DQ_CELLS) {
+        readings.put(cell, fork(cell, bytes, flags));
+      }
+      byWidth.put(bytes * 8, readings);
+    }
+    return byWidth;
+  }
+
+  @Test
+  @DisplayName("the host fact agrees with the conversion cells at the host's own flags")
+  void hostFactAtHostFlags() throws Exception {
+    holdHostFactToCells();
+  }
+
+  @Test
+  @DisplayName("the host fact agrees with the conversion cells under -XX:UseAVX=2")
+  void hostFactUnderAvx2() throws Exception {
+    // HotSpot clears every AVX-512 feature below level 3, so on an AVX-512 host this is the
+    // fallback answer measured against real cells; on an AVX2 host it repeats the host's flags.
+    assumeTrue(VarkaHostIsa.isX86(System.getProperty("os.arch", "")), "UseAVX is an x86 flag");
+    holdHostFactToCells("-XX:UseAVX=2");
   }
 
   private static String cpuModel() {
@@ -525,6 +688,11 @@ public final class VarkaOperatorCensusSuite {
     host.put("cpu", cpuModel());
     host.put("arch", System.getProperty("os.arch"));
     host.put("jdk", System.getProperty("java.runtime.version"));
+    // Why the conversion cells read as they do: the level and HotSpot's feature list, which
+    // VarkaHostIsa reads in the fork (VARKA-538).
+    HostFact fact = hostFact();
+    host.put("use_avx", fact.useAVX());
+    host.put("features", fact.features());
     var doc = ordered();
     doc.put("generated_by", "VarkaOperatorCensusSuite; regenerate on the host named below with "
         + "VARKA_CENSUS_REGEN=true build/sbt 'catalyst/testOnly *VarkaOperatorCensusSuite'");
@@ -544,9 +712,8 @@ public final class VarkaOperatorCensusSuite {
   @DisplayName("sql/varka/operator_census.json is this host's census, per width")
   void censusFileIsThisHosts() throws Exception {
     var path = file();
-    String rendered = render();
     if ("true".equals(System.getenv("VARKA_CENSUS_REGEN"))) {
-      Files.writeString(path, rendered);
+      Files.writeString(path, render());
       return;
     }
     assertTrue(Files.exists(path), path + " is missing; generate it with\n"
@@ -556,7 +723,8 @@ public final class VarkaOperatorCensusSuite {
     assumeTrue(committed.get("host").get("cpu").asText().equals(cpuModel()),
         "the committed census is " + committed.get("host").get("cpu").asText() + "'s and this is "
             + cpuModel() + "; a census is compared only where it was taken");
-    var now = mapper.readTree(rendered);
+    // Rendered only past the skip: it forks the host fact, which a skipped comparison never reads.
+    JsonNode now = mapper.readTree(render());
     var moved = new ArrayList<String>();
     now.get("widths").fieldNames().forEachRemaining(bits -> {
       now.get("widths").get(bits).fieldNames().forEachRemaining(cell -> {

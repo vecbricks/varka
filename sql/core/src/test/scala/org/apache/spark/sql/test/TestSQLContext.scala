@@ -109,7 +109,11 @@ private[sql] object TestSQLContext {
       SQLConf.PARQUET_FIELD_ID_READ_ENABLED.key -> "true",
       // A suite that turns Varka on expects its kernel to serve a shape's first batch; the
       // warm-up would put that batch on the row path until the kernel is compiled.
-      SQLConf.VARKA_WARMUP_ENABLED.key -> "false")
+      SQLConf.VARKA_WARMUP_ENABLED.key -> "false",
+      // Varka's emit level is the emitter's default, never resolved from the runner's CPU
+      // (VARKA-538): the reach record and the generated files must mean the same on every
+      // runner, and the pool mixes AVX2 and AVX-512 CPUs.
+      SQLConf.VARKA_EMIT_USE_AVX.key -> "-1")
 }
 
 private[sql] class TestSQLSessionStateBuilder(

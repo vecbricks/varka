@@ -24,6 +24,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.*;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WidenDecimal;
 
 /**
  * Reads {@code VarkaVectorIR.canonical} back into a tree: what a reproduction file's replay
@@ -143,6 +144,7 @@ public final class VarkaCanonicalIr {
       }
       case "widen" -> new WidenLane(node(), lane(parts));
       case "narrow" -> new NarrowLane(node(), lane(parts));
+      case "wdec" -> new WidenDecimal(node());
       case "dateDiff" -> new DateDiff(node(), node());
       case "cmp" -> new Compare(CompareOp.valueOf(parts[1]), node(), node());
       case "nullSafeEq" -> new NullSafeEqual(node(), node());
@@ -192,6 +194,7 @@ public final class VarkaCanonicalIr {
       }
       case "bit" -> new BitOp(BitOpKind.valueOf(parts[1]), node(), node());
       case "bitCount" -> new BitCount(node());
+      case "math" -> new MathUnary(MathFn.valueOf(parts[1]), node());
       default -> throw new IllegalArgumentException("no IR node is rendered as '" + head + "'");
     };
     expect(")");

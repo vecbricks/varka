@@ -21,6 +21,7 @@ import java.util.{Collections, IdentityHashMap}
 
 import scala.collection.mutable
 import scala.jdk.CollectionConverters._
+import scala.jdk.OptionConverters._
 
 import org.apache.spark.SparkFunSuite
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVariants.{Kind, Variant}
@@ -347,6 +348,29 @@ class VarkaVariantSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOw
     assert(thenOf(_ => true) == VarkaVectorIR.canonical(big), "the first replacement fits")
     assert(thenOf(isSmall) == VarkaVectorIR.canonical(small), "the one that fits is taken")
     assert(thenOf(_ => false) == VarkaVectorIR.canonical(big), "none fits: the first")
+  }
+
+  test("an untaken arm is never replaced by an output, and no pool holds one") {
+    // Catches: a decimal or boolean output placed under an arm, which the emitter refuses below
+    // a root. Every node is on the long lane, the outputs' lane, so only the pool filter keeps
+    // them out; no fuzzer draw holds a boolean output, so this is where that half is checked.
+    def long(ordinal: Int): VarkaVectorIR = new ColumnRef(ordinal, LaneType.LONG)
+    val decimalOut = new WidenDecimal(long(3))
+    val boolOut = new BoolOutput(new Compare(CompareOp.LT, long(0), long(1)))
+    val f = new IfElse(new Compare(CompareOp.GT, long(1), long(0)), long(2), long(0))
+    def thenOf(pool: Seq[VarkaVectorIR], rotation: Int): Option[String] =
+      VarkaVariants.untakenArm(Seq[VarkaVectorIR](f).asJava, 5, _ => VarkaVariants.Taken.ELSE_ONLY,
+        pool.asJava, rotation).toScala
+        .map(v => VarkaVectorIR.canonical(v.roots.get(0).asInstanceOf[IfElse].thenNode()))
+    assert(thenOf(Seq(decimalOut, boolOut), 0).isEmpty, "an output replaced the arm")
+    for (rotation <- 0 until 3) {
+      assert(thenOf(Seq(decimalOut, boolOut, long(4)), rotation) ===
+        Some(VarkaVectorIR.canonical(long(4))), s"rotation $rotation")
+    }
+    val pool = VarkaVariants.valueSubtrees(Seq[VarkaVectorIR](decimalOut, boolOut).asJava).asScala
+    assert(!pool.exists(n => n.isInstanceOf[WidenDecimal] || n.isInstanceOf[BoolOutput]))
+    assert(pool.map(VarkaVectorIR.canonical).toSet ===
+      Seq(long(3), long(0), long(1)).map(VarkaVectorIR.canonical).toSet)
   }
 
   test("a decline by a guard the variant adds is allowed, and by any other guard fails") {

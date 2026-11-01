@@ -55,7 +55,8 @@ import com.sun.management.HotSpotDiagnosticMXBean;
  * <p><b>One field is reachable from SQL; the rest are test-only.</b>
  * {@link #useAVX} has a session configuration in front of it,
  * {@code spark.sql.codegen.varka.emit.useAVX}, because which division lowering is right is a
- * property of the machine and a machine can be wrong about itself. Every other field on this
+ * property of the machine; the session resolves it from the driver's JVM where the conf asks for
+ * that ({@code VarkaSessionEmit.of}, {@link VarkaHostIsa}), never here. Every other field on this
  * record is set by a suite, a fuzz iteration or a benchmark arm through a test hook, and no
  * configuration reaches it. The distinction decides what the bytes oracle has to pin: the
  * emissions a user can select are pinned per value in {@code emitted_bytes.json}'s
@@ -139,8 +140,8 @@ import com.sun.management.HotSpotDiagnosticMXBean;
  *        condemns rather than producing a value the blend can discard, so without this a row the
  *        query never uses declines the batch it is in. Off, the guard condemns from the untaken
  *        arm as it did before arm qualification - the reference variant the A/B prices against, on
- *        {@link FloorMod7}'s precedent. It qualifies only where every use of the node sits under
- *        one and the same arm chain; see {@code Analysis.armChain}.
+ *        {@link FloorMod7}'s precedent. It qualifies by the OR of the arm chains the node's uses
+ *        sit under, and not where a use sits under no arm; see {@code Analysis.armChains}.
  * @param guardDayProducers whether a {@code date_add}/{@code date_sub} whose offset is a column,
  *        and whose result a calendar node reads, carries a per-lane check on that result against
  *        the range the civil-from-days lowering is exact over, declining the batch to
@@ -489,6 +490,9 @@ import com.sun.management.HotSpotDiagnosticMXBean;
  *        folds away where it is off, is right on every host and JDK; true is the losing arm, an
  *        AND a site cheaper on x86 below AVX-512, kept for the A/B and for the JDKs that fix the
  *        rule ({@code m9/SCOPE.md} item 114).
+ * @param decimalStore how a {@code WidenDecimal} root interleaves its words into Arrow's
+ *        sixteen-byte decimal slots (VARKA-157 2.2): see {@link DecimalStore}. No other root reads
+ *        it, so every shape without a decimal output emits the same bytes under either value.
  */
 public record VarkaEmitOptions(
     int groupBudget,
@@ -538,7 +542,8 @@ public record VarkaEmitOptions(
     boolean groupBudgetUnderPrediction,
     boolean dropStackMaps,
     int misdescribeDataBytes,
-    boolean fromLongMasks) {
+    boolean fromLongMasks,
+    DecimalStore decimalStore) {
 
   /**
    * The three mod-7 lowerings. {@link #MAGIC} is what ships: two 15-bit digit-sum folds followed
@@ -568,6 +573,20 @@ public record VarkaEmitOptions(
    */
   public enum Division { MAGIC, DOUBLE_RECIP, DOUBLE_DIV }
 
+  /**
+   * The two forms of the decimal store's interleave (VARKA-157 2.2). A lane group's words
+   * {@code lo} and their sign extensions {@code hi} go into two vectors of slots, the low words
+   * on the even lanes and the high words on the odd ones. {@link #REARRANGE} takes each by the
+   * two-vector {@code lo.rearrange(Zk, hi)}, which C2 lowers to two one-vector permutes and a
+   * blend; {@link #SELECT_FROM} by the two-vector {@code Ik.selectFrom(lo, hi)}, which is one
+   * instruction where the host has AVX-512VL, including at two long lanes, where the
+   * {@code rearrange} is the Java fallback on every x86 host. The index vectors {@code Ik} and
+   * shuffles {@code Zk} are built once a body, lanewise, since {@code VectorShuffle.makeZip}
+   * allocates in a body's prologue (its census cell). Which wins is the measurement's, per
+   * host.
+   */
+  public enum DecimalStore { REARRANGE, SELECT_FROM }
+
   /*
    * A note this enum cannot express, kept beside it rather than inside its javadoc, which
    * describes the calendar prefix: the 64-bit lane has a fourth lowering, the magic-number
@@ -594,12 +613,11 @@ public record VarkaEmitOptions(
   /**
    * What {@code -XX:UseAVX} reads on the JVM running this code, asked once.
    *
-   * <p>The flag is HotSpot's own gate for its AVX code paths, which is the closest thing the
-   * JVM exposes to the question the emitter actually has: whether a {@code LongVector} to
-   * {@code DoubleVector} conversion becomes one instruction or a Java fallback. The two are
-   * not the same question - that conversion's intrinsic wants AVX512DQ specifically, and a
-   * level is not a feature list - so this describes the host rather than promising anything
-   * about it. {@code dev/varka_canary/L2DProbe.java} is what settles a given machine.
+   * <p>The flag is HotSpot's own gate for its AVX code paths. It is not the question the
+   * emitter has about the conversions - whether a {@code LongVector} to {@code DoubleVector}
+   * conversion becomes one instruction wants AVX512DQ, a feature - which {@link VarkaHostIsa}
+   * answers from HotSpot's feature list. Below level 3 the two agree, since HotSpot clears
+   * every AVX-512 feature there; {@code VarkaMaskGuard} reads the level for another question.
    */
   public static final int HOST_USE_AVX = readUseAVX();
 
@@ -609,6 +627,11 @@ public record VarkaEmitOptions(
   /**
    * Whether this level is one where the long-to-double conversions do not become instructions,
    * so a 64-bit constant division takes the magic-number form instead of converting.
+   *
+   * <p>The level is a target, not a reading of the host: below 3 it is exact, since HotSpot
+   * clears AVX512DQ there, and a host enters only through the session, which resolves a JVM
+   * without AVX512DQ to level 2 ({@code VarkaSessionEmit.of}, {@link VarkaHostIsa}). Kept a
+   * function of the record alone, so one rendering never names two bodies.
    *
    * <p>It lives here rather than in the emitter because {@link #canonical()} has to ask the
    * same question: a level that changes a lowering has to reach the shape key, and one that
@@ -651,7 +674,8 @@ public record VarkaEmitOptions(
           VarkaEmitBudget.HUGE_METHOD_LIMIT,
           true, true, true, true,
           VarkaEmitBudget.CALL_SITE_BUDGET, VarkaEmitBudget.HEAVY_GROUP_OUTPUTS,
-          true, true, true, true, true, true, true, 0, 0, 0, false, false, false, 0, false);
+          true, true, true, true, true, true, true, 0, 0, 0, false, false, false, 0, false,
+          DecimalStore.REARRANGE);
 
   public VarkaEmitOptions {
     if (groupBudget < 1) {
@@ -684,6 +708,9 @@ public record VarkaEmitOptions(
     }
     if (division == null) {
       throw VarkaErrors.illegalArgument("division must not be null");
+    }
+    if (decimalStore == null) {
+      throw VarkaErrors.illegalArgument("decimalStore must not be null");
     }
     if (lanesOverride != 0 && (lanesOverride < 1 || Integer.bitCount(lanesOverride) != 1)) {
       throw VarkaErrors.illegalArgument(
@@ -754,6 +781,7 @@ public record VarkaEmitOptions(
       b.dropStackMaps = dropStackMaps;
       b.misdescribeDataBytes = misdescribeDataBytes;
       b.fromLongMasks = fromLongMasks;
+      b.decimalStore = decimalStore;
     return b;
   }
 
@@ -807,6 +835,7 @@ public record VarkaEmitOptions(
     private boolean dropStackMaps;
     private int misdescribeDataBytes;
     private boolean fromLongMasks;
+    private DecimalStore decimalStore;
 
     private Builder() {
     }
@@ -1051,6 +1080,11 @@ public record VarkaEmitOptions(
       return this;
     }
 
+    public Builder decimalStore(DecimalStore form) {
+      this.decimalStore = form;
+      return this;
+    }
+
     public VarkaEmitOptions build() {
       return new VarkaEmitOptions(
           groupBudget, fusedCeiling, cse, shareChronoPrefix, denseValidityOnce,
@@ -1064,7 +1098,7 @@ public record VarkaEmitOptions(
           severalKernels,
           elideUnreadLocals, planSize, misdescribeDriverBytes, forceResidualAt,
           misdescribeRollback, exactRefusalStatus, groupBudgetUnderPrediction, dropStackMaps,
-          misdescribeDataBytes, fromLongMasks);
+          misdescribeDataBytes, fromLongMasks, decimalStore);
     }
   }
 
@@ -1258,6 +1292,10 @@ public record VarkaEmitOptions(
     return toBuilder().division(lowering).build();
   }
 
+  public VarkaEmitOptions withDecimalStore(DecimalStore form) {
+    return toBuilder().decimalStore(form).build();
+  }
+
   /**
    * The same options as if emitted on a host at this {@code UseAVX} level. It exists so a test
    * and the committed bytes oracle can pin a level rather than inherit the machine's, which is
@@ -1292,7 +1330,8 @@ public record VarkaEmitOptions(
    *
    * <p>It renders from {@link VarkaEmitOption#TABLE}, in its order: the 26 options that predate
    * the tags by position, then each later option's tag - a flag's when it holds the value its
-   * {@link VarkaEmitOption.FlagTag} names, a count's when it is off its default - so every
+   * {@link VarkaEmitOption.FlagTag} names, a count's or a choice's when it is off its default -
+   * so every
    * variant's rendering from before an option existed is unchanged by adding it.
    */
   public String canonical() {
@@ -1304,7 +1343,8 @@ public record VarkaEmitOptions(
     for (var option : VarkaEmitOption.TABLE) {
       switch (option.rendering()) {
         case VarkaEmitOption.Positional _ -> positional.add(option.text(this));
-        case VarkaEmitOption.FlagTag _, VarkaEmitOption.CountTag _ ->
+        case VarkaEmitOption.FlagTag _, VarkaEmitOption.CountTag _,
+            VarkaEmitOption.ChoiceTag _ ->
             tags.append(option.tag(this));
       }
     }

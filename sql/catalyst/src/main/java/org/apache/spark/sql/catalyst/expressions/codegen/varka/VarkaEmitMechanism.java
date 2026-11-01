@@ -77,6 +77,7 @@ enum VarkaEmitMechanism {
   GUARD_INT_OVERFLOW(Family.GUARDS, "a guard on checked integer arithmetic"),
   GUARD_DAY_RANGE(Family.GUARDS, "a re-armed day range guard"),
   GUARD_VALUE_RANGE(Family.GUARDS, "a re-armed value range guard"),
+  GUARD_DIVIDE_BY_ZERO(Family.GUARDS, "a guard on a floating division's zero divisor"),
   GUARD_DECIMAL_SLOT(Family.GUARDS, "a decimal column's check of its slots' high words and digits"),
   GUARD_UNDER_ARM(Family.GUARDS, "a guard qualified by the IfElse arms its node sits under"),
   GUARD_EXACT_STATUS(Family.GUARDS, "a body folding two or more reasons into masks of their own"),
@@ -127,6 +128,7 @@ enum VarkaEmitMechanism {
       case INT_OVERFLOW -> GUARD_INT_OVERFLOW;
       case DAY_RANGE -> GUARD_DAY_RANGE;
       case VALUE_RANGE -> GUARD_VALUE_RANGE;
+      case DIVIDE_BY_ZERO -> GUARD_DIVIDE_BY_ZERO;
       case DECIMAL_SLOT -> GUARD_DECIMAL_SLOT;
     };
   }

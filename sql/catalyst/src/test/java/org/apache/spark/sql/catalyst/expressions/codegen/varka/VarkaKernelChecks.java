@@ -30,6 +30,7 @@ import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.OptionalLong;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Function;
 
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaGeneratedClassLoader;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BoolColumn;
@@ -38,6 +39,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Col
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Cond;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.GuardedRange;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.NarrowLane;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WidenDecimal;
 
 /**
  * The fuzzers' row-by-row check of one emitted kernel against {@link VarkaReference}, at the int
@@ -247,7 +249,8 @@ public final class VarkaKernelChecks {
    * the kernel answered. The expression and the row are on the message's second line.
    */
   private static void agreeWithSpark(String context, SparkAnswers spark, int o, int i,
-      long[] values, boolean[] isNull, OptionalLong reference) {
+      long[] values, boolean[] isNull, OptionalLong reference, VarkaVectorIR root,
+      Function<VarkaVectorIR, OptionalLong> ref) {
     SPARK_COMPARISONS.incrementAndGet();
     Answer answer = spark.answer(o, values, isNull);
     String where = "\n  " + spark.sql(o) + ", inputs " + row(values, isNull);
@@ -255,7 +258,8 @@ public final class VarkaKernelChecks {
       case Answer.Raised raised -> throw new IllegalStateException(context + ": Spark raises on "
           + "output " + o + " at row " + i + ", and the kernel answered the batch instead of "
           + "declining it" + where + ": " + raised.e().getMessage());
-      case Answer.Value v -> reference.isPresent() && reference.getAsLong() == v.v();
+      case Answer.Value v ->
+          reference.isPresent() && sameAnswer(root, reference.getAsLong(), v.v(), ref);
       case Answer.Null n -> reference.isEmpty();
     };
     if (!agree) {
@@ -263,6 +267,84 @@ public final class VarkaKernelChecks {
           + "output " + o + " at row " + i + ": reference " + shown(reference) + ", Spark "
           + shown(answer) + where);
     }
+  }
+
+  /**
+   * Whether two answers of output {@code root} agree: the same bits, or both NaN where the row's
+   * answer is a NaN whose payload Java does not fix ({@link #unfixedNaN}). Every other answer is
+   * compared bit for bit, a NaN's payload included: a pick, a negation, an {@code abs} and an
+   * arithmetic node over one NaN operand all return a NaN whose bits are fixed. {@code ref} is the
+   * reference evaluator's value of a node on the row.
+   */
+  static boolean sameAnswer(VarkaVectorIR root, long want, long got,
+      Function<VarkaVectorIR, OptionalLong> ref) {
+    if (want == got) {
+      return true;
+    }
+    return root.laneType().isFloating() && isNaN(root.laneType(), want)
+        && isNaN(root.laneType(), got) && unfixedNaN(root, ref);
+  }
+
+  /**
+   * Whether {@code node}'s value on the row is a NaN whose payload Java leaves open: one made by a
+   * floating {@code IntArith} from two NaN operands of different bits, or passed on from one.
+   * The JLS fixes no payload there, and HotSpot picks by tier and operator: the x86 interpreter's
+   * {@code dadd} and {@code dmul} return the right operand's payload and its {@code dsub} and
+   * {@code ddiv} the left's ({@code cpu/x86/templateTable_x86.cpp}, {@code TemplateTable::dop2}),
+   * and C2 commutes a scalar add or multiply ({@code share/opto/addnode.cpp}), so the row engine,
+   * the kernel and the reference may each return either operand's (`VARKA-342.md` 5.1). An
+   * operation over one NaN operand returns that NaN, quieted, on every tier, so its payload is
+   * fixed by the operand's; a negation or a square root passes its child's on; any other node
+   * passes on the payload of a child whose value it returns unchanged.
+   */
+  static boolean unfixedNaN(VarkaVectorIR node, Function<VarkaVectorIR, OptionalLong> ref) {
+    VarkaVectorIR.LaneType lane = node.laneType();
+    if (node instanceof VarkaVectorIR.Cond || !lane.isFloating()) {
+      return false;
+    }
+    switch (node) {
+      case VarkaVectorIR.IntArith a -> {
+        OptionalLong l = ref.apply(a.left());
+        OptionalLong r = ref.apply(a.right());
+        if (l.isEmpty() || r.isEmpty()) {
+          return false;
+        }
+        boolean leftNaN = isNaN(lane, l.getAsLong());
+        boolean rightNaN = isNaN(lane, r.getAsLong());
+        if (leftNaN && rightNaN) {
+          return l.getAsLong() != r.getAsLong() || unfixedNaN(a.left(), ref)
+              || unfixedNaN(a.right(), ref);
+        }
+        return leftNaN ? unfixedNaN(a.left(), ref) : rightNaN && unfixedNaN(a.right(), ref);
+      }
+      case VarkaVectorIR.IntNeg n -> {
+        return unfixedNaN(n.child(), ref);
+      }
+      case VarkaVectorIR.MathUnary m -> {
+        return unfixedNaN(m.child(), ref);
+      }
+      default -> {
+        OptionalLong v = ref.apply(node);
+        if (v.isEmpty()) {
+          return false;
+        }
+        for (VarkaVectorIR child : VarkaVectorIR.childrenOf(node)) {
+          if (!(child instanceof VarkaVectorIR.Cond) && child.laneType() == lane) {
+            OptionalLong c = ref.apply(child);
+            if (c.isPresent() && c.getAsLong() == v.getAsLong() && unfixedNaN(child, ref)) {
+              return true;
+            }
+          }
+        }
+        return false;
+      }
+    }
+  }
+
+  /** Whether {@code bits} at {@code lane} are a NaN, a {@code FLOAT}'s in the low 32 bits. */
+  private static boolean isNaN(VarkaVectorIR.LaneType lane, long bits) {
+    return lane == VarkaVectorIR.LaneType.DOUBLE ? Double.isNaN(Double.longBitsToDouble(bits))
+        : Float.isNaN(Float.intBitsToFloat((int) bits));
   }
 
   // ---------------------------------------------------------------------------------------------
@@ -895,11 +977,53 @@ public final class VarkaKernelChecks {
       return VarkaReference.longCond(cond, values, isNull, lits);
     }
 
+    @Override public long outputStride(VarkaVectorIR root, VarkaVectorIR.LaneType rootLane) {
+      return root instanceof WidenDecimal ? DECIMAL_SLOT : stride();
+    }
+
+    @Override public void putOutput(VarkaVectorIR root, VarkaVectorIR.LaneType rootLane,
+        MemorySegment d, int i, long v) {
+      if (root instanceof WidenDecimal) {
+        putSlot(d, i, v);
+      } else {
+        put(d, i, v);
+      }
+    }
+
     @Override public long got(MemorySegment out, int i, VarkaVectorIR root,
         VarkaVectorIR.LaneType rootLane) {
-      return root instanceof NarrowLane ? out.get(ValueLayout.JAVA_INT, i * 4L)
+      return root instanceof WidenDecimal ? slot(out, i)
+          : root instanceof NarrowLane ? out.get(ValueLayout.JAVA_INT, i * 4L)
           : out.get(ValueLayout.JAVA_LONG, i * 8L);
     }
+  }
+
+  /** The bytes of an Arrow decimal slot, which a {@link WidenDecimal} root writes a row. */
+  private static final long DECIMAL_SLOT = 16L;
+
+  /**
+   * Writes {@code v} into row {@code i}'s decimal slot as Arrow's writer does: the word, then its
+   * sign extension. A sentinel written so reads back through {@link #slot} like a stored value,
+   * so an unwritten slot shows as a wrong value rather than as a wrong high word.
+   */
+  private static void putSlot(MemorySegment d, int i, long v) {
+    d.set(ValueLayout.JAVA_LONG, i * DECIMAL_SLOT, v);
+    d.set(ValueLayout.JAVA_LONG, i * DECIMAL_SLOT + 8, v >> 63);
+  }
+
+  /**
+   * Row {@code i}'s decimal slot as its unscaled value. A high word that is not the low word's
+   * sign extension is a slot Spark's {@code ArrowColumnVector} raises on, so it fails here
+   * whatever the row's validity: the store writes every row, null ones too.
+   */
+  private static long slot(MemorySegment out, int i) {
+    long lo = out.get(ValueLayout.JAVA_LONG, i * DECIMAL_SLOT);
+    long hi = out.get(ValueLayout.JAVA_LONG, i * DECIMAL_SLOT + 8);
+    if (hi != lo >> 63) {
+      throw new IllegalStateException("decimal slot of row " + i + " holds the high word " + hi
+          + " under the low word " + lo + ", not its sign extension");
+    }
+    return lo;
   }
 
   /**
@@ -942,6 +1066,9 @@ public final class VarkaKernelChecks {
     }
 
     @Override public long outputStride(VarkaVectorIR root, VarkaVectorIR.LaneType rootLane) {
+      if (root instanceof WidenDecimal) {
+        return DECIMAL_SLOT;
+      }
       return width(rootLane == VarkaVectorIR.LaneType.INT
           ? VarkaVectorIR.LaneType.INT : VarkaVectorIR.LaneType.LONG);
     }
@@ -965,7 +1092,9 @@ public final class VarkaKernelChecks {
 
     @Override public void putOutput(VarkaVectorIR root, VarkaVectorIR.LaneType rootLane,
         MemorySegment d, int i, long v) {
-      if (outputStride(root, rootLane) == 4L) {
+      if (root instanceof WidenDecimal) {
+        putSlot(d, i, v);
+      } else if (outputStride(root, rootLane) == 4L) {
         d.set(ValueLayout.JAVA_INT, i * 4L, (int) v);
       } else {
         put(d, i, v);
@@ -1004,7 +1133,8 @@ public final class VarkaKernelChecks {
 
     @Override public long got(MemorySegment out, int i, VarkaVectorIR root,
         VarkaVectorIR.LaneType rootLane) {
-      return outputStride(root, rootLane) == 4L ? out.get(ValueLayout.JAVA_INT, i * 4L)
+      return root instanceof WidenDecimal ? slot(out, i)
+          : outputStride(root, rootLane) == 4L ? out.get(ValueLayout.JAVA_INT, i * 4L)
           : out.get(ValueLayout.JAVA_LONG, i * 8L);
     }
   }
@@ -1507,6 +1637,8 @@ public final class VarkaKernelChecks {
       }
       long[] values = new long[numInputs];
       boolean[] isNull = new boolean[numInputs];
+      // The reference's value of any node on the row the loop below has filled in.
+      Function<VarkaVectorIR, OptionalLong> rowRef = node -> lane.reference(node, values, isNull);
       int[] nullCounts = in.nullCounts();
       VarkaVectorIR.LaneType[] rootLanes = lanesOf(roots);
       for (int i = 0; i < length; i++) {
@@ -1523,7 +1655,8 @@ public final class VarkaKernelChecks {
             boolean known = truth != VarkaReference.Truth.UNKNOWN;
             if (spark != null) {
               agreeWithSpark(context, spark, o, i, values, isNull,
-                  known ? OptionalLong.of(truth.isTrue() ? 1L : 0L) : OptionalLong.empty());
+                  known ? OptionalLong.of(truth.isTrue() ? 1L : 0L) : OptionalLong.empty(), b,
+                  node -> OptionalLong.empty());
             }
             for (int f = 0; f < runs; f++) {
               boolean valid = bit(outs[f].bits()[o], i);
@@ -1540,7 +1673,7 @@ public final class VarkaKernelChecks {
             if (spark != null) {
               agreeWithSpark(context, spark, o, i, values, isNull,
                   truth == VarkaReference.Truth.UNKNOWN ? OptionalLong.empty()
-                      : OptionalLong.of(truth.isTrue() ? 1L : 0L));
+                      : OptionalLong.of(truth.isTrue() ? 1L : 0L), c, node -> OptionalLong.empty());
             }
             for (int f = 0; f < runs; f++) {
               boolean bit = bit(outs[f].bits()[o], i);
@@ -1553,7 +1686,7 @@ public final class VarkaKernelChecks {
           } else {
             OptionalLong want = planted(lane.reference(root, values, isNull), o, i);
             if (spark != null) {
-              agreeWithSpark(context, spark, o, i, values, isNull, want);
+              agreeWithSpark(context, spark, o, i, values, isNull, want, root, rowRef);
             }
             for (int f = 0; f < runs; f++) {
               boolean bit = bit(outs[f].bits()[o], i);
@@ -1566,7 +1699,7 @@ public final class VarkaKernelChecks {
                     + (bit ? "Some(" + got + ")" : "None") + ")"
                     + evidence(values, isNull, nullCounts));
               }
-              if (want.isPresent() && got != want.getAsLong()) {
+              if (want.isPresent() && !sameAnswer(root, want.getAsLong(), got, rowRef)) {
                 String at = context + fills.get(f).suffix();
                 throw new IllegalStateException(at + ": output " + o + " row " + i
                     + " differs (want " + want.getAsLong() + ", got " + got + ")"

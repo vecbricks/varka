@@ -237,6 +237,25 @@ final class VarkaDescriptors {
   /** {@code LongVector LongVector.rearrange(VectorShuffle, Vector)}: two vectors' lanes in one. */
   static final MethodTypeDesc REARRANGE_TWO =
       MethodTypeDesc.of(LONG_VECTOR, VECTOR_SHUFFLE, VECTOR);
+  /** {@code LongVector LongVector.zero(VectorSpecies)} (static): the decimal store's iota base. */
+  static final MethodTypeDesc LONG_ZERO = MethodTypeDesc.of(LONG_VECTOR, VECTOR_SPECIES);
+  /** {@code LongVector LongVector.addIndex(int)}: lane {@code i} plus {@code i * scale}. */
+  static final MethodTypeDesc LONG_ADD_INDEX =
+      MethodTypeDesc.of(LONG_VECTOR, ConstantDescs.CD_int);
+  /** {@code LongVector LongVector.and/mul/add(long)}: a broadcast scalar. */
+  static final MethodTypeDesc LONG_SCALAR = MethodTypeDesc.of(LONG_VECTOR, ConstantDescs.CD_long);
+  /** {@code LongVector LongVector.add(Vector)} - the erased {@code Vector}. */
+  static final MethodTypeDesc LONG_VV = MethodTypeDesc.of(LONG_VECTOR, VECTOR);
+  /** {@code LongVector LongVector.lanewise(VectorOperators.Binary, long)} - the shifts. */
+  static final MethodTypeDesc LONG_LANEWISE_BINARY =
+      MethodTypeDesc.of(LONG_VECTOR, VO_BINARY, ConstantDescs.CD_long);
+  /** {@code VectorShuffle Vector.toShuffle()}: lane values as source indices. */
+  static final MethodTypeDesc TO_SHUFFLE = MethodTypeDesc.of(VECTOR_SHUFFLE);
+  /**
+   * {@code LongVector LongVector.selectFrom(Vector, Vector)}: each lane of the index vector picks
+   * a lane of the two vectors' concatenation (VARKA-157).
+   */
+  static final MethodTypeDesc SELECT_FROM_TWO = MethodTypeDesc.of(LONG_VECTOR, VECTOR, VECTOR);
   static final MethodTypeDesc ANY_TRUE = MethodTypeDesc.of(ConstantDescs.CD_boolean);
   static final MethodTypeDesc MASK_UNARY = MethodTypeDesc.of(VECTOR_MASK);
 

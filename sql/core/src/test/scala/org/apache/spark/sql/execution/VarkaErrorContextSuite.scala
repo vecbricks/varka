@@ -79,14 +79,15 @@ class VarkaErrorContextSuite extends QueryTest with VarkaSharedSessions with Var
 
   test("the one user setting out of range raises INVALID_CONF_VALUE.REQUIREMENT") {
     val e = intercept[SparkIllegalArgumentException] {
-      varkaSpark.conf.set(SQLConf.VARKA_EMIT_USE_AVX.key, "-2")
+      varkaSpark.conf.set(SQLConf.VARKA_EMIT_USE_AVX.key, "-3")
     }
     checkError(e,
       condition = "INVALID_CONF_VALUE.REQUIREMENT",
       parameters = Map(
         "confName" -> SQLConf.VARKA_EMIT_USE_AVX.key,
-        "confValue" -> "-2",
-        "confRequirement" -> "the level is -1 for the emitter's default or a -XX:UseAVX value"))
+        "confValue" -> "-3",
+        "confRequirement" -> ("the level is -2 to resolve it from the host, -1 for the " +
+          "emitter's default or a -XX:UseAVX value")))
   }
 
   test("a compiler bug at planning fails the query on the driver with INTERNAL_ERROR and the " +

@@ -28,12 +28,14 @@ import java.util.function.Consumer;
 import java.util.function.Predicate;
 import java.util.function.UnaryOperator;
 
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BoolOutput;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ColumnRef;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Cond;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.DecimalColumn;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IfElse;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LiteralSlot;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.NarrowLane;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WidenDecimal;
 
 /**
  * Variants of a projection whose answers follow from its own (VARKA-278): the same trees emitted
@@ -244,8 +246,8 @@ final class VarkaVariants {
 
   /**
    * Every arm of an {@code IfElse} that no row of the batch takes, as {@code oracle} reads the
-   * batch, replaced by a tree from {@code pool}: of the arm's lane, not a condition, not
-   * {@code NarrowLane} (a root-only node), and printing differently from the arm. The pool is
+   * batch, replaced by a tree from {@code pool}: of the arm's lane, not excluded from a pool
+   * ({@link #excludedFromPool}), and printing differently from the arm. The pool is
    * scanned from {@code rotation}, so successive trees meet different replacements. Empty where
    * no arm is untaken or no replacement fits. Defined for that batch only: on another the arm
    * may be taken, and the replacement may then leave a range an enclosing guard was drawn for,
@@ -410,17 +412,38 @@ final class VarkaVariants {
     }
   }
 
-  /** The distinct value subtrees under {@code roots}, in walk order: a replacement pool. */
+  /**
+   * The distinct value subtrees under {@code roots}, in walk order: a replacement pool. A node
+   * {@link #excludedFromPool} is left out, though its children are not.
+   */
   static List<VarkaVectorIR> valueSubtrees(List<VarkaVectorIR> roots) {
     var seen = new LinkedHashMap<String, VarkaVectorIR>();
     for (VarkaVectorIR r : roots) {
       walk(r, n -> {
-        if (!(n instanceof Cond) && !(n instanceof NarrowLane)) {
+        if (!excludedFromPool(n)) {
           seen.putIfAbsent(VarkaVectorIR.canonical(n), n);
         }
       });
     }
     return List.copyOf(seen.values());
+  }
+
+  /**
+   * Whether {@code node} is kept out of a replacement pool, as a tree a variant does not place
+   * below an arm. The one filter {@link #valueSubtrees} and every replacement read, since a
+   * caller may hand {@link #untakenArm} a pool of its own:
+   * <ul>
+   *   <li>a condition, which is no value an arm can hold;</li>
+   *   <li>{@code WidenDecimal} and {@code BoolOutput}, a decimal and a boolean output, which the
+   *   emitter's analysis refuses anywhere but at a root;</li>
+   *   <li>{@code NarrowLane}, which the emitter takes below a root as well: the variants have
+   *   left it out since they were written (VARKA-278), when the series drew one at a root
+   *   alone (VARKA-269).</li>
+   * </ul>
+   */
+  private static boolean excludedFromPool(VarkaVectorIR node) {
+    return node instanceof Cond || node instanceof WidenDecimal || node instanceof BoolOutput
+        || node instanceof NarrowLane;
   }
 
   private static Optional<VarkaVectorIR> firstValueChild(VarkaVectorIR root) {
@@ -437,7 +460,7 @@ final class VarkaVariants {
     String text = VarkaVectorIR.canonical(arm);
     for (int k = 0; k < pool.size(); k++) {
       VarkaVectorIR t = pool.get(Math.floorMod(rotation + k, pool.size()));
-      if (!(t instanceof Cond) && !(t instanceof NarrowLane) && t.laneType() == arm.laneType()
+      if (!excludedFromPool(t) && t.laneType() == arm.laneType()
           && !VarkaVectorIR.canonical(t).equals(text)) {
         return Optional.of(t);
       }

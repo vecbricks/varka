@@ -519,7 +519,7 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `dt >= dt2` | `predicate` |  |  | per-lane: compare to mask, mask cast |
 | `dt <= dt2` | `predicate` |  |  | per-lane: compare to mask, mask cast |
 | `dt IS NULL` | `predicate` |  |  | per-lane: mask broadcast, mask logic, mask cast |
-| `CAST(TIME'12:34:56.789' AS TIME(6)) = t` | `predicate` |  | the widening cast written out; a narrowing one floors the nanoseconds and declines | per-lane: compare to mask, mask cast |
+| `CAST(TIME'12:34:56.789' AS TIME(6)) = t` | `predicate` |  | a TIME literal is already TIME(6), so the cast is the identity the optimizer removes; a widening from TIME(0) or TIME(3) fuses and a narrowing declines | per-lane: compare to mask, mask cast |
 | `(l > l2) IS NULL` | `predicate` |  | the unknown partition at the long lane (VARKA-334); a default session's NullDownPropagation pushes the test onto the columns, so this form reaches Varka as written only with that rule excluded | per-lane: mask broadcast, mask logic, mask cast, compare to mask |
 | `(t < t2) IS NOT NULL` | `predicate` |  | the long lane's; a default session's NullDownPropagation pushes the test onto the columns, so this form reaches Varka as written only with that rule excluded | per-lane: mask cast, mask broadcast, compare to mask |
 | `l <=> l2` | `predicate` |  | null-safe equality at the long lane (VARKA-336) | per-lane: compare to mask, mask cast |
@@ -705,6 +705,16 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `CAST(d AS TIMESTAMP_NTZ)` | `intArithmetic` | `unix_date(d) BETWEEN -106751991 AND 106751991` | Spark multiplies with multiplyExact in every mode, so a day past the bound raises under LEGACY and ANSI and is null under TRY, on the row engine the guard sends its batch to | per-lane: compare to mask, mask logic, mask broadcast, mask test |
 | `CAST(ntz AS DATE)` | `intArithmetic` |  | cannot fail: every quotient is a day an int holds | vector |
 
+#### TIMESTAMP_NTZ arithmetic
+
+| Expression | Switches | Domain | Notes | 128-bit lanes |
+|---|---|---|---|---|
+| `ntz - ntz2` | `time` | `if(ntz IS NULL OR ntz2 IS NULL, NULL, try_subtract(ntz, ntz2) IS NOT NULL)` | a day-time interval in microseconds; a difference past the long raises in every mode | per-lane: compare to mask, mask logic, mask broadcast, mask test |
+| `ntz2 - d` | `time`, `intArithmetic` | `unix_date(d) BETWEEN -106751991 AND 106751991 AND if(ntz2 IS NULL OR d IS NULL, NULL, try_subtract(ntz2, d) IS NOT NULL)` | type coercion casts the date to TIMESTAMP_NTZ, its midnight, under the cast's day guard, then subtracts it | per-lane: compare to mask, mask logic, mask broadcast, mask test, load or store |
+| `ntz + dt` | `time` | `if(ntz IS NULL OR dt IS NULL, NULL, try_add(ntz, dt) IS NOT NULL)` | a value past the long raises in every mode | per-lane: compare to mask, mask logic, mask broadcast, mask test |
+| `ntz - dt` | `time` | `dt <> INTERVAL '-106751991 04:00:54.775808' DAY TO SECOND AND if(ntz IS NULL OR dt IS NULL, NULL, try_subtract(ntz, dt) IS NOT NULL)` | the interval's negation is folded into a checked subtraction; Spark negates with negateExact in every mode, so the least interval, which it raises on, is guarded | per-lane: compare to mask, mask logic, mask broadcast, mask test |
+| `ntz + INTERVAL '1' DAY` | `time` | `if(ntz IS NULL, NULL, try_add(ntz, INTERVAL '1' DAY) IS NOT NULL)` | a literal interval takes a slot in the long lane's table | per-lane: compare to mask, mask logic, mask broadcast, mask test |
+
 #### DOUBLE columns
 
 | Predicate | Switches | Domain | Notes | 128-bit lanes |
@@ -764,6 +774,37 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `CASE WHEN f < f2 THEN f ELSE f2 END` | `predicate`, `condition` |  |  | vector |
 | `if(f IS NULL, f2, f)` | `predicate`, `condition` |  |  | vector |
 | `coalesce(f, f2)` | `condition` |  |  | vector |
+
+#### Floating arithmetic
+
+| Expression | Switches | Domain | Notes | 128-bit lanes |
+|---|---|---|---|---|
+| `x + x2` | `floatingArithmetic` |  | the IEEE sum in every mode: an infinity or a NaN is an answer | vector |
+| `x - x2` | `floatingArithmetic` |  |  | vector |
+| `x * x2` | `floatingArithmetic` |  | no multiply and add is contracted into an FMA | vector |
+| `x / x2` | `floatingArithmetic` | `CASE WHEN x IS NOT NULL THEN x2 <> 0.0D END` | a zero divisor of either sign raises under ANSI, so the batch declines and the row engine raises; the legacy mode and try_divide answer null | per-lane: compare to mask, mask logic, mask broadcast, mask test |
+| `x / 3.0D` | `floatingArithmetic` |  | a non-zero literal divisor has no zero test | vector |
+| `1.5D - x` | `floatingArithmetic` |  | a literal on the left | vector |
+| `try_divide(x, x2)` | `floatingArithmetic` |  | the legacy division: null on a zero divisor in every mode | per-lane: compare to mask, mask cast |
+| `try_add(x, x2)` | `floatingArithmetic` |  | the same sum: a floating sum has no overflow | vector |
+| `try_multiply(x, x2)` | `floatingArithmetic` |  | the same product | vector |
+| `try_subtract(f, f2)` | `floatingArithmetic` |  | the same difference | vector |
+| `try_subtract(x, x2)` | `floatingArithmetic` |  |  | vector |
+| `try_add(f, f2)` | `floatingArithmetic` |  |  | vector |
+| `try_multiply(f, f2)` | `floatingArithmetic` |  |  | vector |
+| `(x + x2) * x2 - x` | `floatingArithmetic` |  | the floating baseline's chain | vector |
+| `-x` | `floatingArithmetic` |  | the sign bit flipped, a NaN's payload kept | vector |
+| `abs(x)` | `floatingArithmetic` |  | the sign bit cleared, a NaN's payload kept | vector |
+| `sqrt(x)` | `floatingArithmetic` |  | IEEE's correctly rounded square root, Math.sqrt's bits | vector |
+| `signum(x)` | `floatingArithmetic` |  | both zeros and NaN answer themselves, as Math.signum does | per-lane: compare to mask, mask cast, mask logic, mask broadcast, blend |
+| `degrees(x)` | `floatingArithmetic` |  | one multiply by Math.toDegrees(1.0), which is the JDK's own formula | vector |
+| `radians(x)` | `floatingArithmetic` |  | one multiply by Math.toRadians(1.0) | vector |
+| `f + f2` | `floatingArithmetic` |  | the float sum, rounded once | vector |
+| `f - f2` | `floatingArithmetic` |  |  | vector |
+| `f * f2` | `floatingArithmetic` |  |  | vector |
+| `f * 2.5F` | `floatingArithmetic` |  |  | vector |
+| `-f` | `floatingArithmetic` |  |  | vector |
+| `abs(f)` | `floatingArithmetic` |  |  | vector |
 
 #### DECIMAL columns
 
@@ -825,13 +866,13 @@ operands (a row counts once for each type it reads):
 | `bigint` | 46 | 0 | 2 | 0 | 2 | 42 |
 | `bool` | 23 | 0 | 0 | 13 | 0 | 10 |
 | `byte` | 26 | 0 | 0 | 0 | 8 | 18 |
-| `date` | 86 | 17 | 0 | 1 | 0 | 68 |
+| `date` | 87 | 17 | 0 | 1 | 0 | 69 |
 | `dec` | 17 | 0 | 0 | 0 | 0 | 17 |
-| `double` | 20 | 0 | 0 | 0 | 0 | 20 |
-| `dt` | 15 | 2 | 0 | 0 | 0 | 13 |
-| `float` | 20 | 0 | 0 | 0 | 0 | 20 |
+| `double` | 37 | 0 | 0 | 0 | 0 | 37 |
+| `dt` | 18 | 2 | 0 | 0 | 0 | 16 |
+| `float` | 29 | 0 | 0 | 0 | 0 | 29 |
 | `int` | 72 | 14 | 2 | 0 | 1 | 55 |
-| `ntz` | 19 | 0 | 1 | 0 | 0 | 18 |
+| `ntz` | 24 | 0 | 1 | 0 | 0 | 23 |
 | `short` | 25 | 0 | 0 | 0 | 8 | 17 |
 | `time` | 32 | 6 | 0 | 0 | 2 | 24 |
 | `ym` | 30 | 7 | 2 | 0 | 2 | 19 |
@@ -1281,7 +1322,8 @@ VARKA-22 extends the account to the SQL UI and to JDK Flight Recorder:
 * **Declines by reason, rows and time by path (VARKA-313).** Each refusal
   reason has its own metric, `numDeclinedBatches[<reason>]` (`day-producer`,
   `month-count`, `make-date`, `int-overflow`, `day-range`, `value-range`,
-  `decimal-slot`, `input-bound`, `derived-input`, `forced`, and `unrecognised` for a status
+  `decimal-slot`, `divide-by-zero`, `input-bound`, `derived-input`, `forced`, and
+  `unrecognised` for a status
   bit no name covers). A reason reads as a count, 0 included, where every
   declined batch that named it named it exactly, and as "not reported" where
   a batch named it among others: under the default emit options a loop
@@ -1686,7 +1728,7 @@ cast) have no switch. The coverage table's *Switches* column names each row's.
 | `spark.sql.codegen.varka.reproduction.enabled` | `true` | VARKA-315. A kernel class that fails to verify or define, an exception inside a kernel, or a memory-sanitizer violation writes one reproduction file, which `dev/varka_emit.sh --replay` runs again outside Spark (Telemetry and debuggability). The failure is handled as without it. |
 | `spark.sql.codegen.varka.reproduction.directory` | (none) | Where reproduction files go on the failing JVM; unset, `varka-reproductions` under its `java.io.tmpdir`. Created owner-only, since a file can hold a batch of the query's data. |
 | `spark.sql.codegen.varka.reproduction.maxBatchBytes` | `16m` | The most bytes of a failing batch's values a reproduction file holds; a larger batch keeps its row count, null counts and buffer sizes, and a replay runs a synthetic batch of that shape. `0` never writes values. |
-| `spark.sql.codegen.varka.emit.useAVX` | `-1` | The `-XX:UseAVX` level the emitter lowers for where a lowering depends on it (VARKA-121): `3` or above takes a 64-bit division through double lanes, `2` the magic-number form, because the converts do not become instructions below AVX-512; `-1` leaves the emitter's own default, which is deliberately not the host's level so the shape hashes and the committed bytes describe no one machine. The level is part of the shape hash, so a session that sets it emits and caches its own classes. For benchmarks and A/Bs. |
+| `spark.sql.codegen.varka.emit.useAVX` | `-1` | The `-XX:UseAVX` level the emitter lowers for where a lowering depends on it (VARKA-121): `3` or above takes a 64-bit division through double lanes, `2` the magic-number form, because the converts do not become instructions without AVX512DQ. `-2` resolves it from the driver's JVM (VARKA-538): level `2` where HotSpot's feature list lacks AVX512DQ, the emitter's default otherwise or where the list cannot be read (it needs `--add-exports=java.base/jdk.internal.vm.vector=ALL-UNNAMED`, which Spark's module options carry); the driver's host decides for the whole plan, and on a mixed cluster both forms are correct. `-1` leaves the emitter's own default, which is deliberately not the host's level so the shape hashes and the committed bytes describe no one machine; the Varka test sessions pin it. An explicit level wins over the host, and the level is part of the shape hash, so a session at a level emits and caches its own classes. |
 | `spark.sql.codegen.varka.cache.maxEntries` | `100` | Static (VARKA-18). Capacity of the JVM-wide cache of loaded fused-kernel classes, keyed on the kernel's structural shape; the least recently used class is released on eviction, bounding Metaspace by this size. `0` restores the per-task emit-and-unload lifecycle. |
 | `spark.sql.codegen.varka.warmup.enabled` | `true` | VARKA-212. When true, a newly emitted kernel serves no batch until C2 has compiled it: the shape's batches take the per-row path while a background thread runs the kernel on a copy of the first batch, and every task of the shape switches to the kernel once it runs without allocating. When false, a new kernel serves batches from the first and runs interpreted until enough batches have gone through it. |
 
@@ -1698,10 +1740,11 @@ coverage table, and regenerated by the same command:
 | :--- | :--- | :--- |
 | `spark.sql.codegen.varka.family.calendar.enabled` | `true` | The calendar family: day arithmetic (date_add, date_sub, datediff, unix_date, date_from_unix_date), the calendar fields (year to weekofyear), make_date, last_day, next_day, trunc, add_months and a date plus a year-month interval. |
 | `spark.sql.codegen.varka.family.interval.enabled` | `true` | The interval family: year-month interval arithmetic, negation and abs, make_ym_interval, the year and month extractions, the multiply by an int and the casts between year-month intervals and ints. |
-| `spark.sql.codegen.varka.family.time.enabled` | `true` | The time family: the TIME functions (hour, minute, second, time_trunc, time_diff, the conversions to and from micros and millis, a time plus a day-time interval) and the casts to TIME and to a day-time interval. |
+| `spark.sql.codegen.varka.family.time.enabled` | `true` | The time family: the TIME functions (hour, minute, second, time_trunc, time_diff, the conversions to and from micros and millis, a time plus a day-time interval), the casts to TIME and to a day-time interval, and TIMESTAMP_NTZ minus TIMESTAMP_NTZ and a TIMESTAMP_NTZ plus or minus a day-time interval. |
 | `spark.sql.codegen.varka.family.predicate.enabled` | `true` | The predicate family: the comparisons, IN over dates and year-month intervals, IS NULL and IS NOT NULL, AND, OR and NOT, wherever they sit: a filter's predicates, so that no filter fuses, and the conditions of IF and CASE WHEN. |
 | `spark.sql.codegen.varka.family.condition.enabled` | `true` | The condition family: the conditionals IF, CASE WHEN and coalesce (the comparisons in their conditions are the predicate family's). |
 | `spark.sql.codegen.varka.family.intArithmetic.enabled` | `true` | The int arithmetic family: +, -, * and unary minus over int, tinyint and smallint operands and abs over the narrow two, checked under ANSI, greatest and least, the casts between int and bigint, and a tinyint or smallint widened to int. |
+| `spark.sql.codegen.varka.family.floatingArithmetic.enabled` | `true` | The floating arithmetic family: +, -, *, unary minus and abs over double and float operands, and /, try_divide, sqrt, signum, degrees and radians over double ones, a zero divisor null under LEGACY and TRY and raised by the row engine under ANSI. |
 <!-- END generated family switches -->
 
 The rule is registered on every `SparkSession` but does nothing while the

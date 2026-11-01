@@ -17,6 +17,9 @@
 
 package org.apache.spark.sql.execution;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.ArrayList;
@@ -52,7 +55,8 @@ import org.junit.jupiter.api.Test;
  * The session plans and executes nothing - the fixtures are cached lazily and never read - so
  * this costs the analyzer and the optimizer only, and it fails the day the harness's optimizer
  * and a session's part. The hand-written queries of {@link VarkaHarnessCases} are held to a
- * session's plan the same way, over a view with their fixture's columns.
+ * session's plan the same way, over a view with their fixture's columns. And the conditions the
+ * harness reads off Spark's errors name Spark's only, never an error of the harness's own.
  */
 @VarkaSuite
 public final class VarkaHarnessParitySuite {
@@ -258,6 +262,37 @@ public final class VarkaHarnessParitySuite {
       return null;
     });
     assertTrue(differences.isEmpty(), String.join("\n", differences));
+  }
+
+  @Test
+  @DisplayName("an ArithmeticException is a raised condition only as Math's exact long overflow, "
+      + "and any other is thrown as the harness's own")
+  void onlyMathsLongOverflowIsAConditionlessRaise() {
+    String name = ArithmeticException.class.getName();
+    assertEquals(Optional.of(name), VarkaAnsiForm.condition(() -> {
+      Math.addExact(Long.MAX_VALUE, 1L);
+      return List.of();
+    }));
+    assertEquals(Optional.of(name), VarkaAnsiForm.condition(() -> {
+      Math.negateExact(Long.MIN_VALUE);
+      return List.of();
+    }));
+    // C2's preallocated instance, which stands in for a hot site's overflow.
+    var preallocated = new ArithmeticException();
+    preallocated.setStackTrace(new StackTraceElement[0]);
+    assertEquals(Optional.of(name), VarkaAnsiForm.condition(() -> {
+      throw preallocated;
+    }));
+    var divide = new ArithmeticException("/ by zero");
+    var intOverflow = assertThrows(ArithmeticException.class,
+        () -> Math.addExact(Integer.MAX_VALUE, 1));
+    var notMath = new ArithmeticException("long overflow");
+    var traced = new ArithmeticException();
+    for (ArithmeticException e : List.of(divide, intOverflow, notMath, traced)) {
+      assertSame(e, assertThrows(ArithmeticException.class, () -> VarkaAnsiForm.condition(() -> {
+        throw e;
+      })), "accepted as Spark's: " + e);
+    }
   }
 
   @Test

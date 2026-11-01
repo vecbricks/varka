@@ -56,8 +56,9 @@ public enum VarkaFamily {
       + " casts between year-month intervals and ints"),
   /** {@code VarkaTimeCompiler}. */
   TIME("time", "time", "the TIME functions (hour, minute, second, time_trunc, time_diff, the"
-      + " conversions to and from micros and millis, a time plus a day-time interval) and the"
-      + " casts to TIME and to a day-time interval"),
+      + " conversions to and from micros and millis, a time plus a day-time interval), the"
+      + " casts to TIME and to a day-time interval, and TIMESTAMP_NTZ minus TIMESTAMP_NTZ and"
+      + " a TIMESTAMP_NTZ plus or minus a day-time interval"),
   /** {@code VarkaConditionCompiler.compileCond}, reached outside the chain. */
   PREDICATE("predicate", "predicate", "the comparisons, IN over dates and year-month intervals,"
       + " IS NULL and IS NOT NULL, AND, OR and NOT, wherever they sit: a filter's predicates, so"
@@ -69,7 +70,12 @@ public enum VarkaFamily {
   INT_ARITHMETIC("int arithmetic", "intArithmetic", "+, -, * and unary minus over int,"
       + " tinyint and smallint operands and abs over the narrow two, checked under ANSI,"
       + " greatest and least, the casts between int and bigint, and a tinyint or smallint"
-      + " widened to int");
+      + " widened to int"),
+  /** {@code VarkaFloatingCompiler}. */
+  FLOATING_ARITHMETIC("floating arithmetic", "floatingArithmetic", "+, -, *, unary minus and abs"
+      + " over double and float operands, and /, try_divide, sqrt, signum, degrees and radians"
+      + " over double ones, a zero divisor null under LEGACY and TRY and raised by the row engine"
+      + " under ANSI");
 
   /** The prefix every family's switch shares. */
   public static final String SWITCH_PREFIX = "spark.sql.codegen.varka.family.";
