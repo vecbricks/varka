@@ -5778,6 +5778,26 @@ finding becomes a row only when it serves the milestone's done-when. **Done when
 stored `INTERVAL DAY` column fuses with a coverage row, a day beyond the date arm's guard declining
 to the row engine's error.
 
+### Item 127. Choose each CPU-dependent form on the executor that runs it
+
+*Added 1 November 2026 by the owner's word, from row 503's known limit (`m8/VARKA-503.md`, risk 5,
+on branch `varka-503-two-lane-decline`).* Three of milestone 8's choices depend on the CPU: row
+538's 64-bit division form (the host's AVX level), row 503's refusal of a long-driven filter
+condition at two long lanes on x86, and row 359a's decline of the 128-bit pair's filters on the same
+hosts. Each reads the driver's CPU once at planning (`VarkaHostIsa`,
+`HOST_TWO_LANE_MASKS_FALL_BACK`), resolves it into `VarkaSessionEmit` and ships it with the plan, so
+planning, EXPLAIN and every executor's compile agree and committed outputs are the same on every
+machine. Where the executors' vector width differs from the driver's, the choice is wrong for them:
+a driver at 128 bits declines filters that AVX2 or AVX-512 executors would run faster, and a wide or
+aarch64 driver lets two-lane x86 executors fuse filters that run the Vector API's Java fallback at
+about half the row path's speed. Answers are right either way. The item moves each choice to the
+executor that compiles the kernel: a two-lane refusal becomes the kernel's own decline, falling
+back by batch instead of being planned out; the division form keys the executor's shape cache by
+its own CPU reading; and the fusion report says where an executor chose differently from the
+driver's EXPLAIN. **Done when** a cluster whose driver and executors differ in vector width runs
+each executor's best form, shown by a test that plants a different host on the executor side, and
+the fusion report names the executor's choice.
+
 ## 5. Ordering
 
 The survey supports an order this time rather than an argument. Item 8 leads

@@ -24,6 +24,7 @@ import java.util.SortedMap;
 import java.util.TreeMap;
 
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.*;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WidenDecimal;
 
 /**
  * What an emitted loop method may carry and what each node costs against it: the group budget
@@ -610,6 +611,9 @@ final class VarkaEmitBudget {
       // and the add and unsigned compare of the digit check. The OR that gathers the compares
       // is a mask call, not a lane call.
       case DecimalColumn _ -> 7;
+      // The decimal store: the sign shift, the two interleaves and the second of its two stores;
+      // the first store is the one every value root pays.
+      case WidenDecimal _ -> 4;
       // One lanewise op, plus the four the sign test costs where there is one. A wrapping narrow
       // node is the op and, at the int lane where it reduces (Analysis.wrapAt), the shift pair:
       // the larger form, as below, since the arm and the readers are not known here.
