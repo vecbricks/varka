@@ -23,6 +23,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.function.BiFunction;
 
 import javax.annotation.Nullable;
@@ -218,21 +219,40 @@ public final class VarkaTypes {
      * row or {@code eval} gives for the type. A floating value's bits are its raw ones, so a
      * NaN's payload and a zero's sign survive the round trip.
      */
-    public long bits(Object sparkValue) {
+    public long bits(@Nullable Object sparkValue) {
       if (admission instanceof Admission.UpToPrecision) {
         throw unscaled();
       }
+      OptionalLong bits = laneBits(sparkValue);
+      if (bits.isEmpty()) {
+        String value = sparkValue == null ? "null" : "a " + sparkValue.getClass().getSimpleName();
+        throw VarkaErrors.illegalArgument(value + " is not a " + sql + " value on a lane");
+      }
+      return bits.getAsLong();
+    }
+
+    /**
+     * {@link #bits} for a value that need not be one of the type's: its lane bits, or empty for a
+     * null, for a value of another class, and for every decimal, whose lane bits are an unscaled
+     * value at a scale the type id does not carry. An {@code IN} list's literals are read through
+     * it, so a list the lane cannot hold declines where {@link #bits} would throw.
+     */
+    public OptionalLong laneBits(@Nullable Object sparkValue) {
+      if (sparkValue == null || admission instanceof Admission.UpToPrecision) {
+        return OptionalLong.empty();
+      }
+      LaneType lane = lane().orElse(null);
       return switch (sparkValue) {
-        case Boolean b when admission instanceof Admission.AsCondition -> b ? 1L : 0L;
-        case Float f when lane().orElse(null) == LaneType.FLOAT -> Float.floatToRawIntBits(f);
-        case Double d when lane().orElse(null) == LaneType.DOUBLE ->
-            Double.doubleToRawLongBits(d);
-        case Byte b when lane().orElse(null) == LaneType.BYTE -> b;
-        case Short h when lane().orElse(null) == LaneType.SHORT -> h;
-        case Integer i when lane().orElse(null) == LaneType.INT -> i;
-        case Long l when lane().orElse(null) == LaneType.LONG -> l;
-        default -> throw VarkaErrors.illegalArgument("a " + sparkValue.getClass().getSimpleName()
-            + " is not a " + sql + " value on a lane");
+        case Boolean b when admission instanceof Admission.AsCondition ->
+            OptionalLong.of(b ? 1L : 0L);
+        case Float f when lane == LaneType.FLOAT -> OptionalLong.of(Float.floatToRawIntBits(f));
+        case Double d when lane == LaneType.DOUBLE ->
+            OptionalLong.of(Double.doubleToRawLongBits(d));
+        case Byte b when lane == LaneType.BYTE -> OptionalLong.of(b);
+        case Short h when lane == LaneType.SHORT -> OptionalLong.of(h);
+        case Integer i when lane == LaneType.INT -> OptionalLong.of(i);
+        case Long l when lane == LaneType.LONG -> OptionalLong.of(l);
+        default -> OptionalLong.empty();
       };
     }
 
