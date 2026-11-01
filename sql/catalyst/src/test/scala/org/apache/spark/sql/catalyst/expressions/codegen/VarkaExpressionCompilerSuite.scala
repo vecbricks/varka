@@ -50,6 +50,7 @@ import org.apache.spark.util.Utils
  * VARKA-12's partial eligibility, and the shapes that decline.
  */
 class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog {
+  import VarkaExpressionCompilerSuite.Relabeled
 
   /** The bound every `TIME` division states: a time of day is a count of nanoseconds in one. */
   private val nanosPerDay = 86400000000000L
@@ -3289,14 +3290,17 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
   }
 }
 
-/**
- * A value whose type is `dataType` but which compiles as `replacement`, whatever that one's type:
- * the compiler reads a `RuntimeReplaceable` through its replacement, so this puts a value on a lane
- * other than its type's, which no analyzed plan does.
- */
-private case class Relabeled(replacement: Expression, override val dataType: DataType)
-  extends RuntimeReplaceable with InheritAnalysisRules {
-  override def parameters: Seq[Expression] = Seq(replacement)
-  override protected def withNewChildInternal(newChild: Expression): Expression =
-    copy(replacement = newChild)
+object VarkaExpressionCompilerSuite {
+
+  /**
+   * A value whose type is `dataType` but which compiles as `replacement`, whatever that one's
+   * type: the compiler reads a `RuntimeReplaceable` through its replacement, so this puts a value
+   * on a lane other than its type's, which no analyzed plan does.
+   */
+  private case class Relabeled(replacement: Expression, override val dataType: DataType)
+    extends RuntimeReplaceable with InheritAnalysisRules {
+    override def parameters: Seq[Expression] = Seq(replacement)
+    override protected def withNewChildInternal(newChild: Expression): Expression =
+      copy(replacement = newChild)
+  }
 }
