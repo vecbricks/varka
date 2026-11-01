@@ -114,12 +114,12 @@ class VarkaLaneTypeSuite extends SparkFunSuite with VarkaTestWatchdog {
     // every type: a node type added without a lane rule would otherwise go unchecked here even
     // though the emitter walks it.
     // The widening is absent: its value is on the long lane by definition, over an int child
-    // (VARKA-28). So is the math function, which exists at a floating lane only (VARKA-342), and
-    // the decimal column, an unscaled long whose constructor refuses the int lane until the int
-    // arm of VARKA-347 2.3 is built.
+    // (VARKA-28). So is the math function, which exists at a floating lane only (VARKA-342), the
+    // decimal column, an unscaled long whose constructor refuses the int lane until the int arm
+    // of VARKA-347 2.3 is built, and the decimal output, which widens a long value into a decimal
+    // slot and refuses an int child (VARKA-157).
     assert(everyIntNode.map(_.getClass).toSet + classOf[WidenLane] + classOf[MathUnary] +
-      classOf[DecimalColumn] ===
-      concreteNodeTypes(classOf[VarkaVectorIR]))
+      classOf[DecimalColumn] + classOf[WidenDecimal] === concreteNodeTypes(classOf[VarkaVectorIR]))
     val doubleCol = new ColumnRef(0, LaneType.DOUBLE)
     assert(new MathUnary(MathFn.SQRT, doubleCol).laneType() === LaneType.DOUBLE)
     everyIntNode.foreach { node =>
@@ -439,6 +439,8 @@ class VarkaLaneTypeSuite extends SparkFunSuite with VarkaTestWatchdog {
         case "NarrowLane" => new NarrowLane(new ColumnRef(0, LaneType.LONG))
         // Its mirror: always over an int child, a long value, emitted at the long species.
         case "WidenLane" => new WidenLane(new ColumnRef(0, LaneType.INT))
+        // A decimal output is a long value's store whatever the row, emitted at the long lane.
+        case "WidenDecimal" => new WidenDecimal(new ColumnRef(0, LaneType.LONG))
         case "AddDays" => new AddDays(c, l)
         case "SubDays" => new SubDays(c, l)
         case "DateDiff" => new DateDiff(c, c1)
@@ -495,11 +497,12 @@ class VarkaLaneTypeSuite extends SparkFunSuite with VarkaTestWatchdog {
       "Compare", "NullSafeEqual", "And", "Or", "Not", "IsNotNull", "IfElse", "ConstDivide",
       "BoolColumn", "CondConst", "BoolCompare", "CondIf", "BoolNullSafeEq", "CondValue",
       "BoolOutput", "GuardedRange", "NarrowLane", "WidenLane", "BitOp", "BitCount",
-      "DecimalColumn"),
+      "DecimalColumn", "WidenDecimal"),
       "the long lane serves the lane-generic subset, VARKA-88's division, VARKA-102's guard, " +
         "the two conversions, which build over the other lane's child whatever the row, " +
         "VARKA-335's bitwise operations, VARKA-336's null-safe equality, VARKA-460's " +
-        "condition as a value, VARKA-27's boolean output and VARKA-347's decimal column")
+        "condition as a value, VARKA-27's boolean output, VARKA-347's decimal column and " +
+        "VARKA-157's decimal output")
   }
 
   test("a narrowing is an int over a long child, and a kernel that holds one is driven at the " +
