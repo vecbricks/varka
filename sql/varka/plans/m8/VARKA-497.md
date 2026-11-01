@@ -386,6 +386,18 @@ A code review of the three commits above found these, each checked against the c
    answers false (or null over a null value under its legacy flag), and its optimizer folds an
    empty `IN` before a plan reaches Varka, so only a hand-built tree arrives; fusing it as false
    would serve nothing a query sends.
-6. **Not taken: routing `compileNode`'s literal arms through `bitsSlot`**, so that every literal
+6. **An `In` element that is a constant is read.** The arm read a bare `Literal` only, which is
+   why 10.2.2 respelled the bigint row `42L, 0L`: coercion leaves an int literal in a bigint `IN`
+   under a `Cast`, which a query's optimizer folds and the coverage table's resolution does not.
+   The arm now reads a foldable element of the value's type by evaluating it once
+   (`constantBits`), and an element whose evaluation throws, an ANSI cast out of range, declines
+   as a non-literal one, for the row engine to raise. A literal reads as before, so no committed
+   kernel moved (`emitted_bytes.json`, `coverage.json` and `width_audit.json` regenerated
+   byte-identical before the row below changed). The row is back to 3.3's spelling,
+   `l IN (5000000000, 42, 0)`, which corrects 10.2.2's departure. Its kernels are the
+   `42L, 0L` row's byte for byte, under the new key; the eleven `option_arms` digests move, as
+   any row change moves them (10.2.6). The row now lists the `Cast` and its `int>bigint` pair
+   among its classes, which the census reads as one more `int` operand.
+7. **Not taken: routing `compileNode`'s literal arms through `bitsSlot`**, so that every literal
    of a lane is slotted by one dispatch. It touches every literal arm, not this row's, and is an
    open point for the row that next reworks the literal arms.

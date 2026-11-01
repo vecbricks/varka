@@ -815,14 +815,34 @@ final class VarkaConditionCompiler {
     return () -> compileIn(value, info, elements.apply(info), whole, inputs, literals, sink);
   }
 
-  /** {@code In}'s elements as lane bits: a literal of the value's type, empty for anything else. */
+  /** {@code In}'s elements as lane bits, each through {@link #constantBits}. */
   private static List<OptionalLong> inElements(In in, VarkaTypes.Info info) {
     List<OptionalLong> elements = new ArrayList<>();
     for (Expression element : CollectionConverters.asJava(in.list())) {
-      elements.add(element instanceof Literal l && VarkaTypes.idOf(l.dataType()) == info.id()
-          ? info.laneBits(l.value()) : OptionalLong.empty());
+      elements.add(constantBits(element, info));
     }
     return elements;
+  }
+
+  /**
+   * The lane bits of an {@code In} element that is a constant of the value's type: a literal, or
+   * a foldable expression evaluated once here, such as the cast type coercion puts over an int
+   * literal in a bigint {@code IN}, which a query's optimizer folds and a hand-built tree may
+   * not. Empty for anything else, and for an element whose evaluation throws - an ANSI cast out
+   * of range - which the row engine then raises on the row.
+   */
+  private static OptionalLong constantBits(Expression element, VarkaTypes.Info info) {
+    if (!element.foldable() || VarkaTypes.idOf(element.dataType()) != info.id()) {
+      return OptionalLong.empty();
+    }
+    if (element instanceof Literal l) {
+      return info.laneBits(l.value());
+    }
+    try {
+      return info.laneBits(element.eval(null));
+    } catch (RuntimeException e) {
+      return OptionalLong.empty();
+    }
   }
 
   /** {@code InSet}'s elements as lane bits: its set holds the values themselves. */

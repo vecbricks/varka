@@ -2829,6 +2829,22 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     assert(in.fused.longLiterals.asScala.toSeq === Seq(1L, 2L))
   }
 
+  test("an IN element folds when it is a constant of the value's type, as coercion's cast is") {
+    // `l IN (5000000000, 42)` resolves with the int literal under a cast to BIGINT.
+    val folded = VarkaExpressionCompiler.compilePredicate(
+      In(l, Seq(Literal(5000000000L), Cast(Literal(42), LongType))), withLong).get
+    assert(folded.specs.asScala.forall(_.fused))
+    assert(folded.fused.longLiterals.asScala.toSeq === Seq(42L, 5000000000L))
+    // An element whose evaluation throws - an ANSI cast out of the int range - is not read: the
+    // row engine raises it.
+    val overflow = Cast(Literal(5000000000L), IntegerType, None, EvalMode.ANSI)
+    assert(declineReason(If(In(i, Seq(Literal(1), overflow)), d, d2)) ===
+      "IN list has a null or non-literal element")
+    // An element that is no constant stays declined.
+    assert(declineReason(If(In(i, Seq(Literal(1), Add(i, Literal(1)))), d, d2)) ===
+      "IN list has a null or non-literal element")
+  }
+
   // --- VARKA-169: the emitter's size decline, taken at plan time -------------------------------
 
   /** A balanced `greatest` over `add_months(d, lo..hi)`: one output, as heavy as it is wide. */

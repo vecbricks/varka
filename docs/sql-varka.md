@@ -528,7 +528,7 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `equal_null(l, l2)` | `predicate` |  |  | per-lane: compare to mask, mask cast |
 | `t <=> t2` | `predicate` |  |  | per-lane: compare to mask, mask cast |
 | `dt <=> dt2` | `predicate` |  |  | per-lane: compare to mask, mask cast |
-| `l IN (5000000000, 42L, 0L)` | `predicate` |  | the long lane's equality chain, each literal a slot in its own table; an int literal arrives under a cast, which a query's optimizer folds and this table writes folded | per-lane: compare to mask, mask logic, mask cast |
+| `l IN (5000000000, 42, 0)` | `predicate` |  | the long lane's equality chain, each literal a slot in its own table; an int literal arrives under coercion's cast to BIGINT, which the arm reads as the constant it is | per-lane: compare to mask, mask logic, mask cast |
 | `l IN (11 to 16 bigint literals)` | `predicate` |  | an IN list this long arrives from the optimizer as an InSet and fuses the same way | per-lane: compare to mask, mask logic, mask cast |
 | `t IN (TIME'12:00:00.000000', TIME'06:00:00.000000')` | `predicate` |  | literals of the column's precision, so no cast reaches the column | per-lane: compare to mask, mask logic, mask cast |
 | `t IN (11 to 16 TIME literals)` | `predicate` |  | an IN list this long arrives from the optimizer as an InSet and fuses the same way | per-lane: compare to mask, mask logic, mask cast |
@@ -838,7 +838,7 @@ operands (a row counts once for each type it reads):
 | `double` | 20 | 0 | 0 | 0 | 0 | 20 |
 | `dt` | 17 | 2 | 0 | 0 | 0 | 15 |
 | `float` | 20 | 0 | 0 | 0 | 0 | 20 |
-| `int` | 74 | 14 | 2 | 0 | 1 | 57 |
+| `int` | 75 | 14 | 2 | 0 | 1 | 58 |
 | `ntz` | 19 | 0 | 1 | 0 | 0 | 18 |
 | `short` | 25 | 0 | 0 | 0 | 8 | 17 |
 | `time` | 34 | 6 | 0 | 0 | 2 | 26 |
