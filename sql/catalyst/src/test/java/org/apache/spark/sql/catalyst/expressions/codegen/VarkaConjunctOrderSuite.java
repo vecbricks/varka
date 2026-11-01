@@ -35,8 +35,8 @@ import org.apache.spark.sql.catalyst.expressions.And;
 import org.apache.spark.sql.catalyst.expressions.Attribute;
 import org.apache.spark.sql.catalyst.expressions.AttributeReference;
 import org.apache.spark.sql.catalyst.expressions.Cast;
-import org.apache.spark.sql.catalyst.expressions.DateAdd;
 import org.apache.spark.sql.catalyst.expressions.Coalesce;
+import org.apache.spark.sql.catalyst.expressions.DateAdd;
 import org.apache.spark.sql.catalyst.expressions.Divide;
 import org.apache.spark.sql.catalyst.expressions.EqualNullSafe;
 import org.apache.spark.sql.catalyst.expressions.EqualTo;
@@ -95,7 +95,12 @@ public final class VarkaConjunctOrderSuite {
   private final AttributeReference fraction = column("fraction", DecimalType.apply(18, 18));
   /** Ten integer digits: its cast to INT overflows past 2147483647 under ANSI. */
   private final AttributeReference wide = column("wide", DecimalType.apply(18, 8));
-  private final Seq<Attribute> output = seq(d, i, l, l2, s, x, ym, fraction, wide);
+  /**
+   * Nineteen integer digits: its cast to BIGINT overflows past 9223372036854775807 under ANSI,
+   * though {@code Cast.canUpCast} counts it a widening.
+   */
+  private final AttributeReference digits19 = column("digits19", DecimalType.apply(19, 0));
+  private final Seq<Attribute> output = seq(d, i, l, l2, s, x, ym, fraction, wide, digits19);
 
   private static NumericEvalContext ctx(Enumeration.Value mode) {
     return NumericEvalContext$.MODULE$.apply(mode, false);
@@ -310,17 +315,22 @@ public final class VarkaConjunctOrderSuite {
       + "digits, or outside ANSI")
   void decimalCasts() {
     // Under ANSI the cast truncates, so a DECIMAL(p, s) raises only past p - s integer digits:
-    // 2 for a TINYINT, 4 for a SMALLINT, 9 for an INT, 18 for a BIGINT.
+    // 2 for a TINYINT (99 fits, 999 not), 4 for a SMALLINT, 9 for an INT, 18 for a BIGINT
+    // (999999999999999999 fits, 9999999999999999999 is past 9223372036854775807). Scale 0 pins
+    // the BIGINT bound against Cast.canUpCast, which admits a DECIMAL(19, 0) though it overflows.
     DataType[] types = {ByteType$.MODULE$, ShortType$.MODULE$, IntegerType$.MODULE$,
         LongType$.MODULE$};
     int[] held = {2, 4, 9, 18};
     for (int k = 0; k < types.length; k++) {
-      var fits = column("fits", DecimalType.apply(held[k] + 2, 2));
+      for (int scale : new int[] {0, 2}) {
+        var fits = column("fits", DecimalType.apply(held[k] + scale, scale));
+        var over = column("over", DecimalType.apply(held[k] + scale + 1, scale));
+        assertFalse(VarkaConjunctOrder.canRaise(new IsNotNull(cast(fits, types[k], ANSI))),
+            types[k].sql() + " " + fits.dataType().sql());
+        assertTrue(VarkaConjunctOrder.canRaise(new IsNotNull(cast(over, types[k], ANSI))),
+            types[k].sql() + " " + over.dataType().sql());
+      }
       var over = column("over", DecimalType.apply(held[k] + 3, 2));
-      assertFalse(VarkaConjunctOrder.canRaise(new IsNotNull(cast(fits, types[k], ANSI))),
-          types[k].sql());
-      assertTrue(VarkaConjunctOrder.canRaise(new IsNotNull(cast(over, types[k], ANSI))),
-          types[k].sql());
       // LEGACY wraps and TRY answers null, so neither raises.
       assertFalse(VarkaConjunctOrder.canRaise(new IsNotNull(cast(over, types[k], LEGACY))));
       assertFalse(VarkaConjunctOrder.canRaise(
@@ -346,6 +356,9 @@ public final class VarkaConjunctOrderSuite {
       var spec = VarkaExpressionCompiler.explainPredicate(raising, output).get(1);
       assertTrue(spec.decline().orElseThrow().reason().contains(VarkaConjunctOrder.OUT_OF_ORDER),
           spec.toString());
+      Expression bigint = and(new In(cast(digits19, LongType$.MODULE$, ANSI),
+          seq(lit(0L, LongType$.MODULE$), lit(7L, LongType$.MODULE$))), dateAddAfter2000(offset));
+      assertEquals(List.of(false, false), fused(bigint));
     }
   }
 

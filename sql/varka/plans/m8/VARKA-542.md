@@ -57,12 +57,22 @@ in a filter, and the fix would have been there.
 
 ### 3.1 The rule
 
-`VarkaConjunctOrder.errorFreeNode` admits a `Cast` that widens (as before) or that truncates a
-decimal into an integer type that holds it: any mode but ANSI, and under ANSI a `p - s` within
-the type's digits (`decimalTruncationFits`). `canRaise` is called only by `behindRaising`, so the
-change can only keep a fused conjunct fused where it was demoted. It changes no kernel, no emitted
-byte and no answer on well-formed data. A corrupt slot holding more digits than its precision is
-outside the rule, as the owner settled for row 365 (`VARKA-365.md` 13).
+`VarkaConjunctOrder.errorFreeNode` decides a `Cast` of a decimal into an integer type by the
+digit bound alone (`decimalTruncationFits`): any mode but ANSI, and under ANSI a `p - s` within
+the type's digits. Every other `Cast` passes only if it widens (as before). The decimal case must
+not consult `Cast.canUpCast` first: `DecimalType.isTighterThan` admits a decimal into an integer
+type at `precision < ` the type's decimal precision and scale 0, which for a `BIGINT` (a
+`DECIMAL(20, 0)`) admits a `DECIMAL(19, 0)`, whose `9999999999999999999` overflows under ANSI
+(`Decimal.roundToLong`, through `longValueExact`). Taken as a widening, that cast counted as
+unable to raise, and a fused conjunct after it dropped a row Spark raises on; this was wrong at
+master too, from VARKA-380. For the other three types `canUpCast`'s bound and the digit bound
+agree. `canRaise` is called only by `behindRaising`, so the change otherwise only keeps a fused
+conjunct fused where it was demoted. It changes no kernel, no emitted byte and no answer on
+well-formed data. A corrupt slot holding more digits than its precision is outside the rule, as
+the owner settled for row 365 (`VARKA-365.md` 13). The bound trusts the declared type: a
+`Decimal` value wider than its type, such as an oversized internal `Literal` or an unvalidated
+connector row, is an input Spark's own writers cannot produce, which Varka need not reproduce
+vanilla on (the owner's rule of 1 November 2026).
 
 ### 3.2 What is deliberately unchanged
 
@@ -92,21 +102,27 @@ emitted from for a given set, so no op count or `emitted_bytes.json` entry moves
 
 * `VarkaConjunctOrderSuite`, "a decimal cast to an integer type cannot raise when the type holds
   its integer digits, or outside ANSI": for each of `TINYINT`, `SMALLINT`, `INT` and `BIGINT`,
-  `DECIMAL(held + 2, 2)` cannot raise and `DECIMAL(held + 3, 2)` can, under ANSI; neither can
+  `DECIMAL(held, 0)` and `DECIMAL(held + 2, 2)` cannot raise and `DECIMAL(held + 1, 0)` and
+  `DECIMAL(held + 3, 2)` can, under ANSI (so `DECIMAL(19, 0)` into a `BIGINT` can); neither can
   under LEGACY or TRY; `CAST(DECIMAL(18, 18) AS INT) IN (...)` cannot and `DECIMAL(18, 8)`'s
   can; a decimal-to-decimal cast still can. It catches an off-by-one digit bound.
 * The same suite, "a residual decimal cast that cannot raise leaves the date conjunct after it
   fused, ...": the shape's four orders and offsets through `explainPredicate`, fused as
   `[false, true]` and `[true, false]`; with the `DECIMAL(18, 8)` cast first, `[false, false]` and
-  the reason carries `OUT_OF_ORDER`. At master the first case was `[false, false]` (section 2).
+  the reason carries `OUT_OF_ORDER`, and so with a `DECIMAL(19, 0)` cast to `BIGINT` first. At
+  master the first case was `[false, false]` (section 2), and the `DECIMAL(19, 0)` one
+  `[false, true]`.
 * `VarkaDifferentialSuite`, "a residual decimal cast that cannot raise leaves the conjuncts after
   it fused, ...": a one-partition cached table with `a DECIMAL(18, 18)`, `b DECIMAL(18, 8)`, a
   nullable `d` (so the optimizer adds the null tests codegen moves) and `i`, under ANSI. With
   column and literal offsets, in both orders, the `a` shape plans the date conjunct in a Varka
   filter and answers Spark's rows; the `b` cast first keeps the date conjunct in the row filter
   under the order rule's reason and raises Spark's `CAST_OVERFLOW` on the row the date conjunct
-  would reject, and written second it fuses and answers Spark's rows. This one is the proof that the
-  boundary still protects an error.
+  would reject, and so does `CAST(c AS BIGINT) > i` over a `c DECIMAL(19, 0)` holding
+  `9999999999999999999` on that row (compared with a column, since the optimizer unwraps that
+  upcast against literals: `CAST(c AS BIGINT) IN (0, 7)` plans as `c IN (0, 7)`, which cannot
+  raise); the `b` cast written second fuses and answers Spark's rows. This one is the proof
+  that the boundary still protects an error.
 
 ## 6. The measurement
 
@@ -138,6 +154,11 @@ Suites, on the laptop at the defaults, all green: catalyst `VarkaExpressionCompi
 cancelled as always); sql/core `VarkaFilterExecSuite`, `VarkaCoverageHarnessSuite`,
 `VarkaCoverageDifferentialSuite`, `VarkaSparkFuzzSuite` and `VarkaDifferentialSuite` (1527
 passed). `coverage.json`, `emitted_bytes.json` and `width_audit.json` did not move, as 3.3 says.
+
+The review (1 November 2026) found the cast case asked `Cast.canUpCast` first, which admits a
+`DECIMAL(19, 0)` into a `BIGINT` that overflows (3.1); a decimal into an integer type is now
+decided by the digit bound alone, and the suites pin the scale-0 boundary per type and the
+`DECIMAL(19, 0)` cast end to end.
 
 Left for later: fusing the cast conjunct itself is row 365's reader work. Narrowing casts other
 than a decimal into an integer type (3.2) still count as raising; no finding asks for them.

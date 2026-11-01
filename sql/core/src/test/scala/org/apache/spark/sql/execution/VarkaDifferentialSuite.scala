@@ -294,24 +294,27 @@ class VarkaDifferentialSuite extends QueryTest with VarkaMaybeThrows with VarkaT
     // the second row, which the date conjunct rejects: written first the cast raises on Spark, so
     // the date conjunct stays behind it; written second it never sees that row. `d` is nullable,
     // so the optimizer adds the null tests codegen moves, and the third row's null date is one.
-    Seq(spark, varkaSpark).foreach { session =>
-      session.sql(
-        """SELECT * FROM VALUES
-          |  (CAST(0.5 AS DECIMAL(18, 18)), CAST(1 AS DECIMAL(18, 8)), DATE'2021-01-01', 1),
-          |  (CAST(0.25 AS DECIMAL(18, 18)), CAST(3000000000 AS DECIMAL(18, 8)),
-          |    DATE'1990-01-01', 2),
-          |  (CAST(0 AS DECIMAL(18, 18)), CAST(7 AS DECIMAL(18, 8)), CAST(NULL AS DATE), 3),
-          |  (CAST(0.75 AS DECIMAL(18, 18)), CAST(7.5 AS DECIMAL(18, 8)), DATE'2021-03-01', 4)
-          |AS t(a, b, d, i)""".stripMargin)
-        .coalesce(1).createOrReplaceTempView("varka_decimal_cast_order")
-      session.catalog.cacheTable("varka_decimal_cast_order")
-    }
     def plan(q: String): SparkPlan = varkaSpark.sql(q).queryExecution.executedPlan
     def dateFused(q: String): Boolean = collect(plan(q)) {
       case f: VarkaFilterExecBase => f.condition
     }.exists(_.exists(_.isInstanceOf[DateAdd]))
     val t = "SELECT i FROM varka_decimal_cast_order WHERE"
     try {
+      Seq(spark, varkaSpark).foreach { session =>
+        session.sql(
+          """SELECT * FROM VALUES
+            |  (CAST(0.5 AS DECIMAL(18, 18)), CAST(1 AS DECIMAL(18, 8)), CAST(1 AS DECIMAL(19, 0)),
+            |    DATE'2021-01-01', 1),
+            |  (CAST(0.25 AS DECIMAL(18, 18)), CAST(3000000000 AS DECIMAL(18, 8)),
+            |    CAST(9999999999999999999 AS DECIMAL(19, 0)), DATE'1990-01-01', 2),
+            |  (CAST(0 AS DECIMAL(18, 18)), CAST(7 AS DECIMAL(18, 8)), CAST(7 AS DECIMAL(19, 0)),
+            |    CAST(NULL AS DATE), 3),
+            |  (CAST(0.75 AS DECIMAL(18, 18)), CAST(7.5 AS DECIMAL(18, 8)),
+            |    CAST(7 AS DECIMAL(19, 0)), DATE'2021-03-01', 4)
+            |AS t(a, b, c, d, i)""".stripMargin)
+          .coalesce(1).createOrReplaceTempView("varka_decimal_cast_order")
+        session.catalog.cacheTable("varka_decimal_cast_order")
+      }
       withAnsi(true) {
         for (offset <- Seq("i", "3")) {
           val date = s"date_add(d, $offset) > DATE'2000-01-01'"
@@ -321,14 +324,20 @@ class VarkaDifferentialSuite extends QueryTest with VarkaMaybeThrows with VarkaT
             assert(checkSparkAnswerMaybeThrows(q) ==
               VarkaMaybeThrows.Answered(Seq(Row(1), Row(4))), q)
           }
-          val raising = s"$t CAST(b AS INT) IN (0, 7) AND $date"
-          assert(!dateFused(raising), s"$raising\n${plan(raising).treeString}")
-          val reasons = collect(plan(raising)) {
-            case f: FilterExec => VarkaFusionReport.predicateLines(f.condition, f.child.output)
-          }.flatten
-          assert(reasons.exists(r => r.startsWith("(date_add") &&
-            r.contains(VarkaConjunctOrder.OUT_OF_ORDER)), reasons)
-          checkSparkRaisesTheSame[SparkArithmeticException](raising)
+          // `b` overflows an INT, and `c`, a DECIMAL(19, 0), a BIGINT, though Cast.canUpCast
+          // counts DECIMAL(19, 0) to BIGINT a widening: both raise on Spark when written first.
+          // `c` is compared with a column, since the optimizer unwraps that upcast against
+          // literals (`c IN (0, 7)`), and the cast would be gone.
+          for (cast <- Seq("CAST(b AS INT) IN (0, 7)", "CAST(c AS BIGINT) > i")) {
+            val raising = s"$t $cast AND $date"
+            assert(!dateFused(raising), s"$raising\n${plan(raising).treeString}")
+            val reasons = collect(plan(raising)) {
+              case f: FilterExec => VarkaFusionReport.predicateLines(f.condition, f.child.output)
+            }.flatten
+            assert(reasons.exists(r => r.startsWith("(date_add") &&
+              r.contains(VarkaConjunctOrder.OUT_OF_ORDER)), reasons)
+            checkSparkRaisesTheSame[SparkArithmeticException](raising)
+          }
           val rejected = s"$t $date AND CAST(b AS INT) IN (0, 7) ORDER BY i"
           assert(dateFused(rejected), s"$rejected\n${plan(rejected).treeString}")
           assert(checkSparkAnswerMaybeThrows(rejected) == VarkaMaybeThrows.Answered(Seq(Row(4))))
@@ -336,8 +345,10 @@ class VarkaDifferentialSuite extends QueryTest with VarkaMaybeThrows with VarkaT
       }
     } finally {
       Seq(spark, varkaSpark).foreach { session =>
-        session.catalog.uncacheTable("varka_decimal_cast_order")
-        session.catalog.dropTempView("varka_decimal_cast_order")
+        if (session.catalog.tableExists("varka_decimal_cast_order")) {
+          session.catalog.uncacheTable("varka_decimal_cast_order")
+          session.catalog.dropTempView("varka_decimal_cast_order")
+        }
       }
     }
   }
