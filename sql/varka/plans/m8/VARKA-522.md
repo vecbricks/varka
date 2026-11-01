@@ -255,6 +255,12 @@ Size: small, as the row says. It is three files and one waiting job.
    token for it. Recommended: (a). It is one setting, needs no token, and keeps row 393's rule
    that a failed scheduled run reaches the owner the same day.
 
+   *1 November 2026, by the owner's word:* (a). The owner turned issues on for MaxGekk/spark,
+   with issue creation limited to collaborators (`has_issues` reads true). Whether the job's
+   `github-actions` token may open an issue under that limit is not verified, so the `as-weekly`
+   proof dispatch (2.5) also plants one failing bin and checks that `report-failure` opened or
+   updated the issue on the fork; if it was refused, issue creation goes back to all users.
+
 ## 8. Done when
 
 - the Sunday schedule runs on the fork and is skipped on vecbricks/varka;
