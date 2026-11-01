@@ -294,3 +294,53 @@ Built 1 November 2026 on `varka-497-in-arm`, in the two commits 5 asks for.
    `VarkaFamilyChainSuite`, `VarkaEmitCostAuditSuite`, `VarkaOperatorCensusSuite`,
    `VarkaCoverageCompositionFuzzSuite`, `VarkaIrFuzzSuite` and `VarkaProofFilesSuite` passed with
    `emit_cost_audit.json` and `operator_census.json` unmoved.
+
+### 10.2 The admission (5.2)
+
+1. **The exclusion is gone**, and `INT`, `BIGINT`, `TIME` and the day-time interval `IN` fuse.
+   **Departure:** `INT` did not fuse by the arm alone, as 0.5 expected. `compileNode` has no
+   int column leaf; the comparisons read one through `operand`, the int leaf before
+   `compileNode`. `compileIn` now compiles its value through `operand` too. It matches only an
+   `IntegerType` column or literal, so no earlier type's value compiles differently.
+2. **Coverage rows**, all `differential`: `i IN (3, 1, 12)` and its eleven-literal `InSet` in
+   "Predicates"; `l IN (5000000000, 42L, 0L)`, `t IN (TIME'12:00:00.000000',
+   TIME'06:00:00.000000')` and `dt IN (INTERVAL '2 00:00:00' DAY TO SECOND, INTERVAL '1 00:00:00'
+   DAY TO SECOND)`, each with its `InSet` twin, in "Long-lane predicates". The short lists' values
+   are in the differential fixtures. **Departure from 3.3's text:** the bigint row writes `42L`
+   and `0L`. Under `IN`'s coercion an int literal is a `Cast` over a `Literal`, which a query's
+   optimizer folds but the coverage table's resolution does not. The arm reads literals only, so
+   `l IN (5000000000, 42, 0)` declined in the table. The `TIME` literals are written at
+   precision 6, so no cast reaches the column (2.3).
+3. **The order test** covers the four admitted types as well.
+4. **The flipped test (3.4).** "long arithmetic stays declined: it is VARKA-104's" keeps the
+   `Add` half. "a bigint IN beside a date comparison fuses both conjuncts at the long lane"
+   asserts both conjuncts fused, the kernel on `LONG`, and the long table `1, 2`.
+5. **Generated files.** `emitted_bytes.json` gains the eight rows at 4 and 16 lanes and its eleven
+   `option_arms` digests move. No other entry changes (prediction 2: held). `width_audit.json`
+   gains the eight rows at both widths: the long-lane rows have the comparisons' `not supported`
+   kinds plus the mask-logic line every `IN` chain has, and the int rows have none.
+   `coverage.json` and `docs/sql-varka.md` gain the rows, and the verification counts move by 2
+   for `bigint`, `dt`, `int` and `time`. `census_curated.txt`'s `in` and `in_set` lines add `int`,
+   `bigint`, `time` and `dt` to the fused types and row 497 to the rows, and `census.tsv` is
+   regenerated: 8 type pairs fused (prediction 3: held).
+
+### 10.3 What row 348a adds for decimal `IN`
+
+Row 348a's decimal `IN` goes through this arm. It needs:
+
+1. **The guard.** `inType` asks for an `OnLane` admission, and a decimal's is `UpToPrecision`.
+   348a admits it there, for a type whose `UpToPrecision.reads` holds.
+2. **The literal.** `laneBits` answers empty for every decimal. It cannot read one: a `Decimal`'s
+   lane bits are its unscaled long at the value type's scale, and the `Info` entry has no scale.
+   348a needs a form that is given the `DecimalType`, such as
+   `laneBits(Object, DataType)`, or a decimal read in the arm (`Decimal.changePrecision` to the
+   value's scale, then `toUnscaledLong`, within 18 digits), applied to `In`'s literals and to
+   `InSet`'s raw `Decimal`s alike. The `In` side checks the literal's `VarkaTypeId`, which
+   holds for every decimal, so the scale check is 348a's to add.
+3. **The value.** `compileIn` compiles the value through `operand`, which reaches
+   `compileNode`, and `compileNode` declines a decimal in a value position. 348a sends a
+   decimal value through `VarkaDecimalCompiler` (its column leaf through widening casts, or its
+   `value()`'s `Scaled`), and a column of a smaller scale under `IN`'s coercion is its rescale
+   (2.4).
+4. **The slots** need nothing: a decimal is on the long lane, so `bitsSlot` puts the unscaled
+   longs in the long table.

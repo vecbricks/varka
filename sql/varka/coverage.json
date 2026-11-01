@@ -1784,6 +1784,30 @@
     "note" : "",
     "verified" : "differential"
   }, {
+    "sql" : "i IN (3, 1, 12)",
+    "executable" : "i IN (3, 1, 12)",
+    "family" : "Predicates",
+    "form" : "predicate",
+    "catalyst" : [ "In" ],
+    "casts" : [ ],
+    "operands" : [ "In:int" ],
+    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
+    "domain" : "",
+    "note" : "an int IN, the same equality chain as a date's",
+    "verified" : "differential"
+  }, {
+    "sql" : "i IN (11 to 16 int literals)",
+    "executable" : "i IN (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11)",
+    "family" : "Predicates",
+    "form" : "predicate",
+    "catalyst" : [ "InSet" ],
+    "casts" : [ ],
+    "operands" : [ "InSet:int" ],
+    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
+    "domain" : "",
+    "note" : "an IN list this long arrives from the optimizer as an InSet and fuses the same way",
+    "verified" : "differential"
+  }, {
     "sql" : "ym = INTERVAL '1-2' YEAR TO MONTH",
     "executable" : "ym = INTERVAL '1-2' YEAR TO MONTH",
     "family" : "Predicates",
@@ -2226,6 +2250,78 @@
     "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
     "domain" : "",
     "note" : "",
+    "verified" : "differential"
+  }, {
+    "sql" : "l IN (5000000000, 42L, 0L)",
+    "executable" : "l IN (5000000000, 42L, 0L)",
+    "family" : "Long-lane predicates",
+    "form" : "predicate",
+    "catalyst" : [ "In" ],
+    "casts" : [ ],
+    "operands" : [ "In:bigint" ],
+    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
+    "domain" : "",
+    "note" : "the long lane's equality chain, each literal a slot in its own table; an int literal arrives under a cast, which a query's optimizer folds and this table writes folded",
+    "verified" : "differential"
+  }, {
+    "sql" : "l IN (11 to 16 bigint literals)",
+    "executable" : "l IN (1L, 2L, 3L, 4L, 5L, 6L, 7L, 8L, 9L, 10L, 11L)",
+    "family" : "Long-lane predicates",
+    "form" : "predicate",
+    "catalyst" : [ "InSet" ],
+    "casts" : [ ],
+    "operands" : [ "InSet:bigint" ],
+    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
+    "domain" : "",
+    "note" : "an IN list this long arrives from the optimizer as an InSet and fuses the same way",
+    "verified" : "differential"
+  }, {
+    "sql" : "t IN (TIME'12:00:00.000000', TIME'06:00:00.000000')",
+    "executable" : "t IN (TIME'12:00:00.000000', TIME'06:00:00.000000')",
+    "family" : "Long-lane predicates",
+    "form" : "predicate",
+    "catalyst" : [ "In" ],
+    "casts" : [ ],
+    "operands" : [ "In:time" ],
+    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
+    "domain" : "",
+    "note" : "literals of the column's precision, so no cast reaches the column",
+    "verified" : "differential"
+  }, {
+    "sql" : "t IN (11 to 16 TIME literals)",
+    "executable" : "t IN (TIME'01:00:00.000000', TIME'02:00:00.000000', TIME'03:00:00.000000', TIME'04:00:00.000000', TIME'05:00:00.000000', TIME'06:00:00.000000', TIME'07:00:00.000000', TIME'08:00:00.000000', TIME'09:00:00.000000', TIME'10:00:00.000000', TIME'11:00:00.000000')",
+    "family" : "Long-lane predicates",
+    "form" : "predicate",
+    "catalyst" : [ "InSet" ],
+    "casts" : [ ],
+    "operands" : [ "InSet:time" ],
+    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
+    "domain" : "",
+    "note" : "an IN list this long arrives from the optimizer as an InSet and fuses the same way",
+    "verified" : "differential"
+  }, {
+    "sql" : "dt IN (INTERVAL '2 00:00:00' DAY TO SECOND, INTERVAL '1 00:00:00' DAY TO SECOND)",
+    "executable" : "dt IN (INTERVAL '2 00:00:00' DAY TO SECOND, INTERVAL '1 00:00:00' DAY TO SECOND)",
+    "family" : "Long-lane predicates",
+    "form" : "predicate",
+    "catalyst" : [ "In" ],
+    "casts" : [ ],
+    "operands" : [ "In:dt" ],
+    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
+    "domain" : "",
+    "note" : "",
+    "verified" : "differential"
+  }, {
+    "sql" : "dt IN (11 to 16 day-time literals)",
+    "executable" : "dt IN (INTERVAL '1 00:00:00' DAY TO SECOND, INTERVAL '2 00:00:00' DAY TO SECOND, INTERVAL '3 00:00:00' DAY TO SECOND, INTERVAL '4 00:00:00' DAY TO SECOND, INTERVAL '5 00:00:00' DAY TO SECOND, INTERVAL '6 00:00:00' DAY TO SECOND, INTERVAL '7 00:00:00' DAY TO SECOND, INTERVAL '8 00:00:00' DAY TO SECOND, INTERVAL '9 00:00:00' DAY TO SECOND, INTERVAL '10 00:00:00' DAY TO SECOND, INTERVAL '11 00:00:00' DAY TO SECOND)",
+    "family" : "Long-lane predicates",
+    "form" : "predicate",
+    "catalyst" : [ "InSet" ],
+    "casts" : [ ],
+    "operands" : [ "InSet:dt" ],
+    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
+    "domain" : "",
+    "note" : "an IN list this long arrives from the optimizer as an InSet and fuses the same way",
     "verified" : "differential"
   }, {
     "sql" : "b",

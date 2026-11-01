@@ -484,6 +484,8 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `i <= 7` | `predicate` |  |  | vector |
 | `i >= 7` | `predicate` |  |  | vector |
 | `i IS NULL` | `predicate` |  |  | vector |
+| `i IN (3, 1, 12)` | `predicate` |  | an int IN, the same equality chain as a date's | vector |
+| `i IN (11 to 16 int literals)` | `predicate` |  | an IN list this long arrives from the optimizer as an InSet and fuses the same way | vector |
 | `ym = INTERVAL '1-2' YEAR TO MONTH` | `predicate` |  |  | vector |
 | `ym < INTERVAL '1-2' YEAR TO MONTH` | `predicate` |  |  | vector |
 | `ym <= INTERVAL '1-2' YEAR TO MONTH` | `predicate` |  |  | vector |
@@ -526,6 +528,12 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `equal_null(l, l2)` | `predicate` |  |  | per-lane: compare to mask, mask cast |
 | `t <=> t2` | `predicate` |  |  | per-lane: compare to mask, mask cast |
 | `dt <=> dt2` | `predicate` |  |  | per-lane: compare to mask, mask cast |
+| `l IN (5000000000, 42L, 0L)` | `predicate` |  | the long lane's equality chain, each literal a slot in its own table; an int literal arrives under a cast, which a query's optimizer folds and this table writes folded | per-lane: compare to mask, mask logic, mask cast |
+| `l IN (11 to 16 bigint literals)` | `predicate` |  | an IN list this long arrives from the optimizer as an InSet and fuses the same way | per-lane: compare to mask, mask logic, mask cast |
+| `t IN (TIME'12:00:00.000000', TIME'06:00:00.000000')` | `predicate` |  | literals of the column's precision, so no cast reaches the column | per-lane: compare to mask, mask logic, mask cast |
+| `t IN (11 to 16 TIME literals)` | `predicate` |  | an IN list this long arrives from the optimizer as an InSet and fuses the same way | per-lane: compare to mask, mask logic, mask cast |
+| `dt IN (INTERVAL '2 00:00:00' DAY TO SECOND, INTERVAL '1 00:00:00' DAY TO SECOND)` | `predicate` |  |  | per-lane: compare to mask, mask logic, mask cast |
+| `dt IN (11 to 16 day-time literals)` | `predicate` |  | an IN list this long arrives from the optimizer as an InSet and fuses the same way | per-lane: compare to mask, mask logic, mask cast |
 
 #### Boolean columns
 
@@ -822,18 +830,18 @@ operands (a row counts once for each type it reads):
 <!-- BEGIN generated verification counts -->
 | Type | Rows | refinement | proof | exhaustive | owed | differential |
 | :--- | ---: | ---: | ---: | ---: | ---: | ---: |
-| `bigint` | 46 | 0 | 2 | 0 | 2 | 42 |
+| `bigint` | 48 | 0 | 2 | 0 | 2 | 44 |
 | `bool` | 23 | 0 | 0 | 13 | 0 | 10 |
 | `byte` | 26 | 0 | 0 | 0 | 8 | 18 |
 | `date` | 86 | 17 | 0 | 1 | 0 | 68 |
 | `dec` | 17 | 0 | 0 | 0 | 0 | 17 |
 | `double` | 20 | 0 | 0 | 0 | 0 | 20 |
-| `dt` | 15 | 2 | 0 | 0 | 0 | 13 |
+| `dt` | 17 | 2 | 0 | 0 | 0 | 15 |
 | `float` | 20 | 0 | 0 | 0 | 0 | 20 |
-| `int` | 72 | 14 | 2 | 0 | 1 | 55 |
+| `int` | 74 | 14 | 2 | 0 | 1 | 57 |
 | `ntz` | 19 | 0 | 1 | 0 | 0 | 18 |
 | `short` | 25 | 0 | 0 | 0 | 8 | 17 |
-| `time` | 32 | 6 | 0 | 0 | 2 | 24 |
+| `time` | 34 | 6 | 0 | 0 | 2 | 26 |
 | `ym` | 30 | 7 | 2 | 0 | 2 | 19 |
 <!-- END generated verification counts -->
 

@@ -22,7 +22,6 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
 import java.util.OptionalLong;
-import java.util.Set;
 import java.util.TreeSet;
 import java.util.function.BinaryOperator;
 import java.util.function.Supplier;
@@ -57,7 +56,6 @@ import org.apache.spark.sql.catalyst.expressions.Or;
 import org.apache.spark.sql.catalyst.expressions.RuntimeReplaceable;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaErrors;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaFamily;
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTypeId;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTypes;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ColumnRef;
@@ -804,13 +802,6 @@ final class VarkaConditionCompiler {
   }
 
   /**
-   * The types whose {@code IN} is declined while the arm reads their literals: they wait for
-   * their coverage rows, which land beside their admission.
-   */
-  private static final Set<VarkaTypeId> IN_HELD = Set.of(
-      VarkaTypeId.INT, VarkaTypeId.LONG, VarkaTypeId.TIME, VarkaTypeId.DT_INTERVAL);
-
-  /**
    * The registry's entry for the value of an {@code IN} the arm compiles, or empty for one it
    * leaves unclaimed: the value's type has to be read on a lane, and the registry has to read
    * its literals, which {@link VarkaTypes.Info#laneBits} does for every type whose lane is its
@@ -823,7 +814,7 @@ final class VarkaConditionCompiler {
     }
     VarkaTypes.Info info = VarkaTypes.info(VarkaTypes.of(type).orElseThrow());
     return info.admission() instanceof VarkaTypes.Admission.OnLane
-        && !IN_HELD.contains(info.id()) ? Optional.of(info) : Optional.empty();
+        ? Optional.of(info) : Optional.empty();
   }
 
   /**
@@ -867,8 +858,8 @@ final class VarkaConditionCompiler {
       sink.note("IN list longer than the fused cap of " + VarkaNodeCompiler.MAX_IN_LITERALS, whole);
       return Optional.empty();
     }
-    Optional<VarkaVectorIR> compiledValue = VarkaNodeCompiler.compileNode(
-        value, inputs, literals, sink);
+    // A comparison's operand: an int column is read as one here as in `i = 5`.
+    Optional<VarkaVectorIR> compiledValue = operand(value, inputs, literals, sink);
     if (compiledValue.isEmpty()) {
       return Optional.empty();
     }

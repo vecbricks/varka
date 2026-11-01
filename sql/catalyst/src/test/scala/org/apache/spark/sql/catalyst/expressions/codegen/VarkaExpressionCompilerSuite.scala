@@ -1806,7 +1806,11 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
   private val inFloat = AttributeReference("inFloat", FloatType)()
   private val inDouble = AttributeReference("inDouble", DoubleType)()
   private val inNtz = AttributeReference("inNtz", TimestampNTZType)()
-  private val inOutput: Seq[Attribute] = childOutput ++ Seq(inYm, inFloat, inDouble, inNtz)
+  private val inLong = AttributeReference("inLong", LongType)()
+  private val inTime = AttributeReference("inTime", TimeType(6))()
+  private val inDt = AttributeReference("inDt", DayTimeIntervalType())()
+  private val inOutput: Seq[Attribute] =
+    childOutput ++ Seq(inYm, inFloat, inDouble, inNtz, inLong, inTime, inDt)
 
   /**
    * The values of an IN per column, for the order test: each list holds values in no order, and
@@ -1821,7 +1825,11 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
       -2.5f),
     inDouble -> Seq(1.5, 0.0, -0.0, Double.NaN,
       java.lang.Double.longBitsToDouble(0x7ff8000000000001L), -2.5),
-    inNtz -> Seq(5000000000L, -1L, 42L))
+    inNtz -> Seq(5000000000L, -1L, 42L),
+    i -> Seq(12, 3, Int.MinValue),
+    inLong -> Seq(5000000000L, Long.MinValue, 0L),
+    inTime -> Seq(43200000000000L, 0L, 21600000000000L),
+    inDt -> Seq(86400000000L, -1L, 172800000000L))
 
   test("IN keeps each value once in ascending bit order, whatever order its list or set has") {
     // A value's lane bits, sign-extended: what orders the literal tables.
@@ -1848,7 +1856,8 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
       assert(shape(in(values.reverse :+ values.head)) === first, column.dataType)
       // The literals take their table's slots in ascending order of their bits, each once.
       val sorted = values.map(bits).distinct.sorted
-      val longTable = column.dataType == DoubleType || column.dataType == TimestampNTZType
+      val longTable = Seq(DoubleType, TimestampNTZType, LongType, TimeType(6),
+        DayTimeIntervalType()).contains(column.dataType)
       assert((first._2, first._3) === (if (longTable) (Nil, sorted)
         else (sorted.map(_.toInt), Nil)), column.dataType)
       // An InSet is an IN over its set's values: Scala's set keeps one of two equal zeros, so it
@@ -2540,7 +2549,7 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
 
 
   // ---------------------------------------------------------------------------------------------
-  // The long lane (VARKA-29): three types, comparisons only
+  // The long lane (VARKA-29): three types, their comparisons and IN
   // ---------------------------------------------------------------------------------------------
 
   private val l = AttributeReference("l", LongType)()
@@ -2757,15 +2766,19 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     assert(orMix.exists(_.fused.lane(VarkaEmitOptions.DEFAULTS) == LaneType.LONG))
   }
 
-  test("long arithmetic and IN stay declined: they are VARKA-104 and VARKA-102, not this one") {
+  test("long arithmetic stays declined: it is VARKA-104's") {
     val add = VarkaExpressionCompiler.compilePartial(
       Seq(out(DateAdd(d, Literal(1))), out(Add(l, Literal(1L)))), withLong).get
     assert(add.specs.asScala.toSeq === Seq(new FusedOutput(0), VarkaOutputSpec.RESIDUAL))
     assert(add.declines.asScala(1).reason === "unsupported expression")
+  }
+
+  test("a bigint IN beside a date comparison fuses both conjuncts at the long lane") {
     val in = VarkaExpressionCompiler.compilePredicate(
       And(GreaterThan(d, d2), In(l, Seq(Literal(1L), Literal(2L)))), withLong).get
-    assert(in.specs.asScala.toSeq.map(_.fused) === Seq(true, false))
-    assert(in.specs.get(1).decline.get.reason === "unsupported predicate")
+    assert(in.specs.asScala.forall(_.fused))
+    assert(in.fused.lane(VarkaEmitOptions.DEFAULTS) === LaneType.LONG)
+    assert(in.fused.longLiterals.asScala.toSeq === Seq(1L, 2L))
   }
 
   // --- VARKA-169: the emitter's size decline, taken at plan time -------------------------------
