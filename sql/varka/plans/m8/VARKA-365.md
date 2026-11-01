@@ -20,6 +20,10 @@ Spark". Question 3's answer, option (iii), stands, no change to Spark's readers,
 exact rule; the row fixes Varka's own row reads of a small decimal, and the upstream JIRA stays
 held.*
 
+***Reviewed, 1 November 2026 (section 12).** The view now reads every slot as vanilla's row path
+does, malformed ones included, every row read of an input batch goes through it, and the suite
+reaches the columnar-out paths.*
+
 ## 1. Where this came from
 
 Owner's decision A1 (14 October 2026, `m8/PLAN.md` 2.8): the fork's Arrow readers build a
@@ -443,6 +447,9 @@ precision), and a read at a scale other than the vector's, go to `ArrowColumnVec
 Varka's decimal load declines the first (row 347), and the view does not copy the row reader's
 truncation of it (9.2's second finding). A batch with no such column is returned unchanged.
 
+*Note, 1 November 2026:* superseded by 12.1. The review found that the delegation above left
+Varka on and off apart on such a slot, and the view now reads it as vanilla's row path does.
+
 The view is used wherever a Varka node evaluates expressions over the rows of an input batch:
 
 * `VarkaColumnarToRowExec`: the merge projection beside the kernel's output (residual entries), and
@@ -454,7 +461,8 @@ The view is used wherever a Varka node evaluates expressions over the rows of an
 The kernels keep reading the input batch itself, whose Arrow checks the view would fail. The
 row-out filter's selected-row copy, the columnar-out filter's generic compaction and
 `VarkaInputRows`' copy evaluate no expression over a decimal - they copy it, and the copy writes
-`toUnscaledLong` either way - so they are left as they are. Nothing in `ArrowColumnVector`,
+`toUnscaledLong` either way - so they are left as they are. *(Note, 1 November 2026: superseded
+by 12.2; the two filter copies now read through the view too.)* Nothing in `ArrowColumnVector`,
 `ArrowColumnReader` or any other Spark reader changes.
 
 **Allocation (reading, not measured).** The view is built on a node's first batch that has such a
@@ -519,3 +527,114 @@ its 9.1 are superseded by this section; section 8's coverage note is not needed.
    draft that fuses changed two things at once - the conjunct's position and a literal offset for
    the column `i` - so which one decides is not known. It may be a gap in the filter compiler
    rather than a property of the test, and is left for the lead.
+   *Note, 1 November 2026:* the lead made it milestone row 542 of `m8/PLAN.md` (on branch
+   `varka-m8-plans-2`), which owns it from here.
+
+## 12. Review fixes, 1 November 2026
+
+A review of section 11's change found eight points; each was checked against the code, and all
+eight held. What changed, and what the suite shows for it:
+
+### 12.1 The view reads a slot as vanilla's row path does
+
+Vanilla's row path over the Arrow cache is one of two readers, chosen by the columns the scan
+selects (`ArrowCachedBatchSerializer.convertCachedBatchToInternalRows`, its `needsFallback`):
+
+* **The row reader** (`ArrowColumnReader`) when every selected column is a type it reads. It
+  writes the slot's low word into the `UnsafeRow` with no check at all, so a high word that is not
+  the low word's sign extension is dropped, and a low word with more digits than the precision is
+  kept as it is.
+* **An `UnsafeProjection` over the batch** when one is an array, struct, map, variant, UDT,
+  interval, null, geometry, geography or nanosecond timestamp. It reads through
+  `ArrowColumnVector`'s accessor, which raises `NUMERIC_VALUE_OUT_OF_RANGE` on either slot.
+
+Section 11's view did neither on such a slot: it delegated a non-sign-extended high word to the
+accessor, which raises where the row reader answers, and read a low word past the precision
+unchecked, which answers where the projection raises. `VarkaRowView` now follows the reader
+vanilla would take for the batch's columns: with every column one the row reader reads, it builds
+`Decimal.createUnsafe` from the low word at the row reader's own offset
+(`ArrowCachedBatchSerializer.compactDecimalUnscaledOffset`, reused rather than re-derived), with no
+check, as `UnsafeRow.getDecimal` hands it back; otherwise it reads through the accessor and returns
+the long-backed value of what the accessor gave, as `UnsafeRowWriter.write` and the row do. The
+read at another scale, which no cached vector has, goes the same way as any other. The list of
+types is the serializer's, repeated in the view with a pointer to it; nothing in Spark's readers
+changes.
+
+The kernel's `DECIMAL_SLOT` guard (`Analysis.java`, `VarkaVectorIR.DecimalColumn`) is kept, and
+its comments now say why: on such a slot vanilla may answer (the row reader) or raise (the
+projection), so the kernel declines the batch and the fallback, reading through the view, answers
+or raises as vanilla does on that batch. Without the guard the kernel would compute a comparison
+over a slot that the projection-read case raises on.
+
+### 12.2 One way to read an input batch's rows
+
+`VarkaEvaluatorBase.inputRows(batch)` is now the one place a Varka node reads an input batch's
+rows, and every site calls it: `VarkaColumnarToRowExec`'s merge and fallback,
+`VarkaKernelEvaluator.projectResiduals`, `VarkaVectorProjection.project` (which now takes the rows
+rather than the batch), both `VarkaFilterExec` fallbacks, the row-out filter's selected-row copy
+and the columnar-out filter's generic compaction. The last two were left raw in section 11 as
+exact; they are exact for a valid slot, but they copy every column through the accessor, so on a
+malformed slot the copy raised where vanilla answers - the suite's served leftover-filter cell
+below caught the selected-row copy that way. A raw `rowIterator()` on an input batch is left only
+in `VarkaRowView` itself; the kernel's own output batch is still read directly, since it is not
+the scan's.
+
+The view finds its columns in one pass, its wrapper's constructor binds through `bind`, and the
+iterator it returns drops the view's references to the batch's vectors when it reports the end,
+so a read after that fails rather than reaching a vector its owner may have freed. The merge
+iterator asks both of its iterators for `hasNext` so that this fires there too. A batch whose rows
+are abandoned part way keeps the references until the next batch. `VarkaColumnarToRowExec`'s
+`rowView` field, which sat in the block of lazy projections, is gone with the per-site views.
+
+### 12.3 The suite: the paths section 11 did not reach, and malformed slots
+
+`VarkaDecimalReadPathSuite` grows from twelve cells to thirty-three, every one passing. Each cell
+runs the two LEGACY casts and the four ANSI and TRY casts and names the reading the six followed.
+
+* **The columnar-out paths.** A Varka projection keeps columnar output only under a columnar
+  consumer, and the only one in Spark is the noop write, which shows no values. So three cells
+  rebuild the plan's top Varka node with columnar output and read the returned column from its
+  batches: the projection served (`projectResiduals`), the projection declined
+  (`VarkaVectorProjection.project`), and the leftover filter declined (`VarkaFilterExec`'s
+  columnar fallback over the whole condition). One more cell is a real plan, a cast beside a fused
+  output over a filter on `b > 0` that fuses whole, which puts a Varka filter under the
+  projection.
+* **Malformed slots.** `rp_bad` is `rp_fused`'s row with two slots rewritten in the cached Arrow
+  bytes (the cache keeps the block deserialized and the message uncompressed, and the rewrite is
+  checked after it is made): `a`'s low word is 10^18, nineteen digits at precision 18, and `b`'s
+  high word is 1. Vanilla's row reader answers 1 and 2147483647 on all six casts. Four Varka-off
+  cells and ten Varka-on cells - row out and columnar out, served and declined, both filters'
+  fallbacks and copies, and the filter on `b > 0`, whose kernel declines the batch by its guard
+  (the cell checks that it served none) - all answer the same. `rp_bad_array` is the same beside
+  an array the query selects: vanilla's projection raises `NUMERIC_VALUE_OUT_OF_RANGE` on all six,
+  and Varka on, served and declined, raises the same.
+
+Each new cell was checked to fail without its fix, by changing the code locally, running the
+suite and restoring it:
+
+* `projectResiduals`, `VarkaVectorProjection.project`, the columnar filter fallback and the
+  selected-row copy reading `input.rowIterator()`: eight cells failed - the three columnar-out
+  cells on `rp_fused` (the double rule) and on `rp_bad` (a raise), the served leftover filter on
+  `rp_bad` (the copy raised and sent the batch to the fallback, so the kernel served none), and
+  the filter on `b > 0` on `rp_bad`.
+* The view delegating a non-sign-extended high word to the accessor, as section 11 built it:
+  nine failed, every Varka-on `rp_bad` cell that reads `b` through the view (`b` raised; `a`
+  answered 1 either way, so the digit case alone did not part the two).
+* The view always taking the row reader's word, whatever the batch's columns: two failed, both
+  Varka-on `rp_bad_array` cells, which answered where vanilla raises.
+
+### 12.4 Open points
+
+1. **The type list is repeated.** The view copies the serializer's `needsFallback` list rather
+   than calling it, since it is inline in Spark's reader and option (iii) leaves the reader as it
+   is. A type added to that list and not to the view would part Varka on from off on a malformed
+   slot only; the `rp_bad_array` cells cover the array arm.
+2. **Arrow batches from elsewhere.** The view applies to any `ArrowColumnVector` decimal a Varka
+   node reads, and models vanilla's reads of the Arrow cache. A Varka node over another Arrow
+   source would read its small decimals long-backed where vanilla's `ColumnarToRowExec` over that
+   source reads them through the accessor. The other Spark producers of `ArrowColumnVector` this
+   row found (the Python and R Arrow runners, the external UDF node) build their batches inside
+   row operators, so none reaches a Varka node as its input; a columnar DSv2 source declaring
+   Arrow vectors would, and should get a read-path cell of its own then.
+3. **Row 542** owns 11.5 item 2.
+

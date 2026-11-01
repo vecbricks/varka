@@ -17,14 +17,20 @@
 
 package org.apache.spark.sql.execution
 
+import java.nio.{ByteBuffer, ByteOrder}
+
+import scala.util.control.NonFatal
+
 import org.apache.spark.SparkThrowable
 import org.apache.spark.sql.{QueryTest, SparkSession}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTestWatchdog
+import org.apache.spark.sql.execution.columnar.{ArrowCachedBatch, InMemoryTableScanExec}
 import org.apache.spark.sql.internal.SQLConf
 
 /**
- * Which rule Spark's ANSI and TRY casts of a `DECIMAL(p, s)` with `p <= 18` to `INT` follow over
- * an Arrow-cached table, on each path a query can take to the cast (VARKA-365).
+ * What Spark's ANSI and TRY casts of a `DECIMAL(p, s)` with `p <= 18` to `INT` answer over an
+ * Arrow-cached table, on each path a query can take to the cast, with Varka off and on
+ * (VARKA-365).
  *
  * `Decimal.roundToInt` has two rules, chosen by the value's backing. A long-backed value
  * truncates its unscaled long and checks the result exactly; a `BigDecimal`-backed one converts
@@ -38,31 +44,90 @@ import org.apache.spark.sql.internal.SQLConf
  * precision 18 or less reads it back long-backed. With Varka off, every consumer of the Arrow
  * cache here reads rows: `InMemoryTableScanExec` serves rows to a row consumer even with the
  * vectorized reader on, through the cache's row reader, which writes the unscaled long into an
- * `UnsafeRow`, or, for a table the row reader cannot read, through an `UnsafeProjection` over
- * the batch. So vanilla Spark follows the exact rule on every path here. With Varka on, a
- * Varka node reads the batches through `ArrowColumnVector`, and its residual outputs, its
- * fallbacks and its filter's fallback read the rows through `VarkaRowView`, which hands a small
- * decimal long-backed as an `UnsafeRow` does; so Varka follows the exact rule on every path too,
- * as `VARKA-365.md` 11 records.
+ * `UnsafeRow`, or, for a scan that selects a column the row reader cannot read, through an
+ * `UnsafeProjection` over the batch. So vanilla Spark follows the exact rule on every path here.
+ * With Varka on, a Varka node reads the batches through `ArrowColumnVector`, and every row-by-row
+ * read of a batch - residual outputs, fallbacks, the filters' copies, row and columnar output
+ * alike - goes through `VarkaRowView`, which reads a small decimal as vanilla's row path does; so
+ * Varka follows the exact rule on every path too, as `VARKA-365.md` 11 records.
  *
- * Every cell runs the four casts and names the rule all four followed; a cell whose answers
- * follow neither rule fails with what it saw. LEGACY casts truncate on both backings and are
- * checked to agree everywhere.
+ * Two more tables hold slots Spark's own writer never writes, planted in the cached bytes: `a`'s
+ * low word is 10^18, a value with more digits than its precision, and `b`'s high word is not its
+ * low word's sign extension. The row reader takes the low words with no check, so a scan it
+ * reads answers 1 and `Int.MaxValue`; the `UnsafeProjection` reads through the accessor, which
+ * raises `NUMERIC_VALUE_OUT_OF_RANGE` on either slot, so a scan that also selects an array
+ * raises. Varka on must answer as Varka off does on each, on every path.
+ *
+ * Every cell runs the two LEGACY casts and the four ANSI and TRY casts and names the reading all
+ * six followed; a cell whose answers follow none of its table's readings fails with what it saw.
  */
 class VarkaDecimalReadPathSuite extends QueryTest with VarkaSharedSessions
   with VarkaTestWatchdog {
 
+  import VarkaDecimalReadPathSuite._
+
+  private val ExactRule = "the exact rule"
+  private val DoubleRule = "the double rule"
+  private val LowWords = "the row reader's low words"
+  private val Raises = "the accessor's NUMERIC_VALUE_OUT_OF_RANGE"
+  private val NoRow = "no row"
+  private val OutOfRange = "NUMERIC_VALUE_OUT_OF_RANGE.WITHOUT_SUGGESTION"
+
+  /** A named set of answers: the LEGACY casts of `a` and `b`, then their ANSI and TRY casts. */
+  private case class Reading(name: String, answers: Seq[String])
+
+  private val raises = Reading(Raises, Seq.fill(6)(OutOfRange))
+
   /**
-   * `a` and `b` the two decimals, `d` and `i` a date and an int that `date_add(d, i)` fuses over
-   * (`rp_fused`), and `arr` an array, which the cache's row reader cannot read (`rp_array`).
+   * A cached table: the readings a cast as an output column and a cast tested in a filter can
+   * follow over it, and the values that filter tests the cast against (those of its first
+   * reading), so that the query returns `i` (3) when the row passes.
    */
+  private case class Table(
+      name: String,
+      inList: String,
+      asValue: Seq[Reading],
+      asFilter: Seq[Reading])
+
+  private val valid = (name: String) => Table(name, "(0, 2147483647)",
+    asValue = Seq(
+      Reading(ExactRule, Seq("0", "2147483647", "0", "2147483647", "0", "2147483647")),
+      Reading(DoubleRule, Seq("0", "2147483647", "1", "CAST_OVERFLOW", "1", "null"))),
+    asFilter = Seq(
+      Reading(ExactRule, Seq.fill(6)("3")),
+      Reading(DoubleRule, Seq("3", "3", NoRow, "CAST_OVERFLOW", NoRow, NoRow))))
+
+  private val malformed = (name: String) => Table(name, "(1, 2147483647)",
+    asValue = Seq(
+      Reading(LowWords, Seq("1", "2147483647", "1", "2147483647", "1", "2147483647")),
+      raises),
+    asFilter = Seq(Reading(LowWords, Seq.fill(6)("3")), raises))
+
+  /** `a` and `b` the two decimals, `d` and `i` a date and an int that `date_add(d, i)` fuses. */
+  private val fused = valid("rp_fused")
+  /** With `arr` an array instead of `d` and `i`, which the cache's row reader cannot read. */
+  private val array = valid("rp_array")
+  /**
+   * `rp_fused`'s decimals with the two malformed slots planted, beside another date: a table
+   * whose plan matched `rp_fused`'s would share its cache, and so its planted bytes.
+   */
+  private val bad = malformed("rp_bad")
+  /** The same, beside an array. */
+  private val badArray = malformed("rp_bad_array")
+
   private val fixtures = Seq(
-    "rp_fused" -> """SELECT CAST(a AS DECIMAL(18, 18)) AS a, CAST(b AS DECIMAL(18, 8)) AS b,
+    fused.name -> """SELECT CAST(a AS DECIMAL(18, 18)) AS a, CAST(b AS DECIMAL(18, 8)) AS b,
       |  d, i FROM VALUES (0.999999999999999999, 2147483647.99999999, DATE'2024-01-01', 3)
       |AS v(a, b, d, i)""".stripMargin,
-    "rp_array" -> """SELECT CAST(a AS DECIMAL(18, 18)) AS a, CAST(b AS DECIMAL(18, 8)) AS b,
+    array.name -> """SELECT CAST(a AS DECIMAL(18, 18)) AS a, CAST(b AS DECIMAL(18, 8)) AS b,
       |  arr FROM VALUES (0.999999999999999999, 2147483647.99999999, array(1, 2))
-      |AS v(a, b, arr)""".stripMargin)
+      |AS v(a, b, arr)""".stripMargin,
+    bad.name -> """SELECT CAST(a AS DECIMAL(18, 18)) AS a, CAST(b AS DECIMAL(18, 8)) AS b,
+      |  d, i FROM VALUES (0.999999999999999999, 2147483647.99999999, DATE'2024-01-02', 3)
+      |AS v(a, b, d, i)""".stripMargin,
+    badArray.name -> """SELECT CAST(a AS DECIMAL(18, 18)) AS a, CAST(b AS DECIMAL(18, 8)) AS b,
+      |  d, i, arr FROM VALUES (0.999999999999999999, 2147483647.99999999, DATE'2024-01-01',
+      |  3, array(1, 2)) AS v(a, b, d, i, arr)""".stripMargin)
 
   override protected def beforeAll(): Unit = {
     super.beforeAll()
@@ -70,42 +135,48 @@ class VarkaDecimalReadPathSuite extends QueryTest with VarkaSharedSessions
       session.sql(query).createOrReplaceTempView(name)
       session.catalog.cacheTable(name)
     }
+    Seq(bad, badArray).foreach(t => plantMalformedSlots(t.name))
   }
 
-  private val ExactRule = "the exact rule"
-  private val DoubleRule = "the double rule"
-  private val NoRow = "no row"
-
   /**
-   * What a query shape answers under each rule: the LEGACY casts of `a` and `b`, then the ANSI
-   * casts of `a` and `b` and the TRY casts of `a` and `b` on each rule.
+   * Rewrites `a`'s and `b`'s slots in the cached bytes of `table`, in every session's cache of
+   * it, and checks that the rewrite holds. The cache keeps its blocks deserialized and its Arrow
+   * messages uncompressed (the default codec), so the rewrite is what every later scan reads.
    */
-  private case class Answers(legacy: Seq[String], exact: Seq[String], double: Seq[String])
-
-  /** A cast as an output column: its value. */
-  private val asValue = Answers(
-    legacy = Seq("0", "2147483647"),
-    exact = Seq("0", "2147483647", "0", "2147483647"),
-    double = Seq("1", "CAST_OVERFLOW", "1", "null"))
-
-  /**
-   * A cast tested in a filter against the values the exact rule gives, the query returning `i`
-   * (3) when the row passes.
-   */
-  private val asFilter = Answers(
-    legacy = Seq("3", "3"),
-    exact = Seq("3", "3", "3", "3"),
-    double = Seq(NoRow, "CAST_OVERFLOW", NoRow, NoRow))
+  private def plantMalformedSlots(table: String): Unit = {
+    val caches = Seq(spark, varkaSpark).map { session =>
+      val plan = session.table(table).queryExecution.executedPlan
+      collectFirst(plan) {
+        case scan: InMemoryTableScanExec => scan.relation.cacheBuilder.cachedColumnBuffers
+      }.getOrElse(fail(s"$table is not read from the cache:\n${plan.treeString}"))
+    }.distinctBy(_.id)
+    for (buffers <- caches) {
+      buffers.count()
+      val planted = spark.sparkContext.longAccumulator
+      buffers.foreach {
+        case batch: ArrowCachedBatch => planted.add(rewrite(batch.arrowData, Plants))
+        case other => throw new IllegalStateException(s"not an Arrow cached batch: $other")
+      }
+      assert(planted.value === Plants.size, s"$table: ${planted.value} slots planted")
+      val found = spark.sparkContext.longAccumulator
+      buffers.foreach {
+        case batch: ArrowCachedBatch =>
+          found.add(rewrite(batch.arrowData, Plants.map { case (_, to) => to -> to }))
+        case _ =>
+      }
+      assert(found.value === Plants.size, s"$table: the planted slots did not stay")
+    }
+  }
 
   /**
    * The answer of a query of at most one row: its value, `null`, `no row`, or the condition it
    * raised.
    */
-  private def answer(session: SparkSession, query: String): String =
+  private def answer(query: => Seq[String]): String =
     try {
-      val rows = session.sql(query).collect()
-      assert(rows.length <= 1, s"$query: ${rows.length} rows")
-      rows.headOption.map(r => String.valueOf(r.get(0))).getOrElse(NoRow)
+      val rows = query
+      assert(rows.length <= 1, s"${rows.length} rows")
+      rows.headOption.getOrElse(NoRow)
     } catch {
       case e: Exception =>
         Iterator.iterate[Throwable](e)(_.getCause).takeWhile(_ != null).collectFirst {
@@ -114,20 +185,90 @@ class VarkaDecimalReadPathSuite extends QueryTest with VarkaSharedSessions
     }
 
   /**
+   * How a cell reads its query: as rows (the query as planned), or as the batches of the plan's
+   * top Varka node rebuilt with columnar output - the node a columnar consumer, such as a noop
+   * write, keeps in the plan - reading the column the query returns.
+   */
+  private sealed trait Read {
+    /**
+     * Runs `query` and returns the plan whose metrics and scans the cell checks. A query that
+     * raises still returns its plan: what it answers is the cell's to measure.
+     */
+    def probe(session: SparkSession, query: String): SparkPlan
+    def values(session: SparkSession, query: String): Seq[String]
+  }
+
+  private object AsRows extends Read {
+    override def probe(session: SparkSession, query: String): SparkPlan = {
+      val df = session.sql(query)
+      try df.collect() catch {
+        case NonFatal(_) =>
+      }
+      df.queryExecution.executedPlan
+    }
+    override def values(session: SparkSession, query: String): Seq[String] =
+      session.sql(query).collect().map(r => String.valueOf(r.get(0))).toSeq
+  }
+
+  private object AsBatches extends Read {
+    /** The plan's top Varka node with columnar output, and the ordinal of the column to read. */
+    private def columnar(session: SparkSession, query: String): (SparkPlan, Int) = {
+      val df = session.sql(query)
+      val returned = df.queryExecution.executedPlan.output.head.name
+      // Built under the session, which a plan node takes as its own when it is made.
+      val node = session.withActive(collectFirst(df.queryExecution.executedPlan) {
+        case v: VarkaColumnarToRowExec => VarkaProjectExec(v.projectList, v.child, v.sessionEmit)
+        case f: VarkaFilterColumnarToRowExec =>
+          VarkaFilterExec(f.condition, f.child, f.wholeCondition, f.sessionEmit)
+      }).getOrElse(fail(s"no Varka node in:\n${df.queryExecution.executedPlan.treeString}"))
+      val ordinal = node.output.indexWhere(_.name == returned)
+      assert(ordinal >= 0, s"$returned is not an output of\n${node.treeString}")
+      (node, ordinal)
+    }
+
+    private def read(session: SparkSession, node: SparkPlan, ordinal: Int): Seq[String] = {
+      val dataType = node.output(ordinal).dataType
+      // Only the returned column is read: a whole-row copy would read every decimal through
+      // the accessor.
+      session.withActive(node.executeColumnar().mapPartitions { batches =>
+        batches.flatMap { batch =>
+          (0 until batch.numRows()).map { r =>
+            val row = batch.getRow(r)
+            if (row.isNullAt(ordinal)) "null" else String.valueOf(row.get(ordinal, dataType))
+          }
+        }
+      }.collect().toSeq)
+    }
+
+    override def probe(session: SparkSession, query: String): SparkPlan = {
+      val (node, ordinal) = columnar(session, query)
+      try read(session, node, ordinal) catch {
+        case NonFatal(_) =>
+      }
+      node
+    }
+    override def values(session: SparkSession, query: String): Seq[String] = {
+      val (node, ordinal) = columnar(session, query)
+      read(session, node, ordinal)
+    }
+  }
+
+  /**
    * A read path: the session, the table, the SQL configurations it sets, how a query is built
-   * around the cast, what that query answers on each rule, whether every Varka batch is declined,
-   * and the check that the plan takes the path the cell names.
+   * around the cast, whether every Varka batch is declined, how the query is read, and the check
+   * that the plan takes the path the cell names.
    */
   private case class Path(
       session: () => SparkSession,
-      table: String,
+      table: Table,
       confs: Seq[(String, String)],
       shape: QueryShape,
       declineAll: Boolean,
-      check: SparkPlan => Unit)
+      check: SparkPlan => Unit,
+      read: Read = AsRows)
 
-  /** A query around a cast, as the clauses after `SELECT`, the table put in by `FROM`. */
-  private case class QueryShape(build: (String, String) => String, answers: Answers)
+  /** A query around a cast, given the table, and whether the cast is tested in a filter. */
+  private case class QueryShape(build: (String, Table) => String, inFilter: Boolean)
 
   private def withConfs[T](session: SparkSession, confs: Seq[(String, String)])(body: => T): T = {
     val before = confs.map { case (k, _) => k -> session.conf.getOption(k) }
@@ -139,35 +280,30 @@ class VarkaDecimalReadPathSuite extends QueryTest with VarkaSharedSessions
   }
 
   /**
-   * Runs the four casts on `path` and returns the rule they followed. The plan is checked on a
-   * TRY query, which raises on neither rule, and the LEGACY casts are checked to truncate.
+   * Runs the six casts on `path` and returns the reading they followed. The plan is checked on a
+   * TRY query, which raises on neither rule over the valid tables.
    */
-  private def ruleOf(path: Path): String = {
+  private def readingOf(path: Path): String = {
     val session = path.session()
     def query(cast: String): String = path.shape.build(cast, path.table)
-    val answers = path.shape.answers
+    def run(cast: String): String = answer(path.read.values(session, query(cast)))
+    val readings = if (path.shape.inFilter) path.table.asFilter else path.table.asValue
     VarkaColumnarToRowExec.setDeclineKernelForTesting(path.declineAll)
     try withConfs(session, path.confs) {
-      val probe = session.sql(query("try_cast(a AS INT)"))
-      probe.collect()
-      path.check(probe.queryExecution.executedPlan)
-      assert(cachedReads(probe.queryExecution.executedPlan) == Seq(path.table),
-        s"the query does not read the cached ${path.table}")
+      val probe = path.read.probe(session, query("try_cast(a AS INT)"))
+      path.check(probe)
+      assert(cachedReads(probe) == Seq(path.table.name),
+        s"the query does not read the cached ${path.table.name}")
       val legacy = withConfs(session, Seq(SQLConf.ANSI_ENABLED.key -> "false")) {
-        Seq(answer(session, query("CAST(a AS INT)")), answer(session, query("CAST(b AS INT)")))
+        Seq(run("CAST(a AS INT)"), run("CAST(b AS INT)"))
       }
-      assert(legacy == answers.legacy, s"LEGACY casts answered $legacy")
-      val seen = withConfs(session, Seq(SQLConf.ANSI_ENABLED.key -> "true")) {
+      val ansi = withConfs(session, Seq(SQLConf.ANSI_ENABLED.key -> "true")) {
         Seq("CAST(a AS INT)", "CAST(b AS INT)", "try_cast(a AS INT)", "try_cast(b AS INT)")
-          .map(c => answer(session, query(c)))
+          .map(run)
       }
-      if (seen == answers.exact) {
-        ExactRule
-      } else if (seen == answers.double) {
-        DoubleRule
-      } else {
-        fail(s"ANSI and TRY casts answered $seen, by neither rule")
-      }
+      val seen = legacy ++ ansi
+      readings.find(_.answers == seen).map(_.name)
+        .getOrElse(fail(s"the casts answered $seen, by none of ${readings.map(_.name)}"))
     } finally {
       VarkaColumnarToRowExec.setDeclineKernelForTesting(false)
     }
@@ -191,6 +327,8 @@ class VarkaDecimalReadPathSuite extends QueryTest with VarkaSharedSessions
     p => assert(varkaBatches(p) > 0, s"the kernel served no batch:\n${p.treeString}")
   private val declined: SparkPlan => Unit =
     p => assert(varkaBatches(p) == 0, s"the kernel served a batch:\n${p.treeString}")
+  /** A plan with a Varka node, for a query that raises before its metrics can say more. */
+  private val fusedPlan: SparkPlan => Unit = p => assertFused(p)
 
   /** A filter split into a row `FilterExec` over a Varka filter, and `batches` of the plan. */
   private def split(batches: SparkPlan => Unit): SparkPlan => Unit = { plan =>
@@ -201,57 +339,172 @@ class VarkaDecimalReadPathSuite extends QueryTest with VarkaSharedSessions
     batches(plan)
   }
 
-  private val alone = QueryShape((cast, t) => s"SELECT $cast AS r FROM $t", asValue)
+  /** A Varka projection over a Varka filter with columnar output, and `batches` of the plan. */
+  private def overFilter(batches: SparkPlan => Unit): SparkPlan => Unit = { plan =>
+    assert(find(plan) {
+      case v: VarkaColumnarToRowExec => v.child.isInstanceOf[VarkaFilterExec]
+      case _ => false
+    }.isDefined, s"expected a Varka projection over a Varka filter:\n${plan.treeString}")
+    batches(plan)
+  }
+
+  private val alone = QueryShape((cast, t) => s"SELECT $cast AS r FROM ${t.name}", false)
   private val besideFused =
-    QueryShape((cast, t) => s"SELECT $cast AS r, date_add(d, i) AS f FROM $t", asValue)
-  private val besideFusedTwice = QueryShape(
-    (cast, t) => s"SELECT $cast AS r, a AS a2, b AS b2, date_add(d, i) AS f FROM $t", asValue)
+    QueryShape((cast, t) => s"SELECT $cast AS r, date_add(d, i) AS f FROM ${t.name}", false)
+  private val besideFusedTwice = QueryShape((cast, t) =>
+    s"SELECT $cast AS r, a AS a2, b AS b2, date_add(d, i) AS f FROM ${t.name}", false)
+  /** The same beside an array, which the scan then selects. */
+  private val besideFusedAndArray = QueryShape((cast, t) =>
+    s"SELECT $cast AS r, date_add(d, i) AS f, size(arr) AS n FROM ${t.name}", false)
   /**
    * The cast in a conjunct the filter kernel declines, beside one it fuses: the rule splits the
    * condition into a `FilterExec` over a Varka filter, whose fallback evaluates the whole
    * condition.
    */
-  private val leftoverFilter = QueryShape(
-    (cast, t) => s"SELECT i FROM $t WHERE date_add(d, 30) > DATE'2020-07-01' " +
-      s"AND $cast IN (0, 2147483647)",
-    asFilter)
+  private val leftoverFilter = QueryShape((cast, t) =>
+    s"SELECT i FROM ${t.name} WHERE date_add(d, 30) > DATE'2020-07-01' " +
+      s"AND $cast IN ${t.inList}", true)
+  /**
+   * The cast beside a fused output, over a filter on `b` that fuses whole, so that the filter
+   * hands the projection batches: the filter kernel reads `b`'s slots.
+   */
+  private val overFilterOnB = QueryShape((cast, t) =>
+    s"SELECT $cast AS r, date_add(d, i) AS f FROM ${t.name} WHERE b > 0", false)
 
   private val paths: Seq[(String, Path, String)] = Seq(
     ("Varka off, the vectorized reader on, the cache read as rows by the row reader",
-      Path(() => spark, "rp_fused", Nil, alone, declineAll = false, rowRead), ExactRule),
+      Path(() => spark, fused, Nil, alone, declineAll = false, rowRead), ExactRule),
     ("Varka off, the vectorized reader off",
-      Path(() => spark, "rp_fused", Seq(SQLConf.CACHE_VECTORIZED_READER_ENABLED.key -> "false"),
+      Path(() => spark, fused, Seq(SQLConf.CACHE_VECTORIZED_READER_ENABLED.key -> "false"),
         alone, declineAll = false, rowRead), ExactRule),
     ("Varka off, the row reader's columnar fallback for a table with an array",
-      Path(() => spark, "rp_array", Nil, alone, declineAll = false, rowRead), ExactRule),
+      Path(() => spark, array, Nil, alone, declineAll = false, rowRead), ExactRule),
     ("Varka off, without whole-stage code",
-      Path(() => spark, "rp_fused", Seq(SQLConf.WHOLESTAGE_CODEGEN_ENABLED.key -> "false"),
+      Path(() => spark, fused, Seq(SQLConf.WHOLESTAGE_CODEGEN_ENABLED.key -> "false"),
         alone, declineAll = false, rowRead), ExactRule),
     ("Varka on, a cast nothing fuses beside, the cache read as rows",
-      Path(() => varkaSpark, "rp_fused", Nil, alone, declineAll = false, rowRead), ExactRule),
+      Path(() => varkaSpark, fused, Nil, alone, declineAll = false, rowRead), ExactRule),
     ("Varka on, a residual cast beside a fused output, the kernel serving the batch",
-      Path(() => varkaSpark, "rp_fused", Nil, besideFused, declineAll = false, served), ExactRule),
+      Path(() => varkaSpark, fused, Nil, besideFused, declineAll = false, served), ExactRule),
     ("Varka on, a residual cast beside a column read twice, the kernel serving the batch",
-      Path(() => varkaSpark, "rp_fused", Nil, besideFusedTwice, declineAll = false, served),
+      Path(() => varkaSpark, fused, Nil, besideFusedTwice, declineAll = false, served),
       ExactRule),
     ("Varka on, the fallback over the batch's own rows",
-      Path(() => varkaSpark, "rp_fused", Nil, besideFused, declineAll = true, declined),
+      Path(() => varkaSpark, fused, Nil, besideFused, declineAll = true, declined),
       ExactRule),
     ("Varka on, the fallback over a copied row, a column read twice",
-      Path(() => varkaSpark, "rp_fused", Nil, besideFusedTwice, declineAll = true, declined),
+      Path(() => varkaSpark, fused, Nil, besideFusedTwice, declineAll = true, declined),
       ExactRule),
     ("Varka off, the cast in a filter beside a fusable conjunct",
-      Path(() => spark, "rp_fused", Nil, leftoverFilter, declineAll = false, rowRead), ExactRule),
+      Path(() => spark, fused, Nil, leftoverFilter, declineAll = false, rowRead), ExactRule),
     ("Varka on, the cast in a filter left beside a fused conjunct, the kernel serving the batch",
-      Path(() => varkaSpark, "rp_fused", Nil, leftoverFilter, declineAll = false,
+      Path(() => varkaSpark, fused, Nil, leftoverFilter, declineAll = false,
         split(served)), ExactRule),
     ("Varka on, the cast in a filter left beside a fused conjunct, the fallback",
-      Path(() => varkaSpark, "rp_fused", Nil, leftoverFilter, declineAll = true,
-        split(declined)), ExactRule))
+      Path(() => varkaSpark, fused, Nil, leftoverFilter, declineAll = true,
+        split(declined)), ExactRule),
+    ("Varka on, a residual cast over a fused filter, both kernels serving the batch",
+      Path(() => varkaSpark, fused, Nil, overFilterOnB, declineAll = false,
+        overFilter(served)), ExactRule),
+    ("Varka on, columnar out, a residual cast beside a fused output, the kernel serving",
+      Path(() => varkaSpark, fused, Nil, besideFused, declineAll = false, served, AsBatches),
+      ExactRule),
+    ("Varka on, columnar out, the projection's fallback",
+      Path(() => varkaSpark, fused, Nil, besideFused, declineAll = true, declined, AsBatches),
+      ExactRule),
+    ("Varka on, columnar out, the filter's fallback over its whole condition",
+      Path(() => varkaSpark, fused, Nil, leftoverFilter, declineAll = true, declined,
+        AsBatches), ExactRule),
+
+    ("malformed slots: Varka off, the cache read as rows by the row reader",
+      Path(() => spark, bad, Nil, alone, declineAll = false, rowRead), LowWords),
+    ("malformed slots: Varka off, the cast beside a fusable output",
+      Path(() => spark, bad, Nil, besideFused, declineAll = false, rowRead), LowWords),
+    ("malformed slots: Varka off, the cast in a filter beside a fusable conjunct",
+      Path(() => spark, bad, Nil, leftoverFilter, declineAll = false, rowRead), LowWords),
+    ("malformed slots: Varka off, the cast over a filter on the decimal",
+      Path(() => spark, bad, Nil, overFilterOnB, declineAll = false, rowRead), LowWords),
+    ("malformed slots: Varka on, a cast nothing fuses beside, the cache read as rows",
+      Path(() => varkaSpark, bad, Nil, alone, declineAll = false, rowRead), LowWords),
+    ("malformed slots: Varka on, a residual cast beside a fused output, the kernel serving",
+      Path(() => varkaSpark, bad, Nil, besideFused, declineAll = false, served), LowWords),
+    ("malformed slots: Varka on, the fallback over the batch's own rows",
+      Path(() => varkaSpark, bad, Nil, besideFused, declineAll = true, declined), LowWords),
+    ("malformed slots: Varka on, the fallback over a copied row, a column read twice",
+      Path(() => varkaSpark, bad, Nil, besideFusedTwice, declineAll = true, declined),
+      LowWords),
+    ("malformed slots: Varka on, the cast in a filter left beside a fused conjunct, the kernel " +
+      "serving and the selected rows copied",
+      Path(() => varkaSpark, bad, Nil, leftoverFilter, declineAll = false, split(served)),
+      LowWords),
+    ("malformed slots: Varka on, the cast in a filter left beside a fused conjunct, the fallback",
+      Path(() => varkaSpark, bad, Nil, leftoverFilter, declineAll = true, split(declined)),
+      LowWords),
+    ("malformed slots: Varka on, a filter on the decimal, its kernel declining the slots and " +
+      "its columnar fallback answering",
+      Path(() => varkaSpark, bad, Nil, overFilterOnB, declineAll = false,
+        overFilter(declined)), LowWords),
+    ("malformed slots: Varka on, columnar out, a residual cast beside a fused output, the " +
+      "kernel serving",
+      Path(() => varkaSpark, bad, Nil, besideFused, declineAll = false, served, AsBatches),
+      LowWords),
+    ("malformed slots: Varka on, columnar out, the projection's fallback",
+      Path(() => varkaSpark, bad, Nil, besideFused, declineAll = true, declined, AsBatches),
+      LowWords),
+    ("malformed slots: Varka on, columnar out, the filter's fallback over its whole condition",
+      Path(() => varkaSpark, bad, Nil, leftoverFilter, declineAll = true, declined, AsBatches),
+      LowWords),
+
+    ("malformed slots beside an array: Varka off, the projection over the batch",
+      Path(() => spark, badArray, Nil, besideFusedAndArray, declineAll = false, rowRead),
+      Raises),
+    ("malformed slots beside an array: Varka on, a residual cast beside a fused output",
+      Path(() => varkaSpark, badArray, Nil, besideFusedAndArray, declineAll = false, fusedPlan),
+      Raises),
+    ("malformed slots beside an array: Varka on, the fallback",
+      Path(() => varkaSpark, badArray, Nil, besideFusedAndArray, declineAll = true, fusedPlan),
+      Raises))
 
   paths.foreach { case (name, path, expected) =>
-    test(s"$name: the ANSI and TRY decimal-to-INT casts follow $expected") {
-      assert(ruleOf(path) === expected)
+    test(s"$name: the decimal-to-INT casts follow $expected") {
+      assert(readingOf(path) === expected)
     }
+  }
+}
+
+private object VarkaDecimalReadPathSuite {
+
+  /**
+   * A 16-byte Arrow decimal slot: the low word at the offset the cache's row reader reads it
+   * from (`ArrowCachedBatchSerializer.compactDecimalUnscaledOffset`), the high word beside it.
+   */
+  private def slot(low: Long, high: Long): Array[Byte] = {
+    val order = ByteOrder.nativeOrder()
+    val lowAt = if (order == ByteOrder.LITTLE_ENDIAN) 0 else 8
+    val bytes = ByteBuffer.allocate(16).order(order)
+    bytes.putLong(lowAt, low)
+    bytes.putLong(8 - lowAt, high)
+    bytes.array()
+  }
+
+  /**
+   * The slots planted: `a` = 0.999999999999999999 as `DECIMAL(18, 18)` gets the low word 10^18,
+   * nineteen digits, and `b` = 2147483647.99999999 as `DECIMAL(18, 8)` keeps its low word under
+   * a high word of 1.
+   */
+  val Plants: Seq[(Array[Byte], Array[Byte])] = Seq(
+    slot(999999999999999999L, 0L) -> slot(1000000000000000000L, 0L),
+    slot(214748364799999999L, 0L) -> slot(214748364799999999L, 1L))
+
+  /** Replaces every occurrence of each `from` in `data` by its `to`; returns how many. */
+  def rewrite(data: Array[Byte], plants: Seq[(Array[Byte], Array[Byte])]): Long = {
+    var count = 0L
+    for ((from, to) <- plants; at <- 0 to data.length - from.length) {
+      if ((0 until from.length).forall(k => data(at + k) == from(k))) {
+        System.arraycopy(to, 0, data, at, to.length)
+        count += 1
+      }
+    }
+    count
   }
 }

@@ -40,6 +40,7 @@ import org.apache.arrow.vector.VarCharVector;
 import org.apache.spark.TaskContext;
 import org.apache.spark.internal.SparkLogger;
 import org.apache.spark.internal.SparkLoggerFactory;
+import org.apache.spark.sql.catalyst.InternalRow;
 import org.apache.spark.sql.catalyst.expressions.Attribute;
 import org.apache.spark.sql.catalyst.expressions.NamedExpression;
 import org.apache.spark.sql.catalyst.expressions.codegen.CompiledVarkaProjection;
@@ -181,6 +182,8 @@ public abstract class VarkaEvaluatorBase {
   private final VarkaEmitOptions emitOptions;
   private final boolean warmupEnabled;
   private final VarkaBatchLedger ledger = new VarkaBatchLedger();
+  // The input batch's rows as every row-by-row read of it sees them; see inputRows.
+  private final VarkaRowView rowView = new VarkaRowView();
 
   // Built on first use, since its size is the fused plan's, which a subclass defines after this
   // constructor has run. It grows through taskAllocator, which a suite may override to cap.
@@ -661,6 +664,22 @@ public abstract class VarkaEvaluatorBase {
       return false;
     }
     return input.numRows() > 0 && isArrowBacked(input);
+  }
+
+  /**
+   * The rows of an input batch, for every row-by-row read of one: a fallback's, a residual
+   * entry's, a copy's. A small Arrow decimal reads as vanilla Spark's row path over the Arrow cache
+   * reads it, and not as {@code ArrowColumnVector}'s accessor builds it, which can answer a
+   * decimal cast differently or raise where vanilla answers ({@link VarkaRowView}); a raw
+   * {@code rowIterator()} on an input batch would bring that difference back.
+   *
+   * <p>The rows are those of one batch at a time: an iterator from here is valid until the next
+   * call, and every caller reads a batch's rows before it asks for the next batch's, as the
+   * one-batch-at-a-time pull of every Varka node does. A batch with no small Arrow decimal is
+   * read as it is.
+   */
+  public final java.util.Iterator<InternalRow> inputRows(ColumnarBatch input) {
+    return rowView.rows(input);
   }
 
   /**

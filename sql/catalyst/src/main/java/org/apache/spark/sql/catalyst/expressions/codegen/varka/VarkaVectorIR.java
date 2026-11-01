@@ -487,14 +487,16 @@ public sealed interface VarkaVectorIR
    * sign extension next, so the leaf loads two vectors of slots per lane group and keeps the low
    * words. The scale is not here: the values are unscaled, and the nodes above carry the scale.
    *
-   * <p>The leaf also checks every valid slot, because Spark's column reader
-   * ({@code ArrowColumnVector}'s decimal accessor) raises on one that does not hold a value of the
-   * type: a high word that is not the low word's sign (the value is then at least 2^63 in
-   * magnitude), or a low word with more than {@code precision} digits. A batch with such a slot
-   * declines with {@code STATUS_DECIMAL_SLOT}, and the row engine raises the same error on the
-   * same row. A null slot is never read by Spark, so whatever it holds never declines. The check
-   * is part of the leaf rather than a node above it because without it the leaf would compute
-   * where Spark raises, and it is unconditional, as {@link GuardedRange}'s is.
+   * <p>The leaf also checks every valid slot for one that does not hold a value of the type: a
+   * high word that is not the low word's sign (the value is then at least 2^63 in magnitude), or
+   * a low word with more than {@code precision} digits. What Spark answers on such a slot depends
+   * on how it reads the batch: the Arrow cache's row reader takes the low word with no check,
+   * and {@code ArrowColumnVector}'s decimal accessor raises. A batch with such a slot declines
+   * with {@code STATUS_DECIMAL_SLOT}, and the fallback reads it as vanilla Spark's row path would
+   * read that batch (VARKA-365), raising where vanilla raises and answering where it answers. A
+   * null slot is never read by Spark, so whatever it holds never declines. The check is part of
+   * the leaf rather than a node above it because without it the leaf would compute over a slot
+   * Spark may raise on, and it is unconditional, as {@link GuardedRange}'s is.
    *
    * <p>It renders as {@code dec:} with the ordinal, the lane and the precision, so it shares no
    * kernel with a {@code BIGINT} {@link ColumnRef} of the same ordinal, and two precisions, whose

@@ -272,7 +272,8 @@ private[sql] class VarkaProjectEvaluatorFactory(
       }
       val batch = new ColumnarBatch(vectors.toArray)
       try {
-        batch.setNumRows(rowPath.project(input, vectors.toArray[WritableColumnVector]))
+        batch.setNumRows(
+          rowPath.project(kernels.inputRows(input), vectors.toArray[WritableColumnVector]))
       } catch {
         case e: Throwable =>
           // Attach a cleanup failure to the error being reported rather than replacing it:

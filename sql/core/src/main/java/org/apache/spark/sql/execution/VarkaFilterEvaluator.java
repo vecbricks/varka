@@ -365,7 +365,7 @@ public class VarkaFilterEvaluator extends VarkaEvaluatorBase {
         : OnHeapColumnVector.allocateColumns(rows, genericSchema);
     owned.addAll(Arrays.asList(vectors));
     if (count > 0) {
-      Iterator<InternalRow> source = input.rowIterator();
+      Iterator<InternalRow> source = inputRows(input);
       int i = 0;
       while (source.hasNext()) {
         InternalRow row = source.next();
