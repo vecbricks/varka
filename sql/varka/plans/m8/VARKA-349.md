@@ -537,7 +537,9 @@ over the edges of section 3 item 2 and over 40 random fused type pairs per opera
 operands' bounds, zero, one and random values, each against `BigDecimal`; checks that the ANSI
 and `try_` forms compile to the LEGACY form's tree, and runs `IS NULL` and `IS NOT NULL` over a
 sum, a difference and a product, which `value()`'s companion `valid()` reads as the AND of the
-operands' validity. `VarkaEmittedBytesSuite`'s new test compiles
+operands' validity. The IR fuzzer's decimal sequence (348's, its own seed, so no pinned shape moves)
+draws a sum, a difference and a product wherever their digits stay within 18, and its reach test
+asserts all three are drawn. `VarkaEmittedBytesSuite`'s new test compiles
 each "DECIMAL arithmetic" coverage row in six spellings (ANSI off and on, precision loss on and
 off, each also with every decimal operator in TRY mode) and asserts one set of method hashes at
 both widths.

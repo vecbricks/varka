@@ -1389,8 +1389,9 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
     }
   }
 
-  test(s"random decimal IR trees - rescales, negation, abs, choices and picks over decimal " +
-      s"slots - match the reference evaluator (seed $decimalSeed, $iterations iterations)") {
+  test(s"random decimal IR trees - rescales, negation, abs, choices, picks and arithmetic over " +
+      s"decimal slots - match the reference evaluator (seed $decimalSeed, $iterations " +
+      "iterations)") {
     val reach = VarkaEmitReach.attach(randomTrace, "decimal draws")
     try {
       val ks = only.map(Seq(_)).getOrElse(0 until iterations)
@@ -1403,13 +1404,20 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
   }
 
   test("the decimal draw reaches every form it is for: a rescale at both ends of k, a negation, "
-      + "abs, a choice, both picks and a null test") {
+      + "abs, a choice, both picks, a sum, a difference, a product and a null test") {
     val seen = scala.collection.mutable.Set.empty[String]
     for (k <- 0 until 500) {
       val drawn = VarkaIrGrammar.drawDecimalShape(VarkaIrGrammar.shapeRandom(decimalSeed, k))
       def walk(n: VarkaVectorIR): Unit = {
         n match {
-          case m: VarkaVectorIR.IntArith if m.op() == VarkaVectorIR.IntOp.MUL => seen += "rescale"
+          // A rescale multiplies by a slot; a product (VARKA-349) by a column or a value.
+          case m: VarkaVectorIR.IntArith => seen += (m.op() match {
+            case VarkaVectorIR.IntOp.MUL if m.right().isInstanceOf[VarkaVectorIR.LiteralSlot] =>
+              "rescale"
+            case VarkaVectorIR.IntOp.MUL => "product"
+            case VarkaVectorIR.IntOp.ADD => "sum"
+            case VarkaVectorIR.IntOp.SUB => "difference"
+          })
           case m: VarkaVectorIR.IntNeg => seen += (if (m.abs()) "abs" else "neg")
           case _: VarkaVectorIR.IfElse => seen += "choice"
           case _: VarkaVectorIR.Greatest => seen += "greatest"
@@ -1425,7 +1433,7 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
       if (factors.contains(org.apache.spark.sql.types.Decimal.POW_10(17))) seen += "k = 17"
     }
     val wanted = Set("rescale", "abs", "neg", "choice", "greatest", "least", "null test",
-      "k = 1", "k = 17")
+      "k = 1", "k = 17", "sum", "difference", "product")
     assert((wanted -- seen).isEmpty, s"never drawn: ${(wanted -- seen).toSeq.sorted}")
   }
 
