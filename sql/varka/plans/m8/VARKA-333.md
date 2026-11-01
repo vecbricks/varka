@@ -91,6 +91,50 @@ attribute (or inlined, if `canSubstitute` finds it cheap), and `between` inlined
 `nullif` as one shape only if both forms compile; if the `Project` form splits the kernel, that is
 recorded and the coverage row names the form that fuses.
 
+### 2.1 The run, refreshed on 1 November 2026 at `f1bd3d23b99`
+
+Section 2 was read before the floating, `TIMESTAMP_NTZ`, `BOOLEAN`-output and 64-bit decimal work
+landed, so its run was taken on current master before any code. One `dev/varka_emit.sh` call over
+every shape on the six types (columns `d`, `i`, `l`, `t`, `dt`, `ym` and a second of each), and the
+optimized plans through `VarkaHarnessPlans.projection`, which runs `SparkOptimizer` as a session
+does (a scratch probe, not committed). What compiles today, per type in the order DATE, INT,
+BIGINT, TIME, day-time, year-month:
+
+* `if`, `CASE` with ELSE, `coalesce`, `greatest`, `least`, `nvl2`: fused on every type but `INT`,
+  which declines with "non-date column of type int: i", the reason section 2.1 predicts. The long
+  lane's three fuse as a second kernel (`KernelOutput`), as they did. `zeroifnull(l)` (a
+  `coalesce(l, 0)`) and `positive` over `BIGINT`, day-time and year-month fuse; over `INT` both
+  decline the same way.
+* `CASE` without ELSE: declined on all six, "CASE WHEN without an ELSE branch", as predicted;
+  `TINYINT` and `SMALLINT`, which landed since (row 329), decline the same way.
+* `if(c, x, null)`, `nullifzero`: the dump shows the analyzer's `CAST(NULL AS t)`, which the
+  optimizer folds; in the optimized plan `if(d < d2, i, null)` is `If(d < d2, i, null)` and
+  `nullifzero(i)` is `If(i = 0, null, i)`, so both need the typed null leaf, on every type.
+* `nullif`, `between`: the dump shows them as `With`, because `VarkaEmitDump` (and
+  `VarkaSqlResolve`, which the coverage suite resolves through) runs the analyzer only. Optimized,
+  `nullif(i, 3)` and `nullif(i, i2)` are `If(i = 3, null, i)` and `If(i = i2, null, i)`, and
+  `i BETWEEN 1 AND 9` is `i >= 1 AND i <= 9`, inlined. Over a computed operand, `nullif(i * 2, 3)`
+  and `(i * 2) BETWEEN 1 AND 9` do not stay one projection: `RewriteWithExpression` evaluates the
+  operand in a `Project` below, so the row's shape is the column form and the computed form is two
+  projections, recorded here and not claimed as one shape (risk 3).
+* `IN`: section 2's command used column elements (`t IN (t2, t)`), which decline on every type,
+  `DATE` included, with "IN list has a null or non-literal element"; that is not the row's shape.
+  Over literals, `DATE` and year-month fuse, and `INT`, `BIGINT` (both list lengths), `TIME` and
+  day-time decline as "unsupported predicate", the gate of section 2.1. Row 497 (one `IN` arm for
+  every lane, being built beside this row) admits all four, so this row's `IN` part is that
+  branch's merge and its rows, not a gate of its own.
+* `nvl2(i2, i, i2)` is `If(IsNotNull(i2), i, i2)` and declines on the branch `i`, not the
+  condition; `zeroifnull(i)` is `coalesce(i, 0)`, `nvl(i, i2)` `coalesce(i, i2)`.
+* `positive(i)` is the bare column `i` after the optimizer (`UnaryPositive` is replaced), so
+  `positive` never reaches Varka as a node in a plan and its census entry is a relabel, as
+  `known_not_null` is.
+* `date_add(d, i)` fuses through `compileOffset`, unchanged.
+
+So every decline is one section 2 predicts, and no new reason appeared: the int branches need the
+typed arm (3.1) and the null branches the typed null leaf (3.2). One correction to section 2:
+the `IN` row of 2.2 named `DATE` and year-month as today's types, which holds, but the row's
+command tested column lists, which no type fuses.
+
 ## 3. The design
 
 ### 3.1 Typed arms at the any-type positions (item 55)
