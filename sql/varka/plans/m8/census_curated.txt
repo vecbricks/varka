@@ -28,36 +28,36 @@
 # every former hard entry its construction, m8/PLAN.md 2.7). Rows are milestone 8's task numbers (m8/PLAN.md 3).
 
 [registered]
-coalesce|ALL|same|bool,date,bigint,time,ym,dt,byte,short,ntz,float,double|plumbing|333,329,331,338,341,348,359|item 55 adds the int branches
-if|ALL|same|bool,date,bigint,time,ym,dt,byte,short,ntz,float,double|plumbing|333,329,331,338,341,348,359|
-ifnull|ALL|same|date|plumbing|333,359|rewritten to coalesce by the optimizer
+coalesce|ALL|same|bool,date,bigint,time,ym,dt,byte,short,ntz,float,double|plumbing|333,329,331,338,341,348,359|item 55 adds the int branches; dec to precision 18 fuses at every scale under a comparison or a null test (348), as an output with row 157, and counts fused with 359, 360 and 363 (2.8)
+if|ALL|same|bool,date,bigint,time,ym,dt,byte,short,ntz,float,double|plumbing|333,329,331,338,341,348,359|dec to precision 18 fuses at every scale under a comparison or a null test (348), as an output with row 157, and counts fused with 359, 360 and 363 (2.8)
+ifnull|ALL|same|date|plumbing|333,359,348|rewritten to coalesce by the optimizer; dec to precision 18 fuses at every scale under a comparison or a null test (348), as an output with row 157, and counts fused with 359, 360 and 363 (2.8)
 nanvl|FLOAT|same|float,double|done|341|NaN test and blend
-nullif|ALL|same||plumbing|333,359|rewritten to if(a = b, null, a)
-nullifzero|NUM|same||plumbing|333,359|rewritten to if(a = 0, null, a)
-nvl|ALL|same|date|plumbing|333,359|rewritten to coalesce by the optimizer
-nvl2|ALL|same||plumbing|333,359|rewritten to if(a IS NOT NULL, b, c)
-zeroifnull|NUM|same||plumbing|333,359|rewritten to coalesce(a, 0)
-when|ALL|same|bool,date,bigint,time,ym,dt,byte,short,ntz,float,double|plumbing|333,359,329|the CASE WHEN entry; item 94, in row 333, adds the missing ELSE
-between|ALL|bool||plumbing|333|rewritten to two comparisons and an AND; no coverage row yet
+nullif|ALL|same||plumbing|333,359|rewritten to if(a = b, null, a); dec waits on row 333's typed null, as every type does
+nullifzero|NUM|same||plumbing|333,359|rewritten to if(a = 0, null, a); dec waits on row 333's typed null, as every type does
+nvl|ALL|same|date|plumbing|333,359,348|rewritten to coalesce by the optimizer; dec to precision 18 fuses at every scale under a comparison or a null test (348), as an output with row 157, and counts fused with 359, 360 and 363 (2.8)
+nvl2|ALL|same||plumbing|333,359,348|rewritten to if(a IS NOT NULL, b, c); dec to precision 18 fuses at every scale under a comparison or a null test (348), as an output with row 157, and counts fused with 359, 360 and 363 (2.8)
+zeroifnull|NUM|same||plumbing|333,359,348|rewritten to coalesce(a, 0); dec to precision 18 fuses at every scale under a comparison or a null test (348), as an output with row 157, and counts fused with 359, 360 and 363 (2.8)
+when|ALL|same|bool,date,bigint,time,ym,dt,byte,short,ntz,float,double|plumbing|333,359,329,348|the CASE WHEN entry; item 94, in row 333, adds the missing ELSE; dec to precision 18 fuses at every scale under a comparison or a null test (348), as an output with row 157, and counts fused with 359, 360 and 363 (2.8)
+between|ALL|bool||plumbing|333,348|rewritten to two comparisons and an AND; no coverage row yet; dec to precision 18 fuses at every scale (347, 348) and counts fused with 359, 360 and 363 (2.8)
 isnan|FLOAT|bool|float,double|done|341|
-isnull|ALL|bool|bool,int,bigint,date,time,ym,dt,byte,short,ntz,float,double|plumbing|333,334,359,329,347|a validity read; item 93 over a predicate; dec to precision 18 at one scale fuses (347) and counts fused with 359's wider ones (2.8)
-isnotnull|ALL|bool|bool,int,bigint,date,time,ym,dt,byte,short,ntz,float,double|plumbing|333,334,359,329,347|a validity read; item 93 over a predicate; dec to precision 18 at one scale fuses (347) and counts fused with 359's wider ones (2.8)
-equal_null|ALL|bool||semantics|336,331,329,341,338,359|null-tolerant: item 34; bool is 331's BoolNullSafeEq, byte/short 329, float/double 341, ntz 338, dec 359
+isnull|ALL|bool|bool,int,bigint,date,time,ym,dt,byte,short,ntz,float,double|plumbing|333,334,359,329,347,348|a validity read; item 93 over a predicate; dec to precision 18 fuses at every scale (347, 348) and counts fused with 359, 360 and 363 (2.8)
+isnotnull|ALL|bool|bool,int,bigint,date,time,ym,dt,byte,short,ntz,float,double|plumbing|333,334,359,329,347,348|a validity read; item 93 over a predicate; dec to precision 18 fuses at every scale (347, 348) and counts fused with 359, 360 and 363 (2.8)
+equal_null|ALL|bool||semantics|336,331,329,341,338,359,348|null-tolerant: item 34; bool is 331's BoolNullSafeEq, byte/short 329, float/double 341, ntz 338, dec 359; dec to precision 18 fuses at every scale (347, 348) and counts fused with 359, 360 and 363 (2.8)
 and|bool|bool|bool|done|331,27|fused as a condition, over a BOOLEAN column too (331); a BOOLEAN output is row 27
-in|ALL|bool|date,ym,byte,short,ntz,float,double|plumbing|333,341,348,359,329|NaN equals NaN in Spark's IN
+in|ALL|bool|date,ym,byte,short,ntz,float,double|plumbing|333,341,348,359,329|NaN equals NaN in Spark's IN; dec waits on row 497's single IN arm, which 348 gives a decimal reader (VARKA-348.md 10.3)
 not|bool|bool|bool|done|331,27|fused as a condition, over a BOOLEAN column too (331); a BOOLEAN output is row 27
 or|bool|bool|bool|done|331,27|fused as a condition, over a BOOLEAN column too (331); a BOOLEAN output is row 27
-<=>|ALL|bool|bool,int,bigint,date,time,ym,dt,byte,short,ntz,float,double|semantics|336,331,329,341,338,359,347|null-tolerant: item 34; bool is 331's BoolNullSafeEq, byte/short 329, float/double 341, ntz 338, dec 359; dec to precision 18 at one scale fuses (347) and counts fused with 359's wider ones (2.8)
-=|ALL|bool|bool,int,bigint,date,time,ym,dt,byte,short,ntz,float,double|semantics|341,348,359,329,347|Spark's NaN and -0.0 rules on floats; dec to precision 18 at one scale fuses (347) and counts fused with 359's wider ones (2.8)
-==|ALL|bool|bool,int,bigint,date,time,ym,dt,byte,short,ntz,float,double|semantics|341,348,359,329,347|alias of =; dec to precision 18 at one scale fuses (347) and counts fused with 359's wider ones (2.8)
->|ALL|bool|bool,int,bigint,date,time,ym,dt,byte,short,ntz,float,double|semantics|341,348,359,329,347|Spark's NaN ordering on floats; dec to precision 18 at one scale fuses (347) and counts fused with 359's wider ones (2.8)
->=|ALL|bool|bool,int,bigint,date,time,ym,dt,byte,short,ntz,float,double|semantics|341,348,359,329,347|Spark's NaN ordering on floats; dec to precision 18 at one scale fuses (347) and counts fused with 359's wider ones (2.8)
-<|ALL|bool|bool,int,bigint,date,time,ym,dt,byte,short,ntz,float,double|semantics|341,348,359,329,347|Spark's NaN ordering on floats; dec to precision 18 at one scale fuses (347) and counts fused with 359's wider ones (2.8)
-<=|ALL|bool|bool,int,bigint,date,time,ym,dt,byte,short,ntz,float,double|semantics|341,348,359,329,347|Spark's NaN ordering on floats; dec to precision 18 at one scale fuses (347) and counts fused with 359's wider ones (2.8)
+<=>|ALL|bool|bool,int,bigint,date,time,ym,dt,byte,short,ntz,float,double|semantics|336,331,329,341,338,359,347,348|null-tolerant: item 34; bool is 331's BoolNullSafeEq, byte/short 329, float/double 341, ntz 338, dec 359; dec to precision 18 fuses at every scale (347, 348) and counts fused with 359, 360 and 363 (2.8)
+=|ALL|bool|bool,int,bigint,date,time,ym,dt,byte,short,ntz,float,double|semantics|341,348,359,329,347|Spark's NaN and -0.0 rules on floats; dec to precision 18 fuses at every scale (347, 348) and counts fused with 359, 360 and 363 (2.8)
+==|ALL|bool|bool,int,bigint,date,time,ym,dt,byte,short,ntz,float,double|semantics|341,348,359,329,347|alias of =; dec to precision 18 fuses at every scale (347, 348) and counts fused with 359, 360 and 363 (2.8)
+>|ALL|bool|bool,int,bigint,date,time,ym,dt,byte,short,ntz,float,double|semantics|341,348,359,329,347|Spark's NaN ordering on floats; dec to precision 18 fuses at every scale (347, 348) and counts fused with 359, 360 and 363 (2.8)
+>=|ALL|bool|bool,int,bigint,date,time,ym,dt,byte,short,ntz,float,double|semantics|341,348,359,329,347|Spark's NaN ordering on floats; dec to precision 18 fuses at every scale (347, 348) and counts fused with 359, 360 and 363 (2.8)
+<|ALL|bool|bool,int,bigint,date,time,ym,dt,byte,short,ntz,float,double|semantics|341,348,359,329,347|Spark's NaN ordering on floats; dec to precision 18 fuses at every scale (347, 348) and counts fused with 359, 360 and 363 (2.8)
+<=|ALL|bool|bool,int,bigint,date,time,ym,dt,byte,short,ntz,float,double|semantics|341,348,359,329,347|Spark's NaN ordering on floats; dec to precision 18 fuses at every scale (347, 348) and counts fused with 359, 360 and 363 (2.8)
 !|bool|bool||plumbing|331,27|alias of not
-abs|NUM,IVL|same|byte,short,ym|semantics|330,104,103,342,348,359|the minimum value overflows: wraps or throws
-greatest|ALL|same|date,bigint,time,ym,dt,byte,short,ntz,float,double|semantics|333,341,348,359,329|NaN is the greatest float
-least|ALL|same|date,bigint,time,ym,dt,byte,short,ntz,float,double|semantics|333,341,348,359,329|NaN is the greatest float
+abs|NUM,IVL|same|byte,short,ym|semantics|330,104,103,342,348,359|the minimum value overflows: wraps or throws; not for dec, whose unscaled value within 18 digits is never the minimum: dec to precision 18 fuses under a comparison or a null test (348), as an output with row 157, and counts fused with 359 (2.8)
+greatest|ALL|same|date,bigint,time,ym,dt,byte,short,ntz,float,double|semantics|333,341,348,359,329|NaN is the greatest float; dec to precision 18 fuses at every scale under a comparison or a null test (348), as an output with row 157, and counts fused with 359, 360 and 363 (2.8)
+least|ALL|same|date,bigint,time,ym,dt,byte,short,ntz,float,double|semantics|333,341,348,359,329|NaN is the greatest float; dec to precision 18 fuses at every scale under a comparison or a null test (348), as an output with row 157, and counts fused with 359, 360 and 363 (2.8)
 acos|double|double||ulp|367,356|Math
 acosh|double|double||ulp|367,357|Spark's log-and-sqrt formula over StrictMath.log
 asin|double|double||ulp|367,356|Math
@@ -84,7 +84,7 @@ log1p|double|double||ulp|367,358|StrictMath
 log2|double|double||ulp|367,358|StrictMath.log over a constant
 ln|double|double||ulp|367,358|StrictMath
 mod|NUM|same||semantics|30,95,104,346,349,363|integral is semantics (zero divisor); floating by the one-FMA remainder (346)
-negative|NUM,IVL|same|byte,short,int,ym|semantics|330,104,103,342,348,359|the minimum value overflows
+negative|NUM,IVL|same|byte,short,int,ym|semantics|330,104,103,342,348,359|the minimum value overflows; not for dec, whose unscaled value within 18 digits is never the minimum: dec to precision 18 fuses under a comparison or a null test (348), as an output with row 157, and counts fused with 359 (2.8)
 pmod|NUM|same||semantics|30,104,346,363|integral is semantics (item 33's sign rule; pmod(-1, Int.MinValue) is Int.MaxValue, SPARK-59934); floating by the one-FMA remainder (346)
 positive|NUM,IVL|same||plumbing|333|rewritten to its child
 pow|double|double||ulp|367,358|StrictMath; fused behind the guard on fdlibm's weak branch, its exact exponents as exact nodes (358)
@@ -186,7 +186,7 @@ bitmap_bit_position|bigint|bigint|bigint|done||a mask over a blend, proven by SM
 
 [implicit]
 try_cast|Cast|conversion|ALL|ALL||semantics|332,343,350,364,365,366,368|the parser's TRY mode: null instead of an error
-in_set|InSet|predicate|ALL|bool|date,ym,byte,short,ntz,float,double|plumbing|333,341,348,359,329|IN over many literals
+in_set|InSet|predicate|ALL|bool|date,ym,byte,short,ntz,float,double|plumbing|333,341,348,359,329|IN over many literals; dec waits on row 497's single IN arm, which 348 gives a decimal reader (VARKA-348.md 10.3)
 date_minus_date|SubtractDates|datetime|date|dt||semantics|39|row 39: days times micros per day, exact
 ntz_minus_ntz|SubtractTimestamps|datetime|ntz|dt||semantics|339|plain long arithmetic in UTC, exact or raise
 time_minus_time|SubtractTimes|datetime|time|dt|time|done||

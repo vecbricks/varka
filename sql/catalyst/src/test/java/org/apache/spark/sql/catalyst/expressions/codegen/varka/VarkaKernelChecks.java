@@ -441,7 +441,24 @@ public final class VarkaKernelChecks {
   private static Lane longLane(LongBatch batch, long[] lits, int[] intLits,
       List<VarkaVectorIR> roots) {
     return holdsBothLanes(roots) ? new MixedLane(batch, intLits, lits, roots)
-        : new LongLane(batch, lits, false);
+        : new LongLane(batch, lits, false, decimalColumns(roots));
+  }
+
+  /** The inputs {@code roots} read as a decimal column, as a bit per input ordinal. */
+  static long decimalColumns(List<VarkaVectorIR> roots) {
+    long bits = 0L;
+    var seen = new HashSet<VarkaVectorIR>();
+    var todo = new ArrayDeque<VarkaVectorIR>(roots);
+    while (!todo.isEmpty()) {
+      VarkaVectorIR node = todo.pop();
+      if (seen.add(node)) {
+        if (node instanceof VarkaVectorIR.DecimalColumn c && c.ordinal() < Long.SIZE) {
+          bits |= 1L << c.ordinal();
+        }
+        todo.addAll(Arrays.asList(VarkaVectorIR.childrenOf(node)));
+      }
+    }
+    return bits;
   }
 
   /** Whether {@code roots} hold a value of each lane; see {@link #longLane}. */
@@ -578,7 +595,7 @@ public final class VarkaKernelChecks {
       boolean declineAllowed, SparkAnswers spark, CallHook hook) {
     return runLoaded(context, kernel, roots, numInputs,
         holdsBothLanes(roots) ? new MixedLane(batch, intLits, lits, roots)
-            : new LongLane(batch, lits, true),
+            : new LongLane(batch, lits, true, decimalColumns(roots)),
         declineAllowed, spark, ValidityFill.BOTH, hook);
   }
 
@@ -839,7 +856,35 @@ public final class VarkaKernelChecks {
   }
 
   /** The 64-bit lane, whose narrowing roots store four bytes a row. */
-  private record LongLane(LongBatch batch, long[] lits, boolean truncateNarrow) implements Lane {
+  private record LongLane(LongBatch batch, long[] lits, boolean truncateNarrow,
+      long decimalColumns) implements Lane {
+    LongLane(LongBatch batch, long[] lits, boolean truncateNarrow) {
+      this(batch, lits, truncateNarrow, 0L);
+    }
+
+    /** Whether input {@code c} is a decimal column, Arrow's sixteen-byte slot a row. */
+    private boolean decimal(int c) {
+      return c < Long.SIZE && (decimalColumns >>> c & 1L) != 0;
+    }
+
+    /**
+     * A decimal column holds the low word and its sign extension (VARKA-348): a valid row's slot
+     * is a value of the type, and a null row's poison, outside every precision, is garbage the
+     * leaf's check must not read.
+     */
+    @Override public long columnStride(int c) {
+      return decimal(c) ? VarkaVectorWalk.DECIMAL_SLOT_BYTES : stride();
+    }
+
+    @Override public void putColumn(int c, MemorySegment d, int i, long v) {
+      if (decimal(c)) {
+        d.set(ValueLayout.JAVA_LONG, i * VarkaVectorWalk.DECIMAL_SLOT_BYTES, v);
+        d.set(ValueLayout.JAVA_LONG, i * VarkaVectorWalk.DECIMAL_SLOT_BYTES + 8L, v >> 63);
+      } else {
+        put(d, i, v);
+      }
+    }
+
     @Override public int length() {
       return batch.length();
     }

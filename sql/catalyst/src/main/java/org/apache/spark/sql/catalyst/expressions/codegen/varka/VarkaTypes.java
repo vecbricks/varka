@@ -416,7 +416,9 @@ public final class VarkaTypes {
           new Admission.UpToPrecision(LaneType.LONG, VarkaVectorIR.DecimalColumn.MAX_LONG_PRECISION,
               "359", Optional.empty()),
           128, List.of(DataTypes.createDecimalType(10, 2), DataTypes.createDecimalType(30, 4)),
-          List.of(LaneType.LONG), new Conformance.Owed("Decimal", "348"));
+          // The decimal conformance suite is row 359's, over both representations, by its
+          // answered question 4 (a) (VARKA-348.md 7).
+          List.of(LaneType.LONG), new Conformance.Owed("Decimal", "359"));
       case DATE -> new Info(id, "date", "DATE", new Admission.OnLane(LaneType.INT), 32,
           List.of(DataTypes.DateType), List.of(LaneType.INT),
           new Conformance.Suite("Date"));

@@ -496,6 +496,11 @@ import com.sun.management.HotSpotDiagnosticMXBean;
  *        bits. False, the blend, is the default; true is the arm, kept to be measured against
  *        the blend on a host with AVX-512. Either gives {@code |u|} for every value within 18
  *        digits ({@code decimal64.smt2}).
+ * @param dropDecimalBound a fault injector for the decimal leaf (VARKA-348 3 item 1): the leaf
+ *        keeps its high-word check and drops the digit check, so a valid slot outside the
+ *        precision is computed on where Spark's reader raises, and a rescale of it can wrap.
+ *        What the slot table plants to show it catches a leaf that misses its bound. False in
+ *        production.
  */
 public record VarkaEmitOptions(
     int groupBudget,
@@ -546,7 +551,8 @@ public record VarkaEmitOptions(
     boolean dropStackMaps,
     int misdescribeDataBytes,
     boolean fromLongMasks,
-    boolean decimalAbsLanewise) {
+    boolean decimalAbsLanewise,
+    boolean dropDecimalBound) {
 
   /**
    * The three mod-7 lowerings. {@link #MAGIC} is what ships: two 15-bit digit-sum folds followed
@@ -660,7 +666,7 @@ public record VarkaEmitOptions(
           true, true, true, true,
           VarkaEmitBudget.CALL_SITE_BUDGET, VarkaEmitBudget.HEAVY_GROUP_OUTPUTS,
           true, true, true, true, true, true, true, 0, 0, 0, false, false, false, 0, false,
-          false);
+          false, false);
 
   public VarkaEmitOptions {
     if (groupBudget < 1) {
@@ -764,6 +770,7 @@ public record VarkaEmitOptions(
       b.misdescribeDataBytes = misdescribeDataBytes;
       b.fromLongMasks = fromLongMasks;
       b.decimalAbsLanewise = decimalAbsLanewise;
+      b.dropDecimalBound = dropDecimalBound;
     return b;
   }
 
@@ -818,6 +825,7 @@ public record VarkaEmitOptions(
     private int misdescribeDataBytes;
     private boolean fromLongMasks;
     private boolean decimalAbsLanewise;
+    private boolean dropDecimalBound;
 
     private Builder() {
     }
@@ -1067,6 +1075,11 @@ public record VarkaEmitOptions(
       return this;
     }
 
+    public Builder dropDecimalBound(boolean drop) {
+      this.dropDecimalBound = drop;
+      return this;
+    }
+
     public VarkaEmitOptions build() {
       return new VarkaEmitOptions(
           groupBudget, fusedCeiling, cse, shareChronoPrefix, denseValidityOnce,
@@ -1080,7 +1093,7 @@ public record VarkaEmitOptions(
           severalKernels,
           elideUnreadLocals, planSize, misdescribeDriverBytes, forceResidualAt,
           misdescribeRollback, exactRefusalStatus, groupBudgetUnderPrediction, dropStackMaps,
-          misdescribeDataBytes, fromLongMasks, decimalAbsLanewise);
+          misdescribeDataBytes, fromLongMasks, decimalAbsLanewise, dropDecimalBound);
     }
   }
 

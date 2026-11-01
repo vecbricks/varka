@@ -485,7 +485,10 @@ public sealed interface VarkaEmitOption
       // intrinsic only with AVX-512, measured against the blend there.
       new Flag("decimalAbsLanewise", Reason.MACHINE, false,
           VarkaEmitOptions::decimalAbsLanewise, Builder::decimalAbsLanewise,
-          new FlagTag("decimalAbsLanewise", true)));
+          new FlagTag("decimalAbsLanewise", true)),
+      new Flag("dropDecimalBound", Reason.FAULT_INJECTOR, false,
+          VarkaEmitOptions::dropDecimalBound, Builder::dropDecimalBound,
+          new FlagTag("dropDecimalBound", true)));
 
   /** The option with this name. */
   static VarkaEmitOption named(String name) {

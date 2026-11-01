@@ -568,6 +568,36 @@ and `CASE WHEN d9 < d9b THEN d9 ELSE d9s4 END > 0.0`, each refined whole in a de
 twelve at both widths, no existing row's hash moves, and the option-arm digests move, as
 prediction 6 said.
 
+**The slot table and the planted fault.** `VarkaDecimalLoadSuite` adds the condition table
+under a rescale (`d * 100 < 5`, at precisions 1, 9 and 10, where `p + 2` stays within 18), under a
+negation and under `abs`, at 2, 4 and 8 long lanes, both bodies, the planted slot in the first
+group, a middle one and the last row: `10^p`, `-10^p` and the wrong high words valid decline with
+`STATUS_DECIMAL_SLOT`, the same slots null do not, and every in-precision row answers. A bad slot
+under a rescale in an `IfElse` arm the batch never takes declines. The planted fault is a new
+fault injector, `dropDecimalBound` (`Reason.FAULT_INJECTOR`, never drawn), under which the leaf
+keeps its high-word check and drops the digit check: a valid `10^17` at precision 17 then runs,
+its rescale by `10^2` wraps to a negative value, and the slot table's check fails, which the test
+asserts at every width.
+
+**The IR fuzzer's decimal sequence.** `VarkaIrGrammar.drawDecimalShape`, on its own seed
+(`DECIMAL_FUZZ_SEED`, so no committed shape moves), draws one to three decimal columns at
+precisions biased to 1, 2, 9, 10, 17 and 18, and over them the forms of 2.1: a rescale at a `k`
+the drawn value's digits allow, a negation, `abs`, an `IfElse`, both picks, the comparisons, the
+null-safe equality and the null test, literals at their digits' bounds and inside. The suite
+writes each decimal column as Arrow's slots (`VarkaKernelChecks`' long lane now knows a decimal
+input's sixteen-byte stride), its valid rows inside the precision with the bounds among them and
+its null rows holding the lane's extremes, garbage the check must not read, and runs each draw
+under drawn options, `decimalAbsLanewise` among them, against the reference evaluator, which now
+answers a long-lane `abs`. A second test asserts the draw reaches every form, `k = 1` and
+`k = 17`.
+
+**The census and the registry.** The curated census's notes on the 26 entries of section 6 now
+say that the 64-bit form fuses at every scale, under a comparison or a null test until 157, and
+that the pair counts with 359, 360 and 363; `rows` gains 348 on `when`, `ifnull`, `nvl`, `nvl2`,
+`zeroifnull`, `coalesce`, `if`, `greatest`, `least`, `equal_null`, `between` and the null tests;
+`in` and `in_set` say they wait on 497's arm, and `abs` and `negative` that their overflow note
+is not a decimal's. The registry's `Owed("Decimal", "348")` names 359, as section 7 says.
+
 ### Departures from the plan
 
 - **The rescale's one-past witness is not a wrap at every precision.** Section 3 item 3 says that
@@ -592,6 +622,20 @@ prediction 6 said.
   integer literal arrives as a cast from `INT` to a decimal, which the census check counts as a
   cast that never fuses bare (row 350's); `0.0` keeps the row's subject, a choice under a
   comparison, and the integral literal still folds in real queries.
+- **The planted fault fails the slot table, not the refinement.** Section 3 item 1 asks that the
+  refinement's check 2 fail with the flag on too. The refinement file states the kernel's decline
+  as the leaf's check, which `decimal_slot.smt2` proves equal to `|u| > 10^p - 1`; it does not
+  read an emit option, so no rendering of it changes with the flag, and the slot table is the
+  check the fault is planted against. A refinement that read the flag would restate the
+  emitter's choice in the specification's file, which the row leaves to row 504.
+- **The table of `IS NULL` over a negation is the bare leaf's table.** Section 3 item 1 lists
+  it beside the rescale. `VarkaDecimalCompiler.valid` compiles `(-d) IS NULL` to the leaf's own
+  null test, the tree `conditionTableOfTheNullTest` already runs, so no new table is added for it.
+- **`VarkaIrFuzzSuite`'s stranger draw runs under the matrix base.** A drawn option added to the
+  table shifts every later coin of a fuzz draw. `decimalAbsLanewise` moved the named draw
+  `2026101300002L`, 195413, whose stranger then no longer fitted under its redrawn size options.
+  The shape still grows past the op cap, as the test's first assertion checks, so the test now
+  runs that draw's variants under `VarkaMatrix.base`, which no later option moves.
 - **`IN` and `InSet` are not in 348a.** Row 497's single `IN` arm exists only as a plan
   (`varka-497-499-plan`, #1179), so, as section 5 item 3 allows, 348a lands without them, writes
   no fifth arm, and leaves out the coverage rows `d9 IN (1.25, 2.5, 3)` and the eleven-literal

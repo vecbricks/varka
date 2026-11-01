@@ -620,15 +620,18 @@ final class VarkaVectorWalk {
     // inside moves to [0, 2B]; one above B lands past 2B, wrapping or not, and one below -B
     // wraps to at least 2^63 + B, past 2B too. It holds for any bound that is a non-negative
     // long (decimal_slot.smt2), and 2B fits one at precision 18 or less.
-    long bound = c.bound();
-    cb.aload(low);
-    cb.getstatic(VECTOR_OPERATORS, "ADD", VO_ASSOCIATIVE);
-    cb.loadConstant(bound);
-    cb.invokevirtual(lane.vector, "lanewise", lane.integral().lanewiseBinaryI());
-    cb.getstatic(VECTOR_OPERATORS, "UGT", VO_COMPARISON);
-    cb.loadConstant(2 * bound);
-    cb.invokevirtual(lane.vector, "compare", lane.compareVI);
-    cb.invokevirtual(VECTOR_MASK, "or", MASK_BINARY);
+    // The fault injector dropDecimalBound leaves the digit check out (VARKA-348 3 item 1).
+    if (!analysis.options.dropDecimalBound()) {
+      long bound = c.bound();
+      cb.aload(low);
+      cb.getstatic(VECTOR_OPERATORS, "ADD", VO_ASSOCIATIVE);
+      cb.loadConstant(bound);
+      cb.invokevirtual(lane.vector, "lanewise", lane.integral().lanewiseBinaryI());
+      cb.getstatic(VECTOR_OPERATORS, "UGT", VO_COMPARISON);
+      cb.loadConstant(2 * bound);
+      cb.invokevirtual(lane.vector, "compare", lane.compareVI);
+      cb.invokevirtual(VECTOR_MASK, "or", MASK_BINARY);
+    }
     emitGuardCollect(cb, c, dense ? null : s.wordRef.get(c), dense, analysis, s);
   }
 
