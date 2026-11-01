@@ -23,6 +23,7 @@ import scala.jdk.CollectionConverters._
 
 import org.apache.spark.sql.QueryTest
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaChrono
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaMatrix.PinsDefaults
 import org.apache.spark.sql.execution.VarkaSharedSessions
 import org.apache.spark.sql.types.{DayTimeIntervalType, IntegerType, TimestampNTZType}
 
@@ -85,8 +86,12 @@ class VarkaTimestampNtzArithmeticBaselineQueriesSuite extends QueryTest with Var
     }
   }
 
-  test("each section of the TIMESTAMP_NTZ arithmetic baseline fuses as its class lists it") {
+  test("each section of the TIMESTAMP_NTZ arithmetic baseline fuses as its class lists it",
+      PinsDefaults) {
     import VarkaTimestampNtzArithmeticBaselineBenchmark._
+    // The benchmark plans under the emitter's default options, so the classes pin the defaults,
+    // and an option matrix configuration, under which a section may fuse differently, cancels
+    // the test.
     assume(VarkaSqlBenchmarkBase.fuseCheck(),
       s"-D${VarkaSqlBenchmarkBase.FUSE_CHECK_PROPERTY}=false times the sections fused")
     withTable(100) {
