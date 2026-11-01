@@ -84,7 +84,9 @@ public final class VarkaGuardSpecs {
    * The bits a batch must decline with and the further bits it may; both zero for a batch the
    * kernel must answer. {@code shortcut} marks the answer the masked driver's all-null shortcut
    * gives before any guard runs ({@link #SHORTCUT}), which a caller holding a batch to its guards
-   * needs to tell from one the guards admit.
+   * needs to tell from one the guards admit. Record equality includes it, so {@link #SHORTCUT}
+   * does not equal {@link #ANSWER}: a test that asks only whether a batch is answered reads
+   * {@link #answers}, and one that asks about the bits reads {@link #must} and {@link #may}.
    */
   public record Verdict(int must, int may, boolean shortcut) {
     public static final Verdict ANSWER = new Verdict(0, 0);
