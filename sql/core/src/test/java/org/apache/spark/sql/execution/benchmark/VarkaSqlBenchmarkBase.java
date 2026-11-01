@@ -17,10 +17,6 @@
 
 package org.apache.spark.sql.execution.benchmark;
 
-import java.io.IOException;
-import java.io.OutputStream;
-import java.io.UncheckedIOException;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -242,22 +238,6 @@ public abstract class VarkaSqlBenchmarkBase extends VarkaBenchmarkBase {
       body.run();
       return BoxedUnit.UNIT;
     });
-  }
-
-  /**
-   * Prints {@code line} and writes it to the results file, if the run writes one: a fact a
-   * section's tables depend on, kept beside them so the file says what was measured.
-   */
-  protected final void note(String line) {
-    System.out.println(line);
-    Option<OutputStream> out = output();
-    if (out.isDefined()) {
-      try {
-        out.get().write((line + "\n").getBytes(StandardCharsets.UTF_8));
-      } catch (IOException e) {
-        throw new UncheckedIOException(e);
-      }
-    }
   }
 
   // ---------------------------------------------------------------------------------------

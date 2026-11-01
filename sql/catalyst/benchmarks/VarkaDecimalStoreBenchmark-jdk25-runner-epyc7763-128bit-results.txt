@@ -1,0 +1,56 @@
+================================================================================================
+decimal outputs before the widening store
+================================================================================================
+
+OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1017-azure
+AMD EPYC 7763 64-Core Processor
+decimal outputs over 8192 rows - every arm in L2:                                                                      Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+time_to_seconds(t), DECIMAL(14, 6): BIGINT store, 8 bytes a row (the control)                                                    377            380           2         44.5          22.5       1.0X
+time_to_seconds(t), DECIMAL(14, 6): BIGINT store, then a scalar loop widening it into a DecimalVector                            394            396           2         42.5          23.5       1.0X
+extract(SECOND FROM t) at TIME(6), DECIMAL(8, 6): BIGINT store, 8 bytes a row (the control)                                     1178           1183           4         14.2          70.2       0.3X
+extract(SECOND FROM t) at TIME(6), DECIMAL(8, 6): BIGINT store, then a scalar loop widening it into a DecimalVector             1141           1147           9         14.7          68.0       0.3X
+the store alone over a long column, DECIMAL(18, 0): BIGINT store, 8 bytes a row (the control)                                      3              3           0       5476.8           0.2     123.2X
+the store alone over a long column, DECIMAL(18, 0): BIGINT store, then a scalar loop widening it into a DecimalVector             11             11           0       1539.8           0.6      34.6X
+
+tier at 8192 rows, time_to_seconds(t), DECIMAL(14, 6): BIGINT store, 8 bytes a row (the control): settled after 8 drives, loops C2 {loopDense0=true}, kernel code {epilogueDense0=3, loopDense0=4, run=3, runDense=3}
+tier at 8192 rows, time_to_seconds(t), DECIMAL(14, 6): BIGINT store, then a scalar loop widening it into a DecimalVector: settled after 8 drives, loops C2 {loopDense0=true}, widen C2 true, kernel code {epilogueDense0=4, loopDense0=4, runDense=4}
+tier at 8192 rows, extract(SECOND FROM t) at TIME(6), DECIMAL(8, 6): BIGINT store, 8 bytes a row (the control): settled after 8 drives, loops C2 {loopDense0=true}, kernel code {epilogueDense0=4, loopDense0=4, run=4, runDense=4}
+tier at 8192 rows, extract(SECOND FROM t) at TIME(6), DECIMAL(8, 6): BIGINT store, then a scalar loop widening it into a DecimalVector: settled after 8 drives, loops C2 {loopDense0=true}, widen C2 true, kernel code {epilogueDense0=4, loopDense0=4, run=4, runDense=4}
+tier at 8192 rows, the store alone over a long column, DECIMAL(18, 0): BIGINT store, 8 bytes a row (the control): settled after 8 drives, loops C2 {loopDense0=true}, kernel code {epilogueDense0=3, loopDense0=4, run=4, runDense=3}
+tier at 8192 rows, the store alone over a long column, DECIMAL(18, 0): BIGINT store, then a scalar loop widening it into a DecimalVector: settled after 8 drives, loops C2 {loopDense0=true}, widen C2 true, kernel code {epilogueDense0=3, loopDense0=4, run=4, runDense=4}
+OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1017-azure
+AMD EPYC 7763 64-Core Processor
+decimal outputs over 262144 rows - every arm in L3:                                                                    Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+time_to_seconds(t), DECIMAL(14, 6): BIGINT store, 8 bytes a row (the control)                                                    374            376           1         44.8          22.3       1.0X
+time_to_seconds(t), DECIMAL(14, 6): BIGINT store, then a scalar loop widening it into a DecimalVector                            396            397           1         42.4          23.6       0.9X
+extract(SECOND FROM t) at TIME(6), DECIMAL(8, 6): BIGINT store, 8 bytes a row (the control)                                     1172           1173           2         14.3          69.8       0.3X
+extract(SECOND FROM t) at TIME(6), DECIMAL(8, 6): BIGINT store, then a scalar loop widening it into a DecimalVector             1133           1135           3         14.8          67.5       0.3X
+the store alone over a long column, DECIMAL(18, 0): BIGINT store, 8 bytes a row (the control)                                      3              4           0       4839.3           0.2     108.0X
+the store alone over a long column, DECIMAL(18, 0): BIGINT store, then a scalar loop widening it into a DecimalVector             12             12           0       1423.4           0.7      31.8X
+
+tier at 262144 rows, time_to_seconds(t), DECIMAL(14, 6): BIGINT store, 8 bytes a row (the control): settled after 8 drives, loops C2 {loopDense0=true}, kernel code {epilogueDense0=4, loopDense0=4, run=4, runDense=3}
+tier at 262144 rows, time_to_seconds(t), DECIMAL(14, 6): BIGINT store, then a scalar loop widening it into a DecimalVector: settled after 8 drives, loops C2 {loopDense0=true}, widen C2 true, kernel code {epilogueDense0=4, loopDense0=4, run=3, runDense=4}
+tier at 262144 rows, extract(SECOND FROM t) at TIME(6), DECIMAL(8, 6): BIGINT store, 8 bytes a row (the control): settled after 8 drives, loops C2 {loopDense0=true}, kernel code {epilogueDense0=4, loopDense0=4, run=4, runDense=4}
+tier at 262144 rows, extract(SECOND FROM t) at TIME(6), DECIMAL(8, 6): BIGINT store, then a scalar loop widening it into a DecimalVector: settled after 8 drives, loops C2 {loopDense0=true}, widen C2 true, kernel code {epilogueDense0=4, loopDense0=4, run=4, runDense=4}
+tier at 262144 rows, the store alone over a long column, DECIMAL(18, 0): BIGINT store, 8 bytes a row (the control): settled after 8 drives, loops C2 {loopDense0=true}, kernel code {epilogueDense0=3, loopDense0=4, run=4, runDense=3}
+tier at 262144 rows, the store alone over a long column, DECIMAL(18, 0): BIGINT store, then a scalar loop widening it into a DecimalVector: settled after 8 drives, loops C2 {loopDense0=true}, widen C2 true, kernel code {epilogueDense0=3, loopDense0=4, run=4, runDense=4}
+OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1017-azure
+AMD EPYC 7763 64-Core Processor
+decimal outputs over 8388608 rows - every arm past L3:                                                                 Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+time_to_seconds(t), DECIMAL(14, 6): BIGINT store, 8 bytes a row (the control)                                                    374            376           2         44.8          22.3       1.0X
+time_to_seconds(t), DECIMAL(14, 6): BIGINT store, then a scalar loop widening it into a DecimalVector                            403            404           1         41.6          24.0       0.9X
+extract(SECOND FROM t) at TIME(6), DECIMAL(8, 6): BIGINT store, 8 bytes a row (the control)                                     1185           1187           1         14.2          70.6       0.3X
+extract(SECOND FROM t) at TIME(6), DECIMAL(8, 6): BIGINT store, then a scalar loop widening it into a DecimalVector             1149           1152           2         14.6          68.5       0.3X
+the store alone over a long column, DECIMAL(18, 0): BIGINT store, 8 bytes a row (the control)                                     10             10           0       1682.3           0.6      37.5X
+the store alone over a long column, DECIMAL(18, 0): BIGINT store, then a scalar loop widening it into a DecimalVector             26             26           0        653.2           1.5      14.6X
+
+tier at 8388608 rows, time_to_seconds(t), DECIMAL(14, 6): BIGINT store, 8 bytes a row (the control): settled after 8 drives, loops C2 {loopDense0=true}, kernel code {epilogueDense0=4, loopDense0=4, run=4, runDense=3}
+tier at 8388608 rows, time_to_seconds(t), DECIMAL(14, 6): BIGINT store, then a scalar loop widening it into a DecimalVector: settled after 8 drives, loops C2 {loopDense0=true}, widen C2 true, kernel code {epilogueDense0=4, loopDense0=4, run=3, runDense=4}
+tier at 8388608 rows, extract(SECOND FROM t) at TIME(6), DECIMAL(8, 6): BIGINT store, 8 bytes a row (the control): settled after 8 drives, loops C2 {loopDense0=true}, kernel code {epilogueDense0=4, loopDense0=4, run=4, runDense=4}
+tier at 8388608 rows, extract(SECOND FROM t) at TIME(6), DECIMAL(8, 6): BIGINT store, then a scalar loop widening it into a DecimalVector: settled after 8 drives, loops C2 {loopDense0=true}, widen C2 true, kernel code {epilogueDense0=4, loopDense0=4, run=4, runDense=4}
+tier at 8388608 rows, the store alone over a long column, DECIMAL(18, 0): BIGINT store, 8 bytes a row (the control): settled after 8 drives, loops C2 {loopDense0=true}, kernel code {epilogueDense0=3, loopDense0=4, run=4, runDense=3}
+tier at 8388608 rows, the store alone over a long column, DECIMAL(18, 0): BIGINT store, then a scalar loop widening it into a DecimalVector: settled after 8 drives, loops C2 {loopDense0=true}, widen C2 true, kernel code {epilogueDense0=3, loopDense0=4, run=4, runDense=4}
+
