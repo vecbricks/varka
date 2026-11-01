@@ -793,6 +793,11 @@ final class VarkaVectorTemplateWarmup {
         for (Comparison op : FLOATING_COMPARISONS) {
           acc += x.compare(op, y).toLong();
         }
+        // The floating arithmetic's own calls (VARKA-342): abs, the square root and the
+        // division's zero test against a scalar, beside the operators above.
+        acc += (long) (x.lanewise(VectorOperators.ABS).lane(0)
+            + x.lanewise(VectorOperators.SQRT).lane(0)) + y.compare(VectorOperators.EQ, 0.0)
+            .toLong();
       }
       return acc;
     }
@@ -820,6 +825,10 @@ final class VarkaVectorTemplateWarmup {
         for (Comparison op : FLOATING_COMPARISONS) {
           acc += x.compare(op, y).toLong();
         }
+        // The floating arithmetic at the FLOAT lane (VARKA-342): the three operators,
+        // negation and abs.
+        acc += (long) (x.add(y).lane(0) + x.sub(y).lane(0) + x.mul(y).lane(0)
+            + x.lanewise(VectorOperators.NEG).lane(0) + x.lanewise(VectorOperators.ABS).lane(0));
       }
       return acc;
     }

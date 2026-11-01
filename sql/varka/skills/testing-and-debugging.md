@@ -1229,6 +1229,32 @@ guard at `lo - 1`, `lo`, `hi` and `hi + 1`. What it took:
 To date every guard's edges hold at both lanes, in a full vector and the epilogue, through both
 bodies.
 
+## A batch-level answer a per-row verdict cannot see: the all-null shortcut
+
+VARKA-339. The masked driver returns before any guard runs, every output null, when each output
+reads at least one column that is null on every row of the batch (`VarkaBodyEmitter
+.shortcutApplies`: not in the dense driver, not for a `Cond` or `BoolOutput` root, not for an
+output that can be valid over a null input). A verdict built by joining per-row verdicts cannot
+see this, because no single row says the column is null *on every row*. The case that showed it:
+a guard on one operand beside a null in the other. At the defaults the batch also holds valid
+values in that column, so the guard runs and must decline; under `arrowBatchSize=1` the row is a
+batch of its own, the shortcut answers NULL (Spark's answer), and a per-row verdict still asked
+for a decline.
+
+- **The verdict is the batch's.** `VarkaGuardSpecs.verdict` answers an empty batch first, then
+  returns `Verdict.SHORTCUT` (an answer, marked `shortcut`) where the shortcut takes the batch,
+  and joins the rows only after that. `Guards` reads the column sets once per kernel from
+  `VarkaLoopEmitter.shortcutColumnSetsForTest`, which returns the same
+  `VarkaBodyEmitter.shortcutColumnSets` both driver forms emit their test from, so the model
+  cannot drift from the bytes.
+- **Join one-row verdicts only over rows with no nulls.** A caller that asks the verdict one row
+  at a time and joins the answers itself (`VarkaCompiledCheck`'s guard edges) would see the
+  shortcut on every row with a null and miss the batch's decline.
+- **A partition answered whole by the shortcut tests nothing.** `VarkaDomains` reports a
+  partition outside the domain whose every batch takes the shortcut: nothing was declined, so
+  the guard went unexercised. The fixture keeps, per guard, an outside row whose operands are all
+  valid, which declines at every batch size.
+
 ## A planted bug has a prerequisite, and the test that plants it sets it over the matrix's base
 
 VARKA-269's follow-up, 14 October 2026. `misdescribeWordLiveness` inverts the word-liveness

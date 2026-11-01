@@ -43,8 +43,8 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Wid
  * applies:
  *
  * <ul>
- *   <li>qualified by an arm chain (non-empty): it condemns the row only where the chain selects
- *       it, and then the row <b>must</b> be declined; elsewhere the arm masks it and the row must
+ *   <li>qualified by arm chains (non-empty): it condemns the row only where some chain selects
+ *       it, and then the row <b>must</b> be declined; elsewhere the arms mask it and the row must
  *       be answered;</li>
  *   <li>unqualified: where the row reaches the node through arms it takes, it <b>must</b> be
  *       declined; where only through arms it does not take, it <b>may</b> be declined, by that
@@ -83,11 +83,30 @@ public final class VarkaGuardSpecs {
 
   /**
    * The bits a batch must decline with and the further bits it may; both zero for a batch the
-   * kernel must answer.
+   * kernel must answer. {@code shortcut} marks the answer the masked driver's all-null shortcut
+   * gives before any guard runs ({@link #SHORTCUT}), which a caller holding a batch to its guards
+   * needs to tell from one the guards admit. Record equality includes it, so {@link #SHORTCUT}
+   * does not equal {@link #ANSWER}: a test that asks only whether a batch is answered reads
+   * {@link #answers}, and one that asks about the bits reads {@link #must} and {@link #may}.
    */
-  public record Verdict(int must, int may) {
+  public record Verdict(int must, int may, boolean shortcut) {
     public static final Verdict ANSWER = new Verdict(0, 0);
 
+    /** A batch the all-null shortcut answers: every output null, no guard run. */
+    public static final Verdict SHORTCUT = new Verdict(0, 0, true);
+
+    public Verdict {
+      if (shortcut && (must != 0 || may != 0)) {
+        throw new IllegalArgumentException("a shortcut answer declines nothing: " + must + ", "
+            + may);
+      }
+    }
+
+    public Verdict(int must, int may) {
+      this(must, may, false);
+    }
+
+    /** The join of two rows' verdicts, which the shortcut, a batch's alone, is never part of. */
     public Verdict or(Verdict other) {
       return new Verdict(must | other.must, may | other.may);
     }
@@ -112,23 +131,60 @@ public final class VarkaGuardSpecs {
    */
   public record Shift(Analysis.Refusal reason, long lo, long hi) { }
 
-  /** One guarded node: the reason its guard refuses for and the arm chain that qualifies it. */
-  record Guarded(VarkaVectorIR node, Analysis.Refusal reason, List<Analysis.ArmStep> chain) { }
+  /**
+   * One guarded node: the reason its guard refuses for and the arm chains that qualify it, ORed;
+   * none for an unqualified guard.
+   */
+  record Guarded(VarkaVectorIR node, Analysis.Refusal reason,
+      List<List<Analysis.ArmStep>> chains) { }
 
   /**
    * A kernel's guards, read once: {@code roots} emitted under {@code options}, at the long lane
-   * where {@code isLong}, and each guarded node's reason and arm chain.
+   * where {@code isLong}, each guarded node's reason and arm chain, and the column sets of the
+   * masked driver's all-null shortcut, one per root (bit {@code c} for input {@code c}), empty
+   * where the driver emits none.
    */
-  public record Guards(List<VarkaVectorIR> roots, boolean isLong, List<Guarded> guards) {
+  public record Guards(List<VarkaVectorIR> roots, boolean isLong, List<Guarded> guards,
+      List<Long> shortcut) {
     public Guards {
       roots = List.copyOf(roots);
       guards = List.copyOf(guards);
+      shortcut = List.copyOf(shortcut);
+      if (!shortcut.isEmpty() && shortcut.size() != roots.size()) {
+        throw new IllegalArgumentException(shortcut.size() + " shortcut column sets for "
+            + roots.size() + " roots");
+      }
     }
 
     /** The guards {@code roots} carry when emitted under {@code options}. */
     public Guards(List<VarkaVectorIR> roots, int numInputs, int numLiterals,
         VarkaEmitOptions options, boolean isLong) {
-      this(roots, isLong, read(roots, numInputs, numLiterals, options));
+      this(roots, isLong, read(roots, numInputs, numLiterals, options),
+          shortcutSets(roots, numInputs, numLiterals, options));
+    }
+
+    /**
+     * The shortcut's column sets, from the emitter's own ({@code VarkaLoopEmitter
+     * .shortcutColumnSetsForTest}): a bit a column, so at most {@code Long.SIZE} inputs, which is
+     * {@link VarkaEmitBudget#MAX_INPUTS}; a wider kernel is refused here rather than read with a
+     * shift that wraps.
+     */
+    private static List<Long> shortcutSets(List<VarkaVectorIR> roots, int numInputs,
+        int numLiterals, VarkaEmitOptions options) {
+      if (numInputs > Long.SIZE) {
+        throw new IllegalArgumentException(numInputs + " inputs, past the " + Long.SIZE
+            + " a column set holds (VarkaEmitBudget.MAX_INPUTS is "
+            + VarkaEmitBudget.MAX_INPUTS + ")");
+      }
+      long[] sets =
+          VarkaLoopEmitter.shortcutColumnSetsForTest(roots, numInputs, numLiterals, options);
+      var out = new ArrayList<Long>();
+      if (sets != null) {
+        for (long set : sets) {
+          out.add(set);
+        }
+      }
+      return out;
     }
 
     private static List<Guarded> read(List<VarkaVectorIR> roots, int numInputs, int numLiterals,
@@ -156,9 +212,23 @@ public final class VarkaGuardSpecs {
   /**
    * {@link #verdict} for a long-lane kernel that also reads the int literal table (VARKA-28):
    * {@code intLits} is that table, and the values are the reference's over both lanes.
+   *
+   * <p>The rows are one batch, and the verdict is the batch's: an empty batch is answered by
+   * the driver's empty return, and a batch the masked driver's all-null shortcut answers - every
+   * output reads a column null on every row - is {@link Verdict#SHORTCUT}, its guards never run.
+   * Only then are the rows' verdicts joined. A per-row verdict cannot see the shortcut: a guard
+   * on one operand beside a null in the other condemns a batch where that column also holds a
+   * valid row, and is never reached where every row of the batch is null there, as at one row a
+   * batch. A caller that joins one-row verdicts itself must pass rows with no nulls.
    */
   public static Verdict verdict(Guards g, long[] lits, int[] intLits, long[][] values,
       boolean[][] isNull, List<Shift> shifts) {
+    if (values.length == 0) {
+      return Verdict.ANSWER;
+    }
+    if (allNullShortcut(g, isNull)) {
+      return Verdict.SHORTCUT;
+    }
     var v = Verdict.ANSWER;
     for (int r = 0; r < values.length; r++) {
       v = v.or(rowVerdict(g, Values.of(values[r], isNull[r], lits, intLits, g.isLong()),
@@ -180,6 +250,32 @@ public final class VarkaGuardSpecs {
       boolean[][] isNull, List<Shift> shifts) {
     return verdict(new Guards(roots, numInputs, lits.length + intLits.length, options, isLong),
         lits, intLits, values, isNull, shifts);
+  }
+
+  /**
+   * Whether the masked driver's all-null shortcut answers a batch whose nulls are
+   * {@code isNull[r][c]}: the kernel emits it ({@code g.shortcut()} is not empty), and each
+   * output reads at least one column null on every row of the batch.
+   */
+  private static boolean allNullShortcut(Guards g, boolean[][] isNull) {
+    if (g.shortcut().isEmpty()) {
+      return false;
+    }
+    for (long set : g.shortcut()) {
+      boolean any = false;
+      for (long rest = set; rest != 0L && !any; rest &= rest - 1) {
+        int c = Long.numberOfTrailingZeros(rest);
+        boolean every = true;
+        for (boolean[] row : isNull) {
+          every &= row[c];
+        }
+        any = every;
+      }
+      if (!any) {
+        return false;
+      }
+    }
+    return true;
   }
 
   /**
@@ -246,10 +342,14 @@ public final class VarkaGuardSpecs {
       int bit = guarded.reason().status;
       Verdict must = new Verdict(bit, 0);
       Verdict may = new Verdict(0, bit);
-      if (!guarded.chain().isEmpty()) {
-        boolean selected = true;
-        for (var step : guarded.chain()) {
-          selected &= values.holds(step.node().cond()) == step.thenBranch();
+      if (!guarded.chains().isEmpty()) {
+        boolean selected = false;
+        for (var chain : guarded.chains()) {
+          boolean all = true;
+          for (var step : chain) {
+            all &= values.holds(step.node().cond()) == step.thenBranch();
+          }
+          selected |= all;
         }
         if (selected) {
           v = v.or(fired ? must : may);
@@ -305,6 +405,11 @@ public final class VarkaGuardSpecs {
 
   /** Whether {@code node} is FAIL-mode arithmetic whose exact result on the row leaves the lane. */
   private static boolean overflows(VarkaVectorIR node, Values values) {
+    // A floating node overflows to an infinity, which is an answer; the FAIL division's zero
+    // divisor is its own guard's, and leaves no wrapped value above it.
+    if (node.laneType().isFloating()) {
+      return false;
+    }
     BigInteger[] lane = laneBounds(node.laneType());
     if (node instanceof IntArith n && n.mode() == Overflow.FAIL) {
       BigInteger l = values.value(n.left());
@@ -313,6 +418,7 @@ public final class VarkaGuardSpecs {
         case ADD -> l.add(r);
         case SUB -> l.subtract(r);
         case MUL -> l.multiply(r);
+        case DIV -> throw new IllegalArgumentException("no integral division: " + n);
       }, lane);
     }
     if (node instanceof IntNeg n && n.mode() == Overflow.FAIL) {
@@ -359,6 +465,9 @@ public final class VarkaGuardSpecs {
           pair(VarkaChrono.MONTH_ARITH_MIN_MONTHS, VarkaChrono.MONTH_ARITH_MAX_MONTHS);
       case MAKE_DATE -> pair(VarkaChrono.MAKE_DATE_MIN_YEAR, VarkaChrono.MAKE_DATE_MAX_YEAR);
       case INT_OVERFLOW -> laneBounds(node.laneType());
+      // The zero divisor is a test of two bit patterns, not a range: fires() reads it first.
+      case DIVIDE_BY_ZERO -> throw new IllegalArgumentException(
+          "a zero divisor has no bound: " + node);
       case VALUE_RANGE -> {
         if (!(node instanceof GuardedRange g)) {
           throw new IllegalArgumentException("a value range on " + node);
@@ -392,6 +501,9 @@ public final class VarkaGuardSpecs {
    */
   private static boolean fires(VarkaVectorIR node, Analysis.Refusal reason, Values values,
       boolean isLong, List<Shift> shifts) {
+    if (reason == Analysis.Refusal.DIVIDE_BY_ZERO) {
+      return zeroDivisor((IntArith) node, values);
+    }
     BigInteger[] b = bound(node, reason, isLong, shifts);
     return switch (node) {
       case AddDays n -> outside(sum(values, n.days(), n.offset(), false), b);
@@ -419,6 +531,7 @@ public final class VarkaGuardSpecs {
           case ADD -> l.add(r);
           case SUB -> l.subtract(r);
           case MUL -> l.multiply(r);
+          case DIV -> throw new IllegalArgumentException("no integral division: " + n);
         }, b);
       }
       case IntNeg n -> {
@@ -431,10 +544,27 @@ public final class VarkaGuardSpecs {
       // class does not know, which is the case to add.
       case ColumnRef _, DecimalColumn _, LiteralSlot _, DateDiff _, IfElse _, Greatest _, Least _,
           DayOfWeek _, WeekDay _, DayOfWeekIso _, NextDay _, ThursdayOf _, Chrono _, ConstDivide _,
-          BoundedDivide _, BitOp _, BitCount _, Cond _, CondValue _, BoolOutput _, WidenLane _,
-          NarrowLane _, WidenDecimal _ ->
+          BoundedDivide _, BitOp _, BitCount _, MathUnary _, Cond _, CondValue _, BoolOutput _,
+          WidenLane _, NarrowLane _, WidenDecimal _ ->
           throw new IllegalArgumentException("no guard spec for " + reason + " on " + node);
     };
+  }
+
+  /**
+   * Whether a FAIL division's guard fires on the row: both operands valid and the divisor
+   * {@code 0.0} or {@code -0.0}, Spark's {@code x == 0}, which no NaN meets. The values are the
+   * lane's bits, a {@code FLOAT}'s sign-extended, so the two zeros are {@code 0} and the lane's
+   * sign bit.
+   */
+  private static boolean zeroDivisor(IntArith n, Values values) {
+    BigInteger l = values.value(n.left());
+    BigInteger r = l == null ? null : values.value(n.right());
+    if (r == null) {
+      return false;
+    }
+    long bits = r.longValue();
+    long negativeZero = n.laneType() == LaneType.DOUBLE ? Long.MIN_VALUE : Integer.MIN_VALUE;
+    return bits == 0L || bits == negativeZero;
   }
 
   /** The two operands' sum, or difference where {@code subtract}; null where either is null. */

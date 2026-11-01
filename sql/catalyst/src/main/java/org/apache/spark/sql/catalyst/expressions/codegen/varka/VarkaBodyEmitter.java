@@ -27,6 +27,7 @@ import java.lang.classfile.Label;
 import java.lang.constant.ClassDesc;
 import java.lang.constant.ConstantDescs;
 import java.lang.constant.MethodTypeDesc;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
@@ -130,10 +131,11 @@ final class VarkaBodyEmitter {
       cb.iload(analysis.lane.pLength);
       cb.invokestatic(SUPPORT, "zeroBitOutputData", ZERO_BIT_OUTPUT_DATA);
     }
-    if (shortcutApplies(dense, outputs, analysis)) {
+    long[] shortcut = shortcutColumnSets(dense, outputs, analysis);
+    if (shortcut != null) {
       Label live = cb.newLabel();
       cb.aload(P_NULL_COUNT);
-      cb.loadConstant(tableConstant(shortcutColumns(analysis, outputs), "all-null shortcut"));
+      cb.loadConstant(tableConstant(shortcutColumns(shortcut), "all-null shortcut"));
       cb.iload(analysis.lane.pLength);
       cb.invokestatic(SUPPORT, "everyOutputReadsAnAllNullColumn", EVERY_OUTPUT_ALL_NULL);
       cb.ifeq(live);
@@ -167,11 +169,11 @@ final class VarkaBodyEmitter {
         }
       }
     }
-    if (shortcutApplies(dense, outputs, analysis)) {
+    long[] shortcut = shortcutColumnSets(dense, outputs, analysis);
+    if (shortcut != null) {
       Label live = cb.newLabel();
       boolean firstOutput = true;
-      for (VarkaVectorIR root : outputs) {
-        long set = analysis.columns.get(root);
+      for (long set : shortcut) {
         boolean firstColumn = true;
         for (int i = 0; i < analysis.numInputs; i++) {
           if ((set >>> i & 1L) != 0) {
@@ -588,6 +590,26 @@ final class VarkaBodyEmitter {
           && !VarkaVectorIR.writesBitmaps(root);
     }
     return applies;
+  }
+
+  /**
+   * The column sets the driver's all-null shortcut reads, one per output in order (bit {@code i}
+   * for input {@code i}), or null where it emits no shortcut ({@link #shortcutApplies}). The one
+   * place they are computed: both driver forms emit their test from them (the table driver as
+   * {@link #shortcutColumns}, the unrolled one as an OR of the {@code dead} flags per set), and
+   * the verdict that models the batches the shortcut answers reads them through
+   * {@code VarkaLoopEmitter.shortcutColumnSetsForTest}, so the model cannot drift from the bytes.
+   */
+  static long[] shortcutColumnSets(boolean dense, List<VarkaVectorIR> outputs,
+      Analysis analysis) {
+    if (!shortcutApplies(dense, outputs, analysis)) {
+      return null;
+    }
+    long[] sets = new long[outputs.size()];
+    for (int o = 0; o < sets.length; o++) {
+      sets[o] = analysis.columns.get(outputs.get(o));
+    }
+    return sets;
   }
 
   /**
@@ -1335,6 +1357,12 @@ final class VarkaBodyEmitter {
     s.emittedUnshared.clear();
     s.emittedFragments.clear();
     planFragmentsReadingMonth(outputs, outputIdx, dense, s, analysis);
+    var roots = new ArrayList<VarkaVectorIR>();
+    for (int o : outputIdx) {
+      roots.add(outputs.get(o));
+    }
+    s.setReach(Analysis.reachOf(roots));
+    emitArmConditionsFirst(cb, dense, analysis, s, computed);
     for (int o : outputIdx) {
       VarkaVectorIR root = outputs.get(o);
       if (root instanceof Cond cond) {
@@ -1395,6 +1423,74 @@ final class VarkaBodyEmitter {
         emitRootValidityOr(cb, dense, analysis, s, o, root);
       }
     }
+  }
+
+  /**
+   * Emits, ahead of the body's outputs, the conditions of every arm chain a guard in this body is
+   * qualified by where it has several ({@link Analysis#armChainsIn}). A node shared by two
+   * outputs is computed at its first use, inside the first output's subtree, and its guard ANDs
+   * the OR of its chains there, so the second output's condition must already be in its slot.
+   * {@code emitCond} memoises through {@code computed}, so the output that owns the condition
+   * reads it back rather than computing it again. A guard with one chain sits under that chain's
+   * own conditions, which its {@code IfElse} emits first, and no shape without a guard of several
+   * chains emits anything here.
+   *
+   * <p>A condition emitted here can compute, inside it, another guard of several chains whose
+   * own chain conditions are not emitted yet: a guard under two {@code IfElse}s nested in the
+   * condition, which its first use reaches under the first of them. So each such guard's chain
+   * conditions are emitted, the same way, before the condition that holds it
+   * ({@link #emitChainConditions}). That order exists because the analysis leaves no two guards
+   * each inside the other's chain conditions ({@link Analysis#unqualifyArmCycles}).
+   */
+  private static void emitArmConditionsFirst(CodeBuilder cb, boolean dense, Analysis analysis,
+      Slots s, Set<VarkaVectorIR> computed) {
+    Set<VarkaVectorIR> done = new HashSet<>();
+    Set<VarkaVectorIR> inProgress = new HashSet<>();
+    for (VarkaVectorIR node : analysis.topoOrder) {
+      emitChainConditions(cb, node, dense, analysis, s, computed, done, inProgress);
+    }
+  }
+
+  /**
+   * {@link #emitArmConditionsFirst} for one {@code node}: nothing unless it is a guard of this
+   * body with several chains, else the condition of each step of each chain, each after the chain
+   * conditions of the guards inside it that are not computed yet, in topological order. {@code
+   * done} holds the nodes already visited, so each is visited once, and {@code inProgress} the
+   * guards whose conditions are being emitted: one reached again from inside them is a cycle the
+   * analysis should have unqualified, and is refused by name rather than emitted as a read of a
+   * mask local never stored.
+   */
+  private static void emitChainConditions(CodeBuilder cb, VarkaVectorIR node, boolean dense,
+      Analysis analysis, Slots s, Set<VarkaVectorIR> computed, Set<VarkaVectorIR> done,
+      Set<VarkaVectorIR> inProgress) {
+    if (!analysis.refusals.containsKey(node) || !s.reaches(node) || done.contains(node)) {
+      return;
+    }
+    List<List<Analysis.ArmStep>> chains = s.armChains(node, analysis);
+    if (chains.size() < 2) {
+      done.add(node);
+      return;
+    }
+    if (!inProgress.add(node)) {
+      throw VarkaErrors.illegalState("the guard of " + node + " is computed inside its own arm "
+          + "chains' conditions, through another guard's: Analysis.unqualifyArmCycles missed "
+          + "the cycle");
+    }
+    for (List<Analysis.ArmStep> chain : chains) {
+      for (Analysis.ArmStep step : chain) {
+        Cond cond = step.node().cond();
+        if (!computed.contains(cond)) {
+          for (VarkaVectorIR inner : analysis.condReachInOrder(cond)) {
+            if (!computed.contains(inner)) {
+              emitChainConditions(cb, inner, dense, analysis, s, computed, done, inProgress);
+            }
+          }
+        }
+        emitCond(cb, cond, dense, analysis, s, computed);
+      }
+    }
+    inProgress.remove(node);
+    done.add(node);
   }
 
   /**
@@ -1750,12 +1846,12 @@ final class VarkaBodyEmitter {
   /**
    * The table {@code VarkaVectorSupport.everyOutputReadsAnAllNullColumn} reads under
    * {@code driverOutputTable}: per output, the count of the columns it reads, then their
-   * ordinals - the sets the unrolled shortcut ORs the {@code dead} flags of.
+   * ordinals - the sets the unrolled shortcut ORs the {@code dead} flags of, both from
+   * {@link #shortcutColumnSets}.
    */
-  private static String shortcutColumns(Analysis analysis, List<VarkaVectorIR> outputs) {
+  private static String shortcutColumns(long[] sets) {
     StringBuilder table = new StringBuilder();
-    for (VarkaVectorIR root : outputs) {
-      long set = analysis.columns.get(root);
+    for (long set : sets) {
       table.append((char) Long.bitCount(set));
       for (int i = 0; i < Long.SIZE; i++) {
         if ((set >>> i & 1L) != 0) {

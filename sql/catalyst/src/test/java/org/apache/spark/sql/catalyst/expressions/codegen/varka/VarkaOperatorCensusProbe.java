@@ -72,6 +72,15 @@ public final class VarkaOperatorCensusProbe {
   public static final String LOOP_MARKER = "VARKA_CENSUS_LOOP=";
   public static final String DONE_PREFIX = "VARKA_CENSUS_DONE=";
 
+  /**
+   * The argument that makes the probe print this JVM's host fact instead of running an entry:
+   * {@code VarkaHostIsa.conversionsFallBack()} and the feature list it was read from (VARKA-538).
+   */
+  public static final String HOST_ENTRY = "host";
+  public static final String FALLS_BACK_PREFIX = "VARKA_CENSUS_FALLS_BACK=";
+  public static final String USE_AVX_PREFIX = "VARKA_CENSUS_USE_AVX=";
+  public static final String FEATURES_PREFIX = "VARKA_CENSUS_FEATURES=";
+
   /** The system property that names the {@code VectorOperators} constant a loop applies. */
   public static final String OPERATOR_PROPERTY = "varka.census.operator";
 
@@ -1173,6 +1182,13 @@ public final class VarkaOperatorCensusProbe {
   }
 
   public static void main(String[] args) {
+    if (args[0].equals(HOST_ENTRY)) {
+      System.out.println(FALLS_BACK_PREFIX + VarkaHostIsa.conversionsFallBack());
+      System.out.println(USE_AVX_PREFIX + VarkaEmitOptions.HOST_USE_AVX);
+      System.out.println(FEATURES_PREFIX + VarkaHostIsa.features());
+      System.out.println(DONE_PREFIX + HOST_ENTRY);
+      return;
+    }
     var entry = VarkaOperatorCensusCatalog.named(args[0]);
     int bits = IS.vectorBitSize();
     System.out.println(BEGIN_PREFIX + entry.name() + " bits=" + bits);

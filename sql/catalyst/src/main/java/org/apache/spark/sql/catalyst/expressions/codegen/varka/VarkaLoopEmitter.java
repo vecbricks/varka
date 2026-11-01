@@ -199,12 +199,15 @@ public final class VarkaLoopEmitter {
     return Map.copyOf(analyze(List.copyOf(outputs), numInputs, numLiterals, options).refusals);
   }
 
-  /** One guard {@link #guardsForTest} reports: its reason, and the arm chain qualifying it. */
-  record GuardForTest(Analysis.Refusal reason, List<Analysis.ArmStep> arms) {}
+  /**
+   * One guard {@link #guardsForTest} reports: its reason, and the arm chains qualifying it, the
+   * lanes it condemns being those some chain selects.
+   */
+  record GuardForTest(Analysis.Refusal reason, List<List<Analysis.ArmStep>> arms) {}
 
   /**
    * Every node {@link #analyze} guards for {@code outputs}, with its reason and the arm chain
-   * {@link Analysis#armChainOf} qualifies it by - the lanes it condemns are those the chain
+   * {@link Analysis#armChainsOf} qualifies it by - the lanes it condemns are those some chain
    * selects, and every lane where the chain is empty - from one analysis, for the verdict that
    * says which batches a kernel must decline (VARKA-279).
    */
@@ -213,9 +216,34 @@ public final class VarkaLoopEmitter {
     Analysis analysis = analyze(List.copyOf(outputs), numInputs, numLiterals, options);
     var guards = new HashMap<VarkaVectorIR, GuardForTest>();
     for (Map.Entry<VarkaVectorIR, Analysis.Refusal> e : analysis.refusals.entrySet()) {
-      guards.put(e.getKey(), new GuardForTest(e.getValue(), analysis.armChainOf(e.getKey())));
+      guards.put(e.getKey(), new GuardForTest(e.getValue(), analysis.armChainsOf(e.getKey())));
     }
     return Map.copyOf(guards);
+  }
+
+  /**
+   * The all-null shortcut's column sets for {@code outputs}, one per output, or null where the
+   * masked driver emits none: {@link VarkaBodyEmitter#shortcutColumnSets}, the sets both driver
+   * forms emit their test from. A batch in which every output reads a column that is null on
+   * every row returns before any guard runs, which the verdict beside {@link #guardsForTest} has
+   * to know.
+   */
+  static long[] shortcutColumnSetsForTest(List<VarkaVectorIR> outputs, int numInputs,
+      int numLiterals, VarkaEmitOptions options) {
+    outputs = List.copyOf(outputs);
+    return VarkaBodyEmitter.shortcutColumnSets(false, outputs,
+        analyze(outputs, numInputs, numLiterals, options));
+  }
+
+  /**
+   * Whether a kernel over {@code outputs} is emitted differently with
+   * {@link VarkaEmitOptions#checkIntOverflow} on and off: some node under them is one whose
+   * emission reads the option ({@link Analysis#readsCheckIntOverflow}, the test the emitter's own
+   * reads go through). For a differential that runs such a kernel with the check on where its
+   * configuration turns it off, and every other kernel as the configuration has it.
+   */
+  public static boolean readsCheckIntOverflowForTest(List<VarkaVectorIR> outputs) {
+    return Analysis.anyReadsCheckIntOverflow(List.copyOf(outputs));
   }
 
   /**
@@ -235,9 +263,9 @@ public final class VarkaLoopEmitter {
 
   /**
    * The analysis of {@code outputs} every emission starts from, in the one order its passes
-   * run: the roots, the arm contexts, the refusals, the word algebra and the bitmap pass. What
-   * depends on the grouping, the materialized prefixes, is planned by the caller once it has
-   * one.
+   * run: the roots, the arm contexts, the refusals and the arm cycles they leave, the word
+   * algebra and the bitmap pass. What depends on the grouping, the materialized prefixes, is
+   * planned by the caller once it has one.
    */
   private static Analysis analyze(List<VarkaVectorIR> outputs, int numInputs, int numLiterals,
       VarkaEmitOptions options) {
@@ -248,6 +276,7 @@ public final class VarkaLoopEmitter {
     analysis.requireOneStride();
     analysis.collectArmContexts(outputs);
     analysis.collectRefusals();
+    analysis.unqualifyArmCycles();
     analysis.collectWraps();
     analysis.planWordAlgebra();
     analysis.planBitmapPass(outputs);

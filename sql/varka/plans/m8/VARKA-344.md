@@ -118,7 +118,8 @@ of `m9/SCOPE.md`.
 13. **343's settled AVX2 forms.** `VARKA-343.md` 8, question 1: on AVX2, `D2L` is the exponent
     assembly over the whole range by default and the truncated magic number, declining above
     `2^51`, is the reference arm of the option `wideConversionForm`; `convertsFallBack()`
-    (`varka/VarkaEmitOptions.java:594-621`) is the host, already in the shape key. Its floating
+    (`varka/VarkaEmitOptions.java:594-621`) is the host, already in the shape key, once row 538
+    feeds it the host. Its floating
     `GuardedRange` holds IEEE-inclusive bounds with NaN outside (its 2.4), and gains the `NULL`
     disposal in 343b.
 14. **No baseline times any form.** Row 377's `VarkaFloatingBaselineBenchmark` times a

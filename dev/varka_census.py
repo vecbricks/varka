@@ -27,7 +27,8 @@ for each name whose inputs and result can all lie in the milestone's type set, t
 admits there, its result, the types Varka fuses today, and what is left to do. Every other name
 is excluded with a reason, by section or by name, below. Operators the parser or the analyzer
 builds without a registry entry (CheckOverflow, SubtractTimestamps, try_cast, ...) are listed in
-the curated file's [implicit] section.
+the curated file's [implicit] section, and those excluded with a reason in its
+[implicit excluded] section.
 
 The script fails rather than guess when the two halves disagree: a registered name with neither
 a curated row nor an exclusion, a curated name the registry no longer has, a class named in the
@@ -404,6 +405,7 @@ def build():
     sections = curated_sections()
     curated = {r[0]: r for r in parse_table(sections["registered"], 7)}
     implicit = parse_table(sections["implicit"], 9)
+    implicit_out = parse_table(sections.get("implicit excluded", ""), 4)
     cov = coverage_index()
     classes = defined_classes()
     errors = []
@@ -432,6 +434,12 @@ def build():
         r = row("implicit", name, cls, types, result, fused, need, rows, note, cov, errors)
         r[2] = "implicit: " + family
         out.append(r)
+    for name, cls, family, reason in implicit_out:
+        if cls not in classes:
+            errors.append(f"{name}: class {cls} is not defined in the sources")
+        if name in {r[0] for r in implicit}:
+            errors.append(f"{name}: both an implicit entry and excluded ({reason})")
+        out.append([name, cls, "implicit: " + family, "out", reason, "", "", "", "", "", "", ""])
     return out, errors
 
 
@@ -526,7 +534,8 @@ def summary(out):
     lines.append("section: registered / in scope")
     for s, n in sections.items():
         lines.append(f"  {s}: {n} / {ins.get(s, 0)}")
-    lines.append(f"  implicit: {len(implicit)} / {ins.get('implicit', 0) + len(implicit)}")
+    implicit_in = [r for r in implicit if r[3] == "in"]
+    lines.append(f"  implicit: {len(implicit)} / {len(implicit_in)}")
     lines.append("")
     reasons = collections.Counter(r[4] for r in out if r[3] == "out")
     lines.append("excluded, by reason:")
@@ -803,6 +812,15 @@ CONTEXT_CASTS = {
     ("dec", "dec"): "only a comparison's operand widened at one scale: d9 < d18, d9 = 0.42",
 }
 
+# The pairs that fuse only from a form the coverage table has no column of, so that no row over
+# its columns can cast them as a plan does: the probe holds every form, and a row writing the cast
+# over a literal shows nothing, since the optimizer folds it. Each must still fuse in the probe;
+# one that a coverage row comes to cast leaves this list.
+UNSHOWN_CASTS = {
+    ("time", "time"): "only a widening from TIME(0) or TIME(3), and the table's TIME columns "
+    "are TIME(6)",
+}
+
 
 def casts_fused(root=ROOT):
     """Per (from, to) and per mode: how many of its form pairs are legal, and how many fuse.
@@ -858,10 +876,12 @@ MODE_LEGAL = {"legacy": 0, "ansi": 1, "try": 1}
 
 
 def cast_errors(cov, probe):
-    """Comet's four-way rule over the probe and the coverage table, per mode: a pair the compiler
-    fuses has a coverage row casting it; a row's cast is legal in its mode and not an identity,
-    which the analyzer removes before a cast exists; and a pair a row casts fuses in that mode, or
-    fuses only inside another operator (CONTEXT_CASTS), where the probe must find it declined."""
+    """Comet's rule over the probe and the coverage table, per mode: a pair the compiler fuses has
+    a coverage row casting it, unless it is on UNSHOWN_CASTS, a pair no fixture column can show,
+    which stays on that list only while that holds; a row's cast is legal in its mode and not an
+    identity, which the analyzer removes before a cast exists; and a pair a row casts fuses in
+    that mode, or fuses only inside another operator (CONTEXT_CASTS), where the probe must find it
+    declined."""
     errors = []
     cast = cov["#casts"]
     for src, dst, mode in sorted(cast):
@@ -872,13 +892,19 @@ def cast_errors(cov, probe):
         elif (src, dst) not in CONTEXT_CASTS and not probe.get((src, dst), ({}, {}))[1].get(mode):
             errors.append(f"a coverage row casts {src} to {dst} under {mode}, which never fuses")
     for (src, dst), (_, fused) in sorted(probe.items()):
-        if any(fused.values()) and not any((src, dst) == (s, d) for s, d, _ in cast):
+        shown = any((src, dst) == (s, d) for s, d, _ in cast)
+        if any(fused.values()) and not shown and (src, dst) not in UNSHOWN_CASTS:
             errors.append(f"the compiler fuses cast {src} to {dst} and no coverage row casts it")
+        if (src, dst) in UNSHOWN_CASTS and (shown or not any(fused.values())):
+            errors.append(f"cast {src} to {dst}: take it off UNSHOWN_CASTS")
         if (src, dst) in CONTEXT_CASTS and any(fused.values()):
             errors.append(f"cast {src} to {dst} fuses bare: take it off CONTEXT_CASTS")
     for src, dst in CONTEXT_CASTS:
         if not any((src, dst) == (s, d) for s, d, _ in cast):
             errors.append(f"cast {src} to {dst} is in CONTEXT_CASTS and no coverage row casts it")
+    for src, dst in UNSHOWN_CASTS:
+        if (src, dst) not in probe:
+            errors.append(f"cast {src} to {dst} is in UNSHOWN_CASTS and the probe never emits it")
     return errors
 
 

@@ -160,6 +160,7 @@ public final class VarkaWordCensus {
       case BitOp x -> andW(pure(x.left(), coalesce, absorb), pure(x.right(), coalesce, absorb),
           absorb);
       case BitCount x -> pure(x.child(), coalesce, absorb);
+      case MathUnary x -> pure(x.child(), coalesce, absorb);
       case Greatest x -> orW(pure(x.left(), coalesce, absorb), pure(x.right(), coalesce, absorb),
           absorb);
       case Least x -> orW(pure(x.left(), coalesce, absorb), pure(x.right(), coalesce, absorb),

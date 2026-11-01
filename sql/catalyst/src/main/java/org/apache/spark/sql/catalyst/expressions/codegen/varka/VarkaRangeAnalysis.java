@@ -52,6 +52,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IsN
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LastDay;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Least;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LiteralSlot;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.MathUnary;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.MakeDate;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Month;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.NextDay;
@@ -331,6 +332,8 @@ public final class VarkaRangeAnalysis {
       // answered where it is narrowed, by the NarrowLane arm above.
       case BitCount n -> kind != Kind.INT || n.laneType() != VarkaVectorIR.LaneType.INT
           ? VarkaValueRange.UNKNOWN : VarkaValueRange.of(0, Long.SIZE);
+      // A floating value has no integer range.
+      case MathUnary n -> VarkaValueRange.UNKNOWN;
       // A condition as a value is 0 or 1 where it is known; an unknown row is null, whose value
       // no consumer reads.
       case CondValue n -> kind != Kind.INT ? VarkaValueRange.UNKNOWN : VarkaValueRange.of(0, 1);
@@ -544,6 +547,8 @@ public final class VarkaRangeAnalysis {
       case ADD -> l.add(r);
       case SUB -> l.sub(r);
       case MUL -> l.mul(r);
+      // A division is a floating lane's only, and the analysis answers no floating node.
+      case DIV -> throw VarkaErrors.illegalArgument("an integer range of a division: " + n);
     };
   }
 }

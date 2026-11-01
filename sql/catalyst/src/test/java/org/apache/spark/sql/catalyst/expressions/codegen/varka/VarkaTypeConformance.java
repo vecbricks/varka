@@ -132,6 +132,11 @@ public abstract class VarkaTypeConformance {
       return spark.equals(DataTypes.BooleanType);
     }
 
+    /** Whether the type is FLOAT or DOUBLE, whose arithmetic has no overflow to raise on. */
+    boolean isFloating() {
+      return spark.equals(DataTypes.FloatType) || spark.equals(DataTypes.DoubleType);
+    }
+
     /**
      * The lane a column of the type is read at, the registry's; a {@code BOOLEAN}, read as a
      * condition and on no lane, is counted with the int lane, as its bitmaps' words are.
@@ -157,6 +162,23 @@ public abstract class VarkaTypeConformance {
 
   /** The type this suite holds to the contract. */
   protected abstract ConformanceType type();
+
+  /**
+   * A form of the type's own arithmetic that the census's arithmetic operators do not name: its
+   * SQL over {@code x} and {@code y}, and the census entry that says whether it fuses.
+   */
+  protected record OverflowForm(String sql, String register) {}
+
+  /**
+   * The type's arithmetic beyond {@code +}, {@code -}, {@code *}, {@code negative}, {@code abs}
+   * and the {@code try_} forms, whose census rows list the numeric and interval types: a
+   * {@code TIMESTAMP_NTZ} subtracts to a day-time interval and adds one, which the census keeps
+   * as forms of their own. The overflow check runs each in LEGACY and ANSI over the type's values.
+   * None by default.
+   */
+  protected List<OverflowForm> overflowForms() {
+    return List.of();
+  }
 
   /**
    * An integral type between {@code min} and {@code max}, its literals spelled with
@@ -279,12 +301,15 @@ public abstract class VarkaTypeConformance {
   }
 
   /**
-   * The type's own arithmetic at its extremes, each operator the census admits for the type. An
-   * interval's arithmetic raises on overflow in every mode, which Spark's answer shows and the
-   * kernel is held to. A type the census admits for none of them ({@code BOOLEAN}, {@code DATE},
-   * {@code TIME}, and {@code TIMESTAMP_NTZ}, which has no arithmetic of its own type until row 339
-   * adds its interval arithmetic) has no overflow to check, and that is stated rather than
-   * skipped: a census row that admits one gives the check its first form here.
+   * The type's own arithmetic at its extremes, each operator the census admits for the type and
+   * each of the type's {@link #overflowForms}. An interval's arithmetic raises on overflow in every
+   * mode, which Spark's answer shows and the kernel is held to, and so does a
+   * {@code TIMESTAMP_NTZ}'s. A type the census admits for none of them and that names no form of
+   * its own ({@code BOOLEAN}, {@code DATE}, {@code TIME}) has no overflow to check, and that is
+   * stated rather than skipped: a census row that admits one gives the check its first form here.
+   * A floating type's arithmetic reaches an infinity at its extremes, which Spark answers in every
+   * mode (`VARKA-342.md` 3.8), so its forms are held to Spark over the extremes with nothing
+   * raised or nulled, and the kernel declines no batch.
    */
   @Test
   @DisplayName("overflow: LEGACY wraps, ANSI declines what Spark raises on, TRY nulls it")
@@ -299,6 +324,11 @@ public abstract class VarkaTypeConformance {
     }
     for (String fn : List.of("try_add", "try_subtract", "try_multiply")) {
       forms.add(value(fn + "(x, y)", fn).in(Mode.TRY).reachingOverflow());
+    }
+    for (OverflowForm f : overflowForms()) {
+      for (Mode mode : List.of(Mode.LEGACY, Mode.ANSI)) {
+        forms.add(value(f.sql(), f.register()).in(mode).reachingOverflow());
+      }
     }
     forms.removeIf(f -> !Registers.census(f.register()).types().contains(type().census()));
     if (forms.isEmpty()) {
@@ -655,6 +685,10 @@ public abstract class VarkaTypeConformance {
                 c.longLits(), c.lits(), b, raises, answers(oracle), CallHook.NONE)
             : VarkaKernelChecks.runLoadedNarrow(ctx, loaded.kernel(), c.roots(),
                 c.inputs().size(), c.lits(), intBatch(b), raises, answers(oracle), CallHook.NONE);
+        if (type().isFloating() && f.overflowing()) {
+          assertEquals(0, status, ctx + ": the kernel declined a floating overflow, which Spark "
+              + "answers");
+        }
         assertEquals(raises, status != 0, ctx + ": the kernel " + (status != 0 ? "declined"
             : "answered") + " a batch on which Spark " + (raises ? "raises" : "does not raise"));
         if (status == 0) {
@@ -680,10 +714,25 @@ public abstract class VarkaTypeConformance {
     boolean sawNull;
     boolean sawNullFromValid;
     boolean sawRaise;
+    /** The raw bits of every value seen, for a floating type's infinity test. */
+    final List<Long> values = new ArrayList<>();
+
+    /** Whether a value seen is an infinity of {@code type}, a floating type's bits read back. */
+    boolean sawInfinity(ConformanceType type) {
+      boolean isDouble = type.spark().equals(DataTypes.DoubleType);
+      for (long v : values) {
+        if (isDouble ? Double.isInfinite(Double.longBitsToDouble(v))
+            : Float.isInfinite(Float.intBitsToFloat((int) v))) {
+          return true;
+        }
+      }
+      return false;
+    }
 
     void see(VarkaSparkOracle.Answer answer, boolean bothValid) {
       if (answer instanceof VarkaSparkOracle.Value v) {
         sawValue = true;
+        values.add(v.v());
         sawTrue |= v.v() == 1L;
         sawFalse |= v.v() == 0L;
       } else if (answer instanceof VarkaSparkOracle.Raised) {
@@ -750,6 +799,16 @@ public abstract class VarkaTypeConformance {
       }
       String at = f + " output " + o + " (" + oracle.sql(o) + ") over the fixture";
       requireDiscriminates(f, c, o, at, s);
+      if (type().isFloating()) {
+        // A floating form overflows to an infinity, which Spark answers in every mode: some row
+        // reaches one, none raises, and none nulls from valid inputs.
+        if (f.overflowing()) {
+          assertTrue(s.sawInfinity(type()), at + ": the fixture never overflows it to an infinity");
+          assertTrue(!s.sawRaise, at + ": Spark raises on a floating overflow");
+          assertTrue(!s.sawNullFromValid, at + ": Spark nulls a floating overflow");
+        }
+        continue;
+      }
       if (f.overflowing() && f.mode() == Mode.ANSI) {
         assertTrue(s.sawRaise, at + ": the fixture never overflows it");
       }
