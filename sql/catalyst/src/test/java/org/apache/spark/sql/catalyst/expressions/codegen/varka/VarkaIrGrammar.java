@@ -365,16 +365,6 @@ public final class VarkaIrGrammar {
   }
 
   /**
-   * The generator for shape {@code k} of the sequence, the same in every suite that draws it.
-   *
-   * <p>The draws live here rather than in either caller because two of them must draw the
-   * <i>same</i> corpus from the same seed: {@code VarkaIrFuzzSuite} runs each shape against the
-   * reference evaluator, and {@code VarkaEmittedBytesSuite} pins the bytes the same shape emits.
-   * A copy of the preamble in each would let one extra {@code rnd.next*} call in one of them
-   * silently split the corpus in two, and the oracle would go on pinning shapes nothing checks
-   * for correctness. {@link #FUZZ_SEED} and this method are here for the same reason.
-   */
-  /**
    * A draw of the decimal sequence (VARKA-348): roots over decimal columns of the given
    * precisions, ordinal {@code c} at {@code precisions[c]}, and the long literal table they read.
    */
@@ -516,6 +506,16 @@ public final class VarkaIrGrammar {
     }
   }
 
+  /**
+   * The generator for shape {@code k} of the sequence, the same in every suite that draws it.
+   *
+   * <p>The draws live here rather than in either caller because two of them must draw the
+   * <i>same</i> corpus from the same seed: {@code VarkaIrFuzzSuite} runs each shape against the
+   * reference evaluator, and {@code VarkaEmittedBytesSuite} pins the bytes the same shape emits.
+   * A copy of the preamble in each would let one extra {@code rnd.next*} call in one of them
+   * silently split the corpus in two, and the oracle would go on pinning shapes nothing checks
+   * for correctness. {@link #FUZZ_SEED} and this method are here for the same reason.
+   */
   public static Random shapeRandom(long seed, int k) {
     return new Random(seed * 1000003L + k);
   }
