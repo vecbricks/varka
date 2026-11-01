@@ -286,8 +286,8 @@ each fix corrects:
    its controls' plans are checked both ways by `VarkaBooleanOutputQueriesSuite`, which passes.
 7. **Not changed here:** the executors' vector width (risk 5).
 
-A second review round the same day found item 1 wrong and four gaps. Items 8 to 14 add what it
-changed; items 1 to 7 stand as the first round wrote them, item 1 reverted by item 8.
+A second review round the same day found item 1 wrong and six more gaps. Items 8 to 15 add what
+it changed; items 1 to 7 stand as the first round wrote them, item 1 reverted by item 8.
 
 8. **Item 1 is reverted: the rule is keyed on the kernel's drive lane again**, as 3.1 and 9 say.
    The review pointed at `VarkaVectorWalk.emitToDrivingLane`, which in a kernel driven at the
