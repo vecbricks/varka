@@ -437,15 +437,14 @@ public class VarkaDecimalBaselineBenchmark extends VarkaSqlBenchmarkBase {
       String density = d.words();
       String type = p9.type();
       String from = " FROM varka_decimal WHERE ";
-      // The three filters fuse only their inferred null tests, a row Filter applying the
-      // arithmetic and the comparison; the projections run on the row path, since a decimal
-      // output is not written yet.
+      // The three filters fuse whole, the arithmetic under the comparison (VARKA-349); the
+      // projections run on the row path, since no lowering writes a decimal output yet.
       out.add(new Section(type + " x + y < z filter, " + density,
-          "SELECT " + x + from + x + " + " + y + " < " + z, Fusion.NULL_TESTS));
+          "SELECT " + x + from + x + " + " + y + " < " + z, Fusion.WHOLE));
       out.add(new Section(type + " x - w > 0 filter, w at another scale, " + density,
-          "SELECT " + x + from + x + " - " + w + " > 0", Fusion.NULL_TESTS));
+          "SELECT " + x + from + x + " - " + w + " > 0", Fusion.WHOLE));
       out.add(new Section(type + " x8 * y < z filter, x8 a DECIMAL(8, 2), " + density,
-          "SELECT " + x + from + x8 + " * " + y + " < " + z, Fusion.NULL_TESTS));
+          "SELECT " + x + from + x8 + " * " + y + " < " + z, Fusion.WHOLE));
       out.add(new Section(type + " x + y as a value, " + density,
           "SELECT " + x + " + " + y + " AS a FROM varka_decimal", Fusion.NONE));
       out.add(new Section(type + " x - w as a value, w at another scale, " + density,

@@ -589,6 +589,8 @@ new coverage rows, which each digest covers, and not with a flag, since none was
   and this row's three filters there (`x + y < z`, `x - w > 0`, `x8 * y < z`) are `NULL_TESTS` on
   the unchanged code; 349a fuses them whole, so whichever of the baseline pull request and 349a
   merges second moves those three sections to `WHOLE`.
+  *Done 1 November 2026:* the baseline reached this branch with the merge of
+  `varka-348-conditions`, and the three filter sections are `WHOLE` there now.
 - `VarkaConjunctOrder.errorFreeNode` still counts decimal `+`, `-` and `*` as able to raise.
   Within 18 digits none can, but only a residual conjunct beside a fused one reads it, and the
   conservative answer orders such a filter as Spark's codegen would; left unchanged.
