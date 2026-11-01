@@ -363,7 +363,8 @@ final class VarkaNodeCompiler {
         || e instanceof Sqrt || e instanceof ToDegrees || e instanceof ToRadians
         || (e instanceof Signum s && isFloating(s.child().dataType()))
         // The floating casts family's pairs (VARKA-343), by pair for the same reason.
-        || (e instanceof Cast c && VarkaFloatingCastCompiler.admits(c))) {
+        || (e instanceof Cast c && (VarkaFloatingCastCompiler.admits(c)
+            || DataTypes.BooleanType.equals(c.dataType())))) {
       return Optional.empty();
     }
     String what = switch (e) {

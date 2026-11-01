@@ -1064,15 +1064,11 @@ public final class VarkaKernelChecks {
 
     /**
      * Whether the kernel is driven at 64 bits, and so runs through the long entry point: every
-     * tree of both widths and every long one; a tree of the int and float lanes alone (VARKA-343)
-     * is driven at 32 bits and runs through the int entry point.
+     * tree holding a 64-bit node; a tree of the int and float lanes alone (VARKA-343) is driven
+     * at 32 bits and runs through the int entry point. A column the roots do not read is laid out
+     * as a long one and says nothing of the drive.
      */
     private boolean wide() {
-      for (VarkaVectorIR.LaneType lane : columnLanes) {
-        if (lane.bits() == Long.SIZE) {
-          return true;
-        }
-      }
       return wideRoots;
     }
 

@@ -429,6 +429,72 @@ The `DATE` pairs follow 333 in either.
 | generated | `coverage.json`, `docs/sql-varka.md`, `width_audit.json`, `emitted_bytes.json` |
 | generated | `operator_census.json`, `census.tsv`, `casts_fused.tsv` |
 
+### 5.1 343a as built (2 November 2026)
+
+Steps 3 and 6 of the list above; step 2 moves to 343b (below).
+
+- **`ConvertLane`** (2.1) is in the IR with its ten conversions defined and the constructor's
+  refusals (an integral pair, an identity, a narrow side). The emitter lowers the six this part
+  needs, `I2F`, `I2D`, `L2F`, `L2D`, `F2D` and `D2F`, each one `convertShape`, part 0, into the
+  target's species named by its static field; the four from a floating lane are 343b's and throw
+  in `emitShapeConversion` until then. The reference evaluator answers it by Java's casts over the
+  bits (`VarkaReference.convert`), through `mixedValue`, and the range analysis answers `UNKNOWN`.
+- **The width rules** (2.2): `emissionLane` drives a tree at the long lane if it holds one, at
+  the double lane if it holds a 64-bit value otherwise, at the int lane over the float one at 32
+  bits; `Analysis`' fit rule is by width; the plan names the lanes other than the drive's
+  (`otherLanes`), and each gets a species local and a literal table of its own in `Slots`,
+  numbered in the enum's order so that a long kernel of int values keeps its locals. A 32-bit
+  value of a 64-bit kernel is loaded and stored at the low half of its species (the int load and
+  store generalised to the float lane); a value of the other kind at the drive's lane count is
+  loaded and stored whole at its own species, under the epilogue's mask cast to it.
+  `VarkaEmittedBytesSuite` passed on that change before any generated file moved: no committed
+  shape's bytes moved (prediction 4.1, for the existing shapes).
+- **The same-count mask crossing** #1065 left owed: a guard's mask and an arm step's condition at
+  the drive's lane count but the other kind cross by `VectorMask.cast`, not through the word, in
+  `emitToDrivingLane`; the epilogue's bounds mask crosses the same way. A double division under
+  ANSI in a long kernel (`VarkaEmitterFloatingCastSuite`) is its test. *Not built:* roots of two
+  kinds still share no kernel (`lanesShare` is unchanged), and a filter's floating conjunct beside
+  an integral one still declines (`floatingConjunctRefusal`); both are the root-level half of the
+  crossing, which 343b or 342's mixed forms take up when a shape needs it.
+- **The compiler**: `VarkaFloatingCastCompiler`, a family `FLOATING_CAST` with its switch
+  `spark.sql.codegen.varka.family.floatingCast.enabled`, admits the fourteen pairs of item 0.1's
+  to-floating half by name (`admits`); `floatingDecline` names the rest by row: from a floating
+  type 343b, `DATE` 333, a decimal side 346, 350, 364 and 366. A narrow source is the `INT` its
+  load widens to (`WidenLane`) and then converted, so `TINYINT` and `SMALLINT` to `FLOAT` fuse;
+  to `DOUBLE` they decline in the kernel plan, since the narrow load at 64 bits is unbuilt (2.2,
+  row 332 or this row, whichever lands first). The host gate is the plan's refusal
+  `Kind.CONVERSION`: `L2F` and `L2D` decline where `convertsFallBack()` holds, since the arms
+  never see the emit options.
+- **The booleans** (2.5): *departure* - `CAST(b AS FLOAT)` and `AS DOUBLE` are
+  `ConvertLane(CondValue(c, INT), target)` (or `LONG` for a condition on the long lane), not a
+  `CondValue` at the floating lane: one exact conversion more, and no new `CondValue` lowering; a
+  condition on a floating lane as a value declines. `CAST(x AS BOOLEAN)` over a floating value is
+  `NOT (x = 0.0)` at the lane, Spark's order's `EQ`, in the predicate family's condition arm, as a
+  filter and, through row 27's `BoolOutput`, as a value.
+- **Tests**: `VarkaEmitterFloatingCastSuite` holds every conversion and the mixed kernels (an int
+  beside a double, an int beside a float, a bigint beside a double with a double pick, a double
+  narrowed beside a float, a condition converted, an ANSI division on the other lane) to the
+  reference at 128, 256 and 512 bits over ten lengths, four null patterns and both bodies; 2.4's
+  to-floating cells are asserted on the reference's definition; the sweeps of 3.1 for `INT` to
+  both and `FLOAT` to `DOUBLE` run every 256th chunk on every build and whole under
+  `-Dvarka.sweep=true`. `VarkaIrFuzzSuite` gains a floating conversions corpus on a seed of its
+  own (`FLOATING_CAST_FUZZ_SEED`), so no committed corpus moves, and a reach test over it. The
+  coverage table gains the families "Floating casts" and "Floating casts as conditions";
+  `VarkaFloatingLaneSuite` runs the `FLOAT` and `DOUBLE` casts end to end. *Departures:* the
+  `TINYINT`, `SMALLINT` and `BOOLEAN` sweeps of 3.1 are the coverage rows' fixtures rather than an
+  exhaustive table, and test 3.6's mixed-width kernels are in the new suite rather than
+  `VarkaEmitterMixedLaneSuite`.
+- **The warm-up** (2.7): the conversions block gains the six conversions and the mask cast.
+- **Cost** (2.7): *departure* - `ConvertLane` is unpriced, as the other floating nodes are
+  (`VarkaEmitCostFit.PRICED_LANES`), until row 352's refit; the budget weighs it as one op.
+- **No proof file**: `convertShape` is exact over the whole range on every host it is emitted
+  on, so 343a holds no bounded lowering; round-to-odd's proof is 343b's.
+- **Moved to 343b**: the census cells of step 2 (the `F2L` cell, the double arithmetic, the
+  reinterpretations and the long shifts by a vector count), which only the AVX2 forms read.
+
+The prediction of 4.1 for the new shapes and 4.3's timings wait for the measurement against the
+baseline (step 8); none was run here.
+
 ## 6. Out of this row
 
 The decimal pairs (346, 350, 364, 366); string, zoned `TIMESTAMP` and interval casts with a

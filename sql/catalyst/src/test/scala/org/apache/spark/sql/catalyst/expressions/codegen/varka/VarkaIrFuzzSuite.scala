@@ -550,8 +550,13 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
     }
     val className = "org.apache.spark.sql.varka.execution.VarkaFusedFuzzFloatingCast" +
       classCounter.addAndGet(1)
+    // The count the emitter is told, as the compiler's tables give it: a kernel of one lane reads
+    // the one table of its width, of `literals` slots; one of several lanes indexes each lane's
+    // own, whatever the total.
+    val oneLane = roots.asScala.flatMap(r => VarkaVectorIR.lanesIn(r).asScala).toSet.size == 1
+    val numLiterals = if (oneLane) literals else 2 * literals
     def emitWith(o: VarkaEmitOptions): Array[Byte] = VarkaLoopEmitter.emitTraced(
-      className, roots, numInputs, 2 * literals, o, randomTrace)
+      className, roots, numInputs, numLiterals, o, randomTrace)
     emitOrSkip(label, options)(emitWith).foreach { bytes =>
       VarkaKernelChecks.runAndCompareMixed(label, className, bytes, roots, numInputs, intLits,
         longLits, new VarkaKernelChecks.LongBatch(length,
@@ -1088,9 +1093,11 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
     // The floating math function (VARKA-342) is out with the floating lanes: the grammar draws no
     // floating tree yet, the floating sequence `VARKA-341.md` 5.1 owes, and a production is a row
     // of the same refit. `VarkaEmitterFloatingArithSuite` and the coverage rows cover it.
+    // The floating conversion (VARKA-343) has its own draw, on its own seed, so that no shape here
+    // moves: the floating cast test above runs it, and the test after it asserts its reach.
     val missing = permitted -- seen - "NarrowLane" - "WidenLane" - "NullSafeEqual" -
       "BoolColumn" - "CondConst" - "BoolCompare" - "CondIf" - "BoolNullSafeEq" - "CondValue" -
-      "BoolOutput" - "DecimalColumn" - "WidenDecimal" - "MathUnary"
+      "BoolOutput" - "DecimalColumn" - "WidenDecimal" - "MathUnary" - "ConvertLane"
     assert(missing.isEmpty,
       s"the generator never built: ${missing.toSeq.sorted.mkString(", ")} - add an arm, or " +
         "state here why the node type is deliberately out of the fuzzer's reach")

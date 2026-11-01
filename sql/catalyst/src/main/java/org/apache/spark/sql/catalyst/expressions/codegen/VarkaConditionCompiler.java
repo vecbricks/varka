@@ -37,6 +37,7 @@ import org.apache.spark.sql.catalyst.expressions.And;
 import org.apache.spark.sql.catalyst.expressions.BinaryComparison;
 import org.apache.spark.sql.catalyst.expressions.BoundReference;
 import org.apache.spark.sql.catalyst.expressions.CaseWhen;
+import org.apache.spark.sql.catalyst.expressions.Cast;
 import org.apache.spark.sql.catalyst.expressions.Coalesce;
 import org.apache.spark.sql.catalyst.expressions.EqualNullSafe;
 import org.apache.spark.sql.catalyst.expressions.EqualTo;
@@ -689,6 +690,22 @@ final class VarkaConditionCompiler {
   }
 
   /**
+   * {@code CAST(x AS BOOLEAN)} over a floating {@code x}: Spark's {@code x != 0}, the negation of
+   * the lane's {@code EQ} against zero. That {@code EQ} is Spark's order, under which both zeros
+   * are equal and a NaN equals only a NaN, so {@code -0.0} is false and a NaN true, as Java's
+   * {@code !=} has them; a null is unknown, as the cast's null is.
+   */
+  private static Optional<Cond> nonZero(Cast c, VarkaSlotTable inputs, VarkaSlotTable literals,
+      DeclineSink sink) {
+    return VarkaNodeCompiler.compileNode(c.child(), inputs, literals, sink).map(x -> {
+      VarkaVectorIR zero = x.laneType() == LaneType.DOUBLE
+          ? VarkaNodeCompiler.doubleSlot(0.0, sink)
+          : VarkaNodeCompiler.slot(Float.floatToRawIntBits(0.0f), LaneType.FLOAT, literals);
+      return new VarkaVectorIR.Not(new Compare(CompareOp.EQ, x, zero));
+    });
+  }
+
+  /**
    * The lowering {@link #compileCond} runs for {@code expr}, deferred, or {@code null} for a node
    * the predicate family does not claim: the claim of the family, in the form of the chain's
    * arms, which {@code VarkaNodeCompiler.predicates} hands to the suites that check no node is
@@ -743,6 +760,10 @@ final class VarkaConditionCompiler {
       // The floating lanes' own test (VARKA-341): `isnan`, total, as the lane's EQ against NaN.
       case IsNaN n when isFloating(n.child().dataType()) ->
           () -> isNaN(n.child(), inputs, literals, sink);
+      // A floating value as a boolean (VARKA-343 2.5): Spark's `x != 0` in every mode, never an
+      // error.
+      case Cast c when c.dataType().equals(DataTypes.BooleanType)
+          && isFloating(c.child().dataType()) -> () -> nonZero(c, inputs, literals, sink);
       case And and -> () -> {
         Optional<Cond> left = compileCond(and.left(), inputs, literals, sink);
         if (left.isEmpty()) {
