@@ -134,37 +134,71 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
   private val matrixReach = new VarkaReach.Tally
   private val lengths = Seq(1, 3, 7, 15, 16, 17, 33, 64, 65, 100, 257, 1000)
 
-  /** The options `randomOptions` draws, in the order it draws them. */
-  private val fuzzedOptions = VarkaEmitOption.TABLE.asScala.toSeq
-    .filter(_.reason.drawn)
-    .sortBy(o => "with" + o.name.head.toUpper + o.name.tail)
+  /** The options `randomOptions` draws: all but the fault injectors and miscompiled forms. */
+  private val fuzzedOptions = VarkaEmitOption.TABLE.asScala.toSeq.filter(_.reason.drawn)
+
+  /**
+   * The options drawn from the case's own stream, in the order they were drawn when the order
+   * froze (VARKA-348): the order of their `with*` setters' names, as it stood before
+   * `decimalAbsLanewise`. A name sorted into the middle of that order shifts every later coin of
+   * every draw, and with them the data drawn after, so a seed recorded in a failure or pinned in
+   * a test stops drawing what it drew; `decimalAbsLanewise` did, and moved a pinned draw. So this
+   * list never changes, and an option added to the table later is drawn from a stream of its own
+   * (`ownStream`), which leaves every other draw as it was.
+   */
+  private val streamOptions = Seq("callSiteBudget", "checkIntOverflow", "cse",
+    "denseValidityOnce", "division", "driverOutputTable", "elideChronoMonth",
+    "elideUnreadLocals", "exactGrouping", "exactRefusalStatus", "floorMod7", "fusedCeiling",
+    "groupBudget", "groupBudgetUnderPrediction", "groupLocalSlots", "guardDayProducers",
+    "guardUnderArm", "heavyGroupOutputs", "julianMap", "lanesOverride",
+    "materializeChronoPrefix", "methodByteBudget", "mulHiDivide", "narrowHalfSpecies",
+    "narrowLanes", "neriSchneiderMonth", "planSize", "predictGrouping", "rangeSets",
+    "severalKernels", "shareChronoPrefix", "shareWholeNodes", "splitConditions", "splitDriver",
+    "truncDate", "useAVX", "validityByBitmap", "validityByWidth", "validityByWord",
+    "validityOrFirst")
+
+  private val fuzzedByName = fuzzedOptions.map(o => o.name -> o).toMap
+
+  /** The options added after the order froze, each drawn from `ownStream`. */
+  private val lateOptions = fuzzedOptions.filterNot(o => streamOptions.contains(o.name))
+
+  /**
+   * The stream an option added after the order froze draws its value from: seeded by the draw's
+   * seed, its iteration and the option's name, so it is the same for every replay of the draw
+   * and independent of every other option.
+   */
+  private def ownStream(drawSeed: Long, iteration: Int, name: String): Random =
+    new Random(new java.util.SplittableRandom(
+      (drawSeed * 1000003L + iteration) ^ (name.hashCode * 0x9E3779B97F4A7C15L)).nextLong())
 
   /**
    * A random variant of the options record, drawn from the options table: every option but the
-   * fault injectors and the miscompiled forms (`Reason.drawn`), in the order of their `with*`
-   * setters' names, a boolean as a coin, an enum as one of its constants, and an int one time in
-   * five from the values its table entry lists - a lanes override from the powers of two, the AVX
-   * level from the levels either side of 3 where the 64-bit division changes lowering, the method
-   * byte budget from off, the HotSpot limit and the smaller budgets that bring the size machinery
-   * down to the widths drawn here (VARKA-238), and the other budgets from small values. The order
-   * is fixed so that a seed recorded in a failure keeps drawing the same options. The draw is laid
-   * over `base`, the matrix's options for every draw but the one that asks what the defaults run
-   * drew: an option drawn by its coin is the same over either base, so under a flag or an enum's
-   * configuration a draw has the defaults run's options exactly (VARKA-507).
+   * fault injectors and the miscompiled forms (`Reason.drawn`), a boolean as a coin, an enum as
+   * one of its constants, and an int one time in five from the values its table entry lists - a
+   * lanes override from the powers of two, the AVX level from the levels either side of 3 where
+   * the 64-bit division changes lowering, the method byte budget from off, the HotSpot limit and
+   * the smaller budgets that bring the size machinery down to the widths drawn here (VARKA-238),
+   * and the other budgets from small values. The options of `streamOptions` are drawn from
+   * `rnd`, in its fixed order, and every later one from its own stream, so that a seed recorded
+   * in a failure keeps drawing the same options and data when an option is added. The draw is
+   * laid over `base`, the matrix's options for every draw but the one that asks what the
+   * defaults run drew: an option drawn by its coin is the same over either base, so under a flag
+   * or an enum's configuration a draw has the defaults run's options exactly (VARKA-507).
    */
-  private def randomOptions(rnd: Random, base: VarkaEmitOptions): VarkaEmitOptions = {
+  private def randomOptions(rnd: Random, base: VarkaEmitOptions, drawSeed: Long,
+      iteration: Int): VarkaEmitOptions = {
     var opts = base
-    for (option <- fuzzedOptions) {
-      option match {
-        case flag: VarkaEmitOption.Flag => opts = flag.`with`(opts, rnd.nextBoolean())
-        case choice: VarkaEmitOption.Choice[_] =>
-          opts = choice.withIndex(opts, rnd.nextInt(choice.constants.size))
-        case count: VarkaEmitOption.Count =>
-          if (rnd.nextInt(5) == 0) {
-            opts = count.`with`(opts, count.fuzzDraws.get(rnd.nextInt(count.fuzzDraws.size)))
-          }
-      }
+    def draw(option: VarkaEmitOption, from: Random): Unit = option match {
+      case flag: VarkaEmitOption.Flag => opts = flag.`with`(opts, from.nextBoolean())
+      case choice: VarkaEmitOption.Choice[_] =>
+        opts = choice.withIndex(opts, from.nextInt(choice.constants.size))
+      case count: VarkaEmitOption.Count =>
+        if (from.nextInt(5) == 0) {
+          opts = count.`with`(opts, count.fuzzDraws.get(from.nextInt(count.fuzzDraws.size)))
+        }
     }
+    streamOptions.foreach(name => draw(fuzzedByName(name), rnd))
+    lateOptions.foreach(o => draw(o, ownStream(drawSeed, iteration, o.name)))
     opts
   }
 
@@ -291,7 +325,7 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
     // all-null column, and the fuzzer's first run found exactly that contradiction (44 cases,
     // every one at length 1) before it found anything about the kernel.
     val forceMasked = length > 1 && rnd.nextInt(4) == 0
-    val options = randomOptions(rnd, base)
+    val options = randomOptions(rnd, base, drawSeed, iteration)
     val data = Array.tabulate(numInputs, length) { (c, _) =>
       if (c == levelOrdinal) {
         // Exactly the codes TruncLevelLeaf produces; a value outside them is a lane the
@@ -336,7 +370,7 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
     val patternIds = Seq.fill(numInputs)(rnd.nextInt(patternNames.length))
     val patterns = patternIds.map(pattern(rnd, _, length))
     val forceMasked = length > 1 && rnd.nextInt(4) == 0
-    val options = randomOptions(rnd, base)
+    val options = randomOptions(rnd, base, drawSeed, iteration)
     val data =
       Array.tabulate(numInputs, length)((_, _) => VarkaIrGrammar.within(rnd, longColumnBound))
 
@@ -447,7 +481,7 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
     val patternIds = Seq.fill(numInputs)(rnd.nextInt(patternNames.length))
     val patterns = patternIds.map(pattern(rnd, _, length))
     val forceMasked = length > 1 && rnd.nextInt(4) == 0
-    val options = randomOptions(rnd, VarkaMatrix.base)
+    val options = randomOptions(rnd, VarkaMatrix.base, mixedSeed, iteration)
     val data = Array.tabulate(numInputs, length) { (c, _) =>
       if (c < drawn.intInputs) VarkaIrGrammar.intWithin(rnd, intColumnBound).toLong
       else VarkaIrGrammar.within(rnd, longColumnBound)
@@ -816,12 +850,15 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
     val (armSkips, arm) = variantsOf(2026101307006L, 32279)
     assert(armSkips == 0 && arm.get("untaken arm replaced compared").contains(1), arm)
     assert(firstChoiceOver(2026101300002L, 195413, VarkaVariants.Kind.BESIDE_A_STRANGER))
-    // The stranger's draw runs under the matrix base rather than its drawn options: a drawn
-    // option added to the table shifts every later coin of the draw (VARKA-348's
-    // decimalAbsLanewise did), and whether the stranger fits depends on the size options.
-    val (strangerSkips, stranger) = variantsOf(2026101300002L, 195413,
-      c => c.withOptions(VarkaMatrix.base))
+    val (strangerSkips, stranger) = variantsOf(2026101300002L, 195413)
     assert(strangerSkips == 0 && stranger.get("beside a stranger compared").contains(1), stranger)
+  }
+
+  test("the options drawn from a draw's own stream are still drawn options") {
+    // Removing one would shift every later coin, as inserting one did; such an option stays in
+    // the table, or `randomOptions` keeps drawing and dropping a value in its place.
+    val drawn = fuzzedOptions.map(_.name).toSet
+    assert(streamOptions.forall(drawn), streamOptions.filterNot(drawn))
   }
 
   /** `c` with the planted-bug option `name` on. */
@@ -1362,7 +1399,7 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
     val patternIds = Seq.fill(numInputs)(rnd.nextInt(patternNames.length))
     val patterns = patternIds.map(pattern(rnd, _, length))
     val forceMasked = length > 1 && rnd.nextInt(4) == 0
-    val options = randomOptions(rnd, VarkaMatrix.base)
+    val options = randomOptions(rnd, VarkaMatrix.base, decimalSeed, iteration)
     val data = Array.tabulate(numInputs, length) { (c, _) =>
       val bound = org.apache.spark.sql.types.Decimal.POW_10(drawn.precisions()(c)) - 1
       rnd.nextInt(8) match {
