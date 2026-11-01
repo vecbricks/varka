@@ -3038,16 +3038,16 @@
           "loopMasked0([J[J[I[J[J[I[JI)I" : "cd4a7a0f367d0959",
           "epilogueMasked0([J[J[I[J[J[I[JI)I" : "5e52e2ca780064b8"
         },
-        "if(d < d2, i, i + 1)" : {
+        "if(i < 0, i, i + 1)" : {
           "<class>" : "2a53295ac2cde372",
           "<init>()V" : "e2c903051ec05d17",
-          "run([J[J[I[J[J[II)I" : "61fe9fea91ab05a6",
+          "run([J[J[I[J[J[II)I" : "f09c0a347f43e9ec",
           "runDense([J[J[I[J[J[II)I" : "4d2af451952dc222",
-          "loopDense0([J[J[I[J[J[II)I" : "73fc247a9de83435",
-          "epilogueDense0([J[J[I[J[J[II)I" : "77096b4e6a80fba5",
+          "loopDense0([J[J[I[J[J[II)I" : "45fe6b2cf4334c76",
+          "epilogueDense0([J[J[I[J[J[II)I" : "d863cf58f8a35b0e",
           "runMasked([J[J[I[J[J[II)I" : "de0cd7b0a0788246",
-          "loopMasked0([J[J[I[J[J[II)I" : "f6e7177007701a61",
-          "epilogueMasked0([J[J[I[J[J[II)I" : "6e112ce66b35ea33"
+          "loopMasked0([J[J[I[J[J[II)I" : "84a6ef5196c3b1fc",
+          "epilogueMasked0([J[J[I[J[J[II)I" : "840003d72fecce9d"
         },
         "CASE WHEN d < d2 THEN i ELSE datediff(d, d2) END" : {
           "<class>" : "2a53295ac2cde372",
@@ -7571,16 +7571,16 @@
           "loopMasked0([J[J[I[J[J[I[JI)I" : "d2c72b1bd38a2481",
           "epilogueMasked0([J[J[I[J[J[I[JI)I" : "fc99723a4a872f47"
         },
-        "if(d < d2, i, i + 1)" : {
+        "if(i < 0, i, i + 1)" : {
           "<class>" : "2a53295ac2cde372",
           "<init>()V" : "e2c903051ec05d17",
-          "run([J[J[I[J[J[II)I" : "61fe9fea91ab05a6",
+          "run([J[J[I[J[J[II)I" : "f09c0a347f43e9ec",
           "runDense([J[J[I[J[J[II)I" : "4d2af451952dc222",
-          "loopDense0([J[J[I[J[J[II)I" : "a5242c8879ca9178",
-          "epilogueDense0([J[J[I[J[J[II)I" : "5fa99a36bf08eb95",
+          "loopDense0([J[J[I[J[J[II)I" : "2d768baafafa0f9c",
+          "epilogueDense0([J[J[I[J[J[II)I" : "e733bb58eea3e6c2",
           "runMasked([J[J[I[J[J[II)I" : "de0cd7b0a0788246",
-          "loopMasked0([J[J[I[J[J[II)I" : "be8cb1dfe458dc21",
-          "epilogueMasked0([J[J[I[J[J[II)I" : "f6b59d3785e5a0fd"
+          "loopMasked0([J[J[I[J[J[II)I" : "7d9e1edcb6780f1d",
+          "epilogueMasked0([J[J[I[J[J[II)I" : "28451430ae5166fc"
         },
         "CASE WHEN d < d2 THEN i ELSE datediff(d, d2) END" : {
           "<class>" : "2a53295ac2cde372",
@@ -9072,48 +9072,48 @@
   },
   "option_arms" : {
     "useAVX=-1" : {
-      "4" : "442909a672993133",
-      "16" : "d471b3aba01ecc29"
+      "4" : "980abbad6e0057b9",
+      "16" : "b2732304e926cc08"
     },
     "useAVX=0" : {
-      "4" : "fe2ebc06d0950ec8",
-      "16" : "e15c81d4d3564797"
+      "4" : "78967986c5c62989",
+      "16" : "b8591167bbd9e19a"
     },
     "useAVX=1" : {
-      "4" : "fe2ebc06d0950ec8",
-      "16" : "e15c81d4d3564797"
+      "4" : "78967986c5c62989",
+      "16" : "b8591167bbd9e19a"
     },
     "useAVX=2" : {
-      "4" : "fe2ebc06d0950ec8",
-      "16" : "e15c81d4d3564797"
+      "4" : "78967986c5c62989",
+      "16" : "b8591167bbd9e19a"
     },
     "useAVX=3" : {
-      "4" : "442909a672993133",
-      "16" : "d471b3aba01ecc29"
+      "4" : "980abbad6e0057b9",
+      "16" : "b2732304e926cc08"
     },
     "validityOrFirst=true over denseValidityOnce=false,validityByBitmap=false" : {
-      "4" : "700f6b8c6dff540a",
-      "16" : "f6ac89fa4e3e9c8a"
+      "4" : "a1f1b59fdb317bc0",
+      "16" : "91367b12f73d53bb"
     },
     "validityOrFirst=false over denseValidityOnce=false,validityByBitmap=false" : {
-      "4" : "e2c7389adc4a9d0b",
-      "16" : "c196ebd74737eecf"
+      "4" : "b5db3b0cb107d91c",
+      "16" : "e6a3e63d38d9e741"
     },
     "narrowLanes=true" : {
-      "4" : "442909a672993133",
-      "16" : "d471b3aba01ecc29"
+      "4" : "980abbad6e0057b9",
+      "16" : "b2732304e926cc08"
     },
     "narrowLanes=false" : {
-      "4" : "fc72010c20f53146",
-      "16" : "9346ab6d671f894c"
+      "4" : "aec95dc2d141c721",
+      "16" : "601e23ce89869a95"
     },
     "groupLocalSlots=false" : {
-      "4" : "d6abdebb711ee1fa",
-      "16" : "52f72fdd38b63c25"
+      "4" : "3d6c4b8fcbdbb352",
+      "16" : "c0596def9a4f92de"
     },
     "methodByteBudget=0" : {
-      "4" : "38a71414b9118bdb",
-      "16" : "3759c173c5febc7a"
+      "4" : "2d0256c878f6575d",
+      "16" : "ac6dd0a11cb64715"
     }
   }
 }

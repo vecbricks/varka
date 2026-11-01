@@ -350,6 +350,16 @@ digest over every shape, which a new row moves by construction; `census.tsv`.
    VARKA-509 runs one row a family. The estimate priced a session query per row that the harness
    no longer makes. Entered in the calibration table (`skills/calibration/VARKA-333-6.1-3.md`).
 
+**The op counts of 3.6**, from `dev/varka_emit.sh --table` at the defaults (the dense loop's
+vector calls): `if(d < d2, d, d2)` and `CASE WHEN d < d2 THEN d ELSE d2 END` 5 each, and the int
+choice `if(d < d2, i, datediff(d, d2))` 7, the date twin plus `datediff`'s subtract and its
+pair of loads less one, so the int branch costs what a date branch does and the typed arm adds no
+node. `CASE WHEN d < d2 THEN d END` and `CASE WHEN l < l2 THEN l END` read 0: a kernel holding
+the null leaf has no dense loop to count, which is the leaf's analysis working as 3.2 says, and
+the masked comparison 3.6 registered is not one the table prints. Its masked bodies, from the
+dump of 2.1's second run, hold the comparison, the blend and the leaf's broadcast and word; the
+per-row cost against the ELSE form is prediction 1's benchmark, owed below.
+
 **Tests run locally, under the shared locks**, on the branch with row 497 and master merged:
 `VarkaCoverageSuite`, `VarkaEmittedBytesSuite`, `VarkaWidthAuditSuite`, `VarkaIrFuzzSuite`,
 `VarkaProofFilesSuite`, `VarkaExpressionCompilerSuite`, the thirteen `*ConformanceSuite`s,

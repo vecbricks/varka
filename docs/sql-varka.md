@@ -687,7 +687,7 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 
 | Expression | Switches | Domain | Notes | 128-bit lanes |
 |---|---|---|---|---|
-| `if(i < 0, i, i + 1)` | `predicate`, `condition`, `intArithmetic` | `i < 2147483647` | an int branch is a column, a literal or int arithmetic; the checked add is qualified by its arm, so only a row taking the ELSE can overflow | not audited |
+| `if(i < 0, i, i + 1)` | `predicate`, `condition`, `intArithmetic` | `i < 2147483647` | an int branch is a column, a literal or int arithmetic; the checked add is qualified by its arm, so only a row taking the ELSE can overflow | vector |
 | `CASE WHEN d < d2 THEN i ELSE datediff(d, d2) END` | `calendar`, `predicate`, `condition` |  |  | vector |
 | `coalesce(i, datediff(d, d2))` | `calendar`, `condition` |  |  | vector |
 | `coalesce(i, 0)` | `condition` |  |  | vector |
