@@ -311,18 +311,25 @@ def suite_text(suite):
     return joined(read(hits[0]))
 
 
-_TEST_SOURCES = {}
+_JOINED_SOURCES = {}
+
+
+def names_test(test, text):
+    """Whether a source names the test, as written or with its escapes undone."""
+    return test in text or test in unescape(text)
 
 
 def inherited_test(test):
-    """Whether some test source names the test: a suite may take its tests from a parent. The
-    sources are read as they stand in the tree being committed and joined like the suite's own,
-    so a name split across lines in a parent is found, and a rename and its skip line can land in
-    one commit."""
-    if ROOT not in _TEST_SOURCES:
+    """Whether some test source names the test: a suite may take its tests from a parent. Every
+    test source is searched as written, and the Varka ones also joined like the suite's own (see
+    `joined`), so a name a parent splits across lines is found. Like every file this lint reads,
+    the sources are read from the working tree, so a rename and its skip line can land together."""
+    if git("grep", "-l", "-F", test, "--", "sql/*/src/test/*", check=False):
+        return True
+    if ROOT not in _JOINED_SOURCES:
         files = git("ls-files", "sql/*/src/test/*.scala", "sql/*/src/test/*.java").split()
-        _TEST_SOURCES[ROOT] = [joined(read(f)) for f in files if "Varka" in f]
-    return any(test in text or test in unescape(text) for text in _TEST_SOURCES[ROOT])
+        _JOINED_SOURCES[ROOT] = [joined(read(f)) for f in files if "Varka" in f]
+    return any(names_test(test, text) for text in _JOINED_SOURCES[ROOT])
 
 
 def names_tests_at_run_time(text):
@@ -366,8 +373,7 @@ def rule_skips_tsv(ch):
         if text is None:
             yield f"{SKIPS}:{n}: skips-tsv: no suite named {suite}"
         elif (
-            test not in text
-            and test not in unescape(text)
+            not names_test(test, text)
             and not names_tests_at_run_time(text)
             and not inherited_test(test)
         ):
@@ -539,6 +545,7 @@ def selftest():
             for path, text in files.items():
                 write(path, text)
             sh("git", "add", "-A")
+            _JOINED_SOURCES.clear()
             global ROOT
             saved, ROOT = ROOT, tmp
             try:
@@ -566,26 +573,6 @@ def selftest():
             "license-header",
             False,
         )
-        tables = "sql/m/src/test/java/VarkaShapeTables.java"
-        suite = "sql/m/src/test/java/VarkaShapeSuite.java"
-        split = lic + '@DisplayName("a name split "\n      + "across two lines")\nvoid t() {}\n'
-        skip = "a=1\tVarkaShapeSuite\t%s\tfails\tthe reason\n"
-        case(
-            "a skip line naming a test its parent splits across lines",
-            {
-                tables: split,
-                suite: lic + "class VarkaShapeSuite {}\n",
-                SKIPS: skip % "a name split across two lines",
-            },
-            "skips-tsv",
-            False,
-        )
-        case(
-            "a skip line naming no test",
-            {SKIPS: skip % "a name nobody wrote"},
-            "skips-tsv",
-            True,
-        )
         case("a new excluded JSON file", {"m/x.json": "{}\n"}, "license-header", False)
         case(
             "a first import of a library",
@@ -604,6 +591,30 @@ def selftest():
             {"m/src/test/java/C.java": lic + "import java.util.List;\n"},
             "import-root",
             False,
+        )
+        tables = "sql/m/src/test/java/VarkaShapeTables.java"
+        suite = "sql/m/src/test/java/VarkaShapeSuite.java"
+        split = lic + '@DisplayName("a name split "\n      + "across two lines")\nvoid t() {}\n'
+        skip = "a=1\tVarkaShapeSuite\t%s\tfails\tthe reason\n"
+        case(
+            "a skip line naming a test its parent splits across lines",
+            {
+                tables: split,
+                suite: lic + "class VarkaShapeSuite {}\n",
+                SKIPS: skip % "a name split across two lines",
+            },
+            "skips-tsv",
+            False,
+        )
+        case(
+            "a skip line naming no test",
+            {
+                tables: split,
+                suite: lic + "class VarkaShapeSuite {}\n",
+                SKIPS: skip % "a name nobody wrote",
+            },
+            "skips-tsv:has no test named",
+            True,
         )
         case(
             "'task 236' in a Varka file",
