@@ -26,7 +26,8 @@ import org.apache.spark.sql.catalyst.expressions.{Abs, AttributeReference, Binar
   BinaryComparison, Cast, Expression, In, UnaryMinus}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaMatrix.PinsDefaults
 import org.apache.spark.sql.catalyst.plans.logical.Filter
-import org.apache.spark.sql.execution.VarkaSharedSessions
+import org.apache.spark.sql.execution.{VarkaColumnarRule, VarkaFilterExec, VarkaProjectExec,
+  VarkaSharedSessions}
 import org.apache.spark.sql.types.{BooleanType, DataType, DecimalType, TimeType}
 
 /**
@@ -207,6 +208,22 @@ class VarkaDecimalBaselineQueriesSuite extends QueryTest with VarkaSharedSession
       // the 64-bit comparison its kernel computes.
       assert(fusion("SELECT x9 < y9 AS a, x38 < y38 AS b FROM varka_decimal") ===
         Optional.of(VarkaSqlBenchmarkBase.Fusion.PARTIAL))
+    }
+  }
+
+  test("a Varka projection that only narrows a Varka filter's output computes nothing",
+      PinsDefaults) {
+    withTable(100) {
+      // The rule's pre stage plans this pair for a projection that forwards a column of a Varka
+      // filter's output; a columnar consumer keeps it, and a row consumer has the post stage fold
+      // it into the filter's to-row node. The pair is built here as the pre stage builds it.
+      val planned = varkaSpark.sql("SELECT x9 FROM varka_decimal WHERE x9 <=> y9")
+        .queryExecution.sparkPlan
+      val plan = varkaSpark.withActive(VarkaColumnarRule.preColumnarTransitions(planned))
+      assert(plan.collectFirst {
+        case p @ VarkaProjectExec(_, _: VarkaFilterExec, _) => p
+      }.isDefined, plan.treeString)
+      assert(VarkaSqlBenchmarkBase.fusion(plan) === Optional.of(VarkaSqlBenchmarkBase.Fusion.WHOLE))
     }
   }
 }

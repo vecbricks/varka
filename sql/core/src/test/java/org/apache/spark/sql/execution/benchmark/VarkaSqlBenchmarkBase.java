@@ -386,8 +386,14 @@ public abstract class VarkaSqlBenchmarkBase extends VarkaBenchmarkBase {
 
   private static boolean leavesEntriesToRows(
       Seq<NamedExpression> projectList, Optional<PartialVarkaProjection> classification) {
-    // A projection none of whose entries compiles is not planned as a Varka node, so an empty
-    // classification here would mean the two disagree; it counts as left to rows, the safe side.
+    // A projection that only forwards or renames columns computes nothing, and compiles to no
+    // kernel: the rule's pre stage plans one over a Varka filter whose output it narrows.
+    if (projectList.forall(VarkaSqlBenchmarkBase::passesThrough)) {
+      return false;
+    }
+    // Any other projection none of whose entries compiles is not planned as a Varka node, so an
+    // empty classification here would mean the two disagree; it counts as left to rows, the safe
+    // side.
     return classification.map(projection -> projection.specs().stream()
         .anyMatch(spec -> spec instanceof VarkaOutputSpec.ResidualOutput)).orElse(true);
   }
