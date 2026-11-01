@@ -54,8 +54,9 @@ import org.apache.spark.sql.VarkaBenchmark;
  * <p>A baseline is only one while nothing fuses: before anything is timed, the run checks each
  * section's plan on the Varka session against the section's {@code fuses} flag, the list of the
  * sections a step of VARKA-339 has fused, and fails when an unlisted section fuses or a listed one
- * does not ({@link VarkaSqlBenchmarkBase#requireBaseline}). No section is listed today; each step
- * lists the sections it fuses, so the same class and the same labels time the fused code. A listed
+ * does not ({@link VarkaSqlBenchmarkBase#requireBaseline}). Step 2 lists the chain and the
+ * interval column sum, at both densities; each later step lists the sections it fuses, so the
+ * same class and the same labels time the fused code. A listed
  * section must also run as a kernel over every batch, none handed back to the row path
  * ({@link VarkaSizeLadder#varkaFused}), or the run fails rather than time the row path under the
  * {@code varka on} label. That holds with {@value VarkaSqlBenchmarkBase#FUSE_CHECK_PROPERTY} set
@@ -147,9 +148,9 @@ public class VarkaTimestampNtzArithmeticBaselineBenchmark extends VarkaSqlBenchm
       String density = nulls.isEmpty() ? "no nulls" : "one row in ten null";
       String from = " AS v FROM varka_ntz_arith";
       out.add(new Section("TIMESTAMP_NTZ arithmetic chain, " + density,
-          "SELECT " + a + " + (" + b + " - " + c + ") - INTERVAL '1' HOUR" + from, false));
+          "SELECT " + a + " + (" + b + " - " + c + ") - INTERVAL '1' HOUR" + from, true));
       out.add(new Section("TIMESTAMP_NTZ plus a day-time interval column, " + density,
-          "SELECT " + a + " + " + dt + from, false));
+          "SELECT " + a + " + " + dt + from, true));
       out.add(new Section("TIMESTAMP_NTZ plus INTERVAL '1' MONTH, " + density,
           "SELECT " + a + " + INTERVAL '1' MONTH" + from, false));
       out.add(new Section("TIMESTAMP_NTZ timestampadd(HOUR, q, ntz), " + density,

@@ -82,11 +82,30 @@ public final class VarkaGuardSpecs {
 
   /**
    * The bits a batch must decline with and the further bits it may; both zero for a batch the
-   * kernel must answer.
+   * kernel must answer. {@code shortcut} marks the answer the masked driver's all-null shortcut
+   * gives before any guard runs ({@link #SHORTCUT}), which a caller holding a batch to its guards
+   * needs to tell from one the guards admit. Record equality includes it, so {@link #SHORTCUT}
+   * does not equal {@link #ANSWER}: a test that asks only whether a batch is answered reads
+   * {@link #answers}, and one that asks about the bits reads {@link #must} and {@link #may}.
    */
-  public record Verdict(int must, int may) {
+  public record Verdict(int must, int may, boolean shortcut) {
     public static final Verdict ANSWER = new Verdict(0, 0);
 
+    /** A batch the all-null shortcut answers: every output null, no guard run. */
+    public static final Verdict SHORTCUT = new Verdict(0, 0, true);
+
+    public Verdict {
+      if (shortcut && (must != 0 || may != 0)) {
+        throw new IllegalArgumentException("a shortcut answer declines nothing: " + must + ", "
+            + may);
+      }
+    }
+
+    public Verdict(int must, int may) {
+      this(must, may, false);
+    }
+
+    /** The join of two rows' verdicts, which the shortcut, a batch's alone, is never part of. */
     public Verdict or(Verdict other) {
       return new Verdict(must | other.must, may | other.may);
     }
@@ -116,18 +135,51 @@ public final class VarkaGuardSpecs {
 
   /**
    * A kernel's guards, read once: {@code roots} emitted under {@code options}, at the long lane
-   * where {@code isLong}, and each guarded node's reason and arm chain.
+   * where {@code isLong}, each guarded node's reason and arm chain, and the column sets of the
+   * masked driver's all-null shortcut, one per root (bit {@code c} for input {@code c}), empty
+   * where the driver emits none.
    */
-  public record Guards(List<VarkaVectorIR> roots, boolean isLong, List<Guarded> guards) {
+  public record Guards(List<VarkaVectorIR> roots, boolean isLong, List<Guarded> guards,
+      List<Long> shortcut) {
     public Guards {
       roots = List.copyOf(roots);
       guards = List.copyOf(guards);
+      shortcut = List.copyOf(shortcut);
+      if (!shortcut.isEmpty() && shortcut.size() != roots.size()) {
+        throw new IllegalArgumentException(shortcut.size() + " shortcut column sets for "
+            + roots.size() + " roots");
+      }
     }
 
     /** The guards {@code roots} carry when emitted under {@code options}. */
     public Guards(List<VarkaVectorIR> roots, int numInputs, int numLiterals,
         VarkaEmitOptions options, boolean isLong) {
-      this(roots, isLong, read(roots, numInputs, numLiterals, options));
+      this(roots, isLong, read(roots, numInputs, numLiterals, options),
+          shortcutSets(roots, numInputs, numLiterals, options));
+    }
+
+    /**
+     * The shortcut's column sets, from the emitter's own ({@code VarkaLoopEmitter
+     * .shortcutColumnSetsForTest}): a bit a column, so at most {@code Long.SIZE} inputs, which is
+     * {@link VarkaEmitBudget#MAX_INPUTS}; a wider kernel is refused here rather than read with a
+     * shift that wraps.
+     */
+    private static List<Long> shortcutSets(List<VarkaVectorIR> roots, int numInputs,
+        int numLiterals, VarkaEmitOptions options) {
+      if (numInputs > Long.SIZE) {
+        throw new IllegalArgumentException(numInputs + " inputs, past the " + Long.SIZE
+            + " a column set holds (VarkaEmitBudget.MAX_INPUTS is "
+            + VarkaEmitBudget.MAX_INPUTS + ")");
+      }
+      long[] sets =
+          VarkaLoopEmitter.shortcutColumnSetsForTest(roots, numInputs, numLiterals, options);
+      var out = new ArrayList<Long>();
+      if (sets != null) {
+        for (long set : sets) {
+          out.add(set);
+        }
+      }
+      return out;
     }
 
     private static List<Guarded> read(List<VarkaVectorIR> roots, int numInputs, int numLiterals,
@@ -155,9 +207,23 @@ public final class VarkaGuardSpecs {
   /**
    * {@link #verdict} for a long-lane kernel that also reads the int literal table (VARKA-28):
    * {@code intLits} is that table, and the values are the reference's over both lanes.
+   *
+   * <p>The rows are one batch, and the verdict is the batch's: an empty batch is answered by
+   * the driver's empty return, and a batch the masked driver's all-null shortcut answers - every
+   * output reads a column null on every row - is {@link Verdict#SHORTCUT}, its guards never run.
+   * Only then are the rows' verdicts joined. A per-row verdict cannot see the shortcut: a guard
+   * on one operand beside a null in the other condemns a batch where that column also holds a
+   * valid row, and is never reached where every row of the batch is null there, as at one row a
+   * batch. A caller that joins one-row verdicts itself must pass rows with no nulls.
    */
   public static Verdict verdict(Guards g, long[] lits, int[] intLits, long[][] values,
       boolean[][] isNull, List<Shift> shifts) {
+    if (values.length == 0) {
+      return Verdict.ANSWER;
+    }
+    if (allNullShortcut(g, isNull)) {
+      return Verdict.SHORTCUT;
+    }
     var v = Verdict.ANSWER;
     for (int r = 0; r < values.length; r++) {
       v = v.or(rowVerdict(g, Values.of(values[r], isNull[r], lits, intLits, g.isLong()),
@@ -179,6 +245,32 @@ public final class VarkaGuardSpecs {
       boolean[][] isNull, List<Shift> shifts) {
     return verdict(new Guards(roots, numInputs, lits.length + intLits.length, options, isLong),
         lits, intLits, values, isNull, shifts);
+  }
+
+  /**
+   * Whether the masked driver's all-null shortcut answers a batch whose nulls are
+   * {@code isNull[r][c]}: the kernel emits it ({@code g.shortcut()} is not empty), and each
+   * output reads at least one column null on every row of the batch.
+   */
+  private static boolean allNullShortcut(Guards g, boolean[][] isNull) {
+    if (g.shortcut().isEmpty()) {
+      return false;
+    }
+    for (long set : g.shortcut()) {
+      boolean any = false;
+      for (long rest = set; rest != 0L && !any; rest &= rest - 1) {
+        int c = Long.numberOfTrailingZeros(rest);
+        boolean every = true;
+        for (boolean[] row : isNull) {
+          every &= row[c];
+        }
+        any = every;
+      }
+      if (!any) {
+        return false;
+      }
+    }
+    return true;
   }
 
   /**

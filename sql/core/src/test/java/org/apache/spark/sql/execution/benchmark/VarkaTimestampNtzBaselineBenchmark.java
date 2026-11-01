@@ -40,8 +40,9 @@ import org.apache.spark.sql.VarkaBenchmark;
  * the sections a row has fused, and fails when an unlisted section fuses or a listed one does not.
  * The comparison, the cast and the choice are listed, since the {@code TIMESTAMP_NTZ} lane fuses
  * them (VARKA-338), and the results file notes each of them as fusing; the arithmetic chain is
- * still the row path in both arms. A row that starts to fuse another section lists it, so that
- * its fusion cannot turn a baseline section into a fused one unnoticed.
+ * listed too, as VARKA-339 fuses the difference and the interval sums, though the committed
+ * results time it on the row path in both arms. A row that starts to fuse another section lists
+ * it, so that its fusion cannot turn a baseline section into a fused one unnoticed.
  *
  * <p>To run this benchmark, on a GitHub runner (the results come back as an artifact):
  * <pre>
@@ -93,7 +94,7 @@ public class VarkaTimestampNtzBaselineBenchmark extends VarkaSqlBenchmarkBase {
           "SELECT " + a + " FROM varka_ntz WHERE " + a + " < " + b, true));
       out.add(new Section("TIMESTAMP_NTZ arithmetic chain, " + density,
           "SELECT " + a + " + (" + b + " - " + c + ") - INTERVAL '1' HOUR AS v FROM varka_ntz",
-          false));
+          true));
       out.add(new Section("TIMESTAMP_NTZ cast to DATE, " + density,
           "SELECT CAST(" + a + " AS DATE) AS v FROM varka_ntz", true));
       out.add(new Section("TIMESTAMP_NTZ choice, " + density,

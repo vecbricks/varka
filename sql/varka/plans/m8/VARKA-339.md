@@ -155,6 +155,11 @@ the NTZ operand, `D` 86,400,000,000.
   `IntArith(SUB, FAIL, t, GuardedRange(dt, Long.MIN_VALUE + 1, Long.MAX_VALUE))`. The guard is
   `negateExact`'s domain and, inside it, `t - dt` overflows exactly when `t + (-dt)` does. A
   literal `Long.MIN_VALUE` interval declines at compile time.
+  *30 October 2026 (step 2's review):* no literal arm is built. `ConstantFolding` folds
+  `UnaryMinus` over a literal before Varka sees a plan, so `ntz - INTERVAL '1' HOUR` arrives as
+  `ntz + INTERVAL '-1' HOUR`, the plain checked sum; the least literal raises at planning, and
+  inside a conditional branch, which the folding leaves alone, it takes the guarded subtraction,
+  whose guard sends each batch to the row engine.
 
 ### 2.2 `timestampadd` up to a week (time family)
 
@@ -263,6 +268,17 @@ suites, as for every landed form.
    `timestampadd` at MICROSECOND, HOUR, DAY, WEEK, MONTH, QUARTER and YEAR over an int and a
    bigint quantity, `time_bucket` at 15 minutes, one day with an origin, 30 days and 7 hours;
    each through the differential suite at every position, domains where a guard declines.
+   *30 October 2026 (step 2):* two of step 2's rows are written differently. `ntz - d` is
+   `ntz2 - d`: the fixtures derive `ntz` from `d`, so `ntz - d` is a time of day and its domain
+   would have no row outside it. `ntz + INTERVAL '1' HOUR` is `ntz + INTERVAL '1' DAY`: the
+   fixtures' NTZ values stop about four hours below the long's top (`d` inside the cast's days, a
+   time of day added), so an hour overflows on no row and a day does. Each domain is Spark's own
+   `try_` form of the row, unknown where an operand is null.
+   *30 October 2026 (step 2's review):* that is wrong for the two rows whose kernel guards one
+   operand alone, which declines a batch whose other operand is null. `ntz - dt` is
+   `dt <> <least interval> AND` the form above and `ntz2 - d` the cast's day bound `AND` it, and
+   the edges fixture gains a row for each: a null `ntz` beside the least interval and a null
+   `ntz2` beside a day past the cast's.
 4. **The edges**, in `VarkaTimestampNtzSuite`, each overflowing row in one batch of three so the
    others stay fused, LEGACY and ANSI: `Long.MAX_VALUE` plus a microsecond; the long range's ends
    subtracted; `dt = Long.MIN_VALUE` and `Integer.MIN_VALUE` months negated; `timestampadd` DAY at
@@ -286,10 +302,62 @@ suites, as for every landed form.
    neighbours: `subtractTimestamps` against `subtractExact`, `timestampAddDayTime` against
    `addExact`, the `timestampadd` guards against `multiplyExact` at the bound and one past.
 8. **The fuzzers**: the Spark fuzzer's grammar gains the forms over its NTZ column.
+   *30 October 2026 (step 2):* the grammar (`VarkaCatalystGrammar`) had no NTZ type, so step 2
+   adds one, its columns `ntz` and `ntz2` and two literals, with `ntz - ntz`, `ntz - d`,
+   `ntz + dt`, `ntz - dt` and the choices; later steps add their forms to it.
 9. **Generated files** in `ADDING_AN_EXPRESSION.md`'s order: `coverage.json`, the docs tables
    (the two families' `covers` text), `width_audit.json`, `emitted_bytes.json` (new shapes only),
    `census.tsv`'s fused column.
 10. **The PR build and the dispatched option matrix** over the new and changed suites.
+   *31 October 2026 (step 2's matrix, run 41239405318):* three failures, none a wrong answer.
+   Under `arrowBatchSize=1` the two rows of item 3's note above, a null `ntz2` beside a day past
+   the cast's and a null `ntz` beside the least interval, are each a batch of their own, null on
+   every row in the null column, so the masked driver's all-null shortcut returns before the
+   guard runs and every output is null, Spark's answer; the verdict, per row, still said decline.
+   At the defaults the same rows decline because their batch holds valid values in that column.
+   `VarkaDomains` now models the shortcut (`VarkaGuardSpecs.allNullShortcut`, from the emitter's
+   own column sets): such a batch must answer, outside the domain too. Under
+   `checkIntOverflow=false` the five coverage rows and the grammar's NTZ forms move every draw of
+   the Spark fuzzer's seeds: composition 177 wraps `try_subtract(i, 1)` at `Int.MinValue`, by
+   design, so its skip line is back (VARKA-507 removed it as stale when a shift drew no overflow;
+   it comes and goes with the draw), and the planted-rollback search took composition 17, whose
+   overflow the configuration already breaks unplanted, so it now counts only a composition that
+   agrees without the plant.
+   *1 November 2026 (review of that fix):* three of its choices were replaced. The skip line came
+   and went with the draw and matched only by a name embedding the seed and the iteration count,
+   so it is gone again: under `checkIntOverflow=false` the Spark fuzzer reruns a disagreeing
+   composition with the check forced on, everything else equal, and counts one that then agrees
+   as a configuration wrap in its summary (the main test, the warmed arm and the pivot test); one
+   that still disagrees is a finding, shrunk with the check on. The planted-rollback search passed
+   over every composition that disagreed unplanted, even where the plant added a disagreement of
+   its own; it now compares, per forced output, the planted kind with the unplanted one, and the
+   warmed test runs its replay unplanted first and requires it to agree (under the same rerun
+   rule). It still finds composition 86, output 1, under the defaults, `arrowBatchSize=1` and
+   `checkIntOverflow=false`. And the shortcut moved into the verdict: `Guards` carries the
+   column sets (`VarkaBodyEmitter.shortcutColumnSets`, the one helper both driver forms emit
+   from), `verdict()` returns `Verdict.SHORTCUT` for a batch the shortcut takes, so every caller
+   gets the batch's answer, and `VarkaDomains` reports a partition outside the domain that the
+   shortcut answers whole, since its guard then went unexercised.
+   *1 November 2026 (second review):* the configuration-wrap excuse above is gone. Two review
+   rounds found it unsound - a wrong ancestor above a wrapping child was excused, under ANSI one
+   overflow error masked every other wrong row, a NULL against a value from any cause passed as a
+   wrap, the filter path was never probed, the checked rerun could legitimately never reach the
+   kernel - and each disagreement cost a query per subtree. It is replaced by a rule with no
+   excuse in it: under `checkIntOverflow=false` a composition any of whose kernels holds a node
+   whose emission reads the option (`Analysis.readsCheckIntOverflow`, an int add, subtract,
+   multiply or negation in `FAIL` or `NULL` mode, the test the emitter's own reads of the option
+   now go through) runs with the check pinned on, every other composition under the
+   configuration's own options, and every disagreement is a finding, its reproducer naming the
+   options it ran under. The decision is static, from the kernels the composition's queries
+   compile, and the same per-composition options serve the main test, the warmed arm, the pivot
+   test, both planted tests and the reproducer replay, which pins a reproducer that names no
+   options; its `checkIntOverflow=false` skip line is therefore stale and removed. At seed
+   20261008 the main test pins 86 of 200 compositions and runs 114 under the configuration's own
+   options (it asserts a fifth at least run unchecked), the warmed arm pins 1 of 8, and the
+   planted search still finds composition 86, output 1, unpinned, under the defaults,
+   `arrowBatchSize=1` and `checkIntOverflow=false`. `VarkaDomains` now counts a row as able to
+   reach a guard only if its own one-row batch does, by the same verdict, so a row whose bounded
+   inputs are all NULL, which the shortcut answers, no longer counts.
 
 ## 4. Predictions and costs
 
@@ -349,7 +417,8 @@ as an operand (332); `timestampadd` over a `DATE`, which Spark casts to the zone
 ## 7. Declines that stay
 
 The legacy `CalendarInterval` forms; a windowed `time_bucket` width past `2^51`, a non-literal or
-null width or origin; NANOSECOND and unknown units; a literal `Long.MIN_VALUE` interval negated;
+null width or origin; NANOSECOND and unknown units; a literal `Long.MIN_VALUE` interval negated
+(at run time, by the guard: 2.1's note of 30 October 2026);
 every batch with a lane past a guard, which the row engine answers.
 
 ## 8. Questions for the owner
