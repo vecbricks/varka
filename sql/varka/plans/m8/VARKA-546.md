@@ -250,17 +250,19 @@ Built on 1 November 2026: (iii) and (i) as section 5 lists them; (ii) waits for 
   With it, both merges exit 0 with no unmerged path, give the same tree (`333221193e8`) and
   pass `--check`. `width_audit.json` merged per key with nothing owed. Owed: `emitted_bytes.json`
   (the 22 `option_arms` digests and the place of the two rows), `coverage.json` (the place of
-  the two rows, and the census, which reads it) and the docs file's generated blocks. `dev/varka_regen_generated.sh --dry-run`
-  prints one sbt call: coverage, bytes, coverage again, then the census.
+  the two rows, and the census, which reads it) and the docs file's generated blocks.
+  `dev/varka_regen_generated.sh --dry-run` prints one sbt call: coverage, bytes, coverage
+  again, then the census.
 - **A stale file on CI.** `--check` fails a `coverage.json` row that the width audit and the
   bytes file lack, printing the width audit's command with its host and the bytes command.
   `--self-test` runs this case, the merge cases, the round trip of the three committed JSON
   files, and a two-branch merge in a temporary repository. Both run in the docs job. Neither
   has run on CI yet, because nothing was pushed.
 - **Predictions.** P1 held: no markers, and what was owed is what P1 named; the census is owed
-  whenever both sides moved `coverage.json`, since it reads it. P2 held for the demonstration's merge: the width audit owed
-  nothing. Item 2's 22 historical resolutions were not replayed. P3 held: one command, the
-  bytes suite plus two coverage runs, and no width audit.
+  whenever both sides moved `coverage.json`, since it reads it. P2 held for the
+  demonstration's merge: the width audit owed nothing. Item 2's 22 historical resolutions
+  were not replayed. P3 held: one command, the bytes suite plus two coverage runs, and no
+  width audit.
 - **Not planned.** When both sides add rows at the same place in the docs table, the merge keeps
   one side's block until the coverage run rewrites it. So the merge commit can lack the other
   row in the docs table. The block is owed and the coverage suite fails until it is
