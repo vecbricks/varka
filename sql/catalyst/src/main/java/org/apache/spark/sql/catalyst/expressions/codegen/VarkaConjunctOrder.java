@@ -60,11 +60,16 @@ import org.apache.spark.sql.catalyst.expressions.Substring;
 import org.apache.spark.sql.catalyst.expressions.Subtract;
 import org.apache.spark.sql.catalyst.expressions.UnaryMinus;
 import org.apache.spark.sql.catalyst.expressions.Upper;
+import org.apache.spark.sql.types.ByteType$;
 import org.apache.spark.sql.types.DataType;
+import org.apache.spark.sql.types.DecimalType;
 import org.apache.spark.sql.types.DoubleType$;
 import org.apache.spark.sql.types.FloatType$;
+import org.apache.spark.sql.types.IntegerType$;
 import org.apache.spark.sql.types.IntegralType;
+import org.apache.spark.sql.types.LongType$;
 import org.apache.spark.sql.types.NumericType;
+import org.apache.spark.sql.types.ShortType$;
 import org.apache.spark.sql.types.StringType;
 
 /**
@@ -469,8 +474,9 @@ public final class VarkaConjunctOrder {
   /**
    * Whether evaluating {@code expr} on some row can throw. False only when every node is on the
    * list below; the list is what residual conjuncts beside fused ones usually are - comparisons,
-   * null tests, {@code IN}, string matches, and arithmetic that cannot overflow in its mode - and
-   * anything off it is assumed to raise.
+   * null tests, {@code IN}, string matches, arithmetic that cannot overflow in its mode, and casts
+   * that widen or truncate a decimal into an integer type that holds it - and anything off it is
+   * assumed to raise.
    */
   static boolean canRaise(Expression expr) {
     if (!errorFreeNode(expr)) {
@@ -505,7 +511,8 @@ public final class VarkaConjunctOrder {
       case Multiply a -> arithmeticCannotOverflow(a.evalMode(), a.dataType());
       case UnaryMinus n -> arithmeticCannotOverflow(
           n.failOnError() ? EvalMode$.MODULE$.ANSI() : EvalMode$.MODULE$.LEGACY(), n.dataType());
-      case Cast c -> wideningCast(c.child().dataType(), c.dataType());
+      case Cast c -> wideningCast(c.child().dataType(), c.dataType())
+          || decimalTruncationFits(c.evalMode(), c.child().dataType(), c.dataType());
       default -> false;
     };
   }
@@ -520,6 +527,36 @@ public final class VarkaConjunctOrder {
       return true;
     }
     return type instanceof IntegralType && !EvalMode$.MODULE$.ANSI().equals(mode);
+  }
+
+  /**
+   * A decimal cast to an integer type that cannot raise. Outside ANSI none raises: LEGACY wraps
+   * ({@code Decimal.toInt} and its siblings) and TRY answers null. Under ANSI the cast truncates
+   * toward zero and raises only on a value whose integer part the type cannot hold
+   * ({@code Decimal.roundToInt} and its siblings), and a {@code DECIMAL(p, s)} has at most
+   * {@code p - s} integer digits: {@code CAST(a AS INT)} of a {@code DECIMAL(18, 18)} is always 0,
+   * though {@code Cast.canUpCast} says no, since the cast drops the fraction.
+   */
+  private static boolean decimalTruncationFits(Object mode, DataType from, DataType to) {
+    if (!(from instanceof DecimalType decimal) || !(to instanceof IntegralType)) {
+      return false;
+    }
+    if (!EvalMode$.MODULE$.ANSI().equals(mode)) {
+      return true;
+    }
+    int held;
+    if (to.equals(ByteType$.MODULE$)) {
+      held = 2;
+    } else if (to.equals(ShortType$.MODULE$)) {
+      held = 4;
+    } else if (to.equals(IntegerType$.MODULE$)) {
+      held = 9;
+    } else if (to.equals(LongType$.MODULE$)) {
+      held = 18;
+    } else {
+      return false;
+    }
+    return decimal.precision() - decimal.scale() <= held;
   }
 
   /**
