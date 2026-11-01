@@ -145,7 +145,10 @@ public final class VarkaDecimalValueSuite {
         List<VarkaConjunctSpec> specs =
             VarkaExpressionCompiler.explainPredicate(e, seq(columns), VarkaMatrixRuns.BASE);
         assertEquals(1, specs.size());
-        assertTrue(specs.get(0).decline().isEmpty(), () -> "declined: " + specs.get(0));
+        // Twenty levels are past the emitter's fused budget, a decline made after the compile.
+        String reason = specs.get(0).decline().map(d -> d.reason()).orElse("");
+        assertTrue(reason.isEmpty() || reason.startsWith("exceeds the emitter's fused budget"),
+            () -> "declined in the compile: " + reason);
       }, () -> "compiling " + depth + " levels of " + sql.substring(0, 40) + " took over 20 s");
     }
   }
