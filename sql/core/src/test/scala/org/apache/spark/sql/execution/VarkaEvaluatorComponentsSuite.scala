@@ -29,7 +29,7 @@ import org.mockito.Mockito.{doAnswer, doThrow, mock, never, verify}
 
 import org.apache.spark.{SparkFunSuite, TaskContext}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaEmitOptions, VarkaFusedKernel,
-  VarkaReproduction}
+  VarkaHostIsa, VarkaReproduction}
 import org.apache.spark.sql.execution.metric.SQLMetric
 import org.apache.spark.sql.execution.varka.{VarkaBatchLedger, VarkaClassDump,
   VarkaFallbackAccounting, VarkaKernelRunner, VarkaReasonMetric}
@@ -268,6 +268,8 @@ class VarkaEvaluatorComponentsSuite extends SparkFunSuite {
     // the options - which would move every shape key and emitted class - and an explicit false
     // that cannot override a base with the setting on.
     val conf = new SQLConf
+    // The emitter's default level, so the binding is held without the host (VARKA-538).
+    conf.setConf(SQLConf.VARKA_EMIT_USE_AVX, VarkaEmitOptions.USE_AVX_UNKNOWN)
     assert(VarkaSessionEmit.of(conf) === VarkaSessionEmit.DEFAULTS)
     val base = VarkaEmitOptions.DEFAULTS
     assert(VarkaSessionEmit.DEFAULTS.apply(base) eq base)
@@ -281,6 +283,72 @@ class VarkaEvaluatorComponentsSuite extends SparkFunSuite {
     assert(VarkaSessionEmit.of(conf).apply(exactBase) === exactBase.withExactRefusalStatus(false)
       .withUseAVX(2))
     intercept[IllegalArgumentException](new VarkaSessionEmit(-2, null))
+  }
+
+  test("a session asking for the host's level resolves it once, from the host's features") {
+    // VARKA-538 test 3.2. Catches: a fallback host left at the conversion form, a converting
+    // or unknown host moved off the emitter's default, an explicit level the host overrides,
+    // and an unreadable feature list that throws or logs on every query.
+    val fallsBack = new VarkaHostIsa.Reading("amd64", "avx, avx2, fma", null)
+    val converts = new VarkaHostIsa.Reading("amd64", "avx2, avx512f, avx512dq", null)
+    val arm = new VarkaHostIsa.Reading("aarch64", "fp, asimd, sve", null)
+    val unread = new VarkaHostIsa.Reading("amd64", "", "IllegalAccessException: no export")
+    val conf = new SQLConf
+    conf.setConf(SQLConf.VARKA_EMIT_USE_AVX, VarkaSessionEmit.USE_AVX_FROM_HOST)
+    assert(VarkaSessionEmit.of(conf, fallsBack).useAVX === 2)
+    assert(VarkaSessionEmit.of(conf, fallsBack).apply(VarkaEmitOptions.DEFAULTS)
+      .convertsFallBack())
+    for (host <- Seq(converts, arm, unread)) {
+      assert(VarkaSessionEmit.of(conf, host) === VarkaSessionEmit.DEFAULTS, host)
+    }
+    for (level <- Seq(VarkaEmitOptions.USE_AVX_UNKNOWN, 2, 3)) {
+      conf.setConf(SQLConf.VARKA_EMIT_USE_AVX, level)
+      assert(VarkaSessionEmit.of(conf, fallsBack).useAVX === level, s"level $level")
+      assert(VarkaSessionEmit.of(conf, converts).useAVX === level, s"level $level")
+    }
+    // The planted seam reaches the one-argument binding the planner calls.
+    conf.setConf(SQLConf.VARKA_EMIT_USE_AVX, VarkaSessionEmit.USE_AVX_FROM_HOST)
+    VarkaSessionEmit.setHostForTesting(fallsBack)
+    try {
+      assert(VarkaSessionEmit.of(conf).useAVX === 2)
+    } finally {
+      VarkaSessionEmit.setHostForTesting(null)
+    }
+    // The resolver's warning about an unreadable list is written once per JVM, not per query:
+    // exactly once on the first resolve, with the appender already listening, and never again.
+    // The flag is JVM-wide and the resolves above have set it, so it is forgotten first. An
+    // unreadable list off x86 changes no level and says nothing. What the flag was before is
+    // put back after, so a later suite in this JVM sees the warning state it would have.
+    val appender = new LogAppender("unreadable host features")
+    def warnings: Int = appender.loggingEvents.count(_.getMessage.getFormattedMessage
+      .contains("could not read this JVM's CPU features"))
+    val loggedBefore = VarkaSessionEmit.setUnreadableLoggedForTesting(false)
+    try {
+      withLogAppender(appender, level = Some(Level.WARN)) {
+        VarkaSessionEmit.resolve(new VarkaHostIsa.Reading("aarch64", "", "no such method"))
+        assert(warnings === 0, "an unreadable list off x86 was logged")
+        VarkaSessionEmit.resolve(unread)
+        assert(warnings === 1, "the first unreadable resolve on x86 was not logged once")
+        VarkaSessionEmit.resolve(unread)
+        assert(warnings === 1, "a second unreadable resolve was logged again")
+      }
+    } finally {
+      VarkaSessionEmit.setUnreadableLoggedForTesting(loggedBefore)
+    }
+  }
+
+  test("an AVX-512 host without AVX512DQ, planted, resolves to the magic form") {
+    // VARKA-538 test 3.3: UseAVX=3 with avx512f and no avx512dq is the Xeon Phi class, which no
+    // AMD host can make the JVM report, so the fact is planted. The level would say "converts";
+    // the feature HotSpot's matcher asks for says they fall back.
+    val knights = new VarkaHostIsa.Reading("amd64",
+      "avx, avx2, avx512f, avx512cd, avx512er, avx512pf", null)
+    assert(knights.conversionsFallBack())
+    val conf = new SQLConf
+    conf.setConf(SQLConf.VARKA_EMIT_USE_AVX, VarkaSessionEmit.USE_AVX_FROM_HOST)
+    val session = VarkaSessionEmit.of(conf, knights)
+    assert(session.useAVX === 2)
+    assert(VarkaColumnarToRowExec.emitOptions(session).convertsFallBack())
   }
 
   test("the class dump writes a shape once, and a failed write is neither thrown nor remembered") {
