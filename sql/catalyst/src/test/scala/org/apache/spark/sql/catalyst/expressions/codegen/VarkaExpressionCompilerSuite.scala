@@ -1803,6 +1803,11 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     val p2 = VarkaExpressionCompiler.compilePartial(
       Seq(withNull, out(DateAdd(d, Literal(1)))), childOutput).get
     assert(p2.declines.asScala(0).reason === "IN list has a null or non-literal element")
+    // The elements are read in order and the reading stops at the one that passes the cap, so a
+    // non-literal element after it is never read and the cap is the reason.
+    val pastCap = If(In(d, (1 to 17).map(k => Literal(k * 3, DateType)) :+ DateAdd(d, Literal(1))),
+      d, d2)
+    assert(declineReason(pastCap) === "IN list longer than the fused cap of 16")
   }
 
   // The columns of the IN order test below beside the suite's own: one of each type an IN reads.
