@@ -443,6 +443,15 @@ Where the code departs from 2.1 to 2.5, and what is still owed:
   is regenerated with it: its corpus counts two methods fewer in the 500 to 1,999 byte bin and two
   more in the 2,000 to 7,999 byte one, its percentages move by at most 0.9 points, and the
   methods under-predicted past the margin fall from 1,083 to 1,076 in its smallest bin.
+- **The integration fixes (1 November 2026).** The Spark fuzzer draws only fused coverage rows,
+  so it can now draw `x / x2`, and its fixture's `x2` is zero in three of ten picks: both
+  engines raise `DIVIDE_BY_ZERO` under ANSI, and `sql/varka/fuzz/expected_errors.tsv` gains that
+  entry for floating arithmetic. Its planted unlisted-error test raises an out-of-range
+  `element_at` instead of `i / 0`. With that entry, most ANSI compositions that draw the row
+  compare only the raised error; keeping the fuzzer's safe rows off a zero `x2`, as the IR
+  fuzzer redraws a zero divisor, is later work. The square root is rebuilt directly in
+  `VarkaWithChildrenSuite`, which no grammar reaches, and the proof renderer skips `DIV` over
+  integral operands, which the IR refuses.
 - **Still owed by this step:** the IR fuzz grammar's floating sequence (341's, which the grammar
   lacks: it draws no floating tree) and the Spark fuzzer's floating productions (3.10); the
   `--asm` check of 3.2 (no hsdis on the run that built this); the census cells (step 2).
