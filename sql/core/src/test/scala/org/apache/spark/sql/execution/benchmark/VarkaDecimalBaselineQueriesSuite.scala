@@ -26,8 +26,8 @@ import org.apache.spark.sql.catalyst.expressions.{Abs, Alias, AttributeReference
   BinaryComparison, Cast, Expression, In, UnaryMinus}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaMatrix.PinsDefaults
 import org.apache.spark.sql.catalyst.plans.logical.Filter
-import org.apache.spark.sql.execution.{ProjectExec, VarkaColumnarRule, VarkaColumnarToRowExec,
-  VarkaFilterExec, VarkaProjectExec, VarkaSharedSessions}
+import org.apache.spark.sql.execution.{ProjectExec, SparkPlan, VarkaColumnarRule,
+  VarkaColumnarToRowExec, VarkaFilterExec, VarkaProjectExec, VarkaSharedSessions}
 import org.apache.spark.sql.execution.adaptive.AdaptiveSparkPlanExec
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types.{BooleanType, DataType, DecimalType, TimeType}
@@ -232,7 +232,7 @@ class VarkaDecimalBaselineQueriesSuite extends QueryTest with VarkaSharedSession
       PinsDefaults) {
     withTable(100) {
       withBothConf(SQLConf.ADAPTIVE_EXECUTION_ENABLED.key, "true") {
-        def plan(query: String) = varkaSpark.sql(query).queryExecution.executedPlan
+        def plan(query: String): SparkPlan = varkaSpark.sql(query).queryExecution.executedPlan
         // An exchange makes adaptive execution wrap the plan, and the Varka filter under it is
         // planned only as its stage is created, so a search that stopped at the wrapper would
         // find no Varka node and read either plan as NONE. The filter keeps about half the
@@ -252,7 +252,7 @@ class VarkaDecimalBaselineQueriesSuite extends QueryTest with VarkaSharedSession
   test("a row operator decides a plan's fusion class before a Varka projection's entries",
       PinsDefaults) {
     withTable(100) {
-      def plan(query: String) = varkaSpark.sql(query).queryExecution.executedPlan
+      def plan(query: String): SparkPlan = varkaSpark.sql(query).queryExecution.executedPlan
       val partial = "SELECT x9 < y9 AS a, x38 < y38 AS b FROM varka_decimal"
       // With no row operator, a Varka filter of null tests only beside the projection that leaves
       // its 128-bit comparison to rows reads as the projection does.
