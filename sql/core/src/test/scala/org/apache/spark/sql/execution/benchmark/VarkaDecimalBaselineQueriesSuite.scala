@@ -21,7 +21,7 @@ import scala.jdk.CollectionConverters._
 
 import org.apache.spark.sql.QueryTest
 import org.apache.spark.sql.execution.VarkaSharedSessions
-import org.apache.spark.sql.types.{DecimalType, TimeType}
+import org.apache.spark.sql.types.{BooleanType, DecimalType, TimeType}
 
 /**
  * The decimal baseline's sections, run at a small scale on both sessions in every build, so a
@@ -50,21 +50,31 @@ class VarkaDecimalBaselineQueriesSuite extends QueryTest with VarkaSharedSession
           Seq(name -> DecimalType(p.precision, p.scale), name + "n" ->
             DecimalType(p.precision, p.scale))
         }
-      } ++ Seq("t", "tn").map(_ -> TimeType(VarkaDecimalBaselineBenchmark.TIME_PRECISION))
+      } ++ Seq("t", "tn").map(_ -> TimeType(VarkaDecimalBaselineBenchmark.TIME_PRECISION)) ++
+        // The lane pair's own columns, written out rather than derived from the helpers that
+        // build the table, so that the check does not test the generator against itself.
+        Seq("x20", "x20n", "y20", "y20n").map(_ -> DecimalType(20, 2))
       val schema = spark.table("varka_decimal").schema
       assert(schema.map(f => f.name -> f.dataType) === expected)
 
       val sections = VarkaDecimalBaselineBenchmark.sections().asScala
-      assert(sections.size === 28)
+      assert(sections.size === 52)
       // The result type of each shape, as Spark's decimal rules give it: the chain widens at each
       // node and is capped at 38, and the cast is the one the precision names. The time sections
       // are time_to_seconds, DECIMAL(14, 6), and the seconds with their fraction, DECIMAL(8, 6).
+      // The lane pair's five filters return the column, and its projected comparison a boolean.
       val chain = Map(9 -> DecimalType(21, 4), 18 -> DecimalType(38, 7), 38 -> DecimalType(38, 6))
       val resultTypes = VarkaDecimalBaselineBenchmark.PRECISIONS.asScala.flatMap { p =>
         val own = DecimalType(p.precision, p.scale)
-        val cast = spark.sql(s"SELECT CAST(NULL AS ${p.castTo}) AS c").schema.head.dataType
+        val castTo = p.castTo.orElseThrow(() => new IllegalStateException(
+          s"${p.`type`} has no cast type, so its cast section has nothing to cast to"))
+        val cast = spark.sql(s"SELECT CAST(NULL AS $castTo) AS c").schema.head.dataType
         Seq(own, chain(p.precision), cast, own, own, chain(p.precision), cast, own)
-      } ++ Seq.fill(2)(Seq(DecimalType(14, 6), DecimalType(8, 6))).flatten
+      } ++ Seq.fill(2)(Seq(DecimalType(14, 6), DecimalType(8, 6))).flatten ++
+        VarkaDecimalBaselineBenchmark.PAIR_PRECISIONS.asScala.flatMap { p =>
+          val own = DecimalType(p.precision, p.scale)
+          Seq.fill(2)(Seq.fill(5)(own) :+ BooleanType).flatten
+        }
       assert(sections.map(s => spark.sql(s.query).schema.head.dataType) === resultTypes)
       for (s <- sections) {
         withClue(s.title) {

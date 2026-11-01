@@ -17,6 +17,10 @@
 
 package org.apache.spark.sql;
 
+import java.io.IOException;
+import java.io.OutputStream;
+import java.io.UncheckedIOException;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -25,6 +29,7 @@ import java.util.TreeSet;
 import java.util.function.IntFunction;
 import java.util.stream.Collectors;
 
+import scala.Option;
 import scala.collection.immutable.Seq;
 import scala.jdk.javaapi.CollectionConverters;
 import scala.runtime.BoxedUnit;
@@ -88,6 +93,23 @@ public abstract class VarkaBenchmarkBase extends BenchmarkBase {
   /** A benchmark writing to this run's results file; {@code valuesPerIteration} sets the rate. */
   protected final VarkaBenchmark.Builder benchmark(String name, long valuesPerIteration) {
     return new VarkaBenchmark.Builder(name, valuesPerIteration, output());
+  }
+
+  /**
+   * Prints {@code line} and writes it to the results file, if the run writes one: a fact a
+   * section's tables depend on, kept beside them so the file says what was measured. The sql/core
+   * benchmarks, {@code VarkaSqlBenchmarkBase}'s among them, use this one.
+   */
+  protected final void note(String line) {
+    System.out.println(line);
+    Option<OutputStream> out = output();
+    if (out.isDefined()) {
+      try {
+        out.get().write((line + "\n").getBytes(StandardCharsets.UTF_8));
+      } catch (IOException e) {
+        throw new UncheckedIOException(e);
+      }
+    }
   }
 
   // ---------------------------------------------------------------------------------------
