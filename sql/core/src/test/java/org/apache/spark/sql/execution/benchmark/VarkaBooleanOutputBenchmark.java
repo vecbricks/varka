@@ -24,6 +24,7 @@ import org.apache.spark.sql.VarkaBenchmark;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaKernelPlan;
 import org.apache.spark.sql.execution.FilterExec;
 import org.apache.spark.sql.execution.SparkPlan;
+import org.apache.spark.sql.execution.VarkaSessionEmit;
 
 /**
  * Boolean expressions as projection outputs (VARKA-27): {@code SELECT d < d2 AS c} rather than
@@ -54,14 +55,16 @@ import org.apache.spark.sql.execution.SparkPlan;
  * <p>A baseline is only one while nothing fuses: before timing, the run fails if the Varka
  * session's plan for any output section holds a Varka node. The filter controls are held to the
  * plan the product gives them, since they are the comparison, not the baseline, and the run fails
- * on any other: each control's plan holds a Varka node, so a control that declined cannot pass as
- * Varka's filter, except on an x86 host whose long species has two lanes (the 128-bit
- * companion's), where the compiler refuses a filter's long-lane condition (VARKA-503,
- * {@link VarkaKernelPlan#HOST_TWO_LANE_MASKS_FALL_BACK}). There the {@code l < l2} controls hold
+ * on any other: each control's plan holds a Varka node and no row filter, so a control that
+ * declined in whole or in part cannot pass as Varka's filter, except where the Varka session
+ * refuses a filter's long-lane condition (VARKA-503,
+ * {@code VarkaSessionEmit.declineTwoLaneConditions}), as an x86 host whose long species has two
+ * lanes (the 128-bit companion's) does by default
+ * ({@link VarkaKernelPlan#HOST_TWO_LANE_MASKS_FALL_BACK}). There the {@code l < l2} controls hold
  * no Varka node, their {@code varka on} arm timing the row path, and the
  * {@code (d < d2) AND (l < l2)} controls hold the date conjunct's kernel under a row filter that
  * holds the long one. The sessions keep the refusal at its default, since the benchmark measures
- * what ships.
+ * what ships, and the expectation reads the refusal the session resolved.
  *
  * <p>The later diff partners, by the steps of row 27's plan ({@code VARKA-27.md} 5):
  * <ul>
@@ -195,18 +198,17 @@ public class VarkaBooleanOutputBenchmark extends VarkaSqlBenchmarkBase {
     return out;
   }
 
-  /** The sections on this JVM's host, whose answer a session that sets nothing takes. */
-  static List<Section> sections() {
-    return sections(VarkaKernelPlan.HOST_TWO_LANE_MASKS_FALL_BACK);
-  }
-
-  /** Whether {@code plan} is the plan {@code expect} names. */
+  /**
+   * Whether {@code plan} is the plan {@code expect} names. A fused control holds no row
+   * {@code FilterExec}, so a control whose conjunct was left to the row filter cannot pass as
+   * fused whole.
+   */
   static boolean matches(SparkPlan plan, Expect expect) {
     boolean varka = VarkaSqlBenchmarkBase.holdsVarkaNode(plan);
     boolean rowFilter = plan.find(p -> p instanceof FilterExec).isDefined();
     return switch (expect) {
       case ROW_PATH -> !varka;
-      case FUSED -> varka;
+      case FUSED -> varka && !rowFilter;
       case FUSED_UNDER_ROW_FILTER -> varka && rowFilter;
     };
   }
@@ -225,7 +227,10 @@ public class VarkaBooleanOutputBenchmark extends VarkaSqlBenchmarkBase {
         session.sql(tableSql(NUM_ROWS)).createOrReplaceTempView("varka_boolean");
         VarkaArrowSessions.cache(session, "varka_boolean");
       }
-      List<Section> sections = sections();
+      // The refusal as the Varka session resolves it, so a run that sets it is held to its own
+      // plan rather than to the host's default.
+      List<Section> sections = sections(
+          VarkaSessionEmit.of(varka.sessionState().conf()).declineTwoLaneConditions());
       for (Section s : sections) {
         SparkPlan plan = varka.sql(s.query()).queryExecution().executedPlan();
         if (!matches(plan, s.expect())) {

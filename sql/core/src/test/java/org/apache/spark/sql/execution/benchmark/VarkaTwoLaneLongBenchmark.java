@@ -23,10 +23,6 @@ import java.util.Map;
 
 import org.apache.spark.sql.SparkSession;
 import org.apache.spark.sql.VarkaBenchmark;
-import org.apache.spark.sql.execution.VarkaColumnarToRowExec;
-import org.apache.spark.sql.execution.VarkaFilterColumnarToRowExec;
-import org.apache.spark.sql.execution.VarkaFilterExec;
-import org.apache.spark.sql.execution.VarkaProjectExec;
 import org.apache.spark.sql.internal.SQLConf;
 
 /**
@@ -77,10 +73,10 @@ public class VarkaTwoLaneLongBenchmark extends VarkaSqlBenchmarkBase {
 
   /**
    * The table, {@code varka_two_lane}: dates over about 55 years, longs below 10^12 and ints below
- * 2*10^9, from
-   * {@code xxhash64} of the row id hashed with a seed per column, so the columns are independent,
-   * each comparison selects about half the rows and no sum of two longs overflows; then each
-   * column again with {@code n} appended, null one row in ten at a different row for each column.
+   * 2*10^9, from {@code xxhash64} of the row id hashed with a seed per column, so the columns are
+   * independent, each comparison selects about half the rows and no sum of two longs overflows;
+   * then each column again with {@code n} appended, null one row in ten at a different row for
+   * each column.
    */
   static String tableSql(int rows) {
     List<String> names = List.of("d", "d2", "l", "l2", "i");
@@ -139,11 +135,8 @@ public class VarkaTwoLaneLongBenchmark extends VarkaSqlBenchmarkBase {
 
   /** What the Varka session's plan for {@code query} runs: a kernel, or Spark's row path. */
   static String runs(SparkSession session, String query) {
-    boolean fused = session.sql(query).queryExecution().executedPlan().find(
-        p -> p instanceof VarkaColumnarToRowExec || p instanceof VarkaProjectExec
-            || p instanceof VarkaFilterExec || p instanceof VarkaFilterColumnarToRowExec)
-        .isDefined();
-    return fused ? "a Varka kernel" : "Spark's row path";
+    return holdsVarkaNode(session.sql(query).queryExecution().executedPlan())
+        ? "a Varka kernel" : "Spark's row path";
   }
 
   @Override

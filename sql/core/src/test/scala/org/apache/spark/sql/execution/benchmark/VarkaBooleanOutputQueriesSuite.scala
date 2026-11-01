@@ -62,7 +62,8 @@ class VarkaBooleanOutputQueriesSuite extends QueryTest with VarkaSharedSessions 
         assert((nulls.getLong(0), nulls.getLong(1)) === (200L, 0L), name)
       }
 
-      val sections = VarkaBooleanOutputBenchmark.sections().asScala.toSeq
+      // The answers do not depend on the plan a control is held to, so either expectation does.
+      val sections = VarkaBooleanOutputBenchmark.sections(false).asScala.toSeq
       assert(sections.size === 24)
       assert(sections.count(_.control) === 12)
       // An output section answers the condition, a boolean; a control answers the column it
