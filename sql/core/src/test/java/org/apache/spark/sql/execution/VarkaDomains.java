@@ -73,7 +73,8 @@ import org.apache.spark.sql.types.YearMonthIntervalType;
  * answers. Each such row runs over the edges fixture, which straddles every guard's bound, cut
  * as TLP cuts a table - the rows inside the domain, outside it and where it is unknown, each
  * partition a fixture of its own - as a projection and as a filter. Inside and under IS NULL
- * the kernel serves every batch and declines nothing; outside, every batch declines; and each
+ * the kernel serves every batch and declines nothing; outside, every batch declines but one the
+ * kernel's all-null shortcut answers before any guard runs, every output null; and each
  * batch's status is the one {@code VarkaGuardSpecs}' verdict on its rows calls for, exact under
  * {@code exactRefusalStatus}. The answers are the harness's: Spark's on every batch a kernel
  * answers.
@@ -96,6 +97,7 @@ public final class VarkaDomains {
   private static Map<String, String> defaults() {
     var out = new LinkedHashMap<String, String>();
     out.put("d", "DATE'2024-01-31'");
+    out.put("d2", "DATE'2024-02-29'");
     out.put("i", "3");
     out.put("l", "5000000000");
     out.put("m", "0");
@@ -103,6 +105,7 @@ public final class VarkaDomains {
     out.put("mm", "0");
     out.put("t", "TIME'12:34:56.789'");
     out.put("t2", "TIME'00:00:00'");
+    out.put("dt", "INTERVAL '1 02:03:04.5' DAY TO SECOND");
     out.put("y1", "3");
     out.put("y2", "4");
     out.put("s1", "300");
@@ -118,10 +121,10 @@ public final class VarkaDomains {
         throw new IllegalArgumentException("no column " + overrides[k]);
       }
     }
-    return "(" + v.get("d") + ", DATE'2024-02-29', " + v.get("i") + ", " + v.get("m") + ", "
+    return "(" + v.get("d") + ", " + v.get("d2") + ", " + v.get("i") + ", " + v.get("m") + ", "
         + v.get("y") + ", " + v.get("mm") + ", CAST('" + v.get("l") + "' AS BIGINT), "
         + "CAST('1' AS BIGINT), " + v.get("t") + ", " + v.get("t2") + ", "
-        + "INTERVAL '1 02:03:04.5' DAY TO SECOND, INTERVAL '0 00:00:00' DAY TO SECOND, "
+        + v.get("dt") + ", INTERVAL '0 00:00:00' DAY TO SECOND, "
         + "CAST(" + v.get("y1") + " AS TINYINT), CAST(" + v.get("y2") + " AS TINYINT), "
         + "CAST(" + v.get("s1") + " AS SMALLINT), CAST(" + v.get("s2") + " AS SMALLINT))";
   }
@@ -150,13 +153,17 @@ public final class VarkaDomains {
    * the months of {@code make_date}; {@code d} of year 9999 beside the {@code i} that takes
    * {@code year(d) + i} to the int's top and one past, and {@code d} at the column bound's ends
    * and one past each (VARKA-379), and at the days a DATE converts to TIMESTAMP_NTZ without
-   * overflow and one past each; {@code ym} at the month range on both signs, at the one count
-   * whose negation overflows and one in from it, and at the counts whose difference with
-   * {@code ymm} leaves the int, {@code ymm} at its most negative; a time at each end of the day;
-   * the narrow lanes' bounds. Then rows null in those columns, one column group at a time and all
-   * at once, which the {@code IS NULL} partitions select. The other columns hold the mixed
-   * fixture's first row. A bigint sits at the narrow types' bounds and one past each, for the
-   * integral casts' guards.
+   * overflow and one past each; the TIMESTAMP_NTZ values a day inside those days, {@code ntz}
+   * near the long's top beside {@code ntz2} near its bottom, whose difference and whose sum with
+   * a day overflow, {@code ntz} near the bottom beside the greatest interval, whose difference
+   * overflows, and the least interval, whose negation does, also beside a null {@code ntz}, and
+   * a {@code d} past those days beside a null {@code ntz2}; {@code ym} at the month range on both
+   * signs, at the one count whose negation overflows and one in from it, and at the counts whose
+   * difference with {@code ymm} leaves the int, {@code ymm} at its most negative; a time at each
+   * end of the day; the narrow lanes' bounds. Then rows null in those columns, one column group at
+   * a time and all at once, which the {@code IS NULL} partitions select. The other columns hold
+   * the mixed fixture's first row. A bigint sits at the narrow types' bounds and one past each, for
+   * the integral casts' guards.
    */
   static String edgesSql() {
     long dayLimit = VarkaChrono.INTERVAL_DAY_LIMIT_DAYS;
@@ -180,6 +187,16 @@ public final class VarkaDomains {
     around(VarkaChrono.CONTRACT_MIN_DAYS, VarkaChrono.CONTRACT_MAX_DAYS)
         .forEach(v -> rows.add(row("d", day(v))));
     around(-lastNtzDay, lastNtzDay).forEach(v -> rows.add(row("d", day(v))));
+    rows.add(row("d", day(lastNtzDay - 1), "d2", day(-(lastNtzDay - 1))));
+    rows.add(row("d", day(-(lastNtzDay - 1)), "t", "TIME'00:00:00'",
+        "dt", "INTERVAL '106751991 04:00:54.775807' DAY TO SECOND"));
+    rows.add(row("dt", "INTERVAL '-106751991 04:00:54.775808' DAY TO SECOND"));
+    // Each guard on one operand alone beside a null in the other: the guard declines the batch
+    // though the row's value is null, wherever the batch holds a valid value in that column. A
+    // batch null on every row there, as each is at one row a batch, takes the all-null shortcut,
+    // which answers before any guard runs.
+    rows.add(row("d", "NULL", "dt", "INTERVAL '-106751991 04:00:54.775808' DAY TO SECOND"));
+    rows.add(row("d2", "NULL", "d", day(lastNtzDay + 1)));
     var months = new ArrayList<>(around(minMonths, maxMonths));
     months.addAll(around(-maxMonths, -minMonths));
     months.forEach(n -> rows.add(ymRow(n, "0")));
@@ -394,9 +411,27 @@ public final class VarkaDomains {
           findings.add(where + ": the domain admits batches the verdict condemns: "
               + render(verdicts));
         }
-        if (partition.equals("outside") && !verdicts.stream().allMatch(v -> v.must() != 0)) {
+        // Outside, a batch the all-null shortcut answers is the one exception: its guards never
+        // run, and every output is null, as Spark's is.
+        if (partition.equals("outside")
+            && !verdicts.stream().allMatch(v -> v.must() != 0 || v.shortcut())) {
           findings.add(where + ": the domain excludes batches the verdict answers: "
               + render(verdicts));
+        }
+        // But a partition none of whose batches reached the guards left them unexercised: a
+        // batch the all-null shortcut answers and one the input bound declines are both settled
+        // before any guard runs. That is a finding when some row could have reached them in a
+        // batch of its own - inside the input bounds and not answered by the shortcut - and the
+        // fixture owes it one. A domain that is the input bound itself has no such row, and
+        // nothing outside it can reach a guard.
+        int reaching = rowsReachingGuards(kernel.get(), options, fixture);
+        if (partition.equals("outside") && !verdicts.isEmpty() && reaching > 0
+            && verdicts.stream().noneMatch(VarkaDomains::reachesGuards)) {
+          long shortcuts = verdicts.stream().filter(Verdict::shortcut).count();
+          findings.add(where + ": no batch outside the domain reached the guards ("
+              + shortcuts + " answered by the all-null shortcut, " + (verdicts.size() - shortcuts)
+              + " declined by the input bound), though " + reaching + " of its rows would reach "
+              + "them in a batch of their own, so the guard was not exercised");
         }
         for (int b = 0; b < verdicts.size(); b++) {
           VarkaExpressionHarness.Batch batch = outcome.batches.get(b);
@@ -436,10 +471,34 @@ public final class VarkaDomains {
     return ids.stream().map(String::valueOf).collect(Collectors.joining(", "));
   }
 
+  /**
+   * How many of {@code fixture}'s rows a batch of their own would take to the guards: the verdict
+   * of each row alone, read by {@link #reachesGuards}. A row with a live input outside the input
+   * bounds is declined before any guard runs, and so is answered one the all-null shortcut takes,
+   * such as a row whose bounded inputs are all NULL; neither counts.
+   */
+  private static int rowsReachingGuards(CompiledVarkaProjection kernel,
+      VarkaEmitOptions options, VarkaHarnessPlans.Fixture fixture) {
+    var alone = new ArrayList<VarkaExpressionHarness.Batch>();
+    for (int r = 0; r < fixture.rows().size(); r++) {
+      alone.add(new VarkaExpressionHarness.Batch(r, 1, VarkaExpressionHarness.Batch.ANSWERED));
+    }
+    return (int) verdicts(kernel, options, fixture, alone).stream()
+        .filter(VarkaDomains::reachesGuards).count();
+  }
+
+  /**
+   * Whether a batch's verdict came from the guards: not the all-null shortcut's answer and not
+   * the input bound's decline, which {@link #verdicts} gives before any guard runs.
+   */
+  private static boolean reachesGuards(Verdict v) {
+    return !v.shortcut() && v.must() != VarkaKernelRunner.STATUS_INPUT_BOUND;
+  }
+
   /** A verdict in the accounting's words: the bits a batch must decline with, and may. */
   private static String render(Verdict v) {
     if (v.answers()) {
-      return "answer";
+      return v.shortcut() ? "answer (the all-null shortcut)" : "answer";
     }
     return (v.must() != 0 ? VarkaFallbackAccounting.describeStatus(v.must()) : "nothing")
         + (v.may() != 0 ? " (may " + VarkaFallbackAccounting.describeStatus(v.may()) + ")" : "");
@@ -490,7 +549,8 @@ public final class VarkaDomains {
    * {@code kernel}: the rows read as the kernel reads them - epoch days, month counts,
    * nanoseconds, a floating value's raw bits - and the evaluator's per-batch input bound applied
    * first, as the runner applies it: a live lane outside it declines the batch with
-   * {@code STATUS_INPUT_BOUND} and the kernel's guards never run.
+   * {@code STATUS_INPUT_BOUND} and the kernel's guards never run. Then the verdict itself, which
+   * is the batch's: one the kernel's all-null shortcut answers is {@link Verdict#SHORTCUT}.
    */
   private static List<Verdict> verdicts(CompiledVarkaProjection kernel,
       VarkaEmitOptions options, VarkaHarnessPlans.Fixture fixture,

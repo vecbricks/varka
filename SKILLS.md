@@ -151,6 +151,7 @@ the pre-commit hook also checks. Groups below are in file order.
 * [A tree in other company: variants whose answers follow from its own](sql/varka/skills/testing-and-debugging.md#a-tree-in-other-company-variants-whose-answers-follow-from-its-own)
 * [What the emitter reached, and steering a fuzzer toward the rest](sql/varka/skills/testing-and-debugging.md#what-the-emitter-reached-and-steering-a-fuzzer-toward-the-rest)
 * [Every guard at its bound: a verdict from the emitter's own rule](sql/varka/skills/testing-and-debugging.md#every-guard-at-its-bound-a-verdict-from-the-emitters-own-rule)
+* [A batch-level answer a per-row verdict cannot see: the all-null shortcut](sql/varka/skills/testing-and-debugging.md#a-batch-level-answer-a-per-row-verdict-cannot-see-the-all-null-shortcut)
 * [A planted bug has a prerequisite, and the test that plants it sets it over the matrix's base](sql/varka/skills/testing-and-debugging.md#a-planted-bug-has-a-prerequisite-and-the-test-that-plants-it-sets-it-over-the-matrixs-base)
 * [The emitter is called from several threads, so a test holds it to that](sql/varka/skills/testing-and-debugging.md#the-emitter-is-called-from-several-threads-so-a-test-holds-it-to-that)
 * [Error Prone and NullAway run beside the build, and the pending list only shrinks](sql/varka/skills/testing-and-debugging.md#error-prone-and-nullaway-run-beside-the-build-and-the-pending-list-only-shrinks)
