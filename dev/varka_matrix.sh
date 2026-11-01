@@ -333,15 +333,44 @@ echo "== ${#configs[@]} configuration(s) and the defaults, $total suites," \
 # The JVM flags a JUnit suite that runs alone asks its child for (@VarkaSuite(jvmFlags = {...}),
 # VARKA-491), one a line: its JVM here takes them in the child's place, after the run's own
 # options, so a flag given twice is the suite's. A Scala suite has none. The annotation is read
-# whole, from its first line to the one that closes it, joined into one line, since one with
-# several flags wraps to stay within 100 columns.
+# whole, from its first line to the parenthesis that closes it, joined into one line, since one
+# with several flags wraps to stay within 100 columns: the reader counts parentheses outside
+# string literals and drops a line's // comment, so a trailing comment or a parenthesis inside a
+# flag ends nothing early.
 own_jvm_flags() {
   local module=$1 suite=$2 file
   file="${module_root[$module]}/java/${suite//.//}.java"
   [ -f "$file" ] || return 0
-  awk '/^@VarkaSuite\(/ { on = 1 } on { print } on && /\)[[:space:]]*$/ { exit }' "$file" \
-    | tr '\n' ' ' | grep -E "$JAVA_OWN" | grep -oE 'jvmFlags *= *\{[^}]*\}' \
+  annotation_text "$file" | grep -E "$JAVA_OWN" | grep -oE 'jvmFlags *= *\{[^}]*\}' \
     | grep -oE '"[^"]*"' | tr -d '"'
+}
+
+# The @VarkaSuite(...) annotation of a Java file on one line, comments dropped; nothing when the
+# file has none.
+annotation_text() {
+  awk '
+    !on && /^@VarkaSuite\(/ { on = 1 }
+    on {
+      out = ""; quoted = 0
+      for (k = 1; k <= length($0); k++) {
+        c = substr($0, k, 1)
+        if (quoted) {
+          if (c == "\\") { out = out c substr($0, k + 1, 1); k++; continue }
+          if (c == "\"") quoted = 0
+        } else if (c == "\"") {
+          quoted = 1
+        } else if (c == "/" && substr($0, k + 1, 1) == "/") {
+          break
+        } else if (c == "(") {
+          depth++
+        } else if (c == ")") {
+          depth--
+        }
+        out = out c
+        if (!quoted && depth == 0 && c == ")") { printf "%s\n", out; exit }
+      }
+      printf "%s ", out
+    }' "$1"
 }
 
 # One JVM's suites under one configuration, in runs/<configuration>/<module>[-<k>]/. The runner
