@@ -412,11 +412,6 @@ public final class VarkaOperatorCensusSuite {
     return result;
   }
 
-  /** The census if this JVM has already taken it, or null: asking never forks. */
-  private static synchronized Census censusIfTaken() {
-    return census;
-  }
-
   /** The catalog without the planted cases, which the self-tests run. */
   private static List<VarkaOperatorCensusCatalog> cells() {
     return VarkaOperatorCensusCatalog.ENTRIES.stream()
@@ -556,15 +551,13 @@ public final class VarkaOperatorCensusSuite {
 
   /**
    * Holds the host fact of a JVM under {@code flags} to the conversion cells measured under the
-   * same flags, at every width it runs: a fallback answer exactly where a cell reads F. At the
-   * host's own flags a census this JVM has already taken holds the cells; otherwise only the
-   * conversion cells fork, not the whole catalog, so the test run alone stays cheap.
+   * same flags, at every width it runs: a fallback answer exactly where a cell reads F. Only the
+   * conversion cells fork, never the whole catalog, and always here, so the answer does not
+   * depend on whether another test took the census first.
    */
   private static void holdHostFactToCells(String... flags) throws Exception {
     HostFact fact = hostFact(flags);
-    Census taken = flags.length == 0 ? censusIfTaken() : null;
-    Map<Integer, Map<String, Reading>> byWidth =
-        taken != null ? taken.byWidth : conversionCells(flags);
+    Map<Integer, Map<String, Reading>> byWidth = conversionCells(flags);
     var disagree = new ArrayList<String>();
     for (Map.Entry<Integer, Map<String, Reading>> width : byWidth.entrySet()) {
       for (String cell : DQ_CELLS) {
@@ -585,7 +578,11 @@ public final class VarkaOperatorCensusSuite {
         + "], and the census disagrees:\n  " + String.join("\n  ", disagree));
   }
 
-  /** The conversion cells forked under {@code flags}, per width in bits as the census keys it. */
+  /**
+   * The conversion cells forked under {@code flags}, per width in bits as the census keys it.
+   * Under no flags each width is resolved from {@code -XX:MaxVectorSize=<n>} alone, as
+   * {@link #census()} resolves it.
+   */
   private static Map<Integer, Map<String, Reading>> conversionCells(String... flags)
       throws IOException, InterruptedException {
     var widths = new TreeSet<Integer>();
