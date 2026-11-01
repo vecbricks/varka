@@ -50,7 +50,12 @@ jobs:
       packages: write
     name: Run
     uses: ./.github/workflows/build_and_test.yml
-    if: github.repository != 'apache/spark'
+    # The fork the pull requests' Builds run on carries this file too, since its master follows
+    # this project's (varka-fork-sync.yml); the Sunday run is this project's alone, so a
+    # schedule there does nothing. A dispatch runs on either repository.
+    if: >-
+      github.repository != 'apache/spark'
+      && (github.event_name != 'schedule' || github.repository == 'vecbricks/varka')
     with:
       java: 25
       branch: ${{ github.event.inputs.branch || 'master' }}

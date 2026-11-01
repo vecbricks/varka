@@ -21,41 +21,43 @@
 # A need is the hardest work left once the lanes the row names exist: done; plumbing (an arm
 # and IR on the lanes); semantics (Spark's overflow, NaN, rounding or scale rules); ulp (the math
 # family: fused within a bound stated per function and host library, under row 345's contract and
-# its configuration, the owner's decision of 14 October 2026); hard (no exact construction known:
+# its configuration, the owner's decision of 14 October 2026; since 30 October 2026, by the owner's
+# word, exact by default and the bound only in that opt-in mode, VARKA-345.md 2.1); hard (no exact
+# construction known:
 # declined unless one is found - empty since 14 October 2026, when the reading of the papers gave
 # every former hard entry its construction, m8/PLAN.md 2.7). Rows are milestone 8's task numbers (m8/PLAN.md 3).
 
 [registered]
-coalesce|ALL|same|bool,date,byte,short,ntz|plumbing|333,329,331,338,341,348,359|item 55 adds the int branches
-if|ALL|same|bool,date,bigint,byte,short,ntz|plumbing|333,329,331,338,341,348,359|
+coalesce|ALL|same|bool,date,bigint,time,ym,dt,byte,short,ntz,float,double|plumbing|333,329,331,338,341,348,359|item 55 adds the int branches
+if|ALL|same|bool,date,bigint,time,ym,dt,byte,short,ntz,float,double|plumbing|333,329,331,338,341,348,359|
 ifnull|ALL|same|date|plumbing|333,359|rewritten to coalesce by the optimizer
-nanvl|FLOAT|same||semantics|341|NaN test and blend
+nanvl|FLOAT|same|float,double|done|341|NaN test and blend
 nullif|ALL|same||plumbing|333,359|rewritten to if(a = b, null, a)
 nullifzero|NUM|same||plumbing|333,359|rewritten to if(a = 0, null, a)
 nvl|ALL|same|date|plumbing|333,359|rewritten to coalesce by the optimizer
 nvl2|ALL|same||plumbing|333,359|rewritten to if(a IS NOT NULL, b, c)
 zeroifnull|NUM|same||plumbing|333,359|rewritten to coalesce(a, 0)
-when|ALL|same|bool,date,bigint,dt,byte,short,ntz|plumbing|333,359,329|the CASE WHEN entry; item 94, in row 333, adds the missing ELSE
+when|ALL|same|bool,date,bigint,time,ym,dt,byte,short,ntz,float,double|plumbing|333,359,329|the CASE WHEN entry; item 94, in row 333, adds the missing ELSE
 between|ALL|bool||plumbing|333|rewritten to two comparisons and an AND; no coverage row yet
-isnan|FLOAT|bool||plumbing|341|
-isnull|ALL|bool|bool,int,bigint,date,time,ym,dt,byte,short,ntz|plumbing|333,334,359,329|a validity read; item 93 over a predicate
-isnotnull|ALL|bool|bool,int,bigint,date,time,ym,dt,byte,short,ntz|plumbing|333,334,359,329|a validity read; item 93 over a predicate
+isnan|FLOAT|bool|float,double|done|341|
+isnull|ALL|bool|bool,int,bigint,date,time,ym,dt,byte,short,ntz,float,double|plumbing|333,334,359,329,347|a validity read; item 93 over a predicate; dec to precision 18 at one scale fuses (347) and counts fused with 359's wider ones (2.8)
+isnotnull|ALL|bool|bool,int,bigint,date,time,ym,dt,byte,short,ntz,float,double|plumbing|333,334,359,329,347|a validity read; item 93 over a predicate; dec to precision 18 at one scale fuses (347) and counts fused with 359's wider ones (2.8)
 equal_null|ALL|bool||semantics|336,331,329,341,338,359|null-tolerant: item 34; bool is 331's BoolNullSafeEq, byte/short 329, float/double 341, ntz 338, dec 359
 and|bool|bool|bool|done|331,27|fused as a condition, over a BOOLEAN column too (331); a BOOLEAN output is row 27
-in|ALL|bool|date,ym,byte,short,ntz|plumbing|333,341,348,359,329|NaN equals NaN in Spark's IN
+in|ALL|bool|date,ym,byte,short,ntz,float,double|plumbing|333,341,348,359,329|NaN equals NaN in Spark's IN
 not|bool|bool|bool|done|331,27|fused as a condition, over a BOOLEAN column too (331); a BOOLEAN output is row 27
 or|bool|bool|bool|done|331,27|fused as a condition, over a BOOLEAN column too (331); a BOOLEAN output is row 27
-<=>|ALL|bool|bool,byte,short,ntz|semantics|336,331,329,341,338,359|null-tolerant: item 34; bool is 331's BoolNullSafeEq, byte/short 329, float/double 341, ntz 338, dec 359
-=|ALL|bool|bool,int,bigint,date,time,ym,dt,byte,short,ntz|semantics|341,348,359,329|Spark's NaN and -0.0 rules on floats
-==|ALL|bool|bool,int,bigint,date,time,ym,dt,byte,short,ntz|semantics|341,348,359,329|alias of =
->|ALL|bool|bool,int,bigint,date,time,ym,dt,byte,short,ntz|semantics|341,348,359,329|Spark's NaN ordering on floats
->=|ALL|bool|bool,int,bigint,date,time,ym,dt,byte,short,ntz|semantics|341,348,359,329|Spark's NaN ordering on floats
-<|ALL|bool|bool,int,bigint,date,time,ym,dt,byte,short,ntz|semantics|341,348,359,329|Spark's NaN ordering on floats
-<=|ALL|bool|bool,int,bigint,date,time,ym,dt,byte,short,ntz|semantics|341,348,359,329|Spark's NaN ordering on floats
+<=>|ALL|bool|bool,int,bigint,date,time,ym,dt,byte,short,ntz,float,double|semantics|336,331,329,341,338,359,347|null-tolerant: item 34; bool is 331's BoolNullSafeEq, byte/short 329, float/double 341, ntz 338, dec 359; dec to precision 18 at one scale fuses (347) and counts fused with 359's wider ones (2.8)
+=|ALL|bool|bool,int,bigint,date,time,ym,dt,byte,short,ntz,float,double|semantics|341,348,359,329,347|Spark's NaN and -0.0 rules on floats; dec to precision 18 at one scale fuses (347) and counts fused with 359's wider ones (2.8)
+==|ALL|bool|bool,int,bigint,date,time,ym,dt,byte,short,ntz,float,double|semantics|341,348,359,329,347|alias of =; dec to precision 18 at one scale fuses (347) and counts fused with 359's wider ones (2.8)
+>|ALL|bool|bool,int,bigint,date,time,ym,dt,byte,short,ntz,float,double|semantics|341,348,359,329,347|Spark's NaN ordering on floats; dec to precision 18 at one scale fuses (347) and counts fused with 359's wider ones (2.8)
+>=|ALL|bool|bool,int,bigint,date,time,ym,dt,byte,short,ntz,float,double|semantics|341,348,359,329,347|Spark's NaN ordering on floats; dec to precision 18 at one scale fuses (347) and counts fused with 359's wider ones (2.8)
+<|ALL|bool|bool,int,bigint,date,time,ym,dt,byte,short,ntz,float,double|semantics|341,348,359,329,347|Spark's NaN ordering on floats; dec to precision 18 at one scale fuses (347) and counts fused with 359's wider ones (2.8)
+<=|ALL|bool|bool,int,bigint,date,time,ym,dt,byte,short,ntz,float,double|semantics|341,348,359,329,347|Spark's NaN ordering on floats; dec to precision 18 at one scale fuses (347) and counts fused with 359's wider ones (2.8)
 !|bool|bool||plumbing|331,27|alias of not
 abs|NUM,IVL|same|byte,short,ym|semantics|330,104,103,342,348,359|the minimum value overflows: wraps or throws
-greatest|ALL|same|date,bigint,time,byte,short,ntz|semantics|333,341,348,359,329|NaN is the greatest float
-least|ALL|same|date,bigint,byte,short,ntz|semantics|333,341,348,359,329|NaN is the greatest float
+greatest|ALL|same|date,bigint,time,ym,dt,byte,short,ntz,float,double|semantics|333,341,348,359,329|NaN is the greatest float
+least|ALL|same|date,bigint,time,ym,dt,byte,short,ntz,float,double|semantics|333,341,348,359,329|NaN is the greatest float
 acos|double|double||ulp|367,356|Math
 acosh|double|double||ulp|367,357|Spark's log-and-sqrt formula over StrictMath.log
 asin|double|double||ulp|367,356|Math
@@ -101,16 +103,16 @@ tan|double|double||ulp|367,356|Math
 cot|double|double||ulp|367,356|1 / Math.tan
 tanh|double|double||ulp|367,357|Math
 width_bucket|double,IVL,time|bigint||semantics|344|bucket arithmetic over doubles
-+|NUM,IVL|same|byte,short,int|semantics|330,104,103,342,349,360|integral overflow modes; decimal result scale; date and timestamp sums are other classes
++|NUM,IVL|same|byte,short,int,ym|semantics|330,104,103,342,349,360|integral overflow modes; decimal result scale; date and timestamp sums are other classes
 -|NUM,IVL|same|byte,short,int,ym|semantics|330,104,103,342,349,360|date, timestamp and time differences are other classes
 *|NUM|same|byte,short,int~|semantics|330,95,104,342,349,361,362|fused for int in `year(d) * 2`; interval products are other classes
 /|double,dec!|same||semantics|342|zero divisor null or error; decimal division is out of milestone 8
 div|INTEGRAL,dec!,IVL|bigint||semantics|30,104,103|zero divisor null or error; over INT a long-lane divide over two widening casts (corrects item 33); a decimal div divides decimals, out of milestone 8
 %|NUM|same||semantics|30,95,104,346,349,363|integral is semantics (zero divisor); floating by the one-FMA remainder (346)
-try_add|NUM,IVL|same|byte,short|semantics|330,104,103,342,349,360|overflow gives null
+try_add|NUM,IVL|same|byte,short,int|semantics|330,104,342,349,360|overflow gives null; over ym and dt it is `TryEval`, which no row builds (`m9/SCOPE.md` item 125)
 try_divide|double,dec!|same||semantics|342|zero divisor gives null; decimal division is out of milestone 8
 try_mod|NUM|same||semantics|30,104,346,363|floating by the one-FMA remainder (346)
-try_subtract|NUM,IVL|same|byte,short|semantics|330,104,103,342,349,360|overflow gives null
+try_subtract|NUM,IVL|same|byte,short,int|semantics|330,104,342,349,360|overflow gives null; over ym and dt it is `TryEval`, which no row builds (`m9/SCOPE.md` item 125)
 try_multiply|NUM|same|byte,short|semantics|330,104,342,349,361,362|overflow gives null
 shiftleft|int,bigint|same|int,bigint|done||item 32; byte and short widen to int first; a bigint shifted by an int column fuses (335b, 20 October 2026), the count widened to the long lane
 shiftright|int,bigint|same|int,bigint|done||item 32; a bigint shifted by an int column fuses (335b, 20 October 2026)
@@ -184,23 +186,23 @@ bitmap_bit_position|bigint|bigint|bigint|done||a mask over a blend, proven by SM
 
 [implicit]
 try_cast|Cast|conversion|ALL|ALL||semantics|332,343,350,364,365,366,368|the parser's TRY mode: null instead of an error
-in_set|InSet|predicate|ALL|bool|date,ym,byte,short,ntz|plumbing|333,341,348,359,329|IN over many literals
+in_set|InSet|predicate|ALL|bool|date,ym,byte,short,ntz,float,double|plumbing|333,341,348,359,329|IN over many literals
 date_minus_date|SubtractDates|datetime|date|dt||semantics|39|row 39: days times micros per day, exact
-ntz_minus_ntz|SubtractTimestamps|datetime|ntz|dt||semantics|339|plain long arithmetic in UTC, exact or raise
+ntz_minus_ntz|SubtractTimestamps|datetime|ntz|dt|ntz|done|339|plain long arithmetic in UTC, exact or raise
 time_minus_time|SubtractTimes|datetime|time|dt|time|done||
 time_plus_dt|TimeAddInterval|datetime|time,dt|time|time,dt~|done||fused in `t + INTERVAL '0 00:00:00' DAY TO SECOND`
 date_plus_ym|DateAddYMInterval|datetime|date,ym|date|date,ym|done||
-datetime_sub|DatetimeSub|datetime|date,ntz,IVL|date,ntz|date,ym|plumbing|339|the wrapper over the subtraction forms
-ntz_plus_dt|TimestampAddInterval|datetime|ntz,dt|ntz||semantics|339|UTC, so plain arithmetic; exact or raise
+datetime_sub|DatetimeSub|datetime|date,ntz,IVL|date,ntz|date,ym,ntz|plumbing|339|the wrapper over the subtraction forms; coverage fuses `ntz - dt` (DatetimeSub over dt), and dt stays out of the fused types until `ntz - ym`, which still declines, fuses in row 339's step 3
+ntz_plus_dt|TimestampAddInterval|datetime|ntz,dt|ntz|ntz,dt|done|339|UTC, so plain arithmetic; exact or raise
 ntz_plus_ym|TimestampAddYMInterval|datetime|ntz,ym|ntz||semantics|339|calendar months on the date part
 timestampadd|TimestampAdd|datetime|bigint,ntz|ntz||semantics|339|units up to a week are arithmetic, months and years calendar
-ym_times_num|MultiplyYMInterval|interval|ym,NUM|ym|ym~,int~|semantics|103,329,342,349|fused in `make_ym_interval(year(d), month(d)) * 2`; HALF_UP from fractions
-dt_times_num|MultiplyDTInterval|interval|dt,NUM|dt||semantics|103,342,349|checked multiply; HALF_UP from fractions
+ym_times_num|MultiplyYMInterval|interval|ym,NUM|ym|ym~,int~|semantics|103,329,342,349|fused in `make_ym_interval(year(d), month(d)) * 2`; HALF_UP from fractions; an integral literal factor over a stored column is row 103's guard (103a)
+dt_times_num|MultiplyDTInterval|interval|dt,NUM|dt||semantics|103,342,361,363|checked multiply; HALF_UP from fractions; an integral or decimal literal and an integral column are row 103's; a floating factor is 342's lowering
 ym_div_num|DivideYMInterval|interval|ym,NUM|ym||semantics|89,342,349|HALF_UP division
-dt_div_num|DivideDTInterval|interval|dt,NUM|dt||semantics|103,342,349|HALF_UP division
+dt_div_num|DivideDTInterval|interval|dt,NUM|dt||semantics|103,342,361,363|HALF_UP division; an integral or decimal literal and an integral column are row 103's; a floating factor is 342's lowering
 extract_ym_years|ExtractANSIIntervalYears|interval|ym|int|ym|done||
 extract_ym_months|ExtractANSIIntervalMonths|interval|ym|byte||plumbing|329|matched today only to decline: its result is a byte
-extract_dt_days|ExtractANSIIntervalDays|interval|dt|int||plumbing|103|fused today only inside date + CAST(i AS INTERVAL DAY)
+extract_dt_days|ExtractANSIIntervalDays|interval|dt|int||plumbing|103|fused today only inside date + CAST(i AS INTERVAL DAY); inside `d + dt` over a stored `INTERVAL DAY` column it declines (`m9/SCOPE.md` item 126)
 extract_dt_hours|ExtractANSIIntervalHours|interval|dt|byte||plumbing|103|division by a constant
 extract_dt_minutes|ExtractANSIIntervalMinutes|interval|dt|byte||plumbing|103|division by a constant
 extract_dt_seconds|ExtractANSIIntervalSeconds|interval|dt|dec||plumbing|103,157|a DECIMAL(8,6) result
@@ -208,6 +210,6 @@ check_overflow|CheckOverflow|decimal internals|dec|dec||semantics|349,359,363|nu
 make_decimal|MakeDecimal|decimal internals|bigint|dec||plumbing|349|a relabel of an unscaled long
 unscaled_value|UnscaledValue|decimal internals|dec|bigint||plumbing|349|a relabel to the unscaled long
 known_not_null|KnownNotNull|internals|ALL|same||plumbing|333|a relabel the optimizer adds
-known_fp_normalized|KnownFloatingPointNormalized|internals|FLOAT|same||plumbing|341|a relabel around NaN and -0.0 normalization
-normalize_nan_and_zero|NormalizeNaNAndZero|internals|FLOAT|same||plumbing|341,337|the optimizer's canonical NaN and +0.0 before a key or a hash: one node, shared with the hash input (m8/PLAN.md 2.7)
+known_fp_normalized|KnownFloatingPointNormalized|internals|FLOAT|same||plumbing|337|a relabel around NaN and -0.0 normalization; uncounted, by the owner's answer of 30 October 2026 (VARKA-337.md 8 point 5, option (a)): Spark inserts it only for join, window and aggregate keys, never in a Project or Filter, so no coverage row can hold it
+normalize_nan_and_zero|NormalizeNaNAndZero|internals|FLOAT|same||plumbing|337|the optimizer's canonical NaN and +0.0 before a key or a hash: one node, shared with the hash input (m8/PLAN.md 2.7); uncounted, by the owner's answer of 30 October 2026 (VARKA-337.md 8 point 5, option (a)): Spark inserts it only for join, window and aggregate keys, never in a Project or Filter, so no coverage row can hold it
 try_eval|TryEval|internals|ALL|same||semantics|330,342,349|the try_ functions' wrapper: every error raised anywhere in its subtree becomes null

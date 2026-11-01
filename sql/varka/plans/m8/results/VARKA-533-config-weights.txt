@@ -1,0 +1,79 @@
+# The option matrix planner's per-configuration suite weights (VARKA-533), 30 October 2026.
+# Inputs, read-only from MaxGekk/spark with gh api: option matrix run 40961304094 (head
+# 616f918b102, 146 bins) and run 40956699711 (head 9206a79bd47, 153 bins), every bin's JUnit
+# artifact (varka-option-matrix-b*), merged as the report job merges them. Neither run uploaded a
+# varka-option-matrix-reach artifact (both heads predate that step), so each run's reach record
+# is the one its plan read, the varka-matrix-reach-sql-*of3 artifacts of Build run 40947407586
+# (for 40961304094) and Build run 40947137595 (for 40956699711), 1746 tests each.
+# dev/varka_matrix_bins.py at this branch's head.
+
+== the per-configuration file
+dev/varka_matrix_bins.py times --reach <record> --per-configuration <file> on each run alone:
+  run 40961304094: 5475 (configuration, suite) whole runs; its suite-seconds output is the same
+  as the VARKA-508 replay's `times --reach` over this run (the file the run's own report job
+  wrote differs from it)
+  run 40956699711: 5718 whole runs
+sql/varka/matrix/config-suite-seconds.tsv: 5718 pairs, 5475 in both runs, 243 in one. Where both
+runs have a pair it holds their mean, which with two values is the median; where one has it, that
+value. The three suites VARKA-523 (#1138) changed - VarkaKernelWarmupSuite, VarkaWarmupReachSuite,
+VarkaInliningCliffSuite - take run 40956699711's value alone (147 pairs): master cancels their JIT
+tests under a configuration that does not move C2, run 40956699711's head does too, and run
+40961304094's head ran them (about 40 s each under every configuration, 0.1 s and 0.0 s once
+cancelled, under floorMod7=DIGIT_SUM for instance).
+
+How far the two runs agree, those three suites aside: of the 436 pairs that took 60 s or more in
+either run, the larger run over the smaller has median 1.25, 90th percentile 1.78, largest 2.70.
+
+The pairs the one median missed (the per-suite weight in sql/varka/matrix/suite-seconds.tsv):
+  VarkaIrFuzzSuite      weight 51.2;  per configuration: 40 under 100 s, 9 at 250 s to 399 s;
+                        defaults 380.2, fusedCeiling=200 377.1
+  VarkaSmallTreeSuite   weight 113.7; per configuration: 33 under 150 s, 16 at 150 s to 399 s;
+                        lanesOverride=16 357.6
+
+== the planner
+A suite's whole run under a configuration takes the file's seconds for the pair where it lists
+one, and the per-suite weight times the configuration's factor otherwise; the reach share
+(at least a tenth) applies on top of either, as before. Pairs are keyed by the run directory
+dev/varka_matrix.sh names (every character outside [A-Za-z0-9=_.-] made `_`), so a combined
+configuration's commas match the file's underscores. Self-tests: 12 of 12 pass, 3 new (a measured
+pair over the weight times the factor and the fallback where none is listed, the share on a
+measured pair, the per-configuration output holding only whole runs and read back by a comma
+configuration).
+
+== run 40961304094's units planned and replayed
+The plan over the run's configurations, its head's suites and the reach record its plan read, with
+master's suite-seconds.tsv, suite-times.tsv and seconds.tsv, and the given per-configuration file.
+The replay is the one of VARKA-508's split results: each unit's seconds the sum of its suites'
+JUnit seconds under its configuration in this run plus 1.7 s for its JVM, two lanes a bin, a bin's
+job its longer lane plus 38 s of setup, the jobs started in plan order on 30 slots.
+                                    planned           replayed
+  per-configuration file            bins  longest     longest   job-min  bin phase  bins >600 s
+  none (master today)                104    480 s    14.4 min       808   33.0 min           15
+  the committed file                 106    480 s    12.8 min       785   27.4 min           15
+  run 40956699711's alone            105    480 s    14.1 min       795   28.2 min           15
+  run 40961304094's alone            112    480 s    11.9 min       778   28.3 min            5
+  the mean of both for every suite   108    480 s    13.7 min       784   30.9 min            6
+The committed file's row is 5.6 min under today's in the bin phase and 1.6 min in the longest
+bin. The second-to-last row is in sample (the weights come from the replayed run), the third out
+of sample; the last averages the three C2 suites too, which fits this run's head and not master.
+The bin phase moves by minutes with which bin starts last, so read it with the longest bin and
+the count of long bins: 808 job-min over 30 slots is 26.9 min before any tail.
+
+Where the tail is now. Of the two heaviest units of each of today's 15 bins past 600 s, 11 are
+VarkaIrFuzzSuite or VarkaSmallTreeSuite alone under one configuration, the rest groups of shared
+suites. Under the committed file one such unit is among them (VarkaIrFuzzSuite under
+groupBudget=64, weighed 274.6 s, replayed 327 s, its bin 623 s), now weighed near its time. What
+is left, the units planned furthest under their replayed time:
+  heavyGroupOutputs=0  sql, 21 suites   planned 229 s, replayed 415 s
+  julianMap=false      sql, 34 suites   planned 274 s, replayed 454 s
+  callSiteBudget=0     sql, 30 suites   planned 234 s, replayed 402 s
+each led by VarkaSparkFuzzSuite, run in part (its reach share 0.15 to 0.30) and weighed by that
+share of its 188.6 s weight, but taking 136.2 s to 188.2 s: its time does not scale with the
+share of its tests a configuration runs. The per-configuration file cannot hold it, since a part
+run is not a whole run. The catalyst groups replayed long here are this run's head running the
+three C2 suites that master cancels, and are not expected on master.
+
+An experiment, not built: the same file from run 40956699711 holding part runs as well, a listed
+pair then weighed as measured with no share, planned 108 bins and replayed 12.7 min longest, 799
+job-min, 28.1 min bin phase, 13 bins past 600 s; the reach records of the two runs differ, so
+a part run of one run is only an estimate for the other.

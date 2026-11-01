@@ -1,0 +1,26 @@
+# Row 509 step 2, its first part, on the laptop, 29 October 2026: the coverage differential's
+# answer form under both consumers and its partition oracle moved below the session, the
+# end-to-end suite cut to a sample row a family for the answer form. sbt at the defaults, one
+# JVM; the configurations through dev/varka_matrix.sh.
+
+Old tests to new, each kept under its name (VarkaCoverageDifferentialSuite to
+VarkaCoverageHarnessSuite):
+  <row> matches the row engine under both consumers               337 -> 337, and 27 kept
+                                                                   end to end, a row a family
+  <row> splits every fixture into true, false and unknown rows    164 -> 164
+  <row> under IS NULL and IS NOT NULL fuses as a CASE condition   164 -> 164
+  a boolean column read at the int and the long lane in one
+  query answers Spark's                                              1 -> 1
+  the partition oracle fails a filter that answers unknown where
+  it should answer false                                             1 -> 1
+  the harness's own: the coverage table has rows to run, a kernel
+  planted to answer an overflowing row fails the harness             2
+
+At the defaults:
+  VarkaCoverageHarnessSuite         670 tests, 0 failed, 15.6 s (with the filter plant)
+  VarkaCoverageDifferentialSuite    426 tests, 0 failed, 96 s (1066 tests before, about 315 s)
+  VarkaHarnessParitySuite           1 test, 0 failed
+
+Under the configurations with skip lines for the moved tests, both suites in one JVM:
+  validityByWidth=false    1095 tests: 1064 passed, 31 cancelled as listed, 0 failed
+  guardUnderArm=false      1095 tests: 1095 passed

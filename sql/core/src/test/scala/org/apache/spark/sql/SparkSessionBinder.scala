@@ -186,10 +186,18 @@ trait SparkSessionBinderBase
     DebugFilesystem.clearOpenStreams()
   }
 
+  /**
+   * Whether the session's cache is cleared after each test. A suite that caches its fixtures
+   * once for all its tests, and compares answers over them, turns this off.
+   */
+  protected def clearCacheAfterEachTest: Boolean = true
+
   protected override def afterEach(): Unit = {
     super.afterEach()
     // Clear all persistent datasets after each test
-    classicSpark.sharedState.cacheManager.clearCache()
+    if (clearCacheAfterEachTest) {
+      classicSpark.sharedState.cacheManager.clearCache()
+    }
     // files can be closed from other threads, so wait a bit
     // normally this doesn't take more than 1s
     eventually(timeout(10.seconds), interval(2.seconds)) {

@@ -13,8 +13,8 @@ guard's price is committed in the parity file
 "year" section, VARKA-52's A/B on `year(date_add(d, off))`): 2793.3 M rows/s
 with the guard against 3166.2 without on null-free data (-11.8%) and 2821.2
 against 3056.1 with mixed nulls (-7.7%) at 256 bits; 1193.1 against 1247.4
-(-4.4%) and 1033.9 against 1229.2 (-15.9%) at 128 bits in the `-128bit-`
-file. That is **4 to 16%** of the one shape that pays it, on every batch,
+(-4.4%) and 1033.9 against 1229.2 (-15.9%) at 128 bits in the 128-bit companion
+(`VarkaEmitterParityBenchmark-jdk25-128bit-results.txt`). That is **4 to 16%** of the one shape that pays it, on every batch,
 when in the corpus no batch ever carries an offset that could leave the
 range.
 
@@ -67,7 +67,8 @@ bound. Its price is the committed throughput pair
 (`sql/core/benchmarks/VarkaThroughputBenchmark-jdk25-results.txt`): the
 control `date_add, column offset (VARKA-56 control)` at 201.3 M rows/s and
 `date + CAST(i AS INTERVAL DAY), bound checked (VARKA-56)` at 220.8 M rows/s
-over 2M Arrow-cached rows; at 128 bits 192.4 against 212.4. *Requoted on 11
+over 2M Arrow-cached rows; at 128 bits 192.4 against 212.4
+(`VarkaThroughputBenchmark-jdk25-128bit-results.txt`). *Requoted on 11
 September 2026 alongside section 1, from the current file. The pair has now
 been quoted three times - 199.2 against 211.6 at planning, 204.9 against
 230.6 after VARKA-63's regeneration, and these - and every version has said

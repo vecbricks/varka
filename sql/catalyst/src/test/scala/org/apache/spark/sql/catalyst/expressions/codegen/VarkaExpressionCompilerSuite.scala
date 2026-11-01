@@ -30,13 +30,13 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaKernelWarmu
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaMatrix.PinsDefaults
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaMethodNames.isStage
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTestWatchdog
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.{AddDays, AddMonths => IRAddMonths, And => IRAnd, BoolCompare, ColumnRef, Compare, CompareOp, ConstDivide, DateDiff => IRDateDiff, DayOfMonth => IRDayOfMonth, DayOfWeek => IRDayOfWeek, DayOfWeekIso, DayOfYear => IRDayOfYear, Greatest => IRGreatest, GuardedRange, IfElse, IntArith, IntNeg, IntOp, IsNotNull => IRIsNotNull, LaneType, LastDay => IRLastDay, Least => IRLeast, LiteralSlot, MakeDate => IRMakeDate, Month => IRMonth, NarrowLane, NextDay => IRNextDay, Not => IRNot, NullSafeEqual => IRNullSafeEqual, Or => IROr, Overflow, Quarter => IRQuarter, SubDays, ThursdayOf, TruncDate => IRTruncDate, TruncDateDynamic => IRTruncDateDynamic, TruncLevel, WeekDay => IRWeekDay, WeekOfYear => IRWeekOfYear, WidenLane, Year => IRYear}
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.{AddDays, AddMonths => IRAddMonths, And => IRAnd, BoolCompare, BoolOutput, ColumnRef, Compare, CompareOp, ConstDivide, DateDiff => IRDateDiff, DayOfMonth => IRDayOfMonth, DayOfWeek => IRDayOfWeek, DayOfWeekIso, DayOfYear => IRDayOfYear, Greatest => IRGreatest, GuardedRange, IfElse, IntArith, IntNeg, IntOp, IsNotNull => IRIsNotNull, LaneType, LastDay => IRLastDay, Least => IRLeast, LiteralSlot, MakeDate => IRMakeDate, Month => IRMonth, NarrowLane, NextDay => IRNextDay, Not => IRNot, NullSafeEqual => IRNullSafeEqual, Or => IROr, Overflow, Quarter => IRQuarter, SubDays, ThursdayOf, TruncDate => IRTruncDate, TruncDateDynamic => IRTruncDateDynamic, TruncLevel, WeekDay => IRWeekDay, WeekOfYear => IRWeekOfYear, WidenLane, Year => IRYear}
 import org.apache.spark.sql.catalyst.expressions.objects.StaticInvoke
 import org.apache.spark.sql.catalyst.optimizer.ReplaceExpressions
 import org.apache.spark.sql.catalyst.plans.logical.{OneRowRelation, Project}
 import org.apache.spark.sql.catalyst.util.IntervalUtils
 import org.apache.spark.sql.internal.SQLConf
-import org.apache.spark.sql.types.{ByteType, DateType, DayTimeIntervalType, Decimal, DecimalType, DoubleType, IntegerType, LongType, ShortType, StringType, TimestampNTZType, TimestampType, TimeType, YearMonthIntervalType}
+import org.apache.spark.sql.types.{BooleanType, ByteType, DateType, DayTimeIntervalType, Decimal, DecimalType, DoubleType, IntegerType, LongType, ShortType, StringType, TimestampNTZType, TimestampType, TimeType, YearMonthIntervalType}
 import org.apache.spark.unsafe.types.UTF8String
 import org.apache.spark.util.Utils
 
@@ -1747,11 +1747,14 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     assert(narrowEq.outputs.asScala.head.asInstanceOf[IfElse].cond() ===
       new IRNullSafeEqual(
         new WidenLane(shortCol, LaneType.INT), new WidenLane(shortCol, LaneType.INT)))
-    // A comparison as a projection output is a boolean column - out of scope, interior only.
+    // A comparison as a projection output is a BOOLEAN column, written as a boolean output over
+    // the condition (VARKA-27).
     assert(VarkaExpressionCompiler.compile(
-      Seq(out(LessThan(d, d2))), childOutput).isEmpty)
+      Seq(out(LessThan(d, d2))), childOutput).get.outputs.asScala.toSeq ===
+      Seq(new BoolOutput(new Compare(CompareOp.LT, new ColumnRef(0), new ColumnRef(1)))))
     assert(VarkaExpressionCompiler.compile(
-      Seq(out(EqualNullSafe(d, d2))), childOutput).isEmpty)
+      Seq(out(EqualNullSafe(d, d2))), childOutput).get.outputs.asScala.toSeq ===
+      Seq(new BoolOutput(new IRNullSafeEqual(new ColumnRef(0), new ColumnRef(1)))))
   }
 
   test("IN dedups and sorts date literals into a balanced OR of EQ") {
@@ -2644,6 +2647,42 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     assert(predicate.specs.asScala.toSeq.map(_.fused) === Seq(true, true, true))
     assert(predicate.fused.lane(VarkaEmitOptions.DEFAULTS) === LaneType.LONG)
     assert(predicate.fused.inputOrdinals.asScala.toSeq === Seq(0, 1, 5, 6))
+  }
+
+  test("a boolean expression is an output over its condition, and declines with its reason") {
+    // VARKA-27 2.3: a BOOLEAN root is compiled as a condition and wrapped, so the condition's
+    // own reason is the entry's when it declines.
+    val s = AttributeReference("s", StringType)()
+    val partial = VarkaExpressionCompiler.compilePartial(
+      Seq(out(And(LessThan(d, d2), IsNotNull(i))), out(EqualTo(Upper(s), Upper(s))),
+        out(DateAdd(d, Literal(1)))), s +: childOutput).get
+    assert(partial.specs.asScala.toSeq === Seq(new FusedOutput(0), VarkaOutputSpec.RESIDUAL,
+      new FusedOutput(1)))
+    assert(partial.fused.outputs.asScala.head.isInstanceOf[BoolOutput])
+    assert(partial.fused.outputTypes.asScala.head === BooleanType)
+    val condReason = VarkaExpressionCompiler.explainPredicate(
+      EqualTo(Upper(s), Upper(s)), s +: childOutput).asScala.flatMap(_.decline.toScala)
+    assert(partial.declines.asScala(1).reason === condReason.head.reason)
+    // A bare boolean column forwards, beside a fused entry, as any column does.
+    val b = AttributeReference("b", BooleanType)()
+    val forwarded = VarkaExpressionCompiler.compilePartial(
+      Seq(out(b), out(Not(b))), b +: childOutput).get
+    assert(forwarded.specs.asScala.toSeq === Seq(new ForwardedOutput(0), new FusedOutput(0)))
+  }
+
+  test("an int condition beside long values takes a kernel of its own") {
+    // The existing lane rule (VARKA-480), with no new one: the long entry fixes the first
+    // kernel's lane, and the int comparison output plans alone on the int lane.
+    val partial = VarkaExpressionCompiler.compilePartial(
+      Seq(out(Greatest(Seq(l, l2))), out(LessThan(d, d2))), withLong).get
+    assert(partial.specs.asScala.toSeq === Seq(new FusedOutput(0), new KernelOutput(1, 0)))
+    assert(partial.fused.lane(VarkaEmitOptions.DEFAULTS) === LaneType.LONG)
+    assert(partial.more.asScala.map(_.lane(VarkaEmitOptions.DEFAULTS)) === Seq(LaneType.INT))
+    assert(partial.more.asScala.head.outputs.asScala.head.isInstanceOf[BoolOutput])
+    // A long condition beside long values shares their kernel.
+    val shared = VarkaExpressionCompiler.compilePartial(
+      Seq(out(Greatest(Seq(l, l2))), out(LessThan(l, l2))), withLong).get
+    assert(shared.specs.asScala.toSeq === Seq(new FusedOutput(0), new FusedOutput(1)))
   }
 
   test("a CASE whose condition and branches disagree on lane declines with the lane reason") {

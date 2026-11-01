@@ -26,7 +26,7 @@
 #   dev/varka_matrix.sh --defaults --list-suites --module sql   # print a module's suites, no build
 #   dev/varka_matrix.sh --all --skip-build             # reuse the last build and classpath
 #   dev/varka_matrix.sh --all -j 8 --deadline 06:30    # start no JVM after 06:30
-#   dev/varka_matrix.sh --all --shard 3/12 -j 2        # shard 3 of 12, split by measured time
+#   dev/varka_matrix.sh --all --shard 3/18 -j 2        # shard 3 of 18, split by measured time
 #   dev/varka_matrix.sh --module sql --config cse=false --sbt-arg -Phive   # as the PR job runs
 #   dev/varka_matrix.sh --defaults --split 4 -j 8 --jvm-arg -XX:MaxVectorSize=16   # as the gate
 #
@@ -43,6 +43,13 @@
 # --defaults-from DIR takes a finished defaults run - the runs/defaults under DIR, which the
 # declining check compares fused batches with - instead of running the defaults again, and
 # balances the JVMs by its JUnit times.
+#
+# The fanned-out matrix's options (VARKA-507): --build-only builds, lists the configurations and
+# stops; --runs-only runs the configurations asked for (or, with --defaults, the defaults) and
+# neither runs the defaults beside them nor reports, so that many jobs can each run a share and
+# one job report on them all; --leaf-suffix S names this run's JVM directories <module>-S, so the
+# shares of one configuration land side by side when their runs/ directories are merged; and
+# --report-only DIR reports on the merged DIR/runs and runs nothing.
 #
 # sbt builds once and exports the test classpath and JVM options; each configuration then runs
 # as its own runner JVM (VarkaSuiteRunner: ScalaTest's Runner, then the JUnit suites) in its own
@@ -87,6 +94,30 @@ only_suites=""
 skip_suites=""
 extra_suites=()
 defaults_from=""
+build_only=0
+runs_only=0
+leaf_suffix=""
+report_only=""
+
+# The report over a run's runs/ directory: one line per configuration and what failed
+# (dev/varka_matrix_report.py), then the proof that the sanitizer was on - its own suite cancels
+# its tests without the flag, so any cancelled test there (JUnit's skipped) means a run that said
+# it was sanitized was not. Its status is the run's.
+report() {
+  local runs=$1 status xml
+  python3 dev/varka_matrix_report.py "$runs" sql/varka/matrix/skips.tsv
+  status=$?
+  if [ "$sanitize" = 1 ]; then
+    while IFS= read -r xml; do
+      if grep -q '<skipped' "$xml"; then
+        echo "the memory sanitizer's own suite cancelled a test (${xml#"$runs/"}):" \
+          "the flag did not reach the JVM"
+        status=1
+      fi
+    done < <(find "$runs" -name 'TEST-*VarkaMemorySanitizerEndToEndSuite.xml')
+  fi
+  return "$status"
+}
 
 # The header is found, not numbered: a hard-coded range truncates as the comment grows.
 usage() { sed -n '18,/^[^#]/p' "$0" | sed '$d' | sed 's/^# \{0,1\}//'; exit "${1:-2}"; }
@@ -114,22 +145,37 @@ while [ $# -gt 0 ]; do
     --skip-suites) skip_suites="$2"; shift 2 ;;
     --extra-suite) extra_suites+=("$2"); shift 2 ;;
     --defaults-from) defaults_from=$(realpath -m "$2"); shift 2 ;;
+    --build-only) build_only=1; shift ;;
+    --runs-only) runs_only=1; shift ;;
+    --leaf-suffix) leaf_suffix="$2"; shift 2 ;;
+    --report-only) report_only=$(realpath -m "$2"); shift 2 ;;
     -h|--help) usage 0 ;;
     *) echo "unknown argument: $1" >&2; usage ;;
   esac
 done
+if [ -n "$report_only" ]; then
+  report "$report_only/runs"
+  exit $?
+fi
 
 # Suites whose subject is the defaults or the machine rather than an answer, so a configuration
-# breaks them by construction. Each name with its reason.
+# breaks them by construction, and suites that do all their work in a JVM they start without the
+# configuration, so every configuration would rerun the defaults' work (VARKA-507). The pull
+# requests' varka-scoped jobs run them all. Each name with its reason.
 EXCLUDED=(
   "VarkaEmittedBytesSuite:compares the emitted bytes with the defaults' committed oracle"
   "VarkaEmitCostAuditSuite:compares the cost audit with the defaults' committed oracle"
   "VarkaEmitOptionSuite:checks the defaults themselves"
   "VarkaMatrixSuite:checks the matrix's own machinery, not an answer"
   "VarkaSuiteHarnessSuite:checks the JUnit face of the matrix's machinery, not an answer"
+  "VarkaHarnessParitySuite:checks that the answer harness plans as a session does, not an answer"
+  "VarkaReachSuite:checks the matrix's reach filter, not an answer"
+  "VarkaTestReachSuite:checks the matrix's record of which tests a configuration moves"
   "VarkaAssemblySuite:reads the JIT's output, not an answer"
   "VarkaWarmupEndToEndSuite:times a kernel's compilation, which a loaded machine moves"
   "VarkaTierWitnessSuite:asserts which JIT tier ran a call, which a loaded machine moves"
+  "VarkaWidthAuditSuite:audits the C2 code of a probe JVM it starts without the configuration"
+  "VarkaOperatorCensusSuite:counts the C2 code of probe JVMs it starts without the configuration"
 )
 
 # The gate runs every suite; the matrix leaves out the ones above.
@@ -211,17 +257,26 @@ mapfile -t OPTS < "$BUILD/jvm.opts"
 [ "$sanitize" = 1 ] && jvm_args+=("-Dvarka.sanitizeMemory=true")
 # Each batch a kernel serves also runs through its other body, and the two must agree (VARKA-303).
 jvm_args+=("-Dvarka.checkBothBodies=true")
+# The commit the harness store's files are stamped with (VarkaHarnessStore): a configuration's
+# JVM ignores a file the defaults' JVM wrote on another commit. First, so a --jvm-arg naming
+# another commit is the one the JVM reads.
+if commit=$(git rev-parse HEAD 2> /dev/null); then
+  jvm_args=("-Dvarka.harness.commit=$commit" "${jvm_args[@]}")
+fi
 OPTS+=("${jvm_args[@]}")
 
-# The configurations, from VarkaMatrix itself so that the table stays their one source. The gate
-# (--defaults) runs none and lists none.
-if [ "$defaults_only" = 0 ] || [ "$list" = 1 ]; then
+# The configurations, from VarkaMatrix itself so that the table stays their one source, listed
+# when a run asks for all of them, for --list and for --build-only. The gate (--defaults) runs
+# none and lists none, and a run of named configurations, as a fanned-out share is, needs none.
+if [ "$list" = 1 ] || [ "$build_only" = 1 ] ||
+    { [ "$defaults_only" = 0 ] && [ "${configs[0]:-}" = ALL ]; }; then
   MAIN=org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaMatrixMain
   java "${OPTS[@]}" -cp "$CP" "$MAIN" \
     > "$OUT/configurations" 2> "$OUT/configurations.err" || {
       echo "could not list the configurations; see $OUT/configurations.err" >&2; exit 1; }
 fi
 if [ "$list" = 1 ]; then cat "$OUT/configurations"; exit 0; fi
+[ "$build_only" = 1 ] && exit 0
 if [ "$defaults_only" = 1 ]; then
   configs=()
 else
@@ -296,7 +351,8 @@ RUNNER=org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaSuiteRunner
 run_one() {
   local config=$1 module=$2 part=$3 name=${1:-defaults}
   local leaf=$module
-  [ "$(wc -l < "$OUT/shards/$module")" -gt 1 ] && leaf=$module-$part
+  [ -n "$leaf_suffix" ] && leaf=$module-$leaf_suffix
+  [ "$(wc -l < "$OUT/shards/$module")" -gt 1 ] && leaf=$leaf-$part
   local dir=$OUT/runs/${name//[^A-Za-z0-9=_.-]/_}/$leaf
   local -a suites=() own=()
   local suite line
@@ -333,7 +389,10 @@ rm -rf "$OUT/runs"
 mkdir -p "$OUT/runs"
 echo "${modules[*]}" > "$OUT/runs/modules"
 all=("" "${configs[@]}")
-if [ -n "$defaults_from" ]; then
+if [ "$runs_only" = 1 ]; then
+  # A share of a fanned-out run: the defaults are their own share, so only one of the two runs.
+  if [ "$defaults_only" = 1 ]; then all=(""); else all=("${configs[@]}"); fi
+elif [ -n "$defaults_from" ]; then
   [ -d "$defaults_from/runs/defaults" ] || {
     echo "no defaults run under $defaults_from" >&2; exit 1; }
   cp -r "$defaults_from/runs/defaults" "$OUT/runs/defaults"
@@ -353,18 +412,14 @@ for config in "${all[@]}"; do
 done
 wait
 
-python3 dev/varka_matrix_report.py "$OUT/runs" sql/varka/matrix/skips.tsv
-status=$?
-
-# The proof that the sanitizer was on: its own suite cancels its tests without the flag, so any
-# cancelled test there (JUnit's skipped) means a run that said it was sanitized was not.
-if [ "$sanitize" = 1 ]; then
-  while IFS= read -r xml; do
-    if grep -q '<skipped' "$xml"; then
-      echo "the memory sanitizer's own suite cancelled a test (${xml#"$OUT/"}):" \
-        "the flag did not reach the JVM"
-      status=1
-    fi
-  done < <(find "$OUT/runs" -name 'TEST-*VarkaMemorySanitizerEndToEndSuite.xml')
+if [ "$runs_only" = 1 ]; then
+  # The share's own status: a JVM that failed or never wrote its exit code fails it. The report
+  # and the declining check run over the merged runs (--report-only).
+  status=0
+  while IFS= read -r f; do
+    [ "$(cat "$f")" = 0 ] || status=1
+  done < <(find "$OUT/runs" -name exit)
+  exit "$status"
 fi
-exit "$status"
+report "$OUT/runs"
+exit $?

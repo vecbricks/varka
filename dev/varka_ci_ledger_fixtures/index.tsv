@@ -1,0 +1,43 @@
+#
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements.  See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License.  You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+# Each recorded response's file and the request it answers.
+
+655b59049127adbb	repos/MaxGekk/spark/actions/runs/40947407586
+efece286e4e9c4f4	graphql {"after": null, "id": "CS_kwDOB19d-c8AAAAZ2B-FeA"}
+0c576e02b4f491db	repos/MaxGekk/spark/actions/runs/40947407586/jobs?filter=all&per_page=50&page=1
+4ed108ce92a5ae05	repos/MaxGekk/spark/actions/jobs/123707320249/logs first=524288
+fe89018fbee33490	repos/MaxGekk/spark/actions/jobs/123707320393/logs first=524288
+1d7af16592204158	repos/MaxGekk/spark/actions/runs/40834493709
+51ece022eab28d9b	graphql {"after": null, "id": "CS_kwDOB19d-c8AAAAZxWBMbA"}
+4c662dd79df2e21e	repos/MaxGekk/spark/actions/runs/40834493709/jobs?filter=all&per_page=50&page=1
+a1e7ee43f834cf98	repos/MaxGekk/spark/actions/runs/40834493709/artifacts?per_page=100&name=varka-option-matrix-b065
+05d00df94b01178f	repos/MaxGekk/spark/actions/artifacts/12880953042/zip
+64d6c89007fad212	repos/MaxGekk/spark/actions/runs/40031251245
+bc96cda94d948896	graphql {"after": null, "id": "CS_kwDOB19d-c8AAAAZQ6JmQQ"}
+6f98b7aa53636363	repos/MaxGekk/spark/actions/runs/40031251245/jobs?filter=all&per_page=50&page=1
+f677d8945b73aa4c	repos/MaxGekk/spark/actions/jobs/120681244459/logs first=524288
+ffedbab15ce6b81a	repos/MaxGekk/spark/actions/jobs/120686198143/logs first=524288
+80937b7b150422d3	repos/MaxGekk/spark/actions/runs/39148626990
+77a22d76cadea637	graphql {"after": null, "id": "CS_kwDOB19d-c8AAAAYs1IstA"}
+35862fbed736db09	repos/MaxGekk/spark/actions/runs/39148626990/jobs?filter=all&per_page=50&page=1
+0f91c8f390e42837	repos/MaxGekk/spark/actions/jobs/117737955489/logs first=1048576
+18e3f3b596540f9d	repos/MaxGekk/spark/actions/runs/39148626990/artifacts?per_page=100&name=varka-scoped-junit-sql
+6c070a0aaaa55d80	repos/MaxGekk/spark/actions/runs/40942811546
+ca754652c009f431	graphql {"after": null, "id": "CS_kwDOB19d-c8AAAAZ11uFFQ"}
+eae0277aa2f830d5	repos/MaxGekk/spark/actions/runs/40942811546/jobs?filter=all&per_page=50&page=1
+371c3684a93e6201	repos/MaxGekk/spark/actions/runs/40942811546/artifacts?per_page=100&name=varka-option-matrix-b021
+582050e0ebfa7007	repos/MaxGekk/spark/actions/artifacts/12934912599/zip
+88b977528bad093d	repos/MaxGekk/spark/actions/jobs/123691388499/logs first=524288

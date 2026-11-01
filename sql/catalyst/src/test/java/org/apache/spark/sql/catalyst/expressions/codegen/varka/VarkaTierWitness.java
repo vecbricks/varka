@@ -163,10 +163,16 @@ public final class VarkaTierWitness {
   public static List<CodeEntry> parse(String codeList, String className) {
     var out = new ArrayList<CodeEntry>();
     String prefix = className + ".";
-    for (String line : codeList.split("\n")) {
-      if (!line.contains(prefix)) {
-        continue;
+    // The listing holds every method the JVM has compiled, and is read twice a checked call, so
+    // only the lines that name the class are cut out of it: a jump from one mention to the next.
+    for (int at = codeList.indexOf(prefix); at >= 0; ) {
+      int start = codeList.lastIndexOf('\n', at) + 1;
+      int end = codeList.indexOf('\n', at);
+      if (end < 0) {
+        end = codeList.length();
       }
+      String line = codeList.substring(start, end);
+      at = codeList.indexOf(prefix, end);
       String[] parts = line.trim().split(" ", 4);
       if (parts.length < 4 || !parts[3].startsWith(prefix)) {
         continue;

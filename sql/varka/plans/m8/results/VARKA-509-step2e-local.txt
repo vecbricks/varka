@@ -1,0 +1,63 @@
+# Row 509 step 2, its last part, on the laptop, 29 October 2026: the end-to-end layer over the
+# harness, and the list of every old coverage test against the test that keeps its check. sbt at
+# the defaults, one JVM; then dev/varka_matrix.sh over the two suites.
+
+Every test VarkaCoverageDifferentialSuite had before row 509 (1066), and where its check is now:
+  <row> matches the row engine under both consumers     337   harness, 337; and end to end, 27
+                                                              (the first row of each family)
+  <row> splits every fixture into true, false and
+  unknown rows                                          164   harness, 164
+  <row> under IS NULL and IS NOT NULL fuses as a CASE
+  condition                                             164   harness, 164
+  <row> raises under ANSI only where the row engine
+  does                                                  337   harness, 337
+  <row> is answered inside its domain and where it is
+  unknown, and declined outside with the verdict's
+  status, in a projection and a filter                   56   harness, 56
+  the boolean lanes, the partition oracle's plant, the
+  ANSI declined list, the total domains, date_add(d, i)
+  carries no guard                                        5   harness, 5
+  the ANSI form fails a raise where the row engine
+  skips, and a missing one; fails a kernel planted to
+  answer an overflowing row                               2   end to end, 2
+  the coverage table has rows to run                      1   end to end, 1, and harness, 1
+  (1066 = 337 + 164 + 164 + 337 + 56 + 5 + 2 + 1: the table's 337 rows, 164 of them predicates
+  and 56 guarded; the 2a results file's 165 for the two predicate forms is corrected to 164)
+
+New in this part:
+  harness: the ANSI form's raising rows name each condition a coverage row raises, by its
+  first row (VarkaAnsiForm.RAISES, held to the table both ways); and, under the partition
+  rewrites excluded, WHERE NOT (p) reaches Varka as the Not it was written as, in each
+  predicate row's partition test.
+  end to end: <condition> reaches the user as the row engine raises it, one test for each of
+  RAISES's five conditions - ARITHMETIC_OVERFLOW (add_months(d, i)),
+  BINARY_ARITHMETIC_OVERFLOW (y1 + y2), CAST_OVERFLOW (d + CAST(i AS INTERVAL DAY)),
+  DATETIME_FIELD_OUT_OF_BOUNDS.WITHOUT_SUGGESTION (make_date(2021, i, 1)) and
+  INTERVAL_ARITHMETIC_OVERFLOW.WITH_SUGGESTION (ym - ymm) - through both sessions, with a
+  Varka node in the plan.
+
+The paths m8/VARKA-509.md section 3 keeps end to end, and the tests that hold each:
+  each consumer over a sample          VarkaCoverageDifferentialSuite, the 27 sample rows under
+                                       the row and the columnar consumer; the predicate
+                                       families' rows are the filter consumer's
+  the rule fusing and declining        the sample rows' fused plans; VarkaEndToEndSuite, "a
+                                       non-foldable, non-column offset is not fused but still
+                                       returns correct results"
+  a SQL configuration reaching the     VarkaFamilySwitchQuerySuite; VarkaProjectExecSuite's
+  emitter                              exactRefusalStatus test
+  the fallback's accounting            VarkaFallbackReasonSuite (the metrics);
+                                       VarkaProjectExecSuite (the JFR event's status)
+  an ANSI error as the user sees it,   VarkaCoverageDifferentialSuite, one test a condition
+  one row a condition                  (new here)
+
+At the defaults:
+  VarkaCoverageHarnessSuite         1067 tests, 0 failed, 30.2 s
+  VarkaCoverageDifferentialSuite    35 tests, 0 failed
+
+dev/varka_matrix.sh --module sql --suites VarkaCoverageHarnessSuite,VarkaCoverageDifferentialSuite:
+configuration                    exit  secs    ok fail canc abort unfused atdef
+defaults                            0    68  1102    0    0     0       0     0
+checkIntOverflow=false              0    68  1062    0   40     0       0     0
+validityByWidth=false               0    50  1071    0   31     0       0     0
+(checkIntOverflow=false cancels 2 more than before, the two new lines: y1 + y2 and ym - ymm
+wrap there by the configuration's design)

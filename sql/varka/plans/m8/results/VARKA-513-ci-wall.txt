@@ -1,0 +1,43 @@
+# Where the option matrix's and the pull request Build's wall time goes (VARKA-513 to 516),
+# 29 October 2026: option matrix run 40855387471 and Build 40851152000, both on 37c39097662
+# (row 509 with all three suites moved). Job and step times from the Actions API; the docs job's
+# phases from its log's timestamps.
+
+The option matrix, run 40855387471: wall 45 minutes, the build-and-plan job 3.0, then 156 bins
+over 30 slots spanning 44.0 minutes, about 1008 job-minutes in all.
+  the bins' steps, summed over the 156 bins:
+    Run this bin's units         797.9 job-minutes, median 5.10, longest 12.8
+    Download the classpath       126.6 job-minutes, median 0.80, longest 3.9
+    Install Java 25               37.4 job-minutes, median 0.13, longest 16.3
+    Checkout                      18.7 job-minutes, median 0.08, longest 0.5
+    Unpack the classpath           6.2 job-minutes
+    the rest                      about 12 job-minutes
+  the classpath artifact the bins download: varka-option-matrix-build, 1104716001 bytes,
+  uploaded at compression level 1
+  the longest bin, b089: 24.9 minutes, 16.3 of them installing Java (actions/setup-java,
+  zulu 25); the bin before it to end ended 38.7 minutes after the first bin started, the last
+  44.0
+  the next longest bins: b099 13.8 minutes, b102 13.6, b064 13.1, b073 12.6, against a median
+  of 6.4
+
+The Build, 40851152000: wall 30.7 minutes, set by Documentation generation.
+  jobs that ended last (start and end, minutes after the run's first job; duration):
+    Varka suites: catalyst 2 of 3     2.1 -> 15.8   13.8
+    Varka suites: sql 1 of 3          2.1 -> 16.6   14.5
+    Varka suites: catalyst 1 of 3     2.1 -> 16.8   14.7
+    Varka suites: sql 2 of 3          2.1 -> 19.2   17.1
+    Varka suites: catalyst 3 of 3     2.1 -> 24.2   22.1
+    Varka suites: sql 3 of 3          2.1 -> 26.0   23.9
+    Documentation generation          3.9 -> 30.7   26.8
+  the docs job ran because the change touched docs/sql-varka.md, a Markdown page; its "Run
+  documentation build" step took 20.4 minutes:
+    the site without the API docs (SKIP_API=1)       7 s
+    building Spark for the API docs                  7.1 minutes
+    the Scala and Java API docs (unidoc)             2.5 minutes
+    the Python API docs                              6.8 minutes
+    the R API docs                                   about 2.5 minutes
+    the full site                                    about 1 minute
+  the sql jobs' split weights, sql/varka/ci/suite-times.tsv, still carry the suites row 509
+  moved at their old times (VarkaCoverageDifferentialSuite 515.2 s, VarkaDifferentialSuite
+  141.4, VarkaTimeArithmeticSuite 102.7) and none of its harness suites, which take the median;
+  in this Build those three took 44.7 s, 56.3 and 19.6, and VarkaCoverageHarnessSuite 234.2

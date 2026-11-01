@@ -1,0 +1,134 @@
+# Two test hot spots (VARKA-535), 30 October 2026, laptop numbers
+
+Two CPU hot spots that the suite profile (`m8/results/VARKA-suite-profile.txt`,
+section 5, fixes 2 and 4) found in two catalyst suites, each
+removed without changing an assertion or a test's coverage.
+
+## 1. VarkaGroupingBoundSuite: one plan per call
+
+`VarkaLoopEmitter.runsForTest` gave the runs of outputs from one start index and planned the
+whole projection (`VarkaKernelPlan.of`) on every call, only to read the lane it is driven at;
+`VarkaGroupingBound.runs`, its only caller, called it once per output, so a shape of n outputs
+was planned n times for each of the suite's option sets. The profile sampled `VarkaKernelPlan.of`
+at 29.8 s of the suite's 58.7 s at the defaults.
+
+`runsForTest(outputs, options)` now returns the runs of every start: it plans once, keeps one
+account of the outputs before the start that grows as the start advances (the per-start call
+built the same account from scratch, adding the same outputs in the same order), and hands each
+start a copy of its prefixes, as the per-start call did. `admit`, `closes`, `planOf` and the
+emitter's own grouping walks are unchanged; only the test entry point and a private helper it
+calls (`runsFrom`, the per-start loop moved out unchanged) differ.
+
+Equality, checked side by side before the per-start method was removed: `VarkaGroupingBound.runs`
+computed both the new answer and the per-start answer for every index and threw on any
+difference (record equality, so the NaN predictions of unpriced runs compare equal). The suite
+ran under it through `dev/varka_matrix.sh --config cse=false --module catalyst --suites
+VarkaGroupingBoundSuite --jvm-arg -Dvarka.series.size=4`, which runs the defaults and cse=false:
+
+  defaults   3 tests passed            13431 (shape, options) calls equal, 254442 runs compared
+  cse=false  2 passed, 1 cancelled     8954 calls equal, 169628 runs compared
+             (the cancelled test pins the defaults, as on master)
+
+Production emission does not call `runsForTest`, and none of the code it shares with it changed.
+`VarkaEmittedBytesSuite` ran on the after build at the defaults and passed its five byte checks
+(its two audits cancel without their flag, as on master).
+
+## 2. VarkaEmitterNarrowArithSuite: each output's lane once a batch
+
+The stored narrow lane of `VarkaKernelChecks` read `root.laneType()`, which walks the root's
+tree, on every row: in `got` for each fill's comparison and in `putOutput` and `sentinelOutput`
+while seeding the output buffers, over batches of 2^24 rows. The profile sampled `laneType` and
+its type switch at 6.1 s of the suite's 28.0 s.
+
+The `Lane` interface's four output methods now take the root's lane beside the root, read once
+per output by the caller (`runLoaded` before its row loop, `outputs` and `digest` once per output);
+`outputs` also computes the sentinel once per output. The long lane still reads the root itself
+(a `NarrowLane` root stores four bytes), so the root is passed as before. What is compared and
+every message are unchanged.
+
+## 3. Before and after
+
+Commits: before is master `56294ef7edb`, after is the branch's fix commits on it. Each side's
+catalyst classes were built once and copied aside, and the runs used the copies through
+`--skip-build --build-dir` with one classpath order, so the sides differ only in their catalyst
+jar and test classes. Each run is
+
+  dev/varka_matrix.sh --defaults | --config cse=false --runs-only
+    --module catalyst --suites VarkaGroupingBoundSuite,VarkaEmitterNarrowArithSuite
+    --jvm-arg -Dvarka.series.size=4
+
+under `flock heavy.lock`, alternated before, after, three rounds; each suite runs in a JVM of its
+own (the narrow suite is an own-JVM suite). Seconds are the JUnit report's suite time, with the
+JVM's own seconds beside it; wall includes the wait for the shared lock, which other agents held.
+Laptop: 24 cores, OpenJDK 25.0.4.1. Load average (1, 5, 15 minutes) at each run's start and end:
+
+  before-defaults-1 rc=0 wall=89s load_start=5.42 7.45 4.29 load_end=2.89 6.09 4.10
+      VarkaEmitterNarrowArithSuite=31.0s(jvm=32s,tests=49,canc=19,fail=0)
+      VarkaGroupingBoundSuite=54.7s(jvm=55s,tests=3,canc=0,fail=0)
+  before-cse-1 rc=0 wall=164s load_start=2.89 6.09 4.10 load_end=2.59 4.89 3.98
+      VarkaEmitterNarrowArithSuite=30.2s(jvm=30s,tests=49,canc=19,fail=0)
+      VarkaGroupingBoundSuite=38.8s(jvm=40s,tests=3,canc=1,fail=0)
+  after-defaults-1 rc=0 wall=180s load_start=2.59 4.89 3.98 load_end=2.76 3.81 3.71
+      VarkaEmitterNarrowArithSuite=23.3s(jvm=24s,tests=49,canc=19,fail=0)
+      VarkaGroupingBoundSuite=27.0s(jvm=28s,tests=3,canc=0,fail=0)
+  after-cse-1 rc=0 wall=179s load_start=2.76 3.81 3.71 load_end=2.34 3.27 3.53
+      VarkaEmitterNarrowArithSuite=23.5s(jvm=24s,tests=49,canc=19,fail=0)
+      VarkaGroupingBoundSuite=20.1s(jvm=21s,tests=3,canc=1,fail=0)
+  before-defaults-2 rc=0 wall=127s load_start=2.34 3.27 3.53 load_end=2.38 3.05 3.41
+      VarkaEmitterNarrowArithSuite=30.2s(jvm=31s,tests=49,canc=19,fail=0)
+      VarkaGroupingBoundSuite=54.4s(jvm=55s,tests=3,canc=0,fail=0)
+  before-cse-2 rc=0 wall=99s load_start=2.38 3.05 3.41 load_end=2.39 2.87 3.31
+      VarkaEmitterNarrowArithSuite=29.8s(jvm=31s,tests=49,canc=19,fail=0)
+      VarkaGroupingBoundSuite=40.1s(jvm=41s,tests=3,canc=1,fail=0)
+  after-defaults-2 rc=0 wall=145s load_start=2.39 2.87 3.31 load_end=3.28 3.31 3.43
+      VarkaEmitterNarrowArithSuite=23.5s(jvm=24s,tests=49,canc=19,fail=0)
+      VarkaGroupingBoundSuite=25.3s(jvm=26s,tests=3,canc=0,fail=0)
+  after-cse-2 rc=0 wall=132s load_start=3.28 3.31 3.43 load_end=2.62 3.19 3.37
+      VarkaEmitterNarrowArithSuite=24.0s(jvm=24s,tests=49,canc=19,fail=0)
+      VarkaGroupingBoundSuite=19.9s(jvm=21s,tests=3,canc=1,fail=0)
+  before-defaults-3 rc=0 wall=116s load_start=2.62 3.19 3.37 load_end=2.34 2.99 3.28
+      VarkaEmitterNarrowArithSuite=30.7s(jvm=31s,tests=49,canc=19,fail=0)
+      VarkaGroupingBoundSuite=56.3s(jvm=57s,tests=3,canc=0,fail=0)
+  before-cse-3 rc=0 wall=116s load_start=2.34 2.99 3.28 load_end=3.70 3.08 3.27
+      VarkaEmitterNarrowArithSuite=31.6s(jvm=32s,tests=49,canc=19,fail=0)
+      VarkaGroupingBoundSuite=40.7s(jvm=41s,tests=3,canc=1,fail=0)
+  after-defaults-3 rc=0 wall=134s load_start=3.70 3.08 3.27 load_end=2.27 2.64 3.07
+      VarkaEmitterNarrowArithSuite=24.8s(jvm=25s,tests=49,canc=19,fail=0)
+      VarkaGroupingBoundSuite=27.4s(jvm=28s,tests=3,canc=0,fail=0)
+  after-cse-3 rc=0 wall=146s load_start=2.27 2.64 3.07 load_end=3.27 2.91 3.10
+      VarkaEmitterNarrowArithSuite=24.8s(jvm=26s,tests=49,canc=19,fail=0)
+      VarkaGroupingBoundSuite=21.9s(jvm=22s,tests=3,canc=1,fail=0)
+
+Medians of the three runs:
+
+  VarkaGroupingBoundSuite defaults:
+      before 54.7, 54.4, 56.3 (median 54.7 s)
+      after 27.0, 25.3, 27.4 (median 27.0 s)
+      saved 27.7 s, 51%
+  VarkaGroupingBoundSuite cse:
+      before 38.8, 40.1, 40.7 (median 40.1 s)
+      after 20.1, 19.9, 21.9 (median 20.1 s)
+      saved 20.0 s, 50%
+  VarkaEmitterNarrowArithSuite defaults:
+      before 31.0, 30.2, 30.7 (median 30.7 s)
+      after 23.3, 23.5, 24.8 (median 23.5 s)
+      saved 7.2 s, 23%
+  VarkaEmitterNarrowArithSuite cse:
+      before 30.2, 29.8, 31.6 (median 30.2 s)
+      after 23.5, 24.0, 24.8 (median 24.0 s)
+      saved 6.2 s, 21%
+
+Both suites pass every run on both sides with the same tests run and cancelled (49 and 19 for the
+narrow suite; 3 and 0 at the defaults, 3 and 1 under cse=false for the grouping suite). The
+profile's estimates were about half of the grouping suite and about a fifth of the narrow suite;
+the laptop medians are 51% and 50%, and 23% and 21%. The matrix's own seconds come from CI.
+
+## 4. The other lanes
+
+The interface change reaches every lane of `VarkaKernelChecks`, and the mixed lane's per-row
+`laneType` goes with it. On the final tree (whose fix differs from the timed after build only in
+spelling three local variables' types instead of `var`), `dev/varka_matrix.sh --defaults --module
+catalyst --jvm-arg -Dvarka.series.size=4` over `VarkaEmitterMixedLaneSuite` (the mixed lane),
+`VarkaTimestampNtzCastSuite` (the long lane), `VarkaEmitterNarrowArithSuite` and
+`VarkaGroupingBoundSuite` passed: 18 tests with 1 cancelled, 4, 49 with 19 cancelled, and 3. The
+int lane's suites and every configuration are left to CI.

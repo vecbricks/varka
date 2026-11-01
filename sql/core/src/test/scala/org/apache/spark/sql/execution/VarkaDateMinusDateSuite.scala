@@ -93,7 +93,7 @@ class VarkaDateMinusDateSuite extends QueryTest with VarkaMaybeThrows with Varka
     val actual = varkaSpark.sql(query)
     val plan = actual.queryExecution.executedPlan
     assertFused(plan)
-    checkAnswer(actual, spark.sql(query))
+    checkAnswer(actual, expectedSql(query, actual))
     assertKernelsRan(plan)
     val node = collectFirst(plan) { case v if isVarkaNode(v) => v }.get
     val declined = node.metrics("numFallbackBatchesDeclined").value
@@ -135,7 +135,7 @@ class VarkaDateMinusDateSuite extends QueryTest with VarkaMaybeThrows with Varka
     try {
       val actual = varkaSpark.sql(query)
       assertNotFused(actual.queryExecution.executedPlan)
-      checkAnswer(actual, spark.sql(query))
+      checkAnswer(actual, expectedSql(query, actual))
     } finally {
       for (session <- Seq(spark, varkaSpark)) session.conf.unset(key)
     }

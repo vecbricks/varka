@@ -19,9 +19,11 @@
 package org.apache.spark.sql.execution.varka;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.StringJoiner;
 import java.util.function.Supplier;
 
@@ -91,6 +93,13 @@ public final class VarkaFallbackAccounting {
   private long kernelBatches;
   /** Declined batches by status bit, {@link #STATUS_NAMES}' order; see {@link #declinedBatch}. */
   private final long[] declinedByBit = new long[STATUS_BITS.length];
+  /**
+   * The failures already warned of, one key a kernel and cause: a kernel that fails on every
+   * batch warns once, with its stack trace, and every later batch is counted and evented but
+   * logged at debug, so a failing kernel over a million one-row batches cannot write a million
+   * stack traces.
+   */
+  private final Set<String> warned = new HashSet<>();
 
   /**
    * The decline status bits, the kernels' refusal reasons ({@code VarkaFusedKernel}, VARKA-304)
@@ -101,11 +110,12 @@ public final class VarkaFallbackAccounting {
       VarkaFusedKernel.STATUS_DAY_PRODUCER, VarkaFusedKernel.STATUS_MONTH_COUNT,
       VarkaFusedKernel.STATUS_MAKE_DATE, VarkaFusedKernel.STATUS_INT_OVERFLOW,
       VarkaFusedKernel.STATUS_DAY_RANGE, VarkaFusedKernel.STATUS_VALUE_RANGE,
+      VarkaFusedKernel.STATUS_DECIMAL_SLOT,
       VarkaKernelRunner.STATUS_INPUT_BOUND, VarkaKernelRunner.STATUS_DERIVED_INPUT,
       VarkaKernelRunner.STATUS_FORCED};
   private static final String[] STATUS_NAMES = {
       "day-producer", "month-count", "make-date", "int-overflow", "day-range", "value-range",
-      "input-bound", "derived-input", "forced"};
+      "decimal-slot", "input-bound", "derived-input", "forced"};
 
   /** The reason a status bit outside {@link #STATUS_BITS} is counted under. */
   public static final String UNRECOGNISED = "unrecognised";
@@ -164,8 +174,8 @@ public final class VarkaFallbackAccounting {
    */
   public void kernelFailure(Throwable e, String kernel, @Nullable VarkaErrorContext ctx) {
     String identity = kernel != null ? kernel : kernelIdentity.get();
-    LOG.warn("The Varka SIMD kernels " + identity
-        + " failed on this batch; falling back to the per-row path." + block(ctx), e);
+    log("kernel:" + identity, "The Varka SIMD kernels " + identity
+        + " failed on this batch; falling back to the per-row path.", ctx, e);
     add(counters.kernelFailures());
     fallbackEvent(VarkaFallbackEvent.KERNEL_FAILURE, () -> identity, options,
         e.getClass().getName());
@@ -180,11 +190,25 @@ public final class VarkaFallbackAccounting {
    * logs it.
    */
   public void rowPathFailure(Throwable e, @Nullable VarkaErrorContext ctx) {
-    LOG.warn("The per-row machinery beside the Varka kernel " + kernelIdentity.get()
-        + " failed on this batch; falling back to the per-row path." + block(ctx), e);
+    String identity = kernelIdentity.get();
+    log("row-path:" + identity, "The per-row machinery beside the Varka kernel " + identity
+        + " failed on this batch; falling back to the per-row path.", ctx, e);
     add(counters.rowPathFailures());
     fallbackEvent(VarkaFallbackEvent.ROW_PATH_FAILURE, kernelIdentity, options,
         e.getClass().getName());
+  }
+
+  /**
+   * A failure's sentence and context block: a warning the first time {@code key} fails in this
+   * evaluator, which says that the later ones are counted rather than logged, and debug after.
+   */
+  private void log(String key, String sentence, @Nullable VarkaErrorContext ctx, Throwable e) {
+    if (warned.add(key)) {
+      LOG.warn(sentence + " Later failures of this kind in this evaluator are counted in the"
+          + " fallback metrics and logged at debug." + block(ctx), e);
+    } else if (LOG.isDebugEnabled()) {
+      LOG.debug(sentence + block(ctx), e);
+    }
   }
 
   /** The context record's block on lines of its own after a warning's sentence; empty for none. */

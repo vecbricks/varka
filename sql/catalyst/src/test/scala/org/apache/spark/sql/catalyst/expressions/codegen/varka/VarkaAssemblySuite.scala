@@ -233,6 +233,8 @@ class VarkaAssemblySuite extends SparkFunSuite with VarkaTestWatchdog {
     command.add(classOf[VarkaAssemblyProbe].getName)
     command.add(caseName)
 
+    // The child JVM's code runs where the class-use record cannot see it (VarkaTestUse).
+    VarkaTestUse.childJvm()
     val builder = new ProcessBuilder(command)
     builder.redirectErrorStream(true)
     hsdis match {

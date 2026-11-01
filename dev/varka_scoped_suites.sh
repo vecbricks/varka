@@ -24,13 +24,13 @@
 #
 # The step lives here rather than in build_and_test.yml so that changing how the suites run is a
 # change to a Varka script, whose pull request runs the varka-scoped jobs it changes; a change to
-# the workflow runs Spark's module matrix instead (dev/varka_scope.py).
+# the workflow runs Spark's module matrix, and beside it only sql's varka-scoped jobs
+# (build_and_test.yml's precondition).
 #
 # The suites run through dev/varka_matrix.sh over two JVMs, the runner's four cores' worth, beside
 # a JVM of its own for each suite that runs alone (VarkaOwnJvm), two at a time, in
 # target/varka-scoped, which the job caches so the next run balances its JVMs by this run's JUnit
-# times. The run records each test's fused batches too, which the option matrix's step
-# (dev/varka_matrix_ci.sh) takes instead of running the defaults again.
+# times. The run records each test's fused batches too, as dev/varka_matrix.sh does for any run.
 #
 # The module's suites that measure the JIT rather than answers - VarkaAssemblySuite and
 # VarkaTierWitnessSuite in catalyst, VarkaWarmupEndToEndSuite in sql - run after the others, alone and without the memory sanitizer,
@@ -61,10 +61,9 @@ matrix=${VARKA_MATRIX:-dev/varka_matrix.sh}   # the runner; a test puts a stub h
 # --shard I/N: this job runs its share of the module's suites, one of N jobs that split them by
 # the committed weights in sql/varka/ci/suite-times.tsv (dev/varka_suite_shards.py --job), so
 # that every job of a run computes the same split from its own checkout. The share's simple
-# names go to target/varka-scoped/job-suites, which the job's later steps read - the option
-# configuration (dev/varka_matrix_ci.sh) and the new tests (dev/varka_new_tests.py) - so each
-# runs over the suites this job ran. The log prints a digest of the whole split: two jobs of one
-# run that print different digests saw different inputs.
+# names go to target/varka-scoped/job-suites, which the job's later step reads - the new tests
+# (dev/varka_new_tests.py) - so it runs over the suites this job ran. The log prints a digest of
+# the whole split: two jobs of one run that print different digests saw different inputs.
 only=()
 mkdir -p target/varka-scoped
 # The cache restores this directory, so a share left by an earlier sharded run goes first.
@@ -75,10 +74,15 @@ if [ -n "$shard" ]; then
   [ ${#all[@]} -gt 0 ] || { echo "the runner listed no suite of $module" >&2; exit 1; }
   weights=sql/varka/ci/suite-times.tsv
   count=${shard#*/}
+  # A job that does more than run its share would take a head start here (--head-start J:SECONDS,
+  # VARKA-516); none does since the option matrix's classes have a job of their own (VARKA-519).
+  head=()
   digest=$(for ((k = 0; k < count; k++)); do
-      echo "== $k"; python3 dev/varka_suite_shards.py --job "$k/$count" "$weights" "${all[@]}"
+      echo "== $k"
+      python3 dev/varka_suite_shards.py --job "$k/$count" "$weights" "${head[@]}" "${all[@]}"
     done | md5sum | cut -c1-12)
-  mapfile -t mine < <(python3 dev/varka_suite_shards.py --job "$shard" "$weights" "${all[@]}")
+  mapfile -t mine < <(python3 dev/varka_suite_shards.py --job "$shard" "$weights" "${head[@]}" \
+    "${all[@]}")
   printf '%s\n' "${mine[@]##*.}" > target/varka-scoped/job-suites
   echo "== job $shard of $module's Varka suites: ${#mine[@]} of ${#all[@]}," \
     "split digest $digest: $(tr '\n' ' ' < target/varka-scoped/job-suites)"
@@ -98,8 +102,27 @@ if [ -n "$shard" ]; then
     exit 1; }
   only=(--suites "$rest")
 fi
+# With VARKA_REACH_RECORD naming a file, the run records which option configurations move each
+# test (VarkaTestReach), for the option matrix dispatched on the same commit.
+reach=()
+if [ -n "${VARKA_REACH_RECORD:-}" ]; then
+  reach=(--jvm-arg "-Dvarka.matrix.reachRecord=$VARKA_REACH_RECORD")
+fi
+# With VARKA_HARNESS_STORE naming a directory, the expression harness's JVMs write their plans
+# and Spark's answers there (VarkaHarnessStore), for the same option matrix's configurations to
+# read instead of planning and computing them again.
+if [ -n "${VARKA_HARNESS_STORE:-}" ]; then
+  reach+=(--jvm-arg "-Dvarka.harness.store=$VARKA_HARNESS_STORE")
+fi
 "$matrix" --defaults --module "$module" --split 2 -j 2 --sbt-arg -Phive \
-  --out target/varka-scoped --skip-suites "${timing:-@none}" "${only[@]}" "${extra[@]}"
+  --out target/varka-scoped --skip-suites "${timing:-@none}" "${only[@]}" "${extra[@]}" \
+  "${reach[@]}"
+# A suite of this job's share whose time has moved far from its weight is reported as a warning,
+# so the split by the committed weights does not drift out of balance unseen (VARKA-516).
+if [ -n "$shard" ]; then
+  python3 dev/varka_suite_shards.py --check-weights "$weights" target/varka-scoped/runs \
+    target/varka-scoped/job-suites
+fi
 
 # The suites that measure the JIT may be given a fresh JVM when they fail, since what they
 # measure is decided per JVM: a suite in this list that fails is run again, alone, in a new JVM,

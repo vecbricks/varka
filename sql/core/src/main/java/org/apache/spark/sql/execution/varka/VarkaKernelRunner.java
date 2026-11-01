@@ -116,7 +116,9 @@ public final class VarkaKernelRunner {
   public final long[] dstValidity;
   /**
    * Bytes per value of each output, set with {@link #dstData}: the vector's width for a value
-   * output, zero for a selection bitmap, whose data slot is unused. Read by the both-bodies check.
+   * output, zero for a selection bitmap, whose data slot is unused, and
+   * {@link VarkaReproduction.KernelCall#BIT_OUTPUT} for a boolean output, whose data is a bitmap.
+   * Read by the both-bodies check and recorded in a reproduction.
    */
   public final int[] dstWidth;
   public final int[] scalarArgs;
@@ -370,7 +372,8 @@ public final class VarkaKernelRunner {
       long[] valid = new long[outputs];
       for (int o = 0; o < outputs; o++) {
         if (dstData[o] != 0L) {
-          long bytes = Math.max((long) len * dstWidth[o], 8L);
+          long bytes =
+              Math.max(VarkaReproduction.KernelCall.outputDataBytes(dstWidth[o], len), 8L);
           data[o] = arena.allocate(bytes, 8).address();
           VarkaMemorySanitizer.register("other body: output data", o, data[o], bytes);
         }
@@ -397,15 +400,43 @@ public final class VarkaKernelRunner {
         }
         return;
       }
-      compare(len, dense, data, valid);
+      compareBodies(shapeHash, len, dense, srcValidity, srcNullCount, dstWidth,
+          new BodyOutputs(dstData, dstValidity), new BodyOutputs(data, valid));
     }
   }
 
-  /** Each output's rows against the other body's, where both are defined; see above. */
-  private void compare(int len, boolean dense, long[] data, long[] valid) {
+  /**
+   * One body's output buffers, by output index: each data address (0L for a selection bitmap,
+   * which has no data) and each validity address. A pair, so that a call cannot hand one body's
+   * data as the other's or a validity as data.
+   */
+  // Arrays on purpose: the kernel's own parameter arrays, read once by the compare and never
+  // compared or used as a key, so the identity equality they give the record is never observed.
+  @SuppressWarnings("ArrayRecordComponent")
+  public record BodyOutputs(long[] data, long[] validity) {
+    public BodyOutputs {
+      if (data.length != validity.length) {
+        throw VarkaErrors.illegalArgument(data.length + " data addresses and "
+            + validity.length + " validity addresses");
+      }
+    }
+  }
+
+  /**
+   * Each output's rows in {@code served} against {@code other}'s, where both are defined; see
+   * above. {@code dstWidth} is both bodies' width of each output; a row of a nullable batch is
+   * compared only where every input is valid. Static so that a test can plant a disagreement
+   * without a kernel that makes one.
+   */
+  public static void compareBodies(String shapeHash, int len, boolean dense, long[] srcValidity,
+      int[] srcNullCount, int[] dstWidth, BodyOutputs served, BodyOutputs other) {
+    long[] dstData = served.data();
+    long[] dstValidity = served.validity();
+    long[] data = other.data();
+    long[] valid = other.validity();
     long bitmapBytes = ((long) len + 7) / 8;
-    MemorySegment[] inputValidity = new MemorySegment[srcData.length];
-    for (int i = 0; i < srcData.length; i++) {
+    MemorySegment[] inputValidity = new MemorySegment[srcNullCount.length];
+    for (int i = 0; i < srcNullCount.length; i++) {
       if (srcNullCount[i] != 0 && srcValidity[i] != 0L) {
         inputValidity[i] = VarkaSegments.map(srcValidity[i], bitmapBytes);
       }
@@ -414,16 +445,22 @@ public final class VarkaKernelRunner {
       MemorySegment servedBits = VarkaSegments.map(dstValidity[o], bitmapBytes);
       MemorySegment otherBits = VarkaSegments.map(valid[o], bitmapBytes);
       int w = dstWidth[o];
-      MemorySegment served =
-          dstData[o] == 0L ? null : VarkaSegments.map(dstData[o], (long) len * w);
-      MemorySegment other = dstData[o] == 0L ? null : VarkaSegments.map(data[o], (long) len * w);
+      boolean bits = w == VarkaReproduction.KernelCall.BIT_OUTPUT;
+      // A bit output's data is compared bit by bit, as its validity is.
+      long dataBytes = bits ? bitmapBytes : (long) len * w;
+      MemorySegment servedData =
+          dstData[o] == 0L ? null : VarkaSegments.map(dstData[o], dataBytes);
+      MemorySegment otherData = dstData[o] == 0L ? null : VarkaSegments.map(data[o], dataBytes);
       for (int r = 0; r < len; r++) {
-        if (!dense && !allInputsValid(inputValidity, r)) {
+        if (!dense && !allInputsValid(srcNullCount, inputValidity, r)) {
           continue;
         }
         boolean bit = bit(servedBits, r);
-        boolean same = bit == bit(otherBits, r) && (served == null || !bit
-            || served.asSlice((long) r * w, w).mismatch(other.asSlice((long) r * w, w)) < 0);
+        boolean sameData = servedData == null || !bit || (bits
+            ? bit(servedData, r) == bit(otherData, r)
+            : servedData.asSlice((long) r * w, w)
+                .mismatch(otherData.asSlice((long) r * w, w)) < 0);
+        boolean same = bit == bit(otherBits, r) && sameData;
         if (!same) {
           throw VarkaErrors.illegalState(shapeHash + "'s dense and masked bodies disagree on "
               + "output " + o + " at row " + r + " of a " + (dense ? "null-free" : "nullable")
@@ -433,8 +470,9 @@ public final class VarkaKernelRunner {
     }
   }
 
-  private boolean allInputsValid(MemorySegment[] inputValidity, int r) {
-    for (int i = 0; i < srcData.length; i++) {
+  private static boolean allInputsValid(int[] srcNullCount, MemorySegment[] inputValidity,
+      int r) {
+    for (int i = 0; i < srcNullCount.length; i++) {
       if (srcNullCount[i] == 0) {
         continue;
       }

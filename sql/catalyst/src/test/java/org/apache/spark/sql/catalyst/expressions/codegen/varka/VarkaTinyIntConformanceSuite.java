@@ -29,7 +29,6 @@ public final class VarkaTinyIntConformanceSuite extends VarkaTypeConformance {
 
   @Override
   protected ConformanceType type() {
-    return new ConformanceType("byte", DataTypes.ByteType, "TINYINT", "%dY",
-        integralValues(Byte.MIN_VALUE, Byte.MAX_VALUE));
+    return integral("byte", DataTypes.ByteType, "TINYINT", "Y", Byte.MIN_VALUE, Byte.MAX_VALUE);
   }
 }

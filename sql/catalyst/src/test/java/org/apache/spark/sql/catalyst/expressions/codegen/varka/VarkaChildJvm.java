@@ -152,6 +152,8 @@ public final class VarkaChildJvm {
    */
   public static Results run(String suite, String mainClass, List<String> arguments,
       String reportFlag, OptionalLong budget, List<String> jvmFlags) throws Exception {
+    // The child's code runs where the class-use record does not see it (VarkaTestUse).
+    VarkaTestUse.childJvm();
     File report = Files.createTempDirectory("varka-own-jvm").toFile();
     File javaBin = new File(new File(System.getProperty("java.home"), "bin"), "java");
     var command = new ArrayList<String>();

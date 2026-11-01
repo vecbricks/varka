@@ -26,7 +26,7 @@ time, and the rest are conditional on what the expression needs.
 | the family that claims it (`VarkaNodeCompiler.java` or a `Varka*Compiler.java` it chains) | 9/10 | the Catalyst translation |
 | `VarkaExpressionCompilerSuite.scala` | 9/10 | what compiles, and what declines and why |
 | `VarkaIrFuzzSuite.scala` | 9/10 | the generator must be able to produce the node |
-| `VarkaDifferentialSuite.scala` | 9/10 | end-to-end against the row engine |
+| `VarkaDifferentialHarnessSuite.java` | 9/10 | against Spark's answer below the session, both consumers and the filter |
 | `docs/sql-varka.md` | 9/10 | the supported-expression tables |
 
 | | When it applies | |
@@ -104,9 +104,10 @@ body will be wrong in a way no test of null-free data can catch.
 exact only inside a bounded day range; a node that can move a date outside it must
 either be bounded at compile time or carry a runtime guard on its own result.
 
-> *Check:* `build/sbt 'catalyst/testOnly *VarkaDifferentialSuite'` - the whole
-> query against stock Spark's row engine, through both a columnar and a row
-> consumer. This is the step that catches a guard that is missing rather than wrong.
+> *Check:* `build/sbt 'sql/testOnly *VarkaDifferentialHarnessSuite'` - the
+> optimized query against Spark's own evaluation, through both a columnar and a row
+> consumer and the filter evaluator, with no session. This is the step that catches a
+> guard that is missing rather than wrong.
 
 **7. Add the expression to the coverage table.** Add a row to `VarkaCoverageSuite`'s
 `families` list, in the family it belongs to, with a note if its support is

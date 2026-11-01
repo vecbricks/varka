@@ -237,7 +237,8 @@ public class VarkaFilterEvaluator extends VarkaEvaluatorBase {
               base.asSlice(0, stride), base.asSlice(clauses[c][0] * stride, stride), len);
         }
       }
-      MemorySegment mask = base.asSlice(0, (len + 7) / 8);
+      // Output 0's whole-word bitmap: countSet reads it a word at a time, the last word included.
+      MemorySegment mask = base.asSlice(0, stride);
       return new VarkaSelection(mask, VarkaSelectionBitmap.countSet(mask, len));
     } catch (VarkaKernelFailure e) {
       // As the projection's runKernel does (VARKA-315): the file, then the failure unchanged.

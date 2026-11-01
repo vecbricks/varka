@@ -60,6 +60,8 @@ class VarkaSanitizedWarmupSuite extends SparkFunSuite with VarkaTestWatchdog {
       "--enable-native-access=ALL-UNNAMED", "-Xmx1g", "-Dvarka.warmup.deadlineSeconds=120",
       s"-D${VarkaMemorySanitizer.PROPERTY}=true", "-Xlog:deoptimization=debug") ++ vectorFlags ++
       matrixConfig ++ Seq("-cp", classpath, classOf[VarkaSanitizedWarmupProbe].getName)
+    // The child JVM's code runs where the class-use record cannot see it (VarkaTestUse).
+    VarkaTestUse.childJvm()
     val process = new ProcessBuilder(command.asJava).redirectErrorStream(true).start()
     val reader = new BufferedReader(
       new InputStreamReader(process.getInputStream, StandardCharsets.UTF_8))

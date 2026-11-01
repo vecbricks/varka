@@ -1,0 +1,44 @@
+# The first fanned-out option matrix run (VARKA-507): run 40658422887, head cee69a474d7,
+# dispatched 28 October 2026. Job times from the Actions API; JVM and suite times from every
+# bin's uploaded seconds files and JUnit reports.
+
+wall: 75 minutes, 08:39:57 to 09:54:40 UTC
+build and plan job: 11.1 minutes, 9.4 of them the sbt compile of the test classes
+bins: 109 planned, 108 with units; first started 08:51:12, last ended 09:54:03
+bin minutes: median 16.0, longest 31.9 (b060), against a planned lane of 8
+report job: 0.6 minutes
+JVM time: 51.0 hours in 1303 units, 50.3 inside the suites, 0.7 outside
+
+bins by CPU:
+   60  AMD EPYC 7763 64-Core Processor
+   23  AMD EPYC 9V74 80-Core Processor
+   15  AMD EPYC 9V45 96-Core Processor
+    5  INTEL(R) XEON(R) PLATINUM 8573C
+    4  Intel(R) Xeon(R) Platinum 8370C CPU @ 2.80GHz
+    1  Intel(R) Xeon(R) 6973P-C
+defaults' units ran on: AMD EPYC 7763 64-Core Processor, AMD EPYC 9V45 96-Core Processor, AMD EPYC 9V74 80-Core Processor, INTEL(R) XEON(R) PLATINUM 8573C, Intel(R) Xeon(R) Platinum 8370C CPU @ 2.80GHz
+unfused tests under every configuration, against the shared defaults: 0
+
+suite hours under the 48 configurations, 49.2 in all; the fifteen largest:
+  VarkaCoverageDifferentialSuite          6.89 h  14.0%  cumulative  14.0%
+  VarkaWidthAuditSuite                    6.51 h  13.2%  cumulative  27.3%
+  VarkaIrFuzzSuite                        5.00 h  10.2%  cumulative  37.4%
+  VarkaDifferentialSuite                  3.66 h   7.4%  cumulative  44.9%
+  VarkaSmallTreeSuite                     3.46 h   7.0%  cumulative  51.9%
+  VarkaOperatorCensusSuite                2.66 h   5.4%  cumulative  57.3%
+  VarkaSparkFuzzSuite                     1.94 h   4.0%  cumulative  61.3%
+  VarkaEmitterNarrowArithSuite            1.94 h   3.9%  cumulative  65.2%
+  VarkaTimeArithmeticSuite                1.76 h   3.6%  cumulative  68.8%
+  VarkaCoverageCompositionFuzzSuite       1.51 h   3.1%  cumulative  71.9%
+  VarkaGroupingBoundSuite                 1.08 h   2.2%  cumulative  74.1%
+  VarkaVariantSuite                       0.92 h   1.9%  cumulative  75.9%
+  VarkaAvx2SelectSuite                    0.85 h   1.7%  cumulative  77.7%
+  VarkaGoldenCorpusSuite                  0.84 h   1.7%  cumulative  79.4%
+  VarkaSeveralKernelsSuite                0.84 h   1.7%  cumulative  81.1%
+
+left out of the matrix since, as reruns of the defaults' work: VarkaWidthAuditSuite and
+VarkaOperatorCensusSuite, 18.6% of the suite hours above
+the largest (configuration, suite) cost after that: 673 s, VarkaCoverageDifferentialSuite under
+julianMap=false
+the planner over these weights (sql/varka/matrix/suite-seconds.tsv) and the 48 configurations:
+178 bins, the longest 715 s, 85662 bin-seconds in all, 48 minutes in 30 slots

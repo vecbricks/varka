@@ -1,0 +1,32 @@
+# The option matrix planner's suite weights (VARKA-508), 29 October 2026: the committed
+# sql/varka/matrix/suite-seconds.tsv (written from run 40658422887), the same rule over option
+# matrix run 40921075226 (head adc299a4b0b), and the corrected rule over that run, which counts
+# only the configurations that ran every test of a suite by the reach record its plan read
+# (Build run 40915059497's). dev/varka_matrix_bins.py times, without and with --reach.
+
+suites: 130 committed, 141 in the run
+the suites whose weight moves by more than a factor of 1.8 and 20 s, or that are new:
+  suite                                  committed  old rule    whole
+  VarkaSmallTreeSuite                        278.2     113.7    113.7
+  VarkaDifferentialSuite                     275.9      67.8     85.8
+  VarkaFloatingLaneSuite                      10.7      82.5     84.0
+  VarkaCoverageHarnessSuite                      -      49.9     77.4
+  VarkaEmitterNarrowArithSuite               157.9      67.5     67.5
+  VarkaCoverageDifferentialSuite             527.0      57.0     57.7
+  VarkaIrFuzzSuite                           379.7      51.2     51.2
+  VarkaFilterRaiseOrderSuite                   9.0      19.0     22.7
+  VarkaTimeArithmeticSuite                   131.9      14.1     12.9
+  VarkaTimeHarnessSuite                          -       7.0     10.7
+  VarkaBigIntConformanceSuite                    -       8.5      8.5
+  VarkaIntConformanceSuite                       -       7.1      7.1
+  VarkaDayTimeIntervalConformanceSuite           -       6.7      6.7
+  VarkaDateConformanceSuite                      -       6.5      6.5
+  VarkaTimeConformanceSuite                      -       6.2      6.2
+  VarkaDifferentialHarnessSuite                  -       2.9      5.7
+
+The committed weights predate row 509, which moved the coverage, differential and time suites'
+checks into harness suites, and the old rule took each suite's median over every configuration,
+most of which ran only the tests the reach record let through, while the planner then applies
+that share to the weight again. A suite's time under one configuration can still be far from its
+weight times the configuration's factor: VarkaSeveralKernelsSuite's median whole run is 61.0 s,
+its runs 11.4 s to 339.3 s across the 49 configurations.

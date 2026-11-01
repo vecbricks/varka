@@ -94,8 +94,10 @@ object VarkaSparkFuzz {
    * largest ones that still fit, so the interval operations of a composition are what overflow.
    * The TIMESTAMP_NTZ columns are derived, `ntz` from `d` at the time `t` and `ntz2` from `d2` at
    * `t2`, as the differential suite derives them; every date drawn here converts without
-   * overflow. The cells drawn are what they were; which coverage rows a seed's compositions take
-   * follows the table, and a stored reproducer replays its own text.
+   * overflow. The floating columns are the differential suite's (VARKA-341), each picked by
+   * the value of `l`, `l2`, `i` or `d2` modulo the lists' length. The cells drawn are what they
+   * were; which coverage rows a seed's compositions take follows the table, and a stored
+   * reproducer replays its own text.
    */
   def fixtureSql(data: Seq[Seq[String]]): String =
     fixtureRows(data.map(_.mkString("(", ", ", ")")))
@@ -104,7 +106,11 @@ object VarkaSparkFuzz {
   def rowText(row: Seq[String]): String = row.mkString("(", ", ", ")")
 
   /** The fixture over `VALUES` rows already written as text. */
-  def fixtureRows(valueRows: Seq[String]): String =
+  def fixtureRows(valueRows: Seq[String]): String = {
+    val floating = VarkaCoverageDifferentialSuite.floatingColumns(
+      Seq("CAST(pmod(l, %d) AS INT)", "CAST(pmod(l2, %d) AS INT)", "pmod(i, %d)",
+        "pmod(unix_date(d2), %d)")
+        .map(_.format(VarkaCoverageDifferentialSuite.floatingPicks)))
     s"""SELECT d, d2, i,
        |       CAST(m AS INTERVAL MONTH) AS ymm,
        |       CASE WHEN 12L * y BETWEEN -2147483648L AND 2147483647L
@@ -113,9 +119,11 @@ object VarkaSparkFuzz {
        |            THEN make_ym_interval(y, mm) END AS ym,
        |       l, l2, CAST(t AS TIME(6)) AS t, CAST(t2 AS TIME(6)) AS t2, dt, dt2,
        |       CAST(d AS TIMESTAMP_NTZ) + (t - TIME'00:00:00') AS ntz,
-       |       CAST(d2 AS TIMESTAMP_NTZ) + (t2 - TIME'00:00:00') AS ntz2
+       |       CAST(d2 AS TIMESTAMP_NTZ) + (t2 - TIME'00:00:00') AS ntz2,
+       |       $floating
        |FROM VALUES ${valueRows.mkString(",\n  ")}
        |AS v(d, d2, i, m, y, mm, l, l2, t, t2, dt, dt2)""".stripMargin
+  }
 
   /**
    * The coverage table's rows, except those that read a BOOLEAN column: the fixture's batches and
@@ -127,7 +135,8 @@ object VarkaSparkFuzz {
     new ObjectMapper().readTree(file).get("expressions").elements().asScala.toSeq.map { e =>
       CoverageRow(e.get("sql").asText(), e.get("executable").asText(), e.get("form").asText())
     }.filterNot(r =>
-      VarkaCoverageRows.readsBoolean(r.executable) || VarkaCoverageRows.readsNarrow(r.executable))
+      VarkaCoverageRows.readsBoolean(r.executable) || VarkaCoverageRows.readsNarrow(r.executable)
+        || VarkaCoverageRows.readsDecimal(r.executable))
 
   /** The families the coverage table names, which the expected-errors list's rows cite. */
   def coverageFamilies(file: java.io.File): Set[String] =
@@ -564,7 +573,11 @@ object VarkaSparkFuzz {
 
   // ---- the reproducer file ----------------------------------------------------------------
 
-  /** A reproducer: what a file holds, enough to replay without the draw. */
+  /**
+   * A reproducer: what a file holds, enough to replay without the draw. `options` are the emit
+   * options it was found under that differ from the run's own, as `name=value[,name=value]`
+   * (`VarkaMatrixRuns.parseOver`), which the replay applies over the options it runs with.
+   */
   final case class Reproducer(
       status: String,
       note: String,
@@ -574,7 +587,8 @@ object VarkaSparkFuzz {
       where: Option[String],
       fixture: String,
       pivot: Option[String] = None,
-      force: Option[Int] = None)
+      force: Option[Int] = None,
+      options: Option[String] = None)
 
   def render(r: Reproducer): String =
     s"""-- VARKA-262 reproducer
@@ -584,7 +598,8 @@ object VarkaSparkFuzz {
        |-- kind: ${r.kind}
        |-- select: ${r.select}
        |-- where: ${r.where.getOrElse("")}${r.pivot.map(p => s"\n-- pivot: $p").getOrElse("")}${
-      r.force.map(k => s"\n-- force: $k").getOrElse("")}
+      r.force.map(k => s"\n-- force: $k").getOrElse("")}${
+      r.options.map(o => s"\n-- options: $o").getOrElse("")}
        |-- fixture
        |${r.fixture}
        |-- query
@@ -605,8 +620,11 @@ object VarkaSparkFuzz {
     val force = lines.collectFirst {
       case l if l.startsWith("-- force: ") => l.substring(10).trim.toInt
     }
+    val options = lines.collectFirst {
+      case l if l.startsWith("-- options: ") => l.substring(12).trim
+    }
     Reproducer(header("status"), header("note"), header("ansi").toBoolean, header("kind"),
       header("select"), if (where.isEmpty) None else Some(where),
-      lines.slice(f + 1, q).mkString("\n"), pivot, force)
+      lines.slice(f + 1, q).mkString("\n"), pivot, force, options)
   }
 }

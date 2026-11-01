@@ -1,0 +1,82 @@
+VARKA-356 admission checks (rows 356, 357 and 358: the trigonometric, hyperbolic, exponential,
+logarithmic, power and root functions), 30 October 2026, laptop (Zen 5, JDK 25.0.4.1), one
+single-file source launch of about two seconds under the shared heavy slot:
+  SPARK_LOCAL_IP=127.0.0.1 flock /home/max/proj/.varka-locks/heavy.lock \
+    java Varka356Admission.java
+
+The program is the planner's own and calls only java.lang.Math and java.lang.StrictMath; it holds
+no fdlibm code and nothing of the JDK's FdLibm.java. Part 2 parses the decimal text of the
+constants in fdlibm 5.3's e_exp.c (netlib, fetched for planning into a scratch directory and not
+committed; e_exp.c sha256 04c96195b7ced914d659b5fd204724c182f091af8631fe42016ad6e27cb302ef,
+fdlibm.h sha256 64113c472c2676499288bc35a821b0867916552930bc52c7445d2c50dddf0e71, both
+"@(#) 1.6 04/04/22" and "1.5 04/04/22", Copyright (C) 2004 Sun Microsystems, permission to use,
+copy, modify and distribute provided the notice is preserved) and holds each to the hexadecimal
+the source's comments give. Part 4 evaluates the source's one expression for the reduction's
+integer, (int) (invln2 * x + halF[sign]), at the edges named.
+
+What the program did:
+1. The constants Spark's log2 divides by and its one-argument log would divide by in the
+   interpreted path: StrictMath.log(Math.E) and StrictMath.log(2), by raw bits.
+2. e_exp.c's constants as Java parses the source's decimal text, against the source's hex.
+3. Each high-word compare of e_exp.c (hx >= H, hx > H, hx < H, hx the high word of |x|) against
+   the double compare the plan lowers it to, over every 4096th high word below 0x7ff00000 with
+   three low words each, for the five constants of the source.
+4. Where the scale-back takes its subnormal arm (k < -1021), found by bisection over the
+   doubles' order; k at the far reduction's lower edge and at the two thresholds.
+5. Math.<fn> against StrictMath.<fn> by raw bits over 2^20 inputs a function, drawn four ways in
+   turn (uniform bit patterns, [-750, 750], [-2, 2], (u - 0.5) * 2^-j for j up to 59), the
+   binary functions over pairs of such draws; run twice, the second pass with the loops hot.
+   A count above zero means the host's Math method is not fdlibm for that function, so a
+   per-lane call of the wrong class is a planted fault the sampled differential catches.
+6. The special values of Spark's compositions as its generated code writes them.
+
+---- output ----
+host: java.runtime.version=25.0.4.1+1-1-26.04.4-Ubuntu os.arch=amd64
+
+1. Constants Spark's expressions fold or divide by
+StrictMath.log(Math.E) = 0x3ff0000000000000 (1.0 is 0x3ff0000000000000)
+StrictMath.log(2) = 0x3fe62e42fefa39ef = 0.6931471805599453
+StrictMath.log(2.0) bits equal StrictMath.log(2): true
+
+2. e_exp.c's constants, parsed from the C source's decimal text, against
+   the hexadecimal the source comments give
+o_threshold  40862e42fefa39ef matches
+u_threshold  c0874910d52d3051 matches
+ln2HI[0]     3fe62e42fee00000 matches
+ln2LO[0]     3dea39ef35793c76 matches
+invln2       3ff71547652b82fe matches
+P1           3fc555555555553e matches
+P2           bf66c16c16bebd93 matches
+P3           3f11566aaf25de2c matches
+P4           bebbbd41c5d26bf1 matches
+P5           3e66376972bea4d0 matches
+twom1000     0170000000000000 matches
+11 of 11 match
+
+3. e_exp.c's high-word compares as compares of |x| against a double
+   hx >= H is |x| >= fromHi(H); hx > H is |x| >= fromHi(H + 1); hx < H is
+   |x| < fromHi(H); a NaN fails every double compare, so the filter's mask
+   is !(|x| < fromHi(0x40862E42)), true for NaN as hx >= 0x40862E42 is
+H = 0x40862e42: fromHi(H) = 709.7822265625, fromHi(H + 1) = 709.78271484375
+H = 0x7ff00000: fromHi(H) = Infinity, fromHi(H + 1) = NaN
+H = 0x3fd62e42: fromHi(H) = 0.3465733528137207, fromHi(H + 1) = 0.3465735912322998
+H = 0x3ff0a2b2: fromHi(H) = 1.0397205352783203, fromHi(H + 1) = 1.0397214889526367
+H = 0x3e300000: fromHi(H) = 3.725290298461914E-9, fromHi(H + 1) = 3.725293851175593E-9
+over 7860480 (word, constant) pairs, the double compares differ from the word compares 0 times
+
+4. e_exp.c's k = (int) (invln2 * x + halF[sign]) at the scale's edge
+the scale takes the subnormal arm (k < -1021) from x = -708.0498449419841 (0xc0862066151add8b) down to u_threshold; its neighbour toward zero, -708.049844941984, has k = -1021
+k at x = +fromHi(0x3FF0A2B2): 1, at -fromHi(0x3FF0A2B2): -1
+k at o_threshold: 1024, at u_threshold: -1075
+
+5. Math against StrictMath on this host, 1048576 inputs each, drawn four
+   ways in turn (bit patterns, [-750, 750], [-2, 2], near zero), raw bits
+pass 1: sin=21227 cos=20809 tan=22910 tanh=129888 cbrt=86835 exp=51322 log=13802 log10=40106 asin=0 acos=0 atan=0 sinh=0 cosh=0 expm1=0 log1p=0 pow=17275 atan2=0 hypot=0
+pass 2: sin=21154 cos=21224 tan=22852 tanh=129847 cbrt=87593 exp=51261 log=13958 log10=40257 asin=0 acos=0 atan=0 sinh=0 cosh=0 expm1=0 log1p=0 pow=17412 atan2=0 hypot=0
+
+6. Special values of Spark's compositions, as its generated code writes them
+x = 0.0: csc Infinity, cot Infinity, sec 1.0, atanh 0x0000000000000000
+x = -0.0: csc -Infinity, cot -Infinity, sec 1.0, atanh 0x8000000000000000
+atanh(1) Infinity, atanh(-1) -Infinity, atanh(2) NaN
+atan2(-0.0, -0.0): bare -3.141592653589793, Spark's (+ 0.0) 0.0; atan2(-0.0, -1.0): bare -3.141592653589793, Spark's 3.141592653589793
+exp of NaN 0xfff8000000000123: StrictMath 0xfff8000000000123, Math 0xfff8000000000123

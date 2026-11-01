@@ -24,12 +24,12 @@ import java.nio.file.Files
 import scala.jdk.CollectionConverters._
 
 import org.apache.arrow.memory.{BufferAllocator, OutOfMemoryException}
-import org.apache.arrow.vector.{BaseFixedWidthVector, DateDayVector, IntervalYearVector, IntVector, VarCharVector}
+import org.apache.arrow.vector.{BaseFixedWidthVector, BitVector, DateDayVector, IntervalYearVector, IntVector, VarCharVector}
 
 import org.apache.spark.TaskContext
 import org.apache.spark.sql.QueryTest
-import org.apache.spark.sql.catalyst.expressions.{Add, Alias, AttributeReference, CaseWhen, Coalesce, DateAdd, DateAddYMInterval, If, In, LessThan, Literal, NamedExpression, NextDay, Remainder, TruncDate, Year}
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaDebugInfoReader, VarkaMatrix, VarkaShapeCache}
+import org.apache.spark.sql.catalyst.expressions.{Add, Alias, AttributeReference, CaseWhen, Coalesce, DateAdd, DateAddYMInterval, EqualNullSafe, GreaterThan, If, In, IsNull, LessThan, Literal, NamedExpression, NextDay, Remainder, TruncDate, Year}
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaDebugInfoReader, VarkaMatrix, VarkaReproduction, VarkaShapeCache}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaMatrix.PinsDefaults
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTestWatchdog
 import org.apache.spark.sql.catalyst.util.DateTimeUtils
@@ -122,6 +122,39 @@ class VarkaKernelEvaluatorSuite extends QueryTest with SharedSparkSession with V
           if (i == null) null else Int.box(i % 7))
       }
       assert(actual === expected)
+      kernels.release(out)
+      completeTask()
+    }
+  }
+
+  test("a boolean output is a BitVector the kernel writes as two bitmaps, its width the marker") {
+    // VARKA-27: the kernel's BOOLEAN output through the evaluator's own runKernel, which records
+    // a bit vector's width as BIT_OUTPUT, so the memory sanitizer's guard and the both-bodies
+    // check (under -Dvarka.checkBothBodies, as the option matrix runs this suite) size its data
+    // at whole words. Four rows, not a multiple of 64, with nulls: the masked body serves them.
+    val projectList: Seq[NamedExpression] = Seq(
+      Alias(GreaterThan(intAttr, Literal(11)), "gt")(),
+      Alias(IsNull(attrD), "dnull")(),
+      Alias(EqualNullSafe(intAttr, Literal(13)), "eq13")())
+    withTask { (input, completeTask) =>
+      val kernels = evaluator(projectList)
+      assert(kernels.canRun(input))
+      val out = kernels.project(input)
+      val runner = kernels.fusedRunner()
+      assert(runner != null, "the projection did not fuse")
+      assert(runner.dstWidth.toSeq === Seq.fill(3)(VarkaReproduction.KernelCall.BIT_OUTPUT))
+      def column(c: Int): Seq[java.lang.Boolean] = (0 until out.numRows()).map { r =>
+        if (out.column(c).isNullAt(r)) null else Boolean.box(out.column(c).getBoolean(r))
+      }
+      (0 until 3).foreach { c =>
+        val vector = out.column(c).asInstanceOf[ArrowColumnVector].getValueVector()
+        assert(vector.isInstanceOf[BitVector], s"output $c is a ${vector.getClass.getSimpleName}")
+      }
+      // i = [10, 11, null, 13], d = [0, null, -5, 20000]: a null compare is null, never false,
+      // and a null test or a null-safe equality is never null.
+      assert(column(0) === Seq[java.lang.Boolean](false, false, null, true))
+      assert(column(1) === Seq[java.lang.Boolean](false, true, false, false))
+      assert(column(2) === Seq[java.lang.Boolean](false, false, false, true))
       kernels.release(out)
       completeTask()
     }

@@ -1,0 +1,53 @@
+# Row 509 step 2, its third part, on the laptop, 29 October 2026: the coverage differential's
+# domains moved below the session. sbt at the defaults, one JVM; then dev/varka_matrix.sh over
+# the two suites at the defaults and the two configurations with domain skip lines.
+
+Old tests to new, each kept under its name (VarkaCoverageDifferentialSuite to
+VarkaCoverageHarnessSuite):
+  <row> is answered inside its domain and where it is unknown,
+  and declined outside with the verdict's status, in a
+  projection and a filter                                          56 -> 56
+  the total domains are the guarded rows the fixture cannot
+  take outside, and no other                                        1 -> 1
+  date_add(d, i) carries no guard: at the int extremes its day
+  wraps as the row engine's does                                    1 -> 1
+  skip lines moved with them                                        20
+
+At the defaults:
+  VarkaCoverageHarnessSuite         1066 tests, 0 failed, 37.3 s (1008 before this part)
+  VarkaCoverageDifferentialSuite    30 tests, 0 failed (88 before this part)
+
+dev/varka_matrix.sh --module sql --suites VarkaCoverageHarnessSuite,VarkaCoverageDifferentialSuite:
+configuration                    exit  secs    ok fail canc abort unfused
+defaults                            0    67  1096    0    0     0       0
+checkIntOverflow=false              0    68  1058    0   38     0       0
+validityByWidth=false               0    50  1065    0   31     0       0
+
+The domain test's checks, old to new:
+  each partition has rows, the outside one unless the domain is
+  listed as total                                                  kept
+  the three partitions cut the fixture                             gone: each row's partition is
+                                                                   its one value of the domain, so
+                                                                   the cut holds by construction;
+                                                                   the rewrites of NOT and IS NULL
+                                                                   it went through are the
+                                                                   partition oracle's
+  Varka's answer is Spark's, rows or the same error                kept: the harness's comparison
+  no batch inside or under IS NULL condemned, every batch
+  outside condemned, by the verdict                                kept
+  the declined statuses agree with the verdicts                    stronger: each batch's status
+                                                                   is held to that batch's verdict,
+                                                                   where the JFR events were
+                                                                   matched to the batches in order
+                                                                   and the batches after a raise
+                                                                   went unseen
+  no fallback for another cause                                    kept: a batch the evaluator ran
+                                                                   no kernel for is a finding
+  a kernel serves the whole query where nothing must decline       kept: every batch answered, no
+                                                                   residual output, and a condition
+                                                                   with a residual conjunct refused
+  the JFR fallback event's status itself                           read end to end by
+                                                                   VarkaProjectExecSuite
+
+The edges fixture, ported to Java with the same rows: 16 for i, 2 of year 9999, 4 at the
+column bound, 4 at the NTZ bound, 8 month counts and 17 others, 51 in all.

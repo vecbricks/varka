@@ -28,10 +28,10 @@ import org.junit.jupiter.api.extension.ExtendWith;
 
 /**
  * Marks a JUnit 5 class as a Varka suite (VARKA-312): its tests run under the option matrix's
- * skip list and {@code PinsDefaults} cancellation, under the per-test watchdog, and under the
- * memory sanitizer's per-suite allocator check, as a ScalaTest suite that mixes in
- * {@code VarkaTestWatchdog} does. {@link VarkaSuiteExtension} does the work; this annotation only
- * registers it and carries its two parameters.
+ * skip list and {@code PinsDefaults} and {@code C2Code} cancellation, under the per-test
+ * watchdog, and under the memory sanitizer's per-suite allocator check, as a ScalaTest suite that
+ * mixes in {@code VarkaTestWatchdog} does. {@link VarkaSuiteExtension} does the work; this
+ * annotation only registers it and carries its two parameters.
  *
  * <p>Each test carries its sentence as a {@code @DisplayName}, the way a ScalaTest test is named:
  * {@code @DisplayName("a reduction that fails differently is not smaller")}. That sentence is the
@@ -62,6 +62,14 @@ public @interface VarkaSuite {
    * ScalaTest's {@code VarkaMatrix.PinsDefaults}.
    */
   String PINS_DEFAULTS = VarkaMatrixRuns.PINS_DEFAULTS_TAG;
+
+  /**
+   * The tag of a test whose subject is the C2 code a kernel compiles to, which the matrix runs
+   * only under a configuration that changes what C2 is given beyond the bytes and cancels under
+   * the others: {@code @Tag(VarkaSuite.C2_CODE)}, the JUnit spelling of ScalaTest's
+   * {@code VarkaMatrix.C2Code} ({@link VarkaMatrixRuns#C2_CODE_TAG}).
+   */
+  String C2_CODE = VarkaMatrixRuns.C2_CODE_TAG;
 
   /** The value of {@link #watchdogMinutes} that means the JVM's cap, the property's. */
   long JVM_CAP = -1;

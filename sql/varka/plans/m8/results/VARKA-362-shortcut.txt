@@ -1,0 +1,51 @@
+VARKA-362: where a decimal product fits 128 bits and 10^38 - 1, against the row's and Velox's bounds (30 October 2026, laptop).
+Command: python3 -I shortcut.py (the script below). Output:
+
+largest p1 + p2 whose bound (10^p1 - 1)(10^p2 - 1) is below 2^127:  38
+largest p1 + p2 whose bound is at most 10^38 - 1:  38
+(10^19 - 1)^2 = 99999999999999999980000000000000000001 ; 10^38 - 1 = 99999999999999999999999999999999999999
+P = 38, an operand above 18 digits: Velox checks, the row does not: 9804
+P = 39 (p1 + p2 = 38), an operand above 18 digits: 10582
+  of which scale kept (S <= 6), product below 10^38, check dead: 966
+  of which scale cut by one, a 128-bit dividend: 9616
+
+Script:
+
+# The static shortcut of VARKA-362: where the exact product of a DECIMAL(p1, s1) and a
+# DECIMAL(p2, s2), one of them above 18 digits, fits 128 bits and where it fits 10^38 - 1,
+# against the row's p1 + p2 + 1 <= 38 and Velox's p1 + p2 + 1 < 38.
+from collections import Counter
+
+MAXP = 38
+
+
+def adjust(p, s):
+    if p <= MAXP:
+        return p, s
+    return MAXP, max(MAXP - (p - s), min(s, 6))
+
+
+print("largest p1 + p2 whose bound (10^p1 - 1)(10^p2 - 1) is below 2^127: ",
+      max(a + b for a in range(1, 39) for b in range(1, 39)
+          if (10**a - 1) * (10**b - 1) < 2**127))
+print("largest p1 + p2 whose bound is at most 10^38 - 1: ",
+      max(a + b for a in range(1, 39) for b in range(1, 39)
+          if (10**a - 1) * (10**b - 1) <= 10**38 - 1))
+print("(10^19 - 1)^2 =", (10**19 - 1) ** 2, "; 10^38 - 1 =", 10**38 - 1)
+c = Counter()
+for p1 in range(1, 39):
+    for s1 in range(0, p1 + 1):
+        for p2 in range(1, 39):
+            for s2 in range(0, p2 + 1):
+                if p1 <= 18 and p2 <= 18:
+                    continue
+                P, S = p1 + p2 + 1, s1 + s2
+                pr, sr = adjust(P, S)
+                if P == 38:
+                    c["P = 38, an operand above 18 digits: Velox checks, the row does not"] += 1
+                if P == 39:
+                    c["P = 39 (p1 + p2 = 38), an operand above 18 digits"] += 1
+                    c["  of which scale kept (S <= 6), product below 10^38, check dead"
+                      if sr == S else "  of which scale cut by one, a 128-bit dividend"] += 1
+for k, n in c.items():
+    print(f"{k}: {n}")

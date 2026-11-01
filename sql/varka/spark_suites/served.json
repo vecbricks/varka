@@ -3,9 +3,9 @@
   "arm" : "varka",
   "total" : {
     "tests" : 788,
-    "executions" : 47323,
-    "served" : 1761,
-    "batches" : 6018
+    "executions" : 47324,
+    "served" : 2018,
+    "batches" : 7948
   },
   "tests" : {
     "alias-resolution-edge-cases.sql" : {
@@ -90,8 +90,8 @@
     },
     "bitwise.sql" : {
       "executions" : 42,
-      "served" : 1,
-      "batches" : 1
+      "served" : 20,
+      "batches" : 21
     },
     "bitwise.sql_analyzer_test" : {
       "executions" : 3,
@@ -349,9 +349,9 @@
       "batches" : 0
     },
     "cte-recursion.sql" : {
-      "executions" : 1144,
-      "served" : 2,
-      "batches" : 2
+      "executions" : 1145,
+      "served" : 3,
+      "batches" : 3
     },
     "cte-recursion.sql_analyzer_test" : {
       "executions" : 79,
@@ -390,8 +390,8 @@
     },
     "date.sql" : {
       "executions" : 96,
-      "served" : 7,
-      "batches" : 7
+      "served" : 13,
+      "batches" : 13
     },
     "date.sql_analyzer_test" : {
       "executions" : 11,
@@ -430,8 +430,8 @@
     },
     "datetime-legacy.sql" : {
       "executions" : 233,
-      "served" : 7,
-      "batches" : 7
+      "served" : 13,
+      "batches" : 13
     },
     "datetime-legacy.sql_analyzer_test" : {
       "executions" : 23,
@@ -560,8 +560,8 @@
     },
     "except-all.sql" : {
       "executions" : 35,
-      "served" : 1,
-      "batches" : 2
+      "served" : 2,
+      "batches" : 6
     },
     "except-all.sql_analyzer_test" : {
       "executions" : 10,
@@ -570,8 +570,8 @@
     },
     "except.sql" : {
       "executions" : 21,
-      "served" : 3,
-      "batches" : 8
+      "served" : 4,
+      "batches" : 10
     },
     "except.sql_analyzer_test" : {
       "executions" : 6,
@@ -890,8 +890,8 @@
     },
     "intersect-all.sql" : {
       "executions" : 34,
-      "served" : 3,
-      "batches" : 18
+      "served" : 4,
+      "batches" : 22
     },
     "intersect-all.sql_analyzer_test" : {
       "executions" : 10,
@@ -900,8 +900,8 @@
     },
     "interval.sql" : {
       "executions" : 237,
-      "served" : 10,
-      "batches" : 10
+      "served" : 12,
+      "batches" : 12
     },
     "interval.sql_analyzer_test" : {
       "executions" : 40,
@@ -941,7 +941,7 @@
     "join-asof-crossfeature.sql" : {
       "executions" : 19,
       "served" : 1,
-      "batches" : 1
+      "batches" : 3
     },
     "join-asof-crossfeature.sql_analyzer_test" : {
       "executions" : 5,
@@ -1020,8 +1020,8 @@
     },
     "join-lateral.sql" : {
       "executions" : 168,
-      "served" : 9,
-      "batches" : 17
+      "served" : 12,
+      "batches" : 23
     },
     "join-lateral.sql_analyzer_test" : {
       "executions" : 25,
@@ -1310,8 +1310,8 @@
     },
     "nonansi/date.sql" : {
       "executions" : 96,
-      "served" : 10,
-      "batches" : 10
+      "served" : 16,
+      "batches" : 16
     },
     "nonansi/date.sql_analyzer_test" : {
       "executions" : 17,
@@ -1370,8 +1370,8 @@
     },
     "nonansi/interval.sql" : {
       "executions" : 237,
-      "served" : 10,
-      "batches" : 10
+      "served" : 12,
+      "batches" : 12
     },
     "nonansi/interval.sql_analyzer_test" : {
       "executions" : 40,
@@ -1670,8 +1670,8 @@
     },
     "pipe-operators.sql" : {
       "executions" : 388,
-      "served" : 25,
-      "batches" : 50
+      "served" : 26,
+      "batches" : 51
     },
     "pipe-operators.sql_analyzer_test" : {
       "executions" : 85,
@@ -1820,8 +1820,8 @@
     },
     "postgreSQL/int2.sql" : {
       "executions" : 42,
-      "served" : 0,
-      "batches" : 0
+      "served" : 20,
+      "batches" : 81
     },
     "postgreSQL/int2.sql_analyzer_test" : {
       "executions" : 7,
@@ -1831,7 +1831,7 @@
     "postgreSQL/int4.sql" : {
       "executions" : 60,
       "served" : 29,
-      "batches" : 97
+      "batches" : 99
     },
     "postgreSQL/int4.sql_analyzer_test" : {
       "executions" : 7,
@@ -1840,8 +1840,8 @@
     },
     "postgreSQL/int8.sql" : {
       "executions" : 98,
-      "served" : 30,
-      "batches" : 88
+      "served" : 31,
+      "batches" : 94
     },
     "postgreSQL/int8.sql_analyzer_test" : {
       "executions" : 8,
@@ -1860,8 +1860,8 @@
     },
     "postgreSQL/join.sql" : {
       "executions" : 2514,
-      "served" : 441,
-      "batches" : 1625
+      "served" : 450,
+      "batches" : 1662
     },
     "postgreSQL/join.sql_analyzer_test" : {
       "executions" : 813,
@@ -1890,8 +1890,8 @@
     },
     "postgreSQL/select.sql" : {
       "executions" : 43,
-      "served" : 20,
-      "batches" : 32
+      "served" : 21,
+      "batches" : 36
     },
     "postgreSQL/select.sql_analyzer_test" : {
       "executions" : 6,
@@ -2100,13 +2100,13 @@
     },
     "scripting/randomly_generated_scripts.sql" : {
       "executions" : 1837,
-      "served" : 62,
-      "batches" : 242
+      "served" : 70,
+      "batches" : 279
     },
     "scripting/randomly_generated_scripts.sql_analyzer_test" : {
       "executions" : 1712,
-      "served" : 62,
-      "batches" : 242
+      "served" : 70,
+      "batches" : 279
     },
     "selectExcept.sql" : {
       "executions" : 45,
@@ -2331,7 +2331,7 @@
     "subquery/exists-subquery/exists-cte.sql" : {
       "executions" : 11,
       "served" : 3,
-      "batches" : 7
+      "batches" : 9
     },
     "subquery/exists-subquery/exists-cte.sql_analyzer_test" : {
       "executions" : 3,
@@ -2370,8 +2370,8 @@
     },
     "subquery/exists-subquery/exists-orderby-limit.sql" : {
       "executions" : 104,
-      "served" : 18,
-      "batches" : 36
+      "served" : 21,
+      "batches" : 42
     },
     "subquery/exists-subquery/exists-orderby-limit.sql_analyzer_test" : {
       "executions" : 14,
@@ -2440,8 +2440,8 @@
     },
     "subquery/in-subquery/in-joins.sql" : {
       "executions" : 942,
-      "served" : 54,
-      "batches" : 216
+      "served" : 162,
+      "batches" : 1728
     },
     "subquery/in-subquery/in-joins.sql_analyzer_test" : {
       "executions" : 276,
@@ -2450,8 +2450,8 @@
     },
     "subquery/in-subquery/in-limit.sql" : {
       "executions" : 88,
-      "served" : 0,
-      "batches" : 0
+      "served" : 24,
+      "batches" : 80
     },
     "subquery/in-subquery/in-limit.sql_analyzer_test" : {
       "executions" : 12,
@@ -2460,8 +2460,8 @@
     },
     "subquery/in-subquery/in-multiple-columns.sql" : {
       "executions" : 24,
-      "served" : 0,
-      "batches" : 0
+      "served" : 2,
+      "batches" : 8
     },
     "subquery/in-subquery/in-multiple-columns.sql_analyzer_test" : {
       "executions" : 8,
@@ -2571,7 +2571,7 @@
     "subquery/in-subquery/not-in-unit-tests-multi-column.sql" : {
       "executions" : 24,
       "served" : 12,
-      "batches" : 24
+      "batches" : 32
     },
     "subquery/in-subquery/not-in-unit-tests-multi-column.sql_analyzer_test" : {
       "executions" : 6,
@@ -2590,8 +2590,8 @@
     },
     "subquery/in-subquery/not-in-unit-tests-single-column.sql" : {
       "executions" : 26,
-      "served" : 0,
-      "batches" : 0
+      "served" : 11,
+      "batches" : 17
     },
     "subquery/in-subquery/not-in-unit-tests-single-column.sql_analyzer_test" : {
       "executions" : 6,
@@ -2670,8 +2670,8 @@
     },
     "subquery/scalar-subquery/scalar-subquery-predicate.sql" : {
       "executions" : 68,
-      "served" : 18,
-      "batches" : 72
+      "served" : 26,
+      "batches" : 104
     },
     "subquery/scalar-subquery/scalar-subquery-predicate.sql_analyzer_test" : {
       "executions" : 9,
@@ -2780,8 +2780,8 @@
     },
     "time-window.sql" : {
       "executions" : 97,
-      "served" : 0,
-      "batches" : 0
+      "served" : 2,
+      "batches" : 4
     },
     "time-window.sql_analyzer_test" : {
       "executions" : 34,
@@ -3290,8 +3290,8 @@
     },
     "udf/postgreSQL/udf-join.sql - Regular Python UDF" : {
       "executions" : 279,
-      "served" : 24,
-      "batches" : 191
+      "served" : 25,
+      "batches" : 193
     },
     "udf/postgreSQL/udf-join.sql - Regular Python UDF_analyzer_test" : {
       "executions" : 92,
@@ -3300,8 +3300,8 @@
     },
     "udf/postgreSQL/udf-join.sql - Scala UDF" : {
       "executions" : 279,
-      "served" : 24,
-      "batches" : 186
+      "served" : 23,
+      "batches" : 175
     },
     "udf/postgreSQL/udf-join.sql - Scala UDF_analyzer_test" : {
       "executions" : 92,
@@ -3540,8 +3540,8 @@
     },
     "udf/udf-intersect-all.sql - Scala UDF" : {
       "executions" : 28,
-      "served" : 3,
-      "batches" : 6
+      "served" : 4,
+      "batches" : 8
     },
     "udf/udf-intersect-all.sql - Scala UDF_analyzer_test" : {
       "executions" : 8,
@@ -3860,8 +3860,8 @@
     },
     "view-schema-binding-config.sql" : {
       "executions" : 184,
-      "served" : 0,
-      "batches" : 0
+      "served" : 1,
+      "batches" : 1
     },
     "view-schema-binding-config.sql_analyzer_test" : {
       "executions" : 90,
@@ -3880,8 +3880,8 @@
     },
     "view-schema-compensation.sql" : {
       "executions" : 90,
-      "served" : 0,
-      "batches" : 0
+      "served" : 1,
+      "batches" : 1
     },
     "view-schema-compensation.sql_analyzer_test" : {
       "executions" : 44,

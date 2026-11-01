@@ -18,16 +18,18 @@
 package org.apache.spark.sql.execution
 
 import java.io.File
+import java.lang.foreign.{Arena, MemorySegment, ValueLayout}
 import java.nio.file.Files
 
 import scala.collection.mutable
 import scala.jdk.CollectionConverters._
 
+import org.apache.logging.log4j.Level
 import org.mockito.Mockito.{doAnswer, doThrow, mock, never, verify}
 
 import org.apache.spark.{SparkFunSuite, TaskContext}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaEmitOptions, VarkaFusedKernel,
-  VarkaKernelPlan}
+  VarkaKernelPlan, VarkaReproduction}
 import org.apache.spark.sql.execution.metric.SQLMetric
 import org.apache.spark.sql.execution.varka.{VarkaBatchLedger, VarkaClassDump,
   VarkaFallbackAccounting, VarkaKernelRunner, VarkaReasonMetric}
@@ -152,6 +154,40 @@ class VarkaEvaluatorComponentsSuite extends SparkFunSuite {
     assert(Seq(kernel, rowPath, declined, nonArrow, suspect).map(_.value) === Seq(1, 1, 2, 1, 1))
   }
 
+  test("a kernel that fails on every batch warns once and is counted on every batch") {
+    // Catches: a warning per batch, which under one-row batches wrote a stack trace for each of
+    // a million rows; and a once-only rule so broad that a second kernel's failure, or the
+    // row path's, goes unwarned.
+    def metric(): SQLMetric = new SQLMetric("sum")
+    val Seq(kernel, rowPath) = Seq.fill(2)(metric())
+    val accounting = new VarkaFallbackAccounting(
+      new VarkaFallbackAccounting.Counters(kernel, rowPath, null, null, null), () => "kernel",
+      () => "")
+    // On the root logger, as the suites that read these warnings listen: an appender on the
+    // class's own logger gives it a configuration of its own, which outlives the test and keeps
+    // its warnings from a later suite's root appender.
+    val appender = new LogAppender("varka fallback")
+    appender.setThreshold(Level.WARN)
+    withLogAppender(appender) {
+      (1 to 3).foreach(_ => accounting.kernelFailure(new RuntimeException("boom"), null, null))
+      (1 to 2).foreach { _ =>
+        accounting.kernelFailure(new RuntimeException("boom"), "further kernel", null)
+      }
+      (1 to 2).foreach(_ => accounting.rowPathFailure(new RuntimeException("boom"), null))
+    }
+    val warnings = appender.loggingEvents
+      .filter(_.getLoggerName == classOf[VarkaFallbackAccounting].getName)
+      .map(_.getMessage.getFormattedMessage).toSeq
+    assert(warnings.size === 3, warnings.mkString("\n"))
+    assert(warnings.count(_.startsWith("The Varka SIMD kernels kernel failed")) === 1, warnings)
+    assert(warnings.count(_.startsWith("The Varka SIMD kernels further kernel failed")) === 1,
+      warnings)
+    assert(warnings.count(_.startsWith("The per-row machinery")) === 1, warnings)
+    assert(warnings.forall(_.contains("Later failures of this kind in this evaluator are " +
+      "counted")), warnings)
+    assert(Seq(kernel, rowPath).map(_.value) === Seq(5, 2))
+  }
+
   test("a declined batch counts against each reason its status names, and the status bits are " +
       "distinct, the kernels' below the evaluator's") {
     // VARKA-304. Catches: a reason's bit shared with another or with the evaluator's own (a log
@@ -159,7 +195,8 @@ class VarkaEvaluatorComponentsSuite extends SparkFunSuite {
     // naming several reasons, which a method of two reasons returns by default.
     val kernelBits = Seq(VarkaFusedKernel.STATUS_DAY_PRODUCER, VarkaFusedKernel.STATUS_MONTH_COUNT,
       VarkaFusedKernel.STATUS_MAKE_DATE, VarkaFusedKernel.STATUS_INT_OVERFLOW,
-      VarkaFusedKernel.STATUS_DAY_RANGE, VarkaFusedKernel.STATUS_VALUE_RANGE)
+      VarkaFusedKernel.STATUS_DAY_RANGE, VarkaFusedKernel.STATUS_VALUE_RANGE,
+      VarkaFusedKernel.STATUS_DECIMAL_SLOT)
     val evaluatorBits = Seq(VarkaKernelRunner.STATUS_INPUT_BOUND,
       VarkaKernelRunner.STATUS_DERIVED_INPUT, VarkaKernelRunner.STATUS_FORCED)
     val bits = kernelBits ++ evaluatorBits
@@ -259,6 +296,47 @@ class VarkaEvaluatorComponentsSuite extends SparkFunSuite {
       VarkaClassDump.dump(blocked.getAbsolutePath, "VarkaFusedProjection_b.java", first)
       assert(Files.readAllBytes(new File(blocked, "VarkaFusedProjection_b.class").toPath).toSeq ===
         first.toSeq)
+    }
+  }
+
+  test("the both-bodies check compares a boolean output's data bit by bit, where it is valid") {
+    // VARKA-27 2.5: a bit output's data is a bitmap, which the width-sliced compare would read
+    // as nothing. One output over 100 rows of a null-free batch, its two bodies' bitmaps planted:
+    // equal, they pass; one data bit flipped on a valid row fails; a data bit flipped under a
+    // null row is undefined data and passes.
+    val len = 100
+    val words = ((len + 63) / 64) * 8L
+    val arena = Arena.ofConfined()
+    try {
+      def bitmap(set: Int => Boolean): MemorySegment = {
+        val seg = arena.allocate(words, 8)
+        for (r <- 0 until len if set(r)) {
+          seg.set(ValueLayout.JAVA_BYTE, r / 8L,
+            (seg.get(ValueLayout.JAVA_BYTE, r / 8L) | (1 << (r % 8))).toByte)
+        }
+        seg
+      }
+      val valid = (r: Int) => r % 7 != 3
+      val known = (r: Int) => r % 3 == 0
+      def check(otherData: MemorySegment): Unit = {
+        VarkaKernelRunner.compareBodies("shape", len, true, Array(0L), Array(0),
+          Array(VarkaReproduction.KernelCall.BIT_OUTPUT),
+          new VarkaKernelRunner.BodyOutputs(
+            Array(bitmap(known).address()), Array(bitmap(valid).address())),
+          new VarkaKernelRunner.BodyOutputs(
+            Array(otherData.address()), Array(bitmap(valid).address())))
+      }
+      check(bitmap(known))
+      // Row 64 is valid and its data bit clear in the served body: the first bit of the second,
+      // partial word.
+      assert(valid(64) && !known(64))
+      val e = intercept[IllegalStateException](check(bitmap(r => known(r) || r == 64)))
+      assert(e.getMessage.contains("disagree on output 0 at row 64"), e.getMessage)
+      // Row 3 is null: its data bit is not compared.
+      assert(!valid(3))
+      check(bitmap(r => known(r) && r != 3))
+    } finally {
+      arena.close()
     }
   }
 }

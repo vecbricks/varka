@@ -1,0 +1,552 @@
+VARKA-346 admission checks, 30 October 2026, laptop (JDK 25.0.4, single-file source launch,
+24 threads, about 30 s). Method: the program below, run as written with
+`java -Xmx8g Varka346Admission.java` under the shared heavy slot; its output follows it.
+Every number VARKA-346.md quotes from these checks is in the output. These are sampled
+checks of the planned constructions in scalar Java, not proofs; the plan's section 3 says
+what proves each one.
+
+---- program ----
+// VARKA-346 admission checks: the planned constructions in scalar Java against Spark's
+// semantics. Run with `java Varka346Admission.java` (JDK 25, single-file source launch).
+//
+// Spark's answers are reproduced by the calls its code makes (mathExpressions.scala RoundBase,
+// Cast.scala castToDecimal, arithmetic.scala Remainder, MathUtils.pmod):
+//   round/bround/truncate over DOUBLE: BigDecimal.valueOf(d).setScale(s, mode).doubleValue()
+//   over FLOAT: BigDecimal.valueOf((double) f).setScale(s, mode).floatValue()
+//   CAST(d AS DECIMAL(p, s)): the unscaled value of BigDecimal.valueOf(d).setScale(s, HALF_UP)
+//   x % y: Java's %; pmod: r = x % n; r < 0 ? (r + n) % n : r
+// The constructions use only + - * /, Math.fma, comparisons, bit operations and floor/rint on
+// a non-negative double (row 344's RoundToIntegral, proven there equal to Math.floor/rint).
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.util.*;
+import java.util.concurrent.atomic.*;
+import java.util.stream.*;
+
+public class Varka346Admission {
+  static final double[] P = new double[23];
+  static final double[] P2 = new double[23];
+  static final double[] L = new double[23]; // fused below: ulp(a) < 10^-(s+1)
+  static final double[] K = new double[23]; // kept from: min(2^52, smallest double >= 10^(16-s))
+  static final int[] LE = new int[23];
+  static {
+    for (int s = 0; s <= 22; s++) {
+      P[s] = Double.parseDouble("1e" + s);
+      P2[s] = 2 * P[s];
+      int e = 60;
+      // largest E with 2^(E-53) < 10^-(s+1), i.e. every a < 2^E has ulp(a) < 10^-(s+1)
+      while (!(new BigDecimal(Math.scalb(1.0, e - 53)).compareTo(BigDecimal.ONE.movePointLeft(s + 1)) < 0)) e--;
+      LE[s] = e;
+      L[s] = Math.scalb(1.0, e);
+      BigDecimal k = BigDecimal.ONE.movePointRight(16 - s);
+      double kd = k.doubleValue();
+      if (new BigDecimal(kd).compareTo(k) < 0) kd = Math.nextUp(kd);
+      K[s] = Math.min(Math.scalb(1.0, 52), kd);
+    }
+  }
+
+  static final int HALF_UP = 0, HALF_EVEN = 1, DOWN = 2;
+  static final RoundingMode[] RM = {RoundingMode.HALF_UP, RoundingMode.HALF_EVEN, RoundingMode.DOWN};
+  static final String[] MN = {"round (HALF_UP)", "bround (HALF_EVEN)", "truncate (DOWN)"};
+  static final double BAND = Double.longBitsToDouble(0x7ff8dead0000beefL); // marker only
+
+  // The magnitude n = mode-rounding of the shortest decimal of a = |d| at scale s, for a < L[s].
+  static double nOf(double a, int s, int mode) {
+    double p = P[s];
+    double y = a * p;
+    if (mode == DOWN) {
+      double m = Math.rint(y);
+      double t = m / p;                       // Clinger: m < 2^53, p exact
+      return a < t ? m - 1 : m;
+    }
+    double k = Math.floor(y);
+    double t = (2 * k + 1) / P2[s];           // Clinger: 2k + 1 < 2^53, 2 * 10^s exact
+    boolean up = mode == HALF_UP ? a >= t : (a > t || (a == t && (((long) k) & 1) == 1));
+    return up ? k + 1 : k;
+  }
+
+  static double roundD(double d, int s, int mode) {
+    if (Double.isNaN(d) || Double.isInfinite(d)) return d;
+    double a = Math.abs(d);
+    if (a >= K[s]) return d;
+    if (a >= L[s]) return BAND;
+    double q = nOf(a, s, mode) / P[s];
+    long sign = Double.doubleToRawLongBits(d) & Long.MIN_VALUE;
+    return Double.longBitsToDouble(Double.doubleToRawLongBits(q) | sign) + 0.0;
+  }
+
+  static double sparkD(double d, int s, int mode) {
+    if (Double.isNaN(d) || Double.isInfinite(d)) return d;
+    return BigDecimal.valueOf(d).setScale(s, RM[mode]).doubleValue();
+  }
+
+  // RN32 of the exact n / p by round-to-odd at 53 bits, then one narrowing.
+  static float toFloatOdd(double n, double p) {
+    double q = n / p;
+    double r = Math.fma(-q, p, n);
+    long b = Double.doubleToRawLongBits(q);
+    if (r != 0 && (b & 1) == 0) b += (r > 0) == (q > 0) ? 1 : -1;
+    return (float) Double.longBitsToDouble(b);
+  }
+
+  static float roundF(float f, int s, int mode) {
+    if (Float.isNaN(f) || Float.isInfinite(f)) return f;
+    double d = f;
+    double a = Math.abs(d);
+    if (a >= K[s]) return f;
+    if (a >= L[s]) return Float.NaN; // band marker for floats
+    float q = toFloatOdd(nOf(a, s, mode), P[s]);
+    int sign = Float.floatToRawIntBits(f) & Integer.MIN_VALUE;
+    return Float.intBitsToFloat(Float.floatToRawIntBits(q) | sign) + 0.0f;
+  }
+
+  static float sparkF(float f, int s, int mode) {
+    if (Float.isNaN(f) || Float.isInfinite(f)) return f;
+    return BigDecimal.valueOf((double) f).setScale(s, RM[mode]).floatValue();
+  }
+
+  // The one-FMA remainder on magnitudes; DECLINE where |x| >= |y| and |x / y| >= 2^53.
+  static final double DECLINE = Double.longBitsToDouble(0x7ff8dead0000f00dL);
+  static double rem(double x, double y) {
+    double ax = Math.abs(x), ay = Math.abs(y);
+    long sx = Double.doubleToRawLongBits(x) & Long.MIN_VALUE;
+    if (ax < ay) return x;                    // also every finite x over an infinite y
+    double qd = ax / ay;
+    if (ax < Double.POSITIVE_INFINITY && qd >= 0x1p53) return DECLINE;
+    double q = Math.floor(qd);
+    double r = Math.fma(-q, ay, ax);
+    if (r < 0) r = r + ay;
+    return Double.longBitsToDouble(Double.doubleToRawLongBits(r) | sx);
+  }
+
+  static double pmodV(double x, double n) {
+    double r = rem(x, n);
+    if (r == DECLINE || Double.doubleToRawLongBits(r) == Double.doubleToRawLongBits(DECLINE)) return r;
+    return r < 0 ? rem(r + n, n) : r;
+  }
+
+  static double pmodSpark(double a, double n) {
+    double r = a % n;
+    return r < 0 ? (r + n) % n : r;
+  }
+
+  static boolean same(double x, double y) {
+    if (Double.isNaN(x) && Double.isNaN(y)) return true;
+    return Double.doubleToRawLongBits(x) == Double.doubleToRawLongBits(y);
+  }
+
+  static boolean isMarker(double v, double m) {
+    return Double.doubleToRawLongBits(v) == Double.doubleToRawLongBits(m);
+  }
+
+  static double randIn(SplittableRandom r, int e) { // a random double with exponent e (normal or subnormal)
+    if (e < -1022) return Double.longBitsToDouble(r.nextLong(1L, 1L << 52));
+    long mant = r.nextLong(1L << 52);
+    return Double.longBitsToDouble(((long) (e + 1023) << 52) | mant);
+  }
+
+  public static void main(String[] args) {
+    System.out.println("Host: " + Runtime.version() + ", " + System.getProperty("os.arch")
+        + ", " + Runtime.getRuntime().availableProcessors() + " threads");
+    System.out.println();
+    System.out.println("1. The bounds per scale s: fused for |d| < L_s = 2^E (every such d has");
+    System.out.println("   ulp(d) < 10^-(s+1)); kept (answer d) for |d| >= K_s = min(2^52, 10^(16-s)),");
+    System.out.println("   rounded up to a double; declined between. Band width in binades.");
+    for (int s = 0; s <= 22; s++) {
+      System.out.printf("   s = %2d: L = 2^%d = %s, K = %s, band %.2f binades%n", s, LE[s],
+          new BigDecimal(L[s]).round(new java.math.MathContext(4)).toString(),
+          new BigDecimal(K[s]).round(new java.math.MathContext(4)).toString(),
+          Math.log(K[s] / L[s]) / Math.log(2));
+    }
+
+    System.out.println();
+    System.out.println("2. round, bround, truncate over DOUBLE, construction against Spark's path,");
+    System.out.println("   s = 0..22. Fused region: every binade from the subnormals to L_s, 400");
+    System.out.println("   random doubles each; every tie neighbourhood: for 20000 random k, the");
+    System.out.println("   doubles nearest (k + 1/2) / 10^s and k / 10^s and 3 ulps either side;");
+    System.out.println("   20000 random decimals of s + 1 digits after the point. Both signs.");
+    AtomicLong checked = new AtomicLong(), wrong = new AtomicLong(), ties = new AtomicLong();
+    AtomicLong keptChecked = new AtomicLong(), keptWrong = new AtomicLong();
+    long[][] bandN = new long[23][3], bandBad = new long[23][3];
+    double[][] bandFirst = new double[23][3];
+    for (double[] r : bandFirst) Arrays.fill(r, Double.POSITIVE_INFINITY);
+    List<String> wrongCases = Collections.synchronizedList(new ArrayList<>());
+    IntStream.rangeClosed(0, 22).parallel().forEach(s -> {
+      SplittableRandom rnd = new SplittableRandom(346 + s);
+      List<Double> xs = new ArrayList<>();
+      for (int e = -1075; e < LE[s]; e++)
+        for (int i = 0; i < 400; i++) xs.add(randIn(rnd, e));
+      double kmax = Math.floor(L[s] * P[s]) - 2;
+      for (int i = 0; i < 20000; i++) {
+        double k = Math.floor(rnd.nextDouble() * Math.min(kmax, rnd.nextBoolean() ? 1e6 : kmax));
+        for (double c : new double[] {(2 * k + 1) / P2[s], k / P[s]}) {
+          double v = c;
+          for (int j = 0; j < 3; j++) v = Math.nextDown(v);
+          for (int j = 0; j < 7; j++) { if (v < L[s] && v >= 0) xs.add(v); v = Math.nextUp(v); }
+        }
+      }
+      for (int i = 0; i < 20000; i++) {
+        long digits = rnd.nextLong(1, (long) Math.min(1e15, Math.max(10, L[s] * P[s] * 10)));
+        double v = new BigDecimal(digits).movePointLeft(s + 1).doubleValue();
+        if (v < L[s]) xs.add(v);
+      }
+      for (double a : xs) for (double d : new double[] {a, -a}) for (int m = 0; m < 3; m++) {
+        double got = roundD(d, s, m), want = sparkD(d, s, m);
+        checked.incrementAndGet();
+        double n = nOf(Math.abs(d), s, m);
+        if (m == HALF_UP && Math.abs(d) == (2 * Math.floor(Math.abs(d) * P[s]) + 1) / P2[s]) ties.incrementAndGet();
+        if (!same(got, want)) {
+          wrong.incrementAndGet();
+          if (wrongCases.size() < 10) wrongCases.add("s=" + s + " " + MN[m] + " d=" + d + " got " + got + " want " + want);
+        }
+      }
+      // the band: run the fused formula there anyway, to see whether the bound is needed
+      for (int e = LE[s]; e < 53; e++) {
+        for (int i = 0; i < 4000; i++) {
+          double a = randIn(rnd, e);
+          if (a >= K[s]) continue;
+          for (int m = 0; m < 3; m++) {
+            double q = nOf(a, s, m) / P[s];
+            double want = sparkD(a, s, m);
+            bandN[s][m]++;
+            if (!same(q + 0.0, want)) {
+              bandBad[s][m]++;
+              if (a < bandFirst[s][m]) bandFirst[s][m] = a;
+            }
+          }
+        }
+      }
+      // the kept region: answer d
+      for (int e = (int) Math.floor(Math.log(K[s]) / Math.log(2)); e <= 1023; e++) {
+        for (int i = 0; i < 200; i++) {
+          double a = randIn(rnd, e);
+          if (a < K[s]) continue;
+          for (int m = 0; m < 3; m++) {
+            keptChecked.incrementAndGet();
+            if (!same(roundD(-a, s, m), sparkD(-a, s, m))) keptWrong.incrementAndGet();
+          }
+        }
+      }
+    });
+    System.out.printf("   fused region: %d (d, s, mode) checked, %d differ; %d of them exact%n",
+        checked.get(), wrong.get(), ties.get());
+    System.out.println("   ties at the shortest decimal (HALF_UP's a == RN((2k+1)/(2*10^s))).");
+    for (String w : wrongCases) System.out.println("     " + w);
+    System.out.printf("   kept region: %d checked, %d differ%n", keptChecked.get(), keptWrong.get());
+    System.out.println("   The band, the fused formula run there anyway (4000 random doubles per");
+    System.out.println("   binade from L_s to K_s): share wrong per mode, and the smallest wrong |d|.");
+    for (int s = 0; s <= 22; s++) {
+      StringBuilder sb = new StringBuilder(String.format("   s = %2d:", s));
+      for (int m = 0; m < 3; m++)
+        sb.append(String.format(" %s %.4f (from %s)", m == 0 ? "HU" : m == 1 ? "HE" : "DN",
+            bandBad[s][m] / (double) Math.max(1, bandN[s][m]),
+            Double.isInfinite(bandFirst[s][m]) ? "none" : String.format("%.4g = %.3f L", bandFirst[s][m], bandFirst[s][m] / L[s])));
+      System.out.println(sb);
+    }
+
+    System.out.println();
+    System.out.println("2b. Scale 0 over [2^49, 2^52), where the fused formula is planned to run");
+    System.out.println("   too (the boundaries m + 1/2 are multiples of every ulp there): 1000000");
+    System.out.println("   random doubles per binade, and m + 1/2 with 3 ulps either side for");
+    System.out.println("   300000 random m per binade; both signs, the three modes.");
+    long z0n = 0, z0bad = 0;
+    SplittableRandom z0 = new SplittableRandom(3460);
+    for (int e = 49; e < 52; e++) {
+      List<Double> xs = new ArrayList<>();
+      for (int i = 0; i < 1000000; i++) xs.add(randIn(z0, e));
+      for (int i = 0; i < 300000; i++) {
+        double v = Math.floor(randIn(z0, e)) + 0.5;
+        for (int j = 0; j < 3; j++) v = Math.nextDown(v);
+        for (int j = 0; j < 7; j++) { xs.add(v); v = Math.nextUp(v); }
+      }
+      for (double a : xs) for (double d : new double[] {a, -a}) for (int m = 0; m < 3; m++) {
+        z0n++;
+        double q = Math.copySign(nOf(Math.abs(d), 0, m), d) + 0.0;
+        if (!same(q, sparkD(d, 0, m))) z0bad++;
+      }
+    }
+    System.out.printf("   %d checked, %d differ%n", z0n, z0bad);
+
+    System.out.println();
+    System.out.println("3. Named cells (Spark's path, then the construction):");
+    Object[][] cells = {
+        {9.95, 1}, {3527.61953125, 7}, {10.3, 1}, {2.675, 2}, {1.005, 2}, {0.125, 2}, {-0.0, 2},
+        {-0.004, 2}, {-0.5, 0}, {0.7, 1}, {2.5, 0}, {-2.5, 0}, {0x1p52 - 0.5, 0}, {1e16, 0}};
+    for (Object[] c : cells) {
+      double d = (Double) c[0];
+      int s = (Integer) c[1];
+      StringBuilder sb = new StringBuilder(String.format("   %s at %d:", Double.toString(d), s));
+      for (int m = 0; m < 3; m++)
+        sb.append(String.format(" %s %s/%s", m == 0 ? "round" : m == 1 ? "bround" : "truncate",
+            Double.toString(sparkD(d, s, m)), Double.toString(roundD(d, s, m))));
+      System.out.println(sb);
+    }
+    System.out.println("   CAST to DECIMAL(10, s), unscaled (Spark, construction):");
+    for (Object[] c : new Object[][] {{9.95, 1}, {3527.61953125, 7}, {10.3, 1}, {0.125, 2}}) {
+      double d = (Double) c[0];
+      int s = (Integer) c[1];
+      long spark = BigDecimal.valueOf(d).setScale(s, RoundingMode.HALF_UP).unscaledValue().longValueExact();
+      System.out.printf("     %s at %d: %d, %d%n", Double.toString(d), s, spark,
+          (long) Math.copySign(nOf(Math.abs(d), s, HALF_UP), d));
+    }
+    System.out.printf("   FLOAT 9.95f at 1: widened %s, Spark round %s, construction %s%n",
+        Double.toString((double) 9.95f), Float.toString(sparkF(9.95f, 1, HALF_UP)),
+        Float.toString(roundF(9.95f, 1, HALF_UP)));
+
+    System.out.println();
+    System.out.println("4. FLOAT round, bround, truncate: widened, the double construction, then");
+    System.out.println("   round-to-odd and one narrowing, against BigDecimal.valueOf((double) f)");
+    System.out.println("   .setScale(s, mode).floatValue(); s = 0..22, every float exponent, 300");
+    System.out.println("   random floats each, both signs; band lanes counted, not compared.");
+    AtomicLong fChecked = new AtomicLong(), fWrong = new AtomicLong(), fBand = new AtomicLong();
+    AtomicLong fNaive = new AtomicLong();
+    IntStream.rangeClosed(0, 22).parallel().forEach(s -> {
+      SplittableRandom rnd = new SplittableRandom(4600 + s);
+      for (int e = -150; e <= 127; e++) for (int i = 0; i < 300; i++) {
+        int bits = e < -126 ? rnd.nextInt(1, 1 << 23) : ((e + 127) << 23) | rnd.nextInt(1 << 23);
+        float f = Float.intBitsToFloat(bits);
+        for (float g : new float[] {f, -f}) for (int m = 0; m < 3; m++) {
+          float got = roundF(g, s, m);
+          if (Float.isNaN(got)) { fBand.incrementAndGet(); continue; }
+          fChecked.incrementAndGet();
+          float want = sparkF(g, s, m);
+          if (Float.floatToRawIntBits(got) != Float.floatToRawIntBits(want)) fWrong.incrementAndGet();
+          // the naive narrowing (float) roundD, to show whether round-to-odd is needed here
+          if (Math.abs((double) g) < L[s]) {
+            float naive = (float) roundD(g, s, m);
+            if (Float.floatToRawIntBits(naive) != Float.floatToRawIntBits(want)) fNaive.incrementAndGet();
+          }
+        }
+      }
+    });
+    System.out.printf("   %d checked, %d differ; %d band lanes; the plain narrowing of the%n",
+        fChecked.get(), fWrong.get(), fBand.get());
+    System.out.printf("   double result differs on %d of the fused lanes%n", fNaive.get());
+
+    System.out.println();
+    System.out.println("5. CAST(DOUBLE AS DECIMAL(p, s)): the unscaled value is HALF_UP's n with");
+    System.out.println("   the sign; the integer arm: an integral |d| < 2^53 is its own shortest");
+    System.out.println("   decimal. Every binade of integral doubles from 2^0 to 2^56, 20000 each,");
+    System.out.println("   and the first binade where an integral d's shortest decimal differs:");
+    for (int e = 0; e <= 56; e++) {
+      SplittableRandom rnd = new SplittableRandom(5000 + e);
+      long diff = 0, n = 0;
+      for (int i = 0; i < 20000; i++) {
+        double d = Math.floor(randIn(rnd, e));
+        n++;
+        if (BigDecimal.valueOf(d).compareTo(new BigDecimal(d)) != 0) diff++;
+      }
+      if (e >= 50) System.out.printf("   2^%d: %d of %d differ%n", e, diff, n);
+    }
+
+    System.out.println();
+    System.out.println("6. Subnormals: for every s in 0..22 and every mode, 100000 random");
+    System.out.println("   subnormals (both signs) give +0.0 on Spark's path and on the");
+    System.out.println("   construction; and Double.toString's digit count for them:");
+    long subWrong = 0, subN = 0;
+    int minDigits = 99, maxDigits = 0;
+    SplittableRandom sr = new SplittableRandom(6);
+    for (int i = 0; i < 100000; i++) {
+      double a = Double.longBitsToDouble(sr.nextLong(1L, 1L << 52));
+      String t = BigDecimal.valueOf(a).unscaledValue().toString().replaceAll("0+$", "");
+      int dg = Math.max(t.length(), BigDecimal.valueOf(a).precision());
+      minDigits = Math.min(minDigits, BigDecimal.valueOf(a).precision());
+      maxDigits = Math.max(maxDigits, BigDecimal.valueOf(a).precision());
+      for (int s = 0; s <= 22; s += 11) for (int m = 0; m < 3; m++) for (double d : new double[] {a, -a}) {
+        subN++;
+        double w = sparkD(d, s, m);
+        if (!same(w, 0.0) || !same(roundD(d, s, m), 0.0)) subWrong++;
+      }
+    }
+    System.out.printf("   %d checked (s = 0, 11, 22), %d not +0.0; BigDecimal.valueOf precision%n", subN, subWrong);
+    System.out.printf("   %d to %d digits; Double.MIN_VALUE is %s%n", minDigits, maxDigits,
+        Double.toString(Double.MIN_VALUE));
+
+    System.out.println();
+    System.out.println("7. The one-FMA remainder against Java's % (Spark's Remainder over DOUBLE)");
+    System.out.println("   and against BigDecimal's exact remainder; pmod against MathUtils.pmod.");
+    System.out.println("   Random x, y over exponent pairs with |x / y| < 2^60, both signs, and");
+    System.out.println("   the special values (zeros, infinities, NaN, MIN_VALUE, MAX_VALUE).");
+    AtomicLong rN = new AtomicLong(), rWrong = new AtomicLong(), rDecl = new AtomicLong();
+    AtomicLong rExactWrong = new AtomicLong(), pN = new AtomicLong(), pWrong = new AtomicLong();
+    List<String> rCases = Collections.synchronizedList(new ArrayList<>());
+    double[] specials = {0.0, -0.0, Double.POSITIVE_INFINITY, Double.NEGATIVE_INFINITY, Double.NaN,
+        Double.MIN_VALUE, -Double.MIN_VALUE, Double.MAX_VALUE, -Double.MAX_VALUE, 1.0, -1.0, 3.0,
+        -3.0, 0x1p53, 0x1p-1022, 7.5, -7.5};
+    IntStream.range(-1075, 1024).parallel().forEach(ey -> {
+      SplittableRandom rnd = new SplittableRandom(7000 + ey);
+      for (int i = 0; i < 2000; i++) {
+        int ex = Math.min(1023, ey + rnd.nextInt(-3, 61));
+        double x = randIn(rnd, ex), y = randIn(rnd, ey);
+        if (rnd.nextInt(8) == 0) x = y * Math.floor(rnd.nextDouble() * 1000); // exact multiples
+        for (double xx : new double[] {x, -x}) for (double yy : new double[] {y, -y}) {
+          double got = rem(xx, yy);
+          rN.incrementAndGet();
+          if (isMarker(got, DECLINE)) { rDecl.incrementAndGet(); continue; }
+          double want = xx % yy;
+          if (!same(got, want)) {
+            rWrong.incrementAndGet();
+            if (rCases.size() < 10) rCases.add("x=" + xx + " y=" + yy + " got " + got + " want " + want);
+          }
+          if (Double.isFinite(xx) && Double.isFinite(yy) && yy != 0) {
+            double ex2 = new BigDecimal(xx).remainder(new BigDecimal(yy)).doubleValue();
+            if (got != ex2) rExactWrong.incrementAndGet();
+          }
+          double pg = pmodV(xx, yy);
+          if (isMarker(pg, DECLINE)) continue;
+          pN.incrementAndGet();
+          if (!same(pg, pmodSpark(xx, yy))) pWrong.incrementAndGet();
+        }
+      }
+    });
+    for (double x : specials) for (double y : specials) {
+      if (y == 0) continue; // Spark nulls or raises before %
+      double got = rem(x, y);
+      rN.incrementAndGet();
+      if (isMarker(got, DECLINE)) { rDecl.incrementAndGet(); continue; }
+      if (!same(got, x % y)) { rWrong.incrementAndGet(); rCases.add("special x=" + x + " y=" + y + " got " + got); }
+      double pg = pmodV(x, y);
+      if (!isMarker(pg, DECLINE)) {
+        pN.incrementAndGet();
+        if (!same(pg, pmodSpark(x, y))) { pWrong.incrementAndGet(); rCases.add("pmod special x=" + x + " y=" + y); }
+      }
+    }
+    System.out.printf("   %%: %d pairs, %d declined (|x / y| >= 2^53), %d differ from Java's %%,%n",
+        rN.get(), rDecl.get(), rWrong.get());
+    System.out.printf("   %d differ from the exact remainder; pmod: %d pairs, %d differ%n",
+        rExactWrong.get(), pN.get(), pWrong.get());
+    for (String c : rCases) System.out.println("     " + c);
+    System.out.printf("   cells: pmod(-0.0, 3.0) = %s, pmod(-3.0, 3.0) = %s, pmod(-1e-300, 1.0) = %s,%n",
+        pmodSpark(-0.0, 3.0), pmodSpark(-3.0, 3.0), pmodSpark(-1e-300, 1.0));
+    System.out.printf("   pmod(-1.0, -3.0) = %s, 5.0 %% -inf = %s, inf %% 2.0 = %s (construction: %s %s %s %s %s %s)%n",
+        pmodSpark(-1.0, -3.0), 5.0 % Double.NEGATIVE_INFINITY, Double.POSITIVE_INFINITY % 2.0,
+        pmodV(-0.0, 3.0), pmodV(-3.0, 3.0), pmodV(-1e-300, 1.0), pmodV(-1.0, -3.0),
+        rem(5.0, Double.NEGATIVE_INFINITY), rem(Double.POSITIVE_INFINITY, 2.0));
+  }
+}
+
+---- output ----
+Host: 25.0.4.1+1-1-26.04.4-Ubuntu, amd64, 24 threads
+
+1. The bounds per scale s: fused for |d| < L_s = 2^E (every such d has
+   ulp(d) < 10^-(s+1)); kept (answer d) for |d| >= K_s = min(2^52, 10^(16-s)),
+   rounded up to a double; declined between. Band width in binades.
+   s =  0: L = 2^49 = 5.629E+14, K = 4.504E+15, band 3.00 binades
+   s =  1: L = 2^46 = 7.037E+13, K = 1.000E+15, band 3.83 binades
+   s =  2: L = 2^43 = 8.796E+12, K = 1.000E+14, band 3.51 binades
+   s =  3: L = 2^39 = 5.498E+11, K = 1.000E+13, band 4.19 binades
+   s =  4: L = 2^36 = 6.872E+10, K = 1.000E+12, band 3.86 binades
+   s =  5: L = 2^33 = 8.590E+9, K = 1.000E+11, band 3.54 binades
+   s =  6: L = 2^29 = 5.369E+8, K = 1.000E+10, band 4.22 binades
+   s =  7: L = 2^26 = 6.711E+7, K = 1.000E+9, band 3.90 binades
+   s =  8: L = 2^23 = 8.389E+6, K = 1.000E+8, band 3.58 binades
+   s =  9: L = 2^19 = 5.243E+5, K = 1.000E+7, band 4.25 binades
+   s = 10: L = 2^16 = 6.554E+4, K = 1.000E+6, band 3.93 binades
+   s = 11: L = 2^13 = 8192, K = 1.000E+5, band 3.61 binades
+   s = 12: L = 2^9 = 512, K = 1.000E+4, band 4.29 binades
+   s = 13: L = 2^6 = 64, K = 1000, band 3.97 binades
+   s = 14: L = 2^3 = 8, K = 100, band 3.64 binades
+   s = 15: L = 2^-1 = 0.5, K = 10, band 4.32 binades
+   s = 16: L = 2^-4 = 0.0625, K = 1, band 4.00 binades
+   s = 17: L = 2^-7 = 0.007813, K = 0.1000, band 3.68 binades
+   s = 18: L = 2^-11 = 0.0004883, K = 0.01000, band 4.36 binades
+   s = 19: L = 2^-14 = 0.00006104, K = 0.001000, band 4.03 binades
+   s = 20: L = 2^-17 = 0.000007629, K = 0.0001000, band 3.71 binades
+   s = 21: L = 2^-21 = 4.768E-7, K = 0.00001000, band 4.39 binades
+   s = 22: L = 2^-24 = 5.960E-8, K = 0.000001000, band 4.07 binades
+
+2. round, bround, truncate over DOUBLE, construction against Spark's path,
+   s = 0..22. Fused region: every binade from the subnormals to L_s, 400
+   random doubles each; every tie neighbourhood: for 20000 random k, the
+   doubles nearest (k + 1/2) / 10^s and k / 10^s and 3 ulps either side;
+   20000 random decimals of s + 1 digits after the point. Both signs.
+   fused region: 101438400 (d, s, mode) checked, 0 differ; 1014822 of them exact
+   ties at the shortest decimal (HALF_UP's a == RN((2k+1)/(2*10^s))).
+   kept region: 13903413 checked, 0 differ
+   The band, the fused formula run there anyway (4000 random doubles per
+   binade from L_s to K_s): share wrong per mode, and the smallest wrong |d|.
+   s =  0: HU 0.0000 (from none) HE 0.0000 (from none) DN 0.0000 (from none)
+   s =  1: HU 0.2342 (from 7.100e+13 = 1.009 L) HE 0.1076 (from 7.046e+13 = 1.001 L) DN 0.0171 (from 9.008e+14 = 12.801 L)
+   s =  2: HU 0.2290 (from 8.802e+12 = 1.001 L) HE 0.1017 (from 8.802e+12 = 1.001 L) DN 0.0120 (from 3.602e+13 = 4.095 L)
+   s =  3: HU 0.1990 (from 5.633e+11 = 1.025 L) HE 0.0727 (from 5.801e+11 = 1.055 L) DN 0.0013 (from 4.405e+12 = 8.013 L)
+   s =  4: HU 0.2201 (from 6.888e+10 = 1.002 L) HE 0.1077 (from 6.938e+10 = 1.010 L) DN 0.0246 (from 2.753e+11 = 4.007 L)
+   s =  5: HU 0.2345 (from 8.601e+09 = 1.001 L) HE 0.1076 (from 8.621e+09 = 1.004 L) DN 0.0165 (from 3.453e+10 = 4.020 L)
+   s =  6: HU 0.1954 (from 5.624e+08 = 1.048 L) HE 0.0757 (from 5.933e+08 = 1.105 L) DN 0.0027 (from 4.298e+09 = 8.006 L)
+   s =  7: HU 0.2195 (from 6.932e+07 = 1.033 L) HE 0.1030 (from 6.838e+07 = 1.019 L) DN 0.0252 (from 2.696e+08 = 4.017 L)
+   s =  8: HU 0.2353 (from 8.414e+06 = 1.003 L) HE 0.1082 (from 8.414e+06 = 1.003 L) DN 0.0186 (from 3.365e+07 = 4.012 L)
+   s =  9: HU 0.1925 (from 5.394e+05 = 1.029 L) HE 0.0818 (from 5.428e+05 = 1.035 L) DN 0.0041 (from 4.196e+06 = 8.003 L)
+   s = 10: HU 0.2170 (from 6.576e+04 = 1.003 L) HE 0.0931 (from 6.678e+04 = 1.019 L) DN 0.0219 (from 2.689e+05 = 4.103 L)
+   s = 11: HU 0.2255 (from 8193 = 1.000 L) HE 0.1060 (from 8193 = 1.000 L) DN 0.0163 (from 3.291e+04 = 4.017 L)
+   s = 12: HU 0.1951 (from 562.8 = 1.099 L) HE 0.0811 (from 519.4 = 1.014 L) DN 0.0056 (from 4107 = 8.022 L)
+   s = 13: HU 0.2264 (from 64.35 = 1.005 L) HE 0.1019 (from 64.75 = 1.012 L) DN 0.0238 (from 256.9 = 4.015 L)
+   s = 14: HU 0.2229 (from 8.001 = 1.000 L) HE 0.1077 (from 8.001 = 1.000 L) DN 0.0175 (from 32.67 = 4.084 L)
+   s = 15: HU 0.1931 (from 0.5170 = 1.034 L) HE 0.0846 (from 0.5319 = 1.064 L) DN 0.0059 (from 4.005 = 8.010 L)
+   s = 16: HU 0.2235 (from 0.06290 = 1.006 L) HE 0.1030 (from 0.06258 = 1.001 L) DN 0.0251 (from 0.2536 = 4.057 L)
+   s = 17: HU 0.2233 (from 0.007869 = 1.007 L) HE 0.1048 (from 0.007869 = 1.007 L) DN 0.0171 (from 0.03143 = 4.024 L)
+   s = 18: HU 0.1828 (from 0.0004907 = 1.005 L) HE 0.0827 (from 0.0004970 = 1.018 L) DN 0.0072 (from 0.003927 = 8.042 L)
+   s = 19: HU 0.2165 (from 6.105e-05 = 1.000 L) HE 0.0976 (from 6.105e-05 = 1.000 L) DN 0.0196 (from 0.0002475 = 4.055 L)
+   s = 20: HU 0.2269 (from 7.674e-06 = 1.006 L) HE 0.1060 (from 7.643e-06 = 1.002 L) DN 0.0186 (from 3.052e-05 = 4.000 L)
+   s = 21: HU 0.1834 (from 4.947e-07 = 1.037 L) HE 0.0823 (from 5.221e-07 = 1.095 L) DN 0.0078 (from 3.816e-06 = 8.002 L)
+   s = 22: HU 0.2206 (from 5.987e-08 = 1.004 L) HE 0.0884 (from 5.987e-08 = 1.004 L) DN 0.0160 (from 2.518e-07 = 4.224 L)
+
+2b. Scale 0 over [2^49, 2^52), where the fused formula is planned to run
+   too (the boundaries m + 1/2 are multiples of every ulp there): 1000000
+   random doubles per binade, and m + 1/2 with 3 ulps either side for
+   300000 random m per binade; both signs, the three modes.
+   55800000 checked, 0 differ
+
+3. Named cells (Spark's path, then the construction):
+   9.95 at 1: round 10.0/10.0 bround 10.0/10.0 truncate 9.9/9.9
+   3527.61953125 at 7: round 3527.6195313/3527.6195313 bround 3527.6195312/3527.6195312 truncate 3527.6195312/3527.6195312
+   10.3 at 1: round 10.3/10.3 bround 10.3/10.3 truncate 10.3/10.3
+   2.675 at 2: round 2.68/2.68 bround 2.68/2.68 truncate 2.67/2.67
+   1.005 at 2: round 1.01/1.01 bround 1.0/1.0 truncate 1.0/1.0
+   0.125 at 2: round 0.13/0.13 bround 0.12/0.12 truncate 0.12/0.12
+   -0.0 at 2: round 0.0/0.0 bround 0.0/0.0 truncate 0.0/0.0
+   -0.004 at 2: round 0.0/0.0 bround 0.0/0.0 truncate 0.0/0.0
+   -0.5 at 0: round -1.0/-1.0 bround 0.0/0.0 truncate 0.0/0.0
+   0.7 at 1: round 0.7/0.7 bround 0.7/0.7 truncate 0.7/0.7
+   2.5 at 0: round 3.0/3.0 bround 2.0/2.0 truncate 2.0/2.0
+   -2.5 at 0: round -3.0/-3.0 bround -2.0/-2.0 truncate -2.0/-2.0
+   4.5035996273704955E15 at 0: round 4.503599627370496E15/NaN bround 4.503599627370496E15/NaN truncate 4.503599627370495E15/NaN
+   1.0E16 at 0: round 1.0E16/1.0E16 bround 1.0E16/1.0E16 truncate 1.0E16/1.0E16
+   CAST to DECIMAL(10, s), unscaled (Spark, construction):
+     9.95 at 1: 100, 100
+     3527.61953125 at 7: 35276195313, 35276195313
+     10.3 at 1: 103, 103
+     0.125 at 2: 13, 13
+   FLOAT 9.95f at 1: widened 9.949999809265137, Spark round 9.9, construction 9.9
+
+4. FLOAT round, bround, truncate: widened, the double construction, then
+   round-to-odd and one narrowing, against BigDecimal.valueOf((double) f)
+   .setScale(s, mode).floatValue(); s = 0..22, every float exponent, 300
+   random floats each, both signs; band lanes counted, not compared.
+   11349672 checked, 0 differ; 159528 band lanes; the plain narrowing of the
+   double result differs on 0 of the fused lanes
+
+5. CAST(DOUBLE AS DECIMAL(p, s)): the unscaled value is HALF_UP's n with
+   the sign; the integer arm: an integral |d| < 2^53 is its own shortest
+   decimal. Every binade of integral doubles from 2^0 to 2^56, 20000 each,
+   and the first binade where an integral d's shortest decimal differs:
+   2^50: 0 of 20000 differ
+   2^51: 0 of 20000 differ
+   2^52: 0 of 20000 differ
+   2^53: 0 of 20000 differ
+   2^54: 3947 of 20000 differ
+   2^55: 11953 of 20000 differ
+   2^56: 16023 of 20000 differ
+
+6. Subnormals: for every s in 0..22 and every mode, 100000 random
+   subnormals (both signs) give +0.0 on Spark's path and on the
+   construction; and Double.toString's digit count for them:
+   1800000 checked (s = 0, 11, 22), 0 not +0.0; BigDecimal.valueOf precision
+   9 to 17 digits; Double.MIN_VALUE is 4.9E-324
+
+7. The one-FMA remainder against Java's % (Spark's Remainder over DOUBLE)
+   and against BigDecimal's exact remainder; pmod against MathUtils.pmod.
+   Random x, y over exponent pairs with |x / y| < 2^60, both signs, and
+   the special values (zeros, infinities, NaN, MIN_VALUE, MAX_VALUE).
+   %: 16792255 pairs, 1638331 declined (|x / y| >= 2^53), 0 differ from Java's %,
+   0 differ from the exact remainder; pmod: 15153924 pairs, 0 differ
+   cells: pmod(-0.0, 3.0) = -0.0, pmod(-3.0, 3.0) = -0.0, pmod(-1e-300, 1.0) = 0.0,
+   pmod(-1.0, -3.0) = -1.0, 5.0 % -inf = 5.0, inf % 2.0 = NaN (construction: -0.0 -0.0 0.0 -1.0 5.0 NaN)

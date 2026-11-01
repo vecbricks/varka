@@ -33,6 +33,7 @@ import org.apache.spark.SparkFunSuite
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaKernelWarmth.State
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaKernelWarmupProbe._
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaKernelWarmupProbe.Nulls
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaMatrix.C2Code
 
 /**
  * The kernel warm-up (`VARKA-212.md` 10): the copy of a batch it runs on, its verdict on a
@@ -52,6 +53,12 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaKernelWarmup
  * not get the memory sanitizer: the probe measures what C2 made of a kernel, and a sanitized call
  * deoptimises warm code compiled outside the sanitizer's window (`VARKA-400.md` 2). Nor does it
  * get `-XX:ActiveProcessorCount`, so its compiler threads follow the machine's processors.
+ *
+ * The forked tests' subject is what the JIT makes of a kernel, so they are tagged
+ * `VarkaMatrix.C2Code`: under the option matrix they run only where a configuration changes what
+ * C2 is given beyond the bytes (a lane count, the half species, `useAVX`), and the defaults' run
+ * checks the warm-up on the kernels users run. The rest of the suite runs under every
+ * configuration.
  */
 class VarkaKernelWarmupSuite extends SparkFunSuite with VarkaTestWatchdog {
 
@@ -99,6 +106,8 @@ class VarkaKernelWarmupSuite extends SparkFunSuite with VarkaTestWatchdog {
       vectorFlags ++ matrixConfig ++ Seq("-cp", testClasspath,
       classOf[VarkaKernelWarmupProbe].getName, claimed.word) ++ (if (wide) Seq("wide") else Nil) ++
       (if (others) Seq("others") else Nil)
+    // The child JVM's code runs where the class-use record cannot see it (VarkaTestUse).
+    VarkaTestUse.childJvm()
     val process = new ProcessBuilder(command.asJava).redirectErrorStream(true).start()
     val reader = new BufferedReader(
       new InputStreamReader(process.getInputStream, StandardCharsets.UTF_8))
@@ -173,7 +182,8 @@ class VarkaKernelWarmupSuite extends SparkFunSuite with VarkaTestWatchdog {
     }
   }
 
-  test("a warm-up runs a new kernel until it no longer allocates, and says it is compiled") {
+  test("a warm-up runs a new kernel until it no longer allocates, and says it is compiled",
+      C2Code) {
     assumeOneSpecies()
     val run = warmUpInFork(Nulls.SOME_NULLS)
     assume(run.support("sampler") == "true", "thread allocation accounting unavailable")
@@ -187,7 +197,8 @@ class VarkaKernelWarmupSuite extends SparkFunSuite with VarkaTestWatchdog {
     assert(o("last").toLong * VarkaKernelWarmup.COMPILED_DROP <= o("first").toLong, o("outcome"))
   }
 
-  test("a wide shape warmed after an unwarmed kernel took the templates to C2 still compiles") {
+  test("a wide shape warmed after an unwarmed kernel took the templates to C2 still compiles",
+      C2Code) {
     // The order of VarkaColdStartBenchmark, and of any JVM whose first vector code is not a
     // warm-up: a kernel runs unwarmed first, its interpreted calls take the shared Vector API
     // templates to their standalone C2 compiles, and only then does a shape warm. Before
@@ -215,7 +226,7 @@ class VarkaKernelWarmupSuite extends SparkFunSuite with VarkaTestWatchdog {
     // warm-up does not wait for, are reported beside them and not asserted (VARKA-398.md 3,
     // row 405).
     test(s"after a warm-up claimed by a batch with $claimed, both drivers run without boxing " +
-        "through the entry the evaluator calls") {
+        "through the entry the evaluator calls", C2Code) {
       assumeOneSpecies()
       val run = warmUpInFork(claimed)
       assume(run.support("sampler") == "true", "thread allocation accounting unavailable")
@@ -242,7 +253,7 @@ class VarkaKernelWarmupSuite extends SparkFunSuite with VarkaTestWatchdog {
   }
 
   test("a kernel stays free of boxing through the evaluator's entry after other kernel " +
-      "classes have been warmed through the same default method") {
+      "classes have been warmed through the same default method", C2Code) {
     // The executor's situation: one JVM warms shape after shape through
     // `VarkaFusedKernel.run`'s scratch default method. While only the first kernel's class has
     // reached it, C2 compiles that method with the whole kernel inlined and the verdict reads that

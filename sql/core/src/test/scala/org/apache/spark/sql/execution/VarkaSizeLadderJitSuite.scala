@@ -26,7 +26,7 @@ import scala.collection.mutable
 import org.apache.spark.SparkFunSuite
 import org.apache.spark.launcher.JavaModuleOptions
 import org.apache.spark.sql.catalyst.expressions.codegen.CodeGenerator
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaProbeOutput, VarkaTestWatchdog}
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaProbeOutput, VarkaTestUse, VarkaTestWatchdog}
 import org.apache.spark.sql.execution.VarkaSizeLadderJitProbe._
 
 /**
@@ -73,6 +73,8 @@ class VarkaSizeLadderJitSuite extends SparkFunSuite with VarkaTestWatchdog {
       "-Xmx1g", "-Xbatch", "-XX:+PrintCompilation", "-cp", testClasspath,
       VarkaSizeLadderJitProbe.getClass.getName.stripSuffix("$"), entries.toString)
       .foreach(command.add)
+    // The child JVM's code runs where the class-use record cannot see it (VarkaTestUse).
+    VarkaTestUse.childJvm()
     val builder = new ProcessBuilder(command)
     builder.redirectErrorStream(true)
     val process = builder.start()

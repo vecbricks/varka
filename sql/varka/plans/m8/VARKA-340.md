@@ -232,11 +232,12 @@ The measurement reruns the baseline (5, step 1) with the fuse check lifted, on t
 2. **`year(ntz)` at least five times faster than the row path at 256 bits.** No fused NTZ rate is
    committed (the baseline's "varka on" is the row path). The basis is the `DATE` family's:
    `year(d)` 0.8 ns a row against 12.3 with Varka off, `weekofyear(d)` 1.2 against 30.5, 15 and 25
-   times (`sql/varka/bench/benchmarks/DateSurface-varka-jdk25-results.txt` and its `-off-` pair, one
-   core, the laptop at 512 bits), over an int column. The NTZ form adds the long division and runs
-   the long lane at half the lanes, so the bound keeps a third of the smaller ratio. `hour(ntz)` and
-   `CAST(tm AS TIMESTAMP_NTZ)` have no fused analogue on record: predicted faster than the row path
-   at both widths, their ratios recorded; `year(ntz)` at 128 bits likewise.
+   times (`sql/varka/bench/benchmarks/DateSurface-varka-jdk25-results.txt` and
+   `DateSurface-varka-off-jdk25-results.txt`, one core, the laptop at 512 bits), over an int
+   column. The NTZ form adds the long division and runs the long lane at half the lanes, so the
+   bound keeps a third of the smaller ratio. `hour(ntz)` and `CAST(tm AS TIMESTAMP_NTZ)` have no
+   fused analogue on record: predicted faster than the row path at both widths, their ratios
+   recorded; `year(ntz)` at 128 bits likewise.
 3. **Test time**: the scalar sweep under 10 s (`VARKA-281`'s 1.5 s over the same days with
    `LocalDate`; the `LocalDateTime` decode taken at a ratio of 1, not the table's 0.08); the new
    `sql` tests under 30 s at `VARKA-243`'s ratio of 2.

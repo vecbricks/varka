@@ -55,6 +55,8 @@ class VarkaDeoptCycleSuite extends SparkFunSuite with VarkaTestWatchdog {
     command.add(script.toString)
     if (failOnCycle) command.add("--fail-on-cycle")
     logs.foreach(l => command.add(l.toString))
+    // The child JVM's code runs where the class-use record cannot see it (VarkaTestUse).
+    VarkaTestUse.childJvm()
     val process = new ProcessBuilder(command).redirectErrorStream(true).start()
     val output = new String(process.getInputStream.readAllBytes(), StandardCharsets.UTF_8)
     assert(process.waitFor(60, TimeUnit.SECONDS), "the parser did not finish")

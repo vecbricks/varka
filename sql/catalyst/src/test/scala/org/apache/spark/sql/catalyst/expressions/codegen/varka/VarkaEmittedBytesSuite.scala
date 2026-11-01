@@ -32,9 +32,8 @@ import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, AttributeRef
   Expression, In, InSet, Literal}
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaExpressionCompiler
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaIrGrammar._
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LaneType
 import org.apache.spark.sql.catalyst.parser.CatalystSqlParser
-import org.apache.spark.sql.types.{BooleanType, ByteType, DateType, DayTimeIntervalType, IntegerType, LongType, ShortType, TimestampNTZType, TimeType, YearMonthIntervalType}
+import org.apache.spark.sql.types.{BooleanType, ByteType, DateType, DayTimeIntervalType, DecimalType, DoubleType, FloatType, IntegerType, LongType, ShortType, TimestampNTZType, TimeType, YearMonthIntervalType}
 
 /**
  * The emitted-bytes oracle (VARKA-85, step 1): what the emitter produces for every shape, pinned
@@ -103,8 +102,18 @@ class VarkaEmittedBytesSuite extends SparkFunSuite with VarkaTestWatchdog {
   // TIMESTAMP_NTZ columns (VARKA-338), as `VarkaCoverageSuite` declares them.
   private val ntz = AttributeReference("ntz", TimestampNTZType)()
   private val ntz2 = AttributeReference("ntz2", TimestampNTZType)()
-  private val columns: Seq[Attribute] =
-    Seq(d, d2, i, ymm, ymy, ym, l, l2, t, t2, dt, dt2, b, b2, y1, y2, s1, s2, ntz, ntz2)
+  // The floating columns (VARKA-341), as `VarkaCoverageSuite` declares them.
+  private val x = AttributeReference("x", DoubleType)()
+  private val x2 = AttributeReference("x2", DoubleType)()
+  private val f = AttributeReference("f", FloatType)()
+  private val f2 = AttributeReference("f2", FloatType)()
+  // DECIMAL columns (VARKA-347), as `VarkaCoverageSuite` declares them.
+  private val d9 = AttributeReference("d9", DecimalType(9, 2))()
+  private val d9b = AttributeReference("d9b", DecimalType(9, 2))()
+  private val d18 = AttributeReference("d18", DecimalType(18, 2))()
+  private val d18b = AttributeReference("d18b", DecimalType(18, 2))()
+  private val columns: Seq[Attribute] = Seq(d, d2, i, ymm, ymy, ym, l, l2, t, t2, dt, dt2, b, b2,
+    y1, y2, s1, s2, ntz, ntz2, x, x2, f, f2, d9, d9b, d18, d18b)
 
   private val className = "org.apache.spark.sql.varka.execution.VarkaEmittedBytesOracle"
 
@@ -131,8 +140,9 @@ class VarkaEmittedBytesSuite extends SparkFunSuite with VarkaTestWatchdog {
   private def emitOptions(roots: Seq[VarkaVectorIR], lanes: Int,
       arm: VarkaEmitOptions => VarkaEmitOptions): VarkaEmitOptions = {
     val laneCount =
-      if (VarkaKernelPlan.driveOf(roots.asJava, VarkaMatrix.base).filter(_ == LaneType.LONG)
-          .isPresent) {
+      // Half the lanes at every 64-bit drive, DOUBLE's included.
+      if (VarkaKernelPlan.driveOf(roots.asJava, VarkaMatrix.base)
+          .filter(_.bits() == java.lang.Long.SIZE).isPresent) {
         lanes / 2
       } else {
         lanes
@@ -681,6 +691,31 @@ class VarkaEmittedBytesSuite extends SparkFunSuite with VarkaTestWatchdog {
     }
   }
 
+  test("an arm the option matrix runs in another's place emits that arm's bytes") {
+    // The matrix runs one configuration per emission (VarkaMatrixRuns.emissionKey): an arm whose
+    // key is another's is left out, so its bytes must be the key's on every shape the oracle
+    // holds, at both widths. Catches: a new reader of a field the key folds away, which would
+    // make the matrix skip an emission no other configuration produces.
+    val folded = optionArms.filter(_.subject.isEmpty).filter { a =>
+      val options = a.arm(VarkaMatrix.base)
+      VarkaMatrixRuns.emissionKey(options) != options
+    }
+    assert(folded.map(_.name).toSet === Set("useAVX=0", "useAVX=1", "useAVX=3"))
+    folded.foreach { a =>
+      val key = (o: VarkaEmitOptions) => VarkaMatrixRuns.emissionKey(a.arm(o))
+      widths.foreach { w =>
+        assert(armDigest(a.arm, w) === armDigest(key, w), s"${a.name} at $w lanes")
+      }
+    }
+    // The comparison can fail: the level that stands for the others emits other bytes than the
+    // defaults do, so the matrix keeps it.
+    val level = VarkaMatrixRuns.FALLBACK_USE_AVX
+    widths.foreach { w =>
+      assert(armDigest(_.withUseAVX(level), w) !== armDigest(identity, w),
+        s"useAVX=$level emits the defaults' bytes at $w lanes")
+    }
+  }
+
   test("validityOrFirst moves nothing at the defaults and moves the bytes over its subject " +
       "(VARKA-247)") {
     // Over the coverage rows and 200 fuzz shapes per lane at both widths, the set the audit
@@ -840,6 +875,146 @@ class VarkaEmittedBytesSuite extends SparkFunSuite with VarkaTestWatchdog {
       (report.result().mkString("\n") + "\n").getBytes(StandardCharsets.UTF_8))
     // scalastyle:off println
     println(s"option audit written to ${out.getAbsolutePath}")
+    // scalastyle:on println
+  }
+
+  /**
+   * The option groups the pairs audit below crosses: options that read the same part of the
+   * emission, so that two of them set together could produce a kernel neither produces alone.
+   * `lanesOverride` belongs with division but has no audit arms: the audit emits every shape at
+   * both widths, and every pair is measured at both.
+   */
+  private val pairGroups: Seq[(String, Seq[String])] = Seq(
+    "validity layout" -> Seq("denseValidityOnce", "validityByBitmap", "validityOrFirst",
+      "validityByWidth", "validityByWord"),
+    "division and lanes" -> Seq("division", "mulHiDivide", "narrowLanes", "narrowHalfSpecies"),
+    "grouping and size" -> Seq("groupBudget", "callSiteBudget", "heavyGroupOutputs",
+      "predictGrouping", "exactGrouping", "methodByteBudget", "groupLocalSlots",
+      "driverOutputTable"))
+
+  /**
+   * Which pairs of emit options make a kernel that neither option makes alone.
+   *
+   * For each group in `pairGroups`, every pair of non-default arms of two different options is
+   * applied over the defaults together. A shape-width counts as new when its bytes under the
+   * pair differ from its bytes under each arm alone: the pair reaches an emission that running
+   * the options one at a time, as the matrix does, never produces. The arms are the table's own,
+   * applied over the defaults and not over a subject, so a subject's options are paired with
+   * the option they enable. An arm that leaves the defaults unchanged is left out, since a pair
+   * with it is the other arm alone. A pair the options' validation refuses is recorded as such.
+   *
+   * New bytes include two options whose changes merely sit side by side in one class, each where
+   * it would be alone. Two narrower counts separate a real interaction from that. Beyond the
+   * union: some method's body under the pair is neither single's, though one of the singles left
+   * that method as the defaults emit it, so the other option's change alone cannot explain it.
+   * Unseen: neither single moves the shape at all and the pair does.
+   *
+   * Opt-in like the option audit above, and slower: one emission of every shape per pair.
+   *
+   *   VARKA_PAIRS_AUDIT=true build/sbt 'catalyst/testOnly *VarkaEmittedBytesSuite -- -z pairs'
+   */
+  test("the pairs audit: which pairs of options emit kernels neither option emits alone") {
+    assume(sys.env.get("VARKA_PAIRS_AUDIT").contains("true"),
+      "opt-in: set VARKA_PAIRS_AUDIT=true")
+    val (rows, _) = coverage
+    val sampled = 200
+    // Every shape the option audit emits, in its order: coverage rows (kind 0), then int (1)
+    // and long (2) fuzz shapes.
+    val shapesToEmit: IndexedSeq[(Int, Seq[VarkaVectorIR], Int, Int)] =
+      rows.toIndexedSeq.map(r => (0, r.roots, r.numInputs, r.numLiterals)) ++
+        Seq(fuzzShape _, longFuzzShape _).zipWithIndex.flatMap { case (shapeAt, n) =>
+          (0 until sampled).map { k =>
+            val sh = shapeAt(k)
+            (n + 1, sh.roots, sh.numInputs, sh.numLiterals)
+          }
+        }
+    // One entry per shape-width: every shape at the first width, then at the second.
+    def hashesFor(arm: VarkaEmitOptions => VarkaEmitOptions): Seq[Seq[(String, String)]] =
+      widths.flatMap { w =>
+        inOrder(shapesToEmit.size) { i =>
+          val (_, roots, numInputs, numLiterals) = shapesToEmit(i)
+          methodHashes(roots, numInputs, numLiterals, w, arm)
+        }
+      }
+    val kinds = widths.flatMap(_ => shapesToEmit.map(_._1))
+    val defaults = hashesFor(identity)
+    assert(rows.nonEmpty && defaults.size == widths.size * (rows.size + 2 * sampled),
+      "the pairs audit emitted no shapes; a report from this run would mean nothing")
+    // How many shape-widths of each kind satisfy `differs`, by the index into `kinds`.
+    def counts(differs: Int => Boolean): Seq[Int] = (0 to 2).map { kind =>
+      kinds.indices.count(i => kinds(i) == kind && differs(i))
+    }
+
+    val table = VarkaEmitOption.TABLE.asScala.toSeq
+    val singles = scala.collection.mutable.Map.empty[String, Seq[Seq[(String, String)]]]
+    val report = Seq.newBuilder[String]
+    report += "# Which pairs of emit options emit kernels neither option emits alone."
+    report += "# Generated by VarkaEmittedBytesSuite's pairs audit."
+    report += s"# ${rows.size} coverage rows and $sampled fuzz shapes per lane, at widths " +
+      widths.mkString(" and ") + " lanes."
+    report += "# Counts are shape-widths. moved: the pair's bytes differ from the defaults'."
+    report += "# new: they differ from both singles'. beyond: some method is neither single's,"
+    report += "# where one single left it as the defaults emit it. unseen: neither single moves"
+    report += "# the shape, the pair does."
+    pairGroups.foreach { case (group, names) =>
+      val arms = names.flatMap { n =>
+        val option = table.find(_.name == n).getOrElse(fail(s"the options table has no $n"))
+        option.arms.asScala.toSeq
+          .filter(a => a.apply.apply(VarkaMatrix.base) != VarkaMatrix.base)
+          .map(a => (n, a))
+      }
+      val pairs = for {
+        i <- arms.indices
+        j <- arms.indices if i < j && arms(i)._1 != arms(j)._1
+      } yield (arms(i)._2, arms(j)._2)
+      val nameWidth = (pairs.map { case (a, b) => a.name.length + b.name.length + 3 } :+ 4).max
+      report += ""
+      report += s"## $group: ${arms.size} arms, ${pairs.size} pairs"
+      report += s"${"pair".padTo(nameWidth, ' ')} " +
+        f"${"moved"}%6s ${"new: cov"}%9s ${"int"}%5s ${"long"}%5s ${"total"}%6s " +
+        f"${"beyond"}%6s ${"unseen"}%6s"
+      pairs.foreach { case (a, b) =>
+        val label = s"${a.name} + ${b.name}".padTo(nameWidth, ' ')
+        val both = (o: VarkaEmitOptions) => b.apply.apply(a.apply.apply(o))
+        val line = scala.util.Try(both(VarkaMatrix.base)) match {
+          case scala.util.Failure(e: IllegalArgumentException) =>
+            s"$label rejected: " + Option(e.getMessage).getOrElse("").take(70)
+          case _ =>
+            // A pair may make emission fail; like the option audit, record it and go on.
+            scala.util.Try {
+              val ha = singles.getOrElseUpdate(a.name, hashesFor(a.apply.apply(_)))
+              val hb = singles.getOrElseUpdate(b.name, hashesFor(b.apply.apply(_)))
+              val hab = hashesFor(both)
+              val moved = counts(i => hab(i) != defaults(i)).sum
+              val fresh = counts(i => hab(i) != ha(i) && hab(i) != hb(i))
+              val beyond = counts { i =>
+                val (d, sa, sb) = (defaults(i).toMap, ha(i).toMap, hb(i).toMap)
+                hab(i).exists { case (m, h) =>
+                  !sa.get(m).contains(h) && !sb.get(m).contains(h) &&
+                    (sa.get(m) == d.get(m) || sb.get(m) == d.get(m))
+                }
+              }.sum
+              val unseen =
+                counts(i => ha(i) == defaults(i) && hb(i) == defaults(i) && hab(i) != defaults(i))
+              s"$label " + f"$moved%6d ${fresh(0)}%9d ${fresh(1)}%5d ${fresh(2)}%5d " +
+                f"${fresh.sum}%6d $beyond%6d ${unseen.sum}%6d"
+            }.recover { case e =>
+              s"$label raises ${e.getClass.getSimpleName}: " +
+                Option(e.getMessage).getOrElse("").take(70)
+            }.get
+        }
+        report += line
+        // scalastyle:off println
+        println("pairs audit  " + line)
+        // scalastyle:on println
+      }
+    }
+    val out = new java.io.File("target/varka-pairs-audit.txt")
+    Option(out.getParentFile).foreach(_.mkdirs())
+    java.nio.file.Files.write(out.toPath,
+      (report.result().mkString("\n") + "\n").getBytes(StandardCharsets.UTF_8))
+    // scalastyle:off println
+    println(s"pairs audit written to ${out.getAbsolutePath}")
     // scalastyle:on println
   }
 }

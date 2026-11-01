@@ -24,10 +24,6 @@ import org.apache.spark.sql.VarkaBenchmark;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaKernelPlan;
 import org.apache.spark.sql.execution.FilterExec;
 import org.apache.spark.sql.execution.SparkPlan;
-import org.apache.spark.sql.execution.VarkaColumnarToRowExec;
-import org.apache.spark.sql.execution.VarkaFilterColumnarToRowExec;
-import org.apache.spark.sql.execution.VarkaFilterExec;
-import org.apache.spark.sql.execution.VarkaProjectExec;
 
 /**
  * Boolean expressions as projection outputs (VARKA-27): {@code SELECT d < d2 AS c} rather than
@@ -206,10 +202,7 @@ public class VarkaBooleanOutputBenchmark extends VarkaSqlBenchmarkBase {
 
   /** Whether {@code plan} is the plan {@code expect} names. */
   static boolean matches(SparkPlan plan, Expect expect) {
-    boolean varka = plan.find(
-        p -> p instanceof VarkaColumnarToRowExec || p instanceof VarkaProjectExec
-            || p instanceof VarkaFilterExec || p instanceof VarkaFilterColumnarToRowExec)
-        .isDefined();
+    boolean varka = VarkaSqlBenchmarkBase.holdsVarkaNode(plan);
     boolean rowFilter = plan.find(p -> p instanceof FilterExec).isDefined();
     return switch (expect) {
       case ROW_PATH -> !varka;

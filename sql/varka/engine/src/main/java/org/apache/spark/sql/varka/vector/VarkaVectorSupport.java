@@ -613,6 +613,28 @@ public final class VarkaVectorSupport {
   }
 
   /**
+   * Zeroes the data bitmap of each boolean output (VARKA-27) before the kernel's loops run, mapped
+   * to its last whole 64-bit word: the loops OR each group's known-true bits into it, so it must
+   * start clear, and a caller may hand the kernel a buffer it used before. {@code outputs} holds
+   * the ordinals of those outputs, one char each. The table driver calls this once whatever the
+   * count, as it calls {@link #prepareOutputValidity} once, so its size stays its calls'
+   * ({@code VARKA-190.md} 10); a kernel with no boolean output does not call it at all. As in
+   * {@link #prepareOutputValidity}, a table naming an output the kernel was given no destination
+   * for is refused.
+   */
+  public static void zeroBitOutputData(long[] dstData, String outputs, int rows) {
+    long bytes = ((rows + 63L) / 64) * 8;
+    for (int k = 0; k < outputs.length(); k++) {
+      int o = outputs.charAt(k);
+      if (o >= dstData.length) {
+        throw new IllegalArgumentException("boolean output table names output " + o
+            + " and the kernel was given " + dstData.length + " destinations");
+      }
+      zero(ofAddress(dstData[o], bytes));
+    }
+  }
+
+  /**
    * Whether every output reads at least one all-null column - the masked driver's all-null
    * shortcut, which then returns before any loop runs. {@code columns} holds, per output in
    * order, the count of the columns it reads and then their ordinals; a column is all-null when

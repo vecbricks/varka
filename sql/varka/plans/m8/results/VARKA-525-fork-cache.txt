@@ -1,0 +1,17 @@
+# The fork's Actions cache and its master branch (VARKA-525), 29 October 2026: MaxGekk/spark,
+# read through the Actions API (actions/caches, actions/cache/usage, branches/master).
+
+entries 63, 10474823154 bytes, against the repository's 10 GB quota
+by key prefix, the largest:
+  varka-scoped-coursier-sql                 3.39 GB in 3 entries on 3 branches
+  varka-scoped-coursier-catalyst            3.15 GB in 3 entries on 3 branches
+  varka-option-matrix                       2.15 GB in 3 entries on 3 branches
+  varka-bench-m2                            0.84 GB in 3 entries on 3 branches
+  varka-engine-m2                           0.32 GB in 12 entries on 9 branches
+  build-<hash of the build files>          0.30 GB in 4 entries on 4 branches
+
+Each Varka pull request's branch saves its own copy of the Coursier caches, sql's about 1.1 GB and
+catalyst's about 1.0 GB, under the same keys: a cache is scoped to the branch that saved it, and a
+branch reads only its own and the default branch's. The fork's master, its default branch, last
+moved on 21 August 2026 (ee11a92a9f1) and has run no Build since; pull requests merge into
+vecbricks/varka's master, which nothing pushes to the fork's.

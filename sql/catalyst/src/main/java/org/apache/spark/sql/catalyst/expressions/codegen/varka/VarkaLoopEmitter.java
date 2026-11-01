@@ -219,6 +219,31 @@ public final class VarkaLoopEmitter {
   }
 
   /**
+   * The all-null shortcut's column sets for {@code outputs}, one per output, or null where the
+   * masked driver emits none: {@link VarkaBodyEmitter#shortcutColumnSets}, the sets both driver
+   * forms emit their test from. A batch in which every output reads a column that is null on
+   * every row returns before any guard runs, which the verdict beside {@link #guardsForTest} has
+   * to know.
+   */
+  static long[] shortcutColumnSetsForTest(List<VarkaVectorIR> outputs, int numInputs,
+      int numLiterals, VarkaEmitOptions options) {
+    outputs = List.copyOf(outputs);
+    return VarkaBodyEmitter.shortcutColumnSets(false, outputs,
+        analyze(outputs, numInputs, numLiterals, options));
+  }
+
+  /**
+   * Whether a kernel over {@code outputs} is emitted differently with
+   * {@link VarkaEmitOptions#checkIntOverflow} on and off: some node under them is one whose
+   * emission reads the option ({@link Analysis#readsCheckIntOverflow}, the test the emitter's own
+   * reads go through). For a differential that runs such a kernel with the check on where its
+   * configuration turns it off, and every other kernel as the configuration has it.
+   */
+  public static boolean readsCheckIntOverflowForTest(List<VarkaVectorIR> outputs) {
+    return Analysis.anyReadsCheckIntOverflow(List.copyOf(outputs));
+  }
+
+  /**
    * The plan's reading of the drivers under {@code planSize}: the two drivers built by
    * themselves over the first grouping of {@code outputs} and measured ({@link #driverAlone}),
    * for the suite that holds them to the drivers of the built class, byte for byte.
@@ -245,6 +270,7 @@ public final class VarkaLoopEmitter {
     for (VarkaVectorIR root : outputs) {
       analysis.analyzeRoot(root);
     }
+    analysis.requireOneStride();
     analysis.collectArmContexts(outputs);
     analysis.collectRefusals();
     analysis.collectWraps();
@@ -336,6 +362,7 @@ public final class VarkaLoopEmitter {
     if (outputs.isEmpty()) {
       throw VarkaErrors.illegalArgument("no output chains to emit");
     }
+    VarkaCompileObserver.emitted(outputs, numInputs, numLiterals, options);
     // The planner and the body emitters index the outputs per method, so a caller's list that is
     // not random access - a Scala List seen through asJava, as the tools pass it - would make every
     // lookup a walk and the emission quadratic in the width for that reason alone. The shape
@@ -1609,29 +1636,48 @@ public final class VarkaLoopEmitter {
   record RunForTest(int ops, boolean admitted, double bytes, double sites) {}
 
   /**
-   * The runs of outputs that start at {@code from}, each one output longer than the last, with
-   * what the grouping knows of each. {@code admitted} is decided through the same
-   * {@link #admit} as the grouping under {@code options}, so a test that prices every
-   * contiguous run to find the best partition, and holds the greedy grouping to it
-   * ({@code VarkaGroupingBoundSuite}), searches a space the greedy partition is in. The runs
-   * stop where the weights' clauses stop admitting outputs - the third of which, where the
-   * prediction bounds groups, is the prediction's own - so every group the grouping forms is
-   * among them; the first run, one output, is always
-   * reported. The groups before {@code from} are taken to have decomposed every date the
-   * outputs before it decompose, which is so under any partition of them.
+   * The runs of outputs that start at each output in turn: {@code runs.get(from).get(k)} is the
+   * run {@code [from, from + k]}, each run one output longer than the last, with what the
+   * grouping knows of each. {@code admitted} is decided through the same {@link #admit} as the
+   * grouping under {@code options}, so a test that prices every contiguous run to find the best
+   * partition, and holds the greedy grouping to it ({@code VarkaGroupingBoundSuite}), searches a
+   * space the greedy partition is in. The runs stop where the weights' clauses stop admitting
+   * outputs - the third of which, where the prediction bounds groups, is the prediction's own - so
+   * every group the grouping forms is among them; the first run, one output, is always reported.
+   * The groups before {@code from} are taken to have decomposed every date the outputs before it
+   * decompose, which is so under any partition of them.
+   *
+   * <p>The kernel's plan, which gives the lane, does not depend on the start, so it is made once
+   * for all the starts, and the outputs before each start are added to one account as the starts
+   * advance.
    */
-  static List<RunForTest> runsForTest(List<VarkaVectorIR> outputs, int from,
+  static List<List<RunForTest>> runsForTest(List<VarkaVectorIR> outputs,
       VarkaEmitOptions options) {
     outputs = List.copyOf(outputs);
+    if (outputs.isEmpty()) {
+      return List.of();
+    }
     boolean materialize = options.materializeChronoPrefix() && options.methodByteBudget() > 0;
     boolean predict = options.predictGrouping() && options.methodByteBudget() > 0;
     VarkaVectorIR.LaneType lane = planOf(outputs, options).drive();
     GroupOps before = new GroupOps(options.shareChronoPrefix(), materialize, new HashSet<>(),
         lane, null);
-    for (int o = 0; o < from; o++) {
-      before.add(outputs.get(o));
+    List<List<RunForTest>> all = new ArrayList<>();
+    for (int from = 0; from < outputs.size(); from++) {
+      all.add(runsFrom(outputs, from, new HashSet<>(before.prefixes), options, predict,
+          materialize, lane));
+      before.add(outputs.get(from));
     }
-    Set<VarkaVectorIR> earlier = new HashSet<>(before.prefixes);
+    return all;
+  }
+
+  /**
+   * {@link #runsForTest}'s runs that start at {@code from}, given {@code earlier}, the prefixes
+   * the outputs before it decompose.
+   */
+  private static List<RunForTest> runsFrom(List<VarkaVectorIR> outputs, int from,
+      Set<VarkaVectorIR> earlier, VarkaEmitOptions options, boolean predict, boolean materialize,
+      VarkaVectorIR.LaneType lane) {
     GroupOps group = new GroupOps(options.shareChronoPrefix(), materialize, earlier, lane,
         new VarkaEmitCost.Tally(lane, VarkaEmitCostTable.PRICES, false));
     List<RunForTest> runs = new ArrayList<>();

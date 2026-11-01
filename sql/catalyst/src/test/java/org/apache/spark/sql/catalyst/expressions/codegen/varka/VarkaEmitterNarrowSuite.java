@@ -27,6 +27,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.function.IntBinaryOperator;
 import java.util.function.IntPredicate;
 import java.util.function.IntUnaryOperator;
@@ -44,6 +45,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Com
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.CompareOp;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Cond;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Greatest;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.GuardedRange;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IfElse;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.InRanges;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IntArith;
@@ -583,6 +585,73 @@ public final class VarkaEmitterNarrowSuite {
       checkValues("an int value narrowed to short away from a store " + arm.name(),
           List.of(toShort), 1, new int[0], length, new int[][] {tabulate(length, outOfShort)},
           row -> false, false, arm.options());
+    }
+  }
+
+  /**
+   * {@code try_multiply} of two narrow columns in the form the checked narrow multiply takes:
+   * the operands widened to the int lane, where their product is exact, a wrapping multiply, a
+   * {@code NULL} range guard of {@code lane}'s range, and the narrowing at the store.
+   */
+  private static VarkaVectorIR nullingMultiply(LaneType lane, VarkaVectorIR left,
+      VarkaVectorIR right) {
+    long[] range = lane == LaneType.BYTE
+        ? new long[] {Byte.MIN_VALUE, Byte.MAX_VALUE}
+        : new long[] {Short.MIN_VALUE, Short.MAX_VALUE};
+    return new NarrowLane(new GuardedRange(new IntArith(IntOp.MUL, Overflow.WRAP,
+        new WidenLane(left, LaneType.INT), new WidenLane(right, LaneType.INT)), range[0],
+        range[1], Overflow.NULL), lane);
+  }
+
+  /**
+   * Holds the reference to Spark's {@code TRY} rule on the batch before the kernel is held to the
+   * reference: a row is null where an operand is, null where the exact product leaves
+   * {@code lane}'s range, and the product elsewhere.
+   */
+  private static void assertTryProduct(String ctx, VarkaVectorIR root, LaneType lane,
+      int[][] data, IntPredicate isNull) {
+    long lo = lane == LaneType.BYTE ? Byte.MIN_VALUE : Short.MIN_VALUE;
+    long hi = lane == LaneType.BYTE ? Byte.MAX_VALUE : Short.MAX_VALUE;
+    for (int row = 0; row < data[0].length; row++) {
+      boolean nul = isNull.test(row);
+      long exact = (long) data[0][row] * data[1][row];
+      var want = nul || exact < lo || exact > hi ? OptionalInt.empty()
+          : OptionalInt.of((int) exact);
+      var got = VarkaReference.value(root, new int[] {data[0][row], data[1][row]},
+          new boolean[] {nul, nul}, new int[0]);
+      assertEquals(want, got, ctx + ": the reference on " + data[0][row] + " * "
+          + data[1][row] + (nul ? " (null)" : ""));
+    }
+  }
+
+  @Test
+  @DisplayName("a nulling range guard keeps an in-range product, nulls the rest and keeps a null, "
+      + "over every byte pair and the short edges, in both arms")
+  public void nullingRangeGuardOverNarrowProducts() {
+    // Every ordered byte pair in one 2^16-row batch, every seventh row null: the guard fires on
+    // the products past [-128, 127], such as 16 * 8 and -128 * -1, and nowhere else. The shorts
+    // are the pairs of the values around the square root of each end and the ends themselves,
+    // 181 * 181 inside and 182 * 181 outside, repeated past one lane group's tail.
+    int pairs = 1 << 16;
+    int[][] bytes = {tabulate(pairs, row -> (row >> 8) - 128),
+      tabulate(pairs, row -> (row & 0xFF) - 128)};
+    int[] edges = {Short.MIN_VALUE, Short.MIN_VALUE + 1, -182, -181, -2, -1, 0, 1, 2, 181, 182,
+      255, 256, Short.MAX_VALUE - 1, Short.MAX_VALUE};
+    int shortRows = edges.length * edges.length * 3;
+    int[][] shorts = {tabulate(shortRows, row -> edges[(row / edges.length) % edges.length]),
+      tabulate(shortRows, row -> edges[row % edges.length])};
+    IntPredicate seventh = row -> row % 7 == 3;
+    VarkaVectorIR byteRoot = nullingMultiply(LaneType.BYTE, BYTE_COL, BYTE_COL_2);
+    VarkaVectorIR shortRoot = nullingMultiply(LaneType.SHORT, SHORT_COL, SHORT_COL_2);
+    assertTryProduct("bytes", byteRoot, LaneType.BYTE, bytes, seventh);
+    assertTryProduct("shorts", shortRoot, LaneType.SHORT, shorts, seventh);
+    for (Arm arm : ARMS) {
+      for (IntPredicate pattern : List.<IntPredicate>of(row -> false, seventh)) {
+        checkValues("try_multiply of every byte pair " + arm.name(), List.of(byteRoot), 2,
+            new int[0], pairs, bytes, pattern, false, arm.options());
+        checkValues("try_multiply of the short edges " + arm.name(), List.of(shortRoot), 2,
+            new int[0], shortRows, shorts, pattern, false, arm.options());
+      }
     }
   }
 

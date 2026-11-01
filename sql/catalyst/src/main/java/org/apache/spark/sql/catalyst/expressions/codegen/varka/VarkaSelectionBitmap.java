@@ -19,6 +19,7 @@ package org.apache.spark.sql.catalyst.expressions.codegen.varka;
 
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
+import java.nio.ByteOrder;
 
 /**
  * The read side of a selection bitmap: the bit-packed mask a filter kernel writes
@@ -28,12 +29,20 @@ import java.lang.foreign.ValueLayout;
  * {@code orValidityBitsAt} helpers that write output validity, so the two bitmaps cannot
  * drift apart in format.
  *
- * <p>These helpers hold for any segment of at least {@code (length + 7) / 8} bytes, the size the
- * kernel zeroes; bits at and above {@code length} are never read, so a reused buffer's stale
- * tail cannot leak into a count. The two combining helpers write the bytes they read, and a
- * bit past {@code length} they compute is as stale as its operands and never read either.
+ * <p>{@link #isSet}, {@link #orInto} and {@link #andInto} hold for any segment of at least
+ * {@code (length + 7) / 8} bytes, the size the kernel zeroes. {@link #countSet} reads whole
+ * 64-bit words, so it needs {@code ((length + 63) / 64) * 8} bytes, the whole-word stride the
+ * filter evaluator lays each bitmap out in. No helper lets a bit at or above {@code length}
+ * change its answer: the first three never read one, and {@link #countSet} masks the last word,
+ * so a reused buffer's stale tail cannot leak into a count. The two combining helpers write the
+ * bytes they read, and a bit past {@code length} they compute is as stale as its operands.
  */
 public final class VarkaSelectionBitmap {
+
+  // A 64-bit word of the bitmap. Little-endian whatever the platform's order, so that row r is
+  // bit r of the word - LSB of byte 0 is row 0 - which countSet's tail mask relies on.
+  private static final ValueLayout.OfLong WORD =
+      ValueLayout.JAVA_LONG_UNALIGNED.withOrder(ByteOrder.LITTLE_ENDIAN);
 
   private VarkaSelectionBitmap() {
   }
@@ -81,17 +90,27 @@ public final class VarkaSelectionBitmap {
     }
   }
 
-  /** The number of set bits among the first {@code length} rows - the selected-row count. */
+  /**
+   * The number of set bits among the first {@code length} rows - the selected-row count. It counts
+   * a 64-bit word at a time, 64 reads for 4096 rows, and masks the last partial word to its low
+   * {@code length % 64} bits, so stale bits at and above {@code length} are not counted.
+   *
+   * @param mask the bitmap, at least {@code ((length + 63) / 64) * 8} bytes: the whole words that
+   *        hold the first {@code length} bits, the last word included even where {@code length}
+   *        ends inside it
+   * @param length the number of rows to count over, at least 0
+   */
   public static int countSet(MemorySegment mask, int length) {
+    int words = length >>> 6;
     int count = 0;
-    int fullBytes = length >>> 3;
-    for (long i = 0; i < fullBytes; i++) {
-      count += Integer.bitCount(mask.get(ValueLayout.JAVA_BYTE, i) & 0xFF);
+    for (long w = 0; w < words; w++) {
+      count += Long.bitCount(mask.get(WORD, w << 3));
     }
-    int rest = length & 7;
+    int rest = length & 63;
     if (rest != 0) {
-      int lastByte = mask.get(ValueLayout.JAVA_BYTE, fullBytes) & 0xFF;
-      count += Integer.bitCount(lastByte & ((1 << rest) - 1));
+      // The last word holds rows [words * 64, length) in its low rest bits; the bits above them
+      // are rows past the batch, stale from an earlier one, and the mask drops them.
+      count += Long.bitCount(mask.get(WORD, (long) words << 3) & ((1L << rest) - 1));
     }
     return count;
   }

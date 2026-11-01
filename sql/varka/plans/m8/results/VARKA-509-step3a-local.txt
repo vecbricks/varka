@@ -1,0 +1,60 @@
+# Row 509 step 3, its first part, on the laptop, 29 October 2026: VarkaTimeArithmeticSuite's
+# hand-written TIME shapes moved onto the harness as VarkaTimeHarnessSuite. dev/varka_matrix.sh
+# over the suites, one JVM a configuration; "before" is the unchanged suite run the same way in
+# the varka-509-step2d worktree (1359fae59cd, whose copy of the suite is this branch's base).
+
+Every test VarkaTimeArithmeticSuite had before (12), and where its check is now:
+  t1 - t2 and time_diff at every unit agree with the row
+  engine over every second                                  harness, 9 queries
+  time_trunc at every level agrees with the row engine
+  over every second                                         harness, 10 queries
+  t + dt agrees with the row engine where the sum stays
+  inside the day                                            harness, 4 queries
+  t + the interval of Long.MinValue microseconds raises
+  Spark's error, not t unchanged                            harness, 1 query
+  a guard under a CASE arm fires only for the lanes the
+  arm is taken for                                          harness, 1 query
+  a crossing lane under a conjunction declines to the row
+  engine, which answers what it would                       harness, 1 filter
+  hour, minute and second agree with the row engine over
+  every second of the day                                   harness, 9 queries
+  an extract under another expression fuses beside a
+  fused one                                                 harness, 1 query
+  time_to_millis, time_to_micros and the time_from_*
+  conversions agree with the row engine over every second
+  of the day                                                harness, 9 queries
+  t + dt that crosses midnight raises Spark's own error
+  under Varka, not a wrapped time                           end to end (DATETIME_OVERFLOW)
+  the emit.useAVX session switch selects the magic form,
+  and the answers do not move                               end to end (a SQL configuration)
+  a count outside the day raises Spark's own error under
+  Varka, from the same rows                                 end to end (the conversion's error)
+  (12 = 9 harness + 3 end to end; each harness test keeps the old name)
+
+What a harness test checks for its queries: every answer Spark's, under both consumers (the
+row node's only where every output is fused) or through the filter evaluator; and, beside
+that, a kernel served every batch (SERVED: the old "fused and the kernels ran"), a fused
+kernel declined a batch by its own status (DECLINES: the old numFallbackBatchesDeclined > 0),
+or nothing more where Spark raises on the rows (ANSWERS). The two end-to-end error tests stay
+because neither condition is among the coverage rows' five (VarkaAnsiForm.RAISES), so no other
+session test shows it to a user.
+
+New: VarkaHarnessParitySuite plans every harness query in a session over a view with the
+fixture's columns, and finds each output or condition equal to the harness's: 2 tests in all.
+
+Times, seconds (JUnit's for a JUnit class, ScalaTest's "Run completed" for the Scala suite):
+                         before                  after
+                         VarkaTimeArithmeticSuite VarkaTimeHarnessSuite + VarkaTimeArithmeticSuite
+  defaults                 93                       3.8 + 11.4
+  arrowBatchSize=3        114                      35.1 + 16.2
+  arrowBatchSize=1        140                      91.8 + 25.0
+  guardUnderArm=false       -                       5.5 + 17.8
+The day's table is 86400 rows, so at one row a batch the harness serves 86400 batches a query
+and consumer; the session suite before served the same batches, and planned and cached a view
+for each of the 46 queries its checkBoth ran, as well.
+
+The matrix's skip lines: guardUnderArm=false's line moves to VarkaTimeHarnessSuite under the
+same name, and the test cancels there as it did (1 cancelled, 11 ok). arrowBatchSize=1's line
+for "a crossing lane under a conjunction ..." is removed: its reason was the in-memory scan's
+statistics pruning the one-row batches before the filter, and the harness has no scan to prune,
+so the test passes there (12 ok).

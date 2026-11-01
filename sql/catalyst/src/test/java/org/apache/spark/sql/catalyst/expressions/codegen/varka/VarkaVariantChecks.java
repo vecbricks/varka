@@ -95,7 +95,7 @@ public final class VarkaVariantChecks {
 
   private static String className(VarkaFuzzCase c) {
     return "org.apache.spark.sql.varka.execution.VarkaVariant"
-        + (c.lane() == LaneType.LONG ? "Long" : "") + CLASS_COUNTER.addAndGet(1);
+        + (c.lane().bits() == Long.SIZE ? "Long" : "") + CLASS_COUNTER.addAndGet(1);
   }
 
   /** One variant kind and the variant, empty where it does not apply. */
@@ -185,7 +185,8 @@ public final class VarkaVariantChecks {
 
   private static boolean taken(LaneType lane, Cond cond, long[] row, int[] ints, boolean[] isNull,
       long[] lits, int[] intLits) {
-    return lane == LaneType.LONG ? VarkaReference.longCond(cond, row, isNull, lits).isTrue()
+    // A 64-bit lane's rows and literals are longs, DOUBLE's as their bits.
+    return lane.bits() == Long.SIZE ? VarkaReference.longCond(cond, row, isNull, lits).isTrue()
         : VarkaReference.cond(cond, ints, isNull, intLits).isTrue();
   }
 
@@ -273,7 +274,8 @@ public final class VarkaVariantChecks {
   /** {@code c}'s kernel run over {@code c}'s batch: the status, 0 once every row is compared. */
   private static int status(VarkaFuzzCase c, String name, byte[] bytes,
       boolean declineAllowed) {
-    if (c.lane() == LaneType.LONG) {
+    // The long harness at every 64-bit lane, DOUBLE's bits included.
+    if (c.lane().bits() == Long.SIZE) {
       return VarkaKernelChecks.runAndCompareLongStatus(c.label(), name, bytes, c.roots(),
           c.numInputs(), c.lits(), new VarkaKernelChecks.LongBatch(c.length(), c.nulls(),
               c.data(), c.forceMasked()), declineAllowed);

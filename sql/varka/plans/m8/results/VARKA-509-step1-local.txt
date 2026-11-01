@@ -1,0 +1,19 @@
+# Row 509 step 1 on the laptop, 28 October 2026: the answer harness below the session
+# (VarkaExpressionHarness, VarkaHarnessPlans, VarkaCacheBatches), run through sbt at the
+# defaults, one JVM.
+
+VarkaCoverageHarnessSuite: every row of sql/varka/coverage.json on the three answer fixtures,
+a projection row through VarkaKernelEvaluator.project and a predicate row through
+VarkaFilterEvaluator.filterCompact, both under serveBatch, against Spark's interpreted and
+generated projections; one dynamic test a row, the row-count test and the planted kernel
+  339 tests, 0 failed, 8.4 s (12.1 s on the first run of the JVM's build)
+
+the planted kernel: checkIntOverflow=false over (rid, i) = (0, 2147483647), (1, 1), i + 1
+  checked kernel: no finding
+  planted kernel: answered, and the harness reports the row Spark raises ARITHMETIC_OVERFLOW on
+
+VarkaHarnessParitySuite: the harness's expression against a session's optimized plan over the
+cached fixtures, bound to the fixture's columns and canonicalized
+  1011 expressions compared (337 rows on 3 fixtures), 0 differ, 9.9 s
+
+VarkaSuiteHarnessSuite with dynamic tests held: 18 tests, 0 failed

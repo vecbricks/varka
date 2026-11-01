@@ -347,6 +347,7 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `make_ym_interval(year(d), month(d)) * 2` | `calendar`, `interval` | `unix_date(d) BETWEEN -719162 AND 2932896` | a checked multiply, so bounded operands again: `ym * 2` over a stored interval column declines | vector |
 | `abs(ym)` | `interval` | `ym > INTERVAL '-178956970-8' YEAR TO MONTH` | interval arithmetic is exact in every mode: the one count whose negation overflows declines | vector |
 | `ym - ymm` | `interval` | `CAST(ym AS BIGINT) - CAST(ymm AS BIGINT) BETWEEN -2147483648 AND 2147483647` | exact in every mode: a difference outside the month count's int declines | vector |
+| `ym + ym` | `interval` | `CAST(ym AS BIGINT) + CAST(ym AS BIGINT) BETWEEN -2147483648 AND 2147483647` | the sum, exact in every mode as the difference is | vector |
 | `CAST(ymy AS INTERVAL MONTH)` | none |  |  | vector |
 | `CAST(i AS INTERVAL MONTH)` | none |  | a relabel of the count; `CAST(i AS INTERVAL YEAR)` multiplies by twelve, checked, and declines over a bare int column | vector |
 | `CAST(ymm AS INT)` | none |  | a relabel of a MONTH-ended interval; a YEAR-ended one divides by twelve | vector |
@@ -365,6 +366,8 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `i - 1` | `intArithmetic` | `i > -2147483648` | checked under ANSI | vector |
 | `year(d) * 2` | `calendar`, `intArithmetic` | `unix_date(d) BETWEEN -719162 AND 2932896` | a multiply is checked, and only bounded operands take the check off: `i * 2` over a bare int column declines | vector |
 | `-i` | `intArithmetic` | `i > -2147483648` | checked under ANSI | vector |
+| `try_add(i, 1)` | `intArithmetic` |  | an overflowing lane is null, so the kernel declines nothing | vector |
+| `try_subtract(i, 1)` | `intArithmetic` |  | an overflowing lane is null | vector |
 | `year(d) + i` | `calendar`, `intArithmetic` | `unix_date(d) BETWEEN -719162 AND 2932896 AND i <= 2147483647 - year(d)` | checked under ANSI; the lower bound is out of reach, since a year is at least 1 | vector |
 
 #### Narrow arithmetic
@@ -427,6 +430,11 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `coalesce(d, d2)` | `condition` |  |  | vector |
 | `greatest(d, d2)` | `intArithmetic` |  |  | vector |
 | `least(d, d2)` | `intArithmetic` |  |  | vector |
+| `if(ym IS NULL, INTERVAL '1-2' YEAR TO MONTH, ym)` | `predicate`, `condition` |  |  | vector |
+| `CASE WHEN ym IS NULL THEN INTERVAL '1-2' YEAR TO MONTH ELSE ym END` | `predicate`, `condition` |  |  | vector |
+| `coalesce(ym, INTERVAL '1-2' YEAR TO MONTH)` | `condition` |  |  | vector |
+| `greatest(ym, INTERVAL '1-2' YEAR TO MONTH)` | `intArithmetic` |  |  | vector |
+| `least(ym, INTERVAL '-1-2' YEAR TO MONTH)` | `intArithmetic` |  |  | vector |
 
 #### Predicates
 
@@ -490,34 +498,34 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 
 | Predicate | Switches | Domain | Notes | 128-bit lanes |
 |---|---|---|---|---|
-| `l > l2` | `predicate` |  |  | not emitted: a filter's condition in a kernel driven at the LONG lane, on an x86 host whose long species has two lanes: C2 lowers no two-lane mask there, and the selection would run the Vector API's Java fallback |
-| `l = l2` | `predicate` |  |  | not emitted: a filter's condition in a kernel driven at the LONG lane, on an x86 host whose long species has two lanes: C2 lowers no two-lane mask there, and the selection would run the Vector API's Java fallback |
-| `l >= 5000000000` | `predicate` |  | a bigint literal takes a slot in the long lane's own table | not emitted: a filter's condition in a kernel driven at the LONG lane, on an x86 host whose long species has two lanes: C2 lowers no two-lane mask there, and the selection would run the Vector API's Java fallback |
-| `l IS NULL` | `predicate` |  |  | not emitted: a filter's condition in a kernel driven at the LONG lane, on an x86 host whose long species has two lanes: C2 lowers no two-lane mask there, and the selection would run the Vector API's Java fallback |
-| `l IS NOT NULL` | `predicate` |  |  | not emitted: a filter's condition in a kernel driven at the LONG lane, on an x86 host whose long species has two lanes: C2 lowers no two-lane mask there, and the selection would run the Vector API's Java fallback |
-| `t < t2` | `predicate` |  |  | not emitted: a filter's condition in a kernel driven at the LONG lane, on an x86 host whose long species has two lanes: C2 lowers no two-lane mask there, and the selection would run the Vector API's Java fallback |
-| `t = TIME'12:34:56.789'` | `predicate` |  | a TIME literal of another precision reaches the column through the widening cast, which is the identity on nanoseconds | not emitted: a filter's condition in a kernel driven at the LONG lane, on an x86 host whose long species has two lanes: C2 lowers no two-lane mask there, and the selection would run the Vector API's Java fallback |
-| `dt > dt2` | `predicate` |  |  | not emitted: a filter's condition in a kernel driven at the LONG lane, on an x86 host whose long species has two lanes: C2 lowers no two-lane mask there, and the selection would run the Vector API's Java fallback |
-| `dt < INTERVAL '0' SECOND` | `predicate` |  |  | not emitted: a filter's condition in a kernel driven at the LONG lane, on an x86 host whose long species has two lanes: C2 lowers no two-lane mask there, and the selection would run the Vector API's Java fallback |
-| `dt IS NOT NULL` | `predicate` |  |  | not emitted: a filter's condition in a kernel driven at the LONG lane, on an x86 host whose long species has two lanes: C2 lowers no two-lane mask there, and the selection would run the Vector API's Java fallback |
-| `l < l2` | `predicate` |  |  | not emitted: a filter's condition in a kernel driven at the LONG lane, on an x86 host whose long species has two lanes: C2 lowers no two-lane mask there, and the selection would run the Vector API's Java fallback |
-| `l <= l2` | `predicate` |  |  | not emitted: a filter's condition in a kernel driven at the LONG lane, on an x86 host whose long species has two lanes: C2 lowers no two-lane mask there, and the selection would run the Vector API's Java fallback |
-| `t > t2` | `predicate` |  |  | not emitted: a filter's condition in a kernel driven at the LONG lane, on an x86 host whose long species has two lanes: C2 lowers no two-lane mask there, and the selection would run the Vector API's Java fallback |
-| `t >= t2` | `predicate` |  |  | not emitted: a filter's condition in a kernel driven at the LONG lane, on an x86 host whose long species has two lanes: C2 lowers no two-lane mask there, and the selection would run the Vector API's Java fallback |
-| `t <= t2` | `predicate` |  |  | not emitted: a filter's condition in a kernel driven at the LONG lane, on an x86 host whose long species has two lanes: C2 lowers no two-lane mask there, and the selection would run the Vector API's Java fallback |
-| `t IS NULL` | `predicate` |  |  | not emitted: a filter's condition in a kernel driven at the LONG lane, on an x86 host whose long species has two lanes: C2 lowers no two-lane mask there, and the selection would run the Vector API's Java fallback |
-| `t IS NOT NULL` | `predicate` |  |  | not emitted: a filter's condition in a kernel driven at the LONG lane, on an x86 host whose long species has two lanes: C2 lowers no two-lane mask there, and the selection would run the Vector API's Java fallback |
-| `dt = dt2` | `predicate` |  |  | not emitted: a filter's condition in a kernel driven at the LONG lane, on an x86 host whose long species has two lanes: C2 lowers no two-lane mask there, and the selection would run the Vector API's Java fallback |
-| `dt >= dt2` | `predicate` |  |  | not emitted: a filter's condition in a kernel driven at the LONG lane, on an x86 host whose long species has two lanes: C2 lowers no two-lane mask there, and the selection would run the Vector API's Java fallback |
-| `dt <= dt2` | `predicate` |  |  | not emitted: a filter's condition in a kernel driven at the LONG lane, on an x86 host whose long species has two lanes: C2 lowers no two-lane mask there, and the selection would run the Vector API's Java fallback |
-| `dt IS NULL` | `predicate` |  |  | not emitted: a filter's condition in a kernel driven at the LONG lane, on an x86 host whose long species has two lanes: C2 lowers no two-lane mask there, and the selection would run the Vector API's Java fallback |
-| `CAST(TIME'12:34:56.789' AS TIME(6)) = t` | `predicate` |  | the widening cast written out; a narrowing one floors the nanoseconds and declines | not emitted: a filter's condition in a kernel driven at the LONG lane, on an x86 host whose long species has two lanes: C2 lowers no two-lane mask there, and the selection would run the Vector API's Java fallback |
-| `(l > l2) IS NULL` | `predicate` |  | the unknown partition at the long lane (VARKA-334); a default session's NullDownPropagation pushes the test onto the columns, so this form reaches Varka as written only with that rule excluded | not emitted: a filter's condition in a kernel driven at the LONG lane, on an x86 host whose long species has two lanes: C2 lowers no two-lane mask there, and the selection would run the Vector API's Java fallback |
-| `(t < t2) IS NOT NULL` | `predicate` |  | the long lane's; a default session's NullDownPropagation pushes the test onto the columns, so this form reaches Varka as written only with that rule excluded | not emitted: a filter's condition in a kernel driven at the LONG lane, on an x86 host whose long species has two lanes: C2 lowers no two-lane mask there, and the selection would run the Vector API's Java fallback |
-| `l <=> l2` | `predicate` |  | null-safe equality at the long lane (VARKA-336) | not emitted: a filter's condition in a kernel driven at the LONG lane, on an x86 host whose long species has two lanes: C2 lowers no two-lane mask there, and the selection would run the Vector API's Java fallback |
-| `equal_null(l, l2)` | `predicate` |  |  | not emitted: a filter's condition in a kernel driven at the LONG lane, on an x86 host whose long species has two lanes: C2 lowers no two-lane mask there, and the selection would run the Vector API's Java fallback |
-| `t <=> t2` | `predicate` |  |  | not emitted: a filter's condition in a kernel driven at the LONG lane, on an x86 host whose long species has two lanes: C2 lowers no two-lane mask there, and the selection would run the Vector API's Java fallback |
-| `dt <=> dt2` | `predicate` |  |  | not emitted: a filter's condition in a kernel driven at the LONG lane, on an x86 host whose long species has two lanes: C2 lowers no two-lane mask there, and the selection would run the Vector API's Java fallback |
+| `l > l2` | `predicate` |  |  | per-lane: compare to mask, mask cast |
+| `l = l2` | `predicate` |  |  | per-lane: compare to mask, mask cast |
+| `l >= 5000000000` | `predicate` |  | a bigint literal takes a slot in the long lane's own table | per-lane: compare to mask, mask cast |
+| `l IS NULL` | `predicate` |  |  | per-lane: mask broadcast, mask logic, mask cast |
+| `l IS NOT NULL` | `predicate` |  |  | per-lane: mask cast, mask broadcast |
+| `t < t2` | `predicate` |  |  | per-lane: compare to mask, mask cast |
+| `t = TIME'12:34:56.789'` | `predicate` |  | a TIME literal of another precision reaches the column through the widening cast, which is the identity on nanoseconds | per-lane: compare to mask, mask cast |
+| `dt > dt2` | `predicate` |  |  | per-lane: compare to mask, mask cast |
+| `dt < INTERVAL '0' SECOND` | `predicate` |  |  | per-lane: compare to mask, mask cast |
+| `dt IS NOT NULL` | `predicate` |  |  | per-lane: mask cast, mask broadcast |
+| `l < l2` | `predicate` |  |  | per-lane: compare to mask, mask cast |
+| `l <= l2` | `predicate` |  |  | per-lane: compare to mask, mask cast |
+| `t > t2` | `predicate` |  |  | per-lane: compare to mask, mask cast |
+| `t >= t2` | `predicate` |  |  | per-lane: compare to mask, mask cast |
+| `t <= t2` | `predicate` |  |  | per-lane: compare to mask, mask cast |
+| `t IS NULL` | `predicate` |  |  | per-lane: mask broadcast, mask logic, mask cast |
+| `t IS NOT NULL` | `predicate` |  |  | per-lane: mask cast, mask broadcast |
+| `dt = dt2` | `predicate` |  |  | per-lane: compare to mask, mask cast |
+| `dt >= dt2` | `predicate` |  |  | per-lane: compare to mask, mask cast |
+| `dt <= dt2` | `predicate` |  |  | per-lane: compare to mask, mask cast |
+| `dt IS NULL` | `predicate` |  |  | per-lane: mask broadcast, mask logic, mask cast |
+| `CAST(TIME'12:34:56.789' AS TIME(6)) = t` | `predicate` |  | a TIME literal is already TIME(6), so the cast is the identity the optimizer removes; a widening from TIME(0) or TIME(3) fuses and a narrowing declines | per-lane: compare to mask, mask cast |
+| `(l > l2) IS NULL` | `predicate` |  | the unknown partition at the long lane (VARKA-334); a default session's NullDownPropagation pushes the test onto the columns, so this form reaches Varka as written only with that rule excluded | per-lane: mask broadcast, mask logic, mask cast, compare to mask |
+| `(t < t2) IS NOT NULL` | `predicate` |  | the long lane's; a default session's NullDownPropagation pushes the test onto the columns, so this form reaches Varka as written only with that rule excluded | per-lane: mask cast, mask broadcast, compare to mask |
+| `l <=> l2` | `predicate` |  | null-safe equality at the long lane (VARKA-336) | per-lane: compare to mask, mask cast |
+| `equal_null(l, l2)` | `predicate` |  |  | per-lane: compare to mask, mask cast |
+| `t <=> t2` | `predicate` |  |  | per-lane: compare to mask, mask cast |
+| `dt <=> dt2` | `predicate` |  |  | per-lane: compare to mask, mask cast |
 
 #### Boolean columns
 
@@ -527,7 +535,7 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `NOT b` | `predicate` |  | the pair swapped, no code | vector |
 | `b AND d < d2` | `predicate` |  | beside a comparison, on the one lane they share | vector |
 | `b OR i = 5` | `predicate` |  | an unknown column beside a comparison | vector |
-| `b AND l < l2` | `predicate` |  | the boolean leaf takes the comparison's long lane | vector |
+| `b AND l < l2` | `predicate` |  | the boolean leaf takes the comparison's long lane | per-lane: compare to mask, mask logic, mask cast, mask broadcast |
 | `b = b2` | `predicate` |  | equality of two boolean columns: unknown where either is | vector |
 | `b <= b2` | `predicate` |  | an ordering over booleans, false before true: not NOT b OR b2, which is true where b is null and b2 is true | vector |
 | `b > b2` | `predicate` |  |  | vector |
@@ -548,6 +556,19 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `IF(b, d, d2)` | `condition` |  | the int lane | vector |
 | `IF(b, l, l2)` | `condition` |  | the leaf is lifted to the long lane of the values | per-lane: blend, mask broadcast |
 | `CASE WHEN b THEN l ELSE l2 END` | `condition` |  | likewise, per branch | per-lane: blend, mask broadcast |
+
+#### Boolean outputs
+
+| Expression | Switches | Domain | Notes | 128-bit lanes |
+|---|---|---|---|---|
+| `d2 > d` | `predicate` |  | a date comparison as a column, on the int lane; `d < d2` as an output | vector |
+| `l2 > l` | `predicate` |  | the long lane's comparison as a column | per-lane: compare to mask, mask cast |
+| `y2 > y1` | `predicate` |  | the byte lane's, at the narrow lane where every value is narrow | vector |
+| `NOT b2` | `predicate` |  | a boolean column negated: the pair swapped and written as two bitmaps | vector |
+| `b AND b2` | `predicate` |  | a connective: false where either is false, even beside an unknown | vector |
+| `(d < d2) OR b` | `predicate` |  | a comparison beside a boolean column on the lane they share | vector |
+| `l2 <=> l` | `predicate` |  | null-safe equality is never unknown, so its validity is all ones | per-lane: compare to mask, mask cast |
+| `CASE WHEN b THEN b2 END` | `predicate` |  | no ELSE: a null constant where b is not true, so the kernel is masked-only | vector |
 
 #### TINYINT columns
 
@@ -624,13 +645,13 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 
 | Predicate | Switches | Domain | Notes | 128-bit lanes |
 |---|---|---|---|---|
-| `i < l` | `predicate`, `intArithmetic` |  | an int against a bigint compares in the long lane, the int widened | not emitted: a filter's condition in a kernel driven at the LONG lane, on an x86 host whose long species has two lanes: C2 lowers no two-lane mask there, and the selection would run the Vector API's Java fallback |
-| `l = i` | `predicate`, `intArithmetic` |  |  | not emitted: a filter's condition in a kernel driven at the LONG lane, on an x86 host whose long species has two lanes: C2 lowers no two-lane mask there, and the selection would run the Vector API's Java fallback |
-| `l <=> i` | `predicate`, `intArithmetic` |  | the int widened to meet the bigint, its validity the column's | not emitted: a filter's condition in a kernel driven at the LONG lane, on an x86 host whose long species has two lanes: C2 lowers no two-lane mask there, and the selection would run the Vector API's Java fallback |
-| `CAST(time_to_millis(t) AS INT) > i` | `time`, `predicate`, `intArithmetic` | `time_to_millis(t) BETWEEN -2147483648 AND 2147483647` | the narrowed value compared in the int lane | not emitted: a filter's condition in a kernel driven at the LONG lane, on an x86 host whose long species has two lanes: C2 lowers no two-lane mask there, and the selection would run the Vector API's Java fallback |
-| `hour(t) = 12` | `time`, `predicate` |  | the TIME extract narrowed inside the predicate | not emitted: a filter's condition in a kernel driven at the LONG lane, on an x86 host whose long species has two lanes: C2 lowers no two-lane mask there, and the selection would run the Vector API's Java fallback |
-| `(i = 5 AND l = l2) IS NOT NULL` | `predicate` |  | the int conjunct widened to meet the bigint one, and the null test over both | not emitted: a filter's condition in a kernel driven at the LONG lane, on an x86 host whose long species has two lanes: C2 lowers no two-lane mask there, and the selection would run the Vector API's Java fallback |
-| `(i = 5) IS NULL OR l = l2` | `predicate` |  | a null test over an int comparison lifted whole to the long lane beside a bigint one | not emitted: a filter's condition in a kernel driven at the LONG lane, on an x86 host whose long species has two lanes: C2 lowers no two-lane mask there, and the selection would run the Vector API's Java fallback |
+| `i < l` | `predicate`, `intArithmetic` |  | an int against a bigint compares in the long lane, the int widened | per-lane: compare to mask, mask cast, mask broadcast, load or store |
+| `l = i` | `predicate`, `intArithmetic` |  |  | per-lane: compare to mask, mask cast, mask broadcast, load or store |
+| `l <=> i` | `predicate`, `intArithmetic` |  | the int widened to meet the bigint, its validity the column's | per-lane: compare to mask, mask cast, mask broadcast, load or store |
+| `CAST(time_to_millis(t) AS INT) > i` | `time`, `predicate`, `intArithmetic` | `time_to_millis(t) BETWEEN -2147483648 AND 2147483647` | the narrowed value compared in the int lane | per-lane: compare to mask, mask logic, mask broadcast, mask test, load or store |
+| `hour(t) = 12` | `time`, `predicate` |  | the TIME extract narrowed inside the predicate | per-lane: mask broadcast, load or store |
+| `(i = 5 AND l = l2) IS NOT NULL` | `predicate` |  | the int conjunct widened to meet the bigint one, and the null test over both | per-lane: mask cast, mask broadcast, compare to mask, load or store |
+| `(i = 5) IS NULL OR l = l2` | `predicate` |  | a null test over an int comparison lifted whole to the long lane beside a bigint one | per-lane: mask broadcast, mask logic, compare to mask, mask cast, load or store |
 
 #### Long-lane choice
 
@@ -644,24 +665,33 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `if(s1 IS NULL, l, l2)` | `predicate`, `condition` |  | the short twin | per-lane: mask broadcast, mask logic, blend |
 | `greatest(t, t2)` | `intArithmetic` |  |  | per-lane: blend, mask broadcast |
 | `CASE WHEN dt > INTERVAL '0' SECOND THEN dt ELSE dt2 END` | `predicate`, `condition` |  |  | per-lane: compare to mask, blend, mask cast, mask broadcast |
+| `coalesce(l, l2)` | `condition` |  |  | per-lane: blend, mask broadcast |
+| `least(t, t2)` | `intArithmetic` |  |  | per-lane: blend, mask broadcast |
+| `CASE WHEN t < t2 THEN t ELSE t2 END` | `predicate`, `condition` |  |  | per-lane: compare to mask, blend, mask cast, mask broadcast |
+| `if(t < t2, t, t2)` | `predicate`, `condition` |  |  | per-lane: compare to mask, blend, mask cast, mask broadcast |
+| `coalesce(t, t2)` | `condition` |  |  | per-lane: blend, mask broadcast |
+| `greatest(dt, dt2)` | `intArithmetic` |  |  | per-lane: blend, mask broadcast |
+| `least(dt, dt2)` | `intArithmetic` |  |  | per-lane: blend, mask broadcast |
+| `if(dt < dt2, dt, dt2)` | `predicate`, `condition` |  |  | per-lane: compare to mask, blend, mask cast, mask broadcast |
+| `coalesce(dt, dt2)` | `condition` |  |  | per-lane: blend, mask broadcast |
 
 #### TIMESTAMP_NTZ columns
 
 | Predicate | Switches | Domain | Notes | 128-bit lanes |
 |---|---|---|---|---|
-| `ntz < ntz2` | `predicate` |  |  | not emitted: a filter's condition in a kernel driven at the LONG lane, on an x86 host whose long species has two lanes: C2 lowers no two-lane mask there, and the selection would run the Vector API's Java fallback |
-| `ntz <= ntz2` | `predicate` |  |  | not emitted: a filter's condition in a kernel driven at the LONG lane, on an x86 host whose long species has two lanes: C2 lowers no two-lane mask there, and the selection would run the Vector API's Java fallback |
-| `ntz > ntz2` | `predicate` |  |  | not emitted: a filter's condition in a kernel driven at the LONG lane, on an x86 host whose long species has two lanes: C2 lowers no two-lane mask there, and the selection would run the Vector API's Java fallback |
-| `ntz >= ntz2` | `predicate` |  |  | not emitted: a filter's condition in a kernel driven at the LONG lane, on an x86 host whose long species has two lanes: C2 lowers no two-lane mask there, and the selection would run the Vector API's Java fallback |
-| `ntz = ntz2` | `predicate` |  |  | not emitted: a filter's condition in a kernel driven at the LONG lane, on an x86 host whose long species has two lanes: C2 lowers no two-lane mask there, and the selection would run the Vector API's Java fallback |
-| `ntz = TIMESTAMP_NTZ '2021-06-01 12:00:00'` | `predicate` |  | an NTZ literal takes a slot in the long lane's table | not emitted: a filter's condition in a kernel driven at the LONG lane, on an x86 host whose long species has two lanes: C2 lowers no two-lane mask there, and the selection would run the Vector API's Java fallback |
-| `ntz <=> ntz2` | `predicate` |  | null-safe equality at the long lane | not emitted: a filter's condition in a kernel driven at the LONG lane, on an x86 host whose long species has two lanes: C2 lowers no two-lane mask there, and the selection would run the Vector API's Java fallback |
-| `ntz IN (TIMESTAMP_NTZ '2021-06-01 12:00:00', TIMESTAMP_NTZ '1969-12-31 18:00:00')` | `predicate` |  |  | not emitted: a filter's condition in a kernel driven at the LONG lane, on an x86 host whose long species has two lanes: C2 lowers no two-lane mask there, and the selection would run the Vector API's Java fallback |
-| `ntz IN (11 to 16 NTZ literals)` | `predicate` |  | an IN list this long arrives from the optimizer as an InSet and fuses the same way | not emitted: a filter's condition in a kernel driven at the LONG lane, on an x86 host whose long species has two lanes: C2 lowers no two-lane mask there, and the selection would run the Vector API's Java fallback |
-| `ntz IS NULL` | `predicate` |  |  | not emitted: a filter's condition in a kernel driven at the LONG lane, on an x86 host whose long species has two lanes: C2 lowers no two-lane mask there, and the selection would run the Vector API's Java fallback |
-| `ntz IS NOT NULL` | `predicate` |  |  | not emitted: a filter's condition in a kernel driven at the LONG lane, on an x86 host whose long species has two lanes: C2 lowers no two-lane mask there, and the selection would run the Vector API's Java fallback |
-| `d < ntz` | `predicate`, `intArithmetic` | `unix_date(d) BETWEEN -106751991 AND 106751991` | type coercion casts the date to TIMESTAMP_NTZ, its midnight; the day is guarded so that the multiply is exact, and a batch with a day past it goes to the row engine, which raises | not emitted: a filter's condition in a kernel driven at the LONG lane, on an x86 host whose long species has two lanes: C2 lowers no two-lane mask there, and the selection would run the Vector API's Java fallback |
-| `CAST(ntz AS DATE) = d` | `predicate`, `intArithmetic` |  | the UTC date of the count: an exact floor division by the microseconds of a day, a shift and a bounded division, for every count | not emitted: a filter's condition in a kernel driven at the LONG lane, on an x86 host whose long species has two lanes: C2 lowers no two-lane mask there, and the selection would run the Vector API's Java fallback |
+| `ntz < ntz2` | `predicate` |  |  | per-lane: compare to mask, mask cast |
+| `ntz <= ntz2` | `predicate` |  |  | per-lane: compare to mask, mask cast |
+| `ntz > ntz2` | `predicate` |  |  | per-lane: compare to mask, mask cast |
+| `ntz >= ntz2` | `predicate` |  |  | per-lane: compare to mask, mask cast |
+| `ntz = ntz2` | `predicate` |  |  | per-lane: compare to mask, mask cast |
+| `ntz = TIMESTAMP_NTZ '2021-06-01 12:00:00'` | `predicate` |  | an NTZ literal takes a slot in the long lane's table | per-lane: compare to mask, mask cast |
+| `ntz <=> ntz2` | `predicate` |  | null-safe equality at the long lane | per-lane: compare to mask, mask cast |
+| `ntz IN (TIMESTAMP_NTZ '2021-06-01 12:00:00', TIMESTAMP_NTZ '1969-12-31 18:00:00')` | `predicate` |  |  | per-lane: compare to mask, mask logic, mask cast |
+| `ntz IN (11 to 16 NTZ literals)` | `predicate` |  | an IN list this long arrives from the optimizer as an InSet and fuses the same way | per-lane: compare to mask, mask logic, mask cast |
+| `ntz IS NULL` | `predicate` |  |  | per-lane: mask broadcast, mask logic, mask cast |
+| `ntz IS NOT NULL` | `predicate` |  |  | per-lane: mask cast, mask broadcast |
+| `d < ntz` | `predicate`, `intArithmetic` | `unix_date(d) BETWEEN -106751991 AND 106751991` | type coercion casts the date to TIMESTAMP_NTZ, its midnight; the day is guarded so that the multiply is exact, and a batch with a day past it goes to the row engine, which raises | per-lane: compare to mask, mask logic, mask cast, mask broadcast, mask test, load or store |
+| `CAST(ntz AS DATE) = d` | `predicate`, `intArithmetic` |  | the UTC date of the count: an exact floor division by the microseconds of a day, a shift and a bounded division, for every count | per-lane: mask broadcast, load or store |
 
 #### TIMESTAMP_NTZ columns choosing values
 
@@ -674,6 +704,98 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `coalesce(ntz, ntz2)` | `condition` |  |  | per-lane: blend, mask broadcast |
 | `CAST(d AS TIMESTAMP_NTZ)` | `intArithmetic` | `unix_date(d) BETWEEN -106751991 AND 106751991` | Spark multiplies with multiplyExact in every mode, so a day past the bound raises under LEGACY and ANSI and is null under TRY, on the row engine the guard sends its batch to | per-lane: compare to mask, mask logic, mask broadcast, mask test |
 | `CAST(ntz AS DATE)` | `intArithmetic` |  | cannot fail: every quotient is a day an int holds | vector |
+
+#### TIMESTAMP_NTZ arithmetic
+
+| Expression | Switches | Domain | Notes | 128-bit lanes |
+|---|---|---|---|---|
+| `ntz - ntz2` | `time` | `if(ntz IS NULL OR ntz2 IS NULL, NULL, try_subtract(ntz, ntz2) IS NOT NULL)` | a day-time interval in microseconds; a difference past the long raises in every mode | per-lane: compare to mask, mask logic, mask broadcast, mask test |
+| `ntz2 - d` | `time`, `intArithmetic` | `unix_date(d) BETWEEN -106751991 AND 106751991 AND if(ntz2 IS NULL OR d IS NULL, NULL, try_subtract(ntz2, d) IS NOT NULL)` | type coercion casts the date to TIMESTAMP_NTZ, its midnight, under the cast's day guard, then subtracts it | per-lane: compare to mask, mask logic, mask broadcast, mask test, load or store |
+| `ntz + dt` | `time` | `if(ntz IS NULL OR dt IS NULL, NULL, try_add(ntz, dt) IS NOT NULL)` | a value past the long raises in every mode | per-lane: compare to mask, mask logic, mask broadcast, mask test |
+| `ntz - dt` | `time` | `dt <> INTERVAL '-106751991 04:00:54.775808' DAY TO SECOND AND if(ntz IS NULL OR dt IS NULL, NULL, try_subtract(ntz, dt) IS NOT NULL)` | the interval's negation is folded into a checked subtraction; Spark negates with negateExact in every mode, so the least interval, which it raises on, is guarded | per-lane: compare to mask, mask logic, mask broadcast, mask test |
+| `ntz + INTERVAL '1' DAY` | `time` | `if(ntz IS NULL, NULL, try_add(ntz, INTERVAL '1' DAY) IS NOT NULL)` | a literal interval takes a slot in the long lane's table | per-lane: compare to mask, mask logic, mask broadcast, mask test |
+
+#### DOUBLE columns
+
+| Predicate | Switches | Domain | Notes | 128-bit lanes |
+|---|---|---|---|---|
+| `x < x2` | `predicate` |  |  | per-lane: compare to mask, mask cast, mask logic, mask broadcast |
+| `x <= x2` | `predicate` |  |  | per-lane: compare to mask, mask cast, mask logic |
+| `x > x2` | `predicate` |  |  | per-lane: compare to mask, mask cast, mask logic, mask broadcast |
+| `x >= x2` | `predicate` |  |  | per-lane: compare to mask, mask cast, mask logic |
+| `x = x2` | `predicate` |  | NaN equals NaN, and -0.0 equals 0.0 | per-lane: compare to mask, mask cast, mask logic |
+| `x <> x2` | `predicate` |  |  | per-lane: compare to mask, mask cast, mask logic, mask broadcast |
+| `x <=> x2` | `predicate` |  | null-safe equality under the lane's own equality | per-lane: compare to mask, mask cast, mask logic |
+| `x < 1.5D` | `predicate` |  | the literal is its bits in the table of the lane's width | per-lane: compare to mask, mask cast, mask logic, mask broadcast |
+| `x = 1.5D` | `predicate` |  |  | per-lane: compare to mask, mask cast, mask logic |
+| `x IN (1.5D, -2.5D, 0.0D, CAST('NaN' AS DOUBLE))` | `predicate` |  | an equality chain under the lane's equality | per-lane: compare to mask, mask cast, mask logic |
+| `x IN (11 literals)` | `predicate` |  | an IN list this long arrives from the optimizer as an InSet and fuses the same way | per-lane: compare to mask, mask cast, mask logic |
+| `isnan(x)` | `predicate` |  | never null: false on a null row | per-lane: compare to mask, mask cast, mask logic, mask broadcast |
+| `x IS NULL` | `predicate` |  |  | per-lane: mask broadcast, mask logic, mask cast |
+| `x IS NOT NULL` | `predicate` |  |  | per-lane: mask cast, mask broadcast |
+
+#### DOUBLE columns choosing values
+
+| Expression | Switches | Domain | Notes | 128-bit lanes |
+|---|---|---|---|---|
+| `greatest(x, x2)` | `intArithmetic` |  | Spark's order, the first of two equal operands kept | per-lane: compare to mask, mask cast, mask logic, mask broadcast, blend |
+| `least(x, x2)` | `intArithmetic` |  |  | per-lane: compare to mask, mask cast, mask logic, mask broadcast, blend |
+| `nanvl(x, x2)` | `condition` |  | an IF over isnan, null where the first operand is | per-lane: compare to mask, mask cast, mask logic, blend, mask broadcast |
+| `CASE WHEN x < x2 THEN x ELSE x2 END` | `predicate`, `condition` |  |  | per-lane: compare to mask, mask cast, mask logic, mask broadcast, blend |
+| `if(x IS NULL, x2, x)` | `predicate`, `condition` |  |  | per-lane: mask broadcast, mask logic, blend |
+| `coalesce(x, x2)` | `condition` |  |  | per-lane: blend, mask broadcast |
+
+#### FLOAT columns
+
+| Predicate | Switches | Domain | Notes | 128-bit lanes |
+|---|---|---|---|---|
+| `f < f2` | `predicate` |  |  | vector |
+| `f <= f2` | `predicate` |  |  | vector |
+| `f > f2` | `predicate` |  |  | vector |
+| `f >= f2` | `predicate` |  |  | vector |
+| `f = f2` | `predicate` |  | NaN equals NaN, and -0.0 equals 0.0 | vector |
+| `f <> f2` | `predicate` |  |  | vector |
+| `f <=> f2` | `predicate` |  | null-safe equality under the lane's own equality | vector |
+| `f < 1.5F` | `predicate` |  | the literal is its bits in the table of the lane's width | vector |
+| `f = 1.5F` | `predicate` |  |  | vector |
+| `f IN (1.5F, -2.5F, 0.0F, CAST('NaN' AS FLOAT))` | `predicate` |  | an equality chain under the lane's equality | vector |
+| `f IN (11 literals)` | `predicate` |  | an IN list this long arrives from the optimizer as an InSet and fuses the same way | vector |
+| `isnan(f)` | `predicate` |  | never null: false on a null row | vector |
+| `f IS NULL` | `predicate` |  |  | vector |
+| `f IS NOT NULL` | `predicate` |  |  | vector |
+
+#### FLOAT columns choosing values
+
+| Expression | Switches | Domain | Notes | 128-bit lanes |
+|---|---|---|---|---|
+| `greatest(f, f2)` | `intArithmetic` |  | Spark's order, the first of two equal operands kept | vector |
+| `least(f, f2)` | `intArithmetic` |  |  | vector |
+| `nanvl(f, f2)` | `condition` |  | an IF over isnan, null where the first operand is | vector |
+| `CASE WHEN f < f2 THEN f ELSE f2 END` | `predicate`, `condition` |  |  | vector |
+| `if(f IS NULL, f2, f)` | `predicate`, `condition` |  |  | vector |
+| `coalesce(f, f2)` | `condition` |  |  | vector |
+
+#### DECIMAL columns
+
+| Predicate | Switches | Domain | Notes | 128-bit lanes |
+|---|---|---|---|---|
+| `d9 < d9b` | `predicate` |  | two DECIMAL(9, 2) values compare as their unscaled longs | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
+| `d9 <= d9b` | `predicate` |  |  | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
+| `d9 > d9b` | `predicate` |  |  | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
+| `d9 >= d9b` | `predicate` |  |  | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
+| `d9 = d9b` | `predicate` |  |  | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
+| `d9 <> d9b` | `predicate` |  | the NOT of the equality | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
+| `d9 <=> d9b` | `predicate` |  | null-safe equality at the long lane | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
+| `d9 = 0.42` | `predicate` |  | the literal is cast to the column's DECIMAL(9, 2) and its unscaled long takes a slot in the long table | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
+| `d9 < d18` | `predicate` |  | type coercion casts d9 to DECIMAL(18, 2), which keeps every unscaled value: the cast is the column | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
+| `d18 < d18b` | `predicate` |  |  | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
+| `d18 = d18b` | `predicate` |  |  | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
+| `d18 <=> d18b` | `predicate` |  |  | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
+| `d18 >= 123456789012.34` | `predicate` |  | a literal of fourteen digits | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
+| `d9 IS NULL` | `predicate` |  | a validity read; the slots are checked too, since Spark's null test reads a valid row's value and raises on a slot outside the precision | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
+| `d9 IS NOT NULL` | `predicate` |  |  | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
+| `d18 IS NULL` | `predicate` |  |  | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
+| `d18 IS NOT NULL` | `predicate` |  |  | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
 
 #### Time arithmetic
 
@@ -710,16 +832,19 @@ operands (a row counts once for each type it reads):
 <!-- BEGIN generated verification counts -->
 | Type | Rows | refinement | proof | exhaustive | owed | differential |
 | :--- | ---: | ---: | ---: | ---: | ---: | ---: |
-| `bigint` | 43 | 0 | 2 | 0 | 2 | 39 |
-| `bool` | 19 | 0 | 0 | 10 | 0 | 9 |
-| `byte` | 25 | 0 | 0 | 0 | 8 | 17 |
-| `date` | 84 | 17 | 0 | 1 | 0 | 66 |
-| `dt` | 11 | 2 | 0 | 0 | 0 | 9 |
-| `int` | 70 | 14 | 2 | 0 | 1 | 53 |
-| `ntz` | 19 | 0 | 1 | 0 | 0 | 18 |
+| `bigint` | 46 | 0 | 2 | 0 | 2 | 42 |
+| `bool` | 23 | 0 | 0 | 13 | 0 | 10 |
+| `byte` | 26 | 0 | 0 | 0 | 8 | 18 |
+| `date` | 87 | 17 | 0 | 1 | 0 | 69 |
+| `dec` | 17 | 0 | 0 | 0 | 0 | 17 |
+| `double` | 20 | 0 | 0 | 0 | 0 | 20 |
+| `dt` | 18 | 2 | 0 | 0 | 0 | 16 |
+| `float` | 20 | 0 | 0 | 0 | 0 | 20 |
+| `int` | 72 | 14 | 2 | 0 | 1 | 55 |
+| `ntz` | 24 | 0 | 1 | 0 | 0 | 23 |
 | `short` | 25 | 0 | 0 | 0 | 8 | 17 |
-| `time` | 28 | 6 | 0 | 0 | 2 | 20 |
-| `ym` | 24 | 7 | 2 | 0 | 2 | 13 |
+| `time` | 32 | 6 | 0 | 0 | 2 | 24 |
+| `ym` | 30 | 7 | 2 | 0 | 2 | 19 |
 <!-- END generated verification counts -->
 
 ## Glossary
@@ -1166,7 +1291,7 @@ VARKA-22 extends the account to the SQL UI and to JDK Flight Recorder:
 * **Declines by reason, rows and time by path (VARKA-313).** Each refusal
   reason has its own metric, `numDeclinedBatches[<reason>]` (`day-producer`,
   `month-count`, `make-date`, `int-overflow`, `day-range`, `value-range`,
-  `input-bound`, `derived-input`, `forced`, and `unrecognised` for a status
+  `decimal-slot`, `input-bound`, `derived-input`, `forced`, and `unrecognised` for a status
   bit no name covers). A reason reads as a count, 0 included, where every
   declined batch that named it named it exactly, and as "not reported" where
   a batch named it among others: under the default emit options a loop
@@ -1333,7 +1458,8 @@ batches, an entry that did not fuse, or a slow kernel.
    this batch; falling back to the per-row path.", the same `Varka context:` block (`kind:
    kernel-failure`, shape hash, options, the batch's rows and nulls, the cause) and "Wrote a
    reproduction of this Varka failure (...) to <file>; replay it with dev/varka_emit.sh --replay
-   <file>".
+   <file>". The warning comes once per kernel in each task's evaluator: a kernel that fails on
+   every batch logs the rest at debug, and the fallback metrics count every batch.
 3. On a checkout, `dev/varka_emit.sh --replay <file>` rebuilds the kernel from the file's IR and
    options, runs it over the recorded batch and prints `REPRODUCED: the same signature` with exit
    0 when it fails the same way. It exits 1 when it does not (a fixed emitter, or an edited
@@ -1582,7 +1708,7 @@ coverage table, and regenerated by the same command:
 | :--- | :--- | :--- |
 | `spark.sql.codegen.varka.family.calendar.enabled` | `true` | The calendar family: day arithmetic (date_add, date_sub, datediff, unix_date, date_from_unix_date), the calendar fields (year to weekofyear), make_date, last_day, next_day, trunc, add_months and a date plus a year-month interval. |
 | `spark.sql.codegen.varka.family.interval.enabled` | `true` | The interval family: year-month interval arithmetic, negation and abs, make_ym_interval, the year and month extractions, the multiply by an int and the casts between year-month intervals and ints. |
-| `spark.sql.codegen.varka.family.time.enabled` | `true` | The time family: the TIME functions (hour, minute, second, time_trunc, time_diff, the conversions to and from micros and millis, a time plus a day-time interval) and the casts to TIME and to a day-time interval. |
+| `spark.sql.codegen.varka.family.time.enabled` | `true` | The time family: the TIME functions (hour, minute, second, time_trunc, time_diff, the conversions to and from micros and millis, a time plus a day-time interval), the casts to TIME and to a day-time interval, and TIMESTAMP_NTZ minus TIMESTAMP_NTZ and a TIMESTAMP_NTZ plus or minus a day-time interval. |
 | `spark.sql.codegen.varka.family.predicate.enabled` | `true` | The predicate family: the comparisons, IN over dates and year-month intervals, IS NULL and IS NOT NULL, AND, OR and NOT, wherever they sit: a filter's predicates, so that no filter fuses, and the conditions of IF and CASE WHEN. |
 | `spark.sql.codegen.varka.family.condition.enabled` | `true` | The condition family: the conditionals IF, CASE WHEN and coalesce (the comparisons in their conditions are the predicate family's). |
 | `spark.sql.codegen.varka.family.intArithmetic.enabled` | `true` | The int arithmetic family: +, -, * and unary minus over int, tinyint and smallint operands and abs over the narrow two, checked under ANSI, greatest and least, the casts between int and bigint, and a tinyint or smallint widened to int. |
@@ -1637,6 +1763,10 @@ exist.
   and run cold with C1 on through on-stack replacements at both tiers. A JFR
   stream and the code cache's method list say which JIT tier served each
   compared call (VARKA-274).
+* **sql/core harness tests** (`VarkaCoverageHarnessSuite`,
+  `VarkaDifferentialHarnessSuite`, `VarkaTimeHarnessSuite`, `VarkaHarnessParitySuite`)
+  hold the kernels' answers to Spark's own evaluation of the optimized expression with
+  no session, through the production evaluators over the Arrow cache's batches.
 * **sql/core tests** (`VarkaColumnarToRowExecSuite`, `VarkaProjectExecSuite`,
   `VarkaFilterExecSuite`, `VarkaColumnarWriteSuite`, `VarkaEndToEndSuite`,
   `VarkaDifferentialSuite`, `VarkaCoverageDifferentialSuite`,
@@ -1834,7 +1964,7 @@ The real current edges, stated with their numbers where they have one:
 
 ```bash
 ./build/mvn -f sql/varka/engine/pom.xml install
-build/sbt "sql/testOnly org.apache.spark.sql.execution.VarkaDifferentialSuite"
+build/sbt "sql/testOnly org.apache.spark.sql.execution.VarkaDifferentialHarnessSuite"
 # Engine JMH kernels (in-process, gated):
 ./build/mvn -f sql/varka/engine/pom.xml test -Dvarka.jmh=true
 # Spark benchmarks (SPARK_GENERATE_BENCHMARK_FILES=1 to regenerate the committed files):

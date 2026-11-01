@@ -1,0 +1,143 @@
+#
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements.  See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License.  You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+
+# Keeps the master of the fork the Builds run on, MaxGekk/spark, at vecbricks/varka's master,
+# and builds it there (VARKA-525). Pull requests merge into vecbricks/varka, so nothing else moves
+# the fork's master. An Actions cache is scoped to the branch that saved it, and a branch reads
+# its own entries and the default branch's: while the fork's master stands still, every pull
+# request's branch saves its own copy of the same dependency caches. A Build of the fork's master
+# saves them once, where every branch reads them.
+#
+# Each run fast-forwards the fork's master to vecbricks/varka's with the fork's own GITHUB_TOKEN,
+# never forcing: when the fork's master is not an ancestor of vecbricks/varka's the run fails and
+# pushes nothing, since someone committed to the fork's master and only a person can say what
+# that commit should become. A push made with GITHUB_TOKEN starts no workflow run, and
+# build_main.yml skips master on forks in any case, so the run then dispatches varka-master.yml
+# on the fork's master, whose Varka jobs save the caches: workflow_dispatch and
+# repository_dispatch are the two events a GITHUB_TOKEN call still starts runs with. It
+# dispatches whenever the head has no run of that workflow yet, so a sync pushed by hand, or a
+# dispatch that failed, is built by the next run.
+#
+# GitHub refuses a GITHUB_TOKEN push that creates or changes a file under .github/workflows,
+# since the token cannot hold the `workflows` permission. Whether that refusal covers a
+# fast-forward over such commits is not documented; when the push is refused the run says how
+# many workflow files the range changes and prints the commands to sync by hand.
+#
+# A schedule runs only from the default branch, so this file works once it is on the fork's
+# master, which takes one sync by hand. On vecbricks/varka the job is skipped.
+name: "Varka / Keep the fork's master at vecbricks/varka's"
+
+on:
+  schedule:
+    # Hourly, off the hour, when GitHub's scheduler is least loaded.
+    - cron: '23 * * * *'
+  workflow_dispatch:
+
+# One sync at a time; a trigger during a run waits rather than racing its push.
+concurrency:
+  group: varka-fork-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    name: Fast-forward the fork's master
+    if: github.repository == 'MaxGekk/spark'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      # write, to push the fork's master.
+      contents: write
+      # write, to dispatch varka-master.yml.
+      actions: write
+    env:
+      FORK: MaxGekk/spark
+      UPSTREAM: vecbricks/varka
+    steps:
+    - name: Fetch both masters
+      run: |
+        git init --quiet --bare sync.git
+        git -C sync.git fetch --quiet --no-tags "https://github.com/$FORK.git" \
+          +refs/heads/master:refs/sync/fork
+        git -C sync.git fetch --quiet --no-tags "https://github.com/$UPSTREAM.git" \
+          +refs/heads/master:refs/sync/upstream
+        echo "the fork's master:     $(git -C sync.git rev-parse refs/sync/fork)"
+        echo "$UPSTREAM's master: $(git -C sync.git rev-parse refs/sync/upstream)"
+    - name: Fast-forward the fork's master
+      id: push
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        cd sync.git
+        fork=$(git rev-parse refs/sync/fork)
+        upstream=$(git rev-parse refs/sync/upstream)
+        echo "head=$upstream" >> "$GITHUB_OUTPUT"
+        if [ "$fork" = "$upstream" ]; then
+          echo "the fork's master is at $UPSTREAM's"
+          exit 0
+        fi
+        if ! git merge-base --is-ancestor "$fork" "$upstream"; then
+          echo "::error::the fork's master ($fork) is not an ancestor of $UPSTREAM's" \
+            "master ($upstream): it has commits of its own, so it cannot follow by a" \
+            "fast-forward. Nothing was pushed; a person decides what those commits become."
+          exit 1
+        fi
+        commits=$(git rev-list --count "$fork..$upstream")
+        workflows=$(git diff --name-only "$fork" "$upstream" -- .github/workflows | wc -l)
+        echo "fast-forwarding over $commits commits, which change $workflows workflow files"
+        # The token goes in a header, as actions/checkout passes it, never into the URL.
+        auth=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
+        if ! git -c http.extraheader="AUTHORIZATION: basic $auth" \
+            push "https://github.com/$FORK.git" "$upstream:refs/heads/master"; then
+          # GitHub refuses GITHUB_TOKEN a push whose range changes workflow files; any other
+          # refusal is git's own, such as the fork's master moving since the fetch.
+          cause="git's message above says why"
+          if [ "$workflows" -gt 0 ]; then
+            cause="most likely because the range changes $workflows files under"
+            cause+=" .github/workflows, which GitHub refuses to GITHUB_TOKEN; git's message"
+            cause+=" above says for certain"
+          fi
+          echo "::error::the push of $upstream to the fork's master was refused, $cause." \
+            "Nothing was pushed. Sync by hand with the commands printed in this step's log."
+          echo "The push was refused, $cause. To sync by hand, in a clone of either"
+          echo "repository whose remote origin is $UPSTREAM and whose remote fork is $FORK:"
+          echo
+          echo "  git fetch origin master && git fetch fork master"
+          echo "  git merge-base --is-ancestor fork/master origin/master && echo fast-forward"
+          echo "  git push fork origin/master:refs/heads/master"
+          echo "  gh workflow run varka-master.yml --repo $FORK --ref master"
+          echo
+          echo "Push only after the second command prints fast-forward, and never with --force."
+          echo "The push needs your own credentials: SSH, or over HTTPS a token with the"
+          echo "workflow scope. The last command builds the new head; the next hourly run"
+          echo "dispatches that Build too, when the head has none yet."
+          exit 1
+        fi
+        echo "the fork's master moved from $fork to $upstream"
+    - name: Build the fork's master
+      env:
+        GH_TOKEN: ${{ github.token }}
+        HEAD_SHA: ${{ steps.push.outputs.head }}
+      run: |
+        runs=$(gh api \
+          "repos/$FORK/actions/workflows/varka-master.yml/runs?head_sha=$HEAD_SHA&per_page=1" \
+          --jq .total_count)
+        if [ "$runs" != 0 ]; then
+          echo "varka-master.yml already has a run of $HEAD_SHA"
+          exit 0
+        fi
+        gh workflow run varka-master.yml --repo "$FORK" --ref master
+        echo "dispatched varka-master.yml on the fork's master, $HEAD_SHA"

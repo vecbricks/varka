@@ -485,9 +485,18 @@ public final class VarkaEmitterTestSupport {
    * inlined into its caller as lower than that. The code list is the JVM's own and current.
    */
   public static java.util.Map<String, Integer> loopLevels(Class<?> kernelClass) {
+    return loopLevels(kernelClass, true);
+  }
+
+  /**
+   * {@link #loopLevels(Class)} for the loop methods of one side: the dense ones, or the masked
+   * ones, which are the only loops of a kernel whose output can be null where its inputs are not
+   * (a TRY arithmetic's), since such a kernel has no dense side.
+   */
+  public static java.util.Map<String, Integer> loopLevels(Class<?> kernelClass, boolean dense) {
     var levels = new java.util.TreeMap<String, Integer>();
     for (java.lang.reflect.Method m : kernelClass.getDeclaredMethods()) {
-      if (VarkaMethodNames.isLoop(m.getName(), true)) {
+      if (VarkaMethodNames.isLoop(m.getName(), dense)) {
         levels.put(m.getName(), 0);
       }
     }

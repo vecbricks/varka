@@ -20,6 +20,12 @@
 # the review of #145 forced: section 9 scores its predictions against the run the
 # default was decided from and records what two earlier runs read, and those runs
 # were committed on the task branch only.
+# The VARKA-512 entries at the end are a second kind the list may grow by: numbers that
+# passed only because their digits happened to appear in a results file the passage does not
+# cite, which the check stopped accepting when it began holding a quote to its own row's or
+# paragraph's citations. Most are section numbers (11.5, 14.2), which are not measurements;
+# the rest are figures read off a log, a probe or a repeat run that was never committed, or
+# rounded from the table the row cites, and each reason says which.
 sql/varka/skills/vector-api-and-width.md	3573.9	the gather/arithmetic/scalar table is from a run that was never committed; neither committed version of the probe file carries these rows
 sql/varka/skills/vector-api-and-width.md	2379.8	the gather/arithmetic/scalar table is from a run that was never committed; neither committed version of the probe file carries these rows
 sql/varka/skills/vector-api-and-width.md	2368.3	the gather/arithmetic/scalar table is from a run that was never committed; neither committed version of the probe file carries these rows
@@ -133,3 +139,42 @@ sql/varka/plans/m5/VARKA-118.md	11.17	a section number of VARKA-62.md, not a rat
 sql/varka/plans/m5/VARKA-118.md	11.18	a section number of VARKA-62.md, not a rate - the tool cannot tell the two apart
 sql/varka/plans/m5/VARKA-164.md	11.17	a section number of VARKA-62.md, not a rate - the tool cannot tell the two apart
 sql/varka/plans/m7/READING.md	99.81	a transcription's share of its PDF's text-layer characters, not a measured rate
+sql/varka/plans/m4/VARKA-45.md	2046.0	the regenerated `year, mixed nulls` rate; no committed version of the parity file carries it
+sql/varka/plans/m5/VARKA-101.md	23.2	not a rate: the table's size in GiB, read off the run's driver, not a results file
+sql/varka/plans/m6/PLAN.md	11.5	not a measurement: a section number (of this plan or the one it names), read by the regex as a rate
+sql/varka/plans/m6/PLAN.md	10.5	not a measurement: a section number (of this plan or the one it names), read by the regex as a rate
+sql/varka/plans/m6/PLAN.md	14.4	not a measurement: a section number (of this plan or the one it names), read by the regex as a rate
+sql/varka/plans/m6/PLAN.md	14.2	not a measurement: a section number (of this plan or the one it names), read by the regex as a rate
+sql/varka/plans/m6/PLAN.md	14.3	not a measurement: a section number (of this plan or the one it names), read by the regex as a rate
+sql/varka/plans/m6/PLAN.md	14.1	not a measurement: a section number (of this plan or the one it names), read by the regex as a rate
+sql/varka/plans/m6/VARKA-190.md	11.6	not a measurement: a section number (of this plan or the one it names), read by the regex as a rate
+sql/varka/plans/m6/VARKA-190.md	11.5	not a measurement: a section number (of this plan or the one it names), read by the regex as a rate
+sql/varka/plans/m6/VARKA-191.md	107.5	the probe's and the benchmark's times under the uncopied list, from runs before the fix that were never committed
+sql/varka/plans/m6/VARKA-191.md	30.5	the probe's and the benchmark's times under the uncopied list, from runs before the fix that were never committed
+sql/varka/plans/m6/VARKA-198.md	58.2	a rung's rate in the two repeat runs; the committed band file holds their spread, not the rates
+sql/varka/plans/m6/VARKA-198.md	58.5	a rung's rate in the two repeat runs; the committed band file holds their spread, not the rates
+sql/varka/plans/m6/VARKA-198.md	60.4	a rung's rate in the two repeat runs; the committed band file holds their spread, not the rates
+sql/varka/plans/m6/VARKA-198.md	60.5	a rung's rate in the two repeat runs; the committed band file holds their spread, not the rates
+sql/varka/plans/m6/VARKA-198.md	62.0	a rung's rate in the two repeat runs; the committed band file holds their spread, not the rates
+sql/varka/plans/m6/VARKA-198.md	62.4	a rung's rate in the two repeat runs; the committed band file holds their spread, not the rates
+sql/varka/plans/m6/VARKA-210.md	454.9	the whole-table read's rates; the committed CachedTableWidthBenchmark file carries only the one-column sum
+sql/varka/plans/m6/VARKA-210.md	100.6	the whole-table read's rates; the committed CachedTableWidthBenchmark file carries only the one-column sum
+sql/varka/plans/m6/VARKA-210.md	88.0	the whole-table read's rates; the committed CachedTableWidthBenchmark file carries only the one-column sum
+sql/varka/plans/m6/VARKA-233.md	13.6	the seconds C2 took the method, read off the C2 log the tree file was cut from; also section 13.6
+sql/varka/plans/m6/VARKA-233.md	33.1	the second C2 printed its tree, read off the C2 log the tree file was cut from
+sql/varka/plans/m6/VARKA-233.md	11.3	not a measurement: a section number (of this plan or the one it names), read by the regex as a rate
+sql/varka/plans/m6/VARKA-233.md	11.1	not a measurement: a section number (of this plan or the one it names), read by the regex as a rate
+sql/varka/plans/m6/VARKA-233.md	11.2	not a measurement: a section number (of this plan or the one it names), read by the regex as a rate
+sql/varka/plans/m6/VARKA-233.md	13.3	not a measurement: a section number (of this plan or the one it names), read by the regex as a rate
+sql/varka/plans/m6/VARKA-236.md	11.6	not a measurement: a section number (of this plan or the one it names), read by the regex as a rate
+sql/varka/plans/m7/VARKA-305.md	12.7	a percentage written without its sign ("12.7 and 10.8% faster"), computed from the pair
+sql/varka/plans/m8/PLAN.md	15.7	row 329's G rows/s, rounded from the M rows/s table of the cited VARKA-329-spike.txt
+sql/varka/plans/m8/PLAN.md	24.9	row 329's G rows/s, rounded from the M rows/s table of the cited VARKA-329-spike.txt
+sql/varka/plans/m8/PLAN.md	23.9	row 329's G rows/s, rounded from the M rows/s table of the cited VARKA-329-spike.txt
+sql/varka/plans/m8/PLAN.md	22.9	row 329's G rows/s, rounded from the M rows/s table of the cited VARKA-329-spike.txt
+sql/varka/plans/m8/PLAN.md	10.2	row 329's G rows/s, rounded from the M rows/s table of the cited VARKA-329-spike.txt
+sql/varka/plans/m8/PLAN.md	11.1	row 329's G rows/s, rounded from the M rows/s table of the cited VARKA-329-spike.txt
+sql/varka/plans/m8/VARKA-340.md	10.1	not a measurement: a section number (of this plan or the one it names), read by the regex as a rate
+sql/varka/plans/m8/VARKA-359.md	10.1	not a measurement: a section number (of this plan or the one it names), read by the regex as a rate
+sql/varka/skills/benchmarking.md	481.1	an in-run control's reading in VARKA-48's A/B runs, which were not committed
+docs/sql-varka.md	123456789012.34	not a measurement: a decimal literal in the coverage table's row `d18 >= 123456789012.34` (VARKA-347)

@@ -641,6 +641,16 @@ runs of `VarkaSizeLadderJitSuite` on the fork CI (#473, 27 September 2026).
   use `in` and `split(MARKER, 1)`); the Scala suites had each written their own stricter loop.
   `VarkaProbeOutputSuite` is the parser test to extend when a new marker shape appears.
 
+## A log appender on a class's own logger hides that class's warnings from later suites
+
+`withLogAppender(appender, loggerNames = Seq(cls))` gives the logger of `cls` a log4j
+configuration of its own when it had none; removing the appender afterwards leaves that
+configuration in place for the rest of the JVM. A later suite in the same JVM that listens on the
+root logger, as `VarkaProjectExecSuite` and `VarkaErrorContextSuite` do for the fallback warning,
+then sees nothing from `cls`, and passes alone while failing in a combined run. Listen on the root
+with a threshold (`appender.setThreshold(Level.WARN)`) and filter the events by
+`getLoggerName`.
+
 ## `failAfter` without a signaler cannot stop a test, so a hang holds the CI slot
 
 `SparkFunSuite` wraps every test in ScalaTest's `failAfter(20 minutes)`, and it reads as a cap.
@@ -1219,6 +1229,32 @@ guard at `lo - 1`, `lo`, `hi` and `hi + 1`. What it took:
 To date every guard's edges hold at both lanes, in a full vector and the epilogue, through both
 bodies.
 
+## A batch-level answer a per-row verdict cannot see: the all-null shortcut
+
+VARKA-339. The masked driver returns before any guard runs, every output null, when each output
+reads at least one column that is null on every row of the batch (`VarkaBodyEmitter
+.shortcutApplies`: not in the dense driver, not for a `Cond` or `BoolOutput` root, not for an
+output that can be valid over a null input). A verdict built by joining per-row verdicts cannot
+see this, because no single row says the column is null *on every row*. The case that showed it:
+a guard on one operand beside a null in the other. At the defaults the batch also holds valid
+values in that column, so the guard runs and must decline; under `arrowBatchSize=1` the row is a
+batch of its own, the shortcut answers NULL (Spark's answer), and a per-row verdict still asked
+for a decline.
+
+- **The verdict is the batch's.** `VarkaGuardSpecs.verdict` answers an empty batch first, then
+  returns `Verdict.SHORTCUT` (an answer, marked `shortcut`) where the shortcut takes the batch,
+  and joins the rows only after that. `Guards` reads the column sets once per kernel from
+  `VarkaLoopEmitter.shortcutColumnSetsForTest`, which returns the same
+  `VarkaBodyEmitter.shortcutColumnSets` both driver forms emit their test from, so the model
+  cannot drift from the bytes.
+- **Join one-row verdicts only over rows with no nulls.** A caller that asks the verdict one row
+  at a time and joins the answers itself (`VarkaCompiledCheck`'s guard edges) would see the
+  shortcut on every row with a null and miss the batch's decline.
+- **A partition answered whole by the shortcut tests nothing.** `VarkaDomains` reports a
+  partition outside the domain whose every batch takes the shortcut: nothing was declined, so
+  the guard went unexercised. The fixture keeps, per guard, an outside row whose operands are all
+  valid, which declines at every batch size.
+
 ## A planted bug has a prerequisite, and the test that plants it sets it over the matrix's base
 
 VARKA-269's follow-up, 14 October 2026. `misdescribeWordLiveness` inverts the word-liveness
@@ -1326,9 +1362,10 @@ Java is one (`sql/varka/AGENTS.md`). What to know when writing and running one:
 - **The class takes `@VarkaSuite`, each test a `@DisplayName` sentence.** The annotation registers
   `VarkaSuiteExtension`, the JUnit face of what `VarkaTestWatchdog` gives a ScalaTest suite: the
   matrix's skip list around each test, the watchdog inside it, the Arrow allocator check around
-  the class. `@Tag(VarkaSuite.PINS_DEFAULTS)` is `PinsDefaults`; `@VarkaSuite(watchdogMinutes = 0)`
-  runs with no watchdog and `@VarkaSuite(ownJvm = true)` is `VarkaOwnJvm`. The sentence is the
-  test's name in the printed lines, the JUnit XML, `skips.tsv` and `fused.tsv`, and the suite is
+  the class. `@Tag(VarkaSuite.PINS_DEFAULTS)` is `PinsDefaults` and `@Tag(VarkaSuite.C2_CODE)` is
+  `C2Code`; `@VarkaSuite(watchdogMinutes = 0)` runs with no watchdog and
+  `@VarkaSuite(ownJvm = true)` is `VarkaOwnJvm`. The sentence is the test's name in the printed
+  lines, the JUnit XML, `skips.tsv` and `fused.tsv`, and the suite is
   the class's simple name, so a skip-list line is written as for a ScalaTest test. The extension
   fails the class before its tests run (an aborted suite) when two tests share one name, as
   ScalaTest refuses them; when a test is not a plain `@Test` (`@ParameterizedTest`,

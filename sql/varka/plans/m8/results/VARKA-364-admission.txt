@@ -1,0 +1,343 @@
+VARKA-364 admission checks, 30 October 2026, laptop (Python 3, no JVM).
+Method: the script below, run as written; its output follows it. Every number the plan
+quotes from these checks is in the output.
+
+---- script ----
+# VARKA-364 admission checks, run with python3 (no third-party module).
+# Python's int / int is correctly rounded to binary64, so u / 10**s is RN64(u * 10^-s), what
+# BigDecimal.doubleValue returns (JDK 25, BigDecimal.java 3825-3862), for 128-bit u as well.
+# Binary32 has no native rounding here, so rn(num, den, 24) rounds a rational by hand.
+import math, random
+
+def rn(num, den, prec, emin):
+    """Round num/den (num != 0, den > 0) to nearest even with a prec-bit significand and
+    minimum normal exponent emin; returns (sign, significand, exponent) with value
+    sig * 2^exp, the significand reduced so equal values compare equal."""
+    sign = -1 if num < 0 else 1
+    num = abs(num)
+    e = num.bit_length() - den.bit_length()
+    if (num << max(0, -e)) < (den << max(0, e)):
+        e -= 1
+    # 2^e <= num/den < 2^(e+1)
+    e = max(e, emin)
+    sh = prec - 1 - e
+    n, d = (num << sh, den) if sh >= 0 else (num, den << -sh)
+    q, r = divmod(n, d)
+    if 2 * r > d or (2 * r == d and q & 1):
+        q += 1
+    exp = -sh
+    while q and q % 2 == 0:
+        q //= 2
+        exp += 1
+    return (sign, q, exp)
+
+def f64(num, den):
+    return rn(num, den, 53, -1022)
+
+def f32(num, den):
+    return rn(num, den, 24, -126)
+
+def bracket(a):
+    """The two-pass inputs for a magnitude a < 2^127: (lo, hi, sh, exact) with
+    lo = w' * 2^sh, hi = (w' + 1) * 2^sh and exact when no bit was shifted out."""
+    if a < 2**64:
+        return a, a, 0, True
+    sh = a.bit_length() - 64
+    w = a >> sh
+    return w << sh, (w + 1) << sh, sh, (a & ((1 << sh) - 1)) == 0
+
+INT = (-2**31, 2**31 - 1)
+SMALLINT = (-32768, 32767)
+TINYINT = (-128, 127)
+TARGETS = {"INT": INT, "SMALLINT": SMALLINT, "TINYINT": TINYINT}
+
+def exact_rule(u, s, lo, hi):
+    q = abs(u) // 10**s
+    q = q if u >= 0 else -q
+    return q if lo <= q <= hi else "overflow"
+
+def double_rule(u, s, lo, hi):
+    d = u / 10**s
+    return math.trunc(d) if (math.floor(d) <= hi and math.ceil(d) >= lo) else "overflow"
+
+def outcome_of_double(d, lo, hi):
+    return math.trunc(d) if (math.floor(d) <= hi and math.ceil(d) >= lo) else "overflow"
+
+print("1. The decimal types and the decimal-to-decimal pairs, by owner")
+types = [(p, s) for p in range(1, 39) for s in range(0, p + 1)]
+wide = [(p, s) for (p, s) in types if p >= 19]
+print(f"   types with 1 <= p <= 38, 0 <= s <= p: {len(types)}; with p >= 19: {len(wide)}")
+band = [(p, s) for (p, s) in wide if s >= 28]
+print(f"   types with p >= 19 and s >= 28: {len(band)}")
+counts = {}
+kmax = {}
+def side(p1, p2):
+    a = "128" if p1 >= 19 else "64"
+    b = "128" if p2 >= 19 else "64"
+    return f"{a} to {b} bits"
+def bump(key, k=0):
+    counts[key] = counts.get(key, 0) + 1
+    kmax[key] = max(kmax.get(key, 0), k)
+for (p1, s1) in types:
+    for (p2, s2) in types:
+        if (p1, s1) == (p2, s2):
+            bump("identity")
+            continue
+        if p1 <= 18 and p2 <= 18:
+            bump("350 (both <= 18)")
+            continue
+        infallible = (p2 - s2) > (p1 - s1) or ((p2 - s2) == (p1 - s1) and s2 >= s1)
+        if s2 == s1 and p2 > p1:
+            bump("360 widening at one scale")
+        elif s2 > s1 and p1 + (s2 - s1) <= p2:
+            bump("360 infallible rescale up", s2 - s1)
+        elif s2 > s1:
+            tgt = side(p1, p2)
+            bump(f"364 fallible rescale up, {tgt}", s2 - s1)
+        elif s2 == s1:
+            tgt = side(p1, p2)
+            bump(f"364 precision narrowing at one scale, {tgt}")
+        else:
+            k = s1 - s2
+            kind = "infallible" if (p2 - s2) > (p1 - s1) else "fallible"
+            tgt = side(p1, p2)
+            bump(f"364 rescale down, {kind}, {tgt}", k)
+total = 0
+for key in sorted(counts):
+    extra = f", k up to {kmax[key]}" if kmax[key] else ""
+    print(f"   {key}: {counts[key]}{extra}")
+    total += counts[key]
+print(f"   total ordered pairs: {total}")
+print(f"   364's decimal-to-decimal pairs: {sum(v for k, v in counts.items() if k.startswith('364'))}")
+print("   integral and BOOLEAN sources into p >= 19 (the value's digits: 3, 5, 10, 19)")
+for name, digits in (("TINYINT", 3), ("SMALLINT", 5), ("INT", 10), ("BIGINT", 19)):
+    guarded = sum(1 for (p, s) in wide if p - s < digits)
+    print(f"   {name}: {len(wide)} targets, {guarded} with a live guard |v| <= 10^(p - s) - 1")
+print(f"   BOOLEAN: {sum(1 for (p, s) in wide if p == s)} targets with p = s, where true overflows")
+up_two_step = sum(1 for (p1, s1) in types for (p2, s2) in types
+                  if (p1 >= 19 or p2 >= 19) and s2 - s1 >= 19 and p1 + (s2 - s1) > p2)
+print(f"   364's fallible rescales up with k >= 19 (10^k past 63 bits): {up_two_step}")
+
+print("2. Where the double rule can differ from the exact rule, at any precision")
+print("   A difference needs an integer n with 0 < |n - x| <= half an ulp of x for some")
+print("   x the target's range decision or value reads, |x| < 2^(e+1) with e the target's top")
+print("   binade (31, 15, 7): 10^-s <= 2^(e - 53).")
+for t, e in (("INT", 31), ("SMALLINT", 15), ("TINYINT", 7)):
+    s = 0
+    while 10.0 ** -s > 2.0 ** (e - 53):
+        s += 1
+    print(f"   {t}: the rules can differ only from scale {s}")
+random.seed(364)
+first = {}
+agree_checked = 0
+for t, (lo, hi) in TARGETS.items():
+    for p in (19, 20, 24, 30, 38):
+        for s in range(0, min(p, 20) + 1):
+            top = 10 ** (p - s)
+            ns = {0, 1, hi, hi + 1, -lo, -lo + 1, -lo - 1, hi - 1}
+            ns |= {random.randrange(0, min(top, 2 * -lo) + 1) for _ in range(300)}
+            for n in ns:
+                for k in (1, 2, 3, 7, 10 ** max(s - 3, 0), 10 ** max(s - 1, 0) // 2 or 1):
+                    for base in (n * 10**s - k, n * 10**s + k):
+                        if not 0 <= base < 10**p:
+                            continue
+                        for v in (base, -base):
+                            agree_checked += 1
+                            a, b = exact_rule(v, s, lo, hi), double_rule(v, s, lo, hi)
+                            if a != b:
+                                key = (t, s)
+                                if key not in first or abs(v) < abs(first[key][1]):
+                                    first[key] = (p, v, a, b)
+print(f"   values drawn: {agree_checked}")
+for t in TARGETS:
+    ss = sorted(s for (tt, s) in first if tt == t)
+    if ss:
+        p, v, a, b = first[(t, ss[0])]
+        print(f"   {t}: first differing scale in the draw {ss[0]}:")
+        print(f"      unscaled {v} at ({p}, {ss[0]}): exact {a}, double {b}")
+print("   named: 38 nines at (38, 38) to INT:",
+      exact_rule(10**38 - 1, 38, *INT), double_rule(10**38 - 1, 38, *INT))
+print("   named: unscaled -21474836489999999 at (19, 7) to INT:",
+      exact_rule(-21474836489999999, 7, *INT), double_rule(-21474836489999999, 7, *INT))
+print("   named: unscaled 21474836479999999 at (19, 7) to INT:",
+      exact_rule(21474836479999999, 7, *INT), double_rule(21474836479999999, 7, *INT))
+print("   named: unscaled -2147483648999999 at (19, 6), to INT:",
+      exact_rule(-2147483648999999, 6, *INT), double_rule(-2147483648999999, 6, *INT))
+
+print("3. BIGINT and the LEGACY low bits above precision 18")
+def legacy_long(u, s):
+    q = abs(u) // 10**s
+    q = q if u >= 0 else -q
+    q &= 2**64 - 1
+    return q - 2**64 if q >= 2**63 else q
+def ansi_long(u, s):
+    q = abs(u) // 10**s
+    q = q if u >= 0 else -q
+    return q if -2**63 <= q <= 2**63 - 1 else "overflow"
+for (u, s, p) in ((-2**63, 0, 19), (-2**63 - 1, 0, 20), (2**63 - 1, 0, 19), (2**63, 0, 19),
+                  (10**37, 0, 38), (-(10**37), 0, 38), (10**38 - 1, 10, 38)):
+    print(f"   unscaled {u} at ({p}, {s}):")
+    print(f"      ANSI {ansi_long(u, s)}, LEGACY {legacy_long(u, s)},"
+          f" LEGACY INT {((legacy_long(u, s) + 2**31) % 2**32) - 2**31}")
+print("   p - s at or below 18 holds |trunc| below 10^18 < 2^63: the BIGINT check is dead there")
+
+print("4. The two-pass arm: lanes that need it, and where the two passes disagree")
+def draw(kind, p, s, n):
+    out = []
+    for _ in range(n):
+        if kind == "uniform":
+            u = random.randrange(-(10**p - 1), 10**p)
+        else:  # the baseline's column: integer part to 5 * 10^12, every fraction digit
+            ip = random.randrange(-5 * 10**12, 5 * 10**12 + 1)
+            fr = random.randrange(0, 10**s)
+            u = ip * 10**s + fr
+        out.append(u)
+    return out
+N = 60000
+cases = [("uniform", 38, 0), ("uniform", 38, 10), ("uniform", 38, 20), ("uniform", 30, 4),
+         ("uniform", 20, 2), ("uniform", 38, 28), ("baseline", 38, 10)]
+random.seed(7)
+for kind, p, s in cases:
+    us = draw(kind, p, s, N)
+    wide_lanes = dbl = dbl_strict = flt = intd = 0
+    for u in us:
+        a = abs(u)
+        if a == 0:
+            continue
+        lo, hi, sh, ex = bracket(a)
+        if sh:
+            wide_lanes += 1
+        if sh and not ex:
+            d1, d2 = f64(lo, 10**s), f64(hi, 10**s)
+            if d1 != d2:
+                dbl += 1
+            if f32(lo, 10**s) != f32(hi, 10**s):
+                flt += 1
+            sign = -1 if u < 0 else 1
+            o1 = outcome_of_double(sign * lo / 10**s, *INT)
+            o2 = outcome_of_double(sign * hi / 10**s, *INT)
+            if o1 != o2:
+                intd += 1
+        if sh:
+            if f64(lo, 10**s) != f64(hi, 10**s):
+                dbl_strict += 1
+    def rate(x):
+        return x / N
+    def survive(r, rows):
+        return (1 - r) ** rows
+    r = rate(dbl)
+    label = f"{kind} ({p}, {s})"
+    print(f"   {label}: {N} lanes, {wide_lanes} with |u| >= 2^64")
+    print(f"      DOUBLE disagree {dbl} ({r:.5f} a lane), {dbl_strict} without the exact-lane test")
+    print(f"      FLOAT disagree {flt}; INT outcome disagree {intd}")
+    print(f"      a batch with no DOUBLE disagreement: {survive(r, 4096):.4f} at 4096 rows,"
+          f" {survive(r, 10000):.6f} at 10000 rows")
+
+print("5. Ties and subnormals the two-pass form reaches above 18")
+# An exact binary64 midpoint is m * 2^k / 1 with m odd 54-bit; u = m * 2^k * 5^s * 2^s needs
+# |u| <= 10^38 - 1, so ties exist at scale s while 2^53 * 5^s * 2^s < 10^38.
+smax64 = max(s for s in range(0, 39) if 2**53 * 10**s < 10**38)
+smax32 = max(s for s in range(0, 39) if 2**24 * 10**s < 10**38)
+print(f"   exact binary64 midpoints exist up to scale {smax64}, binary32 up to {smax32}")
+print("   unscaled 1 at (38, 38) to FLOAT:", f32(1, 10**38),
+      "subnormal" if 1 / 10**38 < 2.0**-126 else "normal")
+print("   unscaled 2 at (38, 38) to FLOAT:", f32(2, 10**38),
+      "subnormal" if 2 / 10**38 < 2.0**-126 else "normal")
+print("   the largest magnitude 10^38 - 1 to FLOAT:", f32(10**38 - 1, 1),
+      "below FLT_MAX" if 10**38 - 1 < (2 - 2**-23) * 2**127 else "overflow")
+
+---- output ----
+1. The decimal types and the decimal-to-decimal pairs, by owner
+   types with 1 <= p <= 38, 0 <= s <= p: 779; with p >= 19: 590
+   types with p >= 19 and s >= 28: 66
+   350 (both <= 18): 35532
+   360 infallible rescale up: 94715, k up to 37
+   360 widening at one scale: 8720
+   364 fallible rescale up, 128 to 128 bits: 136230, k up to 38
+   364 fallible rescale up, 128 to 64 bits: 22800, k up to 18
+   364 fallible rescale up, 64 to 128 bits: 22800, k up to 38
+   364 precision narrowing at one scale, 128 to 128 bits: 4940
+   364 precision narrowing at one scale, 128 to 64 bits: 3780
+   364 rescale down, fallible, 128 to 128 bits: 32585, k up to 19
+   364 rescale down, fallible, 128 to 64 bits: 62130, k up to 37
+   364 rescale down, infallible, 128 to 128 bits: 136230, k up to 38
+   364 rescale down, infallible, 128 to 64 bits: 22800, k up to 38
+   364 rescale down, infallible, 64 to 128 bits: 22800, k up to 18
+   identity: 779
+   total ordered pairs: 606841
+   364's decimal-to-decimal pairs: 467095
+   integral and BOOLEAN sources into p >= 19 (the value's digits: 3, 5, 10, 19)
+   TINYINT: 590 targets, 60 with a live guard |v| <= 10^(p - s) - 1
+   SMALLINT: 590 targets, 100 with a live guard |v| <= 10^(p - s) - 1
+   INT: 590 targets, 200 with a live guard |v| <= 10^(p - s) - 1
+   BIGINT: 590 targets, 380 with a live guard |v| <= 10^(p - s) - 1
+   BOOLEAN: 20 targets with p = s, where true overflows
+   364's fallible rescales up with k >= 19 (10^k past 63 bits): 43890
+2. Where the double rule can differ from the exact rule, at any precision
+   A difference needs an integer n with 0 < |n - x| <= half an ulp of x for some
+   x the target's range decision or value reads, |x| < 2^(e+1) with e the target's top
+   binade (31, 15, 7): 10^-s <= 2^(e - 53).
+   INT: the rules can differ only from scale 7
+   SMALLINT: the rules can differ only from scale 12
+   TINYINT: the rules can differ only from scale 14
+   values drawn: 1861364
+   INT: first differing scale in the draw 7:
+      unscaled 10741071119999999 at (24, 7): exact 1074107111, double 1074107112
+   SMALLINT: first differing scale in the draw 12:
+      unscaled 16507999999999999 at (19, 12): exact 16507, double 16508
+   TINYINT: first differing scale in the draw 14:
+      unscaled -12899999999999999 at (19, 14): exact -128, double overflow
+   named: 38 nines at (38, 38) to INT: 0 1
+   named: unscaled -21474836489999999 at (19, 7) to INT: -2147483648 overflow
+   named: unscaled 21474836479999999 at (19, 7) to INT: 2147483647 overflow
+   named: unscaled -2147483648999999 at (19, 6), to INT: -2147483648 -2147483648
+3. BIGINT and the LEGACY low bits above precision 18
+   unscaled -9223372036854775808 at (19, 0):
+      ANSI -9223372036854775808, LEGACY -9223372036854775808, LEGACY INT 0
+   unscaled -9223372036854775809 at (20, 0):
+      ANSI overflow, LEGACY 9223372036854775807, LEGACY INT -1
+   unscaled 9223372036854775807 at (19, 0):
+      ANSI 9223372036854775807, LEGACY 9223372036854775807, LEGACY INT -1
+   unscaled 9223372036854775808 at (19, 0):
+      ANSI overflow, LEGACY -9223372036854775808, LEGACY INT 0
+   unscaled 10000000000000000000000000000000000000 at (38, 0):
+      ANSI overflow, LEGACY 68739955140067328, LEGACY INT 0
+   unscaled -10000000000000000000000000000000000000 at (38, 0):
+      ANSI overflow, LEGACY -68739955140067328, LEGACY INT 0
+   unscaled 99999999999999999999999999999999999999 at (38, 10):
+      ANSI overflow, LEGACY 4477988020393345023, LEGACY INT 268435455
+   p - s at or below 18 holds |trunc| below 10^18 < 2^63: the BIGINT check is dead there
+4. The two-pass arm: lanes that need it, and where the two passes disagree
+   uniform (38, 0): 60000 lanes, 60000 with |u| >= 2^64
+      DOUBLE disagree 24 (0.00040 a lane), 24 without the exact-lane test
+      FLOAT disagree 0; INT outcome disagree 0
+      a batch with no DOUBLE disagreement: 0.1942 at 4096 rows, 0.018301 at 10000 rows
+   uniform (38, 10): 60000 lanes, 60000 with |u| >= 2^64
+      DOUBLE disagree 23 (0.00038 a lane), 23 without the exact-lane test
+      FLOAT disagree 0; INT outcome disagree 0
+      a batch with no DOUBLE disagreement: 0.2080 at 4096 rows, 0.021621 at 10000 rows
+   uniform (38, 20): 60000 lanes, 60000 with |u| >= 2^64
+      DOUBLE disagree 29 (0.00048 a lane), 29 without the exact-lane test
+      FLOAT disagree 0; INT outcome disagree 0
+      a batch with no DOUBLE disagreement: 0.1380 at 4096 rows, 0.007951 at 10000 rows
+   uniform (30, 4): 60000 lanes, 60000 with |u| >= 2^64
+      DOUBLE disagree 32 (0.00053 a lane), 32 without the exact-lane test
+      FLOAT disagree 0; INT outcome disagree 0
+      a batch with no DOUBLE disagreement: 0.1125 at 4096 rows, 0.004821 at 10000 rows
+   uniform (20, 2): 60000 lanes, 48910 with |u| >= 2^64
+      DOUBLE disagree 16 (0.00027 a lane), 21 without the exact-lane test
+      FLOAT disagree 0; INT outcome disagree 0
+      a batch with no DOUBLE disagreement: 0.3354 at 4096 rows, 0.069459 at 10000 rows
+   uniform (38, 28): 60000 lanes, 60000 with |u| >= 2^64
+      DOUBLE disagree 30 (0.00050 a lane), 30 without the exact-lane test
+      FLOAT disagree 0; INT outcome disagree 0
+      a batch with no DOUBLE disagreement: 0.1289 at 4096 rows, 0.006730 at 10000 rows
+   baseline (38, 10): 60000 lanes, 59978 with |u| >= 2^64
+      DOUBLE disagree 30 (0.00050 a lane), 30 without the exact-lane test
+      FLOAT disagree 0; INT outcome disagree 0
+      a batch with no DOUBLE disagreement: 0.1289 at 4096 rows, 0.006730 at 10000 rows
+5. Ties and subnormals the two-pass form reaches above 18
+   exact binary64 midpoints exist up to scale 22, binary32 up to 30
+   unscaled 1 at (38, 38) to FLOAT: (1, 3568119, -148) subnormal
+   unscaled 2 at (38, 38) to FLOAT: (1, 14272477, -149) normal
+   the largest magnitude 10^38 - 1 to FLOAT: (1, 9860761, 103) below FLT_MAX

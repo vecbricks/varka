@@ -1,0 +1,88 @@
+VARKA-345 admission checks for the exact default, 30 October 2026, laptop (Zen 5, JDK 25.0.4.1,
+single-file source launch, about a minute a run), run under the shared heavy slot at the
+preferred 512-bit species and with -XX:MaxVectorSize=32; both outputs follow.
+  java --add-modules jdk.incubator.vector -XX:CompileCommand=quiet \
+    -XX:CompileCommand=inline,Varka345Exact::exp [-XX:MaxVectorSize=32] <prototype, not kept>
+
+The program is not kept, for licence reasons. It was a feasibility check only: does a lane-wise
+copy of fdlibm's operation sequence reproduce StrictMath.exp bit for bit, and what does it cost.
+The plan's port is written from Sun's fdlibm 5.3 C sources (netlib) and emitted by Varka as IR
+nodes in its own kernels, and this check is to be rerun on that port once those sources are
+fetched with the owner's approval (VARKA-345.md 5).
+
+What the program did:
+1. The port, every branch computed and blended, against StrictMath.exp by raw bits, after a
+   warm-up: fixed vectors (each threshold constant of the source and 64 neighbours each way,
+   both zeros, both infinities, three NaN payloads, the subnormal-result boundary), then
+   256 rounds of 65536 inputs drawn four ways in turn: uniform 64-bit patterns, uniform in
+   [-750, 750], uniform in [-2, 2], and (u - 0.5) * 2^-j for j up to 59.
+2. Branch occupancy: how many of 2^20 uniform inputs in [-750, 750] and in [-2, 2] reach each
+   branch of the source (the filter of |x| >= 709.78, the reduction for 0.5 ln2 < |x| <
+   1.5 ln2, the reduction above, |x| < 2^-28, and the primary range).
+3. Speed of C2 hot loops over 65536 ordinary inputs in [-20, 20], minimum of nine timings of 40
+   passes: StrictMath.exp in a scalar loop, the port, the lanewise EXP operator; Math.sin in a
+   scalar loop, a vector loop whose one non-vector step stores the lanes to a buffer, calls
+   Math.sin per lane and reloads, and the lanewise SIN operator; and the per-lane loop's
+   answers against Math.sin by raw bits.
+
+Part 3's timings are provisional, laptop-only numbers of a hand-written Java loop, not Varka's
+emitter. Part 1's bit-identity counts stand; part 3's timing of the port does not show what a
+lane-wise fdlibm exp costs. The port measured slower than the scalar loop at 256 bits and only
+slightly faster at 512, and why is unexplained. The timed runs forced inlining by
+CompileCommand (the command line above), which HotSpot honours before any size limit
+(src/hotspot/share/opto/bytecodeInfo.cpp:120-124). A run without it, by the lead on the laptop
+at 512 bits, 30 October 2026, under -XX:+UnlockDiagnosticVMOptions -XX:+PrintInlining, printed
+  Varka345Exact::exp (601 bytes)   failed to inline: hot method too big
+at three call sites, and one other site late-inlined it through Double512Vector::blend; a first
+timed run without the command had timed the same as the forced ones. A Vector API value crossing
+a call C2 did not inline is boxed, an allocation per call, but whether boxing explains the
+timing is not established. The IR-emitted port's run, from the fdlibm 5.3 C sources and with no
+call boundary, decides.
+
+The port's size, counted (not copied), 30 October 2026: non-blank, non-comment lines of each
+function's class in JDK 25's src/java.base/share/classes/java/lang/FdLibm.java, read only to
+count, for the thirteen functions the plan ports (VARKA-345.md 2.1): Asin 59, Acos 61, Atan 81,
+Atan2 68, Hypot 74, Pow 208, Exp 73, Log 81, Log10 36, Log1p 89, Expm1 102, Sinh 40, Cosh 37;
+1009 in all. fdlibm 5.3's C sources are not on the laptop, so their own count is not taken.
+
+---- output, 512-bit preferred species ----
+WARNING: Using incubator modules: jdk.incubator.vector
+host: java.runtime.version=25.0.4.1+1-1-26.04.4-Ubuntu os.arch=amd64 preferred species=Species[double, 8, S_512_BIT]
+
+1. The FdLibm.Exp port against StrictMath.exp, raw bits
+fixed vectors: 3640 inputs, 0 differ
+sampled: 16777216 inputs (bit patterns, [-750, 750], [-2, 2], near zero), 0 differ
+
+2. Branch occupancy of FdLibm.Exp over the samples of [-750, 750] and [-2, 2]
+width  1500: filter 56522, near reduction 982, far reduction 990595, tiny 0, primary 477 of 1048576
+width     4: filter 0, near reduction 364176, far reduction 502697, tiny 0, primary 181703 of 1048576
+
+3. Speed, C2 hot loops, laptop, ns per element (minimum of 9 timings of 40 passes over 65536)
+exp: StrictMath scalar loop    4.080
+exp: FdLibm port, blended      3.470
+exp: SVML lanewise EXP         0.447
+sin: Math scalar loop          4.884
+sin: vector loop, Math.sin per lane  5.046
+sin: SVML lanewise SIN         0.769
+sin: the per-lane loop differs from Math.sin on 0 of 65536 lanes
+
+---- output, -XX:MaxVectorSize=32 ----
+WARNING: Using incubator modules: jdk.incubator.vector
+host: java.runtime.version=25.0.4.1+1-1-26.04.4-Ubuntu os.arch=amd64 preferred species=Species[double, 4, S_256_BIT]
+
+1. The FdLibm.Exp port against StrictMath.exp, raw bits
+fixed vectors: 3640 inputs, 0 differ
+sampled: 16777216 inputs (bit patterns, [-750, 750], [-2, 2], near zero), 0 differ
+
+2. Branch occupancy of FdLibm.Exp over the samples of [-750, 750] and [-2, 2]
+width  1500: filter 56522, near reduction 982, far reduction 990595, tiny 0, primary 477 of 1048576
+width     4: filter 0, near reduction 364176, far reduction 502697, tiny 0, primary 181703 of 1048576
+
+3. Speed, C2 hot loops, laptop, ns per element (minimum of 9 timings of 40 passes over 65536)
+exp: StrictMath scalar loop    4.100
+exp: FdLibm port, blended      4.748
+exp: SVML lanewise EXP         0.623
+sin: Math scalar loop          4.915
+sin: vector loop, Math.sin per lane  5.162
+sin: SVML lanewise SIN         1.128
+sin: the per-lane loop differs from Math.sin on 0 of 65536 lanes

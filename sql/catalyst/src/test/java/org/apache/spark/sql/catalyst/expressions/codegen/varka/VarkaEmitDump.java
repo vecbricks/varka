@@ -526,7 +526,8 @@ public final class VarkaEmitDump {
     int outputs = fused.outputs().size();
     int[] literals = fused.literals().stream().mapToInt(Integer::intValue).toArray();
     long[] longArgs = fused.longLiterals().stream().mapToLong(Long::longValue).toArray();
-    boolean isLong = fused.lane(options) == VarkaVectorIR.LaneType.LONG;
+    // The long entry and table at every 64-bit lane, DOUBLE's bits included.
+    boolean isLong = fused.lane(options).bits() == Long.SIZE;
     long inputBytes = isLong ? 8L : 4L;
     VarkaFusedKernel kernel;
     try {

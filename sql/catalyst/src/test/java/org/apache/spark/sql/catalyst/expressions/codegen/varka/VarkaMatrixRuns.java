@@ -24,11 +24,13 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.OptionalInt;
+import java.util.Set;
 import java.util.function.Function;
 import java.util.function.LongSupplier;
 
@@ -98,6 +100,38 @@ public final class VarkaMatrixRuns {
     return "pins the defaults' structure; not run under " + config;
   }
 
+  /**
+   * The tag of a test whose subject is the C2 code a kernel compiles to - its tiers, its traps,
+   * its answers on the way up - which checks the lowerings as the JIT runs them for users, at the
+   * defaults; every row is checked so each night. Under a configuration it runs only where the
+   * configuration changes what C2 is given beyond the bytes ({@link #C2_OPTIONS}), and is
+   * cancelled elsewhere (VARKA-517).
+   */
+  public static final String C2_CODE_TAG = "org.apache.spark.sql.varka.C2Code";
+
+  /**
+   * The options that change what C2 compiles a kernel against, not only its bytes: a second
+   * vector species in the JVM (the lane count, the half species) or the instructions C2 may use.
+   */
+  public static final Set<String> C2_OPTIONS =
+      Set.of("lanesOverride", "narrowHalfSpecies", "useAVX");
+
+  /** Whether {@code config} sets an option of {@link #C2_OPTIONS}. */
+  public static boolean changesC2(String config) {
+    for (String part : config.split("[,_]")) {
+      int eq = part.indexOf('=');
+      if (eq > 0 && C2_OPTIONS.contains(part.substring(0, eq))) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /** The message a {@code C2Code} test is cancelled with under {@code config}. */
+  public static String c2CodeMessage(String config) {
+    return "checks the C2 code of the defaults' kernels; " + config + " changes only their bytes";
+  }
+
   private static OptionalInt arrowBatchSizeOf(String config) {
     for (String pair : config.split(",")) {
       String[] kv = pair.trim().split("=", 2);
@@ -114,7 +148,12 @@ public final class VarkaMatrixRuns {
    * only one of its constants, so a typo is refused rather than silently selecting the default.
    */
   public static VarkaEmitOptions parse(String spec) {
-    VarkaEmitOptions options = VarkaEmitOptions.DEFAULTS;
+    return parseOver(VarkaEmitOptions.DEFAULTS, spec);
+  }
+
+  /** {@link #parse}'s values applied over {@code base} rather than over the defaults. */
+  public static VarkaEmitOptions parseOver(VarkaEmitOptions base, String spec) {
+    VarkaEmitOptions options = base;
     if (spec.isEmpty()) {
       return options;
     }
@@ -160,6 +199,9 @@ public final class VarkaMatrixRuns {
    * that subject, {@code denseValidityOnce=false,validityByBitmap=false,validityOrFirst=false}:
    * at the defaults the value emits the defaults' bytes, and the configuration would test nothing
    * (VARKA-247).
+   *
+   * <p>An arm runs only if it emits something the defaults and the option's other arms do not, by
+   * {@link #emissionKey}: see {@link #distinctArms}.
    */
   public static List<String> configurations() {
     VarkaEmitOptions defaults = VarkaEmitOptions.DEFAULTS;
@@ -168,8 +210,7 @@ public final class VarkaMatrixRuns {
       if (!option.reason().drawn()) {
         continue;
       }
-      List<String> arms = option.arms().stream()
-          .filter(arm -> !arm.apply().apply(defaults).equals(defaults))
+      List<String> arms = distinctArms(option.arms(), defaults).stream()
           .map(VarkaEmitOption.Arm::name)
           .toList();
       if (option.name().equals("lanesOverride")) {
@@ -183,6 +224,45 @@ public final class VarkaMatrixRuns {
     }
     ARROW_BATCH_SIZES.forEach(rows -> out.add(ARROW_BATCH_SIZE + "=" + rows));
     return List.copyOf(out);
+  }
+
+  /** The {@code -XX:UseAVX} level that stands for every level whose converts fall back. */
+  static final int FALLBACK_USE_AVX = 2;
+
+  /**
+   * {@code options} as the emitter can tell them apart. {@code useAVX} reaches the emitted bytes
+   * only through {@link VarkaEmitOptions#convertsFallBack}, which asks whether the level is below
+   * AVX-512, so every level below it emits as {@link #FALLBACK_USE_AVX} does and every other
+   * level as the unstated one, the defaults'. {@code VarkaEmittedBytesSuite} holds each arm the
+   * key moves to its key's bytes over the oracle's shapes, so a new reader of the level that
+   * tells two of them apart fails there.
+   */
+  static VarkaEmitOptions emissionKey(VarkaEmitOptions options) {
+    return options.withUseAVX(
+        options.convertsFallBack() ? FALLBACK_USE_AVX : VarkaEmitOptions.USE_AVX_UNKNOWN);
+  }
+
+  /**
+   * The arms of one option that emit something new: an arm whose {@link #emissionKey} is the
+   * defaults' is left out, and of arms that share a key one runs, the one whose options are the
+   * key itself where there is one, else the first. So {@code useAVX=0}, {@code 1} and {@code 2}
+   * run once, as {@code useAVX=2}, and {@code useAVX=3} not at all.
+   */
+  static List<VarkaEmitOption.Arm> distinctArms(List<VarkaEmitOption.Arm> arms,
+      VarkaEmitOptions defaults) {
+    VarkaEmitOptions defaultsKey = emissionKey(defaults);
+    var byKey = new LinkedHashMap<VarkaEmitOptions, VarkaEmitOption.Arm>();
+    for (VarkaEmitOption.Arm arm : arms) {
+      VarkaEmitOptions options = arm.apply().apply(defaults);
+      VarkaEmitOptions key = emissionKey(options);
+      if (options.equals(defaults) || key.equals(defaultsKey)) {
+        continue;
+      }
+      if (!byKey.containsKey(key) || options.equals(key)) {
+        byKey.put(key, arm);
+      }
+    }
+    return List.copyOf(byKey.values());
   }
 
   // ---------------------------------------------------------------------------------------------
@@ -329,9 +409,16 @@ public final class VarkaMatrixRuns {
   /** {@link #around} with its skip list, configuration and report named: the seam its tests use. */
   public static <T> T around(List<Skip> entries, String config, Optional<String> report,
       String suite, String test, Outcomes outcomes, Body<T> body) throws Throwable {
+    Optional<Skip> expected = expectedFailure(entries, config, suite, test);
+    // A test nothing of which this configuration changes was run by the defaults' run already
+    // (VarkaTestReach): it passes here unrun, with no fused count for the declining check.
+    if (VarkaTestReach.skips(config, suite, test, expected.isPresent())) {
+      return null;
+    }
+    VarkaTestReach.begin();
     long before = fusedBatches.getAsLong();
+    boolean cancelled = false;
     try {
-      Optional<Skip> expected = expectedFailure(entries, config, suite, test);
       if (expected.isEmpty()) {
         return body.run();
       }
@@ -351,7 +438,11 @@ public final class VarkaMatrixRuns {
       }
       throw outcomes.fail().apply("stale entry in " + SKIPS_PATH + ": '" + test + "' of " + suite
           + " passes under " + skip.config() + "; remove the line");
+    } catch (Throwable t) {
+      cancelled = outcomes.cancelled().isInstance(t);
+      throw t;
     } finally {
+      VarkaTestReach.end(suite, test, cancelled);
       if (report.isPresent()) {
         long after = fusedBatches.getAsLong();
         long fused = before < 0 || after < 0 ? -1L : after - before;

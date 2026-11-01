@@ -130,6 +130,8 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
   private val randomTrace = new VarkaEmitTrace
   // What each reporting test's emissions reached, for the file row 265 reads (VARKA-280).
   private val reachReports = scala.collection.mutable.ArrayBuffer.empty[VarkaEmitReach]
+  // The draws the option matrix's reach filter took as the defaults run's (VARKA-507).
+  private val matrixReach = new VarkaReach.Tally
   private val lengths = Seq(1, 3, 7, 15, 16, 17, 33, 64, 65, 100, 257, 1000)
 
   /** The options `randomOptions` draws, in the order it draws them. */
@@ -145,10 +147,13 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
    * level from the levels either side of 3 where the 64-bit division changes lowering, the method
    * byte budget from off, the HotSpot limit and the smaller budgets that bring the size machinery
    * down to the widths drawn here (VARKA-238), and the other budgets from small values. The order
-   * is fixed so that a seed recorded in a failure keeps drawing the same options.
+   * is fixed so that a seed recorded in a failure keeps drawing the same options. The draw is laid
+   * over `base`, the matrix's options for every draw but the one that asks what the defaults run
+   * drew: an option drawn by its coin is the same over either base, so under a flag or an enum's
+   * configuration a draw has the defaults run's options exactly (VARKA-507).
    */
-  private def randomOptions(rnd: Random): VarkaEmitOptions = {
-    var opts = VarkaMatrix.base
+  private def randomOptions(rnd: Random, base: VarkaEmitOptions): VarkaEmitOptions = {
+    var opts = base
     for (option <- fuzzedOptions) {
       option match {
         case flag: VarkaEmitOption.Flag => opts = flag.`with`(opts, rnd.nextBoolean())
@@ -266,11 +271,14 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
     }
   }
 
-  private def drawInt(iteration: Int, drawSeed: Long = seed): VarkaFuzzCase = {
+  private def drawInt(iteration: Int, drawSeed: Long = seed,
+      base: VarkaEmitOptions = VarkaMatrix.base, nulling: Boolean = false): VarkaFuzzCase = {
     val rnd = VarkaIrGrammar.shapeRandom(drawSeed, iteration)
     // The shape itself comes from the shared draw, so this suite and the emitted-bytes oracle
     // run over one corpus; `rnd` is left where the lane values and null patterns below pick up.
-    val drawn = VarkaIrGrammar.drawShape(rnd)
+    // The nulling draw is the same grammar with nulling range guards among its guards.
+    val drawn =
+      if (nulling) VarkaIrGrammar.drawNullingShape(rnd) else VarkaIrGrammar.drawShape(rnd)
     val roots = drawn.roots
     val (numInputs, numLiterals) = (drawn.numInputs, drawn.numLiterals)
     val (smallOrdinal, levelOrdinal) = (drawn.smallOrdinal, drawn.levelOrdinal)
@@ -283,7 +291,7 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
     // all-null column, and the fuzzer's first run found exactly that contradiction (44 cases,
     // every one at length 1) before it found anything about the kernel.
     val forceMasked = length > 1 && rnd.nextInt(4) == 0
-    val options = randomOptions(rnd)
+    val options = randomOptions(rnd, base)
     val data = Array.tabulate(numInputs, length) { (c, _) =>
       if (c == levelOrdinal) {
         // Exactly the codes TruncLevelLeaf produces; a value outside them is a lane the
@@ -316,9 +324,11 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
    * only a poisoned null lane can reach a condemning comparison, and a kernel that reads one
    * has to be caught reading it.
    */
-  private def drawLong(iteration: Int, drawSeed: Long = longSeed): VarkaFuzzCase = {
+  private def drawLong(iteration: Int, drawSeed: Long = longSeed,
+      base: VarkaEmitOptions = VarkaMatrix.base, nulling: Boolean = false): VarkaFuzzCase = {
     val rnd = VarkaIrGrammar.shapeRandom(drawSeed, iteration)
-    val drawn = VarkaIrGrammar.drawLongShape(rnd)
+    val drawn =
+      if (nulling) VarkaIrGrammar.drawNullingLongShape(rnd) else VarkaIrGrammar.drawLongShape(rnd)
     val roots = drawn.roots
     val (numInputs, numLiterals) = (drawn.numInputs, drawn.numLiterals)
     val lits = Array.fill(numLiterals)(VarkaIrGrammar.within(rnd, longLiteralBound))
@@ -326,7 +336,7 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
     val patternIds = Seq.fill(numInputs)(rnd.nextInt(patternNames.length))
     val patterns = patternIds.map(pattern(rnd, _, length))
     val forceMasked = length > 1 && rnd.nextInt(4) == 0
-    val options = randomOptions(rnd)
+    val options = randomOptions(rnd, base)
     val data =
       Array.tabulate(numInputs, length)((_, _) => VarkaIrGrammar.within(rnd, longColumnBound))
 
@@ -347,7 +357,8 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
    * `emitOrSkip` counts and skips, and true once the rows are compared.
    */
   private def run(c: VarkaFuzzCase): Boolean = {
-    val long = c.lane == LaneType.LONG
+    // The long harness at every 64-bit lane, DOUBLE's bits included.
+    val long = c.lane.bits() == java.lang.Long.SIZE
     val className = "org.apache.spark.sql.varka.execution.VarkaFusedFuzz" +
       s"${if (long) "Long" else ""}${classCounter.addAndGet(1)}"
     def emitWith(o: VarkaEmitOptions): Array[Byte] = VarkaLoopEmitter.emitTraced(
@@ -436,7 +447,7 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
     val patternIds = Seq.fill(numInputs)(rnd.nextInt(patternNames.length))
     val patterns = patternIds.map(pattern(rnd, _, length))
     val forceMasked = length > 1 && rnd.nextInt(4) == 0
-    val options = randomOptions(rnd)
+    val options = randomOptions(rnd, VarkaMatrix.base)
     val data = Array.tabulate(numInputs, length) { (c, _) =>
       if (c < drawn.intInputs) VarkaIrGrammar.intWithin(rnd, intColumnBound).toLong
       else VarkaIrGrammar.within(rnd, longColumnBound)
@@ -711,15 +722,22 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
     val tally = new VarkaCompiledCheck.Tally
     val drawOf = scala.collection.mutable.ArrayBuffer[(Int, VarkaCompiledCheck.Result)]()
     val overrides = scala.collection.mutable.ArrayBuffer[(Int, VarkaFuzzCase, String)]()
-    val draws: Seq[(Int => VarkaFuzzCase, Long)] =
-      Seq((k => drawInt(k), seed), (k => drawLong(k), longSeed))
+    val draws: Seq[((Int, VarkaEmitOptions) => VarkaFuzzCase, Long)] =
+      Seq(((k, base) => drawInt(k, seed, base), seed),
+        ((k, base) => drawLong(k, longSeed, base), longSeed))
     try {
       val range = compiledFrom until compiledDraws
       for ((draw, drawSeed) <- draws; k <- only.map(Seq(_)).getOrElse(range)) {
-        val drawn = draw(k)
+        val drawn = draw(k, VarkaMatrix.base)
         val c = if (compiledBaseOptions) drawn.withOptions(VarkaMatrix.base) else drawn
         val replay = s"-Dvarka.fuzz.seed=$drawSeed -Dvarka.fuzz.only=$k"
-        if (c.options.lanesOverride() != 0) {
+        // Under a configuration, a draw whose options are the ones the defaults run drew for it
+        // is the defaults run's case, already compared over all eight histories (VARKA-507).
+        if (!compiledBaseOptions && VarkaMatrixRuns.CONFIG.nonEmpty &&
+            VarkaReach.ranAtDefaults(c.options, draw(k, VarkaEmitOptions.DEFAULTS).options, null,
+              null, matrixReach)) {
+          // Counted in the tally, printed once the suite has run.
+        } else if (c.options.lanesOverride() != 0) {
           overrides += ((k, c, replay))
         } else {
           runCompiled(c, settings, replay).foreach { r =>
@@ -967,11 +985,17 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
     // (`VarkaEmitterNullSafeSuite`, both lanes, both bodies, three widths) and by the coverage
     // rows' composition fuzzer until a grammar production is taken with the next refit
     // (`VARKA-336.md` 6 and 11).
-    // The boolean-column nodes (VARKA-331) and the condition as a value (VARKA-460) are out for
-    // the same reason: they are covered by `VarkaEmitterBoolSuite` and the coverage rows, and a
-    // grammar production is a row of the refit that reprices the model.
+    // The boolean-column nodes (VARKA-331), the condition as a value (VARKA-460) and the
+    // boolean output (VARKA-27) are out for the same reason: they are covered by
+    // `VarkaEmitterBoolSuite` and the coverage rows, and a grammar production is a row of the
+    // refit that reprices the model (VARKA-352).
+    // The decimal column (VARKA-347) is out for the same reason, and because a row of lane values
+    // carries no high word for its check: its slot table is `VarkaDecimalLoadSuite`'s, and its
+    // fuzz sequence, on a seed of its own so that no shape here moves, is a later step of the row
+    // (`VARKA-347.md` 3 item 5).
     val missing = permitted -- seen - "NarrowLane" - "WidenLane" - "NullSafeEqual" -
-      "BoolColumn" - "CondConst" - "BoolCompare" - "CondIf" - "BoolNullSafeEq" - "CondValue"
+      "BoolColumn" - "CondConst" - "BoolCompare" - "CondIf" - "BoolNullSafeEq" - "CondValue" -
+      "BoolOutput" - "DecimalColumn"
     assert(missing.isEmpty,
       s"the generator never built: ${missing.toSeq.sorted.mkString(", ")} - add an arm, or " +
         "state here why the node type is deliberately out of the fuzzer's reach")
@@ -998,7 +1022,7 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
     }
     // The null-safe equality is out of this corpus for the reason the int one gives above.
     val missing = laneGeneric.map(_.getSimpleName) -- seen - "NullSafeEqual" - "BoolColumn" -
-      "CondConst" - "BoolCompare" - "CondIf" - "BoolNullSafeEq" - "CondValue"
+      "CondConst" - "BoolCompare" - "CondIf" - "BoolNullSafeEq" - "CondValue" - "BoolOutput"
     assert(missing.isEmpty,
       s"the long-lane generator never built: ${missing.toSeq.sorted.mkString(", ")} - add an " +
         "arm to LongShapes, or state here why the node type is deliberately out of its reach")
@@ -1296,10 +1320,62 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
     reportSkipped()
   }
 
-  test("the mixed-lane generator reaches both conversions, the calendar under a widening and a " +
-      "narrowing below another node") {
+  // The nulling range guard (VARKA-481): its own draw at each lane, run against the reference
+  // evaluator, which spells a fired guard as a null. Not run through the variants, which redraw
+  // a case from the committed corpora's grammar.
+  private val nullingSeed =
+    sys.props.get("varka.fuzz.seed").map(_.toLong).getOrElse(VarkaIrGrammar.NULLING_FUZZ_SEED)
+
+  test(s"random IR trees with nulling range guards match the reference evaluator, at the int " +
+      s"and long lanes (seed $nullingSeed, $iterations iterations)") {
+    val reach = VarkaEmitReach.attach(randomTrace, "nulling-guard draws")
+    try {
+      val ks = only.map(Seq(_)).getOrElse(0 until iterations)
+      for (k <- ks) {
+        runChecked(drawInt(k, nullingSeed, nulling = true))
+        runChecked(drawLong(k, nullingSeed, nulling = true))
+      }
+    } finally {
+      VarkaEmitReach.detach(randomTrace)
+    }
+    reportReach(reach)
+    reportSkipped()
+  }
+
+  test("the nulling draw reaches a nulling range guard at both lanes, and the committed draws " +
+      "hold none") {
+    // Asserted rather than assumed, as the other generators' reach is: a guard is drawn in NULL
+    // mode at each lane, with its two ends drawn apart inside the child's bound - never the
+    // symmetric bound that contains it, which a failing guard takes - so that it fires, and the
+    // committed draws never hold one.
+    def nulling(roots: java.util.List[VarkaVectorIR]): Seq[GuardedRange] = {
+      def walk(n: VarkaVectorIR): Seq[GuardedRange] = (n match {
+        case g: GuardedRange if g.mode() == Overflow.NULL => Seq(g)
+        case _ => Seq.empty
+      }) ++ VarkaVectorIR.childrenOf(n).toSeq.flatMap(walk)
+      roots.asScala.toSeq.flatMap(walk)
+    }
+    val draws = 0 until 2000
+    val int = draws.flatMap(k => nulling(
+      VarkaIrGrammar.drawNullingShape(VarkaIrGrammar.shapeRandom(nullingSeed, k)).roots))
+    val long = draws.flatMap(k => nulling(
+      VarkaIrGrammar.drawNullingLongShape(VarkaIrGrammar.shapeRandom(nullingSeed, k)).roots))
+    assert(int.exists(_.laneType() == LaneType.INT), "no int-lane nulling guard was drawn")
+    assert(long.exists(_.laneType() == LaneType.LONG), "no long-lane nulling guard was drawn")
+    assert((int ++ long).exists(g => g.lo() != -g.hi()),
+      "every nulling guard was drawn with the symmetric bound of its child")
+    val committed = draws.flatMap(k =>
+      nulling(VarkaIrGrammar.drawShape(VarkaIrGrammar.shapeRandom(seed, k)).roots) ++
+        nulling(VarkaIrGrammar.drawLongShape(VarkaIrGrammar.shapeRandom(longSeed, k)).roots))
+    assert(committed.isEmpty, s"a committed draw holds a nulling guard: ${committed.headOption}")
+  }
+
+  test("the mixed-lane generator reaches both conversions, the calendar under a widening, " +
+      "add_months and a narrowing below another node") {
     // The node types the third corpus exists for, asserted rather than assumed, as the two
-    // single-lane generators' reach is above.
+    // single-lane generators' reach is above. `AddMonths` is among them: the int branch draws it
+    // over int columns, and in this corpus's kernels of both lanes it runs at the int species of
+    // the long species' width.
     val seen = scala.collection.mutable.Set.empty[String]
     var narrowBelow = false
     def walk(n: VarkaVectorIR, underWiden: Boolean): Unit = {
@@ -1315,7 +1391,7 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
         .foreach(walk(_, underWiden = false))
     }
     val wanted = Set("WidenLane", "NarrowLane", "GuardedRange", "calendar under a widening",
-      "IfElse", "Compare", "ConstDivide", "IntArith", "Greatest", "Least")
+      "IfElse", "Compare", "ConstDivide", "IntArith", "Greatest", "Least", "AddMonths")
     assert((wanted -- seen).isEmpty, s"never drawn: ${(wanted -- seen).toSeq.sorted}")
     assert(narrowBelow, "no narrowing below another node was drawn")
   }
@@ -1400,6 +1476,9 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
    */
   override def afterAll(): Unit = {
     try {
+      // scalastyle:off println
+      if (VarkaMatrixRuns.CONFIG.nonEmpty) println(matrixReach.line(getClass.getSimpleName))
+      // scalastyle:on println
       if (reachReports.nonEmpty) {
         val provenance = s"Generated by `VarkaIrFuzzSuite` with `VARKA_REACH_DUMP` set " +
           s"(VARKA-280): seed $seed (int lane) and $longSeed (long lane), $iterations " +

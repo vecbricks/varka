@@ -28,6 +28,15 @@
 # module matrix is the weekly run's (varka-weekly-matrix.yml): each pull request already ran the
 # modules its own change touches, and a merge that touches a Spark file would otherwise start
 # 35 jobs for two hours on the twenty slots this repository shares with benchmark.yml.
+#
+# The fork the pull requests' Builds run on, MaxGekk/spark, runs this workflow too, on its own
+# master, when varka-fork-sync.yml has moved that master to this repository's and dispatches it
+# (VARKA-525). The fork's run is Varka's suites alone: it is there to save, under the fork's
+# default branch where every branch reads them, the dependency caches and the compile state,
+# and to give the option matrix master's test classes and reach record. This repository's own
+# run already checks the rest of the merged tree. A push to the fork's master starts nothing
+# here: the sync pushes with the fork's GITHUB_TOKEN, whose push events start no workflow, and
+# dispatches instead.
 name: "Build / Varka master after each merge (JDK 25)"
 
 on:
@@ -53,22 +62,23 @@ jobs:
   run-build:
     permissions:
       packages: write
+      # The Varka jobs read the Build runs and download a saved compile state
+      # (dev/varka_compile_state.py).
+      actions: read
     name: Run
     uses: ./.github/workflows/build_and_test.yml
-    if: github.repository == 'vecbricks/varka' && github.ref == 'refs/heads/master'
+    if: >-
+      github.ref == 'refs/heads/master' && (github.repository == 'vecbricks/varka'
+      || (github.repository == 'MaxGekk/spark' && github.event_name == 'workflow_dispatch'))
     with:
       java: 25
       branch: master
       hadoop: hadoop3
       # Keys left out are off, except the lint job's step flags (lint-spark, lint-code,
       # lint-python), which it reads as on.
+      # The fork's set is Varka's suites alone; the folded lines below are one expression.
       jobs: >-
-        {
-          "varka-scoped": "true",
-          "varka-engine": "true",
-          "varka-bench": "true",
-          "varka-asm": "true",
-          "varka-docs": "true",
-          "lint": "true",
-          "java25": "true"
-        }
+        ${{ github.repository == 'MaxGekk/spark' && '{"varka-scoped": "true"}' || '{
+        "varka-scoped": "true", "varka-engine": "true", "varka-bench": "true",
+        "varka-asm": "true", "varka-docs": "true", "lint": "true", "java25": "true"
+        }' }}

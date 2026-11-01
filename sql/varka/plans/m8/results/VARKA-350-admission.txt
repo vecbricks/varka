@@ -1,0 +1,134 @@
+VARKA-350 and VARKA-366 admission checks, 30 October 2026, laptop (Python 3, no JVM).
+Method: the script below, run as written; its output follows it. Every number the two
+plans quote from these checks is in the output.
+
+---- script ----
+# VARKA-350 and VARKA-366 admission checks, run with python3 (no third-party module).
+# Python's int / int is correctly rounded to binary64, so u / 10**s is RN(u * 10^-s),
+# which is what BigDecimal.doubleValue returns (JDK 25, BigDecimal.java 3825-3862).
+import math, random
+from fractions import Fraction
+
+print("1. Can RN(x) cross an integer for x = u / 10^s, |u| < 10^p?")
+print("   A crossing needs 10^-s <= half an ulp below the integer, 2^(e-53) with")
+print("   2^e <= |x| < 10^(p-s): some integer e with 2^53 <= 2^e * 10^s < 10^p.")
+for p in range(1, 19):
+    hits = []
+    for s in range(0, p + 1):
+        for e in range(-70, 70):
+            v = Fraction(2) ** e * 10 ** s
+            if Fraction(2) ** 53 <= v < 10 ** p:
+                hits.append((s, e))
+    # s = 0 values are integers: a crossing there is RN of an integer past 2^53,
+    # which is outside every narrow target's range.
+    hits = [h for h in hits if h[0] > 0]
+    first_hit = f", first {hits[0]}" if hits else ""
+    print(f"   p = {p:2d}: {len(hits)} (s, e) pairs with s > 0{first_hit}")
+
+print("2. The cast to INT, SMALLINT, TINYINT by the exact rule and by the double rule")
+T = {"INT": (-2**31, 2**31 - 1), "SMALLINT": (-32768, 32767), "TINYINT": (-128, 127)}
+def exact(u, s, lo, hi):
+    q = abs(u) // 10**s
+    q = q if u >= 0 else -q
+    return q if lo <= q <= hi else "overflow"
+def dbl(u, s, lo, hi):
+    d = u / 10**s
+    return math.trunc(d) if (math.floor(d) <= hi and math.ceil(d) >= lo) else "overflow"
+random.seed(2)
+first = {}
+for t, (lo, hi) in T.items():
+    for p in range(1, 19):
+        for s in range(0, p + 1):
+            top = 10 ** (p - s)
+            ns = set(range(0, min(top, 3000) + 1)) | {top, hi, hi + 1, -lo, -lo + 1}
+            ns |= {2**k for k in range(64) if 2**k <= top}
+            ns |= {random.randrange(0, top + 1) for _ in range(2000)}
+            for n in ns:
+                for k in (1, 2, 3, 7, 10 ** max(s - 3, 0), 10 ** max(s - 1, 0) // 2):
+                    for base in (n * 10**s - k, n * 10**s + k, n * 10**s):
+                        if not 0 <= base < 10**p:
+                            continue
+                        for v in (base, -base):
+                            a, b = exact(v, s, lo, hi), dbl(v, s, lo, hi)
+                            if a != b and (t, p) not in first:
+                                first[(t, p)] = (s, v, a, b)
+for (t, p), (s, v, a, b) in sorted(first.items()):
+    print(f"   {t:8s} p = {p}: unscaled {v} at scale {s}: exact {a}, double {b}")
+print("   no other (target, precision) differs in the draw")
+print("   named: unscaled 999999999999999999 at scale 18:",
+      exact(999999999999999999, 18, *T["INT"]), dbl(999999999999999999, 18, *T["INT"]))
+print("   named: unscaled 214748364799999999 at scale 8:",
+      exact(214748364799999999, 8, *T["INT"]), dbl(214748364799999999, 8, *T["INT"]))
+
+print("3. Pre-shift by k, then ConstDivide by 5^k: (p, k) whose dividend reaches 2^52")
+B = 1 << 52
+tr = [(p, k) for p in range(1, 19) for k in range(1, p + 1) if ((10**p - 1) >> k) >= B]
+hu = [(p, k) for p in range(1, 19) for k in range(1, p + 1)
+      if ((10**p - 1 + 10**k // 2) >> k) >= B]
+print("   truncating:", tr[:6])
+print("              ", tr[6:])
+print("   HALF_UP (signed half added first): the same pairs:", hu == tr)
+print("   share of |u| < 10^18 under 2^(52 + k), k = 1..7:")
+print("     ", [f"{2**(52+k) / 10**18:.4f}" for k in range(1, 8)])
+
+print("4. Where a guard is dead by the precision alone")
+print("   every |u| <= 10^p - 1 is an exact double (<= 2^53) for p <=",
+      max(p for p in range(1, 19) if 10**p - 1 <= 2**53))
+print("   every |u| <= 10^p - 1 is below 2^51 (the bounded L2D magic) for p <=",
+      max(p for p in range(1, 19) if 10**p - 1 < 2**51))
+print("   every |u| <= 10^p - 1 is an exact float (<= 2^24) for p <=",
+      max(p for p in range(1, 19) if 10**p - 1 <= 2**24))
+print("   share of |u| < 10^p at or below 2^53: p=16",
+      f"{2**53/10**16:.4f}", "p=17", f"{2**53/10**17:.4f}", "p=18", f"{2**53/10**18:.4f}")
+
+print("5. Scales at which u / 10^s, |u| < 10^18, can be an exact midpoint")
+for fmt, bits in (("binary64", 54), ("binary32", 25)):
+    ss = [s for s in range(0, 19) if (2 ** (bits - 1) + 1) * 5**s < 10**18]
+    print(f"   {fmt}: s in {ss[0]}..{ss[-1]}")
+
+---- output ----
+1. Can RN(x) cross an integer for x = u / 10^s, |u| < 10^p?
+   A crossing needs 10^-s <= half an ulp below the integer, 2^(e-53) with
+   2^e <= |x| < 10^(p-s): some integer e with 2^53 <= 2^e * 10^s < 10^p.
+   p =  1: 0 (s, e) pairs with s > 0
+   p =  2: 0 (s, e) pairs with s > 0
+   p =  3: 0 (s, e) pairs with s > 0
+   p =  4: 0 (s, e) pairs with s > 0
+   p =  5: 0 (s, e) pairs with s > 0
+   p =  6: 0 (s, e) pairs with s > 0
+   p =  7: 0 (s, e) pairs with s > 0
+   p =  8: 0 (s, e) pairs with s > 0
+   p =  9: 0 (s, e) pairs with s > 0
+   p = 10: 0 (s, e) pairs with s > 0
+   p = 11: 0 (s, e) pairs with s > 0
+   p = 12: 0 (s, e) pairs with s > 0
+   p = 13: 0 (s, e) pairs with s > 0
+   p = 14: 0 (s, e) pairs with s > 0
+   p = 15: 0 (s, e) pairs with s > 0
+   p = 16: 0 (s, e) pairs with s > 0
+   p = 17: 57 (s, e) pairs with s > 0, first (1, 50)
+   p = 18: 120 (s, e) pairs with s > 0, first (1, 50)
+2. The cast to INT, SMALLINT, TINYINT by the exact rule and by the double rule
+   INT      p = 17: unscaled 20643709109999999 at scale 7: exact 2064370910, double 2064370911
+   INT      p = 18: unscaled 12840343309999999 at scale 7: exact 1284034330, double 1284034331
+   SMALLINT p = 17: unscaled 16887999999999999 at scale 12: exact 16887, double 16888
+   SMALLINT p = 18: unscaled 19577999999999999 at scale 12: exact 19577, double 19578
+   TINYINT  p = 17: unscaled -12899999999999999 at scale 14: exact -128, double overflow
+   TINYINT  p = 18: unscaled -12899999999999999 at scale 14: exact -128, double overflow
+   no other (target, precision) differs in the draw
+   named: unscaled 999999999999999999 at scale 18: 0 1
+   named: unscaled 214748364799999999 at scale 8: 2147483647 overflow
+3. Pre-shift by k, then ConstDivide by 5^k: (p, k) whose dividend reaches 2^52
+   truncating: [(16, 1), (17, 1), (17, 2), (17, 3), (17, 4), (18, 1)]
+               [(18, 2), (18, 3), (18, 4), (18, 5), (18, 6), (18, 7)]
+   HALF_UP (signed half added first): the same pairs: True
+   share of |u| < 10^18 under 2^(52 + k), k = 1..7:
+      ['0.0090', '0.0180', '0.0360', '0.0721', '0.1441', '0.2882', '0.5765']
+4. Where a guard is dead by the precision alone
+   every |u| <= 10^p - 1 is an exact double (<= 2^53) for p <= 15
+   every |u| <= 10^p - 1 is below 2^51 (the bounded L2D magic) for p <= 15
+   every |u| <= 10^p - 1 is an exact float (<= 2^24) for p <= 7
+   share of |u| < 10^p at or below 2^53: p=16 0.9007 p=17 0.0901 p=18 0.0090
+5. Scales at which u / 10^s, |u| < 10^18, can be an exact midpoint
+   binary64: s in 0..2
+   binary32: s in 0..15

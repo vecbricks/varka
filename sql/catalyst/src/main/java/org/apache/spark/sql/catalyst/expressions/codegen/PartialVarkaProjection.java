@@ -28,6 +28,8 @@ import org.apache.spark.sql.catalyst.expressions.codegen.VarkaOutputSpec.FusedOu
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaOutputSpec.KernelOutput;
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaOutputSpec.ResidualOutput;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaErrors;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR;
 
 /**
  * A projection classified entry by entry: {@code specs} has one entry per projectList position,
@@ -56,6 +58,21 @@ public record PartialVarkaProjection(
     // Scala map it replaces was; Map.copyOf's order varies between JVMs.
     declines = Collections.unmodifiableMap(new TreeMap<>(declines));
     more = List.copyOf(more);
+    // A projection's BOOLEAN entry is a BoolOutput root, the data and validity bitmaps of its
+    // BitVector. A bare Cond root is a filter's, which writes only the selection bitmap into the
+    // validity slot and leaves the data untouched, so every true row would read false; the kernel
+    // record admits it, being a filter's too, so the projection refuses it here. (The parameters,
+    // not kernels(): a compact constructor assigns the fields after its body.)
+    var kernels = new ArrayList<CompiledVarkaProjection>(more);
+    kernels.add(fused);
+    for (CompiledVarkaProjection kernel : kernels) {
+      for (VarkaVectorIR root : kernel.outputs()) {
+        if (root instanceof VarkaVectorIR.Cond) {
+          throw VarkaErrors.illegalArgument("a projection's boolean output is a BoolOutput root, "
+              + "not a filter's condition root: " + VarkaVectorIR.canonical(root));
+        }
+      }
+    }
   }
 
   /**

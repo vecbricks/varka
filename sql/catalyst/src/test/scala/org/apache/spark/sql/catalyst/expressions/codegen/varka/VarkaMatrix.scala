@@ -60,6 +60,9 @@ object VarkaMatrix {
   /** The tag of a test whose subject is the defaults' emitted structure ([[VarkaMatrixRuns]]). */
   object PinsDefaults extends org.scalatest.Tag(VarkaMatrixRuns.PINS_DEFAULTS_TAG)
 
+  /** The tag of a test whose subject is C2's code ([[VarkaMatrixRuns.C2_CODE_TAG]]). */
+  object C2Code extends org.scalatest.Tag(VarkaMatrixRuns.C2_CODE_TAG)
+
   /** [[VarkaMatrixRuns.Kind]]. */
   type Kind = VarkaMatrixRuns.Kind
   object Kind {

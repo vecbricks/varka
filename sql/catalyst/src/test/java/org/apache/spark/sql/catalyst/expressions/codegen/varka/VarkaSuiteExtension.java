@@ -17,7 +17,6 @@
 
 package org.apache.spark.sql.catalyst.expressions.codegen.varka;
 
-import java.lang.annotation.Annotation;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -37,6 +36,7 @@ import org.junit.jupiter.api.TestFactory;
 import org.junit.jupiter.api.TestTemplate;
 import org.junit.jupiter.api.extension.AfterAllCallback;
 import org.junit.jupiter.api.extension.BeforeAllCallback;
+import org.junit.jupiter.api.extension.DynamicTestInvocationContext;
 import org.junit.jupiter.api.extension.ExtensionContext;
 import org.junit.jupiter.api.extension.InvocationInterceptor;
 import org.junit.jupiter.api.extension.ReflectiveInvocationContext;
@@ -64,14 +64,16 @@ import org.apache.spark.sql.util.ArrowUtils;
  * <ol>
  *   <li>under a matrix configuration, a test tagged {@link VarkaSuite#PINS_DEFAULTS} is cancelled
  *       without running, with the ScalaTest form's message;</li>
+ *   <li>under a matrix configuration that sets none of {@link VarkaMatrixRuns#C2_OPTIONS}, a test
+ *       tagged {@link VarkaSuite#C2_CODE} is cancelled the same way;</li>
  *   <li>otherwise {@link VarkaMatrixRuns#around} runs it against the skip list - a test the list
  *       expects to fail is cancelled when it fails and fails as a stale entry when it passes -
  *       and records its fused batches;</li>
  *   <li>inside that, {@link VarkaWatchdog#guard} caps it;</li>
  *   <li>inside that, the test method itself.</li>
  * </ol>
- * An {@code ownJvm} class in the shared JVM skips all three: the child JVM ran the class under
- * them, and each test only takes the child's result, as it is.
+ * An {@code ownJvm} class in the shared JVM skips all four wrappers: the child JVM ran the class
+ * under them, and each test only takes the child's result, as it is.
  *
  * <p>A cancel is opentest4j's {@link TestAbortedException}, which JUnit reports as aborted and the
  * listener prints {@code !!! CANCELED !!!}. It is thrown from the interceptor rather than decided
@@ -106,6 +108,10 @@ public final class VarkaSuiteExtension
   @Override
   public void beforeAll(ExtensionContext context) {
     checkShape(context.getRequiredTestClass());
+    // The option matrix's reach recording, where the run asks for one, and the suite's window,
+    // which takes what it compiles outside a test as every one of its tests' (VarkaTestReach).
+    VarkaTestReach.install();
+    VarkaTestReach.suiteBegin(context.getRequiredTestClass().getSimpleName());
     if (VarkaMemorySanitizer.ENABLED) {
       context.getStore(NAMESPACE).put(ARROW_BEFORE,
           ArrowUtils.rootAllocator().getAllocatedMemory());
@@ -114,6 +120,8 @@ public final class VarkaSuiteExtension
 
   @Override
   public void afterAll(ExtensionContext context) {
+    DYNAMIC_NAMES.remove(context.getRequiredTestClass());
+    VarkaTestReach.suiteEnd(context.getRequiredTestClass().getSimpleName());
     Long before = context.getStore(NAMESPACE).get(ARROW_BEFORE, Long.class);
     if (before == null) {
       return;
@@ -136,10 +144,12 @@ public final class VarkaSuiteExtension
    * <ul>
    *   <li>two tests with one display name, since the skip list and the fused-batch report key a
    *       test by its suite and name;</li>
-   *   <li>a {@code @ParameterizedTest}, {@code @RepeatedTest} or {@code @TestFactory} test: JUnit
-   *       runs those through other interceptor methods than {@link #interceptTestMethod}, so they
-   *       would bypass the skip list, {@code PinsDefaults} and the watchdog, and their
-   *       invocations' names ({@code [1] ...}) make poor skip-list keys;</li>
+   *   <li>a {@code @ParameterizedTest} or {@code @RepeatedTest} test: JUnit runs those through
+   *       another interceptor method than {@link #interceptTestMethod}, so they would bypass the
+   *       skip list, {@code PinsDefaults}, {@code C2Code} and the watchdog, and their
+   *       invocations' names ({@code [1] ...}) make poor skip-list keys. A {@code @TestFactory}'s
+   *       dynamic tests are held ({@link #interceptDynamicTest}), each under the name the factory
+   *       gives it, except in an {@code ownJvm} class, whose child answers by test method;</li>
    *   <li>a {@code @Nested} class, which inherits this extension but not the annotation, and
    *       whose tests the listener and the reports would put under the outer class's name;</li>
    *   <li>{@code @VarkaSuite} inherited from a superclass only: {@code dev/varka_matrix.sh} finds
@@ -155,15 +165,19 @@ public final class VarkaSuiteExtension
           + "; a Varka suite's test names are its skip-list keys and must be unique");
     }
     var templates = new ArrayList<String>();
-    for (Class<? extends Annotation> kind : List.of(TestTemplate.class, TestFactory.class)) {
-      for (Method m : AnnotationSupport.findAnnotatedMethods(testClass, kind,
-          HierarchyTraversalMode.TOP_DOWN)) {
-        templates.add(m.getName());
-      }
+    for (Method m : AnnotationSupport.findAnnotatedMethods(testClass, TestTemplate.class,
+        HierarchyTraversalMode.TOP_DOWN)) {
+      templates.add(m.getName());
     }
     if (!templates.isEmpty()) {
-      throw new IllegalStateException(name + " has parameterized, repeated or dynamic tests "
-          + templates + "; a @VarkaSuite test must be a plain @Test, which the harness wraps");
+      throw new IllegalStateException(name + " has parameterized or repeated tests " + templates
+          + "; a @VarkaSuite test is a plain @Test or a @TestFactory's, which the harness wraps");
+    }
+    VarkaSuite annotation = testClass.getDeclaredAnnotation(VarkaSuite.class);
+    if (annotation != null && annotation.ownJvm() && !AnnotationSupport.findAnnotatedMethods(
+        testClass, TestFactory.class, HierarchyTraversalMode.TOP_DOWN).isEmpty()) {
+      throw new IllegalStateException(name + " is ownJvm and has dynamic tests; the child JVM "
+          + "answers a test by its method, so an ownJvm class keeps to plain @Test methods");
     }
     List<Class<?>> nested = ReflectionSupport.findNestedClasses(testClass,
         c -> c.isAnnotationPresent(Nested.class));
@@ -252,6 +266,59 @@ public final class VarkaSuiteExtension
     }
   }
 
+  /**
+   * A {@code @TestFactory}'s dynamic test, held as a plain {@code @Test} is
+   * ({@link #interceptTestMethod}) under the name the factory gave it, which is its skip-list key:
+   * a name a class's tests have already used fails the test, since the names are only known as
+   * the factory hands them out. An {@code ownJvm} class has none ({@link #checkShape}).
+   */
+  @Override
+  public void interceptDynamicTest(Invocation<Void> invocation,
+      DynamicTestInvocationContext invocationContext, ExtensionContext context)
+      throws Throwable {
+    // A dynamic test's context holds no class of its own; its factory's, a parent, does.
+    Class<?> testClass = null;
+    for (Optional<ExtensionContext> c = Optional.of(context); c.isPresent() && testClass == null;
+        c = c.get().getParent()) {
+      testClass = c.get().getTestClass().orElse(null);
+    }
+    if (testClass == null) {
+      throw new IllegalStateException("a dynamic test outside any test class: "
+          + context.getUniqueId());
+    }
+    Class<?> owner = testClass;
+    VarkaSuite suite = AnnotationSupport.findAnnotation(owner, VarkaSuite.class)
+        .orElseThrow(() -> new IllegalStateException(
+            owner.getName() + " registers VarkaSuiteExtension without @VarkaSuite"));
+    long minutes = capMinutes(suite);
+    Guard guard = minutes == 0 ? Guard.NONE
+        : (s, t, body) -> VarkaWatchdog.guard(s, t, minutes, body);
+    String test = context.getDisplayName();
+    if (!DYNAMIC_NAMES.computeIfAbsent(owner, c -> ConcurrentHashMap.newKeySet()).add(test)) {
+      invocation.skip();
+      throw new IllegalStateException(owner.getSimpleName() + " names more than one test "
+          + "'" + test + "'; a Varka suite's test names are its skip-list keys and must be unique");
+    }
+    var invoked = new boolean[1];
+    Body<Object> body = () -> {
+      invoked[0] = true;
+      invocation.proceed();
+      return null;
+    };
+    try {
+      runTest(VarkaMatrixRuns.CONFIG, VarkaMatrixRuns.skips(),
+          Optional.ofNullable(System.getProperty(VarkaMatrixRuns.REPORT_PROPERTY)), guard,
+          owner.getSimpleName(), test, context.getTags(), false, body);
+    } finally {
+      if (!invoked[0]) {
+        invocation.skip();
+      }
+    }
+  }
+
+  /** The dynamic test names each class has run, for {@link #interceptDynamicTest}'s check. */
+  private static final Map<Class<?>, Set<String>> DYNAMIC_NAMES = new ConcurrentHashMap<>();
+
   /** The minutes the watchdog gives each of {@code suite}'s tests: 0 for no watchdog. */
   static long capMinutes(VarkaSuite suite) {
     return suite.watchdogMinutes() == VarkaSuite.JVM_CAP
@@ -285,6 +352,10 @@ public final class VarkaSuiteExtension
     }
     if (!config.isEmpty() && tags.contains(VarkaSuite.PINS_DEFAULTS)) {
       throw new TestAbortedException(VarkaMatrixRuns.pinsDefaultsMessage(config));
+    }
+    if (!config.isEmpty() && tags.contains(VarkaSuite.C2_CODE)
+        && !VarkaMatrixRuns.changesC2(config)) {
+      throw new TestAbortedException(VarkaMatrixRuns.c2CodeMessage(config));
     }
     return VarkaMatrixRuns.around(entries, config, report, suite, test, OUTCOMES,
         () -> guard.run(suite, test, body));

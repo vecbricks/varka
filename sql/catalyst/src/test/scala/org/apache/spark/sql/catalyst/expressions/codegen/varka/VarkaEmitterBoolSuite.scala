@@ -17,12 +17,15 @@
 package org.apache.spark.sql.catalyst.expressions.codegen.varka
 
 import java.lang.foreign.{Arena, ValueLayout}
+import java.util.{Collections, List => JList}
 
 import org.apache.spark.sql.catalyst.expressions
 import org.apache.spark.sql.catalyst.expressions.{Expression, Literal}
+import org.apache.spark.sql.catalyst.expressions.codegen.{CompiledVarkaProjection,
+  PartialVarkaProjection, VarkaOutputSpec}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaReference.{Truth => Tri}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR._
-import org.apache.spark.sql.types.{BooleanType, IntegerType, LongType}
+import org.apache.spark.sql.types.{BooleanType, ByteType, DataType, IntegerType, LongType}
 
 /**
  * A BOOLEAN column as a condition (the boolean leaf, constants, comparisons, choice and null-safe
@@ -54,7 +57,9 @@ class VarkaEmitterBoolSuite extends VarkaEmitterTestBase with VarkaOwnJvm {
   /**
    * Runs `roots` over `k` boolean leaves, one row per combination of `states`, rotated by every
    * offset in `offsets`, at each length, and compares each row with the reference: a condition's
-   * selection bit, or a value's validity bit and, where valid, its value at the root's lane.
+   * selection bit, a value's validity bit and, where valid, its value at the root's lane, or a
+   * boolean output's data and validity bits. `perColumn`, when given, is each leaf's own set of
+   * states in place of `states`, so that a leaf can be null on every row.
    */
   private def check(
       roots: Seq[VarkaVectorIR],
@@ -63,13 +68,17 @@ class VarkaEmitterBoolSuite extends VarkaEmitterTestBase with VarkaOwnJvm {
       lengths: Seq[Int],
       offsets: Seq[Int],
       options: VarkaEmitOptions,
-      ctx: String): Unit = {
+      ctx: String,
+      perColumn: Seq[Seq[Int]] = Nil): Unit = {
     val (kernel, loader) = load(emitMulti(roots, k, 0, options))
-    val combos = Math.pow(states.size, k).toInt
+    val columnStates = if (perColumn.isEmpty) Seq.fill(k)(states) else perColumn
+    // Mixed radix: column c's digit is the row's quotient by the product of the earlier radices.
+    val radix = columnStates.scanLeft(1)(_ * _.size)
+    val combos = radix(k)
     try {
       for (length <- lengths; off <- offsets) {
         def stateOf(c: Int, row: Int): Int =
-          states(((row + off) / Math.pow(states.size, c).toInt) % states.size)
+          columnStates(c)(((row + off) / radix(c)) % columnStates(c).size)
         val arena = Arena.ofConfined()
         try {
           // Exact-size bitmaps, with ones in the unused bits of the last byte: Arrow promises
@@ -97,11 +106,14 @@ class VarkaEmitterBoolSuite extends VarkaEmitterTestBase with VarkaOwnJvm {
             // Exactly a row's width at the root's lane, so a store past the batch faults; a
             // condition root's data address is 0L by the kernel contract, so a write through it
             // faults too.
+            // A boolean output's data is a bitmap of whole words, as a BitVector allocates it,
+            // its stale bits the fixture's garbage, which the driver must zero.
             val outs = roots.map { root =>
-              val ints = if (!root.isInstanceOf[Cond] && root.laneType() == LaneType.LONG) {
-                2 * length
-              } else {
-                length
+              val ints = root match {
+                case _: BoolOutput => ((length + 63) / 64) * 2
+                case _: Cond => length
+                case _ if root.laneType() == LaneType.LONG => 2 * length
+                case _ => length
               }
               makeOutput(arena, ints, outputValidityBytes(options, length), fill)
             }
@@ -129,6 +141,14 @@ class VarkaEmitterBoolSuite extends VarkaEmitterTestBase with VarkaOwnJvm {
                 s"$length offset $off row $row states " +
                 s"${(0 until k).map(c => stateOf(c, row)).mkString(",")} $fill (of $combos)"
               root match {
+                case b: BoolOutput =>
+                  // Spark's three-valued answer: the data bit is the known-true row, the
+                  // validity bit the known one, so an unknown row is null, never false.
+                  val want = VarkaReference.cond(b.cond(), ints, nulls, Array.empty[Int])
+                  val data =
+                    (outs(o)._1.get(ValueLayout.JAVA_BYTE, row / 8L) & (1 << (row % 8))) != 0
+                  assert(bit === (want != Tri.UNKNOWN), s"$where: validity (want $want)")
+                  assert(data === want.isTrue, s"$where: data (want $want)")
                 case c: Cond =>
                   val want = VarkaReference.cond(c, ints, nulls, Array.empty[Int]).isTrue
                   assert(bit === want, where)
@@ -209,6 +229,7 @@ class VarkaEmitterBoolSuite extends VarkaEmitterTestBase with VarkaOwnJvm {
       assert(ref(new And(b0, b1)) === want(expressions.And(lit(x), lit(y))))
       assert(ref(new Or(b0, b1)) === want(expressions.Or(lit(x), lit(y))))
       assert(ref(new Not(b0)) === want(expressions.Not(lit(x))))
+      assert(ref(new Not(new IsNotNull(b0))) === want(expressions.IsNull(lit(x))))
     }
   }
 
@@ -410,5 +431,162 @@ class VarkaEmitterBoolSuite extends VarkaEmitterTestBase with VarkaOwnJvm {
     intercept[IllegalArgumentException](new CondValue(b0, LaneType.LONG))
     intercept[IllegalArgumentException](
       new CondValue(new BoolColumn(0, LaneType.BYTE), LaneType.BYTE))
+  }
+
+  // ---------------------------------------------------------------------------------------------
+  // A condition as a BOOLEAN output column (VARKA-27)
+  // ---------------------------------------------------------------------------------------------
+
+  /**
+   * The ways a boolean output's two bitmaps are written (`VARKA-27.md` 2.2), each at every width
+   * of the sweep: per lane group or a word at a time, the dense validity filled by the driver or
+   * written per group (under either writer), and the driver from its table or unrolled, where
+   * the data bitmap's zero is emitted differently.
+   */
+  private val writers: Seq[(String, VarkaEmitOptions => VarkaEmitOptions)] = Seq(
+    "per group" -> (o => o),
+    "by word" -> (o => o.toBuilder.validityByWord(true).build()),
+    "per group, unrolled driver, no dense fill" ->
+      (o => o.toBuilder.driverOutputTable(false).denseValidityOnce(false).build()),
+    "by word, unrolled driver" ->
+      (o => o.toBuilder.validityByWord(true).driverOutputTable(false).build()),
+    // The word writer with the dense validity written per group rather than by the driver.
+    "by word, no dense fill" ->
+      (o => o.toBuilder.validityByWord(true).denseValidityOnce(false).build()))
+
+  private val writerWidths: Seq[(String, VarkaEmitOptions)] =
+    for ((w, base) <- widths; (name, f) <- writers) yield (s"$w, $name", f(base))
+
+  private def out(c: Cond): BoolOutput = new BoolOutput(c)
+
+  /** Every boolean form the row writes: AND, OR, NOT, the comparisons, <=>, IF, coalesce. */
+  private def boolForms(x: Cond, y: Cond, z: Cond): Seq[Cond] =
+    Seq(x, new Not(x), new And(x, y), new Or(x, new Not(y)), new IsNotNull(x),
+      new Not(new IsNotNull(x))) ++
+      CompareOp.values().toSeq.map(op => new BoolCompare(op, x, y)) ++
+      Seq(new BoolNullSafeEq(x, y), new CondIf(x, y, z), new CondIf(new IsNotNull(x), x, y),
+        new CondConst(Truth.TRUE, x.laneType()), new CondConst(Truth.FALSE, x.laneType()))
+
+  /**
+   * `CASE WHEN x THEN y END`: a choice whose missing ELSE is a null constant. It is unknown from
+   * valid inputs, which makes its whole kernel masked-only, so it is swept alone rather than in
+   * a group of [[boolForms]] whose dense body it would take away.
+   */
+  private def nullElse(x: Cond, y: Cond): Cond =
+    new CondIf(x, y, new CondConst(Truth.NULL, x.laneType()))
+
+  test("a boolean output over every leaf state, in both bodies, both writers and every width") {
+    for (forms <- boolForms(b0, b1, b2).grouped(5)) {
+      sweep(forms.map(out), 3, "boolean outputs", writerWidths)
+    }
+    sweep(Seq(out(nullElse(b0, b1))), 3, "a boolean output with a null ELSE", writerWidths)
+    // A comparison of two values, beside its own condition read as a filter root would be: the
+    // value compare's validity word is computed, not a leaf's.
+    def v(c: Cond): CondValue = new CondValue(c, LaneType.INT)
+    sweep(Seq(out(new Compare(CompareOp.LT, v(b0), v(b1))),
+      out(new And(new Compare(CompareOp.EQ, v(b0), v(new Not(b1))), b2))), 3,
+      "boolean outputs over value comparisons", writerWidths)
+  }
+
+  test("a boolean output on the long lane, in both bodies, both writers and every width") {
+    val Seq(l0, l1, l2) = (0 until 3).map(new BoolColumn(_, LaneType.LONG))
+    val forms = boolForms(l0, l1, l2) :+ nullElse(l0, l1)
+    forms.foreach(c => assert(VarkaKernelPlan.emissionLane(out(c), VarkaEmitOptions.DEFAULTS) ===
+      LaneType.LONG, c.toString))
+    for (group <- forms.init.grouped(5)) {
+      sweep(group.map(out), 3, "long-lane boolean outputs", writerWidths)
+    }
+    sweep(Seq(out(forms.last)), 3, "a long-lane boolean output with a null ELSE", writerWidths)
+  }
+
+  test("a boolean output on the narrow lanes, whose bits are written at the driving lane") {
+    for (lane <- Seq(LaneType.BYTE, LaneType.SHORT)) {
+      val Seq(y0, y1, y2) = (0 until 3).map(new BoolColumn(_, lane))
+      sweep(Seq(out(new And(y0, new Not(y1))), out(new BoolCompare(CompareOp.LT, y0, y1)),
+        out(new CondIf(y0, y1, y2))), 3, s"$lane boolean outputs", writerWidths)
+    }
+  }
+
+  test("a boolean output beside value outputs and a second boolean output in one kernel") {
+    def v(c: Cond): CondValue = new CondValue(c, LaneType.INT)
+    sweep(Seq(out(new Or(b0, b1)), new IntArith(IntOp.ADD, Overflow.WRAP, v(b0), v(b1)),
+      out(new BoolCompare(CompareOp.GE, b1, b2)), new IfElse(b2, v(b0), v(b1))), 3,
+      "boolean outputs among values", writerWidths)
+  }
+
+  test("a boolean output whose leaf is null on every row is answered, not short-cut to null") {
+    // Each alone in its kernel, so that no other root turns the driver's all-null shortcut off:
+    // b0 is null throughout; NULL OR TRUE is true, b IS NULL is true on every row, and b <=> b2
+    // is true where both are null. A kernel that took the shortcut would answer null.
+    val nullOnly = Seq(2, 3)
+    for ((root, k, perColumn) <- Seq[(VarkaVectorIR, Int, Seq[Seq[Int]])](
+        (out(new Or(b0, b1)), 2, Seq(nullOnly, allStates)),
+        (out(new And(b0, b1)), 2, Seq(nullOnly, allStates)),
+        (out(new Not(new IsNotNull(b0))), 1, Seq(nullOnly)),
+        (out(new BoolNullSafeEq(b0, b1)), 2, Seq(nullOnly, nullOnly)),
+        (out(new BoolNullSafeEq(b0, b1)), 2, Seq(nullOnly, allStates)),
+        (out(new CondConst(Truth.TRUE)), 1, Seq(nullOnly)));
+        (w, options) <- writerWidths) {
+      check(Seq(root), k, allStates, tailLengths :+ 77, 0 until 4, options,
+        s"${VarkaVectorIR.canonical(root)} over an all-null column at $w", perColumn)
+    }
+  }
+
+  test("a boolean output that can be unknown from valid inputs keeps its kernel masked-only, " +
+      "and is a root or nothing") {
+    def names(r: VarkaVectorIR): Seq[String] = methodNames(emitMulti(Seq(r), 1, 0))
+    val unknown = out(new Or(b0, new CondConst(Truth.NULL)))
+    assert(!names(unknown).exists(_.startsWith("loopDense")), names(unknown).mkString(", "))
+    assert(!names(unknown).exists(_.startsWith("epilogueDense")), names(unknown).mkString(", "))
+    sweep(Seq(unknown, out(new CondConst(Truth.NULL))), 1, "unknown from valid inputs",
+      writerWidths)
+    assert(names(out(b0)).contains("loopDense0"), names(out(b0)).mkString(", "))
+    // Its canonical form is its own, so it never shares the filter root's class.
+    assert(VarkaVectorIR.canonical(out(b0)) === "(bool-out " + VarkaVectorIR.canonical(b0) + ")")
+    // Below a root it is refused: it writes the output's two bitmaps itself.
+    val below = intercept[IllegalArgumentException](emitMulti(Seq(
+      new IntArith(IntOp.ADD, Overflow.WRAP, out(b0), new CondValue(b1, LaneType.INT))), 2, 0))
+    assert(below.getMessage.contains("a boolean output below a root"), below.getMessage)
+  }
+
+  test("a root writes bitmaps exactly when its output is BOOLEAN, and a projection's is a " +
+      "BoolOutput") {
+    // Each shape is built directly, as no compiler arm builds it, and each is one the evaluator
+    // would serve wrongly with no throw: a value root typed BOOLEAN gets a BitVector and stores
+    // a value a row past its bitmap (a TINYINT root's one byte a row matches BOOLEAN's default
+    // size, so the width compare alone passes it); a BoolOutput typed as a number writes bitmaps
+    // into a value vector; and a filter's Cond root as a projection's boolean output writes only
+    // the validity, so every true row reads false.
+    def kernel(root: VarkaVectorIR, dataType: DataType): CompiledVarkaProjection =
+      new CompiledVarkaProjection(JList.of(root), JList.of(dataType), JList.of(0), JList.of(),
+        JList.of(), JList.of(), JList.of(), JList.of())
+    def projection(k: CompiledVarkaProjection): PartialVarkaProjection =
+      new PartialVarkaProjection(JList.of(new VarkaOutputSpec.FusedOutput(0)), k,
+        Collections.emptyMap(), JList.of())
+    def refused(what: String, build: => Any, message: String): Unit = {
+      val e = intercept[IllegalArgumentException](build)
+      assert(e.getMessage.contains(message), s"$what: ${e.getMessage}")
+    }
+    val byteValue = new ColumnRef(0, LaneType.BYTE)
+    refused("a TINYINT value typed BOOLEAN", kernel(byteValue, BooleanType),
+      "output 0 is a value but its type is boolean")
+    refused("an int value typed BOOLEAN", kernel(new ColumnRef(0), BooleanType),
+      "output 0 is a value but its type is boolean")
+    refused("a boolean output typed INT", kernel(out(b0), IntegerType),
+      "output 0 is a bitmap root, BoolOutput, but its type is int")
+    refused("a condition typed TINYINT", kernel(b0, ByteType),
+      "output 0 is a bitmap root, BoolColumn, but its type is tinyint")
+    refused("a filter's condition as a projection's output", projection(kernel(b0, BooleanType)),
+      "a projection's boolean output is a BoolOutput root, not a filter's condition root")
+    // Each in a further kernel too, which a projection over several kernels holds in `more`.
+    refused("a filter's condition in a further kernel", new PartialVarkaProjection(
+      JList.of(new VarkaOutputSpec.FusedOutput(0)), kernel(out(b0), BooleanType),
+      Collections.emptyMap(), JList.of(kernel(new Not(b1), BooleanType))),
+      "not a filter's condition root")
+    // The shapes that are right: a TINYINT value typed TINYINT, a filter's kernel of condition
+    // roots typed BOOLEAN, and a boolean output typed BOOLEAN in a projection.
+    kernel(byteValue, ByteType)
+    kernel(b0, BooleanType)
+    projection(kernel(out(b0), BooleanType))
   }
 }

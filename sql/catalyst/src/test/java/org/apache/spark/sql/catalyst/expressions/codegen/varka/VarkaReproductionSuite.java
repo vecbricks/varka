@@ -30,9 +30,11 @@ import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Random;
+import java.util.Set;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
@@ -96,7 +98,41 @@ public final class VarkaReproductionSuite {
             new ColumnRef(0), new LiteralSlot(1)),
         new NarrowLane(new ConstDivide(new GuardedRange(
             new IntArith(IntOp.ADD, Overflow.WRAP, x, new LiteralSlot(0, LaneType.LONG)),
-            -1000L, 86_400_000_000_000L), 1000L, ConstDivide.EXACT_DIVIDEND_BOUND)));
+            -1000L, 86_400_000_000_000L), 1000L, ConstDivide.EXACT_DIVIDEND_BOUND)),
+        // A decimal column beside an int one widened to its lane.
+        new IntArith(IntOp.ADD, Overflow.WRAP, new DecimalColumn(2, LaneType.LONG, 9),
+            new WidenLane(new ColumnRef(0), LaneType.LONG)),
+        new CondValue(new NullSafeEqual(new ColumnRef(0), new LiteralSlot(0)), LaneType.INT),
+        new BitCount(new BitOp(BitOpKind.XOR, new ColumnRef(0), new LiteralSlot(0))),
+        // Over comparisons: the parser reads no boolean-column leaf yet.
+        new BoolOutput(new Or(new Not(new IsNotNull(new ColumnRef(0))),
+            new Compare(CompareOp.LT, new ColumnRef(1), new LiteralSlot(0)))));
+  }
+
+  /**
+   * The node types the parser has no arm for yet, so no round trip reaches them: the boolean
+   * value nodes, whose parse arms the owner is turning into a row of their own. Listed by name so
+   * that the completeness check below fails on any other node type left without an entry, and on
+   * one of these once a tree above reaches it.
+   */
+  private static final Set<Class<?>> NOT_PARSED_YET = Set.of(BoolColumn.class, CondConst.class,
+      BoolCompare.class, CondIf.class, BoolNullSafeEq.class);
+
+  /** The records under {@code type}, through its sealed subinterfaces. */
+  private static void nodeTypes(Class<?> type, Set<Class<?>> out) {
+    if (type.isSealed()) {
+      Arrays.stream(type.getPermittedSubclasses()).forEach(t -> nodeTypes(t, out));
+    } else {
+      out.add(type);
+    }
+  }
+
+  /** The node types of {@code node}'s tree. */
+  private static void reached(VarkaVectorIR node, Set<Class<?>> out) {
+    out.add(node.getClass());
+    for (VarkaVectorIR child : VarkaVectorIR.childrenOf(node)) {
+      reached(child, out);
+    }
   }
 
   private static void assertRoundTrips(VarkaVectorIR tree) {
@@ -126,6 +162,20 @@ public final class VarkaReproductionSuite {
   void everyNodeTypeRoundTrips() {
     assertRoundTrips(everyNodeType());
     theRest().forEach(VarkaReproductionSuite::assertRoundTrips);
+    // Complete over the sealed interface, so a new node type fails here until a tree above
+    // reaches it or it is listed as not parsed yet.
+    Set<Class<?>> all = new HashSet<>();
+    nodeTypes(VarkaVectorIR.class, all);
+    Set<Class<?>> got = new HashSet<>();
+    reached(everyNodeType(), got);
+    theRest().forEach(t -> reached(t, got));
+    Set<Class<?>> missing = new HashSet<>(all);
+    missing.removeAll(got);
+    missing.removeAll(NOT_PARSED_YET);
+    assertTrue(missing.isEmpty(), () -> "node types no round trip reaches: " + missing);
+    Set<Class<?>> stale = new HashSet<>(NOT_PARSED_YET);
+    stale.retainAll(got);
+    assertTrue(stale.isEmpty(), () -> "node types listed as not parsed yet but reached: " + stale);
   }
 
   @Test
@@ -172,6 +222,12 @@ public final class VarkaReproductionSuite {
     // Two spaces read as one token boundary, and the re-rendering catches the difference.
     assertThrows(IllegalArgumentException.class,
         () -> VarkaCanonicalIr.parse("(addDays  col:0 lit:0)"));
+    // A decimal leaf names its lane and precision, on the long lane and from 1 to 18.
+    assertThrows(IllegalArgumentException.class, () -> VarkaCanonicalIr.parse("dec:0:long"));
+    assertThrows(IllegalArgumentException.class, () -> VarkaCanonicalIr.parse("dec:0:int:p9"));
+    assertThrows(IllegalArgumentException.class,
+        () -> VarkaCanonicalIr.parse("dec:0:long:p19"));
+    assertThrows(IllegalArgumentException.class, () -> VarkaCanonicalIr.parse("dec:0:long:9"));
   }
 
   private static VarkaReproduction sample(VarkaReproduction.KernelCall call) {
@@ -331,6 +387,40 @@ public final class VarkaReproductionSuite {
     var replay = VarkaReplay.of(file);
     // A BYTE kernel implements the int lane's seven-argument entry only, so the replay picks
     // the entry by the lane being LONG, as the runner does, and a long entry would throw.
+    assertTrue(replay.actual().isEmpty(), String.join("\n", replay.report()));
+    assertTrue(replay.notes().contains("the kernel returned"),
+        String.join("\n", replay.report()));
+  }
+
+  @Test
+  @DisplayName("a replayed boolean output records its width as the bit marker and writes whole "
+      + "words of data, as the runner allocates them")
+  void bitOutputReplays() {
+    var outputs = List.<VarkaVectorIR>of(new BoolOutput(
+        new Compare(CompareOp.LT, new ColumnRef(0), new ColumnRef(1))));
+    var key = new VarkaShapeKey(outputs, 2, 0, VarkaEmitOptions.DEFAULTS);
+    String hash = VarkaShapeCacheImpl.shapeHash(key);
+    // 100 rows: two words of data, the second partial, which the kernel may store whole.
+    int rows = 100;
+    var random = new Random(27);
+    byte[] a = new byte[rows * 4];
+    byte[] b = new byte[rows * 4];
+    random.nextBytes(a);
+    random.nextBytes(b);
+    var call = new VarkaReproduction.KernelCall(rows, 0,
+        List.of(VarkaReproduction.KernelCall.BIT_OUTPUT), List.of(
+            new VarkaReproduction.Input(4, rows * 4, 0, 0, false, a, null),
+            new VarkaReproduction.Input(4, rows * 4, 0, 0, false, b, null)), null, false);
+    var written = new VarkaReproduction(new VarkaFailureSignature("IndexOutOfBoundsException",
+        "x"), VarkaFallbackEvent.KERNEL_FAILURE, "", "", "", false, hash, 2, 0, false,
+        VarkaErrorContext.renderOptions(VarkaEmitOptions.DEFAULTS),
+        List.of(VarkaVectorIR.canonical(outputs.get(0))), List.of(), List.of(), call, null);
+    // The marker reads back from the file's text, and is not the selection bitmap's 0.
+    VarkaReproduction file = VarkaReproduction.parse(written.render());
+    assertEquals(List.of(-1), file.call().outputWidths());
+    assertEquals(16L, VarkaReproduction.KernelCall.outputDataBytes(-1, rows));
+    // rows * -1 bytes before the marker: the replay could not allocate the output at all.
+    var replay = VarkaReplay.of(file);
     assertTrue(replay.actual().isEmpty(), String.join("\n", replay.report()));
     assertTrue(replay.notes().contains("the kernel returned"),
         String.join("\n", replay.report()));

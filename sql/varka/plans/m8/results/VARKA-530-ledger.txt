@@ -1,0 +1,129 @@
+# The CI ledger's backfill (VARKA-530), 29 October 2026: the fork MaxGekk/spark, every completed
+# run of "Build" (build_main.yml) and "Varka option matrix" (varka-option-matrix.yml) created on
+# or after 15 October 2026, read by `dev/varka_ci_ledger.py update --since 2026-10-15` into
+# sql/varka/matrix/ledger.tsv.
+
+runs read 588 (the skipped ones aside), 872 REST and GraphQL calls (core 4889 and GraphQL 4975
+of 5000 left an hour before it; each run's check runs and annotations are one GraphQL query)
+runs with a line 71: 58 Build, 13 option matrix
+
+The summary, `dev/varka_ci_ledger.py --summary --days 15 --flaky-threshold 2`:
+
+263 lines over the last 15 days: 201 failed, 27 flaked, 30 step, 4 infra, 1 slow
+
+by test (suite / test)                                             flaked failed step infra slow
+OracleIntegrationSuite / SPARK-48618: Renaming the table to the...      2      1    0     0    0
+OracleIntegrationSuite / SPARK-48618: Test table does not exist...      2      1    0     0    0
+OracleIntegrationSuite / scan with aggregate push-down: REGR_SX...      2      1    0     0    0
+OracleIntegrationSuite / scan with aggregate push-down: REGR_SX...      2      1    0     0    0
+OracleIntegrationSuite / scan with aggregate push-down: REGR_SL...      1      1    0     0    0
+OracleIntegrationSuite / scan with aggregate push-down: REGR_SL...      1      1    0     0    0
+OracleIntegrationSuite / scan with filter push-down with date t...      1      1    0     0    0
+OracleIntegrationSuite / scan with aggregate push-down: COVAR_S...      1      0    0     0    0
+StreamRealTimeModeWithManualClockSuite / (It is not a test it i...      1      0    0     0    0
+- / a columnar consumer's first write takes the row path and it...      0      6    0     0    0
+- / a projection's first query takes the row path and its next ...      0      6    0     0    0
+- / a date decomposed in two fragments of a group that stores i...      0      4    0     0    0
+- / every Vector API method an emitted kernel calls gets 2,000 ...      0      4    0     0    0
+- / AddDays/SubDays with a column offset match the reference ev...      0      3    0     0    0
+- / BETWEEN- and IN-shaped roots match the reference                    0      3    0     0    0
+
+by configuration                                                   flaked failed step infra slow
+-                                                                      27     16   30     4    1
+lanesOverride=4                                                         0    132    0     0    0
+defaults                                                                0     35    0     0    0
+checkIntOverflow=false                                                  0      7    0     0    0
+arrowBatchSize=1                                                        0      5    0     0    0
+severalKernels=false                                                    0      2    0     0    0
+validityByWidth=false                                                   0      2    0     0    0
+fusedCeiling=200                                                        0      1    0     0    0
+groupBudget=64                                                          0      1    0     0    0
+
+by CPU                                                             flaked failed step infra slow
+-                                                                      22     31   23     1    0
+AMD EPYC 9V74 80-Core, 4 cores                                          2     69    3     0    1
+AMD EPYC 7763 64-Core, 4 cores                                          2     20    1     2    0
+Intel(R) Xeon(R) 6973P-C, 4 cores                                       1     36    0     0    0
+AMD EPYC 9V45 96-Core, 4 cores                                          0     40    1     1    0
+INTEL(R) XEON(R) PLATINUM 8573C, 4 cores                                0      5    1     0    0
+AMD EPYC 7763 64-Core                                                   0      0    1     0    0
+
+by job and step (no test named)                                    flaked failed step infra slow
+Run / Protobuf breaking change detection and Python CodeGen che...      2      0    1     0    0
+Option matrix: b062 | Run this bin's units                              2      0    0     0    0
+Run / Precompile Spark | Build Spark                                    2      0    0     0    0
+Run / Run Spark UI tests | Run cd ui-test                               1      0    3     0    0
+Run / Build modules: sql - other tests | Run tests                      1      0    2     0    0
+Option matrix: shard 4 of 12 | Run this shard's configurations          1      0    1     0    0
+Option matrix: shard 2 of 12 | Run this shard's configurations          1      0    0     0    0
+Run / Build modules: hive - other tests | Run tests                     1      0    0     0    0
+Run / Build modules: mllib-local, mllib, graphx, profiler, pipe...      1      0    0     0    0
+Run / Build modules: sql - slow tests | -                               1      0    0     0    0
+Run / Run Docker integration tests | Run tests                          1      0    0     0    0
+Run / Linters, licenses, and dependencies | License test                0      0    3     0    0
+Run / Build modules: streaming, sql-kafka-0-10, streaming-kafka...      0      0    2     0    0
+Run / Linters, licenses, and dependencies | Error Prone and Nul...      0      0    2     0    0
+Run / Linters, licenses, and dependencies | Scala linter                0      0    2     0    0
+
+tests with at least 2 flakes in 15 days: 4
+  OracleIntegrationSuite / SPARK-48618: Renaming the table to the name of an existing table: 2 flakes, runs 38995488237 39159999235
+  OracleIntegrationSuite / SPARK-48618: Test table does not exists error: 2 flakes, runs 38995488237 39159999235
+  OracleIntegrationSuite / scan with aggregate push-down: REGR_SXY without DISTINCT (false): 2 flakes, runs 38995488237 39159999235
+  OracleIntegrationSuite / scan with aggregate push-down: REGR_SXY without DISTINCT (true): 2 flakes, runs 38995488237 39159999235
+
+Read against it:
+- Flakes are a job rerun to green, all of them: 27 flaked lines, of which 13 name a test
+  (OracleIntegrationSuite in the Docker job, 12 lines over three runs, each failing to connect
+  to the Oracle container; StreamRealTimeModeWithManualClockSuite once, a timeout), and 14 a job
+  or step with no test to name (the Docker job once, the Python CodeGen check, Precompile Spark,
+  four Spark module jobs, two of them at their 2h30m limit, the UI tests' Jest step, which
+  leaves no JUnit report and no annotation to name its test, two matrix bins, whose artifact
+  holds the passing rerun's reports, and two old matrix shards).
+- No "Flaky suite retried" warning on a passing job in the window: the `flaky=` list's retry
+  fired only in Build run 39148626990, where VarkaWarmupEndToEndSuite failed all three JVMs.
+  The warm-up suite's two tests are the window's most repeated failures, 6 each, all before
+  VARKA-399 recorded the CPU.
+- Failed lines are mostly pull requests under development: 132 of the 201 come from
+  `lanesOverride=4` in the old shard layout's matrix runs of one branch.
+- Infra 4: the two upload ECONNRESETs of Build run 40947407586 (both passed on attempt 2), a
+  matrix bin's classpath download retried (run 40933889236, b080), and a hosted runner that
+  lost communication with the server (Build run 40190294361).
+- Slow 1: option matrix run 40942811546, bin b021 on an AMD EPYC 9V74, 91 min against the
+  attempt's median bin of 8 min, cancelled at its time limit, passed on attempt 2.
+- CPU is "-" where the job records none: the Build's jobs before VARKA-399 (20 October), and
+  jobs without the platform step (linters, the UI tests, the Docker job).
+- Suite is "-" where the job left no JUnit report naming the test: the Varka suites jobs'
+  option-configuration step (its reports are not uploaded) and runs before the reports were.
+
+The report job (not changed here: .github/workflows/* is changed by other open pull requests).
+One step after "Summary" in varka-option-matrix.yml's report job puts this run's lines in its
+summary and warns on each failed or flaked test, and on each test of the committed ledger with
+at least 3 flakes in 14 days; the bins are complete when the report job runs, and `run` reads
+a run in progress:
+
+    - name: The CI ledger's lines of this run
+      if: always()
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        python3 dev/varka_ci_ledger.py run "$GITHUB_RUN_ID" --annotate --flaky-threshold 3 \
+          | tee -a "$GITHUB_STEP_SUMMARY" || true
+
+(The warning commands then show in the summary as text too, which is harmless.)
+
+It needs `actions: read`, which the job's default token has. The post-merge routine runs
+`dev/varka_ci_ledger.py update` and commits ledger.tsv. The self-test runs nowhere in CI until
+`python3 dev/varka_ci_ledger.py --self-test` joins the docs job's "The house rules' checks pass
+their own cases" step, beside the other CI tools' self-tests.
+
+The skip list's citations (not added). Every reader of sql/varka/matrix/skips.tsv requires
+exactly five fields: VarkaMatrixRuns.parseSkips throws on any other count,
+dev/varka_matrix_report.py's skip_lines raises ValueError on a sixth field (checked with a
+six-field line), and dev/varka_lint.py's skips-tsv rule reports it. So no column was added.
+Proposed: a sixth column, `ledger`, holding the lines that justify the entry as
+`<run>/<attempt>` keys joined by commas (a line is then found by run, attempt, configuration,
+suite and test, which the entry already names), or `-` for an entry older than the ledger; the
+three readers accept five or six fields, and the lint checks that each cited run has a ledger
+line for the entry's (configuration, suite, test). A `fails` entry never reaches the ledger
+again once it is listed, since the matrix then expects it to fail, so its citation is the run
+that showed the failure before the entry was added.

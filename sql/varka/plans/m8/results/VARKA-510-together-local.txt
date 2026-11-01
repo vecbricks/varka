@@ -1,0 +1,22 @@
+# Planning the null-test conditions together (VARKA-510), 29 October 2026, on the laptop (AMD
+# Ryzen AI 9 HX PRO 370), at the defaults, one JVM: where the coverage harness's planning went,
+# from the JFR recording of VARKA-510-planning-local.txt (3741 samples), each sample under
+# VarkaHarnessPlans.optimize given to the first harness frame that called it.
+
+samples under VarkaHarnessPlans.optimize: 1465 of 3741
+  VarkaCoverageHarnessSuite.nullTestConditions     19.6% of all samples
+  VarkaPartitionOracle.filter                       4.5%
+  VarkaDomains.sparkValues                          3.7%
+  VarkaPartitionOracle.nullable                     3.4%
+  VarkaAnsiForm.check                               3.2%
+  VarkaAnsiForm.queries                             1.7%
+  every other caller                                3.0%
+
+nullTestConditions planned each of a fixture's eight CASE conditions (two null tests, four arm
+pairs) in a run of the analyzer and the optimizer of its own; VarkaHarnessPlans.projections now
+plans them as one projection list, one run a fixture, and falls back to one an expression where
+the list does not come out as one entry an expression over the scan.
+
+VarkaCoverageHarnessSuite, 1067 tests, all passed: 35.2 s, against 38.9 s before
+(VARKA-509-step4.txt). VarkaHarnessParitySuite finds every expression planned together equal to
+the one planned alone, on the coverage fixtures under the partition rewrites' exclusion.

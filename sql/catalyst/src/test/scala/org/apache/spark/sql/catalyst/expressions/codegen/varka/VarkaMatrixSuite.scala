@@ -56,6 +56,18 @@ class VarkaMatrixSuite extends SparkFunSuite with VarkaTestWatchdog {
     assert(VarkaMatrix.configurations.contains("division=DOUBLE_DIV"))
   }
 
+  test("an arm that emits what the defaults or another arm emits does not run") {
+    // Catches: the four useAVX levels run as four configurations when they are two emissions,
+    // one of them the defaults' (VarkaEmittedBytesSuite holds the bytes to that).
+    val levels = VarkaMatrix.configurations.filter(_.startsWith("useAVX="))
+    assert(levels === Seq("useAVX=2"))
+    val configs = VarkaMatrix.configurations
+    assert(configs.distinct === configs)
+    assert(configs.map(VarkaMatrix.parse).map(VarkaMatrixRuns.emissionKey).distinct.size ===
+      configs.filterNot(_.startsWith(VarkaMatrix.ARROW_BATCH_SIZE)).size + 1,
+      "two configurations emit alike")
+  }
+
   test("the batch-size axis changes no emit option and names its rows (VARKA-301)") {
     for (rows <- VarkaMatrix.ARROW_BATCH_SIZES) {
       val config = s"${VarkaMatrix.ARROW_BATCH_SIZE}=$rows"
@@ -111,6 +123,20 @@ class VarkaMatrixSuite extends SparkFunSuite with VarkaTestWatchdog {
     } finally {
       VarkaMatrix.fusedBatches = saved
       Files.delete(report)
+    }
+  }
+
+  test("a C2-code test runs only under configurations that change what C2 is given") {
+    assert(VarkaMatrixRuns.changesC2("lanesOverride=4"))
+    assert(VarkaMatrixRuns.changesC2("useAVX=2"))
+    assert(VarkaMatrixRuns.changesC2("narrowHalfSpecies=true"))
+    assert(VarkaMatrixRuns.changesC2("cse=false,lanesOverride=16"))
+    assert(!VarkaMatrixRuns.changesC2("cse=false"))
+    assert(!VarkaMatrixRuns.changesC2(
+      "denseValidityOnce=false_validityByBitmap=false_validityOrFirst=false"))
+    // Every option the rule names is one the matrix's configurations set.
+    VarkaMatrixRuns.C2_OPTIONS.asScala.foreach { option =>
+      assert(VarkaMatrix.configurations.exists(_.startsWith(option + "=")), option)
     }
   }
 }

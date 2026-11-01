@@ -23,7 +23,8 @@ import java.lang.foreign.MemorySegment;
  * {@code filterMask} call, since the buffer is reused - and the number of selected rows. Read
  * through {@code VarkaSelectionBitmap}.
  *
- * @param mask the selection bitmap, one bit a row, over the evaluator's reused buffer
+ * @param mask the selection bitmap, one bit a row, in whole 64-bit words over the evaluator's
+ *        reused buffer
  * @param count the number of selected rows
  */
 public record VarkaSelection(MemorySegment mask, int count) {

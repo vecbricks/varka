@@ -125,8 +125,8 @@ final class VarkaWarmupReach {
 
   /**
    * The lane types the engine emits vectors of, by their vector class: each lane the type
-   * registry says some type's kernels reach (VARKA-494), in width order, and the double lane, which
-   * no type is read on and the long lane's divisions convert through.
+   * registry says some type's kernels reach (VARKA-494), in width order, and the double lane in
+   * any case, which the long lane's divisions convert through even where no type is read on it.
    */
   private static final List<Class<?>> LANES = lanes();
 
@@ -146,7 +146,9 @@ final class VarkaWarmupReach {
         case DOUBLE -> DoubleVector.class;
       });
     }
-    out.add(DoubleVector.class);
+    if (!out.contains(DoubleVector.class)) {
+      out.add(DoubleVector.class);
+    }
     return List.copyOf(out);
   }
 
@@ -165,6 +167,7 @@ final class VarkaWarmupReach {
         : lane == ShortVector.class ? ShortVector.SPECIES_PREFERRED
         : lane == IntVector.class ? IntVector.SPECIES_PREFERRED
         : lane == LongVector.class ? LongVector.SPECIES_PREFERRED
+        : lane == FloatVector.class ? FloatVector.SPECIES_PREFERRED
         : DoubleVector.SPECIES_PREFERRED;
     var out = new ArrayList<Class<?>>(
         List.of(s.zero().getClass(), s.maskAll(true).getClass(), s.getClass()));

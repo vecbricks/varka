@@ -22,6 +22,7 @@ import java.time.LocalDate
 import org.apache.spark.SparkFunSuite
 import org.apache.spark.sql.catalyst.expressions.{Add, Alias, Attribute, Cast, CreateMap,
   DateAdd, DateFormatClass, EvalMode, Literal, TryEval, TryMultiply}
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaReachWindow
 import org.apache.spark.sql.catalyst.plans.logical.{Limit, LocalRelation, LogicalPlan,
   OneRowRelation, Project}
 import org.apache.spark.sql.catalyst.util.DateTimeUtils
@@ -29,9 +30,11 @@ import org.apache.spark.sql.types.{IntegerType, StringType, YearMonthIntervalTyp
 
 /**
  * The golden-file suite's literal lift (`VarkaArrowSource.LiftRule`): which literals of a
- * `SELECT` with no `FROM` become columns of a seventeen-row relation, and which stay.
+ * `SELECT` with no `FROM` become columns of a seventeen-row relation, and which stay. The rule
+ * asks the compiler whether each lifted entry fuses, so the suite compiles kernels, and its reach
+ * window keeps them its own rather than every test's in the option matrix's record.
  */
-class VarkaLiteralLiftSuite extends SparkFunSuite {
+class VarkaLiteralLiftSuite extends SparkFunSuite with VarkaReachWindow {
 
   private val date = Literal(DateTimeUtils.localDateToDays(LocalDate.of(2021, 1, 31)),
     org.apache.spark.sql.types.DateType)

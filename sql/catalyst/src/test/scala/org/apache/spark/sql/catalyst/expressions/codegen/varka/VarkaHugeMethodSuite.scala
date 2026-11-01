@@ -70,6 +70,8 @@ class VarkaHugeMethodSuite extends SparkFunSuite with VarkaTestWatchdog {
     command.add(VarkaHugeMethodProbe.getClass.getName.stripSuffix("$"))
     command.add(outputs.toString)
     command.add(methodByteBudget.toString)
+    // The child JVM's code runs where the class-use record cannot see it (VarkaTestUse).
+    VarkaTestUse.childJvm()
     val builder = new ProcessBuilder(command)
     builder.redirectErrorStream(true)
     val process = builder.start()

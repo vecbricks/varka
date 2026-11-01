@@ -1,0 +1,555 @@
+VARKA-103 admission checks, 30 October 2026, laptop (JDK 25.0.4.1, single-file source launch,
+24 threads, about 20 s). Method: the program below, run as written with
+`java -Xmx8g -cp guava-33.6.0-jre.jar Varka103Admission.java` under the shared heavy slot
+(Guava from the local Maven cache, the version `pom.xml` pins); its output follows it. Every
+number VARKA-103.md quotes from these checks is in the output. These are sampled checks of the
+planned constructions in scalar Java against the calls Spark's code makes, not proofs; the plan's
+section 3 says what proves each one. A first run had `(|k| + 1) / 2` for the half divisor in
+check 5, which overflows at `k = Long.MAX_VALUE` and failed 462239 of 7600418 cells; the program
+below has the overflow-free form the plan specifies, and its output is the rerun.
+
+---- program ----
+// VARKA-103 admission checks: the planned day-time interval constructions in scalar Java
+// against Spark's semantics. Run with
+//   java -Xmx8g -cp guava-33.6.0-jre.jar Varka103Admission.java
+// (JDK 25, single-file source launch; Guava is the version Spark's pom.xml pins).
+//
+// Spark's answers are reproduced by the calls its code makes:
+//   getDays(x) = (int) (x / D); getHours(x) = (byte) ((x % D) / H);
+//   getMinutes(x) = (byte) ((x % H) / M); getSeconds(x) unscaled = x % M   (IntervalUtils.scala)
+//   dt * k (integral) = Math.multiplyExact(x, k)                   (intervalExpressions.scala)
+//   dt / k (integral) = LongMath.divide(x, k, HALF_UP)
+//   dt * f, dt / f (floating) = DoubleMath.roundToLong((double) x * f or / f, HALF_UP)
+//   dt * c, dt / c (decimal) = BigDecimal multiply under MathContext(39, DOWN), or divide to
+//     scale 39 DOWN, then setScale(0, HALF_UP).longValueExact()      (Decimal.scala)
+//   make_dt_interval = addExact(secs, multiplyExact(days, D)), + hours * H, + mins * M
+// The constructions use only + - * on longs (wrapping), shifts, ands, compares and Java's /
+// where the plan lowers it to a bounded ConstDivide. These are sampled checks, not proofs.
+import com.google.common.math.DoubleMath;
+import com.google.common.math.LongMath;
+import java.math.BigDecimal;
+import java.math.BigInteger;
+import java.math.MathContext;
+import java.math.RoundingMode;
+import java.time.Duration;
+import java.time.temporal.ChronoUnit;
+import java.util.*;
+import java.util.concurrent.atomic.*;
+import java.util.stream.*;
+
+public class Varka103Admission {
+  static final long D = 86_400_000_000L, H = 3_600_000_000L, M = 60_000_000L, S = 1_000_000L;
+  static final long ODD = 10_546_875L;
+  static final int N = 50_000_000; // random longs per check
+
+  /** A long drawn from every magnitude, both signs, plus the edges near day multiples. */
+  static long draw(SplittableRandom r) {
+    switch (r.nextInt(6)) {
+      case 0: return r.nextLong();
+      case 1: return r.nextLong() >> r.nextInt(64);
+      case 2: { long q = r.nextLong() / D; return q * D + (r.nextInt(5) - 2); }
+      case 3: return r.nextBoolean() ? Long.MIN_VALUE + r.nextInt(1 << 20)
+                                     : Long.MAX_VALUE - r.nextInt(1 << 20);
+      case 4: return r.nextLong(-(1L << 40), 1L << 40);
+      default: { long q = r.nextLong(-(1L << 40), 1L << 40); return q * M + (r.nextInt(5) - 2); }
+    }
+  }
+
+  static final long[] EDGES = {Long.MIN_VALUE, Long.MIN_VALUE + 1, Long.MAX_VALUE,
+      Long.MAX_VALUE - 1, 0, 1, -1, D, -D, D - 1, -(D - 1), D + 1, -(D + 1), H, -H, M, -M,
+      106_751_991L * D, -106_751_991L * D, 1L << 52, -(1L << 52), (1L << 52) + 1};
+
+  /** 338's floorDivLong: an arithmetic shift by 13, the down step, a ConstDivide by ODD. */
+  static long floorDivLong(long x, long[] maxShifted) {
+    long y = x >> 13;
+    long down = (y >> 63) & (1 - ODD);
+    long z = y + down;
+    long a = Math.abs(z);
+    if (a > maxShifted[0]) maxShifted[0] = a;
+    return z / ODD; // ConstDivide truncates; exact while |z| <= 2^52
+  }
+
+  /** 332's 2.4 truncation: the floor of a biased dividend. */
+  static long truncDay(long x, long[] maxShifted) {
+    long bias = (x >> 63) & (D - 1);
+    return floorDivLong(x + bias, maxShifted);
+  }
+
+  /** The row text's form: the magnitude, its floor, the sign restored; shift as given. */
+  static long truncDayMagnitude(long x, boolean logicalShift) {
+    long s = x >> 63;
+    long mag = (x ^ s) - s; // wraps at MIN
+    long y = logicalShift ? mag >>> 13 : mag >> 13;
+    long q = y / ODD;
+    return (q ^ s) - s;
+  }
+
+  static long halfUpConst(long x, long k) {
+    long q = x / k;
+    long r = x - q * k;
+    // ceil(|k| / 2) without overflow: |k| >> 1 plus its low bit; 2^62 for MIN.
+    long ak = Math.abs(k);
+    long half = k == Long.MIN_VALUE ? 1L << 62 : (ak >> 1) + (ak & 1);
+    long ar = Math.abs(r);
+    int away = (k > 0) == (x >= 0) ? 1 : -1;
+    return ar >= half && r != 0 ? q + away : q;
+  }
+
+  /** dt / k for k dividing D, over every long: the day split, then the bounded division. */
+  static long halfUpDaySplit(long x, long k, long[] maxShifted) {
+    long qd = truncDay(x, maxShifted);
+    long rd = x - qd * D;
+    long qk = qd * (D / k) + rd / k; // rd / k: ConstDivide bounded by D
+    long rk = rd % k;
+    long half = (Math.abs(k) + 1) / 2;
+    int away = (k > 0) == (x >= 0) ? 1 : -1;
+    return Math.abs(rk) >= half && rk != 0 ? qk + away : qk;
+  }
+
+  /** Row 342's 2.4 form for the floating factor, the guard folded in as a null result. */
+  static Long halfUpDouble(double p) {
+    if (!(p >= -0x1p63 && p < 0x1p63)) return null;
+    long t = (long) p;
+    double f = p - (double) t;
+    return t + (f >= 0.5 ? 1 : f <= -0.5 ? -1 : 0);
+  }
+
+  static Long sparkRound(double p) {
+    try { return DoubleMath.roundToLong(p, RoundingMode.HALF_UP); }
+    catch (ArithmeticException e) { return null; }
+  }
+
+  static Long sparkMakeDt(int days, int hours, int mins, long secs) {
+    long micros = secs;
+    try {
+      micros = Math.addExact(micros, Math.multiplyExact(days, D));
+      micros = Math.addExact(micros, Math.multiplyExact(hours, H));
+      micros = Math.addExact(micros, Math.multiplyExact(mins, M));
+      return micros;
+    } catch (ArithmeticException e) { return null; }
+  }
+
+  /** The planned make_dt_interval: days guarded, three checked adds in Spark's order. */
+  static Long planMakeDt(int days, int hours, int mins, long secs) {
+    if (days < -106_751_991 || days > 106_751_991) return null;
+    long s1 = secs + (long) days * D, s2, s3;
+    if (((secs ^ s1) & (((long) days * D) ^ s1)) < 0) return null;
+    long p2 = (long) hours * H;
+    s2 = s1 + p2;
+    if (((s1 ^ s2) & (p2 ^ s2)) < 0) return null;
+    long p3 = (long) mins * M;
+    s3 = s2 + p3;
+    if (((s2 ^ s3) & (p3 ^ s3)) < 0) return null;
+    return s3;
+  }
+
+  static long[] guard(long k) {
+    BigInteger min = BigInteger.valueOf(Long.MIN_VALUE), max = BigInteger.valueOf(Long.MAX_VALUE);
+    BigInteger kb = BigInteger.valueOf(k);
+    BigInteger a, b;
+    if (k > 0) { a = ceilDiv(min, kb); b = floorDiv(max, kb); }
+    else { a = ceilDiv(max, kb); b = floorDiv(min, kb); }
+    BigInteger lo = a.max(min), hi = b.min(max);
+    return new long[] {lo.longValueExact(), hi.longValueExact()};
+  }
+
+  static BigInteger floorDiv(BigInteger a, BigInteger b) {
+    BigInteger[] qr = a.divideAndRemainder(b);
+    return qr[1].signum() != 0 && (qr[1].signum() != b.signum()) ? qr[0].subtract(BigInteger.ONE)
+        : qr[0];
+  }
+
+  static BigInteger ceilDiv(BigInteger a, BigInteger b) {
+    return floorDiv(a.negate(), b).negate();
+  }
+
+  static boolean multiplyRaises(long x, long k) {
+    try { Math.multiplyExact(x, k); return false; } catch (ArithmeticException e) { return true; }
+  }
+
+  static Long sparkDecimalTimes(long x, BigDecimal c) {
+    try {
+      return new BigDecimal(x).multiply(c, new MathContext(39, RoundingMode.DOWN))
+          .setScale(0, RoundingMode.HALF_UP).longValueExact();
+    } catch (ArithmeticException e) { return null; }
+  }
+
+  static Long sparkDecimalDiv(long x, BigDecimal c) {
+    try {
+      return new BigDecimal(x).divide(c, 39, RoundingMode.DOWN)
+          .setScale(0, RoundingMode.HALF_UP).longValueExact();
+    } catch (ArithmeticException e) { return null; }
+  }
+
+  static long run(LongStream s, java.util.function.LongConsumer f) {
+    AtomicLong n = new AtomicLong();
+    s.forEach(x -> { f.accept(x); n.incrementAndGet(); });
+    return n.get();
+  }
+
+  static LongStream samples(long seed) {
+    return LongStream.concat(Arrays.stream(EDGES),
+        LongStream.range(0, N).parallel().map(i -> draw(new SplittableRandom(seed * 1_000_003L + i))));
+  }
+
+  public static void main(String[] args) {
+    long t0 = System.nanoTime();
+    System.out.println("1. The day quotient over every long, against Java's x / D (getDays).");
+    long[] maxShifted = {0};
+    AtomicLong bad = new AtomicLong(), badNarrow = new AtomicLong(), badMagA = new AtomicLong(),
+        badMagL = new AtomicLong();
+    long count = run(samples(1), x -> {
+      long[] m = {0};
+      long q = truncDay(x, m);
+      synchronized (maxShifted) { if (m[0] > maxShifted[0]) maxShifted[0] = m[0]; }
+      if (q != x / D) bad.incrementAndGet();
+      if ((long) (int) q != q) badNarrow.incrementAndGet();
+      if (truncDayMagnitude(x, false) != x / D) badMagA.incrementAndGet();
+      if (truncDayMagnitude(x, true) != x / D) badMagL.incrementAndGet();
+    });
+    System.out.printf("   %d longs (the edges and %d drawn): the biased floor %d differ, the int%n"
+        + "   narrowing of the quotient %d inexact; largest |shifted dividend| %d (2^50 = %d,%n"
+        + "   ConstDivide's bound 2^52 = %d); x / D at MIN is %d, at MAX %d.%n", count, N,
+        bad.get(), badNarrow.get(), maxShifted[0], 1L << 50, 1L << 52, Long.MIN_VALUE / D,
+        Long.MAX_VALUE / D);
+    System.out.printf("   The magnitude form: arithmetic shift %d differ (first at MIN: %d against%n"
+        + "   %d), logical shift %d differ.%n", badMagA.get(), truncDayMagnitude(Long.MIN_VALUE,
+        false), Long.MIN_VALUE / D, badMagL.get());
+    System.out.printf("   D = 2^%d * %d; H = 2^%d * %d, so H's shifted magnitude reaches 2^%d.%n",
+        Long.numberOfTrailingZeros(D), D >> 13, Long.numberOfTrailingZeros(H),
+        H >> Long.numberOfTrailingZeros(H), 63 - Long.numberOfTrailingZeros(H));
+
+    System.out.println();
+    System.out.println("2. The remainder chain: r = x - q * D wrapping, then bounded divisions,");
+    System.out.println("   against getHours, getMinutes and getSeconds' unscaled value.");
+    AtomicLong badH = new AtomicLong(), badMi = new AtomicLong(), badS = new AtomicLong(),
+        badR = new AtomicLong(), maxR = new AtomicLong();
+    count = run(samples(2), x -> {
+      long[] m = {0};
+      long q = truncDay(x, m);
+      long r = x - q * D;
+      if (r != x % D) badR.incrementAndGet();
+      maxR.accumulateAndGet(Math.abs(r), Math::max);
+      if ((byte) (r / H) != (byte) ((x % D) / H)) badH.incrementAndGet();
+      if ((byte) ((r % H) / M) != (byte) ((x % H) / M)) badMi.incrementAndGet();
+      if (r % M != x % M) badS.incrementAndGet();
+    });
+    System.out.printf("   %d longs: r differs from x %% D %d times, |r| at most %d (< D);%n"
+        + "   hours %d differ, minutes %d differ, seconds %d differ.%n", count, badR.get(),
+        maxR.get(), badH.get(), badMi.get(), badS.get());
+    long[] units = {H, M, S, 1000, 1, 60, 24, 7};
+    for (long u : units) {
+      if (D % u != 0) { System.out.printf("   %d does not divide D%n", u); continue; }
+      AtomicLong b = new AtomicLong();
+      long c = run(samples(3 + u), x -> {
+        long[] m = {0};
+        long q = truncDay(x, m);
+        long r = x - q * D;
+        if (q * (D / u) + r / u != x / u) b.incrementAndGet();
+      });
+      System.out.printf("   trunc(x / %d) = q * (D / %d) + r / %d: %d longs, %d differ%n", u, u, u,
+          c, b.get());
+    }
+    long divisors = LongStream.rangeClosed(1, 1_000_000).filter(d -> D % d == 0).count();
+    long all = 0;
+    for (long d = 1; d * d <= D; d++) if (D % d == 0) all += d * d == D ? 1 : 2;
+    long small = LongStream.rangeClosed(2, 1000).filter(d -> D % d == 0).count();
+    System.out.printf("   D has %d divisors, %d of them from 2 to 1000 (%d up to 10^6).%n", all,
+        small, divisors);
+
+    System.out.println();
+    System.out.println("3. java.time as an oracle: Duration.of(x, MICROS) against Spark's fields.");
+    long[] dur = new long[4];
+    long firstDays = 0;
+    SplittableRandom rr = new SplittableRandom(4);
+    int nd = 2_000_000;
+    for (int i = 0; i < nd; i++) {
+      long x = draw(rr);
+      if (x == Long.MIN_VALUE) continue;
+      Duration d = Duration.of(x, ChronoUnit.MICROS);
+      if (d.toDays() != x / D) { if (dur[0]++ == 0) firstDays = x; }
+      if (d.toHoursPart() != (byte) ((x % D) / H)) dur[1]++;
+      if (d.toMinutesPart() != (byte) ((x % H) / M)) dur[2]++;
+      long secs = (long) d.toSecondsPart() * S + d.toNanosPart() / 1000;
+      if (secs != x % M) dur[3]++;
+    }
+    Duration dm = Duration.of(-D + 1, ChronoUnit.MICROS);
+    System.out.printf("   %d drawn longs: toDays differs %d times, toHoursPart %d, toMinutesPart %d,%n"
+        + "   the seconds part with its micros %d; at x = -D + 1 toDays is %d and x / D is %d%n"
+        + "   (Duration keeps floor seconds and a non-negative nano part).%n", nd, dur[0],
+        dur[1], dur[2], dur[3], dm.toDays(), (-D + 1) / D);
+
+    System.out.println();
+    System.out.println("4. dt * k for an integral literal: the guard [lo, hi] against multiplyExact.");
+    long[] ks = {2, 3, 7, 10, 1000, 86_400, 1L << 32, Long.MAX_VALUE, -1, -2, -7, -1000,
+        Long.MIN_VALUE, Long.MIN_VALUE + 1, Integer.MIN_VALUE, Integer.MAX_VALUE};
+    long guardBad = 0, overDecline = 0, cells = 0;
+    SplittableRandom gr = new SplittableRandom(5);
+    for (long k : ks) {
+      long[] g = guard(k);
+      List<Long> xs = new ArrayList<>();
+      for (long e : new long[] {g[0], g[1]}) for (long dlt = -2; dlt <= 2; dlt++) xs.add(e + dlt);
+      for (int i = 0; i < 200_000; i++) xs.add(draw(gr));
+      for (long x : xs) {
+        cells++;
+        boolean admitted = x >= g[0] && x <= g[1];
+        if (admitted == multiplyRaises(x, k)) guardBad++;
+        if (admitted && k != Long.MIN_VALUE) {
+          long sym = Long.MAX_VALUE / Math.abs(k);
+          if (x < -sym || x > sym) overDecline++;
+        }
+      }
+      System.out.printf("   k = %d: [%d, %d]%n", k, g[0], g[1]);
+    }
+    System.out.printf("   %d cells, %d where the guard and multiplyExact disagree; the symmetric%n"
+        + "   bound +-(MAX / |k|) would decline %d admitted cells (micros * k = MIN).%n", cells,
+        guardBad, overDecline);
+
+    System.out.println();
+    System.out.println("5. dt / k for an integral literal: HALF_UP against LongMath.divide.");
+    long[] dks = {2, 3, 7, 10, 12, 24, 60, 1000, 86_400_000_000L, 1L << 52, (1L << 52) + 1,
+        Long.MAX_VALUE, -2, -3, -7, -60, -1000, Long.MIN_VALUE, Long.MIN_VALUE + 1};
+    long divBad = 0, divCells = 0, splitBad = 0, splitCells = 0;
+    SplittableRandom dr = new SplittableRandom(6);
+    Map<Long, Long> perK = new TreeMap<>();
+    for (long k : dks) {
+      for (int i = 0; i < 400_000 + EDGES.length; i++) {
+        long x = i < EDGES.length ? EDGES[i] : draw(dr);
+        long want = LongMath.divide(x, k, RoundingMode.HALF_UP);
+        divCells++;
+        if (halfUpConst(x, k) != want) { divBad++; perK.merge(k, 1L, Long::sum); }
+        if (k != Long.MIN_VALUE && Math.abs(k) >= 2 && D % Math.abs(k) == 0) {
+          splitCells++;
+          if (halfUpDaySplit(x, k, new long[1]) != want) splitBad++;
+        }
+      }
+    }
+    long[] tie = {LongMath.divide(5, 2, RoundingMode.HALF_UP), LongMath.divide(-5, 2,
+        RoundingMode.HALF_UP), LongMath.divide(5, -2, RoundingMode.HALF_UP),
+        LongMath.divide(1L << 62, Long.MIN_VALUE, RoundingMode.HALF_UP),
+        LongMath.divide(Long.MIN_VALUE, -1, RoundingMode.HALF_UP)};
+    System.out.printf("   %d cells over %d divisors, %d differ; the day split for the divisors of D%n"
+        + "   over every long: %d cells, %d differ. Ties: 5 / 2 = %d, -5 / 2 = %d, 5 / -2 = %d,%n"
+        + "   2^62 / MIN = %d; LongMath.divide(MIN, -1) = %d (Spark raises before it); Java's%n"
+        + "   MIN / -1 = %d (IntegralDivide over an interval has no such check).%n", divCells,
+        dks.length, divBad, splitCells, splitBad, tie[0], tie[1], tie[2], tie[3], tie[4],
+        Long.MIN_VALUE / -1L);
+    if (!perK.isEmpty()) System.out.println("   differing per divisor: " + perK);
+
+    System.out.println();
+    System.out.println("6. make_dt_interval: the guards and the partial sums in Spark's order.");
+    System.out.printf("   multiplyExact(days, D) raises at 106751991: %b, 106751992: %b,%n"
+        + "   -106751991: %b, -106751992: %b; hours * H at Int.MIN_VALUE and MAX_VALUE: %d, %d%n"
+        + "   (2^63 - 1 = %d); mins * M at Int.MIN_VALUE: %d.%n",
+        multiplyRaises(106_751_991L, D), multiplyRaises(106_751_992L, D),
+        multiplyRaises(-106_751_991L, D), multiplyRaises(-106_751_992L, D),
+        (long) Integer.MIN_VALUE * H, (long) Integer.MAX_VALUE * H, Long.MAX_VALUE,
+        (long) Integer.MIN_VALUE * M);
+    long cellSecs = Long.MAX_VALUE - 106_751_991L * D + 1;
+    BigInteger total = BigInteger.valueOf(cellSecs).add(BigInteger.valueOf(106_751_991L * D))
+        .subtract(BigInteger.valueOf(H));
+    System.out.printf("   cell: days 106751991, hours -1, mins 0, secs %d micros (within%n"
+        + "   DECIMAL(18, 6)): the true sum %d fits a long (%b), Spark gives %s, the plan %s.%n",
+        cellSecs, total, total.bitLength() < 64, sparkMakeDt(106_751_991, -1, 0, cellSecs),
+        planMakeDt(106_751_991, -1, 0, cellSecs));
+    long mkBad = 0, mkNull = 0;
+    SplittableRandom mr = new SplittableRandom(7);
+    int nm = 5_000_000;
+    for (int i = 0; i < nm; i++) {
+      int days = mr.nextBoolean() ? mr.nextInt() : (int) mr.nextLong(-106_751_993L, 106_751_993L);
+      int hours = mr.nextBoolean() ? mr.nextInt() : mr.nextInt(-100, 100);
+      int mins = mr.nextBoolean() ? mr.nextInt() : mr.nextInt(-100, 100);
+      long secs = mr.nextLong(-999_999_999_999_999_999L, 1_000_000_000_000_000_000L);
+      Long s = sparkMakeDt(days, hours, mins, secs);
+      if (!Objects.equals(s, planMakeDt(days, hours, mins, secs))) mkBad++;
+      if (s == null) mkNull++;
+    }
+    System.out.printf("   %d drawn argument sets (%d raise in Spark): %d differ.%n", nm, mkNull,
+        mkBad);
+
+    System.out.println();
+    System.out.println("7. A floating factor: row 342's 2.4 form against Guava's roundToLong, Spark's");
+    System.out.println("   operation order ((double) micros, then * or /, then HALF_UP).");
+    double[][] fcells = {{1, 0.5}, {-1, 0.5}, {1, -0.5}, {5, 0.5}, {-5, 0.5}, {3, 0.5},
+        {-3, 0.5}, {(1L << 53) - 1, 0.5}, {-((1L << 53) - 1), 0.5}, {(1L << 53) + 1, 1.0},
+        {(1L << 53) + 1, 0.5}, {Long.MAX_VALUE, 1.0}, {Long.MIN_VALUE, 1.0},
+        {Long.MAX_VALUE, -1.0}, {Long.MIN_VALUE, -1.0}, {Long.MAX_VALUE - 511, 1.0},
+        {Long.MAX_VALUE - 512, 1.0}, {Long.MIN_VALUE, 0.5}, {7, Double.NaN},
+        {7, Double.POSITIVE_INFINITY}, {7, -0.0}, {7, 1e-300}};
+    String[] fx = {"1", "-1", "1", "5", "-5", "3", "-3", "2^53-1", "-(2^53-1)", "2^53+1",
+        "2^53+1", "MAX", "MIN", "MAX", "MIN", "MAX-511", "MAX-512", "MIN", "7", "7", "7", "7"};
+    for (int i = 0; i < fcells.length; i++) {
+      long m = (long) fcells[i][0];
+      if (fx[i].startsWith("MAX") || fx[i].startsWith("MIN") || fx[i].contains("2^53"))
+        m = switch (fx[i]) {
+          case "MAX" -> Long.MAX_VALUE; case "MIN" -> Long.MIN_VALUE;
+          case "MAX-511" -> Long.MAX_VALUE - 511; case "MAX-512" -> Long.MAX_VALUE - 512;
+          case "2^53-1" -> (1L << 53) - 1; case "-(2^53-1)" -> -((1L << 53) - 1);
+          default -> (1L << 53) + 1;
+        };
+      double x = fcells[i][1];
+      double p = (double) m * x;
+      System.out.printf("   %s * %s: Spark %s, form %s%n", fx[i], x, sparkRound(p),
+          halfUpDouble(p));
+    }
+    long[][] dcells = {{3, 2}, {-3, 2}, {5, -2}, {1, 0}};
+    for (long[] c : dcells) {
+      double x = c[1] == 0 ? -0.0 : c[1];
+      String spark = x == 0 ? "raises INTERVAL_DIVIDED_BY_ZERO" : String.valueOf(sparkRound(c[0] / x));
+      System.out.printf("   %d / %s: Spark %s, form %s%n", c[0], x, spark,
+          x == 0 ? "declines (zero divisor)" : String.valueOf(halfUpDouble(c[0] / x)));
+    }
+    System.out.printf("   7 / Infinity: Spark %s, form %s; 7 / 1e-300: Spark %s, form %s%n",
+        sparkRound(7 / Double.POSITIVE_INFINITY), halfUpDouble(7 / Double.POSITIVE_INFINITY),
+        sparkRound(7 / 1e-300), halfUpDouble(7 / 1e-300));
+    AtomicLong fbad = new AtomicLong(), fnull = new AtomicLong();
+    long fc = run(LongStream.range(0, N).parallel(), i -> {
+      SplittableRandom r = new SplittableRandom(8_000_003L * i + 11);
+      long m = draw(r);
+      double x = switch (r.nextInt(4)) {
+        case 0 -> (r.nextInt(41) - 20) * 0.5;
+        case 1 -> Math.scalb(r.nextDouble() * 2 - 1, r.nextInt(-60, 12));
+        case 2 -> r.nextBoolean() ? 1.0 / (r.nextInt(1, 100)) : (double) (float) r.nextDouble();
+        default -> Double.longBitsToDouble(r.nextLong());
+      };
+      double p = r.nextBoolean() ? (double) m * x : (x == 0 ? 1.0 : (double) m / x);
+      Long s = sparkRound(p);
+      if (s == null) fnull.incrementAndGet();
+      if (!Objects.equals(s, halfUpDouble(p))) fbad.incrementAndGet();
+    });
+    System.out.printf("   %d drawn (micros, factor) pairs, products and quotients (%d raise in%n"
+        + "   Guava): %d differ.%n", fc, fnull.get(), fbad.get());
+
+    System.out.println();
+    System.out.println("8. A decimal literal factor: micros * u under the step-4 guard, then HALF_UP");
+    System.out.println("   by 10^s (or micros * 10^s, then HALF_UP by u), against Spark's Decimal path.");
+    String[] lits = {"1.5", "0.5", "-0.5", "2.25", "-0.3", "1.7", "0.001", "123.456789"};
+    long litBad = 0, litCells = 0, litDecl = 0;
+    SplittableRandom lr = new SplittableRandom(9);
+    for (String ls : lits) {
+      BigDecimal c = new BigDecimal(ls);
+      long u = c.unscaledValue().longValueExact();
+      long pow = LongMath.pow(10, c.scale());
+      long[] gt = guard(u), gq = guard(pow);
+      for (int i = 0; i < 300_000 + EDGES.length; i++) {
+        long x = i < EDGES.length ? EDGES[i] : draw(lr);
+        litCells++;
+        Long want = sparkDecimalTimes(x, c);
+        Long got = x >= gt[0] && x <= gt[1] ? LongMath.divide(x * u, pow, RoundingMode.HALF_UP)
+            : null;
+        if (got == null) litDecl++;
+        if (got != null && !got.equals(want)) litBad++;
+        Long wantQ = sparkDecimalDiv(x, c);
+        Long gotQ = x >= gq[0] && x <= gq[1] ? LongMath.divide(x * pow, u, RoundingMode.HALF_UP)
+            : null;
+        if (gotQ != null && !gotQ.equals(wantQ)) litBad++;
+      }
+    }
+    System.out.printf("   %d cells over %d literals, products and quotients: %d differ where the%n"
+        + "   guard admits; %d products declined by the guard.%n", litCells, lits.length, litBad,
+        litDecl);
+    System.out.printf("%nTotal %.1f s on %d threads.%n", (System.nanoTime() - t0) / 1e9,
+        Runtime.getRuntime().availableProcessors());
+  }
+}
+
+---- output ----
+1. The day quotient over every long, against Java's x / D (getDays).
+   50000022 longs (the edges and 50000000 drawn): the biased floor 0 differ, the int
+   narrowing of the quotient 0 inexact; largest |shifted dividend| 1125899906842624 (2^50 = 1125899906842624,
+   ConstDivide's bound 2^52 = 4503599627370496); x / D at MIN is -106751991, at MAX 106751991.
+   The magnitude form: arithmetic shift 4 differ (first at MIN: 106751991 against
+   -106751991), logical shift 0 differ.
+   D = 2^13 * 10546875; H = 2^10 * 3515625, so H's shifted magnitude reaches 2^53.
+
+2. The remainder chain: r = x - q * D wrapping, then bounded divisions,
+   against getHours, getMinutes and getSeconds' unscaled value.
+   50000022 longs: r differs from x % D 0 times, |r| at most 86399999999 (< D);
+   hours 0 differ, minutes 0 differ, seconds 0 differ.
+   trunc(x / 3600000000) = q * (D / 3600000000) + r / 3600000000: 50000022 longs, 0 differ
+   trunc(x / 60000000) = q * (D / 60000000) + r / 60000000: 50000022 longs, 0 differ
+   trunc(x / 1000000) = q * (D / 1000000) + r / 1000000: 50000022 longs, 0 differ
+   trunc(x / 1000) = q * (D / 1000) + r / 1000: 50000022 longs, 0 differ
+   trunc(x / 1) = q * (D / 1) + r / 1: 50000022 longs, 0 differ
+   trunc(x / 60) = q * (D / 60) + r / 60: 50000022 longs, 0 differ
+   trunc(x / 24) = q * (D / 24) + r / 24: 50000022 longs, 0 differ
+   7 does not divide D
+   D has 504 divisors, 75 of them from 2 to 1000 (295 up to 10^6).
+
+3. java.time as an oracle: Duration.of(x, MICROS) against Spark's fields.
+   2000000 drawn longs: toDays differs 66144 times, toHoursPart 66414, toMinutesPart 82670,
+   the seconds part with its micros 82670; at x = -D + 1 toDays is -1 and x / D is 0
+   (Duration keeps floor seconds and a non-negative nano part).
+
+4. dt * k for an integral literal: the guard [lo, hi] against multiplyExact.
+   k = 2: [-4611686018427387904, 4611686018427387903]
+   k = 3: [-3074457345618258602, 3074457345618258602]
+   k = 7: [-1317624576693539401, 1317624576693539401]
+   k = 10: [-922337203685477580, 922337203685477580]
+   k = 1000: [-9223372036854775, 9223372036854775]
+   k = 86400: [-106751991167300, 106751991167300]
+   k = 4294967296: [-2147483648, 2147483647]
+   k = 9223372036854775807: [-1, 1]
+   k = -1: [-9223372036854775807, 9223372036854775807]
+   k = -2: [-4611686018427387903, 4611686018427387904]
+   k = -7: [-1317624576693539401, 1317624576693539401]
+   k = -1000: [-9223372036854775, 9223372036854775]
+   k = -9223372036854775808: [0, 1]
+   k = -9223372036854775807: [-1, 1]
+   k = -2147483648: [-4294967295, 4294967296]
+   k = 2147483647: [-4294967298, 4294967298]
+   3200160 cells, 0 where the guard and multiplyExact disagree; the symmetric
+   bound +-(MAX / |k|) would decline 4 admitted cells (micros * k = MIN).
+
+5. dt / k for an integral literal: HALF_UP against LongMath.divide.
+   7600418 cells over 19 divisors, 0 differ; the day split for the divisors of D
+   over every long: 4800264 cells, 0 differ. Ties: 5 / 2 = 3, -5 / 2 = -3, 5 / -2 = -3,
+   2^62 / MIN = -1; LongMath.divide(MIN, -1) = -9223372036854775808 (Spark raises before it); Java's
+   MIN / -1 = -9223372036854775808 (IntegralDivide over an interval has no such check).
+
+6. make_dt_interval: the guards and the partial sums in Spark's order.
+   multiplyExact(days, D) raises at 106751991: false, 106751992: true,
+   -106751991: false, -106751992: true; hours * H at Int.MIN_VALUE and MAX_VALUE: -7730941132800000000, 7730941129200000000
+   (2^63 - 1 = 9223372036854775807); mins * M at Int.MIN_VALUE: -128849018880000000.
+   cell: days 106751991, hours -1, mins 0, secs 14454775808 micros (within
+   DECIMAL(18, 6)): the true sum 9223372033254775808 fits a long (true), Spark gives null, the plan null.
+   5000000 drawn argument sets (2708702 raise in Spark): 0 differ.
+
+7. A floating factor: row 342's 2.4 form against Guava's roundToLong, Spark's
+   operation order ((double) micros, then * or /, then HALF_UP).
+   1 * 0.5: Spark 1, form 1
+   -1 * 0.5: Spark -1, form -1
+   1 * -0.5: Spark -1, form -1
+   5 * 0.5: Spark 3, form 3
+   -5 * 0.5: Spark -3, form -3
+   3 * 0.5: Spark 2, form 2
+   -3 * 0.5: Spark -2, form -2
+   2^53-1 * 0.5: Spark 4503599627370496, form 4503599627370496
+   -(2^53-1) * 0.5: Spark -4503599627370496, form -4503599627370496
+   2^53+1 * 1.0: Spark 9007199254740992, form 9007199254740992
+   2^53+1 * 0.5: Spark 4503599627370496, form 4503599627370496
+   MAX * 1.0: Spark null, form null
+   MIN * 1.0: Spark -9223372036854775808, form -9223372036854775808
+   MAX * -1.0: Spark -9223372036854775808, form -9223372036854775808
+   MIN * -1.0: Spark null, form null
+   MAX-511 * 1.0: Spark null, form null
+   MAX-512 * 1.0: Spark 9223372036854774784, form 9223372036854774784
+   MIN * 0.5: Spark -4611686018427387904, form -4611686018427387904
+   7 * NaN: Spark null, form null
+   7 * Infinity: Spark null, form null
+   7 * -0.0: Spark 0, form 0
+   7 * 1.0E-300: Spark 0, form 0
+   3 / 2.0: Spark 2, form 2
+   -3 / 2.0: Spark -2, form -2
+   5 / -2.0: Spark -3, form -3
+   1 / -0.0: Spark raises INTERVAL_DIVIDED_BY_ZERO, form declines (zero divisor)
+   7 / Infinity: Spark 0, form 0; 7 / 1e-300: Spark null, form null
+   50000000 drawn (micros, factor) pairs, products and quotients (17706464 raise in
+   Guava): 0 differ.
+
+8. A decimal literal factor: micros * u under the step-4 guard, then HALF_UP
+   by 10^s (or micros * 10^s, then HALF_UP by u), against Spark's Decimal path.
+   2400176 cells over 8 literals, products and quotients: 0 differ where the
+   guard admits; 1352613 products declined by the guard.
+
+Total 19.8 s on 24 threads.

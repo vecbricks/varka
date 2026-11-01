@@ -30,6 +30,7 @@ import java.util.function.UnaryOperator;
 
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ColumnRef;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Cond;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.DecimalColumn;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IfElse;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LiteralSlot;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.NarrowLane;
@@ -389,6 +390,7 @@ final class VarkaVariants {
     return switch (node) {
       // withChildren hands a leaf back as it is, so the leaves are built here.
       case ColumnRef c -> new ColumnRef(c.ordinal(), c.lane());
+      case DecimalColumn d -> new DecimalColumn(d.ordinal(), d.lane(), d.precision());
       case LiteralSlot l -> new LiteralSlot(l.index(), l.lane());
       default -> {
         VarkaVectorIR[] children = VarkaVectorIR.childrenOf(node);

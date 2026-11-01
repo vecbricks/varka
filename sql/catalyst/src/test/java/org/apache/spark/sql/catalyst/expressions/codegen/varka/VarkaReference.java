@@ -30,6 +30,7 @@ import java.util.function.LongBinaryOperator;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.*;
 import org.apache.spark.sql.catalyst.util.DateTimeUtils;
 import org.apache.spark.sql.catalyst.util.DateTimeUtils$;
+import org.apache.spark.sql.catalyst.util.SQLOrderingUtil;
 
 /**
  * The reference evaluator (VARKA-11): an independent implementation of the IR's semantics -
@@ -47,6 +48,13 @@ import org.apache.spark.sql.catalyst.util.DateTimeUtils$;
  * the reason it has no meaning on that lane (VARKA-310). Operands are evaluated left to right and
  * a null operand ends the evaluation, so an operand that would throw is never reached past a null
  * before it.
+ *
+ * <p>A floating lane's rows and literals are its values' raw bits: a {@code FLOAT}'s in the int
+ * row, a {@code DOUBLE}'s in the long one (VARKA-341). Its comparisons, {@code <=>},
+ * {@code greatest} and {@code least} order the values by Spark's own
+ * {@code SQLOrderingUtil.compareFloats} and {@code compareDoubles} - NaN equal to NaN and above
+ * every other value, {@code -0.0} equal to {@code 0.0} - and every other node moves the bits, so
+ * a NaN's payload and a zero's sign reach the answer as they are and are compared bit for bit.
  */
 public final class VarkaReference {
 
@@ -75,6 +83,8 @@ public final class VarkaReference {
     return switch (node) {
       case ColumnRef c -> isNull[c.ordinal()] ? OptionalInt.empty()
           : OptionalInt.of(row[c.ordinal()]);
+      case DecimalColumn c ->
+          throw new IllegalArgumentException("a decimal column is on the long lane: " + c);
       case LiteralSlot l -> OptionalInt.of(lits[l.index()]);
       case AddDays(var days, var offset) -> both(days, offset, row, isNull, lits, (d, o) -> d + o);
       case SubDays(var days, var offset) -> both(days, offset, row, isNull, lits, (d, o) -> d - o);
@@ -82,9 +92,13 @@ public final class VarkaReference {
       // notion of a declined batch, and a lane the guard would report is one the kernel does not
       // answer at all, so the differential never compares against it. The value passes through.
       case GuardedDay g -> value(g.days(), row, isNull, lits);
-      // A range guard changes no value; a lane outside it declines the batch, which the suites
-      // assert on the status rather than on a value this evaluator could spell.
-      case GuardedRange g -> value(g.child(), row, isNull, lits);
+      // A failing range guard changes no value; a lane outside it declines the batch, which the
+      // suites assert on the status rather than on a value this evaluator could spell. A nulling
+      // one is Spark's TRY: a value outside its bounds is a null.
+      case GuardedRange g -> {
+        var c = value(g.child(), row, isNull, lits);
+        yield c.isPresent() && nulls(g, c.getAsInt()) ? OptionalInt.empty() : c;
+      }
       // A conversion reads rows of the other lane: a narrowing to the int lane alone is a
       // long-lane shape, answered by `longValue`, and any tree that holds one by `mixedValue`.
       case NarrowLane n when !n.target().isNarrow() -> throw new IllegalArgumentException(
@@ -157,6 +171,14 @@ public final class VarkaReference {
       });
       // BitwiseCount's definition: the popcount of the value widened to a long.
       case BitCount n -> map(n.child(), row, isNull, lits, v -> Long.bitCount((long) v));
+      // At the FLOAT lane by Spark's ordering, the first of two equal operands kept: the bits of
+      // `greatest(-0.0, 0.0)` are -0.0's, and of two NaNs the first's.
+      case Greatest(var left, var right) when node.laneType() == LaneType.FLOAT ->
+          pick(value(left, row, isNull, lits), value(right, row, isNull, lits),
+              (a, b) -> compareFloatBits(b, a) > 0 ? b : a);
+      case Least(var left, var right) when node.laneType() == LaneType.FLOAT ->
+          pick(value(left, row, isNull, lits), value(right, row, isNull, lits),
+              (a, b) -> compareFloatBits(b, a) < 0 ? b : a);
       case Greatest(var left, var right) ->
           pick(value(left, row, isNull, lits), value(right, row, isNull, lits), Math::max);
       case Least(var left, var right) ->
@@ -169,6 +191,10 @@ public final class VarkaReference {
         case FALSE -> OptionalInt.of(0);
         case UNKNOWN -> OptionalInt.empty();
       };
+      // Two bitmaps, not a lane value: a test answers it by cond(), its data bit the known-true
+      // and its validity bit the known.
+      case BoolOutput n -> throw new IllegalArgumentException(
+          "boolean output " + n + " evaluated as a value; answer its condition");
       case Cond c -> throw new IllegalArgumentException("condition " + c + " evaluated as a value");
     };
   }
@@ -281,6 +307,11 @@ public final class VarkaReference {
         : OptionalInt.of((int) exact);
   }
 
+  /** Whether {@code g} nulls a lane holding {@code v}: a {@code NULL} guard, and outside. */
+  private static boolean nulls(GuardedRange g, long v) {
+    return g.mode() == Overflow.NULL && (v < g.lo() || v > g.hi());
+  }
+
   private static long laneMin(LaneType lane) {
     return switch (lane) {
       case BYTE -> Byte.MIN_VALUE;
@@ -346,7 +377,9 @@ public final class VarkaReference {
         if (r.isEmpty()) {
           yield Truth.UNKNOWN;
         }
-        yield Truth.of(compare(op, l.getAsInt(), r.getAsInt()));
+        yield Truth.of(left.laneType() == LaneType.FLOAT
+            ? ordered(op, compareFloatBits(l.getAsInt(), r.getAsInt()))
+            : compare(op, l.getAsInt(), r.getAsInt()));
       }
       // Written from the meaning of `<=>`, not from the emitted formula: two nulls are equal, a
       // null and a value are not, two values are equal when they are. Never unknown.
@@ -355,7 +388,9 @@ public final class VarkaReference {
         var r = value(right, row, isNull, lits);
         yield Truth.of(l.isEmpty() || r.isEmpty()
             ? l.isEmpty() && r.isEmpty()
-            : l.getAsInt() == r.getAsInt());
+            : left.laneType() == LaneType.FLOAT
+                ? compareFloatBits(l.getAsInt(), r.getAsInt()) == 0
+                : l.getAsInt() == r.getAsInt());
       }
       // A boolean column: the data bit is meaningful only where the slot is valid, so an arbitrary
       // bit under a null stays out of the answer by construction here, as in the kernel.
@@ -405,6 +440,11 @@ public final class VarkaReference {
     return switch (node) {
       case ColumnRef c -> isNull[c.ordinal()] ? OptionalLong.empty()
           : OptionalLong.of(row[c.ordinal()]);
+      // The unscaled value, the slot's low word. Whether the slot holds a value of the type at
+      // all reads its high word, which a row of lane values does not carry; the slot table of
+      // VarkaDecimalLoadSuite checks that against Spark's column reader.
+      case DecimalColumn c -> isNull[c.ordinal()] ? OptionalLong.empty()
+          : OptionalLong.of(row[c.ordinal()]);
       case LiteralSlot l -> OptionalLong.of(lits[l.index()]);
       case IntArith n -> longArith(n, row, isNull, lits);
       case IntNeg n -> {
@@ -423,13 +463,25 @@ public final class VarkaReference {
         var c = longValue(n.child(), row, isNull, lits);
         yield c.isEmpty() ? c : OptionalLong.of(c.getAsLong() / n.divisor());
       }
-      case GuardedRange g -> longValue(g.child(), row, isNull, lits);
+      case GuardedRange g -> {
+        var c = longValue(g.child(), row, isNull, lits);
+        yield c.isPresent() && nulls(g, c.getAsLong()) ? OptionalLong.empty() : c;
+      }
       // The narrowing is the kernel's store, not a value change: the reference answers the child
-      // in full and the suite narrows it the way the store does, so a value that does not fit an
-      // int shows as a difference rather than being truncated on both sides.
+      // in full, so a value that does not fit an int shows as a difference from the store rather
+      // than being truncated on both sides, which checks the bound the IR series narrows on. The
+      // conformance path alone truncates it, after this, to hold a LEGACY CAST(x AS INT) to
+      // Spark's answer (VarkaKernelChecks.runLoadedLong with Spark's answers).
       case NarrowLane n -> longValue(n.child(), row, isNull, lits);
       case WidenLane n -> throw new IllegalArgumentException(
           "a widening reads int rows, and is evaluated through mixedValue: " + n);
+      // At the DOUBLE lane by Spark's ordering, the first of two equal operands kept.
+      case Greatest(var left, var right) when node.laneType() == LaneType.DOUBLE ->
+          pick(longValue(left, row, isNull, lits), longValue(right, row, isNull, lits),
+              (a, b) -> compareDoubleBits(b, a) > 0 ? b : a);
+      case Least(var left, var right) when node.laneType() == LaneType.DOUBLE ->
+          pick(longValue(left, row, isNull, lits), longValue(right, row, isNull, lits),
+              (a, b) -> compareDoubleBits(b, a) < 0 ? b : a);
       case Greatest(var left, var right) ->
           pick(longValue(left, row, isNull, lits), longValue(right, row, isNull, lits), Math::max);
       case Least(var left, var right) ->
@@ -442,6 +494,8 @@ public final class VarkaReference {
         case FALSE -> OptionalLong.of(0);
         case UNKNOWN -> OptionalLong.empty();
       };
+      case BoolOutput n -> throw new IllegalArgumentException(
+          "boolean output " + n + " evaluated as a value; answer its condition");
       case BoundedDivide n -> throw new IllegalArgumentException(
           "a bounded division is an int-lane node: " + n);
       // Java's long operators: the shifts mask their count to six bits.
@@ -535,14 +589,18 @@ public final class VarkaReference {
         if (r.isEmpty()) {
           yield Truth.UNKNOWN;
         }
-        yield Truth.of(compare(op, l.getAsLong(), r.getAsLong()));
+        yield Truth.of(left.laneType() == LaneType.DOUBLE
+            ? ordered(op, compareDoubleBits(l.getAsLong(), r.getAsLong()))
+            : compare(op, l.getAsLong(), r.getAsLong()));
       }
       case NullSafeEqual(var left, var right) -> {
         var l = longValue(left, row, isNull, lits);
         var r = longValue(right, row, isNull, lits);
         yield Truth.of(l.isEmpty() || r.isEmpty()
             ? l.isEmpty() && r.isEmpty()
-            : l.getAsLong() == r.getAsLong());
+            : left.laneType() == LaneType.DOUBLE
+                ? compareDoubleBits(l.getAsLong(), r.getAsLong()) == 0
+                : l.getAsLong() == r.getAsLong());
       }
       case BoolColumn n -> isNull[n.ordinal()] ? Truth.UNKNOWN : Truth.of(row[n.ordinal()] != 0);
       case CondConst n -> constant(n);
@@ -740,6 +798,27 @@ public final class VarkaReference {
       case GE -> l >= r;
       case EQ -> l == r;
     };
+  }
+
+  /** {@code op} over the sign of an ordering's answer, {@code c}. */
+  private static boolean ordered(CompareOp op, int c) {
+    return switch (op) {
+      case LT -> c < 0;
+      case LE -> c <= 0;
+      case GT -> c > 0;
+      case GE -> c >= 0;
+      case EQ -> c == 0;
+    };
+  }
+
+  /** Spark's order of two FLOAT values given by their bits: the definition, quoted. */
+  private static int compareFloatBits(int a, int b) {
+    return SQLOrderingUtil.compareFloats(Float.intBitsToFloat(a), Float.intBitsToFloat(b));
+  }
+
+  /** Spark's order of two DOUBLE values given by their bits. */
+  private static int compareDoubleBits(long a, long b) {
+    return SQLOrderingUtil.compareDoubles(Double.longBitsToDouble(a), Double.longBitsToDouble(b));
   }
 
   private static boolean inRanges(int v, List<Integer> bounds) {

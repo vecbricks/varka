@@ -1,0 +1,306 @@
+# Row 509 step 3, its second part, on the laptop, 29 October 2026: VarkaDifferentialSuite's
+# hand-written date, interval and integer shapes moved onto the harness as
+# VarkaDifferentialHarnessSuite. dev/varka_matrix.sh over the suites, one JVM at a time; "before"
+# is the unchanged suite run the same way in the varka-509-step2d worktree (1359fae59cd, whose
+# copy of the suite and of VarkaSharedSessions is this branch's base).
+
+Counts: of the suite's 94 tests, 67 move to the harness, 26 stay end to end, and 1 is in both
+(its answers in the harness, the ILLEGAL_DAY_OF_WEEK a user sees end to end, a condition no
+coverage row raises). The harness suite has 68 tests, the session suite 27; each keeps the old
+name.
+
+What a harness query checks, beside every answer being Spark's under both consumers (the row
+node's for the fused outputs) or through the filter evaluator (over the conjuncts the compiler
+fuses, which is what the rule hands the Varka node), in the old test's terms:
+  RUNS       something fused and a kernel answered a batch: checkDifferential's expectFused
+  FUSED      something fused: assertFused alone
+  WHOLE      fused whole and a kernel answered: the old "fused, not a residual Filter"
+  SERVED     fused whole, every batch answered: the old numFallbackBatchesDeclined === 0
+             beside a kernel run
+  DECLINES   fused whole and a kernel declined a batch by its own status: the old
+             numFallbackBatchesDeclined > 0 with numFallbackBatchesKernel === 0
+  NOT_FUSED  nothing fused: checkDifferential's expectFused = false
+  ANSWERS    the answers only
+and, where the old test read verbose EXPLAIN, the same lines from VarkaFusionReport ("far:
+residual (day range [", "y: fused", "kernel 2 of 2").
+
+What stays end to end: the plan around the Varka nodes (a narrowing projection absorbed, the
+residual conjunct's row filter and the order Spark evaluates conjuncts in, a projection stacked
+on a filter's compacted batch, the common-expression hoist), the fallback hooks and their
+metrics, the reference arm of guardDayProducers (asserted on the metric, never on the value,
+which the harness would compare), AQE, aggregation, the cache's batches and a cached view of
+fused work, tasks sharing a kernel class, a non-Arrow source, the SQL UI's residual count,
+Metaspace and the shape cache's counts, and the next_day error.
+
+Two of the old tables changed shape in the move. last_day's two far-future rows are a table of
+their own: past the range the calendar lowering is exact over, they decline their batch, as
+they did in the old suite's last partition, and the in-range rows are a table the kernel
+answers. And a query the old test stacked on a filter is the filter and the projection, each
+over the whole table.
+
+New: VarkaHarnessParitySuite plans every hand-written query of both harness suites in a session,
+under its part's ANSI mode, and finds each output or condition equal to the harness's.
+
+Every test VarkaDifferentialSuite had before, and where its check is now:
+  a projection with a nondeterministic entry runs as vanilla's, to rows
+  and to batches
+      -> end to end
+  date_add and date_sub match the row engine across literal offsets
+      -> harness
+  date_add/date_sub with a column offset match the row engine
+      -> harness
+  a null offset nulls out its row even when the date beside it is not null
+      -> harness
+  an int column cast to a day interval fuses as the column offset it is
+      -> harness
+  a column-offset date_add fuses inside a filter predicate too
+      -> harness
+  a projection that only narrows a Varka filter leaves no Project above it
+      -> end to end
+  a year-month interval column fuses in every unit, and its far counts
+  decline
+      -> harness
+  the year-month interval algebra fuses and agrees in both ANSI modes
+      -> harness
+  an overflowing interval add raises the row engine's own error in both
+  modes
+      -> harness
+  a guard under a CASE arm condemns from the taken arm only
+      -> harness
+  a literal day shift past the calendar range is residual, with its
+  reason, and an in-range one fuses
+      -> harness
+  a column-offset date_add under a calendar node declines the batch that
+  leaves the range, and the row engine answers it
+      -> harness
+  with the guard off, the far batch runs on the kernel - asserted on the
+  metric, never on the value
+      -> end to end
+  the width-specialised validity helpers answer what the general pair did
+      -> harness
+  the word writer answers what the per-group write answered, over batches
+  whose length is not a whole number of words
+      -> harness
+  the bitmap pass answers what the per-group write answered, end to end,
+  over nulls on either side
+      -> harness
+  the producer guard reaches a filter predicate through the same route
+      -> harness
+  a column month count matches the row engine, declining the batch whose
+  count leaves the emitter's guarded range - the same route as VARKA-52's
+  day producer
+      -> harness
+  a calendar function over a column count above a column day offset is
+  fused, and the composition it cannot bound declines the batch instead
+      -> harness
+  a shift above a guarded day offset fuses up to the decomposition's own
+  ceiling, and is residual one day past it
+      -> harness
+  the producer's own guard reaches a filter predicate through the same
+  route as VARKA-52's day producer
+      -> harness
+  an existing nullable int column, in range, still nulls its row on either
+  side independently when read as a month count, and the guard stays
+  silent
+      -> harness
+  date +- CAST(i AS INTERVAL DAY) matches the row engine on the projection
+  and filter paths, and a stored interval column stays residual
+      -> harness
+  an offset past the cast's limit raises the row engine's error through
+  Varka
+      -> harness
+  datediff matches the row engine in both argument orders with nulls
+      -> harness
+  datediff matches the row engine on null-free and all-null inputs
+      -> harness
+  a mixed-eligibility projection fuses partially and matches the row
+  engine
+      -> harness
+  a projection of forwards and residuals alone stays unfused
+      -> harness
+  a predicated entry fuses beside residual and forwarded ones
+      -> harness
+  constant-folded offsets are fused and match the row engine
+      -> harness
+  nested date expressions are fused and match the row engine
+      -> harness
+  datediff over nested chains is fused in both argument orders with nulls
+      -> harness
+  a shared subchain across outputs is fused and matches the row engine
+      -> harness
+  a nested chain wraps int32 day arithmetic exactly like the row engine
+      -> harness
+  a projection with a bare date column fuses and forwards the column zero-
+  copy
+      -> harness
+  CASE WHEN over dates is fused and matches the row engine, three-valued
+  nulls included
+      -> harness
+  IF with BETWEEN and date literals is fused and matches the row engine
+      -> harness
+  IN over date literals fuses to the cap and declines above it
+      -> harness
+  coalesce, nvl, ifnull and nvl2 fuse and match the row engine
+      -> harness
+  coalesce over all-null and null-free inputs
+      -> harness
+  IS NULL and IS NOT NULL fuse as conditions, connectives included
+      -> harness
+  BETWEEN over a computed input fuses through the common-expression hoist
+      -> end to end
+  cast-wrapped date expressions fuse, folded or unwrapped before the
+  kernel
+      -> harness
+  unix_date and date_from_unix_date fuse as a pure relabel
+      -> harness
+  AND, OR and NOT conditions follow three-valued logic like the row engine
+      -> harness
+  greatest and least skip nulls and fuse, nested chains included
+      -> harness
+  extract(YEAROFWEEK) matches the row engine on the rows the ISO year
+  moves on, beside weekofyear and year, under both spellings and on the
+  filter path
+      -> harness
+  make_date matches the row engine in both modes - nulls for invalid dates
+  with ANSI off, the row engine's error with ANSI on, the date feeding
+  further work
+      -> harness
+  a fused conjunct that can raise sees only the rows the residual
+  conjuncts before it let through, as Spark evaluates them
+      -> end to end
+  a residual conjunct that can raise sees every row Spark evaluates it on,
+  so Varka raises where Spark raises and fuses only the conjuncts Spark
+  evaluates before it
+      -> end to end
+  weekofyear matches the row engine on every day across forty year
+  boundaries, at Velox's fixtures, under every spelling and on the filter
+  path
+      -> harness
+  extract(DAYOFWEEK_ISO), date_part('DOW_ISO') and weekday(d) + 1 match
+  the row engine as one node, with nulls
+      -> harness
+  the calendar extractions match the row engine across the Gregorian range
+      -> harness
+  trunc matches the row engine at every date level, and its date output
+  feeds further arithmetic in the same chain
+      -> harness
+  last_day matches the row engine across the Gregorian range
+      -> harness
+  dayofweek and weekday match the row engine across 1970 and nulls
+      -> harness
+  next_day matches the row engine across 1970, pre-1970 and nulls
+      -> harness
+  next_day with a weekday column matches the row engine over every
+  spelling, the non-names and nulls, through the projection and the
+  filter, with no fallback
+      -> harness
+  a projection over a Varka filter's compacted batch answers through the
+  row path, because the filter compacts a string column generically
+  (recorded limitation)
+      -> end to end
+  under ANSI the valid rows fuse, a non-name beside a live date raises the
+  row engine's own error, and one beside a null date is NULL with no error
+      -> both
+  int arithmetic fuses in all three modes and agrees with the row engine
+      -> harness
+  a multiply fuses only where the operands' bounds rule out overflow
+      -> harness
+  under ANSI an overflowing row raises the row engine's own error
+      -> harness
+  the shapes whose bound was a fiction raise the row engine's error, not
+  an answer
+      -> harness
+  try_add gives NULL for the row that would have raised, and the batch
+  runs on
+      -> harness
+  without ANSI an overflowing row wraps exactly as the row engine wraps
+      -> harness
+  arithmetic is admitted as a day offset, and a calendar node over it is
+  guarded rather than declined
+      -> harness
+  a collated weekday column is admitted and parsed the same way
+      -> harness
+  the rule fires and the kernels run under AQE
+      -> end to end
+  the rule fires and the kernels run under AQE on a mixed projection
+      -> end to end
+  a calendar node inside a fused predicate is computed like any other
+      -> harness
+  a declined batch falls back with the row engine's answers, counted as
+  its own cause
+      -> end to end
+  a kernel failure on a mixed projection falls back whole-batch with
+  correct results
+      -> end to end
+  a kernel failure on a predicated plan falls back per batch with correct
+  results
+      -> end to end
+  a kernel failure on a nested plan falls back per batch with correct
+  results
+      -> end to end
+  filters and aggregation match the row engine
+      -> end to end
+  the survey's filter shapes match the row engine, warm cache included
+      -> end to end
+  null-as-false, and the boundary selectivities
+      -> harness
+  a mixed predicate splits - the residual conjunct stays above, correct
+      -> end to end
+  the driver-side residual count reaches the SQL UI store
+      -> end to end
+  caching a view over fused Varka work keeps the work
+      -> end to end
+  a nondeterministic conjunct keeps the whole filter unfused
+      -> end to end
+  filters over multiple batches and tasks share one mask kernel class
+      -> end to end
+  multi-batch: every cached Arrow batch is processed by the kernels
+      -> end to end
+  the cached batches hold the rows the batch-size axis names (VARKA-301)
+      -> end to end
+  multi-task: tasks sharing one cached kernel class produce correct
+  results
+      -> end to end
+  a non-Arrow columnar source never runs the kernels and matches the row
+  engine
+      -> end to end
+  many distinct-literal Varka tasks are one cached shape, Metaspace
+  bounded
+      -> end to end
+  near-miss shapes back to back in the warm cache stay distinct
+      -> harness
+  trunc with a format column matches the row engine over every spelling,
+  the sub-day and unrecognised formats and nulls, through the projection
+  and the filter, composed under a calendar function, with no fallback, in
+  both ANSI modes
+      -> harness
+  a trunc projection over a Varka filter's compacted batch answers through
+  the row path, the string-column limitation VARKA-59 recorded
+      -> end to end
+  a bigint shifted by an int column and bit_count of a bigint under
+  another node match the row engine for every edge count and value, nulls
+  in either operand
+      -> harness
+  a projection of a narrow entry and then a bigint one answers from a
+  kernel per lane
+      -> harness
+
+Times, seconds (JUnit's for a JUnit class, ScalaTest's "Run completed" for the Scala suite):
+                     before (the suite)        after (the harness suite + the session suite)
+  defaults             66                         4.1 + 36.7
+  arrowBatchSize=1     70                         4.6 + 36.4
+Both columns were measured in dev/varka_matrix.sh's test JVM, with sbt's test options
+(spark.memory.debugFill=true among them). The profile's 147 s for the same suite
+(VARKA-509-profile-local.txt) was measured before VarkaSharedSessions set spark.buffer.pageSize
+to 1 MB (#1099); the profile's own run with that page size took 72 s.
+
+The matrix's skip lines: 11 move to VarkaDifferentialHarnessSuite under the same names, and
+each test still cancels where it did: checkIntOverflow=false 6 cancelled (5 harness, 1 end to
+end), guardDayProducers=false 3, guardUnderArm=false 1, severalKernels=false 1,
+validityByWidth=false 1. arrowBatchSize=1's line for "null-as-false, and the boundary
+selectivities" is removed: its reason was the in-memory scan's statistics pruning one-row
+batches, and the harness has no scan, so the test passes there; that configuration's other
+three lines stay with their session tests (3 cancelled).
+
+At the defaults, the harness and session suites of row 509 together, one JVM: 1211 tests, all
+passing (1067 + 68 + 9 harness, 2 parity, 27 + 3 + 35 end to end).

@@ -1,0 +1,366 @@
+VARKA-345 admission checks, 30 October 2026, laptop (Zen 5, JDK 25.0.4.1, single-file source
+launch, a few seconds a run). Method: the program below, run as written under the shared heavy
+slot twice, once at the preferred 512-bit species and once with -XX:MaxVectorSize=32 (256 bits,
+SVML's l9 symbols); both outputs follow it, blank DEBUG lines and the CPU feature lists removed.
+Every number VARKA-345.md quotes from these checks is in the output. The timings of part 4 are
+laptop numbers on an otherwise idle machine, minima of nine timings, for the direction of an
+effect only; no plan claim rests on their size.
+
+The command, from the directory holding the program:
+  java --add-modules jdk.incubator.vector -Djdk.incubator.vector.DEBUG=true \
+    -XX:CompileCommand=quiet '-XX:CompileCommand=exclude,Varka345Admission::cold*' \
+    [-XX:MaxVectorSize=32] Varka345Admission.java
+
+---- program ----
+// VARKA-345 admission checks: what the Vector API's math operators bind to on this host, what
+// they compute outside C2, what a step count admits against a multiple of Math.ulp, and what a
+// lane the kernel does not use costs a library call. Run (JDK 25, single-file source launch) as
+//   java --add-modules jdk.incubator.vector -Djdk.incubator.vector.DEBUG=true \
+//     -XX:CompileCommand=quiet -XX:CompileCommand=exclude,Varka345Admission::cold* \
+//     Varka345Admission.java
+// The DEBUG lines the JDK prints while part 1 runs are its own (VectorMathLibrary.constructEntry).
+import java.util.*;
+import java.util.function.*;
+import jdk.incubator.vector.*;
+
+public class Varka345Admission {
+  static final VectorOperators.Unary[] UNARY = {
+    VectorOperators.SIN, VectorOperators.COS, VectorOperators.TAN, VectorOperators.ASIN,
+    VectorOperators.ACOS, VectorOperators.ATAN, VectorOperators.EXP, VectorOperators.LOG,
+    VectorOperators.LOG10, VectorOperators.CBRT, VectorOperators.SINH, VectorOperators.COSH,
+    VectorOperators.TANH, VectorOperators.EXPM1, VectorOperators.LOG1P};
+  static final VectorOperators.Binary[] BINARY = {
+    VectorOperators.ATAN2, VectorOperators.POW, VectorOperators.HYPOT};
+  static final VectorSpecies<Double> S = DoubleVector.SPECIES_PREFERRED;
+  static final int N = 1 << 16;
+
+  // ---- part 2: one operator, a compile-time constant, in a hot loop and in an excluded one ----
+  static void hotSin(double[] in, double[] out) {
+    for (int i = 0; i < in.length; i += S.length()) {
+      DoubleVector.fromArray(S, in, i).lanewise(VectorOperators.SIN).intoArray(out, i);
+    }
+  }
+  static void coldSin(double[] in, double[] out) {
+    for (int i = 0; i < in.length; i += S.length()) {
+      DoubleVector.fromArray(S, in, i).lanewise(VectorOperators.SIN).intoArray(out, i);
+    }
+  }
+  static void hotExp(double[] in, double[] out) {
+    for (int i = 0; i < in.length; i += S.length()) {
+      DoubleVector.fromArray(S, in, i).lanewise(VectorOperators.EXP).intoArray(out, i);
+    }
+  }
+  static void coldExp(double[] in, double[] out) {
+    for (int i = 0; i < in.length; i += S.length()) {
+      DoubleVector.fromArray(S, in, i).lanewise(VectorOperators.EXP).intoArray(out, i);
+    }
+  }
+
+  // ---- part 4: the cost of an argument in a lane the kernel does not use ----
+  static void sinLoop(double[] in, double[] out) {
+    for (int i = 0; i < in.length; i += S.length()) {
+      DoubleVector.fromArray(S, in, i).lanewise(VectorOperators.SIN).intoArray(out, i);
+    }
+  }
+  static void sinMasked(double[] in, double[] out, VectorMask<Double> m) {
+    for (int i = 0; i < in.length; i += S.length()) {
+      DoubleVector.fromArray(S, in, i).lanewise(VectorOperators.SIN, m).intoArray(out, i);
+    }
+  }
+  static void sinBlended(double[] in, double[] out, boolean[] unused) {
+    for (int i = 0; i < in.length; i += S.length()) {
+      VectorMask<Double> off = VectorMask.fromArray(S, unused, i);
+      DoubleVector.fromArray(S, in, i).blend(0.5, off).lanewise(VectorOperators.SIN)
+          .intoArray(out, i);
+    }
+  }
+  static void tanLoop(double[] in, double[] out) {
+    for (int i = 0; i < in.length; i += S.length()) {
+      DoubleVector.fromArray(S, in, i).lanewise(VectorOperators.TAN).intoArray(out, i);
+    }
+  }
+  static void expLoop(double[] in, double[] out) {
+    for (int i = 0; i < in.length; i += S.length()) {
+      DoubleVector.fromArray(S, in, i).lanewise(VectorOperators.EXP).intoArray(out, i);
+    }
+  }
+  static void logLoop(double[] in, double[] out) {
+    for (int i = 0; i < in.length; i += S.length()) {
+      DoubleVector.fromArray(S, in, i).lanewise(VectorOperators.LOG).intoArray(out, i);
+    }
+  }
+
+  static double nsPerElement(Runnable r) {
+    for (int w = 0; w < 400; w++) r.run();
+    double best = Double.MAX_VALUE;
+    for (int t = 0; t < 9; t++) {
+      long t0 = System.nanoTime();
+      for (int k = 0; k < 40; k++) r.run();
+      best = Math.min(best, (System.nanoTime() - t0) / (40.0 * N));
+    }
+    return best;
+  }
+
+  static long steps(double a, double b) {
+    return Math.abs(Double.doubleToRawLongBits(a) - Double.doubleToRawLongBits(b));
+  }
+
+  public static void main(String[] args) {
+    System.out.println("host: java.runtime.version=" + System.getProperty("java.runtime.version")
+        + " os.arch=" + System.getProperty("os.arch") + " preferred species=" + S
+        + " library=" + System.getProperty("jdk.incubator.vector.VectorMathLibrary", "default"));
+
+    System.out.println("\n1. The binding: each operator once at 512, 256 and 128 bits (the DEBUG"
+        + " lines are the JDK's; an operator with no line has no symbol at that species)");
+    for (VectorSpecies<Double> sp : List.of(DoubleVector.SPECIES_512, DoubleVector.SPECIES_256,
+        DoubleVector.SPECIES_128)) {
+      if (sp.vectorBitSize() > S.vectorBitSize()) continue;
+      System.out.println("-- " + sp);
+      DoubleVector v = DoubleVector.broadcast(sp, 0.5);
+      for (VectorOperators.Unary op : UNARY) v.lanewise(op);
+      for (VectorOperators.Binary op : BINARY) v.lanewise(op, v);
+    }
+
+    System.out.println("\n2. Outside C2: the same loop hot and excluded from compilation, "
+        + N + " inputs");
+    Random r = new Random(345);
+    double[] in = new double[N], hot = new double[N], cold = new double[N];
+    for (int i = 0; i < N; i++) in[i] = (r.nextDouble() - 0.5) * 20;
+    for (int k = 0; k < 3000; k++) hotSin(in, hot);
+    coldSin(in, cold);
+    int hotVsMath = 0, coldVsMath = 0;
+    for (int i = 0; i < N; i++) {
+      if (hot[i] != Math.sin(in[i])) hotVsMath++;
+      if (Double.doubleToRawLongBits(cold[i]) != Double.doubleToRawLongBits(Math.sin(in[i])))
+        coldVsMath++;
+    }
+    System.out.printf("SIN hot (C2):      %6d lanes differ from Math.sin%n", hotVsMath);
+    System.out.printf("SIN excluded:      %6d lanes differ from Math.sin%n", coldVsMath);
+    for (int i = 0; i < N; i++) in[i] = (r.nextDouble() - 0.5) * 40;
+    for (int k = 0; k < 3000; k++) hotExp(in, hot);
+    coldExp(in, cold);
+    int hotVsStrict = 0, coldVsStrict = 0, coldVsMathExp = 0;
+    for (int i = 0; i < N; i++) {
+      if (hot[i] != StrictMath.exp(in[i])) hotVsStrict++;
+      if (cold[i] != StrictMath.exp(in[i])) coldVsStrict++;
+      if (Double.doubleToRawLongBits(cold[i]) != Double.doubleToRawLongBits(Math.exp(in[i])))
+        coldVsMathExp++;
+    }
+    System.out.printf("EXP hot (C2):      %6d lanes differ from StrictMath.exp%n", hotVsStrict);
+    System.out.printf("EXP excluded:      %6d lanes differ from StrictMath.exp,"
+        + " %d from Math.exp%n", coldVsStrict, coldVsMathExp);
+
+    System.out.println("\n3. What a bound of one admits: steps against |a - r| <= Math.ulp(r)");
+    double one = 1.0;
+    double below2 = Math.nextDown(Math.nextDown(one));
+    System.out.printf("r = 1.0, a = two doubles below: steps %d, |a - r| <= ulp(r): %b%n",
+        steps(below2, one), Math.abs(below2 - one) <= Math.ulp(one));
+    double inf = Double.POSITIVE_INFINITY;
+    System.out.printf("r = +inf, a = 1.0: |a - r| <= ulp(r): %b%n",
+        Math.abs(1.0 - inf) <= Math.ulp(inf));
+    System.out.printf("r = +0.0, a = -0.0: |a - r| <= ulp(r): %b, raw-bit steps %d%n",
+        Math.abs(-0.0 - 0.0) <= Math.ulp(0.0), steps(-0.0, 0.0));
+    System.out.printf("r = Double.MAX_VALUE, a = +inf: raw-bit steps %d%n",
+        steps(inf, Double.MAX_VALUE));
+    System.out.printf("r = Double.MIN_VALUE, a = -Double.MIN_VALUE: raw-bit steps %d%n",
+        steps(-Double.MIN_VALUE, Double.MIN_VALUE));
+
+    System.out.println("\n4. A lane the kernel does not use, C2 hot loops, laptop, ns per element"
+        + " (minimum of 9 timings of 40 passes over " + N + ")");
+    double[] ordinary = new double[N], out = new double[N];
+    for (int i = 0; i < N; i++) ordinary[i] = 0.25 + (i % 1000) * 1e-3;
+    BiFunction<double[], Double, double[]> oneInEight = (base, special) -> {
+      double[] a = base.clone();
+      for (int i = 0; i < N; i += 8) a[i] = special;
+      return a;
+    };
+    double[] huge = oneInEight.apply(ordinary, 1e300);
+    double[] nan = oneInEight.apply(ordinary, Double.NaN);
+    double[] overflow = oneInEight.apply(ordinary, 800.0);
+    double[] subnormal = oneInEight.apply(ordinary, Double.MIN_VALUE);
+    double[] negative = oneInEight.apply(ordinary, -1.0);
+    System.out.printf("SIN ordinary               %6.3f%n", nsPerElement(() -> sinLoop(ordinary, out)));
+    System.out.printf("SIN 1 lane in 8 at 1e300   %6.3f%n", nsPerElement(() -> sinLoop(huge, out)));
+    System.out.printf("SIN 1 lane in 8 NaN        %6.3f%n", nsPerElement(() -> sinLoop(nan, out)));
+    System.out.printf("TAN ordinary               %6.3f%n", nsPerElement(() -> tanLoop(ordinary, out)));
+    System.out.printf("TAN 1 lane in 8 at 1e300   %6.3f%n", nsPerElement(() -> tanLoop(huge, out)));
+    System.out.printf("EXP ordinary               %6.3f%n", nsPerElement(() -> expLoop(ordinary, out)));
+    System.out.printf("EXP 1 lane in 8 at 800     %6.3f%n", nsPerElement(() -> expLoop(overflow, out)));
+    System.out.printf("LOG ordinary               %6.3f%n", nsPerElement(() -> logLoop(ordinary, out)));
+    System.out.printf("LOG 1 lane in 8 subnormal  %6.3f%n", nsPerElement(() -> logLoop(subnormal, out)));
+    System.out.printf("LOG 1 lane in 8 at -1      %6.3f%n", nsPerElement(() -> logLoop(negative, out)));
+    boolean[] unused = new boolean[N];
+    for (int i = 0; i < N; i += 8) unused[i] = true;
+    boolean[] noneUnused = new boolean[N];
+    System.out.printf("SIN ordinary, the blend to 0.5 by a loaded mask, no lane set  %6.3f%n",
+        nsPerElement(() -> sinBlended(ordinary, out, noneUnused)));
+    System.out.printf("SIN 1 lane in 8 at 1e300, that lane blended to 0.5 first     %6.3f%n",
+        nsPerElement(() -> sinBlended(huge, out, unused)));
+    System.out.printf("SIN 1 lane in 8 NaN, that lane blended to 0.5 first          %6.3f%n",
+        nsPerElement(() -> sinBlended(nan, out, unused)));
+    VectorMask<Double> none = S.maskAll(false);
+    System.out.printf("SIN masked, no lane set, 1 lane in 8 at 1e300 %6.3f%n",
+        nsPerElement(() -> sinMasked(huge, out, none)));
+    sinMasked(huge, out, none);
+    int kept = 0;
+    for (int i = 0; i < N; i++) if (Double.doubleToRawLongBits(out[i]) == Double.doubleToRawLongBits(huge[i])) kept++;
+    System.out.printf("SIN masked, no lane set: %d of %d lanes are the input unchanged%n", kept, N);
+  }
+}
+
+---- output, 512-bit preferred species ----
+WARNING: Using incubator modules: jdk.incubator.vector
+host: java.runtime.version=25.0.4.1+1-1-26.04.4-Ubuntu os.arch=amd64 preferred species=Species[double, 8, S_512_BIT] library=default
+1. The binding: each operator once at 512, 256 and 128 bits (the DEBUG lines are the JDK's; an operator with no line has no symbol at that species)
+-- Species[double, 8, S_512_BIT]
+DEBUG: VectorMathLibrary: SIN __jsvml_sin8_ha_z0 => 0x0000706935151480
+DEBUG: VectorMathLibrary: COS __jsvml_cos8_ha_z0 => 0x000070693513fc50
+DEBUG: VectorMathLibrary: TAN __jsvml_tan8_ha_z0 => 0x00007069351557b0
+DEBUG: VectorMathLibrary: ASIN __jsvml_asin8_ha_z0 => 0x0000706935136ea0
+DEBUG: VectorMathLibrary: ACOS __jsvml_acos8_ha_z0 => 0x0000706935134f20
+DEBUG: VectorMathLibrary: ATAN __jsvml_atan8_ha_z0 => 0x000070693513c770
+DEBUG: VectorMathLibrary: EXP __jsvml_exp8_ha_z0 => 0x00007069351442f0
+DEBUG: X64: AVX=true; AVX2=true; AVX512F=true; AVX512DQ=true
+DEBUG: VectorMathLibrary: LOG __jsvml_log8_ha_z0 => 0x000070693514b240
+DEBUG: VectorMathLibrary: LOG10 __jsvml_log108_ha_z0 => 0x00007069351484f0
+DEBUG: VectorMathLibrary: CBRT __jsvml_cbrt8_ha_z0 => 0x000070693513e160
+DEBUG: VectorMathLibrary: SINH __jsvml_sinh8_ha_z0 => 0x0000706935152da0
+DEBUG: VectorMathLibrary: COSH __jsvml_cosh8_ha_z0 => 0x0000706935143120
+DEBUG: VectorMathLibrary: TANH __jsvml_tanh8_ha_z0 => 0x0000706935158d30
+DEBUG: VectorMathLibrary: EXPM1 __jsvml_expm18_ha_z0 => 0x00007069351460e0
+DEBUG: VectorMathLibrary: LOG1P __jsvml_log1p8_ha_z0 => 0x000070693514a050
+DEBUG: VectorMathLibrary: ATAN2 __jsvml_atan28_ha_z0 => 0x0000706935139e50
+DEBUG: VectorMathLibrary: POW __jsvml_pow8_ha_z0 => 0x000070693514ba50
+DEBUG: VectorMathLibrary: HYPOT __jsvml_hypot8_ha_z0 => 0x0000706935147590
+-- Species[double, 4, S_256_BIT]
+DEBUG: VectorMathLibrary: SIN __jsvml_sin4_ha_l9 => 0x000070693514e970
+DEBUG: VectorMathLibrary: COS __jsvml_cos4_ha_l9 => 0x0000706935140e20
+DEBUG: VectorMathLibrary: TAN __jsvml_tan4_ha_l9 => 0x0000706935157460
+DEBUG: VectorMathLibrary: ASIN __jsvml_asin4_ha_l9 => 0x0000706935136560
+DEBUG: VectorMathLibrary: ACOS __jsvml_acos4_ha_l9 => 0x0000706935134830
+DEBUG: VectorMathLibrary: ATAN __jsvml_atan4_ha_l9 => 0x000070693513d420
+DEBUG: VectorMathLibrary: EXP __jsvml_exp4_ha_l9 => 0x0000706935144c10
+DEBUG: VectorMathLibrary: LOG __jsvml_log4_ha_l9 => 0x000070693514aa60
+DEBUG: VectorMathLibrary: LOG10 __jsvml_log104_ha_l9 => 0x0000706935148b80
+DEBUG: VectorMathLibrary: CBRT __jsvml_cbrt4_ha_l9 => 0x000070693513df00
+DEBUG: VectorMathLibrary: SINH __jsvml_sinh4_ha_l9 => 0x00007069351528d0
+DEBUG: VectorMathLibrary: COSH __jsvml_cosh4_ha_l9 => 0x0000706935142f40
+DEBUG: VectorMathLibrary: TANH __jsvml_tanh4_ha_l9 => 0x0000706935157d20
+DEBUG: VectorMathLibrary: EXPM1 __jsvml_expm14_ha_l9 => 0x00007069351452f0
+DEBUG: VectorMathLibrary: LOG1P __jsvml_log1p4_ha_l9 => 0x0000706935149000
+DEBUG: VectorMathLibrary: ATAN2 __jsvml_atan24_ha_l9 => 0x0000706935138a80
+DEBUG: VectorMathLibrary: HYPOT __jsvml_hypot4_ha_l9 => 0x0000706935146ff0
+-- Species[double, 2, S_128_BIT]
+DEBUG: VectorMathLibrary: SIN __jsvml_sin2_ha_l9 => 0x0000706935150460
+DEBUG: VectorMathLibrary: COS __jsvml_cos2_ha_l9 => 0x0000706935141430
+DEBUG: VectorMathLibrary: TAN __jsvml_tan2_ha_l9 => 0x00007069351566d0
+DEBUG: VectorMathLibrary: ASIN __jsvml_asin2_ha_l9 => 0x0000706935136360
+DEBUG: VectorMathLibrary: ACOS __jsvml_acos2_ha_l9 => 0x0000706935134100
+DEBUG: VectorMathLibrary: ATAN __jsvml_atan2_ha_l9 => 0x000070693513cec0
+DEBUG: VectorMathLibrary: EXP __jsvml_exp2_ha_l9 => 0x0000706935144900
+DEBUG: VectorMathLibrary: LOG __jsvml_log2_ha_l9 => 0x000070693514ac10
+DEBUG: VectorMathLibrary: LOG10 __jsvml_log102_ha_l9 => 0x0000706935148a00
+DEBUG: VectorMathLibrary: CBRT __jsvml_cbrt2_ha_l9 => 0x000070693513e4e0
+DEBUG: VectorMathLibrary: SINH __jsvml_sinh2_ha_l9 => 0x00007069351524e0
+DEBUG: VectorMathLibrary: COSH __jsvml_cosh2_ha_l9 => 0x0000706935143360
+DEBUG: VectorMathLibrary: TANH __jsvml_tanh2_ha_l9 => 0x00007069351581f0
+DEBUG: VectorMathLibrary: EXPM1 __jsvml_expm12_ha_l9 => 0x0000706935145700
+DEBUG: VectorMathLibrary: LOG1P __jsvml_log1p2_ha_l9 => 0x0000706935149e80
+DEBUG: VectorMathLibrary: ATAN2 __jsvml_atan22_ha_l9 => 0x00007069351394d0
+DEBUG: VectorMathLibrary: HYPOT __jsvml_hypot2_ha_l9 => 0x0000706935146e40
+2. Outside C2: the same loop hot and excluded from compilation, 65536 inputs
+SIN hot (C2):         130 lanes differ from Math.sin
+SIN excluded:           0 lanes differ from Math.sin
+EXP hot (C2):        6922 lanes differ from StrictMath.exp
+EXP excluded:        6443 lanes differ from StrictMath.exp, 0 from Math.exp
+3. What a bound of one admits: steps against |a - r| <= Math.ulp(r)
+r = 1.0, a = two doubles below: steps 2, |a - r| <= ulp(r): true
+r = +inf, a = 1.0: |a - r| <= ulp(r): true
+r = +0.0, a = -0.0: |a - r| <= ulp(r): true, raw-bit steps -9223372036854775808
+r = Double.MAX_VALUE, a = +inf: raw-bit steps 1
+r = Double.MIN_VALUE, a = -Double.MIN_VALUE: raw-bit steps -9223372036854775808
+4. A lane the kernel does not use, C2 hot loops, laptop, ns per element (minimum of 9 timings of 40 passes over 65536)
+SIN ordinary                0.763
+SIN 1 lane in 8 at 1e300    4.521
+SIN 1 lane in 8 NaN         4.644
+TAN ordinary                0.963
+TAN 1 lane in 8 at 1e300    3.879
+EXP ordinary                0.441
+EXP 1 lane in 8 at 800      0.422
+LOG ordinary                0.518
+LOG 1 lane in 8 subnormal   0.497
+LOG 1 lane in 8 at -1       0.493
+SIN ordinary, the blend to 0.5 by a loaded mask, no lane set   0.813
+SIN 1 lane in 8 at 1e300, that lane blended to 0.5 first      0.806
+SIN 1 lane in 8 NaN, that lane blended to 0.5 first           0.807
+SIN masked, no lane set, 1 lane in 8 at 1e300  4.590
+SIN masked, no lane set: 65536 of 65536 lanes are the input unchanged
+
+---- output, -XX:MaxVectorSize=32 ----
+WARNING: Using incubator modules: jdk.incubator.vector
+host: java.runtime.version=25.0.4.1+1-1-26.04.4-Ubuntu os.arch=amd64 preferred species=Species[double, 4, S_256_BIT] library=default
+1. The binding: each operator once at 512, 256 and 128 bits (the DEBUG lines are the JDK's; an operator with no line has no symbol at that species)
+-- Species[double, 4, S_256_BIT]
+DEBUG: X64: AVX=true; AVX2=true; AVX512F=true; AVX512DQ=true
+DEBUG: VectorMathLibrary: SIN __jsvml_sin4_ha_l9 => 0x00007b86c284e970
+DEBUG: VectorMathLibrary: COS __jsvml_cos4_ha_l9 => 0x00007b86c2840e20
+DEBUG: VectorMathLibrary: TAN __jsvml_tan4_ha_l9 => 0x00007b86c2857460
+DEBUG: VectorMathLibrary: ASIN __jsvml_asin4_ha_l9 => 0x00007b86c2836560
+DEBUG: VectorMathLibrary: ACOS __jsvml_acos4_ha_l9 => 0x00007b86c2834830
+DEBUG: VectorMathLibrary: ATAN __jsvml_atan4_ha_l9 => 0x00007b86c283d420
+DEBUG: VectorMathLibrary: EXP __jsvml_exp4_ha_l9 => 0x00007b86c2844c10
+DEBUG: VectorMathLibrary: LOG __jsvml_log4_ha_l9 => 0x00007b86c284aa60
+DEBUG: VectorMathLibrary: LOG10 __jsvml_log104_ha_l9 => 0x00007b86c2848b80
+DEBUG: VectorMathLibrary: CBRT __jsvml_cbrt4_ha_l9 => 0x00007b86c283df00
+DEBUG: VectorMathLibrary: SINH __jsvml_sinh4_ha_l9 => 0x00007b86c28528d0
+DEBUG: VectorMathLibrary: COSH __jsvml_cosh4_ha_l9 => 0x00007b86c2842f40
+DEBUG: VectorMathLibrary: TANH __jsvml_tanh4_ha_l9 => 0x00007b86c2857d20
+DEBUG: VectorMathLibrary: EXPM1 __jsvml_expm14_ha_l9 => 0x00007b86c28452f0
+DEBUG: VectorMathLibrary: LOG1P __jsvml_log1p4_ha_l9 => 0x00007b86c2849000
+DEBUG: VectorMathLibrary: ATAN2 __jsvml_atan24_ha_l9 => 0x00007b86c2838a80
+DEBUG: VectorMathLibrary: HYPOT __jsvml_hypot4_ha_l9 => 0x00007b86c2846ff0
+-- Species[double, 2, S_128_BIT]
+DEBUG: VectorMathLibrary: SIN __jsvml_sin2_ha_l9 => 0x00007b86c2850460
+DEBUG: VectorMathLibrary: COS __jsvml_cos2_ha_l9 => 0x00007b86c2841430
+DEBUG: VectorMathLibrary: TAN __jsvml_tan2_ha_l9 => 0x00007b86c28566d0
+DEBUG: VectorMathLibrary: ASIN __jsvml_asin2_ha_l9 => 0x00007b86c2836360
+DEBUG: VectorMathLibrary: ACOS __jsvml_acos2_ha_l9 => 0x00007b86c2834100
+DEBUG: VectorMathLibrary: ATAN __jsvml_atan2_ha_l9 => 0x00007b86c283cec0
+DEBUG: VectorMathLibrary: EXP __jsvml_exp2_ha_l9 => 0x00007b86c2844900
+DEBUG: VectorMathLibrary: LOG __jsvml_log2_ha_l9 => 0x00007b86c284ac10
+DEBUG: VectorMathLibrary: LOG10 __jsvml_log102_ha_l9 => 0x00007b86c2848a00
+DEBUG: VectorMathLibrary: CBRT __jsvml_cbrt2_ha_l9 => 0x00007b86c283e4e0
+DEBUG: VectorMathLibrary: SINH __jsvml_sinh2_ha_l9 => 0x00007b86c28524e0
+DEBUG: VectorMathLibrary: COSH __jsvml_cosh2_ha_l9 => 0x00007b86c2843360
+DEBUG: VectorMathLibrary: TANH __jsvml_tanh2_ha_l9 => 0x00007b86c28581f0
+DEBUG: VectorMathLibrary: EXPM1 __jsvml_expm12_ha_l9 => 0x00007b86c2845700
+DEBUG: VectorMathLibrary: LOG1P __jsvml_log1p2_ha_l9 => 0x00007b86c2849e80
+DEBUG: VectorMathLibrary: ATAN2 __jsvml_atan22_ha_l9 => 0x00007b86c28394d0
+DEBUG: VectorMathLibrary: HYPOT __jsvml_hypot2_ha_l9 => 0x00007b86c2846e40
+2. Outside C2: the same loop hot and excluded from compilation, 65536 inputs
+SIN hot (C2):          76 lanes differ from Math.sin
+SIN excluded:           0 lanes differ from Math.sin
+EXP hot (C2):        6446 lanes differ from StrictMath.exp
+EXP excluded:        6443 lanes differ from StrictMath.exp, 0 from Math.exp
+3. What a bound of one admits: steps against |a - r| <= Math.ulp(r)
+r = 1.0, a = two doubles below: steps 2, |a - r| <= ulp(r): true
+r = +inf, a = 1.0: |a - r| <= ulp(r): true
+r = +0.0, a = -0.0: |a - r| <= ulp(r): true, raw-bit steps -9223372036854775808
+r = Double.MAX_VALUE, a = +inf: raw-bit steps 1
+r = Double.MIN_VALUE, a = -Double.MIN_VALUE: raw-bit steps -9223372036854775808
+4. A lane the kernel does not use, C2 hot loops, laptop, ns per element (minimum of 9 timings of 40 passes over 65536)
+SIN ordinary                1.114
+SIN 1 lane in 8 at 1e300    2.795
+SIN 1 lane in 8 NaN         3.002
+TAN ordinary                1.546
+TAN 1 lane in 8 at 1e300    3.470
+EXP ordinary                0.615
+EXP 1 lane in 8 at 800      0.660
+LOG ordinary                0.931
+LOG 1 lane in 8 subnormal   5.036
+LOG 1 lane in 8 at -1       1.094
+SIN ordinary, the blend to 0.5 by a loaded mask, no lane set   1.223
+SIN 1 lane in 8 at 1e300, that lane blended to 0.5 first      1.222
+SIN 1 lane in 8 NaN, that lane blended to 0.5 first           1.221
+SIN masked, no lane set, 1 lane in 8 at 1e300  2.857
+SIN masked, no lane set: 65536 of 65536 lanes are the input unchanged

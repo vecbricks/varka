@@ -213,7 +213,7 @@ entries. About five days after the baseline.
 4. **The semantics** (2.5) with the table test, then the conformance suites and coverage rows.
 5. **The fuzzers, the generated files, CI.**
 
-Dependencies: #1031 (the long-lane conformance harness, `hasArithmetic`) before the conformance
+Dependencies: #1031 (the long-lane conformance harness and its pair form) before the conformance
 suites; row 497 if it lands first (one `IN` arm). The coverage rows' literals keep one integer digit
 (`1.5`), since the quote check reads a number like `12.5` as a measurement; row 500 skips only a
 clock time's seconds.
@@ -229,6 +229,71 @@ clock time's seconds.
 | tests | the table test, two conformance suites, coverage rows, fuzz sequence, oracle conversion |
 | generated | `coverage.json`, `docs/sql-varka.md`, `width_audit.json`, `emitted_bytes.json` |
 | generated | `types.tsv`, `census.tsv`, `casts_fused.tsv` |
+
+### 5.1 Steps 3 and 4 as built (27 October 2026)
+
+Where the code departs from 2.4 to 2.7, and what is still owed:
+
+- **`isnan` is no new IR node.** It is `x = NaN` under the lane's `=`, made total as
+  `(x = NaN) IS NOT NULL AND x = NaN`, and `nanvl(a, b)` is `IfElse` over it. The answer is 2.5's;
+  the cost feature of 2.7 has no node to attach to, and the compare's weight
+  (`VarkaEmitBudget.FLOATING_ORDER_WEIGHT`) covers it.
+- **No literal-specialised compares yet.** Every floating compare, against a literal or not, takes
+  the general formula of 2.5. The specialised forms, and their table rows, are owed by 9.
+- **No mixed-kind kernel yet.** A `DOUBLE` root beside a `LONG` one takes a kernel of its own in a
+  projection, and a floating conjunct beside one that an integral lane reads stays a row filter.
+  The mask crossing of 2.4 (`VectorMask.cast`) is the step after these two.
+- **The harnesses read the literal table by the lane's width** (`bits() == Long.SIZE`), so a
+  `DOUBLE` kernel runs through the long harness and a `FLOAT` one through the int harness, its
+  rows and literals the values' raw bits: `VarkaCompiledCheck`, `VarkaReplay`,
+  `VarkaVariantChecks`, the coverage differential, the composition fuzz, the bytes suite,
+  `VarkaEmitDump`, the IR fuzz, the width audit probe, the time benchmark and
+  `VarkaTypeConformance`. `VarkaReference` orders the floating `Compare`, `NullSafeEqual`,
+  `Greatest` and `Least` by `SQLOrderingUtil.compareDoubles` and `compareFloats` over the bits,
+  the first of two equal operands kept (2.6); `VarkaSparkOracle` hands Spark's `eval` the
+  registry's conversion of 2.2 and compares its answer by raw bits.
+- **Coverage rows**: 40, in four families (`DOUBLE` and `FLOAT` columns, as predicates and as
+  values): the six comparisons, `<=>`, a literal on the right, `IN` in both its forms, `isnan`, the
+  null tests, `greatest`, `least`, `nanvl`, `CASE`, `IF` and `coalesce`. Both `IN` lists hold
+  `0.0` and NaN, written `CAST('NaN' AS DOUBLE)`, which `VarkaSqlResolve` folds as the optimizer
+  does. The differential fixtures derive `x`, `x2`, `f`, `f2` from `rid` (`floatingColumns`): NaN
+  against NaN and against negative infinity, a NaN with its sign bit set, both zeros both ways
+  round, the two infinities, the extremes and the smallest subnormal; every ordered pair of them is
+  `VarkaFloatingLaneSuite`'s. Other NaN payloads have no SQL spelling, so the composition fuzz draws them as bits
+  and `VarkaFloatingLaneSuite` builds them. The ANSI form guards a floating row with `xrid` or
+  `frid`, and the CASE-condition form gives a floating condition floating arms, since a mask
+  does not cross the kinds yet. `floatingDecline` admits the six comparison classes by name, not
+  `BinaryComparison`, so the table's check sees concrete classes and a comparison Spark adds later
+  declines. Every integral shape's
+  bytes are unchanged; the oracle gains the 40 shapes and the `option_arms` digests move with
+  them. The width audit records the 128-bit double refusals, the census marks `float` and
+  `double` fused for the 18 entries the rows show, `isnan` and `nanvl` done, and
+  `dev/varka_new_lane.py` owes nothing at the types.
+- **Conformance**: `VarkaDoubleConformanceSuite` and `VarkaFloatConformanceSuite` run the
+  contract's load, round trip, ordering and choice over the special values' bits, two NaN
+  payloads included; null handling, the cast row and overflow are cancelled naming the rows the
+  registers give each form: the operator's census entry's whole rows column, 342 among them, and
+  the cast pair's, 343 for most and 346, 350 and 364 for the cast to `dec`.
+- **The end-to-end suite runs its filters with the cache's batch pruning off.** Spark's batch
+  statistics leave NaN out, so a filter that matches a NaN row can prune that row's batch on both
+  sides (SPARK-58482), and the kernel would never see the rows it is tested on. The Spark fuzz
+  and its reproducer replay turn it off for the same reason, only for a case whose SQL reads a
+  floating column: `NOT (x < 1.5D)` pruned its NaN pivot row on both sides. Every other case, and
+  so every stored reproducer, runs with it on as recorded. The floating suite also caches its fixtures again before each test, a workaround for
+  the expected session losing its cache (row 501, fixed by #1058); it comes out once #1058 merges.
+- **The warm-up blocks** (2.7): `VarkaVectorTemplateWarmup`'s double block gains, and a float
+  block makes, a floating column's calls - the dense and masked stores and loads, a literal's
+  `broadcast`, the `IS_NAN` test, the `EQ`, `LE` and `GE` compares Spark's order is built from,
+  the mask joins and the pick's `blend` - `THIN_CALLS_PER_ROUND` times a round.
+  `VarkaWarmupReach` gives the float lane its own receivers; it had fallen back to the double
+  lane's, so the float kernels' calls were named by their abstract owner and their mask calls
+  credited to the double lane's mask.
+- **Still owed by this row:** the fuzz grammar's floating sequence (3.4) and the benchmark
+  (`dev/varka_new_lane.py` lists both), with the literal-specialised compares and the mask
+  crossing above.
+- **Not floating gaps:** a `BOOLEAN` output and a `CASE` with no `ELSE` fuse on no lane yet (the
+  latter is row 333), so the suite shows a condition's three values through a `CASE` with an
+  `ELSE`.
 
 ## 6. Out of this row
 

@@ -1,0 +1,53 @@
+# The Build's Varka jobs against their split weights (VARKA-516), 29 October 2026: the JUnit
+# reports of Builds 40851152000 and 40862846845, both of the tests on master at b4b4afa4543 (their
+# heads 37c39097662 and 4a72cd38da0 carry the same test code), read by dev/varka_suite_shards.py.
+# A module's suites are placed over its three jobs by the weights, heaviest first onto the
+# lightest, and each job's load below is the measured seconds of the suites placed on it; a job's
+# minutes also hold its build, its option configuration and its JIT-measuring suites.
+
+run-to-run, the 38 suites over 20 s in either Build, the larger time over the smaller: median
+1.15, 90th percentile 1.86, largest 3.38
+sql, the committed weights, the suites' seconds of Build 40851152000 by job:
+  45, 557, 838
+sql, the committed weights, the suites' seconds of Build 40862846845 by job:
+  42, 540, 861
+sql, the refreshed weights, the suites' seconds of Build 40851152000 by job:
+  490, 478, 472
+sql, the refreshed weights, the suites' seconds of Build 40862846845 by job:
+  471, 483, 489
+catalyst, the committed weights, the suites' seconds of Build 40851152000 by job:
+  627, 682, 1297
+catalyst, the committed weights, the suites' seconds of Build 40862846845 by job:
+  1065, 721, 1214
+catalyst, the refreshed weights, the suites' seconds of Build 40851152000 by job:
+  760, 986, 859
+catalyst, the refreshed weights, the suites' seconds of Build 40862846845 by job:
+  1109, 882, 1009
+
+The refreshed weights are the two Builds' mean for each suite (--update-weights over both runs).
+The committed weights were off by more than a factor of two, or missing, for 17 suites, among
+them the suites row 509 moved and added, VarkaSparkFuzzSuite (88.1 s against 259.9 measured),
+VarkaFloatingLaneSuite (32.2 against 143.8) and VarkaGoldenCorpusSuite (33.6 against 116.6).
+--check-weights warns at a factor of 3.5 and 30 s together, above the largest run-to-run factor
+above, so a warning is a stale weight and not a runner's noise.
+
+The refreshed weights in this pull request's own Build, 40869066986 (the jobs' minutes; the old
+weights' Builds 40851152000 and 40862846845 beside them):
+  job                 40851152000  40862846845  40869066986
+  sql 1 of 3                 14.5         13.0         25.8
+  sql 2 of 3                 17.1         15.0         19.3
+  sql 3 of 3                 23.9         23.4         22.6
+  catalyst 1 of 3            14.7         24.1         14.4
+  catalyst 2 of 3            13.8         14.9         21.5
+  catalyst 3 of 3            22.1         20.2         14.3
+sql's first job also builds and uploads the option matrix's test classes, a step of 9.8, 8.6 and
+11.2 minutes in the three Builds, after which its suites step compiles nothing; the other jobs
+compile in their suites step, about five minutes of it. The old weights gave that job 45 s of
+suites, which by chance made up for the step; balanced without it, the job was the Build's
+longest. The split now counts 200 seconds against that job before placing a suite (about five
+minutes at the pace of the suites and the option step together, about 1.8 s of a job's minutes
+a suite-second): placed so, the sql suites' seconds of Builds 40851152000 and 40862846845 come to
+344, 562, 534 and 351, 532, 560 a job, 22, 20 and 21 suites.
+The same weights moved one job by up to ten minutes between Builds: catalyst 1 of 3 took 14.7
+minutes in 40851152000 and 24.1 in 40862846845, on the runners each drew, so a Build's longest
+Varka job is set as much by its slowest runner as by the split.

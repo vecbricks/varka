@@ -137,8 +137,8 @@ class VarkaLongLaneSuite extends QueryTest with VarkaSharedSessions with VarkaTe
    * a fused long output into an Arrow batch.
    */
   private def checkFused(query: String, fixture: String, predicate: Boolean): Unit = {
-    val expected = spark.sql(query)
     val actual = varkaSpark.sql(query)
+    val expected = expectedSql(query, actual)
     val plan = actual.queryExecution.executedPlan
     withClue(s"row consumer, $fixture: $query") {
       assertFused(plan)
@@ -160,7 +160,8 @@ class VarkaLongLaneSuite extends QueryTest with VarkaSharedSessions with VarkaTe
         assert(cached.isDefined, "expected the view to be served from the cache")
         assert(cached.get.find(isColumnarVarkaNode).isDefined,
           s"expected a columnar Varka node under the cache:\n${cached.get.treeString}")
-        checkAnswer(varkaSpark.table(view), spark.table(view))
+        val served = varkaSpark.table(view)
+        checkAnswer(served, expectedOf(spark.table(view), served, view))
       }
     } finally {
       for (session <- Seq(spark, varkaSpark)) session.catalog.uncacheTable(view)
@@ -245,7 +246,7 @@ class VarkaLongLaneSuite extends QueryTest with VarkaSharedSessions with VarkaTe
       val actual = varkaSpark.sql(query)
       withClue(s"$fixture: $query") {
         assertFused(actual.queryExecution.executedPlan)
-        checkAnswer(actual, spark.sql(query))
+        checkAnswer(actual, expectedSql(query, actual))
       }
     }
   }
@@ -268,7 +269,7 @@ class VarkaLongLaneSuite extends QueryTest with VarkaSharedSessions with VarkaTe
             } else {
               assertNotFused(aloneActual.queryExecution.executedPlan)
             }
-            checkAnswer(aloneActual, spark.sql(alone))
+            checkAnswer(aloneActual, expectedSql(alone, aloneActual))
           }
           val beside = s"SELECT l FROM $fixture WHERE d > d2 AND $col > " +
             s"$prefix'2021-03-14 02:00:00'"
@@ -279,7 +280,7 @@ class VarkaLongLaneSuite extends QueryTest with VarkaSharedSessions with VarkaTe
             // A conjunct the kernel does not take is a row filter above the Varka node.
             val residual = collect(plan) { case f: FilterExec => f }
             assert(residual.isEmpty === (col == "ntz"), plan.treeString)
-            checkAnswer(besideActual, spark.sql(beside))
+            checkAnswer(besideActual, expectedSql(beside, besideActual))
           }
         }
       }
@@ -352,7 +353,7 @@ class VarkaLongLaneSuite extends QueryTest with VarkaSharedSessions with VarkaTe
       val actual = varkaSpark.sql(query)
       withClue(s"$fixture: $query") {
         assertFused(actual.queryExecution.executedPlan)
-        checkAnswer(actual, spark.sql(query))
+        checkAnswer(actual, expectedSql(query, actual))
       }
     }
   }

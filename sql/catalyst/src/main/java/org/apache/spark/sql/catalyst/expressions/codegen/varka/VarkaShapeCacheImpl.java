@@ -320,6 +320,8 @@ public final class VarkaShapeCacheImpl {
    * lifecycle through this same path.
    */
   public VarkaShapeLookup getOrEmit(ClassLoader parent, VarkaShapeKey key, String execution) {
+    // A hit emits nothing, so the lookup itself is what a recording test is told of.
+    VarkaCompileObserver.emitted(key.outputs(), key.numInputs(), key.numLiterals(), key.options());
     VarkaEmitDeclined known = declined.getIfPresent(key);
     if (known != null) {
       throw known;

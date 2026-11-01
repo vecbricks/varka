@@ -60,6 +60,16 @@ class VarkaSmallTreeSuite extends SparkFunSuite with VarkaMatrixTests with Varka
   /** The largest size whose trees meet every batch. */
   private val fullBelow = 3
   private val classCounter = new AtomicInteger(0)
+  /** The cases the option matrix's reach filter took as the defaults run's (VARKA-507). */
+  private val reach = new VarkaReach.Tally
+
+  override def afterAll(): Unit = {
+    try {
+      // scalastyle:off println
+      if (VarkaMatrixRuns.CONFIG.nonEmpty) println(reach.line(getClass.getSimpleName))
+      // scalastyle:on println
+    } finally super.afterAll()
+  }
 
   // ---------------------------------------------------------------------------------------------
   // The batches
@@ -79,6 +89,7 @@ class VarkaSmallTreeSuite extends SparkFunSuite with VarkaMatrixTests with Varka
     var count = 0
     var checked = 0
     var skipped = 0
+    var ranAtDefaults = 0
 
     def add(message: String): Unit = {
       count += 1
@@ -87,7 +98,7 @@ class VarkaSmallTreeSuite extends SparkFunSuite with VarkaMatrixTests with Varka
 
     def assertNone(what: String): Unit = {
       logInfo(s"$what: $checked shapes checked, $skipped past the class-file cap, " +
-        s"$count failed")
+        s"$ranAtDefaults emitted as the defaults run's, $count failed")
       assert(count == 0, s"$count of $checked $what failed; the first ${first.size}:\n" +
         first.mkString("\n"))
     }
@@ -113,10 +124,12 @@ class VarkaSmallTreeSuite extends SparkFunSuite with VarkaMatrixTests with Varka
 
   /**
    * Emits the shape and compares it with the reference evaluator over `batches`, recording a
-   * failure in `failures` - anything thrown, a mismatch, a non-zero status, a refusal.
+   * failure in `failures` - anything thrown, a mismatch, a non-zero status, a refusal. With
+   * `filtered`, a shape emitted under the matrix's base options to the bytes the defaults emit
+   * is not run: the defaults run has compared the same class over the same batches (VARKA-507).
    */
   private def check(roots: Seq[VarkaVectorIR], long: Boolean, index: Int, treeSize: Int,
-      options: VarkaEmitOptions, failures: Failures): Unit = {
+      options: VarkaEmitOptions, failures: Failures, filtered: Boolean = false): Unit = {
     val className = "org.apache.spark.sql.varka.execution.VarkaSmallTree" +
       s"${if (long) "Long" else ""}${classCounter.addAndGet(1)}"
     val numInputs = if (long) VarkaIrSeries.LONG_NUM_INPUTS else VarkaIrSeries.NUM_INPUTS
@@ -126,6 +139,10 @@ class VarkaSmallTreeSuite extends SparkFunSuite with VarkaMatrixTests with Varka
     try {
       emit(roots, numInputs, options, className) match {
         case None => failures.skipped += 1
+        case Some(bytes) if filtered && options == VarkaMatrix.base &&
+            VarkaReach.ranAtDefaults(options, VarkaEmitOptions.DEFAULTS, bytes,
+              o => emit(roots, numInputs, o, className).orNull, reach) =>
+          failures.ranAtDefaults += 1
         case Some(bytes) =>
           failures.checked += 1
           if (long) {
@@ -155,12 +172,12 @@ class VarkaSmallTreeSuite extends SparkFunSuite with VarkaMatrixTests with Varka
 
   /** Every root of `series` up to `upTo`, this JVM's slice of them, each checked alone. */
   private def runSeries(series: VarkaIrSeries.Series, long: Boolean, upTo: Int,
-      options: VarkaEmitOptions): Failures = {
+      options: VarkaEmitOptions, filtered: Boolean = false): Failures = {
     val failures = new Failures
     var index = 0
     for (sized <- series.upTo(upTo).asScala) {
       if (index % slices == slice) {
-        check(Seq(sized.root), long, index, sized.size, options, failures)
+        check(Seq(sized.root), long, index, sized.size, options, failures, filtered)
       }
       index += 1
     }
@@ -173,13 +190,13 @@ class VarkaSmallTreeSuite extends SparkFunSuite with VarkaMatrixTests with Varka
 
   test(s"every int tree to size $size matches the reference evaluator " +
       s"(slice $slice of $slices)") {
-    runSeries(new VarkaIrSeries.IntSeries, long = false, size, VarkaMatrix.base)
+    runSeries(new VarkaIrSeries.IntSeries, long = false, size, VarkaMatrix.base, filtered = true)
       .assertNone(s"int trees to size $size")
   }
 
   test(s"every long tree to size $size matches the reference evaluator " +
       s"(slice $slice of $slices)") {
-    runSeries(new VarkaIrSeries.LongSeries, long = true, size, VarkaMatrix.base)
+    runSeries(new VarkaIrSeries.LongSeries, long = true, size, VarkaMatrix.base, filtered = true)
       .assertNone(s"long trees to size $size")
   }
 
@@ -192,7 +209,8 @@ class VarkaSmallTreeSuite extends SparkFunSuite with VarkaMatrixTests with Varka
     for (treeSize <- 2 to math.min(size, fullBelow); g <- series.value(treeSize).asScala) {
       VarkaVectorIR.childrenOf(g.node).find(!_.isInstanceOf[Cond]).foreach { child =>
         if (index % slices == slice) {
-          check(Seq(g.node, child), long = false, index, treeSize, VarkaMatrix.base, failures)
+          check(Seq(g.node, child), long = false, index, treeSize, VarkaMatrix.base, failures,
+            filtered = true)
         }
         index += 1
       }

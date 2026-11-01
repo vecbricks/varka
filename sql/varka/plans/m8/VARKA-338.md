@@ -283,8 +283,10 @@ master, and the two NTZ suites moved to JVMs of their own.
 2. **`IN` needed an arm.** `IN` and `InSet` compile only for the int lanes' types, and the bigint
    `IN` is left declined on purpose by a test, for the bigint operation rows. NTZ has a long-lane
    twin of the EQ chain of its own (`compileLongInList`).
-3. **The overflow exemption** is `hasArithmetic`, false for `BOOLEAN` and `TIMESTAMP_NTZ`, with the
-   census assertion kept; the null-handling check drops its `x + y` form for such a type.
+3. **The overflow exemption** is the census: the check keeps only the operators the census admits
+   for the type, so `BOOLEAN`, `DATE`, `TIME` and `TIMESTAMP_NTZ` pass it with no form (row 485's
+   merge replaced the first `hasArithmetic` flag). The null-handling check takes the type's own
+   pair form, for NTZ `x - y` over half the long range, owed to row 339 until it fuses.
 4. **The new divisor's past-the-bound check.** `long_divide.smt2` also states, per divisor, the
    first dividend past `2^53` where the conversion form goes wrong. For 10,546,875 both solvers find
    it still exact there; the claim is a fact about the TIME divisors and is skipped for this one,

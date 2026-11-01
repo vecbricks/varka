@@ -1,0 +1,53 @@
+# Step 5 of VARKA-507 on the laptop (AMD Ryzen AI 9 HX PRO 370), 28 October 2026: which option
+# configurations move each test of VarkaCoverageDifferentialSuite, recorded at the defaults
+# (VarkaTestReach), and two configurations' runs reading the record. One JVM a run, under the
+# shared lock, dev/varka_matrix.sh --runs-only.
+
+the suite at the defaults: 309 s
+the same, recording: 382 s on the first build and 368 s on the second, 1,066 tests
+cse=false over the record: 111 s, 809 tests skipped and 257 run, all passed
+validityByWidth=false over the record: 277 s, 127 skipped and 910 run, 1,037 passed and 29 cancelled
+the planner over the 48 configurations: 178 bins and 85,776 bin-seconds without the record,
+165 bins and 78,671 bin-seconds with this suite's alone
+
+tests of the suite each configuration the record covers moves (of 1,066; a configuration
+covered and absent moves none, so it skips the suite):
+  methodByteBudget=0                                            1001
+  driverOutputTable=false                                       1001
+  validityByWidth=false                                          939
+  validityByWord=true                                            832
+  elideUnreadLocals=false                                        705
+  denseValidityOnce=false                                        478
+  validityByBitmap=false                                         281
+  cse=false                                                      257
+  division=DOUBLE_RECIP                                          128
+  division=DOUBLE_DIV                                            128
+  julianMap=false                                                125
+  narrowLanes=false                                               84
+  checkIntOverflow=false                                          80
+  elideChronoMonth=false                                          79
+  guardUnderArm=false                                             73
+  neriSchneiderMonth=false                                        53
+  useAVX=2                                                        47
+  floorMod7=DIV                                                   16
+  floorMod7=DIGIT_SUM                                             16
+  narrowHalfSpecies=true                                          13
+  mulHiDivide=false                                               13
+  shareChronoPrefix=false                                         11
+  truncDate=RECOMPOSE                                              9
+tests no configuration moves: 65
+covered and moving none (34 covered, 23 moving): callSiteBudget=0 exactGrouping=false 
+groupBudget=64 groupBudget=800 groupBudgetUnderPrediction=true groupLocalSlots=false 
+guardDayProducers=false heavyGroupOutputs=0 planSize=false predictGrouping=false 
+shareWholeNodes=false
+
+over the whole sql module, two JVMs at a time, on the final code (suites leave set-up and
+JVM-wide lines that join every test they cover; VarkaTestReach.UNRECORDED leaves out four suites
+whose kernels made recording cost more than it saves):
+the module at the defaults: 826 s
+the same, recording: 941 s (1,349 s before the four suites were left out), 1,704 lines
+cse=false over the record: 632 s, 424 tests skipped and 1,255 run, all passed, none unfused
+the planner over the 48 configurations: 151 bins and 72,670 bin-seconds with the record, against
+178 and 85,776 without
+the record against the first fanned-out run's per-configuration suite seconds
+(VARKA-507-run-40658422887.txt): 7.6 of 40.0 configuration-hours saved, 19%

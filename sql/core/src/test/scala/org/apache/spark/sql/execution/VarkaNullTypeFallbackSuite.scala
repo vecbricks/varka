@@ -58,7 +58,7 @@ class VarkaNullTypeFallbackSuite extends QueryTest with VarkaSharedSessions
   private def same(query: String): Unit = {
     val actual = varkaSpark.sql(query)
     assertFused(actual.queryExecution.executedPlan)
-    checkAnswer(actual, spark.sql(query))
+    checkAnswer(actual, expectedSql(query, actual))
   }
 
   test("the fixture's column is NullType, so these tests mean what they say") {

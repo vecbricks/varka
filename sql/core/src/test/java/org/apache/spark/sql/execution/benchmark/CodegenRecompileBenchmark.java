@@ -20,9 +20,6 @@ package org.apache.spark.sql.execution.benchmark;
 import static org.apache.spark.sql.functions.col;
 import static org.apache.spark.sql.functions.lit;
 
-import java.io.IOException;
-import java.io.UncheckedIOException;
-import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -308,17 +305,6 @@ public class CodegenRecompileBenchmark extends VarkaBenchmarkBase {
 
   private CodeAndComment source(Shape shape, int offset) {
     return CodegenRecompileSupport.largestStageSource(spark.sql(shape.sql().apply(offset)));
-  }
-
-  private void note(String line) {
-    System.out.println(line);
-    if (output().isDefined()) {
-      try {
-        output().get().write((line + "\n").getBytes(StandardCharsets.UTF_8));
-      } catch (IOException e) {
-        throw new UncheckedIOException(e);
-      }
-    }
   }
 
   @Override

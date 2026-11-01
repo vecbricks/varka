@@ -32,9 +32,20 @@ import java.util.Set;
 import java.util.SplittableRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.stream.IntStream;
 
 import jdk.incubator.vector.IntVector;
+import scala.Enumeration;
+import scala.jdk.javaapi.CollectionConverters;
 
+import org.apache.spark.sql.catalyst.expressions.Attribute;
+import org.apache.spark.sql.catalyst.expressions.EvalMode;
+import org.apache.spark.sql.catalyst.expressions.Expression;
+import org.apache.spark.sql.catalyst.expressions.LessThan$;
+import org.apache.spark.sql.catalyst.expressions.Multiply$;
+import org.apache.spark.sql.catalyst.expressions.codegen.CompiledVarkaPredicate;
+import org.apache.spark.sql.catalyst.expressions.codegen.CompiledVarkaProjection;
+import org.apache.spark.sql.catalyst.expressions.codegen.VarkaExpressionCompiler;
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaGeneratedClassLoader;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitterTestSupport;
@@ -42,6 +53,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaFusedKernel;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaKernelPlan;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaLoopEmitter;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaReference;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaSqlResolve;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ColumnRef;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Compare;
@@ -54,6 +66,9 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Int
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LaneType;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Overflow;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WidenLane;
+import org.apache.spark.sql.types.ByteType;
+import org.apache.spark.sql.types.DataType;
+import org.apache.spark.sql.types.ShortType;
 
 /**
  * What row 329's narrow lane costs through the real emitter, under the two arms of the emit
@@ -64,7 +79,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Wid
  * <p>The IR is built by hand and passed through {@link VarkaLoopEmitter#emit}, so what is timed
  * is the code the evaluator would run: the widening loads or the narrow species of the arm, the
  * validity words, the selection bitmap, the loop bounds and the epilogue. The shapes are row
- * 329's four and two unary ones, all over {@code TINYINT} columns:
+ * 329's four and two unary ones, all over {@code TINYINT} columns, and the checked multiply:
  *
  * <ul>
  *   <li>(a) {@code y1 < y2} as a selection: the compare of two {@code TINYINT} columns, both
@@ -88,7 +103,16 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Wid
  *   <li>(f) {@code -y1} and (g) {@code abs(y1)}, LEGACY, stored narrow: the unary arithmetic,
  *       one lanewise {@code NEG} or {@code ABS} in either arm since the review fixes of #987 and
  *       #989 (a multiply by -1, and a compare, a negation and a blend, before them).</li>
+ *   <li>(h) to (k) {@code y1 * y2} and {@code s1 * s2} stored narrow, each in ANSI and in TRY
+ *       ({@code try_multiply}), and (l) {@code y1 * y2 < y3} in ANSI as a selection: the checked
+ *       narrow multiply, a {@code TINYINT} or {@code SMALLINT} product checked against its type's
+ *       range. Its data holds no product that overflows, so every arm answers every batch.</li>
  * </ul>
+ *
+ * <p>Shapes (a) to (g) are IR built by hand. The checked multiply's shapes are compiled from their
+ * Catalyst expressions by {@link VarkaExpressionCompiler} under each arm's options, so that they
+ * time the tree the compiler builds for them, whichever that is: {@code VARKA-481.md} 6 times
+ * them before and after a change to that tree.
  *
  * <p>Every arm's answer is compared with {@link VarkaReference} before it is timed, over a batch
  * laid out as the evaluator lays it out: a byte column one byte a row, an int column four, the
@@ -104,9 +128,11 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Wid
  * <p>Run it with {@code -XX:MaxVectorSize=64}, {@code 32} and {@code 16} for the 512-, 256- and
  * 128-bit widths. {@code -Dvarka.narrow.emit.arms=widened} or {@code =native} keeps one arm's
  * species out of the other's JVM (the two-species hazard of {@code VARKA-376.md}); the default
- * runs both in one JVM, which is that hazard's arrangement. At 128 bits the WIDENED arm declines
- * every shape by name (a byte column has no 32-bit species to widen from), and the run records
- * that rather than a number. A {@code -XX:CompileCommand=dontinline,<generated class>::*} keeps
+ * runs both in one JVM, which is that hazard's arrangement. At 128 bits a byte column is read at
+ * four int lanes through the part-form load ({@code results/VARKA-329-partload.txt}), so both
+ * arms answer every shape there too. A shape an arm declines - the kernel plan's refusal, or the
+ * compiler's demotion of a checked multiply for the same reason - is printed by name, with the
+ * reason, rather than timed. A {@code -XX:CompileCommand=dontinline,<generated class>::*} keeps
  * a loop method out of its driver, so that the code list has a level of its own to report.
  *
  * <pre>
@@ -159,6 +185,10 @@ public class VarkaNarrowEmitBenchmark extends VarkaBenchmarkBase {
   private static final int LOW1 = 2;
   private static final int LOW2 = 3;
   private static final int INTS = 4;
+  private static final int SMALL1 = 5;
+  private static final int SMALL2 = 6;
+  private static final int S1 = 7;
+  private static final int S2 = 8;
 
   private static final int[] NO_LITS = new int[0];
 
@@ -211,14 +241,32 @@ public class VarkaNarrowEmitBenchmark extends VarkaBenchmarkBase {
   // The shapes
   // -------------------------------------------------------------------------------------------
 
+  /** The roots a kernel is emitted from and the literal table they read. */
+  private record Tree(List<VarkaVectorIR> roots, int[] literals) {
+    boolean selection() {
+      return roots.get(0) instanceof Cond;
+    }
+  }
+
+  /** Where a shape's tree comes from: built by hand, or compiled from a Catalyst expression. */
+  private sealed interface Source permits Built, Compiled { }
+
+  private record Built(Tree tree) implements Source { }
+
   /**
-   * One shape: its label, its roots, the rung column each input ordinal reads and that column's
-   * stored lane, and the literal table its roots read, empty but for a composed abs.
+   * A Catalyst expression over {@code columns}, compiled as a projection entry or, for a
+   * {@code predicate}, as a filter condition.
    */
-  private record Shape(String label, List<VarkaVectorIR> roots, int[] columns,
-      LaneType[] inputLanes, int[] literals) {
+  private record Compiled(Expression expr, List<Attribute> columns, boolean predicate)
+      implements Source { }
+
+  /**
+   * One shape: its label, where its tree comes from, and the rung column each input ordinal reads
+   * and that column's stored lane.
+   */
+  private record Shape(String label, Source source, int[] columns, LaneType[] inputLanes) {
     Shape(String label, List<VarkaVectorIR> roots, int[] columns, LaneType[] inputLanes) {
-      this(label, roots, columns, inputLanes, NO_LITS);
+      this(label, new Built(new Tree(roots, NO_LITS)), columns, inputLanes);
     }
   }
 
@@ -253,7 +301,43 @@ public class VarkaNarrowEmitBenchmark extends VarkaBenchmarkBase {
         // change timed (results/VARKA-329-negabs.txt).
         new Shape("g: abs(y1), TINYINT store",
             List.of(new IntNeg(Overflow.WRAP, y1, true)),
-            new int[] {B1}, new LaneType[] {LaneType.BYTE}));
+            new int[] {B1}, new LaneType[] {LaneType.BYTE}),
+        checkedMultiply("h: y1 * y2, ANSI, TINYINT store", EvalMode.ANSI(), LaneType.BYTE,
+            false, SMALL1, SMALL2),
+        checkedMultiply("i: try_multiply(y1, y2), TRY, TINYINT store", EvalMode.TRY(),
+            LaneType.BYTE, false, SMALL1, SMALL2),
+        checkedMultiply("j: s1 * s2, ANSI, SMALLINT store", EvalMode.ANSI(), LaneType.SHORT,
+            false, S1, S2),
+        checkedMultiply("k: try_multiply(s1, s2), TRY, SMALLINT store", EvalMode.TRY(),
+            LaneType.SHORT, false, S1, S2),
+        // y3 is a column of random bytes, so the compare selects about half the rows.
+        checkedMultiply("l: y1 * y2 < y3, ANSI, selection", EvalMode.ANSI(), LaneType.BYTE,
+            true, SMALL1, SMALL2, B1));
+  }
+
+  /** Three {@code TINYINT} columns and two {@code SMALLINT} ones, for the compiled shapes. */
+  private static final List<Attribute> BYTES = List.of(column("y1", new ByteType()),
+      column("y2", new ByteType()), column("y3", new ByteType()));
+  private static final List<Attribute> SHORTS = List.of(column("s1", new ShortType()),
+      column("s2", new ShortType()));
+
+  private static Attribute column(String name, DataType type) {
+    return VarkaSqlResolve.column(name, type);
+  }
+
+  /**
+   * The checked multiply of two columns of {@code lane} in {@code mode}, stored, or compared below
+   * a third as a selection; {@code columns} are the rung columns its inputs read.
+   */
+  private static Shape checkedMultiply(String label, Enumeration.Value mode, LaneType lane,
+      boolean selection, int... columns) {
+    List<Attribute> attrs = lane == LaneType.SHORT ? SHORTS : BYTES;
+    Expression product = Multiply$.MODULE$.apply(attrs.get(0), attrs.get(1), mode);
+    LaneType[] lanes = new LaneType[columns.length];
+    Arrays.fill(lanes, lane);
+    Expression expr = selection ? LessThan$.MODULE$.apply(product, attrs.get(2)) : product;
+    return new Shape(label, new Compiled(expr, attrs.subList(0, columns.length), selection),
+        columns, lanes);
   }
 
   /** The int-driven shape, whose two arms must emit the same class bytes. */
@@ -263,7 +347,10 @@ public class VarkaNarrowEmitBenchmark extends VarkaBenchmarkBase {
   // The data
   // -------------------------------------------------------------------------------------------
 
-  /** One rung's columns: random bytes, in-range bytes for the arithmetic, and small ints. */
+  /**
+   * One rung's columns: random bytes, in-range bytes for the add, small ints, and bytes and shorts
+   * whose products stay in their type's range, for the checked multiply.
+   */
   private record Data(MemorySegment[] columns) { }
 
   private static MemorySegment randomBytes(Arena arena, int n, long seed) {
@@ -285,6 +372,26 @@ public class VarkaNarrowEmitBenchmark extends VarkaBenchmarkBase {
     return seg;
   }
 
+  /** Bytes in [-11, 11]: the product of two of them never leaves the byte range. */
+  private static MemorySegment multiplicandBytes(Arena arena, int n, long seed) {
+    MemorySegment seg = arena.allocate(n, 64);
+    var r = new SplittableRandom(seed);
+    for (int i = 0; i < n; i++) {
+      seg.set(ValueLayout.JAVA_BYTE, i, (byte) r.nextInt(-11, 12));
+    }
+    return seg;
+  }
+
+  /** Shorts in [-181, 181]: the product of two of them never leaves the short range. */
+  private static MemorySegment multiplicandShorts(Arena arena, int n, long seed) {
+    MemorySegment seg = arena.allocate(n * 2L, 64);
+    var r = new SplittableRandom(seed);
+    for (int i = 0; i < n; i++) {
+      seg.set(ValueLayout.JAVA_SHORT, i * 2L, (short) r.nextInt(-181, 182));
+    }
+    return seg;
+  }
+
   private static MemorySegment smallInts(Arena arena, int n, long seed) {
     MemorySegment seg = arena.allocate(n * 4L, 64);
     var r = new SplittableRandom(seed);
@@ -296,7 +403,9 @@ public class VarkaNarrowEmitBenchmark extends VarkaBenchmarkBase {
 
   private static Data data(Arena arena, int n) {
     return new Data(new MemorySegment[] {randomBytes(arena, n, 1), randomBytes(arena, n, 2),
-        inRangeBytes(arena, n, 3), inRangeBytes(arena, n, 4), smallInts(arena, n, 5)});
+        inRangeBytes(arena, n, 3), inRangeBytes(arena, n, 4), smallInts(arena, n, 5),
+        multiplicandBytes(arena, n, 6), multiplicandBytes(arena, n, 7),
+        multiplicandShorts(arena, n, 8), multiplicandShorts(arena, n, 9)});
   }
 
   /** A shape's input addresses in ordinal order. */
@@ -312,8 +421,44 @@ public class VarkaNarrowEmitBenchmark extends VarkaBenchmarkBase {
   // Emitting the kernels
   // -------------------------------------------------------------------------------------------
 
-  /** An emitted kernel and the class bytes it came from, which the arms' shapes compare. */
-  private record Emitted(VarkaFusedKernel kernel, byte[] bytes) { }
+  /**
+   * An emitted kernel, the class bytes it came from, which the arms' shapes compare, and the tree
+   * it was emitted from, which the reference evaluates.
+   */
+  private record Emitted(VarkaFusedKernel kernel, byte[] bytes, Tree tree) { }
+
+  /**
+   * The tree of {@code shape} under {@code options}: the hand-built one, or the one the compiler
+   * builds, empty when the compiler declines it. A compiled tree must read the shape's columns in
+   * order and fuse whole, or the benchmark would time something other than its label.
+   */
+  private static Optional<Tree> tree(Shape shape, VarkaEmitOptions options) {
+    return switch (shape.source()) {
+      case Built b -> Optional.of(b.tree());
+      case Compiled c -> {
+        var columns = CollectionConverters.asScala(c.columns()).toSeq();
+        Optional<CompiledVarkaProjection> plan;
+        if (c.predicate()) {
+          Optional<CompiledVarkaPredicate> p =
+              VarkaExpressionCompiler.compilePredicate(c.expr(), columns, options);
+          p.ifPresent(q -> require(q.residualConjuncts().isEmpty(),
+              shape.label() + ": the compiler left " + q.residualConjuncts() + " to a row filter"));
+          plan = p.map(CompiledVarkaPredicate::fused);
+        } else {
+          var entries = CollectionConverters.asScala(
+              List.of(VarkaSqlResolve.named(c.expr(), "c"))).toSeq();
+          plan = VarkaExpressionCompiler.compile(entries, columns, options);
+        }
+        yield plan.map(p -> {
+          var ordinals = IntStream.range(0, c.columns().size()).boxed().toList();
+          require(p.inputOrdinals().equals(ordinals), shape.label() + ": the compiled kernel"
+              + " reads the columns " + p.inputOrdinals() + ", not " + ordinals);
+          return new Tree(p.outputs(),
+              p.literals().stream().mapToInt(Integer::intValue).toArray());
+        });
+      }
+    };
+  }
 
   /**
    * Emits {@code shape} under {@code arm} and loads it, or returns empty with the reason the
@@ -327,17 +472,31 @@ public class VarkaNarrowEmitBenchmark extends VarkaBenchmarkBase {
   private Optional<Emitted> emit(String name, Shape shape, Arm arm,
       VarkaGeneratedClassLoader loader) {
     var options = arm.options();
-    Optional<String> refusal = VarkaKernelPlan.of(shape.roots(), options).refusal()
+    Optional<Tree> tree = tree(shape, options);
+    if (tree.isEmpty()) {
+      // The compiler demotes an entry whose column the arm's lane count cannot widen, the kernel
+      // plan's refusal below; a decline for any other reason is a fault of the benchmark.
+      Optional<String> widen = VarkaKernelPlan.of(
+          List.of(new ColumnRef(0, shape.inputLanes()[0])),
+          options.toBuilder().narrowLanes(false).build())
+          .refusal().map(VarkaKernelPlan.Refusal::reason);
+      require(widen.isPresent(), shape.label() + ", " + arm + ": the compiler declined it, and"
+          + " not because the width cannot widen a " + shape.inputLanes()[0] + " column");
+      System.out.println("VarkaNarrowEmitBenchmark: " + shape.label() + ", " + arm
+          + " declined by the compiler: " + widen.get());
+      return Optional.empty();
+    }
+    Optional<String> refusal = VarkaKernelPlan.of(tree.get().roots(), options).refusal()
         .map(VarkaKernelPlan.Refusal::reason);
     if (refusal.isPresent()) {
       System.out.println("VarkaNarrowEmitBenchmark: " + shape.label() + ", " + arm
           + " declined: " + refusal.get());
       return Optional.empty();
     }
-    byte[] bytes = VarkaLoopEmitter.emit(name, shape.roots(), shape.inputLanes().length,
-        shape.literals().length,
+    byte[] bytes = VarkaLoopEmitter.emit(name, tree.get().roots(), shape.inputLanes().length,
+        tree.get().literals().length,
         null, null, options);
-    return Optional.of(new Emitted(defineKernel(loader, name, bytes), bytes));
+    return Optional.of(new Emitted(defineKernel(loader, name, bytes), bytes, tree.get()));
   }
 
   /** One arm's kernel name: the shape and the arm, so that no two kernels share one. */
@@ -356,10 +515,10 @@ public class VarkaNarrowEmitBenchmark extends VarkaBenchmarkBase {
   /** The output buffers of one shape: data (a store shape only) and the validity or selection. */
   private record Outputs(MemorySegment data, MemorySegment bits) { }
 
-  private static Outputs outputs(Arena arena, Shape shape, int n) {
-    boolean selection = shape.roots().get(0) instanceof Cond;
+  private static Outputs outputs(Arena arena, Tree tree, int n) {
     // A condition root writes no data, and the kernel contract gives it a null data address.
-    MemorySegment data = selection ? MemorySegment.NULL : arena.allocate(n, 64);
+    MemorySegment data = tree.selection() ? MemorySegment.NULL
+        : arena.allocate((long) n * storeBytes(tree.roots().get(0).laneType()), 64);
     return new Outputs(data, arena.allocate(((n + 63) / 64) * 8L, 64));
   }
 
@@ -370,11 +529,11 @@ public class VarkaNarrowEmitBenchmark extends VarkaBenchmarkBase {
   private record Invocation(long[] srcData, long[] srcValidity, int[] nullCounts,
       long[] dstData, long[] dstValidity, int[] lits, int length) {
 
-    static Invocation of(Shape shape, Data d, Outputs out, int n) {
+    static Invocation of(Shape shape, Tree tree, Data d, Outputs out, int n) {
       int inputs = shape.columns().length;
       return new Invocation(sourceAddresses(shape, d), new long[inputs], new int[inputs],
           new long[] {out.data().address()}, new long[] {out.bits().address()},
-          shape.literals(), n);
+          tree.literals(), n);
     }
 
     int run(VarkaFusedKernel kernel, long scratch) {
@@ -401,38 +560,53 @@ public class VarkaNarrowEmitBenchmark extends VarkaBenchmarkBase {
     return sb.toString();
   }
 
-  /** One row's input as the reference reads it: sign-extended from the column's stored lane. */
+  /** The bytes a row of {@code lane} takes in a column, the evaluator's layout. */
+  private static int storeBytes(LaneType lane) {
+    return switch (lane) {
+      case BYTE -> 1;
+      case SHORT -> 2;
+      case INT -> 4;
+      case LONG, FLOAT, DOUBLE -> throw new IllegalArgumentException("no " + lane + " column here");
+    };
+  }
+
+  /** One row's value as the reference reads it: sign-extended from the column's stored lane. */
   private static int rowValue(LaneType lane, MemorySegment column, int i) {
-    return lane == LaneType.BYTE ? column.get(ValueLayout.JAVA_BYTE, i)
-        : column.get(ValueLayout.JAVA_INT, i * 4L);
+    return switch (lane) {
+      case BYTE -> column.get(ValueLayout.JAVA_BYTE, i);
+      case SHORT -> column.get(ValueLayout.JAVA_SHORT, i * 2L);
+      case INT -> column.get(ValueLayout.JAVA_INT, i * 4L);
+      case LONG, FLOAT, DOUBLE -> throw new IllegalArgumentException("no " + lane + " column here");
+    };
   }
 
   /**
    * Compares a whole batch's answer with {@link VarkaReference}: for a selection root every row's
-   * bit against the reference's truth, for a store root every row's byte and validity bit against
-   * the reference's value. A disagreement fails the run: it is a fault of the measurement, not a
-   * data point.
+   * bit against the reference's truth, for a store root every row's value and validity bit
+   * against the reference's value. A disagreement fails the run: it is a fault of the measurement,
+   * not a data point.
    */
-  private static void verify(String context, Shape shape, Data d, int n, Outputs out) {
-    VarkaVectorIR root = shape.roots().get(0);
+  private static void verify(String context, Shape shape, Tree tree, Data d, int n,
+      Outputs out) {
+    VarkaVectorIR root = tree.roots().get(0);
     int numInputs = shape.inputLanes().length;
     int[] row = new int[numInputs];
     boolean[] isNull = new boolean[numInputs];
-    boolean selection = root instanceof Cond;
+    boolean selection = tree.selection();
     for (int i = 0; i < n; i++) {
       for (int c = 0; c < numInputs; c++) {
         row[c] = rowValue(shape.inputLanes()[c], d.columns()[shape.columns()[c]], i);
       }
       boolean got = bit(out.bits(), i);
       if (selection) {
-        boolean want = VarkaReference.cond((Cond) root, row, isNull, shape.literals()).isTrue();
+        boolean want = VarkaReference.cond((Cond) root, row, isNull, tree.literals()).isTrue();
         require(got == want, context + ": selection row " + i + " differs (want " + want
             + ", got " + got + ")");
       } else {
-        OptionalInt want = VarkaReference.value(root, row, isNull, shape.literals());
+        OptionalInt want = VarkaReference.value(root, row, isNull, tree.literals());
         require(got == want.isPresent(), context + ": validity of row " + i + " differs");
         if (want.isPresent()) {
-          int value = out.data().get(ValueLayout.JAVA_BYTE, i);
+          int value = rowValue(root.laneType(), out.data(), i);
           require(value == want.getAsInt(), context + ": row " + i + " differs (want "
               + want.getAsInt() + ", got " + value + ")");
         }
@@ -458,8 +632,10 @@ public class VarkaNarrowEmitBenchmark extends VarkaBenchmarkBase {
 
   /**
    * Drives {@code kernel} until every dense loop method of its class holds level-4 code and the
-   * drive time is steady (row 407's rule). Bounded: an arm that does not settle in 30 seconds
-   * says so, with the level each loop method had, and is timed as it is.
+   * drive time is steady (row 407's rule); a class with no dense loop, a TRY shape's, which can
+   * null a row of valid inputs, is read by its masked loops, the ones the drive runs. Bounded: an
+   * arm that does not settle in 30 seconds says so, with the level each loop method had, and is
+   * timed as it is.
    */
   private static void driveToCompiledCode(String label, VarkaFusedKernel kernel, Shape shape,
       Invocation inv, long scratch, int reps) {
@@ -474,6 +650,9 @@ public class VarkaNarrowEmitBenchmark extends VarkaBenchmarkBase {
       drives++;
       boolean idle = VarkaEmitterTestSupport.awaitC2Idle(IDLE_WAIT_MILLIS);
       var levels = VarkaEmitterTestSupport.loopLevels(kernelClass);
+      if (levels.isEmpty()) {
+        levels = VarkaEmitterTestSupport.loopLevels(kernelClass, false);
+      }
       boolean topTier = VarkaEmitterTestSupport.allLoopsC2(levels);
       boolean steady = previous > 0 && Math.abs(took - previous) <= previous * STEADY_FRACTION;
       if (drives >= MIN_WARM_DRIVES && idle && topTier && steady) {
@@ -513,13 +692,13 @@ public class VarkaNarrowEmitBenchmark extends VarkaBenchmarkBase {
     y2.fill((byte) 100);
     var d = new Data(new MemorySegment[] {y1, y2, y1, y2, y1});
     Shape shape = allShapes.get(1);
-    var out = outputs(arena, shape, n);
-    var inv = Invocation.of(shape, d, out, n);
     for (int a = 0; a < arms.size(); a++) {
       if (emitted[1][a].isEmpty()) {
         continue;
       }
       var kernel = emitted[1][a].get().kernel();
+      var out = outputs(arena, emitted[1][a].get().tree(), n);
+      var inv = Invocation.of(shape, emitted[1][a].get().tree(), d, out, n);
       long scratch = VarkaEmitterTestSupport.scratch(kernel, n);
       int status = inv.run(kernel, scratch);
       System.out.println("VarkaNarrowEmitBenchmark: overflow probe (100 + 100 as TINYINT, which "
@@ -549,6 +728,14 @@ public class VarkaNarrowEmitBenchmark extends VarkaBenchmarkBase {
         }
       }
       requireIntDrivenSameBytes(allShapes.get(INT_DRIVEN), arms, emitted[INT_DRIVEN]);
+      for (int s = 0; s < allShapes.size(); s++) {
+        if (allShapes.get(s).source() instanceof Compiled
+            && Arrays.stream(emitted[s]).filter(Optional::isPresent).count() > 1) {
+          boolean same = armsEmitSameBytes(allShapes.get(s), arms, emitted[s]);
+          System.out.println("VarkaNarrowEmitBenchmark: " + allShapes.get(s).label()
+              + ", the arms' class bytes are " + (same ? "identical" : "different"));
+        }
+      }
       section("emitted narrow kernels at " + bits + " bits, arms "
           + arms.stream().map(Arm::token).toList(), () -> {
             for (Rung rung : ladder()) {
@@ -576,18 +763,33 @@ public class VarkaNarrowEmitBenchmark extends VarkaBenchmarkBase {
    */
   private static void requireIntDrivenSameBytes(Shape shape, List<Arm> arms,
       Optional<Emitted>[] emitted) {
+    require(armsEmitSameBytes(shape, arms, emitted), "the arms' bytes differ for "
+        + shape.label() + ", whose tree holds an int value and so should not reach the narrow"
+        + " lane");
+  }
+
+  /**
+   * Whether every arm that emitted {@code shape} emitted the same class bytes, each emitted once
+   * more under {@link #SAME_BYTES_NAME} for the comparison. The run prints it for the compiled
+   * shapes, whose arms {@code VARKA-481.md} 6.1 predicts to emit one kernel.
+   */
+  private static boolean armsEmitSameBytes(Shape shape, List<Arm> arms,
+      Optional<Emitted>[] emitted) {
     var bytes = new ArrayList<byte[]>();
     for (int a = 0; a < arms.size(); a++) {
       if (emitted[a].isPresent()) {
-        bytes.add(VarkaLoopEmitter.emit(SAME_BYTES_NAME, shape.roots(),
-            shape.inputLanes().length, 0, null, null, arms.get(a).options()));
+        Tree tree = emitted[a].get().tree();
+        bytes.add(VarkaLoopEmitter.emit(SAME_BYTES_NAME, tree.roots(),
+            shape.inputLanes().length, tree.literals().length, null, null,
+            arms.get(a).options()));
       }
     }
     for (int k = 1; k < bytes.size(); k++) {
-      require(Arrays.equals(bytes.get(0), bytes.get(k)), "the arms' bytes differ for "
-          + shape.label() + ", whose tree holds an int value and so should not reach the narrow"
-          + " lane");
+      if (!Arrays.equals(bytes.get(0), bytes.get(k))) {
+        return false;
+      }
     }
+    return true;
   }
 
   /** One rung: fresh buffers, every shape, every arm, each checked against the reference. */
@@ -605,27 +807,31 @@ public class VarkaNarrowEmitBenchmark extends VarkaBenchmarkBase {
         var outs = new Outputs[arms.size()];
         var invs = new Invocation[arms.size()];
         for (int a = 0; a < arms.size(); a++) {
-          outs[a] = outputs(arena, shape, n);
-          invs[a] = Invocation.of(shape, d, outs[a], n);
+          if (emitted[s][a].isPresent()) {
+            Tree tree = emitted[s][a].get().tree();
+            outs[a] = outputs(arena, tree, n);
+            invs[a] = Invocation.of(shape, tree, d, outs[a], n);
+          }
         }
         for (int a = 0; a < arms.size(); a++) {
           if (emitted[s][a].isEmpty()) {
             continue;
           }
           var kernel = emitted[s][a].get().kernel();
+          Tree tree = emitted[s][a].get().tree();
           long scratch = VarkaEmitterTestSupport.scratch(kernel, n);
           var inv = invs[a];
           var out = outs[a];
           String label = shape.label() + ", " + arms.get(a);
           require(inv.run(kernel, scratch) == 0, label + " declined the batch");
-          verify(label + " (interpreter)", shape, d, n, out);
+          verify(label + " (interpreter)", shape, tree, d, n, out);
           var settled = new AtomicBoolean();
           benchmark.addTimerCase(label, timer -> {
             if (settled.compareAndSet(false, true)) {
               driveToCompiledCode(label, kernel, shape, inv, scratch, reps);
               // The answer of the compiled code, not the interpreter's: the Vector API is plain
               // Java until C2 compiles the loop, and the reference has to meet both.
-              verify(label + " (compiled)", shape, d, n, out);
+              verify(label + " (compiled)", shape, tree, d, n, out);
             }
             timer.startTiming();
             drive(inv, kernel, shape, scratch, reps);

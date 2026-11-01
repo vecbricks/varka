@@ -113,7 +113,9 @@ final class VarkaEmitCostFit {
    * of them, or a group holding the missing one is silently unpredictable. A lowering variant
    * the emitter refuses - an int-lane checked multiply has no overflow test - is left out, since
    * no group can hold it. The lane variants are over {@link #PRICED_LANES} only: a feature of a
-   * narrow lane is unpriced until VARKA-352's refit.
+   * narrow lane is unpriced until VARKA-352's refit. So is a {@code NULL} range guard's,
+   * {@code GuardedRange/NULL/<lane>}, which no compiled shape builds yet (VARKA-481); the
+   * {@code GuardedRange} features enumerated here are the failing guard's.
    */
   static Set<String> expectedFeatures() {
     Set<String> f = new TreeSet<>();

@@ -79,6 +79,8 @@ class VarkaSplitInliningSuite extends SparkFunSuite with VarkaTestWatchdog {
       s"-XX:CompileCommand=PrintInlining,$pattern", "-cp", testClasspath,
       VarkaSplitInliningProbe.getClass.getName.stripSuffix("$"), branches.toString)
       .foreach(command.add)
+    // The child JVM's code runs where the class-use record cannot see it (VarkaTestUse).
+    VarkaTestUse.childJvm()
     val process = new ProcessBuilder(command).redirectErrorStream(true).start()
     val reader = new BufferedReader(
       new InputStreamReader(process.getInputStream, StandardCharsets.UTF_8))

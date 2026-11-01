@@ -1,0 +1,65 @@
+#
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements.  See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License.  You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+# A response recorded from the GitHub API for dev/varka_ci_ledger.py's self-test, trimmed.
+
+{
+ "jobs": [
+  {
+   "id": 123707320249,
+   "run_attempt": 1,
+   "name": "Run / Varka suites: sql 1 of 3",
+   "conclusion": "failure",
+   "started_at": "2026-10-29T20:17:35Z",
+   "completed_at": "2026-10-29T20:34:59Z",
+   "steps": [
+    {
+     "name": "Upload the Varka suites' JUnit reports",
+     "conclusion": "failure"
+    }
+   ]
+  },
+  {
+   "id": 123707320393,
+   "run_attempt": 1,
+   "name": "Run / Varka suites: catalyst 3 of 3",
+   "conclusion": "failure",
+   "started_at": "2026-10-29T20:17:35Z",
+   "completed_at": "2026-10-29T20:34:47Z",
+   "steps": [
+    {
+     "name": "Upload the Varka suites' JUnit reports",
+     "conclusion": "failure"
+    }
+   ]
+  },
+  {
+   "id": 123725986129,
+   "run_attempt": 2,
+   "name": "Run / Varka suites: catalyst 3 of 3",
+   "conclusion": "success",
+   "started_at": "2026-10-29T20:53:57Z",
+   "completed_at": "2026-10-29T21:14:06Z"
+  },
+  {
+   "id": 123725986610,
+   "run_attempt": 2,
+   "name": "Run / Varka suites: sql 1 of 3",
+   "conclusion": "success",
+   "started_at": "2026-10-29T20:53:58Z",
+   "completed_at": "2026-10-29T21:14:04Z"
+  }
+ ]
+}

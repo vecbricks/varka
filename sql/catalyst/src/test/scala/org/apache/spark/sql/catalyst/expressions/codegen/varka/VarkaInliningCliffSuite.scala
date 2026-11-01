@@ -25,6 +25,7 @@ import java.util.concurrent.TimeUnit
 import scala.collection.mutable
 
 import org.apache.spark.SparkFunSuite
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaMatrix.PinsDefaults
 
 /**
  * The machinery of VARKA-209's admission check, kept working: [[VarkaInliningCliffProbe]] forks,
@@ -33,6 +34,10 @@ import org.apache.spark.SparkFunSuite
  * twenty forks per case, the sweep over output counts - is the script's, run when the machine is
  * free (`VARKA-209.md` 2); this suite runs one short fork and asserts nothing about which
  * side of the cliff it landed on.
+ *
+ * The probe measures C2's inlining of loops it emits at `VarkaEmitOptions.DEFAULTS`, and its fork
+ * gets neither the option matrix's configuration nor this JVM's vector flags, so no configuration
+ * gives it anything new: both tests are tagged `VarkaMatrix.PinsDefaults`.
  */
 class VarkaInliningCliffSuite extends SparkFunSuite with VarkaTestWatchdog {
 
@@ -55,6 +60,8 @@ class VarkaInliningCliffSuite extends SparkFunSuite with VarkaTestWatchdog {
       outputs.toString, ceiling.toString, seconds.toString) ++
       budget.toSeq.flatMap(b => Seq("1024", "c1on", "cheap", "none", b.toString)))
       .foreach(command.add)
+    // The child JVM's code runs where the class-use record cannot see it (VarkaTestUse).
+    VarkaTestUse.childJvm()
     val process = new ProcessBuilder(command).redirectErrorStream(true).start()
     val reader = new BufferedReader(
       new InputStreamReader(process.getInputStream, StandardCharsets.UTF_8))
@@ -74,7 +81,7 @@ class VarkaInliningCliffSuite extends SparkFunSuite with VarkaTestWatchdog {
     lines.toSeq
   }
 
-  test("the probe prints its markers, and the reader makes one row of them") {
+  test("the probe prints its markers, and the reader makes one row of them", PinsDefaults) {
     val lines = fork(outputs = 16, ceiling = 400, seconds = 3)
     def marked(prefix: String): Seq[String] =
       lines.flatMap(VarkaProbeOutput.after(_, prefix)).map(_.trim)
@@ -111,7 +118,8 @@ class VarkaInliningCliffSuite extends SparkFunSuite with VarkaTestWatchdog {
   }
 
   test("under the call-site budget the probe forks twenty-two tails as two loop methods, and " +
-      "with the budget off as the one method past C1 the census measured (VARKA-209)") {
+      "with the budget off as the one method past C1 the census measured (VARKA-209)",
+      PinsDefaults) {
     // The census of VARKA-209.md 10.1 put C1's limit between 93 and 99 vector call sites,
     // twenty and twenty-two cheap tails in one loop method. The probe's default arm is the
     // production emitter, whose call-site budget splits the second shape; the `0` arm is the

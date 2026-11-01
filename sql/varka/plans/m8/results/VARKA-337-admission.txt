@@ -1,0 +1,677 @@
+VARKA-337 admission checks, 30 October 2026, laptop (JDK 25.0.4, 24 threads, single-file source
+launch with Spark 4.2.0's jars as the oracle). Method: the program below, run as written, twice,
+under the shared heavy slot with SPARK_LOCAL_IP=127.0.0.1:
+  java -Xmx8g --add-modules jdk.incubator.vector -cp '<spark-4.2.0>/jars/*' Varka337Admission.java
+  the same with -XX:UseAVX=2 (C2's AVX2 lowerings: the 64-bit multiply emulated, the rotates
+  as two shifts and an or, 256-bit species)
+Both outputs follow it; the JDK's Unsafe deprecation warnings are cut. Every number VARKA-337.md
+quotes from these checks is in the output. These are checks of hand-written Vector API forms of
+the planned lowerings and of Spark's per-type rules, not the emitter's kernels; the plan's section 3
+says what holds the built kernels. Times are laptop wall times of a check, not benchmarks.
+
+Note added in the plan's rework (30 October 2026): the program's comment below says
+`git diff v4.2.0 HEAD` "touches only the calendar interval and nanosecond arms". The full
+reading: the diff is empty for Murmur3_x86_32.java and XXH64.java; in hash.scala the hash
+expressions differ only in the calendar interval's order (days hashed between the microseconds
+and the months) and a new nanosecond timestamp arm, the rest being crc32 moved to
+ExpressionImplUtils, xxh3_64 and xxh3_128 added (all over BINARY) and argument documentation; in
+NormalizeFloatingNumbers.scala only where the rule inserts the normaliser changes, not
+FLOAT_NORMALIZER or DOUBLE_NORMALIZER. All of these are outside the row's types, so the oracle is
+master's for every check below. The program and its output are as run.
+
+---- program ----
+// VARKA-337 admission checks: Spark's per-type hash inputs, the canonicalisation node and the
+// hash steps in Vector API lanes, against Spark's own classes. Run with
+//   java --add-modules jdk.incubator.vector -cp '<spark-4.2.0>/jars/*' Varka337Admission.java
+// (JDK 25, single-file source launch), once at the host's defaults and once with
+// -XX:UseAVX=2, so the AVX2 lowerings C2 picks (the emulated 64-bit multiply, the rotate as two
+// shifts and an or) are checked as well.
+//
+// The oracles are Spark 4.2.0's classes: Murmur3_x86_32, XXH64, Murmur3HashFunction,
+// XxHash64Function, Murmur3Hash, XxHash64 and NormalizeFloatingNumbers. The numeric arms of
+// hash.scala, Murmur3_x86_32.java and XXH64.java are unchanged between v4.2.0 and the fork's
+// master (git diff v4.2.0 HEAD touches only the calendar interval and nanosecond arms).
+import java.math.BigDecimal;
+import java.math.BigInteger;
+import java.util.*;
+import java.util.concurrent.*;
+import java.util.concurrent.atomic.*;
+import java.util.function.*;
+import jdk.incubator.vector.*;
+import org.apache.spark.sql.catalyst.InternalRow;
+import org.apache.spark.sql.catalyst.expressions.*;
+import org.apache.spark.sql.catalyst.optimizer.NormalizeFloatingNumbers$;
+import org.apache.spark.sql.types.*;
+import org.apache.spark.unsafe.hash.Murmur3_x86_32;
+
+public class Varka337Admission {
+  static final VectorSpecies<Integer> IS = IntVector.SPECIES_PREFERRED;
+  static final VectorSpecies<Long> LS = LongVector.SPECIES_PREFERRED;
+  static final VectorSpecies<Float> FS = FloatVector.SPECIES_PREFERRED;
+  static final VectorSpecies<Double> DS = DoubleVector.SPECIES_PREFERRED;
+  static final int THREADS = Runtime.getRuntime().availableProcessors();
+
+  static final long P1 = 0x9E3779B185EBCA87L, P2 = 0xC2B2AE3D27D4EB4FL, P3 = 0x165667B19E3779F9L,
+      P4 = 0x85EBCA77C2B2AE63L, P5 = 0x27D4EB2F165667C5L;
+
+  // ---- the canonicalisation node: x + 0.0, then the NaN lanes blended to the canonical NaN.
+  // The NaN test reads the input, not the sum, so the two operations are independent.
+  static FloatVector canon(FloatVector x) {
+    return x.add(0.0f).blend(Float.NaN, x.test(VectorOperators.IS_NAN));
+  }
+
+  static DoubleVector canon(DoubleVector x) {
+    return x.add(0.0).blend(Double.NaN, x.test(VectorOperators.IS_NAN));
+  }
+
+  // ---- Murmur3_x86_32 on int lanes; h * 5 as (h << 2) + h.
+  static IntVector mixK1(IntVector k) {
+    return k.mul(0xcc9e2d51).lanewise(VectorOperators.ROL, 15).mul(0x1b873593);
+  }
+
+  static IntVector mixH1(IntVector h, IntVector k1) {
+    IntVector x = h.lanewise(VectorOperators.XOR, k1).lanewise(VectorOperators.ROL, 13);
+    return x.lanewise(VectorOperators.LSHL, 2).add(x).add(0xe6546b64);
+  }
+
+  static IntVector fmix(IntVector h, int length) {
+    h = h.lanewise(VectorOperators.XOR, length);
+    h = h.lanewise(VectorOperators.XOR, h.lanewise(VectorOperators.LSHR, 16)).mul(0x85ebca6b);
+    h = h.lanewise(VectorOperators.XOR, h.lanewise(VectorOperators.LSHR, 13)).mul(0xc2b2ae35);
+    return h.lanewise(VectorOperators.XOR, h.lanewise(VectorOperators.LSHR, 16));
+  }
+
+  static IntVector murmurInt(IntVector v, IntVector seed) {
+    return fmix(mixH1(seed, mixK1(v)), 4);
+  }
+
+  // A long input in the row-28 representation: the long drive's int values in the low half of
+  // the int species of the same width.
+  static IntVector murmurLong(LongVector v, IntVector seed) {
+    IntVector lo = (IntVector) v.convertShape(VectorOperators.L2I, IS, 0);
+    IntVector hi = (IntVector) v.lanewise(VectorOperators.LSHR, 32)
+        .convertShape(VectorOperators.L2I, IS, 0);
+    return fmix(mixH1(mixH1(seed, mixK1(lo)), mixK1(hi)), 8);
+  }
+
+  // ---- XXH64 on long lanes.
+  static LongVector xfmix(LongVector h) {
+    h = h.lanewise(VectorOperators.XOR, h.lanewise(VectorOperators.LSHR, 33)).mul(P2);
+    h = h.lanewise(VectorOperators.XOR, h.lanewise(VectorOperators.LSHR, 29)).mul(P3);
+    return h.lanewise(VectorOperators.XOR, h.lanewise(VectorOperators.LSHR, 32));
+  }
+
+  // u holds the int input zero-extended, (input & 0xFFFFFFFFL).
+  static LongVector xxhInt(LongVector u, LongVector seed) {
+    LongVector h = seed.add(P5 + 4L).lanewise(VectorOperators.XOR, u.mul(P1));
+    return xfmix(h.lanewise(VectorOperators.ROL, 23).mul(P2).add(P3));
+  }
+
+  static LongVector xxhLong(LongVector v, LongVector seed) {
+    LongVector k = v.mul(P2).lanewise(VectorOperators.ROL, 31).mul(P1);
+    LongVector h = seed.add(P5 + 8L).lanewise(VectorOperators.XOR, k);
+    return xfmix(h.lanewise(VectorOperators.ROL, 27).mul(P1).add(P4));
+  }
+
+  // ---- parallel sweep over every 32-bit pattern; each task returns its mismatch count.
+  interface Chunk { long run(long from, long to); }
+
+  static long sweep(String what, Chunk chunk) throws Exception {
+    long total = 1L << 32;
+    int tasks = THREADS * 8;
+    long step = total / tasks;
+    ExecutorService pool = Executors.newFixedThreadPool(THREADS);
+    long t0 = System.nanoTime();
+    List<Future<Long>> fs = new ArrayList<>();
+    for (int t = 0; t < tasks; t++) {
+      long from = t * step, to = (t == tasks - 1) ? total : from + step;
+      fs.add(pool.submit(() -> chunk.run(from, to)));
+    }
+    long bad = 0;
+    for (Future<Long> f : fs) bad += f.get();
+    pool.shutdown();
+    double secs = (System.nanoTime() - t0) / 1e9;
+    System.out.printf("   %-62s mismatches %d of 2^32, %.1f s on %d threads%n", what, bad, secs,
+        THREADS);
+    return bad;
+  }
+
+  static final Function1Like FLOAT_NORM = v -> NormalizeFloatingNumbers$.MODULE$
+      .FLOAT_NORMALIZER().apply(v);
+  static final Function1Like DOUBLE_NORM = v -> NormalizeFloatingNumbers$.MODULE$
+      .DOUBLE_NORMALIZER().apply(v);
+  interface Function1Like { Object apply(Object v); }
+
+  static long murmurSpark(Object v, DataType t, int seed) {
+    return Murmur3HashFunction$.MODULE$.hash(v, t, seed);
+  }
+
+  static long xxhSpark(Object v, DataType t, long seed) {
+    return XxHash64Function$.MODULE$.hash(v, t, seed);
+  }
+
+  public static void main(String[] args) throws Exception {
+    System.out.println("host: " + System.getProperty("java.vm.version") + ", int species "
+        + IS + ", long species " + LS + ", args " + java.lang.management.ManagementFactory
+        .getRuntimeMXBean().getInputArguments());
+    long bad = 0;
+
+    System.out.println("1. Spark's per-type input to hashInt / hashLong (sampled, both functions)");
+    bad += perType();
+
+    System.out.println("2. Seed chaining and nulls: Murmur3Hash and XxHash64 eval over rows");
+    bad += chaining();
+
+    System.out.println("3. The canonicalisation node, FLOAT, every bit pattern");
+    bad += sweep("canon(f) bits == FLOAT_NORMALIZER(f) bits", (from, to) -> {
+      int n = FS.length();
+      int[] buf = new int[n];
+      long b = 0;
+      for (long i = from; i < to; i += n) {
+        for (int j = 0; j < n; j++) buf[j] = (int) (i + j);
+        FloatVector x = IntVector.fromArray(IS, buf, 0).reinterpretAsFloats();
+        IntVector c = canon(x).reinterpretAsInts();
+        for (int j = 0; j < n; j++) {
+          float f = Float.intBitsToFloat(buf[j]);
+          int want = Float.floatToRawIntBits((Float) FLOAT_NORM.apply(f));
+          if (c.lane(j) != want) b++;
+        }
+      }
+      return b;
+    });
+    bad += sweep("canon(f) bits == Spark's hash input (f == -0.0f ? 0 : floatToIntBits)",
+        (from, to) -> {
+          int n = FS.length();
+          int[] buf = new int[n];
+          long b = 0;
+          for (long i = from; i < to; i += n) {
+            for (int j = 0; j < n; j++) buf[j] = (int) (i + j);
+            IntVector c = canon(IntVector.fromArray(IS, buf, 0).reinterpretAsFloats())
+                .reinterpretAsInts();
+            IntVector cc = canon(c.reinterpretAsFloats()).reinterpretAsInts();
+            for (int j = 0; j < n; j++) {
+              float f = Float.intBitsToFloat(buf[j]);
+              int want = f == -0.0f ? 0 : Float.floatToIntBits(f);
+              if (c.lane(j) != want || cc.lane(j) != want) b++;
+            }
+          }
+          return b;
+        });
+
+    System.out.println("4. The canonicalisation node, DOUBLE, sampled");
+    bad += doubleCanon();
+
+    System.out.println("5. The hash steps over every 32-bit input, seed 42");
+    bad += sweep("murmur hashInt lanes == Murmur3_x86_32.hashInt(v, 42)", (from, to) -> {
+      int n = IS.length();
+      int[] buf = new int[n];
+      IntVector seed = IntVector.broadcast(IS, 42);
+      long b = 0;
+      for (long i = from; i < to; i += n) {
+        for (int j = 0; j < n; j++) buf[j] = (int) (i + j);
+        IntVector h = murmurInt(IntVector.fromArray(IS, buf, 0), seed);
+        for (int j = 0; j < n; j++) if (h.lane(j) != Murmur3_x86_32.hashInt(buf[j], 42)) b++;
+      }
+      return b;
+    });
+    bad += sweep("xxhash64 hashInt lanes == XXH64.hashInt(v, 42)", (from, to) -> {
+      int n = LS.length();
+      long[] buf = new long[n];
+      LongVector seed = LongVector.broadcast(LS, 42L);
+      long b = 0;
+      for (long i = from; i < to; i += n) {
+        for (int j = 0; j < n; j++) buf[j] = (i + j) & 0xFFFFFFFFL;
+        LongVector h = xxhInt(LongVector.fromArray(LS, buf, 0), seed);
+        for (int j = 0; j < n; j++) if (h.lane(j) != XXH64.hashInt((int) buf[j], 42L)) b++;
+      }
+      return b;
+    });
+    bad += sweep("hash(f) by canon + murmur == Murmur3HashFunction.hash(f, FLOAT, 42)",
+        (from, to) -> {
+          int n = IS.length();
+          int[] buf = new int[n];
+          IntVector seed = IntVector.broadcast(IS, 42);
+          long b = 0;
+          for (long i = from; i < to; i += n) {
+            for (int j = 0; j < n; j++) buf[j] = (int) (i + j);
+            IntVector bits = canon(IntVector.fromArray(IS, buf, 0).reinterpretAsFloats())
+                .reinterpretAsInts();
+            IntVector h = murmurInt(bits, seed);
+            for (int j = 0; j < n; j++) {
+              int want = (int) murmurSpark(Float.intBitsToFloat(buf[j]), DataTypes.FloatType, 42);
+              if (h.lane(j) != want) b++;
+            }
+          }
+          return b;
+        });
+    bad += sweep("xxhash64(f) by canon + xxh == XxHash64Function.hash(f, FLOAT, 42)",
+        (from, to) -> {
+          int n = LS.length();
+          int[] buf = new int[n];
+          long[] u = new long[n];
+          LongVector seed = LongVector.broadcast(LS, 42L);
+          long b = 0;
+          for (long i = from; i < to; i += n) {
+            for (int j = 0; j < n; j++) buf[j] = (int) (i + j);
+            for (int j = 0; j < n; j++) {
+              // The bits of canon(f), zero-extended: the probe forms them with the scalar
+              // canonical rule already swept exhaustively above, then hashes in lanes.
+              float f = Float.intBitsToFloat(buf[j]);
+              u[j] = (f == -0.0f ? 0 : Float.floatToIntBits(f)) & 0xFFFFFFFFL;
+            }
+            LongVector h = xxhInt(LongVector.fromArray(LS, u, 0), seed);
+            for (int j = 0; j < n; j++) {
+              long want = xxhSpark(Float.intBitsToFloat(buf[j]), DataTypes.FloatType, 42L);
+              if (h.lane(j) != want) b++;
+            }
+          }
+          return b;
+        });
+
+    System.out.println("6. The 64-bit steps, sampled (seeds drawn too)");
+    bad += longSteps();
+
+    System.out.println("7. DECIMAL above precision 18: Spark's bytes and a word construction");
+    bad += decimals();
+
+    System.out.println("total mismatches: " + bad);
+  }
+
+  static long perType() {
+    Random r = new Random(337);
+    long bad = 0;
+    int samples = 200000;
+    record T(String name, DataType t) {}
+    List<T> types = List.of(new T("BOOLEAN", DataTypes.BooleanType),
+        new T("TINYINT", DataTypes.ByteType), new T("SMALLINT", DataTypes.ShortType),
+        new T("INT", DataTypes.IntegerType), new T("DATE", DataTypes.DateType),
+        new T("INTERVAL YEAR TO MONTH", YearMonthIntervalType$.MODULE$.DEFAULT()),
+        new T("BIGINT", DataTypes.LongType), new T("TIME(6)", TimeType$.MODULE$.apply(6)),
+        new T("TIMESTAMP_NTZ", DataTypes.TimestampNTZType),
+        new T("INTERVAL DAY TO SECOND", DayTimeIntervalType$.MODULE$.DEFAULT()),
+        new T("DECIMAL(18, 4)", DataTypes.createDecimalType(18, 4)),
+        new T("DECIMAL(10, 2)", DataTypes.createDecimalType(10, 2)),
+        new T("FLOAT", DataTypes.FloatType), new T("DOUBLE", DataTypes.DoubleType));
+    for (T t : types) {
+      long b = 0;
+      for (int k = 0; k < samples; k++) {
+        int seedI = k < samples / 2 ? 42 : r.nextInt();
+        long seedL = k < samples / 2 ? 42L : r.nextLong();
+        Object v;
+        long wantM, wantX;
+        switch (t.name()) {
+          case "BOOLEAN" -> {
+            boolean x = r.nextBoolean();
+            v = x;
+            wantM = Murmur3_x86_32.hashInt(x ? 1 : 0, seedI);
+            wantX = XXH64.hashInt(x ? 1 : 0, seedL);
+          }
+          case "TINYINT" -> {
+            byte x = (byte) r.nextInt();
+            v = x;
+            wantM = Murmur3_x86_32.hashInt(x, seedI);
+            wantX = XXH64.hashInt(x, seedL);
+          }
+          case "SMALLINT" -> {
+            short x = (short) r.nextInt();
+            v = x;
+            wantM = Murmur3_x86_32.hashInt(x, seedI);
+            wantX = XXH64.hashInt(x, seedL);
+          }
+          case "INT", "DATE", "INTERVAL YEAR TO MONTH" -> {
+            int x = r.nextInt();
+            v = x;
+            wantM = Murmur3_x86_32.hashInt(x, seedI);
+            wantX = XXH64.hashInt(x, seedL);
+          }
+          case "BIGINT", "TIME(6)", "TIMESTAMP_NTZ", "INTERVAL DAY TO SECOND" -> {
+            long x = r.nextLong();
+            v = x;
+            wantM = Murmur3_x86_32.hashLong(x, seedI);
+            wantX = XXH64.hashLong(x, seedL);
+          }
+          case "DECIMAL(18, 4)", "DECIMAL(10, 2)" -> {
+            DecimalType dt = (DecimalType) t.t();
+            long bound = BigInteger.TEN.pow(dt.precision()).longValueExact() - 1;
+            long u = r.nextLong() % (bound + 1);
+            v = Decimal$.MODULE$.apply(new BigDecimal(BigInteger.valueOf(u), dt.scale()),
+                dt.precision(), dt.scale());
+            wantM = Murmur3_x86_32.hashLong(u, seedI);
+            wantX = XXH64.hashLong(u, seedL);
+          }
+          case "FLOAT" -> {
+            float x = k % 7 == 0 ? new float[] {0.0f, -0.0f, Float.NaN,
+                Float.intBitsToFloat(0xffc00001), Float.POSITIVE_INFINITY, Float.MIN_VALUE,
+                -Float.MAX_VALUE}[k / 7 % 7] : Float.intBitsToFloat(r.nextInt());
+            v = x;
+            int bits = x == -0.0f ? 0 : Float.floatToIntBits(x);
+            wantM = Murmur3_x86_32.hashInt(bits, seedI);
+            wantX = XXH64.hashInt(bits, seedL);
+          }
+          default -> {
+            double x = k % 7 == 0 ? new double[] {0.0, -0.0, Double.NaN,
+                Double.longBitsToDouble(0xfff0000000000001L), Double.NEGATIVE_INFINITY,
+                Double.MIN_VALUE, Double.MAX_VALUE}[k / 7 % 7]
+                : Double.longBitsToDouble(r.nextLong());
+            v = x;
+            long bits = x == -0.0 ? 0L : Double.doubleToLongBits(x);
+            wantM = Murmur3_x86_32.hashLong(bits, seedI);
+            wantX = XXH64.hashLong(bits, seedL);
+          }
+        }
+        if ((int) murmurSpark(v, t.t(), seedI) != (int) wantM) b++;
+        if (xxhSpark(v, t.t(), seedL) != wantX) b++;
+      }
+      System.out.printf("   %-24s %d samples, mismatches %d%n", t.name(), samples, b);
+      bad += b;
+    }
+    return bad;
+  }
+
+  static scala.collection.immutable.Seq<Expression> seq(List<Expression> l) {
+    return scala.jdk.javaapi.CollectionConverters.asScala(l).toList();
+  }
+
+  static long chaining() {
+    Random r = new Random(3370);
+    List<Expression> refs = List.of(new BoundReference(0, DataTypes.IntegerType, true),
+        new BoundReference(1, DataTypes.LongType, true),
+        new BoundReference(2, DataTypes.DoubleType, true),
+        new BoundReference(3, DataTypes.FloatType, true));
+    Murmur3Hash m = new Murmur3Hash(seq(refs), 42);
+    XxHash64 x = new XxHash64(seq(refs), 42L);
+    long bad = 0;
+    int rows = 100000;
+    int allNull = 0;
+    for (int k = 0; k < rows; k++) {
+      Object[] vals = new Object[4];
+      vals[0] = r.nextInt(4) == 0 ? null : r.nextInt();
+      vals[1] = r.nextInt(4) == 0 ? null : r.nextLong();
+      vals[2] = r.nextInt(4) == 0 ? null : (r.nextInt(5) == 0 ? -0.0 : r.nextGaussian());
+      vals[3] = r.nextInt(4) == 0 ? null : (r.nextInt(5) == 0 ? Float.NaN : (float) r.nextGaussian());
+      int hm = 42;
+      long hx = 42L;
+      boolean any = false;
+      if (vals[0] != null) { any = true; hm = Murmur3_x86_32.hashInt((Integer) vals[0], hm);
+        hx = XXH64.hashInt((Integer) vals[0], hx); }
+      if (vals[1] != null) { any = true; hm = Murmur3_x86_32.hashLong((Long) vals[1], hm);
+        hx = XXH64.hashLong((Long) vals[1], hx); }
+      if (vals[2] != null) { any = true; double d = (Double) vals[2];
+        long bits = d == -0.0 ? 0L : Double.doubleToLongBits(d);
+        hm = Murmur3_x86_32.hashLong(bits, hm); hx = XXH64.hashLong(bits, hx); }
+      if (vals[3] != null) { any = true; float f = (Float) vals[3];
+        int bits = f == -0.0f ? 0 : Float.floatToIntBits(f);
+        hm = Murmur3_x86_32.hashInt(bits, hm); hx = XXH64.hashInt(bits, hx); }
+      if (!any) allNull++;
+      InternalRow row = new GenericInternalRow(vals);
+      if ((Integer) m.eval(row) != hm) bad++;
+      if ((Long) x.eval(row) != hx) bad++;
+    }
+    System.out.printf("   %d rows over (INT, BIGINT, DOUBLE, FLOAT), one value in four null,"
+        + " %d rows all null (hash 42): mismatches %d; nullable = %b, %b%n", rows, allNull, bad,
+        m.nullable(), x.nullable());
+    return bad;
+  }
+
+  static long doubleCanon() {
+    Random r = new Random(33700);
+    List<Long> specials = new ArrayList<>(List.of(0L, 0x8000000000000000L,
+        0x7ff0000000000001L, 0x7fffffffffffffffL, 0xfff0000000000001L, 0xffffffffffffffffL,
+        0x7ff8000000000000L, 0xfff8000000000000L, 0x7ff0000000000000L, 0xfff0000000000000L,
+        1L, 0x8000000000000001L, 0x000fffffffffffffL, 0x800fffffffffffffL,
+        0x0010000000000000L, 0x7fefffffffffffffL, 0xffefffffffffffffL));
+    int n = DS.length();
+    int count = 1 << 26;
+    long[] buf = new long[n];
+    long bad = 0;
+    for (int i = 0; i < count; i += n) {
+      for (int j = 0; j < n; j++) {
+        int k = i + j;
+        buf[j] = k < specials.size() ? specials.get(k)
+            : switch (k % 4) {
+              case 0 -> r.nextLong();
+              // NaN payloads of both signs
+              case 1 -> (r.nextBoolean() ? 0x7ff0000000000000L : 0xfff0000000000000L)
+                  | (1L + (r.nextLong() >>> 13));
+              // subnormals of both signs
+              case 2 -> (r.nextBoolean() ? 0L : 0x8000000000000000L) | (r.nextLong() >>> 12);
+              default -> Double.doubleToRawLongBits(r.nextGaussian());
+            };
+      }
+      LongVector c = canon(LongVector.fromArray(LS, buf, 0).reinterpretAsDoubles())
+          .reinterpretAsLongs();
+      LongVector cc = canon(c.reinterpretAsDoubles()).reinterpretAsLongs();
+      for (int j = 0; j < n; j++) {
+        double d = Double.longBitsToDouble(buf[j]);
+        long norm = Double.doubleToRawLongBits((Double) DOUBLE_NORM.apply(d));
+        long hashIn = d == -0.0 ? 0L : Double.doubleToLongBits(d);
+        if (c.lane(j) != norm || c.lane(j) != hashIn || cc.lane(j) != norm) bad++;
+      }
+    }
+    System.out.printf("   %d doubles (%d specials, the four NaN range endpoints among them; then"
+        + " random bits, NaN payloads, subnormals, normals): mismatches %d against"
+        + " DOUBLE_NORMALIZER, Spark's hash input and canon(canon(x))%n", count,
+        specials.size(), bad);
+    return bad;
+  }
+
+  static long longSteps() {
+    Random r = new Random(337000);
+    int count = 1 << 24;
+    int n = LS.length();
+    long[] buf = new long[n];
+    long[] seeds = new long[n];
+    int[] iseeds = new int[IS.length()];
+    long bad = 0;
+    for (int i = 0; i < count; i += n) {
+      for (int j = 0; j < n; j++) {
+        buf[j] = switch ((i + j) % 4) {
+          case 0 -> r.nextLong();
+          case 1 -> (long) r.nextInt();
+          case 2 -> 1L << r.nextInt(64);
+          default -> -(1L << r.nextInt(64));
+        };
+        seeds[j] = i < count / 2 ? 42L : r.nextLong();
+        iseeds[j] = (int) seeds[j];
+      }
+      LongVector v = LongVector.fromArray(LS, buf, 0);
+      IntVector hm = murmurLong(v, IntVector.fromArray(IS, iseeds, 0));
+      LongVector hx = xxhLong(v, LongVector.fromArray(LS, seeds, 0));
+      for (int j = 0; j < n; j++) {
+        if (hm.lane(j) != Murmur3_x86_32.hashLong(buf[j], iseeds[j])) bad++;
+        if (hx.lane(j) != XXH64.hashLong(buf[j], seeds[j])) bad++;
+      }
+    }
+    System.out.printf("   %d longs, half at seed 42 and half at drawn seeds: murmur hashLong in"
+        + " the row-28 representation and xxhash64 hashLong, mismatches %d%n", count, bad);
+    return bad;
+  }
+
+  // The bytes Spark hashes for DECIMAL(p, s) with p > 18: BigInteger.toByteArray of the
+  // unscaled value, the minimal big-endian two's complement. Formed here from the two 64-bit
+  // words of Arrow's slot by word operations only (what lanes would do): its length from the
+  // leading sign bits, the bytes as a 128-bit right shift of the byte-reversed pair.
+  static int length(long lo, long hi) {
+    long s = hi >> 63;
+    long nlo = lo ^ s, nhi = hi ^ s;
+    int bits = nhi != 0 ? 128 - Long.numberOfLeadingZeros(nhi) : 64 - Long.numberOfLeadingZeros(nlo);
+    return (bits >> 3) + 1;
+  }
+
+  // The minimal array read as a little-endian 128-bit number: {low word, high word}.
+  static long[] packed(long lo, long hi, int len) {
+    long rlo = Long.reverseBytes(hi), rhi = Long.reverseBytes(lo);
+    int sh = 8 * (16 - len);
+    if (sh == 0) return new long[] {rlo, rhi};
+    if (sh < 64) return new long[] {(rlo >>> sh) | (rhi << (64 - sh)), rhi >>> sh};
+    return new long[] {rhi >>> (sh - 64), 0L};
+  }
+
+  static int mk(int k) { k *= 0xcc9e2d51; k = Integer.rotateLeft(k, 15); return k * 0x1b873593; }
+  static int mh(int h, int k) { h ^= k; h = Integer.rotateLeft(h, 13); return h * 5 + 0xe6546b64; }
+  static int fm(int h, int len) {
+    h ^= len; h ^= h >>> 16; h *= 0x85ebca6b; h ^= h >>> 13; h *= 0xc2b2ae35; return h ^ (h >>> 16);
+  }
+
+  // Spark's legacy Murmur3 tail (hashUnsafeBytes): whole ints, then each remaining byte
+  // sign-extended and mixed as an int of its own.
+  static int murmurBytes(long lo, long hi, int seed) {
+    int len = length(lo, hi);
+    long[] w = packed(lo, hi, len);
+    int[] c = {(int) w[0], (int) (w[0] >>> 32), (int) w[1], (int) (w[1] >>> 32)};
+    int h = seed, n4 = len >> 2;
+    for (int j = 0; j < 4; j++) if (j < n4) h = mh(h, mk(c[j]));
+    int tail = c[Math.min(n4, 3)];
+    for (int i = 0; i < 3; i++) if (i < (len & 3)) h = mh(h, mk((byte) (tail >>> (8 * i))));
+    return fm(h, len);
+  }
+
+  static long xrot(long h, int r, long m) { return Long.rotateLeft(h, r) * m; }
+  static long xmix(long h) {
+    h ^= h >>> 33; h *= P2; h ^= h >>> 29; h *= P3; return h ^ (h >>> 32);
+  }
+
+  static long xxhBytes(long lo, long hi, long seed) {
+    int len = length(lo, hi);
+    long[] w = packed(lo, hi, len);
+    long h = seed + P5 + len;
+    int nw = len >> 3;
+    for (int j = 0; j < 2; j++) {
+      if (j < nw) { h ^= xrot(w[j] * P2, 31, P1); h = xrot(h, 27, P1) + P4; }
+    }
+    long word = nw < 2 ? w[nw] : 0L;
+    int rem = len & 7, at = 0;
+    if (rem >= 4) {
+      h ^= (word & 0xFFFFFFFFL) * P1; h = xrot(h, 23, P2) + P3; at = 4;
+    }
+    for (int i = 0; i < 3; i++) {
+      if (i < (rem & 3)) {
+        h ^= ((word >>> (8 * (at + i))) & 0xFFL) * P5; h = xrot(h, 11, P1);
+      }
+    }
+    return xmix(h);
+  }
+
+  static long decimals() {
+    Random r = new Random(3370000);
+    long bad = 0;
+    int[] lenSeen = new int[17];
+    StringBuilder maxLen = new StringBuilder();
+    for (int p = 19; p <= 38; p++) {
+      BigInteger bound = BigInteger.TEN.pow(p).subtract(BigInteger.ONE);
+      int s = p % 5;
+      DecimalType dt = DataTypes.createDecimalType(p, s);
+      List<BigInteger> us = new ArrayList<>();
+      for (long v : new long[] {0, 1, -1, 127, 128, -128, -129, 255, 256, 32767, 32768, -32768,
+          -32769, Long.MAX_VALUE, Long.MIN_VALUE}) us.add(BigInteger.valueOf(v));
+      us.add(bound);
+      us.add(bound.negate());
+      for (int k = 0; k <= bound.bitLength(); k++) {
+        BigInteger two = BigInteger.ONE.shiftLeft(k);
+        for (BigInteger u : List.of(two, two.subtract(BigInteger.ONE), two.negate(),
+            two.negate().subtract(BigInteger.ONE))) {
+          if (u.abs().compareTo(bound) <= 0) us.add(u);
+        }
+      }
+      for (int k = 0; k < 20000; k++) {
+        BigInteger u = new BigInteger(r.nextInt(bound.bitLength() + 1), r);
+        if (u.compareTo(bound) > 0) u = u.mod(bound);
+        us.add(r.nextBoolean() ? u : u.negate());
+      }
+      for (BigInteger u : us) {
+        long lo = u.longValue(), hi = u.shiftRight(64).longValue();
+        byte[] bytes = u.toByteArray();
+        int len = length(lo, hi);
+        lenSeen[len]++;
+        if (len != bytes.length) bad++;
+        int seed = r.nextBoolean() ? 42 : r.nextInt();
+        long xseed = r.nextBoolean() ? 42L : r.nextLong();
+        Decimal d = Decimal$.MODULE$.apply(new BigDecimal(u, s), p, s);
+        if (murmurBytes(lo, hi, seed) != (int) murmurSpark(d, dt, seed)) bad++;
+        if (xxhBytes(lo, hi, xseed) != xxhSpark(d, dt, xseed)) bad++;
+      }
+      maxLen.append(p).append(':').append(bound.toByteArray().length).append(' ');
+    }
+    System.out.println("   longest byte array per precision (p:bytes): " + maxLen.toString().trim());
+    StringBuilder seen = new StringBuilder();
+    for (int l = 1; l <= 16; l++) seen.append(l).append(':').append(lenSeen[l]).append(' ');
+    System.out.println("   values drawn per byte length (length:count): " + seen.toString().trim());
+    System.out.println("   length, legacy Murmur3 tail and XXH64 tail from the two words against"
+        + " Murmur3HashFunction / XxHash64Function: mismatches " + bad);
+    return bad;
+  }
+}
+
+---- output, host defaults (AVX-512) ----
+host: 25.0.4.1+1-1-26.04.4-Ubuntu, int species Species[int, 16, S_512_BIT], long species Species[long, 8, S_512_BIT], args [-Xmx8g, --add-modules=jdk.incubator.vector, --add-modules=ALL-DEFAULT]
+1. Spark's per-type input to hashInt / hashLong (sampled, both functions)
+   BOOLEAN                  200000 samples, mismatches 0
+   TINYINT                  200000 samples, mismatches 0
+   SMALLINT                 200000 samples, mismatches 0
+   INT                      200000 samples, mismatches 0
+   DATE                     200000 samples, mismatches 0
+   INTERVAL YEAR TO MONTH   200000 samples, mismatches 0
+   BIGINT                   200000 samples, mismatches 0
+   TIME(6)                  200000 samples, mismatches 0
+   TIMESTAMP_NTZ            200000 samples, mismatches 0
+   INTERVAL DAY TO SECOND   200000 samples, mismatches 0
+   DECIMAL(18, 4)           200000 samples, mismatches 0
+   DECIMAL(10, 2)           200000 samples, mismatches 0
+   FLOAT                    200000 samples, mismatches 0
+   DOUBLE                   200000 samples, mismatches 0
+2. Seed chaining and nulls: Murmur3Hash and XxHash64 eval over rows
+   100000 rows over (INT, BIGINT, DOUBLE, FLOAT), one value in four null, 409 rows all null (hash 42): mismatches 0; nullable = false, false
+3. The canonicalisation node, FLOAT, every bit pattern
+   canon(f) bits == FLOAT_NORMALIZER(f) bits                      mismatches 0 of 2^32, 1.0 s on 24 threads
+   canon(f) bits == Spark's hash input (f == -0.0f ? 0 : floatToIntBits) mismatches 0 of 2^32, 1.1 s on 24 threads
+4. The canonicalisation node, DOUBLE, sampled
+   67108864 doubles (17 specials, the four NaN range endpoints among them; then random bits, NaN payloads, subnormals, normals): mismatches 0 against DOUBLE_NORMALIZER, Spark's hash input and canon(canon(x))
+5. The hash steps over every 32-bit input, seed 42
+   murmur hashInt lanes == Murmur3_x86_32.hashInt(v, 42)          mismatches 0 of 2^32, 1.2 s on 24 threads
+   xxhash64 hashInt lanes == XXH64.hashInt(v, 42)                 mismatches 0 of 2^32, 1.2 s on 24 threads
+   hash(f) by canon + murmur == Murmur3HashFunction.hash(f, FLOAT, 42) mismatches 0 of 2^32, 4.5 s on 24 threads
+   xxhash64(f) by canon + xxh == XxHash64Function.hash(f, FLOAT, 42) mismatches 0 of 2^32, 5.0 s on 24 threads
+6. The 64-bit steps, sampled (seeds drawn too)
+   16777216 longs, half at seed 42 and half at drawn seeds: murmur hashLong in the row-28 representation and xxhash64 hashLong, mismatches 0
+7. DECIMAL above precision 18: Spark's bytes and a word construction
+   longest byte array per precision (p:bytes): 19:9 20:9 21:9 22:10 23:10 24:11 25:11 26:11 27:12 28:12 29:13 30:13 31:13 32:14 33:14 34:15 35:15 36:16 37:16 38:16
+   values drawn per byte length (length:count): 1:39781 2:35661 3:35350 4:35335 5:35045 6:35095 7:35405 8:35563 9:30904 10:25564 11:20597 12:16441 13:12133 14:8370 15:5037 16:1675
+   length, legacy Murmur3 tail and XXH64 tail from the two words against Murmur3HashFunction / XxHash64Function: mismatches 0
+total mismatches: 0
+
+---- output, -XX:UseAVX=2 ----
+host: 25.0.4.1+1-1-26.04.4-Ubuntu, int species Species[int, 8, S_256_BIT], long species Species[long, 4, S_256_BIT], args [-Xmx8g, -XX:UseAVX=2, --add-modules=jdk.incubator.vector, --add-modules=ALL-DEFAULT]
+1. Spark's per-type input to hashInt / hashLong (sampled, both functions)
+   BOOLEAN                  200000 samples, mismatches 0
+   TINYINT                  200000 samples, mismatches 0
+   SMALLINT                 200000 samples, mismatches 0
+   INT                      200000 samples, mismatches 0
+   DATE                     200000 samples, mismatches 0
+   INTERVAL YEAR TO MONTH   200000 samples, mismatches 0
+   BIGINT                   200000 samples, mismatches 0
+   TIME(6)                  200000 samples, mismatches 0
+   TIMESTAMP_NTZ            200000 samples, mismatches 0
+   INTERVAL DAY TO SECOND   200000 samples, mismatches 0
+   DECIMAL(18, 4)           200000 samples, mismatches 0
+   DECIMAL(10, 2)           200000 samples, mismatches 0
+   FLOAT                    200000 samples, mismatches 0
+   DOUBLE                   200000 samples, mismatches 0
+2. Seed chaining and nulls: Murmur3Hash and XxHash64 eval over rows
+   100000 rows over (INT, BIGINT, DOUBLE, FLOAT), one value in four null, 409 rows all null (hash 42): mismatches 0; nullable = false, false
+3. The canonicalisation node, FLOAT, every bit pattern
+   canon(f) bits == FLOAT_NORMALIZER(f) bits                      mismatches 0 of 2^32, 1.0 s on 24 threads
+   canon(f) bits == Spark's hash input (f == -0.0f ? 0 : floatToIntBits) mismatches 0 of 2^32, 1.4 s on 24 threads
+4. The canonicalisation node, DOUBLE, sampled
+   67108864 doubles (17 specials, the four NaN range endpoints among them; then random bits, NaN payloads, subnormals, normals): mismatches 0 against DOUBLE_NORMALIZER, Spark's hash input and canon(canon(x))
+5. The hash steps over every 32-bit input, seed 42
+   murmur hashInt lanes == Murmur3_x86_32.hashInt(v, 42)          mismatches 0 of 2^32, 1.0 s on 24 threads
+   xxhash64 hashInt lanes == XXH64.hashInt(v, 42)                 mismatches 0 of 2^32, 2.0 s on 24 threads
+   hash(f) by canon + murmur == Murmur3HashFunction.hash(f, FLOAT, 42) mismatches 0 of 2^32, 4.5 s on 24 threads
+   xxhash64(f) by canon + xxh == XxHash64Function.hash(f, FLOAT, 42) mismatches 0 of 2^32, 5.3 s on 24 threads
+6. The 64-bit steps, sampled (seeds drawn too)
+   16777216 longs, half at seed 42 and half at drawn seeds: murmur hashLong in the row-28 representation and xxhash64 hashLong, mismatches 0
+7. DECIMAL above precision 18: Spark's bytes and a word construction
+   longest byte array per precision (p:bytes): 19:9 20:9 21:9 22:10 23:10 24:11 25:11 26:11 27:12 28:12 29:13 30:13 31:13 32:14 33:14 34:15 35:15 36:16 37:16 38:16
+   values drawn per byte length (length:count): 1:39781 2:35661 3:35350 4:35335 5:35045 6:35095 7:35405 8:35563 9:30904 10:25564 11:20597 12:16441 13:12133 14:8370 15:5037 16:1675
+   length, legacy Murmur3 tail and XXH64 tail from the two words against Murmur3HashFunction / XxHash64Function: mismatches 0
+total mismatches: 0

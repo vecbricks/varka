@@ -1,0 +1,76 @@
+# The rest of the coverage harness's planning, and its Arrow batches written once (VARKA-510),
+# 29 October 2026, on the laptop (AMD Ryzen AI 9 HX PRO 370), at the defaults, one JVM, on the
+# tree this file is committed with, stacked on e4c4832428a (the null-test conditions planned
+# together, VARKA-510-together-local.txt). Seconds are VarkaCoverageHarnessSuite's JUnit time,
+# 1067 tests, all passed in every run.
+
+What changed, by the callers the profile of VARKA-510-together-local.txt named:
+  VarkaPartitionOracle.nullable    remembered for its text, columns and SQL configuration, and
+                                   on a miss every predicate row's value planned together
+  VarkaAnsiForm.queries            the row's type the same way, every row's value together
+  VarkaAnsiForm.check              a row's three projections (alone, CASE arm, COALESCE tail)
+                                   planned together; its filters alone
+  VarkaDomains.sparkValues         the raising-rows test plans the table's 337 values together
+                                   and evaluates each alone, so an error is its own row's
+  VarkaPartitionOracle.filter      not batched: WHERE NOT (p), which the Not check planned again,
+                                   planned once for both
+  VarkaCacheBatches                the cache's written batches (Arrow's serialized bytes) kept
+                                   for the last 8 row lists, by the list's identity, columns and
+                                   writer settings; each read deserializes fresh vectors
+VarkaHarnessPlans.projections halves a list that does not come out as one entry an expression
+over the scan, down to the expressions planned alone, where it planned the whole list alone.
+
+Why the partition oracle's filters are not planned together: one Filter holding them would have
+the optimizer merge and reorder their conjuncts. A UNION ALL of the four filters keeps each
+condition as it is alone - a filter's condition is rewritten from the filter and the scan below
+it - and was built, held equal by a parity test, and timed: on one fixture, ANSI off, the 164
+predicate rows, third warm round,
+  four filters planned alone          3.08 ms a row (0.77 each)
+  their UNION ALL, one run            2.93 ms a row
+  one projection                      0.58 ms
+  four projections in one list        0.90 ms
+An optimizer run's cost is in the plan's nodes, which a union of four filters multiplies, and
+not in the run, so the union saved 5% of the oracle's planning and was dropped; a projection
+list adds entries, not nodes, which is why lists pay.
+
+Runs of the analyzer and the optimizer (VarkaHarnessPlans.optimize) in the suite, counted once:
+  e4c4832428a        9743
+  this tree          6619
+
+VarkaCoverageHarnessSuite, seconds:
+  e4c4832428a                                    35.2  35.3  35.3
+  this tree, the batches written every time      34.9  33.2  33.0
+  this tree                                      32.4  31.7  31.3  31.1  31.4
+  so about 2.1 s from the planning and 1.8 s from the batches: 35.3 s to 31.4, by medians
+
+VarkaHarnessParitySuite: 6 tests, 9.2 s, against 3 tests and 7.2 s. The three new ones hold
+the ANSI form's projections planned together equal to each query planned alone (1.0 s), the
+remembered values of the partition oracle (each answer fixture, under the default optimizer,
+the partition rewrites excluded and NullPropagation excluded too) and of the ANSI form equal to
+each planned alone (0.7 s), and the conditions the raising-rows test reads equal to each
+expression's alone (0.4 s). The parity suite runs at the defaults only; the coverage harness
+runs again in each configuration of the option matrix.
+
+The kernels do not write to their input: VarkaExpressionHarness takes a CRC of every buffer of
+an input batch's Arrow vectors, validity and values, before and after the evaluator serves it,
+and reports a change as a finding; no check of the suite found one (0.3% of the samples). The
+memo does not rely on it, since it shares only the serialized bytes.
+
+Where the suite's time goes on this tree (JFR, settings=profile, stack depth 1024, 2215 samples,
+each in the first phase its stack matches, in this order):
+  analyzer and optimizer (VarkaHarnessPlans.optimize)   31.2%
+    VarkaPartitionOracle.plan                            12.5%
+    VarkaAnsiForm.plans                                   7.0%
+    the null-test conditions' projections                 5.9%
+    every row's answer check (checkUnder)                 3.3%
+    VarkaDomains.sparkValues                              1.1%
+    VarkaPartitionOracle.nullable                         0.3%
+    every other caller                                    1.1%
+  Varka compile and emit, and the evaluators            29.1%
+  Spark's generated projection, Janino included          26.2%
+  parser                                                  6.3%
+  Arrow batches read                                      3.0%
+  Spark's interpreted projection                          2.3%
+  Arrow batches written                                   1.4%
+  input checksum                                          0.3%
+  other                                                   0.2%

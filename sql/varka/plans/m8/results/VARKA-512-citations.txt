@@ -1,0 +1,33 @@
+# The quote check held to its citations (VARKA-512), 29 October 2026, on master at 6b52f1b420b:
+# what dev/varka_quote_check.py reports once a quote is held to the results files its own table
+# row or prose paragraph cites, and once the plans' results files are among those it searches.
+
+Results files searched on master: 724 current, plus their git history (689 before; the 35 added are
+the plans' own, sql/varka/plans/*/results/*.txt; this file is the 725th).
+
+Quotes in the Varka documents: 4101. Of these, 3934 are in a passage that cites no results file
+and are searched for in all of them (the fallback, counted in the summary line, not a failure);
+the other 167 are held to the files their passage cites.
+
+Quotes the stricter check rejected on master: 54, in 17 documents, every one of which had passed
+on an uncited file whose digits matched.
+  given their citation: 13, in 6 passages of 5 documents
+    sql/varka/plans/m9/VARKA-64.md       4 (the 128-bit parity companion, named in full) and
+                                         1 (the 128-bit throughput companion)
+    sql/varka/plans/m4/VARKA-54.md       1 (the parity file the control was read from)
+    sql/varka/plans/m5/PLAN.md           2 (the TIME surface's engine-off and stock files)
+    sql/varka/plans/m6/VARKA-198.md      3 (the size ladder's regenerated results file)
+    sql/varka/plans/m8/VARKA-340.md      2 (the DATE surface's engine-off file, named in full)
+  allowlisted with a reason: 41, in 38 lines (a number quoted twice in one document is one line)
+    a section number, not a measurement:                              18
+    a figure from a log, probe or repeat run never committed:         15
+    row 329's G rows/s rounded from the cited M rows/s table:          6
+    a table's size in GiB, not a rate:                                 1
+    a percentage written without its sign:                             1
+
+Widening the number shape, measured with --measure-widening and not turned on; a results file
+is searched for the widened shapes as any number, since a percentage there may lack its sign:
+  percentages:          2939 more quotes, 48 of them orphans
+  one-digit decimals:  10134 more quotes, 345 of them orphans
+Both orphan counts are lower bounds: an integer percentage is satisfied by the same integer
+anywhere in its scope, and a negative percentage (-7.7%) is not read as a quote at all.

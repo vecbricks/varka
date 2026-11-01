@@ -1,0 +1,385 @@
+VARKA-95 admission checks, 30 October 2026, laptop (AMD Ryzen AI 9 HX PRO 370, AVX-512, JDK
+25.0.4.1, 24 threads). Laptop readings, not benchmark numbers; nothing here is a speed claim.
+Every number VARKA-95.md quotes from these checks is in this file.
+
+Commands, each JVM run under the shared heavy slot with SPARK_LOCAL_IP=127.0.0.1:
+  checks 1 to 5 and 6a:  java -Xmx4g --add-modules jdk.incubator.vector Varka95Admission.java
+                          (57 s wall)
+  check 6b:              LD_LIBRARY_PATH=$HOME/hsdis java [-XX:UseAVX=2] \
+                            --add-modules jdk.incubator.vector -XX:+UnlockDiagnosticVMOptions \
+                            -XX:CompileCommand=quiet \
+                            -XX:CompileCommand=print,Varka95Admission::kernel256 \
+                            Varka95Admission.java asm
+                          then the mnemonics counted per compiled method
+  check 7:               Z3 5.1.0 (dev/varka_prove.sh's pinned build) on halves.smt2 below,
+                          the whole file with -T:600, and each check but 3b alone with -T:300
+
+These are sampled checks of the planned constructions in scalar Java and the Vector API against
+the calls Spark's code makes, and a solver spike; the plan's section 3 says what proves each one.
+
+Check names in the output: 1 to 4 are the multiply's overflow tests against Math.multiplyExact
+over the edge pairs and the draw; 5a ("r = a - (a / k) * k") and 5b ("power-of-two form") the
+remainder; 6a the halves form in IntVector against the scalar answer; 6b the assembly; 7 Z3.
+
+---- output of checks 1 to 6a ----
+edges: 187 values, 34969 pairs; draw: 200000000 pairs a check
+1. long form (64-bit product in [MIN, MAX])                edges 0/34969 differ, draw 0/199999992 differ
+2. halves form (high word != low word >> 31)               edges 0/34969 differ, draw 0/199999992 differ
+3. double form (binary64 product in [-2^31, 2^31 - 1])     edges 0/34969 differ, draw 0/199999992 differ
+4. planted fault: halves form with >>> 31                  edges 8382/34969 differ, draw 41925318/199999992 differ
+r = a - (a / k) * k wrapping, against a % k                587 divisors, 0/587109769 cells differ
+power-of-two form against a % (+-2^j)                      every int, j = 1..31, both signs: 0 differ
+halves form, IntVector.SPECIES_256                         65536 lanes: overflow 35959, expected 35959; wrapped product wrong 0
+halves form, IntVector.SPECIES_512                         65536 lanes: overflow 35959, expected 35959; wrapped product wrong 0
+
+---- check 6b: mnemonics in kernel256's C2 compiles (IntVector.SPECIES_256) ----
+UseAVX default:
+  on-stack-replacement compile (kernel256 @ 45 (194 bytes)): vpmovqd=2 vpmullq=2 vpmovsxdq=8 vpermd=4 vpmulld=4, lines with call: 207
+  steady compile (kernel256 (194 bytes)): vpmovsxdq=8 vpmuldq=4 vpermd=8 vpmulld=4 vpmovqd=4, lines with call: 15
+UseAVX -XX:UseAVX=2:
+  on-stack-replacement compile (kernel256 @ 45 (194 bytes)): vpmuludq=2 vpmovsxdq=8 vpermd=4 vpmulld=5, lines with call: 133
+  steady compile (kernel256 (194 bytes)): vpmovsxdq=8 vpmuldq=4 vpermd=8 vpmulld=4, lines with call: 15
+  The steady compile's call lines are three calls to one target with a trap request loaded
+  into esi before each (the uncommon-trap stub) and the safepoint, method-entry barrier,
+  exception and deoptimisation blobs; no Vector API method is called. No vpmullq and no
+  vpmuludq sequence in the steady compile at either level: the long multiply of the two
+  I2L-converted halves is vpmuldq.
+
+---- check 7: Z3 5.1.0 on halves.smt2 ----
+whole file, -T:600 (8 min 34 s, 514 s of CPU):
+  1. the 64-bit product is exact (no 64-bit overflow): expect unsat
+  unsat
+  2. the low word is the wrapping int multiply: expect unsat
+  unsat
+  3. the halves test is exactly the range test: expect unsat
+  unsat
+  3b. the range test is Java's multiplyExact overflow (not bvsmulo at 32): expect unsat
+  unsat
+  4. planted: the low word's sign by a logical shift: expect sat
+  sat
+  5. the lemma over any 64-bit p, no multiply: expect unsat
+  unsat
+each check but 3b alone, -T:300 (wall seconds; so 3b took about 488 s of the 514 s):
+  1. the 64-bit product is exact (no 64-bit overflow): expect unsat unsat chk-1.smt2 9.29 s 
+  2. the low word is the wrapping int multiply: expect unsat unsat chk-2.smt2 0.00 s 
+  3. the halves test is exactly the range test: expect unsat unsat chk-3.smt2 0.03 s 
+  4. planted: the low word's sign by a logical shift: expect sat sat chk-4.smt2 16.95 s 
+  5. the lemma over any 64-bit p, no multiply: expect unsat unsat chk-5.smt2 0.00 s 
+
+---- program: Varka95Admission.java ----
+// VARKA-95 admission checks: the planned int32 checked multiply and the constant-divisor
+// remainder, in scalar Java and in the Vector API, against the calls Spark's code makes:
+//   ANSI and TRY int * int = Math.multiplyExact(a, b)   (MathUtils.scala:54-56)
+//   LEGACY int * int       = a * b, wrapping            (arithmetic.scala:345-351)
+//   int % int              = a % b, Java's truncated remainder (arithmetic.scala:1101-1103)
+// Run with
+//   java --add-modules jdk.incubator.vector Varka95Admission.java [asm]
+// (JDK 25, single-file source launch). With "asm" it only runs the vector kernels hot, for
+// -XX:CompileCommand=print. These are sampled checks, not proofs; the plan's section 3 says
+// what proves each one.
+import java.util.*;
+import java.util.concurrent.atomic.*;
+import java.util.stream.*;
+import jdk.incubator.vector.*;
+
+public class Varka95Admission {
+  static final int N = 200_000_000; // random pairs per scalar check
+
+  static final int[] EDGES = buildEdges();
+
+  static int[] buildEdges() {
+    TreeSet<Integer> s = new TreeSet<>();
+    for (int v : new int[] {Integer.MIN_VALUE, Integer.MIN_VALUE + 1, Integer.MAX_VALUE,
+        Integer.MAX_VALUE - 1, 0, 1, -1, 2, -2, 3, -3, 7, -7, 46340, 46341, -46340, -46341,
+        65535, 65536, -65536, -65537, 1 << 30, -(1 << 30)}) {
+      s.add(v);
+    }
+    for (int k = 1; k < 31; k++) {
+      for (int d = -1; d <= 1; d++) {
+        s.add((1 << k) + d);
+        s.add(-(1 << k) + d);
+      }
+    }
+    return s.stream().mapToInt(Integer::intValue).toArray();
+  }
+
+  /** An int from every magnitude, both signs, and the edges. */
+  static int draw(SplittableRandom r) {
+    switch (r.nextInt(5)) {
+      case 0: return r.nextInt();
+      case 1: return r.nextInt() >> r.nextInt(32);
+      case 2: return EDGES[r.nextInt(EDGES.length)];
+      case 3: return r.nextInt(-46341, 46342);
+      default: return r.nextInt(-65537, 65538);
+    }
+  }
+
+  static boolean exactOverflows(int a, int b) {
+    try {
+      Math.multiplyExact(a, b);
+      return false;
+    } catch (ArithmeticException e) {
+      return true;
+    }
+  }
+
+  /** The long form: the 64-bit product and the int range, GuardedRange(MIN, MAX). */
+  static boolean longFormOverflows(int a, int b) {
+    long p = (long) a * (long) b;
+    return p < Integer.MIN_VALUE || p > Integer.MAX_VALUE;
+  }
+
+  /** The halves form: the product's high word against the low word's sign. */
+  static boolean halvesFormOverflows(int a, int b) {
+    long p = (long) a * (long) b;
+    int hi = (int) (p >>> 32);
+    int lo = a * b;
+    return hi != (lo >> 31);
+  }
+
+  /** The planted fault: the low word's sign taken with a logical shift. */
+  static boolean plantedLogical(int a, int b) {
+    long p = (long) a * (long) b;
+    return (int) (p >>> 32) != (a * b) >>> 31;
+  }
+
+  /** The double form: the product in binary64, compared with the int range. */
+  static boolean doubleFormOverflows(int a, int b) {
+    double p = (double) a * (double) b;
+    return p < -2147483648.0 || p > 2147483647.0;
+  }
+
+  interface Pair { boolean test(int a, int b); }
+
+  static void check(String name, Pair form, Pair truth) {
+    long cells = 0, bad = 0;
+    for (int a : EDGES) {
+      for (int b : EDGES) {
+        cells++;
+        if (form.test(a, b) != truth.test(a, b)) bad++;
+      }
+    }
+    AtomicLong badDraw = new AtomicLong();
+    IntStream.range(0, 24).parallel().forEach(t -> {
+      SplittableRandom r = new SplittableRandom(95_000 + t);
+      long local = 0;
+      for (int i = 0; i < N / 24; i++) {
+        int a = draw(r), b = draw(r);
+        if (form.test(a, b) != truth.test(a, b)) local++;
+      }
+      badDraw.addAndGet(local);
+    });
+    System.out.printf("%-58s edges %d/%d differ, draw %d/%d differ%n", name, bad, cells,
+        badDraw.get(), (long) (N / 24) * 24);
+  }
+
+  // ---- remainder by a constant ----
+
+  /** The planned lowering: q = ConstDivide (Java's truncated /), r = a - q * k wrapping. */
+  static int remByQuotient(int a, int k) {
+    int q = a / k;
+    return a - q * k;
+  }
+
+  /** The power-of-two form for |k| = 2^j, 1 <= j <= 31: bias, mask, subtract. */
+  static int remPow2(int a, int j) {
+    int bias = (a >> 31) >>> (32 - j);
+    return a - ((a + bias) & -(1 << j));
+  }
+
+  static void checkRemainder() {
+    TreeSet<Integer> ks = new TreeSet<>();
+    for (int e : EDGES) if (e != 0) ks.add(e);
+    SplittableRandom kr = new SplittableRandom(9595);
+    while (ks.size() < EDGES.length + 400) {
+      int k = kr.nextInt();
+      if (k != 0) ks.add(k);
+    }
+    int[] divisors = ks.stream().mapToInt(Integer::intValue).toArray();
+    AtomicLong cells = new AtomicLong(), bad = new AtomicLong();
+    Arrays.stream(divisors).parallel().forEach(k -> {
+      long c = 0, b = 0;
+      for (int a : EDGES) {
+        c++;
+        if (remByQuotient(a, k) != a % k) b++;
+      }
+      SplittableRandom r = new SplittableRandom(k);
+      for (int i = 0; i < 1_000_000; i++) {
+        int a = draw(r);
+        c++;
+        if (remByQuotient(a, k) != a % k) b++;
+      }
+      cells.addAndGet(c);
+      bad.addAndGet(b);
+    });
+    System.out.printf("%-58s %d divisors, %d/%d cells differ%n",
+        "r = a - (a / k) * k wrapping, against a % k", divisors.length, bad.get(), cells.get());
+
+    // The power-of-two form, every dividend, every j, both signs of the divisor.
+    AtomicLong pbad = new AtomicLong();
+    IntStream.rangeClosed(1, 31).parallel().forEach(j -> {
+      int k = 1 << j; // j = 31 is Integer.MIN_VALUE
+      long b = 0;
+      for (long x = Integer.MIN_VALUE; x <= Integer.MAX_VALUE; x++) {
+        int a = (int) x;
+        int r = remPow2(a, j);
+        if (r != a % k) b++;
+        if (j < 31 && r != a % -k) b++;
+      }
+      pbad.addAndGet(b);
+    });
+    System.out.printf("%-58s every int, j = 1..31, both signs: %d differ%n",
+        "power-of-two form against a % (+-2^j)", pbad.get());
+  }
+
+  // ---- the halves form in the Vector API ----
+
+  static final VectorSpecies<Integer> I256 = IntVector.SPECIES_256;
+  static final VectorSpecies<Long> L256 = LongVector.SPECIES_256;
+  static final VectorSpecies<Integer> I512 = IntVector.SPECIES_512;
+  static final VectorSpecies<Long> L512 = LongVector.SPECIES_512;
+
+  /** Returns the overflow count; out holds the wrapped product. */
+  static int kernel256(int[] x, int[] y, int[] out) {
+    int count = 0;
+    for (int i = 0; i < x.length; i += I256.length()) {
+      IntVector a = IntVector.fromArray(I256, x, i);
+      IntVector b = IntVector.fromArray(I256, y, i);
+      IntVector hi = IntVector.zero(I256);
+      for (int part = 0; part < 2; part++) {
+        LongVector a2 = (LongVector) a.convertShape(VectorOperators.I2L, L256, part);
+        LongVector b2 = (LongVector) b.convertShape(VectorOperators.I2L, L256, part);
+        LongVector p = a2.mul(b2).lanewise(VectorOperators.LSHR, 32);
+        hi = hi.or((IntVector) p.convertShape(VectorOperators.L2I, I256, -part));
+      }
+      IntVector lo = a.mul(b);
+      lo.intoArray(out, i);
+      count += hi.compare(VectorOperators.NE, lo.lanewise(VectorOperators.ASHR, 31))
+          .trueCount();
+    }
+    return count;
+  }
+
+  static int kernel512(int[] x, int[] y, int[] out) {
+    int count = 0;
+    for (int i = 0; i < x.length; i += I512.length()) {
+      IntVector a = IntVector.fromArray(I512, x, i);
+      IntVector b = IntVector.fromArray(I512, y, i);
+      IntVector hi = IntVector.zero(I512);
+      for (int part = 0; part < 2; part++) {
+        LongVector a2 = (LongVector) a.convertShape(VectorOperators.I2L, L512, part);
+        LongVector b2 = (LongVector) b.convertShape(VectorOperators.I2L, L512, part);
+        LongVector p = a2.mul(b2).lanewise(VectorOperators.LSHR, 32);
+        hi = hi.or((IntVector) p.convertShape(VectorOperators.L2I, I512, -part));
+      }
+      IntVector lo = a.mul(b);
+      lo.intoArray(out, i);
+      count += hi.compare(VectorOperators.NE, lo.lanewise(VectorOperators.ASHR, 31))
+          .trueCount();
+    }
+    return count;
+  }
+
+  static void checkVector(boolean asmOnly) {
+    int n = 1 << 16;
+    int[] x = new int[n], y = new int[n], out = new int[n];
+    SplittableRandom r = new SplittableRandom(4242);
+    for (int i = 0; i < n; i++) {
+      x[i] = draw(r);
+      y[i] = draw(r);
+    }
+    for (int i = 0; i < EDGES.length * EDGES.length && i < n; i++) {
+      x[i] = EDGES[i / EDGES.length];
+      y[i] = EDGES[i % EDGES.length];
+    }
+    int want = 0;
+    for (int i = 0; i < n; i++) if (exactOverflows(x[i], y[i])) want++;
+    long sink = 0;
+    for (int it = 0; it < 20_000; it++) {
+      sink += kernel256(x, y, out);
+      if (I512.length() <= IntVector.SPECIES_PREFERRED.length()) sink += kernel512(x, y, out);
+    }
+    if (asmOnly) {
+      System.out.println("asm run done, sink " + sink);
+      return;
+    }
+    int got256 = kernel256(x, y, out);
+    int wrongLo = 0;
+    for (int i = 0; i < n; i++) if (out[i] != x[i] * y[i]) wrongLo++;
+    System.out.printf("%-58s %d lanes: overflow %d, expected %d; wrapped product wrong %d%n",
+        "halves form, IntVector.SPECIES_256", n, got256, want, wrongLo);
+    if (I512.length() <= IntVector.SPECIES_PREFERRED.length()) {
+      int got512 = kernel512(x, y, out);
+      wrongLo = 0;
+      for (int i = 0; i < n; i++) if (out[i] != x[i] * y[i]) wrongLo++;
+      System.out.printf("%-58s %d lanes: overflow %d, expected %d; wrapped product wrong %d%n",
+          "halves form, IntVector.SPECIES_512", n, got512, want, wrongLo);
+    }
+  }
+
+  public static void main(String[] args) {
+    if (args.length > 0 && args[0].equals("asm")) {
+      checkVector(true);
+      return;
+    }
+    System.out.println("edges: " + EDGES.length + " values, " + EDGES.length * EDGES.length
+        + " pairs; draw: " + N + " pairs a check");
+    Pair truth = Varka95Admission::exactOverflows;
+    check("1. long form (64-bit product in [MIN, MAX])", Varka95Admission::longFormOverflows,
+        truth);
+    check("2. halves form (high word != low word >> 31)",
+        Varka95Admission::halvesFormOverflows, truth);
+    check("3. double form (binary64 product in [-2^31, 2^31 - 1])",
+        Varka95Admission::doubleFormOverflows, truth);
+    check("4. planted fault: halves form with >>> 31", Varka95Admission::plantedLogical, truth);
+    checkRemainder();
+    checkVector(false);
+  }
+}
+
+---- program: halves.smt2 ----
+; VARKA-95 spike: the halves form's overflow test, over bit-vectors.
+; p = sext(a) * sext(b) in 64 bits; the form says "overflow" iff
+; extract[63:32](p) != (extract[31:0](p) >>a 31).
+(set-logic QF_BV)
+(declare-const a (_ BitVec 32))
+(declare-const b (_ BitVec 32))
+(define-fun p () (_ BitVec 64) (bvmul ((_ sign_extend 32) a) ((_ sign_extend 32) b)))
+(define-fun hi () (_ BitVec 32) ((_ extract 63 32) p))
+(define-fun lo () (_ BitVec 32) ((_ extract 31 0) p))
+; the exact product as an integer fits int32 iff p in [MIN, MAX] as a 64-bit value
+(define-fun fits () Bool
+  (and (bvsge p ((_ sign_extend 32) #x80000000)) (bvsle p ((_ sign_extend 32) #x7fffffff))))
+(echo "1. the 64-bit product is exact (no 64-bit overflow): expect unsat")
+(push 1)
+(assert (bvsmulo ((_ sign_extend 32) a) ((_ sign_extend 32) b)))
+(check-sat)
+(pop 1)
+(echo "2. the low word is the wrapping int multiply: expect unsat")
+(push 1)
+(assert (not (= lo (bvmul a b))))
+(check-sat)
+(pop 1)
+(echo "3. the halves test is exactly the range test: expect unsat")
+(push 1)
+(assert (not (= (distinct hi (bvashr lo #x0000001f)) (not fits))))
+(check-sat)
+(pop 1)
+(echo "3b. the range test is Java's multiplyExact overflow (not bvsmulo at 32): expect unsat")
+(push 1)
+(assert (not (= fits (not (bvsmulo a b)))))
+(check-sat)
+(pop 1)
+(echo "4. planted: the low word's sign by a logical shift: expect sat")
+(push 1)
+(assert (not (= (distinct hi (bvlshr lo #x0000001f)) (not fits))))
+(check-sat)
+(pop 1)
+(echo "5. the lemma over any 64-bit p, no multiply: expect unsat")
+(push 1)
+(declare-const q (_ BitVec 64))
+(assert (not (= (distinct ((_ extract 63 32) q) (bvashr ((_ extract 31 0) q) #x0000001f))
+               (not (and (bvsge q ((_ sign_extend 32) #x80000000))
+                         (bvsle q ((_ sign_extend 32) #x7fffffff)))))))
+(check-sat)
+(pop 1)

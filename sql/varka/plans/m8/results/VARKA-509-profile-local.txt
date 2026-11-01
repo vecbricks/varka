@@ -1,0 +1,41 @@
+# Where the Varka suites' time goes (VARKA-509): JFR profiles of the five suites costliest in
+# the option matrix, at the defaults, on the laptop, 28 October 2026, one JVM at a time, on
+# branch varka-507-reach2 (row 507's step 5 at 149df5b96e8, with set-up keyed in the coverage
+# suite), before the harness fixes. Recorded with -XX:StartFlightRecording, settings=profile; the
+# coverage suite again with the per-chunk events off and no size cap, since its own JFR
+# recordings rotate chunks and the default 250 MB cap kept only its last 9 s. Shares are of the
+# recording's jdk.ExecutionSample events (Java threads on CPU, about one each 10 ms).
+
+suite                              seconds  samples
+VarkaCoverageDifferentialSuite         358    27391   (1066 tests)
+VarkaDifferentialSuite                 152    17251
+VarkaSparkFuzzSuite                    100     7232
+VarkaIrFuzzSuite                       178     5123
+VarkaSmallTreeSuite                     21      410
+
+VarkaCoverageDifferentialSuite, samples by phase (first match in this order):
+  JFR                                    0.8%
+  Varka compile and emit                 2.9%
+  Janino                                 3.9%
+  task serialization                    18.2%
+  optimizer and analyzer                26.4%
+  planning                               1.7%
+  Arrow cache build                      3.0%
+  task run                               6.6%
+  parser                                 2.4%
+  other (tree nodes, Spark internals)   34.0%
+  threads: main 16139, executor workers 5914, dag-scheduler 2193, listeners and status
+  store 1962
+  GC pauses: 14.2 s in all
+  of the analyzer's main-thread samples: Analyzer 1644, Optimizer 338, the single-pass
+  resolver 314, CheckAnalysis 300
+
+VarkaDifferentialSuite: 53% of samples under Spark's sort-page allocation for its 158
+ORDER BY queries (TaskMemoryManager.allocatePage, HeapMemoryAllocator.free, the pool's
+HashMap.hash), with spark.memory.debugFill=true from the sbt test options.
+  plain run                              147 s, 94 tests passed
+  -Dspark.buffer.pageSize=1m             72 s, 94 tests passed
+
+VarkaIrFuzzSuite: 35% of samples building strings: ValidityFill.suffix, a failure label
+formatted on every row (1188 samples), and VarkaTierWitness.parse splitting the whole code
+list on every checked call (627 samples); 104 s of JIT compilation on compiler threads.

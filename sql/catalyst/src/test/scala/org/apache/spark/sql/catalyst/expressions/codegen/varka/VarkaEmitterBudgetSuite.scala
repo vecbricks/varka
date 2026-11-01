@@ -338,6 +338,7 @@ class VarkaEmitterBudgetSuite extends VarkaEmitterTestBase with VarkaOwnJvm {
         VarkaMatrix.base),
       (new BoolNullSafeEq(new BoolColumn(0), new BoolColumn(1)), 2, 0, VarkaMatrix.base),
       (new CondValue(new BoolColumn(0), LaneType.INT), 1, 0, VarkaMatrix.base),
+      (new BoolOutput(new BoolColumn(0)), 1, 0, VarkaMatrix.base),
       (new And(lt, new Compare(CompareOp.GT, c, l)), 2, 1, VarkaMatrix.base),
       (new Or(lt, new Compare(CompareOp.GT, c, l)), 2, 1, VarkaMatrix.base),
       (new Not(lt), 2, 0, VarkaMatrix.base),
@@ -369,7 +370,8 @@ class VarkaEmitterBudgetSuite extends VarkaEmitterTestBase with VarkaOwnJvm {
       (new GuardedDay(new IntArith(IntOp.ADD, Overflow.WRAP, c, c1)), 2, 0, VarkaMatrix.base),
       (new ConstDivide(new GuardedRange(c, -999L, 999L), 60, 1000L), 1, 0, VarkaMatrix.base),
       (new NarrowLane(new IntNeg(Overflow.WRAP, lc)), 1, 0, VarkaMatrix.base),
-      (new WidenLane(new IntNeg(Overflow.WRAP, c)), 1, 0, VarkaMatrix.base))
+      (new WidenLane(new IntNeg(Overflow.WRAP, c)), 1, 0, VarkaMatrix.base),
+      (new DecimalColumn(0, LaneType.LONG, 9), 1, 0, VarkaMatrix.base))
     // The calendar nodes whose own tail reads no month, so their prefix elides the month step.
     def elidesMonthStep(n: VarkaVectorIR): Boolean =
       VarkaEmitBudget.isChrono(n) && !VarkaChronoLowering.tailReadsMarchMonth(n)
@@ -382,6 +384,8 @@ class VarkaEmitterBudgetSuite extends VarkaEmitterTestBase with VarkaOwnJvm {
     def emits(n: VarkaVectorIR): Int = n match {
       case _: ColumnRef | _: LiteralSlot | _: BoolColumn | _: CondConst => 0
       case _ if isConnective(n) => 0
+      // Its writes are a mask's toLong and two bitmap stores, none of them a lane call.
+      case _: BoolOutput => 0
       case _ if elidesMonthStep(n) => VarkaEmitBudget.weightOf(n) - monthStep
       case _ => VarkaEmitBudget.weightOf(n)
     }
@@ -393,7 +397,7 @@ class VarkaEmitterBudgetSuite extends VarkaEmitterTestBase with VarkaOwnJvm {
       all.foreach(n => covered += n.getClass)
       // A condition's store is a mask call, and IS NOT NULL reads its column's validity, never
       // its values, so neither pays a lane call there.
-      val store = if (root.isInstanceOf[Cond]) 0 else 1
+      val store = if (root.isInstanceOf[Cond] || root.isInstanceOf[BoolOutput]) 0 else 1
       // A boolean column reads its data word as bits, not as a vector load.
       val loads = if (root.isInstanceOf[IsNotNull]) 0
         else inputs - all.collect { case b: BoolColumn => b.ordinal }.size

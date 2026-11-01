@@ -22,15 +22,16 @@ import org.apache.spark.sql.types.DataTypes;
  * `BOOLEAN` held to the conformance contract (VARKA-484): the seven checks of
  * {@link VarkaTypeConformance} over fixtures generated from the type's values.
  *
- * <p>A `BOOLEAN` column is a condition leaf (row 331) and a value through `CondValue` (row
- * 460); its round trip waits on a boolean output (row 27) and its casts on row 332, which the
- * checks name when they cancel.
+ * <p>A `BOOLEAN` column is a condition leaf (VARKA-331), a value through `CondValue`
+ * (VARKA-460) and a projection's output column (VARKA-27), which its round trip stores; its casts
+ * wait on VARKA-332, which the cast check names when it cancels.
  */
 @VarkaSuite
 public final class VarkaBooleanConformanceSuite extends VarkaTypeConformance {
 
   @Override
   protected ConformanceType type() {
-    return new ConformanceType("bool", DataTypes.BooleanType, "BOOLEAN", "%d", new long[] {0, 1});
+    return new ConformanceType("bool", DataTypes.BooleanType, "BOOLEAN",
+        v -> v != 0 ? "true" : "false", new long[] {0, 1}, new long[] {1, 0}, null);
   }
 }

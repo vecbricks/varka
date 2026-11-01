@@ -113,6 +113,8 @@ class VarkaWidthAuditSuite extends SparkFunSuite with VarkaTestWatchdog {
     command.add(testClasspath)
     command.add(VarkaWidthAuditProbe.getClass.getName.stripSuffix("$"))
     command.add(coverageJson.getAbsolutePath)
+    // The child JVM's code runs where the class-use record cannot see it (VarkaTestUse).
+    VarkaTestUse.childJvm()
     val builder = new ProcessBuilder(command)
     builder.redirectErrorStream(true)
     val process = builder.start()

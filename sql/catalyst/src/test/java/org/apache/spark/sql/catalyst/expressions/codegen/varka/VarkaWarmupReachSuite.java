@@ -28,6 +28,7 @@ import java.util.Set;
 
 import com.sun.management.HotSpotDiagnosticMXBean;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -37,6 +38,13 @@ import org.junit.jupiter.api.Test;
  * counting copy of its rounds. A lane row that adds a call the warm-up does not make fails here,
  * naming the method, the call and the shape; the fix is a call in the warm-up's rounds, in a block
  * of {@code THIN_CALLS_PER_ROUND}.
+ *
+ * <p>The two tests that read the corpus are tagged {@link VarkaSuite#C2_CODE}: their subject is
+ * the warm-up's reach of the JIT's compile mark, and the corpus the defaults' run reads already
+ * holds the kernels of every option configuration of the matrix but the lane counts. Under a
+ * configuration that changes only the bytes they would read that corpus again, so they run only
+ * where the configuration changes what C2 is given: under a lane count the corpus gains the
+ * matrix base's kernels at that count.
  */
 @VarkaSuite
 public final class VarkaWarmupReachSuite {
@@ -54,6 +62,7 @@ public final class VarkaWarmupReachSuite {
   }
 
   @Test
+  @Tag(VarkaSuite.C2_CODE)
   @DisplayName("every Vector API method an emitted kernel calls gets 2,000 calls from the warm-up")
   void everyMethodWarmed() throws IOException {
     Map<String, String> emitted = corpus();
@@ -68,6 +77,7 @@ public final class VarkaWarmupReachSuite {
   }
 
   @Test
+  @Tag(VarkaSuite.C2_CODE)
   @DisplayName("a call is counted exactly, and one the rounds stop making is named with no calls")
   void plantedOmission() throws IOException {
     // A call of the doubles' block, counted as if it were not there.

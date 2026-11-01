@@ -1,0 +1,17 @@
+# Row 509 step 2, its second part, on the laptop, 29 October 2026: the coverage differential's
+# ANSI form moved below the session. sbt at the defaults, one JVM.
+
+Old tests to new, each kept under its name (VarkaCoverageDifferentialSuite to
+VarkaCoverageHarnessSuite):
+  <row> raises under ANSI only where the row engine does          337 -> 337
+  the ANSI form's declined list names only positions its reach
+  check reads                                                        1 -> 1
+  kept in the session suite, the error comparison a user meets:
+  the ANSI form fails a raise where the row engine skips, and a
+  missing one; the ANSI form fails a kernel planted to answer an
+  overflowing row                                                    2 kept
+  skip lines moved with them                                        39
+
+At the defaults:
+  VarkaCoverageHarnessSuite         1008 tests, 0 failed, 25.1 s
+  VarkaCoverageDifferentialSuite    88 tests, 0 failed, 74 s (426 before this part)

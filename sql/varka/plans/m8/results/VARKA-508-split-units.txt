@@ -1,0 +1,93 @@
+# The option matrix's units against the planner's lane (VARKA-508 step 2), 29 October 2026, read
+# from option matrix run 40874221284 on MaxGekk/spark (head 178b66a2105, 147 bins, every one
+# green): the bins' uploaded JUnit reports, fused.tsv files and seconds files, each unit's
+# seconds the wall time of its runner JVM; the plan reproduced off the runners with
+# dev/varka_matrix_bins.py plan over that head's suites, configurations and committed weights and
+# Build run 40870025288's reach record, the record the run's plan read. The lane is the planner's
+# default target, 480 s.
+
+== the run as it ran
+bins: 147; a bin's job median 6.7 min, the longest 13.7 min (b044, planned at 480 s)
+units 1524, median 12.5 s, longest 533 s
+units over the 480 s lane: 20, every one a group of shared sql suites
+   533 s  fusedCeiling=800                 32 suites, the heaviest VarkaSparkFuzzSuite 206 s
+   533 s  arrowBatchSize=3                 20 suites, the heaviest VarkaSeveralKernelsSuite 193 s
+   532 s  division=DOUBLE_DIV              32 suites, the heaviest VarkaSparkFuzzSuite 193 s
+   530 s  lanesOverride=4                  21 suites, the heaviest VarkaSparkFuzzSuite 212 s
+   523 s  arrowBatchSize=1                 18 suites, the heaviest VarkaSeveralKernelsSuite 277 s
+   523 s  arrowBatchSize=17                21 suites, the heaviest VarkaSparkFuzzSuite 193 s
+   514 s  validityByWidth=false            32 suites, the heaviest VarkaSparkFuzzSuite 201 s
+   514 s  lanesOverride=16                 20 suites, the heaviest VarkaSparkFuzzSuite 250 s
+   512 s  exactRefusalStatus=true          29 suites, the heaviest VarkaSparkFuzzSuite 200 s
+   509 s  checkIntOverflow=false           31 suites, the heaviest VarkaSparkFuzzSuite 208 s
+   501 s  arrowBatchSize=1                 20 suites, the heaviest VarkaTimeHarnessSuite 184 s
+   500 s  severalKernels=false             29 suites, the heaviest VarkaSparkFuzzSuite 197 s
+   497 s  fusedCeiling=800                 27 suites, the heaviest VarkaFloatingLaneSuite 89 s
+   488 s  splitDriver=false                29 suites, the heaviest VarkaSparkFuzzSuite 194 s
+   487 s  checkIntOverflow=false           28 suites, the heaviest VarkaCodegenGiveUpSuite 83 s
+   485 s  elideUnreadLocals=false          20 suites, the heaviest VarkaSparkFuzzSuite 162 s
+   484 s  methodByteBudget=0               29 suites, the heaviest VarkaSparkFuzzSuite 189 s
+   484 s  arrowBatchSize=3                 21 suites, the heaviest VarkaSparkFuzzSuite 167 s
+   483 s  validityByWidth=false            27 suites, the heaviest VarkaDifferentialSuite 84 s
+   482 s  fusedCeiling=200                 32 suites, the heaviest VarkaSparkFuzzSuite 194 s
+the longest units of one suite:
+   392 s  fusedCeiling=800                 VarkaIrFuzzSuite, its longest test 354 s
+   378 s  methodByteBudget=0               VarkaSmallTreeSuite, its longest test 276 s
+   368 s  methodByteBudget=0               VarkaIrFuzzSuite, its longest test 323 s
+   355 s  groupBudget=800                  VarkaIrFuzzSuite, its longest test 326 s
+   348 s  elideUnreadLocals=false          VarkaSmallTreeSuite, its longest test 252 s
+   346 s  driverOutputTable=false          VarkaSmallTreeSuite, its longest test 257 s
+
+So no unit of one suite outlasted the lane in this run: every unit over it is a group of shared
+suites that the planner weighed at the lane or under, by a committed weight below the suite's
+time here (VarkaSeveralKernelsSuite weighs 57.9 s, and ran 193 s and 277 s above). And in the
+longest units of one suite a single test holds nearly all the time, so a split by tests takes
+off at most the rest.
+
+== the plan, reproduced
+147 bins, the longest 715 s, 70334 s in all (as the run's build job printed)
+planned units over the lane: 16, every one a unit of one suite
+  VarkaCoverageDifferentialSuite under 15 configurations, 484 s to 715 s (the defaults 547 s), on
+    its committed weight of 527.0 s (sql/varka/matrix/suite-seconds.tsv, from run 40658422887);
+    in this run it took 50.5 s, the median over the configurations, at most 65 s, and 57.3 s
+    under the defaults
+  VarkaIrFuzzSuite under arrowBatchSize=1, 520 s, on its committed weight of 379.7 s; in this
+    run 52.0 s the median, 266.5 s under the defaults, 390 s at most
+
+== the plan with the split, sql/varka/matrix/test-seconds.tsv written from this run
+test-seconds.tsv: 82 tests of the 7 suites a configuration ran for 120 s or more
+  (VarkaCoverageCompositionFuzzSuite, VarkaGroupingBoundSuite, VarkaIrFuzzSuite,
+  VarkaSeveralKernelsSuite, VarkaSmallTreeSuite, VarkaSparkFuzzSuite, VarkaTimeHarnessSuite)
+  split VarkaIrFuzzSuite under arrowBatchSize=1: 2 parts, 270, 270 s
+  not split VarkaCoverageDifferentialSuite under arrowBatchSize=17: 519 s
+  not split VarkaCoverageDifferentialSuite under arrowBatchSize=1: 715 s
+  not split VarkaCoverageDifferentialSuite under arrowBatchSize=3: 568 s
+  not split VarkaCoverageDifferentialSuite under checkIntOverflow=false: 493 s
+  not split VarkaCoverageDifferentialSuite under defaults: 547 s
+  not split VarkaCoverageDifferentialSuite under
+    denseValidityOnce=false,validityByBitmap=false,validityOrFirst=false: 499 s
+  not split VarkaCoverageDifferentialSuite under driverOutputTable=false: 496 s
+  not split VarkaCoverageDifferentialSuite under elideUnreadLocals=false: 516 s
+  not split VarkaCoverageDifferentialSuite under lanesOverride=16: 537 s
+  not split VarkaCoverageDifferentialSuite under lanesOverride=4: 509 s
+  not split VarkaCoverageDifferentialSuite under materializeChronoPrefix=false: 502 s
+  not split VarkaCoverageDifferentialSuite under methodByteBudget=0: 484 s
+  not split VarkaCoverageDifferentialSuite under rangeSets=false: 499 s
+  not split VarkaCoverageDifferentialSuite under splitConditions=false: 496 s
+  not split VarkaCoverageDifferentialSuite under validityByBitmap=false: 522 s
+  147 bins, the longest 715 s, 70325 s in all
+bins output: 206069 bytes of JSON
+
+VarkaIrFuzzSuite splits into two parts of 270 s under arrowBatchSize=1, its parts balanced by the
+tests' medians, though under the configurations that ran it longest one test held nearly all of
+it. VarkaCoverageDifferentialSuite stays whole: no configuration ran it for 120 s, so
+test-seconds.tsv does not list it, and the planner prints it as not split. Its over-lane units
+come from its stale committed weight, which a refresh of suite-seconds.tsv removes; that refresh
+is not made here, because `times` takes each suite's median over the configurations and, the
+configurations having run only the tests the reach record let through, that median sits below the
+defaults' time for the sql suites (VarkaDifferentialSuite 51.9 s the median, 94.5 s under the
+defaults), while the planner then takes the reach share off again.
+
+== the check, dev/varka_matrix_bins.py check over the run's reports
+141 suites; 0 tests a configuration ran a suite without (every configuration that ran a suite
+reported the same tests, the ones the reach record skipped included)

@@ -38,6 +38,7 @@ import org.apache.spark.sql.catalyst.expressions.RuntimeReplaceable;
 import org.apache.spark.sql.catalyst.expressions.SecondsOfTime;
 import org.apache.spark.sql.catalyst.expressions.SecondsOfTimeWithFraction;
 import org.apache.spark.sql.catalyst.expressions.SubtractTimes;
+import org.apache.spark.sql.catalyst.expressions.SubtractTimestamps;
 import org.apache.spark.sql.catalyst.expressions.TimeAddInterval;
 import org.apache.spark.sql.catalyst.expressions.TimeDiff;
 import org.apache.spark.sql.catalyst.expressions.TimeFromMicros;
@@ -47,6 +48,8 @@ import org.apache.spark.sql.catalyst.expressions.TimeToMicros;
 import org.apache.spark.sql.catalyst.expressions.TimeToMillis;
 import org.apache.spark.sql.catalyst.expressions.TimeToSeconds;
 import org.apache.spark.sql.catalyst.expressions.TimeTrunc;
+import org.apache.spark.sql.catalyst.expressions.TimestampAddInterval;
+import org.apache.spark.sql.catalyst.expressions.UnaryMinus;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaErrors;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTypes;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR;
@@ -72,7 +75,8 @@ import org.apache.spark.unsafe.types.UTF8String;
  * day-time interval leaves, the precision and unit casts that are the identity on the lane, and
  * the TIME functions, which reach the compiler as the {@code StaticInvoke} their
  * {@code RuntimeReplaceable} rewrote into and are matched by the method they invoke through
- * {@link #TIME_TARGETS}.
+ * {@link #TIME_TARGETS}; and the {@code TIMESTAMP_NTZ} arithmetic that is long arithmetic, the
+ * difference of two NTZ values and an NTZ value plus or minus a day-time interval.
  *
  * <p>{@link #arm} is the family's one entry from the chain {@code VarkaExpressionCompiler}
  * dispatches through, in the form {@code VarkaIntervalCompiler} set: a {@code switch} that tests
@@ -156,6 +160,18 @@ final class VarkaTimeCompiler {
       // with the interval leaf, Spark's own typing decides where such a value may appear - never
       // in a date or an int position - so the leaf cannot put one there, and the IR's
       // constructors refuse a tree that mixes it with the int lane anyway.
+      // A decimal column is never a long column, whatever lane the registry gives it
+      // (VARKA-347): its sixteen-byte slots are read by its own leaf, with the check Spark's
+      // reader makes. Its comparisons and null tests build that leaf themselves
+      // (VarkaDecimalCompiler), so a decimal column reaching here declines, ahead of the long
+      // column's arm below, which would read the slots as eight-byte longs: with the registry's
+      // reason where it has one (a precision or scale off the lane), and otherwise as a value - a
+      // choice, an operand of arithmetic or a cast, an output - whose operators are rows 348 to
+      // 351's and whose store is row 157's.
+      case BoundReference br when br.dataType() instanceof DecimalType d ->
+          () -> sink.decline(VarkaTypes.declineReason(d).orElse("a " + d.simpleString()
+              + " column as a value: only its comparisons and null tests fuse, its other "
+              + "operators are rows 348 to 351's"), br);
       case BoundReference br
           when VarkaTypes.lane(br.dataType()).orElse(null) == LaneType.LONG ->
           () -> Optional.of(VarkaNodeCompiler.columnRef(br, inputs, LaneType.LONG));
@@ -197,8 +213,72 @@ final class VarkaTimeCompiler {
       // invoke; the rest decline by name through the same table.
       case StaticInvoke si when isTimeTarget(si) ->
           () -> compileTime(si, inputs, literals, sink);
+      // TIMESTAMP_NTZ arithmetic (VARKA-339). Spark reads an NTZ value at UTC, where a day is
+      // always 86,400 seconds, so `ntz - ntz` is `subtractExact` of the two counts and
+      // `ntz + dt` is `addExact`, in every evaluation mode: the checked long add and subtract
+      // compute them, and a batch with a lane that overflows goes to the row engine, which
+      // raises Spark's error on the row. The legacy CalendarInterval difference is a type no
+      // kernel carries. A zoned TIMESTAMP is no lane's, so these arms ask for NTZ operands.
+      case SubtractTimestamps s when VarkaTypes.isNtz(s.left().dataType())
+          && VarkaTypes.isNtz(s.right().dataType()) ->
+          () -> s.legacyInterval()
+              ? sink.decline("legacy CalendarInterval subtraction of two timestamps", s)
+              : ntzDifference(s, inputs, literals, sink);
+      case TimestampAddInterval a when VarkaTypes.isNtz(a.start().dataType())
+          && a.interval().dataType() instanceof DayTimeIntervalType ->
+          () -> ntzPlusInterval(a, inputs, literals, sink);
       default -> null;
     };
+  }
+
+  /**
+   * {@code end - start} over two NTZ values: Spark's {@code subtractTimestamps} at UTC, which is
+   * {@code ChronoUnit.MICROS.between} of the two wall clocks and equals
+   * {@code Math.subtractExact(end, start)}, raising exactly where it does
+   * ({@code VARKA-339.md} 0, item 1). The result is a day-time interval in microseconds.
+   */
+  private static Optional<VarkaVectorIR> ntzDifference(
+      SubtractTimestamps s,
+      VarkaSlotTable inputs,
+      VarkaSlotTable literals,
+      DeclineSink sink) {
+    Optional<VarkaVectorIR> end = longOperand(s.left(), inputs, literals, sink);
+    if (end.isEmpty()) {
+      return end;
+    }
+    return longOperand(s.right(), inputs, literals, sink)
+        .map(start -> new IntArith(IntOp.SUB, Overflow.FAIL, end.get(), start));
+  }
+
+  /**
+   * {@code t + dt} over an NTZ value and a day-time interval: Spark's {@code timestampAddDayTime}
+   * at UTC, which is {@code Math.addExact(t, dt)} ({@code VARKA-339.md} 0, item 1).
+   *
+   * <p>{@code t - dt} reaches here as {@code t + UnaryMinus(dt)}, and the negation is absorbed
+   * into a checked subtraction, as {@code date_sub} absorbs its own into {@code SubDays}. Spark
+   * negates an ANSI interval with {@code negateExact} in every mode, so the one interval it
+   * cannot negate, {@code Long.MIN_VALUE}, raises: the guard keeps the interval inside
+   * {@code negateExact}'s domain, and inside it {@code t - dt} overflows exactly where
+   * {@code t + (-dt)} does. A literal interval arrives already negated, a literal the plain sum
+   * takes: the optimizer's {@code ConstantFolding} folds {@code UnaryMinus} over a literal. It
+   * raises at planning on the one literal it cannot negate, except in a conditional branch, where
+   * it leaves the negation for this guard to send each batch the branch reads to the row engine.
+   */
+  private static Optional<VarkaVectorIR> ntzPlusInterval(
+      TimestampAddInterval a,
+      VarkaSlotTable inputs,
+      VarkaSlotTable literals,
+      DeclineSink sink) {
+    Optional<VarkaVectorIR> t = longOperand(a.start(), inputs, literals, sink);
+    if (t.isEmpty()) {
+      return t;
+    }
+    if (a.interval() instanceof UnaryMinus n) {
+      return longOperand(n.child(), inputs, literals, sink).map(dt -> new IntArith(IntOp.SUB,
+          Overflow.FAIL, t.get(), new GuardedRange(dt, Long.MIN_VALUE + 1, Long.MAX_VALUE)));
+    }
+    return longOperand(a.interval(), inputs, literals, sink)
+        .map(dt -> new IntArith(IntOp.ADD, Overflow.FAIL, t.get(), dt));
   }
 
   /** Whether {@code si} is the replacement of one of Spark's TIME expressions. */

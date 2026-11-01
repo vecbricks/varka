@@ -1,0 +1,34 @@
+# What the option matrix runs without a reach filter (VARKA-517 and 518), 29 October 2026: run
+# 40855387471 on 37c39097662, each unit's JUnit reports by module (the unit's directory names
+# it), the defaults apart. dev/varka_matrix_run.py's downloads; the workflow's own comments for
+# which suites filter.
+
+configuration suite hours: 22.61 in all, sql 8.07, catalyst 14.54
+
+What filters a configuration's work today:
+  the sql suites: VarkaTestReach, a test run only where the Build's record says the
+  configuration moves something it compiles or emits; the record emits every compile again
+  under every configuration, so four suites of very large kernels are left out of it
+  (VarkaTestReach.UNRECORDED) and run every test
+  the catalyst suites: no record ("their tree suites emit hundreds of thousands of kernels,
+  which a record would emit again under every configuration"); VarkaSmallTreeSuite and
+  VarkaIrFuzzSuite skip their own trees and draws by emitted bytes (VarkaReach), and every
+  other catalyst suite runs every test under every configuration
+
+The largest catalyst suites under the configurations:
+  VarkaSmallTreeSuite                      1.93 h   (filters its own trees)
+  VarkaCoverageCompositionFuzzSuite        1.84 h
+  VarkaIrFuzzSuite                         1.09 h   (filters its own draws)
+  VarkaGroupingBoundSuite                  1.07 h
+  VarkaEmitterNarrowArithSuite             0.88 h
+  VarkaVariantSuite                        0.81 h
+  VarkaAvx2SelectSuite                     0.70 h
+  VarkaKernelWarmupSuite                   0.51 h
+  VarkaWarmupReachSuite                    0.47 h
+  VarkaEmitCostSuite                       0.40 h
+  VarkaInliningCliffSuite                  0.35 h
+  VarkaEmitterBoolSuite                    0.34 h
+  so about 11.5 of catalyst's 14.54 hours run unfiltered
+The sql suites the record leaves out: VarkaCodegenGiveUpSuite 0.79 h, VarkaSeveralKernelsSuite
+0.76 h. VarkaSparkFuzzSuite, one sql suite whose compositions are drawn inside its tests,
+took 1.73 h: a test that moves any of its compositions runs all of them.

@@ -1,0 +1,305 @@
+VARKA-351 admission checks, 30 October 2026, laptop (Python 3, no JVM).
+Method: the script below, run as written; its output follows it. Every number the plan
+quotes from these checks is in the output. Spark's rules are transcribed from the fork's
+sources at the lines VARKA-351.md section 0 cites; nothing here ran Spark.
+
+---- script ----
+# VARKA-351 admission checks, run with python3 (no third-party module, no JVM).
+# Spark's rules are transcribed from the fork's sources as VARKA-351.md section 0 cites them;
+# Python's decimal module at 120 digits is the oracle for BigDecimal.setScale(k, mode).
+import decimal, random
+from decimal import Decimal as D
+
+decimal.getcontext().prec = 120
+MODES = {"HALF_UP": decimal.ROUND_HALF_UP, "HALF_EVEN": decimal.ROUND_HALF_EVEN,
+         "DOWN": decimal.ROUND_DOWN, "CEILING": decimal.ROUND_CEILING,
+         "FLOOR": decimal.ROUND_FLOOR}
+FNS = {"round": "HALF_UP", "bround": "HALF_EVEN", "truncate": "DOWN",
+       "ceil(x, k)": "CEILING", "floor(x, k)": "FLOOR"}
+
+def rtype(p, s, k):
+    """RoundBase.dataType (mathExpressions.scala 1714-1730)."""
+    ild = p - s + 1
+    if k < 0:
+        return min(max(ild, -k + 1), 38), 0
+    ns = min(s, k)
+    return min(ild + ns, 38), ns
+
+def spark_round(u, s, k, mode, p2, s2):
+    """RoundBase.nullSafeEval over a decimal; None where Decimal.set raises."""
+    x = D(u).scaleb(-s)
+    r = x.quantize(D(1).scaleb(-k), rounding=MODES[mode])
+    v = int(r.scaleb(s2))
+    return None if abs(v) >= 10 ** p2 else v
+
+def digits(v):
+    return len(str(abs(v)))
+
+print("1. The result types of round, bround, truncate and the two-argument floor and ceil")
+print("   over DECIMAL(p, s), p 1 to 38, s 0 to p, scale k from -40 to 40; every (p, s, k) counted")
+counts = {}
+raise_shapes = {}
+for p in range(1, 39):
+    for s in range(0, p + 1):
+        for k in range(-40, 41):
+            p2, s2 = rtype(p, s, k)
+            kind = "relabel" if k >= s else ("divide" if k >= 0 else "negative")
+            key = ("64" if p <= 18 else "128", kind, "out<=18" if p2 <= 18 else "out>=19")
+            counts[key] = counts.get(key, 0) + 1
+            if k < 0:
+                for fn, mode in FNS.items():
+                    top = 10 ** p - 1
+                    for u in (top, -top, 1, -1):
+                        if spark_round(u, s, k, mode, p2, s2) is None:
+                            raise_shapes.setdefault((fn, "64" if p <= 18 else "128"), []).append(
+                                (p, s, k))
+                            break
+for key in sorted(counts):
+    print(f"   input {key[0]:>3}-bit, {key[1]:8s}, {key[2]}: {counts[key]} (p, s, k)")
+print("   a relabel keeps the unscaled value; the 64-bit relabels out>=19 are p = 18 at k >= s")
+for p, s, k in ((18, 2, 2), (18, 2, 5), (18, 0, 0), (17, 2, 2), (38, 0, 0), (38, 10, 4)):
+    print(f"   e.g. DECIMAL({p}, {s}) at k = {k}: {rtype(p, s, k)}")
+print("   negative scales that can raise (Decimal.set, every mode), first two per function:")
+for key in sorted(raise_shapes):
+    v = raise_shapes[key]
+    print(f"   {key[0]:12s} {key[1]:>3}-bit input: {len(v)} shapes, e.g. {v[:2]}")
+print("   among 64-bit inputs only the two-argument ceil and floor raise, at k <= -38 only:")
+print("  ", all(k <= -38 for (fn, w), v in raise_shapes.items() if w == "64" for (_, _, k) in v))
+
+print("2. The 64-bit construction against BigDecimal.setScale, every mode")
+print("   m = |u|; q = floor((m + bias) / 10^d) by the pre-shift, floor((m + bias) >> d) / 5^d);")
+print("   bias 0 (DOWN), 5 * 10^(d-1) (HALF_UP, HALF_EVEN), 10^d - 1 away from zero (CEILING")
+print("   for u > 0, FLOOR for u < 0); HALF_EVEN subtracts 1 where (m + bias) - q * 10^d = 0 and q")
+print("   is odd; the sign restored last. d = s - k is the digits dropped.")
+def construct(u, d, mode):
+    m = abs(u)
+    if mode == "DOWN":
+        bias = 0
+    elif mode in ("HALF_UP", "HALF_EVEN"):
+        bias = 5 * 10 ** (d - 1)
+    elif mode == "CEILING":
+        bias = 10 ** d - 1 if u > 0 else 0
+    else:
+        bias = 10 ** d - 1 if u < 0 else 0
+    n = m + bias
+    q = (n >> d) // 5 ** d
+    assert q == n // 10 ** d
+    if mode == "HALF_EVEN" and n - q * 10 ** d == 0 and q % 2 == 1:
+        q -= 1
+    return -q if u < 0 else q
+random.seed(351)
+bad = 0
+tried = 0
+for p in range(1, 19):
+    for d in range(1, p + 1):
+        vals = {0, 1, -1, 10 ** p - 1, -(10 ** p - 1)}
+        for t in range(0, 10 ** (p - d) if p - d < 3 else 1000):
+            for off in (0, 1, -1, 5 * 10 ** (d - 1), 5 * 10 ** (d - 1) - 1, 5 * 10 ** (d - 1) + 1):
+                v = t * 10 ** d + off
+                if abs(v) < 10 ** p:
+                    vals |= {v, -v}
+        vals |= {random.randrange(-(10 ** p - 1), 10 ** p) for _ in range(300)}
+        for u in vals:
+            for mode in MODES:
+                tried += 1
+                want = int(D(u).scaleb(-d).quantize(D(1), rounding=MODES[mode]))
+                if construct(u, d, mode) != want:
+                    bad += 1
+print(f"   {tried} (u, d, mode) checked, p 1 to 18, d 1 to p: {bad} differ")
+
+print("3. The pre-shift's dividend bound against ConstDivide's 2^52")
+print("   (VarkaVectorIR, EXACT_DIVIDEND_BOUND)")
+print("   bound = (10^p - 1 + max bias) >> d; the (p, d) whose bound passes 2^52, per bias:")
+for name, bias in (("none (DOWN)", lambda d: 0), ("half (HALF_UP, HALF_EVEN)",
+                   lambda d: 5 * 10 ** (d - 1)), ("10^d - 1 (CEILING, FLOOR)",
+                   lambda d: 10 ** d - 1)):
+    over = [(p, d) for p in range(1, 19) for d in range(1, p + 1)
+            if ((10 ** p - 1 + bias(d)) >> d) >= 2 ** 52]
+    print(f"   {name}: {len(over)} pairs:")
+    for i in range(0, len(over), 6):
+        print("     " + ", ".join(str(x) for x in over[i:i + 6]))
+print("   the guard GuardedRange(m + bias, 0, 2^(52 + d) - 1) at p = 18 admits this share of a")
+print("   uniform |u| < 10^18 (bias 0):")
+for d in range(1, 8):
+    print(f"   d = {d}: {min(1, 2 ** (52 + d) / 10 ** 18):.4f}")
+
+print("4. The 128-bit HALF_EVEN by HALF_UP and a tie test by multiply-back")
+print("   q = HALF_UP(m / 10^d) (row 363's ScaleDown); tie where q * 10^d - m = 5 * 10^(d-1);")
+print("   q - 1 where tie and q odd; checked against BigDecimal HALF_EVEN, with the")
+print("   product's bound:")
+bad = 0
+maxprod = 0
+tried = 0
+for d in range(1, 39):
+    vals = {random.randrange(0, 10 ** 38) for _ in range(400)}
+    for t in (0, 1, 2, 3, 10 ** (38 - d) - 1, 10 ** (38 - d) - 2):
+        v = t * 10 ** d + 5 * 10 ** (d - 1)
+        if v < 10 ** 38:
+            vals |= {v, v - 1, v + 1}
+    for m in vals:
+        if m >= 10 ** 38:
+            continue
+        tried += 1
+        q = (2 * m + 10 ** d) // (2 * 10 ** d)
+        prod = q * 10 ** d
+        maxprod = max(maxprod, prod)
+        if prod - m == 5 * 10 ** (d - 1) and q % 2 == 1:
+            q -= 1
+        want = int(D(m).scaleb(-d).quantize(D(1), rounding=decimal.ROUND_HALF_EVEN))
+        if q != want:
+            bad += 1
+print(f"   {tried} magnitudes below 10^38 at d 1 to 38: {bad} differ; the largest q * 10^d is")
+print(f"   below 2^128: {maxprod < 2 ** 128}, below 2^127: {maxprod < 2 ** 127}")
+print("   CEILING and FLOOR at 128 bits: the magnitude plus 10^d - 1 is below 2 * 10^38 - 1,")
+print(f"   row 363's equal-scale-sum bound: {10 ** 38 - 1 + 10 ** 38 - 1 <= 2 * 10 ** 38 - 2}")
+
+print("5. make_timestamp_ntz's six-field form narrows the unscaled seconds to an int")
+print("   (DateTimeExpressionUtils.java 99: (int) secAndMicros.toUnscaledLong()), so a")
+print("   DECIMAL(16, 6) seconds value past 2147.483647 wraps before it is checked:")
+def java_int(v):
+    v &= 0xFFFFFFFF
+    return v - 2 ** 32 if v >= 2 ** 31 else v
+for u in (59_999_999, 60_000_000, 2 ** 32 + 30_000_000, 2 ** 31, 10 ** 16 - 1):
+    t = java_int(u)
+    secs, frac = t // 10 ** 6, t % 10 ** 6
+    ok = 0 <= secs <= 59 or (secs == 60 and frac == 0)
+    print(f"   unscaled {u}: (int) {t}, seconds {secs}, fraction {frac}: "
+          f"{'accepted' if ok else 'invalid'}")
+
+print("6. time_from_seconds over DECIMAL(p, s): longValueExact of u * 10^(9 - s)")
+print("   (DateTimeUtils.scala 1151-1154), then the day check; the accepted unscaled range is")
+print("   0 <= u < 86400 * 10^s, and for s > 9 only multiples of 10^(s - 9):")
+for p, s in ((16, 6), (18, 9), (18, 12), (19, 2), (38, 10), (38, 20)):
+    hi = 86400 * 10 ** s - 1
+    fits = hi < 10 ** p
+    print(f"   DECIMAL({p}, {s}): largest accepted u {'below' if fits else 'past'} 10^p;"
+          f" accepted u below 2^63: {min(hi, 10 ** p - 1) < 2 ** 63}")
+print("   for s > 9, j = s - 9: the low j bits zero, N = u >> j, q = N * inv(5^j) mod 2^64 (the")
+print("   exact quotient wherever 5^j divides N), accepted where q <u 86400 * 10^9 and")
+print("   q <=u floor((2^64 - 1) / 5^j); the second compare is dead where M_j >= 86400 * 10^9:")
+NDAY = 86400 * 10 ** 9
+def accept_inverse(u, j):
+    if u < 0 or u & ((1 << j) - 1):
+        return None
+    n = u >> j
+    inv = pow(5 ** j, -1, 2 ** 64)
+    q = (n * inv) % 2 ** 64
+    mj = (2 ** 64 - 1) // 5 ** j
+    return q if (q < NDAY and q <= mj) else None
+def accept_spark(u, s):
+    v = u * 10 ** 9
+    if v % 10 ** s:
+        return None
+    n = v // 10 ** s
+    return n if 0 <= n < NDAY else None
+bad = tried = 0
+dead = []
+for s in range(10, 19):
+    j = s - 9
+    if (2 ** 64 - 1) // 5 ** j >= NDAY:
+        dead.append(j)
+    vals = {random.randrange(0, 10 ** 18) for _ in range(3000)}
+    vals |= {q * 10 ** j + e for q in (0, 1, NDAY - 1, NDAY, NDAY + 1,
+                                        random.randrange(NDAY)) for e in (0, 1, -1)}
+    vals |= {random.randrange(NDAY) * 10 ** j for _ in range(3000)}
+    vals |= {random.randrange(0, 2 ** 64 // 5 ** j) * 5 ** j * 2 ** j for _ in range(3000)}
+    for u in vals:
+        if not 0 <= u < 10 ** 18:
+            continue
+        tried += 1
+        if accept_inverse(u, j) != accept_spark(u, s):
+            bad += 1
+print(f"   s 10 to 18: {tried} unscaled values below 10^18 checked, {bad} differ;")
+print(f"   the second compare dead for j in {dead}")
+print("   above 64 bits (p >= 19, s >= 15): q is the low word's quotient, so the 128-bit")
+print("   check is q * 5^j == N, a product of at most 47 by 68 bits (5^29 has")
+print(f"   {(5 ** 29).bit_length()} bits; 86400 * 10^9 has {NDAY.bit_length()})")
+---- output ----
+1. The result types of round, bround, truncate and the two-argument floor and ceil
+   over DECIMAL(p, s), p 1 to 38, s 0 to p, scale k from -40 to 40; every (p, s, k) counted
+   input 128-bit, divide  , out<=18: 3420 (p, s, k)
+   input 128-bit, divide  , out>=19: 5320 (p, s, k)
+   input 128-bit, negative, out<=18: 6120 (p, s, k)
+   input 128-bit, negative, out>=19: 17480 (p, s, k)
+   input 128-bit, relabel , out>=19: 15450 (p, s, k)
+   input  64-bit, divide  , out<=18: 1140 (p, s, k)
+   input  64-bit, negative, out<=18: 3196 (p, s, k)
+   input  64-bit, negative, out>=19: 4364 (p, s, k)
+   input  64-bit, relabel , out<=18: 6001 (p, s, k)
+   input  64-bit, relabel , out>=19: 608 (p, s, k)
+   a relabel keeps the unscaled value; the 64-bit relabels out>=19 are p = 18 at k >= s
+   e.g. DECIMAL(18, 2) at k = 2: (19, 2)
+   e.g. DECIMAL(18, 2) at k = 5: (19, 2)
+   e.g. DECIMAL(18, 0) at k = 0: (19, 0)
+   e.g. DECIMAL(17, 2) at k = 2: (18, 2)
+   e.g. DECIMAL(38, 0) at k = 0: (38, 0)
+   e.g. DECIMAL(38, 10) at k = 4: (33, 4)
+   negative scales that can raise (Decimal.set, every mode), first two per function:
+   bround       128-bit input: 38 shapes, e.g. [(38, 0, -38), (38, 0, -37)]
+   ceil(x, k)   128-bit input: 1807 shapes, e.g. [(19, 0, -40), (19, 0, -39)]
+   ceil(x, k)    64-bit input: 567 shapes, e.g. [(1, 0, -40), (1, 0, -39)]
+   floor(x, k)  128-bit input: 1807 shapes, e.g. [(19, 0, -40), (19, 0, -39)]
+   floor(x, k)   64-bit input: 567 shapes, e.g. [(1, 0, -40), (1, 0, -39)]
+   round        128-bit input: 38 shapes, e.g. [(38, 0, -38), (38, 0, -37)]
+   among 64-bit inputs only the two-argument ceil and floor raise, at k <= -38 only:
+   True
+2. The 64-bit construction against BigDecimal.setScale, every mode
+   m = |u|; q = floor((m + bias) / 10^d) by the pre-shift, floor((m + bias) >> d) / 5^d);
+   bias 0 (DOWN), 5 * 10^(d-1) (HALF_UP, HALF_EVEN), 10^d - 1 away from zero (CEILING
+   for u > 0, FLOOR for u < 0); HALF_EVEN subtracts 1 where (m + bias) - q * 10^d = 0 and q
+   is odd; the sign restored last. d = s - k is the digits dropped.
+   7557010 (u, d, mode) checked, p 1 to 18, d 1 to p: 0 differ
+3. The pre-shift's dividend bound against ConstDivide's 2^52
+   (VarkaVectorIR, EXACT_DIVIDEND_BOUND)
+   bound = (10^p - 1 + max bias) >> d; the (p, d) whose bound passes 2^52, per bias:
+   none (DOWN): 12 pairs:
+     (16, 1), (17, 1), (17, 2), (17, 3), (17, 4), (18, 1)
+     (18, 2), (18, 3), (18, 4), (18, 5), (18, 6), (18, 7)
+   half (HALF_UP, HALF_EVEN): 12 pairs:
+     (16, 1), (17, 1), (17, 2), (17, 3), (17, 4), (18, 1)
+     (18, 2), (18, 3), (18, 4), (18, 5), (18, 6), (18, 7)
+   10^d - 1 (CEILING, FLOOR): 12 pairs:
+     (16, 1), (17, 1), (17, 2), (17, 3), (17, 4), (18, 1)
+     (18, 2), (18, 3), (18, 4), (18, 5), (18, 6), (18, 7)
+   the guard GuardedRange(m + bias, 0, 2^(52 + d) - 1) at p = 18 admits this share of a
+   uniform |u| < 10^18 (bias 0):
+   d = 1: 0.0090
+   d = 2: 0.0180
+   d = 3: 0.0360
+   d = 4: 0.0721
+   d = 5: 0.1441
+   d = 6: 0.2882
+   d = 7: 0.5765
+4. The 128-bit HALF_EVEN by HALF_UP and a tie test by multiply-back
+   q = HALF_UP(m / 10^d) (row 363's ScaleDown); tie where q * 10^d - m = 5 * 10^(d-1);
+   q - 1 where tie and q odd; checked against BigDecimal HALF_EVEN, with the
+   product's bound:
+   15872 magnitudes below 10^38 at d 1 to 38: 0 differ; the largest q * 10^d is
+   below 2^128: True, below 2^127: True
+   CEILING and FLOOR at 128 bits: the magnitude plus 10^d - 1 is below 2 * 10^38 - 1,
+   row 363's equal-scale-sum bound: True
+5. make_timestamp_ntz's six-field form narrows the unscaled seconds to an int
+   (DateTimeExpressionUtils.java 99: (int) secAndMicros.toUnscaledLong()), so a
+   DECIMAL(16, 6) seconds value past 2147.483647 wraps before it is checked:
+   unscaled 59999999: (int) 59999999, seconds 59, fraction 999999: accepted
+   unscaled 60000000: (int) 60000000, seconds 60, fraction 0: accepted
+   unscaled 4324967296: (int) 30000000, seconds 30, fraction 0: accepted
+   unscaled 2147483648: (int) -2147483648, seconds -2148, fraction 516352: invalid
+   unscaled 9999999999999999: (int) 1874919423, seconds 1874, fraction 919423: invalid
+6. time_from_seconds over DECIMAL(p, s): longValueExact of u * 10^(9 - s)
+   (DateTimeUtils.scala 1151-1154), then the day check; the accepted unscaled range is
+   0 <= u < 86400 * 10^s, and for s > 9 only multiples of 10^(s - 9):
+   DECIMAL(16, 6): largest accepted u below 10^p; accepted u below 2^63: True
+   DECIMAL(18, 9): largest accepted u below 10^p; accepted u below 2^63: True
+   DECIMAL(18, 12): largest accepted u below 10^p; accepted u below 2^63: True
+   DECIMAL(19, 2): largest accepted u below 10^p; accepted u below 2^63: True
+   DECIMAL(38, 10): largest accepted u below 10^p; accepted u below 2^63: True
+   DECIMAL(38, 20): largest accepted u below 10^p; accepted u below 2^63: False
+   for s > 9, j = s - 9: the low j bits zero, N = u >> j, q = N * inv(5^j) mod 2^64 (the
+   exact quotient wherever 5^j divides N), accepted where q <u 86400 * 10^9 and
+   q <=u floor((2^64 - 1) / 5^j); the second compare is dead where M_j >= 86400 * 10^9:
+   s 10 to 18: 39600 unscaled values below 10^18 checked, 0 differ;
+   the second compare dead for j in [1, 2, 3, 4, 5, 6, 7]
+   above 64 bits (p >= 19, s >= 15): q is the low word's quotient, so the 128-bit
+   check is q * 5^j == N, a product of at most 47 by 68 bits (5^29 has
+   68 bits; 86400 * 10^9 has 47)

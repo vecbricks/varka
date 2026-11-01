@@ -504,7 +504,8 @@ public class VarkaTimeBenchmark extends VarkaBenchmarkBase {
     /** {@code narrowed}: a long-lane kernel whose roots narrow at the store writes int columns. */
     void run(VarkaFusedKernel k, LaneType lane, int outputs, boolean narrowed) {
       int status;
-      if (lane == LaneType.LONG) {
+      // The long entry and table at a 64-bit lane, as the runner picks them.
+      if (lane.bits() == Long.SIZE) {
         MemorySegment[] dsts = narrowed ? intDsts : longDsts;
         status = k.run(new long[] {nanos.address()}, new long[] {0L}, new int[] {0},
             addresses(dsts, outputs), addresses(validities, outputs), NO_INT_LITS, LONG_LITS,

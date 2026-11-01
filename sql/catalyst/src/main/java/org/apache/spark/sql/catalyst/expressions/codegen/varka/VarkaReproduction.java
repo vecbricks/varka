@@ -192,7 +192,8 @@ public record VarkaReproduction(
    *
    * @param rows the batch's length
    * @param scratchBytesPerRow the scratch the kernel asks for per row
-   * @param outputWidths bytes per value of each output; 0 for a selection bitmap
+   * @param outputWidths bytes per value of each output; 0 for a selection bitmap, whose data slot
+   *        is unused, and {@link #BIT_OUTPUT} for a boolean output, whose data is a bitmap
    * @param inputs the kernel's inputs, in kernel order
    * @param omitted why the inputs carry no bytes, or null when they do
    * @param selectionBitmaps whether the outputs were a filter's selection bitmaps, which the
@@ -200,9 +201,33 @@ public record VarkaReproduction(
    */
   public record KernelCall(int rows, int scratchBytesPerRow, List<Integer> outputWidths,
       List<Input> inputs, @Nullable String omitted, boolean selectionBitmaps) {
+    /**
+     * The output width of a boolean output (VARKA-27): a {@code BitVector}, whose data is a
+     * bitmap of whole words and whose Arrow type width is 0, the width that already means a
+     * selection bitmap with no data at all.
+     *
+     * <p>One of three widths for a bitmap, each the answer to a different question, so they are
+     * not one constant. {@code VarkaKernelWarmup.BIT_WIDTH} (0) is an input's width to the
+     * warm-up, which tiles its data bit by bit and slices it at {@code start / 8} bytes; inputs
+     * have no selection bitmap for 0 to clash with. {@code VarkaKernelRunner.bytesPerRow} (1) is
+     * an input's width in a reproduction, an allocation size for the replay's copy and the batch
+     * cap, where 0 would allocate nothing. This one is an output's, where 0 is taken. It lives
+     * here because a reproduction records it, but the runner ({@code dstWidth}) and the
+     * evaluator, which sets it for a {@code BitVector}, read it as their own contract too.
+     */
+    public static final int BIT_OUTPUT = -1;
+
     public KernelCall {
       outputWidths = List.copyOf(outputWidths);
       inputs = List.copyOf(inputs);
+    }
+
+    /**
+     * The data bytes an output of {@code width} takes over {@code rows} rows: a bit output's
+     * bitmap to its last whole word, which the kernel may store whole, else a value a row.
+     */
+    public static long outputDataBytes(int width, long rows) {
+      return width == BIT_OUTPUT ? ((rows + 63) / 64) * 8 : rows * width;
     }
 
     /** The bytes the inputs' values and validity take, which the batch cap is checked against. */

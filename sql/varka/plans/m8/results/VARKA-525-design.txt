@@ -1,0 +1,150 @@
+# The fork's master following vecbricks/varka's, and the caches it keeps (VARKA-525): the
+# design as built on branch varka-525-fork-master, 29 October 2026, on the bundle of rows 519
+# to 521, merged with master (the bundle as merged, #1151) on 30 October 2026, when the owner's
+# decisions below were applied. Code only: nothing was pushed, synced, dispatched or deleted.
+# Facts read from the GitHub API and docs on those days are marked "read"; the rest is the
+# design's assumption until a run shows it.
+
+## What the row assumed and what the tree says
+
+1. "The first sync's push starts a full Build": it starts nothing. build_main.yml runs only
+   when `github.repository == 'apache/spark' || github.ref != 'refs/heads/master'`, so a push
+   to the fork's master is skipped, by hand or not. Even if it ran, checkout-and-sync measures
+   the change from the merge base with vecbricks/varka's master, which on that master is the
+   head itself: no file changed, and the precondition selects no Varka job (the reason
+   varka-master.yml names its jobs). A master Build has to be a caller that names its jobs.
+2. A push made with GITHUB_TOKEN starts no workflow run; workflow_dispatch and
+   repository_dispatch are the exceptions (read: docs.github.com, "Triggering a workflow",
+   "events triggered by the GITHUB_TOKEN will not create a new workflow run" and
+   "workflow_dispatch and repository_dispatch events always create workflow runs").
+3. GITHUB_TOKEN's permission keys have no `workflows` (read: docs.github.com, workflow
+   syntax, `permissions`), and GitHub refuses a push by a token without it that creates or
+   changes a file under .github/workflows ("refusing to allow a GitHub App to create or update
+   workflow ... without `workflows` permission", in reports found by a web search, and read:
+   the README of stefanzweifel/git-auto-commit-action, "The default `GITHUB_TOKEN` issued by
+   GitHub Action does not have permission to make changes to workflow files located in
+   `.github/workflows/`"). Whether a fast-forward over commits
+   that already exist in the fork network counts is not documented. 49 of the 436 first-parent
+   commits on vecbricks/varka's master since 1 October touch .github/workflows (read: git log).
+4. The fork's master, ee11a92a9f1, is an ancestor of vecbricks/varka's 7e66c14cfb3, 1645
+   commits behind (read: git merge-base --is-ancestor, git rev-list --count), so the first
+   sync is a fast-forward. Both repositories are forks of apache/spark (read: repos API).
+5. The fork's cache held 90 entries, 10560017794 bytes, that evening (read: cache/usage); the
+   Coursier entries were one per branch, sql's 1106906647 to 1129008817 bytes on three
+   branches and catalyst's 1048471321 to 1048479790 on four, all under one key each.
+6. A new `.github/workflows/varka-*.yml` alone is a Varka-scoped change (dev/varka_scope.py
+   prints `scoped`), but `build_and_test.yml` is Spark's (`spark`), so this branch's pull
+   request runs the full Build of a Spark change, as the bundle's does.
+
+## Built
+
+varka-fork-sync.yml (new): hourly at minute 23 and on dispatch, its job guarded by
+`github.repository == 'MaxGekk/spark'`, permissions contents and actions write, no secret.
+It fetches both masters into a bare repository; when they are equal it pushes nothing; when the
+fork's is not an ancestor it fails with an error and pushes nothing; otherwise it pushes
+vecbricks/varka's head to the fork's master without force, the token in a header. A refused
+push fails the run, naming how many workflow files the range changes and the commands to sync
+by hand. It then dispatches varka-master.yml on the fork's master when that head has no run of
+it yet, so a sync pushed by hand, or a dispatch that failed, is built by the next hourly run.
+
+varka-master.yml: the job now also runs on MaxGekk/spark's master, on workflow_dispatch only,
+with the jobs set `{"varka-scoped": "true"}` there (the six suites jobs and the matrix-class
+job) and the old set on vecbricks/varka. It is granted `actions: read`, which the compile-state
+lookup and the cross-run artifact download need, on both repositories.
+
+build_and_test.yml, the Varka jobs: the SBT and Maven cache and the Coursier cache are
+restored with actions/cache/restore. The varka-scoped jobs save them with actions/cache/save
+after the suites, also when a suite failed, only where the exact key missed and a new step
+allows it: always on master, and on another branch only when its change from its merge base
+touches a file the keys hash (pom.xml, plugins.sbt, project/build.properties, build/mvn,
+build/sbt, build/sbt-launch-lib.bash, build/spark-build-info), or when there is no merge base.
+Coursier is saved by each module's first job, SBT and Maven by sql's first, so six jobs do not
+race for one key. The matrix-class job restores only. The suites' times cache is unchanged: it
+saves a new entry every run by design.
+
+dev/varka_compile_state.py: the compile state stays an artifact found by run. It now looks at
+varka-master.yml's completed runs on master first and takes the newest with an unexpired
+state, then falls back to the bundle's rule, the newest state any build_main.yml run saved; a
+repository without varka-master.yml on its default branch answers 404, which counts as none.
+Live read-only runs printed `run=` on both MaxGekk/spark (varka-master.yml 404, no state yet)
+and vecbricks/varka (no state yet), and the self-test covers the order and both fallbacks.
+
+## The owner's decisions, 30 October 2026
+
+1b. No token secret. When the hourly sync's push is refused, for instance because the range
+    changes workflow files, the run fails and pushes nothing. Its error annotation says so and
+    points at the step's log, which prints the hand sync one command to a line: fetch both
+    masters, check the fork's is an ancestor, push without force, dispatch varka-master.yml.
+    The cause is named as "most likely" the workflow files when the range has any, since git
+    also refuses a push when the fork's master moved after the fetch; git's own message in the
+    log is the certain one.
+1c. The schedules on the fork:
+    - varka-fuzz.yml stays scheduled on both repositories, unchanged. Its failure report
+      (report-failure) is vecbricks/varka's alone and the fork has issues off (read: repos
+      API, has_issues false), so a failed fuzz night on the fork is seen only in its runs list.
+    - varka-weekly-matrix.yml: its run-build job now also requires
+      `github.event_name != 'schedule' || github.repository == 'vecbricks/varka'`, so the
+      Sunday run happens on vecbricks/varka only and a dispatch works on both; report-failure
+      was already schedule-and-vecbricks-only and is skipped with run-build.
+    - varka-option-matrix.yml: the same guard on its build job and nothing else in the file
+      (open #1159 edits its report job). bins needs build and report needs build's success, so
+      both are skipped with it; report-failure was already vecbricks-only. This points the
+      Sunday option matrix at vecbricks/varka, where the workflow is disabled today, while row
+      522 is re-scoped (#1141) to run it weekly on the fork: row 522 has to turn this guard to
+      `github.repository == 'MaxGekk/spark'` for the schedule when it lands.
+    - update_build_status.yml: left unguarded. It has no repository guard and already runs on
+      the fork from the fork's August master (read: 12126 runs, the last five scheduled, about
+      ten seconds each). Each pass lists the open pull requests of the repository it runs in,
+      and MaxGekk/spark has none (read: pulls API, 0 open), since the pull requests target
+      vecbricks/varka; with no fork run in flight the loop ends after its first pass. Its
+      workflow_run trigger follows notify_test_workflow.yml runs, which a pull request against
+      the fork would start, and there are none. So on the fork it acts on no pull request and
+      holds one runner for about ten seconds a firing, as today.
+    Every other scheduled workflow in .github/workflows is guarded to apache/spark, or, for
+    release.yml, runs on a fork only with inputs or on dispatch (read: the files).
+
+## After this row merges: the steps the owner approved
+
+Run by the owner, with his own credentials, in a clone whose remote origin is vecbricks/varka
+and whose remote fork is MaxGekk/spark (as /home/max/proj/vecbricks-varka's are):
+
+  git fetch origin master && git fetch fork master
+  git merge-base --is-ancestor fork/master origin/master && echo fast-forward
+  git push fork origin/master:refs/heads/master
+  gh workflow run varka-master.yml --repo MaxGekk/spark --ref master
+
+The push only after the second command prints fast-forward, and never with --force. On 30
+October the fork's master was 1657 commits behind vecbricks/varka's and an ancestor of it
+(read: git rev-list --count, git merge-base --is-ancestor). The range changes workflow files,
+so over HTTPS the push needs a token with the workflow scope; the remote above is SSH. The
+dispatch is the master Build that saves the first caches and compile state; once
+varka-fork-sync.yml is on the fork's default branch its hourly run would dispatch it too.
+
+That push is the owner's, not GITHUB_TOKEN's, so it fires push events on the fork's master
+(read: the workflow files' triggers). build_main.yml skips master on forks, varka-master.yml
+admits the fork on workflow_dispatch only, varka-issues.yml is vecbricks/varka-only, and
+pages.yml and build_infra_images_cache.yml are apache/spark-only. Three path-filtered workflows
+have no repository guard: varka-width-audit.yml (two architectures, up to 90 minutes each),
+varka-canary.yml (two architectures) and varka-silent-giveups.yml (a Java matrix). GitHub runs
+a path-filtered workflow on any push of more than 1000 commits (read: docs.github.com, workflow
+syntax, `on.push.paths`), so expect each of them to run once on the fork's master after the
+push; they can be cancelled from the fork's Actions page if their slots are wanted. The hourly
+syncs push with GITHUB_TOKEN and start none of them.
+
+## Open questions
+
+a. Whether GitHub refuses the GITHUB_TOKEN fast-forward over workflow changes (item 3). The
+   first sync whose range touches .github/workflows answers it. Decided (below, 1b): no token
+   secret; a refused range is synced by hand.
+b. The schedules that start on the fork once its master holds today's tree. Decided (below,
+   1c).
+c. Until the fork's master Build has saved its first entries, a pull request that changes no
+   build file saves no Coursier cache and resolves its dependencies from the network on every
+   run, unless its own branch saved one before this lands.
+d. A pull request cut from an older master whose build files changed since restores master's
+   entry by prefix and saves nothing of its own, so it resolves the difference each run.
+e. The sync dispatches a master Build only for a head with no run yet, so a Build that fails
+   is not retried for that head; the compile state is saved only after sql's first job's
+   suites pass, so such a head leaves no state until the next merge is built.
+f. The measurements of step (4) of the row, the cache's size and the jobs' restore minutes
+   before and after, need the sync running for a week.

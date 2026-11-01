@@ -28,7 +28,6 @@ import javax.annotation.Nullable;
 import org.apache.spark.sql.catalyst.expressions.Abs;
 import org.apache.spark.sql.catalyst.expressions.Add;
 import org.apache.spark.sql.catalyst.expressions.BinaryArithmetic;
-import org.apache.spark.sql.catalyst.expressions.BinaryComparison;
 import org.apache.spark.sql.catalyst.expressions.BitmapExpressionUtils;
 import org.apache.spark.sql.catalyst.expressions.BitwiseAnd;
 import org.apache.spark.sql.catalyst.expressions.BitwiseCount;
@@ -41,8 +40,12 @@ import org.apache.spark.sql.catalyst.expressions.Cast;
 import org.apache.spark.sql.catalyst.expressions.Coalesce;
 import org.apache.spark.sql.catalyst.expressions.DivideDTInterval;
 import org.apache.spark.sql.catalyst.expressions.DivideYMInterval;
+import org.apache.spark.sql.catalyst.expressions.EqualNullSafe;
+import org.apache.spark.sql.catalyst.expressions.EqualTo;
 import org.apache.spark.sql.catalyst.expressions.EvalMode$;
 import org.apache.spark.sql.catalyst.expressions.Expression;
+import org.apache.spark.sql.catalyst.expressions.GreaterThan;
+import org.apache.spark.sql.catalyst.expressions.GreaterThanOrEqual;
 import org.apache.spark.sql.catalyst.expressions.Greatest;
 import org.apache.spark.sql.catalyst.expressions.If;
 import org.apache.spark.sql.catalyst.expressions.In;
@@ -51,6 +54,8 @@ import org.apache.spark.sql.catalyst.expressions.IsNaN;
 import org.apache.spark.sql.catalyst.expressions.IsNotNull;
 import org.apache.spark.sql.catalyst.expressions.IsNull;
 import org.apache.spark.sql.catalyst.expressions.Least;
+import org.apache.spark.sql.catalyst.expressions.LessThan;
+import org.apache.spark.sql.catalyst.expressions.LessThanOrEqual;
 import org.apache.spark.sql.catalyst.expressions.Literal;
 import org.apache.spark.sql.catalyst.expressions.Multiply;
 import org.apache.spark.sql.catalyst.expressions.MultiplyDTInterval;
@@ -318,26 +323,31 @@ final class VarkaNodeCompiler {
 
   /**
    * Why {@code e} declines because it reads or makes a {@code FLOAT} or {@code DOUBLE} value
-   * that no lowering serves yet, or empty. The floating lanes serve the nodes that move a value's
-   * bits - a column, a literal, a null test and the choices, {@code IF}, {@code CASE WHEN} and
-   * {@code coalesce} - whose answers are the same bits whatever the value means. Every other
-   * node over a floating value needs the value's meaning: a comparison needs Spark's ordering,
-   * in which NaN equals NaN and {@code -0.0} equals {@code 0.0}, unlike the vector compare and
-   * {@code max}; arithmetic and the casts are rows of their own. So the list is of what is
-   * served, not of what is refused, and a node no one has thought of declines. Both compile
-   * entries ask it before any arm claims, so no arm sees a floating operand it was not written
-   * for. A {@link RuntimeReplaceable} passes, to be asked again as its replacement.
+   * that no lowering serves yet, or empty. The floating lanes serve two kinds of node. Some move
+   * a value's bits - a column, a literal, a null test and the choices, {@code IF},
+   * {@code CASE WHEN} and {@code coalesce} - and answer the same bits whatever the value means.
+   * The others order values - the comparisons, {@code <=>}, {@code greatest}, {@code least},
+   * {@code IN}, {@code isnan} and {@code nanvl} - and are lowered in Spark's order, in which NaN
+   * equals NaN and is greater than every other value and {@code -0.0} equals {@code 0.0}, not
+   * the vector compare's or {@code max}'s. Arithmetic and the casts are rows of their own. So
+   * the list is of what is served, not of what is refused, and a node no one has thought of
+   * declines. Both compile entries ask it before any arm claims, so no arm sees a floating
+   * operand it was not written for. A {@link RuntimeReplaceable} passes, to be asked again as its
+   * replacement.
    */
   static Optional<String> floatingDecline(Expression e) {
     if (!touchesFloating(e) || e instanceof BoundReference || e instanceof Literal
         || e instanceof If || e instanceof CaseWhen || e instanceof Coalesce
-        || e instanceof IsNull || e instanceof IsNotNull || e instanceof RuntimeReplaceable) {
+        || e instanceof IsNull || e instanceof IsNotNull || e instanceof RuntimeReplaceable
+        // The six comparisons by name rather than as BinaryComparison, so that a comparison
+        // class Spark adds later declines until someone has written its lowering.
+        || e instanceof EqualTo || e instanceof EqualNullSafe || e instanceof LessThan
+        || e instanceof LessThanOrEqual || e instanceof GreaterThan
+        || e instanceof GreaterThanOrEqual || e instanceof Greatest || e instanceof Least
+        || e instanceof In || e instanceof InSet || e instanceof IsNaN || e instanceof NaNvl) {
       return Optional.empty();
     }
     String what = switch (e) {
-      case BinaryComparison _, Greatest _, Least _, In _, InSet _, IsNaN _, NaNvl _ ->
-          "a comparison of floating values, which needs Spark's NaN and signed-zero ordering "
-              + "(row 341's next step)";
       case Cast _ -> "a cast to or from a floating type (row 343)";
       // The interval products and quotients by a floating factor are arithmetic too.
       case BinaryArithmetic _, UnaryMinus _, UnaryPositive _, Abs _, MultiplyYMInterval _,
@@ -510,11 +520,14 @@ final class VarkaNodeCompiler {
       // The casts between DATE and TIMESTAMP_NTZ (VARKA-338), and with them the coercion that
       // makes `d < ntz` a comparison of `CAST(d AS TIMESTAMP_NTZ)` with the NTZ value. Neither
       // reads the session zone: Spark converts at UTC both ways. The identity cast is its child.
-      case Cast c when isNtz(c) && DataTypes.DateType.equals(c.child().dataType()) ->
+      case Cast c when VarkaTypes.isNtz(c.dataType())
+          && DataTypes.DateType.equals(c.child().dataType()) ->
           () -> ntzOfDate(c, inputs, literals, sink);
-      case Cast c when DataTypes.DateType.equals(c.dataType()) && isNtz(c.child()) ->
+      case Cast c when DataTypes.DateType.equals(c.dataType())
+          && VarkaTypes.isNtz(c.child().dataType()) ->
           () -> dateOfNtz(c, inputs, literals, sink);
-      case Cast c when isNtz(c) && isNtz(c.child()) ->
+      case Cast c when VarkaTypes.isNtz(c.dataType())
+          && VarkaTypes.isNtz(c.child().dataType()) ->
           () -> compileNode(c.child(), inputs, literals, sink);
       // A narrow value promoted to the int lane, which is what Catalyst's coercion inserts where
       // a TINYINT or SMALLINT meets an int - `greatest(y1, y2) < i` arrives as
@@ -793,10 +806,6 @@ final class VarkaNodeCompiler {
     VarkaVectorIR down = new BitOp(BitOpKind.AND, new BitOp(BitOpKind.SHR, y, sink.longSlot(63)),
         sink.longSlot(1 - odd));
     return new ConstDivide(new IntArith(IntOp.ADD, Overflow.WRAP, y, down), odd, bound);
-  }
-
-  private static boolean isNtz(Expression e) {
-    return DataTypes.TimestampNTZType.equals(e.dataType());
   }
 
   private static VarkaVectorIR greatest(VarkaVectorIR left, VarkaVectorIR right) {
@@ -1131,6 +1140,16 @@ final class VarkaNodeCompiler {
    */
   static LiteralSlot slot(int value, LaneType lane, VarkaSlotTable literals) {
     return new LiteralSlot(literals.intern(value), lane);
+  }
+
+  /** The quiet NaN as a literal of a floating lane: its bits in the table of the lane's width. */
+  static LiteralSlot nanSlot(LaneType lane, VarkaSlotTable literals, DeclineSink sink) {
+    return switch (lane) {
+      case FLOAT -> slot(Float.floatToRawIntBits(Float.NaN), LaneType.FLOAT, literals);
+      case DOUBLE -> sink.longSlot(Double.doubleToRawLongBits(Double.NaN), LaneType.DOUBLE);
+      case BYTE, SHORT, INT, LONG -> throw VarkaErrors.illegalArgument(
+          "no NaN on the integral lane " + lane);
+    };
   }
 
   /**

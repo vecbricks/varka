@@ -19,6 +19,7 @@ package org.apache.spark.sql.catalyst.expressions.codegen.varka;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
+import java.util.List;
 import java.util.stream.LongStream;
 
 import org.apache.spark.sql.types.DataTypes;
@@ -28,7 +29,14 @@ import org.apache.spark.sql.types.DataTypes;
  * {@link VarkaTypeConformance} over microseconds since the epoch at the long lane. The values are
  * the long range's extremes and their neighbours, zero and one each way, and the edges of the
  * days a {@code DATE} converts to without overflow, {@code +-106,751,991} days, with the first
- * microsecond past each.
+ * microsecond past each. Two timestamps subtract to a day-time interval, which the null handling
+ * check takes as its pair, as {@code TIME}'s does, over half the long range: the difference
+ * raises on overflow, and over the extremes nearly every batch would.
+ *
+ * <p>Its arithmetic is the overflow check's (VARKA-339): the difference of two timestamps, and a
+ * timestamp plus and minus a day-time interval, nested so that the interval is that difference.
+ * Spark computes each with {@code subtractExact} or {@code addExact} in every mode, so over the
+ * long range's ends each raises in LEGACY and ANSI alike, and the kernel declines those batches.
  *
  * <p>In its own JVM: a cast to {@code DATE} runs a kernel of both lanes, whose int species is the
  * long species' width beside the int lane's own.
@@ -51,7 +59,15 @@ public final class VarkaTimestampNtzConformanceSuite extends VarkaTypeConformanc
         LongStream.of(integralValues(Long.MIN_VALUE, Long.MAX_VALUE)),
         LongStream.of(-edge, -edge - 1, edge, edge + 1)).toArray();
     return new ConformanceType("ntz", DataTypes.TimestampNTZType, "TIMESTAMP_NTZ",
-        VarkaTimestampNtzConformanceSuite::literal, values);
+        VarkaTimestampNtzConformanceSuite::literal, values, new long[] {1, -1},
+        new PairForm("x - y", "ntz_minus_ntz", halfRange(Long.MIN_VALUE, Long.MAX_VALUE)));
+  }
+
+  @Override
+  protected List<OverflowForm> overflowForms() {
+    return List.of(new OverflowForm("x - y", "ntz_minus_ntz"),
+        new OverflowForm("x + (x - y)", "ntz_plus_dt"),
+        new OverflowForm("x - (x - y)", "datetime_sub"));
   }
 
   /** An NTZ literal for {@code micros}: the UTC wall clock it counts to, to the microsecond. */

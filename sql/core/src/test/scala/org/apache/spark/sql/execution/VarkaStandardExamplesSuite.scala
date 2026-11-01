@@ -97,7 +97,7 @@ class VarkaStandardExamplesSuite extends QueryTest with VarkaSharedSessions
       val plan = actual.queryExecution.executedPlan
       assertFused(plan)
       checkAnswer(actual, expected)
-      checkAnswer(actual, spark.sql(query))
+      checkAnswer(actual, expectedSql(query, actual))
       assertKernelsRan(plan)
     }
   }

@@ -24,8 +24,9 @@ import scala.jdk.OptionConverters._
 import scala.util.Try
 
 import org.apache.spark.sql.{DataFrame, QueryTest, SparkSession}
+import org.apache.spark.sql.catalyst.expressions.codegen.PartialVarkaProjection
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaKernelWarmup,
-  VarkaTestWatchdog}
+  VarkaLoopEmitter, VarkaMatrixRuns, VarkaTestWatchdog, VarkaVectorIR}
 import org.apache.spark.sql.internal.SQLConf
 
 /**
@@ -36,6 +37,21 @@ import org.apache.spark.sql.internal.SQLConf
  */
 trait VarkaSparkDifferential extends QueryTest with VarkaSharedSessions with VarkaTestWatchdog {
   import VarkaSparkFuzz._
+
+  /** A reference to one of the fixture's floating columns, `x`, `x2`, `f` or `f2`. */
+  private val floatingColumn = """\b(x|x2|f|f2)\b""".r
+
+  /**
+   * Runs `body` with both sessions reading the cached fixture without the batch pruning of its
+   * column statistics when `sqls` read a floating column, and as they are otherwise. The
+   * statistics leave NaN out (SPARK-58482), so a filter that a NaN row passes, `NOT (x < 1.5D)`,
+   * prunes that row's batch on both sides: the two engines agree, and the check that the pivot
+   * row is selected fails on Spark's answer, not Varka's. Every other case keeps the pruning, so
+   * a stored reproducer replays under the settings it was found under.
+   */
+  private def withFloatingPruningOff[T](sqls: Seq[String])(body: => T): T =
+    if (!sqls.exists(floatingColumn.findFirstIn(_).isDefined)) body
+    else withBothConf(SQLConf.IN_MEMORY_PARTITION_PRUNING.key, "false")(body)
 
   /** Plans of the Varka session, over the checks run, that took a Varka node. */
   protected var fused = 0
@@ -224,10 +240,11 @@ trait VarkaSparkDifferential extends QueryTest with VarkaSharedSessions with Var
       pivot: Option[String] = None,
       forces: Seq[Int] = Nil,
       rerun: VarkaErrorRerun = errorRerun): Option[String] = {
-    def check(view: DataFrame => DataFrame, pivotHere: Option[String]): Option[String] = {
-      cacheFixture(fixture, view)
-      try checkOnce(select, where, ansi, partitions, pivotHere, forces) finally uncacheFixture()
-    }
+    def check(view: DataFrame => DataFrame, pivotHere: Option[String]): Option[String] =
+      withFloatingPruningOff(select +: where.toSeq) {
+        cacheFixture(fixture, view)
+        try checkOnce(select, where, ansi, partitions, pivotHere, forces) finally uncacheFixture()
+      }
     val before = counters
     raisedInCheck = false
     val first = check(identity, pivot)
@@ -335,6 +352,73 @@ trait VarkaSparkDifferential extends QueryTest with VarkaSharedSessions with Var
   protected def uncacheFixture(): Unit =
     for (session <- Seq(spark, varkaSpark)) session.catalog.uncacheTable("fz")
 
+  // ---- the int overflow check, pinned per composition (VARKA-339) ---------------------------
+
+  /** Runs `body` with `options`, as `name=value[,name=value]`, laid over the run's own. */
+  protected def withEmitOptions[T](options: Option[String])(body: => T): T = options match {
+    case None => body
+    case Some(spec) =>
+      val previous = VarkaColumnarToRowExec.currentEmitOptions
+      VarkaColumnarToRowExec.setEmitOptionsForTesting(VarkaMatrixRuns.parseOver(previous, spec))
+      try body finally VarkaColumnarToRowExec.setEmitOptionsForTesting(previous)
+  }
+
+  /**
+   * The options a check of `select` over `where` runs under, laid over the run's own: none, or
+   * `checkIntOverflow=true` where the run turns the check off and a kernel of the check reads it
+   * ([[readsCheckIntOverflow]]). With the check off such a kernel wraps an overflowing lane where
+   * the row engine raises or nulls, by design, so the check runs with it on and is compared as
+   * strictly as any other; every other check runs under the configuration's own options.
+   */
+  protected def pinnedOptions(
+      fixture: String, select: String, where: Option[String], ansi: Boolean): Option[String] =
+    if (VarkaColumnarToRowExec.currentEmitOptions.checkIntOverflow) None
+    else if (readsCheckIntOverflow(fixture, select, where, ansi)) Some("checkIntOverflow=true")
+    else None
+
+  /**
+   * Whether a kernel that a check of `select` over `where` compiles under the run's options reads
+   * `checkIntOverflow` (`VarkaLoopEmitter.readsCheckIntOverflowForTest`, the emitter's own test).
+   * The queries are the check's on Varka: the composition, and with a filter the outputs alone and
+   * the filter's other two partitions; a forced run declines an output of the first. Each is
+   * planned, not run, over the fixture registered as the check registers it, under `ansi`, which
+   * decides whether an arithmetic node is checked at all.
+   */
+  private def readsCheckIntOverflow(
+      fixture: String, select: String, where: Option[String], ansi: Boolean): Boolean = {
+    val queries = querySql(select, where) +: where.toSeq.flatMap { w =>
+      Seq(None, Some(s"NOT ($w)"), Some(s"($w) IS NULL")).map(querySql(select, _))
+    }
+    withFloatingPruningOff(select +: where.toSeq)(withAnsi(ansi) {
+      cacheFixture(fixture)
+      try queries.exists { query =>
+        Try(varkaSpark.sql(query).queryExecution.executedPlan).toOption.exists { plan =>
+          collect(plan) { case v if v.nodeName.startsWith("Varka") => v }.exists { node =>
+            VarkaLoopEmitter.readsCheckIntOverflowForTest(kernelOutputs(node).asJava)
+          }
+        }
+      } finally uncacheFixture()
+    })
+  }
+
+  /**
+   * The output trees of every kernel a Varka node runs, read from the compile the node itself holds
+   * (its `classification`), so they are the plan's own and not a compile that could drift from it.
+   * A filter's absorbed `narrowing` is a row projection, not a kernel. A Varka node this does not
+   * name fails the check rather than reading as one with no kernels.
+   */
+  private def kernelOutputs(node: SparkPlan): Seq[VarkaVectorIR] = {
+    def project(c: java.util.Optional[PartialVarkaProjection]) =
+      c.toScala.toSeq.flatMap(_.kernels().asScala.flatMap(_.outputs().asScala))
+    node match {
+      case p: VarkaColumnarToRowExec => project(p.classification)
+      case p: VarkaProjectExec => project(p.classification)
+      case f: VarkaFilterExecBase =>
+        f.classification.toScala.toSeq.flatMap(_.fused().outputs().asScala)
+      case other => fail(s"the overflow pin cannot read the kernels of ${other.nodeName}")
+    }
+  }
+
   // ---- the warmed arm (VARKA-327) ---------------------------------------------------------
 
   /** `VarkaKernelWarmup.DEADLINE_PROPERTY`, which is package-private to the warm-up. */
@@ -405,7 +489,7 @@ trait VarkaSparkDifferential extends QueryTest with VarkaSharedSessions with Var
       }
     }
     counts.compositions += 1
-    try withAnsi(c.ansi) {
+    try withFloatingPruningOff(c.select +: c.where.toSeq)(withAnsi(c.ansi) {
       withVarkaWarmup(counts) {
         val off = cacheAndAsk(c.fixture)
         var found: Option[String] = None
@@ -449,7 +533,7 @@ trait VarkaSparkDifferential extends QueryTest with VarkaSharedSessions with Var
             pivot = false)
         })
       }
-    } finally {
+    }) finally {
       uncacheFixture()
     }
   }

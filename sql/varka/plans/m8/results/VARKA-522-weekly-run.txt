@@ -1,0 +1,18 @@
+# Where the weekly option matrix runs (VARKA-522), 29 October 2026, read through the Actions API.
+
+The scheduled runs of varka-option-matrix.yml are vecbricks/varka's, from its master (the fork
+MaxGekk/spark has none: a schedule runs from a repository's default branch, and the fork's master
+last moved on 21 August 2026):
+  40176071516  25 October 2026  success  master be2ec226e7d
+  39109529723  18 October 2026  failure  master 9435783beb2
+  38129966925  11 October 2026  failure  master bc8c96fc871
+The last of them, 40176071516, still ran the matrix's twelve shards from before the fan-out: 13
+jobs, at most 12 at once, 211 minutes.
+
+vecbricks/varka is on GitHub's Free plan, 20 concurrent jobs; the fork is on Pro, 40. The pull
+requests' Builds run on the fork, so vecbricks/varka has no Build of its master's commit: a
+scheduled run there finds no test classes to reuse and no reach record, so it compiles its own and
+runs every test under every configuration.
+
+On 29 October 2026, by the owner's word, varka-option-matrix.yml was disabled on vecbricks/varka
+(gh workflow disable; its state disabled_manually) until the weekly run moves to the fork.

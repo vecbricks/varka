@@ -1,0 +1,233 @@
+# Re-planning row 518 (the catalyst suites' reach record), 30 October 2026. CI numbers only
+# from MaxGekk/spark Actions, read with gh api GETs (jobs, steps, artifacts) and two artifact
+# downloads (varka-option-matrix-report and varka-option-matrix-reach of run 41092042163);
+# nothing was rerun or dispatched. Laptop numbers are those of VARKA-518-catalyst-reach.txt
+# (branch varka-518-catalyst-reach, commit 33a9043b806, AMD Ryzen AI 9 HX PRO 370), labelled
+# as laptop numbers where quoted. A JUnit second is a suite's JUnit time; a bin-minute is a bin
+# job's started-to-completed minute; a bin runs two JVMs, so lane minutes = JUnit-s / 2 / 60.
+
+## 1. The PR Build's critical path is the catalyst Varka jobs
+
+Varka-scoped Builds of pull request branches, minutes from the first job's start to each job's
+end (job started_at/completed_at):
+
+  Build         branch                  wall   the last job               catalyst  sql
+  41105632364   varka-339-baseline      18.0   Varka suites: catalyst 2   18.0      12.9
+  41103216280   varka-342-baseline      15.9   Varka suites: catalyst 1   15.9      14.7
+  41099294241   varka-481-null-mode     43.2   Varka suites: catalyst 3   43.2      23.8
+  41096264505   varka-27-boolout        18.1   Varka suites: catalyst 2   18.1      12.8
+  41089478930   varka-157-baseline      16.1   Varka suites: catalyst 2   16.1      12.6
+  41059844622   varka-481-baseline      20.3   Varka suites: catalyst 1   20.3      13.2
+  41029645219   varka-157-baseline      17.9   Linters                    17.4      16.8
+  41028972772   varka-536-reach-jvm...  17.3   Varka suites: catalyst 2   17.3      12.4
+  41022383513   varka-481-baseline      17.7   Varka suites: catalyst 2   17.7      12.7
+  41022340822   varka-481-null-mode     34.7   Varka suites: catalyst 3   34.7      13.2
+  41018112773   varka-157-baseline      18.3   Varka suites: catalyst 2   18.3      13.4
+
+In 10 of the 11 the last job to end is a catalyst Varka job; in the nine Builds of 15.9 to 20.3
+minutes the slowest catalyst job ends 0.6 to 7.1 minutes after the slowest sql one. Any
+second added to a catalyst job lands on the Build's wall unless the jobs are rebalanced (row
+516's split by suite times).
+
+The fork's master Builds ("Build / Varka master after each merge (JDK 25)", the same jobs),
+catalyst's three "Run the Varka suites" steps in minutes, and their sum:
+
+  Build         head          1 of 3  2 of 3  3 of 3  sum
+  41097010880   e6d2d4516c8   12.8    6.4     7.7     26.9
+  41095953201   b4dfa09fe3f   13.3    12.6    10.9    36.8
+  41063129522   7164c2cb500   12.9    11.8    14.5    39.2
+  41062626402   3875255ff86   9.7     12.3    9.0     31.0
+  41057435834   6baa4e7c192   12.8    11.9    11.0    35.7
+  41049264658   fa698652fd2   7.3     6.5     10.1    23.9
+  41045925399   11a0da40f72   7.3     6.3     6.4     20.0
+  41041887913   eff5c740336   12.7    12.4    8.8     33.9
+
+The same suites on the same weights take 20.0 to 39.2 minutes summed: the runner a job draws
+moves it by more than a recording of under two minutes adds, so the recording's CI cost is read
+from the suites' JUnit seconds against master's, not from job walls.
+
+## 2. The option matrix today
+
+  run           branch               build+plan  bins  bin-min  wall
+  41092042163   varka-157-baseline   1.9 min     104   689.3    27.1
+  41062859573   varka-481-baseline   1.6         106   737.9    37.0
+  41041260625   varka-481-null-mode  1.4         106   723.6    35.4
+  41035158315   varka-481-baseline   1.3         106   696.1    35.8
+  41019814599   varka-535-test-hot   1.4         111   716.8    27.9
+  41015017569   varka-508-select     1.7         106   701.6    27.0
+
+Run 41092042163's config-suite-seconds.tsv (the report artifact): catalyst 40896 JUnit-s, sql
+19558, so catalyst is 68% of the suites' seconds. Its reach record covers 34 configurations
+("#<TAB>covers"); catalyst ran under 46. Every JVM-wide line is "-" (row 536 merged). Catalyst
+at the defaults: 1688.2 JUnit-s. The catalyst suites by seconds summed over the 46:
+
+  VarkaSmallTreeSuite                 5424    VarkaEmitCostSuite                 1327
+  VarkaIrFuzzSuite                    4089    VarkaUnreadLocalsSuite             1001
+  VarkaCoverageCompositionFuzzSuite   3201    VarkaEmitterYmDivideSuite           974
+  VarkaEmitterNarrowArithSuite        2984    VarkaTimestampNtzCastSuite          935
+  VarkaAvx2SelectSuite                2685    VarkaSplitInliningSuite             799
+  VarkaVariantSuite                   2226    VarkaMaskOfWordSuite                672
+  VarkaGroupingBoundSuite             1928    VarkaEmitterDriverTableSuite        581
+  VarkaEmitterBoolSuite               1638    VarkaExpressionCompilerSuite        574
+
+Seven catalyst suites of this run are not in the laptop table of 30 October, 1038 JUnit-s in
+all, VarkaEmitterYmDivideSuite 974 of them: they have no measured recording cost or skip share.
+
+## 3. What a catalyst record saves, by suite, and what it costs
+
+Saved = the suite's seconds in run 41092042163 over the 34 covered configurations, times its
+laptop skip share (the share of its tests a configuration skips, averaged over the 34). This is
+a derivation, not a measurement: it weighs every test of a suite alike. Cost = laptop recorded
+seconds less plain (negative costs counted as 0 in sums). CI's catalyst defaults over the laptop's
+plain run for the same 67 suites: 638.2 against 582.0, so CI runs these about 1.1 times the
+laptop's time.
+
+  group                                          suites  laptop cost  saved (JUnit-s)
+  the built branch's kept suites the matrix runs   67        901.9       11572
+  VarkaUnreadLocalsSuite, VarkaEmitCostSuite         2       1077.4         727
+  the three tree suites                              3        423.3        4980
+
+Ranked by saved / cost, the cumulative cost and saving of the 67 (the head and the turns):
+
+  VarkaAvx2SelectSuite             cost   1.9 saved 1603   cum cost   1.9 cum saved 1603
+  VarkaTimestampNtzCastSuite       cost   0.7 saved  577   cum cost   2.6 cum saved 2181
+  VarkaEmitterNarrowArithSuite     cost   5.8 saved 1047   cum cost  11.0 cum saved 4672
+  VarkaEmitterBoolSuite            cost  16.2 saved 1014   cum cost  32.8 cum saved 6666
+  VarkaFloatConformanceSuite       cost   0.4 saved   10   cum cost  80.8 cum saved 8352
+  VarkaEmitterDriverTableSuite     cost  29.8 saved  268   cum cost 110.6 cum saved 8620
+  VarkaVariantSuite                cost 149.3 saved 1124   cum cost 259.9 cum saved 9744
+  VarkaGroupingBoundSuite          cost 267.0 saved  594   cum cost 788.0 cum saved 11430
+  (the 67th)                                               cum cost 901.9 cum saved 11572
+
+### Why the built branch was break-even
+
+Its kept set cost 743.3 s net on the laptop (VARKA-518-catalyst-reach.txt), about 820 JVM-s on
+CI at the 1.1 ratio, over catalyst's three jobs of two JVMs: at least 2.3 minutes a JVM if
+spread evenly, and VarkaGroupingBoundSuite's 267.0 s alone, about 4.9 minutes on CI, lands in
+one JVM of one job. It saved 12559 matrix seconds a run (that file), 105 lane minutes, 3.5
+minutes of matrix wall at 30 slots. So 2.3 to 4.9 minutes on the Build's critical path (section
+1) bought 3.5 off the matrix: about even, and the Build's minutes come first, before the matrix
+is dispatched. No CI run of branch varka-518-catalyst-reach exists (gh api runs?branch= returns
+none); the hold is this derivation from the laptop numbers.
+
+### The fix: record a suite only where it pays
+
+Eight suites carry most of the cost: VarkaGroupingBoundSuite 267.0, VarkaVariantSuite 149.3,
+VarkaEmitterBudgetSuite 53.7, VarkaShapeCacheSuite 53.6, VarkaMaskOfWordSuite 50.8,
+VarkaEmitterFramesSuite 42.8, VarkaEmitterSplitDriverSuite 33.1, VarkaFamilySwitchSuite 32.6:
+683.9 s of the 901.9, for 2601 of the 11572 saved. Their recording re-emits large kernels once
+per covered configuration (34 times), which a cheaper recorder cannot avoid without the options-
+read design row 518 closed (VARKA-518-reads-local.txt).
+
+Rule: a suite records where saved / cost >= 20, or where its laptop recording cost is at most
+2.0 s. The 67 split:
+  kept by the rule: 49 suites, laptop cost 88.2 s, saved 8314 JUnit-s in run 41092042163;
+    the largest single cost VarkaEmitterBoolSuite's 16.2 s
+  left out: 20 suites, laptop cost 1891.1 s, saved 3985 JUnit-s
+    VarkaEmitCostSuite             cost  638.8 saved  493 ratio 0.8
+    VarkaUnreadLocalsSuite         cost  438.6 saved  234 ratio 0.5
+    VarkaGroupingBoundSuite        cost  267.0 saved  594 ratio 2.2
+    VarkaVariantSuite              cost  149.3 saved 1124 ratio 7.5
+    VarkaEmitterBudgetSuite        cost   53.7 saved  148 ratio 2.7
+    VarkaShapeCacheSuite           cost   53.6 saved  250 ratio 4.7
+    VarkaMaskOfWordSuite           cost   50.8 saved  292 ratio 5.8
+    VarkaEmitterFramesSuite        cost   42.8 saved   42 ratio 1.0
+    VarkaEmitterSplitDriverSuite   cost   33.1 saved   81 ratio 2.5
+    VarkaFamilySwitchSuite         cost   32.6 saved   70 ratio 2.2
+    VarkaEmitterDriverTableSuite   cost   29.8 saved  268 ratio 9.0
+    VarkaExactGroupingSuite        cost   23.1 saved   59 ratio 2.5
+    VarkaCoverageSuite             cost   21.5 saved  144 ratio 6.7
+    VarkaKernelWarmupSuite         cost   18.3 saved   84 ratio 4.6
+    VarkaCastMatrixSuite           cost   11.2 saved    0
+    VarkaInliningCliffSuite        cost    8.3 saved    0
+    VarkaReproductionSuite         cost    5.8 saved   10 ratio 1.7
+    VarkaBooleanConformanceSuite   cost    4.4 saved   10 ratio 2.2
+    VarkaDayTimeIntervalConformanceSuite cost 4.3 saved 78 ratio 18.2
+    VarkaConjunctOrderSuite        cost    4.1 saved    4 ratio 1.1
+Why 20: a suite's cost lands in one JVM of the Build (six run at once) and its saving spreads
+over the matrix's 60 lanes, so after row 516 rebalances the jobs on the recorded times the
+break-even ratio is 60 / 6 = 10; 20 leaves a factor of two for the laptop-to-CI and test-weighting
+error of the derivation.
+
+The kept 49 on CI: about 97 JVM-s (88.2 x 1.1), about 16 s a JVM spread over six, at most
+about 18 s in one; 8314 JUnit-s is 69.3 lane minutes, 2.3 minutes of matrix wall at 30 slots.
+
+## 4. Where the recording could run
+
+(a) The matrix's build-and-plan job, recording catalyst's defaults once. That job takes 1.3 to
+1.9 minutes today (section 2) and every bin waits on its plan. Catalyst's defaults are 1688.2
+JUnit-s on CI before any recording; on the job's two JVMs at least 14 minutes added before the
+first bin, for 2.3 to 3.5 minutes saved. Recording instead in the matrix's own defaults catalyst
+units, planning catalyst's configuration bins after them, puts a barrier of one bin (about eight
+minutes at the 480 s lane) plus a second plan job before catalyst's configurations start, while
+sql's 19558 JUnit-s (163 lane minutes, about 5.4 minutes of 30 slots) are all that fill the
+slots meanwhile: about 4.6 minutes of idle slots for 2.3 saved, and two matrix jobs whose
+max-parallel must sum to 30. Both lose.
+
+(b) The fork's master Build. Nothing waits on it: it runs after each merge, eight successful
+runs on 30 October in section 1's table. It can record every catalyst suite but the five past
+the watchdog (laptop cost 88.2 + 1891.1 + 423.3 = 2402.6 s, about 44 minutes of JVM time on CI
+over six JVMs, VarkaEmitCostSuite's 638.8 s in one of them, so about 12 minutes on its longest
+job), holding catalyst's three slots that much longer a merge. Its record is the same commit's
+for a matrix of master (row 522's weekly run). For a pull request's matrix it is valid where the
+diff from the record's commit (an ancestor of the head) changes nothing catalyst builds
+(dev/is-changed.py -m catalyst, which follows the module graph). Of the heads of the 20 most
+recent matrices (41092042163 back to 40926704678), against their merge base with master:
+  touch no file under sql/catalyst/src                         10
+  touch catalyst test files only                                8
+  touch catalyst main files (cbfc59ce01c, 9f7e707d866)          2
+so master's record would serve 10 of 20, adding the 3985 JUnit-s the rule leaves out (33 lane
+minutes, 1.1 minutes of wall) and, if the tree suites are recorded, 4980 more. Today
+dev/varka_matrix_reuse.py looks only at build_main.yml runs (WORKFLOW) and the reach artifacts
+are kept one day (retention-days: 1), so it finds no master Build.
+
+(c) The PR Build's catalyst jobs, with the rule of section 3: about 16 s a JVM, inside the
+jobs' run-to-run spread, for 8314 JUnit-s.
+
+(d) A job of its own in the PR Build recording the left-out suites beside the Varka jobs: about
+2000 s of laptop JVM time (the left-out 1891.1 plus the tree suites' 423.3 if recorded) on one
+runner's two JVMs, longer than any catalyst job today, so the record would arrive after the
+Build's other jobs and the matrix would wait for it. Not taken.
+
+## 5. Options read outside the compiler and the emitter
+
+Each VarkaEmitOptions component's readers in the main sources of sql/catalyst, sql/core and
+sql/varka (grep for ".<name>()", VarkaEmitOptions.java itself and documents left out):
+  read in the compiler, the emitter or their lowerings only: every component but the four below
+    (Analysis, Slots, VarkaVectorWalk, VarkaBodyEmitter, VarkaLoopEmitter, VarkaChronoLowering,
+    VarkaDivisionLowering, VarkaKernelPlan, VarkaConditionCompiler, VarkaExpressionCompiler)
+  exactRefusalStatus: Slots, VarkaEvaluatorBase - the evaluator reads it as it runs a kernel;
+    already in VarkaTestReach.FULL
+  validityByWidth, lanesOverride: Lane - Lane.java:453-456 picks the lanes from the options
+    when the emitter asks; lanesOverride is in FULL
+  julianMap: VarkaChrono, VarkaChronoLowering - VarkaChrono.java:565 reads
+    VarkaEmitOptions.DEFAULTS.julianMap(), the constant, never a configuration's value
+  useAVX: no accessor call; VarkaEmitOption.java:391 binds it, VarkaEmitOptions.java:604 reads
+    the host's level once
+
+Catalyst tests that take the configuration's options (VarkaMatrixRuns.BASE) and use them for
+something other than a compile or an emission, the cases the byte record cannot see:
+  VarkaTypeConformance.java:541    plan.lane(BASE).bits() picks the test's expectations
+  VarkaSpeciesGuard.java:125       reads BASE.lanesOverride() (lanesOverride is FULL)
+  VarkaKernelWarmupProbe.java:93, :113, :143   builds VarkaShapeKey(..., BASE, ...) lookups
+  VarkaWarmupReach.java:544        iterates DEFAULTS and BASE
+  VarkaFamilySwitchSuite.java:99, VarkaKernelReuseSuite.java:96-149,
+  VarkaEmitterNarrowArithSuite.java:169-171, VarkaEmitterNarrowSuite.java:78,
+  VarkaEmitterMixedLaneSuite.java (seven call sites), VarkaTimestampNtzCastSuite.java:95-256:
+    BASE passed to the compiler or the emitter, some with one option pinned over it
+The Scala suites take it as VarkaMatrix.base (VarkaMatrix.scala:52), in 39 files of the
+catalyst varka test directory; those are not classified here.
+
+## 6. Predictions, registered before any run
+
+For the first option matrix whose Build carries the catalyst record of the rule (section 3),
+against run 41092042163:
+  P1  catalyst JUnit-s fall from 40896 by 5800 to 10800 (point 8314)
+  P2  bin-minutes fall from 689.3 by 50 to 90
+  P3  the mean share of catalyst's recorded tests a covered configuration skips is within 10
+      points of the laptop's for the same suites
+For the first fork master Build after the merge, against the eight master Builds of section 1:
+  P4  the recorded catalyst suites' JUnit-s at the defaults exceed the median of the same
+      suites in master's Builds by at most 180 s in all, and by at most 30 s in any one JVM
+The matrix's wall is not predicted: section 2's runs at the same bin-minutes took 27.0 to 37.0
+minutes as other runs shared the fork's slots.

@@ -1,0 +1,41 @@
+# Where the harness suites spend their time once the session is gone (VARKA-510), on the laptop
+# (AMD Ryzen AI 9 HX PRO 370), 29 October 2026, at the defaults, one JVM a suite, one JVM at a
+# time, on the tree of 37c39097662 (row 509 with all three suites moved; checked out as its
+# tree-equal merge with master, 9e1ecf1edf6). JFR with the settings of the
+# coverage suite's second profile in VARKA-509-profile-local.txt; samples are jdk.ExecutionSample
+# events (Java threads on CPU), each put in the first phase, in this order, any frame of its
+# stack matches. The same classifier over that file's coverage-suite recording gives Varka's
+# compile and emit 2.9% and the analyzer and optimizer 26.1%, against its 2.9% and 26.4%.
+
+VarkaCoverageHarnessSuite, 1067 tests, 3741 samples, all but 9 on the main thread:
+  analyzer and optimizer                    45.1%
+  Varka compile and emit                    11.7%
+  Arrow batches                             11.1%
+  Spark's reference evaluation               9.6%
+  Janino (Spark's generated projection)      8.0%
+  parser                                     6.5%
+  class definition and loading               4.1%
+  JUnit and test harness                     3.1%
+  other                                      0.5%
+  JFR                                        0.2%
+  kernel run                                 0.1%
+  of all samples, 39.1% under VarkaHarnessPlans.optimize, which runs SimpleAnalyzer and
+  SparkOptimizer once a query
+
+The session suites row 509 left, for comparison:
+  VarkaCoverageDifferentialSuite, 35 tests, 1735 samples: analyzer and optimizer 22.9%, task run
+  10.0%, task serialization 9.0%, Varka compile and emit 5.9%, other Spark internals 38.0%
+  VarkaDifferentialSuite, 27 tests, 3291 samples: task serialization 15.4%, task run 13.8%,
+  analyzer and optimizer 11.5%, Spark's reference evaluation 10.2%, other Spark internals 37.3%
+
+How often the harness plans the same thing twice: a cache over VarkaHarnessPlans' four entries
+(fixture, query, projection, condition), keyed on the entry, its text, the columns and every set
+SQL configuration, with hit and miss counters, run once and not kept:
+  suite                            plans made  repeats
+  VarkaCoverageHarnessSuite             11601     1192
+  VarkaDifferentialHarnessSuite          1300       19
+  VarkaTimeHarnessSuite                   242       16
+  VarkaHarnessParitySuite                  52        0
+  the coverage harness with the cache: 37.7 s, against 38.9 s without it in row 509's step 4
+The repeats are under a tenth of the plans: the cost is the number of distinct plans, about
+eleven a test, each a tiny plan through every optimizer batch.

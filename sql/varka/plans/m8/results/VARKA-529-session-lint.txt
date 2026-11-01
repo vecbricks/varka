@@ -1,0 +1,110 @@
+# Row 529 step 1, 29 October 2026: dev/varka_session_lint.py, the check that points a Varka suite
+# checking expressions' answers row by row through a session at the expression harness, run over
+# every Varka suite of the tree at 7e66c14cfb3 and over the three suites row 509 moved below the
+# session, in their forms before and after each move (git show REV:PATH). No JVM runs; the
+# check reads the sources.
+
+What it counts. An answer check is a line outside a helper's body that compares a session's
+rows (checkAnswer, sameRows, the shared traits' checkSparkAnswer* and checkSparkRaisesTheSame, a
+collect() beside an assertion, or a call of any helper whose body makes one). A check in a loop
+counts once an element where the source sizes the collection, and 10 times a loop where it does
+not. A session suite is flagged past 40 checks, or when it registers tests in a loop over a
+collection the source does not size. A test headed by `// varka-session-lint: allow <reason>`
+is not counted; a marker without a reason is itself a finding.
+
+The three moved suites (checks, checks in generated tests, checks under a marker):
+  VarkaCoverageDifferentialSuite
+    c47ad84f744 (master before row 509)       73   3   0  flagged
+    a01891db261 (before its move, #1102)      73   3   0  flagged
+    ade3137fde3 (after the answers moved)     62   2   0  flagged
+    7e66c14cfb3 (master, unmarked)            72   3   0  flagged
+    this branch (two markers)                  2   0   3  passes
+  VarkaDifferentialSuite
+    c47ad84f744                              348   0   0  flagged
+    aaeac5148ba (before its move, #1107)     348   0   0  flagged
+    7e66c14cfb3 (master, unmarked)           135   0   0  flagged
+    this branch (one marker)                  35   0   1  passes
+  VarkaTimeArithmeticSuite
+    c47ad84f744                               52   0   0  flagged
+    27480a7cc65 (before its move, #1106)      52   0   0  flagged
+    679f3cc845f (after its move)               7   0   0  passes
+    7e66c14cfb3 (master)                       7   0   0  passes
+
+The kept coverage suite cannot be told from its old form by counting: both register a test per
+row of a list read from sql/varka/coverage.json, the old one over every row and the kept one
+over the first row of each family and one row per error condition, and no source line says
+how many rows either list holds. Its two generated blocks carry markers with their reasons. The
+kept differential suite's 135 are 35 lines and one test of 100 queries of one shape, which is a
+test of the shape cache across tasks, so that test carries a marker and the suite counts 35.
+
+Every Varka suite of the tree, this branch: 150 suites, 108 with no session (the catalyst
+suites and the harness suites: VarkaCoverageHarnessSuite, VarkaDifferentialHarnessSuite and
+VarkaTimeHarnessSuite count 0), 42 with one:
+    62   0   0  flagged    VarkaFarDaySuite.scala
+    35   0   1  session    VarkaDifferentialSuite.scala
+    31   0   0  session    VarkaFloatingLaneSuite.scala
+    27   0   0  session    VarkaStandardDeltasSuite.scala
+    24   0   0  session    VarkaLongLaneSuite.scala
+    23   0   0  session    VarkaYmDivideSuite.scala
+    22   0   0  session    VarkaFilterRaiseOrderSuite.scala
+    15   0   0  session    VarkaTimeArrowCacheSuite.scala
+    14   0   0  session    VarkaTimestampNtzSuite.scala
+    12   0   0  session    VarkaDateMinusDateSuite.scala
+    12   0   0  session    VarkaSchemaWidthSuite.scala
+    11   0   0  session    VarkaStandardExamplesSuite.scala
+    10   0   0  session    benchmark/VarkaBooleanOutputQueriesSuite.scala
+    10   0   0  session    benchmark/VarkaDecimalBaselineQueriesSuite.scala
+    10   0   0  session    benchmark/VarkaFloatingBaselineQueriesSuite.scala
+    10   0   0  session    benchmark/VarkaTimestampNtzBaselineQueriesSuite.scala
+     9   0   0  session    VarkaFamilySwitchQuerySuite.scala
+     9   0   0  session    VarkaReproductionEndToEndSuite.scala
+     7   0   0  session    VarkaCodegenGiveUpSuite.scala
+     7   0   0  session    VarkaRangeSetSuite.scala
+     7   0   0  session    VarkaTimeArithmeticSuite.scala
+     6   0   0  session    VarkaSplitConditionSuite.scala
+     5   0   0  session    VarkaFallbackReasonSuite.scala
+     5   0   0  session    VarkaSparkFuzzSuite.scala
+     4   0   0  session    VarkaEndToEndSuite.scala
+     4   0   0  session    VarkaNullTypeFallbackSuite.scala
+     4   0   0  session    VarkaSeveralKernelsSuite.scala
+     3   0   0  session    VarkaErrorContextSuite.scala
+     2   0   0  session    VarkaAutoRegistrationSuite.scala
+     2   0   3  session    VarkaCoverageDifferentialSuite.scala
+     2   0   0  session    VarkaMaterializedPrefixSuite.scala
+     2   0   0  session    VarkaMemorySanitizerEndToEndSuite.scala
+     2   0   0  session    VarkaRunbookSuite.scala
+     1   0   0  session    VarkaColumnarWriteSuite.scala
+     0   0   0  session    VarkaHarnessParitySuite.java (plans through a session, compares none)
+  and seven session suites with no answer check: VarkaCodegenCliffLogSuite,
+  VarkaColumnarToRowExecSuite, VarkaFilterExecSuite, VarkaGoldenCorpusSuite,
+  VarkaKernelEvaluatorSuite, VarkaProjectExecSuite, VarkaWarmupEndToEndSuite.
+
+The one hit left is VarkaFarDaySuite: two of its tests run every coverage row over a date column
+through a session, over days past the column bound, with and without nulls (20 each, the rest
+22 lines), so a calendar row added to the table runs there with no change to the suite. It is
+the shape row 509 moved, and step 3 of the row decides it: moved to the harness over a far-day
+fixture, or marked with its reason. Until then `--all` exits 1 on this tree. The hook reads only
+the suites a commit touches, and a suite it changes fails only when the change takes it over the
+rule: a commit that edits VarkaFarDaySuite prints its count as over the rule before the change and
+passes, while a copy of it saved as a new suite is a finding.
+
+A planted suite: the time-arithmetic suite of c47ad84f744 copied to a new file,
+VarkaPlantedTimeSuite.scala, and `dev/varka_precommit.sh --working-tree` run over it: reported,
+52 answer checks; the file removed, the hook reported no session-lint finding. The self-test
+(dev/varka_session_lint.py --selftest) plants 13 cases: a generated session suite, nested
+literal loops past the limit in Scala and in Java, a hundred checks of one shape with and
+without a marker, a marker without a reason, a one-path suite, a harness suite of dynamic tests,
+a range mapped into one expression, a loop over an unsized list inside one test, a block ending
+in a literal, and the hook's staged-file selection.
+
+The Build's Varka docs job, not edited here: one step after "The house rules' checks pass their
+own cases" would run the self-test and the check over every suite,
+    - name: No Varka suite checks expressions' answers row by row through a session
+      run: |
+        python3 dev/varka_session_lint.py --selftest
+        python3 dev/varka_session_lint.py --all
+which fails on this tree until VarkaFarDaySuite is decided. The job runs only when a file that
+`varka_docs_regexes` in dev/sparktestsupport/modules.py names changes, and neither the script
+nor a suite is among them, so a pull request of a new suite alone would not run the step; adding
+the script there is one line, but a change to modules.py is a Spark change and runs Spark's
+module matrix on its pull request.

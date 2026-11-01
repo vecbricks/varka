@@ -142,6 +142,7 @@ public final class VarkaWordCensus {
   static W pure(VarkaVectorIR n, boolean coalesce, boolean absorb) {
     return switch (n) {
       case ColumnRef c -> new In(c.ordinal());
+      case DecimalColumn c -> new In(c.ordinal());
       case LiteralSlot l -> CONSTANT;
       case AddDays x -> andW(pure(x.days(), coalesce, absorb), pure(x.offset(), coalesce, absorb),
           absorb);
@@ -179,7 +180,8 @@ public final class VarkaWordCensus {
           ? orW(pure(x.thenNode(), coalesce, absorb), pure(x.elseNode(), coalesce, absorb), absorb)
           : null;
       case MakeDate _, IntArith _, IntNeg _, ConstDivide _, BoundedDivide _, Cond _,
-          CondValue _, GuardedDay _, GuardedRange _, WidenLane _, NarrowLane _ -> null;
+          CondValue _, BoolOutput _, GuardedDay _, GuardedRange _, WidenLane _,
+          NarrowLane _ -> null;
     };
   }
 

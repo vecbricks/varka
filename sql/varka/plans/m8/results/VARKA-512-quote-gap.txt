@@ -1,0 +1,22 @@
+# The quote check's gap (VARKA-512), 29 October 2026, on master at aaeac5148ba: what
+# dev/varka_quote_check.py accepts a plan's number on. It searches the benchmark outputs, the
+# demos' outputs and the spikes' results for the number's digits, anywhere, and never the results
+# files under sql/varka/plans/*/results/, which is where most of the plans' numbers come from.
+
+The plans' results files: 28 under sql/varka/plans/*/results/, none of them searched. Adding
+them as sources leaves the check at 0 orphans: sources only ever add matches.
+
+Four numbers of a first draft of row 509's step 4 sentence, measured in
+m8/results/VARKA-509-step4.txt (not searched), each accepted on a file that has nothing to do with
+it, matched by the check's own number pattern (corrected: an earlier version of this list named
+files by a substring search, which matched 6472.2 for 472.2):
+  135.8  sql/core/benchmarks/Base64Benchmark-jdk21-results.txt, among others
+  399.3  sql/core/benchmarks/VarkaEvaluatorOverheadBenchmark-jdk25-267c-pair-results.txt
+  472.2  no current file; an earlier committed version of a results file, which the check also
+         searches
+  989.1  the same
+Two more of the same draft, found in no searched file, were reported as orphans:
+  11.96, 35.30
+What the check reads as a quote: a number of at least two integer digits with a decimal part, not
+followed by a percent sign or a times sign; an integer, a one-digit decimal and a percentage are
+never checked.

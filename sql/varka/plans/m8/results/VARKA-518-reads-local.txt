@@ -1,0 +1,71 @@
+# The option matrix's reach record made from the options a compile reads, against the record
+# made by emitting again (VARKA-518), 29 October 2026, on the laptop (AMD Ryzen AI 9 HX PRO 370):
+# the sql module's Varka suites at the defaults, dev/varka_matrix.sh --split 4 -j 4, recorded
+# once in each mode from one build of an experiment branch (884152e3c1c, local and not pushed):
+# each VarkaEmitOptions accessor set its component's bit in a thread mask, compiles and
+# emissions bracketed their reads, and a configuration moved a compile or a kernel where it
+# changed a component read; a kernel looked up took its emission's reads.
+
+tests with a line: 1747 in both records; the 34 configurations the records cover
+time of the module, the JVMs' seconds: emit 293, reads 223 (-j 4; not comparable with
+VARKA-507-step5-local.txt's one-JVM 826 and 941)
+test-runs the record allows, summed over the configurations, of 1692 tests:
+  emit 10488, reads 34631, of 57528 without a record
+tests where the reads record misses a configuration the emit record names: 22
+  VarkaColumnarToRowExecSuite / VarkaColumnarRule rewrites eligible projections when enabled:
+    denseValidityOnce=false, driverOutputTable=false, elideUnreadLocals=false,
+    validityByBitmap=false
+  VarkaColumnarToRowExecSuite / the pre-transition stage rewrites an eligible projection to :
+    denseValidityOnce=false, driverOutputTable=false, elideUnreadLocals=false,
+    validityByBitmap=false
+  VarkaCoverageHarnessSuite / Time arithmetic: hour(t) matches the row engine under both c:
+    elideChronoMonth=false, julianMap=false
+  VarkaErrorContextSuite / a compiler bug at planning fails the query on the driver wit:
+    denseValidityOnce=false, driverOutputTable=false, elideUnreadLocals=false,
+    validityByBitmap=false
+  VarkaFilterExecSuite / VarkaColumnarRule: a Varka projection stacks on a Varka filt:
+    denseValidityOnce=false, driverOutputTable=false, elideUnreadLocals=false,
+    validityByBitmap=false, validityByWord=true
+  VarkaFilterExecSuite / VarkaColumnarRule: the post stage fuses the transition, or a:
+    driverOutputTable=false, validityByWord=true
+
+tests each configuration moves, emit and reads:
+  validityByWidth=false                                 1443  1513
+  methodByteBudget=0                                    1511  1513
+  groupBudget=64                                          13  1494
+  groupBudget=800                                         28  1494
+  cse=false                                              418  1494
+  shareChronoPrefix=false                                 59  1494
+  denseValidityOnce=false                                856  1494
+  validityByBitmap=false                                 563  1494
+  division=DOUBLE_RECIP                                  233  1494
+  division=DOUBLE_DIV                                    233  1494
+  validityByWord=true                                   1140  1494
+  groupLocalSlots=false                                   26  1494
+  callSiteBudget=0                                        49  1494
+  heavyGroupOutputs=0                                     25  1494
+  predictGrouping=false                                   49  1494
+  exactGrouping=false                                     10  1494
+  elideUnreadLocals=false                               1097  1494
+  planSize=false                                          48  1494
+  driverOutputTable=false                               1510  1493
+  guardDayProducers=false                                 21  1492
+  shareWholeNodes=false                                   19  1489
+  checkIntOverflow=false                                 145  1470
+  guardUnderArm=false                                     88   350
+  groupBudgetUnderPrediction=true                         47   335
+  elideChronoMonth=false                                 135   214
+  neriSchneiderMonth=false                               118   214
+  julianMap=false                                        217   214
+  narrowLanes=false                                       98   136
+  useAVX=2                                                84    84
+  floorMod7=DIV                                           57    57
+  floorMod7=DIGIT_SUM                                     57    57
+  narrowHalfSpecies=true                                  33    38
+  mulHiDivide=false                                       33    33
+  truncDate=RECOMPOSE                                     25    25
+
+Most options are read by nearly every kernel whether or not they change its bytes - the
+budgets, cse, the validity layouts, the division lowering - so the reads record runs most tests
+under most configurations; and some reads escape the brackets, so it is not a safe filter
+either. The reads design is closed as measured; the experiment does not ship.

@@ -1,0 +1,93 @@
+# Row 509 step 4, 29 October 2026: what moving the coverage, differential and time-arithmetic
+# suites' answer checks below the session saved, on the laptop, in the pull request's Build and
+# in the option matrix. CI numbers from dev/varka_matrix_run.py over the fork's runs (job times
+# from the Actions API, suite seconds from the JUnit reports the jobs upload); laptop numbers
+# from dev/varka_matrix.sh at the defaults, one JVM a suite, one JVM at a time.
+
+The suites: before, VarkaCoverageDifferentialSuite, VarkaDifferentialSuite and
+VarkaTimeArithmeticSuite; after, those three slimmed to their end-to-end tests, plus
+VarkaCoverageHarnessSuite, VarkaDifferentialHarnessSuite, VarkaTimeHarnessSuite and
+VarkaHarnessParitySuite.
+
+On the laptop (AMD Ryzen AI 9 HX PRO 370), at the defaults, one JVM a suite:
+  before, c47ad84f744 (master before row 509):
+    VarkaCoverageDifferentialSuite      339.0 s   1066 tests
+    VarkaDifferentialSuite               74.3 s     94 tests
+    VarkaTimeArithmeticSuite             59.0 s     12 tests
+    in all                              472.2 s   1172 tests
+  after, 58cf3f01d41 (all three suites moved):
+    VarkaCoverageDifferentialSuite       21.9 s     35 tests
+    VarkaCoverageHarnessSuite            38.9 s   1067 tests
+    VarkaDifferentialSuite               37.1 s     27 tests
+    VarkaDifferentialHarnessSuite         7.9 s     68 tests
+    VarkaTimeArithmeticSuite             11.8 s      3 tests
+    VarkaTimeHarnessSuite                 7.3 s      9 tests
+    VarkaHarnessParitySuite              10.9 s      2 tests
+    in all                              135.8 s   1211 tests
+  3.5 times faster.
+
+The reach recording (VarkaTestReach), which the Build's sql jobs run so the matrix can skip what
+a configuration does not move, emits each compile again under every configuration it covers; a
+harness suite is almost all compiling, so it pays more than a session suite. The three harness
+suites in one JVM on the laptop, on the tree of 37c39097662:
+  plain       45 s   (coverage 39.2 s, differential 2.5 s, time 3.2 s)
+  recording   92 s   (coverage 82.3 s, differential 6.1 s, time 3.4 s)
+The recording is kept: it costs the Build about two minutes and lets the matrix run only the
+harness tests a configuration moves (the coverage harness took 0.30 to 0.38 h of the matrix
+runs below).
+
+The pull request's Build, the Varka-scoped jobs, each suite's seconds:
+  before, Build 40808858587 on 0d6e7e2d7c0 (row 509's step 1, nothing moved yet; the same
+  three sql jobs, reach recording and sort page as the Build after):
+    VarkaCoverageDifferentialSuite      622.6 s
+    VarkaCoverageHarnessSuite            35.0 s   (step 1's 339 rows)
+    VarkaDifferentialSuite              250.1 s
+    VarkaTimeArithmeticSuite            150.9 s
+    VarkaHarnessParitySuite               5.5 s
+    in all                             1064.1 s
+    sql jobs: 32.5, 27.8 and 25.6 minutes
+  after, Build 40851152000 on 37c39097662 (all three suites moved):
+    VarkaCoverageDifferentialSuite       44.7 s
+    VarkaCoverageHarnessSuite           234.2 s
+    VarkaDifferentialSuite               56.3 s
+    VarkaDifferentialHarnessSuite        23.7 s
+    VarkaTimeArithmeticSuite             19.6 s
+    VarkaTimeHarnessSuite                14.1 s
+    VarkaHarnessParitySuite               6.7 s
+    in all                              399.3 s
+    sql jobs: 14.5, 17.1 and 23.9 minutes
+  Both Builds record the reach for the matrix, which a harness suite pays about twice its own
+  time for (above); an earlier Build of step 1, 40778521100 on f1a0ba1fe5a, predates the
+  recording, the three-job split and the sort-page fix, and is not comparable.
+
+The option matrix, one run a stage (wall from the run's start to its last job's end; suite
+hours are the configurations', the defaults apart):
+  run          head         stage                                wall  bins  job-min  JVM h  suite h
+  40658422887  cee69a474d7  the first fanned-out run (row 507)     75   110    1700    51.4   49.52
+  40800988778  c47ad84f744  every test's reach, before row 509     58   180    1408    37.1   35.30
+  40823565045  1359fae59cd  the coverage suite moved                46   148     961    25.1   23.37
+  40845870070  4ed592eb33a  and the time-arithmetic suite          40   148    1002    25.2   23.54
+  40855387471  37c39097662  and the differential suite             45   156    1008    24.1   22.61
+  the moved suites' hours in the same runs, each the session suite + its harness:
+  run          coverage                      differential                      time
+  40658422887  6.89                          3.66                              1.76
+  40800988778  8.20                          2.06                              1.70
+  40823565045  0.31 + 0.31                   0.98                              0.82
+  40845870070  0.34 + 0.30                   1.01                              0.11 + 0.14
+  40855387471  0.42 + 0.38                   0.52 + 0.04                       0.12 + 0.13
+  The three suites' hours, sessions and harnesses, in all: 12.31 in the first run, 11.96 before
+  row 509, 1.61 after it. The wall time is the longest bin's, not the work's: the last run's
+  longest bin took 24.9 minutes against a median of 6.4, which made it five minutes longer than
+  the run before it, with fewer suite hours.
+  A suite's hours move between runs that changed nothing in it: the differential and time
+  suites fell from 2.06 and 1.70 h to 0.98 and 0.82 between 40800988778 and 40823565045, before
+  either was moved, with the runners' CPUs, which differ about two and a half times in speed, and
+  the reach record of each run's own Build.
+
+Where the moved suites spend their time now: JFR profiles on the laptop, at the defaults, one JVM
+a suite, on the tree of 37c39097662, of the coverage harness and the two largest session suites
+left, are in m8/results/VARKA-510-planning-local.txt. In short: the coverage harness spends
+45.1% of its samples in Spark's analyzer and optimizer, 39.1% of all of them planning one query
+at a time, Varka's compile and emit 11.7%, the Arrow batches 11.1%, and its kernels 0.1%; the
+session suites left, a few dozen tests each, still spend theirs in task serialization, task runs
+and Spark's other internals. Row 510 takes the planning cost.

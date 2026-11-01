@@ -209,6 +209,18 @@ public final class VarkaCompiledCheck {
     }
   }
 
+  /**
+   * The lanes the tallies and the tier rules count by: a kernel is counted at the integral lane
+   * of its width, the harness it ran through ({@link #tallied}), so FLOAT and the narrow lanes
+   * count with INT and DOUBLE with LONG.
+   */
+  private static final List<LaneType> TALLIED = List.of(LaneType.INT, LaneType.LONG);
+
+  /** The lane of {@link #TALLIED} that {@code lane}'s kernels are counted at. */
+  static LaneType tallied(LaneType lane) {
+    return lane.bits() == Long.SIZE ? LaneType.LONG : LaneType.INT;
+  }
+
   /** A case's runs, one per history run, in history order. */
   public record Result(String label, LaneType lane, List<Run> runs) {
     public Result {
@@ -398,7 +410,8 @@ public final class VarkaCompiledCheck {
       this.emit = emit;
       this.s = s;
       this.h = h;
-      this.isLong = c.lane() == LaneType.LONG;
+      // The long entry and table at every 64-bit lane, DOUBLE's bits included.
+      this.isLong = c.lane().bits() == Long.SIZE;
       this.numInputs = c.numInputs();
       this.drawn = new Cols(c.length(), c.data(), c.nulls(), c.forceMasked());
       this.witness = s.witnessed() ? VarkaTierWitness.get() : null;
@@ -921,11 +934,14 @@ public final class VarkaCompiledCheck {
       return List.copyOf(results);
     }
 
-    /** The runs of one lane and history, skipped ones included. */
+    /**
+     * The runs of one counted lane ({@link VarkaCompiledCheck#tallied}) and history, skipped ones
+     * included.
+     */
     public List<Run> runs(LaneType lane, History h) {
       var out = new ArrayList<Run>();
       for (Result r : results) {
-        if (r.lane() == lane) {
+        if (tallied(r.lane()) == lane) {
           for (Run run : r.runs()) {
             if (run.history() == h) {
               out.add(run);
@@ -996,11 +1012,11 @@ public final class VarkaCompiledCheck {
     /** The report, a line per lane and history and a few after them. */
     public List<String> report(boolean witnessed) {
       var lines = new ArrayList<String>();
-      for (LaneType lane : List.of(LaneType.INT, LaneType.LONG)) {
+      for (LaneType lane : TALLIED) {
         String name = lane.toString().toLowerCase(java.util.Locale.ROOT);
         var compiled = new ArrayList<Long>();
         for (Result r : results) {
-          if (r.lane() == lane && r.runs().size() > 1) {
+          if (tallied(r.lane()) == lane && r.runs().size() > 1) {
             compiled.add(r.compiledMillis());
           }
         }
@@ -1176,14 +1192,14 @@ public final class VarkaCompiledCheck {
    */
   public static List<String> notReached(Tally tally, Tier tier) {
     var observed = new ArrayList<Observed>();
-    for (LaneType lane : List.of(LaneType.INT, LaneType.LONG)) {
+    for (LaneType lane : TALLIED) {
       for (Result r : tally.results()) {
-        if (r.lane() != lane) {
+        if (tallied(r.lane()) != lane) {
           continue;
         }
         for (Run run : r.runs()) {
           if (run.skipped() == null) {
-            observed.add(Observed.of(lane, run));
+            observed.add(Observed.of(r.lane(), run));
           }
         }
       }
@@ -1213,7 +1229,7 @@ public final class VarkaCompiledCheck {
       case C2 -> {
         coldInterpreted(observed, out);
         warmUpsC2(observed, out);
-        for (LaneType lane : List.of(LaneType.INT, LaneType.LONG)) {
+        for (LaneType lane : TALLIED) {
           var released = of(observed, lane, History.RELEASED);
           if (!released.isEmpty() && released.stream().noneMatch(o -> o.verdicts().stream()
               .anyMatch(v -> v instanceof VarkaTierWitness.Osr osr && osr.level() >= 3))) {
@@ -1247,7 +1263,7 @@ public final class VarkaCompiledCheck {
             }
           }
         }
-        for (LaneType lane : List.of(LaneType.INT, LaneType.LONG)) {
+        for (LaneType lane : TALLIED) {
           var released = of(observed, lane, History.RELEASED);
           if (!released.isEmpty() && released.stream()
               .noneMatch(o -> o.counted().stream().anyMatch(VarkaCompiledCheck::servedByC1))) {
@@ -1273,7 +1289,8 @@ public final class VarkaCompiledCheck {
   }
 
   private static List<Observed> of(List<Observed> observed, LaneType lane, History h) {
-    return observed.stream().filter(o -> o.lane() == lane && o.history() == h).toList();
+    return observed.stream().filter(o -> tallied(o.lane()) == lane && o.history() == h)
+        .toList();
   }
 
   /** The default rule on {@code cold}: every call interpreted at both edges. */
@@ -1297,7 +1314,7 @@ public final class VarkaCompiledCheck {
    * settled case).
    */
   private static void warmUpsC2(List<Observed> observed, List<String> out) {
-    for (LaneType lane : List.of(LaneType.INT, LaneType.LONG)) {
+    for (LaneType lane : TALLIED) {
       for (History h : List.of(History.WARM_SAME, History.WARM_OTHER)) {
         var ran = of(observed, lane, h);
         var settled = ran.stream().filter(Observed::confirmed).toList();

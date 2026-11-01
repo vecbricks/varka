@@ -47,6 +47,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Bit
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BoolColumn;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BoolCompare;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BoolNullSafeEq;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BoolOutput;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BoundedDivide;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ColumnRef;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Compare;
@@ -60,6 +61,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Day
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.DayOfWeek;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.DayOfWeekIso;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.DayOfYear;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.DecimalColumn;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Greatest;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.GuardedDay;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.GuardedRange;
@@ -284,6 +286,15 @@ final class Slots {
   int[] validityAcc;
 
   /**
+   * The data bitmap's accumulator of each {@link BoolOutput} root this body writes a word at a
+   * time, beside its {@link #validityAcc}, or {@code -1} for every other output. Null in every
+   * body with no such root, and numbered after every validity accumulator, so a body without a
+   * boolean output takes no slot for it and keeps the numbering, and so the bytes, its other
+   * locals give it (`VARKA-27.md` 2.2).
+   */
+  int[] dataAcc;
+
+  /**
    * Per guarded node: the local the guarded vector is parked in while the guard compares it,
    * since that vector has to stay on the operand stack for the parent. What is guarded differs
    * by node. For {@code AddDays}/{@code SubDays} it is the node's own result, checked
@@ -292,6 +303,20 @@ final class Slots {
    * and so parked before the node's own value exists at all.
    */
   final Map<VarkaVectorIR, Integer> guardTmp = new HashMap<>();
+
+  /**
+   * Per {@link DecimalColumn}: the two vectors of sixteen-byte slots a lane group loads, each
+   * holding half the group's rows as low and high words, parked because both shuffles read both.
+   * The low words the shuffle takes are parked in {@link #guardTmp}.
+   */
+  final Map<VarkaVectorIR, int[]> decimalTmp = new HashMap<>();
+
+  /**
+   * In a body that loads a {@link DecimalColumn}, the two shuffles built once in its prologue: the
+   * even lanes of two vectors, which are the slots' low words, and the odd lanes, their high
+   * words. Null in every other body, which keeps its locals numbered as they were.
+   */
+  int[] decimalShuffle;
 
   /**
    * {@link InRanges}' three locals: the value it tests (a vector), the loop's range index (an
@@ -716,6 +741,9 @@ final class Slots {
         e.setValue(slot);
         slot += 2;
       }
+      if (reasons.contains(Analysis.Refusal.DECIMAL_SLOT)) {
+        s.decimalShuffle = new int[] {slot++, slot++};
+      }
     }
     var families = EnumSet.noneOf(Analysis.Refusal.Family.class);
     for (Analysis.Refusal reason : reasons) {
@@ -732,6 +760,17 @@ final class Slots {
             Arrays.fill(s.validityAcc, -1);
           }
           s.validityAcc[o] = slot;
+          slot += 2;
+        }
+      }
+      // After every validity accumulator, so those keep the numbers they had.
+      for (int o : outputIdx) {
+        if (outputs.get(o) instanceof BoolOutput) {
+          if (s.dataAcc == null) {
+            s.dataAcc = new int[outputs.size()];
+            Arrays.fill(s.dataAcc, -1);
+          }
+          s.dataAcc[o] = slot;
           slot += 2;
         }
       }
@@ -792,7 +831,10 @@ final class Slots {
           if (cse && bodyUses.getOrDefault(node, 0) > 1 && !(node instanceof LiteralSlot)) {
             s.sharedSlot.put(node, slot++);
           }
-          if (!dense && (node instanceof Greatest || node instanceof Least)) {
+          // A floating pick reads each operand twice, so it parks both in either body, where an
+          // integral pick needs them only to null-skip in the masked one.
+          if ((!dense || node.laneType().isFloating())
+              && (node instanceof Greatest || node instanceof Least)) {
             s.pairTmp.put(node, new int[] {slot++, slot++});
           }
           // The overflow check reads both operands and the result after the lanewise op has
@@ -803,8 +845,7 @@ final class Slots {
           // nullsFromValidInputs for it and `emit` then builds none, so its dense slots are planned
           // and never used. Harmless, and worth knowing before counting dense locals against a
           // method budget.
-          if (analysis.options.checkIntOverflow() && node instanceof IntArith n
-              && n.mode() != Overflow.WRAP) {
+          if (node instanceof IntArith && analysis.checksIntOverflow(node)) {
             s.intArithTmp.put(node, new int[] {slot++, slot++, slot++});
           }
           // The magic-number division builds its floor by hand, which needs the quotient, its
@@ -835,6 +876,15 @@ final class Slots {
           // move the pinned bytes.
           if (guardScratch(analysis, node, families, mode == BodyMode.LOOP)) {
             s.guardTmp.put(node, slot++);
+          }
+          // A NULL range guard registers no refusal, so guardScratch does not see it, and parks
+          // its value for the two compares all the same. Only such a node takes this slot, so no
+          // other emission's local numbering depends on it.
+          if (node instanceof GuardedRange g && g.mode() == Overflow.NULL) {
+            s.guardTmp.put(node, slot++);
+          }
+          if (node instanceof DecimalColumn) {
+            s.decimalTmp.put(node, new int[] {slot++, slot++});
           }
           if (node instanceof MakeDate) {
             int[] tmp = new int[MAKE_DATE_TMP_COUNT];
@@ -881,6 +931,9 @@ final class Slots {
           if (node instanceof InRanges) {
             s.rangeTmp.put(node, new int[] {slot++, slot++, slot++});
           }
+          if (isFloatingCompare(node)) {
+            s.pairTmp.put(node, new int[] {slot++, slot++});
+          }
           s.condMask.put(node, slot++);
         } else {
           if (node instanceof Not n) {
@@ -890,6 +943,9 @@ final class Slots {
           } else {
             if (node instanceof InRanges) {
               s.rangeTmp.put(node, new int[] {slot++, slot++, slot++});
+            }
+            if (isFloatingCompare(node)) {
+              s.pairTmp.put(node, new int[] {slot++, slot++});
             }
             s.kt.put(node, slot);
             slot += 2;
@@ -918,6 +974,7 @@ final class Slots {
   private static int planWordRef(VarkaVectorIR node, Slots s) {
     return switch (node) {
       case ColumnRef c -> s.word[c.ordinal()];
+      case DecimalColumn c -> s.word[c.ordinal()];
       case LiteralSlot l -> WORD_ALL_TRUE;
       case AddDays n -> andRef(s.wordRef.get(n.days()), s.wordRef.get(n.offset()));
       case SubDays n -> andRef(s.wordRef.get(n.days()), s.wordRef.get(n.offset()));
@@ -927,7 +984,11 @@ final class Slots {
       case NextDay n -> andRef(s.wordRef.get(n.days()), s.wordRef.get(n.offset()));
       case ThursdayOf n -> s.wordRef.get(n.days());
       case GuardedDay n -> s.wordRef.get(n.days());
-      case GuardedRange n -> s.wordRef.get(n.child());
+      // A FAIL guard forwards its child's word; a NULL one clears lanes from a copy of it, so,
+      // like a NULL IntArith, it needs a slot of its own.
+      case GuardedRange n -> n.mode() == Overflow.NULL
+          ? Integer.MIN_VALUE
+          : s.wordRef.get(n.child());
       case WidenLane n -> s.wordRef.get(n.child());
       case NarrowLane n -> s.wordRef.get(n.child());
       case Year n -> s.wordRef.get(n.days());
@@ -1169,9 +1230,11 @@ final class Slots {
       // The one edge of this node the emission does not follow, or null.
       VarkaVectorIR skipped = null;
       if (node instanceof IsNotNull isNotNull
-          && (!isNotNull.overCondition() || dense)) {
+          && (!isNotNull.overCondition() || dense)
+          && !(isNotNull.child() instanceof DecimalColumn)) {
         // Over a column, widened or not, it reads the word, and over a condition in a dense body
         // it is constant true; only a masked body lowers a condition child, to read its masks.
+        // A decimal column is visited all the same, in both bodies, for its slot check.
         skipped = isNotNull.child();
       } else if (isChrono(node)) {
         VarkaVectorIR date = chronoChild(node);
@@ -1223,7 +1286,8 @@ final class Slots {
     }
     for (int o : outputIdx) {
       VarkaVectorIR root = outputs.get(o);
-      if (!(root instanceof Cond) && !(root instanceof NarrowLane)
+      // A root that writes bitmaps stores nothing under the mask: the lane count truncates them.
+      if (!VarkaVectorIR.writesBitmaps(root) && !(root instanceof NarrowLane)
           && analysis.laneOf(root) == analysis.lane) {
         return true;
       }
@@ -1405,8 +1469,12 @@ final class Slots {
         // A guard over a column's stored values masks nothing, so it demands no word
         // (Analysis.guardsStoredValues).
         case GuardedDay g -> demand(analysis.wordOwner.get(g.days()));
+        // A NULL guard stores its own word - the child's with the out-of-range lanes cleared -
+        // so it is demanded whatever reads it, as a NULL IntArith's is.
         case GuardedRange g -> {
-          if (!Analysis.guardsStoredValues(g)) {
+          if (g.mode() == Overflow.NULL) {
+            demand(new WordOwner.Own(g));
+          } else if (!Analysis.guardsStoredValues(g)) {
             demand(analysis.wordOwner.get(g.child()));
           }
         }
@@ -1419,6 +1487,7 @@ final class Slots {
         // owns no word at all; and `IfElse`'s blend reads its branches' words through the
         // propagation loop, which is where the demand for its own word arrives.
         case ColumnRef c -> { }
+        case DecimalColumn c -> { }
         case LiteralSlot l -> { }
         case AddDays x -> { }
         case SubDays x -> { }
@@ -1456,6 +1525,8 @@ final class Slots {
         // Its word is the condition's two known words ORed, and the condition demands its
         // operands' words in its own arms; its own word is demanded like any value node's.
         case CondValue x -> { }
+        // The same word as CondValue's, kt | kf, demanded by the root write (liveWords).
+        case BoolOutput x -> { }
         case And x -> { }
         case Or x -> { }
         case Not x -> { }
@@ -1496,6 +1567,7 @@ final class Slots {
           demand(analysis.wordOwner.get(x.elseNode())); }
         // Computed from the condition's masks, which load the words its leaves demand already.
         case CondValue x -> { }
+        case BoolOutput x -> { }
         case MakeDate x -> { demand(analysis.wordOwner.get(x.year()));
           demand(analysis.wordOwner.get(x.month()));
           demand(analysis.wordOwner.get(x.day())); }
@@ -1503,6 +1575,7 @@ final class Slots {
         // child's and the child, not the alias, is what the queue holds; a `Cond` has no
         // entry in `wordOwner` at all.
         case ColumnRef x -> { }
+        case DecimalColumn x -> { }
         case LiteralSlot x -> { }
         case DayOfWeek x -> { }
         case WeekDay x -> { }
@@ -1643,5 +1716,14 @@ final class Slots {
           && !s.liveWordOwners.contains(own) ? DEAD_WORD : owner;
     }
     return new FragmentKey(FragmentKind.CHRONO_PREFIX, chronoChild(node), word);
+  }
+
+  /**
+   * Whether {@code node} compares at a floating lane, whose lowering reads each operand twice
+   * ({@code VarkaVectorWalk.emitFloatingCompare}) and so parks both in a pair of locals.
+   */
+  private static boolean isFloatingCompare(VarkaVectorIR node) {
+    return (node instanceof VarkaVectorIR.Compare || node instanceof VarkaVectorIR.NullSafeEqual)
+        && node.laneType().isFloating();
   }
 }

@@ -1,0 +1,196 @@
+VARKA-362 and VARKA-363: every decimal type pair of Multiply, Add and Subtract and the comparison coercion, classed by the rule Spark resolves (30 October 2026, laptop).
+Command: python3 -I shapes.py (the script below). Output:
+
+decimal types (p in 1..38, 0 <= s <= p): 779; ordered pairs: 606841
+
+== Multiply, allowPrecisionLoss=true
+  64-bit (349): 5644, first (p1, s1, p2, s2 -> p, s) (1, 0, 1, 0, 3, 0)
+  P > 38, scale kept: 256-bit product and 10^38 check (362): 21574, first (p1, s1, p2, s2 -> p, s) (1, 0, 37, 0, 38, 0)
+  an operand above 18 digits, P <= 38: the static shortcut (362): 64068, first (p1, s1, p2, s2 -> p, s) (1, 0, 19, 0, 21, 0)
+  both <= 18 digits, scale kept (361): 30077, first (p1, s1, p2, s2 -> p, s) (1, 0, 17, 0, 19, 0)
+  scale cut (363): 485478, first (p1, s1, p2, s2 -> p, s) (1, 0, 37, 7, 38, 6)
+  cut k: min 1, max 39; k = 39 at 528 pairs, first (38, 7, 38, 38, 38, 6)
+  k >= 28 (5^k past 2^63): 50887 pairs
+  10^38 check dead: 332565
+  10^38 check live: 152913
+  quotient past 2^127: 152913
+  first live check: (2, 0, 38, 7, 38, 6)
+  first quotient past 2^127: (2, 0, 38, 7, 38, 6, 130)
+  widest product bound: 253 bits; above 128 bits at 475862 cut pairs, at most 128 bits at 9616
+
+== Multiply, allowPrecisionLoss=false
+  64-bit (349): 5644, first (p1, s1, p2, s2 -> p, s) (1, 0, 1, 0, 3, 0)
+  P > 38, scale kept: 256-bit product and 10^38 check (362): 405782, first (p1, s1, p2, s2 -> p, s) (1, 0, 37, 0, 38, 0)
+  an operand above 18 digits, P <= 38: the static shortcut (362): 64068, first (p1, s1, p2, s2 -> p, s) (1, 0, 19, 0, 21, 0)
+  both <= 18 digits, scale kept (361): 30077, first (p1, s1, p2, s2 -> p, s) (1, 0, 17, 0, 19, 0)
+  scale cut (363): 101270, first (p1, s1, p2, s2 -> p, s) (1, 1, 38, 38, 38, 38)
+  cut k: min 1, max 38; k = 39 at 0 pairs, first None
+  k >= 28 (5^k past 2^63): 1001 pairs
+  10^38 check dead: 741
+  10^38 check live: 100529
+  quotient past 2^127: 100529
+  first live check: (2, 1, 38, 38, 38, 38)
+  first quotient past 2^127: (2, 1, 38, 38, 38, 38, 130)
+  widest product bound: 253 bits; above 128 bits at 101270 cut pairs, at most 128 bits at 0
+
+== Add and Subtract, allowPrecisionLoss=true
+  64-bit (349): 19210, first (1, 0, 1, 0, 2, 0)
+  class C, scale cut (363): 234832, first (1, 0, 37, 37, 38, 36)
+  class K (360): 7189, first (1, 0, 38, 0, 38, 0)
+  class U (360): 345610, first (1, 0, 17, 17, 19, 17)
+  class C: max k 32; widest exact sum after the rescale up: 253 bits; past 129 bits at 198704 pairs, first (1, 0, 38, 38, 38, 36, 130)
+
+== Add and Subtract, allowPrecisionLoss=false
+  64-bit (349): 19210, first (1, 0, 1, 0, 2, 0)
+  class K (360): 242021, first (1, 0, 37, 37, 38, 37)
+  class U (360): 345610, first (1, 0, 17, 17, 19, 17)
+
+== Comparisons and choices at unequal scales (widerDecimalType, bounded to 38 preferring integral digits)
+  pairs where an operand is rescaled down: 202540, max k 38, first (1, 0, 38, 38, 38, 37)
+
+Script:
+
+# Classifies every Spark decimal Multiply, Add/Subtract and comparison type pair by the
+# rule Spark resolves (DecimalType.adjustPrecisionScale or bounded), as rows 361 to 363 split
+# them, and tabulates the cut k, the dividend and quotient bounds, and where the 10^38 check is
+# live.
+from collections import Counter
+
+MAXP = 38
+
+
+def adjust(p, s):
+    if p <= MAXP:
+        return p, s
+    intd = p - s
+    return MAXP, max(MAXP - intd, min(s, 6))
+
+
+def bounded(p, s):
+    return min(p, MAXP), min(s, MAXP)
+
+
+def types():
+    for p in range(1, MAXP + 1):
+        for s in range(0, p + 1):
+            yield p, s
+
+
+def bits(v):
+    return v.bit_length()
+
+
+T = list(types())
+print(f"decimal types (p in 1..38, 0 <= s <= p): {len(T)}; ordered pairs: {len(T) ** 2}")
+
+for setting, rule in (("allowPrecisionLoss=true", adjust), ("allowPrecisionLoss=false", bounded)):
+    print(f"\n== Multiply, {setting}")
+    cls = Counter()
+    kdist = Counter()
+    live = Counter()
+    maxdiv = Counter()
+    first = {}
+    for p1, s1 in T:
+        for p2, s2 in T:
+            P, S = p1 + p2 + 1, s1 + s2
+            pr, sr = rule(P, S)
+            k = S - sr
+            wide = p1 > 18 or p2 > 18
+            if P <= 18:
+                c = "64-bit (349)"
+            elif not wide and k == 0:
+                c = "both <= 18 digits, scale kept (361)"
+            elif k == 0 and P <= 38:
+                c = "an operand above 18 digits, P <= 38: the static shortcut (362)"
+            elif k == 0:
+                c = "P > 38, scale kept: 256-bit product and 10^38 check (362)"
+            else:
+                c = "scale cut (363)"
+            cls[c] += 1
+            first.setdefault(c, (p1, s1, p2, s2, pr, sr))
+            if k > 0:
+                kdist[k] += 1
+                # exact product magnitude bound and the HALF_UP quotient bound
+                prod = (10**p1 - 1) * (10**p2 - 1)
+                q = (prod + 10**k // 2) // 10**k
+                lv = q > 10**pr - 1
+                live["10^38 check live" if lv else "10^38 check dead"] += 1
+                maxdiv[bits(prod)] += 1
+                first.setdefault(("k", k), (p1, s1, p2, s2, pr, sr))
+                if lv:
+                    first.setdefault("live", (p1, s1, p2, s2, pr, sr))
+                if q >= 1 << 127:
+                    live["quotient past 2^127"] += 1
+                    first.setdefault("q127", (p1, s1, p2, s2, pr, sr, bits(q)))
+    for c, n in sorted(cls.items()):
+        print(f"  {c}: {n}, first (p1, s1, p2, s2 -> p, s) {first[c]}")
+    if kdist:
+        print(f"  cut k: min {min(kdist)}, max {max(kdist)}; k = 39 at {kdist[39]} pairs, "
+              f"first {first.get(('k', 39))}")
+        print(f"  k >= 28 (5^k past 2^63): {sum(n for k, n in kdist.items() if k >= 28)} pairs")
+        for key, n in sorted(live.items()):
+            print(f"  {key}: {n}")
+        if "live" in first:
+            print(f"  first live check: {first['live']}")
+        if "q127" in first:
+            print(f"  first quotient past 2^127: {first['q127']}")
+        print(f"  widest product bound: {max(maxdiv)} bits; above 128 bits at "
+              f"{sum(n for b, n in maxdiv.items() if b > 128)} cut pairs, at most 128 bits at "
+              f"{sum(n for b, n in maxdiv.items() if b <= 128)}")
+
+for setting, rule in (("allowPrecisionLoss=true", adjust), ("allowPrecisionLoss=false", bounded)):
+    print(f"\n== Add and Subtract, {setting}")
+    cls = Counter()
+    widest = 0
+    over128 = 0
+    kmax = 0
+    first = {}
+    for p1, s1 in T:
+        for p2, s2 in T:
+            S = max(s1, s2)
+            P = max(p1 - s1, p2 - s2) + S + 1
+            pr, sr = rule(P, S)
+            k = S - sr
+            if P <= 18:
+                c = "64-bit (349)"
+            elif P <= 38:
+                c = "class U (360)"
+            elif k == 0:
+                c = "class K (360)"
+            else:
+                c = "class C, scale cut (363)"
+            cls[c] += 1
+            first.setdefault(c, (p1, s1, p2, s2, pr, sr))
+            if k > 0:
+                kmax = max(kmax, k)
+                # the coarser operand rescaled up to S, then the exact sum
+                a = (10**p1 - 1) * 10 ** (S - s1)
+                b = (10**p2 - 1) * 10 ** (S - s2)
+                w = bits(a + b)
+                widest = max(widest, w)
+                if w > 129:
+                    over128 += 1
+                    first.setdefault("over", (p1, s1, p2, s2, pr, sr, w))
+    for c, n in sorted(cls.items()):
+        print(f"  {c}: {n}, first {first[c]}")
+    if kmax:
+        print(f"  class C: max k {kmax}; widest exact sum after the rescale up: {widest} bits; "
+              f"past 129 bits at {over128} pairs, first {first.get('over')}")
+
+print("\n== Comparisons and choices at unequal scales (widerDecimalType, bounded to 38 "
+      "preferring integral digits)")
+cut = 0
+kmx = 0
+first = None
+for p1, s1 in T:
+    for p2, s2 in T:
+        S = max(s1, s2)
+        P = max(p1 - s1, p2 - s2) + S
+        if P > MAXP:
+            ns = max(0, S - (P - MAXP))
+            k = S - ns
+            if k > 0 and (s1 > ns or s2 > ns):
+                cut += 1
+                kmx = max(kmx, max(s1, s2) - ns)
+                first = first or (p1, s1, p2, s2, MAXP, ns)
+print(f"  pairs where an operand is rescaled down: {cut}, max k {kmx}, first {first}")

@@ -34,7 +34,9 @@ import org.apache.spark.sql.types.DataType
  * kernel reads is the lane value itself: days for a date, months for a year-month interval,
  * nanoseconds for a `TIME`, microseconds for a day-time interval, the byte or short a narrow
  * lane carries sign-extended into the row's `Long` (VARKA-329), and a `BOOLEAN` column's bit as
- * 1 or 0 (VARKA-484).
+ * 1 or 0 (VARKA-484). A floating lane carries its value's raw bits (VARKA-341), which the type
+ * registry's conversion turns into the `Float` or `Double` Spark reads, and an answer of either
+ * goes back to its raw bits, so a NaN's payload and a zero's sign are compared as they are.
  */
 class VarkaSparkOracle(outputs: Seq[Expression], inputs: Seq[Attribute]) {
 
@@ -63,16 +65,24 @@ class VarkaSparkOracle(outputs: Seq[Expression], inputs: Seq[Attribute]) {
     }.map(_.storageBits).getOrElse(0)
   }
 
+  /** Each floating input's registry entry, whose conversion reads its bits; `None` otherwise. */
+  private val floating: Seq[Option[VarkaTypes.Info]] = types.map { t =>
+    VarkaTypes.of(t).toScala.map(VarkaTypes.info).filter(_.lane.toScala.exists(_.isFloating))
+  }
+
   /** Spark's answer for output `o` on a row of lane values, `None` for a null input. */
   def answer(o: Int, row: Seq[Option[Long]]): VarkaSparkOracle.Answer = {
-    val values = row.zip(types).zip(storage).map {
-      case ((None, _), _) => null
-      case ((Some(v), _), 1) => v != 0L
-      case ((Some(v), _), 8) => v.toByte
-      case ((Some(v), _), 16) => v.toShort
-      case ((Some(v), _), 32) => v.toInt
-      case ((Some(v), _), 64) => v
-      case ((_, t), _) => throw new IllegalArgumentException(s"no kernel input of type $t")
+    val values = row.indices.map { k =>
+      (row(k), floating(k), storage(k)) match {
+        case (None, _, _) => null
+        case (Some(v), Some(info), _) => info.sparkValue(v)
+        case (Some(v), None, 1) => v != 0L
+        case (Some(v), None, 8) => v.toByte
+        case (Some(v), None, 16) => v.toShort
+        case (Some(v), None, 32) => v.toInt
+        case (Some(v), None, 64) => v
+        case _ => throw new IllegalArgumentException(s"no kernel input of type ${types(k)}")
+      }
     }
     try {
       bound(o).eval(new GenericInternalRow(values.toArray[Any])) match {
@@ -82,6 +92,8 @@ class VarkaSparkOracle(outputs: Seq[Expression], inputs: Seq[Attribute]) {
         case s: Short => VarkaSparkOracle.Value(s.toLong)
         case i: Int => VarkaSparkOracle.Value(i.toLong)
         case l: Long => VarkaSparkOracle.Value(l)
+        case f: Float => VarkaSparkOracle.Value(java.lang.Float.floatToRawIntBits(f).toLong)
+        case d: Double => VarkaSparkOracle.Value(java.lang.Double.doubleToRawLongBits(d))
         case other => throw new IllegalArgumentException(
           s"output $o evaluated to a ${other.getClass.getSimpleName}, which no kernel stores")
       }

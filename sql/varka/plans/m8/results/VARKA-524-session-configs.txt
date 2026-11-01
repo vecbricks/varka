@@ -1,0 +1,24 @@
+# The option matrix's full-run configurations by module (VARKA-524), 29 October 2026: option
+# matrix run 40921075226 (head adc299a4b0b), each unit's seconds file, its runner JVM's wall time,
+# summed by configuration and module (a unit's directory names its module).
+
+  configuration                    catalyst h   sql h
+  arrowBatchSize=1                       0.29    0.51
+  arrowBatchSize=3                       0.32    0.34
+  arrowBatchSize=17                      0.25    0.33
+  exactRefusalStatus=true                0.28    0.29
+  lanesOverride=4                        0.32    0.30
+  lanesOverride=16                       0.30    0.20
+  fusedCeiling=200                       0.41    0.27
+  fusedCeiling=800                       0.43    0.28
+  splitDriver=false                      0.29    0.29
+  severalKernels=false                   0.29    0.24
+  splitConditions=false                  0.33    0.32
+  rangeSets=false                        0.33    0.26
+  materializeChronoPrefix=false          0.29    0.22
+
+The three arrowBatchSize configurations change only the sessions' cached batches:
+VarkaMatrixRuns.parseOver leaves the emit options as they are for them, no catalyst suite builds a
+session, and no catalyst test reads the setting. Their catalyst units, 0.86 hours in this run,
+reran the defaults' catalyst run exactly. The other full-run configurations change what the
+compiler or the emitter does, which the catalyst suites exercise.

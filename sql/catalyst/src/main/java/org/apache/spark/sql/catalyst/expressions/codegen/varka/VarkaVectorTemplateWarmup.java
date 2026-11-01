@@ -30,15 +30,18 @@ import javax.management.ObjectName;
 
 import jdk.incubator.vector.ByteVector;
 import jdk.incubator.vector.DoubleVector;
+import jdk.incubator.vector.FloatVector;
 import jdk.incubator.vector.IntVector;
 import jdk.incubator.vector.LongVector;
 import jdk.incubator.vector.ShortVector;
+import jdk.incubator.vector.Vector;
 import jdk.incubator.vector.VectorMask;
 import jdk.incubator.vector.VectorOperators;
 import jdk.incubator.vector.VectorOperators.Binary;
 import jdk.incubator.vector.VectorOperators.Comparison;
 import jdk.incubator.vector.VectorOperators.Unary;
 import jdk.incubator.vector.VectorShape;
+import jdk.incubator.vector.VectorShuffle;
 import jdk.incubator.vector.VectorSpecies;
 
 import org.apache.spark.internal.SparkLogger;
@@ -76,7 +79,8 @@ import org.apache.spark.internal.SparkLoggerFactory;
  * template has already recorded, which is why it runs before any of the engine's vector code. It
  * feeds the templates receivers of the preferred species only. A call that throws (an
  * unsupported shape on some CPU) ends the warm-up there: the int, long and double groups run in
- * that order, the two narrow ones next, the conversions last, and the rest stay cold.
+ * that order, the float one next, then the two narrow ones, the conversions last, and the rest
+ * stay cold.
  *
  * <p><b>Paced on C2's queue, and heavy enough on the wrappers.</b> HotSpot's tiered policy compiles
  * a method due for its profiling tier at tier 2 instead, C1 code with counters and no profiling,
@@ -578,6 +582,17 @@ final class VarkaVectorTemplateWarmup {
     private static final List<Comparison> DOUBLE_COMPARISONS = List.of(VectorOperators.EQ,
         VectorOperators.LT, VectorOperators.GE);
 
+    /**
+     * The IEEE compares a floating lane's comparisons and picks are lowered to (VARKA-341): Spark's
+     * order is built from these three and the NaN test, never from LT, GT or NE directly.
+     */
+    private static final List<Comparison> FLOATING_COMPARISONS = List.of(VectorOperators.EQ,
+        VectorOperators.LE, VectorOperators.GE);
+
+    /** Where the floating lanes' blocks store and load: past the integral blocks' offsets. */
+    private static final long DOUBLE_OFFSET = 2048;
+    private static final long FLOAT_OFFSET = 3072;
+
     private Rounds() {
     }
 
@@ -587,6 +602,7 @@ final class VarkaVectorTemplateWarmup {
       VectorSpecies<Integer> is = IntVector.SPECIES_PREFERRED;
       VectorSpecies<Long> ls = LongVector.SPECIES_PREFERRED;
       VectorSpecies<Double> ds = DoubleVector.SPECIES_PREFERRED;
+      VectorSpecies<Float> fs = FloatVector.SPECIES_PREFERRED;
       // The species a widened kernel - an int-driven one that reads a narrow column, or any
       // narrow kernel with narrowLanes off - loads and stores a narrow column at, where it is
       // not the preferred one the narrow blocks warm (VARKA-329).
@@ -598,6 +614,8 @@ final class VarkaVectorTemplateWarmup {
       long[] lb = new long[ls.length()];
       double[] da = new double[ds.length()];
       double[] db = new double[ds.length()];
+      float[] fa = new float[fs.length()];
+      float[] fb = new float[fs.length()];
       for (int i = 0; i < ia.length; i++) {
         ia[i] = 3 * i - 7;
         ib[i] = i + 1;
@@ -610,6 +628,10 @@ final class VarkaVectorTemplateWarmup {
         da[i] = 0.5 * i - 1;
         db[i] = i + 1;
       }
+      for (int i = 0; i < fa.length; i++) {
+        fa[i] = 0.5f * i - 1;
+        fb[i] = i + 1;
+      }
       MemorySegment segment = Arena.ofAuto().allocate(BYTES, 64);
       long acc = 0;
       queueBefore = c2QueueLengthNow();
@@ -618,7 +640,8 @@ final class VarkaVectorTemplateWarmup {
       for (int round = 0; round < ROUNDS; round++) {
         acc += ints(is, ia, ib, segment);
         acc += longs(ls, la, lb, segment);
-        acc += doubles(ds, da, db);
+        acc += doubles(ds, da, db, segment);
+        acc += floats(fs, fa, fb, segment);
         // A mask's toLong holds 64 lanes, which a byte species passes above 512 bits and a short
         // one above 1024; there the narrow block would throw and end the round, so it is left
         // out rather than costing the int, long and double templates their warm-up.
@@ -713,11 +736,22 @@ final class VarkaVectorTemplateWarmup {
         a.intoMemorySegment(seg, 256, ByteOrder.LITTLE_ENDIAN, tail);
         acc += LongVector.fromMemorySegment(s, seg, 128, ByteOrder.LITTLE_ENDIAN).lane(0)
             + LongVector.fromMemorySegment(s, seg, 256, ByteOrder.LITTLE_ENDIAN, tail).lane(1);
+        // The decimal load's de-interleave (VARKA-347): the shuffle a body builds once, the
+        // even or the odd lanes of two vectors, and the two-vector rearrange that applies it to
+        // a pair of loads of sixteen-byte slots, the second a vector's bytes further on.
+        VectorShuffle<Long> lanes = VectorShuffle.iota(s, r & 1, 2, false);
+        acc += a.rearrange(lanes, b).lane(0) + s.vectorByteSize();
       }
       return acc;
     }
 
-    private static long doubles(VectorSpecies<Double> s, double[] da, double[] db) {
+    /**
+     * The double lane's calls: the arithmetic the long lane's magic division converts through,
+     * and the calls a {@code DOUBLE} column's kernel makes (VARKA-341), which {@link #floats}
+     * makes at the {@code FLOAT} lane.
+     */
+    private static long doubles(VectorSpecies<Double> s, double[] da, double[] db,
+        MemorySegment seg) {
       DoubleVector a = DoubleVector.fromArray(s, da, 0);
       DoubleVector b = DoubleVector.fromArray(s, db, 0);
       VectorMask<Double> m = a.compare(VectorOperators.GT, b);
@@ -734,8 +768,59 @@ final class VarkaVectorTemplateWarmup {
           acc += a.compare(op, b).toLong();
         }
         acc += masks(s, m, tail, acc);
+        // A DOUBLE column's kernel: its dense and masked stores and loads, a literal's broadcast
+        // (NaN, so that the NaN test finds a lane), and Spark's order, as in floats below.
+        a.intoMemorySegment(seg, DOUBLE_OFFSET, ByteOrder.LITTLE_ENDIAN);
+        b.intoMemorySegment(seg, DOUBLE_OFFSET + s.vectorByteSize(), ByteOrder.LITTLE_ENDIAN,
+            tail);
+        DoubleVector x = DoubleVector.fromMemorySegment(s, seg, DOUBLE_OFFSET,
+            ByteOrder.LITTLE_ENDIAN);
+        DoubleVector y = DoubleVector.fromMemorySegment(s, seg,
+            DOUBLE_OFFSET + s.vectorByteSize(), ByteOrder.LITTLE_ENDIAN, tail);
+        DoubleVector nan = DoubleVector.broadcast(s, Double.NaN);
+        VectorMask<Double> less = floatingLess(x, y);
+        acc += (long) x.blend(y, less).lane(0) + less.toLong() + floatingLess(nan, x).toLong();
+        for (Comparison op : FLOATING_COMPARISONS) {
+          acc += x.compare(op, y).toLong();
+        }
       }
       return acc;
+    }
+
+    /** {@link #doubles}' column calls at the {@code FLOAT} lane, four bytes a row. */
+    private static long floats(VectorSpecies<Float> s, float[] fa, float[] fb,
+        MemorySegment seg) {
+      FloatVector a = FloatVector.fromArray(s, fa, 0);
+      FloatVector b = FloatVector.fromArray(s, fb, 0);
+      VectorMask<Float> m = a.compare(VectorOperators.GT, b);
+      VectorMask<Float> tail = s.indexInRange(0, s.length() / 2 + 1);
+      long acc = 0;
+      for (int r = 0; r < THIN_CALLS_PER_ROUND; r++) {
+        a.intoMemorySegment(seg, FLOAT_OFFSET, ByteOrder.LITTLE_ENDIAN);
+        b.intoMemorySegment(seg, FLOAT_OFFSET + s.vectorByteSize(), ByteOrder.LITTLE_ENDIAN,
+            tail);
+        FloatVector x = FloatVector.fromMemorySegment(s, seg, FLOAT_OFFSET,
+            ByteOrder.LITTLE_ENDIAN);
+        FloatVector y = FloatVector.fromMemorySegment(s, seg,
+            FLOAT_OFFSET + s.vectorByteSize(), ByteOrder.LITTLE_ENDIAN, tail);
+        FloatVector nan = FloatVector.broadcast(s, Float.NaN);
+        VectorMask<Float> less = floatingLess(x, y);
+        acc += (long) x.blend(y, less).lane(0) + less.toLong() + floatingLess(nan, x).toLong()
+            + masks(s, m, tail, acc);
+        for (Comparison op : FLOATING_COMPARISONS) {
+          acc += x.compare(op, y).toLong();
+        }
+      }
+      return acc;
+    }
+
+    /**
+     * Spark's {@code l < r} at a floating lane as the emitter lowers it,
+     * {@code !(isNaN(l) | l >= r)}: the NaN test, the IEEE compare and the two mask calls that
+     * join them. The {@code <=} and {@code =} forms add only an {@code and} and more compares.
+     */
+    private static <E> VectorMask<E> floatingLess(Vector<E> l, Vector<E> r) {
+      return l.test(VectorOperators.IS_NAN).or(l.compare(VectorOperators.GE, r)).not();
     }
 
     /**

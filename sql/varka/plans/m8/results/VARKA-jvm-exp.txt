@@ -1,0 +1,193 @@
+# Can an option-matrix bin run its test JVMs faster: more JVMs at once on a runner, another
+# GC or heap, JIT flags, or a class archive for start-up? Laptop numbers, 29-30 October 2026,
+# as a proxy for a 4-vCPU, 16 GB GitHub runner. Measured at master fa83ea5379e (the compiled
+# worktree varka-509-step2e). Scripts and raw logs: /home/max/proj/.varka-tmp/jvm-exp/
+# (drive.py runs a workload, analyze.py makes the tables, runs/<arm>-r<k>/summary.json per run).
+
+== Method
+
+Machine: Max's laptop, 12 cores / 24 threads (lscpu -e: CPUs 0-11 are cores, 12-23 their SMT
+siblings; 0-3 are the 5.1 GHz cores). JDK 25.0.4.1. The laptop JVM picks UseAVX=3,
+MaxVectorSize=64, where the runners report UseAVX=2, MaxVectorSize=32; every arm runs the same
+laptop default, so only ratios between arms carry over to a runner, not seconds.
+
+Pinning: the driver sets its affinity to CPUs 0-3 (four sibling-free cores) and every JVM it
+starts inherits it; HotSpot then sees 4 CPUs (PrintFlagsFinal: ParallelGCThreads=4,
+CICompilerCount=3). Arms s2/s4 pin to 0,1,12,13 instead: two cores with their SMT siblings.
+
+Each unit runs exactly as a bin runs it: dev/varka_matrix.sh --skip-build --runs-only
+--module M --suites S, --defaults or --config C with -Dvarka.matrix.reachFile (a reach file a
+CI Build wrote on 29 October, the same file in every arm, with lines for SQL suites only, so
+the catalyst units run every test under a configuration), --jvm-arg -Dvarka.series.size=4, the
+build's jvm.opts (-Xmx4g, G1 by default), the sanitizer and checkBothBodies on. Each unit is
+wrapped in /usr/bin/time -v (CPU = user + sys of the JVM, peak RSS = its maxrss); a sampler
+sums the RSS of all the run's JVMs every 0.5 s for the peak total.
+
+Workload, 10 units, launched in this order, N at a time:
+  u0 defaults|catalyst|VarkaEmitterNarrowArithSuite                    (own JVM)
+  u1 cse=false|catalyst|VarkaSmallTreeSuite                            (own JVM)
+  u2 defaults|catalyst|VarkaGroupingBoundSuite
+  u3 cse=false|catalyst|VarkaGroupingBoundSuite
+  u4 cse=false|sql|VarkaDifferentialSuite                              (reach: 7 of 27 run)
+  u5 defaults|sql|VarkaFloatingLaneSuite,VarkaProjectExecSuite,VarkaFilterRaiseOrderSuite
+  u6 division=DOUBLE_DIV|sql|VarkaFloatingLaneSuite,VarkaLongLaneSuite (reach: 0 of 171 run)
+  u7 division=DOUBLE_DIV|catalyst|VarkaEmitterChronoSuite,VarkaExpressionCompilerSuite
+  u8 cse=false|sql|VarkaFloatingLaneSuite                              (reach: 45 of 137 run)
+  u9 division=DOUBLE_DIV|catalyst|VarkaEmitterDivisionSuite            (own JVM)
+u6 runs no test at all, so its wall is a JVM's fixed cost: start, SparkSession, suite set-up.
+
+Rounds: rounds 1 to 3 ran all twelve main arms once each, the order rotated per round
+(rounds.sh). The AOT and SMT arms ran after them (extra.sh), and rounds 4 and 5 ran c2,
+c2-aot, c2-cds, s2 and c4 interleaved (block.sh) - see "Noise" for why.
+
+Lock: each run held one of the two shared heavy slots (whichever freed first) for its whole
+duration; other agents used the other slot throughout. 1-minute load average at the start of
+the 55 timed runs: 3.2 to 12.7, median 6.6 (recorded per run in summary.json).
+
+Answers: every run of every arm passed, and every unit's "Tests:" lines (succeeded, failed,
+canceled) equal the c2 arm's - e.g. u0 30 succeeded / 19 canceled, u5 173 succeeded, u7 193
+succeeded / 27 canceled, in every arm. No arm changed what was tested.
+
+== Noise
+
+The same arm moved by up to a quarter between periods of the night, more than most effects
+measured: c2 took 225, 226 and 183 s in rounds 1 to 3 and 184 and 179 s in rounds 4 and 5;
+c2-cds took 220, 223 and 237 s, then 171 and 171 s. The load average does not explain it
+(other agents' work on CPUs 0-3, the package's turbo budget and memory traffic are not in
+it). The first AOT runs looked 24% faster than c2, but they ran in the fast period after
+01:25; rounds 4 and 5, interleaved, show CDS and AOT equal and c2 about 6% slower. So below,
+differences come from runs adjacent in time (same round), and an effect under about 5% is
+called unreadable.
+
+== 1. Concurrency (G1, -Xmx4g)
+
+Wall seconds per round (r1 to r3 rotated over twelve arms; r4 and r5 interleaved over five;
+s2 and s4 r1 and r2 ran between r3 and r4), then CPU/wall and the ratio to c2:
+arm  JVMs CPUs       r1   r2   r3   r4   r5   CPU s (r1-r3)  CPU/wall  vs c2, same round
+c1   1    0-3        341  347  313  -    -    661            1.92      1.52 1.53 1.71
+c2   2    0-3        225  226  183  184  179  691            3.12      1
+c3   3    0-3        207  213  207  -    -    731            3.53      0.92 0.94 1.13
+c4   4    0-3        198  204  187  178  177  705            3.56      0.88 0.90 1.03 0.97 0.99
+s2   2    0,1,12,13  219  220  -    219  217  744            3.39      r4 1.19, r5 1.21
+s4   4    0,1,12,13  227  225  -    -    -    855            3.78      s4/s2 1.04 1.02
+
+Peak RSS: largest single JVM 2.79 GB (any arm), largest sum of all JVMs at once 4.32 GB (c4,
+four JVMs). Everything fits 16 GB with room to spare at any N up to 4.
+
+- One JVM alone keeps 1.9 CPUs busy (Spark's local threads, the JIT, G1). Two JVMs already
+  take 3.1 of 4 CPUs (rounds 1 to 3), so a third or fourth JVM can add at most the last 0.9.
+- On four real cores, 4 JVMs finish the workload 2 to 12% sooner than 2 in four rounds of
+  five and 3% later in one (median 0.97), for 2 to 16% more CPU (median 1.09): each unit
+  runs 1.2 to 2.2 times slower beside three others than beside one.
+- On two cores with their SMT siblings, which is how we assume a 4-vCPU Azure runner is laid
+  out (platform.txt does not record threads per core), 4 JVMs gain nothing over 2 (1.04,
+  1.02) and burn 15% more CPU (855 against 744 s). 2 JVMs take 20% longer there than on four
+  real cores.
+- Verdict: keep 2 JVMs a runner. The gain on real cores is at the noise floor and disappears
+  on the SMT layout the runners most likely have.
+
+== 2. GC and heap (2 JVMs unless named)
+
+arm      flags                     runs  wall s median (range)  vs same-round reference
+c2-par   -XX:+UseParallelGC        3     214 (202-219)          vs c2: 0.90 0.95 1.20
+c2-ser   -XX:+UseSerialGC          3     222 (192-229)          vs c2: 1.02 0.98 1.05
+c4-ser   -XX:+UseSerialGC, 4 JVMs  3     203 (199-222)          vs c4: 1.03 0.98 1.19
+c4-x2g   -Xmx2g, 4 JVMs            3     215 (182-215)          vs c4: 1.09 1.05 0.97
+
+- ParallelGC: 5% faster in two rounds, 20% slower in the third - unreadable, no consistent
+  gain. SerialGC: equal to G1 within noise; it does cut the largest JVM's RSS from 2.34 to
+  1.25 GB (largest JVM, rounds 1 to 3), which nothing needs since memory is not the limit.
+- -Xmx2g: nothing to gain. A smaller heap would only let more JVMs fit, and 4 JVMs at -Xmx4g
+  peaked at 4.32 GB together; at 4 JVMs it was 3% faster to 9% slower than -Xmx4g.
+
+== 3. JIT
+
+- -XX:TieredStopAtLevel=1 (C1 only), one JVM, one run each (t1-r1, t1base-r1):
+  VarkaEmitterNarrowArithSuite 153 s against 32 s with C2 (4.8 times slower; the Vector API
+  needs C2's intrinsics), VarkaDifferentialSuite under cse=false 16 s against 13 s. Dropped.
+- -XX:CICompilerCount=2 at 4 JVMs (c4-cic2, 3 runs): 202 s median, against c4 in the same
+  round 1.06, 0.99, 1.05. No gain from fewer compiler threads under concurrency.
+- -XX:+UseCompactObjectHeaders at 2 JVMs (c2-coh, 3 runs): 231 s median, against c2 1.04,
+  0.95, 1.27. No gain; its RSS saving (largest JVM 2.25 against c2's 2.34 GB in rounds 1 to
+  3) is not needed.
+
+== 4. Start-up
+
+On CI (the 154 bins of a fanned-out run from 29 October, /home/max/proj/.varka-tmp/w508,
+ci_overhead.py): 1540 JVMs, 89855 JVM-seconds. The catalyst JVMs (1421) take 11 s at the
+median and 7 s at p10, 2 s the shortest; the SQL JVMs (119) 273 s at the median. A JVM's
+seconds outside its JUnit suite times (start, discovery, exit) are 1.7 s at the median; each
+suite's set-up outside its tests is 0.8 s (catalyst) and 7.3 s (SQL) at the median. 451 of
+the 1540 JVMs (392 catalyst, 59 SQL) ran no test, the reach having skipped every one: they took
+13 s at the median, 7 s at p10 - the fixed cost of a JVM on a runner.
+
+On the laptop the fixed cost of a JVM (u6, no test run) is 5.8 s alone and 7.2 to 7.4 s at 2
+JVMs (rounds 4 and 5). From launch to the first suite's JUnit timestamp takes 1.3 s at the
+median and 2.7 s at p90 over all runs (the timestamp has 1 s resolution, and the JUnit-class
+suites carry none), so most of a JVM's fixed cost falls inside its first suite - the
+SparkSession and the loading of Spark's and Varka's classes - not in the JVM's own start;
+which is why a class archive helps through a run and not only at its start.
+
+Class archives: the build's test classpath holds 11 class directories (the test-classes of
+sql/core, catalyst and nine more), and both CDS (-XX:ArchiveClassesAtExit) and the AOT cache
+(-XX:AOTCacheOutput) refuse to dump with "Error: non-empty directory '...test-classes'". With
+each directory zipped into a jar (cds/jarify.sh, 80 MB of jars), both dump from one training
+JVM (cse=false, VarkaFloatingLaneSuite and VarkaDifferentialSuite with
+VarkaGroupingBoundSuite, 166 tests, 80 s): a 184 MB dynamic CDS archive and a 201 MB AOT
+cache. As READING_LEYDEN.md expected, the AOT cache holds no linked classes and no profiles
+with the incubator module on the module path: "instance classes = 16992, aot-linked = 0",
+"KlassTrainingData = 0", "MethodTrainingData = 0", "Full module graph = disabled". It is a
+class archive like CDS. For u7 the archives serve most classes (-Xlog:class+load):
+jars alone 1451 of 11230 classes from the JDK's archive; CDS 8917 of 10937; AOT 7947 of 11215.
+
+arm      class path        r1   r2   r3   r4   r5   vs c2, same round
+c2       directories       225  226  183  184  179  1
+c2-jar   jars, no archive  223  229  202  -    -    0.99 1.01 1.10
+c2-cds   jars + CDS        220  223  237  171  171  0.98 0.99 1.30 0.93 0.96
+c2-aot   jars + AOT cache  171  171  173  170  172  r4 0.92, r5 0.96 (r1-r3 ran after round 3)
+
+Rounds 4 and 5 (interleaved, the only rounds with all three of c2, CDS and AOT):
+  c2 184 / 179 s, CPU 605 / 589;  c2-cds 171 / 171 s, CPU 559 / 559;
+  c2-aot 170 / 172 s, CPU 551 / 554.
+Per unit in rounds 4 and 5 (2 JVMs), class directories / CDS / AOT: u6 7.4 and 7.2 s /
+5.4 and 5.4 / 5.2 and 5.6; u9 5.6 and 5.8 / 5.2 and 5.0 / 5.2 and 5.2; u7 12.8 and 13.4 /
+11.8 and 11.6 / 11.6 and 11.8.
+
+- Jars alone change nothing (0.99 to 1.10, inside the noise).
+- CDS and the AOT cache are equal to each other and save 4 to 7% of the workload's wall and
+  5 to 8% of its CPU (rounds 4 and 5): about 2 s on a JVM that runs no test (u6), 0.5 to 1.5
+  s on the others. Rounds 1 to 3 show CDS within noise of c2, so the saving is at the
+  edge of what this laptop can resolve; it is consistent in the two interleaved rounds.
+- Scaled to the matrix: about 2 s of fixed cost saved per JVM (a laptop figure; a runner core
+  is slower, so likely more there). At 300 to 400 units, about 10 to 13 runner-minutes over
+  the whole matrix; at the 1540 JVMs of the 29 October run, about 51 minutes of 1498 (3.4%). A
+  bin's wall falls by about 2 s times its JVMs over its two lanes, i.e. 10 to 40 s on a bin
+  of 10 to 40 JVMs; the catalyst-heavy bins (11 s JVMs) gain the most, up to a fifth.
+- Costs on CI, not measured here: the build job must zip the 11 class directories and run a
+  training JVM (about 80 s on the laptop), and each bin must download a 184 to 201 MB archive
+  besides the jars. CDS checks each jar's size and modification time against the archive, so
+  the bins must see the very jars the build archived (an artifact that resets mtimes would
+  make every JVM refuse the archive; with -Xshare:on it fails loudly, which is what to use).
+  The archive is tied to the JDK build, which the runners share. The test-classes jars also
+  hold the copied test resources: these ten units passed on jars, the matrix's other suites
+  were never run on them, and a suite that turns a resource URL into a File would break on a
+  jar: URL - so the CI A/B is also the test of the jarred classpath.
+
+== Recommendation
+
+Try on CI:
+- A CDS archive (or the AOT cache: equal here, and the AOT cache is the JDK's way forward) of
+  the jarred test classpath, made in the build job and used by every bin with -Xshare:on (or
+  -XX:AOTMode=on). Expected: about 2 s a JVM, 3 to 7% of the matrix's JVM time, most in the
+  bins of many short catalyst JVMs; to be confirmed against the archive's download time per
+  bin. Measure it as an A/B on two matrix runs of the same commit.
+
+Drop:
+- 3 or 4 JVMs a runner: at best 1 to 12% on four real cores, nothing on the SMT layout the
+  runners most likely have, for 2 to 24% more CPU. Worth one check only: record lscpu's
+  threads per core in the bins' platform step; if a runner turns out to have four real cores,
+  3 JVMs could be retried.
+- ParallelGC, SerialGC, -Xmx2g: no consistent difference from G1 at -Xmx4g; memory is not
+  the limit (4.32 GB peak for four JVMs).
+- -XX:TieredStopAtLevel=1 (4.8 times slower on a Vector API suite), -XX:CICompilerCount=2,
+  -XX:+UseCompactObjectHeaders: no gain.

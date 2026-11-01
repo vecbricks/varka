@@ -143,6 +143,7 @@ class VarkaStandardDeltasSuite extends QueryTest with VarkaSharedSessions
         val actual = varkaSpark.sql(query)
         val plan = actual.queryExecution.executedPlan
         assertFused(plan)
+        sameCacheReads(onSession(spark)(spark.sql(query).queryExecution.executedPlan), plan, query)
         checkAnswer(actual, expected)
         if (kernels) assertKernelsRan(plan)
       }

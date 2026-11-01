@@ -741,8 +741,8 @@ pinned as the regeneration pins, writing `VarkaSizeLadderBenchmark-jdk25-band.tx
 the band of 24 September, which was the old kernels': eighteen cases, a median spread of 0.55%,
 a 90th percentile of 1.35% and a worst of 2.2%, none over 3%. The 52, 54 and 56 entry rungs
 read 58.2 to 58.5, 60.4 to 60.5 and 62.0 to 62.4 ns per row in the two runs, the
-regeneration's 57.9, 61.4 and 61.2 beside them: the flip's 105 at those rungs was one run's
-outcome, not the kernels'.
+regeneration's 57.9, 61.4 and 61.2 (`VarkaSizeLadderBenchmark-jdk25-results.txt`) beside
+them: the flip's 105 at those rungs was one run's outcome, not the kernels'.
 
 **What the two runs did not see.** At sixteen entries both read 36.2 and 37.0 ns per row where
 the regeneration of the same hour read 27.5, the flip's 28.7 and the file before it 30.2: a

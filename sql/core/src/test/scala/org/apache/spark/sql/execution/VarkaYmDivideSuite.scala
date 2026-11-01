@@ -104,7 +104,7 @@ class VarkaYmDivideSuite extends QueryTest with VarkaMaybeThrows with VarkaTestW
     val actual = varkaSpark.sql(query)
     val plan = actual.queryExecution.executedPlan
     assertFused(plan)
-    checkAnswer(actual, spark.sql(query))
+    checkAnswer(actual, expectedSql(query, actual))
     assertKernelsRan(plan)
     if (!declinesAllowed) {
       val node = collectFirst(plan) { case v if isVarkaNode(v) => v }.get
@@ -143,7 +143,7 @@ class VarkaYmDivideSuite extends QueryTest with VarkaMaybeThrows with VarkaTestW
         "SELECT ym / (i % 7 + 1) AS a FROM varka_ymd_rows")) {
       val actual = varkaSpark.sql(query)
       assertNotFused(actual.queryExecution.executedPlan)
-      checkAnswer(actual, spark.sql(query))
+      checkAnswer(actual, expectedSql(query, actual))
     }
   }
 
@@ -161,8 +161,8 @@ class VarkaYmDivideSuite extends QueryTest with VarkaMaybeThrows with VarkaTestW
   private def checkComposed(query: String, table: String, raises: Boolean,
       fuses: Boolean = true): Unit = {
     val sql = query.replace("TABLE", table)
-    val (onSpark, _) = runOutcome(spark, sql)
     val (onVarka, plan) = runOutcome(varkaSpark, sql)
+    val onSpark = expectedOutcome(sql, plan)
     VarkaMaybeThrows.difference(onSpark, onVarka).foreach(d => fail(s"$sql\n$d"))
     assert(onSpark.isInstanceOf[VarkaMaybeThrows.Raised] === raises, s"$sql: $onSpark")
     if (fuses) {

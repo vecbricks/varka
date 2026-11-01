@@ -270,6 +270,8 @@ public final class VarkaOperatorCensusSuite {
   }
 
   private static List<String> run(List<String> command) throws IOException, InterruptedException {
+    // The child JVM's code runs where the class-use record cannot see it (VarkaTestUse).
+    VarkaTestUse.childJvm();
     var process = new ProcessBuilder(command).redirectErrorStream(true).start();
     var output = new ArrayList<String>();
     // The output is drained on a thread so that the timeout can fire on a fork that hangs.

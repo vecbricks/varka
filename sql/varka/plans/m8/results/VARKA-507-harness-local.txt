@@ -1,0 +1,28 @@
+# The three costs the suites' profiles found outside Varka's work (VARKA-507, the profiles in
+# m8/results/VARKA-509-profile-local.txt), each suite timed at the defaults on the laptop on
+# 28 October 2026, one JVM at a time, through dev/varka_matrix.sh --defaults.
+
+VarkaDifferentialSuite, a sort's memory page (spark.buffer.pageSize):
+  as sbt sizes it                    147 s, 94 tests passed
+  1 MB                                72 s, 94 tests passed
+
+VarkaIrFuzzSuite, the fill label built only on a failure and the code list scanned by the
+class's mentions:
+  before                             195 s, 16 tests passed, 2 cancelled
+  after                              157 s, 16 tests passed, 2 cancelled
+VarkaSmallTreeSuite, the same change:
+  before                              20 s, 6 tests passed
+  after                               20 s, 6 tests passed
+
+Spark's test-mode switches, all three off (spark.sql.analyzer.singlePassResolver.
+dualRunWithLegacy, spark.sql.planChangeValidation, spark.memory.debugFill), each suite with
+the 1 MB page, kept as they are:
+  VarkaCoverageDifferentialSuite     as is 315 s and 327 s, off 322 s and 308 s
+  VarkaDifferentialSuite             as is 75 s, off 76 s
+  VarkaSparkFuzzSuite                as is 102 s, off 88 s
+
+The CI jobs' split weights (sql/varka/ci/suite-times.tsv) refreshed from Build run 40765830095,
+this change's own varka-scoped jobs: 150 suites, 4483 s in all against the 1778 s the file
+held, the largest corrections VarkaEmittedBytesSuite 39 s to 332, VarkaHugeMethodSuite 15 s to
+154 and VarkaOperatorCensusSuite 31 s to 186, which had put twice the suite time on one
+catalyst job as on another.

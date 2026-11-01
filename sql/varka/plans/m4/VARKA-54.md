@@ -190,7 +190,8 @@ committed run under the new one on a cold, idle machine through
 `dev/varka_bench_regen.sh` (the pairs below are from the committed run and its
 128-bit companion, `VarkaEmitterParityBenchmark-jdk25-128bit-results.txt`;
 the two earlier runs agreed with them within 2%). The `per-row LocalDate year`
-control read 481.4 against the committed 481.7.
+control read 481.4 against the committed 481.7
+(`VarkaEmitterParityBenchmark-jdk25-results.txt`).
 
 ### 9.1 The A/B, Julian map against century-then-year, same run
 

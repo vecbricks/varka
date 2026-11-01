@@ -28,8 +28,9 @@ import java.util.Random;
 import org.junit.jupiter.api.Test;
 
 /**
- * {@link VarkaVectorSupport#prepareOutputValidity} and
- * {@link VarkaVectorSupport#everyOutputReadsAnAllNullColumn}, the table form of the driver's
+ * {@link VarkaVectorSupport#prepareOutputValidity},
+ * {@link VarkaVectorSupport#everyOutputReadsAnAllNullColumn} and
+ * {@link VarkaVectorSupport#zeroBitOutputData}, the table form of the driver's
  * per-output work (see {@code VARKA-190.md} 10). Each plan step must write exactly what the
  * entry point the unrolled driver calls for that output writes - so every test here runs a plan
  * through the helper and the same steps through those entry points, one output at a time, and
@@ -138,6 +139,12 @@ public class VarkaVectorSupportOutputPlanTest {
           .prepareOutputValidity(dst, new long[0], new int[0], "q", 8));
       assertThrows(IllegalArgumentException.class, () -> VarkaVectorSupport
           .prepareOutputValidity(dst, new long[0], new int[0], "zz", 8));
+      // The boolean outputs' table likewise: an ordinal past the destinations is refused by
+      // name, not left to the array's index fault.
+      IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
+          () -> VarkaVectorSupport.zeroBitOutputData(dst, "" + (char) 0 + (char) 1, 8));
+      assertEquals("boolean output table names output 1 and the kernel was given 1 destinations",
+          e.getMessage());
     }
   }
 
@@ -153,6 +160,28 @@ public class VarkaVectorSupportOutputPlanTest {
           new long[0], new int[0], "" + VarkaVectorSupport.PLAN_FILL, 8);
       assertEquals((byte) 0xFF, written.get(ValueLayout.JAVA_BYTE, 0));
       assertArrayEquals(before, bytes(spare));
+    }
+  }
+
+  @Test
+  public void bitOutputDataIsZeroedToItsLastWholeWordAndNoFurther() {
+    // The boolean outputs' data bitmaps (VARKA-27): each named output is cleared to its last
+    // whole 64-bit word, the bytes the loops OR into, and the guard word past it and every output
+    // the table does not name are left as they were.
+    for (int rows : ROWS) {
+      try (Arena arena = Arena.ofConfined()) {
+        MemorySegment named = destination(arena, rows);
+        MemorySegment other = destination(arena, rows);
+        byte[] before = bytes(other);
+        VarkaVectorSupport.zeroBitOutputData(new long[] {other.address(), named.address()},
+            "" + (char) 1, rows);
+        long words = ((rows + 63L) / 64) * 8;
+        for (long b = 0; b < named.byteSize(); b++) {
+          assertEquals(b < words ? 0 : (byte) 0xC3, named.get(ValueLayout.JAVA_BYTE, b),
+              "rows " + rows + ", byte " + b);
+        }
+        assertArrayEquals(before, bytes(other));
+      }
     }
   }
 

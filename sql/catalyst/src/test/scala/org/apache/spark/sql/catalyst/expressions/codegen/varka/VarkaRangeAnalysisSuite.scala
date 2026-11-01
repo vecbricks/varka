@@ -401,6 +401,8 @@ class VarkaRangeAnalysisSuite extends SparkFunSuite with VarkaTestWatchdog {
       asked += ((n, kind))
       n match {
         case c: ColumnRef => role(c.ordinal(), if (kind == Kind.DAY) Role.Day else Role.Int)
+        // A long-lane leaf, which no range rule reads.
+        case _: DecimalColumn =>
         case _: LiteralSlot =>
         case x: AddDays => value(x.days(), Kind.DAY); leafRole(x.offset(), Role.Offset)
         case x: SubDays => value(x.days(), Kind.DAY); leafRole(x.offset(), Role.Offset)
@@ -420,6 +422,7 @@ class VarkaRangeAnalysisSuite extends SparkFunSuite with VarkaTestWatchdog {
         case x: Least => value(x.left(), kind); value(x.right(), kind)
         case x: IfElse => cond(x.cond()); value(x.thenNode(), kind); value(x.elseNode(), kind)
         case x: CondValue => cond(x.cond())
+        case x: BoolOutput => cond(x.cond())
         case x: DateDiff => value(x.end(), Kind.DAY); value(x.start(), Kind.DAY)
         case x: Year => value(x.days(), Kind.DAY)
         case x: Month => value(x.days(), Kind.DAY)
@@ -524,6 +527,7 @@ class VarkaRangeAnalysisSuite extends SparkFunSuite with VarkaTestWatchdog {
       case x: IfElse =>
         goCond(x.cond(), armed) && go(x.thenNode(), armed) && go(x.elseNode(), armed)
       case x: CondValue => goCond(x.cond(), armed)
+      case x: BoolOutput => goCond(x.cond(), armed)
       case x: DayOfWeek => go(x.days(), armed)
       case x: DayOfWeekIso => go(x.days(), armed)
       case x: WeekDay => go(x.days(), armed)
@@ -533,7 +537,7 @@ class VarkaRangeAnalysisSuite extends SparkFunSuite with VarkaTestWatchdog {
       case x: BoundedDivide => go(x.child(), armed)
       case x: BitOp => go(x.left(), armed) && go(x.right(), armed)
       case x: BitCount => go(x.child(), armed)
-      case _: ColumnRef | _: LiteralSlot => true
+      case _: ColumnRef | _: DecimalColumn | _: LiteralSlot => true
       case c: Cond => goCond(c, armed)
     }
     def goCond(c: Cond, armed: Boolean): Boolean = c match {

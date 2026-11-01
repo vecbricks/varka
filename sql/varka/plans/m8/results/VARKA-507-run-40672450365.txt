@@ -1,0 +1,13 @@
+# The second fanned-out option matrix run (VARKA-507): run 40672450365, head 2d635541ee9,
+# dispatched 28 October 2026, the first with the two probe audits left out and the bins planned
+# from sql/varka/matrix/suite-seconds.tsv. Job times from the Actions API.
+
+wall: 69 minutes, 10:28:52 to 11:37:29 UTC
+build and plan job: 11.5 minutes
+bins: 178 planned and run; first started 10:40:30, last ended 11:36:52
+bin minutes: median 9.3, longest 15.3, 1614 job-minutes in all
+report job: 0.6 minutes
+failed: one test, VarkaSparkFuzzSuite's "random compositions agree with the row engine (seed
+20261008, 200 of them)" under checkIntOverflow=false, as a stale skip-list line: it passed, 200
+compositions compared and none disagreeing; every other configuration's report line clean
+suite-seconds.tsv of the run: 138 suites, neither VarkaWidthAuditSuite nor VarkaOperatorCensusSuite

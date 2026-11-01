@@ -137,7 +137,9 @@ public final class VarkaCanonicalIr {
       case "guardedRange" -> {
         VarkaVectorIR child = node();
         long lo = number();
-        yield new GuardedRange(child, lo, number());
+        long hi = number();
+        yield new GuardedRange(child, lo, hi,
+            parts.length > 1 ? Overflow.valueOf(parts[1]) : Overflow.FAIL);
       }
       case "widen" -> new WidenLane(node(), lane(parts));
       case "narrow" -> new NarrowLane(node(), lane(parts));
@@ -154,6 +156,7 @@ public final class VarkaCanonicalIr {
         Cond c = cond();
         yield new CondValue(c, c.laneType());
       }
+      case "bool-out" -> new BoolOutput(cond());
       case "greatest" -> new Greatest(node(), node());
       case "least" -> new Least(node(), node());
       case "dayOfWeek" -> new DayOfWeek(node());
@@ -203,9 +206,21 @@ public final class VarkaCanonicalIr {
     return LaneType.valueOf(parts[1]);
   }
 
-  /** {@code col:N} or {@code lit:N}, each with {@code :long} on the long lane. */
+  /**
+   * {@code col:N} or {@code lit:N}, each with {@code :long} on the long lane, or
+   * {@code dec:N:long:pP}, a decimal column, which always names its lane and its precision.
+   */
   private static VarkaVectorIR leaf(String token) {
     String[] parts = token.split(":");
+    if (parts[0].equals("dec")) {
+      if (parts.length != 4 || !parts[3].startsWith("p")) {
+        throw new IllegalArgumentException("not a decimal leaf: '" + token + "'");
+      }
+      // The record refuses a lane other than the long one and a precision outside 1 to 18.
+      return new DecimalColumn(Integer.parseInt(parts[1]),
+          LaneType.valueOf(parts[2].toUpperCase(Locale.ROOT)),
+          Integer.parseInt(parts[3].substring(1)));
+    }
     if (parts.length < 2 || parts.length > 3) {
       throw new IllegalArgumentException("not a leaf: '" + token + "'");
     }

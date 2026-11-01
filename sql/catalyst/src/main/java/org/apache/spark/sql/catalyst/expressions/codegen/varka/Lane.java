@@ -81,7 +81,9 @@ enum Lane {
   /**
    * 32-bit floating lanes: a {@code FLOAT} column (VARKA-341). The emitter serves the nodes that
    * move a value's bits here - the loads and stores, the literals, the null tests and the
-   * choices - and no comparison or arithmetic, which have no integral meaning at this lane.
+   * choices - and the comparisons and picks in Spark's order, built from the lane's IEEE compares
+   * and its NaN test. The integer-only operations (shifts, bitwise, the bit count) have no
+   * meaning at this lane, and arithmetic is a row of its own.
    */
   FLOAT(VarkaVectorIR.LaneType.FLOAT, "jdk.incubator.vector.FloatVector", Float.SIZE,
       ConstantDescs.CD_float),

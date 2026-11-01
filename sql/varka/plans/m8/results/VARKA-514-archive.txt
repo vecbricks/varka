@@ -1,0 +1,24 @@
+# What each option-matrix bin downloads (VARKA-514), 29 October 2026: the archive
+# varka-option-matrix-build of matrix run 40874221284 (on 178b66a2105), the test classpath the
+# bins run on, 1440051200 bytes, by kind; in that run the bins spent 141.2 job-minutes in "Download
+# the classpath", median 0.77 minutes, of 997 job-minutes.
+
+     1094.6 MB     331 files  dependency jars
+      250.3 MB   22269 files  test classes
+       54.8 MB      18 files  jars built
+        0.5 MB       3 files  other
+
+The largest jars:
+    686.1 MB  software/amazon/awssdk/bundle/2.35.4/bundle-2.35.4.jar
+     84.0 MB  org/rocksdb/rocksdbjni/10.10.1.1/rocksdbjni-10.10.1.1.jar
+     39.5 MB  com/databricks/databricks-jdbc/3.3.1/databricks-jdbc-3.3.1.jar
+     30.1 MB  org/apache/hadoop/hadoop-client-runtime/3.5.0/hadoop-client-runtime-3.5.0.jar
+     21.5 MB  sql/catalyst/target/scala-2.13/spark-catalyst_2.13-5.0.0-SNAPSHOT.jar
+     19.8 MB  org/apache/hadoop/hadoop-client-api/3.5.0/hadoop-client-api-3.5.0.jar
+     16.8 MB  sql/core/target/scala-2.13/spark-sql_2.13-5.0.0-SNAPSHOT.jar
+     15.2 MB  com/ibm/icu/icu4j/78.3/icu4j-78.3.jar
+
+The jars no Varka suite loads - no Varka test or source names their packages - which the
+archive leaves out: the AWS SDK, Selenium, RocksDB and the JDBC drivers of Databricks,
+Oracle, Snowflake, Db2, SQL Server, MariaDB and PostgreSQL:
+  848.9 MB in 27 jars, of the archive's 1440.1 MB

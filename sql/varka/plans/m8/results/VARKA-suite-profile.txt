@@ -1,0 +1,236 @@
+# Where the option matrix's eleven costliest suites spend their time: JFR and HotSpot counter
+# profiles, LAPTOP NUMBERS (24 cores, JDK 25.0.4.1), 29 October 2026, on branch
+# varka-suite-profile off master 7e66c14cfb3. Each run is one runner JVM as the matrix's bins start
+# it: dev/varka_matrix.sh --runs-only --skip-build --module <m> --suites <S>, with
+# -Dvarka.series.size=4 as varka-option-matrix.yml passes, either --defaults or --config cse=false
+# (a configuration the reach filter lets through less than most; locally there is no Build
+# record, reach.tsv, so a SQL suite runs every test under it - an upper bound for those). The
+# laptop was shared with other agents: each run held one of the two heavy locks, and the
+# 1-minute load average at its start and end is in the run log below.
+#
+# Instruments, all in the JDK:
+#   -XX:StartFlightRecording=settings=profile,jdk.CPUTimeSample#enabled=true,
+#     jdk.CPUTimeSample#throttle=10ms,jdk.Compilation#threshold=0ms, stackdepth=512
+#   -XX:+PerfDataSaveToFile: HotSpot's sun.cls.* counters (define, verify, link, init time), the
+#     JIT's java.ci.totalTime and the GC's thread CPU, read from the saved file at exit.
+# A Java-thread sample is put in the bucket of the leaf-most frame a rule matches (kernel class,
+# ClassLoader.defineClass/reflection, java.lang.classfile and the emitter, test checks and the
+# reference evaluators, data generators, the Varka compiler and IR, janino, Spark's analyzer and
+# optimizer, other Spark). The CPU-time sampler drops samples it cannot walk; on these suites the
+# drops are the test thread's time inside the VM - class definition, verification, linking,
+# safepoints - and they are reported as "lost", with the class counters beside them saying how
+# much of it was class work. JIT and GC are CPU on their own threads, which on the laptop's 24
+# cores mostly run beside the test thread; on a matrix bin (2 JVMs on a 4-core runner) they take
+# the test thread's cores, so their CPU is listed with the rest rather than folded away.
+
+## 1. Per suite (laptop seconds; "suite" is the JUnit XML's suite time)
+
+suite (matrix median s)           run  suite  java  lost  JIT    GC   classes   cls.time
+VarkaSmallTreeSuite (113.7)       def  156.6  23.9  70.0  45.6  139.1  360706    39.1
+                                  cse   60.0  46.9  11.6  55.2   16.6   46346     6.6
+VarkaSparkFuzzSuite (188.6)       def  165.6 136.1  40.4 191.9   59.3   19851    11.3
+VarkaCoverageCompositionFuzzSuite def   57.4  28.0  28.1  89.5   10.5   11790     2.8
+  (157.1)                         cse   30.3  25.7   4.2  65.0    6.1   11648     2.8
+VarkaDifferentialSuite (85.8)     def   48.1  48.2  17.1  71.6   35.9   16292     5.2  session bound
+VarkaFloatingLaneSuite (84.0)     def   50.5  46.3  16.4  60.6   33.9   12300     3.7  session bound
+VarkaGroupingBoundSuite (83.0)    def   62.0  58.7   3.1  61.7    5.9    6064     1.9
+                                  cse   43.5  41.1   2.4  46.8    3.9    6067     1.8
+VarkaGoldenCorpusSuite (68.9)     def   66.5  59.4  19.3  76.3   26.3   13964     6.0  session bound
+VarkaEmitterNarrowArithSuite      def   33.8  28.0   5.5  23.4    3.2    5185     1.8  check bound
+  (67.5)                          cse   34.3  28.4   5.7  22.9    2.6    5185     1.9
+VarkaCodegenGiveUpSuite (66.5)    def   37.8  30.5   8.5 116.5   24.1   13332     6.2
+VarkaSeveralKernelsSuite (61.0)   def   85.2  96.4  10.0 185.1   58.0   11362     5.2
+VarkaVariantSuite (60.3)          def   34.9  13.4  16.7  49.2   22.1   78785    11.7
+                                  cse   26.8  10.2  12.5  35.0   19.3   78797     8.6
+
+  java = sampled Java-thread CPU s; lost = CPU-time samples the sampler dropped (VM time), s;
+  JIT = java.ci.totalTime, s of compile-thread time; GC = GC threads' CPU s; classes = classes
+  defined from bytes (sun.cls.defineAppClasses); cls.time = sun.cls.time, s of class loading,
+  verification, linking and initialization on the loading threads.
+  The SmallTree defaults run waited for its lock before it started; its 156.6 s is the suite's.
+
+## 2. What each suite is bound by
+
+Definition and GC bound - VarkaSmallTreeSuite at the defaults, VarkaVariantSuite.
+  VarkaKernelChecks.runOne made a VarkaGeneratedClassLoader and defined the kernel's class for
+  every run: once per body (the batch's own and the other one, otherBody) of every batch. A tree
+  of size 3 or less meets four batches, so its one kernel was defined eight times; a size-4 tree,
+  one batch, twice; a variant, twice. The census below counts it. At the defaults SmallTree
+  defined 360706 classes; class loading took 39.1 s of the test thread (define 19.2, verify 13.3,
+  link 17.9, nested), and the 325134 loaders it dropped cost the GC 139.1 s of CPU and 22.4 s of
+  pauses (146 young collections, 60 remark and cleanup pauses unloading classes). 70.0 s of the
+  test thread's CPU was in the VM where the sampler cannot walk; the Java samples it kept are
+  emission (12.7 s) and IR (4.0 s), with kernel execution 3.9 s and the checks 1.4 s.
+  VarkaVariantSuite at the defaults: 78785 classes, cls.time 11.7 s of a 34.9 s suite, GC 22.1 s
+  of CPU.
+  The JIT does not warm kernels: no kernel class reached the JIT in SmallTree or Variant (each
+  class runs a few times and is dropped). Their JIT time is the emitter's and the checks' own
+  warm-up, the same in every JVM: in SmallTree Slots.plan alone compiled 14 times at tier 4,
+  10.2 s, each recompile after an ordinary unstable_if or profile_predicate deoptimization.
+
+Emission bound - VarkaSmallTreeSuite under a configuration.
+  The reach filter (VarkaReach.ranAtDefaults) emits every tree under the configuration and again
+  under the defaults and runs it only where the bytes differ: under cse=false 141869 trees emitted
+  the same bytes and 7902 moved. Bytecode emission was 37.1 s and the IR 7.0 s of 46.9 s sampled:
+  half of it is emitting the defaults' bytes, which every configuration's JVM emits again.
+
+Varka planning bound - VarkaGroupingBoundSuite (no kernel runs at all).
+  VarkaGroupingBound.runs is 32.9 s of 58.7 s sampled, and VarkaKernelPlan.of 29.8 s inside it:
+  VarkaLoopEmitter.runsForTest(outputs, from, options) plans the whole projection
+  (planOf(outputs, options)) and re-adds every output before `from` for each start index, so a
+  shape of n outputs is planned n times per call, and the suite calls runs three times a shape
+  (account with the prediction, then test 2 with and without it). Recursive record hashCode on
+  IR trees (ColumnRef, IntArith) is 3.3 s more under the same calls.
+
+Check bound - VarkaEmitterNarrowArithSuite.
+  The 2^24-row slices: the row-by-row checks are 13.1 s of 28.0 s sampled (StoredNarrowLane
+  narrow, got, putAt), VarkaVectorIR.laneType and its type switch 6.1 s, called per row and root
+  from the narrow lane, and Spark's overflow messages (ErrorClassesJsonReader) 2.2 s for the ANSI
+  oracle. Few classes (5185); JIT 23.4 s.
+
+Session bound - VarkaSparkFuzzSuite, VarkaDifferentialSuite, VarkaFloatingLaneSuite,
+VarkaGoldenCorpusSuite.
+  SparkFuzz: Spark's analyzer and optimizer are on the stack in 49.6 s and janino in 20.2 s of
+  136.1 s sampled; its compositions test is 76.9 s of the suite. Differential: one test, a hundred
+  queries through two sessions, is 23.0 s of 48.1. FloatingLane: 137 session tests near 0.35 s
+  each. GoldenCorpus: Spark execution 40.7 s of 59.4 sampled, three .sql files 57.2 s of 66.5.
+  This is rows 509, 510, 517 step 2, 527 and 528's direction and is not repeated here.
+
+JIT bound - VarkaSeveralKernelsSuite, VarkaCodegenGiveUpSuite, VarkaCoverageCompositionFuzzSuite.
+  SeveralKernels: 185.1 s of JIT for an 85.2 s suite, its largest single item janino's generated
+  processNext for the 800-entry projections at tier 4, 15.1 s; CodegenGiveUp 116.5 s of JIT for
+  37.8 s; the composition fuzzer 89.5 s at the defaults, where its C2-history test is 32.6 s of
+  57.4 (row 517 runs that test only under the four configurations that change C2's input). On a
+  24-core laptop the compile threads run beside the test thread; on a bin's 4-core runner shared
+  by two JVMs they do not, which is why these suites cost more there than here.
+
+## 3. Kernels defined, and how many repeat bytes the JVM already defined
+
+A java.lang.instrument agent (scratch, not committed) hashed each class defined under
+org.apache.spark.sql.varka.execution with its own name replaced in the constant pool, so classes
+that differ only in their counter-made names hash alike. One run each at the defaults, series size
+3 (the pull request's), before the change below:
+
+suite                  defined   distinct bytes   same name, same bytes   other name, same bytes
+VarkaSmallTreeSuite      74288             8266                   65002                     1020
+VarkaVariantSuite        75371            29619                   37684                     8068
+
+So 87.5% of SmallTree's and 50.0% of Variant's definitions are the same class defined again under
+the same name - the per-run definition of section 2 - and only 1.4% and 10.7% are identical
+bytes under a new name, which a cache keyed on the name's bytes cannot share and which is too
+little to need a name-free cache. (The agent took the outermost suite frame, so it attributes all
+of a suite's definitions to its run method rather than per test.)
+
+## 4. The prototype: a checked kernel runs on its loaded class
+
+VarkaKernelChecks.runOne keeps, per thread, the kernel it loaded last under its own loader and
+runs a later call with the same name and equal bytes on it; other bytes release that loader and
+define theirs (matched on the bytes, because a planted fault rewrites a kernel and keeps its
+name; a class that fails to load is not kept). An emitted kernel holds no state between calls -
+its only fields are the static final range tables its initialiser fills. Switchable for the
+measurement: -Dvarka.checks.reuseLoaded=false is "before". By the census in section 3 this
+leaves SmallTree at size 3 about 9286 definitions of its 74288 (one per kernel, 74288 - 65002),
+and at size 4 one per tree, about 150000 of 360706 - arithmetic from the counts, not measured
+again; VarkaKernelReuseSuite's counter test measures it for one kernel (four batches, two bodies,
+one definition; a copy of the bytes, none; other bytes under the same name, one more).
+
+Alternating before and after runs, three each, laptop seconds of the suite (JUnit XML), size 4,
+with the 1-minute load average at each run's start and end. Two streams ran at once, one per
+heavy lock: SmallTree at the defaults on one, the other two on the other.
+
+suite and run                   before (3 runs)          after (3 runs)          medians
+VarkaSmallTreeSuite defaults    153.1  193.1  162.7      110.7  105.4   97.2     162.7 -> 105.4
+VarkaVariantSuite defaults       34.6   25.1   33.6       19.3   18.8   25.3      33.6 ->  19.3
+VarkaSmallTreeSuite cse=false    43.6   41.5   60.1       40.9   36.0   44.9      43.6 ->  40.9
+
+  load at start/end, before: SmallTree 9.87/8.42 12.55/10.28 8.64/6.67, Variant 6.43/6.20
+  8.14/6.64 7.23/7.35, cse=false 7.23/5.99 8.03/5.76 8.16/8.86; after: SmallTree 7.33/7.39
+  6.27/8.64 9.30/7.70, Variant 8.89/8.42 10.21/8.39 8.62/8.38, cse=false 11.81/10.89 8.29/6.45
+  9.22/7.64. Spread: SmallTree before 153.1-193.1, after 97.2-110.7; Variant before 25.1-34.6,
+  after 18.8-25.3; cse=false before 41.5-60.1, after 36.0-44.9.
+
+So 57.3 s (35%) off SmallTree at the defaults, 14.3 s (43%) off Variant, and under cse=false,
+where the reach filter leaves 7902 trees to run, 2.7 s, inside the runs' spread.
+
+No answer and no check changed. Every one of the 18 runs passed, and within each suite and
+configuration every run, before and after, logged the same counts: SmallTree's trees checked,
+past the cap, taken as the defaults run's and failed per series (113721, 32891 and 3159 at the
+defaults), the gates' census (1070 left out: 251 guarded, 819 outside the contract), the reach
+test's triples and each test's outcome; Variant's compared and declined per variant kind
+(identical text in all six runs). VarkaKernelReuseSuite holds the outcomes equal tree by tree,
+failure messages included, with and without the reuse: the series under the matrix's options,
+under a planted wrong answer (VarkaKernelChecks.plantWrongAnswer, failing the comparison after
+the kernel ran) and under misdescribeAdd (failing the class as it loads).
+The suite as committed (trees to size 2; the misdescribed call over the size-3 trees rooted at
+AddDays) takes 2.3 s on the laptop, a cost every configuration pays once; an earlier form over
+every tree to size 3 took 20.3 s and passed the same way.
+
+## 5. Fixes, ranked by the suite-seconds they would save
+
+Estimates scale the laptop share a fix removes to the matrix: "per run" is against the median
+seconds a configuration (run 40658422887, suite-seconds.tsv on varka-508-weights), "hours" against
+the suite's configuration hours in run 40855387471 (m8/results/VARKA-517-reach-gaps.txt). A bin's
+runner has fewer cores than the laptop, so a fix that removes GC and JIT work beside the test
+thread saves at least its laptop share there.
+
+1. Run a checked kernel on its loaded class (VarkaKernelChecks.runOne). Prototyped; section 4.
+   Measured: 57.3 s of a 162.7 s SmallTree defaults run (35%), 14.3 s of 33.6 s for Variant (43%),
+   and nothing outside the spread for SmallTree under cse=false. In the matrix: Variant runs every
+   test under every configuration, so some 26 of its 60.3 s a configuration and 0.35 of its 0.81
+   hours; SmallTree's defaults unit, the series without the reach filter, a third of it once a
+   matrix run; under configurations SmallTree is emission bound (fix 3) and gains little.
+   VarkaIrFuzzSuite defines each draw's kernel twice the same way (9539 definitions of 4886 names
+   in the class-load log) and should gain like Variant; not measured. A class per run made the
+   GC unload hundreds of thousands of loaders on other threads, which a bin's two cores a JVM
+   cannot hide, so the matrix should gain at least the laptop share.
+2. Plan a projection once per runsForTest call, not once per start index, and share the runs
+   between VarkaGroupingBoundSuite's first two tests. VarkaKernelPlan.of is 29.8 s of 58.7 s
+   sampled at the defaults; planned three times a shape instead of three times per output, it
+   all but goes: about half of the suite, some 40 of its 83.0 s a configuration and 0.5 of its
+   1.07 hours. Small: a test-only entry point in VarkaLoopEmitter that takes the plan, held equal
+   to the per-index one over the suite's shapes. Not built (the brief's top fix only).
+3. Give the reach filter the defaults' bytes instead of emitting them again in every
+   configuration's JVM (VarkaSmallTreeSuite, and VarkaIrFuzzSuite's draws the same way). Under
+   cse=false half of the 44.1 s of emission and IR sampled is the defaults' copy, 22 s of a 60.0 s
+   suite: some 42 of its 113.7 s a configuration and 0.7 of its 1.93 hours. Not small:
+   the defaults' hashes per tree must reach every bin from one place (a record the Build writes,
+   like reach.tsv), and a stale record would skip a tree the configuration moved.
+4. Read each root's lane once per check, not once per row (VarkaKernelChecks' narrow lane):
+   laneType and its type switch are 6.1 s of VarkaEmitterNarrowArithSuite's 28.0 s sampled, about
+   a fifth of the suite: some 13 of its 67.5 s and 0.18 of its 0.88 hours. Small.
+5. Session-bound suites (VarkaSparkFuzzSuite, VarkaDifferentialSuite, VarkaFloatingLaneSuite,
+   VarkaGoldenCorpusSuite): the analyzer, optimizer, janino and execution of a local session per
+   query. Rows 509, 510, 517 step 2, 527 and 528 own moving these answers below the session.
+6. JIT warm-up per JVM (VarkaSeveralKernelsSuite, VarkaCodegenGiveUpSuite, the composition
+   fuzzer, and every suite's emitter: Slots.plan's ten-odd tier-4 compiles): fewer, longer JVMs
+   or a JDK AOT cache of the emitter's profiles. Measured here, not estimated; outside this
+   brief, and another agent's JVM experiments cover the cache.
+
+What the profile rules out: the JIT warming each new kernel (no kernel class of SmallTree or
+Variant reached the JIT), test data generation (under 1% of every suite's samples) and a
+name-free kernel cache across names (1.4% and 10.7% of definitions, section 3).
+
+## 6. The profiling runs
+
+tag (suite, def = defaults, cse = cse=false), exit status, wall clock including the wait for the
+lock, 1-, 5- and 15-minute load average at the start and the end:
+  st-def2 rc=0 wall=45s load_start=7.51 6.09 5.37 load_end=11.97 7.52 5.89
+  sf-def rc=0 wall=168s load_start=7.51 6.09 5.37 load_end=14.53 9.48 6.78
+  va-def rc=0 wall=37s load_start=8.30 8.65 6.68 load_end=7.36 8.42 6.68
+  st-cse rc=0 wall=135s load_start=8.30 8.65 6.68 load_end=5.19 7.15 6.39
+  st4-cse rc=0 wall=63s load_start=9.84 7.97 6.68 load_end=8.87 8.20 6.86
+  va-cse rc=0 wall=28s load_start=4.25 6.59 6.46 load_end=3.53 6.19 6.34
+  cc-def rc=0 wall=59s load_start=2.85 5.21 5.97 load_end=4.04 5.18 5.91
+  cc-cse rc=0 wall=32s load_start=4.04 5.18 5.91 load_end=4.00 5.06 5.85
+  gb-def rc=0 wall=64s load_start=4.36 5.09 5.84 load_end=3.88 4.85 5.71
+  gb-cse rc=0 wall=45s load_start=3.88 4.85 5.71 load_end=3.43 4.59 5.58
+  na-def rc=0 wall=35s load_start=3.01 4.40 5.49 load_end=3.17 4.30 5.42
+  na-cse rc=0 wall=35s load_start=3.17 4.30 5.42 load_end=3.44 4.25 5.36
+  st4-def rc=0 wall=902s load_start=9.84 7.97 6.68 load_end=4.37 4.50 5.22
+  df-def rc=0 wall=115s load_start=4.92 4.47 5.29 load_end=5.93 4.87 5.33
+  fl-def rc=0 wall=141s load_start=2.30 3.27 4.44 load_end=3.20 3.33 4.30
+  gc-def rc=0 wall=271s load_start=7.60 6.08 5.25 load_end=8.68 8.32 6.49
+  cg-def rc=0 wall=40s load_start=10.12 8.72 6.68 load_end=10.82 9.05 6.87
+  sk-def rc=0 wall=87s load_start=10.53 9.10 6.93 load_end=12.93 10.31 7.57
+  (st-def2 and st-cse are SmallTree at size 3, the latter with the defaults' JVM beside it and
+  one recording file for both; the table uses st4-def and st4-cse, at size 4.)

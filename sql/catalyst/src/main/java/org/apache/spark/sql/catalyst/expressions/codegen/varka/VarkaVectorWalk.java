@@ -34,6 +34,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Bit
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BoolColumn;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BoolCompare;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BoolNullSafeEq;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BoolOutput;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BoundedDivide;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ColumnRef;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Compare;
@@ -48,6 +49,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Day
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.DayOfWeek;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.DayOfWeekIso;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.DayOfYear;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.DecimalColumn;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Greatest;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.GuardedDay;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.GuardedRange;
@@ -199,6 +201,7 @@ final class VarkaVectorWalk {
               lane.fromMemorySegmentDense);
         }
       }
+      case DecimalColumn c -> emitDecimalLoad(cb, c, dense, analysis, s);
       case LiteralSlot l -> {
         line(cb, analysis, node);
         int[] broadcast = s.broadcastSlots(lane);
@@ -305,12 +308,27 @@ final class VarkaVectorWalk {
       }
       case GuardedRange n -> {
         // The day guard's twin at whichever lane the child is on, with the bounds the node
-        // carries. The value passes through; the word is the child's, except over a column's
-        // stored values, which a null row's lane is checked by too (Analysis.guardsStoredValues).
+        // carries. The value passes through. A FAIL guard's word is the child's, and over a
+        // column's stored values a null row's lane is checked too (Analysis.guardsStoredValues);
+        // a NULL guard's word is a copy of the child's, narrowed by the check.
         emitValue(cb, n.child(), dense, analysis, s, computed);
         line(cb, analysis, node);
         Integer guardTmp = s.guardTmp.get(node);
-        if (analysis.accumulatesRange(node, !s.epilogue)) {
+        if (n.mode() == Overflow.NULL) {
+          // The nulling guard: its own word is the child's, copied, with the lanes outside the
+          // bounds cleared by emitOverflowMask's NULL arm, which narrows the node's word in place.
+          if (guardTmp == null) {
+            // Refused by name: without its scratch the check would be dropped silently.
+            throw VarkaErrors.illegalState("a nulling range guard with no scratch planned: "
+                + node);
+          }
+          if (!dense && s.ownWord.contains(node)) {
+            loadWord(cb, s, s.wordRef.get(n.child()));
+            storeWord(cb, s, s.wordRef.get(node));
+          }
+          emitRangeMask(cb, node, guardTmp, analysis, n.lo(), n.hi());
+          emitOverflowMask(cb, Overflow.NULL, node, dense, analysis, s);
+        } else if (analysis.accumulatesRange(node, !s.epilogue)) {
           Integer acc = s.rangeAcc.get(new Slots.Bounds(n.lo(), n.hi()));
           if (acc == null) {
             // Refused by name: without its accumulators the guard would be dropped silently.
@@ -461,6 +479,9 @@ final class VarkaVectorWalk {
           storeWord(cb, s, s.wordRef.get(node));
         }
       }
+      // A root only, written by VarkaBodyEmitter.emitBoolOutput; Analysis refuses it below one.
+      case BoolOutput b -> throw VarkaErrors.illegalState(
+          "boolean output in a value position survived validation: " + b);
       case Cond c -> throw VarkaErrors.illegalState(
           "condition node in a value position survived validation: " + c);
     }
@@ -511,6 +532,112 @@ final class VarkaVectorWalk {
     cb.iload(s.lanes);
     cb.invokeinterface(VECTOR_SPECIES, "indexInRange", INDEX_IN_RANGE);
     cb.invokestatic(Lane.INT.vector, "fromMemorySegment", Lane.INT.fromMemorySegmentMasked);
+  }
+
+  /** The bytes of one Arrow decimal slot: the low word, then the high word. */
+  static final long DECIMAL_SLOT_BYTES = 16L;
+
+  /**
+   * A {@link DecimalColumn}: the group's low words, left on the operand stack, with its slots
+   * checked.
+   *
+   * <p>A lane group of {@code n} rows is {@code 2n} longs of slots, laid out
+   * {@code (lo0, hi0, lo1, hi1, ...)}, so it is two vectors: {@code a} at the group's first slot
+   * and {@code b} one vector further on, each holding half the rows. The two-vector
+   * {@code rearrange} under the prologue's even-lane shuffle takes lanes {@code 0, 2, 4, ...} of
+   * {@code a} and then of {@code b} - the low words, in row order - and the odd-lane shuffle the
+   * high words the same way ({@code Slots#decimalShuffle}). In the epilogue both loads are masked
+   * to the {@code 2 * lanes} longs of the remaining rows, so neither reads past the batch.
+   *
+   * <p>The check condemns a lane whose high word is not {@code lo >> 63} or whose low word is
+   * outside {@code [-(10^p - 1), 10^p - 1]}: the odd shuffle, a shift, an add and two compares,
+   * the second unsigned, ORed into one mask, which {@link #emitGuardCollect} qualifies by the
+   * column's validity word in a masked body, so a null slot never declines, and folds into the
+   * body's accumulator, tested once the body is done.
+   */
+  private static void emitDecimalLoad(CodeBuilder cb, DecimalColumn c, boolean dense,
+      Analysis analysis, Slots s) {
+    Lane lane = Lane.LONG;
+    int[] halves = s.decimalTmp.get(c);
+    Integer low = s.guardTmp.get(c);
+    if (analysis.laneOf(c) != lane || analysis.lane != lane) {
+      throw VarkaErrors.illegalState("a decimal column read in a " + analysis.lane
+          + " emission: " + VarkaVectorIR.canonical(c));
+    }
+    if (halves == null || low == null || s.decimalShuffle == null) {
+      // Refused by name: without its locals the check would be dropped silently.
+      throw VarkaErrors.illegalState("a decimal column with no locals planned: "
+          + VarkaVectorIR.canonical(c));
+    }
+    line(cb, analysis, c);
+    for (int half = 0; half < 2; half++) {
+      cb.aload(s.species);
+      cb.aload(s.srcSeg(c.ordinal()));
+      cb.iload(s.iVar);
+      cb.i2l();
+      cb.loadConstant(DECIMAL_SLOT_BYTES);
+      cb.lmul();
+      if (half == 1) {
+        cb.aload(s.species);
+        cb.invokeinterface(VECTOR_SPECIES, "vectorByteSize", SPECIES_LENGTH);
+        cb.i2l();
+        cb.ladd();
+      }
+      cb.getstatic(BYTE_ORDER, "LITTLE_ENDIAN", BYTE_ORDER);
+      if (s.epilogue) {
+        // The longs of the remaining rows' slots that this vector covers: from 0 in `a`, from
+        // the vector's length in `b`, up to 2 * lanes.
+        cb.aload(s.species);
+        if (half == 0) {
+          cb.loadConstant(0);
+        } else {
+          cb.aload(s.species);
+          cb.invokeinterface(VECTOR_SPECIES, "length", SPECIES_LENGTH);
+        }
+        cb.iload(s.lanes);
+        cb.iconst_1();
+        cb.ishl();
+        cb.invokeinterface(VECTOR_SPECIES, "indexInRange", INDEX_IN_RANGE);
+        cb.invokestatic(lane.vector, "fromMemorySegment", lane.fromMemorySegmentMasked);
+      } else {
+        cb.invokestatic(lane.vector, "fromMemorySegment", lane.fromMemorySegmentDense);
+      }
+      cb.astore(halves[half]);
+    }
+    // lo = a.rearrange(EVEN, b), parked for the check and left on the stack for the parent.
+    emitRearrange(cb, halves, s.decimalShuffle[0]);
+    cb.dup();
+    cb.astore(low);
+    // hi.compare(NE, lo >> 63)
+    emitRearrange(cb, halves, s.decimalShuffle[1]);
+    cb.getstatic(VECTOR_OPERATORS, "NE", VO_COMPARISON);
+    cb.aload(low);
+    cb.getstatic(VECTOR_OPERATORS, "ASHR", VO_BINARY);
+    cb.loadConstant((long) (Long.SIZE - 1));
+    cb.invokevirtual(lane.vector, "lanewise", lane.integral().lanewiseBinaryI());
+    cb.invokevirtual(lane.vector, "compare", lane.compareVV);
+    // | (lo + B) UGT 2B, with B = 10^p - 1: lo outside [-B, B] in one unsigned compare. A lo
+    // inside moves to [0, 2B]; one above B lands past 2B, wrapping or not, and one below -B
+    // wraps to at least 2^63 + B, past 2B too. It holds for any bound that is a non-negative
+    // long (decimal_slot.smt2), and 2B fits one at precision 18 or less.
+    long bound = c.bound();
+    cb.aload(low);
+    cb.getstatic(VECTOR_OPERATORS, "ADD", VO_ASSOCIATIVE);
+    cb.loadConstant(bound);
+    cb.invokevirtual(lane.vector, "lanewise", lane.integral().lanewiseBinaryI());
+    cb.getstatic(VECTOR_OPERATORS, "UGT", VO_COMPARISON);
+    cb.loadConstant(2 * bound);
+    cb.invokevirtual(lane.vector, "compare", lane.compareVI);
+    cb.invokevirtual(VECTOR_MASK, "or", MASK_BINARY);
+    emitGuardCollect(cb, c, dense ? null : s.wordRef.get(c), dense, analysis, s);
+  }
+
+  /** {@code a.rearrange(shuffle, b)} over the two parked halves of a decimal lane group. */
+  private static void emitRearrange(CodeBuilder cb, int[] halves, int shuffle) {
+    cb.aload(halves[0]);
+    cb.aload(shuffle);
+    cb.aload(halves[1]);
+    cb.invokevirtual(LONG_VECTOR, "rearrange", REARRANGE_TWO);
   }
 
   /**
@@ -918,9 +1045,10 @@ final class VarkaVectorWalk {
     // int MUL is declined by the compiler and, failing that, throws inside emitIntArith itself
     // before this method would ever see it. A checked narrow MUL is the exception: it is
     // driven at the int lane on either arm and arrives here through emitNarrowOverflowMask
-    // (VARKA-330), so op == MUL cannot be asserted at this site. A future refactor that unifies
-    // the overflow dispatch across IntArith and IntNeg has to keep all of these in view, not
-    // assume the shape of one implies the others.
+    // (VARKA-330), so op == MUL cannot be asserted at this site; nor can the node's type, since
+    // a NULL GuardedRange hands this arm the mask of its two range compares. A future refactor
+    // that unifies the overflow dispatch across IntArith, IntNeg and GuardedRange has to keep
+    // all of these in view, not assume the shape of one implies the others.
     //
     // "Refused" is a claim about this class, not about a running query: `VarkaKernelEvaluator`
     // catches an IllegalArgumentException out of `emit` as an emission failure and drops the
@@ -1020,6 +1148,18 @@ final class VarkaVectorWalk {
    */
   static void emitRangeGuard(CodeBuilder cb, VarkaVectorIR node, Integer word,
       int guardTmp, boolean dense, Analysis analysis, Slots s, long lo, long hi) {
+    emitRangeMask(cb, node, guardTmp, analysis, lo, hi);
+    emitGuardCollect(cb, node, word, dense, analysis, s);
+  }
+
+  /**
+   * {@code [v] -> [v, mask]}: the lanes of the value on the stack outside {@code [lo, hi]}, two
+   * compares and an OR over the value parked in {@code guardTmp}, the value left beneath the mask
+   * for the caller. {@link #emitRangeGuard} folds the mask into the batch's accumulator, and a
+   * {@code NULL} range guard clears those lanes from its own word instead.
+   */
+  private static void emitRangeMask(CodeBuilder cb, VarkaVectorIR node, int guardTmp,
+      Analysis analysis, long lo, long hi) {
     Lane lane = analysis.laneOf(node);
     cb.dup();
     cb.astore(guardTmp);
@@ -1032,7 +1172,6 @@ final class VarkaVectorWalk {
     lane.pushScalar(cb, hi);
     cb.invokevirtual(lane.vector, "compare", lane.compareVI);
     cb.invokevirtual(VECTOR_MASK, "or", MASK_BINARY);
-    emitGuardCollect(cb, node, word, dense, analysis, s);
   }
 
   /**
@@ -1232,14 +1371,14 @@ final class VarkaVectorWalk {
       VarkaVectorIR right, String op, boolean dense, Analysis analysis, Slots s,
       Set<VarkaVectorIR> computed) {
     Lane lane = analysis.laneOf(node);
+    int[] tmp = s.pairTmp.get(node);
     if (dense) {
       emitValue(cb, left, dense, analysis, s, computed);
       emitValue(cb, right, dense, analysis, s, computed);
       line(cb, analysis, node);
-      cb.invokevirtual(lane.vector, op, lane.lanewiseVV);
+      emitPickOp(cb, lane, op, tmp);
       return;
     }
-    int[] tmp = s.pairTmp.get(node);
     emitValue(cb, left, dense, analysis, s, computed);
     cb.astore(tmp[0]);
     emitValue(cb, right, dense, analysis, s, computed);
@@ -1261,7 +1400,7 @@ final class VarkaVectorWalk {
     cb.lxor();
     emitMaskOfWord(cb, analysis);
     cb.invokevirtual(lane.vector, "blend", lane.blend);
-    cb.invokevirtual(lane.vector, op, lane.lanewiseVV);
+    emitPickOp(cb, lane, op, tmp);
     if (s.ownWord.contains(node)) {
       loadWord(cb, s, s.wordRef.get(left));
       loadWord(cb, s, s.wordRef.get(right));
@@ -1366,12 +1505,123 @@ final class VarkaVectorWalk {
   private static void emitLaneCompare(CodeBuilder cb, String op, VarkaVectorIR left,
       VarkaVectorIR right, Cond node, boolean dense, Analysis analysis, Slots s,
       Set<VarkaVectorIR> computed) {
+    Lane lane = analysis.laneOf(node);
+    if (lane.laneType.isFloating()) {
+      int[] tmp = s.pairTmp.get(node);
+      emitValue(cb, left, dense, analysis, s, computed);
+      cb.astore(tmp[0]);
+      emitValue(cb, right, dense, analysis, s, computed);
+      cb.astore(tmp[1]);
+      line(cb, analysis, node);
+      emitFloatingCompare(cb, lane, op, tmp[0], tmp[1]);
+      return;
+    }
     emitValue(cb, left, dense, analysis, s, computed);
     cb.getstatic(VECTOR_OPERATORS, op, VO_COMPARISON);
     emitValue(cb, right, dense, analysis, s, computed);
     line(cb, analysis, node);
-    Lane lane = analysis.laneOf(node);
     cb.invokevirtual(lane.vector, "compare", lane.compareVV);
+  }
+
+  /**
+   * Leaves the mask of {@code l op r} in Spark's floating order, the operands in the locals
+   * {@code l} and {@code r}. Spark's order is IEEE's compare with NaN placed
+   * ({@code SQLOrderingUtil.compareDoubles}): NaN equals NaN and is greater than every other
+   * value, and {@code -0.0} equals {@code 0.0}, which IEEE's {@code ==} already says. So each
+   * operator is the IEEE compare corrected for NaN alone:
+   * <ul>
+   *   <li>{@code l = r} is {@code (isNaN(l) & isNaN(r)) | l == r};
+   *   <li>{@code l < r} is {@code !(isNaN(l) | l >= r)}: a NaN {@code l} is less than nothing,
+   *       and a NaN {@code r} with an ordinary {@code l} fails {@code l >= r}, so it is true;
+   *   <li>{@code l <= r} is {@code isNaN(r) | l <= r};
+   *   <li>{@code >} and {@code >=} are {@code <} and {@code <=} with the operands swapped, and
+   *       {@code <>} is the negation of {@code =}.
+   * </ul>
+   * The comparison stays one null-intolerant node: its validity is both operands', as at every
+   * lane, which composing it from null tests and connectives would not keep.
+   */
+  private static void emitFloatingCompare(CodeBuilder cb, Lane lane, String op, int l, int r) {
+    switch (op) {
+      case "EQ", "NE" -> {
+        emitIsNaN(cb, lane, l);
+        emitIsNaN(cb, lane, r);
+        cb.invokevirtual(VECTOR_MASK, "and", MASK_BINARY);
+        emitIeeeCompare(cb, lane, "EQ", l, r);
+        cb.invokevirtual(VECTOR_MASK, "or", MASK_BINARY);
+        if (op.equals("NE")) {
+          cb.invokevirtual(VECTOR_MASK, "not", MASK_UNARY);
+        }
+      }
+      case "LT" -> emitFloatingLess(cb, lane, l, r);
+      case "GT" -> emitFloatingLess(cb, lane, r, l);
+      case "LE" -> emitFloatingLessOrEqual(cb, lane, l, r);
+      case "GE" -> emitFloatingLessOrEqual(cb, lane, r, l);
+      default -> throw VarkaErrors.illegalArgument("no floating comparison " + op);
+    }
+  }
+
+  /** {@code !(isNaN(l) | l >= r)}: Spark's {@code l < r}. */
+  private static void emitFloatingLess(CodeBuilder cb, Lane lane, int l, int r) {
+    emitIsNaN(cb, lane, l);
+    emitIeeeCompare(cb, lane, "GE", l, r);
+    cb.invokevirtual(VECTOR_MASK, "or", MASK_BINARY);
+    cb.invokevirtual(VECTOR_MASK, "not", MASK_UNARY);
+  }
+
+  /** {@code isNaN(r) | l <= r}: Spark's {@code l <= r}. */
+  private static void emitFloatingLessOrEqual(CodeBuilder cb, Lane lane, int l, int r) {
+    emitIsNaN(cb, lane, r);
+    emitIeeeCompare(cb, lane, "LE", l, r);
+    cb.invokevirtual(VECTOR_MASK, "or", MASK_BINARY);
+  }
+
+  /** The IEEE compare {@code l op r} of two vector locals, NaN unordered. */
+  private static void emitIeeeCompare(CodeBuilder cb, Lane lane, String op, int l, int r) {
+    cb.aload(l);
+    cb.getstatic(VECTOR_OPERATORS, op, VO_COMPARISON);
+    cb.aload(r);
+    cb.invokevirtual(lane.vector, "compare", lane.compareVV);
+  }
+
+  /** The lanes of a vector local that hold a NaN. */
+  private static void emitIsNaN(CodeBuilder cb, Lane lane, int v) {
+    cb.aload(v);
+    cb.getstatic(VECTOR_OPERATORS, "IS_NAN", VO_TEST);
+    cb.invokevirtual(lane.vector, "test", VECTOR_TEST);
+  }
+
+  /**
+   * The pick of the two values on the stack: the vector {@code max} or {@code min} at an integral
+   * lane, and at a floating lane Spark's order through {@link #emitFloatingPick}, which parks
+   * the values in the node's two temporary locals ({@code tmp}, free again by then).
+   */
+  private static void emitPickOp(CodeBuilder cb, Lane lane, String op, int[] tmp) {
+    if (lane.laneType.isFloating()) {
+      emitFloatingPick(cb, lane, op.equals("max"), tmp[0], tmp[1]);
+    } else {
+      cb.invokevirtual(lane.vector, op, lane.lanewiseVV);
+    }
+  }
+
+  /**
+   * Replaces the two values on the stack, {@code x} under {@code y}, with Spark's
+   * {@code greatest(x, y)} or {@code least(x, y)} at a floating lane: {@code y} where it is
+   * greater (or less) than {@code x} in Spark's order, and {@code x} otherwise, so the first of
+   * two equal operands is kept, as {@code Greatest.eval} keeps it. The vector {@code max} and
+   * {@code min} answer IEEE's question instead, which differs on NaN and on the two zeros.
+   */
+  private static void emitFloatingPick(CodeBuilder cb, Lane lane, boolean greatest, int x,
+      int y) {
+    cb.astore(y);
+    cb.astore(x);
+    cb.aload(x);
+    cb.aload(y);
+    if (greatest) {
+      emitFloatingLess(cb, lane, x, y);
+    } else {
+      emitFloatingLess(cb, lane, y, x);
+    }
+    cb.invokevirtual(lane.vector, "blend", lane.blend);
   }
 
   /** Leaves this lane group's data bits of a boolean column: one long, lane 0 in bit 0. */
@@ -1390,7 +1640,7 @@ final class VarkaVectorWalk {
   }
 
   /** {@code a | b} of two long locals. */
-  private static void emitOr(CodeBuilder cb, int a, int b) {
+  static void emitOr(CodeBuilder cb, int a, int b) {
     cb.lload(a);
     cb.lload(b);
     cb.lor();
@@ -1738,6 +1988,13 @@ final class VarkaVectorWalk {
         cb.lstore(s.kf.get(node));
       }
       case IsNotNull n -> {
+        if (n.child() instanceof DecimalColumn c) {
+          // The decimal leaf's load and slot check, its value dropped: Spark's IS NULL reads a
+          // valid row's value and raises on a slot outside the precision (VARKA-347), so the test
+          // checks the slots in both bodies, the dense one included, where every row is valid.
+          emitValue(cb, c, dense, analysis, s, computed);
+          cb.pop();
+        }
         line(cb, analysis, node);
         if (dense) {
           // The dense body ran because every referenced input is null-free and no node makes

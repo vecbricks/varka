@@ -1,0 +1,143 @@
+# A pull request's option matrix reruns only what its change can affect (VARKA-508 step 1), 29 and
+# 30 October 2026: the per-test record (VarkaTestUse, written beside VarkaTestReach's record) and
+# `dev/varka_matrix_bins.py select`. Laptop numbers (Ryzen AI 9 HX PRO 370, JDK 25), taken while
+# other agents' JVMs ran on the second heavy slot, so a suite's time moves by up to a fifth
+# between two runs of the same code; suite seconds are the JUnit reports' sums, never wall time.
+# Every run is `dev/varka_matrix.sh --defaults --skip-build` on the branch's build.
+
+## 1. The key: per suite is not selective, per test is
+
+The class-loading measurement (one JVM a suite, `-Xlog:class+load`, `.varka-tmp/classload`) had a
+catalyst suite load 5% to 61% of Varka's 350 checked-in main classes, a sql suite 66% to 88%, and
+twelve suites together 93%: a key per suite reruns almost every sql suite on most changes.
+
+The per-test record takes JaCoCo's probes (agent 0.8.15, the version `dev/varka_gen_coverage.sh`
+already fetches; `includes=*.varka.*:*Varka*`, `output=none`), read and reset at each test's
+start and end, so a test's set is the main classes whose code ran while it was open, whichever
+test loaded them first: Ekstazi's record on use, at the grain of executed code. A suite's set-up
+and the JVM's own work (suite construction, before any suite runs) join every test they cover.
+The parser of JaCoCo's execution data in VarkaTestUse agreed with `org.jacoco.core`'s reader on
+a sample.
+
+Seven sql suites, 1182 tests (main classes a test ran, min/median/max, with its suite's set-up
+and the JVM's joined):
+
+  VarkaColumnarToRowExecSuite      21 tests    21 / 108 / 142
+  VarkaCoverageHarnessSuite      1067 tests    17 / 112 / 144
+  VarkaDifferentialSuite           27 tests    31 / 129 / 156
+  VarkaFilterExecSuite             28 tests    21 /  87 / 134
+  VarkaSparkFuzzSuite              27 tests    17 /  17 / 220
+  VarkaTimeArithmeticSuite          3 tests   127 / 129 / 131
+  VarkaTimeHarnessSuite             9 tests    36 / 115 / 121
+
+Four catalyst suites, 79 tests:
+
+  VarkaChronoSuite                 20 tests    25 /  25 /  30
+  VarkaEmitterNarrowArithSuite     49 tests    25 /  93 / 133
+  VarkaGroupingBoundSuite           3 tests    73 / 106 / 187
+  VarkaVariantSuite                 7 tests    30 /  82 / 127
+
+What a change to one class reruns, over the classes some test ran, leaving out the compiler's and
+the emitter's (section 2's list, which the digest stands for), weighted by each test's time in the
+plain run:
+
+                            test as the key            suite as the key
+                            median   p25    p75        median   p25    p75
+  seven sql suites           44.9%   6.4%  82.1%        80.2%  69.9%  100.0%
+  four catalyst suites       68.1%  48.4%  76.4%        74.2%  74.0%   99.8%
+
+By count of tests the sql median is 4.1%, since most of the coverage harness's 1067 small tests
+use few classes; by time the share is set by the few long tests that run most of Varka
+(VarkaSparkFuzzSuite's random compositions, 79 of its 112 s in four tests). 22 classes outside the
+compiler's list ran in more than 95% of the sql tests (the IR, the options, the shape cache and
+the like): a change to one of them reruns everything that compiles. The catalyst suites gain
+little, their time being in a handful of tests that each run most of the compiler.
+
+The decision: the key is per test, the classes a test ran plus, for the compiler and the emitter,
+the digest of what it compiled and emitted.
+
+## 2. The record
+
+`-Dvarka.matrix.useRecord=<dir>` with JaCoCo's agent: each JVM writes `<dir>/use-<pid>.tsv`
+(VarkaTestUse's comment has the format): for each test its class set, `*` where it started a
+child JVM the probes cannot see (VarkaChildJvm and the ten suites that start one directly), and,
+with `-Dvarka.matrix.reachRecord` as well, one digest for the defaults and each of the 34
+configurations the reach record covers: SHA-256 over the sorted digests of each compile (its
+compiled form as it prints, expression ids, identity hashes and lambda addresses taken out, and
+its kernels' bytes or refusals) and each kernel emitted or looked up, under that configuration.
+The classes the emitted kernels refer to are listed once (`#	kernel-refs`): VarkaFusedKernel,
+VarkaMaskGuard, VarkaScratch and VarkaVectorSupport, none of them on the compiler's list.
+
+The compiler's list (`DIGESTED_CLASSES` in `dev/varka_matrix_bins.py`), whose change reruns a unit
+only where its digest moved: the nine compilers of `codegen` (VarkaExpressionCompiler,
+VarkaNodeCompiler, VarkaChronoCompiler, ...) and, in `codegen.varka`, the analyses, the lowerings,
+VarkaKernelPlan, the cost model and VarkaLoopEmitter with VarkaBodyEmitter. The IR's records, the
+shape cache, the warm-up, the errors and every class the evaluator calls are off it.
+
+Stability, two records of the same code (B before and P after section 3's plant, which moves no
+emission): all 1182 sql tests' digests equal under all 35 keys, so a selection with no changed
+class reruns nothing. Six of the 1190 sql class sets differ between the two runs, each by classes
+a background thread ran (VarkaKernelWarmth, VarkaEmissionEvent, VarkaGeneratedClassLoader, the
+analysis's records) while another test was open; the selection takes the union of master's and
+the pull request's sets, which covers a class either run saw.
+
+Cost, the seven sql suites (suite seconds):
+
+  plain                                       215.9
+  reach record only (row 507 step 5)          323.6
+  reach record, digests and class sets        289.1, and 305.5 in a second run
+
+and the four catalyst suites: plain 139.3, the reach record alone 582.6, all three 620.7, the last
+measured before the recorder stopped rendering a compiled form that equals the defaults', so an
+upper bound. The digests and class sets cost under the noise of two runs on the sql suites and at
+most 6.5% over the reach record on the catalyst ones; the recording as a whole is the reach record's
+cost, which CI pays on the sql jobs only (+14% on the module,
+`m8/results/VARKA-507-step5-local.txt`). On catalyst the reach record alone takes
+VarkaGroupingBoundSuite from 67 s to 414 on the base code, and catalyst's CI jobs record nothing; a
+catalyst record would need its large-kernel suites left out, as `VarkaTestReach.UNRECORDED` does for
+four sql suites. The record of the 1182 sql tests is 15 MB, 8.6 of it class names, before
+compression.
+
+## 3. Proof: a planted change to one kernel class
+
+The plant: an unused private method in SelectionVectorOps, the hand-written vector kernel that
+compacts a filter's selected rows on the batch path; the incremental build changed that one class
+file, and no other in catalyst's, sql's or the engine's main and test trees. Records B (before)
+and P (after) over the eleven suites above, 1261 tests; `select --base B --pr P --trees tree-B
+tree-P` over the 48 configurations and the defaults:
+
+  selected tests: 721, exactly the tests whose recorded set holds SelectionVectorOps
+    VarkaCoverageHarnessSuite    704 of 1067 tests   22.7 of  36.7 s
+    VarkaDifferentialSuite         5 of   27 tests   10.9 of  47.4 s
+    VarkaFilterExecSuite           8 of   28 tests    0.1 of   0.5 s
+    VarkaSparkFuzzSuite            4 of   27 tests   79.0 of 112.4 s
+    the other seven suites         0 of  112 tests    0.0 of 154.6 s
+  in all 721 of 1261 tests, 112.7 of 351.6 s (32.1%); every one under all 49 runs, 35329 units
+
+The other paths, over the same records:
+- a changed emitter class (VarkaLoopEmitter) with every digest unmoved: 18459 units, the 13
+  configurations without a digest (`VarkaTestReach.FULL`) for every test and the 23 tests that
+  cancelled at the defaults, which have no digest, under every configuration;
+- a changed suite class (VarkaChronoSuite): its 20 tests under all 49;
+- a changed test helper (VarkaExpressionHarness) or a class outside Varka (SparkPlan), and a
+  missing record: everything, as the single unit `*`.
+
+## 4. What the CI wiring needs (not done: row 531's master baseline does not exist yet)
+
+1. The Build's varka-scoped sql jobs, which already set VARKA_REACH_RECORD, also put JaCoCo's
+   runtime agent on the JVMs (`--jvm-arg -javaagent:...=output=none,includes=*.varka.*:*Varka*`,
+   the jar fetched as `dev/varka_gen_coverage.sh` does) and `-Dvarka.matrix.useRecord=<dir>`,
+   and upload the directory, compressed, beside the reach artifact, with a checksum list of the
+   main and test class trees.
+2. Row 531's master matrix keeps its Build's use record and checksum list as the baseline, the
+   last green one replacing the one before.
+3. A pull request's dispatch runs `select --base <master> --pr <its own> --reach <its reach.tsv>
+   --reach-out selected.tsv` with the class files whose checksums differ, and hands
+   `selected.tsv` to `plan --reach` and to the configurations' JVMs in place of `reach.tsv`. The
+   defaults need no unit of their own: the pull request's Build runs every test at the defaults.
+4. The catalyst suites keep running whole, since their jobs record nothing.
+
+`--reach-out` loses selectivity in two safe directions: a test with no digest (one that cancelled,
+one in an `UNRECORDED` suite) gets no line and so runs under every configuration, and a
+configuration in `VarkaTestReach.FULL` runs every test, since the reach record cannot say
+otherwise, even where `select` named none of its units.

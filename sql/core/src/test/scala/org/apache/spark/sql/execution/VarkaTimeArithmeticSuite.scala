@@ -27,21 +27,15 @@ import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types.{DayTimeIntervalType, LongType, StructField, StructType, TimeType}
 
 /**
- * VARKA-102's first TIME kernels against the row engine, over every second of a day.
+ * VARKA-102's TIME kernels through a session: what [[VarkaTimeHarnessSuite]], which holds the
+ * kernels' answers over every second of a day with no session, cannot check.
  *
- * `t1 - t2`, `time_diff` and `time_trunc` are a subtraction and a constant division on the long
- * lane; `t + dt` is a wrapping add under two range guards, because Spark's
+ * `t + dt` is a wrapping add under two range guards, because Spark's
  * `DateTimeUtils.timeAddInterval` throws where the sum leaves the day and a lane cannot throw,
- * so the batch declines to the row engine instead. Each is run with Varka on and off over the
- * same cached table and the answers compared, through the row consumer and through the Arrow
- * cache's columnar consumer - `VarkaCoverageDifferentialSuite`'s two paths.
- *
- * The table is what the coverage differential's fixture cannot be for `t + dt`: that fixture
- * reaches both ends of the day, so no constant interval keeps every row inside it. Here the
- * interval is chosen per row so that it does, and a second table is built so that it does not -
- * which is the test that matters most, since a kernel that wrapped instead of declining would
- * return a time where Spark returns an error, and that is exactly the difference the guard
- * exists to remove.
+ * so the batch declines to the row engine instead; the `time_from_*` conversions decline a
+ * count outside the day the same way. The two error tests here hold the errors a user then sees
+ * to Spark's own, and the third holds the session switch that selects the 64-bit division's
+ * magic form, through both consumers, the row node and the Arrow cache's columnar one.
  */
 class VarkaTimeArithmeticSuite extends QueryTest with VarkaMaybeThrows with VarkaTestWatchdog {
 
@@ -127,7 +121,7 @@ class VarkaTimeArithmeticSuite extends QueryTest with VarkaMaybeThrows with Vark
       val actual = varkaSpark.sql(query)
       val plan = actual.queryExecution.executedPlan
       assertFused(plan)
-      checkAnswer(actual, spark.sql(query))
+      checkAnswer(actual, expectedSql(query, actual))
       assertKernelsRan(plan)
     }
     val view = "varka_time_out"
@@ -143,43 +137,12 @@ class VarkaTimeArithmeticSuite extends QueryTest with VarkaMaybeThrows with Vark
         assert(cached.isDefined, "expected the view to be served from the cache")
         assert(cached.get.find(isColumnarVarkaNode).isDefined,
           s"expected a columnar Varka node under the cache:\n${cached.get.treeString}")
-        checkAnswer(varkaSpark.table(view), spark.table(view))
+        val served = varkaSpark.table(view)
+        checkAnswer(served, expectedOf(spark.table(view), served, view))
       }
     } finally {
       for (session <- Seq(spark, varkaSpark)) session.catalog.uncacheTable(view)
     }
-  }
-
-  test("t1 - t2 and time_diff at every unit agree with the row engine over every second") {
-    // The subtraction of two nanosecond counts and the constant division that follows it,
-    // including a TIME(3) operand reached through the widening cast, and every unit
-    // DateTimeUtils.getNanosPerTimeUnit accepts, in both spellings the compiler reads.
-    checkBoth("t - t2")
-    checkBoth("t2 - t")
-    checkBoth("t - t3")
-    for (unit <- Seq("HOUR", "MINUTE", "SECOND", "MILLISECOND", "MICROSECOND", "second")) {
-      checkBoth(s"time_diff('$unit', t, t2)")
-    }
-  }
-
-  test("time_trunc at every level agrees with the row engine over every second") {
-    // `truncatedTo(level)` as a division and a multiply, at both precisions the table holds.
-    for (level <- Seq("HOUR", "MINUTE", "SECOND", "MILLISECOND", "MICROSECOND")) {
-      checkBoth(s"time_trunc('$level', t)")
-      checkBoth(s"time_trunc('$level', t3)")
-    }
-  }
-
-  test("t + dt agrees with the row engine where the sum stays inside the day") {
-    // The interval is chosen per row so that no sum crosses midnight, which makes this the
-    // check of the arithmetic and the guard's pass-through: a column interval of whole hours,
-    // one of half seconds, a literal, and a TIME(3) time whose result widens to TIME(6). The
-    // precision step Spark applies after the add is provably the identity for these types and
-    // is not emitted; agreement here is what that proof is held to.
-    checkBoth("t + dt")
-    checkBoth("t + dt2")
-    checkBoth("t3 + dt2")
-    checkBoth("t2 + INTERVAL '0 00:00:00.000001' DAY TO SECOND")
   }
 
   test("t + dt that crosses midnight raises Spark's own error under Varka, not a wrapped time") {
@@ -191,55 +154,6 @@ class VarkaTimeArithmeticSuite extends QueryTest with VarkaMaybeThrows with Vark
     assertFused(varkaSpark.sql(query).queryExecution.executedPlan)
     val raised = checkSparkRaisesTheSame[SparkArithmeticException](query)
     assert(raised.condition === "DATETIME_OVERFLOW")
-  }
-
-  test("t + the interval of Long.MinValue microseconds raises Spark's error, not t unchanged") {
-    // The smallest day-time interval is -106751991 days 04:00:54.775808, Long.MIN_VALUE
-    // microseconds. The multiply by 1000 wraps to 0 in a lane, so a kernel that admitted it
-    // answered every time unchanged, where Spark's multiplyExact throws on every row (VARKA-293).
-    val query = s"SELECT t + INTERVAL '-106751991 04:00:54.775808' DAY TO SECOND AS v " +
-      s"FROM $crossing"
-    checkSparkRaisesTheSame[SparkArithmeticException](query)
-  }
-
-  test("a guard under a CASE arm fires only for the lanes the arm is taken for") {
-    // The emitter confines a guard under a CASE arm to the lanes the arm is selected for
-    // (VarkaEmitOptions.guardUnderArm), so a crossing row in the untaken arm neither throws on
-    // the row engine nor declines the kernel: the batch is served and the answers agree. This
-    // pins that the TIME guard rides that machinery like the day guard does - a guard that
-    // fired for every lane would have declined here for nothing.
-    val query = s"SELECT CASE WHEN t = TIME'12:00:00' THEN t + dt ELSE t END AS v FROM $crossing"
-    val actual = varkaSpark.sql(query)
-    val plan = actual.queryExecution.executedPlan
-    assertFused(plan)
-    checkAnswer(actual, spark.sql(query))
-    assertKernelsRan(plan)
-    val node = plan.collectFirst { case v if isVarkaNode(v) => v }.get
-    val declined = node.metrics.get("numFallbackBatchesDeclined").map(_.value).getOrElse(0L)
-    assert(declined === 0L, s"a guard under an untaken arm must not decline: ${node.metrics}")
-  }
-
-  test("a crossing lane under a conjunction declines to the row engine, which answers what " +
-      "it would") {
-    // Where the row engine does not throw but the kernel does compute the crossing sum: AND is
-    // short-circuit on the row engine, so a false conjunct to the left spares the add, while a
-    // kernel evaluates every conjunct of a fused predicate for every lane. The guard fires on
-    // the crossing lanes, the batch declines, the row engine answers the same one row - and
-    // the decline is visible in the node's metric, which is what separates "declined" from
-    // "wrong" for a guard no value can show.
-    //
-    // The selection is a range and not `t = TIME'12:00:00'` on purpose: the optimizer's
-    // constant propagation would rewrite the sum's `t` to the literal, and a literal noon plus
-    // any of these intervals stays inside the day, so nothing would be left to fire.
-    val query = s"SELECT t FROM $crossing WHERE t > TIME'11:59:59' AND t < TIME'12:00:01' " +
-      "AND t + dt < TIME'23:00:00'"
-    val actual = varkaSpark.sql(query)
-    val plan = actual.queryExecution.executedPlan
-    assertFused(plan)
-    checkAnswer(actual, spark.sql(query))
-    val node = plan.collectFirst { case v if isVarkaNode(v) => v }.get
-    val declined = node.metrics.get("numFallbackBatchesDeclined").map(_.value).getOrElse(0L)
-    assert(declined > 0L, s"expected the crossing batch to decline, metrics: ${node.metrics}")
   }
 
   test("the emit.useAVX session switch selects the magic form, and the answers do not move") {
@@ -256,39 +170,6 @@ class VarkaTimeArithmeticSuite extends QueryTest with VarkaMaybeThrows with Vark
     } finally {
       varkaSpark.conf.unset(SQLConf.VARKA_EMIT_USE_AVX.key)
     }
-  }
-
-  test("hour, minute and second agree with the row engine over every second of the day") {
-    // Group C's extracts (`VARKA-102.md` 8.3): `LocalTime`'s field reads on the row engine
-    // against long-lane divisions narrowed to an int at the kernel's store, through both
-    // consumers. The TIME(3) column puts the widening cast in front of the division, and the
-    // sub-second columns reach the edges where a rounding division would answer the next
-    // second.
-    for (column <- Seq("t", "t2", "t3"); field <- Seq("hour", "minute", "second")) {
-      checkBoth(s"$field($column)")
-    }
-  }
-
-  test("an extract under another expression fuses beside a fused one") {
-    // VARKA-28: `hour(t) + 1` narrows inside the tree, so both entries are one kernel's, which
-    // holds both lanes, and both agree with the row engine.
-    val query = s"SELECT hour(t) + 1 AS h, minute(t) AS m FROM $day"
-    val actual = varkaSpark.sql(query)
-    assertFused(actual.queryExecution.executedPlan)
-    checkAnswer(actual, spark.sql(query))
-  }
-
-  test("time_to_millis, time_to_micros and the time_from_* conversions agree with the row " +
-      "engine over every second of the day") {
-    // Group E (`VARKA-102.md` 9.3): the two divisions at three precisions, and the three
-    // multiplies from a bigint count and from their own divisions' results, through both
-    // consumers. Every row is inside the day, so every batch is the kernel's.
-    for (column <- Seq("t", "t2", "t3"); field <- Seq("time_to_millis", "time_to_micros")) {
-      checkBoth(s"$field($column)")
-    }
-    checkBoth("time_from_seconds(s)")
-    checkBoth("time_from_millis(time_to_millis(t))")
-    checkBoth("time_from_micros(time_to_micros(t2))")
   }
 
   test("a count outside the day raises Spark's own error under Varka, from the same rows") {

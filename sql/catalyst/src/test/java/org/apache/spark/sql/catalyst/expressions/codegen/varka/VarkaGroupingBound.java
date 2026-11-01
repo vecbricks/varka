@@ -69,11 +69,7 @@ public final class VarkaGroupingBound {
 
   /** {@code runs.get(i).get(k)}: the run of outputs {@code [i, i + k]}. */
   static List<List<RunForTest>> runs(List<VarkaVectorIR> roots, VarkaEmitOptions options) {
-    List<List<RunForTest>> all = new ArrayList<>();
-    for (int i = 0; i < roots.size(); i++) {
-      all.add(VarkaLoopEmitter.runsForTest(roots, i, options));
-    }
-    return all;
+    return VarkaLoopEmitter.runsForTest(roots, options);
   }
 
   /**

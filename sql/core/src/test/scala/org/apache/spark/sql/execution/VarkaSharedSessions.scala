@@ -17,10 +17,11 @@
 
 package org.apache.spark.sql.execution
 
-import org.apache.spark.sql.SparkSession
+import org.apache.spark.internal.config.BUFFER_PAGESIZE
+import org.apache.spark.sql.{DataFrame, Row, SparkSession}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaChrono, VarkaMatrix, VarkaMatrixTests}
 import org.apache.spark.sql.execution.adaptive.AdaptiveSparkPlanHelper
-import org.apache.spark.sql.execution.columnar.{ArrowCachedBatchSerializer, InMemoryRelation}
+import org.apache.spark.sql.execution.columnar.{ArrowCachedBatchSerializer, InMemoryRelation, InMemoryTableScanExec}
 import org.apache.spark.sql.internal.{SQLConf, StaticSQLConf}
 import org.apache.spark.sql.test.SharedSparkSession
 import org.apache.spark.sql.util.QueryExecutionListener
@@ -63,6 +64,11 @@ trait VarkaSharedSessions extends SharedSparkSession with AdaptiveSparkPlanHelpe
       // species has two lanes the compiler would leave every long filter condition to the row
       // engine (VARKA-503), and the narrow step would then test the row engine against itself.
       .set(SQLConf.VARKA_DECLINE_TWO_LANE_CONDITIONS.key, "false")
+    // A sort's memory page, 1 MB rather than the up to 64 MB Spark sizes from the heap and the
+    // cores: every task of a sort allocates and zeroes one, and the suites sort a few rows in
+    // hundreds of queries, so the differential suite spent half its time in the allocator
+    // (147 s against 72 s on the laptop, VARKA-507). The answers do not depend on the page.
+    conf.set(BUFFER_PAGESIZE.key, "1m")
     // The batch-size axis (VARKA-301): this JVM's rows per Arrow cached batch, in every session.
     VarkaMatrix.arrowBatchSize.foreach(rows =>
       conf.set(SQLConf.ARROW_EXECUTION_MAX_RECORDS_PER_BATCH.key, rows.toString))
@@ -98,6 +104,14 @@ trait VarkaSharedSessions extends SharedSparkSession with AdaptiveSparkPlanHelpe
     disabledSpark = null
     super.afterAll()
   }
+
+  /**
+   * `spark` keeps its cache from test to test, as `varkaSpark` and `disabledSpark` do: the
+   * suites cache their fixtures on both sides once, and a comparison from the second test on
+   * would otherwise set Varka over the cached table against the row engine over the inlined,
+   * uncached plan. [[expectedSql]] and [[sameCacheReads]] check that both sides read the cache.
+   */
+  override protected def clearCacheAfterEachTest: Boolean = false
 
   private def newSession(varkaEnabled: Boolean): SparkSession = SparkSession.builder()
     .sparkContext(spark.sparkContext)
@@ -191,66 +205,6 @@ trait VarkaSharedSessions extends SharedSparkSession with AdaptiveSparkPlanHelpe
   }
 
   /**
-   * Builds and caches a `varka_ints_overflow` temp view for VARKA-63: a date `d` beside two int
-   * columns, `i` holding ordinary magnitudes and `big` holding values at and beside the int32
-   * extremes, each nullable. `big`'s rows are what make a checked add or subtract overflow -
-   * `Int.MaxValue` plus a positive `i` is the whole point - while `i` alone keeps a batch that
-   * cannot overflow, so a test can separate "the kernel declined" from "the kernel is wrong".
-   *
-   * The date rides along so a shape can mix a fused calendar field with the arithmetic, which
-   * is where the compile-time bound matters: `year(d) * 100` needs no check and `big + i` does.
-   */
-  protected def cacheIntsOverflow(session: SparkSession): Unit = {
-    val rows = Seq(
-      (date("2024-01-01"), Int.box(1), Int.box(Int.MaxValue)),
-      (date("2024-06-15"), Int.box(-1), Int.box(Int.MinValue)),
-      (date("1999-12-31"), Int.box(7), Int.box(Int.MaxValue - 3)),
-      (date("2024-02-29"), Int.box(0), Int.box(0)),
-      (date("2024-03-01"), null: java.lang.Integer, Int.box(Int.MaxValue)),
-      (null: java.sql.Date, Int.box(5), null: java.lang.Integer))
-    session.createDataFrame(rows).toDF("d", "i", "big").coalesce(1)
-      .createOrReplaceTempView("varka_ints_overflow")
-    session.catalog.cacheTable("varka_ints_overflow")
-  }
-
-  /**
-   * Builds and caches a `varka_ints_safe` temp view for VARKA-63: the same shape as
-   * `varka_ints_overflow` with every value small, so no checked operation can fire and a test
-   * asserting "fused, nothing declined, answers equal" has a fixture that stays that way.
-   */
-  protected def cacheIntsSafe(session: SparkSession): Unit = {
-    val rows = Seq(
-      (date("2024-01-01"), Int.box(1), Int.box(10)),
-      (date("2024-06-15"), Int.box(-3), Int.box(-20)),
-      (date("1999-12-31"), Int.box(7), Int.box(30)),
-      (date("2024-02-29"), null: java.lang.Integer, Int.box(40)),
-      (null: java.sql.Date, Int.box(5), null: java.lang.Integer))
-    session.createDataFrame(rows).toDF("d", "i", "big").coalesce(1)
-      .createOrReplaceTempView("varka_ints_safe")
-    session.catalog.cacheTable("varka_ints_safe")
-  }
-
-  /**
-   * Builds and caches a `varka_dates_nullable_offset` temp view: a date column `d` and an int
-   * column `off`, each nullable independently of the other. `cacheDates`'s `i` column is never
-   * null (it comes from `zipWithIndex`), which is fine for a literal offset - always valid -
-   * but a day offset that is a column (VARKA-38) can be null on its own, and that is the case
-   * this fixture exists to exercise: a null offset must still null out its row even when the
-   * date beside it is not null.
-   */
-  protected def cacheDatesNullableOffset(session: SparkSession): Unit = {
-    val rows = Seq(
-      (date("2024-01-01"), Int.box(3)),
-      (date("2024-01-02"), null: java.lang.Integer),
-      (null: java.sql.Date, Int.box(-5)),
-      (null: java.sql.Date, null: java.lang.Integer),
-      (date("1969-12-31"), Int.box(100)))
-    session.createDataFrame(rows).toDF("d", "off")
-      .createOrReplaceTempView("varka_dates_nullable_offset")
-    session.catalog.cacheTable("varka_dates_nullable_offset")
-  }
-
-  /**
    * Builds and caches `varka_dates_intervals` for VARKA-67: a date `d` beside one year-month
    * interval column per unit - `ymm` (MONTH), `ymy` (YEAR) and `ym` (YEAR TO MONTH) - built
    * from an int month count so the rows are legible as counts. The counts straddle VARKA-60's
@@ -312,61 +266,6 @@ trait VarkaSharedSessions extends SharedSparkSession with AdaptiveSparkPlanHelpe
   }
 
   /**
-   * Builds and caches a `varka_dates_guard_compose` temp view: the rows where VARKA-52's day
-   * guard and VARKA-60's count guard each pass on their own, and the composition of the two
-   * still leaves the range the calendar lowering is exact over.
-   *
-   * The first row is the reproducer. `date_add(d, off)` is exactly `NARROW_MIN_DAYS`, so the
-   * day producer's guard is satisfied; `m` is exactly `MONTH_ARITH_MIN_MONTHS`, so the count
-   * guard is satisfied; and `add_months` of the two is epoch day -6142589, two thousand years
-   * below the floor, where `VarkaChrono.narrowed` reports year 87585 for a true -14848. Neither
-   * runtime guard can see it - each checked its own operand and passed - so the only thing that
-   * can catch it is the compiler bounding the composition, which is what `dayRange` does by
-   * widening the guarded producer's interval by the shift above it. If a calendar function over
-   * this shape ever fuses again, the year is silently wrong rather than slow.
-   */
-  protected def cacheDatesGuardCompose(session: SparkSession): Unit = {
-    val rows = Seq(
-      (date("1970-01-01"), Int.box(VarkaChrono.NARROW_MIN_DAYS),
-        Int.box(VarkaChrono.MONTH_ARITH_MIN_MONTHS)),
-      (date("1970-01-01"), Int.box(VarkaChrono.NARROW_MIN_DAYS), Int.box(-1)),
-      (date("2024-03-15"), Int.box(3), Int.box(12)),
-      (date("2024-03-15"), null: java.lang.Integer, Int.box(12)),
-      (null: java.sql.Date, Int.box(3), Int.box(12)),
-      (date("2024-03-15"), Int.box(3), null: java.lang.Integer))
-    session.createDataFrame(rows).toDF("d", "off", "m").coalesce(1)
-      .createOrReplaceTempView("varka_dates_guard_compose")
-    session.catalog.cacheTable("varka_dates_guard_compose")
-  }
-
-  /**
-   * Builds and caches a `varka_dates_narrow_ceiling` temp view for VARKA-69: a date `d` and an
-   * int `off` whose sum lands on each end of the range VARKA-52's runtime guard enforces,
-   * `VarkaChrono.NARROW_MIN_DAYS..NARROW_MAX_DAYS`, and nowhere outside it.
-   *
-   * Every row therefore passes that guard, which is the point: what this fixture exercises is
-   * the shift *above* the guarded producer. A `+k` on top reaches `NARROW_MAX_DAYS + k`, and
-   * VARKA-69's question is how large `k` may be before the decomposition stops being exact.
-   * Keeping every row inside the guard's range keeps the batch served by the kernel, so a
-   * value that disagrees with the row engine is the lowering's answer and not a fallback's.
-   *
-   * The ends are written as the constants rather than as dates, because they are the constants:
-   * a date literal here would have to be re-derived by hand the next time either bound moves.
-   */
-  protected def cacheDatesNarrowCeiling(session: SparkSession): Unit = {
-    val rows = Seq(
-      (date("1970-01-01"), Int.box(VarkaChrono.NARROW_MAX_DAYS)),
-      (date("1970-01-01"), Int.box(VarkaChrono.NARROW_MIN_DAYS)),
-      (date("2024-03-15"), Int.box(3)),
-      (date("2024-03-15"), null: java.lang.Integer),
-      (null: java.sql.Date, Int.box(3)),
-      (date("2024-02-29"), Int.box(0)))
-    session.createDataFrame(rows).toDF("d", "off").coalesce(1)
-      .createOrReplaceTempView("varka_dates_narrow_ceiling")
-    session.catalog.cacheTable("varka_dates_narrow_ceiling")
-  }
-
-  /**
    * Builds and caches a `varka_date_months` temp view for VARKA-60: a date `d` and two int month
    * counts, each nullable independently. `m` covers both ends of
    * `VarkaChrono.MONTH_ARITH_MIN/MAX_MONTHS` and includes a row 30000 months past each end, far
@@ -410,14 +309,10 @@ trait VarkaSharedSessions extends SharedSparkSession with AdaptiveSparkPlanHelpe
    * route has something to count), and the rows that are not names - `'xyz'`, the empty
    * string, an untrimmed `' MON'` - beside a null name and null dates. One partition, so the
    * ANSI error surfaces from one task and both engines raise it for the same row (VARKA-42's
-   * discipline). `varka_dates_weekday_valid` is the same table without the non-name rows: the
-   * one a fused ANSI query runs over with nothing to decline.
+   * discipline).
    */
   protected def cacheDatesWeekday(session: SparkSession): Unit =
     cacheWeekdayView(session, "varka_dates_weekday", weekdayRows)
-
-  protected def cacheDatesWeekdayValid(session: SparkSession): Unit =
-    cacheWeekdayView(session, "varka_dates_weekday_valid", weekdayRows.filter(_._2 != null))
 
   private val weekdayRows: Seq[(java.sql.Date, java.sql.Date, String)] = Seq(
       (date("2024-01-01"), date("2024-01-08"), "Mon"),
@@ -471,16 +366,6 @@ trait VarkaSharedSessions extends SharedSparkSession with AdaptiveSparkPlanHelpe
     session.catalog.cacheTable("varka_dates_trunc_formats")
   }
 
-  /** `varka_dates_weekday_lcase`: the same rows as `varka_dates_weekday`, `s` collated. */
-  protected def cacheDatesWeekdayCollated(session: SparkSession): Unit = {
-    cacheDatesWeekday(session)
-    session.table("varka_dates_weekday")
-      .selectExpr("d", "d2", "CAST(s AS STRING COLLATE UTF8_LCASE) AS s")
-      .coalesce(1)
-      .createOrReplaceTempView("varka_dates_weekday_lcase")
-    session.catalog.cacheTable("varka_dates_weekday_lcase")
-  }
-
   private def cacheWeekdayView(
       session: SparkSession,
       name: String,
@@ -526,6 +411,64 @@ trait VarkaSharedSessions extends SharedSparkSession with AdaptiveSparkPlanHelpe
   protected def assertNotFused(plan: SparkPlan): Unit = {
     assert(find(plan)(isVarkaNode).isEmpty,
       s"expected no Varka node in the plan:\n${plan.treeString}")
+  }
+
+  /** The cached tables a plan reads, by name, one entry for each scan of the cache. */
+  protected def cachedReads(plan: SparkPlan): Seq[String] = collect(plan) {
+    case scan: InMemoryTableScanExec => scan.relation.cacheBuilder.tableName.getOrElse("<unnamed>")
+  }.sorted
+
+  /**
+   * Checks that `expected`, the row engine's side of a comparison, reads the same cached tables
+   * as `actual`, Varka's side. Both are meant to answer over the same cached batches: a row
+   * engine whose cache was lost reads the inlined plan instead, which can raise or round where
+   * the cached scan does not, so a difference between the plans would go unseen. With
+   * `mustRead`, the plans must read at least one cached table as well, so that two sides that
+   * both lost the cache do not pass as agreeing - unless the optimizer folded the query to no
+   * rows, so that the plan reads nothing at all (`WHERE (d IS NULL) IS NULL`).
+   */
+  protected def sameCacheReads(
+      expected: SparkPlan, actual: SparkPlan, what: String, mustRead: Boolean = false): Unit = {
+    val reads = cachedReads(expected)
+    assert(reads == cachedReads(actual),
+      s"$what: the row engine reads the cached tables $reads, Varka " +
+        s"${cachedReads(actual)}:\n${expected.treeString}")
+    assert(!mustRead || reads.nonEmpty || readsNoRows(expected),
+      s"$what: neither side reads a cached table:\n${expected.treeString}")
+  }
+
+  /** Whether every leaf of `plan` is an empty relation, as an optimizer-folded query's are. */
+  private def readsNoRows(plan: SparkPlan): Boolean = collect(plan) {
+    case leaf if leaf.children.isEmpty => leaf
+  }.forall {
+    case l: LocalTableScanExec => l.rows.isEmpty
+    case leaf => leaf.isInstanceOf[EmptyRelationExec]
+  }
+
+  /** The row engine's answer to `query`, checked by [[sameCacheReads]] against `actual`'s. */
+  protected def expectedSql(query: String, actual: DataFrame): DataFrame =
+    expectedOf(spark.sql(query), actual, query)
+
+  /**
+   * The row engine's rows for `query`, its plan checked by [[sameCacheReads]] against
+   * `varkaPlan`, the plan Varka ran the same query with, for a comparison that holds Varka's
+   * rows rather than its frame.
+   */
+  protected def expectedRows(query: String, varkaPlan: SparkPlan): Seq[Row] = {
+    val expected = spark.sql(query)
+    sameCacheReads(expected.queryExecution.executedPlan, varkaPlan, query, mustRead = true)
+    expected.collect().toSeq
+  }
+
+  /** As the other form, with Varka's plan for `query` built here. */
+  protected def expectedRows(query: String): Seq[Row] =
+    expectedRows(query, varkaSpark.sql(query).queryExecution.executedPlan)
+
+  /** `expected`, checked by [[sameCacheReads]] against `actual`. */
+  protected def expectedOf(expected: DataFrame, actual: DataFrame, what: String): DataFrame = {
+    sameCacheReads(expected.queryExecution.executedPlan, actual.queryExecution.executedPlan, what,
+      mustRead = true)
+    expected
   }
 }
 

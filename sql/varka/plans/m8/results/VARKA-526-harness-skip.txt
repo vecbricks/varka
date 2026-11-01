@@ -1,0 +1,63 @@
+# The harness's own reach filter (VARKA-526), 30 October 2026, laptop numbers: AMD Ryzen AI 9 HX
+# PRO 370, the three harness suites in one JVM under dev/varka_matrix.sh --runs-only, one JVM at a
+# time, with other agents' JVMs on the machine (1-minute load 6 to 10 throughout), so the runs
+# scatter by several seconds. Seconds are the suites' JUnit times; every run passed every test.
+# The store and how the runs find it are in VARKA-528-plans-once.txt.
+# The filter measured here was left out of the change that brought rows 527 and 528, so the
+# code this file names (the outcomes in the store, VarkaTestReach.sameCompile, the harness
+# suites in VarkaTestReach.UNRECORDED) is not in the tree.
+
+What is stored: each check's outcome (findings, batches answered and declined, residual outputs,
+Spark's true rows, every batch's status), written by the defaults' run for a check under the
+defaults' options, keyed by the check's kind, context, bound expressions, rows and settings, the
+rows per batch included. Under a configuration a check compiles its expressions at the defaults
+too and takes the defaults' outcome where the compiled form and every kernel's bytes are the
+same (VarkaTestReach.sameCompile); it runs where they differ, under a configuration of
+VarkaTestReach.FULL, and where it sets its own options (the planted checks, the domains).
+
+The planted arm (VarkaHarnessStoreSuite, "a configuration that moves one expression's kernel
+runs that check and no other"): under ANSI, checkIntOverflow=false moves i + 1's kernel and not
+year(d)'s; the check of i + 1 runs (moved 1) and year(d)'s takes the defaults' outcome (same
+bytes 1), with Spark asked for one answer; under exactRefusalStatus=true both run.
+
+The configurations' tallies, the store written by a defaults run of the three suites:
+  cse=false                plans taken 6984   answers taken 1832 computed 41
+                           checks same bytes 8921 moved 1517 unrecorded 37
+  checkIntOverflow=false   plans taken 6984   answers taken 645 computed 41
+                           checks same bytes 10108 moved 329 unrecorded 39
+  The 37 and 39 checks the store lacked, and the 41 answers, were keyed by AnyTimeType, whose
+  toString is its identity and so differs between JVMs; another pairing of runs found none
+  (same bytes 8955, moved 1520, unrecorded 0 under cse=false). The key now prints a Scala object
+  by its class; the runs above predate that.
+
+The harness suites' seconds under cse=false, coverage + differential + time, on this row's tree:
+  plans and answers, no check outcomes (row 527):
+    run 1   15.7 + 1.8 + 1.7
+    run 2   21.4 + 2.5 + 2.3
+  the whole store, the filter on:
+    run 1   21.3 + 2.0 + 0.9
+    run 2   24.8 + 2.2 + 1.0
+    run 3   17.1 + 1.5 + 0.7
+    run 4   20.6 + 1.8 + 1.5
+  under checkIntOverflow=false, the whole store: 19.2 + 1.0 + 1.1
+So on the laptop the filter does not pay for itself in a configuration's run once the plans and
+the answers are stored: the coverage harness took 18.6 s with plans and answers and 21.0 s with
+the filter on, by the means of the runs each. A skipped check still compiles and emits its
+kernels twice, under the configuration and at the defaults, and the store it reads is larger by
+10409 outcomes (14.4 MB gzipped against 11.3 MB). What the filter saves - the kernels' class
+definition, the batches and the runs - is less than that second compile here. Storing the
+defaults' compiled form and kernel bytes in the outcome, so a configuration compiles once, is
+the change that would let it pay; it was not built.
+
+What the row's step (2) saves is the Build's recording of the three suites, which they now
+leave out (VarkaTestReach.UNRECORDED): a defaults run recording the reach (-Dvarka.matrix
+.reachRecord) and writing the store wrote no line for them (the record holds its header and the
+JVM-wide line alone), and took
+  defaults, no recording, no store       49.1 + 3.6 + 3.5
+  defaults, recording and writing        55.8 + 3.6 + 3.8
+against VARKA-509-step4.txt's 45 s plain and 92 s recording for the same three suites before.
+Under a configuration the matrix now runs every harness test, since the record has no line for
+them; with the store, each configuration's three suites take the seconds above.
+
+The Build's and the matrix's hours on CI were not measured: the workflows do not yet pass the
+store between the Build and the matrix's bins, which this row leaves to the CI wiring.

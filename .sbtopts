@@ -17,7 +17,11 @@
 
 -J-Xmx8g
 -J-Xms4g
--J-XX:MaxMetaspaceSize=1g
+# One sbt JVM keeps every module's compiler and test class loaders it has used, and a CI job that
+# tests many modules in one session (streaming, the Kafka connectors, protobuf, connect, ...)
+# compiles connect against the Varka-sized sql modules late in that session. At 1g it ran out of
+# Metaspace there; sbt itself advises against a limit, so this one is only a ceiling.
+-J-XX:MaxMetaspaceSize=2g
 
 # The Varka engine's kernels are compiled against the incubating Vector API, and zinc extracts
 # a compiled Java class's API by loading it in this JVM - which needs the module too, or the

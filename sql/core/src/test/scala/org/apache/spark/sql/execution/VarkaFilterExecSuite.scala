@@ -19,7 +19,7 @@ package org.apache.spark.sql.execution
 
 import org.apache.spark.TaskContext
 import org.apache.spark.sql.QueryTest
-import org.apache.spark.sql.catalyst.expressions.{Alias, And, Attribute, AttributeReference, DateAdd, GreaterThan, IsNotNull, LessThan, Literal, Rand}
+import org.apache.spark.sql.catalyst.expressions.{Add, Alias, And, Attribute, AttributeReference, DateAdd, EqualTo, GreaterThan, IsNotNull, LessThan, Literal, Rand}
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaExpressionCompiler
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaEmitOptions, VarkaFallbackEvent,
   VarkaJfrTestSupport, VarkaKernelPlan}
@@ -27,7 +27,8 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTestWatchdog
 import org.apache.spark.sql.execution.vectorized.OnHeapColumnVector
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.test.SharedSparkSession
-import org.apache.spark.sql.types.{DateType, DoubleType, IntegerType, LongType}
+import org.apache.spark.sql.types.{DateType, DecimalType, DoubleType, IntegerType, LongType,
+  StringType}
 import org.apache.spark.sql.util.ArrowUtils
 import org.apache.spark.sql.vectorized.ColumnarBatch
 
@@ -414,20 +415,40 @@ class VarkaFilterExecSuite extends QueryTest with SharedSparkSession with VarkaT
     val mixed = VarkaFusionReport.predicateLines(
       And(dLess10, doubleResidual), withDouble)
     assert(mixed.head === "(d < DATE '1970-01-11'): fused")
-    assert(mixed(1).startsWith(
-      "(f > 5.0D): residual (a comparison of floating values, which needs Spark's NaN and"),
-      mixed)
-    // A filter no conjunct of which fuses still says why, conjunct by conjunct.
-    val none = VarkaFusionReport.predicateLines(doubleResidual, withDouble)
-    assert(none.size == 1 &&
-      none.head.startsWith("(f > 5.0D): residual (a comparison of floating values"), none)
-    // A floating null test fuses as a choice's condition, but as a filter's conjunct it stays
-    // with the row filter, so the date conjunct beside it keeps the kernel's integral lane.
+    val floatingReason = "residual (a condition on the DOUBLE lane in a filter that also " +
+      "reads integral columns: its kernel meets on an integral lane, and a mask crossing from " +
+      "a floating lane is not built"
+    assert(mixed(1).startsWith(s"(f > 5.0D): $floatingReason"), mixed)
+    // A filter over the floating column alone fuses: its kernel is on the DOUBLE lane.
+    val alone = VarkaFusionReport.predicateLines(doubleResidual, withDouble)
+    assert(alone === Seq("(f > 5.0D): fused"), alone)
+    // The same holds for a floating null test: beside the date conjunct it stays with the row
+    // filter, so the date conjunct keeps the kernel's integral lane.
     val nullTest = VarkaFusionReport.predicateLines(
       And(IsNotNull(doubleAttr), dLess10), withDouble)
-    assert(nullTest === Seq("(f IS NOT NULL): residual (a condition on the DOUBLE lane in a " +
-      "filter: its kernel meets on an integral lane, and a mask crossing from a floating lane " +
-      "is not built: (f IS NOT NULL))", "(d < DATE '1970-01-11'): fused"), nullTest)
+    assert(nullTest === Seq(s"(f IS NOT NULL): $floatingReason: (f IS NOT NULL))",
+      "(d < DATE '1970-01-11'): fused"), nullTest)
+    // A string column is read by no lane, so its conjunct goes to the row filter and leaves the
+    // floating one the kernel's only lane.
+    val s = AttributeReference("s", StringType)()
+    val besideString = VarkaFusionReport.predicateLines(
+      And(doubleResidual, EqualTo(s, Literal("a"))), withDouble :+ s)
+    assert(besideString.head === "(f > 5.0D): fused", besideString)
+  }
+
+  test("a decimal conjunct joins the integral kernel, beside which a floating one stays with " +
+      "the row filter as beside a bigint") {
+    // `dbl > 1.5 AND dec > 1.0`: a decimal of precision up to 18 is read on the long lane by its
+    // comparisons (VARKA-347), so its conjunct fuses and counts as an integral read, and the
+    // floating conjunct goes to the row filter for the reason a bigint conjunct gives it. Before
+    // the reader the decimal was read by no kernel, and the floating conjunct kept the kernel.
+    val dec = AttributeReference("dec", DecimalType(10, 2))()
+    val decimalConjunct =
+      GreaterThan(dec, Literal.create(new java.math.BigDecimal("1.00"), DecimalType(10, 2)))
+    val lines = VarkaFusionReport.predicateLines(And(doubleResidual, decimalConjunct),
+      withDouble :+ dec)
+    assert(lines(1) === "(dec > 1.00BD): fused", lines)
+    assert(lines.head.contains("in a filter that also reads integral columns"), lines)
   }
 
   test("a long conjunct stays with the row filter where x86 has two long lanes (VARKA-503)") {
@@ -458,7 +479,8 @@ class VarkaFilterExecSuite extends QueryTest with SharedSparkSession with VarkaT
     val child = TestColumnarBatchPlan(Nil, withDouble)
     val eligible = FilterExec(dLess10, child)
     val mixed = FilterExec(And(dLess10, doubleResidual), child)
-    val ineligible = FilterExec(doubleResidual, child)
+    // A double comparison alone fuses on the DOUBLE lane; double arithmetic does not.
+    val ineligible = FilterExec(GreaterThan(Add(doubleAttr, Literal(1.0d)), Literal(5.0d)), child)
     val rowChild = FilterExec(dLess10, ColumnarToRowExec(child))
 
     withSQLConf(SQLConf.VARKA_ENABLED.key -> "true") {

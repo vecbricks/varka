@@ -1,0 +1,36 @@
+# The Build's Varka jobs by step (VARKA-520 to 522), 29 October 2026: Builds 40873292768 (on
+# aa96f5ca81f) and 40870025288 (on 178b66a2105), both Varka-scoped, step times from the Actions
+# API, steps under half a minute left out. "Run the X suites" holds the compile of the module's
+# test classes and the suites at the defaults; sql's first job built and packed the option
+# matrix's classes in a step of its own, after which its suites step compiled nothing.
+
+Build 40873292768 (wall 26 minutes):
+  job                 checkout  matrix classes  suites step  one option configuration
+  catalyst 1 of 3          0.8               -         10.1                       2.1
+  catalyst 2 of 3          1.1               -         16.2                       4.1
+  catalyst 3 of 3          1.1               -         15.1                       3.7
+  sql 1 of 3               1.1       9.2 + 0.6          6.0                       2.7
+  sql 2 of 3               1.1               -         16.6                       4.4
+  sql 3 of 3               0.9               -          9.2                       2.3
+Build 40870025288 (wall 30 minutes):
+  catalyst 1 of 3          1.1               -         18.3                       3.7
+  catalyst 2 of 3          1.1               -         15.1                       7.4
+  catalyst 3 of 3          1.1               -         13.7                       1.7
+  sql 1 of 3               0.9             6.4          1.3                         -
+  sql 2 of 3               0.8               -         10.7                       3.0
+  sql 3 of 3               1.1               -         19.4                       3.8
+
+The one-configuration step took 1.7 to 7.4 minutes a job, a median of 3.7 over the eleven jobs
+that ran it. Compiling and packing sql's test classes took 6.4 and 9.2 minutes where it ran as
+a step of its own; every other job compiles inside its suites step.
+
+The option matrix runs its bins at max-parallel 30 (.github/workflows/varka-option-matrix.yml),
+ten of the fork's 40 job slots left for pull requests' Builds, on every run, the weekly
+scheduled one included.
+
+The compile state a Varka job would restore (row 520): every module's target/scala-2.13 on sql's
+test classpath, from a laptop worktree built at 9e1ecf1edf6, 565 MB on disk, 194 MB as the
+gzipped tar the save step writes, packed in 7.5 s. The fork's master ran no Build since August
+(its last, on 21 August, were skipped), and its Actions cache held 9779371843 bytes in 53
+entries against the 10 GB quota, among them a Coursier cache of about 1.1 GB for sql and 1.0 GB
+for catalyst saved by each pull request's branch.

@@ -21,11 +21,6 @@ import java.util.List;
 
 import org.apache.spark.sql.SparkSession;
 import org.apache.spark.sql.VarkaBenchmark;
-import org.apache.spark.sql.execution.SparkPlan;
-import org.apache.spark.sql.execution.VarkaColumnarToRowExec;
-import org.apache.spark.sql.execution.VarkaFilterColumnarToRowExec;
-import org.apache.spark.sql.execution.VarkaFilterExec;
-import org.apache.spark.sql.execution.VarkaProjectExec;
 
 /**
  * The baseline for {@code TIMESTAMP_NTZ} before Varka has a lane for it (VARKA-377): Spark's row
@@ -38,11 +33,16 @@ import org.apache.spark.sql.execution.VarkaProjectExec;
  * ({@code CASE WHEN ntz < ntz2 THEN ntz ELSE ntz2 END}), each with no nulls and with one row in ten
  * null. Each has two arms, named so the labels survive the lane landing:
  * {@code spark row path (varka off)}, a session without the Varka rule, and {@code varka on}, a
- * session with it. Today both are the row path, so they should tie.
+ * session with it. Where a section is listed as fusing, the {@code varka on} arm times a kernel.
  *
- * <p>A baseline is only one while nothing fuses: each section checks, before it is timed, that the
- * Varka session's plan for it holds no Varka node, and fails the run when a lane row has started to
- * fuse it. The results file is then the record of the code before that row.
+ * <p>A baseline is only one while nothing fuses: before any section is timed, the run checks
+ * each section's plan on the Varka session against the section's {@code fuses} flag, the list of
+ * the sections a row has fused, and fails when an unlisted section fuses or a listed one does not.
+ * The comparison, the cast and the choice are listed, since the {@code TIMESTAMP_NTZ} lane fuses
+ * them (VARKA-338), and the results file notes each of them as fusing; the arithmetic chain is
+ * listed too, as VARKA-339 fuses the difference and the interval sums, though the committed
+ * results time it on the row path in both arms. A row that starts to fuse another section lists
+ * it, so that its fusion cannot turn a baseline section into a fused one unnoticed.
  *
  * <p>To run this benchmark, on a GitHub runner (the results come back as an artifact):
  * <pre>
@@ -55,8 +55,8 @@ public class VarkaTimestampNtzBaselineBenchmark extends VarkaSqlBenchmarkBase {
 
   static final int NUM_ROWS = 2_000_000;
 
-  /** A section: its title and its query. */
-  record Section(String title, String query) {}
+  /** A section: its title, its query, and whether the Varka session fuses it today. */
+  record Section(String title, String query, boolean fuses) {}
 
   /**
    * The table: {@code ntz}, {@code ntz2} and {@code ntz3} with no null, spread over ten years from
@@ -91,24 +91,17 @@ public class VarkaTimestampNtzBaselineBenchmark extends VarkaSqlBenchmarkBase {
       String c = "ntz3" + nulls;
       String density = nulls.isEmpty() ? "no nulls" : "one row in ten null";
       out.add(new Section("TIMESTAMP_NTZ comparison, " + density,
-          "SELECT " + a + " FROM varka_ntz WHERE " + a + " < " + b));
+          "SELECT " + a + " FROM varka_ntz WHERE " + a + " < " + b, true));
       out.add(new Section("TIMESTAMP_NTZ arithmetic chain, " + density,
-          "SELECT " + a + " + (" + b + " - " + c + ") - INTERVAL '1' HOUR AS v FROM varka_ntz"));
+          "SELECT " + a + " + (" + b + " - " + c + ") - INTERVAL '1' HOUR AS v FROM varka_ntz",
+          true));
       out.add(new Section("TIMESTAMP_NTZ cast to DATE, " + density,
-          "SELECT CAST(" + a + " AS DATE) AS v FROM varka_ntz"));
+          "SELECT CAST(" + a + " AS DATE) AS v FROM varka_ntz", true));
       out.add(new Section("TIMESTAMP_NTZ choice, " + density,
           "SELECT CASE WHEN " + a + " < " + b + " THEN " + a + " ELSE " + b
-              + " END AS v FROM varka_ntz"));
+              + " END AS v FROM varka_ntz", true));
     }
     return out;
-  }
-
-  /** Whether the session's plan for {@code query} holds a Varka node. */
-  static boolean fuses(SparkSession session, String query) {
-    return session.sql(query).queryExecution().executedPlan().find(
-        p -> p instanceof VarkaColumnarToRowExec || p instanceof VarkaProjectExec
-            || p instanceof VarkaFilterExec || p instanceof VarkaFilterColumnarToRowExec)
-        .isDefined();
   }
 
   @Override
@@ -126,11 +119,7 @@ public class VarkaTimestampNtzBaselineBenchmark extends VarkaSqlBenchmarkBase {
         VarkaArrowSessions.cache(session, "varka_ntz");
       }
       for (Section s : sections()) {
-        if (fuses(varka, s.query())) {
-          SparkPlan plan = varka.sql(s.query()).queryExecution().executedPlan();
-          throw new IllegalStateException(s.title() + " fuses, so it is no longer a baseline: "
-              + s.query() + "\n" + plan.treeString());
-        }
+        requireBaseline(varka, s.title(), s.query(), s.fuses());
       }
       for (Section s : sections()) {
         section(s.title(), () -> {

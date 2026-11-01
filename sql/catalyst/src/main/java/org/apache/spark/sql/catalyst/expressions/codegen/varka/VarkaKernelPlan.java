@@ -25,7 +25,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ColumnRef;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IntArith;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IntOp;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LaneType;
@@ -55,7 +54,7 @@ public final class VarkaKernelPlan {
     NARROW,
     /** Two roots no one lane serves: a long root beside a narrow or int one. */
     LANE_MISMATCH,
-    /** A condition root on a floating lane, which no filter kernel joins yet. */
+    /** A floating conjunct of a filter whose kernel is integral, which it cannot join yet. */
     FLOATING_CONDITION,
     /**
      * A condition root of a kernel driven at the long lane, on an x86 host whose long species has
@@ -91,10 +90,6 @@ public final class VarkaKernelPlan {
     if (roots.isEmpty()) {
       throw VarkaErrors.illegalArgument("no output chains to plan");
     }
-    Optional<Refusal> floating = floatingConditionRefusal(roots);
-    if (floating.isPresent()) {
-      return refused(floating.get());
-    }
     Optional<LaneType> kernel = kernelLane(roots, options);
     Optional<Refusal> narrow = narrowRefusal(roots, kernel, options);
     if (narrow.isPresent()) {
@@ -118,8 +113,11 @@ public final class VarkaKernelPlan {
       if (!nodes.add(node)) {
         continue;
       }
-      if (node instanceof ColumnRef c) {
-        inputLanes.putIfAbsent(c.ordinal(), c.lane());
+      // Each input leaf's lane, which sizes its data segment. A boolean column's lane is its
+      // siblings', but its segment is a bitmap, which loadInputSegment sizes before it asks this.
+      int ordinal = VarkaVectorIR.inputOrdinal(node);
+      if (ordinal >= 0) {
+        inputLanes.putIfAbsent(ordinal, node.laneType());
       }
       for (VarkaVectorIR child : VarkaVectorIR.childrenOf(node)) {
         operands.add(child);
@@ -411,21 +409,21 @@ public final class VarkaKernelPlan {
   }
 
   /**
-   * The refusal of a condition root on a floating lane: a filter's conjunct such as
-   * {@code d IS NOT NULL}. A filter kernel's conjuncts meet on one lane, and the other conjuncts
-   * of a filter that reads a {@code DOUBLE} column are mostly integral - the date or bigint tests
-   * beside it - so a floating conjunct fused first would leave them no lane to meet on and send
-   * them to the row filter. It declines instead, keeping the filter's kernel as it was before the
-   * type was read; it joins the kernel when a mask crosses between the kinds. A choice's floating
-   * condition is no root, so a projection's {@code CASE WHEN d IS NULL THEN ...} still fuses.
+   * The refusal of a filter's conjunct on a floating lane, where the filter also reads an
+   * integral column: {@code x > 1.5 AND d > d2}. A filter kernel's conjuncts meet on one lane,
+   * and a floating conjunct fused first would leave the date or bigint conjuncts beside it no
+   * lane to meet on and send them to the row filter. So it declines, keeping the kernel for the
+   * integral conjuncts, until a mask crosses between the kinds. A filter that reads only
+   * floating columns fuses whole, and a choice's floating condition is no conjunct, so a
+   * projection's {@code CASE WHEN x > 1.5 THEN ...} fuses too.
    */
-  private static Optional<Refusal> floatingConditionRefusal(List<VarkaVectorIR> roots) {
-    for (VarkaVectorIR root : roots) {
-      if (root instanceof VarkaVectorIR.Cond && root.laneType().isFloating()) {
-        return Optional.of(new Refusal(Kind.FLOATING_CONDITION, "a condition on the "
-            + root.laneType() + " lane in a filter: its kernel meets on an integral lane, and "
-            + "a mask crossing from a floating lane is not built"));
-      }
+  public static Optional<Refusal> floatingConjunctRefusal(VarkaVectorIR conjunct,
+      boolean filterReadsIntegral) {
+    if (filterReadsIntegral && conjunct.laneType().isFloating()) {
+      return Optional.of(new Refusal(Kind.FLOATING_CONDITION, "a condition on the "
+          + conjunct.laneType() + " lane in a filter that also reads integral columns: its "
+          + "kernel meets on an integral lane, and a mask crossing from a floating lane is not "
+          + "built"));
     }
     return Optional.empty();
   }

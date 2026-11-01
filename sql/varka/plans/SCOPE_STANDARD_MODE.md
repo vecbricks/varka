@@ -18,6 +18,11 @@ else would break both.
 (3.4), behind a configuration that is on by default. It is the only place a fused answer may
 differ from Spark's, and it says by how much.*
 
+*30 October 2026, by the owner's word: the exception is now opt-in. Every math function is bit-exact
+to vanilla Spark by default, and the ULP contract of 3.4 is a mode a session turns on, its
+configuration off by default (`m8/PLAN.md` 2.7.1, `m8/VARKA-345.md` 2.1 and 2.6). So the default has
+no exception: with Varka enabled and the mode off, no fused answer differs from Spark's.*
+
 **And the SQL standard is still worth reading first**, because Spark's limits are
 often storage accidents rather than declared types, and a narrower *proven* range
 is exactly what Varka's lowerings want. `YearMonthIntervalType` has no precision
@@ -166,6 +171,13 @@ leave the day are excluded. Spark mode's refinement holds.
 *Decided 14 October 2026 by the owner (item 36's first option, `m9/SCOPE.md`); built by
 `m8/PLAN.md` rows 345 and 356 to 358, designed in its section 2.7.1.*
 
+*30 October 2026, by the owner's word: the departure this entry records is an opt-in mode, off by
+default. By default the family is exact, each function by a per-lane call of the function Spark
+calls or an fdlibm port held to it bit for bit (`m8/VARKA-345.md` 2.1), so "fused only while the
+configuration is set" and "the default is on" below are superseded: off, the family fuses in its
+exact forms; on, a function takes the host library's operator only where its binding has a
+contracted bound. The entry's full correction is row 345's.*
+
 Section 1's rule holds everywhere else; here it is broken on purpose, and this entry is the
 record. Spark computes `sin`, `exp`, `log` and the rest of the transcendental family with one scalar
 call per row, `java.lang.Math` or `StrictMath`. The Vector API lowers the same operators to a host
@@ -180,7 +192,7 @@ construction does not apply: the difference is in the result.
 `java.lang.Math` in the coverage table and the user support table, measured and committed by
 `dev/varka_canary/MathLaneProbe.java`; the tests compare within that bound; and the family is fused
 only while `spark.sql.codegen.varka.math.ulpContract.enabled` is set. Every other expression stays
-bit for bit.
+bit for bit. *30 October 2026: in the opt-in mode; by default the family fuses exact.*
 
 **Why it is acceptable.** The speed is large and width-bound - 5x to 14x at eight lanes, 2.5x to 9x
 at four, 1.1x to 3.9x at two - and the departure is of a kind a cluster already has: HotSpot's
@@ -188,6 +200,9 @@ at four, 1.1x to 3.9x at two - and the departure is of a kind a cluster already 
 cluster is not one bit pattern today. **What it costs**: one query can mix the two answers. The
 ghost fallback serves a declined batch on the row engine, so with the configuration on, rows of one
 column may differ in the last bit by batch. The coverage table says so beside the bound.
+
+*30 October 2026, by the owner's word, superseding this paragraph: the default is off and
+exact.*
 
 **The default is on**, the owner's decision of 14 October 2026. So with Varka enabled, these
 functions' answers may differ from vanilla Spark's by up to their stated bound unless a user turns

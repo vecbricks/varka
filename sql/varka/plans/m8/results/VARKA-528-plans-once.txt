@@ -1,0 +1,102 @@
+# The harness's plans written once by the defaults' run and read by a configuration's
+# (VARKA-528), 30 October 2026, laptop numbers: AMD Ryzen AI 9 HX PRO 370, the three harness
+# suites in one JVM under dev/varka_matrix.sh --config cse=false --runs-only, one JVM at a time,
+# with other agents' JVMs on the machine (1-minute load 6 to 10 throughout), so the runs scatter
+# by several seconds and only differences well past that are read. Seconds are the suites' JUnit
+# times; every run passed every test.
+
+How the two runs find the store: -Dvarka.harness.store=<dir> on the JVM (dev/varka_matrix.sh
+--jvm-arg). A JVM of the defaults writes harness-<pid>-<nanos>.bin into dir as it exits; a JVM
+under a configuration reads every harness-*.bin there. Shown working:
+  dev/varka_matrix.sh --module sql --runs-only --defaults \
+      --suites VarkaCoverageHarnessSuite,VarkaDifferentialHarnessSuite,VarkaTimeHarnessSuite \
+      --jvm-arg -Dvarka.harness.store=target/harness-store
+    VARKA_HARNESS_STORE  WRITE  defaults  entries 21856  plans taken 0 planned 6984 unstorable 0
+  dev/varka_matrix.sh --module sql --runs-only --config cse=false --suites (the same) \
+      --jvm-arg -Dvarka.harness.store=target/harness-store
+    VARKA_HARNESS_STORE  READ  cse=false  entries 21856  plans taken 6984 planned 0 unstorable 0
+The file, with rows 527's and 526's entries too, is 14.4 MB gzipped: 2883 plans, 8564 Spark
+answers and 10409 check outcomes. The plans' measurement below reads a copy of it holding the
+2883 plan entries alone (1.0 MB), which is what this row's code writes.
+
+The round trip (VarkaHarnessParitySuite, "every plan the harness stores comes back from its
+bytes as the plan planned afresh"): every plan the coverage harness's checks make - each
+coverage row's projection or condition on the three answer fixtures at both ANSI settings, the
+partition oracle's filters and nullability under its three optimizer settings, the null-test
+conditions, the ANSI form's queries and Spark conditions on the extremes fixture, the domain
+rows on the edges fixture - 17696 plans, each read back over a second making of its fixture and
+printed whole (classes, constructor arguments, origins, tags, attribute ids, floating values by
+their raw bits) as that fixture's plan planned afresh: 0 differ, 0 unwritten. The test takes
+33.7 s of the suite's 44.7 s (the suite took 9.2 s before it).
+
+What the round trip found on the way, each now carried:
+  origins     Java serialization writes an expression's constructor arguments but not
+              TreeNode's own fields, TreeNode not being Serializable: a node read back had the
+              reading thread's origin, which an ANSI error quotes the SQL by. 4644 of the 17696
+              plans differed so before the origins were written beside the tree.
+  arguments   a RuntimeReplaceable's arguments are not its children (its replacement is), so
+              the origins are walked over both.
+  tags        a node's tags are TreeNode's too: day(d) is a DayOfMonth printed as day by its
+              FUNC_ALIAS tag, and shiftleft(i, 3) printed as i << 3 by its own.
+  InSet       an InSet holding a NaN never equals another, so such a plan is held to its
+              printed forms (147 queries over x IN (..., NaN)).
+
+The harness suites' seconds under cse=false, coverage + differential + time:
+  before, the tree of 42b9f0af8ae (no store):
+    run 1   43.2 + 3.3 + 3.0
+    run 2   42.6 + 3.3 + 3.1
+    run 3   57.4 + 3.3 + 3.2
+  this row's store (plans only), the tree of row 526's commit, no file:
+    run 1   40.6 + 2.8 + 2.6
+    run 2   45.0 + 3.6 + 3.2
+  with the plans' file:
+    run 1   28.0 + 2.5 + 3.0
+    run 2   34.3 + 3.3 + 3.7
+  so the coverage harness about 11 s faster, by the means of the two runs each (42.8 s to 31.2 s).
+
+The defaults' run pays for writing: the same three suites at the defaults, coverage harness
+54.1 s writing the whole store against 37.5 s without one (single runs, the load as above); the
+plans' share of that was not measured apart.
+
+Again on the change as it is to merge (rows 528 and 527 without row 526's filter, the store's
+files stamped with their commit and options table), 30 October 2026, laptop numbers as above,
+1-minute load 9 to 12. The store written by a defaults run of the three harness suites:
+    VARKA_HARNESS_STORE  WRITE  defaults  entries 11447  plans taken 0 planned 6984 unstorable 0
+        answers taken 0 computed 10794
+  one file of 11594957 bytes. Read under cse=false:
+    VARKA_HARNESS_STORE  READ  cse=false  entries 11447  plans taken 6984 planned 0 unstorable 0
+        answers taken 10794 computed 0
+The harness suites' seconds, coverage + differential + time, every run passing every test:
+  cse=false, no store:
+    run 1   55.3 + 4.0 + 3.5
+    run 2   61.3 + 3.4 + 3.2
+  cse=false, a store of another commit, ignored (see the guard below):
+    run 1   59.4 + 3.8 + 4.2
+    run 2   72.4 + 4.7 + 5.7
+  cse=false, a store of an older format, ignored:
+    run 1   50.7 + 3.5 + 3.8
+  cse=false, the store of this commit:
+    run 1   16.0 + 1.8 + 1.6
+    run 2   15.3 + 1.8 + 1.8
+  defaults, writing the store   49.1 + 3.9 + 3.9
+  defaults, no store            42.3 + 3.3 + 2.8
+So under a configuration the coverage harness took 15.6 s with the store against 58.3 s without,
+by the means of the two runs each (the runs without came at the higher load), and the defaults'
+run paid about 7 s to write it (single runs).
+
+The guard: the store's files carry the commit (-Dvarka.harness.commit, set by dev/varka_matrix.sh
+from git rev-parse HEAD) and a digest of the emit options' table, and a reader ignores a file
+stamped otherwise. It caught this measurement's first try, whose store was written before a
+commit and read after it:
+    VARKA_HARNESS_STORE  IGNORED  harness-511406-338255983364771.bin  commit 85938544fa2...,
+        this run's 24f06c18e3b...
+    VARKA_HARNESS_STORE  READ  cse=false  entries 0  plans taken 0 planned 6984 ...
+        answers taken 0 computed 10794
+and a file of the earlier format left on the laptop read as "another format". VarkaHarnessStoreSuite
+(6 tests) and VarkaHarnessParitySuite (7 tests, 43.2 s) passed at the defaults, and
+VarkaHarnessStoreSuite under cse=false with the store named.
+
+The Build's and the matrix's hours on CI are not measured yet: the change wires the store from the
+Build's sql jobs to the matrix's bins, and the first Build to write it is the first run of the
+varka-scoped jobs after the change merges (a change to build_and_test.yml runs Spark's module
+matrix instead).

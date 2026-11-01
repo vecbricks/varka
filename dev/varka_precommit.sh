@@ -72,6 +72,10 @@
 #     file changed: a filled provenance cell, no row number twice, and every results file,
 #     plan section and row number a row cites exists; the run-head check needs `gh`, so the
 #     hook runs it offline and the docs job, which has a token, runs it whole;
+#   * a Varka suite the commit adds or changes does not check expressions' answers row by row
+#     through a session (dev/varka_session_lint.py): beyond a few dozen answer checks, or a test
+#     generated a case from a collection, it is pointed at the expression harness, unless the
+#     test that needs the session is headed by a `varka-session-lint: allow <reason>` marker;
 #   * Python files pass `ruff check` and `ruff format --check`, the two halves of
 #     CI's Python linter (dev/lint-python runs both; a hand-wrapped script that
 #     passes the first still fails the second). A missing ruff is itself a
@@ -395,7 +399,8 @@ fi
 # The benchmark diff carries its own check of the one thing a reader cannot see
 # it get wrong: a row key that collides silently drops a row from the requote,
 # which is the closing step of every regeneration.
-for tool in varka_bench_diff varka_bench_gate varka_lint varka_msg_check varka_matrix_shards; do
+for tool in varka_bench_diff varka_bench_gate varka_lint varka_msg_check varka_matrix_shards \
+    varka_session_lint; do
   if printf '%s\n' "${files[@]}" | grep -qx "dev/$tool.py"; then
     if ! out="$(python3 "dev/$tool.py" --selftest 2>&1)"; then
       echo "$out" | sed "s|^|$tool selftest: |"
@@ -508,6 +513,30 @@ if [ -x dev/varka_lint.py ]; then
   while IFS= read -r hit; do
     [ -n "$hit" ] && note "$hit"
   done < <(dev/varka_lint.py "${lint_mode[@]}" 2>&1)
+fi
+
+# Answers belong in the expression harness and a session test checks a path (VARKA-509): a
+# suite that compares many expressions' rows through a session pays the session's planning and
+# task costs on every one. A whole-file check, since the count is the suite's, not a line's.
+session_suites=()
+for f in "${files[@]}"; do
+  [ -f "$f" ] && [[ "$f" =~ /src/test/(scala|java)/.*/Varka[A-Za-z0-9_]*Suite\.(scala|java)$ ]] \
+    && session_suites+=("$f")
+done
+# A suite the commit adds is held to the rule; a suite it changes fails only when the change
+# takes it over the rule, so that editing a suite already over it, before it moves to the
+# harness, is not blocked. The latter is printed, not counted.
+if [ "${#session_suites[@]}" -gt 0 ] && [ -x dev/varka_session_lint.py ]; then
+  for f in "${session_suites[@]}"; do
+    hit="$(dev/varka_session_lint.py "$f" 2>&1)" && continue
+    if git cat-file -e "HEAD:$f" 2>/dev/null &&
+        ! dev/varka_session_lint.py "HEAD:$f" > /dev/null 2>&1; then
+      echo "$hit" | sed 's/^/(over the rule before this change, not counted) /'
+    else
+      echo "$hit" | while IFS= read -r line; do [ -n "$line" ] && echo "$line"; done
+      findings=$((findings + $(echo "$hit" | grep -c .)))
+    fi
+  done
 fi
 
 # A row is the only record of why a change exists, and nothing else checks what it cites

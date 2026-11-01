@@ -1,0 +1,104 @@
+# Why seven option configurations ran every sql test (VARKA-536), 30 October 2026: the reach
+# record of option matrix run 40999948397 on the fork (head 3c09712f0d4, its Build 40979494508),
+# and recordings of the sql Varka suites on the laptop (branch varka-536-reach-jvm-line on
+# ef32e007d3a). Every count below the CI section is a laptop number.
+
+The record in CI
+  The run's artifact varka-option-matrix-reach is the six parts of the Build's three sql jobs,
+  two JVMs each (--split 2). Five parts end with a JVM-wide line "*<TAB>*<TAB>-"; one, the
+  first JVM of the third job (sql-0 of varka-scoped-junit-sql-3of3), names seven
+  configurations: checkIntOverflow=false, denseValidityOnce=false, driverOutputTable=false,
+  elideUnreadLocals=false, methodByteBudget=0, validityByBitmap=false, validityByWidth=false.
+  VarkaTestReach.read joins every "*<TAB>*" line of the concatenated record into every test of
+  every part, so one JVM's line made each of the seven run all 1687 recorded sql tests.
+  The matrix report (ok tests, sql and catalyst together): the seven ran 2433 to 2515 ok tests
+  (checkIntOverflow=false 2433, validityByWidth=false 2450, methodByteBudget=0 2485,
+  driverOutputTable=false 2504, validityByBitmap=false 2514, denseValidityOnce=false 2515,
+  elideUnreadLocals=false 2515); filtered ones far fewer (groupBudget=64 846,
+  julianMap=false 1038, cse=false 1242).
+  That JVM's JUnit reports name eleven suites. Ten have record lines; VarkaLiteralLiftSuite,
+  the first to run (17:38:08), has none.
+
+The cause
+  The hypothesis first: VarkaVectorTemplateWarmup emits no kernel. It calls Vector API
+  templates directly and never reaches VarkaLoopEmitter or VarkaCompileObserver, so it cannot
+  reach the recorder. Ruled out.
+  The emitter: VarkaLiteralLiftSuite is a plain SparkFunSuite. Its tests run
+  VarkaArrowSource.LiftRule, which asks VarkaExpressionCompiler.compile whether each lifted
+  entry fuses, and that compile emits kernels. ScalaTest's Runner builds every suite before it
+  runs any, so a VarkaMatrixTests suite's constructor has already installed the recorder; the
+  lift suite opens no window, so Recorder.note puts its compiles on the JVM-wide set.
+  How it was found: a temporary print in Recorder.note (not committed) of the thread and stack
+  of every compile noted outside every window.
+    the eleven suites of that JVM, one JVM: 21 notes, all on thread
+      ScalaTest-run-running-VarkaLiteralLiftSuite, from its test bodies (lines 50, 61, 70, 108),
+      their union the seven configurations; the JVM-wide line names the seven
+    all sql Varka suites, four JVMs (--split 4): 21 notes, the same thread and nothing else;
+      one JVM-wide line names the seven, the other three are "-"
+  Soundness of moving them: the lift rule only tests the compile's result for presence and
+  keeps nothing, and VarkaExpressionCompiler.compile defines no class and fills no shape
+  cache. So no later test reuses anything those compiles built. A test that meets the same
+  IR is charged anyway, through its own compile, through producedBy, or through the shape
+  cache's lookup, which reports every hit.
+
+The fix
+  VarkaLiteralLiftSuite mixes in VarkaReachWindow, a byte-identical copy of the trait on branch
+  varka-518-catalyst-reach. The trait opens the suite's reach window around its run, so the
+  compiles become the suite's own "VarkaLiteralLiftSuite<TAB>*" line. No test reads that line,
+  since the suite has no test lines, and its tests still run under every configuration, as
+  before. VarkaTestReach.java is not touched.
+
+Before and after, all sql Varka suites at the defaults recorded on the laptop, four JVMs
+(dev/varka_matrix.sh --defaults --module sql --split 4 -j 4, VarkaWarmupEndToEndSuite left
+out and ArrowCachedBatchSerializerSuite added, as dev/varka_scoped_suites.sh runs them; 1690
+recorded tests; skips computed as VarkaTestReach.read, moving and skips decide)
+  before: JVM-wide line names the seven; each of the seven runs 1690 of 1690, skips 0
+  after: every JVM-wide line "-"; VarkaLiteralLiftSuite's own line names the seven
+    checkIntOverflow=false       runs   144 of 1690, skips  1546 (91.5%)
+    denseValidityOnce=false      runs   897 of 1690, skips   793 (46.9%)
+    driverOutputTable=false      runs  1515 of 1690, skips   175 (10.4%)
+    elideUnreadLocals=false      runs  1132 of 1690, skips   558 (33.0%)
+    methodByteBudget=0           runs  1516 of 1690, skips   174 (10.3%)
+    validityByBitmap=false       runs   613 of 1690, skips  1077 (63.7%)
+    validityByWidth=false        runs  1454 of 1690, skips   236 (14.0%)
+  CI's record with its JVM-wide lines dropped, for comparison (1687 tests):
+    checkIntOverflow=false 1545 skipped (91.6%), denseValidityOnce=false 790 (46.8%),
+    driverOutputTable=false 172 (10.2%), elideUnreadLocals=false 555 (32.9%),
+    methodByteBudget=0 171 (10.1%), validityByBitmap=false 1078 (63.9%),
+    validityByWidth=false 202 (12.0%)
+  Recording wall time, four JVMs: 281 s before, 286 s after.
+
+Proof that a filtered run still runs every test whose bytes the configuration moves, for
+validityByBitmap=false and denseValidityOnce=false, all sql Varka suites. This is row 518's
+method with a temporary patch (not committed): each emitted kernel's bytes, with the class
+name and shape hash normalized away, are logged as a digest under the running test, and each
+test the harness starts is logged too. The shape cache is off
+(spark.sql.codegen.varka.cache.maxEntries=0), so every lookup emits and a test that reuses a
+kernel logs it too.
+  unfiltered: the defaults and the two configurations, one run each, four JVMs; 3 failures in
+    each, the same three in all (the cache-size test VarkaDifferentialSuite "many
+    distinct-literal Varka tasks are one cached shape", which fails with the cache off, and
+    two JIT-measuring tests), no aborts
+  filtered: the two configurations reading the after record (-Dvarka.matrix.reachFile), with
+    the same three failures
+    VARKA_REACH_TESTS denseValidityOnce=false: skipped 785, ran 931
+    VARKA_REACH_TESTS validityByBitmap=false: skipped 1069, ran 647
+  tests started in both unfiltered runs: 1718, 1480 of them emitting
+  validityByBitmap=false: bytes moved in 509 tests; the filtered run started 647; moved and
+    not started 1
+  denseValidityOnce=false: bytes moved in 806 tests; the filtered run started 931; moved and
+    not started 1
+  The one test, the same under both: VarkaFilterExecSuite "EXPLAIN reports the predicate's
+  conjuncts through the fusion report". Under each configuration it logs one digest more than
+  at the defaults (28f2baf64ed2f99d, the kernel "d < literal" over one input). A stack of
+  that emission shows VarkaSizeAdmission.admit building the shape inside the predicate compile.
+  The cache builds a shape only when it has not admitted that shape's key, so the probe lands
+  in whichever test first asks for that key. Why that test differs between the runs is not
+  shown here. What is shown: the same digest appears 18 times at the defaults, in 5 other
+  tests, so the configuration does not move these bytes. Only the test that builds the probe
+  changed. The record's compile check, which compares the compiled result
+  and its kernels' bytes, finds no move for this test, and none of its digests moved.
+  No test whose bytes either configuration moves was left out.
+
+Not done here: the next option matrix on the merged commit's record, which gives CI's skip
+counts and hours for the seven.
