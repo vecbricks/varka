@@ -485,10 +485,11 @@ public final class VarkaKernelPlan {
           WidenLane _, VarkaVectorIR.AddDays _, VarkaVectorIR.SubDays _,
           VarkaVectorIR.DateDiff _, IntArith _, VarkaVectorIR.IntNeg _,
           VarkaVectorIR.ConstDivide _, VarkaVectorIR.BoundedDivide _, VarkaVectorIR.BitOp _,
-          VarkaVectorIR.BitCount _, VarkaVectorIR.IfElse _, VarkaVectorIR.CondValue _,
-          VarkaVectorIR.Greatest _, VarkaVectorIR.Least _, VarkaVectorIR.DayOfWeek _,
-          VarkaVectorIR.WeekDay _, VarkaVectorIR.DayOfWeekIso _, VarkaVectorIR.NextDay _,
-          VarkaVectorIR.ThursdayOf _, VarkaVectorIR.AddMonths _, VarkaVectorIR.MakeDate _ ->
+          VarkaVectorIR.BitCount _, VarkaVectorIR.MathUnary _, VarkaVectorIR.IfElse _,
+          VarkaVectorIR.CondValue _, VarkaVectorIR.Greatest _, VarkaVectorIR.Least _,
+          VarkaVectorIR.DayOfWeek _, VarkaVectorIR.WeekDay _, VarkaVectorIR.DayOfWeekIso _,
+          VarkaVectorIR.NextDay _, VarkaVectorIR.ThursdayOf _, VarkaVectorIR.AddMonths _,
+          VarkaVectorIR.MakeDate _ ->
           LongNarrowRole.NONE;
     };
   }
@@ -534,7 +535,8 @@ public final class VarkaKernelPlan {
           VarkaVectorIR.AddDays _, VarkaVectorIR.SubDays _, VarkaVectorIR.DateDiff _,
           IntArith _, VarkaVectorIR.IntNeg _, VarkaVectorIR.ConstDivide _,
           VarkaVectorIR.BoundedDivide _, VarkaVectorIR.BitOp _, VarkaVectorIR.BitCount _,
-          VarkaVectorIR.IfElse _, VarkaVectorIR.CondValue _, VarkaVectorIR.Greatest _,
+          VarkaVectorIR.MathUnary _, VarkaVectorIR.IfElse _, VarkaVectorIR.CondValue _,
+          VarkaVectorIR.Greatest _,
           VarkaVectorIR.Least _, VarkaVectorIR.DayOfWeek _, VarkaVectorIR.WeekDay _,
           VarkaVectorIR.DayOfWeekIso _, VarkaVectorIR.NextDay _, VarkaVectorIR.ThursdayOf _,
           VarkaVectorIR.AddMonths _, VarkaVectorIR.MakeDate _ -> LongNarrowReader.NONE;

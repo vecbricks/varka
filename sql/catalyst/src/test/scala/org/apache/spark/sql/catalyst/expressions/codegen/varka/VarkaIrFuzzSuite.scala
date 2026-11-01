@@ -993,9 +993,12 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
     // carries no high word for its check: its slot table is `VarkaDecimalLoadSuite`'s, and its
     // fuzz sequence, on a seed of its own so that no shape here moves, is a later step of the row
     // (`VARKA-347.md` 3 item 5).
+    // The floating math function (VARKA-342) is out with the floating lanes: the grammar draws no
+    // floating tree yet, the floating sequence `VARKA-341.md` 5.1 owes, and a production is a row
+    // of the same refit. `VarkaEmitterFloatingArithSuite` and the coverage rows cover it.
     val missing = permitted -- seen - "NarrowLane" - "WidenLane" - "NullSafeEqual" -
       "BoolColumn" - "CondConst" - "BoolCompare" - "CondIf" - "BoolNullSafeEq" - "CondValue" -
-      "BoolOutput" - "DecimalColumn"
+      "BoolOutput" - "DecimalColumn" - "MathUnary"
     assert(missing.isEmpty,
       s"the generator never built: ${missing.toSeq.sorted.mkString(", ")} - add an arm, or " +
         "state here why the node type is deliberately out of the fuzzer's reach")

@@ -40,9 +40,10 @@ import org.apache.spark.sql.VarkaBenchmark;
  * each section's plan on the Varka session against the section's {@code fuses} flag, the list of
  * the sections a row has fused, and fails when an unlisted section fuses or a listed one does not.
  * The comparison and choice sections are listed, since the floating lanes order their values, and
- * the results file notes each of them as fusing; the chain and the cast are still the row path in
- * both arms. A row that starts to fuse another section lists it, so that its fusion cannot turn a
- * baseline section into a fused one unnoticed.
+ * so is the chain, since the floating arithmetic fuses (VARKA-342); the results file notes each of
+ * them as fusing, and the cast is still the row path in both arms. A row that starts to fuse
+ * another section lists it, so that its fusion cannot turn a baseline section into a fused one
+ * unnoticed.
  *
  * <p>To run this benchmark, on a GitHub runner (the results come back as an artifact):
  * <pre>
@@ -108,7 +109,7 @@ public class VarkaFloatingBaselineBenchmark extends VarkaSqlBenchmarkBase {
             "SELECT " + x + " FROM varka_floating WHERE " + x + " < " + y, true));
         out.add(new Section(type + " arithmetic chain, " + density,
             "SELECT (" + x + " + " + y + ") * " + z + " - " + x + " AS a FROM varka_floating",
-            false));
+            true));
         out.add(new Section(type + " cast to " + t[4] + ", " + density,
             "SELECT CAST(" + x + " AS " + t[4] + ") AS a FROM varka_floating", false));
         out.add(new Section(type + " choice, " + density,

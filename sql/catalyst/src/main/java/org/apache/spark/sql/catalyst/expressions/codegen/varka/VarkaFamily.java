@@ -71,6 +71,11 @@ public enum VarkaFamily {
       + " tinyint and smallint operands and abs over the narrow two, checked under ANSI,"
       + " greatest and least, the casts between int and bigint, and a tinyint or smallint"
       + " widened to int"),
+  /** {@code VarkaFloatingCompiler}. */
+  FLOATING_ARITHMETIC("floating arithmetic", "floatingArithmetic", "+, -, *, unary minus and abs"
+      + " over double and float operands, and /, try_divide, sqrt, signum, degrees and radians"
+      + " over double ones, a zero divisor null under LEGACY and TRY and raised by the row engine"
+      + " under ANSI"),
   /** {@code VarkaIntegralCastCompiler}, its condition arm reached from {@code compileCond}. */
   INTEGRAL_CAST("integral cast", "integralCast", "the casts among tinyint, smallint, int,"
       + " bigint and boolean that the int arithmetic family does not hold: the narrowings to"
