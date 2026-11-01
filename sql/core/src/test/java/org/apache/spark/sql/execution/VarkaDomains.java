@@ -414,14 +414,18 @@ public final class VarkaDomains {
         }
         // But a partition none of whose batches reached the guards left them unexercised: a
         // batch the all-null shortcut answers and one the input bound declines are both settled
-        // before any guard runs, so the fixture owes it a row with every operand valid and in
-        // bounds at each batch size.
-        if (partition.equals("outside") && !verdicts.isEmpty()
+        // before any guard runs. That is a finding when some row outside could have reached
+        // them - every operand within the input bounds - and the fixture owes it a batch of its
+        // own. A domain that is the input bound itself has no such row, and nothing outside it
+        // can reach a guard.
+        int inBounds = rowsWithinInputBounds(kernel.get(), options, fixture);
+        if (partition.equals("outside") && !verdicts.isEmpty() && inBounds > 0
             && verdicts.stream().noneMatch(VarkaDomains::reachesGuards)) {
           long shortcuts = verdicts.stream().filter(Verdict::shortcut).count();
           findings.add(where + ": no batch outside the domain reached the guards ("
               + shortcuts + " answered by the all-null shortcut, " + (verdicts.size() - shortcuts)
-              + " declined by the input bound), so the guard was not exercised");
+              + " declined by the input bound), though " + inBounds + " of its rows are within "
+              + "the input bounds, so the guard was not exercised");
         }
         for (int b = 0; b < verdicts.size(); b++) {
           VarkaExpressionHarness.Batch batch = outcome.batches.get(b);
@@ -459,6 +463,30 @@ public final class VarkaDomains {
     var ids = new TreeSet<Integer>();
     rows.forEach(r -> ids.add(r.getInt(rid)));
     return ids.stream().map(String::valueOf).collect(Collectors.joining(", "));
+  }
+
+  /**
+   * How many of {@code fixture}'s rows have every non-null input of {@code kernel} within the
+   * kernel's input bounds, read as {@link #verdicts} reads them: the rows a batch of their own
+   * would take past the input bound to the guards.
+   */
+  private static int rowsWithinInputBounds(CompiledVarkaProjection kernel,
+      VarkaEmitOptions options, VarkaHarnessPlans.Fixture fixture) {
+    List<Integer> ordinals = kernel.inputOrdinals();
+    List<Attribute> columns = CollectionConverters.asJava(fixture.columns());
+    int count = 0;
+    for (InternalRow row : fixture.rows()) {
+      boolean within = true;
+      for (VarkaInputBound b : kernel.inputBounds()) {
+        int o = ordinals.get(b.inputIndex());
+        if (!row.isNullAt(o)) {
+          long v = laneValue(row, o, columns.get(o).dataType());
+          within &= v >= b.lo() && v <= b.hi();
+        }
+      }
+      count += within ? 1 : 0;
+    }
+    return count;
   }
 
   /**
