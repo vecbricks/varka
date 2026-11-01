@@ -305,6 +305,12 @@ public abstract class VarkaSqlBenchmarkBase extends VarkaBenchmarkBase {
    * operator still computes part of the section, has no class: {@link #fusion} answers empty for
    * it, and the check refuses it whatever the section expects.
    *
+   * <p>A row operator decides first. Without one, a plan is {@code PARTIAL} or {@code WHOLE} by
+   * its Varka projections, whatever its Varka filters fuse, null tests only included. With one, it
+   * is {@code NULL_TESTS} only when every Varka node is a null-test filter, so a Varka projection
+   * beside a row operator, one that leaves entries to rows or one that does not, leaves the plan
+   * with no class rather than {@code PARTIAL}.
+   *
    * <p>One limit: a Varka node also serves a batch the kernel cannot, a non-Arrow or an empty one
    * or a kernel that fails, by the row path. That is decided per batch when the plan runs, so no
    * plan shows it; a timed run checks its batches by the node's metrics where it needs to.
@@ -312,10 +318,11 @@ public abstract class VarkaSqlBenchmarkBase extends VarkaBenchmarkBase {
   public enum Fusion { NONE, NULL_TESTS, PARTIAL, WHOLE }
 
   /**
-   * The {@link Fusion} class of {@code plan}, or empty when it fits none. A row operator counts
-   * wherever it is in the plan, which for a baseline's single filter or projection over a cached
-   * scan is above the Varka node. The plan of a cached table, under the scan, is not searched:
-   * it runs when the cache is built, not when the section is timed.
+   * The {@link Fusion} class of {@code plan}, or empty when it fits none, a row operator deciding
+   * first as {@link Fusion} says. A row operator counts wherever it is in the plan, which for a
+   * baseline's single filter or projection over a cached scan is above the Varka node. The plan
+   * of a cached table, under the scan, is not searched: it runs when the cache is built, not when
+   * the section is timed.
    */
   public static Optional<Fusion> fusion(SparkPlan plan) {
     if (plan.find(VarkaSqlBenchmarkBase::isVarkaNode).isEmpty()) {

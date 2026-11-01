@@ -26,8 +26,8 @@ import org.apache.spark.sql.catalyst.expressions.{Abs, AttributeReference, Binar
   BinaryComparison, Cast, Expression, In, UnaryMinus}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaMatrix.PinsDefaults
 import org.apache.spark.sql.catalyst.plans.logical.Filter
-import org.apache.spark.sql.execution.{VarkaColumnarRule, VarkaFilterExec, VarkaProjectExec,
-  VarkaSharedSessions}
+import org.apache.spark.sql.execution.{VarkaColumnarRule, VarkaColumnarToRowExec, VarkaFilterExec,
+  VarkaProjectExec, VarkaSharedSessions}
 import org.apache.spark.sql.types.{BooleanType, DataType, DecimalType, TimeType}
 
 /**
@@ -208,6 +208,25 @@ class VarkaDecimalBaselineQueriesSuite extends QueryTest with VarkaSharedSession
       // the 64-bit comparison its kernel computes.
       assert(fusion("SELECT x9 < y9 AS a, x38 < y38 AS b FROM varka_decimal") ===
         Optional.of(VarkaSqlBenchmarkBase.Fusion.PARTIAL))
+    }
+  }
+
+  test("a row operator decides a plan's fusion class before a Varka projection's entries",
+      PinsDefaults) {
+    withTable(100) {
+      def plan(query: String) = varkaSpark.sql(query).queryExecution.executedPlan
+      val partial = "SELECT x9 < y9 AS a, x38 < y38 AS b FROM varka_decimal"
+      // With no row operator, a Varka filter of null tests only beside the projection that leaves
+      // its 128-bit comparison to rows reads as the projection does.
+      val nullTested = plan(s"$partial WHERE x9n IS NOT NULL")
+      assert(nullTested.exists(_.isInstanceOf[VarkaFilterExec]), nullTested.treeString)
+      assert(VarkaSqlBenchmarkBase.fusion(nullTested) ===
+        Optional.of(VarkaSqlBenchmarkBase.Fusion.PARTIAL))
+      // A sort above the same projection is a row operator, and with one the plan is NULL_TESTS
+      // only when every Varka node is a null-test filter, so it fits no class, not PARTIAL.
+      val sorted = plan(s"SELECT a, b FROM ($partial) ORDER BY a")
+      assert(sorted.exists(_.isInstanceOf[VarkaColumnarToRowExec]), sorted.treeString)
+      assert(VarkaSqlBenchmarkBase.fusion(sorted) === Optional.empty())
     }
   }
 
