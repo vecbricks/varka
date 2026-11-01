@@ -222,6 +222,9 @@ Size: medium.
    coverage row carries an arm's digest only where it differs from the default emission, the
    fuzz sequences keep theirs. Recommended: (b), as a follow-on row after this one lands; it
    removes the last owed regeneration and keeps the check as strong.
+
+   *1 November 2026, by the owner's word:* (b), as its own row, 547: a digest per row for
+   each option setting that changes that row's emitted code. Question 2 is decided with it.
 2. **The docs file's verification counts.** (a) Keep them in the docs file, regenerated after a
    merge with the coverage run that (a) of question 1 needs anyway. (b) Move them out. Recommended:
    (a) while question 1 is (a); revisit with (b) of question 1, when they would be the last owed
