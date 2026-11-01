@@ -22,12 +22,14 @@ import java.io.OutputStream;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 
 import scala.Option;
 import scala.collection.immutable.Seq;
+import scala.jdk.javaapi.CollectionConverters;
 import scala.runtime.BoxedUnit;
 
 import org.apache.spark.SparkContext;
@@ -60,6 +62,9 @@ import org.apache.spark.sql.execution.VarkaFilterColumnarToRowExec;
 import org.apache.spark.sql.execution.VarkaFilterExec;
 import org.apache.spark.sql.execution.VarkaProjectExec;
 import org.apache.spark.sql.execution.WholeStageCodegenExec;
+import org.apache.spark.sql.execution.adaptive.AQEShuffleReadExec;
+import org.apache.spark.sql.execution.adaptive.AdaptiveSparkPlanExec;
+import org.apache.spark.sql.execution.adaptive.QueryStageExec;
 import org.apache.spark.sql.execution.exchange.Exchange;
 import org.apache.spark.sql.internal.SQLConf;
 
@@ -181,10 +186,11 @@ public abstract class VarkaSqlBenchmarkBase extends VarkaBenchmarkBase {
    * The executed plan of {@code query} on {@code session} when it holds a Varka node - a fused
    * projection or filter - and empty when it does not. The plan comes back so that a caller
    * refusing a section that fuses can show the tree without planning the query a second time.
+   * Under adaptive execution the plan is searched as {@link #operators} reads it.
    */
   public static Optional<SparkPlan> fusedPlan(SparkSession session, String query) {
     SparkPlan plan = session.sql(query).queryExecution().executedPlan();
-    boolean fused = plan.find(VarkaSqlBenchmarkBase::isVarkaNode).isDefined();
+    boolean fused = operators(plan).stream().anyMatch(VarkaSqlBenchmarkBase::isVarkaNode);
     return fused ? Optional.of(plan) : Optional.empty();
   }
 
@@ -322,19 +328,49 @@ public abstract class VarkaSqlBenchmarkBase extends VarkaBenchmarkBase {
    * first as {@link Fusion} says. A row operator counts wherever it is in the plan, which for a
    * baseline's single filter or projection over a cached scan is above the Varka node. The plan
    * of a cached table, under the scan, is not searched: it runs when the cache is built, not when
-   * the section is timed.
+   * the section is timed. The plan's operators are read as {@link #operators} reads them, through
+   * adaptive execution's wrappers.
    */
   public static Optional<Fusion> fusion(SparkPlan plan) {
-    if (plan.find(VarkaSqlBenchmarkBase::isVarkaNode).isEmpty()) {
+    List<SparkPlan> operators = operators(plan);
+    if (operators.stream().noneMatch(VarkaSqlBenchmarkBase::isVarkaNode)) {
       return Optional.of(Fusion.NONE);
     }
-    if (plan.find(VarkaSqlBenchmarkBase::computesOnRows).isEmpty()) {
-      return plan.find(VarkaSqlBenchmarkBase::leavesEntriesToRows).isEmpty()
+    if (operators.stream().noneMatch(VarkaSqlBenchmarkBase::computesOnRows)) {
+      return operators.stream().noneMatch(VarkaSqlBenchmarkBase::leavesEntriesToRows)
           ? Optional.of(Fusion.WHOLE) : Optional.of(Fusion.PARTIAL);
     }
     boolean beyondNullTests =
-        plan.find(p -> isVarkaNode(p) && !fusesOnlyNullTests(p)).isDefined();
+        operators.stream().anyMatch(p -> isVarkaNode(p) && !fusesOnlyNullTests(p));
     return beyondNullTests ? Optional.empty() : Optional.of(Fusion.NULL_TESTS);
+  }
+
+  /**
+   * Every operator of {@code plan}, the plan adaptive execution runs included. Its wrappers are
+   * leaves, so a plain search stops at them: an {@code AdaptiveSparkPlanExec} is read through its
+   * final plan, and a query stage through the plan it runs. The final plan is the one with the
+   * Varka nodes, since adaptive execution applies the columnar rules as it creates each stage
+   * rather than to its initial plan; reading it materializes the stages under the final one, as
+   * running the query would. A stage adaptive execution finds empty is replaced by an empty
+   * relation, which holds no Varka node, since none runs.
+   */
+  static List<SparkPlan> operators(SparkPlan plan) {
+    var out = new ArrayList<SparkPlan>();
+    addOperators(plan, out);
+    return out;
+  }
+
+  private static void addOperators(SparkPlan p, List<SparkPlan> out) {
+    switch (p) {
+      case AdaptiveSparkPlanExec adaptive -> addOperators(adaptive.finalPhysicalPlan(), out);
+      case QueryStageExec stage -> addOperators(stage.plan(), out);
+      default -> {
+        out.add(p);
+        for (SparkPlan child : CollectionConverters.asJava(p.children())) {
+          addOperators(child, out);
+        }
+      }
+    }
   }
 
   /** Whether {@code p} is one of the nodes the Varka rule plans, which {@link #fusedPlan} finds. */
@@ -348,10 +384,12 @@ public abstract class VarkaSqlBenchmarkBase extends VarkaBenchmarkBase {
    * Varka is one, a filter, an aggregate, a sort, a window, an expand, a generate or a join
    * alike, except those that only move rows or batches without evaluating an expression over
    * them: a leaf, which for a baseline is the scan of its cached table; an exchange; a
-   * transition between columns and rows; the whole-stage codegen node and its input adapter,
-   * which wrap the operators they compile, each found on its own; and a projection whose every
-   * entry is a column passed through or renamed. So an operator this list does not name counts
-   * as row work, and a plan that gains one fails the check rather than reading as fused.
+   * transition between columns and rows; adaptive execution's read of a shuffle's partitions;
+   * the whole-stage codegen node and its input adapter, which wrap the operators they compile,
+   * each found on its own; and a projection whose every entry is a column passed through or
+   * renamed. So an operator this list does not name counts as row work, and a plan that gains
+   * one fails the check rather than reading as fused. Adaptive execution's own wrappers never
+   * reach here: {@link #operators} reads through them.
    */
   private static boolean computesOnRows(SparkPlan p) {
     if (isVarkaNode(p)) {
@@ -364,6 +402,7 @@ public abstract class VarkaSqlBenchmarkBase extends VarkaBenchmarkBase {
       case RowToColumnarTransition transition -> false;
       case WholeStageCodegenExec codegen -> false;
       case InputAdapter adapter -> false;
+      case AQEShuffleReadExec read -> false;
       case ProjectExec project -> project.projectList().exists(e -> !passesThrough(e));
       default -> true;
     };

@@ -28,6 +28,8 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaMatrix.PinsD
 import org.apache.spark.sql.catalyst.plans.logical.Filter
 import org.apache.spark.sql.execution.{ProjectExec, VarkaColumnarRule, VarkaColumnarToRowExec,
   VarkaFilterExec, VarkaProjectExec, VarkaSharedSessions}
+import org.apache.spark.sql.execution.adaptive.AdaptiveSparkPlanExec
+import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types.{BooleanType, DataType, DecimalType, TimeType}
 
 /**
@@ -223,6 +225,27 @@ class VarkaDecimalBaselineQueriesSuite extends QueryTest with VarkaSharedSession
       // the 64-bit comparison its kernel computes.
       assert(fusion("SELECT x9 < y9 AS a, x38 < y38 AS b FROM varka_decimal") ===
         Optional.of(VarkaSqlBenchmarkBase.Fusion.PARTIAL))
+    }
+  }
+
+  test("the fusion classes read a plan under adaptive execution through its stages",
+      PinsDefaults) {
+    withTable(100) {
+      withBothConf(SQLConf.ADAPTIVE_EXECUTION_ENABLED.key, "true") {
+        def plan(query: String) = varkaSpark.sql(query).queryExecution.executedPlan
+        // An exchange makes adaptive execution wrap the plan, and the Varka filter under it is
+        // planned only as its stage is created, so a search that stopped at the wrapper would
+        // find no Varka node and read either plan as NONE. The filter keeps about half the
+        // rows: a stage that returns none is replaced by an empty relation, with no Varka node.
+        val fused = "FROM varka_decimal WHERE x9 < y9"
+        val distributed = plan(s"SELECT x9 $fused DISTRIBUTE BY x9")
+        assert(distributed.isInstanceOf[AdaptiveSparkPlanExec], distributed.treeString)
+        assert(VarkaSqlBenchmarkBase.fusion(distributed) ===
+          Optional.of(VarkaSqlBenchmarkBase.Fusion.WHOLE))
+        val sorted = plan(s"SELECT x9 $fused ORDER BY x9")
+        assert(sorted.isInstanceOf[AdaptiveSparkPlanExec], sorted.treeString)
+        assert(VarkaSqlBenchmarkBase.fusion(sorted) === Optional.empty())
+      }
     }
   }
 
