@@ -72,8 +72,8 @@ class VarkaDecimalReadPathSuite extends QueryTest with VarkaSharedSessions
     }
   }
 
-  private val Exact = "the exact rule"
-  private val Double = "the double rule"
+  private val ExactRule = "the exact rule"
+  private val DoubleRule = "the double rule"
 
   /** The answer of a one-row query: its value, `null`, or the condition it raised. */
   private def answer(session: SparkSession, query: String): String =
@@ -133,8 +133,8 @@ class VarkaDecimalReadPathSuite extends QueryTest with VarkaSharedSessions
           .map(c => answer(session, query(c)))
       }
       seen match {
-        case Seq("0", "2147483647", "0", "2147483647") => Exact
-        case Seq("1", "CAST_OVERFLOW", "1", "null") => Double
+        case Seq("0", "2147483647", "0", "2147483647") => ExactRule
+        case Seq("1", "CAST_OVERFLOW", "1", "null") => DoubleRule
         case other => fail(s"ANSI and TRY casts answered $other, by neither rule")
       }
     } finally {
@@ -168,27 +168,28 @@ class VarkaDecimalReadPathSuite extends QueryTest with VarkaSharedSessions
 
   private val paths: Seq[(String, Path, String)] = Seq(
     ("Varka off, the vectorized reader on, the cache read as rows by the row reader",
-      Path(() => spark, "rp_fused", Nil, alone, declineAll = false, rowRead), Exact),
+      Path(() => spark, "rp_fused", Nil, alone, declineAll = false, rowRead), ExactRule),
     ("Varka off, the vectorized reader off",
       Path(() => spark, "rp_fused", Seq(SQLConf.CACHE_VECTORIZED_READER_ENABLED.key -> "false"),
-        alone, declineAll = false, rowRead), Exact),
+        alone, declineAll = false, rowRead), ExactRule),
     ("Varka off, the row reader's columnar fallback for a table with an array",
-      Path(() => spark, "rp_array", Nil, alone, declineAll = false, rowRead), Exact),
+      Path(() => spark, "rp_array", Nil, alone, declineAll = false, rowRead), ExactRule),
     ("Varka off, without whole-stage code",
       Path(() => spark, "rp_fused", Seq(SQLConf.WHOLESTAGE_CODEGEN_ENABLED.key -> "false"),
-        alone, declineAll = false, rowRead), Exact),
+        alone, declineAll = false, rowRead), ExactRule),
     ("Varka on, a cast nothing fuses beside, the cache read as rows",
-      Path(() => varkaSpark, "rp_fused", Nil, alone, declineAll = false, rowRead), Exact),
+      Path(() => varkaSpark, "rp_fused", Nil, alone, declineAll = false, rowRead), ExactRule),
     ("Varka on, a residual cast beside a fused output, the kernel serving the batch",
-      Path(() => varkaSpark, "rp_fused", Nil, besideFused, declineAll = false, served), Double),
+      Path(() => varkaSpark, "rp_fused", Nil, besideFused, declineAll = false, served), DoubleRule),
     ("Varka on, a residual cast beside a column read twice, the kernel serving the batch",
       Path(() => varkaSpark, "rp_fused", Nil, besideFusedTwice, declineAll = false, served),
-      Double),
+      DoubleRule),
     ("Varka on, the fallback over the batch's own rows",
-      Path(() => varkaSpark, "rp_fused", Nil, besideFused, declineAll = true, declined), Double),
+      Path(() => varkaSpark, "rp_fused", Nil, besideFused, declineAll = true, declined),
+      DoubleRule),
     ("Varka on, the fallback over a copied row, a column read twice",
       Path(() => varkaSpark, "rp_fused", Nil, besideFusedTwice, declineAll = true, declined),
-      Exact))
+      ExactRule))
 
   paths.foreach { case (name, path, expected) =>
     test(s"$name: the ANSI and TRY decimal-to-INT casts follow $expected") {

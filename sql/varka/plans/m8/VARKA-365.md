@@ -311,17 +311,18 @@ Recorded 1 November 2026; not filed.
 > `ArrowCachedBatchSerializer`'s row reader (it writes the unscaled low word into the `UnsafeRow`),
 > while `ArrowColumnVector.SmallDecimalAccessor` builds a `BigDecimal`-backed one on purpose
 > (SPARK-59443, "Keep BigDecimal-backed Decimal semantics"). An expression that reads a
-> `ColumnarBatchRow` over Arrow vectors directly - a columnar consumer of the Arrow cache, the
-> Python and R Arrow runners' output - meets the double rule; the same column copied into an
-> `UnsafeRow` first meets the exact one. So the answer of one cast can change with a plan's shape.
+> `ColumnarBatchRow` over Arrow vectors directly - observed for a columnar consumer of the Arrow
+> cache; by reading of the code, the Python and R Arrow runners' output too - meets the double
+> rule; the same column copied into an `UnsafeRow` first meets the exact one. So the answer of
+> one cast can change with a plan's shape.
 > Proposal: one rule below precision 19, most naturally the exact one, the one SQL's semantics and
 > every row reader give.
 >
 > A second, separate finding in the same reader: `ArrowCachedBatchSerializer`'s fast path for
 > `DecimalType` up to precision 18 reads only the low word of the sixteen-byte slot, with no check
 > that the high word is its sign extension or that the value fits the declared precision, where
-> `ArrowColumnVector` checks both and raises. A slot holding a value outside its precision is
-> silently truncated to its low word on the row path.
+> `ArrowColumnVector` checks both and raises. By reading of the code (not yet run), a slot holding
+> a value outside its precision is silently truncated to its low word on the row path.
 
 ## 10. Refresh, 1 November 2026: what the admission run found
 
@@ -350,8 +351,9 @@ reading missed decide it otherwise:
 2. `UnsafeRowWriter.write(ordinal, Decimal, p, s)` writes `toUnscaledLong` for `p <= 18`, and
    `UnsafeRow.getDecimal` reads it back long-backed. So every copy into an `UnsafeRow` before the
    cast gives the exact rule: the row reader's columnar fallback (its `UnsafeProjection` over the
-   batch, for a table with an array), `ColumnarToRowExec` without whole-stage code, and Varka's
-   fallback when `VarkaInputRows` copies the row because a column is read twice.
+   batch, for a table with an array) and Varka's fallback when `VarkaInputRows` copies the row
+   because a column is read twice, both observed; by reading, `ColumnarToRowExec` without
+   whole-stage code too, though the run's whole-stage-off cell met the row reader, not it.
 
 `build/sbt 'sql/testOnly *VarkaDecimalReadPathSuite'` runs nine tests, all passing as pinned (`a` is
 `0.999999999999999999`, `b` is `2147483647.99999999`):
