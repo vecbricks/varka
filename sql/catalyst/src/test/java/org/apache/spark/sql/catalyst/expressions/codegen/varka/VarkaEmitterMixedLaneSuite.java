@@ -39,6 +39,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.AddMonths;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.And;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BoolOutput;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ColumnRef;
@@ -46,6 +47,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Com
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.CompareOp;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ConstDivide;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Greatest;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.GuardedDay;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.GuardedRange;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IfElse;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IntArith;
@@ -60,6 +62,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Ove
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WidenLane;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Year;
 import org.apache.spark.sql.catalyst.util.DateTimeConstants;
+import org.apache.spark.sql.catalyst.util.DateTimeUtils;
 
 /**
  * Kernels that hold both lanes (VARKA-28): a widening of an int value into the long lane, a
@@ -433,6 +436,74 @@ public final class VarkaEmitterMixedLaneSuite {
     check("CAST(l AS INT) > i AND year(d) = 2021 AND d > d2", List.of(root), 4,
         new int[] {2021}, new long[0], (c, i) -> c == 1 ? fitting(c, i)
             : c >= 2 ? (i * 37L + c * 101L) % 40000 - 20000 : value(c, i), false);
+  }
+
+  /**
+   * The month counts of the {@code add_months} kernels: zero, the crossings of a year each way,
+   * and the two ends of the counts the compiler admits ({@code VarkaChrono.MONTH_ARITH_*}).
+   */
+  private static final int[] MONTH_COUNTS = {0, 1, -1, 11, -11, 12, -12, 13, -13, 1200, -1200,
+      VarkaChrono.MONTH_ARITH_MAX_MONTHS, VarkaChrono.MONTH_ARITH_MIN_MONTHS};
+
+  /**
+   * The lowest long day the {@code add_months} kernel below reads: a year above the calendar's
+   * floor, the bound of its guarded day ({@code VARKA-339.md} 2.4 gives an NTZ day this bound).
+   */
+  private static final int NTZ_MIN_DAY = VarkaChrono.NARROW_MIN_DAYS + 365;
+
+  /**
+   * The {@code add_months} columns: column 0 an int day, column 1 a long day, both at the
+   * calendar's edges and on a strided walk inside its range (column 1 lifted to
+   * {@link #NTZ_MIN_DAY}), and column 2 a month count from {@link #MONTH_COUNTS}.
+   */
+  private static long monthData(int c, int i) {
+    return switch (c) {
+      case 0 -> VarkaEmitterFixtures.calendarDays(c, i);
+      case 1 -> Math.max(NTZ_MIN_DAY, VarkaEmitterFixtures.calendarDays(c, (i + 3) % 64));
+      default -> MONTH_COUNTS[(i * 5) % MONTH_COUNTS.length];
+    };
+  }
+
+  /**
+   * Spark's {@code add_months} on the row, {@code DateTimeUtils.dateAddMonths}: output 0 over the
+   * int day and the month column, output 1 over the long day and {@code count}, each null where an
+   * operand is.
+   */
+  private static VarkaKernelChecks.SparkAnswers sparkAddMonths(int count) {
+    return new VarkaKernelChecks.SparkAnswers() {
+      @Override public VarkaKernelChecks.Answer answer(int output, long[] values,
+          boolean[] isNull) {
+        int day = output == 0 ? 0 : 1;
+        if (isNull[day] || (output == 0 && isNull[2])) {
+          return new VarkaKernelChecks.Answer.Null();
+        }
+        int months = output == 0 ? (int) values[2] : count;
+        return new VarkaKernelChecks.Answer.Value(
+            DateTimeUtils.dateAddMonths((int) values[day], months));
+      }
+
+      @Override public String sql(int output) {
+        return output == 0 ? "add_months(d, m)" : "add_months(CAST(l AS INT), " + count + ")";
+      }
+    };
+  }
+
+  @Test
+  @DisplayName("add_months in a kernel of both lanes is DateTimeUtils.dateAddMonths, over a "
+      + "widened result and a narrowed day, at both widths")
+  void addMonthsInBothLanes() {
+    // The kernel holds both lanes, so it is driven at the long lane and computes its calendar at
+    // the int species of the long species' width: a column-count add_months over a guarded int
+    // day, widened to a long root, and a literal-count one over a long day narrowed and guarded
+    // to [NTZ_MIN_DAY, NARROW_MAX_DAYS].
+    var monthsOfIntDay = widen(new AddMonths(new GuardedDay(I), I2));
+    var monthsOfLongDay = new AddMonths(
+        new GuardedRange(narrow(L), NTZ_MIN_DAY, VarkaChrono.NARROW_MAX_DAYS), INT_LIT);
+    for (int count : MONTH_COUNTS) {
+      check("add_months over both lanes, literal count " + count,
+          List.of(monthsOfIntDay, monthsOfLongDay), 3, new int[] {count}, new long[0],
+          VarkaEmitterMixedLaneSuite::monthData, false, sparkAddMonths(count));
+    }
   }
 
   @Test
