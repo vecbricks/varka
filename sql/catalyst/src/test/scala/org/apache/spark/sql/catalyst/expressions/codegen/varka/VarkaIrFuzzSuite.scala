@@ -1320,6 +1320,109 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
     reportSkipped()
   }
 
+  // The integral casts (VARKA-332, `VARKA-332.md` 3.7): the five compositions over a column of
+  // each integral type and a BOOLEAN one, each guard mode, a sequence of its own seed.
+  private val castSeed =
+    sys.props.get("varka.fuzz.seed").map(_.toLong).getOrElse(VarkaIrGrammar.CAST_FUZZ_SEED)
+
+  /**
+   * One cast draw: its one root over the five columns, a length, null patterns, masking and
+   * options as the other corpora draw them, and the columns' values at their lanes' ends a quarter
+   * of the time. A kernel the plan refuses at the drawn width (a byte column at two long lanes)
+   * is counted and skipped; a failing range guard may decline the batch, which the reference has
+   * no value for, so such a draw allows it. Not shrunk on failure, as the mixed corpus is not.
+   */
+  private def runOneCast(iteration: Int): Unit = {
+    val rnd = VarkaIrGrammar.shapeRandom(castSeed, iteration)
+    val root = VarkaIrGrammar.drawCastShape(rnd)
+    val roots = java.util.List.of(root)
+    val numInputs = VarkaIrGrammar.CAST_BOOL_COLUMN + 1
+    val length = lengths(rnd.nextInt(lengths.length))
+    val patternIds = Seq.fill(numInputs)(rnd.nextInt(patternNames.length))
+    val patterns = patternIds.map(pattern(rnd, _, length))
+    val forceMasked = length > 1 && rnd.nextInt(4) == 0
+    val options = randomOptions(rnd, VarkaMatrix.base)
+    val data = Array.tabulate(numInputs, length)((c, _) => VarkaIrGrammar.castValue(rnd, c))
+    val nulls = Array.tabulate(numInputs, length)((c, i) => patterns(c)(i))
+    val label = s"lane=cast seed=$castSeed iteration=$iteration " +
+      s"root=${VarkaVectorIR.canonical(root)} " +
+      s"options=${if (options.isDefault) "(defaults)" else options.canonical()} " +
+      s"length=$length patterns=${patternIds.map(patternNames).mkString(",")} " +
+      s"forceMasked=$forceMasked"
+    if (VarkaKernelPlan.refusalOf(roots, options).isPresent) {
+      castRefused.incrementAndGet()
+      return
+    }
+    val className = "org.apache.spark.sql.varka.execution.VarkaFusedFuzzCast" +
+      classCounter.addAndGet(1)
+    def failing(n: VarkaVectorIR): Boolean = (n match {
+      case g: GuardedRange => g.mode() == Overflow.FAIL
+      case _ => false
+    }) || VarkaVectorIR.childrenOf(n).exists(failing)
+    emitOrSkip(label, options)(o => VarkaLoopEmitter.emitTraced(
+        className, roots, numInputs, 1, o, randomTrace)).foreach { bytes =>
+      val batch = new VarkaKernelChecks.LongBatch(length, nulls, data, forceMasked)
+      try runCast(label, className, bytes, roots, numInputs, batch, options, failing(root)) catch {
+        case e: VirtualMachineError => throw e
+        case t: Throwable => fail(s"$label: ${Option(t.getMessage).getOrElse(t.toString)}", t)
+      }
+    }
+  }
+
+  /** One compiled cast draw through the harness of its drive lane. */
+  private def runCast(label: String, className: String, bytes: Array[Byte],
+      roots: java.util.List[VarkaVectorIR], numInputs: Int, batch: VarkaKernelChecks.LongBatch,
+      options: VarkaEmitOptions, declineAllowed: Boolean): Unit = {
+    if (VarkaKernelPlan.driveOf(roots, options).get() == LaneType.LONG) {
+      VarkaKernelChecks.runAndCompareMixed(label, className, bytes, roots, numInputs,
+        Array(0), Array(0L), batch, declineAllowed, null)
+    } else {
+      VarkaKernelChecks.runAndCompareNarrow(label, className, bytes, roots, numInputs,
+        Array(0), new VarkaKernelChecks.Batch(batch.length(), batch.nulls(),
+          batch.data().map(_.map(_.toInt)), batch.forceMasked()), declineAllowed, null)
+    }
+  }
+
+  /** The cast draws the plan refused at their drawn width, reported after the run. */
+  private val castRefused = new AtomicInteger(0)
+
+  test(s"random integral casts match the reference evaluator (seed $castSeed, " +
+      s"$iterations iterations)") {
+    val reach = VarkaEmitReach.attach(randomTrace, "cast draws")
+    try {
+      only match {
+        case Some(k) => runOneCast(k)
+        case None => (0 until iterations).foreach(runOneCast)
+      }
+    } finally {
+      VarkaEmitReach.detach(randomTrace)
+    }
+    logInfo(s"cast draws refused at their width: ${castRefused.get()}")
+    reportReach(reach)
+    reportSkipped()
+  }
+
+  test("the cast draw reaches each composition and each guard mode, at every lane") {
+    val seen = scala.collection.mutable.Set.empty[String]
+    for (k <- 0 until 2000) {
+      VarkaIrGrammar.drawCastShape(VarkaIrGrammar.shapeRandom(castSeed, k)) match {
+        case w: WidenLane => seen += s"widen to ${w.target()}"
+        case n: NarrowLane => n.child() match {
+          case g: GuardedRange => seen += s"narrow to ${n.target()} ${g.mode()}"
+          case _ => seen += s"narrow to ${n.target()} WRAP"
+        }
+        case c: CondValue => seen += s"select at ${c.lane()}"
+        case t: Cond => seen += s"test at ${t.laneType()}"
+        case other => fail(s"not a cast: $other")
+      }
+    }
+    val wanted = Seq("SHORT", "INT", "LONG").map(t => s"widen to $t") ++
+      (for (t <- Seq("BYTE", "SHORT", "INT"); m <- Seq("WRAP", "FAIL", "NULL"))
+        yield s"narrow to $t $m") ++
+      Seq("BYTE", "SHORT", "INT", "LONG").flatMap(l => Seq(s"select at $l", s"test at $l"))
+    assert((wanted.toSet -- seen).isEmpty, s"never drawn: ${(wanted.toSet -- seen).toSeq.sorted}")
+  }
+
   // The nulling range guard (VARKA-481): its own draw at each lane, run against the reference
   // evaluator, which spells a fired guard as a null. Not run through the variants, which redraw
   // a case from the committed corpora's grammar.

@@ -301,6 +301,11 @@ final class VarkaVectorWalk {
             // lane, reduced to the narrow width and sign-extended back by the shift pair a
             // wrapping narrow node reduces with.
             emitWrapToNarrow(cb, Lane.INT, n.target());
+          } else if (target.isNarrow()) {
+            // A long value narrowed to TINYINT or SMALLINT away from a store (VARKA-332): `L2I`
+            // into the low half of the int species, then the same shift pair.
+            emitShapeConversion(cb, analysis.laneOf(n.child()), Lane.INT, analysis);
+            emitWrapToNarrow(cb, Lane.INT, n.target());
           } else {
             emitShapeConversion(cb, analysis.laneOf(n.child()), analysis.laneOf(node), analysis);
           }

@@ -1252,7 +1252,8 @@ final class VarkaBodyEmitter {
         // branches is int-typed (VARKA-329): the value arrived widened and is truncated once,
         // here, into the narrow species of the int species' width. A long value narrowed at its
         // store (VARKA-332) arrives in the long lane and takes `L2I` into the low half first.
-        if (analysis.lane == Lane.LONG && analysis.narrowsAtStore(root)) {
+        if (analysis.lane == Lane.LONG && analysis.narrowsAtStore(root)
+            && narrowRoot.child().laneType() == VarkaVectorIR.LaneType.LONG) {
           emitLowHalfConversion(cb, analysis);
         }
         emitNarrowTypeStore(cb, stored, analysis, s, o);

@@ -97,6 +97,7 @@ public final class VarkaDomains {
     var out = new LinkedHashMap<String, String>();
     out.put("d", "DATE'2024-01-31'");
     out.put("i", "3");
+    out.put("l", "5000000000");
     out.put("m", "0");
     out.put("y", "0");
     out.put("mm", "0");
@@ -118,7 +119,7 @@ public final class VarkaDomains {
       }
     }
     return "(" + v.get("d") + ", DATE'2024-02-29', " + v.get("i") + ", " + v.get("m") + ", "
-        + v.get("y") + ", " + v.get("mm") + ", CAST('5000000000' AS BIGINT), "
+        + v.get("y") + ", " + v.get("mm") + ", CAST('" + v.get("l") + "' AS BIGINT), "
         + "CAST('1' AS BIGINT), " + v.get("t") + ", " + v.get("t2") + ", "
         + "INTERVAL '1 02:03:04.5' DAY TO SECOND, INTERVAL '0 00:00:00' DAY TO SECOND, "
         + "CAST(" + v.get("y1") + " AS TINYINT), CAST(" + v.get("y2") + " AS TINYINT), "
@@ -154,7 +155,8 @@ public final class VarkaDomains {
    * {@code ymm} leaves the int, {@code ymm} at its most negative; a time at each end of the day;
    * the narrow lanes' bounds. Then rows null in those columns, one column group at a time and all
    * at once, which the {@code IS NULL} partitions select. The other columns hold the mixed
-   * fixture's first row.
+   * fixture's first row. A bigint sits at the narrow types' bounds and one past each, for the
+   * integral casts' guards.
    */
   static String edgesSql() {
     long dayLimit = VarkaChrono.INTERVAL_DAY_LIMIT_DAYS;
@@ -168,6 +170,10 @@ public final class VarkaDomains {
     ints.addAll(around(1, 12));
     var rows = new ArrayList<String>();
     ints.forEach(i -> rows.add(row("i", Long.toString(i))));
+    // A bigint at the narrow types' bounds and one past each, the casts' guards (VARKA-332).
+    var longs = new ArrayList<Long>(around(Byte.MIN_VALUE, Byte.MAX_VALUE));
+    longs.addAll(around(Short.MIN_VALUE, Short.MAX_VALUE));
+    longs.forEach(l -> rows.add(row("l", Long.toString(l))));
     for (long i : List.of(Integer.MAX_VALUE - 9999L, Integer.MAX_VALUE - 9998L)) {
       rows.add(row("d", "DATE'9999-12-31'", "i", Long.toString(i)));
     }

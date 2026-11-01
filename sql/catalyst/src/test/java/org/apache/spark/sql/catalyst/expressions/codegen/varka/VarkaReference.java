@@ -659,7 +659,7 @@ public final class VarkaReference {
       long[] longLits) {
     var rows = new MixedRow(row, isNull);
     Cond flat = (Cond) rows.flatten(cond, intLits, longLits);
-    return flat.laneType() == LaneType.INT
+    return flat.laneType() == LaneType.INT || flat.laneType().isNarrow()
         ? cond(flat, rows.ints(), rows.nulls(), intLits)
         : longCond(flat, rows.longs(), rows.nulls(), longLits);
   }

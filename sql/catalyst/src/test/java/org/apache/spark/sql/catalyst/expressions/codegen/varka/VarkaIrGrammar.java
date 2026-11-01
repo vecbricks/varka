@@ -144,6 +144,13 @@ public final class VarkaIrGrammar {
    */
   public static final long NULLING_FUZZ_SEED = 20261030L;
 
+  /**
+   * The seed of {@link #drawCastShape}, a sequence of its own for the reason
+   * {@link #NARROW_FUZZ_SEED} gives. {@code VarkaIrFuzzSuite} runs it against the reference
+   * evaluator; nothing pins its bytes.
+   */
+  public static final long CAST_FUZZ_SEED = 20261031L;
+
   // The generator's magnitude bounds saturate rather than wrap, in *every* arm that combines
   // two of them - `boundsOf` and the generator alike. Four nested multiplies of a column's own
   // bound pass 2^63, and a bound that came back negative would let `fitsUnderChrono` admit an
@@ -459,6 +466,82 @@ public final class VarkaIrGrammar {
       roots = distinct(drawn);
     }
     return new Drawn(roots, numInputs, numLiterals, smallOrdinal, levelOrdinal);
+  }
+
+  /**
+   * The columns of {@link #drawCastShape}, by ordinal: a {@code TINYINT}, a {@code SMALLINT}, an
+   * {@code INT} and a {@code BIGINT} column, and at {@link #CAST_BOOL_COLUMN} a {@code BOOLEAN}.
+   */
+  public static final List<LaneType> CAST_COLUMNS =
+      List.of(LaneType.BYTE, LaneType.SHORT, LaneType.INT, LaneType.LONG);
+
+  /** The ordinal of {@link #drawCastShape}'s {@code BOOLEAN} column. */
+  public static final int CAST_BOOL_COLUMN = 4;
+
+  /**
+   * One cast of VARKA-332's five compositions (`VARKA-332.md` 2.1) as a single root over
+   * {@link #CAST_COLUMNS}: a widening of a column to a wider lane; a narrowing to a narrower one,
+   * bare (the wrap) or over a range guard of the target's range in {@code FAIL} or {@code NULL}
+   * mode; the test {@code NOT(x = 0)}, the zero literal slot 0 of the column's lane; and a
+   * {@code BOOLEAN} column's value at any integral lane. One root a draw: two roots of different
+   * lanes would be two kernels.
+   */
+  public static VarkaVectorIR drawCastShape(Random rnd) {
+    LaneType[] lanes = CAST_COLUMNS.toArray(new LaneType[0]);
+    // The first draw of a Random seeded with consecutive seeds varies only in its low bits, and a
+    // bound of four reads the high ones: over a thousand draws it took two compositions of the
+    // four, so the composition is drawn after one discarded value.
+    rnd.nextLong();
+    return switch (rnd.nextInt(4)) {
+      case 0 -> {
+        int from = rnd.nextInt(3);
+        int to = from + 1 + rnd.nextInt(3 - from);
+        yield new WidenLane(new ColumnRef(from, lanes[from]), lanes[to]);
+      }
+      case 1 -> {
+        int from = 1 + rnd.nextInt(3);
+        int to = rnd.nextInt(from);
+        VarkaVectorIR x = new ColumnRef(from, lanes[from]);
+        VarkaTypes.IntegralRange range = VarkaTypes.integralRange(lanes[to]);
+        VarkaVectorIR guarded = switch (rnd.nextInt(3)) {
+          case 0 -> x;
+          case 1 -> new GuardedRange(x, range.min(), range.max(), Overflow.FAIL);
+          default -> new GuardedRange(x, range.min(), range.max(), Overflow.NULL);
+        };
+        yield new NarrowLane(guarded, lanes[to]);
+      }
+      case 2 -> {
+        int from = rnd.nextInt(4);
+        yield new Not(new Compare(CompareOp.EQ, new ColumnRef(from, lanes[from]),
+            new LiteralSlot(0, lanes[from])));
+      }
+      default -> {
+        LaneType lane = lanes[rnd.nextInt(4)];
+        yield new CondValue(new BoolColumn(CAST_BOOL_COLUMN, lane), lane);
+      }
+    };
+  }
+
+  /**
+   * A value of {@link #drawCastShape}'s column {@code c}: one of its lane's ends or a narrower
+   * lane's ends and their neighbours a quarter of the time, so the guards meet both sides of
+   * their bounds, and otherwise any value of the lane; a 0 or a 1 for the {@code BOOLEAN}.
+   */
+  public static long castValue(Random rnd, int c) {
+    if (c == CAST_BOOL_COLUMN) {
+      return rnd.nextInt(2);
+    }
+    VarkaTypes.IntegralRange own = VarkaTypes.integralRange(CAST_COLUMNS.get(c));
+    if (rnd.nextInt(4) == 0) {
+      VarkaTypes.IntegralRange at = VarkaTypes.integralRange(CAST_COLUMNS.get(rnd.nextInt(c + 1)));
+      long end = rnd.nextBoolean() ? at.min() : at.max();
+      int step = rnd.nextInt(3) - 1;
+      // One past an end of the source's own lane is no value of it, and would wrap a long.
+      boolean past = (end == own.min() && step < 0) || (end == own.max() && step > 0);
+      return past ? end : end + step;
+    }
+    return own.min() == Long.MIN_VALUE ? rnd.nextLong()
+        : own.min() + (long) (rnd.nextDouble() * (own.max() - own.min() + 1));
   }
 
   /**

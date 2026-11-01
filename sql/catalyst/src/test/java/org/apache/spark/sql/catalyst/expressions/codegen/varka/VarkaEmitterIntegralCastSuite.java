@@ -36,6 +36,7 @@ import scala.jdk.javaapi.CollectionConverters;
 
 import org.apache.spark.sql.catalyst.expressions.Attribute;
 import org.apache.spark.sql.catalyst.expressions.Cast;
+import org.apache.spark.sql.catalyst.expressions.EqualTo;
 import org.apache.spark.sql.catalyst.expressions.EvalMode;
 import org.apache.spark.sql.catalyst.expressions.Expression;
 import org.apache.spark.sql.catalyst.expressions.Greatest;
@@ -501,6 +502,26 @@ public final class VarkaEmitterIntegralCastSuite {
               Long.MIN_VALUE, 255, 65535, 1L << 40};
           var batches = batches(values);
           runAll((Kernel) down, batches, "BIGINT to " + narrow.sql() + " " + mode.name() + at);
+          // Away from a store: L2I and the wrap at the int lane, read by a widening back to the
+          // long lane, and by a comparison with a narrow column, which is loaded at the long
+          // width when the width has the load.
+          Expression back = cast(cast(BIGINT.column(), narrow, mode), BIGINT, LEGACY);
+          runAll((Kernel) compile(back, List.of(BIGINT.column()), options), batches,
+              back.sql() + " " + mode.name() + at);
+          Expression equal = new EqualTo(cast(BIGINT.column(), narrow, mode), narrow.column());
+          List<Attribute> two = List.of(BIGINT.column(), narrow.column());
+          Object compared = compile(equal, two, options);
+          if (loads) {
+            var data = new long[][] {values, prefix(new long[] {0, 1, -1, 127, -128, 32767,
+                -32768}, values.length)};
+            var isNull = new boolean[2][values.length];
+            isNull[1][3] = true;
+            runAll((Kernel) compared, List.of(new LongBatch(values.length, isNull, data, false)),
+                equal.sql() + " " + mode.name() + at);
+          } else {
+            assertTrue(compared instanceof String reason && widthDecline(reason),
+                at + ": " + compared);
+          }
         }
       }
     }

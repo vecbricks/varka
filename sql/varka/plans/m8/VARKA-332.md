@@ -468,12 +468,16 @@ What was built, per item of section 5 step 2:
   `VarkaTypes.integralRange`, beside the lane, a function of the lane rather than a component of
   each registry entry (open point 1). Row 28's three arms stay in `arithmeticArm`, and the family
   claims none of them.
-- **The narrow load and store at the long width** (2.5): `VarkaKernelPlan.longNarrowRefusal`
-  admits a narrow column under a `WidenLane` to the long lane (or a null test) and a long value
-  narrowed to a narrow type at a root, and nothing else narrow; the load reads twice the long
-  lanes of the narrow type into the int species of the long width, low half, then `I2L`, and the
-  kernel is a mixed one, so its loop bound already covers the whole int vector the load reads. The
-  store converts with `L2I` and stores through the narrow species under the group's mask. The part
+- **The narrow load and store at the long width** (2.5): a long kernel emits a narrow value at
+  the int lane, in the int species of the long width, low half, as it emits an int one.
+  `VarkaKernelPlan.longNarrowRefusal` admits the narrow nodes that need nothing narrow-specific
+  there - a narrow column, a narrow literal, a long value narrowed to a narrow type, and a
+  comparison of them, read by a widening, a null test or a comparison, and a narrow-typed root
+  narrowing an int value - and declines every other narrow node (narrow arithmetic or a narrow
+  choice beside a bigint). The load reads twice the long lanes of the narrow type into the int
+  species, then `I2L`; the kernel is a mixed one, so its loop bound already covers the whole int
+  vector the load reads. A narrowing at a root converts with `L2I` and stores through the narrow
+  species under the group's mask; away from a root it is `L2I` and the shift pair's wrap. The part
   form at the long width is not built: a byte column at two long lanes (128 bits) declines by name
   ("a BYTE column has no load at 2 long lanes"), the decline section 7 lists.
 - **The narrowings in LEGACY and ANSI**: `NarrowLane(g(x), target)`, `g` a `FAIL` range guard under
@@ -503,8 +507,19 @@ What was built, per item of section 5 step 2:
 - **The default groups**: `dev/varka_census.py`'s `cast_rows` marks `TIME` to an integral type,
   `TIME` to `TIME` and `DATE` to a number or `BOOLEAN` `unclaimed` (`dt` to `dt` was already 103's).
 
-Not built in 332a, each with its reason: the IR grammar's productions for the casts (3.7) and the
-Spark-level fuzzer's cast productions, left to the next step for budget. The warm-up (2.6): the
+- **The IR fuzzer** (3.7): `VarkaIrGrammar.drawCastShape`, a sequence of its own seed
+  (`CAST_FUZZ_SEED`), draws the compositions - a widening, a narrowing bare or under a `FAIL` or a
+  `NULL` range guard, the test and the select - over a column of each integral type and a
+  `BOOLEAN` one, at every lane, and `VarkaIrFuzzSuite` runs it against the reference with the
+  other corpora's lengths, null patterns and options; a reach test holds every composition, mode
+  and lane drawn. Its first run found a real fault: a `CondValue` root at a narrow lane over a
+  boolean column reads no narrow column, so the plan's narrow refusal, which asked only whether a
+  tree reads a narrow value, let it through at a width with no baked lane count, and its store
+  then named the preferred narrow species and wrote past the batch. A narrow-typed value root now
+  counts as needing the narrow species.
+
+Not built in 332a: the Spark-level fuzzer's cast productions (3.7's second half), left to row 352,
+which the plan already names for the rest of the register. The warm-up (2.6): the
 long-width load names the species and conversions the widened int-driven load already warms, so
 it needed nothing; what `VarkaWarmupReachSuite` found missing was the narrow and long
 `CondValue`'s masked scalar add (`ByteVector.add(byte, VectorMask)` and its short and long kin),

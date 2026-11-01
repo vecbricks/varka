@@ -1298,10 +1298,12 @@ final class Analysis {
       case BYTE, SHORT, FLOAT, DOUBLE -> node.laneType() == lane.laneType;
       case INT -> node.laneType() != VarkaVectorIR.LaneType.LONG
           && !node.laneType().isFloating();
-      // The plan admits a narrow column and a narrowing root of a long value there and nothing
-      // else narrow (VarkaKernelPlan.longNarrowRefusal, VARKA-332).
+      // The plan admits narrow columns, narrowings and comparisons there and nothing else
+      // narrow (VarkaKernelPlan.longNarrowRefusal, VARKA-332).
       case LONG -> (!node.laneType().isNarrow() || validityOnlyNarrow.contains(node)
-          || node instanceof ColumnRef || node instanceof NarrowLane)
+          || node instanceof ColumnRef || node instanceof NarrowLane || node instanceof Compare
+          || node instanceof NullSafeEqual || node instanceof And || node instanceof Or
+          || node instanceof Not || node instanceof BoolOutput)
           && !node.laneType().isFloating();
     };
     if (!fits) {
