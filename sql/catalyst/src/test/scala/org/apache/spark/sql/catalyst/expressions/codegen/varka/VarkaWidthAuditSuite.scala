@@ -146,9 +146,10 @@ class VarkaWidthAuditSuite extends SparkFunSuite with VarkaTestWatchdog {
         VarkaProbeOutput.after(line, CONVERSIONS_FALL_BACK_PREFIX).foreach { v =>
           fallsBack = Some(v.trim.startsWith("true"))
         }
-        VarkaProbeOutput.after(line, FEATURES_FAILURE_PREFIX).foreach { f =>
-          featuresFailure = Some(Option(f.trim).filter(_.nonEmpty))
-        }
+        // The probe folds the failure onto one line and closes it, so a compile record glued
+        // after it is left out.
+        VarkaProbeOutput.between(line, FEATURES_FAILURE_PREFIX, FEATURES_FAILURE_END)
+          .foreach(f => featuresFailure = Some(Option(f).filter(_.nonEmpty)))
         VarkaProbeOutput.after(line, FEATURES_PREFIX).foreach { f =>
           logInfo(s"the audit probe's JVM reports the features: ${f.trim}")
         }
@@ -334,7 +335,9 @@ class VarkaWidthAuditSuite extends SparkFunSuite with VarkaTestWatchdog {
     // reported as such rather than as a refusal nobody expected.
     census.featuresFailure.filter(_ => VarkaHostIsa.isX86(System.getProperty("os.arch", "")))
       .foreach { failure =>
-        val converts = census.refusals.values.flatten
+        // The opt-in magic-form shapes are outside the invariant below, so not here either.
+        val converts = census.refusals.filter { case (name, _) => !name.contains(magicForm) }
+          .values.flatten
           .filter(o => isRefusal(o) && knownConversionRefusal(conversionsFallBack = true, o))
         assert(converts.isEmpty,
           s"on $cpuModel at ${census.preferredBits} bits (UseAVX ${census.useAVX}): feature " +
@@ -504,11 +507,23 @@ class VarkaWidthAuditSuite extends SparkFunSuite with VarkaTestWatchdog {
     assert(knownConversionRefusal(conversionsFallBack = true, l2d))
     assert(!knownConversionRefusal(conversionsFallBack = false, l2d))
     assert(!knownConversionRefusal(conversionsFallBack = true, other))
-    // The probe's own answer keys its census; it is held to this JVM's only like for like. The
-    // fork inherits none of this JVM's -XX options, so a suite run under -XX:UseAVX=2 on an
-    // AVX-512 host answers differently from a fork at the host's level, and either JVM may fail
-    // its read; the two answers are compared only at one level, with both lists read.
+    // The probe's own answer keys its census, and on x86 an unread list answers "converts"
+    // whatever the CPU, so both JVMs must read it there: the fork through audit()'s
+    // --add-exports, this JVM through the build's. A dropped export fails here rather than
+    // quietly turning every DQ-less host into one whose converts the census expects to lower.
     val suite = VarkaHostIsa.host()
+    if (suite.x86()) {
+      assert(atPreferred.featuresFailure.isEmpty,
+        s"the audit probe's JVM could not read its feature list " +
+          s"(${atPreferred.featuresFailure.getOrElse("")}); audit() must pass --add-exports of " +
+          "java.base/jdk.internal.vm.vector")
+      assert(suite.readable(),
+        s"this JVM could not read its feature list (${suite.failure()}); the build's test " +
+          "options must export java.base/jdk.internal.vm.vector")
+    }
+    // The two answers are held to each other only like for like. The fork inherits none of this
+    // JVM's -XX options, so a suite run under -XX:UseAVX=2 on an AVX-512 host answers
+    // differently from a fork at the host's level; they are compared only at one level.
     if (atPreferred.useAVX == VarkaEmitOptions.HOST_USE_AVX && suite.readable() &&
         atPreferred.featuresFailure.isEmpty) {
       assert(atPreferred.conversionsFallBack === suite.conversionsFallBack(),

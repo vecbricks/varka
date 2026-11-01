@@ -151,9 +151,12 @@ public record VarkaSessionEmit(
     hostForTesting = host;
   }
 
-  /** Forgets that the unreadable-list warning was written, so a test can watch it written. */
-  static void resetUnreadableLoggedForTesting() {
-    UNREADABLE_LOGGED.set(false);
+  /**
+   * Sets whether the unreadable-list warning counts as written, so a test can watch it written,
+   * and returns what it was, so the test can put the JVM-wide flag back.
+   */
+  static boolean setUnreadableLoggedForTesting(boolean logged) {
+    return UNREADABLE_LOGGED.getAndSet(logged);
   }
 
   /** {@code base} with the session's settings laid over it, or {@code base} when none is set. */

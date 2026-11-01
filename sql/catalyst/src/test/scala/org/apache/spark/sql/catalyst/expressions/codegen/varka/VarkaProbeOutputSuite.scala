@@ -73,6 +73,24 @@ class VarkaProbeOutputSuite extends SparkFunSuite with VarkaMatrixTests {
       " VARKA_X_NAME_END").contains(name))
   }
 
+  test("a multi-line failure folded by the audit probe reads back whole between its marks") {
+    // An exception message with a line that starts like a C2 refusal, which the audit reader
+    // would otherwise file under the shape being run (VARKA-538).
+    val failure = "IllegalAccessException: jdk.internal.vm.vector not exported\n" +
+      "** not supported: arity=1\r\tat C:\\x" + 1.toChar
+    val folded = VarkaWidthAuditProbe.oneLine(failure)
+    assert(!folded.exists(Character.isISOControl), folded)
+    assert(folded === "IllegalAccessException: jdk.internal.vm.vector not exported\\n" +
+      "** not supported: arity=1\\r\\tat C:\\\\x\\" + "u0001")
+    val prefix = VarkaWidthAuditProbe.FEATURES_FAILURE_PREFIX
+    val end = VarkaWidthAuditProbe.FEATURES_FAILURE_END
+    Seq(prefix + folded + end, prefix + folded + end + record).foreach { line =>
+      assert(VarkaProbeOutput.between(line, prefix, end).contains(folded), line)
+    }
+    assert(VarkaProbeOutput.between(prefix + VarkaWidthAuditProbe.oneLine("") + end + record,
+      prefix, end).contains(""))
+  }
+
   test("the text after a prefix keeps the payload's fields, with a glued record after them") {
     val line = record + "VARKA_X_BEGIN=probe pid=41 outputs=16 ceiling=400" + record
     val payload = VarkaProbeOutput.after(line, "VARKA_X_BEGIN=").get

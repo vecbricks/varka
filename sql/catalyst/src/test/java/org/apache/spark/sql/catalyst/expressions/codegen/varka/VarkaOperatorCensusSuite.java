@@ -412,6 +412,11 @@ public final class VarkaOperatorCensusSuite {
     return result;
   }
 
+  /** The census if this JVM has already taken it, or null: asking never forks. */
+  private static synchronized Census censusIfTaken() {
+    return census;
+  }
+
   /** The catalog without the planted cases, which the self-tests run. */
   private static List<VarkaOperatorCensusCatalog> cells() {
     return VarkaOperatorCensusCatalog.ENTRIES.stream()
@@ -552,12 +557,14 @@ public final class VarkaOperatorCensusSuite {
   /**
    * Holds the host fact of a JVM under {@code flags} to the conversion cells measured under the
    * same flags, at every width it runs: a fallback answer exactly where a cell reads F. At the
-   * host's own flags the census has measured the cells already, so only another flag set forks.
+   * host's own flags a census this JVM has already taken holds the cells; otherwise only the
+   * conversion cells fork, not the whole catalog, so the test run alone stays cheap.
    */
   private static void holdHostFactToCells(String... flags) throws Exception {
     HostFact fact = hostFact(flags);
+    Census taken = flags.length == 0 ? censusIfTaken() : null;
     Map<Integer, Map<String, Reading>> byWidth =
-        flags.length == 0 ? census().byWidth : conversionCells(flags);
+        taken != null ? taken.byWidth : conversionCells(flags);
     var disagree = new ArrayList<String>();
     for (Map.Entry<Integer, Map<String, Reading>> width : byWidth.entrySet()) {
       for (String cell : DQ_CELLS) {

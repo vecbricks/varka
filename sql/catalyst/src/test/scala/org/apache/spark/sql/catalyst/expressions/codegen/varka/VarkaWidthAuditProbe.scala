@@ -55,8 +55,13 @@ object VarkaWidthAuditProbe {
   val CONVERSIONS_FALL_BACK_PREFIX = "VARKA_AUDIT_CONVERSIONS_FALL_BACK="
   /** HotSpot's feature list as `VarkaHostIsa` read it, for the log; empty where unread. */
   val FEATURES_PREFIX = "VARKA_AUDIT_FEATURES="
-  /** Why `VarkaHostIsa` could not read the list in the probe's JVM; empty where it read it. */
+  /**
+   * Why `VarkaHostIsa` could not read the list in the probe's JVM; empty where it read it.
+   * Folded onto one line by [[oneLine]] and closed with [[FEATURES_FAILURE_END]], since the
+   * line is shared with C2's output and a parser reads `** ` at a line's start as a refusal.
+   */
   val FEATURES_FAILURE_PREFIX = "VARKA_AUDIT_FEATURES_FAILURE="
+  val FEATURES_FAILURE_END = " VARKA_AUDIT_FAILURE_END"
   val SHAPE_BEGIN_PREFIX = "VARKA_AUDIT_SHAPE_BEGIN "
   val SHAPE_END_PREFIX = "VARKA_AUDIT_SHAPE_END "
   val SHAPE_NAME_END = " VARKA_AUDIT_NAME_END"
@@ -83,7 +88,8 @@ object VarkaWidthAuditProbe {
     println(USE_AVX_PREFIX + VarkaEmitOptions.HOST_USE_AVX)
     println(CONVERSIONS_FALL_BACK_PREFIX + VarkaHostIsa.conversionsFallBack())
     println(FEATURES_PREFIX + VarkaHostIsa.features())
-    println(FEATURES_FAILURE_PREFIX + Option(VarkaHostIsa.host().failure()).getOrElse(""))
+    println(FEATURES_FAILURE_PREFIX +
+      oneLine(Option(VarkaHostIsa.host().failure()).getOrElse("")) + FEATURES_FAILURE_END)
     val entries: Seq[Entry] = VarkaWidthAuditShapes.all(new File(args(0)))
       .filter(s => args.length == 1 || s.name.contains(args(1)))
     val loader = new VarkaGeneratedClassLoader(getClass.getClassLoader)
@@ -109,6 +115,25 @@ object VarkaWidthAuditProbe {
     }
     println(DONE)
     // scalastyle:on println
+  }
+
+  /**
+   * `text` with its backslashes, line breaks and other control characters written as escapes,
+   * so a multi-line exception message prints as one line the parent can read back whole.
+   */
+  private[varka] def oneLine(text: String): String = {
+    val out = new StringBuilder
+    text.foreach {
+      case '\\' => out ++= "\\\\"
+      case '\n' => out ++= "\\n"
+      case '\r' => out ++= "\\r"
+      case '\t' => out ++= "\\t"
+      case c if Character.isISOControl(c) =>
+        out += '\\'
+        out ++= f"u${c.toInt}%04x"
+      case c => out += c
+    }
+    out.toString
   }
 
   /** The inputs `roots` read as a decimal column, whose buffer is sixteen bytes a row. */
