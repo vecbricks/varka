@@ -794,7 +794,7 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
       Row("d9 <=> d9s4"),
       Row("d16s9 >= d9s4", "at DECIMAL(16, 9): d9s4 times 10^5"),
       Row("d18 > 1.5", "the literal takes its slot at the column's scale, 150"),
-      Row("d9 = 0.425", "at DECIMAL(10, 3): the column times 10, the literal 425"),
+      Row("d9 < 0.425", "at DECIMAL(10, 3): the column times 10, the literal 425"),
       Row("-d9 < d9b", "a negation, which cannot overflow: an unscaled value within 18 digits is "
         + "never the long lane's minimum"),
       Row("abs(d9) >= d9b", "a compare with zero, a negation and a blend; the lanewise ABS is "
@@ -1424,7 +1424,7 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
     "d9 <=> d9s4" -> Refined("d9 <=> d9s4"),
     "d16s9 >= d9s4" -> Refined("d16s9 >= d9s4"),
     "d18 > 1.5" -> Refined("d18 > 1.5"),
-    "d9 = 0.425" -> Refined("d9 = 0.425"),
+    "d9 < 0.425" -> Refined("d9 < 0.425"),
     "-d9 < d9b" -> Refined("-d9 < d9b"),
     "abs(d9) >= d9b" -> Refined("abs(d9) >= d9b"),
     "greatest(d9, d9s4) > d9b" -> Refined("greatest(d9, d9s4) > d9b"),

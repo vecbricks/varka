@@ -561,7 +561,7 @@ without `ELSE` declines naming row 333. The emitter lowers a long-lane `abs` as
 **The coverage rows.** Two fixture columns, `d9s4` (`DECIMAL(9, 4)`, from `l`'s last nine
 digits) and `d16s9` (`DECIMAL(16, 9)`, from `l2`'s last sixteen), in `VarkaCoverageSuite`, the
 bytes and width-audit copies and the differential's view. Twelve predicate rows: `d9 < d9s4`,
-`d9 = d9s4`, `d9 <=> d9s4`, `d16s9 >= d9s4`, `d18 > 1.5`, `d9 = 0.425`, `-d9 < d9b`,
+`d9 = d9s4`, `d9 <=> d9s4`, `d16s9 >= d9s4`, `d18 > 1.5`, `d9 < 0.425`, `-d9 < d9b`,
 `abs(d9) >= d9b`, `greatest(d9, d9s4) > d9b`, `coalesce(d9, d9b) IS NULL`, `(-d18) IS NOT NULL`
 and `CASE WHEN d9 < d9b THEN d9 ELSE d9s4 END > 0.0`, each refined whole in a decimal section of
 `refinement.smt2`. Regenerated in `ADDING_A_TYPE.md`'s order, `emitted_bytes.json` adds the
@@ -636,6 +636,11 @@ is not a decimal's. The registry's `Owed("Decimal", "348")` names 359, as sectio
   `2026101300002L`, 195413, whose stranger then no longer fitted under its redrawn size options.
   The shape still grows past the op cap, as the test's first assertion checks, so the test now
   runs that draw's variants under `VarkaMatrix.base`, which no later option moves.
+- **The literal at the larger scale is `d9 < 0.425`, not `d9 = 0.425`.** Section 3 item 4
+  lists the equality. Spark's optimizer (`UnwrapCastInBinaryComparison`) folds it to false,
+  since a `DECIMAL(9, 2)` never equals 0.425, so end to end no kernel ever sees it and the
+  coverage harness fails it as a row that does not stay a filter; the comparison keeps the
+  rescale of the column by 10 against the literal 425 in the analyzed form, and stays a filter.
 - **`IN` and `InSet` are not in 348a.** Row 497's single `IN` arm exists only as a plan
   (`varka-497-499-plan`, #1179), so, as section 5 item 3 allows, 348a lands without them, writes
   no fifth arm, and leaves out the coverage rows `d9 IN (1.25, 2.5, 3)` and the eleven-literal

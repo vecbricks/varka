@@ -4270,17 +4270,17 @@
     "note" : "the literal takes its slot at the column's scale, 150",
     "verified" : "refinement: d18 > 1.5"
   }, {
-    "sql" : "d9 = 0.425",
-    "executable" : "d9 = 0.425",
+    "sql" : "d9 < 0.425",
+    "executable" : "d9 < 0.425",
     "family" : "DECIMAL columns",
     "form" : "predicate",
-    "catalyst" : [ "Cast", "EqualTo" ],
+    "catalyst" : [ "Cast", "LessThan" ],
     "casts" : [ "dec>dec:ansi" ],
-    "operands" : [ "Cast:dec", "EqualTo:dec" ],
+    "operands" : [ "Cast:dec", "LessThan:dec" ],
     "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
     "domain" : "",
     "note" : "at DECIMAL(10, 3): the column times 10, the literal 425",
-    "verified" : "refinement: d9 = 0.425"
+    "verified" : "refinement: d9 < 0.425"
   }, {
     "sql" : "-d9 < d9b",
     "executable" : "-d9 < d9b",

@@ -3756,7 +3756,7 @@
 (check-sat)
 (pop 1)
 
-(echo "d9 = 0.425, Spark mode: at DECIMAL(10, 3), the column times 10 and the literal 425: 1. the precondition admits a valid lane the specification defines and the kernel answers: expect sat")
+(echo "d9 < 0.425, Spark mode: at DECIMAL(10, 3), the column times 10 and the literal 425: 1. the precondition admits a valid lane the specification defines and the kernel answers: expect sat")
 (push 1)
 (declare-const a Int) (declare-const va Bool)
 (assert (jlong.in a))
@@ -3768,7 +3768,7 @@
 (check-sat)
 (pop 1)
 
-(echo "d9 = 0.425, Spark mode: at DECIMAL(10, 3), the column times 10 and the literal 425: 2. a decline wherever the specification raises: expect unsat")
+(echo "d9 < 0.425, Spark mode: at DECIMAL(10, 3), the column times 10 and the literal 425: 2. a decline wherever the specification raises: expect unsat")
 (push 1)
 (declare-const a Int) (declare-const va Bool)
 (assert (jlong.in a))
@@ -3778,7 +3778,7 @@
 (check-sat)
 (pop 1)
 
-(echo "d9 = 0.425, Spark mode: at DECIMAL(10, 3), the column times 10 and the literal 425: 3. the validity equal where neither raises nor declines: expect unsat")
+(echo "d9 < 0.425, Spark mode: at DECIMAL(10, 3), the column times 10 and the literal 425: 3. the validity equal where neither raises nor declines: expect unsat")
 (push 1)
 (declare-const a Int) (declare-const va Bool)
 (assert (jlong.in a))
@@ -3789,7 +3789,7 @@
 (check-sat)
 (pop 1)
 
-(echo "d9 = 0.425, Spark mode: at DECIMAL(10, 3), the column times 10 and the literal 425: 4. the values equal on valid lanes: expect unsat")
+(echo "d9 < 0.425, Spark mode: at DECIMAL(10, 3), the column times 10 and the literal 425: 4. the values equal on valid lanes: expect unsat")
 (push 1)
 (declare-const a Int) (declare-const va Bool)
 (assert (jlong.in a))
@@ -3797,11 +3797,11 @@
 (assert (not (and va (> (abs a) 999999999))))
 (assert (not (and va (> (abs a) 999999999))))
 (assert va)
-(assert (not (= (= (jlong.mul a 10) 425) (= (* a 1000) (* 425 100)))))
+(assert (not (= (< (jlong.mul a 10) 425) (< (* a 1000) (* 425 100)))))
 (check-sat)
 (pop 1)
 
-(echo "d9 = 0.425, Spark mode: at DECIMAL(10, 3), the column times 10 and the literal 425: 5. a decline only where the specification raises or the input leaves the bound: expect unsat")
+(echo "d9 < 0.425, Spark mode: at DECIMAL(10, 3), the column times 10 and the literal 425: 5. a decline only where the specification raises or the input leaves the bound: expect unsat")
 (push 1)
 (declare-const a Int) (declare-const va Bool)
 (assert (jlong.in a))

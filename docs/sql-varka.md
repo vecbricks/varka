@@ -791,7 +791,7 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `d9 <=> d9s4` | `predicate` |  |  | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
 | `d16s9 >= d9s4` | `predicate` |  | at DECIMAL(16, 9): d9s4 times 10^5 | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
 | `d18 > 1.5` | `predicate` |  | the literal takes its slot at the column's scale, 150 | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
-| `d9 = 0.425` | `predicate` |  | at DECIMAL(10, 3): the column times 10, the literal 425 | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
+| `d9 < 0.425` | `predicate` |  | at DECIMAL(10, 3): the column times 10, the literal 425 | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
 | `-d9 < d9b` | `predicate` |  | a negation, which cannot overflow: an unscaled value within 18 digits is never the long lane's minimum | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
 | `abs(d9) >= d9b` | `predicate` |  | a compare with zero, a negation and a blend; the lanewise ABS is the decimalAbsLanewise option | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
 | `greatest(d9, d9s4) > d9b` | `predicate` |  | the null-skipping pick at DECIMAL(11, 4), each branch carrying its rescale | per-lane: compare to mask, mask cast, other, blend, mask logic, mask broadcast, mask test |
