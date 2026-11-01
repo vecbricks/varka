@@ -526,6 +526,23 @@ public final class VarkaKernelChecks {
         : new LongLane(batch, lits, false);
   }
 
+  /** Whether some node of {@code roots} is on a 64-bit lane, the long or the double one. */
+  static boolean holdsWideValue(List<VarkaVectorIR> roots) {
+    var seen = new HashSet<VarkaVectorIR>();
+    var todo = new ArrayDeque<VarkaVectorIR>(roots);
+    while (!todo.isEmpty()) {
+      VarkaVectorIR node = todo.pop();
+      if (!seen.add(node)) {
+        continue;
+      }
+      if (node.laneType().bits() == Long.SIZE) {
+        return true;
+      }
+      todo.addAll(Arrays.asList(VarkaVectorIR.childrenOf(node)));
+    }
+    return false;
+  }
+
   /** Whether {@code roots} hold a value of each lane; see {@link #longLane}. */
   static boolean holdsBothLanes(List<VarkaVectorIR> roots) {
     var seen = new HashSet<VarkaVectorIR>();
@@ -1034,13 +1051,29 @@ public final class VarkaKernelChecks {
    * eight bytes a row.
    */
   private record MixedLane(LongBatch batch, int[] intLits, long[] longLits,
-      VarkaVectorIR.LaneType[] columnLanes) implements Lane {
+      VarkaVectorIR.LaneType[] columnLanes, boolean wideRoots) implements Lane {
     MixedLane(LongBatch batch, int[] intLits, long[] longLits, List<VarkaVectorIR> roots) {
-      this(batch, intLits, longLits, VarkaKernelChecks.columnLanes(roots, batch.data().length));
+      this(batch, intLits, longLits, VarkaKernelChecks.columnLanes(roots, batch.data().length),
+          holdsWideValue(roots));
     }
 
+    /** Whether column {@code c} is stored four bytes a row: an int column, or a float one. */
     private boolean intColumn(int c) {
-      return columnLanes[c] == VarkaVectorIR.LaneType.INT;
+      return columnLanes[c].bits() == Integer.SIZE;
+    }
+
+    /**
+     * Whether the kernel is driven at 64 bits, and so runs through the long entry point: every
+     * tree of both widths and every long one; a tree of the int and float lanes alone (VARKA-343)
+     * is driven at 32 bits and runs through the int entry point.
+     */
+    private boolean wide() {
+      for (VarkaVectorIR.LaneType lane : columnLanes) {
+        if (lane.bits() == Long.SIZE) {
+          return true;
+        }
+      }
+      return wideRoots;
     }
 
     @Override public int length() {
@@ -1069,7 +1102,7 @@ public final class VarkaKernelChecks {
       if (root instanceof WidenDecimal) {
         return DECIMAL_SLOT;
       }
-      return width(rootLane == VarkaVectorIR.LaneType.INT
+      return width(rootLane.bits() == Integer.SIZE
           ? VarkaVectorIR.LaneType.INT : VarkaVectorIR.LaneType.LONG);
     }
 
@@ -1119,8 +1152,11 @@ public final class VarkaKernelChecks {
 
     @Override public int run(VarkaFusedKernel kernel, long[] srcData, long[] srcValidity,
         int[] nullCounts, long[] outData, long[] outValidity, long scratch) {
-      return kernel.run(srcData, srcValidity, nullCounts, outData, outValidity, intLits,
-          longLits, length(), scratch);
+      return wide()
+          ? kernel.run(srcData, srcValidity, nullCounts, outData, outValidity, intLits,
+              longLits, length(), scratch)
+          : kernel.run(srcData, srcValidity, nullCounts, outData, outValidity, intLits,
+              length(), scratch);
     }
 
     @Override public OptionalLong reference(VarkaVectorIR root, long[] values, boolean[] isNull) {

@@ -47,6 +47,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Bit
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BoolOutput;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BoundedDivide;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ConstDivide;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ConvertLane;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IntNeg;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IsNotNull;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LastDay;
@@ -289,6 +290,8 @@ public final class VarkaRangeAnalysis {
       // A sign extension keeps every value, so an int's range is its widening's, asked as an
       // int: what a long-lane consumer such as a division by a constant needs to know of its
       // dividend.
+      // A conversion with a floating side: the lattice tracks no floating value (VARKA-343).
+      case ConvertLane _ -> VarkaValueRange.UNKNOWN;
       case WidenLane n -> kind != Kind.INT ? VarkaValueRange.UNKNOWN
           : range(n.child(), Kind.INT, policy, literals, columns);
       // A 32-bit value computed in the long lane, whose ranges this lattice does not track, bar

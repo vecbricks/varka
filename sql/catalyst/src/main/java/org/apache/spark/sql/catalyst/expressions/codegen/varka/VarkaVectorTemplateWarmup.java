@@ -657,7 +657,7 @@ final class VarkaVectorTemplateWarmup {
         if (sw != null) {
           acc += widenedShorts(sw, is, segment);
         }
-        acc += conversions(is, ls, ds, ia, la, da);
+        acc += conversions(is, ls, ds, fs, ia, la, da);
         // After every round, the last included: one round's burst can put the queue over the
         // limit on a small host. See the class doc, "Paced on C2's queue".
         waited += awaitC2Queue(PACE_BUDGET_MILLIS - waited);
@@ -997,7 +997,7 @@ final class VarkaVectorTemplateWarmup {
     }
 
     private static long conversions(VectorSpecies<Integer> is, VectorSpecies<Long> ls,
-        VectorSpecies<Double> ds, int[] ia, long[] la, double[] da) {
+        VectorSpecies<Double> ds, VectorSpecies<Float> fs, int[] ia, long[] la, double[] da) {
       IntVector i = IntVector.fromArray(is, ia, 0);
       LongVector l = LongVector.fromArray(ls, la, 0);
       DoubleVector d = DoubleVector.fromArray(ds, da, 0);
@@ -1010,6 +1010,15 @@ final class VarkaVectorTemplateWarmup {
             + (long) i.convertShape(VectorOperators.I2D, ds, 0).reinterpretAsDoubles().lane(0)
             + d.convertShape(VectorOperators.D2I, is, 0).reinterpretAsInts().lane(0)
             + l.reinterpretAsDoubles().reinterpretAsLongs().lane(0);
+        // The conversions to a floating lane and between the two (VARKA-343), and the mask
+        // crossing between the two lanes of one width, a double mask cast to the long species.
+        FloatVector f = (FloatVector) i.convertShape(VectorOperators.I2F, fs, 0);
+        acc += (long) (f.lane(0)
+            + ((FloatVector) l.convertShape(VectorOperators.L2F, fs, 0)).lane(0)
+            + ((DoubleVector) l.convertShape(VectorOperators.L2D, ds, 0)).lane(0)
+            + ((DoubleVector) f.convertShape(VectorOperators.F2D, ds, 0)).lane(0)
+            + ((FloatVector) d.convertShape(VectorOperators.D2F, fs, 0)).lane(0))
+            + d.compare(VectorOperators.GT, 0.0).cast(ls).toLong();
       }
       return acc;
     }

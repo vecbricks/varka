@@ -56,6 +56,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Con
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.CondIf;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.CondValue;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ConstDivide;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ConvertLane;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.DateDiff;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.DayOfMonth;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.DayOfWeek;
@@ -130,10 +131,10 @@ final class Slots {
   /** The species local of the lane the loop is driven at. */
   int species;
   /**
-   * In a kernel that converts between lanes, the int species local - the int species of the
-   * driving long species' width - or -1 in every other kernel, which has one species.
+   * In a kernel of several lanes, the species local of each lane other than the drive's - the
+   * species of the driving species' width - keyed by lane; empty in a kernel of one lane.
    */
-  int intSpecies = -1;
+  final Map<Lane, Integer> otherSpecies = new java.util.LinkedHashMap<>();
   /** The lane the loop is driven at, which {@link #species} holds. */
   Lane drive;
   int lanes;
@@ -141,12 +142,14 @@ final class Slots {
   int[] scalarArg;
   int[] broadcastSlot;
   /**
-   * In a kernel that converts between lanes, the int literal table's locals and their hoisted
-   * broadcasts, beside {@link #scalarArg} and {@link #broadcastSlot}, which are the long table's;
-   * null in every other kernel.
+   * In a kernel of several lanes, each other lane's literal locals and their hoisted broadcasts,
+   * beside {@link #scalarArg} and {@link #broadcastSlot}, which are the drive's; empty in a
+   * kernel of one lane. A lane's slots index the literal table of its width, the int table for a
+   * 32-bit lane and the long table for a 64-bit one, so the int and float lanes of one kernel
+   * may each hoist the same slot, read as their own type.
    */
-  int[] intScalarArg;
-  int[] intBroadcastSlot;
+  final Map<Lane, int[]> otherScalarArg = new java.util.LinkedHashMap<>();
+  final Map<Lane, int[]> otherBroadcastSlot = new java.util.LinkedHashMap<>();
   int iVar;
   /**
    * Which of a loop iteration's int lane groups this body emission is emitting: 0, or the
@@ -441,26 +444,27 @@ final class Slots {
   // accessors make that fail at the first emission naming the predicate, rather than as an
   // unboxing NullPointerException or a CodeBuilder's complaint about local -1.
 
-  /** The species local of {@code lane}: the driving lane's, or a mixed kernel's int species. */
+  /** The species local of {@code lane}: the driving lane's, or another lane's of the kernel. */
   int species(Lane lane) {
     if (lane == drive) {
       return species;
     }
-    if (intSpecies < 0) {
+    Integer other = otherSpecies.get(lane);
+    if (other == null) {
       throw VarkaErrors.illegalState("the " + lane + " species is read in a kernel driven at the "
           + drive + " lane that holds no value of it");
     }
-    return intSpecies;
+    return other;
   }
 
-  /** The literal locals of {@code lane}'s table; see {@link #intScalarArg}. */
+  /** The literal locals of {@code lane}'s table; see {@link #otherScalarArg}. */
   int[] scalarArgs(Lane lane) {
-    return lane == drive ? scalarArg : intScalarArg;
+    return lane == drive ? scalarArg : otherScalarArg.get(lane);
   }
 
   /** The hoisted broadcasts of {@code lane}'s literals, or null where none are hoisted. */
   int[] broadcastSlots(Lane lane) {
-    return lane == drive ? broadcastSlot : intBroadcastSlot;
+    return lane == drive ? broadcastSlot : otherBroadcastSlot.get(lane);
   }
 
   /** The epilogue's bounds mask local; see {@link #epilogueReadsMask}. */
@@ -680,16 +684,25 @@ final class Slots {
     // One literal table per lane: the driving lane's here, and in a kernel that converts between
     // lanes the int table's after the broadcasts below. A single-lane kernel's one table is
     // `numLiterals` long, so its locals are numbered as a single-lane kernel's always are.
-    boolean mixed = analysis.mixed();
+    // The other lanes in the enum's order, so that a long kernel of int values, the one kind of
+    // several lanes there was before the floating conversions, numbers its locals as it did.
+    List<Lane> others = new ArrayList<>();
+    for (VarkaVectorIR.LaneType type : VarkaVectorIR.LaneType.values()) {
+      if (analysis.otherLanes().contains(type)) {
+        others.add(Lane.of(type));
+      }
+    }
+    boolean mixed = !others.isEmpty();
     int driveLiterals = mixed ? analysis.literalsOf(analysis.lane) : numLiterals;
     s.scalarArg = new int[driveLiterals];
     java.util.BitSet usedLiterals = perGroup ? new java.util.BitSet(numLiterals) : null;
-    java.util.BitSet usedIntLiterals = perGroup && mixed ? new java.util.BitSet() : null;
+    Map<VarkaVectorIR.LaneType, java.util.BitSet> usedOtherLiterals = new HashMap<>();
     if (usedLiterals != null) {
       for (VarkaVectorIR node : body) {
         if (node instanceof VarkaVectorIR.LiteralSlot l) {
           if (mixed && l.lane() != analysis.lane.laneType) {
-            usedIntLiterals.set(l.index());
+            usedOtherLiterals.computeIfAbsent(l.lane(), k -> new java.util.BitSet())
+                .set(l.index());
           } else {
             usedLiterals.set(l.index());
           }
@@ -720,20 +733,29 @@ final class Slots {
         s.broadcastSlot[j] = slot++;
       }
     }
-    if (mixed) {
-      // The int species and the int table, in a kernel that converts between lanes.
-      s.intSpecies = slot++;
-      int intLiterals = analysis.literalsOf(Lane.INT);
-      s.intScalarArg = new int[intLiterals];
-      for (int j = 0; j < intLiterals; j++) {
-        boolean unused = usedIntLiterals != null && !usedIntLiterals.get(j);
-        s.intScalarArg[j] = unused || strippedDriver ? -1 : slot++;
-      }
-      s.intBroadcastSlot = hoist ? new int[intLiterals] : null;
-      if (s.intBroadcastSlot != null) {
-        for (int j = 0; j < intLiterals; j++) {
-          s.intBroadcastSlot[j] = slot++;
+    for (Lane other : others) {
+      // Each other lane's species and literal table, in a kernel of several lanes.
+      s.otherSpecies.put(other, slot++);
+      int otherLiterals = analysis.literalsOf(other);
+      int[] scalarArgs = new int[otherLiterals];
+      java.util.BitSet used = usedOtherLiterals.get(other.laneType);
+      for (int j = 0; j < otherLiterals; j++) {
+        boolean unused = usedLiterals != null && (used == null || !used.get(j));
+        if (unused || strippedDriver) {
+          scalarArgs[j] = -1;
+          continue;
         }
+        // A long or a double occupies two JVM locals, as the drive's own table steps.
+        scalarArgs[j] = slot;
+        slot += other.localWidth;
+      }
+      s.otherScalarArg.put(other, scalarArgs);
+      if (hoist) {
+        int[] broadcasts = new int[otherLiterals];
+        for (int j = 0; j < otherLiterals; j++) {
+          broadcasts[j] = slot++;
+        }
+        s.otherBroadcastSlot.put(other, broadcasts);
       }
     }
     s.iVar = slot++;
@@ -1058,6 +1080,7 @@ final class Slots {
           ? Integer.MIN_VALUE
           : s.wordRef.get(n.child());
       case WidenLane n -> s.wordRef.get(n.child());
+      case ConvertLane n -> s.wordRef.get(n.child());
       case NarrowLane n -> s.wordRef.get(n.child());
       case WidenDecimal n -> s.wordRef.get(n.child());
       case Year n -> s.wordRef.get(n.days());
@@ -1350,7 +1373,7 @@ final class Slots {
       // Only a ColumnRef: it is loaded under the epilogue's mask. A BoolColumn reads its data bits
       // as a word by the lane count, as a validity word is read, and never touches the mask.
       if (e.getKey() instanceof ColumnRef c && e.getValue() > 0
-          && analysis.laneOf(c) == analysis.lane) {
+          && analysis.sameCount(analysis.laneOf(c))) {
         return true;
       }
     }
@@ -1359,7 +1382,7 @@ final class Slots {
       // A root that writes bitmaps stores nothing under the mask: the lane count truncates them.
       // Nor does a decimal store, which masks its two halves by the slots' longs.
       if (!VarkaVectorIR.writesBitmaps(root) && !(root instanceof NarrowLane)
-          && !(root instanceof WidenDecimal) && analysis.laneOf(root) == analysis.lane) {
+          && !(root instanceof WidenDecimal) && analysis.sameCount(analysis.laneOf(root))) {
         return true;
       }
     }
@@ -1552,6 +1575,7 @@ final class Slots {
         // The conversions read no word: the validity is the child's, demanded by whatever reads
         // it - a root write, a guard, or a consumer above.
         case WidenLane g -> { }
+        case ConvertLane g -> { }
         case NarrowLane g -> { }
         case WidenDecimal g -> { }
         // The rest read no word here. A value node's own word, where it needs one, is
@@ -1621,6 +1645,7 @@ final class Slots {
         case GuardedDay x -> demand(analysis.wordOwner.get(x.days()));
         case GuardedRange x -> demand(analysis.wordOwner.get(x.child()));
         case WidenLane x -> demand(analysis.wordOwner.get(x.child()));
+        case ConvertLane x -> demand(analysis.wordOwner.get(x.child()));
         case NarrowLane x -> demand(analysis.wordOwner.get(x.child()));
         case WidenDecimal x -> demand(analysis.wordOwner.get(x.child()));
         case SubDays x -> { demand(analysis.wordOwner.get(x.days()));

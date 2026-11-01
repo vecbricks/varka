@@ -442,6 +442,7 @@ class VarkaRangeAnalysisSuite extends SparkFunSuite with VarkaTestWatchdog {
         case x: BitOp => value(x.left(), Kind.INT); value(x.right(), Kind.INT)
         case x: BitCount => value(x.child(), Kind.INT)
         case x: MathUnary => value(x.child(), Kind.INT)
+        case x: ConvertLane => value(x.child(), Kind.INT)
         case c: Cond => cond(c)
       }
     }
@@ -543,6 +544,7 @@ class VarkaRangeAnalysisSuite extends SparkFunSuite with VarkaTestWatchdog {
       case x: BitOp => go(x.left(), armed) && go(x.right(), armed)
       case x: BitCount => go(x.child(), armed)
       case x: MathUnary => go(x.child(), armed)
+      case x: ConvertLane => go(x.child(), armed)
       case _: ColumnRef | _: DecimalColumn | _: LiteralSlot => true
       case c: Cond => goCond(c, armed)
     }

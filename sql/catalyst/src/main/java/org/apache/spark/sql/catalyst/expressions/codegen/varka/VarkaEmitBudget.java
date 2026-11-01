@@ -633,7 +633,7 @@ final class VarkaEmitBudget {
       // One lanewise op each: the add or subtract, the min or max, the blend (its condition is a
       // node of its own), the narrowing conversion, the compare.
       case AddDays _, SubDays _, DateDiff _, Greatest _, Least _, WidenLane _,
-          NarrowLane _, Compare _, NullSafeEqual _ -> 1;
+          NarrowLane _, ConvertLane _, Compare _, NullSafeEqual _ -> 1;
       // The blend, plus the shift pair a narrow pick may reduce with at the int lane.
       case IfElse n -> n.laneType().isNarrow() ? 3 : 1;
       // The broadcast 0 and the add of 1 under the known-true mask; its validity, the OR of the

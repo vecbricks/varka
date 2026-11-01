@@ -48,6 +48,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Con
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.CondIf;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.CondValue;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ConstDivide;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ConvertLane;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.DateDiff;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.DayOfMonth;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.DayOfWeek;
@@ -944,6 +945,7 @@ final class Analysis {
         case ColumnRef n -> { }
         case LiteralSlot n -> { }
         case WidenLane n -> { }
+        case ConvertLane n -> { }
         case NarrowLane n -> { }
         case WidenDecimal n -> { }
         case NextDay n -> { }
@@ -1059,7 +1061,7 @@ final class Analysis {
       // error here, so its author decides whether its value commutes with the reduction - a
       // narrow AND, OR or XOR does, a compare or a shift right does not - instead of falling
       // into "not ring" and leaving an unreduced int value for its readers.
-      case ColumnRef _, DecimalColumn _, LiteralSlot _, WidenLane _, NarrowLane _,
+      case ColumnRef _, DecimalColumn _, LiteralSlot _, WidenLane _, NarrowLane _, ConvertLane _,
           WidenDecimal _, AddDays _, SubDays _, AddMonths _, MakeDate _, GuardedDay _,
           GuardedRange _, NextDay _,
           TruncDateDynamic _, DateDiff _, Greatest _, Least _, DayOfWeek _,
@@ -1273,6 +1275,24 @@ final class Analysis {
   }
 
   /**
+   * The lanes other than the drive's that some node is emitted at, each with a species and a
+   * literal table of its own beside the drive's; empty for a kernel of one lane. The plan's.
+   */
+  Set<VarkaVectorIR.LaneType> otherLanes() {
+    return plan.otherLanes();
+  }
+
+  /**
+   * Whether a vector of {@code of} has the drive's lane count: the drive itself, or the other
+   * lane of its width (a double value of a long kernel, a float one of an int kernel). Such a
+   * value is loaded and stored whole at its own species, where a 32-bit value of a 64-bit kernel
+   * fills the low half of its.
+   */
+  boolean sameCount(Lane of) {
+    return of == lane || of.bits == lane.bits;
+  }
+
+  /**
    * The lane count baked for {@code of}'s species, or 0 where none is: {@link #lanes} for the
    * driving lane, and for the int lane of a kernel driven at the long one the int species of the
    * same width, twice the long lanes.
@@ -1307,7 +1327,7 @@ final class Analysis {
    * highest slot its nodes read in that table, since each lane indexes its own.
    */
   int literalsOf(Lane of) {
-    if (!mixed()) {
+    if (otherLanes().isEmpty()) {
       return of == lane ? numLiterals : 0;
     }
     int count = 0;
@@ -1385,6 +1405,7 @@ final class Analysis {
           ? new WordOwner.Own(node)
           : wordOwner.get(n.child());
       case WidenLane n -> wordOwner.get(n.child());
+      case ConvertLane n -> wordOwner.get(n.child());
       case NarrowLane n -> wordOwner.get(n.child());
       case WidenDecimal n -> wordOwner.get(n.child());
       case Year n -> wordOwner.get(n.days());
@@ -1448,6 +1469,7 @@ final class Analysis {
       // A NULL guard's word, like a NULL IntArith's, follows the values and not the bitmaps.
       case GuardedRange n -> n.mode() == Overflow.NULL ? null : pureWord.get(n.child());
       case WidenLane n -> pureWord.get(n.child());
+      case ConvertLane n -> pureWord.get(n.child());
       case NarrowLane n -> pureWord.get(n.child());
       case WidenDecimal n -> pureWord.get(n.child());
       case Year n -> pureWord.get(n.days());
@@ -1553,14 +1575,18 @@ final class Analysis {
     // alone is the exception (`validityOnlyNarrow`): the word is a bit per row at every lane.
     // The IR's own constructors make any other mix unbuildable; this is what catches one built
     // another way.
-    // A floating emission holds only its own lane's nodes, and no integral emission holds a
-    // floating one: the two kinds meet only through a cast, which no kernel builds yet.
+    // The two kinds meet through a ConvertLane, by width (`VARKA-343.md` 2.2): a 32-bit
+    // emission holds the int and float lanes, the narrow ones only at the int drive; a 64-bit
+    // one holds every lane but a narrow value, and a double emission no long node, since a tree
+    // holding one drives at the long lane. A float emission holds its own lane alone: a tree with
+    // an int node drives at the int lane.
+    VarkaVectorIR.LaneType type = node.laneType();
     boolean fits = switch (lane) {
-      case BYTE, SHORT, FLOAT, DOUBLE -> node.laneType() == lane.laneType;
-      case INT -> node.laneType() != VarkaVectorIR.LaneType.LONG
-          && !node.laneType().isFloating();
-      case LONG -> (!node.laneType().isNarrow() || validityOnlyNarrow.contains(node))
-          && !node.laneType().isFloating();
+      case BYTE, SHORT, FLOAT -> type == lane.laneType;
+      case INT -> type.bits() <= Integer.SIZE;
+      case LONG -> !type.isNarrow() || validityOnlyNarrow.contains(node);
+      case DOUBLE -> (!type.isNarrow() || validityOnlyNarrow.contains(node))
+          && type != VarkaVectorIR.LaneType.LONG;
     };
     if (!fits) {
       throw VarkaErrors.illegalArgument("a " + node.laneType() + " node in a "
@@ -1611,6 +1637,7 @@ final class Analysis {
       case GuardedDay n -> analyzeOp(node, false, n.days());
       // The conversions: the child's value in the other lane, and the child's validity.
       case WidenLane n -> analyzeOp(node, false, n.child());
+      case ConvertLane n -> analyzeOp(node, false, n.child());
       case NarrowLane n -> analyzeOp(node, false, n.child());
       // The decimal store interleaves long lanes into sixteen-byte slots: the root's value is its
       // child's, its validity the child's, and the kernel must be driven at the long lane, as a

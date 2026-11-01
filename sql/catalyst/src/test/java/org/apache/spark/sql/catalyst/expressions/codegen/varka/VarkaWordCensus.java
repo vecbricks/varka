@@ -183,7 +183,7 @@ public final class VarkaWordCensus {
           : null;
       case MakeDate _, IntArith _, IntNeg _, ConstDivide _, BoundedDivide _, Cond _,
           CondValue _, BoolOutput _, GuardedDay _, GuardedRange _, WidenLane _,
-          NarrowLane _, WidenDecimal _ -> null;
+          NarrowLane _, ConvertLane _, WidenDecimal _ -> null;
     };
   }
 

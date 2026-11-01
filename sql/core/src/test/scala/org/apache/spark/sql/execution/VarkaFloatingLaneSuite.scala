@@ -380,20 +380,30 @@ class VarkaFloatingLaneSuite extends QueryTest with VarkaSharedSessions with Var
     val lines = VarkaFusionReport.lines(Seq(
       Alias(Coalesce(Seq(x1, x2)), "a")(),
       Alias(Greatest(Seq(x1, x2)), "b")(),
-      Alias(org.apache.spark.sql.catalyst.expressions.Cast(f1, DoubleType), "c")(),
+      Alias(org.apache.spark.sql.catalyst.expressions.Cast(f1, IntegerType), "c")(),
       Alias(org.apache.spark.sql.catalyst.expressions.Remainder(x1, x2), "e")(),
       Alias(org.apache.spark.sql.catalyst.expressions.Add(x1, x2), "g")()), output)
     assert(lines.size == 5, lines)
     assert(lines.head.endsWith(": fused"), lines)
     assert(lines(1).endsWith(": fused"), lines)
-    assert(lines(2).contains("a cast to or from a floating type (row 343)"), lines)
+    assert(lines(2).contains("a cast from a floating type (row 343's second part)"), lines)
     assert(lines(3).contains("a floating remainder (row 346)"), lines)
     assert(lines(4).endsWith(": fused"), lines)
   }
 
+  test("the casts between FLOAT and DOUBLE fuse and keep a NaN's payload, both zeros and the "
+      + "rounding to an infinity") {
+    // The sum of two NaNs has no fixed payload (`VARKA-342.md` 0.6), so that first column is
+    // compared by the NaN rule; the conversions' columns bit for bit, in both modes.
+    for (ansi <- Seq(false, true)) {
+      checkFusedArith("SELECT x2 + CAST(f2 AS DOUBLE) AS b, CAST(f1 AS DOUBLE) AS a, "
+        + "CAST(x1 AS FLOAT) AS c, CAST(f1 AS DOUBLE) / 2.0D AS e FROM $t", ansi)
+    }
+  }
+
   // The divisors are literals: the fixtures' zero divisors raise under ANSI on both sides.
-  private val declined = Seq("CAST(f1 AS DOUBLE)", "x1 % 2.5D", "pmod(f1, 2.5F)",
-    "CAST(f1 AS DOUBLE) / 2.0D")
+  private val declined = Seq("CAST(f1 AS INT)", "x1 % 2.5D", "pmod(f1, 2.5F)",
+    "CAST(x1 AS BIGINT)")
 
   declined.foreach { expr =>
     test(s"SELECT $expr declines and answers as the row engine does") {

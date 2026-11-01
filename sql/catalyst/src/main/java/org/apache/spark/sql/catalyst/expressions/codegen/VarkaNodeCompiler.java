@@ -100,6 +100,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Nar
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Overflow;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WidenLane;
 import org.apache.spark.sql.types.DataTypes;
+import org.apache.spark.sql.types.DecimalType;
 
 /**
  * The recursive node compiler of the Varka expression compiler: the chain of families that
@@ -218,7 +219,8 @@ final class VarkaNodeCompiler {
       new Family(VarkaFamily.TIME, VarkaTimeCompiler::arm),
       new Family(VarkaFamily.CONDITION, VarkaConditionCompiler::arm),
       new Family(VarkaFamily.INT_ARITHMETIC, VarkaNodeCompiler::arithmeticArm),
-      new Family(VarkaFamily.FLOATING_ARITHMETIC, VarkaFloatingCompiler::arm));
+      new Family(VarkaFamily.FLOATING_ARITHMETIC, VarkaFloatingCompiler::arm),
+      new Family(VarkaFamily.FLOATING_CAST, VarkaFloatingCastCompiler::arm));
 
   /**
    * The predicate family, which is not a link of the chain: {@code compileNode} never claims a
@@ -359,11 +361,20 @@ final class VarkaNodeCompiler {
         || e instanceof Add || e instanceof Subtract || e instanceof Multiply
         || e instanceof Divide || e instanceof UnaryMinus || e instanceof Abs
         || e instanceof Sqrt || e instanceof ToDegrees || e instanceof ToRadians
-        || (e instanceof Signum s && isFloating(s.child().dataType()))) {
+        || (e instanceof Signum s && isFloating(s.child().dataType()))
+        // The floating casts family's pairs (VARKA-343), by pair for the same reason.
+        || (e instanceof Cast c && VarkaFloatingCastCompiler.admits(c))) {
       return Optional.empty();
     }
     String what = switch (e) {
-      case Cast _ -> "a cast to or from a floating type (row 343)";
+      case Cast c when DataTypes.DateType.equals(c.child().dataType()) ->
+          "a cast of DATE to a floating type, always null (row 343, after row 333's null leaf)";
+      case Cast c when c.child().dataType() instanceof DecimalType
+          || c.dataType() instanceof DecimalType -> "a decimal cast with a floating side (rows "
+          + "346, 350, 364 and 366)";
+      case Cast c when isFloating(c.child().dataType()) ->
+          "a cast from a floating type (row 343's second part)";
+      case Cast _ -> "a cast to or from a floating type that no floating lowering serves";
       case Remainder _, Pmod _ -> "a floating remainder (row 346)";
       // The interval products and quotients by a floating factor, and signum over an interval,
       // are row 342's step after row 343's conversions. UnaryPositive is RuntimeReplaceable, so
