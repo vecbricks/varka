@@ -250,10 +250,12 @@ Built on 1 November 2026: (iii) and (i) as section 5 lists them; (ii) waits for 
 
 - **The demonstration** (`results/VARKA-546-demo.txt`). Without the driver, both orders stop on
   four files: `docs/sql-varka.md`, `coverage.json`, `emitted_bytes.json`, `width_audit.json`.
-  With it, both merges exit 0 with no unmerged path, give the same tree (`333221193e8`) and
-  pass `--check`. `width_audit.json` merged per key with nothing owed. Owed: `emitted_bytes.json`
-  (the 22 `option_arms` digests and the place of the two rows), `coverage.json` (the place of
-  the two rows, and the census, which reads it) and the docs file's generated blocks.
+  With it, both merges exit 0 with no unmerged path, give the same tree (`737bc554566`, rerun
+  after the review below) and pass `--check`. `width_audit.json` merged per key with nothing
+  owed. Owed: `emitted_bytes.json` (the 22 `option_arms` digests and the place of the two
+  rows), `coverage.json` (the place of the two rows, and the census, which reads it) and the
+  docs file's generated blocks (the coverage table and the verification counts, which both
+  sides changed).
   `dev/varka_regen_generated.sh --dry-run` prints one sbt call: coverage, bytes, coverage
   again, then the census.
 - **A stale file on CI.** `--check` fails a `coverage.json` row that the width audit and the
@@ -270,6 +272,32 @@ Built on 1 November 2026: (iii) and (i) as section 5 lists them; (ii) waits for 
   one side's block until the coverage run rewrites it. So the merge commit can lack the other
   row in the docs table. The block is owed and the coverage suite fails until it is
   regenerated (section 9, item 2).
+- **The review.** A code review of the driver reproduced ten faults; each has a `--self-test`
+  case that failed before its fix (36 cases now, from 20).
+  - (1) `casts_fused.tsv` is keyed by `from`, `to`, `from_type`, `to_type`: one row per form
+    pair, so `from`, `to` repeats (46 pairs) and the per-key merge dropped rows, owing
+    nothing (item 4 above names the two-column key). A TSV or a keyed list whose key repeats
+    on any side is now owed and written from one side.
+  - (2) Two groups added after one anchor are ordered by the whole group, not its first key, so
+    two groups that both start with a row both sides added order the same in either merge.
+  - (3, 6) The merge sorted any structure whose keys happened to be sorted on all three sides
+    (2.3's "a sorted list of strings merges as a set"), so a TSV header two sides each widened
+    became two header lines, comment lines united, and a row's `switches` or a shape's
+    refusals united with nothing owed. Now only what a writer sorts is merged as sorted: the
+    width audit's per-width maps and `catalyst_classes_admitted`, declared per file. Every
+    other order keeps its anchors, a value list in one row that both sides changed is owed,
+    and a TSV's header and comments are whole text, owed when both sides changed the file
+    under different ones.
+  - (7) A docs block both sides changed is owed even when `git merge-file` merged its lines.
+  - (8) Any error in the driver falls back to git's text merge, with markers.
+  - (4) `width_audit.json` and `emitted_bytes.json` were added to `varka_docs_regexes`, which
+    made a change to them alone "docs" (the docs job only, no catalyst suites). They are a
+    separate tuple now, added to the `varka-docs` module's sources alone.
+  - (5) `dev/varka_regen_generated.sh` skips an owed width audit on another CPU, keeps it owed
+    and runs the rest; the CPU name is trimmed as the suite trims it.
+  - (9) The installer adds a newline to an `info/attributes` lacking one before its rule, and
+    never adds the rule twice.
+  - (10) `--check` builds its row sets once (no behaviour change, so no case).
 - **Left.** The lead runs `dev/varka_precommit.sh --install-hook` in the main checkout once this
   merges. The two checks run green on the pull request's Build. Question 1, then (ii) for
   `option_arms` as its own row if the answer is (b).

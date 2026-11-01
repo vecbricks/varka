@@ -1,6 +1,6 @@
 # VARKA-546: two branches adding a coverage row at the same place, merged in either order
 #
-# Run on 1 November 2026 in a temporary clone of varka-546-generated at 0fd2ebc73d4.
+# Run on 1 November 2026 in a temporary clone of varka-546-generated at fd612d51267.
 # Branches A and B each add one row after quarter(d), as the suites would write it, to
 # coverage.json, emitted_bytes.json (its row maps and every option_arms digest),
 # width_audit.json (every width, sorted) and the docs file (a table row and the date
@@ -28,16 +28,16 @@
    varka merge: sql/varka/width_audit.json merged per key, nothing owed
    varka merge: sql/varka/emitted_bytes.json merged; regeneration owed for lanes.16.coverage (order after quarter(d)), lanes.4.coverage (order after quarter(d)), option_arms.groupLocalSlots=false.16, option_arms.groupLocalSlots=false.4 and 20 more; run dev/varka_regen_generated.sh
    varka merge: sql/varka/coverage.json merged; regeneration owed for expressions (order after quarter(d)), the census, which reads coverage.json; run dev/varka_regen_generated.sh
-   varka merge: docs/sql-varka.md merged; regeneration owed for generated block; run dev/varka_regen_generated.sh
-   tree 333221193e8
+   varka merge: docs/sql-varka.md merged; regeneration owed for generated block, generated block coverage table, generated block verification counts; run dev/varka_regen_generated.sh
+   tree 737bc554566
    owed file: docs/sql-varka.md sql/varka/coverage.json sql/varka/emitted_bytes.json 
    generated --check: pass
 -- A merges master after B merged: exit 0
    varka merge: sql/varka/width_audit.json merged per key, nothing owed
    varka merge: sql/varka/emitted_bytes.json merged; regeneration owed for lanes.16.coverage (order after quarter(d)), lanes.4.coverage (order after quarter(d)), option_arms.groupLocalSlots=false.16, option_arms.groupLocalSlots=false.4 and 20 more; run dev/varka_regen_generated.sh
    varka merge: sql/varka/coverage.json merged; regeneration owed for expressions (order after quarter(d)), the census, which reads coverage.json; run dev/varka_regen_generated.sh
-   varka merge: docs/sql-varka.md merged; regeneration owed for generated block; run dev/varka_regen_generated.sh
-   tree 333221193e8
+   varka merge: docs/sql-varka.md merged; regeneration owed for generated block, generated block coverage table, generated block verification counts; run dev/varka_regen_generated.sh
+   tree 737bc554566
    owed file: docs/sql-varka.md sql/varka/coverage.json sql/varka/emitted_bytes.json 
    generated --check: pass
 -- regeneration the merge owes:
