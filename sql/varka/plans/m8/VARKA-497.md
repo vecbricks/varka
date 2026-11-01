@@ -259,4 +259,175 @@ matrix is dispatched on the branch.
 
 ## 10. Outcome
 
-(Written when the work lands.)
+Built 1 November 2026 on `varka-497-in-arm`, in the two commits 5 asks for.
+
+### 10.1 The merge (5.1)
+
+1. **One arm pair.** `condArm` has one `In` and one `InSet` case, guarded by `inType`: the value's
+   type has a lane (`VarkaTypes.lane`) and an `OnLane` admission, whose literals the registry
+   reads. `In` reads a `Literal` of the value's `VarkaTypeId` through `Info.laneBits`, `InSet` its
+   raw elements through the same; both go to `compileIn`, `compileInList`'s body over
+   `OptionalLong` with its checks in its order. The four pairs, `literalDays`, `narrowValue`,
+   `floatingIn`, `floatingBits`, `compileInList` and `compileLongInList` are gone; `isFloating`
+   stays for `isnan`. While the merge stood alone, a set `IN_HELD` kept `INT`, `BIGINT`, `TIME`
+   and the day-time interval unclaimed, so they declined with "unsupported predicate" as before.
+   (`inType` became `inArm` in 10.4.2.)
+2. **`Info.laneBits`** is `bits`'s switch with an empty answer for a null, a value of another
+   class and a decimal; `bits` keeps its decimal throw ahead of it and throws on its empty.
+3. **`bitsSlot`** in `VarkaNodeCompiler` is the lane-to-table dispatch, and `nanSlot` calls it.
+4. **The slot's lane is the compiled value's**, as the three integral folds had it (2.2's
+   "slots"): a literal takes `bitsSlot(bits, value.laneType())`. A value whose lane differs from
+   its type's declines when either is floating, with the lane-mix reason `floatingIn`'s
+   `sameLane` gave, and when the two lanes' tables differ, with "an IN value off its type's
+   lane" (2.1's generalised reason); no shape reaches either.
+5. **Departure: the guard is not the bare lane.** `VarkaTypes.lane` answers `LONG` for a
+   `DECIMAL` of precision 18 or less since row 347's reader, so 2.1's guard would claim decimal
+   `IN` and decline it as "IN list has a null or non-literal element". `inType` (`inArm` since
+   10.4.2) asks for an `OnLane` admission as well, which leaves decimal `IN` with the
+   predicate's general decline, as on master (10.3).
+6. **The proof.** On the merge alone, `VARKA_BYTES_REGEN`, `VARKA_COVERAGE_REGEN` and
+   `VARKA_AUDIT_REGEN` over `VarkaEmittedBytesSuite`, `VarkaCoverageSuite` and
+   `VarkaWidthAuditSuite` left `emitted_bytes.json` (its `option_arms` digests included),
+   `coverage.json` and `width_audit.json` byte-identical (prediction 1: held). The order test
+   (3.2) passed on master's four arms before the merge was written, and again after; it covers
+   `DATE`, the year-month interval, `TINYINT`, `SMALLINT`, `FLOAT` and `DOUBLE` (each with `0.0`,
+   `-0.0` and two NaN payloads) and `TIMESTAMP_NTZ`. `VarkaExpressionCompilerSuite`,
+   `VarkaFamilyChainSuite`, `VarkaEmitCostAuditSuite`, `VarkaOperatorCensusSuite`,
+   `VarkaCoverageCompositionFuzzSuite`, `VarkaIrFuzzSuite` and `VarkaProofFilesSuite` passed with
+   `emit_cost_audit.json` and `operator_census.json` unmoved.
+
+### 10.2 The admission (5.2)
+
+1. **The exclusion is gone**, and `INT`, `BIGINT`, `TIME` and the day-time interval `IN` fuse.
+   **Departure:** `INT` did not fuse by the arm alone, as 0.5 expected. `compileNode` has no
+   int column leaf; the comparisons read one through `operand`, the int leaf before
+   `compileNode`. `compileIn` now compiles its value through `operand` too. It matches only an
+   `IntegerType` column or literal, so no earlier type's value compiles differently.
+2. **Coverage rows**, all `differential`: `i IN (3, 1, 12)` and its eleven-literal `InSet` in
+   "Predicates"; `l IN (5000000000, 42L, 0L)`, `t IN (TIME'12:00:00.000000',
+   TIME'06:00:00.000000')` and `dt IN (INTERVAL '2 00:00:00' DAY TO SECOND, INTERVAL '1 00:00:00'
+   DAY TO SECOND)`, each with its `InSet` twin, in "Long-lane predicates". The short lists' values
+   are in the differential fixtures. **Departure from 3.3's text:** the bigint row writes `42L`
+   and `0L`. Under `IN`'s coercion an int literal is a `Cast` over a `Literal`, which a query's
+   optimizer folds but the coverage table's resolution does not. The arm reads literals only, so
+   `l IN (5000000000, 42, 0)` declined in the table. The `TIME` literals are written at
+   precision 6, so no cast reaches the column (2.3).
+3. **The order test** covers the four admitted types as well. It ran in 173 ms.
+   **Prediction 4 is only half scored.** The local logs give no time for each coverage row: the
+   harness's dynamic JUnit tests print no time per test. So the rows' cost goes unscored here and
+   no calibration row is added. The PR Build's step table is where to read it.
+4. **The `TIME` shape (2.3).** `dev/varka_emit.sh` was not run. Two results stand in for it.
+   Both `t IN` rows fuse in the coverage table, and a narrowing cast on the column would have
+   declined them. Their `width_audit.json` entries have the long-lane comparisons' kinds, with
+   no cast of their own.
+5. **The flipped test (3.4).** "long arithmetic stays declined: it is VARKA-104's" keeps the
+   `Add` half. "a bigint IN beside a date comparison fuses both conjuncts at the long lane"
+   asserts both conjuncts fused, the kernel on `LONG`, and the long table `1, 2`.
+6. **Generated files.** `emitted_bytes.json` gains the eight rows at 4 and 16 lanes and its eleven
+   `option_arms` digests move. No other entry changes (prediction 2: held). `width_audit.json`
+   gains the eight rows at both widths: the long-lane rows have the comparisons' `not supported`
+   kinds plus the mask-logic line every `IN` chain has, and the int rows have none.
+   `coverage.json` and `docs/sql-varka.md` gain the rows, and the verification counts move by 2
+   for `bigint`, `dt`, `int` and `time`. `census_curated.txt`'s `in` and `in_set` lines add `int`,
+   `bigint`, `time` and `dt` to the fused types and row 497 to the rows, and `census.tsv` is
+   regenerated: 8 type pairs fused (prediction 3: held).
+
+### 10.3 What row 348a adds for decimal `IN`
+
+Row 348a's decimal `IN` goes through this arm. It needs:
+
+1. **The guard.** `inArm` claims an `OnLane` admission only, in a switch over `Admission`, and a
+   decimal's is `UpToPrecision`, whose case answers unclaimed. 348a admits it in that case, for a
+   type whose `UpToPrecision.reads` holds.
+2. **The literal.** `laneBits` answers empty for every decimal. It cannot read one: a `Decimal`'s
+   lane bits are its unscaled long at the value type's scale, and the `Info` entry has no scale.
+   348a needs a form that is given the `DecimalType`, such as
+   `laneBits(Object, DataType)`, or a decimal read in the arm (`Decimal.changePrecision` to the
+   value's scale, then `toUnscaledLong`, within 18 digits), applied to `In`'s literals and to
+   `InSet`'s raw `Decimal`s alike. The `In` side checks the literal's `VarkaTypeId`, which
+   holds for every decimal, so the scale check is 348a's to add.
+3. **The value.** `compileIn` compiles the value through `operand`, which reaches
+   `compileNode`, and `compileNode` declines a decimal in a value position. 348a sends a
+   decimal value through `VarkaDecimalCompiler` (its column leaf through widening casts, or its
+   `value()`'s `Scaled`), and a column of a smaller scale under `IN`'s coercion is its rescale
+   (2.4).
+4. **The slots** need nothing: a decimal is on the long lane, so `bitsSlot` puts the unscaled
+   longs in the long table.
+
+### 10.4 The review's fixes
+
+A code review of the three commits above found these, each checked against the code first.
+
+1. **The lane guard was weaker than its comment.** `compileIn` declined a value off its type's
+   lane only across the 64-bit boundary or where a lane was floating, so an `INT` value compiled
+   onto the byte lane would have slotted its literals there, `300` as `44`. It now declines
+   unless the compiled lane is the type's own: the floating case with the lane-mix reason, any
+   other with "an IN value off its type's lane". A same-kind wider lane is not admitted: no
+   lowering puts a value on a lane other than its type's, since every widening is a cast that
+   changes the type too, so it would admit nothing reachable. Both declines are pinned by a
+   compiler-suite test over a hand-built `RuntimeReplaceable` whose type is not its
+   replacement's, the only way to reach them.
+2. **One registry lookup per node.** The arm is `case In in -> inArm(...)`, which looks the type
+   up once and answers `null`, unclaimed, for a type with no lane of its own; the literal's type
+   is compared by `VarkaTypes.idOf`, with no `Optional`. `inType` and its redundant
+   `lane(type).isEmpty()` check are gone.
+3. **`Info.bits(null)`** threw a `NullPointerException` building its message; it now throws the
+   intended illegal argument, "null is not a DOUBLE value on a lane" (`VarkaTypesSuite`).
+4. **Floating literals are kept by Spark's equality, not their bits.** This corrects 2.2's
+   "two NaNs with different payloads stay two elements" and 10.1.6, which kept that rule. Spark's
+   `In.eval` compares through `SQLOrderingUtil.compareDoubles` (`x == y` first, then
+   `Double.compare`), so `-0.0` equals `0.0` and every NaN every other NaN; `InSet.eval` finds
+   the zeros equal in its Scala set and any NaN through its `isNaN` test, and its generated code
+   asks the same set and the same test. The lane's EQ, `(isNaN(l) & isNaN(r)) | l == r`, is that equality, so the
+   answers were right, but the two zeros and each NaN payload were separate EQ leaves, each
+   counted against the cap of 16. `compileIn` now keeps a floating literal under
+   `sparkEqualityKey`, `0.0` for both zeros and the canonical NaN for every NaN. A test pins
+   Spark's answers for both `In` and `InSet`, and that eighteen elements of sixteen distinct
+   values fuse.
+5. **An empty list** declines with "IN list is empty" instead of the null-element reason. Spark
+   answers false (or null over a null value under its legacy flag), and its optimizer folds an
+   empty `IN` before a plan reaches Varka, so only a hand-built tree arrives; fusing it as false
+   would serve nothing a query sends.
+6. **An `In` element that is a constant is read.** The arm read a bare `Literal` only, which is
+   why 10.2.2 respelled the bigint row `42L, 0L`: coercion leaves an int literal in a bigint `IN`
+   under a `Cast`, which a query's optimizer folds and the coverage table's resolution does not.
+   The arm now reads a foldable element of the value's type by evaluating it once
+   (`constantBits`), and an element whose evaluation throws, an ANSI cast out of range, declines
+   as a non-literal one, for the row engine to raise. A literal reads as before, so no committed
+   kernel moved (`emitted_bytes.json`, `coverage.json` and `width_audit.json` regenerated
+   byte-identical before the row below changed). The row is back to 3.3's spelling,
+   `l IN (5000000000, 42, 0)`, which corrects 10.2.2's departure. Its kernels are the
+   `42L, 0L` row's byte for byte, under the new key; the eleven `option_arms` digests move, as
+   any row change moves them (10.2.6). The row now lists the `Cast` and its `int>bigint` pair
+   among its classes, which the census reads as one more `int` operand.
+7. **Not taken: routing `compileNode`'s literal arms through `bitsSlot`**, so that every literal
+   of a lane is slotted by one dispatch. It touches every literal arm, not this row's, and is an
+   open point for the row that next reworks the literal arms.
+
+### 10.5 The second review's fixes
+
+A second review of the branch found these, each checked against the code first.
+
+1. **A non-runtime throw out of an element's evaluation failed the plan.** `constantBits` caught
+   `RuntimeException` only, so a checked exception thrown by Scala code, or an `Error`, escaped
+   planning where the list should decline. It now catches what Spark's `NonFatal` admits, as
+   `VarkaSizeAdmission` does, and rethrows the rest; a compiler-suite test pins the decline for a
+   foldable element that throws an `IOException`. `inFamily`'s catch in `VarkaNodeCompiler` is
+   left as it is: it labels a throw with its family rather than declining, and the planning
+   catch it feeds (`VarkaExpressionCompiler.planning`) fails the query on any throw by design,
+   so widening it is a change to three sites that predate this row.
+2. **The cap is checked as the elements are read.** `compileIn` read, evaluated and boxed every
+   element before it compared the distinct count with `MAX_IN_LITERALS`, and an `InSet` can hold
+   thousands. It now reads them one at a time and declines at the first null or non-literal
+   element or at the value that passes the cap, so a list that is both too long and holds a null
+   names whichever comes first. The value is still compiled after the list is read, not before
+   as the review suggested: compiling it takes slots, which a list that declines would then have
+   taken for nothing.
+3. **`inArm` switches over `Admission`** with a case for each of its five records and no
+   `default`, in place of a negated `instanceof OnLane`. `Info.laneBits`'s
+   `instanceof UpToPrecision` is left: it is one guard with no cast, like `bits` and
+   `sparkValue` above it, not a dispatch over the set.
+4. **One element reader.** `inArm` lost its `Function` parameter, and `inElements` and
+   `setElements` are one `inElements` that switches once on `In` or `InSet` and hands
+   `compileIn` an iterator.
+5. **`Relabeled`**, the test's relabelling expression, moved into the suite's companion object.

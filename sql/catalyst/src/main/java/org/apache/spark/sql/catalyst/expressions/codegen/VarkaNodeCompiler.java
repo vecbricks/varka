@@ -1163,8 +1163,8 @@ final class VarkaNodeCompiler {
   /** The quiet NaN as a literal of a floating lane: its bits in the table of the lane's width. */
   static LiteralSlot nanSlot(LaneType lane, VarkaSlotTable literals, DeclineSink sink) {
     return switch (lane) {
-      case FLOAT -> slot(Float.floatToRawIntBits(Float.NaN), LaneType.FLOAT, literals);
-      case DOUBLE -> doubleSlot(Double.NaN, sink);
+      case FLOAT -> bitsSlot(Float.floatToRawIntBits(Float.NaN), lane, literals, sink);
+      case DOUBLE -> bitsSlot(Double.doubleToRawLongBits(Double.NaN), lane, literals, sink);
       case BYTE, SHORT, INT, LONG -> throw VarkaErrors.illegalArgument(
           "no NaN on the integral lane " + lane);
     };
@@ -1173,6 +1173,21 @@ final class VarkaNodeCompiler {
   /** The literal slot of the double {@code v}, its raw bits on the {@code DOUBLE} lane. */
   static LiteralSlot doubleSlot(double v, DeclineSink sink) {
     return sink.longSlot(Double.doubleToRawLongBits(v), LaneType.DOUBLE);
+  }
+
+  /**
+   * A literal on {@code lane} whose lane bits, sign-extended to a long, are {@code bits}: a slot
+   * in the int table on a lane of 32 bits or fewer, where a float is its raw bits as an int, and
+   * in the long table on a 64-bit lane, where a double's bits share the table with the bigints'.
+   * The two tables are the only places a literal lives, so this is the one dispatch from a lane to
+   * its table.
+   */
+  static LiteralSlot bitsSlot(long bits, LaneType lane, VarkaSlotTable literals,
+      DeclineSink sink) {
+    return switch (lane) {
+      case BYTE, SHORT, INT, FLOAT -> slot((int) bits, lane, literals);
+      case LONG, DOUBLE -> sink.longSlot(bits, lane);
+    };
   }
 
   /**
