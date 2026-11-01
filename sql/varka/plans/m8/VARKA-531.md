@@ -183,9 +183,15 @@ Size: medium. It is two workflows, two scripts and the interaction with rows 508
    so the two run side by side on 40 slots, which the 1 November rule excludes once the axis
    lands. Recommended: (a) at first, with P3 measured. If the delay shows on a busy day, then
    (b).
+
+   *1 November 2026, by the owner's word:* (a): the chains hold a pull request's matrix while a
+   baseline runs, and the hold is measured.
 3. **Row 522's weekly.** (a) Kept as a fallback when no green baseline ran in seven days (2.6).
    (b) Dropped. (c) Kept as planned. Recommended: (a). A week without merges still gets a run on
    the week's runner images.
+
+   *1 November 2026, by the owner's word:* (a): 522's weekly runs only as a fallback when no green
+   baseline ran in seven days.
 4. **Per merge or per sync.** While the sync is dispatched by hand (row 525), a baseline follows
    each sync, not each merge. Is that enough for the done-when's "two merges", or does the row
    wait for the sync to run per merge? Recommended: per sync is enough. The replacement would

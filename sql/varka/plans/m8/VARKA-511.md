@@ -253,6 +253,8 @@ day, and one review round half a day. About four and a half days, plus the owner
    laptop's numbers in the post and a runner run as a check. Recommended: (a). The row's word is
    the later and the specific one, the whole measurement takes under an hour on an idle laptop,
    and Varka's own numbers in section 6 are laptop numbers too. The post names the CPU.
+
+   *1 November 2026, by the owner's word:* the EPYC runner, with the CPU named in the results.
 2. **Language and build.** (a) Scala, a Maven project built with the repository's `build/mvn`
    against the released `spark-sql_2.13` 4.2.0 and ScalaTest, run on the stock distribution's
    jars. (b) Scala, scripts through `bin/spark-shell -i` as the compiles post did. That needs no

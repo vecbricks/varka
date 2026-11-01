@@ -124,6 +124,8 @@ day and a half, most of it the two runner rounds).
 1. **If the forms are level on master.** Close the row with the figure, without the rule.
    *Recommended: yes*, as the row's done-when allows. The rule is then a simplification with no
    measured gain.
+
+   *1 November 2026, by the owner's word:* yes: level forms on master close the row with the figure.
 2. **A switch for an analysis rule.** (a) Behind a `VarkaEmitOptions` switch with the old rule as
    reference, as the template asks for new behaviour; (b) no switch, the rule changed directly,
    with the validity suite holding both cases. *Recommended: (a).* It moves the dense/masked

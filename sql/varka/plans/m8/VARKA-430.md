@@ -274,6 +274,9 @@ committed and the row closed with that figure.
 - **B1. Does a small share close row 437 without the index.** If PB1 holds (under 5%), close
   the row with the committed figure rather than build the index. *Recommended: yes.* The row's
   harm is time to a verdict in sanitized runs, and a share below the spread is no harm.
+
+  *1 November 2026, by the owner's word:* yes: a share under 5% closes row 437 with the committed
+  figure.
 - **B2. Which replacement, if one is built.** (a) one range per column; (b) a sorted index.
   *Recommended: (a).* It is the smaller change, it is in the warm-up where the many ranges come
   from, and the evaluator's windows are small already.

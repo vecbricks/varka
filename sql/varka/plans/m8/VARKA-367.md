@@ -356,6 +356,9 @@ half a day after the yes. About four days in two pull requests and a follow-up.
    paper only. (c) Neither: the switching regions and the search stand alone. Recommended: (a)
    if you have the book, else (b). The inputs are facts and the plan copies no code, but the
    licence of each source is yours to check first, as it was for `e_exp.c`.
+
+   *1 November 2026, by the owner's word:* both: fetch Gladman et al.'s paper with the owner's yes,
+   transcribed into `papers/`, and enter the Handbook's worst cases from the owner's copy.
 2. **The laptop as the third host.** SVML's `z0` symbols bind only at 512 bits (item 0.4). The
    x86 runner pool mixes AVX2 and AVX-512 CPUs (`TestSQLContext.scala`'s comment on
    `VARKA_EMIT_USE_AVX`, VARKA-538), but a dispatch cannot choose its CPU, so a `z0` reading on a
@@ -369,6 +372,9 @@ half a day after the yes. About four days in two pull requests and a follow-up.
    lacks it, the workflow would install `libmpfr6` from Ubuntu's own archive. Is that acceptable
    under the licence rule and the tools rule? Recommended: yes. The rules forbid translating GPL
    code and running tools of unknown provenance; this is neither.
+
+   *1 November 2026, by the owner's word:* yes: the probe may call the installed MPFR library,
+   installing `libmpfr6` from Ubuntu's archive where a runner lacks it; no MPFR code is copied.
 
 ## 8. Done when
 
