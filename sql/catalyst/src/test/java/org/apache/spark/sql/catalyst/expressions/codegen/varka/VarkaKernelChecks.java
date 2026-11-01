@@ -841,9 +841,40 @@ public final class VarkaKernelChecks {
       return VarkaReference.cond(cond, rowInts, isNull, lits);
     }
 
+    // A narrow-typed root of an int kernel (`CAST(i AS SMALLINT)`, VARKA-332) stores one or two
+    // bytes a row, which its buffer is laid out, filled and read at; every other output four.
+    @Override public long outputStride(VarkaVectorIR root, VarkaVectorIR.LaneType rootLane) {
+      return switch (rootLane) {
+        case BYTE -> 1L;
+        case SHORT -> 2L;
+        case INT, LONG, FLOAT, DOUBLE -> 4L;
+      };
+    }
+
+    @Override public void putOutput(VarkaVectorIR root, VarkaVectorIR.LaneType rootLane,
+        MemorySegment d, int i, long v) {
+      switch (rootLane) {
+        case BYTE -> d.set(ValueLayout.JAVA_BYTE, i, (byte) v);
+        case SHORT -> d.set(ValueLayout.JAVA_SHORT, i * 2L, (short) v);
+        case INT, LONG, FLOAT, DOUBLE -> put(d, i, v);
+      }
+    }
+
+    @Override public long sentinelOutput(VarkaVectorIR root, VarkaVectorIR.LaneType rootLane) {
+      return switch (rootLane) {
+        case BYTE -> Byte.MIN_VALUE;
+        case SHORT -> Short.MIN_VALUE;
+        case INT, LONG, FLOAT, DOUBLE -> sentinel();
+      };
+    }
+
     @Override public long got(MemorySegment out, int i, VarkaVectorIR root,
         VarkaVectorIR.LaneType rootLane) {
-      return out.get(ValueLayout.JAVA_INT, i * 4L);
+      return switch (rootLane) {
+        case BYTE -> out.get(ValueLayout.JAVA_BYTE, i);
+        case SHORT -> out.get(ValueLayout.JAVA_SHORT, i * 2L);
+        case INT, LONG, FLOAT, DOUBLE -> out.get(ValueLayout.JAVA_INT, i * 4L);
+      };
     }
   }
 
