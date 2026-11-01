@@ -484,6 +484,8 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `i <= 7` | `predicate` |  |  | vector |
 | `i >= 7` | `predicate` |  |  | vector |
 | `i IS NULL` | `predicate` |  |  | vector |
+| `i IN (3, 1, 12)` | `predicate` |  | an int IN, the same equality chain as a date's | vector |
+| `i IN (11 to 16 int literals)` | `predicate` |  | an IN list this long arrives from the optimizer as an InSet and fuses the same way | vector |
 | `ym = INTERVAL '1-2' YEAR TO MONTH` | `predicate` |  |  | vector |
 | `ym < INTERVAL '1-2' YEAR TO MONTH` | `predicate` |  |  | vector |
 | `ym <= INTERVAL '1-2' YEAR TO MONTH` | `predicate` |  |  | vector |
@@ -526,6 +528,12 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `equal_null(l, l2)` | `predicate` |  |  | per-lane: compare to mask, mask cast |
 | `t <=> t2` | `predicate` |  |  | per-lane: compare to mask, mask cast |
 | `dt <=> dt2` | `predicate` |  |  | per-lane: compare to mask, mask cast |
+| `l IN (5000000000, 42, 0)` | `predicate` |  | the long lane's equality chain, each literal a slot in its own table; an int literal arrives under coercion's cast to BIGINT, which the arm reads as the constant it is | per-lane: compare to mask, mask logic, mask cast |
+| `l IN (11 to 16 bigint literals)` | `predicate` |  | an IN list this long arrives from the optimizer as an InSet and fuses the same way | per-lane: compare to mask, mask logic, mask cast |
+| `t IN (TIME'12:00:00.000000', TIME'06:00:00.000000')` | `predicate` |  | literals of the column's precision, so no cast reaches the column | per-lane: compare to mask, mask logic, mask cast |
+| `t IN (11 to 16 TIME literals)` | `predicate` |  | an IN list this long arrives from the optimizer as an InSet and fuses the same way | per-lane: compare to mask, mask logic, mask cast |
+| `dt IN (INTERVAL '2 00:00:00' DAY TO SECOND, INTERVAL '1 00:00:00' DAY TO SECOND)` | `predicate` |  |  | per-lane: compare to mask, mask logic, mask cast |
+| `dt IN (11 to 16 day-time literals)` | `predicate` |  | an IN list this long arrives from the optimizer as an InSet and fuses the same way | per-lane: compare to mask, mask logic, mask cast |
 
 #### Boolean columns
 
@@ -640,36 +648,6 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `CAST(time_to_millis(t) AS INT)` | `time`, `intArithmetic` | `time_to_millis(t) BETWEEN -2147483648 AND 2147483647` | a bigint narrowed to an int: under ANSI a value past the int range declines and the row engine raises CAST_OVERFLOW, and the legacy mode keeps the low 32 bits, as Spark does; a day's milliseconds always fit | per-lane: compare to mask, mask logic, mask broadcast, mask test |
 | `greatest(i, l)` | `intArithmetic` |  | type coercion widens the int, and the pick is the long lane's | per-lane: blend, mask broadcast, load or store, mask test |
 | `CASE WHEN i < l THEN i ELSE l END` | `predicate`, `condition`, `intArithmetic` |  | the widened int in a condition and in a branch of a long-valued conditional | per-lane: compare to mask, blend, mask cast, mask broadcast, load or store, mask test |
-
-#### Integral casts
-
-| Expression | Switches | Domain | Notes | 128-bit lanes |
-|---|---|---|---|---|
-| `CAST(y1 AS SMALLINT)` | `integralCast` |  | a sign extension at the int lane, no instruction; every byte value in the exhaustive suite | vector |
-| `CAST(y1 AS BIGINT)` | `integralCast` |  | the byte column loaded at the long width, widened in the int species and converted with I2L; exhaustive | not emitted: a BYTE column has no load at 2 long lanes |
-| `CAST(s1 AS BIGINT)` | `integralCast` |  | the short twin; exhaustive | per-lane: mask broadcast, mask test |
-| `CAST(s1 AS TINYINT)` | `integralCast` | `s1 BETWEEN -128 AND 127` | the low byte under the legacy mode; under ANSI a value past the byte range declines and the row engine raises CAST_OVERFLOW; exhaustive | vector |
-| `CAST(i AS TINYINT)` | `integralCast` | `i BETWEEN -128 AND 127` | the int narrowed at its store; checked under ANSI; the wrap and the range compare proven in casts.smt2 | vector |
-| `CAST(i AS SMALLINT)` | `integralCast` | `i BETWEEN -32768 AND 32767` | the short twin; casts.smt2 | vector |
-| `CAST(l AS TINYINT)` | `integralCast` | `l BETWEEN -128 AND 127` | the bigint narrowed at its store, L2I and the byte store; checked under ANSI; casts.smt2 | per-lane: compare to mask, mask logic, mask broadcast, mask test |
-| `CAST(l AS SMALLINT)` | `integralCast` | `l BETWEEN -32768 AND 32767` | the short twin; casts.smt2 | per-lane: compare to mask, mask logic, mask broadcast, mask test, load or store |
-| `CAST(b AS TINYINT)` | `integralCast` |  | 1 where true, 0 where false, null where null, in the byte lane under the native arm; every leaf state in the exhaustive suite | vector |
-| `CAST(b AS SMALLINT)` | `integralCast` |  | the short twin; exhaustive | vector |
-| `CAST(b AS INT)` | `integralCast` |  | the int lane; exhaustive | vector |
-| `CAST(b AS BIGINT)` | `integralCast` |  | the long lane; exhaustive | per-lane: masked operation, mask broadcast |
-| `greatest(y1, l)` | `intArithmetic`, `integralCast` |  | type coercion widens the byte, loaded at the long width, to meet the bigint; differential | not emitted: a BYTE column has no load at 2 long lanes |
-| `CAST(i + 1 AS TINYINT)` | `intArithmetic`, `integralCast` | `i BETWEEN -129 AND 126` | a computed int narrowed, the add checked under ANSI as any int add is; differential | vector |
-| `CAST(i < 5 AS TINYINT)` | `predicate`, `integralCast` |  | a comparison's value at the int lane, narrowed: a 0 or a 1 needs no wrap; differential | vector |
-
-#### Integral cast predicates
-
-| Predicate | Switches | Domain | Notes | 128-bit lanes |
-|---|---|---|---|---|
-| `CAST(y1 AS BOOLEAN)` | `integralCast` |  | x != 0, which cannot fail; exhaustive | vector |
-| `CAST(s1 AS BOOLEAN)` | `integralCast` |  | exhaustive | vector |
-| `CAST(i AS BOOLEAN)` | `integralCast` |  | differential | vector |
-| `CAST(l AS BOOLEAN)` | `integralCast` |  | the long lane's compare; differential | per-lane: compare to mask, mask broadcast, mask logic, mask cast |
-| `s1 < l` | `predicate`, `integralCast` |  | the short widened to the long lane by type coercion, loaded at the long width; differential | per-lane: compare to mask, mask cast, mask broadcast, load or store |
 
 #### Width conversion predicates
 
@@ -893,18 +871,18 @@ operands (a row counts once for each type it reads):
 <!-- BEGIN generated verification counts -->
 | Type | Rows | refinement | proof | exhaustive | owed | differential |
 | :--- | ---: | ---: | ---: | ---: | ---: | ---: |
-| `bigint` | 51 | 0 | 2 | 0 | 2 | 47 |
-| `bool` | 27 | 0 | 0 | 13 | 0 | 14 |
-| `byte` | 30 | 0 | 0 | 0 | 8 | 22 |
+| `bigint` | 48 | 0 | 2 | 0 | 2 | 44 |
+| `bool` | 23 | 0 | 0 | 13 | 0 | 10 |
+| `byte` | 26 | 0 | 0 | 0 | 8 | 18 |
 | `date` | 87 | 17 | 0 | 1 | 0 | 69 |
 | `dec` | 17 | 0 | 0 | 0 | 0 | 17 |
 | `double` | 37 | 0 | 0 | 0 | 0 | 37 |
-| `dt` | 18 | 2 | 0 | 0 | 0 | 16 |
+| `dt` | 20 | 2 | 0 | 0 | 0 | 18 |
 | `float` | 29 | 0 | 0 | 0 | 0 | 29 |
-| `int` | 77 | 14 | 2 | 0 | 1 | 60 |
+| `int` | 75 | 14 | 2 | 0 | 1 | 58 |
 | `ntz` | 24 | 0 | 1 | 0 | 0 | 23 |
-| `short` | 29 | 0 | 0 | 0 | 8 | 21 |
-| `time` | 32 | 6 | 0 | 0 | 2 | 24 |
+| `short` | 25 | 0 | 0 | 0 | 8 | 17 |
+| `time` | 34 | 6 | 0 | 0 | 2 | 26 |
 | `ym` | 30 | 7 | 2 | 0 | 2 | 19 |
 <!-- END generated verification counts -->
 
@@ -1775,7 +1753,6 @@ coverage table, and regenerated by the same command:
 | `spark.sql.codegen.varka.family.condition.enabled` | `true` | The condition family: the conditionals IF, CASE WHEN and coalesce (the comparisons in their conditions are the predicate family's). |
 | `spark.sql.codegen.varka.family.intArithmetic.enabled` | `true` | The int arithmetic family: +, -, * and unary minus over int, tinyint and smallint operands and abs over the narrow two, checked under ANSI, greatest and least, the casts between int and bigint, and a tinyint or smallint widened to int. |
 | `spark.sql.codegen.varka.family.floatingArithmetic.enabled` | `true` | The floating arithmetic family: +, -, *, unary minus and abs over double and float operands, and /, try_divide, sqrt, signum, degrees and radians over double ones, a zero divisor null under LEGACY and TRY and raised by the row engine under ANSI. |
-| `spark.sql.codegen.varka.family.integralCast.enabled` | `true` | The integral cast family: the casts among tinyint, smallint, int, bigint and boolean that the int arithmetic family does not hold: the narrowings to tinyint and smallint (wrapping, or checked under ANSI), a tinyint or smallint widened to smallint or bigint, a number cast to boolean and a boolean cast to a number. |
 <!-- END generated family switches -->
 
 The rule is registered on every `SparkSession` but does nothing while the

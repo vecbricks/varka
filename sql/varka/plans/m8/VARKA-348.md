@@ -63,7 +63,9 @@ in `/home/max/proj/openjdk-build/jdk25`.
    the emitter throws on it at the long lane (`varka/VarkaVectorWalk.java:920-922`). The
    long-lane `IN` chain exists for `TIMESTAMP_NTZ`, `compileLongInList` (its arm at
    `VarkaConditionCompiler.java:722`), capped at `MAX_IN_LITERALS = 16`
-   (`VarkaNodeCompiler.java:125`).
+   (`VarkaNodeCompiler.java:125`). Since VARKA-497 that method is gone: one arm, `inArm`
+   (`VarkaConditionCompiler.java:800`), serves `IN` on every lane through `compileIn` (`:885`),
+   and the cap is at `VarkaNodeCompiler.java:130`.
 7. **The JDK.** `Op_AbsVL` is refused below AVX-512 (`cpu/x86/x86.ad:1332-1336`), so a lanewise
    `ABS` on longs is the allocating Java fallback on the EPYC 7763 and intrinsic on the laptop
    (`vabsL_reg`, `evpabsq`, `:8247-8258`). `Op_MulVL` is admitted from SSE4.1 (`:1361-1365`); below

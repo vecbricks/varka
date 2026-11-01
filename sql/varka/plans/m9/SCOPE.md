@@ -1529,7 +1529,7 @@ halving when a page exceeds sixteen megabytes and doubling below four, with a
 retry on a too-large page; that is the batch policy variable-width outputs will
 need when Item 3 produces strings. `InCodeGenerator` switches `IN` from a
 `lookupswitch` to a hash set at eight values, a tipping point it measured
-between five and ten for scalar code; this engine's `compileInList` sorts the
+between five and ten for scalar code; this engine's `compileIn` sorts the
 literals and compares, and the point where that chain loses to another
 membership test in lanes is a measurement not yet made.
 
@@ -2493,7 +2493,7 @@ over, at cache-write cost and with no new Vector API. BLU's frequency
 partitioning gives common values short codes and orders each partition so range
 predicates work on codes (pp. 2-3); its rule of a cheap redundant minimum and
 maximum check ahead of a long `IN` list (p. 4) is a one-rule change to
-`compileInList` that composes with batch bounds to skip the chain for a whole
+`compileIn` that composes with batch bounds to skip the chain for a whole
 batch, and its evaluate-once-over-the-dictionary is Items 16, 18 and 19. The
 Bloom paper's lane algorithm probes one hash per lane per iteration, gathers
 32-bit words, permutes finished lanes to the tail and refills with a masked
@@ -2558,7 +2558,7 @@ steppings these papers measured.
 4. Milestone 5 measures the OR-the-flags overflow form against range-derived
    guards on long multiply, and reads Data Blocks' 64-bit result as the
    expectation to beat.
-5. `compileInList` gains BLU's cheap bounds check ahead of the chain; the Bloom
+5. `compileIn` gains BLU's cheap bounds check ahead of the chain; the Bloom
    item carries Spark's recipe and its first arm.
 6. A per-shape time-to-tier-4 ladder and a batches-below-C2 counter join the
    cold-start benchmark; Kohn's remaining-time rule is a decline rule for tiny
