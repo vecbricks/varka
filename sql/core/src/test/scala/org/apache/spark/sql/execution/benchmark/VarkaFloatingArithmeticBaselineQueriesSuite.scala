@@ -127,6 +127,11 @@ class VarkaFloatingArithmeticBaselineQueriesSuite extends QueryTest with VarkaSh
     assume(VarkaSqlBenchmarkBase.fuseCheck(),
       s"-D${VarkaSqlBenchmarkBase.FUSE_CHECK_PROPERTY}=false times the sections fused")
     withTable {
+      // Every section is NONE, so a check that could not see a Varka node anywhere would pass
+      // each of them; a comparison of the two DOUBLE columns fuses, and fails such a check here.
+      val view = VarkaFloatingArithmeticBaselineBenchmark.VIEW
+      assert(VarkaSqlBenchmarkBase.fusedPlan(varkaSpark, s"SELECT x FROM $view WHERE x < y")
+        .isPresent)
       for (s <- VarkaFloatingArithmeticBaselineBenchmark.sections().asScala) {
         withClue(s.title) {
           withSettings(s) {
