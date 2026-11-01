@@ -1,0 +1,266 @@
+INT CAST(i AS BIGINT), control, fuses today, no nulls: fuses on the varka on arm, so it times a kernel there, not the row path
+INT CAST(i AS BIGINT), control, fuses today, one row in ten null: fuses on the varka on arm, so it times a kernel there, not the row path
+================================================================================================
+INT CAST(i AS TINYINT), LEGACY, no nulls
+================================================================================================
+
+OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1017-azure
+AMD EPYC 7763 64-Core Processor
+INT CAST(i AS TINYINT), LEGACY, no nulls over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-------------------------------------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                                                          92            104           9         21.8          45.9       1.0X
+varka on                                                                            85             92           7         23.4          42.7       1.1X
+
+
+================================================================================================
+INT CAST(j AS TINYINT), ANSI, no nulls
+================================================================================================
+
+OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1017-azure
+AMD EPYC 7763 64-Core Processor
+INT CAST(j AS TINYINT), ANSI, no nulls over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-----------------------------------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                                                        82             87           8         24.4          41.1       1.0X
+varka on                                                                          81             87           6         24.8          40.3       1.0X
+
+
+================================================================================================
+INT try_cast(k AS TINYINT), no nulls
+================================================================================================
+
+OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1017-azure
+AMD EPYC 7763 64-Core Processor
+INT try_cast(k AS TINYINT), no nulls over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+---------------------------------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                                                     222            229           8          9.0         110.9       1.0X
+varka on                                                                       220            229           8          9.1         110.1       1.0X
+
+
+================================================================================================
+INT CAST(k AS TINYINT), LEGACY, no nulls
+================================================================================================
+
+OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1017-azure
+AMD EPYC 7763 64-Core Processor
+INT CAST(k AS TINYINT), LEGACY, no nulls over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-------------------------------------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                                                          79             83           3         25.2          39.7       1.0X
+varka on                                                                            78             82           5         25.6          39.0       1.0X
+
+
+================================================================================================
+BIGINT CAST(l AS SMALLINT), LEGACY, no nulls
+================================================================================================
+
+OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1017-azure
+AMD EPYC 7763 64-Core Processor
+BIGINT CAST(l AS SMALLINT), LEGACY, no nulls over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-----------------------------------------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                                                              81             83           3         24.8          40.3       1.0X
+varka on                                                                                82             86           3         24.4          41.0       1.0X
+
+
+================================================================================================
+TINYINT CAST(y AS BIGINT), no nulls
+================================================================================================
+
+OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1017-azure
+AMD EPYC 7763 64-Core Processor
+TINYINT CAST(y AS BIGINT), no nulls over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+--------------------------------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                                                     83             86           4         24.2          41.3       1.0X
+varka on                                                                       86             89           5         23.1          43.2       1.0X
+
+
+================================================================================================
+BOOLEAN CAST(b AS INT), no nulls
+================================================================================================
+
+OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1017-azure
+AMD EPYC 7763 64-Core Processor
+BOOLEAN CAST(b AS INT), no nulls over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-----------------------------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                                                  82             88          13         24.4          40.9       1.0X
+varka on                                                                    84             85           2         23.9          41.8       1.0X
+
+
+================================================================================================
+INT filter CAST(i AS BOOLEAN), no nulls
+================================================================================================
+
+OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1017-azure
+AMD EPYC 7763 64-Core Processor
+INT filter CAST(i AS BOOLEAN), no nulls over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                                                         79             82           2         25.2          39.7       1.0X
+varka on                                                                           80             81           2         25.1          39.8       1.0X
+
+
+================================================================================================
+INT CAST(m AS INTERVAL YEAR), no nulls
+================================================================================================
+
+OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1017-azure
+AMD EPYC 7763 64-Core Processor
+INT CAST(m AS INTERVAL YEAR), no nulls over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-----------------------------------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                                                        83             85           2         24.1          41.5       1.0X
+varka on                                                                          83             85           3         24.2          41.4       1.0X
+
+
+================================================================================================
+INTERVAL DAY TO SECOND CAST(dt AS BIGINT), no nulls
+================================================================================================
+
+OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1017-azure
+AMD EPYC 7763 64-Core Processor
+INTERVAL DAY TO SECOND CAST(dt AS BIGINT), no nulls over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                                                                     79             81           2         25.3          39.5       1.0X
+varka on                                                                                       79             83           5         25.2          39.6       1.0X
+
+
+================================================================================================
+INT CAST(i AS BIGINT), control, fuses today, no nulls
+================================================================================================
+
+OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1017-azure
+AMD EPYC 7763 64-Core Processor
+INT CAST(i AS BIGINT), control, fuses today, no nulls over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                                                                       80             83           2         24.9          40.1       1.0X
+varka on                                                                                         15             20           5        130.3           7.7       5.2X
+
+
+================================================================================================
+INT CAST(i AS TINYINT), LEGACY, one row in ten null
+================================================================================================
+
+OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1017-azure
+AMD EPYC 7763 64-Core Processor
+INT CAST(i AS TINYINT), LEGACY, one row in ten null over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                                                                     83             86           2         24.1          41.5       1.0X
+varka on                                                                                       83             85           1         24.0          41.7       1.0X
+
+
+================================================================================================
+INT CAST(j AS TINYINT), ANSI, one row in ten null
+================================================================================================
+
+OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1017-azure
+AMD EPYC 7763 64-Core Processor
+INT CAST(j AS TINYINT), ANSI, one row in ten null over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+----------------------------------------------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                                                                   85             87           2         23.7          42.3       1.0X
+varka on                                                                                     85             86           1         23.6          42.4       1.0X
+
+
+================================================================================================
+INT try_cast(k AS TINYINT), one row in ten null
+================================================================================================
+
+OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1017-azure
+AMD EPYC 7763 64-Core Processor
+INT try_cast(k AS TINYINT), one row in ten null over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+--------------------------------------------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                                                                223            227           3          9.0         111.6       1.0X
+varka on                                                                                  224            228           3          8.9         112.1       1.0X
+
+
+================================================================================================
+INT CAST(k AS TINYINT), LEGACY, one row in ten null
+================================================================================================
+
+OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1017-azure
+AMD EPYC 7763 64-Core Processor
+INT CAST(k AS TINYINT), LEGACY, one row in ten null over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                                                                     84             86           2         23.9          41.9       1.0X
+varka on                                                                                       83             85           3         24.2          41.3       1.0X
+
+
+================================================================================================
+BIGINT CAST(l AS SMALLINT), LEGACY, one row in ten null
+================================================================================================
+
+OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1017-azure
+AMD EPYC 7763 64-Core Processor
+BIGINT CAST(l AS SMALLINT), LEGACY, one row in ten null over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                                                                         83             85           1         24.1          41.5       1.0X
+varka on                                                                                           83             86           4         24.0          41.7       1.0X
+
+
+================================================================================================
+TINYINT CAST(y AS BIGINT), one row in ten null
+================================================================================================
+
+OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1017-azure
+AMD EPYC 7763 64-Core Processor
+TINYINT CAST(y AS BIGINT), one row in ten null over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-------------------------------------------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                                                                78             81           1         25.5          39.2       1.0X
+varka on                                                                                  80             83           4         25.1          39.8       1.0X
+
+
+================================================================================================
+BOOLEAN CAST(b AS INT), one row in ten null
+================================================================================================
+
+OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1017-azure
+AMD EPYC 7763 64-Core Processor
+BOOLEAN CAST(b AS INT), one row in ten null over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+----------------------------------------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                                                             78             80           1         25.6          39.0       1.0X
+varka on                                                                               78             81           2         25.5          39.1       1.0X
+
+
+================================================================================================
+INT filter CAST(i AS BOOLEAN), one row in ten null
+================================================================================================
+
+OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1017-azure
+AMD EPYC 7763 64-Core Processor
+INT filter CAST(i AS BOOLEAN), one row in ten null over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                                                                    74             77           2         26.9          37.2       1.0X
+varka on                                                                                      75             78           3         26.6          37.6       1.0X
+
+
+================================================================================================
+INT CAST(m AS INTERVAL YEAR), one row in ten null
+================================================================================================
+
+OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1017-azure
+AMD EPYC 7763 64-Core Processor
+INT CAST(m AS INTERVAL YEAR), one row in ten null over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+----------------------------------------------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                                                                   81             83           1         24.7          40.6       1.0X
+varka on                                                                                     82             84           2         24.3          41.1       1.0X
+
+
+================================================================================================
+INTERVAL DAY TO SECOND CAST(dt AS BIGINT), one row in ten null
+================================================================================================
+
+OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1017-azure
+AMD EPYC 7763 64-Core Processor
+INTERVAL DAY TO SECOND CAST(dt AS BIGINT), one row in ten null over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                                                                                79             82           3         25.2          39.7       1.0X
+varka on                                                                                                  78             80           1         25.5          39.2       1.0X
+
+
+================================================================================================
+INT CAST(i AS BIGINT), control, fuses today, one row in ten null
+================================================================================================
+
+OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1017-azure
+AMD EPYC 7763 64-Core Processor
+INT CAST(i AS BIGINT), control, fuses today, one row in ten null over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                                                                                  79             87           7         25.2          39.7       1.0X
+varka on                                                                                                    12             16           4        164.1           6.1       6.5X
+
+
