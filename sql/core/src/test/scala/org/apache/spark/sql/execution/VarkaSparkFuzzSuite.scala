@@ -26,7 +26,8 @@ import scala.jdk.OptionConverters._
 import scala.util.Random
 
 import org.apache.spark.sql.DataFrame
-import org.apache.spark.sql.catalyst.expressions.Cast
+import org.apache.spark.sql.catalyst.analysis.UnresolvedAttribute
+import org.apache.spark.sql.catalyst.expressions.{Cast, Expression, Literal}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaCatalystGrammar,
   VarkaJitEvidence, VarkaKernelWarmth, VarkaKernelWarmup, VarkaShapeCache}
 import org.apache.spark.sql.catalyst.plans.logical.Filter
@@ -130,14 +131,84 @@ class VarkaSparkFuzzSuite extends VarkaSparkDifferential {
   }
 
   /**
-   * Whether a disagreement `check` showed is the configuration's by design: with the overflow
-   * check off an overflowing lane wraps where the row engine raises or nulls, so a composition
-   * that disagrees there and agrees once the check is on, everything else equal, is a
-   * configuration wrap rather than a finding. Asked only after a disagreement, so a run at the
-   * defaults never pays for it, and not counted in the census.
+   * Whether a disagreement `check` showed over `fixture` is the configuration's by design: with
+   * the overflow check off an overflowing lane wraps where the row engine raises or nulls. Two
+   * things must hold. The composition agrees once the check is on, everything else equal; and the
+   * disagreement is shown to be the wrap itself ([[wrapEvidence]]), since a check-on rerun that
+   * agrees proves only that the checked emission differs, not that a row overflowed. Asked only
+   * after a disagreement, so a run at the defaults never pays for it, and not counted in the
+   * census.
    */
-  private def configurationWrap(check: => Option[String]): Boolean =
-    overflowUnchecked && withoutCounting(withOverflowChecked(check)).isEmpty
+  private def configurationWrap(c: Case, fixture: String)(check: => Option[String]): Boolean =
+    overflowUnchecked && withoutCounting {
+      withOverflowChecked(check).isEmpty && wrapEvidence(c, fixture)
+    }
+
+  /**
+   * How one expression, evaluated alone over the whole fixture, compares between the row engine
+   * and Varka with the run's options: the same, different only as an overflow wrap is, or
+   * different otherwise.
+   */
+  private sealed trait Probe
+  private case object ProbeAgrees extends Probe
+  private case object ProbeWraps extends Probe
+  private case object ProbeDiffers extends Probe
+
+  /**
+   * `text` as the one output of a query over `fz`, on both engines. An unchecked lane that
+   * overflows shows in one of two ways, and only these are a wrap: the row engine raises an
+   * overflow condition where Varka answers (a checked mode that fails), or the row engine's rows
+   * differ from Varka's only by a NULL where Varka has a value (a mode that nulls). A value
+   * against another value is not a wrap, whatever the check does.
+   */
+  private def probe(text: String): Probe = {
+    val query = s"SELECT $text AS c0 FROM fz"
+    (outcome(spark, query), outcome(varkaSpark, query)) match {
+      case (off, on) if off == on => ProbeAgrees
+      case (Right(off), Right(on)) if off.size == on.size && off.diff(on).forall(_ == "[null]") =>
+        ProbeWraps
+      case (Left(raised), Right(_)) if raised.contains("OVERFLOW") => ProbeWraps
+      case _ => ProbeDiffers
+    }
+  }
+
+  /**
+   * The probe of `e` and the probes of the differences that start in it: each node that differs
+   * while every child of it agrees, which is where a wrong value first appears. A column or a
+   * literal agrees without a query; a node whose text does not run alone agrees too, so its
+   * parent is probed in its place.
+   */
+  private def differencesIn(e: Expression): (Probe, Seq[Probe]) = {
+    val children = e.children.map(differencesIn)
+    val self = e match {
+      case _: Literal | _: UnresolvedAttribute => ProbeAgrees
+      case _ => scala.util.Try(e.sql).toOption.map(probe).getOrElse(ProbeAgrees)
+    }
+    val starts = if (self != ProbeAgrees && children.forall(_._1 == ProbeAgrees)) Seq(self)
+      else Nil
+    (self, children.flatMap(_._2) ++ starts)
+  }
+
+  /**
+   * Whether the disagreement of `c` over `fixture` is an overflow wrap and nothing else: every
+   * output and every conjunct (as drawn, before rectification) is taken apart and each node
+   * probed alone over the whole fixture, and at least one difference starts somewhere, and every
+   * one that does is a wrap ([[probe]]). A wrong value on a row that did not overflow, beside a
+   * wrap in the same batch or not, starts a difference of its own that is not a wrap, and stays
+   * a finding. The fixture is one partition, so a probe that raises names the first raising
+   * row's condition on both engines rather than the first failing task's.
+   */
+  private def wrapEvidence(c: Case, fixture: String): Boolean = withAnsi(c.ansi) {
+    cacheFixture(fixture, _.coalesce(1))
+    try {
+      val starts = (c.outputs ++ c.conjuncts.map(_.sql)).flatMap { text =>
+        differencesIn(spark.sessionState.sqlParser.parseExpression(text))._2
+      }
+      starts.nonEmpty && starts.forall(_ == ProbeWraps)
+    } finally {
+      uncacheFixture()
+    }
+  }
 
   /**
    * The failure text of composition `it`, which showed `found`: the case shrunk, its reproducer
@@ -184,7 +255,7 @@ class VarkaSparkFuzzSuite extends VarkaSparkDifferential {
       val partitions = it % partitionEvery == 0
       val errorsBefore = bothErrored
       val result = kindOf(c, partitions, forcesOf(c, it)).filter { _ =>
-        val wrap = configurationWrap(kindOf(c, partitions, forcesOf(c, it)))
+        val wrap = configurationWrap(c, c.fixture)(kindOf(c, partitions, forcesOf(c, it)))
         if (wrap) wraps += 1
         !wrap
       }
@@ -269,8 +340,10 @@ class VarkaSparkFuzzSuite extends VarkaSparkDifferential {
         val outcomes = VarkaKernelWarmup.recentOutcomes().asScala.filterNot(before.contains)
         // The checked run is a shape of its own (the options ride the shape key), so it takes
         // the handover too; its counts are not the arm's.
-        val result = firstResult.filter { _ =>
-          val wrap = configurationWrap(warmedDisagreement(c, later, new WarmedCounts))
+        val result = firstResult.filter { kind =>
+          // A disagreement over the other data is probed over that data.
+          val over = if (kind.startsWith("over other data")) fixtureSql(later) else c.fixture
+          val wrap = configurationWrap(c, over)(warmedDisagreement(c, later, new WarmedCounts))
           if (wrap) wraps += 1
           !wrap
         }
@@ -483,7 +556,8 @@ class VarkaSparkFuzzSuite extends VarkaSparkDifferential {
         val c = rectify(drawn)
         if (c.conjuncts.nonEmpty) {
           val kind = kindOf(c, partitions = false, Nil)
-          assert(kind.isEmpty || configurationWrap(kindOf(c, partitions = false, Nil)),
+          assert(kind.isEmpty ||
+            configurationWrap(c, c.fixture)(kindOf(c, partitions = false, Nil)),
             s"iteration $it: $kind: ${c.query}")
           checked += 1
         }
