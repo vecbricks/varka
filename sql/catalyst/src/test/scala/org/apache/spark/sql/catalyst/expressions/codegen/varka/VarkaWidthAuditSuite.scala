@@ -50,9 +50,9 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaWidthAuditPr
  *
  *  - **an invariant, on every host:** at the host's own preferred width, no coverage row and
  *    no construction other than the opt-in magic form meets a `not supported` refusal, save
- *    the one the design already records - the 64-bit lane's converts below AVX-512, see
- *    `knownBelowAvx512`. A failure names the shape, the operation and the CPU, which is what
- *    a per-lane rate never does. The other two kinds of line C2 prints are recorded but not
+ *    the one the design already records - the 64-bit lane's converts without AVX512DQ, see
+ *    `knownConversionRefusal`. A failure names the shape, the operation and the CPU, which is
+ *    what a per-lane rate never does. The other two kinds of line C2 prints are recorded but not
  *    asserted on; see `isRefusal`;
  *  - **a census, pinned:** `sql/varka/width_audit.json` records every width's refusals for
  *    the host it was taken on. The census is a property of the CPU and the JDK, so the check
@@ -76,7 +76,8 @@ class VarkaWidthAuditSuite extends SparkFunSuite with VarkaTestWatchdog {
    * saw it, keyed by the same shape name. The two are different kinds of answer - a decline is
    * no lowering at all, a refusal is a per-lane fallback - and both are pinned (VARKA-329).
    */
-  private case class Census(preferredBits: Int, useAVX: Int, refusals: Map[String, Seq[String]],
+  private case class Census(preferredBits: Int, useAVX: Int, conversionsFallBack: Boolean,
+      featuresFailure: Option[String], refusals: Map[String, Seq[String]],
       declined: Map[String, String], unattributed: Seq[String])
 
   private val cpuModel: String = {
@@ -104,6 +105,8 @@ class VarkaWidthAuditSuite extends SparkFunSuite with VarkaTestWatchdog {
     command.add("--add-modules")
     command.add("jdk.incubator.vector")
     command.add("--enable-native-access=ALL-UNNAMED")
+    // VarkaHostIsa's feature query, which keys the converts the invariant expects (VARKA-538).
+    command.add("--add-exports=java.base/jdk.internal.vm.vector=ALL-UNNAMED")
     command.add("-XX:+UnlockDiagnosticVMOptions")
     command.add("-Xbatch")
     command.add("-XX:CompileCommand=quiet")
@@ -126,6 +129,8 @@ class VarkaWidthAuditSuite extends SparkFunSuite with VarkaTestWatchdog {
     var current: Option[String] = None
     var bits = -1
     var useAVX = VarkaEmitOptions.USE_AVX_UNKNOWN
+    var fallsBack: Option[Boolean] = None
+    var featuresFailure: Option[Option[String]] = None
     var done = false
     val tail = mutable.Queue.empty[String]
     try {
@@ -138,6 +143,15 @@ class VarkaWidthAuditSuite extends SparkFunSuite with VarkaTestWatchdog {
         val trimmed = line.trim
         VarkaProbeOutput.longAfter(line, PREFERRED_BITS_PREFIX).foreach(b => bits = b.toInt)
         VarkaProbeOutput.longAfter(line, USE_AVX_PREFIX).foreach(u => useAVX = u.toInt)
+        VarkaProbeOutput.after(line, CONVERSIONS_FALL_BACK_PREFIX).foreach { v =>
+          fallsBack = Some(v.trim.startsWith("true"))
+        }
+        // The probe folds the failure onto one line and closes it, so a compile record glued
+        // after it is left out; a line without the end mark reads as an unknown failure.
+        featuresFailureIn(line).foreach(f => featuresFailure = Some(f))
+        VarkaProbeOutput.after(line, FEATURES_PREFIX).foreach { f =>
+          logInfo(s"the audit probe's JVM reports the features: ${f.trim}")
+        }
         VarkaProbeOutput.between(line, SHAPE_BEGIN_PREFIX, SHAPE_NAME_END).foreach { name =>
           current = Some(name)
           refusals.getOrElseUpdate(name, mutable.LinkedHashSet.empty)
@@ -173,8 +187,10 @@ class VarkaWidthAuditSuite extends SparkFunSuite with VarkaTestWatchdog {
       s"the audit probe failed (exit ${process.exitValue()}); its last lines:\n" +
         tail.mkString("\n"))
     assert(bits > 0, "the audit probe never reported its preferred vector width")
-    Census(bits, useAVX, refusals.map { case (k, v) => k -> v.toSeq }.toMap,
-      declined.toMap, unattributed.toSeq)
+    assert(fallsBack.isDefined, "the audit probe never reported whether its converts fall back")
+    assert(featuresFailure.isDefined, "the audit probe never reported its feature read")
+    Census(bits, useAVX, fallsBack.get, featuresFailure.get,
+      refusals.map { case (k, v) => k -> v.toSeq }.toMap, declined.toMap, unattributed.toSeq)
   }
 
   private lazy val atPreferred: Census = audit(None)
@@ -227,19 +243,18 @@ class VarkaWidthAuditSuite extends SparkFunSuite with VarkaTestWatchdog {
 
   /**
    * The one refusal a host class is known to have at its own width, and the emitter already
-   * knows about: below AVX-512 there is no vector lowering of the 64-bit lane's conversions to
-   * and from double (`L2D`, `D2L`), which is why `VarkaEmitOptions.convertsFallBack` exists
+   * knows about: without AVX512DQ there is no vector lowering of the 64-bit lane's conversions
+   * to and from double (`L2D`, `D2L`), which is why `VarkaEmitOptions.convertsFallBack` exists
    * and the magic form of the division was built (`VARKA-88.md` 9.2). C2 prints it as a
    * lane cast of four 64-bit lanes: `op=cast#<n>/3 vlen2=4 etype2=double|long ismask=0`.
    * The audit's first CI run confirmed it from the runner pool's EPYC 7763 at 256 bits, in
    * every shape that carries a 64-bit constant division and nowhere else. The invariant
-   * expects it there rather than failing every AVX2 runner on a fact the design records;
-   * VARKA-121 owns what to do about it.
+   * expects it where the probe's JVM says its converts fall back - HotSpot's own feature list,
+   * read by `VarkaHostIsa` in that JVM (VARKA-538) - rather than failing every AVX2 runner on
+   * a fact the design records.
    */
-  private def knownBelowAvx512(census: Census, line: String): Boolean =
-    census.useAVX != VarkaEmitOptions.USE_AVX_UNKNOWN &&
-      // AVX-512 is level 3, the same reading `VarkaEmitOptions.convertsFallBack` makes.
-      census.useAVX < 3 &&
+  private def knownConversionRefusal(conversionsFallBack: Boolean, line: String): Boolean =
+    conversionsFallBack &&
       line.startsWith("not supported") && line.contains("op=cast#") &&
       line.contains("ismask=0") &&
       (line.contains("etype2=double") || line.contains("etype2=long"))
@@ -314,8 +329,25 @@ class VarkaWidthAuditSuite extends SparkFunSuite with VarkaTestWatchdog {
         s"${recorded.size} for this width; unexplained:\n" + unexplained.map {
           case (name, reason) => s"  $name: $reason"
         }.mkString("\n"))
+    // An x86 probe that could not read its feature list answers "converts" whatever its CPU,
+    // so the converts' refusal it may meet is not admitted; that is the unread list, and it is
+    // reported as such rather than as a refusal nobody expected.
+    census.featuresFailure.filter(_ => VarkaHostIsa.isX86(System.getProperty("os.arch", "")))
+      .foreach { failure =>
+        // The opt-in magic-form shapes are outside the invariant below, so not here either.
+        val converts = census.refusals.filter { case (name, _) => !name.contains(magicForm) }
+          .values.flatten
+          .filter(o => isRefusal(o) && knownConversionRefusal(conversionsFallBack = true, o))
+        assert(converts.isEmpty,
+          s"on $cpuModel at ${census.preferredBits} bits (UseAVX ${census.useAVX}): feature " +
+            s"list unreadable in the audit probe's JVM ($failure), so the converts' refusal " +
+            "below cannot be keyed on its answer; an IllegalAccessException there means " +
+            "the fork's --add-exports of java.base/jdk.internal.vm.vector is missing:\n" +
+            converts.toSeq.distinct.map(o => s"    ** $o").mkString("\n"))
+      }
     val refused = census.refusals.map { case (name, ops) =>
-      name -> ops.filter(o => isRefusal(o) && !knownBelowAvx512(census, o))
+      name -> ops.filter(o =>
+        isRefusal(o) && !knownConversionRefusal(census.conversionsFallBack, o))
     }.filter { case (name, ops) => ops.nonEmpty && !name.contains(magicForm) }
     assert(refused.isEmpty,
       s"on $cpuModel at ${census.preferredBits} bits (UseAVX ${census.useAVX}), C2 refused a " +
@@ -463,5 +495,64 @@ class VarkaWidthAuditSuite extends SparkFunSuite with VarkaTestWatchdog {
         (unexplained.map { case (name, reason) => s"  declined, not recorded: $name: $reason" } ++
           stale.map { case (name, reason) => s"  recorded, not declined: $name: $reason" })
           .mkString("\n"))
+  }
+
+  /**
+   * Fails on a feature read that failed for a cause this tree controls, and names that cause.
+   * `VarkaHostIsa` keeps the exception's `toString`, so the text starts with its class: an
+   * inaccessible method is the missing --add-exports (`fix` says where it belongs) and fails. A
+   * garbled probe line, whose failure text is unknown, fails too, before any class is matched in
+   * it, since the class there may come from a glued record. Any other cause - a JDK without the
+   * method or its class, a native that is not registered - is the JDK's, not the tree's, so the
+   * test is cancelled with a log line.
+   */
+  private def holdFeatureRead(jvm: String, failure: Option[String], fix: String): Unit =
+    failure.foreach { text =>
+      if (text.startsWith(FEATURES_FAILURE_UNKNOWN)) {
+        fail(s"$jvm's feature read cannot be judged: $text")
+      } else if (Seq("IllegalAccessException", "InaccessibleObjectException", "does not export")
+          .exists(text.contains)) {
+        fail(s"$jvm could not read its feature list: the query is not exported to it ($text); " +
+          fix)
+      } else {
+        logInfo(s"$jvm's JDK has no usable HotSpot feature query ($text), so the host's answer " +
+          "cannot be checked here")
+        cancel(s"$jvm's JDK has no usable HotSpot feature query: $text")
+      }
+    }
+
+  test("the converts' refusal is admitted only where the host says its converts fall back") {
+    // Test 3.5 of VARKA-538: the key is the host's answer, so a fallback host reported as
+    // converting must fail the preferred-width invariant on the L2D/D2L line, and a host that
+    // falls back must admit it, while any other refusal fails either way.
+    val l2d = "not supported: arity=1 op=cast#2/3 vlen2=4 etype2=double ismask=0"
+    val other = "not supported: arity=2 op=mul vlen=4 etype=long ismask=0"
+    assert(knownConversionRefusal(conversionsFallBack = true, l2d))
+    assert(!knownConversionRefusal(conversionsFallBack = false, l2d))
+    assert(!knownConversionRefusal(conversionsFallBack = true, other))
+    // The probe's own answer keys its census, and on x86 an unread list answers "converts"
+    // whatever the CPU, so both JVMs must read it there: the fork through audit()'s
+    // --add-exports, this JVM through the build's. A dropped export fails here rather than
+    // quietly turning every DQ-less host into one whose converts the census expects to lower.
+    val suite = VarkaHostIsa.host()
+    if (suite.x86()) {
+      holdFeatureRead("the audit probe's JVM", atPreferred.featuresFailure,
+        "audit() must pass --add-exports of java.base/jdk.internal.vm.vector")
+      holdFeatureRead("this JVM", Option(suite.failure()),
+        "the build's test options must export java.base/jdk.internal.vm.vector")
+    }
+    // The two answers are held to each other only like for like. The fork inherits none of this
+    // JVM's -XX options, so a suite run under -XX:UseAVX=2 on an AVX-512 host answers
+    // differently from a fork at the host's level; they are compared only at one level.
+    if (atPreferred.useAVX == VarkaEmitOptions.HOST_USE_AVX && suite.readable() &&
+        atPreferred.featuresFailure.isEmpty) {
+      assert(atPreferred.conversionsFallBack === suite.conversionsFallBack(),
+        s"at UseAVX ${atPreferred.useAVX} the probe's JVM and the suite's disagree on the " +
+          s"converts; the suite read [${suite.features()}]")
+    } else {
+      logInfo(s"the probe's answer is not compared with this JVM's: the probe ran at UseAVX " +
+        s"${atPreferred.useAVX} (read failure: ${atPreferred.featuresFailure}), this JVM at " +
+        s"${VarkaEmitOptions.HOST_USE_AVX} (read failure: ${Option(suite.failure())})")
+    }
   }
 }

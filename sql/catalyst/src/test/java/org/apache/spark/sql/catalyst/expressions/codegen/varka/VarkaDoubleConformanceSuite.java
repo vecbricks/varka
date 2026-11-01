@@ -29,11 +29,11 @@ import org.apache.spark.sql.types.DataTypes;
  * checks, so `NaN = NaN`, `-0.0 = 0.0` and NaN above every other value are held to Spark's
  * `eval` and to the reference evaluator, bit for bit on the picks.
  *
- * <p>The registers mark neither the arithmetic of the null-handling and overflow checks nor any
- * cast fused, so those checks are cancelled once their fused forms have run, naming the rows the
- * registers give each form: an operator's census entry names every row of its gaps, the
- * floating arithmetic's 342 among them, and a cast its {@code casts.tsv} pair's, 343 for most
- * and 346, 350 and 364 for the cast to {@code DECIMAL}.
+ * <p>The null-handling and overflow checks hold the floating arithmetic (VARKA-342) to Spark,
+ * a NaN computed from two NaNs compared by being NaN; its overflow reaches an infinity, which
+ * Spark answers in every mode. The registers mark no cast fused, so the cast row is cancelled
+ * once its fused forms have run, naming its {@code casts.tsv} pair's rows, 343 for most and
+ * 346, 350 and 364 for the cast to {@code DECIMAL}.
  */
 @VarkaSuite
 public final class VarkaDoubleConformanceSuite extends VarkaTypeConformance {

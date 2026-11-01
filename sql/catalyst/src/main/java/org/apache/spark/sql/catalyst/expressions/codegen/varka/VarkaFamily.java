@@ -70,7 +70,12 @@ public enum VarkaFamily {
   INT_ARITHMETIC("int arithmetic", "intArithmetic", "+, -, * and unary minus over int,"
       + " tinyint and smallint operands and abs over the narrow two, checked under ANSI,"
       + " greatest and least, the casts between int and bigint, and a tinyint or smallint"
-      + " widened to int");
+      + " widened to int"),
+  /** {@code VarkaFloatingCompiler}. */
+  FLOATING_ARITHMETIC("floating arithmetic", "floatingArithmetic", "+, -, *, unary minus and abs"
+      + " over double and float operands, and /, try_divide, sqrt, signum, degrees and radians"
+      + " over double ones, a zero divisor null under LEGACY and TRY and raised by the row engine"
+      + " under ANSI");
 
   /** The prefix every family's switch shares. */
   public static final String SWITCH_PREFIX = "spark.sql.codegen.varka.family.";

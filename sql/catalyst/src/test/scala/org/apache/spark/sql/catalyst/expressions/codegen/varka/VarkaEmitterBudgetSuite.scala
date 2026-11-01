@@ -306,6 +306,8 @@ class VarkaEmitterBudgetSuite extends VarkaEmitterTestBase with VarkaOwnJvm {
     val l = new LiteralSlot(0)
     val lc = new ColumnRef(0, LaneType.LONG)
     val lc1 = new ColumnRef(1, LaneType.LONG)
+    val dc = new ColumnRef(0, LaneType.DOUBLE)
+    val dc1 = new ColumnRef(1, LaneType.DOUBLE)
     val lt = new Compare(CompareOp.LT, c, c1)
     val monthStep = monthStepOps(VarkaMatrix.base)
     // The long lane's division weighs its larger form, the magic one AVX2 hosts emit.
@@ -328,6 +330,10 @@ class VarkaEmitterBudgetSuite extends VarkaEmitterTestBase with VarkaOwnJvm {
       (new BitOp(BitOpKind.AND, lc, lc1), 2, 0, VarkaMatrix.base),
       (new BitCount(c), 1, 0, VarkaMatrix.base),
       (new BitCount(lc), 1, 0, VarkaMatrix.base),
+      (new MathUnary(MathFn.SQRT, dc), 1, 0, VarkaMatrix.base),
+      (new IntArith(IntOp.DIV, Overflow.WRAP, dc, dc1), 2, 0, VarkaMatrix.base),
+      (new IntArith(IntOp.DIV, Overflow.NULL, dc, dc1), 2, 0, VarkaMatrix.base),
+      (new IntArith(IntOp.DIV, Overflow.FAIL, dc, dc1), 2, 0, VarkaMatrix.base),
       (lt, 2, 0, VarkaMatrix.base),
       (new NullSafeEqual(c, c1), 2, 0, VarkaMatrix.base),
       (new BoolColumn(0), 1, 0, VarkaMatrix.base),
