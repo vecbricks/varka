@@ -131,19 +131,39 @@ public final class VarkaKernelPlan {
       }
       // A narrow value fills the int species of the long species' width, as an int one does, so
       // the kernel converts between lanes (VARKA-332): a narrow column read as a value, and any
-      // other narrow node. A narrowing to a narrow type at its store counts too: it stores a
-      // narrow species of twice the long lanes, which the loop bound of a kernel that converts
-      // between lanes leaves room for, so its loop body stores whole (`emitNarrowTypeStore`).
-      // A column read for its word alone is not.
+      // other narrow node but a narrowing at its store. A column read for its word alone is not.
       for (VarkaVectorIR root : roots) {
         mixed |= !VarkaVectorIR.narrowValuesIn(root).isEmpty();
       }
       for (VarkaVectorIR node : nodes) {
-        mixed |= node.laneType().isNarrow() && !(node instanceof VarkaVectorIR.ColumnRef);
+        mixed |= node.laneType().isNarrow() && !(node instanceof VarkaVectorIR.ColumnRef)
+            && !storeNarrowings.contains(node);
+      }
+      // A narrowing to a narrow type at its store makes the kernel convert between lanes only
+      // where its loop body can then store the narrow species whole: the loop bound of such a
+      // kernel leaves room for one int group of the long width past the lane group, and the
+      // store fits it where the lane count is baked and the narrow species of the int group's
+      // width exists. A byte at two long lanes has none - it would be 32 bits - and an unbaked
+      // width names the preferred species, not the int group's own, so there the store is masked
+      // whatever the kernel is, and the kernel stays single-lane rather than pay the conversions
+      // for nothing.
+      for (VarkaVectorIR node : storeNarrowings) {
+        mixed |= node.laneType().isNarrow() && wholeNarrowStoreFits(Lane.of(node.laneType()),
+            lanes);
       }
     }
     return new VarkaKernelPlan(Optional.empty(), drive, lanes, mixed, Set.copyOf(storeNarrowings),
         Map.copyOf(inputLanes), narrowGroups(roots, lane, lanes));
+  }
+
+  /**
+   * Whether a narrow store of {@code stored} in a kernel at {@code longLanes} baked long lanes
+   * fills exactly one int group of the long width: the lane count is baked, and the narrow
+   * species of twice the long lanes exists ({@link Lane#widenLanes} names the next width up
+   * where it does not).
+   */
+  private static boolean wholeNarrowStoreFits(Lane stored, int longLanes) {
+    return longLanes != 0 && Lane.widenLanes(2 * longLanes, stored) == 2 * longLanes;
   }
 
   /**
@@ -670,6 +690,20 @@ public final class VarkaKernelPlan {
   boolean mixed() {
     requireEmittable();
     return mixed;
+  }
+
+  /**
+   * Whether a narrow-typed store of {@code stored} in this kernel's loop body may be whole: in a
+   * kernel at the long lane, where the kernel converts between lanes - whose loop bound leaves
+   * room for one int group of the long width past each lane group - and the store fills exactly
+   * that group ({@link #wholeNarrowStoreFits}). The plan makes a kernel with such a narrowing at
+   * its store one that converts between lanes, so this holds for every narrow store that can be
+   * whole. False in a kernel at any other lane, whose store the emitter sizes against the int
+   * group itself.
+   */
+  boolean wholeNarrowStoreAtLong(Lane stored) {
+    requireEmittable();
+    return lane == Lane.LONG && mixed && wholeNarrowStoreFits(stored, lanes);
   }
 
   /**

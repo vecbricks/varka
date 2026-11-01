@@ -485,9 +485,12 @@ What was built, per item of section 5 step 2:
   The load reads twice the long lanes of the narrow type into the int species, then `I2L`; the
   kernel is a mixed one, so its loop bound already covers the whole int vector the load reads. A
   narrowing at a root converts with `L2I` and stores through the narrow species of the int
-  width; a narrow store makes the kernel a mixed one too, so the store is whole in the loop body
-  and masked only in the epilogue (review finding 5: AVX2 has no masked byte or short store, and
-  the masked form scalarised the loop), and masked throughout where no lane count is baked. Away
+  width; where that species is exactly the int group of the long width, a narrow store makes the
+  kernel a mixed one too, so the store is whole in the loop body and masked only in the epilogue
+  (review finding 5: AVX2 has no masked byte or short store, and the masked form scalarised the
+  loop). Where it is not - a byte at two long lanes, whose species would be 32 bits, or a width
+  with no baked lane count - the store is masked throughout and the kernel stays single-lane, so
+  it pays no lane conversions and a sibling `CAST(l AS INT)` keeps its half-width species. Away
   from a root it is `L2I` and the shift pair's wrap. The part
   form at the long width is not built: a byte column at two long lanes (128 bits) declines by name
   ("a BYTE column has no load at 2 long lanes"), the decline section 7 lists.

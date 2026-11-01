@@ -984,12 +984,22 @@ final class Analysis {
   /**
    * Whether this kernel holds values of both lanes: driven at the long lane, with an int-lane
    * node that is emitted as an int vector - every int-lane node but a narrowing root that nothing
-   * else reads, whose value stays in the long lane until its store. False for every single-lane
-   * kernel and for a kernel whose only int-lane nodes are narrowing roots, such as the
-   * {@code TIME} extracts'. The plan's answer.
+   * else reads, whose value stays in the long lane until its store, and every narrow value. A
+   * narrowing to a narrow type at its store makes the kernel one too where that lets its loop
+   * body store the narrow species whole ({@link #wholeNarrowStoreAtLong}). False for every
+   * single-lane kernel and for a kernel whose only int-lane nodes are narrowing roots, such as
+   * the {@code TIME} extracts'. The plan's answer.
    */
   boolean mixed() {
     return plan.mixed();
+  }
+
+  /**
+   * Whether a narrow-typed store of {@code stored} in this kernel at the long lane may be whole in
+   * its loop body. The plan's answer ({@link VarkaKernelPlan#wholeNarrowStoreAtLong}).
+   */
+  boolean wholeNarrowStoreAtLong(Lane stored) {
+    return plan.wholeNarrowStoreAtLong(stored);
   }
 
   /**

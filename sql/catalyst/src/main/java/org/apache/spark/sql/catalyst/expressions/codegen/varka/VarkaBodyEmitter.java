@@ -1081,12 +1081,12 @@ final class VarkaBodyEmitter {
     cb.lmul();
     cb.getstatic(BYTE_ORDER, "LITTLE_ENDIAN", BYTE_ORDER);
     // In a kernel driven at the long lane the group is the low half of the int species, and the
-    // store is whole in the loop only where the loop bound leaves room for the whole species:
-    // the kernel converts between lanes, which every narrow store at the long lane makes it
-    // (`VarkaKernelPlan.of`), and its lane count is baked, so that the species is the int
-    // width's own rather than the preferred one. The upper half's rows are the next lane
-    // group's, which that group stores over, as `emitLowHalfStore` does (VARKA-332).
-    boolean wholeFits = analysis.lane != Lane.LONG || (analysis.mixed() && analysis.lanes != 0);
+    // store is whole in the loop only where the plan says the loop bound leaves room for the
+    // whole species and the species is the int group's own (`wholeNarrowStoreAtLong`): a byte at
+    // two long lanes, or a width with no baked lane count, stays masked. The upper half's rows
+    // are the next lane group's, which that group stores over, as `emitLowHalfStore` does
+    // (VARKA-332).
+    boolean wholeFits = analysis.lane != Lane.LONG || analysis.wholeNarrowStoreAtLong(stored);
     if (s.epilogue || speciesLanes > analysis.lanesOf(Lane.INT) || !wholeFits) {
       // The mask is not the epilogue's alone: a narrow species wider than the int group writes
       // past the group's own rows, and in the last iteration there is no next group to write
