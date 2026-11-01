@@ -24,6 +24,10 @@ held.*
 does, malformed ones included, every row read of an input batch goes through it, and the suite
 reaches the columnar-out paths.*
 
+***Rescoped, 1 November 2026 (section 13).** The view applies only over the Arrow cache, takes the
+low word only from a 128-bit field at the type's scale, and no longer emulates vanilla's
+projection reader: on corrupt slots Varka need not reproduce vanilla, by the owner's word.*
+
 ## 1. Where this came from
 
 Owner's decision A1 (14 October 2026, `m8/PLAN.md` 2.8): the fork's Arrow readers build a
@@ -571,6 +575,9 @@ projection), so the kernel declines the batch and the fallback, reading through 
 or raises as vanilla does on that batch. Without the guard the kernel would compute a comparison
 over a slot that the projection-read case raises on.
 
+*Note, 1 November 2026:* superseded by 13. The view no longer follows the projection reader, and
+the low-word path is taken only for a 128-bit field at the type's scale.
+
 ### 12.2 One way to read an input batch's rows
 
 `VarkaEvaluatorBase.inputRows(batch)` is now the one place a Varka node reads an input batch's
@@ -647,5 +654,72 @@ suite and restoring it:
    row found (the Python and R Arrow runners, the external UDF node) build their batches inside
    row operators, so none reaches a Varka node as its input; a columnar DSv2 source declaring
    Arrow vectors would, and should get a read-path cell of its own then.
+   *Note, 1 November 2026:* superseded by 13; the view applies only over the Arrow cache.
 3. **Row 542** owns 11.5 item 2.
+
+## 13. Rescoped, 1 November 2026
+
+The two review rounds of section 12 widened the row's goal from "ANSI and TRY casts of well-formed
+small decimals read from the Arrow cache answer as vanilla" to bit-exact parity with vanilla on
+corrupt bytes, from every Arrow producer and for every shape of column selection. A fallback over
+a batch cannot know enough to do that, and the lead pulled the scope back.
+
+### 13.1 The owner's decision
+
+The owner, 1 November 2026: "We shouldn't precisely follow vanilla Spark on corrupt inputs." The
+vanilla-parity rule of 11.1 covers well-formed data; on corrupt inputs that Spark's own writers
+cannot produce, Varka need not reproduce vanilla's behaviour. The limit in 13.3 rests on it.
+
+### 13.2 What 365 guarantees
+
+* **Over the Arrow cache, well-formed data: the exact rule on every Varka path.** A Varka node
+  whose child is `InMemoryTableScanExec` under `ArrowCachedBatchSerializer` (in its query stage
+  under adaptive execution), or a columnar Varka node over one, reads every row of its input batch
+  through `VarkaRowView`, by way of `VarkaEvaluatorBase.inputRows`, still the one place an input
+  batch's rows are read. `VarkaColumnarRule.readsArrowCache` decides it from the child when the
+  node builds its evaluator, and the evaluator takes it as a constructor flag, default off.
+* **Over any other columnar input: the reads are unchanged.** With the flag off the evaluator
+  reads the batch's own rows, as before this row. Over a non-cache Arrow child vanilla's
+  whole-stage `ColumnarToRowExec` reads through the accessor and answers by the double rule, and
+  Varka on answers the same, served and declined (a new cell over a columnar leaf built as
+  `TestColumnarBatchPlan` is). The same cell records a difference this row leaves as it was:
+  without whole-stage code vanilla's transition copies each row into an `UnsafeRow` and answers by
+  the exact rule, while Varka reads the batch's rows and answers by the double rule.
+* **The low word only from a field the cache writes.** The view reads the row reader's low word
+  only when the Arrow field is a 128-bit decimal at the scale of the column's Spark type
+  (`VarkaLaneArrow.decimalFieldMatches`, the rule the kernels' own check uses); any other field is
+  read through `ArrowColumnVector`, which rescales, and the value is made long-backed in place.
+  Section 12's view read the low word whatever the field said, so a field at another scale read
+  wrong: 12.5 at field scale 1, read as `DECIMAL(18, 2)`, came back 1.25, and now comes back 12.50
+  (a new cell; it fails with the guard removed).
+
+### 13.3 The known limit
+
+On a corrupt slot (a high word that is not the low word's sign extension, or a low word with more
+digits than the precision), which Spark's own cache writer cannot produce, in a batch whose scan
+also selects a nested type or another type the cache's row reader leaves to its
+`UnsafeProjection`, vanilla raises `NUMERIC_VALUE_OUT_OF_RANGE` and Varka answers the low word.
+Section 12's emulation of the projection reader - the copy of the serializer's `needsFallback`
+list and the reading that followed it - is deleted. The kernel's `DECIMAL_SLOT` guard still
+declines a batch with such a slot, and the fallback reads the low word as the row reader does, the
+common path of vanilla's cache scan. The `VarkaRowView` javadoc carries the same limit.
+
+### 13.4 Smaller changes
+
+* The view drops its references to a batch's vectors on the next `rows()` and at the evaluator's
+  task completion, no longer when its iterator reports the end, so the merge iterator of
+  `VarkaColumnarToRowExec` asks only the fused rows for `hasNext` again.
+* The small-decimal columns are found once from the schema; a batch binds only those, and the
+  accessor path makes its value long-backed in place rather than allocating another `Decimal`.
+
+### 13.5 The suite
+
+`VarkaDecimalReadPathSuite` goes from thirty-three cells to thirty-four, every one passing. Removed:
+the two Varka-on `rp_bad_array` cells that expected Varka to raise beside an array. Added: one
+cell that pins the limit (Varka on, beside the array, served, answering the low words), the
+non-cache child cell and the field-scale cell. The Varka-off `rp_bad_array` cell stays as the
+vanilla half of the limit; every other cell, the columnar-out ones and the malformed-slot cells
+with no nested column, is unchanged and answers as before. Each new cell was checked to fail
+without its fix: the evaluator forced to the view whatever its child, the non-cache cell answered
+by the exact rule; the field check removed, the scale cell read 1.25.
 

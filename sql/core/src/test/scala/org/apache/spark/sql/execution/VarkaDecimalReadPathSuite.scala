@@ -511,7 +511,8 @@ class VarkaDecimalReadPathSuite extends QueryTest with VarkaSharedSessions
     def casts(mode: EvalMode.Value): Seq[Expression] =
       Seq(a, b).map(c => Cast(c, IntegerType, Option(conf.sessionLocalTimeZone), mode))
     val all = casts(EvalMode.LEGACY) ++ casts(EvalMode.ANSI) ++ casts(EvalMode.TRY)
-    def projectList(cast: Expression) = Seq(Alias(cast, "r")(), Alias(DateAdd(d, i), "f")())
+    def projectList(cast: Expression): Seq[Alias] =
+      Seq(Alias(cast, "r")(), Alias(DateAdd(d, i), "f")())
     def values(node: SparkPlan): Seq[String] =
       node.executeCollect().map(r => if (r.isNullAt(0)) "null" else r.getInt(0).toString).toSeq
     def rule(name: String): Seq[String] = fused.asValue.find(_.name == name).get.answers
