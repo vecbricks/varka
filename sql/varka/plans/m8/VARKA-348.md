@@ -426,4 +426,31 @@ predictions scored; and the PR build and the option matrix pass.
 
 ## 10. Outcome
 
-(Written when the work lands.)
+(Written when the work lands; the readings of the steps built so far are below.)
+
+### 10.1 Step 1: the census cells, on the laptop
+
+*31 October 2026, at `f0c1ab11c45`, before any of the row's code. The laptop column of
+`sql/varka/operator_census.json` (AMD Ryzen AI 9 HX PRO 370, JDK 25.0.4.1, species of 512, 256 and
+128 bits); the EPYC 7763 and Neoverse N2 columns wait on a `varka-width-audit.yml` dispatch on the
+branch.*
+
+**What was built.** Three cells in `VarkaOperatorCensusCatalog`, in the long lanewise family: two
+on a new loop, a lanewise unary operator on long arrays, and one on a loop that multiplies a long
+column by a vector broadcast once before the loop from an array element, as the emitter loads a
+literal slot's broadcast, so that C2 sees neither a literal nor a 32-bit input. The multiply's cell
+is named `long.MUL_broadcast`, apart from `long.MUL`, the product of two columns.
+
+| cell | what the loop does | 512 | 256 | 128 | bytes a row |
+| :-- | :-- | :-- | :-- | :-- | :-- |
+| `long.NEG` | `lanewise(NEG)`, 2.6's negation | I | I | I | 0 |
+| `long.ABS` | `lanewise(ABS)`, 2.6's lanewise arm | I | I | I | 0 |
+| `long.MUL_broadcast` | `lanewise(MUL, scale)`, 2.2's rescale by `10^k` | I | I | I | 0 |
+
+**What it says.** On the laptop all three are intrinsic and allocation-free at every width, the
+128-bit column included: none makes a mask, so the two-lane fallback that the long compares read
+there (`NE`, `GT`, `LT` and the four unsigned compares) does not reach them. No existing cell's
+verdict moved. The laptop has AVX-512, where `x86.ad` admits `AbsVL` (`evpabsq`) and matches
+`MulVL` as one `vpmullq`; item 0.7's reading of the JDK is that the EPYC 7763 has neither, so its
+`ABS` cell is expected to read `F` and its multiply `I` as the emulation, which only the runner
+columns and the assembly can confirm.

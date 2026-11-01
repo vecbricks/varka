@@ -48,7 +48,7 @@ import java.util.Random;
  * <p>The column names and types are the view's ({@code VarkaSparkFuzz.fixtureSql}): {@code d},
  * {@code d2} DATE; {@code i} INT; {@code l}, {@code l2} BIGINT; {@code t}, {@code t2} TIME(6);
  * {@code dt}, {@code dt2} INTERVAL DAY TO SECOND; {@code ymm}, {@code ymy}, {@code ym} the three
- * year-month units.
+ * year-month units; {@code ntz}, {@code ntz2} TIMESTAMP_NTZ.
  */
 public final class VarkaCatalystGrammar {
 
@@ -62,6 +62,8 @@ public final class VarkaCatalystGrammar {
     DAY_TIME,
     /** A year-month interval of any unit. */
     YEAR_MONTH,
+    /** A TIMESTAMP_NTZ. */
+    NTZ,
     BOOLEAN
   }
 
@@ -117,6 +119,7 @@ public final class VarkaCatalystGrammar {
       Type.TIME, List.of("t", "t2"),
       Type.DAY_TIME, List.of("dt", "dt2"),
       Type.YEAR_MONTH, List.of("ym", "ymm", "ymy"),
+      Type.NTZ, List.of("ntz", "ntz2"),
       Type.BOOLEAN, List.of()));
 
   /**
@@ -133,11 +136,13 @@ public final class VarkaCatalystGrammar {
           "INTERVAL '1:30' HOUR TO MINUTE", "INTERVAL '1 02:03:04.5' DAY TO SECOND"),
       Type.YEAR_MONTH, List.of("INTERVAL '3' MONTH", "INTERVAL '1' YEAR",
           "INTERVAL '1-2' YEAR TO MONTH"),
+      Type.NTZ, List.of("TIMESTAMP_NTZ'2021-06-01 12:00:00'",
+          "TIMESTAMP_NTZ'1969-12-31 18:00:00.000001'"),
       Type.BOOLEAN, List.of()));
 
   /** The non-boolean types, which an output and a comparison's operands draw from. */
   public static final List<Type> VALUE_TYPES = List.of(Type.DATE, Type.INT, Type.BIGINT,
-      Type.TIME, Type.DAY_TIME, Type.YEAR_MONTH);
+      Type.TIME, Type.DAY_TIME, Type.YEAR_MONTH, Type.NTZ);
 
   private static final List<Production> PRODUCTIONS = productions();
 
@@ -157,6 +162,7 @@ public final class VarkaCatalystGrammar {
     final Type t = Type.TIME;
     final Type x = Type.DAY_TIME;
     final Type y = Type.YEAR_MONTH;
+    final Type n = Type.NTZ;
     final Type b = Type.BOOLEAN;
     // INT: the calendar fields, the day counts, the time fields, the year-month extracts, and
     // int arithmetic and choice.
@@ -225,6 +231,10 @@ public final class VarkaCatalystGrammar {
     // anything from DAY to MINUTE.
     out.add(new Production(x, "($0 - $1)", List.of(t, t), 3));
     out.add(new Production(x, "($0 + $1)", List.of(x, x), 1));
+    // The difference of two TIMESTAMP_NTZ values, and of one and a DATE, which the analyzer casts
+    // to TIMESTAMP_NTZ (VARKA-339).
+    out.add(new Production(x, "($0 - $1)", List.of(n, n), 2));
+    out.add(new Production(x, "($0 - $1)", List.of(n, d), 1));
     choices(out, x, x, 2);
     // YEAR_MONTH: the three units meet in every arithmetic and choice.
     out.add(new Production(y, "($0 + $1)", List.of(y, y), 3));
@@ -235,6 +245,10 @@ public final class VarkaCatalystGrammar {
     // mode, which reaches the fuzzer as the job's SparkException and no condition, a class the
     // expected-errors list cannot hold without excusing every task failure (VARKA-298.md 9).
     choices(out, y, y, 2);
+    // TIMESTAMP_NTZ: plus and minus a day-time interval of any fields (VARKA-339), and choice.
+    out.add(new Production(n, "($0 + $1)", List.of(n, x), 3));
+    out.add(new Production(n, "($0 - $1)", List.of(n, x), 3));
+    choices(out, n, n, 1);
     // BOOLEAN: comparisons of one type, of an INT with a BIGINT, and of a DATE with a date
     // string; null tests; IN lists that widen; and the connectives.
     for (Type v : VALUE_TYPES) {
