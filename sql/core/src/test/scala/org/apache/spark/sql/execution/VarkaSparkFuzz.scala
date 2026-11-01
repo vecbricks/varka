@@ -573,7 +573,11 @@ object VarkaSparkFuzz {
 
   // ---- the reproducer file ----------------------------------------------------------------
 
-  /** A reproducer: what a file holds, enough to replay without the draw. */
+  /**
+   * A reproducer: what a file holds, enough to replay without the draw. `options` are the emit
+   * options it was found under that differ from the run's own, as `name=value[,name=value]`
+   * (`VarkaMatrixRuns.parseOver`), which the replay applies over the options it runs with.
+   */
   final case class Reproducer(
       status: String,
       note: String,
@@ -583,7 +587,8 @@ object VarkaSparkFuzz {
       where: Option[String],
       fixture: String,
       pivot: Option[String] = None,
-      force: Option[Int] = None)
+      force: Option[Int] = None,
+      options: Option[String] = None)
 
   def render(r: Reproducer): String =
     s"""-- VARKA-262 reproducer
@@ -593,7 +598,8 @@ object VarkaSparkFuzz {
        |-- kind: ${r.kind}
        |-- select: ${r.select}
        |-- where: ${r.where.getOrElse("")}${r.pivot.map(p => s"\n-- pivot: $p").getOrElse("")}${
-      r.force.map(k => s"\n-- force: $k").getOrElse("")}
+      r.force.map(k => s"\n-- force: $k").getOrElse("")}${
+      r.options.map(o => s"\n-- options: $o").getOrElse("")}
        |-- fixture
        |${r.fixture}
        |-- query
@@ -614,8 +620,11 @@ object VarkaSparkFuzz {
     val force = lines.collectFirst {
       case l if l.startsWith("-- force: ") => l.substring(10).trim.toInt
     }
+    val options = lines.collectFirst {
+      case l if l.startsWith("-- options: ") => l.substring(12).trim
+    }
     Reproducer(header("status"), header("note"), header("ansi").toBoolean, header("kind"),
       header("select"), if (where.isEmpty) None else Some(where),
-      lines.slice(f + 1, q).mkString("\n"), pivot, force)
+      lines.slice(f + 1, q).mkString("\n"), pivot, force, options)
   }
 }
