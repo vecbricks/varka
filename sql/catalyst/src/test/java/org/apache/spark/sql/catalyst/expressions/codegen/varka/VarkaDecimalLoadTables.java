@@ -17,6 +17,7 @@
 
 package org.apache.spark.sql.catalyst.expressions.codegen.varka;
 
+import static org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaDecimalStoreTables.label;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -71,10 +72,11 @@ import org.apache.spark.sql.vectorized.ArrowColumnVector;
  * lane group, a middle one and the epilogue, at precision 1, 9, 10 and 18; a test whose subject
  * does not depend on the width is {@link VarkaDecimalLoadSuite}'s alone. Two classes run the
  * tables, each in a JVM of its own: {@code VarkaDecimalLoadSuite} at two, four and eight long
- * lanes, baked, which are several species of the long lane and so refused by the shared JVM
- * (VARKA-246); and {@link VarkaDecimalLoadOneLaneSuite} at the preferred species of a JVM where it
- * is one long lane, where a lane group is one slot: the low word alone in the first vector, the
- * high word alone in the second, and the odd shuffle's one index past the first vector.
+ * lanes, baked, and at the host's preferred species unbaked, which are several species of the
+ * long lane and so refused by the shared JVM (VARKA-246); and
+ * {@link VarkaDecimalLoadOneLaneSuite} at the preferred species of a JVM where it is one long
+ * lane, where a lane group is one slot: the low word alone in the first vector, the high word
+ * alone in the second, and the odd shuffle's one index past the first vector.
  */
 abstract class VarkaDecimalLoadTables {
 
@@ -319,7 +321,7 @@ abstract class VarkaDecimalLoadTables {
         VarkaFusedKernel k = loaded.kernel();
         for (int length : LENGTHS) {
           for (boolean masked : new boolean[] {false, true}) {
-            String at = name + " at " + lanes + " long lanes, precision " + precision
+            String at = name + " at " + label(lanes) + ", precision " + precision
                 + ", length " + length + (masked ? ", with nulls" : ", no null");
             long seed = 31L * lanes + 7L * precision + length + (masked ? 1 : 0);
             assertFalse(check(at, k, batch(length, precision, masked, seed), precision,
@@ -411,7 +413,7 @@ abstract class VarkaDecimalLoadTables {
         VarkaFusedKernel k = kernel(List.of(root), lits.length, lanes).kernel();
         for (int length : LENGTHS) {
           for (boolean masked : new boolean[] {false, true}) {
-            String at = name + " at " + lanes + " long lanes, precision " + precision
+            String at = name + " at " + label(lanes) + ", precision " + precision
                 + ", length " + length + (masked ? ", with nulls" : ", no null");
             long seed = 17L * lanes + 5L * precision + length + (masked ? 1 : 0);
             assertFalse(checkCondition(at, k, batch(length, precision, masked, seed),
@@ -507,7 +509,7 @@ abstract class VarkaDecimalLoadTables {
         b.slots()[length - 1] = Slot.of(power(precision));
         KernelAnswer got = runBatch(k, b, precision, new int[length], 1, new long[] {5L, 0L, 1L});
         assertEquals(VarkaFusedKernel.STATUS_DECIMAL_SLOT, got.status(),
-            () -> "an untaken arm's bad slot at " + lanes + " long lanes, length " + length);
+            () -> "an untaken arm's bad slot at " + label(lanes) + ", length " + length);
       }
     }
   }
@@ -554,7 +556,7 @@ abstract class VarkaDecimalLoadTables {
         VarkaFusedKernel k = kernel(roots, 1, 0, options).kernel();
         for (boolean masked : new boolean[] {false, true}) {
           for (int row : new int[] {0, 36}) {
-            String at = lanes + " long lanes, exact " + exact + ", masked " + masked + ", row "
+            String at = label(lanes) + ", exact " + exact + ", masked " + masked + ", row "
                 + row;
             assertEquals(0, runBatch(k, plain(37, masked, -10L), precision, null, 1,
                 new long[0]).status(), at);
@@ -600,16 +602,16 @@ abstract class VarkaDecimalLoadTables {
       List<String> loops = VarkaEmitterTestSupport.methodNames(emitted.bytes()).stream()
           .filter(m -> m.startsWith("loopDense")).toList();
       assertTrue(loops.size() >= 2,
-          () -> "no split at " + lanes + " lanes under " + budget + " bytes: " + loops);
+          () -> "no split at " + label(lanes) + " under " + budget + " bytes: " + loops);
       for (String loop : loops) {
         assertTrue(VarkaEmitterTestSupport.invocationCount(emitted.bytes(), loop,
             "jdk.incubator.vector.VectorShuffle", List.of()) > 0,
-            () -> loop + " builds no decimal shuffle at " + lanes + " lanes");
+            () -> loop + " builds no decimal shuffle at " + label(lanes));
       }
       VarkaFusedKernel k = kernel(roots, 1, outputs, options).kernel();
       for (int length : LENGTHS) {
         for (boolean masked : new boolean[] {false, true}) {
-          String at = lanes + " long lanes, length " + length + ", masked " + masked;
+          String at = label(lanes) + ", length " + length + ", masked " + masked;
           Batch b = batch(length, precision, masked, 17L * lanes + length);
           KernelAnswer got = runBatch(k, b, precision, null, outputs, literals);
           assertEquals(0, got.status(), at);
@@ -659,7 +661,7 @@ abstract class VarkaDecimalLoadTables {
         for (int length : LENGTHS) {
           int[] ints = IntStream.range(0, length).map(i -> i * 7919 - 50_000).toArray();
           for (boolean masked : new boolean[] {false, true}) {
-            String at = "precision " + precision + ", " + lanes + " long lanes, length " + length
+            String at = "precision " + precision + ", " + label(lanes) + ", length " + length
                 + ", masked " + masked;
             long seed = 13L * lanes + precision + length;
             Batch b = batch(length, precision, masked, seed);
@@ -701,7 +703,7 @@ abstract class VarkaDecimalLoadTables {
         slots[i] = new Slot(power(9), 1L);
         nulls[i] = true;
       }
-      assertFalse(check("all null at " + lanes + " lanes", k, new Batch(slots, nulls), 9,
+      assertFalse(check("all null at " + label(lanes), k, new Batch(slots, nulls), 9,
           new long[0], x -> x));
     }
   }
@@ -724,7 +726,7 @@ abstract class VarkaDecimalLoadTables {
         try (BufferAllocator allocator =
                  ArrowUtils.rootAllocator().newChildAllocator("dec-fault", 0, Long.MAX_VALUE);
              DecimalVector v = vector(b, 9, allocator)) {
-          String at = lanes + " lanes, masked " + masked;
+          String at = label(lanes) + ", masked " + masked;
           VarkaFusedKernel exact = kernel(roots, 1, 1, base).kernel();
           assertEquals(0, run(exact, v, new long[] {0L}).status(), at);
           VarkaFusedKernel shortMapped =

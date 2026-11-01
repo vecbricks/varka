@@ -85,7 +85,10 @@ import org.apache.spark.sql.vectorized.ArrowColumnVector;
  */
 abstract class VarkaDecimalStoreTables {
 
-  /** As the load's table: under one group, a last row in the epilogue at every width, none. */
+  /**
+   * As the load's table: under one group, a last row in the epilogue at every baked width, none.
+   * At one lane every length is whole groups, so none reaches an epilogue there.
+   */
   private static final int[] LENGTHS = {1, 3, 37, 64};
   private static final long MAX = 999_999_999_999_999_999L;
   private static final int PRECISION = 18;
