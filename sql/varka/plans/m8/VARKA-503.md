@@ -38,8 +38,9 @@ condition.
 `VarkaKernelPlan.admit(roots, options, twoLaneMasksFallBack)` returns the plan's own refusal, then,
 where the flag is set, refuses a condition root - a filter's conjunct or a selection output - of a
 kernel driven at the long lane (`Kind.TWO_LANE_CONDITION`, `TWO_LANE_CONDITION_REASON` in
-EXPLAIN). The predicate compiler's admission asks it at both of its plan checks; `VarkaKernelPlan.of`,
-which the emitter and a compiled projection read, never refuses for the host. A refused conjunct
+EXPLAIN). The predicate compiler's admission asks it at both of its plan checks;
+`VarkaKernelPlan.of`, which the emitter and a compiled projection read, never refuses for the
+host. A refused conjunct
 leaves the rest of the filter to fuse: in `(d < d2) AND (l < l2)` the date conjunct stays an int
 kernel and the long conjunct is the row filter's.
 
