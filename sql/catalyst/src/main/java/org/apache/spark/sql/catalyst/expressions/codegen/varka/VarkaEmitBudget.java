@@ -615,6 +615,9 @@ final class VarkaEmitBudget {
       // One lanewise op, plus the four the sign test costs where there is one. A wrapping narrow
       // node is the op and, at the int lane where it reduces (Analysis.wrapAt), the shift pair:
       // the larger form, as below, since the arm and the readers are not known here.
+      // A floating division: the divide, and under FAIL and NULL the zero test's compare.
+      case IntArith n when n.op() == VarkaVectorIR.IntOp.DIV ->
+          n.mode() == Overflow.WRAP ? 1 : 2;
       case IntArith n -> n.mode() != Overflow.WRAP ? 5 : n.laneType().isNarrow() ? 3 : 1;
       // The negation or abs, plus one compare where the mode checks, plus the shift pair a
       // wrapping narrow one may reduce with.
@@ -682,6 +685,8 @@ final class VarkaEmitBudget {
       // The popcount alone at the long lane; at the int lane the popcount, the sign shift, the
       // mask and the add of the widening's 32 high bits.
       case BitCount n -> n.laneType() == VarkaVectorIR.LaneType.LONG ? 1 : 4;
+      // The lanewise square root: one call.
+      case VarkaVectorIR.MathUnary _ -> 1;
     };
   }
 

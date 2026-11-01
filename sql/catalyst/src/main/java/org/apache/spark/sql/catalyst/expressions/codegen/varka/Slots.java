@@ -73,6 +73,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IsN
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LastDay;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Least;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LiteralSlot;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.MathUnary;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.MakeDate;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Month;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.NarrowLane;
@@ -168,6 +169,20 @@ final class Slots {
   final Set<VarkaVectorIR> ownCond = new HashSet<>();
   /** Per condition node, dense body: the single mask local. */
   final Map<VarkaVectorIR, Integer> condMask = new HashMap<>();
+  /**
+   * The nodes this body reaches from its roots, set by {@code VarkaBodyEmitter} before it emits
+   * them ({@link #setReach}): which arm chains of a guard this body can qualify it by
+   * ({@link Analysis#armChainsIn}).
+   */
+  private Set<VarkaVectorIR> reach;
+  /**
+   * {@link Analysis#armChainsIn} in this body of each node asked for ({@link #armChains}), kept
+   * once computed so that the arm conditions emitted first, the guard's arm context and the
+   * mechanism a guard reached read one list rather than filtering the chains again each.
+   * {@link #setReach} empties it, since the lists depend on {@link #reach}.
+   */
+  private final Map<VarkaVectorIR, List<List<Analysis.ArmStep>>> armChainsByNode =
+      new HashMap<>();
   /** Per node this body uses more than once: the local its first vector lands in (DAG-CSE). */
   final Map<VarkaVectorIR, Integer> sharedSlot = new HashMap<>();
   /** Per Greatest/Least (masked): the two operand temporaries the substitution needs. */
@@ -457,6 +472,35 @@ final class Slots {
           + "built: VarkaBodyEmitter.buildsValiditySegment missed a writer");
     }
     return dstValSeg[o];
+  }
+
+  // The nodes a body reaches, and the arm chains its guards are qualified by there.
+
+  /** Sets the nodes this body reaches, which the arm chains of its guards are filtered by. */
+  void setReach(Set<VarkaVectorIR> reached) {
+    reach = reached;
+    armChainsByNode.clear();
+  }
+
+  /**
+   * Whether this body reaches {@code node} from its roots; see {@link #setReach}. A body emitted
+   * without it fails here rather than answering that it reaches nothing, which would skip its
+   * guards' arm conditions silently.
+   */
+  boolean reaches(VarkaVectorIR node) {
+    if (reach == null) {
+      throw VarkaErrors.illegalState("a body asked which nodes it reaches before "
+          + "Slots.setReach was called: VarkaBodyEmitter sets it before it emits a body");
+    }
+    return reach.contains(node);
+  }
+
+  /**
+   * The arm chains {@code node}'s guard is qualified by in this body, {@link
+   * Analysis#armChainsIn} over {@link #reach}, computed the first time a node is asked for.
+   */
+  List<List<Analysis.ArmStep>> armChains(VarkaVectorIR node, Analysis analysis) {
+    return armChainsByNode.computeIfAbsent(node, n -> analysis.armChainsIn(n, reach));
   }
 
   /** Every node under {@code root}, {@code root} included, added to {@code into}. */
@@ -848,6 +892,8 @@ final class Slots {
           // nullsFromValidInputs for it and `emit` then builds none, so its dense slots are planned
           // and never used. Harmless, and worth knowing before counting dense locals against a
           // method budget.
+          // A floating division's zero test reads its divisor off the stack and parks nothing:
+          // checksIntOverflow leaves a floating node out.
           if (node instanceof IntArith && analysis.checksIntOverflow(node)) {
             s.intArithTmp.put(node, new int[] {slot++, slot++, slot++});
           }
@@ -1015,6 +1061,7 @@ final class Slots {
       case BoundedDivide n -> s.wordRef.get(n.child());
       case BitOp n -> andRef(s.wordRef.get(n.left()), s.wordRef.get(n.right()));
       case BitCount n -> s.wordRef.get(n.child());
+      case MathUnary n -> s.wordRef.get(n.child());
       // Greatest/Least (OR) and IfElse (blend) always compute their own word.
       default -> Integer.MIN_VALUE;
     };
@@ -1526,6 +1573,7 @@ final class Slots {
         case BoundedDivide x -> { }
         case BitOp x -> { }
         case BitCount x -> { }
+        case MathUnary x -> { }
         case IfElse x -> { }
         // Its word is the condition's two known words ORed, and the condition demands its
         // operands' words in its own arms; its own word is demanded like any value node's.
@@ -1605,6 +1653,7 @@ final class Slots {
         case BitOp x -> { demand(analysis.wordOwner.get(x.left()));
           demand(analysis.wordOwner.get(x.right())); }
         case BitCount x -> { }
+        case MathUnary x -> { }
         case Compare x -> { }
         case NullSafeEqual x -> { }
         case BoolColumn x -> { }

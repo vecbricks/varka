@@ -107,6 +107,9 @@ public final class VarkaReproductionSuite {
         new IfElse(new Compare(CompareOp.LT, x, new LiteralSlot(0, LaneType.LONG)), x,
             new VarkaVectorIR.NullValue(LaneType.LONG)),
         new BitCount(new BitOp(BitOpKind.XOR, new ColumnRef(0), new LiteralSlot(0))),
+        // A floating lane's square root over its IEEE division, whose zero divisor nulls a lane.
+        new MathUnary(MathFn.SQRT, new IntArith(IntOp.DIV, Overflow.NULL,
+            new ColumnRef(0, LaneType.DOUBLE), new LiteralSlot(0, LaneType.DOUBLE))),
         // Over comparisons: the parser reads no boolean-column leaf yet.
         new BoolOutput(new Or(new Not(new IsNotNull(new ColumnRef(0))),
             new Compare(CompareOp.LT, new ColumnRef(1), new LiteralSlot(0)))));

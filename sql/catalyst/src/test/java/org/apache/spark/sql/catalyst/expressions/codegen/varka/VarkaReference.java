@@ -22,6 +22,7 @@ import java.time.LocalDate;
 import java.time.temporal.IsoFields;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.OptionalDouble;
 import java.util.OptionalInt;
 import java.util.OptionalLong;
 import java.util.function.IntBinaryOperator;
@@ -134,7 +135,14 @@ public final class VarkaReference {
       case AddMonths(var days, var months) ->
           both(days, months, row, isNull, lits, DateTimeUtils::dateAddMonths);
       case MakeDate m -> makeDate(m, row, isNull, lits);
+      case IntArith n when n.laneType() == LaneType.FLOAT -> floatArith(n, row, isNull, lits);
       case IntArith n -> intArith(n, row, isNull, lits);
+      // Java's float negation and Math.abs, which flip and clear the sign bit, NaN included.
+      case IntNeg n when n.laneType() == LaneType.FLOAT -> map(n.child(), row, isNull, lits,
+          v -> Float.floatToRawIntBits(n.abs() ? Math.abs(Float.intBitsToFloat(v))
+              : -Float.intBitsToFloat(v)));
+      case MathUnary n -> map(n.child(), row, isNull, lits,
+          v -> Float.floatToRawIntBits(mathFloat(n.fn(), Float.intBitsToFloat(v))));
       case IntNeg n -> {
         var c = value(n.child(), row, isNull, lits);
         if (c.isEmpty()) {
@@ -301,6 +309,7 @@ public final class VarkaReference {
       case ADD -> (long) a + b;
       case SUB -> (long) a - b;
       case MUL -> (long) a * b;
+      case DIV -> throw new IllegalArgumentException("an integral lane has no division: " + n);
     };
     if (n.mode() == Overflow.WRAP) {
       return OptionalInt.of((int) reduce(lane, exact));
@@ -448,7 +457,22 @@ public final class VarkaReference {
       case DecimalColumn c -> isNull[c.ordinal()] ? OptionalLong.empty()
           : OptionalLong.of(row[c.ordinal()]);
       case LiteralSlot l -> OptionalLong.of(lits[l.index()]);
+      case IntArith n when n.laneType() == LaneType.DOUBLE -> doubleArith(n, row, isNull, lits);
       case IntArith n -> longArith(n, row, isNull, lits);
+      // Java's double negation and Math.abs, which flip and clear the sign bit, NaN included.
+      case IntNeg n when n.laneType() == LaneType.DOUBLE -> {
+        var c = longValue(n.child(), row, isNull, lits);
+        if (c.isEmpty()) {
+          yield c;
+        }
+        double v = Double.longBitsToDouble(c.getAsLong());
+        yield OptionalLong.of(Double.doubleToRawLongBits(n.abs() ? Math.abs(v) : -v));
+      }
+      case MathUnary n -> {
+        var c = longValue(n.child(), row, isNull, lits);
+        yield c.isEmpty() ? c : OptionalLong.of(Double.doubleToRawLongBits(
+            mathDouble(n.fn(), Double.longBitsToDouble(c.getAsLong()))));
+      }
       case IntNeg n -> {
         var c = longValue(n.child(), row, isNull, lits);
         if (c.isEmpty()) {
@@ -564,6 +588,7 @@ public final class VarkaReference {
         case ADD -> a + b;
         case SUB -> a - b;
         case MUL -> a * b;
+        case DIV -> throw new IllegalArgumentException("an integral lane has no division: " + n);
       });
     }
     try {
@@ -574,10 +599,85 @@ public final class VarkaReference {
         // VARKA-104's. The int lane's checked multiply is a narrow one's, evaluated by intArith.
         case MUL -> throw new IllegalArgumentException(
             "a checked multiply has no long-lane overflow test: " + n);
+        case DIV -> throw new IllegalArgumentException("an integral lane has no division: " + n);
       });
     } catch (ArithmeticException e) {
       return OptionalLong.empty();
     }
+  }
+
+  /**
+   * A floating {@code IntArith} at the {@code FLOAT} lane, by {@link #floatingArith} on the
+   * operands widened to double and its result rounded back to float. That is bit for bit Java's
+   * float operator, which is Spark's: a double carries more than twice a float's 24 bits plus
+   * two, so rounding the double result again to float gives the correctly rounded float result
+   * for each of the four operators (Figueroa's double-rounding bound), and widening and
+   * narrowing keep a NaN's payload.
+   */
+  private static OptionalInt floatArith(IntArith n, int[] row, boolean[] isNull, int[] lits) {
+    var l = value(n.left(), row, isNull, lits);
+    if (l.isEmpty()) {
+      return l;
+    }
+    var r = value(n.right(), row, isNull, lits);
+    if (r.isEmpty()) {
+      return r;
+    }
+    var v = floatingArith(n, Float.intBitsToFloat(l.getAsInt()),
+        Float.intBitsToFloat(r.getAsInt()));
+    return v.isEmpty()
+        ? OptionalInt.empty()
+        : OptionalInt.of(Float.floatToRawIntBits((float) v.getAsDouble()));
+  }
+
+  /** A floating {@code IntArith} at the {@code DOUBLE} lane, by {@link #floatingArith}. */
+  private static OptionalLong doubleArith(IntArith n, long[] row, boolean[] isNull, long[] lits) {
+    var l = longValue(n.left(), row, isNull, lits);
+    if (l.isEmpty()) {
+      return l;
+    }
+    var r = longValue(n.right(), row, isNull, lits);
+    if (r.isEmpty()) {
+      return r;
+    }
+    var v = floatingArith(n, Double.longBitsToDouble(l.getAsLong()),
+        Double.longBitsToDouble(r.getAsLong()));
+    return v.isEmpty()
+        ? OptionalLong.empty()
+        : OptionalLong.of(Double.doubleToRawLongBits(v.getAsDouble()));
+  }
+
+  /**
+   * Both floating lanes' {@code IntArith} over two non-null operands: Java's double operators,
+   * which are Spark's. A division's zero divisor, {@code b == 0.0} at both zeros and never at
+   * NaN, is a null under {@code NULL} and {@code FAIL} alike, as an integral overflow is here: a
+   * {@code FAIL} lane is one whose batch the kernel declines, which no value of this evaluator
+   * spells. Under {@code WRAP} the division has no test.
+   */
+  private static OptionalDouble floatingArith(IntArith n, double a, double b) {
+    if (n.op() == IntOp.DIV && n.mode() != Overflow.WRAP && b == 0.0) {
+      return OptionalDouble.empty();
+    }
+    return OptionalDouble.of(switch (n.op()) {
+      case ADD -> a + b;
+      case SUB -> a - b;
+      case MUL -> a * b;
+      case DIV -> a / b;
+    });
+  }
+
+  /** {@code fn} as {@code java.lang.Math} computes it, which is Spark's definition. */
+  private static double mathDouble(MathFn fn, double v) {
+    return switch (fn) {
+      case SQRT -> Math.sqrt(v);
+    };
+  }
+
+  /** {@link #mathDouble} at {@code FLOAT}: the double result rounded once, exact for sqrt. */
+  private static float mathFloat(MathFn fn, float v) {
+    return switch (fn) {
+      case SQRT -> (float) Math.sqrt(v);
+    };
   }
 
   /** {@link #cond}'s counterpart over long lanes, for the conditions the same subset ships. */
@@ -633,9 +733,9 @@ public final class VarkaReference {
 
   /**
    * The value of {@code node} over a row of both lanes, sign-extended where the node is on the int
-   * lane; empty for a null. {@code row[c]} is column {@code c}'s value, an int column's widened,
-   * and {@code intLits} and {@code longLits} are the two literal tables, each lane's slots
-   * indexing its own.
+   * lane or is a {@code FLOAT}, whose bits are; empty for a null. {@code row[c]} is column
+   * {@code c}'s value, an int column's widened, and {@code intLits} and {@code longLits} are the
+   * two literal tables, each lane's slots indexing its own.
    *
    * <p>Written from the conversions' meaning, on top of the two single-lane evaluators rather
    * than beside them: each conversion is answered first - a widening is its int child's value,
@@ -649,7 +749,8 @@ public final class VarkaReference {
       int[] intLits, long[] longLits) {
     var rows = new MixedRow(row, isNull);
     VarkaVectorIR flat = rows.flatten(node, intLits, longLits);
-    if (flat.laneType() == LaneType.INT) {
+    // A FLOAT node is on the int row too, its bits there; `longValue` has no FLOAT arithmetic.
+    if (flat.laneType() == LaneType.INT || flat.laneType() == LaneType.FLOAT) {
       OptionalInt v = value(flat, rows.ints(), rows.nulls(), intLits);
       return v.isPresent() ? OptionalLong.of(v.getAsInt()) : OptionalLong.empty();
     }

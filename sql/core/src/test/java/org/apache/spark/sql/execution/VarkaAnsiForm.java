@@ -261,7 +261,7 @@ public final class VarkaAnsiForm {
     for (String sql : List.of("make_date(2021, i, 1)", "add_months(d, i)", "d + ym", "d - ym",
         "ym - ymm", "ym + ym", "i + 1", "year(d) + i", "if(i < 0, i, i + 1)", "y1 + y2",
         "y1 - y2", "y1 * y2", "-y1", "abs(y1)", "s1 + s2", "s1 - s2", "s1 * s2", "-s1",
-        "abs(s1)", "ntz + dt")) {
+        "abs(s1)", "x / x2", "ntz + dt")) {
       out.put(sql + "\t" + FALSE_AND, unqualified);
     }
     return Map.copyOf(out);
@@ -278,6 +278,7 @@ public final class VarkaAnsiForm {
       Map.entry("BINARY_ARITHMETIC_OVERFLOW", "y1 + y2"),
       Map.entry("CAST_OVERFLOW", "d + CAST(i AS INTERVAL DAY)"),
       Map.entry("DATETIME_FIELD_OUT_OF_BOUNDS.WITHOUT_SUGGESTION", "make_date(2021, i, 1)"),
+      Map.entry("DIVIDE_BY_ZERO", "x / x2"),
       Map.entry("INTERVAL_ARITHMETIC_OVERFLOW.WITH_SUGGESTION", "ym - ymm"),
       Map.entry("java.lang.ArithmeticException", "ntz + dt"));
 
