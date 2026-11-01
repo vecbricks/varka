@@ -477,33 +477,19 @@ public final class VarkaKernelPlan {
       case VarkaVectorIR.Or o -> LongNarrowRole.COND;
       case VarkaVectorIR.Not n -> LongNarrowRole.COND;
       case VarkaVectorIR.BoolOutput b -> LongNarrowRole.OUTPUT;
-      case VarkaVectorIR.Cond c -> LongNarrowRole.NONE;
-      case VarkaVectorIR.Chrono c -> LongNarrowRole.NONE;
-      case VarkaVectorIR.DecimalColumn c -> LongNarrowRole.NONE;
-      case VarkaVectorIR.LiteralSlot l -> LongNarrowRole.NONE;
-      case VarkaVectorIR.GuardedDay g -> LongNarrowRole.NONE;
-      case VarkaVectorIR.GuardedRange g -> LongNarrowRole.NONE;
-      case WidenLane w -> LongNarrowRole.NONE;
-      case VarkaVectorIR.AddDays a -> LongNarrowRole.NONE;
-      case VarkaVectorIR.SubDays a -> LongNarrowRole.NONE;
-      case VarkaVectorIR.DateDiff d -> LongNarrowRole.NONE;
-      case IntArith a -> LongNarrowRole.NONE;
-      case VarkaVectorIR.IntNeg n -> LongNarrowRole.NONE;
-      case VarkaVectorIR.ConstDivide d -> LongNarrowRole.NONE;
-      case VarkaVectorIR.BoundedDivide d -> LongNarrowRole.NONE;
-      case VarkaVectorIR.BitOp b -> LongNarrowRole.NONE;
-      case VarkaVectorIR.BitCount b -> LongNarrowRole.NONE;
-      case VarkaVectorIR.IfElse i -> LongNarrowRole.NONE;
-      case VarkaVectorIR.CondValue c -> LongNarrowRole.NONE;
-      case VarkaVectorIR.Greatest g -> LongNarrowRole.NONE;
-      case VarkaVectorIR.Least l -> LongNarrowRole.NONE;
-      case VarkaVectorIR.DayOfWeek d -> LongNarrowRole.NONE;
-      case VarkaVectorIR.WeekDay d -> LongNarrowRole.NONE;
-      case VarkaVectorIR.DayOfWeekIso d -> LongNarrowRole.NONE;
-      case VarkaVectorIR.NextDay d -> LongNarrowRole.NONE;
-      case VarkaVectorIR.ThursdayOf d -> LongNarrowRole.NONE;
-      case VarkaVectorIR.AddMonths a -> LongNarrowRole.NONE;
-      case VarkaVectorIR.MakeDate m -> LongNarrowRole.NONE;
+      // Every other node, each named so that a new one is a compile error until it is placed.
+      case VarkaVectorIR.IsNotNull _, VarkaVectorIR.InRanges _, VarkaVectorIR.BoolColumn _,
+          VarkaVectorIR.CondConst _, VarkaVectorIR.BoolCompare _, VarkaVectorIR.CondIf _,
+          VarkaVectorIR.BoolNullSafeEq _, VarkaVectorIR.Chrono _, VarkaVectorIR.DecimalColumn _,
+          VarkaVectorIR.LiteralSlot _, VarkaVectorIR.GuardedDay _, VarkaVectorIR.GuardedRange _,
+          WidenLane _, VarkaVectorIR.AddDays _, VarkaVectorIR.SubDays _,
+          VarkaVectorIR.DateDiff _, IntArith _, VarkaVectorIR.IntNeg _,
+          VarkaVectorIR.ConstDivide _, VarkaVectorIR.BoundedDivide _, VarkaVectorIR.BitOp _,
+          VarkaVectorIR.BitCount _, VarkaVectorIR.IfElse _, VarkaVectorIR.CondValue _,
+          VarkaVectorIR.Greatest _, VarkaVectorIR.Least _, VarkaVectorIR.DayOfWeek _,
+          VarkaVectorIR.WeekDay _, VarkaVectorIR.DayOfWeekIso _, VarkaVectorIR.NextDay _,
+          VarkaVectorIR.ThursdayOf _, VarkaVectorIR.AddMonths _, VarkaVectorIR.MakeDate _ ->
+          LongNarrowRole.NONE;
     };
   }
 
@@ -540,33 +526,18 @@ public final class VarkaKernelPlan {
       case VarkaVectorIR.Or o -> LongNarrowReader.COND;
       case VarkaVectorIR.Not n -> LongNarrowReader.COND;
       case VarkaVectorIR.BoolOutput b -> LongNarrowReader.COND;
-      case VarkaVectorIR.Cond c -> LongNarrowReader.NONE;
-      case VarkaVectorIR.Chrono c -> LongNarrowReader.NONE;
-      case VarkaVectorIR.ColumnRef c -> LongNarrowReader.NONE;
-      case VarkaVectorIR.DecimalColumn c -> LongNarrowReader.NONE;
-      case VarkaVectorIR.LiteralSlot l -> LongNarrowReader.NONE;
-      case VarkaVectorIR.GuardedDay g -> LongNarrowReader.NONE;
-      case VarkaVectorIR.GuardedRange g -> LongNarrowReader.NONE;
-      case VarkaVectorIR.AddDays a -> LongNarrowReader.NONE;
-      case VarkaVectorIR.SubDays a -> LongNarrowReader.NONE;
-      case VarkaVectorIR.DateDiff d -> LongNarrowReader.NONE;
-      case IntArith a -> LongNarrowReader.NONE;
-      case VarkaVectorIR.IntNeg n -> LongNarrowReader.NONE;
-      case VarkaVectorIR.ConstDivide d -> LongNarrowReader.NONE;
-      case VarkaVectorIR.BoundedDivide d -> LongNarrowReader.NONE;
-      case VarkaVectorIR.BitOp b -> LongNarrowReader.NONE;
-      case VarkaVectorIR.BitCount b -> LongNarrowReader.NONE;
-      case VarkaVectorIR.IfElse i -> LongNarrowReader.NONE;
-      case VarkaVectorIR.CondValue c -> LongNarrowReader.NONE;
-      case VarkaVectorIR.Greatest g -> LongNarrowReader.NONE;
-      case VarkaVectorIR.Least l -> LongNarrowReader.NONE;
-      case VarkaVectorIR.DayOfWeek d -> LongNarrowReader.NONE;
-      case VarkaVectorIR.WeekDay d -> LongNarrowReader.NONE;
-      case VarkaVectorIR.DayOfWeekIso d -> LongNarrowReader.NONE;
-      case VarkaVectorIR.NextDay d -> LongNarrowReader.NONE;
-      case VarkaVectorIR.ThursdayOf d -> LongNarrowReader.NONE;
-      case VarkaVectorIR.AddMonths a -> LongNarrowReader.NONE;
-      case VarkaVectorIR.MakeDate m -> LongNarrowReader.NONE;
+      // Every other node, each named so that a new one is a compile error until it is placed.
+      case VarkaVectorIR.InRanges _, VarkaVectorIR.BoolColumn _, VarkaVectorIR.CondConst _,
+          VarkaVectorIR.BoolCompare _, VarkaVectorIR.CondIf _, VarkaVectorIR.BoolNullSafeEq _,
+          VarkaVectorIR.Chrono _, VarkaVectorIR.ColumnRef _, VarkaVectorIR.DecimalColumn _,
+          VarkaVectorIR.LiteralSlot _, VarkaVectorIR.GuardedDay _, VarkaVectorIR.GuardedRange _,
+          VarkaVectorIR.AddDays _, VarkaVectorIR.SubDays _, VarkaVectorIR.DateDiff _,
+          IntArith _, VarkaVectorIR.IntNeg _, VarkaVectorIR.ConstDivide _,
+          VarkaVectorIR.BoundedDivide _, VarkaVectorIR.BitOp _, VarkaVectorIR.BitCount _,
+          VarkaVectorIR.IfElse _, VarkaVectorIR.CondValue _, VarkaVectorIR.Greatest _,
+          VarkaVectorIR.Least _, VarkaVectorIR.DayOfWeek _, VarkaVectorIR.WeekDay _,
+          VarkaVectorIR.DayOfWeekIso _, VarkaVectorIR.NextDay _, VarkaVectorIR.ThursdayOf _,
+          VarkaVectorIR.AddMonths _, VarkaVectorIR.MakeDate _ -> LongNarrowReader.NONE;
     };
   }
 
