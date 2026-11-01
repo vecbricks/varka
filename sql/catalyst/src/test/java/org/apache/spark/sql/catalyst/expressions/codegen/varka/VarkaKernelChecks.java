@@ -1393,15 +1393,20 @@ public final class VarkaKernelChecks {
   /**
    * Output buffers for {@code roots} in {@code arena}: values at the lane's sentinel, so a lane
    * the kernel fails to write shows, and every validity byte, whole words to the last, at
-   * {@code fill}. A sentinel can be a legitimate answer - {@code Byte.MIN_VALUE} is
-   * {@code CAST(128 AS TINYINT)} - so the all-valid fill's buffers hold its complement instead,
-   * which differs from it at every width: {@link #runLoaded} compares both runs with one answer,
-   * so an unwritten lane shows in at least one of them. A {@code Cond} root's data address is 0L,
+   * {@code fill}, or at the sentinel's complement where {@code complement} says. A sentinel can
+   * be a legitimate answer - {@code Byte.MIN_VALUE} is {@code CAST(128 AS TINYINT)} - and its
+   * complement differs from it at every width, so {@link #runLoaded} runs the kernel into both
+   * and an unwritten lane shows in at least one of them. A {@code Cond} root's data address is 0L,
    * as the kernel contract says; a {@link BoolOutput}'s data is a bitmap of whole words holding
    * {@link #STALE_DATA}.
    */
   private static Outputs outputs(Arena arena, Lane lane, VarkaVectorIR[] roots,
       ValidityFill fill) {
+    return outputs(arena, lane, roots, fill, fill == ValidityFill.ONES);
+  }
+
+  private static Outputs outputs(Arena arena, Lane lane, VarkaVectorIR[] roots,
+      ValidityFill fill, boolean complement) {
     int length = lane.length();
     int n = roots.length;
     var values = new MemorySegment[n];
@@ -1417,7 +1422,7 @@ public final class VarkaKernelChecks {
         values[o] =
             VarkaEmitterFixtures.alloc(arena, length * lane.outputStride(roots[o], rootLane));
         long sentinel = lane.sentinelOutput(roots[o], rootLane);
-        if (fill == ValidityFill.ONES) {
+        if (complement) {
           sentinel = ~sentinel;
         }
         for (int i = 0; i < length; i++) {
@@ -1553,11 +1558,35 @@ public final class VarkaKernelChecks {
     try (var arena = Arena.ofConfined()) {
       var in = inputs(arena, lane, numInputs, rootList);
       int n = roots.length;
-      int runs = fills.size();
+      // Each fill's run holds its outputs at the sentinel or, under ONES, its complement; where
+      // every fill asked for holds the same one and an output is narrow - whose sentinel is a
+      // real answer - one more run at the last fill holds the other, so an unwritten lane shows
+      // whichever fills the caller passes. That run is compared but not digested: the answer log
+      // folds the asked-for fills' runs alone.
+      List<ValidityFill> runFills = new ArrayList<>(fills);
+      List<Boolean> complements = new ArrayList<>();
+      for (ValidityFill fill : fills) {
+        complements.add(fill == ValidityFill.ONES);
+      }
+      boolean narrowOutput = false;
+      for (VarkaVectorIR root : roots) {
+        narrowOutput |= !(root instanceof Cond) && !(root instanceof BoolOutput)
+            && root.laneType().isNarrow();
+      }
+      if (narrowOutput && !(complements.contains(true) && complements.contains(false))) {
+        runFills.add(fills.get(fills.size() - 1));
+        complements.add(!complements.get(complements.size() - 1));
+      }
+      int runs = runFills.size();
+      var suffixes = new String[runs];
+      for (int f = 0; f < runs; f++) {
+        suffixes[f] = runFills.get(f).suffix()
+            + (f < fills.size() ? "" : " (outputs pre-filled with the other sentinel)");
+      }
       var outs = new Outputs[runs];
       int status = 0;
       for (int f = 0; f < runs; f++) {
-        outs[f] = outputs(arena, lane, roots, fills.get(f));
+        outs[f] = outputs(arena, lane, roots, runFills.get(f), complements.get(f));
       }
       hook.before();
       int[] statuses = new int[runs];
@@ -1568,8 +1597,8 @@ public final class VarkaKernelChecks {
       for (int f = 0; f < runs; f++) {
         if (f > 0 && statuses[f] != status) {
           throw new IllegalStateException(context + ": the kernel's status depends on the output "
-              + "validity fill (" + status + fills.get(f - 1).suffix() + ", " + statuses[f]
-              + fills.get(f).suffix() + ")");
+              + "validity fill (" + status + suffixes[f - 1] + ", " + statuses[f]
+              + suffixes[f] + ")");
         }
         status = statuses[f];
       }
@@ -1607,7 +1636,7 @@ public final class VarkaKernelChecks {
               boolean valid = bit(outs[f].bits()[o], i);
               boolean data = bit(outs[f].values()[o], i);
               if (valid != known || (known && data != truth.isTrue())) {
-                throw new IllegalStateException(context + fills.get(f).suffix() + ": boolean "
+                throw new IllegalStateException(context + suffixes[f] + ": boolean "
                     + "output " + o + " row " + i + " differs (want " + truth + ", got "
                     + (valid ? Boolean.toString(data) : "null") + ")"
                     + evidence(values, isNull, nullCounts));
@@ -1623,7 +1652,7 @@ public final class VarkaKernelChecks {
             for (int f = 0; f < runs; f++) {
               boolean bit = bit(outs[f].bits()[o], i);
               if (bit != truth.isTrue()) {
-                throw new IllegalStateException(context + fills.get(f).suffix() + ": selection row "
+                throw new IllegalStateException(context + suffixes[f] + ": selection row "
                     + i + " differs (want " + truth.isTrue() + ", got " + bit + ")"
                     + evidence(values, isNull, nullCounts));
               }
@@ -1638,14 +1667,14 @@ public final class VarkaKernelChecks {
               long got = lane.got(outs[f].values()[o], i, root, rootLanes[o]);
               // The fill's name is formatted only for a failure: this loop runs once a row.
               if (bit != want.isPresent()) {
-                String at = context + fills.get(f).suffix();
+                String at = context + suffixes[f];
                 throw new IllegalStateException(at + ": validity of output " + o + " row " + i
                     + " differs (want " + shown(want) + ", got "
                     + (bit ? "Some(" + got + ")" : "None") + ")"
                     + evidence(values, isNull, nullCounts));
               }
               if (want.isPresent() && got != want.getAsLong()) {
-                String at = context + fills.get(f).suffix();
+                String at = context + suffixes[f];
                 throw new IllegalStateException(at + ": output " + o + " row " + i
                     + " differs (want " + want.getAsLong() + ", got " + got + ")"
                     + evidence(values, isNull, nullCounts));
@@ -1660,7 +1689,7 @@ public final class VarkaKernelChecks {
             int last = outs[f].bits()[o].get(ValueLayout.JAVA_BYTE, length / 8L) & 0xFF;
             int past = last >>> (length % 8);
             if (past != 0) {
-              throw new IllegalStateException(context + fills.get(f).suffix() + ": validity of "
+              throw new IllegalStateException(context + suffixes[f] + ": validity of "
                   + "output " + o + " has bits set past row " + (length - 1) + " in its last "
                   + "byte (0x" + Integer.toHexString(last) + ")");
             }
@@ -1669,7 +1698,7 @@ public final class VarkaKernelChecks {
             if (roots[o] instanceof BoolOutput) {
               int lastData = outs[f].values()[o].get(ValueLayout.JAVA_BYTE, length / 8L) & 0xFF;
               if (lastData >>> (length % 8) != 0) {
-                throw new IllegalStateException(context + fills.get(f).suffix() + ": data of "
+                throw new IllegalStateException(context + suffixes[f] + ": data of "
                     + "boolean output " + o + " has bits set past row " + (length - 1)
                     + " in its last byte (0x" + Integer.toHexString(lastData) + ")");
               }
@@ -1678,7 +1707,7 @@ public final class VarkaKernelChecks {
         }
       }
       if (VarkaAnswerLog.enabled()) {
-        VarkaAnswerLog.record(context, digest(lane, roots, outs));
+        VarkaAnswerLog.record(context, digest(lane, roots, Arrays.copyOf(outs, fills.size())));
       }
       return 0;
     }
