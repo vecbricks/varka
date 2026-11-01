@@ -17,9 +17,12 @@
 
 package org.apache.spark.sql.execution.benchmark
 
+import java.util.Optional
+
 import scala.jdk.CollectionConverters._
 
 import org.apache.spark.sql.QueryTest
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaMatrix.PinsDefaults
 import org.apache.spark.sql.execution.VarkaSharedSessions
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types._
@@ -29,8 +32,9 @@ import org.apache.spark.sql.types._
  * a section that no longer parses, raises, changes its result type or that the two sessions
  * answer differently fails a pull request rather than the runner dispatch that times it
  * (VARKA-343 5). Each section runs under its own SQL settings, its mode where it has one. It
- * checks the answers only: whether a section fuses is the benchmark's own check, made when it is
- * timed, since row 343 is meant to start fusing these queries.
+ * also makes the benchmark's own fuse check, that each section's plan on the Varka session has
+ * the section's fusion class under the section's settings, so a row that changes how a section
+ * fuses sets the section's new class in the same pull request.
  *
  * The fixture is the benchmark's table over its first 2000 ids. Its columns are hashes of the
  * id, so these rows already reach the regions the benchmark's javadoc states, which the suite
@@ -64,7 +68,8 @@ class VarkaFloatingCastBaselineQueriesSuite extends QueryTest with VarkaSharedSe
     }
   }
 
-  test("every section of the floating cast baseline runs, and both sessions answer alike") {
+  /** Runs `body` with the benchmark's table over the fixture's rows, cached on both sessions. */
+  private def withTable(body: => Unit): Unit = {
     val view = VarkaFloatingCastBaselineBenchmark.VIEW
     val sessions = Seq(spark, varkaSpark)
     try {
@@ -73,6 +78,18 @@ class VarkaFloatingCastBaselineQueriesSuite extends QueryTest with VarkaSharedSe
           .createOrReplaceTempView(view)
         session.catalog.cacheTable(view)
       }
+      body
+    } finally {
+      for (session <- sessions if session.catalog.tableExists(view)) {
+        session.catalog.uncacheTable(view)
+        session.catalog.dropTempView(view)
+      }
+    }
+  }
+
+  test("every section of the floating cast baseline runs, and both sessions answer alike") {
+    val view = VarkaFloatingCastBaselineBenchmark.VIEW
+    withTable {
       val longEdge = "9.223372036854775807E18"
       val p51 = "power(2, 51)"
       val p53 = "power(2, 53)"
@@ -150,10 +167,26 @@ class VarkaFloatingCastBaselineQueriesSuite extends QueryTest with VarkaSharedSe
           }
         }
       }
-    } finally {
-      for (session <- sessions if session.catalog.tableExists(view)) {
-        session.catalog.uncacheTable(view)
-        session.catalog.dropTempView(view)
+    }
+  }
+
+  test("each section of the floating cast baseline fuses as its class lists it", PinsDefaults) {
+    // The benchmark's own fuse check, made here too, so a change to how a section fuses fails a
+    // pull request rather than the runner dispatch that times it. Each section is planned under
+    // its own settings, as the benchmark plans it. The benchmark plans under the emitter's
+    // default options, so the classes pin the defaults, and an option matrix configuration,
+    // under which a section may fuse differently, cancels the test; so does the run that lifts
+    // the benchmark's check.
+    assume(VarkaSqlBenchmarkBase.fuseCheck(),
+      s"-D${VarkaSqlBenchmarkBase.FUSE_CHECK_PROPERTY}=false times the sections fused")
+    withTable {
+      for (s <- VarkaFloatingCastBaselineBenchmark.sections().asScala) {
+        withClue(s.title) {
+          withSettings(s) {
+            val plan = varkaSpark.sql(s.query).queryExecution.executedPlan
+            assert(VarkaSqlBenchmarkBase.fusion(plan) === Optional.of(s.fusion))
+          }
+        }
       }
     }
   }
