@@ -158,16 +158,17 @@ final class VarkaTimeCompiler {
       // constructors refuse a tree that mixes it with the int lane anyway.
       // A decimal column is never a long column, whatever lane the registry gives it
       // (VARKA-347): its sixteen-byte slots are read by its own leaf, with the check Spark's
-      // reader makes. Its comparisons and null tests build that leaf themselves
-      // (VarkaDecimalCompiler), so a decimal column reaching here declines, ahead of the long
-      // column's arm below, which would read the slots as eight-byte longs: with the registry's
-      // reason where it has one (a precision or scale off the lane), and otherwise as a value - a
-      // choice, an operand of arithmetic or a cast, an output - whose operators are rows 348 to
-      // 351's and whose store is row 157's.
+      // reader makes. Under a comparison or a null test, a decimal value - the column, a
+      // rescale, a negation, abs, a choice or a pick over it - is built by VarkaDecimalCompiler
+      // (VARKA-348), so a decimal column reaching here declines, ahead of the long column's arm
+      // below, which would read the slots as eight-byte longs: with the registry's reason where
+      // it has one (a precision or scale off the lane), and otherwise as a value outside a
+      // condition - an output, whose store is row 157's, or an operand of arithmetic or a cast,
+      // rows 349 and 350.
       case BoundReference br when br.dataType() instanceof DecimalType d ->
           () -> sink.decline(VarkaTypes.declineReason(d).orElse("a " + d.simpleString()
-              + " column as a value: only its comparisons and null tests fuse, its other "
-              + "operators are rows 348 to 351's"), br);
+              + " column as a value: its comparisons, null tests and the values they read fuse; "
+              + "a decimal output is row 157's, its arithmetic and casts rows 349 and 350"), br);
       case BoundReference br
           when VarkaTypes.lane(br.dataType()).orElse(null) == LaneType.LONG ->
           () -> Optional.of(VarkaNodeCompiler.columnRef(br, inputs, LaneType.LONG));

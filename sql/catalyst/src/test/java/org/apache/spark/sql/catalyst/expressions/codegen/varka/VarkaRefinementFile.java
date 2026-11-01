@@ -1064,9 +1064,9 @@ final class VarkaRefinementFile {
         "(>= (* e " + pow10(4) + ") (* c " + pow10(9) + "))");
     decimalRow(out, "d18 > 1.5, Spark mode: the literal's slot at scale 2, 150", List.of(d18),
         List.of(), "va", "va", "(> a 150)", "(> (* a 10) (* 15 100))");
-    decimalRow(out, "d9 = 0.425, Spark mode: at DECIMAL(10, 3), the column times 10 and the "
-        + "literal 425", List.of(d9), List.of(), "va", "va", "(= (jlong.mul a 10) 425)",
-        "(= (* a 1000) (* 425 100))");
+    decimalRow(out, "d9 < 0.425, Spark mode: at DECIMAL(10, 3), the column times 10 and the "
+        + "literal 425", List.of(d9), List.of(), "va", "va", "(< (jlong.mul a 10) 425)",
+        "(< (* a 1000) (* 425 100))");
     decimalRow(out, "-d9 < d9b, Spark mode: the wrapping negation", List.of(d9, d9b), List.of(),
         "(and va vb)", "(and va vb)", "(< (jlong.neg a) b)", "(< (- a) b)");
     decimalRow(out, "abs(d9) >= d9b, Spark mode: the blend, which decimal64.smt2 shows the "
