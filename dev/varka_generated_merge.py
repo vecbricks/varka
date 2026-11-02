@@ -872,6 +872,48 @@ def review_cases(expect, merged):
             and not os.path.exists(hooks_path),
             "10: the installer followed the global core.hooksPath",
         )
+
+        # 12. The installed driver finds the script through the worktree's top, from any
+        # directory; where there is none it warns and runs a text merge. Inner merges of a
+        # criss-cross merge take the text merge.
+        def config(key):
+            return subprocess.run(
+                ["git", "config", key], cwd=repo, env=env, capture_output=True, text=True
+            ).stdout.strip()
+
+        def run_driver(cwd):
+            paths = [os.path.join(tmp, n) for n in ("db.txt", "do.txt", "dt.txt")]
+            for n, path in enumerate(paths):
+                with open(path, "w", encoding="utf-8") as f:
+                    f.write(f"{n}\n")
+            command = config("merge.varka-generated.driver")
+            for placeholder, value in zip(("%O", "%A", "%B", "%P"), paths + ["a path"]):
+                command = command.replace(placeholder, "'" + value + "'")
+            run = subprocess.run(
+                ["sh", "-c", command], cwd=cwd, env=env, capture_output=True, text=True
+            )
+            with open(paths[1], encoding="utf-8") as f:
+                return run, f.read()
+
+        run, text = run_driver(repo)
+        expect(
+            run.returncode != 0
+            and "<<<<<<<" in text
+            and "plain text merge of a path" in run.stderr,
+            f"12: the fallback merge (exit {run.returncode}) {text!r} {run.stderr!r}",
+        )
+        stub = os.path.join(repo, "dev", "varka_generated_merge.py")
+        os.makedirs(os.path.join(repo, "dev"))
+        os.makedirs(os.path.join(repo, "sub"))
+        with open(stub, "w", encoding="utf-8") as f:
+            f.write('#!/bin/sh\necho "stub $1 $5" >&2\n')
+        os.chmod(stub, 0o755)
+        run, _ = run_driver(os.path.join(repo, "sub"))
+        expect(
+            run.returncode == 0 and run.stderr == "stub driver a path\n",
+            f"12: the driver did not run the worktree's script: {run.stderr!r}",
+        )
+        expect(config("merge.varka-generated.recursive") == "text", "12: no recursive driver")
     # 4. The per-row files the check reads run the docs job, and still count as code.
     sys.path.insert(0, os.path.join(root, "dev"))
     try:
