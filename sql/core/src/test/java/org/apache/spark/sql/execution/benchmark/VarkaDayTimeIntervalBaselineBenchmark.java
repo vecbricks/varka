@@ -59,7 +59,8 @@ import org.apache.spark.sql.execution.VarkaSessionEmit;
  * class, so that its fusion cannot turn a baseline section into a fused one unnoticed. A section
  * is {@code NONE} when no Varka node plans it, {@code NULL_TESTS} when Varka nodes fuse only
  * {@code IS NOT NULL} and {@code IS NULL} tests while a row operator evaluates the rest, and
- * {@code WHOLE} when no row operator evaluates any of it. The projections but the blend control
+ * {@code WHOLE} when no row operator evaluates any of it. Row 103 fuses {@code dt + dt2 - dt}
+ * and {@code abs(dt)}, {@code WHOLE} at both widths; the other projections but the blend control
  * are {@code NONE}. The filter {@code extract(HOUR FROM dt) >= 12} is {@code NULL_TESTS} at
  * both densities: Spark infers {@code IS NOT NULL} of the column the null-intolerant condition
  * reads, Varka fuses that null test alone, on the long lane, into a
@@ -180,9 +181,9 @@ public class VarkaDayTimeIntervalBaselineBenchmark extends VarkaSqlBenchmarkBase
       String density = ", " + (nulls.isEmpty() ? "no nulls" : "one row in ten null");
       String from = " FROM " + VIEW;
       out.add(new Section("dt + dt2 - dt" + density,
-          "SELECT " + dt + " + dt2 - " + dt + " AS a" + from, Map.of(), Fusion.NONE));
+          "SELECT " + dt + " + dt2 - " + dt + " AS a" + from, Map.of(), Fusion.WHOLE));
       out.add(new Section("abs(dt)" + density,
-          "SELECT abs(" + dt + ") AS a" + from, Map.of(), Fusion.NONE));
+          "SELECT abs(" + dt + ") AS a" + from, Map.of(), Fusion.WHOLE));
       out.add(new Section("dt * 3" + density,
           "SELECT " + dt + " * 3 AS a" + from, Map.of(), Fusion.NONE));
       out.add(new Section("dt * 1.5" + density,

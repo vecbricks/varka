@@ -46,6 +46,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Lit
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Overflow;
 import org.apache.spark.sql.types.DataType;
 import org.apache.spark.sql.types.DataTypes;
+import org.apache.spark.sql.types.DayTimeIntervalType;
 import org.apache.spark.sql.types.YearMonthIntervalType;
 
 /**
@@ -190,6 +191,25 @@ final class VarkaIntervalCompiler {
           () -> negate(n.child(), inputs, literals, sink);
       case Abs n when n.dataType() instanceof YearMonthIntervalType ->
           () -> absolute(n.child(), inputs, literals, sink);
+      // The day-time interval algebra, the year-month arms' twins on the long lane, a count of
+      // microseconds (VARKA-103 2.1). Spark computes `dt + dt`, `dt - dt` and `-dt` with
+      // `IntervalMathUtils.addExact`, `subtractExact` and `negateExact` in every evaluation
+      // mode, so the mode is `FAIL` unconditionally. `abs(dt)` is `LongExactNumeric.abs`,
+      // which raises at `Long.MIN_VALUE` whatever `failOnError` says: the checked negation
+      // under the blend fires exactly there. A declined batch is re-evaluated by the row
+      // engine, which raises each form's own error class.
+      case Add a when a.dataType() instanceof DayTimeIntervalType ->
+          () -> dayTimeArith(IntOp.ADD, a.left(), a.right(), a, inputs, literals, sink);
+      case Subtract s when s.dataType() instanceof DayTimeIntervalType ->
+          () -> dayTimeArith(IntOp.SUB, s.left(), s.right(), s, inputs, literals, sink);
+      case UnaryMinus n when n.dataType() instanceof DayTimeIntervalType ->
+          () -> dayTimeOperand(n.child(), "the negated interval", inputs, literals, sink)
+              .map(x -> (VarkaVectorIR) new IntNeg(Overflow.FAIL, x));
+      case Abs n when n.dataType() instanceof DayTimeIntervalType ->
+          () -> dayTimeOperand(n.child(), "the absolute interval", inputs, literals, sink)
+              .map(x -> (VarkaVectorIR) new IfElse(
+                  new Compare(CompareOp.LT, x, sink.longSlot(0L)),
+                  new IntNeg(Overflow.FAIL, x), x));
       case MakeYMInterval m -> () -> makeInterval(m, inputs, literals, sink);
       // `IntervalUtils.getYears(months)` is `months / 12` - Java's `/`, truncating toward zero -
       // over a stored month count that nothing bounds. The calendar's magic multiply is exact
@@ -491,6 +511,55 @@ final class VarkaIntervalCompiler {
     }
     Optional<VarkaVectorIR> y =
         intervalOperand(r, "the right interval operand", inputs, literals, sink);
+    if (y.isEmpty()) {
+      return rolledBack(y, literals, mark);
+    }
+    return rolledBack(VarkaNodeCompiler.arithOver(
+        op, Overflow.FAIL, x.get(), y.get(), whole, literals, mark, sink), literals, mark);
+  }
+
+  /**
+   * An operand of the day-time interval algebra: a value whose lane is a count of microseconds,
+   * the long lane. The column, the literal and the unit relabel are the time family's leaves, and
+   * nested interval arithmetic is the arms above, so this is a type gate over the same walk, as
+   * {@link #intervalOperand} is for the year-month half.
+   */
+  static Optional<VarkaVectorIR> dayTimeOperand(
+      Expression e,
+      String position,
+      VarkaSlotTable inputs,
+      VarkaSlotTable literals,
+      DeclineSink sink) {
+    if (!(e.dataType() instanceof DayTimeIntervalType)) {
+      return sink.decline(position + " of type " + e.dataType().simpleString()
+          + " is not a day-time interval", e);
+    }
+    return VarkaNodeCompiler.compileNode(e, inputs, literals, sink);
+  }
+
+  /**
+   * {@code dt + dt2} and {@code dt - dt2}: {@code IntervalMathUtils.addExact} and
+   * {@code subtractExact}, which raise in every evaluation mode, so the declared mode is
+   * {@code FAIL} and {@code arithOver}'s bound is the only thing that takes the check off. Two
+   * units meet through type coercion's cast to the wider type, which the time family compiles to
+   * the child where the target's end field is at least as fine as the source's.
+   */
+  private static Optional<VarkaVectorIR> dayTimeArith(
+      IntOp op,
+      Expression l,
+      Expression r,
+      Expression whole,
+      VarkaSlotTable inputs,
+      VarkaSlotTable literals,
+      DeclineSink sink) {
+    int mark = literals.size();
+    Optional<VarkaVectorIR> x =
+        dayTimeOperand(l, "the left interval operand", inputs, literals, sink);
+    if (x.isEmpty()) {
+      return rolledBack(x, literals, mark);
+    }
+    Optional<VarkaVectorIR> y =
+        dayTimeOperand(r, "the right interval operand", inputs, literals, sink);
     if (y.isEmpty()) {
       return rolledBack(y, literals, mark);
     }

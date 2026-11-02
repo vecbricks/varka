@@ -143,20 +143,23 @@ class VarkaDayTimeIntervalBaselineQueriesSuite extends QueryTest with VarkaShare
       def fused(list: Seq[VarkaDayTimeIntervalBaselineBenchmark.Section]): Seq[(String, String)] =
         list.filter(_.fusion != VarkaSqlBenchmarkBase.Fusion.NONE)
           .map(s => (s.title, s.fusion.toString))
+      // The projections row 103 fuses, WHOLE at both widths: the refusal below is a filter's.
+      val projections = Seq("dt + dt2 - dt", "abs(dt)")
+      def density(d: String): Seq[(String, String)] = projections.map(p => (s"$p, $d", "WHOLE"))
       val blend = "CASE WHEN dt > dt2 THEN dt ELSE dt2 END, control, fuses at both widths"
-      assert(fused(sections) === Seq(
+      assert(fused(sections) === density("no nulls") ++ Seq(
         ("filter extract(HOUR FROM dt) >= 12, no nulls", "NULL_TESTS"),
         ("filter dt > dt2, control, fuses today, no nulls", "WHOLE"),
-        (s"$blend, no nulls", "WHOLE"),
+        (s"$blend, no nulls", "WHOLE")) ++ density("one row in ten null") ++ Seq(
         ("filter extract(HOUR FROM dt) >= 12, one row in ten null", "NULL_TESTS"),
         ("filter dt > dt2, control, fuses today, one row in ten null", "WHOLE"),
         (s"$blend, one row in ten null", "WHOLE")))
-      // Under the refusal only the blend control fuses, so the 128-bit run still has a WHOLE
-      // control; the list's titles and queries are the same either way.
+      // Under the refusal only the projections and the blend control fuse, so the 128-bit run
+      // still has a WHOLE control; the list's titles and queries are the same either way.
       val refused = VarkaDayTimeIntervalBaselineBenchmark.sections(true).asScala.toSeq
       assert(refused.map(s => (s.title, s.query)) === sections.map(s => (s.title, s.query)))
-      assert(fused(refused) === Seq(
-        (s"$blend, no nulls", "WHOLE"), (s"$blend, one row in ten null", "WHOLE")))
+      assert(fused(refused) === density("no nulls") ++ Seq((s"$blend, no nulls", "WHOLE")) ++
+        density("one row in ten null") ++ Seq((s"$blend, one row in ten null", "WHOLE")))
       for ((s, index) <- sections.zipWithIndex) {
         withClue(s.title) {
           withSettings(s) {

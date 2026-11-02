@@ -579,6 +579,66 @@
     "note" : "the quotient feeding further int arithmetic, checked under ANSI; the check cannot fire, since the quotient is within +/-178956970",
     "verified" : "refinement: extract(YEAR FROM ym); a - b"
   }, {
+    "sql" : "dt + dt2",
+    "executable" : "dt + dt2",
+    "family" : "Day-time interval arithmetic",
+    "form" : "projection",
+    "catalyst" : [ "Add" ],
+    "casts" : [ ],
+    "operands" : [ "Add:dt" ],
+    "switches" : [ "spark.sql.codegen.varka.family.interval.enabled" ],
+    "domain" : "if(dt IS NULL OR dt2 IS NULL, NULL, try_add(dt, dt2) IS NOT NULL)",
+    "note" : "a sum past the long raises in every mode, so its batch declines and the row engine raises",
+    "verified" : "differential"
+  }, {
+    "sql" : "dt - dt2",
+    "executable" : "dt - dt2",
+    "family" : "Day-time interval arithmetic",
+    "form" : "projection",
+    "catalyst" : [ "Subtract" ],
+    "casts" : [ ],
+    "operands" : [ "Subtract:dt" ],
+    "switches" : [ "spark.sql.codegen.varka.family.interval.enabled" ],
+    "domain" : "if(dt IS NULL OR dt2 IS NULL, NULL, try_subtract(dt, dt2) IS NOT NULL)",
+    "note" : "the difference, exact in every mode as the sum is",
+    "verified" : "differential"
+  }, {
+    "sql" : "-dt",
+    "executable" : "-dt",
+    "family" : "Day-time interval arithmetic",
+    "form" : "projection",
+    "catalyst" : [ "UnaryMinus" ],
+    "casts" : [ ],
+    "operands" : [ "UnaryMinus:dt" ],
+    "switches" : [ "spark.sql.codegen.varka.family.interval.enabled" ],
+    "domain" : "dt <> INTERVAL '-106751991 04:00:54.775808' DAY TO SECOND",
+    "note" : "negateExact raises on the least interval alone",
+    "verified" : "differential"
+  }, {
+    "sql" : "abs(dt)",
+    "executable" : "abs(dt)",
+    "family" : "Day-time interval arithmetic",
+    "form" : "projection",
+    "catalyst" : [ "Abs" ],
+    "casts" : [ ],
+    "operands" : [ "Abs:dt" ],
+    "switches" : [ "spark.sql.codegen.varka.family.interval.enabled" ],
+    "domain" : "dt <> INTERVAL '-106751991 04:00:54.775808' DAY TO SECOND",
+    "note" : "the checked negation under a blend; Spark raises on the least interval in every mode, with ARITHMETIC_OVERFLOW rather than the interval condition",
+    "verified" : "differential"
+  }, {
+    "sql" : "dt + INTERVAL '1' DAY",
+    "executable" : "dt + INTERVAL '1' DAY",
+    "family" : "Day-time interval arithmetic",
+    "form" : "projection",
+    "catalyst" : [ "Add", "Cast" ],
+    "casts" : [ "dt>dt:ansi" ],
+    "operands" : [ "Add:dt", "Cast:dt" ],
+    "switches" : [ "spark.sql.codegen.varka.family.interval.enabled" ],
+    "domain" : "if(dt IS NULL, NULL, try_add(dt, INTERVAL '1' DAY) IS NOT NULL)",
+    "note" : "the literal, cast to the column's unit and folded, takes a slot in the long lane's table",
+    "verified" : "differential"
+  }, {
     "sql" : "i + 1",
     "executable" : "i + 1",
     "family" : "Integer arithmetic",

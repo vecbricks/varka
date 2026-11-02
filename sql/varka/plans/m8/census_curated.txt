@@ -60,7 +60,7 @@ or|bool|bool|bool|done|331,27|fused as a condition, over a BOOLEAN column too (3
 <|ALL|bool|bool,int,bigint,date,time,ym,dt,byte,short,ntz,float,double,dec^|semantics|341,348,359,329,347|Spark's NaN ordering on floats; dec to precision 18 fuses at every scale (347, 348) and counts fused with 359, 360 and 363 (2.8)
 <=|ALL|bool|bool,int,bigint,date,time,ym,dt,byte,short,ntz,float,double,dec^|semantics|341,348,359,329,347|Spark's NaN ordering on floats; dec to precision 18 fuses at every scale (347, 348) and counts fused with 359, 360 and 363 (2.8)
 !|bool|bool||plumbing|331,27|alias of not
-abs|NUM,IVL|same|byte,short,ym,float,double|semantics|330,104,103,342,348,359|the minimum value overflows: wraps or throws; not for dec, whose unscaled value within 18 digits is never the minimum: dec to precision 18 fuses under a comparison or a null test (348), as an output with row 157, and counts fused with 359 (2.8)
+abs|NUM,IVL|same|byte,short,ym,dt,float,double|semantics|330,104,103,342,348,359|the minimum value overflows: wraps or throws; not for dec, whose unscaled value within 18 digits is never the minimum: dec to precision 18 fuses under a comparison or a null test (348), as an output with row 157, and counts fused with 359 (2.8)
 greatest|ALL|same|int,date,bigint,time,ym,dt,byte,short,ntz,float,double|semantics|341,348,359,329|NaN is the greatest float; dec to precision 18 fuses at every scale under a comparison or a null test (348), as an output with row 157, and counts fused with 359, 360 and 363 (2.8)
 least|ALL|same|int,date,bigint,time,ym,dt,byte,short,ntz,float,double|semantics|341,348,359,329|NaN is the greatest float; dec to precision 18 fuses at every scale under a comparison or a null test (348), as an output with row 157, and counts fused with 359, 360 and 363 (2.8)
 acos|double|double||ulp|367,356|Math
@@ -89,7 +89,7 @@ log1p|double|double||ulp|367,358|StrictMath
 log2|double|double||ulp|367,358|StrictMath.log over a constant
 ln|double|double||ulp|367,358|StrictMath
 mod|NUM|same||semantics|30,95,104,346,577|integral is semantics (zero divisor); floating by the one-FMA remainder (346); decimal: a remainder by a variable divisor, which the long lane has no vector division for; row 577 (VARKA-577.md; the owner's word of 7 November 2026)
-negative|NUM,IVL|same|byte,short,int,ym,float,double|semantics|330,104,103,342,348,359|the minimum value overflows; not for dec, whose unscaled value within 18 digits is never the minimum: dec to precision 18 fuses under a comparison or a null test (348), as an output with row 157, and counts fused with 359 (2.8)
+negative|NUM,IVL|same|byte,short,int,ym,dt,float,double|semantics|330,104,103,342,348,359|the minimum value overflows; not for dec, whose unscaled value within 18 digits is never the minimum: dec to precision 18 fuses under a comparison or a null test (348), as an output with row 157, and counts fused with 359 (2.8)
 pmod|NUM|same||semantics|30,104,346,577|integral is semantics (item 33's sign rule; pmod(-1, Int.MinValue) is Int.MaxValue, SPARK-59934); floating by the one-FMA remainder (346); decimal: a remainder by a variable divisor, row 577
 positive|NUM,IVL|same||plumbing|333|rewritten to its child
 pow|double|double||ulp|367,358|StrictMath; fused behind the guard on fdlibm's weak branch, its exact exponents as exact nodes (358)
@@ -108,8 +108,8 @@ tan|double|double||ulp|367,356|Math
 cot|double|double||ulp|367,356|1 / Math.tan
 tanh|double|double||ulp|367,357|Math
 width_bucket|double,IVL,time|bigint||semantics|344|bucket arithmetic over doubles
-+|NUM,IVL|same|byte,short,int,ym,float,double|semantics|330,104,103,342,349,360|integral overflow modes; decimal result scale; date and timestamp sums are other classes; decimal: fused where the result is within 18 digits (349a, a filter until 157); the pair counts with 360 at every precision to 38
--|NUM,IVL|same|byte,short,int,ym,float,double|semantics|330,104,103,342,349,360|date, timestamp and time differences are other classes; decimal: fused where the result is within 18 digits (349a, a filter until 157); the pair counts with 360 at every precision to 38
++|NUM,IVL|same|byte,short,int,ym,dt,float,double|semantics|330,104,103,342,349,360|integral overflow modes; decimal result scale; date and timestamp sums are other classes; decimal: fused where the result is within 18 digits (349a, a filter until 157); the pair counts with 360 at every precision to 38
+-|NUM,IVL|same|byte,short,int,ym,dt,float,double|semantics|330,104,103,342,349,360|date, timestamp and time differences are other classes; decimal: fused where the result is within 18 digits (349a, a filter until 157); the pair counts with 360 at every precision to 38
 *|NUM|same|byte,short,int~,float,double|semantics|330,95,104,342,349,361,362|fused for int in `year(d) * 2`; interval products are other classes; decimal: fused where the result is within 18 digits (349a, a filter until 157); the pair counts with 361 and 362 at every precision to 38
 /|double,dec!|same|double|done|342|zero divisor null or error; decimal division is out of milestone 8
 div|INTEGRAL,dec!,IVL|bigint||semantics|30,104,103|zero divisor null or error; over INT a long-lane divide over two widening casts (corrects item 33); a decimal div divides decimals, out of milestone 8

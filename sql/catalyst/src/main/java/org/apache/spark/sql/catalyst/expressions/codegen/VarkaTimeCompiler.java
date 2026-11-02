@@ -259,12 +259,15 @@ final class VarkaTimeCompiler {
       // The day-time interval's unit relabel, the twin of the year-month MONTH arm: type
       // coercion casts `INTERVAL '0' SECOND` to the column's DAY TO SECOND before comparing, and
       // `castToDayTimeInterval` keeps the microseconds whole for a SECOND end field
-      // (`SparkIntervalUtils.durationToMicros`), so the cast is the child. A coarser end field
-      // truncates to that unit - `micros - micros % unit`, a division - and declines with its
-      // reason rather than falling through as unsupported.
+      // (`SparkIntervalUtils.durationToMicros`), so the cast is the child. So is a cast to any
+      // end field at least as fine as the source's, the one type coercion inserts when two units
+      // meet in `dt + dt2`: it truncates to the target's unit, and a whole number of the source's
+      // unit is a whole number of the finer one (VARKA-103 2.1). A coarser end field truncates
+      // to that unit - `micros - micros % unit`, a division - and declines with its reason
+      // rather than falling through as unsupported.
       case Cast c when c.dataType() instanceof DayTimeIntervalType to
-          && to.endField() == DayTimeIntervalType.SECOND()
-          && c.child().dataType() instanceof DayTimeIntervalType ->
+          && c.child().dataType() instanceof DayTimeIntervalType from
+          && to.endField() >= from.endField() ->
           () -> VarkaNodeCompiler.compileNode(c.child(), inputs, literals, sink);
       case Cast c when c.dataType() instanceof DayTimeIntervalType
           && c.child().dataType() instanceof DayTimeIntervalType ->

@@ -520,6 +520,29 @@ Predictions, registered before the build:
    helper, if 332b has not built it), 2.4's day split and the decimal literal forms whose divisor
    divides `D`, the proof additions, the cells and coverage rows of those forms, the first planted
    fault.
+   *2 November 2026, 103a's first part built:* 2.1 alone. `VarkaIntervalCompiler` gains the
+   day-time arms `dt + dt2`, `dt - dt2` (`IntArith` `ADD` or `SUB` in `FAIL` at the long lane,
+   through `arithOver`), `-dt` (`IntNeg` `FAIL`) and `abs(dt)` (the compare, `IntNeg` `FAIL` and
+   blend of the year-month `absolute`), behind a `dayTimeOperand` type gate; `VarkaTimeCompiler`'s
+   unit relabel compiles any cast to an end field at least as fine as the source's to the child,
+   the SECOND end among them. No IR node, so no reference evaluator, cost model or proof change;
+   `+dt` is `RuntimeReplaceable` and never reaches the compiler. Tests: coverage family "Day-time
+   interval arithmetic" (five rows, each with its `try_` domain or the least interval's), the
+   named cells of 3.3 for these forms in `VarkaDayTimeArithmeticSuite` (sql/core: `MAX - 1 + 1`
+   and `MIN + 1 - 1` answered, `MAX + 1` and `MIN - 1` raising
+   `INTERVAL_ARITHMETIC_OVERFLOW.WITH_SUGGESTION`, `-dt` at `MIN` the `.WITHOUT_SUGGESTION` class,
+   `abs(dt)` at `MIN` `ARITHMETIC_OVERFLOW`, each against the row engine with the kernel in the
+   plan), and the Spark-level fuzz grammar's `dt - dt2`, `-dt` and `abs(dt)`. The harness's
+   domain-edges fixture gains an overridable `dt2` and the pairs at the long's ends whose sum and
+   difference overflow and the last that fit (`VarkaDomains`); `VarkaAnsiForm` lists `dt - dt2`
+   and `dt + INTERVAL '1' DAY` under the right side of a false AND, whose check condemns the batch
+   as for the other checked rows; `skips.tsv` gives the four tests that hold a kernel to declining
+   an overflow their `checkIntOverflow=false` lines, not run locally. The baseline lists
+   `dt + dt2 - dt` and `abs(dt)` as fusing at both densities. Prediction 1 held for these shapes:
+   `emitted_bytes.json` adds the five shapes and moves only the `option_arms` digests. The census
+   marks `dt` fused for `+`, `-`, `negative` and `abs`. Left of 103a: 2.2 (`dt * k`, `ym * k`),
+   `extract(DAY)` with `truncDivLong`, 2.4's day split and the decimal literal forms, the proof
+   additions of 3.1, their cells and rows, and the first planted fault.
 3. **103b, after 332b and 157 and 347**: `HOUR`, `MINUTE`, `SECOND`, `make_dt_interval` (the
    seconds of both, section 8, point 3), the third planted fault, and the measurement against the
    baseline at both widths.

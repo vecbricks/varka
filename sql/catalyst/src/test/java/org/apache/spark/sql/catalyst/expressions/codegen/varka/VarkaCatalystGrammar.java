@@ -231,6 +231,11 @@ public final class VarkaCatalystGrammar {
     // anything from DAY to MINUTE.
     out.add(new Production(x, "($0 - $1)", List.of(t, t), 3));
     out.add(new Production(x, "($0 + $1)", List.of(x, x), 1));
+    // The checked interval algebra (VARKA-103 2.1): an overflow raises INTERVAL_ARITHMETIC_OVERFLOW
+    // or, for abs, ARITHMETIC_OVERFLOW, in every mode.
+    out.add(new Production(x, "($0 - $1)", List.of(x, x), 1));
+    out.add(new Production(x, "(- $0)", List.of(x), 1));
+    out.add(new Production(x, "abs($0)", List.of(x), 1));
     // The difference of two TIMESTAMP_NTZ values, and of one and a DATE, which the analyzer casts
     // to TIMESTAMP_NTZ (VARKA-339).
     out.add(new Production(x, "($0 - $1)", List.of(n, n), 2));

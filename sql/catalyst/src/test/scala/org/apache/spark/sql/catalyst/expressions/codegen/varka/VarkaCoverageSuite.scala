@@ -411,6 +411,24 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
         + "under ANSI; the check cannot fire, since the quotient is within +/-178956970",
         domain = Some(s"extract(YEAR FROM ym) > ${Int.MinValue}")))),
 
+    // The day-time interval algebra (VARKA-103 2.1): a count of microseconds on the long lane.
+    // Spark computes the sum, the difference and the negation with `IntervalMathUtils`'s exact
+    // forms and `abs` with `LongExactNumeric.abs`, which raise in every evaluation mode, so each
+    // is the checked long operation and a batch with an overflowing row goes to the row engine.
+    Family("Day-time interval arithmetic", predicates = false, Seq(
+      Row("dt + dt2", "a sum past the long raises in every mode, so its batch declines and the "
+        + "row engine raises", domain = Some(ntzDomain("try_add(dt, dt2)", "dt", "dt2"))),
+      Row("dt - dt2", "the difference, exact in every mode as the sum is",
+        domain = Some(ntzDomain("try_subtract(dt, dt2)", "dt", "dt2"))),
+      Row("-dt", "negateExact raises on the least interval alone",
+        domain = Some(s"dt <> $leastInterval")),
+      Row("abs(dt)", "the checked negation under a blend; Spark raises on the least interval in "
+        + "every mode, with ARITHMETIC_OVERFLOW rather than the interval condition",
+        domain = Some(s"dt <> $leastInterval")),
+      Row("dt + INTERVAL '1' DAY", "the literal, cast to the column's unit and folded, takes a "
+        + "slot in the long lane's table",
+        domain = Some(ntzDomain("try_add(dt, INTERVAL '1' DAY)", "dt"))))),
+
     Family("Integer arithmetic", predicates = false, Seq(
       Row("i + 1", "checked under ANSI; the legacy mode wraps as Spark does and declines nothing",
         domain = Some(s"i < ${Int.MaxValue}")),
