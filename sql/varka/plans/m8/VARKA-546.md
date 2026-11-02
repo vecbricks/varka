@@ -254,12 +254,12 @@ Built on 1 November 2026: (iii) and (i) as section 5 lists them; (ii) waits for 
 
 - **The demonstration** (`results/VARKA-546-demo.txt`). Without the driver, both orders stop on
   four files: `docs/sql-varka.md`, `coverage.json`, `emitted_bytes.json`, `width_audit.json`.
-  With it, both merges exit 0 with no unmerged path, give the same tree (`737bc554566`, rerun
-  after the review below) and pass `--check`. `width_audit.json` merged per key with nothing
-  owed. Owed: `emitted_bytes.json` (the 22 `option_arms` digests and the place of the two
-  rows), `coverage.json` (the place of the two rows, and the census, which reads it) and the
-  docs file's generated blocks (the coverage table and the verification counts, which both
-  sides changed).
+  With it, both merges exit 0 with no unmerged path, give the same tree (`2af1c3cab23`, rerun
+  after the review below and again after the fixes of 2 November 2026) and pass `--check`.
+  `width_audit.json` merged per key with nothing owed. Owed: `emitted_bytes.json` (the 22
+  `option_arms` digests and the place of the two rows), `coverage.json` (the place of the two
+  rows, and the census, which reads it) and the docs file's generated blocks (the coverage
+  table and the verification counts, which both sides changed).
   `dev/varka_regen_generated.sh --dry-run` prints one sbt call: coverage, bytes, coverage
   again, then the census.
 - **A stale file on CI.** `--check` fails a `coverage.json` row that the width audit and the

@@ -1,6 +1,6 @@
 # VARKA-546: two branches adding a coverage row at the same place, merged in either order
 #
-# Run on 1 November 2026 in a temporary clone of varka-546-generated at fd612d51267.
+# Run on 2 November 2026 in a temporary clone of varka-546-generated at b31b461105c.
 # Branches A and B each add one row after quarter(d), as the suites would write it, to
 # coverage.json, emitted_bytes.json (its row maps and every option_arms digest),
 # width_audit.json (every width, sorted) and the docs file (a table row and the date
@@ -29,16 +29,16 @@
    varka merge: sql/varka/emitted_bytes.json merged; regeneration owed for lanes.16.coverage (order after quarter(d)), lanes.4.coverage (order after quarter(d)), option_arms.groupLocalSlots=false.16, option_arms.groupLocalSlots=false.4 and 20 more; run dev/varka_regen_generated.sh
    varka merge: sql/varka/coverage.json merged; regeneration owed for expressions (order after quarter(d)), the census, which reads coverage.json; run dev/varka_regen_generated.sh
    varka merge: docs/sql-varka.md merged; regeneration owed for generated block, generated block coverage table, generated block verification counts; run dev/varka_regen_generated.sh
-   tree 737bc554566
-   owed file: docs/sql-varka.md sql/varka/coverage.json sql/varka/emitted_bytes.json 
+   tree 2af1c3cab23
+   owed: docs/sql-varka.md sql/varka/coverage.json sql/varka/emitted_bytes.json 
    generated --check: pass
 -- A merges master after B merged: exit 0
    varka merge: sql/varka/width_audit.json merged per key, nothing owed
    varka merge: sql/varka/emitted_bytes.json merged; regeneration owed for lanes.16.coverage (order after quarter(d)), lanes.4.coverage (order after quarter(d)), option_arms.groupLocalSlots=false.16, option_arms.groupLocalSlots=false.4 and 20 more; run dev/varka_regen_generated.sh
    varka merge: sql/varka/coverage.json merged; regeneration owed for expressions (order after quarter(d)), the census, which reads coverage.json; run dev/varka_regen_generated.sh
    varka merge: docs/sql-varka.md merged; regeneration owed for generated block, generated block coverage table, generated block verification counts; run dev/varka_regen_generated.sh
-   tree 737bc554566
-   owed file: docs/sql-varka.md sql/varka/coverage.json sql/varka/emitted_bytes.json 
+   tree 2af1c3cab23
+   owed: docs/sql-varka.md sql/varka/coverage.json sql/varka/emitted_bytes.json 
    generated --check: pass
 -- regeneration the merge owes:
    varka regen: env SPARK_LOCAL_IP=127.0.0.1 VARKA_COVERAGE_REGEN=true VARKA_BYTES_REGEN=true build/sbt 'catalyst/testOnly *VarkaCoverageSuite' 'catalyst/testOnly *VarkaEmittedBytesSuite' 'catalyst/testOnly *VarkaCoverageSuite'
@@ -93,7 +93,7 @@ open("docs/sql-varka.md", "w").write("\n".join(lines))
 #!/bin/bash
 # VARKA-546 demo: two branches each add a coverage row after quarter(d) in every generated file.
 set -u
-S=/tmp/claude-1000/-home-max-proj-vecbricks-varka/53e2e690-d028-4b57-a163-fcdc477c97cf/scratchpad
+S=/tmp/claude-1000/-home-max-proj-vecbricks-varka/53e2e690-d028-4b57-a163-fcdc477c97cf/scratchpad/fix546
 D=$S/demo; rm -rf $D; git clone -q --no-hardlinks /home/max/proj/varka-546 $D 2>/dev/null
 cd $D; git checkout -q -B master varka-546-generated
 g() { git -c core.hooksPath=/dev/null -c user.name=t -c user.email=t@example.com "$@"; }
@@ -112,7 +112,7 @@ run() { # label
     echo "$out" | grep -E "CONFLICT|varka merge" | sed 's/^/   /'
     if [ $rc -ne 0 ]; then echo "   unmerged: $(git diff --name-only --diff-filter=U | tr '\n' ' ')"
       g merge --abort; else echo "   tree $(git rev-parse --short 'HEAD^{tree}')"
-      echo "   owed file: $(sort -u "$(git rev-parse --git-path varka-regen-owed)" 2>/dev/null | tr '\n' ' ')"
+      echo "   owed: $(python3 dev/varka_generated_merge.py --owed | tr '\n' ' ')"
       echo "   generated --check: $(python3 dev/varka_generated_merge.py --check >/dev/null 2>&1 && echo pass || echo FAIL)"
     fi
   done
