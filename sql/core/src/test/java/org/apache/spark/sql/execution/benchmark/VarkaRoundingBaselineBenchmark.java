@@ -309,7 +309,10 @@ public class VarkaRoundingBaselineBenchmark extends VarkaSqlBenchmarkBase {
         VarkaArrowSessions.cache(session, VIEW);
       }
       for (Section s : sections()) {
-        withConf(varka, s.conf(), () -> requireBaseline(varka, s.title(), s.query(), s.fuses()));
+        // The check takes a fusion class since #1240; a row-path baseline lists no section as
+        // fusing, so a section's class is NONE, and one a row marks as fusing is WHOLE.
+        Fusion expected = s.fuses() ? Fusion.WHOLE : Fusion.NONE;
+        withConf(varka, s.conf(), () -> requireBaseline(varka, s.title(), s.query(), expected));
       }
       for (Section s : sections()) {
         section(s.title(), () -> withConf(baseline, s.conf(), () -> withConf(varka, s.conf(),
