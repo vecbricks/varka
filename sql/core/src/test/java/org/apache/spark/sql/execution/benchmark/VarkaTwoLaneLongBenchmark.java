@@ -40,6 +40,9 @@ import org.apache.spark.sql.internal.SQLConf;
  *     widened int column;
  *   <li>{@code x < x2} and {@code x > 1.5D} as filters over {@code DOUBLE} columns, whose species
  *     at 128 bits also has two lanes, so the same masks fall back;
+ *   <li>{@code l < l2} and {@code x < x2} as projections, a {@code BOOLEAN} output column
+ *     (VARKA-27): the same compare to a mask as the filters', written as a bitmap rather than
+ *     a selection, with no row work behind it to offset the fallback;
  *   <li>{@code l + l2} as a projection, under ANSI and under legacy arithmetic, which Varka does
  *     not fuse at all, as a control: both arms are the row path;
  *   <li>{@code l ^ l2} as a projection, lanewise with no mask in the loop;
@@ -68,7 +71,8 @@ import org.apache.spark.sql.internal.SQLConf;
  * Beside them, {@code two-lane-refusal-off-128bit.txt} and its four-lane control
  * {@code two-lane-refusal-off-256bit.txt} time every filter fused, the refusal forced off with
  * {@code -Dspark.sql.codegen.varka.declineTwoLaneConditions=false}, the {@code DOUBLE} filters
- * among them ({@code m8/VARKA-503.md} 12).
+ * among them, and {@code two-lane-boolean-output-128bit.txt} and {@code -256bit.txt} the
+ * boolean outputs beside them ({@code m8/VARKA-503.md} 12).
  */
 public class VarkaTwoLaneLongBenchmark extends VarkaSqlBenchmarkBase {
 
@@ -127,6 +131,10 @@ public class VarkaTwoLaneLongBenchmark extends VarkaSqlBenchmarkBase {
       out.add(new Section("(d < d2) AND (l < l2) filter" + density,
           "SELECT d" + n + " FROM varka_two_lane WHERE (d" + n + " < d2" + n + ") AND ("
               + l + " < " + l2 + ")", false));
+      out.add(new Section("l < l2 boolean output projection" + density,
+          "SELECT " + l + " < " + l2 + " AS c FROM varka_two_lane", false));
+      out.add(new Section("x < x2 boolean output projection" + density,
+          "SELECT x" + n + " < x2" + n + " AS c FROM varka_two_lane", false));
       out.add(new Section("l + l2 projection, ANSI" + density,
           "SELECT " + l + " + " + l2 + " AS c FROM varka_two_lane", false));
       out.add(new Section("l + l2 projection, legacy" + density,

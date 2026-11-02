@@ -488,3 +488,27 @@ reading (corrects 3.1's "`HOST_USE_AVX` reads a level (the JVM is x86)"):
    admission moved (the catalyst suites and the census are unchanged).
 7. **`VarkaTwoLaneHostCheck.isX86`** asks `VarkaHostIsa.host().x86()` and no longer repeats the
    architecture list.
+8. **A `BOOLEAN` output column at two lanes: measured, left admitted.** `hostRefusal` refuses only
+   `Cond` roots. Since row 27 (#1226, in this branch's base) a projection's `BOOLEAN` entry is a
+   `BoolOutput` root over the same condition, planned through `VarkaKernelPlan.of`, which never
+   asks the host. So `SELECT l < l2` fuses at two long lanes and makes the same long masks as
+   the Java fallback, with no row work to offset them. `VarkaTwoLaneLongBenchmark` gained
+   `l < l2` and `x < x2` as boolean output projections and ran as in 2, with the refusal forced
+   off. The setting does not reach a projection, so it changes nothing for these sections. One
+   run per side on the shared laptop, the 128-bit one at a load of about 14 falling to 4, so
+   ratios under 1.3 are directions:
+
+   | projection | 2 lanes, no nulls | 2 lanes, nulls | 4 lanes, no nulls | 4 lanes, nulls |
+   |---|---|---|---|---|
+   | `l < l2` | 1.7X | 2.1X | 5.1X | 6.8X |
+   | `x < x2` | 0.9X | 1.1X | 6.6X | 7.1X |
+
+   The files are `results/VARKA-503/two-lane-boolean-output-128bit.txt` and `-256bit.txt`, whose
+   filter sections repeat 2's directions (`l < l2` 0.5X and `x < x2` 0.4X at two lanes without
+   nulls). Neither boolean output is clearly below the row path at two lanes, so by the owner's
+   rule for this item `BoolOutput` stays admitted and no code changes. Why a boolean output
+   loses less than the filter over the same masks was not looked into. The `DOUBLE` one is at
+   about parity, against 6.6X to 7.1X at four lanes,
+   so most of its win is lost there. The 128-bit no-null rows also had the widest spread of the
+   run (the load fell during it). Open point for the owner: rerun the two-lane `x < x2` output on
+   the EPYC runner before deciding whether a `DOUBLE` `BoolOutput` should share the refusal.
