@@ -31,6 +31,7 @@ import org.apache.arrow.vector.DecimalVector;
 
 import org.apache.spark.sql.catalyst.InternalRow;
 import org.apache.spark.sql.catalyst.expressions.Attribute;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaErrors;
 import org.apache.spark.sql.execution.columnar.ArrowCachedBatchSerializer;
 import org.apache.spark.sql.types.Decimal;
 import org.apache.spark.sql.types.DecimalType;
@@ -235,7 +236,7 @@ final class VarkaRowView {
 
     private void checkCurrent() {
       if (owner.generation != generation) {
-        throw new IllegalStateException(
+        throw VarkaErrors.illegalState(
             "a Varka row view's iterator read after the view moved to another batch or was "
                 + "released");
       }
@@ -295,7 +296,7 @@ final class VarkaRowView {
     private ArrowColumnVector column() {
       ArrowColumnVector c = column;
       if (c == null) {
-        throw new IllegalStateException(RELEASED);
+        throw VarkaErrors.illegalState(RELEASED);
       }
       return c;
     }
