@@ -231,23 +231,38 @@ public final class VarkaMatrixRuns {
   static final int FALLBACK_USE_AVX = 2;
 
   /**
-   * {@code options} as the emitter can tell them apart. {@code useAVX} reaches the emitted bytes
-   * only through {@link VarkaEmitOptions#convertsFallBack}, which asks whether the level is below
-   * AVX-512, so every level below it emits as {@link #FALLBACK_USE_AVX} does and every other
-   * level as the unstated one, the defaults'. {@code VarkaEmittedBytesSuite} holds each arm the
-   * key moves to its key's bytes over the oracle's shapes, so a new reader of the level that
-   * tells two of them apart fails there.
+   * {@code options} as the compiler and the emitter can tell them apart. {@code useAVX} reaches
+   * them through two predicates of the level: {@link VarkaEmitOptions#convertsFallBack}, which
+   * picks the 64-bit constant division's form and so moves the bytes, and
+   * {@link VarkaEmitOptions#convertsMayFallBack}, which decides whether the kernel plan admits a
+   * {@code BIGINT} conversion to {@code FLOAT} or {@code DOUBLE} and so moves which shapes have a
+   * kernel at all. Together they make three classes: every level below AVX-512 emits as
+   * {@link #FALLBACK_USE_AVX} does; the unknown level, the defaults', divides as AVX-512 does but
+   * declines the conversions; and level 3 and above admit them, and key as
+   * {@link VarkaEmitOptions#AVX512_LEVEL}. Level 3 emits the defaults' bytes for every shape both
+   * admit, so the oracle's digests cannot separate it from the unknown level; the shapes that do
+   * are the ones the unknown level declines. {@code VarkaEmittedBytesSuite} holds each arm the key
+   * moves to its key's bytes over the oracle's shapes, so a new reader of the level that tells two
+   * of one class apart fails there.
    */
   static VarkaEmitOptions emissionKey(VarkaEmitOptions options) {
-    return options.withUseAVX(
-        options.convertsFallBack() ? FALLBACK_USE_AVX : VarkaEmitOptions.USE_AVX_UNKNOWN);
+    int level;
+    if (options.convertsFallBack()) {
+      level = FALLBACK_USE_AVX;
+    } else if (options.convertsMayFallBack()) {
+      level = VarkaEmitOptions.USE_AVX_UNKNOWN;
+    } else {
+      level = VarkaEmitOptions.AVX512_LEVEL;
+    }
+    return options.withUseAVX(level);
   }
 
   /**
    * The arms of one option that emit something new: an arm whose {@link #emissionKey} is the
    * defaults' is left out, and of arms that share a key one runs, the one whose options are the
    * key itself where there is one, else the first. So {@code useAVX=0}, {@code 1} and {@code 2}
-   * run once, as {@code useAVX=2}, and {@code useAVX=3} not at all.
+   * run once, as {@code useAVX=2}, and {@code useAVX=3} runs as the one level that admits the
+   * {@code BIGINT} conversions.
    */
   static List<VarkaEmitOption.Arm> distinctArms(List<VarkaEmitOption.Arm> arms,
       VarkaEmitOptions defaults) {

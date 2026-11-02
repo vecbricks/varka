@@ -603,6 +603,14 @@ false)` does not compile as a condition, though `CAST(x AS BOOLEAN)` alone does.
   skips the narrow masks for that call, since the emitter casts a mask only between the two lanes
   of one lane count (`emitMaskToLane`, `emitToDrivingLane`). This corrects the first review's
   warm-up bullet.
+- **Level 3's kernels are checked again.** With the coverage rows gone, nothing compared a level-3
+  conversion kernel with the row engine, and the option matrix never ran level 3: its key
+  (`VarkaMatrixRuns.emissionKey`) read `convertsFallBack()` alone and folded level 3 into the
+  defaults. The key now has three classes, falling back, unknown and admitting the conversions,
+  so the matrix's `useAVX` arms are `useAVX=2` and `useAVX=3` where they were `useAVX=2`, and
+  `VarkaDifferentialHarnessSuite` runs `CAST(l AS DOUBLE)`, `CAST(l AS FLOAT)`, `x - l` and
+  `CAST(l AS DOUBLE) + 1.5D` at level 3 over the extremes and values past 2^53 and 2^24 against
+  the row engine; `drivesLong`'s doc in `CompiledVarkaProjection` states the two facts it rests on.
 
 *Open for 343b:* `coalesce(CAST(x AS BOOLEAN), false)` does not compile as a condition. Row
 331's `CondIf` fuses `coalesce` over boolean columns, but a cast to `BOOLEAN` is not taken as a

@@ -442,6 +442,7 @@ class VarkaFloatingLaneSuite extends QueryTest with VarkaSharedSessions with Var
     val withLiteral = VarkaExpressionCompiler.compile(Seq(Alias(
       Add(Cast(l, DoubleType), Literal(1.5d)), "c")()), Seq(l, y), options(withDq))
     assert(withLiteral.isPresent, "CAST(l AS DOUBLE) + 1.5D did not compile at level 3")
+    // VarkaDifferentialHarnessSuite runs it at level 3 against the row engine, beside the casts.
   }
 
   test("a smallint read for its validity alone declines as a DOUBLE and fuses as a FLOAT") {

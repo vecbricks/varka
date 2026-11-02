@@ -140,6 +140,14 @@ public record CompiledVarkaProjection(
    * conversion to a floating type that a session at level 3 compiled and fuses
    * ({@link VarkaEmitOptions#convertsMayFallBack()}); such a tree holds a long node, so it drives
    * at the long lane under the session's options.
+   *
+   * <p>Reading every conversion refusal as a 64-bit drive rests on two facts. The constructor is
+   * handed only trees the session's compile already admitted, at the session's options, so a
+   * refusal here is one the defaults add and the session's level does not; and
+   * {@code VarkaKernelPlan.of} asks {@code conversionRefusal} before any other check, so a tree
+   * holding a {@code BIGINT} conversion reports that refusal whatever else the defaults would
+   * say of it. A tree the session had not admitted, or a plan that checked its lanes first,
+   * could reach this with a refusal that names no drive.
    */
   private static boolean drivesLong(VarkaKernelPlan plan) {
     if (plan.refusal().isPresent()) {
