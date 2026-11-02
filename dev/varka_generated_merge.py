@@ -383,6 +383,17 @@ def generated_blocks(path):
     return blocks
 
 
+def block_state(in_block, lines):
+    """Whether a docs file is inside a generated block after `lines`, given that it was
+    `in_block` before them."""
+    for line in lines:
+        if line.startswith("<!-- BEGIN generated"):
+            in_block = True
+        elif line.startswith("<!-- END generated"):
+            in_block = False
+    return in_block
+
+
 def merge_docs(base_path, ours_path, theirs_path, owed):
     """`git merge-file` over the docs file; a conflict inside a generated block takes one side
     and owes the coverage run that rewrites the block. Returns the text and whether a conflict
@@ -446,12 +457,14 @@ def merge_docs(base_path, ours_path, theirs_path, owed):
             else:
                 real = True
                 out.extend(lines[i : k + 1])
+                # A hunk holding a BEGIN or END line moves the block state on each side. Only
+                # where both sides end inside a block do the lines after it count as inside;
+                # where they disagree, a later hunk stays a real conflict until the next
+                # BEGIN or END line outside every hunk settles the state again.
+                in_block = block_state(in_block, o) and block_state(in_block, t)
             i = k + 1
             continue
-        if line.startswith("<!-- BEGIN generated"):
-            in_block = True
-        elif line.startswith("<!-- END generated"):
-            in_block = False
+        in_block = block_state(in_block, [line])
         out.append(line)
         i += 1
     return "".join(out), real
@@ -937,6 +950,32 @@ def review_cases(expect, merged):
             and "=======\n" not in text.replace("========\n", "")
             and not real,
             f"11: a line starting with ======= was read as the separator: {text!r}",
+        )
+
+        # 16. A hunk holding a block's END line on one side only (ours dropped it) leaves the
+        # lines after it outside the block, so a later prose conflict keeps both sides.
+        def end_doc(name, row, end, prose):
+            path = os.path.join(tmp, name)
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(
+                    f"# Doc\n\n<!-- BEGIN generated g -->\n| a | {row} |\n"
+                    + ("<!-- END generated g -->\n" if end else "")
+                    + "\none\n\ntwo\n\nthree\n\nfour\n\n"
+                    + prose
+                    + "\n"
+                )
+            return path
+
+        o = Owed()
+        text, real = merge_docs(
+            end_doc("eb.md", 0, True, "prose"),
+            end_doc("eo.md", 1, False, "prose ours"),
+            end_doc("et.md", 2, True, "prose theirs"),
+            o,
+        )
+        expect(
+            real and "prose ours" in text and "prose theirs" in text,
+            f"16: a prose conflict after a hunk with an END line lost a side: {text!r}",
         )
         # 8. Any failure inside the merge falls back to git's text merge, never a traceback.
         saved = globals()["merge_text"]
