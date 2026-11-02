@@ -58,13 +58,14 @@ import org.apache.spark.sql.execution.SparkPlan;
  * {@code IS NOT NULL} and {@code IS NULL} tests while a row operator evaluates the rest, and
  * {@code WHOLE} when no row operator evaluates any of it. The projections are {@code NONE}. The
  * filter {@code extract(HOUR FROM dt) >= 12} is {@code NULL_TESTS} at both densities: Spark
- * infers {@code IS NOT NULL} of the column the null-intolerant condition reads, the reader fuses
- * that null test as a {@code VarkaFilterColumnarToRowExec} of its own, and Spark's {@code Filter}
- * applies the extract above it, so the varka on arm times a null-test kernel under the row
- * path's condition and the spark row path arm is the baseline. The control is {@code WHOLE}, and
- * the run also checks that it runs every batch as a kernel ({@link #requireKernel}), so that a
- * batch handed back to the row path fails the run rather than time the row path as the control.
- * Each section's class is the one a probe of its plan on master found.
+ * infers {@code IS NOT NULL} of the column the null-intolerant condition reads, Varka fuses
+ * that null test alone, on the long lane, into a {@code VarkaFilterColumnarToRowExec}, and
+ * Spark's {@code Filter} applies the extract above it, so the varka on arm times a null-test
+ * kernel under the row path's condition and the spark row path arm is the baseline. The control
+ * is {@code WHOLE}, and the run also checks that it runs every batch as a kernel
+ * ({@link #requireKernel}), so that a batch handed back to the row path fails the run rather
+ * than time the row path as the control. Each section's class is the one a probe of its plan on
+ * master found.
  *
  * <p>To run this benchmark, on a GitHub runner (the results come back as an artifact):
  * <pre>
