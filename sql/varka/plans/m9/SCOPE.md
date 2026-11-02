@@ -5851,6 +5851,20 @@ cost-model work after row 335a, so a scope item rather than a row. **Done when**
 decline is the cost model's prediction, it reproduces #1262's decisions on its measured cases, and
 a new refused rule needs a record field and a measurement, not a new decline.
 
+### Item 132. A stock arm over the Arrow cache
+
+*Added 2 November 2026 by the lead's decision on row 552's plan (`m8/VARKA-552.md` 7, decision
+2).* Spark 4.3.0 is the first release to ship `ArrowCachedBatchSerializer`, opt-in through
+`spark.sql.cache.serializer` (SPARK-57268). A stock arm over it, `spark-4.3.0-arrow-cache-jdk25`
+(the surface script's `arrow-cache` token on the stock home), would separate what the cache format
+is worth from what the kernels are worth on a release, which today only the fork's own
+`varka-cache` arm does. It is not in row 552, which switches the existing arms and adds none: the
+arm adds a column to every table, and the fork's serializer has moved on from the release's since
+`v4.3.0`, so the two caches are not the same format. **Done when** the chains carry the stock
+Arrow-cache arm beside the stock default-cache arm, from one run, and the README reads the format's
+share from them, or the item records why the release's serializer cannot be compared with the
+fork's.
+
 ## 5. Ordering
 
 The survey supports an order this time rather than an argument. Item 8 leads
