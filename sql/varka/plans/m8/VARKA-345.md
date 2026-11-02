@@ -280,7 +280,7 @@ emitted ports, never a runtime dependency of a kernel** (the owner, 30 October 2
 static method per function and species-generic:
 
 ```java
-public final class VectorFdlibm {
+public final class VFdlibm {
   public static DoubleVector exp(DoubleVector x);
   public static DoubleVector exp(DoubleVector x, VectorMask<Double> live);
   // the same pair for expm1, log, log10, log1p, asin, acos, atan, sinh, cosh;
@@ -289,8 +289,11 @@ public final class VectorFdlibm {
 ```
 
 Each method returns, in every lane, `StrictMath.<fn>` of that lane's argument, bit for bit, the
-contract its tests hold it to (2.3). The masked form computes only for `live` lanes and returns
-`0.0` in the others. Inside, each function is fdlibm 5.3's sequence over the long view of the lanes
+contract its tests hold it to (2.3). The masked form computes only for `live` lanes and leaves
+the others untouched (*corrected 2 November 2026 by the owner's word, `VARKA-356.md` open point 4:
+the class is `VFdlibm` and dead lanes keep their input, as `vfdlibm`'s own `PLAN.md` section 5
+has it; until then this read `VectorFdlibm` and returned `0.0` in dead lanes*).
+Inside, each function is fdlibm 5.3's sequence over the long view of the lanes
 (the high word `hi(x)` and low word `lo(x)` as `LSHR` and `AND`, `withHi`, `withLo`, `fromHiLo`, a
 compare of `|x|`'s high word against a constant done as a compare of `|x|` against the double whose
 bits are that word shifted left 32, exact for every non-NaN `|x|`, and the exponent add
@@ -695,7 +698,7 @@ Predictions, registered before the build:
 | `varka/VarkaVectorIR.java` | `MathForm`, `MathBinary`, the `MathFn` members |
 | `varka/VarkaVectorWalk.java`, `Slots.java`, `Analysis.java` | the three lowerings, the blend |
 | `varka/VarkaMathPort.java` (new) | `PORT`'s expansion frame, the IR helpers, `exp`'s expansion |
-| `vfdlibm`, its own repository (2.2) | `VectorFdlibm`, its helpers, `exp` as the template, its tests; the reference only |
+| `vfdlibm`, its own repository (2.2) | `VFdlibm`, its helpers, `exp` as the template, its tests; the reference only |
 | `varka/VarkaMathBound.java`, `VarkaMathBinding.java`, `VarkaMathContract.java` | 2.5 |
 | `dev/varka_emit.sh` | `--jvm-arg` |
 | tests | 3.1 to 3.9, `VarkaReference`, the library reference |
