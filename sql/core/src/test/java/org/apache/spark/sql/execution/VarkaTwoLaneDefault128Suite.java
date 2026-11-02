@@ -38,6 +38,7 @@ import org.apache.spark.sql.SparkSession;
 import org.apache.spark.sql.catalyst.expressions.And;
 import org.apache.spark.sql.catalyst.expressions.Attribute;
 import org.apache.spark.sql.catalyst.expressions.Expression;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaChildJvm;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaSuite;
 import org.apache.spark.sql.execution.benchmark.VarkaArrowSessions;
 import org.apache.spark.sql.execution.metric.SQLMetric;
@@ -76,7 +77,10 @@ public final class VarkaTwoLaneDefault128Suite {
 
   @BeforeAll
   static void start() {
-    if (!VarkaTwoLaneHostCheck.isX86()) {
+    // An own-JVM class runs its tests in a child JVM, so the parent, which may share a JVM with
+    // other suites and their SparkContext, starts no session: one it built would join that
+    // context, whose cache serializer is Spark's default, and the Arrow cache check would fail.
+    if (!VarkaTwoLaneHostCheck.isX86() || !VarkaChildJvm.inChild()) {
       return;
     }
     off = VarkaArrowSessions.createSession("two-lane-default-off", false, false, "local[2]");
