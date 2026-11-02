@@ -150,7 +150,13 @@ without a binding policy, two shell traps and Guava in Varka code. The hook also
 installs a commit-msg check of the attribution line and a pre-push check that
 refuses a branch pushed to vecbricks/varka and re-checks what is pushed; check a
 pull request's title and body with `dev/varka_msg_check.py pr --title ... --body-file
-...` before opening it (VARKA-492). And beside the emitter suite's curated matrices,
+...` before opening it (VARKA-492).
+The laptop is AVX-512 and CI's runners are AVX2, so before pushing a change
+to what the emitter writes, run the width audit at the preferred width once more under
+`JDK_JAVA_OPTIONS=-XX:UseAVX=2` (a `--jvm-arg` does not reach the audit's probe JVM):
+masked `BYTE` and `SHORT` loads and stores, and masks at two 64-bit lanes, have no
+lowering there, and the laptop cannot show it otherwise.
+And beside the emitter suite's curated matrices,
 `VarkaIrFuzzSuite` runs random IR trees over random columns, null patterns,
 lengths and `VarkaEmitOptions` variants against the shared
 `VarkaReferenceEvaluator`; a failure names its seed and iteration and replays
