@@ -27,9 +27,10 @@
 # cherry-pick, revert or rebase uncommitted or stopped, never an aborted one's (the comment
 # above its owed_live says how, and what it cannot see). This script turns those files
 # into steps and runs them in the order the files read each other: types.tsv and
-# casts_fused.tsv, then coverage.json and the docs blocks, the width audit (it reads
-# coverage.json), the bytes file (likewise), coverage again (the docs read the width audit), and
-# last the census, which reads them all and costs a second. The JVM steps run in one sbt call,
+# casts_fused.tsv, then coverage.json and the docs blocks where owed, the width audit (it reads
+# coverage.json), the bytes file (likewise), coverage again after an audit that ran (the docs
+# read the width audit, and nothing else of coverage's reads the other two), and last the
+# census, which reads them all and costs a second. The JVM steps run in one sbt call,
 # under the heavy slot's lock, VARKA_HEAVY_LOCK or else ~/proj/.varka-locks/heavy.lock (made if
 # missing), with SPARK_LOCAL_IP=127.0.0.1. On a CPU that is not the width audit's host the audit
 # is skipped and left owed, since its census is that CPU's (VarkaWidthAuditSuite), and the rest
@@ -63,7 +64,7 @@ want sql/varka/types.tsv && {
   envs+=(VARKA_TYPES_REGEN=true); steps+=("catalyst/testOnly *VarkaTypesSuite"); }
 want sql/varka/plans/m8/casts_fused.tsv && {
   envs+=(VARKA_CASTS_REGEN=true); steps+=("catalyst/testOnly *VarkaCastMatrixSuite"); }
-audit=0; bytes=0; coverage=0
+audit=0; bytes=0
 want sql/varka/width_audit.json && audit=1
 want sql/varka/emitted_bytes.json && bytes=1
 # The width audit is that host's census (VarkaWidthAuditSuite), so on any other CPU it is
@@ -83,18 +84,19 @@ if [ $audit = 1 ]; then
     audit=0; audit_skipped=1
   fi
 fi
-# After the skip, so that a skipped width audit owes no coverage run of its own.
-if want sql/varka/coverage.json || want docs/sql-varka.md || [ $audit = 1 ] || [ $bytes = 1 ]
-then
-  coverage=1
-fi
-if [ $coverage = 1 ]; then
-  envs+=(VARKA_COVERAGE_REGEN=true); steps+=("catalyst/testOnly *VarkaCoverageSuite"); fi
+# Coverage runs first where it is owed, since the width audit and the bytes suite read
+# coverage.json, and again after a width audit that ran, since the docs blocks it writes read
+# the audit. Nothing the coverage suite writes reads emitted_bytes.json, so the bytes file alone
+# owes no coverage run, and a skipped audit owes none either.
+coverage=0
+if want sql/varka/coverage.json || want docs/sql-varka.md; then coverage=1; fi
+if [ $coverage = 1 ] || [ $audit = 1 ]; then envs+=(VARKA_COVERAGE_REGEN=true); fi
+if [ $coverage = 1 ]; then steps+=("catalyst/testOnly *VarkaCoverageSuite"); fi
 if [ $audit = 1 ]; then
   envs+=(VARKA_AUDIT_REGEN=true); steps+=("catalyst/testOnly *VarkaWidthAuditSuite"); fi
 if [ $bytes = 1 ]; then
   envs+=(VARKA_BYTES_REGEN=true); steps+=("catalyst/testOnly *VarkaEmittedBytesSuite"); fi
-if [ $audit = 1 ] || [ $bytes = 1 ]; then steps+=("catalyst/testOnly *VarkaCoverageSuite"); fi
+if [ $audit = 1 ]; then steps+=("catalyst/testOnly *VarkaCoverageSuite"); fi
 
 if [ ${#steps[@]} -eq 0 ]; then
   echo "varka regen: no JVM regeneration owed"

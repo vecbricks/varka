@@ -162,8 +162,9 @@ clone's config, which every worktree shares:
   first-parent line after the merge changes that file: someone regenerated it, by hand
   (`ADDING_A_TYPE.md` step 11) or through a later merge, which owes it afresh if it must.
   `dev/varka_regen_generated.sh` reads the live entries (`--owed`) and runs only the owed
-  steps, in the documented order (types and casts, coverage, width audit, bytes, coverage again,
-  the census), under `flock` on a heavy slot with `SPARK_LOCAL_IP=127.0.0.1`, refusing the width
+  steps, in the documented order (types and casts, coverage where owed, width audit, bytes,
+  coverage again after an audit that ran, since the docs blocks read the audit; the census),
+  under `flock` on a heavy slot with `SPARK_LOCAL_IP=127.0.0.1`, refusing the width
   audit on a CPU that is not the file's host. With nothing owed it says so and runs nothing.
 - A branch that predates the script falls back to git's text merge inside the driver line, with
   a one-line warning, so the rule never breaks a merge. The inner merges of a criss-cross merge
@@ -285,8 +286,10 @@ Built on 1 November 2026: (iii) and (i) as section 5 lists them; (ii) waits for 
   `option_arms` digests and the place of the two rows), `coverage.json` (the place of the two
   rows, and the census, which reads it) and the docs file's generated blocks (the coverage
   table and the verification counts, which both sides changed).
-  `dev/varka_regen_generated.sh --dry-run` prints one sbt call: coverage, bytes, coverage
-  again, then the census.
+  `dev/varka_regen_generated.sh --dry-run` printed one sbt call: coverage, bytes, coverage
+  again, then the census. Since the third review the second coverage run follows only a width
+  audit that ran, so the same debt prints coverage, bytes, then the census (not rerun: read
+  from the script).
 - **A stale file on CI.** `--check` fails a `coverage.json` row that the width audit and the
   bytes file lack, printing the width audit's command with its host and the bytes command.
   `--self-test` runs this case, the merge cases, the round trip of the three committed JSON
@@ -296,7 +299,7 @@ Built on 1 November 2026: (iii) and (i) as section 5 lists them; (ii) waits for 
   whenever both sides moved `coverage.json`, since it reads it. P2 held for the
   demonstration's merge: the width audit owed nothing. Item 2's 22 historical resolutions
   were not replayed. P3 held: one command, the bytes suite plus two coverage runs, and no
-  width audit.
+  width audit; one coverage run since the third review.
 - **Not planned.** When both sides add rows at the same place in the docs table, the merge keeps
   one side's block until the coverage run rewrites it. So the merge commit can lack the other
   row in the docs table. The block is owed and the coverage suite fails until it is

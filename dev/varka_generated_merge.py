@@ -1443,6 +1443,31 @@ def review_cases(expect, merged):
             f"19: the JVM steps ran outside the lock (exit {run.returncode}): "
             f"{run.stdout}{run.stderr}",
         )
+        # 25. The coverage suite runs only where it is owed and after a width audit that ran:
+        # the bytes file alone owes none, and with coverage.json owed too it runs once.
+        for owed_files, runs in (
+            (["sql/varka/emitted_bytes.json"], 0),
+            (["sql/varka/coverage.json", "sql/varka/emitted_bytes.json"], 1),
+        ):
+            # A stub driver whose --owed lists the files.
+            with open(os.path.join(tmp, "dev", "varka_generated_merge.py"), "w") as f:
+                f.write(
+                    "import sys\nif sys.argv[1:] == ['--owed']:\n"
+                    + "".join(f"    print({p!r})\n" for p in owed_files)
+                )
+            run = subprocess.run(
+                [os.path.join(tmp, "dev", "varka_regen_generated.sh"), "--dry-run"],
+                cwd=tmp,
+                env=env,
+                capture_output=True,
+                text=True,
+            )
+            expect(
+                run.returncode == 0
+                and run.stdout.count("VarkaCoverageSuite") == runs
+                and "VarkaEmittedBytesSuite" in run.stdout,
+                f"25: owing {owed_files}, the regeneration printed {run.stdout}{run.stderr}",
+            )
 
 
 def end_to_end(expect):
