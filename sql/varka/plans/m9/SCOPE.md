@@ -5765,6 +5765,32 @@ type goals, so a scope item rather than a row. **Done when** a pull request whos
 current master fails to compile is marked before it can be merged, as the two cases of 2 November
 would have been.
 
+### Item 130. One record for the compiler's per-compile settings
+
+*Added 2 November 2026 by the owner's word, from the two-lane decline's Build (#1262).* The
+compiler's entry points take each per-compile setting as its own parameter. #1262 adds
+`VarkaAdmission` beside `VarkaEmitOptions` on `explainPredicate` and `predicateLines` and removes
+the old overloads, and its Build failed on callers master had added in the meantime; row 548 moves
+`VarkaFloatingFault` into the emit options, which changes more signatures. The item folds the
+admission settings and the emit options into one record that every entry point takes, so a new
+setting adds a field and leaves every caller compiling. Item 129 catches such a break before a
+merge; this item removes the reason for most of them. It is refactoring outside milestone 8's type
+goals, so a scope item rather than a row. **Done when** the compiler's entry points take one
+settings record, and adding a field with a default to it changes no caller.
+
+### Item 131. Let the cost model make the two-lane decline
+
+*Added 2 November 2026 by the owner's word, from the two-lane decline (#1262).* #1262 refuses a
+filter condition driven at a 64-bit lane on x86 hosts with two long lanes or fewer, because the
+Vector API's mask operations at two lanes run its Java loop there, and keeps the boolean-output
+projections, which its pair measured between 0.9X and 2.1X of the row path. The rule is written by
+hand for one host shape, and each new type that meets a refused C2 rule would add another. With
+row 551's host record as an input, the emit cost model (row 335a's refit) could predict a kernel's
+fallback cost on the host and decline where the row path is faster. It waits for row 551 and is
+cost-model work after row 335a, so a scope item rather than a row. **Done when** the two-lane
+decline is the cost model's prediction, it reproduces #1262's decisions on its measured cases, and
+a new refused rule needs a record field and a measurement, not a new decline.
+
 ## 5. Ordering
 
 The survey supports an order this time rather than an argument. Item 8 leads
