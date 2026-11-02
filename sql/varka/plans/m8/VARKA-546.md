@@ -55,7 +55,10 @@ From `origin/master` at `ccd3c180bcb` with the plans branch merged, read on 1 No
    `construction:` shapes of `VarkaWidthAuditShapes`) and sorted; `catalyst_classes_admitted`
    is a sorted set; `types.tsv` rows are keyed by `id`, `casts_fused.tsv` rows by `from`, `to`.
    The width audit's per-shape refusals are taken on one host; two sides with the same `host`
-   merge exactly, two with different hosts do not (their `host` fields conflict).
+   merge exactly, two with different hosts do not (their `host` fields conflict). *Corrected
+   on 2 November 2026:* per-row values are independent of other rows but not of the code, so
+   they merge exactly only when at most one side changed the code that computes them (2.3);
+   and a `host` one side moved under the other side's shape changes is owed, not merged.
 5. **Who can regenerate where.** CI could regenerate `coverage.json`, `emitted_bytes.json`,
    `types.tsv`, `casts_fused.tsv` and the census, but not `width_audit.json` (a runner's census is
    another CPU's), and the fork has no token to push to vecbricks/varka (the owner's "no token"
@@ -129,6 +132,19 @@ clone's config, which every worktree shares:
   result is the same whichever side is "ours"; a map whose keys are sorted on every side stays
   sorted. A scalar both sides changed differently is a conflict the driver cannot compute: it
   writes the smaller of the two (again the same in either order) and lists the path as owed.
+  A row's value is exact only if the code that computed it is the code the merge keeps. So
+  for the three JSON files the driver compares what each side changed since the merge base
+  (the other side is git's `GITHEAD_<sha>` variable): when both sides changed a source the
+  file is computed from - any file under `sql/catalyst/src/main/`, or the coverage rows and
+  harness in the codegen tests (`VarkaCoverageSuite`, `VarkaCoverageRows`, `VarkaSqlResolve`,
+  `VarkaMatrix`, and the file's own suite with its helpers; `FEEDERS` lists them) - the file
+  is owed, with the per-key result written as the best guess. When at most one side did, the
+  other side's file holds the base's values, and the per-key result is exact. Adding a row
+  in `VarkaCoverageSuite` is such a change, so two branches that each add coverage rows owe
+  all three files; the exact per-key merge is for a branch whose generated files moved
+  without a feeder change on one side. A cherry-pick, a revert, a rebase or a direct call has
+  no `GITHEAD_` variable, and a criss-cross merge no single base; the driver owes the files
+  there rather than guess.
 - **TSV** (`types.tsv`, `casts_fused.tsv`, `census.tsv`, `casts.tsv`): the same merge over rows
   keyed by the leading key columns. The census pair is listed as owed whenever both sides moved
   it, because `dev/varka_census.py` rewrites it from the merged inputs in a second.
@@ -190,6 +206,9 @@ changes the bytes oracle's format.
   coverage regeneration (the docs counts), plus the census when both moved it.
 - P2: the width audit is never owed between two branches regenerated on the laptop; of item 2's
   22 width-audit resolutions none would have needed the laptop's seven-to-eight-minute audit.
+  *Withdrawn on 2 November 2026* (third review): a shape's refusals depend on the code, so the
+  audit is owed whenever both sides changed its sources (2.3), which two row-adding branches
+  always do. P2 holds only for a merge where at most one side changed them.
 - P3: the owed regeneration is one command whose JVM cost is the bytes suite plus two coverage
   runs, against today's four commands plus the audit.
 

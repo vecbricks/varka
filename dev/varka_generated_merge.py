@@ -36,7 +36,9 @@ list keeps its sides' order. What it cannot compute - a digest over every row (`
 a docs block both sides changed, two rows added at the same place in a list whose order the
 suite's source decides, a value list inside one row that both sides changed, a TSV header both
 sides changed, a file whose keys repeat - it writes from one side, chosen so that the result
-is the same whichever side is "ours", and lists as owed: on stderr, and in
+is the same whichever side is "ours", and lists as owed. A JSON file whose rows were computed
+from code both sides changed (`code_both_sides`) is merged per key as a best guess and listed
+as owed too. The list goes to stderr and to
 `$(git rev-parse --git-path varka-regen-owed)`, tagged with the merge that owed them, which
 `dev/varka_regen_generated.sh` reads (through `--owed`, which skips the entries of an aborted
 or unrelated merge) to run only the owed regenerations, in order.
@@ -683,6 +685,74 @@ def owed_command(keep=None):
     return 0
 
 
+# --- rows computed from code both sides changed ----------------------------------------------
+
+# The per-key merge takes each row's digest (emitted_bytes.json), verdict (coverage.json) or
+# refusals (width_audit.json) from the side that wrote it, which assumes the value does not
+# depend on the other side's code. It does when the other side changed the emitter or the
+# compiler: rows one side added carry values from code the merge no longer has. So the merge
+# compares what each side changed since the merge base:
+#   * Both sides changed a source the file is computed from (FEEDERS): the values of each side's
+#     rows came from code the other side has since changed, so the file is owed. The per-key
+#     result is still written, as the best guess.
+#   * At most one side did: the other side's file was computed from the base's feeders, so it
+#     has the base's rows with the base's values, but where something outside the feeders moved
+#     them (the width audit's host, which `audit_host_mix` checks). The side that changed the
+#     feeders regenerated its file on its own code, which the merge keeps, so taking its value
+#     for every row it changed is exact.
+# A row added in a coverage suite is a feeder change, so two branches that each add rows
+# through VarkaCoverageSuite owe all three files; only branches that change at most one side's
+# feeders merge them exactly.
+# The other side's commit is git's GITHEAD_<sha> variable, set for `git merge` (--squash too)
+# and for nothing else - a cherry-pick, a revert, a rebase and a direct call (the self-test's
+# fixtures) have none, nor do the operations whose merge base is not one commit. There the
+# driver cannot tell, and owes the file: the safe side, at the cost of a regeneration that may
+# change nothing.
+_CODEGEN_TESTS = (
+    r"sql/catalyst/src/test/(scala|java)/org/apache/spark/sql/catalyst/expressions/codegen/"
+    r"(varka/)?"
+)
+# The coverage rows (VarkaCoverageSuite defines them) and their reading, which all three
+# files are computed over; then each file's own suite and the harness it adds.
+_ROW_SOURCES = r"(VarkaCoverageSuite|VarkaCoverageRows|VarkaSqlResolve|VarkaMatrix(Runs)?)"
+FEEDERS = {
+    name: (r"sql/catalyst/src/main/.*", _CODEGEN_TESTS + rf"({_ROW_SOURCES}|{own})\.(scala|java)")
+    for name, own in (
+        ("coverage.json", r"VarkaCoverageSuite"),
+        (
+            "emitted_bytes.json",
+            r"(VarkaEmittedBytes\w*|VarkaIrGrammar|VarkaIrFuzzSuite|VarkaEmitterTestSupport)",
+        ),
+        ("width_audit.json", r"(VarkaWidthAudit\w*|VarkaProbeOutput|VarkaTestUse)"),
+    )
+}
+
+
+def code_both_sides(name):
+    """Why the per-key merge of `name` is only a best guess because of the code its rows are
+    computed from (the comment above), or None when it is exact."""
+    feeders = FEEDERS.get(name)
+    if feeders is None:
+        return None
+    unknown = "the rows' code (the other side's commit is unknown, so its changes are too)"
+    theirs = [k[len("GITHEAD_") :] for k in os.environ if k.startswith("GITHEAD_")]
+    if len(theirs) != 1:
+        return unknown
+    bases = (git_out("merge-base", "--all", "HEAD", theirs[0]) or "").split()
+    if len(bases) != 1:
+        return unknown
+    changed = []
+    for side in ("HEAD", theirs[0]):
+        # Paths from the top of the worktree, whatever the clone's diff.relative says.
+        out = git_out("-c", "diff.relative=false", "diff", "--name-only", bases[0], side)
+        if out is None:
+            return unknown
+        changed.append([p for p in out.splitlines() if any(re.fullmatch(r, p) for r in feeders)])
+    if changed[0] and changed[1]:
+        return f"the rows, computed from code both sides changed ({changed[0][0]}, {changed[1][0]})"
+    return None
+
+
 def driver(base_path, ours_path, theirs_path, repo_path):
     def read(p):
         with open(p, encoding="utf-8", newline="") as f:
@@ -707,6 +777,10 @@ def driver(base_path, ours_path, theirs_path, repo_path):
             owed.add(CENSUS + ", rendered from its inputs")
         if name.endswith(".json") or name in TSV_KEYS:
             text = merge_text(name, read(base_path), read(ours_path), read(theirs_path), owed)
+            # The per-key text stays the best guess; the reason owes its regeneration.
+            reason = code_both_sides(name)
+            if reason:
+                owed.add(reason)
         elif name.endswith(".md"):
             text, real = merge_docs(base_path, ours_path, theirs_path, owed)
         else:
@@ -828,10 +902,11 @@ def check(root, audit=True):
 def fixture_env():
     """The environment for the self-test's git commands in a temporary repository. A hook that
     runs the self-test exports GIT_DIR, GIT_INDEX_FILE or GIT_WORK_TREE, which would send those
-    commands into the outer repository, so every GIT_ variable is dropped; and the global and
+    commands into the outer repository, so every GIT_ variable is dropped (and a merge's
+    GITHEAD_ variable, which would name the outer merge to the driver); and the global and
     system configs are not read, so neither the fixture nor the installer it runs sees (or
     writes through) the user's core.hooksPath or conflict style."""
-    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    env = {k: v for k, v in os.environ.items() if not k.startswith(("GIT_", "GITHEAD_"))}
     return {**env, "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
 
 
@@ -1468,6 +1543,57 @@ def end_to_end(expect):
             and not os.path.exists(owed_list),
             f"14: a census-only debt owed the file: {census.stderr}",
         )
+        # 22. The same rows, with both sides changing the code under sql/catalyst/src/main:
+        # each side's rows came from code the other changed, so the file is owed. With only
+        # one side changing it, only the census is.
+        for name, rows, source in (
+            ("k1", ["a", "b", "m", "z"], "K1.java"),
+            ("k2", ["a", "m", "n", "z"], "K2.java"),
+            ("k3", ["a", "m", "n", "z"], None),
+        ):
+            git("checkout", "-qb", name, "r0")
+            write("c/coverage.json", render_json({"expressions": [{"sql": r} for r in rows]}))
+            if source:
+                write("sql/catalyst/src/main/java/" + source, "class K {}\n")
+            git("add", "-A")
+            git("commit", "-qm", name)
+        for other, owes in (("k2", True), ("k3", False)):
+            git("checkout", "-q", "-B", "km-" + other, "k1")
+            code = git("merge", "--no-edit", other, check=False)
+            expect(
+                code.returncode == 0
+                and ("code both sides changed" in code.stderr) == owes
+                and (owed_now() == ["c/coverage.json"] if owes else owed_now() == []),
+                f"22: merging {other}, owed {owed_now()}: {code.stderr}",
+            )
+            if os.path.exists(owed_list):
+                os.remove(owed_list)
+        # 22. Called outside a merge, with no GITHEAD_ variable, the driver cannot see the
+        # other side's code and owes the file.
+        paths = [os.path.join(tmp, "c", n) for n in ("b.json", "o.json", "t.json")]
+        for path, rows in zip(paths, (["a"], ["a", "b"], ["c", "a"])):
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(render_json({"expressions": [{"sql": r} for r in rows]}) + "\n")
+        direct = subprocess.run(
+            [sys.executable, script, "driver", *paths, "c/coverage.json"],
+            cwd=tmp,
+            env=fixture_env(),
+            capture_output=True,
+            text=True,
+        )
+        listed = ""
+        if os.path.exists(owed_list):
+            with open(owed_list, encoding="utf-8") as f:
+                listed = f.read()
+            os.remove(owed_list)
+        expect(
+            direct.returncode == 0
+            and "commit is unknown" in direct.stderr
+            and listed.endswith("\tc/coverage.json\n"),
+            f"22: a direct call owed {listed!r}: {direct.stderr}",
+        )
+        for path in paths:
+            os.remove(path)
         # A prose conflict outside the generated blocks is a real conflict. Both sides also add
         # a coverage row, which owes the file.
         for name, row in (("p1", "b"), ("p2", "c")):
