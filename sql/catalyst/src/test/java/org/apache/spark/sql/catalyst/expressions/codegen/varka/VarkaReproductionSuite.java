@@ -108,6 +108,8 @@ public final class VarkaReproductionSuite {
             new LiteralSlot(0, LaneType.LONG))),
         new CondValue(new NullSafeEqual(new ColumnRef(0), new LiteralSlot(0)), LaneType.INT),
         new BitCount(new BitOp(BitOpKind.XOR, new ColumnRef(0), new LiteralSlot(0))),
+        // An int column converted to the double lane.
+        new ConvertLane(new ColumnRef(0), LaneType.DOUBLE),
         // A floating lane's square root over its IEEE division, whose zero divisor nulls a lane.
         new MathUnary(MathFn.SQRT, new IntArith(IntOp.DIV, Overflow.NULL,
             new ColumnRef(0, LaneType.DOUBLE), new LiteralSlot(0, LaneType.DOUBLE))),
