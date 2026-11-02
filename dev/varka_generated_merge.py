@@ -407,8 +407,26 @@ def merge_tsv(base_text, ours_text, theirs_text, key_columns, owed):
     return "\n".join(head + rows) + "\n"
 
 
+def audit_host_mix(base_text, ours_text, theirs_text, owed):
+    """The width audit's refusals are the census of the CPU and JDK in its `host`. When one side
+    moved `host` and the other changed or added shapes, the per-key merge would put the other
+    side's shapes, taken on the old host, under the new one: the audit is owed. Both sides
+    moving `host` the same way is one host; moving it two ways is a conflict of `host` itself,
+    which the merge owes anyway."""
+
+    def parts(text):
+        doc = json.loads(text) if text.strip() else {}
+        return canon(doc.get("host")), canon(doc.get("widths"))
+
+    (bh, bw), (oh, ow), (th, tw) = (parts(t) for t in (base_text, ours_text, theirs_text))
+    if (oh != bh and th == bh and tw != bw) or (th != bh and oh == bh and ow != bw):
+        owed.add("host (one side moved it, the other changed shapes under the old one)")
+
+
 def merge_text(name, base_text, ours_text, theirs_text, owed):
     """The merge of one generated JSON or TSV file, chosen by its file name."""
+    if name == "width_audit.json":
+        audit_host_mix(base_text, ours_text, theirs_text, owed)
     if name.endswith(".json"):
         return merge_json(base_text, ours_text, theirs_text, owed, RULES.get(name, Rules()))
     return merge_tsv(base_text, ours_text, theirs_text, TSV_KEYS[name], owed)
@@ -1010,6 +1028,21 @@ def review_cases(expect, merged):
         {"widths": {"128": {"s": ["y"]}}},
     )
     expect(o == ["widths.128.s"], f"3: a shape's refusals merged as a set: {m} {o}")
+    # 23. One side moves the width audit's host, the other adds a shape: the audit is owed, in
+    # both orders. A host move against an untouched other side, or the same move on both, is
+    # not.
+    old_host = {"host": {"cpu": "A"}, "widths": {"128": {"s": []}}}
+    new_host = {"host": {"cpu": "B"}, "widths": {"128": {"s": ["x"]}}}
+    more = {"host": {"cpu": "A"}, "widths": {"128": {"s": [], "t": []}}}
+    for a, b in ((new_host, more), (more, new_host)):
+        m, o = merged("width_audit.json", old_host, a, b)
+        expect(
+            any(p.startswith("host") for p in o),
+            f"23: a host move merged with the other side's shapes: {m} {o}",
+        )
+    both = {"host": {"cpu": "B"}, "widths": {"128": {"s": [], "t": []}}}
+    m, o = merged("width_audit.json", old_host, new_host, both)
+    expect(not o, f"23: the same host move on both sides was owed: {o}")
     # 6. Rows whose keys happen to be sorted in a structure the writer does not sort.
     t, o = merged("types.tsv", "id\nA\nZ\n", "id\nA\nB\nZ\n", "id\nA\nC\nZ\n")
     expect(o == ["order after ('A',)"], f"6: coincidentally sorted rows were sorted: {o}")
