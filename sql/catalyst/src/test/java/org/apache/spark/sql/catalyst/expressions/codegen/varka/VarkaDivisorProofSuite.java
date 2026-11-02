@@ -130,7 +130,8 @@ public final class VarkaDivisorProofSuite {
   private static Optional<CompiledVarkaProjection> compile(
       Expression e, scala.collection.immutable.Seq<Attribute> cols, boolean predicate) {
     if (predicate) {
-      return VarkaExpressionCompiler.compilePredicate(e, cols, VarkaEmitOptions.DEFAULTS)
+      return VarkaExpressionCompiler.compilePredicate(e, cols, VarkaEmitOptions.DEFAULTS,
+          VarkaAdmission.NO_HOST_REFUSAL)
           .map(p -> p.fused());
     }
     var entry = CollectionConverters.asScala(List.of(VarkaSqlResolve.named(e, "c"))).toSeq();

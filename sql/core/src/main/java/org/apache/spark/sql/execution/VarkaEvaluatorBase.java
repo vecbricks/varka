@@ -45,6 +45,7 @@ import org.apache.spark.sql.catalyst.expressions.NamedExpression;
 import org.apache.spark.sql.catalyst.expressions.codegen.CompiledVarkaProjection;
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaDerivedInput;
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaInputBound;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaAdmission;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaAllocationSampler;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaDerivedKind;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitDeclined;
@@ -288,6 +289,15 @@ public abstract class VarkaEvaluatorBase {
    */
   protected Set<VarkaFamily> familiesOff() {
     return sessionEmit.familiesOff();
+  }
+
+  /**
+   * The session's settings for which conjuncts a predicate admits - the families off and the
+   * two-lane refusal (VARKA-503) - which a filter evaluator's compiler call passes so that it
+   * declines what the plan's compile declined.
+   */
+  protected VarkaAdmission admission() {
+    return sessionEmit.admission();
   }
 
   // ---- the plan ------------------------------------------------------------------------------

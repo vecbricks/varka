@@ -5252,6 +5252,20 @@ filter controls, EPYC 7763 at `-XX:MaxVectorSize=16`) has the fused filter
 is slower than the row engine on this host, and rows 27 and 347 decided to fuse long kernels at two
 lanes only where they lose nothing the filters do not: this item's verdict decides those too.
 
+*27 October 2026: option 1 is built, narrower than written, by `m8` row 503.* The compiler refuses
+a filter's condition on the long lane where an x86 host's long species has two lanes, with the
+reason in `EXPLAIN`; the other conjuncts still fuse. It does not decline every kernel with a
+long-lane mask, because the measurement did not show every such kernel losing: under
+`-XX:UseAVX=2 -XX:MaxVectorSize=16` the long filters ran at 0.5X to 0.7X of Spark's row path on
+batches without nulls and 1.1X to 1.7X with them, while the blends (`CASE WHEN l < l2`,
+`greatest`, `if(l IS NULL, ...)`) ran at 1.3X to 5.6X and still fuse
+(`m8/results/VARKA-503/`). So the projections' warm-up releases at 128 bits are not removed by
+row 503, and this item's done-when is not met. Option 2, the mask-free lowering, stays here, and
+the filter numbers add a third, cheaper candidate to it: the loss is the dense body's alone (the
+masked body, which carries the condition as words, wins), so a long filter at two lanes could take
+the masked body for every batch, as `Analysis.maskedOnly` already does for other kernels, and fuse
+again without the mask-free lowering.
+
 ### Item 102. A date column's bound per shape, not the calendar's 0001 to 9999
 
 *Added 16 October 2026 from `m7/VARKA-379.md` 3.1.* VARKA-379 made the date column bound a check:
@@ -5421,6 +5435,17 @@ entry points that take no family switches stay public (`m7/VARKA-318.md` 9.3); t
 call them with every family on, and a production caller that used one would ignore the user's
 switches silently. **Done when** one compile-context value carries the options and the switches
 through every compiler signature, and the switch-less entry points are gone or test-scoped.
+
+*Extended 2 November 2026 by the owner's word, with item 130 folded in.* The same value is the
+fix for signature churn. The compiler's entry points take each per-compile setting as its own
+parameter: the two-lane decline (#1262) adds `VarkaAdmission` beside `VarkaEmitOptions` on
+`explainPredicate` and `predicateLines` and removes the old overloads, and its Build failed on
+callers master had added in the meantime; row 548 moves `VarkaFloatingFault` into the emit
+options, which changes more signatures. The compile-context value holds the emit options, the
+family switches and the admission settings, so a new setting adds a field and leaves every caller
+compiling. Item 129 catches such a break before a merge; this item removes the reason for most of
+them. The done-when gains one clause: adding a field with a default to the value changes no
+caller.
 
 ### Item 107. The admission queue keeps dead runs
 
@@ -5627,6 +5652,48 @@ day, so it rests on row 339's `ntzDay` and the month forms' whole-range sweep.
 **Done when** `time_bucket(INTERVAL 'n' MONTH, ntz[, origin])` fuses with Spark's answer at every
 origin, proven over the sweep row 339 builds, or the record says why it stays declined.
 
+### Item 118. Drive mixed int and long kernels at the int lane's count
+
+*Added 27 October 2026 on the owner's word.* A kernel that holds both lanes is driven at the long
+lane, one long lane per row, with its int values in the low half of the int species of the same
+width (`m8/VARKA-28.md` 9). At 128 bits that is two rows a step, so the kernel's int work runs at
+half the int species and its long work at the two lanes x86 lowers no mask for. Driven at the int
+lane's count instead, each step would load each long column as two long vectors and its int
+columns as one, convert between them in two parts, and compute the int values at the full int
+species: four rows a step at 128 bits. The long half's masks are still two-lane masks, so on x86
+this helps only together with item 101's mask-free form; on its own it is a change of the
+mixed-lane loop's shape and of every mixed kernel's bytes, measured against the long-driven one on
+the mixed rows of the coverage table at all three widths.
+
+**Done when** the int-driven form is built behind an option, measured against the long-driven one
+at each width with item 101's mask-free form and without it, and the default is set by the
+measurement.
+
+### Item 119. Choose between a kernel and Spark's row path by measurement at run time
+
+*Added 27 October 2026 on the owner's word.* The compiler decides at planning which shapes fuse,
+from rules written down after measurements on a few machines; row 503's refusal of a long filter
+at two lanes on x86 is one, and it gives up the masked body's wins to avoid the dense body's
+losses. A parity check at run time could decide per shape and per host instead: time the shape's
+kernel against Spark's row path on its first batches, keep the faster, and cache the verdict by
+the shape's hash and the host, extending the kernel warm-up (`VarkaKernelWarmup`), which already
+watches a shape's first batches and hands them to the row path while its kernel compiles. The
+risks to design for: timings over a few batches are noisy, and a JIT still compiling either side
+reads slower than it will be, so a verdict needs a settled kernel and a margin; which batches to
+sample, since a batch with nulls and one without take different bodies and can disagree, as row
+503's filters do; what the cache keys on and how long a verdict lives, since a host's load and a
+table's null density change; and keeping the row path's side cheap to time without running every
+batch twice.
+
+**Done when** a design says how a verdict is taken, keyed and expired, a spike measures its cost
+on the warm-up's own shapes, and the record says whether it replaces any planning rule such as row
+503's.
+
+A case it would catch, from row 503's measurement (`m8/results/VARKA-503/`, one run): with
+`i < l` declined at two long lanes, the filter's only fused conjunct is the `isnotnull(i)` the
+optimizer adds, and that kernel of null tests alone ran at 0.8X of the row path on batches
+without nulls. No planning rule declines a filter kernel of null tests alone today.
+
 ### Item 120. Never slower than Spark: a gate per width
 
 *Added 27 October 2026 on the owner's word, from the day's review of what Varka should improve.*
@@ -5750,6 +5817,39 @@ raises. No milestone 8 row claims these forms over the narrow types (row 344a bu
 `round` over `INT` and `BIGINT`), so they are a scope item rather than a row. **Done when** the
 forms fuse over every integral type with Spark's answers in LEGACY, ANSI and TRY, the wrap and the
 raise each a named case.
+
+### Item 129. Build each pull request merged with current master before it merges
+
+*Added 2 November 2026 from two master breaks that day.* Two pull requests that merge cleanly as
+text can still break master together: #1258 changed `requireBaseline` to take a `Fusion` class
+while #1261 added a caller passing a boolean, and the two-lane decline (#1262) removed compiler
+overloads that #1271 had just started calling. The fork's PR Build tests the branch head, and the
+Build on master after each merge is skipped on the fork, so the first to see either break was the
+next branch to merge master. The item adds a job that rebuilds a green pull request merged with
+the current master (`refs/pull/N/merge`) whenever master moves, compiling the modules either side
+touches, and marks the pull request stale when it fails. It is harness work, outside milestone 8's
+type goals, so a scope item rather than a row. **Done when** a pull request whose merge with the
+current master fails to compile is marked before it can be merged, as the two cases of 2 November
+would have been.
+
+### Item 130. One record for the compiler's per-compile settings
+
+*Added 2 November 2026 and folded into item 106 the same day by the owner's word:* item 106's
+compile-context value is this record, and its text now carries this item's evidence and
+done-when clause.
+
+### Item 131. Let the cost model make the two-lane decline
+
+*Added 2 November 2026 by the owner's word, from the two-lane decline (#1262).* #1262 refuses a
+filter condition driven at a 64-bit lane on x86 hosts with two long lanes or fewer, because the
+Vector API's mask operations at two lanes run its Java loop there, and keeps the boolean-output
+projections, which its pair measured between 0.9X and 2.1X of the row path. The rule is written by
+hand for one host shape, and each new type that meets a refused C2 rule would add another. With
+row 551's host record as an input, the emit cost model (row 335a's refit) could predict a kernel's
+fallback cost on the host and decline where the row path is faster. It waits for row 551 and is
+cost-model work after row 335a, so a scope item rather than a row. **Done when** the two-lane
+decline is the cost model's prediction, it reproduces #1262's decisions on its measured cases, and
+a new refused rule needs a record field and a measurement, not a new decline.
 
 ## 5. Ordering
 

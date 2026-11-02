@@ -51,6 +51,8 @@ import org.apache.spark.sql.catalyst.expressions.Literal;
 import org.apache.spark.sql.catalyst.expressions.NamedExpression$;
 import org.apache.spark.sql.catalyst.expressions.NumericEvalContext;
 import org.apache.spark.sql.catalyst.expressions.NumericEvalContext$;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaAdmission;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaSuite;
 import org.apache.spark.sql.types.ByteType$;
 import org.apache.spark.sql.types.DataType;
@@ -173,7 +175,8 @@ public final class VarkaConjunctOrderSuite {
   /** Which conjuncts fused, in written order. */
   private List<Boolean> fused(Expression condition) {
     var flags = new ArrayList<Boolean>();
-    for (VarkaConjunctSpec spec : VarkaExpressionCompiler.explainPredicate(condition, output)) {
+    for (VarkaConjunctSpec spec : VarkaExpressionCompiler.explainPredicate(condition, output,
+        VarkaEmitOptions.DEFAULTS, VarkaAdmission.NO_HOST_REFUSAL)) {
       flags.add(spec.fused());
     }
     return flags;
@@ -353,7 +356,8 @@ public final class VarkaConjunctOrderSuite {
       assertEquals(List.of(true, false), fused(and(dateAddAfter2000(offset), castIn(wide))));
       Expression raising = and(castIn(wide), dateAddAfter2000(offset));
       assertEquals(List.of(false, false), fused(raising));
-      var spec = VarkaExpressionCompiler.explainPredicate(raising, output).get(1);
+      var spec = VarkaExpressionCompiler.explainPredicate(raising, output,
+          VarkaEmitOptions.DEFAULTS, VarkaAdmission.NO_HOST_REFUSAL).get(1);
       assertTrue(spec.decline().orElseThrow().reason().contains(VarkaConjunctOrder.OUT_OF_ORDER),
           spec.toString());
       Expression bigint = and(new In(cast(digits19, LongType$.MODULE$, ANSI),
@@ -375,10 +379,12 @@ public final class VarkaConjunctOrderSuite {
   void raisingFirst() {
     Expression condition = and(sumOfL(ANSI), beforeJune());
     assertEquals(List.of(false, false), fused(condition));
-    var spec = VarkaExpressionCompiler.explainPredicate(condition, output).get(1);
+    var spec = VarkaExpressionCompiler.explainPredicate(condition, output,
+        VarkaEmitOptions.DEFAULTS, VarkaAdmission.NO_HOST_REFUSAL).get(1);
     assertTrue(spec.decline().orElseThrow().reason().contains(VarkaConjunctOrder.OUT_OF_ORDER),
         spec.toString());
-    assertTrue(VarkaExpressionCompiler.compilePredicate(condition, output).isEmpty());
+    assertTrue(VarkaExpressionCompiler.compilePredicate(condition, output,
+        VarkaEmitOptions.DEFAULTS, VarkaAdmission.NO_HOST_REFUSAL).isEmpty());
   }
 
   @Test
