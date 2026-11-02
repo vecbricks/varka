@@ -350,6 +350,8 @@ gh workflow run benchmark.yml -R vecbricks/varka -f pr=<PR> -f pair=true -f roun
   with a benchmark that has the shape; for the owner to decide.
 * **The error-free list is a list.** A residual conjunct off it demotes the fused ones after it.
   Widening it is safe one expression at a time, each with a reason it cannot raise.
+  *Note, 1 November 2026:* `VARKA-542.md` widened it by one case: a decimal cast to an integer
+  type that holds its integer digits under ANSI, or of any width outside ANSI, which cannot raise.
 * **The warmed arm and the pivot test still draw `drawRows`** (`VARKA-298.md` 9, corrections from
   its review): they avoided 9.2 and 9.3 there; 9.2 is fixed and 9.3 is row 381.
 
