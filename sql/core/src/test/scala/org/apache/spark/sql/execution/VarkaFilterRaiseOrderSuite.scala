@@ -21,7 +21,7 @@ import scala.jdk.OptionConverters._
 
 import org.apache.spark.sql.{QueryTest, Row, SparkSession}
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaExpressionCompiler
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaEmitOptions, VarkaMatrix}
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaAdmission, VarkaEmitOptions, VarkaMatrix}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTestWatchdog
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types.{DateType, IntegerType, StructField, StructType}
@@ -251,7 +251,7 @@ class VarkaFilterRaiseOrderSuite extends QueryTest with VarkaMaybeThrows with Va
       planCheck = plan => {
         val filter = collectFirst(plan) { case f: VarkaFilterExec => f }.get
         val compiled = VarkaExpressionCompiler.compilePredicate(
-          filter.condition, filter.child.output, options).toScala
+          filter.condition, filter.child.output, options, VarkaAdmission.NO_HOST_REFUSAL).toScala
         assert(compiled.exists(_.fused.outputs.size > 1), compiled)
       })(raises(month))
   }

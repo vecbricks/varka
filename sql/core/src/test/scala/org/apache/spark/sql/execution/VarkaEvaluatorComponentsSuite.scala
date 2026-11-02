@@ -271,7 +271,7 @@ class VarkaEvaluatorComponentsSuite extends SparkFunSuite {
     // The emitter's default level, so the binding is held without the host (VARKA-538). Unset,
     // the two-lane refusal is the host's answer (VARKA-503); everything else is unset.
     conf.setConf(SQLConf.VARKA_EMIT_USE_AVX, VarkaEmitOptions.USE_AVX_UNKNOWN)
-    val host = VarkaKernelPlan.HOST_TWO_LANE_MASKS_FALL_BACK
+    val host = VarkaKernelPlan.twoLaneMasksFallBack(VarkaHostIsa.host())
     assert(VarkaSessionEmit.of(conf) === new VarkaSessionEmit(
       VarkaEmitOptions.USE_AVX_UNKNOWN, null, java.util.Set.of(), host))
     val base = VarkaEmitOptions.DEFAULTS
@@ -359,7 +359,7 @@ class VarkaEvaluatorComponentsSuite extends SparkFunSuite {
     assert(VarkaSessionEmit.of(conf, x86).declineTwoLaneConditions ===
       VarkaKernelPlan.twoLaneMasksFallBack(x86))
     assert(VarkaSessionEmit.of(conf, VarkaHostIsa.host()).declineTwoLaneConditions ===
-      VarkaKernelPlan.HOST_TWO_LANE_MASKS_FALL_BACK)
+      VarkaKernelPlan.twoLaneMasksFallBack(VarkaHostIsa.host()))
     VarkaSessionEmit.setHostForTesting(arm)
     try {
       assert(!VarkaSessionEmit.of(conf).declineTwoLaneConditions)

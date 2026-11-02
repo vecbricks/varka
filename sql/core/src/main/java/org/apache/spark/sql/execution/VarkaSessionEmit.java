@@ -28,6 +28,7 @@ import scala.Option;
 
 import org.apache.spark.internal.SparkLogger;
 import org.apache.spark.internal.SparkLoggerFactory;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaAdmission;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaErrors;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaFamily;
@@ -61,7 +62,8 @@ import org.apache.spark.sql.internal.SQLConf;
  *        emit option - it changes which entries the compiler admits, never a kernel's bytes - so
  *        it is not laid over the options; it travels here because the compile at planning and the
  *        evaluator's compile in a task must decline alike, and every caller of the compiler passes
- *        it beside {@code VarkaColumnarToRowExec.emitOptions}.
+ *        it beside {@code VarkaColumnarToRowExec.emitOptions}, a predicate's compile inside
+ *        {@link #admission()}.
  * @param declineTwoLaneConditions whether a filter's condition in a kernel driven at the long
  *        lane is left to the row engine, as an x86 host whose long species has two lanes needs
  *        ({@code spark.sql.codegen.varka.declineTwoLaneConditions}, VARKA-503; unset, the host's
@@ -118,6 +120,14 @@ public record VarkaSessionEmit(
   /** The emit settings alone, with every family on and no two-lane refusal. */
   public VarkaSessionEmit(int useAVX, @Nullable Boolean exactRefusalStatus) {
     this(useAVX, exactRefusalStatus, Set.of(), false);
+  }
+
+  /**
+   * The settings that decide which conjuncts a predicate admits, as every predicate compile of
+   * this session's plan - at planning, in EXPLAIN and in a task - passes them.
+   */
+  public VarkaAdmission admission() {
+    return new VarkaAdmission(familiesOff, declineTwoLaneConditions);
   }
 
   /** The session's settings, read from {@code conf}: the one place they are bound. */

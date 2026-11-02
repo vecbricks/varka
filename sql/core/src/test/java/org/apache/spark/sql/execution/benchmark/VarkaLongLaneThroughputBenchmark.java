@@ -214,8 +214,7 @@ public class VarkaLongLaneThroughputBenchmark extends VarkaSqlBenchmarkBase {
       FilterExec f = (FilterExec) filter.get();
       VarkaSessionEmit emit = VarkaSessionEmit.of(session.sessionState().conf());
       Seq<String> lines = VarkaFusionReport.predicateLines(f.condition(), f.child().output(),
-          VarkaColumnarToRowExec$.MODULE$.emitOptions(emit), emit.familiesOff(),
-          emit.declineTwoLaneConditions());
+          VarkaColumnarToRowExec$.MODULE$.emitOptions(emit), emit.admission());
       if (lines.exists(l -> l.contains(VarkaKernelPlan.TWO_LANE_CONDITION_REASON))) {
         return true;
       }

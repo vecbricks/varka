@@ -75,8 +75,6 @@ public final class VarkaTwoLaneConditionSuite {
     }
     assertFalse(VarkaKernelPlan.twoLaneMasksFallBack(
         new VarkaHostIsa.Reading("aarch64", "fp, asimd", null)));
-    assertEquals(VarkaKernelPlan.twoLaneMasksFallBack(VarkaHostIsa.host()),
-        VarkaKernelPlan.HOST_TWO_LANE_MASKS_FALL_BACK);
   }
 
   @Test

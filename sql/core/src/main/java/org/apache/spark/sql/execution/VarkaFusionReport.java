@@ -19,7 +19,6 @@ package org.apache.spark.sql.execution;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
-import java.util.Set;
 
 import scala.collection.immutable.Seq;
 import scala.jdk.javaapi.CollectionConverters;
@@ -37,8 +36,8 @@ import org.apache.spark.sql.catalyst.expressions.codegen.VarkaOutputSpec.Forward
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaOutputSpec.FusedOutput;
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaOutputSpec.KernelOutput;
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaOutputSpec.ResidualOutput;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaAdmission;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions;
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaFamily;
 
 /**
  * How a Varka node serves each entry of its projection, in words.
@@ -115,29 +114,15 @@ public final class VarkaFusionReport {
    * into the mask kernel, or residual with the compiler's reason. A Varka filter node renders its
    * whole condition, so the conjuncts the rule kept in a row {@code FilterExec} above it read as
    * residual with their reasons beside the fused ones. A predicate too large for one method that
-   * the compiler split across several selection outputs gets one more line saying so.
-   */
-  public static Seq<String> predicateLines(
-      Expression condition, Seq<Attribute> childOutput, VarkaEmitOptions options) {
-    return predicateLines(condition, childOutput, options, Set.of());
-  }
-
-  /** {@link #predicateLines(Expression, Seq, VarkaEmitOptions)} with the families switched off. */
-  public static Seq<String> predicateLines(Expression condition, Seq<Attribute> childOutput,
-      VarkaEmitOptions options, Set<VarkaFamily> familiesOff) {
-    return predicateLines(condition, childOutput, options, familiesOff, false);
-  }
-
-  /**
-   * {@link #predicateLines(Expression, Seq, VarkaEmitOptions, Set)} with the session's two-lane
-   * refusal ({@link VarkaSessionEmit#declineTwoLaneConditions}), as the plan compiled it.
+   * the compiler split across several selection outputs gets one more line saying so. Compiled
+   * under {@code admission}, the plan's ({@link VarkaSessionEmit#admission()}), so the lines say
+   * what the plan's compile did.
    */
   public static Seq<String> predicateLines(Expression condition, Seq<Attribute> childOutput,
-      VarkaEmitOptions options, Set<VarkaFamily> familiesOff, boolean declineTwoLaneConditions) {
+      VarkaEmitOptions options, VarkaAdmission admission) {
     var out = new ArrayList<String>();
     VarkaExpressionCompiler.Explained explained = VarkaExpressionCompiler
-        .explainAndCompilePredicate(condition, childOutput, options, familiesOff,
-            declineTwoLaneConditions);
+        .explainAndCompilePredicate(condition, childOutput, options, admission);
     for (VarkaConjunctSpec spec : explained.specs()) {
       if (spec.fused()) {
         out.add(render(spec.conjunct()) + ": fused");
@@ -153,11 +138,6 @@ public final class VarkaFusionReport {
           + p.clauses().size() + " clauses, each within the method budget");
     }
     return CollectionConverters.asScala(out).toSeq();
-  }
-
-  /** {@link #predicateLines(Expression, Seq, VarkaEmitOptions)} under the default options. */
-  public static Seq<String> predicateLines(Expression condition, Seq<Attribute> childOutput) {
-    return predicateLines(condition, childOutput, VarkaEmitOptions.DEFAULTS);
   }
 
   /** A conjunct in the query's own words, capped like {@code DeclineSink}'s renderings. */

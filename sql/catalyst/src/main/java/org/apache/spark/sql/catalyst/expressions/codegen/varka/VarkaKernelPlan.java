@@ -153,18 +153,6 @@ public final class VarkaKernelPlan {
   // The host's refusal
   // -------------------------------------------------------------------------------------------
 
-  /**
-   * Whether this JVM is a host where a long-lane condition root is refused: x86, where the long
-   * species has two lanes. Read once, from the host reading the session's level comes from
-   * ({@link VarkaHostIsa#host()}); see {@link #twoLaneMasksFallBack(VarkaHostIsa.Reading)}. It is
-   * the answer a session that does not set
-   * {@code spark.sql.codegen.varka.declineTwoLaneConditions} resolves on this JVM, and that
-   * setting is what the compiler is handed; the compiler never reads this field itself, so a
-   * compile with no session answers alike on every host.
-   */
-  public static final boolean HOST_TWO_LANE_MASKS_FALL_BACK =
-      twoLaneMasksFallBack(VarkaHostIsa.host());
-
   /** The reason a filter's condition records where {@link #hostRefusal} refuses it. */
   public static final String TWO_LANE_CONDITION_REASON = "a filter's condition in a kernel driven "
       + "at the LONG lane, on an x86 host whose long species has two lanes: C2 lowers no "

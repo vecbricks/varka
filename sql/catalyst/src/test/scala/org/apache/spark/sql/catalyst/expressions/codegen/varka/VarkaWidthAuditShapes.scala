@@ -157,7 +157,9 @@ object VarkaWidthAuditShapes {
    */
   private def predicateRow(sql: String, resolved: Expression): Entry = {
     val explained = VarkaExpressionCompiler.explainAndCompilePredicate(resolved, columns,
-      VarkaEmitOptions.DEFAULTS, java.util.Set.of(), VarkaKernelPlan.HOST_TWO_LANE_MASKS_FALL_BACK)
+      VarkaEmitOptions.DEFAULTS,
+      new VarkaAdmission(java.util.Set.of(),
+        VarkaKernelPlan.twoLaneMasksFallBack(VarkaHostIsa.host())))
     val specs = explained.specs.asScala.toSeq
     val refused = specs.filterNot(_.fused)
     explained.compiled.toScala match {

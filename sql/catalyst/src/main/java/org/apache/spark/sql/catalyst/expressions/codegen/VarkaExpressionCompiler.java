@@ -50,6 +50,7 @@ import org.apache.spark.sql.catalyst.expressions.RuntimeReplaceable;
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaOutputSpec.ForwardedOutput;
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaOutputSpec.FusedOutput;
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaOutputSpec.KernelOutput;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaAdmission;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaCompileObserver;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaErrors;
@@ -215,12 +216,6 @@ public final class VarkaExpressionCompiler {
         () -> projectionIdentity(projectList, childOutput), options);
   }
 
-  /** {@link #compilePredicate(Expression, Seq, VarkaEmitOptions)} under the default options. */
-  public static Optional<CompiledVarkaPredicate> compilePredicate(
-      Expression condition, Seq<Attribute> childOutput) {
-    return compilePredicate(condition, childOutput, VarkaEmitOptions.DEFAULTS);
-  }
-
   /**
    * Compiles a filter predicate conjunct by conjunct. The condition splits on its {@code AND}
    * spine - Kleene AND is associative, so the split changes nothing - and each conjunct either
@@ -235,35 +230,13 @@ public final class VarkaExpressionCompiler {
    * <p>The null rule needs no glue here: at the mask root unknown is false (see the IR's
    * {@code Cond} doc), and AND-splitting preserves it - a row where any conjunct is null or false
    * has the whole conjunction null or false, and both read as unselected.
-   */
-  public static Optional<CompiledVarkaPredicate> compilePredicate(
-      Expression condition, Seq<Attribute> childOutput, VarkaEmitOptions options) {
-    return compilePredicate(condition, childOutput, options, Set.of());
-  }
-
-  /** {@link #compilePredicate(Expression, Seq, VarkaEmitOptions)} with the families off. */
-  public static Optional<CompiledVarkaPredicate> compilePredicate(
-      Expression condition, Seq<Attribute> childOutput, VarkaEmitOptions options,
-      Set<VarkaFamily> familiesOff) {
-    return compilePredicate(condition, childOutput, options, familiesOff, false);
-  }
-
-  /**
-   * {@link #compilePredicate(Expression, Seq, VarkaEmitOptions, Set)} on a host that refuses a
-   * long-lane condition; see {@link #explainAndCompilePredicate(Expression, Seq,
-   * VarkaEmitOptions, Set, boolean)}.
+   *
+   * <p>{@code admission} is the session's: see {@link #explainAndCompilePredicate}.
    */
   public static Optional<CompiledVarkaPredicate> compilePredicate(
       Expression condition, Seq<Attribute> childOutput, VarkaEmitOptions options,
-      Set<VarkaFamily> familiesOff, boolean twoLaneHost) {
-    return explainAndCompilePredicate(condition, childOutput, options, familiesOff, twoLaneHost)
-        .compiled();
-  }
-
-  /** {@link #explainPredicate(Expression, Seq, VarkaEmitOptions)} under the default options. */
-  public static List<VarkaConjunctSpec> explainPredicate(
-      Expression condition, Seq<Attribute> childOutput) {
-    return explainPredicate(condition, childOutput, VarkaEmitOptions.DEFAULTS);
+      VarkaAdmission admission) {
+    return explainAndCompilePredicate(condition, childOutput, options, admission).compiled();
   }
 
   /**
@@ -272,8 +245,9 @@ public final class VarkaExpressionCompiler {
    * that a filter left wholly to Spark still says why.
    */
   public static List<VarkaConjunctSpec> explainPredicate(
-      Expression condition, Seq<Attribute> childOutput, VarkaEmitOptions options) {
-    return explainAndCompilePredicate(condition, childOutput, options).specs();
+      Expression condition, Seq<Attribute> childOutput, VarkaEmitOptions options,
+      VarkaAdmission admission) {
+    return explainAndCompilePredicate(condition, childOutput, options, admission).specs();
   }
 
   // ---------------------------------------------------------------------------------------------
@@ -764,55 +738,41 @@ public final class VarkaExpressionCompiler {
   /**
    * {@link #explainPredicate} and {@link #compilePredicate} from one classification, for a caller
    * that reports both, such as EXPLAIN.
-   */
-  public static Explained explainAndCompilePredicate(
-      Expression condition, Seq<Attribute> childOutput, VarkaEmitOptions options) {
-    return explainAndCompilePredicate(condition, childOutput, options, Set.of());
-  }
-
-  /** {@link #explainAndCompilePredicate(Expression, Seq, VarkaEmitOptions)} with families off. */
-  public static Explained explainAndCompilePredicate(
-      Expression condition, Seq<Attribute> childOutput, VarkaEmitOptions options,
-      Set<VarkaFamily> familiesOff) {
-    return explainAndCompilePredicate(condition, childOutput, options, familiesOff, false);
-  }
-
-  /**
-   * {@link #explainAndCompilePredicate(Expression, Seq, VarkaEmitOptions, Set)} on a host that
-   * refuses a long-lane condition when {@code twoLaneHost} is set: an x86 host whose long species
-   * has two lanes ({@link VarkaKernelPlan#admit(List, VarkaEmitOptions, boolean)}, VARKA-503).
-   * Like the families off it is a session setting and not an emit option: it changes which
-   * conjuncts the compiler admits, never a kernel's bytes, and the compile at planning and the
-   * filter evaluator's compile in a task must decline alike, so both take it from the plan. The
-   * overloads without it answer as a host that refuses nothing, which keeps the committed
-   * oracles built over them the same on every machine.
+   *
+   * <p>{@code admission} holds the session settings that decide which conjuncts are admitted:
+   * the families off, and whether a filter's long-lane condition is refused on an x86 host whose
+   * long species has two lanes ({@link VarkaKernelPlan#admit(List, VarkaEmitOptions, boolean)},
+   * VARKA-503). Neither is an emit option: they change which conjuncts the compiler admits, never
+   * a kernel's bytes, and the compile at planning, EXPLAIN and the filter evaluator's compile in a
+   * task must decline alike, so every production caller passes the plan's
+   * ({@code VarkaSessionEmit.admission()}). A compile with no session passes
+   * {@link VarkaAdmission#NO_HOST_REFUSAL}, which keeps the committed oracles built over it the
+   * same on every machine.
    */
   public static Explained explainAndCompilePredicate(
       Expression condition, Seq<Attribute> childOutput, VarkaEmitOptions options,
-      Set<VarkaFamily> familiesOff, boolean twoLaneHost) {
-    Explained explained =
-        explainUnobserved(condition, childOutput, options, familiesOff, twoLaneHost);
+      VarkaAdmission admission) {
+    Explained explained = explainUnobserved(condition, childOutput, options, admission);
     // The option matrix's recording run hears each compile with a way to repeat it under
     // another configuration (VarkaCompileObserver); no one is listening otherwise.
     if (VarkaCompileObserver.watching()) {
-      VarkaCompileObserver.compiled(List.of(condition, childOutput, familiesOff, twoLaneHost),
-          options, explained,
-          o -> explainUnobserved(condition, childOutput, o, familiesOff, twoLaneHost));
+      VarkaCompileObserver.compiled(List.of(condition, childOutput, admission), options,
+          explained, o -> explainUnobserved(condition, childOutput, o, admission));
     }
     return explained;
   }
 
   /** {@link #explainAndCompilePredicate} itself, which the recording run repeats. */
   private static Explained explainUnobserved(Expression condition, Seq<Attribute> childOutput,
-      VarkaEmitOptions options, Set<VarkaFamily> familiesOff, boolean twoLaneHost) {
-    return planning(() -> predicate(condition, childOutput, options, familiesOff, twoLaneHost),
+      VarkaEmitOptions options, VarkaAdmission admission) {
+    return planning(() -> predicate(condition, childOutput, options, admission),
         () -> "condition " + condition + " over " + childOutput.mkString("[", ", ", "]"),
         options);
   }
 
   private static Explained predicate(
       Expression condition, Seq<Attribute> childOutput, VarkaEmitOptions options,
-      Set<VarkaFamily> off, boolean twoLaneHost) {
+      VarkaAdmission admission) {
     // The split hoists fused conjuncts below the residual ones, which reorders evaluation. That
     // is sound only when every conjunct is deterministic - Spark's own predicate pushdown stops
     // at the first nondeterministic conjunct (span(_.deterministic)) for the same reason: a
@@ -843,7 +803,7 @@ public final class VarkaExpressionCompiler {
     Map<Integer, String> demoted = new HashMap<>();
     while (true) {
       PredicatePass once =
-          predicateOnce(condition, childOutput, demoted, options, off, twoLaneHost);
+          predicateOnce(condition, childOutput, demoted, options, admission);
       Map<Integer, String> late = VarkaConjunctOrder.behindRaising(written,
           once.specs().stream().map(VarkaConjunctSpec::fused).toList());
       if (!late.isEmpty()) {
@@ -934,11 +894,11 @@ public final class VarkaExpressionCompiler {
       Seq<Attribute> childOutput,
       Map<Integer, String> demoted,
       VarkaEmitOptions options,
-      Set<VarkaFamily> off,
-      boolean twoLaneHost) {
+      VarkaAdmission admission) {
+    boolean twoLaneHost = admission.declineTwoLaneConditions();
     VarkaSlotTable inputs = new VarkaSlotTable();
     VarkaSlotTable literals = new VarkaSlotTable();
-    DeclineSink sink = new DeclineSink(childOutput, options.rangeSets(), off);
+    DeclineSink sink = new DeclineSink(childOutput, options.rangeSets(), admission.familiesOff());
     List<Cond> fused = new ArrayList<>();
     List<VarkaConjunctSpec> specs = new ArrayList<>();
     UnaryOperator<Expression> bind = binder(childOutput);

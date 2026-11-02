@@ -45,6 +45,7 @@ import org.apache.spark.sql.catalyst.expressions.NamedExpression;
 import org.apache.spark.sql.catalyst.expressions.codegen.CompiledVarkaProjection;
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaDerivedInput;
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaInputBound;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaAdmission;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaAllocationSampler;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaDerivedKind;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitDeclined;
@@ -291,11 +292,12 @@ public abstract class VarkaEvaluatorBase {
   }
 
   /**
-   * Whether the session leaves a filter's long-lane condition to the row engine (VARKA-503), which
-   * a filter evaluator's compiler call passes for the reason it passes the families off.
+   * The session's settings for which conjuncts a predicate admits - the families off and the
+   * two-lane refusal (VARKA-503) - which a filter evaluator's compiler call passes so that it
+   * declines what the plan's compile declined.
    */
-  protected boolean declineTwoLaneConditions() {
-    return sessionEmit.declineTwoLaneConditions();
+  protected VarkaAdmission admission() {
+    return sessionEmit.admission();
   }
 
   // ---- the plan ------------------------------------------------------------------------------

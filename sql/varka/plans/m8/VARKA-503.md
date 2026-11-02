@@ -393,3 +393,19 @@ reading (corrects 3.1's "`HOST_USE_AVX` reads a level (the JVM is x86)"):
    `dev/varka_matrix.sh --defaults` `VarkaLongLaneSuite`, `VarkaFilterExecSuite`,
    `VarkaEvaluatorComponentsSuite`, `VarkaBooleanOutputQueriesSuite`, `VarkaCoverageHarnessSuite`,
    `VarkaTimeArithmeticSuite` and the two host suites, each in its own JVM under its flags.
+
+## 12. The PR review's fixes, 2 November 2026
+
+1. **One settings value, and no overload that defaults it** (corrects 3.1's "the compiler
+   overloads without the flag answer as a host that refuses nothing"). The refusal had travelled
+   as a bare fifth boolean beside the families off through new overloads of the predicate entry
+   points, and the old ones defaulted it to false, so a later production caller could compile
+   differently from planning without saying so. `VarkaAdmission` (catalyst) now holds both
+   settings; `compilePredicate`, `explainPredicate`, `explainAndCompilePredicate` and
+   `VarkaFusionReport.predicateLines` each have one signature that takes it, and the overloads
+   that defaulted the options, the families or the flag are gone. Production callers pass
+   `VarkaSessionEmit.admission()`; a compile with no session, every catalyst suite and committed
+   oracle among them, says `VarkaAdmission.NO_HOST_REFUSAL`. The projection entry points keep
+   their families-off set, since the refusal never reaches them. `HOST_TWO_LANE_MASKS_FALL_BACK`,
+   which only tests and the width audit read, is gone too: they ask
+   `twoLaneMasksFallBack(VarkaHostIsa.host())`. No admission and no emitted byte changed.

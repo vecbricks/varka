@@ -60,7 +60,7 @@ import org.apache.spark.sql.execution.VarkaSessionEmit;
  * refuses a filter's long-lane condition (VARKA-503,
  * {@code VarkaSessionEmit.declineTwoLaneConditions}), as an x86 host whose long species has two
  * lanes (the 128-bit companion's) does by default
- * ({@link VarkaKernelPlan#HOST_TWO_LANE_MASKS_FALL_BACK}). There the {@code l < l2} controls hold
+ * ({@link VarkaKernelPlan#twoLaneMasksFallBack}). There the {@code l < l2} controls hold
  * no Varka node, their {@code varka on} arm timing the row path, and the
  * {@code (d < d2) AND (l < l2)} controls hold the date conjunct's kernel under a row filter that
  * holds the long one. The sessions keep the refusal at its default, since the benchmark measures
