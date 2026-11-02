@@ -3153,8 +3153,8 @@ object SQLConf {
     buildConf("spark.sql.codegen.varka.declineTwoLaneConditions")
       .internal()
       .doc("Whether the Varka compiler leaves a filter's condition to the row engine when its" +
-        " kernel would be driven at the 64-bit lane on an x86 host whose 64-bit vector species" +
-        " has two lanes, where the JIT lowers no vector mask and the kernel's dense body runs" +
+        " kernel would be driven at a 64-bit lane, long or double, on an x86 host whose 64-bit" +
+        " vector species have two lanes, where the JIT lowers no vector mask and the kernel runs" +
         " slower than the row engine. Unset, the host's answer: true on such a host, false" +
         " everywhere else, aarch64 included. Every conjunct that reads a 64-bit column is" +
         " refused, the IS NOT NULL Spark infers for a nullable one among them, so a filter over" +

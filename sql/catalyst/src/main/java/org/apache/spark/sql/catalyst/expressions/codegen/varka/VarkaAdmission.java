@@ -21,8 +21,9 @@ import java.util.Set;
 /**
  * The session settings that decide which conjuncts the predicate compiler admits, as one value
  * every predicate entry point takes: the families switched off (VARKA-318) and whether a filter's
- * long-lane condition is refused on an x86 host whose long species has two lanes (VARKA-503,
- * {@link VarkaKernelPlan#admit}). Neither is an emit option - neither changes a kernel's bytes -
+ * condition in a kernel driven at a 64-bit lane, long or {@code DOUBLE}, is refused on an x86
+ * host whose 64-bit species have two lanes (VARKA-503, {@link VarkaKernelPlan#admit}). Neither
+ * is an emit option - neither changes a kernel's bytes -
  * and the compile at planning, EXPLAIN and the filter evaluator's compile in a task must admit
  * alike, so both travel with the plan in sql/core's session record, whose
  * {@code VarkaSessionEmit.admission()} every production caller passes. There is no entry point
@@ -30,7 +31,8 @@ import java.util.Set;
  * says {@link #NO_HOST_REFUSAL}.
  *
  * @param familiesOff the expression families switched off
- * @param declineTwoLaneConditions whether a filter's long-lane condition is left to the row engine
+ * @param declineTwoLaneConditions whether a filter's 64-bit-lane condition is left to the row
+ *        engine
  */
 public record VarkaAdmission(Set<VarkaFamily> familiesOff, boolean declineTwoLaneConditions) {
 

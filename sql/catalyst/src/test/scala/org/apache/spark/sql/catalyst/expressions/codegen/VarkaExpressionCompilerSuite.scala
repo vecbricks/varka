@@ -29,7 +29,7 @@ import org.apache.spark.sql.catalyst.analysis.FunctionRegistry
 import org.apache.spark.sql.catalyst.expressions.{Abs, Add, AddMonths, Alias, And, Attribute, AttributeReference, BoundReference, CaseWhen, Cast, Coalesce, Concat, CurrentTime, DateAdd, DateAddYMInterval, DateDiff, DateFromUnixDate, DateSub, DayOfMonth, DayOfWeek, DayOfYear, Divide, DivideYMInterval, EqualNullSafe, EqualTo, EvalMode, Expression, Extract, ExtractANSIIntervalDays, ExtractANSIIntervalMonths, ExtractANSIIntervalYears, GreaterThan, Greatest, HoursOfTime, If, In, InheritAnalysisRules, InSet, IsNotNull, IsNull, LastDay, LeafExpression, Least, LessThan, LessThanOrEqual, Literal, MakeDate, MakeTime, MakeYMInterval, MinutesOfTime, Month, Multiply, MultiplyYMInterval, NamedExpression, NextDay, Not, NumericEvalContext, Nvl, Nvl2, Or, Quarter, Rand, Remainder, RuntimeReplaceable, SecondsOfTime, SecondsOfTimeWithFraction, Subtract, SubtractDates, SubtractTimes, TimeAddInterval, TimeDiff, TimeExpression, TimeFromMicros, TimeFromMillis, TimeFromSeconds, TimestampAddInterval, TimeToMicros, TimeToMillis, TimeToSeconds, TimeTrunc, ToTime, TruncDate, UnaryMinus, UnixDate, Upper, WeekDay, WeekOfYear, Year, YearOfWeek}
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaOutputSpec.{ForwardedOutput, FusedOutput, KernelOutput}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaChrono, VarkaDerivedKind, VarkaEmitOptions, VarkaEmitterTestSupport, VarkaLoopEmitter, VarkaMatrix, VarkaShapeCache, VarkaVectorIR}
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaAdmission, VarkaKernelWarmup, VarkaShapeKey}
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaAdmission, VarkaKernelPlan, VarkaKernelWarmup, VarkaShapeKey}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaMatrix.PinsDefaults
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaMethodNames.isStage
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTestWatchdog
@@ -3361,6 +3361,42 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
         s"replaced=$replaced")
       assert(position.longLiterals.asScala.toSeq === Seq(0L, 1L, 32767L))
     }
+  }
+
+  test("the two-lane host refuses a DOUBLE conjunct as it does a long one (VARKA-503)") {
+    val x = AttributeReference("x", DoubleType)()
+    val x2 = AttributeReference("x2", DoubleType)()
+    val l = AttributeReference("l", LongType)()
+    val l2 = AttributeReference("l2", LongType)()
+    val d = AttributeReference("d", DateType)()
+    val d2 = AttributeReference("d2", DateType)()
+    val columns = Seq(x, x2, l, l2, d, d2)
+    val floating = GreaterThan(x, Literal(1.5D))
+    val floatingWhy = "in a filter that also reads integral columns"
+    val hostWhy = VarkaKernelPlan.TWO_LANE_CONDITION_REASON
+    // Each conjunct's outcome: fused, or the reason it declined.
+    def outcomes(condition: Expression, twoLaneHost: Boolean): Seq[Either[String, Unit]] =
+      VarkaExpressionCompiler.explainAndCompilePredicate(condition, columns,
+        VarkaEmitOptions.DEFAULTS, new VarkaAdmission(java.util.Set.of(), twoLaneHost))
+        .specs.asScala.toSeq.map {
+        s => if (s.fused) Right(()) else Left(s.decline.get.reason)
+      }
+    def declined(o: Either[String, Unit], why: String): Boolean = o.left.exists(_.contains(why))
+    // A filter over doubles alone fuses on the DOUBLE lane on a wide host and is the row
+    // filter's on the two-lane one.
+    assert(outcomes(LessThan(x, x2), twoLaneHost = false) === Seq(Right(())))
+    val alone = outcomes(LessThan(x, x2), twoLaneHost = true)
+    assert(declined(alone.head, hostWhy), alone)
+    // Beside a long conjunct both are the host's, so the filter declines whole there, the
+    // floating conjunct with the host's reason rather than the integral kernel's that does not
+    // exist; on a wide host the long conjunct keeps the kernel and the floating one declines.
+    val long = outcomes(And(floating, GreaterThan(l, l2)), twoLaneHost = true)
+    assert(declined(long.head, hostWhy) && declined(long(1), hostWhy), long)
+    val wide = outcomes(And(floating, GreaterThan(l, l2)), twoLaneHost = false)
+    assert(declined(wide.head, floatingWhy) && wide(1).isRight, wide)
+    // A date conjunct is an int kernel the host admits.
+    val dated = outcomes(And(floating, LessThan(d, d2)), twoLaneHost = true)
+    assert(declined(dated.head, hostWhy) && dated(1).isRight, dated)
   }
 }
 

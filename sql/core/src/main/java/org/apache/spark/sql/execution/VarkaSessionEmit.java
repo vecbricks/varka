@@ -64,8 +64,9 @@ import org.apache.spark.sql.internal.SQLConf;
  *        evaluator's compile in a task must decline alike, and every caller of the compiler passes
  *        it beside {@code VarkaColumnarToRowExec.emitOptions}, a predicate's compile inside
  *        {@link #admission()}.
- * @param declineTwoLaneConditions whether a filter's condition in a kernel driven at the long
- *        lane is left to the row engine, as an x86 host whose long species has two lanes needs
+ * @param declineTwoLaneConditions whether a filter's condition in a kernel driven at a 64-bit
+ *        lane, long or {@code DOUBLE}, is left to the row engine, as an x86 host whose 64-bit
+ *        species have two lanes needs
  *        ({@code spark.sql.codegen.varka.declineTwoLaneConditions}, VARKA-503; unset, the host's
  *        answer, {@link VarkaKernelPlan#twoLaneMasksFallBack(VarkaHostIsa.Reading)} of the same
  *        reading {@link #USE_AVX_FROM_HOST} resolves from, so a planted host moves both). Not an
