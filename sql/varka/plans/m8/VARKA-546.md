@@ -304,6 +304,8 @@ Built on 1 November 2026: (iii) and (i) as section 5 lists them; (ii) waits for 
   one side's block until the coverage run rewrites it. So the merge commit can lack the other
   row in the docs table. The block is owed and the coverage suite fails until it is
   regenerated (section 9, item 2).
+- **Known limits.** The driver writes numbers as Python renders them, which may differ from
+  Jackson's form for a float; no generated JSON file holds a float field today.
 - **The review.** A code review of the driver reproduced ten faults; each has a `--self-test`
   case that failed before its fix (36 cases now, from 20).
   - (1) `casts_fused.tsv` is keyed by `from`, `to`, `from_type`, `to_type`: one row per form
@@ -330,6 +332,18 @@ Built on 1 November 2026: (iii) and (i) as section 5 lists them; (ii) waits for 
   - (9) The installer adds a newline to an `info/attributes` lacking one before its rule, and
     never adds the rule twice.
   - (10) `--check` builds its row sets once (no behaviour change, so no case).
+- **The third review** (2 November 2026) found six more, each with a self-test case (22 to
+  27) that fails without its fix; `--self-test` runs 72 cases now.
+  - (22) Rows computed from code both sides changed are owed (2.3), the per-key result kept
+    as the best guess; P2 is withdrawn.
+  - (23) A width audit `host` one side moved while the other changed shapes is owed.
+  - (24) A committed merge's entry for a file is dropped once a later first-parent commit
+    changes the file, so a regeneration by hand clears its debt.
+  - (25) The coverage suite runs only where owed and after a width audit that ran, never
+    twice for the bytes file alone.
+  - (26) A TSV written from one side because of a header change names the rows it drops.
+  - (27) An unterminated conflict hunk in the docs merge is content, not an IndexError and a
+    whole-file fallback.
 - **Left.** The lead runs `dev/varka_precommit.sh --install-hook` in the main checkout once this
   merges. The two checks run green on the pull request's Build. Question 1, then (ii) for
   `option_arms` as its own row if the answer is (b).
