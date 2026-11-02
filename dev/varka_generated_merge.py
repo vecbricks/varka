@@ -594,7 +594,11 @@ def owed_live():
             return True
         if in_progress and head == ours:
             return True
-        if started and is_ancestor(started, ours) and is_ancestor(ours, "HEAD"):
+        # A merge-base check first, so that an entry whose OURS is not on HEAD's history (an
+        # aborted merge's on another branch) is rejected before the first-parent walk.
+        if not is_ancestor(ours, "HEAD"):
+            return False
+        if started and is_ancestor(started, ours):
             return True
         commits = git_out("rev-list", "--first-parent", "--parents", "HEAD", "^" + ours) or ""
         return any(
@@ -1416,6 +1420,32 @@ def end_to_end(expect):
         expect(owed_now() == ["c/coverage.json"], f"17: rebase stopped, owed {owed_now()}")
         git("rebase", "--abort", check=False)
         expect(owed_now() == [], f"17: after the rebase --abort, owed {owed_now()}")
+        # 21. An entry whose OURS is not an ancestor of HEAD is rejected without the
+        # first-parent walk, read in this process with the fixture's environment.
+        with open(owed_list, "w", encoding="utf-8") as f:
+            f.write(git("rev-parse", "p1").stdout.strip() + " -\tc/coverage.json\n")
+        calls, saved_env, saved_cwd = [], dict(os.environ), os.getcwd()
+        saved_git_out = globals()["git_out"]
+
+        def recording_git_out(*args):
+            calls.append(args[0])
+            return saved_git_out(*args)
+
+        globals()["git_out"] = recording_git_out
+        try:
+            os.environ.clear()
+            os.environ.update(fixture_env())
+            os.chdir(tmp)
+            entries = owed_live()
+        finally:
+            os.chdir(saved_cwd)
+            os.environ.clear()
+            os.environ.update(saved_env)
+            globals()["git_out"] = saved_git_out
+        expect(
+            entries == [] and "rev-list" not in calls,
+            f"21: a stale entry was walked: {entries} {calls}",
+        )
 
 
 def main(argv):
