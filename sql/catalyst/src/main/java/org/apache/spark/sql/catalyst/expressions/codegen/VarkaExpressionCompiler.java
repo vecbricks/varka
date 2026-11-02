@@ -931,14 +931,17 @@ public final class VarkaExpressionCompiler {
         Cond planned = cond;
         // The host's refusal names its own reason first: beside a refused long conjunct, a
         // floating one is the host's too, not "in a filter that also reads integral columns".
-        // Without the host refusal the order is the floating refusal's, then the plan's.
+        // Then, and alone without the host refusal, master's order: the floating refusal's,
+        // then the plan's, each asked only where the one before it admits. The plan's refusal
+        // where it has one is admit's too, so with the host refusal on it is the same answer.
         boolean integral = readsIntegral;
-        Optional<VarkaKernelPlan.Refusal> admitted =
-            VarkaKernelPlan.admit(List.of(planned), options, twoLaneHost);
-        Optional<String> narrow = admitted
-            .filter(r -> r.kind() == VarkaKernelPlan.Kind.TWO_LANE_CONDITION)
+        Optional<VarkaKernelPlan.Refusal> host = twoLaneHost
+            ? VarkaKernelPlan.admit(List.of(planned), options, true)
+                .filter(r -> r.kind() == VarkaKernelPlan.Kind.TWO_LANE_CONDITION)
+            : Optional.empty();
+        Optional<String> narrow = host
             .or(() -> VarkaKernelPlan.floatingConjunctRefusal(planned, integral))
-            .or(() -> admitted)
+            .or(() -> VarkaKernelPlan.of(List.of(planned), options).refusal())
             .map(VarkaKernelPlan.Refusal::reason);
         if (narrow.isPresent()) {
           marks.restore(inputs, literals, sink);
