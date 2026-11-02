@@ -839,7 +839,7 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 
 | Predicate | Switches | Domain | Notes | 128-bit lanes |
 |---|---|---|---|---|
-| `NOT CAST(x AS BOOLEAN)` | `predicate` |  | x = 0.0 as the filter: both zeros pass and a NaN does not | per-lane: compare to mask, mask cast, mask logic, mask broadcast |
+| `NOT CAST(x AS BOOLEAN)` | `predicate` |  | x = 0.0 as the filter: both zeros pass and a NaN does not | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL up to 18 digits), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
 | `CAST(f AS BOOLEAN) OR f > 1.5F` | `predicate` |  | the float's test in a disjunction at its lane | vector |
 
 #### DECIMAL columns
