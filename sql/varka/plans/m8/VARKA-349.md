@@ -648,3 +648,21 @@ new coverage rows, which each digest covers, and not with a flag, since none was
 - The default decline names row 351 and says a quotient or a remainder is no row's in this
   milestone, and the time compiler's reason for a decimal column as a value names 157 for an
   output and 350 and 366 for its casts.
+
+### The test-oracle review of 349a (2 November 2026)
+
+- **The type-rule sweep's reduction check read the IR.** The sweep checked that a sum's rescaled
+  operands have at most `P - 1` digits, and a product's two operands as many between them, by
+  recomputing them from Spark's type rule, the formula that gives `P - 1`, so it could not fail.
+  It now compiles every fused pair and reads the digits from the IR: a `DecimalColumn`'s
+  precision plus `k` for each `IntArith(MUL, x, LiteralSlot)` whose slot holds `10^k`, held to
+  `P - 1` at every `ADD`, `SUB` and two-operand `MUL`; a pair whose IR has no such site fails.
+- **Departure: the product's ring layer multiplies two unknowns.** Section 3 item 5 planned the
+  bound on an exact product as an instance of `value_range.smt2`'s multiply lemma over the reals,
+  so that no query multiplies two unknowns. `decimal64.smt2` asks it directly instead, one check
+  per `p1 + p2` below 18 (136 of them) over two unknown `Int`s under `QF_NIA`: `|x| <= m1` and
+  `|y| <= m2` give `|x * y| <= m1 * m2`. Both pinned solvers, Z3 5.1.0 and cvc5 1.4.1, prove
+  the file's 550 checks in under two seconds. The risk is that nonlinear integer arithmetic has no decision
+  procedure, so a later solver version may answer `unknown`; `dev/varka_prove.sh` fails on any
+  verdict other than the expected one, so that would show as a failed proof, not a silent pass,
+  and the fix is the planned instantiation of the lemma.
