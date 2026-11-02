@@ -676,8 +676,8 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `CAST(y1 AS BOOLEAN)` | `integralCast` |  | x != 0, which cannot fail; exhaustive | vector |
 | `CAST(s1 AS BOOLEAN)` | `integralCast` |  | exhaustive | vector |
 | `CAST(i AS BOOLEAN)` | `integralCast` |  | differential | vector |
-| `CAST(l AS BOOLEAN)` | `integralCast` |  | the long lane's compare; differential | per-lane: compare to mask, mask broadcast, mask logic, mask cast |
-| `s1 < l` | `predicate`, `integralCast` |  | the short widened to the long lane by type coercion, loaded at the long width; differential | per-lane: compare to mask, mask cast, mask broadcast, load or store |
+| `CAST(l AS BOOLEAN)` | `integralCast` |  | the long lane's compare; differential | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL up to 18 digits), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
+| `s1 < l` | `predicate`, `integralCast` |  | the short widened to the long lane by type coercion, loaded at the long width; differential | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL up to 18 digits), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
 
 #### Width conversion predicates
 
