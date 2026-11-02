@@ -233,7 +233,7 @@ public class VarkaTimestampNtzFieldsBaselineBenchmark extends VarkaSqlBenchmarkB
       }
       // A section fuses exactly when it is listed, and a listed one runs every batch as a kernel.
       for (Section s : sections()) {
-        requireBaseline(varka, s.title(), s.query(), s.fuses());
+        requireBaseline(varka, s.title(), s.query(), s.fuses() ? Fusion.WHOLE : Fusion.NONE);
         if (s.fuses()) {
           try {
             VarkaSizeLadder.varkaFused(varka, s.query());
