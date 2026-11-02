@@ -46,17 +46,18 @@ import org.apache.spark.sql.internal.SQLConf;
  * tie.
  *
  * <p>A baseline is only one while nothing fuses: before any section is timed, the run checks
- * each section's plan on the Varka session against the section's {@code fuses} flag, the list of
- * the sections a row has fused, and fails when an unlisted section fuses or a listed one does not;
- * the results file notes each section that fuses. No section is listed. The filter's condition
- * is the cast under {@code coalesce} rather than the bare cast: from a bare
+ * each section's plan on the Varka session against the section's {@link Fusion} class, the
+ * record of how much of it a row has fused, and fails when the plan's class differs
+ * ({@link VarkaSqlBenchmarkBase#requireBaseline(SparkSession, String, String, Fusion)}); the
+ * results file notes each section that fuses. Every section is {@code NONE}. The filter's
+ * condition is the cast under {@code coalesce} rather than the bare cast: from a bare
  * {@code WHERE CAST(x AS BOOLEAN)} the optimizer infers {@code x IS NOT NULL}, since the cast is
  * null-intolerant, and that conjunct alone fuses into a {@code VarkaFilterColumnarToRow} under
  * Spark's {@code Filter}, which would put a Varka node in the plan while the cast declines, so
  * the check could not see the row start fusing the cast itself. {@code coalesce} is not
  * null-intolerant, so nothing is inferred, and it keeps the same rows, a null cast being false.
- * A row that fuses a section lists it, so that its fusion cannot turn a baseline section into a
- * fused one unnoticed.
+ * A row that fuses more of a section sets its new class, so that its fusion cannot turn a
+ * baseline section into a fused one unnoticed.
  *
  * <p>To run this benchmark, on a GitHub runner (the results come back as an artifact):
  * <pre>
@@ -84,10 +85,11 @@ public class VarkaFloatingCastBaselineBenchmark extends VarkaSqlBenchmarkBase {
 
   /**
    * A section: its title, its query, the SQL settings it runs under on both sessions, empty for a
-   * cast whose answer does not depend on them, and whether the Varka session fuses it, which the
-   * run checks before it times anything.
+   * cast whose answer does not depend on them, and how much of it the Varka session fuses today,
+   * the {@link VarkaSqlBenchmarkBase.Fusion} class the run checks its plan against before it
+   * times anything.
    */
-  record Section(String title, String query, Map<String, String> conf, boolean fuses) {}
+  record Section(String title, String query, Map<String, String> conf, Fusion fusion) {}
 
   /**
    * The table: {@code l} a {@code BIGINT}, {@code i} an {@code INT}, and {@code x}, {@code w} and
@@ -169,24 +171,24 @@ public class VarkaFloatingCastBaselineBenchmark extends VarkaSqlBenchmarkBase {
       String density = ", " + (nulls.isEmpty() ? "no nulls" : "one row in ten null");
       String from = " AS a FROM " + VIEW;
       out.add(new Section("BIGINT CAST(l AS FLOAT)" + density,
-          "SELECT CAST(" + l + " AS FLOAT)" + from, Map.of(), false));
+          "SELECT CAST(" + l + " AS FLOAT)" + from, Map.of(), Fusion.NONE));
       out.add(new Section("BIGINT CAST(l AS DOUBLE)" + density,
-          "SELECT CAST(" + l + " AS DOUBLE)" + from, Map.of(), false));
+          "SELECT CAST(" + l + " AS DOUBLE)" + from, Map.of(), Fusion.NONE));
       out.add(new Section("INT CAST(i AS DOUBLE)" + density,
-          "SELECT CAST(" + i + " AS DOUBLE)" + from, Map.of(), false));
+          "SELECT CAST(" + i + " AS DOUBLE)" + from, Map.of(), Fusion.NONE));
       out.add(new Section("DOUBLE CAST(w AS INT), LEGACY" + density,
-          "SELECT CAST(" + w + " AS INT)" + from, legacy, false));
+          "SELECT CAST(" + w + " AS INT)" + from, legacy, Fusion.NONE));
       out.add(new Section("DOUBLE CAST(x AS INT), ANSI" + density,
-          "SELECT CAST(" + x + " AS INT)" + from, ansi, false));
+          "SELECT CAST(" + x + " AS INT)" + from, ansi, Fusion.NONE));
       out.add(new Section("DOUBLE try_cast(w AS BIGINT)" + density,
-          "SELECT try_cast(" + w + " AS BIGINT)" + from, Map.of(), false));
+          "SELECT try_cast(" + w + " AS BIGINT)" + from, Map.of(), Fusion.NONE));
       out.add(new Section("DOUBLE CAST(x AS FLOAT)" + density,
-          "SELECT CAST(" + x + " AS FLOAT)" + from, Map.of(), false));
+          "SELECT CAST(" + x + " AS FLOAT)" + from, Map.of(), Fusion.NONE));
       out.add(new Section("DOUBLE filter coalesce(CAST(x AS BOOLEAN), false)" + density,
           "SELECT " + x + from + " WHERE coalesce(CAST(" + x + " AS BOOLEAN), false)", Map.of(),
-          false));
+          Fusion.NONE));
       out.add(new Section("DOUBLE time_from_seconds(s)" + density,
-          "SELECT time_from_seconds(" + s + ")" + from, time, false));
+          "SELECT time_from_seconds(" + s + ")" + from, time, Fusion.NONE));
     }
     return out;
   }
@@ -206,7 +208,7 @@ public class VarkaFloatingCastBaselineBenchmark extends VarkaSqlBenchmarkBase {
         VarkaArrowSessions.cache(session, VIEW);
       }
       for (Section s : sections()) {
-        withConf(varka, s.conf(), () -> requireBaseline(varka, s.title(), s.query(), s.fuses()));
+        withConf(varka, s.conf(), () -> requireBaseline(varka, s.title(), s.query(), s.fusion()));
       }
       for (Section s : sections()) {
         section(s.title(), () -> withConf(baseline, s.conf(), () -> withConf(varka, s.conf(),
