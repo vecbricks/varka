@@ -51,6 +51,7 @@ import org.apache.spark.sql.catalyst.expressions.Expression;
 import org.apache.spark.sql.catalyst.expressions.Literal;
 import org.apache.spark.sql.catalyst.expressions.NamedExpression;
 import org.apache.spark.sql.catalyst.expressions.RuntimeReplaceable;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaAdmission;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaErrors;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaFamily;
@@ -194,7 +195,8 @@ public final class VarkaFamilySwitchSuite {
   private static Outcome compile(Row row, Set<VarkaFamily> off, Seq<Attribute> columns) {
     if (row.predicate()) {
       var explained =
-          VarkaExpressionCompiler.explainAndCompilePredicate(row.expr(), columns, OPTIONS, off);
+          VarkaExpressionCompiler.explainAndCompilePredicate(row.expr(), columns, OPTIONS,
+              new VarkaAdmission(off, false));
       if (explained.compiled().isPresent()
           && explained.compiled().get().residualConjuncts().isEmpty()) {
         CompiledVarkaProjection fused = explained.compiled().get().fused();

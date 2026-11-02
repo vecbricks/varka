@@ -540,6 +540,8 @@ row 333's), and until 343 an operand under a cast to double.
    holds its kernel to the library on live lanes only, so either contract serves; the name and
    the dead-lane value must be one before the first `vfdlibm` pull request. *Recommended: the
    library's own plan, `VFdlibm` and untouched lanes, with 345's text corrected by a dated note.*
+   *Answered 2 November 2026 by the owner: the recommendation; `VARKA-345.md` 2.2 carries the
+   dated note.*
 5. **The census correction**: the 27 lines of `census_curated.txt` read need `ulp` and rows
    `367,<row>`. (a) 358a's pull request rewrites them to the exact default's need and drops 367
    from the rows. (b) The lead's records pull request, with the rows' text. *Recommended: (a)*,

@@ -195,7 +195,8 @@ class VarkaCoverageCompositionFuzzSuite
   private def checkPredicate(c: VarkaCompositionCase): Unit = {
     val condition = c.entries.map(_.expr).reduceLeft(And)
     val specs = try {
-      VarkaExpressionCompiler.explainPredicate(condition, columns, c.options).asScala.toSeq
+      VarkaExpressionCompiler.explainPredicate(condition, columns, c.options,
+        VarkaAdmission.NO_HOST_REFUSAL).asScala.toSeq
     } catch {
       case e: Exception => fail(finding(s"the compiler threw ${threw(e)}", c), e)
     }
@@ -941,7 +942,8 @@ class VarkaCoverageCompositionFuzzSuite
           "c")()), columns, opts).toScala.getOrElse(fail(s"${row.executable} did not fuse alone"))
       } ++ predicates.map { row =>
         row.executable -> VarkaExpressionCompiler.compilePredicate(resolve(row.executable),
-          columns, opts).toScala.getOrElse(fail(s"${row.executable} did not fuse alone")).fused
+          columns, opts, VarkaAdmission.NO_HOST_REFUSAL).toScala
+          .getOrElse(fail(s"${row.executable} did not fuse alone")).fused
       }
       // The compiled check's case carries one literal table: `VarkaFuzzCase.lits`, which the check
       // passes as the lane's table and, truncated to int, as the other lane's. A kernel that reads
@@ -1061,7 +1063,8 @@ class VarkaCoverageCompositionFuzzSuite
       }
       for (row <- predicates) {
         val predicate = VarkaExpressionCompiler.compilePredicate(resolve(row.executable), columns,
-          opts).toScala.getOrElse(fail(s"${row.executable} did not fuse alone"))
+          opts, VarkaAdmission.NO_HOST_REFUSAL).toScala
+          .getOrElse(fail(s"${row.executable} did not fuse alone"))
         val mask = predicate.fusedConjuncts.asScala.toSeq.reduce(And)
         val spark = sparkOracle(predicate.fused, columns, Seq(mask))
         assert(spark.isDefined, s"${row.executable} derives an input")
