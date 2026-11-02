@@ -112,7 +112,9 @@ def show(path, suffix=""):
 
 
 def canon(value):
-    return json.dumps(value, sort_keys=True, ensure_ascii=False)
+    """A value as text to compare by, its maps' key order included: the file is written in that
+    order, so two maps that differ only in it are two different files."""
+    return json.dumps(value, ensure_ascii=False)
 
 
 def pick(ours, theirs):
@@ -255,6 +257,7 @@ def merge_seq(base, ours, theirs, key, value, make, path, owed, rules):
         order = sorted(merged)
     else:
         groups = {}
+        anchors = ({}, {})
         for side_index, side in enumerate((okeys, tkeys)):
             anchor = None
             for k in side:
@@ -262,6 +265,12 @@ def merge_seq(base, ours, theirs, key, value, make, path, owed, rules):
                     anchor = k
                 else:
                     groups.setdefault(anchor, [[], []])[side_index].append(k)
+                    anchors[side_index][k] = anchor
+        # A key both sides added after different base entries goes after the first of the two
+        # in base order, which neither side chose: its place is owed.
+        for k in okeys:
+            if k in anchors[1] and k in anchors[0] and anchors[0][k] != anchors[1][k]:
+                owed.add(show(path, f"order of {k}"))
         order = []
         seen = set()
 
@@ -951,6 +960,17 @@ def review_cases(expect, merged):
         {"columns": {"a": 1, "c": 1, "d": 1}},
     )
     expect(o == ["columns (order after a)"], f"6: a map's place was not owed: {o}")
+    # 18. Both sides add the same key after different base entries: its place is owed, and
+    # the result is the same in both orders.
+    b = {"m": {"z": 1, "a": 1}}
+    lft = {"m": {"z": 1, "k": 1, "a": 1}}
+    rgt = {"m": {"z": 1, "a": 1, "k": 1}}
+    m1, o = merged("coverage.json", b, lft, rgt)
+    m2, _ = merged("coverage.json", b, rgt, lft)
+    expect(
+        o == ["m (order of k)"] and list(m1["m"]) == list(m2["m"]),
+        f"18: a key added at two places owed {o}: {m1} {m2}",
+    )
     # 7. Both sides change a generated block, on different lines, so merge-file is clean.
     with tempfile.TemporaryDirectory() as tmp:
 
