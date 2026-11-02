@@ -38,6 +38,8 @@ import org.apache.spark.sql.internal.SQLConf;
  *     long lane when both fuse;
  *   <li>{@code l > 500000000000} and {@code i < l} as filters, against a literal and against a
  *     widened int column;
+ *   <li>{@code x < x2} and {@code x > 1.5D} as filters over {@code DOUBLE} columns, whose species
+ *     at 128 bits also has two lanes, so the same masks fall back;
  *   <li>{@code l + l2} as a projection, under ANSI and under legacy arithmetic, which Varka does
  *     not fuse at all, as a control: both arms are the row path;
  *   <li>{@code l ^ l2} as a projection, lanewise with no mask in the loop;
@@ -63,6 +65,10 @@ import org.apache.spark.sql.internal.SQLConf;
  *     'set Test/javaOptions ++= Seq("-XX:MaxVectorSize=16", "-XX:UseAVX=2")' \
  *     "Test/runMain org.apache.spark.sql.execution.benchmark.VarkaTwoLaneLongBenchmark"
  * </pre>
+ * Beside them, {@code two-lane-refusal-off-128bit.txt} and its four-lane control
+ * {@code two-lane-refusal-off-256bit.txt} time every filter fused, the refusal forced off with
+ * {@code -Dspark.sql.codegen.varka.declineTwoLaneConditions=false}, the {@code DOUBLE} filters
+ * among them ({@code m8/VARKA-503.md} 12).
  */
 public class VarkaTwoLaneLongBenchmark extends VarkaSqlBenchmarkBase {
 
@@ -72,14 +78,15 @@ public class VarkaTwoLaneLongBenchmark extends VarkaSqlBenchmarkBase {
   record Section(String title, String query, boolean legacy) {}
 
   /**
-   * The table, {@code varka_two_lane}: dates over about 55 years, longs below 10^12 and ints below
-   * 2*10^9, from {@code xxhash64} of the row id hashed with a seed per column, so the columns are
-   * independent, each comparison selects about half the rows and no sum of two longs overflows;
+   * The table, {@code varka_two_lane}: dates over about 55 years, longs below 10^12, ints below
+   * 2*10^9 and doubles in [0, 3) in steps of 10^-6, from {@code xxhash64} of the row id hashed
+   * with a seed per column, so the columns are independent, each comparison selects about half
+   * the rows and no sum of two longs overflows;
    * then each column again with {@code n} appended, null one row in ten at a different row for
    * each column.
    */
   static String tableSql(int rows) {
-    List<String> names = List.of("d", "d2", "l", "l2", "i");
+    List<String> names = List.of("d", "d2", "l", "l2", "i", "x", "x2");
     List<String> values = new ArrayList<>();
     List<String> columns = new ArrayList<>(names);
     for (int seed = 0; seed < names.size(); seed++) {
@@ -88,6 +95,7 @@ public class VarkaTwoLaneLongBenchmark extends VarkaSqlBenchmarkBase {
       String value = switch (name.charAt(0)) {
         case 'd' -> "date_add(date '2000-01-01', cast(pmod(" + h + ", 20000) as int))";
         case 'i' -> "cast(pmod(" + h + ", 2000000000) as int)";
+        case 'x' -> "cast(pmod(" + h + ", 3000000) as double) / 1000000D";
         default -> "pmod(" + h + ", 1000000000000)";
       };
       values.add(value + " as " + name);
@@ -112,6 +120,10 @@ public class VarkaTwoLaneLongBenchmark extends VarkaSqlBenchmarkBase {
           "SELECT " + l + " FROM varka_two_lane WHERE " + l + " > 500000000000", false));
       out.add(new Section("i < l filter" + density,
           "SELECT " + l + " FROM varka_two_lane WHERE i" + n + " < " + l, false));
+      out.add(new Section("x < x2 filter" + density,
+          "SELECT x" + n + " FROM varka_two_lane WHERE x" + n + " < x2" + n, false));
+      out.add(new Section("x > 1.5D filter" + density,
+          "SELECT x" + n + " FROM varka_two_lane WHERE x" + n + " > 1.5D", false));
       out.add(new Section("(d < d2) AND (l < l2) filter" + density,
           "SELECT d" + n + " FROM varka_two_lane WHERE (d" + n + " < d2" + n + ") AND ("
               + l + " < " + l2 + ")", false));
