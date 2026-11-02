@@ -18,10 +18,11 @@
 package org.apache.spark.sql.execution
 
 import org.apache.spark.sql.{DataFrame, QueryTest, Row, SparkSession}
-import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, AttributeReference, Coalesce, Greatest}
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTestWatchdog
+import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, AttributeReference, Cast, Coalesce, Expression, GreaterThan, Greatest, IsNotNull, Literal}
+import org.apache.spark.sql.catalyst.expressions.codegen.VarkaExpressionCompiler
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaEmitOptions, VarkaHostIsa, VarkaTestWatchdog}
 import org.apache.spark.sql.internal.SQLConf
-import org.apache.spark.sql.types.{DateType, DoubleType, FloatType, IntegerType, StructField, StructType}
+import org.apache.spark.sql.types.{DataType, DateType, DoubleType, FloatType, IntegerType, LongType, ShortType, StructField, StructType}
 
 /**
  * The floating lanes' first nodes, end to end: a `DOUBLE` or `FLOAT` column read from Varka's
@@ -380,7 +381,7 @@ class VarkaFloatingLaneSuite extends QueryTest with VarkaSharedSessions with Var
     val lines = VarkaFusionReport.lines(Seq(
       Alias(Coalesce(Seq(x1, x2)), "a")(),
       Alias(Greatest(Seq(x1, x2)), "b")(),
-      Alias(org.apache.spark.sql.catalyst.expressions.Cast(f1, IntegerType), "c")(),
+      Alias(Cast(f1, IntegerType), "c")(),
       Alias(org.apache.spark.sql.catalyst.expressions.Remainder(x1, x2), "e")(),
       Alias(org.apache.spark.sql.catalyst.expressions.Add(x1, x2), "g")()), output)
     assert(lines.size == 5, lines)
@@ -399,6 +400,47 @@ class VarkaFloatingLaneSuite extends QueryTest with VarkaSharedSessions with Var
       checkFusedArith("SELECT x2 + CAST(f2 AS DOUBLE) AS b, CAST(f1 AS DOUBLE) AS a, "
         + "CAST(x1 AS FLOAT) AS c, CAST(f1 AS DOUBLE) / 2.0D AS e FROM $t", ansi)
     }
+  }
+
+  private val l = AttributeReference("l", LongType)()
+  private val y = AttributeReference("y", ShortType)()
+
+  /** Why `CAST(child AS to)` alone, over `l` and `y`, declines, or None where it fuses. */
+  private def castDecline(
+      child: Expression, to: DataType, options: VarkaEmitOptions): Option[String] = {
+    val declines = VarkaExpressionCompiler.declines(Seq(Alias(Cast(child, to), "c")()),
+      Seq(l, y), options)
+    Option(declines.get(0)).map(_.toString)
+  }
+
+  test("on a planted host without AVX512DQ a bigint cast to DOUBLE declines, and a bigint " +
+      "condition as a DOUBLE or FLOAT fuses through the int lane") {
+    // An AVX-512 host without DQ, which no AMD host makes the JVM report, beside one with it.
+    val knights = new VarkaHostIsa.Reading("amd64",
+      "avx, avx2, avx512f, avx512cd, avx512er, avx512pf", null)
+    val withDq = new VarkaHostIsa.Reading("amd64", "avx, avx2, avx512f, avx512dq", null)
+    val conf = new SQLConf
+    conf.setConf(SQLConf.VARKA_EMIT_USE_AVX, VarkaSessionEmit.USE_AVX_FROM_HOST)
+    def options(host: VarkaHostIsa.Reading): VarkaEmitOptions =
+      VarkaColumnarToRowExec.emitOptions(VarkaSessionEmit.of(conf, host))
+    assert(options(knights).convertsFallBack())
+    assert(!options(withDq).convertsFallBack())
+    val positive = GreaterThan(l, Literal(0L))
+    val refused = castDecline(l, DoubleType, options(knights))
+    assert(refused.exists(_.contains("AVX512DQ")), refused)
+    for (to <- Seq(DoubleType, FloatType)) {
+      assert(castDecline(positive, to, options(knights)).isEmpty, to)
+      assert(castDecline(l, to, options(withDq)).isEmpty, to)
+    }
+  }
+
+  test("a smallint read for its validity alone declines as a DOUBLE and fuses as a FLOAT") {
+    // The double kernel has no narrow load, so the plan declines it; the float one drives at the
+    // int lane, which widens the column.
+    val base = VarkaEmitOptions.DEFAULTS
+    val double = castDecline(IsNotNull(y), DoubleType, base)
+    assert(double.exists(_.contains("DOUBLE kernel")), double)
+    assert(castDecline(IsNotNull(y), FloatType, base).isEmpty)
   }
 
   // The divisors are literals: the fixtures' zero divisors raise under ANSI on both sides. The

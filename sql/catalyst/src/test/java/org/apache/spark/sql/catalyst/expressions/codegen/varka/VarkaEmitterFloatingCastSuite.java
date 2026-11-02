@@ -388,6 +388,46 @@ public final class VarkaEmitterFloatingCastSuite {
         LaneType.FLOAT)), 1, new int[] {3}, new long[0], cells(INTS));
   }
 
+  @Test
+  @DisplayName("a bigint condition as a value converts from the int lane, so it fuses where "
+      + "convertsFallBack holds")
+  void longConditionThroughTheIntLane() {
+    // CAST(l > 5 AS DOUBLE) as the compiler builds it: the long lane's one or zero narrowed to
+    // the int lane, then I2D or I2F, never the L2D or L2F a host without AVX512DQ refuses.
+    var cond = new Compare(CompareOp.GT, L, new LiteralSlot(0, LaneType.LONG));
+    var avx2 = VarkaMatrixRuns.BASE.withUseAVX(2);
+    assertTrue(avx2.convertsFallBack());
+    for (LaneType target : List.of(LaneType.DOUBLE, LaneType.FLOAT)) {
+      var root = convert(new NarrowLane(new CondValue(cond, LaneType.LONG), LaneType.INT),
+          target);
+      assertEquals(Optional.empty(), VarkaKernelPlan.refusalOf(List.of(root), avx2));
+      check("cast(l > 5 AS " + target + ")", List.of(root), 1, new int[0], new long[] {5L},
+          cells(LONGS));
+    }
+    // The form it replaces, the long one or zero converted directly, is the refused one.
+    assertTrue(VarkaKernelPlan.refusalOf(List.of(convert(new CondValue(cond, LaneType.LONG),
+        LaneType.DOUBLE)), avx2).isPresent());
+  }
+
+  @Test
+  @DisplayName("a narrow column read for its validity alone declines under a floating drive, "
+      + "where the long drive serves it")
+  void validityOnlyNarrowUnderFloating() {
+    // CAST(y IS NOT NULL AS DOUBLE): the test lifted to the int lane, its one or zero converted.
+    // The double emission admits no narrow node, so the plan declines it rather than the
+    // emitter throwing; the float twin drives at the int lane, which widens the column.
+    var y = new ColumnRef(0, LaneType.SHORT);
+    var known = new CondValue(new VarkaVectorIR.IsNotNull(new WidenLane(y, LaneType.INT)),
+        LaneType.INT);
+    Optional<String> refusal = VarkaKernelPlan.refusalOf(List.of(convert(known,
+        LaneType.DOUBLE)), VarkaMatrixRuns.BASE);
+    assertTrue(refusal.isPresent() && refusal.get().contains("DOUBLE kernel"),
+        refusal.toString());
+    assertEquals(LaneType.INT,
+        VarkaKernelPlan.driveOf(List.of(convert(known, LaneType.FLOAT)), VarkaMatrixRuns.BASE)
+            .orElseThrow());
+  }
+
   // ---------------------------------------------------------------------------------------------
   // The sweeps of 3.1: every 32-bit source
   // ---------------------------------------------------------------------------------------------

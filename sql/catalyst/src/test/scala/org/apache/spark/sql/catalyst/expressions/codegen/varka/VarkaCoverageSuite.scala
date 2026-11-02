@@ -854,7 +854,7 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
       Row("CAST(i AS DOUBLE)", "exact: an int's 32 bits fit the double's 53"),
       Row("CAST(i AS FLOAT)", "rounded once to nearest, ties to even, as the JVM converts"),
       Row("try_cast(i AS FLOAT)", "the same rounding: a cast to a floating type never fails"),
-      Row("CAST(l AS DOUBLE)", "rounded once; on a host without AVX512DQ it declines"),
+      Row("CAST(l AS DOUBLE)", "rounded once; it declines at an emit level below AVX-512"),
       Row("CAST(l AS FLOAT)", "rounded once from the exact value, never twice through a double"),
       Row("CAST(y1 AS FLOAT)", "the byte widened at its load, then converted, exact"),
       Row("CAST(s1 AS FLOAT)", "the short twin"),

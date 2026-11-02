@@ -145,8 +145,9 @@ final class Slots {
    * In a kernel of several lanes, each other lane's literal locals and their hoisted broadcasts,
    * beside {@link #scalarArg} and {@link #broadcastSlot}, which are the drive's; empty in a
    * kernel of one lane. A lane's slots index the literal table of its width, the int table for a
-   * 32-bit lane and the long table for a 64-bit one, so the int and float lanes of one kernel
-   * may each hoist the same slot, read as their own type.
+   * 32-bit lane and the long table for a 64-bit one. Two lanes of one width share that table,
+   * so each lane has a local and a broadcast only for the slots its own nodes read, and -1 for
+   * the slots of the other lane.
    */
   final Map<Lane, int[]> otherScalarArg = new java.util.LinkedHashMap<>();
   final Map<Lane, int[]> otherBroadcastSlot = new java.util.LinkedHashMap<>();
@@ -681,11 +682,12 @@ final class Slots {
     s.species = slot++;
     s.lanes = slot++;
     s.loopBound = slot++;
-    // One literal table per lane: the driving lane's here, and in a kernel that converts between
-    // lanes the int table's after the broadcasts below. A single-lane kernel's one table is
-    // `numLiterals` long, so its locals are numbered as a single-lane kernel's always are.
-    // The other lanes in the enum's order, so that a long kernel of int values, the one kind of
-    // several lanes there was before the floating conversions, numbers its locals as it did.
+    // The literal locals: the drive lane's here, and in a kernel of several lanes each other
+    // lane's after the drive's broadcasts below, in the enum's order, so that the numbering
+    // follows from which lanes a kernel holds and not from the order the plan met them. A lane's
+    // slots index the table of its width, the int table at 32 bits and the long table at 64,
+    // which two lanes of one width share, so in such a kernel each lane plans locals only for the
+    // slots its own nodes read. A single-lane kernel's one table is `numLiterals` long.
     List<Lane> others = new ArrayList<>();
     for (VarkaVectorIR.LaneType type : VarkaVectorIR.LaneType.values()) {
       if (analysis.otherLanes().contains(type)) {
@@ -695,7 +697,7 @@ final class Slots {
     boolean mixed = !others.isEmpty();
     int driveLiterals = mixed ? analysis.literalsOf(analysis.lane) : numLiterals;
     s.scalarArg = new int[driveLiterals];
-    java.util.BitSet usedLiterals = perGroup ? new java.util.BitSet(numLiterals) : null;
+    java.util.BitSet usedLiterals = perGroup || mixed ? new java.util.BitSet(numLiterals) : null;
     Map<VarkaVectorIR.LaneType, java.util.BitSet> usedOtherLiterals = new HashMap<>();
     if (usedLiterals != null) {
       for (VarkaVectorIR node : body) {
@@ -733,7 +735,9 @@ final class Slots {
     s.broadcastSlot = hoist ? new int[driveLiterals] : null;
     if (s.broadcastSlot != null) {
       for (int j = 0; j < driveLiterals; j++) {
-        s.broadcastSlot[j] = slot++;
+        // In a kernel of several lanes a slot the drive does not read gets no vector local; a
+        // single-lane kernel numbers one for every slot.
+        s.broadcastSlot[j] = mixed && s.scalarArg[j] < 0 ? -1 : slot++;
       }
     }
     for (Lane other : others) {
@@ -756,7 +760,7 @@ final class Slots {
       if (hoist) {
         int[] broadcasts = new int[otherLiterals];
         for (int j = 0; j < otherLiterals; j++) {
-          broadcasts[j] = slot++;
+          broadcasts[j] = scalarArgs[j] < 0 ? -1 : slot++;
         }
         s.otherBroadcastSlot.put(other, broadcasts);
       }

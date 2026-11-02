@@ -593,6 +593,13 @@ final class VarkaVectorTemplateWarmup {
     private static final long DOUBLE_OFFSET = 2048;
     private static final long FLOAT_OFFSET = 3072;
 
+    /**
+     * Whether this JVM's {@code L2F} and {@code L2D} fall back to Java, read from HotSpot's
+     * feature list ({@link VarkaHostIsa}): the conversions the kernel plan refuses at a level
+     * where {@code convertsFallBack} holds.
+     */
+    private static final boolean CONVERTS_FALL_BACK = VarkaHostIsa.conversionsFallBack();
+
     private Rounds() {
     }
 
@@ -878,7 +885,7 @@ final class VarkaVectorTemplateWarmup {
             + VectorMask.fromLong(s, 0x5L).and(inRange).toLong()
             + a.lanewise(VectorOperators.SSUB, b).lane(0)
             + a.compare(VectorOperators.GT, (byte) 0).toLong()
-            + (inRange.anyTrue() ? 1 : 0) + inRange.and(tail).toLong();
+            + (inRange.anyTrue() ? 1 : 0) + inRange.and(tail).toLong() + m.cast(s).toLong();
         a.intoMemorySegment(seg, 1024, ByteOrder.LITTLE_ENDIAN);
         a.intoMemorySegment(seg, 1088, ByteOrder.LITTLE_ENDIAN, tail);
       }
@@ -910,7 +917,7 @@ final class VarkaVectorTemplateWarmup {
             + VectorMask.fromLong(s, 0x5L).and(inRange).toLong()
             + a.lanewise(VectorOperators.SSUB, b).lane(0)
             + a.compare(VectorOperators.GT, (short) 0).toLong()
-            + (inRange.anyTrue() ? 1 : 0) + inRange.and(tail).toLong();
+            + (inRange.anyTrue() ? 1 : 0) + inRange.and(tail).toLong() + m.cast(s).toLong();
         a.intoMemorySegment(seg, 1024, ByteOrder.LITTLE_ENDIAN);
         a.intoMemorySegment(seg, 1088, ByteOrder.LITTLE_ENDIAN, tail);
       }
@@ -954,7 +961,8 @@ final class VarkaVectorTemplateWarmup {
         acc += a.blend(b, m).lane(0) + a.lanewise(VectorOperators.SADD, b).lane(0)
             + a.lanewise(VectorOperators.NEG).lane(0) + a.lanewise(VectorOperators.ABS).lane(0)
             + a.compare(VectorOperators.GT, (byte) 0).toLong()
-            + m.and(tail).toLong() + m.or(tail).toLong() + m.not().toLong();
+            + m.and(tail).toLong() + m.or(tail).toLong() + m.not().toLong()
+            + m.cast(w).toLong();
         for (int part = 0; part < parts; part++) {
           IntVector widened = (IntVector) a.convertShape(VectorOperators.B2I, is, part);
           ByteVector back = (ByteVector) widened.convertShape(VectorOperators.I2B, w, 0);
@@ -983,7 +991,8 @@ final class VarkaVectorTemplateWarmup {
         acc += a.blend(b, m).lane(0) + a.lanewise(VectorOperators.SADD, b).lane(0)
             + a.lanewise(VectorOperators.NEG).lane(0) + a.lanewise(VectorOperators.ABS).lane(0)
             + a.compare(VectorOperators.GT, (short) 0).toLong()
-            + m.and(tail).toLong() + m.or(tail).toLong() + m.not().toLong();
+            + m.and(tail).toLong() + m.or(tail).toLong() + m.not().toLong()
+            + m.cast(w).toLong();
         for (int part = 0; part < parts; part++) {
           IntVector widened = (IntVector) a.convertShape(VectorOperators.S2I, is, part);
           ShortVector back = (ShortVector) widened.convertShape(VectorOperators.I2S, w, 0);
@@ -1010,15 +1019,26 @@ final class VarkaVectorTemplateWarmup {
             + (long) i.convertShape(VectorOperators.I2D, ds, 0).reinterpretAsDoubles().lane(0)
             + d.convertShape(VectorOperators.D2I, is, 0).reinterpretAsInts().lane(0)
             + l.reinterpretAsDoubles().reinterpretAsLongs().lane(0);
-        // The conversions to a floating lane and between the two (VARKA-343), and the mask
-        // crossing between the two lanes of one width, a double mask cast to the long species.
+        // The conversions to a floating lane and between the two (VARKA-343).
         FloatVector f = (FloatVector) i.convertShape(VectorOperators.I2F, fs, 0);
         acc += (long) (f.lane(0)
-            + ((FloatVector) l.convertShape(VectorOperators.L2F, fs, 0)).lane(0)
-            + ((DoubleVector) l.convertShape(VectorOperators.L2D, ds, 0)).lane(0)
             + ((DoubleVector) f.convertShape(VectorOperators.F2D, ds, 0)).lane(0)
-            + ((FloatVector) d.convertShape(VectorOperators.D2F, fs, 0)).lane(0))
-            + d.compare(VectorOperators.GT, 0.0).cast(ls).toLong();
+            + ((FloatVector) d.convertShape(VectorOperators.D2F, fs, 0)).lane(0));
+        // A bigint's two, only where they are intrinsic: on a host without AVX512DQ they are the
+        // Vector API's Java loop, which a round would only compile, and a session that takes its
+        // level from that host refuses them in the kernel plan.
+        if (!CONVERTS_FALL_BACK) {
+          acc += (long) (((FloatVector) l.convertShape(VectorOperators.L2F, fs, 0)).lane(0)
+              + ((DoubleVector) l.convertShape(VectorOperators.L2D, ds, 0)).lane(0));
+        }
+        // The mask crossings between the two lanes of one width, each way the emitter casts: the
+        // drive's mask to the other lane's species and back (VarkaVectorWalk.emitMaskToLane,
+        // emitToDrivingLane), at both widths. The narrow blocks cast their masks too: a kernel
+        // reading a narrow column holds the call, and its bytes do not say which mask receives it.
+        acc += l.compare(VectorOperators.GT, 0L).cast(ds).toLong()
+            + d.compare(VectorOperators.GT, 0.0).cast(ls).toLong()
+            + i.compare(VectorOperators.GT, 0).cast(fs).toLong()
+            + f.compare(VectorOperators.GT, 0.0f).cast(is).toLong();
       }
       return acc;
     }

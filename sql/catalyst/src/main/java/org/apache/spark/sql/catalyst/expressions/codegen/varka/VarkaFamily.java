@@ -77,8 +77,11 @@ public enum VarkaFamily {
       + " over double ones, a zero divisor null under LEGACY and TRY and raised by the row engine"
       + " under ANSI"),
   /** {@code VarkaFloatingCastCompiler}. */
-  FLOATING_CAST("floating casts", "floatingCast", "the casts to float and double from tinyint,"
-      + " smallint, int, bigint and boolean, and between float and double");
+  FLOATING_CAST("floating casts", "floatingCast", "the casts to float from tinyint, smallint,"
+      + " int, bigint and boolean, to double from int, bigint and boolean, and between float and"
+      + " double; tinyint and smallint to double are left to the row engine, as is bigint to"
+      + " either at an emit level below AVX-512, which a session asking for the host's level"
+      + " gets on a CPU without AVX512DQ");
 
   /** The prefix every family's switch shares. */
   public static final String SWITCH_PREFIX = "spark.sql.codegen.varka.family.";

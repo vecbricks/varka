@@ -309,6 +309,16 @@ public final class VarkaKernelPlan {
       if (drive.isNarrow()) {
         continue;
       }
+      if (drive.isFloating()) {
+        // A floating kernel reads a narrow value only through its int conversion, and a tree
+        // holding one drives at the int lane unless it holds a 64-bit value: the narrow load at
+        // 64 bits is unbuilt (`VARKA-343.md` 2.2), so CAST(y AS DOUBLE) declines here. So does a
+        // narrow column read for its validity alone, CAST(y IS NOT NULL AS DOUBLE): its word is
+        // marked validity-only at the long drive alone, and a floating emission admits no narrow
+        // node, so the plan declines what the emitter would otherwise reject.
+        return Optional.of(new Refusal(Kind.NARROW,
+            "a narrow value under a " + drive + " kernel has no lowering (row 343)"));
+      }
       if (!VarkaVectorIR.needsNarrowSpecies(root)) {
         // A narrow column whose only use is a validity word - `y1 IS NOT NULL`, or the same
         // test lifted to a bigint kernel's lane - reads no value and needs no narrow species,
@@ -321,13 +331,6 @@ public final class VarkaKernelPlan {
         // rather than failing at emit.
         return Optional.of(new Refusal(Kind.NARROW,
             "a narrow value under a bigint kernel has no lowering"));
-      }
-      if (drive.isFloating()) {
-        // A floating kernel reads a narrow value only through its int conversion, and a tree
-        // holding one drives at the int lane unless it holds a 64-bit value: the narrow load at
-        // 64 bits is unbuilt (`VARKA-343.md` 2.2), so CAST(y AS DOUBLE) declines here.
-        return Optional.of(new Refusal(Kind.NARROW,
-            "a narrow value under a " + drive + " kernel has no lowering (row 343)"));
       }
       int intLanes = Lane.emitLanes(options, Lane.INT);
       if (intLanes == 0) {
@@ -345,12 +348,18 @@ public final class VarkaKernelPlan {
   }
 
   /**
-   * Why a conversion of these roots has no intrinsic on the host the options name: a
+   * Why a conversion of these roots has no intrinsic at the level the options name: a
    * {@code BIGINT} to {@code FLOAT} or {@code DOUBLE} where
    * {@link VarkaEmitOptions#convertsFallBack()} holds, since x86 has no {@code L2F} or
    * {@code L2D} rule without AVX512DQ and the conversion would run as the Vector API's Java loop.
    * Its AVX2 forms are row 343's second part; until then the entry declines and the row engine
    * answers it.
+   *
+   * <p>The test reads the options' {@code UseAVX} level and not the CPU: the level is part of
+   * the shape key, and a plan that read the host would key one shape two ways. The feature
+   * reaches it through the level: a session that asks for the host's level resolves a CPU whose
+   * HotSpot feature list lacks AVX512DQ to level 2, an AVX-512 one without DQ included
+   * ({@code VarkaSessionEmit.resolve}, {@link VarkaHostIsa.Reading#conversionsFallBack()}).
    */
   private static Optional<Refusal> conversionRefusal(List<VarkaVectorIR> roots,
       VarkaEmitOptions options) {
@@ -366,7 +375,7 @@ public final class VarkaKernelPlan {
       }
       if (node instanceof ConvertLane c && c.child().laneType() == LaneType.LONG) {
         return Optional.of(new Refusal(Kind.CONVERSION, "a BIGINT conversion to " + c.target()
-            + " on a host without AVX512DQ, where it is not intrinsic (row 343)"));
+            + " at an emit level without AVX512DQ, where it is not intrinsic (row 343)"));
       }
       for (VarkaVectorIR child : VarkaVectorIR.childrenOf(node)) {
         todo.push(child);

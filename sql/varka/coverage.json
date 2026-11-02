@@ -4517,7 +4517,7 @@
     "operands" : [ "Cast:bigint" ],
     "switches" : [ "spark.sql.codegen.varka.family.floatingCast.enabled" ],
     "domain" : "",
-    "note" : "rounded once; on a host without AVX512DQ it declines",
+    "note" : "rounded once; it declines at an emit level below AVX-512",
     "verified" : "differential"
   }, {
     "sql" : "CAST(l AS FLOAT)",

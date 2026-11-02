@@ -1294,8 +1294,9 @@ final class Analysis {
 
   /**
    * The lane count baked for {@code of}'s species, or 0 where none is: {@link #lanes} for the
-   * driving lane, and for the int lane of a kernel driven at the long one the int species of the
-   * same width, twice the long lanes.
+   * driving lane and for the other lane of its width (the double lane of a long kernel, the float
+   * lane of an int one), and for a 32-bit lane of a 64-bit kernel the species of the same width,
+   * twice the drive's lanes. The plan's.
    */
   int lanesOf(Lane of) {
     return plan.lanesOf(of);
@@ -1322,9 +1323,11 @@ final class Analysis {
   }
 
   /**
-   * How many literal slots {@code of}'s table has: {@link #numLiterals} in a single-lane kernel,
-   * whose one table is its lane's, and in a kernel that converts between lanes one past the
-   * highest slot its nodes read in that table, since each lane indexes its own.
+   * How far {@code of}'s literal slots reach: {@link #numLiterals} in a single-lane kernel, whose
+   * one table is its lane's, and in a kernel of several lanes one past the highest slot that
+   * {@code of}'s nodes read. A lane indexes the table of its width, the int table at 32 bits and
+   * the long table at 64, which it shares with the other lane of that width, so a slot below the
+   * count may be the other lane's; {@code Slots} plans locals for the slots the lane reads.
    */
   int literalsOf(Lane of) {
     if (otherLanes().isEmpty()) {
@@ -1576,17 +1579,18 @@ final class Analysis {
     // The IR's own constructors make any other mix unbuildable; this is what catches one built
     // another way.
     // The two kinds meet through a ConvertLane, by width (`VARKA-343.md` 2.2): a 32-bit
-    // emission holds the int and float lanes, the narrow ones only at the int drive; a 64-bit
-    // one holds every lane but a narrow value, and a double emission no long node, since a tree
-    // holding one drives at the long lane. A float emission holds its own lane alone: a tree with
-    // an int node drives at the int lane.
+    // emission holds the int and float lanes, the narrow ones only at the int drive; a long one
+    // holds every lane but a narrow value, and a double one neither a narrow value nor a long
+    // node, since a tree holding one drives at the long lane. A float emission holds its own lane
+    // alone: a tree with an int node drives at the int lane. Neither floating emission holds a
+    // validity-only narrow column, which the plan declines under a floating drive
+    // (`VarkaKernelPlan.narrowRefusal`), so the two agree.
     VarkaVectorIR.LaneType type = node.laneType();
     boolean fits = switch (lane) {
       case BYTE, SHORT, FLOAT -> type == lane.laneType;
       case INT -> type.bits() <= Integer.SIZE;
       case LONG -> !type.isNarrow() || validityOnlyNarrow.contains(node);
-      case DOUBLE -> (!type.isNarrow() || validityOnlyNarrow.contains(node))
-          && type != VarkaVectorIR.LaneType.LONG;
+      case DOUBLE -> !type.isNarrow() && type != VarkaVectorIR.LaneType.LONG;
     };
     if (!fits) {
       throw VarkaErrors.illegalArgument("a " + node.laneType() + " node in a "

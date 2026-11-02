@@ -198,7 +198,7 @@ final class VarkaVectorWalk {
         cb.getstatic(BYTE_ORDER, "LITTLE_ENDIAN", BYTE_ORDER);
         if (s.epilogue) {
           cb.aload(s.epilogueMask());
-          emitMaskToLane(cb, lane, analysis, s);
+          emitMaskToLane(cb, lane, analysis);
           cb.invokestatic(lane.vector, "fromMemorySegment",
               lane.fromMemorySegmentMasked);
         } else {
@@ -558,13 +558,14 @@ final class VarkaVectorWalk {
   /**
    * {@code [drive mask] -> [mask]} at {@code lane}, which has the drive's lane count: the
    * epilogue's bounds mask, or any mask of the drive's species, as one of {@code lane}'s species
-   * by {@code VectorMask.cast}. Nothing at the drive's own lane.
+   * by {@code VectorMask.cast}, whose target is the species constant for the reason a
+   * conversion's is ({@link #emitConstantSpecies}). Nothing at the drive's own lane.
    */
-  static void emitMaskToLane(CodeBuilder cb, Lane lane, Analysis analysis, Slots s) {
+  static void emitMaskToLane(CodeBuilder cb, Lane lane, Analysis analysis) {
     if (lane == analysis.lane) {
       return;
     }
-    cb.aload(s.species(lane));
+    emitConstantSpecies(cb, lane, analysis);
     cb.invokevirtual(VECTOR_MASK, "cast", MASK_CAST);
   }
 
@@ -1501,7 +1502,8 @@ final class VarkaVectorWalk {
       // A mask of the drive's lane count - a double one in a long kernel, a float one in an int
       // kernel, or the reverse - crosses by `VectorMask.cast`: a `fromLong` of its `toLong` is
       // the pair JDK 25's C2 miscompiles at one lane count (VARKA-396, `VARKA-341.md` 2.4).
-      cb.aload(s.species);
+      // The target is the drive's species constant, as emitMaskToLane's is.
+      emitConstantSpecies(cb, analysis.lane, analysis);
       cb.invokevirtual(VECTOR_MASK, "cast", MASK_CAST);
       return;
     }

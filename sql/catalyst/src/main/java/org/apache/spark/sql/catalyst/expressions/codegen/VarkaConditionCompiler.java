@@ -697,12 +697,10 @@ final class VarkaConditionCompiler {
    */
   private static Optional<Cond> nonZero(Cast c, VarkaSlotTable inputs, VarkaSlotTable literals,
       DeclineSink sink) {
-    return VarkaNodeCompiler.compileNode(c.child(), inputs, literals, sink).map(x -> {
-      VarkaVectorIR zero = x.laneType() == LaneType.DOUBLE
-          ? VarkaNodeCompiler.doubleSlot(0.0, sink)
-          : VarkaNodeCompiler.slot(Float.floatToRawIntBits(0.0f), LaneType.FLOAT, literals);
-      return new VarkaVectorIR.Not(new Compare(CompareOp.EQ, x, zero));
-    });
+    // Positive zero is the all-zero bit pattern at either width.
+    return VarkaNodeCompiler.compileNode(c.child(), inputs, literals, sink).map(x ->
+        new VarkaVectorIR.Not(new Compare(CompareOp.EQ, x,
+            VarkaNodeCompiler.bitsSlot(0L, x.laneType(), literals, sink))));
   }
 
   /**

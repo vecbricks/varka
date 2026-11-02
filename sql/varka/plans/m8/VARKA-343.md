@@ -512,6 +512,52 @@ it was first listed as fusing, which the boolean fuse check passed; under the pe
 class master gained (#1258) its plan holds no Varka node, since `coalesce(CAST(x AS BOOLEAN),
 false)` does not compile as a condition, though `CAST(x AS BOOLEAN)` alone does.
 
+*Corrections after the review (2 November 2026):*
+
+- A boolean whose condition compares longs converted its long one or zero through `L2D` or
+  `L2F`, so `CAST(l > 0 AS DOUBLE)` declined wherever `convertsFallBack()` holds. The one or zero
+  is now narrowed to the int lane (`NarrowLane`, exact) and converted by `I2D` or `I2F`, which
+  are intrinsic on every x86 host. This corrects the booleans bullet above.
+- The two lanes of one width share a literal table (the int table for `INT` and `FLOAT`, the long
+  one for `LONG` and `DOUBLE`), and `Slots` planned a local and a broadcast for every slot below
+  a lane's highest, the other lane's included. In a kernel of several lanes each lane now plans
+  only the slots its own nodes read. This moves two shapes that predate the row, both long
+  kernels of int values: the dense loops of `(i = 5 AND l = l2) IS NOT NULL` and
+  `(i = 5) IS NULL OR l = l2`, whose dense body skips the condition under the null test and so
+  never reads the literal, lose the broadcast local reserved for it. That corrects the width
+  rules bullet's "no committed shape's bytes moved" for those two; no single-lane shape moved.
+- A narrow column read for its validity alone under a `DOUBLE` drive, `CAST(y IS NOT NULL AS
+  DOUBLE)`, passed the plan and was rejected by `Analysis`, whose fit rule named the
+  validity-only exception for the double emission though only the long drive marks one. The
+  plan now declines any narrow value under a floating drive, and the double emission admits no
+  narrow node, as the float one does not; the `FLOAT` twin drives at the int lane and fuses.
+- The same-count mask crossings name the target species by its static field, as a conversion's
+  target is, not the species local.
+- The warm-up skips `L2F` and `L2D` where the host's conversions fall back, and warms the four
+  mask casts the emitter makes, both ways at both widths, where it warmed one (the warm-up
+  bullet above). It also casts the narrow blocks' masks: `VarkaWarmupReachSuite` counts a mask
+  cast in a kernel that reads a narrow column against the narrow masks too, since the bytes do
+  not name the receiver, and failed on `CAST(y1 AS FLOAT)` and `CAST(s1 AS FLOAT)` without it.
+  A session at an explicit level 3 on a CPU without AVX512DQ still emits `L2D` and `L2F`, which
+  then run unwarmed; such a level is a misconfiguration the session does not correct.
+- The family's description said `TINYINT` and `SMALLINT` to `DOUBLE` fuse; they decline (above),
+  and so does a `BIGINT` at a level below AVX-512.
+- The review asked for `convertsFallBack()` to test AVX512DQ as well as the level. It stays a
+  function of the options' level alone, by choice: the level is part of the shape key, and a
+  predicate that read the CPU would key one shape two ways on two machines and make the committed
+  bytes describe one host. AVX512DQ reaches it through the level instead: a session asking for
+  the host's level resolves a CPU whose feature list lacks DQ, an AVX-512 one included, to level
+  2 (`VarkaSessionEmit.resolve`). `VarkaFloatingLaneSuite` now drives that with a planted
+  AVX-512 host without DQ and checks the cast declines there and fuses with DQ, and the
+  conversion refusal's doc says where the feature enters.
+
+*Open for 343b:* `coalesce(CAST(x AS BOOLEAN), false)` does not compile as a condition. Row
+331's `CondIf` fuses `coalesce` over boolean columns, but a cast to `BOOLEAN` is not taken as a
+condition operand there, though `CAST(x AS BOOLEAN)` alone compiles as one. The floating cast baseline lists it as unfused in its
+section "DOUBLE filter coalesce(CAST(x AS BOOLEAN), false)", at each density. Taking the cast as
+a condition operand is 343b's work, beside the root-level half of the crossing (the same-count
+mask crossing bullet above), not a row of its own.
+
 The prediction of 4.1 for the new shapes and 4.3's timings wait for the measurement against the
 baseline (step 8); none was run here.
 

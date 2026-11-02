@@ -1416,7 +1416,7 @@ final class VarkaBodyEmitter {
         cb.getstatic(BYTE_ORDER, "LITTLE_ENDIAN", BYTE_ORDER);
         if (s.epilogue) {
           cb.aload(s.epilogueMask());
-          VarkaVectorWalk.emitMaskToLane(cb, at, analysis, s);
+          VarkaVectorWalk.emitMaskToLane(cb, at, analysis);
           cb.invokevirtual(at.vector, "intoMemorySegment", at.intoMemorySegmentMasked);
         } else {
           cb.invokevirtual(at.vector, "intoMemorySegment", at.intoMemorySegmentDense);

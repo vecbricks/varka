@@ -26,6 +26,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Con
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.CondValue;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ConvertLane;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LaneType;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.NarrowLane;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WidenLane;
 import org.apache.spark.sql.types.DataType;
 import org.apache.spark.sql.types.DataTypes;
@@ -40,14 +41,17 @@ import org.apache.spark.sql.types.DataTypes;
  * raises, so TRY's answer is LEGACY's and ANSI's ({@code Cast.castToFloatCode},
  * {@code castToDoubleCode}). So each is one {@link ConvertLane}, exact by construction: the vector
  * conversion is the JLS's on every lane. A narrow source is the {@code INT} value its load widens
- * to, and a boolean is the {@code INT} (or {@code BIGINT}) one or zero its condition gives as a
- * {@link CondValue}, then converted, which is exact.
+ * to, and a boolean is the {@code INT} one or zero its condition gives as a {@link CondValue},
+ * narrowed from the long lane where its condition compares longs, then converted, which is exact.
  *
  * <p>The conversions from a floating type, the {@code DATE} pairs (always null under LEGACY, row
  * 333's typed null leaf) and every other source decline by {@link VarkaNodeCompiler}'s
- * {@code floatingDecline}, which admits exactly the pairs {@link #admits} names. And on a host
- * without AVX512DQ the two conversions of a {@code BIGINT}, {@code L2F} and {@code L2D}, have no
- * intrinsic, so the kernel plan refuses them until their AVX2 forms land (row 343's second part).
+ * {@code floatingDecline}, which admits exactly the pairs {@link #admits} names. Two admitted
+ * pairs still decline in the kernel plan. A {@code TINYINT} or {@code SMALLINT} to
+ * {@code DOUBLE} always does: its tree drives at 64 bits, where the narrow load is unbuilt. And a
+ * {@code BIGINT} to either type does on a level where {@code convertsFallBack} holds, which a
+ * session resolves from a host without AVX512DQ: {@code L2F} and {@code L2D} have no intrinsic
+ * there, so the plan refuses them until their AVX2 forms land (row 343's second part).
  */
 final class VarkaFloatingCastCompiler {
 
@@ -121,10 +125,13 @@ final class VarkaFloatingCastCompiler {
   }
 
   /**
-   * A boolean as the integral one or zero of its condition, Spark's {@code b ? 1 : 0} with a null
+   * A boolean as the int one or zero of its condition, Spark's {@code b ? 1 : 0} with a null
    * where the condition is unknown: a {@link CondValue} at the condition's lane, the int lane
-   * for a narrow condition. A condition on a floating lane has no integral value here and
-   * declines: its conversion would cross the kinds twice.
+   * for a narrow condition, and on the long lane narrowed to the int one, exactly. So every
+   * boolean converts through {@code I2F} or {@code I2D}, which are intrinsic on every x86 host,
+   * and never through {@code L2F} or {@code L2D}, which the kernel plan refuses where
+   * {@code convertsFallBack} holds. A condition on a floating lane has no integral value here
+   * and declines: its conversion would cross the kinds twice.
    */
   private static Optional<VarkaVectorIR> booleanValue(
       Cast c, VarkaSlotTable inputs, VarkaSlotTable literals, DeclineSink sink) {
@@ -136,6 +143,8 @@ final class VarkaFloatingCastCompiler {
     if (k.laneType().isFloating()) {
       return sink.decline("a condition on the " + k.laneType() + " lane as a floating value", c);
     }
-    return Optional.of(new CondValue(k, k.laneType()));
+    CondValue value = new CondValue(k, k.laneType());
+    return Optional.of(
+        k.laneType() == LaneType.LONG ? new NarrowLane(value, LaneType.INT) : value);
   }
 }
