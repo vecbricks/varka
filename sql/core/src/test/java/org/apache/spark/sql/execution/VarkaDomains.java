@@ -43,6 +43,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.PartialVarkaProjection;
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaConjunctSpec;
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaExpressionCompiler;
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaInputBound;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaAdmission;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaChrono;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaGuardSpecs;
@@ -512,7 +513,8 @@ public final class VarkaDomains {
     CompiledVarkaProjection kernel;
     if (form.condition() != null) {
       Optional<CompiledVarkaPredicate> p =
-          VarkaExpressionCompiler.compilePredicate(form.condition(), columns, options);
+          VarkaExpressionCompiler.compilePredicate(form.condition(), columns, options,
+              VarkaAdmission.NO_HOST_REFUSAL);
       // A residual conjunct is the row FilterExec's above the Varka node, outside any verdict.
       if (p.isEmpty() || !p.get().specs().stream().allMatch(VarkaConjunctSpec::fused)) {
         findings.add(where + ": the condition does not compile to one kernel whole: "

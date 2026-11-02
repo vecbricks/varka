@@ -114,7 +114,8 @@ public final class VarkaDecimalValueSuite {
         VarkaSqlResolve.column("b", new DecimalType(18, 1)));
     Expression e = VarkaSqlResolve.parse("a < b", seq(columns));
     List<VarkaConjunctSpec> specs =
-        VarkaExpressionCompiler.explainPredicate(e, seq(columns), VarkaMatrixRuns.BASE);
+        VarkaExpressionCompiler.explainPredicate(e, seq(columns), VarkaMatrixRuns.BASE,
+            VarkaAdmission.NO_HOST_REFUSAL);
     assertEquals(1, specs.size());
     String reason = specs.get(0).decline().map(d -> d.reason()).orElse("fused");
     assertTrue(reason.contains("359") && reason.contains("360"), () -> "declined: " + reason);
@@ -143,7 +144,8 @@ public final class VarkaDecimalValueSuite {
       Expression e = VarkaSqlResolve.parse(sql, seq(columns));
       assertTimeoutPreemptively(Duration.ofSeconds(20), () -> {
         List<VarkaConjunctSpec> specs =
-            VarkaExpressionCompiler.explainPredicate(e, seq(columns), VarkaMatrixRuns.BASE);
+            VarkaExpressionCompiler.explainPredicate(e, seq(columns), VarkaMatrixRuns.BASE,
+                VarkaAdmission.NO_HOST_REFUSAL);
         assertEquals(1, specs.size());
         // Twenty levels are past the emitter's fused budget, a decline made after the compile.
         String reason = specs.get(0).decline().map(d -> d.reason()).orElse("");
@@ -159,9 +161,11 @@ public final class VarkaDecimalValueSuite {
 
   private static CompiledVarkaPredicate compile(String sql, List<Attribute> columns) {
     Expression e = VarkaSqlResolve.parse(sql, seq(columns));
-    var compiled = VarkaExpressionCompiler.compilePredicate(e, seq(columns), VarkaMatrixRuns.BASE)
+    var compiled = VarkaExpressionCompiler.compilePredicate(e, seq(columns), VarkaMatrixRuns.BASE,
+            VarkaAdmission.NO_HOST_REFUSAL)
         .orElseThrow(() -> new AssertionError(sql + " does not fuse: "
-            + VarkaExpressionCompiler.explainPredicate(e, seq(columns), VarkaMatrixRuns.BASE)));
+            + VarkaExpressionCompiler.explainPredicate(e, seq(columns), VarkaMatrixRuns.BASE,
+                VarkaAdmission.NO_HOST_REFUSAL)));
     assertTrue(compiled.residualConjuncts().isEmpty(), () -> sql + " leaves a residual");
     return compiled;
   }

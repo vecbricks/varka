@@ -32,6 +32,8 @@ import org.apache.spark.sql.catalyst.expressions.MinutesOfTime;
 import org.apache.spark.sql.catalyst.expressions.NamedExpression;
 import org.apache.spark.sql.catalyst.expressions.SecondsOfTime;
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaExpressionCompiler;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaAdmission;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaSqlResolve;
 import org.apache.spark.sql.types.DataTypes;
 import org.apache.spark.sql.types.TimeType;
@@ -161,11 +163,13 @@ public class VarkaCompileBenchmark extends VarkaBenchmarkBase {
         });
       }
       for (var p : predicates()) {
-        requireFused(VarkaExpressionCompiler.compilePredicate(p.condition(), COLUMNS).isPresent(),
+        requireFused(VarkaExpressionCompiler.compilePredicate(p.condition(), COLUMNS,
+            VarkaEmitOptions.DEFAULTS, VarkaAdmission.NO_HOST_REFUSAL).isPresent(),
             p.title());
         benchmark.addCase(p.title(), iteration -> {
           for (int k = 0; k < CALLS_PER_ITERATION; k++) {
-            sink += VarkaExpressionCompiler.compilePredicate(p.condition(), COLUMNS).isPresent()
+            sink += VarkaExpressionCompiler.compilePredicate(p.condition(), COLUMNS,
+                VarkaEmitOptions.DEFAULTS, VarkaAdmission.NO_HOST_REFUSAL).isPresent()
                 ? 1 : 0;
           }
         });

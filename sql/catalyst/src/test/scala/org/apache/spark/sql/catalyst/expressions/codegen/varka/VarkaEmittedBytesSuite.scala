@@ -250,7 +250,8 @@ class VarkaEmittedBytesSuite extends SparkFunSuite with VarkaTestWatchdog {
       val resolved = parsed.map(asCatalystClaims(_, catalyst))
       val compiled = resolved.flatMap { expr =>
         if (form == "predicate") {
-          VarkaExpressionCompiler.compilePredicate(expr, columns).toScala.map(_.fused)
+          VarkaExpressionCompiler.compilePredicate(expr, columns, VarkaEmitOptions.DEFAULTS,
+            VarkaAdmission.NO_HOST_REFUSAL).toScala.map(_.fused)
         } else {
           VarkaExpressionCompiler.compile(Seq(Alias(expr, "c")()), columns).toScala
         }

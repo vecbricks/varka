@@ -23,7 +23,8 @@ import org.apache.spark.{SparkArithmeticException, SparkDateTimeException, Spark
 import org.apache.spark.sql.{QueryTest, Row, SparkSession}
 import org.apache.spark.sql.catalyst.expressions.DateAdd
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaConjunctOrder
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaMatrix, VarkaShapeCache}
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaAdmission, VarkaEmitOptions,
+  VarkaMatrix, VarkaShapeCache}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTestWatchdog
 import org.apache.spark.sql.internal.SQLConf
 
@@ -332,7 +333,8 @@ class VarkaDifferentialSuite extends QueryTest with VarkaMaybeThrows with VarkaT
             val raising = s"$t $cast AND $date"
             assert(!dateFused(raising), s"$raising\n${plan(raising).treeString}")
             val reasons = collect(plan(raising)) {
-              case f: FilterExec => VarkaFusionReport.predicateLines(f.condition, f.child.output)
+              case f: FilterExec => VarkaFusionReport.predicateLines(f.condition, f.child.output,
+                VarkaEmitOptions.DEFAULTS, VarkaAdmission.NO_HOST_REFUSAL)
             }.flatten
             assert(reasons.exists(r => r.startsWith("(date_add") &&
               r.contains(VarkaConjunctOrder.OUT_OF_ORDER)), reasons)

@@ -33,6 +33,8 @@ import org.apache.spark.sql.catalyst.expressions.codegen.{CodeAndComment, CodeCo
   GenerateUnsafeProjection, JaninoCodeCompiler, JavaCode, JdkCodeCompiler, VarkaCensusCodegenAccess,
   VarkaDecline, VarkaExpressionCompiler}
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaOutputSpec.FusedOutput
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaAdmission
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaMatrix
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTestWatchdog
 import org.apache.spark.sql.catalyst.plans.logical.{MergeRows, Project}
@@ -218,7 +220,8 @@ class VarkaCodegenGiveUpSuite extends QueryTest with VarkaSharedSessions with Va
     // Varka's answer: the conjunct declines with a reason, and the filter stays Spark's.
     val d = AttributeReference("d", DateType)()
     val specs = VarkaExpressionCompiler.explainPredicate(
-      GreaterThan(GiveUpFallbackIdentity(d), Literal.create(0, DateType)), Seq[Attribute](d))
+      GreaterThan(GiveUpFallbackIdentity(d), Literal.create(0, DateType)), Seq[Attribute](d),
+        VarkaEmitOptions.DEFAULTS, VarkaAdmission.NO_HOST_REFUSAL)
       .asScala
     assert(specs.size == 1 && !specs.head.fused)
     assert(specs.head.decline.toScala.exists(_.reason.startsWith("unsupported")), specs)

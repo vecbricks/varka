@@ -171,7 +171,8 @@ public final class VarkaCastMatrixSuite {
     boolean value = VarkaExpressionCompiler.compile(entry, cols, VarkaEmitOptions.DEFAULTS)
         .isPresent();
     if (to.equals(DataTypes.BooleanType)) {
-      var p = VarkaExpressionCompiler.compilePredicate(e, cols, VarkaEmitOptions.DEFAULTS);
+      var p = VarkaExpressionCompiler.compilePredicate(e, cols, VarkaEmitOptions.DEFAULTS,
+          VarkaAdmission.NO_HOST_REFUSAL);
       boolean predicate = p.isPresent() && p.get().residualConjuncts().isEmpty();
       assertTrue(predicate == value, "CAST(" + from.sql() + " AS BOOLEAN) in " + mode + " fuses "
           + (predicate ? "as a predicate only" : "as a projection only")
