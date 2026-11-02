@@ -1173,6 +1173,45 @@ def review_cases(expect, merged):
                 and "VarkaEmittedBytesSuite" in out,
                 f"5: on {cpu!r} the regeneration printed (exit {run.returncode}): {out}",
             )
+    # 19. The JVM steps run under the heavy lock even where its file and directory do not
+    # exist yet. The script runs in a fixture repository whose build/sbt reports whether the
+    # lock is held, and whose merge driver and census are stubs.
+    with tempfile.TemporaryDirectory() as tmp:
+        env = fixture_env()
+        subprocess.run(["git", "init", "-q", tmp], check=True, env=env)
+        stubs = {
+            "dev/varka_regen_generated.sh": None,
+            "dev/varka_generated_merge.py": (
+                "import sys\nif sys.argv[1:] == ['--owed']:\n    print('sql/varka/types.tsv')\n"
+            ),
+            "dev/varka_census.py": "",
+            "build/sbt": (
+                '#!/bin/sh\nif flock -n "$VARKA_HEAVY_LOCK" true; then echo "sbt: unlocked"\n'
+                'else echo "sbt: locked"; fi\n'
+            ),
+        }
+        for rel, text in stubs.items():
+            path = os.path.join(tmp, rel)
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            if text is None:
+                with open(os.path.join(root, rel), encoding="utf-8") as f:
+                    text = f.read()
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(text)
+            os.chmod(path, 0o755)
+        lock = os.path.join(tmp, "locks", "heavy.lock")
+        run = subprocess.run(
+            [os.path.join(tmp, "dev", "varka_regen_generated.sh")],
+            cwd=tmp,
+            env={**env, "VARKA_HEAVY_LOCK": lock},
+            capture_output=True,
+            text=True,
+        )
+        expect(
+            run.returncode == 0 and "sbt: locked" in run.stdout and os.path.exists(lock),
+            f"19: the JVM steps ran outside the lock (exit {run.returncode}): "
+            f"{run.stdout}{run.stderr}",
+        )
 
 
 def end_to_end(expect):

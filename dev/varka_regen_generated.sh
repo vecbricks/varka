@@ -29,8 +29,8 @@
 # casts_fused.tsv, then coverage.json and the docs blocks, the width audit (it reads
 # coverage.json), the bytes file (likewise), coverage again (the docs read the width audit), and
 # last the census, which reads them all and costs a second. The JVM steps run in one sbt call,
-# under the heavy slot's lock when VARKA_HEAVY_LOCK names one (or ~/proj/.varka-locks/heavy.lock
-# exists), with SPARK_LOCAL_IP=127.0.0.1. On a CPU that is not the width audit's host the audit
+# under the heavy slot's lock, VARKA_HEAVY_LOCK or else ~/proj/.varka-locks/heavy.lock (made if
+# missing), with SPARK_LOCAL_IP=127.0.0.1. On a CPU that is not the width audit's host the audit
 # is skipped and left owed, since its census is that CPU's (VarkaWidthAuditSuite), and the rest
 # runs, still owed if a merge owed it; VARKA_CPUINFO names another cpuinfo file for the
 # self-test. The owed list is cleared only after every step passed.
@@ -104,12 +104,11 @@ echo "varka regen: python3 dev/varka_census.py"
 [ $dry = 1 ] && exit 0
 
 if [ ${#steps[@]} -gt 0 ]; then
+  # flock creates the lock file; its directory is created here, so the JVM steps never run
+  # outside the heavy slot.
   lock="${VARKA_HEAVY_LOCK:-$HOME/proj/.varka-locks/heavy.lock}"
-  if [ -e "$lock" ]; then
-    env "${envs[@]}" flock "$lock" build/sbt "${steps[@]}"
-  else
-    env "${envs[@]}" build/sbt "${steps[@]}"
-  fi
+  mkdir -p "$(dirname "$lock")"
+  env "${envs[@]}" flock "$lock" build/sbt "${steps[@]}"
 fi
 python3 dev/varka_census.py > /dev/null
 python3 dev/varka_census.py --check
