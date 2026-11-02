@@ -511,6 +511,57 @@ committed files:
 ## 5. Order, files and size
 
 1. **The baseline** (4), its own pull request.
+   *1 November 2026, as built:* `VarkaRoundingBaselineBenchmark` over `rint(x)`; `floor(x)`,
+   `ceil(x)`, `floor(i)`, `round(i, -2)`, `bround(i, -2)` and `truncate(l, -3)` each in LEGACY
+   and in ANSI; `round(l, -3)` in ANSI; `factorial(k)` over `[-2, 22]` and
+   `width_bucket(x, -2.0E8, 2.0E8, 10)`; each with no nulls and with one row in ten null, 32
+   sections, under the shared fuse check (`VarkaSqlBenchmarkBase.requireBaseline`, lifted by
+   `-Dvarka.baseline.fuseCheck=false`), and `VarkaRoundingBaselineQueriesSuite` over the table's
+   first 2,000 rows. Section 4 names a mode only for `floor(x)`, `ceil(x)` and `round(l, -3)`;
+   the integral forms are timed in both, since Spark compiles each mode differently (ANSI's
+   `intValueExact` or `longValueExact` under `withOverflowCode`, and `doubleToLong` for
+   `floor(i)`, planned as `FLOOR(CAST(i AS DOUBLE))`) and 2.4 and 2.5 build a kernel for each, at
+   eight sections' more run time. Every section whose code depends on the mode pins it and names
+   it in its title; `rint`, `factorial` and `width_bucket` compile alike in both and run in the
+   session's default. `x` holds ties (`hash(id, 1) div 8` plus `0.5`, inside `2^28 + 0.5`), both
+   zeros and NaN at one row in a thousand, and stays inside `2^31 / 7` with no infinity: an
+   infinity ends an ANSI `floor` run, and a share past `2^51`, however small, would decline every
+   batch of 344b's `MAGIC` arm and leave its prediction 4.4 nothing to time. `l` spreads over the
+   bit lengths up to 54, about one row in forty past `2^52` and none past the `2^55` guard 2.5
+   plans for `k = 3`, nor near the long's edge, where ANSI's `round` raises. No section is listed
+   as fusing, and none plans a Varka node (the class's dry run, 1 November 2026). The results
+   files at both widths come from the EPYC runners and are committed before it merges.
+   *Added by the owner's word, 1 November 2026, to measure the fallback's cost on wide data
+   before 344b picks its default arm:* a wide double column `xw`, and `floor(xw)` and `ceil(xw)`
+   under LEGACY only, with and without nulls, four sections; ANSI's `floor` and `ceil` raise on
+   an infinity and past the long range. `rint(xw)` was built with them and dropped at review the
+   same day: `rint` has no bounded arm, so over `xw` it timed no decline.
+   `xw` is `0.0` at one row in eight and `-0.0` at another; ordinary,
+   `hash(id, 5) / 7.0`, at one row in two; and wide at one row in four, `hash(id, 5) / 7.0`
+   scaled at one row in eight by `2^(24 + id % 11)`, inside `2^62.2` and mostly past `2^51`, many
+   past `2^52`, and at the other by `2^(36 + pmod(hash(id, 6), 960))`, up to `2^1023.2`, near
+   `Double.MAX_VALUE` and nearly all past the long range, where LEGACY's `floor` and `ceil`
+   saturate; NaN, `+Infinity` and `-Infinity` at one row in a thousand each, none among `xw_n`'s
+   nulls (one row in ten). The wide rows fall at every fourth id, so every 4096-row batch holds
+   about a thousand and every batch declines under 344b's bounded `MAGIC` arm, against none over
+   `x`: the two columns time the arm's two ends, and a smaller share would change nothing until it
+   left most batches whole. Under LEGACY Spark compiles `floor` and `ceil` over a double as
+   `(long) java.lang.Math.floor(c)` and `(long) java.lang.Math.ceil(c)` (`Floor` and `Ceil` in
+   `mathExpressions.scala`), so NaN answers 0, `+Infinity` and every value from `2^63` up
+   `Long.MAX_VALUE`, and `-Infinity` and every value below `-2^63` `Long.MIN_VALUE`; the queries
+   suite checks those rows on both sessions. None of the four fuses today.
+   *Added at review, 1 November 2026, since ANSI is Spark 4's default and prediction 3 times
+   `floor` to `BIGINT` under it:* a finite wide column `xwf`, and `floor(xwf)` and `ceil(xwf)`
+   under ANSI, with and without nulls, four sections, 40 in all. `xwf` is `xw` without the values
+   ANSI raises on: `0.0` and `-0.0` at one row in eight each, ordinary at one row in two, NaN at
+   one row in a thousand (none among `xwf_n`'s nulls), and wide at one row in four, the same ids
+   as `xw`'s wide rows, `hash(id, 5) / 7.0` scaled by `2^(24 + id % 11)`, inside `2^62.2` and so
+   inside the long range, mostly past `2^51`, many past `2^52`. Every batch declines under 344b's
+   bounded arm, as over `xw`, and none saturates. `MathUtils.doubleToLong`, which ANSI's `floor`
+   and `ceil` end in, raises only on a value that is not NaN and lies below `-2^63` or from
+   `2^63` up, and lets NaN through to `(long) NaN`, 0, so no section over `xwf` raises; the
+   queries suite checks that ANSI's answers over every row of `xwf` and `xwf_n` equal LEGACY's on
+   both sessions, NaN answering 0. None of the four fuses today.
 2. **The census cells** (2.8), on the laptop and through the census workflow on both runners,
    the gather's cell among them, which sets `factorialForm`'s per-host default (2.6).
 3. **344a, after 341 only**: `RoundToIntegral` with `RINT`, its lowering, the reference, the
@@ -545,7 +596,7 @@ committed files:
 | `varka/VarkaEmitBudget.java`, `VarkaEmitCostRegister.java` | the rounding features |
 | `sql/varka/proofs/fp_round.smt2`, the long-lane proof file, `VarkaProofFiles.java` | 3.2, 3.6 |
 | tests | cells, twin, sweep, exhaustion, probe, coverage rows, fuzz grammar, reference |
-| benchmark | the baseline class, its results files at both widths |
+| benchmark | the baseline class, its results files at both widths from the EPYC runners |
 | generated | `coverage.json`, `docs/sql-varka.md`, `width_audit.json`, `emitted_bytes.json` |
 | generated | `operator_census.json`, `census.tsv` |
 
@@ -609,6 +660,11 @@ and `factorial`; until 342 and 343, `width_bucket`.
    child, keyed on the node's kind, and this row only names its nodes as discrete consumers in
    their javadoc; (b) this row builds the hook now. *Recommended: (a)*: no contracted node exists
    until 345, and the hook's shape depends on the answer to question 2.
+4. **The baseline classes' shared scaffolding, as context.** The baselines of rows 342, 343, 344
+   and others each carry their own `Section` record, run loop and queries-suite skeleton; lifting
+   them into `VarkaSqlBenchmarkBase` and a shared suite trait was raised at the review of this
+   row's baseline and left out of it, since it touches every baseline class. It is not this
+   row's work; the owner may wish to give it a row.
 
 Settled with the lead on 30 October 2026, and so not questions: the `BIGINT` band at `k <= 11`
 declines beyond its guard, the full-range form being row 360's constant-multiplier `WideMul`
