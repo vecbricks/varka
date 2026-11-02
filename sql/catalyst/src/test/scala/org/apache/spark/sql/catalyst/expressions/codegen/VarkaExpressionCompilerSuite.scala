@@ -131,7 +131,7 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
       new ColumnRef(0), new AddDays(new ColumnRef(1), new LiteralSlot(0)))))
   }
 
-  test("CASE WHEN right-folds into nested IfElse; no ELSE declines") {
+  test("CASE WHEN right-folds into nested IfElse; no ELSE is the null leaf") {
     val expr = CaseWhen(
       Seq(
         LessThan(d, d2) -> DateAdd(d, Literal(1)),
@@ -149,10 +149,12 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
         new AddDays(c0, new LiteralSlot(1)),
         c1))))
     assert(compiled.outputTypes.asScala.toSeq === Seq(DateType))
-    // No ELSE means a null-literal branch, which breaks the dense body's all-valid invariant.
+    // No ELSE is the null of the date's lane (VARKA-333), a kernel with no dense body.
     assert(VarkaExpressionCompiler.compile(
       Seq(out(CaseWhen(Seq(LessThan(d, d2) -> DateAdd(d, Literal(1))), None))),
-      childOutput).isEmpty)
+      childOutput).get.outputs.asScala.toSeq === Seq(new IfElse(
+        new Compare(CompareOp.LT, c0, c1), new AddDays(c0, new LiteralSlot(0)),
+        new VarkaVectorIR.NullValue(LaneType.INT))))
   }
 
   test("n-ary greatest left-folds; connectives, NOT and date literals compile") {
@@ -1961,7 +1963,59 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
       Seq(out(Coalesce(Seq(DateAdd(d, Literal(1)), d2))), out(DateAdd(d, Literal(1)))),
       childOutput).get
     assert(partial.declines.asScala(0).reason ===
-      "coalesce operand before the last is not a bare date column")
+      "coalesce operand before the last is not a bare column")
+  }
+
+  test("a missing ELSE and a NULL branch are the null leaf of the result's lane, and an int " +
+      "choice takes int branches (VARKA-333)") {
+    val lt = LessThan(d, d2)
+    val compiled = VarkaExpressionCompiler.compile(
+      Seq(out(CaseWhen(Seq((lt, d)), None)), out(If(lt, i, Literal(null, IntegerType))),
+        out(Greatest(Seq(i, Literal(7))))), childOutput).get
+    val (c0, c1, c2) = (new ColumnRef(0), new ColumnRef(1), new ColumnRef(2))
+    val cmp = new Compare(CompareOp.LT, c0, c1)
+    val nullInt = new VarkaVectorIR.NullValue(LaneType.INT)
+    assert(compiled.outputs.asScala.toSeq === Seq(new IfElse(cmp, c0, nullInt),
+      new IfElse(cmp, c2, nullInt), new IRGreatest(c2, new LiteralSlot(0))))
+    // A NULL operand of greatest or least is the null leaf too, which the pick skips as it skips
+    // any null operand; three operands fold from the left.
+    val picks = VarkaExpressionCompiler.compile(
+      Seq(out(Greatest(Seq(i, Literal(null, IntegerType)))),
+        out(Least(Seq(Literal(null, DateType), d, Literal(null, DateType))))), childOutput).get
+    val (p0, p1) = (new ColumnRef(0), new ColumnRef(1))
+    assert(picks.outputs.asScala.toSeq === Seq(new IRGreatest(p0, nullInt),
+      new IRLeast(new IRLeast(nullInt, p1), nullInt)))
+    // A type the null leaf does not serve yet keeps a reason naming it, and an int is still
+    // no date: a date choice over a cast of an int column declines rather than reading it.
+    val partial = VarkaExpressionCompiler.compilePartial(
+      Seq(out(CaseWhen(Seq((lt, by)), None)), out(If(lt, Cast(i, DateType), d)),
+        out(DateAdd(d, Literal(1)))), childOutput).get
+    assert(partial.declines.asScala(0).reason ===
+      "no null leaf for type tinyint, the missing ELSE of a CASE WHEN")
+    assert(partial.declines.asScala(1) != null)
+    // A branch that is not an int is named by the choice's SQL keyword and its position. The
+    // analyzer's coercion never leaves one under an int choice, and Catalyst refuses the mixed
+    // types when asked for the choice's type, so each choice here states its type itself. Its
+    // children are bound already, so that binding, which copies a node whose children it
+    // rewrites, keeps the choice as built.
+    val (bd, bd2, bi) = (BoundReference(0, DateType, nullable = true),
+      BoundReference(1, DateType, nullable = true), BoundReference(2, IntegerType, nullable = true))
+    val blt = LessThan(bd, bd2)
+    val notInt = VarkaExpressionCompiler.compilePartial(
+      Seq(
+        out(new If(blt, bi, bd) { override def dataType: DataType = IntegerType }),
+        out(new CaseWhen(Seq((blt, bi)), Some(bd)) {
+          override def dataType: DataType = IntegerType }),
+        out(new Coalesce(Seq(bi, bd)) { override def dataType: DataType = IntegerType }),
+        out(new Greatest(Seq(bi, bd)) { override def dataType: DataType = IntegerType }),
+        out(new Least(Seq(bd, bi)) { override def dataType: DataType = IntegerType }),
+        out(DateAdd(d, Literal(1)))), childOutput).get
+    assert(notInt.declines.asScala.toSeq.sortBy(_._1.intValue).map(_._2.reason) === Seq(
+      "a branch of an int IF is not an int column or literal",
+      "a branch of an int CASE is not an int column or literal",
+      "an operand of an int COALESCE is not an int column or literal",
+      "an operand of an int GREATEST is not an int column or literal",
+      "an operand of an int LEAST is not an int column or literal"))
   }
 
   test("IS [NOT] NULL compile; nvl and nvl2 arrive through their replacements") {

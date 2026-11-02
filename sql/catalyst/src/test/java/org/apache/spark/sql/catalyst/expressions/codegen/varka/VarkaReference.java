@@ -207,6 +207,8 @@ public final class VarkaReference {
         case FALSE -> OptionalInt.of(0);
         case UNKNOWN -> OptionalInt.empty();
       };
+      // SQL's NULL of the lane's type: null on every row.
+      case VarkaVectorIR.NullValue n -> OptionalInt.empty();
       // Two bitmaps, not a lane value: a test answers it by cond(), its data bit the known-true
       // and its validity bit the known.
       case BoolOutput n -> throw new IllegalArgumentException(
@@ -538,6 +540,7 @@ public final class VarkaReference {
         case FALSE -> OptionalLong.of(0);
         case UNKNOWN -> OptionalLong.empty();
       };
+      case VarkaVectorIR.NullValue n -> OptionalLong.empty();
       case BoolOutput n -> throw new IllegalArgumentException(
           "boolean output " + n + " evaluated as a value; answer its condition");
       case BoundedDivide n -> throw new IllegalArgumentException(

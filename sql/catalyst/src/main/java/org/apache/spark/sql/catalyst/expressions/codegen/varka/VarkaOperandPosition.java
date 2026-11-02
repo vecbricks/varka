@@ -96,7 +96,7 @@ public enum VarkaOperandPosition {
            TruncDate _, TruncDateDynamic _, WeekOfYear _,
            Compare _, NullSafeEqual _, And _, Or _, Not _, IsNotNull _, InRanges _,
            BoolColumn _, CondConst _, BoolCompare _, CondIf _, BoolNullSafeEq _,
-           CondValue _, BoolOutput _ -> false;
+           CondValue _, NullValue _, BoolOutput _ -> false;
     };
   }
 
@@ -132,7 +132,7 @@ public enum VarkaOperandPosition {
            LastDay _,
            TruncDate _, WeekOfYear _, Compare _, NullSafeEqual _, And _, Or _, Not _, IsNotNull _,
            InRanges _, BoolColumn _, CondConst _, BoolCompare _, CondIf _, BoolNullSafeEq _,
-           CondValue _, BoolOutput _ -> List.of();
+           CondValue _, NullValue _, BoolOutput _ -> List.of();
     };
   }
 }

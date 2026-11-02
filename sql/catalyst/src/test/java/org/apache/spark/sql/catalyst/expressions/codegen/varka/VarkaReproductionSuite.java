@@ -107,6 +107,9 @@ public final class VarkaReproductionSuite {
         new WidenDecimal(new IntArith(IntOp.ADD, Overflow.WRAP, x,
             new LiteralSlot(0, LaneType.LONG))),
         new CondValue(new NullSafeEqual(new ColumnRef(0), new LiteralSlot(0)), LaneType.INT),
+        // The missing ELSE of a CASE WHEN, at the long lane, whose lane the leaf names.
+        new IfElse(new Compare(CompareOp.LT, x, new LiteralSlot(0, LaneType.LONG)), x,
+            new VarkaVectorIR.NullValue(LaneType.LONG)),
         new BitCount(new BitOp(BitOpKind.XOR, new ColumnRef(0), new LiteralSlot(0))),
         // A floating lane's square root over its IEEE division, whose zero divisor nulls a lane.
         new MathUnary(MathFn.SQRT, new IntArith(IntOp.DIV, Overflow.NULL,

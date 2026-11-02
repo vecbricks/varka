@@ -70,6 +70,7 @@ class VarkaLaneTypeSuite extends SparkFunSuite with VarkaTestWatchdog {
     new CondIf(new BoolColumn(0), new BoolColumn(1), new BoolColumn(2)),
     new BoolNullSafeEq(new BoolColumn(0), new BoolColumn(1)),
     new CondValue(new BoolColumn(0), LaneType.INT),
+    new VarkaVectorIR.NullValue(LaneType.INT),
     new BoolOutput(new BoolColumn(0)),
     new And(new IsNotNull(intCol), new IsNotNull(intCol)),
     new Or(new IsNotNull(intCol), new IsNotNull(intCol)),
@@ -217,7 +218,8 @@ class VarkaLaneTypeSuite extends SparkFunSuite with VarkaTestWatchdog {
     val covered = refusals.map(_._1.toLowerCase(Locale.ROOT)).toSet
     val calendarNodes = everyIntNode
       .filterNot(n => n.isInstanceOf[ColumnRef] || n.isInstanceOf[LiteralSlot] ||
-        n.isInstanceOf[BoolColumn] || n.isInstanceOf[CondConst])
+        n.isInstanceOf[BoolColumn] || n.isInstanceOf[CondConst] ||
+        n.isInstanceOf[VarkaVectorIR.NullValue])
       .filterNot(n => derivesItsLane.contains(n.getClass))
       // The narrowing is INT by construction too, but over a long child rather than over epoch
       // days; what it refuses is an int child, which the narrowing test below pins.
@@ -425,6 +427,7 @@ class VarkaLaneTypeSuite extends SparkFunSuite with VarkaTestWatchdog {
         case "BoolNullSafeEq" => new BoolNullSafeEq(new BoolColumn(0, lane),
           new BoolColumn(1, lane))
         case "CondValue" => new CondValue(new BoolColumn(0, lane), lane)
+        case "NullValue" => new VarkaVectorIR.NullValue(lane)
         case "BoolOutput" => new BoolOutput(new BoolColumn(0, lane))
         case "And" => new And(new IsNotNull(c), new IsNotNull(c1))
         case "Or" => new Or(new IsNotNull(c), new IsNotNull(c1))
@@ -497,12 +500,12 @@ class VarkaLaneTypeSuite extends SparkFunSuite with VarkaTestWatchdog {
       "Compare", "NullSafeEqual", "And", "Or", "Not", "IsNotNull", "IfElse", "ConstDivide",
       "BoolColumn", "CondConst", "BoolCompare", "CondIf", "BoolNullSafeEq", "CondValue",
       "BoolOutput", "GuardedRange", "NarrowLane", "WidenLane", "BitOp", "BitCount",
-      "DecimalColumn", "WidenDecimal"),
+      "DecimalColumn", "NullValue", "WidenDecimal"),
       "the long lane serves the lane-generic subset, VARKA-88's division, VARKA-102's guard, " +
         "the two conversions, which build over the other lane's child whatever the row, " +
         "VARKA-335's bitwise operations, VARKA-336's null-safe equality, VARKA-460's " +
-        "condition as a value, VARKA-27's boolean output, VARKA-347's decimal column and " +
-        "VARKA-157's decimal output")
+        "condition as a value, VARKA-27's boolean output, VARKA-347's decimal column, " +
+        "VARKA-157's decimal output and VARKA-333's null leaf")
   }
 
   test("a narrowing is an int over a long child, and a kernel that holds one is driven at the " +

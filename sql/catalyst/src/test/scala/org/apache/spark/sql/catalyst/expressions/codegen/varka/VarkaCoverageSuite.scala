@@ -751,6 +751,73 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
       Row("if(dt < dt2, dt, dt2)"),
       Row("coalesce(dt, dt2)"))),
 
+    // The choices over INT, whose branches take the int operand's rule at a choice's position
+    // only (VARKA-333 3.1), and the null branch on the six types of the int and long lanes: a
+    // CASE WHEN without an ELSE, IF over NULL, and nullif and nullifzero, which the optimizer
+    // rewrites to that IF (3.2). A kernel holding the null takes the masked body for every batch.
+    // The extremes beside nulls hold greatest and least to their null-skipping blend: a sentinel
+    // standing in for a null would answer the extreme where Spark answers the other operand.
+    Family("Choice and nulls on every type", predicates = false, Seq(
+      Row("if(i < 0, i, i + 1)", "an int branch is a column, a literal or int arithmetic; the "
+        + "checked add is qualified by its arm, so only a row taking the ELSE can overflow",
+        domain = Some(s"i < ${Int.MaxValue}")),
+      Row("CASE WHEN d < d2 THEN i ELSE datediff(d, d2) END"),
+      Row("coalesce(i, datediff(d, d2))"),
+      Row("coalesce(i, 0)"),
+      Row("zeroifnull(i)", "rewritten to coalesce(i, 0)"),
+      Row("greatest(i, 7)"),
+      Row("least(i, -7)"),
+      Row("greatest(i, -2147483648)", "the int minimum beside a null is the minimum, not a null"),
+      Row("least(i, 2147483647)", "the int maximum beside a null"),
+      Row("greatest(i, CAST(NULL AS INT))", "a NULL operand is the null leaf, which the pick "
+        + "skips as it skips a null column: the answer is i, and null only where i is"),
+      Row("least(i, NULL, -2147483648)", "the null leaf beside the int minimum"),
+      Row("greatest(d, NULL, d2)"),
+      Row("least(ym, NULL)"),
+      Row("nvl2(d, i, 0)", "rewritten to if(d IS NOT NULL, i, 0)"),
+      Row("CASE WHEN d < d2 THEN i END", "the missing ELSE is the null of the int lane"),
+      Row("if(d < d2, i, NULL)"),
+      Row("nullif(i, 3)", "rewritten to if(i = 3, NULL, i); over a computed operand the "
+        + "optimizer evaluates it in a projection of its own, a second kernel"),
+      Row("nullifzero(i)", "rewritten to if(i = 0, NULL, i)"),
+      Row("CASE WHEN d < d2 THEN d END"),
+      Row("if(d < d2, NULL, d)"),
+      Row("nullif(d, d2)"),
+      Row("nvl2(d2, d, d2)"),
+      Row("CASE WHEN d < d2 THEN ym END"),
+      Row("nullif(ym, INTERVAL '1-2' YEAR TO MONTH)"),
+      Row("nvl2(d, ym, INTERVAL '0-1' YEAR TO MONTH)"),
+      Row("CASE WHEN l < l2 THEN l END", "the missing ELSE is the null of the long lane"),
+      Row("if(d < d2, l, NULL)", "a date condition lifted to the long lane beside the null"),
+      Row("nullif(l, l2)"),
+      Row("nullifzero(l)"),
+      Row("zeroifnull(l)"),
+      Row("nvl2(l2, l, l2)"),
+      Row("greatest(l, -9223372036854775808L)", "the bigint minimum beside a null"),
+      Row("least(l, 9223372036854775807L)", "the bigint maximum beside a null"),
+      Row("greatest(l, NULL, -9223372036854775808L)", "the null leaf of the long lane beside "
+        + "the bigint minimum"),
+      Row("CASE WHEN t < t2 THEN t END"),
+      Row("nullif(t, t2)"),
+      Row("nvl2(t2, t, t2)"),
+      Row("greatest(t, TIME '00:00:00')", "the first TIME beside a null"),
+      Row("least(t, TIME '23:59:59.999999')", "the last TIME beside a null"),
+      Row("least(t, NULL)"),
+      Row("CASE WHEN dt < dt2 THEN dt END"),
+      Row("nullif(dt, dt2)"),
+      Row("nvl2(dt2, dt, dt2)"),
+      Row("greatest(dt, NULL)"))),
+
+    // BETWEEN over a column is two comparisons and an AND once the optimizer has inlined its
+    // `With`; over a computed operand the operand is a projection of its own below.
+    Family("BETWEEN on every type", predicates = true, Seq(
+      Row("i BETWEEN 1 AND 9"),
+      Row("d BETWEEN DATE '2000-01-01' AND d2"),
+      Row("ym BETWEEN INTERVAL '-1-0' YEAR TO MONTH AND INTERVAL '1-0' YEAR TO MONTH"),
+      Row("l BETWEEN l2 AND 5000000000"),
+      Row("t BETWEEN t2 AND TIME '23:59:59'"),
+      Row("dt BETWEEN dt2 AND INTERVAL '1' DAY"))),
+
     // TIMESTAMP_NTZ on the long lane (VARKA-338): microseconds since the epoch with no zone,
     // compared and chosen by the long lane's nodes as a bigint is; its arithmetic is the family
     // after the two.

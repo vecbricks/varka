@@ -182,8 +182,8 @@ public final class VarkaWordCensus {
           ? orW(pure(x.thenNode(), coalesce, absorb), pure(x.elseNode(), coalesce, absorb), absorb)
           : null;
       case MakeDate _, IntArith _, IntNeg _, ConstDivide _, BoundedDivide _, Cond _,
-          CondValue _, BoolOutput _, GuardedDay _, GuardedRange _, WidenLane _,
-          NarrowLane _, WidenDecimal _ -> null;
+          CondValue _, VarkaVectorIR.NullValue _, BoolOutput _, GuardedDay _, GuardedRange _,
+          WidenLane _, NarrowLane _, WidenDecimal _ -> null;
     };
   }
 

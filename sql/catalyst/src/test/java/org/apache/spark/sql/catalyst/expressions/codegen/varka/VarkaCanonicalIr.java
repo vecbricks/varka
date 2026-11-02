@@ -158,6 +158,7 @@ public final class VarkaCanonicalIr {
         Cond c = cond();
         yield new CondValue(c, c.laneType());
       }
+      case "null" -> new VarkaVectorIR.NullValue(lane(parts));
       case "bool-out" -> new BoolOutput(cond());
       case "greatest" -> new Greatest(node(), node());
       case "least" -> new Least(node(), node());

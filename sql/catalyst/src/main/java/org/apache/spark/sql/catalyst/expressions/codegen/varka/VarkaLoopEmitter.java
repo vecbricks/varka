@@ -1932,7 +1932,7 @@ public final class VarkaLoopEmitter {
     }
     int height;
     if (node instanceof ColumnRef || node instanceof LiteralSlot || node instanceof BoolColumn
-        || node instanceof CondConst) {
+        || node instanceof CondConst || node instanceof VarkaVectorIR.NullValue) {
       height = 0;
     } else {
       opNodes[0]++;

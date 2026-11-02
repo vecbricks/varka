@@ -245,20 +245,6 @@ public final class VarkaAnsiForm {
 
   private static Map<String, String> declined() {
     var out = new HashMap<String, String>();
-    String intCoalesce = "Varka's COALESCE takes only a bare date column before its last "
-        + "operand, and compiles no bare int column as a value (m9/SCOPE.md item 55)";
-    for (String sql : List.of("datediff(d2, d)", "unix_date(d)", "year(d)", "month(d)",
-        "day(d)", "quarter(d)", "dayofyear(d)", "dayofweek(d)", "weekday(d)",
-        "extract(DAYOFWEEK_ISO FROM d)", "weekofyear(d)", "extract(YEAROFWEEK FROM d)",
-        "extract(YEAR FROM ym)", "extract(YEAR FROM ym) - 1", "i + 1", "i - 1", "year(d) * 2",
-        "-i", "year(d) + i", "CAST(ymm AS INT)", "CAST(ymy AS INT)", "hour(t)", "minute(t2)",
-        "second(t)", "hour(t) + 1", "CAST(time_to_millis(t) AS INT)", "i & 255", "i | 4096",
-        "i ^ 21845", "~i", "i << 3", "shiftright(i, i)", "i >>> 28", "bit_count(i)",
-        "bit_count(l)", "bit_count(l) + 1", "y1 + i", "CAST(s1 AS INT)",
-        "CAST(y1 AS INT) * CAST(y2 AS INT)", "CAST(s1 AS INT) * CAST(s2 AS INT)", "try_add(i, 1)",
-        "try_subtract(i, 1)")) {
-      out.put(sql + "\t" + COALESCE_TAIL, intCoalesce);
-    }
     // CAST(i AS INTERVAL DAY) throws past INTERVAL_DAY_LIMIT_DAYS, so the compiler bounds i and
     // the evaluator checks the bound before the kernel runs; the bound belongs to the column,
     // not to the arm reading it, and Int.MaxValue declines the batch wherever the expression sits.
@@ -273,8 +259,9 @@ public final class VarkaAnsiForm {
     String unqualified = "a check on the right side of an AND condemns the batch from a lane "
         + "the left side rejected (m9/SCOPE.md item 96)";
     for (String sql : List.of("make_date(2021, i, 1)", "add_months(d, i)", "d + ym", "d - ym",
-        "ym - ymm", "ym + ym", "i + 1", "year(d) + i", "y1 + y2", "y1 - y2", "y1 * y2", "-y1",
-        "abs(y1)", "s1 + s2", "s1 - s2", "s1 * s2", "-s1", "abs(s1)", "x / x2", "ntz + dt")) {
+        "ym - ymm", "ym + ym", "i + 1", "year(d) + i", "if(i < 0, i, i + 1)", "y1 + y2",
+        "y1 - y2", "y1 * y2", "-y1", "abs(y1)", "s1 + s2", "s1 - s2", "s1 * s2", "-s1",
+        "abs(s1)", "x / x2", "ntz + dt")) {
       out.put(sql + "\t" + FALSE_AND, unqualified);
     }
     return Map.copyOf(out);

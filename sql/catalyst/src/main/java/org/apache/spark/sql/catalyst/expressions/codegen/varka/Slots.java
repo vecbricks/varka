@@ -888,7 +888,10 @@ final class Slots {
           if (tree.contains(node) && !body.contains(node)) {
             continue;
           }
-          if (cse && bodyUses.getOrDefault(node, 0) > 1 && !(node instanceof LiteralSlot)) {
+          // A leaf the walk re-emits at each use is never shared: a literal, and the null of a
+          // lane, a broadcast zero and an all-clear word a local would only hold across the body.
+          if (cse && bodyUses.getOrDefault(node, 0) > 1 && !(node instanceof LiteralSlot)
+              && !(node instanceof VarkaVectorIR.NullValue)) {
             s.sharedSlot.put(node, slot++);
           }
           // A floating pick reads each operand twice, so it parks both in either body, where an
@@ -1561,6 +1564,8 @@ final class Slots {
         case ColumnRef c -> { }
         case DecimalColumn c -> { }
         case LiteralSlot l -> { }
+        // Writes its all-clear word itself and reads none.
+        case VarkaVectorIR.NullValue x -> { }
         case AddDays x -> { }
         case SubDays x -> { }
         case DateDiff x -> { }
@@ -1651,6 +1656,7 @@ final class Slots {
         case ColumnRef x -> { }
         case DecimalColumn x -> { }
         case LiteralSlot x -> { }
+        case VarkaVectorIR.NullValue x -> { }
         case DayOfWeek x -> { }
         case WeekDay x -> { }
         case DayOfWeekIso x -> { }

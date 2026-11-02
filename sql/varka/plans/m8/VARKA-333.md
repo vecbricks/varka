@@ -91,6 +91,50 @@ attribute (or inlined, if `canSubstitute` finds it cheap), and `between` inlined
 `nullif` as one shape only if both forms compile; if the `Project` form splits the kernel, that is
 recorded and the coverage row names the form that fuses.
 
+### 2.1 The run, refreshed on 1 November 2026 at `f1bd3d23b99`
+
+Section 2 was read before the floating, `TIMESTAMP_NTZ`, `BOOLEAN`-output and 64-bit decimal work
+landed, so its run was taken on current master before any code. One `dev/varka_emit.sh` call over
+every shape on the six types (columns `d`, `i`, `l`, `t`, `dt`, `ym` and a second of each), and the
+optimized plans through `VarkaHarnessPlans.projection`, which runs `SparkOptimizer` as a session
+does (a scratch probe, not committed). What compiles today, per type in the order DATE, INT,
+BIGINT, TIME, day-time, year-month:
+
+* `if`, `CASE` with ELSE, `coalesce`, `greatest`, `least`, `nvl2`: fused on every type but `INT`,
+  which declines with "non-date column of type int: i", the reason section 2.1 predicts. The long
+  lane's three fuse as a second kernel (`KernelOutput`), as they did. `zeroifnull(l)` (a
+  `coalesce(l, 0)`) and `positive` over `BIGINT`, day-time and year-month fuse; over `INT` both
+  decline the same way.
+* `CASE` without ELSE: declined on all six, "CASE WHEN without an ELSE branch", as predicted;
+  `TINYINT` and `SMALLINT`, which landed since (row 329), decline the same way.
+* `if(c, x, null)`, `nullifzero`: the dump shows the analyzer's `CAST(NULL AS t)`, which the
+  optimizer folds; in the optimized plan `if(d < d2, i, null)` is `If(d < d2, i, null)` and
+  `nullifzero(i)` is `If(i = 0, null, i)`, so both need the typed null leaf, on every type.
+* `nullif`, `between`: the dump shows them as `With`, because `VarkaEmitDump` (and
+  `VarkaSqlResolve`, which the coverage suite resolves through) runs the analyzer only. Optimized,
+  `nullif(i, 3)` and `nullif(i, i2)` are `If(i = 3, null, i)` and `If(i = i2, null, i)`, and
+  `i BETWEEN 1 AND 9` is `i >= 1 AND i <= 9`, inlined. Over a computed operand, `nullif(i * 2, 3)`
+  and `(i * 2) BETWEEN 1 AND 9` do not stay one projection: `RewriteWithExpression` evaluates the
+  operand in a `Project` below, so the row's shape is the column form and the computed form is two
+  projections, recorded here and not claimed as one shape (risk 3).
+* `IN`: section 2's command used column elements (`t IN (t2, t)`), which decline on every type,
+  `DATE` included, with "IN list has a null or non-literal element"; that is not the row's shape.
+  Over literals, `DATE` and year-month fuse, and `INT`, `BIGINT` (both list lengths), `TIME` and
+  day-time decline as "unsupported predicate", the gate of section 2.1. Row 497 (one `IN` arm for
+  every lane, being built beside this row) admits all four, so this row's `IN` part is that
+  branch's merge and its rows, not a gate of its own.
+* `nvl2(i2, i, i2)` is `If(IsNotNull(i2), i, i2)` and declines on the branch `i`, not the
+  condition; `zeroifnull(i)` is `coalesce(i, 0)`, `nvl(i, i2)` `coalesce(i, i2)`.
+* `positive(i)` is the bare column `i` after the optimizer (`UnaryPositive` is replaced), so
+  `positive` never reaches Varka as a node in a plan and its census entry is a relabel, as
+  `known_not_null` is.
+* `date_add(d, i)` fuses through `compileOffset`, unchanged.
+
+So every decline is one section 2 predicts, and no new reason appeared: the int branches need the
+typed arm (3.1) and the null branches the typed null leaf (3.2). One correction to section 2:
+the `IN` row of 2.2 named `DATE` and year-month as today's types, which holds, but the row's
+command tested column lists, which no type fuses.
+
 ## 3. The design
 
 ### 3.1 Typed arms at the any-type positions (item 55)
@@ -137,6 +181,41 @@ rely on.
 * `IS NULL` over a predicate (334), null-safe equality (336), the new types' choice shapes
   (329, 331, 338, 341, 348, 359 each add theirs).
 * The emitter's `greatest` and `least`: blends, no sentinel; only tests are added.
+
+### 3.5a What the build changed, recorded as it was built (1 November 2026)
+
+* **The typed arm lives with the choices.** `choiceValue` in `VarkaConditionCompiler`, not a
+  `typedValue` in `VarkaNodeCompiler`: every caller is a choice there, and the arm is the int
+  operand's existing rule (`compileIntOperand`) applied when the whole expression is an `INT`.
+* **`NullValue` holds the int and long lanes only**, refusing any other in its constructor as
+  `CondValue` refuses the narrow ones: the six types the row admits live there. The compiler's
+  `nullLeaf` admits exactly those six by type and declines another with "no null leaf for type
+  t", so a `TINYINT` `CASE` without ELSE still declines, by that reason. A decimal of precision
+  18 or less is on the long lane, so row 348a's missing ELSE is one more type in `nullLeaf`'s
+  test and its coverage rows; the IR, the emitter and the oracle need nothing more.
+* **Its range is the point 0, not empty**: the vector holds zero on every lane, which is what a
+  consumer computes over, so the range analysis answers what the lanes hold.
+* **The fuzzer draws it in the nulling draw only** (one `IF` in four there chooses against the
+  lane's null), whose seed is its own, so the committed fuzz corpora that `emitted_bytes.json`
+  pins do not move; a test holds the draw to reaching it at both lanes and the committed draws to
+  holding none.
+* **The coverage suite's resolver now takes the optimizer's `With` rewrite**
+  (`RewriteWithExpression`) when it keeps one projection, and folds a cast of a `NULL` literal, as
+  the optimizer does: that is how `nullif(i, 3)` and `i BETWEEN 1 AND 9` reach the compiler as a
+  session hands them on. A computed operand, whose rewrite is two projections, keeps the `With`
+  as before, so the domain predicates that use `BETWEEN` over an expression still resolve.
+* **`positive` and `known_not_null` have no rows** (3.4): the optimizer replaces `UnaryPositive`
+  by its child and `KnownNotNull` is an optimizer marker, so neither reaches Varka as a node in a
+  plan, and the harness, which runs each row's SQL through `SparkOptimizer`, would find no kernel
+  answering. Their census entries stay owed to this row; whether they should count as fused
+  relabels is an open point (section 9).
+* **`CASE WHEN d < d2 THEN i ELSE i * 2 END` became `... ELSE datediff(d, d2) END`**: a checked
+  multiply over a bare int column declines without a bound, as the integer arithmetic family's own
+  note says. Item 55's `if(c, i, i + 1)` is the row `if(i < 0, i, i + 1)`, whose domain is
+  `i < 2147483647`: the checked add is qualified by its arm (`guardUnderArm`), so only a row
+  taking the ELSE can overflow. With `d < d2` as the condition the domain was
+  `d < d2 OR i < 2147483647`, and no row of the harness's fixtures fell outside it, so the row
+  could not be held to its domain.
 
 ### 3.6 Registered op counts
 
@@ -225,4 +304,114 @@ Explicitly out of this row: any new type's choice shapes, `IS NULL` over a predi
 
 ## 9. Outcome
 
-*To be written when the work lands.*
+*Written on 1 November 2026, on the branch, before review.*
+
+**What was built, by section 8's steps.**
+
+1. Section 2's run, refreshed in 2.1 and committed first.
+2. The typed arm (3.1): `choiceValue` takes the int operand's rule at the branches of `IF` and
+   `CASE WHEN` and the operands of `coalesce`, `greatest` and `least` when the whole expression
+   is an `INT`. `if(i < 0, i, i + 1)`, `coalesce(i, 0)`, `greatest(i, 7)` and the rest fuse;
+   `compileNode`'s leaves and `compileOffset` are untouched, and `date_add(d, i)`'s bytes in
+   `emitted_bytes.json` did not move.
+3. The null leaf (3.2): `NullValue(lane)` in the IR, its analysis (`nullsFromValidInputs`, so
+   such a kernel has no dense body: the emit dump of the row's shapes lists only masked methods),
+   its emission (a broadcast zero and an all-clear word), the reference evaluator, the canonical
+   form and its parser, the fuzz grammar's nulling draw, the range analysis, the budget weight
+   (1, its broadcast) and the cost model's list of nodes awaiting a refit. `CASE` without ELSE,
+   `IF(c, x, NULL)`, `nullif` and `nullifzero` fuse on the six types.
+4. `between`, `nvl2` and `zeroifnull`: rows only, through the resolver's `With` rewrite (3.5a).
+   `IN` on `INT`, `BIGINT`, `TIME` and the day-time interval is row 497's arm, merged into this
+   branch (`git merge`, its three commits to `7774da7cd6f`): one arm over every lane, with its own
+   coverage rows for the four types in both list forms. So 3.3 is built by 497, not here: this
+   row adds no `IN` row of its own, and the census's `in` and `in_set` entries no longer name it.
+   The one conflict was the condition compiler's imports.
+5. The census regenerated. The op counts and prediction 1's benchmark are below.
+
+**Generated files, each by its documented regeneration, every diff read.** `coverage.json` and
+`docs/sql-varka.md`: 43 rows added, none changed or removed (a flattened comparison of the two
+files); `width_audit.json`: 129 entries added, none changed; `emitted_bytes.json`: 672 entries
+added, none removed, and the only changed values are the 22 `option_arms` digests, each a single
+digest over every shape, which a new row moves by construction; `census.tsv`.
+
+**The predictions, scored.**
+
+1. *The masked cost of `CASE WHEN c THEN d END`*: not measured here. Benchmarks run on the EPYC
+   runners, and this branch is not pushed; the measurement in `VarkaEmitterParityBenchmark`'s
+   choice section is owed to the pull request's CI.
+2. *The census moves by at most 71 pairs*: it moved 37 - `coalesce`, `if`, `when`, `greatest`
+   and `least` one each (`INT`), `ifnull` and `nvl` five each, `nullif`, `nvl2` and `between` six
+   each, `nullifzero` and `zeroifnull` two each. The difference from 71 is `in` and `in_set`
+   (row 497's rows), `positive` and `known_not_null` (3.5a), and the entries whose other types
+   rows 329, 331, 338 and 341 fused since the plan was written. Held.
+3. *The coverage differential's added time under 20 s*: 2.7 s for the 43 rows, held at a
+   ratio of 0.14 - 1.6 s over their 105 tests in `VarkaCoverageHarnessSuite` (from its JUnit
+   report) and 1.1 s for the two family tests in `VarkaCoverageDifferentialSuite`, which since
+   VARKA-509 runs one row a family. The estimate priced a session query per row that the harness
+   no longer makes. Entered in the calibration table (`skills/calibration/VARKA-333-6.1-3.md`).
+
+**The op counts of 3.6**, from `dev/varka_emit.sh --table` at the defaults (the dense loop's
+vector calls): `if(d < d2, d, d2)` and `CASE WHEN d < d2 THEN d ELSE d2 END` 5 each, and the int
+choice `if(d < d2, i, datediff(d, d2))` 7, the date twin plus the two of `datediff`, so the
+int branch costs what a date branch does and the typed arm adds no node. `CASE WHEN d < d2 THEN d END` and `CASE WHEN l < l2 THEN l END` read 0: a kernel holding
+the null leaf has no dense loop to count, which is the leaf's analysis working as 3.2 says, and
+the masked comparison 3.6 registered is not one the table prints. Its masked bodies, from the
+dump of 2.1's second run, hold the comparison, the blend and the leaf's broadcast and word; the
+per-row cost against the ELSE form is prediction 1's benchmark, owed below.
+
+**Tests run locally, under the shared locks**, on the branch with row 497 and master merged:
+`VarkaCoverageSuite`, `VarkaEmittedBytesSuite`, `VarkaWidthAuditSuite`, `VarkaIrFuzzSuite`,
+`VarkaProofFilesSuite`, `VarkaExpressionCompilerSuite`, the thirteen `*ConformanceSuite`s,
+`VarkaLaneTypeSuite`, `VarkaEmitCostSuite`, `VarkaEmitterBudgetSuite`, `VarkaReproductionSuite`
+and `VarkaCoverageCompositionFuzzSuite` in catalyst; `VarkaCoverageHarnessSuite`,
+`VarkaCoverageDifferentialSuite`, `VarkaKernelEvaluatorSuite` and `VarkaHarnessParitySuite` in
+sql/core. No proof file changed, so `dev/varka_prove.sh` was not run. The harness found the one
+thing the catalyst suites could not: 42 entries of `VarkaAnsiForm`'s declined list (an int-valued
+row as a later `coalesce` argument, item 55) went stale the moment int `coalesce` fused, and were
+removed.
+
+**The review's fixes, recorded on 1 November 2026.** They correct 3.5a and the paragraphs above
+where those say otherwise.
+
+* **The nulling draw takes the null leaf at four positions**, not only as an `IF`'s ELSE: one
+  `IF` in four there is `IF(c, a, NULL)`, `IF(c, NULL, a)`, `greatest` or `least` with the null
+  on either side, or `CASE WHEN c THEN NULL WHEN c2 THEN a END`, the leaf twice in one tree. The
+  second branch is drawn only when the test is not taken, so the committed draws, which never
+  take it, draw what they always have: `emitted_bytes.json`'s fuzz blocks did not move. The reach
+  test holds the draw to every position and to a tree with the leaf twice.
+* **CSE never shares the null leaf**, as it never shares a literal: `Slots` gives it no shared
+  slot and the walk emits its broadcast zero and all-clear word at each use. It is not hoisted
+  into a broadcast local as a literal is. No committed shape moved for it: every row's leaf is
+  used once, and the twice-drawn tree is checked by the nulling fuzz run.
+* **A `NULL` operand of `greatest` and `least` has rows**: `greatest(i, CAST(NULL AS INT))`,
+  `least(i, NULL, -2147483648)`, `greatest(d, NULL, d2)`, `least(ym, NULL)`, the bigint minimum
+  beside the long lane's null, `least(t, NULL)` and `greatest(dt, NULL)`, with a compiler test of
+  the IR they compile to. Regenerated: 7 coverage rows, 84 `emitted_bytes.json` entries and 7
+  width-audit entries added, nothing else changed but the 22 `option_arms` digests.
+* **The decline reasons say the rule**: an int choice's branch that is not an int is named by
+  the SQL keyword and its noun ("a branch of an int CASE", "an operand of an int COALESCE"), and
+  a `coalesce` operand before the last is "not a bare column" - any lane's plain column, a
+  decimal column being its own node - rather than "not a bare date column".
+* **`nullLeaf` is an exhaustive switch over the type ids**, each type outside the six declining
+  with the reason in a comment beside it, so a new type id is a compile error there.
+* **Row 497's second review round is merged** (to `ff3f16ad565`): its `IN` arm reads a foldable
+  element of the value's type as a constant and stops reading at the cap. The code merged
+  without a conflict; `docs/sql-varka.md` and `emitted_bytes.json` conflicted and were
+  regenerated on the merged tree, as were the other generated files.
+
+**Open points for the lead.**
+
+1. `positive` and `known_not_null`: the optimizer removes both before Varka, so neither can
+   have a coverage row the harness holds. Should the census mark them as relabels that need no
+   row, or keep them owed? The plan's 3.4 assumed rows; none is built.
+2. `ifnull`, `nvl`, `nullif`, `nvl2`, `zeroifnull`, `nullifzero` and `between` are credited
+   through the census's rewrite map (`If`, `Coalesce`, `GreaterThanOrEqual`), the way `ifnull`
+   and `nvl` already were; the map cannot tell a row of the function from any row of its
+   rewrite, so a claim rests on this row's own rows. Acceptable, or should the coverage table
+   record the source function a row was written as?
+3. The null leaf serves the six types only. `TINYINT`, `SMALLINT`, the floating types,
+   `TIMESTAMP_NTZ` and `DECIMAL` keep "no null leaf for type t": their rows own that addition
+   (for 348a, one type in `nullLeaf`'s test and its rows, since a decimal to precision 18 is on
+   the long lane; the narrow and floating lanes need their emission tested first).
+4. A computed operand of `nullif` or `between` is two projections after the optimizer
+   (`RewriteWithExpression`): the row claims the column form only, as risk 3 said.
