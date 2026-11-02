@@ -47,6 +47,8 @@ files. `--check` is the CI half: the width audit's own check is cancelled on any
 file's host, so CI could not see a width audit (or a bytes file) missing a coverage row.
 """
 
+import contextlib
+import io
 import json
 import os
 import re
@@ -569,12 +571,16 @@ def check(root, audit=True):
         have = sections.get("coverage", {})
         if list(have) != expected:
             missing = [r for r in expected if r not in have]
-            extra = [r for r in have if r not in expected_set]
+            extra = [r for r in have if r not in expected_set and r not in skipped]
+            # A row the file lists as skipped (it emits no class) must carry no digests either.
+            still = [r for r in have if r in skipped]
             what = (
                 f"no digests for {missing[:3]}"
                 if missing
                 else f"digests for removed rows {extra[:3]}"
                 if extra
+                else f"rows it skips that still carry digests {still[:3]}"
+                if still
                 else "its rows in another order than coverage.json's"
             )
             errors.append(
@@ -699,6 +705,30 @@ def self_test():
             ) as f:
                 f.write(render_json(doc) + "\n")
             expect(check(tmp) == 1, "a stale width audit passed the check")
+            # 13. A row the bytes file skips yet still carries digests for is named as such.
+            with open(
+                os.path.join(tmp, "sql", "varka", "coverage.json"), "w", encoding="utf-8"
+            ) as f:
+                f.write(render_json({"expressions": [{"sql": "kept"}, {"sql": "skipped"}]}) + "\n")
+            with open(
+                os.path.join(tmp, "sql", "varka", "emitted_bytes.json"), "w", encoding="utf-8"
+            ) as f:
+                f.write(
+                    render_json(
+                        {
+                            "coverage_rows_skipped": ["skipped"],
+                            "lanes": {"4": {"coverage": {"kept": "d1", "skipped": "d2"}}},
+                        }
+                    )
+                    + "\n"
+                )
+            err = io.StringIO()
+            with contextlib.redirect_stderr(err):
+                rc = check(tmp, audit=False)
+            expect(
+                rc == 1 and "skips that still carry digests ['skipped']" in err.getvalue(),
+                f"13: a skipped row's digests were reported as {err.getvalue()!r}",
+            )
     # 10. A hook's GIT_DIR and GIT_INDEX_FILE must not reach the fixture's repository: they
     # name paths no git command can create, so a fixture command that reads them fails.
     saved_env = dict(os.environ)
