@@ -486,23 +486,47 @@ def owed_file():
 # The owed list outlives the merge that wrote it: it is one file per worktree, appended to by
 # every merge, and nothing runs when a merge is aborted. So each line, "OURS THEIRS<tab>PATH",
 # carries the merge that owed PATH: OURS is the commit merged into (HEAD while the driver
-# runs), THEIRS the commit merged in (git names it in a GITHEAD_<sha> variable; "-" where it
-# does not, as in a rebase).
+# runs), THEIRS the commit merged in (git names it in a GITHEAD_<sha> variable for `git merge`,
+# --squash too; "-" where it does not, as in a cherry-pick, a revert, a rebase or a stash pop).
 # MERGE_HEAD cannot serve, since git writes it only after the merge's files are merged. An entry
-# is live while its merge is in progress (MERGE_HEAD exists, HEAD is OURS and MERGE_HEAD is
-# THEIRS), or once it is committed: a merge commit on HEAD's first-parent line has OURS as its
-# first parent and THEIRS among the others, which stays true through the commit of the
-# regenerated files and any later commit. Every other entry - an aborted merge's, a rebase's,
-# one from a merge on another branch - is stale: `owed_live` skips it, and the regeneration
-# script's rewrite of the list drops it. One case is over-counted: a merge aborted and then
-# redone with the same two commits finds the first attempt's entries live, which costs at most
-# a regeneration the second attempt may not have owed.
+# is live:
+#   * while its operation is in progress and HEAD is OURS: a merge (MERGE_HEAD exists and is
+#     THEIRS), or a squash merge, cherry-pick, revert or rebase not yet committed or stopped on
+#     a conflict (SQUASH_MSG, CHERRY_PICK_HEAD, REVERT_HEAD, rebase-merge or rebase-apply exists
+#     under the git dir; git removes each when the operation is committed or aborted);
+#   * while a rebase or a cherry-pick or revert of several commits is in progress, for the
+#     picks it already committed: OURS lies between the commit it started from (`onto` under
+#     rebase-merge or rebase-apply, `head` under sequencer) and HEAD, so every such commit is
+#     one the operation made;
+#   * once a merge is committed: a merge commit on HEAD's first-parent line has OURS as its
+#     first parent and THEIRS among the others, which stays true through the commit of the
+#     regenerated files and any later commit.
+# Every other entry - an aborted operation's, one from another branch - is stale: `owed_live`
+# skips it, and the regeneration script's rewrite of the list drops it. Some debt is not
+# covered, since nothing left in the repository tells it from an aborted operation's: a
+# squash merge, cherry-pick, revert or rebase once committed (a one-parent commit on OURS is
+# also what any commit after an aborted merge is), a `git stash pop` (it leaves no state at
+# all) and a `git checkout -m` (OURS is the HEAD before the checkout). For those the driver's
+# message on stderr is the record: it names the file and dev/varka_regen_generated.sh. Some
+# debt is over-counted: an operation aborted and redone on the same commits finds the first
+# attempt's entries live, which costs at most a regeneration the second may not have owed.
 
 
 def git_out(*args):
     """A git command's output, or None when it fails."""
     run = subprocess.run(["git", *args], capture_output=True, text=True)
     return run.stdout.strip() if run.returncode == 0 else None
+
+
+def git_path(name):
+    """A file under the git dir, as `git rev-parse --git-path` names it (a worktree's own)."""
+    return git_out("rev-parse", "--git-path", name) or os.path.join(".git", name)
+
+
+def is_ancestor(a, b):
+    """Whether commit `a` is `b` or one of its ancestors; False for an unknown commit."""
+    run = subprocess.run(["git", "merge-base", "--is-ancestor", a, b], capture_output=True)
+    return run.returncode == 0
 
 
 def merge_identity():
@@ -522,6 +546,18 @@ def owed_live():
         return []
     head = git_out("rev-parse", "-q", "--verify", "HEAD")
     merge_head = git_out("rev-parse", "-q", "--verify", "MERGE_HEAD")
+    in_progress = any(
+        os.path.exists(git_path(n))
+        for n in ("SQUASH_MSG", "CHERRY_PICK_HEAD", "REVERT_HEAD", "rebase-merge", "rebase-apply")
+    )
+    # The commit a rebase, or a cherry-pick or revert of several commits, started from.
+    started = None
+    for n in ("rebase-merge/onto", "rebase-apply/onto", "sequencer/head"):
+        with contextlib.suppress(OSError):
+            with open(git_path(n), encoding="utf-8") as f:
+                started = f.read().strip() or None
+        if started:
+            break
     live = {}
 
     def is_live(merge_id):
@@ -529,6 +565,10 @@ def owed_live():
         if ours == "-" or not theirs:
             return False
         if merge_head and head == ours and theirs in ("-", merge_head):
+            return True
+        if in_progress and head == ours:
+            return True
+        if started and is_ancestor(started, ours) and is_ancestor(ours, "HEAD"):
             return True
         commits = git_out("rev-list", "--first-parent", "--parents", "HEAD", "^" + ours) or ""
         return any(
@@ -1253,6 +1293,32 @@ def end_to_end(expect):
             owed_now("--keep", "c/coverage.json") == [] and not os.path.exists(owed_list),
             "15: the stale entries were kept",
         )
+        # 17. A squash merge not yet committed owes its files, and nothing once it is reset.
+        for name, row in (("q1", "b"), ("q2", "c")):
+            git("checkout", "-qb", name, "master")
+            write("c/coverage.json", cov(["a", row, "z"]))
+            git("commit", "-qam", name)
+        git("merge", "--squash", "q1", check=False)
+        expect(owed_now() == ["c/coverage.json"], f"17: squash in progress, owed {owed_now()}")
+        git("reset", "-q", "--hard")
+        expect(owed_now() == [], f"17: after the squash is reset, owed {owed_now()}")
+        # 17. A cherry-pick stopped on the prose conflict owes coverage.json; aborted, nothing.
+        git("checkout", "-q", "p2")
+        git("cherry-pick", "p1", check=False)
+        expect(owed_now() == ["c/coverage.json"], f"17: cherry-pick stopped, owed {owed_now()}")
+        git("cherry-pick", "--abort", check=False)
+        expect(owed_now() == [], f"17: after the cherry-pick --abort, owed {owed_now()}")
+        # 17. A rebase whose first pick owed coverage.json and committed cleanly, stopped on
+        # its second pick's prose conflict, still owes it; aborted, nothing.
+        git("checkout", "-qb", "x1", "master")
+        write("c/coverage.json", cov(["a", "b", "z"]))
+        git("commit", "-qam", "x1 row")
+        write("d/doc.md", docs(["a", "z"], "prose x1"))
+        git("commit", "-qam", "x1 prose")
+        git("rebase", "p2", check=False)
+        expect(owed_now() == ["c/coverage.json"], f"17: rebase stopped, owed {owed_now()}")
+        git("rebase", "--abort", check=False)
+        expect(owed_now() == [], f"17: after the rebase --abort, owed {owed_now()}")
 
 
 def main(argv):
