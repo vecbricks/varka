@@ -177,8 +177,7 @@ The owner runs CI by hand and approves every dispatch; each step names what it s
    both workflows and `compiles/run.sh`, and with them `varka-demo.yml`'s upload paths at `:151`
    and `:234` and its comment at `:218-220`, which spell the names literally), so the 4.2.0
    outputs behind the published posts stay as their evidence under their own names (7, decision
-   6). `silent-giveups/examples.scala:44`'s heading is rewritten from what the 4.3.0 run prints.
-   The README's recipe waits for step 3, so the README never names a release its tables do not
+   6). The README's recipe waits for step 3, so the README never names a release its tables do not
    quote.
    *CI:* the push starts the Build (`build_main.yml`, every branch), and through their `push.paths`
    `varka-demo.yml` (three `method_size_cliff` jobs and one `compiles-times`) and
@@ -211,8 +210,8 @@ The owner runs CI by hand and approves every dispatch; each step names what it s
    - `benchmark=timechains`, 1e8 rows, `max-fixed-share=11`, `require-datapath=512`, batched the
      same way: `TimeChain-spark-4.3.0-*` and its Varka arms;
    - `benchmark=timechains` on an EPYC 7763 (`require-datapath=any`, `expected-cpu="AMD EPYC
-     7763"`), retried hourly on a CPU miss and never relaxed, as the benchmark rule says: the
-     `-zen3` files the datapath section reads.
+     7763"`), retried hourly on a CPU miss and never relaxed, by the owner's word of 27 October
+     2026 that benchmark runs are on an EPYC 7763: the `-zen3` files the datapath section reads.
    *CI:* one build dispatch, then two batches of ten to fifteen `run` dispatches and a few 7763
    attempts (the date and `TIME` chains), each the owner's. They wait for any running option
    matrix, as the 40-slot rule asks; each uses one job slot.
@@ -227,7 +226,10 @@ The owner runs CI by hand and approves every dispatch; each step names what it s
    from the new 512-bit and `-zen3` chain files, and the recipe and diff example at 4.3.0. The
    two surface tables, their paragraphs (the `trunc(d, 'QUARTER')` one at 151-156 included), the
    "up to 39x" headline and the methodology at 245-258 are row 553's; until it runs, the surface
-   tables keep their 4.2.0 stock column, dated and labelled. `dev/varka_bench_diff.py --git HEAD
+   tables keep their 4.2.0 stock column, dated and labelled. In the same commit,
+   `silent-giveups/examples.scala:44`'s `transform` heading is rewritten from what step 1's first
+   4.3.0 run printed; the edit starts `varka-silent-giveups.yml` once more through its
+   `push.paths`, and that run's outputs are the ones committed. `dev/varka_bench_diff.py --git HEAD
    <file> --requote` on each regenerated Varka file lists every document line quoting a moved
    number; `dev/varka_quote_check.py` holds every quoted figure to a committed file. A line that
    quotes a 4.2.0 file on purpose says so.

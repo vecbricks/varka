@@ -37,18 +37,29 @@ The chains are row 552's.
      entries, about 0.5 ns/row, cannot clear the standing 5% bound on a runner below about 1.4e9
      rows: at 1e8 rows a 36 ms job constant against about 50 ms of work is a fixed share of about
      42% (`(wall - executor) / wall`, `DateSurfaceBenchmark`), and the laptop's worst row, 5.6% of
-     a 28 ms constant at 1e9, backs out to the same rate. The value is **[I]** until the first
-     shard's `# fixed share` lines; a row over it fails the shard, and the bound is then set from
-     those lines and stated. `varka-surface-benchmark.yml`'s `max-fixed-share` description
-     requires that wherever a lifted bound produced a committed number, the README methodology
-     says so, which step 3 does;
-   - `require-datapath=any` and `expected-cpu="AMD EPYC 7763"` on every shard, so the shards
-     cannot mix CPU models, a miss retried hourly and never relaxed (the benchmark rule that runs
-     are on an EPYC 7763). A 512-bit requirement would need a one-in-eighteen hit per shard. The
-     7763 is a 256-bit machine without AVX-512: the README (lines 280-282) reads the `TIME`
-     surface's division rows under `-XX:UseAVX=2` at 0.09 to 0.16 of their full-width rate, so
-     the runner `TIME` surface is a 256-bit claim, and the laptop's 512-bit file stays its
+     a 28 ms constant at 1e9, backs out to the same rate. The one runner measurement at 1e8 reads
+     lower: `DateSurfaceBenchmark.java:600` records `date_add(d, 3)` at 854 M rows/s with a fixed
+     share of 15.4%, a third of the arithmetic, so the first shard is likely to land under the
+     bound. The value is **[I]** until the first shard's `# fixed share` lines; a row over it
+     fails the shard, and the bound is then set from those lines and stated.
+     `varka-surface-benchmark.yml`'s `max-fixed-share` description requires that wherever a
+     lifted bound produced a committed number, the README methodology says so, which step 3
+     does;
+   - `require-datapath=any` and `expected-cpu="AMD EPYC 7763"` on every shard, so the shards cannot
+     mix CPU models, a miss retried hourly and never relaxed (the owner's word of 27 October 2026,
+     that benchmark runs are on an EPYC 7763). A 512-bit requirement would need a one-in-eighteen
+     hit per shard. The 7763 is a 256-bit machine without AVX-512: the README (lines 280-282) reads
+     the `TIME` surface's division rows under `-XX:UseAVX=2` at 0.09 to 0.16 of their full-width
+     rate, so the runner `TIME` surface is a 256-bit claim, and the laptop's 512-bit file stays its
      512-bit record.
+   *Open point for the lead:* the README's headline "up to **39x**" (lines 58-62, 229-231) is
+   `time_trunc('MILLISECOND', t2)`, a division row, measured on the 512-bit laptop against stock
+   4.2.0. Requoted from the 7763 file it is expected to fall, since the division lowering without
+   AVX-512 is the slow one. Either (a) the headline follows the runner file and the plan says it
+   falls, or (b) the headline keeps a 512-bit figure, which then needs a 512-bit `time` run
+   against 4.3.0 (one shard set on a full-width runner, batched as row 552's chains are), since
+   the laptop figure is against 4.2.0 and the done-when grep admits no surface line. Step 3
+   follows the lead's answer.
    *CI:* one `stop-after=build` dispatch, then one `run` dispatch per shard and surface, each the
    owner's, waiting for any running option matrix.
 3. The README's two tables, the recheck paragraph and the paragraphs read from the surfaces
