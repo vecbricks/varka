@@ -17,12 +17,14 @@
 #
 # Regenerate the generated files a merge owes (VARKA-546), in the documented order.
 #
-#   dev/varka_regen_generated.sh            # the files the last merges listed as owed
+#   dev/varka_regen_generated.sh            # the files the current or last merge owes
 #   dev/varka_regen_generated.sh --all      # every generated file
 #   dev/varka_regen_generated.sh [--all] --dry-run  # print the steps and run nothing
 #
 # dev/varka_generated_merge.py, the merge driver, appends each file whose merge it could not
-# compute in full to $(git rev-parse --git-path varka-regen-owed). This script turns those files
+# compute in full to $(git rev-parse --git-path varka-regen-owed), tagged with the merge; its
+# --owed mode lists the entries of the merge in progress or committed, never an aborted one's
+# (the comment above its owed_live says how). This script turns those files
 # into steps and runs them in the order the files read each other: types.tsv and
 # casts_fused.tsv, then coverage.json and the docs blocks, the width audit (it reads
 # coverage.json), the bytes file (likewise), coverage again (the docs read the width audit), and
@@ -30,13 +32,12 @@
 # under the heavy slot's lock when VARKA_HEAVY_LOCK names one (or ~/proj/.varka-locks/heavy.lock
 # exists), with SPARK_LOCAL_IP=127.0.0.1. On a CPU that is not the width audit's host the audit
 # is skipped and left owed, since its census is that CPU's (VarkaWidthAuditSuite), and the rest
-# runs; VARKA_CPUINFO names another cpuinfo file for the self-test. The owed list is cleared
-# only after every step passed.
+# runs, still owed if a merge owed it; VARKA_CPUINFO names another cpuinfo file for the
+# self-test. The owed list is cleared only after every step passed.
 set -euo pipefail
 
 top="$(git rev-parse --show-toplevel)"
 cd "$top"
-owed="$(git rev-parse --git-path varka-regen-owed)"
 all=0; dry=0
 for arg in "$@"; do
   case "$arg" in
@@ -49,10 +50,8 @@ done
 if [ $all = 1 ]; then
   files="sql/varka/types.tsv sql/varka/plans/m8/casts_fused.tsv sql/varka/coverage.json"
   files+=" sql/varka/width_audit.json sql/varka/emitted_bytes.json"
-elif [ -s "$owed" ]; then
-  files="$(sort -u "$owed" | tr '\n' ' ')"
 else
-  files=""
+  files="$(python3 dev/varka_generated_merge.py --owed | tr '\n' ' ')"
 fi
 
 want() { case " $files " in *" $1 "*) return 0 ;; *) return 1 ;; esac; }
@@ -116,11 +115,18 @@ python3 dev/varka_census.py > /dev/null
 python3 dev/varka_census.py --check
 if [ $audit_skipped = 1 ]; then
   python3 dev/varka_generated_merge.py --check --no-audit
-  echo sql/varka/width_audit.json > "$owed"
-  echo "varka regen: done but for width_audit.json, still owed on its host;" \
-    "review git diff and commit the regenerated files"
+  # The list keeps the width audit only if a merge owed it: --all on another CPU skips an
+  # audit that may never have been owed.
+  if [ -n "$(python3 dev/varka_generated_merge.py --owed --keep sql/varka/width_audit.json)" ]
+  then
+    echo "varka regen: done but for width_audit.json, still owed on its host;" \
+      "review git diff and commit the regenerated files"
+  else
+    echo "varka regen: done; the width audit, not owed, was skipped on this CPU;" \
+      "review git diff and commit the regenerated files"
+  fi
 else
   python3 dev/varka_generated_merge.py --check
-  rm -f "$owed"
+  rm -f "$(git rev-parse --git-path varka-regen-owed)"
   echo "varka regen: done; review git diff and commit the regenerated files"
 fi

@@ -20,6 +20,8 @@
   dev/varka_generated_merge.py driver BASE OURS THEIRS PATH  # the git merge driver
   dev/varka_generated_merge.py --check      # fail on a generated file missing a coverage row
   dev/varka_generated_merge.py --check --no-audit  # the same, the width audit left owed
+  dev/varka_generated_merge.py --owed       # the owed files of the current or last merge
+  dev/varka_generated_merge.py --owed --keep PATH  # clear the owed list but for PATH
   dev/varka_generated_merge.py --self-test  # the merge's cases, in a temporary repository
 
 Every type row regenerates the same few files - coverage.json, emitted_bytes.json,
@@ -35,8 +37,9 @@ a docs block both sides changed, two rows added at the same place in a list whos
 suite's source decides, a value list inside one row that both sides changed, a TSV header both
 sides changed, a file whose keys repeat - it writes from one side, chosen so that the result
 is the same whichever side is "ours", and lists as owed: on stderr, and in
-`$(git rev-parse --git-path varka-regen-owed)`, which `dev/varka_regen_generated.sh` reads to
-run only the owed regenerations, in order.
+`$(git rev-parse --git-path varka-regen-owed)`, tagged with the merge that owed them, which
+`dev/varka_regen_generated.sh` reads (through `--owed`, which skips the entries of an aborted
+or unrelated merge) to run only the owed regenerations, in order.
 
 So a generated file never ends a merge with conflict markers. A conflict in the docs file's
 prose, outside its generated blocks, is a real one and is left with its markers, and so is any
@@ -467,6 +470,90 @@ def owed_file():
     return path
 
 
+# The owed list outlives the merge that wrote it: it is one file per worktree, appended to by
+# every merge, and nothing runs when a merge is aborted. So each line, "OURS THEIRS<tab>PATH",
+# carries the merge that owed PATH: OURS is the commit merged into (HEAD while the driver
+# runs), THEIRS the commit merged in (git names it in a GITHEAD_<sha> variable; "-" where it
+# does not, as in a rebase).
+# MERGE_HEAD cannot serve, since git writes it only after the merge's files are merged. An entry
+# is live while its merge is in progress (MERGE_HEAD exists, HEAD is OURS and MERGE_HEAD is
+# THEIRS), or once it is committed: a merge commit on HEAD's first-parent line has OURS as its
+# first parent and THEIRS among the others, which stays true through the commit of the
+# regenerated files and any later commit. Every other entry - an aborted merge's, a rebase's,
+# one from a merge on another branch - is stale: `owed_live` skips it, and the regeneration
+# script's rewrite of the list drops it. One case is over-counted: a merge aborted and then
+# redone with the same two commits finds the first attempt's entries live, which costs at most
+# a regeneration the second attempt may not have owed.
+
+
+def git_out(*args):
+    """A git command's output, or None when it fails."""
+    run = subprocess.run(["git", *args], capture_output=True, text=True)
+    return run.stdout.strip() if run.returncode == 0 else None
+
+
+def merge_identity():
+    """This merge's "OURS THEIRS" for the owed list."""
+    theirs = [k[len("GITHEAD_") :] for k in os.environ if k.startswith("GITHEAD_")]
+    ours = git_out("rev-parse", "-q", "--verify", "HEAD") or "-"
+    return f"{ours} {theirs[0] if len(theirs) == 1 else '-'}"
+
+
+def owed_live():
+    """The owed list's live entries, as (merge identity, path) pairs, in the list's order."""
+    path = owed_file()
+    try:
+        with open(path, encoding="utf-8") as f:
+            lines = f.read().splitlines()
+    except FileNotFoundError:
+        return []
+    head = git_out("rev-parse", "-q", "--verify", "HEAD")
+    merge_head = git_out("rev-parse", "-q", "--verify", "MERGE_HEAD")
+    live = {}
+
+    def is_live(merge_id):
+        ours, _, theirs = merge_id.partition(" ")
+        if ours == "-" or not theirs:
+            return False
+        if merge_head and head == ours and theirs in ("-", merge_head):
+            return True
+        commits = git_out("rev-list", "--first-parent", "--parents", "HEAD", "^" + ours) or ""
+        return any(
+            len(c) > 2 and c[1] == ours and theirs in ["-"] + c[2:]
+            for c in (line.split() for line in commits.splitlines())
+        )
+
+    entries = []
+    for line in lines:
+        merge_id, sep, rel = line.partition("\t")
+        if sep:
+            if merge_id not in live:
+                live[merge_id] = is_live(merge_id)
+            if live[merge_id]:
+                entries.append((merge_id, rel))
+    return entries
+
+
+def owed_command(keep=None):
+    """`--owed`: print the live owed files, one each. `--owed --keep PATH`: rewrite the list to
+    PATH's live entries alone (no list when there are none) and print PATH if it is still owed;
+    the regeneration script's way to clear the list but for a skipped width audit."""
+    entries = owed_live()
+    if keep is None:
+        for rel in sorted({rel for _, rel in entries}):
+            print(rel)
+        return 0
+    kept = [(m, rel) for m, rel in entries if rel == keep]
+    path = owed_file()
+    if kept:
+        with open(path, "w", encoding="utf-8") as f:
+            f.write("".join(f"{m}\t{rel}\n" for m, rel in kept))
+        print(keep)
+    elif os.path.exists(path):
+        os.remove(path)
+    return 0
+
+
 def driver(base_path, ours_path, theirs_path, repo_path):
     def read(p):
         with open(p, encoding="utf-8") as f:
@@ -500,7 +587,7 @@ def driver(base_path, ours_path, theirs_path, repo_path):
         # particular owes coverage.json no run of the coverage suite.
         owes_file = any(not p.startswith(CENSUS) for p in owed.paths)
         # Found before the merged text is written, so that a failure here still falls back.
-        owed_path = owed_file() if owes_file else None
+        owed_path, merge_id = (owed_file(), merge_identity()) if owes_file else (None, None)
     except Exception as e:
         # A side that is not the generated form (markers, hand edits), or any fault of this
         # driver: git's text merge, which leaves markers where it conflicts, so a merge never
@@ -534,7 +621,7 @@ def driver(base_path, ours_path, theirs_path, repo_path):
         )
         if owes_file:
             with open(owed_path, "a", encoding="utf-8") as f:
-                f.write(repo_path + "\n")
+                f.write(f"{merge_id}\t{repo_path}\n")
     else:
         print(f"varka merge: {repo_path} merged per key, nothing owed", file=sys.stderr)
     return 1 if real else 0
@@ -1071,6 +1158,19 @@ def end_to_end(expect):
         expect(len(set(trees)) == 1, "the two orders give different trees")
         with open(os.path.join(tmp, "c", "types.tsv"), encoding="utf-8") as f:
             expect(f.read() == "id\tx\nA\t1\nB\t1\nC\t1\nZ\t1\n", "the merged TSV")
+
+        # 15. The committed merge's owed files are live.
+        def owed_now(*extra):
+            return subprocess.run(
+                [sys.executable, script, "--owed", *extra],
+                cwd=tmp,
+                env=fixture_env(),
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout.split()
+
+        expect("c/coverage.json" in owed_now(), f"15: the merge's debt is not live: {owed_now()}")
         # 14. Both sides add a coverage row at different places: every row merges exactly and
         # only the census is owed, which puts the file on no owed list.
         owed_list = os.path.join(tmp, git("rev-parse", "--git-path", "varka-regen-owed").stdout)
@@ -1093,18 +1193,27 @@ def end_to_end(expect):
             and not os.path.exists(owed_list),
             f"14: a census-only debt owed the file: {census.stderr}",
         )
-        # A prose conflict outside the generated blocks is a real conflict.
-        git("checkout", "-qb", "p1", "master")
-        write("d/doc.md", docs(["a", "z"], "prose one"))
-        git("commit", "-qam", "p1")
-        git("checkout", "-qb", "p2", "master")
-        write("d/doc.md", docs(["a", "z"], "prose two"))
-        git("commit", "-qam", "p2")
+        # A prose conflict outside the generated blocks is a real conflict. Both sides also add
+        # a coverage row, which owes the file.
+        for name, row in (("p1", "b"), ("p2", "c")):
+            git("checkout", "-qb", name, "master")
+            write("d/doc.md", docs(["a", "z"], "prose " + name))
+            write("c/coverage.json", cov(["a", row, "z"]))
+            git("commit", "-qam", name)
         real = git("merge", "--no-edit", "p1", check=False)
         expect(real.returncode != 0, "a prose conflict was resolved silently")
         with open(os.path.join(tmp, "d", "doc.md"), encoding="utf-8") as f:
             expect("<<<<<<<" in f.read(), "the prose conflict lost its markers")
+        # 15. The merge in progress owes coverage.json; once it is aborted, nothing is owed, and
+        # the regeneration script's rewrite drops the stale entries.
+        expect(owed_now() == ["c/coverage.json"], f"15: in progress, owed {owed_now()}")
+        expect(owed_now("--keep", "c/coverage.json") == ["c/coverage.json"], "15: --keep")
         git("merge", "--abort", check=False)
+        expect(owed_now() == [], f"15: after the abort, owed {owed_now()}")
+        expect(
+            owed_now("--keep", "c/coverage.json") == [] and not os.path.exists(owed_list),
+            "15: the stale entries were kept",
+        )
 
 
 def main(argv):
@@ -1113,6 +1222,10 @@ def main(argv):
     if argv[1:] in (["--check"], ["--check", "--no-audit"]):
         root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         return check(root, audit=len(argv) == 2)
+    if argv[1:] == ["--owed"]:
+        return owed_command()
+    if len(argv) == 4 and argv[1:3] == ["--owed", "--keep"]:
+        return owed_command(keep=argv[3])
     if argv[1:] == ["--self-test"]:
         return self_test()
     print(__doc__, file=sys.stderr)
