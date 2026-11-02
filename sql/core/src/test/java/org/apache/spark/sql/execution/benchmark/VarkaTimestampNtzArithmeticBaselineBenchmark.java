@@ -52,15 +52,18 @@ import org.apache.spark.sql.VarkaBenchmark;
  * should tie.
  *
  * <p>A baseline is only one while nothing fuses: before anything is timed, the run checks each
- * section's plan on the Varka session against the section's {@code fuses} flag, the list of the
- * sections a step of VARKA-339 has fused, and fails when an unlisted section fuses or a listed one
- * does not ({@link VarkaSqlBenchmarkBase#requireBaseline}). Step 2 lists the chain and the
- * interval column sum, at both densities; each later step lists the sections it fuses, so the
- * same class and the same labels time the fused code. A listed
- * section must also run as a kernel over every batch, none handed back to the row path
- * ({@link VarkaSizeLadder#varkaFused}), or the run fails rather than time the row path under the
- * {@code varka on} label. That holds with {@value VarkaSqlBenchmarkBase#FUSE_CHECK_PROPERTY} set
- * to {@code false} too, which lifts only the plan check.
+ * section's plan on the Varka session against the section's {@link Fusion} class, the record of
+ * how much of it a step of VARKA-339 has fused, and fails when the plan's class differs
+ * ({@link VarkaSqlBenchmarkBase#requireBaseline(SparkSession, String, String, Fusion)}). Step 2
+ * fuses the chain and the interval column sum, at both densities, and they are {@code WHOLE}; the
+ * other sections are {@code NONE}. Each later step sets the class of the sections it fuses, so the
+ * same class and the same labels time the fused code. A {@code WHOLE} section must also run as a
+ * kernel over every batch, none handed back to the row path ({@link VarkaSizeLadder#varkaFused}),
+ * or the run fails rather than time the row path under the {@code varka on} label. That holds
+ * with {@value VarkaSqlBenchmarkBase#FUSE_CHECK_PROPERTY} set to {@code false} too, which lifts
+ * only the plan check. The batch check reads a Varka projection's metrics, which every section
+ * here has when it fuses, since none filters; a {@code NULL_TESTS} or {@code PARTIAL} section
+ * would time the row path in part by its class, so only {@code WHOLE} is held to it.
  *
  * <p>No value raises or overflows. Every timestamp lies within 3,000,000 days of the epoch (about
  * 8,200 years either way), well inside the days the month form's day guard admits
@@ -92,10 +95,10 @@ public class VarkaTimestampNtzArithmeticBaselineBenchmark extends VarkaSqlBenchm
   static final long MAX_HOURS = 100_000L;
 
   /**
-   * A section: its title, its query, and whether the Varka session fuses it, the entry a step of
-   * VARKA-339 sets for each section it fuses.
+   * A section: its title, its query, and how much of it the Varka session fuses, the
+   * {@link VarkaSqlBenchmarkBase.Fusion} class a step of VARKA-339 sets for each section it fuses.
    */
-  record Section(String title, String query, boolean fuses) {}
+  record Section(String title, String query, Fusion fusion) {}
 
   /**
    * A day-time value of {@code days} whole days spread evenly over {@code -maxDays} to
@@ -148,17 +151,17 @@ public class VarkaTimestampNtzArithmeticBaselineBenchmark extends VarkaSqlBenchm
       String density = nulls.isEmpty() ? "no nulls" : "one row in ten null";
       String from = " AS v FROM varka_ntz_arith";
       out.add(new Section("TIMESTAMP_NTZ arithmetic chain, " + density,
-          "SELECT " + a + " + (" + b + " - " + c + ") - INTERVAL '1' HOUR" + from, true));
+          "SELECT " + a + " + (" + b + " - " + c + ") - INTERVAL '1' HOUR" + from, Fusion.WHOLE));
       out.add(new Section("TIMESTAMP_NTZ plus a day-time interval column, " + density,
-          "SELECT " + a + " + " + dt + from, true));
+          "SELECT " + a + " + " + dt + from, Fusion.WHOLE));
       out.add(new Section("TIMESTAMP_NTZ plus INTERVAL '1' MONTH, " + density,
-          "SELECT " + a + " + INTERVAL '1' MONTH" + from, false));
+          "SELECT " + a + " + INTERVAL '1' MONTH" + from, Fusion.NONE));
       out.add(new Section("TIMESTAMP_NTZ timestampadd(HOUR, q, ntz), " + density,
-          "SELECT timestampadd(HOUR, " + q + ", " + a + ")" + from, false));
+          "SELECT timestampadd(HOUR, " + q + ", " + a + ")" + from, Fusion.NONE));
       out.add(new Section("TIMESTAMP_NTZ time_bucket at 15 minutes, " + density,
-          "SELECT time_bucket(INTERVAL '15' MINUTE, " + a + ")" + from, false));
+          "SELECT time_bucket(INTERVAL '15' MINUTE, " + a + ")" + from, Fusion.NONE));
       out.add(new Section("TIMESTAMP_NTZ time_bucket at one day, " + density,
-          "SELECT time_bucket(INTERVAL '1' DAY, " + a + ")" + from, false));
+          "SELECT time_bucket(INTERVAL '1' DAY, " + a + ")" + from, Fusion.NONE));
     }
     return out;
   }
@@ -177,15 +180,18 @@ public class VarkaTimestampNtzArithmeticBaselineBenchmark extends VarkaSqlBenchm
         session.sql(tableSql(NUM_ROWS)).createOrReplaceTempView("varka_ntz_arith");
         VarkaArrowSessions.cache(session, "varka_ntz_arith");
       }
-      // A section fuses exactly when it is listed, and a listed one runs every batch as a kernel.
+      // A section fuses as its class says, and one that fuses whole runs every batch as a
+      // kernel. The batch check finds a Varka projection, which a WHOLE section here has: none
+      // of them filters.
       for (Section s : sections()) {
-        requireBaseline(varka, s.title(), s.query(), s.fuses());
-        if (s.fuses()) {
+        requireBaseline(varka, s.title(), s.query(), s.fusion());
+        if (s.fusion() == Fusion.WHOLE) {
           try {
             VarkaSizeLadder.varkaFused(varka, s.query());
           } catch (RuntimeException e) {
-            throw new IllegalStateException(s.title() + " is listed as fusing but does not run "
-                + "fused, so its varka on arm would time the row path: " + s.query(), e);
+            throw new IllegalStateException(s.title() + " is listed as " + s.fusion()
+                + " but does not run fused, so its varka on arm would time the row path: "
+                + s.query(), e);
           }
         }
       }

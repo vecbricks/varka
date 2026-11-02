@@ -17,18 +17,22 @@
 
 package org.apache.spark.sql.execution.benchmark
 
+import java.util.Optional
+
 import scala.jdk.CollectionConverters._
 
 import org.apache.spark.sql.QueryTest
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaMatrix.PinsDefaults
 import org.apache.spark.sql.execution.VarkaSharedSessions
 
 /**
  * The floating arithmetic baseline's sections, run at a small scale on both sessions in every
  * build, so a section that no longer parses, raises or that the two sessions answer differently
  * fails a pull request rather than the runner dispatch that times it (VARKA-342 5). Each section
- * runs under its own SQL settings, its mode where it has one. It checks the answers only: whether
- * a section fuses is the benchmark's own check, made when it is timed, since row 342 is meant to
- * start fusing these queries.
+ * runs under its own SQL settings, its mode where it has one. It also makes the benchmark's own
+ * fuse check, that each section's plan on the Varka session has the section's fusion class under
+ * the section's settings, so a row that changes how a section fuses sets the section's new class
+ * in the same pull request.
  *
  * The fixture is the benchmark's table over a few hundred chosen ids rather than its first rows,
  * whose `x` and `y` are all negative and thousands from zero: the ids reach every sign pairing of
@@ -60,7 +64,8 @@ class VarkaFloatingArithmeticBaselineQueriesSuite extends QueryTest with VarkaSh
     }
   }
 
-  test("every section of the floating arithmetic baseline runs, and both sessions answer alike") {
+  /** Runs `body` with the benchmark's table over the fixture's ids, cached on both sessions. */
+  private def withTable(body: => Unit): Unit = {
     val view = VarkaFloatingArithmeticBaselineBenchmark.VIEW
     val sessions = Seq(spark, varkaSpark)
     try {
@@ -69,6 +74,18 @@ class VarkaFloatingArithmeticBaselineQueriesSuite extends QueryTest with VarkaSh
           .createOrReplaceTempView(view)
         session.catalog.cacheTable(view)
       }
+      body
+    } finally {
+      for (session <- sessions if session.catalog.tableExists(view)) {
+        session.catalog.uncacheTable(view)
+        session.catalog.dropTempView(view)
+      }
+    }
+  }
+
+  test("every section of the floating arithmetic baseline runs, and both sessions answer alike") {
+    val view = VarkaFloatingArithmeticBaselineBenchmark.VIEW
+    withTable {
       val r = spark.sql(
         s"""select min(x), max(x), min(abs(x)), min(y), max(y), min(abs(y)),
            |       count(distinct signum(x), signum(y)),
@@ -96,10 +113,32 @@ class VarkaFloatingArithmeticBaselineQueriesSuite extends QueryTest with VarkaSh
           }
         }
       }
-    } finally {
-      for (session <- sessions if session.catalog.tableExists(view)) {
-        session.catalog.uncacheTable(view)
-        session.catalog.dropTempView(view)
+    }
+  }
+
+  test("each section of the floating arithmetic baseline fuses as its class lists it",
+      PinsDefaults) {
+    // The benchmark's own fuse check, made here too, so a change to how a section fuses fails a
+    // pull request rather than the runner dispatch that times it. Each section is planned under
+    // its own settings, as the benchmark plans it. The benchmark plans under the emitter's
+    // default options, so the classes pin the defaults, and an option matrix configuration,
+    // under which a section may fuse differently, cancels the test; so does the run that lifts
+    // the benchmark's check.
+    assume(VarkaSqlBenchmarkBase.fuseCheck(),
+      s"-D${VarkaSqlBenchmarkBase.FUSE_CHECK_PROPERTY}=false times the sections fused")
+    withTable {
+      // Every section is NONE, so a check that could not see a Varka node anywhere would pass
+      // each of them; a comparison of the two DOUBLE columns fuses, and fails such a check here.
+      val view = VarkaFloatingArithmeticBaselineBenchmark.VIEW
+      assert(VarkaSqlBenchmarkBase.fusedPlan(varkaSpark, s"SELECT x FROM $view WHERE x < y")
+        .isPresent)
+      for (s <- VarkaFloatingArithmeticBaselineBenchmark.sections().asScala) {
+        withClue(s.title) {
+          withSettings(s) {
+            val plan = varkaSpark.sql(s.query).queryExecution.executedPlan
+            assert(VarkaSqlBenchmarkBase.fusion(plan) === Optional.of(s.fusion))
+          }
+        }
       }
     }
   }
