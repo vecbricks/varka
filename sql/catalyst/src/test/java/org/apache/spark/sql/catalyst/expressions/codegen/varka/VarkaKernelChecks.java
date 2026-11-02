@@ -516,9 +516,10 @@ public final class VarkaKernelChecks {
 
   /**
    * The lane a long-lane kernel's batch runs through: the long lane's own, or both lanes' where
-   * the roots hold a value of each (VARKA-28) - a widening anywhere, a narrowing under another
-   * node, or an int root that is not a narrowing - whose int columns, int outputs and int table
-   * are the int lane's.
+   * the roots hold a value of each (VARKA-28) - a widening or a conversion anywhere, a narrowing
+   * under another node, or an int root that is not a narrowing - whose int columns, int outputs
+   * and int table are the int lane's. A conversion (VARKA-343) reads one lane and writes another,
+   * so only {@link VarkaReference#mixedValue} answers it.
    */
   private static Lane longLane(LongBatch batch, long[] lits, int[] intLits,
       List<VarkaVectorIR> roots) {
@@ -552,13 +553,14 @@ public final class VarkaKernelChecks {
         return true;
       }
       todo.addAll(Arrays.asList(VarkaVectorIR.childrenOf(root)));
-      if (root instanceof VarkaVectorIR.WidenLane) {
+      if (root instanceof VarkaVectorIR.WidenLane || root instanceof VarkaVectorIR.ConvertLane) {
         return true;
       }
     }
     while (!todo.isEmpty()) {
       VarkaVectorIR node = todo.pop();
-      if (node instanceof VarkaVectorIR.WidenLane || node instanceof NarrowLane) {
+      if (node instanceof VarkaVectorIR.WidenLane || node instanceof NarrowLane
+          || node instanceof VarkaVectorIR.ConvertLane) {
         return true;
       }
       if (seen.add(node)) {
@@ -1048,13 +1050,16 @@ public final class VarkaKernelChecks {
    * bytes a row, its values the drawn ones narrowed - each output at its root's, the long lane's
    * eight-argument {@code run} with both literal tables, and {@link VarkaReference#mixedValue} as
    * the oracle. A column's lane is the one the roots read it at; one they do not read is held at
-   * eight bytes a row.
+   * eight bytes a row. A column read through a {@link BoolColumn} is a {@code BOOLEAN} column,
+   * stored a bit a row as {@link StoredNarrowLane} stores one: a boolean converted to a floating
+   * type (VARKA-343) is read so in a kernel driven at 64 bits.
    */
   private record MixedLane(LongBatch batch, int[] intLits, long[] longLits,
-      VarkaVectorIR.LaneType[] columnLanes, boolean wideRoots) implements Lane {
+      VarkaVectorIR.LaneType[] columnLanes, boolean[] bitColumns, boolean wideRoots)
+      implements Lane {
     MixedLane(LongBatch batch, int[] intLits, long[] longLits, List<VarkaVectorIR> roots) {
       this(batch, intLits, longLits, VarkaKernelChecks.columnLanes(roots, batch.data().length),
-          holdsWideValue(roots));
+          VarkaKernelChecks.bitColumns(roots, batch.data().length), holdsWideValue(roots));
     }
 
     /** Whether column {@code c} is stored four bytes a row: an int column, or a float one. */
@@ -1088,9 +1093,13 @@ public final class VarkaKernelChecks {
       return 8L;
     }
 
-    // A mixed kernel holds int and long values only (a narrow value under a long kernel is
-    // refused), and the putters below lay out four or eight bytes accordingly.
+    // A mixed kernel holds 32- and 64-bit values only (a narrow value under a long kernel is
+    // refused), and the putters below lay out four or eight bytes accordingly; a bit column's
+    // buffer is over-allocated at a byte a row, as at the narrow lane.
     @Override public long columnStride(int c) {
+      if (bitColumns[c]) {
+        return 1L;
+      }
       return width(intColumn(c) ? VarkaVectorIR.LaneType.INT : VarkaVectorIR.LaneType.LONG);
     }
 
@@ -1104,6 +1113,9 @@ public final class VarkaKernelChecks {
 
     @Override public long value(int c, int i) {
       long v = batch.data()[c][i];
+      if (bitColumns[c]) {
+        return v != 0 ? 1L : 0L;
+      }
       return intColumn(c) ? (int) v : v;
     }
 
@@ -1112,7 +1124,9 @@ public final class VarkaKernelChecks {
     }
 
     @Override public void putColumn(int c, MemorySegment d, int i, long v) {
-      if (intColumn(c)) {
+      if (bitColumns[c]) {
+        putBit(d, i, v);
+      } else if (intColumn(c)) {
         d.set(ValueLayout.JAVA_INT, i * 4L, (int) v);
       } else {
         put(d, i, v);
@@ -1135,6 +1149,9 @@ public final class VarkaKernelChecks {
     }
 
     @Override public long poisonColumn(int c, int nullOrdinal) {
+      if (bitColumns[c]) {
+        return (nullOrdinal & 1) == 0 ? 0L : 1L;
+      }
       return intColumn(c) ? VarkaEmitterFixtures.poison(nullOrdinal) : poison(nullOrdinal);
     }
 
@@ -1239,10 +1256,7 @@ public final class VarkaKernelChecks {
 
     @Override public void putColumn(int c, MemorySegment d, int i, long v) {
       if (bitColumns[c]) {
-        long off = i / 8L;
-        int bit = 1 << (i % 8);
-        int b = d.get(ValueLayout.JAVA_BYTE, off);
-        d.set(ValueLayout.JAVA_BYTE, off, (byte) (v != 0 ? b | bit : b & ~bit));
+        putBit(d, i, v);
       } else {
         putAt(columnLanes[c], d, i, v);
       }
@@ -1324,6 +1338,14 @@ public final class VarkaKernelChecks {
         case LONG, DOUBLE -> out.get(ValueLayout.JAVA_LONG, i * 8L);
       };
     }
+  }
+
+  /** Row {@code i}'s data bit of a bit-stored column, set where {@code v} is not zero. */
+  private static void putBit(MemorySegment d, int i, long v) {
+    long off = i / 8L;
+    int bit = 1 << (i % 8);
+    int b = d.get(ValueLayout.JAVA_BYTE, off);
+    d.set(ValueLayout.JAVA_BYTE, off, (byte) (v != 0 ? b | bit : b & ~bit));
   }
 
   /** The inputs {@code roots} read through a {@link BoolColumn}: the bit-stored columns. */
