@@ -1241,12 +1241,22 @@ final class Analysis {
   /**
    * Whether this kernel holds values of both lanes: driven at the long lane, with an int-lane
    * node that is emitted as an int vector - every int-lane node but a narrowing root that nothing
-   * else reads, whose value stays in the long lane until its store. False for every single-lane
-   * kernel and for a kernel whose only int-lane nodes are narrowing roots, such as the
-   * {@code TIME} extracts'. The plan's answer.
+   * else reads, whose value stays in the long lane until its store, and every narrow value. A
+   * narrowing to a narrow type at its store makes the kernel one too where that lets its loop
+   * body store the narrow species whole ({@link #wholeNarrowStoreAtLong}). False for every
+   * single-lane kernel and for a kernel whose only int-lane nodes are narrowing roots, such as
+   * the {@code TIME} extracts'. The plan's answer.
    */
   boolean mixed() {
     return plan.mixed();
+  }
+
+  /**
+   * Whether a narrow-typed store of {@code stored} in this kernel at the long lane may be whole in
+   * its loop body. The plan's answer ({@link VarkaKernelPlan#wholeNarrowStoreAtLong}).
+   */
+  boolean wholeNarrowStoreAtLong(Lane stored) {
+    return plan.wholeNarrowStoreAtLong(stored);
   }
 
   /**
@@ -1547,10 +1557,10 @@ final class Analysis {
     // the NATIVE arm, whose every value is narrow - holds nothing else. An int-lane emission
     // holds int nodes and the narrow ones, which it widens once at their loads; it holds no
     // long-lane node. A long-lane emission may hold int-lane nodes, which the IR's constructors
-    // admit only below a conversion, and which `laneOf` emits at the int species; a narrow value
-    // there has no lowering, since widening one to the long lane would go through the int
-    // species of the narrow species' part width. A narrow column read for its validity word
-    // alone is the exception (`validityOnlyNarrow`): the word is a bit per row at every lane.
+    // admit only below a conversion, and which `laneOf` emits at the int species; a narrow column
+    // there is loaded into the int species too and widened, and a long value narrowed to a narrow
+    // type at a root is converted at its store (VARKA-332). A narrow column read for its validity
+    // word alone needs neither (`validityOnlyNarrow`): the word is a bit per row at every lane.
     // The IR's own constructors make any other mix unbuildable; this is what catches one built
     // another way.
     // A floating emission holds only its own lane's nodes, and no integral emission holds a
@@ -1559,7 +1569,11 @@ final class Analysis {
       case BYTE, SHORT, FLOAT, DOUBLE -> node.laneType() == lane.laneType;
       case INT -> node.laneType() != VarkaVectorIR.LaneType.LONG
           && !node.laneType().isFloating();
-      case LONG -> (!node.laneType().isNarrow() || validityOnlyNarrow.contains(node))
+      // The plan admits narrow columns, narrowings and comparisons there and nothing else
+      // narrow, by the classification it refuses with (VarkaKernelPlan.longNarrowRole,
+      // VARKA-332); a validity-only narrow column, which the plan does not see, beside them.
+      case LONG -> (!node.laneType().isNarrow() || validityOnlyNarrow.contains(node)
+          || VarkaKernelPlan.longNarrowRole(node) != VarkaKernelPlan.LongNarrowRole.NONE)
           && !node.laneType().isFloating();
     };
     if (!fits) {

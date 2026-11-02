@@ -675,6 +675,12 @@ final class VarkaConditionCompiler {
     if (floating.isPresent()) {
       return sink.decline(floating.get(), expr);
     }
+    // A number cast to BOOLEAN is a condition of the integral cast family, under its switch.
+    Supplier<Optional<Cond>> cast = VarkaIntegralCastCompiler.condArm(expr, inputs, literals,
+        sink);
+    if (cast != null) {
+      return VarkaNodeCompiler.inFamily(VarkaFamily.INTEGRAL_CAST, cast, expr, sink);
+    }
     Supplier<Optional<Cond>> arm;
     try {
       arm = condArm(expr, inputs, literals, sink);

@@ -93,6 +93,7 @@ final class VarkaProofFiles {
     files.put("narrow_deferred.smt2", narrowDeferred());
     files.put("ym_divide.smt2", ymDivide());
     files.put("decimal_slot.smt2", decimalSlot());
+    files.put("casts.smt2", casts());
     files.put("refinement.smt2", VarkaRefinementFile.render());
     return files;
   }
@@ -2468,6 +2469,86 @@ final class VarkaProofFiles {
       check(out, "narrow_overflow: the other operator's saturating form is not the sum's mask",
           "sat", append(decl, List.of("(assert (not " + outsideSum + "))",
               "(assert (not (= (bvadd a b) " + ssub + ")))")));
+    }
+    return out.toString();
+  }
+
+  // -----------------------------------------------------------------------------------------
+  // The integral casts from a 64-bit source (VARKA-332).
+  // -----------------------------------------------------------------------------------------
+
+  /** The targets a {@code BIGINT} narrows to, whose wrap and guard {@code casts.smt2} states. */
+  private static final List<VarkaVectorIR.LaneType> CAST_TARGETS = List.of(
+      VarkaVectorIR.LaneType.BYTE, VarkaVectorIR.LaneType.SHORT, VarkaVectorIR.LaneType.INT);
+
+  /** {@code v} reduced to the low {@code w} bits and sign-extended, over the integers. */
+  private static String wrapTo(String v, int w) {
+    long half = 1L << (w - 1);
+    return "(- (mod (+ " + v + " " + half + ") " + (2 * half) + ") " + half + ")";
+  }
+
+  /**
+   * {@code casts.smt2}: the narrowings of a {@code BIGINT} (`VARKA-332.md` 3.3), over the
+   * integers as the proofs' README prescribes. Under {@code LEGACY} the kernel converts with
+   * {@code L2I} and, for a narrow target, truncates the int with {@code I2B} or {@code I2S} at the
+   * store ({@code VarkaBodyEmitter.emitNarrowTypeStore}); the claim is that this is the reduction
+   * of the long mod {@code 2^w}, Spark's {@code (byte) (int) x}. Under {@code ANSI} the range
+   * guard's two compares against the target's range ({@link VarkaTypes#integralRange}) hold at
+   * exactly the longs that differ from their narrowing, which is where Spark's
+   * {@code longToByteExact} and its kin raise. The 32-bit sources are exhausted instead, and the
+   * int lane's guard is {@code narrow_range.smt2}'s.
+   */
+  static String casts() {
+    var out = new StringBuilder(LICENSE);
+    out.append("""
+        ; The narrowings of a bigint (VARKA-332). For a target of w bits, 8, 16 or 32:
+        ;
+        ;   LEGACY  kernel(x) = narrow_w(l2i(x))      L2I, then I2B or I2S at the store
+        ;   ANSI    declines where x < min_w || x > max_w     the range guard's two compares
+        ;
+        ; where narrow_w(v) is the sign extension of v's low w bits, Java's (byte), (short) and
+        ; (int) narrowing, and min_w and max_w are the target's range (VarkaTypes.integralRange,
+        ; read here). Spark answers (byte) (int) x under LEGACY (Cast.castToByte) and raises
+        ; CAST_OVERFLOW under ANSI exactly where x != (byte) x (CastUtils.longToByteExact and its
+        ; kin, LongExactNumeric.toInt). The claims, for every long: the kernel's wrap is the
+        ; reduction of x mod 2^w, and the guard holds exactly where x differs from it. The sat
+        ; checks place both ends of the range inside it and one past each, and the long's ends,
+        ; outside; the neighbours move a compare's end by one, which is wrong there.
+        """);
+    out.append(RENDERED);
+    for (VarkaVectorIR.LaneType target : CAST_TARGETS) {
+      VarkaTypes.IntegralRange range = VarkaTypes.integralRange(target);
+      int w = Lane.of(target).bits;
+      String kind = target.name().toLowerCase(Locale.ROOT);
+      String decl = "(declare-const x Int)";
+      String in = "(assert (jlong.in x))";
+      String kernel = w == Integer.SIZE ? "(l2i x)" : wrapTo("(l2i x)", w);
+      String guard = "(or (< x " + lit(range.min()) + ") (> x " + lit(range.max()) + "))";
+      check(out, "casts: a bigint narrowed to " + kind + " is its reduction mod 2^" + w,
+          "unsat", List.of(decl, in, "(assert (not (= " + kernel + " " + wrapTo("x", w) + ")))"));
+      check(out, "casts: the " + kind + " guard holds exactly where the bigint is not its "
+          + "narrowing", "unsat", List.of(decl, in,
+          "(assert (not (= " + guard + " (not (= x " + wrapTo("x", w) + ")))))"));
+      check(out, "casts: both ends of the " + kind + " range are inside the guard", "sat",
+          List.of("(declare-const lo Int)", "(declare-const hi Int)",
+              "(assert (= lo " + lit(range.min()) + "))", "(assert (= hi " + lit(range.max())
+                  + "))",
+              "(assert (= lo " + wrapTo("lo", w) + "))", "(assert (= hi " + wrapTo("hi", w)
+                  + "))"));
+      check(out, "casts: one past each end of the " + kind + " range, and the long's ends, are "
+          + "outside it", "sat", List.of("(declare-const a Int)", "(declare-const b Int)",
+          "(assert (= a " + lit(range.min() - 1) + "))", "(assert (= b " + lit(range.max() + 1)
+              + "))",
+          "(assert (not (= a " + wrapTo("a", w) + ")))",
+          "(assert (not (= b " + wrapTo("b", w) + ")))",
+          "(assert (not (= jlong.MIN " + wrapTo("jlong.MIN", w) + ")))",
+          "(assert (not (= jlong.MAX " + wrapTo("jlong.MAX", w) + ")))"));
+      check(out, "casts: with the bottom compare one higher the " + kind + " guard is wrong",
+          "sat", List.of(decl, in, "(assert (not (= (or (< x " + lit(range.min() + 1)
+              + ") (> x " + lit(range.max()) + ")) (not (= x " + wrapTo("x", w) + ")))))"));
+      check(out, "casts: with the top compare one lower the " + kind + " guard is wrong",
+          "sat", List.of(decl, in, "(assert (not (= (or (< x " + lit(range.min())
+              + ") (> x " + lit(range.max() - 1) + ")) (not (= x " + wrapTo("x", w) + ")))))"));
     }
     return out.toString();
   }

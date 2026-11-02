@@ -256,7 +256,7 @@ public final class VarkaAnsiForm {
         "i ^ 21845", "~i", "i << 3", "shiftright(i, i)", "i >>> 28", "bit_count(i)",
         "bit_count(l)", "bit_count(l) + 1", "y1 + i", "CAST(s1 AS INT)",
         "CAST(y1 AS INT) * CAST(y2 AS INT)", "CAST(s1 AS INT) * CAST(s2 AS INT)", "try_add(i, 1)",
-        "try_subtract(i, 1)")) {
+        "try_subtract(i, 1)", "CAST(b AS INT)")) {
       out.put(sql + "\t" + COALESCE_TAIL, intCoalesce);
     }
     // CAST(i AS INTERVAL DAY) throws past INTERVAL_DAY_LIMIT_DAYS, so the compiler bounds i and
@@ -274,8 +274,17 @@ public final class VarkaAnsiForm {
         + "the left side rejected (m9/SCOPE.md item 96)";
     for (String sql : List.of("make_date(2021, i, 1)", "add_months(d, i)", "d + ym", "d - ym",
         "ym - ymm", "ym + ym", "i + 1", "year(d) + i", "y1 + y2", "y1 - y2", "y1 * y2", "-y1",
-        "abs(y1)", "s1 + s2", "s1 - s2", "s1 * s2", "-s1", "abs(s1)", "x / x2", "ntz + dt")) {
+        "abs(y1)", "s1 + s2", "s1 - s2", "s1 * s2", "-s1", "abs(s1)", "x / x2", "ntz + dt",
+        "CAST(s1 AS TINYINT)", "CAST(i AS TINYINT)", "CAST(i AS SMALLINT)", "CAST(l AS TINYINT)",
+        "CAST(l AS SMALLINT)", "CAST(i + 1 AS TINYINT)")) {
       out.put(sql + "\t" + FALSE_AND, unqualified);
+    }
+    // A bigint narrowed to a narrow type as a COALESCE argument beside a narrow column: a narrow
+    // choice in a long kernel, which has no lowering there (VARKA-332.md 10.1).
+    String narrowChoice = "a narrow choice beside a bigint value has no lowering in a long "
+        + "kernel (VARKA-332.md 10.1)";
+    for (String sql : List.of("CAST(l AS TINYINT)", "CAST(l AS SMALLINT)")) {
+      out.put(sql + "\t" + COALESCE_TAIL, narrowChoice);
     }
     return Map.copyOf(out);
   }

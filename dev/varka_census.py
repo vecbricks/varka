@@ -794,7 +794,12 @@ def cast_rows(src, dst):
         return "332,28" if lanes & {"bigint"} and lanes & {"byte", "short", "int"} else "332"
     if lanes & {"ym", "dt"}:
         return "103,332"
-    return "332"
+    # An identity is the optimizer's, and the register leaves it to this row (VARKA-332.md 0).
+    if src == dst and src != "time":
+        return "332"
+    # What is left - TIME to an integral type and to a coarser TIME, and DATE to a number or
+    # BOOLEAN under LEGACY - no row claims: VARKA-332.md section 7 suggests each one's home.
+    return "unclaimed"
 
 
 # What the compiler fuses, per form pair and mode: written by VarkaCastMatrixSuite, which compiles

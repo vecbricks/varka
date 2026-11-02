@@ -305,6 +305,11 @@ final class VarkaVectorWalk {
             // lane, reduced to the narrow width and sign-extended back by the shift pair a
             // wrapping narrow node reduces with.
             emitWrapToNarrow(cb, Lane.INT, n.target());
+          } else if (target.isNarrow()) {
+            // A long value narrowed to TINYINT or SMALLINT away from a store (VARKA-332): `L2I`
+            // into the low half of the int species, then the same shift pair.
+            emitShapeConversion(cb, analysis.laneOf(n.child()), Lane.INT, analysis);
+            emitWrapToNarrow(cb, Lane.INT, n.target());
           } else {
             emitShapeConversion(cb, analysis.laneOf(n.child()), analysis.laneOf(node), analysis);
           }
@@ -671,9 +676,10 @@ final class VarkaVectorWalk {
    * lanes the IR converts between are the int and the long one; a narrow value is widened once at
    * its load and narrowed once at its store, so a conversion node over one names the lane it is
    * already emitted at and emits nothing, and any other pair is a lowering this emitter has not
-   * built.
+   * built. The one form of the conversion: a long kernel's narrowing store converts through it
+   * too ({@code VarkaBodyEmitter.emitNarrowStore}), into the low half of the int species.
    */
-  private static void emitShapeConversion(
+  static void emitShapeConversion(
       CodeBuilder cb, Lane from, Lane to, Analysis analysis) {
     if (from == to) {
       return;

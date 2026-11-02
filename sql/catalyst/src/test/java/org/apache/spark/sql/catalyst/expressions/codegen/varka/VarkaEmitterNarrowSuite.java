@@ -365,12 +365,15 @@ public final class VarkaEmitterNarrowSuite {
   @Test
   @DisplayName("a narrow value lifted to the long lane is refused, not emitted")
   public void narrowValueLiftedToTheLongLaneIsRefused() {
-    // The third refusal: a bigint guard makes the kernel long-lane, and no long-lane form of a
-    // narrow value exists in either arm. The compiler asks the same question, so a query that
-    // would build this - `CASE WHEN l < 0 THEN y1 ELSE y2 END` - answers from the row engine.
+    // The third refusal: a bigint guard makes the kernel long-lane, and a narrow value computed
+    // there has no long-lane form in either arm. A narrow column widened to the long lane is the
+    // one that has (VARKA-332's narrow load at the long width), so the value here is narrow
+    // arithmetic. The compiler asks the same question, so a query that would build this answers
+    // from the row engine.
     Cond longCond = new Compare(CompareOp.LT, new ColumnRef(1, LaneType.LONG),
         new ColumnRef(2, LaneType.LONG));
-    VarkaVectorIR longNarrow = new IfElse(longCond, new WidenLane(BYTE_COL, LaneType.LONG),
+    VarkaVectorIR sum = new IntArith(IntOp.ADD, Overflow.WRAP, BYTE_COL, BYTE_COL);
+    VarkaVectorIR longNarrow = new IfElse(longCond, new WidenLane(sum, LaneType.LONG),
         new WidenLane(BYTE_COL, LaneType.LONG));
     for (Arm arm : ARMS) {
       assertEquals(Optional.of("a narrow value under a bigint kernel has no lowering"),
@@ -396,12 +399,15 @@ public final class VarkaEmitterNarrowSuite {
   public void validityOnlyNarrowColumnNeedsNoSpecies() {
     // An IsNotNull over a value reads that input's validity word and never its data, so it needs
     // no narrow species at any lane count or width, the bigint lane's included: the word is a bit
-    // per row at every lane (VARKA-480), so a null test lifted beside a bigint conjunct fuses. A
-    // narrow value has no lowering at the long lane, so the value form of the same widening
-    // declines and the row engine answers it.
+    // per row at every lane (VARKA-480), so a null test lifted beside a bigint conjunct fuses. The
+    // value form of the same widening is the narrow load at the long width (VARKA-332), which
+    // needs a byte species of twice the long lanes: served where the width has one, refused by
+    // name where it has not. Narrow arithmetic widened to the long lane has no lowering at all.
     Cond validityOnly = new IsNotNull(BYTE_COL);
     Cond lifted = new IsNotNull(new WidenLane(BYTE_COL, LaneType.LONG));
     VarkaVectorIR value = new WidenLane(BYTE_COL, LaneType.LONG);
+    VarkaVectorIR computed = new WidenLane(
+        new IntArith(IntOp.ADD, Overflow.WRAP, BYTE_COL, BYTE_COL), LaneType.LONG);
     assertEquals(LaneType.INT, VarkaKernelPlan.emissionLane(validityOnly, WIDENED));
     assertEquals(LaneType.LONG, VarkaKernelPlan.emissionLane(lifted, WIDENED));
     for (Arm arm : ARMS) {
@@ -411,8 +417,17 @@ public final class VarkaEmitterNarrowSuite {
       // takes it (VARKA-480); a narrow value under one still has no lowering.
       assertTrue(VarkaKernelPlan.refusalOf(List.of(lifted), arm.options()).isEmpty(),
           arm.name());
+      // The outcome from the species the load names: none where no long lane count is baked,
+      // and otherwise a byte species of twice the long lanes, served where the width has it.
+      int longLanes = Lane.emitLanes(arm.options(), Lane.LONG);
+      Optional<String> expected = longLanes == 0
+          ? Optional.of("a narrow column needs a baked lane count to be widened to the long lane")
+          : Lane.widenLanes(2 * longLanes, Lane.BYTE) == 2 * longLanes ? Optional.empty()
+          : Optional.of("a BYTE column has no load at " + longLanes + " long lanes");
+      assertEquals(expected, VarkaKernelPlan.refusalOf(List.of(value), arm.options()),
+          arm.name());
       assertEquals(Optional.of("a narrow value under a bigint kernel has no lowering"),
-          VarkaKernelPlan.refusalOf(List.of(value), arm.options()), arm.name());
+          VarkaKernelPlan.refusalOf(List.of(computed), arm.options()), arm.name());
     }
   }
 
