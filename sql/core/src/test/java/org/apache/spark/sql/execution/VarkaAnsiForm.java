@@ -285,9 +285,9 @@ public final class VarkaAnsiForm {
         + "lane than the floating comparison, and conjuncts of two such lanes share no kernel "
         + "until the root-level crossing (VARKA-343.md 5.1, its second part)";
     for (String sql : List.of("CAST(i AS DOUBLE)", "CAST(i AS FLOAT)", "try_cast(i AS FLOAT)",
-        "CAST(l AS DOUBLE)", "CAST(l AS FLOAT)", "CAST(y1 AS FLOAT)", "CAST(s1 AS FLOAT)",
-        "CAST(f AS DOUBLE)", "CAST(x AS FLOAT)", "CAST(b AS DOUBLE)", "CAST(b AS FLOAT)",
-        "CAST(i > 3 AS DOUBLE)", "x + i", "f * i", "x - l", "f + x", "i / 2.0D")) {
+        "CAST(y1 AS FLOAT)", "CAST(s1 AS FLOAT)", "CAST(f AS DOUBLE)", "CAST(x AS FLOAT)",
+        "CAST(b AS DOUBLE)", "CAST(b AS FLOAT)", "CAST(i > 3 AS DOUBLE)", "x + i", "f * i",
+        "f + x", "i / 2.0D")) {
       out.put(sql + "\t" + FALSE_AND, laneSplit);
     }
     // A boolean row's forms set it beside the boolean column b2 - the CASE's other arm, the

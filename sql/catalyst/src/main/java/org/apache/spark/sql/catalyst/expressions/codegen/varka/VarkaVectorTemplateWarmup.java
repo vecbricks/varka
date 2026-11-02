@@ -596,7 +596,8 @@ final class VarkaVectorTemplateWarmup {
     /**
      * Whether this JVM's {@code L2F} and {@code L2D} fall back to Java, read from HotSpot's
      * feature list ({@link VarkaHostIsa}): the conversions the kernel plan refuses at a level
-     * where {@code convertsFallBack} holds.
+     * where {@code convertsMayFallBack} holds. The gate reads the host and emission reads the
+     * session's level, so the two can disagree under an explicit level (`VARKA-343.md` 5.1).
      */
     private static final boolean CONVERTS_FALL_BACK = VarkaHostIsa.conversionsFallBack();
 
@@ -885,7 +886,7 @@ final class VarkaVectorTemplateWarmup {
             + VectorMask.fromLong(s, 0x5L).and(inRange).toLong()
             + a.lanewise(VectorOperators.SSUB, b).lane(0)
             + a.compare(VectorOperators.GT, (byte) 0).toLong()
-            + (inRange.anyTrue() ? 1 : 0) + inRange.and(tail).toLong() + m.cast(s).toLong();
+            + (inRange.anyTrue() ? 1 : 0) + inRange.and(tail).toLong();
         a.intoMemorySegment(seg, 1024, ByteOrder.LITTLE_ENDIAN);
         a.intoMemorySegment(seg, 1088, ByteOrder.LITTLE_ENDIAN, tail);
       }
@@ -917,7 +918,7 @@ final class VarkaVectorTemplateWarmup {
             + VectorMask.fromLong(s, 0x5L).and(inRange).toLong()
             + a.lanewise(VectorOperators.SSUB, b).lane(0)
             + a.compare(VectorOperators.GT, (short) 0).toLong()
-            + (inRange.anyTrue() ? 1 : 0) + inRange.and(tail).toLong() + m.cast(s).toLong();
+            + (inRange.anyTrue() ? 1 : 0) + inRange.and(tail).toLong();
         a.intoMemorySegment(seg, 1024, ByteOrder.LITTLE_ENDIAN);
         a.intoMemorySegment(seg, 1088, ByteOrder.LITTLE_ENDIAN, tail);
       }
@@ -961,8 +962,7 @@ final class VarkaVectorTemplateWarmup {
         acc += a.blend(b, m).lane(0) + a.lanewise(VectorOperators.SADD, b).lane(0)
             + a.lanewise(VectorOperators.NEG).lane(0) + a.lanewise(VectorOperators.ABS).lane(0)
             + a.compare(VectorOperators.GT, (byte) 0).toLong()
-            + m.and(tail).toLong() + m.or(tail).toLong() + m.not().toLong()
-            + m.cast(w).toLong();
+            + m.and(tail).toLong() + m.or(tail).toLong() + m.not().toLong();
         for (int part = 0; part < parts; part++) {
           IntVector widened = (IntVector) a.convertShape(VectorOperators.B2I, is, part);
           ByteVector back = (ByteVector) widened.convertShape(VectorOperators.I2B, w, 0);
@@ -991,8 +991,7 @@ final class VarkaVectorTemplateWarmup {
         acc += a.blend(b, m).lane(0) + a.lanewise(VectorOperators.SADD, b).lane(0)
             + a.lanewise(VectorOperators.NEG).lane(0) + a.lanewise(VectorOperators.ABS).lane(0)
             + a.compare(VectorOperators.GT, (short) 0).toLong()
-            + m.and(tail).toLong() + m.or(tail).toLong() + m.not().toLong()
-            + m.cast(w).toLong();
+            + m.and(tail).toLong() + m.or(tail).toLong() + m.not().toLong();
         for (int part = 0; part < parts; part++) {
           IntVector widened = (IntVector) a.convertShape(VectorOperators.S2I, is, part);
           ShortVector back = (ShortVector) widened.convertShape(VectorOperators.I2S, w, 0);
@@ -1033,8 +1032,8 @@ final class VarkaVectorTemplateWarmup {
         }
         // The mask crossings between the two lanes of one width, each way the emitter casts: the
         // drive's mask to the other lane's species and back (VarkaVectorWalk.emitMaskToLane,
-        // emitToDrivingLane), at both widths. The narrow blocks cast their masks too: a kernel
-        // reading a narrow column holds the call, and its bytes do not say which mask receives it.
+        // emitToDrivingLane), at both widths. No narrow mask is cast: a narrow value of a kernel
+        // of several lanes is the int lane's.
         acc += l.compare(VectorOperators.GT, 0L).cast(ds).toLong()
             + d.compare(VectorOperators.GT, 0.0).cast(ls).toLong()
             + i.compare(VectorOperators.GT, 0).cast(fs).toLong()

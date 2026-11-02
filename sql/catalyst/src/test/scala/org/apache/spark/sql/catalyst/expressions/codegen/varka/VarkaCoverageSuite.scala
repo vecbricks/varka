@@ -850,12 +850,14 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
       Row("abs(f)"))),
     // The casts to a floating type (VARKA-343, its first part): Java's primitive cast in every
     // mode, since a conversion to a floating type never raises, so TRY's answer is LEGACY's.
+    // A BIGINT's cast to either type is not listed: it fuses only at an emit level of 3 or more,
+    // and the defaults' level is unknown, where the kernel plan declines it, since an AVX2 host
+    // would run L2F and L2D as the Vector API's Java loop (`convertsMayFallBack`). The AVX2
+    // forms of row 343's second part fuse it at every level, and its rows return with them.
     Family("Floating casts", predicates = false, Seq(
       Row("CAST(i AS DOUBLE)", "exact: an int's 32 bits fit the double's 53"),
       Row("CAST(i AS FLOAT)", "rounded once to nearest, ties to even, as the JVM converts"),
       Row("try_cast(i AS FLOAT)", "the same rounding: a cast to a floating type never fails"),
-      Row("CAST(l AS DOUBLE)", "rounded once; it declines at an emit level below AVX-512"),
-      Row("CAST(l AS FLOAT)", "rounded once from the exact value, never twice through a double"),
       Row("CAST(y1 AS FLOAT)", "the byte widened at its load, then converted, exact"),
       Row("CAST(s1 AS FLOAT)", "the short twin"),
       Row("CAST(f AS DOUBLE)", "exact, a NaN's payload and both zeros kept"),
@@ -865,7 +867,6 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
       Row("CAST(i > 3 AS DOUBLE)", "a condition as its one or zero, then converted"),
       Row("x + i", "type coercion casts the int to a double beside the double column"),
       Row("f * i", "the int cast to a float beside the float column, at one lane count"),
-      Row("x - l", "the bigint cast to a double in a kernel driven at the long lane"),
       Row("f + x", "the float widened exactly to meet the double"),
       Row("i / 2.0D", "an int division is a double division over its cast"),
       Row("CAST(x AS BOOLEAN)", "x != 0: a NaN is true and both zeros false, as a BOOLEAN output"),

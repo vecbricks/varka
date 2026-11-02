@@ -3112,14 +3112,17 @@ object SQLConf {
     .doc("The -XX:UseAVX level the Varka emitter lowers for, where a lowering depends on it:" +
       " 3 or above takes the conversions through double lanes for a 64-bit division, 2 the" +
       " magic-number form, because the converts do not become instructions without AVX512DQ." +
-      " -2 resolves it from the driver's JVM: level 2 where HotSpot's feature list lacks" +
-      " AVX512DQ, the emitter's default otherwise, and the emitter's default where the list" +
-      " cannot be read (it needs --add-exports=java.base/jdk.internal.vm.vector=ALL-UNNAMED," +
-      " which Spark's module options carry). The driver's host decides for the whole plan," +
-      " and on a mixed cluster both forms are correct. -1 leaves the emitter's own default," +
-      " which is not the host's level on purpose: the shape hashes and the committed emitted" +
-      " bytes describe no one machine. An explicit level wins over the host. The level is part" +
-      " of the shape hash, so a session at a level emits and caches its own classes.")
+      " A BIGINT cast to FLOAT or DOUBLE fuses only at 3 or above. -2 resolves it from the" +
+      " driver's JVM: level 2 where HotSpot's feature list lacks AVX512DQ, 3 on an x86 host" +
+      " whose list holds it, and the emitter's default elsewhere and where the list cannot be" +
+      " read (it needs --add-exports=java.base/jdk.internal.vm.vector=ALL-UNNAMED, which" +
+      " Spark's module options carry). The driver's host decides for the whole plan, and on a" +
+      " mixed cluster both forms are correct. -1 leaves the emitter's own default, which is not" +
+      " the host's level on purpose: the shape hashes and the committed emitted bytes describe" +
+      " no one machine. It keeps the conversion form of a division and declines the BIGINT" +
+      " casts, which could run as scalar Java on a host it does not name. An explicit level" +
+      " wins over the host. The level is part of the shape hash, so a session at a level emits" +
+      " and caches its own classes.")
     .version("5.0.0")
     // An emitter lowering choice: it changes how a kernel computes a value, never what a view
     // body resolves to.

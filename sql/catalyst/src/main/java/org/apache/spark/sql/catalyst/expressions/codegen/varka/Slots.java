@@ -685,19 +685,25 @@ final class Slots {
     // The literal locals: the drive lane's here, and in a kernel of several lanes each other
     // lane's after the drive's broadcasts below, in the enum's order, so that the numbering
     // follows from which lanes a kernel holds and not from the order the plan met them. A lane's
-    // slots index the table of its width, the int table at 32 bits and the long table at 64,
-    // which two lanes of one width share, so in such a kernel each lane plans locals only for the
-    // slots its own nodes read. A single-lane kernel's one table is `numLiterals` long.
+    // slots index the table of its width, the int table at 32 bits and the long table at 64.
+    // Two lanes of one width share that table, which only a kernel holding a floating lane has
+    // (an int and a float lane, or a long and a double one), so such a kernel plans each lane's
+    // locals and broadcasts only for the slots its own nodes read (`perLane`). A long kernel of
+    // int values has a table per lane, so each lane numbers every slot below its highest, read
+    // or not. A single-lane kernel's one table is `numLiterals` long.
     List<Lane> others = new ArrayList<>();
     for (VarkaVectorIR.LaneType type : VarkaVectorIR.LaneType.values()) {
       if (analysis.otherLanes().contains(type)) {
         others.add(Lane.of(type));
       }
     }
-    boolean mixed = !others.isEmpty();
-    int driveLiterals = mixed ? analysis.literalsOf(analysis.lane) : numLiterals;
+    boolean otherLanes = !others.isEmpty();
+    boolean perLane = otherLanes && (analysis.lane.laneType.isFloating()
+        || others.stream().anyMatch(o -> o.laneType.isFloating()));
+    int driveLiterals = otherLanes ? analysis.literalsOf(analysis.lane) : numLiterals;
     s.scalarArg = new int[driveLiterals];
-    java.util.BitSet usedLiterals = perGroup || mixed ? new java.util.BitSet(numLiterals) : null;
+    java.util.BitSet usedLiterals =
+        perGroup || perLane ? new java.util.BitSet(numLiterals) : null;
     Map<VarkaVectorIR.LaneType, java.util.BitSet> usedOtherLiterals = new HashMap<>();
     if (usedLiterals != null) {
       for (VarkaVectorIR node : body) {
@@ -705,7 +711,7 @@ final class Slots {
           // By the lane the literal is emitted at: a narrow literal of a 32-bit kernel is the
           // int drive's, widened as its column is.
           Lane at = analysis.laneOf(l);
-          if (mixed && at != analysis.lane) {
+          if (otherLanes && at != analysis.lane) {
             usedOtherLiterals.computeIfAbsent(at.laneType, k -> new java.util.BitSet())
                 .set(l.index());
           } else {
@@ -735,9 +741,9 @@ final class Slots {
     s.broadcastSlot = hoist ? new int[driveLiterals] : null;
     if (s.broadcastSlot != null) {
       for (int j = 0; j < driveLiterals; j++) {
-        // In a kernel of several lanes a slot the drive does not read gets no vector local; a
-        // single-lane kernel numbers one for every slot.
-        s.broadcastSlot[j] = mixed && s.scalarArg[j] < 0 ? -1 : slot++;
+        // In a kernel whose lanes share a table a slot the drive does not read gets no vector
+        // local; every other kernel numbers one for every slot.
+        s.broadcastSlot[j] = perLane && s.scalarArg[j] < 0 ? -1 : slot++;
       }
     }
     for (Lane other : others) {
@@ -760,7 +766,7 @@ final class Slots {
       if (hoist) {
         int[] broadcasts = new int[otherLiterals];
         for (int j = 0; j < otherLiterals; j++) {
-          broadcasts[j] = scalarArgs[j] < 0 ? -1 : slot++;
+          broadcasts[j] = perLane && scalarArgs[j] < 0 ? -1 : slot++;
         }
         s.otherBroadcastSlot.put(other, broadcasts);
       }

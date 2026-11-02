@@ -348,22 +348,25 @@ public final class VarkaKernelPlan {
   }
 
   /**
-   * Why a conversion of these roots has no intrinsic at the level the options name: a
+   * Why a conversion of these roots may have no intrinsic at the level the options name: a
    * {@code BIGINT} to {@code FLOAT} or {@code DOUBLE} where
-   * {@link VarkaEmitOptions#convertsFallBack()} holds, since x86 has no {@code L2F} or
+   * {@link VarkaEmitOptions#convertsMayFallBack()} holds, since x86 has no {@code L2F} or
    * {@code L2D} rule without AVX512DQ and the conversion would run as the Vector API's Java loop.
-   * Its AVX2 forms are row 343's second part; until then the entry declines and the row engine
-   * answers it.
+   * That includes the unknown level, the defaults' and an unset session's, which may be such a
+   * host; the predicate's doc says why admission is pessimistic there where the division's
+   * lowering is not. Its AVX2 forms are row 343's second part; until then the entry declines and
+   * the row engine answers it.
    *
    * <p>The test reads the options' {@code UseAVX} level and not the CPU: the level is part of
    * the shape key, and a plan that read the host would key one shape two ways. The feature
    * reaches it through the level: a session that asks for the host's level resolves a CPU whose
-   * HotSpot feature list lacks AVX512DQ to level 2, an AVX-512 one without DQ included
-   * ({@code VarkaSessionEmit.resolve}, {@link VarkaHostIsa.Reading#conversionsFallBack()}).
+   * HotSpot feature list holds AVX512DQ to level 3 and one that lacks it, an AVX-512 one without
+   * DQ included, to level 2 ({@code VarkaSessionEmit.resolve},
+   * {@link VarkaHostIsa.Reading#conversionsFallBack()}).
    */
   private static Optional<Refusal> conversionRefusal(List<VarkaVectorIR> roots,
       VarkaEmitOptions options) {
-    if (!options.convertsFallBack()) {
+    if (!options.convertsMayFallBack()) {
       return Optional.empty();
     }
     var seen = new HashSet<VarkaVectorIR>();
@@ -375,7 +378,8 @@ public final class VarkaKernelPlan {
       }
       if (node instanceof ConvertLane c && c.child().laneType() == LaneType.LONG) {
         return Optional.of(new Refusal(Kind.CONVERSION, "a BIGINT conversion to " + c.target()
-            + " at an emit level without AVX512DQ, where it is not intrinsic (row 343)"));
+            + " at an emit level that does not assure AVX512DQ, without which it is not"
+            + " intrinsic (row 343)"));
       }
       for (VarkaVectorIR child : VarkaVectorIR.childrenOf(node)) {
         todo.push(child);
@@ -539,7 +543,12 @@ public final class VarkaKernelPlan {
       return lane;
     }
     // A narrow value of a 32-bit kernel is widened at its load to the int lane, the drive's or
-    // the float drive's twin; in a 64-bit kernel it is read for its validity word alone.
+    // the float drive's twin. In a 64-bit kernel a narrow node is read for its validity word
+    // alone, and its own lane, which has no species or literal table there, is named for no
+    // emission: `narrowRefusal` declines a narrow value under the long drive and every narrow
+    // node under a floating one, before this plan exists. A validity read touches neither, and
+    // `Slots.epilogueReadsMask` takes the lane only to see it does not share the drive's count
+    // (`VarkaEmitterFloatingCastSuite.narrowValidityBesideTwoLanes`).
     if (node.laneType().isNarrow() && lane.bits == Integer.SIZE) {
       return Lane.INT;
     }

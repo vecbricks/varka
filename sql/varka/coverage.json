@@ -4508,30 +4508,6 @@
     "note" : "the same rounding: a cast to a floating type never fails",
     "verified" : "differential"
   }, {
-    "sql" : "CAST(l AS DOUBLE)",
-    "executable" : "CAST(l AS DOUBLE)",
-    "family" : "Floating casts",
-    "form" : "projection",
-    "catalyst" : [ "Cast" ],
-    "casts" : [ "bigint>double:ansi" ],
-    "operands" : [ "Cast:bigint" ],
-    "switches" : [ "spark.sql.codegen.varka.family.floatingCast.enabled" ],
-    "domain" : "",
-    "note" : "rounded once; it declines at an emit level below AVX-512",
-    "verified" : "differential"
-  }, {
-    "sql" : "CAST(l AS FLOAT)",
-    "executable" : "CAST(l AS FLOAT)",
-    "family" : "Floating casts",
-    "form" : "projection",
-    "catalyst" : [ "Cast" ],
-    "casts" : [ "bigint>float:ansi" ],
-    "operands" : [ "Cast:bigint" ],
-    "switches" : [ "spark.sql.codegen.varka.family.floatingCast.enabled" ],
-    "domain" : "",
-    "note" : "rounded once from the exact value, never twice through a double",
-    "verified" : "differential"
-  }, {
     "sql" : "CAST(y1 AS FLOAT)",
     "executable" : "CAST(y1 AS FLOAT)",
     "family" : "Floating casts",
@@ -4638,18 +4614,6 @@
     "switches" : [ "spark.sql.codegen.varka.family.floatingArithmetic.enabled", "spark.sql.codegen.varka.family.floatingCast.enabled" ],
     "domain" : "",
     "note" : "the int cast to a float beside the float column, at one lane count",
-    "verified" : "differential"
-  }, {
-    "sql" : "x - l",
-    "executable" : "x - l",
-    "family" : "Floating casts",
-    "form" : "projection",
-    "catalyst" : [ "Cast", "Subtract" ],
-    "casts" : [ "bigint>double:ansi" ],
-    "operands" : [ "Cast:bigint", "Subtract:double" ],
-    "switches" : [ "spark.sql.codegen.varka.family.floatingArithmetic.enabled", "spark.sql.codegen.varka.family.floatingCast.enabled" ],
-    "domain" : "",
-    "note" : "the bigint cast to a double in a kernel driven at the long lane",
     "verified" : "differential"
   }, {
     "sql" : "f + x",

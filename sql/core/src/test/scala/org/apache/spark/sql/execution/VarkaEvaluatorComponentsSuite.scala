@@ -286,9 +286,10 @@ class VarkaEvaluatorComponentsSuite extends SparkFunSuite {
   }
 
   test("a session asking for the host's level resolves it once, from the host's features") {
-    // VARKA-538 test 3.2. Catches: a fallback host left at the conversion form, a converting
-    // or unknown host moved off the emitter's default, an explicit level the host overrides,
-    // and an unreadable feature list that throws or logs on every query.
+    // VARKA-538 test 3.2. Catches: a fallback host left at the conversion form, an AVX512DQ
+    // host not resolved to level 3 (where the plan admits a BIGINT conversion to a floating
+    // type, VARKA-343), an unknown host moved off the emitter's default, an explicit level the
+    // host overrides, and an unreadable feature list that throws or logs on every query.
     val fallsBack = new VarkaHostIsa.Reading("amd64", "avx, avx2, fma", null)
     val converts = new VarkaHostIsa.Reading("amd64", "avx2, avx512f, avx512dq", null)
     val arm = new VarkaHostIsa.Reading("aarch64", "fp, asimd, sve", null)
@@ -298,7 +299,11 @@ class VarkaEvaluatorComponentsSuite extends SparkFunSuite {
     assert(VarkaSessionEmit.of(conf, fallsBack).useAVX === 2)
     assert(VarkaSessionEmit.of(conf, fallsBack).apply(VarkaEmitOptions.DEFAULTS)
       .convertsFallBack())
-    for (host <- Seq(converts, arm, unread)) {
+    val dq = VarkaSessionEmit.of(conf, converts)
+    assert(dq.useAVX === VarkaEmitOptions.AVX512_LEVEL)
+    assert(!dq.apply(VarkaEmitOptions.DEFAULTS).convertsMayFallBack())
+    assert(!dq.apply(VarkaEmitOptions.DEFAULTS).convertsFallBack())
+    for (host <- Seq(arm, unread)) {
       assert(VarkaSessionEmit.of(conf, host) === VarkaSessionEmit.DEFAULTS, host)
     }
     for (level <- Seq(VarkaEmitOptions.USE_AVX_UNKNOWN, 2, 3)) {

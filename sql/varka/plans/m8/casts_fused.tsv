@@ -74,8 +74,8 @@ bigint	bool	BIGINT	BOOLEAN	declined	declined	declined
 bigint	byte	BIGINT	TINYINT	declined	declined	declined
 bigint	short	BIGINT	SMALLINT	declined	declined	declined
 bigint	int	BIGINT	INT	fused	fused	declined
-bigint	float	BIGINT	FLOAT	fused	fused	fused
-bigint	double	BIGINT	DOUBLE	fused	fused	fused
+bigint	float	BIGINT	FLOAT	declined	declined	declined
+bigint	double	BIGINT	DOUBLE	declined	declined	declined
 bigint	dec	BIGINT	DECIMAL(10,2)	declined	declined	declined
 bigint	dec	BIGINT	DECIMAL(30,4)	declined	declined	declined
 bigint	ym	BIGINT	INTERVAL YEAR	declined	declined	declined

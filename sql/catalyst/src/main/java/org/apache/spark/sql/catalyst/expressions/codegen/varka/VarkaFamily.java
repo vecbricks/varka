@@ -80,8 +80,9 @@ public enum VarkaFamily {
   FLOATING_CAST("floating casts", "floatingCast", "the casts to float from tinyint, smallint,"
       + " int, bigint and boolean, to double from int, bigint and boolean, and between float and"
       + " double; tinyint and smallint to double are left to the row engine, as is bigint to"
-      + " either at an emit level below AVX-512, which a session asking for the host's level"
-      + " gets on a CPU without AVX512DQ");
+      + " either at an emit level below 3 or at the default level, which names no host: a"
+      + " session that sets the level to 3, or asks for the host's on a CPU with AVX512DQ,"
+      + " fuses it");
 
   /** The prefix every family's switch shares. */
   public static final String SWITCH_PREFIX = "spark.sql.codegen.varka.family.";

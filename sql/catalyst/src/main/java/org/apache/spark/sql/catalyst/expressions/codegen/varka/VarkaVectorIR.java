@@ -751,8 +751,9 @@ public sealed interface VarkaVectorIR
    * {@code convertShape}, part 0, into the target's species of the kernel's width: a widening
    * reads the low half of a 32-bit source, as {@code I2L} does, and a narrowing writes the low
    * half of the 32-bit target, as {@code L2I} does. A host without AVX512DQ has no intrinsic for
-   * the 64-bit integral conversions ({@link VarkaEmitOptions#convertsFallBack()}), and the
-   * compiler declines {@code L2F} and {@code L2D} there rather than emit the Java fallback.
+   * the 64-bit integral conversions, and the kernel plan declines {@code L2F} and {@code L2D}
+   * at every level that does not assure the feature
+   * ({@link VarkaEmitOptions#convertsMayFallBack()}) rather than emit the Java fallback.
    */
   record ConvertLane(VarkaVectorIR child, LaneType target) implements VarkaVectorIR {
     public ConvertLane {

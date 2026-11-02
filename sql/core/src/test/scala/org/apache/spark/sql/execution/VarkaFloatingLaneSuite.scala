@@ -18,7 +18,7 @@
 package org.apache.spark.sql.execution
 
 import org.apache.spark.sql.{DataFrame, QueryTest, Row, SparkSession}
-import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, AttributeReference, Cast, Coalesce, Expression, GreaterThan, Greatest, IsNotNull, Literal}
+import org.apache.spark.sql.catalyst.expressions.{Add, Alias, Attribute, AttributeReference, Cast, Coalesce, Expression, GreaterThan, Greatest, IsNotNull, Literal}
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaExpressionCompiler
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaEmitOptions, VarkaHostIsa, VarkaTestWatchdog}
 import org.apache.spark.sql.internal.SQLConf
@@ -431,7 +431,17 @@ class VarkaFloatingLaneSuite extends QueryTest with VarkaSharedSessions with Var
     for (to <- Seq(DoubleType, FloatType)) {
       assert(castDecline(positive, to, options(knights)).isEmpty, to)
       assert(castDecline(l, to, options(withDq)).isEmpty, to)
+      // The default level names no host, so it declines the cast too: an AVX2 host there would
+      // run L2D and L2F as the Vector API's Java loop.
+      val unknown = castDecline(l, to, VarkaEmitOptions.DEFAULTS)
+      assert(unknown.exists(_.contains("AVX512DQ")), unknown)
     }
+    // Beside a double literal, which goes to the long table: the projection checks its kernel
+    // drives at 64 bits under the defaults' plan, which declines the conversion, and must not
+    // take that refusal for an int drive.
+    val withLiteral = VarkaExpressionCompiler.compile(Seq(Alias(
+      Add(Cast(l, DoubleType), Literal(1.5d)), "c")()), Seq(l, y), options(withDq))
+    assert(withLiteral.isPresent, "CAST(l AS DOUBLE) + 1.5D did not compile at level 3")
   }
 
   test("a smallint read for its validity alone declines as a DOUBLE and fuses as a FLOAT") {

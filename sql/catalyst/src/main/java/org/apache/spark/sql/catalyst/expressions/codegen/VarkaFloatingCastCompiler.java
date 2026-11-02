@@ -49,9 +49,10 @@ import org.apache.spark.sql.types.DataTypes;
  * {@code floatingDecline}, which admits exactly the pairs {@link #admits} names. Two admitted
  * pairs still decline in the kernel plan. A {@code TINYINT} or {@code SMALLINT} to
  * {@code DOUBLE} always does: its tree drives at 64 bits, where the narrow load is unbuilt. And a
- * {@code BIGINT} to either type does on a level where {@code convertsFallBack} holds, which a
- * session resolves from a host without AVX512DQ: {@code L2F} and {@code L2D} have no intrinsic
- * there, so the plan refuses them until their AVX2 forms land (row 343's second part).
+ * {@code BIGINT} to either type does on a level where {@code convertsMayFallBack} holds: below
+ * 3, which a session resolves from a host without AVX512DQ, and the defaults' unknown level,
+ * which may be such a host. {@code L2F} and {@code L2D} have no intrinsic there, so the plan
+ * refuses them until their AVX2 forms land (row 343's second part).
  */
 final class VarkaFloatingCastCompiler {
 
@@ -130,7 +131,7 @@ final class VarkaFloatingCastCompiler {
    * for a narrow condition, and on the long lane narrowed to the int one, exactly. So every
    * boolean converts through {@code I2F} or {@code I2D}, which are intrinsic on every x86 host,
    * and never through {@code L2F} or {@code L2D}, which the kernel plan refuses where
-   * {@code convertsFallBack} holds. A condition on a floating lane has no integral value here
+   * {@code convertsMayFallBack} holds. A condition on a floating lane has no integral value here
    * and declines: its conversion would cross the kinds twice.
    */
   private static Optional<VarkaVectorIR> booleanValue(

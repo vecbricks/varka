@@ -150,15 +150,29 @@ public final class VarkaEmitterFloatingCastSuite {
   }
 
   /**
+   * The base options at level 3, where a {@code BIGINT} conversion to a floating type is admitted:
+   * the unknown level and every level below 3 decline it
+   * ({@link VarkaEmitOptions#convertsMayFallBack()}), so a test of its lowering names the level.
+   */
+  private static final VarkaEmitOptions DQ =
+      VarkaMatrixRuns.BASE.withUseAVX(VarkaEmitOptions.AVX512_LEVEL);
+
+  /**
    * {@code roots} emitted at every width of their drive and compared with the reference over
    * every length and null pattern, both bodies; a batch must not decline.
    */
   private static void check(String name, List<VarkaVectorIR> roots, int numInputs,
       int[] intLits, long[] longLits, Data data) {
-    LaneType drive = VarkaKernelPlan.driveOf(roots, VarkaMatrixRuns.BASE).orElseThrow();
+    check(name, roots, numInputs, intLits, longLits, data, VarkaMatrixRuns.BASE);
+  }
+
+  /** {@link #check(String, List, int, int[], long[], Data)} under {@code base}. */
+  private static void check(String name, List<VarkaVectorIR> roots, int numInputs,
+      int[] intLits, long[] longLits, Data data, VarkaEmitOptions base) {
+    LaneType drive = VarkaKernelPlan.driveOf(roots, base).orElseThrow();
     int[] widths = drive.bits() == Long.SIZE ? WIDE_LANES : NARROW_LANES;
     for (int lanes : widths) {
-      var options = VarkaMatrixRuns.BASE.withLanesOverride(lanes);
+      var options = base.withLanesOverride(lanes);
       var emitted = VarkaEmitterFixtures.emit(roots, numInputs,
           intLits.length + longLits.length, options);
       for (int length : LENGTHS) {
@@ -234,14 +248,14 @@ public final class VarkaEmitterFloatingCastSuite {
   @DisplayName("a bigint column to FLOAT, rounded once and stored from the low half")
   void longToFloat() {
     check("cast(l AS float)", List.of(convert(L, LaneType.FLOAT)), 1, new int[0], new long[0],
-        cells(LONGS));
+        cells(LONGS), DQ);
   }
 
   @Test
   @DisplayName("a bigint column to DOUBLE, a kernel of the long and double lanes")
   void longToDouble() {
     check("cast(l AS double)", List.of(convert(L, LaneType.DOUBLE)), 1, new int[0], new long[0],
-        cells(LONGS));
+        cells(LONGS), DQ);
   }
 
   @Test
@@ -294,7 +308,7 @@ public final class VarkaEmitterFloatingCastSuite {
     check("IF(x > 1.0, cast(l AS double) - x, cast(l AS double))",
         List.of(root, new IntArith(IntOp.ADD, Overflow.WRAP, L, new LiteralSlot(0,
             LaneType.LONG))), 2, new int[0], new long[] {5L, Double.doubleToRawLongBits(1.0)},
-        cells(LONGS, DOUBLES));
+        cells(LONGS, DOUBLES), DQ);
   }
 
   @Test
@@ -303,7 +317,7 @@ public final class VarkaEmitterFloatingCastSuite {
     var f = new ColumnRef(1, LaneType.FLOAT);
     var root = new IntArith(IntOp.ADD, Overflow.WRAP, convert(L, LaneType.FLOAT), f);
     check("cast(l AS float) + f", List.of(root), 2, new int[0], new long[0],
-        cells(LONGS, FLOATS));
+        cells(LONGS, FLOATS), DQ);
   }
 
   @Test
@@ -357,7 +371,7 @@ public final class VarkaEmitterFloatingCastSuite {
     long[] divisors = doubleBits(1.5, -2.0, 1e-300, Double.NaN, Double.POSITIVE_INFINITY, 3.0);
     check("cast(l AS double) / x under ANSI",
         List.of(root, new IntArith(IntOp.ADD, Overflow.WRAP, L, L)), 2, new int[0], new long[0],
-        cells(LONGS, divisors));
+        cells(LONGS, divisors), DQ);
   }
 
   @Test
@@ -573,6 +587,26 @@ public final class VarkaEmitterFloatingCastSuite {
   }
 
   @Test
+  @DisplayName("an unknown level declines a bigint conversion, and keeps the division's "
+      + "conversion form")
+  void unknownLevelRefusal() {
+    // The defaults' level, which a session with the level unset runs at on every host: an AVX2
+    // host there would run L2D and L2F as the Vector API's Java loop, so the plan declines them.
+    // The division still takes the conversion form there, so no other shape's bytes move.
+    var unknown = VarkaEmitOptions.DEFAULTS;
+    assertEquals(VarkaEmitOptions.USE_AVX_UNKNOWN, unknown.useAVX());
+    assertTrue(unknown.convertsMayFallBack());
+    assertTrue(!unknown.convertsFallBack());
+    for (LaneType target : List.of(LaneType.FLOAT, LaneType.DOUBLE)) {
+      Optional<VarkaKernelPlan.Refusal> refusal =
+          VarkaKernelPlan.of(List.of(convert(L, target)), unknown).refusal();
+      assertEquals(Optional.of(VarkaKernelPlan.Kind.CONVERSION),
+          refusal.map(VarkaKernelPlan.Refusal::kind), refusal.toString());
+      assertTrue(VarkaKernelPlan.refusalOf(List.of(convert(I, target)), unknown).isEmpty());
+    }
+  }
+
+  @Test
   @DisplayName("a narrow value under a double kernel declines: the narrow load at 64 bits is "
       + "unbuilt")
   void narrowUnderDouble() {
@@ -580,5 +614,33 @@ public final class VarkaEmitterFloatingCastSuite {
     Optional<String> refusal = VarkaKernelPlan.refusalOf(
         List.of(convert(new WidenLane(y, LaneType.INT), LaneType.DOUBLE)), VarkaMatrixRuns.BASE);
     assertTrue(refusal.isPresent(), "a SMALLINT read by a double kernel");
+  }
+
+  @Test
+  @DisplayName("a narrow column read for its validity alone in a 64-bit kernel of two lanes fuses "
+      + "and answers; a narrow value there declines")
+  void narrowValidityBesideTwoLanes() {
+    // The plan names a narrow column's own lane for it in a 64-bit kernel of several lanes, a
+    // lane with no species or literal table there. Only a column read for its validity alone
+    // reaches that: the long drive's narrow refusal declines a narrow value, and a floating drive
+    // declines every narrow node. A validity read touches no species or table, so these emit
+    // and answer: a long kernel of int values, and one of double values.
+    var y = new ColumnRef(0, LaneType.SHORT);
+    var i = new ColumnRef(1, LaneType.INT);
+    var l = new ColumnRef(2, LaneType.LONG);
+    var known = new VarkaVectorIR.IsNotNull(new WidenLane(y, LaneType.LONG));
+    long[] shorts = {0, 1, -1, Short.MAX_VALUE, Short.MIN_VALUE, 12345};
+    Data data = cells(shorts, INTS, LONGS);
+    check("IF(y IS NOT NULL, i, l)", List.of(new IfElse(known, new WidenLane(i, LaneType.LONG),
+        l)), 3, new int[0], new long[0], data);
+    check("y IS NOT NULL OR i > l", List.of(new VarkaVectorIR.BoolOutput(new VarkaVectorIR.Or(
+        known, new Compare(CompareOp.GT, new WidenLane(i, LaneType.LONG), l)))), 3, new int[0],
+        new long[0], data);
+    check("cast(l AS double) beside y IS NOT NULL", List.of(convert(l, LaneType.DOUBLE),
+        new VarkaVectorIR.BoolOutput(known)), 3, new int[0], new long[0], data, DQ);
+    // A narrow value in the same kernel declines in the plan, before any lane is named for it.
+    Optional<String> value = VarkaKernelPlan.refusalOf(List.of(convert(l, LaneType.DOUBLE),
+        new IntArith(IntOp.ADD, Overflow.WRAP, new WidenLane(y, LaneType.LONG), l)), DQ);
+    assertTrue(value.isPresent() && value.get().contains("bigint kernel"), value.toString());
   }
 }

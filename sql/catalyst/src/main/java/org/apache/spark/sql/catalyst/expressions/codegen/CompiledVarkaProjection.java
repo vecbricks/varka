@@ -135,10 +135,17 @@ public record CompiledVarkaProjection(
 
   /**
    * Whether a plan drives its kernel at a 64-bit lane, the long or the {@code DOUBLE} one, whose
-   * {@code run} takes the long table; a refused one drives at none.
+   * {@code run} takes the long table; a refused one drives at none, but for a conversion's
+   * refusal. The plan here is the defaults', whose unknown level declines a {@code BIGINT}
+   * conversion to a floating type that a session at level 3 compiled and fuses
+   * ({@link VarkaEmitOptions#convertsMayFallBack()}); such a tree holds a long node, so it drives
+   * at the long lane under the session's options.
    */
   private static boolean drivesLong(VarkaKernelPlan plan) {
-    return plan.refusal().isEmpty() && plan.drive().bits() == Long.SIZE;
+    if (plan.refusal().isPresent()) {
+      return plan.refusal().get().kind() == VarkaKernelPlan.Kind.CONVERSION;
+    }
+    return plan.drive().bits() == Long.SIZE;
   }
 
   /**
