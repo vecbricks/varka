@@ -452,7 +452,8 @@ reading (corrects 3.1's "`HOST_USE_AVX` reads a level (the JVM is x86)"):
    decline, 72 before, the 14 new ones the `DOUBLE` predicates (`x < x2`, `isnan(x)`,
    `x IS NOT NULL` among them), and the other 72 take the reason's new wording; 256 and 512 bits
    are unchanged.
-3. **One long lane or two** (corrects 2's and 3.1's "two lanes"). `twoLaneMasksFallBack` tested
+3. **One long lane or two** (corrects 2's and 3.1's "two lanes", and 11's
+   `twoLaneMasksFallBack(boolean x86, int preferredLongLanes)`). `twoLaneMasksFallBack` tested
    `preferredLongLanes == 2`, but under `-XX:MaxVectorSize=8` x86's preferred long species has
    one lane, and C2 has no one-element vector to lower its masks to either, so the host refused
    nothing where the Java fallback was certain. The test is now `<= 2`. The host suites still
