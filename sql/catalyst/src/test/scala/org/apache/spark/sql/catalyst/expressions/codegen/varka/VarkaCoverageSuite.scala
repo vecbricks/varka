@@ -871,7 +871,7 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
       Row("CAST(x AS BOOLEAN)", "x != 0: a NaN is true and both zeros false, as a BOOLEAN output"),
       Row("CAST(f AS BOOLEAN)"))),
     Family("Floating casts as conditions", predicates = true, Seq(
-      Row("CAST(x AS BOOLEAN)", "x != 0.0 as the filter, the negation of the lane's EQ"),
+      Row("NOT CAST(x AS BOOLEAN)", "x = 0.0 as the filter: both zeros pass and a NaN does not"),
       Row("CAST(f AS BOOLEAN) OR f > 1.5F", "the float's test in a disjunction at its lane"))),
 
     // DECIMAL of precision up to 18 (VARKA-347, carrying row 348's equal-scale comparisons and

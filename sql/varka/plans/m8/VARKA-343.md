@@ -466,7 +466,8 @@ Steps 3 and 6 of the list above; step 2 moves to 343b (below).
   that read a column of another lane, and every form of `CAST(x AS BOOLEAN)` and
   `CAST(f AS BOOLEAN)` but the lone one (each sets the cast beside the boolean column `b2`, read on
   an integral lane), are on `VarkaAnsiForm.DECLINED` with this reason; each row still fuses alone
-  in every mode.
+  in every mode. The list is keyed by a row's text, so the condition row over `x` is
+  `NOT CAST(x AS BOOLEAN)`, whose filter form fuses, rather than a second `CAST(x AS BOOLEAN)`.
 - **The compiler**: `VarkaFloatingCastCompiler`, a family `FLOATING_CAST` with its switch
   `spark.sql.codegen.varka.family.floatingCast.enabled`, admits the fourteen pairs of item 0.1's
   to-floating half by name (`admits`); `floatingDecline` names the rest by row: from a floating

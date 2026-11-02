@@ -528,7 +528,7 @@ final class VarkaVectorWalk {
    * A 32-bit column, int or float, in a kernel driven at 64 bits: the group's rows into the low
    * lanes of the column's species of the same width. In a loop body the load is whole, so the
    * upper lanes hold the next group's rows, which that group reads again; in the epilogue it is
-   * under the mask of the species' first {@code lanes} lanes, the remainder, and the upper lanes
+   * under the mask of the species' first lanes, as many as the remainder, and the upper lanes
    * read zero, as an epilogue's padding lanes do. Either way only the low lanes are the group's.
    * The offset is {@code (long) i * 4}, a linear function of the induction variable that C2
    * folds into the load's address, as {@code VarkaBodyEmitter.emitNarrowStore} derives its own.

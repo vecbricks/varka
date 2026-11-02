@@ -4700,16 +4700,16 @@
     "note" : "",
     "verified" : "differential"
   }, {
-    "sql" : "CAST(x AS BOOLEAN)",
-    "executable" : "CAST(x AS BOOLEAN)",
+    "sql" : "NOT CAST(x AS BOOLEAN)",
+    "executable" : "NOT CAST(x AS BOOLEAN)",
     "family" : "Floating casts as conditions",
     "form" : "predicate",
-    "catalyst" : [ "Cast" ],
+    "catalyst" : [ "Cast", "Not" ],
     "casts" : [ "double>bool:ansi" ],
     "operands" : [ "Cast:double" ],
     "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
     "domain" : "",
-    "note" : "x != 0.0 as the filter, the negation of the lane's EQ",
+    "note" : "x = 0.0 as the filter: both zeros pass and a NaN does not",
     "verified" : "differential"
   }, {
     "sql" : "CAST(f AS BOOLEAN) OR f > 1.5F",

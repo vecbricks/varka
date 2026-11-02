@@ -1253,10 +1253,10 @@ final class VarkaBodyEmitter {
   /**
    * The store of a 32-bit vector, int or float, whose low half holds the lane group's rows, in a
    * kernel driven at 64 bits: {@code [vector] -> []}, four bytes a row at {@code (long) i * 4},
-   * under the mask of the species' first {@code lanes} lanes - or whole, in the loop of a kernel
-   * that converts between widths, which leaves room for it. A narrowed root's tail, and the store
-   * of every 32-bit root of a kernel that converts between widths, whose 32-bit values all fill
-   * the low half of their species.
+   * under the mask of the species' first lanes, as many as the group covers - or whole, in the
+   * loop of a kernel that converts between widths, which leaves room for it. A narrowed root's
+   * tail, and the store of every 32-bit root of a kernel that converts between widths, whose
+   * 32-bit values all fill the low half of their species.
    */
   private static void emitLowHalfStore(CodeBuilder cb, Lane lane, Analysis analysis, Slots s,
       int o) {

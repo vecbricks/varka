@@ -842,7 +842,7 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 
 | Predicate | Switches | Domain | Notes | 128-bit lanes |
 |---|---|---|---|---|
-| `CAST(x AS BOOLEAN)` | `predicate` |  | x != 0.0 as the filter, the negation of the lane's EQ | per-lane: compare to mask, mask cast, mask logic, mask broadcast |
+| `NOT CAST(x AS BOOLEAN)` | `predicate` |  | x = 0.0 as the filter: both zeros pass and a NaN does not | per-lane: compare to mask, mask cast, mask logic, mask broadcast |
 | `CAST(f AS BOOLEAN) OR f > 1.5F` | `predicate` |  | the float's test in a disjunction at its lane | vector |
 
 #### DECIMAL columns
