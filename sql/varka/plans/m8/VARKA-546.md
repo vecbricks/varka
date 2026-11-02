@@ -158,7 +158,9 @@ clone's config, which every worktree shares:
   comment above `owed_live` names the debt no state in the repository records (those operations
   once committed, `stash pop`, `checkout -m`), for which the stderr line is the record. A file
   whose only debt is the census goes on no list, since the census runs last on every
-  regeneration.
+  regeneration. A committed merge's entry for a file is dropped once a commit on HEAD's
+  first-parent line after the merge changes that file: someone regenerated it, by hand
+  (`ADDING_A_TYPE.md` step 11) or through a later merge, which owes it afresh if it must.
   `dev/varka_regen_generated.sh` reads the live entries (`--owed`) and runs only the owed
   steps, in the documented order (types and casts, coverage, width audit, bytes, coverage again,
   the census), under `flock` on a heavy slot with `SPARK_LOCAL_IP=127.0.0.1`, refusing the width

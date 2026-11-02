@@ -571,8 +571,12 @@ def owed_file():
 #     rebase-merge or rebase-apply, `head` under sequencer) and HEAD, so every such commit is
 #     one the operation made;
 #   * once a merge is committed: a merge commit on HEAD's first-parent line has OURS as its
-#     first parent and THEIRS among the others, which stays true through the commit of the
-#     regenerated files and any later commit.
+#     first parent and THEIRS among the others, which stays true through any later commit -
+#     until a commit on that line after the merge changes PATH. Someone regenerated it then:
+#     by hand, as ADDING_A_TYPE.md's step 11 describes, or by a later merge that wrote it again
+#     (and owed it afresh if it had to), so the entry is dropped. A regeneration committed
+#     inside the merge commit itself cannot be told from the merge's own result, and stays
+#     owed until dev/varka_regen_generated.sh runs.
 # Every other entry - an aborted operation's, one from another branch - is stale: `owed_live`
 # skips it, and the regeneration script's rewrite of the list drops it. Some debt is not
 # covered, since nothing left in the repository tells it from an aborted operation's: a
@@ -635,6 +639,8 @@ def owed_live():
     live = {}
 
     def is_live(merge_id):
+        """False for a stale entry, True for one of an operation in progress, or the commit
+        of the committed merge that owed it."""
         ours, _, theirs = merge_id.partition(" ")
         if ours == "-" or not theirs:
             return False
@@ -649,9 +655,21 @@ def owed_live():
         if started and is_ancestor(started, ours):
             return True
         commits = git_out("rev-list", "--first-parent", "--parents", "HEAD", "^" + ours) or ""
-        return any(
-            len(c) > 2 and c[1] == ours and theirs in ["-"] + c[2:]
-            for c in (line.split() for line in commits.splitlines())
+        # The newest such merge, when an aborted merge was redone and committed.
+        return next(
+            (
+                c[0]
+                for c in (line.split() for line in commits.splitlines())
+                if len(c) > 2 and c[1] == ours and theirs in ["-"] + c[2:]
+            ),
+            False,
+        )
+
+    def changed_since(merge, rel):
+        """Whether a commit on HEAD's first-parent line after `merge` changed `rel`, a path from
+        the top of the worktree whatever the current directory."""
+        return bool(
+            git_out("rev-list", "--first-parent", "-1", f"{merge}..HEAD", "--", ":(top)" + rel)
         )
 
     entries = []
@@ -660,7 +678,8 @@ def owed_live():
         if sep:
             if merge_id not in live:
                 live[merge_id] = is_live(merge_id)
-            if live[merge_id]:
+            state = live[merge_id]
+            if state is True or (state and not changed_since(state, rel)):
                 entries.append((merge_id, rel))
     return entries
 
@@ -1521,6 +1540,24 @@ def end_to_end(expect):
             ).stdout.split()
 
         expect("c/coverage.json" in owed_now(), f"15: the merge's debt is not live: {owed_now()}")
+        # 24. A regeneration by hand, committed after the merge, pays the merge's debt for that
+        # file, read from a subdirectory; the other files the merge owed stay owed.
+        before = owed_now()
+        write("c/coverage.json", cov(["a", "b", "c", "z"]) + "\n")
+        git("commit", "-qam", "regenerate coverage.json by hand")
+        after = subprocess.run(
+            [sys.executable, script, "--owed"],
+            cwd=os.path.join(tmp, "c"),
+            env=fixture_env(),
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.split()
+        expect(
+            "c/coverage.json" not in after
+            and after == [r for r in before if r != "c/coverage.json"],
+            f"24: a regenerated file stayed owed: {before} -> {after}",
+        )
         # 14. Both sides add a coverage row at different places: every row merges exactly and
         # only the census is owed, which puts the file on no owed list.
         owed_list = os.path.join(tmp, git("rev-parse", "--git-path", "varka-regen-owed").stdout)
