@@ -72,7 +72,7 @@ public final class VarkaSizeLadder {
   public static final List<Integer> RUNGS = List.of(16, 32, 48, 52, 54, 56, 64, 80, 100);
 
   /** The fallback counters of a Varka node, each a batch some path other than the kernel ran. */
-  private static final List<String> FALLBACK_METRICS = List.of("numFallbackBatchesNonArrow",
+  static final List<String> FALLBACK_METRICS = List.of("numFallbackBatchesNonArrow",
       "numFallbackBatchesKernel", "numFallbackBatchesRowPath", "numFallbackBatchesDeclined");
 
   /** The ladder's entry {@code k}, a column {@code c<k>} of three date functions of {@code d}. */
