@@ -322,6 +322,22 @@ def merge_json(base_text, ours_text, theirs_text, owed, rules):
 TSV_KEYS = {"types.tsv": 1, "census.tsv": 1, "casts.tsv": 2, "casts_fused.tsv": 4}
 
 
+def lines_of(text, keepends=False):
+    r"""A file's lines, split at "\n" alone: `str.splitlines` also splits at "\r", a form feed,
+    U+2028 and other characters a row or a docs line may hold. A final "\n" ends the last line
+    rather than starting an empty one.
+
+    >>> lines_of("a\fb\rc\nd\n"), lines_of("a\nb", keepends=True)
+    (['a\x0cb\rc', 'd'], ['a\n', 'b'])
+    """
+    parts = text.split("\n")
+    last = parts.pop()
+    lines = [p + "\n" for p in parts] if keepends else parts
+    if last:
+        lines.append(last)
+    return lines
+
+
 def merge_tsv(base_text, ours_text, theirs_text, key_columns, owed):
     """The same merge over a TSV's rows. The comment lines and the header are text, merged
     whole: when they differ between two sides that both changed the file, or any side has a
@@ -334,7 +350,7 @@ def merge_tsv(base_text, ours_text, theirs_text, key_columns, owed):
         return theirs_text
 
     def split(text):
-        lines = text.splitlines()
+        lines = lines_of(text)
         n = 0
         while n < len(lines) and lines[n].startswith("#"):
             n += 1
@@ -378,8 +394,8 @@ def merge_text(name, base_text, ours_text, theirs_text, owed):
 
 def generated_blocks(path):
     """The text of each `BEGIN generated` block of a docs file, by the block's name."""
-    with open(path, encoding="utf-8") as f:
-        lines = f.read().splitlines(keepends=True)
+    with open(path, encoding="utf-8", newline="") as f:
+        lines = lines_of(f.read(), keepends=True)
     blocks, name = {}, None
     for line in lines:
         if line.startswith("<!-- END generated"):
@@ -427,10 +443,9 @@ def merge_docs(base_path, ours_path, theirs_path, owed):
             theirs_path,
         ],
         capture_output=True,
-        text=True,
     )
     if proc.returncode < 0 or proc.returncode > 127:
-        raise RuntimeError(proc.stderr)
+        raise RuntimeError(proc.stderr.decode("utf-8", "replace"))
     # A block both sides changed is owed even when merge-file merged it cleanly: its lines are
     # rendered from every row (the verification counts), so a line-wise union of two renders is
     # neither side's, nor the merged rows'.
@@ -441,7 +456,9 @@ def merge_docs(base_path, ours_path, theirs_path, owed):
             owed.add(f"generated block {name}")
     out, real = [], False
     in_block = False
-    lines = proc.stdout.splitlines(keepends=True)
+    # Decoded here rather than by text=True, whose universal newlines would turn a "\r" into
+    # a line break.
+    lines = lines_of(proc.stdout.decode("utf-8"), keepends=True)
     i = 0
 
     # The markers are matched whole, as merge-file writes them with the labels above: a line
@@ -549,8 +566,8 @@ def owed_live():
     """The owed list's live entries, as (merge identity, path) pairs, in the list's order."""
     path = owed_file()
     try:
-        with open(path, encoding="utf-8") as f:
-            lines = f.read().splitlines()
+        with open(path, encoding="utf-8", newline="") as f:
+            lines = lines_of(f.read())
     except FileNotFoundError:
         return []
     head = git_out("rev-parse", "-q", "--verify", "HEAD")
@@ -618,7 +635,7 @@ def owed_command(keep=None):
 
 def driver(base_path, ours_path, theirs_path, repo_path):
     def read(p):
-        with open(p, encoding="utf-8") as f:
+        with open(p, encoding="utf-8", newline="") as f:
             return f.read()
 
     name = os.path.basename(repo_path)
@@ -670,7 +687,7 @@ def driver(base_path, ours_path, theirs_path, repo_path):
                 theirs_path,
             ]
         ).returncode
-    with open(ours_path, "w", encoding="utf-8") as f:
+    with open(ours_path, "w", encoding="utf-8", newline="") as f:
         f.write(text)
     if owed.paths:
         shown = ", ".join(sorted(set(owed.paths))[:4])
@@ -971,6 +988,27 @@ def review_cases(expect, merged):
         o == ["m (order of k)"] and list(m1["m"]) == list(m2["m"]),
         f"18: a key added at two places owed {o}: {m1} {m2}",
     )
+    # 20. A TSV row holding a form feed or U+2028 stays one row, and so does one holding a
+    # "\r" through the driver, which reads and writes the files without newline translation.
+    t, o = merged(
+        "types.tsv",
+        "id\tx\nA\t1\nZ\t1\n",
+        "id\tx\nA\t1\nB\tf\x0cg\u2028h\nZ\t1\n",
+        "id\tx\nA\t1\nZ\t2\n",
+    )
+    expect(t == "id\tx\nA\t1\nB\tf\x0cg\u2028h\nZ\t2\n" and not o, f"20: {t!r} {o}")
+    with tempfile.TemporaryDirectory() as tmp:
+        paths = [os.path.join(tmp, n) for n in ("b.tsv", "o.tsv", "t.tsv")]
+        for path, text in zip(
+            paths, ("id\tx\nA\t1\nZ\t1\n", "id\tx\nA\t1\nB\tf\rg\nZ\t1\n", "id\tx\nA\t1\nZ\t2\n")
+        ):
+            with open(path, "w", encoding="utf-8", newline="") as f:
+                f.write(text)
+        with contextlib.redirect_stderr(io.StringIO()):
+            rc = driver(*paths, "sql/varka/types.tsv")
+        with open(paths[1], encoding="utf-8", newline="") as f:
+            t = f.read()
+        expect(rc == 0 and t == "id\tx\nA\t1\nB\tf\rg\nZ\t2\n", f"20: the driver wrote {t!r}")
     # 7. Both sides change a generated block, on different lines, so merge-file is clean.
     with tempfile.TemporaryDirectory() as tmp:
 
