@@ -468,13 +468,17 @@ def merge_docs(base_path, ours_path, theirs_path, owed):
 
     while i < len(lines):
         line = lines[i]
+        j = k = len(lines)
         if marker(line, "<<<<<<< ours"):
             j = i + 1
-            while not marker(lines[j], "======="):
+            while j < len(lines) and not marker(lines[j], "======="):
                 j += 1
             k = j + 1
-            while not marker(lines[k], ">>>>>>> theirs"):
+            while k < len(lines) and not marker(lines[k], ">>>>>>> theirs"):
                 k += 1
+        # A hunk without its separator or its end line (a side that holds a "<<<<<<< ours"
+        # line of its own, merged cleanly) is no hunk: that line is content like any other.
+        if k < len(lines):
             o, t = lines[i + 1 : j], lines[j + 1 : k]
             markers = any("generated" in x and x.startswith("<!--") for x in o + t)
             if in_block and not markers:
@@ -1080,6 +1084,29 @@ def review_cases(expect, merged):
         expect(
             real and "prose ours" in text and "prose theirs" in text,
             f"16: a prose conflict after a hunk with an END line lost a side: {text!r}",
+        )
+
+        # 27. A side holding a "<<<<<<< ours" line of its own, merged cleanly, leaves an
+        # unterminated hunk: the parser keeps it as content rather than reading past the end.
+        def lone_doc(name, top, last):
+            path = os.path.join(tmp, name)
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(f"# Doc\n\n{top}\none\n\ntwo\n\nthree\n\nfour\n\n{last}\n")
+            return path
+
+        o = Owed()
+        try:
+            text, real = merge_docs(
+                lone_doc("lb.md", "", "last"),
+                lone_doc("lo.md", "<<<<<<< ours\n", "last"),
+                lone_doc("lt.md", "", "last theirs"),
+                o,
+            )
+        except IndexError as e:
+            text, real = repr(e), True
+        expect(
+            not real and "\n<<<<<<< ours\n" in text and "last theirs" in text and not o.paths,
+            f"27: an unterminated hunk was not kept as content: {text!r} {o.paths}",
         )
         # 8. Any failure inside the merge falls back to git's text merge, never a traceback.
         saved = globals()["merge_text"]
