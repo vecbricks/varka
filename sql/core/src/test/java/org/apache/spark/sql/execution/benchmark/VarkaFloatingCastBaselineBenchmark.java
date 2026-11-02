@@ -22,7 +22,6 @@ import java.util.Map;
 
 import org.apache.spark.sql.SparkSession;
 import org.apache.spark.sql.VarkaBenchmark;
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaHostIsa;
 import org.apache.spark.sql.internal.SQLConf;
 
 /**
@@ -51,7 +50,8 @@ import org.apache.spark.sql.internal.SQLConf;
  * record of how much of it a row has fused, and fails when the plan's class differs
  * ({@link VarkaSqlBenchmarkBase#requireBaseline(SparkSession, String, String, Fusion)}); the
  * results file notes each section that fuses. The casts to a floating type are {@code WHOLE}
- * since row 343's first part fuses them, a BIGINT's where the host has AVX512DQ; every other
+ * since row 343's first part fuses them, but for a BIGINT's, which declines at the session's
+ * default emit level on every host ({@code VarkaEmitOptions.convertsMayFallBack}); every other
  * section is {@code NONE}, the boolean filter among them, since a {@code coalesce} over a
  * condition does not compile as one. The filter's condition is the cast under
  * {@code coalesce} rather than the bare cast: from a bare
@@ -174,9 +174,10 @@ public class VarkaFloatingCastBaselineBenchmark extends VarkaSqlBenchmarkBase {
       String s = "s" + nulls;
       String density = ", " + (nulls.isEmpty() ? "no nulls" : "one row in ten null");
       String from = " AS a FROM " + VIEW;
-      // The casts to a floating type fuse (VARKA-343 5.1), a BIGINT's only where the host has
-      // AVX512DQ: on the EPYC runners its AVX2 form is row 343's second part.
-      Fusion longConverts = VarkaHostIsa.conversionsFallBack() ? Fusion.NONE : Fusion.WHOLE;
+      // The casts to a floating type fuse (VARKA-343 5.1), but for a BIGINT's: the session runs
+      // at the default emit level, which names no host, and the plan declines L2F and L2D there
+      // on every machine. Its AVX2 form, which fuses it at every level, is row 343's second part.
+      Fusion longConverts = Fusion.NONE;
       out.add(new Section("BIGINT CAST(l AS FLOAT)" + density,
           "SELECT CAST(" + l + " AS FLOAT)" + from, Map.of(), longConverts));
       out.add(new Section("BIGINT CAST(l AS DOUBLE)" + density,

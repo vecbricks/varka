@@ -191,7 +191,8 @@ class VarkaTimeArithmeticSuite extends QueryTest with VarkaMaybeThrows with Vark
   test("a session resolving its level on a host whose converts fall back plans the magic form") {
     // VARKA-538 test 3.2: a fallback host, planted, makes the driver resolve level 2; the plan
     // carries that record to the executors, whose compile reads it, and the answers stay the
-    // row engine's. A converting host, planted, leaves the emitter's default.
+    // row engine's. A converting host, planted, resolves level 3, which lowers the division as
+    // the emitter's default does.
     resolvingFromHost {
       VarkaSessionEmit.setHostForTesting(
         new VarkaHostIsa.Reading("amd64", "avx, avx2, fma", null))
@@ -210,8 +211,10 @@ class VarkaTimeArithmeticSuite extends QueryTest with VarkaMaybeThrows with Vark
         new VarkaHostIsa.Reading("amd64", "avx, avx2, avx512f, avx512dq, avx512vl", null))
       try {
         val plan = varkaSpark.sql(s"SELECT hour(t) AS v FROM $day").queryExecution.executedPlan
-        assert(plannedEmit(plan).forall(_.useAVX === VarkaEmitOptions.USE_AVX_UNKNOWN),
+        assert(plannedEmit(plan).forall(_.useAVX === VarkaEmitOptions.AVX512_LEVEL),
           plan.treeString)
+        assert(plannedEmit(plan).forall(e =>
+          !VarkaColumnarToRowExec.emitOptions(e).convertsFallBack()))
       } finally {
         VarkaSessionEmit.setHostForTesting(null)
       }
@@ -221,7 +224,7 @@ class VarkaTimeArithmeticSuite extends QueryTest with VarkaMaybeThrows with Vark
   test("a session resolving its level from this JVM plans what the JVM's features say") {
     // VARKA-538 test 3.6, nothing planted: the real export, the reflective read and of(conf)
     // on whatever CPU runs the suite - the magic form on an AVX2 runner, the conversion form
-    // on an AVX-512 one - and the answers are the row engine's either way.
+    // at level 3 on an AVX512DQ one - and the answers are the row engine's either way.
     resolvingFromHost {
       val plan = varkaSpark.sql(s"SELECT hour(t) AS v FROM $day").queryExecution.executedPlan
       val emits = plannedEmit(plan)
@@ -229,7 +232,10 @@ class VarkaTimeArithmeticSuite extends QueryTest with VarkaMaybeThrows with Vark
       val host = VarkaHostIsa.host()
       // The level, not the options' predicate: a matrix configuration may set a base level the
       // session's unknown leaves in place.
-      val expected = if (host.conversionsFallBack()) 2 else VarkaEmitOptions.USE_AVX_UNKNOWN
+      val expected = if (host.conversionsFallBack()) 2
+        else if (host.x86() && host.readable() && !host.features().isEmpty) {
+          VarkaEmitOptions.AVX512_LEVEL
+        } else VarkaEmitOptions.USE_AVX_UNKNOWN
       assert(emits.forall(_.useAVX === expected), s"$emits on a host reading $host")
       if (host.x86()) {
         assert(host.readable(), s"the feature query failed on x86: ${host.failure()}")
