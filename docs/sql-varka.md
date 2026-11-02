@@ -739,9 +739,9 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `i BETWEEN 1 AND 9` | `predicate` |  |  | vector |
 | `d BETWEEN DATE '2000-01-01' AND d2` | `predicate` |  |  | vector |
 | `ym BETWEEN INTERVAL '-1-0' YEAR TO MONTH AND INTERVAL '1-0' YEAR TO MONTH` | `predicate` |  |  | vector |
-| `l BETWEEN l2 AND 5000000000` | `predicate` |  |  | per-lane: compare to mask, mask logic, mask cast |
-| `t BETWEEN t2 AND TIME '23:59:59'` | `predicate` |  |  | per-lane: compare to mask, mask logic, mask cast |
-| `dt BETWEEN dt2 AND INTERVAL '1' DAY` | `predicate` |  |  | per-lane: compare to mask, mask logic, mask cast |
+| `l BETWEEN l2 AND 5000000000` | `predicate` |  |  | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL up to 18 digits), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
+| `t BETWEEN t2 AND TIME '23:59:59'` | `predicate` |  |  | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL up to 18 digits), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
+| `dt BETWEEN dt2 AND INTERVAL '1' DAY` | `predicate` |  |  | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL up to 18 digits), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
 
 #### TIMESTAMP_NTZ columns
 
