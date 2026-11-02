@@ -611,6 +611,8 @@ false)` does not compile as a condition, though `CAST(x AS BOOLEAN)` alone does.
   `VarkaDifferentialHarnessSuite` runs `CAST(l AS DOUBLE)`, `CAST(l AS FLOAT)`, `x - l` and
   `CAST(l AS DOUBLE) + 1.5D` at level 3 over the extremes and values past 2^53 and 2^24 against
   the row engine; `drivesLong`'s doc in `CompiledVarkaProjection` states the two facts it rests on.
+  Under `useAVX=3` the `BIGINT` conformance suite's cast row fails by design, since the register
+  marks the two casts declined at the defaults' level, and `skips.tsv` says so.
 
 *Open for 343b:* `coalesce(CAST(x AS BOOLEAN), false)` does not compile as a condition. Row
 331's `CondIf` fuses `coalesce` over boolean columns, but a cast to `BOOLEAN` is not taken as a
