@@ -576,7 +576,12 @@ private object VarkaCoverageDifferentialSuite {
    *
    * The floating columns are derived too (VARKA-341), `floatingColumns` picked by `rid`, null
    * where `d`, `d2`, `i` and `l2` are. The DECIMAL columns are derived from the bigints:
-   * `d9`, `d18` and `d9s4` from `l`, `d9b`, `d18b`, `d16s9` and `d8` from `l2`.
+   * `d9` and `d18` from `l`, `d9b`, `d18b`, `d16s9` and `d8` from `l2`. `d9s4` is no multiple of
+   * either, so a comparison that rescales it answers on more than the operands' signs: its
+   * unscaled value is the last seven digits of `coalesce(l, l2)` times 100 on an even `rid`,
+   * equal to `d9`'s rescaled where `l` is short, and times 50 on an odd one, between `d9`
+   * times 10 and times 100, so a wrong rescale factor flips the answer. It is null where `i`
+   * or both bigints are, which leaves rows where only `d9`, only `d9s4` or only `d16s9` is.
    */
   def fixtureView(values: Seq[String], where: String = ""): String = {
     val withIds = values.zipWithIndex.map { case (v, rid) => s"($rid, ${v.stripPrefix("(")}" }
@@ -591,6 +596,9 @@ private object VarkaCoverageDifferentialSuite {
       s"CAST(CAST($long % ${BigInt(10).pow(precision)} AS DECIMAL(${precision + 1}, 0)) * " +
         s"${BigDecimal(1).bigDecimal.movePointLeft(scale).toPlainString} " +
         s"AS DECIMAL($precision, $scale))"
+    // Within nine digits: seven digits times 100 at most.
+    val d9s4Unscaled =
+      "CASE WHEN i IS NOT NULL THEN coalesce(l, l2) % 10000000 * (100 - rid % 2 * 50) END"
     s"""SELECT rid, d, d2, i,
        |       CAST(m AS INTERVAL MONTH) AS ymm,
        |       CAST(y AS INTERVAL YEAR) AS ymy,
@@ -606,7 +614,7 @@ private object VarkaCoverageDifferentialSuite {
        |       ${decimal("l2", 9)} AS d9b,
        |       ${decimal("l", 18)} AS d18,
        |       ${decimal("l2", 18)} AS d18b,
-       |       ${decimal("l", 9, 4)} AS d9s4,
+       |       ${decimal(d9s4Unscaled, 9, 4)} AS d9s4,
        |       ${decimal("l2", 16, 9)} AS d16s9,
        |       ${decimal("l2", 8)} AS d8
        |FROM VALUES ${withIds.mkString(",\n  ")}

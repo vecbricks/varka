@@ -4809,7 +4809,7 @@
     "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
     "domain" : "",
     "note" : "a negation is null where its operand is",
-    "verified" : "refinement: (-d18) IS NOT NULL"
+    "verified" : "differential"
   }, {
     "sql" : "CASE WHEN d9 < d9b THEN d9 ELSE d9s4 END > 0.0",
     "executable" : "CASE WHEN d9 < d9b THEN d9 ELSE d9s4 END > 0.0",

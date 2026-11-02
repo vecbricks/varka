@@ -693,3 +693,28 @@ refinement's 60 new checks add under a tenth of a second.
   instead of building a `Scaled` its record refuses; the default decline names rows 349 and 351
   and says a quotient or a remainder is no row's in this milestone (`VARKA-363.md` 7); the
   kernel check's decimal column set throws past ordinal 63 instead of dropping the column.
+
+### 10.5 The test-oracle review of 348a (2 November 2026)
+
+A review of the oracles, not the compiler, found three that could not fail; it found no wrong
+answer, and the compiler did not change.
+
+- **`d9s4` was `d9` over 100.** Both came from `l`'s last nine digits (10.3, "The coverage rows"),
+  so every row had `d9 = 100 * d9s4` with the same nulls: `d9 < d9s4`, `d9 = d9s4` and
+  `d9 <=> d9s4` answered on the operands' signs, a rescale by 10 instead of 100 gave the same
+  answers, and `<=>` never met one null side. The differential's view now derives `d9s4` from
+  the last seven digits of `coalesce(l, l2)`, times 100 on an even `rid` and 50 on an odd one,
+  null where `i` is: two rows of the mixed fixture and three of the dense flip under a factor of
+  10, and the mixed fixture has a row with only `d9` null and one with only `d9s4` null.
+  `CASE WHEN d9 < d9b THEN d9 ELSE d9s4 END > 0.0` stays a sign test of its branch's rescale,
+  since a positive factor keeps a sign; the new column only makes its branch choice matter.
+- **Two null-test refinements compared a formula with itself.** `coalesce(d9, d9b) IS NULL`
+  now models the kernel's null test as `VarkaDecimalCompiler.valid` builds it, the negated OR
+  of the leaves' validity, against Spark's AND of the operands' nulls. `(-d18) IS NOT NULL`
+  has no independent kernel form, its validity being the operand's word, so its refinement is
+  gone and its row is differential: the coverage counts read 11 refined and 18 differential
+  `dec` rows.
+- **The census said `zeroifnull` fuses at every scale.** `ZeroIfNull` is `Nvl(a, 0)`, which is
+  `Coalesce(a, 0)`, and `findWiderTypeForDecimal` widens the int as `DECIMAL(10, 0)`: over
+  `DECIMAL(p, s)` the result is `DECIMAL(max(p, s + 10), s)`, within 18 digits only at scale 8
+  or less. The notes of `zeroifnull`, `nvl` and `ifnull` say so.

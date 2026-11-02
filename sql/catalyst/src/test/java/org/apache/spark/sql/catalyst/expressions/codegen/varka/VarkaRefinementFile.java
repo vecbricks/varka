@@ -1112,9 +1112,10 @@ final class VarkaRefinementFile {
         "a decline Spark does not need: the kernel checks d9b's slots on every lane, and Spark "
             + "reads d9b only where d9 is null",
         "(and va (= a 0) vb (= b " + (d9b.bound() + 1) + "))",
-        "true", "true", "(and (not va) (not vb))", "(and (not va) (not vb))");
-    decimalRow(out, "(-d18) IS NOT NULL, Spark mode: a negation is null where its operand is",
-        List.of(d18), List.of(), "true", "true", "va", "va");
+        // The kernel's null test is the negated OR of the leaves' validity, as
+        // VarkaDecimalCompiler.valid builds a coalesce's; Spark's coalesce is null where every
+        // operand is.
+        "true", "true", "(not (or va vb))", "(and (not va) (not vb))");
     // The CASE at DECIMAL(11, 4): its condition known true takes d9 rescaled, otherwise d9s4.
     decimalRow(out, "CASE WHEN d9 < d9b THEN d9 ELSE d9s4 END > 0.0, Spark mode: a choice at "
         + "DECIMAL(11, 4) under a comparison", List.of(d9, d9b, d9s4), List.of(
