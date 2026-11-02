@@ -420,6 +420,22 @@ public final class VarkaKernelPlan {
   // -------------------------------------------------------------------------------------------
 
   /**
+   * The reason a narrow value read or stored by an int-lane kernel declines at a width with no
+   * baked int lane count, so the narrow species it needs has no name: {@code validityByWidth}
+   * off.
+   */
+  public static final String NO_BAKED_INT_LANES =
+      "a narrow column needs a baked int lane count to be widened";
+
+  /**
+   * The reason a narrow column loaded by a kernel driven at the long lane declines at a width
+   * with no baked long lane count: {@code validityByWidth} off, or a {@code lanesOverride} with
+   * no long species, such as sixteen lanes, 1024 bits. A filter's decline adds the conjunct.
+   */
+  public static final String NO_BAKED_LONG_LANES =
+      "a narrow column needs a baked lane count to be widened to the long lane";
+
+  /**
    * Why this kernel cannot be emitted over the narrow values it holds, judged at the kernel's
    * lane, or at each root's own where no lane serves them all (the lane check refuses that on
    * its own).
@@ -464,8 +480,7 @@ public final class VarkaKernelPlan {
       }
       int intLanes = Lane.emitLanes(options, Lane.INT);
       if (intLanes == 0) {
-        return Optional.of(new Refusal(Kind.NARROW,
-            "a narrow column needs a baked int lane count to be widened"));
+        return Optional.of(new Refusal(Kind.NARROW, NO_BAKED_INT_LANES));
       }
       for (LaneType type : lanes) {
         if (type.isNarrow() && Lane.widenLanes(intLanes, Lane.of(type)) == 0) {
@@ -504,8 +519,7 @@ public final class VarkaKernelPlan {
     int longLanes = Lane.emitLanes(options, Lane.LONG);
     Set<LaneType> loads = VarkaVectorIR.narrowValuesIn(root);
     if (longLanes == 0 && !loads.isEmpty()) {
-      return Optional.of(new Refusal(Kind.NARROW,
-          "a narrow column needs a baked lane count to be widened to the long lane"));
+      return Optional.of(new Refusal(Kind.NARROW, NO_BAKED_LONG_LANES));
     }
     for (LaneType type : loads) {
       if (Lane.widenLanes(2 * longLanes, Lane.of(type)) != 2 * longLanes) {

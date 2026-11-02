@@ -176,16 +176,16 @@ public final class VarkaFamilySwitchSuite {
   }
 
   /**
-   * Whether the configuration itself explains the decline: with no baked lane count
-   * ({@code validityByWidth} off) a narrow column has no species to widen into, and every
-   * narrow row declines before any family is consulted. The committed census records declines
-   * per width, which cannot express a configuration, so the option is read here; any other
-   * reason still fails.
+   * Whether the configuration itself explains the decline: with no baked lane count for the
+   * lane a narrow value meets - {@code validityByWidth} off, or a {@code lanesOverride} with no
+   * long species - the narrow value has no species to widen into or store through, and the row
+   * declines before any family is consulted ({@link VarkaMatrixRuns#isUnbakedWidthDecline}). The
+   * committed census records declines per width, which cannot express a configuration, so the
+   * options are read here; any other reason still fails.
    */
   private static boolean isConfigurationDecline(Outcome on) {
-    return !OPTIONS.validityByWidth()
-        && on.reason().filter(r -> r.equals(
-            "a narrow column needs a baked int lane count to be widened")).isPresent();
+    return on.reason().filter(r -> VarkaMatrixRuns.isUnbakedWidthDecline(OPTIONS, r))
+        .isPresent();
   }
 
   private Outcome compile(Row row, Set<VarkaFamily> off) {

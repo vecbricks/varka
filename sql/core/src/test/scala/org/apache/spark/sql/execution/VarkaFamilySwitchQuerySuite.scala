@@ -22,7 +22,7 @@ import java.time.LocalTime
 import org.apache.spark.SparkIllegalArgumentException
 import org.apache.spark.sql.{QueryTest, Row}
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaExpressionCompiler
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaFamily, VarkaTestWatchdog}
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaFamily, VarkaMatrix, VarkaMatrixRuns, VarkaTestWatchdog}
 import org.apache.spark.sql.types.{DateType, IntegerType, StructField, StructType, TimeType}
 
 /**
@@ -78,10 +78,16 @@ class VarkaFamilySwitchQuerySuite
         assert(explained.contains("b: fused"), explained)
         assertFused(df.queryExecution.executedPlan)
       }
-      // Switched back on, the family's entry fuses again.
+      // Switched back on, the family's entry fuses again, unless the configuration itself
+      // declines it: `CAST(i AS TINYINT)` stores a narrow value, whose species needs a baked int
+      // lane count, which `validityByWidth=false` leaves none of. The switched-off form above
+      // still names the family there, since the switch is consulted before the lane count.
       val explained = varkaSpark.sql(query).queryExecution
         .explainString(ExplainMode.fromString("formatted"))
-      assert(explained.contains("a: fused"), s"$family\n$explained")
+      val onReason = explained.split("a: residual \\(", 2).lift(1)
+      assert(explained.contains("a: fused") ||
+        onReason.exists(VarkaMatrixRuns.isUnbakedWidthDecline(VarkaMatrix.base, _)),
+        s"$family\n$explained")
     }
   }
 
