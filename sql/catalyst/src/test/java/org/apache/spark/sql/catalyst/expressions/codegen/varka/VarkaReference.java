@@ -122,6 +122,12 @@ public final class VarkaReference {
       case WidenLane n when n.target() == LaneType.INT -> value(n.child(), row, isNull, lits);
       case WidenLane n -> throw new IllegalArgumentException(
           "a widening is evaluated through mixedValue: " + n);
+      // A conversion between the two 32-bit lanes keeps the row at its width: an int's float bits,
+      // as a narrow column widened and converted beside a float column stores them.
+      case ConvertLane n when n.target().bits() == Integer.SIZE
+          && n.child().laneType().bits() == Integer.SIZE ->
+          map(n.child(), row, isNull, lits,
+              v -> (int) convert(n.child().laneType(), n.target(), v));
       case ConvertLane n -> throw new IllegalArgumentException(
           "a conversion is evaluated through mixedValue: " + n);
       case DateDiff(var end, var start) -> both(end, start, row, isNull, lits, (e, s) -> e - s);

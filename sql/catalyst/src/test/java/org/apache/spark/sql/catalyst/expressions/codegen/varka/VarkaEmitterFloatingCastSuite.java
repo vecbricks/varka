@@ -314,8 +314,27 @@ public final class VarkaEmitterFloatingCastSuite {
     var root = new IntArith(IntOp.MUL, Overflow.WRAP,
         convert(new WidenLane(s, LaneType.INT), LaneType.FLOAT), f);
     long[] shorts = {0, 1, -1, Short.MAX_VALUE, Short.MIN_VALUE, 12345, -32767, 255};
-    check("cast(s AS float) * f", List.of(root), 2, new int[0], new long[0],
-        cells(shorts, FLOATS));
+    // A short column is stored two bytes a row, so the batch goes through the narrow layout.
+    List<VarkaVectorIR> roots = List.of(root);
+    for (int lanes : NARROW_LANES) {
+      var emitted = VarkaEmitterFixtures.emit(roots, 2, 0,
+          VarkaMatrixRuns.BASE.withLanesOverride(lanes));
+      for (int length : LENGTHS) {
+        for (int pattern = 0; pattern < PATTERNS.size(); pattern++) {
+          var wide = batch(2, length, pattern, cells(shorts, FLOATS));
+          var data = new int[2][length];
+          for (int c = 0; c < 2; c++) {
+            for (int i = 0; i < length; i++) {
+              data[c][i] = (int) wide.data()[c][i];
+            }
+          }
+          assertTrue(VarkaKernelChecks.runAndCompareNarrow("cast(s AS float) * f at " + lanes
+              + " lanes, length " + length + ", pattern " + pattern, emitted.className(),
+              emitted.bytes(), roots, 2, new int[0], new VarkaKernelChecks.Batch(length,
+                  wide.nulls(), data, wide.forceMasked()), false, null));
+        }
+      }
+    }
   }
 
   @Test

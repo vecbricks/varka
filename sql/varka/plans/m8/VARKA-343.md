@@ -452,13 +452,21 @@ Steps 3 and 6 of the list above; step 2 moves to 343b (below).
 - **The same-count mask crossing** #1065 left owed: a guard's mask and an arm step's condition at
   the drive's lane count but the other kind cross by `VectorMask.cast`, not through the word, in
   `emitToDrivingLane`; the epilogue's bounds mask crosses the same way. A double division under
-  ANSI in a long kernel (`VarkaEmitterFloatingCastSuite`) is its test. A filter's conjunct that
-  tests floating operands no longer counts as integral for an integral column it reads under a
-  cast, so `xrid < 0 AND CAST(i AS DOUBLE) = x2` fuses whole on the double lane (the coverage
-  harness's ANSI form). *Not built:* roots of two kinds still share no kernel (`lanesShare` is
-  unchanged), and a filter's floating conjunct beside an integral one still declines
-  (`floatingConjunctRefusal`); both are the root-level half of the crossing, which 343b or 342's
-  mixed forms take up when a shape needs it.
+  ANSI in a long kernel (`VarkaEmitterFloatingCastSuite`) is its test. *Not built:* roots of two
+  kinds still share no kernel (`lanesShare` is unchanged), and a filter's floating conjunct beside
+  an integral one still declines (`floatingConjunctRefusal`), as does a `FLOAT` conjunct beside a
+  `DOUBLE` one; both are the root-level half of the crossing, which 343b or 342's mixed forms take
+  up when a shape needs it. *Correction (2 November 2026):* a rule that a conjunct comparing
+  floating operands does not count as an integral read for a column it converts was tried, with
+  the coverage rows `CAST(f AS DOUBLE) = x2` and `x2 > 0.0D AND CAST(i AS DOUBLE) = x2`, and
+  withdrawn: through Spark's optimizer such a filter always carries an inferred
+  `isnotnull(<source>)` (and, beside `x2 > 0.0D`, an inferred `i > 0`) on the source column's own
+  lane, so on a nullable column the rule never fired and the harness's kernel answered no batch.
+  So the ANSI form's "right side of a false AND" for the seventeen value rows of "Floating casts"
+  that read a column of another lane, and every form of `CAST(x AS BOOLEAN)` and
+  `CAST(f AS BOOLEAN)` but the lone one (each sets the cast beside the boolean column `b2`, read on
+  an integral lane), are on `VarkaAnsiForm.DECLINED` with this reason; each row still fuses alone
+  in every mode.
 - **The compiler**: `VarkaFloatingCastCompiler`, a family `FLOATING_CAST` with its switch
   `spark.sql.codegen.varka.family.floatingCast.enabled`, admits the fourteen pairs of item 0.1's
   to-floating half by name (`admits`); `floatingDecline` names the rest by row: from a floating

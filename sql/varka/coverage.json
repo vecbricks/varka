@@ -4724,30 +4724,6 @@
     "note" : "the float's test in a disjunction at its lane",
     "verified" : "differential"
   }, {
-    "sql" : "CAST(f AS DOUBLE) = x2",
-    "executable" : "CAST(f AS DOUBLE) = x2",
-    "family" : "Floating casts as conditions",
-    "form" : "predicate",
-    "catalyst" : [ "Cast", "EqualTo" ],
-    "casts" : [ "float>double:ansi" ],
-    "operands" : [ "Cast:float", "EqualTo:double" ],
-    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled", "spark.sql.codegen.varka.family.floatingCast.enabled" ],
-    "domain" : "",
-    "note" : "a converted float compared on the double lane",
-    "verified" : "differential"
-  }, {
-    "sql" : "x2 > 0.0D AND CAST(i AS DOUBLE) = x2",
-    "executable" : "x2 > 0.0D AND CAST(i AS DOUBLE) = x2",
-    "family" : "Floating casts as conditions",
-    "form" : "predicate",
-    "catalyst" : [ "And", "Cast", "EqualTo", "GreaterThan" ],
-    "casts" : [ "int>double:ansi" ],
-    "operands" : [ "Cast:int", "EqualTo:double", "GreaterThan:double" ],
-    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled", "spark.sql.codegen.varka.family.floatingCast.enabled" ],
-    "domain" : "",
-    "note" : "a converted int beside a double conjunct: both meet on the double lane",
-    "verified" : "differential"
-  }, {
     "sql" : "d9 < d9b",
     "executable" : "d9 < d9b",
     "family" : "DECIMAL columns",

@@ -844,8 +844,6 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 |---|---|---|---|---|
 | `CAST(x AS BOOLEAN)` | `predicate` |  | x != 0.0 as the filter, the negation of the lane's EQ | per-lane: compare to mask, mask cast, mask logic, mask broadcast |
 | `CAST(f AS BOOLEAN) OR f > 1.5F` | `predicate` |  | the float's test in a disjunction at its lane | vector |
-| `CAST(f AS DOUBLE) = x2` | `predicate`, `floatingCast` |  | a converted float compared on the double lane | per-lane: compare to mask, mask cast, mask logic, mask broadcast, load or store |
-| `x2 > 0.0D AND CAST(i AS DOUBLE) = x2` | `predicate`, `floatingCast` |  | a converted int beside a double conjunct: both meet on the double lane | per-lane: compare to mask, mask cast, mask logic, mask broadcast, load or store |
 
 #### DECIMAL columns
 
@@ -909,10 +907,10 @@ operands (a row counts once for each type it reads):
 | `byte` | 27 | 0 | 0 | 0 | 8 | 19 |
 | `date` | 87 | 17 | 0 | 1 | 0 | 69 |
 | `dec` | 17 | 0 | 0 | 0 | 0 | 17 |
-| `double` | 47 | 0 | 0 | 0 | 0 | 47 |
+| `double` | 45 | 0 | 0 | 0 | 0 | 45 |
 | `dt` | 20 | 2 | 0 | 0 | 0 | 18 |
-| `float` | 35 | 0 | 0 | 0 | 0 | 35 |
-| `int` | 83 | 14 | 2 | 0 | 1 | 66 |
+| `float` | 34 | 0 | 0 | 0 | 0 | 34 |
+| `int` | 82 | 14 | 2 | 0 | 1 | 65 |
 | `ntz` | 24 | 0 | 1 | 0 | 0 | 23 |
 | `short` | 26 | 0 | 0 | 0 | 8 | 18 |
 | `time` | 34 | 6 | 0 | 0 | 2 | 26 |

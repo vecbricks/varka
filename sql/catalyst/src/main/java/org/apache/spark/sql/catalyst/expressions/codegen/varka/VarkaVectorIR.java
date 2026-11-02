@@ -758,7 +758,7 @@ public sealed interface VarkaVectorIR
     public ConvertLane {
       Objects.requireNonNull(target, "target");
       LaneType from = child.laneType();
-      if (!from.isFloating() && !target.isFloating() || from == target || from.isNarrow()
+      if ((!from.isFloating() && !target.isFloating()) || from == target || from.isNarrow()
           || target.isNarrow()) {
         throw VarkaErrors.illegalArgument("convertLane takes one floating side and no narrow"
             + " one, not " + from + " to " + target + ", from a "
