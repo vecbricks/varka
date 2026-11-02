@@ -612,7 +612,7 @@ public final class VarkaKernelPlan {
           VarkaVectorIR.CondValue _, VarkaVectorIR.Greatest _, VarkaVectorIR.Least _,
           VarkaVectorIR.DayOfWeek _, VarkaVectorIR.WeekDay _, VarkaVectorIR.DayOfWeekIso _,
           VarkaVectorIR.NextDay _, VarkaVectorIR.ThursdayOf _, VarkaVectorIR.AddMonths _,
-          VarkaVectorIR.MakeDate _, VarkaVectorIR.WidenDecimal _ ->
+          VarkaVectorIR.MakeDate _, VarkaVectorIR.WidenDecimal _, VarkaVectorIR.NullValue _ ->
           LongNarrowRole.NONE;
     };
   }
@@ -662,7 +662,8 @@ public final class VarkaKernelPlan {
           VarkaVectorIR.Greatest _,
           VarkaVectorIR.Least _, VarkaVectorIR.DayOfWeek _, VarkaVectorIR.WeekDay _,
           VarkaVectorIR.DayOfWeekIso _, VarkaVectorIR.NextDay _, VarkaVectorIR.ThursdayOf _,
-          VarkaVectorIR.AddMonths _, VarkaVectorIR.MakeDate _, VarkaVectorIR.WidenDecimal _ ->
+          VarkaVectorIR.AddMonths _, VarkaVectorIR.MakeDate _, VarkaVectorIR.WidenDecimal _,
+          VarkaVectorIR.NullValue _ ->
           LongNarrowReader.NONE;
     };
   }
