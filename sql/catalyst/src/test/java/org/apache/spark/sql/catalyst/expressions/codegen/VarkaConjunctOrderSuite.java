@@ -356,7 +356,8 @@ public final class VarkaConjunctOrderSuite {
       assertEquals(List.of(true, false), fused(and(dateAddAfter2000(offset), castIn(wide))));
       Expression raising = and(castIn(wide), dateAddAfter2000(offset));
       assertEquals(List.of(false, false), fused(raising));
-      var spec = VarkaExpressionCompiler.explainPredicate(raising, output).get(1);
+      var spec = VarkaExpressionCompiler.explainPredicate(raising, output,
+          VarkaEmitOptions.DEFAULTS, VarkaAdmission.NO_HOST_REFUSAL).get(1);
       assertTrue(spec.decline().orElseThrow().reason().contains(VarkaConjunctOrder.OUT_OF_ORDER),
           spec.toString());
       Expression bigint = and(new In(cast(digits19, LongType$.MODULE$, ANSI),
