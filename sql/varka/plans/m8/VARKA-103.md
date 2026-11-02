@@ -504,17 +504,18 @@ Predictions, registered before the build:
    floor and Spark's truncation part. `make_dt_interval`'s days lie in `[-100000, 100000]`, its
    hours in `[-1000, 1000]` (past 23, which Spark accepts) and its minutes in `[-100000, 100000]`,
    so no partial sum reaches `2^54`; its four-argument section reads the null seconds `s_n` with
-   the other arguments whole, the three-argument one the null days `i_n`. Two departures from 4:
-   the filter `extract(HOUR FROM dt) >= 12` runs under `spark.sql.constraintPropagation.enabled`
-   off on both sessions, as 332's baseline does, since the `dt_n IS NOT NULL` the optimizer infers
-   would fuse on its own as a long-lane null test while the extract declines; and a control
-   section, the filter `dt > dt2` under the same setting, fuses today, so that a run whose Varka
-   session is off fails the check. Each section records master's `Fusion` class: the control
-   `WHOLE`, every other section `NONE`, as a probe on an Arrow-cached Varka session found. The
-   queries suite runs every section on both sessions over the table's first 2000 rows in each
-   build, and makes the fuse check itself under `PinsDefaults`, as the other baselines' suites
-   do, 8 s on the laptop. The results files at both widths come from the EPYC runners and are
-   committed before it merges; not yet run.
+   the other arguments whole, the three-argument one the null days `i_n`. One departure from 4:
+   a control section, the filter `dt > dt2`, fuses today, so that a run whose Varka session is
+   off fails the check, and the run also checks that it runs every batch as a kernel. Every
+   section runs under Spark's default settings, constraint propagation on. Each section records
+   master's `Fusion` class, as the queries suite's fuse check found: the control `WHOLE`; the
+   filter `extract(HOUR FROM dt) >= 12` `NULL_TESTS` at both densities, since the `IS NOT NULL`
+   the optimizer infers fuses on its own as a long-lane null test under Spark's `Filter` while the
+   extract declines; every other section `NONE`. The queries suite runs every section on both
+   sessions over the table's first 2000 rows in each build, and makes the fuse and kernel checks
+   itself under `PinsDefaults`, as the other baselines' suites do, 7 s on the laptop. The results
+   files at both widths come from the EPYC runners and are committed before it merges; not yet
+   run.
 2. **103a, needing nothing unbuilt**: 2.1, 2.2 with `ym * k`, `extract(DAY)` (and the bias
    helper, if 332b has not built it), 2.4's day split and the decimal literal forms whose divisor
    divides `D`, the proof additions, the cells and coverage rows of those forms, the first planted

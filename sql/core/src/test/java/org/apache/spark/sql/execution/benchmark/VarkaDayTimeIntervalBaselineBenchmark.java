@@ -20,9 +20,11 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
+import org.apache.spark.sql.Dataset;
+import org.apache.spark.sql.Row;
 import org.apache.spark.sql.SparkSession;
 import org.apache.spark.sql.VarkaBenchmark;
-import org.apache.spark.sql.internal.SQLConf;
+import org.apache.spark.sql.execution.SparkPlan;
 
 /**
  * The baseline for the day-time interval expressions before Varka fuses them (VARKA-103):
@@ -51,17 +53,18 @@ import org.apache.spark.sql.internal.SQLConf;
  * record of how much of it a row has fused, and fails when the plan's class differs
  * ({@link VarkaSqlBenchmarkBase#requireBaseline(SparkSession, String, String, Fusion)}); the
  * results file notes each section that fuses. A row that fuses more of a section sets its new
- * class, so that its fusion cannot turn a baseline section into a fused one unnoticed. Every
- * section but the control is {@code NONE}.
- *
- * <p>The filters run under {@code spark.sql.constraintPropagation.enabled=false} on both
- * sessions. With constraint propagation on, the optimizer infers {@code dt_n IS NOT NULL} from
- * the null-intolerant condition over {@code dt_n}, and that conjunct alone fuses, as a long-lane
- * null test, into a {@code VarkaFilterColumnarToRow} under Spark's {@code Filter}: the plan
- * would hold a Varka node while the extract declines, and the check could not see the row start
- * fusing the extract itself. The setting changes only that inference, so both arms at both
- * densities time Spark's own plan of the bare condition. Each section's {@link Fusion} class
- * is the one a probe of its plan found.
+ * class, so that its fusion cannot turn a baseline section into a fused one unnoticed. A section
+ * is {@code NONE} when no Varka node plans it, {@code NULL_TESTS} when Varka nodes fuse only
+ * {@code IS NOT NULL} and {@code IS NULL} tests while a row operator evaluates the rest, and
+ * {@code WHOLE} when no row operator evaluates any of it. The projections are {@code NONE}. The
+ * filter {@code extract(HOUR FROM dt) >= 12} is {@code NULL_TESTS} at both densities: Spark
+ * infers {@code IS NOT NULL} of the column the null-intolerant condition reads, the reader fuses
+ * that null test as a {@code VarkaFilterColumnarToRowExec} of its own, and Spark's {@code Filter}
+ * applies the extract above it, so the varka on arm times a null-test kernel under the row
+ * path's condition and the spark row path arm is the baseline. The control is {@code WHOLE}, and
+ * the run also checks that it runs every batch as a kernel ({@link #requireKernel}), so that a
+ * batch handed back to the row path fails the run rather than time the row path as the control.
+ * Each section's class is the one a probe of its plan on master found.
  *
  * <p>To run this benchmark, on a GitHub runner (the results come back as an artifact):
  * <pre>
@@ -88,10 +91,10 @@ public class VarkaDayTimeIntervalBaselineBenchmark extends VarkaSqlBenchmarkBase
   static final String VIEW = "varka_day_time_interval";
 
   /**
-   * A section: its title, its query, the SQL settings it runs under on both sessions (the
-   * filters' constraint propagation), empty for a projection, and how much of it the Varka
-   * session fuses today, the {@link VarkaSqlBenchmarkBase.Fusion} class the run checks its plan
-   * against before it times anything.
+   * A section: its title, its query, the SQL settings it runs under on both sessions, empty for
+   * every section today, and how much of it the Varka session fuses today, the
+   * {@link VarkaSqlBenchmarkBase.Fusion} class the run checks its plan against before it times
+   * anything.
    */
   record Section(String title, String query, Map<String, String> conf, Fusion fusion) {}
 
@@ -153,8 +156,6 @@ public class VarkaDayTimeIntervalBaselineBenchmark extends VarkaSqlBenchmarkBase
   /** Every section, in the order they run: each null density, then each expression. */
   static List<Section> sections() {
     List<Section> out = new ArrayList<>();
-    Map<String, String> noConstraints =
-        Map.of(SQLConf.CONSTRAINT_PROPAGATION_ENABLED().key(), "false");
     for (String nulls : new String[] {"", "_n"}) {
       String dt = "dt" + nulls;
       String i = "i" + nulls;
@@ -185,15 +186,44 @@ public class VarkaDayTimeIntervalBaselineBenchmark extends VarkaSqlBenchmarkBase
           "SELECT make_dt_interval(i, i2, i3, " + s + ") AS a" + from, Map.of(), Fusion.NONE));
       out.add(new Section("CAST(dt AS INTERVAL HOUR)" + density,
           "SELECT CAST(" + dt + " AS INTERVAL HOUR) AS a" + from, Map.of(), Fusion.NONE));
-      // The bare condition at both densities, with no IS NOT NULL inferred (the class javadoc).
       out.add(new Section("filter extract(HOUR FROM dt) >= 12" + density,
           "SELECT " + dt + " AS a" + from + " WHERE extract(HOUR FROM " + dt + ") >= 12",
-          noConstraints, Fusion.NONE));
+          Map.of(), Fusion.NULL_TESTS));
       out.add(new Section("filter dt > dt2, control, fuses today" + density,
-          "SELECT " + dt + " AS a" + from + " WHERE " + dt + " > dt2", noConstraints,
+          "SELECT " + dt + " AS a" + from + " WHERE " + dt + " > dt2", Map.of(),
           Fusion.WHOLE));
     }
     return out;
+  }
+
+  /**
+   * Runs {@code s} once on the Varka session and fails unless its Varka nodes ran a kernel batch
+   * and handed none to another path: a kernel's guard gives a batch it cannot compute to Spark's
+   * row path, and a timing of such batches is the row path's. This is the check of
+   * {@link VarkaSizeLadder#varkaFused}, which reads only a projection's node, so the control's
+   * {@code VarkaFilterColumnarToRowExec} needs its own: the plan's operators come from
+   * {@link VarkaSqlBenchmarkBase#operators}, and a Varka node is one with the kernel counter.
+   */
+  static void requireKernel(SparkSession varka, Section s) {
+    Dataset<Row> df = varka.sql(s.query());
+    df.queryExecution().toRdd().count();
+    List<SparkPlan> nodes = operators(df.queryExecution().executedPlan()).stream()
+        .filter(p -> p.metrics().contains("numVarkaBatches")).toList();
+    long batches = 0;
+    long fallbacks = 0;
+    for (SparkPlan node : nodes) {
+      batches += node.metrics().apply("numVarkaBatches").value();
+      for (String name : VarkaSizeLadder.FALLBACK_METRICS) {
+        if (node.metrics().contains(name)) {
+          fallbacks += node.metrics().apply(name).value();
+        }
+      }
+    }
+    if (nodes.isEmpty() || batches == 0 || fallbacks != 0) {
+      throw new IllegalStateException(s.title() + " is WHOLE but its varka on arm would time "
+          + "the row path: " + nodes.size() + " Varka nodes ran " + batches + " kernel batches and "
+          + "handed " + fallbacks + " to another path: " + s.query());
+    }
   }
 
   @Override
@@ -210,8 +240,14 @@ public class VarkaDayTimeIntervalBaselineBenchmark extends VarkaSqlBenchmarkBase
         session.sql(tableSql(NUM_ROWS)).createOrReplaceTempView(VIEW);
         VarkaArrowSessions.cache(session, VIEW);
       }
+      // Each section fuses as its class lists it, and a WHOLE one runs every batch as a kernel.
       for (Section s : sections()) {
-        withConf(varka, s.conf(), () -> requireBaseline(varka, s.title(), s.query(), s.fusion()));
+        withConf(varka, s.conf(), () -> {
+          requireBaseline(varka, s.title(), s.query(), s.fusion());
+          if (s.fusion() == Fusion.WHOLE) {
+            requireKernel(varka, s);
+          }
+        });
       }
       for (Section s : sections()) {
         section(s.title(), () -> withConf(baseline, s.conf(), () -> withConf(varka, s.conf(),

@@ -30,10 +30,10 @@ import org.apache.spark.sql.types._
  * The day-time interval baseline's sections, run at a small scale on both sessions in every
  * build, so a section that no longer parses, raises, changes its result type or that the two
  * sessions answer differently fails a pull request rather than the runner dispatch that times it
- * (VARKA-103 4). The filters run with constraint propagation off, as the benchmark runs them. It
- * also makes the benchmark's own fuse check, that each section's plan on the Varka session has
- * the section's fusion class under the section's settings, so a row that changes how a section
- * fuses sets the section's new class in the same pull request.
+ * (VARKA-103 4). It also makes the benchmark's own fuse check, that each section's plan on the
+ * Varka session has the section's fusion class under all of the section's settings, and its
+ * kernel check, that a `WHOLE` section hands no batch to the row path, so a row that changes how
+ * a section fuses sets the section's new class in the same pull request.
  *
  * The fixture is the benchmark's table over its first 2000 ids. Its columns are hashes of the
  * id, so these rows already reach the regions the benchmark's javadoc states, which the suite
@@ -61,7 +61,18 @@ class VarkaDayTimeIntervalBaselineQueriesSuite extends QueryTest with VarkaShare
     Seq(DayTimeIntervalType(DayTimeIntervalType.HOUR)),
     Seq(dayTime), Seq(dayTime))
 
-  test("every section of the day-time interval baseline runs, and both sessions answer alike") {
+  /** Runs `body` under every one of a section's settings on both sessions, as the benchmark. */
+  private def withSettings(s: VarkaDayTimeIntervalBaselineBenchmark.Section)(
+      body: => Unit): Unit = {
+    def under(settings: List[(String, String)]): Unit = settings match {
+      case (key, value) :: rest => withBothConf(key, value)(under(rest))
+      case Nil => body
+    }
+    under(s.conf.asScala.toList)
+  }
+
+  /** Runs `body` with the benchmark's table over the fixture's rows, cached on both sessions. */
+  private def withTable(body: => Unit): Unit = {
     val view = VarkaDayTimeIntervalBaselineBenchmark.VIEW
     val sessions = Seq(spark, varkaSpark)
     try {
@@ -70,6 +81,18 @@ class VarkaDayTimeIntervalBaselineQueriesSuite extends QueryTest with VarkaShare
           .createOrReplaceTempView(view)
         session.catalog.cacheTable(view)
       }
+      body
+    } finally {
+      for (session <- sessions if session.catalog.tableExists(view)) {
+        session.catalog.uncacheTable(view)
+        session.catalog.dropTempView(view)
+      }
+    }
+  }
+
+  test("every section of the day-time interval baseline runs, and both sessions answer alike") {
+    val view = VarkaDayTimeIntervalBaselineBenchmark.VIEW
+    withTable {
       val day = "INTERVAL '1000' DAY"
       val r = spark.sql(
         s"""select count_if(dt < -$day), count_if(dt > $day),
@@ -81,7 +104,8 @@ class VarkaDayTimeIntervalBaselineQueriesSuite extends QueryTest with VarkaShare
            |           and extract(HOUR FROM dt) = 0 and extract(MINUTE FROM dt) = 0
            |           and extract(SECOND FROM dt) = -0.000001),
            |       count_if(dt = INTERVAL '-1' DAY and extract(DAY FROM dt) = -1
-           |           and extract(HOUR FROM dt) = 0 and extract(SECOND FROM dt) = 0),
+           |           and extract(HOUR FROM dt) = 0 and extract(MINUTE FROM dt) = 0
+           |           and extract(SECOND FROM dt) = 0),
            |       min(i), max(i), min(i2), max(i2), min(i3), max(i3),
            |       count_if(s < 0), count_if(s > 0),
            |       count_if(extract(HOUR FROM dt) >= 12), count_if(dt > dt2),
@@ -109,19 +133,22 @@ class VarkaDayTimeIntervalBaselineQueriesSuite extends QueryTest with VarkaShare
 
       val sections = VarkaDayTimeIntervalBaselineBenchmark.sections().asScala.toSeq
       assert(sections.size === 2 * resultTypes.size)
-      assert(sections.filter(_.fusion != VarkaSqlBenchmarkBase.Fusion.NONE).map(_.title) === Seq(
-        "filter dt > dt2, control, fuses today, no nulls",
-        "filter dt > dt2, control, fuses today, one row in ten null"))
+      val fused = sections.filter(_.fusion != VarkaSqlBenchmarkBase.Fusion.NONE)
+      assert(fused.map(s => (s.title, s.fusion.toString)) === Seq(
+        ("filter extract(HOUR FROM dt) >= 12, no nulls", "NULL_TESTS"),
+        ("filter dt > dt2, control, fuses today, no nulls", "WHOLE"),
+        ("filter extract(HOUR FROM dt) >= 12, one row in ten null", "NULL_TESTS"),
+        ("filter dt > dt2, control, fuses today, one row in ten null", "WHOLE")))
       for ((s, index) <- sections.zipWithIndex) {
         withClue(s.title) {
-          val settings = s.conf.asScala.toSeq
-          assert(settings.size <= 1)
-          def run(): Unit = {
+          withSettings(s) {
             val answer = spark.sql(s.query)
             val types = resultTypes(index % resultTypes.size)
             assert(answer.schema.map(_.name) === Seq("a", "b", "c", "d").take(types.size))
             assert(answer.schema.map(_.dataType) === types)
-            checkAnswer(varkaSpark.sql(s.query), answer)
+            // One job per session: the counts below come from the rows collected here.
+            val collected = answer.collect().toSeq
+            checkAnswer(varkaSpark.sql(s.query), collected)
             val noNulls = s.title.endsWith("no nulls")
             val nulls = if (s.query.contains("WHERE")) {
               val kept = if (s.query.contains("> dt2")) {
@@ -129,23 +156,14 @@ class VarkaDayTimeIntervalBaselineQueriesSuite extends QueryTest with VarkaShare
               } else {
                 hourKept - (if (noNulls) 0 else k.getLong(0))
               }
-              assert(answer.count() === kept)
+              assert(collected.size === kept)
               0L
             } else {
               if (noNulls) 0L else rows / 10L
             }
-            assert(answer.where("a IS NULL").count() === nulls)
-          }
-          settings.headOption match {
-            case Some((key, value)) => withBothConf(key, value)(run())
-            case None => run()
+            assert(collected.count(_.isNullAt(0)) === nulls)
           }
         }
-      }
-    } finally {
-      for (session <- sessions if session.catalog.tableExists(view)) {
-        session.catalog.uncacheTable(view)
-        session.catalog.dropTempView(view)
       }
     }
   }
@@ -158,27 +176,18 @@ class VarkaDayTimeIntervalBaselineQueriesSuite extends QueryTest with VarkaShare
     // the classes pin the defaults; the run that lifts the benchmark's check cancels it.
     assume(VarkaSqlBenchmarkBase.fuseCheck(),
       s"-D${VarkaSqlBenchmarkBase.FUSE_CHECK_PROPERTY}=false times the sections fused")
-    val view = VarkaDayTimeIntervalBaselineBenchmark.VIEW
-    try {
-      varkaSpark.sql(VarkaDayTimeIntervalBaselineBenchmark.tableSql(rows))
-        .createOrReplaceTempView(view)
-      varkaSpark.catalog.cacheTable(view)
+    withTable {
       for (s <- VarkaDayTimeIntervalBaselineBenchmark.sections().asScala) {
         withClue(s.title) {
-          def check(): Unit = {
+          withSettings(s) {
             val plan = varkaSpark.sql(s.query).queryExecution.executedPlan
             assert(VarkaSqlBenchmarkBase.fusion(plan) === Optional.of(s.fusion))
-          }
-          s.conf.asScala.toSeq.headOption match {
-            case Some((key, value)) => withBothConf(key, value)(check())
-            case None => check()
+            // The benchmark's kernel check too: a WHOLE section hands no batch to the row path.
+            if (s.fusion == VarkaSqlBenchmarkBase.Fusion.WHOLE) {
+              VarkaDayTimeIntervalBaselineBenchmark.requireKernel(varkaSpark, s)
+            }
           }
         }
-      }
-    } finally {
-      if (varkaSpark.catalog.tableExists(view)) {
-        varkaSpark.catalog.uncacheTable(view)
-        varkaSpark.catalog.dropTempView(view)
       }
     }
   }
