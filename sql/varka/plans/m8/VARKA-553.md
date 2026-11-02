@@ -29,7 +29,25 @@ The chains are row 552's.
    `shard` input so each job fits, and merged with `dev/varka_bench_merge.py`; results committed
    by hand after their provenance is read, as new `DateSurface-spark-4.3.0-*` and
    `TimeSurface-spark-4.3.0-*` files with the Varka and engine-off files of the same runs. The
-   4.2.0 files stay as the record, as row 552 keeps its own. The inputs, the same on every shard:
+   4.2.0 files stay as the record, as row 552 keeps its own. The surfaces run at both of the
+   README's widths, as the chains do (row 552's step 2), in two shard sets, each pinned to one
+   CPU model so that no table mixes models (the lead's decision of 2 November 2026):
+   - (a) **256 bits, on the AMD EPYC 7763**: `require-datapath=any`,
+     `expected-cpu="AMD EPYC 7763"` on every shard, a miss retried hourly and never relaxed (the
+     owner's word of 27 October 2026, which keeps every committed baseline on the 7763). It gives
+     the README's 256-bit surface columns and the `-ymm` and `abs(ymm)` recheck, committed with
+     the `-zen3` suffix as row 552's 7763 chains are. The 7763 has no AVX-512, so the `TIME`
+     surface's division rows run on the slow lowering there (README lines 280-282: 0.09 to 0.16
+     of their full-width rate under `-XX:UseAVX=2`).
+   - (b) **512 bits, on the AMD EPYC 9V45**: `require-datapath=512`,
+     `expected-cpu="AMD EPYC 9V45"` on every shard. `sql/varka/HARDWARE.md` (lines 39-42) names
+     the Zen 5 EPYC as the one runner class with a full-width datapath and says the full-width
+     surface numbers wait for it (`m4/VARKA-62.md` section 11). It gives the README's 512-bit
+     surface figures and the `TIME` division row behind the "up to 39x" headline. At about one
+     draw in eighteen, each shard takes 18 dispatches on average (a geometric draw; a batch of
+     fifteen lands at least one 9V45 with a chance of about 58%), so a set of N shards per surface
+     expects about 18N dispatches, sent in batches of ten to fifteen as the README's recipe says.
+   The inputs both sets share:
    - `rows=100000000`, the only count the workflow's `rows` note calls resident on a runner, and
      `driver-memory=6g`, the workflow's default (scope item 110's "7 GB driver" is the runner's
      limit, not an input);
@@ -40,46 +58,36 @@ The chains are row 552's.
      a 28 ms constant at 1e9, backs out to the same rate. The one runner measurement at 1e8 reads
      lower: `DateSurfaceBenchmark.java:600` records `date_add(d, 3)` at 854 M rows/s with a fixed
      share of 15.4%, a third of the arithmetic, so the first shard is likely to land under the
-     bound. The value is **[I]** until the first shard's `# fixed share` lines; a row over it
-     fails the shard, and the bound is then set from those lines and stated.
-     `varka-surface-benchmark.yml`'s `max-fixed-share` description requires that wherever a
-     lifted bound produced a committed number, the README methodology says so, which step 3
-     does;
-   - `require-datapath=any` and `expected-cpu="AMD EPYC 7763"` on every shard, so the shards cannot
-     mix CPU models, a miss retried hourly and never relaxed (the owner's word of 27 October 2026,
-     that benchmark runs are on an EPYC 7763). A 512-bit requirement would need a one-in-eighteen
-     hit per shard. The 7763 is a 256-bit machine without AVX-512: the README (lines 280-282) reads
-     the `TIME` surface's division rows under `-XX:UseAVX=2` at 0.09 to 0.16 of their full-width
-     rate, so the runner `TIME` surface is a 256-bit claim, and the laptop's 512-bit file stays its
-     512-bit record.
-   *Open point for the lead:* the README's headline "up to **39x**" (lines 58-62, 229-231) is
-   `time_trunc('MILLISECOND', t2)`, a division row, measured on the 512-bit laptop against stock
-   4.2.0. Requoted from the 7763 file it is expected to fall, since the division lowering without
-   AVX-512 is the slow one. Either (a) the headline follows the runner file and the plan says it
-   falls, or (b) the headline keeps a 512-bit figure, which then needs a 512-bit `time` run
-   against 4.3.0 (one shard set on a full-width runner, batched as row 552's chains are), since
-   the laptop figure is against 4.2.0 and the done-when grep admits no surface line. Step 3
-   follows the lead's answer.
-   *CI:* one `stop-after=build` dispatch, then one `run` dispatch per shard and surface, each the
-   owner's, waiting for any running option matrix.
+     bound. The value is **[I]** until the first shard's `# fixed share` lines of each set (the
+     9V45's faster rows carry a larger share); a row over it fails the shard, and the bound is
+     then set from those lines and stated. `varka-surface-benchmark.yml`'s `max-fixed-share`
+     description requires that wherever a lifted bound produced a committed number, the README
+     methodology says so, which step 3 does.
+   *CI:* one `stop-after=build` dispatch, then for set (a) one `run` dispatch per shard and
+   surface, and for set (b) batches of ten to fifteen per shard and surface until each shard
+   lands, each the owner's, waiting for any running option matrix.
 3. The README's two tables, the recheck paragraph and the paragraphs read from the surfaces
-   requoted from the new files, the machine and date beside each table, the laptop files cited
-   as the appendix that clears the 5% bound and, for `TIME`, as the 512-bit record. With them:
-   the "up to 39x" headline (lines 58-62) and the `dayofweek(d)` and `time_trunc('MILLISECOND',
-   t2)` figures of lines 229-231; the `trunc(d, 'QUARTER')` paragraph (151-156), rewritten or
-   removed by what the run shows, scoring row 552's P3 (`VARKA-552.md` 4: the two baselines now
-   agree within 20%, since 4.3.0 has the fork's `truncDate`); and the methodology at 245-258,
-   which today says the surface cannot be measured on a runner at all, rewritten to state the
-   runner files' row count, their lifted bound and the worst fixed share each table shows;
-   `dev/varka_bench_diff.py --requote` lists the moved lines and `dev/varka_quote_check.py` holds
-   every figure to a committed file.
+   requoted from the new files, the machine, width and date beside each table, the laptop files
+   cited as the appendix that clears the 5% bound. The README quotes whichever committed runner
+   file each section is built from, which is what scope item 110's "whatever machine took them"
+   asks. The "up to 39x" headline (lines 58-62) and the `dayofweek(d)` and
+   `time_trunc('MILLISECOND', t2)` figures of lines 229-231 follow that rule: the headline takes
+   the 9V45 `TIME` surface's number once set (b)'s file lands, or, if the README is rewritten
+   first, the 7763 number marked as AVX2, replaced when the 9V45 file lands. With them: the
+   `trunc(d, 'QUARTER')` paragraph (151-156), rewritten or removed by what the run shows, scoring
+   row 552's P3 (`VARKA-552.md` 4: the two baselines now agree within 20%, since 4.3.0 has the
+   fork's `truncDate`); and the methodology at 245-258, which today says the surface cannot be
+   measured on a runner at all, rewritten to state the runner files' row count, their lifted
+   bound and the worst fixed share each table shows; `dev/varka_bench_diff.py --requote` lists
+   the moved lines and `dev/varka_quote_check.py` holds every figure to a committed file.
    *CI:* the push starts the Build, whose docs job runs the quote check.
 
 ## 3. Done when
 
-- both surfaces' 4.3.0 stock files are committed with the Varka and engine-off files of the same
-  runs;
-- the README's surface tables quote them with their date and cite the laptop files as the
+- both surfaces' 4.3.0 stock files are committed from both shard sets, the 7763's (`-zen3`) and
+  the 9V45's, each with the Varka and engine-off files of the same runs;
+- the README's surface tables quote them with their machine and date, the "up to 39x" headline
+  is the 9V45 `TIME` surface's number, and the tables cite the laptop files as the
   appendix, and `git grep -n -E '4\.2\.0|stock 4\.2' README.md` shows no surface line;
 - the README's methodology states the runner files' lifted fixed-share bound;
 - row 552's P3 is scored in section 4;
