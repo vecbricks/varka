@@ -3152,6 +3152,27 @@ object SQLConf {
       .booleanConf
       .createOptional
 
+  val VARKA_DECLINE_TWO_LANE_CONDITIONS =
+    buildConf("spark.sql.codegen.varka.declineTwoLaneConditions")
+      .internal()
+      .doc("Whether the Varka compiler leaves a filter's condition to the row engine when its" +
+        " kernel would be driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time" +
+        " interval, DECIMAL up to 18 digits), on an x86 host whose 64-bit vector species have" +
+        " two lanes or fewer, where the JIT lowers no vector mask and the kernel runs slower" +
+        " than the row engine. Unset, the host's answer: true on such a host, false" +
+        " everywhere else, aarch64 included. Every conjunct that reads a 64-bit column is" +
+        " refused, the IS NOT NULL Spark infers for a nullable one among them, so a filter over" +
+        " such columns alone stays a plain row filter, with no Varka node and so no reason in" +
+        " EXPLAIN; VarkaFusionReport.predicateLines gives the reason under the session's" +
+        " settings. Where another conjunct fuses, the Varka node's EXPLAIN gives it. A test" +
+        " that checks two-lane kernels' answers sets it false.")
+      .version("5.0.0")
+      // A planning choice of which conjuncts fuse: it never changes an answer or what a view
+      // body resolves to.
+      .withBindingPolicy(ConfigBindingPolicy.NOT_APPLICABLE)
+      .booleanConf
+      .createOptional
+
   val VARKA_WARMUP_ENABLED = buildConf("spark.sql.codegen.varka.warmup.enabled")
     .internal()
     .doc("When true, a Varka kernel class this JVM has just emitted serves no batch until HotSpot" +
@@ -9524,6 +9545,8 @@ class SQLConf extends Serializable with Logging with SqlApiConf {
   def varkaEmitUseAVX: Int = getConf(VARKA_EMIT_USE_AVX)
 
   def varkaEmitExactRefusalStatus: Option[Boolean] = getConf(VARKA_EMIT_EXACT_REFUSAL_STATUS)
+
+  def varkaDeclineTwoLaneConditions: Option[Boolean] = getConf(VARKA_DECLINE_TWO_LANE_CONDITIONS)
 
   def varkaWarmupEnabled: Boolean = getConf(VARKA_WARMUP_ENABLED)
 

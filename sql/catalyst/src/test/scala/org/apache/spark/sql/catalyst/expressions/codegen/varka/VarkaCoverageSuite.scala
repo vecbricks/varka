@@ -952,7 +952,8 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
           if (family.predicates) {
             // Every conjunct has to fuse, not just one: the table documents the predicate as
             // written, and a residual conjunct runs in a row filter above the Varka node.
-            VarkaExpressionCompiler.compilePredicate(expr, columns).toScala match {
+            VarkaExpressionCompiler.compilePredicate(expr, columns, VarkaEmitOptions.DEFAULTS,
+              VarkaAdmission.NO_HOST_REFUSAL).toScala match {
               case Some(p) if p.specs.asScala.forall(_.fused) => None
               case Some(p) =>
                 Some(p.specs.asScala.flatMap(_.decline.toScala).map(_.reason).mkString("; "))
@@ -1030,7 +1031,8 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
     val expr = expressionOf(row)
     val options = VarkaEmitOptions.DEFAULTS
     if (family.predicates) {
-      VarkaExpressionCompiler.compilePredicate(expr, columns, options).toScala.map(_.fused).toSeq
+      VarkaExpressionCompiler.compilePredicate(expr, columns, options,
+        VarkaAdmission.NO_HOST_REFUSAL).toScala.map(_.fused).toSeq
     } else {
       VarkaExpressionCompiler.compilePartial(Seq(out(expr)), columns, options).toScala.toSeq
         .flatMap(p => p.fused +: p.more.asScala.toSeq)
@@ -1133,7 +1135,8 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
         val expr = expressionOf(row)
         val outputs =
           if (family.predicates) {
-            VarkaExpressionCompiler.compilePredicate(expr, columns).toScala.toSeq
+            VarkaExpressionCompiler.compilePredicate(expr, columns, VarkaEmitOptions.DEFAULTS,
+              VarkaAdmission.NO_HOST_REFUSAL).toScala.toSeq
               .flatMap(_.fused.outputs.asScala)
           } else {
             VarkaExpressionCompiler.compilePartial(Seq(out(expr)), columns).toScala.toSeq
@@ -1263,7 +1266,8 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
       partial.toSeq.flatMap(p => p.fused +: p.more.asScala.toSeq)
     }
     def predicateKernels(e: Expression): Seq[CompiledVarkaProjection] =
-      VarkaExpressionCompiler.compilePredicate(e, columns, options).toScala.map(_.fused).toSeq
+      VarkaExpressionCompiler.compilePredicate(e, columns, options,
+        VarkaAdmission.NO_HOST_REFUSAL).toScala.map(_.fused).toSeq
     val projections = families.filterNot(_.predicates).flatMap(_.rows).map(expressionOf)
     val predicates = families.filter(_.predicates).flatMap(_.rows).map(expressionOf)
     val kernels = projections.flatMap(e => projectionKernels(Seq(out(e)))) ++
@@ -1924,11 +1928,14 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
       }
       sb ++= s"$name PDUP\n  ${partial(compilePartial(twice, columns, o))}\n"
       predicates.foreach { e =>
-        sb ++= s"$name Q1 $e\n  ${predicate(compilePredicate(e, columns, o))}\n"
+        val q1 = compilePredicate(e, columns, o, VarkaAdmission.NO_HOST_REFUSAL)
+        sb ++= s"$name Q1 $e\n  ${predicate(q1)}\n"
       }
       val conjunction = predicates.reduce(And(_, _))
-      sb ++= s"$name QALL\n  ${predicate(compilePredicate(conjunction, columns, o))}\n"
-      val explained = explainPredicate(conjunction, columns, o).asScala
+      val qAll = compilePredicate(conjunction, columns, o, VarkaAdmission.NO_HOST_REFUSAL)
+      sb ++= s"$name QALL\n  ${predicate(qAll)}\n"
+      val explained = explainPredicate(conjunction, columns, o,
+        VarkaAdmission.NO_HOST_REFUSAL).asScala
       sb ++= s"  E ${explained.map(conjunct).mkString(",")}\n"
     }
     def ladder(k: Int): NamedExpression =

@@ -1,0 +1,167 @@
+VarkaTwoLaneLongBenchmark, the after side of VARKA-503's decline (27 October 2026).
+  host:    AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M, laptop, governor performance
+  jdk:     OpenJDK Runtime Environment (build 25.0.4.1+1-1-26.04.4-Ubuntu)
+  tree:    the VARKA-503 branch, the decline built
+  command: taskset -c 0-3,12-15 build/sbt -batch "project sql" 'set Test/javaOptions ++= Seq("-XX:MaxVectorSize=16", "-XX:UseAVX=2")' "Test/runMain org.apache.spark.sql.execution.benchmark.VarkaTwoLaneLongBenchmark"
+  (x86 at two long lanes: the EPYC 7763 runner's AVX2 at 128 bits, emulated)
+
+Running benchmark: l < l2 filter, no nulls over 2000000 Arrow-cached rows
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-38-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+l < l2 filter, no nulls over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+--------------------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                                         60             63           3         33.4          29.9       1.0X
+varka on                                                           57             59           1         34.9          28.6       1.0X
+l < l2 filter, no nulls: the varka on arm runs Spark's row path
+Running benchmark: l > 500000000000 filter, no nulls over 2000000 Arrow-cached rows
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-38-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+l > 500000000000 filter, no nulls over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                                                   45             47           5         44.7          22.4       1.0X
+varka on                                                                     44             47           5         45.3          22.1       1.0X
+l > 500000000000 filter, no nulls: the varka on arm runs Spark's row path
+Running benchmark: i < l filter, no nulls over 2000000 Arrow-cached rows
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-38-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+i < l filter, no nulls over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-------------------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                                        59             60           1         33.9          29.5       1.0X
+varka on                                                          70             73           1         28.4          35.2       0.8X
+i < l filter, no nulls: the varka on arm runs a Varka kernel
+Running benchmark: (d < d2) AND (l < l2) filter, no nulls over 2000000 Arrow-cached rows
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-38-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+(d < d2) AND (l < l2) filter, no nulls over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-----------------------------------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                                                        97            101           7         20.6          48.4       1.0X
+varka on                                                                          75             78           5         26.6          37.7       1.3X
+(d < d2) AND (l < l2) filter, no nulls: the varka on arm runs a Varka kernel
+Running benchmark: l + l2 projection, ANSI, no nulls over 2000000 Arrow-cached rows
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-38-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+l + l2 projection, ANSI, no nulls over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                                                   65             67           1         30.6          32.6       1.0X
+varka on                                                                     65             66           1         30.8          32.4       1.0X
+l + l2 projection, ANSI, no nulls: the varka on arm runs Spark's row path
+Running benchmark: l + l2 projection, legacy, no nulls over 2000000 Arrow-cached rows
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-38-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+l + l2 projection, legacy, no nulls over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+--------------------------------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                                                     64             65           1         31.3          31.9       1.0X
+varka on                                                                       64             65           1         31.5          31.8       1.0X
+l + l2 projection, legacy, no nulls: the varka on arm runs Spark's row path
+Running benchmark: l ^ l2 projection, no nulls over 2000000 Arrow-cached rows
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-38-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+l ^ l2 projection, no nulls over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                                             63             65           1         31.8          31.5       1.0X
+varka on                                                               11             13           2        177.2           5.6       5.6X
+l ^ l2 projection, no nulls: the varka on arm runs a Varka kernel
+Running benchmark: CASE WHEN l < l2 THEN l ELSE l2 END projection, no nulls over 2000000 Arrow-cached rows
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-38-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+CASE WHEN l < l2 THEN l ELSE l2 END projection, no nulls over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                                                                          64             66           1         31.2          32.0       1.0X
+varka on                                                                                            33             37           5         61.1          16.4       2.0X
+CASE WHEN l < l2 THEN l ELSE l2 END projection, no nulls: the varka on arm runs a Varka kernel
+Running benchmark: greatest(l, l2) projection, no nulls over 2000000 Arrow-cached rows
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-38-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+greatest(l, l2) projection, no nulls over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+---------------------------------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                                                      72             74           5         28.0          35.8       1.0X
+varka on                                                                        11             13           2        183.6           5.4       6.6X
+greatest(l, l2) projection, no nulls: the varka on arm runs a Varka kernel
+Running benchmark: if(l IS NULL, l2, l) projection, no nulls over 2000000 Arrow-cached rows
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-38-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+if(l IS NULL, l2, l) projection, no nulls over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+--------------------------------------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                                                           62             64           2         32.2          31.1       1.0X
+varka on                                                                             40             42           1         49.8          20.1       1.5X
+if(l IS NULL, l2, l) projection, no nulls: the varka on arm runs a Varka kernel
+Running benchmark: l < l2 filter, one row in ten null over 2000000 Arrow-cached rows
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-38-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+l < l2 filter, one row in ten null over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-------------------------------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                                                    53             56           2         37.9          26.4       1.0X
+varka on                                                                      53             55           2         37.8          26.5       1.0X
+l < l2 filter, one row in ten null: the varka on arm runs Spark's row path
+Running benchmark: l > 500000000000 filter, one row in ten null over 2000000 Arrow-cached rows
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-38-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+l > 500000000000 filter, one row in ten null over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-----------------------------------------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                                                              42             45           2         47.7          21.0       1.0X
+varka on                                                                                42             44           4         48.2          20.8       1.0X
+l > 500000000000 filter, one row in ten null: the varka on arm runs Spark's row path
+Running benchmark: i < l filter, one row in ten null over 2000000 Arrow-cached rows
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-38-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+i < l filter, one row in ten null over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                                                   60             63           4         33.1          30.2       1.0X
+varka on                                                                     63             65           2         31.9          31.3       1.0X
+i < l filter, one row in ten null: the varka on arm runs a Varka kernel
+Running benchmark: (d < d2) AND (l < l2) filter, one row in ten null over 2000000 Arrow-cached rows
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-38-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+(d < d2) AND (l < l2) filter, one row in ten null over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+----------------------------------------------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                                                                   89             90           2         22.6          44.3       1.0X
+varka on                                                                                     49             51           2         41.1          24.3       1.8X
+(d < d2) AND (l < l2) filter, one row in ten null: the varka on arm runs a Varka kernel
+Running benchmark: l + l2 projection, ANSI, one row in ten null over 2000000 Arrow-cached rows
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-38-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+l + l2 projection, ANSI, one row in ten null over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-----------------------------------------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                                                              64             67           5         31.3          32.0       1.0X
+varka on                                                                                64             67           2         31.1          32.1       1.0X
+l + l2 projection, ANSI, one row in ten null: the varka on arm runs Spark's row path
+Running benchmark: l + l2 projection, legacy, one row in ten null over 2000000 Arrow-cached rows
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-38-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+l + l2 projection, legacy, one row in ten null over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-------------------------------------------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                                                                63             65           2         31.7          31.6       1.0X
+varka on                                                                                  63             65           2         31.7          31.6       1.0X
+l + l2 projection, legacy, one row in ten null: the varka on arm runs Spark's row path
+Running benchmark: l ^ l2 projection, one row in ten null over 2000000 Arrow-cached rows
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-38-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+l ^ l2 projection, one row in ten null over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-----------------------------------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                                                        63             65           2         32.0          31.3       1.0X
+varka on                                                                           9             11           2        233.7           4.3       7.3X
+l ^ l2 projection, one row in ten null: the varka on arm runs a Varka kernel
+Running benchmark: CASE WHEN l < l2 THEN l ELSE l2 END projection, one row in ten null over 2000000 Arrow-cached rows
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-38-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+CASE WHEN l < l2 THEN l ELSE l2 END projection, one row in ten null over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                                                                                     69             71           2         28.9          34.6       1.0X
+varka on                                                                                                       44             45           1         45.3          22.1       1.6X
+CASE WHEN l < l2 THEN l ELSE l2 END projection, one row in ten null: the varka on arm runs a Varka kernel
+Running benchmark: greatest(l, l2) projection, one row in ten null over 2000000 Arrow-cached rows
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-38-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+greatest(l, l2) projection, one row in ten null over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+--------------------------------------------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                                                                 69             72           2         29.1          34.3       1.0X
+varka on                                                                                   37             38           1         53.5          18.7       1.8X
+greatest(l, l2) projection, one row in ten null: the varka on arm runs a Varka kernel
+Running benchmark: if(l IS NULL, l2, l) projection, one row in ten null over 2000000 Arrow-cached rows
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-38-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+if(l IS NULL, l2, l) projection, one row in ten null over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------
+spark row path (varka off)                                                                      61             64           4         32.8          30.5       1.0X
+varka on                                                                                        27             28           4         75.0          13.3       2.3X
+if(l IS NULL, l2, l) projection, one row in ten null: the varka on arm runs a Varka kernel

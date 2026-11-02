@@ -357,7 +357,8 @@ final class VarkaWarmupReach {
       }
       var kernels = new ArrayList<CompiledVarkaProjection>();
       if (row.get("form").asText().equals("predicate")) {
-        VarkaExpressionCompiler.compilePredicate(expr, cols, options)
+        VarkaExpressionCompiler.compilePredicate(expr, cols, options,
+            VarkaAdmission.NO_HOST_REFUSAL)
             .ifPresent(p -> kernels.add(p.fused()));
       } else {
         VarkaExpressionCompiler.compilePartial(seq(List.of(VarkaSqlResolve.named(expr, "c"))),

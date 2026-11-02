@@ -47,6 +47,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.CompiledVarkaPredicate;
 import org.apache.spark.sql.catalyst.expressions.codegen.CompiledVarkaProjection;
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaExpressionCompiler;
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaGeneratedClassLoader;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaAdmission;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitterTestSupport;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaFusedKernel;
@@ -440,7 +441,8 @@ public class VarkaNarrowEmitBenchmark extends VarkaBenchmarkBase {
         Optional<CompiledVarkaProjection> plan;
         if (c.predicate()) {
           Optional<CompiledVarkaPredicate> p =
-              VarkaExpressionCompiler.compilePredicate(c.expr(), columns, options);
+              VarkaExpressionCompiler.compilePredicate(c.expr(), columns, options,
+                  VarkaAdmission.NO_HOST_REFUSAL);
           p.ifPresent(q -> require(q.residualConjuncts().isEmpty(),
               shape.label() + ": the compiler left " + q.residualConjuncts() + " to a row filter"));
           plan = p.map(CompiledVarkaPredicate::fused);

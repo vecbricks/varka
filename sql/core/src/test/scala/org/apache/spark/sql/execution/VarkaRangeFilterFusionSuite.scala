@@ -27,6 +27,7 @@ import org.apache.spark.sql.catalyst.expressions.{And, AttributeReference, Expre
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaExpressionCompiler
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaEmitterTestSupport,
   VarkaLoopEmitter, VarkaVectorIR}
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaAdmission
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTestWatchdog
 import org.apache.spark.sql.catalyst.parser.CatalystSqlParser
 import org.apache.spark.sql.types.IntegerType
@@ -64,14 +65,16 @@ class VarkaRangeFilterFusionSuite extends SparkFunSuite with VarkaTestWatchdog {
 
   test("the filter fuses at every number of ranges, the whole query's 200 included") {
     for (n <- Seq(2, 10, 48, 49, 100, 200)) {
-      val compiled = VarkaExpressionCompiler.compilePredicate(condition(n), Seq(s), options).toScala
+      val compiled = VarkaExpressionCompiler.compilePredicate(condition(n), Seq(s), options,
+        VarkaAdmission.NO_HOST_REFUSAL).toScala
       assert(compiled.exists(_.specs.asScala.forall(_.fused)),
           s"$n ranges: ${compiled.map(_.specs.asScala.toSeq)}")
     }
   }
 
   test("the 200 ranges are one range set, and every method of its kernel is small") {
-    val compiled = VarkaExpressionCompiler.compilePredicate(condition(200), Seq(s), options).get
+    val compiled = VarkaExpressionCompiler.compilePredicate(condition(200), Seq(s), options,
+      VarkaAdmission.NO_HOST_REFUSAL).get
     val sets = compiled.fused.outputs.asScala.toSeq.flatMap { root =>
       def find(n: VarkaVectorIR): Seq[VarkaVectorIR.InRanges] = n match {
         case r: VarkaVectorIR.InRanges => Seq(r)
