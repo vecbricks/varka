@@ -484,6 +484,8 @@ def driver(base_path, ours_path, theirs_path, repo_path):
             text, real = merge_docs(base_path, ours_path, theirs_path, owed)
         else:
             raise ValueError(f"no merge rule for {repo_path}")
+        # Found before the merged text is written, so that a failure here still falls back.
+        owed_path = owed_file() if owed.paths else None
     except Exception as e:
         # A side that is not the generated form (markers, hand edits), or any fault of this
         # driver: git's text merge, which leaves markers where it conflicts, so a merge never
@@ -515,7 +517,7 @@ def driver(base_path, ours_path, theirs_path, repo_path):
             + "; run dev/varka_regen_generated.sh",
             file=sys.stderr,
         )
-        with open(owed_file(), "a", encoding="utf-8") as f:
+        with open(owed_path, "a", encoding="utf-8") as f:
             f.write(repo_path + "\n")
     else:
         print(f"varka merge: {repo_path} merged per key, nothing owed", file=sys.stderr)

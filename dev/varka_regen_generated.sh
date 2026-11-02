@@ -66,10 +66,6 @@ want sql/varka/plans/m8/casts_fused.tsv && {
 audit=0; bytes=0; coverage=0
 want sql/varka/width_audit.json && audit=1
 want sql/varka/emitted_bytes.json && bytes=1
-if want sql/varka/coverage.json || want docs/sql-varka.md || [ $audit = 1 ] || [ $bytes = 1 ]
-then
-  coverage=1
-fi
 # The width audit is that host's census (VarkaWidthAuditSuite), so on any other CPU it is
 # skipped and stays owed; the rest runs. The CPU's name is read as the suite reads it: the
 # first "model name" line, after its first colon, trimmed.
@@ -86,6 +82,11 @@ if [ $audit = 1 ]; then
       "and this is ${cpu:-another CPU}; run dev/varka_regen_generated.sh there" >&2
     audit=0; audit_skipped=1
   fi
+fi
+# After the skip, so that a skipped width audit owes no coverage run of its own.
+if want sql/varka/coverage.json || want docs/sql-varka.md || [ $audit = 1 ] || [ $bytes = 1 ]
+then
+  coverage=1
 fi
 if [ $coverage = 1 ]; then
   envs+=(VARKA_COVERAGE_REGEN=true); steps+=("catalyst/testOnly *VarkaCoverageSuite"); fi
