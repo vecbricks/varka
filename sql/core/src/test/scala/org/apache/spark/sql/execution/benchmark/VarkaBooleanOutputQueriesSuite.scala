@@ -21,14 +21,16 @@ import scala.jdk.CollectionConverters._
 
 import org.apache.spark.sql.QueryTest
 import org.apache.spark.sql.execution.VarkaSharedSessions
+import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types.{BooleanType, ByteType, DataType, DateType, LongType}
 
 /**
  * The boolean-output benchmark's sections, run at a small scale on both sessions in every build,
  * so a section that no longer parses or that the two sessions answer differently fails a pull
- * request rather than the runner dispatch that times it (VARKA-27 5). It checks the answers only:
- * whether a section fuses is the benchmark's own check, made when it is timed, since row 27 is
- * meant to start fusing the output sections.
+ * request rather than the runner dispatch that times it (VARKA-27 5). Whether an output section
+ * fuses is the benchmark's own check, made when it is timed, since row 27 is meant to start fusing
+ * the output sections; the filter controls' plans are checked here too, on both sides of the
+ * two-lane refusal, so the expectation the benchmark holds them to is right on every host.
  *
  * Two further checks keep the table and the sections what the benchmark claims: every column has
  * its declared type, every output section returns a boolean and every filter control the type of
@@ -60,7 +62,8 @@ class VarkaBooleanOutputQueriesSuite extends QueryTest with VarkaSharedSessions 
         assert((nulls.getLong(0), nulls.getLong(1)) === (200L, 0L), name)
       }
 
-      val sections = VarkaBooleanOutputBenchmark.sections().asScala.toSeq
+      // The answers do not depend on the plan a control is held to, so either expectation does.
+      val sections = VarkaBooleanOutputBenchmark.sections(false).asScala.toSeq
       assert(sections.size === 24)
       assert(sections.count(_.control) === 12)
       // An output section answers the condition, a boolean; a control answers the column it
@@ -91,6 +94,34 @@ class VarkaBooleanOutputQueriesSuite extends QueryTest with VarkaSharedSessions 
       }
     } finally {
       Seq(spark, varkaSpark).foreach(_.catalog.uncacheTable("varka_boolean"))
+    }
+  }
+
+  test("each filter control has the plan the benchmark expects, with and without the two-lane " +
+      "refusal") {
+    // The benchmark runs with the refusal at the host's default, so on the 128-bit companion's
+    // host its long controls decline (VARKA-503); this checks both expectations on any host by
+    // setting the refusal, which the shared sessions leave off, each way.
+    val key = SQLConf.VARKA_DECLINE_TWO_LANE_CONDITIONS.key
+    varkaSpark.sql(VarkaBooleanOutputBenchmark.tableSql(2000))
+      .createOrReplaceTempView("varka_boolean")
+    varkaSpark.catalog.cacheTable("varka_boolean")
+    val before = varkaSpark.conf.getOption(key)
+    try {
+      for (declines <- Seq(true, false)) {
+        varkaSpark.conf.set(key, declines.toString)
+        for (s <- VarkaBooleanOutputBenchmark.sections(declines).asScala if s.control) {
+          val plan = varkaSpark.sql(s.query).queryExecution.executedPlan
+          assert(VarkaBooleanOutputBenchmark.matches(plan, s.expect),
+            s"${s.title}, refusal $declines: expected ${s.expect}\n${plan.treeString}")
+        }
+      }
+    } finally {
+      before match {
+        case Some(v) => varkaSpark.conf.set(key, v)
+        case None => varkaSpark.conf.unset(key)
+      }
+      varkaSpark.catalog.uncacheTable("varka_boolean")
     }
   }
 }

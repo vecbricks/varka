@@ -33,6 +33,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.PartialVarkaProjection;
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaConjunctSpec;
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaExpressionCompiler;
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaOutputSpec;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaAdmission;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaMatrixRuns;
 import org.apache.spark.sql.internal.SQLConf;
@@ -184,13 +185,15 @@ final class VarkaHarnessCases {
         // The conjuncts the compiler leaves to the row FilterExec above the Varka node, by the
         // compile the filter evaluator makes; all of them where none compiles.
         Optional<CompiledVarkaPredicate> predicate =
-            VarkaExpressionCompiler.compilePredicate(s.condition(), fixture.columns(), options);
+            VarkaExpressionCompiler.compilePredicate(s.condition(), fixture.columns(), options,
+                VarkaAdmission.NO_HOST_REFUSAL);
         fused = predicate.map(x -> (int) x.specs().stream().filter(c -> c.fused()).count())
             .orElse(0);
         residual = predicate.map(x -> (int) x.specs().stream().filter(c -> !c.fused()).count())
             .orElse(1);
         explained = CollectionConverters.asJava(
-            VarkaFusionReport.predicateLines(s.condition(), fixture.columns(), options));
+            VarkaFusionReport.predicateLines(s.condition(), fixture.columns(), options,
+                VarkaAdmission.NO_HOST_REFUSAL));
         if (fused > 0) {
           // The rule hands the Varka filter the fused conjuncts and leaves the others to a row
           // filter above it, which reads the rows the Varka filter keeps; the evaluator compiles

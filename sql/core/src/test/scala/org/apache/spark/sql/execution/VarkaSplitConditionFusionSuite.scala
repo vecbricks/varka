@@ -28,6 +28,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.{CompiledVarkaPredicate
   VarkaExpressionCompiler}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaEmitterTestSupport,
   VarkaLoopEmitter}
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaAdmission
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTestWatchdog
 import org.apache.spark.sql.catalyst.parser.CatalystSqlParser
 import org.apache.spark.sql.types.IntegerType
@@ -64,7 +65,8 @@ class VarkaSplitConditionFusionSuite extends SparkFunSuite with VarkaTestWatchdo
 
   private def predicate(condition: Expression, splitOn: Boolean): Option[CompiledVarkaPredicate] =
     VarkaExpressionCompiler.compilePredicate(
-      condition, Seq(s, t), if (splitOn) split else comparisons).toScala
+      condition, Seq(s, t), if (splitOn) split else comparisons,
+        VarkaAdmission.NO_HOST_REFUSAL).toScala
 
   private def fullyFused(p: Option[CompiledVarkaPredicate]): Boolean =
     p.exists(_.specs.asScala.forall(_.fused))
@@ -79,7 +81,8 @@ class VarkaSplitConditionFusionSuite extends SparkFunSuite with VarkaTestWatchdo
 
   test("without the split, the comparisons fuse up to 48 ranges and decline from 49") {
     assert(fullyFused(predicate(q3(48), splitOn = false)))
-    val at49 = VarkaExpressionCompiler.explainPredicate(q3(49), Seq(s, t), comparisons).asScala
+    val at49 = VarkaExpressionCompiler.explainPredicate(q3(49), Seq(s, t), comparisons,
+      VarkaAdmission.NO_HOST_REFUSAL).asScala
     assert(!at49.forall(_.fused))
     assert(at49.flatMap(_.decline.toScala).exists(_.reason.contains("method budget")), at49)
   }
@@ -103,9 +106,11 @@ class VarkaSplitConditionFusionSuite extends SparkFunSuite with VarkaTestWatchdo
   }
 
   test("the fusion report says when the predicate is split, and only then") {
-    val lines = VarkaFusionReport.predicateLines(q3(200), Seq(s, t), split)
+    val lines = VarkaFusionReport.predicateLines(q3(200), Seq(s, t), split,
+      VarkaAdmission.NO_HOST_REFUSAL)
     assert(lines.count(_.startsWith("split across")) == 1, lines)
-    assert(!VarkaFusionReport.predicateLines(q3(48), Seq(s, t), split)
+    assert(!VarkaFusionReport.predicateLines(q3(48), Seq(s, t), split,
+      VarkaAdmission.NO_HOST_REFUSAL)
       .exists(_.startsWith("split across")))
   }
 
@@ -134,7 +139,8 @@ class VarkaSplitConditionFusionSuite extends SparkFunSuite with VarkaTestWatchdo
 
   test("a conjunct too large alone that is not a disjunction still declines with the reason") {
     val condition = parse(s"not (${VarkaQ3Ranges.comparisons(200, "ss_sold_date_sk")})")
-    val specs = VarkaExpressionCompiler.explainPredicate(condition, Seq(s, t), split).asScala
+    val specs = VarkaExpressionCompiler.explainPredicate(condition, Seq(s, t), split,
+      VarkaAdmission.NO_HOST_REFUSAL).asScala
     assert(!specs.forall(_.fused))
     assert(specs.flatMap(_.decline.toScala).exists(_.reason.contains("method budget")), specs)
   }
