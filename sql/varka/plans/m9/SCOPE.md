@@ -5422,6 +5422,17 @@ call them with every family on, and a production caller that used one would igno
 switches silently. **Done when** one compile-context value carries the options and the switches
 through every compiler signature, and the switch-less entry points are gone or test-scoped.
 
+*Extended 2 November 2026 by the owner's word, with item 130 folded in.* The same value is the
+fix for signature churn. The compiler's entry points take each per-compile setting as its own
+parameter: the two-lane decline (#1262) adds `VarkaAdmission` beside `VarkaEmitOptions` on
+`explainPredicate` and `predicateLines` and removes the old overloads, and its Build failed on
+callers master had added in the meantime; row 548 moves `VarkaFloatingFault` into the emit
+options, which changes more signatures. The compile-context value holds the emit options, the
+family switches and the admission settings, so a new setting adds a field and leaves every caller
+compiling. Item 129 catches such a break before a merge; this item removes the reason for most of
+them. The done-when gains one clause: adding a field with a default to the value changes no
+caller.
+
 ### Item 107. The admission queue keeps dead runs
 
 *Added 18 October 2026 from `m7/PLAN.md` 10 by the close.* A run whose pull request has merged, or
@@ -5767,16 +5778,9 @@ would have been.
 
 ### Item 130. One record for the compiler's per-compile settings
 
-*Added 2 November 2026 by the owner's word, from the two-lane decline's Build (#1262).* The
-compiler's entry points take each per-compile setting as its own parameter. #1262 adds
-`VarkaAdmission` beside `VarkaEmitOptions` on `explainPredicate` and `predicateLines` and removes
-the old overloads, and its Build failed on callers master had added in the meantime; row 548 moves
-`VarkaFloatingFault` into the emit options, which changes more signatures. The item folds the
-admission settings and the emit options into one record that every entry point takes, so a new
-setting adds a field and leaves every caller compiling. Item 129 catches such a break before a
-merge; this item removes the reason for most of them. It is refactoring outside milestone 8's type
-goals, so a scope item rather than a row. **Done when** the compiler's entry points take one
-settings record, and adding a field with a default to it changes no caller.
+*Added 2 November 2026 and folded into item 106 the same day by the owner's word:* item 106's
+compile-context value is this record, and its text now carries this item's evidence and
+done-when clause.
 
 ### Item 131. Let the cost model make the two-lane decline
 
