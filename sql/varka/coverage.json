@@ -639,6 +639,30 @@
     "note" : "the literal, cast to the column's unit and folded, takes a slot in the long lane's table",
     "verified" : "differential"
   }, {
+    "sql" : "dt * 3",
+    "executable" : "dt * 3",
+    "family" : "Day-time interval arithmetic",
+    "form" : "projection",
+    "catalyst" : [ "MultiplyDTInterval" ],
+    "casts" : [ ],
+    "operands" : [ "MultiplyDTInterval:dt", "MultiplyDTInterval:int" ],
+    "switches" : [ "spark.sql.codegen.varka.family.interval.enabled" ],
+    "domain" : "if(dt IS NULL, NULL, try_multiply(dt, 3) IS NOT NULL)",
+    "note" : "multiplyExact in every mode, a bare ArithmeticException on overflow: the operand is guarded to the longs whose product fits, exactly, and the multiply wraps; a column factor declines",
+    "verified" : "proof: dt_arith.smt2"
+  }, {
+    "sql" : "-2 * dt",
+    "executable" : "-2 * dt",
+    "family" : "Day-time interval arithmetic",
+    "form" : "projection",
+    "catalyst" : [ "MultiplyDTInterval" ],
+    "casts" : [ ],
+    "operands" : [ "MultiplyDTInterval:dt", "MultiplyDTInterval:int" ],
+    "switches" : [ "spark.sql.codegen.varka.family.interval.enabled" ],
+    "domain" : "if(dt IS NULL, NULL, try_multiply(-2, dt) IS NOT NULL)",
+    "note" : "the factor on the left is the same node; a negative factor swaps the guard's ends, which are not symmetric",
+    "verified" : "proof: dt_arith.smt2"
+  }, {
     "sql" : "i + 1",
     "executable" : "i + 1",
     "family" : "Integer arithmetic",
@@ -8499,5 +8523,5 @@
     "note" : "a DECIMAL(8, 6), s * 10^6 + (n % 10^9) / 1000; Spark rounds a Double back to six digits, which lands on the same value for every (s, g)",
     "verified" : "exhaustive: VarkaTimeFractionSuite, the fraction agrees with Spark's double round trip on every (s, g) of TIME(0) "
   } ],
-  "catalyst_classes_admitted" : [ "Abs", "Add", "AddMonths", "And", "BitwiseAnd", "BitwiseCount", "BitwiseNot", "BitwiseOr", "BitwiseXor", "CaseWhen", "Cast", "Ceil", "Coalesce", "DateAdd", "DateAddYMInterval", "DateDiff", "DateFromUnixDate", "DateSub", "DayOfMonth", "DayOfWeek", "DayOfYear", "Divide", "DivideYMInterval", "EqualNullSafe", "EqualTo", "ExtractANSIIntervalDays", "ExtractANSIIntervalMonths", "ExtractANSIIntervalYears", "Floor", "GreaterThan", "GreaterThanOrEqual", "Greatest", "Hour", "If", "In", "InSet", "IsNaN", "IsNotNull", "IsNull", "LastDay", "Least", "LessThan", "LessThanOrEqual", "MakeDate", "MakeYMInterval", "Minute", "Month", "Multiply", "MultiplyYMInterval", "NaNvl", "NextDay", "Not", "Or", "Quarter", "Rint", "Second", "ShiftLeft", "ShiftRight", "ShiftRightUnsigned", "Signum", "Sqrt", "Subtract", "SubtractDates", "SubtractTimestamps", "TimestampAddInterval", "ToDegrees", "ToRadians", "TruncDate", "UnaryMinus", "UnixDate", "WeekDay", "WeekOfYear", "Year", "YearOfWeek" ]
+  "catalyst_classes_admitted" : [ "Abs", "Add", "AddMonths", "And", "BitwiseAnd", "BitwiseCount", "BitwiseNot", "BitwiseOr", "BitwiseXor", "CaseWhen", "Cast", "Ceil", "Coalesce", "DateAdd", "DateAddYMInterval", "DateDiff", "DateFromUnixDate", "DateSub", "DayOfMonth", "DayOfWeek", "DayOfYear", "Divide", "DivideYMInterval", "EqualNullSafe", "EqualTo", "ExtractANSIIntervalDays", "ExtractANSIIntervalMonths", "ExtractANSIIntervalYears", "Floor", "GreaterThan", "GreaterThanOrEqual", "Greatest", "Hour", "If", "In", "InSet", "IsNaN", "IsNotNull", "IsNull", "LastDay", "Least", "LessThan", "LessThanOrEqual", "MakeDate", "MakeYMInterval", "Minute", "Month", "Multiply", "MultiplyDTInterval", "MultiplyYMInterval", "NaNvl", "NextDay", "Not", "Or", "Quarter", "Rint", "Second", "ShiftLeft", "ShiftRight", "ShiftRightUnsigned", "Signum", "Sqrt", "Subtract", "SubtractDates", "SubtractTimestamps", "TimestampAddInterval", "ToDegrees", "ToRadians", "TruncDate", "UnaryMinus", "UnixDate", "WeekDay", "WeekOfYear", "Year", "YearOfWeek" ]
 }

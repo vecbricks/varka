@@ -540,9 +540,32 @@ Predictions, registered before the build:
    an overflow their `checkIntOverflow=false` lines, not run locally. The baseline lists
    `dt + dt2 - dt` and `abs(dt)` as fusing at both densities. Prediction 1 held for these shapes:
    `emitted_bytes.json` adds the five shapes and moves only the `option_arms` digests. The census
-   marks `dt` fused for `+`, `-`, `negative` and `abs`. Left of 103a: 2.2 (`dt * k`, `ym * k`),
-   `extract(DAY)` with `truncDivLong`, 2.4's day split and the decimal literal forms, the proof
-   additions of 3.1, their cells and rows, and the first planted fault.
+   marks `dt` fused for `+`, `-`, `negative` and `abs`. The finer-end relabel moves
+   `casts_fused.tsv`: the day-time casts to an end at least as fine as the source's, between two
+   coarser-than-SECOND types (`INTERVAL DAY` to `INTERVAL HOUR`, say), now fuse, and `casts.tsv`'s
+   `dt dt` fused column with them, 36 to 55 of 90 forms; its rows column is the lead's (section 8,
+   point 5).
+   *The same day, 2.2's day-time half:* `dt * k` and `k * dt` for an integral literal `k`
+   (`MultiplyDTInterval`), the operand under `GuardedRange(x, lo, hi)` with the bounds of
+   `VarkaIntervalCompiler.dayTimeProductBounds` (`BigInteger`, clamped), then `IntArith(MUL,
+   WRAP)`; `k = 1` is the operand and `k = 0` a wrapping multiply that keeps the operand's nulls;
+   a column, decimal or NULL factor declines naming its row. `dt_arith.smt2`, rendered by
+   `VarkaProofFiles.dtArith` from those bounds and pinned to `Math.multiplyExact` at both ends and
+   one past each, proves per factor of `DT_FACTORS` (twelve, both signs, the int's and the long's
+   ends) that the guard admits exactly the longs whose product is a long and that the wrapping
+   product is then the true one, with a bound one further out and the symmetric bound of
+   **[A, 4]** refuted. Coverage rows `dt * 3` and `-2 * dt` (proof), the 3.3 cells at `lo`, `hi`
+   and one past each for `k = 2`, `-2` and `Long.MIN_VALUE` in `VarkaDayTimeArithmeticSuite`,
+   the baseline's `dt * 3` listed as fusing, and the census's `dt_times_num` fused for `dt` with
+   an integral literal. `VarkaAnsiForm` lists both product rows under a false AND and names
+   `dt * 3` as the first row raising the bare `ArithmeticException`, which `ntz + dt` was;
+   `VarkaIntervalCompiler` is public so the renderer and the suite read the compiler's bounds.
+   A probe of the baseline after the build found exactly its listed sections fusing. No fuzz
+   production: an overflowing product raises a bare
+   `ArithmeticException`, which the Spark-level fuzzer's expected-errors list cannot name, as for
+   `ym * k`. Left of 103a: `ym * k` (2.2's int-lane half), `extract(DAY)` with `truncDivLong`,
+   2.4's day split and the decimal literal forms, the rest of 3.1's proofs, their cells and rows,
+   and the first planted fault.
 3. **103b, after 332b and 157 and 347**: `HOUR`, `MINUTE`, `SECOND`, `make_dt_interval` (the
    seconds of both, section 8, point 3), the third planted fault, and the measurement against the
    baseline at both widths.

@@ -104,4 +104,4 @@ dt	short	yes	yes	yes	unit division	truncating division by the end field's unit; 
 dt	int	yes	yes	yes	unit division	truncating division by the end field's unit; narrower targets check	SMT (dev/varka_prove.sh) for the integer rule, sampled regions and the fuzzer		103,332	
 dt	bigint	yes	yes	yes	unit division	truncating division by the end field's unit; narrower targets check	SMT (dev/varka_prove.sh) for the integer rule, sampled regions and the fuzzer	LEGACY,ANSI,TRY	103,332	all
 dt	dec	yes	yes	yes	unit division	to the end field's unit; a SECOND end keeps six decimals	SMT (dev/varka_prove.sh) for the integer rule, sampled regions and the fuzzer		103	
-dt	dt	yes	yes	yes	relabel or unit narrowing	SECOND end field keeps the micros; coarser divides	SMT (dev/varka_prove.sh) for the integer rule, sampled regions and the fuzzer	LEGACY,ANSI,TRY	103	36 of 90
+dt	dt	yes	yes	yes	relabel or unit narrowing	SECOND end field keeps the micros; coarser divides	SMT (dev/varka_prove.sh) for the integer rule, sampled regions and the fuzzer	LEGACY,ANSI,TRY	103	55 of 90

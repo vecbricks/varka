@@ -17,6 +17,7 @@
 
 package org.apache.spark.sql.catalyst.expressions.codegen;
 
+import java.math.BigInteger;
 import java.util.Optional;
 
 import org.apache.spark.sql.catalyst.expressions.Abs;
@@ -29,12 +30,14 @@ import org.apache.spark.sql.catalyst.expressions.ExtractANSIIntervalMonths;
 import org.apache.spark.sql.catalyst.expressions.ExtractANSIIntervalYears;
 import org.apache.spark.sql.catalyst.expressions.Literal;
 import org.apache.spark.sql.catalyst.expressions.MakeYMInterval;
+import org.apache.spark.sql.catalyst.expressions.MultiplyDTInterval;
 import org.apache.spark.sql.catalyst.expressions.MultiplyYMInterval;
 import org.apache.spark.sql.catalyst.expressions.Subtract;
 import org.apache.spark.sql.catalyst.expressions.UnaryMinus;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Compare;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.CompareOp;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.GuardedRange;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ConstDivide;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.GuardedRange;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IfElse;
@@ -65,9 +68,11 @@ import org.apache.spark.sql.types.YearMonthIntervalType;
  * {@code VarkaNodeCompiler}'s.
  *
  * <p>The literal and input tables are the classifier's {@link VarkaSlotTable}s.
+ *
+ * <p>The class is public for {@link #dayTimeProductBounds} alone, which the proof renderer and
+ * the end-to-end suite read from other packages so that they state the compiler's own bounds.
  */
-final class VarkaIntervalCompiler {
-
+public final class VarkaIntervalCompiler {
 
   /** {@code INTERVAL YEAR}, which the YEAR casts compare against. */
   private static final YearMonthIntervalType YEAR_INTERVAL = new YearMonthIntervalType(
@@ -210,6 +215,7 @@ final class VarkaIntervalCompiler {
               .map(x -> (VarkaVectorIR) new IfElse(
                   new Compare(CompareOp.LT, x, sink.longSlot(0L)),
                   new IntNeg(Overflow.FAIL, x), x));
+      case MultiplyDTInterval m -> () -> dayTimeMultiply(m, inputs, literals, sink);
       case MakeYMInterval m -> () -> makeInterval(m, inputs, literals, sink);
       // `IntervalUtils.getYears(months)` is `months / 12` - Java's `/`, truncating toward zero -
       // over a stored month count that nothing bounds. The calendar's magic multiply is exact
@@ -565,6 +571,81 @@ final class VarkaIntervalCompiler {
     }
     return rolledBack(VarkaNodeCompiler.arithOver(
         op, Overflow.FAIL, x.get(), y.get(), whole, literals, mark, sink), literals, mark);
+  }
+
+  /**
+   * {@code dt * k} and {@code k * dt} for an integral literal {@code k}, both of which the
+   * analyzer builds as {@code MultiplyDTInterval(dt, k)}: Spark's {@code Math.multiplyExact(micros,
+   * k)} in every mode, raising a bare {@code ArithmeticException} on overflow (VARKA-103 2.2).
+   * The product overflows exactly where the operand leaves {@link #dayTimeProductBounds}, so the
+   * operand is range-guarded and the multiply wraps: a lane outside the guard declines the batch
+   * and the row engine raises. {@code k = 1} is the operand, and {@code k = 0} a wrapping
+   * multiply that cannot overflow and keeps the operand's nulls. A column factor needs the
+   * checked long multiply of row 104, a decimal literal is 2.4's later step and a floating one
+   * row 342's lowering; each declines.
+   */
+  private static Optional<VarkaVectorIR> dayTimeMultiply(
+      MultiplyDTInterval m,
+      VarkaSlotTable inputs,
+      VarkaSlotTable literals,
+      DeclineSink sink) {
+    DataType type = m.num().dataType();
+    if (!type.equals(DataTypes.LongType) && !type.equals(DataTypes.IntegerType)
+        && !type.equals(DataTypes.ShortType) && !type.equals(DataTypes.ByteType)) {
+      return sink.decline("day-time interval factor of type " + type.simpleString()
+          + " is not an integral literal", m);
+    }
+    if (!(m.num() instanceof Literal l)) {
+      return sink.decline("day-time interval factor is not a literal: a column factor needs "
+          + "the checked long multiply of row 104", m);
+    }
+    if (!(l.value() instanceof Number n)) {
+      return sink.decline("day-time interval factor is a NULL literal", m);
+    }
+    long k = n.longValue();
+    Optional<VarkaVectorIR> x =
+        dayTimeOperand(m.interval(), "the multiplied interval", inputs, literals, sink);
+    if (x.isEmpty() || k == 1) {
+      return x;
+    }
+    VarkaVectorIR operand = x.get();
+    if (k != 0) {
+      long[] bounds = dayTimeProductBounds(k);
+      operand = new GuardedRange(operand, bounds[0], bounds[1]);
+    }
+    return Optional.of(new IntArith(IntOp.MUL, Overflow.WRAP, operand, sink.longSlot(k)));
+  }
+
+  /**
+   * The longs {@code x} for which {@code Math.multiplyExact(x, k)} does not raise, as
+   * {@code [lo, hi]}: {@code [ceil(MIN / k), floor(MAX / k)]} for {@code k > 0} and
+   * {@code [ceil(MAX / k), floor(MIN / k)]} for {@code k < 0}, computed exactly and clamped to
+   * the long. The bounds are not symmetric: at {@code k = 2} the least admitted value is
+   * {@code MIN / 2}, whose product is {@code MIN}, one past {@code -(MAX / 2)}.
+   * {@code dt_arith.smt2} proves them per factor in use. {@code k} must not be zero.
+   */
+  public static long[] dayTimeProductBounds(long k) {
+    if (k == 0) {
+      throw new IllegalArgumentException("a zero factor never overflows");
+    }
+    BigInteger min = BigInteger.valueOf(Long.MIN_VALUE);
+    BigInteger max = BigInteger.valueOf(Long.MAX_VALUE);
+    BigInteger f = BigInteger.valueOf(k);
+    BigInteger low = k > 0 ? min : max;
+    BigInteger high = k > 0 ? max : min;
+    BigInteger lo = ceilDiv(low, f);
+    BigInteger hi = floorDiv(high, f);
+    return new long[] {lo.max(min).longValueExact(), hi.min(max).longValueExact()};
+  }
+
+  private static BigInteger floorDiv(BigInteger a, BigInteger b) {
+    BigInteger[] qr = a.divideAndRemainder(b);
+    return qr[1].signum() != 0 && qr[1].signum() != b.signum()
+        ? qr[0].subtract(BigInteger.ONE) : qr[0];
+  }
+
+  private static BigInteger ceilDiv(BigInteger a, BigInteger b) {
+    return floorDiv(a.negate(), b).negate();
   }
 
   /** Whether {@code c} casts to a year-month interval whose end field is {@code endField}. */

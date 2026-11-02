@@ -35,6 +35,7 @@ import java.util.function.LongBinaryOperator;
 import com.google.common.math.IntMath;
 
 import org.apache.spark.sql.catalyst.expressions.BitmapExpressionUtils;
+import org.apache.spark.sql.catalyst.expressions.codegen.VarkaIntervalCompiler;
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaRoundingCompiler;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaDivisionLowering.MulHiMagic;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaValueRange.Range;
@@ -97,6 +98,7 @@ final class VarkaProofFiles {
     files.put("narrow_range.smt2", narrowRange());
     files.put("narrow_deferred.smt2", narrowDeferred());
     files.put("ym_divide.smt2", ymDivide());
+    files.put("dt_arith.smt2", dtArith());
     files.put("decimal_slot.smt2", decimalSlot());
     files.put("decimal64.smt2", decimal64());
     files.put("decimal_scale.smt2", decimalScale());
@@ -2151,6 +2153,101 @@ final class VarkaProofFiles {
     }
     return out.toString();
   }
+
+  /**
+   * The literal factors {@code dt_arith.smt2} proves the day-time product's guard for: those the
+   * coverage rows and the tests use, both signs, the int's and the long's ends.
+   */
+  static final List<Long> DT_FACTORS = List.of(2L, -2L, 3L, -3L, 7L, 24L, 1000L, -1L,
+      (long) Integer.MIN_VALUE, (long) Integer.MAX_VALUE, Long.MIN_VALUE, Long.MAX_VALUE);
+
+  /**
+   * {@code dt_arith.smt2}: the range guard {@code VarkaIntervalCompiler.dayTimeMultiply} puts
+   * ahead of the wrapping multiply in {@code dt * k} is exact - it admits a long {@code x}
+   * exactly when {@code x * k} is a long, which is where {@code Math.multiplyExact} does not
+   * raise - and under it the wrapping product is the true one (VARKA-103 2.2, 3.1). The bounds
+   * are {@code VarkaIntervalCompiler.dayTimeProductBounds}'s own, pinned to
+   * {@code Math.multiplyExact} at both ends and one past each while rendering.
+   */
+  static String dtArith() {
+    var out = new StringBuilder(LICENSE);
+    out.append("""
+        ; The day-time interval product by an integral literal (VARKA-103 2.2). Spark computes
+        ; dt * k as Math.multiplyExact(micros, k) in every mode, and
+        ; VarkaIntervalCompiler.dayTimeMultiply emits, per lane,
+        ;
+        ;   GuardedRange(x, lo, hi)        the batch declines where a lane leaves [lo, hi]
+        ;   x * k                          wrapping multiply
+        ;
+        ; with [lo, hi] = [ceil(MIN / k), floor(MAX / k)] for k > 0, the two swapped for k < 0,
+        ; clamped to the long (dayTimeProductBounds). For each factor in
+        ; VarkaProofFiles.DT_FACTORS the solver shows that the guard admits x exactly when the
+        ; true product is a long, and that under the guard the wrapping product is the true one;
+        ; and, beside them, that a bound moved one further out admits a product past the long and
+        ; that the symmetric bound +-(MAX / |k|) refuses one inside it.
+        """);
+    out.append(rendered("QF_NIA"));
+    out.append("""
+
+        (declare-const x Int)
+        (assert (jlong.in x))
+        """);
+    for (long k : DT_FACTORS) {
+      long[] b = VarkaIntervalCompiler.dayTimeProductBounds(k);
+      long lo = b[0];
+      long hi = b[1];
+      pinProduct(k, lo, hi);
+      String guard = "(and (<= " + lit(lo) + " x) (<= x " + lit(hi) + "))";
+      String product = "(* x " + lit(k) + ")";
+      check(out, "k = " + k + ": the guard [" + lo + ", " + hi + "] admits x exactly where x * k "
+          + "is a long", "unsat",
+          List.of("(assert (not (= " + guard + " (jlong.in " + product + "))))"));
+      check(out, "k = " + k + ": under the guard the wrapping product is the true one", "unsat",
+          List.of("(assert " + guard + ")",
+              "(assert (not (= (jlong.mul x " + lit(k) + ") " + product + ")))"));
+      if (lo > Long.MIN_VALUE) {
+        check(out, "k = " + k + ": with the lower bound one lower it admits an overflow", "sat",
+            List.of("(assert (and (<= " + lit(lo - 1) + " x) (<= x " + lit(hi) + ")))",
+                "(assert (not (jlong.in " + product + ")))"));
+      }
+      if (hi < Long.MAX_VALUE) {
+        check(out, "k = " + k + ": with the upper bound one higher it admits an overflow", "sat",
+            List.of("(assert (and (<= " + lit(lo) + " x) (<= x " + lit(hi + 1) + ")))",
+                "(assert (not (jlong.in " + product + ")))"));
+      }
+      if (k == 2 || k == -2 || k == Integer.MIN_VALUE) {
+        long m = Long.MAX_VALUE / Math.abs(k);
+        check(out, "k = " + k + ": the symmetric bound +-" + m + " refuses a product inside the "
+            + "long", "sat",
+            List.of("(assert (not (and (<= " + lit(-m) + " x) (<= x " + lit(m) + "))))",
+                "(assert (jlong.in " + product + "))"));
+      }
+    }
+    return out.toString();
+  }
+
+  /** Fails the rendering unless {@code Math.multiplyExact} admits {@code [lo, hi]} exactly. */
+  private static void pinProduct(long k, long lo, long hi) {
+    Math.multiplyExact(lo, k);
+    Math.multiplyExact(hi, k);
+    if (lo > Long.MIN_VALUE) {
+      requireRaises(lo - 1, k, lo, hi);
+    }
+    if (hi < Long.MAX_VALUE) {
+      requireRaises(hi + 1, k, lo, hi);
+    }
+  }
+
+  private static void requireRaises(long x, long k, long lo, long hi) {
+    try {
+      Math.multiplyExact(x, k);
+    } catch (ArithmeticException expected) {
+      return;
+    }
+    throw new IllegalStateException("multiplyExact(" + x + ", " + k + ") does not raise, "
+        + "outside the guard [" + lo + ", " + hi + "]");
+  }
+
 
   private static String ymLowered(int d, int lo, int up, int dn) {
     return "(ym.lowered m " + lit(d) + " " + lit(lo) + " " + lit(up) + " " + lit(dn) + ")";

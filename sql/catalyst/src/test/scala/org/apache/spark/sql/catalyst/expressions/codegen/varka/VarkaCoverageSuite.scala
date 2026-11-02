@@ -427,7 +427,14 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
         domain = Some(s"dt <> $leastInterval")),
       Row("dt + INTERVAL '1' DAY", "the literal, cast to the column's unit and folded, takes a "
         + "slot in the long lane's table",
-        domain = Some(ntzDomain("try_add(dt, INTERVAL '1' DAY)", "dt"))))),
+        domain = Some(ntzDomain("try_add(dt, INTERVAL '1' DAY)", "dt"))),
+      Row("dt * 3", "multiplyExact in every mode, a bare ArithmeticException on overflow: the "
+        + "operand is guarded to the longs whose product fits, exactly, and the multiply wraps; "
+        + "a column factor declines",
+        domain = Some(ntzDomain("try_multiply(dt, 3)", "dt"))),
+      Row("-2 * dt", "the factor on the left is the same node; a negative factor swaps the "
+        + "guard's ends, which are not symmetric",
+        domain = Some(ntzDomain("try_multiply(-2, dt)", "dt"))))),
 
     Family("Integer arithmetic", predicates = false, Seq(
       Row("i + 1", "checked under ANSI; the legacy mode wraps as Spark does and declines nothing",
@@ -1994,6 +2001,8 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
     "CAST(i AS INTERVAL YEAR)" -> Exhausted("VarkaEmitterIntervalCastSuite",
       "the guard of INT to INTERVAL YEAR is multiplyExact's, over every int"),
     "CAST(dt AS BIGINT)" -> Proved("long_divide.smt2"),
+    "dt * 3" -> Proved("dt_arith.smt2"),
+    "-2 * dt" -> Proved("dt_arith.smt2"),
     "ym / 12" -> Proved("ym_divide.smt2"),
     "ym / -7" -> Proved("ym_divide.smt2"),
     "extract(YEAR FROM ym)" -> Refined("extract(YEAR FROM ym)"),

@@ -368,6 +368,8 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `-dt` | `interval` | `dt <> INTERVAL '-106751991 04:00:54.775808' DAY TO SECOND` | negateExact raises on the least interval alone | per-lane: compare to mask, mask logic, mask broadcast, mask test |
 | `abs(dt)` | `interval` | `dt <> INTERVAL '-106751991 04:00:54.775808' DAY TO SECOND` | the checked negation under a blend; Spark raises on the least interval in every mode, with ARITHMETIC_OVERFLOW rather than the interval condition | per-lane: compare to mask, mask logic, blend, mask broadcast, mask test, mask cast |
 | `dt + INTERVAL '1' DAY` | `interval` | `if(dt IS NULL, NULL, try_add(dt, INTERVAL '1' DAY) IS NOT NULL)` | the literal, cast to the column's unit and folded, takes a slot in the long lane's table | per-lane: compare to mask, mask logic, mask broadcast, mask test |
+| `dt * 3` | `interval` | `if(dt IS NULL, NULL, try_multiply(dt, 3) IS NOT NULL)` | multiplyExact in every mode, a bare ArithmeticException on overflow: the operand is guarded to the longs whose product fits, exactly, and the multiply wraps; a column factor declines | per-lane: compare to mask, mask logic, mask broadcast, mask test |
+| `-2 * dt` | `interval` | `if(dt IS NULL, NULL, try_multiply(-2, dt) IS NOT NULL)` | the factor on the left is the same node; a negative factor swaps the guard's ends, which are not symmetric | per-lane: compare to mask, mask logic, mask broadcast, mask test |
 
 #### Integer arithmetic
 
@@ -1293,9 +1295,9 @@ operands (a row counts once for each type it reads):
 | `date` | 87 | 17 | 0 | 1 | 0 | 69 |
 | `dec` | 17 | 0 | 0 | 0 | 0 | 17 |
 | `double` | 37 | 0 | 0 | 0 | 0 | 37 |
-| `dt` | 25 | 2 | 0 | 0 | 0 | 23 |
+| `dt` | 27 | 2 | 2 | 0 | 0 | 23 |
 | `float` | 29 | 0 | 0 | 0 | 0 | 29 |
-| `int` | 75 | 14 | 2 | 0 | 1 | 58 |
+| `int` | 77 | 14 | 4 | 0 | 1 | 58 |
 | `ntz` | 24 | 0 | 1 | 0 | 0 | 23 |
 | `short` | 25 | 0 | 0 | 0 | 8 | 17 |
 | `time` | 34 | 6 | 0 | 0 | 2 | 26 |

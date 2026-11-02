@@ -144,7 +144,7 @@ class VarkaDayTimeIntervalBaselineQueriesSuite extends QueryTest with VarkaShare
         list.filter(_.fusion != VarkaSqlBenchmarkBase.Fusion.NONE)
           .map(s => (s.title, s.fusion.toString))
       // The projections row 103 fuses, WHOLE at both widths: the refusal below is a filter's.
-      val projections = Seq("dt + dt2 - dt", "abs(dt)")
+      val projections = Seq("dt + dt2 - dt", "abs(dt)", "dt * 3")
       def density(d: String): Seq[(String, String)] = projections.map(p => (s"$p, $d", "WHOLE"))
       val blend = "CASE WHEN dt > dt2 THEN dt ELSE dt2 END, control, fuses at both widths"
       assert(fused(sections) === density("no nulls") ++ Seq(

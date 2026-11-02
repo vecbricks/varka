@@ -20,6 +20,7 @@ package org.apache.spark.sql.execution
 import java.time.Duration
 
 import org.apache.spark.sql.{QueryTest, Row, SparkSession}
+import org.apache.spark.sql.catalyst.expressions.codegen.VarkaIntervalCompiler
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTestWatchdog
 import org.apache.spark.sql.types.{DayTimeIntervalType, StructField, StructType}
 
@@ -66,7 +67,31 @@ class VarkaDayTimeArithmeticSuite extends QueryTest with VarkaMaybeThrows with V
     // MIN, the one value whose negation and magnitude overflow.
     "varka_dta_min" -> (fits :+ Row(micros(Long.MinValue), micros(0))))
 
+  /**
+   * The product cells of `VARKA-103.md` 3.3: for each factor, the operand at the guard's ends
+   * and one past each, beside a value well inside, so a table per cell answers or raises on its
+   * one edge row alone.
+   */
+  private val productFactors = Seq(2L, -2L, Long.MinValue)
+
+  private def productCells: Seq[(Long, Long, Boolean)] = productFactors.flatMap { k =>
+    val Array(lo, hi) = VarkaIntervalCompiler.dayTimeProductBounds(k)
+    Seq((k, lo, false), (k, hi, false)) ++
+      (if (lo > Long.MinValue) Seq((k, lo - 1, true)) else Nil) ++
+      (if (hi < Long.MaxValue) Seq((k, hi + 1, true)) else Nil)
+  }
+
+  private def productTable(k: Long, x: Long): String =
+    s"varka_dta_product_${if (k < 0) "m" else ""}${math.abs(k % 1000)}_" +
+      s"${if (x < 0) "m" else ""}${math.abs(x % 1000000007L)}"
+
   private def cache(session: SparkSession): Unit = {
+    for ((k, x, _) <- productCells) {
+      session.createDataFrame(session.sparkContext.parallelize(
+        Seq(Row(micros(x), micros(0)), Row(micros(1), micros(0)), Row(null, micros(0))), 1),
+        schema).createOrReplaceTempView(productTable(k, x))
+      session.catalog.cacheTable(productTable(k, x))
+    }
     for ((name, data) <- tables) {
       session.createDataFrame(session.sparkContext.parallelize(data, 1), schema)
         .createOrReplaceTempView(name)
@@ -122,5 +147,17 @@ class VarkaDayTimeArithmeticSuite extends QueryTest with VarkaMaybeThrows with V
       "INTERVAL_ARITHMETIC_OVERFLOW.WITHOUT_SUGGESTION")
     assert(condition(checkCell("SELECT abs(dt) AS a FROM TABLE", "varka_dta_min",
       raises = true)) === "ARITHMETIC_OVERFLOW")
+  }
+
+  test("dt * k answers at the guard's ends and raises one past each, as multiplyExact does") {
+    for ((k, x, raises) <- productCells) {
+      withClue(s"dt * $k at $x") {
+        // Long.MIN_VALUE has no literal of its own: its digits past the minus sign overflow the
+        // long and parse as a decimal, so it is the folded BIGINT difference.
+        val f = if (k == Long.MinValue) "(-9223372036854775807L - 1L)" else k.toString
+        checkCell(s"SELECT dt * $f AS a, $f * dt AS b, dt * 0 AS c, dt * 1 AS d FROM TABLE",
+          productTable(k, x), raises)
+      }
+    }
   }
 }
