@@ -142,7 +142,8 @@ public final class VarkaDecimalArithmeticSuite {
             continue;
           }
           List<VarkaConjunctSpec> specs = VarkaExpressionCompiler.explainPredicate(
-              new EqualTo(e, e), seq(List.of(a, b)), VarkaMatrixRuns.BASE);
+              new EqualTo(e, e), seq(List.of(a, b)), VarkaMatrixRuns.BASE,
+              VarkaAdmission.NO_HOST_REFUSAL);
           String reason = specs.size() == 1
               ? specs.get(0).decline().map(d -> d.reason()).orElse("") : "specs " + specs;
           boolean fuses = reason.isEmpty();
@@ -282,7 +283,7 @@ public final class VarkaDecimalArithmeticSuite {
         NumericEvalContext$.MODULE$.apply(EvalMode$.MODULE$.LEGACY(), false)));
     Mockito.doReturn(new DecimalType(10, 0)).when(m).dataType();
     List<VarkaConjunctSpec> specs = VarkaExpressionCompiler.explainPredicate(new EqualTo(m, m),
-        seq(columns), VarkaMatrixRuns.BASE);
+        seq(columns), VarkaMatrixRuns.BASE, VarkaAdmission.NO_HOST_REFUSAL);
     assertEquals(1, specs.size());
     String reason = specs.get(0).decline().map(d -> d.reason()).orElse("fused");
     assertTrue(reason.contains("typed decimal(10,0) where Spark's rule gives decimal(41,0)"),
@@ -490,15 +491,17 @@ public final class VarkaDecimalArithmeticSuite {
     Attribute b = VarkaSqlResolve.column("b", t2);
     Expression e = op.node(a, b, EvalMode$.MODULE$.LEGACY());
     List<VarkaConjunctSpec> specs = VarkaExpressionCompiler.explainPredicate(new EqualTo(e, e),
-        seq(List.of(a, b)), VarkaMatrixRuns.BASE);
+        seq(List.of(a, b)), VarkaMatrixRuns.BASE, VarkaAdmission.NO_HOST_REFUSAL);
     assertEquals(1, specs.size());
     return specs.get(0).decline().map(d -> d.reason()).orElse("fused");
   }
 
   private static CompiledVarkaPredicate compile(Expression e, List<Attribute> columns) {
-    var compiled = VarkaExpressionCompiler.compilePredicate(e, seq(columns), VarkaMatrixRuns.BASE)
+    var compiled = VarkaExpressionCompiler.compilePredicate(e, seq(columns), VarkaMatrixRuns.BASE,
+            VarkaAdmission.NO_HOST_REFUSAL)
         .orElseThrow(() -> new AssertionError(e.sql() + " does not fuse: "
-            + VarkaExpressionCompiler.explainPredicate(e, seq(columns), VarkaMatrixRuns.BASE)));
+            + VarkaExpressionCompiler.explainPredicate(e, seq(columns), VarkaMatrixRuns.BASE,
+                VarkaAdmission.NO_HOST_REFUSAL)));
     assertTrue(compiled.residualConjuncts().isEmpty(), () -> e.sql() + " leaves a residual");
     return compiled;
   }

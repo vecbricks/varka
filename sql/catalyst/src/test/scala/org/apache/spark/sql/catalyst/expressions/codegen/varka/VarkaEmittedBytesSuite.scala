@@ -252,7 +252,8 @@ class VarkaEmittedBytesSuite extends SparkFunSuite with VarkaTestWatchdog {
       val resolved = parsed.map(asCatalystClaims(_, catalyst))
       val compiled = resolved.flatMap { expr =>
         if (form == "predicate") {
-          VarkaExpressionCompiler.compilePredicate(expr, columns).toScala.map(_.fused)
+          VarkaExpressionCompiler.compilePredicate(expr, columns, VarkaEmitOptions.DEFAULTS,
+            VarkaAdmission.NO_HOST_REFUSAL).toScala.map(_.fused)
         } else {
           VarkaExpressionCompiler.compile(Seq(Alias(expr, "c")()), columns).toScala
         }
@@ -736,7 +737,8 @@ class VarkaEmittedBytesSuite extends SparkFunSuite with VarkaTestWatchdog {
         e <- Seq(parsed, tryMode(parsed))
       } yield e
       val hashes = spellings.map { e =>
-        val fused = VarkaExpressionCompiler.compilePredicate(e, columns).toScala
+        val fused = VarkaExpressionCompiler.compilePredicate(e, columns, VarkaEmitOptions.DEFAULTS,
+            VarkaAdmission.NO_HOST_REFUSAL).toScala
           .getOrElse(fail(s"$sql does not fuse as ${e.sql}")).fused
         widths.map(w => methodHashes(fused.outputs.asScala.toSeq, fused.inputOrdinals.size,
           fused.numLiterals, w))

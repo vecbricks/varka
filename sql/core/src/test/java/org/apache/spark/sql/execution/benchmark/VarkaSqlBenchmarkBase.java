@@ -193,8 +193,15 @@ public abstract class VarkaSqlBenchmarkBase extends VarkaBenchmarkBase {
    */
   public static Optional<SparkPlan> fusedPlan(SparkSession session, String query) {
     SparkPlan plan = session.sql(query).queryExecution().executedPlan();
-    boolean fused = operators(plan).stream().anyMatch(VarkaSqlBenchmarkBase::isVarkaNode);
-    return fused ? Optional.of(plan) : Optional.empty();
+    return holdsVarkaNode(plan) ? Optional.of(plan) : Optional.empty();
+  }
+
+  /**
+   * Whether {@code plan} holds a Varka node, a fused projection or filter, the plan adaptive
+   * execution runs included.
+   */
+  public static boolean holdsVarkaNode(SparkPlan plan) {
+    return operators(plan).stream().anyMatch(VarkaSqlBenchmarkBase::isVarkaNode);
   }
 
   /**

@@ -21,12 +21,14 @@ import org.apache.spark.TaskContext
 import org.apache.spark.sql.QueryTest
 import org.apache.spark.sql.catalyst.expressions.{Alias, And, Attribute, AttributeReference, DateAdd, EqualTo, GreaterThan, IsNotNull, LessThan, Literal, Pow, Rand}
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaExpressionCompiler
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaFallbackEvent, VarkaJfrTestSupport}
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaAdmission, VarkaEmitOptions,
+  VarkaFallbackEvent, VarkaJfrTestSupport, VarkaKernelPlan}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTestWatchdog
 import org.apache.spark.sql.execution.vectorized.OnHeapColumnVector
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.test.SharedSparkSession
-import org.apache.spark.sql.types.{DateType, DecimalType, DoubleType, IntegerType, StringType}
+import org.apache.spark.sql.types.{DateType, DecimalType, DoubleType, IntegerType, LongType,
+  StringType}
 import org.apache.spark.sql.util.ArrowUtils
 import org.apache.spark.sql.vectorized.ColumnarBatch
 
@@ -408,29 +410,33 @@ class VarkaFilterExecSuite extends QueryTest with SharedSparkSession with VarkaT
 
   test("EXPLAIN reports the predicate's conjuncts through the fusion report") {
     val fused = VarkaFusionReport.predicateLines(And(dLess10, IsNotNull(attrD)),
-      withDouble)
+      withDouble, VarkaEmitOptions.DEFAULTS, VarkaAdmission.NO_HOST_REFUSAL)
     assert(fused === Seq("(d < DATE '1970-01-11'): fused", "(d IS NOT NULL): fused"))
     val mixed = VarkaFusionReport.predicateLines(
-      And(dLess10, doubleResidual), withDouble)
+      And(dLess10, doubleResidual), withDouble, VarkaEmitOptions.DEFAULTS,
+        VarkaAdmission.NO_HOST_REFUSAL)
     assert(mixed.head === "(d < DATE '1970-01-11'): fused")
     val floatingReason = "residual (a condition on the DOUBLE lane in a filter that also " +
       "reads integral columns: its kernel meets on an integral lane, and a mask crossing from " +
       "a floating lane is not built"
     assert(mixed(1).startsWith(s"(f > 5.0D): $floatingReason"), mixed)
     // A filter over the floating column alone fuses: its kernel is on the DOUBLE lane.
-    val alone = VarkaFusionReport.predicateLines(doubleResidual, withDouble)
+    val alone = VarkaFusionReport.predicateLines(doubleResidual, withDouble,
+      VarkaEmitOptions.DEFAULTS, VarkaAdmission.NO_HOST_REFUSAL)
     assert(alone === Seq("(f > 5.0D): fused"), alone)
     // The same holds for a floating null test: beside the date conjunct it stays with the row
     // filter, so the date conjunct keeps the kernel's integral lane.
     val nullTest = VarkaFusionReport.predicateLines(
-      And(IsNotNull(doubleAttr), dLess10), withDouble)
+      And(IsNotNull(doubleAttr), dLess10), withDouble, VarkaEmitOptions.DEFAULTS,
+        VarkaAdmission.NO_HOST_REFUSAL)
     assert(nullTest === Seq(s"(f IS NOT NULL): $floatingReason: (f IS NOT NULL))",
       "(d < DATE '1970-01-11'): fused"), nullTest)
     // A string column is read by no lane, so its conjunct goes to the row filter and leaves the
     // floating one the kernel's only lane.
     val s = AttributeReference("s", StringType)()
     val besideString = VarkaFusionReport.predicateLines(
-      And(doubleResidual, EqualTo(s, Literal("a"))), withDouble :+ s)
+      And(doubleResidual, EqualTo(s, Literal("a"))), withDouble :+ s, VarkaEmitOptions.DEFAULTS,
+        VarkaAdmission.NO_HOST_REFUSAL)
     assert(besideString.head === "(f > 5.0D): fused", besideString)
   }
 
@@ -444,18 +450,35 @@ class VarkaFilterExecSuite extends QueryTest with SharedSparkSession with VarkaT
     val decimalConjunct =
       GreaterThan(dec, Literal.create(new java.math.BigDecimal("1.00"), DecimalType(10, 2)))
     val lines = VarkaFusionReport.predicateLines(And(doubleResidual, decimalConjunct),
-      withDouble :+ dec)
+      withDouble :+ dec, VarkaEmitOptions.DEFAULTS, VarkaAdmission.NO_HOST_REFUSAL)
     assert(lines(1) === "(dec > 1.00BD): fused", lines)
     assert(lines.head.contains("in a filter that also reads integral columns"), lines)
   }
 
+  test("a long conjunct stays with the row filter where x86 has two long lanes (VARKA-503)") {
+    val l = AttributeReference("l", LongType)()
+    val l2 = AttributeReference("l2", LongType)()
+    val d2 = AttributeReference("d2", DateType)()
+    val columns = Seq(attrD, d2, l, l2)
+    def lines(twoLaneHost: Boolean): Seq[String] = VarkaFusionReport.predicateLines(
+      And(LessThan(attrD, d2), LessThan(l, l2)), columns, VarkaEmitOptions.DEFAULTS,
+      new VarkaAdmission(java.util.Set.of(), twoLaneHost))
+    // On the two-lane host the date conjunct is an int kernel of its own, and the long one is
+    // the row filter's with the reason; elsewhere both fuse, on the long lane.
+    assert(lines(true) === Seq("(d < d2): fused",
+      s"(l < l2): residual (${VarkaKernelPlan.TWO_LANE_CONDITION_REASON}: (l < l2))"))
+    assert(lines(false) === Seq("(d < d2): fused", "(l < l2): fused"))
+  }
+
   test("a nondeterministic filter is declined with its reason, conjunct by conjunct") {
     val lines = VarkaFusionReport.predicateLines(
-      And(dLess10, GreaterThan(Rand(Literal(7L)), Literal(0.5))), withDouble)
+      And(dLess10, GreaterThan(Rand(Literal(7L)), Literal(0.5))), withDouble,
+        VarkaEmitOptions.DEFAULTS, VarkaAdmission.NO_HOST_REFUSAL)
     assert(lines.size == 2, lines)
     assert(lines.forall(_.contains("residual (the condition is nondeterministic")), lines)
     assert(VarkaExpressionCompiler.compilePredicate(
-      And(dLess10, GreaterThan(Rand(Literal(7L)), Literal(0.5))), withDouble).isEmpty)
+      And(dLess10, GreaterThan(Rand(Literal(7L)), Literal(0.5))), withDouble,
+        VarkaEmitOptions.DEFAULTS, VarkaAdmission.NO_HOST_REFUSAL).isEmpty)
   }
 
   test("VarkaColumnarRule: the pre stage rewrites an eligible filter, splitting conjuncts") {
@@ -465,7 +488,8 @@ class VarkaFilterExecSuite extends QueryTest with SharedSparkSession with VarkaT
     // A double comparison alone fuses on the DOUBLE lane, and so does double arithmetic since
     // VARKA-342; `pow` is in no family, so a filter over it is left to Spark.
     val ineligible = FilterExec(GreaterThan(Pow(doubleAttr, Literal(2.0d)), Literal(5.0d)), child)
-    assert(VarkaExpressionCompiler.compilePredicate(ineligible.condition, withDouble).isEmpty)
+    assert(VarkaExpressionCompiler.compilePredicate(ineligible.condition, withDouble,
+      VarkaEmitOptions.DEFAULTS, VarkaAdmission.NO_HOST_REFUSAL).isEmpty)
     val rowChild = FilterExec(dLess10, ColumnarToRowExec(child))
 
     withSQLConf(SQLConf.VARKA_ENABLED.key -> "true") {

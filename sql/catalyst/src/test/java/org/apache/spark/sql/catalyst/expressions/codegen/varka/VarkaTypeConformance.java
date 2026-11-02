@@ -560,7 +560,8 @@ public abstract class VarkaTypeConformance {
     List<Expression> outputs;
     if (f.kind() == Kind.CONDITION) {
       Optional<CompiledVarkaPredicate> p =
-          VarkaExpressionCompiler.compilePredicate(expr, cols, VarkaMatrixRuns.BASE);
+          VarkaExpressionCompiler.compilePredicate(expr, cols, VarkaMatrixRuns.BASE,
+              VarkaAdmission.NO_HOST_REFUSAL);
       if (p.isEmpty() || !p.get().residualConjuncts().isEmpty()) {
         return Optional.empty();
       }
