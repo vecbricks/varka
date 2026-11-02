@@ -1,0 +1,39 @@
+# VARKA-546: master merges into branches that resolved a generated file, October 2026
+#
+# Read on 1 November 2026 from the local clone's refs (every branch the lead's worktrees keep).
+# A merge counts for a file when `git diff-tree --cc` lists it: the merge result differs from
+# both parents there, i.e. the file was resolved or regenerated inside the merge commit.
+#
+#   git log --since=2026-10-01 --merges --all --format='%H %ad %s' --date=short | grep -i master
+#   git diff-tree --cc --name-only -r <merge>
+#
+# Master commits touching the file in the window:
+#   git log --since=2026-10-01 origin/master -- <file>
+#
+merges into branches from master: 265
+
+file                                 resolved    commits
+sql/varka/coverage.json                    22         29
+sql/varka/emitted_bytes.json               20         36
+sql/varka/width_audit.json                 22         22
+sql/varka/types.tsv                         8          7
+sql/varka/plans/m8/census.tsv              15         20
+sql/varka/plans/m8/casts_fused.tsv          0          2
+sql/varka/plans/m8/casts.tsv                0          9
+docs/sql-varka.md                          25         55
+sql/varka/plans/m8/PLAN.md                195        217
+
+merges resolving at least one generated file (not PLAN.md), by day:
+  2026-10-02   1
+  2026-10-13   1
+  2026-10-21   2
+  2026-10-22   1
+  2026-10-23   1
+  2026-10-25   1
+  2026-10-26   2
+  2026-10-27   4
+  2026-10-28   3
+  2026-10-30   5
+  2026-10-31   3
+  2026-11-01  13
+  total 37
