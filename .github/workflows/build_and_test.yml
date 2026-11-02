@@ -1807,6 +1807,13 @@ jobs:
       run: ./dev/varka_census.py --check
     - name: Nothing cites a moved catalogue path
       run: ./dev/varka_catalogue_move.sh --check 8 9
+    # The width audit's own check runs only on its host's CPU, so CI would pass a width audit
+    # (or a bytes file) missing a coverage row; this reads the rows without a JVM and prints
+    # the regeneration command. The merge driver's cases run beside it (VARKA-546).
+    - name: The per-row generated files carry every coverage row
+      run: ./dev/varka_generated_merge.py --check
+    - name: The generated files' merge driver
+      run: python3 dev/varka_generated_merge.py --self-test
     # Every lane and Spark type is wired at the sites no compiler checks (VARKA-474 2.3): per
     # lane its admission, the template warm-up, a fuzz-grammar leaf and a benchmark; per type a
     # coverage column, the width audit and the census; a gap a later row owns printed as owed.

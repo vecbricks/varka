@@ -112,8 +112,18 @@ varka_docs_regexes = (
     r"dev/varka_census\.py$",
     r"dev/varka_catalogue_move\.sh$",
     r"sql/varka/coverage\.json$",
+    # The generated files' merge driver and its check (VARKA-546).
+    r"dev/varka_generated_merge\.py$",
+    r"dev/varka_regen_generated\.sh$",
     r"sql/catalyst/src/main/scala/org/apache/spark/sql/catalyst/analysis/FunctionRegistry\.scala$",
 )
+
+# Code files a docs-job check reads, which run that job without being documents: the per-row
+# generated files `dev/varka_generated_merge.py --check` compares with the coverage table
+# (VARKA-546). They stay out of `varka_docs_regexes`, so a change confined to them is still
+# "scoped" and runs the catalyst suites that write and check them; the `varka-docs` module's
+# sources add them, which `is-changed.py -m varka-docs` reads.
+varka_docs_check_regexes = (r"sql/varka/(width_audit|emitted_bytes)\.json$",)
 
 
 # The files a Varka-only change may touch without reaching Spark's own tests: sources named
@@ -220,6 +230,8 @@ def varka_change_scope(filenames) -> str:
     'spark'
     >>> varka_change_scope([".github/workflows/build_and_test.yml"])
     'spark'
+    >>> varka_change_scope(["sql/varka/emitted_bytes.json"])
+    'scoped'
     >>> varka_change_scope(["sql/varka/papers/neri-schneider-2022.md"])
     'none'
     >>> varka_change_scope([])
@@ -592,7 +604,7 @@ varka_bench = Module(
 varka_docs = Module(
     name="varka-docs",
     dependencies=[],
-    source_file_regexes=list(varka_docs_regexes),
+    source_file_regexes=list(varka_docs_regexes) + list(varka_docs_check_regexes),
     sbt_test_goals=[],
 )
 

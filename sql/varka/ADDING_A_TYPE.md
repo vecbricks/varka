@@ -145,6 +145,9 @@ existing ones, as the `TIMESTAMP_NTZ` columns are derived from a date and a time
 *VarkaEmittedBytesSuite'`, then `VarkaCoverageSuite` again, and check that only the new rows moved
 in `coverage.json`, `docs/sql-varka.md`, `width_audit.json` and `emitted_bytes.json`.
 Check: `python3 dev/varka_census.py --check`.
+When master moves under the branch, merge it: the merge driver (`dev/varka_generated_merge.py`,
+installed by `dev/varka_precommit.sh --install-hook`) merges these files per row and lists what
+it could not compute, and `dev/varka_regen_generated.sh` regenerates exactly that, in this order.
 
 **12. Census the operators the type needs.** New operators get a cell in
 `VarkaOperatorCensusCatalog`, measured on the laptop by
