@@ -136,12 +136,16 @@ clone's config, which every worktree shares:
   the smaller side and coverage is listed as owed; a conflict in the prose outside the blocks is
   a real one and is left with its markers.
 - **What is owed** goes to stderr during the merge and to `$(git rev-parse --git-path
-  varka-regen-owed)`. `dev/varka_regen_generated.sh` reads that file and runs only the owed
+  varka-regen-owed)`, each entry tagged with the merge that owed it (the commit merged into and
+  the commit merged in), so an aborted merge's entries are never read; a file whose only debt is
+  the census goes on no list, since the census runs last on every regeneration.
+  `dev/varka_regen_generated.sh` reads the live entries (`--owed`) and runs only the owed
   steps, in the documented order (types and casts, coverage, width audit, bytes, coverage again,
   the census), under `flock` on a heavy slot with `SPARK_LOCAL_IP=127.0.0.1`, refusing the width
   audit on a CPU that is not the file's host. With nothing owed it says so and runs nothing.
-- A branch that predates the script falls back to git's text merge inside the driver line, so the
-  rule never breaks a merge.
+- A branch that predates the script falls back to git's text merge inside the driver line, with
+  a one-line warning, so the rule never breaks a merge. The inner merges of a criss-cross merge
+  (`merge.varka-generated.recursive=text`) take the text merge too.
 
 GitHub's own merge preview ignores custom drivers, so a pull request page can still show
 "conflicts"; the lead's local merge of master is what resolves them, as today.
