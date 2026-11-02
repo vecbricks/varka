@@ -36,6 +36,7 @@ import org.apache.spark.sql.catalyst.expressions.Attribute;
 import org.apache.spark.sql.catalyst.expressions.AttributeReference;
 import org.apache.spark.sql.catalyst.expressions.Cast;
 import org.apache.spark.sql.catalyst.expressions.Coalesce;
+import org.apache.spark.sql.catalyst.expressions.DateAdd;
 import org.apache.spark.sql.catalyst.expressions.Divide;
 import org.apache.spark.sql.catalyst.expressions.EqualNullSafe;
 import org.apache.spark.sql.catalyst.expressions.EqualTo;
@@ -43,6 +44,7 @@ import org.apache.spark.sql.catalyst.expressions.EvalMode$;
 import org.apache.spark.sql.catalyst.expressions.Expression;
 import org.apache.spark.sql.catalyst.expressions.GreaterThan;
 import org.apache.spark.sql.catalyst.expressions.GreaterThanOrEqual;
+import org.apache.spark.sql.catalyst.expressions.In;
 import org.apache.spark.sql.catalyst.expressions.IsNotNull;
 import org.apache.spark.sql.catalyst.expressions.LessThan;
 import org.apache.spark.sql.catalyst.expressions.Literal;
@@ -50,12 +52,15 @@ import org.apache.spark.sql.catalyst.expressions.NamedExpression$;
 import org.apache.spark.sql.catalyst.expressions.NumericEvalContext;
 import org.apache.spark.sql.catalyst.expressions.NumericEvalContext$;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaSuite;
+import org.apache.spark.sql.types.ByteType$;
 import org.apache.spark.sql.types.DataType;
 import org.apache.spark.sql.types.DateType$;
+import org.apache.spark.sql.types.DecimalType;
 import org.apache.spark.sql.types.DoubleType$;
 import org.apache.spark.sql.types.IntegerType$;
 import org.apache.spark.sql.types.LongType$;
 import org.apache.spark.sql.types.Metadata;
+import org.apache.spark.sql.types.ShortType$;
 import org.apache.spark.sql.types.StringType$;
 import org.apache.spark.sql.types.TimestampType$;
 import org.apache.spark.sql.types.YearMonthIntervalType;
@@ -86,7 +91,16 @@ public final class VarkaConjunctOrderSuite {
   private final AttributeReference s = column("s", StringType$.MODULE$);
   private final AttributeReference x = column("x", DoubleType$.MODULE$);
   private final AttributeReference ym = column("ym", YearMonthIntervalType.apply());
-  private final Seq<Attribute> output = seq(d, i, l, l2, s, x, ym);
+  /** No integer digits: its cast to INT is always 0. */
+  private final AttributeReference fraction = column("fraction", DecimalType.apply(18, 18));
+  /** Ten integer digits: its cast to INT overflows past 2147483647 under ANSI. */
+  private final AttributeReference wide = column("wide", DecimalType.apply(18, 8));
+  /**
+   * Nineteen integer digits: its cast to BIGINT overflows past 9223372036854775807 under ANSI,
+   * though {@code Cast.canUpCast} counts it a widening.
+   */
+  private final AttributeReference digits19 = column("digits19", DecimalType.apply(19, 0));
+  private final Seq<Attribute> output = seq(d, i, l, l2, s, x, ym, fraction, wide, digits19);
 
   private static NumericEvalContext ctx(Enumeration.Value mode) {
     return NumericEvalContext$.MODULE$.apply(mode, false);
@@ -138,6 +152,22 @@ public final class VarkaConjunctOrderSuite {
   private Expression sumOfL2(Enumeration.Value mode) {
     return new GreaterThan(new Add(l2, lit(1L, LongType$.MODULE$), ctx(mode)),
         lit(0L, LongType$.MODULE$));
+  }
+
+  /** {@code CAST(decimal AS type)} in {@code mode}. */
+  private static Cast cast(Expression decimal, DataType type, Enumeration.Value mode) {
+    return new Cast(decimal, type, scala.Option.empty(), mode);
+  }
+
+  /** {@code CAST(decimal AS INT) IN (0, 2147483647)} under ANSI, which the compiler leaves. */
+  private static Expression castIn(Expression decimal) {
+    return new In(cast(decimal, IntegerType$.MODULE$, ANSI),
+        seq(lit(0, IntegerType$.MODULE$), lit(Integer.MAX_VALUE, IntegerType$.MODULE$)));
+  }
+
+  /** {@code date_add(d, offset) > DATE '2000-01-01'}, a conjunct the compiler fuses. */
+  private Expression dateAddAfter2000(Expression offset) {
+    return new GreaterThan(new DateAdd(d, offset), lit(10957, DateType$.MODULE$));
   }
 
   /** Which conjuncts fused, in written order. */
@@ -278,6 +308,58 @@ public final class VarkaConjunctOrderSuite {
     assertEquals(List.of(0),
         List.copyOf(VarkaConjunctOrder.behindRaising(conjuncts, List.of(true, false, false))
             .keySet()));
+  }
+
+  @Test
+  @DisplayName("a decimal cast to an integer type cannot raise when the type holds its integer "
+      + "digits, or outside ANSI")
+  void decimalCasts() {
+    // Under ANSI the cast truncates, so a DECIMAL(p, s) raises only past p - s integer digits:
+    // 2 for a TINYINT (99 fits, 999 not), 4 for a SMALLINT, 9 for an INT, 18 for a BIGINT
+    // (999999999999999999 fits, 9999999999999999999 is past 9223372036854775807). Scale 0 pins
+    // the BIGINT bound against Cast.canUpCast, which admits a DECIMAL(19, 0) though it overflows.
+    DataType[] types = {ByteType$.MODULE$, ShortType$.MODULE$, IntegerType$.MODULE$,
+        LongType$.MODULE$};
+    int[] held = {2, 4, 9, 18};
+    for (int k = 0; k < types.length; k++) {
+      for (int scale : new int[] {0, 2}) {
+        var fits = column("fits", DecimalType.apply(held[k] + scale, scale));
+        var over = column("over", DecimalType.apply(held[k] + scale + 1, scale));
+        assertFalse(VarkaConjunctOrder.canRaise(new IsNotNull(cast(fits, types[k], ANSI))),
+            types[k].sql() + " " + fits.dataType().sql());
+        assertTrue(VarkaConjunctOrder.canRaise(new IsNotNull(cast(over, types[k], ANSI))),
+            types[k].sql() + " " + over.dataType().sql());
+      }
+      var over = column("over", DecimalType.apply(held[k] + 3, 2));
+      // LEGACY wraps and TRY answers null, so neither raises.
+      assertFalse(VarkaConjunctOrder.canRaise(new IsNotNull(cast(over, types[k], LEGACY))));
+      assertFalse(VarkaConjunctOrder.canRaise(
+          new IsNotNull(cast(over, types[k], EvalMode$.MODULE$.TRY()))));
+    }
+    assertFalse(VarkaConjunctOrder.canRaise(castIn(fraction)));
+    assertTrue(VarkaConjunctOrder.canRaise(castIn(wide)));
+    // A decimal to a decimal is not a truncation into an integer type.
+    assertTrue(VarkaConjunctOrder.canRaise(new IsNotNull(
+        cast(wide, DecimalType.apply(5, 0), ANSI))));
+  }
+
+  @Test
+  @DisplayName("a residual decimal cast that cannot raise leaves the date conjunct after it fused, "
+      + "with a column or a literal offset, and one that can raise demotes it")
+  void castInBeforeDateAdd() {
+    for (Expression offset : List.of(i, lit(3, IntegerType$.MODULE$))) {
+      assertEquals(List.of(false, true), fused(and(castIn(fraction), dateAddAfter2000(offset))));
+      assertEquals(List.of(true, false), fused(and(dateAddAfter2000(offset), castIn(fraction))));
+      assertEquals(List.of(true, false), fused(and(dateAddAfter2000(offset), castIn(wide))));
+      Expression raising = and(castIn(wide), dateAddAfter2000(offset));
+      assertEquals(List.of(false, false), fused(raising));
+      var spec = VarkaExpressionCompiler.explainPredicate(raising, output).get(1);
+      assertTrue(spec.decline().orElseThrow().reason().contains(VarkaConjunctOrder.OUT_OF_ORDER),
+          spec.toString());
+      Expression bigint = and(new In(cast(digits19, LongType$.MODULE$, ANSI),
+          seq(lit(0L, LongType$.MODULE$), lit(7L, LongType$.MODULE$))), dateAddAfter2000(offset));
+      assertEquals(List.of(false, false), fused(bigint));
+    }
   }
 
   @Test
