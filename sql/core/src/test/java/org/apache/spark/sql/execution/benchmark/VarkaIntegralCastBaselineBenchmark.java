@@ -47,15 +47,18 @@ import org.apache.spark.sql.internal.SQLConf;
  *
  * <p>Each section has two arms, named so the labels survive the row landing:
  * {@code spark row path (varka off)}, a session without the Varka rule, and {@code varka on}, a
- * session with it. Today no section but the control plans a Varka node, so both arms of the
- * others are the row path and should tie.
+ * session with it. Where a section plans no Varka node both arms are the row path and should
+ * tie.
  *
  * <p>A baseline is only one while nothing fuses: before any section is timed, the run checks
  * each section's plan on the Varka session against the section's {@link Fusion} class, the
  * record of how much of it a row has fused, and fails when the plan's class differs
  * ({@link VarkaSqlBenchmarkBase#requireBaseline(SparkSession, String, String, Fusion)}); the
- * results file notes each section that fuses. The control is {@code WHOLE} and every other
- * section {@code NONE}. A row that fuses more of a section sets its new class, so that its fusion
+ * results file notes each section that fuses. The control is {@code WHOLE}. VARKA-332's first
+ * pull request (332a) fuses the LEGACY and ANSI narrowings, {@code CAST(y AS BIGINT)},
+ * {@code CAST(b AS INT)} and the filter's {@code CAST(i AS BOOLEAN)} whole too, at both
+ * densities; the {@code try_cast}, {@code CAST(m AS INTERVAL YEAR)} and {@code CAST(dt AS BIGINT)}
+ * stay {@code NONE}. A row that fuses more of a section sets its new class, so that its fusion
  * cannot turn a baseline section into a fused one unnoticed.
  *
  * <p>The filter times the bare {@code WHERE CAST(i AS BOOLEAN)} at both densities, under
@@ -192,22 +195,23 @@ public class VarkaIntegralCastBaselineBenchmark extends VarkaSqlBenchmarkBase {
       String density = ", " + (nulls.isEmpty() ? "no nulls" : "one row in ten null");
       String from = " AS a FROM " + VIEW;
       out.add(new Section("INT CAST(i AS TINYINT), LEGACY" + density,
-          "SELECT CAST(" + i + " AS TINYINT)" + from, legacy, Fusion.NONE));
+          "SELECT CAST(" + i + " AS TINYINT)" + from, legacy, Fusion.WHOLE));
       out.add(new Section("INT CAST(j AS TINYINT), ANSI" + density,
-          "SELECT CAST(" + j + " AS TINYINT)" + from, ansi, Fusion.NONE));
+          "SELECT CAST(" + j + " AS TINYINT)" + from, ansi, Fusion.WHOLE));
       out.add(new Section("INT try_cast(k AS TINYINT)" + density,
           "SELECT try_cast(" + k + " AS TINYINT)" + from, Map.of(), Fusion.NONE));
       out.add(new Section("INT CAST(k AS TINYINT), LEGACY" + density,
-          "SELECT CAST(" + k + " AS TINYINT)" + from, legacy, Fusion.NONE));
+          "SELECT CAST(" + k + " AS TINYINT)" + from, legacy, Fusion.WHOLE));
       out.add(new Section("BIGINT CAST(l AS SMALLINT), LEGACY" + density,
-          "SELECT CAST(" + l + " AS SMALLINT)" + from, legacy, Fusion.NONE));
+          "SELECT CAST(" + l + " AS SMALLINT)" + from, legacy, Fusion.WHOLE));
       out.add(new Section("TINYINT CAST(y AS BIGINT)" + density,
-          "SELECT CAST(" + y + " AS BIGINT)" + from, Map.of(), Fusion.NONE));
+          "SELECT CAST(" + y + " AS BIGINT)" + from, Map.of(), Fusion.WHOLE));
       out.add(new Section("BOOLEAN CAST(b AS INT)" + density,
-          "SELECT CAST(" + b + " AS INT)" + from, Map.of(), Fusion.NONE));
+          "SELECT CAST(" + b + " AS INT)" + from, Map.of(), Fusion.WHOLE));
       // The bare cast at both densities, with no IS NOT NULL inferred (see the class javadoc).
       out.add(new Section("INT filter CAST(i AS BOOLEAN)" + density,
-          "SELECT " + i + from + " WHERE CAST(" + i + " AS BOOLEAN)", noConstraints, Fusion.NONE));
+          "SELECT " + i + from + " WHERE CAST(" + i + " AS BOOLEAN)", noConstraints,
+          Fusion.WHOLE));
       out.add(new Section("INT CAST(m AS INTERVAL YEAR)" + density,
           "SELECT CAST(" + m + " AS INTERVAL YEAR)" + from, Map.of(), Fusion.NONE));
       out.add(new Section("INTERVAL DAY TO SECOND CAST(dt AS BIGINT)" + density,

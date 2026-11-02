@@ -149,9 +149,12 @@ class VarkaIntegralCastBaselineQueriesSuite extends QueryTest with VarkaSharedSe
 
       val sections = VarkaIntegralCastBaselineBenchmark.sections().asScala.toSeq
       assert(sections.size === 2 * resultTypes.size)
-      assert(sections.filter(_.fusion != VarkaSqlBenchmarkBase.Fusion.NONE).map(_.title) === Seq(
-        "INT CAST(i AS BIGINT), control, fuses today, no nulls",
-        "INT CAST(i AS BIGINT), control, fuses today, one row in ten null"))
+      val fused = Seq("INT CAST(i AS TINYINT), LEGACY", "INT CAST(j AS TINYINT), ANSI",
+        "INT CAST(k AS TINYINT), LEGACY", "BIGINT CAST(l AS SMALLINT), LEGACY",
+        "TINYINT CAST(y AS BIGINT)", "BOOLEAN CAST(b AS INT)", "INT filter CAST(i AS BOOLEAN)",
+        "INT CAST(i AS BIGINT), control, fuses today")
+      assert(sections.filter(_.fusion != VarkaSqlBenchmarkBase.Fusion.NONE).map(_.title) ===
+        Seq("no nulls", "one row in ten null").flatMap(d => fused.map(t => s"$t, $d")))
       for ((s, index) <- sections.zipWithIndex) {
         withClue(s.title) {
           withSettings(s) {

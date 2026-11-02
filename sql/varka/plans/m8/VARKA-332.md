@@ -551,6 +551,11 @@ What was built, per item of section 5 step 2:
   (`VarkaNodeCompiler.castConditions`) is reached from `compileCond`.
 - **The default groups**: `dev/varka_census.py`'s `cast_rows` marks `TIME` to an integral type,
   `TIME` to `TIME` and `DATE` to a number or `BOOLEAN` `unclaimed` (`dt` to `dt` was already 103's).
+- **The baseline's fusion classes**: a probe of every section of
+  `VarkaIntegralCastBaselineBenchmark` on this branch finds the LEGACY and ANSI narrowings,
+  `CAST(y AS BIGINT)`, `CAST(b AS INT)` and the filter's `CAST(i AS BOOLEAN)` `WHOLE` at both
+  densities, beside the control; the `try_cast`, `CAST(m AS INTERVAL YEAR)` and
+  `CAST(dt AS BIGINT)` stay `NONE`. The benchmark declares those classes, as its fuse check needs.
 
 - **The IR fuzzer** (3.7): `VarkaIrGrammar.drawCastShape`, a sequence of its own seed
   (`CAST_FUZZ_SEED`), draws the compositions - a widening, a narrowing bare or under a `FAIL` or a
