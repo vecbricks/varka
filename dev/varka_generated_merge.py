@@ -535,7 +535,9 @@ def owed_file():
 # all) and a `git checkout -m` (OURS is the HEAD before the checkout). For those the driver's
 # message on stderr is the record: it names the file and dev/varka_regen_generated.sh. Some
 # debt is over-counted: an operation aborted and redone on the same commits finds the first
-# attempt's entries live, which costs at most a regeneration the second may not have owed.
+# attempt's entries live, and a rebase or pick in progress revives any stale entry on the
+# commit it started from or on HEAD (an aborted merge's there, say); each costs at most a
+# regeneration nothing owed.
 
 
 def git_out(*args):
@@ -1425,6 +1427,7 @@ def end_to_end(expect):
         with open(owed_list, "w", encoding="utf-8") as f:
             f.write(git("rev-parse", "p1").stdout.strip() + " -\tc/coverage.json\n")
         calls, saved_env, saved_cwd = [], dict(os.environ), os.getcwd()
+        env = fixture_env()
         saved_git_out = globals()["git_out"]
 
         def recording_git_out(*args):
@@ -1434,7 +1437,7 @@ def end_to_end(expect):
         globals()["git_out"] = recording_git_out
         try:
             os.environ.clear()
-            os.environ.update(fixture_env())
+            os.environ.update(env)
             os.chdir(tmp)
             entries = owed_live()
         finally:
