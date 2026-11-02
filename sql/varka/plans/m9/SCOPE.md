@@ -5751,6 +5751,20 @@ raises. No milestone 8 row claims these forms over the narrow types (row 344a bu
 forms fuse over every integral type with Spark's answers in LEGACY, ANSI and TRY, the wrap and the
 raise each a named case.
 
+### Item 129. Build each pull request merged with current master before it merges
+
+*Added 2 November 2026 from two master breaks that day.* Two pull requests that merge cleanly as
+text can still break master together: #1258 changed `requireBaseline` to take a `Fusion` class
+while #1261 added a caller passing a boolean, and the two-lane decline (#1262) removed compiler
+overloads that #1271 had just started calling. The fork's PR Build tests the branch head, and the
+Build on master after each merge is skipped on the fork, so the first to see either break was the
+next branch to merge master. The item adds a job that rebuilds a green pull request merged with
+the current master (`refs/pull/N/merge`) whenever master moves, compiling the modules either side
+touches, and marks the pull request stale when it fails. It is harness work, outside milestone 8's
+type goals, so a scope item rather than a row. **Done when** a pull request whose merge with the
+current master fails to compile is marked before it can be merged, as the two cases of 2 November
+would have been.
+
 ## 5. Ordering
 
 The survey supports an order this time rather than an argument. Item 8 leads
