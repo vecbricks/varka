@@ -631,3 +631,15 @@ unrolled to that lane count, should replace it there is the lead's call; 332a do
 master's bytes for it. The same `UseAVX=2` run shows one case of it inside a loop body, at a
 width no AVX2 host prefers: at 128 bits an int kernel's `TINYINT` root (`CAST(i AS TINYINT)`)
 stores an eight-lane byte species wider than its four-lane group, so under the mask throughout.
+
+The medium review of that fix (2 November 2026) found no wrong answer and left two gaps,
+recorded here rather than built in 332a:
+
+- At a long lane count of two (128 bits) or with no baked lane count, the loop body of a long
+  kernel still stores a narrow root under a masked byte or short store, so on AVX2 every group
+  runs the Vector API's Java loop. No AVX2 host prefers that width, which is why the audit does
+  not see it; the row-at-a-time store the epilogue uses, or a store no wider than the group,
+  would serve it.
+- `CAST(y AS BOOLEAN)` and `CAST(b AS TINYINT)` beside a long column decline in a long kernel:
+  the zero literal and the boolean's value are built on the narrow lane, which a long kernel
+  does not lower. Built on the int lane, they would use the forms it already lowers.
