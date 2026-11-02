@@ -30,23 +30,23 @@
 # every former hard entry its construction, m8/PLAN.md 2.7). Rows are milestone 8's task numbers (m8/PLAN.md 3).
 
 [registered]
-coalesce|ALL|same|bool,date,bigint,time,ym,dt,byte,short,ntz,float,double|plumbing|333,329,331,338,341,348,359|item 55 adds the int branches
-if|ALL|same|bool,date,bigint,time,ym,dt,byte,short,ntz,float,double|plumbing|333,329,331,338,341,348,359|
-ifnull|ALL|same|date|plumbing|333,359|rewritten to coalesce by the optimizer
+coalesce|ALL|same|bool,int,date,bigint,time,ym,dt,byte,short,ntz,float,double|plumbing|329,331,338,341,348,359|int operands by the choice's typed arm (333)
+if|ALL|same|bool,int,date,bigint,time,ym,dt,byte,short,ntz,float,double|plumbing|329,331,338,341,348,359|int branches by the choice's typed arm and a NULL branch by the null leaf (333)
+ifnull|ALL|same|date,int,bigint,time,ym,dt|plumbing|359|rewritten to coalesce by the optimizer; the other types coalesce fuses are their rows' to claim
 nanvl|FLOAT|same|float,double|done|341|NaN test and blend
-nullif|ALL|same||plumbing|333,359|rewritten to if(a = b, null, a)
-nullifzero|NUM|same||plumbing|333,359|rewritten to if(a = 0, null, a)
-nvl|ALL|same|date|plumbing|333,359|rewritten to coalesce by the optimizer
-nvl2|ALL|same||plumbing|333,359|rewritten to if(a IS NOT NULL, b, c)
-zeroifnull|NUM|same||plumbing|333,359|rewritten to coalesce(a, 0)
-when|ALL|same|bool,date,bigint,time,ym,dt,byte,short,ntz,float,double|plumbing|333,359,329|the CASE WHEN entry; item 94, in row 333, adds the missing ELSE
-between|ALL|bool||plumbing|333|rewritten to two comparisons and an AND; no coverage row yet
+nullif|ALL|same|date,int,bigint,time,ym,dt|plumbing|359|rewritten to if(a = b, null, a) over a column; over a computed operand the optimizer projects it below, a second kernel (333)
+nullifzero|NUM|same|int,bigint|plumbing|359|rewritten to if(a = 0, null, a)
+nvl|ALL|same|date,int,bigint,time,ym,dt|plumbing|359|rewritten to coalesce by the optimizer; the other types coalesce fuses are their rows' to claim
+nvl2|ALL|same|date,int,bigint,time,ym,dt|plumbing|359|rewritten to if(a IS NOT NULL, b, c)
+zeroifnull|NUM|same|int,bigint|plumbing|359|rewritten to coalesce(a, 0)
+when|ALL|same|bool,int,date,bigint,time,ym,dt,byte,short,ntz,float,double|plumbing|359,329|the CASE WHEN entry; the missing ELSE is the null leaf on the six types of the int and long lanes (333)
+between|ALL|bool|date,int,bigint,time,ym,dt|plumbing|359|rewritten to two comparisons and an AND over a column (333)
 isnan|FLOAT|bool|float,double|done|341|
 isnull|ALL|bool|bool,int,bigint,date,time,ym,dt,byte,short,ntz,float,double|plumbing|333,334,359,329,347|a validity read; item 93 over a predicate; dec to precision 18 at one scale fuses (347) and counts fused with 359's wider ones (2.8)
 isnotnull|ALL|bool|bool,int,bigint,date,time,ym,dt,byte,short,ntz,float,double|plumbing|333,334,359,329,347|a validity read; item 93 over a predicate; dec to precision 18 at one scale fuses (347) and counts fused with 359's wider ones (2.8)
 equal_null|ALL|bool||semantics|336,331,329,341,338,359|null-tolerant: item 34; bool is 331's BoolNullSafeEq, byte/short 329, float/double 341, ntz 338, dec 359
 and|bool|bool|bool|done|331,27|fused as a condition, over a BOOLEAN column too (331); a BOOLEAN output is row 27
-in|ALL|bool|date,ym,byte,short,int,bigint,time,dt,ntz,float,double|plumbing|333,341,348,359,329,497|NaN equals NaN in Spark's IN
+in|ALL|bool|date,ym,byte,short,int,bigint,time,dt,ntz,float,double|plumbing|341,348,359,329,497|NaN equals NaN in Spark's IN
 not|bool|bool|bool|done|331,27|fused as a condition, over a BOOLEAN column too (331); a BOOLEAN output is row 27
 or|bool|bool|bool|done|331,27|fused as a condition, over a BOOLEAN column too (331); a BOOLEAN output is row 27
 <=>|ALL|bool|bool,int,bigint,date,time,ym,dt,byte,short,ntz,float,double|semantics|336,331,329,341,338,359,347|null-tolerant: item 34; bool is 331's BoolNullSafeEq, byte/short 329, float/double 341, ntz 338, dec 359; dec to precision 18 at one scale fuses (347) and counts fused with 359's wider ones (2.8)
@@ -58,8 +58,8 @@ or|bool|bool|bool|done|331,27|fused as a condition, over a BOOLEAN column too (3
 <=|ALL|bool|bool,int,bigint,date,time,ym,dt,byte,short,ntz,float,double|semantics|341,348,359,329,347|Spark's NaN ordering on floats; dec to precision 18 at one scale fuses (347) and counts fused with 359's wider ones (2.8)
 !|bool|bool||plumbing|331,27|alias of not
 abs|NUM,IVL|same|byte,short,ym,float,double|semantics|330,104,103,342,348,359|the minimum value overflows: wraps or throws
-greatest|ALL|same|date,bigint,time,ym,dt,byte,short,ntz,float,double|semantics|333,341,348,359,329|NaN is the greatest float
-least|ALL|same|date,bigint,time,ym,dt,byte,short,ntz,float,double|semantics|333,341,348,359,329|NaN is the greatest float
+greatest|ALL|same|int,date,bigint,time,ym,dt,byte,short,ntz,float,double|semantics|341,348,359,329|NaN is the greatest float
+least|ALL|same|int,date,bigint,time,ym,dt,byte,short,ntz,float,double|semantics|341,348,359,329|NaN is the greatest float
 acos|double|double||ulp|367,356|Math
 acosh|double|double||ulp|367,357|Spark's log-and-sqrt formula over StrictMath.log
 asin|double|double||ulp|367,356|Math
@@ -188,7 +188,7 @@ bitmap_bit_position|bigint|bigint|bigint|done||a mask over a blend, proven by SM
 
 [implicit]
 try_cast|Cast|conversion|ALL|ALL||semantics|332,343,350,364,365,366,368|the parser's TRY mode: null instead of an error
-in_set|InSet|predicate|ALL|bool|date,ym,byte,short,int,bigint,time,dt,ntz,float,double|plumbing|333,341,348,359,329,497|IN over many literals
+in_set|InSet|predicate|ALL|bool|date,ym,byte,short,int,bigint,time,dt,ntz,float,double|plumbing|341,348,359,329,497|IN over many literals
 date_minus_date|SubtractDates|datetime|date|dt||semantics|39|row 39: days times micros per day, exact
 ntz_minus_ntz|SubtractTimestamps|datetime|ntz|dt|ntz|done|339|plain long arithmetic in UTC, exact or raise
 time_minus_time|SubtractTimes|datetime|time|dt|time|done||

@@ -43,12 +43,14 @@ import org.apache.spark.sql.catalyst.expressions.EqualTo;
 import org.apache.spark.sql.catalyst.expressions.Expression;
 import org.apache.spark.sql.catalyst.expressions.GreaterThan;
 import org.apache.spark.sql.catalyst.expressions.GreaterThanOrEqual;
+import org.apache.spark.sql.catalyst.expressions.Greatest;
 import org.apache.spark.sql.catalyst.expressions.If;
 import org.apache.spark.sql.catalyst.expressions.In;
 import org.apache.spark.sql.catalyst.expressions.InSet;
 import org.apache.spark.sql.catalyst.expressions.IsNaN;
 import org.apache.spark.sql.catalyst.expressions.IsNotNull;
 import org.apache.spark.sql.catalyst.expressions.IsNull;
+import org.apache.spark.sql.catalyst.expressions.Least;
 import org.apache.spark.sql.catalyst.expressions.LessThan;
 import org.apache.spark.sql.catalyst.expressions.LessThanOrEqual;
 import org.apache.spark.sql.catalyst.expressions.Literal;
@@ -111,11 +113,9 @@ final class VarkaConditionCompiler {
       // A boolean CASE WHEN and a boolean coalesce are conditions too: the predicate family's.
       case CaseWhen c when c.dataType().equals(DataTypes.BooleanType) -> null;
       case Coalesce c when c.dataType().equals(DataTypes.BooleanType) -> null;
-      // With no ELSE the missing branch is a null literal, which would break the dense body's
-      // all-valid invariant (`VARKA-11.md` 2.1): decline.
-      case CaseWhen c when c.elseValue().isEmpty() ->
-          () -> sink.decline("CASE WHEN without an ELSE branch", c);
-      // CASE WHEN with an ELSE right-folds into nested IfElse - SQL's first-match semantics is
+      // With no ELSE the missing branch is the null of the result's lane (NullValue), which
+      // makes nulls from valid inputs, so the kernel takes the masked body for every batch.
+      // CASE WHEN right-folds into nested IfElse - SQL's first-match semantics is
       // exactly nested if-else. Compilation runs in query order (branches left to right, then
       // the ELSE) so input ordinals and literal slots register deterministically in reading
       // order; only the fold is right-associative.
@@ -123,12 +123,13 @@ final class VarkaConditionCompiler {
       // Coalesce right-folds onto the validity condition: `coalesce(a, b)` is
       // `IfElse(IsNotNull(a), a, b)`, whose masked validity - (kT & valid(a)) | (~kT & valid(b))
       // with kT = valid(a) - reduces to valid(a) | valid(b), exactly SQL's coalesce. Every
-      // operand before the last must be a bare date column (the IsNotNull child restriction);
-      // `nvl`/`ifnull` arrive here already rewritten to Coalesce by the optimizer, and `nvl2`
-      // arrives as `If(IsNotNull(...), ...)` and rides the same condition node.
+      // operand before the last must be a bare column read as plain values, of any lane - a
+      // decimal column, its own node, is not one (the IsNotNull child restriction); `nvl`/`ifnull`
+      // arrive here already rewritten to Coalesce by the optimizer, and `nvl2` arrives as
+      // `If(IsNotNull(...), ...)` and rides the same condition node.
       case Coalesce c when c.children().nonEmpty() ->
-          () -> compileCoalesce(CollectionConverters.asJava(c.children()), 0, inputs, literals,
-              sink);
+          () -> compileCoalesce(c, CollectionConverters.asJava(c.children()), 0, inputs,
+              literals, sink);
       // `nanvl(a, b)` is `IF(isnan(a), b, a)`: `isnan` is false on a null `a`, so the answer is
       // `a` and null there, as `NaNvl.eval` has it.
       case NaNvl n -> () -> nanvl(n, inputs, literals, sink);
@@ -149,13 +150,13 @@ final class VarkaConditionCompiler {
     if (cond.isEmpty()) {
       return Optional.empty();
     }
-    Optional<VarkaVectorIR> thenNode = VarkaNodeCompiler.compileNode(
-        expr.trueValue(), inputs, literals, sink);
+    Optional<VarkaVectorIR> thenNode =
+        choiceValue(expr.trueValue(), expr, inputs, literals, sink);
     if (thenNode.isEmpty()) {
       return Optional.empty();
     }
-    Optional<VarkaVectorIR> elseNode = VarkaNodeCompiler.compileNode(
-        expr.falseValue(), inputs, literals, sink);
+    Optional<VarkaVectorIR> elseNode =
+        choiceValue(expr.falseValue(), expr, inputs, literals, sink);
     if (elseNode.isEmpty()) {
       return Optional.empty();
     }
@@ -176,9 +177,10 @@ final class VarkaConditionCompiler {
   }
 
   /**
-   * The lowering of {@code CASE WHEN} with an ELSE. Every branch is compiled, in order, even
-   * after one declines, as the entry's input and literal tables are rolled back by the caller;
-   * the lanes are then checked, and the fold runs from the last branch.
+   * The lowering of {@code CASE WHEN}. Every branch is compiled, in order, even after one
+   * declines, as the entry's input and literal tables are rolled back by the caller; the lanes
+   * are then checked, and the fold runs from the last branch. A missing ELSE is the null of the
+   * result's lane ({@link #nullLeaf}).
    */
   private static Optional<VarkaVectorIR> caseWhen(
       CaseWhen expr,
@@ -190,10 +192,11 @@ final class VarkaConditionCompiler {
     List<Optional<VarkaVectorIR>> values = new ArrayList<>();
     for (Tuple2<Expression, Expression> branch : branches) {
       conds.add(compileCond(branch._1(), inputs, literals, sink));
-      values.add(VarkaNodeCompiler.compileNode(branch._2(), inputs, literals, sink));
+      values.add(choiceValue(branch._2(), expr, inputs, literals, sink));
     }
-    Optional<VarkaVectorIR> compiledElse =
-        VarkaNodeCompiler.compileNode(expr.elseValue().get(), inputs, literals, sink);
+    Optional<VarkaVectorIR> compiledElse = expr.elseValue().isDefined()
+        ? choiceValue(expr.elseValue().get(), expr, inputs, literals, sink)
+        : nullLeaf(expr, sink);
     boolean all = compiledElse.isPresent();
     for (int i = 0; i < branches.size(); i++) {
       all &= conds.get(i).isPresent() && values.get(i).isPresent();
@@ -233,6 +236,79 @@ final class VarkaConditionCompiler {
       rest = new IfElse((Cond) lifted[2 * i], lifted[2 * i + 1], rest);
     }
     return Optional.of(storedNarrow(rest, expr.dataType()));
+  }
+
+  /**
+   * A value at a position of a choice - a branch of {@code IF} or {@code CASE WHEN}, an operand
+   * of {@code coalesce}, {@code greatest} or {@code least} - whose whole expression is
+   * {@code whole} (`VARKA-333.md` 3.1 and 3.2). A {@code NULL} literal is the null leaf of its
+   * type. Where {@code whole} is an {@code INT}, the position takes the int operand's rule
+   * ({@link VarkaNodeCompiler#compileIntOperand}): an int column, an int literal, or an int
+   * expression through {@code compileNode}. A bare int is admitted here only, never by
+   * {@code compileNode}'s leaves, which are typed by their position and would otherwise read an
+   * int as a date ({@code VARKA-122.md} 3.2). Anything else goes to {@code compileNode}.
+   */
+  private static Optional<VarkaVectorIR> choiceValue(
+      Expression e,
+      Expression whole,
+      VarkaSlotTable inputs,
+      VarkaSlotTable literals,
+      DeclineSink sink) {
+    if (isNullLiteral(e)) {
+      return nullLeaf(e, sink);
+    }
+    if (DataTypes.IntegerType.equals(whole.dataType())) {
+      return VarkaNodeCompiler.compileIntOperand(
+          e, intChoicePosition(whole), inputs, literals, sink);
+    }
+    return VarkaNodeCompiler.compileNode(e, inputs, literals, sink);
+  }
+
+  /**
+   * The position {@link #choiceValue} names when an int choice's value is not an int: a branch
+   * of {@code IF} or {@code CASE} (its {@code ELSE} included), an operand of {@code COALESCE},
+   * {@code GREATEST} or {@code LEAST}, written with the SQL keyword. Only those five reach
+   * {@code choiceValue}, so another expression is a caller's error.
+   */
+  private static String intChoicePosition(Expression whole) {
+    return switch (whole) {
+      case If i -> "a branch of an int IF";
+      case CaseWhen c -> "a branch of an int CASE";
+      case Coalesce c -> "an operand of an int COALESCE";
+      case Greatest g -> "an operand of an int GREATEST";
+      case Least l -> "an operand of an int LEAST";
+      default -> throw VarkaErrors.illegalState(
+          "a choice value of " + whole.nodeName() + ", which is no choice");
+    };
+  }
+
+  /**
+   * The null of {@code e}'s type as a value ({@link VarkaVectorIR.NullValue}): the missing ELSE
+   * of a {@code CASE WHEN}, or a {@code NULL} literal at a choice's position. It exists for the
+   * six types the int and long lanes carry as plain values; every other type declines with its
+   * name, until the row that adds the type's choices tests its null (VARKA-333.md section 9,
+   * open point 3).
+   */
+  private static Optional<VarkaVectorIR> nullLeaf(Expression e, DeclineSink sink) {
+    DataType t = e.dataType();
+    Optional<LaneType> lane = VarkaTypes.of(t).flatMap(id -> switch (id) {
+      case DATE, INT, YM_INTERVAL -> Optional.of(LaneType.INT);
+      case LONG, TIME, DT_INTERVAL -> Optional.of(LaneType.LONG);
+      // A boolean choice is a condition, whose null is CondConst's, not a value's.
+      case BOOLEAN -> Optional.empty();
+      // The narrow and floating lanes: NullValue refuses them until their emission is tested.
+      case BYTE, SHORT, FLOAT, DOUBLE -> Optional.empty();
+      // A decimal to precision 18 and an NTZ ride the long lane, but their own rows add their
+      // choices' null and its coverage rows.
+      case DECIMAL, TIMESTAMP_NTZ -> Optional.empty();
+      // No lane reads it as values.
+      case TIMESTAMP -> Optional.empty();
+    });
+    if (lane.isEmpty()) {
+      return sink.decline("no null leaf for type " + t.simpleString()
+          + (e instanceof CaseWhen ? ", the missing ELSE of a CASE WHEN" : ""), e);
+    }
+    return Optional.of(new VarkaVectorIR.NullValue(lane.get()));
   }
 
   /**
@@ -531,36 +607,40 @@ final class VarkaConditionCompiler {
 
   /**
    * The Coalesce right-fold from operand {@code from}. Every operand except the last compiles and
-   * must be a bare date column: {@code IsNotNull} reads the per-input validity word, which only a
-   * column has before value emission (the recorded milestone-3 restriction) - a computed operand
-   * declines with its own reason. The {@code ColumnRef} match below is a proxy for "this operand
-   * is a bare column" that is exact only because every {@code compileNode} arm producing a
-   * {@code ColumnRef} today is either an actual column read or a null-intolerant identity relabel
-   * ({@code unix_date}/{@code date_from_unix_date} and the identity date {@code Cast}) - a future
-   * relabel that changes nullability or value would silently break this guard.
+   * must be a bare column the lanes read as plain values ({@code ColumnRef}), whatever its lane,
+   * so a decimal column ({@code DecimalColumn}) is not one: {@code IsNotNull} reads the per-input
+   * validity word, which only a column has before value emission (the recorded milestone-3
+   * restriction) - a computed operand, or a {@code NULL} literal, declines with its own reason.
+   * The {@code ColumnRef} match below is a proxy for "this operand is a bare column" that is
+   * exact only because every {@code compileNode} arm producing a {@code ColumnRef} today is either
+   * an actual column read or a null-intolerant identity relabel ({@code unix_date}/{@code
+   * date_from_unix_date} and the identity date {@code Cast}) - a future relabel that changes
+   * nullability or value would silently break this guard.
    */
   private static Optional<VarkaVectorIR> compileCoalesce(
+      Expression whole,
       List<Expression> children,
       int from,
       VarkaSlotTable inputs,
       VarkaSlotTable literals,
       DeclineSink sink) {
     if (from == children.size() - 1) {
-      return VarkaNodeCompiler.compileNode(children.get(from), inputs, literals, sink);
+      return choiceValue(children.get(from), whole, inputs, literals, sink);
     }
     Expression head = children.get(from);
-    Optional<VarkaVectorIR> compiled = VarkaNodeCompiler.compileNode(head, inputs, literals, sink);
+    Optional<VarkaVectorIR> compiled = choiceValue(head, whole, inputs, literals, sink);
     if (compiled.isEmpty()) {
       return compiled;
     }
     if (compiled.get() instanceof ColumnRef ref) {
-      Optional<VarkaVectorIR> rest = compileCoalesce(children, from + 1, inputs, literals, sink);
+      Optional<VarkaVectorIR> rest =
+          compileCoalesce(whole, children, from + 1, inputs, literals, sink);
       if (rest.isEmpty()) {
         return rest;
       }
       return Optional.of(new IfElse(new VarkaVectorIR.IsNotNull(ref), ref, rest.get()));
     }
-    return sink.decline("coalesce operand before the last is not a bare date column", head);
+    return sink.decline("coalesce operand before the last is not a bare column", head);
   }
 
   /** Whether {@code t} is {@code FLOAT} or {@code DOUBLE}. */
@@ -627,7 +707,7 @@ final class VarkaConditionCompiler {
     List<VarkaVectorIR> compiled = new ArrayList<>();
     boolean all = true;
     for (Expression child : CollectionConverters.asJava(children)) {
-      Optional<VarkaVectorIR> node = VarkaNodeCompiler.compileNode(child, inputs, literals, sink);
+      Optional<VarkaVectorIR> node = choiceValue(child, whole, inputs, literals, sink);
       if (node.isPresent()) {
         compiled.add(node.get());
       } else {

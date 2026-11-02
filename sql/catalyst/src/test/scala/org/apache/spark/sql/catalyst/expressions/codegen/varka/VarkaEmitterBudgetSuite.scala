@@ -345,6 +345,7 @@ class VarkaEmitterBudgetSuite extends VarkaEmitterTestBase with VarkaOwnJvm {
         VarkaMatrix.base),
       (new BoolNullSafeEq(new BoolColumn(0), new BoolColumn(1)), 2, 0, VarkaMatrix.base),
       (new CondValue(new BoolColumn(0), LaneType.INT), 1, 0, VarkaMatrix.base),
+      (new IfElse(lt, c, new VarkaVectorIR.NullValue(LaneType.INT)), 2, 0, VarkaMatrix.base),
       (new BoolOutput(new BoolColumn(0)), 1, 0, VarkaMatrix.base),
       (new And(lt, new Compare(CompareOp.GT, c, l)), 2, 1, VarkaMatrix.base),
       (new Or(lt, new Compare(CompareOp.GT, c, l)), 2, 1, VarkaMatrix.base),

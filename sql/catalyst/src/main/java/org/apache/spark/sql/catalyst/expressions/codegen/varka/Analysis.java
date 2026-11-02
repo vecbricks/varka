@@ -47,6 +47,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Con
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.CondConst;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.CondIf;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.CondValue;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.NullValue;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ConstDivide;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.DateDiff;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.DayOfMonth;
@@ -953,6 +954,7 @@ final class Analysis {
         case Least n -> { }
         case IfElse n -> { }
         case CondValue n -> { }
+        case NullValue n -> { }
         case BoolOutput n -> { }
         case DayOfWeek n -> { }
         case WeekDay n -> { }
@@ -1068,7 +1070,7 @@ final class Analysis {
           BitOp _, BitCount _, MathUnary _, Compare _, NullSafeEqual _, BoolColumn _,
           BoolCompare _,
           CondIf _, BoolNullSafeEq _, CondConst _, And _, Or _, Not _, IsNotNull _,
-          InRanges _, CondValue _, BoolOutput _ -> false;
+          InRanges _, CondValue _, NullValue _, BoolOutput _ -> false;
     };
   }
 
@@ -1463,6 +1465,8 @@ final class Analysis {
       // The condition's known words, kt | kf: a function of the condition's operands' values,
       // not of their bitmaps alone.
       case CondValue n -> null;
+      // All clear, written by the node itself: not a function of the input bitmaps.
+      case NullValue n -> null;
       // A boolean output's validity is the same kt | kf, so it has no pure word either
       // (`VARKA-27.md` 2.1): no boolean root has a pure word.
       case BoolOutput n -> null;
@@ -1746,6 +1750,14 @@ final class Analysis {
       // condition's own flag (And, Or, the null-safe equality, the null test, CondIf), and so is
       // a null from valid inputs (CondConst(NULL)).
       case CondValue n -> analyzeOp(node, false, n.cond());
+      // A leaf that reads nothing and is null on every lane: a null from valid inputs, the one
+      // thing a dense body cannot hold, so the kernel is masked-only (`VARKA-333.md` 3.2).
+      case NullValue n -> {
+        columns.put(node, 0L);
+        height.put(node, 0);
+        skipping.put(node, false);
+        nullsFromValidInputs = true;
+      }
       // Analyzed as CondValue: null where the condition is unknown, its flags the condition's,
       // so a CondConst(NULL) under it keeps the kernel masked-only. The all-null shortcut
       // excludes it outright (VarkaBodyEmitter.shortcutApplies), not through the flag.

@@ -1013,6 +1013,8 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
     // carries no high word for its check: its slot table is `VarkaDecimalLoadSuite`'s, and its
     // fuzz sequence, on a seed of its own so that no shape here moves, is a later step of the row
     // (`VARKA-347.md` 3 item 5).
+    // The null leaf (VARKA-333) is drawn by the nulling draw only, on its own seed, so that no
+    // shape here moves; the test of the nulling draw's reach below holds it to both lanes.
     // The decimal output (VARKA-157) has its own draw, on its own seed, so that no shape here
     // moves: the decimal-store test above runs it.
     // The floating math function (VARKA-342) is out with the floating lanes: the grammar draws no
@@ -1020,7 +1022,7 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
     // of the same refit. `VarkaEmitterFloatingArithSuite` and the coverage rows cover it.
     val missing = permitted -- seen - "NarrowLane" - "WidenLane" - "NullSafeEqual" -
       "BoolColumn" - "CondConst" - "BoolCompare" - "CondIf" - "BoolNullSafeEq" - "CondValue" -
-      "BoolOutput" - "DecimalColumn" - "WidenDecimal" - "MathUnary"
+      "BoolOutput" - "DecimalColumn" - "NullValue" - "WidenDecimal" - "MathUnary"
     assert(missing.isEmpty,
       s"the generator never built: ${missing.toSeq.sorted.mkString(", ")} - add an arm, or " +
         "state here why the node type is deliberately out of the fuzzer's reach")
@@ -1503,6 +1505,49 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
       nulling(VarkaIrGrammar.drawShape(VarkaIrGrammar.shapeRandom(seed, k)).roots) ++
         nulling(VarkaIrGrammar.drawLongShape(VarkaIrGrammar.shapeRandom(longSeed, k)).roots))
     assert(committed.isEmpty, s"a committed draw holds a nulling guard: ${committed.headOption}")
+  }
+
+  test("the nulling draw reaches the null leaf at both lanes and at each of its positions, and " +
+      "the committed draws hold none") {
+    // The null of a choice (VARKA-333), drawn in the nulling draw only, so that the corpora
+    // `emitted_bytes.json` pins do not move: reached at each lane, as a choice's ELSE and its
+    // THEN, as an operand of greatest and least, and twice in one tree, where CSE leaves the two
+    // equal leaves unshared and the walk emits each; never committed.
+    def nulls(roots: java.util.List[VarkaVectorIR]): Seq[VarkaVectorIR.NullValue] = {
+      def walk(n: VarkaVectorIR): Seq[VarkaVectorIR.NullValue] = (n match {
+        case v: VarkaVectorIR.NullValue => Seq(v)
+        case _ => Seq.empty
+      }) ++ VarkaVectorIR.childrenOf(n).toSeq.flatMap(walk)
+      roots.asScala.toSeq.flatMap(walk)
+    }
+    // The parents of the null leaves in one tree, by the position the leaf holds.
+    def positions(root: VarkaVectorIR): Seq[String] = {
+      val isNull = (n: VarkaVectorIR) => n.isInstanceOf[VarkaVectorIR.NullValue]
+      (root match {
+        case n: IfElse if isNull(n.elseNode()) => Seq("else")
+        case n: IfElse if isNull(n.thenNode()) => Seq("then")
+        case n: Greatest if isNull(n.left()) || isNull(n.right()) => Seq("pick")
+        case n: Least if isNull(n.left()) || isNull(n.right()) => Seq("pick")
+        case _ => Seq.empty
+      }) ++ VarkaVectorIR.childrenOf(root).toSeq.flatMap(positions)
+    }
+    val draws = 0 until 2000
+    val trees = draws.flatMap(k =>
+      VarkaIrGrammar.drawNullingShape(VarkaIrGrammar.shapeRandom(nullingSeed, k)).roots
+        .asScala ++
+        VarkaIrGrammar.drawNullingLongShape(VarkaIrGrammar.shapeRandom(nullingSeed, k)).roots
+          .asScala)
+    val drawn = nulls(trees.asJava)
+    assert(drawn.exists(_.lane() == LaneType.INT), "no int-lane null leaf was drawn")
+    assert(drawn.exists(_.lane() == LaneType.LONG), "no long-lane null leaf was drawn")
+    val reached = trees.flatMap(positions).toSet
+    assert(reached === Set("else", "then", "pick"), s"the null leaf's positions reached: $reached")
+    assert(trees.exists(t => nulls(java.util.List.of(t)).size >= 2),
+      "no tree holds the null leaf twice")
+    val committed = draws.flatMap(k =>
+      nulls(VarkaIrGrammar.drawShape(VarkaIrGrammar.shapeRandom(seed, k)).roots) ++
+        nulls(VarkaIrGrammar.drawLongShape(VarkaIrGrammar.shapeRandom(longSeed, k)).roots))
+    assert(committed.isEmpty, s"a committed draw holds a null leaf: ${committed.headOption}")
   }
 
   test("the mixed-lane generator reaches both conversions, the calendar under a widening, " +

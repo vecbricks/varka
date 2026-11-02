@@ -535,14 +535,14 @@ public final class VarkaDifferentialHarnessSuite {
             + (Integer.MAX_VALUE - 1) + ") AS a", RUNS))));
     out.add(new Case("a projection with a bare date column fuses and forwards the column "
         + "zero-copy", DATES, List.of(shape("date_add(d, 3) AS a, d", RUNS))));
-    // Three branches, the first match winning; a CASE with no ELSE has a null-literal branch
-    // and stays on the row engine.
+    // Three branches, the first match winning; a CASE with no ELSE answers null where no
+    // branch matches, and fuses with that null as its last branch.
     out.add(new Case("CASE WHEN over dates is fused and matches the row engine, three-valued "
         + "nulls included", PAIRS, List.of(
             shape("CASE WHEN d < d2 THEN date_add(d, 3) ELSE date_sub(d2, 1) END AS a", RUNS),
             shape("CASE WHEN d < d2 THEN d WHEN d = d2 THEN date_add(d, 1) "
                 + "ELSE date_sub(d2, 2) END AS a", RUNS),
-            shape("CASE WHEN d < d2 THEN date_add(d, 3) END AS a", NOT_FUSED))));
+            shape("CASE WHEN d < d2 THEN date_add(d, 3) END AS a", RUNS))));
     out.add(new Case("IF with BETWEEN and date literals is fused and matches the row engine",
         DATES, List.of(shape("IF(d BETWEEN DATE'2023-12-01' AND DATE'2024-01-01', "
             + "date_add(d, 7), d) AS a", RUNS))));
