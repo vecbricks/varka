@@ -592,3 +592,42 @@ Open points for the lead:
 4. `java.util.Random`'s first draw over consecutive seeds varies only in its low bits, so a draw
    of `nextInt(4)` first took two of four compositions over a thousand seeds; the cast grammar
    discards one value first. A lesson for `skills/testing-and-debugging.md`, not written here.
+
+*A correction, 2 November 2026:* the narrow-store bullet above says review finding 5 removed the
+AVX2 scalarisation. It removed it from the loop body only. The epilogue still loaded a narrow
+column, and stored a narrow root, as a masked byte or short vector, and the PR Build's width
+audit on the runners' EPYC 7763 (AVX2, 256 bits, job 125064823790) refused six shapes for it:
+`loadMasked vlen=8 etype=short` in `CAST(s1 AS BIGINT)` and `s1 < l`, `etype=byte` in
+`CAST(y1 AS BIGINT)` and `greatest(y1, l)`, and `storeMasked` of eight shorts and eight bytes in
+`CAST(l AS SMALLINT)` and `CAST(l AS TINYINT)`. HotSpot's x86 matcher has no masked load or store
+of a subword type without AVX512BW (`Op_LoadVectorMasked` and `Op_StoreVectorMasked` in
+`x86.ad`). A masked load whose whole vector lies inside the segment is a plain load and a blend
+there, but the kernel's loop stops a long lane group early, so every batch's last group runs in
+the epilogue, and its eight-lane load runs past the end of a segment mapped at exactly the
+batch's rows. The laptop's AVX-512 lowers both, so only the runners saw it; under
+`-XX:UseAVX=2` the laptop's audit refused the same six shapes.
+
+The epilogue of a kernel driven at the long lane with a baked lane count now moves the narrow
+rows one at a time: the load builds the int vector with `withLane` at constant indices from
+`VarkaVectorSupport.byteAt` or `shortAt`, zero past the remainder, and the store reads each lane
+with `lane(k)` and writes it with `putByteAt` or `putShortAt`, both at most the long lane count
+of rows and both lowered on every x86 with SSE4.1. No vector meets another at a join: the tests
+are on scalars. Without a baked count the masked form stays, as the loop's masked store does
+there. The emitted bytes move in the epilogue methods of those six shapes alone, at both widths
+the record keeps (four of them at four int lanes, where the byte column declines), and in the
+option-arm digests that hash every shape. The warm-up calls `withLane` once a round now.
+Checked on the laptop: the catalyst Varka suites at the defaults pass, the width audit's six
+included, and so do the five sql/core suites over the casts and the coverage rows; under
+`-XX:UseAVX=2 -XX:MaxVectorSize=32` the same catalyst run passes the preferred-width audit, and
+fails only the two censuses pinned to the laptop's CPU model, `width_audit.json` and
+`operator_census.json`, which measure AVX-512 there and are not compared on the runners.
+
+Open point for the lead, from the same reading: master's narrow kernels driven at the int lane,
+and those driven at a narrow lane, load and store under the same masked subword forms in their
+epilogue. The audit never sees it, because the probe's 256 rows divide every int and narrow lane
+count, so that epilogue never runs there; a batch whose length the lane count does not divide
+runs it once, as the Vector API's Java loop on AVX2. Whether the one-row-at-a-time form,
+unrolled to that lane count, should replace it there is the lead's call; 332a does not move
+master's bytes for it. The same `UseAVX=2` run shows one case of it inside a loop body, at a
+width no AVX2 host prefers: at 128 bits an int kernel's `TINYINT` root (`CAST(i AS TINYINT)`)
+stores an eight-lane byte species wider than its four-lane group, so under the mask throughout.

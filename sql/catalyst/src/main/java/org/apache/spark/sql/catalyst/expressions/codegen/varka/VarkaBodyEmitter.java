@@ -1203,9 +1203,10 @@ final class VarkaBodyEmitter {
    * and stored whole in a loop body where that species is no wider than an int group, under the
    * mask of its first {@code lanes} lanes otherwise and in an epilogue. In a kernel driven at the
    * long lane the same holds of the int group of the long width, whose loop bound leaves room for
-   * it; AVX2 has no masked byte or short store, so a masked one in the loop scalarises. The
-   * truncation is Spark's {@code CAST(int AS TINYINT)} under {@code LEGACY}, which is what a
-   * {@code TINYINT} expression's result is.
+   * it; AVX2 has no masked byte or short store, so a masked one in the loop scalarises, and that
+   * kernel's epilogue, which runs on every batch, stores its rows one at a time
+   * ({@link #emitNarrowRowsStore}). The truncation is Spark's {@code CAST(int AS TINYINT)} under
+   * {@code LEGACY}, which is what a {@code TINYINT} expression's result is.
    */
   private static void emitNarrowTypeStore(
       CodeBuilder cb, Lane stored, Analysis analysis, Slots s, int o) {
@@ -1215,6 +1216,10 @@ final class VarkaBodyEmitter {
       // is a producer this store was not built for (VARKA-329).
       throw VarkaErrors.illegalState("a narrow-typed store names the int lane's species, and "
           + "this kernel is driven at the " + analysis.lane + " lane");
+    }
+    if (VarkaVectorWalk.narrowRowsInEpilogue(analysis, s)) {
+      emitNarrowRowsStore(cb, stored, analysis, s, o);
+      return;
     }
     // The narrow species the widening load reads, which {@code convertShape} fills from part 0
     // whatever its width: the int species' own in a kernel at the int lane, twice it in one
@@ -1253,6 +1258,41 @@ final class VarkaBodyEmitter {
     } else {
       cb.invokevirtual(stored.vector, "intoMemorySegment", stored.intoMemorySegmentDense);
     }
+  }
+
+  /**
+   * A narrow root in the epilogue of a kernel driven at the long lane
+   * ({@code VarkaVectorWalk.narrowRowsInEpilogue}): {@code [int vector] -> []}, lane {@code k}
+   * read with {@code lane(k)} at a constant index and stored as row {@code i + k} by
+   * {@code VarkaVectorSupport.putByteAt} or {@code putShortAt}, which truncate as {@code I2B} and
+   * {@code I2S} do, for each {@code k} below the remainder {@code lanes}. The rows past it are
+   * past the batch, so the first {@code k} at or past it ends the stores. Each store reads a copy
+   * of the vector, so the one that reaches the end is the same value on every path.
+   */
+  private static void emitNarrowRowsStore(
+      CodeBuilder cb, Lane stored, Analysis analysis, Slots s, int o) {
+    Label done = cb.newLabel();
+    for (int k = 0; k < analysis.lanes; k++) {
+      if (k > 0) {
+        // The epilogue's group holds at least one row, so the first store needs no test.
+        cb.iload(s.lanes);
+        cb.loadConstant(k);
+        cb.if_icmple(done);
+      }
+      cb.dup();
+      cb.loadConstant(k);
+      cb.invokevirtual(Lane.INT.vector, "lane", INT_LANE);      // [v, lane k]
+      cb.aload(s.dstSeg[o]);
+      cb.iload(s.iVar);
+      cb.loadConstant(k);
+      cb.iadd();
+      cb.i2l();
+      cb.loadConstant(stored.byteStride);
+      cb.lmul();                                                // (long) (i + k) * stride
+      cb.invokestatic(SUPPORT, stored == Lane.BYTE ? "putByteAt" : "putShortAt", PUT_NARROW_AT);
+    }
+    cb.labelBinding(done);
+    cb.pop();
   }
 
   /**

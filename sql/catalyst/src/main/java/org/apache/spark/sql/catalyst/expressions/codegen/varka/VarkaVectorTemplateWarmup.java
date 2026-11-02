@@ -694,7 +694,7 @@ final class VarkaVectorTemplateWarmup {
             + IntVector.broadcast(s, 5).lane(0) + IntVector.zero(s).lane(0)
             + a.add(4, m).lane(0) + a.sub(4).lane(0) + a.min(4).lane(0) + a.max(4).lane(0)
             + a.or(4).lane(0) + a.lanewise(VectorOperators.BIT_COUNT).lane(0)
-            + masks(s, m, tail, acc);
+            + a.withLane(1, 3).lane(1) + masks(s, m, tail, acc);
         a.intoMemorySegment(seg, 0, ByteOrder.LITTLE_ENDIAN);
         a.intoMemorySegment(seg, 64, ByteOrder.LITTLE_ENDIAN, tail);
         acc += IntVector.fromMemorySegment(s, seg, 0, ByteOrder.LITTLE_ENDIAN).lane(0)
