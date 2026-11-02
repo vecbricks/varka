@@ -454,6 +454,9 @@ def merge_docs(base_path, ours_path, theirs_path, owed):
     return "".join(out), real
 
 
+CENSUS = "the census"
+
+
 def owed_file():
     path = subprocess.run(
         ["git", "rev-parse", "--git-path", "varka-regen-owed"],
@@ -479,21 +482,25 @@ def driver(base_path, ours_path, theirs_path, repo_path):
         ):
             # Both sides moved the coverage table: the census reads it, so it is owed even when
             # every row merged exactly.
-            owed.add("the census, which reads coverage.json")
+            owed.add(CENSUS + ", which reads coverage.json")
         if (
             name in ("census.tsv", "casts.tsv")
             and len({read(base_path), read(ours_path), read(theirs_path)}) == 3
         ):
             # Rendered from the inputs by dev/varka_census.py, which rewrites it in a second.
-            owed.add("the census, rendered from its inputs")
+            owed.add(CENSUS + ", rendered from its inputs")
         if name.endswith(".json") or name in TSV_KEYS:
             text = merge_text(name, read(base_path), read(ours_path), read(theirs_path), owed)
         elif name.endswith(".md"):
             text, real = merge_docs(base_path, ours_path, theirs_path, owed)
         else:
             raise ValueError(f"no merge rule for {repo_path}")
+        # The census is owed by reason, not by file: dev/varka_regen_generated.sh runs it last
+        # on every run, so a file whose only debt is the census goes on no list, and in
+        # particular owes coverage.json no run of the coverage suite.
+        owes_file = any(not p.startswith(CENSUS) for p in owed.paths)
         # Found before the merged text is written, so that a failure here still falls back.
-        owed_path = owed_file() if owed.paths else None
+        owed_path = owed_file() if owes_file else None
     except Exception as e:
         # A side that is not the generated form (markers, hand edits), or any fault of this
         # driver: git's text merge, which leaves markers where it conflicts, so a merge never
@@ -525,8 +532,9 @@ def driver(base_path, ours_path, theirs_path, repo_path):
             + "; run dev/varka_regen_generated.sh",
             file=sys.stderr,
         )
-        with open(owed_path, "a", encoding="utf-8") as f:
-            f.write(repo_path + "\n")
+        if owes_file:
+            with open(owed_path, "a", encoding="utf-8") as f:
+                f.write(repo_path + "\n")
     else:
         print(f"varka merge: {repo_path} merged per key, nothing owed", file=sys.stderr)
     return 1 if real else 0
@@ -1063,6 +1071,28 @@ def end_to_end(expect):
         expect(len(set(trees)) == 1, "the two orders give different trees")
         with open(os.path.join(tmp, "c", "types.tsv"), encoding="utf-8") as f:
             expect(f.read() == "id\tx\nA\t1\nB\t1\nC\t1\nZ\t1\n", "the merged TSV")
+        # 14. Both sides add a coverage row at different places: every row merges exactly and
+        # only the census is owed, which puts the file on no owed list.
+        owed_list = os.path.join(tmp, git("rev-parse", "--git-path", "varka-regen-owed").stdout)
+        owed_list = owed_list.strip()
+        if os.path.exists(owed_list):
+            os.remove(owed_list)
+        for name, start, rows in (
+            ("r0", "master", ["a", "m", "z"]),
+            ("r1", "r0", ["a", "b", "m", "z"]),
+            ("r2", "r0", ["a", "m", "n", "z"]),
+        ):
+            git("checkout", "-qb", name, start)
+            write("c/coverage.json", render_json({"expressions": [{"sql": r} for r in rows]}))
+            git("commit", "-qam", name)
+        git("checkout", "-q", "r1")
+        census = git("merge", "--no-edit", "r2", check=False)
+        expect(
+            census.returncode == 0
+            and "owed for the census" in census.stderr
+            and not os.path.exists(owed_list),
+            f"14: a census-only debt owed the file: {census.stderr}",
+        )
         # A prose conflict outside the generated blocks is a real conflict.
         git("checkout", "-qb", "p1", "master")
         write("d/doc.md", docs(["a", "z"], "prose one"))
