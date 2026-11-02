@@ -418,14 +418,20 @@ def merge_docs(base_path, ours_path, theirs_path, owed):
     in_block = False
     lines = proc.stdout.splitlines(keepends=True)
     i = 0
+
+    # The markers are matched whole, as merge-file writes them with the labels above: a line
+    # that only starts with "=======" (a Markdown heading's underline) is content.
+    def marker(line, text):
+        return line.rstrip("\r\n") == text
+
     while i < len(lines):
         line = lines[i]
-        if line.startswith("<<<<<<< ours"):
+        if marker(line, "<<<<<<< ours"):
             j = i + 1
-            while not lines[j].startswith("======="):
+            while not marker(lines[j], "======="):
                 j += 1
             k = j + 1
-            while not lines[k].startswith(">>>>>>> theirs"):
+            while not marker(lines[k], ">>>>>>> theirs"):
                 k += 1
             o, t = lines[i + 1 : j], lines[j + 1 : k]
             markers = any("generated" in x and x.startswith("<!--") for x in o + t)
@@ -785,6 +791,27 @@ def review_cases(expect, merged):
         expect(
             "| a | 1 |" in text and "| d | 1 |" in text and not real and o.paths,
             f"7: a block both sides changed was not owed: {o.paths}",
+        )
+
+        # 11. A block line that only starts like a conflict separator is content.
+        def underline_doc(name, line):
+            path = os.path.join(tmp, name)
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(f"# Doc\n\n<!-- BEGIN generated g -->\n{line}\n<!-- END generated g -->\n")
+            return path
+
+        o = Owed()
+        text, real = merge_docs(
+            underline_doc("ub.md", "| a | 0 |"),
+            underline_doc("uo.md", "========"),
+            underline_doc("ut.md", "| a | 2 |"),
+            o,
+        )
+        expect(
+            "\n========\n" in text
+            and "=======\n" not in text.replace("========\n", "")
+            and not real,
+            f"11: a line starting with ======= was read as the separator: {text!r}",
         )
         # 8. Any failure inside the merge falls back to git's text merge, never a traceback.
         saved = globals()["merge_text"]
