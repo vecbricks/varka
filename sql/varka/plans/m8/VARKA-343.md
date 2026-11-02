@@ -452,10 +452,13 @@ Steps 3 and 6 of the list above; step 2 moves to 343b (below).
 - **The same-count mask crossing** #1065 left owed: a guard's mask and an arm step's condition at
   the drive's lane count but the other kind cross by `VectorMask.cast`, not through the word, in
   `emitToDrivingLane`; the epilogue's bounds mask crosses the same way. A double division under
-  ANSI in a long kernel (`VarkaEmitterFloatingCastSuite`) is its test. *Not built:* roots of two
-  kinds still share no kernel (`lanesShare` is unchanged), and a filter's floating conjunct beside
-  an integral one still declines (`floatingConjunctRefusal`); both are the root-level half of the
-  crossing, which 343b or 342's mixed forms take up when a shape needs it.
+  ANSI in a long kernel (`VarkaEmitterFloatingCastSuite`) is its test. A filter's conjunct that
+  tests floating operands no longer counts as integral for an integral column it reads under a
+  cast, so `xrid < 0 AND CAST(i AS DOUBLE) = x2` fuses whole on the double lane (the coverage
+  harness's ANSI form). *Not built:* roots of two kinds still share no kernel (`lanesShare` is
+  unchanged), and a filter's floating conjunct beside an integral one still declines
+  (`floatingConjunctRefusal`); both are the root-level half of the crossing, which 343b or 342's
+  mixed forms take up when a shape needs it.
 - **The compiler**: `VarkaFloatingCastCompiler`, a family `FLOATING_CAST` with its switch
   `spark.sql.codegen.varka.family.floatingCast.enabled`, admits the fourteen pairs of item 0.1's
   to-floating half by name (`admits`); `floatingDecline` names the rest by row: from a floating
@@ -472,18 +475,20 @@ Steps 3 and 6 of the list above; step 2 moves to 343b (below).
   `NOT (x = 0.0)` at the lane, Spark's order's `EQ`, in the predicate family's condition arm, as a
   filter and, through row 27's `BoolOutput`, as a value.
 - **Tests**: `VarkaEmitterFloatingCastSuite` holds every conversion and the mixed kernels (an int
-  beside a double, an int beside a float, a bigint beside a double with a double pick, a double
-  narrowed beside a float, a condition converted, an ANSI division on the other lane) to the
-  reference at 128, 256 and 512 bits over ten lengths, four null patterns and both bodies; 2.4's
-  to-floating cells are asserted on the reference's definition; the sweeps of 3.1 for `INT` to
-  both and `FLOAT` to `DOUBLE` run every 256th chunk on every build and whole under
+  beside a double, an int beside a float, a bigint beside a double with a double pick, a bigint
+  converted beside a float, a short widened and converted beside a float, a double narrowed
+  beside a float, a filter over conversions, a condition converted, an ANSI division on the
+  other lane) to the reference at 128, 256 and 512 bits over ten lengths, four null patterns and
+  both bodies; 2.4's to-floating cells are asserted on the reference's definition; the sweeps of
+  3.1 for `INT` to both and `FLOAT` to `DOUBLE` run every 256th chunk on every build and whole under
   `-Dvarka.sweep=true`. `VarkaIrFuzzSuite` gains a floating conversions corpus on a seed of its
   own (`FLOATING_CAST_FUZZ_SEED`), so no committed corpus moves, and a reach test over it. The
   coverage table gains the families "Floating casts" and "Floating casts as conditions";
   `VarkaFloatingLaneSuite` runs the `FLOAT` and `DOUBLE` casts end to end. *Departures:* the
   `TINYINT`, `SMALLINT` and `BOOLEAN` sweeps of 3.1 are the coverage rows' fixtures rather than an
   exhaustive table, and test 3.6's mixed-width kernels are in the new suite rather than
-  `VarkaEmitterMixedLaneSuite`.
+  `VarkaEmitterMixedLaneSuite`. Test 3.8 has nothing to run: no conformance suite cancels a cast
+  row naming this row.
 - **The warm-up** (2.7): the conversions block gains the six conversions and the mask cast.
 - **Cost** (2.7): *departure* - `ConvertLane` is unpriced, as the other floating nodes are
   (`VarkaEmitCostFit.PRICED_LANES`), until row 352's refit; the budget weighs it as one op.

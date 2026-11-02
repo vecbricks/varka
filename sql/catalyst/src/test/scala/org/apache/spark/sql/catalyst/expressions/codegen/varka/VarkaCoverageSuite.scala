@@ -872,7 +872,10 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
       Row("CAST(f AS BOOLEAN)"))),
     Family("Floating casts as conditions", predicates = true, Seq(
       Row("CAST(x AS BOOLEAN)", "x != 0.0 as the filter, the negation of the lane's EQ"),
-      Row("CAST(f AS BOOLEAN) OR f > 1.5F", "the float's test in a disjunction at its lane"))),
+      Row("CAST(f AS BOOLEAN) OR f > 1.5F", "the float's test in a disjunction at its lane"),
+      Row("CAST(f AS DOUBLE) = x2", "a converted float compared on the double lane"),
+      Row("x2 > 0.0D AND CAST(i AS DOUBLE) = x2",
+        "a converted int beside a double conjunct: both meet on the double lane"))),
 
     // DECIMAL of precision up to 18 (VARKA-347, carrying row 348's equal-scale comparisons and
     // null tests): two values of one scale compare as their unscaled longs. Each kernel checks

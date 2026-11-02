@@ -406,7 +406,8 @@ public final class VarkaAnsiForm {
         out.add(position + ": " + sql + "\nnot served by a kernel ("
             + (outcome == null ? "the optimizer left no expression"
                 : outcome.answered + " answered, " + outcome.declined + " declined, "
-                    + outcome.residual + " residual")
+                    + outcome.residual + " residual, batch statuses "
+                    + outcome.batches.stream().map(b -> Integer.toString(b.status())).toList())
             + "), and not on the declined list");
       }
     }

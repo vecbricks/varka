@@ -911,14 +911,27 @@ public final class VarkaExpressionCompiler {
     List<VarkaConjunctSpec> specs = new ArrayList<>();
     UnaryOperator<Expression> bind = binder(childOutput);
     List<Expression> conjuncts = conjuncts(condition);
-    // Whether any conjunct reads a column a kernel reads on an integral lane, which decides
-    // whether a floating conjunct can share the kernel (VarkaKernelPlan.floatingConjunctRefusal).
-    // The registry's `lane(DataType)` is the one answer: a column no kernel reads today - a
-    // string, or a type whose lane exists before any operator over it compiles - puts its
-    // conjunct on the row path and so does not count.
+    // Whether any conjunct is an integral one, which decides whether a floating conjunct can
+    // share the kernel (VarkaKernelPlan.floatingConjunctRefusal): one that reads a column a kernel
+    // reads on an integral lane and tests no floating operand. A conjunct over a floating operand
+    // tests at a floating lane whatever it reads below a cast - `CAST(i AS DOUBLE) = x` meets
+    // `x > 0.0` on the double lane, its int column converted (VARKA-343) - so it does not count.
+    // The registry's `lane(DataType)` is the one answer for a column: one no kernel reads today -
+    // a string, or a type whose lane exists before any operator over it compiles - puts its
+    // conjunct on the row path and so does not count either.
     boolean readsIntegral = false;
-    for (Attribute a : CollectionConverters.asJava(condition.references().toSeq())) {
-      readsIntegral |= VarkaTypes.lane(a.dataType()).filter(l -> !l.isFloating()).isPresent();
+    for (Expression conjunct : conjuncts) {
+      boolean testsFloating = false;
+      for (Expression operand : CollectionConverters.asJava(conjunct.children())) {
+        testsFloating |= VarkaTypes.lane(operand.dataType()).filter(LaneType::isFloating)
+            .isPresent();
+      }
+      if (testsFloating) {
+        continue;
+      }
+      for (Attribute a : CollectionConverters.asJava(conjunct.references().toSeq())) {
+        readsIntegral |= VarkaTypes.lane(a.dataType()).filter(l -> !l.isFloating()).isPresent();
+      }
     }
     for (int index = 0; index < conjuncts.size(); index++) {
       Expression conjunct = conjuncts.get(index);

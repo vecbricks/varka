@@ -298,6 +298,27 @@ public final class VarkaEmitterFloatingCastSuite {
   }
 
   @Test
+  @DisplayName("a converted bigint beside a float column, in a long kernel of float values")
+  void floatBesideLong() {
+    var f = new ColumnRef(1, LaneType.FLOAT);
+    var root = new IntArith(IntOp.ADD, Overflow.WRAP, convert(L, LaneType.FLOAT), f);
+    check("cast(l AS float) + f", List.of(root), 2, new int[0], new long[0],
+        cells(LONGS, FLOATS));
+  }
+
+  @Test
+  @DisplayName("a narrow column widened and converted beside a float column, in an int kernel")
+  void narrowBesideFloat() {
+    var s = new ColumnRef(0, LaneType.SHORT);
+    var f = new ColumnRef(1, LaneType.FLOAT);
+    var root = new IntArith(IntOp.MUL, Overflow.WRAP,
+        convert(new WidenLane(s, LaneType.INT), LaneType.FLOAT), f);
+    long[] shorts = {0, 1, -1, Short.MAX_VALUE, Short.MIN_VALUE, 12345, -32767, 255};
+    check("cast(s AS float) * f", List.of(root), 2, new int[0], new long[0],
+        cells(shorts, FLOATS));
+  }
+
+  @Test
   @DisplayName("a double computed and narrowed to FLOAT beside a float column, in a double kernel")
   void doubleToFloatBesideFloat() {
     var f = new ColumnRef(1, LaneType.FLOAT);
@@ -318,6 +339,24 @@ public final class VarkaEmitterFloatingCastSuite {
     check("cast(l AS double) / x under ANSI",
         List.of(root, new IntArith(IntOp.ADD, Overflow.WRAP, L, L)), 2, new int[0], new long[0],
         cells(LONGS, divisors));
+  }
+
+  @Test
+  @DisplayName("a filter of a double comparison over a converted float beside a double one")
+  void filterOverConversions() {
+    var x = new ColumnRef(0, LaneType.DOUBLE);
+    var f = new ColumnRef(1, LaneType.FLOAT);
+    var x2 = new ColumnRef(2, LaneType.DOUBLE);
+    var i = new ColumnRef(3, LaneType.INT);
+    var zero = new LiteralSlot(0, LaneType.DOUBLE);
+    var filter = new VarkaVectorIR.And(new Compare(CompareOp.LT, x, zero),
+        new Compare(CompareOp.EQ, convert(f, LaneType.DOUBLE), x2));
+    check("x < 0.0 AND cast(f AS double) = x2", List.of(filter), 3, new int[0],
+        new long[] {Double.doubleToRawLongBits(0.0)}, cells(DOUBLES, FLOATS, DOUBLES));
+    var withInt = new VarkaVectorIR.And(new Compare(CompareOp.LT, x, zero),
+        new Compare(CompareOp.EQ, convert(i, LaneType.DOUBLE), x2));
+    check("x < 0.0 AND cast(i AS double) = x2", List.of(withInt), 4, new int[0],
+        new long[] {Double.doubleToRawLongBits(0.0)}, cells(DOUBLES, FLOATS, DOUBLES, INTS));
   }
 
   @Test

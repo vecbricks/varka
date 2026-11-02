@@ -41,9 +41,10 @@ import org.apache.spark.sql.VarkaBenchmark;
  * the sections a row has fused, and fails when an unlisted section fuses or a listed one does not.
  * The comparison and choice sections are listed, since the floating lanes order their values, and
  * so is the chain, since the floating arithmetic fuses (VARKA-342); the results file notes each of
- * them as fusing, and the cast is still the row path in both arms. A row that starts to fuse
- * another section lists it, so that its fusion cannot turn a baseline section into a fused one
- * unnoticed.
+ * them as fusing. So is the FLOAT to DOUBLE cast, since the conversions to a floating type fuse
+ * (VARKA-343), and the DOUBLE to BIGINT cast is still the row path in both arms. A row that
+ * starts to fuse another section lists it, so that its fusion cannot turn a baseline section into
+ * a fused one unnoticed.
  *
  * <p>To run this benchmark, on a GitHub runner (the results come back as an artifact):
  * <pre>
@@ -110,8 +111,10 @@ public class VarkaFloatingBaselineBenchmark extends VarkaSqlBenchmarkBase {
         out.add(new Section(type + " arithmetic chain, " + density,
             "SELECT (" + x + " + " + y + ") * " + z + " - " + x + " AS a FROM varka_floating",
             true));
+        // The FLOAT to DOUBLE cast fuses (VARKA-343 5.1); DOUBLE to BIGINT is 343b's.
         out.add(new Section(type + " cast to " + t[4] + ", " + density,
-            "SELECT CAST(" + x + " AS " + t[4] + ") AS a FROM varka_floating", false));
+            "SELECT CAST(" + x + " AS " + t[4] + ") AS a FROM varka_floating",
+            "DOUBLE".equals(t[4])));
         out.add(new Section(type + " choice, " + density,
             "SELECT CASE WHEN " + x + " < " + y + " THEN " + x + " ELSE " + y
                 + " END AS a FROM varka_floating", true));

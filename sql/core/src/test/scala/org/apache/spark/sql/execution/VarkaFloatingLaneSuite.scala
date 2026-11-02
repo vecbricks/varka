@@ -21,7 +21,7 @@ import org.apache.spark.sql.{DataFrame, QueryTest, Row, SparkSession}
 import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, AttributeReference, Coalesce, Greatest}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTestWatchdog
 import org.apache.spark.sql.internal.SQLConf
-import org.apache.spark.sql.types.{DateType, DoubleType, FloatType, StructField, StructType}
+import org.apache.spark.sql.types.{DateType, DoubleType, FloatType, IntegerType, StructField, StructType}
 
 /**
  * The floating lanes' first nodes, end to end: a `DOUBLE` or `FLOAT` column read from Varka's
@@ -401,9 +401,10 @@ class VarkaFloatingLaneSuite extends QueryTest with VarkaSharedSessions with Var
     }
   }
 
-  // The divisors are literals: the fixtures' zero divisors raise under ANSI on both sides.
-  private val declined = Seq("CAST(f1 AS INT)", "x1 % 2.5D", "pmod(f1, 2.5F)",
-    "CAST(x1 AS BIGINT)")
+  // The divisors are literals: the fixtures' zero divisors raise under ANSI on both sides. The
+  // casts from a floating type are TRY's, since the fixtures' NaNs raise under ANSI.
+  private val declined = Seq("try_cast(f1 AS INT)", "x1 % 2.5D", "pmod(f1, 2.5F)",
+    "try_cast(x1 AS BIGINT)")
 
   declined.foreach { expr =>
     test(s"SELECT $expr declines and answers as the row engine does") {
