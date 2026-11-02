@@ -589,6 +589,16 @@ def check(root, audit=True):
 # --- the self-test -------------------------------------------------------------------------
 
 
+def fixture_env():
+    """The environment for the self-test's git commands in a temporary repository. A hook that
+    runs the self-test exports GIT_DIR, GIT_INDEX_FILE or GIT_WORK_TREE, which would send those
+    commands into the outer repository, so every GIT_ variable is dropped; and the global and
+    system configs are not read, so neither the fixture nor the installer it runs sees (or
+    writes through) the user's core.hooksPath or conflict style."""
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    return {**env, "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
+
+
 def self_test():
     import doctest
 
@@ -683,7 +693,18 @@ def self_test():
             ) as f:
                 f.write(render_json(doc) + "\n")
             expect(check(tmp) == 1, "a stale width audit passed the check")
-    end_to_end(expect)
+    # 10. A hook's GIT_DIR and GIT_INDEX_FILE must not reach the fixture's repository: they
+    # name paths no git command can create, so a fixture command that reads them fails.
+    saved_env = dict(os.environ)
+    os.environ["GIT_DIR"] = os.path.join(os.devnull, "git")
+    os.environ["GIT_INDEX_FILE"] = os.path.join(os.devnull, "index")
+    try:
+        end_to_end(expect)
+    except subprocess.CalledProcessError as e:
+        expect(False, f"10: a fixture git command read the outer GIT_ variables: {e}")
+    finally:
+        os.environ.clear()
+        os.environ.update(saved_env)
     print(f"self-test: {cases} case(s), {failed} failed")
     return 1 if failed else 0
 
@@ -788,7 +809,18 @@ def review_cases(expect, merged):
         expect(ok, "8: an unexpected error escaped the driver")
         # 9. The installer: an info/attributes without a final newline, installed twice.
         repo = os.path.join(tmp, "repo")
-        env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+        # A global core.hooksPath, which the installer must neither read nor write through.
+        hooks_path = os.path.join(tmp, "elsewhere")
+        global_config = os.path.join(tmp, "global.gitconfig")
+        with open(global_config, "w", encoding="utf-8") as f:
+            f.write(f"[core]\n\thooksPath = {hooks_path}\n")
+        saved_env = dict(os.environ)
+        os.environ["GIT_CONFIG_GLOBAL"] = global_config
+        try:
+            env = fixture_env()
+        finally:
+            os.environ.clear()
+            os.environ.update(saved_env)
         subprocess.run(["git", "init", "-q", repo], check=True, env=env)
         attributes = os.path.join(repo, ".git", "info", "attributes")
         os.makedirs(os.path.dirname(attributes), exist_ok=True)
@@ -806,6 +838,12 @@ def review_cases(expect, merged):
         expect(
             lines == ["x merge=foo", "docs/sql-varka.md merge=varka-generated"],
             f"9: the installer wrote {lines}",
+        )
+        # 10. The installer ran against the temporary repository's own config, not the user's.
+        expect(
+            os.path.exists(os.path.join(repo, ".git", "hooks", "pre-commit"))
+            and not os.path.exists(hooks_path),
+            "10: the installer followed the global core.hooksPath",
         )
     # 4. The per-row files the check reads run the docs job, and still count as code.
     sys.path.insert(0, os.path.join(root, "dev"))
@@ -853,7 +891,11 @@ def end_to_end(expect):
 
         def git(*args, check=True):
             return subprocess.run(
-                ["git", "-C", tmp, *args], capture_output=True, text=True, check=check
+                ["git", "-C", tmp, *args],
+                capture_output=True,
+                text=True,
+                check=check,
+                env=fixture_env(),
             )
 
         def write(rel, text):
