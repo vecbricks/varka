@@ -148,12 +148,14 @@ object VarkaWidthAuditShapes {
   }
 
   /**
-   * A predicate row on the host's own terms: an x86 host at two long lanes refuses a long filter
-   * condition (VARKA-503), which is this width's answer as a narrow load's is. A row any of whose
-   * conjuncts the compiler left to the row filter, for this or any other reason, is declined,
-   * though the others fused: its kernel is not the row's, so C2's verdict on it would record the
-   * row as vectorized when part of it runs on the row path. The reason names the refused
-   * conjunct where another one fused.
+   * A predicate row on the host's own terms: an x86 host at two 64-bit lanes or fewer refuses a
+   * filter's condition in a kernel driven at a 64-bit lane (VARKA-503), which is this width's
+   * answer as a narrow load's is. A row with a conjunct the host refused is declined, though the
+   * others fused: its kernel is not the row's, so C2's verdict on it would record the row as
+   * vectorized when the refused part runs on the row path. The reason names the refused conjunct
+   * where another one fused. A row that fused in part for any other reason records the fused
+   * kernel's shape, as before the refusal, since that is a property of the row and not of the
+   * width; one with nothing fused is declined with every conjunct's reason.
    */
   private def predicateRow(sql: String, resolved: Expression): Entry = {
     val explained = VarkaExpressionCompiler.explainAndCompilePredicate(resolved, columns,
@@ -162,8 +164,11 @@ object VarkaWidthAuditShapes {
         VarkaKernelPlan.twoLaneMasksFallBack(VarkaHostIsa.host())))
     val specs = explained.specs.asScala.toSeq
     val refused = specs.filterNot(_.fused)
+    // The spec carries the reason and not the refusal's kind; the reason is the kind's alone.
+    val hostRefused = refused.exists(
+      _.decline.toScala.exists(_.reason == VarkaKernelPlan.TWO_LANE_CONDITION_REASON))
     explained.compiled.toScala match {
-      case Some(c) if refused.isEmpty =>
+      case Some(c) if !hostRefused =>
         val p = c.fused
         Shape(sql, p.outputs.asScala.toSeq, p.inputOrdinals.size, p.numLiterals)
       case _ =>

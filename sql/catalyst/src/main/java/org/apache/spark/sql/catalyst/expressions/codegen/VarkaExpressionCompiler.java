@@ -740,8 +740,9 @@ public final class VarkaExpressionCompiler {
    * that reports both, such as EXPLAIN.
    *
    * <p>{@code admission} holds the session settings that decide which conjuncts are admitted:
-   * the families off, and whether a filter's long-lane condition is refused on an x86 host whose
-   * long species has two lanes ({@link VarkaKernelPlan#admit(List, VarkaEmitOptions, boolean)},
+   * the families off, and whether a filter's condition in a kernel driven at a 64-bit lane is
+   * refused on an x86 host whose 64-bit species have two lanes or fewer
+   * ({@link VarkaKernelPlan#admit(List, VarkaEmitOptions, boolean)},
    * VARKA-503). Neither is an emit option: they change which conjuncts the compiler admits, never
    * a kernel's bytes, and the compile at planning, EXPLAIN and the filter evaluator's compile in a
    * task must decline alike, so every production caller passes the plan's

@@ -452,3 +452,39 @@ reading (corrects 3.1's "`HOST_USE_AVX` reads a level (the JVM is x86)"):
    decline, 72 before, the 14 new ones the `DOUBLE` predicates (`x < x2`, `isnan(x)`,
    `x IS NOT NULL` among them), and the other 72 take the reason's new wording; 256 and 512 bits
    are unchanged.
+3. **One long lane or two** (corrects 2's and 3.1's "two lanes"). `twoLaneMasksFallBack` tested
+   `preferredLongLanes == 2`, but under `-XX:MaxVectorSize=8` x86's preferred long species has
+   one lane, and C2 has no one-element vector to lower its masks to either, so the host refused
+   nothing where the Java fallback was certain. The test is now `<= 2`. The host suites still
+   hold: 128 bits gives two lanes and refuses, 256 bits gives four and does not. The pure form
+   now takes a `VarkaHostIsa.Reading` and a lane count, public, so that
+   `VarkaEvaluatorComponentsSuite` holds the session's default to stated constants (x86 at one,
+   two, four and eight long lanes, aarch64 at two) rather than to the kernel plan's own answer,
+   which made the old assertion a comparison of the code with itself; the session gained a
+   package-private `of(conf, host, preferredLongLanes)` for it.
+4. **The column types, from the lane map** (corrects 2's "LONG or DOUBLE"). The refusal is keyed
+   on the kernel's drive lane, and `VarkaTypes` reads more types than `BIGINT` on the long lane:
+   `TIMESTAMP_NTZ`, `TIME`, the day-time intervals and a `DECIMAL` of up to 18 digits (row 347).
+   `DOUBLE` is the only type on the `DOUBLE` lane. The zoned `TIMESTAMP` is `Declined` in the
+   registry, so no lane reads it and the refusal never meets it. The reason, the setting's doc,
+   the `TWO_LANE_CONDITION` and `hostRefusal` javadocs, `VarkaAdmission` and `VarkaSessionEmit`
+   now name these types. Only `BIGINT` and `DOUBLE` were timed (2 and section 6). The others are
+   refused by the mechanism, since `x86.ad`'s `vlen == 2` refusal does not depend on the element
+   type and their compares and null tests are the same long-lane masks, and not because their
+   own measurement found a loss.
+5. **The census declines only what the host refused** (corrects 10 item 11). `predicateRow`
+   recorded a predicate row as declined whenever any conjunct was left to the row filter, for
+   any reason. It now records one as declined only where a left conjunct carries the host's
+   reason, and a row that fuses in part for any other reason records its fused kernel's shape,
+   as on master. Regenerated on the laptop: at 128 bits the count stays at 86, all of them the
+   host's reason, so no audited row fuses in part for another reason today, as 10 item 11 had
+   found. Every one of them takes the reason's new wording, and so do the 86 rows of
+   `docs/sql-varka.md`. 256 and 512 bits are unchanged.
+6. **The host refusal is asked only where it is on.** `predicateOnce` had called
+   `VarkaKernelPlan.admit` for every conjunct, whatever the setting. With the refusal off it now
+   runs master's lazy chain, `floatingConjunctRefusal` then `of(...).refusal()`. With it on it
+   asks `admit` first and keeps only a `TWO_LANE_CONDITION`, then that chain, which gives the
+   same answer as before: where the plan refuses, `admit`'s refusal is the plan's own. No
+   admission moved (the catalyst suites and the census are unchanged).
+7. **`VarkaTwoLaneHostCheck.isX86`** asks `VarkaHostIsa.host().x86()` and no longer repeats the
+   architecture list.

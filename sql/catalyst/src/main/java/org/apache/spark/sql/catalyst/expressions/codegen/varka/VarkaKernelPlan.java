@@ -58,7 +58,8 @@ public final class VarkaKernelPlan {
     FLOATING_CONDITION,
     /**
      * A condition root of a kernel driven at a 64-bit lane, {@code LONG} or {@code DOUBLE}, on an
-     * x86 host whose 64-bit species have two lanes and whose masks C2 does not lower: a refusal
+     * x86 host whose 64-bit species have two lanes or fewer and whose masks C2 does not lower
+     * ({@link #TWO_LANE_CONDITION_REASON} names the column types): a refusal
      * of the host, not of the roots, so the compiler asks for it at admission ({@link #admit})
      * and {@link #of} never makes it.
      */
@@ -156,9 +157,9 @@ public final class VarkaKernelPlan {
 
   /** The reason a filter's condition records where {@link #hostRefusal} refuses it. */
   public static final String TWO_LANE_CONDITION_REASON = "a filter's condition in a kernel driven "
-      + "at a 64-bit lane (LONG or DOUBLE), on an x86 host whose 64-bit species have two lanes: "
-      + "C2 lowers no two-lane mask there, and the selection would run the Vector API's Java "
-      + "fallback";
+      + "at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL up to "
+      + "18 digits), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no "
+      + "mask there, and the selection would run the Vector API's Java fallback";
 
   /**
    * Whether {@code host}, read on this JVM, runs every mask of a 64-bit species as the Vector
@@ -233,6 +234,13 @@ public final class VarkaKernelPlan {
    * at 0.4X to 0.7X of the row path at two lanes, with and without nulls, against 1.6X to 2.2X at
    * four ({@code m8/VARKA-503.md} 12). A {@code FLOAT} kernel has four lanes there and is
    * admitted.
+   *
+   * <p>The key being the drive lane, the column types refused are every type the registry reads
+   * on a 64-bit lane ({@link VarkaTypes#lane}): {@code BIGINT}, {@code TIMESTAMP_NTZ},
+   * {@code TIME}, the day-time intervals and a {@code DECIMAL} of up to 18 digits on the long
+   * lane, {@code DOUBLE} on its own. Only {@code BIGINT} and {@code DOUBLE} were timed; the others
+   * are refused by the mechanism, since their compares and null tests are the same long-lane
+   * masks. The zoned {@code TIMESTAMP} is not among them only because no lane reads it yet.
    *
    * <p>Only the condition roots, and not every kernel that makes a long mask, because that is
    * where the measurement put the loss. At two long lanes under {@code -XX:UseAVX=2} the long

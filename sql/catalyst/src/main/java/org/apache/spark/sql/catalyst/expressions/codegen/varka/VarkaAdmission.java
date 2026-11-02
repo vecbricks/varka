@@ -21,8 +21,9 @@ import java.util.Set;
 /**
  * The session settings that decide which conjuncts the predicate compiler admits, as one value
  * every predicate entry point takes: the families switched off (VARKA-318) and whether a filter's
- * condition in a kernel driven at a 64-bit lane, long or {@code DOUBLE}, is refused on an x86
- * host whose 64-bit species have two lanes (VARKA-503, {@link VarkaKernelPlan#admit}). Neither
+ * condition in a kernel driven at a 64-bit lane, a column of any type read on the long or the
+ * {@code DOUBLE} lane, is refused on an x86 host whose 64-bit species have two lanes or fewer
+ * (VARKA-503, {@link VarkaKernelPlan#admit}). Neither
  * is an emit option - neither changes a kernel's bytes -
  * and the compile at planning, EXPLAIN and the filter evaluator's compile in a task must admit
  * alike, so both travel with the plan in sql/core's session record, whose
