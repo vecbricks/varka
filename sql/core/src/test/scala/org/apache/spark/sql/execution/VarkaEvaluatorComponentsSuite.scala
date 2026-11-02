@@ -348,27 +348,29 @@ class VarkaEvaluatorComponentsSuite extends SparkFunSuite {
   }
 
   test("a session's two-lane default comes from the host reading its level comes from") {
-    // VARKA-503 over VARKA-538's reading. Catches: a default read from a second host fact that a
-    // planted host does not move, an aarch64 reading that refuses, and a set value the host
-    // overrides. The lane count is this JVM's, so an x86 reading is held to the kernel plan's
-    // answer for it rather than to a constant.
+    // VARKA-503 over VARKA-538's reading. Catches: a lane test other than "x86 at two long lanes
+    // or fewer", a default read from a second host fact that a planted host does not move, an
+    // aarch64 reading that refuses, and a set value the host overrides. The lane counts are
+    // stated, so each answer is held to a constant and not to the kernel plan's own test.
     val x86 = new VarkaHostIsa.Reading("amd64", "avx, avx2", null)
     val arm = new VarkaHostIsa.Reading("aarch64", "fp, asimd", null)
     val conf = new SQLConf
+    for ((host, lanes, refuses) <- Seq((x86, 1, true), (x86, 2, true), (x86, 4, false),
+        (x86, 8, false), (arm, 2, false))) {
+      assert(VarkaSessionEmit.of(conf, host, lanes).declineTwoLaneConditions === refuses,
+        s"${host.arch} at $lanes long lanes")
+    }
     assert(!VarkaSessionEmit.of(conf, arm).declineTwoLaneConditions)
-    assert(VarkaSessionEmit.of(conf, x86).declineTwoLaneConditions ===
-      VarkaKernelPlan.twoLaneMasksFallBack(x86))
-    assert(VarkaSessionEmit.of(conf, VarkaHostIsa.host()).declineTwoLaneConditions ===
-      VarkaKernelPlan.twoLaneMasksFallBack(VarkaHostIsa.host()))
     VarkaSessionEmit.setHostForTesting(arm)
     try {
       assert(!VarkaSessionEmit.of(conf).declineTwoLaneConditions)
     } finally {
       VarkaSessionEmit.setHostForTesting(null)
     }
-    for (set <- Seq(true, false); host <- Seq(x86, arm)) {
+    for (set <- Seq(true, false); host <- Seq(x86, arm); lanes <- Seq(2, 4)) {
       conf.setConfString(SQLConf.VARKA_DECLINE_TWO_LANE_CONDITIONS.key, set.toString)
-      assert(VarkaSessionEmit.of(conf, host).declineTwoLaneConditions === set, host)
+      assert(VarkaSessionEmit.of(conf, host, lanes).declineTwoLaneConditions === set,
+        s"${host.arch} at $lanes long lanes")
     }
   }
 

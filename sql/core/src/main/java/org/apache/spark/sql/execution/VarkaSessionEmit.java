@@ -21,6 +21,7 @@ import java.io.Serializable;
 import java.util.EnumSet;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.BooleanSupplier;
 
 import javax.annotation.Nullable;
 
@@ -65,8 +66,9 @@ import org.apache.spark.sql.internal.SQLConf;
  *        it beside {@code VarkaColumnarToRowExec.emitOptions}, a predicate's compile inside
  *        {@link #admission()}.
  * @param declineTwoLaneConditions whether a filter's condition in a kernel driven at a 64-bit
- *        lane, long or {@code DOUBLE}, is left to the row engine, as an x86 host whose 64-bit
- *        species have two lanes needs
+ *        lane, as one over a column of any type read on the long or the {@code DOUBLE} lane
+ *        is, is left to the row engine, as an x86 host whose 64-bit species have two lanes or
+ *        fewer needs
  *        ({@code spark.sql.codegen.varka.declineTwoLaneConditions}, VARKA-503; unset, the host's
  *        answer, {@link VarkaKernelPlan#twoLaneMasksFallBack(VarkaHostIsa.Reading)} of the same
  *        reading {@link #USE_AVX_FROM_HOST} resolves from, so a planted host moves both). Not an
@@ -142,6 +144,24 @@ public record VarkaSessionEmit(
    * does the two-lane refusal where the session does not set it.
    */
   static VarkaSessionEmit of(SQLConf conf, VarkaHostIsa.Reading host) {
+    return bind(conf, host, () -> VarkaKernelPlan.twoLaneMasksFallBack(host));
+  }
+
+  /**
+   * The same, with this many lanes in the host's preferred long species in place of this JVM's:
+   * a test's way to state the two-lane default for a host its own JVM is not.
+   */
+  static VarkaSessionEmit of(SQLConf conf, VarkaHostIsa.Reading host, int preferredLongLanes) {
+    return bind(conf, host,
+        () -> VarkaKernelPlan.twoLaneMasksFallBack(host, preferredLongLanes));
+  }
+
+  /**
+   * The binding itself, with the host's two-lane answer asked only where the session does not
+   * set the refusal.
+   */
+  private static VarkaSessionEmit bind(SQLConf conf, VarkaHostIsa.Reading host,
+      BooleanSupplier twoLaneMasksFallBack) {
     Option<Object> exact = conf.varkaEmitExactRefusalStatus();
     var off = EnumSet.noneOf(VarkaFamily.class);
     for (VarkaFamily family : VarkaFamily.values()) {
@@ -153,8 +173,7 @@ public record VarkaSessionEmit(
     int level = conf.varkaEmitUseAVX();
     return new VarkaSessionEmit(level == USE_AVX_FROM_HOST ? resolve(host) : level,
         exact.isDefined() ? (Boolean) exact.get() : null, off,
-        twoLane.isDefined() ? (Boolean) twoLane.get()
-            : VarkaKernelPlan.twoLaneMasksFallBack(host));
+        twoLane.isDefined() ? (Boolean) twoLane.get() : twoLaneMasksFallBack.getAsBoolean());
   }
 
   /**

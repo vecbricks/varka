@@ -162,8 +162,8 @@ public final class VarkaKernelPlan {
 
   /**
    * Whether {@code host}, read on this JVM, runs every mask of a 64-bit species as the Vector
-   * API's Java fallback: {@link #twoLaneMasksFallBack(boolean, int)} of the reading's
-   * architecture and this JVM's preferred long species. The lane count is the running JVM's own,
+   * API's Java fallback: {@link #twoLaneMasksFallBack(VarkaHostIsa.Reading, int)} of the reading
+   * and this JVM's preferred long species. The lane count is the running JVM's own,
    * as the species the kernels are emitted at is, so a planted reading changes the architecture
    * alone; the long species stands for the {@code DOUBLE} one, whose preferred species has as
    * many lanes at every width. The architecture is asked first, so a host that is not x86 answers
@@ -172,12 +172,13 @@ public final class VarkaKernelPlan {
    * lanes itself.
    */
   public static boolean twoLaneMasksFallBack(VarkaHostIsa.Reading host) {
-    return host.x86() && twoLaneMasksFallBack(true, Lane.LONG.preferredLanes);
+    return host.x86() && twoLaneMasksFallBack(host, Lane.LONG.preferredLanes);
   }
 
   /**
-   * Whether a host on x86 or not, with this many lanes in its preferred long species, runs every
-   * mask of a 64-bit species, {@code LONG} or {@code DOUBLE}, as the Vector API's Java fallback.
+   * Whether {@code host}, with this many lanes in its preferred long species, runs every mask of
+   * a 64-bit species, {@code LONG} or {@code DOUBLE}, as the Vector API's Java fallback. Public so
+   * that a test in sql/core can state the answer for a lane count its own JVM does not have.
    *
    * <p>C2 on x86 refuses {@code VectorLoadMask}, {@code VectorStoreMask} and
    * {@code VectorMaskCast} at {@code vlen == 2} whatever the instruction set and whatever the
@@ -186,13 +187,15 @@ public final class VarkaKernelPlan {
    * that allocates ({@code m7/VARKA-374.md} 2: the same 18-fold loss under {@code UseAVX=1},
    * {@code 2} and {@code 3} capped to 16 bytes). So the test is not the AVX level, as
    * {@link VarkaEmitOptions#convertsFallBack} is for the conversions, but "x86 at two 64-bit
-   * lanes", x86 as the host reading's {@code os.arch} names it ({@link VarkaHostIsa#isX86}):
+   * lanes or fewer", x86 as the host reading's {@code os.arch} names it
+   * ({@link VarkaHostIsa#isX86}): under {@code -XX:MaxVectorSize=8} the preferred long species
+   * has one lane, and C2 has no vector of one element to lower its masks to either, while
    * aarch64's back end lowers two-lane masks, and nothing is refused there. The count is the
    * host's preferred species and never an emit option's {@code lanesOverride}, so a suite that
    * emits two long lanes on a wider host still runs them, as answer checks.
    */
-  static boolean twoLaneMasksFallBack(boolean x86, int preferredLongLanes) {
-    return x86 && preferredLongLanes == 2;
+  public static boolean twoLaneMasksFallBack(VarkaHostIsa.Reading host, int preferredLongLanes) {
+    return host.x86() && preferredLongLanes <= 2;
   }
 
   /**

@@ -19,8 +19,6 @@ package org.apache.spark.sql.execution;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
-import java.util.Locale;
-
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaHostIsa;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaKernelPlan;
@@ -45,8 +43,7 @@ final class VarkaTwoLaneHostCheck {
 
   /** Whether this JVM runs on x86, where {@code -XX:UseAVX} and the two-lane refusal apply. */
   static boolean isX86() {
-    String arch = System.getProperty("os.arch").toLowerCase(Locale.ROOT);
-    return arch.equals("amd64") || arch.equals("x86_64");
+    return VarkaHostIsa.host().x86();
   }
 
   /**
