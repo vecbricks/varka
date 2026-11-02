@@ -338,6 +338,16 @@ def lines_of(text, keepends=False):
     return lines
 
 
+def row_keys(text, key_columns):
+    """The keys of a TSV's rows: every line after the leading comments and the header that is
+    not a comment itself."""
+    lines = lines_of(text)
+    n = 0
+    while n < len(lines) and lines[n].startswith("#"):
+        n += 1
+    return {tuple(r.split("\t")[:key_columns]) for r in lines[n + 1 :] if not r.startswith("#")}
+
+
 def merge_tsv(base_text, ours_text, theirs_text, key_columns, owed):
     """The same merge over a TSV's rows. The comment lines and the header are text, merged
     whole: when they differ between two sides that both changed the file, or any side has a
@@ -366,7 +376,19 @@ def merge_tsv(base_text, ours_text, theirs_text, key_columns, owed):
     # change one side made under rows the other side wrote to the old header.
     if oh != th or None in (br, orows, trows):
         owed.add("the file, whose header or comments a side changed")
-        return pick(ours_text, theirs_text)
+        chosen = pick(ours_text, theirs_text)
+        other = theirs_text if chosen is ours_text else ours_text
+        # The regeneration restores the rows the side not taken added, but only if their
+        # suite still has them; so the merge names them, for the developer to check.
+        dropped = sorted(row_keys(other, key_columns) - row_keys(chosen, key_columns))
+        if dropped:
+            print(
+                "varka merge: the merged file drops the other side's rows "
+                + ", ".join("\t".join(k) for k in dropped[:10])
+                + (f" and {len(dropped) - 10} more" if len(dropped) > 10 else ""),
+                file=sys.stderr,
+            )
+        return chosen
     head = oh
     rows = merge_seq(
         br,
@@ -959,6 +981,17 @@ def review_cases(expect, merged):
     )
     heads = [x for x in t.splitlines() if x.startswith("id")]
     expect(len(heads) == 1 and o, f"3: header lines merged as rows: {t!r} {o}")
+    # 26. One side renames a column, the other adds a row: the file is owed and written from
+    # the renaming side, and the row it drops is named on stderr, in both orders.
+    renamed, added = "id\ta\nA\t1\n", "id\tx\nA\t1\nB\t1\n"
+    for a, b in ((renamed, added), (added, renamed)):
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            t, o = merged("types.tsv", "id\tx\nA\t1\n", a, b)
+        expect(
+            t == "id\ta\nA\t1\n" and o and "drops the other side's rows B" in err.getvalue(),
+            f"26: the rows a header change dropped were not named: {t!r} {err.getvalue()!r}",
+        )
     # 3. Both sides add a different comment line: owed, not a union of the two.
     t, o = merged("types.tsv", "# c\nid\tx\n", "# c\n# d\nid\tx\n", "# c\n# e\nid\tx\n")
     expect(not ("# d" in t and "# e" in t) and o, f"3: comment lines merged as a set: {t!r}")
