@@ -506,6 +506,12 @@ Steps 3 and 6 of the list above; step 2 moves to 343b (below).
 - **Moved to 343b**: the census cells of step 2 (the `F2L` cell, the double arithmetic, the
   reinterpretations and the long shifts by a vector count), which only the AVX2 forms read.
 
+The floating cast baseline marks the casts to a floating type as fusing whole (a `BIGINT`'s only
+where the host has AVX512DQ) and the boolean filter as not fusing: *correction (2 November 2026)*,
+it was first listed as fusing, which the boolean fuse check passed; under the per-section fusion
+class master gained (#1258) its plan holds no Varka node, since `coalesce(CAST(x AS BOOLEAN),
+false)` does not compile as a condition, though `CAST(x AS BOOLEAN)` alone does.
+
 The prediction of 4.1 for the new shapes and 4.3's timings wait for the measurement against the
 baseline (step 8); none was run here.
 

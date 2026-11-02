@@ -50,9 +50,10 @@ import org.apache.spark.sql.internal.SQLConf;
  * each section's plan on the Varka session against the section's {@link Fusion} class, the
  * record of how much of it a row has fused, and fails when the plan's class differs
  * ({@link VarkaSqlBenchmarkBase#requireBaseline(SparkSession, String, String, Fusion)}); the
- * results file notes each section that fuses. The casts to a floating type and the boolean
- * filter are {@code WHOLE} since row 343's first part fuses them, a BIGINT's where the host has
- * AVX512DQ; every other section is {@code NONE}. The filter's condition is the cast under
+ * results file notes each section that fuses. The casts to a floating type are {@code WHOLE}
+ * since row 343's first part fuses them, a BIGINT's where the host has AVX512DQ; every other
+ * section is {@code NONE}, the boolean filter among them, since a {@code coalesce} over a
+ * condition does not compile as one. The filter's condition is the cast under
  * {@code coalesce} rather than the bare cast: from a bare
  * {@code WHERE CAST(x AS BOOLEAN)} the optimizer infers {@code x IS NOT NULL}, since the cast is
  * null-intolerant, and that conjunct alone fuses into a {@code VarkaFilterColumnarToRow} under
@@ -192,7 +193,7 @@ public class VarkaFloatingCastBaselineBenchmark extends VarkaSqlBenchmarkBase {
           "SELECT CAST(" + x + " AS FLOAT)" + from, Map.of(), Fusion.WHOLE));
       out.add(new Section("DOUBLE filter coalesce(CAST(x AS BOOLEAN), false)" + density,
           "SELECT " + x + from + " WHERE coalesce(CAST(" + x + " AS BOOLEAN), false)", Map.of(),
-          Fusion.WHOLE));
+          Fusion.NONE));
       out.add(new Section("DOUBLE time_from_seconds(s)" + density,
           "SELECT time_from_seconds(" + s + ")" + from, time, Fusion.NONE));
     }
