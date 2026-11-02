@@ -611,8 +611,12 @@ false)` does not compile as a condition, though `CAST(x AS BOOLEAN)` alone does.
   `VarkaDifferentialHarnessSuite` runs `CAST(l AS DOUBLE)`, `CAST(l AS FLOAT)`, `x - l` and
   `CAST(l AS DOUBLE) + 1.5D` at level 3 over the extremes and values past 2^53 and 2^24 against
   the row engine; `drivesLong`'s doc in `CompiledVarkaProjection` states the two facts it rests on.
-  Under `useAVX=3` the `BIGINT` conformance suite's cast row fails by design, since the register
-  marks the two casts declined at the defaults' level, and `skips.tsv` says so.
+  *Corrections after review:* the harness routes a `ConvertLane` to the two-lane checker,
+  `MixedLane` reads a `BOOLEAN` column's bits, and the IR completeness suites gained `ConvertLane`
+  rows; the conformance suites take the two casts as fused where the options admit them
+  (`CastPair.fusedIn`), so the `BIGINT` cast row checks them in LEGACY, ANSI and TRY at level 3
+  and its `skips.tsv` line is gone; and `VarkaEmittedBytesSuite` asserts level 3's digest equals
+  the unknown level's at both widths, which holds while no oracle shape holds the conversion.
 
 *Open for 343b:* `coalesce(CAST(x AS BOOLEAN), false)` does not compile as a condition. Row
 331's `CondIf` fuses `coalesce` over boolean columns, but a cast to `BOOLEAN` is not taken as a

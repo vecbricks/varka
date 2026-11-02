@@ -392,8 +392,9 @@ class VarkaEmittedBytesSuite extends SparkFunSuite with VarkaTestWatchdog {
    *
    * Level 3 is pinned beside them. Over the oracle's shapes it emits the defaults' bytes, since
    * none of them holds the `BIGINT` conversion to `FLOAT` or `DOUBLE` that only level 3 admits,
-   * so its digest shows that it divides as an unstated level does. The option matrix runs it
-   * anyway, for the shapes the unknown level declines (`VarkaMatrixRuns.emissionKey`).
+   * and the folded-arms test below asserts that equality at both widths: level 3 divides as an
+   * unstated level does. The option matrix runs it anyway, for the shapes the unknown level
+   * declines (`VarkaMatrixRuns.emissionKey`).
    *
    * Beside them, both values of each option the defaults never reach, over the options under
    * which it acts (`VarkaEmitOption.Subject`, VARKA-247): `validityOrFirst` orders a per-group
@@ -715,6 +716,15 @@ class VarkaEmittedBytesSuite extends SparkFunSuite with VarkaTestWatchdog {
     widths.foreach { w =>
       assert(armDigest(_.withUseAVX(level), w) !== armDigest(identity, w),
         s"useAVX=$level emits the defaults' bytes at $w lanes")
+    }
+    // Level 3 keys apart from the unknown level only by the BIGINT conversions to FLOAT and
+    // DOUBLE it admits, and no oracle shape holds one, so over the oracle the two emit the same
+    // bytes. The day such a shape joins the oracle, the unknown level records its refusal and
+    // level 3 its bytes, and this must narrow to the shapes both admit.
+    widths.foreach { w =>
+      assert(armDigest(_.withUseAVX(3), w) ===
+        armDigest(_.withUseAVX(VarkaEmitOptions.USE_AVX_UNKNOWN), w),
+        s"useAVX=3 emits other bytes than the unknown level at $w lanes")
     }
   }
 
