@@ -137,8 +137,12 @@ clone's config, which every worktree shares:
   a real one and is left with its markers.
 - **What is owed** goes to stderr during the merge and to `$(git rev-parse --git-path
   varka-regen-owed)`, each entry tagged with the merge that owed it (the commit merged into and
-  the commit merged in), so an aborted merge's entries are never read; a file whose only debt is
-  the census goes on no list, since the census runs last on every regeneration.
+  the commit merged in), so an aborted merge's entries are never read. A squash merge,
+  cherry-pick, revert or rebase is read while it is uncommitted or stopped on a conflict; the
+  comment above `owed_live` names the debt no state in the repository records (those operations
+  once committed, `stash pop`, `checkout -m`), for which the stderr line is the record. A file
+  whose only debt is the census goes on no list, since the census runs last on every
+  regeneration.
   `dev/varka_regen_generated.sh` reads the live entries (`--owed`) and runs only the owed
   steps, in the documented order (types and casts, coverage, width audit, bytes, coverage again,
   the census), under `flock` on a heavy slot with `SPARK_LOCAL_IP=127.0.0.1`, refusing the width
