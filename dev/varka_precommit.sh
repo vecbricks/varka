@@ -229,12 +229,12 @@ if [ "${1:-}" = "--install-hook" ]; then
   # The merge driver for the generated files (VARKA-546), which sql/varka/.gitattributes names.
   # It finds the script through the worktree's top (the directory itself where git has none),
   # so it runs the script of the branch being merged into; a branch that predates the script
-  # falls back to git's own text merge, with a warning. git shell-quotes %O %A %B %P itself,
-  # so %P stays outside the warning's quotes. The inner merges of a criss-cross merge (merge
-  # bases that are merged first) take the text merge, never the driver, since their result is
-  # only a base. The docs file sits outside sql/varka, and a docs/.gitattributes would not be
-  # Varka-scoped, so its rule goes to the repository's info/attributes, which every worktree
-  # reads.
+  # falls back to git's own text merge, with a warning. git shell-quotes the repository path %P
+  # itself (the temporary files %O %A %B have plain names), so %P stays outside the warning's
+  # quotes. The inner merges of a criss-cross merge (merge bases that are merged first) take
+  # the text merge, never the driver, since their result is only a base. The docs file sits
+  # outside sql/varka, and a docs/.gitattributes would not be Varka-scoped, so its rule goes to
+  # the repository's info/attributes, which every worktree reads.
   git config merge.varka-generated.name "Varka generated files, merged per key"
   driver='s="$(git rev-parse --show-toplevel 2>/dev/null || pwd)/dev/varka_generated_merge.py";'
   driver+=' if [ -x "$s" ]; then "$s" driver %O %A %B %P; else'
