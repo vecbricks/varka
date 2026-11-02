@@ -75,7 +75,7 @@ class VarkaKernelEvaluatorSuite extends QueryTest with SharedSparkSession with V
       projectList: Seq[NamedExpression] = mixedList,
       classDumpDirectory: Option[String] = None): VarkaKernelEvaluator =
     new VarkaKernelEvaluator(projectList, childOutput, false, "Test", classDumpDirectory,
-      VarkaExecMetrics.NONE, VarkaSessionEmit.DEFAULTS, false)
+      VarkaExecMetrics.NONE, VarkaSessionEmit.DEFAULTS, false, false)
 
   /** Runs `body` inside an empty task context with a private Arrow child allocator. */
   private def withTask(body: (ColumnarBatch, () => Unit) => Unit): Unit = {
@@ -265,7 +265,7 @@ class VarkaKernelEvaluatorSuite extends QueryTest with SharedSparkSession with V
       val byDefault = evaluator()
       byDefault.release(byDefault.project(input))
       val atTwo = new VarkaKernelEvaluator(mixedList, childOutput, false, "Test", None,
-        VarkaExecMetrics.NONE, new VarkaSessionEmit(2, false), false)
+        VarkaExecMetrics.NONE, new VarkaSessionEmit(2, false), false, false)
       atTwo.release(atTwo.project(input))
       val defaultBytes = byDefault.emittedClassBytes.get
       val level2Bytes = atTwo.emittedClassBytes.get

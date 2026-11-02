@@ -163,7 +163,8 @@ case class VarkaColumnarToRowExec(
       longMetric("numInputBatches"),
       varkaMetrics,
       sessionEmit = sessionEmit,
-      warmupEnabled = conf.varkaWarmupEnabled)
+      warmupEnabled = conf.varkaWarmupEnabled,
+      readsArrowCache = VarkaColumnarRule.readsArrowCache(child))
     if (conf.usePartitionEvaluator) {
       child.executeColumnar().mapPartitionsWithEvaluator(evaluatorFactory)
     } else {
@@ -288,7 +289,8 @@ private[sql] class VarkaColumnarToRowEvaluatorFactory(
     numInputBatches: SQLMetric,
     varkaMetrics: VarkaExecMetrics,
     sessionEmit: VarkaSessionEmit = VarkaSessionEmit.DEFAULTS,
-    warmupEnabled: Boolean = false)
+    warmupEnabled: Boolean = false,
+    readsArrowCache: Boolean = false)
     extends PartitionEvaluatorFactory[ColumnarBatch, InternalRow] with Logging {
 
   override def createEvaluator(): PartitionEvaluator[ColumnarBatch, InternalRow] = {
@@ -321,7 +323,7 @@ private[sql] class VarkaColumnarToRowEvaluatorFactory(
 
     private val kernels = new VarkaKernelEvaluator(
       projectList, childOutput, offHeapColumnVectorEnabled, "ProjectToRow",
-      classDumpDirectory, varkaMetrics, sessionEmit, warmupEnabled)
+      classDumpDirectory, varkaMetrics, sessionEmit, warmupEnabled, readsArrowCache)
 
     // Merge-at-row (see 2.3): for a projection with forwarded or residual entries the
     // kernels produce only the fused columns, and this projection - over the input row joined
@@ -380,7 +382,7 @@ private[sql] class VarkaColumnarToRowEvaluatorFactory(
     }
 
     private def fallback(input: ColumnarBatch): Iterator[InternalRow] = {
-      input.rowIterator().asScala.map(row => fallbackProjection(inputRows(row)))
+      kernels.inputRows(input).asScala.map(row => fallbackProjection(inputRows(row)))
     }
 
     private def runKernels(input: ColumnarBatch): Iterator[InternalRow] = {
@@ -398,7 +400,7 @@ private[sql] class VarkaColumnarToRowEvaluatorFactory(
             // Every entry fused: the fused batch is the whole output.
             fusedBatch.rowIterator().asScala.map(toRow)
           case Some(merge) =>
-            val inputRows = input.rowIterator()
+            val inputRows = kernels.inputRows(input)
             val fusedRows = fusedBatch.rowIterator()
             val joined = new JoinedRow
             new Iterator[InternalRow] {

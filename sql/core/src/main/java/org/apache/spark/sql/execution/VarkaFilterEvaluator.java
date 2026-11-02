@@ -110,18 +110,23 @@ public class VarkaFilterEvaluator extends VarkaEvaluatorBase {
       Option<String> classDumpDirectory,
       VarkaExecMetrics metrics,
       VarkaSessionEmit sessionEmit,
-      boolean warmupEnabled) {
-    super(childOutput, operatorName, classDumpDirectory, metrics, sessionEmit, warmupEnabled);
+      boolean warmupEnabled,
+      boolean readsArrowCache) {
+    super(childOutput, operatorName, classDumpDirectory, metrics, sessionEmit, warmupEnabled,
+        readsArrowCache);
     this.condition = condition;
     this.offHeapColumnVectorEnabled = offHeapColumnVectorEnabled;
   }
 
-  /** The defaults a suite or diagnostic builds with: no class dump, no metrics, no warm-up. */
+  /**
+   * The defaults a suite or diagnostic builds with: no class dump, no metrics, no warm-up, and
+   * the input's rows read as they are.
+   */
   public VarkaFilterEvaluator(
       Expression condition, Seq<Attribute> childOutput, boolean offHeapColumnVectorEnabled,
       String operatorName) {
     this(condition, childOutput, offHeapColumnVectorEnabled, operatorName, Option.empty(),
-        VarkaExecMetrics.NONE, VarkaSessionEmit.DEFAULTS, false);
+        VarkaExecMetrics.NONE, VarkaSessionEmit.DEFAULTS, false, false);
   }
 
   private CompiledVarkaPredicate predicate() {
@@ -365,7 +370,7 @@ public class VarkaFilterEvaluator extends VarkaEvaluatorBase {
         : OnHeapColumnVector.allocateColumns(rows, genericSchema);
     owned.addAll(Arrays.asList(vectors));
     if (count > 0) {
-      Iterator<InternalRow> source = input.rowIterator();
+      Iterator<InternalRow> source = inputRows(input);
       int i = 0;
       while (source.hasNext()) {
         InternalRow row = source.next();

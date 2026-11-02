@@ -116,7 +116,7 @@ class VarkaVectorProjectionSuite extends SparkFunSuite with VarkaTestWatchdog {
       val converter = new RowToColumnConverter(DataTypeUtils.fromAttributes(outputSchema))
       val it = input.rowIterator()
       while (it.hasNext) converter.convert(unsafe(it.next()), expected)
-      assert(projection.project(input, actual) == rows)
+      assert(projection.project(input.rowIterator(), actual) == rows)
       for (c <- outputSchema.indices) {
         val name = outputSchema(c).name
         for (r <- 0 until rows) {

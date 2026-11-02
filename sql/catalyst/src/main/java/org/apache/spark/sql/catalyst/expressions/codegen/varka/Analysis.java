@@ -354,9 +354,13 @@ final class Analysis {
     VALUE_RANGE(Family.REARMED, true, VarkaFusedKernel.STATUS_VALUE_RANGE),
     /**
      * {@link DecimalColumn}: a valid slot whose high word is not its low word's sign, or whose
-     * value has more digits than the precision, which Spark's column reader raises on
-     * (VARKA-347). Unconditional, as the range guards are: without it the leaf would compute
-     * where Spark raises. It parks its low words while it compares them.
+     * value has more digits than the precision (VARKA-347). Spark's answer on such a slot depends
+     * on its read path: the Arrow cache's row reader takes the low word unchecked, while
+     * {@code ArrowColumnVector}'s accessor raises. The declined batch goes to the fallback, which
+     * reads the low word over the cache and through the accessor over any other source
+     * (VARKA-365, with one known limit there), so the kernel never computes over a slot that
+     * Spark may raise on. Unconditional, as the range guards are. It parks its low words while
+     * it compares them.
      */
     DECIMAL_SLOT(Family.REARMED, true, VarkaFusedKernel.STATUS_DECIMAL_SLOT);
 
