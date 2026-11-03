@@ -272,29 +272,45 @@ public final class VarkaDecimalArithmeticSuite {
   }
 
   @Test
-  @DisplayName("a sum past 38 digits declines naming rows 360 and 363, and a cast, a negation or "
-      + "a choice over a sum or a product past 18 digits names that node's row")
+  @DisplayName("a sum past 38 digits declines naming rows 360 and 363 and a product rows 362 and "
+      + "363, and a cast, a negation or a choice over wide values names every one's rows, in "
+      + "either operand order")
   void wideArithmeticReasons() {
     var widest = new DecimalType(38, 0);
-    for (Op op : List.of(Op.ADD, Op.SUB)) {
+    for (Op op : Op.values()) {
       String reason = declineOf(op, widest, widest);
-      assertTrue(reason.contains("rows 360 and 363"), () -> op.sql + ": " + reason);
+      String want = op == Op.MUL ? "rows 362 and 363" : "rows 360 and 363";
+      assertTrue(reason.contains(want), () -> op.sql + ": " + reason);
     }
     List<Attribute> columns = List.of(VarkaSqlResolve.column("a", new DecimalType(9, 2)),
         VarkaSqlResolve.column("b", new DecimalType(9, 2)),
         VarkaSqlResolve.column("x", new DecimalType(18, 2)),
-        VarkaSqlResolve.column("y", new DecimalType(18, 2)));
+        VarkaSqlResolve.column("y", new DecimalType(18, 2)),
+        VarkaSqlResolve.column("c", new DecimalType(9, 1)),
+        VarkaSqlResolve.column("e", new DecimalType(10, 1)),
+        VarkaSqlResolve.column("d", new DecimalType(20, 2)));
     for (String[] pair : new String[][] {
         // Each literal is of the node's scale, so that no rescale of it names rows 359 and 360.
         {"CAST(a * b AS DECIMAL(20, 4)) > 0.0000", "row 361"},
         {"-(x + y) > 0.00", "row 360"},
-        {"IF(a > b, x + y, x) > 0.00", "row 360"}}) {
-      Expression e = VarkaSqlResolve.parse(pair[0], seq(columns));
-      List<VarkaConjunctSpec> specs = VarkaExpressionCompiler.explainPredicate(e, seq(columns),
-          VarkaMatrixRuns.BASE, VarkaAdmission.NO_HOST_REFUSAL);
-      String reason = specs.get(0).decline().map(d -> d.reason()).orElse("fused");
+        {"CAST(x + y AS DECIMAL(19, 1)) > 0.0", "rows 350 and 360"},
+        {"IF(a > b, x + y, x) > 0.00", "rows 359 and 360"},
+        {"COALESCE(d, x + y) > 0.00", "rows 359 and 360"},
+        {"IF(a > b, x + y, c * e) > 0.00", "rows 360 and 361"},
+        {"IF(a > b, c * e, x + y) > 0.00", "rows 360 and 361"}}) {
+      String reason = predicateDecline(pair[0], columns);
       assertTrue(reason.contains(pair[1]), () -> pair[0] + ": " + reason);
     }
+    assertEquals(predicateDecline("IF(a > b, x + y, c * e) > 0.00", columns),
+        predicateDecline("IF(a > b, c * e, x + y) > 0.00", columns));
+  }
+
+  /** The decline reason of the one conjunct {@code sql} parses to, or "fused". */
+  private static String predicateDecline(String sql, List<Attribute> columns) {
+    Expression e = VarkaSqlResolve.parse(sql, seq(columns));
+    List<VarkaConjunctSpec> specs = VarkaExpressionCompiler.explainPredicate(e, seq(columns),
+        VarkaMatrixRuns.BASE, VarkaAdmission.NO_HOST_REFUSAL);
+    return specs.get(0).decline().map(d -> d.reason()).orElse("fused");
   }
 
   @Test
