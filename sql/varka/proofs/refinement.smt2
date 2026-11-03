@@ -4414,7 +4414,7 @@
 (check-sat)
 (pop 1)
 
-(echo "try_add(d9, d9b) > d18, the same sum in TRY mode, Spark mode LEGACY and TRY: null past the result's precision: 1. the precondition admits a valid lane the specification defines and the kernel answers: expect sat")
+(echo "try_add(d9, d9b) > d18, the same sum in TRY mode, Spark mode TRY: null past the result's precision: 1. the precondition admits a valid lane the specification defines and the kernel answers: expect sat")
 (push 1)
 (declare-const a Int) (declare-const va Bool)
 (assert (jlong.in a))
@@ -4430,7 +4430,7 @@
 (check-sat)
 (pop 1)
 
-(echo "try_add(d9, d9b) > d18, the same sum in TRY mode, Spark mode LEGACY and TRY: null past the result's precision: 2. a decline wherever the specification raises: expect unsat")
+(echo "try_add(d9, d9b) > d18, the same sum in TRY mode, Spark mode TRY: null past the result's precision: 2. a decline wherever the specification raises: expect unsat")
 (push 1)
 (declare-const a Int) (declare-const va Bool)
 (assert (jlong.in a))
@@ -4444,7 +4444,7 @@
 (check-sat)
 (pop 1)
 
-(echo "try_add(d9, d9b) > d18, the same sum in TRY mode, Spark mode LEGACY and TRY: null past the result's precision: 3. the validity equal where neither raises nor declines: expect unsat")
+(echo "try_add(d9, d9b) > d18, the same sum in TRY mode, Spark mode TRY: null past the result's precision: 3. the validity equal where neither raises nor declines: expect unsat")
 (push 1)
 (declare-const a Int) (declare-const va Bool)
 (assert (jlong.in a))
@@ -4459,7 +4459,7 @@
 (check-sat)
 (pop 1)
 
-(echo "try_add(d9, d9b) > d18, the same sum in TRY mode, Spark mode LEGACY and TRY: null past the result's precision: 4. the values equal on valid lanes: expect unsat")
+(echo "try_add(d9, d9b) > d18, the same sum in TRY mode, Spark mode TRY: null past the result's precision: 4. the values equal on valid lanes: expect unsat")
 (push 1)
 (declare-const a Int) (declare-const va Bool)
 (assert (jlong.in a))
@@ -4475,7 +4475,7 @@
 (check-sat)
 (pop 1)
 
-(echo "try_add(d9, d9b) > d18, the same sum in TRY mode, Spark mode LEGACY and TRY: null past the result's precision: 5. a decline only where the specification raises or the input leaves the bound: expect unsat")
+(echo "try_add(d9, d9b) > d18, the same sum in TRY mode, Spark mode TRY: null past the result's precision: 5. a decline only where the specification raises or the input leaves the bound: expect unsat")
 (push 1)
 (declare-const a Int) (declare-const va Bool)
 (assert (jlong.in a))
