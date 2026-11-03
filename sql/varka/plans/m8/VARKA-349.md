@@ -218,7 +218,7 @@ with it.
 | `CheckOverflow` to a smaller scale | 350 |
 | `CheckOverflow` above precision 18 | 359 and 360 |
 | an integral operand (`CAST(i AS DECIMAL(10, 0))`) | 350; a `BIGINT`'s `(20, 0)` widens the node past 18 digits, which names the wide operand's rows above |
-| a cast, a negation, a choice or a pick over a sum or product above 18 digits | the node's row (360 or 361 and above), or 359 and 360 where a rescale into the wide type is needed too |
+| a cast, a negation, a choice or a pick over a sum or product above 18 digits | the node's row (360 or 361 and above), or 359 and 360 where a rescale into the wide type is needed too; over several wide values, the union of their rows in ascending order (a wide value with no arithmetic under it names 359), with 350 for a cast that lowers the scale or the integral digits |
 | `/`, `div`, `try_divide` over decimals | the owner's decision of 14 October 2026 |
 
 ### 2.7 At 128 bits, the compiler, the reference
@@ -600,10 +600,11 @@ name 349.
 `DECIMAL`, the result scales of `+`, `-` and `*` from SQL-92 6.12 SR 2 and their exact values,
 which the refinement section restates.
 
-**Test time, on the laptop.** `VarkaDecimalArithmeticSuite` took 4.8 s when first measured, and its 12 tests since the high review 9.0 s in one run beside other JVMs, the sweep
-among them; the bytes oracle's new test under a second; the IR fuzzer's own JVM ran its decimal
-sequence's 300 draws in 2 minutes 47 seconds with the three arithmetic picks, against 348a's
-2 minutes 45 seconds for the whole suite's JVM, a run each, so no cost is read from the pair.
+**Test time, on the laptop.** `VarkaDecimalArithmeticSuite` took 4.8 s when first measured, and its
+12 tests since the high review 9.0 s in one run beside other JVMs, the sweep among them; the bytes
+oracle's new test under a second; the IR fuzzer's own JVM ran its decimal sequence's 300 draws in 2
+minutes 47 seconds with the three arithmetic picks, against 348a's 2 minutes 45 seconds for the
+whole suite's JVM, a run each, so no cost is read from the pair.
 
 **Prediction 6, scored.** No existing shape's bytes moved: against 348a's branch the oracle's 22
 changed entries are all `option_arms` digests and nothing was removed. The digests moved with the
@@ -684,11 +685,12 @@ new coverage rows, which each digest covers, and not with a flag, since none was
   precision plus `k` for each `IntArith(MUL, x, LiteralSlot)` whose slot holds `10^k`, held to
   `P - 1` at every `ADD`, `SUB` and two-operand `MUL`; a pair whose IR has no such site fails.
 - **Departure: the product's ring layer multiplies two unknowns.** Section 3 item 5 planned the
-  bound on an exact product as an instance of `value_range.smt2`'s multiply lemma over the reals,
-  so that no query multiplies two unknowns. `decimal64.smt2` asks it directly instead, one check
-  per `p1 + p2` below 18 (136 of them) over two unknown `Int`s under `QF_NIA`: `|x| <= m1` and
-  `|y| <= m2` give `|x * y| <= m1 * m2`. Both pinned solvers, Z3 5.1.0 and cvc5 1.4.1, proved
-  the file's 550 checks in under two seconds, before the review's four neighbours. The risk is that nonlinear integer arithmetic has no decision
-  procedure, so a later solver version may answer `unknown`; `dev/varka_prove.sh` fails on any
-  verdict other than the expected one, so that would show as a failed proof, not a silent pass,
-  and the fix is the planned instantiation of the lemma.
+  bound on an exact product as an instance of `value_range.smt2`'s multiply lemma over the reals, so
+  that no query multiplies two unknowns. `decimal64.smt2` asks it directly instead, one check per
+  `p1 + p2` below 18 (136 of them) over two unknown `Int`s under `QF_NIA`: `|x| <= m1` and
+  `|y| <= m2` give `|x * y| <= m1 * m2`. Both pinned solvers, Z3 5.1.0 and cvc5 1.4.1, proved the
+  file's 550 checks in under two seconds, before the review's four neighbours. The risk is that
+  nonlinear integer arithmetic has no decision procedure, so a later solver version may answer
+  `unknown`; `dev/varka_prove.sh` fails on any verdict other than the expected one, so that would
+  show as a failed proof, not a silent pass, and the fix is the planned instantiation of the
+  lemma.
