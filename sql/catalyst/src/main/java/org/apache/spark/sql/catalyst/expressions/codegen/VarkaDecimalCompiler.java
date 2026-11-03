@@ -183,10 +183,16 @@ final class VarkaDecimalCompiler {
    * Why a value of {@code type}, wider than the long lane, declines: the wide representation is
    * row 359's, and a cast that rescales into it, the one coercion puts over the operand of the
    * smaller scale or over a choice's branch of the smaller scale, needs row 360's wide rescale as
-   * well.
+   * well, and a cast over that rescale which lowers the scale or the integral digits row 350's
+   * too.
    */
   private static String wideReason(Expression e, DecimalType type) {
     if (rescalesUp(e, type)) {
+      if (lowersOverRescale(e)) {
+        return "a decimal cast that lowers the scale or the integral digits is row 350's, over "
+            + "a rescale to a decimal wider than " + MAX_PRECISION + " digits, rows 359 and "
+            + "360's";
+      }
       return "a rescale to a decimal wider than " + MAX_PRECISION + " digits is rows 359 and "
           + "360's";
     }
@@ -195,14 +201,16 @@ final class VarkaDecimalCompiler {
 
   /**
    * Whether {@code e}, of {@code type}, rescales up into a type wider than 18 digits: a cast to it
-   * from a decimal of a smaller scale, or a cast that keeps the scale, a choice or a pick over a
-   * wide value that does - {@code IF(p, d18, d9s4)} at {@code DECIMAL(22, 4)} casts its
-   * {@code d18} branch up by two digits of scale.
+   * from a decimal of a smaller scale, or any other cast, a negation, an {@code abs}, a choice or a
+   * pick over a wide value that does - {@code IF(p, d18, d9s4)} at {@code DECIMAL(22, 4)} casts
+   * its {@code d18} branch up by two digits of scale, and {@code -IF(p, d18, d9s4)} negates that.
    */
   private static boolean rescalesUp(Expression e, DecimalType type) {
     return switch (e) {
       case Cast c when c.child().dataType() instanceof DecimalType from ->
           from.scale() < type.scale() || rescalesIntoWide(c.child());
+      case UnaryMinus m -> rescalesIntoWide(m.child());
+      case Abs a -> rescalesIntoWide(a.child());
       case If _, CaseWhen _, Coalesce _, Greatest _, Least _ -> {
         for (Expression child : CollectionConverters.asJava(e.children())) {
           if (rescalesIntoWide(child)) {
@@ -213,6 +221,37 @@ final class VarkaDecimalCompiler {
       }
       default -> false;
     };
+  }
+
+  /**
+   * Whether, on the path {@link #rescalesUp} walks in {@code e}, a cast that lowers the scale or
+   * the integral digits sits at or over the rescale - {@code CAST(IF(p, d18s2, d9s4) AS
+   * DECIMAL(20, 2))} lowers by two digits of scale the choice whose branch was rescaled up - so
+   * that the cast is row 350's beside the wide rescale.
+   */
+  private static boolean lowersOverRescale(Expression e) {
+    return switch (e) {
+      case Cast c when c.child().dataType() instanceof DecimalType from
+          && c.dataType() instanceof DecimalType to ->
+          (!keepsDigits(from, to) && rescalesUp(c, to)) || wideLowersOverRescale(c.child());
+      case UnaryMinus m -> wideLowersOverRescale(m.child());
+      case Abs a -> wideLowersOverRescale(a.child());
+      case If _, CaseWhen _, Coalesce _, Greatest _, Least _ -> {
+        for (Expression child : CollectionConverters.asJava(e.children())) {
+          if (wideLowersOverRescale(child)) {
+            yield true;
+          }
+        }
+        yield false;
+      }
+      default -> false;
+    };
+  }
+
+  /** {@link #lowersOverRescale} of {@code e} where it is a decimal wider than 18 digits. */
+  private static boolean wideLowersOverRescale(Expression e) {
+    return e.dataType() instanceof DecimalType t && t.precision() > MAX_PRECISION
+        && lowersOverRescale(e);
   }
 
   /** Whether {@code e} is a decimal wider than 18 digits that {@link #rescalesUp} into. */
@@ -308,7 +347,8 @@ final class VarkaDecimalCompiler {
 
   /**
    * {@code child IS NOT NULL} over a decimal value, or empty with the reason noted: the value is
-   * compiled, so a form no arm builds declines, and its validity is then derived from the leaves
+   * compiled under every cast over it that only widens its precision ({@link #stripWidening}),
+   * so a form no arm builds declines, and its validity is then derived from the leaves
    * by {@link #valid}, since an IR null test reads a column's word or a condition's known-ness and
    * never a computed value's word. Every leaf of the value is a leaf of the test, so its slots are
    * still loaded and checked, on every lane: Spark's {@code IS NULL} evaluates its child, which
@@ -332,6 +372,9 @@ final class VarkaDecimalCompiler {
    */
   static Optional<Cond> nullTested(Expression child, VarkaSlotTable inputs,
       VarkaSlotTable literals, DeclineSink sink) {
+    // Read before the probe, whose width check would otherwise decline a widening cast to more
+    // than 18 digits over a value the long lane holds.
+    Expression tested = stripWidening(child);
     sink.enterDecimal();
     try {
       int inputMark = inputs.size();
@@ -340,7 +383,7 @@ final class VarkaDecimalCompiler {
       boolean wasProbe = sink.decimalProbe(true);
       Optional<Scaled> probed;
       try {
-        probed = value(child, inputs, literals, sink);
+        probed = value(tested, inputs, literals, sink);
       } finally {
         sink.decimalProbe(wasProbe);
       }
@@ -350,7 +393,7 @@ final class VarkaDecimalCompiler {
       if (probed.isEmpty()) {
         return Optional.empty();
       }
-      return valid(child, inputs, literals, sink);
+      return valid(tested, inputs, literals, sink);
     } finally {
       sink.exitDecimal();
     }
@@ -616,12 +659,37 @@ final class VarkaDecimalCompiler {
           + " to a decimal is row 350's", c);
     }
     int k = to.scale() - from.scale();
-    if (k < 0 || to.precision() - to.scale() < from.precision() - from.scale()) {
+    if (!keepsDigits(from, to)) {
       return sink.decline("a decimal cast that lowers the scale or the integral digits rounds "
           + "or can overflow, and is row 350's", c);
     }
     return value(c.child(), inputs, literals, sink)
         .map(x -> new Scaled(rescale(x, k, sink).unscaled(), to));
+  }
+
+  /**
+   * Whether a cast from {@code from} to {@code to} keeps the scale or raises it and keeps every
+   * integral digit, so that it multiplies by {@code 10^(S - s)} and cannot round or overflow.
+   */
+  private static boolean keepsDigits(DecimalType from, DecimalType to) {
+    return to.scale() >= from.scale()
+        && to.precision() - to.scale() >= from.precision() - from.scale();
+  }
+
+  /**
+   * {@code e} under every cast over it that keeps the scale and only widens the precision. Such a
+   * cast multiplies by nothing and cannot null or fail in any mode, so a null test reads through
+   * it: {@code CAST(d18 AS DECIMAL(20, 0)) IS NULL} is {@code d18}'s null test, though the cast's
+   * type is past the long lane.
+   */
+  private static Expression stripWidening(Expression e) {
+    Expression at = e;
+    while (at instanceof Cast c && c.dataType() instanceof DecimalType to
+        && c.child().dataType() instanceof DecimalType from
+        && to.scale() == from.scale() && to.precision() >= from.precision()) {
+      at = c.child();
+    }
+    return at;
   }
 
   /** The leaf of a decimal column on the long lane, its precision the column's. */

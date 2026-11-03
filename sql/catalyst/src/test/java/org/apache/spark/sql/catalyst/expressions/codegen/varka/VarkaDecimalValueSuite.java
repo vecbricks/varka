@@ -40,11 +40,13 @@ import org.junit.jupiter.api.Test;
 
 import org.apache.spark.sql.catalyst.expressions.Attribute;
 import org.apache.spark.sql.catalyst.expressions.Expression;
+import org.apache.spark.sql.catalyst.expressions.GenericInternalRow;
 import org.apache.spark.sql.catalyst.expressions.codegen.CompiledVarkaPredicate;
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaConjunctSpec;
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaExpressionCompiler;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LaneType;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LiteralSlot;
+import org.apache.spark.sql.types.Decimal;
 import org.apache.spark.sql.types.DecimalType;
 import org.apache.spark.sql.util.ArrowUtils;
 
@@ -144,14 +146,15 @@ public final class VarkaDecimalValueSuite {
 
   @Test
   @DisplayName("a choice of a wide type whose branch is rescaled up declines naming rows 359 and "
-      + "360, whichever side of the comparison it is on")
+      + "360, whichever side of the comparison it is on, and under a negation or abs")
   void wideChoiceOfARescaleDeclines() {
     // The branches' common type is DECIMAL(20, 4): coercion casts a up by two digits of scale.
     List<Attribute> columns = List.of(VarkaSqlResolve.column("a", new DecimalType(18, 2)),
         VarkaSqlResolve.column("b", new DecimalType(9, 4)),
         VarkaSqlResolve.column("c", new DecimalType(9, 4)));
     for (String choice : List.of("IF(c > 0.0, a, b)", "CASE WHEN c > 0.0 THEN a ELSE b END",
-        "coalesce(a, b)", "greatest(a, b)", "least(b, a)")) {
+        "coalesce(a, b)", "greatest(a, b)", "least(b, a)", "-IF(c > 0.0, a, b)",
+        "abs(coalesce(a, b))", "-abs(greatest(a, b))")) {
       for (String sql : List.of(choice + " < c", "c < " + choice)) {
         Expression e = VarkaSqlResolve.parse(sql, seq(columns));
         List<VarkaConjunctSpec> specs =
@@ -159,10 +162,69 @@ public final class VarkaDecimalValueSuite {
                 VarkaAdmission.NO_HOST_REFUSAL);
         assertEquals(1, specs.size());
         String reason = specs.get(0).decline().map(d -> d.reason()).orElse("fused");
-        assertTrue(reason.contains("359") && reason.contains("360"),
+        assertTrue(reason.contains("359") && reason.contains("360") && !reason.contains("350"),
             () -> sql + " declined: " + reason);
       }
     }
+  }
+
+  @Test
+  @DisplayName("a cast that lowers the scale of a wide choice whose branch is rescaled up declines "
+      + "naming rows 350, 359 and 360, alone or under coercion's rescale")
+  void loweringCastOfAWideRescaleDeclines() {
+    // IF(c > 0.0, a, b) is DECIMAL(20, 4), its a branch rescaled up; the cast to DECIMAL(20, 2)
+    // lowers that by two digits of scale. Against d it is the side as written; against c
+    // coercion casts it up again to DECIMAL(22, 4).
+    List<Attribute> columns = List.of(VarkaSqlResolve.column("a", new DecimalType(18, 2)),
+        VarkaSqlResolve.column("b", new DecimalType(9, 4)),
+        VarkaSqlResolve.column("c", new DecimalType(9, 4)),
+        VarkaSqlResolve.column("d", new DecimalType(9, 2)));
+    String lowered = "CAST(IF(c > 0.0, a, b) AS DECIMAL(20, 2))";
+    for (String sql : List.of(lowered + " < d", "d < " + lowered, lowered + " < c",
+        "-" + lowered + " < d")) {
+      Expression e = VarkaSqlResolve.parse(sql, seq(columns));
+      List<VarkaConjunctSpec> specs =
+          VarkaExpressionCompiler.explainPredicate(e, seq(columns), VarkaMatrixRuns.BASE,
+              VarkaAdmission.NO_HOST_REFUSAL);
+      assertEquals(1, specs.size());
+      String reason = specs.get(0).decline().map(d -> d.reason()).orElse("fused");
+      assertTrue(reason.contains("350") && reason.contains("359") && reason.contains("360"),
+          () -> sql + " declined: " + reason);
+    }
+  }
+
+  @Test
+  @DisplayName("a null test through a cast that only widens the precision past 18 digits fuses "
+      + "and answers as Spark, on nulls and values at the precision's bounds")
+  void nullTestThroughAWideningCast() {
+    long top18 = 999_999_999_999_999_999L;
+    long top9 = 999_999_999L;
+    record Shape(DecimalType type, String cast, long top) { }
+    for (Shape s : List.of(new Shape(new DecimalType(18, 0), "CAST(a AS DECIMAL(20, 0))", top18),
+        new Shape(new DecimalType(9, 2), "CAST(a AS DECIMAL(38, 2))", top9),
+        new Shape(new DecimalType(9, 2), "CAST(CAST(a AS DECIMAL(20, 2)) AS DECIMAL(38, 2))",
+            top9))) {
+      List<Attribute> columns =
+          List.of(VarkaSqlResolve.column("a", s.type()), VarkaSqlResolve.column("b", s.type()));
+      var rows = List.of(new Pair(s.top(), 0L), new Pair(-s.top(), 0L), new Pair(0L, 0L),
+          new Pair(null, 0L), new Pair(1L, null), new Pair(null, null));
+      for (String sql : List.of(s.cast() + " IS NULL", s.cast() + " IS NOT NULL")) {
+        long[] got = answers(compile(sql, columns), rows, s.type(), s.type());
+        Expression bound = VarkaSqlResolve.bind(VarkaSqlResolve.parse(sql, seq(columns)),
+            seq(columns));
+        for (int i = 0; i < rows.size(); i++) {
+          Pair r = rows.get(i);
+          var row = new GenericInternalRow(new Object[] {decimal(r.a(), s.type()),
+              decimal(r.b(), s.type())});
+          long want = Boolean.TRUE.equals(bound.eval(row)) ? 1L : 0L;
+          assertEquals(want, got[i], () -> sql + " over " + s.type() + ", row " + r);
+        }
+      }
+    }
+  }
+
+  private static Decimal decimal(Long unscaled, DecimalType type) {
+    return unscaled == null ? null : Decimal.apply(unscaled, type.precision(), type.scale());
   }
 
   @Test
@@ -251,6 +313,24 @@ public final class VarkaDecimalValueSuite {
     var fused = compiled.fused();
     assertTrue(fused.longLiterals().contains(factor),
         () -> sql + ": the rescale's factor " + factor + " is a slot: " + fused);
+    long[] got = answers(compiled, rows, ta, tb);
+    for (int i = 0; i < rows.size(); i++) {
+      Pair r = rows.get(i);
+      long want = selects(op, r, ta.scale(), tb.scale()) ? 1L : 0L;
+      int row = i;
+      assertEquals(want, got[i], () -> sql + " over " + ta + ", " + tb + ", row " + r
+          + " at " + row);
+    }
+  }
+
+  /**
+   * Runs the one condition of {@code compiled} as a kernel over the columns {@code a} of type
+   * {@code ta} and {@code b} of type {@code tb} holding {@code rows}, and returns per row 1 where
+   * it is true and 0 otherwise.
+   */
+  private static long[] answers(CompiledVarkaPredicate compiled, List<Pair> rows,
+      DecimalType ta, DecimalType tb) {
+    var fused = compiled.fused();
     assertEquals(1, fused.outputs().size());
     long[] lits = new long[fused.longLiterals().size() + 2];
     for (int i = 0; i < fused.longLiterals().size(); i++) {
@@ -265,14 +345,7 @@ public final class VarkaDecimalValueSuite {
     var emitted = VarkaEmitterFixtures.emit(List.of(root), inputs, lits.length,
         VarkaMatrixRuns.BASE);
     VarkaFusedKernel kernel = VarkaEmitterFixtures.load(emitted).kernel();
-    long[] got = run(kernel, fused.inputOrdinals(), rows, ta, tb, lits);
-    for (int i = 0; i < rows.size(); i++) {
-      Pair r = rows.get(i);
-      long want = selects(op, r, ta.scale(), tb.scale()) ? 1L : 0L;
-      int row = i;
-      assertEquals(want, got[i], () -> sql + " over " + ta + ", " + tb + ", row " + r
-          + " at " + row);
-    }
+    return run(kernel, fused.inputOrdinals(), rows, ta, tb, lits);
   }
 
   /** Whether {@code a op b} is true by {@link BigDecimal}, SQL's null rules applied. */
