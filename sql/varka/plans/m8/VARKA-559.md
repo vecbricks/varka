@@ -31,11 +31,11 @@ Measured with `VarkaPlanningCostProbe`, `explainPredicate` at depths 2 to 20
   null test and `nvl2` decline as soon as they test a non-column. `IF` and `greatest` nest
   without sharing a node and stay under 1 ms to depth 20, declined for the budget from depth 8
   and 6.
-- **Master has the cost elsewhere.** Three lowerings read one operand several times: an
-  interval's `abs` three (`VarkaIntervalCompiler.absolute`), its division by a literal more
-  (the quotient, the remainder and the rounding's sign test each read `months`, and the rounding
-  reads the remainder twice), a `DOUBLE` `signum` four
-  (`VarkaFloatingCompiler.signum`). Nested, all three are declined for the budget, after
+- **Master has the cost elsewhere.** Three lowerings reach one operand by several paths: an
+  interval's `abs` by three (`VarkaIntervalCompiler.absolute`), its division by a literal by
+  seven (`VarkaIntervalCompiler.divide`: the quotient once, the remainder, which reads `months`
+  and the quotient, under both arms of the rounding's magnitude, and the sign test under the
+  magnitude and the step), a `DOUBLE` `signum` by four (`VarkaFloatingCompiler.signum`). Nested, all three are declined for the budget, after
   planning that took 25544.44 ms at depth 16 (`abs`), 10017.80 ms at 8 (division) and
   17585.49 ms at 12 (`signum`).
 - **On row 348's part** the decimal null test and `CASE` stay about 1 ms and the `coalesce`
@@ -157,11 +157,16 @@ object through it; no chain here reaches one.
   lanes, through `VarkaKernelPlan.of`, `admit`, `lanesIn`, `narrowValuesIn`,
   `needsNarrowSpecies` and `fitsBudgets` within 20 s: a per-path walk could not finish, a
   per-node one takes milliseconds, so the bound decides it without timing anything close.
+- Nested `signum`, interval `abs` and interval division, 20 levels, through `explainPredicate`
+  within 20 s and not fused: master's three sharing lowerings of 2.1, at a depth whose
+  per-path planning would take far longer. The decline's reason is not asserted, so that an
+  option matrix configuration declining the chain earlier for another reason still passes.
 - The same chain built twice to depth 10: equal, equal hashes, and the union of their nodes in a
   structural set grows by exactly four a level - structurally equal nodes still collapse.
 - By reflection over the sealed IR: every record with a node child has `int hash` last and
   declares `hashCode`, so a node type added later caches too; and each node's hash is the
-  records' formula over its other components.
+  records' formula over its other components, for one node of every such record, built by
+  reflection over leaves, and for every node of a chain 4 deep.
 - The canonical constructor recomputes the hash it is given.
 
 ## 6. The measurement
@@ -189,6 +194,12 @@ byte master's, so no shape's bytes moved.
 - **The lifts are left unmemoised (2.3).** They meet a shared node only in a predicate whose
   conjuncts sit on two lanes; an `IdentityHashMap` memo per lift, as `guardColumns` has, would
   close it if a chain is found that reaches one.
+
+## 8. Done when
+
+- the chains of 2.1 explain at depth 20 in milliseconds, each with the verdict it had before;
+- the tests of 5 pass;
+- `dev/varka_regen_generated.sh --all` changes no generated file.
 
 ## 9. Outcome
 

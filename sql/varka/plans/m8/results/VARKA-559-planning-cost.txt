@@ -5,10 +5,12 @@ each IR node caches its structural hash. Measured 3 November 2026 on the laptop 
     varka.VarkaPlanningCostProbe [chain...]"
 under the shared heavy-slot lock, beside other agents' test JVMs (so the milliseconds are a
 loaded machine's; the shape, flat against exponential, is the finding). A time is the least of
-three explains after one warm-up; a chain stops at the first depth over three seconds, so "-"
-in the before column is a depth the old code was not run to. The verdict is the conjunct's:
-"fused", or its decline reason, cut at 44 characters; the probe asserts nothing, the table was
-checked to give the same verdict at every depth before and after.
+three explains after one warm-up, except at a chain's stopping depth: the first explain over
+three seconds ends the runs there, so that depth's time is that one explain's, normally the
+cold one, and the chain stops; "-" in the before column is a depth the old code was not run
+to. The verdict is the conjunct's: "fused", or its decline reason, which the probe prints up
+to 90 characters and this table cuts at 44; the probe asserts nothing, the table was checked
+to give the same verdict at every depth before and after.
 
 Each level, with X the level below and a, b, c columns of the chain's type:
   int-coalesce   coalesce(IF((X) > b, a, c), b), root (X) > c           INT
@@ -23,6 +25,8 @@ Each level, with X the level below and a, b, c columns of the chain's type:
   dec-nulltest, dec-case, dec-coalesce: the int forms above over DECIMAL(9, 2)
 
 == 1. master f72e4556750, before (master) and after (branch varka-559-ir-hash, 2c8b97fb083) ==
+(2c8b97fb083 was this row's commit before its rebase onto 7ab15cef339; the rebased commit,
+0f71b9d6307, has the identical VarkaVectorIR.java diff.)
   chain          depth  before ms  after ms  verdict (the same before and after)
   int-coalesce       2       0.42      0.43  coalesce operand before the last is not a ba
   int-coalesce       4       0.68      0.73  coalesce operand before the last is not a ba
