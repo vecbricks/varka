@@ -34,6 +34,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions.
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions.Division;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions.FloorMod7;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions.TruncDateForm;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.DecimalColumn;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WidenDecimal;
 
 /**
@@ -162,17 +163,22 @@ public sealed interface VarkaEmitOption
   Rendering rendering();
 
   /**
-   * The one node kind whose emission reads {@code option}, for an option no other emission reads,
-   * or empty for an option of the emission in general. Such an option changes no kernel without
-   * that node, so varying it over shapes that lack one tests nothing and, in the fuzzer, shifts
-   * every later draw of a committed seed: {@link #drawnInGeneral} leaves it out of the general
-   * draws and the option matrix, and the fuzzer's decimal sequence and the steering draw it for a
-   * shape that holds the node ({@code VarkaIrFuzzSuite}'s decimal draw, {@code VarkaSteering}).
-   * Only a {@link Choice} carries one so far, as its {@code readOnlyBy} component.
+   * The node kind a shape holds wherever {@code option} can change its kernel, for an option no
+   * emission in general reads, or empty for an option of the emission in general. Such an option
+   * changes no kernel without that node, so varying it over shapes that lack one tests nothing
+   * and, in the fuzzer, shifts every later draw of a committed seed: {@link #drawnInGeneral}
+   * leaves it out of the general draws and the option matrix, and the fuzzer's decimal sequences
+   * and the steering draw it for a shape that holds the node ({@code VarkaIrFuzzSuite}'s decimal
+   * draws, {@code VarkaSteering}). {@code decimalStore} is read by its node, a
+   * {@code WidenDecimal}, itself; {@code decimalAbsLanewise} by a wrapping long-lane {@code abs},
+   * which the compiler and the fuzzer build only over a decimal's value, so its node is the
+   * {@code DecimalColumn} beneath. A hand-built long-lane {@code abs} over another long is legal
+   * IR that reads the flag without one, and no draw or compiled shape builds it. A {@link Choice}
+   * and a {@link Flag} carry one, as their {@code readOnlyBy} component.
    */
   static Optional<Class<? extends VarkaVectorIR>> readOnlyBy(VarkaEmitOption option) {
     return switch (option) {
-      case Flag _ -> Optional.empty();
+      case Flag flag -> flag.readOnlyBy();
       case Count _ -> Optional.empty();
       case Choice<?> choice -> choice.readOnlyBy();
     };
@@ -201,19 +207,29 @@ public sealed interface VarkaEmitOption
   /** The inventory's arms for this option, each labelled {@code name=value}. */
   List<Arm> arms();
 
-  /** A boolean option. */
+  /**
+   * A boolean option. {@code readOnlyBy} names the node kind a shape holds wherever it can change
+   * the kernel, if the emission in general does not read it ({@link VarkaEmitOption#readOnlyBy}).
+   */
   record Flag(String name, Reason reason, boolean defaultValue, Predicate<VarkaEmitOptions> get,
-      BiConsumer<Builder, Boolean> set, Rendering rendering, Subject subject)
-      implements VarkaEmitOption {
+      BiConsumer<Builder, Boolean> set, Rendering rendering, Subject subject,
+      Optional<Class<? extends VarkaVectorIR>> readOnlyBy) implements VarkaEmitOption {
 
     public Flag {
       if (rendering instanceof CountTag || rendering instanceof ChoiceTag) {
         throw VarkaErrors.illegalArgument(name + ": a flag renders by position or as a flag tag");
       }
       Objects.requireNonNull(subject, "subject");
+      Objects.requireNonNull(readOnlyBy, "readOnlyBy");
     }
 
-    /** A flag whose two values differ at the defaults. */
+    /** A flag of the emission in general whose two values differ at {@code subject}. */
+    public Flag(String name, Reason reason, boolean defaultValue, Predicate<VarkaEmitOptions> get,
+        BiConsumer<Builder, Boolean> set, Rendering rendering, Subject subject) {
+      this(name, reason, defaultValue, get, set, rendering, subject, Optional.empty());
+    }
+
+    /** A flag of the emission in general whose two values differ at the defaults. */
     public Flag(String name, Reason reason, boolean defaultValue, Predicate<VarkaEmitOptions> get,
         BiConsumer<Builder, Boolean> set, Rendering rendering) {
       this(name, reason, defaultValue, get, set, rendering, Subject.DEFAULTS);
@@ -535,10 +551,13 @@ public sealed interface VarkaEmitOption
           new FlagTag("fromLongMasks", true)),
       // A long-lane abs is a decimal's (VARKA-348 2.6): the compare, negation and blend by
       // default, intrinsic on every x86 host at 256 and 512 bits; the lanewise ABS is the arm,
-      // intrinsic only with AVX-512, measured against the blend there.
+      // intrinsic only with AVX-512, measured against the blend there. Only a shape over a
+      // decimal column can hold one, so the decimal value draw varies it and the general draws,
+      // the steering of other shapes and the option matrix leave it out.
       new Flag("decimalAbsLanewise", Reason.MACHINE, false,
           VarkaEmitOptions::decimalAbsLanewise, Builder::decimalAbsLanewise,
-          new FlagTag("decimalAbsLanewise", true)),
+          new FlagTag("decimalAbsLanewise", true), Subject.DEFAULTS,
+          Optional.of(DecimalColumn.class)),
       new Flag("dropDecimalBound", Reason.FAULT_INJECTOR, false,
           VarkaEmitOptions::dropDecimalBound, Builder::dropDecimalBound,
           new FlagTag("dropDecimalBound", true)),

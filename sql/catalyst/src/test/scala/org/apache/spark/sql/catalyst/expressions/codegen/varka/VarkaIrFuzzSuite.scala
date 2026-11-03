@@ -143,12 +143,11 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
 
   /**
    * The options drawn from the case's own stream, in the order they were drawn when the order
-   * froze (VARKA-348): the order of their `with*` setters' names, as it stood before
-   * `decimalAbsLanewise`. A name sorted into the middle of that order shifts every later coin of
-   * every draw, and with them the data drawn after, so a seed recorded in a failure or pinned in
-   * a test stops drawing what it drew; `decimalAbsLanewise` did, and moved a pinned draw. So this
-   * list never changes, and an option added to the table later is drawn from a stream of its own
-   * (`ownStream`), which leaves every other draw as it was.
+   * froze (VARKA-348): the order of their `with*` setters' names. A name sorted into the middle
+   * of that order would shift every later coin of every draw, and with them the data drawn after,
+   * so a seed recorded in a failure or pinned in a test, such as the stranger draw below, would
+   * stop drawing what it drew. So this list never changes, and an option added to the table later
+   * is drawn from a stream of its own (`ownStream`), which leaves every other draw as it was.
    */
   private val streamOptions = Seq("callSiteBudget", "checkIntOverflow", "cse",
     "denseValidityOnce", "division", "driverOutputTable", "elideChronoMonth",
@@ -184,6 +183,16 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
   private val decimalOptions = VarkaEmitOption.TABLE.asScala.toSeq
     .filter(o => o.reason.drawn &&
       VarkaEmitOption.readOnlyBy(o).toScala.contains(classOf[WidenDecimal]))
+
+  /**
+   * The options only a shape over a decimal column can be changed by (VARKA-348), in table
+   * order: `decimalAbsLanewise`, read by the long-lane `abs` of a decimal's value. The general
+   * draws leave them out, since none of their shapes holds a decimal column, so the decimal value
+   * draw draws them after the rest.
+   */
+  private val decimalColumnOptions = VarkaEmitOption.TABLE.asScala.toSeq
+    .filter(o => o.reason.drawn &&
+      VarkaEmitOption.readOnlyBy(o).toScala.contains(classOf[VarkaVectorIR.DecimalColumn]))
 
   /**
    * A random variant of the options record, drawn from the options table: every option but the
@@ -1620,7 +1629,8 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
     sys.props.get("varka.fuzz.seed").map(_.toLong)
       .getOrElse(VarkaIrGrammar.DECIMAL_VALUE_FUZZ_SEED)
 
-  private def runOneDecimalValue(iteration: Int): Unit = {
+  /** The decimal value draw's case at `iteration`, its options and its batch. */
+  private def drawDecimalValue(iteration: Int): VarkaFuzzCase = {
     val rnd = VarkaIrGrammar.shapeRandom(decimalValueSeed, iteration)
     val drawn = VarkaIrGrammar.drawDecimalValueShape(rnd)
     val roots = drawn.roots
@@ -1629,7 +1639,8 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
     val patternIds = Seq.fill(numInputs)(rnd.nextInt(patternNames.length))
     val patterns = patternIds.map(pattern(rnd, _, length))
     val forceMasked = length > 1 && rnd.nextInt(4) == 0
-    val options = randomOptions(rnd, VarkaMatrix.base, decimalValueSeed, iteration)
+    val options = drawOptions(rnd,
+      randomOptions(rnd, VarkaMatrix.base, decimalValueSeed, iteration), decimalColumnOptions)
     val data = Array.tabulate(numInputs, length) { (c, _) =>
       val bound = org.apache.spark.sql.types.Decimal.POW_10(drawn.precisions()(c)) - 1
       rnd.nextInt(8) match {
@@ -1644,16 +1655,38 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
       s"options=${if (options.isDefault) "(defaults)" else options.canonical()} " +
       s"length=$length patterns=${patternIds.map(patternNames).mkString(",")} " +
       s"literals=${drawn.lits.mkString(",")} forceMasked=$forceMasked"
+    new VarkaFuzzCase(LaneType.LONG, roots, numInputs, drawn.lits, length,
+      Array.tabulate(numInputs, length)((c, i) => patterns(c)(i)), data, forceMasked, options,
+      -1, -1, label)
+  }
+
+  private def runOneDecimalValue(iteration: Int): Unit = {
+    val c = drawDecimalValue(iteration)
     val className = "org.apache.spark.sql.varka.execution.VarkaFusedFuzzDecimalValue" +
       classCounter.addAndGet(1)
     def emitWith(o: VarkaEmitOptions): Array[Byte] = VarkaLoopEmitter.emitTraced(
-      className, roots, numInputs, drawn.lits.length, o, randomTrace)
-    emitOrSkip(label, options)(emitWith).foreach { bytes =>
-      VarkaKernelChecks.runAndCompareLong(label, className, bytes, roots, numInputs, drawn.lits,
-        new VarkaKernelChecks.LongBatch(length,
-          Array.tabulate(numInputs, length)((c, i) => patterns(c)(i)), data, forceMasked),
-        false, null)
+      className, c.roots, c.numInputs, c.lits.length, o, randomTrace)
+    emitOrSkip(c.label, c.options)(emitWith).foreach { bytes =>
+      VarkaKernelChecks.runAndCompareLong(c.label, className, bytes, c.roots, c.numInputs, c.lits,
+        new VarkaKernelChecks.LongBatch(c.length, c.nulls, c.data, c.forceMasked), false, null)
     }
+  }
+
+  test("the decimal value draw varies both arms of decimalAbsLanewise, and the general draws and "
+      + "the steering of their cases never move it") {
+    // Catches: the flag drawn by the general draws, which would add a configuration to the option
+    // matrix and shift every later coin of the committed seeds and every general case's steered
+    // sequence for a node none of their shapes holds; or left out of the decimal value draw, so
+    // its lanewise arm is never fuzzed.
+    assert(decimalColumnOptions.map(_.name) === Seq("decimalAbsLanewise"))
+    val arms = (0 until 64).map(k => drawDecimalValue(k).options.decimalAbsLanewise()).toSet
+    assert(arms === Set(true, false))
+    val general = (0 until 64).map(k => drawLong(k).options.decimalAbsLanewise()).toSet
+    assert(general === Set(VarkaMatrix.base.decimalAbsLanewise()))
+    val inGeneral = VarkaEmitOption.TABLE.asScala.toSeq
+      .filter(o => VarkaEmitOption.drawnInGeneral(o)).sortBy(_.name)
+    assert(VarkaSteering.mutable(drawDecimalValue(0)).asScala.toSeq ===
+      inGeneral ++ decimalColumnOptions)
   }
 
   test(s"random decimal IR trees - rescales, negation, abs, choices and picks over decimal " +
