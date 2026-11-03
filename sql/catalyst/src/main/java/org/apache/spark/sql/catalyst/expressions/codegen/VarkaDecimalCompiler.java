@@ -269,14 +269,12 @@ final class VarkaDecimalCompiler {
       return arithmetic ? Optional.of(reasons.first()) : Optional.empty();
     }
     // The rows a reason names are the three digits after "row ", "rows ", ", " or " and ".
-    List<String> rows = Pattern.compile("(?<=rows? |, | and )\\d{3}\\b")
-        .matcher(String.join(" ", reasons)).results().map(m -> m.group()).distinct().sorted()
-        .toList();
+    List<String> rows = Pattern.compile("(?<=rows? |, | and )\\d{3}\\b").matcher(String.join(
+        " ", reasons)).results().map(m -> m.group()).distinct().sorted().toList();
     int n = rows.size();
     return Optional.of("a cast, a negation, a choice or a pick over decimals wider than "
-        + MAX_PRECISION + " digits is " + (n == 1 ? "row " : "rows ")
-        + (n == 1 ? "" : String.join(", ", rows.subList(0, n - 1)) + " and ") + rows.get(n - 1)
-        + "'s");
+        + MAX_PRECISION + " digits is " + (n == 1 ? "row " + rows.get(0) : "rows "
+        + String.join(", ", rows.subList(0, n - 1)) + " and " + rows.get(n - 1)) + "'s");
   }
 
   /**
