@@ -451,18 +451,37 @@ def generated_blocks(path):
     return blocks
 
 
-def hand_lines(text):
-    """A docs file's lines outside its `BEGIN generated` blocks, the markers kept: the part a
-    person writes, which the pull-request size check counts (VARKA-554)."""
-    out, inside = [], False
+# The generated blocks of each markdown file, by the names their writers give them:
+# `VarkaCoverageSuite` writes the docs file's three, `dev/varka_toc.py` SKILLS.md's contents.
+# Any other marker is prose; the self-test checks this map against the tracked files.
+BLOCKS = {
+    "docs/sql-varka.md": ("coverage table", "verification counts", "family switches"),
+    "SKILLS.md": ("contents",),
+}
+
+
+def hand_lines(path, text):
+    """A markdown file's lines outside the generated blocks `BLOCKS` names for it, the markers
+    kept: the part a person writes, which the pull-request size check counts (VARKA-554). None
+    when a named block opens and does not close with its own END before the next marker, so
+    the caller counts the whole file rather than let a stray marker hide the rest of it."""
+    names = BLOCKS.get(path, ())
+    out, inside = [], None
     for line in lines_of(text):
-        if line.startswith("<!-- END generated"):
-            inside = False
-        if not inside:
-            out.append(line)
-        if line.startswith("<!-- BEGIN generated"):
-            inside = True
-    return out
+        marker = re.match(r"<!-- (BEGIN|END) generated (.*?) -->\s*$", line)
+        if inside is not None:
+            if marker and marker.groups() == ("END", inside):
+                out.append(line)
+                inside = None
+            elif marker or line.startswith("<!-- BEGIN generated"):
+                return None
+            continue
+        if marker and marker.group(2) in names:
+            if marker.group(1) == "END":
+                return None
+            inside = marker.group(2)
+        out.append(line)
+    return None if inside is not None else out
 
 
 # The files this driver merges, by repository path: those `sql/varka/.gitattributes` names, and
@@ -470,16 +489,53 @@ def hand_lines(text):
 # attributes because a `.gitattributes` in `docs/` would ship to Spark's documentation build.
 # `dev/varka_regen_generated.sh --all` and the pull-request size check read this list.
 DOCS = "docs/sql-varka.md"
+# The attributes files that name generated files: `merge=varka-generated` for the files this
+# driver merges, `linguist-generated` for other tool-written files, which the pull-request size
+# check skips and GitHub folds in a diff. Not the root one, which is Apache Spark's.
+ATTRIBUTES = ("sql/varka/.gitattributes", "dev/.gitattributes")
 
 
-def generated_files(root=None):
+def attribute_rules(read):
+    """(pattern, attributes) per line of `ATTRIBUTES`, the pattern a regex over repository
+    paths; `read(path)` gives a file's text, or None where there is none."""
+    rules = []
+    for attrs_path in ATTRIBUTES:
+        where = os.path.dirname(attrs_path) + "/"
+        for line in lines_of(read(attrs_path) or ""):
+            fields = line.split()
+            if not fields or fields[0].startswith("#"):
+                continue
+            glob = fields[0].lstrip("/")
+            if "/" not in fields[0].rstrip("/"):
+                glob = "**/" + glob  # a bare name matches at any depth
+            parts = re.split(r"(\*\*/|\*|\?)", glob)
+            rx = {"**/": "(?:.*/)?", "*": "[^/]*", "?": "[^/]"}
+            body = "".join(rx.get(t, re.escape(t)) for t in parts)
+            rules.append((where + glob, re.compile(re.escape(where) + body + "$"), fields[1:]))
+    return rules
+
+
+def generated_files(root=None, read=None):
+    """The files this driver merges, from the attributes `read` gives, by default the tree's."""
     root = root or os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    paths = []
-    with open(os.path.join(root, "sql", "varka", ".gitattributes"), encoding="utf-8") as f:
-        for line in f:
-            if line.startswith("/") and "merge=varka-generated" in line.split()[1:]:
-                paths.append("sql/varka" + line.split()[0])
-    return paths + [DOCS]
+
+    def from_disk(path):
+        if os.path.exists(os.path.join(root, path)):
+            with open(os.path.join(root, path), encoding="utf-8") as f:
+                return f.read()
+        return None
+
+    rules = attribute_rules(read or from_disk)
+    return [glob for glob, _, attrs in rules if "merge=varka-generated" in attrs] + [DOCS]
+
+
+def is_generated(path, rules):
+    """Whether an attributes rule marks `path` generated: merged by this driver or
+    `linguist-generated`."""
+    return any(
+        rx.match(path) and ("merge=varka-generated" in attrs or "linguist-generated" in attrs)
+        for _, rx, attrs in rules
+    )
 
 
 def block_state(in_block, lines):
@@ -1100,10 +1156,53 @@ def self_test():
         "sql/varka/coverage.json" in files and f"{DOCS} merge=varka-generated" in installer,
         f"22: the generated list or the installer's docs rule drifted: {files}",
     )
-    doc = "a\n<!-- BEGIN generated t -->\nx\n<!-- END generated t -->\nb\n"
+    # The hand lines drop a named block only between its own BEGIN and END; a lone or
+    # mismatched marker gives None (the whole file counts), an unnamed one is prose.
+    b, e = "<!-- BEGIN generated contents -->", "<!-- END generated contents -->"
+    for text, want in (
+        (f"a\n{b}\nx\n{e}\nb\n", ["a", b, e, "b"]),
+        (f"a\n{b}\nx\n", None),
+        (f"a\n{e}\nx\n", None),
+        (f"a\n{b}\nx\n{e.replace('c', 'C')}\n", None),
+        ("a\n<!-- BEGIN generated t -->\nx\n", ["a", "<!-- BEGIN generated t -->", "x"]),
+    ):
+        got = hand_lines("SKILLS.md", text)
+        expect(got == want, f"22: hand lines of {text!r}: {got}")
+    # Every tracked markdown file with a block marker is in BLOCKS, with the names it holds.
+    out = subprocess.run(
+        ["git", "grep", "-o", "^<!-- BEGIN generated .* -->", "--", "*.md"],
+        cwd=root,
+        capture_output=True,
+        text=True,
+    )
+    found = {}
+    for hit in out.stdout.splitlines():
+        path, marker = hit.split(":", 1)
+        found.setdefault(path, set()).add(marker[len("<!-- BEGIN generated ") : -len(" -->")])
     expect(
-        hand_lines(doc) == ["a", "<!-- BEGIN generated t -->", "<!-- END generated t -->", "b"],
-        f"22: hand lines of a docs block: {hand_lines(doc)}",
+        found == {k: set(v) for k, v in BLOCKS.items()},
+        f"22: BLOCKS drifted from the tracked markers: {found}",
+    )
+
+    # The attributes patterns match the files git gives the attributes, and each names one.
+    def run_git(*args, stdin=None):
+        return subprocess.run(
+            ["git", *args], cwd=root, input=stdin, capture_output=True, text=True
+        ).stdout
+
+    tracked = run_git("ls-files")
+    attrs_out = run_git("check-attr", "--stdin", "merge", "linguist-generated", stdin=tracked)
+    by_git = {
+        line.split(": ")[0]
+        for line in attrs_out.splitlines()
+        if line.endswith((": linguist-generated: set", ": merge: varka-generated"))
+    }
+    rules = attribute_rules(lambda p: open(os.path.join(root, p), encoding="utf-8").read())
+    ours = {p for p in tracked.splitlines() if is_generated(p, rules)}
+    unused = [g for g, rx, _ in rules if not any(rx.match(p) for p in ours)]
+    expect(
+        ours == by_git - {DOCS} and not unused,
+        f"22: attributes read unlike git: {sorted(ours ^ (by_git - {DOCS}))[:5]}, {unused}",
     )
     print(f"self-test: {cases} case(s), {failed} failed")
     return 1 if failed else 0
