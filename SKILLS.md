@@ -20,6 +20,7 @@ the pre-commit hook also checks. Groups below are in file order.
 * [A `--rounds` probe with no nulls compiles only half the kernel](sql/varka/skills/benchmarking.md#a---rounds-probe-with-no-nulls-compiles-only-half-the-kernel)
 * [Flipping a default silently retires every A/B built on `DEFAULTS`](sql/varka/skills/benchmarking.md#flipping-a-default-silently-retires-every-ab-built-on-defaults)
 * [Write the Prediction Down, Then Measure](sql/varka/skills/benchmarking.md#write-the-prediction-down-then-measure)
+* [Before predicting between lowerings, write each host's throughput arithmetic](sql/varka/skills/benchmarking.md#before-predicting-between-lowerings-write-each-hosts-throughput-arithmetic)
 * [A benchmark guard that fails in one direction gets satisfied by the failure in the other](sql/varka/skills/benchmarking.md#a-benchmark-guard-that-fails-in-one-direction-gets-satisfied-by-the-failure-in-the-other)
 * [Regenerate the section you changed, and ask a pair of runs, not one, whether it moved](sql/varka/skills/benchmarking.md#regenerate-the-section-you-changed-and-ask-a-pair-of-runs-not-one-whether-it-moved)
 * [A runner pair that fails can still report a pass: three traps of the first one](sql/varka/skills/benchmarking.md#a-runner-pair-that-fails-can-still-report-a-pass-three-traps-of-the-first-one)

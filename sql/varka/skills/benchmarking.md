@@ -135,6 +135,20 @@ trusting them, not just its ratios.
   plus relative paths fabricates convincing evidence of disaster; absolute paths in
   forensics, always.
 
+## Before predicting between lowerings, write each host's throughput arithmetic
+
+From `m8/READING_COSTS.md` (3 November 2026). Before registering a prediction between two
+lowerings, write the arithmetic per host from uops.info's tables (cite the instruction's page),
+and use the host's own datapath: uops.info's `ZEN5` column is a 512-bit desktop Zen 5, and the
+laptop's Zen 5 has a 256-bit datapath, so its 512-bit rows are wrong for the laptop by up to 2x.
+`VARKA-149.md` 3's "roughly four times" for a divider-bound form was that error: the committed
+rows were 1.85x apart, and the arithmetic with the laptop's datapath predicts about 2x. Expect the
+arithmetic to hold when one resource dominates and to be off by up to 2x on a body of many
+instructions, where only the A/B decides. The tables also show a vendor gap no laptop or EPYC
+7763 run can: on Emerald Rapids `VPMULLQ` is 3 uops with latency 15 and a 512-bit `VDIVPD` takes
+16 cycles, against 0.5 and 4 on Zen 5 (reciprocal throughput), so a winner chosen on the laptop or
+the 7763, a multiply-high through `VPMULLQ` or a division form, may not carry to the Xeon runners.
+
 ## A benchmark guard that fails in one direction gets satisfied by the failure in the other
 
 VARKA-62's surface driver fails a run whose *fixed share* - `(wall - executor) / wall`, the
