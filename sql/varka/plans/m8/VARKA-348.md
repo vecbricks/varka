@@ -384,7 +384,7 @@ its own regenerated files.
 
 | part | what | depends on | lines |
 |---|---|---|---|
-| 348a1 | `Scaled`, `value()` over a column, a literal and coercion's rescaling cast, `rescale`, the comparisons at two scales; `decimal64.smt2`; the fixture columns `d9s4` and `d16s9` and six comparison rows, each refined; `VarkaDecimalValueSuite`; this table | master | 910 |
+| 348a1 | `Scaled`, `value()` over a column, a literal and coercion's rescaling cast, `rescale`, the comparisons at two scales; `decimal64.smt2`; the fixture columns `d9s4` and `d16s9` and seven comparison rows, each refined; `VarkaDecimalValueSuite`; this table | master | 910 |
 | 348a2 | negation and `abs`, the long-lane `abs` arm behind `decimalAbsLanewise` and the reference's `Math.abs`; two rows, refined; the slot table under a rescale, a negation and `abs`, with the fault injector `dropDecimalBound`; the IR fuzzer's decimal sequence and its frozen option order | 348a1 | 716 |
 | 348a3 | `IF`, `CASE` with an `ELSE`, `coalesce`, `greatest` and `least`, and the null test over any decimal value, with its probe and each condition compiled once; four rows, three refined | 348a2 | 609 |
 
@@ -567,25 +567,33 @@ arms read alike, and `TakeOrderedAndProjectExec`, which sorts, stays row work. T
 `VarkaSizeLadder.varkaFused`, which finds a Varka projection and its metrics; every class still
 matched its plan.
 
-### 10.3 Step 4: 348a, the conditions
+### 10.3 Step 4: 348a1, the comparisons at two scales
 
-*1 November 2026, on branch `varka-348-conditions` from the census branch (`218de0b8219`).*
+*Built 1 November 2026 on branch `varka-348-conditions` from the census branch (`218de0b8219`), and
+cut as part 348a1 on branch `varka-348a1-rescale` on 3 November 2026 (section 5). Parts 348a2 and
+348a3 add their own outcomes below.*
 
 **The foundation, built first so that row 349a can branch from it.** `VarkaDecimalCompiler` has
 the record `Scaled(unscaled, type)`, its compact constructor holding the long lane, a precision
 from 1 to 18 and a non-negative scale; `value()`, one switch over the forms, which folds a
-literal tree first, reads a column through its leaf and a widening or rescaling cast through
-`rescale`; and `rescale(Scaled, k, sink)`, the identity at `k = 0`, a literal's multiplied
-constant in a slot of its own, and otherwise `IntArith(MUL, WRAP, u, slot(10^k))`, throwing at
-`p + k > 18`. A comparison's operands now come from `value()` on each side. The 17 rows of row
-347 compile to the trees they compiled to before, so no existing shape's bytes move.
+literal tree first, so a literal under coercion's cast takes its slot already at the cast's scale,
+and reads a column through its leaf and a widening or rescaling cast through `rescale`; and
+`rescale(Scaled, k, sink)`, the identity at `k = 0` and otherwise
+`IntArith(MUL, WRAP, u, slot(10^k))`, throwing at `p + k > 18`. A comparison's operands come from
+`value()` on each side, after a check of both sides for a rescale into a type wider than 18
+digits, so `a < b` and `b < a` decline alike naming rows 359 and 360. The 17 rows of row 347
+compile to the trees they compiled to before, so no existing shape's bytes move.
 
 **`decimal64.smt2`** is rendered by `VarkaProofFiles` from Spark's `Decimal.POW_10` and
-`DecimalColumn.MAX_LONG_PRECISION`, in 346 checks: the rescale exact and within `p + k` digits
-at each of the 153 pairs with `p + k <= 18`, the one-past check at each of the 18
-precisions, the comparison lemma at each of the 170 pairs of
-scales, the negation, both forms of `abs`, and their agreement on every long. Z3 holds it in
-0.15 s and cvc5 in 0.47 s on the laptop, far under the plan's ten seconds per solver.
+`DecimalColumn.MAX_LONG_PRECISION`, in 341 checks: the rescale exact and within `p + k` digits
+at each of the 153 pairs with `p + k <= 18`, the one-past check at each of the 18 precisions, and
+the comparison lemma at each of the 170 pairs of scales. Z3 5.1.0 holds it in
+0.11 s and cvc5 1.4.1 in 0.27 s on the laptop, far under the plan's ten seconds per solver.
+
+**The coverage rows.** Two fixture columns join the four of scale 2, `d9s4` as `DECIMAL(9, 4)`
+and `d16s9` as `DECIMAL(16, 9)`, and seven predicate rows read them, each refined in
+`refinement.smt2`: `d9 < d9s4`, `d9 = d9s4`, `d9 <=> d9s4`, `d16s9 >= d9s4`, `d18 > 1.5`,
+`d9 < 0.425` and `d9 < 10000000.0125`.
 
 ### Departures from the plan
 
@@ -594,31 +602,40 @@ scales, the negation, both forms of `abs`, and their agreement on every long. Z3
   `k = 18` the largest product is `9 * 10^18`, below `2^63`, so no lane wraps; the product is
   past 18 digits, which the type rule declines before any multiply is built. The file states,
   per pair, which of the two it shows.
+- **A literal is never rescaled by a multiplied slot.** Section 2.1 gives `rescale` a literal
+  case, the multiplied constant in a new slot. `value()` folds a literal tree, its casts
+  included, before any rescale, so a literal takes its slot at the comparison's scale and
+  `rescale` only ever multiplies a computed value.
 - **The hand-built-tree guard holds the scales equal, not the types.** Section 2.3 says that "two
   different types after `value()` decline". Two values of one scale compare as their unscaled
   longs whatever their precisions, and row 347 accepted one scale at two precisions, so the
   guard declines two scales only.
-- **The literal at the larger scale is `d9 < 0.425`, not `d9 = 0.425`.** Section 3 item 4
-  lists the equality. Spark's optimizer (`UnwrapCastInBinaryComparison`) folds it to false,
-  since a `DECIMAL(9, 2)` never equals 0.425, so end to end no kernel ever sees it and the
-  coverage harness fails it as a row that does not stay a filter; the comparison keeps the
-  rescale of the column by 10 against the literal 425 in the analyzed form, and stays a filter.
+- **The literal at the larger scale is `d9 < 0.425` in the analyzed form, and
+  `d9 < 10000000.0125` end to end, not `d9 = 0.425`.** Section 3 item 4 lists the equality.
+  Spark's optimizer (`UnwrapCastInBinaryComparison`) folds it to false, since a `DECIMAL(9, 2)`
+  never equals 0.425, so the coverage harness fails it as a row that does not stay a filter.
+  `d9 < 0.425` rescales the column by 10 against the literal 425 only in the analyzed form,
+  which the refinement row and `VarkaDecimalValueSuite` compile: end to end the same rule casts
+  the literal to the column's type and filters `d9 < 0.43`, at one scale. A literal with more
+  integral digits than the column holds fails that cast, so the rule keeps the comparison:
+  `d9 < 10000000.0125` multiplies the column by 100 against `100000000125` end to end. On the
+  differential's fixture, whose `d9` stays below `10^7`, it is true on every valid row, so it
+  shows the rescale fused and its nulls answered, and a factor too large flips it on the
+  larger values, while a missing factor would not.
 - **`IN` and `InSet` are not in 348a.** Row 497's single `IN` arm exists only as a plan
   (`varka-497-499-plan`, #1179), so, as section 5 item 3 allows, 348a lands without them, writes
   no fifth arm, and leaves out the coverage rows `d9 IN (1.25, 2.5, 3)` and the eleven-literal
   `InSet`; a follow-up adds the reader case to 497's arm.
 
-### 10.5 The test-oracle review of 348a (2 November 2026)
+### 10.4 The test-oracle review of 348a1 (2 November 2026)
 
-A review of the oracles, not the compiler, found three that could not fail; it found no wrong
-answer, and the compiler did not change.
+A review of the oracles, not the compiler, found one in this part that could not fail; it found
+no wrong answer, and the compiler did not change.
 
-- **`d9s4` was `d9` over 100.** Both came from `l`'s last nine digits (10.3, "The coverage rows"),
-  so every row had `d9 = 100 * d9s4` with the same nulls: `d9 < d9s4`, `d9 = d9s4` and
-  `d9 <=> d9s4` answered on the operands' signs, a rescale by 10 instead of 100 gave the same
-  answers, and `<=>` never met one null side. The differential's view now derives `d9s4` from
-  the last seven digits of `coalesce(l, l2)`, times 100 on an even `rid` and 50 on an odd one,
-  null where `i` is: two rows of the mixed fixture and three of the dense flip under a factor of
-  10, and the mixed fixture has a row with only `d9` null and one with only `d9s4` null.
-  `CASE WHEN d9 < d9b THEN d9 ELSE d9s4 END > 0.0` stays a sign test of its branch's rescale,
-  since a positive factor keeps a sign; the new column only makes its branch choice matter.
+- **`d9s4` was `d9` over 100.** Both came from `l`'s last nine digits, so every row had
+  `d9 = 100 * d9s4` with the same nulls: `d9 < d9s4`, `d9 = d9s4` and `d9 <=> d9s4` answered on
+  the operands' signs, a rescale by 10 instead of 100 gave the same answers, and `<=>` never met
+  one null side. The differential's view now derives `d9s4` from the last seven digits of
+  `coalesce(l, l2)`, times 100 on an even `rid` and 50 on an odd one, null where `i` is: two
+  rows of the mixed fixture and three of the dense flip under a factor of 10, and the mixed
+  fixture has a row with only `d9` null and one with only `d9s4` null.

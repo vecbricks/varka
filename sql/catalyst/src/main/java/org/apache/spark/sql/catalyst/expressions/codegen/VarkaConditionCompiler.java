@@ -1312,8 +1312,7 @@ final class VarkaConditionCompiler {
     // (VARKA-347, VARKA-348), read by the decimal compiler rather than by compileNode, which
     // declines a decimal in a value position.
     if (VarkaDecimalCompiler.isDecimal(cmp.left())) {
-      return VarkaDecimalCompiler.operands(cmp, cmp.left(), cmp.right(), inputs, literals,
-          sink)
+      return VarkaDecimalCompiler.operands(cmp, cmp.left(), cmp.right(), inputs, sink)
           .map(both -> new Compare(op, both.get(0), both.get(1)));
     }
     Optional<VarkaVectorIR> left = operand(cmp.left(), inputs, literals, sink);
@@ -1372,7 +1371,7 @@ final class VarkaConditionCompiler {
     }
     // Two decimals at their common scale, as compare takes them (VARKA-347, VARKA-348).
     if (VarkaDecimalCompiler.isDecimal(n.left())) {
-      return VarkaDecimalCompiler.operands(n, n.left(), n.right(), inputs, literals, sink)
+      return VarkaDecimalCompiler.operands(n, n.left(), n.right(), inputs, sink)
           .map(both -> new VarkaVectorIR.NullSafeEqual(both.get(0), both.get(1)));
     }
     Optional<VarkaVectorIR> left = operand(n.left(), inputs, literals, sink);

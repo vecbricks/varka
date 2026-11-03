@@ -99,24 +99,29 @@ public final class VarkaDecimalValueSuite {
   void literalAtTheLargerScale() {
     Attribute a = VarkaSqlResolve.column("a", new DecimalType(9, 2));
     CompiledVarkaPredicate compiled = compile("a = 0.425", List.of(a));
-    // Coercion compares at DECIMAL(10, 3): the column is multiplied by 10, and the literal's
-    // unscaled value at scale 3 is its slot.
+    // In the analyzed form coercion compares at DECIMAL(10, 3): the column is multiplied by 10,
+    // and the literal's unscaled value at scale 3 is its slot. The optimizer would rewrite this
+    // tree (UnwrapCastInBinaryComparison); the analyzed tree is what this test compiles.
     assertEquals(List.of(10L, 425L), compiled.fused().longLiterals().stream().sorted().toList(),
         () -> "the long table: " + compiled.fused());
   }
 
   @Test
-  @DisplayName("p + k = 19 declines at compile time naming rows 359 and 360")
+  @DisplayName("p + k = 19 declines at compile time naming rows 359 and 360, whichever side "
+      + "carries the rescale")
   void nineteenDigitsDecline() {
     List<Attribute> columns = List.of(VarkaSqlResolve.column("a", new DecimalType(18, 0)),
         VarkaSqlResolve.column("b", new DecimalType(18, 1)));
-    Expression e = VarkaSqlResolve.parse("a < b", seq(columns));
-    List<VarkaConjunctSpec> specs =
-        VarkaExpressionCompiler.explainPredicate(e, seq(columns), VarkaMatrixRuns.BASE,
-            VarkaAdmission.NO_HOST_REFUSAL);
-    assertEquals(1, specs.size());
-    String reason = specs.get(0).decline().map(d -> d.reason()).orElse("fused");
-    assertTrue(reason.contains("359") && reason.contains("360"), () -> "declined: " + reason);
+    for (String sql : List.of("a < b", "b < a")) {
+      Expression e = VarkaSqlResolve.parse(sql, seq(columns));
+      List<VarkaConjunctSpec> specs =
+          VarkaExpressionCompiler.explainPredicate(e, seq(columns), VarkaMatrixRuns.BASE,
+              VarkaAdmission.NO_HOST_REFUSAL);
+      assertEquals(1, specs.size());
+      String reason = specs.get(0).decline().map(d -> d.reason()).orElse("fused");
+      assertTrue(reason.contains("359") && reason.contains("360"),
+          () -> sql + " declined: " + reason);
+    }
   }
 
   private static scala.collection.immutable.Seq<Attribute> seq(List<Attribute> columns) {

@@ -2880,7 +2880,7 @@ final class VarkaProofFiles {
   }
 
   // -----------------------------------------------------------------------------------------
-  // The 64-bit decimal's rescale, comparison, negation and abs (VARKA-348).
+  // The 64-bit decimal's rescale and comparison (VARKA-348).
   // -----------------------------------------------------------------------------------------
 
   /**
@@ -2889,8 +2889,7 @@ final class VarkaProofFiles {
    * {@link VarkaVectorIR.DecimalColumn#MAX_LONG_PRECISION}. The rescale by {@code 10^k} of a value
    * within {@code p} digits does not wrap and stays within {@code p + k} digits wherever
    * {@code p + k <= 18}, and at {@code p + k = 19} the file says per pair whether it can wrap; a
-   * comparison of the rescaled long is the comparison of the two rationals; and within 18 digits
-   * the negation does not wrap and both forms of {@code abs} are the magnitude.
+   * comparison of the rescaled long is the comparison of the two rationals.
    */
   static String decimal64() {
     int max = VarkaVectorIR.DecimalColumn.MAX_LONG_PRECISION;
@@ -2903,9 +2902,6 @@ final class VarkaProofFiles {
         ;
         ;   rescale by k digits:  IntArith(MUL, WRAP, u, 10^k), when p + k <= 18     jlong.mul
         ;   a comparison:         Compare(op, u1 * 10^k, u2), s2 = s1 + k            <, <=, =
-        ;   negation:             IntNeg(WRAP, u)                                   jlong.neg
-        ;   abs, the blend:       IfElse(u < 0, IntNeg(WRAP, u), u)
-        ;   abs, lanewise ABS:    Math.abs's definition, u < 0 ? -u : u, wrapping
         ;
         ; Every claim is linear, since every multiplier is a constant. The rescale is proven at
         ; every (p, k) with p + k <= 18; a narrower operand's range is inside the widest one's, so
@@ -2915,8 +2911,6 @@ final class VarkaProofFiles {
     out.append("""
 
         (define-fun dec.in ((u Int) (b Int)) Bool (and (<= (- b) u) (<= u b)))
-        (define-fun dec.absBlend ((u Int)) Int (ite (< u 0) (jlong.neg u) u))
-        (define-fun dec.absLanewise ((u Int)) Int (jlong.wrap (ite (< u 0) (- u) u)))
         """);
     String u = "(declare-const u Int)";
     for (int p = 1; p <= max; p++) {
@@ -2962,19 +2956,6 @@ final class VarkaProofFiles {
                     + "(= (= " + code + " u2) (= " + lhs + " " + rhs + ")))))"));
       }
     }
-    long b = pow[max] - 1;
-    check(out, "|u| <= " + b + " gives a negation with no wrap", "unsat", List.of(u,
-        "(assert (dec.in u " + b + "))", "(assert (not (= (jlong.neg u) (- u))))"));
-    check(out, "and the long lane's minimum, outside the bound, negates to itself", "sat",
-        List.of(u, "(assert (= u jlong.MIN))", "(assert (= (jlong.neg u) u))"));
-    check(out, "|u| <= " + b + " gives abs as the blend u < 0 ? -u : u equal to |u|, within the "
-        + "precision", "unsat", List.of(u, "(assert (dec.in u " + b + "))",
-            "(assert (not (and (= (dec.absBlend u) (abs u)) (dec.in (dec.absBlend u) " + b
-                + "))))"));
-    check(out, "and as the lanewise ABS", "unsat", List.of(u, "(assert (dec.in u " + b + "))",
-        "(assert (not (= (dec.absLanewise u) (abs u))))"));
-    check(out, "the two abs forms agree on every long", "unsat", List.of(u,
-        "(assert (jlong.in u))", "(assert (not (= (dec.absLanewise u) (dec.absBlend u))))"));
     return out.toString();
   }
 

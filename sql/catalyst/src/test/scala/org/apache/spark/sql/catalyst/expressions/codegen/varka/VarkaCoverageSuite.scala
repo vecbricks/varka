@@ -998,7 +998,10 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
       Row("d9 <=> d9s4"),
       Row("d16s9 >= d9s4", "at DECIMAL(16, 9): d9s4 times 10^5"),
       Row("d18 > 1.5", "the literal takes its slot at the column's scale, 150"),
-      Row("d9 < 0.425", "at DECIMAL(10, 3): the column times 10, the literal 425"))),
+      Row("d9 < 0.425", "in the analyzed form at DECIMAL(10, 3), the column times 10 against "
+        + "425; the optimizer folds it to d9 < 0.43, of one scale"),
+      Row("d9 < 10000000.0125", "at DECIMAL(12, 4): the column times 100 against "
+        + "100000000125, kept end to end since the literal does not fit d9's type"))),
 
     Family("Time arithmetic", predicates = false, Seq(
       Row("t - t2", "a day-time interval, the nanosecond difference divided by a thousand"),
@@ -1622,7 +1625,8 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
     "d9 <=> d9s4" -> Refined("d9 <=> d9s4"),
     "d16s9 >= d9s4" -> Refined("d16s9 >= d9s4"),
     "d18 > 1.5" -> Refined("d18 > 1.5"),
-    "d9 < 0.425" -> Refined("d9 < 0.425"))
+    "d9 < 0.425" -> Refined("d9 < 0.425"),
+    "d9 < 10000000.0125" -> Refined("d9 < 10000000.0125"))
 
   private def verifiedOf(family: Family, row: Row): Verified =
     rowVerified.getOrElse(row.sql, familyVerified.getOrElse(family.title, Differential))

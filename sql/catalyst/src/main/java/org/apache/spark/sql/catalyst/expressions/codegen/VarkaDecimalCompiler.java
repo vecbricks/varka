@@ -41,7 +41,7 @@ import org.apache.spark.sql.types.DecimalType;
 /**
  * The decimal values a kernel computes on the long lane (VARKA-347, VARKA-348): each is a
  * {@link Scaled}, an unscaled long node and the {@code DECIMAL(p, s)} it is a value of, built by
- * {@link #value}, which every decimal consumer calls.
+ * {@link #value}, which a comparison's operands are read through.
  *
  * <p>Why a long compare is Spark's answer. Two values of one scale {@code s} are {@code u1 / 10^s}
  * and {@code u2 / 10^s}, so they order and compare equal exactly as their unscaled values do, and
@@ -110,8 +110,7 @@ final class VarkaDecimalCompiler {
    * The value of the decimal expression {@code e}, or empty with the reason noted. A literal tree
    * folds first, so a literal under coercion's cast takes its slot already at the cast's scale.
    */
-  static Optional<Scaled> value(Expression e, VarkaSlotTable inputs, VarkaSlotTable literals,
-      DeclineSink sink) {
+  static Optional<Scaled> value(Expression e, VarkaSlotTable inputs, DeclineSink sink) {
     if (!(e.dataType() instanceof DecimalType type)) {
       return sink.decline("a decimal operator over a " + e.dataType().simpleString()
           + " operand", e);
@@ -130,10 +129,10 @@ final class VarkaDecimalCompiler {
     }
     return switch (e) {
       case BoundReference br -> column(br, type, inputs, sink);
-      case Cast c -> cast(c, type, inputs, literals, sink);
-      default -> sink.decline("a decimal operator no arm builds yet: +, - and * are row 349's "
-          + "and the rounding functions row 351's, and a quotient or a remainder is no row's in "
-          + "this milestone", e);
+      case Cast c -> cast(c, type, inputs, sink);
+      default -> sink.decline("a decimal operator no arm builds yet: negation and abs are row "
+          + "348's, +, - and * row 349's and the rounding functions row 351's, and a quotient or "
+          + "a remainder is no row's in this milestone", e);
     };
   }
 
@@ -143,12 +142,17 @@ final class VarkaDecimalCompiler {
    * smaller scale, needs row 360's wide rescale as well.
    */
   private static String wideReason(Expression e, DecimalType type) {
-    if (e instanceof Cast c && c.child().dataType() instanceof DecimalType from
-        && from.scale() < type.scale()) {
+    if (rescalesUp(e, type)) {
       return "a rescale to a decimal wider than " + MAX_PRECISION + " digits is rows 359 and "
           + "360's";
     }
     return "a decimal wider than " + MAX_PRECISION + " digits is row 359's";
+  }
+
+  /** Whether {@code e} is a cast to {@code type} from a decimal of a smaller scale. */
+  private static boolean rescalesUp(Expression e, DecimalType type) {
+    return e instanceof Cast c && c.child().dataType() instanceof DecimalType from
+        && from.scale() < type.scale();
   }
 
   /**
@@ -180,12 +184,20 @@ final class VarkaDecimalCompiler {
    * declines rather than comparing unscaled values of two scales.
    */
   static Optional<List<VarkaVectorIR>> operands(Expression whole, Expression left,
-      Expression right, VarkaSlotTable inputs, VarkaSlotTable literals, DeclineSink sink) {
-    Optional<Scaled> l = value(left, inputs, literals, sink);
+      Expression right, VarkaSlotTable inputs, DeclineSink sink) {
+    // A rescale into a wide common type names rows 359 and 360 whichever side carries it, so
+    // both sides are read before either declines on its own.
+    for (Expression side : List.of(left, right)) {
+      if (side.dataType() instanceof DecimalType type && type.precision() > MAX_PRECISION
+          && rescalesUp(side, type)) {
+        return sink.decline(wideReason(side, type), side);
+      }
+    }
+    Optional<Scaled> l = value(left, inputs, sink);
     if (l.isEmpty()) {
       return Optional.empty();
     }
-    Optional<Scaled> r = value(right, inputs, literals, sink);
+    Optional<Scaled> r = value(right, inputs, sink);
     if (r.isEmpty()) {
       return Optional.empty();
     }
@@ -261,10 +273,10 @@ final class VarkaDecimalCompiler {
    * lower the scale ({@code S >= s}), since {@code changePrecision} then multiplies by
    * {@code 10^(S - s)} and its precision check passes; within 18 digits that is
    * {@link #rescale}. Such a cast is the only one type coercion puts over a decimal operand of a
-   * comparison or a choice within 18 digits, so every other cast declines naming its row.
+   * comparison within 18 digits, so every other cast declines naming its row.
    */
   private static Optional<Scaled> cast(Cast c, DecimalType to, VarkaSlotTable inputs,
-      VarkaSlotTable literals, DeclineSink sink) {
+      DeclineSink sink) {
     if (!(c.child().dataType() instanceof DecimalType from)) {
       return sink.decline("a cast from " + c.child().dataType().simpleString()
           + " to a decimal is row 350's", c);
@@ -274,7 +286,7 @@ final class VarkaDecimalCompiler {
       return sink.decline("a decimal cast that lowers the scale or the integral digits rounds "
           + "or can overflow, and is row 350's", c);
     }
-    return value(c.child(), inputs, literals, sink)
+    return value(c.child(), inputs, sink)
         .map(x -> new Scaled(rescale(x, k, sink).unscaled(), to));
   }
 
