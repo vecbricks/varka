@@ -29,7 +29,9 @@
     "d9" : "decimal(9,2)",
     "d9b" : "decimal(9,2)",
     "d18" : "decimal(18,2)",
-    "d18b" : "decimal(18,2)"
+    "d18b" : "decimal(18,2)",
+    "d9s4" : "decimal(9,4)",
+    "d16s9" : "decimal(16,9)"
   },
   "expressions" : [ {
     "sql" : "date_add(d, 3)",
@@ -5515,6 +5517,78 @@
     "domain" : "",
     "note" : "",
     "verified" : "differential"
+  }, {
+    "sql" : "d9 < d9s4",
+    "executable" : "d9 < d9s4",
+    "family" : "DECIMAL columns",
+    "form" : "predicate",
+    "catalyst" : [ "Cast", "LessThan" ],
+    "casts" : [ "dec>dec:ansi" ],
+    "operands" : [ "Cast:dec", "LessThan:dec" ],
+    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
+    "domain" : "",
+    "note" : "both sides at DECIMAL(11, 4): d9's unscaled value times 100, exact since nine digits times 10^2 stay within eleven (decimal64.smt2)",
+    "verified" : "refinement: d9 < d9s4"
+  }, {
+    "sql" : "d9 = d9s4",
+    "executable" : "d9 = d9s4",
+    "family" : "DECIMAL columns",
+    "form" : "predicate",
+    "catalyst" : [ "Cast", "EqualTo" ],
+    "casts" : [ "dec>dec:ansi" ],
+    "operands" : [ "Cast:dec", "EqualTo:dec" ],
+    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
+    "domain" : "",
+    "note" : "",
+    "verified" : "refinement: d9 = d9s4"
+  }, {
+    "sql" : "d9 <=> d9s4",
+    "executable" : "d9 <=> d9s4",
+    "family" : "DECIMAL columns",
+    "form" : "predicate",
+    "catalyst" : [ "Cast", "EqualNullSafe" ],
+    "casts" : [ "dec>dec:ansi" ],
+    "operands" : [ "Cast:dec", "EqualNullSafe:dec" ],
+    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
+    "domain" : "",
+    "note" : "",
+    "verified" : "refinement: d9 <=> d9s4"
+  }, {
+    "sql" : "d16s9 >= d9s4",
+    "executable" : "d16s9 >= d9s4",
+    "family" : "DECIMAL columns",
+    "form" : "predicate",
+    "catalyst" : [ "Cast", "GreaterThanOrEqual" ],
+    "casts" : [ "dec>dec:ansi" ],
+    "operands" : [ "Cast:dec", "GreaterThanOrEqual:dec" ],
+    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
+    "domain" : "",
+    "note" : "at DECIMAL(16, 9): d9s4 times 10^5",
+    "verified" : "refinement: d16s9 >= d9s4"
+  }, {
+    "sql" : "d18 > 1.5",
+    "executable" : "d18 > 1.5",
+    "family" : "DECIMAL columns",
+    "form" : "predicate",
+    "catalyst" : [ "Cast", "GreaterThan" ],
+    "casts" : [ "dec>dec:ansi" ],
+    "operands" : [ "Cast:dec", "GreaterThan:dec" ],
+    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
+    "domain" : "",
+    "note" : "the literal takes its slot at the column's scale, 150",
+    "verified" : "refinement: d18 > 1.5"
+  }, {
+    "sql" : "d9 < 0.425",
+    "executable" : "d9 < 0.425",
+    "family" : "DECIMAL columns",
+    "form" : "predicate",
+    "catalyst" : [ "Cast", "LessThan" ],
+    "casts" : [ "dec>dec:ansi" ],
+    "operands" : [ "Cast:dec", "LessThan:dec" ],
+    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
+    "domain" : "",
+    "note" : "at DECIMAL(10, 3): the column times 10, the literal 425",
+    "verified" : "refinement: d9 < 0.425"
   }, {
     "sql" : "t - t2",
     "executable" : "t - t2",
