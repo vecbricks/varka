@@ -763,8 +763,8 @@ public final class VarkaKernelPlan {
     if (filterReadsIntegral && conjunct.laneType().isFloating()) {
       return Optional.of(new Refusal(Kind.FLOATING_CONDITION, "a condition on the "
           + conjunct.laneType() + " lane in a filter that also reads integral columns: its "
-          + "kernel meets on an integral lane, and a filter's conjuncts do not cross from a "
-          + "floating lane to it yet"));
+          + "kernel meets on an integral lane, and a mask crossing from a floating lane is not "
+          + "built"));
     }
     return Optional.empty();
   }

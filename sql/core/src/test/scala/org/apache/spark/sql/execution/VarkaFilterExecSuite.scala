@@ -417,8 +417,8 @@ class VarkaFilterExecSuite extends QueryTest with SharedSparkSession with VarkaT
         VarkaAdmission.NO_HOST_REFUSAL)
     assert(mixed.head === "(d < DATE '1970-01-11'): fused")
     val floatingReason = "residual (a condition on the DOUBLE lane in a filter that also " +
-      "reads integral columns: its kernel meets on an integral lane, and a filter's conjuncts " +
-      "do not cross from a floating lane to it yet"
+      "reads integral columns: its kernel meets on an integral lane, and a mask crossing from " +
+      "a floating lane is not built"
     assert(mixed(1).startsWith(s"(f > 5.0D): $floatingReason"), mixed)
     // A filter over the floating column alone fuses: its kernel is on the DOUBLE lane.
     val alone = VarkaFusionReport.predicateLines(doubleResidual, withDouble,
