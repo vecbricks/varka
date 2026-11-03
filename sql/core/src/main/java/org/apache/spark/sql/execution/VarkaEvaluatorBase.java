@@ -34,6 +34,8 @@ import scala.jdk.javaapi.CollectionConverters;
 import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.vector.BaseFixedWidthVector;
 import org.apache.arrow.vector.BitVector;
+import org.apache.arrow.vector.Float4Vector;
+import org.apache.arrow.vector.Float8Vector;
 import org.apache.arrow.vector.ValueVector;
 import org.apache.arrow.vector.VarCharVector;
 
@@ -616,6 +618,7 @@ public abstract class VarkaEvaluatorBase {
         // with no data; its data is a bitmap of whole words, which the marker says (VARKA-27).
         kernel.dstWidth[o] = vector instanceof BitVector
             ? VarkaReproduction.KernelCall.BIT_OUTPUT : vector.getTypeWidth();
+        kernel.dstFloating[o] = vector instanceof Float4Vector || vector instanceof Float8Vector;
         kernel.dstValidity[o] = vector.getValidityBuffer().memoryAddress();
         if (VarkaMemorySanitizer.ENABLED) {
           // The kernel's own bytes: len values (a bit output's bitmap to its last whole word),

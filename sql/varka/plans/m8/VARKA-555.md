@@ -49,9 +49,16 @@ floating output only" plants two bodies' outputs and calls `compareBodies`: two 
 doubles agree on a floating output and fail on an 8-byte integral one; `+0.0` against `-0.0`
 fails; a NaN against a number fails either way round; the same for 4-byte floats.
 `VarkaKernelEvaluatorSuite`'s boolean-output test pins the flag false on a non-floating output.
-No test forces the masked loop to another tier over a real kernel.
+No test forces the masked loop to another tier over a real kernel: `VarkaCoverageHarnessSuite`
+with `-XX:CompileCommand=exclude,*.loopMasked0` passed on the laptop with the relaxation switched
+off as well as on, so the suite does not reproduce the tier split the probe did.
 
 ## 9. Outcome
+
+3 November 2026, on the laptop: the new test and `VarkaKernelEvaluatorSuite` pass, and
+`VarkaEvaluatorComponentsSuite`, `VarkaKernelEvaluatorSuite`, `VarkaFloatingLaneSuite` and
+`VarkaCoverageHarnessSuite` pass with `-Dvarka.checkBothBodies=true` and the memory sanitizer.
+Left: the option matrix.
 
 Done when the tests above pass, `VarkaEvaluatorComponentsSuite`, `VarkaFloatingLaneSuite` and
 `VarkaCoverageHarnessSuite` pass with `-Dvarka.checkBothBodies=true`, and the option matrix no
