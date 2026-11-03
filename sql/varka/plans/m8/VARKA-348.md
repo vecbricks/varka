@@ -570,8 +570,7 @@ matched its plan.
 ### 10.3 Step 4: 348a1, the comparisons at two scales
 
 *Built 1 November 2026 on branch `varka-348-conditions` from the census branch (`218de0b8219`), and
-cut as part 348a1 on branch `varka-348a1-rescale` on 3 November 2026 (section 5). Parts 348a2 and
-348a3 add their own outcomes below.*
+cut as part 348a1 on branch `varka-348a1-rescale` on 3 November 2026 (section 5).*
 
 **The foundation, built first so that row 349a can branch from it.** `VarkaDecimalCompiler` has
 the record `Scaled(unscaled, type)`, its compact constructor holding the long lane, a precision
@@ -629,8 +628,8 @@ and `d16s9` as `DECIMAL(16, 9)`, and seven predicate rows read them, each refine
 
 ### 10.4 The test-oracle review of 348a1 (2 November 2026)
 
-A review of the oracles, not the compiler, found one in this part that could not fail; it found
-no wrong answer, and the compiler did not change.
+A review of the oracles, not the compiler, found one that could not fail; it found no wrong
+answer, and the compiler did not change.
 
 - **`d9s4` was `d9` over 100.** Both came from `l`'s last nine digits, so every row had
   `d9 = 100 * d9s4` with the same nulls: `d9 < d9s4`, `d9 = d9s4` and `d9 <=> d9s4` answered on
