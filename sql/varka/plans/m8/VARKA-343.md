@@ -525,8 +525,7 @@ Cut from #1303's final tree, without its `BIGINT` conversions (343a4), sweeps an
   none: they expect the new narrow-column rows to decline where no lane count is baked,
   `validityByWidth=false` and, for `DOUBLE`, `lanesOverride=16`.
 - **A known limit**, shared with row 332: `CompiledVarkaProjection` checks a long literal table
-  against the drive under `VarkaEmitOptions.DEFAULTS`. At 128 bits with `lanesOverride=4` the
-  session admits `CAST(y1 AS DOUBLE) / 2.0D`, the defaults refuse it, and the query fails at
-  planning with `INTERNAL_ERROR`. No CI step pairs that width with that override (the option
-  matrix sets it only on x86 runners of 256 bits or more), and no SQL conf sets it. Owed: 343a3b.
+  against the drive under `VarkaEmitOptions.DEFAULTS`, which refuse what the session admits at
+  128 bits with `lanesOverride=4`, `CAST(y1 AS DOUBLE) / 2.0D`: planning raises `INTERNAL_ERROR`.
+  No CI step pairs the two (the option matrix: x86, 256+ bits), no SQL conf sets it. Owed: 343a3b.
 - **Prediction 4.1** holds: only the new rows' shapes and the `option_arms` digests move.
