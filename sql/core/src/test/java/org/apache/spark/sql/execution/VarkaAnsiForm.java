@@ -271,7 +271,7 @@ public final class VarkaAnsiForm {
     // (BoolColumn), beside the cast's test on a floating lane.
     String boolColumn = "the form's boolean column b2 is read on an integral lane and the "
         + "cast's test on a floating lane, which share no kernel until the root-level crossing "
-        + "(VARKA-343.md 10, owed after part 343a3)";
+        + "(VARKA-343.md 10, part 343a3b)";
     for (String sql : List.of("CAST(x AS BOOLEAN)", "CAST(f AS BOOLEAN)")) {
       for (String position : List.of(CASE_ARM, COALESCE_TAIL, FALSE_AND)) {
         out.put(sql + "\t" + position, boolColumn);
@@ -283,7 +283,7 @@ public final class VarkaAnsiForm {
     // the floating ones, which declines until the root-level crossing is built.
     String laneSplit = "the null test the optimizer infers on the cast's source is on another "
         + "lane than the floating comparison, and conjuncts of two such lanes share no kernel "
-        + "until the root-level crossing (VARKA-343.md 10, owed after part 343a3)";
+        + "until the root-level crossing (VARKA-343.md 10, part 343a3b)";
     for (String sql : List.of("CAST(i AS FLOAT)", "try_cast(i AS FLOAT)",
         "CAST(CAST(y1 AS INT) * CAST(y2 AS INT) AS FLOAT)", "CAST(i AS DOUBLE)",
         "CAST(y1 AS FLOAT)", "CAST(s1 AS FLOAT)", "CAST(y1 AS DOUBLE)", "CAST(s1 AS DOUBLE)",

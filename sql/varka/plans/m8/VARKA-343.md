@@ -134,7 +134,8 @@ or `DOUBLE`) drives at 64 bits, at `LONG` if it holds one and at `DOUBLE` otherw
 32-bit nodes only drives at `INT` if it holds one, else at `FLOAT`. A 32-bit value in a 64-bit
 kernel fills the low half of its species of the drive's width, as an int value does in a long
 kernel (`VARKA-28.md` 9). `Analysis`' fit rule (item 0.3) becomes the width rule, and `lanesShare`
-joins roots of one width. A mask crosses to a lane of another count through the word, as
+joins roots of one width (part 343a3b: 343a3 builds the crossing within a root's tree, and
+the join of roots of two kinds moves to 343a3b, 3 November 2026). A mask crosses to a lane of another count through the word, as
 `emitToDrivingLane` does, and to one of the same count by `VectorMask.cast`. #1065 leaves that
 crossing owed (its `VARKA-341.md` 5.1); 343a3 builds it, so it closes 341's owed item, and 341's
 record names 343a3 when this lands. A narrow column in a 64-bit kernel - `CAST(y AS DOUBLE)` -
@@ -355,7 +356,8 @@ they are upper bounds.
 | 343a1 | `CAST(x AS BOOLEAN)` over a `FLOAT` or `DOUBLE` (2.5): the lane's `EQ` against zero, negated, in the condition compiler; its coverage rows | master | 200 |
 | 343a2 | `ConvertLane` (2.1) with its refusals, the reference's casts and the range analysis, the `convertShape` lowering, and the compiler arm for the one-count pair, `INT` to `FLOAT`; the reference cells and the refusal tests | master | 750 |
 | 343a3 | the kernel of two lane counts (2.2): the width rules in the kernel plan, `Analysis`, `Slots` and the walk, the warm-up blocks, and the pairs it carries, `INT` to `DOUBLE`, `FLOAT` with `DOUBLE`, the narrow sources, a condition as a value and the mixed trees (`x + i`, `f * i`, `f + x`); the three failures #1303's last matrix found are fixed here, the `INTERNAL_ERROR` under `validityByWidth=false` as a defect, not a skip | 343a2 | 950 |
-| 343a4 | `BIGINT` to `FLOAT` and `DOUBLE` where the host has AVX512DQ: level 3 resolved from the host, the unknown level declining them, the option matrix's level-3 runs and their Spark check | 343a3 | 450 |
+| 343a3b | the root-level crossing (2.2): roots of two kinds share one kernel (`lanesShare` joins roots of one width), so a filter's floating conjunct beside an integral one - the null test the optimizer infers on a cast's source among them - no longer declines (`floatingConjunctRefusal`), and an integral and a floating output take one kernel; the forms `VarkaAnsiForm.DECLINED` lists for it fuse. Added by the owner's word of 3 November 2026, when 343a3 stayed under the cap without it | 343a3 | to be sized |
+| 343a4 | `BIGINT` to `FLOAT` and `DOUBLE` where the host has AVX512DQ: level 3 resolved from the host, the unknown level declining them, the option matrix's level-3 runs and their Spark check | 343a3b | 450 |
 | 343a5 | the fuzz grammar's conversions, the 2^32 sweeps of 3.1 and the harness check of each fused cast on both lanes | 343a4 | 400 |
 | 343b1 | the paper and the AVX2 forms (2.3, step 4): `L2D` by the exact split, `L2F` by round-to-odd, behind `wideConversionForm`, the SMT claims and the failing case | 343a5 | 900 |
 | 343b2 | floating to integral in the three modes (2.4, step 5), with `GuardedRange`'s floating bounds and `NULL` disposal; `D2L`'s assembly on AVX2 | 343b1 | 900 |
@@ -467,8 +469,8 @@ None open; both were settled with an advisor's review on 27 October 2026.
    make two rows own one node.
 
 The size, large, was confirmed by the owner on 27 October 2026, in two parts; on 3 November 2026
-he set a cap of 1000 changed hand-written lines per pull request, so the row lands in the eight
-parts of 4.
+he set a cap of 1000 changed hand-written lines per pull request, so the row lands in the parts
+of 4: eight then, nine since 343a3b was added the same day.
 
 The baseline comes first, as its own pull request (5.1): not a question, since the house rule
 settles it, as it did for rows 377, 27, 339 and 342.
@@ -508,8 +510,8 @@ Cut from #1303's final tree, without its `BIGINT` conversions (343a4), sweeps an
   and an arm's condition of the other kind of the drive's width cross by `VectorMask.cast`,
   both ways at both widths, and so does the epilogue's bounds mask. *Not built:* roots of two
   kinds still take a kernel each (`lanesShare`), and a filter's floating conjunct beside an
-  integral one still declines (`floatingConjunctRefusal`); that root-level half is owed after
-  343a3, with no part of 4 yet, and `VarkaAnsiForm.DECLINED` lists the forms it costs.
+  integral one still declines (`floatingConjunctRefusal`); that root-level half is part 343a3b's
+  (4, the owner's word of 3 November 2026), and `VarkaAnsiForm.DECLINED` lists the forms it costs.
 - **The warm-up** gains `F2D`, `D2F` and the four mask casts between the two lanes of one width.
 - **Tests**: `VarkaEmitterFloatingCastSuite` holds each conversion and the two-lane kernels to
   the reference at three widths, ten lengths, four null patterns and both bodies; the coverage

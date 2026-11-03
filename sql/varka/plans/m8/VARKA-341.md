@@ -296,7 +296,7 @@ Where the code departs from 2.4 to 2.7, and what is still owed:
   the drive's width cross to the drive by `VectorMask.cast`, both ways at both widths, and so
   does the epilogue's bounds mask. Roots of the two kinds still take a kernel each, and a
   filter's floating conjunct beside an integral one still declines: that root-level half is
-  owed after 343a3.
+  part 343a3b's (`VARKA-343.md` 4).
 - **Not floating gaps:** a `BOOLEAN` output and a `CASE` with no `ELSE` fuse on no lane yet (the
   latter is row 333), so the suite shows a condition's three values through a `CASE` with an
   `ELSE`.
