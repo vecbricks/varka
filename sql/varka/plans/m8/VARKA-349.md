@@ -146,7 +146,9 @@ guard-the-inputs by the operand's bound.
 in `WRAP` in every mode, typed `(P, S)`. The bound: each rescaled operand has at most `P - 1`
 digits, so `|a| + |b| <= 2 * (10^(P - 1) - 1) < 10^P - 1 < 2^63`. A literal operand is rescaled at
 compile time (348's rule). `try_add`, `try_subtract` and the `Add`, `Subtract` in each `EvalMode`
-are this one node; the mode is read and not used, which section 3 item 3 holds.
+are this one node; the mode is read and not used, which section 3 item 3 holds. Decimal
+arithmetic runs outside the family switches, as 348's negation and `abs` do, while a decimal
+`greatest` or `least` stays under the int arithmetic's switch.
 
 ### 2.3 `*`
 
@@ -214,7 +216,7 @@ with it.
 | an operand above 18 digits in `+` or `-` | 359 and 360 |
 | `CheckOverflow` to a smaller scale | 350 |
 | `CheckOverflow` above precision 18 | 359 and 360 |
-| an integral operand (`CAST(i AS DECIMAL(10, 0))`) | 350 (and 360 for `(20, 0)`) |
+| an integral operand (`CAST(i AS DECIMAL(10, 0))`) | 350; a `BIGINT`'s `(20, 0)` widens the node past 18 digits, which names the wide operand's rows above |
 | `/`, `div`, `try_divide` over decimals | the owner's decision of 14 October 2026 |
 
 ### 2.7 At 128 bits, the compiler, the reference

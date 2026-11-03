@@ -206,7 +206,8 @@ final class VarkaDecimalCompiler {
    * smaller scale or over a choice's branch of the smaller scale, needs row 360's wide rescale as
    * well, and a cast over that rescale which lowers the scale or the integral digits row 350's
    * too. A sum, difference or product names the row of its own wide form instead, which is the
-   * more precise answer.
+   * more precise answer, and so does a cast, a negation, a choice or a pick over one that needs
+   * no rescale.
    */
   private static String wideReason(Expression e, DecimalType type) {
     return switch (e) {
@@ -228,9 +229,35 @@ final class VarkaDecimalCompiler {
           yield "a rescale to a decimal wider than " + MAX_PRECISION + " digits is rows 359 and "
               + "360's";
         }
-        yield "a decimal wider than " + MAX_PRECISION + " digits is row 359's";
+        yield wideArithmeticBelow(e)
+            .orElse("a decimal wider than " + MAX_PRECISION + " digits is row 359's");
       }
     };
+  }
+
+  /**
+   * The reason of the first sum, difference or product past 18 digits under {@code e}, reached
+   * through the casts, negations, choices and picks over it, as {@code -(x + y)} reaches its sum.
+   */
+  private static Optional<String> wideArithmeticBelow(Expression e) {
+    if (!(e instanceof Cast || e instanceof UnaryMinus || e instanceof Abs || e instanceof If
+        || e instanceof CaseWhen || e instanceof Coalesce || e instanceof Greatest
+        || e instanceof Least)) {
+      return Optional.empty();
+    }
+    for (Expression child : CollectionConverters.asJava(e.children())) {
+      Expression at = child instanceof RuntimeReplaceable r ? r.replacement() : child;
+      if (at.dataType() instanceof DecimalType t && t.precision() > MAX_PRECISION) {
+        if (at instanceof Add || at instanceof Subtract || at instanceof Multiply) {
+          return Optional.of(wideReason(at, t));
+        }
+        Optional<String> below = wideArithmeticBelow(at);
+        if (below.isPresent()) {
+          return below;
+        }
+      }
+    }
+    return Optional.empty();
   }
 
   /**
@@ -258,18 +285,24 @@ final class VarkaDecimalCompiler {
     }
   }
 
-  /** Why a sum or difference past 18 digits declines: an operand's, or its result's, row. */
+  /**
+   * Why a sum or difference past 18 digits declines: its result's rows past 38 digits, which only
+   * an operand past 18 digits reaches, else an operand's, else its result's.
+   */
   private static String sumReason(String what, DecimalType t1, DecimalType t2) {
-    if (t1.precision() > MAX_PRECISION || t2.precision() > MAX_PRECISION) {
+    int p = ResultType.ofSum(t1, t2).precision();
+    if (p <= DecimalType.MAX_PRECISION()
+        && (t1.precision() > MAX_PRECISION || t2.precision() > MAX_PRECISION)) {
       return "a decimal " + what + " over an operand wider than " + MAX_PRECISION
           + " digits is rows 359 and 360's";
     }
-    return arithmeticReason(what, ResultType.ofSum(t1, t2).precision(), "360", "360 and 363");
+    return arithmeticReason(what, p, "360", "360 and 363");
   }
 
   /** Why a product past 18 digits declines: an operand's, or its result's, row. */
   private static String productReason(DecimalType t1, DecimalType t2) {
-    if (t1.precision() > MAX_PRECISION || t2.precision() > MAX_PRECISION) {
+    if (ResultType.ofProduct(t1, t2).precision() <= DecimalType.MAX_PRECISION()
+        && (t1.precision() > MAX_PRECISION || t2.precision() > MAX_PRECISION)) {
       return "a decimal product over an operand wider than " + MAX_PRECISION
           + " digits is rows 362 and 363's";
     }
@@ -926,7 +959,7 @@ final class VarkaDecimalCompiler {
     try {
       value = e.eval(null);
     } catch (RuntimeException failed) {
-      return sink.decline("a decimal literal whose cast fails", e);
+      return sink.decline("a decimal constant whose evaluation fails", e);
     }
     if (!(value instanceof Decimal d)) {
       return sink.decline("a null decimal literal needs a typed null value, which is row "
