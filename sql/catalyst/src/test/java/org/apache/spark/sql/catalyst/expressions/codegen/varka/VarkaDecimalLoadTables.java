@@ -406,6 +406,13 @@ abstract class VarkaDecimalLoadTables {
   /** {@link #conditionTable} at the given precisions only. */
   private void conditionTable(String name, int[] precisions,
       IntFunction<VarkaVectorIR.Cond> cond, long[] literals, RowTruth truth) {
+    conditionTable(name, precisions, cond, literals, truth, VarkaMatrixRuns.BASE);
+  }
+
+  /** {@link #conditionTable} at the given precisions, its kernels emitted under {@code options}. */
+  private void conditionTable(String name, int[] precisions,
+      IntFunction<VarkaVectorIR.Cond> cond, long[] literals, RowTruth truth,
+      VarkaEmitOptions options) {
     long[] lits = new long[literals.length + 2];
     System.arraycopy(literals, 0, lits, 0, literals.length);
     lits[literals.length] = 1L;
@@ -416,7 +423,8 @@ abstract class VarkaDecimalLoadTables {
         VarkaVectorIR root = new VarkaVectorIR.IfElse(cond.apply(precision),
             new LiteralSlot(literals.length, LaneType.LONG),
             new LiteralSlot(literals.length + 1, LaneType.LONG));
-        VarkaFusedKernel k = kernel(List.of(root), lits.length, lanes).kernel();
+        VarkaFusedKernel k = kernel(List.of(root), 1, lits.length,
+            options.withLanesOverride(lanes)).kernel();
         for (int length : LENGTHS) {
           for (boolean masked : new boolean[] {false, true}) {
             String at = name + " at " + label(lanes) + ", precision " + precision
@@ -507,11 +515,17 @@ abstract class VarkaDecimalLoadTables {
             Overflow.WRAP, new DecimalColumn(0, LaneType.LONG, precision)),
             new LiteralSlot(0, LaneType.LONG)),
         new long[] {5L}, (u, isNull) -> isNull ? Truth.UNKNOWN : -u < 5 ? Truth.TRUE : Truth.FALSE);
-    conditionTable("abs(d) >= 5", precision -> new Compare(CompareOp.GE, new VarkaVectorIR.IntNeg(
-            Overflow.WRAP, new DecimalColumn(0, LaneType.LONG, precision), true),
-            new LiteralSlot(0, LaneType.LONG)),
-        new long[] {5L},
-        (u, isNull) -> isNull ? Truth.UNKNOWN : Math.abs(u) >= 5 ? Truth.TRUE : Truth.FALSE);
+    IntFunction<VarkaVectorIR.Cond> abs = precision -> new Compare(CompareOp.GE,
+        new VarkaVectorIR.IntNeg(Overflow.WRAP, new DecimalColumn(0, LaneType.LONG, precision),
+            true),
+        new LiteralSlot(0, LaneType.LONG));
+    RowTruth absTruth =
+        (u, isNull) -> isNull ? Truth.UNKNOWN : Math.abs(u) >= 5 ? Truth.TRUE : Truth.FALSE;
+    // abs under both of its lowerings: the default blend and decimalAbsLanewise's lanewise ABS.
+    conditionTable("abs(d) >= 5", PRECISIONS, abs, new long[] {5L}, absTruth,
+        VarkaMatrixRuns.BASE);
+    conditionTable("abs(d) >= 5, lanewise", PRECISIONS, abs, new long[] {5L}, absTruth,
+        VarkaMatrixRuns.BASE.toBuilder().decimalAbsLanewise(true).build());
     // A null test over a negation or abs declines in the compiler ("a null test over a decimal
     // that is not a column"), so it has no table here; the null test over the leaf is
     // conditionTableOfTheNullTest's.

@@ -282,7 +282,7 @@ public final class VarkaIrGrammar {
   public static Bounds boundsOf(VarkaVectorIR node) {
     return switch (node) {
       case ColumnRef _ -> new Bounds(COLUMN_BOUND, 0L);
-      // The grammar draws no decimal column (VARKA-347's own sequence is a later step's).
+      // The grammar draws no decimal column here: drawDecimalValueShape draws its own values.
       case DecimalColumn _ ->
           throw new IllegalArgumentException("the grammar draws no decimal column: " + node);
       case LiteralSlot _ -> new Bounds(LITERAL_BOUND, 0L);
