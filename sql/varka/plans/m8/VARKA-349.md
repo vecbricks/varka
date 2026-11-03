@@ -218,6 +218,7 @@ with it.
 | `CheckOverflow` to a smaller scale | 350 |
 | `CheckOverflow` above precision 18 | 359 and 360 |
 | an integral operand (`CAST(i AS DECIMAL(10, 0))`) | 350; a `BIGINT`'s `(20, 0)` widens the node past 18 digits, which names the wide operand's rows above |
+| a cast, a negation, a choice or a pick over a sum or product above 18 digits | the node's row (360 or 361 and above), or 359 and 360 where a rescale into the wide type is needed too |
 | `/`, `div`, `try_divide` over decimals | the owner's decision of 14 October 2026 |
 
 ### 2.7 At 128 bits, the compiler, the reference

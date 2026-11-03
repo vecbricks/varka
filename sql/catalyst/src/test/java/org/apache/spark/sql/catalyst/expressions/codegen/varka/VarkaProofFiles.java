@@ -2890,7 +2890,8 @@ final class VarkaProofFiles {
    * within {@code p} digits does not wrap and stays within {@code p + k} digits wherever
    * {@code p + k <= 18}, and at {@code p + k = 19} the file says per pair whether it can wrap; a
    * comparison of the rescaled long is the comparison of the two rationals; and within 18 digits
-   * the negation does not wrap and both forms of {@code abs} are the magnitude.
+   * the negation does not wrap and both forms of {@code abs} are the magnitude. Those claims are
+   * linear; {@link #decimal64Arithmetic}'s product bound multiplies two unknowns.
    */
   static String decimal64() {
     int max = VarkaVectorIR.DecimalColumn.MAX_LONG_PRECISION;
