@@ -473,17 +473,8 @@ final class VarkaDecimalCompiler {
     return Optional.of(VarkaConditionCompiler.orFold(each));
   }
 
-  /** How many choice conditions this thread has compiled, for a suite's count of them. */
-  private static final ThreadLocal<int[]> CONDITIONS_COMPILED =
-      ThreadLocal.withInitial(() -> new int[1]);
-
-  /** The count of {@link #CONDITIONS_COMPILED} since the last call, which resets it. */
-  static int takeConditionsCompiled() {
-    int[] count = CONDITIONS_COMPILED.get();
-    int taken = count[0];
-    count[0] = 0;
-    return taken;
-  }
+  /** How many choice conditions this thread compiled, which a suite reads and resets. */
+  static final ThreadLocal<int[]> CONDITIONS_COMPILED = ThreadLocal.withInitial(() -> new int[1]);
 
   /**
    * A choice's condition on the long lane, where its values are: a condition over int or narrow

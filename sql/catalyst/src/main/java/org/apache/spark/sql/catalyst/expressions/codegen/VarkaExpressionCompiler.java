@@ -299,7 +299,10 @@ public final class VarkaExpressionCompiler {
    * the count: a suite holds a nested choice to one compile of each condition (VARKA-348).
    */
   public static int decimalConditionsCompiledForTesting() {
-    return VarkaDecimalCompiler.takeConditionsCompiled();
+    int[] count = VarkaDecimalCompiler.CONDITIONS_COMPILED.get();
+    int taken = count[0];
+    count[0] = 0;
+    return taken;
   }
 
   /**
