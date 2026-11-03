@@ -132,6 +132,9 @@ unknown as null; the fragment reads a projected predicate that way, and the edit
 
 **Definition.** For non-null `a`, `b` of a type with range `[lo, hi]`: `a + b`, `a - b`, `a * b`
 and `-a` are the exact integer results when they lie in `[lo, hi]`, and raise 22003 otherwise.
+A `DECIMAL(p, s)` value (C4's exact numeric of precision `p` and scale `s`, `p <= 18` on the long
+lane) is the algebraic value `u / 10^s` of its unscaled lane value `u`, with range
+`|u| <= 10^p - 1`.
 
 **Truncates or floors:** does not divide. `-2147483647 - 1 = -2147483648`, in range;
 `-2147483648 - 1` raises 22003.
@@ -155,6 +158,8 @@ raises 22003, as defined here.
 
 **Definition.** Unknown if either operand is null; otherwise the signed comparison of the two
 integers.
+Two `DECIMAL` values `u1 / 10^s1` and `u2 / 10^s2` compare as those rationals do, which for
+`s1 <= s2` is the comparison of `u1 * 10^(s2 - s1)` with `u2`.
 
 **Truncates or floors:** does not divide. `-1 < 0` is true; a comparison read unsigned would make
 it false.
