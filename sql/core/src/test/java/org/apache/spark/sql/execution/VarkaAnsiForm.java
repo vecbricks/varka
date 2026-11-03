@@ -277,11 +277,11 @@ public final class VarkaAnsiForm {
         out.put(sql + "\t" + position, boolColumn);
       }
     }
-    // A cast to FLOAT compared with f2 and the form's frid < 0 are float conjuncts of a filter
-    // that also reads an integral column, the cast's source, so both decline (VARKA-343).
+    // The form's float conjuncts, frid < 0 and the cast = f2, beside the cast's integral source.
     String laneSplit = "the filter reads an integral column, so its float conjuncts decline by "
-        + "floatingConjunctRefusal, while its inferred isnotnull(i) may still fuse";
-    for (String sql : List.of("CAST(i AS FLOAT)", "try_cast(i AS FLOAT)")) {
+        + "floatingConjunctRefusal, while the null tests Spark infers may still fuse";
+    for (String sql : List.of("CAST(i AS FLOAT)", "try_cast(i AS FLOAT)",
+        "CAST(CAST(y1 AS INT) * CAST(y2 AS INT) AS FLOAT)")) {
       out.put(sql + "\t" + FALSE_AND, laneSplit);
     }
     // A bigint narrowed to a narrow type as a COALESCE argument beside a narrow column: a narrow
