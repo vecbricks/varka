@@ -57,7 +57,7 @@ public final class VarkaKernelPlan {
     LANE_MISMATCH,
     /** A floating conjunct of a filter whose kernel is integral, which it cannot join yet. */
     FLOATING_CONDITION,
-    /** A conversion between lanes of two widths, whose kernel is not built yet. */
+    /** A conversion other than INT to FLOAT, or a floating lane beside one of the other width. */
     CONVERSION,
     /**
      * A condition root of a kernel driven at a 64-bit lane, {@code LONG} or {@code DOUBLE}, on an
@@ -351,8 +351,8 @@ public final class VarkaKernelPlan {
     Set<LaneType> lanes = VarkaVectorIR.lanesIn(root);
     // A floating tree holds its one lane, but for a conversion between the two lanes of one
     // width: a tree of the int and float lanes drives at the int lane, whose float values have
-    // the drive's lane count (`VARKA-343.md` 2.2). A conversion between widths is refused by
-    // `conversionRefusal`, so no tree of both widths reaches an emission.
+    // the drive's lane count (`VARKA-343.md` 2.2). `conversionRefusal` refuses a tree holding a
+    // floating lane beside one of the other width, which this order would drive wrongly.
     if (lanes.contains(LaneType.DOUBLE)) {
       return LaneType.DOUBLE;
     }
@@ -522,13 +522,22 @@ public final class VarkaKernelPlan {
   }
 
   /**
-   * Why a conversion of these roots has no kernel yet: a {@link ConvertLane} between lanes of two
-   * widths, {@code INT} to {@code DOUBLE} or {@code FLOAT} to {@code DOUBLE} and their likes. Its
-   * kernel holds a 32-bit value beside a 64-bit drive whose floating lane has no low-half load,
-   * store or literal table yet (`VARKA-343.md` 2.2, its part 343a3). A conversion between the
-   * two lanes of one width, {@code INT} to {@code FLOAT}, keeps the lane count and is emitted.
+   * Why a conversion of these roots has no kernel yet: a {@link ConvertLane} other than
+   * {@code INT} to {@code FLOAT}, the one the emitter lowers, or a root holding a floating lane
+   * beside a lane of the other width, {@code CAST(CAST(l AS INT) AS FLOAT)}'s {@code FLOAT} and
+   * {@code LONG}. Such a kernel holds a 32-bit value beside a 64-bit drive whose floating lane
+   * has no low-half load, store or literal table yet (`VARKA-343.md` 2.2, its part 343a3).
    */
   private static Optional<Refusal> conversionRefusal(List<VarkaVectorIR> roots) {
+    for (VarkaVectorIR root : roots) {
+      Set<LaneType> lanes = VarkaVectorIR.lanesIn(root);
+      boolean wide = lanes.contains(LaneType.LONG) || lanes.contains(LaneType.DOUBLE);
+      if ((lanes.contains(LaneType.FLOAT) && wide) || (lanes.contains(LaneType.DOUBLE)
+          && lanes.stream().anyMatch(t -> t.bits() < Long.SIZE))) {
+        return Optional.of(new Refusal(Kind.CONVERSION, "a floating lane beside one of the "
+            + "other width, " + lanes + ", needs a kernel of two lane counts (row 343)"));
+      }
+    }
     var seen = new HashSet<VarkaVectorIR>();
     var todo = new ArrayDeque<VarkaVectorIR>(roots);
     while (!todo.isEmpty()) {
@@ -536,10 +545,10 @@ public final class VarkaKernelPlan {
       if (!seen.add(node)) {
         continue;
       }
-      if (node instanceof ConvertLane c && c.child().laneType().bits() != c.target().bits()) {
+      if (node instanceof ConvertLane c
+          && (c.child().laneType() != LaneType.INT || c.target() != LaneType.FLOAT)) {
         return Optional.of(new Refusal(Kind.CONVERSION, "a conversion from "
-            + c.child().laneType() + " to " + c.target() + " needs a kernel of two lane counts"
-            + " (row 343)"));
+            + c.child().laneType() + " to " + c.target() + " is not built yet (row 343)"));
       }
       for (VarkaVectorIR child : VarkaVectorIR.childrenOf(node)) {
         todo.push(child);
@@ -744,7 +753,8 @@ public final class VarkaKernelPlan {
    * integral column: {@code x > 1.5 AND d > d2}. A filter kernel's conjuncts meet on one lane,
    * and a floating conjunct fused first would leave the date or bigint conjuncts beside it no
    * lane to meet on and send them to the row filter. So it declines, keeping the kernel for the
-   * integral conjuncts, until a mask crosses between the kinds. A filter that reads only
+   * integral conjuncts, until a conjunct's mask crosses between the kinds; a mask crosses only
+   * within one root's tree, at one lane count (VARKA-343). A filter that reads only
    * floating columns fuses whole, and a choice's floating condition is no conjunct, so a
    * projection's {@code CASE WHEN x > 1.5 THEN ...} fuses too.
    */
@@ -753,8 +763,8 @@ public final class VarkaKernelPlan {
     if (filterReadsIntegral && conjunct.laneType().isFloating()) {
       return Optional.of(new Refusal(Kind.FLOATING_CONDITION, "a condition on the "
           + conjunct.laneType() + " lane in a filter that also reads integral columns: its "
-          + "kernel meets on an integral lane, and a mask crossing from a floating lane is not "
-          + "built"));
+          + "kernel meets on an integral lane, and a filter's conjuncts do not cross from a "
+          + "floating lane to it yet"));
     }
     return Optional.empty();
   }

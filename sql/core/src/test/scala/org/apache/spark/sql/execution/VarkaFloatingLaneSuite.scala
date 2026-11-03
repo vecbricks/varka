@@ -401,6 +401,23 @@ class VarkaFloatingLaneSuite extends QueryTest with VarkaSharedSessions with Var
     }
   }
 
+  test("a cast to FLOAT over a bigint narrowed to INT declines in the plan in both modes") {
+    // The tree holds the FLOAT and LONG lanes, which no kernel built yet joins (VARKA-343).
+    for (s <- Seq(spark, varkaSpark)) {
+      s.createDataFrame(Seq(1L, -1L, 16777217L, Int.MaxValue.toLong, Int.MinValue.toLong)
+        .map(Tuple1(_))).toDF("l").createOrReplaceTempView("varka_longs")
+      s.catalog.cacheTable("varka_longs")
+    }
+    val q = "SELECT CAST(CAST(l AS INT) AS FLOAT) AS v, CAST(l AS INT) * 2.5F AS w FROM varka_longs"
+    for (ansi <- Seq(false, true)) withAnsi(ansi) {
+      val actual = varkaSpark.sql(q)
+      withClue(s"ansi=$ansi: $q") {
+        assertNotFused(actual.queryExecution.executedPlan)
+        checkAnswer(actual, expectedSql(q, actual))
+      }
+    }
+  }
+
   test("a choice between floating values under a date condition declines: the lanes differ") {
     checkDeclined("SELECT CASE WHEN d > d2 THEN x1 ELSE x2 END AS v FROM $t")
   }

@@ -266,12 +266,10 @@ public final class VarkaAnsiForm {
         "CAST(i + 1 AS TINYINT)")) {
       out.put(sql + "\t" + FALSE_AND, unqualified);
     }
-    // A cast to FLOAT compared with f2 drives at the int lane, its source's (VARKA-343), and the
-    // form's own float conjunct frid < 0 at the float lane: conjuncts of two drives share no
-    // filter kernel until the root-level crossing (VARKA-343, a later part).
-    String laneSplit = "the cast's comparison drives at its source's int lane and the form's "
-        + "float conjunct at the float lane, and conjuncts of two drives share no kernel until "
-        + "the root-level crossing (VARKA-343, a later part)";
+    // A cast to FLOAT compared with f2 and the form's frid < 0 are float conjuncts of a filter
+    // that also reads an integral column, the cast's source, so both decline (VARKA-343).
+    String laneSplit = "the filter reads an integral column, so its float conjuncts decline by "
+        + "floatingConjunctRefusal and the filter fuses no conjunct";
     for (String sql : List.of("CAST(i AS FLOAT)", "try_cast(i AS FLOAT)", "CAST(y1 AS FLOAT)",
         "CAST(s1 AS FLOAT)")) {
       out.put(sql + "\t" + FALSE_AND, laneSplit);

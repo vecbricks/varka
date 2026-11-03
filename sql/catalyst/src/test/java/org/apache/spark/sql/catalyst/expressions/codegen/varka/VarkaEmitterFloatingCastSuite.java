@@ -212,10 +212,15 @@ public final class VarkaEmitterFloatingCastSuite {
   }
 
   @Test
-  @DisplayName("a conversion between widths has no kernel yet, and the plan says so")
+  @DisplayName("every conversion but I2F, and I2F beside a 64-bit lane, is refused by the plan")
   void widthRefusal() {
+    // The last two are the emitter's FLOAT node in a LONG emission without the plan's refusal.
     for (var c : List.of(convert(I, LaneType.DOUBLE), convert(L, LaneType.FLOAT),
-        convert(F, LaneType.DOUBLE), convert(X, LaneType.FLOAT))) {
+        convert(F, LaneType.DOUBLE), convert(X, LaneType.FLOAT), convert(F, LaneType.INT),
+        convert(X, LaneType.LONG), convert(L, LaneType.DOUBLE), convert(X, LaneType.INT),
+        convert(new NarrowLane(L, LaneType.INT), LaneType.FLOAT),
+        new IntArith(IntOp.MUL, Overflow.WRAP, convert(new NarrowLane(L, LaneType.INT),
+            LaneType.FLOAT), new ColumnRef(1, LaneType.FLOAT)))) {
       var refusal = VarkaKernelPlan.of(List.of(c), VarkaMatrixRuns.BASE).refusal();
       assertTrue(refusal.isPresent(), VarkaVectorIR.canonical(c));
       assertEquals(VarkaKernelPlan.Kind.CONVERSION, refusal.get().kind());
