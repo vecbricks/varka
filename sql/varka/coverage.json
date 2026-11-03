@@ -5518,6 +5518,30 @@
     "note" : "a condition as its one or zero, then converted",
     "verified" : "differential"
   }, {
+    "sql" : "CAST(CAST(l AS INT) AS FLOAT)",
+    "executable" : "CAST(CAST(l AS INT) AS FLOAT)",
+    "family" : "Floating casts",
+    "form" : "projection",
+    "catalyst" : [ "Cast" ],
+    "casts" : [ "bigint>int:ansi", "int>float:ansi" ],
+    "operands" : [ "Cast:bigint", "Cast:int" ],
+    "switches" : [ "spark.sql.codegen.varka.family.intArithmetic.enabled", "spark.sql.codegen.varka.family.floatingCast.enabled" ],
+    "domain" : "l BETWEEN -2147483648 AND 2147483647",
+    "note" : "a float value in a kernel driven at the long lane",
+    "verified" : "differential"
+  }, {
+    "sql" : "CAST(l > 5 AS DOUBLE)",
+    "executable" : "CAST(l > 5 AS DOUBLE)",
+    "family" : "Floating casts",
+    "form" : "projection",
+    "catalyst" : [ "Cast", "GreaterThan" ],
+    "casts" : [ "bool>double:ansi", "int>bigint:ansi" ],
+    "operands" : [ "Cast:int", "GreaterThan:bigint" ],
+    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled", "spark.sql.codegen.varka.family.intArithmetic.enabled", "spark.sql.codegen.varka.family.floatingCast.enabled" ],
+    "domain" : "",
+    "note" : "a long one or zero, narrowed to the int lane, then I2D",
+    "verified" : "differential"
+  }, {
     "sql" : "x + i",
     "executable" : "x + i",
     "family" : "Floating casts",

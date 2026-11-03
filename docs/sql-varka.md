@@ -935,6 +935,8 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `CAST(b AS DOUBLE)` | `floatingCast` |  | 1.0 or 0.0, and null where the boolean is | per-lane: mask broadcast, mask test |
 | `CAST(b AS FLOAT)` | `floatingCast` |  |  | vector |
 | `CAST(i > 3 AS DOUBLE)` | `predicate`, `floatingCast` |  | a condition as its one or zero, then converted | per-lane: mask broadcast, mask test |
+| `CAST(CAST(l AS INT) AS FLOAT)` | `intArithmetic`, `floatingCast` | `l BETWEEN -2147483648 AND 2147483647` | a float value in a kernel driven at the long lane | per-lane: compare to mask, mask logic, mask broadcast, mask test, load or store |
+| `CAST(l > 5 AS DOUBLE)` | `predicate`, `intArithmetic`, `floatingCast` |  | a long one or zero, narrowed to the int lane, then I2D | per-lane: compare to mask, masked operation, mask cast, mask broadcast, load or store, mask test |
 | `x + i` | `floatingArithmetic`, `floatingCast` |  | type coercion casts the int to a double beside the double column | per-lane: mask broadcast, load or store, mask test |
 | `f * i` | `floatingArithmetic`, `floatingCast` |  | the int cast to a float beside the float column, at one lane count | per-lane: mask broadcast, mask test |
 | `f + x` | `floatingArithmetic`, `floatingCast` |  | the float widened exactly to meet the double | per-lane: mask broadcast, load or store, mask test |
@@ -1006,15 +1008,15 @@ operands (a row counts once for each type it reads):
 <!-- BEGIN generated verification counts -->
 | Type | Rows | refinement | proof | exhaustive | owed | differential |
 | :--- | ---: | ---: | ---: | ---: | ---: | ---: |
-| `bigint` | 63 | 0 | 2 | 0 | 2 | 59 |
+| `bigint` | 65 | 0 | 2 | 0 | 2 | 61 |
 | `bool` | 29 | 0 | 0 | 13 | 0 | 16 |
 | `byte` | 33 | 0 | 0 | 0 | 8 | 25 |
 | `date` | 101 | 17 | 0 | 1 | 0 | 83 |
-| `dec` | 24 | 7 | 0 | 0 | 0 | 17 |
+| `dec` | 26 | 9 | 0 | 0 | 0 | 17 |
 | `double` | 44 | 0 | 0 | 0 | 0 | 44 |
 | `dt` | 25 | 2 | 0 | 0 | 0 | 23 |
 | `float` | 34 | 0 | 0 | 0 | 0 | 34 |
-| `int` | 107 | 14 | 2 | 0 | 1 | 90 |
+| `int` | 109 | 14 | 2 | 0 | 1 | 92 |
 | `ntz` | 24 | 0 | 1 | 0 | 0 | 23 |
 | `short` | 31 | 0 | 0 | 0 | 8 | 23 |
 | `time` | 41 | 6 | 0 | 0 | 2 | 33 |
