@@ -50,12 +50,14 @@ import org.apache.spark.sql.catalyst.expressions.NumericEvalContext;
 import org.apache.spark.sql.catalyst.expressions.NumericEvalContext$;
 import org.apache.spark.sql.catalyst.expressions.Subtract;
 import org.apache.spark.sql.catalyst.expressions.codegen.CompiledVarkaPredicate;
+import org.apache.spark.sql.catalyst.expressions.codegen.CompiledVarkaProjection;
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaConjunctSpec;
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaExpressionCompiler;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LaneType;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LiteralSlot;
 import org.apache.spark.sql.internal.SQLConf;
 import org.apache.spark.sql.internal.SQLConf$;
+import org.apache.spark.sql.types.Decimal;
 import org.apache.spark.sql.types.DecimalType;
 import org.apache.spark.sql.util.ArrowUtils;
 
@@ -151,6 +153,13 @@ public final class VarkaDecimalArithmeticSuite {
               wrong.add(t1 + " " + op.sql + " " + t2 + " is " + spark + " and declines: "
                   + reason);
             }
+            if (fuses) {
+              String reduction = reduction(compile(new EqualTo(e, e), List.of(a, b)).fused(),
+                  spark.precision());
+              if (!reduction.isEmpty()) {
+                wrong.add(t1 + " " + op.sql + " " + t2 + " is " + spark + ": " + reduction);
+              }
+            }
           } else {
             declined++;
             if (fuses || !reason.contains(op.wideRow())) {
@@ -166,6 +175,84 @@ public final class VarkaDecimalArithmeticSuite {
     assertEquals(3 * types.size() * types.size(), fused + declined);
     String counts = fused + " fused, " + declined + " declined";
     assertTrue(fused > 0 && declined > 0, counts);
+  }
+
+  /**
+   * Where the compiled arithmetic of a result of {@code precision} digits leaves the reduction
+   * decimal64.smt2's lemmas rest on, or empty: each operand of a sum or difference at most
+   * {@code precision - 1} digits after its rescale, and a product's two operands as many between
+   * them. The digits are read from the IR, not from Spark's rule: a column's precision, plus
+   * {@code k} for each multiply by a slot holding {@code 10^k}.
+   */
+  private static String reduction(CompiledVarkaProjection fused, int precision) {
+    var nodes = new ArrayList<VarkaVectorIR.IntArith>();
+    for (VarkaVectorIR out : fused.outputs()) {
+      arithmetic(out, nodes);
+    }
+    var found = new ArrayList<String>();
+    int sites = 0;
+    for (VarkaVectorIR.IntArith n : nodes) {
+      boolean rescale = n.op() == VarkaVectorIR.IntOp.MUL && n.right() instanceof LiteralSlot;
+      if (rescale) {
+        continue;
+      }
+      sites++;
+      int left = digits(n.left(), fused.longLiterals());
+      int right = digits(n.right(), fused.longLiterals());
+      int operands = n.op() == VarkaVectorIR.IntOp.MUL ? left + right : Math.max(left, right);
+      if (left < 0 || right < 0) {
+        found.add(n.op() + " over an operand the check cannot read: " + n);
+      } else if (operands > precision - 1) {
+        found.add(n.op() + " over operands of " + left + " and " + right + " digits, past the "
+            + "lemmas' " + (precision - 1));
+      }
+    }
+    if (sites == 0) {
+      found.add("no arithmetic in the IR: " + fused.outputs());
+    }
+    return String.join("; ", found);
+  }
+
+  /** Every {@code IntArith} under {@code node}, found through the records' components. */
+  private static void arithmetic(VarkaVectorIR node, List<VarkaVectorIR.IntArith> into) {
+    if (node instanceof VarkaVectorIR.IntArith a) {
+      into.add(a);
+    }
+    for (var component : node.getClass().getRecordComponents()) {
+      Object child;
+      try {
+        child = component.getAccessor().invoke(node);
+      } catch (ReflectiveOperationException ex) {
+        throw new IllegalStateException(ex);
+      }
+      if (child instanceof VarkaVectorIR c) {
+        arithmetic(c, into);
+      } else if (child instanceof List<?> list) {
+        for (Object item : list) {
+          if (item instanceof VarkaVectorIR c) {
+            arithmetic(c, into);
+          }
+        }
+      }
+    }
+  }
+
+  /** The digits of an unscaled operand as the IR builds it, or -1 for a form it does not. */
+  private static int digits(VarkaVectorIR node, List<Long> literals) {
+    if (node instanceof VarkaVectorIR.DecimalColumn c) {
+      return c.precision();
+    }
+    if (node instanceof VarkaVectorIR.IntArith a && a.op() == VarkaVectorIR.IntOp.MUL
+        && a.right() instanceof LiteralSlot slot) {
+      long factor = literals.get(slot.index());
+      int k = 0;
+      for (long f = factor; f > 1 && f % 10 == 0; f /= 10) {
+        k++;
+      }
+      int inner = digits(a.left(), literals);
+      return factor == Decimal.POW_10()[k] && inner >= 0 ? inner + k : -1;
+    }
+    return -1;
   }
 
   @Test

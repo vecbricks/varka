@@ -132,10 +132,13 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
   // d9 compares at DECIMAL(11, 4), and d16s9 meets every other at a common type it names.
   private val d9s4 = AttributeReference("d9s4", DecimalType(9, 4))()
   private val d16s9 = AttributeReference("d16s9", DecimalType(16, 9))()
+  // DECIMAL(8, 2) (VARKA-349), so that a product with d9 is DECIMAL(18, 4), within the long
+  // lane, where d9 * d9b is DECIMAL(19, 4).
+  private val d8 = AttributeReference("d8", DecimalType(8, 2))()
 
   private val columns: Seq[Attribute] = Seq(d, d2, i, ymm, ymy, ym, l, l2, t, t2, dt, dt2, b, b2,
     y1, y2, s1, s2, ntz, ntz2, x, x2, f, f2, d9, d9b, d18, d18b,
-    d9s4, d16s9)
+    d9s4, d16s9, d8)
 
   /**
    * One documented expression. `sql` is both what the table prints and what the check
@@ -1077,6 +1080,28 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
       Row("CASE WHEN d9 < d9b THEN d9 ELSE d9s4 END > 0.0", "a choice at DECIMAL(11, 4) under a "
         + "comparison; the branch of the smaller scale carries its rescale"))),
 
+    // Decimal +, - and * whose result stays within 18 digits (VARKA-349), under a comparison:
+    // a sum or difference is one long add or subtract of the operands rescaled to the result's
+    // scale, a product one long multiply. Within 18 digits the exact result always fits Spark's
+    // result type, so its precision check never fires, the three modes answer alike, and one
+    // kernel serves LEGACY, ANSI and TRY; no row names a domain.
+    Family("DECIMAL arithmetic", predicates = true, Seq(
+      Row("d9 + d9b < d18", "DECIMAL(10, 2), compared at DECIMAL(18, 2): the sum under the "
+        + "rescale-free cast coercion puts over it"),
+      Row("d9 - d8 >= d9b", "DECIMAL(10, 2) against DECIMAL(9, 2)"),
+      Row("d8 * d9 <= d9b", "DECIMAL(18, 4), the widest product of the long lane; d9b is "
+        + "rescaled by 10^2 to meet it"),
+      Row("try_add(d9, d9b) > d18", "the TRY form is the same kernel: no sum within 18 digits "
+        + "overflows"),
+      Row("d9 * 0.5 > d9b", "the literal is DECIMAL(1, 1), its unscaled 5 a slot; the product "
+        + "is DECIMAL(11, 3)"),
+      Row("d9 + 1.5 < d9b", "the literal is rescaled to the sum's scale at compile time"),
+      Row("d9 - d9s4 > 0.00", "DECIMAL(12, 4): d9 is rescaled by 10^2 before the subtract"),
+      Row("d9 + d16s9 > d9s4", "DECIMAL(17, 9): a rescale of 10^7 under the add"),
+      Row("-(d9 + d9b) = d9s4", "the negation of a sum, compared at DECIMAL(12, 4)"),
+      Row("try_multiply(d8, d9) IS NULL", "null only where an operand is: no product within "
+        + "18 digits overflows, so TRY's null past the precision never fires"))),
+
     Family("Time arithmetic", predicates = false, Seq(
       Row("t - t2", "a day-time interval, the nanosecond difference divided by a thousand"),
       Row("time_diff('HOUR', t, t2)",
@@ -1708,7 +1733,18 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
     "greatest(d9, d9s4) > d9b" -> Refined("greatest(d9, d9s4) > d9b"),
     "coalesce(d9, d9b) IS NULL" -> Refined("coalesce(d9, d9b) IS NULL"),
     "CASE WHEN d9 < d9b THEN d9 ELSE d9s4 END > 0.0" ->
-      Refined("CASE WHEN d9 < d9b THEN d9 ELSE d9s4 END > 0.0"))
+      Refined("CASE WHEN d9 < d9b THEN d9 ELSE d9s4 END > 0.0"),
+    // The 64-bit decimal arithmetic (VARKA-349), each row refined whole in its modes.
+    "d9 + d9b < d18" -> Refined("d9 + d9b < d18"),
+    "try_add(d9, d9b) > d18" -> Refined("try_add(d9, d9b) > d18"),
+    "d9 - d8 >= d9b" -> Refined("d9 - d8 >= d9b"),
+    "d9 + 1.5 < d9b" -> Refined("d9 + 1.5 < d9b"),
+    "d9 - d9s4 > 0.00" -> Refined("d9 - d9s4 > 0.00"),
+    "d9 + d16s9 > d9s4" -> Refined("d9 + d16s9 > d9s4"),
+    "-(d9 + d9b) = d9s4" -> Refined("-(d9 + d9b) = d9s4"),
+    "d9 * 0.5 > d9b" -> Refined("d9 * 0.5 > d9b"),
+    "d8 * d9 <= d9b" -> Refined("d8 * d9 <= d9b"),
+    "try_multiply(d8, d9) IS NULL" -> Refined("try_multiply(d8, d9) IS NULL"))
 
   private def verifiedOf(family: Family, row: Row): Verified =
     rowVerified.getOrElse(row.sql, familyVerified.getOrElse(family.title, Differential))

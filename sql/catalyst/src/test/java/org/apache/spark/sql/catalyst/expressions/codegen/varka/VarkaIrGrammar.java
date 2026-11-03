@@ -409,12 +409,14 @@ public final class VarkaIrGrammar {
 
   /**
    * One decimal shape: long-lane IR over the unscaled longs of decimal columns. The rescale by
-   * {@code 10^k}, the negation, {@code abs}, the comparisons, the null-safe equality and a
-   * column's null test are forms {@code VarkaDecimalCompiler} builds; an {@code IfElse},
-   * {@code Greatest} and {@code Least} are long-lane nodes drawn over decimal values too, so that
-   * the leaf's check is fuzzed under an arm and a pick. Each value carries the digits its lanes
-   * stay within, so that a rescale is drawn only where {@code p + k <= 18} keeps it exact, as the
-   * compiler's type rule does. Literals are drawn at their digits' bounds and inside.
+   * {@code 10^k}, the negation, {@code abs}, a sum, a difference and a product (VARKA-349), the
+   * comparisons, the null-safe equality and a column's null test are forms
+   * {@code VarkaDecimalCompiler} builds; an {@code IfElse}, {@code Greatest} and {@code Least} are
+   * long-lane nodes drawn over decimal values too, so that the leaf's check is fuzzed under an arm
+   * and a pick. Each value carries the digits its lanes stay within, so that a rescale is drawn
+   * only where {@code p + k <= 18} keeps it exact and an arithmetic node only where its result's
+   * digits stay within 18, as the compiler's type rule does. Literals are drawn at their digits'
+   * bounds and inside.
    */
   public static DecimalDrawn drawDecimalValueShape(Random rnd) {
     int inputs = 1 + rnd.nextInt(3);
@@ -466,7 +468,7 @@ public final class VarkaIrGrammar {
     }
 
     DecimalValue value(int depth) {
-      int pick = depth <= 0 ? rnd.nextInt(2) : rnd.nextInt(9);
+      int pick = depth <= 0 ? rnd.nextInt(2) : rnd.nextInt(12);
       return switch (pick) {
         case 0 -> {
           int c = rnd.nextInt(precisions.length);
@@ -508,6 +510,29 @@ public final class VarkaIrGrammar {
           DecimalValue b = value(depth - 1);
           yield new DecimalValue(new IfElse(c, a.node(), b.node()),
               Math.max(a.digits(), b.digits()));
+        }
+        // A sum or difference (VARKA-349): the compiler rescales both operands to one scale
+        // first, and the result has one digit more than the wider, within 18.
+        case 9, 10 -> {
+          DecimalValue a = value(depth - 1);
+          DecimalValue b = value(depth - 1);
+          int digits = Math.max(a.digits(), b.digits()) + 1;
+          if (digits > DecimalColumn.MAX_LONG_PRECISION) {
+            yield a;
+          }
+          yield new DecimalValue(new IntArith(pick == 9 ? IntOp.ADD : IntOp.SUB, Overflow.WRAP,
+              a.node(), b.node()), digits);
+        }
+        // A product: the digits add, and the compiler builds one only within 18.
+        case 11 -> {
+          DecimalValue a = value(depth - 1);
+          DecimalValue b = value(depth - 1);
+          int digits = a.digits() + b.digits();
+          if (digits > DecimalColumn.MAX_LONG_PRECISION) {
+            yield a;
+          }
+          yield new DecimalValue(new IntArith(IntOp.MUL, Overflow.WRAP, a.node(), b.node()),
+              digits);
         }
         default -> {
           DecimalValue a = value(depth - 1);

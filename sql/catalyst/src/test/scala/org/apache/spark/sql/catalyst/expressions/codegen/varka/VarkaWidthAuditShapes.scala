@@ -111,9 +111,10 @@ object VarkaWidthAuditShapes {
   // d9 compares at DECIMAL(11, 4), and d16s9 meets every other at a common type it names.
   private val d9s4 = AttributeReference("d9s4", DecimalType(9, 4))()
   private val d16s9 = AttributeReference("d16s9", DecimalType(16, 9))()
+  private val d8 = AttributeReference("d8", DecimalType(8, 2))()
   private val columns: Seq[Attribute] = Seq(d, d2, i, ymm, ymy, ym, l, l2, t, t2, dt, dt2, b, b2,
     y1, y2, s1, s2, ntz, ntz2, x, x2, f, f2, d9, d9b, d18, d18b,
-    d9s4, d16s9)
+    d9s4, d16s9, d8)
 
   /** The row as the optimizer would hand it to the compiler; `VarkaEmittedBytesSuite`'s rule. */
   private def asCatalystClaims(expr: Expression, catalyst: Set[String]): Expression = expr match {

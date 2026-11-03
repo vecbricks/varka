@@ -28,11 +28,12 @@ import scala.jdk.OptionConverters._
 import com.fasterxml.jackson.databind.{JsonNode, ObjectMapper}
 
 import org.apache.spark.SparkFunSuite
-import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, AttributeReference,
-  Expression, In, InSet, Literal}
+import org.apache.spark.sql.catalyst.expressions.{Add, Alias, Attribute, AttributeReference,
+  EvalMode, Expression, In, InSet, Literal, Multiply, NumericEvalContext, Subtract}
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaExpressionCompiler
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaIrGrammar._
 import org.apache.spark.sql.catalyst.parser.CatalystSqlParser
+import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types.{BooleanType, ByteType, DateType, DayTimeIntervalType, DecimalType, DoubleType, FloatType, IntegerType, LongType, ShortType, TimestampNTZType, TimeType, YearMonthIntervalType}
 
 /**
@@ -116,9 +117,10 @@ class VarkaEmittedBytesSuite extends SparkFunSuite with VarkaTestWatchdog {
   // d9 compares at DECIMAL(11, 4), and d16s9 meets every other at a common type it names.
   private val d9s4 = AttributeReference("d9s4", DecimalType(9, 4))()
   private val d16s9 = AttributeReference("d16s9", DecimalType(16, 9))()
+  private val d8 = AttributeReference("d8", DecimalType(8, 2))()
   private val columns: Seq[Attribute] = Seq(d, d2, i, ymm, ymy, ym, l, l2, t, t2, dt, dt2, b, b2,
     y1, y2, s1, s2, ntz, ntz2, x, x2, f, f2, d9, d9b, d18, d18b,
-    d9s4, d16s9)
+    d9s4, d16s9, d8)
 
   private val className = "org.apache.spark.sql.varka.execution.VarkaEmittedBytesOracle"
 
@@ -700,6 +702,56 @@ class VarkaEmittedBytesSuite extends SparkFunSuite with VarkaTestWatchdog {
           "emitted code was meant to change, regenerate with\n" +
           "  VARKA_BYTES_REGEN=true build/sbt 'catalyst/testOnly *VarkaEmittedBytesSuite'\n" +
           "and say so in the task's plan. What moved:\n  " + moved.result().mkString("\n  "))
+      }
+    }
+  }
+
+  test("a DECIMAL arithmetic row emits one kernel in LEGACY, ANSI and TRY, with and without " +
+      "precision loss") {
+    // Within 18 digits a decimal +, - or * cannot overflow its type (VARKA-349 0 item 4), so the
+    // mode decides nothing and the compiler reads it nowhere: each row's six spellings - ANSI
+    // off and on, each with decimalOperations.allowPrecisionLoss on and off, and each again with
+    // every decimal operator put in TRY mode - must emit one class, byte for byte, at both
+    // widths, and so pin one entry of the oracle.
+    val file = getWorkspaceFilePath("sql", "varka", "coverage.json").toFile
+    val rows = new ObjectMapper().readTree(file).get("expressions").elements().asScala
+      .filter(_.get("family").asText() == "DECIMAL arithmetic")
+      .map(e => e.get("executable").asText()).toSeq
+    assert(rows.nonEmpty, "no DECIMAL arithmetic rows in coverage.json")
+    def asTry(c: NumericEvalContext): NumericEvalContext =
+      NumericEvalContext(EvalMode.TRY, c.allowDecimalPrecisionLoss)
+    def tryMode(e: Expression): Expression = e.transformUp {
+      case a: Add if a.dataType.isInstanceOf[DecimalType] =>
+        a.copy(evalContext = asTry(a.evalContext))
+      case a: Subtract if a.dataType.isInstanceOf[DecimalType] =>
+        a.copy(evalContext = asTry(a.evalContext))
+      case a: Multiply if a.dataType.isInstanceOf[DecimalType] =>
+        a.copy(evalContext = asTry(a.evalContext))
+    }
+    def parse(sql: String, ansi: Boolean, loss: Boolean): Expression = {
+      val conf = SQLConf.get.clone()
+      conf.setConf(SQLConf.ANSI_ENABLED, ansi)
+      conf.setConf(SQLConf.DECIMAL_OPERATIONS_ALLOW_PREC_LOSS, loss)
+      SQLConf.withExistingConf(conf) {
+        VarkaSqlResolve.resolve(CatalystSqlParser.parseExpression(sql), columns)
+      }
+    }
+    rows.foreach { sql =>
+      val spellings = for {
+        ansi <- Seq(false, true)
+        loss <- Seq(true, false)
+        parsed = parse(sql, ansi, loss)
+        e <- Seq(parsed, tryMode(parsed))
+      } yield e
+      val hashes = spellings.map { e =>
+        val fused = VarkaExpressionCompiler.compilePredicate(e, columns, VarkaEmitOptions.DEFAULTS,
+            VarkaAdmission.NO_HOST_REFUSAL).toScala
+          .getOrElse(fail(s"$sql does not fuse as ${e.sql}")).fused
+        widths.map(w => methodHashes(fused.outputs.asScala.toSeq, fused.inputOrdinals.size,
+          fused.numLiterals, w))
+      }
+      hashes.zip(spellings).foreach { case (h, e) =>
+        assert(h == hashes.head, s"$sql emits another kernel as ${e.sql}")
       }
     }
   }

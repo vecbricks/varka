@@ -116,6 +116,7 @@ final class VarkaRefinementFile {
     intervals(out);
     times(out);
     decimals(out);
+    decimalArithmetic(out);
     return out.toString();
   }
 
@@ -1108,6 +1109,106 @@ final class VarkaRefinementFile {
             "(define-fun sx () Int (ite kt (* a 100) c))",
             "(define-fun vx () Bool (ite kt va vc))"),
         "vx", "vx", "(> kx 0)", "(> sx 0)");
+  }
+
+  // -----------------------------------------------------------------------------------------
+  // The 64-bit decimal arithmetic (VARKA-349).
+  // -----------------------------------------------------------------------------------------
+
+  /**
+   * One decimal arithmetic predicate row, in each of its modes. As for {@link #decimalRow}, the
+   * operands are columns read as {@code u / 10^s} and the specification raises where Spark's
+   * reader does; here the arithmetic's exact result can also leave its type's precision, past
+   * {@code overflow}, where Spark raises in ANSI mode (the standard's 22003) and nulls in LEGACY
+   * and TRY. Within 18 digits it never does, which the checks show in both dispositions: under
+   * ANSI no lane raises that the kernel serves, under LEGACY and TRY no lane is null that the
+   * kernel keeps. {@code definitions} ties a product's free {@code z} to its operands for the
+   * satisfiable check only, the unsat checks reading {@code decimal64.smt2}'s bound on it.
+   */
+  private static void decimalArithRow(StringBuilder out, String name, List<Dec> cols,
+      List<String> defs, List<String> definitions, String valid, String overflow, String k,
+      String t) {
+    var setup = new ArrayList<String>();
+    for (Dec c : cols) {
+      setup.add(c.declare());
+    }
+    setup.addAll(defs);
+    String slot = cols.size() == 1 ? cols.get(0).outside() : "(or " + String.join(" ",
+        cols.stream().map(Dec::outside).toList()) + ")";
+    String past = "(and " + valid + " " + overflow + ")";
+    String differs = "(not (= " + k + " " + t + "))";
+    refine(out, new Refinement(name + ", Spark mode ANSI and standard mode: raised past the "
+        + "result's precision", setup, definitions, "true", "true", valid,
+        "(or " + slot + " " + past + ")", valid, slot, valid, differs, List.of()));
+    refine(out, new Refinement(name + ", Spark mode LEGACY and TRY: null past the result's "
+        + "precision", setup, definitions, "true", "true", valid, slot,
+        "(and " + valid + " (not " + overflow + "))", slot, valid, differs, List.of()));
+  }
+
+  /** {@code |v| > 10^p - 1}: {@code v} past {@code p} digits. */
+  private static String past(String v, int p) {
+    return "(> (abs " + v + ") " + (pow10(p) - 1) + ")";
+  }
+
+  /**
+   * The exact product {@code z} of {@code x} and {@code y}, free in every unsat check and bound
+   * there by {@code decimal64.smt2}'s ring layer: operands within their precisions give a product
+   * within the sum of their digits.
+   */
+  private static List<String> product(Dec x, Dec y) {
+    return List.of("(declare-const z Int)", "(assert (=> (and (<= (abs " + x.u() + ") "
+        + x.bound() + ") (<= (abs " + y.u() + ") " + y.bound() + ")) (<= (abs z) "
+        + (pow10(x.precision() + y.precision()) - 1) + ")))");
+  }
+
+  private static void decimalArithmetic(StringBuilder out) {
+    section(out, "STANDARD.md 4.1, SQL-92 6.12: decimal + - * within 18 digits (VARKA-349)");
+    var d9 = new Dec("a", "va", 9, 2);
+    var d9b = new Dec("b", "vb", 9, 2);
+    var d9s4 = new Dec("c", "vc", 9, 4);
+    var d16s9 = new Dec("e", "ve", 16, 9);
+    var d18 = new Dec("f", "vf", 18, 2);
+    var d8 = new Dec("g", "vg", 8, 2);
+    decimalArithRow(out, "d9 + d9b < d18, the sum DECIMAL(10, 2) compared at DECIMAL(18, 2)",
+        List.of(d9, d9b, d18), List.of(), List.of(), "(and va vb vf)", past("(+ a b)", 10),
+        "(< (jlong.add a b) f)", "(< (+ a b) f)");
+    decimalArithRow(out, "try_add(d9, d9b) > d18, the same sum in TRY mode",
+        List.of(d9, d9b, d18), List.of(), List.of(), "(and va vb vf)", past("(+ a b)", 10),
+        "(> (jlong.add a b) f)", "(> (+ a b) f)");
+    decimalArithRow(out, "d9 - d8 >= d9b, the difference DECIMAL(10, 2)",
+        List.of(d9, d8, d9b), List.of(), List.of(), "(and va vg vb)", past("(- a g)", 10),
+        "(>= (jlong.sub a g) b)", "(>= (- a g) b)");
+    decimalArithRow(out, "d9 + 1.5 < d9b, the sum DECIMAL(10, 2), the literal's slot 150",
+        List.of(d9, d9b), List.of(), List.of(), "(and va vb)", past("(+ a 150)", 10),
+        "(< (jlong.add a 150) b)", "(< (+ a 150) b)");
+    decimalArithRow(out, "d9 - d9s4 > 0.00, the difference DECIMAL(12, 4), d9 times 100",
+        List.of(d9, d9s4), List.of(), List.of(), "(and va vc)", past("(- (* a 100) c)", 12),
+        "(> (jlong.sub (jlong.mul a 100) c) 0)", "(> (- (* a " + pow10(4) + ") (* c "
+            + pow10(2) + ")) 0)");
+    decimalArithRow(out, "d9 + d16s9 > d9s4, the sum DECIMAL(17, 9), d9 times 10^7, compared "
+        + "with d9s4 times 10^5", List.of(d9, d16s9, d9s4), List.of(), List.of(),
+        "(and va ve vc)", past("(+ (* a " + pow10(7) + ") e)", 17),
+        "(> (jlong.add (jlong.mul a " + pow10(7) + ") e) (jlong.mul c " + pow10(5) + "))",
+        "(> (+ (* a " + pow10(7) + ") e) (* c " + pow10(5) + "))");
+    decimalArithRow(out, "-(d9 + d9b) = d9s4, the negated sum DECIMAL(10, 2) at DECIMAL(12, 4)",
+        List.of(d9, d9b, d9s4), List.of(), List.of(), "(and va vb vc)", past("(+ a b)", 10),
+        "(= (jlong.mul (jlong.neg (jlong.add a b)) 100) c)", "(= (* (- (+ a b)) 100) c)");
+    decimalArithRow(out, "d9 * 0.5 > d9b, the product DECIMAL(11, 3), the literal's slot 5",
+        List.of(d9, d9b), List.of(), List.of(), "(and va vb)", past("(* a 5)", 11),
+        "(> (jlong.mul a 5) (jlong.mul b 10))", "(> (* a 5) (* b 10))");
+    decimalArithRow(out, "d8 * d9 <= d9b, the product DECIMAL(18, 4), d9b times 100",
+        List.of(d8, d9, d9b), product(d8, d9), List.of("(assert (= z (* g a)))"),
+        "(and vg va vb)", past("z", 18), "(<= (jlong.wrap z) (jlong.mul b 100))",
+        "(<= z (* b 100))");
+    // IS NULL is total: its answer is known on every lane, and TRY's null past the precision is
+    // part of it.
+    var setup = new ArrayList<String>(List.of(d8.declare(), d9.declare()));
+    setup.addAll(product(d8, d9));
+    String slot = "(or " + d8.outside() + " " + d9.outside() + ")";
+    refine(out, new Refinement("try_multiply(d8, d9) IS NULL, Spark mode TRY: null where an "
+        + "operand is or past DECIMAL(18, 4)", setup, List.of("(assert (= z (* g a)))"), "true",
+        "true", "true", slot, "true", slot, "true",
+        "(not (= (not (and vg va)) (or (not (and vg va)) " + past("z", 18) + ")))", List.of()));
   }
 
   private static void section(StringBuilder out, String title) {
