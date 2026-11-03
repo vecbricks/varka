@@ -240,7 +240,41 @@ whatever the filter; the trial ran the whole suite.
 
 ### 8.2 Step 2: the whole sql set under one configuration
 
-STEP2
+**The run.** `dev/varka_tier_split.py run dense-interpreted -j 1` on the laptop, every sql suite
+the job runs (69 in one JVM, three that run alone), one JVM at a time: 2768 seconds for the shared
+JVM, against 655 for the same suites at the defaults in another branch's laptop run of the same
+evening (the `varka-343a3` worktree's), 4.2 times. `dense-interpreted` is the dearest
+configuration by step 1's times, so this prices the job from above. The check passed: 89,008
+null-free and 15,136 nullable batches compared, the masked side compiled at tier 4 only (13,951
+compile records), the dense side never.
+
+**The slow suites.** The cost is not spread evenly: `VarkaSplitConditionSuite` took 566 seconds
+against 4.6 (124 times), `VarkaSeveralKernelsSuite` 753 against 87, `VarkaCoverageHarnessSuite`
+334 against 39, while most suites over small data stayed within twice their time. The
+longest single tests were 348 and 293 seconds (`VarkaSeveralKernelsSuite`'s eight hundred
+`greatest` entries) and 241 seconds (`VarkaSplitConditionSuite`'s two-column disjunction).
+
+**The price on CI.** The committed weights (`sql/varka/ci/suite-times.tsv`) put these suites at
+1373 runner seconds against the laptop's 613 at the defaults, 2.2 times; each suite's weight
+scaled by its laptop ratio gives about 6400 runner seconds a configuration. Over two jobs of two
+JVMs each that is about 27 minutes of suites a job, the share holding `VarkaCoverageHarnessSuite`
+(about 36 minutes alone at its ratio) the longest: under the 90-minute cap with room for a runner
+twice as slow. So `--split 2` in two jobs a configuration, eight jobs four at a time, about 100
+minutes of wall time with the build. One job a configuration would run about 53 minutes of
+suites, too close to the cap for the runners' spread (a suite's time moves up to 3.38 times
+between two Builds, `results/VARKA-516-weights.txt`).
+
+**What failed, and the skip list.** One test, by design: `VarkaProjectExecSuite`'s "the
+allocation sampler events every sampled batch, and the samples go clean once C2 has the loop",
+whose null-free batches take the dense body, which this configuration keeps from C2. Rather than
+skip the suite's other tests, it now cancels itself when the tier split holds the dense body back
+(`VarkaMatrixRuns.TIER_SPLIT`, set by `-Dvarka.tierSplit`). `VarkaErrorContextSuite`'s
+steady-state allocation test cancelled itself already, as it does when a kernel never reads
+clean. `VarkaWarmupEndToEndSuite` and `VarkaSizeLadderJitSuite`, which assert a kernel's C2 code,
+are skipped from the start, as 3.2 planned; 3.2's other JIT suites (assembly, inlining cliff, the
+`C2Code` tests) are catalyst's, which the job does not run. The longest test is past Varka's
+10-minute per-test watchdog at a runner's speed, so the configurations raise it to 30 minutes, and
+SparkFunSuite's cap from 20 to 30.
 
 ### 8.3 Step 3: what was built
 

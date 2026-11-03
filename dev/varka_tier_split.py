@@ -98,9 +98,13 @@ def jvm_args(config):
     ]
     if config.endswith("-interpreted"):
         args.append(f"-XX:CompileCommand=exclude,{side}")
-    # An interpreted side is several times slower on a large batch; the suites' watchdog is
-    # SparkFunSuite's per-test cap, 20 minutes by default.
-    args.append("-Dspark.test.timeout=60")
+    # The tests whose subject is a body's C2 code read it (VarkaMatrixRuns.TIER_SPLIT).
+    args.append(f"-Dvarka.tierSplit={config}")
+    # A held side made a suite up to 124 times slower (VarkaSplitConditionSuite in the laptop
+    # trial, VARKA-557.md 8.2) and its longest test take 348 seconds, about twice that on
+    # a runner: past Varka's per-test watchdog (10 minutes) and near SparkFunSuite's (20).
+    args.append("-Dvarka.test.watchdog.minutes=30")
+    args.append("-Dspark.test.timeout=30")
     return args
 
 
