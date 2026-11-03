@@ -143,6 +143,7 @@ class VarkaKernelEvaluatorSuite extends QueryTest with SharedSparkSession with V
       val runner = kernels.fusedRunner()
       assert(runner != null, "the projection did not fuse")
       assert(runner.dstWidth.toSeq === Seq.fill(3)(VarkaReproduction.KernelCall.BIT_OUTPUT))
+      assert(runner.dstFloating.toSeq === Seq.fill(3)(false))
       def column(c: Int): Seq[java.lang.Boolean] = (0 until out.numRows()).map { r =>
         if (out.column(c).isNullAt(r)) null else Boolean.box(out.column(c).getBoolean(r))
       }

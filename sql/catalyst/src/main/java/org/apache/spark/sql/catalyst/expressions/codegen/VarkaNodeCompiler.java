@@ -352,11 +352,11 @@ final class VarkaNodeCompiler {
    * {@code IN}, {@code isnan} and {@code nanvl} - and are lowered in Spark's order, in which NaN
    * equals NaN and is greater than every other value and {@code -0.0} equals {@code 0.0}, not
    * the vector compare's or {@code max}'s. The arithmetic the floating family lowers is named
-   * here too; the casts, the remainders and the interval forms by a floating factor are not. So
-   * the list is of what is served, not of what is refused, and a node no one has thought of
-   * declines. Both compile entries ask it before any arm claims, so no arm sees a floating
-   * operand it was not written for. A {@link RuntimeReplaceable} passes, to be asked again as its
-   * replacement.
+   * here too, and the cast of a floating value to {@code BOOLEAN}; the other casts, the
+   * remainders and the interval forms by a floating factor are not. So the list is of what is
+   * served, not of what is refused, and a node no one has thought of declines. Both compile
+   * entries ask it before any arm claims, so no arm sees a floating operand it was not written
+   * for. A {@link RuntimeReplaceable} passes, to be asked again as its replacement.
    */
   static Optional<String> floatingDecline(Expression e) {
     if (!touchesFloating(e) || e instanceof BoundReference || e instanceof Literal
@@ -373,7 +373,9 @@ final class VarkaNodeCompiler {
         || e instanceof Add || e instanceof Subtract || e instanceof Multiply
         || e instanceof Divide || e instanceof UnaryMinus || e instanceof Abs
         || e instanceof Sqrt || e instanceof ToDegrees || e instanceof ToRadians
-        || (e instanceof Signum s && isFloating(s.child().dataType()))) {
+        || (e instanceof Signum s && isFloating(s.child().dataType()))
+        // A floating value as a boolean (VARKA-343 2.5), the predicate family's `x != 0`.
+        || (e instanceof Cast c && DataTypes.BooleanType.equals(c.dataType()))) {
       return Optional.empty();
     }
     String what = switch (e) {
