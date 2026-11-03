@@ -516,16 +516,18 @@ Cut from #1303's final tree, without its `BIGINT` conversions (343a4), sweeps an
   1. *Every configuration*: a test said a narrow value in a two-lane 64-bit kernel declines; row
      332 built that load, so it fuses where a long lane count is baked, else the plan declines it.
   2. *`lanesOverride=4` and `16`*: the `FLOAT`, `DOUBLE` and `BOOLEAN` conformance suites' casts
-     fuse two-width kernels whose int species the shared JVM's guard refused (at 16 the long lane
-     has none; int values take the preferred, 256 bits on EPYC, beside `SPECIES_512`): `ownJvm` now.
+     fuse two-width kernels whose int species is not the 32-bit suites', which the shared JVM's
+     guard refused (at 16 the long lane has none; int values take the preferred, 256 bits on EPYC,
+     beside `SPECIES_512`): `ownJvm` now.
   3. *`validityByWidth=false`*: an emitter test handed the emitter a plan that refuses it, which
      threw `INTERNAL_ERROR`; it now asserts the refusal. The SQL path declined cleanly all along.
 
-  Each passed on the laptop through `dev/varka_matrix.sh`. The six new `skips.tsv` lines fix
+  Each passed on the laptop under its configuration (`dev/varka_matrix.sh`). The six new `skips.tsv` lines fix
   none: they expect the new narrow-column rows to decline where no lane count is baked,
   `validityByWidth=false` and, for `DOUBLE`, `lanesOverride=16`.
 - **A known limit**, shared with row 332: `CompiledVarkaProjection` checks a long literal table
   against the drive under `VarkaEmitOptions.DEFAULTS`, which refuse what the session admits at
   128 bits with `lanesOverride=4`, `CAST(y1 AS DOUBLE) / 2.0D`: planning raises `INTERNAL_ERROR`.
-  No CI step pairs them (the matrix sets it only on x86 of 256+ bits), nor a SQL conf. Owed: 343a3b.
+  No CI step pairs them (the matrix sets it only on x86 of 256+ bits); no SQL conf sets it. Owed:
+  343a3b.
 - **Prediction 4.1** holds: only the new rows' shapes and the `option_arms` digests move.
