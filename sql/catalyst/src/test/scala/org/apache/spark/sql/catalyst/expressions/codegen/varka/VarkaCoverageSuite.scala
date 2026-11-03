@@ -971,6 +971,12 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
     Family("Floating casts to BOOLEAN as conditions", predicates = true, Seq(
       Row("NOT CAST(x AS BOOLEAN)", "x = 0.0 as the filter: both zeros pass and a NaN does not"),
       Row("CAST(f AS BOOLEAN) OR f > 1.5F", "the float's test in a disjunction at its lane"))),
+    // The casts to FLOAT from an int (VARKA-343): Java's primitive cast, which never raises, so
+    // TRY's answer is LEGACY's; the int and float lanes share one lane count, a narrow one widened.
+    Family("Floating casts", predicates = false, Seq(
+      Row("CAST(i AS FLOAT)", "rounded once to nearest, ties to even, as the JVM converts"),
+      Row("try_cast(i AS FLOAT)", "the same rounding: a cast to a floating type never fails"),
+      Row("CAST(CAST(y1 AS INT) * CAST(y2 AS INT) AS FLOAT)", "a product of two widened bytes"))),
 
     // DECIMAL of precision up to 18 (VARKA-347, carrying row 348's equal-scale comparisons and
     // null tests): two values of one scale compare as their unscaled longs. Each kernel checks

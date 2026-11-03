@@ -32,7 +32,7 @@ int	byte	yes	yes	yes	narrowing	LEGACY wraps; ANSI raises CAST_OVERFLOW; TRY null
 int	short	yes	yes	yes	narrowing	LEGACY wraps; ANSI raises CAST_OVERFLOW; TRY nulls	exhaustion	LEGACY,ANSI	332	all
 int	int	yes	yes	yes	identity		exhaustion		332	
 int	bigint	yes	yes	yes	widening	sign extension, exact	exhaustion	LEGACY,ANSI,TRY	332,28	all
-int	float	yes	yes	yes	rounding	round to nearest even, as the JVM converts; no error	exhaustion		343	
+int	float	yes	yes	yes	rounding	round to nearest even, as the JVM converts; no error	exhaustion	LEGACY,ANSI,TRY	343	all
 int	double	yes	yes	yes	widening	exact	exhaustion		343	
 int	dec	yes	yes	yes	scale up	exact; overflow past p - s digits: LEGACY null, ANSI NUMERIC_VALUE_OUT_OF_RANGE	exhaustion		350,364	
 int	ym	yes	yes	yes	scale up	times the unit; a YEAR end overflows past 178,956,970 (multiplyExact in int): raises under LEGACY and ANSI, TRY nulls; a MONTH end never	exhaustion	LEGACY,ANSI,TRY	103,332	2 of 3

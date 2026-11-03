@@ -657,7 +657,7 @@ final class VarkaVectorTemplateWarmup {
         if (sw != null) {
           acc += widenedShorts(sw, is, segment);
         }
-        acc += conversions(is, ls, ds, ia, la, da);
+        acc += conversions(is, ls, ds, fs, ia, la, da);
         // After every round, the last included: one round's burst can put the queue over the
         // limit on a small host. See the class doc, "Paced on C2's queue".
         waited += awaitC2Queue(PACE_BUDGET_MILLIS - waited);
@@ -1001,7 +1001,7 @@ final class VarkaVectorTemplateWarmup {
     }
 
     private static long conversions(VectorSpecies<Integer> is, VectorSpecies<Long> ls,
-        VectorSpecies<Double> ds, int[] ia, long[] la, double[] da) {
+        VectorSpecies<Double> ds, VectorSpecies<Float> fs, int[] ia, long[] la, double[] da) {
       IntVector i = IntVector.fromArray(is, ia, 0);
       LongVector l = LongVector.fromArray(ls, la, 0);
       DoubleVector d = DoubleVector.fromArray(ds, da, 0);
@@ -1014,6 +1014,15 @@ final class VarkaVectorTemplateWarmup {
             + (long) i.convertShape(VectorOperators.I2D, ds, 0).reinterpretAsDoubles().lane(0)
             + d.convertShape(VectorOperators.D2I, is, 0).reinterpretAsInts().lane(0)
             + l.reinterpretAsDoubles().reinterpretAsLongs().lane(0);
+        // The int to float conversion (VARKA-343) and the mask crossings between the int and
+        // float lanes each way the emitter casts (VarkaVectorWalk.emitMaskToLane and
+        // emitToDrivingLane). No narrow mask is cast: such a kernel's narrow value is an int's.
+        // The float vector's own convertShape is warmed too, by F2I: the call site's receiver
+        // is a Vector, which a kernel of both lanes may hand either class.
+        FloatVector f = (FloatVector) i.convertShape(VectorOperators.I2F, fs, 0);
+        acc += (long) f.lane(0) + i.compare(VectorOperators.GT, 0).cast(fs).toLong()
+            + f.compare(VectorOperators.GT, 0.0f).cast(is).toLong()
+            + ((IntVector) f.convertShape(VectorOperators.F2I, is, 0)).lane(0);
       }
       return acc;
     }

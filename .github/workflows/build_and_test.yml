@@ -166,6 +166,11 @@ jobs:
             if ! echo "$changed_files" | grep -qE '^(R/|dev/spark-test-image/sparkr/)'; then
               sparkr=false
             fi
+            # Spark runs the buf and UI jobs on every change; the two file gates below narrow
+            # them, so these defaults come first: set after the gates, they undid both, and the
+            # jobs ran on every pull request from #89 to row 558.
+            buf=true
+            ui=true
             # The buf job lints .proto files, checks them for breaking changes against
             # branch-4.0, and runs dev/check-protos.py over the generated Python. All three read
             # protobuf definitions and nothing else. Gating it on the `connect` module does not
@@ -200,8 +205,6 @@ jobs:
               tpcds=false
               docker=false
             fi
-            buf=true
-            ui=true
             docs=true
             java25=true
           else

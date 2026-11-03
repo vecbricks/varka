@@ -36,6 +36,9 @@ naming files on the command line turns that scoping off.
                    test, has a kind other than fails or declines, has no reason, or repeats a
                    line (a merge that brings lines back leaves them twice)
   task-number      "task 236" where the house form is VARKA-236
+  ci-gates         in build_and_test.yml's precondition, a job's file gate (`x=false` unless a
+                   changed file matches) followed in the same branch by `x=true`, which undoes
+                   the gate, so the job runs on every pull request (buf and UI, row 558)
   bench-ids        two literal case ids in one benchmark file (dev/varka_bench_ids.sh also sees
                    the computed ones)
   binding-policy   a spark.sql.codegen.varka conf built without .withBindingPolicy
@@ -466,6 +469,37 @@ def rule_shell(ch):
                 )
 
 
+CI_GATE = re.compile(r'^(\s+)if ! echo "\$changed_files" \| grep -q')
+CI_WORKFLOW = ".github/workflows/build_and_test.yml"
+
+
+def rule_ci_gates(ch):
+    """A gate sets its job's flag false unless a changed file matches; a later `x=true` at the
+    gate's own depth, before the branch ends, runs unconditionally and undoes it (row 558)."""
+    if CI_WORKFLOW not in ch.files:
+        return
+    lines = read(CI_WORKFLOW).splitlines()
+    for n, line in enumerate(lines):
+        m = CI_GATE.match(line)
+        if not m or n + 1 >= len(lines):
+            continue
+        flag = re.match(r"\s+(\w+)=false\s*$", lines[n + 1])
+        if not flag:
+            continue
+        indent, name = m.group(1), flag.group(1)
+        for k in range(n + 2, len(lines)):
+            later = lines[k]
+            depth = len(later) - len(later.lstrip())
+            if later.strip() and depth < len(indent):
+                break  # the branch ends: an else, a fi or the step's end
+            if later == f"{indent}{name}=true":
+                yield (
+                    f"{CI_WORKFLOW}:{k + 1}: ci-gates: {name}=true after its file gate at line "
+                    f"{n + 1} undoes the gate, so the job runs on every pull request; set the "
+                    "default before the gate"
+                )
+
+
 def rule_guava(ch):
     for path in ch.files:
         if not re.search(r"\.(java|scala)$", path) or not is_varka(path):
@@ -489,6 +523,7 @@ RULES = {
     "bench-ids": rule_bench_ids,
     "binding-policy": rule_binding_policy,
     "shell": rule_shell,
+    "ci-gates": rule_ci_gates,
     "guava": rule_guava,
 }
 
@@ -699,6 +734,26 @@ def selftest():
         cases.append("a file a merge brings in")
         sh("git", "merge", "--abort")
         sh("git", "reset", "-q", "--hard", "HEAD~1")
+        wf = ".github/workflows/build_and_test.yml"
+        opens = "          if true; then\n"
+        gate = (
+            "            if ! echo \"$changed_files\" | grep -qE 'x$'; then\n"
+            "              buf=false\n"
+            "            fi\n"
+        )
+        closes = "          else\n            buf=false\n          fi\n"
+        case(
+            "a file gate undone by a later default",
+            {wf: opens + gate + "            buf=true\n" + closes},
+            "ci-gates",
+            True,
+        )
+        case(
+            "a default set before its file gate",
+            {wf: opens + "            buf=true\n" + gate + closes},
+            "ci-gates",
+            False,
+        )
         case(
             "a Guava import in Varka code",
             {"m/src/main/java/VarkaX.java": lic + "import com.google.common.base.X;\n"},

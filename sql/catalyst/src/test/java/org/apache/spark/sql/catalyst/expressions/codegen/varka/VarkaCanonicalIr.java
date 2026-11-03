@@ -143,6 +143,7 @@ public final class VarkaCanonicalIr {
             parts.length > 1 ? Overflow.valueOf(parts[1]) : Overflow.FAIL);
       }
       case "widen" -> new WidenLane(node(), lane(parts));
+      case "convert" -> new ConvertLane(node(), lane(parts));
       case "narrow" -> new NarrowLane(node(), lane(parts));
       case "wdec" -> new WidenDecimal(node());
       case "dateDiff" -> new DateDiff(node(), node());

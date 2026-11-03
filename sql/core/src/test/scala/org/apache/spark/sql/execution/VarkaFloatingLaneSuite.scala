@@ -21,7 +21,7 @@ import org.apache.spark.sql.{DataFrame, QueryTest, Row, SparkSession}
 import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, AttributeReference, Coalesce, Greatest}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTestWatchdog
 import org.apache.spark.sql.internal.SQLConf
-import org.apache.spark.sql.types.{DateType, DoubleType, FloatType, StructField, StructType}
+import org.apache.spark.sql.types.{DateType, DoubleType, FloatType, IntegerType, LongType, StructField, StructType}
 
 /**
  * The floating lanes' first nodes, end to end: a `DOUBLE` or `FLOAT` column read from Varka's
@@ -398,6 +398,28 @@ class VarkaFloatingLaneSuite extends QueryTest with VarkaSharedSessions with Var
   declined.foreach { expr =>
     test(s"SELECT $expr declines and answers as the row engine does") {
       checkDeclined(s"SELECT $expr AS v FROM $$t")
+    }
+  }
+
+  test("a cast to FLOAT over a bigint narrowed to INT declines in the plan in both modes") {
+    for (s <- Seq(spark, varkaSpark)) {
+      s.createDataFrame(Seq(1L, -1L, 16777217L, Int.MaxValue.toLong, Int.MinValue.toLong)
+        .map(Tuple1(_))).toDF("l").createOrReplaceTempView("varka_longs")
+      s.catalog.cacheTable("varka_longs")
+    }
+    val q = "SELECT CAST(CAST(l AS INT) AS FLOAT) AS v, CAST(l AS INT) * 2.5F AS w FROM varka_longs"
+    for (ansi <- Seq(false, true)) withAnsi(ansi) {
+      val actual = varkaSpark.sql(q)
+      val l = AttributeReference("l", LongType)()
+      val cast = org.apache.spark.sql.catalyst.expressions.Cast(
+        org.apache.spark.sql.catalyst.expressions.Cast(l, IntegerType), FloatType)
+      val lines = VarkaFusionReport.lines(
+        Seq(Alias(cast, "v")(), Alias(Greatest(Seq(l, l)), "k")()), Seq(l))
+      withClue(s"ansi=$ansi: $q") {
+        assert(lines.head.contains("needs a kernel of two lane counts"), lines)
+        assertNotFused(actual.queryExecution.executedPlan)
+        checkAnswer(actual, expectedSql(q, actual))
+      }
     }
   }
 

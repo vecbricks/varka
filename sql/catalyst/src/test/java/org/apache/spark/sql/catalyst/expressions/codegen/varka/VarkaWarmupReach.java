@@ -55,6 +55,7 @@ import jdk.incubator.vector.FloatVector;
 import jdk.incubator.vector.IntVector;
 import jdk.incubator.vector.LongVector;
 import jdk.incubator.vector.ShortVector;
+import jdk.incubator.vector.VectorMask;
 import jdk.incubator.vector.VectorShape;
 import jdk.incubator.vector.VectorSpecies;
 
@@ -244,8 +245,16 @@ final class VarkaWarmupReach {
     var out = new ArrayList<String>();
     try {
       Class<?> owner = ownerClass(call);
+      boolean maskCast = owner == VectorMask.class && call.name().equals("cast");
       for (Class<?> lane : LANES) {
         if (!lanes.contains(lane)) {
+          continue;
+        }
+        // The emitter casts a mask only between the two lanes of one lane count
+        // (`VarkaVectorWalk.emitMaskToLane`, `emitToDrivingLane`): an int and a float mask, or a
+        // long and a double one. A narrow value of a kernel of several lanes is the int lane's,
+        // and a narrow drive casts nothing, so no narrow mask receives the call.
+        if (maskCast && (lane == ByteVector.class || lane == ShortVector.class)) {
           continue;
         }
         for (Class<?> receiver : receivers(lane)) {
