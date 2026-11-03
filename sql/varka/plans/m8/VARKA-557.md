@@ -271,11 +271,9 @@ to the cap for the runners' spread (a suite's time moves up to 3.38 times betwee
 `results/VARKA-516-weights.txt`). Seeding the in-job split with the committed weights would pin
 the better case; it is an open point (9).
 
-*Corrected after the review (8.4):* the 6400 seconds and the 36, 25, 61 and 53 minutes above
-scale each suite's committed runner weight by its laptop ratio, which a suite whose laptop time
-at the defaults is a fraction of a second inflates (`VarkaKernelEvaluatorSuite` would weigh
-about 20 minutes, against under 2 by its own time); the weights the job now splits by are the
-run's laptop times scaled by 2.2, about 6100 seconds a configuration.
+*Corrected after the review (8.4):* those figures scale a suite's runner weight by its laptop
+ratio, which a sub-second laptop time inflates (`VarkaKernelEvaluatorSuite` to 20 minutes); the
+job now splits by the run's laptop times scaled by 2.2, about 6100 seconds a configuration.
 
 **What failed, and the skip list.** One test, by design: `VarkaProjectExecSuite`'s "the
 allocation sampler events every sampled batch, and the samples go clean once C2 has the loop",
@@ -303,17 +301,15 @@ SparkFunSuite's cap from 20 to 30.
   reasons, `run` (which hands them to `dev/varka_matrix.sh --defaults --module sql`) and
   `check`, which fails a run whose compile record shows no split or whose JVMs compared no batch.
 - `sql/varka/ci/tier-split/*.json`: the four compiler directive files. Each prints the compiles of
-  the methods it matches (`PrintCompilation: true`), which is what `check` reads, at no cost to
-  the rest of the log. Run with the committed files over `VarkaEvaluatorComponentsSuite` and
-  `VarkaProjectExecSuite`, `check` passed under all four: the compiled side at tier 4 only, the
-  held side at tiers 3 and 1 under the `-c1` configurations and never compiled under the
-  `-interpreted` ones, 27 to 2427 batches compared. *Corrected after the review (8.4):* under
-  the `-interpreted` ones that last check was vacuous. Their files matched the forward side and
-  `run` only, so the held side took the default directive, which prints a compile only under the
-  global `PrintCompilation` (`compilerDirectives.hpp` 46): a broken exclusion would have printed
-  nothing either. Each now has a second entry that prints the held side's compiles; an excluded
-  method is refused before its task is printed (`compileBroker.cpp` 1399), so "never compiled" is
-  now observed by the check rather than assumed.
+  the methods it matches (`PrintCompilation: true`), which is what `check` reads, at no cost to the
+  rest of the log. Run with the committed files over `VarkaEvaluatorComponentsSuite` and
+  `VarkaProjectExecSuite`, `check` passed under all four: the compiled side at tier 4 only, the held
+  side at tiers 3 and 1 under the `-c1` configurations and never compiled under the `-interpreted`
+  ones, 27 to 2427 batches compared. *Corrected after the review (8.4):* that last was vacuous: the
+  held side took the default directive, which prints only under the global `PrintCompilation`
+  (`compilerDirectives.hpp` 46). Each file now prints the held side too, and an excluded method is
+  refused before a task is printed (`compileBroker.cpp` 1399), so "never compiled" is observed by
+  the check.
 - `VarkaKernelRunner` counts the batches its check compared, null-free and nullable, and a JVM
   under the check prints the two counts as it exits.
 - `VarkaMethodNamesSuite` holds every pattern in the script and the directive files to
@@ -327,34 +323,26 @@ run the warm-up off, so it touches only the tests that turn it on.
 
 ### 8.4 The review's fixes (3 November 2026)
 
-- **The held side is seen.** The two `-interpreted` directive files print the held side's
-  compiles too (8.3's correction), and `check` fails one that shows any task of the held side,
-  failed or not; `--self-test` fails a directive file that does not name its held side.
-  `VarkaMethodNamesSuite` reads every pattern in each file, the new entries included.
-- **A compile is a task that finished.** HotSpot prints a task as it starts and a failed one
-  again with `COMPILE SKIPPED` (`compileBroker.cpp` 2178 and 2372); `check` counts each compile
-  id once and none that was skipped, and requires at least ten tier-4 compiles of the forward
-  side (the trial's runs had thousands), printing the count. `dev/varka_tier_split.py
-  --self-test` runs it over fixture logs: a skipped tier-4 task, a held-side compile under
-  `-interpreted` and a JVM with no exit status each fail it.
-- **A share that timed out is named.** A JVM the job's timeout kills leaves its log and no exit
-  status; `check`, in the configuration job and the report job, fails on it and names the suite
-  the log last started.
-- **An empty share fails.** The configuration job captures the suite listing and the share,
-  each with its status checked, and stops on an empty share, which `--suites ""` would have run
-  as every suite.
-- **The split by weights (9.1, settled).** `sql/varka/ci/tier-split/suite-times.tsv` holds step
-  2's per-suite JUnit times scaled by 2.2, the runner's ratio to the laptop at the defaults
-  (8.2). Both splits read it: the shares (`varka_suite_shards.py --job`) and, through a new
-  `dev/varka_matrix.sh --split-weights FILE`, each share's two JVMs, which `--split 2` on a fresh
-  runner split by count. Over today's 72 suites the share holding `VarkaSeveralKernelsSuite`
-  (28 minutes alone) runs JVMs of 28 and 23 minutes, the other, with `VarkaSplitConditionSuite`
-  (21) and `VarkaSparkFuzzSuite` (13), two of 25: about 28 and 25 minutes of suites a job, of
-  the 90 allowed, against 36 to 61 by count. The floor is the one suite; were
-  `VarkaCoverageHarnessSuite` as dear as 8.2's other frame priced it (36 minutes), its JVM would
-  take about 47. After the run the job warns on a suite far off its weight
-  (`--check-weights`), so step 4's first nights show whether 2.2 holds.
-- **The `-z` filter** (9.2) is recorded in `PLAN.md`'s debt register, under the test tooling.
+- **The held side is seen** (8.3's correction): `check` fails any task of the held side under
+  `-interpreted`, failed or not, and `--self-test` a directive file that does not name its held
+  side; `VarkaMethodNamesSuite` reads every pattern in each file, the new entries included.
+- **A compile is a task that finished.** HotSpot prints a task as it starts and a failed one again
+  with `COMPILE SKIPPED` (`compileBroker.cpp` 2178 and 2372); `check` counts a compile id once,
+  none that was skipped, and wants ten tier-4 compiles of the forward side at least (the trial
+  had thousands), printing the count. It fails a JVM with no exit status, which the job's timeout
+  leaves, naming the suite its log last started. `--self-test` runs it over fixture logs, in the
+  Build's checks of the dev tools.
+- **An empty share fails**: the job checks the suite listing's and the split's status, and stops
+  on an empty share, which `--suites ""` would have run as every suite.
+- **The split by weights (9.1).** `sql/varka/ci/tier-split/suite-times.tsv` is step 2's JUnit
+  times scaled by 2.2 (8.2's runner ratio). Both splits read it: the shares (`--job`) and, through
+  a new `dev/varka_matrix.sh --split-weights FILE`, each share's two JVMs. Over today's 72 suites
+  one share runs JVMs of 28 minutes (`VarkaSeveralKernelsSuite` alone) and 23, the other two of 25
+  (`VarkaSplitConditionSuite`, 21, and `VarkaSparkFuzzSuite`, 13, apart): about 28 and 25 minutes
+  of suites a job, of the 90 allowed, against up to 61 by count. Were `VarkaCoverageHarnessSuite`
+  the 36 minutes of 8.2's ratio frame, its JVM would take about 47. The job warns on a suite far
+  off its weight (`--check-weights`), so step 4's first nights test the 2.2.
+- **The `-z` filter** (9.2) is in `PLAN.md`'s debt register, under the test tooling.
 
 ## 9. Open points for the lead
 

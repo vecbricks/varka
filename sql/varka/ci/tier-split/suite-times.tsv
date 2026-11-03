@@ -1,8 +1,5 @@
-# Seconds per sql suite under the dearest tier-split configuration, dense-interpreted,
-# the weights the tier-split job splits its suites by, over jobs and inside a job
-# (dev/varka_suite_shards.py --job, dev/varka_matrix.sh --split-weights): the laptop's
-# JUnit times of VARKA-557.md 8.2's run times 2.2, a runner's ratio to the laptop at
-# the defaults. A suite missing here takes the median.
+# Seconds per sql suite under dense-interpreted on a runner (step 2's laptop JUnit times x 2.2,
+# VARKA-557.md 8.4), which the tier-split job's shares and JVMs are split by; else the median.
 VarkaAutoRegistrationSuite	5.6
 VarkaBooleanOutputQueriesSuite	21.9
 VarkaCodegenCliffLogSuite	1.6

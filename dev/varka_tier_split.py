@@ -228,12 +228,7 @@ def self_test():
     cases = [
         ("passes", ok + [done], True, True),
         ("a skipped task is no compile", ok + [done, ok[0] + "   COMPILE SKIPPED: x"], True, False),
-        (
-            "a held-side line under -interpreted",
-            ok + [done, f"7 150 b  4  {k}runDense"],
-            True,
-            False,
-        ),
+        ("a held-side compile", ok + [done, f"7 150 b  4  {k}runDense"], True, False),
         ("a JVM with no exit status", ok + [done, "VarkaSlowSuite:"], False, False),
     ]
     bad = 0
