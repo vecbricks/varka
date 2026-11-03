@@ -1206,6 +1206,27 @@ fixed one.
 | 87 | The epilogue is the one method no budget bounds | 2.18 | kept for a future fix at the owner's request; milestone 5's section 6 says when it would come back |
 | 98 | Two filter rows under 1.0x because the consumer counts | 2.33 | the read-back floor - this milestone's item 13, which is where it now belongs |
 
+*3 November 2026, for VARKA-25, from a reading of the loops JIT engine (github.com/4ekmah/loops,
+Apache-2.0):* its linear-scan allocator computes each vector register's live interval, so it has
+the peak live count for free; Varka has none. The planner version of `m5/PLAN.md` 2.24 (and row
+25's done-when) rests on "the live-temporary count the emitter already computes", to decline
+unrolling a shape whose live set fills the register file. No such count exists: `VarkaEmitCost`
+predicts bytes and call sites, `VarkaEmitBudget` caps ops and holds fixed local-slot counts per
+lowering (`CHRONO_PREFIX_SLOTS`), not a count for the DAG, and `Slots` tracks live validity words.
+`VarkaEmitBudget`'s javadoc concedes that "a lowering with more live values per op could still
+spill", and VARKA-32 measured what a spill costs (equal vector op counts, 74 xmm spill moves
+against 4, 165 against 236 M rows/s; `skills/the-jit.md`). Unrolling by K multiplies the live
+values, so the rule matters most where x86 has 16 vector registers: an AVX2 host such as the EPYC
+7763 runners. A 128-bit run on an AVX-512 host still has 32 (`x86.ad`'s `vectorx_reg` takes the
+EVEX class whenever the CPU has AVX512F), so the laptop shows a 16-register file only under
+`-XX:UseAVX=2`. When VARKA-25 returns, its admission check first counts the vector values live at
+once per loop method from the built class (`max_stack` undercounts, since shared nodes sit in
+locals, and the vector-typed locals overcount, so both are read) and compares them with the spill
+moves C2 emits on a 16-register file; `dev/varka_emit.sh --asm` reads only `loopDense0` today, so
+the probe is extended to every loop method first. If a count separates the methods that spill
+from those that do not, the planner predicts it from the IR in `VarkaEmitCost` and the unroll and
+grouping rules read it; if none does, 2.24's rule is restated without it. No loops code is taken.
+
 
 ### Item 16. Borrowed from PolarDB-X's vectorized executor
 
