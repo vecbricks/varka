@@ -349,6 +349,23 @@ medium in two pull requests after the reading, 349a about three days and 349c on
 file table's "the arms of 2.2 to 2.5" is the arms of 2.2 and 2.3, and the row no longer rests on
 481, whose `NULL` mode only the internals used.
 
+349a lands in pull requests of under 1000 changed lines each, counted by
+`dev/varka_msg_check.py size` against the part's base over hand-written source, main and tests,
+plan text and hand-curated data such as `census_curated.txt`; the generated files
+(`coverage.json`, `emitted_bytes.json`, `width_audit.json`, `census.tsv`, the rendered `.smt2`
+proofs, the generated blocks of `docs/sql-varka.md`) are not counted (*3 November 2026, the
+owner's word*: this replaces 349a as the single pull request #1305). Each part is cut from
+#1305's tree merged with 348a's, not by replaying its commits, and carries its own tests and its
+own regenerated files.
+
+| part | what | depends on | lines |
+|---|---|---|---|
+| 349a1 | the arms of 2.2 and 2.3 in `VarkaDecimalCompiler`, `try_` forms read through their replacement, the declines naming rows 359 to 363, the null test over a sum, a difference and a product; `VarkaDecimalArithmeticSuite`'s type-rule sweep, edges, samples and one tree in every mode; the baseline's three filters fusing whole; the census notes; this table | 348a3 | 925 |
+| 349a2 | the sweep's check of the lemmas' reduction from the IR; the `+`, `-` and `*` lemmas in `decimal64.smt2`; the "DECIMAL arithmetic" coverage family over a new `d8`, each row refined in `refinement.smt2`, and `STANDARD.md`'s sentence; the one-kernel bytes test; the IR fuzzer's sum, difference and product; the outcome | 349a1 | 593 |
+
+349c, the values, still follows 157. A part over the cap is split again before it is pushed,
+never merged over it.
+
 ## 6. Census unlock
 
 Under the milestone plan's 2.8 and 359's answered question 2 (a), an arithmetic pair counts only
