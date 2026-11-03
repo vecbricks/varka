@@ -935,8 +935,8 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `CAST(b AS DOUBLE)` | `floatingCast` |  | 1.0 or 0.0, and null where the boolean is | per-lane: mask broadcast, mask test |
 | `CAST(b AS FLOAT)` | `floatingCast` |  |  | vector |
 | `CAST(i > 3 AS DOUBLE)` | `predicate`, `floatingCast` |  | a condition as its one or zero, then converted | per-lane: mask broadcast, mask test |
-| `CAST(CAST(l AS INT) AS FLOAT)` | `intArithmetic`, `floatingCast` | `l BETWEEN -2147483648 AND 2147483647` | a float value in a kernel driven at the long lane | per-lane: compare to mask, mask logic, mask broadcast, mask test, load or store |
 | `CAST(l > 5 AS DOUBLE)` | `predicate`, `intArithmetic`, `floatingCast` |  | a long one or zero, narrowed to the int lane, then I2D | per-lane: compare to mask, masked operation, mask cast, mask broadcast, load or store, mask test |
+| `CAST(l > 5 AS FLOAT)` | `predicate`, `intArithmetic`, `floatingCast` |  | the float twin: a float value in a kernel of the long lane | per-lane: compare to mask, masked operation, mask cast, mask broadcast, load or store |
 | `x + i` | `floatingArithmetic`, `floatingCast` |  | type coercion casts the int to a double beside the double column | per-lane: mask broadcast, load or store, mask test |
 | `f * i` | `floatingArithmetic`, `floatingCast` |  | the int cast to a float beside the float column, at one lane count | per-lane: mask broadcast, mask test |
 | `f + x` | `floatingArithmetic`, `floatingCast` |  | the float widened exactly to meet the double | per-lane: mask broadcast, load or store, mask test |
