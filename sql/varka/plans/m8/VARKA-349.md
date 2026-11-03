@@ -570,13 +570,18 @@ digits, with a `sat` witness that operands of `P` digits leave the type; per ope
 pair with `p1 + p2 <= 17`, the product bounded by `10^(p1 + p2) - 1` (the ring layer, a product of
 two unknowns with constant bounds); per `n` from 2 to 17, any integer within `10^n - 1` its own
 wrap and within `n + 1` digits (the wrap layer, linear); and a `sat` witness that two ten-digit
-operands' product can wrap. `decimal64.smt2` now holds 550 checks, 204 of them this row's; on the
-laptop Z3 holds it in 0.14 s and cvc5 in 1.72 s, against 0.15 s and 0.47 s for 348's 346 checks.
+operands' product can wrap. With the high review's neighbours (*3 November 2026*: `a - b` leaving
+the type at `P = 18`, one less than the product's largest value at `p1 = 8, p2 = 9` refuted, and
+the wrap's identity holding within `Long.MAX_VALUE` and failing one past it), `decimal64.smt2`
+holds 554 checks, 208 of them this row's. Before the four, on the laptop Z3 held its 550 in 0.14 s
+and cvc5 in 1.72 s, against 0.15 s and 0.47 s for 348's 346 checks; the four have not been run,
+no solver being installed on the machine that added them.
 `refinement.smt2` gains a section beside 348a's that refines each coverage row below whole, its
 comparison included, through the five queries in Spark mode ANSI with standard mode (raised past
-the result's precision) and in LEGACY and TRY (null there), a product's exact value a free `z`
-bounded by the ring layer. Its 95 checks take the file from 276 to 371, from 3.04 s to 3.10 s
-under Z3 and from 4.55 s to 4.74 s under cvc5 on the laptop.
+the result's precision) and in LEGACY and TRY (null there), the `try_add` row in TRY alone, a
+product's exact value a free `z` bounded by the ring layer. Its 90 checks take the file from 276
+to 366; its 95 before the high review dropped the `try_add` row's ANSI query took it from 3.04 s
+to 3.10 s under Z3 and from 4.55 s to 4.74 s under cvc5 on the laptop.
 
 **Coverage rows.** A "DECIMAL arithmetic" family of ten predicates over 347's and 348's columns
 and a new `d8` (`DECIMAL(8, 2)`, derived from `l2` in the differential's fixture):
@@ -594,7 +599,7 @@ name 349.
 `DECIMAL`, the result scales of `+`, `-` and `*` from SQL-92 6.12 SR 2 and their exact values,
 which the refinement section restates.
 
-**Test time, on the laptop.** `VarkaDecimalArithmeticSuite`'s nine tests take 4.8 s, the sweep
+**Test time, on the laptop.** `VarkaDecimalArithmeticSuite`'s 11 tests took 4.8 s (12 since the high review), the sweep
 among them; the bytes oracle's new test under a second; the IR fuzzer's own JVM ran its decimal
 sequence's 300 draws in 2 minutes 47 seconds with the three arithmetic picks, against 348a's
 2 minutes 45 seconds for the whole suite's JVM, a run each, so no cost is read from the pair.
@@ -681,8 +686,8 @@ new coverage rows, which each digest covers, and not with a flag, since none was
   bound on an exact product as an instance of `value_range.smt2`'s multiply lemma over the reals,
   so that no query multiplies two unknowns. `decimal64.smt2` asks it directly instead, one check
   per `p1 + p2` below 18 (136 of them) over two unknown `Int`s under `QF_NIA`: `|x| <= m1` and
-  `|y| <= m2` give `|x * y| <= m1 * m2`. Both pinned solvers, Z3 5.1.0 and cvc5 1.4.1, prove
-  the file's 550 checks in under two seconds. The risk is that nonlinear integer arithmetic has no decision
+  `|y| <= m2` give `|x * y| <= m1 * m2`. Both pinned solvers, Z3 5.1.0 and cvc5 1.4.1, proved
+  the file's 550 checks in under two seconds, before the review's four neighbours. The risk is that nonlinear integer arithmetic has no decision
   procedure, so a later solver version may answer `unknown`; `dev/varka_prove.sh` fails on any
   verdict other than the expected one, so that would show as a failed proof, not a silent pass,
   and the fix is the planned instantiation of the lemma.

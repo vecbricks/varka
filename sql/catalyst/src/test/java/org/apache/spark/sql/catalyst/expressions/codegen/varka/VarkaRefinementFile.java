@@ -1137,9 +1137,12 @@ final class VarkaRefinementFile {
         cols.stream().map(Dec::outside).toList()) + ")";
     String past = "(and " + valid + " " + overflow + ")";
     String differs = "(not (= " + k + " " + t + "))";
-    refine(out, new Refinement(name + ", Spark mode ANSI and standard mode: raised past the "
-        + "result's precision", setup, definitions, "true", "true", valid,
-        "(or " + slot + " " + past + ")", valid, slot, valid, differs, List.of()));
+    // A try_ form is TRY in every session, so its row has no ANSI disposition to refine.
+    if (!name.startsWith("try_")) {
+      refine(out, new Refinement(name + ", Spark mode ANSI and standard mode: raised past the "
+          + "result's precision", setup, definitions, "true", "true", valid,
+          "(or " + slot + " " + past + ")", valid, slot, valid, differs, List.of()));
+    }
     refine(out, new Refinement(name + ", Spark mode LEGACY and TRY: null past the result's "
         + "precision", setup, definitions, "true", "true", valid, slot,
         "(and " + valid + " (not " + overflow + "))", slot, valid, differs, List.of()));

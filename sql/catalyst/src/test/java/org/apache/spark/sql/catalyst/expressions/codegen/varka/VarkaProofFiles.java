@@ -2907,9 +2907,10 @@ final class VarkaProofFiles {
         ;   abs, the blend:       IfElse(u < 0, IntNeg(WRAP, u), u)
         ;   abs, lanewise ABS:    Math.abs's definition, u < 0 ? -u : u, wrapping
         ;
-        ; Every claim is linear, since every multiplier is a constant. The rescale is proven at
-        ; every (p, k) with p + k <= 18; a narrower operand's range is inside the widest one's, so
-        ; the comparison lemma is stated at the widest left operand each k allows.
+        ; Every claim up to the arithmetic below is linear, since every multiplier is a constant;
+        ; the product's bound there multiplies two unknowns. The rescale is proven at every (p, k)
+        ; with p + k <= 18; a narrower operand's range is inside the widest one's, so the
+        ; comparison lemma is stated at the widest left operand each k allows.
         """);
     out.append(rendered("QF_NIA"));
     out.append("""
@@ -3016,6 +3017,11 @@ final class VarkaProofFiles {
           + "the type", "sat", List.of(ab,
               "(assert (and (dec.in a " + res + ") (dec.in b " + res + ")))",
               "(assert (not (dec.in (+ a b) " + res + ")))"));
+      if (p == max) {
+        check(out, "and a - b too", "sat", List.of(ab,
+            "(assert (and (dec.in a " + res + ") (dec.in b " + res + ")))",
+            "(assert (not (dec.in (- a b) " + res + ")))"));
+      }
     }
     String xy = "(declare-const x Int) (declare-const y Int)";
     for (int p1 = 1; p1 < max; p1++) {
@@ -3029,6 +3035,11 @@ final class VarkaProofFiles {
                 "(assert (not (dec.in (* x y) " + n + ")))"));
       }
     }
+    // The bound is reached: one below the largest product, at the widest pair, is refuted.
+    BigInteger reached = BigInteger.valueOf(pow[8] - 1).multiply(BigInteger.valueOf(pow[9] - 1));
+    check(out, "p1 = 8, p2 = 9: |x * y| reaches " + reached + ", so one less is refuted", "sat",
+        List.of(xy, "(assert (and (dec.in x " + (pow[8] - 1) + ") (dec.in y " + (pow[9] - 1)
+            + ")))", "(assert (not (dec.in (* x y) " + reached.subtract(BigInteger.ONE) + ")))"));
     String z = "(declare-const z Int)";
     for (int n = 2; n < max; n++) {
       long bound = pow[n] - 1;
@@ -3041,6 +3052,12 @@ final class VarkaProofFiles {
     BigInteger wide = BigInteger.TEN.pow(10).subtract(BigInteger.ONE).pow(2);
     check(out, "and two operands of ten digits each, a product typed past the lane, can wrap",
         "sat", List.of(z, "(assert (dec.in z " + wide + "))",
+            "(assert (not (= (jlong.wrap z) z)))"));
+    String longMax = BigInteger.ONE.shiftLeft(63).subtract(BigInteger.ONE).toString();
+    check(out, "the wrap's identity holds on every integer within Long.MAX_VALUE", "unsat",
+        List.of(z, "(assert (dec.in z " + longMax + "))", "(assert (not (= (jlong.wrap z) z)))"));
+    check(out, "and first fails one past it", "sat",
+        List.of(z, "(assert (dec.in z " + BigInteger.ONE.shiftLeft(63) + "))",
             "(assert (not (= (jlong.wrap z) z)))"));
   }
 

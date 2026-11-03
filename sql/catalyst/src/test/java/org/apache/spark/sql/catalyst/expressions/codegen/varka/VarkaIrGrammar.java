@@ -523,12 +523,13 @@ public final class VarkaIrGrammar {
           yield new DecimalValue(new IntArith(pick == 9 ? IntOp.ADD : IntOp.SUB, Overflow.WRAP,
               a.node(), b.node()), digits);
         }
-        // A product: the digits add, and the compiler builds one only within 18.
+        // A product: the digits add, and the compiler builds one only where its type,
+        // DECIMAL(p1 + p2 + 1, s1 + s2), is within 18 digits.
         case 11 -> {
           DecimalValue a = value(depth - 1);
           DecimalValue b = value(depth - 1);
           int digits = a.digits() + b.digits();
-          if (digits > DecimalColumn.MAX_LONG_PRECISION) {
+          if (digits + 1 > DecimalColumn.MAX_LONG_PRECISION) {
             yield a;
           }
           yield new DecimalValue(new IntArith(IntOp.MUL, Overflow.WRAP, a.node(), b.node()),
