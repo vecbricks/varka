@@ -525,7 +525,7 @@ Cut from #1303's final tree, without its `BIGINT` conversions (343a4), sweeps an
 
   Each passed on the laptop under its configuration through `dev/varka_matrix.sh`. The six new
   `skips.tsv` lines fix none: they expect this part's new rows over a narrow column to decline
-  under `validityByWidth=false`, where no lane count is baked, beside 343a2's line.
+  where no lane count is baked, `validityByWidth=false` and, for `DOUBLE`, `lanesOverride=16`.
 - **A known limit**, shared with row 332: `CompiledVarkaProjection` checks a long literal table
   against the drive under `VarkaEmitOptions.DEFAULTS`. On a 128-bit host with `lanesOverride=4`,
   the session admits `CAST(y1 AS DOUBLE) / 2.0D` and the defaults refuse it, so the check fails
