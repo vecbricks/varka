@@ -87,10 +87,11 @@ the trees" (the IR's own doc).
   run only where a predicate's conjuncts sit on two lanes (a narrow or int conjunct beside a
   long one), not on any chain above.
 - **`equals` between two disjoint copies.** A record's `equals` tries identity first, so a node
-  shared within one compile equals itself in one step; two equal DAGs that share no object - what
-  the lifts above produce - compare a shared node once per path. Within one compile every shared
-  node is one object (row 348's part reuses each compiled condition), and the cached hash makes
-  unequal nodes differ in one comparison.
+  shared within one compile equals itself in one step; two equal DAGs that share no object compare
+  a shared node once per path. The shape cache meets them on every hit, since `VarkaShapeKey` is a
+  record over the outputs, but only for admitted shapes, which the budget caps; the lifts above
+  produce them too. Within one compile every shared node is one object (row 348's part reuses each
+  compiled condition), and the cached hash makes unequal nodes differ in one comparison.
 - **`VarkaVectorIR.reaches`** recurses per path; nothing in the main sources calls it.
 - **`laneType()`** follows one child per level: linear in the depth, not exponential.
 
@@ -101,12 +102,13 @@ the trees" (the IR's own doc).
 - **(i) Cache the structural hash once per node.** A record holds no field but its components,
   so the hash is a last component, `int hash`, computed in the compact constructor from the
   other components and returned by an overriding `hashCode`; a constructor without it keeps
-  every call site as it is, and the canonical one ignores the value it is given. Cost: three
-  lines a record (47 records, about 175 lines), a trailing `_` in the 31 record patterns that
-  destructure IR nodes (all in the test's `VarkaReference`), and `hash` in each record's
-  accessors and `toString`. The records stay records, as `sql/varka/AGENTS.md`'s first Java rule
-  asks; converting them to final classes with a cached field would give the same hash at several
-  times the lines and lose the record patterns the IR is the model of.
+  every call site as it is, and the canonical one ignores the value it is given. Cost: 288 lines
+  added and 49 changed in `VarkaVectorIR.java` (the 47 records and `hashOf`), a trailing `_` in
+  the 31 record patterns that destructure IR nodes (all in the test's `VarkaReference`), and
+  `hash` in each record's accessors and `toString`. The records stay records, as
+  `sql/varka/AGENTS.md`'s first Java rule asks; converting them to final classes with a cached
+  field would give the same hash at several times the lines and lose the record patterns the IR
+  is the model of.
 - **(ii) Intern nodes at construction**, so structural equality becomes identity: a global or
   per-compile table every constructor goes through, `withChildren` and the lifts included, and a
   second notion of node identity through `Analysis` and `Slots` - what VARKA-222 priced as too

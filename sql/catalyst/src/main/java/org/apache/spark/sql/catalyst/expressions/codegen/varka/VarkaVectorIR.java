@@ -49,7 +49,7 @@ import org.apache.spark.sql.types.Decimal;
  * several outputs is computed once per lane group no matter how the caller built the trees.
  *
  * <p>So every node with a child carries its structural hash as its last component, {@code hash},
- * computed once in its constructor from its other components ({@link #hashOf}) and returned by
+ * computed once in its constructor from its other components ({@code hashOf}) and returned by
  * its {@code hashCode}: a node reached by several paths - an interval's {@code abs} reads its
  * operand three times, a {@code signum} four - would otherwise be hashed once per path, which is
  * exponential in the depth of a chain of them, paid by every hash set the planning walks keep,
