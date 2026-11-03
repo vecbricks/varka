@@ -25,8 +25,7 @@ Each level, with X the level below and a, b, c columns of the chain's type:
   dec-nulltest, dec-case, dec-coalesce: the int forms above over DECIMAL(9, 2)
 
 == 1. master f72e4556750, before (master) and after (branch varka-559-ir-hash, 2c8b97fb083) ==
-(2c8b97fb083 was this row's commit before its rebase onto 7ab15cef339; the rebased commit,
-0f71b9d6307, has the identical VarkaVectorIR.java diff.)
+(2c8b97fb083 is this row's commit before a rebase; 0f71b9d6307 has its VarkaVectorIR.java diff)
   chain          depth  before ms  after ms  verdict (the same before and after)
   int-coalesce       2       0.42      0.43  coalesce operand before the last is not a ba
   int-coalesce       4       0.68      0.73  coalesce operand before the last is not a ba

@@ -193,11 +193,8 @@ public final class VarkaVectorIRSharingSuite {
     int inner = 0;
     for (Class<?> type : types) {
       RecordComponent[] components = type.getRecordComponents();
-      boolean hasChild = false;
-      for (RecordComponent rc : components) {
-        hasChild |= VarkaVectorIR.class.isAssignableFrom(rc.getType());
-      }
-      if (!hasChild) {
+      if (Arrays.stream(components)
+          .noneMatch(rc -> VarkaVectorIR.class.isAssignableFrom(rc.getType()))) {
         continue;
       }
       inner++;
@@ -214,9 +211,7 @@ public final class VarkaVectorIRSharingSuite {
       RecordComponent[] components = node.getClass().getRecordComponents();
       int h = 0;
       int n = components.length;
-      if (n > 0 && components[n - 1].getName().equals("hash")) {
-        n--;
-      }
+      n -= n > 0 && components[n - 1].getName().equals("hash") ? 1 : 0;
       for (int i = 0; i < n; i++) {
         h = 31 * h + Objects.hashCode(components[i].getAccessor().invoke(node));
       }

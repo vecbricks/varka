@@ -41,8 +41,7 @@ import org.apache.spark.sql.types.YearMonthIntervalType;
  * ends the runs, so that depth prints that one explain's time, normally the cold one's, and the
  * chain stops there.
  *
- * <p>Prints one line per chain and depth: {@code <chain> <depth> <ms> <fused|reason>}, the
- * reason cut at 90 characters.
+ * <p>Prints a line per chain and depth: {@code <chain> <depth> <ms> <fused|reason to 90 chars>}.
  */
 public final class VarkaPlanningCostProbe {
 
