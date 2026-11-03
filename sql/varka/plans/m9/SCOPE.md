@@ -5914,6 +5914,21 @@ Arrow-cache arm beside the stock default-cache arm, from one run, and the README
 share from them, or the item records why the release's serializer cannot be compared with the
 fork's.
 
+### Item 133. Shrunk reproducers a reader can take in at once
+
+*Added 3 November 2026, from `m8/READING_SQLANCER.md` 7 action 7 and `m8/READING_FUZZING.md` 2 (a)
+item 4.* SQLancer's action 7 was proposed on 1 November and recorded nowhere but its reading: the
+Spark fuzzer's shrinker re-rectifies a conjunct against its pivot after each move, so a conjunct
+under a pivot can shrink (`VarkaSparkFuzz.scala` skips it today), and sets the fixture's cells to
+their typed `NULL` or the safe pool's first value. Two moves from compiler reduction join it for
+`VarkaShrinker`: Perses's compatible descendant (ICSE 2018 section 4.4), trying the first node of
+the same kind and lane on each path up to 4 levels down, where `replacements` tries direct children
+only, so `x` in `NarrowLane(IntArith(WidenLane(x)))` or the operands of an `IfElse`'s `Compare` are
+out of a move's reach; and C-Reduce's constant pass (PLDI 2012 section 5), each literal set to 0,
+then 1, kept if the failure signature holds, where literals are never reduced. Readability only: no
+missed bug is on record for any of them. **Done when** each move is in its shrinker with a test that
+a planted failure shrinks to the smaller form.
+
 ## 5. Ordering
 
 The survey supports an order this time rather than an argument. Item 8 leads

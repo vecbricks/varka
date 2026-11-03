@@ -321,6 +321,20 @@ queries instead of eight.
   LEGACY), drawn when both types have a `Present` Spark site, so a type's pairs turn on with its
   columns; the file is read through the reader row 328's suite holds to `Cast.canCast`.
 
+*3 November 2026, from `READING_FUZZING.md` 2 (a) items 1 and 2:* two generators the list lacks.
+- **Checked arithmetic that overflows.** `VarkaIrGrammar` draws a checked mode for `IntArith` and
+  `IntNeg` only where the operands' bounds rule overflow out (`mode(boolean safe)`, the long
+  grammar's add and subtract, `mode(long bound, long limit)`, and `IntNeg`'s int-bound check), so
+  `VarkaReference.intArith`'s null on overflow and the `FAIL` mode's must-decline path are never
+  drawn, nor a nulled lane under an `IfElse` or a second output. A side sequence on row 481's
+  pattern draws the mode with its bound past the limit over data in which some rows overflow and
+  some do not, YARPGen v2's split of the iterations into two subsets (PLDI 2023 section 3.5).
+- **Values that tie.** Two columns uniform over `COLUMN_BOUND` are equal about once in 5 million
+  rows, and a column almost never equals a literal, so a lowering that emits `<` for `<=` passes
+  the fuzzer on non-null rows. A small per-batch pool, holding the literal table, seeds a share of
+  the cells, drawn on a value stream of its own (2.2 rule 5) so no existing draw moves, and is
+  proven on a planted `<` against `<=` mutant that the fuzzer without the pool does not catch.
+
 ### 2.6 The two cross-mode properties
 
 A test of its own in `VarkaSparkFuzzSuite`, "the cross-mode properties hold over `casts.tsv`'s
