@@ -12,7 +12,7 @@ byte	byte	yes	yes	yes	identity		exhaustion		332
 byte	short	yes	yes	yes	widening	sign extension, exact	exhaustion	LEGACY,ANSI,TRY	332	all
 byte	int	yes	yes	yes	widening	sign extension, exact	exhaustion	LEGACY,ANSI,TRY	332	all
 byte	bigint	yes	yes	yes	widening	sign extension, exact	exhaustion	LEGACY,ANSI,TRY	332,28	all
-byte	float	yes	yes	yes	widening	exact	exhaustion	LEGACY,ANSI,TRY	343	all
+byte	float	yes	yes	yes	widening	exact	exhaustion		343	
 byte	double	yes	yes	yes	widening	exact	exhaustion		343	
 byte	dec	yes	yes	yes	scale up	exact; overflow past p - s digits: LEGACY null, ANSI NUMERIC_VALUE_OUT_OF_RANGE	exhaustion		350,364	
 byte	ym	yes	yes	yes	scale up	times the unit, exact: no value of the source overflows	exhaustion		103,332	
@@ -22,7 +22,7 @@ short	byte	yes	yes	yes	narrowing	LEGACY wraps; ANSI raises CAST_OVERFLOW; TRY nu
 short	short	yes	yes	yes	identity		exhaustion		332	
 short	int	yes	yes	yes	widening	sign extension, exact	exhaustion	LEGACY,ANSI,TRY	332	all
 short	bigint	yes	yes	yes	widening	sign extension, exact	exhaustion	LEGACY,ANSI,TRY	332,28	all
-short	float	yes	yes	yes	widening	exact	exhaustion	LEGACY,ANSI,TRY	343	all
+short	float	yes	yes	yes	widening	exact	exhaustion		343	
 short	double	yes	yes	yes	widening	exact	exhaustion		343	
 short	dec	yes	yes	yes	scale up	exact; overflow past p - s digits: LEGACY null, ANSI NUMERIC_VALUE_OUT_OF_RANGE	exhaustion		350,364	
 short	ym	yes	yes	yes	scale up	times the unit, exact: no value of the source overflows	exhaustion		103,332	

@@ -5336,30 +5336,6 @@
     "note" : "the same rounding: a cast to a floating type never fails",
     "verified" : "differential"
   }, {
-    "sql" : "CAST(y1 AS FLOAT)",
-    "executable" : "CAST(y1 AS FLOAT)",
-    "family" : "Floating casts",
-    "form" : "projection",
-    "catalyst" : [ "Cast" ],
-    "casts" : [ "byte>float:ansi" ],
-    "operands" : [ "Cast:byte" ],
-    "switches" : [ "spark.sql.codegen.varka.family.floatingCast.enabled" ],
-    "domain" : "",
-    "note" : "the byte widened at its load, then converted, exact",
-    "verified" : "differential"
-  }, {
-    "sql" : "CAST(s1 AS FLOAT)",
-    "executable" : "CAST(s1 AS FLOAT)",
-    "family" : "Floating casts",
-    "form" : "projection",
-    "catalyst" : [ "Cast" ],
-    "casts" : [ "short>float:ansi" ],
-    "operands" : [ "Cast:short" ],
-    "switches" : [ "spark.sql.codegen.varka.family.floatingCast.enabled" ],
-    "domain" : "",
-    "note" : "the short twin",
-    "verified" : "differential"
-  }, {
     "sql" : "d9 < d9b",
     "executable" : "d9 < d9b",
     "family" : "DECIMAL columns",

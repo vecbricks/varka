@@ -4740,28 +4740,6 @@
           "loopMasked0([J[J[I[J[J[II)I" : "d7539867b82abd43",
           "epilogueMasked0([J[J[I[J[J[II)I" : "790b39c9d05f538e"
         },
-        "CAST(y1 AS FLOAT)" : {
-          "<class>" : "2a53295ac2cde372",
-          "<init>()V" : "e2c903051ec05d17",
-          "run([J[J[I[J[J[II)I" : "f09c0a347f43e9ec",
-          "runDense([J[J[I[J[J[II)I" : "82494a724aa5151d",
-          "loopDense0([J[J[I[J[J[II)I" : "b61f566849cb6df4",
-          "epilogueDense0([J[J[I[J[J[II)I" : "9d20ea65dc7d3bfd",
-          "runMasked([J[J[I[J[J[II)I" : "41a7920058047bff",
-          "loopMasked0([J[J[I[J[J[II)I" : "b61f566849cb6df4",
-          "epilogueMasked0([J[J[I[J[J[II)I" : "9d20ea65dc7d3bfd"
-        },
-        "CAST(s1 AS FLOAT)" : {
-          "<class>" : "2a53295ac2cde372",
-          "<init>()V" : "e2c903051ec05d17",
-          "run([J[J[I[J[J[II)I" : "f09c0a347f43e9ec",
-          "runDense([J[J[I[J[J[II)I" : "82494a724aa5151d",
-          "loopDense0([J[J[I[J[J[II)I" : "fab07b610ab21691",
-          "epilogueDense0([J[J[I[J[J[II)I" : "ae66bb34daededad",
-          "runMasked([J[J[I[J[J[II)I" : "41a7920058047bff",
-          "loopMasked0([J[J[I[J[J[II)I" : "fab07b610ab21691",
-          "epilogueMasked0([J[J[I[J[J[II)I" : "ae66bb34daededad"
-        },
         "d9 < d9b" : {
           "<class>" : "1a6be0d5ae87cd3c",
           "<init>()V" : "e2c903051ec05d17",
@@ -9876,28 +9854,6 @@
           "loopMasked0([J[J[I[J[J[II)I" : "cf479ac58806189e",
           "epilogueMasked0([J[J[I[J[J[II)I" : "1ae4eefc6047532e"
         },
-        "CAST(y1 AS FLOAT)" : {
-          "<class>" : "2a53295ac2cde372",
-          "<init>()V" : "e2c903051ec05d17",
-          "run([J[J[I[J[J[II)I" : "f09c0a347f43e9ec",
-          "runDense([J[J[I[J[J[II)I" : "82494a724aa5151d",
-          "loopDense0([J[J[I[J[J[II)I" : "7705d95d5a3e8a24",
-          "epilogueDense0([J[J[I[J[J[II)I" : "f23a34557300851e",
-          "runMasked([J[J[I[J[J[II)I" : "41a7920058047bff",
-          "loopMasked0([J[J[I[J[J[II)I" : "7705d95d5a3e8a24",
-          "epilogueMasked0([J[J[I[J[J[II)I" : "f23a34557300851e"
-        },
-        "CAST(s1 AS FLOAT)" : {
-          "<class>" : "2a53295ac2cde372",
-          "<init>()V" : "e2c903051ec05d17",
-          "run([J[J[I[J[J[II)I" : "f09c0a347f43e9ec",
-          "runDense([J[J[I[J[J[II)I" : "82494a724aa5151d",
-          "loopDense0([J[J[I[J[J[II)I" : "e5b0bcb14e7f154e",
-          "epilogueDense0([J[J[I[J[J[II)I" : "39bf4e3d2dd7e7cb",
-          "runMasked([J[J[I[J[J[II)I" : "41a7920058047bff",
-          "loopMasked0([J[J[I[J[J[II)I" : "e5b0bcb14e7f154e",
-          "epilogueMasked0([J[J[I[J[J[II)I" : "39bf4e3d2dd7e7cb"
-        },
         "d9 < d9b" : {
           "<class>" : "1a6be0d5ae87cd3c",
           "<init>()V" : "e2c903051ec05d17",
@@ -10262,48 +10218,48 @@
   },
   "option_arms" : {
     "useAVX=-1" : {
-      "4" : "2165fa4b7ef0ed75",
-      "16" : "82ce6b7fd6ae2e72"
+      "4" : "24b92baf91190d63",
+      "16" : "82f24fdc93d8fee2"
     },
     "useAVX=0" : {
-      "4" : "6c094ba6f9ea685b",
-      "16" : "267c2491847a0666"
+      "4" : "285a82a794c70114",
+      "16" : "f8413e4b75d10742"
     },
     "useAVX=1" : {
-      "4" : "6c094ba6f9ea685b",
-      "16" : "267c2491847a0666"
+      "4" : "285a82a794c70114",
+      "16" : "f8413e4b75d10742"
     },
     "useAVX=2" : {
-      "4" : "6c094ba6f9ea685b",
-      "16" : "267c2491847a0666"
+      "4" : "285a82a794c70114",
+      "16" : "f8413e4b75d10742"
     },
     "useAVX=3" : {
-      "4" : "2165fa4b7ef0ed75",
-      "16" : "82ce6b7fd6ae2e72"
+      "4" : "24b92baf91190d63",
+      "16" : "82f24fdc93d8fee2"
     },
     "validityOrFirst=true over denseValidityOnce=false,validityByBitmap=false" : {
-      "4" : "5bab5e6f9336a755",
-      "16" : "142263f3dd424e19"
+      "4" : "c394a2088f3ad1ca",
+      "16" : "5c149cafbefacd78"
     },
     "validityOrFirst=false over denseValidityOnce=false,validityByBitmap=false" : {
-      "4" : "51671f9a18e957f9",
-      "16" : "d59435dc1b3f0707"
+      "4" : "645b6b4a6ad3b13f",
+      "16" : "d11a072dee135d9a"
     },
     "narrowLanes=true" : {
-      "4" : "2165fa4b7ef0ed75",
-      "16" : "82ce6b7fd6ae2e72"
+      "4" : "24b92baf91190d63",
+      "16" : "82f24fdc93d8fee2"
     },
     "narrowLanes=false" : {
-      "4" : "90d04cfff3f747c1",
-      "16" : "673087ae105cf12a"
+      "4" : "1a6df7546cf75486",
+      "16" : "0a4c24aa5df2e90b"
     },
     "groupLocalSlots=false" : {
-      "4" : "5b91b1b4ec02382f",
-      "16" : "612764c100ab86b7"
+      "4" : "9b8229b52ac180cb",
+      "16" : "9771908623a1728b"
     },
     "methodByteBudget=0" : {
-      "4" : "09d832503d3eaf4a",
-      "16" : "ef70f4b22825d32e"
+      "4" : "292a747a721aa0c3",
+      "16" : "75382f41d1d3a234"
     }
   }
 }

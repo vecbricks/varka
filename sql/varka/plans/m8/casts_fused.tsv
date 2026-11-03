@@ -11,7 +11,7 @@ byte	bool	TINYINT	BOOLEAN	fused	fused	fused
 byte	short	TINYINT	SMALLINT	fused	fused	fused
 byte	int	TINYINT	INT	fused	fused	fused
 byte	bigint	TINYINT	BIGINT	fused	fused	fused
-byte	float	TINYINT	FLOAT	fused	fused	fused
+byte	float	TINYINT	FLOAT	declined	declined	declined
 byte	double	TINYINT	DOUBLE	declined	declined	declined
 byte	dec	TINYINT	DECIMAL(10,2)	declined	declined	declined
 byte	dec	TINYINT	DECIMAL(30,4)	declined	declined	declined
@@ -32,7 +32,7 @@ short	bool	SMALLINT	BOOLEAN	fused	fused	fused
 short	byte	SMALLINT	TINYINT	fused	fused	declined
 short	int	SMALLINT	INT	fused	fused	fused
 short	bigint	SMALLINT	BIGINT	fused	fused	fused
-short	float	SMALLINT	FLOAT	fused	fused	fused
+short	float	SMALLINT	FLOAT	declined	declined	declined
 short	double	SMALLINT	DOUBLE	declined	declined	declined
 short	dec	SMALLINT	DECIMAL(10,2)	declined	declined	declined
 short	dec	SMALLINT	DECIMAL(30,4)	declined	declined	declined
