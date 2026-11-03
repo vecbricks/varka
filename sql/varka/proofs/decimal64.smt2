@@ -23,9 +23,10 @@
 ;   abs, the blend:       IfElse(u < 0, IntNeg(WRAP, u), u)
 ;   abs, lanewise ABS:    Math.abs's definition, u < 0 ? -u : u, wrapping
 ;
-; Every claim is linear, since every multiplier is a constant. The rescale is proven at
-; every (p, k) with p + k <= 18; a narrower operand's range is inside the widest one's, so
-; the comparison lemma is stated at the widest left operand each k allows.
+; Every claim up to the arithmetic below is linear, since every multiplier is a constant;
+; the product's bound there multiplies two unknowns. The rescale is proven at every (p, k)
+; with p + k <= 18; a narrower operand's range is inside the widest one's, so the
+; comparison lemma is stated at the widest left operand each k allows.
 ;
 ; Rendered by VarkaProofFiles. VarkaProofFilesSuite fails when this file differs from its
 ; rendering, and VARKA_PROOFS_REGEN=true build/sbt 'catalyst/testOnly *VarkaProofFilesSuite'
@@ -3224,6 +3225,14 @@
 (check-sat)
 (pop 1)
 
+(echo "and a - b too: expect sat")
+(push 1)
+(declare-const a Int) (declare-const b Int)
+(assert (and (dec.in a 999999999999999999) (dec.in b 999999999999999999)))
+(assert (not (dec.in (- a b) 999999999999999999)))
+(check-sat)
+(pop 1)
+
 (echo "p1 = 1, p2 = 1: |x| <= 9 and |y| <= 9 give |x * y| <= 99: expect unsat")
 (push 1)
 (declare-const x Int) (declare-const y Int)
@@ -4312,6 +4321,14 @@
 (check-sat)
 (pop 1)
 
+(echo "p1 = 8, p2 = 9: |x * y| reaches 99999998900000001, so one less is refuted: expect sat")
+(push 1)
+(declare-const x Int) (declare-const y Int)
+(assert (and (dec.in x 99999999) (dec.in y 999999999)))
+(assert (not (dec.in (* x y) 99999998900000000)))
+(check-sat)
+(pop 1)
+
 (echo "P = 3: any product of operands of 2 digits between them, |z| <= 99, is its own wrap, within 3 digits: expect unsat")
 (push 1)
 (declare-const z Int)
@@ -4444,6 +4461,22 @@
 (push 1)
 (declare-const z Int)
 (assert (dec.in z 99999999980000000001))
+(assert (not (= (jlong.wrap z) z)))
+(check-sat)
+(pop 1)
+
+(echo "the wrap's identity holds on every integer within Long.MAX_VALUE: expect unsat")
+(push 1)
+(declare-const z Int)
+(assert (dec.in z 9223372036854775807))
+(assert (not (= (jlong.wrap z) z)))
+(check-sat)
+(pop 1)
+
+(echo "and first fails one past it: expect sat")
+(push 1)
+(declare-const z Int)
+(assert (dec.in z 9223372036854775808))
 (assert (not (= (jlong.wrap z) z)))
 (check-sat)
 (pop 1)
