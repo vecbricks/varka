@@ -638,3 +638,68 @@ answer, and the compiler did not change.
   `coalesce(l, l2)`, times 100 on an even `rid` and 50 on an odd one, null where `i` is: two
   rows of the mixed fixture and three of the dense flip under a factor of 10, and the mixed
   fixture has a row with only `d9` null and one with only `d9s4` null.
+
+### 10.5 Step 4: 348a2, negation and `abs`
+
+*Built 1 November 2026 on branch `varka-348-conditions`, and cut as part 348a2 on branch
+`varka-348a2-abs` on 3 November 2026, on 348a1 (section 5).*
+
+**Negation and `abs`.** `value()` builds `UnaryMinus` and `Abs` as `IntNeg(WRAP, u)` and
+`IntNeg(WRAP, u, abs = true)`. The emitter lowers a long-lane `abs` as
+`x.blend(x.neg(), x.compare(LT, 0))` by default and as the lanewise `ABS` under the new flag
+`decimalAbsLanewise` (`Reason.MACHINE`, off), and the reference evaluator answers it with
+`Math.abs`. `IntNeg`'s javadoc says a decimal negation is `WRAP` by its bound. Two coverage rows,
+`-d9 < d9b` and `abs(d9) >= d9b`, are each refined in `refinement.smt2`.
+
+**The slot table and the planted fault.** `VarkaDecimalLoadSuite` adds the condition table
+under a rescale (`d * 100 < 5`, at precisions 1, 9 and 10, where `p + 2` stays within 18), under a
+negation and under `abs`, at 2, 4 and 8 long lanes, both bodies, the planted slot in the first
+group, a middle one and the last row: `10^p`, `-10^p` and the wrong high words valid decline with
+`STATUS_DECIMAL_SLOT`, the same slots null do not, and every in-precision row answers. A bad slot
+under a rescale in an `IfElse` arm the batch never takes declines. The planted fault is a new
+fault injector, `dropDecimalBound` (`Reason.FAULT_INJECTOR`, never drawn), under which the leaf
+keeps its high-word check and drops the digit check: a valid `10^17` at precision 17 then runs,
+its rescale by `10^2` wraps to a negative value, and the slot table's check fails, which the test
+asserts at every width.
+
+**The IR fuzzer's decimal sequence.** `VarkaIrGrammar.drawDecimalValueShape`, on its own seed
+(`DECIMAL_VALUE_FUZZ_SEED`, so no committed shape moves), draws one to three decimal columns at
+precisions biased to 1, 2, 9, 10, 17 and 18, and over them the forms of 2.1: a rescale at a `k`
+the drawn value's digits allow, a negation, `abs`, an `IfElse`, both picks, the comparisons, the
+null-safe equality and the null test, literals at their digits' bounds and inside. The suite
+writes each decimal column as Arrow's slots (`VarkaKernelChecks`' long lane now knows a decimal
+input's sixteen-byte stride), its valid rows inside the precision with the bounds among them and
+its null rows holding the lane's extremes, garbage the check must not read, and runs each draw
+under drawn options, `decimalAbsLanewise` among them, against the reference evaluator, which now
+answers a long-lane `abs`. A second test asserts the draw reaches every form, `k = 1` and
+`k = 17`.
+
+**Test time, on the laptop.** `VarkaDecimalLoadSuite`'s 17 tests take 2.7 s in their own JVM,
+the three new ones included, so section 5's "seconds" for the slot table holds.
+`VarkaIrFuzzSuite`'s own JVM ran 2 minutes 45 seconds with the decimal sequence's 300 draws and
+its 500-draw reach test; the run does not print a test's own time, so the sequence's share is read
+from the Build's JUnit report.
+
+### Departures from the plan in 348a2
+
+- **The planted fault fails the slot table, not the refinement.** Section 3 item 1 asks that the
+  refinement's check 2 fail with the flag on too. The refinement file states the kernel's decline
+  as the leaf's check, which `decimal_slot.smt2` proves equal to `|u| > 10^p - 1`; it does not
+  read an emit option, so no rendering of it changes with the flag, and the slot table is the
+  check the fault is planted against. A refinement that read the flag would restate the
+  emitter's choice in the specification's file, which the row leaves to row 504.
+- **The table of `IS NULL` over a negation is the bare leaf's table.** Section 3 item 1 lists
+  it beside the rescale. `VarkaDecimalCompiler.valid` compiles `(-d) IS NULL` to the leaf's own
+  null test, the tree `conditionTableOfTheNullTest` already runs, so no new table is added for it.
+- **`VarkaIrFuzzSuite`'s stranger draw runs under the matrix base.** A drawn option added to the
+  table shifts every later coin of a fuzz draw. `decimalAbsLanewise` moved the named draw
+  `2026101300002L`, 195413, whose stranger then no longer fitted under its redrawn size options.
+  The shape still grows past the op cap, as the test's first assertion checks, so the test now
+  runs that draw's variants under `VarkaMatrix.base`, which no later option moves.
+
+### 10.6 The second review of 348a2 (1 November 2026)
+
+- **A long-lane `abs` weighed 1.** The defaults emit the compare, the negation and the blend, so
+  `weightOf` weighs it 3, the larger form, as it does for every node whose arm it cannot see;
+  the register holds the row. The cost model's feature for it does not tell the two lowerings
+  apart, and no abs feature has a price yet; that waits for row 352's refit.
