@@ -289,7 +289,7 @@ public final class VarkaAnsiForm {
         "CAST(y1 AS FLOAT)", "CAST(s1 AS FLOAT)", "CAST(y1 AS DOUBLE)", "CAST(s1 AS DOUBLE)",
         "CAST(f AS DOUBLE)", "CAST(x AS FLOAT)",
         "CAST(b AS DOUBLE)", "CAST(b AS FLOAT)", "CAST(i > 3 AS DOUBLE)", "x + i", "f * i",
-        "f + x", "i / 2.0D")) {
+        "f + x", "i / 2.0D", "CAST(l > 5 AS DOUBLE)", "CAST(l > 5 AS FLOAT)")) {
       out.put(sql + "\t" + FALSE_AND, laneSplit);
     }
     // A bigint narrowed to a narrow type as a COALESCE argument beside a narrow column: a narrow
