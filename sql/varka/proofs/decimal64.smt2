@@ -19,6 +19,9 @@
 ;
 ;   rescale by k digits:  IntArith(MUL, WRAP, u, 10^k), when p + k <= 18     jlong.mul
 ;   a comparison:         Compare(op, u1 * 10^k, u2), s2 = s1 + k            <, <=, =
+;   negation:             IntNeg(WRAP, u)                                   jlong.neg
+;   abs, the blend:       IfElse(u < 0, IntNeg(WRAP, u), u)
+;   abs, lanewise ABS:    Math.abs's definition, u < 0 ? -u : u, wrapping
 ;
 ; Every claim is linear, since every multiplier is a constant. The rescale is proven at
 ; every (p, k) with p + k <= 18; a narrower operand's range is inside the widest one's, so
@@ -31,6 +34,8 @@
 (set-logic QF_NIA)
 
 (define-fun dec.in ((u Int) (b Int)) Bool (and (<= (- b) u) (<= u b)))
+(define-fun dec.absBlend ((u Int)) Int (ite (< u 0) (jlong.neg u) u))
+(define-fun dec.absLanewise ((u Int)) Int (jlong.wrap (ite (< u 0) (- u) u)))
 
 (echo "p = 1, k = 1: |u| <= 9 gives u * 10 with no wrap, within 2 digits: expect unsat")
 (push 1)
@@ -2757,5 +2762,45 @@
 (declare-const u1 Int) (declare-const u2 Int)
 (assert (and (dec.in u1 9) (dec.in u2 999999999999999999)))
 (assert (not (and (= (< (jlong.mul u1 100000000000000000) u2) (< (* u1 1000000000000000000) (* u2 10))) (= (<= (jlong.mul u1 100000000000000000) u2) (<= (* u1 1000000000000000000) (* u2 10))) (= (= (jlong.mul u1 100000000000000000) u2) (= (* u1 1000000000000000000) (* u2 10))))))
+(check-sat)
+(pop 1)
+
+(echo "|u| <= 999999999999999999 gives a negation with no wrap: expect unsat")
+(push 1)
+(declare-const u Int)
+(assert (dec.in u 999999999999999999))
+(assert (not (= (jlong.neg u) (- u))))
+(check-sat)
+(pop 1)
+
+(echo "and the long lane's minimum, outside the bound, negates to itself: expect sat")
+(push 1)
+(declare-const u Int)
+(assert (= u jlong.MIN))
+(assert (= (jlong.neg u) u))
+(check-sat)
+(pop 1)
+
+(echo "|u| <= 999999999999999999 gives abs as the blend u < 0 ? -u : u equal to |u|, within the precision: expect unsat")
+(push 1)
+(declare-const u Int)
+(assert (dec.in u 999999999999999999))
+(assert (not (and (= (dec.absBlend u) (abs u)) (dec.in (dec.absBlend u) 999999999999999999))))
+(check-sat)
+(pop 1)
+
+(echo "and as the lanewise ABS: expect unsat")
+(push 1)
+(declare-const u Int)
+(assert (dec.in u 999999999999999999))
+(assert (not (= (dec.absLanewise u) (abs u))))
+(check-sat)
+(pop 1)
+
+(echo "the two abs forms agree on every long: expect unsat")
+(push 1)
+(declare-const u Int)
+(assert (jlong.in u))
+(assert (not (= (dec.absLanewise u) (dec.absBlend u))))
 (check-sat)
 (pop 1)

@@ -3433,7 +3433,7 @@
 (pop 1)
 
 ; -----------------------------------------------------------------------------------------------
-; STANDARD.md 4.1 and 4.2: the 64-bit decimal's comparisons
+; STANDARD.md 4.1, 4.2 and EXTENSIONS.md 3: the 64-bit decimal's comparisons, negation and abs
 ; -----------------------------------------------------------------------------------------------
 
 (echo "d9 < d9s4, Spark mode: at DECIMAL(11, 4), d9 times 100: 1. the precondition admits a valid lane the specification defines and the kernel answers: expect sat")
