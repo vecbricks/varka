@@ -342,6 +342,9 @@ loads, benchmarks. So:
   golden files, a circular fault check, a benchmark that split shapes unlike the compiler, a tier
   witness that dropped traps - each costing a second CI round and a second agent run. The owner's
   review after CI is then the second look, not the first.
+* **A pull request stays under 1000 changed lines** of hand-written source and markdown,
+  added plus removed against its merge base; generated files do not count. `dev/varka_msg_check.py
+  pr` prints the count and fails at the cap, and so does the Build's `lint` job (VARKA-554).
 * **A benchmark port merges with its pair** (`dev/varka_bench_pair.sh` against the merge base), or
   its description says why not and names the row that owes the pair.
 * **A change that adds test time says so**: the gate's and the nightly's affected steps, their

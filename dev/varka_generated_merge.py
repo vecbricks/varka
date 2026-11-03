@@ -23,6 +23,7 @@
   dev/varka_generated_merge.py --owed       # the owed files of the current or last merge
   dev/varka_generated_merge.py --owed --keep PATH  # clear the owed list but for PATH
   dev/varka_generated_merge.py --self-test  # the merge's cases, in a temporary repository
+  dev/varka_generated_merge.py --list       # the generated files, one path a line
 
 Every type row regenerates the same few files - coverage.json, emitted_bytes.json,
 width_audit.json, types.tsv, the census and the cast tables, and the generated blocks of
@@ -448,6 +449,37 @@ def generated_blocks(path):
             name = line.strip()[len("<!-- BEGIN generated") : -len("-->")].strip()
             blocks[name] = ""
     return blocks
+
+
+def hand_lines(text):
+    """A docs file's lines outside its `BEGIN generated` blocks, the markers kept: the part a
+    person writes, which the pull-request size check counts (VARKA-554)."""
+    out, inside = [], False
+    for line in lines_of(text):
+        if line.startswith("<!-- END generated"):
+            inside = False
+        if not inside:
+            out.append(line)
+        if line.startswith("<!-- BEGIN generated"):
+            inside = True
+    return out
+
+
+# The files this driver merges, by repository path: those `sql/varka/.gitattributes` names, and
+# the docs file, whose rule `dev/varka_precommit.sh --install-hook` adds to the clone's own
+# attributes because a `.gitattributes` in `docs/` would ship to Spark's documentation build.
+# `dev/varka_regen_generated.sh --all` and the pull-request size check read this list.
+DOCS = "docs/sql-varka.md"
+
+
+def generated_files(root=None):
+    root = root or os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    paths = []
+    with open(os.path.join(root, "sql", "varka", ".gitattributes"), encoding="utf-8") as f:
+        for line in f:
+            if line.startswith("/") and "merge=varka-generated" in line.split()[1:]:
+                paths.append("sql/varka" + line.split()[0])
+    return paths + [DOCS]
 
 
 def block_state(in_block, lines):
@@ -1059,6 +1091,20 @@ def self_test():
     finally:
         os.environ.clear()
         os.environ.update(saved_env)
+    # 22. The list of generated files is the attributes file's and the installer's docs rule,
+    # and the docs file's hand lines keep its prose and markers and drop its blocks.
+    files = generated_files(root)
+    with open(os.path.join(root, "dev", "varka_precommit.sh"), encoding="utf-8") as f:
+        installer = f.read()
+    expect(
+        "sql/varka/coverage.json" in files and f"{DOCS} merge=varka-generated" in installer,
+        f"22: the generated list or the installer's docs rule drifted: {files}",
+    )
+    doc = "a\n<!-- BEGIN generated t -->\nx\n<!-- END generated t -->\nb\n"
+    expect(
+        hand_lines(doc) == ["a", "<!-- BEGIN generated t -->", "<!-- END generated t -->", "b"],
+        f"22: hand lines of a docs block: {hand_lines(doc)}",
+    )
     print(f"self-test: {cases} case(s), {failed} failed")
     return 1 if failed else 0
 
@@ -1744,6 +1790,9 @@ def main(argv):
         return owed_command(keep=argv[3])
     if argv[1:] == ["--self-test"]:
         return self_test()
+    if argv[1:] == ["--list"]:
+        print("\n".join(generated_files()))
+        return 0
     print(__doc__, file=sys.stderr)
     return 2
 
