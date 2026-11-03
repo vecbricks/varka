@@ -143,6 +143,10 @@ jobs:
       uses: actions/checkout@v6
       with:
         ref: ${{ needs.build.outputs.sha }}
+    # The check that decides the night first proves itself on fixture logs, so a check that
+    # stopped failing cannot pass a night (as varka_matrix_ci.sh runs its picker's self-test).
+    - name: The tier split's check, over fixture logs
+      run: python3 dev/varka_tier_split.py --self-test
     - name: Install Java 25
       uses: actions/setup-java@v5
       with:

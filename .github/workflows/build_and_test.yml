@@ -1851,8 +1851,6 @@ jobs:
       run: python3 dev/varka_ci_admit.py --self-test
     - name: The step-time budget's tool, over recorded API responses
       run: python3 dev/varka_ci_times.py --self-test
-    - name: The nightly tier split's check, over fixture logs
-      run: python3 dev/varka_tier_split.py --self-test
     # The house rules a commit's hooks check (VARKA-492): the tools' own cases, and then the
     # rules themselves over what the hooks of a committer who never installed them did not see -
     # the branch's commit messages and its pull request's title and body.
