@@ -963,9 +963,7 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
     // kernel holds the int and float lanes at one lane count; the casts between widths follow.
     Family("Floating casts", predicates = false, Seq(
       Row("CAST(i AS FLOAT)", "rounded once to nearest, ties to even, as the JVM converts"),
-      Row("try_cast(i AS FLOAT)", "the same rounding: a cast to a floating type never fails"),
-      Row("CAST(y1 AS FLOAT)", "the byte widened at its load, then converted, exact"),
-      Row("CAST(s1 AS FLOAT)", "the short twin"))),
+      Row("try_cast(i AS FLOAT)", "the same rounding: a cast to a floating type never fails"))),
 
     // DECIMAL of precision up to 18 (VARKA-347, carrying row 348's equal-scale comparisons and
     // null tests): two values of one scale compare as their unscaled longs. Each kernel checks

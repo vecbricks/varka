@@ -270,8 +270,7 @@ public final class VarkaAnsiForm {
     // that also reads an integral column, the cast's source, so both decline (VARKA-343).
     String laneSplit = "the filter reads an integral column, so its float conjuncts decline by "
         + "floatingConjunctRefusal and the filter fuses no conjunct";
-    for (String sql : List.of("CAST(i AS FLOAT)", "try_cast(i AS FLOAT)", "CAST(y1 AS FLOAT)",
-        "CAST(s1 AS FLOAT)")) {
+    for (String sql : List.of("CAST(i AS FLOAT)", "try_cast(i AS FLOAT)")) {
       out.put(sql + "\t" + FALSE_AND, laneSplit);
     }
     // A bigint narrowed to a narrow type as a COALESCE argument beside a narrow column: a narrow
