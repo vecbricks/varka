@@ -325,7 +325,9 @@ run the warm-up off, so it touches only the tests that turn it on.
 
 - **The held side is seen** (8.3's correction): `check` fails any task of the held side under
   `-interpreted`, failed or not, and `--self-test` a directive file that does not name its held
-  side; `VarkaMethodNamesSuite` reads every pattern in each file, the new entries included.
+  side; `VarkaMethodNamesSuite` reads every pattern in each file, the new entries included. On
+  `VarkaProjectExecSuite` with the `exclude` dropped, `check` failed on 31 masked compiles; with
+  it, none showed.
 - **A compile is a task that finished.** HotSpot prints a task as it starts and a failed one again
   with `COMPILE SKIPPED` (`compileBroker.cpp` 2178 and 2372); `check` counts a compile id once,
   none that was skipped, and wants ten tier-4 compiles of the forward side at least (the trial
