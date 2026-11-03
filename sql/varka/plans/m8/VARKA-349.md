@@ -575,7 +575,7 @@ laptop Z3 holds it in 0.14 s and cvc5 in 1.72 s, against 0.15 s and 0.47 s for 3
 `refinement.smt2` gains a section beside 348a's that refines each coverage row below whole, its
 comparison included, through the five queries in Spark mode ANSI with standard mode (raised past
 the result's precision) and in LEGACY and TRY (null there), a product's exact value a free `z`
-bounded by the ring layer. Its 95 checks take the file from 273 to 368, from 3.04 s to 3.10 s
+bounded by the ring layer. Its 95 checks take the file from 276 to 371, from 3.04 s to 3.10 s
 under Z3 and from 4.55 s to 4.74 s under cvc5 on the laptop.
 
 **Coverage rows.** A "DECIMAL arithmetic" family of ten predicates over 347's and 348's columns
