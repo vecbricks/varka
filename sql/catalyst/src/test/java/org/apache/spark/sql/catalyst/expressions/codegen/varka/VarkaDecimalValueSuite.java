@@ -28,6 +28,8 @@ import java.math.BigDecimal;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
+import java.util.Set;
 
 import scala.jdk.javaapi.CollectionConverters;
 
@@ -138,6 +140,52 @@ public final class VarkaDecimalValueSuite {
       assertTrue(reason.contains("359") && reason.contains("360"),
           () -> sql + " declined: " + reason);
     }
+  }
+
+  @Test
+  @DisplayName("a choice of a wide type whose branch is rescaled up declines naming rows 359 and "
+      + "360, whichever side of the comparison it is on")
+  void wideChoiceOfARescaleDeclines() {
+    // The branches' common type is DECIMAL(20, 4): coercion casts a up by two digits of scale.
+    List<Attribute> columns = List.of(VarkaSqlResolve.column("a", new DecimalType(18, 2)),
+        VarkaSqlResolve.column("b", new DecimalType(9, 4)),
+        VarkaSqlResolve.column("c", new DecimalType(9, 4)));
+    for (String choice : List.of("IF(c > 0.0, a, b)", "CASE WHEN c > 0.0 THEN a ELSE b END",
+        "coalesce(a, b)", "greatest(a, b)", "least(b, a)")) {
+      for (String sql : List.of(choice + " < c", "c < " + choice)) {
+        Expression e = VarkaSqlResolve.parse(sql, seq(columns));
+        List<VarkaConjunctSpec> specs =
+            VarkaExpressionCompiler.explainPredicate(e, seq(columns), VarkaMatrixRuns.BASE,
+                VarkaAdmission.NO_HOST_REFUSAL);
+        assertEquals(1, specs.size());
+        String reason = specs.get(0).decline().map(d -> d.reason()).orElse("fused");
+        assertTrue(reason.contains("359") && reason.contains("360"),
+            () -> sql + " declined: " + reason);
+      }
+    }
+  }
+
+  @Test
+  @DisplayName("a null test over greatest records the int arithmetic family its pick belongs to, "
+      + "and declines under that family's switch")
+  void nullTestOverAPickKeepsItsFamily() {
+    // VarkaFamilySwitchSuite's rule: a switch declines every shape holding its family's node,
+    // and the record lists each. The null test's probe of the value notes the pick's family, and
+    // the probe's rollback keeps that note.
+    List<Attribute> columns = List.of(VarkaSqlResolve.column("a", new DecimalType(9, 2)),
+        VarkaSqlResolve.column("b", new DecimalType(9, 2)));
+    Expression e = VarkaSqlResolve.parse("greatest(a, b) IS NULL", seq(columns));
+    var on = VarkaExpressionCompiler.explainAndCompilePredicate(e, seq(columns),
+        VarkaMatrixRuns.BASE, VarkaAdmission.NO_HOST_REFUSAL).compiled();
+    assertTrue(on.isPresent(), "greatest(a, b) IS NULL fuses");
+    assertTrue(on.get().fused().families().contains(VarkaFamily.INT_ARITHMETIC),
+        () -> "the families: " + on.get().fused().families());
+    List<VarkaConjunctSpec> off = VarkaExpressionCompiler.explainPredicate(e, seq(columns),
+        VarkaMatrixRuns.BASE,
+        new VarkaAdmission(Set.of(VarkaFamily.INT_ARITHMETIC), false));
+    assertEquals(1, off.size());
+    assertEquals(Optional.of(VarkaFamily.INT_ARITHMETIC.offReason()),
+        off.get(0).decline().map(d -> d.reason()));
   }
 
   @Test

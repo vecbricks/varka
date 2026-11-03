@@ -797,3 +797,35 @@ Made on #1304 before the cut; none found a wrong answer.
 - **The `CASE` row after 10.4's new `d9s4`.** `CASE WHEN d9 < d9b THEN d9 ELSE d9s4 END > 0.0`
   stays a sign test of its branch's rescale, since a positive factor keeps a sign; the new column
   only makes its branch choice matter.
+
+### 10.9 The high review of 348a3 (3 November 2026)
+
+Made on the rebuilt part; none gives a wrong answer.
+
+- **A null literal's decline named no row.** With the choices, a null keeps its place in a real
+  query: `IF(c, NULL, d)`, a `CASE` branch of `NULL` and `nullif`, which the analyzer rewrites to
+  an `IF`, reach `value()` with their null branch unfolded, so the decline now says the typed null
+  value is row 333's, as a `CASE` without an `ELSE` does, and its comment no longer says the
+  optimizer folds them first.
+- **A wide choice of a rescaled branch named only row 359.** `IF(p, d18, d9s4) < c` is a choice at
+  `DECIMAL(20, 4)` whose `d18` branch coercion casts up by two digits of scale, and the decline
+  named only the wide type. The rescale test now looks through a choice, a pick and a cast that
+  keeps the scale, so the decline names rows 359 and 360 for `IF`, `CASE`, `coalesce`,
+  `greatest` and `least` on either side of the comparison (`VarkaDecimalValueSuite`).
+- **The null test's probe keeps its families on purpose.** The review read the probe's rollback,
+  which truncates the tables but not the families noted, as `greatest(a, b) IS NULL` reporting
+  the int arithmetic it does not compute. `VarkaFamilySwitchSuite` defines a switch as declining
+  every shape that holds one of its family's nodes, the coverage row `coalesce(d9, d9b) IS NULL`
+  among them, so truncating the note would fail it. The note stays, `nullTested`'s javadoc says
+  why, and a test pins `greatest(a, b) IS NULL` recording the int arithmetic and declining under
+  its switch.
+- **The choice rows' departure was not Spark's.** The refinement had Spark read `d9b` only where
+  `d9` is null, and a `CASE`'s `ELSE` only where its condition is not true, and stated the
+  kernel's decline on those slots as one Spark does not need. Spark's generated filter evaluates
+  every column a predicate references before the predicate (`FilterExec.genPredicate`, through
+  `evaluateRequiredVariables` over the predicate's references), as `Analysis.java` says for the
+  slot check under an arm, so it reads both on every row and raises where the kernel declines.
+  The two rows now raise on any column's slot, the 11-argument `decimalRow` and its departure are
+  gone, and `nullTested`'s javadoc says the same. Only Spark's interpreted path, with whole-stage
+  codegen off, stops at the first non-null operand or the taken branch; a decline there hands the
+  batch to the row engine, which answers as Spark does.

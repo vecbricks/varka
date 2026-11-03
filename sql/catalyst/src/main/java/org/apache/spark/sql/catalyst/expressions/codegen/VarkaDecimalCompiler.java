@@ -182,7 +182,8 @@ final class VarkaDecimalCompiler {
   /**
    * Why a value of {@code type}, wider than the long lane, declines: the wide representation is
    * row 359's, and a cast that rescales into it, the one coercion puts over the operand of the
-   * smaller scale, needs row 360's wide rescale as well.
+   * smaller scale or over a choice's branch of the smaller scale, needs row 360's wide rescale as
+   * well.
    */
   private static String wideReason(Expression e, DecimalType type) {
     if (rescalesUp(e, type)) {
@@ -192,10 +193,32 @@ final class VarkaDecimalCompiler {
     return "a decimal wider than " + MAX_PRECISION + " digits is row 359's";
   }
 
-  /** Whether {@code e} is a cast to {@code type} from a decimal of a smaller scale. */
+  /**
+   * Whether {@code e}, of {@code type}, rescales up into a type wider than 18 digits: a cast to it
+   * from a decimal of a smaller scale, or a cast that keeps the scale, a choice or a pick over a
+   * wide value that does - {@code IF(p, d18, d9s4)} at {@code DECIMAL(22, 4)} casts its
+   * {@code d18} branch up by two digits of scale.
+   */
   private static boolean rescalesUp(Expression e, DecimalType type) {
-    return e instanceof Cast c && c.child().dataType() instanceof DecimalType from
-        && from.scale() < type.scale();
+    return switch (e) {
+      case Cast c when c.child().dataType() instanceof DecimalType from ->
+          from.scale() < type.scale() || rescalesIntoWide(c.child());
+      case If _, CaseWhen _, Coalesce _, Greatest _, Least _ -> {
+        for (Expression child : CollectionConverters.asJava(e.children())) {
+          if (rescalesIntoWide(child)) {
+            yield true;
+          }
+        }
+        yield false;
+      }
+      default -> false;
+    };
+  }
+
+  /** Whether {@code e} is a decimal wider than 18 digits that {@link #rescalesUp} into. */
+  private static boolean rescalesIntoWide(Expression e) {
+    return e.dataType() instanceof DecimalType t && t.precision() > MAX_PRECISION
+        && rescalesUp(e, t);
   }
 
   /**
@@ -242,9 +265,8 @@ final class VarkaDecimalCompiler {
     // A rescale into a wide common type names rows 359 and 360 whichever side carries it, so
     // both sides are read before either declines on its own.
     for (Expression side : List.of(left, right)) {
-      if (side.dataType() instanceof DecimalType type && type.precision() > MAX_PRECISION
-          && rescalesUp(side, type)) {
-        return sink.decline(wideReason(side, type), side);
+      if (rescalesIntoWide(side)) {
+        return sink.decline(wideReason(side, (DecimalType) side.dataType()), side);
       }
     }
     Optional<Scaled> l = value(left, inputs, literals, sink);
@@ -292,17 +314,21 @@ final class VarkaDecimalCompiler {
    * still loaded and checked, on every lane: Spark's {@code IS NULL} evaluates its child, which
    * reads a valid row's value through {@code ArrowColumnVector.getDecimal} and raises on a slot
    * outside the precision, and the kernel declines that batch as every other reader of the leaf
-   * does. Spark reads only the slots its evaluation reaches - {@code coalesce} stops at its first
-   * non-null operand, a {@code CASE} evaluates the branch it takes - so the kernel can decline a
-   * batch Spark answers; the row engine then answers it, so the answer stays right
-   * ({@code refinement.smt2}'s query 5 departures name the two forms).
+   * does. Spark's generated filter reads every leaf too, a {@code coalesce}'s later operands and
+   * a {@code CASE}'s untaken branches included: it evaluates every column a predicate references
+   * before the predicate ({@code FilterExec.genPredicate}). Only its interpreted path, with
+   * whole-stage codegen off, stops at a {@code coalesce}'s first non-null operand and a
+   * {@code CASE}'s taken branch, and there a decline hands the batch to the row engine, which
+   * answers as Spark does.
    *
    * <p>The value is compiled as a probe, for its declines alone: a choice's condition is not
    * compiled in it, and what it appended to the tables - its leaves, and its own long literals,
    * such as a rescale's factor, which the test does not read - is rolled back, so the test holds
    * {@link #valid}'s leaves and literals in {@link #valid}'s order. Each condition is then
    * compiled once, by {@link #valid}, and a null test nested in a condition costs its own size
-   * rather than doubling at every level.
+   * rather than doubling at every level. The families the probe notes are kept: a family's switch
+   * declines every shape that holds one of its nodes, the null test over a pick or a choice
+   * included, and the record lists the families so held ({@code VarkaFamilySwitchSuite}).
    */
   static Optional<Cond> nullTested(Expression child, VarkaSlotTable inputs,
       VarkaSlotTable literals, DeclineSink sink) {
@@ -617,9 +643,11 @@ final class VarkaDecimalCompiler {
    * A literal tree's unscaled value at its type's scale, in a slot of the long table. A literal
    * arrives folded in a real query; in a tree the analyzer alone resolved it is the literal under
    * the casts type coercion put over it, and is folded here by evaluating them, which Spark's
-   * constant folding does the same way. A null literal declines: the optimizer has folded its
-   * consumer to null before a real query gets here. A cast that fails, or a value that does not
-   * fit 18 digits, declines too, and leaves the row engine to raise or answer.
+   * constant folding does the same way. A null literal declines naming row 333, whose typed null
+   * value it needs: a choice keeps one in a real query, as {@code IF(c, NULL, d)}, a
+   * {@code CASE} branch of {@code NULL} and {@code nullif}, which the analyzer rewrites to an
+   * {@code IF}, do. A cast that fails, or a value that does not fit 18 digits, declines too, and
+   * leaves the row engine to raise or answer.
    */
   private static Optional<Scaled> literal(Expression e, DecimalType type, DeclineSink sink) {
     Object value;
@@ -629,7 +657,8 @@ final class VarkaDecimalCompiler {
       return sink.decline("a decimal literal whose cast fails", e);
     }
     if (!(value instanceof Decimal d)) {
-      return sink.decline("a null decimal literal", e);
+      return sink.decline("a null decimal literal needs a typed null value, which is row "
+          + "333's", e);
     }
     BigDecimal exact = d.toJavaBigDecimal();
     long unscaled;

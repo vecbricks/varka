@@ -1021,38 +1021,24 @@ final class VarkaRefinementFile {
    * whose lane value the specification reads as {@code u / 10^s} (STANDARD.md 4.1). The kernel
    * declines on a valid slot outside the precision in any of the row's columns, by its leaves'
    * slot checks ({@code decimal_slot.smt2}), and the specification raises where Spark's column
-   * reader does, on such a slot in a column Spark reads: every column here, which the
-   * comparisons, negation, abs and {@code greatest} all evaluate. The kernel's truth {@code k}
-   * and the specification's {@code t} are conditions, compared on the lanes where the
-   * specification's answer is known.
+   * reader does, on such a slot in a column Spark reads: every column here. A filter's generated
+   * code evaluates every column its predicate references before the predicate
+   * ({@code FilterExec.genPredicate}), so Spark reads a {@code coalesce}'s later operands and a
+   * {@code CASE}'s untaken branches on every row too, as it reads the operands of the
+   * comparisons, negation, abs and {@code greatest}. The kernel's truth {@code k} and the
+   * specification's {@code t} are conditions, compared on the lanes where the specification's
+   * answer is known.
    */
   private static void decimalRow(StringBuilder out, String name, List<Dec> cols,
       List<String> defs, String kernelValid, String specValid, String k, String t) {
-    decimalRow(out, name, cols, defs, anyOutside(cols), null, null, kernelValid, specValid, k, t);
-  }
-
-  /**
-   * A decimal row whose form reads only some of its columns' slots on a lane: {@code coalesce}
-   * stops at its first non-null operand, and a {@code CASE} evaluates only the branch it takes.
-   * The specification raises only on {@code raises}, the slots Spark's evaluation reaches; the
-   * kernel still declines on any column's slot outside its precision, so it declines where Spark
-   * does not need it to. That departure is query 5's, pinned by {@code example}: a decline hands
-   * the batch to the row engine, which answers as Spark does, so the answer stays right and only
-   * the fused path is lost on such a batch.
-   */
-  private static void decimalRow(StringBuilder out, String name, List<Dec> cols,
-      List<String> defs, String raises, String why, String example, String kernelValid,
-      String specValid, String k, String t) {
     var setup = new ArrayList<String>();
     for (Dec c : cols) {
       setup.add(c.declare());
     }
     setup.addAll(defs);
-    String decline = anyOutside(cols);
-    List<Departure> departures = why == null ? List.of() : List.of(new Departure(5, why,
-        List.of("(assert " + example + ")"), "(and " + decline + " (not " + raises + "))"));
-    refine(out, new Refinement(name, setup, "true", "true", specValid, raises, specValid, decline,
-        kernelValid, "(not (= " + k + " " + t + "))", departures));
+    String outside = anyOutside(cols);
+    refine(out, new Refinement(name, setup, "true", "true", specValid, outside, specValid,
+        outside, kernelValid, "(not (= " + k + " " + t + "))", List.of()));
   }
 
   /** Whether some of {@code cols} holds a valid slot outside its precision. */
@@ -1108,13 +1094,8 @@ final class VarkaRefinementFile {
             "(define-fun sg () Int (ite (and va vc) (ite (> sa c) sa c) (ite va sa c)))"),
         "(and (or va vc) vb)", "(and (or va vc) vb)", "(> kg (jlong.mul b 100))",
         "(> sg (* b 100))");
-    // Spark's coalesce reads d9b only where d9 is null.
     decimalRow(out, "coalesce(d9, d9b) IS NULL, Spark mode: null where every operand is",
         List.of(d9, d9b), List.of(),
-        "(or " + d9.outside() + " (and (not va) " + d9b.outside() + "))",
-        "a decline Spark does not need: the kernel checks d9b's slots on every lane, and Spark "
-            + "reads d9b only where d9 is null",
-        "(and va (= a 0) vb (= b " + (d9b.bound() + 1) + "))",
         // The kernel's null test is the negated OR of the leaves' validity, as
         // VarkaDecimalCompiler.valid builds a coalesce's; Spark's coalesce is null where every
         // operand is.
@@ -1126,11 +1107,6 @@ final class VarkaRefinementFile {
             "(define-fun kx () Int (ite kt (jlong.mul a 100) c))",
             "(define-fun sx () Int (ite kt (* a 100) c))",
             "(define-fun vx () Bool (ite kt va vc))"),
-        // Spark's CASE reads d9s4 only where its condition is not true.
-        "(or " + d9.outside() + " " + d9b.outside() + " (and (not kt) " + d9s4.outside() + "))",
-        "a decline Spark does not need: the kernel checks the ELSE's slots on every lane, and "
-            + "Spark reads them only where the condition is not true",
-        "(and va vb (= a 0) (= b 1) vc (= c " + (d9s4.bound() + 1) + "))",
         "vx", "vx", "(> kx 0)", "(> sx 0)");
   }
 
