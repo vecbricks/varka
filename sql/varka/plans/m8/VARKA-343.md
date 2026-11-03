@@ -522,8 +522,9 @@ Cut from #1303's final tree, without its `BIGINT` conversions (343a4), sweeps an
   3. *`validityByWidth=false`*: an emitter test handed the emitter a plan that refuses it, which
      threw `INTERNAL_ERROR`; it now asserts the refusal. The SQL path declined cleanly all along.
 
-  Each passed on the laptop under its configuration (`dev/varka_matrix.sh`). The six new `skips.tsv` lines fix
-  none: they expect the new narrow-column rows to decline where no lane count is baked,
+  Each passed on the laptop under its configuration (`dev/varka_matrix.sh`). The six new
+  `skips.tsv` lines fix none: they expect the new narrow-column rows to decline where no lane
+  count is baked,
   `validityByWidth=false` and, for `DOUBLE`, `lanesOverride=16`.
 - **A known limit**, shared with row 332: `CompiledVarkaProjection` checks a long literal table
   against the drive under `VarkaEmitOptions.DEFAULTS`, which refuse what the session admits at
