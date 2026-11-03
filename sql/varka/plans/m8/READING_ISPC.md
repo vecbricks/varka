@@ -90,7 +90,7 @@ Both are the note on `m9/SCOPE.md` item 23 of 3 November 2026, not a row: milest
 * **Mask width per data width**: validity is a long word per lane group whatever the lane width,
   a `VectorMask` made only at a blend, AVX-512's representation on every target.
 * **"Avoid 8- and 16-bit types"**: Varka measured the opposite on the Vector API, native narrow
-  lanes 2x to 16x faster than widening (`m8/VARKA-329.md` 9.5-9.6), since a narrow species holds
+  lanes 2.5x to 16x faster than widening (`m8/VARKA-329.md` 9.5-9.6), since a narrow species holds
   more lanes; ISPC's gang is fixed by the 32-bit width.
 * **Skipping only the blend**: one op, priced 4 against ISPC's threshold of 6; never worth a branch.
 

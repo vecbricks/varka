@@ -1,7 +1,7 @@
 # Reading: what compiler fuzzing and test-case reduction offer Varka's fuzzers
 
-Read on 3 November 2026 for row 352 (the fuzzers across types), VARKA-559 (a nested `coalesce`
-whose planning cost doubles per level, planned on its own branch) and the shrinkers. Six papers,
+Read on 3 November 2026 for row 352 (the fuzzers across types), VARKA-559 (IR planning whose cost
+doubles per level of a shared node, started on its own branch) and the shrinkers. Six papers,
 read as PDF text from the authors' copies, kept outside the repository: Yang, Chen, Eide and
 Regehr, PLDI 2011 (Csmith); Regehr et al., PLDI 2012 (C-Reduce); Livinskii, Babokin and Regehr,
 OOPSLA 2020 (YARPGen) and PLDI 2023 (YARPGen v2, loops); Sun, Li, Zhang, Gu and Su, ICSE 2018
@@ -19,8 +19,8 @@ code or plans, **[I]** inferred. Nothing was built or run. Not repeated: `m7/REA
   (line 935) and an arm uniformly from 26 (line 997). Overflow is avoided statically, YARPGen's
   way: every subtree carries a saturating bound, and a checked mode (`FAIL` or `NULL`) is drawn
   only where the bounds rule overflow out (`mode(boolean safe)`, lines 978-990; the long grammar's
-  add and subtract, 1467-1485, "the kernel has to answer, not decline"; `mode(long bound, long
-  limit)`, 1754-1763); `IntNeg` draws `FAIL` only under an int bound (1103-1114).
+  add and subtract, 1470-1488, "the kernel has to answer, not decline"; `mode(long bound, long
+  limit)`, 1758-1767); `IntNeg` draws `FAIL` only under an int bound (1103-1114).
 * **The IR fuzzer's data** (`VarkaIrFuzzSuite.scala`): batch lengths around the lane boundaries
   (line 135), five null patterns, literals uniform over plus or minus 4000 (line 361) and columns
   uniform over plus or minus `COLUMN_BOUND`, 2,500,000 days (`VarkaIrGrammar.java` line 122).
@@ -61,10 +61,10 @@ code or plans, **[I]** inferred. Nothing was built or run. Not repeated: `m7/REA
    largest sizes from "algorithms ... that have superlinear running time". Neither treats a
    compile-time blowup as a finding (YARPGen "did not pursue" hangs, section 2); Varka must,
    because one shows as a watchdog halt, not a named shape. Proposal: a side sequence of the
-   Catalyst grammar nesting `if` and `coalesce` 8 to 32 deep, each level reusing an earlier
-   subtree, bounded by a work counter (VARKA-559's probe counts nested compiles instead of timing
-   them), so a breach fails with its shape and shrinks by depth; an IR twin draws chains to
-   `MAX_CHAIN_DEPTH` and one past it, which `Analysis` refuses. Medium: row 561.
+   Catalyst grammar nesting `if` and `coalesce` 8 to 32 deep, each level reusing an earlier subtree,
+   bounded by a work counter (as #1324's `nestedConditionsCompileOnce` counts condition compiles
+   instead of timing them), so a breach fails with its shape and shrinks by depth; an IR twin draws
+   chains to `MAX_CHAIN_DEPTH` and one past it, which `Analysis` refuses. Medium: row 561.
 4. **The shrinker, two small moves [P].** Perses (section 4.4) replaces a node by a compatible
    descendant, the first on each path within a bounded search of path length 4; Varka tries direct
    children only, so the operands of an `IfElse`'s `Compare` condition, or `x` in

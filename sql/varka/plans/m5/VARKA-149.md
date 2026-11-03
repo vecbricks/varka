@@ -62,13 +62,13 @@ So there is nothing to fix inside the conversion form, and the choice 2.85
 named is real: decline the shape below 256 bits, or give the int-lane
 `ConstDivide` the lowering the scalar loop already has.
 
-*3 November 2026, a correction from `m8/READING_COSTS.md` 3:* "roughly four times higher at 128
-bits than at 512" is not what the committed rows show: 3897.6 against 2102.7 is 1.85x
-(`VarkaEmitterParityBenchmark-jdk25-results.txt` and
-`VarkaEmitterParityBenchmark-jdk25-128bit-results.txt`). Four times is what a divider of equal
-throughput at every width would give, the published desktop Zen 5 figure; the laptop's 256-bit
-datapath halves a 512-bit divide's throughput, which predicts about 2x. The conclusion stands: the
-two divides, not the seven operations, set the form's speed.
+*3 November 2026, a correction from `m8/READING_COSTS.md` 3:* "roughly four times higher at 128 bits
+than at 512" is not what the committed rows show: the rows this section quotes, 3897.6 against
+2102.7, are 1.85x (an earlier version of `VarkaEmitterParityBenchmark-jdk25-results.txt` and
+`VarkaEmitterParityBenchmark-jdk25-128bit-results.txt`; today's rows give 1.86x). Four times is what
+a divider of equal throughput at every width would give, the published desktop Zen 5 figure; the
+laptop's 256-bit datapath halves a 512-bit divide's throughput, which predicts about 2x. The
+conclusion stands: the two divides, not the seven operations, set the form's speed.
 
 ## 4. The design: a multiply-high through 64-bit lanes
 

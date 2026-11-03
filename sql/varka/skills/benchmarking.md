@@ -145,9 +145,10 @@ laptop's Zen 5 has a 256-bit datapath, so its 512-bit rows are wrong for the lap
 rows were 1.85x apart, and the arithmetic with the laptop's datapath predicts about 2x. Expect the
 arithmetic to hold when one resource dominates and to be off by up to 2x on a body of many
 instructions, where only the A/B decides. The tables also show a vendor gap no laptop or EPYC
-7763 run can: on Emerald Rapids `VPMULLQ` is 3 uops with latency 15 and a 512-bit `VDIVPD` takes
-16 cycles, against 0.5 and 4 on Zen 5 (reciprocal throughput), so a winner chosen on the laptop or
-the 7763, a multiply-high through `VPMULLQ` or a division form, may not carry to the Xeon runners.
+7763 run can: in reciprocal throughput a 512-bit `VPMULLQ` is 1.5 cycles (3 uops, latency 15) and
+a 512-bit `VDIVPD` 16 on Emerald Rapids, against 0.5 and 4 on Zen 5, so a winner chosen on the
+laptop or the 7763, a multiply-high through `VPMULLQ` or a division form, may not carry to the
+Xeon runners.
 
 ## A benchmark guard that fails in one direction gets satisfied by the failure in the other
 
