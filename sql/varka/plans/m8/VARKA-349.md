@@ -365,7 +365,7 @@ own regenerated files.
 | part | what | depends on | lines |
 |---|---|---|---|
 | 349a1 | the arms of 2.2 and 2.3 in `VarkaDecimalCompiler`, `try_` forms read through their replacement, the declines naming rows 359 to 363, the null test over a sum, a difference and a product; `VarkaDecimalArithmeticSuite`'s type-rule sweep, edges, samples and one tree in every mode; the baseline's three filters fusing whole; the census notes; this table | 348a3 | 999 |
-| 349a2 | the sweep's check of the lemmas' reduction from the IR; the `+`, `-` and `*` lemmas in `decimal64.smt2`; the "DECIMAL arithmetic" coverage family over a new `d8`, each row refined in `refinement.smt2`, and `STANDARD.md`'s sentence; the one-kernel bytes test; the IR fuzzer's sum, difference and product; the outcome | 349a1 | 729 |
+| 349a2 | the sweep's check of the lemmas' reduction from the IR; the `+`, `-` and `*` lemmas in `decimal64.smt2`; the "DECIMAL arithmetic" coverage family over a new `d8`, each row refined in `refinement.smt2`, and `STANDARD.md`'s sentence; the one-kernel bytes test; the IR fuzzer's sum, difference and product; the outcome | 349a1 | 734 |
 
 349c, the values, still follows 157. A part over the cap is split again before it is pushed,
 never merged over it.
@@ -600,7 +600,7 @@ name 349.
 `DECIMAL`, the result scales of `+`, `-` and `*` from SQL-92 6.12 SR 2 and their exact values,
 which the refinement section restates.
 
-**Test time, on the laptop.** `VarkaDecimalArithmeticSuite`'s 11 tests took 4.8 s (12 since the high review), the sweep
+**Test time, on the laptop.** `VarkaDecimalArithmeticSuite` took 4.8 s when first measured, and its 12 tests since the high review 9.0 s in one run beside other JVMs, the sweep
 among them; the bytes oracle's new test under a second; the IR fuzzer's own JVM ran its decimal
 sequence's 300 draws in 2 minutes 47 seconds with the three arithmetic picks, against 348a's
 2 minutes 45 seconds for the whole suite's JVM, a run each, so no cost is read from the pair.
