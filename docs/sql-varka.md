@@ -904,6 +904,20 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `-f` | `floatingArithmetic` |  |  | vector |
 | `abs(f)` | `floatingArithmetic` |  |  | vector |
 
+#### Floating casts to BOOLEAN
+
+| Expression | Switches | Domain | Notes | 128-bit lanes |
+|---|---|---|---|---|
+| `CAST(x AS BOOLEAN)` | `predicate` |  | x != 0: a NaN is true and both zeros false, as a BOOLEAN output | per-lane: compare to mask, mask cast, mask logic, mask broadcast |
+| `CAST(f AS BOOLEAN)` | `predicate` |  |  | vector |
+
+#### Floating casts to BOOLEAN as conditions
+
+| Predicate | Switches | Domain | Notes | 128-bit lanes |
+|---|---|---|---|---|
+| `NOT CAST(x AS BOOLEAN)` | `predicate` |  | x = 0.0 as the filter: both zeros pass and a NaN does not | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL up to 18 digits), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
+| `CAST(f AS BOOLEAN) OR f > 1.5F` | `predicate` |  | the float's test in a disjunction at its lane | vector |
+
 #### DECIMAL columns
 
 | Predicate | Switches | Domain | Notes | 128-bit lanes |
@@ -966,9 +980,9 @@ operands (a row counts once for each type it reads):
 | `byte` | 30 | 0 | 0 | 0 | 8 | 22 |
 | `date` | 101 | 17 | 0 | 1 | 0 | 83 |
 | `dec` | 17 | 0 | 0 | 0 | 0 | 17 |
-| `double` | 37 | 0 | 0 | 0 | 0 | 37 |
+| `double` | 39 | 0 | 0 | 0 | 0 | 39 |
 | `dt` | 25 | 2 | 0 | 0 | 0 | 23 |
-| `float` | 29 | 0 | 0 | 0 | 0 | 29 |
+| `float` | 31 | 0 | 0 | 0 | 0 | 31 |
 | `int` | 99 | 14 | 2 | 0 | 1 | 82 |
 | `ntz` | 24 | 0 | 1 | 0 | 0 | 23 |
 | `short` | 29 | 0 | 0 | 0 | 8 | 21 |
