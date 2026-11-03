@@ -271,7 +271,7 @@ public final class VarkaAnsiForm {
     // (BoolColumn), beside the cast's test on a floating lane.
     String boolColumn = "the form's boolean column b2 is read on an integral lane and the "
         + "cast's test on a floating lane, which share no kernel until the lane crossing "
-        + "(VARKA-343.md 5.3, part 343a3)";
+        + "(VARKA-343.md 4, part 343a3)";
     for (String sql : List.of("CAST(x AS BOOLEAN)", "CAST(f AS BOOLEAN)")) {
       for (String position : List.of(CASE_ARM, COALESCE_TAIL, FALSE_AND)) {
         out.put(sql + "\t" + position, boolColumn);

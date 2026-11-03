@@ -50,13 +50,13 @@ import org.apache.spark.sql.internal.SQLConf;
  * record of how much of it a row has fused, and fails when the plan's class differs
  * ({@link VarkaSqlBenchmarkBase#requireBaseline(SparkSession, String, String, Fusion)}); the
  * results file notes each section that fuses. Every section is {@code NONE}, the boolean filter
- * among them: row 343's first part fuses the bare {@code CAST(x AS BOOLEAN)}, but a
- * {@code coalesce} over a condition does not compile as one. The filter's condition is the cast
- * under {@code coalesce} rather than the bare cast: from a bare
- * {@code WHERE CAST(x AS BOOLEAN)} the optimizer infers {@code x IS NOT NULL}, since the cast is
- * null-intolerant, and that conjunct alone fuses into a {@code VarkaFilterColumnarToRow} under
- * Spark's {@code Filter}, which would put a Varka node in the plan while the cast declines, so
- * the check could not see the row start fusing the cast itself. {@code coalesce} is not
+ * among them: part 343a1 fuses the bare {@code CAST(x AS BOOLEAN)}, but a {@code coalesce} over
+ * a condition does not compile as one. The filter's condition is the cast under {@code coalesce}
+ * rather than the bare cast: from a bare {@code WHERE CAST(x AS BOOLEAN)} the optimizer infers
+ * {@code x IS NOT NULL}, since the cast is null-intolerant, and that conjunct alone fuses into a
+ * {@code VarkaFilterColumnarToRow} under Spark's {@code Filter}, which would put a Varka node in
+ * the plan while the cast declines, so the check could not see the row start fusing the cast
+ * itself. {@code coalesce} is not
  * null-intolerant, so nothing is inferred, and it keeps the same rows, a null cast being false.
  * A row that fuses more of a section sets its new class, so that its fusion cannot turn a
  * baseline section into a fused one unnoticed.
