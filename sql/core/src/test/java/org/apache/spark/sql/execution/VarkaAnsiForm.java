@@ -266,6 +266,16 @@ public final class VarkaAnsiForm {
         "CAST(i + 1 AS TINYINT)")) {
       out.put(sql + "\t" + FALSE_AND, unqualified);
     }
+    // A cast to FLOAT compared with f2 drives at the int lane, its source's (VARKA-343), and the
+    // form's own float conjunct frid < 0 at the float lane: conjuncts of two drives share no
+    // filter kernel until the root-level crossing (VARKA-343, a later part).
+    String laneSplit = "the cast's comparison drives at its source's int lane and the form's "
+        + "float conjunct at the float lane, and conjuncts of two drives share no kernel until "
+        + "the root-level crossing (VARKA-343, a later part)";
+    for (String sql : List.of("CAST(i AS FLOAT)", "try_cast(i AS FLOAT)", "CAST(y1 AS FLOAT)",
+        "CAST(s1 AS FLOAT)")) {
+      out.put(sql + "\t" + FALSE_AND, laneSplit);
+    }
     // A bigint narrowed to a narrow type as a COALESCE argument beside a narrow column: a narrow
     // choice in a long kernel, which has no lowering there (VARKA-332.md 10.1).
     String narrowChoice = "a narrow choice beside a bigint value has no lowering in a long "

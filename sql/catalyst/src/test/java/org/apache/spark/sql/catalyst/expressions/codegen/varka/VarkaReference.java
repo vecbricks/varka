@@ -123,6 +123,14 @@ public final class VarkaReference {
       case WidenLane n when n.target() != LaneType.LONG -> value(n.child(), row, isNull, lits);
       case WidenLane n -> throw new IllegalArgumentException(
           "a widening is evaluated through mixedValue: " + n);
+      // A conversion between the two 32-bit lanes keeps the row at its width: an int's float bits,
+      // as a narrow column widened and converted beside a float column stores them.
+      case ConvertLane n when n.target().bits() == Integer.SIZE
+          && n.child().laneType().bits() == Integer.SIZE ->
+          map(n.child(), row, isNull, lits,
+              v -> (int) convert(n.child().laneType(), n.target(), v));
+      case ConvertLane n -> throw new IllegalArgumentException(
+          "a conversion is evaluated through mixedValue: " + n);
       case DateDiff(var end, var start) -> both(end, start, row, isNull, lits, (e, s) -> e - s);
       case DayOfWeek n -> map(n.days(), row, isNull, lits, v -> (Math.floorMod(v, 7) + 4) % 7 + 1);
       case WeekDay n -> map(n.days(), row, isNull, lits, v -> (Math.floorMod(v, 7) + 3) % 7);
@@ -522,6 +530,8 @@ public final class VarkaReference {
       }
       case WidenLane n -> throw new IllegalArgumentException(
           "a widening reads int rows, and is evaluated through mixedValue: " + n);
+      case ConvertLane n -> throw new IllegalArgumentException(
+          "a conversion is evaluated through mixedValue: " + n);
       // At the DOUBLE lane by Spark's ordering, the first of two equal operands kept.
       case Greatest(var left, var right) when node.laneType() == LaneType.DOUBLE ->
           pick(longValue(left, row, isNull, lits), longValue(right, row, isNull, lits),
@@ -784,7 +794,7 @@ public final class VarkaReference {
       long[] longLits) {
     var rows = new MixedRow(row, isNull);
     Cond flat = (Cond) rows.flatten(cond, intLits, longLits);
-    return flat.laneType() == LaneType.INT || flat.laneType().isNarrow()
+    return flat.laneType().bits() == Integer.SIZE || flat.laneType().isNarrow()
         ? cond(flat, rows.ints(), rows.nulls(), intLits)
         : longCond(flat, rows.longs(), rows.nulls(), longLits);
   }
@@ -819,6 +829,12 @@ public final class VarkaReference {
                 (int) v.getAsLong()))
             : v, n.target().isNarrow() ? n.target() : LaneType.INT);
       }
+      if (node instanceof ConvertLane c) {
+        OptionalLong v = mixedOf(c.child(), intLits, longLits);
+        return column(v.isPresent()
+            ? OptionalLong.of(convert(c.child().laneType(), c.target(), v.getAsLong())) : v,
+            c.target());
+      }
       VarkaVectorIR[] children = VarkaVectorIR.childrenOf(node);
       if (children.length == 0) {
         return node;
@@ -832,7 +848,8 @@ public final class VarkaReference {
 
     private OptionalLong mixedOf(VarkaVectorIR child, int[] intLits, long[] longLits) {
       VarkaVectorIR flat = flatten(child, intLits, longLits);
-      if (flat.laneType() == LaneType.INT || flat.laneType().isNarrow()) {
+      if (flat.laneType() == LaneType.INT || flat.laneType().isNarrow()
+          || flat.laneType() == LaneType.FLOAT) {
         OptionalInt v = value(flat, ints(), nulls(), intLits);
         return v.isPresent() ? OptionalLong.of(v.getAsInt()) : OptionalLong.empty();
       }
@@ -868,6 +885,49 @@ public final class VarkaReference {
       }
       return out;
     }
+  }
+
+  /**
+   * Java's primitive cast of a value of lane {@code from} to lane {@code to}, over the bits a row
+   * of both lanes holds: an int sign-extended, a long, a float's bits sign-extended, a double's
+   * bits; the answer in the same form. The definition of {@link ConvertLane}, JLS 5.1.2 and
+   * 5.1.3, written as the casts themselves rather than as any lowering of them.
+   */
+  static long convert(LaneType from, LaneType to, long bits) {
+    return switch (from) {
+      case INT -> fromNumber(to, (int) bits);
+      case LONG -> fromNumber(to, bits);
+      case FLOAT -> fromFloat(to, Float.intBitsToFloat((int) bits));
+      case DOUBLE -> fromDouble(to, Double.longBitsToDouble(bits));
+      case BYTE, SHORT -> throw new IllegalArgumentException("a narrow conversion source: " + from);
+    };
+  }
+
+  private static long fromNumber(LaneType to, long v) {
+    return switch (to) {
+      case FLOAT -> Float.floatToRawIntBits((float) v);
+      case DOUBLE -> Double.doubleToRawLongBits((double) v);
+      case INT, LONG, BYTE, SHORT ->
+          throw new IllegalArgumentException("an integral pair is not a conversion: " + to);
+    };
+  }
+
+  private static long fromFloat(LaneType to, float v) {
+    return switch (to) {
+      case INT -> (int) v;
+      case LONG -> (long) v;
+      case DOUBLE -> Double.doubleToRawLongBits((double) v);
+      case FLOAT, BYTE, SHORT -> throw new IllegalArgumentException("float to " + to);
+    };
+  }
+
+  private static long fromDouble(LaneType to, double v) {
+    return switch (to) {
+      case INT -> (int) v;
+      case LONG -> (long) v;
+      case FLOAT -> Float.floatToRawIntBits((float) v);
+      case DOUBLE, BYTE, SHORT -> throw new IllegalArgumentException("double to " + to);
+    };
   }
 
   // ---------------------------------------------------------------------------------------------

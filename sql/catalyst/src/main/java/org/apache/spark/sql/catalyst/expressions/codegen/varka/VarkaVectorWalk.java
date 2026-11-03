@@ -45,6 +45,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Con
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.CondIf;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.CondValue;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ConstDivide;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ConvertLane;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.DateDiff;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.DayOfMonth;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.DayOfWeek;
@@ -188,7 +189,7 @@ final class VarkaVectorWalk {
           emitNarrowLoad(cb, c, stored, analysis, s);
           break;
         }
-        if (lane != analysis.lane) {
+        if (!analysis.sameCount(lane)) {
           emitLowHalfLoad(cb, c, s);
           break;
         }
@@ -198,6 +199,7 @@ final class VarkaVectorWalk {
         cb.getstatic(BYTE_ORDER, "LITTLE_ENDIAN", BYTE_ORDER);
         if (s.epilogue) {
           cb.aload(s.epilogueMask());
+          emitMaskToLane(cb, lane, analysis);
           cb.invokestatic(lane.vector, "fromMemorySegment",
               lane.fromMemorySegmentMasked);
         } else {
@@ -300,6 +302,14 @@ final class VarkaVectorWalk {
         // `I2L` for the int-to-long cast, part 0. A conversion whose two sides are emitted at
         // one lane - an int-driven kernel's narrow-to-int widening, whose child the load already
         // widened - is no instruction at all. The word is the child's.
+        emitValue(cb, n.child(), dense, analysis, s, computed);
+        line(cb, analysis, node);
+        emitShapeConversion(cb, analysis.laneOf(n.child()), analysis.laneOf(node), analysis);
+      }
+      case ConvertLane n -> {
+        // Java's primitive cast as one conversion, part 0, into the target's species of the
+        // kernel's width (`VARKA-343.md` 2.1). Only I2F reaches here, which keeps the lane
+        // count: the plan refuses a conversion between widths. The word is the child's.
         emitValue(cb, n.child(), dense, analysis, s, computed);
         line(cb, analysis, node);
         emitShapeConversion(cb, analysis.laneOf(n.child()), analysis.laneOf(node), analysis);
@@ -562,6 +572,20 @@ final class VarkaVectorWalk {
     cb.invokestatic(Lane.INT.vector, "fromMemorySegment", Lane.INT.fromMemorySegmentMasked);
   }
 
+  /**
+   * {@code [drive mask] -> [mask]} at {@code lane}, which has the drive's lane count: the
+   * epilogue's bounds mask, or any mask of the drive's species, as one of {@code lane}'s species
+   * by {@code VectorMask.cast}, whose target is the species constant for the reason a
+   * conversion's is ({@link #emitConstantSpecies}). Nothing at the drive's own lane.
+   */
+  static void emitMaskToLane(CodeBuilder cb, Lane lane, Analysis analysis) {
+    if (lane == analysis.lane) {
+      return;
+    }
+    emitConstantSpecies(cb, lane, analysis);
+    cb.invokevirtual(VECTOR_MASK, "cast", MASK_CAST);
+  }
+
   /** The bytes of one Arrow decimal slot: the low word, then the high word. */
   static final long DECIMAL_SLOT_BYTES = 16L;
 
@@ -684,13 +708,14 @@ final class VarkaVectorWalk {
   }
 
   /**
-   * The value on the stack, of lane {@code from}, as lane {@code to}: {@code I2L} and
-   * {@code L2I}, part 0, each into the target species of the width the emission bakes. The two
-   * lanes the IR converts between are the int and the long one; a narrow value is widened once at
-   * its load and narrowed once at its store, so a conversion node over one names the lane it is
-   * already emitted at and emits nothing, and any other pair is a lowering this emitter has not
-   * built. The one form of the conversion: a long kernel's narrowing store converts through it
-   * too ({@code VarkaBodyEmitter.emitNarrowStore}), into the low half of the int species.
+   * The value on the stack, of lane {@code from}, as lane {@code to}: {@code I2L}, {@code L2I}
+   * and {@code I2F} (VARKA-343), part 0, each into the target species of the width the emission
+   * bakes. A narrow value is widened once at its load and narrowed once at its store, so a
+   * conversion node over one names the lane it is already emitted at and emits nothing, and any
+   * other pair is a lowering this emitter has not built: the plan refuses a conversion between
+   * widths, and the floating sources are row 343's later parts.
+   * The one form of the conversion: a long kernel's narrowing store converts through it too
+   * ({@code VarkaBodyEmitter.emitNarrowStore}), into the low half of the int species.
    */
   static void emitShapeConversion(
       CodeBuilder cb, Lane from, Lane to, Analysis analysis) {
@@ -699,6 +724,7 @@ final class VarkaVectorWalk {
     }
     String op = from == Lane.INT && to == Lane.LONG ? "I2L"
         : from == Lane.LONG && to == Lane.INT ? "L2I"
+        : from == Lane.INT && to == Lane.FLOAT ? "I2F"
         : null;
     if (op == null) {
       throw VarkaErrors.illegalArgument(
@@ -1395,7 +1421,7 @@ final class VarkaVectorWalk {
     // lanes, the low half of them the group's rows; the accumulator, the words' masks, the arms'
     // and the epilogue's are the driving lane's. Its low lanes, through a word, are that mask.
     if (analysis.laneOf(node) != analysis.lane) {
-      emitToDrivingLane(cb, s);
+      emitToDrivingLane(cb, analysis.laneOf(node), analysis, s);
     }
     // WORD_DEAD is deliberately not screened here beside the all-true constant. A guarded node
     // whose word the liveness pass killed is a bug in that pass, not a case to emit around: the AND
@@ -1516,7 +1542,7 @@ final class VarkaVectorWalk {
     if (dense) {
       cb.aload(s.condMask.get(cond));
       if (analysis.laneOf(cond) != analysis.lane) {
-        emitToDrivingLane(cb, s);
+        emitToDrivingLane(cb, analysis.laneOf(cond), analysis, s);
       }
       if (!step.thenBranch()) {
         cb.invokevirtual(VECTOR_MASK, "not", MASK_UNARY);
@@ -1541,7 +1567,16 @@ final class VarkaVectorWalk {
    * C2's rule that miscompiles the pair (VARKA-396) applies only where both masks have the same
    * lane count, and the int mask has twice the long species' lanes.
    */
-  private static void emitToDrivingLane(CodeBuilder cb, Slots s) {
+  private static void emitToDrivingLane(CodeBuilder cb, Lane from, Analysis analysis, Slots s) {
+    if (analysis.sameCount(from)) {
+      // A mask of the drive's lane count, a float one in an int kernel (VARKA-343), crosses by
+      // `VectorMask.cast`: a `fromLong` of its `toLong` is
+      // the pair JDK 25's C2 miscompiles at one lane count (VARKA-396, `VARKA-341.md` 2.4).
+      // The target is the drive's species constant, as emitMaskToLane's is.
+      emitConstantSpecies(cb, analysis.lane, analysis);
+      cb.invokevirtual(VECTOR_MASK, "cast", MASK_CAST);
+      return;
+    }
     cb.invokevirtual(VECTOR_MASK, "toLong", TO_LONG);   // [word]
     cb.aload(s.species);                                // [word, species]
     cb.dup_x2();                                        // [species, word, species]

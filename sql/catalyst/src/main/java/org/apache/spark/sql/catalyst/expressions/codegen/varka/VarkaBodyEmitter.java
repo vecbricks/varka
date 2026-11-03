@@ -623,12 +623,12 @@ final class VarkaBodyEmitter {
     cb.getstatic(analysis.lane.vector, analysis.lane.speciesField(analysis.lanes),
         VECTOR_SPECIES);
     cb.astore(s.species);
-    if (s.intSpecies >= 0) {
-      // The int species of the driving species' width, in a kernel that converts between lanes:
+    for (Map.Entry<Lane, Integer> other : s.otherSpecies.entrySet()) {
+      // Each other lane's species of the driving species' width, in a kernel of several lanes:
       // the width's own species, never a half-width one (`VARKA-28.md` 2.2).
-      cb.getstatic(Lane.INT.vector, Lane.INT.speciesField(analysis.lanesOf(Lane.INT)),
-          VECTOR_SPECIES);
-      cb.astore(s.intSpecies);
+      Lane lane = other.getKey();
+      cb.getstatic(lane.vector, lane.speciesField(analysis.lanesOf(lane)), VECTOR_SPECIES);
+      cb.astore(other.getValue());
     }
     if (analysis.lanes != 0) {
       cb.loadConstant(analysis.lanes);
@@ -670,10 +670,10 @@ final class VarkaBodyEmitter {
   /** The literals the body reads, hoisted out of the loop, and broadcast where it wants vectors. */
   private static void emitLiterals(CodeBuilder cb, Analysis analysis, Slots s) {
     emitLiterals(cb, analysis.lane, s.scalarArg.length, s);
-    if (s.intScalarArg != null) {
-      // The int table, in a kernel that converts between lanes; read from the int array, which
-      // the long lane's `run` takes beside its own.
-      emitLiterals(cb, Lane.INT, s.intScalarArg.length, s);
+    for (Map.Entry<Lane, int[]> other : s.otherScalarArg.entrySet()) {
+      // Each other lane's table, in a kernel of several lanes; read from the array of its width,
+      // the int one, which every `run` takes, or the long one a 64-bit drive's `run` takes.
+      emitLiterals(cb, other.getKey(), other.getValue().length, s);
     }
   }
 
@@ -1454,19 +1454,21 @@ final class VarkaBodyEmitter {
         // A narrow root of a kernel driven at the int lane: the value is computed widened and
         // stored back at its own width.
         emitNarrowTypeStore(cb, stored, analysis, s, o);
-      } else if (analysis.laneOf(root) != analysis.lane) {
+      } else if (!analysis.sameCount(analysis.laneOf(root))) {
         emitLowHalfStore(cb, analysis, s, o);
       } else {
+        // The drive's lane, or the float lane of an int kernel, whose vector is as long: stored
+        // whole at its own class, under the bounds mask cast to its species in an epilogue.
+        Lane at = analysis.laneOf(root);
         cb.aload(s.dstSeg[o]);
         cb.lload(s.byteOffset);
         cb.getstatic(BYTE_ORDER, "LITTLE_ENDIAN", BYTE_ORDER);
         if (s.epilogue) {
           cb.aload(s.epilogueMask());
-          cb.invokevirtual(analysis.lane.vector, "intoMemorySegment",
-              analysis.lane.intoMemorySegmentMasked);
+          VarkaVectorWalk.emitMaskToLane(cb, at, analysis);
+          cb.invokevirtual(at.vector, "intoMemorySegment", at.intoMemorySegmentMasked);
         } else {
-          cb.invokevirtual(analysis.lane.vector, "intoMemorySegment",
-              analysis.lane.intoMemorySegmentDense);
+          cb.invokevirtual(at.vector, "intoMemorySegment", at.intoMemorySegmentDense);
         }
       }
       if (!validityWritten && !wordKnownEarly) {

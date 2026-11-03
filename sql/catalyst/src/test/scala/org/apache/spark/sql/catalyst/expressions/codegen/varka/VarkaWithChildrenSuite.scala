@@ -70,9 +70,11 @@ class VarkaWithChildrenSuite extends SparkFunSuite {
     // draw no floating tree, whose values have no integer bound, and a floating draw would move
     // the committed sequences. `VarkaEmitterFloatingArithSuite` holds it to the reference, and it
     // is rebuilt directly below.
+    // No grammar draws the floating conversion (VARKA-343) yet, for the same reason; it is
+    // rebuilt directly below.
     val undrawn = permitted -- seen - "NullSafeEqual" - "BoolColumn" - "CondConst" -
       "BoolCompare" - "CondIf" - "BoolNullSafeEq" - "CondValue" - "BoolOutput" - "DecimalColumn" -
-      "MathUnary"
+      "MathUnary" - "ConvertLane"
     assert(undrawn.isEmpty, s"the grammars never drew: ${undrawn.toSeq.sorted.mkString(", ")}")
   }
 
@@ -137,6 +139,19 @@ class VarkaWithChildrenSuite extends SparkFunSuite {
       new MathUnary(MathFn.SQRT, quotient))
     intercept[Exception](
       VarkaVectorIR.withChildren(new MathUnary(MathFn.SQRT, x), new ColumnRef(0)))
+  }
+
+  test("a floating conversion is rebuilt over its own child and keeps its target") {
+    val i = new ColumnRef(0)
+    val l = new ColumnRef(1, LaneType.LONG)
+    for (node <- Seq(new ConvertLane(i, LaneType.DOUBLE), new ConvertLane(l, LaneType.FLOAT))) {
+      assert(VarkaVectorIR.withChildren(node, VarkaVectorIR.childrenOf(node): _*) == node)
+    }
+    assert(VarkaVectorIR.withChildren(new ConvertLane(i, LaneType.DOUBLE), l) ==
+      new ConvertLane(l, LaneType.DOUBLE))
+    assert(VarkaVectorIR.canonical(new ConvertLane(i, LaneType.FLOAT)).startsWith("(convert:FLOAT"))
+    intercept[Exception](VarkaVectorIR.withChildren(new ConvertLane(i, LaneType.DOUBLE),
+      new ColumnRef(2, LaneType.DOUBLE)))
   }
 
   test("a replacement is rebuilt in place, the node's other fields kept") {

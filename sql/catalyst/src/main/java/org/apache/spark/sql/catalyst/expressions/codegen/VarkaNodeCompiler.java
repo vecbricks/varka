@@ -220,6 +220,7 @@ final class VarkaNodeCompiler {
       new Family(VarkaFamily.CONDITION, VarkaConditionCompiler::arm),
       new Family(VarkaFamily.INT_ARITHMETIC, VarkaNodeCompiler::arithmeticArm),
       new Family(VarkaFamily.FLOATING_ARITHMETIC, VarkaFloatingCompiler::arm),
+      new Family(VarkaFamily.FLOATING_CAST, VarkaFloatingCastCompiler::arm),
       new Family(VarkaFamily.INTEGRAL_CAST, VarkaIntegralCastCompiler::arm));
 
   /**
@@ -373,7 +374,9 @@ final class VarkaNodeCompiler {
         || e instanceof Add || e instanceof Subtract || e instanceof Multiply
         || e instanceof Divide || e instanceof UnaryMinus || e instanceof Abs
         || e instanceof Sqrt || e instanceof ToDegrees || e instanceof ToRadians
-        || (e instanceof Signum s && isFloating(s.child().dataType()))) {
+        || (e instanceof Signum s && isFloating(s.child().dataType()))
+        // The floating casts family's pairs (VARKA-343), by pair for the same reason.
+        || (e instanceof Cast c && VarkaFloatingCastCompiler.admits(c))) {
       return Optional.empty();
     }
     String what = switch (e) {

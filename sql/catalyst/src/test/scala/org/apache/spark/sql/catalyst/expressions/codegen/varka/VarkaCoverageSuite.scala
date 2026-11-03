@@ -958,6 +958,14 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
       Row("f * 2.5F"),
       Row("-f"),
       Row("abs(f)"))),
+    // The casts to FLOAT from an int (VARKA-343, its first part): Java's primitive cast in every
+    // mode, since a conversion to a floating type never raises, so TRY's answer is LEGACY's. The
+    // kernel holds the int and float lanes at one lane count; the casts between widths follow.
+    Family("Floating casts", predicates = false, Seq(
+      Row("CAST(i AS FLOAT)", "rounded once to nearest, ties to even, as the JVM converts"),
+      Row("try_cast(i AS FLOAT)", "the same rounding: a cast to a floating type never fails"),
+      Row("CAST(y1 AS FLOAT)", "the byte widened at its load, then converted, exact"),
+      Row("CAST(s1 AS FLOAT)", "the short twin"))),
 
     // DECIMAL of precision up to 18 (VARKA-347, carrying row 348's equal-scale comparisons and
     // null tests): two values of one scale compare as their unscaled longs. Each kernel checks

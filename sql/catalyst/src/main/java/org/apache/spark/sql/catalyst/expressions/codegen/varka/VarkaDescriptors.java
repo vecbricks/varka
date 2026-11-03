@@ -243,6 +243,11 @@ final class VarkaDescriptors {
       MethodTypeDesc.of(INT_VECTOR, VECTOR, VECTOR_MASK);
   /** {@code VectorMask VectorMask.and/or(VectorMask)} and {@code VectorMask.not()}. */
   static final MethodTypeDesc MASK_BINARY = MethodTypeDesc.of(VECTOR_MASK, VECTOR_MASK);
+  /**
+   * {@code VectorMask VectorMask.cast(VectorSpecies)}: a mask as one of another species with the
+   * same lane count, the crossing between a floating lane and the integral one of its width.
+   */
+  static final MethodTypeDesc MASK_CAST = MethodTypeDesc.of(VECTOR_MASK, VECTOR_SPECIES);
   /** The Vector API's lane permutation, which the decimal load builds two of (VARKA-347). */
   static final ClassDesc VECTOR_SHUFFLE = ClassDesc.of("jdk.incubator.vector.VectorShuffle");
   /** {@code VectorShuffle VectorShuffle.iota(VectorSpecies, int start, int step, boolean wrap)}. */
