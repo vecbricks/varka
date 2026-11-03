@@ -295,6 +295,14 @@ public final class VarkaExpressionCompiler {
   }
 
   /**
+   * How many conditions of decimal choices this thread compiled since the last call, which resets
+   * the count: a suite holds a nested choice to one compile of each condition (VARKA-348).
+   */
+  public static int decimalConditionsCompiledForTesting() {
+    return VarkaDecimalCompiler.takeConditionsCompiled();
+  }
+
+  /**
    * {@code compile}'s result, or the internal error a throw out of it becomes (VARKA-314). The
    * compiler runs at planning time - on the driver for {@code VarkaColumnarRule}, in a task for
    * an evaluator's own compile - and nothing above it catches: a broken invariant fails the

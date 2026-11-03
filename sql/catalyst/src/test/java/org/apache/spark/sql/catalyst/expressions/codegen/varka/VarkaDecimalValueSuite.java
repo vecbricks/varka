@@ -251,36 +251,49 @@ public final class VarkaDecimalValueSuite {
   }
 
   @Test
-  @DisplayName("a null test, a CASE and a coalesce nested twenty deep through their conditions "
-      + "compile in time linear in the depth, each condition compiled once")
+  @DisplayName("a null test, a CASE and a coalesce nested deep through their conditions compile "
+      + "each condition once")
   void nestedConditionsCompileOnce() {
     List<Attribute> columns = List.of(VarkaSqlResolve.column("a", new DecimalType(9, 2)),
         VarkaSqlResolve.column("b", new DecimalType(9, 2)),
         VarkaSqlResolve.column("c", new DecimalType(9, 2)));
-    int depth = 20;
     // Each level's condition reads the level below, so a compile that compiles a condition twice
-    // per level, once for the value and once for its validity, takes 2^20 steps.
+    // per level, once for the value and once for its validity, makes 2^depth compiles: counted,
+    // not timed. The coalesce is 12 deep, not 20: its IR shares each condition between a value
+    // and its validity, and the IR's structural hashCode walks the shared node twice per level,
+    // which the admission's hash sets pay as 2^depth (VARKA-348.md, "The nested-conditions
+    // test's time").
     String nullTest = "a";
     String caseWhen = "a";
     String coalesce = "a";
-    for (int i = 0; i < depth; i++) {
+    for (int i = 0; i < 20; i++) {
       nullTest = "IF((" + nullTest + ") IS NOT NULL, b, c)";
       caseWhen = "CASE WHEN (" + caseWhen + ") IS NULL THEN a WHEN b > c THEN b ELSE c END";
-      coalesce = "coalesce(IF((" + coalesce + ") > b, a, c), b)";
+      if (i < 12) {
+        coalesce = "coalesce(IF((" + coalesce + ") > b, a, c), b)";
+      }
     }
-    for (String sql : List.of("(" + nullTest + ") IS NULL", "(" + caseWhen + ") IS NOT NULL",
-        "(" + coalesce + ") > c")) {
+    // Each with its conditions compiled once: one a level, and the CASE's two.
+    List<String> sqls = List.of("(" + nullTest + ") IS NULL", "(" + caseWhen + ") IS NOT NULL",
+        "(" + coalesce + ") > c");
+    List<Integer> conditions = List.of(20, 40, 12);
+    for (int s = 0; s < sqls.size(); s++) {
+      String sql = sqls.get(s);
+      int expected = conditions.get(s);
       Expression e = VarkaSqlResolve.parse(sql, seq(columns));
       assertTimeoutPreemptively(Duration.ofSeconds(20), () -> {
+        VarkaExpressionCompiler.decimalConditionsCompiledForTesting();
         List<VarkaConjunctSpec> specs =
             VarkaExpressionCompiler.explainPredicate(e, seq(columns), VarkaMatrixRuns.BASE,
                 VarkaAdmission.NO_HOST_REFUSAL);
+        assertEquals(expected, VarkaExpressionCompiler.decimalConditionsCompiledForTesting(),
+            () -> "conditions compiled in " + sql.substring(0, 40));
         assertEquals(1, specs.size());
-        // Twenty levels are past the emitter's fused budget, a decline made after the compile.
+        // The levels are past the emitter's fused budget, a decline made after the compile.
         String reason = specs.get(0).decline().map(d -> d.reason()).orElse("");
         assertTrue(reason.isEmpty() || reason.startsWith("exceeds the emitter's fused budget"),
             () -> "declined in the compile: " + reason);
-      }, () -> "compiling " + depth + " levels of " + sql.substring(0, 40) + " took over 20 s");
+      }, () -> "compiling " + sql.substring(0, 40) + " took over 20 s");
     }
   }
 

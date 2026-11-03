@@ -473,6 +473,18 @@ final class VarkaDecimalCompiler {
     return Optional.of(VarkaConditionCompiler.orFold(each));
   }
 
+  /** How many choice conditions this thread has compiled, for a suite's count of them. */
+  private static final ThreadLocal<int[]> CONDITIONS_COMPILED =
+      ThreadLocal.withInitial(() -> new int[1]);
+
+  /** The count of {@link #CONDITIONS_COMPILED} since the last call, which resets it. */
+  static int takeConditionsCompiled() {
+    int[] count = CONDITIONS_COMPILED.get();
+    int taken = count[0];
+    count[0] = 0;
+    return taken;
+  }
+
   /**
    * A choice's condition on the long lane, where its values are: a condition over int or narrow
    * values widens there, and one with no long-lane form, a floating null test, declines. A
@@ -490,6 +502,7 @@ final class VarkaDecimalCompiler {
     if (compiled != null) {
       return Optional.of(compiled);
     }
+    CONDITIONS_COMPILED.get()[0]++;
     Optional<Cond> cond = VarkaConditionCompiler.compileCond(predicate, inputs, literals, sink);
     if (cond.isEmpty()) {
       return cond;

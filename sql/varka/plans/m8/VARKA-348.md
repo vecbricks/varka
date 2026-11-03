@@ -850,3 +850,12 @@ Made on the rebuilt part; none gives a wrong answer.
   lowering cast sits on the rescale's path, coercion's rescale over it included, as
   `loweringCastOfAWideRescaleDeclines` holds. A lowering cast whose own type is within 18
   digits still declines in the cast's arm, naming row 350 alone.
+
+### The nested-conditions test's time (3 November 2026)
+
+The compile is linear: at depths 2 to 20 the nested null test and `CASE` explain in about 1 ms.
+The `coalesce` took 4.2 s at 20, x4 per two levels, all in record `hashCode`: its IR shares each
+condition between the value and its validity, and the structural hash walks the shared node twice
+a level, which `VarkaVectorIR.lanesIn`, `VarkaKernelPlan.of` and `VarkaLoopEmitter.budgetWalk`'s
+hash sets pay as 2^depth. The test now counts condition compiles and nests the `coalesce` 12 deep;
+a cached IR hash is its own row.
