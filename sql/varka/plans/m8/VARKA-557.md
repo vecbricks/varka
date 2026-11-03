@@ -316,7 +316,8 @@ SparkFunSuite's cap from 20 to 30.
    run measure it first.
 2. **`VarkaSuiteRunner`'s `-z` and `-t`** pass a JUnit class's dynamic tests through unfiltered
    (8.1). A row of its own, if wanted; this row only records it.
-3. **Step 4** on the owner's word: `varka-tier-split.yml` dispatched on `varka-557-scratch` (tip
-   `237acb87bf6`, #1313's acceptance dropped, master as of `96d26da9cf0` otherwise) should fail in
-   `masked-interpreted` and `masked-c1`, and on this branch pass. The workflow file is new on this
-   branch, so a dispatch needs it on the default branch or a dispatch by ref after a push.
+3. **Step 4** on the owner's word: `varka-tier-split.yml` dispatched with `varka-557-scratch` as
+   its branch (this branch plus one commit dropping #1313's acceptance from `compareBodies`, local
+   only) should fail in `masked-interpreted` and `masked-c1`, and with this branch pass. GitHub
+   dispatches only a workflow its default branch has, so the run needs the file there first, or
+   a push of both branches and a dispatch by `--ref`.
