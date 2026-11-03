@@ -140,6 +140,7 @@ varka_scoped_regexes = (
     r"(^|/)varka/",
     r"^sql/varka/",
     r"^dev/varka_",
+    r"^dev/\.gitattributes$",  # its generated Varka files (VARKA-554)
     r"^\.github/workflows/varka-",
 )
 

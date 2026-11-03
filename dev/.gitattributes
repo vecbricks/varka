@@ -1,0 +1,4 @@
+# Files a tool writes (VARKA-554): the pull-request size check does not count them, and GitHub
+# folds them in a diff. The canary's baselines and probes, and the CI ledger's recorded index.
+/varka_canary/*.txt linguist-generated
+/varka_ci_ledger_fixtures/index.tsv linguist-generated

@@ -432,7 +432,7 @@ class VarkaEvaluatorComponentsSuite extends SparkFunSuite {
       val known = (r: Int) => r % 3 == 0
       def check(otherData: MemorySegment): Unit = {
         VarkaKernelRunner.compareBodies("shape", len, true, Array(0L), Array(0),
-          Array(VarkaReproduction.KernelCall.BIT_OUTPUT),
+          Array(VarkaReproduction.KernelCall.BIT_OUTPUT), Array(false),
           new VarkaKernelRunner.BodyOutputs(
             Array(bitmap(known).address()), Array(bitmap(valid).address())),
           new VarkaKernelRunner.BodyOutputs(
@@ -447,6 +447,64 @@ class VarkaEvaluatorComponentsSuite extends SparkFunSuite {
       // Row 3 is null: its data bit is not compared.
       assert(!valid(3))
       check(bitmap(r => known(r) && r != 3))
+    } finally {
+      arena.close()
+    }
+  }
+
+  test("the both-bodies check accepts any NaN against any NaN on a floating output only") {
+    // VARKA-555: which NaN an operation over two NaNs returns is left open by Spark and Java,
+    // and the JIT tiers pick different operands, so two bodies may disagree on its bits. A
+    // null-free batch of two rows, row 0 equal in both bodies and row 1 planted: two NaNs of
+    // different bits pass on a floating output and fail on an integral one of the same width,
+    // and the sign of zero and a NaN against a number still fail.
+    val len = 2
+    val arena = Arena.ofConfined()
+    try {
+      val validity = arena.allocate(8, 8)
+      validity.fill(0xFF.toByte)
+      def column(width: Int, row1: Long): MemorySegment = {
+        val seg = arena.allocate(len.toLong * width, 8)
+        if (width == 8) {
+          seg.set(ValueLayout.JAVA_LONG, 0L, 42L)
+          seg.set(ValueLayout.JAVA_LONG, 8L, row1)
+        } else {
+          seg.set(ValueLayout.JAVA_INT, 0L, 42)
+          seg.set(ValueLayout.JAVA_INT, 4L, row1.toInt)
+        }
+        seg
+      }
+      def check(width: Int, floating: Boolean, served: Long, other: Long): Unit = {
+        VarkaKernelRunner.compareBodies("shape", len, true, Array(0L), Array(0),
+          Array(width), Array(floating),
+          new VarkaKernelRunner.BodyOutputs(
+            Array(column(width, served).address()), Array(validity.address())),
+          new VarkaKernelRunner.BodyOutputs(
+            Array(column(width, other).address()), Array(validity.address())))
+      }
+      def disagrees(width: Int, floating: Boolean, served: Long, other: Long): Unit = {
+        val e = intercept[IllegalStateException](check(width, floating, served, other))
+        assert(e.getMessage.contains("disagree on output 0 at row 1"), e.getMessage)
+      }
+      import java.lang.Double.doubleToRawLongBits
+      import java.lang.Float.floatToRawIntBits
+      // The coverage fixture's row 7: -NaN and NaN, the two operands of x + x2.
+      val negNaN = 0xfff8000000000000L
+      val posNaN = 0x7ff8000000000000L
+      check(8, floating = true, negNaN, posNaN)
+      check(8, floating = true, posNaN, 0x7ff0000000000001L)
+      disagrees(8, floating = false, negNaN, posNaN)
+      disagrees(8, floating = true, doubleToRawLongBits(0.0), doubleToRawLongBits(-0.0))
+      disagrees(8, floating = true, posNaN, doubleToRawLongBits(1.0))
+      disagrees(8, floating = true, doubleToRawLongBits(1.0), negNaN)
+      // A FLOAT output's NaNs, four bytes each.
+      val negNaNf = 0xffc00000L
+      val posNaNf = 0x7fc00000L
+      check(4, floating = true, negNaNf, posNaNf)
+      disagrees(4, floating = false, negNaNf, posNaNf)
+      disagrees(4, floating = true, floatToRawIntBits(0.0f).toLong,
+        floatToRawIntBits(-0.0f).toLong)
+      disagrees(4, floating = true, posNaNf, floatToRawIntBits(1.0f).toLong)
     } finally {
       arena.close()
     }

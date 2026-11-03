@@ -1,14 +1,14 @@
 # VARKA-556: One definition of "the same answer"
 
 *Planned 3 November 2026 on `varka-556-557-plan`, from the both-bodies failure that pull request
-#1313 (row 555 on its branch, `varka-555-nan-bodies`) fixes. Nothing below is built.*
+row 555 (#1313, merged) fixed. Nothing below is built.*
 
 ## 1. Where this came from
 
 Option-matrix run 41608460861 failed `VarkaCoverageHarnessSuite`'s "Floating arithmetic:
 try_add(x, x2) ..." because `VarkaKernelRunner.compareBodies` held the dense and masked bodies'
 outputs byte-equal on a row of two unlike NaNs, whose sum's NaN depends on the JIT tier that ran
-each body (`VARKA-555.md` on #1313's branch, sections 1 and 2). The comparison of the same kernel
+each body (`VARKA-555.md`, sections 1 and 2). The comparison of the same kernel
 with Spark had excused exactly that payload for weeks. So two comparators of one answer disagreed
 about what "the same" means, and one of them failed on the other's known case. #1313 relaxes
 `compareBodies` by type; this row makes every comparator use one written rule, with a contract
@@ -183,7 +183,7 @@ twice. One pull request would be about 1120, over the cap, so two:
 
 ## 8. Sequencing
 
-After #1313 merges, whose flag 3.2 reuses. Independent of row 557, which proves the nightly
+After row 555 (#1313, merged), whose flag 3.2 reuses. Independent of row 557, which proves the nightly
 against #1313's tolerance; 557's planted fault (reverting the tolerance) still fails under the
 shape level.
 

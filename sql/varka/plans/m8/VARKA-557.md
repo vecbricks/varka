@@ -9,7 +9,7 @@ not the option matrix. Nothing below is built, and nothing is dispatched without
 The both-bodies check (`VarkaKernelRunner.checkOtherBody`, row 303) failed once in many runs on
 two unlike NaNs (option-matrix run 41608460861, on branch `varka-554-pr-size`), because which NaN
 `x + x2` returns depends on the tier each body ran at, and the two bodies compile at different
-moments. #1313 (row 555 on its branch) makes the check accept it. The lesson is wider than NaNs:
+moments. Row 555 (#1313) makes the check accept it. The lesson is wider than NaNs:
 any answer that depends on the tier shows up only when a run happens to split the bodies across
 tiers, which no suite arranges. This row arranges it every night, so a tier-dependent disagreement
 fails at once rather than once a fortnight.
