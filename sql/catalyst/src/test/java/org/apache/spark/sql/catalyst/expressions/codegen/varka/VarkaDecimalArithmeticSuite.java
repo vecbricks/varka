@@ -285,9 +285,10 @@ public final class VarkaDecimalArithmeticSuite {
         VarkaSqlResolve.column("x", new DecimalType(18, 2)),
         VarkaSqlResolve.column("y", new DecimalType(18, 2)));
     for (String[] pair : new String[][] {
-        {"CAST(a * b AS DECIMAL(20, 4)) > 0", "row 361"},
-        {"-(x + y) > 0", "row 360"},
-        {"IF(a > b, x + y, x) > 0", "row 360"}}) {
+        // Each literal is of the node's scale, so that no rescale of it names rows 359 and 360.
+        {"CAST(a * b AS DECIMAL(20, 4)) > 0.0000", "row 361"},
+        {"-(x + y) > 0.00", "row 360"},
+        {"IF(a > b, x + y, x) > 0.00", "row 360"}}) {
       Expression e = VarkaSqlResolve.parse(pair[0], seq(columns));
       List<VarkaConjunctSpec> specs = VarkaExpressionCompiler.explainPredicate(e, seq(columns),
           VarkaMatrixRuns.BASE, VarkaAdmission.NO_HOST_REFUSAL);
