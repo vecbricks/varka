@@ -22,7 +22,9 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.TreeSet;
 import java.util.function.BinaryOperator;
+import java.util.regex.Pattern;
 
 import scala.Tuple2;
 import scala.jdk.javaapi.CollectionConverters;
@@ -236,8 +238,11 @@ final class VarkaDecimalCompiler {
   }
 
   /**
-   * The reason of the first sum, difference or product past 18 digits under {@code e}, reached
-   * through the casts, negations, choices and picks over it, as {@code -(x + y)} reaches its sum.
+   * The reason of the sums, differences and products past 18 digits under {@code e}, reached
+   * through the casts, negations, choices and picks over them, as {@code -(x + y)} reaches its
+   * sum, or empty where none is. Every wide child's reason is read, with row 350 for a cast that
+   * lowers the scale or the integral digits, and two or more name their rows' union in ascending
+   * order, so that {@code IF(p, x + y, a * b)} and {@code IF(p, a * b, x + y)} decline alike.
    */
   private static Optional<String> wideArithmeticBelow(Expression e) {
     if (!(e instanceof Cast || e instanceof UnaryMinus || e instanceof Abs || e instanceof If
@@ -245,19 +250,33 @@ final class VarkaDecimalCompiler {
         || e instanceof Least)) {
       return Optional.empty();
     }
+    var reasons = new TreeSet<String>();
+    boolean arithmetic = false;
     for (Expression child : CollectionConverters.asJava(e.children())) {
       Expression at = child instanceof RuntimeReplaceable r ? r.replacement() : child;
       if (at.dataType() instanceof DecimalType t && t.precision() > MAX_PRECISION) {
-        if (at instanceof Add || at instanceof Subtract || at instanceof Multiply) {
-          return Optional.of(wideReason(at, t));
-        }
-        Optional<String> below = wideArithmeticBelow(at);
-        if (below.isPresent()) {
-          return below;
-        }
+        Optional<String> below = at instanceof Add || at instanceof Subtract
+            || at instanceof Multiply ? Optional.of(wideReason(at, t)) : wideArithmeticBelow(at);
+        arithmetic |= below.isPresent();
+        reasons.add(below.orElse("row 359's"));
       }
     }
-    return Optional.empty();
+    if (e instanceof Cast c && c.child().dataType() instanceof DecimalType from
+        && !keepsDigits(from, (DecimalType) c.dataType())) {
+      reasons.add("row 350's");
+    }
+    if (!arithmetic || reasons.size() == 1) {
+      return arithmetic ? Optional.of(reasons.first()) : Optional.empty();
+    }
+    // The rows a reason names are the three digits after "row ", "rows ", ", " or " and ".
+    List<String> rows = Pattern.compile("(?<=rows? |, | and )\\d{3}\\b")
+        .matcher(String.join(" ", reasons)).results().map(m -> m.group()).distinct().sorted()
+        .toList();
+    int n = rows.size();
+    return Optional.of("a cast, a negation, a choice or a pick over decimals wider than "
+        + MAX_PRECISION + " digits is " + (n == 1 ? "row " : "rows ")
+        + (n == 1 ? "" : String.join(", ", rows.subList(0, n - 1)) + " and ") + rows.get(n - 1)
+        + "'s");
   }
 
   /**
