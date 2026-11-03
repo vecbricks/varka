@@ -357,7 +357,7 @@ they are upper bounds.
 | 343a1 | `CAST(x AS BOOLEAN)` over a `FLOAT` or `DOUBLE` (2.5): the lane's `EQ` against zero, negated, in the condition compiler; its coverage rows | master | 200 |
 | 343a2 | `ConvertLane` (2.1) with its refusals, the reference's casts and the range analysis, the `convertShape` lowering, and the compiler arm for the one-count pair, `INT` to `FLOAT`; the reference cells and the refusal tests | master | 750 |
 | 343a3 | the kernel of two lane counts (2.2): the width rules in the kernel plan, `Analysis`, `Slots` and the walk, the warm-up blocks, and the pairs it carries, `INT` to `DOUBLE`, `FLOAT` with `DOUBLE`, the narrow sources, a condition as a value and the mixed trees (`x + i`, `f * i`, `f + x`); the three failures #1303's last matrix found are fixed here, the `INTERNAL_ERROR` under `validityByWidth=false` as a defect, not a skip | 343a2 | 950 |
-| 343a3b | the root-level crossing (2.2): roots of two kinds share one kernel (`lanesShare` joins roots of one width), so a filter's floating conjunct beside an integral one - the null test the optimizer infers on a cast's source among them - no longer declines (`floatingConjunctRefusal`), and an integral and a floating output take one kernel; the forms `VarkaAnsiForm.DECLINED` lists for it fuse, and the coverage row `CAST(CAST(l AS INT) AS FLOAT)` is added, whose domain check's filter form needs this join. Added by the owner's word of 3 November 2026, when 343a3 stayed under the cap without it | 343a3 | to be sized |
+| 343a3b | the root-level crossing (2.2): roots of two kinds share one kernel (`lanesShare` joins roots of one width), so a filter's floating conjunct beside an integral one - the null test the optimizer infers on a cast's source among them - no longer declines (`floatingConjunctRefusal`), and an integral and a floating output take one kernel; the forms `VarkaAnsiForm.DECLINED` lists for it fuse, and the coverage row `CAST(CAST(l AS INT) AS FLOAT)` is added, whose domain check's filter form needs this join. Added by the owner's word of 3 November 2026, when 343a3 stayed under the cap without it. *Owed by 343a3 (10):* `CompiledVarkaProjection`'s long-literal check plans under `VarkaEmitOptions.DEFAULTS`, so a 128-bit host with `lanesOverride=4` fails `CAST(y1 AS DOUBLE) / 2.0D` with `INTERNAL_ERROR`; check under the session's options, as row 332's load needs too | 343a3 | to be sized |
 | 343a4 | `BIGINT` to `FLOAT` and `DOUBLE` where the host has AVX512DQ: level 3 resolved from the host, the unknown level declining them, the option matrix's level-3 runs and their Spark check | 343a3b | 450 |
 | 343a5 | the fuzz grammar's conversions, the 2^32 sweeps of 3.1 and the harness check of each fused cast on both lanes | 343a4 | 400 |
 | 343b1 | the paper and the AVX2 forms (2.3, step 4): `L2D` by the exact split, `L2F` by round-to-odd, behind `wideConversionForm`, the SMT claims and the failing case | 343a5 | 900 |
@@ -513,21 +513,20 @@ Cut from #1303's final tree, without its `BIGINT` conversions (343a4), sweeps an
   divisor's decline to its row's validity; the "Floating casts" coverage rows, a long-driven
   kernel of float and double values among them, are checked against Spark by the harness.
 - **The three failures of #1303's last option matrix** (run 41572066746):
-  1. *Every configuration*: a test asserted that a narrow value in a 64-bit kernel of two lanes
-     declines; row 332 had built that load. It now fuses where a long lane count is baked and
-     declines with the plan's reason where none is.
+  1. *Every configuration*: a test said a narrow value in a two-lane 64-bit kernel declines; row
+     332 built that load, so it fuses where a long lane count is baked, else the plan declines it.
   2. *`lanesOverride=4` and `16`*: the `FLOAT`, `DOUBLE` and `BOOLEAN` conformance suites' casts
-     fuse kernels of two widths, whose int species is not the 32-bit suites', and the shared
-     JVM's species guard refused it; at 16 the long lane has none, so their int values take the
-     preferred one, 256 bits on the EPYC runners, beside `SPECIES_512`. They now run `ownJvm`.
+     fuse two-width kernels whose int species the shared JVM's guard refused (at 16 the long lane
+     has none; int values take the preferred, 256 bits on EPYC, beside `SPECIES_512`): `ownJvm` now.
   3. *`validityByWidth=false`*: an emitter test handed the emitter a plan that refuses it, which
      threw `INTERNAL_ERROR`; it now asserts the refusal. The SQL path declined cleanly all along.
 
-  Each passed on the laptop under its configuration through `dev/varka_matrix.sh`. The six new
-  `skips.tsv` lines fix none: they expect this part's new rows over a narrow column to decline
-  where no lane count is baked, `validityByWidth=false` and, for `DOUBLE`, `lanesOverride=16`.
+  Each passed on the laptop through `dev/varka_matrix.sh`. The six new `skips.tsv` lines fix
+  none: they expect the new narrow-column rows to decline where no lane count is baked,
+  `validityByWidth=false` and, for `DOUBLE`, `lanesOverride=16`.
 - **A known limit**, shared with row 332: `CompiledVarkaProjection` checks a long literal table
-  against the drive under `VarkaEmitOptions.DEFAULTS`. On a 128-bit host with `lanesOverride=4`,
-  the session admits `CAST(y1 AS DOUBLE) / 2.0D` and the defaults refuse it, so the check fails
-  the query at planning. No runner or laptop has that width.
+  against the drive under `VarkaEmitOptions.DEFAULTS`. At 128 bits with `lanesOverride=4` the
+  session admits `CAST(y1 AS DOUBLE) / 2.0D`, the defaults refuse it, and the query fails at
+  planning with `INTERNAL_ERROR`. No CI step pairs that width with that override (the option
+  matrix sets it only on x86 runners of 256 bits or more), and no SQL conf sets it. Owed: 343a3b.
 - **Prediction 4.1** holds: only the new rows' shapes and the `option_arms` digests move.
