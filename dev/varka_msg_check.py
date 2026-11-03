@@ -383,6 +383,7 @@ def size_findings(base, head="HEAD", branch=None, cwd=ROOT):
     if head == "HEAD" and not branch:
         branch = os.environ.get("GITHUB_HEAD_REF") or os.environ.get("GITHUB_REF_NAME")
         branch = branch or git(cwd, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
+    branch = branch or head  # `size --head X`: a branch named X may be a sync
     try:
         findings, line = pr_size(base, head, cwd, branch)
     except ValueError as e:
