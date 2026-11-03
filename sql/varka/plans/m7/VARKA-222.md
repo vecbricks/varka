@@ -53,6 +53,10 @@ None: the row closes on the measurement, by the owner's decision of 10 October 2
 The fused budget raised far enough to admit deep outputs, or a profile of a real workload's
 emission showing IR hashing well past the shares above; `dev/varka_jfr_ir_hash.py` reads either.
 
+Row 559 of `m8/PLAN.md` reopens it (3 November 2026, `m8/VARKA-559.md`): planning a nested
+chain whose levels share a node costs time exponential in its depth, in IR hashing, before the
+budget declines it.
+
 ## 4. Files
 
 | file | what |
