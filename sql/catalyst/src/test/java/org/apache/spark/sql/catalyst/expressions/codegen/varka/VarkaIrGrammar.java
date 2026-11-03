@@ -83,6 +83,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Wee
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WidenDecimal;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WidenLane;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Year;
+import org.apache.spark.sql.types.Decimal;
 
 /**
  * The random IR grammar shared by {@code VarkaIrFuzzSuite}, which emits and runs the trees it
@@ -156,6 +157,13 @@ public final class VarkaIrGrammar {
    * its bytes.
    */
   public static final long DECIMAL_FUZZ_SEED = 20261031L;
+
+  /**
+   * The seed of {@link #drawDecimalValueShape}, the decimal values' sequence (VARKA-348): a
+   * sequence of its own for the reason {@link #NARROW_FUZZ_SEED} gives. {@code VarkaIrFuzzSuite}
+   * runs it against the reference evaluator; nothing pins its bytes.
+   */
+  public static final long DECIMAL_VALUE_FUZZ_SEED = 20261101L;
 
   /**
    * The seed of {@link #drawCastShape}, a sequence of its own for the reason
@@ -274,7 +282,7 @@ public final class VarkaIrGrammar {
   public static Bounds boundsOf(VarkaVectorIR node) {
     return switch (node) {
       case ColumnRef _ -> new Bounds(COLUMN_BOUND, 0L);
-      // The grammar draws no decimal column (VARKA-347's own sequence is a later step's).
+      // The grammar draws no decimal column here: drawDecimalValueShape draws its own values.
       case DecimalColumn _ ->
           throw new IllegalArgumentException("the grammar draws no decimal column: " + node);
       case LiteralSlot _ -> new Bounds(LITERAL_BOUND, 0L);
@@ -382,6 +390,150 @@ public final class VarkaIrGrammar {
       int smallOrdinal, int levelOrdinal) {
     public Drawn {
       roots = List.copyOf(roots);
+    }
+  }
+
+  /**
+   * A draw of the decimal sequence (VARKA-348): roots over decimal columns of the given
+   * precisions, ordinal {@code c} at {@code precisions[c]}, and the long literal table they read.
+   */
+  public record DecimalDrawn(List<VarkaVectorIR> roots, int[] precisions, long[] lits) {
+    public DecimalDrawn {
+      roots = List.copyOf(roots);
+      precisions = precisions.clone();
+      lits = lits.clone();
+    }
+  }
+
+  /**
+   * One decimal shape: long-lane IR over the unscaled longs of decimal columns. The rescale by
+   * {@code 10^k}, the negation, {@code abs}, the comparisons, the null-safe equality and a
+   * column's null test are forms {@code VarkaDecimalCompiler} builds; an {@code IfElse},
+   * {@code Greatest} and {@code Least} are long-lane nodes drawn over decimal values too, so that
+   * the leaf's check is fuzzed under an arm and a pick. Each value carries the digits its lanes
+   * stay within, so that a rescale is drawn only where {@code p + k <= 18} keeps it exact, as the
+   * compiler's type rule does. Literals are drawn at their digits' bounds and inside.
+   */
+  public static DecimalDrawn drawDecimalValueShape(Random rnd) {
+    int inputs = 1 + rnd.nextInt(3);
+    int[] edges = {1, 2, 9, 10, 17, DecimalColumn.MAX_LONG_PRECISION};
+    int[] precisions = new int[inputs];
+    for (int c = 0; c < inputs; c++) {
+      precisions[c] = rnd.nextBoolean() ? edges[rnd.nextInt(edges.length)]
+          : 1 + rnd.nextInt(DecimalColumn.MAX_LONG_PRECISION);
+    }
+    var gen = new DecimalGen(rnd, precisions, new ArrayList<>());
+    int count = 1 + rnd.nextInt(2);
+    var roots = new ArrayList<VarkaVectorIR>();
+    for (int r = 0; r < count; r++) {
+      VarkaVectorIR root = rnd.nextBoolean() ? gen.value(3).node()
+          : new IfElse(gen.cond(3), gen.literal(1L), gen.literal(0L));
+      // A root reads a column, as every root the compiler builds does.
+      if (!readsDecimal(root)) {
+        root = new Greatest(root, new DecimalColumn(0, LaneType.LONG, precisions[0]));
+        if (root.laneType() != LaneType.LONG) {
+          throw new IllegalStateException("a decimal draw off the long lane: " + root);
+        }
+      }
+      roots.add(root);
+    }
+    long[] lits = gen.lits().stream().mapToLong(Long::longValue).toArray();
+    return new DecimalDrawn(roots, precisions, lits);
+  }
+
+  private static boolean readsDecimal(VarkaVectorIR node) {
+    if (node instanceof DecimalColumn) {
+      return true;
+    }
+    for (VarkaVectorIR child : VarkaVectorIR.childrenOf(node)) {
+      if (readsDecimal(child)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /** A decimal value node and the digits its lanes stay within, {@code |u| <= 10^digits - 1}. */
+  private record DecimalValue(VarkaVectorIR node, int digits) { }
+
+  /** The decimal sequence's generator over its columns and the literal table it fills. */
+  private record DecimalGen(Random rnd, int[] precisions, List<Long> lits) {
+    LiteralSlot literal(long v) {
+      lits.add(v);
+      return new LiteralSlot(lits.size() - 1, LaneType.LONG);
+    }
+
+    DecimalValue value(int depth) {
+      int pick = depth <= 0 ? rnd.nextInt(2) : rnd.nextInt(9);
+      return switch (pick) {
+        case 0 -> {
+          int c = rnd.nextInt(precisions.length);
+          yield new DecimalValue(new DecimalColumn(c, LaneType.LONG, precisions[c]),
+              precisions[c]);
+        }
+        case 1 -> {
+          int d = 1 + rnd.nextInt(DecimalColumn.MAX_LONG_PRECISION);
+          long b = Decimal.POW_10()[d] - 1;
+          long v = switch (rnd.nextInt(4)) {
+            case 0 -> b;
+            case 1 -> -b;
+            case 2 -> 0L;
+            default -> within(rnd, b);
+          };
+          yield new DecimalValue(literal(v), d);
+        }
+        case 2, 3 -> {
+          DecimalValue x = value(depth - 1);
+          int room = DecimalColumn.MAX_LONG_PRECISION - x.digits();
+          if (room == 0) {
+            yield x;
+          }
+          int k = 1 + rnd.nextInt(room);
+          yield new DecimalValue(new IntArith(IntOp.MUL, Overflow.WRAP, x.node(),
+              literal(Decimal.POW_10()[k])), x.digits() + k);
+        }
+        case 4 -> {
+          DecimalValue x = value(depth - 1);
+          yield new DecimalValue(new IntNeg(Overflow.WRAP, x.node()), x.digits());
+        }
+        case 5 -> {
+          DecimalValue x = value(depth - 1);
+          yield new DecimalValue(new IntNeg(Overflow.WRAP, x.node(), true), x.digits());
+        }
+        case 6 -> {
+          Cond c = cond(depth - 1);
+          DecimalValue a = value(depth - 1);
+          DecimalValue b = value(depth - 1);
+          yield new DecimalValue(new IfElse(c, a.node(), b.node()),
+              Math.max(a.digits(), b.digits()));
+        }
+        default -> {
+          DecimalValue a = value(depth - 1);
+          DecimalValue b = value(depth - 1);
+          VarkaVectorIR n = pick == 7 ? new Greatest(a.node(), b.node())
+              : new Least(a.node(), b.node());
+          yield new DecimalValue(n, Math.max(a.digits(), b.digits()));
+        }
+      };
+    }
+
+    Cond cond(int depth) {
+      int pick = depth <= 0 ? rnd.nextInt(3) : rnd.nextInt(6);
+      return switch (pick) {
+        case 0 -> {
+          CompareOp[] ops = CompareOp.values();
+          yield new Compare(ops[rnd.nextInt(ops.length)], value(depth - 1).node(),
+              value(depth - 1).node());
+        }
+        case 1 -> new NullSafeEqual(value(depth - 1).node(), value(depth - 1).node());
+        case 2 -> {
+          int c = rnd.nextInt(precisions.length);
+          yield new IsNotNull(new DecimalColumn(c, LaneType.LONG, precisions[c]));
+        }
+        case 3 -> new Not(cond(depth - 1));
+        case 4 -> new And(cond(depth - 1), cond(depth - 1));
+        default -> new Or(cond(depth - 1), cond(depth - 1));
+      };
     }
   }
 

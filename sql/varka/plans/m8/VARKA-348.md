@@ -384,8 +384,8 @@ its own regenerated files.
 
 | part | what | depends on | lines |
 |---|---|---|---|
-| 348a1 | `Scaled`, `value()` over a column, a literal and coercion's rescaling cast, `rescale`, the comparisons at two scales; `decimal64.smt2`; the fixture columns `d9s4` and `d16s9` and seven comparison rows, each refined; `VarkaDecimalValueSuite`; this table | master | 902 |
-| 348a2 | negation and `abs`, the long-lane `abs` arm behind `decimalAbsLanewise` and the reference's `Math.abs`; two rows, refined; the slot table under a rescale, a negation and `abs`, with the fault injector `dropDecimalBound`; the IR fuzzer's decimal sequence and its frozen option order | 348a1 | 716 |
+| 348a1 | `Scaled`, `value()` over a column, a literal and coercion's rescaling cast, `rescale`, the comparisons at two scales; `decimal64.smt2`; the fixture columns `d9s4` and `d16s9` and seven comparison rows, each refined; `VarkaDecimalValueSuite`; this table | master | 917 |
+| 348a2 | negation and `abs`, the long-lane `abs` arm behind `decimalAbsLanewise` and the reference's `Math.abs`; two rows, refined; the slot table under a rescale, a negation and `abs`, with the fault injector `dropDecimalBound`; the IR fuzzer's decimal sequence and its frozen option order | 348a1 | 935 |
 | 348a3 | `IF`, `CASE` with an `ELSE`, `coalesce`, `greatest` and `least`, and the null test over any decimal value, with its probe and each condition compiled once; four rows, three refined | 348a2 | 609 |
 
 348b, the values, still follows 157. A part over the cap is split again before it is pushed,
@@ -638,3 +638,94 @@ answer, and the compiler did not change.
   `coalesce(l, l2)`, times 100 on an even `rid` and 50 on an odd one, null where `i` is: two
   rows of the mixed fixture and three of the dense flip under a factor of 10, and the mixed
   fixture has a row with only `d9` null and one with only `d9s4` null.
+
+### 10.5 Step 4: 348a2, negation and `abs`
+
+*Built 1 November 2026 on branch `varka-348-conditions`, and cut as part 348a2 on branch
+`varka-348a2-abs` on 3 November 2026, on 348a1 (section 5).*
+
+**Negation and `abs`.** `value()` builds `UnaryMinus` and `Abs` as `IntNeg(WRAP, u)` and
+`IntNeg(WRAP, u, abs = true)`. The emitter lowers a long-lane `abs` as
+`x.blend(x.neg(), x.compare(LT, 0))` by default and as the lanewise `ABS` under the new flag
+`decimalAbsLanewise` (`Reason.MACHINE`, off), and the reference evaluator answers it with
+`Math.abs`. `IntNeg`'s javadoc says a decimal negation is `WRAP` by its bound. Two coverage rows,
+`-d9 < d9b` and `abs(d9) >= d9b`, are each refined in `refinement.smt2`, and `decimal64.smt2`
+gains five checks, 346 in all: within 18 digits the negation is exact, the long lane's minimum,
+outside the bound, negates to itself, both forms of `abs` are the magnitude, and the two forms
+agree on every long. Z3 5.1.0 holds it in 0.11 s and cvc5 1.4.1 in 0.33 s on the laptop.
+
+**Where the flag is drawn.** `decimalAbsLanewise` changes only a long-lane `abs`, which the
+compiler and the fuzzer build only over a decimal's value, so the flag's entry names
+`DecimalColumn` as the node a shape must hold for it to matter (`Flag` now carries
+`readOnlyBy`, as `Choice` does for `decimalStore`). The general draws, the steering of a case
+without a decimal column and the option matrix leave it out, so the matrix's configurations and
+the steering's option list are 348a1's; the decimal value draw draws it after the rest, and a
+test holds both its arms reached there and the general draws unmoved. A hand-built long-lane
+`abs` over another long is legal IR that reads the flag without a decimal column; no draw or
+compiled shape builds one.
+
+**The slot table and the planted fault.** `VarkaDecimalLoadSuite` adds the condition table
+under a rescale (`d * 100 < 5`, at precisions 1, 9 and 10, where `p + 2` stays within 18), under a
+negation and under `abs`, at 2, 4 and 8 long lanes, both bodies, the planted slot in the first
+group, a middle one and the last row: `10^p`, `-10^p` and the wrong high words valid decline with
+`STATUS_DECIMAL_SLOT`, the same slots null do not, and every in-precision row answers. A bad slot
+under a rescale in an `IfElse` arm the batch never takes declines. The planted fault is a new
+fault injector, `dropDecimalBound` (`Reason.FAULT_INJECTOR`, never drawn), under which the leaf
+keeps its high-word check and drops the digit check: a valid `10^17` at precision 17 then runs,
+its rescale by `10^2` wraps to a negative value, and the slot table's check fails, which the test
+asserts at every width.
+
+**The IR fuzzer's decimal sequence.** `VarkaIrGrammar.drawDecimalValueShape`, on its own seed
+(`DECIMAL_VALUE_FUZZ_SEED`, so no committed shape moves), draws one to three decimal columns at
+precisions biased to 1, 2, 9, 10, 17 and 18, and over them the forms of 2.1: a rescale at a `k`
+the drawn value's digits allow, a negation, `abs`, an `IfElse`, both picks, the comparisons, the
+null-safe equality and the null test, literals at their digits' bounds and inside. The suite
+writes each decimal column as Arrow's slots (`VarkaKernelChecks`' long lane now knows a decimal
+input's sixteen-byte stride), its valid rows inside the precision with the bounds among them and
+its null rows holding the lane's extremes, garbage the check must not read, and runs each draw
+under drawn options, `decimalAbsLanewise` among them, against the reference evaluator, which now
+answers a long-lane `abs`. A second test asserts the draw reaches every form, `k = 1` and
+`k = 17`.
+
+**Test time, on the laptop.** `VarkaDecimalLoadSuite`'s 17 tests take 2.7 s in their own JVM,
+the three new ones included, so section 5's "seconds" for the slot table holds.
+`VarkaIrFuzzSuite`'s own JVM ran 2 minutes 45 seconds with the decimal sequence's 300 draws and
+its 500-draw reach test; the run does not print a test's own time, so the sequence's share is read
+from the Build's JUnit report.
+
+### Departures from the plan in 348a2
+
+- **The planted fault fails the slot table, not the refinement.** Section 3 item 1 asks that the
+  refinement's check 2 fail with the flag on too. The refinement file states the kernel's decline
+  as the leaf's check, which `decimal_slot.smt2` proves equal to `|u| > 10^p - 1`; it does not
+  read an emit option, so no rendering of it changes with the flag, and the slot table is the
+  check the fault is planted against. A refinement that read the flag would restate the
+  emitter's choice in the specification's file, which the row leaves to row 504.
+- **No table of `IS NULL` over a negation.** Section 3 item 1 lists it beside the rescale. In
+  348a2 a null test over a decimal that is not a column declines ("a null test over a decimal
+  that is not a column"), so `WHERE -d IS NULL` declines and has no kernel to table;
+  the table waits for the null test over values, which is 348a3's.
+- **The fuzzer's option order is frozen.** A drawn option sorted into the middle of the order of
+  the `with*` setters shifts every later coin of every fuzz draw, and with them the data drawn
+  after: `decimalAbsLanewise`, while it was a general draw, moved the stranger draw that
+  `VarkaIrFuzzSuite` names, `2026101300002L`, 195413, out of its size options. That shift is why
+  the order is frozen: the suite draws the options of that order from a fixed list and any option
+  added to the table later from a stream of its own, so the named draws draw what they drew.
+- **`decimalAbsLanewise` has no configuration in the option matrix.** Section 3 item 5 gives it
+  one from `VarkaEmitOption.TABLE`. A general option would add a configuration that changes no
+  kernel of any suite but those over a decimal column's `abs`, and a 41st option to every steered
+  mutation sequence; keyed on `DecimalColumn`, it is fuzzed by the decimal value draw instead,
+  and its arm is measured with 348b.
+
+### 10.6 The second review of 348a2 (1 November 2026)
+
+- **A long-lane `abs` weighed 1.** The defaults emit the compare, the negation and the blend, so
+  `weightOf` weighs it 3, the larger form, as it does for every node whose arm it cannot see;
+  the register holds the row. The cost model's feature for it does not tell the two lowerings
+  apart, and no abs feature has a price yet; that waits for row 352's refit.
+- **`column()` built a `Scaled` its record refuses** (carried from 348a1's review, whose fix is
+  in 348a1's code). `column()` declines a decimal column the registry puts off the long lane or
+  past 18 digits instead of building a `Scaled` its record refuses; the default decline names
+  rows 349 and 351 and says a quotient or a remainder is no row's in this milestone
+  (`VARKA-363.md` 7); the kernel check's decimal column set throws past ordinal 63 instead of
+  dropping the column.

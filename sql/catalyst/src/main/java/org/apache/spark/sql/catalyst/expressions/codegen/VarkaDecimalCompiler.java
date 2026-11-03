@@ -22,15 +22,18 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 
+import org.apache.spark.sql.catalyst.expressions.Abs;
 import org.apache.spark.sql.catalyst.expressions.BoundReference;
 import org.apache.spark.sql.catalyst.expressions.Cast;
 import org.apache.spark.sql.catalyst.expressions.Expression;
 import org.apache.spark.sql.catalyst.expressions.Literal;
+import org.apache.spark.sql.catalyst.expressions.UnaryMinus;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaErrors;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTypes;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.DecimalColumn;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IntArith;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IntNeg;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IntOp;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LaneType;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Overflow;
@@ -130,9 +133,15 @@ final class VarkaDecimalCompiler {
     return switch (e) {
       case BoundReference br -> column(br, type, inputs, sink);
       case Cast c -> cast(c, type, inputs, sink);
-      default -> sink.decline("a decimal operator no arm builds yet: negation and abs are row "
-          + "348's, +, - and * row 349's and the rounding functions row 351's, and a quotient or "
-          + "a remainder is no row's in this milestone", e);
+      // Neither can fail or leave the precision, |-u| = |u| (VARKA-348 0.5), so both wrap: the
+      // one overflowing long, Long.MIN_VALUE, is outside every decimal's bound.
+      case UnaryMinus m -> value(m.child(), inputs, sink)
+          .map(x -> new Scaled(new IntNeg(Overflow.WRAP, x.unscaled()), x.type()));
+      case Abs a -> value(a.child(), inputs, sink)
+          .map(x -> new Scaled(new IntNeg(Overflow.WRAP, x.unscaled(), true), x.type()));
+      default -> sink.decline("a decimal operator no arm builds yet: +, - and * are row 349's "
+          + "and the rounding functions row 351's, and a quotient or a remainder is no row's in "
+          + "this milestone", e);
     };
   }
 

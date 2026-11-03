@@ -1022,8 +1022,9 @@ final class VarkaRefinementFile {
    * declines on a valid slot outside the precision in any of the row's columns, by its leaves'
    * slot checks ({@code decimal_slot.smt2}), and the specification raises where Spark's column
    * reader does, on such a slot in a column Spark reads: every column here, which the
-   * comparisons all evaluate. The kernel's truth {@code k} and the specification's {@code t} are
-   * conditions, compared on the lanes where the specification's answer is known.
+   * comparisons, negation and abs all evaluate. The kernel's truth {@code k} and the
+   * specification's {@code t} are conditions, compared on the lanes where the specification's
+   * answer is known.
    */
   private static void decimalRow(StringBuilder out, String name, List<Dec> cols,
       List<String> defs, String kernelValid, String specValid, String k, String t) {
@@ -1044,8 +1045,10 @@ final class VarkaRefinementFile {
   }
 
   private static void decimals(StringBuilder out) {
-    section(out, "STANDARD.md 4.1 and 4.2: the 64-bit decimal's comparisons");
+    section(out, "STANDARD.md 4.1, 4.2 and EXTENSIONS.md 3: the 64-bit decimal's comparisons, "
+        + "negation and abs");
     var d9 = new Dec("a", "va", 9, 2);
+    var d9b = new Dec("b", "vb", 9, 2);
     var d9s4 = new Dec("c", "vc", 9, 4);
     var d16s9 = new Dec("e", "ve", 16, 9);
     var d18 = new Dec("a", "va", 18, 2);
@@ -1075,6 +1078,11 @@ final class VarkaRefinementFile {
     decimalRow(out, "d9 < 10000000.0125, Spark mode: at DECIMAL(12, 4), the column times 100 "
         + "and the literal 100000000125", List.of(d9), List.of(), "va", "va",
         "(< (jlong.mul a 100) 100000000125)", "(< (* a " + pow10(4) + ") (* 100000000125 100))");
+    decimalRow(out, "-d9 < d9b, Spark mode: the wrapping negation", List.of(d9, d9b), List.of(),
+        "(and va vb)", "(and va vb)", "(< (jlong.neg a) b)", "(< (- a) b)");
+    decimalRow(out, "abs(d9) >= d9b, Spark mode: the blend, which decimal64.smt2 shows the "
+        + "lanewise ABS equal to", List.of(d9, d9b), List.of(), "(and va vb)", "(and va vb)",
+        "(>= (ite (< a 0) (jlong.neg a) a) b)", "(>= (abs a) b)");
   }
 
   private static void section(StringBuilder out, String title) {

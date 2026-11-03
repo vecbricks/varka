@@ -107,10 +107,11 @@ class VarkaEmitOptionSuite extends SparkFunSuite with VarkaTestWatchdog {
   test("the reasons the table records") {
     def reasonOf(name: String): Reason = VarkaEmitOption.named(name).reason
     for (name <- Seq("misdescribeAdd", "misdescribeWordLiveness", "misdescribeDriverBytes",
-        "forceResidualAt", "misdescribeRollback", "dropStackMaps", "misdescribeDataBytes")) {
+        "forceResidualAt", "misdescribeRollback", "dropStackMaps", "misdescribeDataBytes",
+        "dropDecimalBound")) {
       assert(reasonOf(name) === Reason.FAULT_INJECTOR, name)
     }
-    for (name <- Seq("division", "useAVX")) {
+    for (name <- Seq("division", "useAVX", "decimalAbsLanewise")) {
       assert(reasonOf(name) === Reason.MACHINE, name)
     }
     for (name <- Seq("checkIntOverflow", "guardDayProducers")) {
@@ -123,13 +124,16 @@ class VarkaEmitOptionSuite extends SparkFunSuite with VarkaTestWatchdog {
     assert(table.filter(_.reason == Reason.MISCOMPILED).map(_.name) === Seq("fromLongMasks"))
     assert(Reason.values.filterNot(_.drawn).toSet ===
       Set(Reason.FAULT_INJECTOR, Reason.MISCOMPILED))
-    // One option is read by one node kind alone, so the general draws, the steering and the
-    // option matrix leave it out whatever its reason (VARKA-157).
+    // Two options change only a shape holding one node kind, so the general draws, the steering
+    // and the option matrix leave them out whatever their reason (VARKA-157, VARKA-348).
     assert(table.filter(o => VarkaEmitOption.readOnlyBy(o).isPresent)
       .map(o => o.name -> VarkaEmitOption.readOnlyBy(o).get) ===
-      Seq("decimalStore" -> classOf[VarkaVectorIR.WidenDecimal]))
-    assert(reasonOf("decimalStore") === Reason.MACHINE)
-    assert(!VarkaEmitOption.drawnInGeneral(VarkaEmitOption.named("decimalStore")))
+      Seq("decimalAbsLanewise" -> classOf[VarkaVectorIR.DecimalColumn],
+        "decimalStore" -> classOf[VarkaVectorIR.WidenDecimal]))
+    for (name <- Seq("decimalAbsLanewise", "decimalStore")) {
+      assert(reasonOf(name) === Reason.MACHINE, name)
+      assert(!VarkaEmitOption.drawnInGeneral(VarkaEmitOption.named(name)), name)
+    }
   }
 
   test("an option is found by name, and an enum constant by its name or not at all") {

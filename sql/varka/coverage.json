@@ -5686,6 +5686,30 @@
     "note" : "at DECIMAL(12, 4): the column times 100 against 100000000125, kept end to end since the literal does not fit d9's type",
     "verified" : "refinement: d9 < 10000000.0125"
   }, {
+    "sql" : "-d9 < d9b",
+    "executable" : "-d9 < d9b",
+    "family" : "DECIMAL columns",
+    "form" : "predicate",
+    "catalyst" : [ "LessThan", "UnaryMinus" ],
+    "casts" : [ ],
+    "operands" : [ "LessThan:dec", "UnaryMinus:dec" ],
+    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
+    "domain" : "",
+    "note" : "a negation, which cannot overflow: an unscaled value within 18 digits is never the long lane's minimum",
+    "verified" : "refinement: -d9 < d9b"
+  }, {
+    "sql" : "abs(d9) >= d9b",
+    "executable" : "abs(d9) >= d9b",
+    "family" : "DECIMAL columns",
+    "form" : "predicate",
+    "catalyst" : [ "Abs", "GreaterThanOrEqual" ],
+    "casts" : [ ],
+    "operands" : [ "Abs:dec", "GreaterThanOrEqual:dec" ],
+    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
+    "domain" : "",
+    "note" : "a compare with zero, a negation and a blend; the lanewise ABS is the decimalAbsLanewise option",
+    "verified" : "refinement: abs(d9) >= d9b"
+  }, {
     "sql" : "t - t2",
     "executable" : "t - t2",
     "family" : "Time arithmetic",

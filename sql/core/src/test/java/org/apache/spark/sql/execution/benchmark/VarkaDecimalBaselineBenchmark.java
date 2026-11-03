@@ -103,12 +103,13 @@ import org.apache.spark.sql.VarkaBenchmark;
  * and {@code WHOLE} when no row operator evaluates any of it. Row 347's reader fuses the
  * comparison at precisions 9 and 18, whose two columns share a scale, and {@code x <=> y}
  * there, and with row 27's boolean output the projected {@code x < y}, so those twelve
- * sections are {@code WHOLE} and time a kernel on the varka on arm. Eighteen of the 64-bit
- * sections are {@code NULL_TESTS}: the rescaled comparison, {@code -x < y}, {@code abs(x) < y}
- * and the three arithmetic filters. Spark infers {@code IS NOT NULL} of each column such a
- * filter reads, the reader fuses those null tests as a filter of their own, and Spark's
- * {@code Filter} applies the decimal condition above it, so the varka on arm there times a
- * null-test kernel under the row path's condition, and the spark row path arm is the baseline.
+ * sections are {@code WHOLE} and time a kernel on the varka on arm. Row 348 fuses the rescaled
+ * comparison, {@code -x < y} and {@code abs(x) < y} at both precisions, twelve more
+ * {@code WHOLE} sections. Six of the 64-bit sections are {@code NULL_TESTS}: the three
+ * arithmetic filters. Spark infers {@code IS NOT NULL} of each column such a filter reads, the
+ * reader fuses those null tests as a filter of their own, and Spark's {@code Filter} applies the
+ * decimal condition above it, so the varka on arm there times a null-test kernel under the row
+ * path's condition, and the spark row path arm is the baseline.
  * Every other section is {@code NONE}. A row that fuses more of a section sets its new class,
  * so that its fusion cannot turn a baseline section into a fused one unnoticed, and the results
  * file notes the class of each section that fuses.
@@ -414,15 +415,14 @@ public class VarkaDecimalBaselineBenchmark extends VarkaSqlBenchmarkBase {
     for (Precision p : PAIR_PRECISIONS) {
       addComparisons(out, p, Optional.empty(), shape -> Fusion.NONE);
     }
-    // The rescaled comparison, <=> and the projected comparison fuse whole (VARKA-348); the
-    // negation and abs fuse only the null tests the optimizer infers, a row Filter applying the
-    // condition; IN infers no null test and runs on the row path until its reader case.
+    // The rescaled comparison, the negation, abs, <=> and the projected comparison fuse whole
+    // (VARKA-348); IN infers no null test and runs on the row path until its reader case.
     Map<ComparisonShape, Fusion> longFusion = Map.of(
         ComparisonShape.RESCALED, Fusion.WHOLE,
         ComparisonShape.IN, Fusion.NONE,
         ComparisonShape.NULL_SAFE, Fusion.WHOLE,
-        ComparisonShape.NEGATED, Fusion.NULL_TESTS,
-        ComparisonShape.ABS, Fusion.NULL_TESTS,
+        ComparisonShape.NEGATED, Fusion.WHOLE,
+        ComparisonShape.ABS, Fusion.WHOLE,
         ComparisonShape.VALUE, Fusion.WHOLE);
     for (Precision p : List.of(precision(9), precision(18))) {
       addComparisons(out, p, Optional.of(rescaledPartner(p)), longFusion::get);

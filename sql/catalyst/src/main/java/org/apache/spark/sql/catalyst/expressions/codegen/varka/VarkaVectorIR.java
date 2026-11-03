@@ -914,13 +914,20 @@ public sealed interface VarkaVectorIR
    * on both sides - it misses the overflow it exists for, and condemns a value the wider lane
    * represents exactly.
    *
-   * <p>With {@code abs} set the node is {@code abs(child)} instead, a narrow lane's only: Spark's
+   * <p>A decimal's negation is {@code WRAP} by its bound: its unscaled value is within 18 digits,
+   * {@code |u| <= 10^18 - 1 < 2^63}, so the one overflowing input never reaches it and the check
+   * {@code FAIL} would build is dead (VARKA-348, {@code decimal64.smt2}).
+   *
+   * <p>With {@code abs} set the node is {@code abs(child)} instead, on a narrow or floating lane
+   * or, wrapping, on the long lane, where only a decimal's unscaled value reaches it: Spark's
    * {@code x < 0 ? -x : x}, the negation taken where the operand is negative. It shares the
    * negation's one overflowing input and its check, and its validity is the child's, so the two
-   * are one node with one flag, emitted as one lanewise {@code ABS} rather than a compare, a
-   * negation and a blend. Where the negation commutes with reduction modulo the narrow width,
-   * {@code abs} does not - {@code abs(-128)} and {@code abs(128)} differ - so a wrapping
-   * {@code abs} at the int lane is never a ring node and reduces its own result.
+   * are one node with one flag, emitted on a narrow or floating lane as one lanewise {@code ABS}
+   * rather than a compare, a negation and a blend; on the long lane the blend is the default and
+   * the lanewise form an option ({@code VarkaEmitOptions.decimalAbsLanewise}). Where the negation
+   * commutes with reduction modulo the narrow width, {@code abs} does not - {@code abs(-128)}
+   * and {@code abs(128)} differ - so a wrapping {@code abs} at the int lane is never a ring node
+   * and reduces its own result.
    *
    * <p>At a floating lane the node is {@code WRAP} only, and both forms are bit operations: the
    * negation flips the sign bit and {@code abs} clears it, NaN included, as Java's {@code dneg}
