@@ -343,12 +343,12 @@ claims and the failing case, three and a half; the floating `GuardedRange` and i
 disposal through the masked body, with the three modes' cells and sweeps, two; the booleans half
 a day; `time_from_seconds` one; the generated files and the measurement one. About eleven days.
 
-It lands in pull requests of at most 1000 changed lines each, generated files and plan text
-included (*3 November 2026, the owner's word*: this replaces the two parts, 343a and 343b, of 27
-October). The work built for 343a on #1303 is cut into the first five; each is taken from that
-branch's final tree, not by replaying its commits, and carries its own tests and its own
-regenerated files. The sizes are counted from #1303's diff for the code and tests and estimated
-for the generated files, which only a slice's own regeneration fixes.
+It lands in pull requests of under 1000 changed lines each of hand-written source and plan
+text; generated files are not counted (*3 November 2026, the owner's word*: this replaces the
+two parts, 343a and 343b, of 27 October). The work built for 343a on #1303 is cut into the first
+five; each is taken from that branch's final tree, not by replaying its commits, and carries its
+own tests and its own regenerated files. The sizes in the table include the generated files, so
+they are upper bounds.
 
 | part | what | depends on | lines, about |
 |---|---|---|---|
@@ -465,7 +465,8 @@ None open; both were settled with an advisor's review on 27 October 2026.
    make two rows own one node.
 
 The size, large, was confirmed by the owner on 27 October 2026, in two parts; on 3 November 2026
-he set a cap of 1000 changed lines per pull request, so the row lands in the eight parts of 4.
+he set a cap of 1000 changed hand-written lines per pull request, so the row lands in the eight
+parts of 4.
 
 The baseline comes first, as its own pull request (5.1): not a question, since the house rule
 settles it, as it did for rows 377, 27, 339 and 342.
