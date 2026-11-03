@@ -31,11 +31,17 @@ import org.apache.spark.sql.types.DataTypes;
  *
  * <p>The null-handling and overflow checks hold the floating arithmetic (VARKA-342) to Spark,
  * a NaN computed from two NaNs compared by being NaN; its overflow reaches an infinity, which
- * Spark answers in every mode. The registers mark no cast fused, so the cast row is cancelled
- * once its fused forms have run, naming its {@code casts.tsv} pair's rows, 343 for most and
- * 346, 350 and 364 for the cast to {@code DECIMAL}.
+ * Spark answers in every mode. The registers mark the cast to {@code FLOAT} fused, so the cast
+ * row runs it and is cancelled once its fused forms have run, naming its other
+ * {@code casts.tsv} pairs' rows, 343 for most and 346, 350 and 364 for the cast to
+ * {@code DECIMAL}.
+ *
+ * <p>In its own JVM: its cast to {@code FLOAT} stores the low half of a float species of the
+ * double lane's width (VARKA-343), and under the option matrix's lane-pinning configurations
+ * that species is of a size the float-lane suites do not use, a second one a shared JVM refuses
+ * ({@link VarkaSpeciesGuard}).
  */
-@VarkaSuite
+@VarkaSuite(ownJvm = true)
 public final class VarkaDoubleConformanceSuite extends VarkaTypeConformance {
 
   @Override

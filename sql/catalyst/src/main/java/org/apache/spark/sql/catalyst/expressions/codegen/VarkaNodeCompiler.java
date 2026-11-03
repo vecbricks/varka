@@ -390,7 +390,8 @@ final class VarkaNodeCompiler {
       case Cast c when isFloating(c.child().dataType()) ->
           "a cast from a floating type (row 343's second part)";
       case Cast c when DataTypes.LongType.equals(c.child().dataType()) ->
-          "a cast of BIGINT to a floating type, not intrinsic without AVX512DQ (row 343a4)";
+          "a cast of BIGINT to a floating type, not intrinsic without AVX512DQ (row 343, part "
+          + "343a4)";
       case Cast _ -> "a cast to or from a floating type that no floating lowering serves";
       case Remainder _, Pmod _ -> "a floating remainder (row 346)";
       // The interval products and quotients by a floating factor, and signum over an interval,

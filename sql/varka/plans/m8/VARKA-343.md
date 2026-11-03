@@ -362,7 +362,9 @@ they are upper bounds.
 | 343b3 | `time_from_seconds` (2.6, step 7), after 342's first pull request, and the measurement against the baseline (step 8) | 343b2 | 500 |
 
 343a3 is the one nearest the cap: if it passes 1000 lines, the mixed trees and the condition as a
-value move to a part of their own after it. 343a1 needs none of the others and may land first.
+value move to a part of their own after it. *As built (3 November 2026, section 10):* it stayed
+under the cap whole, and it also carries `TINYINT` and `SMALLINT` to `DOUBLE`, since row 332
+had built the narrow load at the long width. 343a1 needs none of the others and may land first.
 Only a real code dependency chains one part's matrix on another's. A part over the cap is split
 again before it is pushed, never merged over it.
 
@@ -483,4 +485,49 @@ PR build and the option matrix pass; the measurement is committed with its predi
 
 ## 10. Outcome
 
-(Written when the work lands.)
+### 343a3 as built (3 November 2026)
+
+Cut from #1303's final tree, without its `BIGINT` conversions (343a4), sweeps and fuzz grammar
+(343a5).
+
+- **The width rules** (2.2): `emissionLane` drives a tree holding a `LONG` node at the long lane,
+  one holding a `DOUBLE` node otherwise at the double lane, and a 32-bit tree at the int lane
+  over the float one. `Analysis`' fit rule is by width. A 32-bit value of a 64-bit kernel, int or
+  float, is loaded and stored at the low half of its species of the drive's width; a value of
+  the other kind at the drive's width is loaded and stored whole at its own species. The plan
+  admits `I2F`, `I2D`, `F2D` and `D2F`, each one `convertShape`, and refuses a `BIGINT` source
+  (343a4) and a floating source to an integral lane (343b2), `Kind.CONVERSION`.
+- **The pairs**: `INT`, `TINYINT`, `SMALLINT` and `BOOLEAN` to both floating types, `FLOAT` with
+  `DOUBLE`, and the mixed trees type coercion makes (`x + i`, `f * i`, `f + x`, `i / 2.0D`). A
+  boolean is `ConvertLane(CondValue(c, INT), target)`, a long condition's one or zero narrowed
+  to the int lane first, so no boolean needs `L2F` or `L2D`. *Departure from 2.2:* a narrow
+  column in a double kernel, `CAST(y AS DOUBLE)`, takes row 332's narrow load at the long width,
+  which 332 built first; only a narrow column read as a value is admitted there, and its null
+  test alone (`CAST(y IS NOT NULL AS DOUBLE)`) and every other narrow node decline in the plan.
+- **The mask crossing at one lane count** #1065 left owed (`VARKA-341.md` 5.1): a guard's mask
+  and an arm's condition of the other kind of the drive's width cross by `VectorMask.cast`,
+  both ways at both widths, and so does the epilogue's bounds mask. *Not built:* roots of two
+  kinds still take a kernel each (`lanesShare`), and a filter's floating conjunct beside an
+  integral one still declines (`floatingConjunctRefusal`); that root-level half is owed after
+  343a3, with no part of 4 yet, and `VarkaAnsiForm.DECLINED` lists the forms it costs.
+- **The warm-up** gains `F2D`, `D2F` and the four mask casts between the two lanes of one width.
+- **Tests**: `VarkaEmitterFloatingCastSuite` holds each conversion and the two-lane kernels to
+  the reference at three widths, ten lengths, four null patterns and both bodies; the coverage
+  rows of "Floating casts" are checked against Spark by the harness; `VarkaFloatingLaneSuite`
+  runs `FLOAT` with `DOUBLE` end to end in both modes.
+- **The three failures of #1303's last option matrix** (run 41572066746):
+  1. *Every configuration*: the test "a narrow column read for its validity alone in a 64-bit
+     kernel of two lanes" asserted that a narrow value there declines. Row 332 had since built
+     that load, so it fused. The test now checks that it fuses where a long lane count is baked
+     and declines with the plan's reason where none is.
+  2. *`lanesOverride=4` and `16`*: the `FLOAT`, `DOUBLE` and `BOOLEAN` conformance suites' cast
+     rows now fuse kernels of two widths, whose 32-bit species has another size than the
+     32-bit-lane suites' under a pinned lane count, and the shared JVM's species guard refused
+     it. The three suites run in their own JVM, as the `INT` one does for its cast to `BIGINT`.
+  3. *`validityByWidth=false`*: the emitter test of a short widened and converted beside a
+     float column handed the emitter a plan that refuses it, which threw `INTERNAL_ERROR`. The
+     test now asserts the plan's refusal there, as the narrow suites do; the SQL path declined
+     cleanly all along. The coverage rows over a narrow column decline under that option, since
+     no lane count is baked, so `skips.tsv` lists them beside 343a2's line; the widening load
+     without a baked count is not built, so that line stays.
+
