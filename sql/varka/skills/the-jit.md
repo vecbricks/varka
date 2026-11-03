@@ -59,7 +59,7 @@ these files by `dev/varka_toc.py`.
   is no register-pressure cliff for an emitted single-output loop up to 248 ops.
 
   **And C1's `out of virtual registers in linear scan` is not about the machine register
-  file.** The bimodality section below attributes that refusal to 128-bit and its sixteen
+  file.** The bimodality section below once attributed that refusal to 128-bit and its sixteen
   `xmm` registers. Measured, it happens identically at 512-bit with thirty-two `zmm`
   available, on exactly the same two methods - `ChronoVectorOps::vectorFourFields` (936
   bytes) and the widest ladder point's `epilogueDense` (1954 bytes), never any
@@ -341,10 +341,12 @@ more of it. C2's register allocator sometimes finds a clean allocation for this 
 sometimes does not, from the same IR. The OSR compilations, by contrast, are the same in both
 runs to within one instruction (7303 against 7304).
 
-It is width-specific for the obvious reason: 128-bit has 16 xmm registers and this body sits at
-the edge of them - C1 refuses the same method outright with
-`COMPILE SKIPPED: out of virtual registers in linear scan` - while AVX-512's 32 zmm registers
-leave slack and show no bimodality at all.
+It is width-specific, and why is not known. It is not a short register file: the run was at
+128 bits on an AVX-512 host (`-XX:MaxVectorSize=16`), where C2 still has 32 registers, since
+`x86.ad`'s `vectorx_reg` takes the EVEX class whenever the CPU has AVX512F. And C1's
+`COMPILE SKIPPED: out of virtual registers in linear scan` on the same method is a method-size
+bailout at 512 bits too (the note near the top of this page). At AVX-512 there is no bimodality
+at all; a 16-register file is seen only on an AVX2 host or under `-XX:UseAVX=2`.
 
 **It is a property of the measurement environment, not of the kernel.** It does not reproduce
 standalone (six runs, all 210.5 M rows/s, no spread) and does not reproduce under a fastdebug

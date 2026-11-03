@@ -1182,6 +1182,9 @@ argument, and the reason it left is the start of that argument.
 | 74 | The validity-word algebra's missing axioms | 2.9 | an optimisation of the existing validity pass |
 | 75 | Zero-copy validity for leaf words | 2.10 | an optimisation whose bound moved below its own decline line |
 | 80 | String-column compaction keeping the Arrow layout | 2.27 | strings, sized for this milestone's item 3 |
+| 82 | The mask-to-long disposal in a checked kernel | 2.12 | a micro-optimisation of the int32 checked path |
+| 87 | The epilogue is the one method no budget bounds | 2.18 | kept for a future fix at the owner's request; milestone 5's section 6 says when it would come back |
+| 98 | Two filter rows under 1.0x because the consumer counts | 2.33 | the read-back floor - this milestone's item 13, which is where it now belongs |
 
 *30 September 2026, for VARKA-72, from VARKA-200's admission check (`VARKA-200.md` 2):* the
 case it names, measured. The fields of two dates interleaved take a loop method per output under
@@ -1202,9 +1205,6 @@ kernels, which each entry's column bitset and the IR's interned DAG already expo
 clustering could serve this task's order and the kernels' cut alike. It needs no e-graph: an
 e-graph chooses among equivalent forms of an expression (item 11), where this partitions a
 fixed one.
-| 82 | The mask-to-long disposal in a checked kernel | 2.12 | a micro-optimisation of the int32 checked path |
-| 87 | The epilogue is the one method no budget bounds | 2.18 | kept for a future fix at the owner's request; milestone 5's section 6 says when it would come back |
-| 98 | Two filter rows under 1.0x because the consumer counts | 2.33 | the read-back floor - this milestone's item 13, which is where it now belongs |
 
 *3 November 2026, for VARKA-25, from a reading of the loops JIT engine (github.com/4ekmah/loops,
 Apache-2.0):* its linear-scan allocator computes each vector register's live interval, so it has
