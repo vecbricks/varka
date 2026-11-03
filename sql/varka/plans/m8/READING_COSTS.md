@@ -25,7 +25,7 @@ Nothing was built or run; the only arithmetic below is on committed results.
 | EPYC 7763 (Zen 3, AVX2) | `ZEN3` | `znver3` |
 | EPYC 9V74 (Zen 4, AVX-512 hidden on GitHub) | `ZEN4`, the YMM rows | `znver4` |
 | EPYC 9V45 (Zen 5 server, 512-bit datapath) | `ZEN5` (a Ryzen 9700X) | `znver5`, Zen 4's model |
-| laptop, Ryzen AI 9 HX PRO 370 (Zen 5, 256-bit path) | **none**: `ZEN5`'s ZMM rows misfit | same |
+| laptop (Zen 5, 256-bit datapath) | **none**: `ZEN5`'s ZMM rows are the desktop's | as above |
 | Xeon 8573C (Emerald Rapids) | `EMR` | `emeraldrapids`, Sapphire Rapids' model |
 | Xeon 6973P-C (Granite Rapids) | none (`EMR` nearest) | Sapphire Rapids' model |
 
