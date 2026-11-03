@@ -1227,6 +1227,22 @@ the probe is extended to every loop method first. If a count separates the metho
 from those that do not, the planner predicts it from the IR in `VarkaEmitCost` and the unroll and
 grouping rules read it; if none does, 2.24's rule is restated without it. No loops code is taken.
 
+*3 November 2026, for VARKA-25, from `m8/READING_LLVM_LV.md` 2 (a):* LLVM's loop vectorizer has
+the count the note above finds missing. `calculateRegisterUsage` opens an interval at each value's
+definition and closes it at its last use, in emission order, and keeps the peak per register class.
+For Varka the classes are vectors, `VectorMask`s and validity longs, the dense and masked bodies
+are counted apart, a calendar or division node counts at its `*_TMP_COUNT`, and invariants count
+once, not per unrolled part: 2.24's broadcast confounder, a broadcast pinned in a local being an
+invariant and one emitted per use not. The rule then reads
+`K = min(2, bit_floor((R - invariants - 1) / max(1, live - 1)))`, R being 16 or 32 by host and 2
+the measured cap. Every unroll number so far had 32 registers (the narrow run used
+`-XX:MaxVectorSize=16`), so the admission check is measured on an AVX2 host or under
+`-XX:UseAVX=2`. LLVM would interleave the 8-op chain and not the 20-op one, the reverse of what
+Varka measured; the hypothesis is C2's `LoopUnrollLimit` (item 26, "Unrolling, from the source"),
+which unrolls the small body itself, so the JIT log of the two benchmark loops is read before K is
+gated on it. At K = 2 the remainder is one unmasked K = 1 iteration for a full group left over,
+then the one masked iteration of today.
+
 
 ### Item 16. Borrowed from PolarDB-X's vectorized executor
 
@@ -1948,6 +1964,18 @@ defer the expensive optimisation, which is the right split for bytecode. And
 the compiled loop is scalar IR left to LLVM to vectorise, the same bet as
 Gandiva's with the same compiler; the emitter that writes lanes is still the
 step not taken.
+
+*3 November 2026, from `m8/READING_ISPC.md` 2 (a):* a second mechanism beside item 1's compaction.
+ISPC emits a costly varying `if` arm once, under `any(mask)` (`emitMaskMixed`), and blends; its
+`cif` emits arms up to three times, which Varka's byte budgets would refuse. In Varka that is a
+per-lane-group skip of a heavy `IF` or `CASE` arm (a calendar decomposition, `AddMonths`, a bounded
+division, milestone 8's exact math or decimal pair): THEN under `kT.anyTrue()`, ELSE under
+`(~kT & live) != 0` in the masked body, since ELSE takes the unknown lanes, the blend kept. Only the
+nodes the arm alone uses are skipped. It pays on clustered data, such as a sorted batch under
+`d < cutoff`, and on random data it is a loss, an unpredictable branch per group. So it is gated
+on a coherence census first: per `IfElse`, the share of lane groups all on, all off and mixed, on
+the surface benchmark's `CASE` rows and a sorted variant. ISPC's paper puts the stake at 0.85x
+geometric mean with coherent branches off (aobench 0.33x).
 
 
 ### Item 24. Comet, the accelerator built for the same contract
