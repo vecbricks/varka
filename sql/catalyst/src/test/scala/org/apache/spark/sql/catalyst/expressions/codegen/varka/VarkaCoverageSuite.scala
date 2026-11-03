@@ -128,9 +128,14 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
   private val d9b = AttributeReference("d9b", DecimalType(9, 2))()
   private val d18 = AttributeReference("d18", DecimalType(18, 2))()
   private val d18b = AttributeReference("d18b", DecimalType(18, 2))()
+  // Two scales beside the four of scale 2 (VARKA-348), so a comparison can rescale: d9s4 against
+  // d9 compares at DECIMAL(11, 4), and d16s9 meets every other at a common type it names.
+  private val d9s4 = AttributeReference("d9s4", DecimalType(9, 4))()
+  private val d16s9 = AttributeReference("d16s9", DecimalType(16, 9))()
 
   private val columns: Seq[Attribute] = Seq(d, d2, i, ymm, ymy, ym, l, l2, t, t2, dt, dt2, b, b2,
-    y1, y2, s1, s2, ntz, ntz2, x, x2, f, f2, d9, d9b, d18, d18b)
+    y1, y2, s1, s2, ntz, ntz2, x, x2, f, f2, d9, d9b, d18, d18b,
+    d9s4, d16s9)
 
   /**
    * One documented expression. `sql` is both what the table prints and what the check
@@ -984,7 +989,16 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
         + "reads a valid row's value and raises on a slot outside the precision"),
       Row("d9 IS NOT NULL"),
       Row("d18 IS NULL"),
-      Row("d18 IS NOT NULL"))),
+      Row("d18 IS NOT NULL"),
+      // Two scales (VARKA-348): coercion casts both sides to the wider type, and the cast of the
+      // smaller scale is a multiply by 10^k, exact since the product stays within 18 digits.
+      Row("d9 < d9s4", "both sides at DECIMAL(11, 4): d9's unscaled value times 100, exact "
+        + "since nine digits times 10^2 stay within eleven (decimal64.smt2)"),
+      Row("d9 = d9s4"),
+      Row("d9 <=> d9s4"),
+      Row("d16s9 >= d9s4", "at DECIMAL(16, 9): d9s4 times 10^5"),
+      Row("d18 > 1.5", "the literal takes its slot at the column's scale, 150"),
+      Row("d9 < 0.425", "at DECIMAL(10, 3): the column times 10, the literal 425"))),
 
     Family("Time arithmetic", predicates = false, Seq(
       Row("t - t2", "a day-time interval, the nanosecond difference divided by a thousand"),
@@ -1600,7 +1614,15 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
     "minute(t2)" -> Refined("hour(t), minute(t)"),
     "second(t)" -> Refined("second(t)"),
     // `time_from_micros(time_to_micros(t))`: time_to_micros has no refinement.
-    "t + INTERVAL '0 00:00:00' DAY TO SECOND" -> Refined("t + dt"))
+    "t + INTERVAL '0 00:00:00' DAY TO SECOND" -> Refined("t + dt"),
+    // The 64-bit decimal's rows of two scales (VARKA-348), each refined whole; the equal-scale
+    // rows of VARKA-347 stay differential.
+    "d9 < d9s4" -> Refined("d9 < d9s4"),
+    "d9 = d9s4" -> Refined("d9 = d9s4"),
+    "d9 <=> d9s4" -> Refined("d9 <=> d9s4"),
+    "d16s9 >= d9s4" -> Refined("d16s9 >= d9s4"),
+    "d18 > 1.5" -> Refined("d18 > 1.5"),
+    "d9 < 0.425" -> Refined("d9 < 0.425"))
 
   private def verifiedOf(family: Family, row: Row): Verified =
     rowVerified.getOrElse(row.sql, familyVerified.getOrElse(family.title, Differential))
