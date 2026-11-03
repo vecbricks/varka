@@ -829,3 +829,24 @@ Made on the rebuilt part; none gives a wrong answer.
   gone, and `nullTested`'s javadoc says the same. Only Spark's interpreted path, with whole-stage
   codegen off, stops at the first non-null operand or the taken branch; a decline there hands the
   batch to the row engine, which answers as Spark does.
+
+### The medium review of 348a3 (3 November 2026)
+
+Made on the rebuilt part; none gives a wrong answer.
+
+- **A null test through a widening cast stopped fusing.** On 348a2 `nullTested` read through a
+  cast that keeps the scale and widens the precision, so `CAST(d18 AS DECIMAL(20, 0)) IS NULL`
+  and `CAST(d9 AS DECIMAL(38, 2)) IS NULL` fused; here its probe met `value()`'s width check,
+  which declines every non-column past 18 digits, first. Such a cast multiplies by nothing and
+  cannot null or fail, so `nullTested` now strips it before the probe and reads the operand's
+  validity; `VarkaDecimalValueSuite` holds both shapes, and the cast twice over, fusing and
+  answering as Spark's own evaluation of the expression on nulls and at the precision's bounds.
+- **A negated wide choice named only row 359.** The rescale test fell to its default under
+  `UnaryMinus` and `Abs`, so `-IF(p, a18s2, b9s4) < c9s4` named the wide type alone; it now looks
+  through both, and `wideChoiceOfARescaleDeclines` adds a negation, an `abs` and the two nested.
+- **A lowering cast over a wide rescale did not name row 350.** `CAST(IF(p, a18s2, b9s4) AS
+  DECIMAL(20, 2))` lowers by two digits of scale a choice whose branch was rescaled up, and named
+  rows 359 and 360; the decline now says the cast is row 350's beside them, wherever the
+  lowering cast sits on the rescale's path, coercion's rescale over it included, as
+  `loweringCastOfAWideRescaleDeclines` holds. A lowering cast whose own type is within 18
+  digits still declines in the cast's arm, naming row 350 alone.
