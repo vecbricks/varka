@@ -533,6 +533,15 @@ public sealed interface VarkaEmitOption
       new Flag("fromLongMasks", Reason.MISCOMPILED, false,
           VarkaEmitOptions::fromLongMasks, Builder::fromLongMasks,
           new FlagTag("fromLongMasks", true)),
+      // A long-lane abs is a decimal's (VARKA-348 2.6): the compare, negation and blend by
+      // default, intrinsic on every x86 host at 256 and 512 bits; the lanewise ABS is the arm,
+      // intrinsic only with AVX-512, measured against the blend there.
+      new Flag("decimalAbsLanewise", Reason.MACHINE, false,
+          VarkaEmitOptions::decimalAbsLanewise, Builder::decimalAbsLanewise,
+          new FlagTag("decimalAbsLanewise", true)),
+      new Flag("dropDecimalBound", Reason.FAULT_INJECTOR, false,
+          VarkaEmitOptions::dropDecimalBound, Builder::dropDecimalBound,
+          new FlagTag("dropDecimalBound", true)),
       // A machine choice: which of the decimal store's two interleaves is native depends on the
       // host (`VARKA-157.md` 2.2), so the losing arm stays behind the option. Its tag keeps the
       // default's rendering empty. Only a WidenDecimal root's store reads it.

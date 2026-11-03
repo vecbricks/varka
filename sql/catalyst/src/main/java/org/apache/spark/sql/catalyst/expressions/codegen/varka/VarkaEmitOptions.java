@@ -490,6 +490,18 @@ import com.sun.management.HotSpotDiagnosticMXBean;
  *        folds away where it is off, is right on every host and JDK; true is the losing arm, an
  *        AND a site cheaper on x86 below AVX-512, kept for the A/B and for the JDKs that fix the
  *        rule ({@code m9/SCOPE.md} item 114).
+ * @param decimalAbsLanewise whether a long-lane {@code abs}, which only a decimal's unscaled value
+ *        reaches (VARKA-348 2.6), is the lanewise {@code ABS}, one {@code evpabsq} where x86 has
+ *        AVX-512 and the Vector API's allocating Java fallback below it, rather than a compare
+ *        with zero, a negation and a blend, which every host makes intrinsic at 256 and 512
+ *        bits. False, the blend, is the default; true is the arm, kept to be measured against
+ *        the blend on a host with AVX-512. Either gives {@code |u|} for every value within 18
+ *        digits ({@code decimal64.smt2}).
+ * @param dropDecimalBound a fault injector for the decimal leaf (VARKA-348 3 item 1): the leaf
+ *        keeps its high-word check and drops the digit check, so a valid slot outside the
+ *        precision is computed on where Spark's reader raises, and a rescale of it can wrap.
+ *        What the slot table plants to show it catches a leaf that misses its bound. False in
+ *        production.
  * @param decimalStore how a {@code WidenDecimal} root interleaves its words into Arrow's
  *        sixteen-byte decimal slots (VARKA-157 2.2): see {@link DecimalStore}. No other root reads
  *        it, so every shape without a decimal output emits the same bytes under either value.
@@ -543,6 +555,8 @@ public record VarkaEmitOptions(
     boolean dropStackMaps,
     int misdescribeDataBytes,
     boolean fromLongMasks,
+    boolean decimalAbsLanewise,
+    boolean dropDecimalBound,
     DecimalStore decimalStore) {
 
   /**
@@ -675,7 +689,7 @@ public record VarkaEmitOptions(
           true, true, true, true,
           VarkaEmitBudget.CALL_SITE_BUDGET, VarkaEmitBudget.HEAVY_GROUP_OUTPUTS,
           true, true, true, true, true, true, true, 0, 0, 0, false, false, false, 0, false,
-          DecimalStore.REARRANGE);
+          false, false, DecimalStore.REARRANGE);
 
   public VarkaEmitOptions {
     if (groupBudget < 1) {
@@ -781,6 +795,8 @@ public record VarkaEmitOptions(
       b.dropStackMaps = dropStackMaps;
       b.misdescribeDataBytes = misdescribeDataBytes;
       b.fromLongMasks = fromLongMasks;
+      b.decimalAbsLanewise = decimalAbsLanewise;
+      b.dropDecimalBound = dropDecimalBound;
       b.decimalStore = decimalStore;
     return b;
   }
@@ -835,6 +851,8 @@ public record VarkaEmitOptions(
     private boolean dropStackMaps;
     private int misdescribeDataBytes;
     private boolean fromLongMasks;
+    private boolean decimalAbsLanewise;
+    private boolean dropDecimalBound;
     private DecimalStore decimalStore;
 
     private Builder() {
@@ -1080,6 +1098,16 @@ public record VarkaEmitOptions(
       return this;
     }
 
+    public Builder decimalAbsLanewise(boolean lanewise) {
+      this.decimalAbsLanewise = lanewise;
+      return this;
+    }
+
+    public Builder dropDecimalBound(boolean drop) {
+      this.dropDecimalBound = drop;
+      return this;
+    }
+
     public Builder decimalStore(DecimalStore form) {
       this.decimalStore = form;
       return this;
@@ -1098,7 +1126,8 @@ public record VarkaEmitOptions(
           severalKernels,
           elideUnreadLocals, planSize, misdescribeDriverBytes, forceResidualAt,
           misdescribeRollback, exactRefusalStatus, groupBudgetUnderPrediction, dropStackMaps,
-          misdescribeDataBytes, fromLongMasks, decimalStore);
+          misdescribeDataBytes, fromLongMasks, decimalAbsLanewise, dropDecimalBound,
+          decimalStore);
     }
   }
 

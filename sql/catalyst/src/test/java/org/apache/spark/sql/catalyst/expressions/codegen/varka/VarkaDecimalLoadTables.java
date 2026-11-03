@@ -400,13 +400,19 @@ abstract class VarkaDecimalLoadTables {
    */
   private void conditionTable(String name, IntFunction<VarkaVectorIR.Cond> cond,
       long[] literals, RowTruth truth) {
+    conditionTable(name, PRECISIONS, cond, literals, truth);
+  }
+
+  /** {@link #conditionTable} at the given precisions only. */
+  private void conditionTable(String name, int[] precisions,
+      IntFunction<VarkaVectorIR.Cond> cond, long[] literals, RowTruth truth) {
     long[] lits = new long[literals.length + 2];
     System.arraycopy(literals, 0, lits, 0, literals.length);
     lits[literals.length] = 1L;
     lits[literals.length + 1] = 0L;
     int declined = 0;
     for (int lanes : widths()) {
-      for (int precision : PRECISIONS) {
+      for (int precision : precisions) {
         VarkaVectorIR root = new VarkaVectorIR.IfElse(cond.apply(precision),
             new LiteralSlot(literals.length, LaneType.LONG),
             new LiteralSlot(literals.length + 1, LaneType.LONG));
@@ -483,6 +489,97 @@ abstract class VarkaDecimalLoadTables {
     conditionTable("d <=> 0", precision -> new VarkaVectorIR.NullSafeEqual(
         new DecimalColumn(0, LaneType.LONG, precision), new LiteralSlot(0, LaneType.LONG)),
         new long[] {0L}, (u, isNull) -> !isNull && u == 0 ? Truth.TRUE : Truth.FALSE);
+  }
+
+  @Test
+  @DisplayName("the slot check declines under a rescale, a negation and abs as under the bare "
+      + "leaf, and answers each in-precision row (VARKA-348)")
+  void conditionTableUnderTheValueForms() {
+    // d * 10^2 < 5: the rescale of DECIMAL(p, 2) against DECIMAL(p + 2, 4), at the precisions
+    // where p + 2 stays within 18 digits, so the product is exact.
+    conditionTable("d * 100 < 5", new int[] {1, 9, 10}, precision -> new Compare(CompareOp.LT,
+            new IntArith(IntOp.MUL, Overflow.WRAP, new DecimalColumn(0, LaneType.LONG,
+                precision), new LiteralSlot(1, LaneType.LONG)),
+            new LiteralSlot(0, LaneType.LONG)),
+        new long[] {5L, 100L},
+        (u, isNull) -> isNull ? Truth.UNKNOWN : u * 100 < 5 ? Truth.TRUE : Truth.FALSE);
+    conditionTable("-d < 5", precision -> new Compare(CompareOp.LT, new VarkaVectorIR.IntNeg(
+            Overflow.WRAP, new DecimalColumn(0, LaneType.LONG, precision)),
+            new LiteralSlot(0, LaneType.LONG)),
+        new long[] {5L}, (u, isNull) -> isNull ? Truth.UNKNOWN : -u < 5 ? Truth.TRUE : Truth.FALSE);
+    conditionTable("abs(d) >= 5", precision -> new Compare(CompareOp.GE, new VarkaVectorIR.IntNeg(
+            Overflow.WRAP, new DecimalColumn(0, LaneType.LONG, precision), true),
+            new LiteralSlot(0, LaneType.LONG)),
+        new long[] {5L},
+        (u, isNull) -> isNull ? Truth.UNKNOWN : Math.abs(u) >= 5 ? Truth.TRUE : Truth.FALSE);
+    // (-d) IS NULL compiles to the leaf's own test (VarkaDecimalCompiler.valid), the table of
+    // conditionTableOfTheNullTest.
+  }
+
+  @Test
+  @DisplayName("a bad slot under a rescale in an IfElse arm the batch never takes declines")
+  void slotCheckIgnoresTheArmUnderARescale() {
+    for (int lanes : widths()) {
+      int precision = 9;
+      var d = new DecimalColumn(0, LaneType.LONG, precision);
+      VarkaVectorIR.Cond inArm = new Compare(CompareOp.LT,
+          new IntArith(IntOp.MUL, Overflow.WRAP, d, new LiteralSlot(3, LaneType.LONG)),
+          new LiteralSlot(0, LaneType.LONG));
+      VarkaVectorIR.Cond taken = new Compare(CompareOp.GT,
+          new WidenLane(new ColumnRef(1, LaneType.INT)), new LiteralSlot(1, LaneType.LONG));
+      VarkaVectorIR root = new VarkaVectorIR.IfElse(taken,
+          new VarkaVectorIR.IfElse(inArm, new LiteralSlot(2, LaneType.LONG),
+              new LiteralSlot(1, LaneType.LONG)),
+          new LiteralSlot(1, LaneType.LONG));
+      VarkaFusedKernel k = kernel(List.of(root), 2, 4,
+          VarkaMatrixRuns.BASE.withLanesOverride(lanes)).kernel();
+      for (int length : LENGTHS) {
+        Batch b = batch(length, precision, false, 43L + length);
+        b.slots()[length - 1] = Slot.of(-power(precision));
+        KernelAnswer got = runBatch(k, b, precision, new int[length], 1,
+            new long[] {5L, 0L, 1L, 100L});
+        assertEquals(VarkaFusedKernel.STATUS_DECIMAL_SLOT, got.status(),
+            () -> "an untaken arm's bad slot under a rescale at " + label(lanes) + ", "
+                + "length " + length);
+      }
+    }
+  }
+
+  @Test
+  @DisplayName("the planted fault: with the digit check dropped the table fails, and the rescale "
+      + "of 10^17 by 10^2 wraps (row 504)")
+  void plantedFaultIsCaught() {
+    int precision = 17;
+    for (int lanes : widths()) {
+      // d * 100 < 0 over a valid slot of 10^17, one past DECIMAL(17, s): Spark's reader raises.
+      VarkaVectorIR.Cond cond = new Compare(CompareOp.LT,
+          new IntArith(IntOp.MUL, Overflow.WRAP, new DecimalColumn(0, LaneType.LONG, precision),
+              new LiteralSlot(1, LaneType.LONG)),
+          new LiteralSlot(0, LaneType.LONG));
+      VarkaVectorIR root = new VarkaVectorIR.IfElse(cond, new LiteralSlot(2, LaneType.LONG),
+          new LiteralSlot(3, LaneType.LONG));
+      long[] lits = {0L, 100L, 1L, 0L};
+      VarkaEmitOptions on = VarkaMatrixRuns.BASE.withLanesOverride(lanes).toBuilder()
+          .dropDecimalBound(true).build();
+      VarkaFusedKernel faulty = kernel(List.of(root), 1, lits.length, on).kernel();
+      VarkaFusedKernel sound = kernel(List.of(root), lits.length, lanes).kernel();
+      for (int length : LENGTHS) {
+        int row = length - 1;
+        Batch b = plain(length, false, 1L);
+        b.slots()[row] = Slot.of(power(precision));
+        String at = label(lanes) + ", length " + length;
+        KernelAnswer good = runBatch(sound, b, precision, null, 1, lits);
+        assertEquals(VarkaFusedKernel.STATUS_DECIMAL_SLOT, good.status(), () -> at);
+        KernelAnswer bad = runBatch(faulty, b, precision, null, 1, lits);
+        assertEquals(0, bad.status(), () -> at + ": the fault computes where Spark raises");
+        // 10^19 wraps to 10^19 - 2^64 < 0, so the positive value reads as below zero.
+        assertEquals(1L, bad.values()[0][row], () -> at + ": the rescale wraps");
+        assertThrows(org.opentest4j.AssertionFailedError.class,
+            () -> checkCondition(at, faulty, b, precision, lits,
+                (u, isNull) -> isNull ? Truth.UNKNOWN : u * 100 < 0 ? Truth.TRUE : Truth.FALSE),
+            () -> at + ": the slot table must fail on the planted fault");
+      }
+    }
   }
 
   @Test

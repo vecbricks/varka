@@ -57,7 +57,7 @@ or|bool|bool|bool|done|331,27|fused as a condition, over a BOOLEAN column too (3
 <|ALL|bool|bool,int,bigint,date,time,ym,dt,byte,short,ntz,float,double|semantics|341,348,359,329,347|Spark's NaN ordering on floats; dec to precision 18 fuses at every scale (347, 348) and counts fused with 359, 360 and 363 (2.8)
 <=|ALL|bool|bool,int,bigint,date,time,ym,dt,byte,short,ntz,float,double|semantics|341,348,359,329,347|Spark's NaN ordering on floats; dec to precision 18 fuses at every scale (347, 348) and counts fused with 359, 360 and 363 (2.8)
 !|bool|bool||plumbing|331,27|alias of not
-abs|NUM,IVL|same|byte,short,ym,float,double|semantics|330,104,103,342,348,359|the minimum value overflows: wraps or throws
+abs|NUM,IVL|same|byte,short,ym,float,double|semantics|330,104,103,342,348,359|the minimum value overflows: wraps or throws; not for dec, whose unscaled value within 18 digits is never the minimum: dec to precision 18 fuses under a comparison or a null test (348), as an output with row 157, and counts fused with 359 (2.8)
 greatest|ALL|same|int,date,bigint,time,ym,dt,byte,short,ntz,float,double|semantics|341,348,359,329|NaN is the greatest float
 least|ALL|same|int,date,bigint,time,ym,dt,byte,short,ntz,float,double|semantics|341,348,359,329|NaN is the greatest float
 acos|double|double||ulp|367,356|Math
@@ -86,7 +86,7 @@ log1p|double|double||ulp|367,358|StrictMath
 log2|double|double||ulp|367,358|StrictMath.log over a constant
 ln|double|double||ulp|367,358|StrictMath
 mod|NUM|same||semantics|30,95,104,346,349,363|integral is semantics (zero divisor); floating by the one-FMA remainder (346)
-negative|NUM,IVL|same|byte,short,int,ym,float,double|semantics|330,104,103,342,348,359|the minimum value overflows
+negative|NUM,IVL|same|byte,short,int,ym,float,double|semantics|330,104,103,342,348,359|the minimum value overflows; not for dec, whose unscaled value within 18 digits is never the minimum: dec to precision 18 fuses under a comparison or a null test (348), as an output with row 157, and counts fused with 359 (2.8)
 pmod|NUM|same||semantics|30,104,346,363|integral is semantics (item 33's sign rule; pmod(-1, Int.MinValue) is Int.MaxValue, SPARK-59934); floating by the one-FMA remainder (346)
 positive|NUM,IVL|same||plumbing|333|rewritten to its child
 pow|double|double||ulp|367,358|StrictMath; fused behind the guard on fdlibm's weak branch, its exact exponents as exact nodes (358)

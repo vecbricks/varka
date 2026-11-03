@@ -1015,7 +1015,11 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
       Row("d9 < 0.425", "in the analyzed form at DECIMAL(10, 3), the column times 10 against "
         + "425; the optimizer folds it to d9 < 0.43, of one scale"),
       Row("d9 < 10000000.0125", "at DECIMAL(12, 4): the column times 100 against "
-        + "100000000125, kept end to end since the literal does not fit d9's type"))),
+        + "100000000125, kept end to end since the literal does not fit d9's type"),
+      Row("-d9 < d9b", "a negation, which cannot overflow: an unscaled value within 18 digits is "
+        + "never the long lane's minimum"),
+      Row("abs(d9) >= d9b", "a compare with zero, a negation and a blend; the lanewise ABS is "
+        + "the decimalAbsLanewise option"))),
 
     Family("Time arithmetic", predicates = false, Seq(
       Row("t - t2", "a day-time interval, the nanosecond difference divided by a thousand"),
@@ -1632,15 +1636,17 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
     "second(t)" -> Refined("second(t)"),
     // `time_from_micros(time_to_micros(t))`: time_to_micros has no refinement.
     "t + INTERVAL '0 00:00:00' DAY TO SECOND" -> Refined("t + dt"),
-    // The 64-bit decimal's rows of two scales (VARKA-348), each refined whole; the equal-scale
-    // rows of VARKA-347 stay differential.
+    // The 64-bit decimal's rows of two scales, negation and abs (VARKA-348), each refined whole;
+    // the equal-scale rows of VARKA-347 stay differential.
     "d9 < d9s4" -> Refined("d9 < d9s4"),
     "d9 = d9s4" -> Refined("d9 = d9s4"),
     "d9 <=> d9s4" -> Refined("d9 <=> d9s4"),
     "d16s9 >= d9s4" -> Refined("d16s9 >= d9s4"),
     "d18 > 1.5" -> Refined("d18 > 1.5"),
     "d9 < 0.425" -> Refined("d9 < 0.425"),
-    "d9 < 10000000.0125" -> Refined("d9 < 10000000.0125"))
+    "d9 < 10000000.0125" -> Refined("d9 < 10000000.0125"),
+    "-d9 < d9b" -> Refined("-d9 < d9b"),
+    "abs(d9) >= d9b" -> Refined("abs(d9) >= d9b"))
 
   private def verifiedOf(family: Family, row: Row): Verified =
     rowVerified.getOrElse(row.sql, familyVerified.getOrElse(family.title, Differential))
