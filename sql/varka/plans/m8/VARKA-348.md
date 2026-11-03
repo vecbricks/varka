@@ -701,10 +701,6 @@ from the Build's JUnit report.
   read an emit option, so no rendering of it changes with the flag, and the slot table is the
   check the fault is planted against. A refinement that read the flag would restate the
   emitter's choice in the specification's file, which the row leaves to row 504.
-- **No table of `IS NULL` over a negation.** Section 3 item 1 lists it beside the rescale. In
-  348a2 a null test over a decimal that is not a column declines ("a null test over a decimal
-  that is not a column"), so `WHERE -d IS NULL` declines and has no kernel to table;
-  the table waits for the null test over values, which is 348a3's.
 - **The fuzzer's option order is frozen.** A drawn option sorted into the middle of the order of
   the `with*` setters shifts every later coin of every fuzz draw, and with them the data drawn
   after: `decimalAbsLanewise`, while it was a general draw, moved the stranger draw that
@@ -729,3 +725,75 @@ from the Build's JUnit report.
   rows 349 and 351 and says a quotient or a remainder is no row's in this milestone
   (`VARKA-363.md` 7); the kernel check's decimal column set throws past ordinal 63 instead of
   dropping the column.
+
+### 10.7 Step 4: 348a3, the choices and the null tests
+
+*Built 1 November 2026 on branch `varka-348-conditions`, and cut as part 348a3 on branch
+`varka-348a3-choices` on 3 November 2026, on 348a2 (section 5).*
+
+**The choices and the null tests.** `value()` builds `If` and `CASE WHEN` with an `ELSE` as the
+right fold of `IfElse` over conditions lifted to the long lane, `Coalesce` as the fold of
+`IfElse(valid(head), head, rest)`, and `Greatest` and `Least` as the existing picks, each under the
+family switch that claims its int form; a `CASE` without `ELSE` declines naming row 333. A null
+test over any decimal value compiles the value first, as a probe for its declines, and then its
+validity, `VarkaDecimalCompiler.valid`, a condition over the leaves; each condition inside it is
+compiled once.
+
+**The coverage rows.** Four predicate rows: `greatest(d9, d9s4) > d9b`,
+`coalesce(d9, d9b) IS NULL`, `(-d18) IS NOT NULL` and
+`CASE WHEN d9 < d9b THEN d9 ELSE d9s4 END > 0.0`. Three are refined in the decimal section of
+`refinement.smt2`; `(-d18) IS NOT NULL` is differential (10.8). Regenerated in
+`ADDING_A_TYPE.md`'s order, `emitted_bytes.json` adds the four at both widths and no existing
+row's hash moves.
+
+**The census and the registry.** The curated census's notes on the 26 entries of section 6 now
+say that the 64-bit form fuses at every scale, under a comparison or a null test until 157, and
+that the pair counts with 359, 360 and 363; `rows` gains 348 on `when`, `ifnull`, `nvl`, `nvl2`,
+`zeroifnull`, `coalesce`, `if`, `greatest`, `least`, `equal_null`, `between` and the null tests;
+`in` and `in_set` say they wait on 497's arm, and `abs` and `negative` that their overflow note
+is not a decimal's. The registry's `Owed("Decimal", "348")` names 359, as section 7 says.
+
+### Departures from the plan in 348a3
+
+- **A null test over a computed value derives its validity from the leaves.** Section 2.3 has
+  `IS [NOT] NULL` over any value be `IsNotNull(unscaled)`. The IR's `IsNotNull` reads a column's
+  validity word or a condition's known-ness, never a computed node's word, which only exists
+  during its value walk (the node's javadoc, the milestone-3 restriction). So
+  `VarkaDecimalCompiler.valid` builds the validity as a total condition over the leaves: a
+  column's word through a rescale, a negation or `abs`; `CondIf` over the branches' validity for
+  `If` and `CASE`; the OR of the operands' for `coalesce`, `greatest` and `least`. Every leaf of
+  the value is still a leaf of the test, so its slot check still runs. `coalesce` uses the same
+  validity for its heads, so a computed head fuses, where the date lane's `coalesce` declines one.
+- **The table of `IS NULL` over a negation is the bare leaf's table.** Section 3 item 1 lists
+  it beside the rescale. `VarkaDecimalCompiler.valid` compiles `(-d) IS NULL` to the leaf's own
+  null test, the tree `conditionTableOfTheNullTest` already runs, so no new table is added for it.
+- **The `CASE` row compares with `0.0`, not `0`.** Section 3 item 4 lists `... END > 0`. The
+  integer literal arrives as a cast from `INT` to a decimal, which the census check counts as a
+  cast that never fuses bare (row 350's); `0.0` keeps the row's subject, a choice under a
+  comparison, and the integral literal still folds in real queries.
+
+### 10.8 The reviews of 348a3 (1 and 2 November 2026)
+
+Made on #1304 before the cut; none found a wrong answer.
+
+- **A null test compiled its value's conditions twice.** `nullTested` compiled the value, for its
+  declines, and then its validity, and both compiled every `IF` and `CASE` condition inside it;
+  `coalesce` did the same for each operand. A condition that holds a null test of the level
+  below therefore doubled the compile at every level. The value is now compiled as a probe that
+  compiles no condition and whose table entries are rolled back, and a condition compiled within
+  one call of the compiler is kept on the sink and reused, so each is compiled once;
+  `VarkaDecimalValueSuite` compiles the three nested shapes twenty levels deep within a 20 s
+  bound. The `CASE` validity compiles its branches in the value's order, so the leaves keep
+  their slots; `emitted_bytes.json` and `coverage.json` did not move.
+- **Two null-test refinements compared a formula with itself.** `coalesce(d9, d9b) IS NULL`
+  now models the kernel's null test as `VarkaDecimalCompiler.valid` builds it, the negated OR
+  of the leaves' validity, against Spark's AND of the operands' nulls. `(-d18) IS NOT NULL`
+  has no independent kernel form, its validity being the operand's word, so its refinement is
+  gone and its row is differential.
+- **The census said `zeroifnull` fuses at every scale.** `ZeroIfNull` is `Nvl(a, 0)`, which is
+  `Coalesce(a, 0)`, and `findWiderTypeForDecimal` widens the int as `DECIMAL(10, 0)`: over
+  `DECIMAL(p, s)` the result is `DECIMAL(max(p, s + 10), s)`, within 18 digits only at scale 8
+  or less. The notes of `zeroifnull`, `nvl` and `ifnull` say so.
+- **The `CASE` row after 10.4's new `d9s4`.** `CASE WHEN d9 < d9b THEN d9 ELSE d9s4 END > 0.0`
+  stays a sign test of its branch's rescale, since a positive factor keeps a sign; the new column
+  only makes its branch choice matter.
