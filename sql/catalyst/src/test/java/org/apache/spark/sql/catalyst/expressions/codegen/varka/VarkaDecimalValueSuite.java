@@ -107,6 +107,20 @@ public final class VarkaDecimalValueSuite {
   }
 
   @Test
+  @DisplayName("a literal with more integral digits than the column multiplies the column by 100 "
+      + "and keeps its own unscaled value as its slot")
+  void literalKeptAtItsOwnScale() {
+    Attribute a = VarkaSqlResolve.column("a", new DecimalType(9, 2));
+    CompiledVarkaPredicate compiled = compile("a < 10000000.0125", List.of(a));
+    // Coercion compares at DECIMAL(12, 4): the column times 10^2, the literal 100000000125. The
+    // optimizer keeps this tree too, since the literal does not fit the column's type, and over a
+    // column below 10^7 the comparison is true either way, so only this table pins the factor.
+    assertEquals(List.of(100L, 100_000_000_125L),
+        compiled.fused().longLiterals().stream().sorted().toList(),
+        () -> "the long table: " + compiled.fused());
+  }
+
+  @Test
   @DisplayName("p + k = 19 declines at compile time naming rows 359 and 360, whichever side "
       + "carries the rescale")
   void nineteenDigitsDecline() {

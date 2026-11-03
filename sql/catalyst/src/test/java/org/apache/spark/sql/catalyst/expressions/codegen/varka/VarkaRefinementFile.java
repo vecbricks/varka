@@ -1071,6 +1071,7 @@ final class VarkaRefinementFile {
     decimalRow(out, "d9 < 0.425, Spark mode: in the analyzed form at DECIMAL(10, 3), the column "
         + "times 10 and the literal 425", List.of(d9), List.of(), "va", "va",
         "(< (jlong.mul a 10) 425)", "(< (* a 1000) (* 425 100))");
+    // Proves without the factor too; VarkaDecimalValueSuite.literalKeptAtItsOwnScale pins it.
     decimalRow(out, "d9 < 10000000.0125, Spark mode: at DECIMAL(12, 4), the column times 100 "
         + "and the literal 100000000125", List.of(d9), List.of(), "va", "va",
         "(< (jlong.mul a 100) 100000000125)", "(< (* a " + pow10(4) + ") (* 100000000125 100))");
