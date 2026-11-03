@@ -21,6 +21,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.RecordComponent;
 import java.time.Duration;
 import java.util.ArrayDeque;
@@ -39,6 +40,7 @@ import org.apache.spark.sql.catalyst.expressions.Attribute;
 import org.apache.spark.sql.catalyst.expressions.Expression;
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaConjunctSpec;
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaExpressionCompiler;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BoundedDivide;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ColumnRef;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Compare;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.CompareOp;
@@ -118,12 +120,11 @@ public final class VarkaVectorIRSharingSuite {
   }
 
   @Test
-  @DisplayName("nested signum, interval abs and interval division explain at depth 20 and are "
-      + "declined for the budget")
+  @DisplayName("nested signum, interval abs and interval division explain at depth 20, not fused")
   void sharingExpressionsExplainAtDepth() {
-    // An interval's abs reads its operand three times and its division four, a signum four:
-    // before the cached hash these took 25 s at depth 16, 10 s at 8 and 18 s at 12
-    // (results/VARKA-559-planning-cost.txt), so the bound decides it at 20.
+    // Per level an interval's abs reaches its operand by three paths, its division by seven and
+    // a signum by four: before the cached hash these took 25 s at depth 16, 10 s at 8 and 18 s
+    // at 12 (results/VARKA-559-planning-cost.txt), so the bound decides it at 20.
     DataType ym = new YearMonthIntervalType((byte) 0, (byte) 1);
     List<Object[]> chains = List.of(new Object[] {DataTypes.DoubleType, "signum(X)"},
         new Object[] {ym, "abs(X)"}, new Object[] {ym, "(X) / 3"});
@@ -139,9 +140,11 @@ public final class VarkaVectorIRSharingSuite {
       List<VarkaConjunctSpec> specs = assertTimeoutPreemptively(Duration.ofSeconds(20),
           () -> VarkaExpressionCompiler.explainPredicate(e, columns, VarkaMatrixRuns.BASE,
               VarkaAdmission.NO_HOST_REFUSAL), () -> "explaining " + chain[1] + " 20 deep");
+      // Not fused at any configuration: the chain is over the budget's height, a constant. The
+      // reason is not asserted, since a configuration may decline it earlier for another.
       assertEquals(1, specs.size());
-      assertEquals("exceeds the emitter's fused budget",
-          specs.get(0).decline().map(d -> d.reason()).orElse("fused"), () -> "" + chain[1]);
+      assertFalse(specs.get(0).fused(), () -> chain[1] + " fused 20 deep");
+      assertTrue(specs.get(0).decline().isPresent(), () -> chain[1] + " has no decline");
     }
   }
 
@@ -183,6 +186,8 @@ public final class VarkaVectorIRSharingSuite {
         todo.addAll(List.of(c.getPermittedSubclasses()));
       }
     }
+    // One node of every inner type, over leaves, beside a chain whose nodes have inner children.
+    var nodes = new ArrayList<>(objectsUnder(coalesceChain(4, LaneType.LONG)));
     int inner = 0;
     for (Class<?> type : types) {
       RecordComponent[] components = type.getRecordComponents();
@@ -199,10 +204,11 @@ public final class VarkaVectorIRSharingSuite {
       assertEquals(int.class, last.getType(), type.getSimpleName() + ".hash");
       assertEquals(type, type.getMethod("hashCode").getDeclaringClass(),
           type.getSimpleName() + " returns its cached hash");
+      nodes.add(anyNodeOf(type));
     }
     assertTrue(inner >= 47, "inner node types found: " + inner);
     // The value: the records' own formula over every component but the hash, per node object.
-    for (VarkaVectorIR node : objectsUnder(coalesceChain(4, LaneType.LONG))) {
+    for (VarkaVectorIR node : nodes) {
       RecordComponent[] components = node.getClass().getRecordComponents();
       int h = 0;
       int n = components.length;
@@ -214,6 +220,64 @@ public final class VarkaVectorIRSharingSuite {
       }
       assertEquals(h, node.hashCode(), () -> node.getClass().getSimpleName());
     }
+  }
+
+  /**
+   * A node of {@code type} over leaves, built by reflection as
+   * {@code VarkaIrFuzzSuite.admitsLongLanes} builds one: the leaves on each lane in turn and each
+   * enum component on each of its constants, until the constructor accepts, so a node type added
+   * to the IR is built here without anyone editing this file. The one exception is
+   * {@code BoundedDivide}, whose constructor checks a pair it derives from its other numbers.
+   */
+  private static VarkaVectorIR anyNodeOf(Class<?> type) throws ReflectiveOperationException {
+    if (type == BoundedDivide.class) {
+      return BoundedDivide.of(new ColumnRef(0, LaneType.INT), 3, 10);
+    }
+    RecordComponent[] components = type.getRecordComponents();
+    Class<?>[] signature = new Class<?>[components.length];
+    int choices = 1;
+    for (int i = 0; i < components.length; i++) {
+      signature[i] = components[i].getType();
+      if (signature[i].isEnum()) {
+        choices = Math.max(choices, signature[i].getEnumConstants().length);
+      }
+    }
+    for (LaneType lane : LaneType.values()) {
+      VarkaVectorIR column = new ColumnRef(0, lane);
+      for (int k = 0; k < choices; k++) {
+        Object[] args = new Object[components.length];
+        for (int i = 0; i < components.length; i++) {
+          Class<?> t = signature[i];
+          if (t == Cond.class) {
+            args[i] = new Compare(CompareOp.LT, column, column);
+          } else if (VarkaVectorIR.class.isAssignableFrom(t)) {
+            args[i] = column;
+          } else if (t == long.class) {
+            args[i] = 1L;
+          } else if (t == int.class) {
+            args[i] = 1;
+          } else if (t == boolean.class) {
+            args[i] = false;
+          } else if (t.isEnum()) {
+            Object[] constants = t.getEnumConstants();
+            args[i] = constants[k % constants.length];
+          } else if (t == List.class) {
+            args[i] = List.of(1, 2);
+          } else {
+            throw new AssertionError(type.getSimpleName() + "." + components[i].getName()
+                + " has a component type this test cannot build: " + t.getName());
+          }
+        }
+        try {
+          return (VarkaVectorIR) type.getDeclaredConstructor(signature).newInstance(args);
+        } catch (InvocationTargetException e) {
+          if (!(e.getCause() instanceof IllegalArgumentException)) {
+            throw e;
+          }
+        }
+      }
+    }
+    throw new AssertionError(type.getSimpleName() + " refuses leaves on every lane");
   }
 
   @Test

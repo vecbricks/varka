@@ -36,10 +36,13 @@ import org.apache.spark.sql.types.YearMonthIntervalType;
  * {@code depth} levels deep, for the chains {@code VARKA-559.md} times (run with
  * {@code build/sbt "catalyst/Test/runMain <this class> [chain...]"}). Each level's condition reads
  * the level below, so a planning walk that visits a shared node once per path costs a power of the
- * depth while one that visits it once costs the depth. A chain stops at the first depth whose
- * explain takes over three seconds; a time is the least of three explains after one warm-up.
+ * depth while one that visits it once costs the depth. A time is the least of three explains
+ * after one warm-up, except at a chain's stopping depth: the first explain over three seconds
+ * ends the runs, so that depth prints that one explain's time, normally the cold one's, and the
+ * chain stops there.
  *
- * <p>Prints one line per chain and depth: {@code <chain> <depth> <ms> <fused|reason>}.
+ * <p>Prints one line per chain and depth: {@code <chain> <depth> <ms> <fused|reason>}, the
+ * reason cut at 90 characters.
  */
 public final class VarkaPlanningCostProbe {
 

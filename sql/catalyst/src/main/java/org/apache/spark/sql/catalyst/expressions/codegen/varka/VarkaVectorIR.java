@@ -1303,6 +1303,7 @@ public sealed interface VarkaVectorIR
     public BitCount {
       hash = hashOf(child);
     }
+
     public BitCount(VarkaVectorIR child) { this(child, 0); }
     @Override public int hashCode() { return hash; }
   }
@@ -1495,6 +1496,7 @@ public sealed interface VarkaVectorIR
     public Not {
       hash = hashOf(child);
     }
+
     public Not(Cond child) { this(child, 0); }
     @Override public int hashCode() { return hash; }
   }
@@ -1519,6 +1521,7 @@ public sealed interface VarkaVectorIR
     public IsNotNull {
       hash = hashOf(child);
     }
+
     public IsNotNull(VarkaVectorIR child) { this(child, 0); }
     @Override public int hashCode() { return hash; }
 
@@ -1664,6 +1667,7 @@ public sealed interface VarkaVectorIR
     public BoolOutput {
       hash = hashOf(cond);
     }
+
     public BoolOutput(Cond cond) { this(cond, 0); }
     @Override public int hashCode() { return hash; }
   }
