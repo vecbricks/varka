@@ -529,13 +529,61 @@ def generated_files(root=None, read=None):
     return [glob for glob, _, attrs in rules if "merge=varka-generated" in attrs] + [DOCS]
 
 
-def is_generated(path, rules):
-    """Whether an attributes rule marks `path` generated: merged by this driver or
-    `linguist-generated`."""
-    return any(
-        rx.match(path) and ("merge=varka-generated" in attrs or "linguist-generated" in attrs)
-        for _, rx, attrs in rules
+def attribute_values(path, rules):
+    """The `merge` and `linguist-generated` values the rules give `path`, as git reads them: a
+    later matching line overrides an earlier one; `x` is "set", `-x` "unset", `!x`
+    unspecified (dropped) and `x=v` is "v"."""
+    values = {}
+    for _, rx, attrs in rules:
+        if not rx.match(path):
+            continue
+        for a in attrs:
+            name, _, value = a.lstrip("-!").partition("=")
+            if name in ("merge", "linguist-generated"):
+                if a.startswith("!"):
+                    values.pop(name, None)
+                else:
+                    values[name] = "unset" if a.startswith("-") else value or "set"
+    return values
+
+
+def marks_generated(values):
+    """Whether attribute values mark a file generated: merged by this driver, or
+    `linguist-generated` set or true."""
+    return values.get("merge") == "varka-generated" or values.get("linguist-generated") in (
+        "set",
+        "true",
     )
+
+
+def is_generated(path, rules):
+    """Whether the hand-read `rules` mark `path` generated: the fallback of `git_generated`."""
+    return marks_generated(attribute_values(path, rules))
+
+
+def git_generated(paths, rev, cwd, env=None):
+    """The `paths` that `rev`'s own attributes mark generated, as `git check-attr` reads them,
+    or None where git cannot read them at a revision (`--source` is git 2.40's); `rev` None
+    reads the work tree's. The user's and
+    the system's attributes files are not read; a clone's `info/attributes` still is, which
+    is why the size check never lets an attribute exempt a `BLOCKS` file."""
+    env = {**(env or os.environ), "GIT_ATTR_NOSYSTEM": "1"}
+    args = ["-c", f"core.attributesFile={os.devnull}", "check-attr", "-z"]
+    args += [f"--source={rev}"] if rev else []
+    out = subprocess.run(
+        ["git", *args, "--stdin", "merge", "linguist-generated"],
+        cwd=cwd,
+        env=env,
+        input="".join(p + "\0" for p in paths),
+        capture_output=True,
+        text=True,
+    )
+    if out.returncode:
+        return None
+    tokens, values = out.stdout.split("\0"), {}
+    for i in range(0, len(tokens) - 2, 3):
+        values.setdefault(tokens[i], {})[tokens[i + 1]] = tokens[i + 2]
+    return {p for p, v in values.items() if marks_generated(v)}
 
 
 def block_state(in_block, lines):
@@ -1185,25 +1233,50 @@ def self_test():
     )
 
     # The attributes patterns match the files git gives the attributes, and each names one.
-    def run_git(*args, stdin=None):
-        return subprocess.run(
-            ["git", *args], cwd=root, input=stdin, capture_output=True, text=True
-        ).stdout
-
-    tracked = run_git("ls-files")
-    attrs_out = run_git("check-attr", "--stdin", "merge", "linguist-generated", stdin=tracked)
-    by_git = {
-        line.split(": ")[0]
-        for line in attrs_out.splitlines()
-        if line.endswith((": linguist-generated: set", ": merge: varka-generated"))
-    }
+    tracked = subprocess.run(
+        ["git", "ls-files", "-z"], cwd=root, capture_output=True, text=True
+    ).stdout.split("\0")[:-1]
+    by_git = git_generated(tracked, None, root) or set()
     rules = attribute_rules(lambda p: open(os.path.join(root, p), encoding="utf-8").read())
-    ours = {p for p in tracked.splitlines() if is_generated(p, rules)}
+    ours = {p for p in tracked if is_generated(p, rules)}
     unused = [g for g, rx, _ in rules if not any(rx.match(p) for p in ours)]
     expect(
         ours == by_git - {DOCS} and not unused,
         f"22: attributes read unlike git: {sorted(ours ^ (by_git - {DOCS}))[:5]}, {unused}",
     )
+    # The hand reading agrees with git on `=true`, `=false`, `-x`, `!x` and a later line
+    # overriding an earlier one, at a revision whose attributes differ from the work tree's.
+    with tempfile.TemporaryDirectory() as tmp:
+        env = fixture_env()
+        attrs = "".join(
+            f"/{n} {a}\n"
+            for n, a in (
+                ("t", "linguist-generated=true"),
+                ("f", "linguist-generated"),
+                ("f", "linguist-generated=false"),
+                ("u", "linguist-generated"),
+                ("u", "-linguist-generated"),
+                ("n", "linguist-generated"),
+                ("n", "!linguist-generated"),
+                ("m", "merge=varka-generated"),
+                ("m", "merge=text"),
+                ("o", "merge=x"),
+                ("o", "merge=varka-generated"),
+            )
+        )
+        os.makedirs(os.path.join(tmp, "sql/varka"))
+        with open(os.path.join(tmp, "sql/varka/.gitattributes"), "w") as f:
+            f.write(attrs)
+        commit = ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "c"]
+        for argv in (["init", "-q"], ["add", "-A"], commit):
+            subprocess.run(["git", *argv], cwd=tmp, env=env, check=True, capture_output=True)
+        os.remove(os.path.join(tmp, "sql/varka/.gitattributes"))
+        paths = [f"sql/varka/{n}" for n in ("t", "f", "u", "n", "m", "o")] + ["dev/t"]
+        rules = attribute_rules(lambda p: attrs if p.startswith("sql") else None)
+        hand = {p for p in paths if is_generated(p, rules)}
+        by_git = git_generated(paths, "HEAD", tmp, env)
+        want = {"sql/varka/t", "sql/varka/o"}
+        expect(hand == by_git == want, f"22: attribute values: hand {hand}, git {by_git}")
     print(f"self-test: {cases} case(s), {failed} failed")
     return 1 if failed else 0
 
