@@ -502,7 +502,7 @@ Cut from #1303's final tree, without its `BIGINT` conversions (343a4), sweeps an
   boolean is `ConvertLane(CondValue(c, INT), target)`, a long condition's one or zero narrowed
   to the int lane first, so no boolean needs `L2F` or `L2D`. *Departure from 2.2:* a narrow
   column in a double kernel, `CAST(y AS DOUBLE)`, takes row 332's narrow load at the long width,
-  which 332 built first; only a narrow column read as a value is admitted there, and its null
+  which 332 built first; this is new code, not on #1303, which declined the pair. Only a narrow column read as a value is admitted there, and its null
   test alone (`CAST(y IS NOT NULL AS DOUBLE)`) and every other narrow node decline in the plan.
 - **The mask crossing at one lane count** #1065 left owed (`VARKA-341.md` 5.1): a guard's mask
   and an arm's condition of the other kind of the drive's width cross by `VectorMask.cast`,
@@ -527,7 +527,13 @@ Cut from #1303's final tree, without its `BIGINT` conversions (343a4), sweeps an
   3. *`validityByWidth=false`*: the emitter test of a short widened and converted beside a
      float column handed the emitter a plan that refuses it, which threw `INTERNAL_ERROR`. The
      test now asserts the plan's refusal there, as the narrow suites do; the SQL path declined
-     cleanly all along. The coverage rows over a narrow column decline under that option, since
+     cleanly all along (the same bin's harness lines read "the kernel answered no batch of
+     CAST(y1 AS FLOAT) on any fixture (6 declined)"). The coverage rows over a narrow column decline under that option, since
      no lane count is baked, so `skips.tsv` lists them beside 343a2's line; the widening load
      without a baked count is not built, so that line stays.
+
+  Each was run again on the laptop through `dev/varka_matrix.sh` under its configuration and
+  passed; the second also failed there first, with the three suites in the shared JVM.
+- **Prediction 4.1** holds for this part: `emitted_bytes.json` gains the fourteen new rows'
+  shapes at both widths and moves the `option_arms` digests, and no committed shape's bytes move.
 
