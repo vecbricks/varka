@@ -413,7 +413,8 @@ class VarkaFloatingLaneSuite extends QueryTest with VarkaSharedSessions with Var
       val l = AttributeReference("l", LongType)()
       val cast = org.apache.spark.sql.catalyst.expressions.Cast(
         org.apache.spark.sql.catalyst.expressions.Cast(l, IntegerType), FloatType)
-      val lines = VarkaFusionReport.lines(Seq(Alias(cast, "v")()), Seq(l))
+      val lines = VarkaFusionReport.lines(
+        Seq(Alias(cast, "v")(), Alias(Greatest(Seq(l, l)), "k")()), Seq(l))
       withClue(s"ansi=$ansi: $q") {
         assert(lines.head.contains("needs a kernel of two lane counts"), lines)
         assertNotFused(actual.queryExecution.executedPlan)
