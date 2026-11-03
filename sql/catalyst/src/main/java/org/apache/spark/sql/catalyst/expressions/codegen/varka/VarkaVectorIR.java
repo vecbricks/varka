@@ -774,8 +774,8 @@ public sealed interface VarkaVectorIR
    *
    * <p>The node has one meaning on every host. The emitter lowers {@code I2F}, which keeps the
    * lane count, as one {@code convertShape}, part 0, into the float species of the kernel's
-   * width; the kernel plan refuses a conversion between widths until the kernel of two lane
-   * counts is built, and the compiler builds no floating source yet (`VARKA-343.md` 4).
+   * width; the kernel plan refuses every other conversion, and this one beside a 64-bit lane,
+   * until two lane counts are built; the compiler builds no floating source (`VARKA-343.md` 4).
    */
   record ConvertLane(VarkaVectorIR child, LaneType target) implements VarkaVectorIR {
     public ConvertLane {

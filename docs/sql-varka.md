@@ -924,6 +924,7 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 |---|---|---|---|---|
 | `CAST(i AS FLOAT)` | `floatingCast` |  | rounded once to nearest, ties to even, as the JVM converts | vector |
 | `try_cast(i AS FLOAT)` | `floatingCast` |  | the same rounding: a cast to a floating type never fails | vector |
+| `CAST(CAST(y1 AS INT) * CAST(y2 AS INT) AS FLOAT)` | `intArithmetic`, `floatingCast` |  | a product of two widened bytes | vector |
 
 #### DECIMAL columns
 
@@ -984,13 +985,13 @@ operands (a row counts once for each type it reads):
 | :--- | ---: | ---: | ---: | ---: | ---: | ---: |
 | `bigint` | 63 | 0 | 2 | 0 | 2 | 59 |
 | `bool` | 27 | 0 | 0 | 13 | 0 | 14 |
-| `byte` | 30 | 0 | 0 | 0 | 8 | 22 |
+| `byte` | 31 | 0 | 0 | 0 | 8 | 23 |
 | `date` | 101 | 17 | 0 | 1 | 0 | 83 |
 | `dec` | 17 | 0 | 0 | 0 | 0 | 17 |
 | `double` | 39 | 0 | 0 | 0 | 0 | 39 |
 | `dt` | 25 | 2 | 0 | 0 | 0 | 23 |
 | `float` | 31 | 0 | 0 | 0 | 0 | 31 |
-| `int` | 101 | 14 | 2 | 0 | 1 | 84 |
+| `int` | 102 | 14 | 2 | 0 | 1 | 85 |
 | `ntz` | 24 | 0 | 1 | 0 | 0 | 23 |
 | `short` | 29 | 0 | 0 | 0 | 8 | 21 |
 | `time` | 41 | 6 | 0 | 0 | 2 | 33 |

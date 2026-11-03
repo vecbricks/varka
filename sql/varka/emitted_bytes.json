@@ -4784,6 +4784,17 @@
           "loopMasked0([J[J[I[J[J[II)I" : "d7539867b82abd43",
           "epilogueMasked0([J[J[I[J[J[II)I" : "790b39c9d05f538e"
         },
+        "CAST(CAST(y1 AS INT) * CAST(y2 AS INT) AS FLOAT)" : {
+          "<class>" : "2a53295ac2cde372",
+          "<init>()V" : "e2c903051ec05d17",
+          "run([J[J[I[J[J[II)I" : "83196a9e8290088d",
+          "runDense([J[J[I[J[J[II)I" : "82494a724aa5151d",
+          "loopDense0([J[J[I[J[J[II)I" : "ffcc811300e3cc29",
+          "epilogueDense0([J[J[I[J[J[II)I" : "982bcd0b039e5dbd",
+          "runMasked([J[J[I[J[J[II)I" : "ef6c42237b7366de",
+          "loopMasked0([J[J[I[J[J[II)I" : "ffcc811300e3cc29",
+          "epilogueMasked0([J[J[I[J[J[II)I" : "982bcd0b039e5dbd"
+        },
         "d9 < d9b" : {
           "<class>" : "1a6be0d5ae87cd3c",
           "<init>()V" : "e2c903051ec05d17",
@@ -9942,6 +9953,17 @@
           "loopMasked0([J[J[I[J[J[II)I" : "cf479ac58806189e",
           "epilogueMasked0([J[J[I[J[J[II)I" : "1ae4eefc6047532e"
         },
+        "CAST(CAST(y1 AS INT) * CAST(y2 AS INT) AS FLOAT)" : {
+          "<class>" : "2a53295ac2cde372",
+          "<init>()V" : "e2c903051ec05d17",
+          "run([J[J[I[J[J[II)I" : "83196a9e8290088d",
+          "runDense([J[J[I[J[J[II)I" : "82494a724aa5151d",
+          "loopDense0([J[J[I[J[J[II)I" : "32ed6047a6f2e4fe",
+          "epilogueDense0([J[J[I[J[J[II)I" : "49d729a401308f1d",
+          "runMasked([J[J[I[J[J[II)I" : "ef6c42237b7366de",
+          "loopMasked0([J[J[I[J[J[II)I" : "32ed6047a6f2e4fe",
+          "epilogueMasked0([J[J[I[J[J[II)I" : "49d729a401308f1d"
+        },
         "d9 < d9b" : {
           "<class>" : "1a6be0d5ae87cd3c",
           "<init>()V" : "e2c903051ec05d17",
@@ -10306,48 +10328,48 @@
   },
   "option_arms" : {
     "useAVX=-1" : {
-      "4" : "f8f312b740ecac1a",
-      "16" : "21294995ea3c3159"
+      "4" : "c40495538cac8d87",
+      "16" : "3857746c4053af5b"
     },
     "useAVX=0" : {
-      "4" : "76bc3514f70bf74b",
-      "16" : "031457a4f80a7de5"
+      "4" : "8dcf13efcac84bd7",
+      "16" : "b8351d46ac1289db"
     },
     "useAVX=1" : {
-      "4" : "76bc3514f70bf74b",
-      "16" : "031457a4f80a7de5"
+      "4" : "8dcf13efcac84bd7",
+      "16" : "b8351d46ac1289db"
     },
     "useAVX=2" : {
-      "4" : "76bc3514f70bf74b",
-      "16" : "031457a4f80a7de5"
+      "4" : "8dcf13efcac84bd7",
+      "16" : "b8351d46ac1289db"
     },
     "useAVX=3" : {
-      "4" : "f8f312b740ecac1a",
-      "16" : "21294995ea3c3159"
+      "4" : "c40495538cac8d87",
+      "16" : "3857746c4053af5b"
     },
     "validityOrFirst=true over denseValidityOnce=false,validityByBitmap=false" : {
-      "4" : "d95b9cfc4803e390",
-      "16" : "981ea5117097551c"
+      "4" : "9c8222ed3dcda3c6",
+      "16" : "242f3ef0c17071dd"
     },
     "validityOrFirst=false over denseValidityOnce=false,validityByBitmap=false" : {
-      "4" : "a7f03d58b18d80b9",
-      "16" : "23b1ef4900302487"
+      "4" : "5127048eaa5fe240",
+      "16" : "09142110eac35fde"
     },
     "narrowLanes=true" : {
-      "4" : "f8f312b740ecac1a",
-      "16" : "21294995ea3c3159"
+      "4" : "c40495538cac8d87",
+      "16" : "3857746c4053af5b"
     },
     "narrowLanes=false" : {
-      "4" : "5cd960c7308f704f",
-      "16" : "54a790b2402aee8c"
+      "4" : "e895f9fb54f8db83",
+      "16" : "720cd18787dc55d0"
     },
     "groupLocalSlots=false" : {
-      "4" : "298ce51966ede16d",
-      "16" : "28fc2f72239f34cb"
+      "4" : "e80f133561c16031",
+      "16" : "2fda889d0b4ff39f"
     },
     "methodByteBudget=0" : {
-      "4" : "db79389d9d7c7fe5",
-      "16" : "61dc0961255d1b00"
+      "4" : "f4f79353266f4168",
+      "16" : "c6d7596517e38ede"
     }
   }
 }

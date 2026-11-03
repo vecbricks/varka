@@ -1015,9 +1015,8 @@ final class VarkaVectorTemplateWarmup {
             + d.convertShape(VectorOperators.D2I, is, 0).reinterpretAsInts().lane(0)
             + l.reinterpretAsDoubles().reinterpretAsLongs().lane(0);
         // The int to float conversion (VARKA-343) and the mask crossings between the int and
-        // float lanes each way the emitter casts (VarkaVectorWalk.emitMaskToLane,
-        // emitToDrivingLane). No narrow mask is cast: a narrow value of such a kernel is the int
-        // lane's.
+        // float lanes each way the emitter casts (VarkaVectorWalk.emitMaskToLane and
+        // emitToDrivingLane). No narrow mask is cast: such a kernel's narrow value is an int's.
         // The float vector's own convertShape is warmed too, by F2I: the call site's receiver
         // is a Vector, which a kernel of both lanes may hand either class.
         FloatVector f = (FloatVector) i.convertShape(VectorOperators.I2F, fs, 0);

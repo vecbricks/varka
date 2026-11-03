@@ -28,8 +28,7 @@ import org.apache.spark.sql.types.DataTypes;
 
 /**
  * The floating casts family (VARKA-343): Spark's casts to a floating type, of which this part
- * builds the one whose kernel keeps one lane count and reads no narrow value, {@code INT} to
- * {@code FLOAT}.
+ * builds the one whose kernel keeps one lane count, {@code INT} to {@code FLOAT}.
  *
  * <p>Spark computes each with Java's primitive cast, {@code (float) c}, in every mode: a
  * conversion to a floating type never raises, so TRY's answer is LEGACY's and ANSI's
@@ -37,8 +36,8 @@ import org.apache.spark.sql.types.DataTypes;
  * rounds once to nearest, ties to even, on every lane, as the JVM's {@code i2f} does. The kernel
  * stays at the int lane's count, the float values beside the int ones.
  *
- * <p>Every other cast with a floating side declines by {@link VarkaNodeCompiler}'s
- * {@code floatingDecline}, which admits exactly the pairs {@link #admits} names: the casts to
+ * <p>Every other cast with a floating side but the one to {@code BOOLEAN}, the predicate
+ * family's, declines by {@link VarkaNodeCompiler}'s {@code floatingDecline}: the casts to
  * {@code DOUBLE}, from {@code BIGINT} and between the floating types need the kernel of two lane
  * counts or a host's conversion forms, the later parts of row 343.
  */

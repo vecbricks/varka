@@ -353,7 +353,7 @@ final class VarkaNodeCompiler {
    * {@code IN}, {@code isnan} and {@code nanvl} - and are lowered in Spark's order, in which NaN
    * equals NaN and is greater than every other value and {@code -0.0} equals {@code 0.0}, not
    * the vector compare's or {@code max}'s. The arithmetic the floating family lowers is named
-   * here too, and the cast of a floating value to {@code BOOLEAN}; the other casts, the
+   * here too, as are the casts of INT to FLOAT and of a float to BOOLEAN; the other casts, the
    * remainders and the interval forms by a floating factor are not. So the list is of what is
    * served, not of what is refused, and a node no one has thought of declines. Both compile
    * entries ask it before any arm claims, so no arm sees a floating operand it was not written
