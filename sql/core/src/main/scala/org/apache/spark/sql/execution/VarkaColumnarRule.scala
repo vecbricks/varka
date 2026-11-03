@@ -24,7 +24,7 @@ import org.apache.spark.internal.Logging
 import org.apache.spark.sql.catalyst.expressions.{Alias, And, Attribute, Expression, NamedExpression}
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaExpressionCompiler
 import org.apache.spark.sql.catalyst.rules.Rule
-import org.apache.spark.sql.execution.adaptive.TableCacheQueryStageExec
+import org.apache.spark.sql.execution.adaptive.{QueryStageExec, TableCacheQueryStageExec}
 import org.apache.spark.sql.execution.columnar.{ArrowCachedBatchSerializer, InMemoryTableScanExec}
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.vectorized.ArrowColumnVector
@@ -189,6 +189,35 @@ object VarkaColumnarRule extends ColumnarRule with Logging {
             s"(${SQLConf.WHOLESTAGE_MAX_NUM_FIELDS.key})")).flatten
       Option.when(causes.nonEmpty)(s"the cache scan produces rows: ${causes.mkString("; ")}")
     case _ => None
+  }
+
+  /**
+   * Whether a Varka node over `child` reads Spark's Arrow cache. Vanilla Spark reads that cache
+   * as rows, a small decimal long-backed, so a node over it reads its input's rows through
+   * `VarkaRowView` (VARKA-365); over any other columnar child it reads the batch's own rows, as
+   * vanilla's `ColumnarToRowExec` does.
+   *
+   * The walk from `child` down passes exactly these nodes, and answers false at any other:
+   *
+   *  - a query stage (`QueryStageExec`), to the plan it wraps: under adaptive execution the scan
+   *    sits in a `TableCacheQueryStageExec`, and every other stage wraps an exchange, whose
+   *    batches are not the cache's;
+   *  - `VarkaProjectExec` and `VarkaFilterExec`, to their child: the two columnar Varka nodes,
+   *    whose batches forward the input's vectors, so a cached column reaches the node above
+   *    unchanged. The other Varka nodes produce rows and so never sit under a columnar one.
+   *
+   * It is true at an `InMemoryTableScanExec` under [[ArrowCachedBatchSerializer]]. A columnar
+   * node of another kind between a Varka node and the scan - one Spark does not plant there, a
+   * plugin's, say - gives false, and the node then reads that batch's own rows; the read path
+   * suite checks every plan it runs for such a node (`VARKA-365.md` 13.6).
+   */
+  private[execution] def readsArrowCache(child: SparkPlan): Boolean = child match {
+    case stage: QueryStageExec => readsArrowCache(stage.plan)
+    case scan: InMemoryTableScanExec =>
+      scan.relation.cacheBuilder.serializer.isInstanceOf[ArrowCachedBatchSerializer]
+    case varka: VarkaProjectExec => readsArrowCache(varka.child)
+    case varka: VarkaFilterExec => readsArrowCache(varka.child)
+    case _ => false
   }
 
   // The compiler is the single eligibility oracle: a projection is fused exactly when

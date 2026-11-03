@@ -62,7 +62,9 @@ final class VarkaKernelPart extends VarkaEvaluatorBase {
       VarkaSessionEmit sessionEmit,
       boolean warmupEnabled,
       Supplier<BufferAllocator> allocator) {
-    super(childOutput, operatorName, classDumpDirectory, metrics, sessionEmit, warmupEnabled);
+    // It reads no input rows; the projection's evaluator does, through its own view.
+    super(childOutput, operatorName, classDumpDirectory, metrics, sessionEmit, warmupEnabled,
+        false);
     this.plan = plan;
     this.entries = entries;
     this.allocator = allocator;

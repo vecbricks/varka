@@ -379,6 +379,11 @@ def defined_classes():
 VIA = {
     "ifnull": "Coalesce",
     "nvl": "Coalesce",
+    "zeroifnull": "Coalesce",
+    "nvl2": "If",
+    "nullif": "If",
+    "nullifzero": "If",
+    "between": "GreaterThanOrEqual",
     "when": "CaseWhen",
     "date_diff": "DateDiff",
     "dateadd": "DateAdd",
@@ -670,9 +675,9 @@ def cast_kind(src, dst):
         return (
             "truncation",
             "toward zero; LEGACY exact, keeping the low bits; ANSI and TRY range-check by the"
-            " double rule (Decimal.roundToNumeric over a BigDecimal-backed value) at every"
-            " precision, as Varka's fallback reads it through ArrowColumnVector (row 365, option"
-            " iii); Spark's cached row path reads a long-backed value and the exact rule",
+            " exact rule up to precision 18 (Decimal.roundToNumeric over a long-backed value, as"
+            " every SQL read of the Arrow cache and Varka's row views hand it; row 365) and by"
+            " the double rule above it (a BigDecimal-backed value)",
         )
     if src == "dec" and dst == "double":
         return (
@@ -757,15 +762,16 @@ def cast_proof(src, dst):
     rule over a 64-bit source; sampled regions and the fuzzer for a double source and for a
     64-bit source rounding to a floating type, which floating-point theory does not decide in
     useful time (VARKA-241.md). A decimal to INT, SMALLINT or TINYINT is mixed: LEGACY's low bits
-    are an integer rule, the ANSI and TRY range check by the double rule is not, at every precision
-    (the owner's answer to question 3 of m8/PLAN.md section 7, 16 October 2026, which superseded
-    decision A1's exact rule below precision 19)."""
+    and the ANSI and TRY range check up to precision 18 are integer rules, the double rule above
+    it is not (the owner's decision of 1 November 2026 that Varka follows vanilla Spark, whose
+    every SQL read of the Arrow cache gives the exact rule below precision 19; VARKA-365.md 11)."""
     if src in ("bool", "byte", "short", "int", "date", "ym", "float"):
         return "exhaustion"
     if src == "dec" and dst in ("byte", "short", "int"):
         return (
-            "mixed: SMT (dev/varka_prove.sh) for LEGACY's low bits, sampled regions and the fuzzer"
-            " for the ANSI and TRY range check by the double rule at every precision"
+            "mixed: SMT (dev/varka_prove.sh) for LEGACY's low bits and the exact ANSI and TRY"
+            " range check up to precision 18, sampled regions and the fuzzer for the double rule"
+            " above it"
         )
     if src in ("bigint", "dt", "time", "ntz", "dec") and dst not in ("float", "double"):
         return "SMT (dev/varka_prove.sh) for the integer rule, sampled regions and the fuzzer"
@@ -794,7 +800,12 @@ def cast_rows(src, dst):
         return "332,28" if lanes & {"bigint"} and lanes & {"byte", "short", "int"} else "332"
     if lanes & {"ym", "dt"}:
         return "103,332"
-    return "332"
+    # An identity is the optimizer's, and the register leaves it to this row (VARKA-332.md 0).
+    if src == dst and src != "time":
+        return "332"
+    # What is left - TIME to an integral type and to a coarser TIME, and DATE to a number or
+    # BOOLEAN under LEGACY - no row claims: VARKA-332.md section 7 suggests each one's home.
+    return "unclaimed"
 
 
 # What the compiler fuses, per form pair and mode: written by VarkaCastMatrixSuite, which compiles

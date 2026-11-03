@@ -79,14 +79,27 @@ class VarkaCoverageCompositionFuzzSuite
   // The rows that read a BOOLEAN column are out of this fuzzer: its batches draw int columns and
   // its oracle builds int attributes, and a boolean input is a bitmap. They are held to the row
   // engine by `VarkaCoverageDifferentialSuite` and to the reference by `VarkaEmitterBoolSuite`.
+  private def readsOtherColumns(executable: String): Boolean =
+    VarkaCoverageRows.readsBoolean(executable) || VarkaCoverageRows.readsNarrow(executable) ||
+      VarkaCoverageRows.readsDecimal(executable)
   private def projections =
-    table.projections.filterNot(r =>
-      VarkaCoverageRows.readsBoolean(r.executable) || VarkaCoverageRows.readsNarrow(r.executable)
-        || VarkaCoverageRows.readsDecimal(r.executable))
+    table.projections.filterNot(r => readsOtherColumns(r.executable) || unbakedAlone(r.executable))
   private def predicates =
-    table.predicates.filterNot(r =>
-      VarkaCoverageRows.readsBoolean(r.executable) || VarkaCoverageRows.readsNarrow(r.executable)
-        || VarkaCoverageRows.readsDecimal(r.executable))
+    table.predicates.filterNot(r => readsOtherColumns(r.executable) || unbakedAlone(r.executable))
+
+  // The rows this configuration itself declines alone: a narrow value stored from an int one,
+  // `CAST(i AS TINYINT)`, reads no narrow column and so passes the filter above, but its store
+  // needs a narrow species named at a baked lane count, which `validityByWidth=false` leaves
+  // none of (`VarkaMatrixRuns.isUnbakedWidthDecline`). The row engine answers such a row, so it
+  // fuses alone nowhere in this JVM and is no entry of the property's. Under the defaults, and
+  // under any configuration that bakes the lane, the set is empty and every row is drawn.
+  private lazy val unbakedAlone: Set[String] =
+    (table.projections ++ table.predicates).map(_.executable).filterNot(readsOtherColumns)
+      .filter { sql =>
+        VarkaExpressionCompiler.declines(Seq(Alias(resolve(sql), "c")()), columns,
+          VarkaMatrix.base).asScala.values
+          .exists(d => VarkaMatrixRuns.isUnbakedWidthDecline(VarkaMatrix.base, d.reason))
+      }.toSet
 
   private def resolve(sql: String): Expression = VarkaCoverageRows.resolve(sql, columns)
 

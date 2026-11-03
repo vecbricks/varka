@@ -168,9 +168,10 @@ final class VarkaVectorWalk {
     // Under CSE a node visited twice has a shared slot, decided by the body's use count
     // (Slots.bodyUses). A second visit without one means the count ran low, and the walk would
     // quietly emit the node's subtree again; that is a planning error, refused here, as the
-    // word check refuses a word the liveness pass got wrong. A literal is never shared.
+    // word check refuses a word the liveness pass got wrong. A literal and the null of a lane
+    // are never shared (Slots), and are emitted again at each use.
     if (shared == null && analysis.options.cse() && !(node instanceof LiteralSlot)
-        && !s.emittedUnshared.add(node)) {
+        && !(node instanceof VarkaVectorIR.NullValue) && !s.emittedUnshared.add(node)) {
       throw VarkaErrors.illegalState("the body visits " + VarkaVectorIR.canonical(node)
           + " twice without a shared slot: its use count (Slots.bodyUses) is too low");
     }
@@ -207,6 +208,18 @@ final class VarkaVectorWalk {
         }
       }
       case DecimalColumn c -> emitDecimalLoad(cb, c, dense, analysis, s);
+      case VarkaVectorIR.NullValue n -> {
+        // A broadcast zero, null on every lane: its word is all clear. Only the masked bodies
+        // reach it, since a kernel holding one has no dense body (nullsFromValidInputs).
+        line(cb, analysis, node);
+        cb.aload(s.species(lane));
+        lane.pushScalar(cb, 0);
+        cb.invokestatic(lane.vector, "broadcast", lane.broadcast);
+        if (!dense && s.ownWord.contains(node)) {
+          cb.loadConstant(0L);
+          storeWord(cb, s, s.wordRef.get(node));
+        }
+      }
       case LiteralSlot l -> {
         line(cb, analysis, node);
         int[] broadcast = s.broadcastSlots(lane);
@@ -315,6 +328,11 @@ final class VarkaVectorWalk {
             // An int value wrapped to TINYINT or SMALLINT away from a store: it stays in the int
             // lane, reduced to the narrow width and sign-extended back by the shift pair a
             // wrapping narrow node reduces with.
+            emitWrapToNarrow(cb, Lane.INT, n.target());
+          } else if (target.isNarrow()) {
+            // A long value narrowed to TINYINT or SMALLINT away from a store (VARKA-332): `L2I`
+            // into the low half of the int species, then the same shift pair.
+            emitShapeConversion(cb, analysis.laneOf(n.child()), Lane.INT, analysis);
             emitWrapToNarrow(cb, Lane.INT, n.target());
           } else {
             emitShapeConversion(cb, analysis.laneOf(n.child()), analysis.laneOf(node), analysis);
@@ -697,8 +715,10 @@ final class VarkaVectorWalk {
    * load and narrowed once at its store, so a conversion node over one names the lane it is
    * already emitted at and emits nothing, and any other pair is a lowering this emitter has not
    * built: the conversions from a floating lane to an integral one are row 343's second part.
+   * The one form of the conversion: a long kernel's narrowing store converts through it too
+   * ({@code VarkaBodyEmitter.emitNarrowStore}), into the low half of the int species.
    */
-  private static void emitShapeConversion(
+  static void emitShapeConversion(
       CodeBuilder cb, Lane from, Lane to, Analysis analysis) {
     if (from == to) {
       return;
@@ -735,10 +755,15 @@ final class VarkaVectorWalk {
    * body the load is whole, like {@link #emitLowHalfLoad}'s; in the epilogue it is under the mask
    * of the species' first {@code lanes} lanes and reads part 0. The offset is
    * {@code (long) i * stride}, a linear function of the induction variable that C2 folds into the
-   * address.
+   * address. The epilogue of a kernel driven at the long lane reads its rows one at a time
+   * instead ({@link #emitNarrowRowsLoad}).
    */
   private static void emitNarrowLoad(
       CodeBuilder cb, ColumnRef c, Lane stored, Analysis analysis, Slots s) {
+    if (narrowRowsInEpilogue(analysis, s)) {
+      emitNarrowRowsLoad(cb, c, stored, analysis, s);
+      return;
+    }
     int groups = analysis.narrowGroups();
     // One whole iteration's rows in one species wherever the load has to span more than a
     // group: every narrow lane of the body reads the same rows and each group takes its part.
@@ -775,6 +800,57 @@ final class VarkaVectorWalk {
     cb.loadConstant(parts ? s.rowGroup : 0);
     cb.invokevirtual(VECTOR, "convertShape", CONVERT_SHAPE);
     cb.checkcast(Lane.INT.vector);
+  }
+
+  /**
+   * Whether this body moves a narrow value's rows one at a time rather than as a masked vector:
+   * the epilogue of a kernel driven at the long lane with a baked lane count. Where that kernel
+   * converts between lanes its loop stops a long lane group early, so its epilogue runs on every
+   * batch, and a masked byte or short load or store has no C2 lowering without AVX512BW - on AVX2
+   * it runs as the Vector API's Java loop, as the width audit read from the runners. An
+   * epilogue's group holds at most the long lane count of rows ({@code emitMixedEpilogue}), so
+   * the rows unroll to that count. Without a baked count there is none to unroll to, and the
+   * masked form stays.
+   */
+  static boolean narrowRowsInEpilogue(Analysis analysis, Slots s) {
+    return s.epilogue && analysis.lane == Lane.LONG && analysis.lanes != 0;
+  }
+
+  /**
+   * A narrow column in the epilogue of a kernel driven at the long lane
+   * ({@link #narrowRowsInEpilogue}): {@code [] -> [int vector]}, the int species of the long
+   * width, zero, with lane {@code k} replaced by row {@code i + k} for each {@code k} below the
+   * long lane count, read one row at a time by {@code VarkaVectorSupport.byteAt} or
+   * {@code shortAt}, and zero past the remainder {@code lanes}, as a masked load's inactive lanes
+   * read. The test is on scalars and every path pushes the same vector, so no vector value meets
+   * another at a join. {@code withLane} at a constant index is an insert, which C2 lowers on
+   * every x86 with SSE4.1.
+   */
+  private static void emitNarrowRowsLoad(
+      CodeBuilder cb, ColumnRef c, Lane stored, Analysis analysis, Slots s) {
+    emitConstantSpecies(cb, Lane.INT, analysis);
+    cb.invokestatic(Lane.INT.vector, "zero", INT_ZERO);
+    for (int k = 0; k < analysis.lanes; k++) {
+      Label read = cb.newLabel();
+      Label join = cb.newLabel();
+      cb.loadConstant(k);                                       // [v, k]
+      cb.iload(s.lanes);
+      cb.loadConstant(k);
+      cb.if_icmpgt(read);
+      cb.loadConstant(0);                                       // [v, k, 0] past the remainder
+      cb.goto_(join);
+      cb.labelBinding(read);
+      cb.aload(s.srcSeg(c.ordinal()));
+      cb.iload(s.iVar);
+      cb.loadConstant(k);
+      cb.iadd();
+      cb.i2l();
+      cb.loadConstant(stored.byteStride);
+      cb.lmul();                                                // (long) (i + k) * stride
+      cb.invokestatic(SUPPORT, stored == Lane.BYTE ? "byteAt" : "shortAt", NARROW_AT);
+      cb.labelBinding(join);                                    // [v, k, row]
+      cb.invokevirtual(Lane.INT.vector, "withLane", INT_WITH_LANE);
+    }
   }
 
   /**

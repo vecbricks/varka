@@ -483,6 +483,7 @@ public abstract class VarkaTypeConformance {
     }
     var owed = new ArrayList<String>();
     var drift = new ArrayList<String>();
+    var unbaked = new ArrayList<String>();
     for (Form f : forms) {
       Expression expr = resolve(f);
       Optional<String> owner = owedTo(f, expr.dataType());
@@ -497,6 +498,11 @@ public abstract class VarkaTypeConformance {
       }
       if (compiled.isEmpty()) {
         cancelIfTheWidthCannotWiden(f);
+        Optional<String> unbakedReason = unbakedWidthDecline(expr);
+        if (unbakedReason.isPresent()) {
+          unbaked.add(f + " (" + unbakedReason.get() + ")");
+          continue;
+        }
         drift.add(f + " declines, and the register marks " + type().census() + " fused for "
             + f.register() + declineReason(f, expr));
         continue;
@@ -508,6 +514,9 @@ public abstract class VarkaTypeConformance {
       fail("the registers have drifted from the compiler: " + String.join("; ", drift));
     }
     assumeTrue(owed.isEmpty(), "owed by the registers: " + String.join("; ", owed));
+    assumeTrue(unbaked.isEmpty(), "this configuration bakes no lane count for a narrow value "
+        + "these forms read or store, so the compiler declines them and the row engine answers "
+        + "them: " + String.join("; ", unbaked));
   }
 
   /** Why the compiler declines a value form, as it reports it, for a message; empty otherwise. */
@@ -536,6 +545,22 @@ public abstract class VarkaTypeConformance {
     assumeTrue(refusal.isEmpty(), f + ": this configuration cannot widen the " + lane
         + " lane (" + refusal.orElse("") + "), so the compiler declines it and the row engine "
         + "answers it");
+  }
+
+  /**
+   * The compiler's reason for declining {@code expr} where the configuration itself explains it
+   * ({@link VarkaMatrixRuns#isUnbakedWidthDecline}), or empty: a cast that stores a narrow value
+   * from an int one, or loads a narrow column into a bigint kernel, needs a lane count the type's
+   * own column probe above does not ask for. A condition is asked as its value twin, the
+   * BOOLEAN output of the same tree (VARKA-27). Every other form of the check still runs.
+   */
+  private Optional<String> unbakedWidthDecline(Expression expr) {
+    var entry = CollectionConverters.asScala(List.of(VarkaSqlResolve.named(expr, "c"))).toSeq();
+    var cols = CollectionConverters.asScala(columns()).toSeq();
+    return VarkaExpressionCompiler.declines(entry, cols, VarkaMatrixRuns.BASE).values().stream()
+        .map(d -> d.reason())
+        .filter(r -> VarkaMatrixRuns.isUnbakedWidthDecline(VarkaMatrixRuns.BASE, r))
+        .findFirst();
   }
 
   /** The two columns, {@code x} and {@code y}: built once, since a form binds their ids. */

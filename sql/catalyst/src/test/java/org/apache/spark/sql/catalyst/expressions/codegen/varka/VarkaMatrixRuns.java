@@ -282,6 +282,25 @@ public final class VarkaMatrixRuns {
   }
 
   // ---------------------------------------------------------------------------------------------
+  // The declines a configuration explains
+  // ---------------------------------------------------------------------------------------------
+
+  /**
+   * Whether {@code options} themselves explain a decline the compiler gave as {@code reason}: a
+   * narrow value needs a narrow species named at a baked lane count, and these options bake none
+   * for the lane that would read or store it - {@code validityByWidth} off bakes no lane, and a
+   * {@code lanesOverride} past a lane's widest species (sixteen long lanes) bakes none for that
+   * lane. The row engine answers such a row (VARKA-329, `VARKA-332.md` 2.5). The same reason under
+   * options that do bake the lane is not explained, so a test that admits it still fails there.
+   */
+  public static boolean isUnbakedWidthDecline(VarkaEmitOptions options, String reason) {
+    return (reason.startsWith(VarkaKernelPlan.NO_BAKED_INT_LANES)
+            && Lane.emitLanes(options, Lane.INT) == 0)
+        || (reason.startsWith(VarkaKernelPlan.NO_BAKED_LONG_LANES)
+            && Lane.emitLanes(options, Lane.LONG) == 0);
+  }
+
+  // ---------------------------------------------------------------------------------------------
   // The skip list
   // ---------------------------------------------------------------------------------------------
 

@@ -552,6 +552,15 @@ public final class VarkaKernelChecks {
       if (!(root instanceof NarrowLane) && root.laneType() == VarkaVectorIR.LaneType.INT) {
         return true;
       }
+      // A long value narrowed to TINYINT or SMALLINT at its store (VARKA-332): its output is one
+      // or two bytes a row, which only the mixed lane lays out; so is a BOOLEAN column read at
+      // the long lane, a bit a row.
+      if (root instanceof NarrowLane n && n.target().isNarrow()) {
+        return true;
+      }
+      if (readsBitColumn(root)) {
+        return true;
+      }
       todo.addAll(Arrays.asList(VarkaVectorIR.childrenOf(root)));
       if (root instanceof VarkaVectorIR.WidenLane || root instanceof VarkaVectorIR.ConvertLane) {
         return true;
@@ -933,9 +942,40 @@ public final class VarkaKernelChecks {
       return VarkaReference.cond(cond, rowInts, isNull, lits);
     }
 
+    // A narrow-typed root of an int kernel (`CAST(i AS SMALLINT)`, VARKA-332) stores one or two
+    // bytes a row, which its buffer is laid out, filled and read at; every other output four.
+    @Override public long outputStride(VarkaVectorIR root, VarkaVectorIR.LaneType rootLane) {
+      return switch (rootLane) {
+        case BYTE -> 1L;
+        case SHORT -> 2L;
+        case INT, LONG, FLOAT, DOUBLE -> 4L;
+      };
+    }
+
+    @Override public void putOutput(VarkaVectorIR root, VarkaVectorIR.LaneType rootLane,
+        MemorySegment d, int i, long v) {
+      switch (rootLane) {
+        case BYTE -> d.set(ValueLayout.JAVA_BYTE, i, (byte) v);
+        case SHORT -> d.set(ValueLayout.JAVA_SHORT, i * 2L, (short) v);
+        case INT, LONG, FLOAT, DOUBLE -> put(d, i, v);
+      }
+    }
+
+    @Override public long sentinelOutput(VarkaVectorIR root, VarkaVectorIR.LaneType rootLane) {
+      return switch (rootLane) {
+        case BYTE -> Byte.MIN_VALUE;
+        case SHORT -> Short.MIN_VALUE;
+        case INT, LONG, FLOAT, DOUBLE -> sentinel();
+      };
+    }
+
     @Override public long got(MemorySegment out, int i, VarkaVectorIR root,
         VarkaVectorIR.LaneType rootLane) {
-      return out.get(ValueLayout.JAVA_INT, i * 4L);
+      return switch (rootLane) {
+        case BYTE -> out.get(ValueLayout.JAVA_BYTE, i);
+        case SHORT -> out.get(ValueLayout.JAVA_SHORT, i * 2L);
+        case INT, LONG, FLOAT, DOUBLE -> out.get(ValueLayout.JAVA_INT, i * 4L);
+      };
     }
   }
 
@@ -1062,11 +1102,6 @@ public final class VarkaKernelChecks {
           VarkaKernelChecks.bitColumns(roots, batch.data().length), holdsWideValue(roots));
     }
 
-    /** Whether column {@code c} is stored four bytes a row: an int column, or a float one. */
-    private boolean intColumn(int c) {
-      return columnLanes[c].bits() == Integer.SIZE;
-    }
-
     /**
      * Whether the kernel is driven at 64 bits, and so runs through the long entry point: every
      * tree holding a 64-bit node; a tree of the int and float lanes alone (VARKA-343) is driven
@@ -1075,6 +1110,47 @@ public final class VarkaKernelChecks {
      */
     private boolean wide() {
       return wideRoots;
+    }
+
+    /** {@code v} as a column or output of {@code lane} stores it, sign-extended. */
+    private static long narrowed(VarkaVectorIR.LaneType lane, long v) {
+      return switch (lane) {
+        case BYTE -> (byte) v;
+        case SHORT -> (short) v;
+        // A float's value is its bits at its width, four bytes a row as an int's.
+        case INT, FLOAT -> (int) v;
+        case LONG, DOUBLE -> v;
+      };
+    }
+
+    /**
+     * The lane a row of {@code lane} is laid out at: its own if integral, the int lane's four
+     * bytes for a float, else the long.
+     */
+    private static VarkaVectorIR.LaneType laidOut(VarkaVectorIR.LaneType lane) {
+      return switch (lane) {
+        case BYTE, SHORT, INT -> lane;
+        case FLOAT -> VarkaVectorIR.LaneType.INT;
+        case LONG, DOUBLE -> VarkaVectorIR.LaneType.LONG;
+      };
+    }
+
+    private static void putAt(VarkaVectorIR.LaneType lane, MemorySegment d, int i, long v) {
+      switch (laidOut(lane)) {
+        case BYTE -> d.set(ValueLayout.JAVA_BYTE, i, (byte) v);
+        case SHORT -> d.set(ValueLayout.JAVA_SHORT, i * 2L, (short) v);
+        case INT -> d.set(ValueLayout.JAVA_INT, i * 4L, (int) v);
+        case LONG, FLOAT, DOUBLE -> d.set(ValueLayout.JAVA_LONG, i * 8L, v);
+      }
+    }
+
+    private static long getAt(VarkaVectorIR.LaneType lane, MemorySegment d, int i) {
+      return switch (laidOut(lane)) {
+        case BYTE -> d.get(ValueLayout.JAVA_BYTE, i);
+        case SHORT -> d.get(ValueLayout.JAVA_SHORT, i * 2L);
+        case INT -> d.get(ValueLayout.JAVA_INT, i * 4L);
+        case LONG, FLOAT, DOUBLE -> d.get(ValueLayout.JAVA_LONG, i * 8L);
+      };
     }
 
     @Override public int length() {
@@ -1093,30 +1169,24 @@ public final class VarkaKernelChecks {
       return 8L;
     }
 
-    // A mixed kernel holds 32- and 64-bit values only (a narrow value under a long kernel is
-    // refused), and the putters below lay out four or eight bytes accordingly; a bit column's
-    // buffer is over-allocated at a byte a row, as at the narrow lane.
+    // A mixed kernel holds long, int and narrow values - a narrow column widened to the long
+    // lane, or a long value narrowed at its store (VARKA-332) - and the putters below lay out
+    // each column and output at its own width.
     @Override public long columnStride(int c) {
-      if (bitColumns[c]) {
-        return 1L;
-      }
-      return width(intColumn(c) ? VarkaVectorIR.LaneType.INT : VarkaVectorIR.LaneType.LONG);
+      // A bit column's buffer is over-allocated at a byte a row; the kernel reads its bytes.
+      return bitColumns[c] ? 1L : width(laidOut(columnLanes[c]));
     }
 
     @Override public long outputStride(VarkaVectorIR root, VarkaVectorIR.LaneType rootLane) {
       if (root instanceof WidenDecimal) {
         return DECIMAL_SLOT;
       }
-      return width(rootLane.bits() == Integer.SIZE
-          ? VarkaVectorIR.LaneType.INT : VarkaVectorIR.LaneType.LONG);
+      return width(laidOut(rootLane));
     }
 
     @Override public long value(int c, int i) {
-      long v = batch.data()[c][i];
-      if (bitColumns[c]) {
-        return v != 0 ? 1L : 0L;
-      }
-      return intColumn(c) ? (int) v : v;
+      return bitColumns[c] ? (batch.data()[c][i] != 0 ? 1L : 0L)
+          : narrowed(columnLanes[c], batch.data()[c][i]);
     }
 
     @Override public void put(MemorySegment d, int i, long v) {
@@ -1126,10 +1196,8 @@ public final class VarkaKernelChecks {
     @Override public void putColumn(int c, MemorySegment d, int i, long v) {
       if (bitColumns[c]) {
         putBit(d, i, v);
-      } else if (intColumn(c)) {
-        d.set(ValueLayout.JAVA_INT, i * 4L, (int) v);
       } else {
-        put(d, i, v);
+        putAt(columnLanes[c], d, i, v);
       }
     }
 
@@ -1137,10 +1205,8 @@ public final class VarkaKernelChecks {
         MemorySegment d, int i, long v) {
       if (root instanceof WidenDecimal) {
         putSlot(d, i, v);
-      } else if (outputStride(root, rootLane) == 4L) {
-        d.set(ValueLayout.JAVA_INT, i * 4L, (int) v);
       } else {
-        put(d, i, v);
+        putAt(rootLane, d, i, v);
       }
     }
 
@@ -1149,10 +1215,16 @@ public final class VarkaKernelChecks {
     }
 
     @Override public long poisonColumn(int c, int nullOrdinal) {
+      boolean low = (nullOrdinal & 1) == 0;
       if (bitColumns[c]) {
-        return (nullOrdinal & 1) == 0 ? 0L : 1L;
+        return low ? 0L : 1L;
       }
-      return intColumn(c) ? VarkaEmitterFixtures.poison(nullOrdinal) : poison(nullOrdinal);
+      return switch (laidOut(columnLanes[c])) {
+        case BYTE -> low ? Byte.MIN_VALUE : Byte.MAX_VALUE;
+        case SHORT -> low ? Short.MIN_VALUE : Short.MAX_VALUE;
+        case INT -> VarkaEmitterFixtures.poison(nullOrdinal);
+        case LONG, FLOAT, DOUBLE -> poison(nullOrdinal);
+      };
     }
 
     @Override public long sentinel() {
@@ -1160,7 +1232,12 @@ public final class VarkaKernelChecks {
     }
 
     @Override public long sentinelOutput(VarkaVectorIR root, VarkaVectorIR.LaneType rootLane) {
-      return outputStride(root, rootLane) == 4L ? 0xDEADBEEF : sentinel();
+      return switch (laidOut(rootLane)) {
+        case BYTE -> Byte.MIN_VALUE;
+        case SHORT -> Short.MIN_VALUE;
+        case INT -> 0xDEADBEEF;
+        case LONG, FLOAT, DOUBLE -> sentinel();
+      };
     }
 
     @Override public int run(VarkaFusedKernel kernel, long[] srcData, long[] srcValidity,
@@ -1182,9 +1259,7 @@ public final class VarkaKernelChecks {
 
     @Override public long got(MemorySegment out, int i, VarkaVectorIR root,
         VarkaVectorIR.LaneType rootLane) {
-      return root instanceof WidenDecimal ? slot(out, i)
-          : outputStride(root, rootLane) == 4L ? out.get(ValueLayout.JAVA_INT, i * 4L)
-          : out.get(ValueLayout.JAVA_LONG, i * 8L);
+      return root instanceof WidenDecimal ? slot(out, i) : getAt(rootLane, out, i);
     }
   }
 
@@ -1348,6 +1423,22 @@ public final class VarkaKernelChecks {
     d.set(ValueLayout.JAVA_BYTE, off, (byte) (v != 0 ? b | bit : b & ~bit));
   }
 
+  /** Whether {@code root}'s tree reads a {@link BoolColumn}. */
+  private static boolean readsBitColumn(VarkaVectorIR root) {
+    var seen = new HashSet<VarkaVectorIR>();
+    var todo = new ArrayDeque<VarkaVectorIR>(List.of(root));
+    while (!todo.isEmpty()) {
+      VarkaVectorIR node = todo.pop();
+      if (node instanceof BoolColumn) {
+        return true;
+      }
+      if (seen.add(node)) {
+        todo.addAll(Arrays.asList(VarkaVectorIR.childrenOf(node)));
+      }
+    }
+    return false;
+  }
+
   /** The inputs {@code roots} read through a {@link BoolColumn}: the bit-stored columns. */
   static boolean[] bitColumns(List<VarkaVectorIR> roots, int numInputs) {
     var bits = new boolean[numInputs];
@@ -1506,11 +1597,20 @@ public final class VarkaKernelChecks {
   /**
    * Output buffers for {@code roots} in {@code arena}: values at the lane's sentinel, so a lane
    * the kernel fails to write shows, and every validity byte, whole words to the last, at
-   * {@code fill}. A {@code Cond} root's data address is 0L, as the kernel contract says; a
-   * {@link BoolOutput}'s data is a bitmap of whole words holding {@link #STALE_DATA}.
+   * {@code fill}, or at the sentinel's complement where {@code complement} says. A sentinel can
+   * be a legitimate answer - {@code Byte.MIN_VALUE} is {@code CAST(128 AS TINYINT)} - and its
+   * complement differs from it at every width, so {@link #runLoaded} runs the kernel into both
+   * and an unwritten lane shows in at least one of them. A {@code Cond} root's data address is 0L,
+   * as the kernel contract says; a {@link BoolOutput}'s data is a bitmap of whole words holding
+   * {@link #STALE_DATA}.
    */
   private static Outputs outputs(Arena arena, Lane lane, VarkaVectorIR[] roots,
       ValidityFill fill) {
+    return outputs(arena, lane, roots, fill, fill == ValidityFill.ONES);
+  }
+
+  private static Outputs outputs(Arena arena, Lane lane, VarkaVectorIR[] roots,
+      ValidityFill fill, boolean complement) {
     int length = lane.length();
     int n = roots.length;
     var values = new MemorySegment[n];
@@ -1526,6 +1626,9 @@ public final class VarkaKernelChecks {
         values[o] =
             VarkaEmitterFixtures.alloc(arena, length * lane.outputStride(roots[o], rootLane));
         long sentinel = lane.sentinelOutput(roots[o], rootLane);
+        if (complement) {
+          sentinel = ~sentinel;
+        }
         for (int i = 0; i < length; i++) {
           lane.putOutput(roots[o], rootLane, values[o], i, sentinel);
         }
@@ -1659,11 +1762,35 @@ public final class VarkaKernelChecks {
     try (var arena = Arena.ofConfined()) {
       var in = inputs(arena, lane, numInputs, rootList);
       int n = roots.length;
-      int runs = fills.size();
+      // Each fill's run holds its outputs at the sentinel or, under ONES, its complement; where
+      // every fill asked for holds the same one and an output is narrow - whose sentinel is a
+      // real answer - one more run at the last fill holds the other, so an unwritten lane shows
+      // whichever fills the caller passes. That run is compared but not digested: the answer log
+      // folds the asked-for fills' runs alone.
+      List<ValidityFill> runFills = new ArrayList<>(fills);
+      List<Boolean> complements = new ArrayList<>();
+      for (ValidityFill fill : fills) {
+        complements.add(fill == ValidityFill.ONES);
+      }
+      boolean narrowOutput = false;
+      for (VarkaVectorIR root : roots) {
+        narrowOutput |= !(root instanceof Cond) && !(root instanceof BoolOutput)
+            && root.laneType().isNarrow();
+      }
+      if (narrowOutput && !(complements.contains(true) && complements.contains(false))) {
+        runFills.add(fills.get(fills.size() - 1));
+        complements.add(!complements.get(complements.size() - 1));
+      }
+      int runs = runFills.size();
+      var suffixes = new String[runs];
+      for (int f = 0; f < runs; f++) {
+        suffixes[f] = runFills.get(f).suffix()
+            + (f < fills.size() ? "" : " (outputs pre-filled with the other sentinel)");
+      }
       var outs = new Outputs[runs];
       int status = 0;
       for (int f = 0; f < runs; f++) {
-        outs[f] = outputs(arena, lane, roots, fills.get(f));
+        outs[f] = outputs(arena, lane, roots, runFills.get(f), complements.get(f));
       }
       hook.before();
       int[] statuses = new int[runs];
@@ -1674,8 +1801,8 @@ public final class VarkaKernelChecks {
       for (int f = 0; f < runs; f++) {
         if (f > 0 && statuses[f] != status) {
           throw new IllegalStateException(context + ": the kernel's status depends on the output "
-              + "validity fill (" + status + fills.get(f - 1).suffix() + ", " + statuses[f]
-              + fills.get(f).suffix() + ")");
+              + "validity fill (" + status + suffixes[f - 1] + ", " + statuses[f]
+              + suffixes[f] + ")");
         }
         status = statuses[f];
       }
@@ -1716,7 +1843,7 @@ public final class VarkaKernelChecks {
               boolean valid = bit(outs[f].bits()[o], i);
               boolean data = bit(outs[f].values()[o], i);
               if (valid != known || (known && data != truth.isTrue())) {
-                throw new IllegalStateException(context + fills.get(f).suffix() + ": boolean "
+                throw new IllegalStateException(context + suffixes[f] + ": boolean "
                     + "output " + o + " row " + i + " differs (want " + truth + ", got "
                     + (valid ? Boolean.toString(data) : "null") + ")"
                     + evidence(values, isNull, nullCounts));
@@ -1732,7 +1859,7 @@ public final class VarkaKernelChecks {
             for (int f = 0; f < runs; f++) {
               boolean bit = bit(outs[f].bits()[o], i);
               if (bit != truth.isTrue()) {
-                throw new IllegalStateException(context + fills.get(f).suffix() + ": selection row "
+                throw new IllegalStateException(context + suffixes[f] + ": selection row "
                     + i + " differs (want " + truth.isTrue() + ", got " + bit + ")"
                     + evidence(values, isNull, nullCounts));
               }
@@ -1747,14 +1874,14 @@ public final class VarkaKernelChecks {
               long got = lane.got(outs[f].values()[o], i, root, rootLanes[o]);
               // The fill's name is formatted only for a failure: this loop runs once a row.
               if (bit != want.isPresent()) {
-                String at = context + fills.get(f).suffix();
+                String at = context + suffixes[f];
                 throw new IllegalStateException(at + ": validity of output " + o + " row " + i
                     + " differs (want " + shown(want) + ", got "
                     + (bit ? "Some(" + got + ")" : "None") + ")"
                     + evidence(values, isNull, nullCounts));
               }
               if (want.isPresent() && !sameAnswer(root, want.getAsLong(), got, rowRef)) {
-                String at = context + fills.get(f).suffix();
+                String at = context + suffixes[f];
                 throw new IllegalStateException(at + ": output " + o + " row " + i
                     + " differs (want " + want.getAsLong() + ", got " + got + ")"
                     + evidence(values, isNull, nullCounts));
@@ -1769,7 +1896,7 @@ public final class VarkaKernelChecks {
             int last = outs[f].bits()[o].get(ValueLayout.JAVA_BYTE, length / 8L) & 0xFF;
             int past = last >>> (length % 8);
             if (past != 0) {
-              throw new IllegalStateException(context + fills.get(f).suffix() + ": validity of "
+              throw new IllegalStateException(context + suffixes[f] + ": validity of "
                   + "output " + o + " has bits set past row " + (length - 1) + " in its last "
                   + "byte (0x" + Integer.toHexString(last) + ")");
             }
@@ -1778,7 +1905,7 @@ public final class VarkaKernelChecks {
             if (roots[o] instanceof BoolOutput) {
               int lastData = outs[f].values()[o].get(ValueLayout.JAVA_BYTE, length / 8L) & 0xFF;
               if (lastData >>> (length % 8) != 0) {
-                throw new IllegalStateException(context + fills.get(f).suffix() + ": data of "
+                throw new IllegalStateException(context + suffixes[f] + ": data of "
                     + "boolean output " + o + " has bits set past row " + (length - 1)
                     + " in its last byte (0x" + Integer.toHexString(lastData) + ")");
               }
@@ -1787,7 +1914,7 @@ public final class VarkaKernelChecks {
         }
       }
       if (VarkaAnswerLog.enabled()) {
-        VarkaAnswerLog.record(context, digest(lane, roots, outs));
+        VarkaAnswerLog.record(context, digest(lane, roots, Arrays.copyOf(outs, fills.size())));
       }
       return 0;
     }

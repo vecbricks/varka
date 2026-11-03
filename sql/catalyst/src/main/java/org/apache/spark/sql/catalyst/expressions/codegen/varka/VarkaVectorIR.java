@@ -58,6 +58,7 @@ import org.apache.spark.sql.types.Decimal;
  */
 public sealed interface VarkaVectorIR
     permits VarkaVectorIR.ColumnRef, VarkaVectorIR.DecimalColumn, VarkaVectorIR.LiteralSlot,
+            VarkaVectorIR.NullValue,
             VarkaVectorIR.AddDays, VarkaVectorIR.SubDays, VarkaVectorIR.DateDiff,
             VarkaVectorIR.IfElse, VarkaVectorIR.CondValue, VarkaVectorIR.BoolOutput,
             VarkaVectorIR.Greatest, VarkaVectorIR.Least, VarkaVectorIR.DayOfWeek,
@@ -160,6 +161,7 @@ public sealed interface VarkaVectorIR
       case NullSafeEqual n -> n.left().laneType();
       case BoolColumn n -> n.lane();
       case CondConst n -> n.lane();
+      case NullValue n -> n.lane();
       case BoolCompare n -> n.left().laneType();
       case CondIf n -> n.cond().laneType();
       case BoolNullSafeEq n -> n.left().laneType();
@@ -213,8 +215,7 @@ public sealed interface VarkaVectorIR
       case BoolColumn b -> b.ordinal();
       case LiteralSlot _, IntArith _, IntNeg _, ConstDivide _, BoundedDivide _, BitOp _,
           BitCount _, MathUnary _, Greatest _, Least _, IfElse _, CondValue _, BoolOutput _,
-          Compare _,
-          NullSafeEqual _, CondConst _,
+          Compare _, NullSafeEqual _, CondConst _, NullValue _,
           BoolCompare _, CondIf _, BoolNullSafeEq _, And _, Or _, Not _, IsNotNull _,
           InRanges _, AddDays _, SubDays _, DateDiff _, GuardedDay _, GuardedRange _, WidenLane _,
           ConvertLane _,
@@ -291,7 +292,7 @@ public sealed interface VarkaVectorIR
           lanes.add(c.laneType());
         }
       }
-      case LiteralSlot _, BoolColumn _, CondConst _, DecimalColumn _ -> { }
+      case LiteralSlot _, BoolColumn _, CondConst _, DecimalColumn _, NullValue _ -> { }
       case WidenLane _, NarrowLane _, ConvertLane _, WidenDecimal _, AddDays _, SubDays _,
           AddMonths _,
           MakeDate _, IntArith _, IntNeg _, GuardedDay _, GuardedRange _, NextDay _,
@@ -336,7 +337,7 @@ public sealed interface VarkaVectorIR
           && needsNarrowSpecies(c, seen);
       case ColumnRef c -> c.laneType().isNarrow();
       case LiteralSlot l -> l.laneType().isNarrow();
-      case BoolColumn _, CondConst _, DecimalColumn _ -> false;
+      case BoolColumn _, CondConst _, DecimalColumn _, NullValue _ -> false;
       case NarrowLane n -> n.target().isNarrow() || needsNarrowSpecies(n.child(), seen);
       case WidenLane _, ConvertLane _, WidenDecimal _, AddDays _, SubDays _, AddMonths _,
           MakeDate _,
@@ -509,14 +510,17 @@ public sealed interface VarkaVectorIR
    * sign extension next, so the leaf loads two vectors of slots per lane group and keeps the low
    * words. The scale is not here: the values are unscaled, and the nodes above carry the scale.
    *
-   * <p>The leaf also checks every valid slot, because Spark's column reader
-   * ({@code ArrowColumnVector}'s decimal accessor) raises on one that does not hold a value of the
-   * type: a high word that is not the low word's sign (the value is then at least 2^63 in
-   * magnitude), or a low word with more than {@code precision} digits. A batch with such a slot
-   * declines with {@code STATUS_DECIMAL_SLOT}, and the row engine raises the same error on the
-   * same row. A null slot is never read by Spark, so whatever it holds never declines. The check
-   * is part of the leaf rather than a node above it because without it the leaf would compute
-   * where Spark raises, and it is unconditional, as {@link GuardedRange}'s is.
+   * <p>The leaf also checks every valid slot for one that does not hold a value of the type: a
+   * high word that is not the low word's sign (the value is then at least 2^63 in magnitude), or
+   * a low word with more than {@code precision} digits. What Spark answers on such a slot depends
+   * on how it reads the batch: the Arrow cache's row reader takes the low word with no check,
+   * and {@code ArrowColumnVector}'s decimal accessor raises. A batch with such a slot declines
+   * with {@code STATUS_DECIMAL_SLOT}, and the fallback reads it as vanilla Spark reads that
+   * source: the low word over the Arrow cache, through the accessor (raising) over any other
+   * (VARKA-365, which records one known limit). A null slot is never read by Spark, so whatever
+   * it holds never declines. The check is part of the leaf rather than a node above it because
+   * without it the leaf would compute over a slot Spark may raise on, and it is unconditional, as
+   * {@link GuardedRange}'s is.
    *
    * <p>It renders as {@code dec:} with the ordinal, the lane and the precision, so it shares no
    * kernel with a {@code BIGINT} {@link ColumnRef} of the same ordinal, and two precisions, whose
@@ -569,6 +573,27 @@ public sealed interface VarkaVectorIR
 
     public LiteralSlot(int index) {
       this(index, LaneType.INT);
+    }
+  }
+
+  /**
+   * The null of a value lane: a value that is null on every row, its vector zero and its
+   * validity word all clear. It is the branch a {@code CASE WHEN} without an {@code ELSE} lacks
+   * and the {@code NULL} of {@code IF(c, x, NULL)}, which is what {@code nullif} and
+   * {@code nullifzero} become after the optimizer (`VARKA-333.md` 3.2). It reads nothing and holds
+   * no slot, so it is structure and in the shape, as {@link CondConst} is. A null from valid
+   * inputs, which a dense body cannot hold: {@code Analysis} sets {@code nullsFromValidInputs}
+   * for a kernel holding one, so every batch takes the masked body, where the blend of
+   * {@link IfElse} answers null wherever it chooses this branch. The int and long lanes only,
+   * which carry the six types the row admits it for; another lane is refused until a row that
+   * needs it tests its emission, as {@link CondValue}'s narrow lanes are.
+   */
+  record NullValue(LaneType lane) implements VarkaVectorIR {
+    public NullValue {
+      Objects.requireNonNull(lane, "lane");
+      if (lane != LaneType.INT && lane != LaneType.LONG) {
+        throw VarkaErrors.illegalArgument("NullValue at the " + lane + " lane is untested");
+      }
     }
   }
 
@@ -1446,14 +1471,15 @@ public sealed interface VarkaVectorIR
    * 1 where {@code cond} is known true, 0 where it is known false, and null where it is unknown,
    * so its validity word is {@code kt | kf}. Not {@code IF(c, 1, 0)}, which takes the ELSE arm
    * under an unknown condition and answers 0. The emitted form is a broadcast 0 with 1 added
-   * under the known-true mask (`VARKA-460.md` 5). The int and long lanes only: a narrow one is
-   * refused until a row that needs it (a cast to TINYINT or SMALLINT) tests its lowering.
+   * under the known-true mask (`VARKA-460.md` 5). At a narrow lane it is
+   * {@code CAST(b AS TINYINT)} or {@code SMALLINT} (VARKA-332): the same two operations at the int
+   * lane under the widened arm, and at the narrow lane itself under the native one. A floating
+   * lane has no such value.
    */
   record CondValue(Cond cond, LaneType lane) implements VarkaVectorIR {
     public CondValue {
-      if (lane.isNarrow()) {
-        throw VarkaErrors.illegalArgument("CondValue at the narrow lane " + lane
-            + " is untested");
+      if (lane.isFloating()) {
+        throw VarkaErrors.illegalArgument("CondValue at the floating lane " + lane);
       }
       if (cond.laneType() != lane) {
         throw VarkaErrors.illegalArgument(
@@ -1756,6 +1782,7 @@ public sealed interface VarkaVectorIR
           "(nullSafeEq " + canonical(n.left()) + " " + canonical(n.right()) + ")";
       case BoolColumn n -> "bool:" + n.ordinal() + laneTag(n.lane());
       case CondConst n -> "(condConst:" + n.value().name() + laneTag(n.lane()) + ")";
+      case NullValue n -> "(null:" + n.lane().name() + ")";
       case BoolCompare n ->
           "(boolCmp:" + n.op().name() + " " + canonical(n.left()) + " "
               + canonical(n.right()) + ")";
@@ -1856,6 +1883,7 @@ public sealed interface VarkaVectorIR
           + lineOf.applyAsInt(n.right()) + ")";
       case BoolColumn n -> "bool:" + n.ordinal() + laneTag(n.lane());
       case CondConst n -> "(condConst:" + n.value().name() + laneTag(n.lane()) + ")";
+      case NullValue n -> "(null:" + n.lane().name() + ")";
       case BoolCompare n -> "(boolCmp:" + n.op().name() + " " + lineOf.applyAsInt(n.left()) + " "
           + lineOf.applyAsInt(n.right()) + ")";
       case CondIf n -> "(condIf " + lineOf.applyAsInt(n.cond()) + " "
@@ -1968,6 +1996,7 @@ public sealed interface VarkaVectorIR
       case NullSafeEqual n -> new VarkaVectorIR[] {n.left(), n.right()};
       case BoolColumn n -> new VarkaVectorIR[0];
       case CondConst n -> new VarkaVectorIR[0];
+      case NullValue n -> new VarkaVectorIR[0];
       case BoolCompare n -> new VarkaVectorIR[] {n.left(), n.right()};
       case CondIf n -> new VarkaVectorIR[] {n.cond(), n.thenCond(), n.elseCond()};
       case BoolNullSafeEq n -> new VarkaVectorIR[] {n.left(), n.right()};
@@ -2043,6 +2072,7 @@ public sealed interface VarkaVectorIR
       case NullSafeEqual n -> new NullSafeEqual(children[0], children[1]);
       case BoolColumn n -> n;
       case CondConst n -> n;
+      case NullValue n -> n;
       case BoolCompare n -> new BoolCompare(n.op(), asCond(children[0]), asCond(children[1]));
       case CondIf n -> new CondIf(asCond(children[0]), asCond(children[1]), asCond(children[2]));
       case BoolNullSafeEq n -> new BoolNullSafeEq(asCond(children[0]), asCond(children[1]));

@@ -47,6 +47,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Con
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.CondConst;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.CondIf;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.CondValue;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.NullValue;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ConstDivide;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ConvertLane;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.DateDiff;
@@ -354,9 +355,13 @@ final class Analysis {
     VALUE_RANGE(Family.REARMED, true, VarkaFusedKernel.STATUS_VALUE_RANGE),
     /**
      * {@link DecimalColumn}: a valid slot whose high word is not its low word's sign, or whose
-     * value has more digits than the precision, which Spark's column reader raises on
-     * (VARKA-347). Unconditional, as the range guards are: without it the leaf would compute
-     * where Spark raises. It parks its low words while it compares them.
+     * value has more digits than the precision (VARKA-347). Spark's answer on such a slot depends
+     * on its read path: the Arrow cache's row reader takes the low word unchecked, while
+     * {@code ArrowColumnVector}'s accessor raises. The declined batch goes to the fallback, which
+     * reads the low word over the cache and through the accessor over any other source
+     * (VARKA-365, with one known limit there), so the kernel never computes over a slot that
+     * Spark may raise on. Unconditional, as the range guards are. It parks its low words while
+     * it compares them.
      */
     DECIMAL_SLOT(Family.REARMED, true, VarkaFusedKernel.STATUS_DECIMAL_SLOT);
 
@@ -955,6 +960,7 @@ final class Analysis {
         case Least n -> { }
         case IfElse n -> { }
         case CondValue n -> { }
+        case NullValue n -> { }
         case BoolOutput n -> { }
         case DayOfWeek n -> { }
         case WeekDay n -> { }
@@ -1070,7 +1076,7 @@ final class Analysis {
           BitOp _, BitCount _, MathUnary _, Compare _, NullSafeEqual _, BoolColumn _,
           BoolCompare _,
           CondIf _, BoolNullSafeEq _, CondConst _, And _, Or _, Not _, IsNotNull _,
-          InRanges _, CondValue _, BoolOutput _ -> false;
+          InRanges _, CondValue _, NullValue _, BoolOutput _ -> false;
     };
   }
 
@@ -1243,12 +1249,22 @@ final class Analysis {
   /**
    * Whether this kernel holds values of both lanes: driven at the long lane, with an int-lane
    * node that is emitted as an int vector - every int-lane node but a narrowing root that nothing
-   * else reads, whose value stays in the long lane until its store. False for every single-lane
-   * kernel and for a kernel whose only int-lane nodes are narrowing roots, such as the
-   * {@code TIME} extracts'. The plan's answer.
+   * else reads, whose value stays in the long lane until its store, and every narrow value. A
+   * narrowing to a narrow type at its store makes the kernel one too where that lets its loop
+   * body store the narrow species whole ({@link #wholeNarrowStoreAtLong}). False for every
+   * single-lane kernel and for a kernel whose only int-lane nodes are narrowing roots, such as
+   * the {@code TIME} extracts'. The plan's answer.
    */
   boolean mixed() {
     return plan.mixed();
+  }
+
+  /**
+   * Whether a narrow-typed store of {@code stored} in this kernel at the long lane may be whole in
+   * its loop body. The plan's answer ({@link VarkaKernelPlan#wholeNarrowStoreAtLong}).
+   */
+  boolean wholeNarrowStoreAtLong(Lane stored) {
+    return plan.wholeNarrowStoreAtLong(stored);
   }
 
   /**
@@ -1488,6 +1504,8 @@ final class Analysis {
       // The condition's known words, kt | kf: a function of the condition's operands' values,
       // not of their bitmaps alone.
       case CondValue n -> null;
+      // All clear, written by the node itself: not a function of the input bitmaps.
+      case NullValue n -> null;
       // A boolean output's validity is the same kt | kf, so it has no pure word either
       // (`VARKA-27.md` 2.1): no boolean root has a pure word.
       case BoolOutput n -> null;
@@ -1572,10 +1590,10 @@ final class Analysis {
     // the NATIVE arm, whose every value is narrow - holds nothing else. An int-lane emission
     // holds int nodes and the narrow ones, which it widens once at their loads; it holds no
     // long-lane node. A long-lane emission may hold int-lane nodes, which the IR's constructors
-    // admit only below a conversion, and which `laneOf` emits at the int species; a narrow value
-    // there has no lowering, since widening one to the long lane would go through the int
-    // species of the narrow species' part width. A narrow column read for its validity word
-    // alone is the exception (`validityOnlyNarrow`): the word is a bit per row at every lane.
+    // admit only below a conversion, and which `laneOf` emits at the int species; a narrow column
+    // there is loaded into the int species too and widened, and a long value narrowed to a narrow
+    // type at a root is converted at its store (VARKA-332). A narrow column read for its validity
+    // word alone needs neither (`validityOnlyNarrow`): the word is a bit per row at every lane.
     // The IR's own constructors make any other mix unbuildable; this is what catches one built
     // another way.
     // The two kinds meet through a ConvertLane, by width (`VARKA-343.md` 2.2): a 32-bit
@@ -1589,7 +1607,11 @@ final class Analysis {
     boolean fits = switch (lane) {
       case BYTE, SHORT, FLOAT -> type == lane.laneType;
       case INT -> type.bits() <= Integer.SIZE;
-      case LONG -> !type.isNarrow() || validityOnlyNarrow.contains(node);
+      // The plan admits narrow columns, narrowings and comparisons there and nothing else
+      // narrow, by the classification it refuses with (VarkaKernelPlan.longNarrowRole,
+      // VARKA-332); a validity-only narrow column, which the plan does not see, beside them.
+      case LONG -> !type.isNarrow() || validityOnlyNarrow.contains(node)
+          || VarkaKernelPlan.longNarrowRole(node) != VarkaKernelPlan.LongNarrowRole.NONE;
       case DOUBLE -> !type.isNarrow() && type != VarkaVectorIR.LaneType.LONG;
     };
     if (!fits) {
@@ -1777,6 +1799,14 @@ final class Analysis {
       // condition's own flag (And, Or, the null-safe equality, the null test, CondIf), and so is
       // a null from valid inputs (CondConst(NULL)).
       case CondValue n -> analyzeOp(node, false, n.cond());
+      // A leaf that reads nothing and is null on every lane: a null from valid inputs, the one
+      // thing a dense body cannot hold, so the kernel is masked-only (`VARKA-333.md` 3.2).
+      case NullValue n -> {
+        columns.put(node, 0L);
+        height.put(node, 0);
+        skipping.put(node, false);
+        nullsFromValidInputs = true;
+      }
       // Analyzed as CondValue: null where the condition is unknown, its flags the condition's,
       // so a CondConst(NULL) under it keeps the kernel masked-only. The all-null shortcut
       // excludes it outright (VarkaBodyEmitter.shortcutApplies), not through the flag.

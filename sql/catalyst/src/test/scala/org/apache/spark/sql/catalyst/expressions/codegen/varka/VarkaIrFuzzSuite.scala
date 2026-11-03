@@ -1088,6 +1088,8 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
     // carries no high word for its check: its slot table is `VarkaDecimalLoadSuite`'s, and its
     // fuzz sequence, on a seed of its own so that no shape here moves, is a later step of the row
     // (`VARKA-347.md` 3 item 5).
+    // The null leaf (VARKA-333) is drawn by the nulling draw only, on its own seed, so that no
+    // shape here moves; the test of the nulling draw's reach below holds it to both lanes.
     // The decimal output (VARKA-157) has its own draw, on its own seed, so that no shape here
     // moves: the decimal-store test above runs it.
     // The floating math function (VARKA-342) is out with the floating lanes: the grammar draws no
@@ -1097,7 +1099,7 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
     // moves: the floating cast test above runs it, and the test after it asserts its reach.
     val missing = permitted -- seen - "NarrowLane" - "WidenLane" - "NullSafeEqual" -
       "BoolColumn" - "CondConst" - "BoolCompare" - "CondIf" - "BoolNullSafeEq" - "CondValue" -
-      "BoolOutput" - "DecimalColumn" - "WidenDecimal" - "MathUnary" - "ConvertLane"
+      "BoolOutput" - "DecimalColumn" - "NullValue" - "WidenDecimal" - "MathUnary" - "ConvertLane"
     assert(missing.isEmpty,
       s"the generator never built: ${missing.toSeq.sorted.mkString(", ")} - add an arm, or " +
         "state here why the node type is deliberately out of the fuzzer's reach")
@@ -1424,6 +1426,186 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
     reportSkipped()
   }
 
+  // The integral casts (VARKA-332, `VARKA-332.md` 3.7): the five compositions over a column of
+  // each integral type and a BOOLEAN one, each guard mode, a sequence of its own seed.
+  private val castSeed =
+    sys.props.get("varka.fuzz.seed").map(_.toLong).getOrElse(VarkaIrGrammar.CAST_FUZZ_SEED)
+
+  /**
+   * One cast draw: its one root over the five columns, a length, null patterns, masking and
+   * options as the other corpora draw them, and the columns' values at their lanes' ends a quarter
+   * of the time. A kernel the plan refuses at the drawn width (a byte column at two long lanes)
+   * is counted and skipped; a failing range guard may decline the batch, which the reference has
+   * no value for, so such a draw allows it. Not shrunk on failure, as the mixed corpus is not.
+   */
+  private def runOneCast(iteration: Int): Unit = {
+    val rnd = VarkaIrGrammar.shapeRandom(castSeed, iteration)
+    val root = VarkaIrGrammar.drawCastShape(rnd)
+    val roots = java.util.List.of(root)
+    val numInputs = VarkaIrGrammar.CAST_BOOL_COLUMN + 1
+    val length = lengths(rnd.nextInt(lengths.length))
+    val patternIds = Seq.fill(numInputs)(rnd.nextInt(patternNames.length))
+    val patterns = patternIds.map(pattern(rnd, _, length))
+    val forceMasked = length > 1 && rnd.nextInt(4) == 0
+    val options = randomOptions(rnd, VarkaMatrix.base)
+    val data = Array.tabulate(numInputs, length)((c, _) => VarkaIrGrammar.castValue(rnd, c))
+    val nulls = Array.tabulate(numInputs, length)((c, i) => patterns(c)(i))
+    val label = s"lane=cast seed=$castSeed iteration=$iteration " +
+      s"root=${VarkaVectorIR.canonical(root)} " +
+      s"options=${if (options.isDefault) "(defaults)" else options.canonical()} " +
+      s"length=$length patterns=${patternIds.map(patternNames).mkString(",")} " +
+      s"forceMasked=$forceMasked"
+    val category = castCategory(root)
+    val refusal = VarkaKernelPlan.refusalOf(roots, options)
+    if (refusal.isPresent) {
+      castDrawn(category) = castDrawn.getOrElse(category, 0) + 1
+      // A cast draw is refused only for its width: a narrow column the width has no species for,
+      // or a lane count the options do not bake. A bigint narrowed at its store loads nothing
+      // narrow and is served at every width, so it is never refused.
+      assert(castWidthRefusal(refusal.get) && category != CastBigintStore,
+        s"$label: a $category draw refused for a reason other than its width: ${refusal.get}")
+      return
+    }
+    val className = "org.apache.spark.sql.varka.execution.VarkaFusedFuzzCast" +
+      classCounter.addAndGet(1)
+    def failing(n: VarkaVectorIR): Boolean = (n match {
+      case g: GuardedRange => g.mode() == Overflow.FAIL
+      case _ => false
+    }) || VarkaVectorIR.childrenOf(n).exists(failing)
+    // A draw the emitter drops past a size cap (`emitOrSkip`) never reached a kernel and is not
+    // counted: the classes count what the plan decided.
+    emitOrSkip(label, options)(o => VarkaLoopEmitter.emitTraced(
+        className, roots, numInputs, 1, o, randomTrace)).foreach { bytes =>
+      castDrawn(category) = castDrawn.getOrElse(category, 0) + 1
+      val batch = new VarkaKernelChecks.LongBatch(length, nulls, data, forceMasked)
+      try runCast(label, className, bytes, roots, numInputs, batch, options, failing(root)) catch {
+        case e: VirtualMachineError => throw e
+        case t: Throwable => fail(s"$label: ${Option(t.getMessage).getOrElse(t.toString)}", t)
+      }
+      castFused(category) = castFused.getOrElse(category, 0) + 1
+    }
+  }
+
+  private val CastBigintStore = "bigint narrowed at its store"
+
+  /**
+   * The shape class of a cast draw, which the run bounds per class: the narrow load at the long
+   * width, a bigint's L2I store, a narrowing read by another node, and the rest.
+   */
+  private def castCategory(root: VarkaVectorIR): String = {
+    def source(n: VarkaVectorIR): VarkaVectorIR = n match {
+      case g: GuardedRange => source(g.child())
+      case other => other
+    }
+    def readsNarrowing(n: VarkaVectorIR): Boolean =
+      n.isInstanceOf[NarrowLane] || VarkaVectorIR.childrenOf(n).exists(readsNarrowing(_))
+    root match {
+      case w: WidenLane => w.child() match {
+        case _: NarrowLane => "narrowing read by another node"
+        case c: ColumnRef if c.lane().isNarrow && w.target() == LaneType.LONG =>
+          "narrow column loaded at the long width"
+        case _ => "widening"
+      }
+      case n: NarrowLane =>
+        if (source(n.child()).laneType() == LaneType.LONG) CastBigintStore
+        else "narrowing at its store"
+      case _: CondValue => "select"
+      case c: Cond => if (readsNarrowing(c)) "narrowing read by another node" else "test"
+      case other => fail(s"not a cast draw: $other")
+    }
+  }
+
+  /** Whether {@code reason} is a refusal for the drawn width alone (VarkaKernelPlan). */
+  private def castWidthRefusal(reason: String): Boolean =
+    reason.contains("has no load at") || reason.contains("has no widening load at") ||
+      reason.contains("needs a baked")
+
+  /** One compiled cast draw through the harness of its drive lane. */
+  private def runCast(label: String, className: String, bytes: Array[Byte],
+      roots: java.util.List[VarkaVectorIR], numInputs: Int, batch: VarkaKernelChecks.LongBatch,
+      options: VarkaEmitOptions, declineAllowed: Boolean): Unit = {
+    if (VarkaKernelPlan.driveOf(roots, options).get() == LaneType.LONG) {
+      VarkaKernelChecks.runAndCompareMixed(label, className, bytes, roots, numInputs,
+        Array(0), Array(0L), batch, declineAllowed, null)
+    } else {
+      VarkaKernelChecks.runAndCompareNarrow(label, className, bytes, roots, numInputs,
+        Array(0), new VarkaKernelChecks.Batch(batch.length(), batch.nulls(),
+          batch.data().map(_.map(_.toInt)), batch.forceMasked()), declineAllowed, null)
+    }
+  }
+
+  /**
+   * The cast draws per {@link #castCategory} that reached the plan - refused by it, or emitted -
+   * and those that fused and answered.
+   */
+  private val castDrawn = scala.collection.mutable.Map.empty[String, Int]
+  private val castFused = scala.collection.mutable.Map.empty[String, Int]
+
+  /**
+   * The long lanes the arm bakes - the JVM's, or the matrix configuration's override, or 0 where
+   * it bakes none - at four or more of which a class of 20 or more draws must fuse once. The
+   * bound that holds at every seed is per draw (`runOneCast`): no draw is refused but for its
+   * width, and a bigint narrowed at its store never is. At two long lanes a byte column has no
+   * load at all, so whole classes may be refused at every draw there, by design.
+   */
+  private val castArmLongLanes = Lane.emitLanes(VarkaMatrix.base, Lane.LONG)
+
+  test(s"random integral casts match the reference evaluator (seed $castSeed, " +
+      s"$iterations iterations)") {
+    castDrawn.clear()
+    castFused.clear()
+    val reach = VarkaEmitReach.attach(randomTrace, "cast draws")
+    try {
+      only match {
+        case Some(k) => runOneCast(k)
+        case None => (0 until iterations).foreach(runOneCast)
+      }
+    } finally {
+      VarkaEmitReach.detach(randomTrace)
+    }
+    val counts = castDrawn.keys.toSeq.sorted.map { c =>
+      s"$c ${castFused.getOrElse(c, 0)}/${castDrawn(c)}"
+    }
+    logInfo(s"cast draws fused per class: ${counts.mkString(", ")}")
+    if (only.isEmpty && castArmLongLanes >= 4) {
+      for ((c, drawn) <- castDrawn if drawn >= 20) {
+        assert(castFused.getOrElse(c, 0) >= 1,
+          s"none of $drawn $c draws fused; counts: ${counts.mkString(", ")}")
+      }
+    }
+    reportReach(reach)
+    reportSkipped()
+  }
+
+  test("the cast draw reaches each composition and each guard mode, at every lane") {
+    val seen = scala.collection.mutable.Set.empty[String]
+    for (k <- 0 until 2000) {
+      val root = VarkaIrGrammar.drawCastShape(VarkaIrGrammar.shapeRandom(castSeed, k))
+      (root, castCategory(root)) match {
+        case (w: WidenLane, "narrowing read by another node") =>
+          seen += s"narrowing read by a widening to ${w.target()}"
+        case (w: WidenLane, _) => seen += s"widen to ${w.target()}"
+        case (n: NarrowLane, _) => n.child() match {
+          case g: GuardedRange => seen += s"narrow to ${n.target()} ${g.mode()}"
+          case _ => seen += s"narrow to ${n.target()} WRAP"
+        }
+        case (c: CondValue, _) => seen += s"select at ${c.lane()}"
+        case (t: Cond, "narrowing read by another node") =>
+          seen += s"narrowing read by ${t.getClass.getSimpleName} at ${t.laneType()}"
+        case (t: Cond, _) => seen += s"test at ${t.laneType()}"
+        case (other, _) => fail(s"not a cast: $other")
+      }
+    }
+    val wanted = Seq("SHORT", "INT", "LONG").map(t => s"widen to $t") ++
+      (for (t <- Seq("BYTE", "SHORT", "INT"); m <- Seq("WRAP", "FAIL", "NULL"))
+        yield s"narrow to $t $m") ++
+      Seq("BYTE", "SHORT", "INT", "LONG").flatMap(l => Seq(s"select at $l", s"test at $l")) ++
+      Seq("SHORT", "INT", "LONG").map(t => s"narrowing read by a widening to $t") ++
+      (for (n <- Seq("Compare", "NullSafeEqual", "Not", "And", "Or"); l <- Seq("BYTE", "SHORT"))
+        yield s"narrowing read by $n at $l")
+    assert((wanted.toSet -- seen).isEmpty, s"never drawn: ${(wanted.toSet -- seen).toSeq.sorted}")
+  }
+
   // The nulling range guard (VARKA-481): its own draw at each lane, run against the reference
   // evaluator, which spells a fired guard as a null. Not run through the variants, which redraw
   // a case from the committed corpora's grammar.
@@ -1621,6 +1803,49 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
     assert(Set(LaneType.INT, LaneType.FLOAT, LaneType.LONG, LaneType.DOUBLE).subsetOf(drives),
       s"drives drawn: $drives")
     assert(lowHalfRoot, "no 32-bit root of a 64-bit kernel was drawn")
+  }
+
+  test("the nulling draw reaches the null leaf at both lanes and at each of its positions, and " +
+      "the committed draws hold none") {
+    // The null of a choice (VARKA-333), drawn in the nulling draw only, so that the corpora
+    // `emitted_bytes.json` pins do not move: reached at each lane, as a choice's ELSE and its
+    // THEN, as an operand of greatest and least, and twice in one tree, where CSE leaves the two
+    // equal leaves unshared and the walk emits each; never committed.
+    def nulls(roots: java.util.List[VarkaVectorIR]): Seq[VarkaVectorIR.NullValue] = {
+      def walk(n: VarkaVectorIR): Seq[VarkaVectorIR.NullValue] = (n match {
+        case v: VarkaVectorIR.NullValue => Seq(v)
+        case _ => Seq.empty
+      }) ++ VarkaVectorIR.childrenOf(n).toSeq.flatMap(walk)
+      roots.asScala.toSeq.flatMap(walk)
+    }
+    // The parents of the null leaves in one tree, by the position the leaf holds.
+    def positions(root: VarkaVectorIR): Seq[String] = {
+      val isNull = (n: VarkaVectorIR) => n.isInstanceOf[VarkaVectorIR.NullValue]
+      (root match {
+        case n: IfElse if isNull(n.elseNode()) => Seq("else")
+        case n: IfElse if isNull(n.thenNode()) => Seq("then")
+        case n: Greatest if isNull(n.left()) || isNull(n.right()) => Seq("pick")
+        case n: Least if isNull(n.left()) || isNull(n.right()) => Seq("pick")
+        case _ => Seq.empty
+      }) ++ VarkaVectorIR.childrenOf(root).toSeq.flatMap(positions)
+    }
+    val draws = 0 until 2000
+    val trees = draws.flatMap(k =>
+      VarkaIrGrammar.drawNullingShape(VarkaIrGrammar.shapeRandom(nullingSeed, k)).roots
+        .asScala ++
+        VarkaIrGrammar.drawNullingLongShape(VarkaIrGrammar.shapeRandom(nullingSeed, k)).roots
+          .asScala)
+    val drawn = nulls(trees.asJava)
+    assert(drawn.exists(_.lane() == LaneType.INT), "no int-lane null leaf was drawn")
+    assert(drawn.exists(_.lane() == LaneType.LONG), "no long-lane null leaf was drawn")
+    val reached = trees.flatMap(positions).toSet
+    assert(reached === Set("else", "then", "pick"), s"the null leaf's positions reached: $reached")
+    assert(trees.exists(t => nulls(java.util.List.of(t)).size >= 2),
+      "no tree holds the null leaf twice")
+    val committed = draws.flatMap(k =>
+      nulls(VarkaIrGrammar.drawShape(VarkaIrGrammar.shapeRandom(seed, k)).roots) ++
+        nulls(VarkaIrGrammar.drawLongShape(VarkaIrGrammar.shapeRandom(longSeed, k)).roots))
+    assert(committed.isEmpty, s"a committed draw holds a null leaf: ${committed.headOption}")
   }
 
   test("the mixed-lane generator reaches both conversions, the calendar under a widening, " +

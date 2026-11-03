@@ -21,6 +21,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Random;
+import java.util.function.Supplier;
 
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.AddDays;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.AddMonths;
@@ -40,6 +41,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Con
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.CondConst;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.CondIf;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.CondValue;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.NullValue;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ConstDivide;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ConvertLane;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.DateDiff;
@@ -154,6 +156,13 @@ public final class VarkaIrGrammar {
    * its bytes.
    */
   public static final long DECIMAL_FUZZ_SEED = 20261031L;
+
+  /**
+   * The seed of {@link #drawCastShape}, a sequence of its own for the reason
+   * {@link #NARROW_FUZZ_SEED} gives. {@code VarkaIrFuzzSuite} runs it against the reference
+   * evaluator; nothing pins its bytes.
+   */
+  public static final long CAST_FUZZ_SEED = 20261031L;
 
   // The generator's magnitude bounds saturate rather than wrap, in *every* arm that combines
   // two of them - `boundsOf` and the generator alike. Four nested multiplies of a column's own
@@ -334,6 +343,8 @@ public final class VarkaIrGrammar {
       case MathUnary n -> throw new IllegalArgumentException("a floating node: " + n);
       // A condition as a value is 0 or 1; its condition's operands may hold producers.
       case CondValue n -> new Bounds(1L, guard(n.cond()));
+      // Null everywhere, its vector zero, and no producer below it.
+      case NullValue n -> new Bounds(0L, guard(new VarkaVectorIR[0]));
       // A root of two bitmaps: no magnitude, only the producers its condition may hold.
       case BoolOutput n -> new Bounds(1L, guard(n.cond()));
       // The dynamic form moves the date down like the literal one, whatever the level; the
@@ -427,6 +438,31 @@ public final class VarkaIrGrammar {
     return new Gen(new GuardedRange(a.node(), lo, hi, Overflow.NULL), a.bound());
   }
 
+  /**
+   * A choice with the lane's null ({@link NullValue}), the nulling draw's four positions for it
+   * (VARKA-333): the missing ELSE of a {@code CASE WHEN} ({@code IF(c, a, NULL)}), the null
+   * branch of {@code nullif} ({@code IF(c, NULL, a)}), an operand of {@code greatest} or
+   * {@code least}, which skip it, and the null twice in one tree,
+   * {@code CASE WHEN c THEN NULL WHEN c2 THEN a END}, whose two equal leaves CSE counts twice and
+   * never shares (Slots), so the walk emits each. {@code second} draws {@code c2}, and only for
+   * the last. The null leaves' bound is 0, so each shape's is {@code a}'s.
+   */
+  static Gen nullChoice(Random rnd, Cond c, Gen a, LaneType lane, Supplier<Cond> second) {
+    var nul = new NullValue(lane);
+    VarkaVectorIR node = switch (rnd.nextInt(4)) {
+      case 0 -> new IfElse(c, a.node(), nul);
+      case 1 -> new IfElse(c, nul, a.node());
+      case 2 -> {
+        boolean first = rnd.nextBoolean();
+        VarkaVectorIR l = first ? nul : a.node();
+        VarkaVectorIR r = first ? a.node() : nul;
+        yield rnd.nextBoolean() ? new Greatest(l, r) : new Least(l, r);
+      }
+      default -> new IfElse(c, nul, new IfElse(second.get(), a.node(), nul));
+    };
+    return new Gen(node, a.bound());
+  }
+
   /** {@code roots} without repeats, each kept where it first appears. */
   private static List<VarkaVectorIR> distinct(List<VarkaVectorIR> roots) {
     return List.copyOf(new LinkedHashSet<>(roots));
@@ -477,6 +513,146 @@ public final class VarkaIrGrammar {
       roots = distinct(drawn);
     }
     return new Drawn(roots, numInputs, numLiterals, smallOrdinal, levelOrdinal);
+  }
+
+  /**
+   * The columns of {@link #drawCastShape}, by ordinal: a {@code TINYINT}, a {@code SMALLINT}, an
+   * {@code INT} and a {@code BIGINT} column, and at {@link #CAST_BOOL_COLUMN} a {@code BOOLEAN}.
+   */
+  public static final List<LaneType> CAST_COLUMNS =
+      List.of(LaneType.BYTE, LaneType.SHORT, LaneType.INT, LaneType.LONG);
+
+  /** The ordinal of {@link #drawCastShape}'s {@code BOOLEAN} column. */
+  public static final int CAST_BOOL_COLUMN = 4;
+
+  /**
+   * One cast of VARKA-332's five compositions (`VARKA-332.md` 2.1) as a single root over
+   * {@link #CAST_COLUMNS}: a widening of a column to a wider lane; a narrowing to a narrower one,
+   * bare (the wrap) or over a range guard of the target's range in {@code FAIL} or {@code NULL}
+   * mode; the test {@code NOT(x = 0)}, the zero literal slot 0 of the column's lane; and a
+   * {@code BOOLEAN} column's value at any integral lane; and a narrowing read by another node
+   * ({@link #narrowingRead}), so a narrowing away from a store is fuzzed too. One root a draw: two
+   * roots of different lanes would be two kernels.
+   */
+  public static VarkaVectorIR drawCastShape(Random rnd) {
+    LaneType[] lanes = CAST_COLUMNS.toArray(new LaneType[0]);
+    // The first draw of a Random seeded with consecutive seeds varies only in its low bits, and a
+    // bound of four reads the high ones: over a thousand draws it took two compositions of the
+    // four, so the composition is drawn after one discarded value.
+    rnd.nextLong();
+    return switch (rnd.nextInt(5)) {
+      case 4 -> narrowingRead(rnd);
+      case 0 -> {
+        int from = rnd.nextInt(3);
+        int to = from + 1 + rnd.nextInt(3 - from);
+        yield new WidenLane(new ColumnRef(from, lanes[from]), lanes[to]);
+      }
+      case 1 -> {
+        int from = 1 + rnd.nextInt(3);
+        int to = rnd.nextInt(from);
+        yield narrowing(rnd, from, lanes[to]);
+      }
+      case 2 -> {
+        int from = rnd.nextInt(4);
+        yield new Not(new Compare(CompareOp.EQ, new ColumnRef(from, lanes[from]),
+            new LiteralSlot(0, lanes[from])));
+      }
+      default -> {
+        LaneType lane = lanes[rnd.nextInt(4)];
+        yield new CondValue(new BoolColumn(CAST_BOOL_COLUMN, lane), lane);
+      }
+    };
+  }
+
+  /**
+   * Column {@code from} of {@link #CAST_COLUMNS} narrowed to {@code to}: bare (the wrap) or over a
+   * range guard of the target's range in {@code FAIL} or {@code NULL} mode.
+   */
+  private static VarkaVectorIR narrowing(Random rnd, int from, LaneType to) {
+    VarkaVectorIR x = new ColumnRef(from, CAST_COLUMNS.get(from));
+    VarkaTypes.IntegralRange range = VarkaTypes.integralRange(to);
+    VarkaVectorIR guarded = switch (rnd.nextInt(3)) {
+      case 0 -> x;
+      case 1 -> new GuardedRange(x, range.min(), range.max(), Overflow.FAIL);
+      default -> new GuardedRange(x, range.min(), range.max(), Overflow.NULL);
+    };
+    return new NarrowLane(guarded, to);
+  }
+
+  /**
+   * A narrowing to {@code TINYINT} or {@code SMALLINT} that another node reads, the path a
+   * narrowing away from a store takes in `VarkaVectorWalk`: widened back to a wider lane
+   * ({@code WidenLane(NarrowLane(l, BYTE), LONG)}), compared with a column of its target or a
+   * second narrowing, or such comparisons under {@code AND}, {@code OR}, {@code NOT} or
+   * {@code <=>}. A narrowing widened to the long lane narrows an int or a bigint, the sources a
+   * kernel at the long lane reads as a value; a narrow source narrowed there is a store's alone.
+   */
+  private static VarkaVectorIR narrowingRead(Random rnd) {
+    LaneType to = rnd.nextBoolean() ? LaneType.BYTE : LaneType.SHORT;
+    int target = CAST_COLUMNS.indexOf(to);
+    return switch (rnd.nextInt(3)) {
+      case 0 -> {
+        int widenTo = target + 1 + rnd.nextInt(CAST_COLUMNS.size() - 1 - target);
+        // A narrow-typed root is a store or a condition, never a widening, at the long lane: the
+        // widening to SHORT narrows a short or an int. To INT, any wider source; to BIGINT an
+        // int or a bigint.
+        int from = switch (CAST_COLUMNS.get(widenTo)) {
+          case SHORT -> 1 + rnd.nextInt(2);
+          case INT -> target + 1 + rnd.nextInt(CAST_COLUMNS.size() - 1 - target);
+          case LONG -> 2 + rnd.nextInt(2);
+          case BYTE, FLOAT, DOUBLE -> throw new IllegalStateException(
+              "no widening of a narrowing to " + CAST_COLUMNS.get(widenTo));
+        };
+        yield new WidenLane(narrowing(rnd, from, to), CAST_COLUMNS.get(widenTo));
+      }
+      case 1 -> narrowCompare(rnd, to, target);
+      default -> {
+        Cond left = narrowCompare(rnd, to, target);
+        yield switch (rnd.nextInt(3)) {
+          case 0 -> new Not(left);
+          case 1 -> new And(left, narrowCompare(rnd, to, target));
+          default -> new Or(left, narrowCompare(rnd, to, target));
+        };
+      }
+    };
+  }
+
+  /**
+   * A narrowing of the int or bigint column to {@code to} compared with column {@code target} (of
+   * lane {@code to}) or with a second such narrowing, under any comparison or {@code <=>}. Not a
+   * narrow source: beside a bigint narrowing the comparison is a long kernel's, where a narrowed
+   * narrow value is a store's alone (`VarkaKernelPlan.LongNarrowRole`).
+   */
+  private static Cond narrowCompare(Random rnd, LaneType to, int target) {
+    VarkaVectorIR left = narrowing(rnd, 2 + rnd.nextInt(2), to);
+    VarkaVectorIR right = rnd.nextBoolean() ? new ColumnRef(target, to)
+        : narrowing(rnd, 2 + rnd.nextInt(2), to);
+    CompareOp[] ops = CompareOp.values();
+    int pick = rnd.nextInt(ops.length + 1);
+    return pick == ops.length ? new NullSafeEqual(left, right)
+        : new Compare(ops[pick], left, right);
+  }
+
+  /**
+   * A value of {@link #drawCastShape}'s column {@code c}: one of its lane's ends or a narrower
+   * lane's ends and their neighbours a quarter of the time, so the guards meet both sides of
+   * their bounds, and otherwise any value of the lane; a 0 or a 1 for the {@code BOOLEAN}.
+   */
+  public static long castValue(Random rnd, int c) {
+    if (c == CAST_BOOL_COLUMN) {
+      return rnd.nextInt(2);
+    }
+    VarkaTypes.IntegralRange own = VarkaTypes.integralRange(CAST_COLUMNS.get(c));
+    if (rnd.nextInt(4) == 0) {
+      VarkaTypes.IntegralRange at = VarkaTypes.integralRange(CAST_COLUMNS.get(rnd.nextInt(c + 1)));
+      long end = rnd.nextBoolean() ? at.min() : at.max();
+      int step = rnd.nextInt(3) - 1;
+      // One past an end of the source's own lane is no value of it, and would wrap a long.
+      boolean past = (end == own.min() && step < 0) || (end == own.max() && step > 0);
+      return past ? end : end + step;
+    }
+    return own.min() == Long.MIN_VALUE ? rnd.nextLong()
+        : own.min() + (long) (rnd.nextDouble() * (own.max() - own.min() + 1));
   }
 
   /**
@@ -696,6 +872,12 @@ public final class VarkaIrGrammar {
         case 5: {
           Cond c = cond(depth - 1);
           Gen a = value(depth - 1);
+          // In the nulling draw, one in four is a choice with the lane's null (VARKA-333),
+          // decided before the second branch is drawn; the committed draws never take the test,
+          // so they draw exactly what they always have.
+          if (nullingGuards && rnd.nextInt(4) == 0) {
+            return nullChoice(rnd, c, a, LaneType.INT, () -> cond(depth - 1));
+          }
           Gen b = value(depth - 1);
           return new Gen(new IfElse(c, a.node(), b.node()), Math.max(a.bound(), b.bound()));
         }
@@ -1213,6 +1395,9 @@ public final class VarkaIrGrammar {
         default: {
           Cond c = cond(depth - 1);
           Gen a = value(depth - 1);
+          if (nullingGuards && rnd.nextInt(4) == 0) {
+            return nullChoice(rnd, c, a, LaneType.LONG, () -> cond(depth - 1));
+          }
           Gen b = value(depth - 1);
           return new Gen(new IfElse(c, a.node(), b.node()), Math.max(a.bound(), b.bound()));
         }

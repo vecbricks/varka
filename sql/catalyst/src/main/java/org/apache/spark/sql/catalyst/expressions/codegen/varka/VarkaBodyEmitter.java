@@ -1125,14 +1125,10 @@ final class VarkaBodyEmitter {
       }
       return;
     }
-    // The int species of the long species' width: twice the long lane count, or the preferred
-    // species where no count is baked, which the long lane's preferred species matches in bits.
-    String intSpecies = Lane.INT.speciesField(analysis.lanes == 0 ? 0 : analysis.lanes * 2);
-    cb.getstatic(VECTOR_OPERATORS, "L2I", VO_CONVERSION);
-    cb.getstatic(INT_VECTOR, intSpecies, VECTOR_SPECIES);
-    cb.loadConstant(0);
-    cb.invokevirtual(VECTOR, "convertShape", CONVERT_SHAPE);
-    cb.checkcast(INT_VECTOR);                                   // [ints, low half live]
+    // `L2I` into the int species of the long species' width: twice the long lane count, or the
+    // preferred species where no count is baked, which the long lane's preferred species matches
+    // in bits.
+    VarkaVectorWalk.emitShapeConversion(cb, Lane.LONG, Lane.INT, analysis); // [ints, low half]
     emitLowHalfStore(cb, Lane.INT, analysis, s, o);
   }
 
@@ -1204,10 +1200,13 @@ final class VarkaBodyEmitter {
    * A narrow root of a kernel driven at the int lane: {@code [int vector] -> []}, one or two
    * bytes a row at {@code (long) i * stride}, converted with {@code I2B} or {@code I2S} into the
    * narrow species the widening load reads - part 0 holds the group's lanes whatever its width -
-   * and stored whole in a loop body where that species is no wider than a group, under the mask
-   * of its first {@code lanes} lanes otherwise and in an epilogue. The truncation is Spark's
-   * {@code CAST(int AS TINYINT)} under {@code LEGACY}, which is what a {@code TINYINT}
-   * expression's result is.
+   * and stored whole in a loop body where that species is no wider than an int group, under the
+   * mask of its first {@code lanes} lanes otherwise and in an epilogue. In a kernel driven at the
+   * long lane the same holds of the int group of the long width, whose loop bound leaves room for
+   * it; AVX2 has no masked byte or short store, so a masked one in the loop scalarises, and that
+   * kernel's epilogue, which runs on every batch, stores its rows one at a time
+   * ({@link #emitNarrowRowsStore}). The truncation is Spark's {@code CAST(int AS TINYINT)} under
+   * {@code LEGACY}, which is what a {@code TINYINT} expression's result is.
    */
   private static void emitNarrowTypeStore(
       CodeBuilder cb, Lane stored, Analysis analysis, Slots s, int o) {
@@ -1217,6 +1216,10 @@ final class VarkaBodyEmitter {
       // is a producer this store was not built for (VARKA-329).
       throw VarkaErrors.illegalState("a narrow-typed store names the int lane's species, and "
           + "this kernel is driven at the " + analysis.lane + " lane");
+    }
+    if (VarkaVectorWalk.narrowRowsInEpilogue(analysis, s)) {
+      emitNarrowRowsStore(cb, stored, analysis, s, o);
+      return;
     }
     // The narrow species the widening load reads, which {@code convertShape} fills from part 0
     // whatever its width: the int species' own in a kernel at the int lane, twice it in one
@@ -1236,7 +1239,14 @@ final class VarkaBodyEmitter {
     cb.loadConstant(stored.byteStride);
     cb.lmul();
     cb.getstatic(BYTE_ORDER, "LITTLE_ENDIAN", BYTE_ORDER);
-    if (s.epilogue || speciesLanes > analysis.lanesOf(Lane.INT)) {
+    // In a kernel driven at the long lane the group is the low half of the int species, and the
+    // store is whole in the loop only where the plan says the loop bound leaves room for the
+    // whole species and the species is the int group's own (`wholeNarrowStoreAtLong`): a byte at
+    // two long lanes, or a width with no baked lane count, stays masked. The upper half's rows
+    // are the next lane group's, which that group stores over, as `emitLowHalfStore` does
+    // (VARKA-332).
+    boolean wholeFits = analysis.lane != Lane.LONG || analysis.wholeNarrowStoreAtLong(stored);
+    if (s.epilogue || speciesLanes > analysis.lanesOf(Lane.INT) || !wholeFits) {
       // The mask is not the epilogue's alone: a narrow species wider than the int group writes
       // past the group's own rows, and in the last iteration there is no next group to write
       // over them - so a store of such a species is always under the mask of the group's lanes.
@@ -1248,6 +1258,41 @@ final class VarkaBodyEmitter {
     } else {
       cb.invokevirtual(stored.vector, "intoMemorySegment", stored.intoMemorySegmentDense);
     }
+  }
+
+  /**
+   * A narrow root in the epilogue of a kernel driven at the long lane
+   * ({@code VarkaVectorWalk.narrowRowsInEpilogue}): {@code [int vector] -> []}, lane {@code k}
+   * read with {@code lane(k)} at a constant index and stored as row {@code i + k} by
+   * {@code VarkaVectorSupport.putByteAt} or {@code putShortAt}, which truncate as {@code I2B} and
+   * {@code I2S} do, for each {@code k} below the remainder {@code lanes}. The rows past it are
+   * past the batch, so the first {@code k} at or past it ends the stores. Each store reads a copy
+   * of the vector, so the one that reaches the end is the same value on every path.
+   */
+  private static void emitNarrowRowsStore(
+      CodeBuilder cb, Lane stored, Analysis analysis, Slots s, int o) {
+    Label done = cb.newLabel();
+    for (int k = 0; k < analysis.lanes; k++) {
+      if (k > 0) {
+        // The epilogue's group holds at least one row, so the first store needs no test.
+        cb.iload(s.lanes);
+        cb.loadConstant(k);
+        cb.if_icmple(done);
+      }
+      cb.dup();
+      cb.loadConstant(k);
+      cb.invokevirtual(Lane.INT.vector, "lane", INT_LANE);      // [v, lane k]
+      cb.aload(s.dstSeg[o]);
+      cb.iload(s.iVar);
+      cb.loadConstant(k);
+      cb.iadd();
+      cb.i2l();
+      cb.loadConstant(stored.byteStride);
+      cb.lmul();                                                // (long) (i + k) * stride
+      cb.invokestatic(SUPPORT, stored == Lane.BYTE ? "putByteAt" : "putShortAt", PUT_NARROW_AT);
+    }
+    cb.labelBinding(done);
+    cb.pop();
   }
 
   /**
@@ -1397,7 +1442,12 @@ final class VarkaBodyEmitter {
       } else if (root instanceof NarrowLane narrowRoot && narrowRoot.target().isNarrow()) {
         // A narrow-typed value computed on the int lane - a choice one of whose guards or
         // branches is int-typed (VARKA-329): the value arrived widened and is truncated once,
-        // here, into the narrow species of the int species' width.
+        // here, into the narrow species of the int species' width. A long value narrowed at its
+        // store (VARKA-332) arrives in the long lane and takes `L2I` into the low half first.
+        if (analysis.lane == Lane.LONG && analysis.narrowsAtStore(root)
+            && narrowRoot.child().laneType() == VarkaVectorIR.LaneType.LONG) {
+          VarkaVectorWalk.emitShapeConversion(cb, Lane.LONG, Lane.INT, analysis);
+        }
         emitNarrowTypeStore(cb, stored, analysis, s, o);
       } else if (analysis.narrowsAtStore(root)) {
         emitNarrowStore(cb, analysis, s, o);

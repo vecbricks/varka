@@ -263,6 +263,10 @@ day, and one review round half a day. About four and a half days, plus the owner
    `python/`. That reaches the PySpark audience, but its time adds Py4J round trips the Varka
    case does not have. Recommended: (a). Its costs are the JVM's that the post explains, and
    ScalaTest and Spark's artifacts are what the build already resolves.
+
+   *2 November 2026, row 552:* the arms follow the new comparison rule when this row starts: they
+   build and run against Spark's newest feature release, 4.3.0, not 4.2.0 (`VARKA-552.md` 3,
+   step 4).
 3. **Two more arms.** (a) Both D (a table of cases in one query) and B5 (whole-stage codegen
    off); (b) D only; (c) neither, the row's arms alone. Recommended: (a). D is row 510's lesson
    in an application's terms, and it keeps Column logic as Column logic. B5 is the setting the

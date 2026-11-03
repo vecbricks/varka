@@ -92,6 +92,20 @@ final class VarkaDescriptors {
   /** {@code void VarkaVectorSupport.setValid(MemorySegment, int)}. */
   static final MethodTypeDesc SET_VALID =
       MethodTypeDesc.of(ConstantDescs.CD_void, MEMORY_SEGMENT, ConstantDescs.CD_int);
+  /** {@code int VarkaVectorSupport.byteAt|shortAt(MemorySegment, long)}: one narrow row. */
+  static final MethodTypeDesc NARROW_AT =
+      MethodTypeDesc.of(ConstantDescs.CD_int, MEMORY_SEGMENT, ConstantDescs.CD_long);
+  /** {@code void VarkaVectorSupport.putByteAt|putShortAt(int, MemorySegment, long)}. */
+  static final MethodTypeDesc PUT_NARROW_AT = MethodTypeDesc.of(
+      ConstantDescs.CD_void, ConstantDescs.CD_int, MEMORY_SEGMENT, ConstantDescs.CD_long);
+  /** {@code IntVector IntVector.zero(VectorSpecies)} (static). */
+  static final MethodTypeDesc INT_ZERO = MethodTypeDesc.of(INT_VECTOR, VECTOR_SPECIES);
+  /** {@code IntVector IntVector.withLane(int, int)}: one lane replaced, at a constant index. */
+  static final MethodTypeDesc INT_WITH_LANE =
+      MethodTypeDesc.of(INT_VECTOR, ConstantDescs.CD_int, ConstantDescs.CD_int);
+  /** {@code int IntVector.lane(int)}: one lane read, at a constant index. */
+  static final MethodTypeDesc INT_LANE =
+      MethodTypeDesc.of(ConstantDescs.CD_int, ConstantDescs.CD_int);
   /**
    * The whole-batch bitmap pass, one call per node of a served root's word expression:
    * {@code copyColumnValidity(MemorySegment dst, long addr, int nulls, int rows)} for a single

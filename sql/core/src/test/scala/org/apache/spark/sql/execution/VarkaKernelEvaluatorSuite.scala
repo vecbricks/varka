@@ -75,7 +75,7 @@ class VarkaKernelEvaluatorSuite extends QueryTest with SharedSparkSession with V
       projectList: Seq[NamedExpression] = mixedList,
       classDumpDirectory: Option[String] = None): VarkaKernelEvaluator =
     new VarkaKernelEvaluator(projectList, childOutput, false, "Test", classDumpDirectory,
-      VarkaExecMetrics.NONE, VarkaSessionEmit.DEFAULTS, false)
+      VarkaExecMetrics.NONE, VarkaSessionEmit.DEFAULTS, false, false)
 
   /** Runs `body` inside an empty task context with a private Arrow child allocator. */
   private def withTask(body: (ColumnarBatch, () => Unit) => Unit): Unit = {
@@ -265,7 +265,7 @@ class VarkaKernelEvaluatorSuite extends QueryTest with SharedSparkSession with V
       val byDefault = evaluator()
       byDefault.release(byDefault.project(input))
       val atTwo = new VarkaKernelEvaluator(mixedList, childOutput, false, "Test", None,
-        VarkaExecMetrics.NONE, new VarkaSessionEmit(2, false), false)
+        VarkaExecMetrics.NONE, new VarkaSessionEmit(2, false), false, false)
       atTwo.release(atTwo.project(input))
       val defaultBytes = byDefault.emittedClassBytes.get
       val level2Bytes = atTwo.emittedClassBytes.get
@@ -440,7 +440,7 @@ class VarkaKernelEvaluatorSuite extends QueryTest with SharedSparkSession with V
     assert(lines(2).contains("i"), lines(2))
   }
 
-  test("a declined offset and a missing ELSE report their own reasons") {
+  test("a declined offset reports its own reason, and a missing ELSE fuses") {
     // A bare int column offset fuses (VARKA-38) and so does int arithmetic over one (VARKA-63),
     // so the declining shape here is `i % 7`: an offset expression built from an operator
     // neither lowers, which is what reaches this reason.
@@ -452,8 +452,9 @@ class VarkaKernelEvaluatorSuite extends QueryTest with SharedSparkSession with V
     val noElse = Seq[NamedExpression](
       Alias(CaseWhen(Seq((LessThan(attrD, Literal(0, DateType)), attrD)), None), "picked")(),
       Alias(DateAdd(attrD, Literal(1)), "fused")())
+    // The missing ELSE is the null of the date's lane (VARKA-333), so the choice fuses.
     val elseLines = VarkaFusionReport.lines(noElse, childOutput)
-    assert(elseLines(0).contains("CASE WHEN without an ELSE branch"), elseLines(0))
+    assert(elseLines(0) === "picked: fused", elseLines(0))
   }
 
   test("a day shift past the calendar range reports its interval as the reason") {
@@ -478,7 +479,7 @@ class VarkaKernelEvaluatorSuite extends QueryTest with SharedSparkSession with V
       Alias(DateAdd(attrD, Literal(1)), "fused")())
     val coalesceLines = VarkaFusionReport.lines(computed, childOutput)
     assert(coalesceLines(0).contains(
-      "coalesce operand before the last is not a bare date column"), coalesceLines(0))
+      "coalesce operand before the last is not a bare column"), coalesceLines(0))
   }
 
   // ---------------------------------------------------------------------------------------------

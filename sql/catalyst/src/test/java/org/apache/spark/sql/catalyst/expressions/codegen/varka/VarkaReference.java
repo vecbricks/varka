@@ -119,7 +119,8 @@ public final class VarkaReference {
       // Widening a narrow child into the int lane changes no value: the column's stored byte or
       // short sign-extends to the drawn int, which is the row this evaluator reads (VARKA-329).
       // A widening into the long lane is still the mixed evaluator's.
-      case WidenLane n when n.target() == LaneType.INT -> value(n.child(), row, isNull, lits);
+      // So does one into the short lane, `CAST(y AS SMALLINT)` (VARKA-332).
+      case WidenLane n when n.target() != LaneType.LONG -> value(n.child(), row, isNull, lits);
       case WidenLane n -> throw new IllegalArgumentException(
           "a widening is evaluated through mixedValue: " + n);
       // A conversion between the two 32-bit lanes keeps the row at its width: an int's float bits,
@@ -215,6 +216,8 @@ public final class VarkaReference {
         case FALSE -> OptionalInt.of(0);
         case UNKNOWN -> OptionalInt.empty();
       };
+      // SQL's NULL of the lane's type: null on every row.
+      case VarkaVectorIR.NullValue n -> OptionalInt.empty();
       // Two bitmaps, not a lane value: a test answers it by cond(), its data bit the known-true
       // and its validity bit the known.
       case BoolOutput n -> throw new IllegalArgumentException(
@@ -548,6 +551,7 @@ public final class VarkaReference {
         case FALSE -> OptionalLong.of(0);
         case UNKNOWN -> OptionalLong.empty();
       };
+      case VarkaVectorIR.NullValue n -> OptionalLong.empty();
       case BoolOutput n -> throw new IllegalArgumentException(
           "boolean output " + n + " evaluated as a value; answer its condition");
       case BoundedDivide n -> throw new IllegalArgumentException(
@@ -777,7 +781,8 @@ public final class VarkaReference {
     var rows = new MixedRow(row, isNull);
     VarkaVectorIR flat = rows.flatten(node, intLits, longLits);
     // A FLOAT node is on the int row too, its bits there; `longValue` has no FLOAT arithmetic.
-    if (flat.laneType() == LaneType.INT || flat.laneType() == LaneType.FLOAT) {
+    if (flat.laneType() == LaneType.INT || flat.laneType().isNarrow()
+        || flat.laneType() == LaneType.FLOAT) {
       OptionalInt v = value(flat, rows.ints(), rows.nulls(), intLits);
       return v.isPresent() ? OptionalLong.of(v.getAsInt()) : OptionalLong.empty();
     }
@@ -789,7 +794,7 @@ public final class VarkaReference {
       long[] longLits) {
     var rows = new MixedRow(row, isNull);
     Cond flat = (Cond) rows.flatten(cond, intLits, longLits);
-    return flat.laneType().bits() == Integer.SIZE
+    return flat.laneType().bits() == Integer.SIZE || flat.laneType().isNarrow()
         ? cond(flat, rows.ints(), rows.nulls(), intLits)
         : longCond(flat, rows.longs(), rows.nulls(), longLits);
   }
@@ -815,9 +820,14 @@ public final class VarkaReference {
         // Exact: the int child's value, which `mixedValue` already sign-extends.
         return column(mixedOf(w.child(), intLits, longLits), LaneType.LONG);
       }
+      // A narrowing keeps the low bits of the target's width, sign-extended: Spark's LEGACY
+      // CAST(bigint AS INT) and, at a narrow target, CAST(bigint AS TINYINT) (VARKA-332).
       if (node instanceof NarrowLane n) {
         OptionalLong v = mixedOf(n.child(), intLits, longLits);
-        return column(v.isPresent() ? OptionalLong.of((int) v.getAsLong()) : v, LaneType.INT);
+        return column(v.isPresent()
+            ? OptionalLong.of(narrow(n.target().isNarrow() ? n.target() : LaneType.INT,
+                (int) v.getAsLong()))
+            : v, n.target().isNarrow() ? n.target() : LaneType.INT);
       }
       if (node instanceof ConvertLane c) {
         OptionalLong v = mixedOf(c.child(), intLits, longLits);
@@ -838,7 +848,8 @@ public final class VarkaReference {
 
     private OptionalLong mixedOf(VarkaVectorIR child, int[] intLits, long[] longLits) {
       VarkaVectorIR flat = flatten(child, intLits, longLits);
-      if (flat.laneType() == LaneType.INT || flat.laneType() == LaneType.FLOAT) {
+      if (flat.laneType() == LaneType.INT || flat.laneType().isNarrow()
+          || flat.laneType() == LaneType.FLOAT) {
         OptionalInt v = value(flat, ints(), nulls(), intLits);
         return v.isPresent() ? OptionalLong.of(v.getAsInt()) : OptionalLong.empty();
       }

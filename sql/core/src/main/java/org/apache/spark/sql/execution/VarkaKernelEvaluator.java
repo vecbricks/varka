@@ -170,20 +170,25 @@ public class VarkaKernelEvaluator extends VarkaEvaluatorBase {
       Option<String> classDumpDirectory,
       VarkaExecMetrics metrics,
       VarkaSessionEmit sessionEmit,
-      boolean warmupEnabled) {
-    super(childOutput, operatorName, classDumpDirectory, metrics, sessionEmit, warmupEnabled);
+      boolean warmupEnabled,
+      boolean readsArrowCache) {
+    super(childOutput, operatorName, classDumpDirectory, metrics, sessionEmit, warmupEnabled,
+        readsArrowCache);
     this.projectList = projectList;
     this.offHeapColumnVectorEnabled = offHeapColumnVectorEnabled;
   }
 
-  /** The defaults a suite or diagnostic builds with: no class dump, no metrics, no warm-up. */
+  /**
+   * The defaults a suite or diagnostic builds with: no class dump, no metrics, no warm-up, and
+   * the input's rows read as they are.
+   */
   public VarkaKernelEvaluator(
       Seq<NamedExpression> projectList,
       Seq<Attribute> childOutput,
       boolean offHeapColumnVectorEnabled,
       String operatorName) {
     this(projectList, childOutput, offHeapColumnVectorEnabled, operatorName, Option.empty(),
-        VarkaExecMetrics.NONE, VarkaSessionEmit.DEFAULTS, false);
+        VarkaExecMetrics.NONE, VarkaSessionEmit.DEFAULTS, false, false);
   }
 
   private Optional<PartialVarkaProjection> compiled() {
@@ -475,7 +480,7 @@ public class VarkaKernelEvaluator extends VarkaEvaluatorBase {
         ? OffHeapColumnVector.allocateColumns(len, residualSchema)
         : OnHeapColumnVector.allocateColumns(len, residualSchema);
     try {
-      Iterator<InternalRow> rows = input.rowIterator();
+      Iterator<InternalRow> rows = inputRows(input);
       while (rows.hasNext()) {
         residualConverter.convert(residualProjection.apply(rows.next()), vectors);
       }

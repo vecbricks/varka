@@ -82,7 +82,12 @@ public enum VarkaFamily {
       + " double; tinyint and smallint to double are left to the row engine, as is bigint to"
       + " either at an emit level below 3 or at the default level, which names no host: a"
       + " session that sets the level to 3, or asks for the host's on a CPU with AVX512DQ,"
-      + " fuses it");
+      + " fuses it"),
+  /** {@code VarkaIntegralCastCompiler}, its condition arm reached from {@code compileCond}. */
+  INTEGRAL_CAST("integral cast", "integralCast", "the casts among tinyint, smallint, int,"
+      + " bigint and boolean that the int arithmetic family does not hold: the narrowings to"
+      + " tinyint and smallint (wrapping, or checked under ANSI), a tinyint or smallint widened"
+      + " to smallint or bigint, a number cast to boolean and a boolean cast to a number");
 
   /** The prefix every family's switch shares. */
   public static final String SWITCH_PREFIX = "spark.sql.codegen.varka.family.";

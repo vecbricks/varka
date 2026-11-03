@@ -136,7 +136,8 @@ case class VarkaProjectExec(
       longMetric("numInputBatches"),
       varkaMetrics,
       sessionEmit = sessionEmit,
-      warmupEnabled = conf.varkaWarmupEnabled)
+      warmupEnabled = conf.varkaWarmupEnabled,
+      readsArrowCache = VarkaColumnarRule.readsArrowCache(child))
     if (conf.usePartitionEvaluator) {
       child.executeColumnar().mapPartitionsWithEvaluator(evaluatorFactory)
     } else {
@@ -157,7 +158,8 @@ private[sql] class VarkaProjectEvaluatorFactory(
     numInputBatches: SQLMetric,
     varkaMetrics: VarkaExecMetrics,
     sessionEmit: VarkaSessionEmit = VarkaSessionEmit.DEFAULTS,
-    warmupEnabled: Boolean = false)
+    warmupEnabled: Boolean = false,
+    readsArrowCache: Boolean = false)
     extends PartitionEvaluatorFactory[ColumnarBatch, ColumnarBatch] with Logging {
 
   override def createEvaluator(): PartitionEvaluator[ColumnarBatch, ColumnarBatch] = {
@@ -168,7 +170,7 @@ private[sql] class VarkaProjectEvaluatorFactory(
 
     private val kernels = new VarkaKernelEvaluator(
       projectList, childOutput, offHeapColumnVectorEnabled, "Project",
-      classDumpDirectory, varkaMetrics, sessionEmit, warmupEnabled)
+      classDumpDirectory, varkaMetrics, sessionEmit, warmupEnabled, readsArrowCache)
 
     /**
      * The input ordinals this projection is, when it only forwards columns and computes
@@ -274,7 +276,8 @@ private[sql] class VarkaProjectEvaluatorFactory(
       }
       val batch = new ColumnarBatch(vectors.toArray)
       try {
-        batch.setNumRows(rowPath.project(input, vectors.toArray[WritableColumnVector]))
+        batch.setNumRows(
+          rowPath.project(kernels.inputRows(input), vectors.toArray[WritableColumnVector]))
       } catch {
         case e: Throwable =>
           // Attach a cleanup failure to the error being reported rather than replacing it:

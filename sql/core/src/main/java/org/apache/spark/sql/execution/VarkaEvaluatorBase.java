@@ -40,6 +40,7 @@ import org.apache.arrow.vector.VarCharVector;
 import org.apache.spark.TaskContext;
 import org.apache.spark.internal.SparkLogger;
 import org.apache.spark.internal.SparkLoggerFactory;
+import org.apache.spark.sql.catalyst.InternalRow;
 import org.apache.spark.sql.catalyst.expressions.Attribute;
 import org.apache.spark.sql.catalyst.expressions.NamedExpression;
 import org.apache.spark.sql.catalyst.expressions.codegen.CompiledVarkaProjection;
@@ -182,6 +183,9 @@ public abstract class VarkaEvaluatorBase {
   private final VarkaEmitOptions emitOptions;
   private final boolean warmupEnabled;
   private final VarkaBatchLedger ledger = new VarkaBatchLedger();
+  // The view every row-by-row read of an input batch goes through when the node reads the Arrow
+  // cache and its schema has a small decimal, null otherwise; see inputRows.
+  private final @Nullable VarkaRowView rowView;
 
   // Built on first use, since its size is the fused plan's, which a subclass defines after this
   // constructor has run. It grows through taskAllocator, which a suite may override to cap.
@@ -217,7 +221,8 @@ public abstract class VarkaEvaluatorBase {
       Option<String> classDumpDirectory,
       VarkaExecMetrics metrics,
       VarkaSessionEmit sessionEmit,
-      boolean warmupEnabled) {
+      boolean warmupEnabled,
+      boolean readsArrowCache) {
     this.childOutput = childOutput;
     this.operatorName = operatorName;
     this.classDumpDirectory = classDumpDirectory.isDefined() ? classDumpDirectory.get() : null;
@@ -227,10 +232,15 @@ public abstract class VarkaEvaluatorBase {
     // same options, whatever the test hook does meanwhile.
     this.emitOptions = VarkaColumnarToRowExec$.MODULE$.emitOptions(sessionEmit);
     this.warmupEnabled = warmupEnabled;
+    @Nullable VarkaRowView view = readsArrowCache ? VarkaRowView.of(childOutput) : null;
+    this.rowView = view;
     // The task-completion listener closes the open batches, then runs these in order, each
     // guarded on its own, then closes the allocator.
     ledger.onTaskCompletion(this::releaseTaskScratch);
     ledger.onTaskCompletion(this::onTaskCleanup);
+    if (view != null) {
+      ledger.onTaskCompletion(view::release);
+    }
   }
 
   /** The fused sub-plan the kernel computes; None when nothing is Varka-eligible. */
@@ -671,6 +681,26 @@ public abstract class VarkaEvaluatorBase {
       return false;
     }
     return input.numRows() > 0 && isArrowBacked(input);
+  }
+
+  /**
+   * The rows of an input batch, for every row-by-row read of one: a fallback's, a residual
+   * entry's, a copy's. When the node reads Spark's Arrow cache ({@code readsArrowCache} at
+   * construction, from {@code VarkaColumnarRule.readsArrowCache}), a small decimal reads as
+   * vanilla Spark's row path over the cache reads it, long-backed, and not as
+   * {@code ArrowColumnVector}'s accessor builds it, which can answer a decimal cast differently
+   * ({@link VarkaRowView}); a raw {@code rowIterator()} on such a batch would bring that
+   * difference back. Over any other input the rows are the batch's own, as vanilla's
+   * {@code ColumnarToRowExec} reads them.
+   *
+   * <p>The rows are those of one batch at a time: an iterator from here is valid until the next
+   * call, and every caller reads a batch's rows before it asks for the next batch's, as the
+   * one-batch-at-a-time pull of every Varka node does. An iterator over the view throws
+   * {@code IllegalStateException} once a later call or the task's completion has rebound it.
+   */
+  public final java.util.Iterator<InternalRow> inputRows(ColumnarBatch input) {
+    @Nullable VarkaRowView view = rowView;
+    return view == null ? input.rowIterator() : view.rows(input);
   }
 
   /**

@@ -649,6 +649,36 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `greatest(i, l)` | `intArithmetic` |  | type coercion widens the int, and the pick is the long lane's | per-lane: blend, mask broadcast, load or store, mask test |
 | `CASE WHEN i < l THEN i ELSE l END` | `predicate`, `condition`, `intArithmetic` |  | the widened int in a condition and in a branch of a long-valued conditional | per-lane: compare to mask, blend, mask cast, mask broadcast, load or store, mask test |
 
+#### Integral casts
+
+| Expression | Switches | Domain | Notes | 128-bit lanes |
+|---|---|---|---|---|
+| `CAST(y1 AS SMALLINT)` | `integralCast` |  | a sign extension at the int lane, no instruction; every byte value in the exhaustive suite | vector |
+| `CAST(y1 AS BIGINT)` | `integralCast` |  | the byte column loaded at the long width, widened in the int species and converted with I2L; exhaustive | not emitted: a BYTE column has no load at 2 long lanes |
+| `CAST(s1 AS BIGINT)` | `integralCast` |  | the short twin; exhaustive | per-lane: mask broadcast, mask test |
+| `CAST(s1 AS TINYINT)` | `integralCast` | `s1 BETWEEN -128 AND 127` | the low byte under the legacy mode; under ANSI a value past the byte range declines and the row engine raises CAST_OVERFLOW; exhaustive | vector |
+| `CAST(i AS TINYINT)` | `integralCast` | `i BETWEEN -128 AND 127` | the int narrowed at its store; checked under ANSI; the wrap and the range compare proven in casts.smt2 | vector |
+| `CAST(i AS SMALLINT)` | `integralCast` | `i BETWEEN -32768 AND 32767` | the short twin; casts.smt2 | vector |
+| `CAST(l AS TINYINT)` | `integralCast` | `l BETWEEN -128 AND 127` | the bigint narrowed at its store, L2I and the byte store; checked under ANSI; casts.smt2 | per-lane: compare to mask, mask logic, mask broadcast, mask test |
+| `CAST(l AS SMALLINT)` | `integralCast` | `l BETWEEN -32768 AND 32767` | the short twin; casts.smt2 | per-lane: compare to mask, mask logic, mask broadcast, mask test, load or store |
+| `CAST(b AS TINYINT)` | `integralCast` |  | 1 where true, 0 where false, null where null, in the byte lane under the native arm; every leaf state in the exhaustive suite | vector |
+| `CAST(b AS SMALLINT)` | `integralCast` |  | the short twin; exhaustive | vector |
+| `CAST(b AS INT)` | `integralCast` |  | the int lane; exhaustive | vector |
+| `CAST(b AS BIGINT)` | `integralCast` |  | the long lane; exhaustive | per-lane: masked operation, mask broadcast |
+| `greatest(y1, l)` | `intArithmetic`, `integralCast` |  | type coercion widens the byte, loaded at the long width, to meet the bigint; differential | not emitted: a BYTE column has no load at 2 long lanes |
+| `CAST(i + 1 AS TINYINT)` | `intArithmetic`, `integralCast` | `i BETWEEN -129 AND 126` | a computed int narrowed, the add checked under ANSI as any int add is; differential | vector |
+| `CAST(i < 5 AS TINYINT)` | `predicate`, `integralCast` |  | a comparison's value at the int lane, narrowed: a 0 or a 1 needs no wrap; differential | vector |
+
+#### Integral cast predicates
+
+| Predicate | Switches | Domain | Notes | 128-bit lanes |
+|---|---|---|---|---|
+| `CAST(y1 AS BOOLEAN)` | `integralCast` |  | x != 0, which cannot fail; exhaustive | vector |
+| `CAST(s1 AS BOOLEAN)` | `integralCast` |  | exhaustive | vector |
+| `CAST(i AS BOOLEAN)` | `integralCast` |  | differential | vector |
+| `CAST(l AS BOOLEAN)` | `integralCast` |  | the long lane's compare; differential | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL up to 18 digits), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
+| `s1 < l` | `predicate`, `integralCast` |  | the short widened to the long lane by type coercion, loaded at the long width; differential | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL up to 18 digits), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
+
 #### Width conversion predicates
 
 | Predicate | Switches | Domain | Notes | 128-bit lanes |
@@ -682,6 +712,66 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `least(dt, dt2)` | `intArithmetic` |  |  | per-lane: blend, mask broadcast |
 | `if(dt < dt2, dt, dt2)` | `predicate`, `condition` |  |  | per-lane: compare to mask, blend, mask cast, mask broadcast |
 | `coalesce(dt, dt2)` | `condition` |  |  | per-lane: blend, mask broadcast |
+
+#### Choice and nulls on every type
+
+| Expression | Switches | Domain | Notes | 128-bit lanes |
+|---|---|---|---|---|
+| `if(i < 0, i, i + 1)` | `predicate`, `condition`, `intArithmetic` | `i < 2147483647` | an int branch is a column, a literal or int arithmetic; the checked add is qualified by its arm, so only a row taking the ELSE can overflow | vector |
+| `CASE WHEN d < d2 THEN i ELSE datediff(d, d2) END` | `calendar`, `predicate`, `condition` |  |  | vector |
+| `coalesce(i, datediff(d, d2))` | `calendar`, `condition` |  |  | vector |
+| `coalesce(i, 0)` | `condition` |  |  | vector |
+| `zeroifnull(i)` | `condition` |  | rewritten to coalesce(i, 0) | vector |
+| `greatest(i, 7)` | `intArithmetic` |  |  | vector |
+| `least(i, -7)` | `intArithmetic` |  |  | vector |
+| `greatest(i, -2147483648)` | `intArithmetic` |  | the int minimum beside a null is the minimum, not a null | vector |
+| `least(i, 2147483647)` | `intArithmetic` |  | the int maximum beside a null | vector |
+| `greatest(i, CAST(NULL AS INT))` | `intArithmetic` |  | a NULL operand is the null leaf, which the pick skips as it skips a null column: the answer is i, and null only where i is | vector |
+| `least(i, NULL, -2147483648)` | `intArithmetic` |  | the null leaf beside the int minimum | vector |
+| `greatest(d, NULL, d2)` | `intArithmetic` |  |  | vector |
+| `least(ym, NULL)` | `intArithmetic` |  |  | vector |
+| `nvl2(d, i, 0)` | `predicate`, `condition` |  | rewritten to if(d IS NOT NULL, i, 0) | vector |
+| `CASE WHEN d < d2 THEN i END` | `predicate`, `condition` |  | the missing ELSE is the null of the int lane | vector |
+| `if(d < d2, i, NULL)` | `predicate`, `condition` |  |  | vector |
+| `nullif(i, 3)` | `predicate`, `condition` |  | rewritten to if(i = 3, NULL, i); over a computed operand the optimizer evaluates it in a projection of its own, a second kernel | vector |
+| `nullifzero(i)` | `predicate`, `condition` |  | rewritten to if(i = 0, NULL, i) | vector |
+| `CASE WHEN d < d2 THEN d END` | `predicate`, `condition` |  |  | vector |
+| `if(d < d2, NULL, d)` | `predicate`, `condition` |  |  | vector |
+| `nullif(d, d2)` | `predicate`, `condition` |  |  | vector |
+| `nvl2(d2, d, d2)` | `predicate`, `condition` |  |  | vector |
+| `CASE WHEN d < d2 THEN ym END` | `predicate`, `condition` |  |  | vector |
+| `nullif(ym, INTERVAL '1-2' YEAR TO MONTH)` | `predicate`, `condition` |  |  | vector |
+| `nvl2(d, ym, INTERVAL '0-1' YEAR TO MONTH)` | `predicate`, `condition` |  |  | vector |
+| `CASE WHEN l < l2 THEN l END` | `predicate`, `condition` |  | the missing ELSE is the null of the long lane | per-lane: compare to mask, mask cast, blend, mask broadcast |
+| `if(d < d2, l, NULL)` | `predicate`, `condition` |  | a date condition lifted to the long lane beside the null | per-lane: compare to mask, mask cast, blend, mask broadcast, load or store, mask test |
+| `nullif(l, l2)` | `predicate`, `condition` |  |  | per-lane: compare to mask, mask cast, blend, mask broadcast |
+| `nullifzero(l)` | `predicate`, `condition`, `intArithmetic` |  |  | per-lane: compare to mask, mask cast, blend, mask broadcast, load or store, mask test |
+| `zeroifnull(l)` | `condition`, `intArithmetic` |  |  | per-lane: blend, mask broadcast, load or store, mask test |
+| `nvl2(l2, l, l2)` | `predicate`, `condition` |  |  | per-lane: blend, mask broadcast |
+| `greatest(l, -9223372036854775808L)` | `intArithmetic` |  | the bigint minimum beside a null | per-lane: blend, mask broadcast |
+| `least(l, 9223372036854775807L)` | `intArithmetic` |  | the bigint maximum beside a null | per-lane: blend, mask broadcast |
+| `greatest(l, NULL, -9223372036854775808L)` | `intArithmetic` |  | the null leaf of the long lane beside the bigint minimum | per-lane: blend, mask broadcast |
+| `CASE WHEN t < t2 THEN t END` | `predicate`, `condition` |  |  | per-lane: compare to mask, mask cast, blend, mask broadcast |
+| `nullif(t, t2)` | `predicate`, `condition` |  |  | per-lane: compare to mask, mask cast, blend, mask broadcast |
+| `nvl2(t2, t, t2)` | `predicate`, `condition` |  |  | per-lane: blend, mask broadcast |
+| `greatest(t, TIME '00:00:00')` | `intArithmetic` |  | the first TIME beside a null | per-lane: blend, mask broadcast |
+| `least(t, TIME '23:59:59.999999')` | `intArithmetic` |  | the last TIME beside a null | per-lane: blend, mask broadcast |
+| `least(t, NULL)` | `intArithmetic` |  |  | per-lane: blend, mask broadcast |
+| `CASE WHEN dt < dt2 THEN dt END` | `predicate`, `condition` |  |  | per-lane: compare to mask, mask cast, blend, mask broadcast |
+| `nullif(dt, dt2)` | `predicate`, `condition` |  |  | per-lane: compare to mask, mask cast, blend, mask broadcast |
+| `nvl2(dt2, dt, dt2)` | `predicate`, `condition` |  |  | per-lane: blend, mask broadcast |
+| `greatest(dt, NULL)` | `intArithmetic` |  |  | per-lane: blend, mask broadcast |
+
+#### BETWEEN on every type
+
+| Predicate | Switches | Domain | Notes | 128-bit lanes |
+|---|---|---|---|---|
+| `i BETWEEN 1 AND 9` | `predicate` |  |  | vector |
+| `d BETWEEN DATE '2000-01-01' AND d2` | `predicate` |  |  | vector |
+| `ym BETWEEN INTERVAL '-1-0' YEAR TO MONTH AND INTERVAL '1-0' YEAR TO MONTH` | `predicate` |  |  | vector |
+| `l BETWEEN l2 AND 5000000000` | `predicate` |  |  | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL up to 18 digits), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
+| `t BETWEEN t2 AND TIME '23:59:59'` | `predicate` |  |  | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL up to 18 digits), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
+| `dt BETWEEN dt2 AND INTERVAL '1' DAY` | `predicate` |  |  | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL up to 18 digits), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
 
 #### TIMESTAMP_NTZ columns
 

@@ -84,8 +84,8 @@ class VarkaEmitCostSuite extends VarkaEmitterTestBase with VarkaOwnJvm {
     // (`VarkaEmitCostFit.PRICED_LANES`, VARKA-342 5.1); so is the conversion, one side of which
     // is always floating (VARKA-343).
     val awaitingRefit = Set("NullSafeEqual", "BoolColumn", "CondConst", "BoolCompare", "CondIf",
-      "BoolNullSafeEq", "CondValue", "BoolOutput", "DecimalColumn", "WidenDecimal", "MathUnary",
-      "ConvertLane")
+      "BoolNullSafeEq", "CondValue", "BoolOutput", "DecimalColumn", "NullValue",
+      "WidenDecimal", "MathUnary", "ConvertLane")
     assert(awaitingRefit.forall(t => !expected.exists(f => f == t || f.startsWith(t + "/"))),
       s"${awaitingRefit.toSeq.sorted} is priced: take it off the list of nodes awaiting a refit")
     val unnamed = irTypes().filterNot(awaitingRefit.contains)

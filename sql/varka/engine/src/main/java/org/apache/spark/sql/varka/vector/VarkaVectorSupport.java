@@ -19,6 +19,7 @@ package org.apache.spark.sql.varka.vector;
 
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
+import java.nio.ByteOrder;
 
 import jdk.incubator.vector.VectorMask;
 
@@ -531,6 +532,42 @@ public final class VarkaVectorSupport {
       return;
     }
     orValidity(dst, dst, validityOf(bAddr, rows), rows);
+  }
+
+  // ---------------------------------------------------------------------------------------------
+  // A narrow column's rows one at a time, for the epilogue of a kernel driven at the long lane
+  //
+  // That epilogue runs on every batch, since the kernel's loop stops a long lane group early, and
+  // a masked load or store of a byte or short vector has no C2 lowering without AVX512BW: on AVX2
+  // the masked call runs as the Vector API's Java loop. The emitter reads and writes the
+  // epilogue's few rows through these instead, a lane at a time, and moves them in and out of the
+  // int vector with `withLane` and `lane` at constant indices, which C2 lowers everywhere. The
+  // value travels as an int, sign-extended on the way in and truncated on the way out as `I2B`
+  // and `I2S` truncate; the value comes first in the stores so that a caller can push it from the
+  // vector already on its operand stack. Arrow's buffers are little-endian.
+  // ---------------------------------------------------------------------------------------------
+
+  private static final ValueLayout.OfShort LITTLE_ENDIAN_SHORT =
+      ValueLayout.JAVA_SHORT_UNALIGNED.withOrder(ByteOrder.LITTLE_ENDIAN);
+
+  /** The {@code TINYINT} at byte {@code offset} of {@code seg}, sign-extended. */
+  public static int byteAt(MemorySegment seg, long offset) {
+    return seg.get(ValueLayout.JAVA_BYTE, offset);
+  }
+
+  /** The {@code SMALLINT} at byte {@code offset} of {@code seg}, sign-extended. */
+  public static int shortAt(MemorySegment seg, long offset) {
+    return seg.get(LITTLE_ENDIAN_SHORT, offset);
+  }
+
+  /** Stores {@code value}'s low byte at byte {@code offset} of {@code seg}. */
+  public static void putByteAt(int value, MemorySegment seg, long offset) {
+    seg.set(ValueLayout.JAVA_BYTE, offset, (byte) value);
+  }
+
+  /** Stores {@code value}'s low two bytes at byte {@code offset} of {@code seg}. */
+  public static void putShortAt(int value, MemorySegment seg, long offset) {
+    seg.set(LITTLE_ENDIAN_SHORT, offset, (short) value);
   }
 
   // ---------------------------------------------------------------------------------------------
