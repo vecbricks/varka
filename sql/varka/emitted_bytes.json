@@ -5081,6 +5081,50 @@
           "loopMasked0([J[J[I[J[J[I[JI)I" : "9f3b117036477536",
           "epilogueMasked0([J[J[I[J[J[I[JI)I" : "c962fd2aa14058be"
         },
+        "greatest(d9, d9s4) > d9b" : {
+          "<class>" : "1a6be0d5ae87cd3c",
+          "<init>()V" : "e2c903051ec05d17",
+          "run([J[J[I[J[J[I[JI)I" : "d539e906046d8f86",
+          "runDense([J[J[I[J[J[I[JI)I" : "334cfd82c887b29d",
+          "loopDense0([J[J[I[J[J[I[JI)I" : "bd7937c5f663a502",
+          "epilogueDense0([J[J[I[J[J[I[JI)I" : "41b7ff3f78501161",
+          "runMasked([J[J[I[J[J[I[JI)I" : "7f50a6f7d4a3494b",
+          "loopMasked0([J[J[I[J[J[I[JI)I" : "358ad6c39ad73d00",
+          "epilogueMasked0([J[J[I[J[J[I[JI)I" : "1e3dc3c172b534b1"
+        },
+        "coalesce(d9, d9b) IS NULL" : {
+          "<class>" : "1a6be0d5ae87cd3c",
+          "<init>()V" : "e2c903051ec05d17",
+          "run([J[J[I[J[J[I[JI)I" : "eeab5c3226f60d53",
+          "runDense([J[J[I[J[J[I[JI)I" : "334cfd82c887b29d",
+          "loopDense0([J[J[I[J[J[I[JI)I" : "17188889b021d5da",
+          "epilogueDense0([J[J[I[J[J[I[JI)I" : "14f1aa7b87d34e8c",
+          "runMasked([J[J[I[J[J[I[JI)I" : "7f50a6f7d4a3494b",
+          "loopMasked0([J[J[I[J[J[I[JI)I" : "b663822744d01086",
+          "epilogueMasked0([J[J[I[J[J[I[JI)I" : "694405c5bb080b30"
+        },
+        "(-d18) IS NOT NULL" : {
+          "<class>" : "1a6be0d5ae87cd3c",
+          "<init>()V" : "e2c903051ec05d17",
+          "run([J[J[I[J[J[I[JI)I" : "d5145bab352f2868",
+          "runDense([J[J[I[J[J[I[JI)I" : "334cfd82c887b29d",
+          "loopDense0([J[J[I[J[J[I[JI)I" : "42fffc849b573d84",
+          "epilogueDense0([J[J[I[J[J[I[JI)I" : "f98a433b7189b561",
+          "runMasked([J[J[I[J[J[I[JI)I" : "7f50a6f7d4a3494b",
+          "loopMasked0([J[J[I[J[J[I[JI)I" : "d73ff05fbbce60cc",
+          "epilogueMasked0([J[J[I[J[J[I[JI)I" : "b2332218dc687ff1"
+        },
+        "CASE WHEN d9 < d9b THEN d9 ELSE d9s4 END > 0.0" : {
+          "<class>" : "1a6be0d5ae87cd3c",
+          "<init>()V" : "e2c903051ec05d17",
+          "run([J[J[I[J[J[I[JI)I" : "d539e906046d8f86",
+          "runDense([J[J[I[J[J[I[JI)I" : "334cfd82c887b29d",
+          "loopDense0([J[J[I[J[J[I[JI)I" : "4c5f8d22fab46958",
+          "epilogueDense0([J[J[I[J[J[I[JI)I" : "fbc506036f58482f",
+          "runMasked([J[J[I[J[J[I[JI)I" : "7f50a6f7d4a3494b",
+          "loopMasked0([J[J[I[J[J[I[JI)I" : "c02166ae59480c51",
+          "epilogueMasked0([J[J[I[J[J[I[JI)I" : "79a5a6afcb61bacc"
+        },
         "t - t2" : {
           "<class>" : "1a6be0d5ae87cd3c",
           "<init>()V" : "e2c903051ec05d17",
@@ -10349,6 +10393,50 @@
           "loopMasked0([J[J[I[J[J[I[JI)I" : "23c7ba1639f30143",
           "epilogueMasked0([J[J[I[J[J[I[JI)I" : "d2a89001bc863507"
         },
+        "greatest(d9, d9s4) > d9b" : {
+          "<class>" : "1a6be0d5ae87cd3c",
+          "<init>()V" : "e2c903051ec05d17",
+          "run([J[J[I[J[J[I[JI)I" : "d539e906046d8f86",
+          "runDense([J[J[I[J[J[I[JI)I" : "334cfd82c887b29d",
+          "loopDense0([J[J[I[J[J[I[JI)I" : "df512dcbe7bc098b",
+          "epilogueDense0([J[J[I[J[J[I[JI)I" : "b493f78c027172b3",
+          "runMasked([J[J[I[J[J[I[JI)I" : "7f50a6f7d4a3494b",
+          "loopMasked0([J[J[I[J[J[I[JI)I" : "cc2212df478ecf68",
+          "epilogueMasked0([J[J[I[J[J[I[JI)I" : "e0de9b5183770865"
+        },
+        "coalesce(d9, d9b) IS NULL" : {
+          "<class>" : "1a6be0d5ae87cd3c",
+          "<init>()V" : "e2c903051ec05d17",
+          "run([J[J[I[J[J[I[JI)I" : "eeab5c3226f60d53",
+          "runDense([J[J[I[J[J[I[JI)I" : "334cfd82c887b29d",
+          "loopDense0([J[J[I[J[J[I[JI)I" : "ffc34f86112de1d8",
+          "epilogueDense0([J[J[I[J[J[I[JI)I" : "219d74590a65ca8b",
+          "runMasked([J[J[I[J[J[I[JI)I" : "7f50a6f7d4a3494b",
+          "loopMasked0([J[J[I[J[J[I[JI)I" : "3700fe3cfdc494db",
+          "epilogueMasked0([J[J[I[J[J[I[JI)I" : "4b623968a7dad4a9"
+        },
+        "(-d18) IS NOT NULL" : {
+          "<class>" : "1a6be0d5ae87cd3c",
+          "<init>()V" : "e2c903051ec05d17",
+          "run([J[J[I[J[J[I[JI)I" : "d5145bab352f2868",
+          "runDense([J[J[I[J[J[I[JI)I" : "334cfd82c887b29d",
+          "loopDense0([J[J[I[J[J[I[JI)I" : "a337ec364903585c",
+          "epilogueDense0([J[J[I[J[J[I[JI)I" : "c01be4b7d4a32486",
+          "runMasked([J[J[I[J[J[I[JI)I" : "7f50a6f7d4a3494b",
+          "loopMasked0([J[J[I[J[J[I[JI)I" : "ee50fc0b529740d8",
+          "epilogueMasked0([J[J[I[J[J[I[JI)I" : "0ef5fc2dc5170819"
+        },
+        "CASE WHEN d9 < d9b THEN d9 ELSE d9s4 END > 0.0" : {
+          "<class>" : "1a6be0d5ae87cd3c",
+          "<init>()V" : "e2c903051ec05d17",
+          "run([J[J[I[J[J[I[JI)I" : "d539e906046d8f86",
+          "runDense([J[J[I[J[J[I[JI)I" : "334cfd82c887b29d",
+          "loopDense0([J[J[I[J[J[I[JI)I" : "5d5a71e15c20b4ae",
+          "epilogueDense0([J[J[I[J[J[I[JI)I" : "ad0045e696fe8f7c",
+          "runMasked([J[J[I[J[J[I[JI)I" : "7f50a6f7d4a3494b",
+          "loopMasked0([J[J[I[J[J[I[JI)I" : "dd3171ec05d2dd0d",
+          "epilogueMasked0([J[J[I[J[J[I[JI)I" : "5af03a3e02b8fcc0"
+        },
         "t - t2" : {
           "<class>" : "1a6be0d5ae87cd3c",
           "<init>()V" : "e2c903051ec05d17",
@@ -10547,7 +10635,7 @@
     },
     "validityOrFirst=true over denseValidityOnce=false,validityByBitmap=false" : {
       "4" : "1dba56916ec3816f",
-      "16" : "6149dbe2ca9e85d0"
+      "16" : "087cf8f98751f80c"
     },
     "validityOrFirst=false over denseValidityOnce=false,validityByBitmap=false" : {
       "4" : "7822991949131f70",
@@ -10558,15 +10646,15 @@
       "16" : "917e296f72bc8b33"
     },
     "narrowLanes=false" : {
-      "4" : "8e2d6e9c6ea1a990",
+      "4" : "3d8bc87ab76a7ca2",
       "16" : "b1ca0ccdd93ac821"
     },
     "groupLocalSlots=false" : {
-      "4" : "8200b44284446482",
-      "16" : "ea80f8cd7f3b2ca8"
+      "4" : "11fc77b514260a86",
+      "16" : "cc4fbd13ad8e04f3"
     },
     "methodByteBudget=0" : {
-      "4" : "5e651ed4afcfa061",
+      "4" : "0d24508ebae412f0",
       "16" : "933deb3e3c138f3d"
     }
   }
