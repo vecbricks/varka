@@ -723,3 +723,9 @@ from the Build's JUnit report.
   `weightOf` weighs it 3, the larger form, as it does for every node whose arm it cannot see;
   the register holds the row. The cost model's feature for it does not tell the two lowerings
   apart, and no abs feature has a price yet; that waits for row 352's refit.
+- **`column()` built a `Scaled` its record refuses** (carried from 348a1's review, whose fix is
+  in 348a1's code). `column()` declines a decimal column the registry puts off the long lane or
+  past 18 digits instead of building a `Scaled` its record refuses; the default decline names
+  rows 349 and 351 and says a quotient or a remainder is no row's in this milestone
+  (`VARKA-363.md` 7); the kernel check's decimal column set throws past ordinal 63 instead of
+  dropping the column.
