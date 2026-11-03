@@ -649,7 +649,20 @@ answer, and the compiler did not change.
 `x.blend(x.neg(), x.compare(LT, 0))` by default and as the lanewise `ABS` under the new flag
 `decimalAbsLanewise` (`Reason.MACHINE`, off), and the reference evaluator answers it with
 `Math.abs`. `IntNeg`'s javadoc says a decimal negation is `WRAP` by its bound. Two coverage rows,
-`-d9 < d9b` and `abs(d9) >= d9b`, are each refined in `refinement.smt2`.
+`-d9 < d9b` and `abs(d9) >= d9b`, are each refined in `refinement.smt2`, and `decimal64.smt2`
+gains five checks, 346 in all: within 18 digits the negation is exact, the long lane's minimum,
+outside the bound, negates to itself, both forms of `abs` are the magnitude, and the two forms
+agree on every long. Z3 5.1.0 holds it in 0.11 s and cvc5 1.4.1 in 0.33 s on the laptop.
+
+**Where the flag is drawn.** `decimalAbsLanewise` changes only a long-lane `abs`, which the
+compiler and the fuzzer build only over a decimal's value, so the flag's entry names
+`DecimalColumn` as the node a shape must hold for it to matter (`Flag` now carries
+`readOnlyBy`, as `Choice` does for `decimalStore`). The general draws, the steering of a case
+without a decimal column and the option matrix leave it out, so the matrix's configurations and
+the steering's option list are 348a1's; the decimal value draw draws it after the rest, and a
+test holds both its arms reached there and the general draws unmoved. A hand-built long-lane
+`abs` over another long is legal IR that reads the flag without a decimal column; no draw or
+compiled shape builds one.
 
 **The slot table and the planted fault.** `VarkaDecimalLoadSuite` adds the condition table
 under a rescale (`d * 100 < 5`, at precisions 1, 9 and 10, where `p + 2` stays within 18), under a
@@ -688,14 +701,21 @@ from the Build's JUnit report.
   read an emit option, so no rendering of it changes with the flag, and the slot table is the
   check the fault is planted against. A refinement that read the flag would restate the
   emitter's choice in the specification's file, which the row leaves to row 504.
-- **The table of `IS NULL` over a negation is the bare leaf's table.** Section 3 item 1 lists
-  it beside the rescale. `VarkaDecimalCompiler.valid` compiles `(-d) IS NULL` to the leaf's own
-  null test, the tree `conditionTableOfTheNullTest` already runs, so no new table is added for it.
-- **`VarkaIrFuzzSuite`'s stranger draw runs under the matrix base.** A drawn option added to the
-  table shifts every later coin of a fuzz draw. `decimalAbsLanewise` moved the named draw
-  `2026101300002L`, 195413, whose stranger then no longer fitted under its redrawn size options.
-  The shape still grows past the op cap, as the test's first assertion checks, so the test now
-  runs that draw's variants under `VarkaMatrix.base`, which no later option moves.
+- **No table of `IS NULL` over a negation.** Section 3 item 1 lists it beside the rescale. In
+  348a2 a null test over a decimal that is not a column declines ("a null test over a decimal
+  that is not a column"), so `WHERE -d IS NULL` declines and has no kernel to table;
+  the table waits for the null test over values, which is 348a3's.
+- **The fuzzer's option order is frozen.** A drawn option sorted into the middle of the order of
+  the `with*` setters shifts every later coin of every fuzz draw, and with them the data drawn
+  after: `decimalAbsLanewise`, while it was a general draw, moved the stranger draw that
+  `VarkaIrFuzzSuite` names, `2026101300002L`, 195413, out of its size options. That shift is why
+  the order is frozen: the suite draws the options of that order from a fixed list and any option
+  added to the table later from a stream of its own, so the named draws draw what they drew.
+- **`decimalAbsLanewise` has no configuration in the option matrix.** Section 3 item 5 gives it
+  one from `VarkaEmitOption.TABLE`. A general option would add a configuration that changes no
+  kernel of any suite but those over a decimal column's `abs`, and a 41st option to every steered
+  mutation sequence; keyed on `DecimalColumn`, it is fuzzed by the decimal value draw instead,
+  and its arm is measured with 348b.
 
 ### 10.6 The second review of 348a2 (1 November 2026)
 

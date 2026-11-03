@@ -512,8 +512,9 @@ abstract class VarkaDecimalLoadTables {
             new LiteralSlot(0, LaneType.LONG)),
         new long[] {5L},
         (u, isNull) -> isNull ? Truth.UNKNOWN : Math.abs(u) >= 5 ? Truth.TRUE : Truth.FALSE);
-    // (-d) IS NULL compiles to the leaf's own test (VarkaDecimalCompiler.valid), the table of
-    // conditionTableOfTheNullTest.
+    // A null test over a negation or abs declines in the compiler ("a null test over a decimal
+    // that is not a column"), so it has no table here; the null test over the leaf is
+    // conditionTableOfTheNullTest's.
   }
 
   @Test

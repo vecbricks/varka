@@ -406,11 +406,13 @@ public final class VarkaIrGrammar {
   }
 
   /**
-   * One decimal shape: the forms {@code VarkaDecimalCompiler} builds over the unscaled longs of
-   * decimal columns - a rescale by {@code 10^k}, a negation, {@code abs}, a choice, a pick, the
-   * comparisons, the null-safe equality and the null tests - each value carrying the digits its
-   * lanes stay within, so that a rescale is drawn only where {@code p + k <= 18} keeps it exact,
-   * as the compiler's type rule does. Literals are drawn at their digits' bounds and inside.
+   * One decimal shape: long-lane IR over the unscaled longs of decimal columns. The rescale by
+   * {@code 10^k}, the negation, {@code abs}, the comparisons, the null-safe equality and a
+   * column's null test are forms {@code VarkaDecimalCompiler} builds; an {@code IfElse},
+   * {@code Greatest} and {@code Least} are long-lane nodes drawn over decimal values too, so that
+   * the leaf's check is fuzzed under an arm and a pick. Each value carries the digits its lanes
+   * stay within, so that a rescale is drawn only where {@code p + k <= 18} keeps it exact, as the
+   * compiler's type rule does. Literals are drawn at their digits' bounds and inside.
    */
   public static DecimalDrawn drawDecimalValueShape(Random rnd) {
     int inputs = 1 + rnd.nextInt(3);
