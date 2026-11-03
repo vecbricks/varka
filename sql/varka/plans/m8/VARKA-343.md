@@ -527,5 +527,5 @@ Cut from #1303's final tree, without its `BIGINT` conversions (343a4), sweeps an
 - **A known limit**, shared with row 332: `CompiledVarkaProjection` checks a long literal table
   against the drive under `VarkaEmitOptions.DEFAULTS`, which refuse what the session admits at
   128 bits with `lanesOverride=4`, `CAST(y1 AS DOUBLE) / 2.0D`: planning raises `INTERNAL_ERROR`.
-  No CI step pairs the two (the option matrix: x86, 256+ bits), no SQL conf sets it. Owed: 343a3b.
+  No CI step pairs them (the matrix sets it only on x86 of 256+ bits), nor a SQL conf. Owed: 343a3b.
 - **Prediction 4.1** holds: only the new rows' shapes and the `option_arms` digests move.
