@@ -358,9 +358,9 @@ public final class VarkaEmitterFloatingCastSuite {
   @DisplayName("an ANSI division on the double lane of a long kernel condemns only by its divisor")
   void guardOnTheOtherLane() {
     // The division's guard mask is the double lane's, at the long drive's lane count, and crosses
-    // to it by VectorMask.cast (the crossing `VARKA-341.md` 5.1 left owed). With no zero divisor
-    // no batch may decline; one zero declines the batch where its row is valid, in the loop or
-    // the epilogue, and not where it is null, so a crossed mask of no lanes or all fails here.
+    // to it by VectorMask.cast (the crossing `VARKA-341.md` 5.1 left owed). No zero divisor, no
+    // decline; a live zero, in the loop or the epilogue, declines in the dense and forced masked
+    // bodies, and a null one only in the dense, so a crossed mask of no lanes or all fails here.
     var x = new ColumnRef(1, LaneType.DOUBLE);
     var root = new IntArith(IntOp.DIV, Overflow.FAIL,
         convert(new NarrowLane(L, LaneType.INT), LaneType.DOUBLE), x);
@@ -376,11 +376,11 @@ public final class VarkaEmitterFloatingCastSuite {
       }
       var nulls = new boolean[2][17];
       var batch = new VarkaKernelChecks.LongBatch(17, nulls, values, false);
-      int status = VarkaKernelChecks.runAndCompareMixedStatus("a zero at row " + at,
-          emitted.className(), emitted.bytes(), roots, 2, new int[0], new long[0], batch, true);
-      assertEquals(VarkaFusedKernel.STATUS_DIVIDE_BY_ZERO, status);
+      int zero = VarkaFusedKernel.STATUS_DIVIDE_BY_ZERO;
+      assertEquals(List.of(zero, zero), VarkaKernelChecks.runEachBodyMixedStatus("a zero at row "
+          + at, emitted.className(), emitted.bytes(), roots, 2, new int[0], new long[0], batch));
       nulls[1][at] = true; // the same batch, its zero now null
-      assertEquals(List.of(0, VarkaFusedKernel.STATUS_DIVIDE_BY_ZERO), VarkaKernelChecks
+      assertEquals(List.of(0, zero), VarkaKernelChecks
           .runEachBodyMixedStatus("a null zero at row " + at, emitted.className(),
               emitted.bytes(), roots, 2, new int[0], new long[0], batch));
     }
