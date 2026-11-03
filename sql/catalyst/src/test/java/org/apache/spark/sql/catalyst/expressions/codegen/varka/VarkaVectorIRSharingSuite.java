@@ -20,6 +20,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.fail;
 
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.RecordComponent;
@@ -187,7 +188,6 @@ public final class VarkaVectorIRSharingSuite {
         todo.addAll(List.of(c.getPermittedSubclasses()));
       }
     }
-    // One node of every inner type, over leaves, beside a chain whose nodes have inner children.
     var nodes = new ArrayList<>(objectsUnder(coalesceChain(4, LaneType.LONG)));
     int inner = 0;
     for (Class<?> type : types) {
@@ -205,7 +205,7 @@ public final class VarkaVectorIRSharingSuite {
       nodes.add(anyNodeOf(type));
     }
     assertTrue(inner >= 47, "inner node types found: " + inner);
-    // The value: the records' own formula over every component but the hash, per node object.
+    // The value, of a chain's nodes and one of each inner type: the records' formula without hash.
     for (VarkaVectorIR node : nodes) {
       RecordComponent[] components = node.getClass().getRecordComponents();
       int h = 0;
@@ -253,7 +253,7 @@ public final class VarkaVectorIRSharingSuite {
         }
       }
     }
-    throw new AssertionError(type.getSimpleName() + " refuses leaves on every lane");
+    return fail(type.getSimpleName() + " refuses leaves on every lane");
   }
 
   @Test
