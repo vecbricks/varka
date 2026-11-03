@@ -516,14 +516,32 @@ public final class VarkaKernelChecks {
 
   /**
    * The lane a long-lane kernel's batch runs through: the long lane's own, or both lanes' where
-   * the roots hold a value of each (VARKA-28) - a widening anywhere, a narrowing under another
-   * node, or an int root that is not a narrowing - whose int columns, int outputs and int table
-   * are the int lane's.
+   * the roots hold a value of each (VARKA-28) - a widening or a conversion anywhere, a narrowing
+   * under another node, or an int root that is not a narrowing - whose int columns, int outputs
+   * and int table are the int lane's. A conversion (VARKA-343) reads one lane and writes another,
+   * so only {@link VarkaReference#mixedValue} answers it.
    */
   private static Lane longLane(LongBatch batch, long[] lits, int[] intLits,
       List<VarkaVectorIR> roots) {
     return holdsBothLanes(roots) ? new MixedLane(batch, intLits, lits, roots)
         : new LongLane(batch, lits, false);
+  }
+
+  /** Whether some node of {@code roots} is on a 64-bit lane, the long or the double one. */
+  static boolean holdsWideValue(List<VarkaVectorIR> roots) {
+    var seen = new HashSet<VarkaVectorIR>();
+    var todo = new ArrayDeque<VarkaVectorIR>(roots);
+    while (!todo.isEmpty()) {
+      VarkaVectorIR node = todo.pop();
+      if (!seen.add(node)) {
+        continue;
+      }
+      if (node.laneType().bits() == Long.SIZE) {
+        return true;
+      }
+      todo.addAll(Arrays.asList(VarkaVectorIR.childrenOf(node)));
+    }
+    return false;
   }
 
   /** Whether {@code roots} hold a value of each lane; see {@link #longLane}. */
@@ -544,13 +562,14 @@ public final class VarkaKernelChecks {
         return true;
       }
       todo.addAll(Arrays.asList(VarkaVectorIR.childrenOf(root)));
-      if (root instanceof VarkaVectorIR.WidenLane) {
+      if (root instanceof VarkaVectorIR.WidenLane || root instanceof VarkaVectorIR.ConvertLane) {
         return true;
       }
     }
     while (!todo.isEmpty()) {
       VarkaVectorIR node = todo.pop();
-      if (node instanceof VarkaVectorIR.WidenLane || node instanceof NarrowLane) {
+      if (node instanceof VarkaVectorIR.WidenLane || node instanceof NarrowLane
+          || node instanceof VarkaVectorIR.ConvertLane) {
         return true;
       }
       if (seen.add(node)) {
@@ -1074,10 +1093,20 @@ public final class VarkaKernelChecks {
    * eight bytes a row.
    */
   private record MixedLane(LongBatch batch, int[] intLits, long[] longLits,
-      VarkaVectorIR.LaneType[] columnLanes, boolean[] bitColumns) implements Lane {
+      VarkaVectorIR.LaneType[] columnLanes, boolean[] bitColumns, boolean wideRoots)
+      implements Lane {
     MixedLane(LongBatch batch, int[] intLits, long[] longLits, List<VarkaVectorIR> roots) {
       this(batch, intLits, longLits, VarkaKernelChecks.columnLanes(roots, batch.data().length),
-          VarkaKernelChecks.bitColumns(roots, batch.data().length));
+          VarkaKernelChecks.bitColumns(roots, batch.data().length), holdsWideValue(roots));
+    }
+
+    /**
+     * Whether the kernel is driven at 64 bits, and so runs through the long entry point: every
+     * tree holding a 64-bit node; a tree of the int and float lanes alone (VARKA-343) is driven
+     * at the int lane and runs through the int entry point.
+     */
+    private boolean wide() {
+      return wideRoots;
     }
 
     /** {@code v} as a column or output of {@code lane} stores it, sign-extended. */
@@ -1085,16 +1114,21 @@ public final class VarkaKernelChecks {
       return switch (lane) {
         case BYTE -> (byte) v;
         case SHORT -> (short) v;
-        case INT -> (int) v;
-        case LONG, FLOAT, DOUBLE -> v;
+        // A float's value is its bits at its width, four bytes a row as an int's.
+        case INT, FLOAT -> (int) v;
+        case LONG, DOUBLE -> v;
       };
     }
 
-    /** The lane a row of {@code lane} is laid out at: its own if integral, else the long. */
+    /**
+     * The lane a row of {@code lane} is laid out at: its own if integral, the int lane's four
+     * bytes for a float, else the long.
+     */
     private static VarkaVectorIR.LaneType laidOut(VarkaVectorIR.LaneType lane) {
       return switch (lane) {
         case BYTE, SHORT, INT -> lane;
-        case LONG, FLOAT, DOUBLE -> VarkaVectorIR.LaneType.LONG;
+        case FLOAT -> VarkaVectorIR.LaneType.INT;
+        case LONG, DOUBLE -> VarkaVectorIR.LaneType.LONG;
       };
     }
 
@@ -1208,8 +1242,11 @@ public final class VarkaKernelChecks {
 
     @Override public int run(VarkaFusedKernel kernel, long[] srcData, long[] srcValidity,
         int[] nullCounts, long[] outData, long[] outValidity, long scratch) {
-      return kernel.run(srcData, srcValidity, nullCounts, outData, outValidity, intLits,
-          longLits, length(), scratch);
+      return wide()
+          ? kernel.run(srcData, srcValidity, nullCounts, outData, outValidity, intLits,
+              longLits, length(), scratch)
+          : kernel.run(srcData, srcValidity, nullCounts, outData, outValidity, intLits,
+              length(), scratch);
     }
 
     @Override public OptionalLong reference(VarkaVectorIR root, long[] values, boolean[] isNull) {

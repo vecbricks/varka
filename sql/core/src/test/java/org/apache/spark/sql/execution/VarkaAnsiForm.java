@@ -277,6 +277,13 @@ public final class VarkaAnsiForm {
         out.put(sql + "\t" + position, boolColumn);
       }
     }
+    // The form's float conjuncts, frid < 0 and the cast = f2, beside the cast's integral source.
+    String laneSplit = "the filter reads an integral column, so its float conjuncts decline by "
+        + "floatingConjunctRefusal, while the null tests Spark infers may still fuse";
+    for (String sql : List.of("CAST(i AS FLOAT)", "try_cast(i AS FLOAT)",
+        "CAST(CAST(y1 AS INT) * CAST(y2 AS INT) AS FLOAT)")) {
+      out.put(sql + "\t" + FALSE_AND, laneSplit);
+    }
     // A bigint narrowed to a narrow type as a COALESCE argument beside a narrow column: a narrow
     // choice in a long kernel, which has no lowering there (VARKA-332.md 10.1).
     String narrowChoice = "a narrow choice beside a bigint value has no lowering in a long "

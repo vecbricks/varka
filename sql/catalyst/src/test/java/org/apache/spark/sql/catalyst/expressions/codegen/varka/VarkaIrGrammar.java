@@ -43,6 +43,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Con
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.CondValue;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.NullValue;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ConstDivide;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ConvertLane;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.DateDiff;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.DayOfMonth;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.DayOfWeek;
@@ -360,6 +361,8 @@ public final class VarkaIrGrammar {
       // The conversions: a widening keeps every value, and a narrowing keeps the low 32 bits,
       // whose magnitude is the child's where that fits an int and an int's otherwise.
       case WidenLane n -> boundsOf(n.child());
+      // The grammar draws no floating node (VARKA-343).
+      case ConvertLane n -> throw new IllegalArgumentException("a floating node: " + n);
       case NarrowLane n -> {
         Bounds b = boundsOf(n.child());
         yield new Bounds(b.value() <= Integer.MAX_VALUE ? b.value() : 1L << 31, b.guarded());

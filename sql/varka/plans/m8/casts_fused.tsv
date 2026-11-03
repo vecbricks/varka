@@ -53,7 +53,7 @@ int	bool	INT	BOOLEAN	fused	fused	fused
 int	byte	INT	TINYINT	fused	fused	declined
 int	short	INT	SMALLINT	fused	fused	declined
 int	bigint	INT	BIGINT	fused	fused	fused
-int	float	INT	FLOAT	declined	declined	declined
+int	float	INT	FLOAT	fused	fused	fused
 int	double	INT	DOUBLE	declined	declined	declined
 int	dec	INT	DECIMAL(10,2)	declined	declined	declined
 int	dec	INT	DECIMAL(30,4)	declined	declined	declined

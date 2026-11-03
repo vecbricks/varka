@@ -5360,6 +5360,42 @@
     "note" : "the float's test in a disjunction at its lane",
     "verified" : "differential"
   }, {
+    "sql" : "CAST(i AS FLOAT)",
+    "executable" : "CAST(i AS FLOAT)",
+    "family" : "Floating casts",
+    "form" : "projection",
+    "catalyst" : [ "Cast" ],
+    "casts" : [ "int>float:ansi" ],
+    "operands" : [ "Cast:int" ],
+    "switches" : [ "spark.sql.codegen.varka.family.floatingCast.enabled" ],
+    "domain" : "",
+    "note" : "rounded once to nearest, ties to even, as the JVM converts",
+    "verified" : "differential"
+  }, {
+    "sql" : "try_cast(i AS FLOAT)",
+    "executable" : "try_cast(i AS FLOAT)",
+    "family" : "Floating casts",
+    "form" : "projection",
+    "catalyst" : [ "Cast" ],
+    "casts" : [ "int>float:try" ],
+    "operands" : [ "Cast:int" ],
+    "switches" : [ "spark.sql.codegen.varka.family.floatingCast.enabled" ],
+    "domain" : "",
+    "note" : "the same rounding: a cast to a floating type never fails",
+    "verified" : "differential"
+  }, {
+    "sql" : "CAST(CAST(y1 AS INT) * CAST(y2 AS INT) AS FLOAT)",
+    "executable" : "CAST(CAST(y1 AS INT) * CAST(y2 AS INT) AS FLOAT)",
+    "family" : "Floating casts",
+    "form" : "projection",
+    "catalyst" : [ "Cast", "Multiply" ],
+    "casts" : [ "byte>int:ansi", "int>float:ansi" ],
+    "operands" : [ "Cast:byte", "Cast:int", "Multiply:int" ],
+    "switches" : [ "spark.sql.codegen.varka.family.intArithmetic.enabled", "spark.sql.codegen.varka.family.floatingCast.enabled" ],
+    "domain" : "",
+    "note" : "a product of two widened bytes",
+    "verified" : "differential"
+  }, {
     "sql" : "d9 < d9b",
     "executable" : "d9 < d9b",
     "family" : "DECIMAL columns",

@@ -220,6 +220,7 @@ final class VarkaNodeCompiler {
       new Family(VarkaFamily.CONDITION, VarkaConditionCompiler::arm),
       new Family(VarkaFamily.INT_ARITHMETIC, VarkaNodeCompiler::arithmeticArm),
       new Family(VarkaFamily.FLOATING_ARITHMETIC, VarkaFloatingCompiler::arm),
+      new Family(VarkaFamily.FLOATING_CAST, VarkaFloatingCastCompiler::arm),
       new Family(VarkaFamily.INTEGRAL_CAST, VarkaIntegralCastCompiler::arm));
 
   /**
@@ -352,7 +353,7 @@ final class VarkaNodeCompiler {
    * {@code IN}, {@code isnan} and {@code nanvl} - and are lowered in Spark's order, in which NaN
    * equals NaN and is greater than every other value and {@code -0.0} equals {@code 0.0}, not
    * the vector compare's or {@code max}'s. The arithmetic the floating family lowers is named
-   * here too, and the cast of a floating value to {@code BOOLEAN}; the other casts, the
+   * here too, as are the casts of INT to FLOAT and of a float to BOOLEAN; the other casts, the
    * remainders and the interval forms by a floating factor are not. So the list is of what is
    * served, not of what is refused, and a node no one has thought of declines. Both compile
    * entries ask it before any arm claims, so no arm sees a floating operand it was not written
@@ -374,8 +375,10 @@ final class VarkaNodeCompiler {
         || e instanceof Divide || e instanceof UnaryMinus || e instanceof Abs
         || e instanceof Sqrt || e instanceof ToDegrees || e instanceof ToRadians
         || (e instanceof Signum s && isFloating(s.child().dataType()))
+        // The floating casts family's pairs (VARKA-343), by pair for the same reason.
+        || (e instanceof Cast c && VarkaFloatingCastCompiler.admits(c))
         // A floating value as a boolean (VARKA-343 2.5), the predicate family's `x != 0`.
-        || (e instanceof Cast c && DataTypes.BooleanType.equals(c.dataType()))) {
+        || (e instanceof Cast b && DataTypes.BooleanType.equals(b.dataType()))) {
       return Optional.empty();
     }
     String what = switch (e) {

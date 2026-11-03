@@ -545,7 +545,8 @@ public final class VarkaGuardSpecs {
       case ColumnRef _, DecimalColumn _, LiteralSlot _, DateDiff _, IfElse _, Greatest _, Least _,
           DayOfWeek _, WeekDay _, DayOfWeekIso _, NextDay _, ThursdayOf _, Chrono _, ConstDivide _,
           BoundedDivide _, BitOp _, BitCount _, MathUnary _, Cond _, CondValue _,
-          VarkaVectorIR.NullValue _, BoolOutput _, WidenLane _, NarrowLane _, WidenDecimal _ ->
+          VarkaVectorIR.NullValue _, BoolOutput _, WidenLane _, NarrowLane _, ConvertLane _,
+          WidenDecimal _ ->
           throw new IllegalArgumentException("no guard spec for " + reason + " on " + node);
     };
   }

@@ -117,10 +117,12 @@ class VarkaLaneTypeSuite extends SparkFunSuite with VarkaTestWatchdog {
     // The widening is absent: its value is on the long lane by definition, over an int child
     // (VARKA-28). So is the math function, which exists at a floating lane only (VARKA-342), the
     // decimal column, an unscaled long whose constructor refuses the int lane until the int arm
-    // of VARKA-347 2.3 is built, and the decimal output, which widens a long value into a decimal
-    // slot and refuses an int child (VARKA-157).
+    // of VARKA-347 2.3 is built, the decimal output, which widens a long value into a decimal
+    // slot and refuses an int child (VARKA-157), and the conversion, one side of which is
+    // floating (VARKA-343).
     assert(everyIntNode.map(_.getClass).toSet + classOf[WidenLane] + classOf[MathUnary] +
-      classOf[DecimalColumn] + classOf[WidenDecimal] === concreteNodeTypes(classOf[VarkaVectorIR]))
+      classOf[DecimalColumn] + classOf[WidenDecimal] + classOf[ConvertLane] ===
+      concreteNodeTypes(classOf[VarkaVectorIR]))
     val doubleCol = new ColumnRef(0, LaneType.DOUBLE)
     assert(new MathUnary(MathFn.SQRT, doubleCol).laneType() === LaneType.DOUBLE)
     everyIntNode.foreach { node =>
@@ -465,6 +467,12 @@ class VarkaLaneTypeSuite extends SparkFunSuite with VarkaTestWatchdog {
         case "WeekOfYear" => new WeekOfYear(new ThursdayOf(c))
         // A floating lane's only: refused at both integral lanes, and emitted at DOUBLE below.
         case "MathUnary" => new MathUnary(MathFn.SQRT, c)
+        // An int converted to FLOAT (VARKA-343), emitted in an int kernel at one lane count. The
+        // long row has no instance yet: a conversion between widths has no kernel until row
+        // 343's kernel of two lane counts, so the long row builds the integral pair the
+        // constructor refuses.
+        case "ConvertLane" => new ConvertLane(new ColumnRef(0, lane),
+          if (lane == LaneType.INT) LaneType.FLOAT else LaneType.LONG)
         case other => fail(s"no instance recipe for $other; a node type was added")
       }) catch {
         // The IR's own refusal: a calendar node over a wider child cannot be built at all.
