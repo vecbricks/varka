@@ -42,7 +42,7 @@ payload is open, so a body that returns a NaN where Spark fixes one goes unseen 
 The served body's answer is still compared with Spark's by the harness suites, and a NaN in the
 other body is computed by the same bytecode.
 
-## 4. Tests
+## 5. Tests, and what each is for
 
 `VarkaEvaluatorComponentsSuite` "the both-bodies check accepts any NaN against any NaN on a
 floating output only" plants two bodies' outputs and calls `compareBodies`: two unlike NaN
