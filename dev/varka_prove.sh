@@ -23,7 +23,7 @@
 #   dev/varka_prove.sh --solver both            # under Z3 and cvc5, each held to every expectation
 #   dev/varka_prove.sh --solver cvc5 int_mulhi_divide.smt2
 #   dev/varka_prove.sh --install z3|cvc5|both   # the pinned solvers, into target/varka-solvers/
-#   dev/varka_prove.sh --install-shared both    # the same, into the shared directory below
+#   dev/varka_prove.sh --install-shared z3|cvc5|both  # the same, into the shared directory below
 #   dev/varka_prove.sh --self-test              # one planted failure of each kind, every one caught
 #
 # A proof opens with its (set-logic ...) line, and java.smt2, Java's operators, is inserted after
@@ -49,7 +49,7 @@ usage() { sed -n '18,/^[^#]/p' "$0" | sed '$d'; exit "${1:-2}"; }
 root="$(cd "$(dirname "$0")/.." && pwd)"
 proofs="$root/sql/varka/proofs"
 solvers="$root/target/varka-solvers"
-shared="${VARKA_SOLVERS_DIR:-$HOME/.cache/varka-solvers}"
+shared="${VARKA_SOLVERS_DIR:-${HOME:-/nonexistent}/.cache/varka-solvers}"
 # The pinned solvers (VARKA-240.md 2). Z3 from PyPI, whose wheel ships the z3 binary; cvc5 from
 # its release archive, since its wheel has the Python bindings only.
 Z3_VERSION=5.1.0
@@ -102,7 +102,7 @@ require_solver() {
   esac
   if [ "$version" != "$want" ]; then
     echo "varka_prove: $path is $name $version, and the proofs are pinned to $want;" \
-      "run dev/varka_prove.sh --install $name" >&2
+      "run dev/varka_prove.sh --install $name (or --install-shared $name)" >&2
     return 1
   fi
   echo "$path"
@@ -325,7 +325,8 @@ while [ "$#" -gt 0 ]; do
   case "$1" in
     -h|--help) usage 0 ;;
     --solver) which="${2:-}"; shift 2 || usage ;;
-    --install) mode=install; which="${2:-}"; shift 2 || usage ;;
+    --install) mode=install; which="${2:-}"; solvers="$root/target/varka-solvers"
+      shift 2 || usage ;;
     --install-shared) mode=install; solvers="$shared"; which="${2:-}"; shift 2 || usage ;;
     --self-test) mode=self-test; shift ;;
     --lint) mode=lint; which=both; shift ;;
