@@ -247,13 +247,25 @@ HAND_INPUTS = re.compile(r"(^|/)sql-tests/inputs/")
 SYNC_BRANCH = "varka-sync-apache-"
 
 
-def git(cwd, *args):
+def git(cwd, *args, env=None):
     # Outside this repository (the self-test's fixture) a hook's GIT_DIR or GIT_INDEX_FILE
     # would send the command into the outer repository; the fixture's environment drops them.
-    env = None if cwd == ROOT else generated.fixture_env()
+    if env is None and cwd != ROOT:
+        env = generated.fixture_env()
     return subprocess.run(
         ["git", *args], cwd=cwd, env=env, capture_output=True, text=True, errors="replace"
     )
+
+
+_ATTR_SOURCE_GIT = []  # whether this git has `--attr-source`, once asked
+
+
+def attr_source_git():
+    """Whether this git takes `git --attr-source=<tree>` (git 2.42's)."""
+    if not _ATTR_SOURCE_GIT:
+        got = re.search(r"(\d+)\.(\d+)", git(ROOT, "--version").stdout)
+        _ATTR_SOURCE_GIT.append(bool(got) and tuple(map(int, got.groups())) >= (2, 42))
+    return _ATTR_SOURCE_GIT[0]
 
 
 def show(cwd, rev, path):
@@ -261,11 +273,39 @@ def show(cwd, rev, path):
     return out.stdout if out.returncode == 0 else None
 
 
-def numstat(cwd, *args, ok=(0,)):
+def attr_git(cwd, attrs, *args):
+    """`git <args>` reading attributes from the tree `attrs` alone (None: none at all)."""
+    pre = ["-c", f"core.attributesFile={os.devnull}"]
+    if attrs is not None:
+        if not attr_source_git():
+            raise ValueError("git 2.42 or later is needed for --attr-source")
+        pre = [f"--attr-source={attrs}", *pre]
+    env = generated.fixture_env() if cwd != ROOT else dict(os.environ)
+    env["GIT_ATTR_NOSYSTEM"] = "1"
+    return git(cwd, *pre, *args, env=env)
+
+
+def as_text(cwd, base, head, old, path):
+    """(added, removed) of one file diffed as text whatever its bytes: `--numstat` ignores
+    `--text`, so the counts are summed from the `-U0` patch's hunk headers."""
+    out = attr_git(cwd, base, "diff", "--text", "-U0", "-M", base, head, "--", old, path)
+    if out.returncode:
+        raise ValueError(f"git diff --text failed: {out.stderr.strip()}")
+    added = removed = 0
+    for m in re.finditer(r"^@@ -\d+(?:,(\d+))? \+\d+(?:,(\d+))? @@", out.stdout, re.M):
+        removed += int(m.group(1) or 1)
+        added += int(m.group(2) or 1)
+    return added, removed
+
+
+def numstat(cwd, attrs, *args, ok=(0,)):
     """(added, removed) or None for a binary file, the new path and the old, per changed file
-    of `git <args> --numstat -z -M`; a git exit outside `ok`, or a count that is not a number,
-    raises ValueError, which the check reports as a count it could not make."""
-    out = git(cwd, *args, "--numstat", "-z", "-M")
+    of `git <args> --numstat -z -M`; a git exit outside `ok`, a count that is not a number, or
+    output left over (git's warning that it skips an octopus merge) raises ValueError, which
+    the check reports as a count it could not make. Whether a file diffs as binary is read
+    from the attributes of the tree `attrs` only (None: no repository, so none), never the
+    head's, the user's or the system's: a pull request's `-diff` line would hide its edit."""
+    out = attr_git(cwd, attrs, *args, "--numstat", "-z", "-M")
     if out.returncode not in ok:
         raise ValueError(f"git {args[0]} failed: {out.stderr.strip()}")
     tokens, rows = out.stdout.split("\0"), []
@@ -281,6 +321,8 @@ def numstat(cwd, *args, ok=(0,)):
             rows.append(((int(added), int(removed)), path, old))
         else:
             raise ValueError(f"git {args[0]} gave {added!r} {removed!r} for {path!r}")
+    if tokens and tokens[0]:
+        raise ValueError(f"git {args[0]} gave {tokens[0].strip()!r}, not a count")
     return rows
 
 
@@ -290,7 +332,8 @@ def text_diff(a, b):
         for name, lines in (("a", a), ("b", b)):
             with open(os.path.join(tmp, name), "w", encoding="utf-8") as f:
                 f.write("".join(line + "\n" for line in lines))
-        rows = numstat(tmp, "diff", "--no-index", "a", "b", ok=(0, 1))  # exit 1: they differ
+        # Exit 1: they differ. Not a repository, so no tree to read attributes from.
+        rows = numstat(tmp, None, "diff", "--no-index", "a", "b", ok=(0, 1))
     if any(n is None for n, _, _ in rows):
         raise ValueError("git diff --no-index read a generated block's prose as binary")
     return sum(sum(n) for n, _, _ in rows)
@@ -320,9 +363,12 @@ def counted_lines(row, base, head, cwd, marks):
     file the base has is judged by the base's path, attributes and text, so a pull request
     cannot exempt its own edit by changing them; a file new in the head by the head's."""
     n, path, old = row
+    texts = [show(cwd, base, old), show(cwd, head, path)]
+    if n is None and texts[0] is not None and "\0" not in texts[0] and "\0" in (texts[1] or ""):
+        # A text file the head makes binary with a NUL: counted as text, by the base's rules.
+        n = as_text(cwd, base, head, old, path)
     if n is None:
         return 0, "binary", None
-    texts = [show(cwd, base, old), show(cwd, head, path)]
     head_why = exempt_why(path, texts[1], path in marks[1])
     if texts[0] is None:
         note = None
@@ -357,7 +403,7 @@ def marked(cwd, rev, paths):
 def size_rows(base, head, cwd, rows=None):
     """((counted, changed, path, why) per changed file of head against base, the notes to
     print); `rows` gives the changed files where they are not `base..head`'s diff."""
-    rows = numstat(cwd, "diff", base, head) if rows is None else rows
+    rows = numstat(cwd, base, "diff", base, head) if rows is None else rows
     marks = (marked(cwd, base, [r[2] for r in rows]), marked(cwd, head, [r[1] for r in rows]))
     out, notes = [], []
     for row in rows:
@@ -396,9 +442,12 @@ def own_rows(commit, cwd):
     """A sync's commit against its first parent, or a merge's own changes: its conflict
     resolutions and any edit made in it, the merge against git's automatic merge of its
     parents (`--remerge-diff`, git 2.36's)."""
-    if len(git(cwd, "rev-list", "--parents", "-n1", commit).stdout.split()) < 3:
+    parents = len(git(cwd, "rev-list", "--parents", "-n1", commit).stdout.split()) - 1
+    if parents > 2:
+        raise ValueError(f"{commit} is an octopus merge, which --remerge-diff cannot replay")
+    if parents < 2:
         return size_rows(f"{commit}^", commit, cwd)
-    rows = numstat(cwd, "show", "--remerge-diff", "--format=", commit)
+    rows = numstat(cwd, f"{commit}^1", "show", "--remerge-diff", "--format=", commit)
     return size_rows(f"{commit}^1", commit, cwd, rows)
 
 
@@ -499,6 +548,7 @@ def size_selftest():
         write("Hand.java", lines(4))
         write("sql/varka/matrix/hand.tsv", lines(4))
         write("moved.md", lines(4))
+        write("Turned.txt", lines(5, "t"))
         base = commit()
         expect = {
             "A.java": 5,  # 5 added
@@ -527,6 +577,7 @@ def size_selftest():
             "sql/varka/gen/a.txt": 0,
             "sql/core/src/test/resources/c/map.md": 0,  # Spark's "Automatically generated by"
             "sql/core/src/test/resources/sql-tests/inputs/e.sql": 3,  # a hand input, so headed
+            "Turned.txt": 1,  # a text file the head makes binary with a NUL: counted as text
         }
         write("A.java", lines(15))
         os.rename(os.path.join(tmp, "b.py"), os.path.join(tmp, "c.py"))
@@ -560,9 +611,24 @@ def size_selftest():
         write("sql/core/src/test/resources/c/map.md", "<!-- Automatically generated by S -->\n")
         hand_input = "-- Automatically generated by SQLQueryTestSuite\nSELECT 1;\nSELECT 2;\n"
         write("sql/core/src/test/resources/sql-tests/inputs/e.sql", hand_input)
+        write("Turned.txt", "\0\n" + lines(5, "t"))
+        write(".gitattributes", "*.java -diff\n")  # the head's: A.java still diffs as text
         head = commit()
         rows, notes = size_rows(base, head, tmp)
         got = {r[2]: r[0] for r in rows}
+        # The user's attributes file does not change a count: it marks the TSVs binary here.
+        xdg = os.path.join(tmp, ".git", "xdg")
+        os.makedirs(os.path.join(xdg, "git"))
+        with open(os.path.join(xdg, "git", "attributes"), "w") as f:
+            f.write("*.tsv binary\n*.java -diff\n")
+        saved = dict(os.environ)
+        os.environ["XDG_CONFIG_HOME"] = xdg
+        try:
+            user_attrs = {r[2]: r[0] for r in size_rows(base, head, tmp)[0]}
+        finally:
+            os.environ.clear()
+            os.environ.update(saved)
+        user_attrs = {p: (c, got[p]) for p, c in user_attrs.items() if c != got[p]}
         added = sorted(n.split(":")[0] for n in notes if "exemption added" in n)
         hand_tsv, moved = "sql/varka/matrix/hand.tsv", "sql/varka/plans/m8/results/moved.md"
         new_marked = [n.split(":")[0] for n in notes if "new, marked" in n]
@@ -599,11 +665,35 @@ def size_selftest():
         finally:
             os.environ.clear()
             os.environ.update(saved)
+        # An octopus merge, which --remerge-diff cannot replay, is a count not made.
+        for name in ("o1", "o2"):
+            run("git", "checkout", "-q", "-b", name, sync_head)
+            write(f"{name}.java", lines(2))
+            commit()
+        run("git", "checkout", "-q", SYNC_BRANCH + "1")
+        write("o3.java", lines(2))
+        commit()
+        run("git", "-c", "user.name=t", "-c", "user.email=t@t", "merge", "-q", "o1", "o2")
+        octopus = git(tmp, "rev-parse", "HEAD").stdout.strip()
+        octopus_counted = []
+        for bad in (
+            lambda: own_rows(octopus, tmp),
+            lambda: numstat(tmp, None, "show", "--remerge-diff", "--format=", octopus),
+        ):
+            try:
+                octopus_counted.append(bad())
+            except ValueError:
+                pass
+        octopus_sync = size_findings(base, octopus, SYNC_BRANCH + "1", tmp)
+        octopus_sync = [] if "could not count" in "".join(octopus_sync) else [octopus_sync]
         # The name alone, with no merge of Apache Spark's master, is counted as any change.
         named = pr_size(base, head, tmp, SYNC_BRANCH + "2")
         # A count git does not give as numbers, or a failed git, is a count not made.
         unreadable = []
-        for bad in (lambda: text_diff(["\0"], []), lambda: numstat(tmp, "diff", "no-such-rev")):
+        for bad in (
+            lambda: text_diff(["\0"], []),
+            lambda: numstat(tmp, None, "diff", "no-such-rev"),
+        ):
             try:
                 unreadable.append(bad())
             except ValueError:
@@ -613,6 +703,7 @@ def size_selftest():
     wrong = {p: (got.get(p), c) for p, c in expect.items() if got.get(p) != c}
     return [
         ("each file's counted lines", [wrong] if wrong else [], 0),
+        ("the user's attributes file changes no count", [user_attrs] if user_attrs else [], 0),
         ("a pull request under the cap", under[0], 0),
         ("an unclosed BEGIN counts the file", [] if lone[0] == lone[1] > 50 else [lone], 0),
         ("a pull request at the cap", over[0], 1),
@@ -634,6 +725,8 @@ def size_selftest():
         ("... counted as any change", [] if named[1] == under[1] else [named[1]], 0),
         ("a count git cannot give raises", unreadable, 0),
         ("... and is a finding", not_counted, 0),
+        ("an octopus merge raises", octopus_counted, 0),
+        ("... and in a sync is a finding", octopus_sync, 0),
     ]
 
 

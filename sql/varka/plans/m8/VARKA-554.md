@@ -47,7 +47,10 @@ files, added plus removed, `git diff --numstat -M` from the merge base to the he
   the file into `results/`; the check counts it and prints "exemption added by this pull
   request". A file new in the head is judged by the head's, and one only attributes the pull
   request adds exempt is printed too. Below git 2.40 the attributes are read by hand from the
-  two files above.
+  two files above. Whether a file diffs as binary is read from the base's attributes alone
+  (`git --attr-source`, git 2.42's; older git cannot count), never the head's, the user's or the
+  system's, and a base text file the head gives a NUL counts as text. An octopus merge in a
+  sync, which `--remerge-diff` cannot replay, is a count not made.
 - **Generated blocks**: `docs/sql-varka.md` and `SKILLS.md` count their prose only. The blocks
   their writers name (`VarkaCoverageSuite`'s three, `dev/varka_toc.py`'s contents) are dropped
   from both sides, a BEGIN only with its own END, and the rest is diffed by `git diff --no-index`.
