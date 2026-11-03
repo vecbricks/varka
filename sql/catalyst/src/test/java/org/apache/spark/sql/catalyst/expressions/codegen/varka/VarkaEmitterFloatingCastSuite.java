@@ -358,16 +358,34 @@ public final class VarkaEmitterFloatingCastSuite {
   @DisplayName("an ANSI division on the double lane of a long kernel condemns only by its divisor")
   void guardOnTheOtherLane() {
     // The division's guard mask is the double lane's, at the long drive's lane count, and crosses
-    // to it by VectorMask.cast (the crossing `VARKA-341.md` 5.1 left owed). No zero divisor is in
-    // the data, so no batch may decline: a mask crossed wrongly to the long lane would condemn
-    // one.
+    // to it by VectorMask.cast (the crossing `VARKA-341.md` 5.1 left owed). With no zero divisor
+    // no batch may decline; one zero declines the batch where its row is valid, in the loop or
+    // the epilogue, and not where it is null, so a crossed mask of no lanes or all fails here.
     var x = new ColumnRef(1, LaneType.DOUBLE);
     var root = new IntArith(IntOp.DIV, Overflow.FAIL,
         convert(new NarrowLane(L, LaneType.INT), LaneType.DOUBLE), x);
     long[] divisors = doubleBits(1.5, -2.0, 1e-300, Double.NaN, Double.POSITIVE_INFINITY, 3.0);
-    check("cast(cast(l AS int) AS double) / x under ANSI",
-        List.of(root, new IntArith(IntOp.ADD, Overflow.WRAP, L, L)), 2, new int[0], new long[0],
+    var roots = List.<VarkaVectorIR>of(root, new IntArith(IntOp.ADD, Overflow.WRAP, L, L));
+    check("cast(cast(l AS int) AS double) / x under ANSI", roots, 2, new int[0], new long[0],
         cells(LONGS, divisors));
+    var emitted = VarkaEmitterFixtures.emit(roots, 2, 0, VarkaMatrixRuns.BASE.withLanesOverride(4));
+    for (int at : new int[] {2, 16}) {
+      var values = new long[2][17];
+      for (int i = 0; i < 17; i++) {
+        values[1][i] = Double.doubleToRawLongBits(i == at ? -0.0 : 1.0 + i);
+      }
+      var nulls = new boolean[2][17];
+      String where = "a zero divisor at row " + at + " of 17";
+      assertEquals(VarkaFusedKernel.STATUS_DIVIDE_BY_ZERO, VarkaKernelChecks
+          .runAndCompareMixedStatus(where, emitted.className(), emitted.bytes(), roots, 2,
+              new int[0], new long[0], new VarkaKernelChecks.LongBatch(17, nulls, values, false),
+              true), where);
+      nulls[1][at] = true;
+      assertEquals(List.of(0, VarkaFusedKernel.STATUS_DIVIDE_BY_ZERO), VarkaKernelChecks
+          .runEachBodyMixedStatus(where + ", null", emitted.className(), emitted.bytes(), roots,
+              2, new int[0], new long[0], new VarkaKernelChecks.LongBatch(17, nulls, values,
+                  true)), where);
+    }
   }
 
   @Test

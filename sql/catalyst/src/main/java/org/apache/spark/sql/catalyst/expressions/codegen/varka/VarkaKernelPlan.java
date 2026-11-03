@@ -397,9 +397,9 @@ public final class VarkaKernelPlan {
 
   /**
    * The lane roots of these emission lanes share: theirs where one, the int lane but for long. A
-   * floating root shares with no root of another lane: it would join one only through a mask
-   * crossing between the kinds, which is not built (VARKA-341 2.4), so it takes a kernel of its
-   * own.
+   * floating root shares with no root of another lane: masks cross between the kinds within a
+   * root's tree (`VARKA-343.md` 2.2), but the join of roots of two kinds is part 343a3b's, so it
+   * takes a kernel of its own.
    */
   private static Optional<LaneType> lanesShare(Set<LaneType> lanes) {
     if (lanes.size() <= 1) {

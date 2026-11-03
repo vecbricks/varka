@@ -134,8 +134,9 @@ or `DOUBLE`) drives at 64 bits, at `LONG` if it holds one and at `DOUBLE` otherw
 32-bit nodes only drives at `INT` if it holds one, else at `FLOAT`. A 32-bit value in a 64-bit
 kernel fills the low half of its species of the drive's width, as an int value does in a long
 kernel (`VARKA-28.md` 9). `Analysis`' fit rule (item 0.3) becomes the width rule, and `lanesShare`
-joins roots of one width (part 343a3b: 343a3 builds the crossing within a root's tree, and
-the join of roots of two kinds moves to 343a3b, 3 November 2026). A mask crosses to a lane of another count through the word, as
+joins roots of one width (343a3 builds the crossing within a root's tree; the join of roots of
+two kinds is part 343a3b's, 3 November 2026). A mask crosses to a lane of another count through
+the word, as
 `emitToDrivingLane` does, and to one of the same count by `VectorMask.cast`. #1065 leaves that
 crossing owed (its `VARKA-341.md` 5.1); 343a3 builds it, so it closes 341's owed item, and 341's
 record names 343a3 when this lands. A narrow column in a 64-bit kernel - `CAST(y AS DOUBLE)` -
@@ -494,49 +495,46 @@ Cut from #1303's final tree, without its `BIGINT` conversions (343a4), sweeps an
 
 - **The width rules** (2.2): `emissionLane` drives a tree holding a `LONG` node at the long lane,
   one holding a `DOUBLE` node otherwise at the double lane, and a 32-bit tree at the int lane
-  over the float one. `Analysis`' fit rule is by width. A 32-bit value of a 64-bit kernel, int or
-  float, is loaded and stored at the low half of its species of the drive's width; a value of
-  the other kind at the drive's width is loaded and stored whole at its own species. The plan
-  admits `I2F`, `I2D`, `F2D` and `D2F`, each one `convertShape`, and refuses a `BIGINT` source
-  (343a4) and a floating source to an integral lane (343b2), `Kind.CONVERSION`.
+  over the float one. `Analysis`' fit rule is by width. A 32-bit value of a 64-bit kernel is
+  loaded and stored at the low half of its species of the drive's width; a value of the other
+  kind at the drive's width, whole at its own species. The plan admits `I2F`, `I2D`, `F2D` and
+  `D2F`, each one `convertShape`, and refuses a `BIGINT` source (343a4) and a floating source to
+  an integral lane (343b2), `Kind.CONVERSION`.
 - **The pairs**: `INT`, `TINYINT`, `SMALLINT` and `BOOLEAN` to both floating types, `FLOAT` with
-  `DOUBLE`, and the mixed trees type coercion makes (`x + i`, `f * i`, `f + x`, `i / 2.0D`). A
-  boolean is `ConvertLane(CondValue(c, INT), target)`, a long condition's one or zero narrowed
-  to the int lane first, so no boolean needs `L2F` or `L2D`. *Departure from 2.2:* a narrow
-  column in a double kernel, `CAST(y AS DOUBLE)`, takes row 332's narrow load at the long width,
-  which 332 built first; this is new code, not on #1303, which declined the pair. Only a narrow column read as a value is admitted there, and its null
-  test alone (`CAST(y IS NOT NULL AS DOUBLE)`) and every other narrow node decline in the plan.
-- **The mask crossing at one lane count** #1065 left owed (`VARKA-341.md` 5.1): a guard's mask
-  and an arm's condition of the other kind of the drive's width cross by `VectorMask.cast`,
-  both ways at both widths, and so does the epilogue's bounds mask. *Not built:* roots of two
-  kinds still take a kernel each (`lanesShare`), and a filter's floating conjunct beside an
-  integral one still declines (`floatingConjunctRefusal`); that root-level half is part 343a3b's
-  (4, the owner's word of 3 November 2026), and `VarkaAnsiForm.DECLINED` lists the forms it costs.
+  `DOUBLE`, a bigint narrowed to `INT`, and the mixed trees of type coercion (`x + i`, `f * i`,
+  `f + x`, `i / 2.0D`). A boolean is `ConvertLane(CondValue(c, INT), target)`, a long
+  condition's one or zero narrowed to the int lane first, so none needs `L2F` or `L2D`.
+  *Departure from 2.2:* `CAST(y AS DOUBLE)` takes row 332's narrow load at the long width, new
+  code (#1303 declined it); there a narrow node other than a column read as a value declines.
+- **The mask crossing at one lane count** #1065 left owed (`VARKA-341.md` 5.1): a guard's mask,
+  an arm's condition and the epilogue's bounds mask cross between the kinds of the drive's width
+  by `VectorMask.cast`, both ways at both widths. *Not built:* roots of two kinds still take a
+  kernel each (`lanesShare`) and a filter's floating conjunct beside an integral one declines
+  (`floatingConjunctRefusal`); that is part 343a3b's (4), and `VarkaAnsiForm.DECLINED` lists it.
 - **The warm-up** gains `F2D`, `D2F` and the four mask casts between the two lanes of one width.
 - **Tests**: `VarkaEmitterFloatingCastSuite` holds each conversion and the two-lane kernels to
-  the reference at three widths, ten lengths, four null patterns and both bodies; the coverage
-  rows of "Floating casts" are checked against Spark by the harness; `VarkaFloatingLaneSuite`
-  runs `FLOAT` with `DOUBLE` end to end in both modes.
+  the reference at three widths, ten lengths, four null patterns and both bodies, and a zero
+  divisor's decline to its row's validity; the "Floating casts" coverage rows, a long-driven
+  kernel of float and double values among them, are checked against Spark by the harness.
 - **The three failures of #1303's last option matrix** (run 41572066746):
-  1. *Every configuration*: the test "a narrow column read for its validity alone in a 64-bit
-     kernel of two lanes" asserted that a narrow value there declines. Row 332 had since built
-     that load, so it fused. The test now checks that it fuses where a long lane count is baked
-     and declines with the plan's reason where none is.
+  1. *Every configuration*: a test asserted that a narrow value in a 64-bit kernel of two lanes
+     declines; row 332 had built that load. It now fuses where a long lane count is baked and
+     declines with the plan's reason where none is.
   2. *`lanesOverride=4` and `16`*: the `FLOAT`, `DOUBLE` and `BOOLEAN` conformance suites' cast
-     rows now fuse kernels of two widths, whose 32-bit species has another size than the
-     32-bit-lane suites' under a pinned lane count, and the shared JVM's species guard refused
-     it. The three suites run in their own JVM, as the `INT` one does for its cast to `BIGINT`.
-  3. *`validityByWidth=false`*: the emitter test of a short widened and converted beside a
-     float column handed the emitter a plan that refuses it, which threw `INTERNAL_ERROR`. The
-     test now asserts the plan's refusal there, as the narrow suites do; the SQL path declined
-     cleanly all along (the same bin's harness lines read "the kernel answered no batch of
-     CAST(y1 AS FLOAT) on any fixture (6 declined)"). The coverage rows over a narrow column decline under that option, since
-     no lane count is baked, so `skips.tsv` lists them beside 343a2's line; the widening load
-     without a baked count is not built, so that line stays.
+     rows fuse kernels of two widths, whose int species differs from the 32-bit suites' in the
+     shared JVM, and its species guard refused it; at 16 the long lane has no species, so a
+     64-bit kernel's int values take the preferred one, 256 bits on the EPYC runners, beside the
+     int kernels' `SPECIES_512`. The three suites run in their own JVM, as the `INT` one does.
+  3. *`validityByWidth=false`*: an emitter test handed the emitter a plan that refuses it, which
+     threw `INTERNAL_ERROR`; it now asserts the refusal. The SQL path declined cleanly all along.
 
-  Each was run again on the laptop through `dev/varka_matrix.sh` under its configuration and
-  passed; the second also failed there first under `lanesOverride=4`, with the three suites in
-  the shared JVM (at 16, the laptop's preferred width, no second species is named).
-- **Prediction 4.1** holds for this part: `emitted_bytes.json` gains the fourteen new rows'
-  shapes at both widths and moves the `option_arms` digests, and no committed shape's bytes move.
-
+  Each passed on the laptop under its configuration through `dev/varka_matrix.sh`. The six new
+  `skips.tsv` lines are not fixes: they expect this part's new rows over a narrow column to
+  decline under `validityByWidth=false`, where no lane count is baked, beside 343a2's line.
+- **A known limit**, shared with row 332: `CompiledVarkaProjection` checks a long literal table
+  against the drive under `VarkaEmitOptions.DEFAULTS`, not the session's options. On a host of
+  128-bit vectors with `lanesOverride=4`, a narrow column in a 64-bit kernel with a 64-bit
+  literal (`CAST(y1 AS DOUBLE) / 2.0D`) is refused there and admitted by the session, so the
+  check fails the query at planning. No runner or laptop has that width.
+- **Prediction 4.1** holds: `emitted_bytes.json` gains the new rows' shapes at both widths and
+  moves the `option_arms` digests; no committed shape's bytes move.

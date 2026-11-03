@@ -467,11 +467,11 @@ class VarkaLaneTypeSuite extends SparkFunSuite with VarkaTestWatchdog {
         case "WeekOfYear" => new WeekOfYear(new ThursdayOf(c))
         // A floating lane's only: refused at both integral lanes, and emitted at DOUBLE below.
         case "MathUnary" => new MathUnary(MathFn.SQRT, c)
-        // An int converted to a floating lane (VARKA-343): to FLOAT, emitted in a kernel of 32
-        // bits, and to DOUBLE in one of 64. A bigint's conversion is not the long row's
-        // instance: the plan refuses it, as L2D is intrinsic only with AVX512DQ (row 343).
-        case "ConvertLane" => new ConvertLane(new ColumnRef(0),
-          if (lane == LaneType.INT) LaneType.FLOAT else LaneType.DOUBLE)
+        // An int converted to a floating lane (VARKA-343): a column to FLOAT in an int kernel,
+        // and a bigint narrowed to INT, then to DOUBLE, in one driven at the long lane. A bigint's
+        // own conversion is refused by the plan, as L2D is intrinsic only with AVX512DQ.
+        case "ConvertLane" => if (lane == LaneType.INT) new ConvertLane(c, LaneType.FLOAT)
+          else new ConvertLane(new NarrowLane(c), LaneType.DOUBLE)
         case other => fail(s"no instance recipe for $other; a node type was added")
       }) catch {
         // The IR's own refusal: a calendar node over a wider child cannot be built at all.
