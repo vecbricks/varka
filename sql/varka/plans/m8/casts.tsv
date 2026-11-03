@@ -1,35 +1,35 @@
 from	to	legacy	ansi	try	kind	semantics	proof	fused_today	rows	fused_forms
 bool	bool	yes	yes	yes	identity		exhaustion		332	
-bool	byte	yes	yes	yes	select	1 or 0; DECIMAL(p, s) with p = s overflows	exhaustion		332	
-bool	short	yes	yes	yes	select	1 or 0; DECIMAL(p, s) with p = s overflows	exhaustion		332	
-bool	int	yes	yes	yes	select	1 or 0; DECIMAL(p, s) with p = s overflows	exhaustion		332	
-bool	bigint	yes	yes	yes	select	1 or 0; DECIMAL(p, s) with p = s overflows	exhaustion		332	
+bool	byte	yes	yes	yes	select	1 or 0; DECIMAL(p, s) with p = s overflows	exhaustion	LEGACY,ANSI,TRY	332	all
+bool	short	yes	yes	yes	select	1 or 0; DECIMAL(p, s) with p = s overflows	exhaustion	LEGACY,ANSI,TRY	332	all
+bool	int	yes	yes	yes	select	1 or 0; DECIMAL(p, s) with p = s overflows	exhaustion	LEGACY,ANSI,TRY	332	all
+bool	bigint	yes	yes	yes	select	1 or 0; DECIMAL(p, s) with p = s overflows	exhaustion	LEGACY,ANSI,TRY	332	all
 bool	float	yes	yes	yes	select	1 or 0; DECIMAL(p, s) with p = s overflows	exhaustion		343	
 bool	double	yes	yes	yes	select	1 or 0; DECIMAL(p, s) with p = s overflows	exhaustion		343	
 bool	dec	yes	yes	yes	select	1 or 0; DECIMAL(p, s) with p = s overflows	exhaustion		350,364	
-byte	bool	yes	yes	yes	test	x != 0 (a NaN is true)	exhaustion		332	
+byte	bool	yes	yes	yes	test	x != 0 (a NaN is true)	exhaustion	LEGACY,ANSI,TRY	332	all
 byte	byte	yes	yes	yes	identity		exhaustion		332	
-byte	short	yes	yes	yes	widening	sign extension, exact	exhaustion		332	
+byte	short	yes	yes	yes	widening	sign extension, exact	exhaustion	LEGACY,ANSI,TRY	332	all
 byte	int	yes	yes	yes	widening	sign extension, exact	exhaustion	LEGACY,ANSI,TRY	332	all
-byte	bigint	yes	yes	yes	widening	sign extension, exact	exhaustion		332,28	
+byte	bigint	yes	yes	yes	widening	sign extension, exact	exhaustion	LEGACY,ANSI,TRY	332,28	all
 byte	float	yes	yes	yes	widening	exact	exhaustion		343	
 byte	double	yes	yes	yes	widening	exact	exhaustion		343	
 byte	dec	yes	yes	yes	scale up	exact; overflow past p - s digits: LEGACY null, ANSI NUMERIC_VALUE_OUT_OF_RANGE	exhaustion		350,364	
 byte	ym	yes	yes	yes	scale up	times the unit, exact: no value of the source overflows	exhaustion		103,332	
 byte	dt	yes	yes	yes	scale up	times the unit, exact: no value of the source overflows	exhaustion		103,332	
-short	bool	yes	yes	yes	test	x != 0 (a NaN is true)	exhaustion		332	
-short	byte	yes	yes	yes	narrowing	LEGACY wraps; ANSI raises CAST_OVERFLOW; TRY nulls	exhaustion		332	
+short	bool	yes	yes	yes	test	x != 0 (a NaN is true)	exhaustion	LEGACY,ANSI,TRY	332	all
+short	byte	yes	yes	yes	narrowing	LEGACY wraps; ANSI raises CAST_OVERFLOW; TRY nulls	exhaustion	LEGACY,ANSI	332	all
 short	short	yes	yes	yes	identity		exhaustion		332	
 short	int	yes	yes	yes	widening	sign extension, exact	exhaustion	LEGACY,ANSI,TRY	332	all
-short	bigint	yes	yes	yes	widening	sign extension, exact	exhaustion		332,28	
+short	bigint	yes	yes	yes	widening	sign extension, exact	exhaustion	LEGACY,ANSI,TRY	332,28	all
 short	float	yes	yes	yes	widening	exact	exhaustion		343	
 short	double	yes	yes	yes	widening	exact	exhaustion		343	
 short	dec	yes	yes	yes	scale up	exact; overflow past p - s digits: LEGACY null, ANSI NUMERIC_VALUE_OUT_OF_RANGE	exhaustion		350,364	
 short	ym	yes	yes	yes	scale up	times the unit, exact: no value of the source overflows	exhaustion		103,332	
 short	dt	yes	yes	yes	scale up	times the unit, exact: no value of the source overflows	exhaustion		103,332	
-int	bool	yes	yes	yes	test	x != 0 (a NaN is true)	exhaustion		332	
-int	byte	yes	yes	yes	narrowing	LEGACY wraps; ANSI raises CAST_OVERFLOW; TRY nulls	exhaustion		332	
-int	short	yes	yes	yes	narrowing	LEGACY wraps; ANSI raises CAST_OVERFLOW; TRY nulls	exhaustion		332	
+int	bool	yes	yes	yes	test	x != 0 (a NaN is true)	exhaustion	LEGACY,ANSI,TRY	332	all
+int	byte	yes	yes	yes	narrowing	LEGACY wraps; ANSI raises CAST_OVERFLOW; TRY nulls	exhaustion	LEGACY,ANSI	332	all
+int	short	yes	yes	yes	narrowing	LEGACY wraps; ANSI raises CAST_OVERFLOW; TRY nulls	exhaustion	LEGACY,ANSI	332	all
 int	int	yes	yes	yes	identity		exhaustion		332	
 int	bigint	yes	yes	yes	widening	sign extension, exact	exhaustion	LEGACY,ANSI,TRY	332,28	all
 int	float	yes	yes	yes	rounding	round to nearest even, as the JVM converts; no error	exhaustion		343	
@@ -37,9 +37,9 @@ int	double	yes	yes	yes	widening	exact	exhaustion		343
 int	dec	yes	yes	yes	scale up	exact; overflow past p - s digits: LEGACY null, ANSI NUMERIC_VALUE_OUT_OF_RANGE	exhaustion		350,364	
 int	ym	yes	yes	yes	scale up	times the unit; a YEAR end overflows past 178,956,970 (multiplyExact in int): raises under LEGACY and ANSI, TRY nulls; a MONTH end never	exhaustion	LEGACY,ANSI,TRY	103,332	2 of 3
 int	dt	yes	yes	yes	scale up	times the unit; a DAY end overflows past 106,751,991: raises under LEGACY and ANSI, TRY nulls; the other ends never	exhaustion		103,332	context: only as date_add's offset: d + CAST(i AS INTERVAL DAY)
-bigint	bool	yes	yes	yes	test	x != 0 (a NaN is true)	SMT (dev/varka_prove.sh) for the integer rule, sampled regions and the fuzzer		332	
-bigint	byte	yes	yes	yes	narrowing	LEGACY wraps; ANSI raises CAST_OVERFLOW; TRY nulls	SMT (dev/varka_prove.sh) for the integer rule, sampled regions and the fuzzer		332,28	
-bigint	short	yes	yes	yes	narrowing	LEGACY wraps; ANSI raises CAST_OVERFLOW; TRY nulls	SMT (dev/varka_prove.sh) for the integer rule, sampled regions and the fuzzer		332,28	
+bigint	bool	yes	yes	yes	test	x != 0 (a NaN is true)	SMT (dev/varka_prove.sh) for the integer rule, sampled regions and the fuzzer	LEGACY,ANSI,TRY	332	all
+bigint	byte	yes	yes	yes	narrowing	LEGACY wraps; ANSI raises CAST_OVERFLOW; TRY nulls	SMT (dev/varka_prove.sh) for the integer rule, sampled regions and the fuzzer	LEGACY,ANSI	332,28	all
+bigint	short	yes	yes	yes	narrowing	LEGACY wraps; ANSI raises CAST_OVERFLOW; TRY nulls	SMT (dev/varka_prove.sh) for the integer rule, sampled regions and the fuzzer	LEGACY,ANSI	332,28	all
 bigint	int	yes	yes	yes	narrowing	LEGACY wraps; ANSI raises CAST_OVERFLOW; TRY nulls	SMT (dev/varka_prove.sh) for the integer rule, sampled regions and the fuzzer	LEGACY,ANSI	332,28	all
 bigint	bigint	yes	yes	yes	identity		SMT (dev/varka_prove.sh) for the integer rule, sampled regions and the fuzzer		332	
 bigint	float	yes	yes	yes	rounding	round to nearest even, as the JVM converts; no error	sampled regions and the fuzzer		343	
@@ -73,11 +73,11 @@ dec	double	yes	yes	yes	rounding	BigDecimal.doubleValue: one division under the J
 dec	dec	yes	yes	yes	rescale	scale up multiplies by 10^k; scale down rounds HALF_UP; overflow	SMT (dev/varka_prove.sh) for the integer rule, sampled regions and the fuzzer		350,364	context: only a comparison's operand widened at one scale: d9 < d18, d9 = 0.42
 dec	ym	yes	yes	yes	rescale	to the unit, HALF_UP; overflow raises under LEGACY and ANSI, TRY nulls	SMT (dev/varka_prove.sh) for the integer rule, sampled regions and the fuzzer		103	
 dec	dt	yes	yes	yes	rescale	to the unit, HALF_UP; overflow raises under LEGACY and ANSI, TRY nulls	SMT (dev/varka_prove.sh) for the integer rule, sampled regions and the fuzzer		103	
-date	bool	yes	no	no	always null	LEGACY returns null for every date	exhaustion		332	
-date	byte	yes	no	no	always null	LEGACY returns null for every date	exhaustion		332	
-date	short	yes	no	no	always null	LEGACY returns null for every date	exhaustion		332	
-date	int	yes	no	no	always null	LEGACY returns null for every date	exhaustion		332	
-date	bigint	yes	no	no	always null	LEGACY returns null for every date	exhaustion		332	
+date	bool	yes	no	no	always null	LEGACY returns null for every date	exhaustion		unclaimed	
+date	byte	yes	no	no	always null	LEGACY returns null for every date	exhaustion		unclaimed	
+date	short	yes	no	no	always null	LEGACY returns null for every date	exhaustion		unclaimed	
+date	int	yes	no	no	always null	LEGACY returns null for every date	exhaustion		unclaimed	
+date	bigint	yes	no	no	always null	LEGACY returns null for every date	exhaustion		unclaimed	
 date	float	yes	no	no	always null	LEGACY returns null for every date	exhaustion		343	
 date	double	yes	no	no	always null	LEGACY returns null for every date	exhaustion		343	
 date	dec	yes	no	no	always null	LEGACY returns null for every date	exhaustion		350,364	
@@ -86,13 +86,13 @@ date	ntz	yes	yes	yes	scale up	days times micros per day; past 106,751,991 days m
 ntz	date	yes	yes	yes	floor division	floorDiv by micros per day, exact	SMT (dev/varka_prove.sh) for the integer rule, sampled regions and the fuzzer	LEGACY,ANSI,TRY	338	all
 ntz	ntz	yes	yes	yes	identity		SMT (dev/varka_prove.sh) for the integer rule, sampled regions and the fuzzer		338	
 ntz	time	yes	yes	yes	floor modulo	floorMod by micros per day, to nanos, truncated to the precision	SMT (dev/varka_prove.sh) for the integer rule, sampled regions and the fuzzer		340	
-time	byte	yes	yes	yes	floor division	floorDiv by nanos per second; narrower targets range-check	SMT (dev/varka_prove.sh) for the integer rule, sampled regions and the fuzzer		332	
-time	short	yes	yes	yes	floor division	floorDiv by nanos per second; narrower targets range-check	SMT (dev/varka_prove.sh) for the integer rule, sampled regions and the fuzzer		332	
-time	int	yes	yes	yes	floor division	floorDiv by nanos per second; narrower targets range-check	SMT (dev/varka_prove.sh) for the integer rule, sampled regions and the fuzzer		332	
-time	bigint	yes	yes	yes	floor division	floorDiv by nanos per second; narrower targets range-check	SMT (dev/varka_prove.sh) for the integer rule, sampled regions and the fuzzer		332	
+time	byte	yes	yes	yes	floor division	floorDiv by nanos per second; narrower targets range-check	SMT (dev/varka_prove.sh) for the integer rule, sampled regions and the fuzzer		unclaimed	
+time	short	yes	yes	yes	floor division	floorDiv by nanos per second; narrower targets range-check	SMT (dev/varka_prove.sh) for the integer rule, sampled regions and the fuzzer		unclaimed	
+time	int	yes	yes	yes	floor division	floorDiv by nanos per second; narrower targets range-check	SMT (dev/varka_prove.sh) for the integer rule, sampled regions and the fuzzer		unclaimed	
+time	bigint	yes	yes	yes	floor division	floorDiv by nanos per second; narrower targets range-check	SMT (dev/varka_prove.sh) for the integer rule, sampled regions and the fuzzer		unclaimed	
 time	dec	yes	yes	yes	rescale	nanos as DECIMAL(14, 9), HALF_UP to the target scale	SMT (dev/varka_prove.sh) for the integer rule, sampled regions and the fuzzer		350,364	
 time	ntz	yes	yes	yes	session date	the date comes from CURRENT_DATE, a literal after ComputeCurrentTime	SMT (dev/varka_prove.sh) for the integer rule, sampled regions and the fuzzer		340	
-time	time	yes	yes	yes	relabel or truncation	wider precision keeps the nanos; narrower floors	SMT (dev/varka_prove.sh) for the integer rule, sampled regions and the fuzzer	LEGACY,ANSI,TRY	332	3 of 6
+time	time	yes	yes	yes	relabel or truncation	wider precision keeps the nanos; narrower floors	SMT (dev/varka_prove.sh) for the integer rule, sampled regions and the fuzzer	LEGACY,ANSI,TRY	unclaimed	3 of 6
 ym	byte	yes	yes	yes	unit division	truncating division by the end field's unit; narrower targets check	exhaustion		103,332	
 ym	short	yes	yes	yes	unit division	truncating division by the end field's unit; narrower targets check	exhaustion		103,332	
 ym	int	yes	yes	yes	unit division	truncating division by the end field's unit; narrower targets check	exhaustion	LEGACY,ANSI,TRY	103,332	2 of 3

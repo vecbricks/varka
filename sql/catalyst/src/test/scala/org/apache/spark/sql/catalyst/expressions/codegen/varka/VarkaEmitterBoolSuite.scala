@@ -426,11 +426,11 @@ class VarkaEmitterBoolSuite extends VarkaEmitterTestBase with VarkaOwnJvm {
     sweep(Seq(unknown), 1, "unknown from valid inputs")
     val known = new CondValue(b0, LaneType.INT)
     assert(names(known).contains("loopDense0"), names(known).mkString(", "))
-    // The constructor holds the value's lane to its condition's, and refuses a narrow lane,
-    // which no test lowers yet.
+    // The constructor holds the value's lane to its condition's, and refuses a floating lane,
+    // which has no 0 or 1 to add; a narrow lane is `CAST(b AS TINYINT)` (VARKA-332).
     intercept[IllegalArgumentException](new CondValue(b0, LaneType.LONG))
     intercept[IllegalArgumentException](
-      new CondValue(new BoolColumn(0, LaneType.BYTE), LaneType.BYTE))
+      new CondValue(new BoolColumn(0, LaneType.FLOAT), LaneType.FLOAT))
   }
 
   // ---------------------------------------------------------------------------------------------

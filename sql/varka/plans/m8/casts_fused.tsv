@@ -1,16 +1,16 @@
 from	to	from_type	to_type	legacy	ansi	try
-bool	byte	BOOLEAN	TINYINT	declined	declined	declined
-bool	short	BOOLEAN	SMALLINT	declined	declined	declined
-bool	int	BOOLEAN	INT	declined	declined	declined
-bool	bigint	BOOLEAN	BIGINT	declined	declined	declined
+bool	byte	BOOLEAN	TINYINT	fused	fused	fused
+bool	short	BOOLEAN	SMALLINT	fused	fused	fused
+bool	int	BOOLEAN	INT	fused	fused	fused
+bool	bigint	BOOLEAN	BIGINT	fused	fused	fused
 bool	float	BOOLEAN	FLOAT	declined	declined	declined
 bool	double	BOOLEAN	DOUBLE	declined	declined	declined
 bool	dec	BOOLEAN	DECIMAL(10,2)	declined	declined	declined
 bool	dec	BOOLEAN	DECIMAL(30,4)	declined	declined	declined
-byte	bool	TINYINT	BOOLEAN	declined	declined	declined
-byte	short	TINYINT	SMALLINT	declined	declined	declined
+byte	bool	TINYINT	BOOLEAN	fused	fused	fused
+byte	short	TINYINT	SMALLINT	fused	fused	fused
 byte	int	TINYINT	INT	fused	fused	fused
-byte	bigint	TINYINT	BIGINT	declined	declined	declined
+byte	bigint	TINYINT	BIGINT	fused	fused	fused
 byte	float	TINYINT	FLOAT	declined	declined	declined
 byte	double	TINYINT	DOUBLE	declined	declined	declined
 byte	dec	TINYINT	DECIMAL(10,2)	declined	declined	declined
@@ -28,10 +28,10 @@ byte	dt	TINYINT	INTERVAL HOUR TO SECOND	declined	declined	declined
 byte	dt	TINYINT	INTERVAL MINUTE	declined	declined	declined
 byte	dt	TINYINT	INTERVAL MINUTE TO SECOND	declined	declined	declined
 byte	dt	TINYINT	INTERVAL SECOND	declined	declined	declined
-short	bool	SMALLINT	BOOLEAN	declined	declined	declined
-short	byte	SMALLINT	TINYINT	declined	declined	declined
+short	bool	SMALLINT	BOOLEAN	fused	fused	fused
+short	byte	SMALLINT	TINYINT	fused	fused	declined
 short	int	SMALLINT	INT	fused	fused	fused
-short	bigint	SMALLINT	BIGINT	declined	declined	declined
+short	bigint	SMALLINT	BIGINT	fused	fused	fused
 short	float	SMALLINT	FLOAT	declined	declined	declined
 short	double	SMALLINT	DOUBLE	declined	declined	declined
 short	dec	SMALLINT	DECIMAL(10,2)	declined	declined	declined
@@ -49,9 +49,9 @@ short	dt	SMALLINT	INTERVAL HOUR TO SECOND	declined	declined	declined
 short	dt	SMALLINT	INTERVAL MINUTE	declined	declined	declined
 short	dt	SMALLINT	INTERVAL MINUTE TO SECOND	declined	declined	declined
 short	dt	SMALLINT	INTERVAL SECOND	declined	declined	declined
-int	bool	INT	BOOLEAN	declined	declined	declined
-int	byte	INT	TINYINT	declined	declined	declined
-int	short	INT	SMALLINT	declined	declined	declined
+int	bool	INT	BOOLEAN	fused	fused	fused
+int	byte	INT	TINYINT	fused	fused	declined
+int	short	INT	SMALLINT	fused	fused	declined
 int	bigint	INT	BIGINT	fused	fused	fused
 int	float	INT	FLOAT	declined	declined	declined
 int	double	INT	DOUBLE	declined	declined	declined
@@ -70,9 +70,9 @@ int	dt	INT	INTERVAL HOUR TO SECOND	declined	declined	declined
 int	dt	INT	INTERVAL MINUTE	declined	declined	declined
 int	dt	INT	INTERVAL MINUTE TO SECOND	declined	declined	declined
 int	dt	INT	INTERVAL SECOND	declined	declined	declined
-bigint	bool	BIGINT	BOOLEAN	declined	declined	declined
-bigint	byte	BIGINT	TINYINT	declined	declined	declined
-bigint	short	BIGINT	SMALLINT	declined	declined	declined
+bigint	bool	BIGINT	BOOLEAN	fused	fused	fused
+bigint	byte	BIGINT	TINYINT	fused	fused	declined
+bigint	short	BIGINT	SMALLINT	fused	fused	declined
 bigint	int	BIGINT	INT	fused	fused	declined
 bigint	float	BIGINT	FLOAT	declined	declined	declined
 bigint	double	BIGINT	DOUBLE	declined	declined	declined

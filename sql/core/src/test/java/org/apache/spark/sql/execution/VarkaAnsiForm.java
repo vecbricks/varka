@@ -261,8 +261,17 @@ public final class VarkaAnsiForm {
     for (String sql : List.of("make_date(2021, i, 1)", "add_months(d, i)", "d + ym", "d - ym",
         "ym - ymm", "ym + ym", "i + 1", "year(d) + i", "if(i < 0, i, i + 1)", "y1 + y2",
         "y1 - y2", "y1 * y2", "-y1", "abs(y1)", "s1 + s2", "s1 - s2", "s1 * s2", "-s1",
-        "abs(s1)", "x / x2", "ntz + dt")) {
+        "abs(s1)", "x / x2", "ntz + dt", "CAST(s1 AS TINYINT)", "CAST(i AS TINYINT)",
+        "CAST(i AS SMALLINT)", "CAST(l AS TINYINT)", "CAST(l AS SMALLINT)",
+        "CAST(i + 1 AS TINYINT)")) {
       out.put(sql + "\t" + FALSE_AND, unqualified);
+    }
+    // A bigint narrowed to a narrow type as a COALESCE argument beside a narrow column: a narrow
+    // choice in a long kernel, which has no lowering there (VARKA-332.md 10.1).
+    String narrowChoice = "a narrow choice beside a bigint value has no lowering in a long "
+        + "kernel (VARKA-332.md 10.1)";
+    for (String sql : List.of("CAST(l AS TINYINT)", "CAST(l AS SMALLINT)")) {
+      out.put(sql + "\t" + COALESCE_TAIL, narrowChoice);
     }
     return Map.copyOf(out);
   }
