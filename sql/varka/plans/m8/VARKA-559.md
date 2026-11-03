@@ -162,9 +162,8 @@ object through it; no chain here reaches one.
 - The same chain built twice to depth 10: equal, equal hashes, and the union of their nodes in a
   structural set grows by exactly four a level - structurally equal nodes still collapse.
 - By reflection over the sealed IR: every record with a node child has `int hash` last and
-  declares `hashCode`, so a node type added later caches too; and each node's hash is the
-  records' formula over its other components, for one node of every such record, built by
-  reflection over leaves, and for every node of a chain 4 deep.
+  declares `hashCode`, so a node type added later caches too; and the hash of one node of each,
+  over leaves, and of a chain's nodes is the records' formula over the other components.
 - The canonical constructor recomputes the hash it is given.
 
 ## 6. The measurement

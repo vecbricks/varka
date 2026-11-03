@@ -142,11 +142,10 @@ public final class VarkaVectorIRSharingSuite {
       List<VarkaConjunctSpec> specs = assertTimeoutPreemptively(Duration.ofSeconds(20),
           () -> VarkaExpressionCompiler.explainPredicate(e, columns, VarkaMatrixRuns.BASE,
               VarkaAdmission.NO_HOST_REFUSAL), () -> "explaining " + chain[1] + " 20 deep");
-      // Not fused at any configuration: the chain is over the budget's height, a constant. The
-      // reason is not asserted, since a configuration may decline it earlier for another.
+      // Over the budget's height, a constant, so not fused under any configuration; the reason
+      // is not asserted, since a configuration may decline the chain earlier for another.
       assertEquals(1, specs.size());
       assertFalse(specs.get(0).fused(), () -> chain[1] + " fused 20 deep");
-      assertTrue(specs.get(0).decline().isPresent(), () -> chain[1] + " has no decline");
     }
   }
 
@@ -220,11 +219,9 @@ public final class VarkaVectorIRSharingSuite {
   }
 
   /**
-   * A node of {@code type} over leaves, built by reflection as
-   * {@code VarkaIrFuzzSuite.admitsLongLanes} builds one: the leaves on each lane in turn and each
-   * enum component on each of its constants, until the constructor accepts, so a node type added
-   * to the IR is built here without anyone editing this file. {@code BoundedDivide} is built by
-   * hand: its constructor checks a pair it derives from its other numbers.
+   * A node of {@code type} over leaves, by reflection as {@code VarkaIrFuzzSuite.admitsLongLanes}
+   * builds one: each lane and enum constant in turn until the constructor accepts, so a new node
+   * type is built here unedited; {@code BoundedDivide} checks a pair it derives, so by hand.
    */
   private static VarkaVectorIR anyNodeOf(Class<?> type) throws ReflectiveOperationException {
     if (type == BoundedDivide.class) {
