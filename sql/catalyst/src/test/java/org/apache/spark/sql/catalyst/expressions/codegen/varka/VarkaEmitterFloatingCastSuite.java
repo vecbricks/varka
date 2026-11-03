@@ -142,11 +142,17 @@ public final class VarkaEmitterFloatingCastSuite {
    * {@code roots} emitted at every width of their drive and compared with the reference over
    * every length and null pattern, both bodies; a batch must not decline. The int literals go
    * to the int table, which the int and float lanes share, and the long ones to the long table,
-   * which the long and double lanes share.
+   * which the long and double lanes share. The drive is read at four lanes, a count every lane
+   * has a species for: the configuration's own override may name none for a 64-bit lane
+   * ({@code lanesOverride=16}), and every width below is an override of its own.
    */
   private static void check(String name, List<VarkaVectorIR> roots, int numInputs,
       int[] intLits, long[] longLits, Data data) {
-    LaneType drive = VarkaKernelPlan.driveOf(roots, VarkaMatrixRuns.BASE).orElseThrow();
+    Optional<LaneType> planned =
+        VarkaKernelPlan.driveOf(roots, VarkaMatrixRuns.BASE.withLanesOverride(4));
+    assertTrue(planned.isPresent(), () -> name + ": "
+        + VarkaKernelPlan.refusalOf(roots, VarkaMatrixRuns.BASE.withLanesOverride(4)));
+    LaneType drive = planned.get();
     int[] widths = drive.bits() == Long.SIZE ? WIDE_LANES : NARROW_LANES;
     for (int lanes : widths) {
       var options = VarkaMatrixRuns.BASE.withLanesOverride(lanes);
