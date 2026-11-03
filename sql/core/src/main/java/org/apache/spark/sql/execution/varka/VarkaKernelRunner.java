@@ -121,6 +121,12 @@ public final class VarkaKernelRunner {
    * Read by the both-bodies check and recorded in a reproduction.
    */
   public final int[] dstWidth;
+  /**
+   * Whether each output is a {@code FLOAT} or {@code DOUBLE} column, set with {@link #dstWidth};
+   * read by the both-bodies check, which accepts two NaNs of different bits there. False by
+   * default, which is what a filter's selection bitmaps keep.
+   */
+  public final boolean[] dstFloating;
   public final int[] scalarArgs;
   public final long[] longArgs;
 
@@ -159,6 +165,7 @@ public final class VarkaKernelRunner {
     this.dstData = new long[numOutputs];
     this.dstValidity = new long[numOutputs];
     this.dstWidth = new int[numOutputs];
+    this.dstFloating = new boolean[numOutputs];
     this.scalarArgs = scalarArgs;
     this.longArgs = longArgs;
     this.scratch = scratch;
@@ -400,7 +407,7 @@ public final class VarkaKernelRunner {
         }
         return;
       }
-      compareBodies(shapeHash, len, dense, srcValidity, srcNullCount, dstWidth,
+      compareBodies(shapeHash, len, dense, srcValidity, srcNullCount, dstWidth, dstFloating,
           new BodyOutputs(dstData, dstValidity), new BodyOutputs(data, valid));
     }
   }
@@ -427,9 +434,21 @@ public final class VarkaKernelRunner {
    * above. {@code dstWidth} is both bodies' width of each output; a row of a nullable batch is
    * compared only where every input is valid. Static so that a test can plant a disagreement
    * without a kernel that makes one.
+   *
+   * <p>A row agrees when its bytes are equal, with one exception: on an output
+   * {@code dstFloating} marks, a NaN in each body agrees whatever its bits (VARKA-555). Neither
+   * Spark nor Java fixes which NaN an operation over two NaNs returns, and the JIT tiers answer
+   * differently: for {@code x + x2} over two NaNs the interpreter returns the right operand's, C1
+   * and the Vector API's Java fallback the left's, and C2 orders a commutative vector add's
+   * inputs by node index. The two bodies are the same bytecode compiled at different moments, so
+   * they can pick different operands. Every other floating value, the sign of zero included, and
+   * every value of any other output must still be byte-equal. The cost is that a body that picks
+   * the wrong NaN goes unseen here; the answer a query serves is still held to Spark's bits by
+   * the suites that compare it with the row engine.
    */
   public static void compareBodies(String shapeHash, int len, boolean dense, long[] srcValidity,
-      int[] srcNullCount, int[] dstWidth, BodyOutputs served, BodyOutputs other) {
+      int[] srcNullCount, int[] dstWidth, boolean[] dstFloating, BodyOutputs served,
+      BodyOutputs other) {
     long[] dstData = served.data();
     long[] dstValidity = served.validity();
     long[] data = other.data();
@@ -459,7 +478,8 @@ public final class VarkaKernelRunner {
         boolean sameData = servedData == null || !bit || (bits
             ? bit(servedData, r) == bit(otherData, r)
             : servedData.asSlice((long) r * w, w)
-                .mismatch(otherData.asSlice((long) r * w, w)) < 0);
+                .mismatch(otherData.asSlice((long) r * w, w)) < 0
+                || (dstFloating[o] && bothNaN(servedData, otherData, r, w)));
         boolean same = bit == bit(otherBits, r) && sameData;
         if (!same) {
           throw VarkaErrors.illegalState(shapeHash + "'s dense and masked bodies disagree on "
@@ -481,6 +501,20 @@ public final class VarkaKernelRunner {
       }
     }
     return true;
+  }
+
+  /** Whether row {@code r} of both buffers holds a NaN of width {@code w}, 4 or 8 bytes. */
+  private static boolean bothNaN(MemorySegment served, MemorySegment other, int r, int w) {
+    long at = (long) r * w;
+    return switch (w) {
+      case Double.BYTES ->
+          Double.isNaN(served.get(ValueLayout.JAVA_DOUBLE_UNALIGNED, at))
+              && Double.isNaN(other.get(ValueLayout.JAVA_DOUBLE_UNALIGNED, at));
+      case Float.BYTES ->
+          Float.isNaN(served.get(ValueLayout.JAVA_FLOAT_UNALIGNED, at))
+              && Float.isNaN(other.get(ValueLayout.JAVA_FLOAT_UNALIGNED, at));
+      default -> false;
+    };
   }
 
   private static boolean bit(MemorySegment bitmap, int r) {

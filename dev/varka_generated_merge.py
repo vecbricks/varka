@@ -23,6 +23,7 @@
   dev/varka_generated_merge.py --owed       # the owed files of the current or last merge
   dev/varka_generated_merge.py --owed --keep PATH  # clear the owed list but for PATH
   dev/varka_generated_merge.py --self-test  # the merge's cases, in a temporary repository
+  dev/varka_generated_merge.py --list       # the generated files, one path a line
 
 Every type row regenerates the same few files - coverage.json, emitted_bytes.json,
 width_audit.json, types.tsv, the census and the cast tables, and the generated blocks of
@@ -448,6 +449,141 @@ def generated_blocks(path):
             name = line.strip()[len("<!-- BEGIN generated") : -len("-->")].strip()
             blocks[name] = ""
     return blocks
+
+
+# The generated blocks of each markdown file, by the names their writers give them:
+# `VarkaCoverageSuite` writes the docs file's three, `dev/varka_toc.py` SKILLS.md's contents.
+# Any other marker is prose; the self-test checks this map against the tracked files.
+BLOCKS = {
+    "docs/sql-varka.md": ("coverage table", "verification counts", "family switches"),
+    "SKILLS.md": ("contents",),
+}
+
+
+def hand_lines(path, text):
+    """A markdown file's lines outside the generated blocks `BLOCKS` names for it, the markers
+    kept: the part a person writes, which the pull-request size check counts (VARKA-554). None
+    when a named block opens and does not close with its own END before the next marker, so
+    the caller counts the whole file rather than let a stray marker hide the rest of it."""
+    names = BLOCKS.get(path, ())
+    out, inside = [], None
+    for line in lines_of(text):
+        marker = re.match(r"<!-- (BEGIN|END) generated (.*?) -->\s*$", line)
+        if inside is not None:
+            if marker and marker.groups() == ("END", inside):
+                out.append(line)
+                inside = None
+            elif marker or line.startswith("<!-- BEGIN generated"):
+                return None
+            continue
+        if marker and marker.group(2) in names:
+            if marker.group(1) == "END":
+                return None
+            inside = marker.group(2)
+        out.append(line)
+    return None if inside is not None else out
+
+
+# The files this driver merges, by repository path: those `sql/varka/.gitattributes` names, and
+# the docs file, whose rule `dev/varka_precommit.sh --install-hook` adds to the clone's own
+# attributes because a `.gitattributes` in `docs/` would ship to Spark's documentation build.
+# `dev/varka_regen_generated.sh --all` and the pull-request size check read this list.
+DOCS = "docs/sql-varka.md"
+# The attributes files that name generated files: `merge=varka-generated` for the files this
+# driver merges, `linguist-generated` for other tool-written files, which the pull-request size
+# check skips and GitHub folds in a diff. Not the root one, which is Apache Spark's.
+ATTRIBUTES = ("sql/varka/.gitattributes", "dev/.gitattributes")
+
+
+def attribute_rules(read):
+    """(pattern, attributes) per line of `ATTRIBUTES`, the pattern a regex over repository
+    paths; `read(path)` gives a file's text, or None where there is none."""
+    rules = []
+    for attrs_path in ATTRIBUTES:
+        where = os.path.dirname(attrs_path) + "/"
+        for line in lines_of(read(attrs_path) or ""):
+            fields = line.split()
+            if not fields or fields[0].startswith("#"):
+                continue
+            glob = fields[0].lstrip("/")
+            if "/" not in fields[0].rstrip("/"):
+                glob = "**/" + glob  # a bare name matches at any depth
+            parts = re.split(r"(\*\*/|\*|\?)", glob)
+            rx = {"**/": "(?:.*/)?", "*": "[^/]*", "?": "[^/]"}
+            body = "".join(rx.get(t, re.escape(t)) for t in parts)
+            rules.append((where + glob, re.compile(re.escape(where) + body + "$"), fields[1:]))
+    return rules
+
+
+def generated_files(root=None, read=None):
+    """The files this driver merges, from the attributes `read` gives, by default the tree's."""
+    root = root or os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+    def from_disk(path):
+        if os.path.exists(os.path.join(root, path)):
+            with open(os.path.join(root, path), encoding="utf-8") as f:
+                return f.read()
+        return None
+
+    rules = attribute_rules(read or from_disk)
+    return [glob for glob, _, attrs in rules if "merge=varka-generated" in attrs] + [DOCS]
+
+
+def attribute_values(path, rules):
+    """The `merge` and `linguist-generated` values the rules give `path`, as git reads them: a
+    later matching line overrides an earlier one; `x` is "set", `-x` "unset", `!x`
+    unspecified (dropped) and `x=v` is "v"."""
+    values = {}
+    for _, rx, attrs in rules:
+        if not rx.match(path):
+            continue
+        for a in attrs:
+            name, _, value = a.lstrip("-!").partition("=")
+            if name in ("merge", "linguist-generated"):
+                if a.startswith("!"):
+                    values.pop(name, None)
+                else:
+                    values[name] = "unset" if a.startswith("-") else value or "set"
+    return values
+
+
+def marks_generated(values):
+    """Whether attribute values mark a file generated: merged by this driver, or
+    `linguist-generated` set or true."""
+    return values.get("merge") == "varka-generated" or values.get("linguist-generated") in (
+        "set",
+        "true",
+    )
+
+
+def is_generated(path, rules):
+    """Whether the hand-read `rules` mark `path` generated: the fallback of `git_generated`."""
+    return marks_generated(attribute_values(path, rules))
+
+
+def git_generated(paths, rev, cwd, env=None):
+    """The `paths` that `rev`'s own attributes mark generated, as `git check-attr` reads them,
+    or None where git cannot read them at a revision (`--source` is git 2.40's); `rev` None
+    reads the work tree's. The user's and
+    the system's attributes files are not read; a clone's `info/attributes` still is, which
+    is why the size check never lets an attribute exempt a `BLOCKS` file."""
+    env = {**(env or os.environ), "GIT_ATTR_NOSYSTEM": "1"}
+    args = ["-c", f"core.attributesFile={os.devnull}", "check-attr", "-z"]
+    args += [f"--source={rev}"] if rev else []
+    out = subprocess.run(
+        ["git", *args, "--stdin", "merge", "linguist-generated"],
+        cwd=cwd,
+        env=env,
+        input="".join(p + "\0" for p in paths),
+        capture_output=True,
+        text=True,
+    )
+    if out.returncode:
+        return None
+    tokens, values = out.stdout.split("\0"), {}
+    for i in range(0, len(tokens) - 2, 3):
+        values.setdefault(tokens[i], {})[tokens[i + 1]] = tokens[i + 2]
+    return {p for p, v in values.items() if marks_generated(v)}
 
 
 def block_state(in_block, lines):
@@ -1059,6 +1195,88 @@ def self_test():
     finally:
         os.environ.clear()
         os.environ.update(saved_env)
+    # 22. The list of generated files is the attributes file's and the installer's docs rule,
+    # and the docs file's hand lines keep its prose and markers and drop its blocks.
+    files = generated_files(root)
+    with open(os.path.join(root, "dev", "varka_precommit.sh"), encoding="utf-8") as f:
+        installer = f.read()
+    expect(
+        "sql/varka/coverage.json" in files and f"{DOCS} merge=varka-generated" in installer,
+        f"22: the generated list or the installer's docs rule drifted: {files}",
+    )
+    # The hand lines drop a named block only between its own BEGIN and END; a lone or
+    # mismatched marker gives None (the whole file counts), an unnamed one is prose.
+    b, e = "<!-- BEGIN generated contents -->", "<!-- END generated contents -->"
+    for text, want in (
+        (f"a\n{b}\nx\n{e}\nb\n", ["a", b, e, "b"]),
+        (f"a\n{b}\nx\n", None),
+        (f"a\n{e}\nx\n", None),
+        (f"a\n{b}\nx\n{e.replace('c', 'C')}\n", None),
+        ("a\n<!-- BEGIN generated t -->\nx\n", ["a", "<!-- BEGIN generated t -->", "x"]),
+    ):
+        got = hand_lines("SKILLS.md", text)
+        expect(got == want, f"22: hand lines of {text!r}: {got}")
+    # Every tracked markdown file with a block marker is in BLOCKS, with the names it holds.
+    out = subprocess.run(
+        ["git", "grep", "-o", "^<!-- BEGIN generated .* -->", "--", "*.md"],
+        cwd=root,
+        capture_output=True,
+        text=True,
+    )
+    found = {}
+    for hit in out.stdout.splitlines():
+        path, marker = hit.split(":", 1)
+        found.setdefault(path, set()).add(marker[len("<!-- BEGIN generated ") : -len(" -->")])
+    expect(
+        found == {k: set(v) for k, v in BLOCKS.items()},
+        f"22: BLOCKS drifted from the tracked markers: {found}",
+    )
+
+    # The attributes patterns match the files git gives the attributes, and each names one.
+    tracked = subprocess.run(
+        ["git", "ls-files", "-z"], cwd=root, capture_output=True, text=True
+    ).stdout.split("\0")[:-1]
+    by_git = git_generated(tracked, None, root) or set()
+    rules = attribute_rules(lambda p: open(os.path.join(root, p), encoding="utf-8").read())
+    ours = {p for p in tracked if is_generated(p, rules)}
+    unused = [g for g, rx, _ in rules if not any(rx.match(p) for p in ours)]
+    expect(
+        ours == by_git - {DOCS} and not unused,
+        f"22: attributes read unlike git: {sorted(ours ^ (by_git - {DOCS}))[:5]}, {unused}",
+    )
+    # The hand reading agrees with git on `=true`, `=false`, `-x`, `!x` and a later line
+    # overriding an earlier one, at a revision whose attributes differ from the work tree's.
+    with tempfile.TemporaryDirectory() as tmp:
+        env = fixture_env()
+        attrs = "".join(
+            f"/{n} {a}\n"
+            for n, a in (
+                ("t", "linguist-generated=true"),
+                ("f", "linguist-generated"),
+                ("f", "linguist-generated=false"),
+                ("u", "linguist-generated"),
+                ("u", "-linguist-generated"),
+                ("n", "linguist-generated"),
+                ("n", "!linguist-generated"),
+                ("m", "merge=varka-generated"),
+                ("m", "merge=text"),
+                ("o", "merge=x"),
+                ("o", "merge=varka-generated"),
+            )
+        )
+        os.makedirs(os.path.join(tmp, "sql/varka"))
+        with open(os.path.join(tmp, "sql/varka/.gitattributes"), "w") as f:
+            f.write(attrs)
+        commit = ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "c"]
+        for argv in (["init", "-q"], ["add", "-A"], commit):
+            subprocess.run(["git", *argv], cwd=tmp, env=env, check=True, capture_output=True)
+        os.remove(os.path.join(tmp, "sql/varka/.gitattributes"))
+        paths = [f"sql/varka/{n}" for n in ("t", "f", "u", "n", "m", "o")] + ["dev/t"]
+        rules = attribute_rules(lambda p: attrs if p.startswith("sql") else None)
+        hand = {p for p in paths if is_generated(p, rules)}
+        by_git = git_generated(paths, "HEAD", tmp, env)
+        want = {"sql/varka/t", "sql/varka/o"}
+        expect(hand == by_git == want, f"22: attribute values: hand {hand}, git {by_git}")
     print(f"self-test: {cases} case(s), {failed} failed")
     return 1 if failed else 0
 
@@ -1744,6 +1962,9 @@ def main(argv):
         return owed_command(keep=argv[3])
     if argv[1:] == ["--self-test"]:
         return self_test()
+    if argv[1:] == ["--list"]:
+        print("\n".join(generated_files()))
+        return 0
     print(__doc__, file=sys.stderr)
     return 2
 

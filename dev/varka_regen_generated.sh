@@ -50,8 +50,8 @@ for arg in "$@"; do
 done
 
 if [ $all = 1 ]; then
-  files="sql/varka/types.tsv sql/varka/plans/m8/casts_fused.tsv sql/varka/coverage.json"
-  files+=" sql/varka/width_audit.json sql/varka/emitted_bytes.json"
+  # The driver's list of generated files, shared with the pull-request size check (VARKA-554).
+  files="$(python3 dev/varka_generated_merge.py --list | tr '\n' ' ')"
 else
   files="$(python3 dev/varka_generated_merge.py --owed | tr '\n' ' ')"
 fi
