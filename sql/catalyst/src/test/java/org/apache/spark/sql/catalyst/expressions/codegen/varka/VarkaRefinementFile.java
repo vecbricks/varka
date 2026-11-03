@@ -1143,8 +1143,9 @@ final class VarkaRefinementFile {
           + "result's precision", setup, definitions, "true", "true", valid,
           "(or " + slot + " " + past + ")", valid, slot, valid, differs, List.of()));
     }
-    refine(out, new Refinement(name + ", Spark mode LEGACY and TRY: null past the result's "
-        + "precision", setup, definitions, "true", "true", valid, slot,
+    refine(out, new Refinement(name + ", Spark mode " + (name.startsWith("try_") ? "TRY"
+        : "LEGACY and TRY") + ": null past the result's precision", setup, definitions, "true",
+        "true", valid, slot,
         "(and " + valid + " (not " + overflow + "))", slot, valid, differs, List.of()));
   }
 

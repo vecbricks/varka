@@ -75,7 +75,7 @@ solver may answer `unknown`, which fails the run: such a proof needs its own des
 `decimal64.smt2`'s product is the one so far (VARKA-349): each of its 136 bound checks multiplies
 two unknowns under `QF_NIA`, but each unknown is bounded by a constant and nothing in the check
 wraps, the wrap being a separate linear layer over a free integer within that bound. Both pinned
-solvers decided the file's 550 checks, the 136 among them, in under two seconds on the laptop
+solvers decided the file's 554 checks, the 136 among them, in under two seconds on the laptop
 (`VARKA-349.md` 10).
 
 Doubles are integers too (`VARKA-241.md` 2). In SMT-LIB's floating-point theory a solver bit-blasts

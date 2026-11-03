@@ -528,8 +528,8 @@ public final class VarkaIrGrammar {
         case 11 -> {
           DecimalValue a = value(depth - 1);
           DecimalValue b = value(depth - 1);
-          int digits = a.digits() + b.digits();
-          if (digits + 1 > DecimalColumn.MAX_LONG_PRECISION) {
+          int digits = a.digits() + b.digits() + 1;
+          if (digits > DecimalColumn.MAX_LONG_PRECISION) {
             yield a;
           }
           yield new DecimalValue(new IntArith(IntOp.MUL, Overflow.WRAP, a.node(), b.node()),
