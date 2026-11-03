@@ -266,6 +266,17 @@ public final class VarkaAnsiForm {
         "CAST(i + 1 AS TINYINT)")) {
       out.put(sql + "\t" + FALSE_AND, unqualified);
     }
+    // A boolean row's forms set it beside the boolean column b2 - the CASE's other arm, the
+    // COALESCE's first argument, the AND's comparand - which is read on an integral lane
+    // (BoolColumn), beside the cast's test on a floating lane.
+    String boolColumn = "the form's boolean column b2 is read on an integral lane and the "
+        + "cast's test on a floating lane, which share no kernel until the lane crossing "
+        + "(VARKA-343.md 5.3, part 343a3)";
+    for (String sql : List.of("CAST(x AS BOOLEAN)", "CAST(f AS BOOLEAN)")) {
+      for (String position : List.of(CASE_ARM, COALESCE_TAIL, FALSE_AND)) {
+        out.put(sql + "\t" + position, boolColumn);
+      }
+    }
     // A bigint narrowed to a narrow type as a COALESCE argument beside a narrow column: a narrow
     // choice in a long kernel, which has no lowering there (VARKA-332.md 10.1).
     String narrowChoice = "a narrow choice beside a bigint value has no lowering in a long "
