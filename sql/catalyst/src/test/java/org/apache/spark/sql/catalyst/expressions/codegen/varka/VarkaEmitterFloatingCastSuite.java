@@ -214,7 +214,6 @@ public final class VarkaEmitterFloatingCastSuite {
   @Test
   @DisplayName("every conversion but I2F, and I2F beside a 64-bit lane, is refused by the plan")
   void widthRefusal() {
-    // The last two are the emitter's FLOAT node in a LONG emission without the plan's refusal.
     for (var c : List.of(convert(I, LaneType.DOUBLE), convert(L, LaneType.FLOAT),
         convert(F, LaneType.DOUBLE), convert(X, LaneType.FLOAT), convert(F, LaneType.INT),
         convert(X, LaneType.LONG), convert(L, LaneType.DOUBLE), convert(X, LaneType.INT),

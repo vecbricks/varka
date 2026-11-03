@@ -40,8 +40,7 @@ import org.apache.spark.sql.types.DataTypes;
  * <p>Every other cast with a floating side declines by {@link VarkaNodeCompiler}'s
  * {@code floatingDecline}, which admits exactly the pairs {@link #admits} names: the casts to
  * {@code DOUBLE}, from {@code BIGINT} and between the floating types need the kernel of two lane
- * counts or a host's conversion forms, and those from {@code TINYINT} and {@code SMALLINT} a
- * narrow lane group beside the float lane: the later parts of row 343.
+ * counts or a host's conversion forms, the later parts of row 343.
  */
 final class VarkaFloatingCastCompiler {
 
@@ -68,8 +67,7 @@ final class VarkaFloatingCastCompiler {
 
   private static Optional<VarkaVectorIR> convert(
       Cast c, VarkaSlotTable inputs, VarkaSlotTable literals, DeclineSink sink) {
-    // An int is read through the int operand rule, the one place a bare INT column or literal
-    // becomes its leaf.
+    // The int operand rule is the one place a bare INT column or literal becomes its leaf.
     return VarkaNodeCompiler.intOperand(c.child(), inputs, literals, sink)
         .map(x -> new ConvertLane(x, LaneType.FLOAT));
   }

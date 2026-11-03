@@ -402,7 +402,6 @@ class VarkaFloatingLaneSuite extends QueryTest with VarkaSharedSessions with Var
   }
 
   test("a cast to FLOAT over a bigint narrowed to INT declines in the plan in both modes") {
-    // The tree holds the FLOAT and LONG lanes, which no kernel built yet joins (VARKA-343).
     for (s <- Seq(spark, varkaSpark)) {
       s.createDataFrame(Seq(1L, -1L, 16777217L, Int.MaxValue.toLong, Int.MinValue.toLong)
         .map(Tuple1(_))).toDF("l").createOrReplaceTempView("varka_longs")
