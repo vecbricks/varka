@@ -57,7 +57,7 @@ public final class VarkaKernelPlan {
     LANE_MISMATCH,
     /** A floating conjunct of a filter whose kernel is integral, which it cannot join yet. */
     FLOATING_CONDITION,
-    /** A conversion other than INT to FLOAT, or a floating lane beside one of the other width. */
+    /** A conversion this part of row 343 does not lower: from BIGINT, or to an integral lane. */
     CONVERSION,
     /**
      * A condition root of a kernel driven at a 64-bit lane, {@code LONG} or {@code DOUBLE}, on an
@@ -144,9 +144,8 @@ public final class VarkaKernelPlan {
     }
     // A kernel of two widths: driven at 64 bits with a 32-bit value that is emitted as a vector
     // (every one but a narrowing root that nothing else reads). And the lanes other than the
-    // drive's that some node is emitted at: the int lane of such a kernel, or the float lane of
-    // an int kernel (VARKA-343). A narrow value is not one, since it is widened at its load or
-    // read for its validity alone.
+    // drive's that some node is emitted at, of either width: a narrow value is not one, since it
+    // is widened at its load or read for its validity alone.
     boolean mixed = false;
     Set<LaneType> others = EnumSet.noneOf(LaneType.class);
     for (VarkaVectorIR node : nodes) {
@@ -157,10 +156,11 @@ public final class VarkaKernelPlan {
       others.add(type);
       mixed |= drive.bits() == Long.SIZE && type.bits() == Integer.SIZE;
     }
-    if (lane == Lane.LONG) {
-      // A narrow value fills the int species of the long species' width, as an int one does, so
-      // the kernel converts between lanes (VARKA-332): a narrow column read as a value, and any
-      // other narrow node but a narrowing at its store. A column read for its word alone is not.
+    if (lane.bits == Long.SIZE) {
+      // A narrow value fills the int species of the 64-bit species' width, as an int one does,
+      // so the kernel converts between lanes (VARKA-332, and VARKA-343 at the double lane): a
+      // narrow column read as a value, and any other narrow node but a narrowing at its store.
+      // A column read for its word alone is not.
       boolean narrowMixed = false;
       for (VarkaVectorIR root : roots) {
         narrowMixed |= !VarkaVectorIR.narrowValuesIn(root).isEmpty();
@@ -349,18 +349,18 @@ public final class VarkaKernelPlan {
    */
   static LaneType emissionLane(VarkaVectorIR root, VarkaEmitOptions options) {
     Set<LaneType> lanes = VarkaVectorIR.lanesIn(root);
-    // A floating tree holds its one lane, but for a conversion between the two lanes of one
-    // width: a tree of the int and float lanes drives at the int lane, whose float values have
-    // the drive's lane count (`VARKA-343.md` 2.2). `conversionRefusal` refuses a tree holding a
-    // floating lane beside one of the other width, which this order would drive wrongly.
+    // The width rule (`VARKA-343.md` 2.2): a tree holding a 64-bit value drives at 64 bits, at
+    // the long lane if it holds one and at the double lane otherwise, and a tree of 32-bit values
+    // drives at the int lane if it holds one and at the float lane otherwise. The floating lanes
+    // meet the others only through a ConvertLane, so a tree of one floating lane drives there.
+    if (lanes.contains(LaneType.LONG)) {
+      return LaneType.LONG;
+    }
     if (lanes.contains(LaneType.DOUBLE)) {
       return LaneType.DOUBLE;
     }
     if (lanes.contains(LaneType.FLOAT) && !lanes.contains(LaneType.INT)) {
       return LaneType.FLOAT;
-    }
-    if (lanes.contains(LaneType.LONG)) {
-      return LaneType.LONG;
     }
     if (lanes.contains(LaneType.INT) || !options.narrowLanes()
         || holdsCheckedNarrowMultiply(root)) {
@@ -489,6 +489,15 @@ public final class VarkaKernelPlan {
       if (drive.isNarrow()) {
         continue;
       }
+      if (drive.isFloating() && !(drive == LaneType.DOUBLE && narrowColumnsOnly(root))) {
+        // A floating kernel reads a narrow value only through its int conversion, and a tree
+        // holding one drives at the int lane unless it holds a 64-bit value. A double kernel
+        // loads a narrow column as a long kernel does, widened into the low half of the int
+        // species (VARKA-332), so CAST(y AS DOUBLE) fuses; any other narrow node there - a
+        // narrowing, narrow arithmetic, a narrow store - has no lowering at the double lane.
+        return Optional.of(new Refusal(Kind.NARROW,
+            "a narrow value under a " + drive + " kernel has no lowering (row 343)"));
+      }
       // A narrow-typed root stores through the narrow species whatever it reads: a boolean
       // column's value as a TINYINT reads no narrow column, and still stores a byte a row.
       boolean narrowStore = root.laneType().isNarrow() && !(root instanceof VarkaVectorIR.Cond)
@@ -500,7 +509,7 @@ public final class VarkaKernelPlan {
         // every lane. Refusing it would name a load the tree never emits.
         continue;
       }
-      if (drive == LaneType.LONG) {
+      if (drive.bits() == Long.SIZE) {
         Optional<Refusal> atLong = longNarrowRefusal(root, options);
         if (atLong.isPresent()) {
           return atLong;
@@ -522,22 +531,45 @@ public final class VarkaKernelPlan {
   }
 
   /**
-   * Why a conversion of these roots has no kernel yet: a {@link ConvertLane} other than
-   * {@code INT} to {@code FLOAT}, the one the emitter lowers, or a root holding a floating lane
-   * beside a lane of the other width, {@code CAST(CAST(l AS INT) AS FLOAT)}'s {@code FLOAT} and
-   * {@code LONG}. Such a kernel holds a 32-bit value beside a 64-bit drive whose floating lane
-   * has no low-half load, store or literal table yet (`VARKA-343.md` 2.2, its part 343a3).
+   * Whether every narrow node of {@code root} is a column read as a value, and the root itself is
+   * not narrow: the narrow nodes a double kernel lowers, each through the long kernel's narrow
+   * load. A narrow column's null test is not one: the long drive alone marks such a column as
+   * read for its word ({@code Analysis.validityOnlyNarrow}), so CAST(y IS NOT NULL AS DOUBLE)
+   * declines.
+   */
+  private static boolean narrowColumnsOnly(VarkaVectorIR root) {
+    if (root.laneType().isNarrow()) {
+      return false;
+    }
+    var seen = new HashSet<VarkaVectorIR>();
+    var todo = new ArrayDeque<VarkaVectorIR>(List.of(root));
+    while (!todo.isEmpty()) {
+      VarkaVectorIR node = todo.pop();
+      if (!seen.add(node)) {
+        continue;
+      }
+      if (node.laneType().isNarrow() && !(node instanceof VarkaVectorIR.ColumnRef)) {
+        return false;
+      }
+      if (node instanceof VarkaVectorIR.IsNotNull n
+          && VarkaVectorIR.lanesIn(n).stream().anyMatch(LaneType::isNarrow)) {
+        return false;
+      }
+      todo.addAll(List.of(VarkaVectorIR.childrenOf(node)));
+    }
+    return true;
+  }
+
+  /**
+   * Why a conversion of these roots has no kernel yet. The emitter lowers the four conversions
+   * that are one {@code convertShape} on every x86 host, {@code I2F}, {@code I2D}, {@code F2D}
+   * and {@code D2F}, in a kernel of one lane count or of two (`VARKA-343.md` 2.2). A
+   * {@code BIGINT} source, {@code L2F} or {@code L2D}, has no intrinsic on a host without
+   * AVX512DQ and waits for row 343's part 343a4; a floating source converted to an integral
+   * lane waits for its part 343b2. A boolean whose condition compares longs is not one: the
+   * compiler narrows its one or zero to the int lane first.
    */
   private static Optional<Refusal> conversionRefusal(List<VarkaVectorIR> roots) {
-    for (VarkaVectorIR root : roots) {
-      Set<LaneType> lanes = VarkaVectorIR.lanesIn(root);
-      boolean wide = lanes.contains(LaneType.LONG) || lanes.contains(LaneType.DOUBLE);
-      if ((lanes.contains(LaneType.FLOAT) && wide) || (lanes.contains(LaneType.DOUBLE)
-          && lanes.stream().anyMatch(t -> t.bits() < Long.SIZE))) {
-        return Optional.of(new Refusal(Kind.CONVERSION, "a floating lane beside one of the "
-            + "other width, " + lanes + ", needs a kernel of two lane counts (row 343)"));
-      }
-    }
     var seen = new HashSet<VarkaVectorIR>();
     var todo = new ArrayDeque<VarkaVectorIR>(roots);
     while (!todo.isEmpty()) {
@@ -546,7 +578,7 @@ public final class VarkaKernelPlan {
         continue;
       }
       if (node instanceof ConvertLane c
-          && (c.child().laneType() != LaneType.INT || c.target() != LaneType.FLOAT)) {
+          && (c.child().laneType() == LaneType.LONG || !c.target().isFloating())) {
         return Optional.of(new Refusal(Kind.CONVERSION, "a conversion from "
             + c.child().laneType() + " to " + c.target() + " is not built yet (row 343)"));
       }
@@ -754,7 +786,7 @@ public final class VarkaKernelPlan {
    * and a floating conjunct fused first would leave the date or bigint conjuncts beside it no
    * lane to meet on and send them to the row filter. So it declines, keeping the kernel for the
    * integral conjuncts, until a conjunct's mask crosses between the kinds; a mask crosses only
-   * within one root's tree, at one lane count (VARKA-343). A filter that reads only
+   * within one root's tree (VARKA-343). A filter that reads only
    * floating columns fuses whole, and a choice's floating condition is no conjunct, so a
    * projection's {@code CASE WHEN x > 1.5 THEN ...} fuses too.
    */
@@ -875,9 +907,10 @@ public final class VarkaKernelPlan {
   }
 
   /**
-   * The lanes other than the drive's that some node is emitted at: the int lane of a long kernel
-   * of int values, or the float lane of an int kernel, which has the drive's lane count. Empty
-   * for a kernel of one lane. Each has its species and its literal table beside the drive's.
+   * The lanes other than the drive's that some node is emitted at, of either width: an int value
+   * of a long or a double kernel, a double one of a long kernel, a float one of an int, a long or
+   * a double kernel. Empty for a kernel of one lane. Each has its species and its literal table
+   * beside the drive's.
    */
   Set<LaneType> otherLanes() {
     requireEmittable();

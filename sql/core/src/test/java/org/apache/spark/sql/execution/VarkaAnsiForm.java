@@ -270,18 +270,26 @@ public final class VarkaAnsiForm {
     // COALESCE's first argument, the AND's comparand - which is read on an integral lane
     // (BoolColumn), beside the cast's test on a floating lane.
     String boolColumn = "the form's boolean column b2 is read on an integral lane and the "
-        + "cast's test on a floating lane, which share no kernel until the lane crossing "
-        + "(VARKA-343.md 4, part 343a3)";
+        + "cast's test on a floating lane, which share no kernel until the root-level crossing "
+        + "(VARKA-343.md 10, owed after part 343a3)";
     for (String sql : List.of("CAST(x AS BOOLEAN)", "CAST(f AS BOOLEAN)")) {
       for (String position : List.of(CASE_ARM, COALESCE_TAIL, FALSE_AND)) {
         out.put(sql + "\t" + position, boolColumn);
       }
     }
-    // The form's float conjuncts, frid < 0 and the cast = f2, beside the cast's integral source.
-    String laneSplit = "the filter reads an integral column, so its float conjuncts decline by "
-        + "floatingConjunctRefusal, while the null tests Spark infers may still fuse";
+    // The optimizer infers a null test on every column the floating cast reads, and that test
+    // sits on the column's own lane: an int, narrow, boolean or float one beside the double
+    // comparison (or a double one beside a float comparison), a conjunct of another lane than
+    // the floating ones, which declines until the root-level crossing is built.
+    String laneSplit = "the null test the optimizer infers on the cast's source is on another "
+        + "lane than the floating comparison, and conjuncts of two such lanes share no kernel "
+        + "until the root-level crossing (VARKA-343.md 10, owed after part 343a3)";
     for (String sql : List.of("CAST(i AS FLOAT)", "try_cast(i AS FLOAT)",
-        "CAST(CAST(y1 AS INT) * CAST(y2 AS INT) AS FLOAT)")) {
+        "CAST(CAST(y1 AS INT) * CAST(y2 AS INT) AS FLOAT)", "CAST(i AS DOUBLE)",
+        "CAST(y1 AS FLOAT)", "CAST(s1 AS FLOAT)", "CAST(y1 AS DOUBLE)", "CAST(s1 AS DOUBLE)",
+        "CAST(f AS DOUBLE)", "CAST(x AS FLOAT)",
+        "CAST(b AS DOUBLE)", "CAST(b AS FLOAT)", "CAST(i > 3 AS DOUBLE)", "x + i", "f * i",
+        "f + x", "i / 2.0D")) {
       out.put(sql + "\t" + FALSE_AND, laneSplit);
     }
     // A bigint narrowed to a narrow type as a COALESCE argument beside a narrow column: a narrow

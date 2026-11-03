@@ -1014,15 +1014,21 @@ final class VarkaVectorTemplateWarmup {
             + (long) i.convertShape(VectorOperators.I2D, ds, 0).reinterpretAsDoubles().lane(0)
             + d.convertShape(VectorOperators.D2I, is, 0).reinterpretAsInts().lane(0)
             + l.reinterpretAsDoubles().reinterpretAsLongs().lane(0);
-        // The int to float conversion (VARKA-343) and the mask crossings between the int and
-        // float lanes each way the emitter casts (VarkaVectorWalk.emitMaskToLane and
-        // emitToDrivingLane). No narrow mask is cast: such a kernel's narrow value is an int's.
-        // The float vector's own convertShape is warmed too, by F2I: the call site's receiver
-        // is a Vector, which a kernel of both lanes may hand either class.
+        // The conversions to a floating lane and between the two (VARKA-343); I2D is above. The
+        // float vector's own convertShape is warmed by F2D: the call site's receiver is a
+        // Vector, which a kernel of both lanes may hand either class.
         FloatVector f = (FloatVector) i.convertShape(VectorOperators.I2F, fs, 0);
-        acc += (long) f.lane(0) + i.compare(VectorOperators.GT, 0).cast(fs).toLong()
-            + f.compare(VectorOperators.GT, 0.0f).cast(is).toLong()
-            + ((IntVector) f.convertShape(VectorOperators.F2I, is, 0)).lane(0);
+        acc += (long) (f.lane(0)
+            + ((DoubleVector) f.convertShape(VectorOperators.F2D, ds, 0)).lane(0)
+            + ((FloatVector) d.convertShape(VectorOperators.D2F, fs, 0)).lane(0));
+        // The mask crossings between the two lanes of one width, each way the emitter casts: the
+        // drive's mask to the other lane's species and back (VarkaVectorWalk.emitMaskToLane,
+        // emitToDrivingLane), at both widths. No narrow mask is cast: a narrow value of a kernel
+        // of several lanes is the int lane's.
+        acc += l.compare(VectorOperators.GT, 0L).cast(ds).toLong()
+            + d.compare(VectorOperators.GT, 0.0).cast(ls).toLong()
+            + i.compare(VectorOperators.GT, 0).cast(fs).toLong()
+            + f.compare(VectorOperators.GT, 0.0f).cast(is).toLong();
       }
       return acc;
     }

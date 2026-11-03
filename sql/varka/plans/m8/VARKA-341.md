@@ -291,6 +291,12 @@ Where the code departs from 2.4 to 2.7, and what is still owed:
 - **Still owed by this row:** the fuzz grammar's floating sequence (3.4) and the benchmark
   (`dev/varka_new_lane.py` lists both), with the literal-specialised compares and the mask
   crossing above.
+  *3 November 2026:* row 343's part 343a3 (`VARKA-343.md` 10) closes the mask crossing at one
+  lane count: within a root's tree a guard's mask and an arm's condition of the other kind of
+  the drive's width cross to the drive by `VectorMask.cast`, both ways at both widths, and so
+  does the epilogue's bounds mask. Roots of the two kinds still take a kernel each, and a
+  filter's floating conjunct beside an integral one still declines: that root-level half is
+  owed after 343a3.
 - **Not floating gaps:** a `BOOLEAN` output and a `CASE` with no `ELSE` fuse on no lane yet (the
   latter is row 333), so the suite shows a condition's three values through a `CASE` with an
   `ELSE`.

@@ -190,7 +190,7 @@ final class VarkaVectorWalk {
           break;
         }
         if (!analysis.sameCount(lane)) {
-          emitLowHalfLoad(cb, c, s);
+          emitLowHalfLoad(cb, c, lane, s);
           break;
         }
         cb.aload(s.species(lane));
@@ -308,8 +308,9 @@ final class VarkaVectorWalk {
       }
       case ConvertLane n -> {
         // Java's primitive cast as one conversion, part 0, into the target's species of the
-        // kernel's width (`VARKA-343.md` 2.1). Only I2F reaches here, which keeps the lane
-        // count: the plan refuses a conversion between widths. The word is the child's.
+        // kernel's width (`VARKA-343.md` 2.1): a 32-bit source is read from the low half of its
+        // species in a 64-bit kernel, and a 32-bit target fills the low half of its. The word is
+        // the child's.
         emitValue(cb, n.child(), dense, analysis, s, computed);
         line(cb, analysis, node);
         emitShapeConversion(cb, analysis.laneOf(n.child()), analysis.laneOf(node), analysis);
@@ -542,34 +543,34 @@ final class VarkaVectorWalk {
   }
 
   /**
-   * An int column in a kernel driven at the long lane: the group's rows into the low lanes of the
-   * int species of the same width. In a loop body the load is whole, so the upper lanes hold the
-   * next group's rows, which that group reads again; in the epilogue it is under the mask of the
-   * int species' first {@code lanes} lanes, the remainder, and the upper lanes read zero, as an
-   * epilogue's padding lanes do. Either way only the low lanes are the group's. The offset is
-   * {@code (long) i * 4}, a linear function of the induction variable that C2 folds into the
-   * load's address, as {@code VarkaBodyEmitter.emitNarrowStore} derives its own.
+   * A 32-bit column, int or float, in a kernel driven at 64 bits: the group's rows into the low
+   * lanes of the column's species of the same width. In a loop body the load is whole, so the
+   * upper lanes hold the next group's rows, which that group reads again; in the epilogue it is
+   * under the mask of the species' first lanes, as many as the remainder, and the upper lanes
+   * read zero, as an epilogue's padding lanes do. Either way only the low lanes are the group's.
+   * The offset is {@code (long) i * 4}, a linear function of the induction variable that C2
+   * folds into the load's address, as {@code VarkaBodyEmitter.emitNarrowStore} derives its own.
    */
-  private static void emitLowHalfLoad(CodeBuilder cb, ColumnRef c, Slots s) {
-    int species = s.species(Lane.INT);
+  private static void emitLowHalfLoad(CodeBuilder cb, ColumnRef c, Lane lane, Slots s) {
+    int species = s.species(lane);
     cb.aload(species);
     cb.aload(s.srcSeg(c.ordinal()));
     cb.iload(s.iVar);
     cb.i2l();
-    cb.loadConstant(Lane.INT.byteStride);
+    cb.loadConstant(lane.byteStride);
     cb.lmul();
     cb.getstatic(BYTE_ORDER, "LITTLE_ENDIAN", BYTE_ORDER);
     if (!s.epilogue) {
-      // In the loop, whole: the loop stops while a whole int vector still fits
+      // In the loop, whole: the loop stops while a whole 32-bit vector still fits
       // (`VarkaBodyEmitter.emitSpecies`), and the upper lanes are the next group's rows.
-      cb.invokestatic(Lane.INT.vector, "fromMemorySegment", Lane.INT.fromMemorySegmentDense);
+      cb.invokestatic(lane.vector, "fromMemorySegment", lane.fromMemorySegmentDense);
       return;
     }
     cb.aload(species);
     cb.loadConstant(0);
     cb.iload(s.lanes);
     cb.invokeinterface(VECTOR_SPECIES, "indexInRange", INDEX_IN_RANGE);
-    cb.invokestatic(Lane.INT.vector, "fromMemorySegment", Lane.INT.fromMemorySegmentMasked);
+    cb.invokestatic(lane.vector, "fromMemorySegment", lane.fromMemorySegmentMasked);
   }
 
   /**
@@ -711,12 +712,13 @@ final class VarkaVectorWalk {
   }
 
   /**
-   * The value on the stack, of lane {@code from}, as lane {@code to}: {@code I2L}, {@code L2I}
-   * and {@code I2F} (VARKA-343), part 0, each into the target species of the width the emission
+   * The value on the stack, of lane {@code from}, as lane {@code to}: {@code I2L} and
+   * {@code L2I}, and the four conversions the kernel plan admits, {@code I2F}, {@code I2D},
+   * {@code F2D} and {@code D2F}, part 0, each into the target species of the width the emission
    * bakes. A narrow value is widened once at its load and narrowed once at its store, so a
    * conversion node over one names the lane it is already emitted at and emits nothing, and any
-   * other pair is a lowering this emitter has not built: the plan refuses a conversion between
-   * widths, and the floating sources are row 343's later parts.
+   * other pair is a lowering this emitter has not built: {@code L2F} and {@code L2D}, and the
+   * conversions from a floating lane to an integral one, are row 343's later parts.
    * The one form of the conversion: a long kernel's narrowing store converts through it too
    * ({@code VarkaBodyEmitter.emitNarrowStore}), into the low half of the int species.
    */
@@ -728,6 +730,9 @@ final class VarkaVectorWalk {
     String op = from == Lane.INT && to == Lane.LONG ? "I2L"
         : from == Lane.LONG && to == Lane.INT ? "L2I"
         : from == Lane.INT && to == Lane.FLOAT ? "I2F"
+        : from == Lane.INT && to == Lane.DOUBLE ? "I2D"
+        : from == Lane.FLOAT && to == Lane.DOUBLE ? "F2D"
+        : from == Lane.DOUBLE && to == Lane.FLOAT ? "D2F"
         : null;
     if (op == null) {
       throw VarkaErrors.illegalArgument(
@@ -810,7 +815,7 @@ final class VarkaVectorWalk {
    * masked form stays.
    */
   static boolean narrowRowsInEpilogue(Analysis analysis, Slots s) {
-    return s.epilogue && analysis.lane == Lane.LONG && analysis.lanes != 0;
+    return s.epilogue && analysis.lane.bits == Long.SIZE && analysis.lanes != 0;
   }
 
   /**
@@ -1591,8 +1596,8 @@ final class VarkaVectorWalk {
    */
   private static void emitToDrivingLane(CodeBuilder cb, Lane from, Analysis analysis, Slots s) {
     if (analysis.sameCount(from)) {
-      // A mask of the drive's lane count, a float one in an int kernel (VARKA-343), crosses by
-      // `VectorMask.cast`: a `fromLong` of its `toLong` is
+      // A mask of the drive's lane count - a double one in a long kernel, a float one in an int
+      // kernel, or the reverse - crosses by `VectorMask.cast`: a `fromLong` of its `toLong` is
       // the pair JDK 25's C2 miscompiles at one lane count (VARKA-396, `VARKA-341.md` 2.4).
       // The target is the drive's species constant, as emitMaskToLane's is.
       emitConstantSpecies(cb, analysis.lane, analysis);

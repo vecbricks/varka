@@ -772,10 +772,12 @@ public sealed interface VarkaVectorIR
    * {@code INT} result (`VARKA-343.md` 2.1). No conversion raises or nulls, so the validity is
    * the child's.
    *
-   * <p>The node has one meaning on every host. The emitter lowers {@code I2F}, which keeps the
-   * lane count, as one {@code convertShape}, part 0, into the float species of the kernel's
-   * width; the kernel plan refuses every other conversion, and this one beside a 64-bit lane,
-   * until two lane counts are built; the compiler builds no floating source (`VARKA-343.md` 4).
+   * <p>The node has one meaning on every host; the emitter lowers it as one
+   * {@code convertShape}, part 0, into the target's species of the kernel's width: a widening
+   * reads the low half of a 32-bit source, as {@code I2L} does, and a narrowing writes the low
+   * half of the 32-bit target, as {@code L2I} does. The kernel plan refuses {@code L2F} and
+   * {@code L2D}, which a host without AVX512DQ runs as the Vector API's Java loop, and the
+   * conversions from a floating lane to an integral one, until row 343's later parts.
    */
   record ConvertLane(VarkaVectorIR child, LaneType target) implements VarkaVectorIR {
     public ConvertLane {

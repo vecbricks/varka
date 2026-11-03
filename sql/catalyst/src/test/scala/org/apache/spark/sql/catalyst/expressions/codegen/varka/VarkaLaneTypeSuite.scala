@@ -467,12 +467,11 @@ class VarkaLaneTypeSuite extends SparkFunSuite with VarkaTestWatchdog {
         case "WeekOfYear" => new WeekOfYear(new ThursdayOf(c))
         // A floating lane's only: refused at both integral lanes, and emitted at DOUBLE below.
         case "MathUnary" => new MathUnary(MathFn.SQRT, c)
-        // An int converted to FLOAT (VARKA-343), emitted in an int kernel at one lane count. The
-        // long row has no instance yet: a conversion between widths has no kernel until row
-        // 343's kernel of two lane counts, so the long row builds the integral pair the
-        // constructor refuses.
-        case "ConvertLane" => new ConvertLane(new ColumnRef(0, lane),
-          if (lane == LaneType.INT) LaneType.FLOAT else LaneType.LONG)
+        // An int converted to a floating lane (VARKA-343): to FLOAT, emitted in a kernel of 32
+        // bits, and to DOUBLE in one of 64. A bigint's conversion is not the long row's
+        // instance: the plan refuses it, as L2D is intrinsic only with AVX512DQ (row 343).
+        case "ConvertLane" => new ConvertLane(new ColumnRef(0),
+          if (lane == LaneType.INT) LaneType.FLOAT else LaneType.DOUBLE)
         case other => fail(s"no instance recipe for $other; a node type was added")
       }) catch {
         // The IR's own refusal: a calendar node over a wider child cannot be built at all.
@@ -508,12 +507,13 @@ class VarkaLaneTypeSuite extends SparkFunSuite with VarkaTestWatchdog {
       "Compare", "NullSafeEqual", "And", "Or", "Not", "IsNotNull", "IfElse", "ConstDivide",
       "BoolColumn", "CondConst", "BoolCompare", "CondIf", "BoolNullSafeEq", "CondValue",
       "BoolOutput", "GuardedRange", "NarrowLane", "WidenLane", "BitOp", "BitCount",
-      "DecimalColumn", "NullValue", "WidenDecimal"),
+      "DecimalColumn", "NullValue", "WidenDecimal", "ConvertLane"),
       "the long lane serves the lane-generic subset, VARKA-88's division, VARKA-102's guard, " +
         "the two conversions, which build over the other lane's child whatever the row, " +
         "VARKA-335's bitwise operations, VARKA-336's null-safe equality, VARKA-460's " +
         "condition as a value, VARKA-27's boolean output, VARKA-347's decimal column, " +
-        "VARKA-157's decimal output and VARKA-333's null leaf")
+        "VARKA-157's decimal output, VARKA-343's conversion to the double lane and VARKA-333's " +
+        "null leaf")
   }
 
   test("a narrowing is an int over a long child, and a kernel that holds one is driven at the " +
