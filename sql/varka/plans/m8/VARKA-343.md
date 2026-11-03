@@ -136,8 +136,8 @@ kernel fills the low half of its species of the drive's width, as an int value d
 kernel (`VARKA-28.md` 9). `Analysis`' fit rule (item 0.3) becomes the width rule, and `lanesShare`
 joins roots of one width. A mask crosses to a lane of another count through the word, as
 `emitToDrivingLane` does, and to one of the same count by `VectorMask.cast`. #1065 leaves that
-crossing owed (its `VARKA-341.md` 5.1); 343a builds it, so it closes 341's owed item, and 341's
-record names 343a when this lands. A narrow column in a 64-bit kernel - `CAST(y AS DOUBLE)` -
+crossing owed (its `VARKA-341.md` 5.1); 343a3 builds it, so it closes 341's owed item, and 341's
+record names 343a3 when this lands. A narrow column in a 64-bit kernel - `CAST(y AS DOUBLE)` -
 needs the narrow load at the long width that 332's `CAST(y AS BIGINT)` needs too; the first of the
 two rows to land builds it.
 
@@ -343,20 +343,28 @@ claims and the failing case, three and a half; the floating `GuardedRange` and i
 disposal through the masked body, with the three modes' cells and sweeps, two; the booleans half
 a day; `time_from_seconds` one; the generated files and the measurement one. About eleven days.
 
-It lands as two pull requests after the baseline, each with its own measurement against it:
+It lands in pull requests of under 1000 changed lines each of hand-written source and plan
+text; generated files are not counted (*3 November 2026, the owner's word*: this replaces the
+two parts, 343a and 343b, of 27 October). The work built for 343a on #1303 is cut into the first
+five; each is taken from that branch's final tree, not by replaying its commits, and carries its
+own tests and its own regenerated files. The sizes in the table include the generated files, so
+they are upper bounds.
 
-- **343a, the conversions to a floating type** (steps 2, 3 and 6): `ConvertLane` with
-  `convertShape`, the width rules, the to-floating pairs, `FLOAT` with `DOUBLE`, the booleans;
-  `L2D` and `L2F` decline where `convertsFallBack()` holds; and the same-count `VectorMask.cast`
-  crossing #1065 leaves owed, without which `DOUBLE` beside `BIGINT` shares no kernel. About five
-  days, the crossing half a day of them. It unblocks 342's
-  `i / j`, `f / g` and the functions over a cast on every host, and those over a `BIGINT` on the
-  laptop and the Neoverse N2.
-- **343b, the conversions from one and the AVX2 forms** (steps 4, 5 and 7): the paper, the four
-  forms, floating to integral in three modes with the `NULL` disposal, `time_from_seconds`. About
-  six days. It unblocks 342's interval forms, the `BIGINT` forms on the EPYC runners, and the
-  disposal that 332's TRY narrowing reuses: 332's plan, when written, takes this disposal rather
-  than building its own.
+| part | what | depends on | lines, about |
+|---|---|---|---|
+| 343a1 | `CAST(x AS BOOLEAN)` over a `FLOAT` or `DOUBLE` (2.5): the lane's `EQ` against zero, negated, in the condition compiler; its coverage rows | master | 200 |
+| 343a2 | `ConvertLane` (2.1) with its refusals, the reference's casts and the range analysis, the `convertShape` lowering, and the compiler arm for the one-count pair, `INT` to `FLOAT`; the reference cells and the refusal tests | master | 750 |
+| 343a3 | the kernel of two lane counts (2.2): the width rules in the kernel plan, `Analysis`, `Slots` and the walk, the warm-up blocks, and the pairs it carries, `INT` to `DOUBLE`, `FLOAT` with `DOUBLE`, the narrow sources, a condition as a value and the mixed trees (`x + i`, `f * i`, `f + x`); the three failures #1303's last matrix found are fixed here, the `INTERNAL_ERROR` under `validityByWidth=false` as a defect, not a skip | 343a2 | 950 |
+| 343a4 | `BIGINT` to `FLOAT` and `DOUBLE` where the host has AVX512DQ: level 3 resolved from the host, the unknown level declining them, the option matrix's level-3 runs and their Spark check | 343a3 | 450 |
+| 343a5 | the fuzz grammar's conversions, the 2^32 sweeps of 3.1 and the harness check of each fused cast on both lanes | 343a4 | 400 |
+| 343b1 | the paper and the AVX2 forms (2.3, step 4): `L2D` by the exact split, `L2F` by round-to-odd, behind `wideConversionForm`, the SMT claims and the failing case | 343a5 | 900 |
+| 343b2 | floating to integral in the three modes (2.4, step 5), with `GuardedRange`'s floating bounds and `NULL` disposal; `D2L`'s assembly on AVX2 | 343b1 | 900 |
+| 343b3 | `time_from_seconds` (2.6, step 7), after 342's first pull request, and the measurement against the baseline (step 8) | 343b2 | 500 |
+
+343a3 is the one nearest the cap: if it passes 1000 lines, the mixed trees and the condition as a
+value move to a part of their own after it. 343a1 needs none of the others and may land first.
+Only a real code dependency chains one part's matrix on another's. A part over the cap is split
+again before it is pushed, never merged over it.
 
 The `DATE` pairs follow 333 in either.
 
@@ -439,7 +447,8 @@ which reuses the truncated magic's first two operations; the `BOOLEAN` output (r
 
 A batch with a live lane Spark raises on (ANSI's range, `time_from_seconds` outside the day);
 under question 1 (a), a `BIGINT` or `DOUBLE` lane past `2^51` on AVX2; the `DATE` pairs until 333;
-between the two pull requests, `L2D` and `L2F` wherever `convertsFallBack()` holds.
+until 343a4, every `BIGINT` source; until 343b1, `L2D` and `L2F` wherever `convertsFallBack()`
+holds.
 
 ## 8. Questions for the owner
 
@@ -452,11 +461,12 @@ None open; both were settled with an advisor's review on 27 October 2026.
    microsecond timestamps held as `BIGINT` sit near `2^50.6` today.
 2. **`time_from_seconds` follows 342's first pull request.** Its lowering (2.6) is a `DOUBLE`
    multiply by the literal `1e9`, a same-lane form of 342's first part, then this row's own `D2L`
-   (343b); so it waits for 342's first part, not all of 342. Admitting the multiply here would
+   (343b2); so it waits for 342's first part, not all of 342. Admitting the multiply here would
    make two rows own one node.
 
-The size, large and in two parts (4), was confirmed by the owner on 27 October 2026: one row
-landing in two pull requests, 343a and 343b.
+The size, large, was confirmed by the owner on 27 October 2026, in two parts; on 3 November 2026
+he set a cap of 1000 changed hand-written lines per pull request, so the row lands in the eight
+parts of 4.
 
 The baseline comes first, as its own pull request (5.1): not a question, since the house rule
 settles it, as it did for rows 377, 27, 339 and 342.

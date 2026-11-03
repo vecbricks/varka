@@ -973,7 +973,7 @@ operands (a row counts once for each type it reads):
 | `byte` | 30 | 0 | 0 | 0 | 8 | 22 |
 | `date` | 101 | 17 | 0 | 1 | 0 | 83 |
 | `dec` | 17 | 0 | 0 | 0 | 0 | 17 |
-| `double` | 37 | 0 | 0 | 0 | 0 | 37 |
+| `double` | 39 | 0 | 0 | 0 | 0 | 39 |
 | `dt` | 25 | 2 | 0 | 0 | 0 | 23 |
 | `float` | 29 | 0 | 0 | 0 | 0 | 29 |
 | `int` | 101 | 14 | 2 | 0 | 1 | 84 |

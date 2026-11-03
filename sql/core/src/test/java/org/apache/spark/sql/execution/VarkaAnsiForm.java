@@ -266,6 +266,17 @@ public final class VarkaAnsiForm {
         "CAST(i + 1 AS TINYINT)")) {
       out.put(sql + "\t" + FALSE_AND, unqualified);
     }
+    // A boolean row's forms set it beside the boolean column b2 - the CASE's other arm, the
+    // COALESCE's first argument, the AND's comparand - which is read on an integral lane
+    // (BoolColumn), beside the cast's test on a floating lane.
+    String boolColumn = "the form's boolean column b2 is read on an integral lane and the "
+        + "cast's test on a floating lane, which share no kernel until the lane crossing "
+        + "(VARKA-343.md 4, part 343a3)";
+    for (String sql : List.of("CAST(x AS BOOLEAN)", "CAST(f AS BOOLEAN)")) {
+      for (String position : List.of(CASE_ARM, COALESCE_TAIL, FALSE_AND)) {
+        out.put(sql + "\t" + position, boolColumn);
+      }
+    }
     // A cast to FLOAT compared with f2 and the form's frid < 0 are float conjuncts of a filter
     // that also reads an integral column, the cast's source, so both decline (VARKA-343).
     String laneSplit = "the filter reads an integral column, so its float conjuncts decline by "

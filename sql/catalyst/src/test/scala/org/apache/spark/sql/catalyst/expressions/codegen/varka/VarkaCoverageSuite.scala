@@ -958,6 +958,14 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
       Row("f * 2.5F"),
       Row("-f"),
       Row("abs(f)"))),
+    // A floating value as a boolean (VARKA-343 2.5): Spark's x != 0 in every mode, the negation
+    // of the lane's EQ against zero, so a NaN is true and both zeros false; never an error.
+    Family("Floating casts to BOOLEAN", predicates = false, Seq(
+      Row("CAST(x AS BOOLEAN)", "x != 0: a NaN is true and both zeros false, as a BOOLEAN output"),
+      Row("CAST(f AS BOOLEAN)"))),
+    Family("Floating casts to BOOLEAN as conditions", predicates = true, Seq(
+      Row("NOT CAST(x AS BOOLEAN)", "x = 0.0 as the filter: both zeros pass and a NaN does not"),
+      Row("CAST(f AS BOOLEAN) OR f > 1.5F", "the float's test in a disjunction at its lane"))),
     // The casts to FLOAT from an int (VARKA-343, its first part): Java's primitive cast in every
     // mode, since a conversion to a floating type never raises, so TRY's answer is LEGACY's. The
     // kernel holds the int and float lanes at one lane count; the casts between widths follow.

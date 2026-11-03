@@ -47,7 +47,7 @@ bigint	double	yes	yes	yes	rounding	round to nearest even, as the JVM converts; n
 bigint	dec	yes	yes	yes	scale up	exact; overflow past p - s digits: LEGACY null, ANSI NUMERIC_VALUE_OUT_OF_RANGE	SMT (dev/varka_prove.sh) for the integer rule, sampled regions and the fuzzer		350,364	
 bigint	ym	yes	yes	yes	scale up	times the unit and narrowed to int (toIntExact); overflow raises under LEGACY and ANSI, TRY nulls	SMT (dev/varka_prove.sh) for the integer rule, sampled regions and the fuzzer		103,332	
 bigint	dt	yes	yes	yes	scale up	times the unit in a long; overflow raises under LEGACY and ANSI, TRY nulls	SMT (dev/varka_prove.sh) for the integer rule, sampled regions and the fuzzer		103,332	
-float	bool	yes	yes	yes	test	x != 0 (a NaN is true)	exhaustion		343	
+float	bool	yes	yes	yes	test	x != 0 (a NaN is true)	exhaustion	LEGACY,ANSI,TRY	343	all
 float	byte	yes	yes	yes	truncation	LEGACY saturates to int then wraps; ANSI and TRY range-check, NaN raises or nulls	exhaustion		343	
 float	short	yes	yes	yes	truncation	LEGACY saturates to int then wraps; ANSI and TRY range-check, NaN raises or nulls	exhaustion		343	
 float	int	yes	yes	yes	truncation	LEGACY saturates, NaN to 0; ANSI and TRY range-check on the double against 2^31 - 1 exactly; NaN raises or nulls	exhaustion		343	
@@ -55,7 +55,7 @@ float	bigint	yes	yes	yes	truncation	LEGACY saturates, NaN to 0; ANSI and TRY ran
 float	float	yes	yes	yes	identity		exhaustion		343	
 float	double	yes	yes	yes	widening	exact	exhaustion		343	
 float	dec	yes	yes	yes	shortest digits	Decimal(double) is the double's shortest decimal: a lanewise guard from the rounding interval and an integer arm in lanes, the exact shortest-digits path for the rest (346)	exhaustion		346,350,364	
-double	bool	yes	yes	yes	test	x != 0 (a NaN is true)	sampled regions and the fuzzer		343	
+double	bool	yes	yes	yes	test	x != 0 (a NaN is true)	sampled regions and the fuzzer	LEGACY,ANSI,TRY	343	all
 double	byte	yes	yes	yes	truncation	LEGACY saturates to int then wraps; ANSI and TRY range-check, NaN raises or nulls	sampled regions and the fuzzer		343	
 double	short	yes	yes	yes	truncation	LEGACY saturates to int then wraps; ANSI and TRY range-check, NaN raises or nulls	sampled regions and the fuzzer		343	
 double	int	yes	yes	yes	truncation	LEGACY saturates, NaN to 0; ANSI and TRY range-check on the double against 2^31 - 1 exactly; NaN raises or nulls	sampled regions and the fuzzer		343	

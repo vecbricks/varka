@@ -91,7 +91,7 @@ bigint	dt	BIGINT	INTERVAL HOUR TO SECOND	declined	declined	declined
 bigint	dt	BIGINT	INTERVAL MINUTE	declined	declined	declined
 bigint	dt	BIGINT	INTERVAL MINUTE TO SECOND	declined	declined	declined
 bigint	dt	BIGINT	INTERVAL SECOND	declined	declined	declined
-float	bool	FLOAT	BOOLEAN	declined	declined	declined
+float	bool	FLOAT	BOOLEAN	fused	fused	fused
 float	byte	FLOAT	TINYINT	declined	declined	declined
 float	short	FLOAT	SMALLINT	declined	declined	declined
 float	int	FLOAT	INT	declined	declined	declined
@@ -99,7 +99,7 @@ float	bigint	FLOAT	BIGINT	declined	declined	declined
 float	double	FLOAT	DOUBLE	declined	declined	declined
 float	dec	FLOAT	DECIMAL(10,2)	declined	declined	declined
 float	dec	FLOAT	DECIMAL(30,4)	declined	declined	declined
-double	bool	DOUBLE	BOOLEAN	declined	declined	declined
+double	bool	DOUBLE	BOOLEAN	fused	fused	fused
 double	byte	DOUBLE	TINYINT	declined	declined	declined
 double	short	DOUBLE	SMALLINT	declined	declined	declined
 double	int	DOUBLE	INT	declined	declined	declined
