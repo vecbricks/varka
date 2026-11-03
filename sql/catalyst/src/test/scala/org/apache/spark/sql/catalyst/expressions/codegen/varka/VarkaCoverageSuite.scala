@@ -1019,7 +1019,14 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
       Row("-d9 < d9b", "a negation, which cannot overflow: an unscaled value within 18 digits is "
         + "never the long lane's minimum"),
       Row("abs(d9) >= d9b", "a compare with zero, a negation and a blend; the lanewise ABS is "
-        + "the decimalAbsLanewise option"))),
+        + "the decimalAbsLanewise option"),
+      Row("greatest(d9, d9s4) > d9b", "the null-skipping pick at DECIMAL(11, 4), each branch "
+        + "carrying its rescale"),
+      Row("coalesce(d9, d9b) IS NULL", "null where every operand is: the validity of each leaf, "
+        + "ORed, and every leaf's slots checked"),
+      Row("(-d18) IS NOT NULL", "a negation is null where its operand is"),
+      Row("CASE WHEN d9 < d9b THEN d9 ELSE d9s4 END > 0.0", "a choice at DECIMAL(11, 4) under a "
+        + "comparison; the branch of the smaller scale carries its rescale"))),
 
     Family("Time arithmetic", predicates = false, Seq(
       Row("t - t2", "a day-time interval, the nanosecond difference divided by a thousand"),
@@ -1636,8 +1643,10 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
     "second(t)" -> Refined("second(t)"),
     // `time_from_micros(time_to_micros(t))`: time_to_micros has no refinement.
     "t + INTERVAL '0 00:00:00' DAY TO SECOND" -> Refined("t + dt"),
-    // The 64-bit decimal's rows of two scales, negation and abs (VARKA-348), each refined whole;
-    // the equal-scale rows of VARKA-347 stay differential.
+    // The 64-bit decimal's rows of two scales, negation, abs, choices and the coalesce's null test
+    // (VARKA-348), each refined whole; the equal-scale rows of VARKA-347 stay differential, and so
+    // does `(-d18) IS NOT NULL`, whose kernel validity is its operand's word, the same formula as
+    // Spark's, so a refinement of it could not fail.
     "d9 < d9s4" -> Refined("d9 < d9s4"),
     "d9 = d9s4" -> Refined("d9 = d9s4"),
     "d9 <=> d9s4" -> Refined("d9 <=> d9s4"),
@@ -1646,7 +1655,11 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
     "d9 < 0.425" -> Refined("d9 < 0.425"),
     "d9 < 10000000.0125" -> Refined("d9 < 10000000.0125"),
     "-d9 < d9b" -> Refined("-d9 < d9b"),
-    "abs(d9) >= d9b" -> Refined("abs(d9) >= d9b"))
+    "abs(d9) >= d9b" -> Refined("abs(d9) >= d9b"),
+    "greatest(d9, d9s4) > d9b" -> Refined("greatest(d9, d9s4) > d9b"),
+    "coalesce(d9, d9b) IS NULL" -> Refined("coalesce(d9, d9b) IS NULL"),
+    "CASE WHEN d9 < d9b THEN d9 ELSE d9s4 END > 0.0" ->
+      Refined("CASE WHEN d9 < d9b THEN d9 ELSE d9s4 END > 0.0"))
 
   private def verifiedOf(family: Family, row: Row): Verified =
     rowVerified.getOrElse(row.sql, familyVerified.getOrElse(family.title, Differential))

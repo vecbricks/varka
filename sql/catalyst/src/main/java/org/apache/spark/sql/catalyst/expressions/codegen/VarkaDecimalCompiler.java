@@ -18,25 +18,40 @@
 package org.apache.spark.sql.catalyst.expressions.codegen;
 
 import java.math.BigDecimal;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.function.BinaryOperator;
+
+import scala.Tuple2;
+import scala.jdk.javaapi.CollectionConverters;
 
 import org.apache.spark.sql.catalyst.expressions.Abs;
 import org.apache.spark.sql.catalyst.expressions.BoundReference;
+import org.apache.spark.sql.catalyst.expressions.CaseWhen;
 import org.apache.spark.sql.catalyst.expressions.Cast;
+import org.apache.spark.sql.catalyst.expressions.Coalesce;
 import org.apache.spark.sql.catalyst.expressions.Expression;
+import org.apache.spark.sql.catalyst.expressions.Greatest;
+import org.apache.spark.sql.catalyst.expressions.If;
+import org.apache.spark.sql.catalyst.expressions.Least;
 import org.apache.spark.sql.catalyst.expressions.Literal;
 import org.apache.spark.sql.catalyst.expressions.UnaryMinus;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaErrors;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaFamily;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTypes;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Cond;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.CondConst;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.DecimalColumn;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IfElse;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IntArith;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IntNeg;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IntOp;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LaneType;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Overflow;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Truth;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WidenDecimal;
 import org.apache.spark.sql.types.Decimal;
 import org.apache.spark.sql.types.DecimalType;
@@ -44,7 +59,7 @@ import org.apache.spark.sql.types.DecimalType;
 /**
  * The decimal values a kernel computes on the long lane (VARKA-347, VARKA-348): each is a
  * {@link Scaled}, an unscaled long node and the {@code DECIMAL(p, s)} it is a value of, built by
- * {@link #value}, which a comparison's operands are read through.
+ * {@link #value}, which every decimal consumer calls.
  *
  * <p>Why a long compare is Spark's answer. Two values of one scale {@code s} are {@code u1 / 10^s}
  * and {@code u2 / 10^s}, so they order and compare equal exactly as their unscaled values do, and
@@ -61,7 +76,9 @@ import org.apache.spark.sql.types.DecimalType;
  * <p>The invariant every rule here reads is that a {@link Scaled}'s unscaled value is within its
  * type's precision on every valid lane: a column's by its leaf's slot check, which declines a
  * batch holding a valid slot outside it, a literal's by the test made when its slot is taken,
- * and a rescale's by the bound above.
+ * a rescale's by the bound above, and a choice's or a pick's by every branch being of the node's
+ * type, which Spark itself holds: each of those nodes is a {@code ComplexTypeMergingExpression},
+ * whose {@code dataType} throws unless its branches' types are equal.
  *
  * <p>What declines, each naming its row: a type wider than 18 digits (row 359, and row 360 where
  * a rescale is needed); a cast that lowers the scale or the integral digits, or one from an
@@ -113,7 +130,8 @@ final class VarkaDecimalCompiler {
    * The value of the decimal expression {@code e}, or empty with the reason noted. A literal tree
    * folds first, so a literal under coercion's cast takes its slot already at the cast's scale.
    */
-  static Optional<Scaled> value(Expression e, VarkaSlotTable inputs, DeclineSink sink) {
+  static Optional<Scaled> value(Expression e, VarkaSlotTable inputs, VarkaSlotTable literals,
+      DeclineSink sink) {
     if (!(e.dataType() instanceof DecimalType type)) {
       return sink.decline("a decimal operator over a " + e.dataType().simpleString()
           + " operand", e);
@@ -132,13 +150,29 @@ final class VarkaDecimalCompiler {
     }
     return switch (e) {
       case BoundReference br -> column(br, type, inputs, sink);
-      case Cast c -> cast(c, type, inputs, sink);
+      case Cast c -> cast(c, type, inputs, literals, sink);
       // Neither can fail or leave the precision, |-u| = |u| (VARKA-348 0.5), so both wrap: the
       // one overflowing long, Long.MIN_VALUE, is outside every decimal's bound.
-      case UnaryMinus m -> value(m.child(), inputs, sink)
+      case UnaryMinus m -> value(m.child(), inputs, literals, sink)
           .map(x -> new Scaled(new IntNeg(Overflow.WRAP, x.unscaled()), x.type()));
-      case Abs a -> value(a.child(), inputs, sink)
+      case Abs a -> value(a.child(), inputs, literals, sink)
           .map(x -> new Scaled(new IntNeg(Overflow.WRAP, x.unscaled(), true), x.type()));
+      // The choices and the picks are under the switch of the family that claims them in the
+      // chain, the condition family and the int arithmetic, as their int forms are: this path
+      // never passes through compileNode, so it asks the switch and notes the family itself.
+      case If i -> VarkaNodeCompiler.inFamily(VarkaFamily.CONDITION, () -> choice(i,
+          List.of(i.predicate()), List.of(i.trueValue()), i.falseValue(), type, inputs,
+          literals, sink), i, sink);
+      case CaseWhen c -> VarkaNodeCompiler.inFamily(VarkaFamily.CONDITION,
+          () -> caseWhen(c, type, inputs, literals, sink), c, sink);
+      case Coalesce c -> VarkaNodeCompiler.inFamily(VarkaFamily.CONDITION,
+          () -> coalesce(c, type, inputs, literals, sink), c, sink);
+      case Greatest g -> VarkaNodeCompiler.inFamily(VarkaFamily.INT_ARITHMETIC,
+          () -> pick(g, CollectionConverters.asJava(g.children()), type, inputs, literals, sink,
+              VarkaVectorIR.Greatest::new), g, sink);
+      case Least l -> VarkaNodeCompiler.inFamily(VarkaFamily.INT_ARITHMETIC,
+          () -> pick(l, CollectionConverters.asJava(l.children()), type, inputs, literals, sink,
+              VarkaVectorIR.Least::new), l, sink);
       default -> sink.decline("a decimal operator no arm builds yet: +, - and * are row 349's "
           + "and the rounding functions row 351's, and a quotient or a remainder is no row's in "
           + "this milestone", e);
@@ -193,7 +227,18 @@ final class VarkaDecimalCompiler {
    * declines rather than comparing unscaled values of two scales.
    */
   static Optional<List<VarkaVectorIR>> operands(Expression whole, Expression left,
-      Expression right, VarkaSlotTable inputs, DeclineSink sink) {
+      Expression right, VarkaSlotTable inputs, VarkaSlotTable literals, DeclineSink sink) {
+    sink.enterDecimal();
+    try {
+      return compiledOperands(whole, left, right, inputs, literals, sink);
+    } finally {
+      sink.exitDecimal();
+    }
+  }
+
+  private static Optional<List<VarkaVectorIR>> compiledOperands(Expression whole,
+      Expression left, Expression right, VarkaSlotTable inputs, VarkaSlotTable literals,
+      DeclineSink sink) {
     // A rescale into a wide common type names rows 359 and 360 whichever side carries it, so
     // both sides are read before either declines on its own.
     for (Expression side : List.of(left, right)) {
@@ -202,11 +247,11 @@ final class VarkaDecimalCompiler {
         return sink.decline(wideReason(side, type), side);
       }
     }
-    Optional<Scaled> l = value(left, inputs, sink);
+    Optional<Scaled> l = value(left, inputs, literals, sink);
     if (l.isEmpty()) {
       return Optional.empty();
     }
-    Optional<Scaled> r = value(right, inputs, sink);
+    Optional<Scaled> r = value(right, inputs, literals, sink);
     if (r.isEmpty()) {
       return Optional.empty();
     }
@@ -240,24 +285,278 @@ final class VarkaDecimalCompiler {
   }
 
   /**
-   * The column a null test over a decimal reads, or empty with the reason noted. A widening cast
-   * of the column is null exactly where the column is, so it is the column here too. The test
-   * reads the column's validity word, and the leaf beneath it still loads and checks the slots:
-   * Spark's {@code IS NULL} evaluates its child, which reads a valid row's value through
-   * {@code ArrowColumnVector.getDecimal} and raises on a slot outside the precision, so the
-   * kernel declines that batch as every other reader of the leaf does.
+   * {@code child IS NOT NULL} over a decimal value, or empty with the reason noted: the value is
+   * compiled, so a form no arm builds declines, and its validity is then derived from the leaves
+   * by {@link #valid}, since an IR null test reads a column's word or a condition's known-ness and
+   * never a computed value's word. Every leaf of the value is a leaf of the test, so its slots are
+   * still loaded and checked, on every lane: Spark's {@code IS NULL} evaluates its child, which
+   * reads a valid row's value through {@code ArrowColumnVector.getDecimal} and raises on a slot
+   * outside the precision, and the kernel declines that batch as every other reader of the leaf
+   * does. Spark reads only the slots its evaluation reaches - {@code coalesce} stops at its first
+   * non-null operand, a {@code CASE} evaluates the branch it takes - so the kernel can decline a
+   * batch Spark answers; the row engine then answers it, so the answer stays right
+   * ({@code refinement.smt2}'s query 5 departures name the two forms).
+   *
+   * <p>The value is compiled as a probe, for its declines alone: a choice's condition is not
+   * compiled in it, and what it appended to the tables - its leaves, and its own long literals,
+   * such as a rescale's factor, which the test does not read - is rolled back, so the test holds
+   * {@link #valid}'s leaves and literals in {@link #valid}'s order. Each condition is then
+   * compiled once, by {@link #valid}, and a null test nested in a condition costs its own size
+   * rather than doubling at every level.
    */
-  static Optional<VarkaVectorIR> nullTested(Expression whole, Expression child,
-      VarkaSlotTable inputs, DeclineSink sink) {
-    Expression column = stripWidening(child);
-    if (column instanceof BoundReference br) {
-      if (VarkaTypes.lane(br.dataType()).isEmpty()) {
-        return sink.decline(VarkaTypes.declineReason(br.dataType())
-            .orElse("a decimal column on no lane"), whole);
+  static Optional<Cond> nullTested(Expression child, VarkaSlotTable inputs,
+      VarkaSlotTable literals, DeclineSink sink) {
+    sink.enterDecimal();
+    try {
+      int inputMark = inputs.size();
+      int literalMark = literals.size();
+      int longMark = sink.longMark();
+      boolean wasProbe = sink.decimalProbe(true);
+      Optional<Scaled> probed;
+      try {
+        probed = value(child, inputs, literals, sink);
+      } finally {
+        sink.decimalProbe(wasProbe);
       }
-      return Optional.of(leaf(br, inputs));
+      inputs.truncate(inputMark);
+      literals.truncate(literalMark);
+      sink.truncateLong(longMark);
+      if (probed.isEmpty()) {
+        return Optional.empty();
+      }
+      return valid(child, inputs, literals, sink);
+    } finally {
+      sink.exitDecimal();
     }
-    return sink.decline("a null test over a decimal that is not a column", whole);
+  }
+
+  /**
+   * Where the decimal value {@code e}, which {@link #value} compiles, is not null, as a condition
+   * over its leaves: a column's validity word, through every null-intolerant form over it (a
+   * rescale, a negation, {@code abs}); always for a literal; the choice's condition picking its
+   * branches' validity for {@code If} and {@code CASE}, whose unknown condition takes the ELSE as
+   * {@link VarkaVectorIR.CondIf} does; and any child's for {@code coalesce}, {@code greatest} and
+   * {@code least}, which are null only where every child is. Every condition here is total.
+   */
+  static Optional<Cond> valid(Expression e, VarkaSlotTable inputs, VarkaSlotTable literals,
+      DeclineSink sink) {
+    if (isLiteralTree(e)) {
+      return Optional.of(new CondConst(Truth.TRUE, LaneType.LONG));
+    }
+    return switch (e) {
+      case BoundReference br -> Optional.of(new VarkaVectorIR.IsNotNull(leaf(br, inputs)));
+      case Cast c -> valid(c.child(), inputs, literals, sink);
+      case UnaryMinus m -> valid(m.child(), inputs, literals, sink);
+      case Abs a -> valid(a.child(), inputs, literals, sink);
+      case If i -> condition(i.predicate(), i, inputs, literals, sink).flatMap(k ->
+          valid(i.trueValue(), inputs, literals, sink).flatMap(t ->
+              valid(i.falseValue(), inputs, literals, sink)
+                  .map(f -> (Cond) new VarkaVectorIR.CondIf(k, t, f))));
+      case CaseWhen c when c.elseValue().isDefined() -> {
+        // Compiled in the order value() compiles the choice, branch by branch and the ELSE last,
+        // so that the leaves take their slots in one order, and folded from the right.
+        var conds = new ArrayList<Cond>();
+        var branchesValid = new ArrayList<Cond>();
+        for (Tuple2<Expression, Expression> branch
+            : CollectionConverters.asJava(c.branches())) {
+          Optional<Cond> k = condition(branch._1(), c, inputs, literals, sink);
+          if (k.isEmpty()) {
+            yield Optional.empty();
+          }
+          Optional<Cond> t = valid(branch._2(), inputs, literals, sink);
+          if (t.isEmpty()) {
+            yield Optional.empty();
+          }
+          conds.add(k.get());
+          branchesValid.add(t.get());
+        }
+        Optional<Cond> otherwise = valid(c.elseValue().get(), inputs, literals, sink);
+        if (otherwise.isEmpty()) {
+          yield Optional.empty();
+        }
+        Cond folded = otherwise.get();
+        for (int b = conds.size() - 1; b >= 0; b--) {
+          folded = new VarkaVectorIR.CondIf(conds.get(b), branchesValid.get(b), folded);
+        }
+        yield Optional.of(folded);
+      }
+      case Coalesce c -> anyValid(CollectionConverters.asJava(c.children()), inputs, literals,
+          sink);
+      case Greatest g -> anyValid(CollectionConverters.asJava(g.children()), inputs, literals,
+          sink);
+      case Least l -> anyValid(CollectionConverters.asJava(l.children()), inputs, literals,
+          sink);
+      default -> sink.decline("the validity of a decimal value no arm builds", e);
+    };
+  }
+
+  /** Where some of {@code children} is not null, as a balanced OR of their validity. */
+  private static Optional<Cond> anyValid(List<Expression> children, VarkaSlotTable inputs,
+      VarkaSlotTable literals, DeclineSink sink) {
+    var each = new ArrayList<Cond>();
+    for (Expression child : children) {
+      Optional<Cond> v = valid(child, inputs, literals, sink);
+      if (v.isEmpty()) {
+        return Optional.empty();
+      }
+      each.add(v.get());
+    }
+    return Optional.of(VarkaConditionCompiler.orFold(each));
+  }
+
+  /**
+   * A choice's condition on the long lane, where its values are: a condition over int or narrow
+   * values widens there, and one with no long-lane form, a floating null test, declines. A
+   * condition is compiled once in a call of this class: a {@code coalesce} reads its operand's
+   * conditions for the operand's value and again for its validity, and the second read is the
+   * first's node. Under {@link #nullTested}'s probe no condition is compiled, and a constant
+   * stands in for it.
+   */
+  private static Optional<Cond> condition(Expression predicate, Expression whole,
+      VarkaSlotTable inputs, VarkaSlotTable literals, DeclineSink sink) {
+    if (sink.decimalProbe()) {
+      return Optional.of(new CondConst(Truth.TRUE, LaneType.LONG));
+    }
+    Cond compiled = sink.decimalCondition(predicate);
+    if (compiled != null) {
+      return Optional.of(compiled);
+    }
+    Optional<Cond> cond = VarkaConditionCompiler.compileCond(predicate, inputs, literals, sink);
+    if (cond.isEmpty()) {
+      return cond;
+    }
+    Optional<Cond> lifted = VarkaConditionCompiler.onLongLane(cond.get());
+    if (lifted.isEmpty()) {
+      return sink.decline("a choice of decimals under a condition with no long-lane form", whole);
+    }
+    sink.decimalCondition(predicate, lifted.get());
+    return lifted;
+  }
+
+  /**
+   * {@code IF} and {@code CASE WHEN} with an {@code ELSE}: the right fold of
+   * {@code IfElse(cond, value, rest)} over the branches. After coercion every branch has the
+   * node's type, a branch that was cast carrying its rescale inside, so the branches are of one
+   * scale and pick as their unscaled values (see {@link #branch}).
+   */
+  private static Optional<Scaled> choice(Expression whole, List<Expression> predicates,
+      List<Expression> values, Expression otherwise, DecimalType type, VarkaSlotTable inputs,
+      VarkaSlotTable literals, DeclineSink sink) {
+    var conds = new ArrayList<Cond>();
+    var branches = new ArrayList<VarkaVectorIR>();
+    for (int b = 0; b < predicates.size(); b++) {
+      Optional<Cond> k = condition(predicates.get(b), whole, inputs, literals, sink);
+      if (k.isEmpty()) {
+        return Optional.empty();
+      }
+      Optional<VarkaVectorIR> v = branch(whole, values.get(b), type, inputs, literals, sink);
+      if (v.isEmpty()) {
+        return Optional.empty();
+      }
+      conds.add(k.get());
+      branches.add(v.get());
+    }
+    Optional<VarkaVectorIR> acc = branch(whole, otherwise, type, inputs, literals, sink);
+    if (acc.isEmpty()) {
+      return Optional.empty();
+    }
+    VarkaVectorIR folded = acc.get();
+    for (int b = conds.size() - 1; b >= 0; b--) {
+      folded = new IfElse(conds.get(b), branches.get(b), folded);
+    }
+    return Optional.of(new Scaled(folded, type));
+  }
+
+  /** {@code CASE WHEN}, which needs an {@code ELSE}, as the {@link #choice} of its branches. */
+  private static Optional<Scaled> caseWhen(CaseWhen c, DecimalType type, VarkaSlotTable inputs,
+      VarkaSlotTable literals, DeclineSink sink) {
+    if (c.elseValue().isEmpty()) {
+      return sink.decline("a CASE without an ELSE needs a typed null value, which is row 333's",
+          c);
+    }
+    List<Tuple2<Expression, Expression>> branches = CollectionConverters.asJava(c.branches());
+    var predicates = new ArrayList<Expression>(branches.size());
+    var values = new ArrayList<Expression>(branches.size());
+    for (Tuple2<Expression, Expression> branch : branches) {
+      predicates.add(branch._1());
+      values.add(branch._2());
+    }
+    return choice(c, predicates, values, c.elseValue().get(), type, inputs, literals, sink);
+  }
+
+  /**
+   * {@code coalesce}: the right fold of {@code IfElse(valid(head), head, rest)}, the last child
+   * the end of the fold. {@code nvl} and {@code ifnull} arrive as it.
+   */
+  private static Optional<Scaled> coalesce(Coalesce c, DecimalType type, VarkaSlotTable inputs,
+      VarkaSlotTable literals, DeclineSink sink) {
+    List<Expression> children = CollectionConverters.asJava(c.children());
+    if (children.isEmpty()) {
+      return sink.decline("a coalesce with no operand", c);
+    }
+    var values = new ArrayList<VarkaVectorIR>();
+    var tests = new ArrayList<Cond>();
+    for (int i = 0; i < children.size(); i++) {
+      Optional<VarkaVectorIR> v = branch(c, children.get(i), type, inputs, literals, sink);
+      if (v.isEmpty()) {
+        return Optional.empty();
+      }
+      values.add(v.get());
+      if (i < children.size() - 1) {
+        Optional<Cond> t = valid(children.get(i), inputs, literals, sink);
+        if (t.isEmpty()) {
+          return Optional.empty();
+        }
+        tests.add(t.get());
+      }
+    }
+    VarkaVectorIR folded = values.get(values.size() - 1);
+    for (int i = tests.size() - 1; i >= 0; i--) {
+      folded = new IfElse(tests.get(i), values.get(i), folded);
+    }
+    return Optional.of(new Scaled(folded, type));
+  }
+
+  /**
+   * {@code greatest} and {@code least}: the null-skipping picks folded from the left, which order
+   * unscaled values of one scale as Spark's ordering orders the values.
+   */
+  private static Optional<Scaled> pick(Expression whole, List<Expression> children,
+      DecimalType type, VarkaSlotTable inputs, VarkaSlotTable literals, DeclineSink sink,
+      BinaryOperator<VarkaVectorIR> combine) {
+    VarkaVectorIR folded = null;
+    for (Expression child : children) {
+      Optional<VarkaVectorIR> v = branch(whole, child, type, inputs, literals, sink);
+      if (v.isEmpty()) {
+        return Optional.empty();
+      }
+      folded = folded == null ? v.get() : combine.apply(folded, v.get());
+    }
+    if (folded == null) {
+      return sink.decline("a pick with no operand", whole);
+    }
+    return Optional.of(new Scaled(folded, type));
+  }
+
+  /**
+   * One branch of a choice, of the choice's scale, or empty with the reason noted. Every branch
+   * has the node's type, precision included, in any tree that has a type at all: {@code If},
+   * {@code CaseWhen}, {@code Coalesce}, {@code Greatest} and {@code Least} are
+   * {@code ComplexTypeMergingExpression}s, whose {@code dataType} throws on branches of two types,
+   * and a branch's {@link Scaled} is of its expression's type. So the bound
+   * {@code |u| <= 10^P - 1} that a rescale over the choice relies on holds of every branch; the
+   * scale check is a guard against a value arm returning another type, not a tree Spark builds.
+   */
+  private static Optional<VarkaVectorIR> branch(Expression whole, Expression e,
+      DecimalType type, VarkaSlotTable inputs, VarkaSlotTable literals, DeclineSink sink) {
+    Optional<Scaled> v = value(e, inputs, literals, sink);
+    if (v.isEmpty()) {
+      return Optional.empty();
+    }
+    if (v.get().type().scale() != type.scale()) {
+      return sink.decline("a choice of decimals of two scales with no cast to one", whole);
+    }
+    return Optional.of(v.get().unscaled());
   }
 
   /**
@@ -282,10 +581,10 @@ final class VarkaDecimalCompiler {
    * lower the scale ({@code S >= s}), since {@code changePrecision} then multiplies by
    * {@code 10^(S - s)} and its precision check passes; within 18 digits that is
    * {@link #rescale}. Such a cast is the only one type coercion puts over a decimal operand of a
-   * comparison within 18 digits, so every other cast declines naming its row.
+   * comparison or a choice within 18 digits, so every other cast declines naming its row.
    */
   private static Optional<Scaled> cast(Cast c, DecimalType to, VarkaSlotTable inputs,
-      DeclineSink sink) {
+      VarkaSlotTable literals, DeclineSink sink) {
     if (!(c.child().dataType() instanceof DecimalType from)) {
       return sink.decline("a cast from " + c.child().dataType().simpleString()
           + " to a decimal is row 350's", c);
@@ -295,7 +594,7 @@ final class VarkaDecimalCompiler {
       return sink.decline("a decimal cast that lowers the scale or the integral digits rounds "
           + "or can overflow, and is row 350's", c);
     }
-    return value(c.child(), inputs, sink)
+    return value(c.child(), inputs, literals, sink)
         .map(x -> new Scaled(rescale(x, k, sink).unscaled(), to));
   }
 
@@ -303,20 +602,6 @@ final class VarkaDecimalCompiler {
   private static DecimalColumn leaf(BoundReference br, VarkaSlotTable inputs) {
     int precision = ((DecimalType) br.dataType()).precision();
     return new DecimalColumn(inputs.intern(br.ordinal()), LaneType.LONG, precision);
-  }
-
-  /**
-   * {@code e} without the casts over it that keep its scale and widen its precision: each is the
-   * identity on the unscaled value, and none can fail, in any mode.
-   */
-  private static Expression stripWidening(Expression e) {
-    Expression at = e;
-    while (at instanceof Cast c && c.dataType() instanceof DecimalType to
-        && c.child().dataType() instanceof DecimalType from
-        && to.scale() == from.scale() && to.precision() >= from.precision()) {
-      at = c.child();
-    }
-    return at;
   }
 
   /** Whether {@code e} is a literal under zero or more casts, so evaluating it reads nothing. */
