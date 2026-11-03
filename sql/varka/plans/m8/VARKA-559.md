@@ -157,10 +157,8 @@ object through it; no chain here reaches one.
   lanes, through `VarkaKernelPlan.of`, `admit`, `lanesIn`, `narrowValuesIn`,
   `needsNarrowSpecies` and `fitsBudgets` within 20 s: a per-path walk could not finish, a
   per-node one takes milliseconds, so the bound decides it without timing anything close.
-- Nested `signum`, interval `abs` and interval division, 20 levels, through `explainPredicate`
-  within 20 s and not fused: master's three sharing lowerings of 2.1, at a depth whose
-  per-path planning would take far longer. The decline's reason is not asserted, so that an
-  option matrix configuration declining the chain earlier for another reason still passes.
+- Master's three sharing lowerings of 2.1 nested 20 deep explain within 20 s, not fused; the
+  reason is not asserted, so a matrix configuration that declines them earlier still passes.
 - The same chain built twice to depth 10: equal, equal hashes, and the union of their nodes in a
   structural set grows by exactly four a level - structurally equal nodes still collapse.
 - By reflection over the sealed IR: every record with a node child has `int hash` last and
@@ -197,9 +195,8 @@ byte master's, so no shape's bytes moved.
 
 ## 8. Done when
 
-- the chains of 2.1 explain at depth 20 in milliseconds, each with the verdict it had before;
-- the tests of 5 pass;
-- `dev/varka_regen_generated.sh --all` changes no generated file.
+The chains of 2.1 explain at depth 20 in milliseconds with the verdicts they had, the tests of 5
+pass, and `dev/varka_regen_generated.sh --all` changes no generated file.
 
 ## 9. Outcome
 

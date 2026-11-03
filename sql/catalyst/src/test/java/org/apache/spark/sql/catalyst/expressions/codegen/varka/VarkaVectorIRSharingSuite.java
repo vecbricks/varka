@@ -26,8 +26,10 @@ import java.lang.reflect.RecordComponent;
 import java.time.Duration;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.IdentityHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 
@@ -226,47 +228,29 @@ public final class VarkaVectorIRSharingSuite {
    * A node of {@code type} over leaves, built by reflection as
    * {@code VarkaIrFuzzSuite.admitsLongLanes} builds one: the leaves on each lane in turn and each
    * enum component on each of its constants, until the constructor accepts, so a node type added
-   * to the IR is built here without anyone editing this file. The one exception is
-   * {@code BoundedDivide}, whose constructor checks a pair it derives from its other numbers.
+   * to the IR is built here without anyone editing this file. {@code BoundedDivide} is built by
+   * hand: its constructor checks a pair it derives from its other numbers.
    */
   private static VarkaVectorIR anyNodeOf(Class<?> type) throws ReflectiveOperationException {
     if (type == BoundedDivide.class) {
       return BoundedDivide.of(new ColumnRef(0, LaneType.INT), 3, 10);
     }
     RecordComponent[] components = type.getRecordComponents();
-    Class<?>[] signature = new Class<?>[components.length];
-    int choices = 1;
-    for (int i = 0; i < components.length; i++) {
-      signature[i] = components[i].getType();
-      if (signature[i].isEnum()) {
-        choices = Math.max(choices, signature[i].getEnumConstants().length);
-      }
-    }
+    Class<?>[] signature =
+        Arrays.stream(components).map(RecordComponent::getType).toArray(n -> new Class<?>[n]);
+    Map<Class<?>, Object> fixed = Map.of(long.class, 1L, int.class, 1, boolean.class, false,
+        List.class, List.of(1, 2));
     for (LaneType lane : LaneType.values()) {
       VarkaVectorIR column = new ColumnRef(0, lane);
-      for (int k = 0; k < choices; k++) {
+      for (int k = 0; k < 6; k++) { // six: the constants of the IR's largest enum
         Object[] args = new Object[components.length];
         for (int i = 0; i < components.length; i++) {
           Class<?> t = signature[i];
-          if (t == Cond.class) {
-            args[i] = new Compare(CompareOp.LT, column, column);
-          } else if (VarkaVectorIR.class.isAssignableFrom(t)) {
-            args[i] = column;
-          } else if (t == long.class) {
-            args[i] = 1L;
-          } else if (t == int.class) {
-            args[i] = 1;
-          } else if (t == boolean.class) {
-            args[i] = false;
-          } else if (t.isEnum()) {
-            Object[] constants = t.getEnumConstants();
-            args[i] = constants[k % constants.length];
-          } else if (t == List.class) {
-            args[i] = List.of(1, 2);
-          } else {
-            throw new AssertionError(type.getSimpleName() + "." + components[i].getName()
-                + " has a component type this test cannot build: " + t.getName());
-          }
+          args[i] = t == Cond.class ? new Compare(CompareOp.LT, column, column)
+              : VarkaVectorIR.class.isAssignableFrom(t) ? column
+              : t.isEnum() ? t.getEnumConstants()[k % t.getEnumConstants().length]
+              : Objects.requireNonNull(fixed.get(t), type.getSimpleName() + "."
+                  + components[i].getName() + ": a component type this test cannot build");
         }
         try {
           return (VarkaVectorIR) type.getDeclaredConstructor(signature).newInstance(args);
