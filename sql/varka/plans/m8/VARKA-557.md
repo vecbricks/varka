@@ -256,13 +256,13 @@ longest single tests were 348 and 293 seconds (`VarkaSeveralKernelsSuite`'s eigh
 
 **The price on CI.** The committed weights (`sql/varka/ci/suite-times.tsv`) put these suites at
 1373 runner seconds against the laptop's 613 at the defaults, 2.2 times; each suite's weight
-scaled by its laptop ratio gives about 6400 runner seconds a configuration. Over two jobs of two
-JVMs each that is about 27 minutes of suites a job, the share holding `VarkaCoverageHarnessSuite`
-(about 36 minutes alone at its ratio) the longest: under the 90-minute cap with room for a runner
-twice as slow. So `--split 2` in two jobs a configuration, eight jobs four at a time, about 100
-minutes of wall time with the build. One job a configuration would run about 53 minutes of
-suites, too close to the cap for the runners' spread (a suite's time moves up to 3.38 times
-between two Builds, `results/VARKA-516-weights.txt`).
+scaled by its laptop ratio gives about 6400 runner seconds a configuration. Split as the job
+splits it (`dev/varka_suite_shards.py --job` over the committed weights, then `--split 2`), the
+share holding `VarkaCoverageHarnessSuite` and `VarkaSeveralKernelsSuite` runs two JVMs of about
+36 minutes each, the other two of about 18: under the 90-minute cap with room for a runner twice
+as slow. So two jobs a configuration, eight jobs four at a time. One job a configuration would
+run about 53 minutes of suites, too close to the cap for the runners' spread (a suite's time
+moves up to 3.38 times between two Builds, `results/VARKA-516-weights.txt`).
 
 **What failed, and the skip list.** One test, by design: `VarkaProjectExecSuite`'s "the
 allocation sampler events every sampled batch, and the samples go clean once C2 has the loop",
