@@ -93,8 +93,10 @@ public final class VarkaReference {
       case DecimalColumn c ->
           throw new IllegalArgumentException("a decimal column is on the long lane: " + c);
       case LiteralSlot l -> OptionalInt.of(lits[l.index()]);
-      case AddDays(var days, var offset) -> both(days, offset, row, isNull, lits, (d, o) -> d + o);
-      case SubDays(var days, var offset) -> both(days, offset, row, isNull, lits, (d, o) -> d - o);
+      case AddDays(var days, var offset, _) ->
+          both(days, offset, row, isNull, lits, (d, o) -> d + o);
+      case SubDays(var days, var offset, _) ->
+          both(days, offset, row, isNull, lits, (d, o) -> d - o);
       // VARKA-93's range check is a status report, not a value change: the reference has no
       // notion of a declined batch, and a lane the guard would report is one the kernel does not
       // answer at all, so the differential never compares against it. The value passes through.
@@ -131,7 +133,7 @@ public final class VarkaReference {
               v -> (int) convert(n.child().laneType(), n.target(), v));
       case ConvertLane n -> throw new IllegalArgumentException(
           "a conversion is evaluated through mixedValue: " + n);
-      case DateDiff(var end, var start) -> both(end, start, row, isNull, lits, (e, s) -> e - s);
+      case DateDiff(var end, var start, _) -> both(end, start, row, isNull, lits, (e, s) -> e - s);
       case DayOfWeek n -> map(n.days(), row, isNull, lits, v -> (Math.floorMod(v, 7) + 4) % 7 + 1);
       case WeekDay n -> map(n.days(), row, isNull, lits, v -> (Math.floorMod(v, 7) + 3) % 7);
       // The definition: Spark's own weekday plus one, not the emitter's offset arithmetic.
@@ -139,7 +141,7 @@ public final class VarkaReference {
       // The oracle is Spark's own getNextDateForDayOfWeek, quoted directly, not the lowering:
       // Java's int arithmetic wraps exactly as the lanes do, so this is exact even at
       // Integer.MIN_VALUE, and it is byte-for-byte what the row engine evaluates.
-      case NextDay(var days, var offset) ->
+      case NextDay(var days, var offset, _) ->
           both(days, offset, row, isNull, lits, (d, k) -> d + 1 + Math.floorMod(k - d, 7));
       // The Thursday of the day's ISO (Monday-based) week, by java.time's own adjuster - not
       // d + 3 - weekday0, which is what the emitter computes.
@@ -149,7 +151,7 @@ public final class VarkaReference {
       // The oracle is DateTimeUtils.dateAddMonths - the definition AddMonthsBase's nullSafeEval
       // calls - not VarkaChrono.daysFromCivil, which is the model this node's own arithmetic was
       // derived from and checked against; using it here would test the lowering against itself.
-      case AddMonths(var days, var months) ->
+      case AddMonths(var days, var months, _) ->
           both(days, months, row, isNull, lits, DateTimeUtils::dateAddMonths);
       case MakeDate m -> makeDate(m, row, isNull, lits);
       case IntArith n when n.laneType() == LaneType.FLOAT -> floatArith(n, row, isNull, lits);
@@ -198,17 +200,17 @@ public final class VarkaReference {
       case BitCount n -> map(n.child(), row, isNull, lits, v -> Long.bitCount((long) v));
       // At the FLOAT lane by Spark's ordering, the first of two equal operands kept: the bits of
       // `greatest(-0.0, 0.0)` are -0.0's, and of two NaNs the first's.
-      case Greatest(var left, var right) when node.laneType() == LaneType.FLOAT ->
+      case Greatest(var left, var right, _) when node.laneType() == LaneType.FLOAT ->
           pick(value(left, row, isNull, lits), value(right, row, isNull, lits),
               (a, b) -> compareFloatBits(b, a) > 0 ? b : a);
-      case Least(var left, var right) when node.laneType() == LaneType.FLOAT ->
+      case Least(var left, var right, _) when node.laneType() == LaneType.FLOAT ->
           pick(value(left, row, isNull, lits), value(right, row, isNull, lits),
               (a, b) -> compareFloatBits(b, a) < 0 ? b : a);
-      case Greatest(var left, var right) ->
+      case Greatest(var left, var right, _) ->
           pick(value(left, row, isNull, lits), value(right, row, isNull, lits), Math::max);
-      case Least(var left, var right) ->
+      case Least(var left, var right, _) ->
           pick(value(left, row, isNull, lits), value(right, row, isNull, lits), Math::min);
-      case IfElse(var c, var thenNode, var elseNode) -> cond(c, row, isNull, lits).isTrue()
+      case IfElse(var c, var thenNode, var elseNode, _) -> cond(c, row, isNull, lits).isTrue()
           ? value(thenNode, row, isNull, lits) : value(elseNode, row, isNull, lits);
       // CAST(c AS INT): null where the condition is unknown, unlike IF(c, 1, 0).
       case CondValue n -> switch (cond(n.cond(), row, isNull, lits)) {
@@ -260,7 +262,7 @@ public final class VarkaReference {
       // The same definition over the level lane (VARKA-61). The leaf hands the kernel no code
       // outside the four date levels - anything else is a null lane - so a live lane with one is
       // not a shape the kernel is ever asked, and truncDate's throw on it is the right answer.
-      case TruncDateDynamic(var days, var level) ->
+      case TruncDateDynamic(var days, var level, _) ->
           both(days, level, row, isNull, lits, DateTimeUtils::truncDate);
       // The definition (what DateTimeUtils.getWeekOfYear calls), over whatever the child is; it
       // agrees with the emitter's (doy - 1) / 7 + 1 exactly because the child is a Thursday,
@@ -396,7 +398,7 @@ public final class VarkaReference {
   /** Kleene three-valued logic over the int lane. */
   public static Truth cond(Cond cond, int[] row, boolean[] isNull, int[] lits) {
     return switch (cond) {
-      case Compare(var op, var left, var right) -> {
+      case Compare(var op, var left, var right, _) -> {
         var l = value(left, row, isNull, lits);
         if (l.isEmpty()) {
           yield Truth.UNKNOWN;
@@ -411,7 +413,7 @@ public final class VarkaReference {
       }
       // Written from the meaning of `<=>`, not from the emitted formula: two nulls are equal, a
       // null and a value are not, two values are equal when they are. Never unknown.
-      case NullSafeEqual(var left, var right) -> {
+      case NullSafeEqual(var left, var right, _) -> {
         var l = value(left, row, isNull, lits);
         var r = value(right, row, isNull, lits);
         yield Truth.of(l.isEmpty() || r.isEmpty()
@@ -424,21 +426,21 @@ public final class VarkaReference {
       // bit under a null stays out of the answer by construction here, as in the kernel.
       case BoolColumn n -> isNull[n.ordinal()] ? Truth.UNKNOWN : Truth.of(row[n.ordinal()] != 0);
       case CondConst n -> constant(n);
-      case BoolCompare(var op, var left, var right) -> boolCompare(op,
+      case BoolCompare(var op, var left, var right, _) -> boolCompare(op,
           cond(left, row, isNull, lits), cond(right, row, isNull, lits));
       // Written from the meaning of `<=>`: equal when both unknown or both the same value.
-      case BoolNullSafeEq(var left, var right) ->
+      case BoolNullSafeEq(var left, var right, _) ->
           Truth.of(cond(left, row, isNull, lits) == cond(right, row, isNull, lits));
-      case CondIf(var c, var t, var e) ->
+      case CondIf(var c, var t, var e, _) ->
           cond(c, row, isNull, lits).isTrue() ? cond(t, row, isNull, lits)
               : cond(e, row, isNull, lits);
-      case And(var left, var right) ->
+      case And(var left, var right, _) ->
           and(cond(left, row, isNull, lits), cond(right, row, isNull, lits));
-      case Or(var left, var right) ->
+      case Or(var left, var right, _) ->
           or(cond(left, row, isNull, lits), cond(right, row, isNull, lits));
       case Not n -> not(cond(n.child(), row, isNull, lits));
       // Written from the node's meaning, not from its emission: some range contains the value.
-      case InRanges(var child, var bounds) -> {
+      case InRanges(var child, var bounds, _) -> {
         var v = value(child, row, isNull, lits);
         yield v.isEmpty() ? Truth.UNKNOWN : Truth.of(inRanges(v.getAsInt(), bounds));
       }
@@ -536,18 +538,18 @@ public final class VarkaReference {
       case ConvertLane n -> throw new IllegalArgumentException(
           "a conversion is evaluated through mixedValue: " + n);
       // At the DOUBLE lane by Spark's ordering, the first of two equal operands kept.
-      case Greatest(var left, var right) when node.laneType() == LaneType.DOUBLE ->
+      case Greatest(var left, var right, _) when node.laneType() == LaneType.DOUBLE ->
           pick(longValue(left, row, isNull, lits), longValue(right, row, isNull, lits),
               (a, b) -> compareDoubleBits(b, a) > 0 ? b : a);
-      case Least(var left, var right) when node.laneType() == LaneType.DOUBLE ->
+      case Least(var left, var right, _) when node.laneType() == LaneType.DOUBLE ->
           pick(longValue(left, row, isNull, lits), longValue(right, row, isNull, lits),
               (a, b) -> compareDoubleBits(b, a) < 0 ? b : a);
-      case Greatest(var left, var right) ->
+      case Greatest(var left, var right, _) ->
           pick(longValue(left, row, isNull, lits), longValue(right, row, isNull, lits), Math::max);
-      case Least(var left, var right) ->
+      case Least(var left, var right, _) ->
           pick(longValue(left, row, isNull, lits), longValue(right, row, isNull, lits), Math::min);
       // Unknown takes the else branch, as at the int lane and as CASE WHEN does.
-      case IfElse(var c, var thenNode, var elseNode) -> longCond(c, row, isNull, lits).isTrue()
+      case IfElse(var c, var thenNode, var elseNode, _) -> longCond(c, row, isNull, lits).isTrue()
           ? longValue(thenNode, row, isNull, lits) : longValue(elseNode, row, isNull, lits);
       case CondValue n -> switch (longCond(n.cond(), row, isNull, lits)) {
         case TRUE -> OptionalLong.of(1);
@@ -717,7 +719,7 @@ public final class VarkaReference {
   /** {@link #cond}'s counterpart over long lanes, for the conditions the same subset ships. */
   public static Truth longCond(Cond cond, long[] row, boolean[] isNull, long[] lits) {
     return switch (cond) {
-      case Compare(var op, var left, var right) -> {
+      case Compare(var op, var left, var right, _) -> {
         var l = longValue(left, row, isNull, lits);
         if (l.isEmpty()) {
           yield Truth.UNKNOWN;
@@ -730,7 +732,7 @@ public final class VarkaReference {
             ? ordered(op, compareDoubleBits(l.getAsLong(), r.getAsLong()))
             : compare(op, l.getAsLong(), r.getAsLong()));
       }
-      case NullSafeEqual(var left, var right) -> {
+      case NullSafeEqual(var left, var right, _) -> {
         var l = longValue(left, row, isNull, lits);
         var r = longValue(right, row, isNull, lits);
         yield Truth.of(l.isEmpty() || r.isEmpty()
@@ -741,16 +743,16 @@ public final class VarkaReference {
       }
       case BoolColumn n -> isNull[n.ordinal()] ? Truth.UNKNOWN : Truth.of(row[n.ordinal()] != 0);
       case CondConst n -> constant(n);
-      case BoolCompare(var op, var left, var right) -> boolCompare(op,
+      case BoolCompare(var op, var left, var right, _) -> boolCompare(op,
           longCond(left, row, isNull, lits), longCond(right, row, isNull, lits));
-      case BoolNullSafeEq(var left, var right) ->
+      case BoolNullSafeEq(var left, var right, _) ->
           Truth.of(longCond(left, row, isNull, lits) == longCond(right, row, isNull, lits));
-      case CondIf(var c, var t, var e) ->
+      case CondIf(var c, var t, var e, _) ->
           longCond(c, row, isNull, lits).isTrue() ? longCond(t, row, isNull, lits)
               : longCond(e, row, isNull, lits);
-      case And(var left, var right) ->
+      case And(var left, var right, _) ->
           and(longCond(left, row, isNull, lits), longCond(right, row, isNull, lits));
-      case Or(var left, var right) ->
+      case Or(var left, var right, _) ->
           or(longCond(left, row, isNull, lits), longCond(right, row, isNull, lits));
       case Not n -> not(longCond(n.child(), row, isNull, lits));
       case IsNotNull n -> n.child() instanceof Cond c
