@@ -930,7 +930,8 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `d9 <=> d9s4` | `predicate` |  |  | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL up to 18 digits), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
 | `d16s9 >= d9s4` | `predicate` |  | at DECIMAL(16, 9): d9s4 times 10^5 | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL up to 18 digits), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
 | `d18 > 1.5` | `predicate` |  | the literal takes its slot at the column's scale, 150 | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL up to 18 digits), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
-| `d9 < 0.425` | `predicate` |  | at DECIMAL(10, 3): the column times 10, the literal 425 | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL up to 18 digits), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
+| `d9 < 0.425` | `predicate` |  | in the analyzed form at DECIMAL(10, 3), the column times 10 against 425; the optimizer folds it to d9 < 0.43, of one scale | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL up to 18 digits), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
+| `d9 < 10000000.0125` | `predicate` |  | at DECIMAL(12, 4): the column times 100 against 100000000125, kept end to end since the literal does not fit d9's type | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL up to 18 digits), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
 
 #### Time arithmetic
 
@@ -971,7 +972,7 @@ operands (a row counts once for each type it reads):
 | `bool` | 27 | 0 | 0 | 13 | 0 | 14 |
 | `byte` | 30 | 0 | 0 | 0 | 8 | 22 |
 | `date` | 101 | 17 | 0 | 1 | 0 | 83 |
-| `dec` | 23 | 6 | 0 | 0 | 0 | 17 |
+| `dec` | 24 | 7 | 0 | 0 | 0 | 17 |
 | `double` | 37 | 0 | 0 | 0 | 0 | 37 |
 | `dt` | 25 | 2 | 0 | 0 | 0 | 23 |
 | `float` | 29 | 0 | 0 | 0 | 0 | 29 |

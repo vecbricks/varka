@@ -3433,7 +3433,7 @@
 (pop 1)
 
 ; -----------------------------------------------------------------------------------------------
-; STANDARD.md 4.1, 4.2, 4.5, 4.8, 4.9 and EXTENSIONS.md 3: the 64-bit decimal
+; STANDARD.md 4.1 and 4.2: the 64-bit decimal's comparisons
 ; -----------------------------------------------------------------------------------------------
 
 (echo "d9 < d9s4, Spark mode: at DECIMAL(11, 4), d9 times 100: 1. the precondition admits a valid lane the specification defines and the kernel answers: expect sat")
@@ -3756,7 +3756,7 @@
 (check-sat)
 (pop 1)
 
-(echo "d9 < 0.425, Spark mode: at DECIMAL(10, 3), the column times 10 and the literal 425: 1. the precondition admits a valid lane the specification defines and the kernel answers: expect sat")
+(echo "d9 < 0.425, Spark mode: in the analyzed form at DECIMAL(10, 3), the column times 10 and the literal 425: 1. the precondition admits a valid lane the specification defines and the kernel answers: expect sat")
 (push 1)
 (declare-const a Int) (declare-const va Bool)
 (assert (jlong.in a))
@@ -3768,7 +3768,7 @@
 (check-sat)
 (pop 1)
 
-(echo "d9 < 0.425, Spark mode: at DECIMAL(10, 3), the column times 10 and the literal 425: 2. a decline wherever the specification raises: expect unsat")
+(echo "d9 < 0.425, Spark mode: in the analyzed form at DECIMAL(10, 3), the column times 10 and the literal 425: 2. a decline wherever the specification raises: expect unsat")
 (push 1)
 (declare-const a Int) (declare-const va Bool)
 (assert (jlong.in a))
@@ -3778,7 +3778,7 @@
 (check-sat)
 (pop 1)
 
-(echo "d9 < 0.425, Spark mode: at DECIMAL(10, 3), the column times 10 and the literal 425: 3. the validity equal where neither raises nor declines: expect unsat")
+(echo "d9 < 0.425, Spark mode: in the analyzed form at DECIMAL(10, 3), the column times 10 and the literal 425: 3. the validity equal where neither raises nor declines: expect unsat")
 (push 1)
 (declare-const a Int) (declare-const va Bool)
 (assert (jlong.in a))
@@ -3789,7 +3789,7 @@
 (check-sat)
 (pop 1)
 
-(echo "d9 < 0.425, Spark mode: at DECIMAL(10, 3), the column times 10 and the literal 425: 4. the values equal on valid lanes: expect unsat")
+(echo "d9 < 0.425, Spark mode: in the analyzed form at DECIMAL(10, 3), the column times 10 and the literal 425: 4. the values equal on valid lanes: expect unsat")
 (push 1)
 (declare-const a Int) (declare-const va Bool)
 (assert (jlong.in a))
@@ -3801,7 +3801,63 @@
 (check-sat)
 (pop 1)
 
-(echo "d9 < 0.425, Spark mode: at DECIMAL(10, 3), the column times 10 and the literal 425: 5. a decline only where the specification raises or the input leaves the bound: expect unsat")
+(echo "d9 < 0.425, Spark mode: in the analyzed form at DECIMAL(10, 3), the column times 10 and the literal 425: 5. a decline only where the specification raises or the input leaves the bound: expect unsat")
+(push 1)
+(declare-const a Int) (declare-const va Bool)
+(assert (jlong.in a))
+(assert true)
+(assert true)
+(assert (and va (> (abs a) 999999999)))
+(assert (not (and va (> (abs a) 999999999))))
+(check-sat)
+(pop 1)
+
+(echo "d9 < 10000000.0125, Spark mode: at DECIMAL(12, 4), the column times 100 and the literal 100000000125: 1. the precondition admits a valid lane the specification defines and the kernel answers: expect sat")
+(push 1)
+(declare-const a Int) (declare-const va Bool)
+(assert (jlong.in a))
+(assert true)
+(assert true)
+(assert va)
+(assert (not (and va (> (abs a) 999999999))))
+(assert (not (and va (> (abs a) 999999999))))
+(check-sat)
+(pop 1)
+
+(echo "d9 < 10000000.0125, Spark mode: at DECIMAL(12, 4), the column times 100 and the literal 100000000125: 2. a decline wherever the specification raises: expect unsat")
+(push 1)
+(declare-const a Int) (declare-const va Bool)
+(assert (jlong.in a))
+(assert true)
+(assert (and va (> (abs a) 999999999)))
+(assert (not (and va (> (abs a) 999999999))))
+(check-sat)
+(pop 1)
+
+(echo "d9 < 10000000.0125, Spark mode: at DECIMAL(12, 4), the column times 100 and the literal 100000000125: 3. the validity equal where neither raises nor declines: expect unsat")
+(push 1)
+(declare-const a Int) (declare-const va Bool)
+(assert (jlong.in a))
+(assert true)
+(assert (not (and va (> (abs a) 999999999))))
+(assert (not (and va (> (abs a) 999999999))))
+(assert (not (= va va)))
+(check-sat)
+(pop 1)
+
+(echo "d9 < 10000000.0125, Spark mode: at DECIMAL(12, 4), the column times 100 and the literal 100000000125: 4. the values equal on valid lanes: expect unsat")
+(push 1)
+(declare-const a Int) (declare-const va Bool)
+(assert (jlong.in a))
+(assert true)
+(assert (not (and va (> (abs a) 999999999))))
+(assert (not (and va (> (abs a) 999999999))))
+(assert va)
+(assert (not (= (< (jlong.mul a 100) 100000000125) (< (* a 10000) (* 100000000125 100)))))
+(check-sat)
+(pop 1)
+
+(echo "d9 < 10000000.0125, Spark mode: at DECIMAL(12, 4), the column times 100 and the literal 100000000125: 5. a decline only where the specification raises or the input leaves the bound: expect unsat")
 (push 1)
 (declare-const a Int) (declare-const va Bool)
 (assert (jlong.in a))

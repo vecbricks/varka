@@ -5587,8 +5587,20 @@
     "operands" : [ "Cast:dec", "LessThan:dec" ],
     "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
     "domain" : "",
-    "note" : "at DECIMAL(10, 3): the column times 10, the literal 425",
+    "note" : "in the analyzed form at DECIMAL(10, 3), the column times 10 against 425; the optimizer folds it to d9 < 0.43, of one scale",
     "verified" : "refinement: d9 < 0.425"
+  }, {
+    "sql" : "d9 < 10000000.0125",
+    "executable" : "d9 < 10000000.0125",
+    "family" : "DECIMAL columns",
+    "form" : "predicate",
+    "catalyst" : [ "Cast", "LessThan" ],
+    "casts" : [ "dec>dec:ansi" ],
+    "operands" : [ "Cast:dec", "LessThan:dec" ],
+    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
+    "domain" : "",
+    "note" : "at DECIMAL(12, 4): the column times 100 against 100000000125, kept end to end since the literal does not fit d9's type",
+    "verified" : "refinement: d9 < 10000000.0125"
   }, {
     "sql" : "t - t2",
     "executable" : "t - t2",
