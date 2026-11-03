@@ -533,7 +533,8 @@ Cut from #1303's final tree, without its `BIGINT` conversions (343a4), sweeps an
      without a baked count is not built, so that line stays.
 
   Each was run again on the laptop through `dev/varka_matrix.sh` under its configuration and
-  passed; the second also failed there first, with the three suites in the shared JVM.
+  passed; the second also failed there first under `lanesOverride=4`, with the three suites in
+  the shared JVM (at 16, the laptop's preferred width, no second species is named).
 - **Prediction 4.1** holds for this part: `emitted_bytes.json` gains the fourteen new rows'
   shapes at both widths and moves the `option_arms` digests, and no committed shape's bytes move.
 
