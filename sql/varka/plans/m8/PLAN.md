@@ -1809,3 +1809,15 @@ never deleted.
   it: rename the arithmetic class's two, which costs nothing while its results files are still to
   come from the runner; after that, a rename means regenerating them at both widths in one run,
   since a title is the key the diff tools match on.
+
+**In the test tooling (the test-speed work, rows 508 and 509)**
+
+* **`-z` and `-t` do not filter a JUnit suite's dynamic tests.** `VarkaSuiteRunner` passes them
+  to JUnit as a `PostDiscoveryFilter`, which sees a `@TestFactory` as a container and keeps it, so
+  every dynamic test runs whatever the filter: a filtered run of `VarkaCoverageHarnessSuite`, whose
+  rows are dynamic tests, is a full run (`VARKA-557.md` 8.1, where `-z "Floating arithmetic"`
+  dropped only the suite's eleven `@Test` methods). It costs time on every narrowed laptop or
+  matrix run of such a suite, and reads as a narrow run that was not. Closing it: match the
+  filter against each dynamic test's display name as it is reported (a listener that cancels
+  the rest, or the factory reading the filter), with a test that a filtered run of a factory
+  suite runs only its matching rows.

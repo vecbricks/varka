@@ -90,11 +90,10 @@ jobs:
       run: |
         ./dev/varka_matrix.sh --build-only --sbt-arg -Phive --module sql \
           --out target/varka-matrix
-    # One job per configuration and share: SHARES jobs split the suites by their committed times
-    # (dev/varka_suite_shards.py --job), each running two JVMs on the runner's four cores. The
-    # dearest configuration prices at about 6400 runner seconds of suites: the longer of two
-    # shares takes 36 to 61 minutes, as its two JVMs split it, where one share would take a JVM
-    # 53 minutes on average and more in the worst case, of the 90 allowed (VARKA-557.md 8.2).
+    # One job per configuration and share: SHARES jobs split the suites by their times under the
+    # dearest configuration (sql/varka/ci/tier-split/suite-times.tsv, dev/varka_suite_shards.py
+    # --job), each running two JVMs on the runner's four cores, balanced by the same times. They
+    # price a share at about 28 and 25 minutes, of the 90 allowed (VARKA-557.md 8.4).
     - name: Plan the jobs
       id: plan
       env:
@@ -169,13 +168,23 @@ jobs:
         SHARE: ${{ matrix.share }}
       run: |
         set -o pipefail
-        mapfile -t all < <(./dev/varka_matrix.sh --defaults --list-suites --module sql \
-          | sed 's/^@own //')
-        mine=$(python3 dev/varka_suite_shards.py --job "$SHARE" sql/varka/ci/suite-times.tsv \
-          "${all[@]}" | sed 's/.*\.//' | paste -sd, -)
+        weights=sql/varka/ci/tier-split/suite-times.tsv
+        # Each step captured and checked: an empty share would be `--suites ""`, every suite.
+        listed=$(./dev/varka_matrix.sh --defaults --list-suites --module sql) \
+          || { echo "could not list the sql suites" >&2; exit 1; }
+        mapfile -t all <<< "${listed//@own /}"
+        mine=$(python3 dev/varka_suite_shards.py --job "$SHARE" "$weights" "${all[@]}" \
+          | sed 's/.*\.//' | paste -sd, -) \
+          || { echo "could not split the suites for share $SHARE" >&2; exit 1; }
+        [ -n "$mine" ] || { echo "share $SHARE of ${#all[@]} suites is empty" >&2; exit 1; }
         echo "== share $SHARE: $mine"
+        status=0
         python3 dev/varka_tier_split.py run "$CONFIG" --skip-build --build-dir target/varka-matrix \
-          --out target/tier-split --split 2 -j 2 --suites "$mine" | tee target/tier-split.txt
+          --out target/tier-split --split 2 -j 2 --suites "$mine" | tee target/tier-split.txt \
+          || status=$?
+        # A suite far off its weight is a warning, so the shares do not drift out of balance unseen.
+        python3 dev/varka_suite_shards.py --check-weights "$weights" target/tier-split/runs
+        exit "$status"
     # The split is shown by its effect, since the test JVMs ignore an option they do not know:
     # the compiles the directives print and the batches the check compared.
     - name: Check the split took effect

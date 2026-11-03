@@ -115,7 +115,9 @@ issue are its own:
 
 - one build job (`dev/varka_matrix.sh --build-only`, packed by `dev/varka_matrix_archive.sh`, as
   the option matrix does), then one job per configuration running the archive with `--split 2`,
-  then the report job: six jobs, four of them at once;
+  then the report job: six jobs, four of them at once (*corrected after step 3:* as built, a
+  build job, eight configuration jobs, two shares of each of the four configurations, four at a
+  time, a report job and `report-failure`);
 - `schedule` at 03:00 UTC, after fuzz's 02:00, guarded to vecbricks/varka as the weekly is, and
   `workflow_dispatch` on either repository, with inputs for a branch and a subset of
   configurations, so the planted fault and a pull request can be run on demand;
@@ -269,6 +271,12 @@ to the cap for the runners' spread (a suite's time moves up to 3.38 times betwee
 `results/VARKA-516-weights.txt`). Seeding the in-job split with the committed weights would pin
 the better case; it is an open point (9).
 
+*Corrected after the review (8.4):* the 6400 seconds and the 36, 25, 61 and 53 minutes above
+scale each suite's committed runner weight by its laptop ratio, which a suite whose laptop time
+at the defaults is a fraction of a second inflates (`VarkaKernelEvaluatorSuite` would weigh
+about 20 minutes, against under 2 by its own time); the weights the job now splits by are the
+run's laptop times scaled by 2.2, about 6100 seconds a configuration.
+
 **What failed, and the skip list.** One test, by design: `VarkaProjectExecSuite`'s "the
 allocation sampler events every sampled batch, and the samples go clean once C2 has the loop",
 whose null-free batches take the dense body, which this configuration keeps from C2. Rather than
@@ -299,7 +307,13 @@ SparkFunSuite's cap from 20 to 30.
   the rest of the log. Run with the committed files over `VarkaEvaluatorComponentsSuite` and
   `VarkaProjectExecSuite`, `check` passed under all four: the compiled side at tier 4 only, the
   held side at tiers 3 and 1 under the `-c1` configurations and never compiled under the
-  `-interpreted` ones, 27 to 2427 batches compared.
+  `-interpreted` ones, 27 to 2427 batches compared. *Corrected after the review (8.4):* under
+  the `-interpreted` ones that last check was vacuous. Their files matched the forward side and
+  `run` only, so the held side took the default directive, which prints a compile only under the
+  global `PrintCompilation` (`compilerDirectives.hpp` 46): a broken exclusion would have printed
+  nothing either. Each now has a second entry that prints the held side's compiles; an excluded
+  method is refused before its task is printed (`compileBroker.cpp` 1399), so "never compiled" is
+  now observed by the check rather than assumed.
 - `VarkaKernelRunner` counts the batches its check compared, null-free and nullable, and a JVM
   under the check prints the two counts as it exits.
 - `VarkaMethodNamesSuite` holds every pattern in the script and the directive files to
@@ -307,15 +321,50 @@ SparkFunSuite's cap from 20 to 30.
   name exactly one side's methods, the dispatch or every method.
 - `varka-fuzz.yml`: both jobs' schedule guarded to vecbricks/varka (7.1).
 
+Lost coverage, known and accepted: a kernel the warm-up compiles takes Varka's own warm-up
+directive, which shadows this file's for that class, so its two bodies are not split; the suites
+run the warm-up off, so it touches only the tests that turn it on.
+
+### 8.4 The review's fixes (3 November 2026)
+
+- **The held side is seen.** The two `-interpreted` directive files print the held side's
+  compiles too (8.3's correction), and `check` fails one that shows any task of the held side,
+  failed or not; `--self-test` fails a directive file that does not name its held side.
+  `VarkaMethodNamesSuite` reads every pattern in each file, the new entries included.
+- **A compile is a task that finished.** HotSpot prints a task as it starts and a failed one
+  again with `COMPILE SKIPPED` (`compileBroker.cpp` 2178 and 2372); `check` counts each compile
+  id once and none that was skipped, and requires at least ten tier-4 compiles of the forward
+  side (the trial's runs had thousands), printing the count. `dev/varka_tier_split.py
+  --self-test` runs it over fixture logs: a skipped tier-4 task, a held-side compile under
+  `-interpreted` and a JVM with no exit status each fail it.
+- **A share that timed out is named.** A JVM the job's timeout kills leaves its log and no exit
+  status; `check`, in the configuration job and the report job, fails on it and names the suite
+  the log last started.
+- **An empty share fails.** The configuration job captures the suite listing and the share,
+  each with its status checked, and stops on an empty share, which `--suites ""` would have run
+  as every suite.
+- **The split by weights (9.1, settled).** `sql/varka/ci/tier-split/suite-times.tsv` holds step
+  2's per-suite JUnit times scaled by 2.2, the runner's ratio to the laptop at the defaults
+  (8.2). Both splits read it: the shares (`varka_suite_shards.py --job`) and, through a new
+  `dev/varka_matrix.sh --split-weights FILE`, each share's two JVMs, which `--split 2` on a fresh
+  runner split by count. Over today's 72 suites the share holding `VarkaSeveralKernelsSuite`
+  (28 minutes alone) runs JVMs of 28 and 23 minutes, the other, with `VarkaSplitConditionSuite`
+  (21) and `VarkaSparkFuzzSuite` (13), two of 25: about 28 and 25 minutes of suites a job, of
+  the 90 allowed, against 36 to 61 by count. The floor is the one suite; were
+  `VarkaCoverageHarnessSuite` as dear as 8.2's other frame priced it (36 minutes), its JVM would
+  take about 47. After the run the job warns on a suite far off its weight
+  (`--check-weights`), so step 4's first nights show whether 2.2 holds.
+- **The `-z` filter** (9.2) is recorded in `PLAN.md`'s debt register, under the test tooling.
+
 ## 9. Open points for the lead
 
-1. **The split inside a job.** `--split 2` has no JUnit times on a fresh runner, so it splits a
-   share's suites by count, and `VarkaCoverageHarnessSuite` and `VarkaSeveralKernelsSuite` may land
-   in one JVM, about 61 minutes under `dense-interpreted` (8.2). Seed it with the committed
-   weights, go to three shares (which `--job` would give one heavy suite each), or let step 4's
-   run measure it first.
+1. *Settled by the review (8.4): the committed weights.* **The split inside a job.** `--split 2` has
+   no JUnit times on a fresh runner, so it splits a share's suites by count, and
+   `VarkaCoverageHarnessSuite` and `VarkaSeveralKernelsSuite` may land in one JVM, about 61 minutes
+   under `dense-interpreted` (8.2). Seed it with the committed weights, go to three shares (which
+   `--job` would give one heavy suite each), or let step 4's run measure it first.
 2. **`VarkaSuiteRunner`'s `-z` and `-t`** pass a JUnit class's dynamic tests through unfiltered
-   (8.1). A row of its own, if wanted; this row only records it.
+   (8.1). A row of its own, if wanted; this row only records it, in `PLAN.md` 11 (8.4).
 3. **Step 4** on the owner's word: `varka-tier-split.yml` dispatched with `varka-557-scratch` as
    its branch (this branch plus one commit dropping #1313's acceptance from `compareBodies`, local
    only) should fail in `masked-interpreted` and `masked-c1`, and with this branch pass. GitHub

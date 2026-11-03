@@ -18,6 +18,7 @@
 """Spread suites over N JVMs, longest first (VARKA-286.md 3.1), or over N CI jobs.
 
     dev/varka_suite_shards.py N WEIGHTS_DIR SUITE...     # one line per JVM, suites space separated
+    dev/varka_suite_shards.py N WEIGHTS_FILE SUITE...    # the same by a committed weights file
     dev/varka_suite_shards.py --job I/N WEIGHTS_FILE [--head-start J:SECONDS] SUITE...
                                                   # CI job I's suites, one a line
     dev/varka_suite_shards.py --update-weights WEIGHTS_FILE JUNIT_DIR...
@@ -25,10 +26,10 @@
     dev/varka_suite_shards.py --self-test
 
 Each suite's weight is its time in the JUnit reports under WEIGHTS_DIR (any depth, the files
-ScalaTest's `-u` writes), and the median of the known weights for a suite that has none, so a new
-suite is placed as an ordinary one. The heaviest unplaced suite goes to the lightest JVM, which
-keeps the longest JVM near the longest suite when one suite dominates. Empty JVMs are not
-printed.
+ScalaTest's `-u` writes), or in WEIGHTS_FILE when the argument is a file, and the median of the
+known weights for a suite that has none, so a new suite is placed as an ordinary one. The heaviest
+unplaced suite goes to the lightest JVM, which keeps the longest JVM near the longest suite when one
+suite dominates. Empty JVMs are not printed.
 
 `--job` splits a module's suites over the CI jobs that run them, the same way, with the weights
 read from a committed file (`sql/varka/ci/suite-times.tsv`, a simple suite name and its seconds a
@@ -219,7 +220,8 @@ def main(argv):
     if len(argv) < 3:
         print(__doc__, file=sys.stderr)
         return 2
-    for shard in shards(int(argv[0]), argv[2:], weights(argv[1])):
+    known = read_weights(argv[1]) if Path(argv[1]).is_file() else weights(argv[1])
+    for shard in shards(int(argv[0]), argv[2:], known):
         print(" ".join(shard))
     return 0
 
