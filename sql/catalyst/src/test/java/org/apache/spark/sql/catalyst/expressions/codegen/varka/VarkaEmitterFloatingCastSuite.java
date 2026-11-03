@@ -375,16 +375,14 @@ public final class VarkaEmitterFloatingCastSuite {
         values[1][i] = Double.doubleToRawLongBits(i == at ? -0.0 : 1.0 + i);
       }
       var nulls = new boolean[2][17];
-      String where = "a zero divisor at row " + at + " of 17";
-      assertEquals(VarkaFusedKernel.STATUS_DIVIDE_BY_ZERO, VarkaKernelChecks
-          .runAndCompareMixedStatus(where, emitted.className(), emitted.bytes(), roots, 2,
-              new int[0], new long[0], new VarkaKernelChecks.LongBatch(17, nulls, values, false),
-              true), where);
-      nulls[1][at] = true;
+      var batch = new VarkaKernelChecks.LongBatch(17, nulls, values, false);
+      int status = VarkaKernelChecks.runAndCompareMixedStatus("a zero at row " + at,
+          emitted.className(), emitted.bytes(), roots, 2, new int[0], new long[0], batch, true);
+      assertEquals(VarkaFusedKernel.STATUS_DIVIDE_BY_ZERO, status);
+      nulls[1][at] = true; // the same batch, its zero now null
       assertEquals(List.of(0, VarkaFusedKernel.STATUS_DIVIDE_BY_ZERO), VarkaKernelChecks
-          .runEachBodyMixedStatus(where + ", null", emitted.className(), emitted.bytes(), roots,
-              2, new int[0], new long[0], new VarkaKernelChecks.LongBatch(17, nulls, values,
-                  true)), where);
+          .runEachBodyMixedStatus("a null zero at row " + at, emitted.className(),
+              emitted.bytes(), roots, 2, new int[0], new long[0], batch));
     }
   }
 

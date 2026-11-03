@@ -490,28 +490,24 @@ PR build and the option matrix pass; the measurement is committed with its predi
 
 ### 343a3 as built (3 November 2026)
 
-Cut from #1303's final tree, without its `BIGINT` conversions (343a4), sweeps and fuzz grammar
-(343a5).
+Cut from #1303's final tree, without its `BIGINT` conversions (343a4), sweeps and fuzz (343a5).
 
 - **The width rules** (2.2): `emissionLane` drives a tree holding a `LONG` node at the long lane,
   one holding a `DOUBLE` node otherwise at the double lane, and a 32-bit tree at the int lane
-  over the float one. `Analysis`' fit rule is by width. A 32-bit value of a 64-bit kernel is
-  loaded and stored at the low half of its species of the drive's width; a value of the other
-  kind at the drive's width, whole at its own species. The plan admits `I2F`, `I2D`, `F2D` and
-  `D2F`, each one `convertShape`, and refuses a `BIGINT` source (343a4) and a floating source to
-  an integral lane (343b2), `Kind.CONVERSION`.
+  over the float one; `Analysis`' fit rule is by width. A 32-bit value of a 64-bit kernel takes
+  the low half of its species of the drive's width, a value of the other kind of that width its
+  whole species. The plan admits `I2F`, `I2D`, `F2D` and `D2F` (`convertShape`) and refuses a
+  `BIGINT` source (343a4) and a floating one to an integral lane (343b2), `Kind.CONVERSION`.
 - **The pairs**: `INT`, `TINYINT`, `SMALLINT` and `BOOLEAN` to both floating types, `FLOAT` with
-  `DOUBLE`, a bigint narrowed to `INT`, and the mixed trees of type coercion (`x + i`, `f * i`,
-  `f + x`, `i / 2.0D`). A boolean is `ConvertLane(CondValue(c, INT), target)`, a long
-  condition's one or zero narrowed to the int lane first, so none needs `L2F` or `L2D`.
-  *Departure from 2.2:* `CAST(y AS DOUBLE)` takes row 332's narrow load at the long width, new
-  code (#1303 declined it); there a narrow node other than a column read as a value declines.
+  `DOUBLE`, a bigint narrowed to `INT`, and type coercion's mixed trees (`x + i`, `f * i`,
+  `f + x`, `i / 2.0D`). A condition converts as `CondValue` at the int lane, a long one narrowed
+  first, so none needs `L2F` or `L2D`. *Departure from 2.2:* `CAST(y AS DOUBLE)` takes row 332's
+  load at the long width (#1303 declined it); any other narrow node there declines.
 - **The mask crossing at one lane count** #1065 left owed (`VARKA-341.md` 5.1): a guard's mask,
   an arm's condition and the epilogue's bounds mask cross between the kinds of the drive's width
-  by `VectorMask.cast`, both ways at both widths. *Not built:* roots of two kinds still take a
-  kernel each (`lanesShare`) and a filter's floating conjunct beside an integral one declines
-  (`floatingConjunctRefusal`); that is part 343a3b's (4), and `VarkaAnsiForm.DECLINED` lists it.
-- **The warm-up** gains `F2D`, `D2F` and the four mask casts between the two lanes of one width.
+  by `VectorMask.cast`, both ways at both widths; the warm-up gains `F2D`, `D2F` and the four
+  casts. *Not built:* roots of two kinds share no kernel (`lanesShare`) and a filter's floating
+  conjunct beside an integral one declines: part 343a3b's (4); `VarkaAnsiForm.DECLINED` lists it.
 - **Tests**: `VarkaEmitterFloatingCastSuite` holds each conversion and the two-lane kernels to
   the reference at three widths, ten lengths, four null patterns and both bodies, and a zero
   divisor's decline to its row's validity; the "Floating casts" coverage rows, a long-driven
@@ -520,21 +516,18 @@ Cut from #1303's final tree, without its `BIGINT` conversions (343a4), sweeps an
   1. *Every configuration*: a test asserted that a narrow value in a 64-bit kernel of two lanes
      declines; row 332 had built that load. It now fuses where a long lane count is baked and
      declines with the plan's reason where none is.
-  2. *`lanesOverride=4` and `16`*: the `FLOAT`, `DOUBLE` and `BOOLEAN` conformance suites' cast
-     rows fuse kernels of two widths, whose int species differs from the 32-bit suites' in the
-     shared JVM, and its species guard refused it; at 16 the long lane has no species, so a
-     64-bit kernel's int values take the preferred one, 256 bits on the EPYC runners, beside the
-     int kernels' `SPECIES_512`. The three suites run in their own JVM, as the `INT` one does.
+  2. *`lanesOverride=4` and `16`*: the `FLOAT`, `DOUBLE` and `BOOLEAN` conformance suites' casts
+     fuse kernels of two widths, whose int species is not the 32-bit suites', and the shared
+     JVM's species guard refused it; at 16 the long lane has none, so their int values take the
+     preferred one, 256 bits on the EPYC runners, beside `SPECIES_512`. They now run `ownJvm`.
   3. *`validityByWidth=false`*: an emitter test handed the emitter a plan that refuses it, which
      threw `INTERNAL_ERROR`; it now asserts the refusal. The SQL path declined cleanly all along.
 
   Each passed on the laptop under its configuration through `dev/varka_matrix.sh`. The six new
-  `skips.tsv` lines are not fixes: they expect this part's new rows over a narrow column to
-  decline under `validityByWidth=false`, where no lane count is baked, beside 343a2's line.
+  `skips.tsv` lines fix none: they expect this part's new rows over a narrow column to decline
+  under `validityByWidth=false`, where no lane count is baked, beside 343a2's line.
 - **A known limit**, shared with row 332: `CompiledVarkaProjection` checks a long literal table
-  against the drive under `VarkaEmitOptions.DEFAULTS`, not the session's options. On a host of
-  128-bit vectors with `lanesOverride=4`, a narrow column in a 64-bit kernel with a 64-bit
-  literal (`CAST(y1 AS DOUBLE) / 2.0D`) is refused there and admitted by the session, so the
-  check fails the query at planning. No runner or laptop has that width.
-- **Prediction 4.1** holds: `emitted_bytes.json` gains the new rows' shapes at both widths and
-  moves the `option_arms` digests; no committed shape's bytes move.
+  against the drive under `VarkaEmitOptions.DEFAULTS`. On a 128-bit host with `lanesOverride=4`,
+  the session admits `CAST(y1 AS DOUBLE) / 2.0D` and the defaults refuse it, so the check fails
+  the query at planning. No runner or laptop has that width.
+- **Prediction 4.1** holds: only the new rows' shapes and the `option_arms` digests move.
