@@ -160,22 +160,107 @@ pull request.
   fixed or excused by `VarkaSameAnswer` (row 556), never skipped.
 - **Slots**: the vecbricks repository's concurrent-job limit is not recorded anywhere this plan
   read; four jobs at once at 03:00 UTC, though the schedule fires hours late, may meet fuzz's two
-  and `varka-master.yml`'s runs after a merge.
+  and `varka-master.yml`'s runs after a merge. *Settled (7.4):* the limit is 20 and the weekly
+  matrix peaked at 19, so a Sunday on which the weekly is still running when this job starts
+  queues its jobs behind the weekly's; a risk, accepted.
 
 ## 6. Dependencies
 
 #1313 merged first: before it, `masked-interpreted` fails every night on the known NaN case.
 Not on row 556: the planted fault (the tolerance reverted) fails under 556's shape level too.
 
-## 7. Open points for the lead
+## 7. Open points, settled by the lead (3 November 2026)
 
-1. The fork's scheduled runs: `varka-fuzz.yml` runs nightly on the fork as well as on
-   vecbricks/varka, and its failures there report nowhere. Guard it to vecbricks/varka as the
-   weekly is, or leave it; this row's workflow is guarded either way.
-2. How a red night reaches the owner beyond the issue, given #959 and #1252: a line in the
-   post-merge CI report, or the issue alone.
-3. Whether the catalyst module should run under the configurations too, and whether
-   `VarkaCompiledCheck`'s histories should run at volume on CI, where the nightly fuzz runs them
-   at the suite's default of 20 draws a lane per JVM.
-4. Whether the vecbricks repository's job limit allows four jobs at 03:00 UTC, or the
-   configurations run two at a time.
+1. **The fork's scheduled runs.** `varka-fuzz.yml`'s schedule is guarded to vecbricks/varka exactly
+   as `varka-weekly-matrix.yml` guards its own, both jobs, with `workflow_dispatch` allowed on
+   either repository; the precedent is the owner's decision of 30 October 2026 guarding the
+   Sunday runs to vecbricks. It is part of this row's change.
+2. **How a red night reaches the owner.** Through the lead's post-merge CI report, which gains a
+   "scheduled runs" line; the issue `report-scheduled-failure` opens stays as it is, and closing
+   issues on a green night is out of scope.
+3. **Catalyst.** Not run under the configurations; 3.2's reasoning stands. `VarkaCompiledCheck`'s
+   histories at volume on CI are out of scope.
+4. **The job limit.** vecbricks is on GitHub's free plan for organisations, 20 concurrent jobs for
+   a public repository, and its last weekly run peaked at 19. Four configuration jobs at once
+   stand (`max-parallel: 4`); a Sunday overlap with the weekly matrix is a risk only (5).
+
+## 8. Outcome of steps 1 to 3 (3 November 2026, branch `varka-557-tier-split`)
+
+Steps 1 to 3 are built; step 4, the planted fault on CI, waits for the owner's word. The trial's
+runs are in `results/VARKA-557-trial.txt`.
+
+### 8.1 Step 1: the configurations reproduce the known case, 3 of 3 each
+
+**The prediction scored.** On the scratch branch (`varka-557-scratch`, #1313's NaN acceptance
+dropped from `compareBodies`), `VarkaCoverageHarnessSuite` failed `try_add(x, x2)` on every run of
+three under `masked-interpreted` and under `masked-c1`, each with "dense and masked bodies
+disagree on output 0 at row 7 of a null-free batch of 10", row 7 being the two unlike NaNs: the
+prediction holds as written. It is never the only row: each run failed five to seven of the
+Floating arithmetic rows, which ones moving from run to run (`x + x2`, `x * x2`, `try_multiply`,
+the `f` forms), as 2 says C2's choice of operand can. On master the same configurations pass, and
+so do the two `dense-` ones, 1687 tests each.
+
+**The evidence that the split happened**, from `-XX:+PrintCompilation` on one run of each,
+summed over every kernel: under `masked-interpreted` no masked method was compiled and the dense
+side at tier 4 only (1933 compile records of loop methods, 2067 of epilogues, 1650 of drivers);
+under `masked-c1` the masked methods were compiled at tiers 3 and 1 only, C1 both, and the dense
+side at tier 4 only; the `dense-` runs are the mirror (`results/VARKA-557-trial.txt`, last section).
+
+**Where the plan's configurations were wrong**, each found by its compile record:
+
+1. *Threshold scaling alone does not reach C2.* At a factor of 0.01 (run p1) every dense method
+   stayed at tier 3: a suite's kernel serves a few batches of ten rows, too few calls for tier
+   4's thresholds even scaled. At 0.001 (p2) most stayed interpreted. At 0.0001 every compiled
+   side's method reached C2 within its first calls. The factor is 0.0001.
+2. *A C1 step on the compiled side.* With scaling alone the compiled side runs C1 code (tier 3)
+   before C2, so the pair compared is partly C1 against the held side. The compiled side and the
+   dispatch `run` are now kept from C1 by a directive (`c1: { Exclude: true }`), so they run
+   interpreted until their first C2 compile, which the scaling brings at once.
+3. *`exclude` does not stop inlining* (`opto/bytecodeInfo.cpp`'s `should_not_inline` reads the
+   `dontinline` command, not `exclude`). In p2 the failing kernels had `run` compiled at tier 4
+   and no dense method compiled on its own: C2 had inlined both sides into the dispatch. The held
+   side is now `dontinline` as well, so it stays out of any compiled caller.
+4. *The held side's arithmetic.* An interpreted kernel method still calls the Vector API's
+   methods, which HotSpot compiles on their own, so "interpreted" pins the kernel's bytecode, not
+   every instruction that computes a lane. The configurations split the two bodies' compiles,
+   which is what the known case needs; they are not a pure-interpreter reference.
+
+The `-XX:-TieredCompilation` fallback the lead allowed was not needed. The test JVMs carry
+`-XX:+IgnoreUnrecognizedVMOptions` (sbt's options), so an option or a pattern that takes no
+effect is silent; the job therefore checks the split by its effect (8.3).
+
+**Times** on the loaded laptop (seconds, one JVM): `VarkaCoverageHarnessSuite` 50 at the
+defaults, 206 `masked-interpreted`, 305 `masked-c1`, 481 `dense-interpreted`, 458 `dense-c1`;
+`VarkaFloatingLaneSuite` 54, 81, 84, 166, 170. The dense configurations cost about twice the
+masked ones; why was not measured.
+
+A finding on the way: `VarkaSuiteRunner`'s `-z` and `-t` filter a JUnit class's `@Test` methods
+only. Its `PostDiscoveryFilter` sees a `@TestFactory` as a container, so every dynamic test runs
+whatever the filter; the trial ran the whole suite.
+
+### 8.2 Step 2: the whole sql set under one configuration
+
+STEP2
+
+### 8.3 Step 3: what was built
+
+- `.github/workflows/varka-tier-split.yml`: a build job (`dev/varka_matrix.sh --build-only`,
+  archived by `dev/varka_matrix_archive.sh`), one job per configuration and share of the suites
+  (`max-parallel: 4`, 90 minutes each), a report job and `report-scheduled-failure`. The schedule
+  is 03:00 UTC, on vecbricks/varka only; a dispatch runs on either repository and takes a branch
+  and a comma-separated subset of the configurations. Every job checks out the commit the build
+  job built. Each configuration job's summary carries its report, the failed tests (also as an
+  error annotation) and the CPU; the report job's carries, per configuration, the batches the
+  check compared and the compiles of each side.
+- `dev/varka_tier_split.py`: the four configurations' options, the skipped suites with their
+  reasons, `run` (which hands them to `dev/varka_matrix.sh --defaults --module sql`) and
+  `check`, which fails a run whose compile record shows no split or whose JVMs compared no batch.
+- `sql/varka/ci/tier-split/*.json`: the four compiler directive files. Each prints the compiles of
+  the methods it matches (`PrintCompilation: true`), which is what `check` reads, at no cost to
+  the rest of the log.
+- `VarkaKernelRunner` counts the batches its check compared, null-free and nullable, and a JVM
+  under the check prints the two counts as it exits.
+- `VarkaMethodNamesSuite` holds every pattern in the script and the directive files to
+  `VarkaMethodNames`' builders and `VarkaShapeCacheImpl.CLASS_NAME_PREFIX`: each method glob must
+  name exactly one side's methods, the dispatch or every method.
+- `varka-fuzz.yml`: both jobs' schedule guarded to vecbricks/varka (7.1).

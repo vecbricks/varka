@@ -1,0 +1,10 @@
+[
+  {
+    match: [
+      "org/apache/spark/sql/varka/execution/VarkaFusedProjection_*.*Masked*",
+      "org/apache/spark/sql/varka/execution/VarkaFusedProjection_*.run"
+    ],
+    c1: { Exclude: true },
+    PrintCompilation: true
+  }
+]
