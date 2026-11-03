@@ -18,10 +18,11 @@
 package org.apache.spark.sql.execution
 
 import org.apache.spark.sql.{DataFrame, QueryTest, Row, SparkSession}
-import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, AttributeReference, Coalesce, Greatest}
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTestWatchdog
+import org.apache.spark.sql.catalyst.expressions.{Add, Alias, Attribute, AttributeReference, Cast, Coalesce, Expression, GreaterThan, Greatest, IsNotNull, Literal}
+import org.apache.spark.sql.catalyst.expressions.codegen.VarkaExpressionCompiler
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaEmitOptions, VarkaHostIsa, VarkaTestWatchdog}
 import org.apache.spark.sql.internal.SQLConf
-import org.apache.spark.sql.types.{DateType, DoubleType, FloatType, StructField, StructType}
+import org.apache.spark.sql.types.{DataType, DateType, DoubleType, FloatType, IntegerType, LongType, ShortType, StructField, StructType}
 
 /**
  * The floating lanes' first nodes, end to end: a `DOUBLE` or `FLOAT` column read from Varka's
@@ -380,20 +381,83 @@ class VarkaFloatingLaneSuite extends QueryTest with VarkaSharedSessions with Var
     val lines = VarkaFusionReport.lines(Seq(
       Alias(Coalesce(Seq(x1, x2)), "a")(),
       Alias(Greatest(Seq(x1, x2)), "b")(),
-      Alias(org.apache.spark.sql.catalyst.expressions.Cast(f1, DoubleType), "c")(),
+      Alias(Cast(f1, IntegerType), "c")(),
       Alias(org.apache.spark.sql.catalyst.expressions.Remainder(x1, x2), "e")(),
       Alias(org.apache.spark.sql.catalyst.expressions.Add(x1, x2), "g")()), output)
     assert(lines.size == 5, lines)
     assert(lines.head.endsWith(": fused"), lines)
     assert(lines(1).endsWith(": fused"), lines)
-    assert(lines(2).contains("a cast to or from a floating type (row 343)"), lines)
+    assert(lines(2).contains("a cast from a floating type (row 343's second part)"), lines)
     assert(lines(3).contains("a floating remainder (row 346)"), lines)
     assert(lines(4).endsWith(": fused"), lines)
   }
 
-  // The divisors are literals: the fixtures' zero divisors raise under ANSI on both sides.
-  private val declined = Seq("CAST(f1 AS DOUBLE)", "x1 % 2.5D", "pmod(f1, 2.5F)",
-    "CAST(f1 AS DOUBLE) / 2.0D")
+  test("the casts between FLOAT and DOUBLE fuse and keep a NaN's payload, both zeros and the "
+      + "rounding to an infinity") {
+    // The sum of two NaNs has no fixed payload (`VARKA-342.md` 0.6), so that first column is
+    // compared by the NaN rule; the conversions' columns bit for bit, in both modes.
+    for (ansi <- Seq(false, true)) {
+      checkFusedArith("SELECT x2 + CAST(f2 AS DOUBLE) AS b, CAST(f1 AS DOUBLE) AS a, "
+        + "CAST(x1 AS FLOAT) AS c, CAST(f1 AS DOUBLE) / 2.0D AS e FROM $t", ansi)
+    }
+  }
+
+  private val l = AttributeReference("l", LongType)()
+  private val y = AttributeReference("y", ShortType)()
+
+  /** Why `CAST(child AS to)` alone, over `l` and `y`, declines, or None where it fuses. */
+  private def castDecline(
+      child: Expression, to: DataType, options: VarkaEmitOptions): Option[String] = {
+    val declines = VarkaExpressionCompiler.declines(Seq(Alias(Cast(child, to), "c")()),
+      Seq(l, y), options)
+    Option(declines.get(0)).map(_.toString)
+  }
+
+  test("on a planted host without AVX512DQ a bigint cast to DOUBLE declines, and a bigint " +
+      "condition as a DOUBLE or FLOAT fuses through the int lane") {
+    // An AVX-512 host without DQ, which no AMD host makes the JVM report, beside one with it.
+    val knights = new VarkaHostIsa.Reading("amd64",
+      "avx, avx2, avx512f, avx512cd, avx512er, avx512pf", null)
+    val withDq = new VarkaHostIsa.Reading("amd64", "avx, avx2, avx512f, avx512dq", null)
+    val conf = new SQLConf
+    conf.setConf(SQLConf.VARKA_EMIT_USE_AVX, VarkaSessionEmit.USE_AVX_FROM_HOST)
+    def options(host: VarkaHostIsa.Reading): VarkaEmitOptions =
+      VarkaColumnarToRowExec.emitOptions(VarkaSessionEmit.of(conf, host))
+    assert(options(knights).convertsFallBack())
+    assert(!options(withDq).convertsFallBack())
+    val positive = GreaterThan(l, Literal(0L))
+    val refused = castDecline(l, DoubleType, options(knights))
+    assert(refused.exists(_.contains("AVX512DQ")), refused)
+    for (to <- Seq(DoubleType, FloatType)) {
+      assert(castDecline(positive, to, options(knights)).isEmpty, to)
+      assert(castDecline(l, to, options(withDq)).isEmpty, to)
+      // The default level names no host, so it declines the cast too: an AVX2 host there would
+      // run L2D and L2F as the Vector API's Java loop.
+      val unknown = castDecline(l, to, VarkaEmitOptions.DEFAULTS)
+      assert(unknown.exists(_.contains("AVX512DQ")), unknown)
+    }
+    // Beside a double literal, which goes to the long table: the projection checks its kernel
+    // drives at 64 bits under the defaults' plan, which declines the conversion, and must not
+    // take that refusal for an int drive.
+    val withLiteral = VarkaExpressionCompiler.compile(Seq(Alias(
+      Add(Cast(l, DoubleType), Literal(1.5d)), "c")()), Seq(l, y), options(withDq))
+    assert(withLiteral.isPresent, "CAST(l AS DOUBLE) + 1.5D did not compile at level 3")
+    // VarkaDifferentialHarnessSuite runs it at level 3 against the row engine, beside the casts.
+  }
+
+  test("a smallint read for its validity alone declines as a DOUBLE and fuses as a FLOAT") {
+    // The double kernel has no narrow load, so the plan declines it; the float one drives at the
+    // int lane, which widens the column.
+    val base = VarkaEmitOptions.DEFAULTS
+    val double = castDecline(IsNotNull(y), DoubleType, base)
+    assert(double.exists(_.contains("DOUBLE kernel")), double)
+    assert(castDecline(IsNotNull(y), FloatType, base).isEmpty)
+  }
+
+  // The divisors are literals: the fixtures' zero divisors raise under ANSI on both sides. The
+  // casts from a floating type are TRY's, since the fixtures' NaNs raise under ANSI.
+  private val declined = Seq("try_cast(f1 AS INT)", "x1 % 2.5D", "pmod(f1, 2.5F)",
+    "try_cast(x1 AS BIGINT)")
 
   declined.foreach { expr =>
     test(s"SELECT $expr declines and answers as the row engine does") {

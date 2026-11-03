@@ -25,7 +25,10 @@ import scala.jdk.CollectionConverters._
 import org.scalatest.exceptions.{TestCanceledException, TestFailedException}
 
 import org.apache.spark.SparkFunSuite
+import org.apache.spark.sql.catalyst.expressions.{Alias, AttributeReference, Cast}
+import org.apache.spark.sql.catalyst.expressions.codegen.VarkaExpressionCompiler
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaMatrix.{Kind, Skip}
+import org.apache.spark.sql.types.{DataType, DoubleType, FloatType, LongType}
 
 /** The option matrix's own machinery: its configurations, their parsing, and the skip list. */
 class VarkaMatrixSuite extends SparkFunSuite with VarkaTestWatchdog {
@@ -57,15 +60,33 @@ class VarkaMatrixSuite extends SparkFunSuite with VarkaTestWatchdog {
   }
 
   test("an arm that emits what the defaults or another arm emits does not run") {
-    // Catches: the four useAVX levels run as four configurations when they are two emissions,
-    // one of them the defaults' (VarkaEmittedBytesSuite holds the bytes to that).
+    // Catches: the four useAVX levels run as four configurations when they are three classes,
+    // one of them the defaults' (VarkaEmittedBytesSuite holds the bytes to that); and level 3
+    // left out though it admits the BIGINT conversions the defaults' unknown level declines.
     val levels = VarkaMatrix.configurations.filter(_.startsWith("useAVX="))
-    assert(levels === Seq("useAVX=2"))
+    assert(levels === Seq("useAVX=2", "useAVX=3"))
     val configs = VarkaMatrix.configurations
     assert(configs.distinct === configs)
     assert(configs.map(VarkaMatrix.parse).map(VarkaMatrixRuns.emissionKey).distinct.size ===
       configs.filterNot(_.startsWith(VarkaMatrix.ARROW_BATCH_SIZE)).size + 1,
       "two configurations emit alike")
+  }
+
+  test("level 3 runs as its own configuration because it admits what the defaults decline") {
+    // The key's third class is not idle: a BIGINT cast to a floating type declines at the
+    // defaults' unknown level and compiles at level 3, so the matrix's useAVX=3 is the only
+    // configuration whose answer tests reach that kernel.
+    val l = AttributeReference("l", LongType)()
+    def declined(to: DataType, options: VarkaEmitOptions): Boolean =
+      VarkaExpressionCompiler.declines(Seq(Alias(Cast(l, to), "c")()), Seq(l), options)
+        .containsKey(0)
+    val level3 = VarkaMatrix.parse("useAVX=3")
+    for (to <- Seq(DoubleType, FloatType)) {
+      assert(declined(to, VarkaEmitOptions.DEFAULTS), to)
+      assert(!declined(to, level3), to)
+    }
+    assert(VarkaMatrixRuns.emissionKey(level3) !==
+      VarkaMatrixRuns.emissionKey(VarkaEmitOptions.DEFAULTS))
   }
 
   test("the batch-size axis changes no emit option and names its rows (VARKA-301)") {

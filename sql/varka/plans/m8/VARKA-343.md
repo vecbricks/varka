@@ -429,6 +429,224 @@ The `DATE` pairs follow 333 in either.
 | generated | `coverage.json`, `docs/sql-varka.md`, `width_audit.json`, `emitted_bytes.json` |
 | generated | `operator_census.json`, `census.tsv`, `casts_fused.tsv` |
 
+### 5.1 343a as built (2 November 2026)
+
+Steps 3 and 6 of the list above; step 2 moves to 343b (below).
+
+- **`ConvertLane`** (2.1) is in the IR with its ten conversions defined and the constructor's
+  refusals (an integral pair, an identity, a narrow side). The emitter lowers the six this part
+  needs, `I2F`, `I2D`, `L2F`, `L2D`, `F2D` and `D2F`, each one `convertShape`, part 0, into the
+  target's species named by its static field; the four from a floating lane are 343b's and throw
+  in `emitShapeConversion` until then. The reference evaluator answers it by Java's casts over the
+  bits (`VarkaReference.convert`), through `mixedValue`, and the range analysis answers `UNKNOWN`.
+- **The width rules** (2.2): `emissionLane` drives a tree at the long lane if it holds one, at
+  the double lane if it holds a 64-bit value otherwise, at the int lane over the float one at 32
+  bits; `Analysis`' fit rule is by width; the plan names the lanes other than the drive's
+  (`otherLanes`), and each gets a species local and a literal table of its own in `Slots`,
+  numbered in the enum's order so that a long kernel of int values keeps its locals. A 32-bit
+  value of a 64-bit kernel is loaded and stored at the low half of its species (the int load and
+  store generalised to the float lane); a value of the other kind at the drive's lane count is
+  loaded and stored whole at its own species, under the epilogue's mask cast to it.
+  `VarkaEmittedBytesSuite` passed on that change before any generated file moved: no committed
+  shape's bytes moved (prediction 4.1, for the existing shapes).
+- **The same-count mask crossing** #1065 left owed: a guard's mask and an arm step's condition at
+  the drive's lane count but the other kind cross by `VectorMask.cast`, not through the word, in
+  `emitToDrivingLane`; the epilogue's bounds mask crosses the same way. A double division under
+  ANSI in a long kernel (`VarkaEmitterFloatingCastSuite`) is its test. *Not built:* roots of two
+  kinds still share no kernel (`lanesShare` is unchanged), and a filter's floating conjunct beside
+  an integral one still declines (`floatingConjunctRefusal`), as does a `FLOAT` conjunct beside a
+  `DOUBLE` one; both are the root-level half of the crossing, which 343b or 342's mixed forms take
+  up when a shape needs it. *Correction (2 November 2026):* a rule that a conjunct comparing
+  floating operands does not count as an integral read for a column it converts was tried, with
+  the coverage rows `CAST(f AS DOUBLE) = x2` and `x2 > 0.0D AND CAST(i AS DOUBLE) = x2`, and
+  withdrawn: through Spark's optimizer such a filter always carries an inferred
+  `isnotnull(<source>)` (and, beside `x2 > 0.0D`, an inferred `i > 0`) on the source column's own
+  lane, so on a nullable column the rule never fired and the harness's kernel answered no batch.
+  So the ANSI form's "right side of a false AND" for the seventeen value rows of "Floating casts"
+  that read a column of another lane, and every form of `CAST(x AS BOOLEAN)` and
+  `CAST(f AS BOOLEAN)` but the lone one (each sets the cast beside the boolean column `b2`, read on
+  an integral lane), are on `VarkaAnsiForm.DECLINED` with this reason; each row still fuses alone
+  in every mode. The list is keyed by a row's text, so the condition row over `x` is
+  `NOT CAST(x AS BOOLEAN)`, whose filter form fuses, rather than a second `CAST(x AS BOOLEAN)`.
+- **The compiler**: `VarkaFloatingCastCompiler`, a family `FLOATING_CAST` with its switch
+  `spark.sql.codegen.varka.family.floatingCast.enabled`, admits the fourteen pairs of item 0.1's
+  to-floating half by name (`admits`); `floatingDecline` names the rest by row: from a floating
+  type 343b, `DATE` 333, a decimal side 346, 350, 364 and 366. A narrow source is the `INT` its
+  load widens to (`WidenLane`) and then converted, so `TINYINT` and `SMALLINT` to `FLOAT` fuse;
+  to `DOUBLE` they decline in the kernel plan, since the narrow load at 64 bits is unbuilt (2.2,
+  row 332 or this row, whichever lands first). The host gate is the plan's refusal
+  `Kind.CONVERSION`: `L2F` and `L2D` decline where `convertsFallBack()` holds, since the arms
+  never see the emit options.
+- **The booleans** (2.5): *departure* - `CAST(b AS FLOAT)` and `AS DOUBLE` are
+  `ConvertLane(CondValue(c, INT), target)` (or `LONG` for a condition on the long lane), not a
+  `CondValue` at the floating lane: one exact conversion more, and no new `CondValue` lowering; a
+  condition on a floating lane as a value declines. `CAST(x AS BOOLEAN)` over a floating value is
+  `NOT (x = 0.0)` at the lane, Spark's order's `EQ`, in the predicate family's condition arm, as a
+  filter and, through row 27's `BoolOutput`, as a value.
+- **Tests**: `VarkaEmitterFloatingCastSuite` holds every conversion and the mixed kernels (an int
+  beside a double, an int beside a float, a bigint beside a double with a double pick, a bigint
+  converted beside a float, a short widened and converted beside a float, a double narrowed
+  beside a float, a filter over conversions, a condition converted, an ANSI division on the
+  other lane) to the reference at 128, 256 and 512 bits over ten lengths, four null patterns and
+  both bodies; 2.4's to-floating cells are asserted on the reference's definition; the sweeps of
+  3.1 for `INT` to both and `FLOAT` to `DOUBLE` run every 256th chunk on every build and whole under
+  `-Dvarka.sweep=true`. `VarkaIrFuzzSuite` gains a floating conversions corpus on a seed of its
+  own (`FLOATING_CAST_FUZZ_SEED`), so no committed corpus moves, and a reach test over it. The
+  coverage table gains the families "Floating casts" and "Floating casts as conditions";
+  `VarkaFloatingLaneSuite` runs the `FLOAT` and `DOUBLE` casts end to end. *Departures:* the
+  `TINYINT`, `SMALLINT` and `BOOLEAN` sweeps of 3.1 are the coverage rows' fixtures rather than an
+  exhaustive table, and test 3.6's mixed-width kernels are in the new suite rather than
+  `VarkaEmitterMixedLaneSuite`. Test 3.8 has nothing to run: no conformance suite cancels a cast
+  row naming this row.
+- **The warm-up** (2.7): the conversions block gains the six conversions and the mask cast.
+- **Cost** (2.7): *departure* - `ConvertLane` is unpriced, as the other floating nodes are
+  (`VarkaEmitCostFit.PRICED_LANES`), until row 352's refit; the budget weighs it as one op.
+- **No proof file**: `convertShape` is exact over the whole range on every host it is emitted
+  on, so 343a holds no bounded lowering; round-to-odd's proof is 343b's.
+- **Moved to 343b**: the census cells of step 2 (the `F2L` cell, the double arithmetic, the
+  reinterpretations and the long shifts by a vector count), which only the AVX2 forms read.
+
+The floating cast baseline marks the casts to a floating type as fusing whole (a `BIGINT`'s only
+where the host has AVX512DQ) and the boolean filter as not fusing: *correction (2 November 2026)*,
+it was first listed as fusing, which the boolean fuse check passed; under the per-section fusion
+class master gained (#1258) its plan holds no Varka node, since `coalesce(CAST(x AS BOOLEAN),
+false)` does not compile as a condition, though `CAST(x AS BOOLEAN)` alone does.
+
+*Corrections after the review (2 November 2026):*
+
+- A boolean whose condition compares longs converted its long one or zero through `L2D` or
+  `L2F`, so `CAST(l > 0 AS DOUBLE)` declined wherever `convertsFallBack()` holds. The one or zero
+  is now narrowed to the int lane (`NarrowLane`, exact) and converted by `I2D` or `I2F`, which
+  are intrinsic on every x86 host. This corrects the booleans bullet above.
+- The two lanes of one width share a literal table (the int table for `INT` and `FLOAT`, the long
+  one for `LONG` and `DOUBLE`), and `Slots` planned a local and a broadcast for every slot below
+  a lane's highest, the other lane's included. In a kernel of several lanes each lane now plans
+  only the slots its own nodes read. This moves two shapes that predate the row, both long
+  kernels of int values: the dense loops of `(i = 5 AND l = l2) IS NOT NULL` and
+  `(i = 5) IS NULL OR l = l2`, whose dense body skips the condition under the null test and so
+  never reads the literal, lose the broadcast local reserved for it. That corrects the width
+  rules bullet's "no committed shape's bytes moved" for those two; no single-lane shape moved.
+- A narrow column read for its validity alone under a `DOUBLE` drive, `CAST(y IS NOT NULL AS
+  DOUBLE)`, passed the plan and was rejected by `Analysis`, whose fit rule named the
+  validity-only exception for the double emission though only the long drive marks one. The
+  plan now declines any narrow value under a floating drive, and the double emission admits no
+  narrow node, as the float one does not; the `FLOAT` twin drives at the int lane and fuses.
+- The same-count mask crossings name the target species by its static field, as a conversion's
+  target is, not the species local.
+- The warm-up skips `L2F` and `L2D` where the host's conversions fall back, and warms the four
+  mask casts the emitter makes, both ways at both widths, where it warmed one (the warm-up
+  bullet above). It also casts the narrow blocks' masks: `VarkaWarmupReachSuite` counts a mask
+  cast in a kernel that reads a narrow column against the narrow masks too, since the bytes do
+  not name the receiver, and failed on `CAST(y1 AS FLOAT)` and `CAST(s1 AS FLOAT)` without it.
+  A session at an explicit level 3 on a CPU without AVX512DQ still emits `L2D` and `L2F`, which
+  then run unwarmed; such a level is a misconfiguration the session does not correct.
+- The family's description said `TINYINT` and `SMALLINT` to `DOUBLE` fuse; they decline (above),
+  and so does a `BIGINT` at a level below AVX-512.
+- The review asked for `convertsFallBack()` to test AVX512DQ as well as the level. It stays a
+  function of the options' level alone, by choice: the level is part of the shape key, and a
+  predicate that read the CPU would key one shape two ways on two machines and make the committed
+  bytes describe one host. AVX512DQ reaches it through the level instead: a session asking for
+  the host's level resolves a CPU whose feature list lacks DQ, an AVX-512 one included, to level
+  2 (`VarkaSessionEmit.resolve`). `VarkaFloatingLaneSuite` now drives that with a planted
+  AVX-512 host without DQ and checks the cast declines there and fuses with DQ, and the
+  conversion refusal's doc says where the feature enters.
+
+*Corrections after the second review (2 November 2026):*
+
+- **The unknown level declines `L2F` and `L2D`.** `convertsFallBack()` answered false at the
+  unknown level, the defaults' and the one a session runs at with
+  `spark.sql.codegen.varka.emit.useAVX` unset, so on an AVX2 host the plan admitted a `BIGINT`
+  cast to `FLOAT` or `DOUBLE` and ran the Vector API's scalar Java loop. The refusal now reads a
+  second predicate, `convertsMayFallBack()`, true below level 3 and at the unknown level. The two
+  differ on the unknown level alone: the division's lowering stays optimistic there, since both
+  of its forms are vector code and a wrong guess costs little, while admission is pessimistic,
+  since a wrong admission puts scalar code in a vector loop and a wrong decline costs only the row
+  engine. Resolving the unknown level from the host was the other way, and was not taken: level 2
+  also moves every 64-bit constant division to the magic form, which the `useAVX` doc keeps off
+  the default until VARKA-88 step 4 measures it. The predicate reads the record alone, so a shape
+  is admitted or declined alike on every machine and no key depends on the host. A session asking
+  for the host's level (`-2`) now resolves an x86 CPU whose feature list holds AVX512DQ to level 3,
+  so the casts fuse there; its key renders `|3|` where it rendered nothing, with the same bytes.
+  An aarch64 host and an unreadable list stay at the unknown level, and decline the casts, unless
+  the session names level 3. `CompiledVarkaProjection` checks a long literal table against the
+  defaults' plan, which now refuses the conversion, so that check takes a conversion's refusal for
+  the long drive its tree has; without it `CAST(l AS DOUBLE) + 1.5D` at level 3 threw
+  (`VarkaFloatingLaneSuite`). *Generated files:* the coverage rows `CAST(l AS DOUBLE)`,
+  `CAST(l AS FLOAT)` and `x - l` decline under the defaults and leave the table, and with them
+  their entries in `emitted_bytes.json`, `width_audit.json`, `docs/sql-varka.md` and
+  `VarkaAnsiForm.DECLINED`; `casts_fused.tsv` marks `BIGINT` to both as declined in every mode,
+  and `casts.tsv` no longer lists them as fused today.
+  This corrects the cast baseline's "a `BIGINT`'s only where the host has AVX512DQ" above: under
+  the default level a `BIGINT` cast declines on every host. The rows return with 343b's AVX2
+  forms, which fuse at every level.
+- **Long kernels of int values keep master's bytes.** The per-lane literal planning of the first
+  review's second bullet applied to every kernel of several lanes, and moved two shapes that
+  predate the row. It now applies only to a kernel that holds a floating lane, the only one whose
+  two lanes share a table (`perLane` in `Slots`); a long kernel of int values numbers its locals
+  and broadcasts as on master. The dense loops of `(i = 5 AND l = l2) IS NOT NULL` and
+  `(i = 5) IS NULL OR l = l2`, and the mixed fuzz corpus's blocks, match master's bytes again; this
+  withdraws that bullet's moved shapes. Nothing indexes `scalarArg` or `broadcastSlot` outside the
+  body by slot index: the walk reads a slot through a `LiteralSlot` node, and the literal hoist
+  (`VarkaBodyEmitter.emitLiterals`) skips a slot whose local is -1. The local `mixed` in `Slots`
+  is `otherLanes`, so it is not read as `Analysis.mixed()`.
+- **A narrow lane in a 64-bit kernel.** The review read `VarkaKernelPlan.laneOf`, which names a
+  narrow node's own lane in a 64-bit kernel of several lanes, a lane with no table there, as a
+  crash. It is not one, so no decline was added: only a column read for its validity alone
+  reaches it, since the long drive's narrow refusal declines a narrow value and a floating drive
+  declines every narrow node, and a validity read touches no species or table. `IF(y IS NOT NULL,
+  i, l)`, `y IS NOT NULL OR i > l` and `CAST(l AS DOUBLE)` beside `y IS NOT NULL` emit and answer
+  as the reference does, and a narrow value in such a kernel declines in the plan
+  (`narrowValidityBesideTwoLanes`); `laneOf`'s comment says why the lane is never used.
+- **The warm-up casts no mask to its own species.** The narrow blocks' `m.cast(s)` and
+  `m.cast(w)` are gone. `VarkaWarmupReachSuite` had asked for them because it counted a kernel's
+  `VectorMask.cast` against every mask class the kernel uses, the narrow ones included; it now
+  skips the narrow masks for that call, since the emitter casts a mask only between the two lanes
+  of one lane count (`emitMaskToLane`, `emitToDrivingLane`). This corrects the first review's
+  warm-up bullet.
+- **Level 3's kernels are checked again.** With the coverage rows gone, nothing compared a level-3
+  conversion kernel with the row engine, and the option matrix never ran level 3: its key
+  (`VarkaMatrixRuns.emissionKey`) read `convertsFallBack()` alone and folded level 3 into the
+  defaults. The key now has three classes, falling back, unknown and admitting the conversions,
+  so the matrix's `useAVX` arms are `useAVX=2` and `useAVX=3` where they were `useAVX=2`, and
+  `VarkaDifferentialHarnessSuite` runs `CAST(l AS DOUBLE)`, `CAST(l AS FLOAT)`, `x - l` and
+  `CAST(l AS DOUBLE) + 1.5D` at level 3 over the extremes and values past 2^53 and 2^24 against
+  the row engine; `drivesLong`'s doc in `CompiledVarkaProjection` states the two facts it rests on.
+  *Corrections after review:* the harness routes a `ConvertLane` to the two-lane checker,
+  `MixedLane` reads a `BOOLEAN` column's bits, and the IR completeness suites gained `ConvertLane`
+  rows; the conformance suites take the two casts as fused where the options admit them
+  (`CastPair.fusedIn`), so the `BIGINT` cast row checks them in LEGACY, ANSI and TRY at level 3
+  and its `skips.tsv` line is gone; and `VarkaEmittedBytesSuite` asserts level 3's digest equals
+  the unknown level's at both widths, which holds while no oracle shape holds the conversion.
+
+*Open for 343b:* `coalesce(CAST(x AS BOOLEAN), false)` does not compile as a condition. Row
+331's `CondIf` fuses `coalesce` over boolean columns, but a cast to `BOOLEAN` is not taken as a
+condition operand there, though `CAST(x AS BOOLEAN)` alone compiles as one. The floating cast baseline lists it as unfused in its
+section "DOUBLE filter coalesce(CAST(x AS BOOLEAN), false)", at each density. Taking the cast as
+a condition operand is 343b's work, beside the root-level half of the crossing (the same-count
+mask crossing bullet above), not a row of its own.
+
+Also open for 343b, from the second review:
+
+- `VarkaKernelPlan.lanesShare` and its comment still refuse a floating root beside a root of
+  another lane, though this part builds the mask crossing at one lane count. Lifting the rule is
+  343b's root-level crossing.
+- `floatingConjunctRefusal`'s reason ("until a mask crosses between the kinds") is stale for the
+  same reason, and is 343b's too. The two-lane decline pull request, #1262, also edits that
+  function, so the two meet there.
+
+Later, not 343b's: a boolean source could be a blend of 1.0 and 0.0 at the target lane instead of
+`CondValue`, `NarrowLane` and `ConvertLane`, which keeps the kernel at one width. It is an
+optimization with no correctness gap behind it.
+
+Known, and left: the warm-up's gate on `L2F` and `L2D` reads the host
+(`VarkaHostIsa.conversionsFallBack`), while emission reads the session's level, so the two
+disagree under an explicit level: a session at level 3 on a CPU without AVX512DQ emits the
+conversions unwarmed, and a session at level 2 or the default on a CPU with it never emits the
+conversions the warm-up warms. Under `-2` they agree by construction.
+
+The prediction of 4.1 for the new shapes and 4.3's timings wait for the measurement against the
+baseline (step 8); none was run here.
+
 ## 6. Out of this row
 
 The decimal pairs (346, 350, 364, 366); string, zoned `TIMESTAMP` and interval casts with a

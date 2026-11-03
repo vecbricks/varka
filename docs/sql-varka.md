@@ -904,6 +904,34 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `-f` | `floatingArithmetic` |  |  | vector |
 | `abs(f)` | `floatingArithmetic` |  |  | vector |
 
+#### Floating casts
+
+| Expression | Switches | Domain | Notes | 128-bit lanes |
+|---|---|---|---|---|
+| `CAST(i AS DOUBLE)` | `floatingCast` |  | exact: an int's 32 bits fit the double's 53 | per-lane: mask broadcast, mask test |
+| `CAST(i AS FLOAT)` | `floatingCast` |  | rounded once to nearest, ties to even, as the JVM converts | vector |
+| `try_cast(i AS FLOAT)` | `floatingCast` |  | the same rounding: a cast to a floating type never fails | vector |
+| `CAST(y1 AS FLOAT)` | `floatingCast` |  | the byte widened at its load, then converted, exact | vector |
+| `CAST(s1 AS FLOAT)` | `floatingCast` |  | the short twin | vector |
+| `CAST(f AS DOUBLE)` | `floatingCast` |  | exact, a NaN's payload and both zeros kept | per-lane: mask broadcast, mask test |
+| `CAST(x AS FLOAT)` | `floatingCast` |  | rounded once; past the float range an infinity, never an error | per-lane: mask broadcast, load or store |
+| `CAST(b AS DOUBLE)` | `floatingCast` |  | 1.0 or 0.0, and null where the boolean is | per-lane: mask broadcast, mask test |
+| `CAST(b AS FLOAT)` | `floatingCast` |  |  | vector |
+| `CAST(i > 3 AS DOUBLE)` | `predicate`, `floatingCast` |  | a condition as its one or zero, then converted | per-lane: mask broadcast, mask test |
+| `x + i` | `floatingArithmetic`, `floatingCast` |  | type coercion casts the int to a double beside the double column | per-lane: mask broadcast, load or store, mask test |
+| `f * i` | `floatingArithmetic`, `floatingCast` |  | the int cast to a float beside the float column, at one lane count | per-lane: mask broadcast, mask test |
+| `f + x` | `floatingArithmetic`, `floatingCast` |  | the float widened exactly to meet the double | per-lane: mask broadcast, load or store, mask test |
+| `i / 2.0D` | `floatingArithmetic`, `floatingCast` |  | an int division is a double division over its cast | per-lane: mask broadcast, mask test |
+| `CAST(x AS BOOLEAN)` | `predicate` |  | x != 0: a NaN is true and both zeros false, as a BOOLEAN output | per-lane: compare to mask, mask cast, mask logic, mask broadcast |
+| `CAST(f AS BOOLEAN)` | `predicate` |  |  | vector |
+
+#### Floating casts as conditions
+
+| Predicate | Switches | Domain | Notes | 128-bit lanes |
+|---|---|---|---|---|
+| `NOT CAST(x AS BOOLEAN)` | `predicate` |  | x = 0.0 as the filter: both zeros pass and a NaN does not | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL up to 18 digits), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
+| `CAST(f AS BOOLEAN) OR f > 1.5F` | `predicate` |  | the float's test in a disjunction at its lane | vector |
+
 #### DECIMAL columns
 
 | Predicate | Switches | Domain | Notes | 128-bit lanes |
@@ -962,16 +990,16 @@ operands (a row counts once for each type it reads):
 | Type | Rows | refinement | proof | exhaustive | owed | differential |
 | :--- | ---: | ---: | ---: | ---: | ---: | ---: |
 | `bigint` | 63 | 0 | 2 | 0 | 2 | 59 |
-| `bool` | 27 | 0 | 0 | 13 | 0 | 14 |
-| `byte` | 30 | 0 | 0 | 0 | 8 | 22 |
+| `bool` | 29 | 0 | 0 | 13 | 0 | 16 |
+| `byte` | 31 | 0 | 0 | 0 | 8 | 23 |
 | `date` | 101 | 17 | 0 | 1 | 0 | 83 |
 | `dec` | 17 | 0 | 0 | 0 | 0 | 17 |
-| `double` | 37 | 0 | 0 | 0 | 0 | 37 |
+| `double` | 44 | 0 | 0 | 0 | 0 | 44 |
 | `dt` | 25 | 2 | 0 | 0 | 0 | 23 |
-| `float` | 29 | 0 | 0 | 0 | 0 | 29 |
-| `int` | 99 | 14 | 2 | 0 | 1 | 82 |
+| `float` | 34 | 0 | 0 | 0 | 0 | 34 |
+| `int` | 106 | 14 | 2 | 0 | 1 | 89 |
 | `ntz` | 24 | 0 | 1 | 0 | 0 | 23 |
-| `short` | 29 | 0 | 0 | 0 | 8 | 21 |
+| `short` | 30 | 0 | 0 | 0 | 8 | 22 |
 | `time` | 41 | 6 | 0 | 0 | 2 | 33 |
 | `ym` | 35 | 7 | 2 | 0 | 2 | 24 |
 <!-- END generated verification counts -->
@@ -1826,7 +1854,7 @@ cast) have no switch. The coverage table's *Switches* column names each row's.
 | `spark.sql.codegen.varka.reproduction.enabled` | `true` | VARKA-315. A kernel class that fails to verify or define, an exception inside a kernel, or a memory-sanitizer violation writes one reproduction file, which `dev/varka_emit.sh --replay` runs again outside Spark (Telemetry and debuggability). The failure is handled as without it. |
 | `spark.sql.codegen.varka.reproduction.directory` | (none) | Where reproduction files go on the failing JVM; unset, `varka-reproductions` under its `java.io.tmpdir`. Created owner-only, since a file can hold a batch of the query's data. |
 | `spark.sql.codegen.varka.reproduction.maxBatchBytes` | `16m` | The most bytes of a failing batch's values a reproduction file holds; a larger batch keeps its row count, null counts and buffer sizes, and a replay runs a synthetic batch of that shape. `0` never writes values. |
-| `spark.sql.codegen.varka.emit.useAVX` | `-1` | The `-XX:UseAVX` level the emitter lowers for where a lowering depends on it (VARKA-121): `3` or above takes a 64-bit division through double lanes, `2` the magic-number form, because the converts do not become instructions without AVX512DQ. `-2` resolves it from the driver's JVM (VARKA-538): level `2` where HotSpot's feature list lacks AVX512DQ, the emitter's default otherwise or where the list cannot be read (it needs `--add-exports=java.base/jdk.internal.vm.vector=ALL-UNNAMED`, which Spark's module options carry); the driver's host decides for the whole plan, and on a mixed cluster both forms are correct. `-1` leaves the emitter's own default, which is deliberately not the host's level so the shape hashes and the committed bytes describe no one machine; the Varka test sessions pin it. An explicit level wins over the host, and the level is part of the shape hash, so a session at a level emits and caches its own classes. |
+| `spark.sql.codegen.varka.emit.useAVX` | `-1` | The `-XX:UseAVX` level the emitter lowers for where a lowering depends on it (VARKA-121): `3` or above takes a 64-bit division through double lanes, `2` the magic-number form, because the converts do not become instructions without AVX512DQ; a `BIGINT` cast to `FLOAT` or `DOUBLE` fuses only at `3` or above. `-2` resolves it from the driver's JVM (VARKA-538): level `2` where HotSpot's feature list lacks AVX512DQ, `3` on an x86 host whose list holds it, the emitter's default elsewhere or where the list cannot be read (it needs `--add-exports=java.base/jdk.internal.vm.vector=ALL-UNNAMED`, which Spark's module options carry); the driver's host decides for the whole plan, and on a mixed cluster both forms are correct. `-1` leaves the emitter's own default, which is deliberately not the host's level so the shape hashes and the committed bytes describe no one machine; it keeps the conversion form of a division and declines the `BIGINT` casts, which could run as scalar Java on a host it does not name. The Varka test sessions pin it. An explicit level wins over the host, and the level is part of the shape hash, so a session at a level emits and caches its own classes. |
 | `spark.sql.codegen.varka.cache.maxEntries` | `100` | Static (VARKA-18). Capacity of the JVM-wide cache of loaded fused-kernel classes, keyed on the kernel's structural shape; the least recently used class is released on eviction, bounding Metaspace by this size. `0` restores the per-task emit-and-unload lifecycle. |
 | `spark.sql.codegen.varka.warmup.enabled` | `true` | VARKA-212. When true, a newly emitted kernel serves no batch until C2 has compiled it: the shape's batches take the per-row path while a background thread runs the kernel on a copy of the first batch, and every task of the shape switches to the kernel once it runs without allocating. When false, a new kernel serves batches from the first and runs interpreted until enough batches have gone through it. |
 
@@ -1843,6 +1871,7 @@ coverage table, and regenerated by the same command:
 | `spark.sql.codegen.varka.family.condition.enabled` | `true` | The condition family: the conditionals IF, CASE WHEN and coalesce (the comparisons in their conditions are the predicate family's). |
 | `spark.sql.codegen.varka.family.intArithmetic.enabled` | `true` | The int arithmetic family: +, -, * and unary minus over int, tinyint and smallint operands and abs over the narrow two, checked under ANSI, greatest and least, the casts between int and bigint, and a tinyint or smallint widened to int. |
 | `spark.sql.codegen.varka.family.floatingArithmetic.enabled` | `true` | The floating arithmetic family: +, -, *, unary minus and abs over double and float operands, and /, try_divide, sqrt, signum, degrees and radians over double ones, a zero divisor null under LEGACY and TRY and raised by the row engine under ANSI. |
+| `spark.sql.codegen.varka.family.floatingCast.enabled` | `true` | The floating casts family: the casts to float from tinyint, smallint, int, bigint and boolean, to double from int, bigint and boolean, and between float and double; tinyint and smallint to double are left to the row engine, as is bigint to either at an emit level below 3 or at the default level, which names no host: a session that sets the level to 3, or asks for the host's on a CPU with AVX512DQ, fuses it. |
 | `spark.sql.codegen.varka.family.integralCast.enabled` | `true` | The integral cast family: the casts among tinyint, smallint, int, bigint and boolean that the int arithmetic family does not hold: the narrowings to tinyint and smallint (wrapping, or checked under ANSI), a tinyint or smallint widened to smallint or bigint, a number cast to boolean and a boolean cast to a number. |
 <!-- END generated family switches -->
 

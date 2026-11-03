@@ -266,6 +266,30 @@ public final class VarkaAnsiForm {
         "CAST(i + 1 AS TINYINT)")) {
       out.put(sql + "\t" + FALSE_AND, unqualified);
     }
+    // The optimizer infers a null test on every column the floating cast reads, and that test
+    // sits on the column's own lane: an int, bigint, narrow, boolean or float one beside the
+    // double comparison (or a double one beside a float comparison), a conjunct of another lane
+    // than the floating ones, which declines until the root-level crossing is built.
+    String laneSplit = "the null test the optimizer infers on the cast's source is on another "
+        + "lane than the floating comparison, and conjuncts of two such lanes share no kernel "
+        + "until the root-level crossing (VARKA-343.md 5.1, its second part)";
+    for (String sql : List.of("CAST(i AS DOUBLE)", "CAST(i AS FLOAT)", "try_cast(i AS FLOAT)",
+        "CAST(y1 AS FLOAT)", "CAST(s1 AS FLOAT)", "CAST(f AS DOUBLE)", "CAST(x AS FLOAT)",
+        "CAST(b AS DOUBLE)", "CAST(b AS FLOAT)", "CAST(i > 3 AS DOUBLE)", "x + i", "f * i",
+        "f + x", "i / 2.0D")) {
+      out.put(sql + "\t" + FALSE_AND, laneSplit);
+    }
+    // A boolean row's forms set it beside the boolean column b2 - the CASE's other arm, the
+    // COALESCE's first argument, the AND's comparand - which is read on an integral lane
+    // (BoolColumn), beside the cast's test on a floating lane.
+    String boolColumn = "the form's boolean column b2 is read on an integral lane and the "
+        + "cast's test on a floating lane, which share no kernel until the root-level crossing "
+        + "(VARKA-343.md 5.1, its second part)";
+    for (String sql : List.of("CAST(x AS BOOLEAN)", "CAST(f AS BOOLEAN)")) {
+      for (String position : List.of(CASE_ARM, COALESCE_TAIL, FALSE_AND)) {
+        out.put(sql + "\t" + position, boolColumn);
+      }
+    }
     // A bigint narrowed to a narrow type as a COALESCE argument beside a narrow column: a narrow
     // choice in a long kernel, which has no lowering there (VARKA-332.md 10.1).
     String narrowChoice = "a narrow choice beside a bigint value has no lowering in a long "
@@ -402,7 +426,8 @@ public final class VarkaAnsiForm {
         out.add(position + ": " + sql + "\nnot served by a kernel ("
             + (outcome == null ? "the optimizer left no expression"
                 : outcome.answered + " answered, " + outcome.declined + " declined, "
-                    + outcome.residual + " residual")
+                    + outcome.residual + " residual, batch statuses "
+                    + outcome.batches.stream().map(b -> Integer.toString(b.status())).toList())
             + "), and not on the declined list");
       }
     }

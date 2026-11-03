@@ -76,7 +76,10 @@ import org.apache.spark.sql.types.DataTypes;
  * <p>Whether a form must fuse is the registers' word, not this class's: a form whose census entry
  * (or, for a cast, its form pair in {@code casts_fused.tsv}, which the compiler writes) marks the
  * type fused today must compile and agree; one it does not mark must decline, and is owed to the
- * rows the register names. A check whose forms all hold passes; one with an owed form is
+ * rows the register names. The one exception is the {@code BIGINT} casts to {@code FLOAT} and
+ * {@code DOUBLE}, which the compiler admits by the options' {@code useAVX} level and which this
+ * class takes from that level rather than the register ({@link CastPair#fusedIn}). A check whose
+ * forms all hold passes; one with an owed form is
  * cancelled naming the owners, after its fused forms have run. A form that fuses where the
  * register says it does not, or declines where it says it does, fails: the register has drifted
  * from the compiler.
@@ -923,7 +926,17 @@ public abstract class VarkaTypeConformance {
    */
   private record CastPair(String from, String to, String rows) {
     boolean fusedIn(Mode mode, DataType source, DataType target) {
-      return Registers.answers(source, target)[mode.ordinal()].equals("fused");
+      String answer = Registers.answers(source, target)[mode.ordinal()];
+      // The compiler writes the register at the defaults' unknown level, where the BIGINT casts
+      // to FLOAT and DOUBLE decline because the conversion may run as the Vector API's Java loop
+      // (VarkaKernelPlan.conversionRefusal). A configuration whose options admit them (useAVX=3)
+      // fuses them in every mode, so their fused forms are held to the reference and to Spark
+      // there instead of being reported as drift. A register that marks them fused stands.
+      if (answer.equals("declined") && source.equals(DataTypes.LongType)
+          && (target.equals(DataTypes.FloatType) || target.equals(DataTypes.DoubleType))) {
+        return !VarkaMatrixRuns.BASE.convertsMayFallBack();
+      }
+      return answer.equals("fused");
     }
   }
 

@@ -4,15 +4,15 @@ bool	byte	yes	yes	yes	select	1 or 0; DECIMAL(p, s) with p = s overflows	exhausti
 bool	short	yes	yes	yes	select	1 or 0; DECIMAL(p, s) with p = s overflows	exhaustion	LEGACY,ANSI,TRY	332	all
 bool	int	yes	yes	yes	select	1 or 0; DECIMAL(p, s) with p = s overflows	exhaustion	LEGACY,ANSI,TRY	332	all
 bool	bigint	yes	yes	yes	select	1 or 0; DECIMAL(p, s) with p = s overflows	exhaustion	LEGACY,ANSI,TRY	332	all
-bool	float	yes	yes	yes	select	1 or 0; DECIMAL(p, s) with p = s overflows	exhaustion		343	
-bool	double	yes	yes	yes	select	1 or 0; DECIMAL(p, s) with p = s overflows	exhaustion		343	
+bool	float	yes	yes	yes	select	1 or 0; DECIMAL(p, s) with p = s overflows	exhaustion	LEGACY,ANSI,TRY	343	all
+bool	double	yes	yes	yes	select	1 or 0; DECIMAL(p, s) with p = s overflows	exhaustion	LEGACY,ANSI,TRY	343	all
 bool	dec	yes	yes	yes	select	1 or 0; DECIMAL(p, s) with p = s overflows	exhaustion		350,364	
 byte	bool	yes	yes	yes	test	x != 0 (a NaN is true)	exhaustion	LEGACY,ANSI,TRY	332	all
 byte	byte	yes	yes	yes	identity		exhaustion		332	
 byte	short	yes	yes	yes	widening	sign extension, exact	exhaustion	LEGACY,ANSI,TRY	332	all
 byte	int	yes	yes	yes	widening	sign extension, exact	exhaustion	LEGACY,ANSI,TRY	332	all
 byte	bigint	yes	yes	yes	widening	sign extension, exact	exhaustion	LEGACY,ANSI,TRY	332,28	all
-byte	float	yes	yes	yes	widening	exact	exhaustion		343	
+byte	float	yes	yes	yes	widening	exact	exhaustion	LEGACY,ANSI,TRY	343	all
 byte	double	yes	yes	yes	widening	exact	exhaustion		343	
 byte	dec	yes	yes	yes	scale up	exact; overflow past p - s digits: LEGACY null, ANSI NUMERIC_VALUE_OUT_OF_RANGE	exhaustion		350,364	
 byte	ym	yes	yes	yes	scale up	times the unit, exact: no value of the source overflows	exhaustion		103,332	
@@ -22,7 +22,7 @@ short	byte	yes	yes	yes	narrowing	LEGACY wraps; ANSI raises CAST_OVERFLOW; TRY nu
 short	short	yes	yes	yes	identity		exhaustion		332	
 short	int	yes	yes	yes	widening	sign extension, exact	exhaustion	LEGACY,ANSI,TRY	332	all
 short	bigint	yes	yes	yes	widening	sign extension, exact	exhaustion	LEGACY,ANSI,TRY	332,28	all
-short	float	yes	yes	yes	widening	exact	exhaustion		343	
+short	float	yes	yes	yes	widening	exact	exhaustion	LEGACY,ANSI,TRY	343	all
 short	double	yes	yes	yes	widening	exact	exhaustion		343	
 short	dec	yes	yes	yes	scale up	exact; overflow past p - s digits: LEGACY null, ANSI NUMERIC_VALUE_OUT_OF_RANGE	exhaustion		350,364	
 short	ym	yes	yes	yes	scale up	times the unit, exact: no value of the source overflows	exhaustion		103,332	
@@ -32,8 +32,8 @@ int	byte	yes	yes	yes	narrowing	LEGACY wraps; ANSI raises CAST_OVERFLOW; TRY null
 int	short	yes	yes	yes	narrowing	LEGACY wraps; ANSI raises CAST_OVERFLOW; TRY nulls	exhaustion	LEGACY,ANSI	332	all
 int	int	yes	yes	yes	identity		exhaustion		332	
 int	bigint	yes	yes	yes	widening	sign extension, exact	exhaustion	LEGACY,ANSI,TRY	332,28	all
-int	float	yes	yes	yes	rounding	round to nearest even, as the JVM converts; no error	exhaustion		343	
-int	double	yes	yes	yes	widening	exact	exhaustion		343	
+int	float	yes	yes	yes	rounding	round to nearest even, as the JVM converts; no error	exhaustion	LEGACY,ANSI,TRY	343	all
+int	double	yes	yes	yes	widening	exact	exhaustion	LEGACY,ANSI,TRY	343	all
 int	dec	yes	yes	yes	scale up	exact; overflow past p - s digits: LEGACY null, ANSI NUMERIC_VALUE_OUT_OF_RANGE	exhaustion		350,364	
 int	ym	yes	yes	yes	scale up	times the unit; a YEAR end overflows past 178,956,970 (multiplyExact in int): raises under LEGACY and ANSI, TRY nulls; a MONTH end never	exhaustion	LEGACY,ANSI,TRY	103,332	2 of 3
 int	dt	yes	yes	yes	scale up	times the unit; a DAY end overflows past 106,751,991: raises under LEGACY and ANSI, TRY nulls; the other ends never	exhaustion		103,332	context: only as date_add's offset: d + CAST(i AS INTERVAL DAY)
@@ -47,20 +47,20 @@ bigint	double	yes	yes	yes	rounding	round to nearest even, as the JVM converts; n
 bigint	dec	yes	yes	yes	scale up	exact; overflow past p - s digits: LEGACY null, ANSI NUMERIC_VALUE_OUT_OF_RANGE	SMT (dev/varka_prove.sh) for the integer rule, sampled regions and the fuzzer		350,364	
 bigint	ym	yes	yes	yes	scale up	times the unit and narrowed to int (toIntExact); overflow raises under LEGACY and ANSI, TRY nulls	SMT (dev/varka_prove.sh) for the integer rule, sampled regions and the fuzzer		103,332	
 bigint	dt	yes	yes	yes	scale up	times the unit in a long; overflow raises under LEGACY and ANSI, TRY nulls	SMT (dev/varka_prove.sh) for the integer rule, sampled regions and the fuzzer		103,332	
-float	bool	yes	yes	yes	test	x != 0 (a NaN is true)	exhaustion		343	
+float	bool	yes	yes	yes	test	x != 0 (a NaN is true)	exhaustion	LEGACY,ANSI,TRY	343	all
 float	byte	yes	yes	yes	truncation	LEGACY saturates to int then wraps; ANSI and TRY range-check, NaN raises or nulls	exhaustion		343	
 float	short	yes	yes	yes	truncation	LEGACY saturates to int then wraps; ANSI and TRY range-check, NaN raises or nulls	exhaustion		343	
 float	int	yes	yes	yes	truncation	LEGACY saturates, NaN to 0; ANSI and TRY range-check on the double against 2^31 - 1 exactly; NaN raises or nulls	exhaustion		343	
 float	bigint	yes	yes	yes	truncation	LEGACY saturates, NaN to 0; ANSI and TRY range-check on the double against Long.MaxValue.toDouble, which is 2^63, so 2^63 passes and saturates; NaN raises or nulls	exhaustion		343	
 float	float	yes	yes	yes	identity		exhaustion		343	
-float	double	yes	yes	yes	widening	exact	exhaustion		343	
+float	double	yes	yes	yes	widening	exact	exhaustion	LEGACY,ANSI,TRY	343	all
 float	dec	yes	yes	yes	shortest digits	Decimal(double) is the double's shortest decimal: a lanewise guard from the rounding interval and an integer arm in lanes, the exact shortest-digits path for the rest (346)	exhaustion		346,350,364	
-double	bool	yes	yes	yes	test	x != 0 (a NaN is true)	sampled regions and the fuzzer		343	
+double	bool	yes	yes	yes	test	x != 0 (a NaN is true)	sampled regions and the fuzzer	LEGACY,ANSI,TRY	343	all
 double	byte	yes	yes	yes	truncation	LEGACY saturates to int then wraps; ANSI and TRY range-check, NaN raises or nulls	sampled regions and the fuzzer		343	
 double	short	yes	yes	yes	truncation	LEGACY saturates to int then wraps; ANSI and TRY range-check, NaN raises or nulls	sampled regions and the fuzzer		343	
 double	int	yes	yes	yes	truncation	LEGACY saturates, NaN to 0; ANSI and TRY range-check on the double against 2^31 - 1 exactly; NaN raises or nulls	sampled regions and the fuzzer		343	
 double	bigint	yes	yes	yes	truncation	LEGACY saturates, NaN to 0; ANSI and TRY range-check on the double against Long.MaxValue.toDouble, which is 2^63, so 2^63 passes and saturates; NaN raises or nulls	sampled regions and the fuzzer		343	
-double	float	yes	yes	yes	rounding	round to nearest even; overflow to infinity, no error	sampled regions and the fuzzer		343	
+double	float	yes	yes	yes	rounding	round to nearest even; overflow to infinity, no error	sampled regions and the fuzzer	LEGACY,ANSI,TRY	343	all
 double	double	yes	yes	yes	identity		sampled regions and the fuzzer		343	
 double	dec	yes	yes	yes	shortest digits	Decimal(double) is the double's shortest decimal: a lanewise guard from the rounding interval and an integer arm in lanes, the exact shortest-digits path for the rest (346)	sampled regions and the fuzzer		346,350,364	
 dec	bool	yes	yes	yes	test	x != 0 (a NaN is true)	SMT (dev/varka_prove.sh) for the integer rule, sampled regions and the fuzzer		350,364	

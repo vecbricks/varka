@@ -245,8 +245,10 @@ class VarkaWidthAuditSuite extends SparkFunSuite with VarkaTestWatchdog {
    * The one refusal a host class is known to have at its own width, and the emitter already
    * knows about: without AVX512DQ there is no vector lowering of the 64-bit lane's conversions
    * to and from double (`L2D`, `D2L`), which is why `VarkaEmitOptions.convertsFallBack` exists
-   * and the magic form of the division was built (`VARKA-88.md` 9.2). C2 prints it as a
-   * lane cast of four 64-bit lanes: `op=cast#<n>/3 vlen2=4 etype2=double|long ismask=0`.
+   * and the magic form of the division was built (`VARKA-88.md` 9.2), nor of the 64-bit lane's
+   * conversion to float (`L2F`, a `BIGINT` cast to `FLOAT`, VARKA-343). C2 prints it as a lane
+   * cast: `op=cast#<n>/3 vlen2=<lanes> etype2=double|long|float ismask=0`; every other cast to
+   * float (`I2F`, `D2F`) has an AVX2 rule, so a float target refused there is `L2F`.
    * The audit's first CI run confirmed it from the runner pool's EPYC 7763 at 256 bits, in
    * every shape that carries a 64-bit constant division and nowhere else. The invariant
    * expects it where the probe's JVM says its converts fall back - HotSpot's own feature list,
@@ -257,7 +259,8 @@ class VarkaWidthAuditSuite extends SparkFunSuite with VarkaTestWatchdog {
     conversionsFallBack &&
       line.startsWith("not supported") && line.contains("op=cast#") &&
       line.contains("ismask=0") &&
-      (line.contains("etype2=double") || line.contains("etype2=long"))
+      (line.contains("etype2=double") || line.contains("etype2=long")
+        || line.contains("etype2=float"))
 
   /**
    * The declines the committed census records for one width, shape to the reason the file keeps
@@ -532,8 +535,11 @@ class VarkaWidthAuditSuite extends SparkFunSuite with VarkaTestWatchdog {
     // falls back must admit it, while any other refusal fails either way.
     val l2d = "not supported: arity=1 op=cast#2/3 vlen2=4 etype2=double ismask=0"
     val other = "not supported: arity=2 op=mul vlen=4 etype=long ismask=0"
+    val l2f = "not supported: arity=1 op=cast#510/3 vlen2=8 etype2=float ismask=0"
     assert(knownConversionRefusal(conversionsFallBack = true, l2d))
     assert(!knownConversionRefusal(conversionsFallBack = false, l2d))
+    assert(knownConversionRefusal(conversionsFallBack = true, l2f))
+    assert(!knownConversionRefusal(conversionsFallBack = false, l2f))
     assert(!knownConversionRefusal(conversionsFallBack = true, other))
     // The probe's own answer keys its census, and on x86 an unread list answers "converts"
     // whatever the CPU, so both JVMs must read it there: the fork through audit()'s

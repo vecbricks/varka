@@ -76,6 +76,13 @@ public enum VarkaFamily {
       + " over double and float operands, and /, try_divide, sqrt, signum, degrees and radians"
       + " over double ones, a zero divisor null under LEGACY and TRY and raised by the row engine"
       + " under ANSI"),
+  /** {@code VarkaFloatingCastCompiler}. */
+  FLOATING_CAST("floating casts", "floatingCast", "the casts to float from tinyint, smallint,"
+      + " int, bigint and boolean, to double from int, bigint and boolean, and between float and"
+      + " double; tinyint and smallint to double are left to the row engine, as is bigint to"
+      + " either at an emit level below 3 or at the default level, which names no host: a"
+      + " session that sets the level to 3, or asks for the host's on a CPU with AVX512DQ,"
+      + " fuses it"),
   /** {@code VarkaIntegralCastCompiler}, its condition arm reached from {@code compileCond}. */
   INTEGRAL_CAST("integral cast", "integralCast", "the casts among tinyint, smallint, int,"
       + " bigint and boolean that the int arithmetic family does not hold: the narrowings to"

@@ -623,12 +623,12 @@ final class VarkaBodyEmitter {
     cb.getstatic(analysis.lane.vector, analysis.lane.speciesField(analysis.lanes),
         VECTOR_SPECIES);
     cb.astore(s.species);
-    if (s.intSpecies >= 0) {
-      // The int species of the driving species' width, in a kernel that converts between lanes:
+    for (Map.Entry<Lane, Integer> other : s.otherSpecies.entrySet()) {
+      // Each other lane's species of the driving species' width, in a kernel of several lanes:
       // the width's own species, never a half-width one (`VARKA-28.md` 2.2).
-      cb.getstatic(Lane.INT.vector, Lane.INT.speciesField(analysis.lanesOf(Lane.INT)),
-          VECTOR_SPECIES);
-      cb.astore(s.intSpecies);
+      Lane lane = other.getKey();
+      cb.getstatic(lane.vector, lane.speciesField(analysis.lanesOf(lane)), VECTOR_SPECIES);
+      cb.astore(other.getValue());
     }
     if (analysis.lanes != 0) {
       cb.loadConstant(analysis.lanes);
@@ -670,10 +670,10 @@ final class VarkaBodyEmitter {
   /** The literals the body reads, hoisted out of the loop, and broadcast where it wants vectors. */
   private static void emitLiterals(CodeBuilder cb, Analysis analysis, Slots s) {
     emitLiterals(cb, analysis.lane, s.scalarArg.length, s);
-    if (s.intScalarArg != null) {
-      // The int table, in a kernel that converts between lanes; read from the int array, which
-      // the long lane's `run` takes beside its own.
-      emitLiterals(cb, Lane.INT, s.intScalarArg.length, s);
+    for (Map.Entry<Lane, int[]> other : s.otherScalarArg.entrySet()) {
+      // Each other lane's table, in a kernel of several lanes; read from the array of its width,
+      // the int one, which every `run` takes, or the long one a 64-bit drive's `run` takes.
+      emitLiterals(cb, other.getKey(), other.getValue().length, s);
     }
   }
 
@@ -1129,7 +1129,7 @@ final class VarkaBodyEmitter {
     // preferred species where no count is baked, which the long lane's preferred species matches
     // in bits.
     VarkaVectorWalk.emitShapeConversion(cb, Lane.LONG, Lane.INT, analysis); // [ints, low half]
-    emitLowHalfStore(cb, analysis, s, o);
+    emitLowHalfStore(cb, Lane.INT, analysis, s, o);
   }
 
   /**
@@ -1296,15 +1296,16 @@ final class VarkaBodyEmitter {
   }
 
   /**
-   * The store of an int vector whose low half holds the lane group's rows, in a kernel driven at
-   * the long lane: {@code [int vector] -> []}, four bytes a row at {@code (long) i * 4}, under the
-   * mask of the int species' first {@code lanes} lanes - or whole, in the loop of a kernel that
-   * converts between lanes, which leaves room for it. A narrowed root's tail, and the store of
-   * every int-valued root of a kernel that converts between lanes, whose int values all fill the
-   * low half of their species.
+   * The store of a 32-bit vector, int or float, whose low half holds the lane group's rows, in a
+   * kernel driven at 64 bits: {@code [vector] -> []}, four bytes a row at {@code (long) i * 4},
+   * under the mask of the species' first lanes, as many as the group covers - or whole, in the
+   * loop of a kernel that converts between widths, which leaves room for it. A narrowed root's
+   * tail, and the store of every 32-bit root of a kernel that converts between widths, whose
+   * 32-bit values all fill the low half of their species.
    */
-  private static void emitLowHalfStore(CodeBuilder cb, Analysis analysis, Slots s, int o) {
-    String intSpecies = Lane.INT.speciesField(analysis.lanes == 0 ? 0 : analysis.lanes * 2);
+  private static void emitLowHalfStore(CodeBuilder cb, Lane lane, Analysis analysis, Slots s,
+      int o) {
+    String wideSpecies = lane.speciesField(analysis.lanes == 0 ? 0 : analysis.lanes * 2);
     cb.aload(s.dstSeg[o]);
     if (analysis.mixed() && !s.epilogue) {
       // In the loop of a kernel that converts between lanes the whole int vector is stored:
@@ -1316,7 +1317,7 @@ final class VarkaBodyEmitter {
       cb.loadConstant(4L);
       cb.lmul();
       cb.getstatic(BYTE_ORDER, "LITTLE_ENDIAN", BYTE_ORDER);
-      cb.invokevirtual(INT_VECTOR, "intoMemorySegment", Lane.INT.intoMemorySegmentDense);
+      cb.invokevirtual(lane.vector, "intoMemorySegment", lane.intoMemorySegmentDense);
       return;
     }
     // The int column's offset is derived from the row index the way the lane's own offset
@@ -1329,11 +1330,11 @@ final class VarkaBodyEmitter {
     cb.loadConstant(4L);
     cb.lmul();                                                  // i * 4
     cb.getstatic(BYTE_ORDER, "LITTLE_ENDIAN", BYTE_ORDER);
-    cb.getstatic(INT_VECTOR, intSpecies, VECTOR_SPECIES);
+    cb.getstatic(lane.vector, wideSpecies, VECTOR_SPECIES);
     cb.loadConstant(0);
     cb.iload(s.lanes);
     cb.invokeinterface(VECTOR_SPECIES, "indexInRange", INDEX_IN_RANGE);
-    cb.invokevirtual(INT_VECTOR, "intoMemorySegment", Lane.INT.intoMemorySegmentMasked);
+    cb.invokevirtual(lane.vector, "intoMemorySegment", lane.intoMemorySegmentMasked);
   }
 
   /**
@@ -1454,19 +1455,21 @@ final class VarkaBodyEmitter {
         // A narrow root of a kernel driven at the int lane: the value is computed widened and
         // stored back at its own width.
         emitNarrowTypeStore(cb, stored, analysis, s, o);
-      } else if (analysis.laneOf(root) != analysis.lane) {
-        emitLowHalfStore(cb, analysis, s, o);
+      } else if (!analysis.sameCount(analysis.laneOf(root))) {
+        emitLowHalfStore(cb, analysis.laneOf(root), analysis, s, o);
       } else {
+        // The drive's lane, or the other lane of its width, whose vector is as long: stored
+        // whole at its own class, under the bounds mask cast to its species in an epilogue.
+        Lane at = analysis.laneOf(root);
         cb.aload(s.dstSeg[o]);
         cb.lload(s.byteOffset);
         cb.getstatic(BYTE_ORDER, "LITTLE_ENDIAN", BYTE_ORDER);
         if (s.epilogue) {
           cb.aload(s.epilogueMask());
-          cb.invokevirtual(analysis.lane.vector, "intoMemorySegment",
-              analysis.lane.intoMemorySegmentMasked);
+          VarkaVectorWalk.emitMaskToLane(cb, at, analysis);
+          cb.invokevirtual(at.vector, "intoMemorySegment", at.intoMemorySegmentMasked);
         } else {
-          cb.invokevirtual(analysis.lane.vector, "intoMemorySegment",
-              analysis.lane.intoMemorySegmentDense);
+          cb.invokevirtual(at.vector, "intoMemorySegment", at.intoMemorySegmentDense);
         }
       }
       if (!validityWritten && !wordKnownEarly) {

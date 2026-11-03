@@ -49,8 +49,12 @@ import org.apache.spark.sql.internal.SQLConf;
  * each section's plan on the Varka session against the section's {@link Fusion} class, the
  * record of how much of it a row has fused, and fails when the plan's class differs
  * ({@link VarkaSqlBenchmarkBase#requireBaseline(SparkSession, String, String, Fusion)}); the
- * results file notes each section that fuses. Every section is {@code NONE}. The filter's
- * condition is the cast under {@code coalesce} rather than the bare cast: from a bare
+ * results file notes each section that fuses. The casts to a floating type are {@code WHOLE}
+ * since row 343's first part fuses them, but for a BIGINT's, which declines at the session's
+ * default emit level on every host ({@code VarkaEmitOptions.convertsMayFallBack}); every other
+ * section is {@code NONE}, the boolean filter among them, since a {@code coalesce} over a
+ * condition does not compile as one. The filter's condition is the cast under
+ * {@code coalesce} rather than the bare cast: from a bare
  * {@code WHERE CAST(x AS BOOLEAN)} the optimizer infers {@code x IS NOT NULL}, since the cast is
  * null-intolerant, and that conjunct alone fuses into a {@code VarkaFilterColumnarToRow} under
  * Spark's {@code Filter}, which would put a Varka node in the plan while the cast declines, so
@@ -170,12 +174,16 @@ public class VarkaFloatingCastBaselineBenchmark extends VarkaSqlBenchmarkBase {
       String s = "s" + nulls;
       String density = ", " + (nulls.isEmpty() ? "no nulls" : "one row in ten null");
       String from = " AS a FROM " + VIEW;
+      // The casts to a floating type fuse (VARKA-343 5.1), but for a BIGINT's: the session runs
+      // at the default emit level, which names no host, and the plan declines L2F and L2D there
+      // on every machine. Its AVX2 form, which fuses it at every level, is row 343's second part.
+      Fusion longConverts = Fusion.NONE;
       out.add(new Section("BIGINT CAST(l AS FLOAT)" + density,
-          "SELECT CAST(" + l + " AS FLOAT)" + from, Map.of(), Fusion.NONE));
+          "SELECT CAST(" + l + " AS FLOAT)" + from, Map.of(), longConverts));
       out.add(new Section("BIGINT CAST(l AS DOUBLE)" + density,
-          "SELECT CAST(" + l + " AS DOUBLE)" + from, Map.of(), Fusion.NONE));
+          "SELECT CAST(" + l + " AS DOUBLE)" + from, Map.of(), longConverts));
       out.add(new Section("INT CAST(i AS DOUBLE)" + density,
-          "SELECT CAST(" + i + " AS DOUBLE)" + from, Map.of(), Fusion.NONE));
+          "SELECT CAST(" + i + " AS DOUBLE)" + from, Map.of(), Fusion.WHOLE));
       out.add(new Section("DOUBLE CAST(w AS INT), LEGACY" + density,
           "SELECT CAST(" + w + " AS INT)" + from, legacy, Fusion.NONE));
       out.add(new Section("DOUBLE CAST(x AS INT), ANSI" + density,
@@ -183,7 +191,7 @@ public class VarkaFloatingCastBaselineBenchmark extends VarkaSqlBenchmarkBase {
       out.add(new Section("DOUBLE try_cast(w AS BIGINT)" + density,
           "SELECT try_cast(" + w + " AS BIGINT)" + from, Map.of(), Fusion.NONE));
       out.add(new Section("DOUBLE CAST(x AS FLOAT)" + density,
-          "SELECT CAST(" + x + " AS FLOAT)" + from, Map.of(), Fusion.NONE));
+          "SELECT CAST(" + x + " AS FLOAT)" + from, Map.of(), Fusion.WHOLE));
       out.add(new Section("DOUBLE filter coalesce(CAST(x AS BOOLEAN), false)" + density,
           "SELECT " + x + from + " WHERE coalesce(CAST(" + x + " AS BOOLEAN), false)", Map.of(),
           Fusion.NONE));
