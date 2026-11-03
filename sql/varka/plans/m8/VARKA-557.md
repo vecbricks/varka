@@ -258,11 +258,16 @@ longest single tests were 348 and 293 seconds (`VarkaSeveralKernelsSuite`'s eigh
 1373 runner seconds against the laptop's 613 at the defaults, 2.2 times; each suite's weight
 scaled by its laptop ratio gives about 6400 runner seconds a configuration. Split as the job
 splits it (`dev/varka_suite_shards.py --job` over the committed weights, then `--split 2`), the
-share holding `VarkaCoverageHarnessSuite` and `VarkaSeveralKernelsSuite` runs two JVMs of about
-36 minutes each, the other two of about 18: under the 90-minute cap with room for a runner twice
-as slow. So two jobs a configuration, eight jobs four at a time. One job a configuration would
-run about 53 minutes of suites, too close to the cap for the runners' spread (a suite's time
-moves up to 3.38 times between two Builds, `results/VARKA-516-weights.txt`).
+share holding `VarkaCoverageHarnessSuite` (about 36 minutes alone) and `VarkaSeveralKernelsSuite`
+(about 25) is the long one. Inside a job, `--split 2` balances its two JVMs by JUnit times from
+an earlier run, which a fresh runner does not have, so it splits by count: the two suites may
+share a JVM, about 61 minutes with the rest of the share, or not (the order of today's list puts
+them apart), about 36. The other share's JVMs take about 18. So two jobs a configuration, eight
+jobs four at a time, under the 90-minute cap in the worst case though without room for a runner
+half again as slow. One job a configuration would run about 53 minutes of suites a JVM, too close
+to the cap for the runners' spread (a suite's time moves up to 3.38 times between two Builds,
+`results/VARKA-516-weights.txt`). Seeding the in-job split with the committed weights would pin
+the better case; it is an open point (9).
 
 **What failed, and the skip list.** One test, by design: `VarkaProjectExecSuite`'s "the
 allocation sampler events every sampled batch, and the samples go clean once C2 has the loop",
@@ -291,10 +296,27 @@ SparkFunSuite's cap from 20 to 30.
   `check`, which fails a run whose compile record shows no split or whose JVMs compared no batch.
 - `sql/varka/ci/tier-split/*.json`: the four compiler directive files. Each prints the compiles of
   the methods it matches (`PrintCompilation: true`), which is what `check` reads, at no cost to
-  the rest of the log.
+  the rest of the log. Run with the committed files over `VarkaEvaluatorComponentsSuite` and
+  `VarkaProjectExecSuite`, `check` passed under all four: the compiled side at tier 4 only, the
+  held side at tiers 3 and 1 under the `-c1` configurations and never compiled under the
+  `-interpreted` ones, 27 to 2427 batches compared.
 - `VarkaKernelRunner` counts the batches its check compared, null-free and nullable, and a JVM
   under the check prints the two counts as it exits.
 - `VarkaMethodNamesSuite` holds every pattern in the script and the directive files to
   `VarkaMethodNames`' builders and `VarkaShapeCacheImpl.CLASS_NAME_PREFIX`: each method glob must
   name exactly one side's methods, the dispatch or every method.
 - `varka-fuzz.yml`: both jobs' schedule guarded to vecbricks/varka (7.1).
+
+## 9. Open points for the lead
+
+1. **The split inside a job.** `--split 2` has no JUnit times on a fresh runner, so it splits a
+   share's suites by count, and `VarkaCoverageHarnessSuite` and `VarkaSeveralKernelsSuite` may land
+   in one JVM, about 61 minutes under `dense-interpreted` (8.2). Seed it with the committed
+   weights, go to three shares (which `--job` would give one heavy suite each), or let step 4's
+   run measure it first.
+2. **`VarkaSuiteRunner`'s `-z` and `-t`** pass a JUnit class's dynamic tests through unfiltered
+   (8.1). A row of its own, if wanted; this row only records it.
+3. **Step 4** on the owner's word: `varka-tier-split.yml` dispatched on `varka-557-scratch` (tip
+   `237acb87bf6`, #1313's acceptance dropped, master as of `96d26da9cf0` otherwise) should fail in
+   `masked-interpreted` and `masked-c1`, and on this branch pass. The workflow file is new on this
+   branch, so a dispatch needs it on the default branch or a dispatch by ref after a push.

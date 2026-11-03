@@ -59,9 +59,8 @@ SIDE = {"masked": f"{KERNELS}.*Masked*", "dense": f"{KERNELS}.*Dense*"}
 DISPATCH = f"{KERNELS}.run"
 EVERY_METHOD = f"{KERNELS}.*"
 
-# The per-method threshold scale. At 0.01 a suite's kernels never left tier 3, and at 0.001 most
-# stayed interpreted; at 0.0001 every compiled-side method reached C2 within its first calls in
-# the laptop trial (`m8/VARKA-557.md` 8).
+# The per-method threshold scale, at which every compiled-side method reached C2 within its first
+# calls in the laptop trial, where 0.01 and 0.001 left most short of it (`m8/VARKA-557.md` 8.1).
 THRESHOLD_FACTOR = "0.0001"
 
 CONFIGS = ["masked-interpreted", "dense-interpreted", "masked-c1", "dense-c1"]
