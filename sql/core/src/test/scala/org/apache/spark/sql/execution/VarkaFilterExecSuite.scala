@@ -51,11 +51,13 @@ class VarkaFilterExecSuite extends QueryTest with SharedSparkSession with VarkaT
    * their ordinals against. The tests whose subject is the *split* between fused and residual
    * conjuncts use these: VARKA-122 made a bare int column compare in the kernel, so `i > 5`
    * stopped being an example of something that cannot fuse, and VARKA-329 retired the
-   * smallint's `sh > 5S` the same way; a double column is read by no kernel today.
+   * smallint's `sh > 5S` the same way, and a double comparison fuses beside a date one by
+   * the lane crossing (VARKA-343); `pow` is in no family, so `residual` is the split's example.
    */
   private val doubleAttr = AttributeReference("f", DoubleType)()
   private val withDouble: Seq[Attribute] = Seq(attrD, intAttr, doubleAttr)
   private val doubleResidual = GreaterThan(doubleAttr, Literal(5.0d))
+  private val residual = GreaterThan(Pow(doubleAttr, Literal(2.0d)), Literal(5.0d))
 
   /** `d < DATE(epoch day 10)`: the workhorse predicate of these tests. */
   private def dLess10 = LessThan(attrD, Literal(10, DateType))
@@ -415,22 +417,19 @@ class VarkaFilterExecSuite extends QueryTest with SharedSparkSession with VarkaT
     val mixed = VarkaFusionReport.predicateLines(
       And(dLess10, doubleResidual), withDouble, VarkaEmitOptions.DEFAULTS,
         VarkaAdmission.NO_HOST_REFUSAL)
-    assert(mixed.head === "(d < DATE '1970-01-11'): fused")
-    val floatingReason = "residual (a condition on the DOUBLE lane in a filter that also " +
-      "reads integral columns: its kernel meets on an integral lane, and a mask crossing from " +
-      "a floating lane is not built"
-    assert(mixed(1).startsWith(s"(f > 5.0D): $floatingReason"), mixed)
+    // A floating conjunct beside the date one shares its kernel, its mask crossed to the date
+    // lane (VARKA-343.md 2.2.1).
+    assert(mixed === Seq("(d < DATE '1970-01-11'): fused", "(f > 5.0D): fused"), mixed)
     // A filter over the floating column alone fuses: its kernel is on the DOUBLE lane.
     val alone = VarkaFusionReport.predicateLines(doubleResidual, withDouble,
       VarkaEmitOptions.DEFAULTS, VarkaAdmission.NO_HOST_REFUSAL)
     assert(alone === Seq("(f > 5.0D): fused"), alone)
-    // The same holds for a floating null test: beside the date conjunct it stays with the row
-    // filter, so the date conjunct keeps the kernel's integral lane.
+    // So does a floating null test before the date conjunct.
     val nullTest = VarkaFusionReport.predicateLines(
       And(IsNotNull(doubleAttr), dLess10), withDouble, VarkaEmitOptions.DEFAULTS,
         VarkaAdmission.NO_HOST_REFUSAL)
-    assert(nullTest === Seq(s"(f IS NOT NULL): $floatingReason: (f IS NOT NULL))",
-      "(d < DATE '1970-01-11'): fused"), nullTest)
+    assert(nullTest === Seq("(f IS NOT NULL): fused", "(d < DATE '1970-01-11'): fused"),
+      nullTest)
     // A string column is read by no lane, so its conjunct goes to the row filter and leaves the
     // floating one the kernel's only lane.
     val s = AttributeReference("s", StringType)()
@@ -440,19 +439,16 @@ class VarkaFilterExecSuite extends QueryTest with SharedSparkSession with VarkaT
     assert(besideString.head === "(f > 5.0D): fused", besideString)
   }
 
-  test("a decimal conjunct joins the integral kernel, beside which a floating one stays with " +
-      "the row filter as beside a bigint") {
+  test("a decimal conjunct joins the integral kernel, and a floating one joins it too") {
     // `dbl > 1.5 AND dec > 1.0`: a decimal of precision up to 18 is read on the long lane by its
-    // comparisons (VARKA-347), so its conjunct fuses and counts as an integral read, and the
-    // floating conjunct goes to the row filter for the reason a bigint conjunct gives it. Before
-    // the reader the decimal was read by no kernel, and the floating conjunct kept the kernel.
+    // comparisons (VARKA-347), and the floating conjunct's mask crosses to that lane, so both
+    // share one kernel (VARKA-343.md 2.2.1).
     val dec = AttributeReference("dec", DecimalType(10, 2))()
     val decimalConjunct =
       GreaterThan(dec, Literal.create(new java.math.BigDecimal("1.00"), DecimalType(10, 2)))
     val lines = VarkaFusionReport.predicateLines(And(doubleResidual, decimalConjunct),
       withDouble :+ dec, VarkaEmitOptions.DEFAULTS, VarkaAdmission.NO_HOST_REFUSAL)
-    assert(lines(1) === "(dec > 1.00BD): fused", lines)
-    assert(lines.head.contains("in a filter that also reads integral columns"), lines)
+    assert(lines === Seq("(f > 5.0D): fused", "(dec > 1.00BD): fused"), lines)
   }
 
   test("a long conjunct stays with the row filter where x86 has two long lanes (VARKA-503)") {
@@ -484,10 +480,10 @@ class VarkaFilterExecSuite extends QueryTest with SharedSparkSession with VarkaT
   test("VarkaColumnarRule: the pre stage rewrites an eligible filter, splitting conjuncts") {
     val child = TestColumnarBatchPlan(Nil, withDouble)
     val eligible = FilterExec(dLess10, child)
-    val mixed = FilterExec(And(dLess10, doubleResidual), child)
+    val mixed = FilterExec(And(dLess10, residual), child)
     // A double comparison alone fuses on the DOUBLE lane, and so does double arithmetic since
     // VARKA-342; `pow` is in no family, so a filter over it is left to Spark.
-    val ineligible = FilterExec(GreaterThan(Pow(doubleAttr, Literal(2.0d)), Literal(5.0d)), child)
+    val ineligible = FilterExec(residual, child)
     assert(VarkaExpressionCompiler.compilePredicate(ineligible.condition, withDouble,
       VarkaEmitOptions.DEFAULTS, VarkaAdmission.NO_HOST_REFUSAL).isEmpty)
     val rowChild = FilterExec(dLess10, ColumnarToRowExec(child))
@@ -495,11 +491,11 @@ class VarkaFilterExecSuite extends QueryTest with SharedSparkSession with VarkaT
     withSQLConf(SQLConf.VARKA_ENABLED.key -> "true") {
       assert(VarkaColumnarRule.preColumnarTransitions(eligible) ===
         VarkaFilterExec(dLess10, child))
-      // The mixed predicate splits: the fused conjunct in the Varka node, the double conjunct
+      // The mixed predicate splits: the fused conjunct in the Varka node, the pow conjunct
       // in a row FilterExec above it - which then sees only the surviving rows. The Varka
       // node keeps the whole condition for the batches its kernel cannot serve.
       assert(VarkaColumnarRule.preColumnarTransitions(mixed) ===
-        FilterExec(doubleResidual, VarkaFilterExec(dLess10, child, Some(mixed.condition))))
+        FilterExec(residual, VarkaFilterExec(dLess10, child, Some(mixed.condition))))
       assert(VarkaColumnarRule.preColumnarTransitions(ineligible) === ineligible)
       // A row child is left for the post stage, which absorbs the transition.
       assert(VarkaColumnarRule.preColumnarTransitions(rowChild) === rowChild)
@@ -522,14 +518,14 @@ class VarkaFilterExecSuite extends QueryTest with SharedSparkSession with VarkaT
         VarkaFilterColumnarToRowExec(dLess10, child))
       // The split applies there too.
       assert(VarkaColumnarRule.postColumnarTransitions(
-        FilterExec(And(dLess10, doubleResidual),
+        FilterExec(And(dLess10, residual),
           ColumnarToRowExec(child))) ===
-        FilterExec(doubleResidual,
+        FilterExec(residual,
           VarkaFilterColumnarToRowExec(dLess10, child,
-            wholeCondition = Some(And(dLess10, doubleResidual)))))
+            wholeCondition = Some(And(dLess10, residual)))))
       // The residual filter the pre stage left above a fused Varka filter is not
       // touched again: its child is a row node.
-      val residualOverFused = FilterExec(doubleResidual,
+      val residualOverFused = FilterExec(residual,
         VarkaFilterColumnarToRowExec(dLess10, child))
       assert(VarkaColumnarRule.postColumnarTransitions(residualOverFused)
         === residualOverFused)
@@ -661,7 +657,7 @@ class VarkaFilterExecSuite extends QueryTest with SharedSparkSession with VarkaT
     // With a residual conjunct the stack breaks by design: the row FilterExec sits between.
     val mixedPlan = ProjectExec(
       Seq(Alias(DateAdd(attrD, Literal(3)), "add")()),
-      FilterExec(And(dLess10, doubleResidual), child))
+      FilterExec(And(dLess10, residual), child))
     withSQLConf(SQLConf.VARKA_ENABLED.key -> "true") {
       val rewritten = VarkaColumnarRule.preColumnarTransitions(mixedPlan)
       assert(rewritten.isInstanceOf[ProjectExec])

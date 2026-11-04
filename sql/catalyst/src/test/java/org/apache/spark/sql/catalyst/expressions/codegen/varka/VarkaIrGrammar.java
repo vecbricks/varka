@@ -44,6 +44,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Con
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.NullValue;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ConstDivide;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ConvertLane;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.CrossLane;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.DateDiff;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.DayOfMonth;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.DayOfWeek;
@@ -305,6 +306,7 @@ public final class VarkaIrGrammar {
       case And n -> new Bounds(0L, guard(n.left(), n.right()));
       case Or n -> new Bounds(0L, guard(n.left(), n.right()));
       case Not n -> new Bounds(0L, guard(n.child()));
+      case CrossLane n -> new Bounds(0L, guard(n.child()));
       case IsNotNull n -> new Bounds(0L, guard(n.child()));
       case InRanges n -> new Bounds(0L, guard(n.child()));
       // The mod-7 family: exact for every int32 day, so the value is small whatever it is

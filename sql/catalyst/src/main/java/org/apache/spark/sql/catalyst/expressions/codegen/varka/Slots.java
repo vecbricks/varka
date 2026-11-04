@@ -57,6 +57,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Con
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.CondValue;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ConstDivide;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ConvertLane;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.CrossLane;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.DateDiff;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.DayOfMonth;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.DayOfWeek;
@@ -1046,6 +1047,10 @@ final class Slots {
             // NOT swaps the pair: pure slot aliasing, no code emitted for it.
             s.kt.put(node, s.kf.get(n.child()));
             s.kf.put(node, s.kt.get(n.child()));
+          } else if (node instanceof CrossLane c) {
+            // A word holds a bit a row at every lane, so a crossing is the child's pair as it is.
+            s.kt.put(node, s.kt.get(c.child()));
+            s.kf.put(node, s.kf.get(c.child()));
           } else {
             if (node instanceof InRanges) {
               s.rangeTmp.put(node, new int[] {slot++, slot++, slot++});
@@ -1645,6 +1650,7 @@ final class Slots {
         case And x -> { }
         case Or x -> { }
         case Not x -> { }
+        case CrossLane x -> { }
       }
       if (guardedWord(analysis, n)) {
         demand(analysis.wordOwner.get(n));
@@ -1728,6 +1734,7 @@ final class Slots {
         case And x -> { }
         case Or x -> { }
         case Not x -> { }
+        case CrossLane x -> { }
         case IsNotNull x -> { }
         case InRanges x -> { }
       }

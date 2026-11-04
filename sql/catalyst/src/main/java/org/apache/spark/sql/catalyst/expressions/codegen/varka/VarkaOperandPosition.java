@@ -94,7 +94,7 @@ public enum VarkaOperandPosition {
            NarrowLane _, WidenDecimal _, Year _, Month _, DayOfMonth _, Quarter _, DayOfYear _,
            LastDay _,
            TruncDate _, TruncDateDynamic _, WeekOfYear _,
-           Compare _, NullSafeEqual _, And _, Or _, Not _, IsNotNull _, InRanges _,
+           Compare _, NullSafeEqual _, And _, Or _, Not _, CrossLane _, IsNotNull _, InRanges _,
            BoolColumn _, CondConst _, BoolCompare _, CondIf _, BoolNullSafeEq _,
            CondValue _, NullValue _, BoolOutput _ -> false;
     };
@@ -130,7 +130,8 @@ public enum VarkaOperandPosition {
            WidenLane _, ConvertLane _,
            NarrowLane _, WidenDecimal _, Year _, Month _, DayOfMonth _, Quarter _, DayOfYear _,
            LastDay _,
-           TruncDate _, WeekOfYear _, Compare _, NullSafeEqual _, And _, Or _, Not _, IsNotNull _,
+           TruncDate _, WeekOfYear _, Compare _, NullSafeEqual _, And _, Or _, Not _, CrossLane _,
+           IsNotNull _,
            InRanges _, BoolColumn _, CondConst _, BoolCompare _, CondIf _, BoolNullSafeEq _,
            CondValue _, NullValue _, BoolOutput _ -> List.of();
     };

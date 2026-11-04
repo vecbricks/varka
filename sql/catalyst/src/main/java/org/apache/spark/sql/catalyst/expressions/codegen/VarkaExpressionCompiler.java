@@ -57,7 +57,6 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaErrors;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaFamily;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaKernelPlan;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaLoopEmitter;
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTypes;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BoolOutput;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Cond;
@@ -606,7 +605,7 @@ public final class VarkaExpressionCompiler {
       if (outputs.isEmpty() || inputs.size() == 0) {
         return new Classified(Optional.empty(), declines, alone);
       }
-      CompiledVarkaProjection fused = tables(inputs, literals, sink)
+      CompiledVarkaProjection fused = tables(inputs, literals, sink, options)
           .projection(outputs, outputTypes);
       return new Classified(
           Optional.of(new PartialVarkaProjection(specs, fused, declines, List.of())),
@@ -915,15 +914,6 @@ public final class VarkaExpressionCompiler {
     List<VarkaConjunctSpec> specs = new ArrayList<>();
     UnaryOperator<Expression> bind = binder(childOutput);
     List<Expression> conjuncts = conjuncts(condition);
-    // Whether any conjunct reads a column a kernel reads on an integral lane, which decides
-    // whether a floating conjunct can share the kernel (VarkaKernelPlan.floatingConjunctRefusal).
-    // The registry's `lane(DataType)` is the one answer: a column no kernel reads today - a
-    // string, or a type whose lane exists before any operator over it compiles - puts its
-    // conjunct on the row path and so does not count.
-    boolean readsIntegral = false;
-    for (Attribute a : CollectionConverters.asJava(condition.references().toSeq())) {
-      readsIntegral |= VarkaTypes.lane(a.dataType()).filter(l -> !l.isFloating()).isPresent();
-    }
     for (int index = 0; index < conjuncts.size(); index++) {
       Expression conjunct = conjuncts.get(index);
       Expression bound = bind.apply(conjunct);
@@ -941,18 +931,14 @@ public final class VarkaExpressionCompiler {
       if (compiled.isPresent()) {
         Cond cond = compiled.get();
         Cond planned = cond;
-        // The host's refusal names its own reason first: beside a refused long conjunct, a
-        // floating one is the host's too, not "in a filter that also reads integral columns".
-        // Then, and alone without the host refusal, master's order: the floating refusal's,
-        // then the plan's, each asked only where the one before it admits. The plan's refusal
-        // where it has one is admit's too, so with the host refusal on it is the same answer.
-        boolean integral = readsIntegral;
+        // The host's refusal names its own reason first, then the plan's, asked only where the
+        // host admits. The plan's refusal where it has one is admit's too, so with the host
+        // refusal on it is the same answer.
         Optional<VarkaKernelPlan.Refusal> host = twoLaneHost
             ? VarkaKernelPlan.admit(List.of(planned), options, true)
                 .filter(r -> r.kind() == VarkaKernelPlan.Kind.TWO_LANE_CONDITION)
             : Optional.empty();
         Optional<String> narrow = host
-            .or(() -> VarkaKernelPlan.floatingConjunctRefusal(planned, integral))
             .or(() -> VarkaKernelPlan.of(List.of(planned), options).refusal())
             .map(VarkaKernelPlan.Refusal::reason);
         if (narrow.isPresent()) {
@@ -970,9 +956,19 @@ public final class VarkaExpressionCompiler {
         // form on the meeting lane is declined with the lane's reason.
         // The fused conjuncts as this one would leave them: lifted with it where the lanes
         // differ, and committed only once the budget below takes them.
+        // Where a floating conjunct is among them, the conjuncts meet across the kinds instead,
+        // each one off the meeting lane crossed to it (`VARKA-343.md` 2.2.1).
         List<Cond> before = fused;
         boolean liftedBefore = false;
-        if (!fused.isEmpty() && cond.laneType() != fused.get(0).laneType()) {
+        List<Cond> all = new ArrayList<>(fused);
+        all.add(cond);
+        Optional<List<Cond>> across = fused.isEmpty() ? Optional.empty()
+            : VarkaConditionCompiler.acrossKinds(all);
+        if (across.isPresent()) {
+          before = across.get().subList(0, fused.size());
+          cond = across.get().get(fused.size());
+          liftedBefore = true;
+        } else if (!fused.isEmpty() && cond.laneType() != fused.get(0).laneType()) {
           boolean noLong = fused.stream().noneMatch(c -> c.laneType() == LaneType.LONG)
               && cond.laneType() != LaneType.LONG;
           // The int lift has a form for every condition, so it always commits; the long one has
@@ -1028,7 +1024,7 @@ public final class VarkaExpressionCompiler {
     if (fused.isEmpty() || inputs.size() == 0) {
       return new PredicatePass(specs, List.of(), null, Optional.empty());
     }
-    Tables tables = tables(inputs, literals, sink);
+    Tables tables = tables(inputs, literals, sink, options);
     CompiledVarkaPredicate whole =
         build(specs, tables, List.of(List.of(VarkaConditionCompiler.andFold(fused))));
     return new PredicatePass(specs, fused, tables, Optional.of(whole));
@@ -1213,7 +1209,8 @@ public final class VarkaExpressionCompiler {
 
   /**
    * The accepted entries' tables, in the form a compiled projection holds them, for any outputs
-   * over them: one predicate pass lays the same tables under several layouts of its roots.
+   * over them: one predicate pass lays the same tables under several layouts of its roots. The
+   * options are the compile's, which the literal tables are checked under.
    */
   private record Tables(
       List<Integer> inputOrdinals,
@@ -1221,11 +1218,14 @@ public final class VarkaExpressionCompiler {
       List<VarkaInputBound> inputBounds,
       List<VarkaDerivedInput> derivedInputs,
       List<Long> longLiterals,
-      List<VarkaFamily> families) {
+      List<VarkaFamily> families,
+      VarkaEmitOptions options) {
 
     CompiledVarkaProjection projection(List<VarkaVectorIR> outputs, List<DataType> outputTypes) {
-      return new CompiledVarkaProjection(outputs, outputTypes, inputOrdinals, literals,
+      var projection = new CompiledVarkaProjection(outputs, outputTypes, inputOrdinals, literals,
           inputBounds, derivedInputs, longLiterals, families);
+      projection.requireLiteralTables(options);
+      return projection;
     }
   }
 
@@ -1235,7 +1235,8 @@ public final class VarkaExpressionCompiler {
    * see {@link VarkaDerivedInput#key}), the literal slots, and the sink's bounds, 64-bit
    * literals and the families the accepted entries used.
    */
-  private static Tables tables(VarkaSlotTable inputs, VarkaSlotTable literals, DeclineSink sink) {
+  private static Tables tables(VarkaSlotTable inputs, VarkaSlotTable literals, DeclineSink sink,
+      VarkaEmitOptions options) {
     List<Integer> keys = inputs.keys();
     List<Integer> ordinals = new ArrayList<>(keys.size());
     List<VarkaDerivedInput> derived = new ArrayList<>();
@@ -1250,7 +1251,7 @@ public final class VarkaExpressionCompiler {
       }
     }
     return new Tables(ordinals, literals.keys(), sink.inputBounds(inputs), derived,
-        sink.longLiteralValues(), sink.familiesUsed());
+        sink.longLiteralValues(), sink.familiesUsed(), options);
   }
 
   /**

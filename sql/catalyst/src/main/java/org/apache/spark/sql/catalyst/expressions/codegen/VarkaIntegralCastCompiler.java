@@ -267,6 +267,8 @@ final class VarkaIntegralCastCompiler {
       case BoolColumn b -> Optional.of(new BoolColumn(b.ordinal(), lane));
       case CondConst k -> Optional.of(new CondConst(k.value(), lane));
       case Not n -> onLane(n.child(), lane).map(Not::new);
+      // A crossing of a lane-free condition is that condition, read at the lane asked for.
+      case VarkaVectorIR.CrossLane c -> onLane(c.child(), lane);
       case VarkaVectorIR.And a -> onLane(a.left(), lane).flatMap(l -> onLane(a.right(), lane)
           .map(r -> new VarkaVectorIR.And(l, r)));
       case VarkaVectorIR.Or o -> onLane(o.left(), lane).flatMap(l -> onLane(o.right(), lane)

@@ -995,7 +995,37 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
       Row("x + i", "type coercion casts the int to a double beside the double column"),
       Row("f * i", "the int cast to a float beside the float column, at one lane count"),
       Row("f + x", "the float widened exactly to meet the double"),
-      Row("i / 2.0D", "an int division is a double division over its cast"))),
+      Row("i / 2.0D", "an int division is a double division over its cast"),
+      Row("CAST(CAST(l AS INT) AS FLOAT)", "the bigint narrowed to INT, checked under ANSI, then "
+        + "I2F, a float value in a long kernel",
+        domain = Some(s"l BETWEEN ${Int.MinValue} AND ${Int.MaxValue}")),
+      // A choice's condition of the other kind than its values, crossed to their lane (2.2.1).
+      Row("CASE WHEN f > 1.5F THEN i END", "the float condition crossed to the int values' lane"),
+      Row("IF(i > 3, x, x2)", "the int condition crossed up to the double values by its word"),
+      Row("CASE WHEN x > 1.5D THEN i END", "a 64-bit mask's word read by the int species"),
+      Row("IF(l > 5, f, f2)", "the long condition crossed down to the float values by its word"),
+      Row("IF(b, x, x2)", "the boolean column relabelled to the double values' lane"),
+      Row("CASE WHEN b THEN f ELSE f2 END", "the float twin"),
+      Row("IF(NOT (x > 1.5D OR f > 1.5F), i, 7)", "NOT and OR at the double lane, then down"),
+      Row("CASE WHEN f > 1.5F AND i > 3 THEN i END", "a mixed AND at the int lane, as a guard"),
+      Row("CAST((f > 1.5F AND i > 3) AS INT)", "the mixed AND as its one or zero"))),
+    // Conditions of two kinds in one kernel (VARKA-343 2.2.1): each condition off the meeting
+    // lane - LONG, else DOUBLE, else INT, else FLOAT - crossed to it, by VectorMask.cast at one
+    // width and through the mask's word between the widths; Spark's inferred null tests among
+    // them.
+    Family("Floating casts as conditions", predicates = true, Seq(
+      Row("CAST(i AS FLOAT) > 1.5F", "the float comparison crossed to the int lane, beside the "
+        + "null test of i the optimizer infers"),
+      Row("CAST(i AS DOUBLE) < x", "the int null test crossed to the double lane by its word"),
+      Row("f > 1.5F AND i < 3", "a float conjunct beside an int one, one kernel"),
+      Row("x > 1.5D AND l < l2", "a double conjunct beside a long one, crossed by the cast"),
+      Row("f > 1.5F AND x < x2", "two floating widths, the float mask crossed by its word"),
+      Row("CAST(x AS BOOLEAN) = b2", "the boolean column relabelled to the double lane, "
+        + "its bit read the same"),
+      Row("(f > 1.5F OR i > 3) AND x > 0.5D", "a crossing under a crossing: the OR at the int "
+        + "lane, then crossed to the double one"),
+      Row("x > 1.5D AND (d = DATE '2021-01-01' OR d = DATE '2021-06-01') AND l > 5",
+        "the range set has no long form and crosses to the long lane by its word"))),
 
     // DECIMAL of precision up to 18 (VARKA-347, carrying row 348's equal-scale comparisons and
     // null tests): two values of one scale compare as their unscaled longs. Each kernel checks

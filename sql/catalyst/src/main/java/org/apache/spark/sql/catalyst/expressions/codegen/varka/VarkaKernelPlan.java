@@ -55,8 +55,6 @@ public final class VarkaKernelPlan {
     NARROW,
     /** Two roots no one lane serves: a long root beside a narrow or int one. */
     LANE_MISMATCH,
-    /** A floating conjunct of a filter whose kernel is integral, which it cannot join yet. */
-    FLOATING_CONDITION,
     /** A conversion this part of row 343 does not lower: from BIGINT, or to an integral lane. */
     CONVERSION,
     /**
@@ -396,17 +394,27 @@ public final class VarkaKernelPlan {
   }
 
   /**
-   * The lane roots of these emission lanes share: theirs where one, the int lane but for long. A
-   * floating root shares with no root of another lane: masks cross between the kinds within a
-   * root's tree (`VARKA-343.md` 2.2), but the join of roots of two kinds is part 343a3b's, so it
-   * takes a kernel of its own.
+   * The lane roots of these emission lanes share, joining roots of one width
+   * (`VARKA-343.md` 2.2.1): theirs where one; the int lane for any mix of the 32-bit and narrow
+   * lanes, a {@code FLOAT} root's values filling the float species of the int one's width; the
+   * long lane for a {@code LONG} root beside a {@code DOUBLE} one, likewise. A 32-bit or narrow
+   * root beside a 64-bit one shares none and takes a kernel of its own (VARKA-480): each root's
+   * tree chooses its own drive lane ({@link #emissionLane}), so a root with no 64-bit node never
+   * joins a 64-bit kernel, though such a kernel stores the 32-bit roots its converting trees give
+   * from their species' low half ({@code VarkaBodyEmitter.emitLowHalfStore}). The rule is
+   * monotone - a set that shares no lane has no superset that does - which {@link #laneMismatch}
+   * relies on.
    */
   private static Optional<LaneType> lanesShare(Set<LaneType> lanes) {
     if (lanes.size() <= 1) {
       return lanes.stream().findFirst();
     }
-    return lanes.contains(LaneType.LONG) || lanes.stream().anyMatch(LaneType::isFloating)
-        ? Optional.empty() : Optional.of(LaneType.INT);
+    boolean wide = lanes.contains(LaneType.LONG) || lanes.contains(LaneType.DOUBLE);
+    if (!wide) {
+      return Optional.of(LaneType.INT);
+    }
+    return lanes.stream().allMatch(l -> l.bits() == Long.SIZE)
+        ? Optional.of(LaneType.LONG) : Optional.empty();
   }
 
   /**
@@ -710,6 +718,7 @@ public final class VarkaKernelPlan {
       case VarkaVectorIR.And a -> LongNarrowRole.COND;
       case VarkaVectorIR.Or o -> LongNarrowRole.COND;
       case VarkaVectorIR.Not n -> LongNarrowRole.COND;
+      case VarkaVectorIR.CrossLane c -> LongNarrowRole.COND;
       case VarkaVectorIR.BoolOutput b -> LongNarrowRole.OUTPUT;
       // Every other node, each named so that a new one is a compile error until it is placed.
       case VarkaVectorIR.IsNotNull _, VarkaVectorIR.InRanges _, VarkaVectorIR.BoolColumn _,
@@ -761,6 +770,7 @@ public final class VarkaKernelPlan {
       case VarkaVectorIR.And a -> LongNarrowReader.COND;
       case VarkaVectorIR.Or o -> LongNarrowReader.COND;
       case VarkaVectorIR.Not n -> LongNarrowReader.COND;
+      case VarkaVectorIR.CrossLane c -> LongNarrowReader.COND;
       case VarkaVectorIR.BoolOutput b -> LongNarrowReader.COND;
       // Every other node, each named so that a new one is a compile error until it is placed.
       case VarkaVectorIR.InRanges _, VarkaVectorIR.BoolColumn _, VarkaVectorIR.CondConst _,
@@ -778,27 +788,6 @@ public final class VarkaKernelPlan {
           VarkaVectorIR.NullValue _, ConvertLane _ ->
           LongNarrowReader.NONE;
     };
-  }
-
-  /**
-   * The refusal of a filter's conjunct on a floating lane, where the filter also reads an
-   * integral column: {@code x > 1.5 AND d > d2}. A filter kernel's conjuncts meet on one lane,
-   * and a floating conjunct fused first would leave the date or bigint conjuncts beside it no
-   * lane to meet on and send them to the row filter. So it declines, keeping the kernel for the
-   * integral conjuncts, until a conjunct's mask crosses between the kinds; a mask crosses only
-   * within one root's tree (VARKA-343). A filter that reads only
-   * floating columns fuses whole, and a choice's floating condition is no conjunct, so a
-   * projection's {@code CASE WHEN x > 1.5 THEN ...} fuses too.
-   */
-  public static Optional<Refusal> floatingConjunctRefusal(VarkaVectorIR conjunct,
-      boolean filterReadsIntegral) {
-    if (filterReadsIntegral && conjunct.laneType().isFloating()) {
-      return Optional.of(new Refusal(Kind.FLOATING_CONDITION, "a condition on the "
-          + conjunct.laneType() + " lane in a filter that also reads integral columns: its "
-          + "kernel meets on an integral lane, and a mask crossing from a floating lane is not "
-          + "built"));
-    }
-    return Optional.empty();
   }
 
   /**

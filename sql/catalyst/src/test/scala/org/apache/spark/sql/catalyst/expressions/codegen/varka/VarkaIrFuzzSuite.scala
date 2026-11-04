@@ -1088,10 +1088,12 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
     // floating tree yet, the floating sequence `VARKA-341.md` 5.1 owes, and a production is a row
     // of the same refit. `VarkaEmitterFloatingArithSuite` and the coverage rows cover it. So is
     // the floating conversion (VARKA-343): `VarkaEmitterFloatingCastSuite` and the coverage rows
-    // cover it until row 343's own fuzz sequence, on a seed of its own.
+    // cover it until row 343's own fuzz sequence, on a seed of its own, and the lane crossing
+    // (`VARKA-343.md` 2.2.1), which joins a floating condition to another lane, with them.
     val missing = permitted -- seen - "NarrowLane" - "WidenLane" - "NullSafeEqual" -
       "BoolColumn" - "CondConst" - "BoolCompare" - "CondIf" - "BoolNullSafeEq" - "CondValue" -
-      "BoolOutput" - "DecimalColumn" - "NullValue" - "WidenDecimal" - "MathUnary" - "ConvertLane"
+      "BoolOutput" - "DecimalColumn" - "NullValue" - "WidenDecimal" - "MathUnary" -
+      "ConvertLane" - "CrossLane"
     assert(missing.isEmpty,
       s"the generator never built: ${missing.toSeq.sorted.mkString(", ")} - add an arm, or " +
         "state here why the node type is deliberately out of the fuzzer's reach")

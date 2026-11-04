@@ -129,10 +129,7 @@ class VarkaCoverageCompositionFuzzSuite
    */
   private def isCompositionDecline(reason: String, laneRule: Boolean = true): Boolean =
     reason.contains("budget") || (laneRule && reason.contains("one kernel holds one lane")) ||
-      reason.contains(VarkaConjunctOrder.OUT_OF_ORDER) ||
-      // A floating conjunct beside an integral one (VARKA-341): the filter's kernel meets on the
-      // integral lane until a mask crosses between the kinds (`floatingConjunctRefusal`).
-      reason.contains("in a filter that also reads integral columns")
+      reason.contains(VarkaConjunctOrder.OUT_OF_ORDER)
 
   /**
    * A projection's entries: the one-lane rule holds only with several kernels off, since with

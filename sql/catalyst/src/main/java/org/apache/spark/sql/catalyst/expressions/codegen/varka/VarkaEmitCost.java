@@ -139,6 +139,9 @@ final class VarkaEmitCost {
       case VarkaVectorIR.Greatest _, VarkaVectorIR.Least _, VarkaVectorIR.IfElse _,
           VarkaVectorIR.IsNotNull _, VarkaVectorIR.And _, VarkaVectorIR.Or _, VarkaVectorIR.Not _,
           VarkaVectorIR.CondIf _, VarkaVectorIR.BoolNullSafeEq _ -> name + '/' + node.laneType();
+      // The cast or the word round trip between the two lanes, which both name.
+      case VarkaVectorIR.CrossLane n ->
+          name + '/' + n.child().laneType() + '/' + n.lane();
       // One lowering whatever their operands: the record name alone.
       case VarkaVectorIR.AddDays _, VarkaVectorIR.SubDays _, VarkaVectorIR.DateDiff _,
           VarkaVectorIR.GuardedDay _, VarkaVectorIR.WidenLane _, VarkaVectorIR.NarrowLane _,

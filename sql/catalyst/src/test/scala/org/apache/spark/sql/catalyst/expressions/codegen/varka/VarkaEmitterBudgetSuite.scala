@@ -383,6 +383,7 @@ class VarkaEmitterBudgetSuite extends VarkaEmitterTestBase with VarkaOwnJvm {
       (new NarrowLane(new IntNeg(Overflow.WRAP, lc)), 1, 0, VarkaMatrix.base),
       (new WidenLane(new IntNeg(Overflow.WRAP, c)), 1, 0, VarkaMatrix.base),
       (new ConvertLane(new IntNeg(Overflow.WRAP, c), LaneType.FLOAT), 1, 0, VarkaMatrix.base),
+      (new CrossLane(new Compare(CompareOp.LT, c, c1), LaneType.LONG), 2, 0, VarkaMatrix.base),
       (new DecimalColumn(0, LaneType.LONG, 9), 1, 0, VarkaMatrix.base),
       (new WidenDecimal(new IntNeg(Overflow.WRAP, lc)), 1, 0, VarkaMatrix.base))
     // The calendar nodes whose own tail reads no month, so their prefix elides the month step.
@@ -390,7 +391,7 @@ class VarkaEmitterBudgetSuite extends VarkaEmitterTestBase with VarkaOwnJvm {
       VarkaEmitBudget.isChrono(n) && !VarkaChronoLowering.tailReadsMarchMonth(n)
     def isConnective(n: VarkaVectorIR): Boolean = n match {
       case _: And | _: Or | _: Not | _: IsNotNull | _: BoolCompare | _: CondIf |
-          _: BoolNullSafeEq => true
+          _: BoolNullSafeEq | _: CrossLane => true
       case _ => false
     }
     // What a node is expected to emit of a shape's lane calls.

@@ -455,6 +455,7 @@ class VarkaRangeAnalysisSuite extends SparkFunSuite with VarkaTestWatchdog {
       case x: And => cond(x.left()); cond(x.right())
       case x: Or => cond(x.left()); cond(x.right())
       case x: Not => cond(x.child())
+      case x: CrossLane => cond(x.child())
       case x: IsNotNull => value(x.child(), Kind.DAY)
       case x: InRanges => value(x.child(), Kind.DAY)
       case _: BoolColumn | _: CondConst =>
@@ -558,6 +559,7 @@ class VarkaRangeAnalysisSuite extends SparkFunSuite with VarkaTestWatchdog {
       case x: And => goCond(x.left(), armed) && goCond(x.right(), armed)
       case x: Or => goCond(x.left(), armed) && goCond(x.right(), armed)
       case x: Not => goCond(x.child(), armed)
+      case x: CrossLane => goCond(x.child(), armed)
       case x: IsNotNull => go(x.child(), armed)
       case x: InRanges => go(x.child(), armed)
       case _: BoolColumn | _: CondConst => true
