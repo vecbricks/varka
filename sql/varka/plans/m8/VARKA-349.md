@@ -363,7 +363,7 @@ own regenerated files.
 
 | part | what | depends on | lines |
 |---|---|---|---|
-| 349a1 | the arms of 2.2 and 2.3 in `VarkaDecimalCompiler`, `try_` forms read through their replacement, the declines naming rows 359 to 363, the null test over a sum, a difference and a product; `VarkaDecimalArithmeticSuite`'s type-rule sweep, edges, samples and one tree in every mode; the baseline's three filters fusing whole; the census notes; this table | 348a3 | 997 |
+| 349a1 | the arms of 2.2 and 2.3 in `VarkaDecimalCompiler`, `try_` forms read through their replacement, the declines naming rows 359 to 363, the null test over a sum, a difference and a product; `VarkaDecimalArithmeticSuite`'s type-rule sweep, edges, samples and one tree in every mode; the baseline's three filters fusing whole; the census notes; this table | 348a3 | 999 |
 | 349a2 | the sweep's check of the lemmas' reduction from the IR; the `+`, `-` and `*` lemmas in `decimal64.smt2`; the "DECIMAL arithmetic" coverage family over a new `d8`, each row refined in `refinement.smt2`, and `STANDARD.md`'s sentence; the one-kernel bytes test; the IR fuzzer's sum, difference and product; the outcome | 349a1 | 593 |
 
 349c, the values, still follows 157. A part over the cap is split again before it is pushed,
