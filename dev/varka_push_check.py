@@ -345,8 +345,8 @@ AMENDED = "commit (amend): "
 
 def regen_marker(repo):
     """(commit, files): the commit dev/varka_regen_generated.sh --all last passed on and the
-    generated files it regenerated there, a skipped width audit not among them; a marker naming
-    no file covers every one."""
+    generated files its regeneration left as that commit has them, so the commit's own text is
+    right; a file it rewrote, a skipped width audit too, is not listed and needs its commit."""
     path = repo.git("rev-parse", "--git-path", "varka-regen-all").stdout.strip()
     try:
         with open(os.path.join(repo.root, path), encoding="utf-8") as f:
@@ -356,15 +356,23 @@ def regen_marker(repo):
     return (lines[0], set(lines[1:])) if lines else ("", set())
 
 
+def first_change(repo, onto, sha, path):
+    """The oldest commit of onto..sha that changes path, the one a rebase text-merged it into."""
+    log = repo.git("log", "--reverse", "--format=%H", f"{onto}..{sha}", "--", path).stdout.split()
+    return log[0] if log else ""
+
+
 def rebase_debt(repo, branch, generated):
     """{generated file: its rebase}: the files a rebase of branch text-merged, both sides having
     changed them, which the merge driver owes (a rebase names no other side) but records nowhere.
-    Read from branch's reflog in order, each debt held at the commits carrying it. A later rebase
-    or amend starting from a descendant of one rewrites it and carries the debt; any
-    other move (a reset undoing the rebase, a checkout) keeps it only on a descendant. A commit
-    pays the files it changes, one by one (a regeneration commits only the files that moved),
-    and dev/varka_regen_generated.sh --all run since pays those its marker lists; a file now as
-    the base has it owes nothing."""
+    Read from branch's reflog in order as events per file: a debt, carried by the oldest commit
+    of the rebase's onto..tip that changes the file (a later reset or squash of the tip keeps
+    it), or a payment. A file is owed when the latest of its events that HEAD descends from is a
+    debt, so a reset undoing the rebase owes nothing and a reset back to it owes again. A later
+    rebase or amend of a commit that owes carries the debt to its new commits; a commit pays
+    the files it changes, one by one (a regeneration commits only the files that moved), and so
+    does dev/varka_regen_generated.sh --all for those its marker lists; a file now as the base
+    has it owes nothing."""
     log = repo.git("reflog", "show", "--format=%H %gs", branch, "--").stdout.splitlines()[::-1]
     regenerated, covered = regen_marker(repo)
     shas = [line.split(" ", 1)[0] for line in log]
@@ -374,39 +382,49 @@ def rebase_debt(repo, branch, generated):
         log = log[: len(shas) - shas[::-1].index(head)]
         shas = shas[: len(log)]
     regen_at = max((i for i, s in enumerate(shas) if s == regenerated), default=-1)
-    debt = {}  # file -> (its rebase, the commits that have carried the debt)
+    events = {}  # file -> [(commit, its rebase, or "" for a payment)], in the reflog's order
+
+    def owed_at(path, rev):
+        return next((r for c, r in reversed(events[path]) if repo.ancestor(c, rev)), "")
+
     for i, line in enumerate(log[1:], 1):
         sha, _, subject = line.partition(" ")
         before = shas[i - 1]
         onto = REBASED.search(subject)
-        rewrote = onto or subject.startswith(AMENDED)
-        for path, (_, carriers) in list(debt.items()):
-            if not any(repo.ancestor(c, before if rewrote else sha) for c in carriers):
-                del debt[path]
-            elif rewrote and not any(repo.ancestor(c, sha) for c in carriers):
-                carriers.append(sha)
-        if COMMITTED.match(subject):
-            for path in repo.git("diff", "--name-only", before, sha).stdout.split():
-                debt.pop(path, None)
-        if not onto or repo.ancestor(sha, repo.base):
-            continue
-        old = repo.git("merge-base", before, onto[1]).stdout.strip()
-        sides = [
-            set(repo.git("diff", "--name-only", old, s).stdout.split()) for s in (before, onto[1])
-        ]
-        both = sorted(sides[0] & sides[1] & generated) if old else []
-        later = (
-            regenerated and repo.ancestor(sha, regenerated) and repo.ancestor(regenerated, "HEAD")
-        )
-        paid = regen_at >= i or (regen_at < 0 and later)
-        for path in both:
-            if not (paid and (not covered or path in covered)):
-                debt[path] = (f"{sha[:11]} onto {onto[1][:11]}", [sha])
+        if events and (onto or subject.startswith(AMENDED)):
+            for path in list(events):
+                rebase = owed_at(path, before)
+                carrier = first_change(repo, onto[1], sha, path) if onto else sha
+                if rebase and carrier:
+                    events[path].append((carrier, rebase))
+        if events and COMMITTED.match(subject):
+            for path in repo.git("diff", "--name-only", before, sha, "--", *events).stdout.split():
+                events[path].append((sha, ""))
+        if onto and not repo.ancestor(sha, repo.base):
+            old = repo.git("merge-base", before, onto[1]).stdout.strip()
+            sides = [
+                set(repo.git("diff", "--name-only", old, s).stdout.split())
+                for s in (before, onto[1])
+            ]
+            rebase = f"{sha[:11]} onto {onto[1][:11]}"
+            for path in sorted(sides[0] & sides[1] & generated) if old else []:
+                carrier = first_change(repo, onto[1], sha, path)
+                if carrier:
+                    events.setdefault(path, []).append((carrier, rebase))
+        if i == regen_at:
+            for path in covered & set(events):
+                events[path].append((regenerated, ""))
+    # A marker on a commit the reflog does not name (a replay's) pays what it descends from.
+    if regen_at < 0 and regenerated and repo.ancestor(regenerated, "HEAD"):
+        for path in covered & set(events):
+            if any(repo.ancestor(c, regenerated) for c, r in events[path] if r):
+                events[path].append((regenerated, ""))
+    debt = {p: r for p in events if (r := owed_at(p, "HEAD"))}
     if not debt:
         return {}
     # The commits decide, not the working tree's uncommitted edits.
     changed = set(repo.git("diff", "--name-only", repo.base, "HEAD", "--", *debt).stdout.split())
-    return {p: held[0] for p, held in debt.items() if p in changed}
+    return {p: r for p, r in debt.items() if p in changed}
 
 
 def touches_generated(changed, generated):
@@ -450,7 +468,7 @@ def plan(repo, args):
         )
     ]
     listed = subprocess.run([*py, "--list"], cwd=repo.root, capture_output=True, text=True)
-    branch = args.branch or repo.git("symbolic-ref", "-q", "--short", "HEAD").stdout.strip()
+    branch = args.branch or repo.git("symbolic-ref", "-q", "HEAD").stdout.strip()
     debt = rebase_debt(repo, branch, set(listed.stdout.split())) if branch else {}
     if not branch:
         print("R3: HEAD is detached, so no reflog shows a rebase's debt; unchecked, pass --branch")
@@ -728,7 +746,8 @@ class SelfTest(unittest.TestCase):
 
     def rebased(self, d):
         """A repository whose topic and master both changed g.json and h.json, at either end,
-        topic checked out: (repo, commit, the topic's tip before any rebase)."""
+        one commit each, and topic then z.txt, topic checked out: (repo, commit, the topic's
+        tip before any rebase)."""
         repo = Repo(d, "master")
         env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
         repo.env = {**env, "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
@@ -749,6 +768,7 @@ class SelfTest(unittest.TestCase):
                 commit(path, f"1 {top}\n2\n3\n4\n5 {end}\n", side)
         commit("x.txt", "x\n", "master's own file")
         repo.git("checkout", "-q", "topic", check=True)
+        commit("z.txt", "z\n", "topic's own file")
         return repo, commit, repo.git("rev-parse", "HEAD").stdout.strip()
 
     def mark(self, repo, *lines):
@@ -757,7 +777,7 @@ class SelfTest(unittest.TestCase):
             repo.root, repo.git("rev-parse", "--git-path", "varka-regen-all").stdout.strip()
         )
         if not lines:
-            return os.remove(marker)
+            return os.path.exists(marker) and os.remove(marker)
         with open(marker, "w", encoding="utf-8") as f:
             f.write("".join(x + "\n" for x in lines))
 
@@ -770,9 +790,11 @@ class SelfTest(unittest.TestCase):
             debt = rebase_debt(repo, "topic", gen)
             self.assertEqual(list(debt), ["g.json", "h.json"])
             self.assertTrue(debt["g.json"].startswith(head[:11]))
-            self.mark(repo, head)
+            self.mark(repo, head, "g.json", "h.json")
             self.assertEqual(rebase_debt(repo, "topic", gen), {})
-            # A marker listing its files pays those only: a skipped width audit stays owed.
+            # A marker pays the files it lists only: one it rewrote, or a skipped width audit.
+            self.mark(repo, head)
+            self.assertEqual(rebase_debt(repo, "topic", gen), debt)
             self.mark(repo, head, "g.json")
             self.assertEqual(list(rebase_debt(repo, "topic", gen)), ["h.json"])
             self.mark(repo)
@@ -808,6 +830,33 @@ class SelfTest(unittest.TestCase):
                 repo.git("reset", "-q", "--hard", target, check=True)
                 self.assertEqual(rebase_debt(repo, "topic", gen), {}, target)
 
+    def test_r3_the_debt_stays_on_the_commit_that_merged_each_file(self):
+        gen = {"g.json", "h.json"}
+        with tempfile.TemporaryDirectory() as d:
+            repo, _, before = self.rebased(d)
+            repo.git("rebase", "-q", "master", check=True)
+            tip = repo.git("rev-parse", "HEAD").stdout.strip()
+            debt = rebase_debt(repo, "topic", gen)
+            self.assertEqual(sorted(debt), sorted(gen))
+            # The tip z.txt squashed again, or dropped, leaves the commits that merged g and h.
+            repo.git("reset", "-q", "--soft", "HEAD~1", check=True)
+            repo.git("commit", "-q", "-m", "z again", check=True)
+            self.assertEqual(rebase_debt(repo, "topic", gen), debt)
+            repo.git("reset", "-q", "--hard", "HEAD~1", check=True)
+            self.assertEqual(rebase_debt(repo, "topic", gen), debt)
+            # Undone, the debt is gone; back at the rebase's tip, it is owed again.
+            repo.git("reset", "-q", "--hard", before, check=True)
+            self.assertEqual(rebase_debt(repo, "topic", gen), {})
+            repo.git("reset", "-q", "--hard", tip, check=True)
+            self.assertEqual(rebase_debt(repo, "topic", gen), debt)
+            # A payment reset away pays nothing.
+            with open(os.path.join(d, "g.json"), "a", encoding="utf-8") as f:
+                f.write("regenerated\n")
+            repo.git("commit", "-q", "-am", "regenerate g", check=True)
+            self.assertEqual(list(rebase_debt(repo, "topic", gen)), ["h.json"])
+            repo.git("reset", "-q", "--hard", "HEAD~1", check=True)
+            self.assertEqual(rebase_debt(repo, "topic", gen), debt)
+
     def test_r3_a_prose_commit_to_the_docs_pays_no_other_file(self):
         gen = {"g.json", "h.json"}
         with tempfile.TemporaryDirectory() as d:
@@ -829,7 +878,11 @@ class SelfTest(unittest.TestCase):
                 "dev/varka_regen_generated.sh": regen,
                 "dev/varka_generated_merge.py": f"import sys\nif sys.argv[1:] == ['--list']:\n"
                 f"    print('g.json\\n{audit}')\n",
-                "dev/varka_census.py": "",
+                "dev/varka_census.py": "import os, subprocess\n"
+                "if os.path.exists('dirty'):\n"
+                "    open('g.json', 'a').write('rewritten\\n')\n"
+                "if os.path.exists('move'):\n"
+                "    subprocess.run(['git', 'commit', '-q', '--allow-empty', '-m', 'm'])\n",
                 "build/sbt": "#!/bin/sh\n",
                 audit: '{"host": {"cpu": "Audit CPU"}}\n',
             }
@@ -838,7 +891,17 @@ class SelfTest(unittest.TestCase):
                 with open(os.path.join(d, rel), "w", encoding="utf-8") as f:
                     f.write(text)
                 os.chmod(os.path.join(d, rel), 0o755)
-            for cpu, covered in (("Another CPU", {"g.json"}), ("Audit CPU", {"g.json", audit})):
+            cases = (
+                ("Another CPU", "", (head, {"g.json"})),
+                ("Audit CPU", "", (head, {"g.json", audit})),
+                # A file the run rewrote is its commit's to pay; a HEAD that moved, no marker.
+                ("Audit CPU", "dirty", (head, {audit})),
+                ("Audit CPU", "move", ("", set())),
+            )
+            for cpu, flag, marker in cases:
+                self.mark(repo)
+                if flag:
+                    open(os.path.join(d, flag), "w").close()
                 with open(os.path.join(d, "cpuinfo"), "w", encoding="utf-8") as f:
                     f.write(f"model name\t: {cpu}\n")
                 env = dict(repo.env, VARKA_CPUINFO=os.path.join(d, "cpuinfo"))
@@ -846,7 +909,7 @@ class SelfTest(unittest.TestCase):
                 cmd = [os.path.join(d, "dev", "varka_regen_generated.sh"), "--all"]
                 run = subprocess.run(cmd, cwd=d, env=env, capture_output=True, text=True)
                 self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
-                self.assertEqual(regen_marker(repo), (head, covered), cpu)
+                self.assertEqual(regen_marker(repo), marker, (cpu, flag))
 
     def test_r2_fires_on_a_removed_reason_a_test_pins_split_elsewhere(self):
         base = {PLAN: OLD, SUITE: PINNED}

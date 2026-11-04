@@ -40,6 +40,8 @@ set -euo pipefail
 
 top="$(git rev-parse --show-toplevel)"
 cd "$top"
+# The commit the files are regenerated on, which the --all marker names at the end.
+start="$(git rev-parse HEAD)"
 all=0; dry=0
 for arg in "$@"; do
   case "$arg" in
@@ -133,14 +135,22 @@ else
   echo "varka regen: done; review git diff and commit the regenerated files"
 fi
 # Last, so that it marks only a run whose every step passed: the commit the generated files were
-# regenerated on and the files themselves, which pays a rebase's text merge of them when the
-# regeneration changed nothing to commit (dev/varka_push_check.py's rebase_debt). A width audit
-# skipped on this CPU is not listed, so a rebase's merge of it stays owed.
+# regenerated on and those the regeneration left as that commit has them, which pays a rebase's
+# text merge of them (dev/varka_push_check.py's rebase_debt). A file it rewrote is not listed,
+# so its commit pays it, nor is a width audit skipped on this CPU, which stays owed. No marker
+# when HEAD moved during the run; it is written whole, through a temporary file.
 if [ $all = 1 ]; then
-  {
-    git rev-parse HEAD
-    for f in $files; do
-      if [ $audit_skipped = 0 ] || [ "$f" != sql/varka/width_audit.json ]; then echo "$f"; fi
-    done
-  } > "$(git rev-parse --git-path varka-regen-all)"
+  marker="$(git rev-parse --git-path varka-regen-all)"
+  if [ "$(git rev-parse HEAD)" != "$start" ]; then
+    echo "varka regen: HEAD moved during the run; no --all marker written" >&2
+  else
+    {
+      echo "$start"
+      for f in $files; do
+        if [ $audit_skipped = 1 ] && [ "$f" = sql/varka/width_audit.json ]; then continue; fi
+        if git diff --quiet HEAD -- "$f"; then echo "$f"; fi
+      done
+    } > "$marker.tmp"
+    mv "$marker.tmp" "$marker"
+  fi
 fi
