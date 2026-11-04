@@ -84,12 +84,18 @@ REGEN = "dev/varka_regen_generated.sh --all"
 WINDOW = 5  # words of a removed literal looked for together
 MIN_CHARS = 20  # a shorter window is too common to say anything
 OUT = "target/varka-push-check"
+RULES = ("R1", "R2", "R3", "R4")
 SUITE_CLASS = re.compile(r"^(?:public )?(?:final )?class (\w+Suite)\b", re.M)
 RECORD = re.compile(r"\brecord\s+(\w+)\s*(\([^)]*\))\s*(implements\b[^{]*)?\{")
 IMPLEMENTS_IR = re.compile(r"\bimplements\b[^{;]*\b(VarkaVectorIR|Cond)\b")
 LITERAL = re.compile(r'"((?:[^"\\\n]|\\.)*)"')
 JOIN = re.compile(r'"\s*\+\s*"')
 COMMENT = re.compile(r"/\*.*?\*/|//[^\n]*", re.S)
+# A test file's literals (a text block, a string, a character) and comments, in one pass.
+CODE = re.compile(
+    r'"""(?s:.*?)"""|"(?:[^"\\\n]|\\.)*"|\'(?:[^\'\\\n]|\\.)\''
+    r"|/\*(?s:.*?)\*/|//[^\n]*"
+)
 
 
 def collapse(text):
@@ -274,14 +280,23 @@ def windows(line):
     return out
 
 
+def code_of(text):
+    """A test file's text without its comments, which pin nothing: a literal, a text block and
+    a character literal are kept whole, so a `//` or `/*` inside one is not read as a comment."""
+    return CODE.sub(lambda m: " " if m[0][0] == "/" else m[0], text)
+
+
 def holding(repo, window, places, rev="HEAD"):
-    """The files under places holding window as text, their literals' joins collapsed."""
+    """The files under places holding window as text, their literals' joins collapsed and, in
+    the test trees, their comments dropped; a document is read whole, a stale example in it
+    being as wrong as a stale pin."""
     words = [w for w in window.split() if len(w) > 2] or window.split()
-    return [
-        p
-        for p in repo.files("", places, rev, words=words[:8])
-        if window in collapse(repo.text(rev, p))
-    ]
+    hits = []
+    for p in repo.files("", places, rev, words=words[:8]):
+        text = repo.text(rev, p)
+        if window in collapse(code_of(text) if p.startswith(TEST_TREES) else text):
+            hits.append(p)
+    return hits
 
 
 def reason_findings(repo, diff):
@@ -305,7 +320,8 @@ def reason_findings(repo, diff):
                 for hit in hits if side == "old" else ():
                     if (hit, path) not in seen:
                         seen.add((hit, path))
-                        findings.append(f'{hit} still holds "{w}", which {path} no longer says')
+                        what = hit if hit.startswith(TEST_TREES) else f"the document {hit}"
+                        findings.append(f'{what} still holds "{w}", which {path} no longer says')
     return findings, suites
 
 
@@ -324,38 +340,55 @@ def generated_findings(owed, check_rc, check_out):
 
 
 REBASED = re.compile(r"\(finish\): \S+ onto ([0-9a-f]{40})")
+# A reflog entry that commits the author's own change, which may be a regeneration: a merge is
+# --owed's, and its change from the entry before holds the other side's files too.
+COMMITTED = re.compile(r"(commit|commit \(amend\)|cherry-pick): ")
 
 
 def rebase_debt(repo, branch, generated):
-    """{generated file: its rebase}: the files a rebase of branch now on HEAD text-merged, both
-    sides having changed them, which the merge driver owes in full (a rebase names no other
-    side) but records nowhere once committed. Read from the branch's reflog, the rebase's entry
-    and the tip before it; paid by a later commit changing any of them (a regeneration commits
-    only the files that moved) or by dev/varka_regen_generated.sh --all run on a commit since."""
-    log = repo.git("reflog", "show", "--format=%H %gs", branch, "--").stdout.splitlines()
+    """{generated file: its rebase}: the files a rebase of branch text-merged, both sides having
+    changed them, which the merge driver owes in full (a rebase names no other side) but records
+    nowhere once committed. Read from the branch's reflog in order, each rebase's entry and the
+    tip before it; a debt is paid only by what came after it there: a commit whose change from
+    the entry before touches the file (a regeneration commits only the files that moved), or
+    dev/varka_regen_generated.sh --all run on a commit since. A later rebase, which rewrites the
+    debt's commit, pays nothing. A file the branch no longer changes against the base owes
+    nothing, whatever reset or merge made it so."""
+    log = repo.git("reflog", "show", "--format=%H %gs", branch, "--").stdout.splitlines()[::-1]
     marker = repo.git("rev-parse", "--git-path", "varka-regen-all").stdout.strip()
     try:
         with open(os.path.join(repo.root, marker), encoding="utf-8") as f:
             regenerated = f.read().strip()
     except OSError:
         regenerated = ""
+    shas = [line.split(" ", 1)[0] for line in log]
+    regen_at = max((i for i, s in enumerate(shas) if s == regenerated), default=-1)
     debt = {}
-    for line, before in zip(log, log[1:]):
+    for i, line in enumerate(log[1:], 1):
         sha, _, subject = line.partition(" ")
+        before = shas[i - 1]
+        if COMMITTED.match(subject):
+            for path in repo.git("diff", "--name-only", before, sha).stdout.split():
+                debt.pop(path, None)
         onto = REBASED.search(subject)
-        if not onto or not repo.ancestor(sha, "HEAD") or repo.ancestor(sha, repo.base):
+        if not onto or repo.ancestor(sha, repo.base):
             continue
-        before = before.split(" ", 1)[0]
         old = repo.git("merge-base", before, onto[1]).stdout.strip()
         sides = [
             set(repo.git("diff", "--name-only", old, s).stdout.split()) for s in (before, onto[1])
         ]
         both = sorted(sides[0] & sides[1] & generated) if old else []
-        paid = repo.git("rev-list", "-1", f"{sha}..HEAD", "--", *both).stdout.strip() or (
-            regenerated and repo.ancestor(sha, regenerated) and repo.ancestor(regenerated, "HEAD")
+        paid = regen_at >= i or (
+            regen_at < 0
+            and regenerated
+            and repo.ancestor(sha, regenerated)
+            and repo.ancestor(regenerated, "HEAD")
         )
-        if both and not paid:
+        if not paid:
             debt.update(dict.fromkeys(both, f"{sha[:11]} onto {onto[1][:11]}"))
+    if debt:
+        changed = set(repo.git("diff", "--name-only", repo.base, "--", *debt).stdout.split())
+        debt = {p: r for p, r in debt.items() if p in changed}
     return debt
 
 
@@ -505,9 +538,7 @@ def run(args):
     findings, steps, jvm, suites = plan(repo, args)
     # A rule's findings, suites and steps dropped for one push, for a finding read and judged
     # wrong (an R2 hit on a reason that moved, say): VARKA_PUSH_CHECK_SKIP=R2 (or "R2,R3").
-    skip = {"R1", "R2", "R3", "R4"} & set(
-        os.environ.get("VARKA_PUSH_CHECK_SKIP", "").replace(",", " ").split()
-    )
+    skip = set(RULES) & set(os.environ.get("VARKA_PUSH_CHECK_SKIP", "").replace(",", " ").split())
     if skip:
         print(f"varka push check: skipping {', '.join(sorted(skip))} (VARKA_PUSH_CHECK_SKIP)")
         findings = [f for f in findings if f[0] not in skip]
@@ -551,6 +582,13 @@ def run(args):
         print("varka push check: FAILED")
         for rule, text in failed:
             print(f"  {rule}: {text}")
+        rules = sorted({r for rule, _ in failed for r in rule.split("+") if r in RULES})
+        only = f"VARKA_PUSH_CHECK_SKIP={','.join(rules)} (those only) or " if rules else ""
+        print(
+            f"varka push check: to push past a finding judged wrong, {only}"
+            "VARKA_PUSH_CHECK=off (the whole check); git push --no-verify skips the message "
+            "and line checks too"
+        )
         return 1
     print("varka push check: " + ("planned, nothing run" if args.dry_run else "passed"))
     return 0
@@ -703,6 +741,14 @@ class SelfTest(unittest.TestCase):
                 f.write(head + "\n")
             self.assertEqual(rebase_debt(repo, "topic", {"g.json"}), {})
             os.remove(os.path.join(d, marker))
+            # Master moves on without the file and a second rebase rewrites the first's commit,
+            # which pays nothing: the debt is the first rebase's still.
+            repo.git("checkout", "-q", "master", check=True)
+            commit("y.txt", "y\n", "master again")
+            repo.git("checkout", "-q", "topic", check=True)
+            repo.git("rebase", "-q", "master", check=True)
+            self.assertFalse(repo.ancestor(head, "HEAD"))
+            self.assertEqual(rebase_debt(repo, "topic", {"g.json"}), debt)
             commit("g.json", "1 topic\n2\n3\n4\n5 master regenerated\n", "regenerate")
             self.assertEqual(rebase_debt(repo, "topic", {"g.json"}), {})
 
@@ -730,6 +776,18 @@ class SelfTest(unittest.TestCase):
         head = {PLAN: rewrapped, SUITE: PINNED}
         found, _ = reason_findings(FakeRepo(base, head), parse_diff(diff_of(base, head)))
         self.assertEqual(found, [])
+
+    def test_r2_reads_no_comment_of_a_test_but_a_whole_document(self):
+        text = "a mask crossing from a floating lane is not built"
+        noted = (
+            f"package a\nclass VarkaFilterSuite {{\n  // {text}\n  /* or\n   * {text} */\n"
+            f'  /** {text} */\n  val url = "http://x" // {text}\n}}\n'
+        )
+        doc = "docs/sql-varka.md"
+        base = {PLAN: OLD, SUITE: noted, doc: f"the reason, {text[:30]}\n{text[30:]}.\n"}
+        head = dict(base, **{PLAN: NEW})
+        found, _ = reason_findings(FakeRepo(base, head), parse_diff(diff_of(base, head)))
+        self.assertTrue(found and all(f.startswith(f"the document {doc} ") for f in found), found)
 
     def test_r2_skips_comments_and_short_literals(self):
         self.assertEqual(windows('  // "a mask crossing from a floating lane is not built"'), [])
