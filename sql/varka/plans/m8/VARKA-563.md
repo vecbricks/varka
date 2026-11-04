@@ -97,7 +97,7 @@ R2, #1338 under R1 (three suites on `CrossLane`, as CI) and #1323 under R3, only
   `VarkaVectorIRSharingSuite` enumerates reflectively, and an unlisted registry is printed as
   unchecked. Over every record it finds nothing on origin/master or `4c7fd1c90d8`, and names
   `CrossLane` in exactly the three suites CI failed (`VarkaReproductionSuite` had its round trip).
-- **R3's rebase debt is the second part, `varka-563b-rebase-debt`**, stacked on this one: the
+- **R3's rebase debt is a second part, `varka-563b-rebase-debt`** (section 8), stacked on this: the
   branch's reflog read for a rebase's text merges, and `dev/varka_regen_generated.sh --all`'s
   marker. Without it `fast` does not catch #1323, whose `--owed` and `--check` pass; `full` does.
 - **A missing ruff names its pin**: `dev/varka_precommit.sh` reads `ruff==` from
@@ -105,3 +105,28 @@ R2, #1338 under R1 (three suites on `CrossLane`, as CI) and #1323 under R3, only
 - `dev/varka_precommit.sh --range` on `varka-348a3-choices` (master merged twice) reads 19 files.
 - Third round (the high review's fixes): on this part #1317 fails under R2 and #1338 under R1 at
   `fast`, #1323 only at `full`, and the clean heads pass (`results/VARKA-563-replays.txt`).
+
+## 8. The second part: R3's rebase debt
+
+- **R3 reads the branch's reflog** (`--branch` names it for a detached HEAD). `--owed` cannot tell
+  a committed rebase's entries from an aborted one's. A `rebase (finish)` entry, a `pull
+  --rebase`'s too, names its commit and the one it went onto, the entry before it the old tip: a
+  generated file both sides changed since their merge base is owed, held at the commit made.
+- **Only a rewrite carries a debt**: a later rebase or amend starting from a descendant of that
+  commit carries it to the new one (master moved and rebased onto again still owes); any other
+  move keeps it only on a descendant, so a `reset --hard` to `ORIG_HEAD`, the old tip or
+  `origin/<branch>` undoing the rebase owes nothing.
+- **Paid file by file**: a commit pays the files it changes (a regeneration commits only what
+  moved), so prose in `docs/sql-varka.md` pays no other file; `dev/varka_regen_generated.sh
+  --all` leaves in the git dir's `varka-regen-all` the commit it passed on and the files it
+  regenerated, and a width audit skipped on another CPU is not among them, so it stays owed. A
+  file the branch's commits leave as the base has it owes nothing; uncommitted edits count for
+  nothing. Prose both sides of `docs/sql-varka.md` edited owes an idle `--all`.
+- **#1323's fix `d83b86566e2` changed two of the five owed files**, `docs/sql-varka.md` and
+  `emitted_bytes.json`; the other three were paid by `--all` on `0a0e82df11f` (every step passed,
+  the audit's too) before the marker existed, so its replay writes the marker; without it they owe.
+- **The reflog is local**: a fresh clone, another machine or a reflog past `gc.reflogExpire` has
+  no entry, nor has a rebase by `git am` or by hand, nor a branch made from a rebased one; where
+  there is no reflog, the JVM step is the check, and the source stamp (point 2) would close it.
+- Third round: with this part all three incidents fail at `fast` and the clean heads pass; the
+  table is in `results/VARKA-563-replays.txt`.

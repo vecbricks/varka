@@ -132,3 +132,15 @@ else
   rm -f "$(git rev-parse --git-path varka-regen-owed)"
   echo "varka regen: done; review git diff and commit the regenerated files"
 fi
+# Last, so that it marks only a run whose every step passed: the commit the generated files were
+# regenerated on and the files themselves, which pays a rebase's text merge of them when the
+# regeneration changed nothing to commit (dev/varka_push_check.py's rebase_debt). A width audit
+# skipped on this CPU is not listed, so a rebase's merge of it stays owed.
+if [ $all = 1 ]; then
+  {
+    git rev-parse HEAD
+    for f in $files; do
+      if [ $audit_skipped = 0 ] || [ "$f" != sql/varka/width_audit.json ]; then echo "$f"; fi
+    done
+  } > "$(git rev-parse --git-path varka-regen-all)"
+fi

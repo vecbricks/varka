@@ -23,6 +23,7 @@
     dev/varka_push_check.py --no-jvm     # the rules that need no JVM
     dev/varka_push_check.py --lint       # add Error Prone, scalastyle and lint-java
     dev/varka_push_check.py --full       # add the width audit, which is one CPU's census
+    dev/varka_push_check.py --branch B   # read B's reflog for its rebases (default HEAD's branch)
     dev/varka_push_check.py --self-test  # each rule over fixture diffs and trees
 
 The rules, each a lesson of a lost CI round (m8/VARKA-563.md 1):
@@ -32,8 +33,9 @@ The rules, each a lesson of a lost CI round (m8/VARKA-563.md 1):
       on a registry whose text names the record nowhere it must (`REGISTRIES`) (#1338);
   R2  a string literal a removed line of a Varka main file held, still in a test, the coverage
       file or the docs, fails at once; the suites holding the old or the new text run (#1317);
-  R3  the generated files: nothing owed by a merge, no coverage row missing, and when a Varka
-      main or generated file changed, their suites run without REGEN variables (#1323);
+  R3  the generated files: nothing owed by a merge, nothing a committed rebase text-merged
+      left unregenerated (the branch's reflog), no coverage row missing, and when a Varka main
+      or generated file changed, their suites run without REGEN variables (#1323);
   R4  the house checks a push owes: the pre-commit rules over the range, the plan lint, the
       quote check, the census check and the size cap.
 
@@ -125,6 +127,9 @@ class Repo:
         return subprocess.run(
             ["git", *args], cwd=self.root, capture_output=True, text=True, check=check, env=self.env
         )
+
+    def ancestor(self, a, b):
+        return self.git("merge-base", "--is-ancestor", a, b).returncode == 0
 
     def diff(self):
         return self.git("diff", "-U0", "--no-renames", "--no-color", self.base, check=True).stdout
@@ -332,6 +337,78 @@ def generated_findings(owed, check_rc, check_out):
     return out
 
 
+REBASED = re.compile(r"\(finish\): \S+ onto ([0-9a-f]{40})")
+# A reflog entry committing the author's own change; a merge is --owed's, not a regeneration.
+COMMITTED = re.compile(r"(commit|commit \(amend\)|cherry-pick): ")
+AMENDED = "commit (amend): "
+
+
+def regen_marker(repo):
+    """(commit, files): the commit dev/varka_regen_generated.sh --all last passed on and the
+    generated files it regenerated there, a skipped width audit not among them; a marker naming
+    no file covers every one."""
+    path = repo.git("rev-parse", "--git-path", "varka-regen-all").stdout.strip()
+    try:
+        with open(os.path.join(repo.root, path), encoding="utf-8") as f:
+            lines = f.read().split()
+    except OSError:
+        lines = []
+    return (lines[0], set(lines[1:])) if lines else ("", set())
+
+
+def rebase_debt(repo, branch, generated):
+    """{generated file: its rebase}: the files a rebase of branch text-merged, both sides having
+    changed them, which the merge driver owes (a rebase names no other side) but records nowhere.
+    Read from branch's reflog in order, each debt held at the commit carrying it. A later rebase
+    or amend starting from a descendant of that commit rewrites it and carries the debt; any
+    other move (a reset undoing the rebase, a checkout) keeps it only on a descendant. A commit
+    pays the files it changes, one by one (a regeneration commits only the files that moved),
+    and dev/varka_regen_generated.sh --all run since pays those its marker lists; a file now as
+    the base has it owes nothing."""
+    log = repo.git("reflog", "show", "--format=%H %gs", branch, "--").stdout.splitlines()[::-1]
+    regenerated, covered = regen_marker(repo)
+    shas = [line.split(" ", 1)[0] for line in log]
+    # A replay of an old tip (--branch beside a detached HEAD) reads the reflog up to it only.
+    head = repo.git("rev-parse", "HEAD").stdout.strip()
+    if head in shas:
+        log = log[: len(shas) - shas[::-1].index(head)]
+        shas = shas[: len(log)]
+    regen_at = max((i for i, s in enumerate(shas) if s == regenerated), default=-1)
+    debt = {}  # file -> [its rebase, the commit carrying the debt]
+    for i, line in enumerate(log[1:], 1):
+        sha, _, subject = line.partition(" ")
+        before = shas[i - 1]
+        onto = REBASED.search(subject)
+        rewrote = onto or subject.startswith(AMENDED)
+        for path, held in list(debt.items()):
+            if not repo.ancestor(held[1], before if rewrote else sha):
+                del debt[path]
+            elif rewrote and not repo.ancestor(held[1], sha):
+                held[1] = sha
+        if COMMITTED.match(subject):
+            for path in repo.git("diff", "--name-only", before, sha).stdout.split():
+                debt.pop(path, None)
+        if not onto or repo.ancestor(sha, repo.base):
+            continue
+        old = repo.git("merge-base", before, onto[1]).stdout.strip()
+        sides = [
+            set(repo.git("diff", "--name-only", old, s).stdout.split()) for s in (before, onto[1])
+        ]
+        both = sorted(sides[0] & sides[1] & generated) if old else []
+        later = (
+            regenerated and repo.ancestor(sha, regenerated) and repo.ancestor(regenerated, "HEAD")
+        )
+        paid = regen_at >= i or (regen_at < 0 and later)
+        for path in both:
+            if not (paid and (not covered or path in covered)):
+                debt[path] = [f"{sha[:11]} onto {onto[1][:11]}", sha]
+    if not debt:
+        return {}
+    # The commits decide, not the working tree's uncommitted edits.
+    changed = set(repo.git("diff", "--name-only", repo.base, "HEAD", "--", *debt).stdout.split())
+    return {p: held[0] for p, held in debt.items() if p in changed}
+
+
 def touches_generated(changed, generated):
     return any(
         p in generated or (is_varka_main(p) and p.startswith(GENERATING_TREES)) for p in changed
@@ -373,6 +450,13 @@ def plan(repo, args):
         )
     ]
     listed = subprocess.run([*py, "--list"], cwd=repo.root, capture_output=True, text=True)
+    branch = args.branch or repo.git("symbolic-ref", "-q", "--short", "HEAD").stdout.strip()
+    debt = rebase_debt(repo, branch, set(listed.stdout.split())) if branch else {}
+    if not branch:
+        print("R3: HEAD is detached, so no reflog shows a rebase's debt; unchecked, pass --branch")
+    for rebase in sorted(set(debt.values())):
+        files = ", ".join(p for p, r in sorted(debt.items()) if r == rebase)
+        findings.append(("R3", f"the rebase {rebase} text-merged {files}; run {REGEN}"))
     if touches_generated(changed, set(listed.stdout.split())):
         names = GENERATED_SUITES + ((AUDIT_SUITE,) if args.full else ())
         tests = repo.tracked(TEST_TREES)
@@ -642,6 +726,124 @@ class SelfTest(unittest.TestCase):
         self.assertEqual(len(notes), 1)
         self.assertIn("VarkaNewSuite.scala enumerates node types unread here", notes[0])
 
+    def rebased(self, d):
+        """A repository whose topic and master both changed g.json and h.json, at either end,
+        topic checked out: (repo, commit, the topic's tip before any rebase)."""
+        repo = Repo(d, "master")
+        env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+        repo.env = {**env, "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
+
+        def commit(path, text, msg, *opts):
+            with open(os.path.join(d, path), "w", encoding="utf-8") as f:
+                f.write(text)
+            repo.git("add", path, check=True)
+            repo.git("commit", "-q", *opts, "-m", msg, check=True)
+
+        repo.git("init", "-q", "-b", "master", check=True)
+        for k, v in (("user.name", "t"), ("user.email", "t@t"), ("core.hooksPath", "/n")):
+            repo.git("config", k, v, check=True)
+        for side, top, end in (("base", "", ""), ("topic", "topic", ""), ("master", "", "m")):
+            if side != "base":
+                repo.git("checkout", "-q", *(["-b"] if side == "topic" else []), side)
+            for path in ("g.json", "h.json"):
+                commit(path, f"1 {top}\n2\n3\n4\n5 {end}\n", side)
+        commit("x.txt", "x\n", "master's own file")
+        repo.git("checkout", "-q", "topic", check=True)
+        return repo, commit, repo.git("rev-parse", "HEAD").stdout.strip()
+
+    def mark(self, repo, *lines):
+        """Writes dev/varka_regen_generated.sh --all's marker, or with no lines removes it."""
+        marker = os.path.join(
+            repo.root, repo.git("rev-parse", "--git-path", "varka-regen-all").stdout.strip()
+        )
+        if not lines:
+            return os.remove(marker)
+        with open(marker, "w", encoding="utf-8") as f:
+            f.write("".join(x + "\n" for x in lines))
+
+    def test_r3_a_committed_rebase_owes_what_both_sides_changed_until_regenerated(self):
+        gen = {"g.json", "h.json", "x.txt"}
+        with tempfile.TemporaryDirectory() as d:
+            repo, commit, _ = self.rebased(d)
+            repo.git("rebase", "-q", "master", check=True)
+            head = repo.git("rev-parse", "HEAD").stdout.strip()
+            debt = rebase_debt(repo, "topic", gen)
+            self.assertEqual(list(debt), ["g.json", "h.json"])
+            self.assertTrue(debt["g.json"].startswith(head[:11]))
+            self.mark(repo, head)
+            self.assertEqual(rebase_debt(repo, "topic", gen), {})
+            # A marker listing its files pays those only: a skipped width audit stays owed.
+            self.mark(repo, head, "g.json")
+            self.assertEqual(list(rebase_debt(repo, "topic", gen)), ["h.json"])
+            self.mark(repo)
+            # A second rebase, master not changing the file, rewrites the debt's commit, and an
+            # amend rewrites the tip: still owed; an uncommitted regeneration pays nothing.
+            repo.git("checkout", "-q", "master", check=True)
+            commit("y.txt", "y\n", "master again")
+            repo.git("checkout", "-q", "topic", check=True)
+            repo.git("rebase", "-q", "master", check=True)
+            self.assertFalse(repo.ancestor(head, "HEAD"))
+            repo.git("commit", "-q", "--amend", "-m", "reworded", check=True)
+            with open(os.path.join(d, "g.json"), "w", encoding="utf-8") as f:
+                f.write(repo.git("show", "master:g.json", check=True).stdout)
+            self.assertEqual(rebase_debt(repo, "topic", gen), debt)
+            # A commit pays the files it changes, one by one.
+            commit("g.json", "1 topic\n2\n3\n4\n5 master regenerated\n", "regenerate g")
+            self.assertEqual(list(rebase_debt(repo, "topic", gen)), ["h.json"])
+            commit("h.json", "1 topic\n2\n3\n4\n5 master regenerated\n", "regenerate h")
+            self.assertEqual(rebase_debt(repo, "topic", gen), {})
+
+    def test_r3_a_rebase_undone_by_a_reset_owes_nothing(self):
+        gen = {"g.json", "h.json"}
+        with tempfile.TemporaryDirectory() as d:
+            repo, _, before = self.rebased(d)
+            repo.git("update-ref", "refs/remotes/origin/topic", before, check=True)
+            for target in ("ORIG_HEAD", before, "origin/topic"):
+                repo.git("rebase", "-q", "master", check=True)
+                self.assertEqual(sorted(rebase_debt(repo, "topic", gen)), sorted(gen))
+                repo.git("reset", "-q", "--hard", target, check=True)
+                self.assertEqual(rebase_debt(repo, "topic", gen), {}, target)
+
+    def test_r3_a_prose_commit_to_the_docs_pays_no_other_file(self):
+        gen = {"g.json", "h.json"}
+        with tempfile.TemporaryDirectory() as d:
+            repo, commit, _ = self.rebased(d)
+            repo.git("rebase", "-q", "master", check=True)
+            commit("h.json", "1 topic prose\n2\n3\n4\n5 m\n", "prose")
+            self.assertEqual(list(rebase_debt(repo, "topic", gen)), ["g.json"])
+
+    def test_r3_the_regeneration_marker_leaves_a_skipped_width_audit_owed(self):
+        script = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)), "varka_regen_generated.sh"
+        )
+        with tempfile.TemporaryDirectory() as d:
+            repo, _, head = self.rebased(d)
+            audit = "sql/varka/width_audit.json"
+            with open(script, encoding="utf-8") as f:
+                regen = f.read()
+            stubs = {
+                "dev/varka_regen_generated.sh": regen,
+                "dev/varka_generated_merge.py": f"import sys\nif sys.argv[1:] == ['--list']:\n"
+                f"    print('g.json\\n{audit}')\n",
+                "dev/varka_census.py": "",
+                "build/sbt": "#!/bin/sh\n",
+                audit: '{"host": {"cpu": "Audit CPU"}}\n',
+            }
+            for rel, text in stubs.items():
+                os.makedirs(os.path.join(d, os.path.dirname(rel)), exist_ok=True)
+                with open(os.path.join(d, rel), "w", encoding="utf-8") as f:
+                    f.write(text)
+                os.chmod(os.path.join(d, rel), 0o755)
+            for cpu, covered in (("Another CPU", {"g.json"}), ("Audit CPU", {"g.json", audit})):
+                with open(os.path.join(d, "cpuinfo"), "w", encoding="utf-8") as f:
+                    f.write(f"model name\t: {cpu}\n")
+                env = dict(repo.env, VARKA_CPUINFO=os.path.join(d, "cpuinfo"))
+                env["VARKA_HEAVY_LOCK"] = os.path.join(d, "heavy.lock")
+                cmd = [os.path.join(d, "dev", "varka_regen_generated.sh"), "--all"]
+                run = subprocess.run(cmd, cwd=d, env=env, capture_output=True, text=True)
+                self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+                self.assertEqual(regen_marker(repo), (head, covered), cpu)
+
     def test_r2_fires_on_a_removed_reason_a_test_pins_split_elsewhere(self):
         base = {PLAN: OLD, SUITE: PINNED}
         head = {PLAN: NEW, SUITE: PINNED}
@@ -726,6 +928,7 @@ def main(argv):
     p.add_argument("--lint", action="store_true")
     p.add_argument("--full", action="store_true")
     p.add_argument("--no-precommit", action="store_true", help="the pre-push hook ran it already")
+    p.add_argument("--branch", help="the branch whose reflog records its rebases (default HEAD's)")
     return run(p.parse_args(argv[1:]))
 
 
