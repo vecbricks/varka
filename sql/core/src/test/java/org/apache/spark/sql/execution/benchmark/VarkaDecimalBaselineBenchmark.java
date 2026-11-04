@@ -412,7 +412,7 @@ public class VarkaDecimalBaselineBenchmark extends VarkaSqlBenchmarkBase {
       out.add(new Section("time_to_seconds over " + time + ", " + density,
           "SELECT time_to_seconds(" + t + ") AS a FROM varka_decimal", Fusion.WHOLE));
       out.add(new Section("extract(SECOND) over " + time + ", " + density,
-          "SELECT extract(SECOND FROM " + t + ") AS a FROM varka_decimal", Fusion.NONE));
+          "SELECT extract(SECOND FROM " + t + ") AS a FROM varka_decimal", Fusion.WHOLE));
     }
     for (Precision p : PAIR_PRECISIONS) {
       addComparisons(out, p, Optional.empty(), shape -> Fusion.NONE);
