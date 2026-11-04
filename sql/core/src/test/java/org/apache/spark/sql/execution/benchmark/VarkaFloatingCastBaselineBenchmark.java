@@ -46,23 +46,25 @@ import org.apache.spark.sql.internal.SQLConf;
  * session with it. A section listed as {@code NONE} plans no Varka node, so both its arms are the
  * row path and should tie.
  *
- * <p>A baseline is only one while nothing fuses: before any section is timed, the run checks each
- * section's plan on the Varka session against the section's {@link Fusion} class, the record of how
- * much of it a row has fused, and fails when the plan's class differs ({@link
- * VarkaSqlBenchmarkBase#requireBaseline(SparkSession, String, String, Fusion)}); the results file
- * notes each section that fuses. {@code INT} to {@code DOUBLE} and {@code DOUBLE} to {@code FLOAT}
- * are {@code WHOLE}, since part 343a3 fuses them, and so is the boolean filter, whose {@code
- * coalesce} meets its {@code false} on the cast's lane since part 343a3b ({@code VARKA-343.md}
- * 2.2.1), except where the session refuses a filter's condition in a 64-bit kernel (VARKA-503), as
- * the 128-bit companion's host does by default; every other section is {@code NONE}, the {@code
- * BIGINT} casts (part 343a4) among them. The filter's condition is the cast under {@code coalesce}
+ * <p>A baseline is only one while nothing fuses: before any section is timed, the run checks
+ * each section's plan on the Varka session against the section's {@link Fusion} class, the
+ * record of how much of it a row has fused, and fails when the plan's class differs
+ * ({@link VarkaSqlBenchmarkBase#requireBaseline(SparkSession, String, String, Fusion)}); the
+ * results file notes each section that fuses. {@code INT} to {@code DOUBLE} and {@code DOUBLE}
+ * to {@code FLOAT} are {@code WHOLE}, since part 343a3 fuses them, and so is the boolean filter,
+ * whose {@code coalesce} meets its {@code false} on the cast's lane since part 343a3b
+ * ({@code VARKA-343.md} 2.2.1), but where the session refuses a filter's condition in a 64-bit
+ * kernel (VARKA-503), as the 128-bit companion's host does by default; every other section is
+ * {@code NONE}, the {@code BIGINT} casts (part 343a4) among them. The filter's condition is the
+ * cast under {@code coalesce}
  * rather than the bare cast: from a bare {@code WHERE CAST(x AS BOOLEAN)} the optimizer infers
  * {@code x IS NOT NULL}, since the cast is null-intolerant, and that conjunct alone fuses into a
  * {@code VarkaFilterColumnarToRow} under Spark's {@code Filter}, which would put a Varka node in
  * the plan while the cast declines, so the check could not see the row start fusing the cast
- * itself. {@code coalesce} is not null-intolerant, so nothing is inferred, and it keeps the same
- * rows, a null cast being false. A row that fuses more of a section sets its new class, so that its
- * fusion cannot turn a baseline section into a fused one unnoticed.
+ * itself. {@code coalesce} is not
+ * null-intolerant, so nothing is inferred, and it keeps the same rows, a null cast being false.
+ * A row that fuses more of a section sets its new class, so that its fusion cannot turn a
+ * baseline section into a fused one unnoticed.
  *
  * <p>To run this benchmark, on a GitHub runner (the results come back as an artifact):
  * <pre>
