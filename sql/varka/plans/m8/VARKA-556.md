@@ -174,11 +174,9 @@ twice. One pull request would be about 1120, over the cap, so two:
 *Re-sized on 4 November 2026, after the lead's decisions (9) and the build of 556a (10).* With
 the shape level dropped, 556a is the class, the three Java comparators, the decimal rule and the
 lesson, about 900 lines with this plan's edits, and the catalyst contract suite (about 370) no
-longer fits beside it, so it is a pull request of its own, 556a2, stacked on 556a. 556b depends on
-point 2: with `checkAnswer` registered as `AnyNaN` and left, about 250 (the suite-local rules,
-the sql/core contract twin, the lint rule); with every floating `checkAnswer` comparison in a
-Varka suite moved onto `VarkaSameAnswer`, about 400 more for the dozen suites, so two pull
-requests again.
+longer fits beside it, so it is a pull request of its own, 556a2, stacked on 556a. With point 2
+settled on `checkAnswer` left as `AnyNaN` (9), 556b is about 250: the suite-local rules, the
+sql/core contract twin and the lint rule.
 
 ## 7. Risks
 
@@ -198,8 +196,8 @@ shape level.
 
 ## 9. Open points for the lead
 
-*Points 1, 3 and 4 settled by the lead on 4 November 2026; point 2's premise checked and found
-false, so it is open again.* The questions as first asked:
+*All four settled by the lead on 4 November 2026, point 2 after its premise was checked and found
+false.* The questions as first asked:
 
 1. The shape level for the both-bodies check (3.2) or #1313's type level kept: the shape level is
    stricter and costs a walk per kernel; the type level is simpler and already merged-to-be.
@@ -223,7 +221,8 @@ The answers:
    commutative-only one would fail it with no defect. 3.2's shape level and its soundness check
    are not built; `VarkaSameAnswer.Level` has no shape member, and section 5's `abs(x)` bullet
    for `VarkaEvaluatorComponentsSuite` falls away with it.
-2. **Open: the premise does not hold.** The lead's answer was to register `checkAnswer` as
+2. **Settled: `checkAnswer` stays on `ANY_NAN`, though the premise does not hold.** The lead's
+   first answer was to register `checkAnswer` as
    `AnyNaN` and leave the suites, provided no SQL surface shows a double's raw bits, so that a NaN
    payload is unobservable end to end. Half of that holds: Spark's hashes canonicalize, by
    `Double.doubleToLongBits` and `Float.floatToIntBits` with `-0.0` mapped to `0`, in the
@@ -240,29 +239,35 @@ The answers:
    empty, which allows every call (206 to 210; `StaticSQLConf.scala` 411 to 423), and restricted
    mode off by default (`StaticSQLConf.scala` 426 to 436),
    `reflect('java.lang.Double', 'doubleToRawLongBits', x)` returns a NaN's payload as a string.
-   (Read from the code, not run.) A user-defined function sees the raw bits too. So a pick that
-   returns the wrong NaN is observable end to end, and `AnyNaN` would leave it unseen; which way
-   556b goes is the lead's. Section 6 is re-sized for both.
+   (Read from the code, not run.) A user-defined function sees the raw bits too. The lead then
+   settled it: the `checkAnswer` suites stay on `ANY_NAN`, and the raw bits `reflect`,
+   `java_method`, `try_reflect` (`CallMethodViaReflection.scala` 182 to 284, the allow list empty
+   by default) and a UDF observe are the one documented exception, not a target, because vanilla
+   Spark does not define that payload either: its `Add` returns whichever operand's NaN the tier
+   picked (#1313), and its hash, grouping and join paths canonicalize. 556b is the small option
+   (6).
 3. **Settled: exact at the output's scale.** Rule 4 compares a decimal's unscaled value at the
    output's precision and scale, after normalizing each side to that type, so that a row carrying
    a `Decimal` at another internal scale does not mismatch; a side the type cannot hold (rounding
-   needed, or more digits than the precision) differs. Built in 556a (section 10).
+   needed, or more digits than the precision) differs. Built in 556a (section 10). *Corrected on
+   review:* this catches no wrong scale, as item 5 of section 10 says.
 4. **Settled: one class in catalyst main**, `VarkaSameAnswer`, as the default.
 
 ## 10. Outcome of 556a (4 November 2026, branch `varka-556-same-answer`)
 
 **Built.** `VarkaSameAnswer` in catalyst main: the levels as an enum (`EXACT`, `TYPE`, `ROW`,
-`ANY_NAN`; no shape level, 9.1), the type level's `bothNaN`, and the row rule written once over
-a node of either tree, with an IR front end (`IrRow`: a node's reference value and a
-condition's truth) and a Catalyst expression front end, and `sameRow`, the expression harness's
-row comparison, moved in. `VarkaKernelChecks.sameAnswer`, `VarkaExpressionHarness.sameRow` and
-`unfixedNaN`, and `VarkaKernelRunner.compareBodies` call it; their own rule bodies are deleted.
-The lesson is `skills/the-jit.md`'s last section. The contract suite, `VarkaSameAnswerContractSuite`,
-is on the stacked branch `varka-556-contract` (6).
-Its `TYPE` entry restates `compareBodies`' row rule (equal bits, or `bothNaN` on a floating
-output), since the catalyst tree cannot reach sql/core main; the check itself is held by
-`VarkaEvaluatorComponentsSuite`'s planted-bodies tests until the sql/core twin registers it
-(556b). No emitter or compiler file is touched, so no generated file moves.
+`ANY_NAN`; no shape level, 9.1), the type level's `bothNaN`, and the row rule written once over a
+node of either tree, with an IR front end (`IrRow`: a node's reference value and a condition's
+truth) and a Catalyst expression front end, and `sameRow`, the expression harness's row comparison,
+moved in; a node whose own value is not a NaN is never open, and a subtraction or a division over
+two NaNs is fixed by its left operand (items 7 and 8 below). `VarkaKernelChecks.sameAnswer`,
+`VarkaExpressionHarness.sameRow` and `unfixedNaN`, and `VarkaKernelRunner.compareBodies` call it;
+their own rule bodies are deleted. The lesson is `skills/the-jit.md`'s last section. The contract
+suite, `VarkaSameAnswerContractSuite`, is on the stacked branch `varka-556-contract` (6). Its `TYPE`
+entry restates `compareBodies`' row rule (equal bits, or `bothNaN` on a floating output), since the
+catalyst tree cannot reach sql/core main; the check itself is held by
+`VarkaEvaluatorComponentsSuite`'s planted-bodies tests until the sql/core twin registers it (556b).
+No emitter or compiler file is touched, so no generated file moves.
 
 **Where verdicts move**, each on purpose:
 
@@ -282,6 +287,25 @@ output), since the catalyst tree cannot reach sql/core main; the check itself is
 4. *`agreeWithSpark` on a selection output* gets the row's references instead of an empty one; a
    condition is never floating, so no verdict moves.
 5. *Rule 4's decimals* compare unscaled at the output's type (9.3): a side the type cannot hold
-   differs where `Decimal.equals` compared values.
-6. `compareBodies` is unchanged: the same reads at the same widths.
+   differs where `Decimal.equals` compared values. *Corrected on review:* no verdict moves. Every
+   row the harness compares reaches it at the type's scale (Spark's through `UnsafeProjection`,
+   Varka's through the readers, which catch a wrong scale), so the rule agrees with
+   `Decimal.equals` on every input it sees; 9.3's "catches a writer that stores the wrong scale"
+   and 2's "rules 1 to 3 ... see it" overstate.
+6. `compareBodies` is unchanged: the same bytes at the same widths, read as `JAVA_LONG` and
+   `JAVA_INT` now.
+7. *A node whose own value is not a NaN is never open* (review). The first build passed an open
+   NaN up through a node that did not return it: `sqrt(least(x + x2, -1.0))` is `sqrt(-1.0)`,
+   whose NaN is fixed, since Spark's `least` skips the NaN, yet the rule walked into the sum and
+   excused a kernel that let the sum through, which the deleted IR rule rejected.
+8. *A subtraction and a division over two NaNs are fixed* (review): every tier returns the left
+   operand's payload (the lesson in `skills/the-jit.md`), so `x - x2` and `x / x2` are compared
+   strictly and only an add, a multiply or a remainder is open. The remainder stays open: on x86
+   every tier calls `SharedRuntime::drem`, which goes to `StubRoutines::fmod`
+   (`sharedRuntime_x86.cpp` 98 to 100), and that stub's choice between two NaNs was not read.
+9. *3.5's lesson, corrected on review:* C1 returns the left's payload except where
+   `move_const_to_right` swaps a constant left operand of a commutative op; C2's scalar multiply
+   is ordered in `MulNode::Ideal`, not `addnode.cpp`; the Vector API's Java fallback is plain Java
+   arithmetic, so its payload is the tier's that runs it, not the left's; `MaxV` and `MinV` are on
+   the vector swap list. `skills/the-jit.md` and the class Javadoc say it as corrected.
 
