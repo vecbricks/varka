@@ -46,6 +46,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Con
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LaneType;
 import org.apache.spark.sql.types.DataType;
 import org.apache.spark.sql.types.DataTypes;
+import org.apache.spark.sql.types.TimeType;
 
 /**
  * Every long-lane divisor the compiler builds is one {@code long_divide.smt2} proves (VARKA-496).
@@ -165,6 +166,17 @@ public final class VarkaDivisorProofSuite {
             false);
         assertTrue(compiled.isPresent(), sql + " does not compile, so its divisor is not seen");
         collect(compiled, sql, divisors);
+      }
+    }
+    // The decimal second of every TIME precision and time_to_seconds (VARKA-157 2.3): the
+    // fraction divides by 10^(9 - p), a divisor per precision that no coverage row reaches.
+    for (int p = 0; p <= 9; p++) {
+      var cols = VarkaCastMatrixSuite.castColumns(new TimeType(p));
+      for (String sql : List.of("extract(SECOND FROM x)", "time_to_seconds(x)")) {
+        var compiled = compile(VarkaCoverageRows.resolve(sql, cols), cols, false);
+        assertTrue(compiled.isPresent(), sql + " over TIME(" + p + ") does not compile, so its "
+            + "divisor is not seen");
+        collect(compiled, sql + " over TIME(" + p + ")", divisors);
       }
     }
     // Every legal cast between two forms, in every mode, as VarkaCastMatrixSuite probes them.

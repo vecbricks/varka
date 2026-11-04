@@ -1132,7 +1132,15 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
           "value. The sum is still guarded to the day - the domain adds the interval's " +
           "microseconds, 0 here, to the time's; the crossing case, and a column interval, are " +
           "VarkaTimeArithmeticSuite's",
-        domain = Some(s"time_to_micros(t) + 0 BETWEEN 0 AND ${dayOf(NANOS_PER_MICROS)}"))))
+        domain = Some(s"time_to_micros(t) + 0 BETWEEN 0 AND ${dayOf(NANOS_PER_MICROS)}")))),
+
+    // The decimal store's two producers (VARKA-157): an unscaled long the lane computes, written
+    // into Arrow's sixteen-byte slots by WidenDecimal.
+    Family("TIME decimal outputs", predicates = false, Seq(
+      Row("time_to_seconds(t)", "a DECIMAL(14, 6), (n + 500) / 1000: the exact quotient by 10^9 "
+        + "rounded half up to six digits, written as the low word and its sign extension"),
+      Row("extract(SECOND FROM t)", "a DECIMAL(8, 6), s * 10^6 + (n % 10^9) / 1000; Spark "
+        + "rounds a Double back to six digits, which lands on the same value for every (s, g)")))
   )
 
   private def out(e: Expression): NamedExpression = Alias(e, "c")()
@@ -1715,6 +1723,11 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
     "hour(t) + 1" -> Refined("hour(t), minute(t)", "a + b"),
     "minute(t2)" -> Refined("hour(t), minute(t)"),
     "second(t)" -> Refined("second(t)"),
+    // The decimal store's producers (VARKA-157): divisions long_divide.smt2 proves, and the
+    // fraction's double round trip swept over every (s, g) of a precision.
+    "time_to_seconds(t)" -> Proved("long_divide.smt2"),
+    "extract(SECOND FROM t)" -> Exhausted("VarkaTimeFractionSuite",
+      "the fraction agrees with Spark's double round trip on every (s, g) of TIME(0) "),
     // `time_from_micros(time_to_micros(t))`: time_to_micros has no refinement.
     "t + INTERVAL '0 00:00:00' DAY TO SECOND" -> Refined("t + dt"),
     // The 64-bit decimal's rows of two scales, negation, abs, choices and the coalesce's null test
@@ -1816,7 +1829,10 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
     val at = Seq("test(\"" + test, "@DisplayName(\"" + test).map(src.indexOf).filter(_ >= 0).min
     val declaration = src.substring(at, math.min(src.length, at + 600))
     val head = declaration.takeWhile(_ != '{')
-    head.contains("opt-in") || declaration.take(head.length + 300).contains("varka.sweep")
+    // The body ends at the next test's declaration, so an opt-in test just after does not count.
+    val body = declaration.substring(head.length).take(300)
+    val next = Seq("@Test", "test(\"").map(body.indexOf).filter(_ >= 0)
+    head.contains("opt-in") || body.take((next :+ body.length).min).contains("varka.sweep")
   }
 
   /**

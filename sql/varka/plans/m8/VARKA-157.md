@@ -449,7 +449,7 @@ oracle is unchanged for every existing shape; and the PR build and the option ma
 
 ## 10. Outcome
 
-(157b and the measurement are still to come; the readings of 157a are below.)
+(The measurement, 157c, is still to come; the readings of 157a and 157b are below.)
 
 ### 10.1 Step 2 (157a): the store
 
@@ -576,3 +576,64 @@ for: the canonical parser reads only `(head child...)`.*
 `varka-width-audit.yml` dispatch on the branch (EPYC 7763 at 256 and 128 bits, Neoverse N2 at
 128); 157b's producers, proof rows, harness and coverage rows, the exhaustive check, the
 benchmark's store arms and the verdict per width.
+
+### 10.2 Step 3 (157b): the producers
+
+*4 November 2026, on master at `99f5eabc4de`, branch `varka-157b-producers`.*
+
+**What was built, against step 3's list.**
+
+- **The end-to-end path.** `compileRoot`, the binding that knows an output's type, sends a
+  `DECIMAL` root to `VarkaDecimalCompiler.output`. It asks `decimalOutputDeclineReason` first, so
+  a precision above 18 or a negative scale declines at plan time naming row 359, whatever the
+  expression (`d19 + d19` included), and never reaches the allocator's assertion; then the two
+  TIME producers compile their bare long-lane value as a `Scaled` and `widened` checks its scale
+  against the output's and wraps it through `outputRoot`. Every other decimal value as an output
+  declines naming row 348. Below a root the two producers decline naming row 348 too
+  (`decimalOperandNotYet`), as 2.1 has it; the decimal column's value-position reason now says a
+  decimal output is row 348's, not 157's.
+- **The lowerings**, `VarkaTimeCompiler.decimalProducer`, as 2.3: `time_to_seconds(t)` is
+  `(n + 500) / 1000` under `NANOS_PER_DAY + 500`; `extract(SECOND FROM t)` over `TIME(p)` is
+  `s * 10^p + g`, `s` the existing `remainderOfSixty` tree, `r = n - q * 10^9` sharing its
+  `q = n / 10^9`, `g = r / 10^(9 - p)`, with `s` alone at `p = 0` and `g = r` at `p = 9`.
+- **The proof rows.** `VarkaProofFiles.LONG_DIVISORS` gains `10^8`, `10^7`, `10^5`, `10^4`, 100
+  and 10, rendered into `long_divide.smt2`; `VarkaDivisorProofSuite`'s corpus compiles both
+  producers over every `TIME(0)` to `TIME(9)`, since the coverage rows reach only `TIME(6)`'s
+  divisor.
+- **The fraction's check**, `VarkaTimeFractionSuite` (catalyst, JUnit): every `(s, g)` of a
+  precision, the time `s * 10^9 + g * 10^(9 - p)`, Spark's `getSecondsOfTimeWithFraction`
+  against `s * 10^p + g`, in parallel. `TIME(0)` to `TIME(7)` run in every build, 7.6 s on the
+  laptop's 24 threads (6.8 s of it the 600 million pairs of `TIME(7)`), and agree on every pair;
+  `TIME(8)` and `TIME(9)` run under `-Dvarka.sweep.long=true`, which `dev/varka_nightly.sh`'s sweep
+  step now runs beside the year-month division sweep, priced from `TIME(7)` at about 70 s and 11
+  minutes on the laptop and not run here. A fourth
+  test holds `time_to_seconds`' half-up rounding over the first and last two million
+  nanoseconds of the day and five nanoseconds about each second's `x.0000005`.
+- **The harness and coverage rows.** `VarkaTimeHarnessSuite` gains both producers over every
+  second of the day at `TIME(0)`, `(3)`, `(6)` and `(9)`, the sub-second offsets of its day
+  table and the rounding edges, `23:59:59.9999995` among them, and a kernel holding a decimal, a
+  long and a narrowed output. The coverage family "TIME decimal outputs" holds
+  `time_to_seconds(t)` (verified by `long_divide.smt2`) and `extract(SECOND FROM t)` (by the
+  sweep), which `VarkaCoverageHarnessSuite` and `VarkaCoverageDifferentialSuite` run.
+- **The matrix arm.** `VarkaMatrixRuns.configurations` runs an option one node kind reads when
+  the compiler builds that node (`COMPILED_NODE_KINDS`, `WidenDecimal` alone), so
+  `decimalStore=SELECT_FROM` is a configuration again; `readOnlyBy` is unchanged, so the general
+  fuzz draws still leave the option out. `emitted_bytes.json` pins both arms over the new rows.
+- **The census.** `time_to_seconds` over `time` is done; `extract` fuses over `time`.
+
+**Departures.**
+
+- **The plan-time refusal is the output's type, asked first**, not a check inside the
+  producers' lowerings: their types are always within 18 digits, so a refusal there could never
+  fire, while asking at the root refuses every wide decimal projection.
+- **The fraction's sweep costs a tenth of 3's pricing**: about 11 ns of a thread a pair, not
+  250, so `p <= 7` fits a build with a margin; on a four-core runner it is about 45 s **[I]**.
+- **The benchmark's store arms and the verdict per width are not here**: they need runner
+  dispatches, so they are a further part, 157c, with the runner census columns.
+
+**What 348b still needs.** The seam is `VarkaDecimalCompiler.output`: 348b replaces its last
+decline with `value(e, ...)`, a `rescale` to the output's scale where `value` returns another,
+and `widened`; then its coverage rows, the bytes they pin and its census cells. It adds
+`DecimalColumn` to `COMPILED_NODE_KINDS` if `decimalAbsLanewise` is to run in the option matrix,
+which it does not today although 348a's predicates build the node.
+

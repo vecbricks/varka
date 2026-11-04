@@ -980,22 +980,73 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     assert(reason.contains("legacy CalendarInterval subtraction"), reason)
   }
 
-  test("the decimal-valued TIME expressions decline by naming the representation") {
-    // Section 2.3 asked for this: a reader who sees "not lowered yet" concludes the division is
-    // missing, where the value is an unscaled long the lane holds and the column is what waits.
-    for (e <- Seq(SecondsOfTimeWithFraction(t6), TimeToSeconds(t6))) {
-      val reason = declineReason(e, withLong)
-      assert(reason.contains("returns a decimal"), reason)
-      assert(reason.contains("VARKA-157"), reason)
+  /** The long-lane divisors under `root`, for the shapes the TIME producers build. */
+  private def longDivisors(root: VarkaVectorIR): Set[Long] = root match {
+    case c: ConstDivide => longDivisors(c.child) + c.divisor
+    case a: IntArith => longDivisors(a.left) ++ longDivisors(a.right)
+    case w: VarkaVectorIR.WidenDecimal => longDivisors(w.child)
+    case _ => Set.empty
+  }
+
+  test("the decimal-valued TIME expressions fuse at an output root through the decimal store") {
+    // VARKA-157 2.3: time_to_seconds(t) is (n + 500) / 1000, and the second with its fraction
+    // is s * 10^p + (n % 10^9) / 10^(9 - p), with no fraction division at p = 0 or p = 9.
+    val compiled = VarkaExpressionCompiler.compile(Seq(out(TimeToSeconds(t6))), withLong).get
+    assert(compiled.outputs.asScala.toSeq === Seq(new VarkaVectorIR.WidenDecimal(
+      new ConstDivide(new IntArith(IntOp.ADD, Overflow.WRAP, longCol, longSlot(0)), 1000L,
+        86400L * 1000000000L + 500L))))
+    assert(compiled.longLiterals.asScala.toSeq === Seq(500L))
+    assert(compiled.outputTypes.asScala.toSeq === Seq(DecimalType(14, 6)))
+    for (p <- 0 to 9) {
+      val tp = AttributeReference("tp", TimeType(p))()
+      val fraction = VarkaExpressionCompiler.compile(Seq(out(SecondsOfTimeWithFraction(tp))),
+        Seq(tp)).toScala
+      assert(fraction.isDefined, s"extract(SECOND) over TIME($p) declined")
+      val root = fraction.get.outputs.asScala.head
+      assert(root.isInstanceOf[VarkaVectorIR.WidenDecimal], root)
+      val fractionDivisor =
+        if (p == 0 || p == 9) Set.empty[Long] else Set(Decimal.POW_10(9 - p))
+      assert(longDivisors(root) === Set(1000000000L, 60L) ++ fractionDivisor, p)
+      assert(fraction.get.outputTypes.asScala.toSeq === Seq(DecimalType(2 + p, p)))
     }
+  }
+
+  test("the decimal-valued TIME expressions below a root decline naming row 348") {
+    // VARKA-157 2.1: the store is a root's; as another expression's operand the value is a
+    // decimal operand, which row 348 consumes.
+    for (e <- Seq(SecondsOfTimeWithFraction(t6), TimeToSeconds(t6))) {
+      val reason = declineReason(Add(e, e), withLong)
+      assert(reason.contains("row 348's"), reason)
+    }
+  }
+
+  test("a decimal output above precision 18 declines naming row 359 at plan time") {
+    // The output's type is asked before the value is compiled (VarkaDecimalCompiler.output), so
+    // a wide decimal projection never reaches the allocator's assertion.
+    val wide = AttributeReference("wide", DecimalType(19, 2))()
+    val reason = declineReason(Add(wide, wide), childOutput :+ wide)
+    assert(reason.contains("row 359's"), reason)
+  }
+
+  test("a decimal output fuses beside a long-lane output, and beside an int one apart") {
+    // One kernel is driven at one lane: the decimal store is a long root's, so beside hour(t),
+    // which narrows at its store, it shares the long lane, and beside an int entry it is set
+    // aside for a kernel of its own (VARKA-480) rather than refused at emission.
+    val both = VarkaExpressionCompiler.compile(
+      Seq(out(TimeToSeconds(t6)), out(HoursOfTime(t6))), withLong).toScala
+    assert(both.isDefined)
+    assert(both.get.outputTypes.asScala.toSeq === Seq(DecimalType(14, 6), IntegerType))
+    val partial = VarkaExpressionCompiler.compilePartial(
+      Seq(out(DateAdd(d, Literal(1))), out(TimeToSeconds(t6))), withLong).get
+    assert(partial.declines.isEmpty, partial.declines)
   }
 
   test("a decimal output root is admitted up to precision 18, and a wider one declines naming " +
       "row 359 before it fuses") {
     // The admission 157b's producers call where a decimal-valued root meets its output's type
-    // (VarkaDecimalCompiler.outputRoot): no lowering builds such a root yet, so this is its
-    // caller. The store writes a long and its sign extension, so a wider type would be written
-    // wrongly, and the evaluator's allocator only asserts what this refuses.
+    // (VarkaDecimalCompiler.outputRoot), held here over every type rather than only the TIME
+    // producers' two. The store writes a long and its sign extension, so a wider type would be
+    // written wrongly, and the evaluator's allocator only asserts what this refuses.
     val value = new ColumnRef(0, LaneType.LONG)
     for (t <- Seq(DecimalType(1, 0), DecimalType(10, 2), DecimalType(18, 6))) {
       val sink = new DeclineSink(childOutput, false)

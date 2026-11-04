@@ -205,7 +205,8 @@ public final class VarkaMatrixRuns {
    * Every configuration, in table order: each non-default arm of each option the fuzzer's
    * general draws vary ({@link VarkaEmitOption#drawnInGeneral}: not a fault injector or a
    * miscompiled form, and not an option that changes only a shape holding one node kind, which
-   * changes no kernel without that node) - a flag's other value, an enum's other constants, a
+   * changes no kernel without that node, unless the compiler builds that node,
+   * {@link #compiledNodeReads}) - a flag's other value, an enum's other constants, a
    * count's audit values - and the lane counts above. Derived from the table, so a new option
    * joins with its entry. Then the batch-size axis, which changes the sessions' cached batches
    * rather than an option.
@@ -222,7 +223,7 @@ public final class VarkaMatrixRuns {
     VarkaEmitOptions defaults = VarkaEmitOptions.DEFAULTS;
     var out = new ArrayList<String>();
     for (VarkaEmitOption option : VarkaEmitOption.TABLE) {
-      if (!VarkaEmitOption.drawnInGeneral(option)) {
+      if (!VarkaEmitOption.drawnInGeneral(option) && !compiledNodeReads(option)) {
         continue;
       }
       List<String> arms = distinctArms(option.arms(), defaults).stream()
@@ -239,6 +240,25 @@ public final class VarkaMatrixRuns {
     }
     ARROW_BATCH_SIZES.forEach(rows -> out.add(ARROW_BATCH_SIZE + "=" + rows));
     return List.copyOf(out);
+  }
+
+  /**
+   * The node kinds the compiler builds end to end whose own options the matrix runs, though the
+   * general draws leave such an option out ({@link VarkaEmitOption#readOnlyBy}): a coverage row
+   * holds the node, so a configuration of its option reruns suites that emit it. A
+   * {@code WidenDecimal} is every decimal output's root since the TIME producers (VARKA-157), so
+   * {@code decimalStore=SELECT_FROM} runs.
+   */
+  static final Set<Class<? extends VarkaVectorIR>> COMPILED_NODE_KINDS =
+      Set.of(VarkaVectorIR.WidenDecimal.class);
+
+  /**
+   * Whether {@code option} is one of a node kind's own (it is not {@code drawnInGeneral}) whose
+   * node the compiler builds ({@link #COMPILED_NODE_KINDS}), with a drawn reason.
+   */
+  static boolean compiledNodeReads(VarkaEmitOption option) {
+    return option.reason().drawn() && VarkaEmitOption.readOnlyBy(option)
+        .map(COMPILED_NODE_KINDS::contains).orElse(false);
   }
 
   /** The {@code -XX:UseAVX} level that stands for every level whose converts fall back. */

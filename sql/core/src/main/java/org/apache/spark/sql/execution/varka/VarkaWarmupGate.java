@@ -48,13 +48,16 @@ public final class VarkaWarmupGate {
   private final boolean anyNullableInput;
   private final InputWidths inputWidths;
   private final Supplier<String> kernelIdentity;
+  private final int[] outputBytes;
 
   /**
    * @param anyNullableInput whether any kernel input can hold a null, so that a batch can reach
    *                         the masked driver, which the warm-up then compiles too
+   * @param outputBytes each output's bytes per row: eight, or sixteen for a decimal's slot
    */
   public VarkaWarmupGate(VarkaKernelRunner runner, boolean anyNullableInput,
-      InputWidths inputWidths, Supplier<String> kernelIdentity) {
+      InputWidths inputWidths, Supplier<String> kernelIdentity, int[] outputBytes) {
+    this.outputBytes = outputBytes;
     this.runner = runner;
     this.anyNullableInput = anyNullableInput;
     this.inputWidths = inputWidths;
@@ -88,7 +91,7 @@ public final class VarkaWarmupGate {
       runner.fill(input, len);
       VarkaKernelWarmup.start(runner.warmth, runner.shapeHash, runner.newKernel(),
           runner.lane.bits() == Long.SIZE, runner.srcData, runner.srcValidity, runner.srcNullCount,
-          inputWidths.of(input), anyNullableInput, len, runner.dstData.length, runner.scalarArgs,
+          inputWidths.of(input), anyNullableInput, len, outputBytes, runner.scalarArgs,
           runner.longArgs);
       settled = true;
     } catch (VarkaBatchDeclined e) {
