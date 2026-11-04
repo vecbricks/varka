@@ -107,3 +107,4 @@ R2, #1338 under R1 (three suites on `CrossLane`, as CI) and #1323 under R3, only
   `git am` leaves no entry. Each generated file's header would hold a SHA-256 of its `FEEDERS`'
   blob ids (`dev/varka_generated_merge.py`), which `--check` recomputes.
 - **A missing ruff names itself** (the pin and a venv); the replays' verdicts are in the results.
+- `dev/varka_precommit.sh --range` on `varka-348a3-choices` (master merged twice) reads 19 files.

@@ -92,8 +92,8 @@ done
 if [ "$status" -ne 0 ]; then
   echo "varka pre-push: push refused; fix the findings above"
   if [ "$checked" -ne 0 ]; then
-    echo "varka pre-push: to pass over the push check only, VARKA_PUSH_CHECK_SKIP=<the rule it"
-    echo "  names> or VARKA_PUSH_CHECK=off before git push"
+    echo "varka pre-push: to pass over the push check only, set VARKA_PUSH_CHECK_SKIP=<rule>"
+    echo "  (the rule it names) or VARKA_PUSH_CHECK=off for the git push"
   fi
   echo "varka pre-push: git push --no-verify skips every check, the message and line checks too"
 fi
