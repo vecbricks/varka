@@ -356,7 +356,7 @@ replaces the restatement 556a2 carries, which two pull requests would show added
   two un-negated NaN tests joined by `&&`, unless `openNaN` decides the pair. It catches five of
   the six comparators 556 removed; it cannot see `nanAsOne`'s one-column relaxation, a boxed
   `equals`, or a rule behind a helper of another name. Over the tree it finds six expressions, on
-  no line a commit here writes; one is a comparator, `VarkaEmitterFloatingArithSuite`'s
+  no line a commit here writes; one accepts any NaN, `VarkaEmitterFloatingArithSuite`'s
   `nanByNess` acceptance of any two NaNs, left as it was.
 
 **Where verdicts move** (3.4, 7): a row with two unlike NaN inputs no longer excuses every form

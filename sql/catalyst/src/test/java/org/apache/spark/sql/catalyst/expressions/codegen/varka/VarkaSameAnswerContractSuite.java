@@ -272,7 +272,7 @@ public final class VarkaSameAnswerContractSuite {
     DecimalType d38 = DataTypes.createDecimalType(38, 4);
     t.add(decimal("DECIMAL(10,2) 1.50 against 1.5 carried at scale 1", d10, "1.50", "1.5", true));
     t.add(decimal("DECIMAL(10,2) 1.50 against 1.51, at the scale", d10, "1.50", "1.51", false));
-    t.add(decimal("DECIMAL(10,2) 1.50 against 0.0150, another value", d10, "1.50", "0.0150",
+    t.add(decimal("DECIMAL(10,2) 1.50 against 0.0150, which it cannot hold", d10, "1.50", "0.0150",
         false));
     t.add(decimal("DECIMAL(10,2) 1.23 against 1.234, which the type cannot hold", d10, "1.23",
         "1.234", false));

@@ -90,7 +90,9 @@ _ARG = r"\((?:[^()]|\([^()]*\))*\)"
 _BITS = r"(?:[\w.]+\.)?(?:double|float)To(?:Raw)?(?:Long|Int)Bits(?!\(\s*-?[\d.]+[dDfF]?\s*\))"
 _NAN = rf"(?<![!\w.])(?:[\w.]+\.)?(?:isNaN(?:{_ARG})?|nanBits{_ARG}|\w+NaN\b(?!\())"
 NAN_COMPARES = (
-    re.compile(rf"(?<![\w.]){_BITS}{_ARG}\s*[!=]=\s*{_BITS}(?!\(\s*(Double|Float)\.){_ARG}"),
+    re.compile(
+        rf"(?<![\w.]){_BITS}{_ARG}\s*[!=]=\s*{_BITS}(?!\(\s*(?:Double|Float)\.(?:NaN|[A-Z_]+)\b){_ARG}"
+    ),
     re.compile(rf"\b(?:Double|Float)\.compare{_ARG}\s*[!=]=\s*0\b"),
     re.compile(rf"{_NAN}\s*&&\s*{_NAN}"),
 )
