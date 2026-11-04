@@ -119,10 +119,10 @@ class VarkaLaneTypeSuite extends SparkFunSuite with VarkaTestWatchdog {
     // decimal column, an unscaled long whose constructor refuses the int lane until the int arm
     // of VARKA-347 2.3 is built, the decimal output, which widens a long value into a decimal
     // slot and refuses an int child (VARKA-157), and the conversion, one side of which is
-    // floating (VARKA-343).
+    // floating (VARKA-343), and the crossing, whose child is a condition of another lane.
     assert(everyIntNode.map(_.getClass).toSet + classOf[WidenLane] + classOf[MathUnary] +
-      classOf[DecimalColumn] + classOf[WidenDecimal] + classOf[ConvertLane] ===
-      concreteNodeTypes(classOf[VarkaVectorIR]))
+      classOf[DecimalColumn] + classOf[WidenDecimal] + classOf[ConvertLane] + classOf[CrossLane]
+      === concreteNodeTypes(classOf[VarkaVectorIR]))
     val doubleCol = new ColumnRef(0, LaneType.DOUBLE)
     assert(new MathUnary(MathFn.SQRT, doubleCol).laneType() === LaneType.DOUBLE)
     everyIntNode.foreach { node =>
@@ -472,6 +472,7 @@ class VarkaLaneTypeSuite extends SparkFunSuite with VarkaTestWatchdog {
         // own conversion is refused by the plan, as L2D is intrinsic only with AVX512DQ.
         case "ConvertLane" => if (lane == LaneType.INT) new ConvertLane(c, LaneType.FLOAT)
           else new ConvertLane(new NarrowLane(c), LaneType.DOUBLE)
+        case "CrossLane" => new CrossLane(new IsNotNull(c), LaneType.DOUBLE)
         case other => fail(s"no instance recipe for $other; a node type was added")
       }) catch {
         // The IR's own refusal: a calendar node over a wider child cannot be built at all.
@@ -507,7 +508,7 @@ class VarkaLaneTypeSuite extends SparkFunSuite with VarkaTestWatchdog {
       "Compare", "NullSafeEqual", "And", "Or", "Not", "IsNotNull", "IfElse", "ConstDivide",
       "BoolColumn", "CondConst", "BoolCompare", "CondIf", "BoolNullSafeEq", "CondValue",
       "BoolOutput", "GuardedRange", "NarrowLane", "WidenLane", "BitOp", "BitCount",
-      "DecimalColumn", "NullValue", "WidenDecimal", "ConvertLane"),
+      "DecimalColumn", "NullValue", "WidenDecimal", "ConvertLane", "CrossLane"),
       "the long lane serves the lane-generic subset, VARKA-88's division, VARKA-102's guard, " +
         "the two conversions, which build over the other lane's child whatever the row, " +
         "VARKA-335's bitwise operations, VARKA-336's null-safe equality, VARKA-460's " +

@@ -625,24 +625,21 @@ Cut from #1303's final tree, without its `BIGINT` conversions (343a4), sweeps an
   `CAST(CAST(l AS INT) AS FLOAT)`, whose false-AND form is served and declines its batch on the
   extremes row, the right side of an AND unqualified like the integral casts' (m9 item 96).
 - **The owed literal check:** `CompiledVarkaProjection.requireLiteralTables` plans under the
-  compile's options, called from the compiler's tables; a plan those options refuse is no
-  kernel to check. The compiler suite checks it under options that admit and options that refuse
-  `CAST(y1 AS DOUBLE) / 2.0D`.
-- **Beside it:** `VarkaFloatingCastBaselineBenchmark`'s boolean filter,
-  `coalesce(CAST(x AS BOOLEAN), false)`, fuses now (its `false` relabelled to the cast's lane), so
-  its class is `WHOLE`, as the class's own rule asks; the long harness hands a kernel holding a
-  crossing the int table too; the cost model and the IR fuzz grammar leave `CrossLane` out until
-  the refit (VARKA-352) and row 343's fuzz sequence (343a5); `VarkaCanonicalIr` reads
-  `(cross:LANE ...)` back, which the round trip of every node type holds. The catalyst suites the
-  part touches and the sql harness, differential, floating-lane, filter and baseline suites passed
-  under the defaults, `lanesOverride=4`, `lanesOverride=16` and `validityByWidth=false` on the
-  laptop (`dev/varka_matrix.sh`, 4 November 2026); in each leg one test, a date-guarded floating
-  choice that now fuses, was rewritten to expect it.
+  compile's options, called from the compiler's tables; a plan they refuse is no kernel to check.
+  The compiler suite checks it under options admitting and refusing `CAST(y1 AS DOUBLE) / 2.0D`.
+- **Beside it:** `VarkaFloatingCastBaselineBenchmark`'s boolean filter, `coalesce(CAST(x AS
+  BOOLEAN), false)`, fuses now (its `false` relabelled to the cast's lane), so its class is `WHOLE`,
+  as the class's own rule asks; the long harness hands a kernel holding a crossing the int table
+  too; the cost model and the IR fuzz grammar leave `CrossLane` out until the refit (VARKA-352) and
+  row 343's fuzz sequence (343a5); `VarkaCanonicalIr` reads `(cross:LANE ...)` back, which the round
+  trip of every node type holds. The touched catalyst suites and the sql harness, differential,
+  floating-lane, filter and baseline suites passed under the defaults, `lanesOverride=4`,
+  `lanesOverride=16` and `validityByWidth=false` on the laptop (`dev/varka_matrix.sh`, 4 November
+  2026); each leg's one rewritten test expects a date-guarded floating choice to fuse now.
 - **Known gaps:** `VarkaCanonicalIr` still reads no boolean node (`BoolColumn`, `CondConst`,
   `BoolCompare`, `CondIf`, `BoolNullSafeEq`; `VarkaReproductionSuite.NOT_PARSED_YET`). The
-  `option_arms` digests are one hash per option arm and lane count over
-  every shape, so their moving cannot show that no existing shape changed under a non-default
-  option; only the defaults' bytes are compared shape by shape.
+  `option_arms` digests hash every shape per option arm and lane count, so their moving cannot show
+  that no shape changed under a non-default option; only the defaults' bytes are compared per shape.
 - **The value choice of the other kind**, by the owner's choice: its condition crossed to the
   values' lane, both directions and both widths; `VarkaEmitterFloatingCastSuite.crossingShapes`
   holds it to the reference, beside a crossing under a crossing, a range set crossed to `LONG`,
@@ -650,6 +647,5 @@ Cut from #1303's final tree, without its `BIGINT` conversions (343a4), sweeps an
   crossing, a double null test crossed down and `IF(l > 5, f, f2)`'s long condition; nine
   coverage rows in "Floating casts" and two in its conditions' family. Its forms make
   `IF(x <=> x, d2, ...)` fuse, which the compiler suite now states.
-- **Open points:** 32-bit beside 64-bit roots stays open, recorded in `m9/SCOPE.md` item 15 by the
-  owner's word.
+- **Open points:** 32-bit beside 64-bit roots stay open, `m9/SCOPE.md` item 15 (the owner's word).
 
