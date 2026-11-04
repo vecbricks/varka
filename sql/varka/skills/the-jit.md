@@ -1292,24 +1292,24 @@ both-bodies check held the dense and masked bodies byte-equal on a row of two Na
 bits, and the two bodies had returned different ones (`VARKA-555.md`). Neither the JLS nor Spark
 fixes the payload there, and HotSpot's tiers answer an add or a multiply differently (read in
 jdk-25-ga). The x86 interpreter's `dadd` and `dmul` return the right operand's payload and its
-`dsub` and `ddiv` the left's (`cpu/x86/templateTable_x86.cpp`, `TemplateTable::dop2`: `addsd`
-into the register holding the right operand, `subsd` into the left's). C1 returns the left's
+`dsub` and `ddiv` the left's (`cpu/x86/templateTable_x86.cpp`, `TemplateTable::dop2`: `addsd` into
+the register holding the right operand, `subsd` into the left's). C1 returns the left's
 (`c1_LIRAssembler_x86.cpp`, `addsd(lreg, rreg)`), except that `Canonicalizer::move_const_to_right`
 (`c1/c1_Canonicalizer.cpp` 64 to 65) swaps a constant left operand of a `dadd`, `fadd`, `dmul` or
-`fmul` to the right (`ArithmeticOp::is_commutative`, `c1_Instruction.cpp` 232 to 245). C2 commutes
-a scalar add (`opto/addnode.cpp`, `commute`) and orders a multiply's inputs by node index
+`fmul` to the right (`ArithmeticOp::is_commutative`, `c1_Instruction.cpp` 232 to 245). C2 commutes a
+scalar add (`opto/addnode.cpp`, `commute`) and orders a multiply's inputs by node index
 (`MulNode::Ideal`, `opto/mulnode.cpp` 106 to 118), and orders a non-predicated commutative vector
 op's inputs the same way (`VectorNode::should_swap_inputs_to_help_global_value_numbering`,
 `opto/vectornode.cpp` 1088 to 1146; `MaxV` and `MinV` are on its list, 1108 to 1109, which would
 matter if a floating `greatest` or `least` were ever lowered to a lanewise `MAX` or `MIN`). The
 Vector API's Java fallback is a plain `(double)(a + b)` in a lambda (`DoubleVector.java` 861), so
-its payload is whichever tier runs the lambda. A subtraction or a division returns the left
-operand's payload on every tier: no tier swaps them (C2's `SubDNode`, `DivDNode` and their vector
-nodes included), and `subsd` and `divsd` keep the first operand's NaN. One operation over one NaN
-returns that NaN on every tier. So two bodies, two engines, or one method before and after a
-compile can disagree on such a payload and on nothing else, and not only on a lone add:
-with the both-bodies acceptance removed, `(x + x2) * x2 - x` failed in almost every tier-split
-run (`results/VARKA-557-trial.txt`).
+its payload is whichever tier runs the lambda. A subtraction or a division returns the same payload
+on every tier, on x86 the left operand's (on aarch64 a signalling NaN wins): no tier swaps them
+(C2's `SubDNode`, `DivDNode` and their vector nodes included), and `subsd` and `divsd` keep the
+first operand's NaN. One operation over one NaN returns that NaN on every tier. So two bodies, two
+engines, or one method before and after a compile can disagree on such a payload and on nothing
+else, and not only on a lone add: with the both-bodies acceptance removed, `(x + x2) * x2 - x`
+failed in almost every tier-split run (`results/VARKA-557-trial.txt`).
 
 A comparator excuses that payload through `VarkaSameAnswer`, never on its own: at the row level by
 provenance (the row's NaN came from an add, a multiply or a remainder over two unlike NaNs, or a

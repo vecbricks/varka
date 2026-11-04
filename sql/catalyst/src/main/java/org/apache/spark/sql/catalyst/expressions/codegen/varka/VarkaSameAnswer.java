@@ -58,16 +58,16 @@ import org.apache.spark.sql.types.YearMonthIntervalType;
  * tests. It lives in catalyst main because that is the one tree all three see.
  *
  * <p>Two answers agree when they are the same bits at the output's width: the sign of a zero
- * counts, a null's data is never read, a decimal is its unscaled value at the output's scale, a
- * bit output is its data bit under its validity bit. The one question the levels answer
- * differently is two NaNs of different bits. Neither the JLS nor Spark fixes which NaN an add or
- * a multiply over two NaNs returns, and HotSpot's tiers answer it differently (the interpreter's
- * {@code dadd} returns the right operand's payload, C1 the left's unless it moved a constant
- * left operand right, C2 either, see {@code sql/varka/skills/the-jit.md}), so two engines, two
- * bodies, or one method before and after a compile can return different NaNs there and be
- * equally right. Everywhere else a NaN's payload is fixed - a subtraction or a division returns
- * its left operand's on every tier, and a pick, a negation, an {@code abs} or an arithmetic over
- * one NaN returns a NaN whose bits follow from its inputs - and a different NaN is a wrong answer.
+ * counts, a null's data is never read, a decimal is its unscaled value at the output's scale, a bit
+ * output is its data bit under its validity bit. The one question the levels answer differently is
+ * two NaNs of different bits. Neither the JLS nor Spark fixes which NaN an add or a multiply over
+ * two NaNs returns, and HotSpot's tiers answer it differently (the interpreter's {@code dadd}
+ * returns the right operand's payload, C1 the left's unless it moved a constant left operand right,
+ * C2 either, see {@code sql/varka/skills/the-jit.md}), so two engines, two bodies, or one method
+ * before and after a compile can return different NaNs there and be equally right. Everywhere else
+ * a NaN's payload is fixed - a subtraction or a division returns one payload on every tier (on x86
+ * its left operand's), and a pick, a negation, an {@code abs} or an arithmetic over one NaN returns
+ * a NaN whose bits follow from its inputs - and a different NaN is a wrong answer.
  */
 public final class VarkaSameAnswer {
 
@@ -155,17 +155,17 @@ public final class VarkaSameAnswer {
   }
 
   /**
-   * Whether {@code node}'s value on the row is a NaN whose payload Java leaves open: one made by
-   * an add, a multiply or a remainder from two NaN operands of different bits, or passed on from
-   * one. A node whose own value is not a NaN is never open, whatever its children. An arithmetic
-   * over one NaN returns that NaN, quieted, on every tier, and a subtraction or a division over
-   * two returns its left one, so its payload is fixed by that operand's; a node of one child
-   * passes its child's on; a pick passes on the payload of the one child it returns on the row,
-   * and of no other: an {@code IF} or a {@code CASE} the branch its conditions take, a
-   * {@code coalesce} its first non-null child, a {@code nanvl} its second where its first is a
-   * NaN, a {@code greatest} or {@code least} its first child whose value is a NaN (Spark's fold
-   * keeps the first of equal values, and every NaN compares equal to every other). Any other node
-   * is open where a floating child whose value is a NaN is.
+   * Whether {@code node}'s value on the row is a NaN whose payload Java leaves open: one made by an
+   * add, a multiply or a remainder from two NaN operands of different bits, or passed on from one.
+   * A node whose own value is not a NaN is never open, whatever its children. An arithmetic over
+   * one NaN returns that NaN, quieted, on every tier, and a subtraction or a division over two
+   * returns one payload on every tier (on x86 the left one's), so it is fixed; a node of one child
+   * passes its child's on; a pick passes on the payload of the one child it returns on the row, and
+   * of no other: an {@code IF} or a {@code CASE} the branch its conditions take, a {@code coalesce}
+   * its first non-null child, a {@code nanvl} its second where its first is a NaN, a {@code
+   * greatest} or {@code least} its first child whose value is a NaN (Spark's fold keeps the first
+   * of equal values, and every NaN compares equal to every other). Any other node is open where a
+   * floating child whose value is a NaN is.
    *
    * <p>The rule reads no payload it decides is open. Which values are NaNs is the same on every
    * tier, and an arithmetic compares its operands' bits only once neither is open, when each is
