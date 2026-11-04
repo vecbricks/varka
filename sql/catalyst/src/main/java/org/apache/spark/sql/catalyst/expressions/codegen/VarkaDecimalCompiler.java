@@ -488,8 +488,11 @@ final class VarkaDecimalCompiler {
       return sink.decline(refused.get(), e);
     }
     if (e instanceof StaticInvoke si && VarkaTimeCompiler.isDecimalProducer(si)) {
-      return VarkaTimeCompiler.decimalProducer(si, inputs, literals, sink)
-          .flatMap(v -> widened(e, v, sink));
+      // The producers are the TIME family's nodes, and this path never passes through
+      // compileNode, so it asks the family's switch and notes the family itself.
+      return VarkaNodeCompiler.inFamily(VarkaFamily.TIME, () ->
+          VarkaTimeCompiler.decimalProducer(si, inputs, literals, sink)
+              .flatMap(v -> widened(e, v, sink)), e, sink);
     }
     return sink.decline("a " + type.simpleString() + " value as a projection's output: the "
         + "decimal store writes it, and the values it admits are the TIME functions "
