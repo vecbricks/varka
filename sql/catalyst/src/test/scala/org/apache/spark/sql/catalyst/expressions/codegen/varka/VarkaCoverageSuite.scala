@@ -995,7 +995,23 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
       Row("x + i", "type coercion casts the int to a double beside the double column"),
       Row("f * i", "the int cast to a float beside the float column, at one lane count"),
       Row("f + x", "the float widened exactly to meet the double"),
-      Row("i / 2.0D", "an int division is a double division over its cast"))),
+      Row("i / 2.0D", "an int division is a double division over its cast"),
+      Row("CAST(CAST(l AS INT) AS FLOAT)", "the bigint narrowed to INT, checked under ANSI, then "
+        + "I2F, a float value in a long kernel",
+        domain = Some(s"l BETWEEN ${Int.MinValue} AND ${Int.MaxValue}")))),
+    // Conditions of two kinds in one kernel (VARKA-343 2.2.1): each condition off the meeting
+    // lane - LONG, else DOUBLE, else INT, else FLOAT - crossed to it, by VectorMask.cast at one
+    // width and through the mask's word between the widths; Spark's inferred null tests among
+    // them.
+    Family("Floating casts as conditions", predicates = true, Seq(
+      Row("CAST(i AS FLOAT) > 1.5F", "the float comparison crossed to the int lane, beside the "
+        + "null test of i the optimizer infers"),
+      Row("CAST(i AS DOUBLE) < x", "the int null test crossed to the double lane by its word"),
+      Row("f > 1.5F AND i < 3", "a float conjunct beside an int one, one kernel"),
+      Row("x > 1.5D AND l < l2", "a double conjunct beside a long one, crossed by the cast"),
+      Row("f > 1.5F AND x < x2", "two floating widths, the float mask crossed by its word"),
+      Row("CAST(x AS BOOLEAN) = b2", "the boolean column relabelled to the double lane, "
+        + "its bit read the same"))),
 
     // DECIMAL of precision up to 18 (VARKA-347, carrying row 348's equal-scale comparisons and
     // null tests): two values of one scale compare as their unscaled longs. Each kernel checks
