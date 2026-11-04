@@ -361,7 +361,9 @@ null over stale bits (an `UnsafeRow`) and `BOOLEAN` values. Dropped from 3.3, wi
 and the restatement 556a2 carries is the line the twin replaces; one pull request shows the
 table, its real both-bodies entry and the restatement's removal together, where two would show
 a placeholder and then its deletion. Measured with `dev/varka_msg_check.py size --base
-varka-556-same-answer`: SIZE_TOTAL counted lines, 458 of them 556a2's.
+varka-556-same-answer`: 958 counted lines with this section, 458 of them 556a2's. 556b's own
+500 are about twice 6's 250: the twin is 214 (6 said 100), the lint rule and its self-test 50,
+and moving the floating-lane suite onto `sameRow` 75 where dropping `nanAsOne` was assumed.
 
 **Where verdicts move**, each on purpose (3.4, 7):
 
@@ -371,6 +373,13 @@ varka-556-same-answer`: SIZE_TOTAL counted lines, 458 of them 556a2's.
    unlike NaNs, and what passes one on, still agree as any NaN.
 2. *`VarkaFloatingLaneSuite`*: `x1 - x2`, `f2 - f1` and `try_divide(x1, x2)`, which `nanAsOne`
    relaxed as columns over two operands, are held to the row engine's bits, and so is a column
-   whose NaN is fixed on a row where another column's is open. RESULT_FLOATING
+   whose NaN is fixed on a row where another column's is open. All of it passes: no Varka answer
+   moved under the stricter rule (below).
 3. No other verdict moves: `compareBodies` and the harness are called as before, and the
    `checkAnswer` suites are unchanged.
+
+**Tested** with `dev/varka_matrix.sh --defaults` (the both-bodies check and the sanitizer on) over
+the two contract suites, `VarkaEmitterFloatingArithSuite`, `VarkaEvaluatorComponentsSuite`,
+`VarkaCoverageHarnessSuite`, `VarkaCoverageDifferentialSuite`, `VarkaFloatingLaneSuite`, the
+differential, parity, store and time harness suites, `VarkaDifferentialSuite` and the nine
+decimal suites: 2215 passed, none failed, one cancelled (the opt-in float operator sweep).
