@@ -3536,8 +3536,9 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
       c._2)())
     val Seq(f, x, x2) = Seq("f", "x", "x2").map(n =>
       AttributeReference(n, if (n == "f") FloatType else DoubleType)())
+    val Seq(y1, y2) = Seq("y1", "y2").map(AttributeReference(_, ByteType)())
     def cond(e: Expression): Option[VarkaVectorIR.Cond] = VarkaExpressionCompiler.compile(
-      Seq(out(e)), Seq(i, l, f, x, x2), VarkaEmitOptions.DEFAULTS).toScala
+      Seq(out(e)), Seq(i, l, f, x, x2, y1, y2), VarkaEmitOptions.DEFAULTS).toScala
       .map(_.outputs.get(0).asInstanceOf[IfElse].cond)
     def crossed(e: Expression, from: LaneType, to: LaneType): Unit = cond(e) match {
       case Some(c: VarkaVectorIR.CrossLane) => assert(c.child.laneType === from && c.lane === to)
@@ -3549,6 +3550,8 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     crossed(If(GreaterThan(f, Literal(1.5f)), l, Literal(0L)), LaneType.FLOAT, LaneType.LONG)
     // Two integral kinds meet as before: a long condition over int values still declines.
     assert(cond(CaseWhen(Seq((GreaterThan(l, Literal(5L)), i)))).isEmpty)
+    // And a choice of narrow values under a floating condition.
+    assert(cond(If(GreaterThan(f, Literal(1.5f)), y1, y2)).isEmpty)
   }
 }
 

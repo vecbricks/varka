@@ -621,8 +621,10 @@ Cut from #1303's final tree, without its `BIGINT` conversions (343a4), sweeps an
   its class is `WHOLE`, as the class's own rule asks; the long harness hands a kernel holding a
   crossing the int table too; the cost model and the IR fuzz grammar leave `CrossLane` out until
   the refit (VARKA-352) and row 343's fuzz sequence (343a5). The sql suites under
-  `lanesOverride=4`, `lanesOverride=16` and `validityByWidth=false` passed on the laptop
-  (`dev/varka_matrix.sh`); the defaults' one failure was that class.
+  the defaults, `lanesOverride=4`, `lanesOverride=16` and `validityByWidth=false` passed on the
+  laptop (`dev/varka_matrix.sh`, rerun 4 November 2026 after the class change), save one test in
+  each, `VarkaFloatingLaneSuite`'s date-guarded floating choice, which the value choice fuses
+  now; rewritten to say so, it passed in all four.
 - **Known gaps:** `VarkaCanonicalIr`'s replay has no `cross` case, so a rendered IR holding a
   crossing does not read back; it already lacked the boolean nodes `BoolColumn`, `CondConst`,
   `BoolCompare`, `CondIf` and `BoolNullSafeEq`. And the `option_arms` digests are one hash per
