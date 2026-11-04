@@ -146,22 +146,25 @@ varka push check: to push past a finding judged wrong, VARKA_PUSH_CHECK_SKIP=R2 
 # 4c7fd1c90d8 (343a3b fixed)     fast      0    28  -
 # d83b86566e2 (#1323's fix)      fast      0    19  -
 
-# Second part, varka-563b-rebase-debt at 9a3b0720a84 (stacked on part one), fast only,
-# run as above with --branch naming the incident's branch. A reset undoing a rebase drops its
-# debt, a commit pays only the files it changes, and the --all marker lists its files. #1323's
+# Second part, varka-563b-rebase-debt at 46b0f0c1a12 (stacked on part one, the medium
+# review's fixes: each file's debt on the commit that merged it, the marker listing only files
+# its run left unchanged), fast only, run as above with --branch naming the incident's branch.
+# A reset undoing a rebase drops its debt, a commit pays only the files it changes. #1323's
 # fix d83b86566e2 changed docs/sql-varka.md and emitted_bytes.json only; the other three were
 # paid by dev/varka_regen_generated.sh --all on 0a0e82df11f (3 November 2026, 17:52, every step
 # passed, the width audit's too), before the marker existed: the marker row writes it in that
-# worktree's git dir as 0a0e82df11f and --list's files. The reviewer's undone-rebase and
-# prose-pays-json repositories are self-test cases
+# worktree's git dir as 0a0e82df11f and --list's files but those two, which the run rewrote and
+# the fix committed. The outcomes are the first run's (at 9a3b0720a84, before the rebase onto
+# part one's note); the reviewers' repositories are self-test cases
 # (test_r3_a_rebase_undone_by_a_reset_owes_nothing,
-# test_r3_a_prose_commit_to_the_docs_pays_no_other_file).
+# test_r3_a_prose_commit_to_the_docs_pays_no_other_file,
+# test_r3_the_debt_stays_on_the_commit_that_merged_each_file).
 #
 # head                           level  exit  secs  failed under
-# #1317 d94ca2ad5a4              fast      1    23  R2 (VarkaFilterExecSuite holds the old text)
-# #1338 7897bd11a2f (343a3b)     fast      1    23  R1 (three registries name no CrossLane)
-# #1323 0a0e82df11f (348a2-abs)  fast      1    14  R3 (the rebase text-merged five files)
+# #1317 d94ca2ad5a4              fast      1    27  R2 (VarkaFilterExecSuite holds the old text)
+# #1338 7897bd11a2f (343a3b)     fast      1    31  R1 (three registries name no CrossLane)
+# #1323 0a0e82df11f (348a2-abs)  fast      1    15  R3 (the rebase text-merged five files)
 # origin/master 85eb50e5e60      fast      0     3  -
 # 4c7fd1c90d8 (343a3b fixed)     fast      0    26  -
-# d83b86566e2, no marker         fast      1    14  R3 (coverage.json, census.tsv, width_audit.json)
+# d83b86566e2, no marker         fast      1    15  R3 (coverage.json, census.tsv, width_audit.json)
 # d83b86566e2, --all's marker    fast      0    15  -
