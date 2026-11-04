@@ -26,8 +26,9 @@
 #     cherry-pick skips the commit-time hooks.
 #
 #   * A push of the branch checked out also runs dev/varka_push_check.py's rules that need no
-#     JVM (VARKA-563), seconds: VARKA_PUSH_CHECK=fast, the default; full adds the suites the
-#     branch's changed files imply; off runs nothing more.
+#     JVM (VARKA-563), about 3 s on a typical branch and 25-54 s on the incident replays:
+#     VARKA_PUSH_CHECK=fast, the default; full adds the suites the branch's changed files imply;
+#     off runs nothing more.
 #
 # Only the branch's own commits are checked: never one Varka's master (origin/master) or Apache
 # Spark's (upstream/master) already has, which a merge of either brings in and which follow their
@@ -41,6 +42,7 @@ cd "$root" || exit 1
 
 zero=0000000000000000000000000000000000000000
 status=0
+checked=0 # the push check failed, which VARKA_PUSH_CHECK can pass over without --no-verify
 while read -r local_ref local_sha remote_ref remote_sha; do
   [ "$local_sha" = "$zero" ] && continue # a deletion pushes no commits
   if [[ "$url" =~ vecbricks/varka(\.git)?$ ]] && [[ "$remote_ref" == refs/heads/* ]] \
@@ -78,13 +80,21 @@ while read -r local_ref local_sha remote_ref remote_sha; do
         mode=(--no-precommit)
         [ "${VARKA_PUSH_CHECK:-fast}" = fast ] && mode+=(--no-jvm)
         # Its stdin is not the hook's: the refs still to read are there.
-        dev/varka_push_check.py --base "$base" "${mode[@]}" < /dev/null || status=1
+        dev/varka_push_check.py --base "$base" "${mode[@]}" < /dev/null || {
+          status=1
+          checked=1
+        }
       else
         echo "varka pre-push: VARKA_PUSH_CHECK skipped for $local_ref, which is not checked out"
       fi ;;
   esac
 done
 if [ "$status" -ne 0 ]; then
-  echo "varka pre-push: push refused; fix the findings above, or push with --no-verify to override"
+  echo "varka pre-push: push refused; fix the findings above"
+  if [ "$checked" -ne 0 ]; then
+    echo "varka pre-push: to pass over the push check only, VARKA_PUSH_CHECK_SKIP=<the rule it"
+    echo "  names> or VARKA_PUSH_CHECK=off before git push"
+  fi
+  echo "varka pre-push: git push --no-verify skips every check, the message and line checks too"
 fi
 exit "$status"
