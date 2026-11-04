@@ -3571,6 +3571,8 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     // And a floating condition over values of the other floating width: one kind, no crossing.
     assert(why(If(GreaterThan(f, Literal(1.5f)), x, x2)) ===
       "one kernel holds one lane, and this mixes the FLOAT and DOUBLE lanes")
+    assert(why(If(GreaterThan(x, Literal(1.5d)), f, f2)) ===
+      "one kernel holds one lane, and this mixes the DOUBLE and FLOAT lanes")
   }
 }
 

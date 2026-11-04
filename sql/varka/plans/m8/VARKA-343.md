@@ -633,10 +633,14 @@ Cut from #1303's final tree, without its `BIGINT` conversions (343a4), sweeps an
   its class is `WHOLE`, as the class's own rule asks; the long harness hands a kernel holding a
   crossing the int table too; the cost model and the IR fuzz grammar leave `CrossLane` out until
   the refit (VARKA-352) and row 343's fuzz sequence (343a5); `VarkaCanonicalIr` reads
-  `(cross:LANE ...)` back, which the round trip of every node type holds. The touched sql suites
-  passed under the defaults, `lanesOverride=4`, `lanesOverride=16` and `validityByWidth=false`
-  on the laptop (`dev/varka_matrix.sh`, rerun 4 November 2026 after the review's fixes).
-- **Known gaps:** the `option_arms` digests are one hash per option arm and lane count over
+  `(cross:LANE ...)` back, which the round trip of every node type holds. The catalyst suites the
+  part touches and the sql harness, differential, floating-lane, filter and baseline suites passed
+  under the defaults, `lanesOverride=4`, `lanesOverride=16` and `validityByWidth=false` on the
+  laptop (`dev/varka_matrix.sh`, 4 November 2026); in each leg one test, a date-guarded floating
+  choice that now fuses, was rewritten to expect it.
+- **Known gaps:** `VarkaCanonicalIr` still reads no boolean node (`BoolColumn`, `CondConst`,
+  `BoolCompare`, `CondIf`, `BoolNullSafeEq`; `VarkaReproductionSuite.NOT_PARSED_YET`). The
+  `option_arms` digests are one hash per option arm and lane count over
   every shape, so their moving cannot show that no existing shape changed under a non-default
   option; only the defaults' bytes are compared shape by shape.
 - **The value choice of the other kind**, by the owner's choice: its condition crossed to the
