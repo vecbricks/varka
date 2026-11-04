@@ -415,22 +415,19 @@ class VarkaFilterExecSuite extends QueryTest with SharedSparkSession with VarkaT
     val mixed = VarkaFusionReport.predicateLines(
       And(dLess10, doubleResidual), withDouble, VarkaEmitOptions.DEFAULTS,
         VarkaAdmission.NO_HOST_REFUSAL)
-    assert(mixed.head === "(d < DATE '1970-01-11'): fused")
-    val floatingReason = "residual (a condition on the DOUBLE lane in a filter that also " +
-      "reads integral columns: its kernel meets on an integral lane, and a mask crossing from " +
-      "a floating lane is not built"
-    assert(mixed(1).startsWith(s"(f > 5.0D): $floatingReason"), mixed)
+    // A floating conjunct beside the date one shares its kernel, its mask crossed to the date
+    // lane (VARKA-343.md 2.2.1).
+    assert(mixed === Seq("(d < DATE '1970-01-11'): fused", "(f > 5.0D): fused"), mixed)
     // A filter over the floating column alone fuses: its kernel is on the DOUBLE lane.
     val alone = VarkaFusionReport.predicateLines(doubleResidual, withDouble,
       VarkaEmitOptions.DEFAULTS, VarkaAdmission.NO_HOST_REFUSAL)
     assert(alone === Seq("(f > 5.0D): fused"), alone)
-    // The same holds for a floating null test: beside the date conjunct it stays with the row
-    // filter, so the date conjunct keeps the kernel's integral lane.
+    // So does a floating null test before the date conjunct.
     val nullTest = VarkaFusionReport.predicateLines(
       And(IsNotNull(doubleAttr), dLess10), withDouble, VarkaEmitOptions.DEFAULTS,
         VarkaAdmission.NO_HOST_REFUSAL)
-    assert(nullTest === Seq(s"(f IS NOT NULL): $floatingReason: (f IS NOT NULL))",
-      "(d < DATE '1970-01-11'): fused"), nullTest)
+    assert(nullTest === Seq("(f IS NOT NULL): fused", "(d < DATE '1970-01-11'): fused"),
+      nullTest)
     // A string column is read by no lane, so its conjunct goes to the row filter and leaves the
     // floating one the kernel's only lane.
     val s = AttributeReference("s", StringType)()

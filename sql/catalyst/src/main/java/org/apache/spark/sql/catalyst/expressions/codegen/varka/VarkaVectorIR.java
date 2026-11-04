@@ -179,6 +179,7 @@ public sealed interface VarkaVectorIR
       case And n -> n.left().laneType();
       case Or n -> n.left().laneType();
       case Not n -> n.child().laneType();
+      case CrossLane n -> n.lane();
       case IsNotNull n -> n.child().laneType();
       case InRanges n -> n.child().laneType();
       case AddDays n -> LaneType.INT;
@@ -227,7 +228,7 @@ public sealed interface VarkaVectorIR
       case LiteralSlot _, IntArith _, IntNeg _, ConstDivide _, BoundedDivide _, BitOp _,
           BitCount _, MathUnary _, Greatest _, Least _, IfElse _, CondValue _, BoolOutput _,
           Compare _, NullSafeEqual _, CondConst _, NullValue _,
-          BoolCompare _, CondIf _, BoolNullSafeEq _, And _, Or _, Not _, IsNotNull _,
+          BoolCompare _, CondIf _, BoolNullSafeEq _, And _, Or _, Not _, CrossLane _, IsNotNull _,
           InRanges _, AddDays _, SubDays _, DateDiff _, GuardedDay _, GuardedRange _, WidenLane _,
           ConvertLane _,
           NarrowLane _, WidenDecimal _, DayOfWeek _, WeekDay _, DayOfWeekIso _, NextDay _,
@@ -312,7 +313,7 @@ public sealed interface VarkaVectorIR
           WeekDay _, DayOfWeekIso _, ThursdayOf _, Year _, Month _, DayOfMonth _, Quarter _,
           DayOfYear _, LastDay _, TruncDate _, WeekOfYear _, ConstDivide _, BoundedDivide _,
           BitOp _, BitCount _, MathUnary _, Compare _, NullSafeEqual _, BoolCompare _, CondIf _,
-          BoolNullSafeEq _, And _, Or _, Not _, InRanges _ -> {
+          BoolNullSafeEq _, And _, Or _, Not _, CrossLane _, InRanges _ -> {
         for (VarkaVectorIR child : childrenOf(node)) {
           narrowValuesIn(child, lanes, seen);
         }
@@ -359,7 +360,7 @@ public sealed interface VarkaVectorIR
           Month _, DayOfMonth _, Quarter _, DayOfYear _, LastDay _, TruncDate _, WeekOfYear _,
           ConstDivide _, BoundedDivide _, BitOp _, BitCount _, MathUnary _, Compare _,
           NullSafeEqual _, BoolCompare _, CondIf _, BoolNullSafeEq _, And _, Or _, Not _,
-          InRanges _ -> {
+          CrossLane _, InRanges _ -> {
         boolean any = false;
         for (VarkaVectorIR child : childrenOf(node)) {
           any |= needsNarrowSpecies(child, seen);
@@ -508,7 +509,7 @@ public sealed interface VarkaVectorIR
    * degenerate single-mask form gives the same answer.
    */
   sealed interface Cond extends VarkaVectorIR
-      permits Compare, NullSafeEqual, And, Or, Not, IsNotNull, InRanges, BoolColumn,
+      permits Compare, NullSafeEqual, And, Or, Not, CrossLane, IsNotNull, InRanges, BoolColumn,
           CondConst, BoolCompare, CondIf, BoolNullSafeEq {}
 
   /**
@@ -1504,6 +1505,33 @@ public sealed interface VarkaVectorIR
   }
 
   /**
+   * {@code child}'s three-valued answer read at {@code lane}, another lane than the child's own:
+   * how conditions of two kinds - a {@code FLOAT} comparison and an int column's null test - meet
+   * under one connective, whose operands must agree on their lane (`VARKA-343.md` 2.2.1). The
+   * answer is the child's, row for row. In the masked body the node is free: a known-true or
+   * known-false word holds a bit a row whatever the lane, so its words are the child's. In the
+   * dense body it is the child's mask as one of {@code lane}'s species: by
+   * {@code VectorMask.cast} between two lanes of one width, which have one lane count in a kernel,
+   * and through the mask's word between the widths, where the 32-bit species has twice the 64-bit
+   * one's lanes and its low half holds the group's rows. A narrow lane is refused: a narrow
+   * condition is lifted to the int lane before it crosses.
+   */
+  record CrossLane(Cond child, LaneType lane, int hash) implements Cond {
+    public CrossLane {
+      Objects.requireNonNull(lane, "lane");
+      if (lane == child.laneType() || lane.isNarrow() || child.laneType().isNarrow()) {
+        throw VarkaErrors.illegalArgument("crossLane takes a condition to another lane and no "
+            + "narrow one, not " + child.laneType() + " to " + lane + ", from a "
+            + child.getClass().getSimpleName());
+      }
+      hash = hashOf(child, lane);
+    }
+
+    public CrossLane(Cond child, LaneType lane) { this(child, lane, 0); }
+    @Override public int hashCode() { return hash; }
+  }
+
+  /**
    * The validity predicate: true exactly where {@code child} is non-null. The first
    * condition that reads an input's <i>validity</i> rather than comparing lane values - and the
    * first <i>total</i> one: SQL's {@code IS [NOT] NULL} never returns unknown, so its
@@ -2042,6 +2070,7 @@ public sealed interface VarkaVectorIR
       case And n -> "(and " + canonical(n.left()) + " " + canonical(n.right()) + ")";
       case Or n -> "(or " + canonical(n.left()) + " " + canonical(n.right()) + ")";
       case Not n -> "(not " + canonical(n.child()) + ")";
+      case CrossLane n -> "(cross:" + n.lane().name() + " " + canonical(n.child()) + ")";
       case IsNotNull n -> "(isNotNull " + canonical(n.child()) + ")";
       case InRanges n -> "(inRanges " + canonical(n.child()) + " " + n.renderBounds() + ")";
       case IfElse n -> "(if " + canonical(n.cond()) + " " + canonical(n.thenNode()) + " "
@@ -2144,6 +2173,8 @@ public sealed interface VarkaVectorIR
       case Or n -> "(or " + lineOf.applyAsInt(n.left()) + " "
           + lineOf.applyAsInt(n.right()) + ")";
       case Not n -> "(not " + lineOf.applyAsInt(n.child()) + ")";
+      case CrossLane n -> "(cross:" + n.lane().name() + " "
+          + lineOf.applyAsInt(n.child()) + ")";
       case IsNotNull n -> "(isNotNull " + lineOf.applyAsInt(n.child()) + ")";
       case InRanges n -> "(inRanges " + lineOf.applyAsInt(n.child()) + " " + n.ranges()
           + " ranges)";
@@ -2252,6 +2283,7 @@ public sealed interface VarkaVectorIR
       case And n -> new VarkaVectorIR[] {n.left(), n.right()};
       case Or n -> new VarkaVectorIR[] {n.left(), n.right()};
       case Not n -> new VarkaVectorIR[] {n.child()};
+      case CrossLane n -> new VarkaVectorIR[] {n.child()};
       case IsNotNull n -> new VarkaVectorIR[] {n.child()};
       case InRanges n -> new VarkaVectorIR[] {n.child()};
       case IntArith n -> new VarkaVectorIR[] {n.left(), n.right()};
@@ -2328,6 +2360,7 @@ public sealed interface VarkaVectorIR
       case And n -> new And(asCond(children[0]), asCond(children[1]));
       case Or n -> new Or(asCond(children[0]), asCond(children[1]));
       case Not n -> new Not(asCond(children[0]));
+      case CrossLane n -> new CrossLane(asCond(children[0]), n.lane());
       case IsNotNull n -> new IsNotNull(children[0]);
       case InRanges n -> new InRanges(children[0], n.bounds());
       case IntArith n -> new IntArith(n.op(), n.mode(), children[0], children[1]);

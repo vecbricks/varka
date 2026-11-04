@@ -19,10 +19,12 @@ package org.apache.spark.sql.catalyst.expressions.codegen;
 
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.EnumSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Optional;
 import java.util.OptionalLong;
+import java.util.Set;
 import java.util.TreeSet;
 import java.util.function.BinaryOperator;
 import java.util.function.Supplier;
@@ -407,6 +409,8 @@ final class VarkaConditionCompiler {
           new VarkaVectorIR.BoolNullSafeEq(onIntLane(c.left()), onIntLane(c.right()));
       case VarkaVectorIR.CondIf c -> new VarkaVectorIR.CondIf(
           onIntLane(c.cond()), onIntLane(c.thenCond()), onIntLane(c.elseCond()));
+      // Never narrow, so the return above takes it; named so that the switch stays exhaustive.
+      case VarkaVectorIR.CrossLane c -> c;
     };
   }
 
@@ -448,6 +452,10 @@ final class VarkaConditionCompiler {
    * otherwise empty with the lane's reason noted.
    */
   private static Optional<List<Cond>> meetAll(Expression whole, DeclineSink sink, List<Cond> in) {
+    Optional<List<Cond>> crossed = acrossKinds(in);
+    if (crossed.isPresent()) {
+      return crossed;
+    }
     if (in.stream().map(VarkaVectorIR::laneType).distinct().count() > 1) {
       // A narrow condition beside an int one - `rid < 0 AND (y1 < y2)`, or two narrow types -
       // joins it on the int lane (VARKA-329): the long lift below would give the kernel a long
@@ -469,6 +477,52 @@ final class VarkaConditionCompiler {
     }
     return sameLane(whole, sink, in.toArray(new VarkaVectorIR[0])) ? Optional.of(in)
         : Optional.empty();
+  }
+
+  /**
+   * {@code in} on one lane where a floating condition is among conditions of two lanes, or empty
+   * where none is or they share one (`VARKA-343.md` 2.2.1): the meeting lane by the width rule
+   * read over the conditions' lanes - {@code LONG} if one is, else {@code DOUBLE}, else
+   * {@code INT} if one is integral, else {@code FLOAT} - the integral ones lifted there among
+   * themselves where it is integral ({@link #onLongLane}, {@link #onIntLane}), a narrow one to the
+   * int lane first, and each condition still off it read there: a lane-free one - its leaves
+   * boolean columns and constants - relabelled, any other through a
+   * {@link VarkaVectorIR.CrossLane}. A condition crossed before is crossed again from its own
+   * lane, so a meeting that grows, as a filter's conjuncts do, never stacks crossings.
+   * Conditions of the integral kind alone are not this rule's: they meet as before, so their
+   * kernels' bytes stay as they were.
+   */
+  static Optional<List<Cond>> acrossKinds(List<Cond> in) {
+    List<Cond> own = new ArrayList<>();
+    for (Cond c : in) {
+      own.add(c instanceof VarkaVectorIR.CrossLane x ? x.child() : c);
+    }
+    Set<LaneType> lanes = EnumSet.noneOf(LaneType.class);
+    for (Cond c : own) {
+      lanes.add(c.laneType());
+    }
+    boolean crossedBefore = !own.equals(in);
+    if (!crossedBefore
+        && (lanes.size() <= 1 || lanes.stream().noneMatch(LaneType::isFloating))) {
+      return Optional.empty();
+    }
+    LaneType meeting = lanes.contains(LaneType.LONG) ? LaneType.LONG
+        : lanes.contains(LaneType.DOUBLE) ? LaneType.DOUBLE
+        : lanes.stream().anyMatch(l -> !l.isFloating()) ? LaneType.INT : LaneType.FLOAT;
+    List<Cond> out = new ArrayList<>();
+    for (Cond c : own) {
+      Cond on = c;
+      if (!on.laneType().isFloating()) {
+        on = meeting == LaneType.LONG ? onLongLane(on).orElse(onIntLane(on)) : onIntLane(on);
+      }
+      if (on.laneType() != meeting) {
+        Cond from = on;
+        on = VarkaIntegralCastCompiler.onLane(on, meeting)
+            .orElseGet(() -> new VarkaVectorIR.CrossLane(from, meeting));
+      }
+      out.add(on);
+    }
+    return Optional.of(out);
   }
 
   /** The conditions {@code exprs} compile to, in order, or empty at the first that declines. */
@@ -584,6 +638,10 @@ final class VarkaConditionCompiler {
           onLongLane(c.thenCond()).flatMap(t -> onLongLane(c.elseCond()).map(
               e -> (Cond) new VarkaVectorIR.CondIf(k, t, e))));
       case InRanges r -> Optional.empty();
+      // A crossing from a floating lane leaves at the check above; one onto an integral lane
+      // crosses straight to the long lane instead.
+      case VarkaVectorIR.CrossLane c -> Optional.of(c.child().laneType() == LaneType.LONG
+          ? c.child() : new VarkaVectorIR.CrossLane(c.child(), LaneType.LONG));
     };
   }
 

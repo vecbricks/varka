@@ -46,6 +46,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Con
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.CondValue;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ConstDivide;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ConvertLane;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.CrossLane;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.DateDiff;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.DayOfMonth;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.DayOfWeek;
@@ -1612,6 +1613,31 @@ final class VarkaVectorWalk {
   }
 
   /**
+   * {@code [mask] -> [mask]} from lane {@code from} to lane {@code to} of this kernel, for a
+   * {@link CrossLane}: between two lanes of one width, which have one lane count, by
+   * {@code VectorMask.cast} to {@code to}'s species constant, the crossing
+   * {@link #emitToDrivingLane} makes at one count; between the widths through the mask's word,
+   * {@code toLong} then {@code fromLong} at {@code to}'s species. A 32-bit mask of a 64-bit kernel
+   * holds the group's rows in its low lanes, and {@code fromLong} at the 64-bit species reads only
+   * those bits; a 64-bit mask's word read at the 32-bit species sets only the low half, the lanes
+   * the kernel's 32-bit values occupy. The pair C2 miscompiles is {@code fromLong} of
+   * {@code toLong} at one lane count (VARKA-396), which the cast keeps out.
+   */
+  private static void emitMaskAcross(CodeBuilder cb, Lane from, Lane to, Analysis analysis,
+      Slots s) {
+    if (from.bits == to.bits) {
+      emitConstantSpecies(cb, to, analysis);
+      cb.invokevirtual(VECTOR_MASK, "cast", MASK_CAST);
+      return;
+    }
+    cb.invokevirtual(VECTOR_MASK, "toLong", TO_LONG);   // [word]
+    cb.aload(s.species(to));                            // [word, species]
+    cb.dup_x2();                                        // [species, word, species]
+    cb.pop();                                           // [species, word]
+    cb.invokestatic(VECTOR_MASK, "fromLong", FROM_LONG);
+  }
+
+  /**
    * {@code [species, word] -> [mask]}: a condition or validity word of the masked body as a mask of
    * the species, lane {@code i} set where bit {@code i} is, by {@code VectorMask.fromLong} of
    * {@code word & (VarkaMaskGuard.ones | VarkaMaskGuard.OPEN)}. JDK 25's C2 miscompiles
@@ -2246,6 +2272,16 @@ final class VarkaVectorWalk {
           cb.astore(s.condMask.get(node));
         }
         // Masked: kT/kF are the child's, swapped - pure slot aliasing, planned, no code.
+      }
+      case CrossLane n -> {
+        emitCond(cb, n.child(), dense, analysis, s, computed);
+        line(cb, analysis, node);
+        if (dense) {
+          cb.aload(s.condMask.get(n.child()));
+          emitMaskAcross(cb, analysis.laneOf(n.child()), analysis.laneOf(node), analysis, s);
+          cb.astore(s.condMask.get(node));
+        }
+        // Masked: kT/kF are the child's, a bit a row at every lane - aliased, planned, no code.
       }
       case InRanges n -> emitInRanges(cb, n, dense, analysis, s, computed);
       case IsNotNull n when !dense && n.overCondition() -> {

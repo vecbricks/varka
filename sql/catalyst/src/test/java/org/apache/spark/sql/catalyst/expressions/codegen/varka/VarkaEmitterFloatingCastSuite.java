@@ -26,14 +26,19 @@ import java.util.Optional;
 import java.util.function.IntPredicate;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.And;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BoolOutput;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ColumnRef;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Compare;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.CompareOp;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Cond;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.CondValue;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ConvertLane;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.CrossLane;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IfElse;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IntArith;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IntOp;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IsNotNull;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LaneType;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LiteralSlot;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.NarrowLane;
@@ -48,7 +53,10 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Wid
  * pattern and both bodies. Beside them the kernels of two lane counts these conversions make (2.2):
  * a 32-bit value in a 64-bit kernel, read from and stored to the low half of its species, and two
  * kinds of one width side by side, with their literal tables, their epilogue masks and a guard on
- * the other lane, whose mask crosses to the drive by {@code VectorMask.cast}.
+ * the other lane, whose mask crosses to the drive by {@code VectorMask.cast}. And the meeting of
+ * conditions of two kinds under one connective, {@link CrossLane}, by the cast at one width and
+ * through the mask's word between the widths, with the roots of two kinds one kernel holds
+ * (2.2.1).
  */
 @VarkaSuite(ownJvm = true)
 public final class VarkaEmitterFloatingCastSuite {
@@ -499,6 +507,116 @@ public final class VarkaEmitterFloatingCastSuite {
       return;
     }
     check("cast(cast(l AS int) AS double) beside y + l", value, 3, new int[0], new long[0], data);
+  }
+
+  // ---------------------------------------------------------------------------------------------
+  // Conditions and roots of two kinds in one kernel (VARKA-343.md 2.2.1)
+  // ---------------------------------------------------------------------------------------------
+
+  private static CrossLane cross(Cond child, LaneType lane) {
+    return new CrossLane(child, lane);
+  }
+
+  private static int floatBits(float v) {
+    return Float.floatToRawIntBits(v);
+  }
+
+  private static long doubleBits(double v) {
+    return Double.doubleToRawLongBits(v);
+  }
+
+  @Test
+  @DisplayName("a crossing refuses its child's own lane and a narrow lane")
+  void crossRefusals() {
+    var overInt = new Compare(CompareOp.LT, I, new LiteralSlot(0, LaneType.INT));
+    assertThrows(IllegalArgumentException.class, () -> cross(overInt, LaneType.INT));
+    assertThrows(IllegalArgumentException.class, () -> cross(overInt, LaneType.SHORT));
+    var overShort = new Compare(CompareOp.LT, new ColumnRef(0, LaneType.SHORT),
+        new LiteralSlot(0, LaneType.SHORT));
+    assertThrows(IllegalArgumentException.class, () -> cross(overShort, LaneType.FLOAT));
+  }
+
+  @Test
+  @DisplayName("conditions of the two kinds of one width meet under AND by VectorMask.cast")
+  void crossAtOneWidth() {
+    // An int kernel: the float comparison crossed to the int lane, and the int comparison and
+    // the int column's null test - the one the optimizer infers - crossed to the float lane.
+    var i = new ColumnRef(0, LaneType.INT);
+    var f = new ColumnRef(1, LaneType.FLOAT);
+    Cond overInt = new Compare(CompareOp.LT, i, new LiteralSlot(0, LaneType.INT));
+    Cond overFloat = new Compare(CompareOp.GT, f, new LiteralSlot(1, LaneType.FLOAT));
+    int[] ints = {1 << 30, floatBits(1.5f)};
+    Data data = cells(INTS, FLOATS);
+    check("f > 1.5 AND i < 2^30 at the int lane",
+        List.of(new And(cross(overFloat, LaneType.INT), overInt)), 2, ints, new long[0], data);
+    check("f > 1.5 AND i < 2^30 at the float lane",
+        List.of(new And(overFloat, cross(overInt, LaneType.FLOAT))), 2, ints, new long[0], data);
+    check("(f > 1.5 AND i IS NOT NULL) as a boolean", List.of(new BoolOutput(
+        new And(overFloat, cross(new IsNotNull(i), LaneType.FLOAT)))), 2, ints, new long[0],
+        data);
+    // A long kernel: the double comparison crossed to the long lane, under an OR.
+    var l = new ColumnRef(0, LaneType.LONG);
+    var x = new ColumnRef(1, LaneType.DOUBLE);
+    Cond overLong = new Compare(CompareOp.GT, l, new LiteralSlot(0, LaneType.LONG));
+    Cond overDouble = new Compare(CompareOp.LE, x, new LiteralSlot(1, LaneType.DOUBLE));
+    check("l > 2^40 OR x <= 0.1", List.of(new VarkaVectorIR.Or(overLong,
+        cross(overDouble, LaneType.LONG))), 2, new int[0],
+        new long[] {1L << 40, doubleBits(0.1)}, cells(LONGS, DOUBLES));
+  }
+
+  @Test
+  @DisplayName("conditions of two widths meet under AND through the mask's word")
+  void crossBetweenWidths() {
+    var i = new ColumnRef(0, LaneType.INT);
+    var x = new ColumnRef(1, LaneType.DOUBLE);
+    var f = new ColumnRef(2, LaneType.FLOAT);
+    var l = new ColumnRef(3, LaneType.LONG);
+    Cond overInt = new Compare(CompareOp.LT, i, new LiteralSlot(0, LaneType.INT));
+    Cond overFloat = new Compare(CompareOp.GT, f, new LiteralSlot(1, LaneType.FLOAT));
+    Cond overDouble = new Compare(CompareOp.GT, x, new LiteralSlot(0, LaneType.DOUBLE));
+    Cond overLong = new Compare(CompareOp.LT, l, new LiteralSlot(1, LaneType.LONG));
+    int[] ints = {1 << 30, floatBits(1.5f)};
+    long[] longs = {doubleBits(1.5), 1L << 40};
+    Data data = cells(INTS, DOUBLES, FLOATS, LONGS);
+    // A double kernel: the int comparison and null test, the float comparison, each crossed up
+    // from the low half of its species to the double one.
+    check("x > 1.5 AND i < 2^30 AND i IS NOT NULL", List.of(new And(overDouble, new And(
+        cross(overInt, LaneType.DOUBLE), cross(new IsNotNull(i), LaneType.DOUBLE)))), 3, ints,
+        longs, data);
+    check("x > 1.5 AND f > 1.5", List.of(new And(overDouble, cross(overFloat, LaneType.DOUBLE))),
+        3, ints, longs, data);
+    // A long kernel: the float comparison crossed to the long lane.
+    check("l < 2^40 AND f > 1.5", List.of(new And(overLong, cross(overFloat, LaneType.LONG))), 4,
+        ints, longs, data);
+    // And down: the double comparison read at the float lane, a 64-bit mask's word read by the
+    // 32-bit species, as a boolean output of the double kernel.
+    check("(x > 1.5 AND f > 1.5) at the float lane", List.of(new BoolOutput(
+        new And(cross(overDouble, LaneType.FLOAT), overFloat))), 3, ints, longs, data);
+  }
+
+  @Test
+  @DisplayName("roots of two kinds of one width share a kernel; of two widths they do not")
+  void rootsOfOneWidth() {
+    var i = new ColumnRef(0, LaneType.INT);
+    var f = new ColumnRef(1, LaneType.FLOAT);
+    var asInt = new IntArith(IntOp.ADD, Overflow.WRAP, i, new LiteralSlot(0, LaneType.INT));
+    var asFloat = new IntArith(IntOp.MUL, Overflow.WRAP, f, new LiteralSlot(1, LaneType.FLOAT));
+    assertEquals(Optional.of(LaneType.INT),
+        VarkaKernelPlan.driveOf(List.of(asFloat, asInt), VarkaMatrixRuns.BASE));
+    check("f * 0.25, i + 7", List.of(asFloat, asInt), 2, new int[] {7, floatBits(0.25f)},
+        new long[0], cells(INTS, FLOATS));
+    var l = new ColumnRef(0, LaneType.LONG);
+    var x = new ColumnRef(1, LaneType.DOUBLE);
+    var asLong = new IntArith(IntOp.ADD, Overflow.WRAP, l, new LiteralSlot(0, LaneType.LONG));
+    var asDouble = new IntArith(IntOp.MUL, Overflow.WRAP, x, new LiteralSlot(1, LaneType.DOUBLE));
+    assertEquals(Optional.of(LaneType.LONG),
+        VarkaKernelPlan.driveOf(List.of(asDouble, asLong), VarkaMatrixRuns.BASE));
+    check("x * 0.5, l + 3", List.of(asDouble, asLong), 2, new int[0],
+        new long[] {3L, doubleBits(0.5)}, cells(LONGS, DOUBLES));
+    // A 32-bit root beside a 64-bit one keeps a kernel of its own.
+    var refusal = VarkaKernelPlan.of(List.of(asInt, asDouble), VarkaMatrixRuns.BASE).refusal();
+    assertTrue(refusal.isPresent());
+    assertEquals(VarkaKernelPlan.Kind.LANE_MISMATCH, refusal.get().kind());
   }
 
   // ---------------------------------------------------------------------------------------------

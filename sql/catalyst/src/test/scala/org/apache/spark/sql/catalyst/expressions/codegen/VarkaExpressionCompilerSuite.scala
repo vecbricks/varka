@@ -2751,6 +2751,33 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     assert(twice.inputOrdinals.asScala.toSeq === Seq(5, 6))
   }
 
+  test("a long literal table is checked under the compile's options, not the defaults") {
+    // CAST(y1 AS DOUBLE) / 2.0D: a double kernel with a long literal, whose byte column is loaded
+    // at the long width, which needs a baked long lane count with a byte species of twice its
+    // lanes. Where the options admit the kernel the check passes under them.
+    val y1 = AttributeReference("y1", ByteType)()
+    val baked = VarkaMatrix.base.withLanesOverride(4).withValidityByWidth(true)
+    val p = VarkaExpressionCompiler.compile(
+      Seq(out(Divide(Cast(y1, DoubleType), Literal(2.0D)))), Seq(y1), baked).toScala.get
+    assert(!p.longLiterals.isEmpty)
+    p.requireLiteralTables(baked)
+    // Options whose plan refuses the kernel - no baked lane count here, the defaults' two long
+    // lanes on a 128-bit host - name no lane: the check leaves the refusal to the emission
+    // rather than reading the kernel as an int one, which would raise an internal error.
+    val unbaked = baked.withValidityByWidth(false)
+    assert(VarkaKernelPlan.of(p.outputs, unbaked).refusal.isPresent)
+    p.requireLiteralTables(unbaked)
+    // A kernel the options drive at the int lane still carries no long literal table.
+    val intKernel = new CompiledVarkaProjection(
+      java.util.List.of[VarkaVectorIR](new IntArith(IntOp.ADD, Overflow.WRAP, new ColumnRef(0),
+        new LiteralSlot(0))),
+      java.util.List.of[DataType](IntegerType), java.util.List.of(Int.box(0)),
+      java.util.List.of(Int.box(1)), java.util.List.of(), java.util.List.of(),
+      java.util.List.of(Long.box(1L)), java.util.List.of())
+    val e = intercept[Exception](intKernel.requireLiteralTables(baked))
+    assert(e.getMessage.contains("reads no long literal table"), e.getMessage)
+  }
+
   test("greatest, least, CASE WHEN and the validity predicates fuse over long columns") {
     val compiled = VarkaExpressionCompiler.compile(Seq(
       out(Greatest(Seq(l, l2))),
@@ -3426,7 +3453,6 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     val d2 = AttributeReference("d2", DateType)()
     val columns = Seq(x, x2, l, l2, d, d2)
     val floating = GreaterThan(x, Literal(1.5D))
-    val floatingWhy = "in a filter that also reads integral columns"
     val hostWhy = VarkaKernelPlan.TWO_LANE_CONDITION_REASON
     // Each conjunct's outcome: fused, or the reason it declined.
     def outcomes(condition: Expression, twoLaneHost: Boolean): Seq[Either[String, Unit]] =
@@ -3441,16 +3467,57 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     assert(outcomes(LessThan(x, x2), twoLaneHost = false) === Seq(Right(())))
     val alone = outcomes(LessThan(x, x2), twoLaneHost = true)
     assert(declined(alone.head, hostWhy), alone)
-    // Beside a long conjunct both are the host's, so the filter declines whole there, the
-    // floating conjunct with the host's reason rather than the integral kernel's that does not
-    // exist; on a wide host the long conjunct keeps the kernel and the floating one declines.
+    // Beside a long conjunct both are the host's, so the filter declines whole there; on a wide
+    // host the two share one kernel, the double mask crossed to the long lane (VARKA-343.md
+    // 2.2.1).
     val long = outcomes(And(floating, GreaterThan(l, l2)), twoLaneHost = true)
     assert(declined(long.head, hostWhy) && declined(long(1), hostWhy), long)
     val wide = outcomes(And(floating, GreaterThan(l, l2)), twoLaneHost = false)
-    assert(declined(wide.head, floatingWhy) && wide(1).isRight, wide)
+    assert(wide.forall(_.isRight), wide)
     // A date conjunct is an int kernel the host admits.
     val dated = outcomes(And(floating, LessThan(d, d2)), twoLaneHost = true)
     assert(declined(dated.head, hostWhy) && dated(1).isRight, dated)
+  }
+
+  test("conjuncts of two kinds meet in one root, each off the meeting lane crossed to it") {
+    val i = AttributeReference("i", IntegerType)()
+    val f = AttributeReference("f", FloatType)()
+    val x = AttributeReference("x", DoubleType)()
+    val b = AttributeReference("b", BooleanType)()
+    val columns = Seq(i, f, x, b)
+    def root(condition: Expression): VarkaVectorIR = {
+      val p = VarkaExpressionCompiler.compilePredicate(condition, columns,
+        VarkaEmitOptions.DEFAULTS, VarkaAdmission.NO_HOST_REFUSAL).get
+      assert(p.specs.asScala.forall(_.fused), p.specs)
+      assert(p.fused.outputs.size === 1)
+      p.fused.outputs.get(0)
+    }
+    def crossings(node: VarkaVectorIR): Seq[VarkaVectorIR.CrossLane] = {
+      val below = VarkaVectorIR.childrenOf(node).toSeq.flatMap(crossings)
+      node match {
+        case c: VarkaVectorIR.CrossLane => c +: below
+        case _ => below
+      }
+    }
+    // FLOAT beside INT meets at INT, the width rule's integral lane: the float comparison is
+    // crossed, and the int null test the optimizer infers is as it is.
+    val oneWidth = root(And(GreaterThan(f, Literal(1.5f)), IsNotNull(i)))
+    assert(oneWidth.laneType === LaneType.INT)
+    assert(crossings(oneWidth).map(_.child.laneType) === Seq(LaneType.FLOAT))
+    // A DOUBLE conjunct moves the meeting to DOUBLE, and the float and int conjuncts cross to
+    // it from their own lanes, never one crossing over another.
+    val twoWidths = root(And(And(GreaterThan(f, Literal(1.5f)), IsNotNull(i)),
+      LessThan(x, Literal(0.5D))))
+    assert(twoWidths.laneType === LaneType.DOUBLE)
+    assert(crossings(twoWidths).map(_.child.laneType).toSet ===
+      Set(LaneType.FLOAT, LaneType.INT))
+    assert(crossings(twoWidths).forall(!_.child.isInstanceOf[VarkaVectorIR.CrossLane]))
+    // A boolean column names a lane but reads only bits, so it is relabelled, not crossed.
+    val relabelled = root(And(LessThan(x, Literal(0.5D)), b))
+    assert(relabelled.laneType === LaneType.DOUBLE)
+    assert(crossings(relabelled).isEmpty)
+    // Integral conjuncts alone meet as before: no crossing.
+    assert(crossings(root(And(IsNotNull(i), b))).isEmpty)
   }
 }
 

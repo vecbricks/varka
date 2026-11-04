@@ -50,6 +50,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Con
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.NullValue;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ConstDivide;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ConvertLane;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.CrossLane;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.DateDiff;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.DayOfMonth;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.DayOfWeek;
@@ -989,6 +990,7 @@ final class Analysis {
         case And n -> { }
         case Or n -> { }
         case Not n -> { }
+        case CrossLane n -> { }
         case IsNotNull n -> { }
         case InRanges n -> { }
       }
@@ -1075,7 +1077,7 @@ final class Analysis {
           DayOfYear _, LastDay _, TruncDate _, WeekOfYear _, ConstDivide _, BoundedDivide _,
           BitOp _, BitCount _, MathUnary _, Compare _, NullSafeEqual _, BoolColumn _,
           BoolCompare _,
-          CondIf _, BoolNullSafeEq _, CondConst _, And _, Or _, Not _, IsNotNull _,
+          CondIf _, BoolNullSafeEq _, CondConst _, And _, Or _, Not _, CrossLane _, IsNotNull _,
           InRanges _, CondValue _, NullValue _, BoolOutput _ -> false;
     };
   }
@@ -1512,7 +1514,7 @@ final class Analysis {
       case MakeDate n -> null;
       // A condition has no validity word; its known-true and known-false words are its own.
       case Compare _, NullSafeEqual _, CondConst _, BoolCompare _, CondIf _, BoolNullSafeEq _,
-          And _, Or _, Not _, IsNotNull _, InRanges _ -> null;
+          And _, Or _, Not _, CrossLane _, IsNotNull _, InRanges _ -> null;
     };
   }
 
@@ -1840,6 +1842,7 @@ final class Analysis {
       case And n -> analyzeOp(node, true, n.left(), n.right());
       case Or n -> analyzeOp(node, true, n.left(), n.right());
       case Not n -> analyzeOp(node, false, n.child());
+      case CrossLane n -> analyzeOp(node, false, n.child());
       case InRanges n -> {
         // One static table per distinct range set, named in the order the sets are met.
         rangeTables.computeIfAbsent(n, k -> "RANGES" + rangeTables.size());
@@ -1897,6 +1900,7 @@ final class Analysis {
       // IsNotNull, whose one child is a column or a condition (its arm in analyze checks which).
       if (child instanceof Cond && !(node instanceof IfElse) && !(node instanceof And)
           && !(node instanceof Or) && !(node instanceof Not) && !(node instanceof IsNotNull)
+          && !(node instanceof CrossLane)
           && !(node instanceof BoolCompare) && !(node instanceof CondIf)
           && !(node instanceof BoolNullSafeEq) && !(node instanceof CondValue)
           && !(node instanceof BoolOutput)) {

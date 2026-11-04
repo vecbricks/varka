@@ -60,19 +60,6 @@ public record CompiledVarkaProjection(
     derivedInputs = List.copyOf(derivedInputs);
     longLiterals = List.copyOf(longLiterals);
     families = List.copyOf(families);
-    // Every output root agrees on the lane its kernel is driven at, which the emitter enforces. A
-    // kernel driven at the int lane reads only the int table, so a long literal beside one would
-    // mean an entry of the other lane left its literals behind when it was demoted, which the
-    // per-entry rollback rules out. A kernel driven at the long lane may read both: the long table
-    // and, where it converts between lanes (VARKA-28), the int table of its int values. A narrow
-    // kernel reads only the int table too, under either of the narrow arm's options, so it is on
-    // the same side as an int one here. The defaults answer the lane for the narrow trees: the
-    // arm chooses between INT and a narrow lane, and both read the int table.
-    if (!longLiterals.isEmpty() && !outputs.isEmpty()
-        && !drivesLong(VarkaKernelPlan.of(outputs, VarkaEmitOptions.DEFAULTS))) {
-      throw VarkaErrors.illegalArgument(
-          "a kernel driven at the int lane reads no long literal table");
-    }
     // An output's element width has two sources: the emitter maps and stores the destination at
     // the root's lane, and the evaluator allocates the Arrow vector from the Spark type. They
     // agree because every compiler arm builds matching roots, and nothing downstream checks it:
@@ -134,11 +121,31 @@ public record CompiledVarkaProjection(
   }
 
   /**
-   * Whether a plan drives its kernel at a 64-bit lane, the long or the {@code DOUBLE} one, whose
-   * {@code run} takes the long table; a refused one drives at none.
+   * Refuses a long literal table beside a kernel driven at a 32-bit lane, planned under the
+   * compile's {@code options}. A kernel driven at the int lane reads only the int table, so a long
+   * literal beside one would mean an entry of the other lane left its literals behind when it was
+   * demoted, which the per-entry rollback rules out. A kernel driven at a 64-bit lane may read
+   * both: the long table and, where it converts between lanes (VARKA-28), the int table of its
+   * int values. A narrow kernel reads only the int table too, under either of the narrow arm's
+   * options, so it is on the same side as an int one here.
+   *
+   * <p>The options are the compile's own and not the defaults: whether the plan admits the kernel
+   * at all depends on them - a narrow column's load at the long width needs a lane count the
+   * defaults may not have, as on a 128-bit host, where {@code lanesOverride=4} admits
+   * {@code CAST(y1 AS DOUBLE) / 2.0D} and the defaults' two long lanes do not - and a plan the
+   * defaults refuse names no lane, which would read as the int one here for a kernel the
+   * session admits. A plan these options refuse is no kernel to check:
+   * its emission refuses it with the plan's own reason.
    */
-  private static boolean drivesLong(VarkaKernelPlan plan) {
-    return plan.refusal().isEmpty() && plan.drive().bits() == Long.SIZE;
+  void requireLiteralTables(VarkaEmitOptions options) {
+    if (longLiterals.isEmpty() || outputs.isEmpty()) {
+      return;
+    }
+    VarkaKernelPlan plan = VarkaKernelPlan.of(outputs, options);
+    if (plan.refusal().isEmpty() && plan.drive().bits() != Long.SIZE) {
+      throw VarkaErrors.illegalArgument(
+          "a kernel driven at the int lane reads no long literal table");
+    }
   }
 
   /**

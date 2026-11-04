@@ -651,7 +651,8 @@ final class VarkaEmitBudget {
       case BoolOutput _ -> 1;
       // The connectives emit only mask calls, which no weight counts; 1 is a floor, so that a
       // connective is never free to join any group.
-      case And _, Or _, Not _, IsNotNull _, BoolCompare _, BoolNullSafeEq _, CondIf _ -> 1;
+      case And _, Or _, Not _, CrossLane _, IsNotNull _, BoolCompare _, BoolNullSafeEq _,
+          CondIf _ -> 1;
       // Emitted as one loop whatever the number of ranges: a start mask and a body of scalar
       // compares, three lane calls past the column's load. Its time grows with the ranges; its
       // code does not.

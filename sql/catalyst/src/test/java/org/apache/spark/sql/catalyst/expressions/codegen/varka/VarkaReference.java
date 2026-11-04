@@ -439,6 +439,8 @@ public final class VarkaReference {
       case Or(var left, var right, _) ->
           or(cond(left, row, isNull, lits), cond(right, row, isNull, lits));
       case Not n -> not(cond(n.child(), row, isNull, lits));
+      // The child's answer at another lane of the same width; across the widths, mixedCond.
+      case CrossLane n -> cond(n.child(), row, isNull, lits);
       // Written from the node's meaning, not from its emission: some range contains the value.
       case InRanges(var child, var bounds, _) -> {
         var v = value(child, row, isNull, lits);
@@ -755,6 +757,7 @@ public final class VarkaReference {
       case Or(var left, var right, _) ->
           or(longCond(left, row, isNull, lits), longCond(right, row, isNull, lits));
       case Not n -> not(longCond(n.child(), row, isNull, lits));
+      case CrossLane n -> longCond(n.child(), row, isNull, lits);
       case IsNotNull n -> n.child() instanceof Cond c
           ? Truth.of(longCond(c, row, isNull, lits) != Truth.UNKNOWN)
           : Truth.of(longValue(n.child(), row, isNull, lits).isPresent());
@@ -833,6 +836,19 @@ public final class VarkaReference {
             ? OptionalLong.of(narrow(n.target().isNarrow() ? n.target() : LaneType.INT,
                 (int) v.getAsLong()))
             : v, n.target().isNarrow() ? n.target() : LaneType.INT);
+      }
+      // A crossing is its child's answer, read at the child's own lane and standing in the tree
+      // as a constant of the crossing's lane, as a conversion stands as a column.
+      if (node instanceof CrossLane x) {
+        Cond child = (Cond) flatten(x.child(), intLits, longLits);
+        Truth t = child.laneType().bits() == Integer.SIZE
+            ? cond(child, ints(), nulls(), intLits)
+            : longCond(child, longs(), nulls(), longLits);
+        return new CondConst(switch (t) {
+          case TRUE -> VarkaVectorIR.Truth.TRUE;
+          case FALSE -> VarkaVectorIR.Truth.FALSE;
+          case UNKNOWN -> VarkaVectorIR.Truth.NULL;
+        }, x.lane());
       }
       if (node instanceof ConvertLane c) {
         OptionalLong v = mixedOf(c.child(), intLits, longLits);
