@@ -1,7 +1,8 @@
 # VARKA-556: One definition of "the same answer"
 
 *Planned 3 November 2026 on `varka-556-557-plan`, from the both-bodies failure that pull request
-row 555 (#1313, merged) fixed. The first pull request, 556a, is built: section 10.*
+row 555 (#1313, merged) fixed. 556a is built (section 10), and 556b, with 556a2
+folded in (section 11).*
 
 ## 1. Where this came from
 
@@ -327,3 +328,49 @@ null over stale bits (an `UnsafeRow`) and `BOOLEAN` values. Dropped from 3.3, wi
   `VarkaSameAnswer`, which the catalyst tree cannot register; the sql/core twin (556b) can.
 - *The `nanvl` pair over the IR*: Varka does not lower `nanvl`, and the shape written for it was
   invented; the expression pair stays.
+
+## 11. Outcome of 556b (4 November 2026, branch `varka-556b-twin`)
+
+**Built**, stacked on 556a with 556a2's two commits folded in (below):
+
+- *The sql/core twin*, `VarkaSameAnswerCoreContractSuite`, runs the catalyst suite's table
+  against the comparators only sql/core reaches, each called as it runs:
+  `VarkaKernelRunner.compareBodies` at `TYPE`, over one-row Arrow outputs built from Spark's
+  field for the pair's type, with the width and the floating flag the evaluator gives them
+  (`VarkaKernelRunner.outputWidth` and `floatingOutput`, moved out of `VarkaEvaluatorBase` for
+  it); `VarkaExpressionHarness.sameRow` at `EXACT` and, with `unfixedNaN`, at `ROW`; Spark's
+  `checkAnswer` row comparison (`QueryTest.sameRows`) at `ANY_NAN`, registered and left as 9.2
+  settled; and `VarkaSparkFuzz`'s `Row.toString` at `ANY_NAN`, its decimal pairs not its own,
+  since a collected row carries a decimal at its type's scale (3.4's scale caveat). The catalyst
+  suite's restatement of `compareBodies`' rule is deleted; the table's `ANY_NAN` verdict is the
+  type level's, as the two differ only on an output that carries no NaN.
+- *The suite-local rules* (rule 7) are row-level calls: `VarkaEmitterFloatingArithSuite` asks
+  `VarkaSparkOracle.openNaN`, `VarkaSameAnswer.openNaN` over the expression the oracle
+  evaluates, where `twoUnlikeNaNs` asked whether the row held two unlike NaN inputs; and
+  `VarkaFloatingLaneSuite`'s arithmetic forms are held by `VarkaSameAnswer.sameRow`, the open
+  columns read off the row engine's optimized projection bound to the rows its child reads, where
+  `nanAsOne` relaxed every NaN in the first `relaxed` columns.
+- *The lint rule*, `nan-compare` in `dev/varka_lint.py`: a written line of Varka code that holds
+  two floating answers equal by their raw bits, or accepts `isNaN(a) && isNaN(b)`, outside
+  `VarkaSameAnswer` and the two contract suites. Over the whole tree it finds two lines, neither a
+  comparator (a data generator's choice in `VarkaEmitterFloatingArithSuite` and a planted answer
+  in `VarkaCoverageHarnessSuite`), and since it reads only the lines a commit writes, neither is
+  reported.
+
+**Why 556a2 is folded in.** The twin runs 556a2's table, so 556b could not stand on 556a alone,
+and the restatement 556a2 carries is the line the twin replaces; one pull request shows the
+table, its real both-bodies entry and the restatement's removal together, where two would show
+a placeholder and then its deletion. Measured with `dev/varka_msg_check.py size --base
+varka-556-same-answer`: SIZE_TOTAL counted lines, 458 of them 556a2's.
+
+**Where verdicts move**, each on purpose (3.4, 7):
+
+1. *`VarkaEmitterFloatingArithSuite`*: a row with two unlike NaN inputs no longer excuses every
+   form over it. A subtraction or a division over two NaNs (10.8), a pick, and a form whose NaN
+   comes from one operand are now held to Spark's bits there; an add or a multiply over two
+   unlike NaNs, and what passes one on, still agree as any NaN.
+2. *`VarkaFloatingLaneSuite`*: `x1 - x2`, `f2 - f1` and `try_divide(x1, x2)`, which `nanAsOne`
+   relaxed as columns over two operands, are held to the row engine's bits, and so is a column
+   whose NaN is fixed on a row where another column's is open. RESULT_FLOATING
+3. No other verdict moves: `compareBodies` and the harness are called as before, and the
+   `checkAnswer` suites are unchanged.

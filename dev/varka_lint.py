@@ -46,6 +46,9 @@ naming files on the command line turns that scoping off.
   shell-java-opts  JAVA_OPTS or SBT_OPTS given a -XX flag in a script that runs build/sbt: the
                    test JVMs sbt forks never see it (build-and-environment.md)
   guava            a Guava import in Varka code (sql/varka/AGENTS.md)
+  nan-compare      in Varka code, two floating answers held equal by their raw bits or two NaNs
+                   accepted by `isNaN(a) && isNaN(b)` outside VarkaSameAnswer and its contract
+                   suites: a comparator states its NaN rule there, at a level (VARKA-556)
 
   dev/varka_lint.py [--cached | --working-tree | --range A..B | FILE...]
   dev/varka_lint.py --selftest
@@ -75,6 +78,16 @@ GUAVA_ALLOWED = (
 )
 # Packages a module may import without declaring them: the JDK, Scala and Spark itself.
 STANDARD_ROOTS = ("java.", "javax.", "jdk.", "sun.", "com.sun.", "scala.", "org.apache.spark.")
+# The one definition of "the same answer" and the suites that hold comparators to it (VARKA-556).
+SAME_ANSWER_FILES = (
+    "VarkaSameAnswer.java",
+    "VarkaSameAnswerContractSuite.java",
+    "VarkaSameAnswerCoreContractSuite.java",
+)
+NAN_COMPARES = (
+    re.compile(r"(doubleToRawLongBits|floatToRawIntBits)\b.*(==|!=).*\1\b"),
+    re.compile(r"isNaN\b.*&&.*isNaN\b"),
+)
 MATRIX_RUNS = (
     "sql/catalyst/src/test/java/org/apache/spark/sql/catalyst/expressions/codegen/varka/"
     "VarkaMatrixRuns.java"
@@ -514,6 +527,21 @@ def rule_guava(ch):
                 )
 
 
+def rule_nan_compare(ch):
+    for path in ch.files:
+        if not re.search(r"\.(java|scala)$", path) or not is_varka(path):
+            continue
+        if os.path.basename(path) in SAME_ANSWER_FILES:
+            continue
+        for n, line in enumerate(read(path).splitlines(), 1):
+            if any(p.search(line) for p in NAN_COMPARES) and ch.wrote(path, n):
+                yield (
+                    f"{path}:{n}: nan-compare: two floating answers compared by their bits or "
+                    "their NaNs; use VarkaSameAnswer at a named level, or register the "
+                    "comparator in its contract suites (m8/VARKA-556.md 3.4)"
+                )
+
+
 RULES = {
     "license-header": rule_license_header,
     "import-root": rule_import_root,
@@ -525,6 +553,7 @@ RULES = {
     "shell": rule_shell,
     "ci-gates": rule_ci_gates,
     "guava": rule_guava,
+    "nan-compare": rule_nan_compare,
 }
 
 
@@ -759,6 +788,27 @@ def selftest():
             {"m/src/main/java/VarkaX.java": lic + "import com.google.common.base.X;\n"},
             "guava",
             True,
+        )
+        case(
+            "two NaNs accepted outside VarkaSameAnswer",
+            {"m/src/test/scala/VarkaY.scala": "ok = a.isNaN && b.isNaN\n"},
+            "nan-compare",
+            True,
+        )
+        case(
+            "raw bits compared inside VarkaSameAnswer",
+            {
+                "m/src/main/java/VarkaSameAnswer.java": "doubleToRawLongBits(a) == "
+                "doubleToRawLongBits(b)\n"
+            },
+            "nan-compare",
+            False,
+        )
+        case(
+            "one value's raw bits read outside it",
+            {"m/src/test/java/VarkaZ.java": "long b = Double.doubleToRawLongBits(a);\n"},
+            "nan-compare",
+            False,
         )
     if fails == 0:
         print(f"varka_lint selftest: ok ({len(cases)} cases)")

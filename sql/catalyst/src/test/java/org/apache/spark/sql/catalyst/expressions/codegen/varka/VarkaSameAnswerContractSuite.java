@@ -72,7 +72,6 @@ import org.apache.spark.sql.types.DataType;
 import org.apache.spark.sql.types.DataTypes;
 import org.apache.spark.sql.types.Decimal;
 import org.apache.spark.sql.types.DecimalType;
-import org.apache.spark.sql.types.FloatType;
 import org.apache.spark.unsafe.bitset.BitSetMethods;
 
 /**
@@ -87,6 +86,10 @@ import org.apache.spark.unsafe.bitset.BitSetMethods;
  * double, {@code n}. A pair
  * built by {@link #otherNaN} compares Spark's answer with the other column NaN, the answer a
  * wrong pick or another tier would give; a pair built by {@link #explicit} names both answers.
+ *
+ * <p>The comparators only sql/core reaches - the both-bodies check, the expression harness's row
+ * comparison and Spark's {@code checkAnswer} - are held to the same table by its twin there,
+ * {@code VarkaSameAnswerCoreContractSuite}.
  */
 @VarkaSuite
 public final class VarkaSameAnswerContractSuite {
@@ -97,7 +100,8 @@ public final class VarkaSameAnswerContractSuite {
   private static final int F = 0x7fc00001;
   private static final int F2 = 0xffc00000;
 
-  private static final InternalRow ROW = new GenericInternalRow(new Object[] {
+  /** The row every pair's expression is evaluated on; public for the sql/core twin. */
+  public static final InternalRow ROW = new GenericInternalRow(new Object[] {
       Double.longBitsToDouble(X), Double.longBitsToDouble(X2), Double.longBitsToDouble(X3),
       Float.intBitsToFloat(F), Float.intBitsToFloat(F2), null});
   /**
@@ -124,17 +128,17 @@ public final class VarkaSameAnswerContractSuite {
   /**
    * One pair of answers, {@code want} (Spark's) and {@code got}, of an output of {@code type}
    * computed by {@code expr} (and by {@code ir} where the IR can state it) on {@link #ROW}, with
-   * the verdict of each level: whether the two agree.
+   * the verdict of each level: whether the two agree. {@code ANY_NAN}'s verdict is the type
+   * level's: the two differ only on an output that is not floating, and no pair holds a NaN there.
    */
-  private record Pair(String name, DataType type, Expression expr, @Nullable VarkaVectorIR ir,
+  public record Pair(String name, DataType type, Expression expr, @Nullable VarkaVectorIR ir,
       @Nullable Object want, @Nullable Object got, boolean exact, boolean typeLevel,
       boolean row) {
-    boolean verdict(Level level) {
+    public boolean verdict(Level level) {
       return switch (level) {
         case EXACT -> exact;
-        case TYPE -> typeLevel;
+        case TYPE, ANY_NAN -> typeLevel;
         case ROW -> row;
-        case ANY_NAN -> throw new IllegalArgumentException("no comparator here is ANY_NAN");
       };
     }
   }
@@ -144,21 +148,15 @@ public final class VarkaSameAnswerContractSuite {
 
   private static final List<Pair> TABLE = table();
 
+  /** The table, for the sql/core twin that holds the comparators only sql/core sees. */
+  public static List<Pair> pairs() {
+    return TABLE;
+  }
+
   private static final List<Registered> COMPARATORS = List.of(
       new Registered("VarkaSameAnswer.sameRow with no open column", Level.EXACT,
           p -> VarkaSameAnswer.sameRow(row(p.want()), row(p.got()), new DataType[] {p.type()},
               null) == null),
-      new Registered("VarkaKernelRunner.compareBodies' row rule: equal bits, or "
-          + "VarkaSameAnswer.bothNaN on a floating output", Level.TYPE,
-          p -> {
-            Long want = bits(p.want());
-            Long got = bits(p.got());
-            if (want == null || got == null) {
-              return null;
-            }
-            int width = p.type() instanceof FloatType ? Float.BYTES : Double.BYTES;
-            return want.equals(got) || VarkaSameAnswer.bothNaN(width, want, got);
-          }),
       new Registered("VarkaSameAnswer.sameRow over the expression (VarkaExpressionHarness)",
           Level.ROW,
           p -> VarkaSameAnswer.sameRow(row(p.want()), row(p.got()), new DataType[] {p.type()},
@@ -306,7 +304,7 @@ public final class VarkaSameAnswerContractSuite {
       }
     }
     assertTrue(failures.isEmpty(), String.join("\n", failures));
-    assertTrue(compared > 3 * TABLE.size(), "the comparators read too few pairs: " + compared);
+    assertTrue(compared > 2 * TABLE.size(), "the comparators read too few pairs: " + compared);
   }
 
   @Test

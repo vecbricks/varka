@@ -28,6 +28,8 @@ import java.util.concurrent.atomic.LongAdder;
 import org.apache.arrow.memory.ArrowBuf;
 import org.apache.arrow.vector.BaseFixedWidthVector;
 import org.apache.arrow.vector.BitVector;
+import org.apache.arrow.vector.Float4Vector;
+import org.apache.arrow.vector.Float8Vector;
 
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.IntRangeOps;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.TruncLevelLeaf;
@@ -210,6 +212,21 @@ public final class VarkaKernelRunner {
    */
   public static int warmupWidth(BaseFixedWidthVector v) {
     return v instanceof BitVector ? VarkaKernelWarmup.BIT_WIDTH : v.getTypeWidth();
+  }
+
+  /**
+   * The width the kernel and the both-bodies check give an output written to {@code v}: its type
+   * width, or {@link VarkaReproduction.KernelCall#BIT_OUTPUT} for a boolean output's
+   * {@code BitVector}, whose type width of 0 would mean a selection bitmap with no data; its data
+   * is a bitmap of whole words (VARKA-27).
+   */
+  public static int outputWidth(BaseFixedWidthVector v) {
+    return v instanceof BitVector ? VarkaReproduction.KernelCall.BIT_OUTPUT : v.getTypeWidth();
+  }
+
+  /** Whether an output written to {@code v} is floating, which {@link #compareBodies} reads. */
+  public static boolean floatingOutput(BaseFixedWidthVector v) {
+    return v instanceof Float4Vector || v instanceof Float8Vector;
   }
 
   /**

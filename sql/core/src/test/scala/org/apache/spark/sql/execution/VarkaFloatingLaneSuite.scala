@@ -18,8 +18,11 @@
 package org.apache.spark.sql.execution
 
 import org.apache.spark.sql.{DataFrame, QueryTest, Row, SparkSession}
-import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, AttributeReference, Coalesce, Greatest}
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTestWatchdog
+import org.apache.spark.sql.catalyst.{CatalystTypeConverters, InternalRow}
+import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, AttributeReference,
+  BindReferences, Coalesce, Expression, Greatest}
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaSameAnswer, VarkaTestWatchdog}
+import org.apache.spark.sql.catalyst.plans.logical.Project
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types.{DateType, DoubleType, FloatType, IntegerType, StructField, StructType}
 
@@ -38,10 +41,10 @@ import org.apache.spark.sql.types.{DateType, DoubleType, FloatType, IntegerType,
  *
  * The comparisons, `<=>`, `greatest`, `least`, `IN`, `isnan` and `nanvl` are lowered in
  * Spark's order and checked over every pair of the special values. The arithmetic (VARKA-342)
- * is checked over the same pairs, in every mode, a NaN computed from two NaNs of different
- * payloads compared by being NaN. What still declines - the casts, the remainder, a floating
- * value beside an integral one in a kernel - is pinned at the end, with the query still
- * answering as the row engine does.
+ * is checked over the same pairs, in every mode, a NaN whose payload is open by its provenance
+ * compared by being NaN (`VarkaSameAnswer`'s row level). What still declines - the casts, the
+ * remainder, a floating value beside an integral one in a kernel - is pinned at the end, with the
+ * query still answering as the row engine does.
  */
 class VarkaFloatingLaneSuite extends QueryTest with VarkaSharedSessions with VarkaTestWatchdog {
 
@@ -173,27 +176,35 @@ class VarkaFloatingLaneSuite extends QueryTest with VarkaSharedSessions with Var
   }
 
   /**
-   * The answer's cells as [[bits]] gives them, with every NaN in the first `relaxed` columns as
-   * one value: the NaN rule for an operation over two columns, whose NaN payload from two NaN
-   * operands Java does not fix - it depends on the tier and on how C2 ordered the operands
-   * (`VARKA-342.md` 0.6 and 5.1). Every later column is compared bit for bit.
+   * Varka's rows against the row engine's at `VarkaSameAnswer`'s row level: bit for bit, but for
+   * two NaNs where the row engine's is open by its provenance on that row - an add or a multiply
+   * over two NaNs of different bits, whose payload Java does not fix (it depends on the tier and
+   * on how C2 ordered the operands, `VARKA-342.md` 0.6 and 5.1), or a node that passes one on.
+   * The provenance is read off the row engine's optimized projection, bound to the rows its
+   * child reads; both sides read one cached fixture through one projection, in one order.
    */
-  private def nanAsOne(df: DataFrame, relaxed: Int): Seq[Seq[Any]] = bits(df).map(_.zipWithIndex
-    .map {
-      case (("double", b: Long), k)
-          if k < relaxed && java.lang.Double.isNaN(java.lang.Double.longBitsToDouble(b)) =>
-        ("double", "NaN")
-      case (("float", b: Int), k)
-          if k < relaxed && java.lang.Float.isNaN(java.lang.Float.intBitsToFloat(b)) =>
-        ("float", "NaN")
-      case (other, _) => other
-    })
+  private def checkRowLevel(actual: DataFrame, expected: DataFrame): Unit = {
+    val (projection, child) = expected.queryExecution.optimizedPlan match {
+      case Project(list, c) => (list, c)
+      case other => fail(s"not a projection:\n$other")
+    }
+    val bound = projection.map(e => BindReferences.bindReference(e: Expression, child.output))
+    val inputs = org.apache.spark.sql.classic.Dataset.ofRows(spark, child)
+      .queryExecution.toRdd.map(_.copy()).collect()
+    val toRow = CatalystTypeConverters.createToCatalystConverter(actual.schema)
+    val types = actual.schema.map(_.dataType).toArray
+    val (want, got) = (expected.collect(), actual.collect())
+    assert(want.length === got.length && inputs.length === want.length)
+    for (i <- want.indices) {
+      val difference = VarkaSameAnswer.sameRow(toRow(want(i)).asInstanceOf[InternalRow],
+        toRow(got(i)).asInstanceOf[InternalRow], types,
+        o => VarkaSameAnswer.openNaN(bound(o), inputs(i)))
+      assert(difference === null, s"row $i of ${inputs(i)}: $difference")
+    }
+  }
 
-  /**
-   * [[checkFused]] for an arithmetic form, under `ansi`: its first `relaxed` columns by the NaN
-   * rule, every other column bit for bit.
-   */
-  private def checkFusedArith(query: String, ansi: Boolean, relaxed: Int = 1): Unit =
+  /** [[checkFused]] for an arithmetic form, under `ansi`, at the row level ([[checkRowLevel]]). */
+  private def checkFusedArith(query: String, ansi: Boolean): Unit =
       names.foreach { fixture =>
     val q = query.replace("$t", fixture)
     withAnsi(ansi) {
@@ -203,8 +214,7 @@ class VarkaFloatingLaneSuite extends QueryTest with VarkaSharedSessions with Var
       withClue(s"$fixture (ansi=$ansi): $q") {
         assertFused(plan)
         checkAnswer(actual, expected)
-        assert(nanAsOne(actual, relaxed).sortBy(_.toString) ===
-          nanAsOne(expected, relaxed).sortBy(_.toString))
+        checkRowLevel(actual, expected)
         assertKernelsRan(plan)
       }
     }
@@ -311,8 +321,9 @@ class VarkaFloatingLaneSuite extends QueryTest with VarkaSharedSessions with Var
 
   // One projection of every form, so that the session runs the path once a mode: the forms'
   // answers, cell by cell and bit by bit, are the harness's and VarkaEmitterFloatingArithSuite's.
-  // The forms over two columns come first, the NaN rule's; the rest move a NaN's bits or take
-  // them from one NaN operand, and are compared bit for bit.
+  // The forms over two columns come first; the rest move a NaN's bits or take them from one NaN
+  // operand. Every form is held at the row level, a subtraction's and a division's NaN of two
+  // NaNs to its left operand's bits.
   private val twoColumnForms = Seq("x1 + x2", "x1 - x2", "x1 * x2", "try_divide(x1, x2)",
     "try_add(x1, x2)", "(x1 + x2) * x2 - x1", "f1 + f2", "f1 * f2", "f2 - f1")
   private val arithmetic = (twoColumnForms ++ Seq("x2 / 3.0D", "sqrt(x1)", "degrees(x2)",
@@ -322,7 +333,7 @@ class VarkaFloatingLaneSuite extends QueryTest with VarkaSharedSessions with Var
   test("the floating arithmetic fuses and matches the row engine in both modes, x1 / x2 null " +
       "on a zero divisor in the legacy one") {
     for (ansi <- Seq(false, true)) {
-      checkFusedArith(s"SELECT $arithmetic FROM $$t", ansi, twoColumnForms.size)
+      checkFusedArith(s"SELECT $arithmetic FROM $$t", ansi)
     }
     checkFusedArith("SELECT x1 / x2 AS v FROM $t", ansi = false)
   }
@@ -341,7 +352,7 @@ class VarkaFloatingLaneSuite extends QueryTest with VarkaSharedSessions with Var
     // batch; with the arms collapsed to none, every batch holding a zero divisor declined.
     val q = "SELECT IF(x2 = 0.0D, 0.0D, x1 / x2) AS a, " +
       "CASE WHEN x2 <> 0.0D THEN x1 / x2 ELSE x1 END AS b FROM $t"
-    checkFusedArith(q, ansi = true, relaxed = 2)
+    checkFusedArith(q, ansi = true)
     // The pairs fixture divides by both zeros, in every batch: none declines.
     withAnsi(true) {
       val actual = varkaSpark.sql(q.replace("$t", "varka_float_pairs"))
@@ -394,7 +405,7 @@ class VarkaFloatingLaneSuite extends QueryTest with VarkaSharedSessions with Var
   test("the casts between FLOAT and DOUBLE fuse and keep a NaN's payload, both zeros and the "
       + "rounding to an infinity") {
     // The sum of two NaNs has no fixed payload (`VARKA-342.md` 0.6), so that first column is
-    // compared by the NaN rule; the conversions' columns bit for bit, in both modes.
+    // compared at the row level; the conversions' columns bit for bit, in both modes.
     for (ansi <- Seq(false, true)) {
       checkFusedArith("SELECT x2 + CAST(f2 AS DOUBLE) AS b, CAST(f1 AS DOUBLE) AS a, "
         + "CAST(x1 AS FLOAT) AS c, CAST(f1 AS DOUBLE) / 2.0D AS e FROM $t", ansi)

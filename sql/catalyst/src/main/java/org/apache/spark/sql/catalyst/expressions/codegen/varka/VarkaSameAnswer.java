@@ -76,8 +76,9 @@ public final class VarkaSameAnswer {
 
   /**
    * What a comparator accepts of two NaNs of different bits, from strictest to loosest. Each
-   * comparator names its level, and the contract suite ({@code VarkaSameAnswerContractSuite})
-   * holds it to that level's verdict on one table of tricky pairs.
+   * comparator names its level, and the contract suites ({@code VarkaSameAnswerContractSuite}
+   * in the catalyst tests, {@code VarkaSameAnswerCoreContractSuite} in sql/core's) hold it to
+   * that level's verdict on one table of tricky pairs.
    */
   public enum Level {
     /** Never: bytes at the output's width. A non-floating output under any comparator. */

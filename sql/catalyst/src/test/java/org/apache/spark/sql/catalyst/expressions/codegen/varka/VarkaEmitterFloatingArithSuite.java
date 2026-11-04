@@ -617,27 +617,6 @@ public final class VarkaEmitterFloatingArithSuite {
     };
   }
 
-  /**
-   * Whether `row` holds two NaN inputs of different bits, the one case where Java leaves the
-   * payload of an operation's NaN open (the interpreter takes one operand's, C2 may commute).
-   */
-  private static boolean twoUnlikeNaNs(Object[] row) {
-    boolean seen = false;
-    long first = 0L;
-    for (Object cell : row) {
-      if (cell != null && nanBits(cellBits(cell), cell instanceof Float)) {
-        long b = cellBits(cell);
-        if (!seen) {
-          seen = true;
-          first = b;
-        } else if (first != b) {
-          return true;
-        }
-      }
-    }
-    return false;
-  }
-
   private static String shown(Object[] row) {
     var parts = new ArrayList<String>();
     for (Object cell : row) {
@@ -652,10 +631,10 @@ public final class VarkaEmitterFloatingArithSuite {
 
   /**
    * Runs `sql` compiled over `rows` and holds every row to Spark's `eval` of the same resolved
-   * expression: the same bits, or under the NaN rule both NaN where `movesBits` is false and the
-   * row holds two NaN inputs of different bits ({@link #twoUnlikeNaNs}). A row
-   * Spark raises on must decline the batch with `status`; the rows are then run again without
-   * it. Returns how many rows were compared.
+   * expression: the same bits, or both NaN where `movesBits` is false and the row's NaN is open
+   * by its provenance ({@code VarkaSameAnswer}'s row level, {@link VarkaSparkOracle#openNaN}).
+   * A row Spark raises on must decline the batch with `status`; the rows are then run again
+   * without it. Returns how many rows were compared.
    */
   private static int checkAgainstSpark(String sql, List<Attribute> cols, List<Object[]> rows,
       String mode, boolean movesBits, int status) {
@@ -668,12 +647,14 @@ public final class VarkaEmitterFloatingArithSuite {
     var oracle = new VarkaSparkOracle(
         CollectionConverters.asScala(List.of(e)).toSeq(), seq(cols));
     var spark = new ArrayList<VarkaSparkOracle.Answer>();
+    var laneRows = new ArrayList<scala.collection.immutable.Seq<Option<Object>>>();
     for (Object[] r : rows) {
       var row = new ArrayList<Option<Object>>();
       for (Object cell : r) {
         row.add(cell == null ? Option.empty() : Option.<Object>apply(cellBits(cell)));
       }
-      spark.add(oracle.answer(0, CollectionConverters.asScala(row).toSeq()));
+      laneRows.add(CollectionConverters.asScala(row).toSeq());
+      spark.add(oracle.answer(0, laneRows.getLast()));
     }
     List<Integer> inputs = plan.inputOrdinals();
     var loaded = VarkaEmitterFixtures.load(VarkaEmitterFixtures.emit(plan.outputs(),
@@ -724,8 +705,8 @@ public final class VarkaEmitterFloatingArithSuite {
         if (want.isPresent() && got.isPresent()) {
           long a = want.getAsLong();
           long b = got.getAsLong();
-          agree = a == b || !movesBits && twoUnlikeNaNs(rows.get(i))
-              && nanBits(a, isFloat) && nanBits(b, isFloat);
+          agree = a == b || !movesBits && nanBits(a, isFloat) && nanBits(b, isFloat)
+              && oracle.openNaN(0, laneRows.get(i));
         } else {
           agree = want.isEmpty() && got.isEmpty();
         }
