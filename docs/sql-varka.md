@@ -1034,6 +1034,13 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `time_from_micros(time_to_micros(t))` | `time` | `time_to_micros(t) BETWEEN 0 AND 86399999999` | the same guard over the microsecond count | per-lane: compare to mask, mask logic, mask broadcast, mask test |
 | `t + INTERVAL '0 00:00:00' DAY TO SECOND` | `time` | `time_to_micros(t) + 0 BETWEEN 0 AND 86399999999` | a zero interval on purpose: this fixture reaches both ends of the day, so any other constant crosses midnight on some row, where Spark raises an error rather than a value. The sum is still guarded to the day - the domain adds the interval's microseconds, 0 here, to the time's; the crossing case, and a column interval, are VarkaTimeArithmeticSuite's | per-lane: compare to mask, mask logic, mask broadcast, mask test |
 
+#### TIME decimal outputs
+
+| Expression | Switches | Domain | Notes | 128-bit lanes |
+|---|---|---|---|---|
+| `time_to_seconds(t)` | none |  | a DECIMAL(14, 6), (n + 500) / 1000: the exact quotient by 10^9 rounded half up to six digits, written as the low word and its sign extension | per-lane: compare to mask, mask cast, other, blend |
+| `extract(SECOND FROM t)` | none |  | a DECIMAL(8, 6), s * 10^6 + (n % 10^9) / 1000; Spark rounds a Double back to six digits, which lands on the same value for every (s, g) | per-lane: compare to mask, mask cast, other, blend |
+
 <!-- END generated coverage table -->
 
 ### How each row is verified
@@ -1061,7 +1068,7 @@ operands (a row counts once for each type it reads):
 | `int` | 122 | 14 | 2 | 0 | 1 | 105 |
 | `ntz` | 24 | 0 | 1 | 0 | 0 | 23 |
 | `short` | 31 | 0 | 0 | 0 | 8 | 23 |
-| `time` | 41 | 6 | 0 | 0 | 2 | 33 |
+| `time` | 43 | 6 | 1 | 1 | 2 | 33 |
 | `ym` | 35 | 7 | 2 | 0 | 2 | 24 |
 <!-- END generated verification counts -->
 

@@ -5746,6 +5746,28 @@
           "runMasked([J[J[I[J[J[I[JI)I" : "a037dfc254629f23",
           "loopMasked0([J[J[I[J[J[I[JI)I" : "e383ecb7f0163e3b",
           "epilogueMasked0([J[J[I[J[J[I[JI)I" : "dcc03a230ce3fd7e"
+        },
+        "time_to_seconds(t)" : {
+          "<class>" : "1a6be0d5ae87cd3c",
+          "<init>()V" : "e2c903051ec05d17",
+          "run([J[J[I[J[J[I[JI)I" : "d5145bab352f2868",
+          "runDense([J[J[I[J[J[I[JI)I" : "7b15a2415c2410d7",
+          "loopDense0([J[J[I[J[J[I[JI)I" : "afa126520aa412c0",
+          "epilogueDense0([J[J[I[J[J[I[JI)I" : "c0c3f871f38236cf",
+          "runMasked([J[J[I[J[J[I[JI)I" : "a037dfc254629f23",
+          "loopMasked0([J[J[I[J[J[I[JI)I" : "afa126520aa412c0",
+          "epilogueMasked0([J[J[I[J[J[I[JI)I" : "c0c3f871f38236cf"
+        },
+        "extract(SECOND FROM t)" : {
+          "<class>" : "1a6be0d5ae87cd3c",
+          "<init>()V" : "e2c903051ec05d17",
+          "run([J[J[I[J[J[I[JI)I" : "d5145bab352f2868",
+          "runDense([J[J[I[J[J[I[JI)I" : "7b15a2415c2410d7",
+          "loopDense0([J[J[I[J[J[I[JI)I" : "d4e629dc49c5a995",
+          "epilogueDense0([J[J[I[J[J[I[JI)I" : "b265ca6a0cb5f760",
+          "runMasked([J[J[I[J[J[I[JI)I" : "a037dfc254629f23",
+          "loopMasked0([J[J[I[J[J[I[JI)I" : "d4e629dc49c5a995",
+          "epilogueMasked0([J[J[I[J[J[I[JI)I" : "b265ca6a0cb5f760"
         }
       },
       "fuzz" : {
@@ -11534,6 +11556,28 @@
           "runMasked([J[J[I[J[J[I[JI)I" : "a037dfc254629f23",
           "loopMasked0([J[J[I[J[J[I[JI)I" : "beccdf37e06729a2",
           "epilogueMasked0([J[J[I[J[J[I[JI)I" : "5b5f4f506b106e16"
+        },
+        "time_to_seconds(t)" : {
+          "<class>" : "1a6be0d5ae87cd3c",
+          "<init>()V" : "e2c903051ec05d17",
+          "run([J[J[I[J[J[I[JI)I" : "d5145bab352f2868",
+          "runDense([J[J[I[J[J[I[JI)I" : "7b15a2415c2410d7",
+          "loopDense0([J[J[I[J[J[I[JI)I" : "163086fe655b9c16",
+          "epilogueDense0([J[J[I[J[J[I[JI)I" : "0118d5e72503f4f3",
+          "runMasked([J[J[I[J[J[I[JI)I" : "a037dfc254629f23",
+          "loopMasked0([J[J[I[J[J[I[JI)I" : "163086fe655b9c16",
+          "epilogueMasked0([J[J[I[J[J[I[JI)I" : "0118d5e72503f4f3"
+        },
+        "extract(SECOND FROM t)" : {
+          "<class>" : "1a6be0d5ae87cd3c",
+          "<init>()V" : "e2c903051ec05d17",
+          "run([J[J[I[J[J[I[JI)I" : "d5145bab352f2868",
+          "runDense([J[J[I[J[J[I[JI)I" : "7b15a2415c2410d7",
+          "loopDense0([J[J[I[J[J[I[JI)I" : "fedf1bf43f10592d",
+          "epilogueDense0([J[J[I[J[J[I[JI)I" : "82266b0e1628bed3",
+          "runMasked([J[J[I[J[J[I[JI)I" : "a037dfc254629f23",
+          "loopMasked0([J[J[I[J[J[I[JI)I" : "fedf1bf43f10592d",
+          "epilogueMasked0([J[J[I[J[J[I[JI)I" : "82266b0e1628bed3"
         }
       },
       "fuzz" : {
@@ -11558,47 +11602,47 @@
   },
   "option_arms" : {
     "useAVX=-1" : {
-      "4" : "95ee62b3eabc5225",
-      "16" : "727f96cbc79525bb"
+      "4" : "1a6c97e3b9d3813c",
+      "16" : "02ce0f20bada7393"
     },
     "useAVX=0" : {
-      "4" : "2496b7db9665a5c4",
-      "16" : "a6649fd37e234437"
+      "4" : "073d74f09951b1e0",
+      "16" : "68042db60d3a5067"
     },
     "useAVX=1" : {
-      "4" : "2496b7db9665a5c4",
-      "16" : "a6649fd37e234437"
+      "4" : "073d74f09951b1e0",
+      "16" : "68042db60d3a5067"
     },
     "useAVX=2" : {
-      "4" : "2496b7db9665a5c4",
-      "16" : "a6649fd37e234437"
+      "4" : "073d74f09951b1e0",
+      "16" : "68042db60d3a5067"
     },
     "useAVX=3" : {
-      "4" : "95ee62b3eabc5225",
-      "16" : "727f96cbc79525bb"
+      "4" : "1a6c97e3b9d3813c",
+      "16" : "02ce0f20bada7393"
     },
     "validityOrFirst=true over denseValidityOnce=false,validityByBitmap=false" : {
-      "4" : "e9a0ec10f94b37a7",
+      "4" : "a683476f74f4346d",
       "16" : "043063064be8ee25"
     },
     "validityOrFirst=false over denseValidityOnce=false,validityByBitmap=false" : {
-      "4" : "a6e280e2c8cb06ff",
-      "16" : "d3ed0d952ed67069"
+      "4" : "7aa660af8502be5f",
+      "16" : "b6c018059b8f6fbc"
     },
     "narrowLanes=true" : {
-      "4" : "95ee62b3eabc5225",
-      "16" : "727f96cbc79525bb"
+      "4" : "1a6c97e3b9d3813c",
+      "16" : "02ce0f20bada7393"
     },
     "narrowLanes=false" : {
       "4" : "01c9c3a29e55e6dc",
-      "16" : "ef4c36aa63d9cb1f"
+      "16" : "eb02bd9877ad5921"
     },
     "groupLocalSlots=false" : {
       "4" : "3255f437ace9ca45",
       "16" : "5d111ce6bcef6181"
     },
     "methodByteBudget=0" : {
-      "4" : "c5fe43add82d2d3f",
+      "4" : "36b36d8d1497ee66",
       "16" : "3d1078af0a7cbe77"
     }
   }

@@ -247,7 +247,7 @@ time_trunc	TimeTrunc	datetimeExpressions	in		time	time	time		done
 time_from_seconds	TimeFromSeconds	datetimeExpressions	in		byte,short,int,bigint,float,double,dec	time		byte,short,float,double,dec	semantics	351,343	from a decimal or a double
 time_from_millis	TimeFromMillis	datetimeExpressions	in		byte,short,int,bigint	time	bigint	byte,short	plumbing	329	fused for bigint in `time_from_millis(time_to_millis(t2))`
 time_from_micros	TimeFromMicros	datetimeExpressions	in		byte,short,int,bigint	time	bigint	byte,short	plumbing	329	fused for bigint in `time_from_micros(time_to_micros(t))`
-time_to_seconds	TimeToSeconds	datetimeExpressions	in		time	dec		dec	plumbing	351,157	a DECIMAL(14,6) result
+time_to_seconds	TimeToSeconds	datetimeExpressions	in		time	dec	time	dec	done	157	a DECIMAL(14,6) result, through the decimal store
 time_to_millis	TimeToMillis	datetimeExpressions	in		time	bigint	time		done		
 time_to_micros	TimeToMicros	datetimeExpressions	in		time	bigint	time		done		
 make_timestamp	MakeTimestampExpressionBuilder	datetimeExpressions	out	TIMESTAMP with local time zone: owner's decision, 14 October 2026 (its NTZ form is make_timestamp_ntz)							
@@ -260,7 +260,7 @@ try_make_timestamp_ltz	TryMakeTimestampLTZExpressionBuilder	datetimeExpressions	
 make_interval	MakeInterval	datetimeExpressions	out	CALENDAR INTERVAL result: outside the type set							
 make_dt_interval	MakeDTInterval	datetimeExpressions	in		int,bigint,dec	dt		dec	semantics	351,103	seconds arrive as DECIMAL(18,6)
 make_ym_interval	MakeYMInterval	datetimeExpressions	in		int	ym	int		done		fused in `make_ym_interval(year(d), month(d))`
-extract	Extract	datetimeExpressions	in		date,ntz,time,ym,dt	byte,int,dec	date,ym	byte,dec,ntz	semantics	340,103,351	fields over ntz and dt are new; SECOND gives a decimal
+extract	Extract	datetimeExpressions	in		date,ntz,time,ym,dt	byte,int,dec	date,time,ym	byte,dec,ntz	semantics	340,103,351	fields over ntz and dt are new; SECOND over time gives a decimal (row 157)
 date_part	DatePartExpressionBuilder	datetimeExpressions	in		date,ntz,time,ym,dt	byte,int,dec	date,ym	byte,dec,ntz	semantics	340,103,351	as extract
 datepart	DatePartExpressionBuilder	datetimeExpressions	in		date,ntz,time,ym,dt	byte,int,dec	date,ym	byte,dec,ntz	semantics	340,103,351	as extract
 date_from_unix_date	DateFromUnixDate	datetimeExpressions	in		int	date	int		done		fused in `date_from_unix_date(unix_date(d))`
