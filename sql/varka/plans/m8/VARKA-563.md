@@ -57,7 +57,9 @@ the branch checked out (`VARKA_PUSH_CHECK=fast`); `full` runs everything, `off` 
 
 1. **Settled by the owner, 4 November 2026: `fast` is the hook's default** (3 s; replays 25-54 s).
 2. R3's JVM step costs `VarkaEmittedBytesSuite` (445 s of CI weight) on every branch touching a
-   Varka main file; a source stamp (section 7) would make staleness a hash compare. A row?
+   Varka main file; a source stamp, a SHA-256 of its `FEEDERS`' blob ids
+   (`dev/varka_generated_merge.py`) in each generated file's header, which `--check` recomputes,
+   would make staleness a hash compare. A row?
 3. **Settled by the lead, 4 November 2026: no `--quick` dropping `VarkaIrFuzzSuite`**, which R1
    runs only when a record changes, exactly when "the generator never built" matters.
 4. **Settled by the lead, 4 November 2026: R2 errs toward a false positive**, and
@@ -79,15 +81,15 @@ the branch checked out (`VARKA_PUSH_CHECK=fast`); `full` runs everything, `off` 
 ## 5. Done when
 
 The self-test proves each rule fires on its fixture and stays quiet beside it, and the three
-incidents' pre-fix heads each fail under the rule that names their cause at `fast`, with no JVM,
-while a clean branch passes.
+incidents' pre-fix heads each fail under the rule that names their cause at `fast`, with no JVM
+(#1323 with the second part, section 7), while a clean branch passes.
 
 ## 6. Outcome
 
 Built 4 November 2026; replays (`results/VARKA-563-replays.txt`, with times) failed #1317 under
 R2, #1338 under R1 (three suites on `CrossLane`, as CI) and #1323 under R3, only #1317 at `fast`.
 
-## 7. The second round: `fast` catches all three
+## 7. The second and third rounds
 
 - **R1 reads the registries as text** (`REGISTRIES`, one line a suite): each record R1 names must
   appear where each registry looks, from a quoted exemption or a `VarkaIrGrammar.java`
@@ -95,16 +97,11 @@ R2, #1338 under R1 (three suites on `CrossLane`, as CI) and #1323 under R3, only
   `VarkaVectorIRSharingSuite` enumerates reflectively, and an unlisted registry is printed as
   unchecked. Over every record it finds nothing on origin/master or `4c7fd1c90d8`, and names
   `CrossLane` in exactly the three suites CI failed (`VarkaReproductionSuite` had its round trip).
-- **R3 reads the branch's reflog.** `--owed` cannot tell a committed rebase's entries from an
-  aborted one's. A `rebase (finish)` entry names its commit and the one it went onto, the entry
-  before it the old tip: a generated file both sides changed since their merge base is owed. The
-  reflog is walked in order, so a later rebase, rewriting the debt's commit, pays nothing; a
-  commit after it touching any of its files pays (a regeneration commits only what moved), as
-  does `dev/varka_regen_generated.sh --all`, which leaves its commit in the git dir's
-  `varka-regen-all`. A file the branch no longer changes owes nothing; `--branch` names the
-  branch for a detached HEAD. Prose both sides of `docs/sql-varka.md` edited owes an idle `--all`.
-- **The reflog is local, so the source stamp is owed** (point 2): a fresh clone or a rebase by
-  `git am` leaves no entry. Each generated file's header would hold a SHA-256 of its `FEEDERS`'
-  blob ids (`dev/varka_generated_merge.py`), which `--check` recomputes.
-- **A missing ruff names itself** (the pin and a venv); the replays' verdicts are in the results.
+- **R3's rebase debt is the second part, `varka-563b-rebase-debt`**, stacked on this one: the
+  branch's reflog read for a rebase's text merges, and `dev/varka_regen_generated.sh --all`'s
+  marker. Without it `fast` does not catch #1323, whose `--owed` and `--check` pass; `full` does.
+- **A missing ruff names its pin**: `dev/varka_precommit.sh` reads `ruff==` from
+  `dev/requirements.txt`, which the Build's lint job installs, and prints a venv recipe.
 - `dev/varka_precommit.sh --range` on `varka-348a3-choices` (master merged twice) reads 19 files.
+- Third round (the high review's fixes): on this part #1317 fails under R2 and #1338 under R1 at
+  `fast`, #1323 only at `full`, and the clean heads pass (`results/VARKA-563-replays.txt`).

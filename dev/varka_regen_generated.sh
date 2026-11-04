@@ -132,7 +132,3 @@ else
   rm -f "$(git rev-parse --git-path varka-regen-owed)"
   echo "varka regen: done; review git diff and commit the regenerated files"
 fi
-# Last, so that it marks only a run whose every step passed: the commit every generated file was
-# regenerated on, which pays a rebase's text merge of them when the regeneration changed nothing
-# to commit (dev/varka_push_check.py's rebase_debt).
-if [ $all = 1 ]; then git rev-parse HEAD > "$(git rev-parse --git-path varka-regen-all)"; fi

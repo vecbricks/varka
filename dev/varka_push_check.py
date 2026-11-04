@@ -23,7 +23,6 @@
     dev/varka_push_check.py --no-jvm     # the rules that need no JVM
     dev/varka_push_check.py --lint       # add Error Prone, scalastyle and lint-java
     dev/varka_push_check.py --full       # add the width audit, which is one CPU's census
-    dev/varka_push_check.py --branch B   # read B's reflog for its rebases (default HEAD's branch)
     dev/varka_push_check.py --self-test  # each rule over fixture diffs and trees
 
 The rules, each a lesson of a lost CI round (m8/VARKA-563.md 1):
@@ -33,9 +32,8 @@ The rules, each a lesson of a lost CI round (m8/VARKA-563.md 1):
       on a registry whose text names the record nowhere it must (`REGISTRIES`) (#1338);
   R2  a string literal a removed line of a Varka main file held, still in a test, the coverage
       file or the docs, fails at once; the suites holding the old or the new text run (#1317);
-  R3  the generated files: nothing owed by a merge, nothing a committed rebase text-merged
-      left unregenerated (the branch's reflog), no coverage row missing, and when a Varka main
-      or generated file changed, their suites run without REGEN variables (#1323);
+  R3  the generated files: nothing owed by a merge, no coverage row missing, and when a Varka
+      main or generated file changed, their suites run without REGEN variables (#1323);
   R4  the house checks a push owes: the pre-commit rules over the range, the plan lint, the
       quote check, the census check and the size cap.
 
@@ -127,9 +125,6 @@ class Repo:
         return subprocess.run(
             ["git", *args], cwd=self.root, capture_output=True, text=True, check=check, env=self.env
         )
-
-    def ancestor(self, a, b):
-        return self.git("merge-base", "--is-ancestor", a, b).returncode == 0
 
     def diff(self):
         return self.git("diff", "-U0", "--no-renames", "--no-color", self.base, check=True).stdout
@@ -337,58 +332,6 @@ def generated_findings(owed, check_rc, check_out):
     return out
 
 
-REBASED = re.compile(r"\(finish\): \S+ onto ([0-9a-f]{40})")
-# A reflog entry committing the author's own change; a merge is --owed's, not a regeneration.
-COMMITTED = re.compile(r"(commit|commit \(amend\)|cherry-pick): ")
-
-
-def rebase_debt(repo, branch, generated):
-    """{generated file: its rebase}: the files a rebase of branch text-merged, both sides having
-    changed them, which the merge driver owes (a rebase names no other side) but records nowhere.
-    Read from branch's reflog in order; paid only by what follows the debt: a commit whose change
-    from the entry before touches any of its files (a regeneration commits only the files that
-    moved), or dev/varka_regen_generated.sh --all run since. A
-    later rebase, rewriting the debt's commit, pays nothing; a file now as the base has it owes
-    nothing."""
-    log = repo.git("reflog", "show", "--format=%H %gs", branch, "--").stdout.splitlines()[::-1]
-    marker = repo.git("rev-parse", "--git-path", "varka-regen-all").stdout.strip()
-    try:
-        with open(os.path.join(repo.root, marker), encoding="utf-8") as f:
-            regenerated = f.read().strip()
-    except OSError:
-        regenerated = ""
-    shas = [line.split(" ", 1)[0] for line in log]
-    # A replay of an old tip (--branch beside a detached HEAD) reads the reflog up to it only.
-    head = repo.git("rev-parse", "HEAD").stdout.strip()
-    if head in shas:
-        log = log[: len(shas) - shas[::-1].index(head)]
-        shas = shas[: len(log)]
-    regen_at = max((i for i, s in enumerate(shas) if s == regenerated), default=-1)
-    debt = {}
-    for i, line in enumerate(log[1:], 1):
-        sha, _, subject = line.partition(" ")
-        before = shas[i - 1]
-        if COMMITTED.match(subject):
-            moved = set(repo.git("diff", "--name-only", before, sha).stdout.split())
-            debt = {r: files for r, files in debt.items() if not moved & set(files)}
-        onto = REBASED.search(subject)
-        if not onto or repo.ancestor(sha, repo.base):
-            continue
-        old = repo.git("merge-base", before, onto[1]).stdout.strip()
-        sides = [
-            set(repo.git("diff", "--name-only", old, s).stdout.split()) for s in (before, onto[1])
-        ]
-        both = sorted(sides[0] & sides[1] & generated) if old else []
-        later = (
-            regenerated and repo.ancestor(sha, regenerated) and repo.ancestor(regenerated, "HEAD")
-        )
-        if both and not (regen_at >= i or (regen_at < 0 and later)):
-            debt[f"{sha[:11]} onto {onto[1][:11]}"] = both
-    owed = {p: r for r, files in debt.items() for p in files}
-    changed = repo.git("diff", "--name-only", repo.base, "--", *owed).stdout.split() if owed else []
-    return {p: r for p, r in owed.items() if p in changed}
-
-
 def touches_generated(changed, generated):
     return any(
         p in generated or (is_varka_main(p) and p.startswith(GENERATING_TREES)) for p in changed
@@ -430,13 +373,6 @@ def plan(repo, args):
         )
     ]
     listed = subprocess.run([*py, "--list"], cwd=repo.root, capture_output=True, text=True)
-    branch = args.branch or repo.git("symbolic-ref", "-q", "--short", "HEAD").stdout.strip()
-    debt = rebase_debt(repo, branch, set(listed.stdout.split())) if branch else {}
-    if not branch:
-        print("R3: HEAD is detached, so no reflog shows a rebase's debt; unchecked, pass --branch")
-    for rebase in sorted(set(debt.values())):
-        files = ", ".join(p for p, r in sorted(debt.items()) if r == rebase)
-        findings.append(("R3", f"the rebase {rebase} text-merged {files}; run {REGEN}"))
     if touches_generated(changed, set(listed.stdout.split())):
         names = GENERATED_SUITES + ((AUDIT_SUITE,) if args.full else ())
         tests = repo.tracked(TEST_TREES)
@@ -706,50 +642,6 @@ class SelfTest(unittest.TestCase):
         self.assertEqual(len(notes), 1)
         self.assertIn("VarkaNewSuite.scala enumerates node types unread here", notes[0])
 
-    def test_r3_a_committed_rebase_owes_what_both_sides_changed_until_regenerated(self):
-        with tempfile.TemporaryDirectory() as d:
-            repo = Repo(d, "master")
-            env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
-            repo.env = {**env, "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
-
-            def commit(path, text, msg):
-                with open(os.path.join(d, path), "w", encoding="utf-8") as f:
-                    f.write(text)
-                repo.git("add", path, check=True)
-                repo.git("commit", "-q", "-m", msg, check=True)
-
-            repo.git("init", "-q", "-b", "master", check=True)
-            for k, v in (("user.name", "t"), ("user.email", "t@t"), ("core.hooksPath", "/n")):
-                repo.git("config", k, v, check=True)
-            gen = {"g.json", "h.json", "x.txt"}
-            # Both files changed at both ends, the topic's first line and master's last.
-            for side, top, end in (("base", "", ""), ("topic", "topic", ""), ("master", "", "m")):
-                if side != "base":
-                    repo.git("checkout", "-q", *(["-b"] if side == "topic" else []), side)
-                for path in ("g.json", "h.json"):
-                    commit(path, f"1 {top}\n2\n3\n4\n5 {end}\n", side)
-            commit("x.txt", "x\n", "master's own file")
-            repo.git("checkout", "-q", "topic", check=True)
-            repo.git("rebase", "-q", "master", check=True)
-            head = repo.git("rev-parse", "HEAD").stdout.strip()
-            debt = rebase_debt(repo, "topic", gen)
-            self.assertEqual(list(debt), ["g.json", "h.json"])
-            self.assertTrue(debt["g.json"].startswith(head[:11]))
-            marker = repo.git("rev-parse", "--git-path", "varka-regen-all").stdout.strip()
-            with open(os.path.join(d, marker), "w", encoding="utf-8") as f:
-                f.write(head + "\n")
-            self.assertEqual(rebase_debt(repo, "topic", gen), {})
-            os.remove(os.path.join(d, marker))
-            # A second rebase, master not changing the file, rewrites the debt's commit: still owed.
-            repo.git("checkout", "-q", "master", check=True)
-            commit("y.txt", "y\n", "master again")
-            repo.git("checkout", "-q", "topic", check=True)
-            repo.git("rebase", "-q", "master", check=True)
-            self.assertFalse(repo.ancestor(head, "HEAD"))
-            self.assertEqual(rebase_debt(repo, "topic", gen), debt)
-            commit("g.json", "1 topic\n2\n3\n4\n5 master regenerated\n", "regenerate g only")
-            self.assertEqual(rebase_debt(repo, "topic", gen), {})
-
     def test_r2_fires_on_a_removed_reason_a_test_pins_split_elsewhere(self):
         base = {PLAN: OLD, SUITE: PINNED}
         head = {PLAN: NEW, SUITE: PINNED}
@@ -834,7 +726,6 @@ def main(argv):
     p.add_argument("--lint", action="store_true")
     p.add_argument("--full", action="store_true")
     p.add_argument("--no-precommit", action="store_true", help="the pre-push hook ran it already")
-    p.add_argument("--branch", help="the branch whose reflog records its rebases (default HEAD's)")
     return run(p.parse_args(argv[1:]))
 
 
