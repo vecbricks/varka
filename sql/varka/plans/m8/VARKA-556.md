@@ -1,7 +1,8 @@
 # VARKA-556: One definition of "the same answer"
 
 *Planned 3 November 2026 on `varka-556-557-plan`, from the both-bodies failure that pull request
-row 555 (#1313, merged) fixed. The first pull request, 556a, is built: section 10.*
+row 555 (#1313, merged) fixed. 556a is built (section 10), and 556b, with 556a2
+folded in (section 11).*
 
 ## 1. Where this came from
 
@@ -310,3 +311,65 @@ No emitter or compiler file is touched, so no generated file moves.
    arithmetic, so its payload is the tier's that runs it, not the left's; `MaxV` and `MinV` are on
    the vector swap list. `skills/the-jit.md` and the class Javadoc say it as corrected.
 
+
+**The contract table (556a2, branch `varka-556-contract`)** holds 3.3's pairs with three changes.
+`x - x2` is fixed, not open (item 8). Picks decided by their conditions are added, each one a
+rule that ignored the condition gets wrong: `IF` and `CASE` taking the branch without the open
+sum and with it, `coalesce` over a null column and over an arithmetic with one null operand
+(item 3), `greatest` and `least` over a column NaN and an open sum, a `FLOAT` pick, a conversion
+of an open NaN (item 2), and item 7's `sqrt(least(x + x2, -1.0))`, which must be rejected; a
+null over stale bits (an `UnsafeRow`) and `BOOLEAN` values. Dropped from 3.3, with the reason:
+
+- *A `FLOAT` lane carrying other high bits*: no comparator receives one. `compareBodies` reads
+  four bytes, and the IR checks get both answers from the lane in one representation, so the
+  pair would test one no caller hands over.
+- *A bit output's data bit under a clear validity bit, and a selection bitmap*: those are compared
+  as bits by `compareBodies` and by `VarkaKernelChecks`' selection check, outside
+  `VarkaSameAnswer`; `VarkaEvaluatorComponentsSuite` holds both (11), not the twin.
+- *The `nanvl` pair over the IR*: Varka does not lower `nanvl`, and the shape written for it was
+  invented; the expression pair stays.
+
+## 11. Outcome of 556b (4 November 2026, branch `varka-556b-twin`)
+
+**Built**, stacked on 556a with 556a2's two commits folded in: the twin runs 556a2's table and
+replaces the restatement 556a2 carries, which two pull requests would show added, then deleted.
+
+- *The sql/core twin*, `VarkaSameAnswerCoreContractSuite`, holds the table against the
+  comparators only sql/core reaches: `VarkaKernelRunner.compareBodies` at `TYPE`, over one-row
+  Arrow outputs built from Spark's field for the pair's type, with the evaluator's width and
+  floating flag (`VarkaKernelRunner.outputWidth` and `floatingOutput`, moved out of
+  `VarkaEvaluatorBase`; public, as `VarkaKernelRunner` is in `execution.varka` and both callers
+  in `execution`); `VarkaExpressionHarness.sameRow` at `EXACT` and, with `unfixedNaN`, at `ROW`;
+  `checkAnswer`'s `QueryTest.sameRows` at `ANY_NAN` (9.2); and `VarkaSparkFuzz`'s `Row.toString`
+  at `ANY_NAN`, decimals apart (a collected row carries its type's scale). Every pair but the four
+  decimals the type cannot hold reaches `compareBodies`, two of them disagreeing at the type's
+  scale (`1.50` against `1.51`, and a `DECIMAL(38,4)` apart only in its high 8 bytes). One
+  null-free row is a batch the running check skips (`dense && len == 1`); a nullable batch (a null
+  input's row skipped) and a selection bitmap are a two-row case in `VarkaEvaluatorComponentsSuite`
+  beside its bit output under a clear validity bit, so the twin adds neither pair.
+- *The suite-local rules* (rule 7) are row-level calls: `VarkaSparkOracle.openNaN` in
+  `VarkaEmitterFloatingArithSuite` for `twoUnlikeNaNs`, and `VarkaSameAnswer.sameRow` over the
+  row engine's optimized projection in `VarkaFloatingLaneSuite` for `nanAsOne`.
+- *The lint rule*, `nan-compare` in `dev/varka_lint.py`, reads an expression across its
+  continuation lines, outside `VarkaSameAnswer` and the contract suites: two answers' bits
+  compared (raw or canonical; a constant operand is a sign test), `Double.compare(a, b) == 0`, or
+  two un-negated NaN tests joined by `&&`, unless `openNaN` decides the pair. It catches five of
+  the six comparators 556 removed; it cannot see `nanAsOne`'s one-column relaxation, a boxed
+  `equals`, or a rule behind a helper of another name. Over the tree it finds six expressions, on
+  no line a commit here writes; one accepts any NaN, `VarkaEmitterFloatingArithSuite`'s
+  `nanByNess`, which the next 556 part moves onto `VarkaSameAnswer`'s `ANY_NAN` (Max, 4 November).
+
+**Where verdicts move** (3.4, 7): a row with two unlike NaN inputs no longer excuses every form
+in `VarkaEmitterFloatingArithSuite`, nor `nanAsOne` every NaN of a column over two operands
+(`x1 - x2`, `try_divide(x1, x2)`) in `VarkaFloatingLaneSuite`; only a NaN open by its provenance
+agrees as any NaN. All of it passes: no Varka answer moved.
+
+**Left for m8's math.** `VarkaSameAnswer`'s `Other` step treats a two-operand math function over
+two column NaNs as fixed, but fdlibm returns `x + y` for NaN operands, an add, so its payload is
+tier-dependent; when m8's math lands on these suites, mark those nodes either-payload.
+
+**Size and tests.** `dev/varka_msg_check.py size --base varka-556-same-answer` reads 996 counted
+lines, 458 of them 556a2's. `dev/varka_matrix.sh --defaults` (both-bodies check, sanitizer on)
+over the two contract suites, `VarkaEvaluatorComponentsSuite`, `VarkaFloatingLaneSuite` and
+`VarkaEmitterFloatingArithSuite`: 205 passed, none failed, one cancelled (the float sweep). The
+run before the review, over 20 suites, passed 2215; no main code has changed since.

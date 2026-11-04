@@ -70,22 +70,17 @@ class VarkaSparkOracle(outputs: Seq[Expression], inputs: Seq[Attribute]) {
     VarkaTypes.of(t).toScala.map(VarkaTypes.info).filter(_.lane.toScala.exists(_.isFloating))
   }
 
+  /**
+   * Whether output `o`'s value on a row of lane values is a NaN whose payload is open by its
+   * provenance, [[VarkaSameAnswer.openNaN]] over the expression the oracle evaluates.
+   */
+  def openNaN(o: Int, row: Seq[Option[Long]]): Boolean =
+    VarkaSameAnswer.openNaN(bound(o), new GenericInternalRow(values(row).toArray[Any]))
+
   /** Spark's answer for output `o` on a row of lane values, `None` for a null input. */
   def answer(o: Int, row: Seq[Option[Long]]): VarkaSparkOracle.Answer = {
-    val values = row.indices.map { k =>
-      (row(k), floating(k), storage(k)) match {
-        case (None, _, _) => null
-        case (Some(v), Some(info), _) => info.sparkValue(v)
-        case (Some(v), None, 1) => v != 0L
-        case (Some(v), None, 8) => v.toByte
-        case (Some(v), None, 16) => v.toShort
-        case (Some(v), None, 32) => v.toInt
-        case (Some(v), None, 64) => v
-        case _ => throw new IllegalArgumentException(s"no kernel input of type ${types(k)}")
-      }
-    }
     try {
-      bound(o).eval(new GenericInternalRow(values.toArray[Any])) match {
+      bound(o).eval(new GenericInternalRow(values(row).toArray[Any])) match {
         case null => VarkaSparkOracle.Null
         case b: Boolean => VarkaSparkOracle.Value(if (b) 1L else 0L)
         case b: Byte => VarkaSparkOracle.Value(b.toLong)
@@ -101,6 +96,20 @@ class VarkaSparkOracle(outputs: Seq[Expression], inputs: Seq[Attribute]) {
       case e: ArithmeticException => VarkaSparkOracle.Raised(e)
       case e: org.apache.spark.SparkThrowable => VarkaSparkOracle.Raised(e.asInstanceOf[Throwable])
       case e: java.time.DateTimeException => VarkaSparkOracle.Raised(e)
+    }
+  }
+
+  /** A row of lane values as Catalyst's values of the inputs' types. */
+  private def values(row: Seq[Option[Long]]): Seq[Any] = row.indices.map { k =>
+    (row(k), floating(k), storage(k)) match {
+      case (None, _, _) => null
+      case (Some(v), Some(info), _) => info.sparkValue(v)
+      case (Some(v), None, 1) => v != 0L
+      case (Some(v), None, 8) => v.toByte
+      case (Some(v), None, 16) => v.toShort
+      case (Some(v), None, 32) => v.toInt
+      case (Some(v), None, 64) => v
+      case _ => throw new IllegalArgumentException(s"no kernel input of type ${types(k)}")
     }
   }
 
