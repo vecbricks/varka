@@ -310,3 +310,20 @@ No emitter or compiler file is touched, so no generated file moves.
    arithmetic, so its payload is the tier's that runs it, not the left's; `MaxV` and `MinV` are on
    the vector swap list. `skills/the-jit.md` and the class Javadoc say it as corrected.
 
+
+**The contract table (556a2, branch `varka-556-contract`)** holds 3.3's pairs with three changes.
+`x - x2` is fixed, not open (item 8). Picks decided by their conditions are added, each one a
+rule that ignored the condition gets wrong: `IF` and `CASE` taking the branch without the open
+sum and with it, `coalesce` over a null column and over an arithmetic with one null operand
+(item 3), `greatest` and `least` over a column NaN and an open sum, a `FLOAT` pick, a conversion
+of an open NaN (item 2), and item 7's `sqrt(least(x + x2, -1.0))`, which must be rejected; a
+null over stale bits (an `UnsafeRow`) and `BOOLEAN` values. Dropped from 3.3, with the reason:
+
+- *A `FLOAT` lane carrying other high bits*: no comparator receives one. `compareBodies` reads
+  four bytes, and the IR checks get both answers from the lane in one representation, so the
+  pair would test one no caller hands over.
+- *A bit output's data bit under a clear validity bit, and a selection bitmap*: those are compared
+  as bits by `compareBodies` and by `VarkaKernelChecks`' selection check, outside
+  `VarkaSameAnswer`, which the catalyst tree cannot register; the sql/core twin (556b) can.
+- *The `nanvl` pair over the IR*: Varka does not lower `nanvl`, and the shape written for it was
+  invented; the expression pair stays.

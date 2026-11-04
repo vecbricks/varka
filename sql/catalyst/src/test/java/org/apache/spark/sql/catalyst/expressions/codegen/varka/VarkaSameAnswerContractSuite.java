@@ -35,29 +35,36 @@ import org.apache.spark.sql.catalyst.InternalRow;
 import org.apache.spark.sql.catalyst.expressions.Abs;
 import org.apache.spark.sql.catalyst.expressions.Add;
 import org.apache.spark.sql.catalyst.expressions.BoundReference;
+import org.apache.spark.sql.catalyst.expressions.Cast;
 import org.apache.spark.sql.catalyst.expressions.CaseWhen;
 import org.apache.spark.sql.catalyst.expressions.Coalesce;
+import org.apache.spark.sql.catalyst.expressions.EvalMode;
 import org.apache.spark.sql.catalyst.expressions.Expression;
 import org.apache.spark.sql.catalyst.expressions.GenericInternalRow;
 import org.apache.spark.sql.catalyst.expressions.Greatest;
 import org.apache.spark.sql.catalyst.expressions.If;
 import org.apache.spark.sql.catalyst.expressions.IsNotNull;
+import org.apache.spark.sql.catalyst.expressions.IsNull;
+import org.apache.spark.sql.catalyst.expressions.Least;
 import org.apache.spark.sql.catalyst.expressions.Literal;
 import org.apache.spark.sql.catalyst.expressions.Multiply;
 import org.apache.spark.sql.catalyst.expressions.NaNvl;
 import org.apache.spark.sql.catalyst.expressions.NumericEvalContext$;
+import org.apache.spark.sql.catalyst.expressions.Sqrt;
 import org.apache.spark.sql.catalyst.expressions.Subtract;
 import org.apache.spark.sql.catalyst.expressions.UnaryMinus;
+import org.apache.spark.sql.catalyst.expressions.UnsafeRow;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaSameAnswer.Level;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ColumnRef;
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Compare;
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.CompareOp;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ConvertLane;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IfElse;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IntArith;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IntNeg;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IntOp;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LaneType;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LiteralSlot;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.MathFn;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.MathUnary;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Not;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Overflow;
 import org.apache.spark.sql.internal.SQLConf;
@@ -66,6 +73,7 @@ import org.apache.spark.sql.types.DataTypes;
 import org.apache.spark.sql.types.Decimal;
 import org.apache.spark.sql.types.DecimalType;
 import org.apache.spark.sql.types.FloatType;
+import org.apache.spark.unsafe.bitset.BitSetMethods;
 
 /**
  * The contract of "the same answer" (VARKA-556): one table of tricky pairs of answers, each with
@@ -75,7 +83,8 @@ import org.apache.spark.sql.types.FloatType;
  * pair, instead of on a matrix run whose JIT tier happened to split two NaNs.
  *
  * <p>The row every pair is evaluated on holds three doubles that are NaNs of different bits,
- * {@code x}, {@code x2} and {@code x3}, and two floats that are, {@code f} and {@code f2}. A pair
+ * {@code x}, {@code x2} and {@code x3}, two floats that are, {@code f} and {@code f2}, and a null
+ * double, {@code n}. A pair
  * built by {@link #otherNaN} compares Spark's answer with the other column NaN, the answer a
  * wrong pick or another tier would give; a pair built by {@link #explicit} names both answers.
  */
@@ -90,19 +99,27 @@ public final class VarkaSameAnswerContractSuite {
 
   private static final InternalRow ROW = new GenericInternalRow(new Object[] {
       Double.longBitsToDouble(X), Double.longBitsToDouble(X2), Double.longBitsToDouble(X3),
-      Float.intBitsToFloat(F), Float.intBitsToFloat(F2)});
-  /** The same row as the IR's reference evaluator reads it: raw bits a column, x3 a literal. */
-  private static final long[] IR_ROW = {X, X2, X3, 0L, 0L};
-  private static final long[] IR_LITS = {X3};
+      Float.intBitsToFloat(F), Float.intBitsToFloat(F2), null});
+  /**
+   * The same row as the IR's reference evaluator reads it: raw bits a column, a float's
+   * sign-extended; x3 and -1.0 the two literals.
+   */
+  private static final long[] IR_ROW = {X, X2, X3, F, F2, 0L};
+  private static final boolean[] IR_NULLS = {false, false, false, false, false, true};
+  private static final long[] IR_LITS = {X3, Double.doubleToRawLongBits(-1.0d)};
 
   private static final Expression x = col(0, DataTypes.DoubleType);
   private static final Expression x2 = col(1, DataTypes.DoubleType);
   private static final Expression x3 = col(2, DataTypes.DoubleType);
   private static final Expression f = col(3, DataTypes.FloatType);
   private static final Expression f2 = col(4, DataTypes.FloatType);
+  private static final Expression n = col(5, DataTypes.DoubleType);
   private static final VarkaVectorIR X_IR = new ColumnRef(0, LaneType.DOUBLE);
   private static final VarkaVectorIR X2_IR = new ColumnRef(1, LaneType.DOUBLE);
   private static final VarkaVectorIR X3_IR = new ColumnRef(2, LaneType.DOUBLE);
+  private static final VarkaVectorIR F_IR = new ColumnRef(3, LaneType.FLOAT);
+  private static final VarkaVectorIR F2_IR = new ColumnRef(4, LaneType.FLOAT);
+  private static final VarkaVectorIR N_IR = new ColumnRef(5, LaneType.DOUBLE);
 
   /**
    * One pair of answers, {@code want} (Spark's) and {@code got}, of an output of {@code type}
@@ -153,26 +170,44 @@ public final class VarkaSameAnswerContractSuite {
             if (p.ir() == null || want == null || got == null) {
               return null;
             }
-            return VarkaSameAnswer.sameAnswer(p.ir(), want, got, reference(IR_ROW));
+            return VarkaSameAnswer.sameAnswer(p.ir(), want, got, reference());
           }));
 
   private static List<Pair> table() {
     var t = new ArrayList<Pair>();
-    // Open: an arithmetic over two NaNs of different bits, which any tier may answer with
+    VarkaVectorIR sum = arith(IntOp.ADD, X_IR, X2_IR);
+    VarkaVectorIR fsum = arith(IntOp.ADD, F_IR, F2_IR);
+    VarkaVectorIR.Cond isNullX = new Not(new VarkaVectorIR.IsNotNull(X_IR));
+    // Open: an add or a multiply over two NaNs of different bits, which a tier may answer with
     // either operand's payload.
-    t.add(otherNaN("x + x2", add(x, x2), arith(IntOp.ADD, X_IR, X2_IR), true));
-    t.add(otherNaN("x - x2", new Subtract(x, x2, ctx()), arith(IntOp.SUB, X_IR, X2_IR), true));
+    t.add(otherNaN("x + x2", add(x, x2), sum, true));
     t.add(otherNaN("x * x2", new Multiply(x, x2, ctx()), arith(IntOp.MUL, X_IR, X2_IR), true));
     t.add(otherNaN("x + a NaN literal of other bits",
         add(x, Literal.create(Double.longBitsToDouble(X3), DataTypes.DoubleType)),
         arith(IntOp.ADD, X_IR, new LiteralSlot(0, LaneType.DOUBLE)), true));
-    t.add(otherNaN("f + f2", add(f, f2), null, true));
+    t.add(otherNaN("f + f2", add(f, f2), fsum, true));
     t.add(otherNaN("-(x + x2)", new UnaryMinus(add(x, x2), false),
         new IntNeg(Overflow.WRAP, arith(IntOp.ADD, X_IR, X2_IR), false), true));
     t.add(otherNaN("IF(x IS NOT NULL, x + x2, 0.0)",
         new If(new IsNotNull(x), add(x, x2), Literal.create(0.0d, DataTypes.DoubleType)),
         new IfElse(new VarkaVectorIR.IsNotNull(X_IR), arith(IntOp.ADD, X_IR, X2_IR), X3_IR),
         true));
+    // A pick passes on the open NaN of the child its condition takes.
+    t.add(otherNaN("IF(x IS NULL, x3, x + x2)", new If(new IsNull(x), x3, add(x, x2)),
+        new IfElse(isNullX, X3_IR, sum), true));
+    t.add(otherNaN("coalesce(n, x + x2), n null", new Coalesce(seq(n, add(x, x2))),
+        new IfElse(new VarkaVectorIR.IsNotNull(N_IR), N_IR, sum), true));
+    t.add(otherNaN("coalesce(x + n, x + x2), over an arithmetic with one null operand",
+        new Coalesce(seq(add(x, n), add(x, x2))), new IfElse(
+            new VarkaVectorIR.IsNotNull(arith(IntOp.ADD, X_IR, N_IR)),
+            arith(IntOp.ADD, X_IR, N_IR), sum), true));
+    t.add(otherNaN("CAST(IF(f IS NULL, f, f + f2) AS DOUBLE), a conversion of an open NaN",
+        new Cast(new If(new IsNull(f), f, add(f, f2)), DataTypes.DoubleType, scala.Option.empty(),
+            EvalMode.LEGACY()),
+        new ConvertLane(new IfElse(new Not(new VarkaVectorIR.IsNotNull(F_IR)), F_IR, fsum),
+            LaneType.DOUBLE), true));
+    // Fixed: a subtraction or a division returns its left operand's payload on every tier.
+    t.add(otherNaN("x - x2", new Subtract(x, x2, ctx()), arith(IntOp.SUB, X_IR, X2_IR), false));
     // Fixed: a pick or a one-operand operation returns a NaN whose bits follow from its input.
     t.add(otherNaN("-x", new UnaryMinus(x, false), new IntNeg(Overflow.WRAP, X_IR, false),
         false));
@@ -181,8 +216,7 @@ public final class VarkaSameAnswerContractSuite {
         new IfElse(new VarkaVectorIR.IsNotNull(X_IR), X_IR, X2_IR), false));
     t.add(otherNaN("greatest(x, x2)", new Greatest(seq(x, x2)),
         new VarkaVectorIR.Greatest(X_IR, X2_IR), false));
-    t.add(otherNaN("nanvl(x, x2)", new NaNvl(x, x2),
-        new IfElse(new Not(new Compare(CompareOp.EQ, X_IR, X_IR)), X2_IR, X_IR), false));
+    t.add(otherNaN("nanvl(x, x2)", new NaNvl(x, x2), null, false));
     t.add(otherNaN("IF(x IS NOT NULL, x, x2)", new If(new IsNotNull(x), x, x2),
         new IfElse(new VarkaVectorIR.IsNotNull(X_IR), X_IR, X2_IR), false));
     t.add(otherNaN("coalesce(x3, x + x2), returning x3 beside an open sum",
@@ -195,7 +229,27 @@ public final class VarkaSameAnswerContractSuite {
             scala.Option.apply(add(x, x2))),
         new IfElse(new VarkaVectorIR.IsNotNull(X_IR), X3_IR, arith(IntOp.ADD, X_IR, X2_IR)),
         false));
-    t.add(otherNaN("greatest(f, f2)", new Greatest(seq(f, f2)), null, false));
+    t.add(otherNaN("greatest(f, f2)", new Greatest(seq(f, f2)),
+        new VarkaVectorIR.Greatest(F_IR, F2_IR), false));
+    // Picks over an open sum whose condition takes the other child.
+    t.add(otherNaN("IF(x IS NULL, x + x2, x3)", new If(new IsNull(x), add(x, x2), x3),
+        new IfElse(isNullX, sum, X3_IR), false));
+    t.add(otherNaN("CASE WHEN x IS NULL THEN x + x2 ELSE x3 END, its first branch false",
+        new CaseWhen(CollectionConverters.asScala(List.of(
+            new Tuple2<Expression, Expression>(new IsNull(x), add(x, x2)))).toSeq(),
+            scala.Option.apply(x3)),
+        new IfElse(isNullX, sum, X3_IR), false));
+    t.add(otherNaN("IF(f IS NULL, f + f2, f)", new If(new IsNull(f), add(f, f2), f),
+        new IfElse(new Not(new VarkaVectorIR.IsNotNull(F_IR)), fsum, F_IR), false));
+    t.add(otherNaN("greatest(x3, x + x2)", new Greatest(seq(x3, add(x, x2))),
+        new VarkaVectorIR.Greatest(X3_IR, sum), false));
+    t.add(otherNaN("least(x3, x + x2)", new Least(seq(x3, add(x, x2))),
+        new VarkaVectorIR.Least(X3_IR, sum), false));
+    // least skips a NaN for a number, so the square root's NaN is its own, not the sum's.
+    Expression minusOne = Literal.create(-1.0d, DataTypes.DoubleType);
+    t.add(otherNaN("sqrt(least(x + x2, -1.0))", new Sqrt(new Least(seq(add(x, x2), minusOne))),
+        new MathUnary(MathFn.SQRT,
+            new VarkaVectorIR.Least(sum, new LiteralSlot(1, LaneType.DOUBLE))), false));
     // Pairs no level excuses, over an open expression to show that even it does not.
     Expression open = add(x, x2);
     VarkaVectorIR openIr = arith(IntOp.ADD, X_IR, X2_IR);
@@ -208,12 +262,19 @@ public final class VarkaSameAnswerContractSuite {
         false));
     t.add(explicit("null against null", open, null, null, null, true, true, true));
     t.add(explicit("null against a value", open, null, null, 1.0d, false, false, false));
+    t.add(explicit("null over x's bits against null over 1.0", open, null,
+        nullOver(Double.longBitsToDouble(X)), nullOver(1.0d), true, true, true));
+    // BOOLEAN: the value, or null.
+    Expression bool = new IsNull(x);
+    t.add(explicit("BOOLEAN true against true", bool, null, true, true, true, true, true));
+    t.add(explicit("BOOLEAN true against false", bool, null, true, false, false, false, false));
+    t.add(explicit("BOOLEAN null against false", bool, null, null, false, false, false, false));
     // Decimals: the unscaled value at the output's scale, the same at every level.
     DecimalType d10 = DataTypes.createDecimalType(10, 2);
     DecimalType d38 = DataTypes.createDecimalType(38, 4);
     t.add(decimal("DECIMAL(10,2) 1.50 against 1.5 carried at scale 1", d10, "1.50", "1.5", true));
-    t.add(decimal("DECIMAL(10,2) 1.50 against the unscaled 150 stored at scale 4", d10, "1.50",
-        "0.0150", false));
+    t.add(decimal("DECIMAL(10,2) 1.50 against 0.0150, another value", d10, "1.50", "0.0150",
+        false));
     t.add(decimal("DECIMAL(10,2) 1.23 against 1.234, which the type cannot hold", d10, "1.23",
         "1.234", false));
     t.add(decimal("DECIMAL(10,2) 12345678.90 against 123456789.0, past the precision", d10,
@@ -221,7 +282,7 @@ public final class VarkaSameAnswerContractSuite {
     String wide = "12345678901234567890123456789012.3456";
     t.add(decimal("DECIMAL(38,4) against the same value carried at scale 6", d38, wide,
         wide + "00", true));
-    t.add(decimal("DECIMAL(38,4) against its unscaled value stored at scale 6", d38, wide,
+    t.add(decimal("DECIMAL(38,4) against another value of the same digits", d38, wide,
         new BigDecimal(new BigDecimal(wide).unscaledValue(), 6).toPlainString(), false));
     return List.copyOf(t);
   }
@@ -269,11 +330,11 @@ public final class VarkaSameAnswerContractSuite {
     VarkaVectorIR pick = new IfElse(new VarkaVectorIR.IsNotNull(X_IR), X_IR, sum);
     VarkaSameAnswer.IrRow planted = new VarkaSameAnswer.IrRow() {
       @Override public OptionalLong value(VarkaVectorIR node) {
-        return node.equals(sum) ? OptionalLong.of(X) : reference(IR_ROW).value(node);
+        return node.equals(sum) ? OptionalLong.of(X) : reference().value(node);
       }
 
       @Override public boolean holds(VarkaVectorIR.Cond cond) {
-        return reference(IR_ROW).holds(cond);
+        return reference().holds(cond);
       }
     };
     assertFalse(VarkaSameAnswer.openNaN(pick, planted));
@@ -335,22 +396,31 @@ public final class VarkaSameAnswerContractSuite {
     return new IntArith(op, Overflow.WRAP, l, r);
   }
 
-  /** The reference evaluator's view of {@code row}, no column null. */
-  private static VarkaSameAnswer.IrRow reference(long[] row) {
-    boolean[] isNull = new boolean[row.length];
+  /** The reference evaluator's view of {@link #IR_ROW}, over both lanes. */
+  private static VarkaSameAnswer.IrRow reference() {
     return new VarkaSameAnswer.IrRow() {
       @Override public OptionalLong value(VarkaVectorIR node) {
-        return VarkaReference.longValue(node, row, isNull, IR_LITS);
+        return VarkaReference.mixedValue(node, IR_ROW, IR_NULLS, new int[0], IR_LITS);
       }
 
       @Override public boolean holds(VarkaVectorIR.Cond cond) {
-        return VarkaReference.longCond(cond, row, isNull, IR_LITS).isTrue();
+        return VarkaReference.mixedCond(cond, IR_ROW, IR_NULLS, new int[0], IR_LITS).isTrue();
       }
     };
   }
 
+  /** A one-column row of {@code value}, or {@code value} itself where it is a row. */
   private static InternalRow row(@Nullable Object value) {
-    return new GenericInternalRow(new Object[] {value});
+    return value instanceof InternalRow r ? r : new GenericInternalRow(new Object[] {value});
+  }
+
+  /** A one-column {@code UnsafeRow} whose column is null over {@code stale}'s bits. */
+  private static InternalRow nullOver(double stale) {
+    var r = new UnsafeRow(1);
+    r.pointTo(new byte[16], 16);
+    r.setDouble(0, stale);
+    BitSetMethods.set(r.getBaseObject(), r.getBaseOffset(), 0);
+    return r;
   }
 
   /** A floating answer's raw bits, a FLOAT's in the low 32; null for anything else. */
