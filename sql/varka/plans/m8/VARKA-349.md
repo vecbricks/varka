@@ -218,7 +218,7 @@ with it.
 | `CheckOverflow` to a smaller scale | 350 |
 | `CheckOverflow` above precision 18 | 359 and 360 |
 | an integral operand (`CAST(i AS DECIMAL(10, 0))`) | 350; a `BIGINT`'s `(20, 0)` widens the node past 18 digits, which names the wide operand's rows above |
-| a cast, a negation, a choice or a pick over a sum or product above 18 digits | the node's row (360 or 361 and above), or 359 and 360 where a rescale into the wide type is needed too; over several wide values, the union of their rows in ascending order (a wide value with no arithmetic under it names 359), with 350 for a cast that lowers the scale or the integral digits |
+| a cast, a negation, a choice or a pick over a sum or product above 18 digits | the node's row (360 or 361 and above), or only 359 and 360 where a rescale into the wide type is needed, that reason winning over the arithmetic rows (`IF(p, a * b, x)` with `a`, `b` at `(9, 2)` and `x` at `(18, 2)` rescales `x` into `(20, 4)` and names no 361); over several wide values, the union of their rows in ascending order (a wide value with no arithmetic under it names 359, so `IF(a > b, x + y, x)` names 359 and 360, as `COALESCE(d20s2, x + y)` does), with 350 for a cast that lowers the scale or the integral digits, beside 359 where nothing arithmetic is under it (`CAST(d20 AS DECIMAL(19, 1))`) |
 | `/`, `div`, `try_divide` over decimals | the owner's decision of 14 October 2026 |
 
 ### 2.7 At 128 bits, the compiler, the reference

@@ -294,6 +294,9 @@ public final class VarkaDecimalArithmeticSuite {
         {"CAST(a * b AS DECIMAL(20, 4)) > 0.0000", "row 361"},
         {"-(x + y) > 0.00", "row 360"},
         {"CAST(x + y AS DECIMAL(19, 1)) > 0.0", "rows 350 and 360"},
+        {"CAST(d AS DECIMAL(19, 1)) > 0.0", "rows 350 and 359"},
+        // x is rescaled up into DECIMAL(20, 4), and that reason wins over the product's 361.
+        {"IF(a > b, a * b, x) > 0.0000", "rows 359 and 360"},
         {"IF(a > b, x + y, x) > 0.00", "rows 359 and 360"},
         {"COALESCE(d, x + y) > 0.00", "rows 359 and 360"},
         {"IF(a > b, x + y, c * e) > 0.00", "rows 360 and 361"},
