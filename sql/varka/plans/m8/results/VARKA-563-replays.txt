@@ -85,3 +85,46 @@ defaults                            1   223   299    1    5     0       0     0
 configuration                    exit  secs    ok fail canc abort unfused atdef
 defaults                            0   212   137    0    5     0       0     0
 varka push check: passed
+
+# Third round (the high review's four fixes), 4 November 2026, fast only. Script at 9e590724e02,
+# run from each scratch worktree (git worktree add --detach) as
+#   python3 /path/to/dev/varka_push_check.py --no-jvm [--branch B]
+# and the base case of the comment fix from origin/master's worktree with --dry-run --base.
+# R3 now walks the reflog in order up to the replayed tip, and a file the head holds as the base
+# does owes nothing: #1323's sql/varka/types.tsv, equal to b6f2a7a0662's at 0a0e82df11f (and not
+# changed by its fix d83b86566e2), drops from six files to five. R2 drops a test file's comments
+# and names a document's hit as one; the e361fb1306d base no longer fails on the comment in
+# VarkaCoverageSuite.scala, only on docs/sql-varka.md's stale example.
+#
+# head                           level  exit  secs  failed under
+# #1317 d94ca2ad5a4              fast      1    42  R2 (VarkaFilterExecSuite holds the old text)
+# #1338 7897bd11a2f (343a3b)     fast      1    29  R1 (three registries name no CrossLane)
+# #1323 0a0e82df11f (348a2-abs)  fast      1    19  R3 (the rebase text-merged five files)
+# origin/master 85eb50e5e60      fast      0     4  -
+# 4c7fd1c90d8 (343a3b fixed)     fast      0    33  -
+# d83b86566e2 (#1323's fix)      fast      0    17  -
+# --base e361fb1306d, dry run    fast      1    86  R2, the document docs/sql-varka.md only
+
+== third round, d94ca2ad5a4 --no-jvm
+R3: HEAD is detached, so no reflog shows a rebase's debt; unchecked, pass --branch
+R2: sql/core/src/test/scala/org/apache/spark/sql/execution/VarkaFilterExecSuite.scala still holds "integral lane, and a mask", which sql/catalyst/src/main/java/org/apache/spark/sql/catalyst/expressions/codegen/varka/VarkaKernelPlan.java no longer says
+varka push check: FAILED
+varka push check: to push past a finding judged wrong, VARKA_PUSH_CHECK_SKIP=R2 (those only) or VARKA_PUSH_CHECK=off (the whole check); git push --no-verify skips the message and line checks too
+
+== third round, 7897bd11a2f --no-jvm --branch varka-343a3b-roots
+R1: sql/catalyst/src/test/scala/org/apache/spark/sql/catalyst/expressions/codegen/varka/VarkaEmitterBudgetSuite.scala names CrossLane in no register row
+R1: sql/catalyst/src/test/scala/org/apache/spark/sql/catalyst/expressions/codegen/varka/VarkaLaneTypeSuite.scala names CrossLane in no instance recipe (case "CrossLane")
+R1: sql/catalyst/src/test/scala/org/apache/spark/sql/catalyst/expressions/codegen/varka/VarkaWithChildrenSuite.scala names CrossLane in no undrawn entry or draw
+varka push check: FAILED
+varka push check: to push past a finding judged wrong, VARKA_PUSH_CHECK_SKIP=R1 (those only) or VARKA_PUSH_CHECK=off (the whole check); git push --no-verify skips the message and line checks too
+
+== third round, 0a0e82df11f --no-jvm --branch varka-348a2-abs
+R3: the rebase 0a0e82df11f onto b6f2a7a0662 text-merged docs/sql-varka.md, sql/varka/coverage.json, sql/varka/emitted_bytes.json, sql/varka/plans/m8/census.tsv, sql/varka/width_audit.json; run dev/varka_regen_generated.sh --all
+varka push check: FAILED
+varka push check: to push past a finding judged wrong, VARKA_PUSH_CHECK_SKIP=R3 (those only) or VARKA_PUSH_CHECK=off (the whole check); git push --no-verify skips the message and line checks too
+
+== third round, e361 --dry-run --no-jvm --base e361fb1306d (at 85eb50e5e60)
+R3: HEAD is detached, so no reflog shows a rebase's debt; unchecked, pass --branch
+R2: the document docs/sql-varka.md still holds "CASE WHEN without an ELSE", which sql/catalyst/src/main/java/org/apache/spark/sql/catalyst/expressions/codegen/VarkaConditionCompiler.java no longer says
+varka push check: FAILED
+varka push check: to push past a finding judged wrong, VARKA_PUSH_CHECK_SKIP=R2 (those only) or VARKA_PUSH_CHECK=off (the whole check); git push --no-verify skips the message and line checks too

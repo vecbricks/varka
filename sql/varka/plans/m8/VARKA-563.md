@@ -5,162 +5,105 @@
 By the owner's decision of 4 November 2026. Three CI rounds in two days were lost to tests far
 from the change, which no brief named and no local step ran:
 
-- **#1317**: a decline reason in `VarkaKernelPlan.java` was reworded, and `VarkaFilterExecSuite`
-  pins the old text verbatim.
-- **#1323**: the part was replayed onto master, git text-merged the generated files, and
+- **#1317**: a decline reason in `VarkaKernelPlan.java` was reworded; `VarkaFilterExecSuite` pins
+  the old text verbatim.
+- **#1323**: replayed onto master, git text-merged the generated files, and
   `dev/varka_regen_generated.sh` without `--all` regenerates only what a merge driver listed as
-  owed, which a rebase lists nothing for; `docs/sql-varka.md`'s counts and `emitted_bytes.json`'s
-  option-arm digests were stale.
-- **#1338**: a new IR record, `CrossLane`, which the registry suites that enumerate every node
-  type do not know (`VarkaWithChildrenSuite`, `VarkaLaneTypeSuite`, `VarkaEmitterBudgetSuite`,
-  `VarkaReproductionSuite`).
+  owed, nothing for a rebase; the docs' counts and `emitted_bytes.json`'s digests were stale.
+- **#1338**: a new IR record, `CrossLane`, unknown to the suites that enumerate every node type
+  (`VarkaWithChildrenSuite`, `VarkaLaneTypeSuite`, `VarkaEmitterBudgetSuite`).
 
-A memory note catches only the same mistake again; a script turns each lesson into a rule. Rows
-508 and 509 select tests on CI; this row is the local complement, run before the push.
+A script turns each lesson into a rule; rows 508 and 509 select tests on CI, this runs locally.
 
 ## 2. The admission check
 
-- Nothing local runs a test from the changed files. `dev/varka_prepush.sh` checks messages and
-  lines; `dev/varka_new_tests.py` reruns tests a change adds, on CI; `dev/varka_scoped_suites.sh`
-  runs every suite of a module.
-- `dev/varka_matrix.sh --defaults --suites A,B` already builds once (sql's classpath holds
-  catalyst's test classes) and runs the named suites of both modules with the sanitizer and the
-  both-bodies check, as CI does, writing JUnit reports. The check drives it; it adds no runner.
-- `dev/varka_generated_merge.py --check` and `--owed` both pass on #1323's pre-fix head
-  `0a0e82df11f`: a rebase owes nothing, and `--check` looks for a missing coverage row, not a
-  stale digest. Only the generated-file suites without their `REGEN` variables see it.
-- The suites that enumerate node types are found by a `git grep -l -E` over the test trees for
-  `getPermittedSubclasses`, `concreteNodeTypes`, `a node type was added`, `never drew` or
-  `NOT_PARSED_YET`: seven files today, `VarkaEmitCostSuite`, `VarkaIrFuzzSuite` and
-  `VarkaVectorIRSharingSuite` among them. All 53 IR records live in `VarkaVectorIR.java`.
+- Nothing local runs a test from the changed files (`dev/varka_prepush.sh` checks messages and
+  lines; `dev/varka_new_tests.py` reruns added tests on CI). `dev/varka_matrix.sh --defaults
+  --suites A,B` builds once and runs named suites of both modules as CI does; the check drives it.
+- `dev/varka_generated_merge.py --check` and `--owed` both pass on #1323's `0a0e82df11f`: a
+  rebase owes nothing, and `--check` looks for a missing coverage row, not a stale digest.
+- `git grep -l -E` of the test trees for `getPermittedSubclasses`, `concreteNodeTypes`, `a node
+  type was added`, `never drew` or `NOT_PARSED_YET` finds seven registry suites; all 53 IR
+  records live in `VarkaVectorIR.java`.
 
 ## 3. The design
 
-`dev/varka_push_check.py` reads the branch's diff against its merge base with origin/master
-(`--base` names another) and turns it into steps, each owned by a rule:
+`dev/varka_push_check.py` turns the branch's diff against its merge base with origin/master
+(`--base` names another) into steps, each owned by a rule:
 
-- **R1, IR registry.** A record of `VarkaVectorIR.java`, or of a main file that implements its
-  sealed interfaces, added, removed or with its components changed (the headers compared between
-  base and head) runs every suite the grep above finds, read at run time, with the three named.
-- **R2, reason text.** Every string literal on a removed line of a Varka main file (as
-  `is_varka_scoped` reads the path; comments skipped) is cut into windows of five words. A window
-  still in the head's main sources moved and is dropped; any other is looked for in the test
-  trees, `sql/varka/coverage.json` and `docs/`, with each file's `" + "` joins collapsed, since
-  source and test break a long string at different places. A hit fails at once with the file and
-  the old text, and no JVM is needed to see it. The suites holding a hit, or a window of the
-  added text, run.
-- **R3, generated files.** `--owed` and `--check` always. When the branch changes a Varka main
-  file or a generated file, `VarkaCoverageSuite`, `VarkaEmittedBytesSuite`, `VarkaTypesSuite` and
-  `VarkaCastMatrixSuite` run without their `REGEN` variables; `--full` adds `VarkaWidthAuditSuite`,
-  whose census is one CPU's. A failure names `dev/varka_regen_generated.sh --all`.
-- **R4, house checks.** `dev/varka_precommit.sh --range`, `dev/varka_plan_lint.py --offline`,
-  `dev/varka_quote_check.py`, `dev/varka_census.py --check` and `dev/varka_msg_check.py size`
-  always; `--lint` adds `dev/varka_errorprone.sh`, `dev/scalastyle` and `dev/lint-java`.
+- **R1, IR registry.** A record of `VarkaVectorIR.java`, or of a main file implementing its
+  sealed interfaces, added, removed or with changed components runs every suite the grep finds,
+  plus `VarkaEmitCostSuite`, `VarkaIrFuzzSuite` and `VarkaVectorIRSharingSuite`.
+- **R2, reason text.** Each string literal on a removed line of a Varka main file is cut into
+  five-word windows. One still in the main sources moved; any other is looked for in the test
+  trees (comments dropped), `sql/varka/coverage.json` and `docs/`, `" + "` joins collapsed. A hit
+  fails at once, a document's named as one (a stale example is a true finding); the suites
+  holding a hit, or a window of the added text, run.
+- **R3, generated files.** `--owed` and `--check`; a change to a Varka main or generated file
+  runs `VarkaCoverageSuite`, `VarkaEmittedBytesSuite`, `VarkaTypesSuite` and
+  `VarkaCastMatrixSuite` without `REGEN`, `--full` adds `VarkaWidthAuditSuite`. A failure names
+  `dev/varka_regen_generated.sh --all`.
+- **R4, house checks.** `dev/varka_precommit.sh --range`, plan lint, quote check, census check
+  and the size cap; `--lint` adds Error Prone, scalastyle and lint-java.
 
-The JVM steps are one `dev/varka_matrix.sh` call over the selected suites, `--module catalyst`
-when no sql suite is selected, under `flock` on `VARKA_HEAVY_LOCK` (default
-`~/proj/.varka-locks/heavy.lock`, `none` for no lock, as on CI) with `SPARK_LOCAL_IP=127.0.0.1`.
-A failed suite is reported under the rules that chose it. `--dry-run` prints the steps and runs
-nothing, `--no-jvm` runs the rules that need no JVM, and `--self-test` runs the rules over fixture
-diffs and trees; `dev/varka_precommit.sh --selftest`, which the Build's lint job runs, calls it,
-so no workflow changes.
-
-The pre-push hook runs the `--no-jvm` rules on every push of the branch checked out
-(`VARKA_PUSH_CHECK=fast`, the default, by the owner's word); `full` runs everything, `off` none.
+The suites run in one `dev/varka_matrix.sh` call under `flock` on `VARKA_HEAVY_LOCK` with
+`SPARK_LOCAL_IP=127.0.0.1`. `--dry-run` runs nothing, `--no-jvm` only what needs no JVM, and
+`--self-test`, which `dev/varka_precommit.sh --selftest` calls, runs the rules over fixtures. A
+failure names `VARKA_PUSH_CHECK_SKIP=<rule>` and `VARKA_PUSH_CHECK=off` before `--no-verify`,
+which skips the message and line checks too. The pre-push hook runs `--no-jvm` on each push of
+the branch checked out (`VARKA_PUSH_CHECK=fast`); `full` runs everything, `off` none.
 
 ## 4. Open points for the lead
 
-1. **Settled by the owner, 4 November 2026: `fast` is the hook's default.** It costs seconds and,
-   since section 7, catches all three incidents without a JVM; `full` is on request and
-   `VARKA_PUSH_CHECK=off` skips it.
-2. R3's JVM step costs `VarkaEmittedBytesSuite` (445 s of CI weight) on every branch that touches
-   a Varka main file. A source stamp in each generated file's header would make staleness a hash
-   compare; worth a row? Section 7 sketches it, and says what the reflog signal leaves to it.
-3. **Settled by the lead, 4 November 2026: no `--quick` dropping `VarkaIrFuzzSuite`.** R1 fires
-   only when an IR record changes, which is exactly when the fuzz suite's "the generator never
-   built" matters.
-4. **Settled by the lead, 4 November 2026: R2 errs toward a false positive.** It matches literals
-   only, so a reason built by `String.format` is matched by its fixed parts, and one moved into a
-   constant of another file is still found there. A hit on a moved reason is the right side to
-   err on; `VARKA_PUSH_CHECK_SKIP=R2` drops R2 for one push (any rule's name, comma-separated),
-   which costs a word in the push and no change to the script.
+1. **Settled by the owner, 4 November 2026: `fast` is the hook's default** (3 s; replays 25-54 s).
+2. R3's JVM step costs `VarkaEmittedBytesSuite` (445 s of CI weight) on every branch touching a
+   Varka main file; a source stamp (section 7) would make staleness a hash compare. A row?
+3. **Settled by the lead, 4 November 2026: no `--quick` dropping `VarkaIrFuzzSuite`**, which R1
+   runs only when a record changes, exactly when "the generator never built" matters.
+4. **Settled by the lead, 4 November 2026: R2 errs toward a false positive**, and
+   `VARKA_PUSH_CHECK_SKIP=R2` (rules comma-separated) drops a rule for one push.
+
+**Owed: a follow-up, 563b** (third-round review, 4 November 2026; the reviewer's probe each):
+
+- An IR record in another file implementing a sealed interface passes R1: the name filter reads
+  only `VarkaVectorIR.java`, and `IMPLEMENTS_IR` misses `implements Chrono`.
+- R2 misses a main-side reason built from short `" + "` pieces or a text block (`windows()`).
+- `sql/varka/spark_suites/served.json` (`VARKA_GOLDEN_SUITE_REGEN`) is outside the driver's list.
+- A reason moved and re-wrapped differently fails R2 (`w in other` reads one wrapping).
+- R1 noise: a non-node helper record in `VarkaVectorIR.java`, spacing-only reformats, annotated
+  components and generic records each read as changed.
+- Hook: a missing origin/master skips the per-ref checks silently; an unknown `VARKA_PUSH_CHECK`
+  acts as `off`; the working tree is read, not the pushed commit; a local master ahead of
+  origin/master runs R1-R4 on a master push.
 
 ## 5. Done when
 
-The self-test proves each rule fires on its fixture and stays quiet beside it, and replays of the
-three incidents' pre-fix heads each fail under the rule that names their cause. Added by the
-second round (section 7): each also fails at `fast`, with no JVM, and a clean branch passes it.
+The self-test proves each rule fires on its fixture and stays quiet beside it, and the three
+incidents' pre-fix heads each fail under the rule that names their cause at `fast`, with no JVM,
+while a clean branch passes.
 
 ## 6. Outcome
 
-Built 4 November 2026 as one pull request, and replayed on the three incidents' pre-fix heads in
-scratch worktrees (`results/VARKA-563-replays.txt`). Each fails, under the rule its lesson names:
-
-- **#1317** at `d94ca2ad5a4`, the push before the suite was repinned: R2 names
-  `VarkaFilterExecSuite` as still holding the removed text, in about six seconds with no JVM.
-- **#1338** at `7897bd11a2f`: R1 runs eleven suites, and `VarkaWithChildrenSuite`,
-  `VarkaLaneTypeSuite` (two tests) and `VarkaEmitterBudgetSuite` fail on `CrossLane`, as the
-  pull request's Build did; 247 seconds of suites, 589 with the lock's wait and the build.
-- **#1323** at `0a0e82df11f`: `--owed` and `--check` pass, and R3's suites fail on the docs'
-  counts and `emitted_bytes.json`; 73 seconds of suites, 303 in all.
-
-A branch that changes a Varka main file and no IR record pays R3's four suites, 73 seconds on
-the laptop beside the build, as #1323 did; one that changes only plans or docs starts no JVM.
+Built 4 November 2026; replays (`results/VARKA-563-replays.txt`, with times) failed #1317 under
+R2, #1338 under R1 (three suites on `CrossLane`, as CI) and #1323 under R3, only #1317 at `fast`.
 
 ## 7. The second round: `fast` catches all three
 
-By the lead's brief of 4 November 2026, after the replays above: only #1317 failed at `fast`.
-
-- **R1 reads the registries as text.** For each record R1 names that the head's IR still has,
-  every file the registry grep finds must name it where that suite looks, a table in the script
-  (`REGISTRIES`, one line a suite): `VarkaWithChildrenSuite` and `VarkaIrFuzzSuite` a quoted
-  entry in their exemption lists or a construction in `VarkaIrGrammar.java`; `VarkaLaneTypeSuite`
-  an instance recipe `case "<Name>"`; `VarkaEmitterBudgetSuite` a register row, `new <Name>(` or
-  `<Name>.of(`; `VarkaReproductionSuite` a round trip or a `NOT_PARSED_YET` entry; and
-  `VarkaEmitCostSuite` a quoted feature, its own or `VarkaEmitCostFit`'s.
-  `VarkaVectorIRSharingSuite` names no record, enumerating them reflectively; a registry missing
-  from the table is printed as unchecked, the JVM run covering it. Run over every record rather
-  than the changed ones, the table finds nothing on origin/master (53 records) or `4c7fd1c90d8`
-  (54), and names `CrossLane` in exactly the three suites CI failed at `7897bd11a2f`. It is
-  literal, so a name that appears for another reason passes it; the suites still run at `full`.
-  This corrects section 1, which counts four registries: `VarkaReproductionSuite` had its round
-  trip at `7897bd11a2f`, and CI failed four tests of three suites.
-- **R3 reads the branch's reflog.** `--owed` reads the list the merge driver appends to, and its
-  liveness rule cannot tell a committed rebase's entries from an aborted one's, so it drops them;
-  the files carry no record of their inputs. The reflog keeps what it needs: a `rebase (finish)`
-  entry names the commit it made and the commit it went onto, and the entry before it the tip it
-  started from. A generated file both sides changed since their merge base is one the driver
-  merged and owed, a rebase naming no other side. It stays owed until a commit after the rebase
-  changes any of them (a regeneration commits only the files that moved: `d83b86566e2`, #1323's
-  fix, changed two of the six) or `dev/varka_regen_generated.sh --all` runs on a commit since,
-  which now leaves that commit under the git dir (`varka-regen-all`) for a regeneration that
-  changed nothing. `--branch` names the branch when HEAD is detached, as in the replays. One
-  over-count: the driver owes `docs/sql-varka.md` only for its generated blocks, and this rule
-  sees the whole file, so prose both sides edited owes a run of `--all` that changes nothing.
-  And `--all` on a CPU that is not the width audit's host marks the audit paid too, as its
-  `--owed --keep` does: only that host can regenerate it, at any level.
-- **The reflog is local, so the source stamp is still owed** (point 2). A fresh clone, another
-  machine or a reflog past `gc.reflogExpire` has no entry, and a rebase by `git am` or by hand
-  leaves none to read; there the JVM step is the check. The stamp: each generated file's header
-  carries a SHA-256 over the sorted blob ids of the paths `FEEDERS` in
-  `dev/varka_generated_merge.py` names for it (the docs blocks in an HTML comment), written by the
-  suite that writes the file, and `--check` recomputes it from `git ls-files -s` and the working
-  tree's changed files and names the stale file. A change to any feeder then owes a
-  regeneration even where no row moves, which the author pays once and CI no longer does.
-- **A missing ruff names itself.** The hook's refusal reads the pin from `dev/requirements.txt`
-  (`ruff==0.14.8`, the pin `build_and_test.yml`'s lint job installs, held by `pyproject.toml`'s
-  `internal_lint` group too) and prints the venv to make: `python3 -m venv ~/.venv-ruff`, `pip
-  install` the pin, and its `bin` on PATH. The hook installs nothing.
-- **The replays** (`results/VARKA-563-replays.txt`, second round), in scratch worktrees:
-
-  | Head | `fast` | `full` |
-  |---|---|---|
-  | #1317 `d94ca2ad5a4` | fails, R2, 25 s | fails, R2 and its suite, 569 s |
-  | #1338 `7897bd11a2f` | fails, R1, three registries, 27 s | fails, R1 and three suites, 452 s |
-  | #1323 `0a0e82df11f` | fails, R3's rebase of six files, 32 s | fails, R3 and two suites, 668 s |
-  | origin/master `85eb50e5e60` | passes, 4 s | passes, no suite, 4 s |
-  | `4c7fd1c90d8`, #1338 fixed | passes, 54 s | passes, eleven suites, 403 s |
-  | `d83b86566e2`, #1323 fixed | passes, 30 s | not run |
-
-  `--range` of `dev/varka_precommit.sh` on `varka-348a3-choices`, which merged master twice,
-  reads the 19 files of the branch's own change from the merge base and passes.
+- **R1 reads the registries as text** (`REGISTRIES`, one line a suite): each record R1 names must
+  appear where each registry looks, from a quoted exemption or a `VarkaIrGrammar.java`
+  construction to `case "<Name>"`, a `new <Name>(` or a quoted cost feature;
+  `VarkaVectorIRSharingSuite` enumerates reflectively, and an unlisted registry is printed as
+  unchecked. Over every record it finds nothing on origin/master or `4c7fd1c90d8`, and names
+  `CrossLane` in exactly the three suites CI failed (`VarkaReproductionSuite` had its round trip).
+- **R3 reads the branch's reflog.** `--owed` cannot tell a committed rebase's entries from an
+  aborted one's. A `rebase (finish)` entry names its commit and the one it went onto, the entry
+  before it the old tip: a generated file both sides changed since their merge base is owed. The
+  reflog is walked in order, so a later rebase, rewriting the debt's commit, pays nothing; a
+  commit after it touching any of its files pays (a regeneration commits only what moved), as
+  does `dev/varka_regen_generated.sh --all`, which leaves its commit in the git dir's
+  `varka-regen-all`. A file the branch no longer changes owes nothing; `--branch` names the
+  branch for a detached HEAD. Prose both sides of `docs/sql-varka.md` edited owes an idle `--all`.
+- **The reflog is local, so the source stamp is owed** (point 2): a fresh clone or a rebase by
+  `git am` leaves no entry. Each generated file's header would hold a SHA-256 of its `FEEDERS`'
+  blob ids (`dev/varka_generated_merge.py`), which `--check` recomputes.
+- **A missing ruff names itself** (the pin and a venv); the replays' verdicts are in the results.
