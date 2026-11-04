@@ -611,6 +611,13 @@ Cut from #1303's final tree, without its `BIGINT` conversions (343a4), sweeps an
   compile's options, called from the compiler's tables; a plan those options refuse is no
   kernel to check. The compiler suite checks it under options that admit and options that refuse
   `CAST(y1 AS DOUBLE) / 2.0D`.
+- **Beside it:** `VarkaFloatingCastBaselineBenchmark`'s boolean filter,
+  `coalesce(CAST(x AS BOOLEAN), false)`, fuses now (its `false` relabelled to the cast's lane), so
+  its class is `WHOLE`, as the class's own rule asks; the long harness hands a kernel holding a
+  crossing the int table too; the cost model and the IR fuzz grammar leave `CrossLane` out until
+  the refit (VARKA-352) and row 343's fuzz sequence (343a5). The sql suites under
+  `lanesOverride=4`, `lanesOverride=16` and `validityByWidth=false` passed on the laptop
+  (`dev/varka_matrix.sh`); the defaults' one failure was that class.
 - **Open points for the lead** stay as 2.2.1 lists them: the value choice of the other kind and
   32-bit beside 64-bit roots.
 
