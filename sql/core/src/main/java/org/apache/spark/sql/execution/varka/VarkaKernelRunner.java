@@ -40,6 +40,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaKernelWarmup
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaMemorySanitizer;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaMemoryViolation;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaReproduction;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaSameAnswer;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaSegments;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaShapeEntry;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LaneType;
@@ -459,16 +460,16 @@ public final class VarkaKernelRunner {
    * compared only where every input is valid. Static so that a test can plant a disagreement
    * without a kernel that makes one.
    *
-   * <p>A row agrees when its bytes are equal, with one exception: on an output
-   * {@code dstFloating} marks, a NaN in each body agrees whatever its bits (VARKA-555). Neither
-   * Spark nor Java fixes which NaN an operation over two NaNs returns, and the JIT tiers answer
-   * differently: for {@code x + x2} over two NaNs the interpreter returns the right operand's, C1
-   * and the Vector API's Java fallback the left's, and C2 orders a commutative vector add's
-   * inputs by node index. The two bodies are the same bytecode compiled at different moments, so
-   * they can pick different operands. Every other floating value, the sign of zero included, and
-   * every value of any other output must still be byte-equal. The cost is that a body that picks
-   * the wrong NaN goes unseen here; the answer a query serves is still held to Spark's bits by
-   * the suites that compare it with the row engine.
+   * <p>A row agrees by {@link VarkaSameAnswer} at its {@link VarkaSameAnswer.Level#TYPE} level:
+   * its bytes are equal, or, on an output {@code dstFloating} marks, it holds a NaN in each body
+   * whatever their bits (VARKA-555). Neither Spark nor Java fixes which NaN an operation over two
+   * NaNs returns, the JIT tiers answer differently, and the two bodies are the same bytecode
+   * compiled at different moments, so they can pick different operands. Every other floating
+   * value, the sign of zero included, and every value of any other output must still be
+   * byte-equal. The type level, not the row level, because the row level needs every node's
+   * value on the row, which only a reference evaluator computes; the cost is that a body that
+   * picks the wrong NaN goes unseen here, and the answer a query serves is still held to Spark's
+   * bits by the suites that compare it with the row engine.
    */
   public static void compareBodies(String shapeHash, int len, boolean dense, long[] srcValidity,
       int[] srcNullCount, int[] dstWidth, boolean[] dstFloating, BodyOutputs served,
@@ -503,7 +504,8 @@ public final class VarkaKernelRunner {
             ? bit(servedData, r) == bit(otherData, r)
             : servedData.asSlice((long) r * w, w)
                 .mismatch(otherData.asSlice((long) r * w, w)) < 0
-                || (dstFloating[o] && bothNaN(servedData, otherData, r, w)));
+                || (dstFloating[o] && VarkaSameAnswer.bothNaN(w, rowBits(servedData, r, w),
+                    rowBits(otherData, r, w))));
         boolean same = bit == bit(otherBits, r) && sameData;
         if (!same) {
           throw VarkaErrors.illegalState(shapeHash + "'s dense and masked bodies disagree on "
@@ -527,17 +529,16 @@ public final class VarkaKernelRunner {
     return true;
   }
 
-  /** Whether row {@code r} of both buffers holds a NaN of width {@code w}, 4 or 8 bytes. */
-  private static boolean bothNaN(MemorySegment served, MemorySegment other, int r, int w) {
+  /**
+   * Row {@code r} of a {@code w}-byte output as a long: 8 bytes whole, 4 in the low half; 0 at
+   * any other width, which {@link VarkaSameAnswer#bothNaN} never takes for a NaN.
+   */
+  private static long rowBits(MemorySegment data, int r, int w) {
     long at = (long) r * w;
     return switch (w) {
-      case Double.BYTES ->
-          Double.isNaN(served.get(ValueLayout.JAVA_DOUBLE_UNALIGNED, at))
-              && Double.isNaN(other.get(ValueLayout.JAVA_DOUBLE_UNALIGNED, at));
-      case Float.BYTES ->
-          Float.isNaN(served.get(ValueLayout.JAVA_FLOAT_UNALIGNED, at))
-              && Float.isNaN(other.get(ValueLayout.JAVA_FLOAT_UNALIGNED, at));
-      default -> false;
+      case Long.BYTES -> data.get(ValueLayout.JAVA_LONG_UNALIGNED, at);
+      case Integer.BYTES -> data.get(ValueLayout.JAVA_INT_UNALIGNED, at);
+      default -> 0L;
     };
   }
 
