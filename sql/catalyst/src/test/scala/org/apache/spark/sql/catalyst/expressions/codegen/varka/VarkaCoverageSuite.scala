@@ -971,12 +971,31 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
     Family("Floating casts to BOOLEAN as conditions", predicates = true, Seq(
       Row("NOT CAST(x AS BOOLEAN)", "x = 0.0 as the filter: both zeros pass and a NaN does not"),
       Row("CAST(f AS BOOLEAN) OR f > 1.5F", "the float's test in a disjunction at its lane"))),
-    // The casts to FLOAT from an int (VARKA-343): Java's primitive cast, which never raises, so
-    // TRY's answer is LEGACY's; the int and float lanes share one lane count, a narrow one widened.
+    // The casts to a floating type (VARKA-343): Java's primitive cast, which never raises, so
+    // TRY's answer is LEGACY's. A 32-bit value beside a 64-bit one fills the low half of its
+    // species, and a narrow one is widened at its load. A BIGINT's cast is not listed: L2F and
+    // L2D are the Vector API's Java loop without AVX512DQ, and the plan declines them.
     Family("Floating casts", predicates = false, Seq(
       Row("CAST(i AS FLOAT)", "rounded once to nearest, ties to even, as the JVM converts"),
       Row("try_cast(i AS FLOAT)", "the same rounding: a cast to a floating type never fails"),
-      Row("CAST(CAST(y1 AS INT) * CAST(y2 AS INT) AS FLOAT)", "a product of two widened bytes"))),
+      Row("CAST(CAST(y1 AS INT) * CAST(y2 AS INT) AS FLOAT)", "a product of two widened bytes"),
+      Row("CAST(i AS DOUBLE)", "exact: an int's 32 bits fit the double's 53"),
+      Row("CAST(y1 AS FLOAT)", "the byte widened at its load, then converted, exact"),
+      Row("CAST(s1 AS FLOAT)", "the short twin"),
+      Row("CAST(y1 AS DOUBLE)", "the byte loaded as a bigint kernel loads it, into the low "
+        + "half of the int species, then converted"),
+      Row("CAST(s1 AS DOUBLE)", "the short twin"),
+      Row("CAST(f AS DOUBLE)", "exact, a NaN's payload and both zeros kept"),
+      Row("CAST(x AS FLOAT)", "rounded once; past the float range an infinity, never an error"),
+      Row("CAST(b AS DOUBLE)", "1.0 or 0.0, and null where the boolean is"),
+      Row("CAST(b AS FLOAT)"),
+      Row("CAST(i > 3 AS DOUBLE)", "a condition as its one or zero, then converted"),
+      Row("CAST(l > 5 AS DOUBLE)", "a long one or zero, narrowed to the int lane, then I2D"),
+      Row("CAST(l > 5 AS FLOAT)", "the float twin: a float value in a kernel of the long lane"),
+      Row("x + i", "type coercion casts the int to a double beside the double column"),
+      Row("f * i", "the int cast to a float beside the float column, at one lane count"),
+      Row("f + x", "the float widened exactly to meet the double"),
+      Row("i / 2.0D", "an int division is a double division over its cast"))),
 
     // DECIMAL of precision up to 18 (VARKA-347, carrying row 348's equal-scale comparisons and
     // null tests): two values of one scale compare as their unscaled longs. Each kernel checks

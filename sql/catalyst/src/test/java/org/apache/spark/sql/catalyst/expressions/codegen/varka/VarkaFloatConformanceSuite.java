@@ -26,8 +26,13 @@ import org.apache.spark.sql.types.DataTypes;
  *
  * <p>The arithmetic and the casts are cancelled as {@link VarkaDoubleConformanceSuite}'s are,
  * naming the rows the census entry or the {@code casts.tsv} pair gives each form.
+ *
+ * <p>In its own JVM: its cast to {@code DOUBLE} runs at the double lane with its float values in
+ * the low half of the float species of that width (VARKA-343), and under the option matrix's
+ * lane-pinning configurations that species is of a size the float-lane suites do not use, a
+ * second one a shared JVM refuses ({@link VarkaSpeciesGuard}).
  */
-@VarkaSuite
+@VarkaSuite(ownJvm = true)
 public final class VarkaFloatConformanceSuite extends VarkaTypeConformance {
 
   @Override

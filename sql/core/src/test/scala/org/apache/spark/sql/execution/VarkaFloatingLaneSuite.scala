@@ -21,7 +21,7 @@ import org.apache.spark.sql.{DataFrame, QueryTest, Row, SparkSession}
 import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, AttributeReference, Coalesce, Greatest}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTestWatchdog
 import org.apache.spark.sql.internal.SQLConf
-import org.apache.spark.sql.types.{DateType, DoubleType, FloatType, IntegerType, LongType, StructField, StructType}
+import org.apache.spark.sql.types.{DateType, DoubleType, FloatType, IntegerType, StructField, StructType}
 
 /**
  * The floating lanes' first nodes, end to end: a `DOUBLE` or `FLOAT` column read from Varka's
@@ -380,46 +380,35 @@ class VarkaFloatingLaneSuite extends QueryTest with VarkaSharedSessions with Var
     val lines = VarkaFusionReport.lines(Seq(
       Alias(Coalesce(Seq(x1, x2)), "a")(),
       Alias(Greatest(Seq(x1, x2)), "b")(),
-      Alias(org.apache.spark.sql.catalyst.expressions.Cast(f1, DoubleType), "c")(),
+      Alias(org.apache.spark.sql.catalyst.expressions.Cast(f1, IntegerType), "c")(),
       Alias(org.apache.spark.sql.catalyst.expressions.Remainder(x1, x2), "e")(),
       Alias(org.apache.spark.sql.catalyst.expressions.Add(x1, x2), "g")()), output)
     assert(lines.size == 5, lines)
     assert(lines.head.endsWith(": fused"), lines)
     assert(lines(1).endsWith(": fused"), lines)
-    assert(lines(2).contains("a cast to or from a floating type (row 343)"), lines)
+    assert(lines(2).contains("a cast from a floating type (row 343's second part)"), lines)
     assert(lines(3).contains("a floating remainder (row 346)"), lines)
     assert(lines(4).endsWith(": fused"), lines)
   }
 
-  // The divisors are literals: the fixtures' zero divisors raise under ANSI on both sides.
-  private val declined = Seq("CAST(f1 AS DOUBLE)", "x1 % 2.5D", "pmod(f1, 2.5F)",
-    "CAST(f1 AS DOUBLE) / 2.0D")
+  test("the casts between FLOAT and DOUBLE fuse and keep a NaN's payload, both zeros and the "
+      + "rounding to an infinity") {
+    // The sum of two NaNs has no fixed payload (`VARKA-342.md` 0.6), so that first column is
+    // compared by the NaN rule; the conversions' columns bit for bit, in both modes.
+    for (ansi <- Seq(false, true)) {
+      checkFusedArith("SELECT x2 + CAST(f2 AS DOUBLE) AS b, CAST(f1 AS DOUBLE) AS a, "
+        + "CAST(x1 AS FLOAT) AS c, CAST(f1 AS DOUBLE) / 2.0D AS e FROM $t", ansi)
+    }
+  }
+
+  // The divisors are literals: the fixtures' zero divisors raise under ANSI on both sides. The
+  // casts from a floating type are TRY's, since the fixtures' NaNs raise under ANSI.
+  private val declined = Seq("try_cast(f1 AS INT)", "x1 % 2.5D", "pmod(f1, 2.5F)",
+    "try_cast(x1 AS BIGINT)")
 
   declined.foreach { expr =>
     test(s"SELECT $expr declines and answers as the row engine does") {
       checkDeclined(s"SELECT $expr AS v FROM $$t")
-    }
-  }
-
-  test("a cast to FLOAT over a bigint narrowed to INT declines in the plan in both modes") {
-    for (s <- Seq(spark, varkaSpark)) {
-      s.createDataFrame(Seq(1L, -1L, 16777217L, Int.MaxValue.toLong, Int.MinValue.toLong)
-        .map(Tuple1(_))).toDF("l").createOrReplaceTempView("varka_longs")
-      s.catalog.cacheTable("varka_longs")
-    }
-    val q = "SELECT CAST(CAST(l AS INT) AS FLOAT) AS v, CAST(l AS INT) * 2.5F AS w FROM varka_longs"
-    for (ansi <- Seq(false, true)) withAnsi(ansi) {
-      val actual = varkaSpark.sql(q)
-      val l = AttributeReference("l", LongType)()
-      val cast = org.apache.spark.sql.catalyst.expressions.Cast(
-        org.apache.spark.sql.catalyst.expressions.Cast(l, IntegerType), FloatType)
-      val lines = VarkaFusionReport.lines(
-        Seq(Alias(cast, "v")(), Alias(Greatest(Seq(l, l)), "k")()), Seq(l))
-      withClue(s"ansi=$ansi: $q") {
-        assert(lines.head.contains("needs a kernel of two lane counts"), lines)
-        assertNotFused(actual.queryExecution.executedPlan)
-        checkAnswer(actual, expectedSql(q, actual))
-      }
     }
   }
 

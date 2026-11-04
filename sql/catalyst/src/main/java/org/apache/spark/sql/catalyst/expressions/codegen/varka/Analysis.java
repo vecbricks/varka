@@ -1300,8 +1300,9 @@ final class Analysis {
 
   /**
    * Whether a vector of {@code of} has the drive's lane count: the drive itself, or the other
-   * lane of its width (a float value of an int kernel). Such a value is loaded and stored whole
-   * at its own species, where a 32-bit value of a 64-bit kernel fills the low half of its.
+   * lane of its width (a double value of a long kernel, a float one of an int kernel). Such a
+   * value is loaded and stored whole at its own species, where a 32-bit value of a 64-bit kernel
+   * fills the low half of its.
    */
   boolean sameCount(Lane of) {
     return of == lane || of.bits == lane.bits;
@@ -1309,9 +1310,9 @@ final class Analysis {
 
   /**
    * The lane count baked for {@code of}'s species, or 0 where none is: {@link #lanes} for the
-   * driving lane and for the other lane of its width (the float lane of an int kernel), and for
-   * the int lane of a kernel driven at the long one the int species of the same width, twice the
-   * long lanes. The plan's.
+   * driving lane and for the other lane of its width (the double lane of a long kernel, the float
+   * lane of an int one), and for a 32-bit lane of a 64-bit kernel the species of the same width,
+   * twice the drive's lanes. The plan's.
    */
   int lanesOf(Lane of) {
     return plan.lanesOf(of);
@@ -1595,20 +1596,26 @@ final class Analysis {
     // word alone needs neither (`validityOnlyNarrow`): the word is a bit per row at every lane.
     // The IR's own constructors make any other mix unbuildable; this is what catches one built
     // another way.
-    // The two kinds meet only through a ConvertLane between the int and float lanes, which
-    // keeps the lane count (VARKA-343): an int emission holds float nodes beside its own, and a
-    // float emission holds its own lane alone, since a tree with an int node drives at the int
-    // lane. No 64-bit emission holds a floating node beside an integral one: the plan refuses a
-    // conversion between widths (`VarkaKernelPlan.conversionRefusal`).
+    // The two kinds meet through a ConvertLane, by width (`VARKA-343.md` 2.2): a 32-bit
+    // emission holds the int and float lanes, the narrow ones only at the int drive; a long one
+    // holds every other lane, and a double one every lane but the long one, since a tree holding
+    // a long node drives at the long lane, and of the narrow nodes only a column, loaded as the
+    // long lane loads it. A float emission holds its own lane alone: a tree with an int node
+    // drives at the int lane. The plan declines every other narrow node under a floating drive
+    // (`VarkaKernelPlan.narrowRefusal`), so the two agree.
+    VarkaVectorIR.LaneType type = node.laneType();
     boolean fits = switch (lane) {
-      case BYTE, SHORT, FLOAT, DOUBLE -> node.laneType() == lane.laneType;
-      case INT -> node.laneType().bits() <= Integer.SIZE;
+      case BYTE, SHORT, FLOAT -> type == lane.laneType;
+      case INT -> type.bits() <= Integer.SIZE;
       // The plan admits narrow columns, narrowings and comparisons there and nothing else
       // narrow, by the classification it refuses with (VarkaKernelPlan.longNarrowRole,
       // VARKA-332); a validity-only narrow column, which the plan does not see, beside them.
-      case LONG -> (!node.laneType().isNarrow() || validityOnlyNarrow.contains(node)
-          || VarkaKernelPlan.longNarrowRole(node) != VarkaKernelPlan.LongNarrowRole.NONE)
-          && !node.laneType().isFloating();
+      case LONG -> !type.isNarrow() || validityOnlyNarrow.contains(node)
+          || VarkaKernelPlan.longNarrowRole(node) != VarkaKernelPlan.LongNarrowRole.NONE;
+      // A narrow column alone of the narrow nodes, loaded as the long lane loads it (the plan's
+      // narrowRefusal admits no other there).
+      case DOUBLE -> (!type.isNarrow() || node instanceof ColumnRef)
+          && type != VarkaVectorIR.LaneType.LONG;
     };
     if (!fits) {
       throw VarkaErrors.illegalArgument("a " + node.laneType() + " node in a "

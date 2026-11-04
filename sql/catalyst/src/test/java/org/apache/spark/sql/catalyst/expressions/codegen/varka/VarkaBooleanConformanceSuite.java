@@ -25,8 +25,13 @@ import org.apache.spark.sql.types.DataTypes;
  * <p>A `BOOLEAN` column is a condition leaf (VARKA-331), a value through `CondValue`
  * (VARKA-460) and a projection's output column (VARKA-27), which its round trip stores; its casts
  * wait on VARKA-332, which the cast check names when it cancels.
+ *
+ * <p>In its own JVM: its cast to {@code DOUBLE} converts the condition's int one or zero from
+ * the low half of an int species of the double lane's width (VARKA-343), and under the option
+ * matrix's lane-pinning configurations that species is of a size the int-lane suites do not
+ * use, a second one a shared JVM refuses ({@link VarkaSpeciesGuard}).
  */
-@VarkaSuite
+@VarkaSuite(ownJvm = true)
 public final class VarkaBooleanConformanceSuite extends VarkaTypeConformance {
 
   @Override

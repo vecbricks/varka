@@ -3,16 +3,16 @@ bool	byte	BOOLEAN	TINYINT	fused	fused	fused
 bool	short	BOOLEAN	SMALLINT	fused	fused	fused
 bool	int	BOOLEAN	INT	fused	fused	fused
 bool	bigint	BOOLEAN	BIGINT	fused	fused	fused
-bool	float	BOOLEAN	FLOAT	declined	declined	declined
-bool	double	BOOLEAN	DOUBLE	declined	declined	declined
+bool	float	BOOLEAN	FLOAT	fused	fused	fused
+bool	double	BOOLEAN	DOUBLE	fused	fused	fused
 bool	dec	BOOLEAN	DECIMAL(10,2)	declined	declined	declined
 bool	dec	BOOLEAN	DECIMAL(30,4)	declined	declined	declined
 byte	bool	TINYINT	BOOLEAN	fused	fused	fused
 byte	short	TINYINT	SMALLINT	fused	fused	fused
 byte	int	TINYINT	INT	fused	fused	fused
 byte	bigint	TINYINT	BIGINT	fused	fused	fused
-byte	float	TINYINT	FLOAT	declined	declined	declined
-byte	double	TINYINT	DOUBLE	declined	declined	declined
+byte	float	TINYINT	FLOAT	fused	fused	fused
+byte	double	TINYINT	DOUBLE	fused	fused	fused
 byte	dec	TINYINT	DECIMAL(10,2)	declined	declined	declined
 byte	dec	TINYINT	DECIMAL(30,4)	declined	declined	declined
 byte	ym	TINYINT	INTERVAL YEAR	declined	declined	declined
@@ -32,8 +32,8 @@ short	bool	SMALLINT	BOOLEAN	fused	fused	fused
 short	byte	SMALLINT	TINYINT	fused	fused	declined
 short	int	SMALLINT	INT	fused	fused	fused
 short	bigint	SMALLINT	BIGINT	fused	fused	fused
-short	float	SMALLINT	FLOAT	declined	declined	declined
-short	double	SMALLINT	DOUBLE	declined	declined	declined
+short	float	SMALLINT	FLOAT	fused	fused	fused
+short	double	SMALLINT	DOUBLE	fused	fused	fused
 short	dec	SMALLINT	DECIMAL(10,2)	declined	declined	declined
 short	dec	SMALLINT	DECIMAL(30,4)	declined	declined	declined
 short	ym	SMALLINT	INTERVAL YEAR	declined	declined	declined
@@ -54,7 +54,7 @@ int	byte	INT	TINYINT	fused	fused	declined
 int	short	INT	SMALLINT	fused	fused	declined
 int	bigint	INT	BIGINT	fused	fused	fused
 int	float	INT	FLOAT	fused	fused	fused
-int	double	INT	DOUBLE	declined	declined	declined
+int	double	INT	DOUBLE	fused	fused	fused
 int	dec	INT	DECIMAL(10,2)	declined	declined	declined
 int	dec	INT	DECIMAL(30,4)	declined	declined	declined
 int	ym	INT	INTERVAL YEAR	declined	declined	declined
@@ -96,7 +96,7 @@ float	byte	FLOAT	TINYINT	declined	declined	declined
 float	short	FLOAT	SMALLINT	declined	declined	declined
 float	int	FLOAT	INT	declined	declined	declined
 float	bigint	FLOAT	BIGINT	declined	declined	declined
-float	double	FLOAT	DOUBLE	declined	declined	declined
+float	double	FLOAT	DOUBLE	fused	fused	fused
 float	dec	FLOAT	DECIMAL(10,2)	declined	declined	declined
 float	dec	FLOAT	DECIMAL(30,4)	declined	declined	declined
 double	bool	DOUBLE	BOOLEAN	fused	fused	fused
@@ -104,7 +104,7 @@ double	byte	DOUBLE	TINYINT	declined	declined	declined
 double	short	DOUBLE	SMALLINT	declined	declined	declined
 double	int	DOUBLE	INT	declined	declined	declined
 double	bigint	DOUBLE	BIGINT	declined	declined	declined
-double	float	DOUBLE	FLOAT	declined	declined	declined
+double	float	DOUBLE	FLOAT	fused	fused	fused
 double	dec	DOUBLE	DECIMAL(10,2)	declined	declined	declined
 double	dec	DOUBLE	DECIMAL(30,4)	declined	declined	declined
 dec	bool	DECIMAL(10,2)	BOOLEAN	declined	declined	declined
