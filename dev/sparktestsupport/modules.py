@@ -142,6 +142,10 @@ varka_scoped_regexes = (
     r"^dev/varka_",
     r"^dev/\.gitattributes$",  # its generated Varka files (VARKA-554)
     r"^\.github/workflows/varka-",
+    # Varka's compiler classes in Catalyst's codegen package that do not carry the name: only
+    # Varka's compilers read them (VARKA-562).
+    r"^sql/catalyst/src/main/java/org/apache/spark/sql/catalyst/expressions/codegen/"
+    r"DeclineSink\.java$",
 )
 
 
@@ -176,6 +180,12 @@ def is_varka_scoped(filename: str) -> bool:
     >>> is_varka_scoped("dev/varka_bench_regen.sh")
     True
     >>> is_varka_scoped(".github/workflows/varka-canary.yml")
+    True
+
+    Varka's codegen classes that do not carry the name, listed one by one:
+
+    >>> is_varka_scoped("sql/catalyst/src/main/java/org/apache/spark/sql/catalyst/"
+    ...                 "expressions/codegen/DeclineSink.java")
     True
 
     The shared hooks, Spark's own files and the build's own workflow are not Varka's alone:
