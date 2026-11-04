@@ -20,7 +20,7 @@ package org.apache.spark.sql.catalyst.expressions.codegen.varka
 import scala.jdk.OptionConverters._
 
 import org.apache.spark.sql.catalyst.expressions.{Attribute, BindReferences, Expression, GenericInternalRow, RuntimeReplaceable}
-import org.apache.spark.sql.types.DataType
+import org.apache.spark.sql.types.{DataType, Decimal, DecimalType}
 
 /**
  * Spark's own answer for each output of a compiled kernel (VARKA-276): the Catalyst expression the
@@ -89,6 +89,11 @@ class VarkaSparkOracle(outputs: Seq[Expression], inputs: Seq[Attribute]) {
         case l: Long => VarkaSparkOracle.Value(l)
         case f: Float => VarkaSparkOracle.Value(java.lang.Float.floatToRawIntBits(f).toLong)
         case d: Double => VarkaSparkOracle.Value(java.lang.Double.doubleToRawLongBits(d))
+        // A decimal output of precision 18 or less, read as the store writes it: the unscaled
+        // long at the output's scale (VARKA-157), which the producers build at that scale.
+        case d: Decimal if outputs(o).dataType.isInstanceOf[DecimalType] =>
+          val scale = outputs(o).dataType.asInstanceOf[DecimalType].scale
+          VarkaSparkOracle.Value(d.toJavaBigDecimal.setScale(scale).unscaledValue.longValueExact)
         case other => throw new IllegalArgumentException(
           s"output $o evaluated to a ${other.getClass.getSimpleName}, which no kernel stores")
       }
