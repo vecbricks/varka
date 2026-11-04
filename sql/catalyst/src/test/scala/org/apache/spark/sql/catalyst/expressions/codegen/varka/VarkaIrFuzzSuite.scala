@@ -115,6 +115,10 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
   private val fuzzSeed = VarkaIrGrammar.FUZZ_SEED
   private val longFuzzSeed = VarkaIrGrammar.LONG_FUZZ_SEED
 
+  // `-Dvarka.fuzz.seed` moves the fuzz trees only. A test that asserts a draw reaches a form (or
+  // that the committed draws hold none) states a property of the grammar, so it draws at the
+  // committed seed - `fuzzSeed`, `longFuzzSeed` or a `VarkaIrGrammar.*_FUZZ_SEED` - and passes or
+  // fails the same at every night's seed (VARKA-348).
   private val seed = sys.props.get("varka.fuzz.seed").map(_.toLong).getOrElse(fuzzSeed)
   private val longSeed = sys.props.get("varka.fuzz.seed").map(_.toLong).getOrElse(longFuzzSeed)
   private val mixedSeed =
@@ -1058,7 +1062,7 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
     // The shapes are the ones the fuzzer runs and the emitted-bytes oracle pins: draw k of the
     // shared corpus, every root of it.
     for (k <- 0 until 20000) {
-      VarkaIrGrammar.drawShape(VarkaIrGrammar.shapeRandom(seed, k)).roots.asScala
+      VarkaIrGrammar.drawShape(VarkaIrGrammar.shapeRandom(fuzzSeed, k)).roots.asScala
         .foreach(collectNodeTypes(_, seen))
     }
     // Deliberately out of this generator's reach: the conversions, which take or give a long
@@ -1113,7 +1117,7 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
     // roots come through `LongShapes.root`, so the narrowing an output root may carry is asked
     // for with the rest: it constructs over long leaves, so it counts as lane-generic.
     for (k <- 0 until 20000) {
-      VarkaIrGrammar.drawLongShape(VarkaIrGrammar.shapeRandom(longSeed, k)).roots.asScala
+      VarkaIrGrammar.drawLongShape(VarkaIrGrammar.shapeRandom(longFuzzSeed, k)).roots.asScala
         .foreach(collectNodeTypes(_, seen))
     }
     // The null-safe equality is out of this corpus for the reason the int one gives above, and
@@ -1141,7 +1145,7 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
     val days = scala.collection.mutable.ArrayBuilder.make[Long]
     val months = scala.collection.mutable.ArrayBuilder.make[Long]
     for (k <- 0 until 2000) {
-      val c = drawInt(k)
+      val c = drawInt(k, fuzzSeed)
       for (col <- 0 until c.numInputs() if col != c.levelOrdinal()) {
         (if (col == c.smallOrdinal()) months else days) ++= c.data()(col)
       }
@@ -1572,7 +1576,8 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
   test("the cast draw reaches each composition and each guard mode, at every lane") {
     val seen = scala.collection.mutable.Set.empty[String]
     for (k <- 0 until 2000) {
-      val root = VarkaIrGrammar.drawCastShape(VarkaIrGrammar.shapeRandom(castSeed, k))
+      val root = VarkaIrGrammar.drawCastShape(
+        VarkaIrGrammar.shapeRandom(VarkaIrGrammar.CAST_FUZZ_SEED, k))
       (root, castCategory(root)) match {
         case (w: WidenLane, "narrowing read by another node") =>
           seen += s"narrowing read by a widening to ${w.target()}"
@@ -1630,8 +1635,9 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
       .getOrElse(VarkaIrGrammar.DECIMAL_VALUE_FUZZ_SEED)
 
   /** The decimal value draw's case at `iteration`, its options and its batch. */
-  private def drawDecimalValue(iteration: Int): VarkaFuzzCase = {
-    val rnd = VarkaIrGrammar.shapeRandom(decimalValueSeed, iteration)
+  private def drawDecimalValue(iteration: Int,
+      drawSeed: Long = decimalValueSeed): VarkaFuzzCase = {
+    val rnd = VarkaIrGrammar.shapeRandom(drawSeed, iteration)
     val drawn = VarkaIrGrammar.drawDecimalValueShape(rnd)
     val roots = drawn.roots
     val numInputs = drawn.precisions().length
@@ -1640,7 +1646,7 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
     val patterns = patternIds.map(pattern(rnd, _, length))
     val forceMasked = length > 1 && rnd.nextInt(4) == 0
     val options = drawOptions(rnd,
-      randomOptions(rnd, VarkaMatrix.base, decimalValueSeed, iteration), decimalColumnOptions)
+      randomOptions(rnd, VarkaMatrix.base, drawSeed, iteration), decimalColumnOptions)
     val data = Array.tabulate(numInputs, length) { (c, _) =>
       val bound = org.apache.spark.sql.types.Decimal.POW_10(drawn.precisions()(c)) - 1
       rnd.nextInt(8) match {
@@ -1650,7 +1656,7 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
         case _ => VarkaIrGrammar.within(rnd, bound)
       }
     }
-    val label = s"lane=decimal-value seed=$decimalValueSeed iteration=$iteration " +
+    val label = s"lane=decimal-value seed=$drawSeed iteration=$iteration " +
       s"roots=${roots.asScala.map(r => VarkaVectorIR.canonical(r)).mkString("[", ", ", "]")} " +
       s"options=${if (options.isDefault) "(defaults)" else options.canonical()} " +
       s"length=$length patterns=${patternIds.map(patternNames).mkString(",")} " +
@@ -1679,13 +1685,16 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
     // sequence for a node none of their shapes holds; or left out of the decimal value draw, so
     // its lanewise arm is never fuzzed.
     assert(decimalColumnOptions.map(_.name) === Seq("decimalAbsLanewise"))
-    val arms = (0 until 64).map(k => drawDecimalValue(k).options.decimalAbsLanewise()).toSet
+    val arms = (0 until 64).map(k => drawDecimalValue(k, VarkaIrGrammar.DECIMAL_VALUE_FUZZ_SEED)
+      .options.decimalAbsLanewise()).toSet
     assert(arms === Set(true, false))
-    val general = (0 until 64).map(k => drawLong(k).options.decimalAbsLanewise()).toSet
+    val general =
+      (0 until 64).map(k => drawLong(k, longFuzzSeed).options.decimalAbsLanewise()).toSet
     assert(general === Set(VarkaMatrix.base.decimalAbsLanewise()))
     val inGeneral = VarkaEmitOption.TABLE.asScala.toSeq
       .filter(o => VarkaEmitOption.drawnInGeneral(o)).sortBy(_.name)
-    assert(VarkaSteering.mutable(drawDecimalValue(0)).asScala.toSeq ===
+    assert(VarkaSteering.mutable(
+      drawDecimalValue(0, VarkaIrGrammar.DECIMAL_VALUE_FUZZ_SEED)).asScala.toSeq ===
       inGeneral ++ decimalColumnOptions)
   }
 
@@ -1728,7 +1737,7 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
     val seen = scala.collection.mutable.Set.empty[String]
     for (k <- 0 until 500) {
       val drawn = VarkaIrGrammar.drawDecimalValueShape(
-        VarkaIrGrammar.shapeRandom(decimalValueSeed, k))
+        VarkaIrGrammar.shapeRandom(VarkaIrGrammar.DECIMAL_VALUE_FUZZ_SEED, k))
       def walk(n: VarkaVectorIR): Unit = {
         n match {
           case m: VarkaVectorIR.IntArith if m.op() == VarkaVectorIR.IntOp.MUL => seen += "rescale"
@@ -1757,11 +1766,12 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
       roots.asScala.toSeq.collect { case w: WidenDecimal => w }
     val draws = 0 until 2000
     val drawn = draws.flatMap(k => decimals(
-      VarkaIrGrammar.drawDecimalShape(VarkaIrGrammar.shapeRandom(decimalSeed, k)).roots))
+      VarkaIrGrammar.drawDecimalShape(
+        VarkaIrGrammar.shapeRandom(VarkaIrGrammar.DECIMAL_FUZZ_SEED, k)).roots))
     assert(drawn.exists(_.child().isInstanceOf[GuardedRange]), "no guarded decimal child drawn")
     assert(drawn.exists(!_.child().isInstanceOf[GuardedRange]), "every decimal child is guarded")
     val committed = draws.flatMap(k =>
-      decimals(VarkaIrGrammar.drawLongShape(VarkaIrGrammar.shapeRandom(longSeed, k)).roots))
+      decimals(VarkaIrGrammar.drawLongShape(VarkaIrGrammar.shapeRandom(longFuzzSeed, k)).roots))
     assert(committed.isEmpty, s"a committed draw holds a decimal output: ${committed.headOption}")
   }
 
@@ -1771,10 +1781,10 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
     // every later draw of the committed seeds for a store none of their shapes holds.
     assert(decimalOptions.map(_.name) === Seq("decimalStore"))
     assert(!fuzzedOptions.exists(o => VarkaEmitOption.readOnlyBy(o).isPresent))
-    val arms = (0 until 64).map(k => drawLong(k, decimalSeed, decimal = true).options
-      .decimalStore()).toSet
+    val arms = (0 until 64).map(k => drawLong(k, VarkaIrGrammar.DECIMAL_FUZZ_SEED, decimal = true)
+      .options.decimalStore()).toSet
     assert(arms === VarkaEmitOptions.DecimalStore.values.toSet)
-    val general = (0 until 64).map(k => drawLong(k).options.decimalStore()).toSet
+    val general = (0 until 64).map(k => drawLong(k, longFuzzSeed).options.decimalStore()).toSet
     assert(general === Set(VarkaMatrix.base.decimalStore()))
   }
 
@@ -1787,10 +1797,10 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
     // boolean output; VarkaVariantSuite checks that half on a hand-built pool.
     val inGeneral = VarkaEmitOption.TABLE.asScala.toSeq
       .filter(o => VarkaEmitOption.drawnInGeneral(o)).sortBy(_.name)
-    val firstGeneral = VarkaSteering.mutable(drawLong(0))
+    val firstGeneral = VarkaSteering.mutable(drawLong(0, longFuzzSeed))
     assert(firstGeneral.asScala.toSeq === inGeneral)
     for (k <- 0 until 500) {
-      assert(VarkaSteering.mutable(drawLong(k)) eq firstGeneral, s"general draw $k")
+      assert(VarkaSteering.mutable(drawLong(k, longFuzzSeed)) eq firstGeneral, s"general draw $k")
     }
     def outputBelowARoot(roots: java.util.List[VarkaVectorIR]): Option[VarkaVectorIR] = {
       var found: Option[VarkaVectorIR] = None
@@ -1803,11 +1813,13 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
       found
     }
     for (k <- 0 until 64) {
-      val pool = VarkaVariants.valueSubtrees(drawLong(k, decimalSeed, decimal = true).roots)
+      val pool = VarkaVariants.valueSubtrees(
+        drawLong(k, VarkaIrGrammar.DECIMAL_FUZZ_SEED, decimal = true).roots)
       assert(!pool.asScala.exists(_.isInstanceOf[WidenDecimal]),
         s"decimal draw $k: a decimal output in the replacement pool")
     }
-    assert(VarkaSteering.mutable(drawLong(0, decimalSeed, decimal = true)).asScala.toSeq ===
+    assert(VarkaSteering.mutable(
+      drawLong(0, VarkaIrGrammar.DECIMAL_FUZZ_SEED, decimal = true)).asScala.toSeq ===
       inGeneral ++ decimalOptions)
     // Before the fix the pool held the case's decimal output, a long-lane tree, so it was
     // offered wherever an untaken arm is on the long lane: a long column the case does not read
@@ -1818,10 +1830,11 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
         c.numInputs, VarkaVariantChecks.armOracle(c),
         java.util.List.of[VarkaVectorIR](new ColumnRef(c.numInputs, LaneType.LONG)), 0).isPresent
     val untaken = " -> " + VarkaVariants.Kind.UNTAKEN_ARM
-    val shown = (0 until 64).iterator.map(k => (k, drawLong(k, decimalSeed, decimal = true)))
+    val shown = (0 until 64).iterator
+      .map(k => (k, drawLong(k, VarkaIrGrammar.DECIMAL_FUZZ_SEED, decimal = true)))
       .filter { case (_, c) => armOnTheLongLane(c) }
       .exists { case (k, c) =>
-        val rnd = new Random(decimalSeed)
+        val rnd = new Random(VarkaIrGrammar.DECIMAL_FUZZ_SEED)
         var storeChanged = false
         var armReplaced = false
         var step = 0
@@ -1852,17 +1865,18 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
       roots.asScala.toSeq.flatMap(walk)
     }
     val draws = 0 until 2000
+    val pinned = VarkaIrGrammar.NULLING_FUZZ_SEED
     val int = draws.flatMap(k => nulling(
-      VarkaIrGrammar.drawNullingShape(VarkaIrGrammar.shapeRandom(nullingSeed, k)).roots))
+      VarkaIrGrammar.drawNullingShape(VarkaIrGrammar.shapeRandom(pinned, k)).roots))
     val long = draws.flatMap(k => nulling(
-      VarkaIrGrammar.drawNullingLongShape(VarkaIrGrammar.shapeRandom(nullingSeed, k)).roots))
+      VarkaIrGrammar.drawNullingLongShape(VarkaIrGrammar.shapeRandom(pinned, k)).roots))
     assert(int.exists(_.laneType() == LaneType.INT), "no int-lane nulling guard was drawn")
     assert(long.exists(_.laneType() == LaneType.LONG), "no long-lane nulling guard was drawn")
     assert((int ++ long).exists(g => g.lo() != -g.hi()),
       "every nulling guard was drawn with the symmetric bound of its child")
     val committed = draws.flatMap(k =>
-      nulling(VarkaIrGrammar.drawShape(VarkaIrGrammar.shapeRandom(seed, k)).roots) ++
-        nulling(VarkaIrGrammar.drawLongShape(VarkaIrGrammar.shapeRandom(longSeed, k)).roots))
+      nulling(VarkaIrGrammar.drawShape(VarkaIrGrammar.shapeRandom(fuzzSeed, k)).roots) ++
+        nulling(VarkaIrGrammar.drawLongShape(VarkaIrGrammar.shapeRandom(longFuzzSeed, k)).roots))
     assert(committed.isEmpty, s"a committed draw holds a nulling guard: ${committed.headOption}")
   }
 
@@ -1891,10 +1905,11 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
       }) ++ VarkaVectorIR.childrenOf(root).toSeq.flatMap(positions)
     }
     val draws = 0 until 2000
+    val pinned = VarkaIrGrammar.NULLING_FUZZ_SEED
     val trees = draws.flatMap(k =>
-      VarkaIrGrammar.drawNullingShape(VarkaIrGrammar.shapeRandom(nullingSeed, k)).roots
+      VarkaIrGrammar.drawNullingShape(VarkaIrGrammar.shapeRandom(pinned, k)).roots
         .asScala ++
-        VarkaIrGrammar.drawNullingLongShape(VarkaIrGrammar.shapeRandom(nullingSeed, k)).roots
+        VarkaIrGrammar.drawNullingLongShape(VarkaIrGrammar.shapeRandom(pinned, k)).roots
           .asScala)
     val drawn = nulls(trees.asJava)
     assert(drawn.exists(_.lane() == LaneType.INT), "no int-lane null leaf was drawn")
@@ -1904,8 +1919,8 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
     assert(trees.exists(t => nulls(java.util.List.of(t)).size >= 2),
       "no tree holds the null leaf twice")
     val committed = draws.flatMap(k =>
-      nulls(VarkaIrGrammar.drawShape(VarkaIrGrammar.shapeRandom(seed, k)).roots) ++
-        nulls(VarkaIrGrammar.drawLongShape(VarkaIrGrammar.shapeRandom(longSeed, k)).roots))
+      nulls(VarkaIrGrammar.drawShape(VarkaIrGrammar.shapeRandom(fuzzSeed, k)).roots) ++
+        nulls(VarkaIrGrammar.drawLongShape(VarkaIrGrammar.shapeRandom(longFuzzSeed, k)).roots))
     assert(committed.isEmpty, s"a committed draw holds a null leaf: ${committed.headOption}")
   }
 
@@ -1926,7 +1941,8 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
       }
     }
     for (k <- 0 until 20000) {
-      VarkaIrGrammar.drawMixedShape(VarkaIrGrammar.shapeRandom(mixedSeed, k)).roots.asScala
+      VarkaIrGrammar.drawMixedShape(VarkaIrGrammar.shapeRandom(VarkaIrGrammar.MIXED_FUZZ_SEED, k))
+        .roots.asScala
         .foreach(walk(_, underWiden = false))
     }
     val wanted = Set("WidenLane", "NarrowLane", "GuardedRange", "calendar under a widening",

@@ -859,3 +859,10 @@ condition between the value and its validity, and the structural hash walks the 
 a level, which `VarkaVectorIR.lanesIn`, `VarkaKernelPlan.of` and `VarkaLoopEmitter.budgetWalk`'s
 hash sets pay as 2^depth. The test now counts condition compiles; with each IR node caching its
 hash (VARKA-559, 4 November 2026) the `coalesce` nests 20 deep again.
+
+### The reachability checks' seed (4 November 2026)
+
+The nightly fuzz run 41798852105 failed at seed 202611041: the decimal value draw's reach test
+read the night's seed and drew no rescale by `10^17` in its 500 draws, so `VarkaIrFuzzSuite` now
+draws every reachability check at its committed seed and the night's seed moves the fuzz trees
+only.
