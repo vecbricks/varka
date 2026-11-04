@@ -117,8 +117,9 @@ R2, #1338 under R1 (three suites on `CrossLane`, as CI) and #1323 under R3, only
   HEAD~1`, a dropped WIP tip, a `rebase -i` edit stop) still owes. The walk keeps every debt and
   payment as an event, and a file is owed when the latest event HEAD descends from is a debt: a
   `reset --hard` to `ORIG_HEAD`, the old tip or `origin/<branch>` undoing the rebase owes
-  nothing, a reset back to its tip owes again, and a later rebase or amend of a commit that owes
-  carries the debt to its new commits (master moved and rebased onto again still owes).
+  nothing, a reset back to its tip owes again, and a later rebase or amend carries a file's
+  latest debt or payment to its new commits (master moved and rebased onto again still owes; a
+  reworded regeneration commit still pays).
 - **Paid file by file**: a commit pays the files it changes (a regeneration commits only what
   moved), so prose in `docs/sql-varka.md` pays no other file, and a paying commit reset away pays
   nothing; `dev/varka_regen_generated.sh --all` leaves in the git dir's `varka-regen-all`,
