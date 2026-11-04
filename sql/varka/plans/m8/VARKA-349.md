@@ -575,8 +575,8 @@ operands' product can wrap. With the high review's neighbours (*3 November 2026*
 the type at `P = 18`, one less than the product's largest value at `p1 = 8, p2 = 9` refuted, and
 the wrap's identity holding within `Long.MAX_VALUE` and failing one past it), `decimal64.smt2`
 holds 554 checks, 208 of them this row's. Before the four, on the laptop Z3 held its 550 in 0.14 s
-and cvc5 in 1.72 s, against 0.15 s and 0.47 s for 348's 346 checks; the four have not been run,
-no solver being installed on the machine that added them.
+and cvc5 in 1.72 s, against 0.15 s and 0.47 s for 348's 346 checks; with the four, after the
+replay onto master (*4 November 2026*), Z3 held the 554 in 0.21 s and cvc5 in 1.84 s.
 `refinement.smt2` gains a section beside 348a's that refines each coverage row below whole, its
 comparison included, through the five queries in Spark mode ANSI with standard mode (raised past
 the result's precision) and in LEGACY and TRY (null there), the `try_add` row in TRY alone, a
