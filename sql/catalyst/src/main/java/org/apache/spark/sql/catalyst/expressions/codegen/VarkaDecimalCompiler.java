@@ -22,12 +22,15 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.TreeSet;
 import java.util.function.BinaryOperator;
+import java.util.regex.Pattern;
 
 import scala.Tuple2;
 import scala.jdk.javaapi.CollectionConverters;
 
 import org.apache.spark.sql.catalyst.expressions.Abs;
+import org.apache.spark.sql.catalyst.expressions.Add;
 import org.apache.spark.sql.catalyst.expressions.BoundReference;
 import org.apache.spark.sql.catalyst.expressions.CaseWhen;
 import org.apache.spark.sql.catalyst.expressions.Cast;
@@ -36,7 +39,9 @@ import org.apache.spark.sql.catalyst.expressions.Expression;
 import org.apache.spark.sql.catalyst.expressions.Greatest;
 import org.apache.spark.sql.catalyst.expressions.If;
 import org.apache.spark.sql.catalyst.expressions.Least;
-import org.apache.spark.sql.catalyst.expressions.Literal;
+import org.apache.spark.sql.catalyst.expressions.Multiply;
+import org.apache.spark.sql.catalyst.expressions.RuntimeReplaceable;
+import org.apache.spark.sql.catalyst.expressions.Subtract;
 import org.apache.spark.sql.catalyst.expressions.UnaryMinus;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaErrors;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaFamily;
@@ -57,7 +62,7 @@ import org.apache.spark.sql.types.Decimal;
 import org.apache.spark.sql.types.DecimalType;
 
 /**
- * The decimal values a kernel computes on the long lane (VARKA-347, VARKA-348): each is a
+ * The decimal values a kernel computes on the long lane (VARKA-347 to VARKA-349): each is a
  * {@link Scaled}, an unscaled long node and the {@code DECIMAL(p, s)} it is a value of, built by
  * {@link #value}, which every decimal consumer calls.
  *
@@ -80,10 +85,22 @@ import org.apache.spark.sql.types.DecimalType;
  * type, which Spark itself holds: each of those nodes is a {@code ComplexTypeMergingExpression},
  * whose {@code dataType} throws unless its branches' types are equal.
  *
+ * <p>Why {@code +}, {@code -} and {@code *} need no overflow check. Spark types a decimal sum or
+ * difference {@code (P, S)} with {@code S = max(s1, s2)} and
+ * {@code P = max(p1 - s1, p2 - s2) + S + 1}, a product {@code (p1 + p2 + 1, s1 + s2)}
+ * ({@code DecimalType}'s {@code resultDecimalType} in each node), and never casts the operands.
+ * Where {@code P <= 18} the exact result always fits the type: each operand rescaled to
+ * {@code S} has at most {@code P - 1} digits, so their sum has at most {@code P}; a product of
+ * values below {@code 10^p1} and {@code 10^p2} is below {@code 10^(P - 1)}. So Spark's precision
+ * check never fires, LEGACY's null, ANSI's raise and TRY's null are dead, and one wrapping long
+ * operation, which cannot wrap below {@code 10^18}, is Spark's answer in every mode. A wider
+ * result is a decline, never a check.
+ *
  * <p>What declines, each naming its row: a type wider than 18 digits (row 359, and row 360 where
- * a rescale is needed); a cast that lowers the scale or the integral digits, or one from an
- * integral type (row 350); a negative scale (the milestone plan's 2.8); and every operator no
- * arm here claims yet.
+ * a rescale is needed); a sum or difference past 18 digits (row 360, and 363 past 38), a product
+ * past 18 digits (row 361, and 362 and 363 past 38 or over an operand past 18); a cast that
+ * lowers the scale or the integral digits, or one from an integral type (row 350); a negative
+ * scale (the milestone plan's 2.8); and every operator no arm here claims yet.
  *
  * <p>A decimal-valued output root, once a lowering builds one, is admitted by {@link #outputRoot}.
  */
@@ -127,8 +144,9 @@ final class VarkaDecimalCompiler {
   }
 
   /**
-   * The value of the decimal expression {@code e}, or empty with the reason noted. A literal tree
-   * folds first, so a literal under coercion's cast takes its slot already at the cast's scale.
+   * The value of the decimal expression {@code e}, or empty with the reason noted. A constant
+   * ({@code foldable}: a literal under coercion's cast, or any tree over literals alone) folds
+   * first, so it takes one slot already at its type's scale.
    */
   static Optional<Scaled> value(Expression e, VarkaSlotTable inputs, VarkaSlotTable literals,
       DeclineSink sink) {
@@ -145,7 +163,7 @@ final class VarkaDecimalCompiler {
     if (type.precision() > MAX_PRECISION && !(e instanceof BoundReference)) {
       return sink.decline(wideReason(e, type), e);
     }
-    if (isLiteralTree(e)) {
+    if (e.foldable()) {
       return literal(e, type, sink);
     }
     return switch (e) {
@@ -173,9 +191,14 @@ final class VarkaDecimalCompiler {
       case Least l -> VarkaNodeCompiler.inFamily(VarkaFamily.INT_ARITHMETIC,
           () -> pick(l, CollectionConverters.asJava(l.children()), type, inputs, literals, sink,
               VarkaVectorIR.Least::new), l, sink);
-      default -> sink.decline("a decimal operator no arm builds yet: +, - and * are row 349's "
-          + "and the rounding functions row 351's, and a quotient or a remainder is no row's in "
-          + "this milestone", e);
+      // try_add, try_subtract and try_multiply over two numerics are Add, Subtract and Multiply
+      // in TRY mode, which an analysed tree carries as their replacement.
+      case RuntimeReplaceable r -> value(r.replacement(), inputs, literals, sink);
+      case Add a -> sum(a, IntOp.ADD, a.left(), a.right(), type, inputs, literals, sink);
+      case Subtract a -> sum(a, IntOp.SUB, a.left(), a.right(), type, inputs, literals, sink);
+      case Multiply m -> product(m, type, inputs, literals, sink);
+      default -> sink.decline("a decimal operator no arm builds yet: the rounding functions are "
+          + "row 351's, and a quotient or a remainder is no row's in this milestone", e);
     };
   }
 
@@ -184,19 +207,143 @@ final class VarkaDecimalCompiler {
    * row 359's, and a cast that rescales into it, the one coercion puts over the operand of the
    * smaller scale or over a choice's branch of the smaller scale, needs row 360's wide rescale as
    * well, and a cast over that rescale which lowers the scale or the integral digits row 350's
-   * too.
+   * too. A sum, difference or product names the row of its own wide form instead, which is the
+   * more precise answer, and so does a cast, a negation, a choice or a pick over one that needs
+   * no rescale.
    */
   private static String wideReason(Expression e, DecimalType type) {
-    if (rescalesUp(e, type)) {
-      if (lowersOverRescale(e)) {
-        return "a decimal cast that lowers the scale or the integral digits is row 350's, over "
-            + "a rescale to a decimal wider than " + MAX_PRECISION + " digits, rows 359 and "
-            + "360's";
+    return switch (e) {
+      case RuntimeReplaceable r when r.replacement().dataType() instanceof DecimalType ->
+          wideReason(r.replacement(), type);
+      case Add a when a.left().dataType() instanceof DecimalType t1
+          && a.right().dataType() instanceof DecimalType t2 -> sumReason("sum", t1, t2);
+      case Subtract a when a.left().dataType() instanceof DecimalType t1
+          && a.right().dataType() instanceof DecimalType t2 -> sumReason("difference", t1, t2);
+      case Multiply m when m.left().dataType() instanceof DecimalType t1
+          && m.right().dataType() instanceof DecimalType t2 -> productReason(t1, t2);
+      default -> {
+        if (rescalesUp(e, type)) {
+          if (lowersOverRescale(e)) {
+            yield "a decimal cast that lowers the scale or the integral digits is row 350's, "
+                + "over a rescale to a decimal wider than " + MAX_PRECISION + " digits, rows 359 "
+                + "and 360's";
+          }
+          yield "a rescale to a decimal wider than " + MAX_PRECISION + " digits is rows 359 and "
+              + "360's";
+        }
+        yield wideArithmeticBelow(e)
+            .orElse("a decimal wider than " + MAX_PRECISION + " digits is row 359's");
       }
-      return "a rescale to a decimal wider than " + MAX_PRECISION + " digits is rows 359 and "
-          + "360's";
+    };
+  }
+
+  /**
+   * The reason of the sums, differences and products past 18 digits under {@code e}, reached
+   * through the casts, negations, choices and picks over them, as {@code -(x + y)} reaches its
+   * sum, or empty where none is and no cast lowers. Every wide child's reason is read, with row
+   * 350 for a cast that lowers the scale or the integral digits (beside 359 over no arithmetic),
+   * and two or more name their rows' union in ascending order, so that {@code IF(p, x + y, a * b)}
+   * and {@code IF(p, a * b, x + y)} decline alike.
+   */
+  private static Optional<String> wideArithmeticBelow(Expression e) {
+    if (!(e instanceof Cast || e instanceof UnaryMinus || e instanceof Abs || e instanceof If
+        || e instanceof CaseWhen || e instanceof Coalesce || e instanceof Greatest
+        || e instanceof Least)) {
+      return Optional.empty();
     }
-    return "a decimal wider than " + MAX_PRECISION + " digits is row 359's";
+    var reasons = new TreeSet<String>();
+    boolean named = false; // whether a row besides the wide value's own 359 is named
+    for (Expression child : CollectionConverters.asJava(e.children())) {
+      Expression at = child instanceof RuntimeReplaceable r ? r.replacement() : child;
+      if (at.dataType() instanceof DecimalType t && t.precision() > MAX_PRECISION) {
+        Optional<String> below = at instanceof Add || at instanceof Subtract
+            || at instanceof Multiply ? Optional.of(wideReason(at, t)) : wideArithmeticBelow(at);
+        named |= below.isPresent();
+        reasons.add(below.orElse("row 359's"));
+      }
+    }
+    if (e instanceof Cast c && c.child().dataType() instanceof DecimalType from
+        && !keepsDigits(from, (DecimalType) c.dataType())) {
+      reasons.addAll(named ? List.of("row 350's") : List.of("row 350's", "row 359's"));
+      named = true;
+    }
+    if (!named || reasons.size() == 1) {
+      return named ? Optional.of(reasons.first()) : Optional.empty();
+    }
+    // The rows a reason names are the three digits after "row ", "rows ", ", " or " and ".
+    List<String> rows = Pattern.compile("(?<=rows? |, | and )\\d{3}\\b").matcher(String.join(
+        " ", reasons)).results().map(m -> m.group()).distinct().sorted().toList();
+    int n = rows.size();
+    return Optional.of("a cast, a negation, a choice or a pick over decimals wider than "
+        + MAX_PRECISION + " digits is " + (n == 1 ? "row " + rows.get(0) : "rows "
+        + String.join(", ", rows.subList(0, n - 1)) + " and " + rows.get(n - 1)) + "'s");
+  }
+
+  /**
+   * The exact result type Spark's rule gives an arithmetic node over two decimal operands, before
+   * any cap at 38 digits: a pair of ints, since {@code DecimalType} refuses a precision past 38.
+   */
+  private record ResultType(int precision, int scale) {
+
+    /** A sum's or difference's: {@code (max(p1 - s1, p2 - s2) + S + 1, S)}, {@code S} the
+     *  larger scale. */
+    static ResultType ofSum(DecimalType t1, DecimalType t2) {
+      int s = Math.max(t1.scale(), t2.scale());
+      return new ResultType(Math.max(t1.precision() - t1.scale(),
+          t2.precision() - t2.scale()) + s + 1, s);
+    }
+
+    /** A product's: {@code (p1 + p2 + 1, s1 + s2)}. */
+    static ResultType ofProduct(DecimalType t1, DecimalType t2) {
+      return new ResultType(t1.precision() + t2.precision() + 1, t1.scale() + t2.scale());
+    }
+
+    /** As {@code DecimalType.simpleString} renders a type, whatever the precision. */
+    String simpleString() {
+      return "decimal(" + precision + "," + scale + ")";
+    }
+  }
+
+  /**
+   * Why a sum or difference past 18 digits declines: its result's rows past 38 digits, which only
+   * an operand past 18 digits reaches, else an operand's, else its result's.
+   */
+  private static String sumReason(String what, DecimalType t1, DecimalType t2) {
+    int p = ResultType.ofSum(t1, t2).precision();
+    if (p <= DecimalType.MAX_PRECISION()
+        && (t1.precision() > MAX_PRECISION || t2.precision() > MAX_PRECISION)) {
+      return "a decimal " + what + " over an operand wider than " + MAX_PRECISION
+          + " digits is rows 359 and 360's";
+    }
+    return arithmeticReason(what, p, "360", "360 and 363");
+  }
+
+  /** Why a product past 18 digits declines: an operand's, or its result's, row. */
+  private static String productReason(DecimalType t1, DecimalType t2) {
+    if (ResultType.ofProduct(t1, t2).precision() <= DecimalType.MAX_PRECISION()
+        && (t1.precision() > MAX_PRECISION || t2.precision() > MAX_PRECISION)) {
+      return "a decimal product over an operand wider than " + MAX_PRECISION
+          + " digits is rows 362 and 363's";
+    }
+    return arithmeticReason("product", ResultType.ofProduct(t1, t2).precision(), "361",
+        "362 and 363");
+  }
+
+  /**
+   * Why an arithmetic node typed past 18 digits, its exact result of {@code p} digits, has no
+   * long form: it is the wider rows' ({@code to38} up to 38 digits, {@code past38} where Spark
+   * caps it). A node typed wide whose rule gives 18 digits or fewer, which no analysed tree
+   * holds, has only the wide type's reason.
+   */
+  private static String arithmeticReason(String what, int p, String to38, String past38) {
+    if (p <= MAX_PRECISION) {
+      return "a decimal wider than " + MAX_PRECISION + " digits is row 359's";
+    }
+    if (p > DecimalType.MAX_PRECISION()) {
+      return "a decimal " + what + " of " + p + " digits, capped at "
+          + DecimalType.MAX_PRECISION() + ", is rows " + past38 + "'s";
+    }
+    return "a decimal " + what + " of " + p + " digits is row " + to38 + "'s";
   }
 
   /**
@@ -402,14 +549,14 @@ final class VarkaDecimalCompiler {
   /**
    * Where the decimal value {@code e}, which {@link #value} compiles, is not null, as a condition
    * over its leaves: a column's validity word, through every null-intolerant form over it (a
-   * rescale, a negation, {@code abs}); always for a literal; the choice's condition picking its
+   * rescale, a negation, {@code abs}); always for a constant; the choice's condition picking its
    * branches' validity for {@code If} and {@code CASE}, whose unknown condition takes the ELSE as
    * {@link VarkaVectorIR.CondIf} does; and any child's for {@code coalesce}, {@code greatest} and
    * {@code least}, which are null only where every child is. Every condition here is total.
    */
   static Optional<Cond> valid(Expression e, VarkaSlotTable inputs, VarkaSlotTable literals,
       DeclineSink sink) {
-    if (isLiteralTree(e)) {
+    if (e.foldable()) {
       return Optional.of(new CondConst(Truth.TRUE, LaneType.LONG));
     }
     return switch (e) {
@@ -455,8 +602,28 @@ final class VarkaDecimalCompiler {
           sink);
       case Least l -> anyValid(CollectionConverters.asJava(l.children()), inputs, literals,
           sink);
+      // A sum, difference or product within 18 digits never overflows its type, so in every mode
+      // it is null exactly where an operand is (VARKA-349).
+      case RuntimeReplaceable r -> valid(r.replacement(), inputs, literals, sink);
+      case Add a -> allValid(List.of(a.left(), a.right()), inputs, literals, sink);
+      case Subtract a -> allValid(List.of(a.left(), a.right()), inputs, literals, sink);
+      case Multiply m -> allValid(List.of(m.left(), m.right()), inputs, literals, sink);
       default -> sink.decline("the validity of a decimal value no arm builds", e);
     };
+  }
+
+  /** Where every one of {@code children} is not null, as a balanced AND of their validity. */
+  private static Optional<Cond> allValid(List<Expression> children, VarkaSlotTable inputs,
+      VarkaSlotTable literals, DeclineSink sink) {
+    var each = new ArrayList<Cond>();
+    for (Expression child : children) {
+      Optional<Cond> v = valid(child, inputs, literals, sink);
+      if (v.isEmpty()) {
+        return Optional.empty();
+      }
+      each.add(v.get());
+    }
+    return Optional.of(VarkaConditionCompiler.andFold(each));
   }
 
   /** Where some of {@code children} is not null, as a balanced OR of their validity. */
@@ -696,37 +863,122 @@ final class VarkaDecimalCompiler {
     return at;
   }
 
+  /**
+   * {@code x + y} or {@code x - y} (VARKA-349 2.2): both operands rescaled to the result's scale
+   * {@code S}, then one wrapping long add or subtract, in every mode. Each rescaled operand has
+   * at most {@code P - 1 <= 17} digits, so neither rescale leaves the long lane and the result,
+   * at most {@code 2 * (10^(P - 1) - 1) < 10^P}, is within the node's type, which is Spark's
+   * {@code resultDecimalType}. A constant one has been folded by {@link #value}.
+   */
+  private static Optional<Scaled> sum(Expression whole, IntOp op, Expression left,
+      Expression right, DecimalType type, VarkaSlotTable inputs, VarkaSlotTable literals,
+      DeclineSink sink) {
+    String what = op == IntOp.ADD ? "sum" : "difference";
+    if (!(left.dataType() instanceof DecimalType t1)
+        || !(right.dataType() instanceof DecimalType t2)) {
+      return sink.decline("a decimal " + what + " with an operand that is not a decimal", whole);
+    }
+    ResultType rule = ResultType.ofSum(t1, t2);
+    Optional<String> mistyped = mistyped(whole, what, rule, type);
+    if (mistyped.isPresent()) {
+      return sink.decline(mistyped.get(), whole);
+    }
+    int s = rule.scale();
+    Optional<Scaled> a = atScale(left, t1, s, inputs, literals, sink);
+    if (a.isEmpty()) {
+      return Optional.empty();
+    }
+    Optional<Scaled> b = atScale(right, t2, s, inputs, literals, sink);
+    if (b.isEmpty()) {
+      return Optional.empty();
+    }
+    return Optional.of(new Scaled(new IntArith(op, Overflow.WRAP, a.get().unscaled(),
+        b.get().unscaled()), type));
+  }
+
+  /**
+   * The operand {@code e} of type {@code t} rescaled to scale {@code s >= t.scale()}. A constant
+   * takes its unscaled value at {@code s} in a slot of its own, folded at compile time, as
+   * no coercion cast sits over an arithmetic operand to fold it there; any other operand is its
+   * value times the slot {@code 10^(s - t.scale())}.
+   */
+  private static Optional<Scaled> atScale(Expression e, DecimalType t, int s,
+      VarkaSlotTable inputs, VarkaSlotTable literals, DeclineSink sink) {
+    if (e.foldable() && t.scale() >= 0) {
+      return literal(e, new DecimalType(t.precision() + s - t.scale(), s), sink);
+    }
+    return value(e, inputs, literals, sink).map(x -> rescale(x, s - x.type().scale(), sink));
+  }
+
+  /**
+   * {@code x * y} (VARKA-349 2.3): one wrapping long multiply of the unscaled values, in every
+   * mode, with no rescale, since the scales add: the product of {@code u1 / 10^s1} and
+   * {@code u2 / 10^s2} is {@code u1 * u2 / 10^(s1 + s2)}. Its magnitude is at most
+   * {@code (10^p1 - 1)(10^p2 - 1) < 10^(p1 + p2)}, within the node's type
+   * {@code (p1 + p2 + 1, s1 + s2)} and below {@code 2^63} wherever that type is within 18 digits.
+   * A constant one has been folded by {@link #value}.
+   */
+  private static Optional<Scaled> product(Multiply m, DecimalType type, VarkaSlotTable inputs,
+      VarkaSlotTable literals, DeclineSink sink) {
+    if (!(m.left().dataType() instanceof DecimalType t1)
+        || !(m.right().dataType() instanceof DecimalType t2)) {
+      return sink.decline("a decimal product with an operand that is not a decimal", m);
+    }
+    Optional<String> mistyped = mistyped(m, "product", ResultType.ofProduct(t1, t2), type);
+    if (mistyped.isPresent()) {
+      return sink.decline(mistyped.get(), m);
+    }
+    Optional<Scaled> x = value(m.left(), inputs, literals, sink);
+    if (x.isEmpty()) {
+      return Optional.empty();
+    }
+    Optional<Scaled> y = value(m.right(), inputs, literals, sink);
+    if (y.isEmpty()) {
+      return Optional.empty();
+    }
+    return Optional.of(new Scaled(new IntArith(IntOp.MUL, Overflow.WRAP, x.get().unscaled(),
+        y.get().unscaled()), type));
+  }
+
+  /**
+   * Why an arithmetic node within 18 digits is typed other than the exact {@code (p, s)} of
+   * Spark's rule, or empty where it is not. No analysed tree holds such a node, and one is
+   * declined rather than computed at a type it does not have. A node typed past 18 digits does
+   * not get here: {@link #value} declines it first, naming its row ({@link #wideReason}); one
+   * typed narrow whose rule gives more than 18 digits does, and is declined as mistyped, the
+   * rule's type rendered from its two ints, since past 38 digits it is no {@code DecimalType}.
+   */
+  private static Optional<String> mistyped(Expression whole, String what, ResultType rule,
+      DecimalType type) {
+    if (type.precision() != rule.precision() || type.scale() != rule.scale()) {
+      return Optional.of("a decimal " + what + " typed " + type.simpleString() + " where Spark's "
+          + "rule gives " + rule.simpleString() + ": " + whole.nodeName());
+    }
+    return Optional.empty();
+  }
+
   /** The leaf of a decimal column on the long lane, its precision the column's. */
   private static DecimalColumn leaf(BoundReference br, VarkaSlotTable inputs) {
     int precision = ((DecimalType) br.dataType()).precision();
     return new DecimalColumn(inputs.intern(br.ordinal()), LaneType.LONG, precision);
   }
 
-  /** Whether {@code e} is a literal under zero or more casts, so evaluating it reads nothing. */
-  private static boolean isLiteralTree(Expression e) {
-    Expression at = e;
-    while (at instanceof Cast c) {
-      at = c.child();
-    }
-    return at instanceof Literal;
-  }
-
   /**
-   * A literal tree's unscaled value at its type's scale, in a slot of the long table. A literal
+   * A constant's unscaled value at its type's scale, in a slot of the long table. A literal
    * arrives folded in a real query; in a tree the analyzer alone resolved it is the literal under
-   * the casts type coercion put over it, and is folded here by evaluating them, which Spark's
-   * constant folding does the same way. A null literal declines naming row 333, whose typed null
-   * value it needs: a choice keeps one in a real query, as {@code IF(c, NULL, d)}, a
-   * {@code CASE} branch of {@code NULL} and {@code nullif}, which the analyzer rewrites to an
-   * {@code IF}, do. A cast that fails, or a value that does not fit 18 digits, declines too, and
-   * leaves the row engine to raise or answer.
+   * the casts type coercion put over it, or another tree over literals alone, and is folded here
+   * by evaluating it, which Spark's constant folding does the same way. A null constant declines
+   * naming row 333, whose typed null value it needs: a choice keeps one in a real query, as
+   * {@code IF(c, NULL, d)}, a {@code CASE} branch of {@code NULL} and {@code nullif}, which the
+   * analyzer rewrites to an {@code IF}, do. An evaluation that fails, or a value that does not fit
+   * 18 digits, declines too, and leaves the row engine to raise or answer.
    */
   private static Optional<Scaled> literal(Expression e, DecimalType type, DeclineSink sink) {
     Object value;
     try {
       value = e.eval(null);
     } catch (RuntimeException failed) {
-      return sink.decline("a decimal literal whose cast fails", e);
+      return sink.decline("a decimal constant whose evaluation fails", e);
     }
     if (!(value instanceof Decimal d)) {
       return sink.decline("a null decimal literal needs a typed null value, which is row "
