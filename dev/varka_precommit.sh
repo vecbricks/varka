@@ -197,6 +197,12 @@ if [ "${1:-}" = "--selftest" ]; then
     echo "varka_precommit selftest: the fixture moved this repository's HEAD"
     fails=$((fails + 1))
   fi
+  # The push check's rules over their fixtures (VARKA-563) ride here, in the Build's lint step.
+  if ! out="$(python3 dev/varka_push_check.py --self-test 2>&1)"; then
+    echo "$out"
+    echo "varka_precommit selftest: dev/varka_push_check.py --self-test failed"
+    fails=$((fails + 1))
+  fi
   if [ "$fails" -eq 0 ]; then echo "varka_precommit selftest: ok"; fi
   exit "$fails"
 fi

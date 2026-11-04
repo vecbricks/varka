@@ -25,6 +25,10 @@
 #     it writes by dev/varka_precommit.sh --range, since `git commit --no-verify`, a rebase or a
 #     cherry-pick skips the commit-time hooks.
 #
+#   * With VARKA_PUSH_CHECK=fast, a push of the branch checked out also runs
+#     dev/varka_push_check.py's rules that need no JVM (VARKA-563), seconds; with full, all of
+#     them, the suites the branch's changed files imply included. Unset, nothing more runs.
+#
 # Only the branch's own commits are checked: never one Varka's master (origin/master) or Apache
 # Spark's (upstream/master) already has, which a merge of either brings in and which follow their
 # own rules; and the lines are the branch's change since its merge base with Varka's master.
@@ -68,6 +72,17 @@ while read -r local_ref local_sha remote_ref remote_sha; do
     echo "$out" | sed 's/^/varka pre-push: /'
     status=1
   }
+  case "${VARKA_PUSH_CHECK:-}" in
+    fast|full)
+      if [ "$local_sha" = "$(git rev-parse HEAD)" ]; then
+        mode=(--no-precommit)
+        [ "$VARKA_PUSH_CHECK" = fast ] && mode+=(--no-jvm)
+        # Its stdin is not the hook's: the refs still to read are there.
+        dev/varka_push_check.py --base "$base" "${mode[@]}" < /dev/null || status=1
+      else
+        echo "varka pre-push: VARKA_PUSH_CHECK skipped for $local_ref, which is not checked out"
+      fi ;;
+  esac
 done
 if [ "$status" -ne 0 ]; then
   echo "varka pre-push: push refused; fix the findings above, or push with --no-verify to override"
