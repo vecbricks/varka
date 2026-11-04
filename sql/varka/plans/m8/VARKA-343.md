@@ -587,3 +587,30 @@ Cut from #1303's final tree, without its `BIGINT` conversions (343a4), sweeps an
   No CI step pairs them (the matrix sets it only on x86 of 256+ bits); no SQL conf sets it. Owed:
   343a3b.
 - **Prediction 4.1** holds: only the new rows' shapes and the `option_arms` digests move.
+
+### 343a3b as built (4 November 2026)
+
+- **As planned in 2.2.1:** `CrossLane(Cond, LaneType)`, free in the masked body (its words alias
+  the child's) and in the dense body `VectorMask.cast` at one width, `toLong` then `fromLong`
+  across the widths (`VarkaVectorWalk.emitMaskAcross`); one meeting rule,
+  `VarkaConditionCompiler.acrossKinds`, for `meetAll` and the filter's conjunct fold, a boolean
+  column or constant relabelled rather than crossed; `floatingConjunctRefusal` and its `Kind`
+  removed; `lanesShare` joins `INT`, `FLOAT` and the narrow lanes at `INT` and `LONG` with
+  `DOUBLE`. Conditions of the integral kind alone meet as before; prediction 4.1 holds - the
+  bytes file gains the new rows' shapes and moves only `option_arms` digests.
+- **Now fused:** a filter's floating conjunct beside an integral one, the optimizer's inferred
+  null tests among them, and the boolean column beside a floating cast's test. Freed from
+  `VarkaAnsiForm.DECLINED`: the six boolean-column positions of `CAST(x AS BOOLEAN)` and
+  `CAST(f AS BOOLEAN)`, and 17 of the 19 floating casts' false-AND positions. *Still declined:*
+  `CAST(y1 AS DOUBLE)` and `CAST(s1 AS DOUBLE)` there, whose inferred narrow null test has no
+  lowering under a double kernel (2.2.1's "still declines").
+- **Coverage:** the family "Floating casts as conditions", six rows, and the owed
+  `CAST(CAST(l AS INT) AS FLOAT)`, whose false-AND form is served and declines its batch on the
+  extremes row, the right side of an AND unqualified like the integral casts' (m9 item 96).
+- **The owed literal check:** `CompiledVarkaProjection.requireLiteralTables` plans under the
+  compile's options, called from the compiler's tables; a plan those options refuse is no
+  kernel to check. The compiler suite checks it under options that admit and options that refuse
+  `CAST(y1 AS DOUBLE) / 2.0D`.
+- **Open points for the lead** stay as 2.2.1 lists them: the value choice of the other kind and
+  32-bit beside 64-bit roots.
+
