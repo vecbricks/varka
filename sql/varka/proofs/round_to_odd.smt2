@@ -25,16 +25,20 @@
 ;   L2F           s = v >> 63, m = (v ^ s) - s read unsigned (2^63 at Long.MIN_VALUE)
 ;                 big = m >>> 52 != 0
 ;                 t = big ? (m >>> 12) | ((m & 0xFFF) != 0 ? 1 : 0) : m
-;                 d = (bitsToDouble(t | bits(0x1p52)) - 0x1p52) * (big ? 0x1p12 : 1)
+;                 d0 = bitsToDouble(t | bits(0x1p52)) - 0x1p52
+;                 d = big ? d0 * 0x1p12 : d0
 ;                 f = (float) d, negated where s is set
 ;
 ; The claims: the split is (double) v and the magic is (double) v inside its window, and
 ; the L2F form is (float) v, for every long.
 ;
 ; The split is proven in three lemmas, since stated whole it is past the per-check limit
-; (Z3 past 30 s, cvc5 about 17 s): dh and dl are exact, the doubles of hi * 2^32 and of lo
-; (each equal to both its conversion toward zero and its conversion toward +infinity,
-; which agree only where the conversion is exact), and hi * 2^32 + lo = v over 66 bits.
+; (Z3 past 30 s, cvc5 about 17 s): dh and dl are exact, the doubles of hi * 2^32 and of lo,
+; and hi * 2^32 + lo = v over 66 bits. dh is shown equal to both the conversion of
+; hi * 2^32 toward -infinity and toward +infinity, which differ on every inexact value
+; of either sign; dl to both lo's conversion toward zero and toward +infinity, which for
+; lo, unsigned and so never negative, are the conversions toward -infinity and +infinity
+; again.
 ; Then d = dh + dl is IEEE 754's addition of two exact values, the rounding to nearest
 ; of their exact sum v, which is (double) v: that last step is the definition of the
 ; addition, not a check.
@@ -56,10 +60,11 @@
 ;
 ; The sat checks: the domain admits Long.MIN_VALUE; the split with MB or the low word's
 ; magic one higher, or a shift of 31, is wrong; the magic is wrong one past its window at
-; either end; L2F without the sticky bit, or as two roundings to nearest, or with a shift
-; of 11 (t reaches 2^52) or the small arm up to 2^53 (m meets the magic's exponent), is
-; wrong. A shift of 13 is still right (k = 16 at 2^52): the theorem's slack, kept as an
-; unsat check so that the bound the code sits at is not mistaken for the only one.
+; either end; the sign with m = v ^ s, without the - s, is wrong; L2F without the sticky
+; bit, or as two roundings to nearest, or with a shift of 11 (t reaches 2^52) or the small
+; arm up to 2^53 (m meets the magic's exponent), is wrong. A shift of 13 is still right
+; (k = 16 at 2^52): the theorem's slack, kept as an unsat check so that the bound the code
+; sits at is not mistaken for the only one.
 ;
 ; The logic is ALL because the file reasons over bit-vectors and floating point. Each
 ; check runs in a context of its own, after a (reset) that restates the logic and the
@@ -82,7 +87,7 @@
 (define-fun rto.P32 () Float64 ((_ to_fp 11 53) #x41f0000000000000))
 (define-fun rto.bitsToDouble ((x (_ BitVec 64))) Float64 ((_ to_fp 11 53) x))
 (declare-const hi (_ BitVec 32))
-(assert (not (and (= (fp.mul RNE (fp.sub RNE (rto.bitsToDouble (bvadd ((_ sign_extend 32) hi) #x4338000000000000)) rto.M) rto.P32) ((_ to_fp 11 53) RTZ (concat hi #x00000000))) (= (fp.mul RNE (fp.sub RNE (rto.bitsToDouble (bvadd ((_ sign_extend 32) hi) #x4338000000000000)) rto.M) rto.P32) ((_ to_fp 11 53) RTP (concat hi #x00000000))))))
+(assert (not (and (= (fp.mul RNE (fp.sub RNE (rto.bitsToDouble (bvadd ((_ sign_extend 32) hi) #x4338000000000000)) rto.M) rto.P32) ((_ to_fp 11 53) RTN (concat hi #x00000000))) (= (fp.mul RNE (fp.sub RNE (rto.bitsToDouble (bvadd ((_ sign_extend 32) hi) #x4338000000000000)) rto.M) rto.P32) ((_ to_fp 11 53) RTP (concat hi #x00000000))))))
 (check-sat)
 
 (echo "l2d split: dl is exact, the double of lo, for every unsigned int lo: expect unsat")
@@ -198,6 +203,17 @@
 (define-fun rto.bitsToDouble ((x (_ BitVec 64))) Float64 ((_ to_fp 11 53) x))
 (declare-const v (_ BitVec 64))
 (assert (not (= ((_ to_fp 8 24) RNE v) (ite (= (bvashr v #x000000000000003f) #x0000000000000000) ((_ to_fp_unsigned 8 24) RNE (bvsub (bvxor v (bvashr v #x000000000000003f)) (bvashr v #x000000000000003f))) (fp.neg ((_ to_fp_unsigned 8 24) RNE (bvsub (bvxor v (bvashr v #x000000000000003f)) (bvashr v #x000000000000003f))))))))
+(check-sat)
+
+(echo "l2f: with m = v ^ s, without the - s, it is not (float) v: expect sat")
+(reset)
+(set-logic ALL)
+(define-fun rto.M () Float64 ((_ to_fp 11 53) #x4338000000000000))
+(define-fun rto.P52 () Float64 ((_ to_fp 11 53) #x4330000000000000))
+(define-fun rto.P32 () Float64 ((_ to_fp 11 53) #x41f0000000000000))
+(define-fun rto.bitsToDouble ((x (_ BitVec 64))) Float64 ((_ to_fp 11 53) x))
+(declare-const v (_ BitVec 64))
+(assert (not (= ((_ to_fp 8 24) RNE v) (ite (= (bvashr v #x000000000000003f) #x0000000000000000) ((_ to_fp_unsigned 8 24) RNE (bvxor v (bvashr v #x000000000000003f))) (fp.neg ((_ to_fp_unsigned 8 24) RNE (bvxor v (bvashr v #x000000000000003f))))))))
 (check-sat)
 
 (echo "l2f: below 2^52 the form is the rounding of m: expect unsat")

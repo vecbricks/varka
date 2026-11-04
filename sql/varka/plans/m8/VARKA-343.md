@@ -379,7 +379,7 @@ thrown `CAST_OVERFLOW` costs microseconds and a large share of the float pattern
    `(reset)`, not between `push` and `pop`: once a file pushes, Z3 answers from its incremental
    core, where one 64-bit `fp.sub` took about 6 s and four checks passed the 10 s limit (the
    whole file about two minutes), while the same checks in fresh contexts take the file about
-   8 s under each solver, the slowest check about 2 s.
+   5 s under each solver on the laptop, the slowest check about 2 s.
 4. **The named failing case** (`READING_0X80.md` item 3): the split-and-add form, the low 31 bits
    converted and `2^31` added, gives 4275361280 for 4275361147 against 4275361024, and misrounds
    about 16.5% of a seeded draw of `[2^31, 2^32)`; the test asserts that it fails and that the
@@ -680,11 +680,13 @@ On branch `varka-343b1-proofs`, from master; no kernel, emitter or compiler code
 - **The paper** (5 step 4): its HAL deposit carries the HAL Authorisation v1, which permits
   reading and citing and not a copy, so `READING_ROUNDING_TO_ODD.md` holds the notes and the
   citation and `papers/README.md` says why; Theorem 3 is quoted at 2.3 and in the proof's header.
-- **The proof** (3.3), `round_to_odd.smt2`, 44 checks, about 8 s under Z3 and 7 s under cvc5 on
-  the laptop (`dev/varka_prove.sh --solver both`), about 6 s of the linters' Z3 run, whose whole
-  folder took about 40 s. What it proves, with `M = 0x1.8p52` and `MB` its bits:
+- **The proof** (3.3), `round_to_odd.smt2`, 45 checks, 5.0 s under Z3 and 5.2 to 5.3 s under
+  cvc5 on the laptop (`dev/varka_prove.sh --solver both`, two runs), 5.3 s of the `--lint` run,
+  whose whole folder took 30 s on the laptop. What it proves, with `M = 0x1.8p52` and `MB` its
+  bits:
   1. *`L2D` split*: for every int `hi`, `(bitsToDouble(sext(hi) + MB) - M) * 0x1p32` is exactly
-     the double of `hi * 2^32`; for every unsigned int `lo`, `bitsToDouble(lo | bits(0x1p52)) -
+     the double of `hi * 2^32` (equal to its conversions toward both infinities, which differ
+     on every inexact value); for every unsigned int `lo`, `bitsToDouble(lo | bits(0x1p52)) -
      0x1p52` is exactly the double of `lo`; and `(v >> 32) * 2^32 + (v & 0xFFFFFFFF) = v` over 66
      bits for every long. So `d = dh + dl` is one rounding of `v`, `(double) v`. Refuted: `MB + 1`
      and the low word's magic `+ 1` (the whole form against `(double) v`), and a shift of 31.
@@ -693,9 +695,9 @@ On branch `varka-343b1-proofs`, from master; no kernel, emitter or compiler code
      one narrower than it needs to be at either end, which costs nothing but a decline at the
      two ends.
   3. *`L2F` round-to-odd*: `(float) v` is the rounding of `m = |v|` read unsigned, negated where
-     `v < 0`, for every long; below `2^52` the form (`d0 = bitsToDouble(m | bits(0x1p52)) -
-     0x1p52`, then `D2F`) is the rounding of `m`; on each binade `[2^j, 2^(j+1))`, `j` from 52 to
-     63, the form (`t = (m >>> 12) | ((m & 0xFFF) != 0 ? 1 : 0)`, `d = (bitsToDouble(t |
+     `v < 0`, for every long, and is not with `m = v ^ s`, the `- s` dropped; below `2^52` the
+     form (`d0 = bitsToDouble(m | bits(0x1p52)) - 0x1p52`, then `D2F`) is the rounding of `m`;
+     on each binade `[2^j, 2^(j+1))`, `j` from 52 to 63, the form (`t = (m >>> 12) | ((m & 0xFFF) != 0 ? 1 : 0)`, `d = (bitsToDouble(t |
      bits(0x1p52)) - 0x1p52) * 0x1p12`, then `D2F`) is the rounding of `m`, and so is the rounding
      of `t << 12` to 24 bits, the theorem's instance at `k = j - 35`. Every 64-bit `m` from `2^52`
      up is covered, a superset of the magnitudes, which reach `2^63`. Refuted: no sticky bit, two

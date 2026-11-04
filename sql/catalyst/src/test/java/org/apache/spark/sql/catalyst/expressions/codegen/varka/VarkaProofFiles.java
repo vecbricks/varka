@@ -2882,16 +2882,20 @@ final class VarkaProofFiles {
         ;   L2F           s = v >> 63, m = (v ^ s) - s read unsigned (2^63 at Long.MIN_VALUE)
         ;                 big = m >>> 52 != 0
         ;                 t = big ? (m >>> 12) | ((m & 0xFFF) != 0 ? 1 : 0) : m
-        ;                 d = (bitsToDouble(t | bits(0x1p52)) - 0x1p52) * (big ? 0x1p12 : 1)
+        ;                 d0 = bitsToDouble(t | bits(0x1p52)) - 0x1p52
+        ;                 d = big ? d0 * 0x1p12 : d0
         ;                 f = (float) d, negated where s is set
         ;
         ; The claims: the split is (double) v and the magic is (double) v inside its window, and
         ; the L2F form is (float) v, for every long.
         ;
         ; The split is proven in three lemmas, since stated whole it is past the per-check limit
-        ; (Z3 past 30 s, cvc5 about 17 s): dh and dl are exact, the doubles of hi * 2^32 and of lo
-        ; (each equal to both its conversion toward zero and its conversion toward +infinity,
-        ; which agree only where the conversion is exact), and hi * 2^32 + lo = v over 66 bits.
+        ; (Z3 past 30 s, cvc5 about 17 s): dh and dl are exact, the doubles of hi * 2^32 and of lo,
+        ; and hi * 2^32 + lo = v over 66 bits. dh is shown equal to both the conversion of
+        ; hi * 2^32 toward -infinity and toward +infinity, which differ on every inexact value
+        ; of either sign; dl to both lo's conversion toward zero and toward +infinity, which for
+        ; lo, unsigned and so never negative, are the conversions toward -infinity and +infinity
+        ; again.
         ; Then d = dh + dl is IEEE 754's addition of two exact values, the rounding to nearest
         ; of their exact sum v, which is (double) v: that last step is the definition of the
         ; addition, not a check.
@@ -2913,10 +2917,11 @@ final class VarkaProofFiles {
         ;
         ; The sat checks: the domain admits Long.MIN_VALUE; the split with MB or the low word's
         ; magic one higher, or a shift of 31, is wrong; the magic is wrong one past its window at
-        ; either end; L2F without the sticky bit, or as two roundings to nearest, or with a shift
-        ; of 11 (t reaches 2^52) or the small arm up to 2^53 (m meets the magic's exponent), is
-        ; wrong. A shift of 13 is still right (k = 16 at 2^52): the theorem's slack, kept as an
-        ; unsat check so that the bound the code sits at is not mistaken for the only one.
+        ; either end; the sign with m = v ^ s, without the - s, is wrong; L2F without the sticky
+        ; bit, or as two roundings to nearest, or with a shift of 11 (t reaches 2^52) or the small
+        ; arm up to 2^53 (m meets the magic's exponent), is wrong. A shift of 13 is still right
+        ; (k = 16 at 2^52): the theorem's slack, kept as an unsat check so that the bound the code
+        ; sits at is not mistaken for the only one.
         ;
         ; The logic is ALL because the file reasons over bit-vectors and floating point. Each
         ; check runs in a context of its own, after a (reset) that restates the logic and the
@@ -2934,7 +2939,7 @@ final class VarkaProofFiles {
         + bv64(mb) + ")) rto.M) rto.P32)";
     String hiShifted = "(concat hi #x00000000)";
     fresh(out, "l2d split: dh is exact, the double of hi * 2^32, for every int hi", "unsat",
-        List.of(hiDecl, "(assert (not (and (= " + dh + " ((_ to_fp 11 53) RTZ " + hiShifted
+        List.of(hiDecl, "(assert (not (and (= " + dh + " ((_ to_fp 11 53) RTN " + hiShifted
             + ")) (= " + dh + " ((_ to_fp 11 53) RTP " + hiShifted + ")))))"));
     String loDecl = "(declare-const lo (_ BitVec 32))";
     String lo64 = "((_ zero_extend 32) lo)";
@@ -2972,6 +2977,10 @@ final class VarkaProofFiles {
     fresh(out, "l2f: (float) v is the rounding of m = |v| read unsigned, negated where v < 0, "
         + "for every long", "unsat", List.of(v, "(assert (not (= ((_ to_fp 8 24) RNE v) (ite (= "
             + s + " " + bv64(0) + ") " + rounded + " (fp.neg " + rounded + ")))))"));
+    String onesRounded = "((_ to_fp_unsigned 8 24) RNE (bvxor v " + s + "))";
+    fresh(out, "l2f: with m = v ^ s, without the - s, it is not (float) v", "sat",
+        List.of(v, "(assert (not (= ((_ to_fp 8 24) RNE v) (ite (= " + s + " " + bv64(0) + ") "
+            + onesRounded + " (fp.neg " + onesRounded + ")))))"));
     String mDecl = "(declare-const m (_ BitVec 64))";
     String formIsRounding = "(assert (not (= " + l2fForm(RTO_SHIFT, RTO_SMALL_BITS, true, p52)
         + " ((_ to_fp_unsigned 8 24) RNE m))))";
