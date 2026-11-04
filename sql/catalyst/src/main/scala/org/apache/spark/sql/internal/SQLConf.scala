@@ -3113,8 +3113,11 @@ object SQLConf {
       " 3 or above takes the conversions through double lanes for a 64-bit division, 2 the" +
       " magic-number form, because the converts do not become instructions without AVX512DQ." +
       " -2 resolves it from the driver's JVM: level 2 where HotSpot's feature list lacks" +
-      " AVX512DQ, the emitter's default otherwise, and the emitter's default where the list" +
-      " cannot be read (it needs --add-exports=java.base/jdk.internal.vm.vector=ALL-UNNAMED," +
+      " AVX512DQ and the preferred LongVector species, which -XX:MaxVectorSize caps, is at" +
+      " least 256 bits wide (at 128 bits the magic-number form measured slower than the" +
+      " conversions' fallback), the emitter's default otherwise, and the emitter's default" +
+      " where the list cannot be read (it needs" +
+      " --add-exports=java.base/jdk.internal.vm.vector=ALL-UNNAMED," +
       " which Spark's module options carry). The driver's host decides for the whole plan," +
       " and on a mixed cluster both forms are correct. -1 leaves the emitter's own default," +
       " which is not the host's level on purpose: the shape hashes and the committed emitted" +
@@ -3128,7 +3131,7 @@ object SQLConf {
     .checkValue(_ >= -2,
       "the level is -2 to resolve it from the host, -1 for the emitter's default or a" +
         " -XX:UseAVX value")
-    .createWithDefault(-1)
+    .createWithDefault(-2)
 
   val VARKA_EMIT_EXACT_REFUSAL_STATUS =
     buildConf("spark.sql.codegen.varka.emit.exactRefusalStatus")

@@ -349,10 +349,10 @@ final class VarkaDivisionLowering {
    * from the driver's JVM where it asks for the host's (VARKA-538). {@code L2D} and
    * {@code D2L} do not intrinsify under {@code -XX:UseAVX=2}:
    * {@code dev/varka_canary/L2DProbe.java} reads 22 refused conversions there against none at
-   * the default level, which is a fact about lowering and not about speed. Which of the two
-   * forms is faster on such a host is VARKA-88 step 4's A/B and is not yet measured; this
-   * predicate is written on the reading that a conversion falling back to Java puts scalar
-   * code inside a vector loop, and step 4 is what confirms or overturns it.
+   * the default level, which is a fact about lowering and not about speed. The speed was
+   * measured on the EPYC 7763 (VARKA-538 9.3): the magic form is ten to twenty times faster at
+   * a 256-bit species and about half as fast at 128 bits, so the session resolves the host's
+   * level to 2 only where the preferred long species is 256 bits or more.
    *
    * <p>A level the JVM did not report ({@link VarkaEmitOptions#USE_AVX_UNKNOWN}) keeps the
    * conversions: an aarch64 machine has no {@code UseAVX} flag and no evidence against its

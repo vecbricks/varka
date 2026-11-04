@@ -38,6 +38,10 @@ import javax.annotation.Nullable;
  * module options carry; without it the read fails and the answer is "converts", the emitter's
  * answer for an unknown host.
  *
+ * <p>A reading also holds the bit size of {@code LongVector.SPECIES_PREFERRED}, the species the
+ * long lane's kernels run on, which honours {@code -XX:MaxVectorSize}: whether the magic form
+ * beats the conversions' fallback depends on it as well as on the feature (VARKA-538 9.3).
+ *
  * <p>Nothing here enters the emitter or {@link VarkaEmitOptions#DEFAULTS}: a default that varied
  * by host would make the shape hashes and the committed bytes describe one machine. The session
  * resolves its emit level from it on the driver, where a session asks for that
@@ -64,12 +68,18 @@ public final class VarkaHostIsa {
    * @param features HotSpot's feature list, names separated by {@code ", "}; empty where it was
    *        not read
    * @param failure why the list could not be read, or null where it was
+   * @param longBits the bit size of {@code LongVector.SPECIES_PREFERRED} in this JVM, the width
+   *        the long lane's kernels run at under {@code -XX:MaxVectorSize}; 0 where it could not
+   *        be read
    */
-  public record Reading(String arch, String features, @Nullable String failure) {
+  public record Reading(String arch, String features, @Nullable String failure, int longBits) {
 
     public Reading {
       if (arch == null || features == null) {
         throw VarkaErrors.illegalArgument("a host reading needs an arch and a feature string");
+      }
+      if (longBits < 0) {
+        throw VarkaErrors.illegalArgument("a species width is 0 or more bits, got " + longBits);
       }
     }
 
@@ -125,26 +135,41 @@ public final class VarkaHostIsa {
     return host().conversionsFallBack();
   }
 
+  /**
+   * The bit size of this JVM's preferred long species, as the emitter reads it
+   * ({@code Lane.LONG}'s {@code SPECIES_PREFERRED} lane count), or 0 where the Vector API could
+   * not be loaded.
+   */
+  static int preferredLongBits() {
+    try {
+      return Lane.LONG.preferredLanes * Long.SIZE;
+    } catch (RuntimeException | LinkageError e) {
+      return 0;
+    }
+  }
+
   /** This JVM's feature list, or empty where it could not be read. */
   public static String features() {
     return host().features();
   }
 
   /**
-   * Calls the static, no-argument {@code className.method} for the feature list. Every failure
-   * is an answer, not an error: a missing export (the method is inaccessible), a JVM that is not
-   * HotSpot (no such class or method), a native that is not registered.
+   * Calls the static, no-argument {@code className.method} for the feature list, beside this
+   * JVM's preferred long species width ({@link #preferredLongBits}). Every failure is an answer,
+   * not an error: a missing export (the method is inaccessible), a JVM that is not HotSpot (no
+   * such class or method), a native that is not registered.
    */
   static Reading read(String className, String method) {
     String arch = System.getProperty("os.arch", "");
+    int longBits = preferredLongBits();
     try {
       Object features = Class.forName(className).getMethod(method).invoke(null);
       if (features instanceof String s) {
-        return new Reading(arch, s, null);
+        return new Reading(arch, s, null, longBits);
       }
-      return new Reading(arch, "", className + "." + method + " returned " + features);
+      return new Reading(arch, "", className + "." + method + " returned " + features, longBits);
     } catch (ReflectiveOperationException | RuntimeException | LinkageError e) {
-      return new Reading(arch, "", e.toString());
+      return new Reading(arch, "", e.toString(), longBits);
     }
   }
 }

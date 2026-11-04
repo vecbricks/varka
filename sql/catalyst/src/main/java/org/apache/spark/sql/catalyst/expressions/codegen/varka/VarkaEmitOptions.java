@@ -251,16 +251,14 @@ import com.sun.management.HotSpotDiagnosticMXBean;
  *        here.
  *
  *        <p><b>The default is deliberately not the host's own level</b>, although
- *        {@link #HOST_USE_AVX} reads it. Two reasons, and the second is the one that decides
- *        it. Nothing has yet measured that the alternative lowering is faster on such a host;
- *        VARKA-88 step 4's A/B is what would, and until it has run, selecting a lowering from
- *        the machine changes production behaviour on a reading rather than on a number. And a
- *        default that varies by host makes everything built on it vary too: `canonical()`
- *        renders the empty string for the defaults, so the committed shape hashes and the
- *        committed emitted bytes would each describe one machine and fail on another. A fixed
- *        default keeps one shape one class name across executors, which is what the hash
- *        promises, and leaves the level an explicit request - which is what a test, a
- *        benchmark, and one day a session option, make.
+ *        {@link #HOST_USE_AVX} reads it: a default that varies by host makes everything built
+ *        on it vary too. `canonical()` renders the empty string for the defaults, so the
+ *        committed shape hashes and the committed emitted bytes would each describe one machine
+ *        and fail on another. A fixed default keeps one shape one class name across executors,
+ *        which is what the hash promises, and leaves the level an explicit request - which a
+ *        test and a benchmark make, and which the session makes from the driver's JVM by
+ *        default ({@code spark.sql.codegen.varka.emit.useAVX=-2}, {@link VarkaHostIsa}), once
+ *        per plan, so the record the executors receive already names it (VARKA-538).
  * @param misdescribeAdd emits {@code AddDays} against a deliberately wrong descriptor (an unerased
  *                       {@code IntVector} parameter instead of {@code Vector}). The class still
  *                       passes bytecode verification - member resolution happens at link time - so
@@ -644,8 +642,9 @@ public record VarkaEmitOptions(
    *
    * <p>The level is a target, not a reading of the host: below 3 it is exact, since HotSpot
    * clears AVX512DQ there, and a host enters only through the session, which resolves a JVM
-   * without AVX512DQ to level 2 ({@code VarkaSessionEmit.of}, {@link VarkaHostIsa}). Kept a
-   * function of the record alone, so one rendering never names two bodies.
+   * without AVX512DQ whose preferred long species is 256 bits or more to level 2
+   * ({@code VarkaSessionEmit.of}, {@link VarkaHostIsa}). Kept a function of the record alone,
+   * so one rendering never names two bodies.
    *
    * <p>It lives here rather than in the emitter because {@link #canonical()} has to ask the
    * same question: a level that changes a lowering has to reach the shape key, and one that

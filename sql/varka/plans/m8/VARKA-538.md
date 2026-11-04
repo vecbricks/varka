@@ -318,7 +318,8 @@ clears the AVX-512 bits (`:996-1000`); its names are separated by `", "` and DQ 
 ## 8. Done when
 
 On a host without AVX512DQ, a session that sets no level takes the magic form of the 64-bit
-constant division, read from the JVM's features (or, under question 1 (b), the predicate and the
+constant division at a preferred long species of 256 bits or more (9.3), read from the JVM's
+features (or, under question 1 (b), the predicate and the
 three plans say what it means); the planted AVX-512 host without DQ takes it too; test 3.6 passes
 on the PR Build's runners with nothing planted; the census test passes on the EPYC 7763 and on
 the Neoverse N2 on CI, and on the laptop at both flag sets, because the laptop's Ryzen AI 9 HX 370
@@ -375,8 +376,77 @@ rest moving.
 * Prediction 2: `emitted_bytes.json`, `width_audit.json` and `coverage.json` unchanged on the
   laptop (their suites pass with the files untouched). `operator_census.json` was regenerated on
   the laptop: its `host` block gained the two fields, and no verdict and no `bytes_per_row` moved.
-* Prediction 1 is not scored: step 1's two runs on the EPYC 7763 are dispatched by the lead, and
-  the flip merges only if the magic form beats the fallback at both widths.
+* Prediction 1 is not scored here: step 1's two runs on the EPYC 7763 were dispatched by the
+  lead, and 9.3 scores them.
+
+### 9.3 Step 1's gate, and the owner's answer, 1 November 2026
+
+`VarkaTimeBenchmark` ran twice on an EPYC 7763 runner through `benchmark.yml`, on the fork's
+master at `f0c1ab11c45`, before this row's code: run 41244851241 at the runner's own 256 bits and
+run 41251482916 under `-XX:MaxVectorSize=16`, so the long species is 128 bits. Both are committed
+as `results/VARKA-538-epyc-7763-256bit-results.txt` and `-128bit-results.txt`, each with its
+`-provenance.txt`. Nanoseconds a row of the int64 arms, 16384 rows (in L2):
+
+| extract | 256 bits: conversion | magic | 128 bits: conversion | magic |
+|---|---|---|---|---|
+| `hour` | 12.4 | 0.6 | 21.4 | 44.7 |
+| `minute` | 26.9 | 2.2 | 47.8 | 97.3 |
+| `second` | 41.6 | 4.3 | 73.3 | 141.2 |
+| all three | 40.8 | 4.2 | 75.4 | 138.5 |
+
+At the other three row counts (in L3, leaving L3, past L3) the ratios hold; the conversion form's
+`hour` runs 15 to 20% slower beyond L2 and its other extracts at most 9%, the magic forms within
+a few percent.
+
+* **Prediction 1 holds at 256 bits and fails at 128.** At 256 bits the magic form is 10 to 20
+  times faster than the conversion form (at least twice, as predicted); at 128 bits it is about
+  half as fast, on every extract and row count. So the gate of section 7 question 1, the magic
+  form beating the fallback at both widths, failed its 128-bit arm.
+* **The owner's answer, 1 November 2026: (b), flip with a width condition.** The default stays
+  `-2`, and `-2` resolves to level `2` only where the conversions fall back **and** the
+  preferred `LongVector` species, which honours `-XX:MaxVectorSize`, is at least 256 bits wide;
+  otherwise, a 128-bit species or one whose width could not be read included, it leaves the
+  emitter's default. The rule is `VarkaSessionEmit.resolve`, against `MAGIC_MIN_LONG_BITS = 256`;
+  the width is `VarkaHostIsa.Reading.longBits`, read with the feature list from the emitter's
+  own `Lane.LONG` preferred lane count, so a test plants it with the list. The resolved level
+  still travels with the plan.
+* **Tests.** `VarkaEvaluatorComponentsSuite` resolves a planted fallback host at 512 and 256
+  bits to `2` and at 128 and 0 bits to the default, and a converting host or an unread list to
+  the default at every width; test 3.6 expects the width-aware level on the running JVM. The
+  conf's doc and `docs/sql-varka.md` state the condition.
+
+### 9.4 The flip on master, 4 November 2026
+
+#1255 merged 9.1's first two items and the readers on 1 November 2026, without the flip. Branch
+`varka-538-flip` carries the rest onto master at `85eb50e5e60`: the flip (the default of
+`emit.useAVX` becomes `-2` and test 3.6 runs the conf's own default), 9.3's results and record,
+the width rule of 9.3 and the done-when's width condition. Two conflicts, both with master's
+later work:
+
+* **Row 538's cell**, against the rows added since: master's table with row 538's cell replaced.
+* **Row 503's two-lane default**, which reads the same `VarkaHostIsa.Reading`: its test in
+  `VarkaEvaluatorComponentsSuite` and `VarkaTwoLaneConditionSuite` build readings without the
+  width component, and now pass one. The two-lane answer still takes its lane count from the
+  running JVM's long species, not from the reading's `longBits`, so a planted width moves the
+  level alone. The width test sets the two-lane refusal off, so that its record compares with
+  `DEFAULTS` under `-XX:MaxVectorSize=16` too.
+
+`VarkaTwoLaneDefault128Suite` builds its sessions through `VarkaArrowSessions`, unpinned, so they
+now resolve from the host; its child JVM runs at `-XX:UseAVX=2 -XX:MaxVectorSize=16`, a 128-bit
+long species, where the width rule leaves the emitter's default on every CPU.
+
+On the laptop, at the branch's head: `dev/varka_regen_generated.sh --all` moved no generated
+file, `operator_census.json` included, so prediction 2 holds with the flip; the touched suites
+(`VarkaHostIsaSuite`, `VarkaTwoLaneConditionSuite`, the width audit, the census, the bytes and
+coverage suites, `VarkaShapeCacheSuite`, `VarkaEvaluatorComponentsSuite`,
+`VarkaTimeArithmeticSuite`, the three two-lane host suites and the sql suites that pin the level)
+pass at the defaults, with both bodies checked, as does every sql-module Varka suite (74 suites,
+2535 tests); and the four that resolve a level pass under
+`-XX:UseAVX=2`, where the read falls back at 256 bits (as the census suite's fork under that
+flag holds it to) and test 3.6 plans level `2`, and under `-XX:UseAVX=2 -XX:MaxVectorSize=16`,
+where it plans the emitter's default. The laptop's own flags read AVX512DQ, so at them `-2`
+plans the default: level `2` ran here only under the forced `-XX:UseAVX=2`, and its first run at
+a host's own flags is the PR Build on the EPYC 7763 and the census there.
 
 ## 10. Open points for the lead
 
@@ -394,6 +464,9 @@ rest moving.
    `VarkaTimeBenchmark-jdk25-results.txt` whatever `-XX:MaxVectorSize` says, so both runs go out
    with `create-commit=false` and their artifacts are committed under `m8/results/` as
    `VARKA-538-epyc-7763-256bit-results.txt` and `-128bit-results.txt`, in the step's own pull
-   request on unchanged code.
+   request on unchanged code. Settled otherwise: the runs measured the fork's master before this
+   row's code, and their files, with their provenance, came in with the row's pull request (9.3).
 6. **`VarkaArrowSessions` is not pinned** (9.1 item 2), against 2.2's list of six: it builds only
    benchmark sessions, and 2.2 keeps the default for benchmarks.
+   Since row 503 it builds `VarkaTwoLaneDefault128Suite`'s sessions too, which stay at the
+   emitter's default under the width rule (9.4).

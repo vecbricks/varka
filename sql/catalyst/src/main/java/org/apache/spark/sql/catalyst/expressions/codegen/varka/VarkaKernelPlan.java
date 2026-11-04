@@ -224,10 +224,9 @@ public final class VarkaKernelPlan {
    * and this JVM's preferred long species. The lane count is the running JVM's own,
    * as the species the kernels are emitted at is, so a planted reading changes the architecture
    * alone; the long species stands for the {@code DOUBLE} one, whose preferred species has as
-   * many lanes at every width. The architecture is asked first, so a host that is not x86 answers
-   * without loading the Vector API's species. Public for the session in sql/core, which resolves
-   * its default here from the reading it resolves its level from, and which cannot reach the
-   * lanes itself.
+   * many lanes at every width. A host that is not x86 answers at once, before the lane count is
+   * compared. Public for the session in sql/core, which resolves its default here from the
+   * reading it resolves its level from, and which cannot reach the lanes itself.
    */
   public static boolean twoLaneMasksFallBack(VarkaHostIsa.Reading host) {
     return host.x86() && twoLaneMasksFallBack(host, Lane.LONG.preferredLanes);

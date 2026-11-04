@@ -16,16 +16,20 @@
  */
 package org.apache.spark.sql.catalyst.expressions.codegen.varka;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
+
+import jdk.incubator.vector.LongVector;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /**
  * The host fact behind the session's conversion form (VARKA-538): {@link VarkaHostIsa} over
- * planted feature lists, a read that fails, and the real read on this JVM.
+ * planted feature lists and species widths, a read that fails, and the real read on this JVM.
  */
 @VarkaSuite
 public final class VarkaHostIsaSuite {
@@ -36,7 +40,7 @@ public final class VarkaHostIsaSuite {
   private static final String AVX2_ONLY = "cx8, cmov, sse4.2, avx, avx2, bmi2, fma, f16c";
 
   private static VarkaHostIsa.Reading x86(String features) {
-    return new VarkaHostIsa.Reading("amd64", features, null);
+    return new VarkaHostIsa.Reading("amd64", features, null, 256);
   }
 
   @Test
@@ -44,7 +48,7 @@ public final class VarkaHostIsaSuite {
   void dqDecides() {
     assertFalse(x86(WITH_DQ).conversionsFallBack());
     assertTrue(x86(AVX2_ONLY).conversionsFallBack());
-    assertTrue(new VarkaHostIsa.Reading("x86_64", AVX2_ONLY, null).conversionsFallBack());
+    assertTrue(new VarkaHostIsa.Reading("x86_64", AVX2_ONLY, null, 256).conversionsFallBack());
     // Both of the names os.arch gives x86, and only those.
     assertTrue(VarkaHostIsa.isX86("amd64") && VarkaHostIsa.isX86("x86_64"));
     assertFalse(VarkaHostIsa.isX86("aarch64") || VarkaHostIsa.isX86(""));
@@ -69,10 +73,23 @@ public final class VarkaHostIsaSuite {
   @DisplayName("an empty list, a non-x86 arch and an unread list all answer converts")
   void unknownConverts() {
     assertFalse(x86("").conversionsFallBack());
-    assertFalse(new VarkaHostIsa.Reading("aarch64", "fp, asimd, sve", null)
+    assertFalse(new VarkaHostIsa.Reading("aarch64", "fp, asimd, sve", null, 128)
         .conversionsFallBack());
-    assertFalse(new VarkaHostIsa.Reading("amd64", AVX2_ONLY, "no export")
+    assertFalse(new VarkaHostIsa.Reading("amd64", AVX2_ONLY, "no export", 256)
         .conversionsFallBack());
+  }
+
+  @Test
+  @DisplayName("a reading carries the species width it was given, and the read the JVM's own")
+  void longBits() {
+    // The feature fact does not depend on the width: the session's resolution reads both.
+    assertTrue(new VarkaHostIsa.Reading("amd64", AVX2_ONLY, null, 128).conversionsFallBack());
+    assertEquals(0, new VarkaHostIsa.Reading("amd64", "", "no export", 0).longBits());
+    assertThrows(IllegalArgumentException.class,
+        () -> new VarkaHostIsa.Reading("amd64", AVX2_ONLY, null, -1));
+    // A failed feature read still reports the width, which needs no export.
+    assertEquals(LongVector.SPECIES_PREFERRED.vectorBitSize(),
+        VarkaHostIsa.read("java.lang.Object", "getCPUFeatures").longBits());
   }
 
   @Test
@@ -101,6 +118,8 @@ public final class VarkaHostIsaSuite {
     assertTrue(host.readable(), () -> "the feature query failed: " + host.failure()
         + "; the test JVM needs --add-exports=java.base/jdk.internal.vm.vector=ALL-UNNAMED");
     assertTrue(host.features().contains("avx2"), host.features());
+    // The width is the emitter's own reading of the preferred long species.
+    assertEquals(LongVector.SPECIES_PREFERRED.vectorBitSize(), host.longBits());
     // HotSpot clears every AVX-512 feature below level 3, so the level and the list agree.
     if (VarkaEmitOptions.HOST_USE_AVX >= 0 && VarkaEmitOptions.HOST_USE_AVX < 3) {
       assertTrue(VarkaHostIsa.conversionsFallBack(), host.features());

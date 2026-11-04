@@ -88,7 +88,8 @@ public record VarkaSessionEmit(
   /**
    * The conf's value asking for the level to be resolved from the driver's JVM
    * ({@link VarkaHostIsa}): {@link #FALLBACK_LEVEL} where its 64-bit floating conversions fall
-   * back to Java, the base options' level otherwise.
+   * back to Java and its long species is at least {@link #MAGIC_MIN_LONG_BITS} wide, the base
+   * options' level otherwise.
    */
   public static final int USE_AVX_FROM_HOST = -2;
 
@@ -98,6 +99,18 @@ public record VarkaSessionEmit(
    * does, and {@code convertsFallBack()} holds.
    */
   static final int FALLBACK_LEVEL = 2;
+
+  /**
+   * The narrowest preferred long species at which a host whose conversions fall back resolves to
+   * {@link #FALLBACK_LEVEL}. On the EPYC 7763 (AVX2, no AVX512DQ) {@code VarkaTimeBenchmark}'s
+   * {@code hour} of a nanosecond of the day took 0.6 ns a row in the magic form against the
+   * conversion form's 12.4 at 256 bits, and 44.7 against 21.4 under
+   * {@code -XX:MaxVectorSize=16}, where the long species is 128 bits: the magic form is the
+   * faster one only at the wider species ({@code sql/varka/plans/m8/results/}
+   * {@code VARKA-538-epyc-7763-256bit-results.txt} and {@code -128bit-results.txt}). The owner
+   * chose the width condition on 1 November 2026.
+   */
+  static final int MAGIC_MIN_LONG_BITS = 256;
 
   /** Whether a resolution has met an unreadable feature list; it is logged once per JVM. */
   private static final AtomicBoolean UNREADABLE_LOGGED = new AtomicBoolean();
@@ -178,10 +191,12 @@ public record VarkaSessionEmit(
 
   /**
    * The level a session that asks for the host's gets: {@link #FALLBACK_LEVEL} where the host's
-   * conversions fall back, {@link VarkaEmitOptions#USE_AVX_UNKNOWN} otherwise. A feature list
-   * that could not be read leaves the emitter's default, as before this setting existed. On x86,
-   * the one architecture where the answer could have changed the level, that says so once in the
-   * driver's log, since nothing else would show that the host was never read.
+   * conversions fall back and its preferred long species is at least
+   * {@link #MAGIC_MIN_LONG_BITS} wide, {@link VarkaEmitOptions#USE_AVX_UNKNOWN} otherwise: a
+   * narrower species, or one whose width could not be read, keeps the conversion form. A feature
+   * list that could not be read leaves the emitter's default, as before this setting existed. On
+   * x86, the one architecture where the answer could have changed the level, that says so once
+   * in the driver's log, since nothing else would show that the host was never read.
    */
   static int resolve(VarkaHostIsa.Reading host) {
     if (!host.readable() && host.x86() && UNREADABLE_LOGGED.compareAndSet(false, true)) {
@@ -192,7 +207,8 @@ public record VarkaSessionEmit(
           + "--add-exports=java.base/jdk.internal.vm.vector=ALL-UNNAMED, which Spark's launcher "
           + "adds; an explicit level 2 selects the magic form without the read.");
     }
-    return host.conversionsFallBack() ? FALLBACK_LEVEL : VarkaEmitOptions.USE_AVX_UNKNOWN;
+    return host.conversionsFallBack() && host.longBits() >= MAGIC_MIN_LONG_BITS
+        ? FALLBACK_LEVEL : VarkaEmitOptions.USE_AVX_UNKNOWN;
   }
 
   /** Plants the host {@link #of(SQLConf)} resolves from; null restores this JVM's own. */
