@@ -96,5 +96,5 @@ scratch worktrees (`results/VARKA-563-replays.txt`). Each fails, under the rule 
 - **#1323** at `0a0e82df11f`: `--owed` and `--check` pass, and R3's suites fail on the docs'
   counts and `emitted_bytes.json`; 73 seconds of suites, 303 in all.
 
-A branch that changes a Varka main file and no IR record pays R3's four suites, 73 seconds of
-suites on the laptop beside the build, as #1323 did; one that changes only plans or docs starts no JVM.
+A branch that changes a Varka main file and no IR record pays R3's four suites, 73 seconds on
+the laptop beside the build, as #1323 did; one that changes only plans or docs starts no JVM.
