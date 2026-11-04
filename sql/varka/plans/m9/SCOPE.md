@@ -1206,6 +1206,14 @@ clustering could serve this task's order and the kernels' cut alike. It needs no
 e-graph chooses among equivalent forms of an expression (item 11), where this partitions a
 fixed one.
 
+*4 November 2026, from row 343's part 343a3b (`m8/VARKA-343.md` 2.2.1, its open point 2, recorded by
+the owner's word):* the kernels of a projection are cut by width as well. Roots of one width share a
+kernel - `INT` with `FLOAT`, `LONG` with `DOUBLE` - but a 32-bit root beside a 64-bit one still
+takes a kernel of its own (`lanesShare`), so `SELECT i + 1, x * 2.0D` runs two loops a batch.
+Joining them needs a 32-bit store from the low half of a 64-bit kernel's species, which exists today
+only for a narrowing at its store; the cut above would then weigh the shared columns against the
+64-bit kernel's half-width 32-bit work.
+
 *3 November 2026, for VARKA-25, from a reading of the loops JIT engine (github.com/4ekmah/loops,
 Apache-2.0):* its linear-scan allocator computes each vector register's live interval, so it has
 the peak live count for free; Varka has none. The planner version of `m5/PLAN.md` 2.24 (and row

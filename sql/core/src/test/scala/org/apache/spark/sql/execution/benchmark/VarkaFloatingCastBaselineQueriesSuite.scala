@@ -23,7 +23,7 @@ import scala.jdk.CollectionConverters._
 
 import org.apache.spark.sql.QueryTest
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaMatrix.PinsDefaults
-import org.apache.spark.sql.execution.VarkaSharedSessions
+import org.apache.spark.sql.execution.{VarkaSessionEmit, VarkaSharedSessions}
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types._
 
@@ -144,7 +144,7 @@ class VarkaFloatingCastBaselineQueriesSuite extends QueryTest with VarkaSharedSe
         assert(legacy.getLong(5) > rows / 4 && legacy.getLong(6) === legacy.getLong(5))
       }
 
-      val sections = VarkaFloatingCastBaselineBenchmark.sections().asScala.toSeq
+      val sections = VarkaFloatingCastBaselineBenchmark.sections(false).asScala.toSeq
       assert(sections.size === 2 * resultTypes.size)
       for ((s, index) <- sections.zipWithIndex) {
         withClue(s.title) {
@@ -180,7 +180,9 @@ class VarkaFloatingCastBaselineQueriesSuite extends QueryTest with VarkaSharedSe
     assume(VarkaSqlBenchmarkBase.fuseCheck(),
       s"-D${VarkaSqlBenchmarkBase.FUSE_CHECK_PROPERTY}=false times the sections fused")
     withTable {
-      for (s <- VarkaFloatingCastBaselineBenchmark.sections().asScala) {
+      val declines =
+        VarkaSessionEmit.of(varkaSpark.sessionState.conf).declineTwoLaneConditions()
+      for (s <- VarkaFloatingCastBaselineBenchmark.sections(declines).asScala) {
         withClue(s.title) {
           withSettings(s) {
             val plan = varkaSpark.sql(s.query).queryExecution.executedPlan

@@ -162,8 +162,9 @@ so the crossing is the one built.
   by the word, `toLong` then `fromLong`, between the widths, as `emitToDrivingLane` crosses a
   32-bit mask to a 64-bit drive (a 32-bit mask's low lanes are the group's rows; a 64-bit mask's
   word read by a 32-bit species sets only its low half). Neither pair is the one C2 miscompiles,
-  which is `fromLong` of `toLong` at one lane count (VARKA-396). The reference, the range analysis
-  and the cost read it as its child.
+  which is `fromLong` of `toLong` at one lane count (VARKA-396). The reference and the range
+  analysis read it as its child; the cost model gives it a feature of its own,
+  `CrossLane/<from>/<to>` (`VarkaEmitCost.kindOf`), unpriced until the refit (VARKA-352).
 - **Where the compiler crosses.** One meeting rule for a list of conditions, `meetAll` for the
   connectives and boolean choices and the filter's conjunct fold alike. Conditions of the
   integral kind alone meet as before (narrow to `INT`, `INT` to `LONG` by `onLongLane`), so no
@@ -414,7 +415,7 @@ they are upper bounds.
 | 343a3 | the kernel of two lane counts (2.2): the width rules in the kernel plan, `Analysis`, `Slots` and the walk, the warm-up blocks, and the pairs it carries, `INT` to `DOUBLE`, `FLOAT` with `DOUBLE`, the narrow sources, a condition as a value and the mixed trees (`x + i`, `f * i`, `f + x`); the three failures #1303's last matrix found are fixed here, the `INTERNAL_ERROR` under `validityByWidth=false` as a defect, not a skip | 343a2 | 950 |
 | 343a3b | the root-level crossing (2.2): roots of two kinds share one kernel (`lanesShare` joins roots of one width), so a filter's floating conjunct beside an integral one - the null test the optimizer infers on a cast's source among them - no longer declines (`floatingConjunctRefusal`), and an integral and a floating output take one kernel; the forms `VarkaAnsiForm.DECLINED` lists for it fuse, and the coverage row `CAST(CAST(l AS INT) AS FLOAT)` is added, whose domain check's filter form needs this join. Added by the owner's word of 3 November 2026, when 343a3 stayed under the cap without it. *Owed by 343a3 (10):* `CompiledVarkaProjection`'s long-literal check plans under `VarkaEmitOptions.DEFAULTS`, so a 128-bit host with `lanesOverride=4` fails `CAST(y1 AS DOUBLE) / 2.0D` with `INTERNAL_ERROR`; check under the session's options, as row 332's load needs too. *Sized 4 November 2026 (2.2.1):* a `CrossLane` node, the meeting rule and `lanesShare`'s width join, about 600 hand-written lines with the tests; one part | 343a3 | 600 |
 | 343a4 | `BIGINT` to `FLOAT` and `DOUBLE` where the host has AVX512DQ: level 3 resolved from the host, the unknown level declining them, the option matrix's level-3 runs and their Spark check | 343a3b | 450 |
-| 343a5 | the fuzz grammar's conversions, the 2^32 sweeps of 3.1 and the harness check of each fused cast on both lanes | 343a4 | 400 |
+| 343a5 | the fuzz grammar's conversions, the 2^32 sweeps of 3.1 and the harness check of each fused cast on both lanes. *Owed by 343a3b (10):* the false-AND forms of `CAST(y1 AS DOUBLE)` and `CAST(s1 AS DOUBLE)`, which still decline: the narrow null test the optimizer infers on the source has no lowering under a double kernel, as their reason in `VarkaAnsiForm.DECLINED` names; a narrow column's null test at the long width, or the test kept on its own kernel, frees them | 343a4 | 400 |
 | 343b1 | the paper and the AVX2 forms (2.3, step 4): `L2D` by the exact split, `L2F` by round-to-odd, behind `wideConversionForm`, the SMT claims and the failing case | 343a5 | 900 |
 | 343b2 | floating to integral in the three modes (2.4, step 5), with `GuardedRange`'s floating bounds and `NULL` disposal; `D2L`'s assembly on AVX2 | 343b1 | 900 |
 | 343b3 | `time_from_seconds` (2.6, step 7), after 342's first pull request, and the measurement against the baseline (step 8) | 343b2 | 500 |
@@ -618,6 +619,11 @@ Cut from #1303's final tree, without its `BIGINT` conversions (343a4), sweeps an
   the refit (VARKA-352) and row 343's fuzz sequence (343a5). The sql suites under
   `lanesOverride=4`, `lanesOverride=16` and `validityByWidth=false` passed on the laptop
   (`dev/varka_matrix.sh`); the defaults' one failure was that class.
+- **Known gaps:** `VarkaCanonicalIr`'s replay has no `cross` case, so a rendered IR holding a
+  crossing does not read back; it already lacked the boolean nodes `BoolColumn`, `CondConst`,
+  `BoolCompare`, `CondIf` and `BoolNullSafeEq`. And the `option_arms` digests are one hash per
+  option arm and lane count over every shape, so their moving cannot show that no existing shape
+  changed under a non-default option; only the defaults' bytes are compared shape by shape.
 - **Open points for the lead** stay as 2.2.1 lists them: the value choice of the other kind and
   32-bit beside 64-bit roots.
 

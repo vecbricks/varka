@@ -2761,9 +2761,11 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
       Seq(out(Divide(Cast(y1, DoubleType), Literal(2.0D)))), Seq(y1), baked).toScala.get
     assert(!p.longLiterals.isEmpty)
     p.requireLiteralTables(baked)
-    // Options whose plan refuses the kernel - no baked lane count here, the defaults' two long
-    // lanes on a 128-bit host - name no lane: the check leaves the refusal to the emission
-    // rather than reading the kernel as an int one, which would raise an internal error.
+    // Options whose plan refuses the kernel - the same baked lane count with validity by width
+    // off, under which the narrow load at the long width has no lowering, as the defaults' two
+    // long lanes on a 128-bit host refuse it too - name no lane: the check leaves the refusal to
+    // the emission rather than reading the kernel as an int one, which would raise an internal
+    // error.
     val unbaked = baked.withValidityByWidth(false)
     assert(VarkaKernelPlan.of(p.outputs, unbaked).refusal.isPresent)
     p.requireLiteralTables(unbaked)

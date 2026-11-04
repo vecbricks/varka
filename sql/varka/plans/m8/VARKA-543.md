@@ -24,6 +24,15 @@ dispatched and no JVM was run. `VARKA-503.md` is the plan on that branch, read w
    `x < y AND d < d2` fuses `d < d2` on the int lane and leaves `x < y` to the row filter. On a
    two-lane host the date kernel has four int lanes and is not 503's case. The row's "conjunction
    with a date conjunct" measures that split, not a mixed kernel.
+   *4 November 2026, from row 343's part 343a3b (`VARKA-343.md` 2.2.1):* that part removes
+   `floatingConjunctRefusal`, so this item's premise no longer holds. Where the two-lane refusal
+   is off, `x < y AND d < d2` is one kernel driven at `DOUBLE`, the date comparison's mask crossed
+   to it by its word. On the 128-bit x86 host each conjunct meets 503's refusal before the
+   conjuncts meet, and `hostRefusal` reads a 64-bit drive (`plan.drive.bits() != 64`, as #1262
+   merged it, not the `LONG` drive of item 2), so `x < y` goes to the row filter there and
+   `d < d2` keeps its int kernel. What the date shape must measure now: with the refusal at its
+   default, 503's split, the same as before; with it off, the mixed `DOUBLE` kernel, a fused
+   floating filter at two lanes like `x < y` alone, so a shape the rule of 2.2 must judge too.
 4. **No fused floating measurement exists at 128 bits.** The floating baseline's 128-bit file
    (`sql/core/benchmarks/VarkaFloatingBaselineBenchmark-jdk25-runner-epyc7763-128bit-results.txt`,
    run 40401767379, 26 October 2026) predates row 341's fusion: its "varka on" arm is the row path

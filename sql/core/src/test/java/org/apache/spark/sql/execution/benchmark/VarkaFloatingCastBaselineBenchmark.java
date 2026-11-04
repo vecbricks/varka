@@ -22,6 +22,7 @@ import java.util.Map;
 
 import org.apache.spark.sql.SparkSession;
 import org.apache.spark.sql.VarkaBenchmark;
+import org.apache.spark.sql.execution.VarkaSessionEmit;
 import org.apache.spark.sql.internal.SQLConf;
 
 /**
@@ -45,23 +46,23 @@ import org.apache.spark.sql.internal.SQLConf;
  * session with it. A section listed as {@code NONE} plans no Varka node, so both its arms are the
  * row path and should tie.
  *
- * <p>A baseline is only one while nothing fuses: before any section is timed, the run checks
- * each section's plan on the Varka session against the section's {@link Fusion} class, the
- * record of how much of it a row has fused, and fails when the plan's class differs
- * ({@link VarkaSqlBenchmarkBase#requireBaseline(SparkSession, String, String, Fusion)}); the
- * results file notes each section that fuses. {@code INT} to {@code DOUBLE} and {@code DOUBLE}
- * to {@code FLOAT} are {@code WHOLE}, since part 343a3 fuses them, and so is the boolean filter,
- * whose {@code coalesce} meets its {@code false} on the cast's lane since part 343a3b
- * ({@code VARKA-343.md} 2.2.1); every other section is {@code NONE}, the {@code BIGINT} casts
- * (part 343a4) among them. The filter's condition is the cast under {@code coalesce}
+ * <p>A baseline is only one while nothing fuses: before any section is timed, the run checks each
+ * section's plan on the Varka session against the section's {@link Fusion} class, the record of how
+ * much of it a row has fused, and fails when the plan's class differs ({@link
+ * VarkaSqlBenchmarkBase#requireBaseline(SparkSession, String, String, Fusion)}); the results file
+ * notes each section that fuses. {@code INT} to {@code DOUBLE} and {@code DOUBLE} to {@code FLOAT}
+ * are {@code WHOLE}, since part 343a3 fuses them, and so is the boolean filter, whose {@code
+ * coalesce} meets its {@code false} on the cast's lane since part 343a3b ({@code VARKA-343.md}
+ * 2.2.1), except where the session refuses a filter's condition in a 64-bit kernel (VARKA-503), as
+ * the 128-bit companion's host does by default; every other section is {@code NONE}, the {@code
+ * BIGINT} casts (part 343a4) among them. The filter's condition is the cast under {@code coalesce}
  * rather than the bare cast: from a bare {@code WHERE CAST(x AS BOOLEAN)} the optimizer infers
  * {@code x IS NOT NULL}, since the cast is null-intolerant, and that conjunct alone fuses into a
  * {@code VarkaFilterColumnarToRow} under Spark's {@code Filter}, which would put a Varka node in
  * the plan while the cast declines, so the check could not see the row start fusing the cast
- * itself. {@code coalesce} is not
- * null-intolerant, so nothing is inferred, and it keeps the same rows, a null cast being false.
- * A row that fuses more of a section sets its new class, so that its fusion cannot turn a
- * baseline section into a fused one unnoticed.
+ * itself. {@code coalesce} is not null-intolerant, so nothing is inferred, and it keeps the same
+ * rows, a null cast being false. A row that fuses more of a section sets its new class, so that its
+ * fusion cannot turn a baseline section into a fused one unnoticed.
  *
  * <p>To run this benchmark, on a GitHub runner (the results come back as an artifact):
  * <pre>
@@ -160,8 +161,13 @@ public class VarkaFloatingCastBaselineBenchmark extends VarkaSqlBenchmarkBase {
               from %s)""".formatted(ids);
   }
 
-  /** Every section, in the order they run: each null density, then each cast. */
-  static List<Section> sections() {
+  /**
+   * Every section, in the order they run: each null density, then each cast. The boolean filter
+   * is a condition in a kernel driven at 64 bits, which a session that refuses those
+   * ({@code declinesLongConditions}, VARKA-503) leaves to the row path whole: the 128-bit
+   * companion's host by default.
+   */
+  static List<Section> sections(boolean declinesLongConditions) {
     List<Section> out = new ArrayList<>();
     Map<String, String> legacy = Map.of(SQLConf.ANSI_ENABLED().key(), "false");
     Map<String, String> ansi = Map.of(SQLConf.ANSI_ENABLED().key(), "true");
@@ -190,7 +196,7 @@ public class VarkaFloatingCastBaselineBenchmark extends VarkaSqlBenchmarkBase {
           "SELECT CAST(" + x + " AS FLOAT)" + from, Map.of(), Fusion.WHOLE));
       out.add(new Section("DOUBLE filter coalesce(CAST(x AS BOOLEAN), false)" + density,
           "SELECT " + x + from + " WHERE coalesce(CAST(" + x + " AS BOOLEAN), false)", Map.of(),
-          Fusion.WHOLE));
+          declinesLongConditions ? Fusion.NONE : Fusion.WHOLE));
       out.add(new Section("DOUBLE time_from_seconds(s)" + density,
           "SELECT time_from_seconds(" + s + ")" + from, time, Fusion.NONE));
     }
@@ -211,10 +217,13 @@ public class VarkaFloatingCastBaselineBenchmark extends VarkaSqlBenchmarkBase {
         session.sql(tableSql(NUM_ROWS)).createOrReplaceTempView(VIEW);
         VarkaArrowSessions.cache(session, VIEW);
       }
-      for (Section s : sections()) {
+      // The refusal as the Varka session resolves it, as VarkaBooleanOutputBenchmark reads it.
+      List<Section> sections = sections(
+          VarkaSessionEmit.of(varka.sessionState().conf()).declineTwoLaneConditions());
+      for (Section s : sections) {
         withConf(varka, s.conf(), () -> requireBaseline(varka, s.title(), s.query(), s.fusion()));
       }
-      for (Section s : sections()) {
+      for (Section s : sections) {
         section(s.title(), () -> withConf(baseline, s.conf(), () -> withConf(varka, s.conf(),
             () -> {
               VarkaBenchmark benchmark = benchmark(

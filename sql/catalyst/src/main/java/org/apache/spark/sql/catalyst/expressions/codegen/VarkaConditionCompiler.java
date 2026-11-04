@@ -606,9 +606,9 @@ final class VarkaConditionCompiler {
     if (cond.laneType() == VarkaVectorIR.LaneType.LONG) {
       return Optional.of(cond);
     }
-    // A floating condition - a null test of a FLOAT or DOUBLE value - has no long-lane form: a
-    // floating value is not a narrower integer to widen, and a mask crossing between a floating
-    // lane and an integral one is not built yet (VARKA-341 2.4).
+    // A floating condition - a null test of a FLOAT or DOUBLE value - has no long-lane form of
+    // its own: a floating value is not a narrower integer to widen. It reaches the long lane only
+    // through a CrossLane, which the meeting rule places (acrossKinds, `VARKA-343.md` 2.2.1).
     if (cond.laneType().isFloating()) {
       return Optional.empty();
     }
@@ -638,8 +638,9 @@ final class VarkaConditionCompiler {
           onLongLane(c.thenCond()).flatMap(t -> onLongLane(c.elseCond()).map(
               e -> (Cond) new VarkaVectorIR.CondIf(k, t, e))));
       case InRanges r -> Optional.empty();
-      // A crossing from a floating lane leaves at the check above; one onto an integral lane
-      // crosses straight to the long lane instead.
+      // A crossing onto a floating lane leaves at the check above, which reads its target lane;
+      // one from a floating lane onto an integral one reaches here and crosses straight to the
+      // long lane instead, or is its child where that is already long.
       case VarkaVectorIR.CrossLane c -> Optional.of(c.child().laneType() == LaneType.LONG
           ? c.child() : new VarkaVectorIR.CrossLane(c.child(), LaneType.LONG));
     };
