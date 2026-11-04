@@ -38,6 +38,9 @@ varka push check: FAILED
 # with --branch naming the incident's branch, whose reflog holds its rebases (HEAD is detached);
 # fast is --no-jvm (R4's house checks run), full has no flag. Seconds are wall time, the
 # build and the lock's wait included.
+# The second and third rounds ran the unsplit script: --branch and R3's rebase lines below
+# (the debt, the detached-HEAD note) come with the second part, varka-563b-rebase-debt; this
+# part has neither, and the fourth round runs it without --branch.
 #
 # head                           level  exit  secs  failed under
 # #1317 d94ca2ad5a4              fast      1    25  R2 (VarkaFilterExecSuite holds the old text)
