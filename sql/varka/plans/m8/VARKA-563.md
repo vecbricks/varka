@@ -119,8 +119,10 @@ and reads no reflog.
 - **`--all` records blobs.** Once every step passed, it appends `blob path` (`git hash-object`)
   for each generated file as the run left it, a skipped width audit not listed, to
   `varka-regen-all` in the shared git dir (`git rev-parse --git-common-dir`), so that a run in
-  one worktree pays a stacked branch checked in another; the last 500 lines are kept, written
-  through a temporary file.
+  one worktree pays a stacked branch checked in another; under `flock` on `varka-regen-all.lock`
+  (the script takes the heavy slot's lock itself around sbt, so no caller wraps it in that),
+  duplicate lines are dropped, the last kept, then the last 5000 lines, written through a
+  temporary file.
 - **A generated file is paid iff its blob at HEAD is one `--all` wrote.** R3 checks each file
   the branch changes against the merge base with `origin/master` (`git diff --name-only`, the
   driver's `--list` files). That closes, with no rebase detection: the regeneration commit,
@@ -129,9 +131,13 @@ and reads no reflog.
   it owes nothing.
 - **Accepted false failure:** a branch that changes a generated file without `--all` having run
   on that exact content, for example a clean per-key merge by the driver or a branch that
-  regenerated before the marker existed, needs one `--all` before the push.
-- **Limits:** the marker is local, so a fresh clone or another machine runs `--all` once; a blob
-  `--all` wrote for another branch pays the same text here, which is right by construction.
+  regenerated before the marker existed, needs one `--all` before the push. So does a branch
+  that edits only the hand-written prose of `docs/sql-varka.md`, which `--list` names.
+- **Accepted false pass:** a blob `--all` wrote for another source passes here too, so a
+  `rebase -i` that drops or reverts a source commit and keeps the regeneration commit leaves a
+  file stale for the new source with its blob still paid. The generated-file suites, run at
+  `full` and on CI, catch that; the marker records no tree.
+- **Limits:** the marker is local, so a fresh clone or another machine runs `--all` once.
   Beyond that the JVM step is the check.
 - The replays are in `results/VARKA-563-replays.txt`, sixth round: #1323's head fails R3 with or
   without the marker of the `--all` that later ran on it, `4c7fd1c90d8` and #1323's fix pass
