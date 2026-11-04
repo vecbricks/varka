@@ -64,6 +64,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Lan
 import org.apache.spark.sql.catalyst.expressions.package$;
 import org.apache.spark.sql.types.DataType;
 import org.apache.spark.sql.types.DataTypes;
+import org.apache.spark.sql.types.DecimalType;
 
 /**
  * Compiles a bound projection list to the Varka vector IR, recursing where the MVP's flat matcher
@@ -1193,7 +1194,9 @@ public final class VarkaExpressionCompiler {
    * <p>A {@code BOOLEAN} root is compiled as a condition and written as a {@link BoolOutput}
    * (`VARKA-27.md` 2.3), so every predicate a filter fuses is also an output, with the
    * condition's own decline reason where it does not. A bare boolean column never reaches here:
-   * {@code classify} forwards it first.
+   * {@code classify} forwards it first. A {@code DECIMAL} root is
+   * {@code VarkaDecimalCompiler.output}'s, which writes it through the decimal store
+   * (`VARKA-157.md` 2.1); a bare decimal column is forwarded too.
    */
   private static Optional<VarkaVectorIR> compileRoot(
       Expression expr, VarkaSlotTable inputs, VarkaSlotTable literals, DeclineSink sink) {
@@ -1203,6 +1206,9 @@ public final class VarkaExpressionCompiler {
     if (expr.dataType().equals(DataTypes.BooleanType)) {
       return VarkaConditionCompiler.compileCond(expr, inputs, literals, sink)
           .map(BoolOutput::new);
+    }
+    if (expr.dataType() instanceof DecimalType) {
+      return VarkaDecimalCompiler.output(expr, inputs, literals, sink);
     }
     return VarkaNodeCompiler.compileNode(expr, inputs, literals, sink);
   }

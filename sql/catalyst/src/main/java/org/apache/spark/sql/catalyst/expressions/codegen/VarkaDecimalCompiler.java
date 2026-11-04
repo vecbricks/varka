@@ -58,6 +58,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Lan
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Overflow;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Truth;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WidenDecimal;
+import org.apache.spark.sql.catalyst.expressions.objects.StaticInvoke;
 import org.apache.spark.sql.types.Decimal;
 import org.apache.spark.sql.types.DecimalType;
 
@@ -102,7 +103,8 @@ import org.apache.spark.sql.types.DecimalType;
  * lowers the scale or the integral digits, or one from an integral type (row 350); a negative
  * scale (the milestone plan's 2.8); and every operator no arm here claims yet.
  *
- * <p>A decimal-valued output root, once a lowering builds one, is admitted by {@link #outputRoot}.
+ * <p>A decimal-valued output root is compiled by {@link #output}, which the projection's root
+ * binding calls, and admitted by {@link #outputRoot}.
  */
 final class VarkaDecimalCompiler {
 
@@ -470,14 +472,53 @@ final class VarkaDecimalCompiler {
   }
 
   /**
+   * A decimal-valued output root, or empty with the reason noted (`VARKA-157.md` 2.1): the
+   * output's type is asked first, so a precision above 18 or a negative scale declines naming its
+   * row at plan time, whatever the expression; then the value is compiled and wrapped by
+   * {@link #outputRoot}. The producers today are the two decimal-valued {@code TIME} functions
+   * ({@code VarkaTimeCompiler.decimalProducer}); every other decimal value as an output declines
+   * naming row 348, whose values ({@link #value}) reach this method's {@link #widened} when its
+   * part 348b admits them.
+   */
+  static Optional<VarkaVectorIR> output(Expression e, VarkaSlotTable inputs,
+      VarkaSlotTable literals, DeclineSink sink) {
+    DecimalType type = (DecimalType) e.dataType();
+    Optional<String> refused = VarkaTypes.decimalOutputDeclineReason(type);
+    if (refused.isPresent()) {
+      return sink.decline(refused.get(), e);
+    }
+    if (e instanceof StaticInvoke si && VarkaTimeCompiler.isDecimalProducer(si)) {
+      return VarkaTimeCompiler.decimalProducer(si, inputs, literals, sink)
+          .flatMap(v -> widened(e, v, sink));
+    }
+    return sink.decline("a " + type.simpleString() + " value as a projection's output: the "
+        + "decimal store writes it, and the values it admits are the TIME functions "
+        + "time_to_seconds and extract(SECOND ...); the others are row 348's", e);
+  }
+
+  /**
+   * The output root of a compiled decimal {@code value} of {@code whole}: at the output type's
+   * scale, which every producer builds, and then {@link #outputRoot}. A value at another scale is
+   * a producer's error, not a decline.
+   */
+  private static Optional<VarkaVectorIR> widened(Expression whole, Scaled value,
+      DeclineSink sink) {
+    DecimalType type = (DecimalType) whole.dataType();
+    if (value.type().scale() != type.scale() || value.type().precision() > type.precision()) {
+      throw VarkaErrors.illegalState("a decimal output of " + type.simpleString()
+          + " over a value of " + value.type().simpleString() + ": " + whole);
+    }
+    return outputRoot(whole, value.unscaled(), sink);
+  }
+
+  /**
    * The output root of {@code value}, the unscaled long-lane value of the decimal-valued
    * {@code whole}, or empty with the reason noted: {@code WidenDecimal(value)}, whose store writes
    * each row's word and its sign extension into the output's sixteen-byte slot, where the
    * output's type admits that store ({@code VarkaTypes.decimalOutputDeclineReason}), and a
    * decline naming row 359 for a precision above 18, so such a shape never fuses rather than
    * reaching the evaluator's allocator, which refuses it too. The binding that knows an output's
-   * type calls it, and only for an output root (`VARKA-157.md` 2.1); no lowering builds a
-   * decimal-valued root before 157b's producers, so its tests are its only callers until then.
+   * type calls it, through {@link #output}, and only for an output root (`VARKA-157.md` 2.1).
    */
   static Optional<VarkaVectorIR> outputRoot(Expression whole, VarkaVectorIR value,
       DeclineSink sink) {

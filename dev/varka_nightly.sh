@@ -163,15 +163,17 @@ fi
 # year-month division sweep (VARKA-89, 409 divisors over every int) is a long sweep: its name
 # carries no "opt-in", so the first filter and the gate's sweep step skip it, and it runs last, in
 # its own property and under a cap of an hour, since it takes about twelve minutes on the laptop,
-# more than an own-JVM suite's default nine. A failure in an earlier command of the batch ends the
-# batch (the step is red) before the long sweep starts.
+# more than an own-JVM suite's default nine. The TIME fraction's sweep (VARKA-157) is a JUnit suite
+# run whole, TIME(8) and TIME(9) under the long property (about twelve minutes on the laptop). A failure in an earlier
+# command of the batch ends the batch (the step is red) before the long sweep starts.
 if [ "$sweep" -eq 1 ]; then
   run_step sweep build/sbt -batch "project catalyst" \
     'set Test/javaOptions += "-Dvarka.sweep=true"' \
     'testOnly *VarkaChronoSuite *VarkaEmitter*Suite -- -z opt-in' \
     'testOnly *VarkaEmitterMixedLaneSuite' \
     'set Test/javaOptions ++= Seq("-Dvarka.sweep.long=true", "-Dspark.test.timeout=60", "-Dvarka.test.watchdog.minutes=60")' \
-    'testOnly *VarkaEmitterYmDivideSuite -- -z long-sweep'
+    'testOnly *VarkaEmitterYmDivideSuite -- -z long-sweep' \
+    'testOnly *VarkaTimeFractionSuite'
 fi
 # The proofs under Z3 and cvc5, each held to every expectation, so the two agree (VARKA-240); the
 # lint job runs Z3 alone. Beside the sweep step, whose multiply-high sweep checks the statement of

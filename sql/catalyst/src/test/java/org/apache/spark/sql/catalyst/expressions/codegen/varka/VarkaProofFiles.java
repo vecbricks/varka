@@ -229,7 +229,15 @@ final class VarkaProofFiles {
           * DateTimeConstants.MINUTES_PER_HOUR,
       (long) DateTimeConstants.SECONDS_PER_MINUTE,
       -60L,
-      NTZ_DAY_ODD);
+      NTZ_DAY_ODD,
+      // extract(SECOND FROM t)'s fraction over TIME(p), the remainder of a second divided by
+      // 10^(9 - p) for p from 1 to 8 (VARKA-157 2.3); 10^3 and 10^6 are above.
+      100_000_000L,
+      10_000_000L,
+      100_000L,
+      10_000L,
+      100L,
+      10L);
 
   private static final long P52 = 1L << 52;
   private static final long P53 = 1L << 53;

@@ -31,6 +31,7 @@ import java.util.stream.Stream;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaMatrixRuns;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaSuite;
+import org.apache.spark.sql.catalyst.util.DateTimeConstants;
 import org.apache.spark.sql.catalyst.util.SparkDateTimeUtils$;
 import org.apache.spark.sql.catalyst.util.SparkIntervalUtils$;
 import org.apache.spark.sql.execution.VarkaHarnessCases.Case;
@@ -66,6 +67,10 @@ public final class VarkaTimeHarnessSuite {
 
   private static final String CROSSING_SCHEMA = "SELECT * FROM VALUES (0, CAST(NULL AS TIME(6)), "
       + "CAST(NULL AS INTERVAL DAY TO SECOND)) AS v(rid, t, dt)";
+
+  private static final String DECIMAL_SCHEMA = "SELECT * FROM VALUES (0, CAST(NULL AS TIME(0)), "
+      + "CAST(NULL AS TIME(3)), CAST(NULL AS TIME(6)), CAST(NULL AS TIME(9))) "
+      + "AS v(rid, t0, t3, t6, t9)";
 
   private static long nanos(LocalTime t) {
     return SparkDateTimeUtils$.MODULE$.localTimeToNanos(t);
@@ -103,6 +108,32 @@ public final class VarkaTimeHarnessSuite {
     return rows;
   }
 
+  /**
+   * Every second of the day at four precisions, for the decimal producers (VARKA-157 3 item 3):
+   * the day table's sub-second offsets on every thirteenth row, and on every seventeenth the
+   * nanosecond offsets of {@code time_to_seconds}' rounding edges, {@code x.0000005} and the last
+   * half microsecond of the second and its last nanosecond, so {@code 23:59:59.9999995} rounds
+   * to {@code 86400.000000}.
+   * Each column holds the time truncated to its precision, as a {@code TIME(p)} value is stored.
+   * Every 31st row is null.
+   */
+  private static List<Object[]> decimalRows() {
+    var rows = new ArrayList<Object[]>(SECONDS_PER_DAY + 1);
+    long[] fractions = {1000L, 500000000L, 999999000L};
+    long[] edges = {500L, 999999500L, 999999999L};
+    for (int i = 0; i <= SECONDS_PER_DAY; i++) {
+      // The last row is the last nanosecond's rounding edge, the day's end.
+      long n = i == SECONDS_PER_DAY ? DateTimeConstants.NANOS_PER_DAY - 500L
+          : i * DateTimeConstants.NANOS_PER_SECOND
+              + (i % 13 == 0 ? fractions[i / 13 % 3] : i % 17 == 0 ? edges[i / 17 % 3] : 0L);
+      boolean none = i % 31 == 30;
+      rows.add(new Object[] {i, none ? null : n / 1_000_000_000L * 1_000_000_000L,
+          none ? null : n / 1_000_000L * 1_000_000L, none ? null : n / 1000L * 1000L,
+          none ? null : n});
+    }
+    return rows;
+  }
+
   /** Three rows whose sum leaves the day, one that stays, and a null. */
   private static List<Object[]> crossingRows() {
     return List.of(
@@ -118,6 +149,8 @@ public final class VarkaTimeHarnessSuite {
 
   private static final Source CROSSING =
       VarkaHarnessCases.source(CROSSING_SCHEMA, crossingRows());
+
+  private static final Source DECIMALS = VarkaHarnessCases.source(DECIMAL_SCHEMA, decimalRows());
 
   /** {@code select} as the one output of a query over the day's table, served by a kernel. */
   private static Shape served(String select) {
@@ -216,6 +249,20 @@ public final class VarkaTimeHarnessSuite {
         "time_from_micros(time_to_micros(t2))"));
     out.add(new Case("time_to_millis, time_to_micros and the time_from_* conversions agree with "
         + "the row engine over every second of the day", DAY, served(conversions)));
+    // The decimal store's producers (VARKA-157 2.3): time_to_seconds and the second with its
+    // fraction at four precisions, written into sixteen-byte slots; the row engine's values are
+    // compared as decimals, so both the value and the slot's sign word are read back.
+    var decimals = new ArrayList<String>();
+    for (String column : List.of("t0", "t3", "t6", "t9")) {
+      decimals.add("time_to_seconds(" + column + ")");
+      decimals.add("extract(SECOND FROM " + column + ")");
+    }
+    out.add(new Case("time_to_seconds and extract(SECOND ...) agree with the row engine over "
+        + "every second of the day at TIME(0), TIME(3), TIME(6) and TIME(9)", DECIMALS,
+        served(decimals)));
+    out.add(new Case("a decimal output fuses beside a long and a narrowed output in one kernel",
+        DECIMALS, List.of(new Shape("SELECT time_to_seconds(t6) AS a, hour(t6) AS h, "
+            + "time_to_micros(t9) AS m, extract(SECOND FROM t9) AS s FROM t", SERVED))));
     return out;
   }
 
