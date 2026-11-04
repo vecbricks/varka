@@ -112,10 +112,11 @@ R2, #1338 under R1 (three suites on `CrossLane`, as CI) and #1323 under R3, only
   a committed rebase's entries from an aborted one's. A `rebase (finish)` entry, a `pull
   --rebase`'s too, names its commit and the one it went onto, the entry before it the old tip: a
   generated file both sides changed since their merge base is owed, held at the commit made.
-- **Only a rewrite carries a debt**: a later rebase or amend starting from a descendant of that
-  commit carries it to the new one (master moved and rebased onto again still owes); any other
-  move keeps it only on a descendant, so a `reset --hard` to `ORIG_HEAD`, the old tip or
-  `origin/<branch>` undoing the rebase owes nothing.
+- **Only a rewrite carries a debt**: a later rebase or amend starting from a descendant of a
+  commit that carried it carries it to the new one (master moved and rebased onto again still
+  owes; an amend is a rewrite, since an amended tip descends from no carrier); any other move
+  keeps it only on a descendant of a carrier, so a `reset --hard` to `ORIG_HEAD`, the old tip or
+  `origin/<branch>` undoing the rebase owes nothing, while undoing only a second rebase owes.
 - **Paid file by file**: a commit pays the files it changes (a regeneration commits only what
   moved), so prose in `docs/sql-varka.md` pays no other file; `dev/varka_regen_generated.sh
   --all` leaves in the git dir's `varka-regen-all` the commit it passed on and the files it

@@ -359,8 +359,8 @@ def regen_marker(repo):
 def rebase_debt(repo, branch, generated):
     """{generated file: its rebase}: the files a rebase of branch text-merged, both sides having
     changed them, which the merge driver owes (a rebase names no other side) but records nowhere.
-    Read from branch's reflog in order, each debt held at the commit carrying it. A later rebase
-    or amend starting from a descendant of that commit rewrites it and carries the debt; any
+    Read from branch's reflog in order, each debt held at the commits carrying it. A later rebase
+    or amend starting from a descendant of one rewrites it and carries the debt; any
     other move (a reset undoing the rebase, a checkout) keeps it only on a descendant. A commit
     pays the files it changes, one by one (a regeneration commits only the files that moved),
     and dev/varka_regen_generated.sh --all run since pays those its marker lists; a file now as
@@ -374,17 +374,17 @@ def rebase_debt(repo, branch, generated):
         log = log[: len(shas) - shas[::-1].index(head)]
         shas = shas[: len(log)]
     regen_at = max((i for i, s in enumerate(shas) if s == regenerated), default=-1)
-    debt = {}  # file -> [its rebase, the commit carrying the debt]
+    debt = {}  # file -> (its rebase, the commits that have carried the debt)
     for i, line in enumerate(log[1:], 1):
         sha, _, subject = line.partition(" ")
         before = shas[i - 1]
         onto = REBASED.search(subject)
         rewrote = onto or subject.startswith(AMENDED)
-        for path, held in list(debt.items()):
-            if not repo.ancestor(held[1], before if rewrote else sha):
+        for path, (_, carriers) in list(debt.items()):
+            if not any(repo.ancestor(c, before if rewrote else sha) for c in carriers):
                 del debt[path]
-            elif rewrote and not repo.ancestor(held[1], sha):
-                held[1] = sha
+            elif rewrote and not any(repo.ancestor(c, sha) for c in carriers):
+                carriers.append(sha)
         if COMMITTED.match(subject):
             for path in repo.git("diff", "--name-only", before, sha).stdout.split():
                 debt.pop(path, None)
@@ -401,7 +401,7 @@ def rebase_debt(repo, branch, generated):
         paid = regen_at >= i or (regen_at < 0 and later)
         for path in both:
             if not (paid and (not covered or path in covered)):
-                debt[path] = [f"{sha[:11]} onto {onto[1][:11]}", sha]
+                debt[path] = (f"{sha[:11]} onto {onto[1][:11]}", [sha])
     if not debt:
         return {}
     # The commits decide, not the working tree's uncommitted edits.
@@ -783,6 +783,10 @@ class SelfTest(unittest.TestCase):
             repo.git("checkout", "-q", "topic", check=True)
             repo.git("rebase", "-q", "master", check=True)
             self.assertFalse(repo.ancestor(head, "HEAD"))
+            # A reset to the first rebase's commit, undoing only the second, still owes.
+            repo.git("reset", "-q", "--hard", "ORIG_HEAD", check=True)
+            self.assertEqual(rebase_debt(repo, "topic", gen), debt)
+            repo.git("rebase", "-q", "master", check=True)
             repo.git("commit", "-q", "--amend", "-m", "reworded", check=True)
             with open(os.path.join(d, "g.json"), "w", encoding="utf-8") as f:
                 f.write(repo.git("show", "master:g.json", check=True).stdout)
