@@ -48,6 +48,17 @@ import org.apache.spark.sql.types.Decimal;
  * {@code equals}/{@code hashCode}, and the emitter memoizes on them, so a subtree appearing in
  * several outputs is computed once per lane group no matter how the caller built the trees.
  *
+ * <p>So every node with a child carries its structural hash as its last component, {@code hash},
+ * computed once in its constructor from its other components ({@code hashOf}) and returned by
+ * its {@code hashCode}: a node reached by several paths - an interval's {@code abs} reads its
+ * operand three times, a {@code signum} four - would otherwise be hashed once per path, which is
+ * exponential in the depth of a chain of them, paid by every hash set the planning walks keep,
+ * before the fused budget can decline the chain (VARKA-559). The
+ * constructor without {@code hash} is the one to call; the canonical one ignores the value it is
+ * given and computes its own, so no node can carry a hash its structure does not have. The
+ * generated {@code equals} compares the last component first, so two nodes of different hashes
+ * differ in one comparison, and a shared node equals itself by identity.
+ *
  * <p>The IR splits into values and <i>conditions</i>: a {@link Cond} node is
  * mask-valued - per lane a known-true and a known-false bit, SQL's three-valued logic.
  * {@link IfElse#cond} is typed {@code Cond}, so a value cannot appear where a condition
@@ -359,6 +370,19 @@ public sealed interface VarkaVectorIR
   }
 
   /**
+   * A node's structural hash from its components but {@code hash}, in declaration order: the value
+   * a record's generated {@code hashCode} gives them ({@code 31 * h + hashCode(component)} from
+   * zero), with a child's hash its cached one, so computing it reads each child once.
+   */
+  private static int hashOf(Object... components) {
+    int h = 0;
+    for (Object c : components) {
+      h = 31 * h + Objects.hashCode(c);
+    }
+    return h;
+  }
+
+  /**
    * Refuses a child on any lane but the int one. The calendar lowerings decompose a 32-bit
    * epoch day: a wider value reaching them would be reinterpreted rather than converted, so it
    * has to be narrowed by a node above them instead.
@@ -624,10 +648,14 @@ public sealed interface VarkaVectorIR
    * strength of this check, so a flag that removed it would leave the compile-time bound
    * standing over a value nothing bounds - a wrong answer rather than a slower one.
    */
-  record GuardedDay(VarkaVectorIR days) implements VarkaVectorIR {
+  record GuardedDay(VarkaVectorIR days, int hash) implements VarkaVectorIR {
     public GuardedDay {
       requireInt("guardedDay", days);
+      hash = hashOf(days);
     }
+
+    public GuardedDay(VarkaVectorIR days) { this(days, 0); }
+    @Override public int hashCode() { return hash; }
   }
 
   /**
@@ -664,7 +692,7 @@ public sealed interface VarkaVectorIR
    * The mode is part of the node's identity, rendered by {@link #canonical}, so a failing and
    * a nulling guard never share a kernel. The three-argument form is {@code FAIL}.
    */
-  record GuardedRange(VarkaVectorIR child, long lo, long hi, Overflow mode)
+  record GuardedRange(VarkaVectorIR child, long lo, long hi, Overflow mode, int hash)
       implements VarkaVectorIR {
     public GuardedRange {
       if (lo > hi) {
@@ -676,7 +704,13 @@ public sealed interface VarkaVectorIR
         throw VarkaErrors.illegalArgument("a range guard fails or nulls; WRAP guards nothing: ["
             + lo + ", " + hi + "]");
       }
+      hash = hashOf(child, lo, hi, mode);
     }
+
+    public GuardedRange(VarkaVectorIR child, long lo, long hi, Overflow mode) {
+      this(child, lo, hi, mode, 0);
+    }
+    @Override public int hashCode() { return hash; }
 
     /** {@code child} guarded by {@code [lo, hi]}, the batch declined where a lane is outside. */
     public GuardedRange(VarkaVectorIR child, long lo, long hi) {
@@ -702,7 +736,7 @@ public sealed interface VarkaVectorIR
    * lane, a {@code CAST(byte AS int)} - need no node of their own; with no target given it is
    * the long lane, the int-to-long cast this node was introduced for.
    */
-  record WidenLane(VarkaVectorIR child, LaneType target) implements VarkaVectorIR {
+  record WidenLane(VarkaVectorIR child, LaneType target, int hash) implements VarkaVectorIR {
     public WidenLane {
       Objects.requireNonNull(target, "target");
       if (!target.isWiderThan(child.laneType())) {
@@ -710,7 +744,11 @@ public sealed interface VarkaVectorIR
             + target + ", not " + child.laneType() + ", from a "
             + child.getClass().getSimpleName());
       }
+      hash = hashOf(child, target);
     }
+
+    public WidenLane(VarkaVectorIR child, LaneType target) { this(child, target, 0); }
+    @Override public int hashCode() { return hash; }
 
     /** {@code child} widened to the long lane, the int-to-long cast. */
     public WidenLane(VarkaVectorIR child) {
@@ -744,7 +782,7 @@ public sealed interface VarkaVectorIR
    * this node was introduced for; a narrow target is the wrap of a computed int value at a
    * {@code TINYINT} or {@code SMALLINT} store.
    */
-  record NarrowLane(VarkaVectorIR child, LaneType target) implements VarkaVectorIR {
+  record NarrowLane(VarkaVectorIR child, LaneType target, int hash) implements VarkaVectorIR {
     public NarrowLane {
       Objects.requireNonNull(target, "target");
       if (!child.laneType().isWiderThan(target)) {
@@ -752,7 +790,11 @@ public sealed interface VarkaVectorIR
             + target + ", not " + child.laneType() + ", from a "
             + child.getClass().getSimpleName());
       }
+      hash = hashOf(child, target);
     }
+
+    public NarrowLane(VarkaVectorIR child, LaneType target) { this(child, target, 0); }
+    @Override public int hashCode() { return hash; }
 
     /** {@code child} narrowed to the int lane, the long-to-int cast. */
     public NarrowLane(VarkaVectorIR child) {
@@ -777,7 +819,7 @@ public sealed interface VarkaVectorIR
    * width; the kernel plan refuses every other conversion, and this one beside a 64-bit lane,
    * until two lane counts are built; the compiler builds no floating source (`VARKA-343.md` 4).
    */
-  record ConvertLane(VarkaVectorIR child, LaneType target) implements VarkaVectorIR {
+  record ConvertLane(VarkaVectorIR child, LaneType target, int hash) implements VarkaVectorIR {
     public ConvertLane {
       Objects.requireNonNull(target, "target");
       LaneType from = child.laneType();
@@ -787,7 +829,11 @@ public sealed interface VarkaVectorIR
             + " one, not " + from + " to " + target + ", from a "
             + child.getClass().getSimpleName());
       }
+      hash = hashOf(child, target);
     }
+
+    public ConvertLane(VarkaVectorIR child, LaneType target) { this(child, target, 0); }
+    @Override public int hashCode() { return hash; }
   }
 
   /**
@@ -806,7 +852,7 @@ public sealed interface VarkaVectorIR
    * both. Its rendering, {@code (wdec <child>)}, keeps a decimal root from sharing a kernel class
    * with a {@code BIGINT} root of the same tree, whose store writes eight bytes a row.
    */
-  record WidenDecimal(VarkaVectorIR child) implements VarkaVectorIR {
+  record WidenDecimal(VarkaVectorIR child, int hash) implements VarkaVectorIR {
     public WidenDecimal {
       if (child.laneType() != LaneType.LONG) {
         throw VarkaErrors.illegalArgument("a decimal output widens a long-lane value, not a "
@@ -816,7 +862,11 @@ public sealed interface VarkaVectorIR
         throw VarkaErrors.illegalArgument("a decimal output widens a value, not the condition "
             + child);
       }
+      hash = hashOf(child);
     }
+
+    public WidenDecimal(VarkaVectorIR child) { this(child, 0); }
+    @Override public int hashCode() { return hash; }
   }
 
   /**
@@ -826,17 +876,25 @@ public sealed interface VarkaVectorIR
    * validity the AND of both children's, not just {@code days}' (see
    * {@code VarkaLoopEmitter.planWordRef}).
    */
-  record AddDays(VarkaVectorIR days, VarkaVectorIR offset) implements VarkaVectorIR {
+  record AddDays(VarkaVectorIR days, VarkaVectorIR offset, int hash) implements VarkaVectorIR {
     public AddDays {
       requireInt("addDays", days, offset);
+      hash = hashOf(days, offset);
     }
+
+    public AddDays(VarkaVectorIR days, VarkaVectorIR offset) { this(days, offset, 0); }
+    @Override public int hashCode() { return hash; }
   }
 
   /** {@code days - offset}, lane-wise; the {@code DateSub} counterpart of {@link AddDays}. */
-  record SubDays(VarkaVectorIR days, VarkaVectorIR offset) implements VarkaVectorIR {
+  record SubDays(VarkaVectorIR days, VarkaVectorIR offset, int hash) implements VarkaVectorIR {
     public SubDays {
       requireInt("subDays", days, offset);
+      hash = hashOf(days, offset);
     }
+
+    public SubDays(VarkaVectorIR days, VarkaVectorIR offset) { this(days, offset, 0); }
+    @Override public int hashCode() { return hash; }
   }
 
   /**
@@ -845,10 +903,14 @@ public sealed interface VarkaVectorIR
    * Spark level, where the result is an {@code IntegerType} day count rather than a date, which
    * the compiler tracks per output so the evaluator allocates the right vector.
    */
-  record DateDiff(VarkaVectorIR end, VarkaVectorIR start) implements VarkaVectorIR {
+  record DateDiff(VarkaVectorIR end, VarkaVectorIR start, int hash) implements VarkaVectorIR {
     public DateDiff {
       requireInt("dateDiff", end, start);
+      hash = hashOf(end, start);
     }
+
+    public DateDiff(VarkaVectorIR end, VarkaVectorIR start) { this(end, start, 0); }
+    @Override public int hashCode() { return hash; }
   }
 
   /**
@@ -884,7 +946,7 @@ public sealed interface VarkaVectorIR
    * ({@code x + 0.0} is not {@code x} at {@code -0.0}, {@code x * 0.0} is not {@code 0.0} at NaN
    * or an infinity, {@code x - x} is not {@code 0.0}), and the operands keep Spark's order.
    */
-  record IntArith(IntOp op, Overflow mode, VarkaVectorIR left, VarkaVectorIR right)
+  record IntArith(IntOp op, Overflow mode, VarkaVectorIR left, VarkaVectorIR right, int hash)
       implements VarkaVectorIR {
     public IntArith {
       requireSameLane("int arithmetic", left, right);
@@ -897,7 +959,13 @@ public sealed interface VarkaVectorIR
         throw VarkaErrors.illegalArgument("an integral lane has no lanewise divide; a division "
             + "by a constant is a ConstDivide");
       }
+      hash = hashOf(op, mode, left, right);
     }
+
+    public IntArith(IntOp op, Overflow mode, VarkaVectorIR left, VarkaVectorIR right) {
+      this(op, mode, left, right, 0);
+    }
+    @Override public int hashCode() { return hash; }
   }
 
   /**
@@ -933,13 +1001,18 @@ public sealed interface VarkaVectorIR
    * negation flips the sign bit and {@code abs} clears it, NaN included, as Java's {@code dneg}
    * and {@code Math.abs} do, so a NaN keeps its payload.
    */
-  record IntNeg(Overflow mode, VarkaVectorIR child, boolean abs) implements VarkaVectorIR {
+  record IntNeg(Overflow mode, VarkaVectorIR child, boolean abs, int hash)
+      implements VarkaVectorIR {
     public IntNeg {
       if (child.laneType().isFloating() && mode != Overflow.WRAP) {
         throw VarkaErrors.illegalArgument("a floating negation or abs cannot overflow, so it has "
             + "no " + mode + " mode");
       }
+      hash = hashOf(mode, child, abs);
     }
+
+    public IntNeg(Overflow mode, VarkaVectorIR child, boolean abs) { this(mode, child, abs, 0); }
+    @Override public int hashCode() { return hash; }
 
     /** A negation. */
     public IntNeg(Overflow mode, VarkaVectorIR child) {
@@ -1003,7 +1076,7 @@ public sealed interface VarkaVectorIR
    * tree rather than from the call site: two equal subtrees carrying different bounds would
    * stop being common subexpressions.
    */
-  record ConstDivide(VarkaVectorIR child, long divisor, long dividendBound)
+  record ConstDivide(VarkaVectorIR child, long divisor, long dividendBound, int hash)
       implements VarkaVectorIR {
 
     /**
@@ -1090,7 +1163,13 @@ public sealed interface VarkaVectorIR
         throw VarkaErrors.illegalArgument("a constant division's dividend bound must lie in "
             + "[1, " + EXACT_DIVIDEND_BOUND + "], not " + dividendBound);
       }
+      hash = hashOf(child, divisor, dividendBound);
     }
+
+    public ConstDivide(VarkaVectorIR child, long divisor, long dividendBound) {
+      this(child, divisor, dividendBound, 0);
+    }
+    @Override public int hashCode() { return hash; }
 
     /**
      * The bound this quotient hands a division over it: {@code |x| < b} divided by {@code d}
@@ -1125,8 +1204,8 @@ public sealed interface VarkaVectorIR
    * division family. The components carry the pair so the record's equality and canonical
    * form are its arithmetic, not a search that has to be repeated to compare two nodes.
    */
-  record BoundedDivide(VarkaVectorIR child, int divisor, int bound, int multiplier, int shift)
-      implements VarkaVectorIR {
+  record BoundedDivide(VarkaVectorIR child, int divisor, int bound, int multiplier, int shift,
+      int hash) implements VarkaVectorIR {
 
     /** The node over {@code child}, with the pair found by search and proven over the bound. */
     public static BoundedDivide of(VarkaVectorIR child, int divisor, int bound) {
@@ -1150,7 +1229,13 @@ public sealed interface VarkaVectorIR
             + ") is not the exact single-multiply form of / " + divisor + " over [0, " + bound
             + "), which is (" + pair[0] + ", " + pair[1] + ")");
       }
+      hash = hashOf(child, divisor, bound, multiplier, shift);
     }
+
+    public BoundedDivide(VarkaVectorIR child, int divisor, int bound, int multiplier, int shift) {
+      this(child, divisor, bound, multiplier, shift, 0);
+    }
+    @Override public int hashCode() { return hash; }
 
     /**
      * The exact single-multiply form of {@code / divisor} over {@code [0, bound)}: the largest
@@ -1192,11 +1277,18 @@ public sealed interface VarkaVectorIR
    * valid where both operands are. {@code ~x} is {@code XOR} with a literal -1, which is why the
    * IR has no unary bitwise node.
    */
-  record BitOp(BitOpKind op, VarkaVectorIR left, VarkaVectorIR right) implements VarkaVectorIR {
+  record BitOp(BitOpKind op, VarkaVectorIR left, VarkaVectorIR right, int hash)
+      implements VarkaVectorIR {
     public BitOp {
       Objects.requireNonNull(op, "op");
       requireSameLane("a bitwise operation", left, right);
+      hash = hashOf(op, left, right);
     }
+
+    public BitOp(BitOpKind op, VarkaVectorIR left, VarkaVectorIR right) {
+      this(op, left, right, 0);
+    }
+    @Override public int hashCode() { return hash; }
   }
 
   /**
@@ -1207,7 +1299,14 @@ public sealed interface VarkaVectorIR
    * {@code bitCount(x) + ((x >> 31) & 32)}. The result is at most 64 on both lanes, so a long-lane
    * count is delivered as an int by a {@link NarrowLane} over it, at a root or under another node.
    */
-  record BitCount(VarkaVectorIR child) implements VarkaVectorIR {}
+  record BitCount(VarkaVectorIR child, int hash) implements VarkaVectorIR {
+    public BitCount {
+      hash = hashOf(child);
+    }
+
+    public BitCount(VarkaVectorIR child) { this(child, 0); }
+    @Override public int hashCode() { return hash; }
+  }
 
   /**
    * {@code fn(child)} over a floating lane: one lanewise math operator, Spark's
@@ -1215,13 +1314,17 @@ public sealed interface VarkaVectorIR
    * answers {@code Math}'s bits on every input is a member of {@link MathFn}. Null-intolerant:
    * the validity is the child's, and no input nulls a lane.
    */
-  record MathUnary(MathFn fn, VarkaVectorIR child) implements VarkaVectorIR {
+  record MathUnary(MathFn fn, VarkaVectorIR child, int hash) implements VarkaVectorIR {
     public MathUnary {
       if (!child.laneType().isFloating()) {
         throw VarkaErrors.illegalArgument(fn + " takes a floating child, not "
             + child.laneType() + ", from a " + child.getClass().getSimpleName());
       }
+      hash = hashOf(fn, child);
     }
+
+    public MathUnary(MathFn fn, VarkaVectorIR child) { this(fn, child, 0); }
+    @Override public int hashCode() { return hash; }
   }
 
   /**
@@ -1230,10 +1333,16 @@ public sealed interface VarkaVectorIR
    * Null-intolerant: the result is known (true or false) exactly where both operands are valid,
    * unknown elsewhere.
    */
-  record Compare(CompareOp op, VarkaVectorIR left, VarkaVectorIR right) implements Cond {
+  record Compare(CompareOp op, VarkaVectorIR left, VarkaVectorIR right, int hash) implements Cond {
     public Compare {
       requireSameLane("a comparison", left, right);
+      hash = hashOf(op, left, right);
     }
+
+    public Compare(CompareOp op, VarkaVectorIR left, VarkaVectorIR right) {
+      this(op, left, right, 0);
+    }
+    @Override public int hashCode() { return hash; }
   }
 
   /**
@@ -1251,10 +1360,14 @@ public sealed interface VarkaVectorIR
    * which {@link IsNotNull} over a value cannot do; a predicate operand is not one, and
    * {@code p <=> true} is composed from {@link And} and {@link IsNotNull} by the compiler.
    */
-  record NullSafeEqual(VarkaVectorIR left, VarkaVectorIR right) implements Cond {
+  record NullSafeEqual(VarkaVectorIR left, VarkaVectorIR right, int hash) implements Cond {
     public NullSafeEqual {
       requireSameLane("a null-safe equality", left, right);
+      hash = hashOf(left, right);
     }
+
+    public NullSafeEqual(VarkaVectorIR left, VarkaVectorIR right) { this(left, right, 0); }
+    @Override public int hashCode() { return hash; }
   }
 
   /** What a {@link CondConst} is: SQL's {@code TRUE}, {@code FALSE} or an unknown boolean. */
@@ -1310,10 +1423,14 @@ public sealed interface VarkaVectorIR
    * Kleene-correct that way, but {@code LE} and {@code GE} are not ({@code NOT a OR b} is true
    * for {@code a = NULL, b = TRUE}, where {@code a <= b} is null).
    */
-  record BoolCompare(CompareOp op, Cond left, Cond right) implements Cond {
+  record BoolCompare(CompareOp op, Cond left, Cond right, int hash) implements Cond {
     public BoolCompare {
       requireSameLane("a boolean comparison", left, right);
+      hash = hashOf(op, left, right);
     }
+
+    public BoolCompare(CompareOp op, Cond left, Cond right) { this(op, left, right, 0); }
+    @Override public int hashCode() { return hash; }
   }
 
   /**
@@ -1322,10 +1439,14 @@ public sealed interface VarkaVectorIR
    * {@code If(null, a, b)} does. {@code CASE WHEN} and {@code coalesce} over booleans fold onto
    * it.
    */
-  record CondIf(Cond cond, Cond thenCond, Cond elseCond) implements Cond {
+  record CondIf(Cond cond, Cond thenCond, Cond elseCond, int hash) implements Cond {
     public CondIf {
       requireSameLane("a boolean choice", cond, thenCond, elseCond);
+      hash = hashOf(cond, thenCond, elseCond);
     }
+
+    public CondIf(Cond cond, Cond thenCond, Cond elseCond) { this(cond, thenCond, elseCond, 0); }
+    @Override public int hashCode() { return hash; }
   }
 
   /**
@@ -1335,31 +1456,50 @@ public sealed interface VarkaVectorIR
    * {@code kF = (t1 & f2) | (f1 & t2) | (k1 ^ k2)}. The two words of a lane are complements, so
    * a consumer that truncates the bits above the lane count reads it as any other condition.
    */
-  record BoolNullSafeEq(Cond left, Cond right) implements Cond {
+  record BoolNullSafeEq(Cond left, Cond right, int hash) implements Cond {
     public BoolNullSafeEq {
       requireSameLane("a boolean null-safe equality", left, right);
+      hash = hashOf(left, right);
     }
+
+    public BoolNullSafeEq(Cond left, Cond right) { this(left, right, 0); }
+    @Override public int hashCode() { return hash; }
   }
 
   /**
    * Three-valued AND: known-true where both sides are known true, known-false where either
    * side is known false.
    */
-  record And(Cond left, Cond right) implements Cond {
+  record And(Cond left, Cond right, int hash) implements Cond {
     public And {
       requireSameLane("and", left, right);
+      hash = hashOf(left, right);
     }
+
+    public And(Cond left, Cond right) { this(left, right, 0); }
+    @Override public int hashCode() { return hash; }
   }
 
   /** Three-valued OR, the dual of {@link And}. */
-  record Or(Cond left, Cond right) implements Cond {
+  record Or(Cond left, Cond right, int hash) implements Cond {
     public Or {
       requireSameLane("or", left, right);
+      hash = hashOf(left, right);
     }
+
+    public Or(Cond left, Cond right) { this(left, right, 0); }
+    @Override public int hashCode() { return hash; }
   }
 
   /** Three-valued NOT: swaps the known-true and known-false masks - why known-false exists. */
-  record Not(Cond child) implements Cond {}
+  record Not(Cond child, int hash) implements Cond {
+    public Not {
+      hash = hashOf(child);
+    }
+
+    public Not(Cond child) { this(child, 0); }
+    @Override public int hashCode() { return hash; }
+  }
 
   /**
    * The validity predicate: true exactly where {@code child} is non-null. The first
@@ -1377,7 +1517,14 @@ public sealed interface VarkaVectorIR
    * {@code kF = ~kT}, what SQL's {@code (a < b) IS NOT NULL} asks (VARKA-334). A dense body has no
    * unknown lane, so there it is true, as over a column.
    */
-  record IsNotNull(VarkaVectorIR child) implements Cond {
+  record IsNotNull(VarkaVectorIR child, int hash) implements Cond {
+    public IsNotNull {
+      hash = hashOf(child);
+    }
+
+    public IsNotNull(VarkaVectorIR child) { this(child, 0); }
+    @Override public int hashCode() { return hash; }
+
     /**
      * Whether the test is over a condition's known-ness rather than over an input's validity word.
      * A {@link BoolColumn} is a condition, but its validity word is the column's, so a test over
@@ -1404,7 +1551,7 @@ public sealed interface VarkaVectorIR
    * ranges. The int lane only: the ranges are over an int value and the table is an
    * {@code int[]}.
    */
-  record InRanges(VarkaVectorIR child, List<Integer> bounds) implements Cond {
+  record InRanges(VarkaVectorIR child, List<Integer> bounds, int hash) implements Cond {
     public InRanges {
       requireNarrowOrInt("inRanges", child);
       bounds = List.copyOf(bounds);
@@ -1438,7 +1585,11 @@ public sealed interface VarkaVectorIR
               + " not adjacent: [.., " + bounds.get(i - 1) + "] then [" + bounds.get(i) + ", ..]");
         }
       }
+      hash = hashOf(child, bounds);
     }
+
+    public InRanges(VarkaVectorIR child, List<Integer> bounds) { this(child, bounds, 0); }
+    @Override public int hashCode() { return hash; }
 
     /** How many ranges the set has. */
     public int ranges() {
@@ -1463,11 +1614,17 @@ public sealed interface VarkaVectorIR
    * {@code thenNode} where the condition is known true and {@code elseNode} everywhere else,
    * unknown included. Validity follows the chosen branch lane-wise; nothing is ANDed globally.
    */
-  record IfElse(Cond cond, VarkaVectorIR thenNode, VarkaVectorIR elseNode)
+  record IfElse(Cond cond, VarkaVectorIR thenNode, VarkaVectorIR elseNode, int hash)
       implements VarkaVectorIR {
     public IfElse {
       requireSameLane("if", thenNode, elseNode, cond);
+      hash = hashOf(cond, thenNode, elseNode);
     }
+
+    public IfElse(Cond cond, VarkaVectorIR thenNode, VarkaVectorIR elseNode) {
+      this(cond, thenNode, elseNode, 0);
+    }
+    @Override public int hashCode() { return hash; }
   }
 
   /**
@@ -1480,7 +1637,7 @@ public sealed interface VarkaVectorIR
    * lane under the widened arm, and at the narrow lane itself under the native one. A floating
    * lane has no such value.
    */
-  record CondValue(Cond cond, LaneType lane) implements VarkaVectorIR {
+  record CondValue(Cond cond, LaneType lane, int hash) implements VarkaVectorIR {
     public CondValue {
       if (lane.isFloating()) {
         throw VarkaErrors.illegalArgument("CondValue at the floating lane " + lane);
@@ -1489,7 +1646,11 @@ public sealed interface VarkaVectorIR
         throw VarkaErrors.illegalArgument(
             "CondValue at " + lane + " over a condition at " + cond.laneType());
       }
+      hash = hashOf(cond, lane);
     }
+
+    public CondValue(Cond cond, LaneType lane) { this(cond, lane, 0); }
+    @Override public int hashCode() { return hash; }
   }
 
   /**
@@ -1502,24 +1663,39 @@ public sealed interface VarkaVectorIR
    * the filter root over the same condition, which writes one bitmap where this writes two; and
    * {@code Analysis} refuses it anywhere but a root. Its lane is its condition's.
    */
-  record BoolOutput(Cond cond) implements VarkaVectorIR { }
+  record BoolOutput(Cond cond, int hash) implements VarkaVectorIR {
+    public BoolOutput {
+      hash = hashOf(cond);
+    }
+
+    public BoolOutput(Cond cond) { this(cond, 0); }
+    @Override public int hashCode() { return hash; }
+  }
 
   /**
    * Spark's null-skipping {@code greatest} over two operands: null only where both
    * inputs are null; where one side is null the other's value is taken, so the lane math is a
    * substitute-then-max.
    */
-  record Greatest(VarkaVectorIR left, VarkaVectorIR right) implements VarkaVectorIR {
+  record Greatest(VarkaVectorIR left, VarkaVectorIR right, int hash) implements VarkaVectorIR {
     public Greatest {
       requireSameLane("greatest", left, right);
+      hash = hashOf(left, right);
     }
+
+    public Greatest(VarkaVectorIR left, VarkaVectorIR right) { this(left, right, 0); }
+    @Override public int hashCode() { return hash; }
   }
 
   /** The {@code least} counterpart of {@link Greatest}. */
-  record Least(VarkaVectorIR left, VarkaVectorIR right) implements VarkaVectorIR {
+  record Least(VarkaVectorIR left, VarkaVectorIR right, int hash) implements VarkaVectorIR {
     public Least {
       requireSameLane("least", left, right);
+      hash = hashOf(left, right);
     }
+
+    public Least(VarkaVectorIR left, VarkaVectorIR right) { this(left, right, 0); }
+    @Override public int hashCode() { return hash; }
   }
 
   /**
@@ -1527,17 +1703,25 @@ public sealed interface VarkaVectorIR
    * computed as {@code (floorMod(days, 7) + 4) mod 7 + 1} so the offset can never overflow the
    * int days. An {@code IntegerType} output at the Spark level.
    */
-  record DayOfWeek(VarkaVectorIR days) implements VarkaVectorIR {
+  record DayOfWeek(VarkaVectorIR days, int hash) implements VarkaVectorIR {
     public DayOfWeek {
       requireInt("dayOfWeek", days);
+      hash = hashOf(days);
     }
+
+    public DayOfWeek(VarkaVectorIR days) { this(days, 0); }
+    @Override public int hashCode() { return hash; }
   }
 
   /** Spark's {@code weekday}: {@code floorMod(days + 3, 7)}, Monday = 0. */
-  record WeekDay(VarkaVectorIR days) implements VarkaVectorIR {
+  record WeekDay(VarkaVectorIR days, int hash) implements VarkaVectorIR {
     public WeekDay {
       requireInt("weekDay", days);
+      hash = hashOf(days);
     }
+
+    public WeekDay(VarkaVectorIR days) { this(days, 0); }
+    @Override public int hashCode() { return hash; }
   }
 
   /**
@@ -1547,10 +1731,14 @@ public sealed interface VarkaVectorIR
    * and integer arithmetic over an output is not supported. The tail is {@link WeekDay}'s
    * plus one lanewise add, the same op that separates {@link DayOfWeek} from {@link WeekDay}.
    */
-  record DayOfWeekIso(VarkaVectorIR days) implements VarkaVectorIR {
+  record DayOfWeekIso(VarkaVectorIR days, int hash) implements VarkaVectorIR {
     public DayOfWeekIso {
       requireInt("dayOfWeekIso", days);
+      hash = hashOf(days);
     }
+
+    public DayOfWeekIso(VarkaVectorIR days) { this(days, 0); }
+    @Override public int hashCode() { return hash; }
   }
 
   /**
@@ -1565,10 +1753,14 @@ public sealed interface VarkaVectorIR
    * {@code WeekdayLeaf} ), and the lowering is the same either way, exact for every int
    * {@code offset} since it reproduces Spark's wrapping arithmetic.
    */
-  record NextDay(VarkaVectorIR days, VarkaVectorIR offset) implements VarkaVectorIR {
+  record NextDay(VarkaVectorIR days, VarkaVectorIR offset, int hash) implements VarkaVectorIR {
     public NextDay {
       requireInt("nextDay", days, offset);
+      hash = hashOf(days, offset);
     }
+
+    public NextDay(VarkaVectorIR days, VarkaVectorIR offset) { this(days, offset, 0); }
+    @Override public int hashCode() { return hash; }
   }
 
   /**
@@ -1580,10 +1772,14 @@ public sealed interface VarkaVectorIR
    * {@code Year} over the same node is {@code extract(YEAROFWEEK)}, sharing the
    * prefix. Costs {@code NextDay}'s mod-7 plus four ops.
    */
-  record ThursdayOf(VarkaVectorIR days) implements VarkaVectorIR {
+  record ThursdayOf(VarkaVectorIR days, int hash) implements VarkaVectorIR {
     public ThursdayOf {
       requireInt("thursdayOf", days);
+      hash = hashOf(days);
     }
+
+    public ThursdayOf(VarkaVectorIR days) { this(days, 0); }
+    @Override public int hashCode() { return hash; }
   }
 
   /**
@@ -1612,10 +1808,14 @@ public sealed interface VarkaVectorIR
    * treats it identically for weighing and guarding, since both concerns are about "does this
    * node run a civil-from-days decomposition", which this one does.
    */
-  record AddMonths(VarkaVectorIR days, VarkaVectorIR months) implements VarkaVectorIR {
+  record AddMonths(VarkaVectorIR days, VarkaVectorIR months, int hash) implements VarkaVectorIR {
     public AddMonths {
       requireInt("addMonths", days, months);
+      hash = hashOf(days, months);
     }
+
+    public AddMonths(VarkaVectorIR days, VarkaVectorIR months) { this(days, months, 0); }
+    @Override public int hashCode() { return hash; }
   }
 
   /**
@@ -1629,11 +1829,18 @@ public sealed interface VarkaVectorIR
    * on {@link TruncDate}'s precedent. Not a {@link Chrono} member: it recomposes, like
    * {@link AddMonths}, but decomposes nothing.
    */
-  record MakeDate(VarkaVectorIR year, VarkaVectorIR month, VarkaVectorIR day,
-      boolean failOnError) implements VarkaVectorIR {
+  record MakeDate(VarkaVectorIR year, VarkaVectorIR month, VarkaVectorIR day, boolean failOnError,
+      int hash) implements VarkaVectorIR {
     public MakeDate {
       requireInt("makeDate", year, month, day);
+      hash = hashOf(year, month, day, failOnError);
     }
+
+    public MakeDate(VarkaVectorIR year, VarkaVectorIR month, VarkaVectorIR day,
+        boolean failOnError) {
+      this(year, month, day, failOnError, 0);
+    }
+    @Override public int hashCode() { return hash; }
   }
 
   /**
@@ -1652,31 +1859,47 @@ public sealed interface VarkaVectorIR
    * and the emitter shares the thirty-odd ops in the middle of both their emissions as a
    * fragment keyed on the date, without the IR naming a multi-value node for it.
    */
-  record Year(VarkaVectorIR days) implements Chrono {
+  record Year(VarkaVectorIR days, int hash) implements Chrono {
     public Year {
       requireInt("year", days);
+      hash = hashOf(days);
     }
+
+    public Year(VarkaVectorIR days) { this(days, 0); }
+    @Override public int hashCode() { return hash; }
   }
 
   /** Spark's {@code month}, 1-12; see {@link Year} for what the node costs and why. */
-  record Month(VarkaVectorIR days) implements Chrono {
+  record Month(VarkaVectorIR days, int hash) implements Chrono {
     public Month {
       requireInt("month", days);
+      hash = hashOf(days);
     }
+
+    public Month(VarkaVectorIR days) { this(days, 0); }
+    @Override public int hashCode() { return hash; }
   }
 
   /** Spark's {@code dayofmonth}, 1-31; see {@link Year}. */
-  record DayOfMonth(VarkaVectorIR days) implements Chrono {
+  record DayOfMonth(VarkaVectorIR days, int hash) implements Chrono {
     public DayOfMonth {
       requireInt("dayOfMonth", days);
+      hash = hashOf(days);
     }
+
+    public DayOfMonth(VarkaVectorIR days) { this(days, 0); }
+    @Override public int hashCode() { return hash; }
   }
 
   /** Spark's {@code quarter}, 1-4 - the month's own division by three; see {@link Year}. */
-  record Quarter(VarkaVectorIR days) implements Chrono {
+  record Quarter(VarkaVectorIR days, int hash) implements Chrono {
     public Quarter {
       requireInt("quarter", days);
+      hash = hashOf(days);
     }
+
+    public Quarter(VarkaVectorIR days) { this(days, 0); }
+    @Override public int hashCode() { return hash; }
   }
 
   /**
@@ -1684,10 +1907,14 @@ public sealed interface VarkaVectorIR
    * away from the March-based {@code doy} {@link VarkaChrono} already computes; see
    * {@link Year} for what the node costs and why.
    */
-  record DayOfYear(VarkaVectorIR days) implements Chrono {
+  record DayOfYear(VarkaVectorIR days, int hash) implements Chrono {
     public DayOfYear {
       requireInt("dayOfYear", days);
+      hash = hashOf(days);
     }
+
+    public DayOfYear(VarkaVectorIR days) { this(days, 0); }
+    @Override public int hashCode() { return hash; }
   }
 
   /**
@@ -1695,10 +1922,14 @@ public sealed interface VarkaVectorIR
    * {@link org.apache.spark.sql.types.DateType} output, unlike {@link Year}'s three siblings,
    * which all return an int. See {@link Year} for what a chrono node costs and why.
    */
-  record LastDay(VarkaVectorIR days) implements Chrono {
+  record LastDay(VarkaVectorIR days, int hash) implements Chrono {
     public LastDay {
       requireInt("lastDay", days);
+      hash = hashOf(days);
     }
+
+    public LastDay(VarkaVectorIR days) { this(days, 0); }
+    @Override public int hashCode() { return hash; }
   }
 
   /**
@@ -1709,10 +1940,14 @@ public sealed interface VarkaVectorIR
    * shapes, and the shape hash must tell them apart. {@link Compare}'s {@link CompareOp} is the
    * precedent. See {@link Year} for what a chrono node costs and why.
    */
-  record TruncDate(VarkaVectorIR days, TruncLevel level) implements Chrono {
+  record TruncDate(VarkaVectorIR days, TruncLevel level, int hash) implements Chrono {
     public TruncDate {
       requireInt("truncDate", days);
+      hash = hashOf(days, level);
     }
+
+    public TruncDate(VarkaVectorIR days, TruncLevel level) { this(days, level, 0); }
+    @Override public int hashCode() { return hash; }
   }
 
   /**
@@ -1728,10 +1963,14 @@ public sealed interface VarkaVectorIR
    * row engine's NULL does. A {@link Chrono} member like {@link TruncDate}; its decomposed
    * child is {@code days}.
    */
-  record TruncDateDynamic(VarkaVectorIR days, VarkaVectorIR level) implements Chrono {
+  record TruncDateDynamic(VarkaVectorIR days, VarkaVectorIR level, int hash) implements Chrono {
     public TruncDateDynamic {
       requireInt("truncDateDynamic", days, level);
+      hash = hashOf(days, level);
     }
+
+    public TruncDateDynamic(VarkaVectorIR days, VarkaVectorIR level) { this(days, level, 0); }
+    @Override public int hashCode() { return hash; }
   }
 
   /**
@@ -1743,10 +1982,14 @@ public sealed interface VarkaVectorIR
    * lowering: the reference oracle is {@code IsoFields.WEEK_OF_WEEK_BASED_YEAR} of the child's
    * value. See {@link Year} for what a chrono node costs and why.
    */
-  record WeekOfYear(VarkaVectorIR days) implements Chrono {
+  record WeekOfYear(VarkaVectorIR days, int hash) implements Chrono {
     public WeekOfYear {
       requireInt("weekOfYear", days);
+      hash = hashOf(days);
     }
+
+    public WeekOfYear(VarkaVectorIR days) { this(days, 0); }
+    @Override public int hashCode() { return hash; }
   }
 
   /**
