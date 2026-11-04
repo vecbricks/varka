@@ -281,15 +281,13 @@ def windows(line):
 
 
 def code_of(text):
-    """A test file's text without its comments, which pin nothing: a literal, a text block and
-    a character literal are kept whole, so a `//` or `/*` inside one is not read as a comment."""
+    """A test file's text without its comments, which pin nothing; a `//` in a literal stays."""
     return CODE.sub(lambda m: " " if m[0][0] == "/" else m[0], text)
 
 
 def holding(repo, window, places, rev="HEAD"):
-    """The files under places holding window as text, their literals' joins collapsed and, in
-    the test trees, their comments dropped; a document is read whole, a stale example in it
-    being as wrong as a stale pin."""
+    """The files under places holding window, joins collapsed and test files' comments dropped;
+    a document is read whole, a stale example in it being as wrong as a stale pin."""
     words = [w for w in window.split() if len(w) > 2] or window.split()
     hits = []
     for p in repo.files("", places, rev, words=words[:8]):
@@ -340,20 +338,17 @@ def generated_findings(owed, check_rc, check_out):
 
 
 REBASED = re.compile(r"\(finish\): \S+ onto ([0-9a-f]{40})")
-# A reflog entry that commits the author's own change, which may be a regeneration: a merge is
-# --owed's, and its change from the entry before holds the other side's files too.
+# A reflog entry committing the author's own change; a merge is --owed's, not a regeneration.
 COMMITTED = re.compile(r"(commit|commit \(amend\)|cherry-pick): ")
 
 
 def rebase_debt(repo, branch, generated):
     """{generated file: its rebase}: the files a rebase of branch text-merged, both sides having
-    changed them, which the merge driver owes in full (a rebase names no other side) but records
-    nowhere once committed. Read from the branch's reflog in order, each rebase's entry and the
-    tip before it; a debt is paid only by what came after it there: a commit whose change from
-    the entry before touches the file (a regeneration commits only the files that moved), or
-    dev/varka_regen_generated.sh --all run on a commit since. A later rebase, which rewrites the
-    debt's commit, pays nothing. A file the branch no longer changes against the base owes
-    nothing, whatever reset or merge made it so."""
+    changed them, which the merge driver owes (a rebase names no other side) but records nowhere.
+    Read from branch's reflog in order; paid only by what follows the debt: a commit whose change
+    from the entry before touches the file, or dev/varka_regen_generated.sh --all run since. A
+    later rebase, rewriting the debt's commit, pays nothing; a file now as the base has it owes
+    nothing."""
     log = repo.git("reflog", "show", "--format=%H %gs", branch, "--").stdout.splitlines()[::-1]
     marker = repo.git("rev-parse", "--git-path", "varka-regen-all").stdout.strip()
     try:
@@ -362,6 +357,11 @@ def rebase_debt(repo, branch, generated):
     except OSError:
         regenerated = ""
     shas = [line.split(" ", 1)[0] for line in log]
+    # A replay of an old tip (--branch beside a detached HEAD) reads the reflog up to it only.
+    head = repo.git("rev-parse", "HEAD").stdout.strip()
+    if head in shas:
+        log = log[: len(shas) - shas[::-1].index(head)]
+        shas = shas[: len(log)]
     regen_at = max((i for i, s in enumerate(shas) if s == regenerated), default=-1)
     debt = {}
     for i, line in enumerate(log[1:], 1):
@@ -378,13 +378,10 @@ def rebase_debt(repo, branch, generated):
             set(repo.git("diff", "--name-only", old, s).stdout.split()) for s in (before, onto[1])
         ]
         both = sorted(sides[0] & sides[1] & generated) if old else []
-        paid = regen_at >= i or (
-            regen_at < 0
-            and regenerated
-            and repo.ancestor(sha, regenerated)
-            and repo.ancestor(regenerated, "HEAD")
+        later = (
+            regenerated and repo.ancestor(sha, regenerated) and repo.ancestor(regenerated, "HEAD")
         )
-        if not paid:
+        if not (regen_at >= i or (regen_at < 0 and later)):
             debt.update(dict.fromkeys(both, f"{sha[:11]} onto {onto[1][:11]}"))
     if debt:
         changed = set(repo.git("diff", "--name-only", repo.base, "--", *debt).stdout.split())
@@ -741,8 +738,7 @@ class SelfTest(unittest.TestCase):
                 f.write(head + "\n")
             self.assertEqual(rebase_debt(repo, "topic", {"g.json"}), {})
             os.remove(os.path.join(d, marker))
-            # Master moves on without the file and a second rebase rewrites the first's commit,
-            # which pays nothing: the debt is the first rebase's still.
+            # A second rebase, master not changing the file, rewrites the debt's commit: still owed.
             repo.git("checkout", "-q", "master", check=True)
             commit("y.txt", "y\n", "master again")
             repo.git("checkout", "-q", "topic", check=True)
@@ -780,8 +776,7 @@ class SelfTest(unittest.TestCase):
     def test_r2_reads_no_comment_of_a_test_but_a_whole_document(self):
         text = "a mask crossing from a floating lane is not built"
         noted = (
-            f"package a\nclass VarkaFilterSuite {{\n  // {text}\n  /* or\n   * {text} */\n"
-            f'  /** {text} */\n  val url = "http://x" // {text}\n}}\n'
+            f'class VarkaFilterSuite {{\n  // {text}\n  /* or\n   * {text} */ "http://x" // {text}'
         )
         doc = "docs/sql-varka.md"
         base = {PLAN: OLD, SUITE: noted, doc: f"the reason, {text[:30]}\n{text[30:]}.\n"}
