@@ -177,16 +177,25 @@ so the crossing is the one built.
   root with the int null test crossed by its word. `floatingConjunctRefusal` and its reason go.
 - **The projection's roots.** `lanesShare` joins roots of one width: `INT`, `FLOAT` and the narrow
   lanes at `INT`, `LONG` and `DOUBLE` at `LONG`. A 32-bit root beside a 64-bit one keeps a kernel
-  of its own, as an `INT` root beside a `LONG` one does (VARKA-480): the store of a 32-bit value
-  from the low half of a 64-bit kernel's species is built only for a narrowing at its store.
+  of its own, as an `INT` root beside a `LONG` one does (VARKA-480): each root's tree chooses its
+  own drive lane (`VarkaKernelPlan.emissionLane`), so a root with no 64-bit node never joins a
+  64-bit kernel, though such a kernel stores the 32-bit roots its converting trees give from the
+  low half of their species (`VarkaBodyEmitter.emitLowHalfStore`).
 - **The epilogue** needs nothing new: a crossed mask is computed from loads the epilogue already
   masks, and every store and selection word is truncated to the group's rows.
 - **The value choice** (*4 November 2026, the owner's choice of open point 1*): an `IfElse`
   whose condition is of the other kind than its values - `CASE WHEN f > 1.5 THEN i END`,
   `IF(i > 3, x, x2)` - crosses that condition to the values' lane with the same `CrossLane`, a
   narrow one lifted to `INT` first (`VarkaConditionCompiler.onValueKind`); nothing new in the IR.
-  Two integral kinds meet as before, so `CASE WHEN l > 5 THEN i END` still declines.
-- **Still declines:** a choice of narrow values under a floating condition; any combination the
+  A `LONG` condition is of the integral kind, so over floating values it crosses too:
+  `IF(l > 5, f, f2)` reads the long mask's word at the float lane. A boolean column condition
+  reads no lane and is relabelled to the values' lane instead: `IF(b, x, x2)`,
+  `CASE WHEN b THEN f ELSE f2 END`. Two integral kinds meet as before, so
+  `CASE WHEN l > 5 THEN i END` still declines: the crossing is only between the kinds, and the
+  integral lift goes to `LONG` only where the values are long.
+- **Still declines:** a choice of narrow values under a floating condition; a floating condition
+  over values of the other floating width, `IF(f > 1.5F, x, x2)` and `IF(x > 1.5D, f, f2)`: one
+  kind, so not crossed, and Spark's typing does not widen it; any combination the
   kernel plan refuses (a narrow node under a `DOUBLE` kernel but a
   column read as a value, among them a narrow null test there); and on a two-lane x86 host a
   condition in a 64-bit kernel, by the host refusal (VARKA-503).
@@ -201,7 +210,7 @@ so the crossing is the one built.
 *Open points for the lead* (4 November 2026): whether the value choice of the other kind
 (`CASE WHEN f > 1.5 THEN i END`) belongs in this part (yes, by the owner's word: above); and
 whether the projection side should join 32-bit and 64-bit roots,
-which needs the 32-bit value store from the low half.
+which needs one drive chosen across the roots.
 
 ### 2.3 The lowering per host
 
@@ -604,7 +613,10 @@ Cut from #1303's final tree, without its `BIGINT` conversions (343a4), sweeps an
   `DOUBLE`. Conditions of the integral kind alone meet as before; prediction 4.1 holds - the
   bytes file gains the new rows' shapes and moves only `option_arms` digests.
 - **Now fused:** a filter's floating conjunct beside an integral one, the optimizer's inferred
-  null tests among them, and the boolean column beside a floating cast's test. Freed from
+  null tests among them, and the boolean column beside a floating cast's test; a value choice
+  whose condition is of the other kind (below), a `LONG` condition over floating values,
+  `IF(l > 5, f, f2)`, among them; and a boolean column choosing floating values, `IF(b, x, x2)`
+  and `CASE WHEN b THEN f ELSE f2 END`, the column relabelled to the values' lane. Freed from
   `VarkaAnsiForm.DECLINED`: the six boolean-column positions of `CAST(x AS BOOLEAN)` and
   `CAST(f AS BOOLEAN)`, and 17 of the 19 floating casts' false-AND positions. *Still declined:*
   `CAST(y1 AS DOUBLE)` and `CAST(s1 AS DOUBLE)` there, whose inferred narrow null test has no
@@ -620,21 +632,19 @@ Cut from #1303's final tree, without its `BIGINT` conversions (343a4), sweeps an
   `coalesce(CAST(x AS BOOLEAN), false)`, fuses now (its `false` relabelled to the cast's lane), so
   its class is `WHOLE`, as the class's own rule asks; the long harness hands a kernel holding a
   crossing the int table too; the cost model and the IR fuzz grammar leave `CrossLane` out until
-  the refit (VARKA-352) and row 343's fuzz sequence (343a5). The sql suites under
-  the defaults, `lanesOverride=4`, `lanesOverride=16` and `validityByWidth=false` passed on the
-  laptop (`dev/varka_matrix.sh`, rerun 4 November 2026 after the class change), save one test in
-  each, `VarkaFloatingLaneSuite`'s date-guarded floating choice, which the value choice fuses
-  now; rewritten to say so, it passed in all four.
-- **Known gaps:** `VarkaCanonicalIr`'s replay has no `cross` case, so a rendered IR holding a
-  crossing does not read back; it already lacked the boolean nodes `BoolColumn`, `CondConst`,
-  `BoolCompare`, `CondIf` and `BoolNullSafeEq`. And the `option_arms` digests are one hash per
-  option arm and lane count over every shape, so their moving cannot show that no existing shape
-  changed under a non-default option; only the defaults' bytes are compared shape by shape.
+  the refit (VARKA-352) and row 343's fuzz sequence (343a5); `VarkaCanonicalIr` reads
+  `(cross:LANE ...)` back, which the round trip of every node type holds. The touched sql suites
+  passed under the defaults, `lanesOverride=4`, `lanesOverride=16` and `validityByWidth=false`
+  on the laptop (`dev/varka_matrix.sh`, rerun 4 November 2026 after the review's fixes).
+- **Known gaps:** the `option_arms` digests are one hash per option arm and lane count over
+  every shape, so their moving cannot show that no existing shape changed under a non-default
+  option; only the defaults' bytes are compared shape by shape.
 - **The value choice of the other kind**, by the owner's choice: its condition crossed to the
   values' lane, both directions and both widths; `VarkaEmitterFloatingCastSuite.crossingShapes`
   holds it to the reference, beside a crossing under a crossing, a range set crossed to `LONG`,
-  a choice and a `CondValue` over a mixed `AND`, and `NOT` and `OR` under a 64-to-32 crossing;
-  six coverage rows in "Floating casts" and two in its conditions' family. Its forms make
+  a choice and a `CondValue` over a mixed `AND`, `NOT` and `OR` both under and over a 64-to-32
+  crossing, a double null test crossed down and `IF(l > 5, f, f2)`'s long condition; nine
+  coverage rows in "Floating casts" and two in its conditions' family. Its forms make
   `IF(x <=> x, d2, ...)` fuse, which the compiler suite now states.
 - **Open points:** 32-bit beside 64-bit roots stays open, recorded in `m9/SCOPE.md` item 15 by the
   owner's word.

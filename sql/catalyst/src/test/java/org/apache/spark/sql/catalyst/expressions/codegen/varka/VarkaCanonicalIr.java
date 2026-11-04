@@ -152,6 +152,7 @@ public final class VarkaCanonicalIr {
       case "and" -> new And(cond(), cond());
       case "or" -> new Or(cond(), cond());
       case "not" -> new Not(cond());
+      case "cross" -> new CrossLane(cond(), lane(parts));
       case "isNotNull" -> new IsNotNull(node());
       case "inRanges" -> new InRanges(node(), ranges(next()));
       case "if" -> new IfElse(cond(), node(), node());

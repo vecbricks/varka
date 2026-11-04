@@ -3534,11 +3534,13 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
   test("a value choice whose condition is of the other kind crosses it to the values' lane") {
     val Seq(i, l) = Seq("i" -> IntegerType, "l" -> LongType).map(c => AttributeReference(c._1,
       c._2)())
-    val Seq(f, x, x2) = Seq("f", "x", "x2").map(n =>
-      AttributeReference(n, if (n == "f") FloatType else DoubleType)())
+    val Seq(f, f2, x, x2) = Seq("f", "f2", "x", "x2").map(n =>
+      AttributeReference(n, if (n.startsWith("f")) FloatType else DoubleType)())
     val Seq(y1, y2) = Seq("y1", "y2").map(AttributeReference(_, ByteType)())
+    val b = AttributeReference("b", BooleanType)()
+    val columns = Seq(i, l, f, f2, x, x2, y1, y2, b)
     def cond(e: Expression): Option[VarkaVectorIR.Cond] = VarkaExpressionCompiler.compile(
-      Seq(out(e)), Seq(i, l, f, x, x2, y1, y2), VarkaEmitOptions.DEFAULTS).toScala
+      Seq(out(e)), columns, VarkaEmitOptions.DEFAULTS).toScala
       .map(_.outputs.get(0).asInstanceOf[IfElse].cond)
     def crossed(e: Expression, from: LaneType, to: LaneType): Unit = cond(e) match {
       case Some(c: VarkaVectorIR.CrossLane) => assert(c.child.laneType === from && c.lane === to)
@@ -3548,10 +3550,27 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     crossed(If(GreaterThan(i, Literal(3)), x, x2), LaneType.INT, LaneType.DOUBLE)
     crossed(CaseWhen(Seq((GreaterThan(x, Literal(1.5D)), i))), LaneType.DOUBLE, LaneType.INT)
     crossed(If(GreaterThan(f, Literal(1.5f)), l, Literal(0L)), LaneType.FLOAT, LaneType.LONG)
+    // A long condition is of the integral kind, so over floating values it crosses too.
+    crossed(If(GreaterThan(l, Literal(5L)), f, f2), LaneType.LONG, LaneType.FLOAT)
+    crossed(If(IsNotNull(x), i, Literal(7)), LaneType.DOUBLE, LaneType.INT)
+    // A boolean column reads only bits: relabelled to the floating values' lane, not crossed.
+    for ((e, lane) <- Seq(If(b, x, x2) -> LaneType.DOUBLE,
+        CaseWhen(Seq((b, f)), f2) -> LaneType.FLOAT)) {
+      cond(e) match {
+        case Some(c: VarkaVectorIR.BoolColumn) => assert(c.laneType === lane, e)
+        case other => fail(s"$e: $other")
+      }
+    }
+    def why(e: Expression): String = declineReason(e, childOutput ++ columns)
     // Two integral kinds meet as before: a long condition over int values still declines.
-    assert(cond(CaseWhen(Seq((GreaterThan(l, Literal(5L)), i)))).isEmpty)
+    assert(why(CaseWhen(Seq((GreaterThan(l, Literal(5L)), i)))) ===
+      "one kernel holds one lane, and this mixes the LONG and INT lanes")
     // And a choice of narrow values under a floating condition.
-    assert(cond(If(GreaterThan(f, Literal(1.5f)), y1, y2)).isEmpty)
+    assert(why(If(GreaterThan(f, Literal(1.5f)), y1, y2)) ===
+      "one kernel holds one lane, and this mixes the FLOAT and BYTE lanes")
+    // And a floating condition over values of the other floating width: one kind, no crossing.
+    assert(why(If(GreaterThan(f, Literal(1.5f)), x, x2)) ===
+      "one kernel holds one lane, and this mixes the FLOAT and DOUBLE lanes")
   }
 }
 

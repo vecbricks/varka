@@ -398,10 +398,12 @@ public final class VarkaKernelPlan {
    * (`VARKA-343.md` 2.2.1): theirs where one; the int lane for any mix of the 32-bit and narrow
    * lanes, a {@code FLOAT} root's values filling the float species of the int one's width; the
    * long lane for a {@code LONG} root beside a {@code DOUBLE} one, likewise. A 32-bit or narrow
-   * root beside a 64-bit one shares none and takes a kernel of its own (VARKA-480): a value
-   * computed in the low half of a 64-bit kernel's species is stored only by a narrowing at its
-   * store. The rule is monotone - a set that shares no lane has no superset that does - which
-   * {@link #laneMismatch} relies on.
+   * root beside a 64-bit one shares none and takes a kernel of its own (VARKA-480): each root's
+   * tree chooses its own drive lane ({@link #emissionLane}), so a root with no 64-bit node never
+   * joins a 64-bit kernel, though such a kernel stores the 32-bit roots its converting trees give
+   * from their species' low half ({@code VarkaBodyEmitter.emitLowHalfStore}). The rule is
+   * monotone - a set that shares no lane has no superset that does - which {@link #laneMismatch}
+   * relies on.
    */
   private static Optional<LaneType> lanesShare(Set<LaneType> lanes) {
     if (lanes.size() <= 1) {

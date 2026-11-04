@@ -426,7 +426,10 @@ class VarkaFloatingLaneSuite extends QueryTest with VarkaSharedSessions with Var
           s"SELECT d FROM $fixture WHERE x1 > 0.0D AND f1 < 1.5F")) {
         val actual = varkaSpark.sql(q)
         withClue(q) {
-          assertFused(actual.queryExecution.executedPlan)
+          // No row filter above the Varka node: the kernel takes both conjuncts.
+          val plan = actual.queryExecution.executedPlan
+          assertFused(plan)
+          assert(collect(plan) { case f: FilterExec => f }.isEmpty, plan.treeString)
           checkAnswer(actual, expectedSql(q, actual))
         }
       }

@@ -116,6 +116,10 @@ public final class VarkaReproductionSuite {
         // A floating lane's square root over its IEEE division, whose zero divisor nulls a lane.
         new MathUnary(MathFn.SQRT, new IntArith(IntOp.DIV, Overflow.NULL,
             new ColumnRef(0, LaneType.DOUBLE), new LiteralSlot(0, LaneType.DOUBLE))),
+        // A double comparison crossed to the long lane of the choice's values (VARKA-343).
+        new IfElse(new CrossLane(new Compare(CompareOp.GT, new ColumnRef(2, LaneType.DOUBLE),
+            new LiteralSlot(1, LaneType.DOUBLE)), LaneType.LONG), x,
+            new LiteralSlot(0, LaneType.LONG)),
         // Over comparisons: the parser reads no boolean-column leaf yet.
         new BoolOutput(new Or(new Not(new IsNotNull(new ColumnRef(0))),
             new Compare(CompareOp.LT, new ColumnRef(1), new LiteralSlot(0)))));

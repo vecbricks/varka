@@ -620,7 +620,8 @@ public final class VarkaEmitterFloatingCastSuite {
   }
 
   @Test
-  @DisplayName("crossings nested, over a range set, under a value choice, a NOT and an OR")
+  @DisplayName("crossings nested, over a range set, under a value choice, under and over a NOT "
+      + "and an OR, and over a null test")
   void crossingShapes() {
     var i = new ColumnRef(0, LaneType.INT);
     var f = new ColumnRef(1, LaneType.FLOAT);
@@ -647,7 +648,16 @@ public final class VarkaEmitterFloatingCastSuite {
         new IfElse(cross(overInt, LaneType.DOUBLE), x, lit),
         new IfElse(cross(overDouble, LaneType.INT), i, new VarkaVectorIR.NullValue(LaneType.INT)),
         new IfElse(cross(overLong, LaneType.DOUBLE), x, lit),
-        new IfElse(cross(overFloat, LaneType.LONG), l, new VarkaVectorIR.NullValue(LaneType.LONG)));
+        new IfElse(cross(overFloat, LaneType.LONG), l, new VarkaVectorIR.NullValue(LaneType.LONG)),
+        // A long condition over float values, `IF(l > 5, f, f2)`: down by the word.
+        new IfElse(cross(overLong, LaneType.FLOAT), f, new LiteralSlot(1, LaneType.FLOAT)),
+        // A crossing over a NOT and an OR, `IF(NOT (x > 1.5D OR f > 1.5F), i, 7)`, and over a
+        // 64-bit null test, `IF(x IS NOT NULL, i, 7)`.
+        new IfElse(cross(new VarkaVectorIR.Not(new VarkaVectorIR.Or(overDouble,
+            cross(overFloat, LaneType.DOUBLE))), LaneType.INT), i,
+            new LiteralSlot(0, LaneType.INT)),
+        new IfElse(cross(new VarkaVectorIR.IsNotNull(x), LaneType.INT), i,
+            new LiteralSlot(0, LaneType.INT)));
     for (VarkaVectorIR root : shapes) {
       check(VarkaVectorIR.canonical(root), List.of(root), 4, new int[] {1 << 30, floatBits(1.5f)},
           new long[] {doubleBits(1.5), 1L << 40}, cells(INTS, FLOATS, DOUBLES, LONGS));
