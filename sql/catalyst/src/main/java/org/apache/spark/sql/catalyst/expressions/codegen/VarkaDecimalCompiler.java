@@ -240,9 +240,10 @@ final class VarkaDecimalCompiler {
   /**
    * The reason of the sums, differences and products past 18 digits under {@code e}, reached
    * through the casts, negations, choices and picks over them, as {@code -(x + y)} reaches its
-   * sum, or empty where none is. Every wide child's reason is read, with row 350 for a cast that
-   * lowers the scale or the integral digits, and two or more name their rows' union in ascending
-   * order, so that {@code IF(p, x + y, a * b)} and {@code IF(p, a * b, x + y)} decline alike.
+   * sum, or empty where none is and no cast lowers. Every wide child's reason is read, with row
+   * 350 for a cast that lowers the scale or the integral digits (beside 359 over no arithmetic),
+   * and two or more name their rows' union in ascending order, so that {@code IF(p, x + y, a * b)}
+   * and {@code IF(p, a * b, x + y)} decline alike.
    */
   private static Optional<String> wideArithmeticBelow(Expression e) {
     if (!(e instanceof Cast || e instanceof UnaryMinus || e instanceof Abs || e instanceof If
@@ -251,22 +252,23 @@ final class VarkaDecimalCompiler {
       return Optional.empty();
     }
     var reasons = new TreeSet<String>();
-    boolean arithmetic = false;
+    boolean named = false; // whether a row besides the wide value's own 359 is named
     for (Expression child : CollectionConverters.asJava(e.children())) {
       Expression at = child instanceof RuntimeReplaceable r ? r.replacement() : child;
       if (at.dataType() instanceof DecimalType t && t.precision() > MAX_PRECISION) {
         Optional<String> below = at instanceof Add || at instanceof Subtract
             || at instanceof Multiply ? Optional.of(wideReason(at, t)) : wideArithmeticBelow(at);
-        arithmetic |= below.isPresent();
+        named |= below.isPresent();
         reasons.add(below.orElse("row 359's"));
       }
     }
     if (e instanceof Cast c && c.child().dataType() instanceof DecimalType from
         && !keepsDigits(from, (DecimalType) c.dataType())) {
-      reasons.add("row 350's");
+      reasons.addAll(named ? List.of("row 350's") : List.of("row 350's", "row 359's"));
+      named = true;
     }
-    if (!arithmetic || reasons.size() == 1) {
-      return arithmetic ? Optional.of(reasons.first()) : Optional.empty();
+    if (!named || reasons.size() == 1) {
+      return named ? Optional.of(reasons.first()) : Optional.empty();
     }
     // The rows a reason names are the three digits after "row ", "rows ", ", " or " and ".
     List<String> rows = Pattern.compile("(?<=rows? |, | and )\\d{3}\\b").matcher(String.join(
