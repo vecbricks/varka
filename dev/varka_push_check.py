@@ -346,7 +346,8 @@ def rebase_debt(repo, branch, generated):
     """{generated file: its rebase}: the files a rebase of branch text-merged, both sides having
     changed them, which the merge driver owes (a rebase names no other side) but records nowhere.
     Read from branch's reflog in order; paid only by what follows the debt: a commit whose change
-    from the entry before touches the file, or dev/varka_regen_generated.sh --all run since. A
+    from the entry before touches any of its files (a regeneration commits only the files that
+    moved), or dev/varka_regen_generated.sh --all run since. A
     later rebase, rewriting the debt's commit, pays nothing; a file now as the base has it owes
     nothing."""
     log = repo.git("reflog", "show", "--format=%H %gs", branch, "--").stdout.splitlines()[::-1]
@@ -368,8 +369,8 @@ def rebase_debt(repo, branch, generated):
         sha, _, subject = line.partition(" ")
         before = shas[i - 1]
         if COMMITTED.match(subject):
-            for path in repo.git("diff", "--name-only", before, sha).stdout.split():
-                debt.pop(path, None)
+            moved = set(repo.git("diff", "--name-only", before, sha).stdout.split())
+            debt = {r: files for r, files in debt.items() if not moved & set(files)}
         onto = REBASED.search(subject)
         if not onto or repo.ancestor(sha, repo.base):
             continue
@@ -381,12 +382,11 @@ def rebase_debt(repo, branch, generated):
         later = (
             regenerated and repo.ancestor(sha, regenerated) and repo.ancestor(regenerated, "HEAD")
         )
-        if not (regen_at >= i or (regen_at < 0 and later)):
-            debt.update(dict.fromkeys(both, f"{sha[:11]} onto {onto[1][:11]}"))
-    if debt:
-        changed = set(repo.git("diff", "--name-only", repo.base, "--", *debt).stdout.split())
-        debt = {p: r for p, r in debt.items() if p in changed}
-    return debt
+        if both and not (regen_at >= i or (regen_at < 0 and later)):
+            debt[f"{sha[:11]} onto {onto[1][:11]}"] = both
+    owed = {p: r for r, files in debt.items() for p in files}
+    changed = repo.git("diff", "--name-only", repo.base, "--", *owed).stdout.split() if owed else []
+    return {p: r for p, r in owed.items() if p in changed}
 
 
 def touches_generated(changed, generated):
@@ -721,22 +721,24 @@ class SelfTest(unittest.TestCase):
             repo.git("init", "-q", "-b", "master", check=True)
             for k, v in (("user.name", "t"), ("user.email", "t@t"), ("core.hooksPath", "/n")):
                 repo.git("config", k, v, check=True)
-            commit("g.json", "1\n2\n3\n4\n5\n", "base")
-            repo.git("checkout", "-q", "-b", "topic", check=True)
-            commit("g.json", "1 topic\n2\n3\n4\n5\n", "topic")
-            commit("x.txt", "x\n", "topic's own file")
-            repo.git("checkout", "-q", "master", check=True)
-            commit("g.json", "1\n2\n3\n4\n5 master\n", "master")
+            gen = {"g.json", "h.json", "x.txt"}
+            # Both files changed at both ends, the topic's first line and master's last.
+            for side, top, end in (("base", "", ""), ("topic", "topic", ""), ("master", "", "m")):
+                if side != "base":
+                    repo.git("checkout", "-q", *(["-b"] if side == "topic" else []), side)
+                for path in ("g.json", "h.json"):
+                    commit(path, f"1 {top}\n2\n3\n4\n5 {end}\n", side)
+            commit("x.txt", "x\n", "master's own file")
             repo.git("checkout", "-q", "topic", check=True)
             repo.git("rebase", "-q", "master", check=True)
             head = repo.git("rev-parse", "HEAD").stdout.strip()
-            debt = rebase_debt(repo, "topic", {"g.json", "x.txt"})
-            self.assertEqual(list(debt), ["g.json"])
+            debt = rebase_debt(repo, "topic", gen)
+            self.assertEqual(list(debt), ["g.json", "h.json"])
             self.assertTrue(debt["g.json"].startswith(head[:11]))
             marker = repo.git("rev-parse", "--git-path", "varka-regen-all").stdout.strip()
             with open(os.path.join(d, marker), "w", encoding="utf-8") as f:
                 f.write(head + "\n")
-            self.assertEqual(rebase_debt(repo, "topic", {"g.json"}), {})
+            self.assertEqual(rebase_debt(repo, "topic", gen), {})
             os.remove(os.path.join(d, marker))
             # A second rebase, master not changing the file, rewrites the debt's commit: still owed.
             repo.git("checkout", "-q", "master", check=True)
@@ -744,9 +746,9 @@ class SelfTest(unittest.TestCase):
             repo.git("checkout", "-q", "topic", check=True)
             repo.git("rebase", "-q", "master", check=True)
             self.assertFalse(repo.ancestor(head, "HEAD"))
-            self.assertEqual(rebase_debt(repo, "topic", {"g.json"}), debt)
-            commit("g.json", "1 topic\n2\n3\n4\n5 master regenerated\n", "regenerate")
-            self.assertEqual(rebase_debt(repo, "topic", {"g.json"}), {})
+            self.assertEqual(rebase_debt(repo, "topic", gen), debt)
+            commit("g.json", "1 topic\n2\n3\n4\n5 master regenerated\n", "regenerate g only")
+            self.assertEqual(rebase_debt(repo, "topic", gen), {})
 
     def test_r2_fires_on_a_removed_reason_a_test_pins_split_elsewhere(self):
         base = {PLAN: OLD, SUITE: PINNED}
