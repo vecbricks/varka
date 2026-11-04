@@ -281,6 +281,13 @@ public final class VarkaAnsiForm {
     for (String sql : List.of("CAST(l AS TINYINT)", "CAST(l AS SMALLINT)")) {
       out.put(sql + "\t" + COALESCE_TAIL, narrowChoice);
     }
+    // A TIME function's decimal fuses only as an output root; under a CASE it is an operand,
+    // row 348's, and the fixture has no column of its DECIMAL type for the other arm (VARKA-157).
+    String decimalOperand = "a TIME function's decimal fuses only as an output root; as a CASE "
+        + "arm it is an operand, row 348's (VARKA-157.md 2.1)";
+    for (String sql : List.of("time_to_seconds(t)", "extract(SECOND FROM t)")) {
+      out.put(sql + "\t" + CASE_ARM, decimalOperand);
+    }
     return Map.copyOf(out);
   }
 
