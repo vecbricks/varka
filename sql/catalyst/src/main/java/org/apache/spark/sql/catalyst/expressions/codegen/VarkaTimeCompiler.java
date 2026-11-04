@@ -24,6 +24,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalLong;
+import java.util.Set;
 
 import scala.jdk.javaapi.CollectionConverters;
 
@@ -168,12 +169,12 @@ final class VarkaTimeCompiler {
       // here declines, ahead of the long column's arm below, which would read the slots as
       // eight-byte longs: with the registry's reason where it has one (a precision or scale off
       // the lane), and otherwise as a value outside a
-      // condition - an output, whose store is row 157's, or the operand of a cast to an integral
+      // condition - an output, row 348's (348b), or the operand of a cast to an integral
       // or a floating type, rows 350 and 366.
       case BoundReference br when br.dataType() instanceof DecimalType d ->
           () -> sink.decline(VarkaTypes.declineReason(d).orElse("a " + d.simpleString()
               + " column as a value: its comparisons, null tests and the values they read fuse, "
-              + "+, - and * among them; a decimal output is row 157's, its casts to other types "
+              + "+, - and * among them; a decimal output is row 348's, its casts to other types "
               + "rows 350 and 366"), br);
       case BoundReference br
           when VarkaTypes.lane(br.dataType()).orElse(null) == LaneType.LONG ->
@@ -349,14 +350,76 @@ final class VarkaTimeCompiler {
   }
 
   /**
-   * The reason the two decimal-valued {@code TIME} expressions decline, which is the
-   * representation and not the arithmetic: their value is an unscaled long the lane already
-   * computes, and the column Arrow holds it in is sixteen bytes a row, which no Varka output
-   * writes yet ({@code VARKA-102.md} section 9, VARKA-157).
+   * The reason the two decimal-valued {@code TIME} expressions decline below a root: at an output
+   * root they fuse through the decimal store ({@link #decimalProducer}), and as the operand of
+   * another expression their value is a decimal operand, which row 348 consumes
+   * (`VARKA-157.md` 2.1).
    */
-  private static String decimalColumnNotYet(String label) {
-    return label + " returns a decimal, whose Arrow column is sixteen bytes a row and which no "
-        + "Varka output writes yet; the value is an unscaled long the lane holds (VARKA-157)";
+  private static String decimalOperandNotYet(String label) {
+    return label + " returns a decimal, which fuses as a projection's output; as the operand of "
+        + "another expression its value is row 348's";
+  }
+
+  /** The two {@code TIME} functions whose value is a decimal (`VARKA-157.md` 2.3). */
+  private static final Set<String> DECIMAL_PRODUCERS =
+      Set.of("timeToSeconds", "getSecondsOfTimeWithFraction");
+
+  /** Whether {@code si} is one of the two decimal-valued {@code TIME} functions. */
+  static boolean isDecimalProducer(StaticInvoke si) {
+    return DECIMAL_PRODUCERS.contains(si.functionName())
+        && TIME_TARGETS.containsKey(new TimeTarget(si.staticObject(), si.functionName()));
+  }
+
+  /**
+   * The unscaled value of a decimal-valued {@code TIME} function at an output root, or empty with
+   * the reason noted (`VARKA-157.md` 2.3). Both are non-negative and within their precision for
+   * every time of day, so neither needs a guard, and every divisor is proven in
+   * {@code long_divide.smt2}.
+   *
+   * <ul>
+   *   <li>{@code time_to_seconds(t)}, a {@code DECIMAL(14, 6)}: {@code (n + 500) / 1000}, Spark's
+   *     exact quotient by {@code 10^9} rounded half up to six digits; the dividend is under
+   *     {@code NANOS_PER_DAY + 500}.
+   *   <li>{@code extract(SECOND FROM t)} over {@code TIME(p)}, a {@code DECIMAL(2 + p, p)}:
+   *     {@code s * 10^p + g}, with {@code s} the second of the minute, {@code r = n - q * 10^9}
+   *     sharing {@code s}'s {@code q = n / 10^9}, and {@code g = r / 10^(9 - p)}; at
+   *     {@code p = 0} it is {@code s} and at {@code p = 9} it is {@code s * 10^9 + r}. Spark
+   *     computes {@code s + g / 10^p} as a {@code Double} and rounds it back to {@code p} digits;
+   *     that the two agree on every {@code (s, g)} is {@code VarkaTimeFractionSuite}'s sweep.
+   * </ul>
+   */
+  static Optional<VarkaDecimalCompiler.Scaled> decimalProducer(StaticInvoke si,
+      VarkaSlotTable inputs, VarkaSlotTable literals, DeclineSink sink) {
+    List<Expression> args = CollectionConverters.asJava(si.arguments());
+    DecimalType type = (DecimalType) si.dataType();
+    Optional<VarkaVectorIR> t = longOperand(args.get(0), inputs, literals, sink);
+    if (t.isEmpty()) {
+      return Optional.empty();
+    }
+    VarkaVectorIR n = t.get();
+    if (si.functionName().equals("timeToSeconds")) {
+      long half = DateTimeConstants.NANOS_PER_MICROS / 2;
+      return Optional.of(new VarkaDecimalCompiler.Scaled(new ConstDivide(
+          new IntArith(IntOp.ADD, Overflow.WRAP, n, sink.longSlot(half)),
+          DateTimeConstants.NANOS_PER_MICROS, DAY_OF_NANOS + half), type));
+    }
+    if (args.size() != 2 || !(args.get(1) instanceof Literal l)
+        || !(l.value() instanceof Integer p) || p < 0 || p > 9 || type.scale() != p) {
+      return sink.decline(timeNotLoweredYet(TIME_TARGETS.get(
+          new TimeTarget(si.staticObject(), si.functionName()))), si);
+    }
+    long second = DateTimeConstants.NANOS_PER_SECOND;
+    ConstDivide q = new ConstDivide(n, second, DAY_OF_NANOS);
+    VarkaVectorIR s = remainderOfSixty(q, sink);
+    if (p == 0) {
+      return Optional.of(new VarkaDecimalCompiler.Scaled(s, type));
+    }
+    VarkaVectorIR r = new IntArith(IntOp.SUB, Overflow.WRAP, n,
+        new IntArith(IntOp.MUL, Overflow.WRAP, q, sink.longSlot(second)));
+    VarkaVectorIR g = p == 9 ? r : new ConstDivide(r, Decimal.POW_10()[9 - p], second);
+    return Optional.of(new VarkaDecimalCompiler.Scaled(new IntArith(IntOp.ADD, Overflow.WRAP,
+        new IntArith(IntOp.MUL, Overflow.WRAP, s, sink.longSlot(Decimal.POW_10()[p])), g),
+        type));
   }
 
   /** The lowering of a TIME function's replacement. */
@@ -511,7 +574,7 @@ final class VarkaTimeCompiler {
         }
       }
       case "getSecondsOfTimeWithFraction", "timeToSeconds" ->
-          { return sink.decline(decimalColumnNotYet(label), si); }
+          { return sink.decline(decimalOperandNotYet(label), si); }
       default -> { }
     }
     // A function of the table whose arguments are not the shape its arm takes, or one with no

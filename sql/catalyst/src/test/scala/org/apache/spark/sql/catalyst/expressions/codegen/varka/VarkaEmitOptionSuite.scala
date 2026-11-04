@@ -134,6 +134,10 @@ class VarkaEmitOptionSuite extends SparkFunSuite with VarkaTestWatchdog {
       assert(reasonOf(name) === Reason.MACHINE, name)
       assert(!VarkaEmitOption.drawnInGeneral(VarkaEmitOption.named(name)), name)
     }
+    // The matrix runs an option of a node the compiler builds end to end (VARKA-157 157b): the
+    // decimal store's, whose node every decimal output's root is.
+    assert(VarkaMatrixRuns.configurations().asScala.filter(_.startsWith("decimal")) ===
+      Seq("decimalStore=SELECT_FROM"))
   }
 
   test("an option is found by name, and an enum constant by its name or not at all") {

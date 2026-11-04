@@ -6490,6 +6490,30 @@
     "domain" : "time_to_micros(t) + 0 BETWEEN 0 AND 86399999999",
     "note" : "a zero interval on purpose: this fixture reaches both ends of the day, so any other constant crosses midnight on some row, where Spark raises an error rather than a value. The sum is still guarded to the day - the domain adds the interval's microseconds, 0 here, to the time's; the crossing case, and a column interval, are VarkaTimeArithmeticSuite's",
     "verified" : "refinement: t + dt"
+  }, {
+    "sql" : "time_to_seconds(t)",
+    "executable" : "time_to_seconds(t)",
+    "family" : "TIME decimal outputs",
+    "form" : "projection",
+    "catalyst" : [ "TimeToSeconds" ],
+    "casts" : [ ],
+    "operands" : [ "TimeToSeconds:time" ],
+    "switches" : [ "spark.sql.codegen.varka.family.time.enabled" ],
+    "domain" : "",
+    "note" : "a DECIMAL(14, 6), (n + 500) / 1000: the exact quotient by 10^9 rounded half up to six digits, written as the low word and its sign extension",
+    "verified" : "proof: long_divide.smt2"
+  }, {
+    "sql" : "extract(SECOND FROM t)",
+    "executable" : "extract(SECOND FROM t)",
+    "family" : "TIME decimal outputs",
+    "form" : "projection",
+    "catalyst" : [ "Extract", "SecondsOfTimeWithFraction" ],
+    "casts" : [ ],
+    "operands" : [ "Extract:time", "SecondsOfTimeWithFraction:time" ],
+    "switches" : [ "spark.sql.codegen.varka.family.time.enabled" ],
+    "domain" : "",
+    "note" : "a DECIMAL(8, 6), s * 10^6 + (n % 10^9) / 1000; Spark rounds a Double back to six digits, which lands on the same value for every (s, g)",
+    "verified" : "exhaustive: VarkaTimeFractionSuite, the fraction agrees with Spark's double round trip on every (s, g) of TIME(0) "
   } ],
   "catalyst_classes_admitted" : [ "Abs", "Add", "AddMonths", "And", "BitwiseAnd", "BitwiseCount", "BitwiseNot", "BitwiseOr", "BitwiseXor", "CaseWhen", "Cast", "Coalesce", "DateAdd", "DateAddYMInterval", "DateDiff", "DateFromUnixDate", "DateSub", "DayOfMonth", "DayOfWeek", "DayOfYear", "Divide", "DivideYMInterval", "EqualNullSafe", "EqualTo", "ExtractANSIIntervalDays", "ExtractANSIIntervalMonths", "ExtractANSIIntervalYears", "GreaterThan", "GreaterThanOrEqual", "Greatest", "If", "In", "InSet", "IsNaN", "IsNotNull", "IsNull", "LastDay", "Least", "LessThan", "LessThanOrEqual", "MakeDate", "MakeYMInterval", "Month", "Multiply", "MultiplyYMInterval", "NaNvl", "NextDay", "Not", "Or", "Quarter", "ShiftLeft", "ShiftRight", "ShiftRightUnsigned", "Signum", "Sqrt", "Subtract", "SubtractDates", "SubtractTimestamps", "TimestampAddInterval", "ToDegrees", "ToRadians", "TruncDate", "UnaryMinus", "UnixDate", "WeekDay", "WeekOfYear", "Year", "YearOfWeek" ]
 }
