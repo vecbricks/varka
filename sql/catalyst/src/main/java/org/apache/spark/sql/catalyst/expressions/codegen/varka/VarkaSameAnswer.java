@@ -125,10 +125,11 @@ public final class VarkaSameAnswer {
   /** How a node's value on the row is made from its children's, as far as a NaN's bits go. */
   private sealed interface Step<N> {
     /**
-     * A two-operand floating arithmetic; {@code commutes} where a tier may swap its operands (an
-     * add or a multiply) or its payload over two NaNs is not pinned (a remainder).
+     * A two-operand floating arithmetic; {@code eitherPayload} where its NaN over two NaNs may be
+     * either operand's: an add or a multiply, which a tier may swap, and a remainder, which no
+     * tier pins. A subtraction or a division returns its left operand's.
      */
-    record Arith<N>(N left, N right, boolean commutes) implements Step<N> {}
+    record Arith<N>(N left, N right, boolean eitherPayload) implements Step<N> {}
 
     /** A node of one child that passes its child's payload on: a negation, a cast, a root. */
     record Pass<N>(N child) implements Step<N> {}
@@ -181,7 +182,7 @@ public final class VarkaSameAnswer {
       case Step.Arith<N> a -> {
         Long l = front.nanBits(a.left());
         Long r = front.nanBits(a.right());
-        if (l != null && r != null && a.commutes()) {
+        if (l != null && r != null && a.eitherPayload()) {
           yield open(a.left(), front) || open(a.right(), front) || !l.equals(r);
         }
         yield l != null ? open(a.left(), front) : r != null && open(a.right(), front);
@@ -251,8 +252,9 @@ public final class VarkaSameAnswer {
               new Step.Pick<>(row.holds(i.cond()) ? i.thenNode() : i.elseNode());
           case VarkaVectorIR.Greatest g -> new Step.FirstNaN<>(List.of(g.left(), g.right()));
           case VarkaVectorIR.Least l -> new Step.FirstNaN<>(List.of(l.left(), l.right()));
-          // Listed, not defaulted, so that a new node is a compile error here until it says how
-          // its value is made from its children's.
+          // Listed, not defaulted, so that a new value node is a compile error here until it says
+          // how its value is made from its children's (a condition or a calendar node, never
+          // floating, is matched by its family).
           case VarkaVectorIR.ColumnRef _, VarkaVectorIR.DecimalColumn _,
               VarkaVectorIR.LiteralSlot _, VarkaVectorIR.NullValue _, VarkaVectorIR.AddDays _,
               VarkaVectorIR.SubDays _, VarkaVectorIR.DateDiff _, VarkaVectorIR.CondValue _,
@@ -267,7 +269,7 @@ public final class VarkaSameAnswer {
         };
       }
 
-      /** A node of one value child passes its payload on; one of more may return any. */
+      // A node of one value child passes its payload on; a node of more may return any.
       private Step<VarkaVectorIR> byValueChildren(VarkaVectorIR n) {
         var values = new ArrayList<VarkaVectorIR>();
         for (VarkaVectorIR child : VarkaVectorIR.childrenOf(n)) {

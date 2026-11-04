@@ -174,7 +174,8 @@ twice. One pull request would be about 1120, over the cap, so two:
 *Re-sized on 4 November 2026, after the lead's decisions (9) and the build of 556a (10).* With
 the shape level dropped, 556a is the class, the three Java comparators, the decimal rule and the
 lesson, about 900 lines with this plan's edits, and the catalyst contract suite (about 370) no
-longer fits beside it, so it is a pull request of its own, 556a2, stacked on 556a. With point 2
+longer fits beside it, so it is a pull request of its own, 556a2, stacked on 556a (measured after
+the review's fixes: 960 and 458 counted lines). With point 2
 settled on `checkAnswer` left as `AnyNaN` (9), 556b is about 250: the suite-local rules, the
 sql/core contract twin and the lint rule.
 
