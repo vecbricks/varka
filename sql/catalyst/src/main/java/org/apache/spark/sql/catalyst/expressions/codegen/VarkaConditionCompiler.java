@@ -173,6 +173,7 @@ final class VarkaConditionCompiler {
       then = onIntValue(then);
       otherwise = onIntValue(otherwise);
     }
+    lifted = onValueKind(lifted, then);
     if (!sameLane(expr, sink, lifted, then, otherwise)) {
       return Optional.empty();
     }
@@ -227,7 +228,7 @@ final class VarkaConditionCompiler {
         cond = onIntLane(cond);
         value = onIntValue(value);
       }
-      lifted[2 * i] = cond;
+      lifted[2 * i] = onValueKind(cond, value);
       lifted[2 * i + 1] = value;
     }
     lifted[nodes.size() - 1] = intLane ? onIntValue(compiledElse.get()) : compiledElse.get();
@@ -515,14 +516,31 @@ final class VarkaConditionCompiler {
       if (!on.laneType().isFloating()) {
         on = meeting == LaneType.LONG ? onLongLane(on).orElse(onIntLane(on)) : onIntLane(on);
       }
-      if (on.laneType() != meeting) {
-        Cond from = on;
-        on = VarkaIntegralCastCompiler.onLane(on, meeting)
-            .orElseGet(() -> new VarkaVectorIR.CrossLane(from, meeting));
-      }
-      out.add(on);
+      out.add(on.laneType() == meeting ? on : crossTo(on, meeting));
     }
     return Optional.of(out);
+  }
+
+  /** {@code c} at {@code lane}: a lane-free condition relabelled, any other crossed. */
+  private static Cond crossTo(Cond c, LaneType lane) {
+    return VarkaIntegralCastCompiler.onLane(c, lane)
+        .orElseGet(() -> new VarkaVectorIR.CrossLane(c, lane));
+  }
+
+  /**
+   * A choice's condition at its value's lane where one of the two is floating and the other not
+   * (`VARKA-343.md` 2.2.1): {@code CASE WHEN f > 1.5 THEN i END}, {@code IF(i > 3, x, x2)}. A
+   * narrow condition is lifted to the int lane first; a narrow value, or two lanes of one kind,
+   * leave {@code cond} as it is for the lane check.
+   */
+  private static Cond onValueKind(Cond cond, VarkaVectorIR value) {
+    LaneType lane = value.laneType();
+    if (lane.isNarrow() || cond.laneType() == lane
+        || cond.laneType().isFloating() == lane.isFloating()) {
+      return cond;
+    }
+    Cond on = onIntLane(cond);
+    return on.laneType() == lane ? on : crossTo(on, lane);
   }
 
   /** The conditions {@code exprs} compile to, in order, or empty at the first that declines. */

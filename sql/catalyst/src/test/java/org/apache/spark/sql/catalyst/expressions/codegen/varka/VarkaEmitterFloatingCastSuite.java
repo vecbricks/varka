@@ -619,6 +619,41 @@ public final class VarkaEmitterFloatingCastSuite {
     assertEquals(VarkaKernelPlan.Kind.LANE_MISMATCH, refusal.get().kind());
   }
 
+  @Test
+  @DisplayName("crossings nested, over a range set, under a value choice, a NOT and an OR")
+  void crossingShapes() {
+    var i = new ColumnRef(0, LaneType.INT);
+    var f = new ColumnRef(1, LaneType.FLOAT);
+    var x = new ColumnRef(2, LaneType.DOUBLE);
+    var l = new ColumnRef(3, LaneType.LONG);
+    Cond overInt = new Compare(CompareOp.GT, i, new LiteralSlot(0, LaneType.INT));
+    Cond overFloat = new Compare(CompareOp.GT, f, new LiteralSlot(1, LaneType.FLOAT));
+    Cond overDouble = new Compare(CompareOp.GT, x, new LiteralSlot(0, LaneType.DOUBLE));
+    Cond overLong = new Compare(CompareOp.GT, l, new LiteralSlot(1, LaneType.LONG));
+    Cond both = new And(cross(overFloat, LaneType.INT), overInt);
+    // The range set has no long form, so a long meeting crosses it by its word.
+    Cond range = new VarkaVectorIR.InRanges(i, List.of(-5, 3, 1 << 24, 1 << 30));
+    var lit = new LiteralSlot(0, LaneType.DOUBLE);
+    List<VarkaVectorIR> shapes = List.of(
+        new And(cross(new VarkaVectorIR.Or(cross(overFloat, LaneType.INT), overInt),
+            LaneType.DOUBLE), overDouble),
+        new And(cross(range, LaneType.LONG), new And(overLong, cross(overDouble, LaneType.LONG))),
+        new IfElse(both, i, new VarkaVectorIR.NullValue(LaneType.INT)),
+        new CondValue(both, LaneType.INT),
+        new BoolOutput(new VarkaVectorIR.Not(new VarkaVectorIR.Or(
+            cross(overDouble, LaneType.FLOAT), overFloat))),
+        // A value choice whose condition is of the other kind, its condition crossed (2.2.1).
+        new IfElse(cross(overFloat, LaneType.INT), i, new VarkaVectorIR.NullValue(LaneType.INT)),
+        new IfElse(cross(overInt, LaneType.DOUBLE), x, lit),
+        new IfElse(cross(overDouble, LaneType.INT), i, new VarkaVectorIR.NullValue(LaneType.INT)),
+        new IfElse(cross(overLong, LaneType.DOUBLE), x, lit),
+        new IfElse(cross(overFloat, LaneType.LONG), l, new VarkaVectorIR.NullValue(LaneType.LONG)));
+    for (VarkaVectorIR root : shapes) {
+      check(VarkaVectorIR.canonical(root), List.of(root), 4, new int[] {1 << 30, floatBits(1.5f)},
+          new long[] {doubleBits(1.5), 1L << 40}, cells(INTS, FLOATS, DOUBLES, LONGS));
+    }
+  }
+
   // ---------------------------------------------------------------------------------------------
   // The rules
   // ---------------------------------------------------------------------------------------------

@@ -942,6 +942,12 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `f + x` | `floatingArithmetic`, `floatingCast` |  | the float widened exactly to meet the double | per-lane: mask broadcast, load or store, mask test |
 | `i / 2.0D` | `floatingArithmetic`, `floatingCast` |  | an int division is a double division over its cast | per-lane: mask broadcast, mask test |
 | `CAST(CAST(l AS INT) AS FLOAT)` | `intArithmetic`, `floatingCast` | `l BETWEEN -2147483648 AND 2147483647` | the bigint narrowed to INT, checked under ANSI, then I2F, a float value in a long kernel | per-lane: compare to mask, mask logic, mask broadcast, mask test, load or store |
+| `CASE WHEN f > 1.5F THEN i END` | `predicate`, `condition` |  | the float condition crossed to the int values' lane | vector |
+| `IF(i > 3, x, x2)` | `predicate`, `condition` |  | the int condition crossed up to the double values by its word | per-lane: blend, mask broadcast, load or store, mask test |
+| `CASE WHEN x > 1.5D THEN i END` | `predicate`, `condition` |  | a 64-bit mask's word read by the int species | per-lane: compare to mask, mask cast, mask logic, mask broadcast, load or store |
+| `IF(NOT (x > 1.5D OR f > 1.5F), i, 7)` | `predicate`, `condition` |  | NOT and OR at the double lane, then down | per-lane: compare to mask, mask cast, mask logic, mask broadcast, load or store |
+| `CASE WHEN f > 1.5F AND i > 3 THEN i END` | `predicate`, `condition` |  | a mixed AND at the int lane, as a guard | vector |
+| `CAST((f > 1.5F AND i > 3) AS INT)` | `predicate`, `integralCast` |  | the mixed AND as its one or zero | vector |
 
 #### Floating casts as conditions
 
@@ -953,6 +959,8 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `x > 1.5D AND l < l2` | `predicate` |  | a double conjunct beside a long one, crossed by the cast | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL up to 18 digits), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback; a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL up to 18 digits), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
 | `f > 1.5F AND x < x2` | `predicate` |  | two floating widths, the float mask crossed by its word | not emitted: the conjunct (x < x2), the rest fused: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL up to 18 digits), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
 | `CAST(x AS BOOLEAN) = b2` | `predicate` |  | the boolean column relabelled to the double lane, its bit read the same | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL up to 18 digits), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
+| `(f > 1.5F OR i > 3) AND x > 0.5D` | `predicate` |  | a crossing under a crossing: the OR at the int lane, then crossed to the double one | not emitted: the conjunct (x > 0.5D), the rest fused: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL up to 18 digits), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
+| `x > 1.5D AND (d = DATE '2021-01-01' OR d = DATE '2021-06-01') AND l > 5` | `predicate`, `intArithmetic` |  | the range set has no long form and crosses to the long lane by its word | not emitted: the conjunct (x > 1.5D), the rest fused: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL up to 18 digits), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback; the conjunct (l > CAST(5 AS BIGINT)), the rest fused: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL up to 18 digits), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
 
 #### DECIMAL columns
 
@@ -1024,15 +1032,15 @@ operands (a row counts once for each type it reads):
 <!-- BEGIN generated verification counts -->
 | Type | Rows | refinement | proof | exhaustive | owed | differential |
 | :--- | ---: | ---: | ---: | ---: | ---: | ---: |
-| `bigint` | 67 | 0 | 2 | 0 | 2 | 63 |
+| `bigint` | 68 | 0 | 2 | 0 | 2 | 64 |
 | `bool` | 30 | 0 | 0 | 13 | 0 | 17 |
 | `byte` | 33 | 0 | 0 | 0 | 8 | 25 |
-| `date` | 101 | 17 | 0 | 1 | 0 | 83 |
+| `date` | 102 | 17 | 0 | 1 | 0 | 84 |
 | `dec` | 26 | 9 | 0 | 0 | 0 | 17 |
-| `double` | 48 | 0 | 0 | 0 | 0 | 48 |
+| `double` | 53 | 0 | 0 | 0 | 0 | 53 |
 | `dt` | 25 | 2 | 0 | 0 | 0 | 23 |
-| `float` | 37 | 0 | 0 | 0 | 0 | 37 |
-| `int` | 113 | 14 | 2 | 0 | 1 | 96 |
+| `float` | 42 | 0 | 0 | 0 | 0 | 42 |
+| `int` | 121 | 14 | 2 | 0 | 1 | 104 |
 | `ntz` | 24 | 0 | 1 | 0 | 0 | 23 |
 | `short` | 31 | 0 | 0 | 0 | 8 | 23 |
 | `time` | 41 | 6 | 0 | 0 | 2 | 33 |

@@ -1770,7 +1770,8 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     }
     assert(reason(EqualNullSafe(d, Literal(null, DateType))) ===
       "null-safe equality with a null literal")
-    // Types outside the lane set wait on their own rows (strings, floating point).
+    // Types outside the lane set wait on their own rows (strings); a floating one is crossed to
+    // the values' lane (`VARKA-343.md` 2.2.1).
     val s = AttributeReference("s", StringType)()
     val x = AttributeReference("x", DoubleType)()
     for (operand <- Seq[Expression](s, x)) {
@@ -1778,7 +1779,7 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
         Seq(out(If(EqualNullSafe(operand, operand), d2, DateAdd(d, Literal(1)))),
           out(DateAdd(d, Literal(1)))),
         childOutput ++ Seq(s, x)).get
-      assert(partial.declines.asScala.contains(0), operand.dataType.toString)
+      assert(partial.declines.asScala.contains(0) === (operand eq s), operand.dataType.toString)
     }
     // A narrow column's null-safe equality is a kernel over the int lane with its operands
     // widened, the shared pieces of VARKA-329 admitting it; its coverage rows are row 336's.
@@ -3520,6 +3521,34 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     assert(crossings(relabelled).isEmpty)
     // Integral conjuncts alone meet as before: no crossing.
     assert(crossings(root(And(IsNotNull(i), b))).isEmpty)
+    // A range set has no long form, so a long meeting crosses it by its word.
+    val l = AttributeReference("l", LongType)()
+    val p = VarkaExpressionCompiler.compilePredicate(And(And(LessThan(x, Literal(0.5D)),
+      Or(EqualTo(i, Literal(1)), EqualTo(i, Literal(7)))), GreaterThan(l, Literal(5L))),
+      columns :+ l, VarkaEmitOptions.DEFAULTS, VarkaAdmission.NO_HOST_REFUSAL).get
+    val ranged = p.fused.outputs.get(0)
+    assert(p.specs.asScala.forall(_.fused) && ranged.laneType === LaneType.LONG, p.specs)
+    assert(crossings(ranged).exists(_.child.isInstanceOf[VarkaVectorIR.InRanges]), ranged)
+  }
+
+  test("a value choice whose condition is of the other kind crosses it to the values' lane") {
+    val Seq(i, l) = Seq("i" -> IntegerType, "l" -> LongType).map(c => AttributeReference(c._1,
+      c._2)())
+    val Seq(f, x, x2) = Seq("f", "x", "x2").map(n =>
+      AttributeReference(n, if (n == "f") FloatType else DoubleType)())
+    def cond(e: Expression): Option[VarkaVectorIR.Cond] = VarkaExpressionCompiler.compile(
+      Seq(out(e)), Seq(i, l, f, x, x2), VarkaEmitOptions.DEFAULTS).toScala
+      .map(_.outputs.get(0).asInstanceOf[IfElse].cond)
+    def crossed(e: Expression, from: LaneType, to: LaneType): Unit = cond(e) match {
+      case Some(c: VarkaVectorIR.CrossLane) => assert(c.child.laneType === from && c.lane === to)
+      case other => fail(s"$e: $other")
+    }
+    crossed(CaseWhen(Seq((GreaterThan(f, Literal(1.5f)), i))), LaneType.FLOAT, LaneType.INT)
+    crossed(If(GreaterThan(i, Literal(3)), x, x2), LaneType.INT, LaneType.DOUBLE)
+    crossed(CaseWhen(Seq((GreaterThan(x, Literal(1.5D)), i))), LaneType.DOUBLE, LaneType.INT)
+    crossed(If(GreaterThan(f, Literal(1.5f)), l, Literal(0L)), LaneType.FLOAT, LaneType.LONG)
+    // Two integral kinds meet as before: a long condition over int values still declines.
+    assert(cond(CaseWhen(Seq((GreaterThan(l, Literal(5L)), i)))).isEmpty)
   }
 }
 

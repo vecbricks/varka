@@ -5602,6 +5602,78 @@
     "note" : "the bigint narrowed to INT, checked under ANSI, then I2F, a float value in a long kernel",
     "verified" : "differential"
   }, {
+    "sql" : "CASE WHEN f > 1.5F THEN i END",
+    "executable" : "CASE WHEN f > 1.5F THEN i END",
+    "family" : "Floating casts",
+    "form" : "projection",
+    "catalyst" : [ "CaseWhen", "GreaterThan" ],
+    "casts" : [ ],
+    "operands" : [ "CaseWhen:int", "GreaterThan:float" ],
+    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled", "spark.sql.codegen.varka.family.condition.enabled" ],
+    "domain" : "",
+    "note" : "the float condition crossed to the int values' lane",
+    "verified" : "differential"
+  }, {
+    "sql" : "IF(i > 3, x, x2)",
+    "executable" : "IF(i > 3, x, x2)",
+    "family" : "Floating casts",
+    "form" : "projection",
+    "catalyst" : [ "GreaterThan", "If" ],
+    "casts" : [ ],
+    "operands" : [ "GreaterThan:int", "If:double" ],
+    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled", "spark.sql.codegen.varka.family.condition.enabled" ],
+    "domain" : "",
+    "note" : "the int condition crossed up to the double values by its word",
+    "verified" : "differential"
+  }, {
+    "sql" : "CASE WHEN x > 1.5D THEN i END",
+    "executable" : "CASE WHEN x > 1.5D THEN i END",
+    "family" : "Floating casts",
+    "form" : "projection",
+    "catalyst" : [ "CaseWhen", "GreaterThan" ],
+    "casts" : [ ],
+    "operands" : [ "CaseWhen:int", "GreaterThan:double" ],
+    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled", "spark.sql.codegen.varka.family.condition.enabled" ],
+    "domain" : "",
+    "note" : "a 64-bit mask's word read by the int species",
+    "verified" : "differential"
+  }, {
+    "sql" : "IF(NOT (x > 1.5D OR f > 1.5F), i, 7)",
+    "executable" : "IF(NOT (x > 1.5D OR f > 1.5F), i, 7)",
+    "family" : "Floating casts",
+    "form" : "projection",
+    "catalyst" : [ "GreaterThan", "If", "Not", "Or" ],
+    "casts" : [ ],
+    "operands" : [ "GreaterThan:double", "GreaterThan:float", "If:int" ],
+    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled", "spark.sql.codegen.varka.family.condition.enabled" ],
+    "domain" : "",
+    "note" : "NOT and OR at the double lane, then down",
+    "verified" : "differential"
+  }, {
+    "sql" : "CASE WHEN f > 1.5F AND i > 3 THEN i END",
+    "executable" : "CASE WHEN f > 1.5F AND i > 3 THEN i END",
+    "family" : "Floating casts",
+    "form" : "projection",
+    "catalyst" : [ "And", "CaseWhen", "GreaterThan" ],
+    "casts" : [ ],
+    "operands" : [ "CaseWhen:int", "GreaterThan:float", "GreaterThan:int" ],
+    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled", "spark.sql.codegen.varka.family.condition.enabled" ],
+    "domain" : "",
+    "note" : "a mixed AND at the int lane, as a guard",
+    "verified" : "differential"
+  }, {
+    "sql" : "CAST((f > 1.5F AND i > 3) AS INT)",
+    "executable" : "CAST((f > 1.5F AND i > 3) AS INT)",
+    "family" : "Floating casts",
+    "form" : "projection",
+    "catalyst" : [ "And", "Cast", "GreaterThan" ],
+    "casts" : [ "bool>int:ansi" ],
+    "operands" : [ "GreaterThan:float", "GreaterThan:int" ],
+    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled", "spark.sql.codegen.varka.family.integralCast.enabled" ],
+    "domain" : "",
+    "note" : "the mixed AND as its one or zero",
+    "verified" : "differential"
+  }, {
     "sql" : "CAST(i AS FLOAT) > 1.5F",
     "executable" : "CAST(i AS FLOAT) > 1.5F",
     "family" : "Floating casts as conditions",
@@ -5672,6 +5744,30 @@
     "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
     "domain" : "",
     "note" : "the boolean column relabelled to the double lane, its bit read the same",
+    "verified" : "differential"
+  }, {
+    "sql" : "(f > 1.5F OR i > 3) AND x > 0.5D",
+    "executable" : "(f > 1.5F OR i > 3) AND x > 0.5D",
+    "family" : "Floating casts as conditions",
+    "form" : "predicate",
+    "catalyst" : [ "And", "GreaterThan", "Or" ],
+    "casts" : [ ],
+    "operands" : [ "GreaterThan:double", "GreaterThan:float", "GreaterThan:int" ],
+    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
+    "domain" : "",
+    "note" : "a crossing under a crossing: the OR at the int lane, then crossed to the double one",
+    "verified" : "differential"
+  }, {
+    "sql" : "x > 1.5D AND (d = DATE '2021-01-01' OR d = DATE '2021-06-01') AND l > 5",
+    "executable" : "x > 1.5D AND (d = DATE '2021-01-01' OR d = DATE '2021-06-01') AND l > 5",
+    "family" : "Floating casts as conditions",
+    "form" : "predicate",
+    "catalyst" : [ "And", "Cast", "EqualTo", "GreaterThan", "Or" ],
+    "casts" : [ "int>bigint:ansi" ],
+    "operands" : [ "Cast:int", "EqualTo:date", "GreaterThan:bigint", "GreaterThan:double" ],
+    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled", "spark.sql.codegen.varka.family.intArithmetic.enabled" ],
+    "domain" : "",
+    "note" : "the range set has no long form and crosses to the long lane by its word",
     "verified" : "differential"
   }, {
     "sql" : "d9 < d9b",
