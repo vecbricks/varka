@@ -259,24 +259,20 @@ public final class VarkaDecimalValueSuite {
         VarkaSqlResolve.column("c", new DecimalType(9, 2)));
     // Each level's condition reads the level below, so a compile that compiles a condition twice
     // per level, once for the value and once for its validity, makes 2^depth compiles: counted,
-    // not timed. The coalesce is 12 deep, not 20: its IR shares each condition between a value
-    // and its validity, and the IR's structural hashCode walks the shared node twice per level,
-    // which the admission's hash sets pay as 2^depth (VARKA-348.md, "The nested-conditions
-    // test's time").
+    // not timed. The coalesce's IR shares each condition between a value and its validity, which
+    // planning pays once per node since each IR node caches its hash (VARKA-559).
     String nullTest = "a";
     String caseWhen = "a";
     String coalesce = "a";
     for (int i = 0; i < 20; i++) {
       nullTest = "IF((" + nullTest + ") IS NOT NULL, b, c)";
       caseWhen = "CASE WHEN (" + caseWhen + ") IS NULL THEN a WHEN b > c THEN b ELSE c END";
-      if (i < 12) {
-        coalesce = "coalesce(IF((" + coalesce + ") > b, a, c), b)";
-      }
+      coalesce = "coalesce(IF((" + coalesce + ") > b, a, c), b)";
     }
     // Each with its conditions compiled once: one a level, and the CASE's two.
     List<String> sqls = List.of("(" + nullTest + ") IS NULL", "(" + caseWhen + ") IS NOT NULL",
         "(" + coalesce + ") > c");
-    List<Integer> conditions = List.of(20, 40, 12);
+    List<Integer> conditions = List.of(20, 40, 20);
     for (int s = 0; s < sqls.size(); s++) {
       String sql = sqls.get(s);
       int expected = conditions.get(s);

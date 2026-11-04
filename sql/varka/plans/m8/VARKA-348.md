@@ -857,5 +857,5 @@ The compile is linear: at depths 2 to 20 the nested null test and `CASE` explain
 The `coalesce` took 4.2 s at 20, x4 per two levels, all in record `hashCode`: its IR shares each
 condition between the value and its validity, and the structural hash walks the shared node twice
 a level, which `VarkaVectorIR.lanesIn`, `VarkaKernelPlan.of` and `VarkaLoopEmitter.budgetWalk`'s
-hash sets pay as 2^depth. The test now counts condition compiles and nests the `coalesce` 12 deep;
-a cached IR hash is its own row.
+hash sets pay as 2^depth. The test now counts condition compiles; with each IR node caching its
+hash (VARKA-559, 4 November 2026) the `coalesce` nests 20 deep again.
