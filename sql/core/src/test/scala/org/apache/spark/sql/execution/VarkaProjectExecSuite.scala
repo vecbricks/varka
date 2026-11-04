@@ -24,7 +24,7 @@ import org.apache.spark.sql.QueryTest
 import org.apache.spark.sql.catalyst.expressions.{Add, AddMonths, Alias, Attribute, AttributeReference, Cast, DateAdd, DateDiff, DateSub, EvalMode, Expression, ExtractANSIIntervalDays, Greatest, Literal, NamedExpression, Remainder, Year}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaAllocationSampler,
   VarkaChrono, VarkaEmitOption, VarkaFallbackEvent, VarkaFusedKernel, VarkaJfrTestSupport,
-  VarkaKernelAllocationEvent, VarkaMatrix, VarkaSpeciesGuard}
+  VarkaKernelAllocationEvent, VarkaMatrix, VarkaMatrixRuns, VarkaSpeciesGuard}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTestWatchdog
 import org.apache.spark.sql.catalyst.util.DateTimeUtils
 import org.apache.spark.sql.execution.metric.SQLMetrics
@@ -664,6 +664,9 @@ class VarkaProjectExecSuite extends QueryTest with SharedSparkSession with Varka
     assume(lanes <= VarkaSpeciesGuard.preferredIntLanes(),
       s"a kernel at $lanes int lanes is wider than this JVM's preferred " +
         s"${VarkaSpeciesGuard.preferredIntLanes()}, so its vectors are heap objects in C2's code")
+    // These null-free batches take the dense body, which a tier split can keep from C2.
+    assume(!VarkaMatrixRuns.denseHeldFromC2(),
+      s"the tier split ${VarkaMatrixRuns.TIER_SPLIT} keeps the dense body from C2")
     val batchesPerRound = 1200
     val maxRounds = 8
     val column = (0 until 1024).map(Int.box)

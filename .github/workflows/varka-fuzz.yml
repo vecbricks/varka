@@ -46,8 +46,13 @@ on:
 jobs:
   fuzz:
     name: Nightly fuzz
-    # Never on apache/spark, whose tree has no Varka; on this project's repositories always.
-    if: github.repository != 'apache/spark'
+    # Never on apache/spark, whose tree has no Varka. The nightly schedule runs on vecbricks/varka
+    # only, as the weekly matrix's does: the fork's master follows this project's
+    # (varka-fork-sync.yml) and carries this file, and a failure there reports nowhere. A
+    # dispatch runs on either repository.
+    if: >-
+      github.repository != 'apache/spark'
+      && (github.event_name != 'schedule' || github.repository == 'vecbricks/varka')
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
@@ -219,7 +224,10 @@ jobs:
     # reference evaluator, 3.16 million int trees and the long lane's, then size 4 at the narrow
     # width; the pull request's gate runs sizes to 3. A job of its own, so its time is not the
     # fuzzer's. The size-4 step takes minutes, hence 165 against size 5's 140-minute caps.
-    if: github.repository != 'apache/spark'
+    # As the fuzz job: the schedule on vecbricks/varka only, a dispatch on either repository.
+    if: >-
+      github.repository != 'apache/spark'
+      && (github.event_name != 'schedule' || github.repository == 'vecbricks/varka')
     runs-on: ubuntu-latest
     timeout-minutes: 165
     steps:

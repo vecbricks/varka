@@ -1,0 +1,297 @@
+#
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements.  See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License.  You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+
+# The sql module's Varka suites with each kernel's dense and masked bodies held at different JIT
+# tiers (VARKA-557, sql/varka/plans/m8/VARKA-557.md). Every batch a kernel serves under test also
+# runs through its other body and the two must agree, but the suites' kernels serve a few batches
+# with both bodies interpreted, so an answer that depends on the tier - which NaN a sum of two
+# NaNs returns, as in option-matrix run 41608460861 - shows once in many runs. Here each night
+# one side is held interpreted or at C1 while the other is compiled by C2 from its first calls,
+# under four configurations (dev/varka_tier_split.py): one job builds the test classes, one job
+# per configuration and share of the suites runs them, and one job reports, with the batches the
+# check compared and the compiles that show the split in the summary.
+name: Varka tier split
+
+on:
+  schedule:
+    # 03:00 UTC, after the nightly fuzz's 02:00.
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'Branch to build and test'
+        required: false
+        default: 'master'
+      configurations:
+        description: 'Configurations, comma separated; every one when empty'
+        required: false
+        default: ''
+
+jobs:
+  build:
+    name: "Tier split: build"
+    # Never on apache/spark, whose tree has no Varka. The nightly schedule runs on vecbricks/varka
+    # only, as the weekly matrix's does: the fork's master follows this project's
+    # (varka-fork-sync.yml) and carries this file, and a failure there reports nowhere. A
+    # dispatch runs on either repository. The jobs after this one need it, so they are skipped
+    # with it.
+    if: >-
+      github.repository != 'apache/spark'
+      && (github.event_name != 'schedule' || github.repository == 'vecbricks/varka')
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    outputs:
+      sha: ${{ steps.plan.outputs.sha }}
+      jobs: ${{ steps.plan.outputs.jobs }}
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v6
+      with:
+        ref: ${{ inputs.branch || github.ref }}
+    - name: Cache SBT and Maven
+      uses: actions/cache@v4
+      with:
+        path: |
+          build/apache-maven-*
+          build/*.jar
+          ~/.sbt
+        key: build-${{ hashFiles('**/pom.xml', 'project/build.properties', 'build/mvn', 'build/sbt', 'build/sbt-launch-lib.bash', 'build/spark-build-info') }}
+        restore-keys: |
+          build-
+    - name: Cache Coursier local repository
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/coursier
+        key: varka-option-matrix-coursier-${{ hashFiles('**/pom.xml', '**/plugins.sbt') }}
+        restore-keys: |
+          varka-option-matrix-coursier-
+    - name: Install Java 25
+      uses: actions/setup-java@v5
+      with:
+        distribution: zulu
+        java-version: '25'
+    - name: Install the Varka engine
+      uses: ./.github/actions/install-varka-engine
+    - name: Build the test classes
+      run: |
+        ./dev/varka_matrix.sh --build-only --sbt-arg -Phive --module sql \
+          --out target/varka-matrix
+    # One job per configuration and share: SHARES jobs split the suites by their times under the
+    # dearest configuration (sql/varka/ci/tier-split/suite-times.tsv, dev/varka_suite_shards.py
+    # --job), each running two JVMs on the runner's four cores, balanced by the same times. They
+    # price a share at about 28 and 25 minutes, of the 90 allowed (VARKA-557.md 8.4).
+    - name: Plan the jobs
+      id: plan
+      env:
+        CONFIGURATIONS: ${{ inputs.configurations }}
+        SHARES: 2
+      run: |
+        set -o pipefail
+        all=$(python3 dev/varka_tier_split.py list | paste -sd, -)
+        asked=${CONFIGURATIONS:-$all}
+        python3 - "$all" "$asked" "$SHARES" > target/tier-split-jobs.json <<'EOF'
+        import json, sys
+        known, asked, shares = sys.argv[1].split(","), sys.argv[2], int(sys.argv[3])
+        configs = [c.strip() for c in asked.split(",") if c.strip()]
+        unknown = [c for c in configs if c not in known]
+        if unknown or not configs:
+            sys.exit(f"unknown or no configuration: {unknown}; known: {known}")
+        jobs = [{"config": c, "share": f"{k}/{shares}"} for c in configs for k in range(shares)]
+        print(json.dumps({"include": jobs}))
+        EOF
+        echo "jobs=$(cat target/tier-split-jobs.json)" >> "$GITHUB_OUTPUT"
+        echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+        echo "Tier split of $(git rev-parse --short HEAD): ${asked}, $SHARES shares each" \
+          >> "$GITHUB_STEP_SUMMARY"
+    - name: Archive the classpath
+      run: ./dev/varka_matrix_archive.sh pack target/varka-matrix target/varka-build.tar
+    - name: Upload the classpath
+      uses: actions/upload-artifact@v4
+      with:
+        name: varka-tier-split-build
+        path: target/varka-build.tar
+        retention-days: 1
+        compression-level: 1
+
+  configurations:
+    name: "Tier split: ${{ matrix.config }} ${{ matrix.share }}"
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      # Four at once: the project's plan allows 20 concurrent jobs, and the weekly matrix, which
+      # can overlap on a Sunday, has peaked at 19 (VARKA-557.md 5).
+      max-parallel: 4
+      matrix: ${{ fromJSON(needs.build.outputs.jobs) }}
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v6
+      with:
+        ref: ${{ needs.build.outputs.sha }}
+    # The check that decides the night first proves itself on fixture logs, so a check that
+    # stopped failing cannot pass a night (as varka_matrix_ci.sh runs its picker's self-test).
+    - name: The tier split's check, over fixture logs
+      run: python3 dev/varka_tier_split.py --self-test
+    - name: Install Java 25
+      uses: actions/setup-java@v5
+      with:
+        distribution: zulu
+        java-version: '25'
+    # The tiers' answers can differ with the machine, so each job records the CPU it ran on.
+    - name: Record the CPU and the vector width
+      uses: ./.github/actions/record-runner-platform
+      with:
+        dir: target/tier-split-platform
+    - name: Download the classpath
+      uses: actions/download-artifact@v4
+      with:
+        name: varka-tier-split-build
+        path: target
+    - name: Unpack the classpath
+      run: |
+        ./dev/varka_matrix_archive.sh unpack target/varka-build.tar target/varka-matrix
+        rm target/varka-build.tar
+    - name: Run the suites under ${{ matrix.config }}
+      env:
+        CONFIG: ${{ matrix.config }}
+        SHARE: ${{ matrix.share }}
+      run: |
+        set -o pipefail
+        weights=sql/varka/ci/tier-split/suite-times.tsv
+        # Each step captured and checked: an empty share would be `--suites ""`, every suite.
+        listed=$(./dev/varka_matrix.sh --defaults --list-suites --module sql) \
+          || { echo "could not list the sql suites" >&2; exit 1; }
+        mapfile -t all <<< "${listed//@own /}"
+        mine=$(python3 dev/varka_suite_shards.py --job "$SHARE" "$weights" "${all[@]}" \
+          | sed 's/.*\.//' | paste -sd, -) \
+          || { echo "could not split the suites for share $SHARE" >&2; exit 1; }
+        [ -n "$mine" ] || { echo "share $SHARE of ${#all[@]} suites is empty" >&2; exit 1; }
+        echo "== share $SHARE: $mine"
+        status=0
+        python3 dev/varka_tier_split.py run "$CONFIG" --skip-build --build-dir target/varka-matrix \
+          --out target/tier-split --split 2 -j 2 --suites "$mine" | tee target/tier-split.txt \
+          || status=$?
+        # A suite far off its weight is a warning, so the shares do not drift out of balance unseen.
+        python3 dev/varka_suite_shards.py --check-weights "$weights" target/tier-split/runs
+        exit "$status"
+    # The split is shown by its effect, since the test JVMs ignore an option they do not know:
+    # the compiles the directives print and the batches the check compared.
+    - name: Check the split took effect
+      if: ${{ !cancelled() }}
+      env:
+        CONFIG: ${{ matrix.config }}
+      run: |
+        set -o pipefail
+        python3 dev/varka_tier_split.py check "$CONFIG" target/tier-split/runs \
+          | tee -a target/tier-split.txt
+    - name: Summary
+      if: always()
+      env:
+        CONFIG: ${{ matrix.config }}
+        SHARE: ${{ matrix.share }}
+      run: |
+        {
+          echo "## $CONFIG, share $SHARE"
+          echo '```'
+          grep -E -e '^(configuration|defaults)|: (no tier split|[0-9]+ JVMs)' \
+            -e '\*\*\* (FAILED|ABORTED)' target/tier-split.txt 2>/dev/null || echo "no report"
+          grep -h '^CPU' target/tier-split-platform/platform.txt 2>/dev/null || true
+          echo '```'
+        } >> "$GITHUB_STEP_SUMMARY"
+        # The failed tests as an annotation, which a failed scheduled run's issue links to.
+        failed=$(grep -E '\*\*\* (FAILED|ABORTED)' target/tier-split.txt 2>/dev/null \
+          | sed 's/^ *defaults: - //; s/ \*\*\* .*//' | head -20 | paste -sd ';' -)
+        [ -z "$failed" ] || echo "::error title=$CONFIG $SHARE::$failed"
+    - name: Upload the runs
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: varka-tier-split-${{ matrix.config }}-${{ strategy.job-index }}
+        path: |
+          target/tier-split.txt
+          target/tier-split-platform/platform.txt
+          target/tier-split/runs/*/*/exit
+          target/tier-split/runs/*/*/seconds
+          target/tier-split/runs/*/*/run.log
+          target/tier-split/runs/*/*/junit/*.xml
+        if-no-files-found: ignore
+        retention-days: 30
+
+  report:
+    name: "Tier split: report"
+    needs: [build, configurations]
+    if: always() && needs.build.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v6
+      with:
+        ref: ${{ needs.build.outputs.sha }}
+    - name: Download every job's runs
+      uses: actions/download-artifact@v4
+      with:
+        pattern: varka-tier-split-*-[0-9]*
+        path: target/tier-split-jobs
+    # One line per configuration over all its shares: the batches the both-bodies check
+    # compared and the compiles of each side, so that a green night that compared nothing, or
+    # whose sides were not split, reads as such and fails here.
+    - name: Report
+      run: |
+        status=0
+        out=target/tier-split-report.txt
+        for config in $(python3 dev/varka_tier_split.py list); do
+          dirs=(target/tier-split-jobs/varka-tier-split-"$config"-*)
+          if [ ! -d "${dirs[0]}" ]; then
+            echo "$config: not run" >> "$out"
+            continue
+          fi
+          python3 dev/varka_tier_split.py check "$config" "${dirs[@]}" >> "$out" || status=1
+          cat "${dirs[@]/%//tier-split.txt}" 2>/dev/null \
+            | grep -E '^  defaults: .*\*\*\* (FAILED|ABORTED)' | sed "s/^  defaults:/  /" \
+            >> "$out" || true
+        done
+        cat "$out"
+        { echo "## Tier split"; echo '```'; cat "$out"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+        exit "$status"
+
+  report-failure:
+    name: Report a failed run
+    # Only a scheduled run, since a person who dispatches one sees its result; only on the
+    # project's own repository, where issues are on; and when a job failed or was cancelled.
+    needs: [build, configurations, report]
+    if: >-
+      always() && github.event_name == 'schedule' && github.repository == 'vecbricks/varka'
+      && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+      issues: write
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v6
+      with:
+        sparse-checkout: |
+          .github/actions
+          dev
+    - name: Report the failure
+      uses: ./.github/actions/report-scheduled-failure
+      with:
+        needs: ${{ toJSON(needs) }}
