@@ -107,7 +107,8 @@ def is_varka_main(path):
 
 
 class Repo:
-    """The branch's diff and trees, read through git: the base at BASE, the head at HEAD."""
+    """The branch's diff and trees, read through git: the base at BASE, and as HEAD the working
+    tree, which is what the suites run over, read from disk because it is fast."""
 
     def __init__(self, root, base):
         self.root, self.base = root, base
@@ -118,10 +119,15 @@ class Repo:
         )
 
     def diff(self):
-        out = self.git("diff", "-U0", "--no-renames", "--no-color", self.base, "HEAD", check=True)
-        return out.stdout
+        return self.git("diff", "-U0", "--no-renames", "--no-color", self.base, check=True).stdout
 
     def text(self, rev, path):
+        if rev == "HEAD":
+            try:
+                with open(os.path.join(self.root, path), encoding="utf-8", errors="replace") as f:
+                    return f.read()
+            except OSError:
+                return ""
         out = self.git("show", f"{rev}:{path}")
         return out.stdout if out.returncode == 0 else ""
 
@@ -132,8 +138,10 @@ class Repo:
             args += ["--all-match", *[a for w in words for a in ("-e", w)]]
         else:
             args += ["-e", pattern]
-        out = self.git(*args, rev, "--", *places)
-        return [line.split(":", 1)[1] for line in out.stdout.splitlines() if ":" in line]
+        at = [] if rev == "HEAD" else [rev]
+        out = self.git(*args, *at, "--", *places)
+        lines = out.stdout.splitlines()
+        return [line.split(":", 1)[1] if at else line for line in lines]
 
     def tracked(self, places):
         return self.git("ls-files", "--", *places).stdout.split()
