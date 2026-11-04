@@ -64,6 +64,19 @@ public final class VarkaMatrixRuns {
   public static final String CONFIG = System.getProperty(PROPERTY, "").trim();
 
   /**
+   * The JIT tier split this JVM runs under, {@code ""} for none: {@code dev/varka_tier_split.py}
+   * sets {@code -Dvarka.tierSplit=<configuration>}, which names the kernel body it holds back
+   * from C2 first ({@code masked-interpreted}, {@code dense-c1}, ...). A test whose subject is a
+   * body's C2 code reads it to cancel itself where that body never gets any (VARKA-557).
+   */
+  public static final String TIER_SPLIT = System.getProperty("varka.tierSplit", "").trim();
+
+  /** Whether this JVM's tier split keeps the dense body from C2. */
+  public static boolean denseHeldFromC2() {
+    return TIER_SPLIT.startsWith("dense-");
+  }
+
+  /**
    * The name of the batch-size axis (VARKA-301): {@code arrowBatchSize=<rows>} sets the rows per
    * Arrow cached batch ({@code spark.sql.execution.arrow.maxRecordsPerBatch}; the Arrow cache
    * ignores {@code spark.sql.inMemoryColumnarStorage.batchSize}) in the SQL suites' sessions. It

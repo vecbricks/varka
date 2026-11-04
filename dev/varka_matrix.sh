@@ -42,7 +42,8 @@
 # find (ArrowCachedBatchSerializerSuite, Varka's without the name) to that module's run;
 # --defaults-from DIR takes a finished defaults run - the runs/defaults under DIR, which the
 # declining check compares fused batches with - instead of running the defaults again, and
-# balances the JVMs by its JUnit times.
+# balances the JVMs by its JUnit times; --split-weights FILE balances them by a committed weights
+# file instead (a simple suite name and its seconds a line), for a runner with no earlier run.
 #
 # The fanned-out matrix's options (VARKA-507): --build-only builds, lists the configurations and
 # stops; --runs-only runs the configurations asked for (or, with --defaults, the defaults) and
@@ -94,6 +95,7 @@ only_suites=""
 skip_suites=""
 extra_suites=()
 defaults_from=""
+split_weights=""
 build_only=0
 runs_only=0
 leaf_suffix=""
@@ -145,6 +147,7 @@ while [ $# -gt 0 ]; do
     --skip-suites) skip_suites="$2"; shift 2 ;;
     --extra-suite) extra_suites+=("$2"); shift 2 ;;
     --defaults-from) defaults_from=$(realpath -m "$2"); shift 2 ;;
+    --split-weights) split_weights=$(realpath -m "$2"); shift 2 ;;
     --build-only) build_only=1; shift ;;
     --runs-only) runs_only=1; shift ;;
     --leaf-suffix) leaf_suffix="$2"; shift 2 ;;
@@ -367,7 +370,8 @@ for module in "${modules[@]}"; do
   {
     for suite in "${found[@]}"; do [[ "$suite" == "@own "* ]] && echo "$suite"; done
     if [ ${#shared[@]} -gt 0 ]; then
-      python3 dev/varka_suite_shards.py "$split" "${defaults_from:-$OUT}/runs" "${shared[@]}"
+      python3 dev/varka_suite_shards.py "$split" "${split_weights:-${defaults_from:-$OUT}/runs}" \
+        "${shared[@]}"
     fi
   } > "$OUT/shards/$module"
 done

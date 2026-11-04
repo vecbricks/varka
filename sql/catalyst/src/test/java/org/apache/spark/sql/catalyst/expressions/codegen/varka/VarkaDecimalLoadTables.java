@@ -526,9 +526,8 @@ abstract class VarkaDecimalLoadTables {
         VarkaMatrixRuns.BASE);
     conditionTable("abs(d) >= 5, lanewise", PRECISIONS, abs, new long[] {5L}, absTruth,
         VarkaMatrixRuns.BASE.toBuilder().decimalAbsLanewise(true).build());
-    // A null test over a negation or abs declines in the compiler ("a null test over a decimal
-    // that is not a column"), so it has no table here; the null test over the leaf is
-    // conditionTableOfTheNullTest's.
+    // (-d) IS NULL compiles to the leaf's own test (VarkaDecimalCompiler.valid), the table of
+    // conditionTableOfTheNullTest.
   }
 
   @Test

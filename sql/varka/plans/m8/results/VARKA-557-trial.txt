@@ -1,0 +1,56 @@
+VARKA-557 step 1: the tier-split configurations on the laptop (3 November 2026)
+
+Host: the laptop (Ryzen AI 9 HX PRO 370), JDK 25.0.4.1, on its charger, with
+other agents' test JVMs running beside these (load average 3 to 5), so the seconds are a
+loaded machine's. One JVM per run, VarkaSuiteRunner over the suite named, the memory sanitizer
+and -Dvarka.checkBothBodies=true on, -Dspark.test.timeout=180. Built from master 96d26da9cf0.
+"scratch" runs put a VarkaKernelRunner without #1313's NaN acceptance (branch varka-557-scratch,
+237acb87bf6, compiled with javac against the same classpath) ahead of the build's on the
+classpath; "master" runs use the build as it is, with the acceptance.
+
+Configurations (dev/varka_tier_split.py, final form from run mi-scratch-p3 on): every kernel
+method's thresholds scaled by 0.0001 and its compiles synchronous; the compiled side and the
+dispatch `run` not compiled by C1 (directive c1 Exclude); the held side never inlined
+(dontinline), and excluded (-interpreted) or not compiled by C2 (-c1, directive c2 Exclude).
+p1: masked excluded, dense scaled by 0.01, no directives, no dontinline.
+p2: as p1 at 0.001 with the dense side's C1 excluded, no dontinline.
+
+Suite VarkaCoverageHarnessSuite (the whole suite: -z does not filter its dynamic tests, see the
+plan; def-scratch ran with -z "Floating arithmetic", which dropped only its 11 @Test methods).
+Columns: run, runner exit, seconds, tests, the Floating arithmetic rows that failed.
+
+def-scratch              exit 0    45s  1676 ok, 0 failed  none
+mi-scratch-p1            exit 1    65s  1685 ok, 2 failed  try_add(x, x2);(x + x2) * x2 - x
+mi-scratch-p2            exit 1   119s  1681 ok, 6 failed  f + f2;f * f2;try_add(f, f2);try_multiply(f, f2);try_multiply(x, x2);x * x2
+mi-scratch-p3            exit 1   187s  1682 ok, 5 failed  try_add(f, f2);try_add(x, x2);try_multiply(f, f2);x + x2;(x + x2) * x2 - x
+mi-scratch-2             exit 1   224s  1680 ok, 7 failed  try_add(f, f2);try_add(x, x2);try_multiply(f, f2);try_multiply(x, x2);x + x2;(x + x2) * x2 - x;x * x2
+mi-scratch-3             exit 1   253s  1682 ok, 5 failed  try_add(f, f2);try_add(x, x2);try_multiply(f, f2);x + x2;(x + x2) * x2 - x
+mc1-scratch-1            exit 1   346s  1681 ok, 6 failed  try_add(f, f2);try_add(x, x2);try_multiply(f, f2);try_multiply(x, x2);(x + x2) * x2 - x;x * x2
+mc1-scratch-2            exit 1   291s  1680 ok, 7 failed  f * f2;try_add(f, f2);try_add(x, x2);try_multiply(f, f2);try_multiply(x, x2);(x + x2) * x2 - x;x * x2
+mc1-scratch-3            exit 1   429s  1681 ok, 6 failed  try_add(f, f2);try_add(x, x2);try_multiply(f, f2);try_multiply(x, x2);(x + x2) * x2 - x;x * x2
+def-master               exit 0    50s  1687 ok, 0 failed  none
+mi-master                exit 0   206s  1687 ok, 0 failed  none
+mc1-master               exit 0   305s  1687 ok, 0 failed  none
+di-master                exit 0   481s  1687 ok, 0 failed  none
+dc1-master               exit 0   458s  1687 ok, 0 failed  none
+
+Suite VarkaFloatingLaneSuite, master build:
+
+fl-defaults-master       exit 0    54s  142 ok, 0 failed  none
+fl-masked-interpreted-master exit 0    81s  142 ok, 0 failed  none
+fl-masked-c1-master      exit 0    84s  142 ok, 0 failed  none
+fl-dense-interpreted-master exit 0   166s  142 ok, 0 failed  none
+fl-dense-c1-master       exit 0   170s  142 ok, 0 failed  none
+
+Every failure above is "<hash>'s dense and masked bodies disagree on output 0 at row 7 of a
+null-free batch of 10 (VARKA-303)", row 7 of the fixture being the two unlike NaNs.
+
+Compile records of the kernel classes' methods (-XX:+PrintCompilation), by method kind and tier,
+summed over every kernel the run emitted:
+
+mi-scratch-p1: all kernels: epilogueDense:tier3=1980 loopDense:tier3=1884 runDense:tier3=1884 
+mi-scratch-p2: all kernels: <init>:tier3=3193 run:tier3=3193 <init>:tier4=727 epilogueDense:tier4=106 loopDense:tier4=82 run:tier4=1611 runDense:tier4=4 
+mi-scratch-p3: all kernels: <init>:tier3=3193 <init>:tier4=2082 epilogueDense:tier4=2067 loopDense:tier4=1933 run:tier4=3142 runDense:tier4=1650 
+mc1-scratch-1: all kernels: epilogueMasked:tier1=1997 loopMasked:tier1=2032 runMasked:tier1=1854 <init>:tier3=3193 epilogueMasked:tier3=3419 loopMasked:tier3=3138 runMasked:tier3=3140 <init>:tier4=2082 epilogueDense:tier4=2060 loopDense:tier4=1933 run:tier4=3142 runDense:tier4=1650 
+di-master: all kernels: <init>:tier3=3166 <init>:tier4=2056 epilogueMasked:tier4=2285 loopMasked:tier4=2144 run:tier4=3115 runMasked:tier4=531 
+dc1-master: all kernels: epilogueDense:tier1=1918 loopDense:tier1=1815 runDense:tier1=1726 <init>:tier3=3166 epilogueDense:tier3=3036 loopDense:tier3=2888 runDense:tier3=2888 <init>:tier4=2056 epilogueMasked:tier4=2283 loopMasked:tier4=2144 run:tier4=3114 runMasked:tier4=531 

@@ -23,6 +23,7 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.concurrent.atomic.LongAdder;
 
 import org.apache.arrow.memory.ArrowBuf;
 import org.apache.arrow.vector.BaseFixedWidthVector;
@@ -83,6 +84,28 @@ public final class VarkaKernelRunner {
    * them with the row engine; this holds the other to it. Off in production.
    */
   public static final boolean CHECK_BOTH_BODIES = Boolean.getBoolean("varka.checkBothBodies");
+
+  /** The null-free batches the both-bodies check ran through the masked body and compared. */
+  private static final LongAdder COMPARED_NULL_FREE = new LongAdder();
+
+  /** The nullable batches the both-bodies check ran through the dense body and compared. */
+  private static final LongAdder COMPARED_NULLABLE = new LongAdder();
+
+  /**
+   * The line a JVM under the both-bodies check prints as it exits, which
+   * {@code varka-tier-split.yml} sums per configuration: a run that compared no batch checked
+   * nothing, however green. Printed only once a kernel ran, since this class loads with the
+   * first.
+   */
+  public static final String COMPARED_LINE = "Varka both-bodies check compared: ";
+
+  static {
+    if (CHECK_BOTH_BODIES) {
+      Runtime.getRuntime().addShutdownHook(new Thread(() -> System.out.println(COMPARED_LINE
+          + COMPARED_NULL_FREE.sum() + " null-free, " + COMPARED_NULLABLE.sum() + " nullable"),
+          "varka-both-bodies-count"));
+    }
+  }
 
   /**
    * A kernel input the compiler bounded: its position among the kernel's inputs and the closed
@@ -409,6 +432,7 @@ public final class VarkaKernelRunner {
       }
       compareBodies(shapeHash, len, dense, srcValidity, srcNullCount, dstWidth, dstFloating,
           new BodyOutputs(dstData, dstValidity), new BodyOutputs(data, valid));
+      (dense ? COMPARED_NULL_FREE : COMPARED_NULLABLE).increment();
     }
   }
 
