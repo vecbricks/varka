@@ -259,6 +259,10 @@ row comparison, moved in. `VarkaKernelChecks.sameAnswer`, `VarkaExpressionHarnes
 `unfixedNaN`, and `VarkaKernelRunner.compareBodies` call it; their own rule bodies are deleted.
 The lesson is `skills/the-jit.md`'s last section. The contract suite, `VarkaSameAnswerContractSuite`,
 is on the stacked branch `varka-556-contract` (6).
+Its `TYPE` entry restates `compareBodies`' row rule (equal bits, or `bothNaN` on a floating
+output), since the catalyst tree cannot reach sql/core main; the check itself is held by
+`VarkaEvaluatorComponentsSuite`'s planted-bodies tests until the sql/core twin registers it
+(556b). No emitter or compiler file is touched, so no generated file moves.
 
 **Where verdicts move**, each on purpose:
 
