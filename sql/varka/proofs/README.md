@@ -28,6 +28,7 @@ VARKA-241 added the long lane's division forms, and VARKA-242 the calendar's div
 | `decimal_slot.smt2` | the decimal leaf's digit check, `(lo + B) UGT 2B` with `B = 10^p - 1`, the low words outside `[-B, B]` exactly, at every precision from 1 to 18 with the leaf's own bound, a comparand one off refuted, and over every non-negative long bound, over bit-vectors (VARKA-347) | `VarkaProofFiles` |
 | `decimal64.smt2` | the long lane's decimal forms over integers, every multiplier one of Spark's `Decimal.POW_10`: the rescale by `10^k` of a value within `p` digits exact and within `p + k` digits at every `p + k <= 18`, and at `p + k = 19` per pair a wrap or a product past 18 digits; a comparison of the rescaled long the comparison of the two rationals at every pair of scales; within 18 digits the negation exact and both forms of `abs` the magnitude (VARKA-348); `+` and `-` of operands rescaled to the result's scale exact and within the result's precision wherever it is at most 18 digits, and `*` in two layers, a bound on the product of two unknowns each within its precision, then the wrap's identity on any integer within that bound (VARKA-349) | `VarkaProofFiles` |
 | `casts.smt2` | the narrowings of a `BIGINT` to `INT`, `SMALLINT` and `TINYINT` (VARKA-332): under `LEGACY` the kernel's `L2I` and narrow store are the reduction mod `2^w` for every long, and under `ANSI` the range guard's two compares, the target's range read from `VarkaTypes.integralRange`, hold exactly where the long differs from its narrowing, where Spark raises `CAST_OVERFLOW`; the 32-bit sources are exhausted, and the int lane's guard is `narrow_range.smt2`'s | `VarkaProofFiles` |
+| `round_to_odd.smt2` | the AVX2 conversions from a long (VARKA-343, `VARKA-343.md` 2.3), over SMT-LIB's floating-point theory: the split `L2D` as three lemmas - both halves exact, and `hi * 2^32 + lo = v` - so the one rounding of their sum is `(double) v`; the bounded magic `(double) v` for `|v| <= 2^51` and wrong one past either end; `L2F`'s round-to-odd form `(float) v` for every long, by the sign and per magnitude binade, beside Boldo and Melquiond's Theorem 3 at its instance per binade and its bound `k >= 2` shown tight; each check after a `(reset)` (below); Z3 and cvc5 about 7 s each | `VarkaProofFiles` |
 | `refinement.smt2` | the kernels as refinements of `spec/`: per coverage row and mode, five queries over (data, valid) pairs - a satisfiable precondition, a decline wherever the specification raises, validity equal, values equal on valid lanes, a decline only where it raises or the input leaves the bound - in Spark mode (`STANDARD.md` patched by `DELTAS.md`, or `EXTENSIONS.md`) and standard mode, each departure a `sat` witness with its delta named; the calendar's rules, its decomposition and inverse as lemmas, and every lowering site fed only dividends its proof covers (VARKA-245) | `VarkaRefinementFile` |
 | `spec/STANDARD.md` | not a proof: the SQL standard's definition of each operation the coverage table lowers that the standard fixes, what the proofs are to be restated against (VARKA-243); it holds no SMT-LIB, and `dev/varka_prove.sh` reads only this folder's own `.smt2` files | hand |
 | `spec/DELTAS.md` | not a proof: Spark's departures from `STANDARD.md` as named patches to its definitions, each with the test in `VarkaStandardDeltasSuite` that shows Spark doing it, so a Spark-mode proof is the definition plus its deltas (VARKA-244) | hand |
@@ -52,12 +53,15 @@ A solver's line numbers count the inserted prelude.
 ## What a proof looks like
 
 A file opens with a header naming the Java it encodes and its `set-logic` line: `QF_NIA`, or `ALL`
-where cvc5 decides the checks only under it or the file reasons over bit-vectors. Every check is
-an `(echo "<what it shows>: expect sat|unsat")` followed by its `(check-sat)` between `push` and
-`pop`. An `unsat` check is a proof: the negation of the claim has no model. A `sat` check shows the
-statement is not vacuous: the domain admits its boundary inputs, and a constant changed by one is
-refuted. The script holds every verdict to the expectation before it, and fails on `unknown`, on a
-check past its time limit, and on any other output, since Z3 goes on answering after an error.
+where cvc5 decides the checks only under it or the file reasons over bit-vectors. Every check is an
+`(echo "<what it shows>: expect sat|unsat")` followed by its `(check-sat)` between `push` and `pop`,
+or, in `round_to_odd.smt2`, after a `(reset)` that restates its logic and definitions: once a file
+pushes, Z3 answers from its incremental core, where one 64-bit `fp.sub` costs seconds, while a
+context that never pushed bit-blasts the same check in a fraction of one. An `unsat` check is a
+proof: the negation of the claim has no model. A `sat` check shows the statement is not vacuous: the
+domain admits its boundary inputs, and a constant changed by one is refuted. The script holds every
+verdict to the expectation before it, and fails on `unknown`, on a check past its time limit, and on
+any other output, since Z3 goes on answering after an error.
 
 Constants that live in the code are rendered from it: `VarkaProofFiles` (catalyst tests) writes the
 file, and `VarkaProofFilesSuite` fails when the committed file differs;

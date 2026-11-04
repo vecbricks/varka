@@ -95,6 +95,7 @@ final class VarkaProofFiles {
     files.put("decimal_slot.smt2", decimalSlot());
     files.put("decimal64.smt2", decimal64());
     files.put("casts.smt2", casts());
+    files.put("round_to_odd.smt2", roundToOdd());
     files.put("refinement.smt2", VarkaRefinementFile.render());
     return files;
   }
@@ -2827,6 +2828,264 @@ final class VarkaProofFiles {
     var all = new ArrayList<>(decl);
     all.addAll(assertions);
     return all;
+  }
+
+  // -----------------------------------------------------------------------------------------
+  // The AVX2 conversions from a long to a double and a float (VARKA-343).
+  // -----------------------------------------------------------------------------------------
+
+  /**
+   * The constants of {@code VARKA-343.md} 2.3's AVX2 forms. They are the plan's, not read from
+   * code: {@code VarkaConversionLowering}, which is to hold them, is not built yet, and the plan's
+   * section 10 lists reading them from it as owed.
+   */
+  private static final double RTO_MAGIC = 0x1.8p52;
+  private static final double RTO_P52 = 0x1p52;
+  private static final double RTO_P32 = 0x1p32;
+  /** The bits {@code L2F} drops into its sticky bit above {@code 2^52}. */
+  private static final int RTO_SHIFT = 12;
+  /** {@code L2F} rounds to odd where {@code m >>> RTO_SMALL_BITS != 0}. */
+  private static final int RTO_SMALL_BITS = 52;
+  /** The bounded magic's window, {@code |v| <= 2^51}. */
+  private static final long RTO_MAGIC_WINDOW = 1L << 51;
+  /** The forms' double constants and the reinterpretation, restated after each reset. */
+  private static final String RTO_DEFS = "(define-fun rto.M () Float64 ((_ to_fp 11 53) "
+      + bv64(Double.doubleToRawLongBits(RTO_MAGIC)) + "))\n"
+      + "(define-fun rto.P52 () Float64 ((_ to_fp 11 53) "
+      + bv64(Double.doubleToRawLongBits(RTO_P52)) + "))\n"
+      + "(define-fun rto.P32 () Float64 ((_ to_fp 11 53) "
+      + bv64(Double.doubleToRawLongBits(RTO_P32)) + "))\n"
+      + "(define-fun rto.bitsToDouble ((x (_ BitVec 64))) Float64 ((_ to_fp 11 53) x))";
+
+  /**
+   * {@code round_to_odd.smt2}: the AVX2 forms of {@code L2D} and {@code L2F}
+   * ({@code VARKA-343.md} 2.3) are Java's {@code (double) v} and {@code (float) v} for every long,
+   * over SMT-LIB's floating-point theory, whose conversions are IEEE 754's: {@code to_fp} from a
+   * bit-vector under {@code RNE} is JLS 5.1.2's widening, and a {@code Float64} to
+   * {@code Float32} under {@code RNE} is {@code D2F}. The {@code L2F} form rests on Boldo and
+   * Melquiond's Theorem 3, quoted in the file's header; its instance is checked per binade.
+   */
+  static String roundToOdd() {
+    long mb = Double.doubleToRawLongBits(RTO_MAGIC);
+    long p52 = Double.doubleToRawLongBits(RTO_P52);
+    var out = new StringBuilder(LICENSE);
+    out.append("""
+        ; The AVX2 forms of L2D and L2F (VARKA-343.md 2.3), where the host has no 64-bit
+        ; integer conversion (convertsFallBack()). With M = 0x1.8p52, MB its bits and
+        ; bits(x) = Double.doubleToRawLongBits(x), over the long lane:
+        ;
+        ;   L2D, split    hi = v >> 32, lo = v & 0xFFFFFFFF
+        ;                 dh = (bitsToDouble(hi + MB) - M) * 0x1p32
+        ;                 dl = bitsToDouble(lo | bits(0x1p52)) - 0x1p52
+        ;                 d = dh + dl
+        ;   L2D, magic    bitsToDouble(v + MB) - M, under a guard of |v| <= 2^51
+        ;   L2F           s = v >> 63, m = (v ^ s) - s read unsigned (2^63 at Long.MIN_VALUE)
+        ;                 big = m >>> 52 != 0
+        ;                 t = big ? (m >>> 12) | ((m & 0xFFF) != 0 ? 1 : 0) : m
+        ;                 d = (bitsToDouble(t | bits(0x1p52)) - 0x1p52) * (big ? 0x1p12 : 1)
+        ;                 f = (float) d, negated where s is set
+        ;
+        ; The claims: the split is (double) v and the magic is (double) v inside its window, and
+        ; the L2F form is (float) v, for every long.
+        ;
+        ; The split is proven in three lemmas, since stated whole it is past the per-check limit
+        ; (Z3 past 30 s, cvc5 about 17 s): dh and dl are exact, the doubles of hi * 2^32 and of lo
+        ; (each equal to both its conversion toward zero and its conversion toward +infinity,
+        ; which agree only where the conversion is exact), and hi * 2^32 + lo = v over 66 bits.
+        ; Then d = dh + dl is IEEE 754's addition of two exact values, the rounding to nearest
+        ; of their exact sum v, which is (double) v: that last step is the definition of the
+        ; addition, not a check.
+        ;
+        ; L2F rests on Boldo and Melquiond, "Emulation of a FMA and correctly-rounded sums:
+        ; proved algorithms using rounding to odd", IEEE Transactions on Computers 57(4), 2008,
+        ; Theorem 3 (To_Odd_Even_is_Even), read from the authors' HAL deposit inria-00080427v2
+        ; (sql/varka/plans/m8/READING_ROUNDING_TO_ODD.md):
+        ;
+        ;   Assuming p >= 2, k >= 2, and E_e >= 2 + E_w,
+        ;   for all x in R, round_p(odd_{p+k}(x)) = round_p(x).
+        ;
+        ; For m in [2^j, 2^(j+1)), j from 52 to 63, t << 12 is m rounded to odd at j - 11 bits
+        ; (truncated, the sticky bit or-ed into the last kept bit), and p = 24, so k = j - 35 >=
+        ; 17. Since k moves with the binade, the instance is checked per binade, beside the form
+        ; itself per binade, and the sign by the symmetry of rounding to nearest. That k >= 2 is
+        ; the theorem's bound, and not slack in it, is shown on the top binade: rounding to odd at
+        ; 26 bits then to nearest at 24 is one rounding, at 25 bits it is not.
+        ;
+        ; The sat checks: the domain admits Long.MIN_VALUE; the split with MB or the low word's
+        ; magic one higher, or a shift of 31, is wrong; the magic is wrong one past its window at
+        ; either end; L2F without the sticky bit, or as two roundings to nearest, or with a shift
+        ; of 11 (t reaches 2^52) or the small arm up to 2^53 (m meets the magic's exponent), is
+        ; wrong. A shift of 13 is still right (k = 16 at 2^52): the theorem's slack, kept as an
+        ; unsat check so that the bound the code sits at is not mistaken for the only one.
+        ;
+        ; The logic is ALL because the file reasons over bit-vectors and floating point. Each
+        ; check runs in a context of its own, after a (reset) that restates the logic and the
+        ; rto definitions, rather than between push and pop: once a file pushes, Z3 answers from
+        ; its incremental core, where a single 64-bit fp.sub costs seconds and four of these
+        ; checks pass the per-check limit, while a context that never pushed bit-blasts each in
+        ; a fraction of a second. Nothing here uses java.smt2, which the reset discards.
+        """);
+    out.append(rendered("ALL"));
+
+    String v = "(declare-const v (_ BitVec 64))";
+    String toDouble = "((_ to_fp 11 53) RNE v)";
+    String hiDecl = "(declare-const hi (_ BitVec 32))";
+    String dh = "(fp.mul RNE (fp.sub RNE (rto.bitsToDouble (bvadd ((_ sign_extend 32) hi) "
+        + bv64(mb) + ")) rto.M) rto.P32)";
+    String hiShifted = "(concat hi #x00000000)";
+    fresh(out, "l2d split: dh is exact, the double of hi * 2^32, for every int hi", "unsat",
+        List.of(hiDecl, "(assert (not (and (= " + dh + " ((_ to_fp 11 53) RTZ " + hiShifted
+            + ")) (= " + dh + " ((_ to_fp 11 53) RTP " + hiShifted + ")))))"));
+    String loDecl = "(declare-const lo (_ BitVec 32))";
+    String lo64 = "((_ zero_extend 32) lo)";
+    String dl = "(fp.sub RNE (rto.bitsToDouble (bvor " + lo64 + " " + bv64(p52) + ")) rto.P52)";
+    fresh(out, "l2d split: dl is exact, the double of lo, for every unsigned int lo", "unsat",
+        List.of(loDecl, "(assert (not (and (= " + dl + " ((_ to_fp_unsigned 11 53) RTZ " + lo64
+            + ")) (= " + dl + " ((_ to_fp_unsigned 11 53) RTP " + lo64 + ")))))"));
+    fresh(out, "l2d split: hi * 2^32 + lo is v for every long, over 66 bits", "unsat",
+        List.of(v, "(assert (not (= ((_ sign_extend 2) v) " + splitSum(32) + ")))"));
+    fresh(out, "l2d split: the domain admits Long.MIN_VALUE, whose hi is -2^31", "sat",
+        List.of(v, "(assert (= v " + bv64(Long.MIN_VALUE) + "))",
+            "(assert (= (bvashr v " + bv64(32) + ") " + bv64(-(1L << 31)) + "))"));
+    fresh(out, "l2d split: with MB one higher it is not (double) v", "sat",
+        List.of(v, "(assert (not (= " + split(mb + 1, p52) + " " + toDouble + ")))"));
+    fresh(out, "l2d split: with the low word's magic one higher it is not (double) v", "sat",
+        List.of(v, "(assert (not (= " + split(mb, p52 + 1) + " " + toDouble + ")))"));
+    fresh(out, "l2d split: with a shift of 31 the parts do not sum to v", "sat",
+        List.of(v, "(assert (not (= ((_ sign_extend 2) v) " + splitSum(31) + ")))"));
+
+    String magic = "(fp.sub RNE (rto.bitsToDouble (bvadd v " + bv64(mb) + ")) rto.M)";
+    fresh(out, "l2d magic: bitsToDouble(v + MB) - M is (double) v for every |v| <= 2^51",
+        "unsat", List.of(v, "(assert (bvsle v " + bv64(RTO_MAGIC_WINDOW) + "))",
+            "(assert (bvsge v " + bv64(-RTO_MAGIC_WINDOW) + "))",
+            "(assert (not (= " + magic + " " + toDouble + ")))"));
+    fresh(out, "l2d magic: at 2^51 + 1 it is not", "sat", List.of(v,
+        "(assert (= v " + bv64(RTO_MAGIC_WINDOW + 1) + "))",
+        "(assert (not (= " + magic + " " + toDouble + ")))"));
+    fresh(out, "l2d magic: at -(2^51 + 1) it is not", "sat", List.of(v,
+        "(assert (= v " + bv64(-RTO_MAGIC_WINDOW - 1) + "))",
+        "(assert (not (= " + magic + " " + toDouble + ")))"));
+
+    String s = "(bvashr v " + bv64(63) + ")";
+    String mOfV = "(bvsub (bvxor v " + s + ") " + s + ")";
+    String rounded = "((_ to_fp_unsigned 8 24) RNE " + mOfV + ")";
+    fresh(out, "l2f: (float) v is the rounding of m = |v| read unsigned, negated where v < 0, "
+        + "for every long", "unsat", List.of(v, "(assert (not (= ((_ to_fp 8 24) RNE v) (ite (= "
+            + s + " " + bv64(0) + ") " + rounded + " (fp.neg " + rounded + ")))))"));
+    String mDecl = "(declare-const m (_ BitVec 64))";
+    String formIsRounding = "(assert (not (= " + l2fForm(RTO_SHIFT, RTO_SMALL_BITS, true, p52)
+        + " ((_ to_fp_unsigned 8 24) RNE m))))";
+    fresh(out, "l2f: below 2^" + RTO_SMALL_BITS + " the form is the rounding of m", "unsat",
+        List.of(mDecl, "(assert (= " + highBits("m", RTO_SMALL_BITS) + " " + zeros(64
+            - RTO_SMALL_BITS) + "))", formIsRounding));
+    for (int j = RTO_SMALL_BITS; j < 64; j++) {
+      fresh(out, "l2f: for m in [2^" + j + ", 2^" + (j + 1) + ") the form is the rounding of m",
+          "unsat", List.of(mDecl, inBinade("m", j), formIsRounding));
+    }
+    for (int j = RTO_SMALL_BITS; j < 64; j++) {
+      fresh(out, "l2f: Theorem 3 at k = " + (j - RTO_SHIFT + 1 - Float.PRECISION) + ": for m in"
+          + " [2^" + j + ", 2^" + (j + 1) + ") rounding t << " + RTO_SHIFT + " to 24 bits is "
+          + "rounding m", "unsat", List.of(mDecl, inBinade("m", j),
+              "(assert (not (= ((_ to_fp_unsigned 8 24) RNE (bvshl " + toOdd("m", RTO_SHIFT, true)
+                  + " " + bv64(RTO_SHIFT) + ")) ((_ to_fp_unsigned 8 24) RNE m))))"));
+    }
+    fresh(out, "l2f: the domain admits Long.MIN_VALUE, read unsigned as 2^63", "sat",
+        List.of(v, "(assert (= v " + bv64(Long.MIN_VALUE) + "))",
+            "(assert (= " + mOfV + " " + bv64(Long.MIN_VALUE) + "))"));
+    for (int bits : new int[] {Float.PRECISION + 2, Float.PRECISION + 1}) {
+      int shift = 64 - bits;
+      boolean holds = bits >= Float.PRECISION + 2;
+      fresh(out, "l2f: Theorem 3's bound, on [2^63, 2^64): rounding to odd at " + bits
+          + " bits then to nearest at 24 is " + (holds ? "" : "not ") + "one rounding (k = "
+          + (bits - Float.PRECISION) + ")", holds ? "unsat" : "sat",
+          List.of(mDecl, inBinade("m", 63),
+              "(assert (not (= ((_ to_fp_unsigned 8 24) RNE (bvshl " + toOdd("m", shift, true)
+                  + " " + bv64(shift) + ")) ((_ to_fp_unsigned 8 24) RNE m))))"));
+    }
+    fresh(out, "l2f: without the sticky bit the form is not the rounding of m", "sat",
+        List.of(mDecl, inBinade("m", 63), "(assert (not (= " + l2fForm(RTO_SHIFT,
+            RTO_SMALL_BITS, false, p52) + " ((_ to_fp_unsigned 8 24) RNE m))))"));
+    fresh(out, "l2f: two roundings to nearest, to a double then to a float, are not the "
+        + "rounding of m", "sat", List.of(mDecl, inBinade("m", 63),
+            "(assert (not (= ((_ to_fp 8 24) RNE ((_ to_fp_unsigned 11 53) RNE m)) "
+                + "((_ to_fp_unsigned 8 24) RNE m))))"));
+    fresh(out, "l2f: with a shift of " + (RTO_SHIFT - 1) + " the form is wrong on the top "
+        + "binade, where t reaches 2^52", "sat", List.of(mDecl, inBinade("m", 63),
+            "(assert (not (= " + l2fForm(RTO_SHIFT - 1, RTO_SMALL_BITS, true, p52)
+                + " ((_ to_fp_unsigned 8 24) RNE m))))"));
+    fresh(out, "l2f: with the small arm up to 2^" + (RTO_SMALL_BITS + 1) + " the form is wrong "
+        + "there", "sat", List.of(mDecl, "(assert (= " + highBits("m", RTO_SMALL_BITS + 1) + " "
+            + zeros(64 - RTO_SMALL_BITS - 1) + "))", "(assert (not (= " + l2fForm(RTO_SHIFT,
+                RTO_SMALL_BITS + 1, true, p52) + " ((_ to_fp_unsigned 8 24) RNE m))))"));
+    fresh(out, "l2f: the theorem's slack: with a shift of " + (RTO_SHIFT + 1) + " the form is "
+        + "still right on [2^" + RTO_SMALL_BITS + ", 2^" + (RTO_SMALL_BITS + 1) + ")", "unsat",
+        List.of(mDecl, inBinade("m", RTO_SMALL_BITS), "(assert (not (= " + l2fForm(RTO_SHIFT + 1,
+            RTO_SMALL_BITS, true, p52) + " ((_ to_fp_unsigned 8 24) RNE m))))"));
+    return out.toString();
+  }
+
+  /**
+   * A check in a context of its own: {@code (reset)}, the logic and {@link #RTO_DEFS}, then the
+   * body, in place of {@link #check}'s {@code push} and {@code pop}. Z3 takes its incremental core
+   * once a file pushes, where one 64-bit {@code fp.sub} costs it seconds; a context that never
+   * pushed bit-blasts the same check in a fraction of one (VARKA-343.md 3.3).
+   */
+  private static void fresh(StringBuilder out, String what, String expect, List<String> body) {
+    out.append("\n(echo \"").append(what).append(": expect ").append(expect).append("\")\n");
+    out.append("(reset)\n(set-logic ALL)\n").append(RTO_DEFS).append('\n');
+    for (String line : body) {
+      out.append(line).append('\n');
+    }
+    out.append("(check-sat)\n");
+  }
+
+  /** The split's {@code d = dh + dl} over {@code v}, with its two magic constants' bits. */
+  private static String split(long mb, long loMagic) {
+    return "(fp.add RNE (fp.mul RNE (fp.sub RNE (rto.bitsToDouble (bvadd (bvashr v " + bv64(32)
+        + ") " + bv64(mb) + ")) rto.M) rto.P32) (fp.sub RNE (rto.bitsToDouble (bvor (bvand v "
+        + bv64(0xFFFFFFFFL) + ") " + bv64(loMagic) + ")) rto.P52))";
+  }
+
+  /** {@code (v >> shift) * 2^32 + (v & 0xFFFFFFFF)} over 66 bits, which cannot wrap. */
+  private static String splitSum(int shift) {
+    return "(bvadd (bvshl ((_ sign_extend 2) (bvashr v " + bv64(shift) + ")) (_ bv32 66)) "
+        + "((_ zero_extend 2) (bvand v " + bv64(0xFFFFFFFFL) + ")))";
+  }
+
+  /** {@code m}'s bits from {@code 2^bits} up. */
+  private static String highBits(String m, int bits) {
+    return "((_ extract 63 " + bits + ") " + m + ")";
+  }
+
+  /** A bit-vector literal of {@code n} zero bits. */
+  private static String zeros(int n) {
+    return "#b" + "0".repeat(n);
+  }
+
+  /** {@code m} in {@code [2^j, 2^(j+1))}, by its bits from {@code 2^j} up. */
+  private static String inBinade(String m, int j) {
+    return "(assert (= " + highBits(m, j) + " #b" + "0".repeat(63 - j) + "1))";
+  }
+
+  /** {@code (m >>> shift) | sticky}: {@code m} rounded to odd at the bit {@code 2^shift}. */
+  private static String toOdd(String m, int shift, boolean sticky) {
+    String bit = sticky ? "(ite (= ((_ extract " + (shift - 1) + " 0) " + m + ") " + zeros(shift)
+        + ") " + bv64(0) + " " + bv64(1) + ")" : bv64(0);
+    return "(bvor (bvlshr " + m + " " + bv64(shift) + ") " + bit + ")";
+  }
+
+  /**
+   * The {@code L2F} form's float of the magnitude {@code m}: rounded to odd at {@code 2^shift}
+   * where {@code m >>> small != 0}, converted exactly by the magic, scaled, then {@code D2F}.
+   */
+  private static String l2fForm(int shift, int small, boolean sticky, long p52) {
+    String big = "(not (= " + highBits("m", small) + " " + zeros(64 - small) + "))";
+    String t = "(ite " + big + " " + toOdd("m", shift, sticky) + " m)";
+    String d0 = "(fp.sub RNE (rto.bitsToDouble (bvor " + t + " " + bv64(p52) + ")) rto.P52)";
+    String scale = "((_ to_fp 11 53) " + bv64(Double.doubleToRawLongBits(Math.scalb(1.0, shift)))
+        + ")";
+    return "((_ to_fp 8 24) RNE (ite " + big + " (fp.mul RNE " + d0 + " " + scale + ") " + d0
+        + "))";
   }
 
   // -----------------------------------------------------------------------------------------
