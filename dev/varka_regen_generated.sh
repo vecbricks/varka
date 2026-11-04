@@ -132,3 +132,26 @@ else
   rm -f "$(git rev-parse --git-path varka-regen-owed)"
   echo "varka regen: done; review git diff and commit the regenerated files"
 fi
+# Last, so that only a run whose every step passed writes it: each generated file's blob as the
+# run left it, which pays the branch's change to that file wherever the blob is committed, in any
+# worktree (dev/varka_push_check.py's unregenerated); a width audit skipped on this CPU is not
+# listed. Under a lock of its own (the script takes the heavy slot's lock itself around sbt, so
+# no caller may wrap it in that one) the run appends, drops duplicate lines but the last, and
+# keeps the last 5000, through a temporary file in the shared git dir.
+if [ $all = 1 ]; then
+  marker="$(git rev-parse --path-format=absolute --git-common-dir)/varka-regen-all"
+  (
+    flock 9
+    tmp="$(mktemp "$marker.XXXXXX")"
+    {
+      cat "$marker" 2>/dev/null || true
+      for f in $files; do
+        if [ $audit_skipped = 1 ] && [ "$f" = sql/varka/width_audit.json ]; then continue; fi
+        if [ -f "$f" ]; then echo "$(git hash-object "$f") $f"; fi
+      done
+    } | tac | awk '!seen[$0]++' | tac | tail -n 5000 > "$tmp"
+    mv "$tmp" "$marker"
+  ) 9> "$marker.lock"
+  echo "varka regen: marked the generated files as written; committed unchanged, they pass" \
+    "the push check's R3"
+fi
