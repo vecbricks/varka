@@ -219,7 +219,7 @@ class VarkaTimeArithmeticSuite extends QueryTest with VarkaMaybeThrows with Vark
   }
 
   test("a session at the default level plans what the JVM's features say") {
-    // VARKA-538 test 3.6, nothing planted: the conf's own default, the real export, the
+    // VARKA-538 test 3.6, nothing planted: the default level -2, the real export, the
     // reflective read and of(conf) on whatever CPU runs the suite - the magic form on an AVX2
     // runner whose long species is 256 bits or more, the conversion form on an AVX-512 one or
     // under -XX:MaxVectorSize=16 - and the answers are the row engine's either way. The suite's

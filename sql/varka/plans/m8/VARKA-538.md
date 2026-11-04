@@ -394,7 +394,9 @@ as `results/VARKA-538-epyc-7763-256bit-results.txt` and `-128bit-results.txt`, e
 | `second` | 41.6 | 4.3 | 73.3 | 141.2 |
 | all three | 40.8 | 4.2 | 75.4 | 138.5 |
 
-The other three row counts (in L3, leaving L3, past L3) read the same within a few percent.
+At the other three row counts (in L3, leaving L3, past L3) the ratios hold; the conversion form's
+`hour` runs 15 to 20% slower beyond L2 and its other extracts at most 9%, the magic forms within
+a few percent.
 
 * **Prediction 1 holds at 256 bits and fails at 128.** At 256 bits the magic form is 10 to 20
   times faster than the conversion form (at least twice, as predicted); at 128 bits it is about
@@ -442,7 +444,9 @@ pass at the defaults, with both bodies checked, as does every sql-module Varka s
 2535 tests); and the four that resolve a level pass under
 `-XX:UseAVX=2`, where the read falls back at 256 bits (as the census suite's fork under that
 flag holds it to) and test 3.6 plans level `2`, and under `-XX:UseAVX=2 -XX:MaxVectorSize=16`,
-where it plans the emitter's default.
+where it plans the emitter's default. The laptop's own flags read AVX512DQ, so at them `-2`
+plans the default: level `2` ran here only under the forced `-XX:UseAVX=2`, and its first run at
+a host's own flags is the PR Build on the EPYC 7763 and the census there.
 
 ## 10. Open points for the lead
 

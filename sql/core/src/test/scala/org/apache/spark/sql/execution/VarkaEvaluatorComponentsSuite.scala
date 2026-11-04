@@ -264,7 +264,7 @@ class VarkaEvaluatorComponentsSuite extends SparkFunSuite {
 
   test("a session's emit settings are bound from its conf once, and lay nothing over the base " +
       "options at the defaults") {
-    // VARKA-308. Catches: a setting the binding forgets to read, a default session that changes
+    // VARKA-308. Catches: a setting the binding forgets to read, a session at -1 that changes
     // the options - which would move every shape key and emitted class - and an explicit false
     // that cannot override a base with the setting on.
     val conf = new SQLConf
