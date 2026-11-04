@@ -84,10 +84,18 @@ SAME_ANSWER_FILES = (
     "VarkaSameAnswerContractSuite.java",
     "VarkaSameAnswerCoreContractSuite.java",
 )
+# Two answers held equal by their bits, by Java's NaN-blind compare, or by a NaN on each side; an
+# operand that is a constant (a sign-of-zero test) or a negated `isNaN` (a guard) is not an answer.
+_ARG = r"\((?:[^()]|\([^()]*\))*\)"
+_BITS = r"(?:[\w.]+\.)?(?:double|float)To(?:Raw)?(?:Long|Int)Bits(?!\(\s*-?[\d.]+[dDfF]?\s*\))"
+_NAN = rf"(?<![!\w.])(?:[\w.]+\.)?(?:isNaN(?:{_ARG})?|nanBits{_ARG}|\w+NaN\b(?!\())"
 NAN_COMPARES = (
-    re.compile(r"(doubleToRawLongBits|floatToRawIntBits)\b.*(==|!=).*\1\b"),
-    re.compile(r"isNaN\b.*&&.*isNaN\b"),
+    re.compile(rf"(?<![\w.]){_BITS}{_ARG}\s*[!=]=\s*{_BITS}(?!\(\s*(Double|Float)\.){_ARG}"),
+    re.compile(rf"\b(?:Double|Float)\.compare{_ARG}\s*[!=]=\s*0\b"),
+    re.compile(rf"{_NAN}\s*&&\s*{_NAN}"),
 )
+_RUN_ON = re.compile(r"(&&|\|\||[!=]=|\(|,)\s*$")
+_RUN_FROM = re.compile(r"\s*(&&|\|\||[!=]=|\.)")
 MATRIX_RUNS = (
     "sql/catalyst/src/test/java/org/apache/spark/sql/catalyst/expressions/codegen/varka/"
     "VarkaMatrixRuns.java"
@@ -527,17 +535,37 @@ def rule_guava(ch):
                 )
 
 
+def expression_runs(text):
+    """Each run of (line number, line) one expression continues across: a line ending in an
+    operator, `(` or `,`, or followed by one opening with an operator or `.`; a comment ends it."""
+    run = []
+    for n, line in enumerate(text.splitlines(), 1):
+        code = not re.match(r"\s*(//|\*|/\*)", line)
+        if run and code and (_RUN_ON.search(run[-1][1]) or _RUN_FROM.match(line)):
+            run.append((n, line))
+            continue
+        if run:
+            yield run
+        run = [(n, line)] if code else []
+    if run:
+        yield run
+
+
 def rule_nan_compare(ch):
     for path in ch.files:
         if not re.search(r"\.(java|scala)$", path) or not is_varka(path):
             continue
         if os.path.basename(path) in SAME_ANSWER_FILES:
             continue
-        for n, line in enumerate(read(path).splitlines(), 1):
-            if any(p.search(line) for p in NAN_COMPARES) and ch.wrote(path, n):
+        for run in expression_runs(read(path)):
+            text = " ".join(line.strip() for _, line in run)
+            # A NaN pair `openNaN` decides is held to VarkaSameAnswer's row level.
+            if "openNaN(" in text or not any(p.search(text) for p in NAN_COMPARES):
+                continue
+            if any(ch.wrote(path, n) for n, _ in run):
                 yield (
-                    f"{path}:{n}: nan-compare: two floating answers compared by their bits or "
-                    "their NaNs; use VarkaSameAnswer at a named level, or register the "
+                    f"{path}:{run[0][0]}: nan-compare: two floating answers compared by their bits "
+                    "or their NaNs; use VarkaSameAnswer at a named level, or register the "
                     "comparator in its contract suites (m8/VARKA-556.md 3.4)"
                 )
 
@@ -789,27 +817,25 @@ def selftest():
             "guava",
             True,
         )
-        case(
-            "two NaNs accepted outside VarkaSameAnswer",
-            {"m/src/test/scala/VarkaY.scala": "ok = a.isNaN && b.isNaN\n"},
-            "nan-compare",
-            True,
-        )
-        case(
-            "raw bits compared inside VarkaSameAnswer",
-            {
-                "m/src/main/java/VarkaSameAnswer.java": "doubleToRawLongBits(a) == "
-                "doubleToRawLongBits(b)\n"
-            },
-            "nan-compare",
-            False,
-        )
-        case(
-            "one value's raw bits read outside it",
-            {"m/src/test/java/VarkaZ.java": "long b = Double.doubleToRawLongBits(a);\n"},
-            "nan-compare",
-            False,
-        )
+        y, same = "m/src/test/java/VarkaY.java", "m/src/main/java/VarkaSameAnswer.java"
+        for path, text, flagged in (
+            ("m/src/test/scala/VarkaY.scala", "ok = a.isNaN && b.isNaN\n", True),
+            (y, "return isNaN(t, want)\n    && isNaN(t, got);\n", True),
+            (y, "if (leftNaN && rightNaN) {\n", True),
+            (y, "Double.isNaN(s.get(L, at))\n    && Double.isNaN(o.get(L, at));\n", True),
+            (y, "s = doubleToRawLongBits(w.get(o))\n    == Double.doubleToRawLongBits(g);\n", True),
+            (y, "ok = a == b || two(r)\n    && nanBits(a, f) && nanBits(b, f);\n", True),
+            (y, "ok = doubleToLongBits(a) == floatToIntBits(b);\n", True),
+            (y, "ok = Double.compare(a, b) == 0;\n", True),
+            (y, "ok = !Double.isNaN(a) && !Double.isNaN(b);\n", False),
+            (y, "ok = isNaN(a) && !isNaN(b);\n", False),
+            (y, "z = doubleToRawLongBits(x) == doubleToRawLongBits(-0.0);\n", False),
+            (y, "z = doubleToRawLongBits(x) != doubleToRawLongBits(Double.NaN);\n", False),
+            (y, "long b = Double.doubleToRawLongBits(a);\n", False),
+            (same, "doubleToRawLongBits(a) == doubleToRawLongBits(b)\n", False),
+            (y, "ok = isNaN(a) && isNaN(b)\n    && oracle.openNaN(0, row);\n", False),
+        ):
+            case(f"nan-compare {flagged}: {text!r}", {path: text}, "nan-compare", flagged)
     if fails == 0:
         print(f"varka_lint selftest: ok ({len(cases)} cases)")
     return fails
