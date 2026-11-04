@@ -105,7 +105,9 @@ import org.apache.spark.sql.VarkaBenchmark;
  * there, and with row 27's boolean output the projected {@code x < y}, so those twelve
  * sections are {@code WHOLE} and time a kernel on the varka on arm. Row 348 fuses the rescaled
  * comparison, {@code -x < y} and {@code abs(x) < y} at both precisions, twelve more
- * {@code WHOLE} sections. Six of the 64-bit sections are {@code NULL_TESTS}: the three
+ * {@code WHOLE} sections. The two TIME producers fuse through the decimal store (VARKA-157), so
+ * their sections, one of each in every density, are {@code WHOLE} too. Six of the 64-bit
+ * sections are {@code NULL_TESTS}: the three
  * arithmetic filters. Spark infers {@code IS NOT NULL} of each column such a filter reads, the
  * reader fuses those null tests as a filter of their own, and Spark's {@code Filter} applies the
  * decimal condition above it, so the varka on arm there times a null-test kernel under the row
@@ -408,7 +410,7 @@ public class VarkaDecimalBaselineBenchmark extends VarkaSqlBenchmarkBase {
       String density = d.words();
       String time = "TIME(" + TIME_PRECISION + ")";
       out.add(new Section("time_to_seconds over " + time + ", " + density,
-          "SELECT time_to_seconds(" + t + ") AS a FROM varka_decimal", Fusion.NONE));
+          "SELECT time_to_seconds(" + t + ") AS a FROM varka_decimal", Fusion.WHOLE));
       out.add(new Section("extract(SECOND) over " + time + ", " + density,
           "SELECT extract(SECOND FROM " + t + ") AS a FROM varka_decimal", Fusion.NONE));
     }
