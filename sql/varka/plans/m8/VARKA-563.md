@@ -65,13 +65,14 @@ nothing, `--no-jvm` runs the rules that need no JVM, and `--self-test` runs the 
 diffs and trees; `dev/varka_precommit.sh --selftest`, which the Build's lint job runs, calls it,
 so no workflow changes.
 
-The pre-push hook runs it only on request: `VARKA_PUSH_CHECK=fast` adds the `--no-jvm` rules,
-`full` everything, for a push of the branch checked out. Unset, a push is as fast as before.
+The pre-push hook runs the `--no-jvm` rules on every push of the branch checked out
+(`VARKA_PUSH_CHECK=fast`, the default, by the owner's word); `full` runs everything, `off` none.
 
 ## 4. Open points for the lead
 
-1. Should `fast` be the hook's default? It costs seconds, and since section 7 it catches all
-   three incidents without a JVM (the table there). Open, for the owner.
+1. **Settled by the owner, 4 November 2026: `fast` is the hook's default.** It costs seconds and,
+   since section 7, catches all three incidents without a JVM; `full` is on request and
+   `VARKA_PUSH_CHECK=off` skips it.
 2. R3's JVM step costs `VarkaEmittedBytesSuite` (445 s of CI weight) on every branch that touches
    a Varka main file. A source stamp in each generated file's header would make staleness a hash
    compare; worth a row? Section 7 sketches it, and says what the reflog signal leaves to it.
