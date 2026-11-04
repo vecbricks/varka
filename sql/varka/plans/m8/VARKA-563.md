@@ -65,7 +65,7 @@ the branch checked out (`VARKA_PUSH_CHECK=fast`); `full` runs everything, `off` 
 4. **Settled by the lead, 4 November 2026: R2 errs toward a false positive**, and
    `VARKA_PUSH_CHECK_SKIP=R2` (rules comma-separated) drops a rule for one push.
 
-**Owed: a follow-up, 563b** (third-round review, 4 November 2026; the reviewer's probe each):
+**Owed: a follow-up row** (third-round review, 4 November 2026; the reviewer's probe each):
 
 - An IR record in another file implementing a sealed interface passes R1: the name filter reads
   only `VarkaVectorIR.java`, and `IMPLEMENTS_IR` misses `implements Chrono`.
