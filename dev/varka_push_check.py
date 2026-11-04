@@ -403,6 +403,9 @@ def plan(repo, args):
     want(chosen, "R2")
     py = [sys.executable, "dev/varka_generated_merge.py"]
     owed = subprocess.run([*py, "--owed"], cwd=repo.root, capture_output=True, text=True)
+    if owed.returncode != 0:
+        tail = (owed.stdout + owed.stderr).strip().splitlines()[-1:] or ["failed"]
+        findings.append(("R3", f"dev/varka_generated_merge.py --owed: {tail[0]}; fix it and rerun"))
     check = subprocess.run([*py, "--check"], cwd=repo.root, capture_output=True, text=True)
     findings += [
         ("R3", f)
