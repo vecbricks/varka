@@ -48,14 +48,17 @@ import org.apache.spark.sql.catalyst.expressions.Expression;
 import org.apache.spark.sql.catalyst.expressions.Multiply;
 import org.apache.spark.sql.catalyst.expressions.NumericEvalContext;
 import org.apache.spark.sql.catalyst.expressions.NumericEvalContext$;
+import org.apache.spark.sql.catalyst.expressions.RuntimeReplaceable;
 import org.apache.spark.sql.catalyst.expressions.Subtract;
 import org.apache.spark.sql.catalyst.expressions.codegen.CompiledVarkaPredicate;
+import org.apache.spark.sql.catalyst.expressions.codegen.CompiledVarkaProjection;
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaConjunctSpec;
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaExpressionCompiler;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LaneType;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LiteralSlot;
 import org.apache.spark.sql.internal.SQLConf;
 import org.apache.spark.sql.internal.SQLConf$;
+import org.apache.spark.sql.types.Decimal;
 import org.apache.spark.sql.types.DecimalType;
 import org.apache.spark.sql.util.ArrowUtils;
 
@@ -151,6 +154,13 @@ public final class VarkaDecimalArithmeticSuite {
               wrong.add(t1 + " " + op.sql + " " + t2 + " is " + spark + " and declines: "
                   + reason);
             }
+            if (fuses) {
+              String reduction = reduction(compile(new EqualTo(e, e), List.of(a, b)).fused(),
+                  spark.precision());
+              if (!reduction.isEmpty()) {
+                wrong.add(t1 + " " + op.sql + " " + t2 + " is " + spark + ": " + reduction);
+              }
+            }
           } else {
             declined++;
             if (fuses || !reason.contains(op.wideRow())) {
@@ -168,6 +178,86 @@ public final class VarkaDecimalArithmeticSuite {
     assertTrue(fused > 0 && declined > 0, counts);
   }
 
+  /**
+   * Where the compiled arithmetic of a result of {@code precision} digits leaves the reduction
+   * decimal64.smt2's lemmas rest on, or empty: each operand of a sum or difference at most
+   * {@code precision - 1} digits after its rescale, and a product's two operands as many between
+   * them. The digits are read from the IR, not from Spark's rule: a column's precision, plus
+   * {@code k} for each multiply by a slot holding {@code 10^k}. A multiply whose right operand is
+   * a slot is read as that rescale and skipped, so "every fused pair" the sweep checks means every
+   * pair of column types, a product by a literal not among them.
+   */
+  private static String reduction(CompiledVarkaProjection fused, int precision) {
+    var nodes = new ArrayList<VarkaVectorIR.IntArith>();
+    for (VarkaVectorIR out : fused.outputs()) {
+      arithmetic(out, nodes);
+    }
+    var found = new ArrayList<String>();
+    int sites = 0;
+    for (VarkaVectorIR.IntArith n : nodes) {
+      boolean rescale = n.op() == VarkaVectorIR.IntOp.MUL && n.right() instanceof LiteralSlot;
+      if (rescale) {
+        continue;
+      }
+      sites++;
+      int left = digits(n.left(), fused.longLiterals());
+      int right = digits(n.right(), fused.longLiterals());
+      int operands = n.op() == VarkaVectorIR.IntOp.MUL ? left + right : Math.max(left, right);
+      if (left < 0 || right < 0) {
+        found.add(n.op() + " over an operand the check cannot read: " + n);
+      } else if (operands > precision - 1) {
+        found.add(n.op() + " over operands of " + left + " and " + right + " digits, past the "
+            + "lemmas' " + (precision - 1));
+      }
+    }
+    if (sites == 0) {
+      found.add("no arithmetic in the IR: " + fused.outputs());
+    }
+    return String.join("; ", found);
+  }
+
+  /** Every {@code IntArith} under {@code node}, found through the records' components. */
+  private static void arithmetic(VarkaVectorIR node, List<VarkaVectorIR.IntArith> into) {
+    if (node instanceof VarkaVectorIR.IntArith a) {
+      into.add(a);
+    }
+    for (var component : node.getClass().getRecordComponents()) {
+      Object child;
+      try {
+        child = component.getAccessor().invoke(node);
+      } catch (ReflectiveOperationException ex) {
+        throw new IllegalStateException(ex);
+      }
+      if (child instanceof VarkaVectorIR c) {
+        arithmetic(c, into);
+      } else if (child instanceof List<?> list) {
+        for (Object item : list) {
+          if (item instanceof VarkaVectorIR c) {
+            arithmetic(c, into);
+          }
+        }
+      }
+    }
+  }
+
+  /** The digits of an unscaled operand as the IR builds it, or -1 for a form it does not. */
+  private static int digits(VarkaVectorIR node, List<Long> literals) {
+    if (node instanceof VarkaVectorIR.DecimalColumn c) {
+      return c.precision();
+    }
+    if (node instanceof VarkaVectorIR.IntArith a && a.op() == VarkaVectorIR.IntOp.MUL
+        && a.right() instanceof LiteralSlot slot) {
+      long factor = literals.get(slot.index());
+      int k = 0;
+      for (long f = factor; f > 1 && f % 10 == 0; f /= 10) {
+        k++;
+      }
+      int inner = digits(a.left(), literals);
+      return factor == Decimal.POW_10()[k] && inner >= 0 ? inner + k : -1;
+    }
+    return -1;
+  }
+
   @Test
   @DisplayName("an operand past 18 digits declines naming rows 359 and 360 under + and -, and "
       + "rows 362 and 363 under *")
@@ -179,6 +269,51 @@ public final class VarkaDecimalArithmeticSuite {
       String want = op == Op.MUL ? "rows 362 and 363" : "rows 359 and 360";
       assertTrue(reason.contains(want), () -> op.sql + " over " + wide + ": " + reason);
     }
+  }
+
+  @Test
+  @DisplayName("a sum past 38 digits declines naming rows 360 and 363 and a product rows 362 and "
+      + "363, and a cast, a negation or a choice over wide values names every one's rows, in "
+      + "either operand order")
+  void wideArithmeticReasons() {
+    var widest = new DecimalType(38, 0);
+    for (Op op : Op.values()) {
+      String reason = declineOf(op, widest, widest);
+      String want = op == Op.MUL ? "rows 362 and 363" : "rows 360 and 363";
+      assertTrue(reason.contains(want), () -> op.sql + ": " + reason);
+    }
+    List<Attribute> columns = List.of(VarkaSqlResolve.column("a", new DecimalType(9, 2)),
+        VarkaSqlResolve.column("b", new DecimalType(9, 2)),
+        VarkaSqlResolve.column("x", new DecimalType(18, 2)),
+        VarkaSqlResolve.column("y", new DecimalType(18, 2)),
+        VarkaSqlResolve.column("c", new DecimalType(9, 1)),
+        VarkaSqlResolve.column("e", new DecimalType(10, 1)),
+        VarkaSqlResolve.column("d", new DecimalType(20, 2)));
+    for (String[] pair : new String[][] {
+        // Each literal is of the node's scale, so that no rescale of it names rows 359 and 360.
+        {"CAST(a * b AS DECIMAL(20, 4)) > 0.0000", "row 361"},
+        {"-(x + y) > 0.00", "row 360"},
+        {"CAST(x + y AS DECIMAL(19, 1)) > 0.0", "rows 350 and 360"},
+        {"CAST(d AS DECIMAL(19, 1)) > 0.0", "rows 350 and 359"},
+        // x is rescaled up into DECIMAL(20, 4), and that reason wins over the product's 361.
+        {"IF(a > b, a * b, x) > 0.0000", "rows 359 and 360"},
+        {"IF(a > b, x + y, x) > 0.00", "rows 359 and 360"},
+        {"COALESCE(d, x + y) > 0.00", "rows 359 and 360"},
+        {"IF(a > b, x + y, c * e) > 0.00", "rows 360 and 361"},
+        {"IF(a > b, c * e, x + y) > 0.00", "rows 360 and 361"}}) {
+      String reason = predicateDecline(pair[0], columns);
+      assertTrue(reason.contains(pair[1]), () -> pair[0] + ": " + reason);
+    }
+    assertEquals(predicateDecline("IF(a > b, x + y, c * e) > 0.00", columns),
+        predicateDecline("IF(a > b, c * e, x + y) > 0.00", columns));
+  }
+
+  /** The decline reason of the one conjunct {@code sql} parses to, or "fused". */
+  private static String predicateDecline(String sql, List<Attribute> columns) {
+    Expression e = VarkaSqlResolve.parse(sql, seq(columns));
+    List<VarkaConjunctSpec> specs = VarkaExpressionCompiler.explainPredicate(e, seq(columns),
+        VarkaMatrixRuns.BASE, VarkaAdmission.NO_HOST_REFUSAL);
+    return specs.get(0).decline().map(d -> d.reason()).orElse("fused");
   }
 
   @Test
@@ -331,7 +466,7 @@ public final class VarkaDecimalArithmeticSuite {
 
   @Test
   @DisplayName("a null test over a sum or a product is null exactly where an operand is, at the "
-      + "operands' bounds too, in TRY mode as in LEGACY")
+      + "operands' bounds too, in the LEGACY, ANSI and TRY modes")
   void nullTestOverArithmetic() {
     var t1 = new DecimalType(8, 2);
     var t2 = new DecimalType(9, 2);
@@ -341,10 +476,16 @@ public final class VarkaDecimalArithmeticSuite {
     long b = 999_999_999L;
     var rows = List.of(new Triple(a, b, 0L), new Triple(-a, b, 0L), new Triple(null, b, 0L),
         new Triple(a, null, 0L), new Triple(null, null, 0L), new Triple(0L, -b, 0L));
-    for (String sql : List.of("try_multiply(a, b) IS NULL", "a * b IS NULL",
-        "try_add(a, b) IS NULL", "a - b IS NOT NULL")) {
-      boolean not = sql.endsWith("NOT NULL");
-      run(sql, columns, rows, r -> (r.a() == null || r.b() == null) != not, null);
+    for (boolean ansi : new boolean[] {false, true}) {
+      for (String sql : List.of("try_multiply(a, b) IS NULL", "a * b IS NULL",
+          "try_add(a, b) IS NULL", "a - b IS NOT NULL")) {
+        boolean not = sql.endsWith("NOT NULL");
+        Expression e = parse(sql, columns, ansi);
+        Enumeration.Value want = sql.startsWith("try_") ? EvalMode$.MODULE$.TRY()
+            : ansi ? EvalMode$.MODULE$.ANSI() : EvalMode$.MODULE$.LEGACY();
+        assertEquals(want, arithmeticMode(e), sql);
+        run(e, sql, columns, rows, r -> (r.a() == null || r.b() == null) != not, null);
+      }
     }
   }
 
@@ -359,7 +500,15 @@ public final class VarkaDecimalArithmeticSuite {
         {"a + b = c", "try_add(a, b) = c"},
         {"a - b = c", "try_subtract(a, b) = c"},
         {"a * b = c", "try_multiply(a, b) = c"}}) {
-      CompiledVarkaPredicate legacy = compile(parse(pair[0], columns, false), columns);
+      Expression legacyTree = parse(pair[0], columns, false);
+      assertEquals(EvalMode$.MODULE$.LEGACY(), arithmeticMode(legacyTree), pair[0]);
+      assertEquals(EvalMode$.MODULE$.ANSI(), arithmeticMode(parse(pair[0], columns, true)),
+          pair[0]);
+      for (boolean ansi : new boolean[] {false, true}) {
+        assertEquals(EvalMode$.MODULE$.TRY(), arithmeticMode(parse(pair[1], columns, ansi)),
+            pair[1]);
+      }
+      CompiledVarkaPredicate legacy = compile(legacyTree, columns);
       for (CompiledVarkaPredicate other : List.of(
           compile(parse(pair[0], columns, true), columns),
           compile(parse(pair[1], columns, false), columns),
@@ -397,6 +546,36 @@ public final class VarkaDecimalArithmeticSuite {
     conf.setConfString(SQLConf.ANSI_ENABLED().key(), Boolean.toString(ansi));
     return SQLConf$.MODULE$.withExistingConf(conf,
         () -> VarkaSqlResolve.parse(sql, seq(columns)));
+  }
+
+  /**
+   * The eval mode of the first {@code +}, {@code -} or {@code *} in {@code e}, read through a
+   * {@code try_} form's replacement as the compiler reads it.
+   */
+  private static Enumeration.Value arithmeticMode(Expression e) {
+    switch (e) {
+      case Add a -> {
+        return a.evalMode();
+      }
+      case Subtract a -> {
+        return a.evalMode();
+      }
+      case Multiply m -> {
+        return m.evalMode();
+      }
+      case RuntimeReplaceable r -> {
+        return arithmeticMode(r.replacement());
+      }
+      default -> {
+        for (Expression child : CollectionConverters.asJava(e.children())) {
+          Enumeration.Value mode = arithmeticMode(child);
+          if (mode != null) {
+            return mode;
+          }
+        }
+        return null;
+      }
+    }
   }
 
   private static String declineOf(Op op, DecimalType t1, DecimalType t2) {
@@ -492,7 +671,12 @@ public final class VarkaDecimalArithmeticSuite {
    */
   private static void run(String sql, List<Attribute> columns, List<Triple> rows, Expect expect,
       Long slot) {
-    Expression e = VarkaSqlResolve.parse(sql, seq(columns));
+    run(VarkaSqlResolve.parse(sql, seq(columns)), sql, columns, rows, expect, slot);
+  }
+
+  /** {@link #run(String, List, List, Expect, Long)} over {@code e}, already parsed. */
+  private static void run(Expression e, String sql, List<Attribute> columns, List<Triple> rows,
+      Expect expect, Long slot) {
     CompiledVarkaPredicate compiled = compile(e, columns);
     var fused = compiled.fused();
     if (slot != null) {

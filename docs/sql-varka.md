@@ -1000,6 +1000,21 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `(-d18) IS NOT NULL` | `predicate` |  | a negation is null where its operand is | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL up to 18 digits), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
 | `CASE WHEN d9 < d9b THEN d9 ELSE d9s4 END > 0.0` | `predicate`, `condition` |  | a choice at DECIMAL(11, 4) under a comparison; the branch of the smaller scale carries its rescale | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL up to 18 digits), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
 
+#### DECIMAL arithmetic
+
+| Predicate | Switches | Domain | Notes | 128-bit lanes |
+|---|---|---|---|---|
+| `d9 + d9b < d18` | `predicate` |  | DECIMAL(10, 2), compared at DECIMAL(18, 2): the sum under the rescale-free cast coercion puts over it | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL up to 18 digits), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
+| `d9 - d8 >= d9b` | `predicate` |  | DECIMAL(10, 2) against DECIMAL(9, 2) | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL up to 18 digits), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
+| `d8 * d9 <= d9b` | `predicate` |  | DECIMAL(18, 4), the widest product of the long lane; d9b is rescaled by 10^2 to meet it | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL up to 18 digits), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
+| `try_add(d9, d9b) > d18` | `predicate` |  | the TRY form is the same kernel: no sum within 18 digits overflows | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL up to 18 digits), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
+| `d9 * 0.5 > d9b` | `predicate` |  | the literal is DECIMAL(1, 1), its unscaled 5 a slot; the product is DECIMAL(11, 3) | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL up to 18 digits), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
+| `d9 + 1.5 < d9b` | `predicate` |  | the literal is rescaled to the sum's scale at compile time | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL up to 18 digits), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
+| `d9 - d9s4 > 0.00` | `predicate` |  | DECIMAL(12, 4): d9 is rescaled by 10^2 before the subtract | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL up to 18 digits), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
+| `d9 + d16s9 > d9s4` | `predicate` |  | DECIMAL(17, 9): a rescale of 10^7 under the add | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL up to 18 digits), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
+| `-(d9 + d9b) = d9s4` | `predicate` |  | the negation of a sum, compared at DECIMAL(12, 4) | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL up to 18 digits), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
+| `try_multiply(d8, d9) IS NULL` | `predicate` |  | null only where an operand is: no product within 18 digits overflows, so TRY's null past the precision never fires | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL up to 18 digits), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
+
 #### Time arithmetic
 
 | Expression | Switches | Domain | Notes | 128-bit lanes |
@@ -1039,7 +1054,7 @@ operands (a row counts once for each type it reads):
 | `bool` | 32 | 0 | 0 | 13 | 0 | 19 |
 | `byte` | 33 | 0 | 0 | 0 | 8 | 25 |
 | `date` | 102 | 17 | 0 | 1 | 0 | 84 |
-| `dec` | 30 | 12 | 0 | 0 | 0 | 18 |
+| `dec` | 40 | 22 | 0 | 0 | 0 | 18 |
 | `double` | 54 | 0 | 0 | 0 | 0 | 54 |
 | `dt` | 25 | 2 | 0 | 0 | 0 | 23 |
 | `float` | 44 | 0 | 0 | 0 | 0 | 44 |

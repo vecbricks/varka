@@ -218,7 +218,13 @@ with it.
 | `CheckOverflow` to a smaller scale | 350 |
 | `CheckOverflow` above precision 18 | 359 and 360 |
 | an integral operand (`CAST(i AS DECIMAL(10, 0))`) | 350; a `BIGINT`'s `(20, 0)` widens the node past 18 digits, which names the wide operand's rows above |
+| a cast, a negation, a choice or a pick over a sum or product above 18 digits | the node's row (360 or 361 and above), or only 359 and 360 where a rescale into the wide type is needed, that reason winning over the arithmetic rows (`IF(p, a * b, x)` with `a`, `b` at `(9, 2)` and `x` at `(18, 2)` rescales `x` into `(20, 4)` and names no 361); over several wide values, the union of their rows in ascending order (a wide value with no arithmetic under it names 359, so `IF(a > b, x + y, x)` names 359 and 360, as `COALESCE(d20s2, x + y)` does), with 350 for a cast that lowers the scale or the integral digits, beside 359 where nothing arithmetic is under it (`CAST(d20 AS DECIMAL(19, 1))`) |
 | `/`, `div`, `try_divide` over decimals | the owner's decision of 14 October 2026 |
+
+A cast that lowers the scale or the integral digits over a wide value is owed a home: row 364's
+plan claims every rescale down into a wider type and every cast from 128 bits down to 64
+(`VARKA-364.md` 0), so row 364 decides between rows 350 and 364, and the decline text names 350
+until it does.
 
 ### 2.7 At 128 bits, the compiler, the reference
 
@@ -364,7 +370,7 @@ own regenerated files.
 | part | what | depends on | lines |
 |---|---|---|---|
 | 349a1 | the arms of 2.2 and 2.3 in `VarkaDecimalCompiler`, `try_` forms read through their replacement, the declines naming rows 359 to 363, the null test over a sum, a difference and a product; `VarkaDecimalArithmeticSuite`'s type-rule sweep, edges, samples and one tree in every mode; the baseline's three filters fusing whole; the census notes; this table | 348a3 | 999 |
-| 349a2 | the sweep's check of the lemmas' reduction from the IR; the `+`, `-` and `*` lemmas in `decimal64.smt2`; the "DECIMAL arithmetic" coverage family over a new `d8`, each row refined in `refinement.smt2`, and `STANDARD.md`'s sentence; the one-kernel bytes test; the IR fuzzer's sum, difference and product; the outcome | 349a1 | 593 |
+| 349a2 | the sweep's check of the lemmas' reduction from the IR; the `+`, `-` and `*` lemmas in `decimal64.smt2`; the "DECIMAL arithmetic" coverage family over a new `d8`, each row refined in `refinement.smt2`, and `STANDARD.md`'s sentence; the one-kernel bytes test; the IR fuzzer's sum, difference and product; the outcome | 349a1 | 761 |
 
 349c, the values, still follows 157. A part over the cap is split again before it is pushed,
 never merged over it.
@@ -528,3 +534,168 @@ aggregate's update expression, with no `Project` pulled out; `d8 + d9` as a grou
 pulled into a `ProjectExec` (349c's projection, after 157); and `WHERE d8 * d9 > 0` (X5) reaches
 a `FilterExec`, of which Varka fuses today only the null tests, leaving the multiply in a row
 filter above its `VarkaFilterColumnarToRow`, the one tree that differs with Varka off.
+
+### 10.2 Step 3: 349a, the arithmetic
+
+*1 November 2026, on branch `varka-349-arith` from row 348a's foundation commit (`c96259f3825`,
+`Scaled`, `value()`, `rescale` and `decimal64.smt2`), with this plan's branch merged in, and
+`varka-348-conditions` merged again at `6643a4f6765` for 348a's negation, null tests over values,
+`d9s4` and `d16s9` fixtures and refinement section.*
+
+**What was built.** `VarkaDecimalCompiler.value()` gains three arms and an unwrap: `Add` and
+`Subtract` rescale both operands to the result's scale `S` with 348's `rescale` and build one
+`IntArith(ADD | SUB, WRAP)`; `Multiply` builds one `IntArith(MUL, WRAP)` over the unscaled values,
+with no rescale; a `RuntimeReplaceable` is read through its replacement, so `try_add`,
+`try_subtract` and `try_multiply` reach the same arms as `Add`, `Subtract` and `Multiply` in TRY
+mode. The result's `Scaled` type is the node's own `dataType()`, Spark's `resultDecimalType`; the
+compiler recomputes the exact precision only to decide and to name the decline: past 18 digits a
+sum or difference declines naming row 360 (360 and 363 past 38), a product row 361 (362 and 363
+past 38), an operand past 18 digits rows 359 and 360 under `+` and `-` and rows 362 and 363 under
+`*`, and a node typed other than Spark's rule within 18 digits, which no analysed tree holds,
+declines rather than computing at a type it does not have. A two-literal tree folds to its
+constant. The arms are reached only through `value()`, so they fuse under a comparison, the only
+decimal consumer before row 157's store; `VarkaNodeCompiler` gains no arm.
+
+**Tests.** `VarkaDecimalArithmeticSuite` (JUnit) holds the decision to Spark's own result type
+over every pair of operand types with `1 <= p <= 18` and `0 <= s <= p`, 189 types and 35721 pairs
+per operator, and checks on every fused pair the reduction the lemmas below rest on; runs kernels
+over the edges of section 3 item 2 and over 40 random fused type pairs per operator, at the
+operands' bounds, zero, one and random values, each against `BigDecimal`; checks that the ANSI
+and `try_` forms compile to the LEGACY form's tree, and runs `IS NULL` and `IS NOT NULL` over a
+sum, a difference and a product, which `value()`'s companion `valid()` reads as the AND of the
+operands' validity. The IR fuzzer's decimal sequence (348's, its own seed, so no pinned shape moves)
+draws a sum, a difference and a product wherever their digits stay within 18, and its reach test
+asserts all three are drawn. `VarkaEmittedBytesSuite`'s new test compiles
+each "DECIMAL arithmetic" coverage row in six spellings (ANSI off and on, precision loss on and
+off, each also with every decimal operator in TRY mode) and asserts one set of method hashes at
+both widths.
+
+**Proofs.** `decimal64.smt2` gains, in `VarkaProofFiles.decimal64Arithmetic`: per result
+precision `P` from 2 to 18, `+` and `-` of operands within `P - 1` digits exact and within `P`
+digits, with a `sat` witness that operands of `P` digits leave the type; per operand precision
+pair with `p1 + p2 <= 17`, the product bounded by `10^(p1 + p2) - 1` (the ring layer, a product of
+two unknowns with constant bounds); per `n` from 2 to 17, any integer within `10^n - 1` its own
+wrap and within `n + 1` digits (the wrap layer, linear); and a `sat` witness that two ten-digit
+operands' product can wrap. With the high review's neighbours (*3 November 2026*: `a - b` leaving
+the type at `P = 18`, one less than the product's largest value at `p1 = 8, p2 = 9` refuted, and
+the wrap's identity holding within `Long.MAX_VALUE` and failing one past it), `decimal64.smt2`
+holds 554 checks, 208 of them this row's. Before the four, on the laptop Z3 held its 550 in 0.14 s
+and cvc5 in 1.72 s, against 0.15 s and 0.47 s for 348's 346 checks; with the four, after the
+replay onto master (*4 November 2026*), Z3 held the 554 in 0.21 s and cvc5 in 1.84 s.
+`refinement.smt2` gains a section beside 348a's that refines each coverage row below whole, its
+comparison included, through the five queries in Spark mode ANSI with standard mode (raised past
+the result's precision) and in LEGACY and TRY (null there), the `try_add` row in TRY alone, a
+product's exact value a free `z` bounded by the ring layer. Its 90 checks take the file from 276
+to 366; its 95 before the high review dropped the `try_add` row's ANSI query took it from 3.04 s
+to 3.10 s under Z3 and from 4.55 s to 4.74 s under cvc5 on the laptop.
+
+**Coverage rows.** A "DECIMAL arithmetic" family of ten predicates over 347's and 348's columns
+and a new `d8` (`DECIMAL(8, 2)`, derived from `l2` in the differential's fixture):
+`d9 + d9b < d18`, `d9 - d8 >= d9b`, `d8 * d9 <= d9b`, `try_add(d9, d9b) > d18`,
+`d9 * 0.5 > d9b`, `d9 + 1.5 < d9b`, `d9 - d9s4 > 0.00`, `d9 + d16s9 > d9s4`,
+`-(d9 + d9b) = d9s4` and `try_multiply(d8, d9) IS NULL`, each verified by its refinement.
+
+**Census.** No pair moves (section 6). The notes of `+`, `-`, `*` and their `try_` forms say the
+64-bit form fuses within 18 digits; `mod` and `%` lose 349 with the suggested home row 30,
+`ym_times_num` with 361 and 363, `ym_div_num` passes to 363's claim, and `try_eval` loses 349 with
+the suggested home 350 (section 7). `dt_times_num`, `dt_div_num`, `pmod` and `try_mod` did not
+name 349.
+
+**The specification.** `spec/STANDARD.md` 4.1 gains, after 348's sentence on the value of a
+`DECIMAL`, the result scales of `+`, `-` and `*` from SQL-92 6.12 SR 2 and their exact values,
+which the refinement section restates.
+
+**Test time, on the laptop.** `VarkaDecimalArithmeticSuite` took 4.8 s when first measured, and its
+12 tests since the high review 9.0 s in one run beside other JVMs, the sweep among them; the bytes
+oracle's new test under a second; the IR fuzzer's own JVM ran its decimal sequence's 300 draws in 2
+minutes 47 seconds with the three arithmetic picks, against 348a's 2 minutes 45 seconds for the
+whole suite's JVM, a run each, so no cost is read from the pair.
+
+**Prediction 6, scored.** No existing shape's bytes moved: against 348a's branch the oracle's 22
+changed entries are all `option_arms` digests and nothing was removed. The digests moved with the
+new coverage rows, which each digest covers, and not with a flag, since none was added.
+
+**Left for the merge and for later.**
+
+- `VarkaDecimalBaselineQueriesSuite` on 348's baseline branch states a fusion class per section,
+  and this row's three filters there (`x + y < z`, `x - w > 0`, `x8 * y < z`) are `NULL_TESTS` on
+  the unchanged code; 349a fuses them whole, so whichever of the baseline pull request and 349a
+  merges second moves those three sections to `WHOLE`.
+  *Done 1 November 2026:* the baseline reached this branch with the merge of
+  `varka-348-conditions`, and the three filter sections are `WHOLE` there now.
+- `VarkaConjunctOrder.errorFreeNode` still counts decimal `+`, `-` and `*` as able to raise.
+  Within 18 digits none can, but only a residual conjunct beside a fused one reads it, and the
+  conservative answer orders such a filter as Spark's codegen would; left unchanged.
+
+### Departures (1 November 2026)
+
+- **`d8 * d9 <= d18` cannot fuse.** The product is `DECIMAL(18, 4)` and `d18` is
+  `DECIMAL(18, 2)`, so coercion compares at `DECIMAL(20, 4)` and the cast declines naming 359.
+  Section 3 item 6 checked the arithmetic's result type and not the comparison's common type; the
+  row is `d8 * d9 <= d9b`, compared at `DECIMAL(18, 4)`.
+- **`d9 - d9s4 > 0` compares with `0.00`.** An integral literal is the cast the next bullet
+  describes, so the row's zero is a decimal literal. The row and `-(d9 + d9b) = d9s4` and
+  `try_multiply(d8, d9) IS NULL` came with the second merge of `varka-348-conditions`, which
+  brought `d9s4`, the negation and the null test over a value; `d9 - d8 >= d9b` and
+  `try_add(d9, d9b) > d18`, written before it, stay.
+- **The literal row multiplies by `0.5`, not `3`.** An integral literal reaches the compiler as
+  `CAST(3 AS DECIMAL(1, 0))`, which `value()` folds into a slot, so `d9 * 3 > d9b` fuses; but the
+  census registers the integral-to-decimal cast as row 350's and never fused, and its lint
+  refuses a coverage row that holds one. The row is `d9 * 0.5 > d9b`, and `d9 * 3` waits for 350
+  (section 7 already names 350 for an integral operand).
+- **The refinements are per row, not per operator.** Section 3 item 5 speaks of the arithmetic's
+  refinement rows; 348a refines each of its rows whole, comparison included, and these follow it,
+  so that every row names a refinement under row 490's rule rather than `differential`.
+- **`decimalMulIntInputs` is not built here.** Section 2.3's arm is measured and read in 349c
+  (section 5 item 5); with no reading on the AVX2 runner it would be an option with nothing to
+  decide it, so 349a builds the arithmetic without it and the flag lands with its reading.
+- **The one-kernel test also covers precision loss and lives beside the oracle.** It is a test
+  of `VarkaEmittedBytesSuite` over the family's rows, as section 3 item 3 says; the oracle pins
+  each row once.
+- **A literal operand of `+` or `-` folds in `sum()`, not in `rescale()`.** Section 2.2 and "What
+  was built" above say a literal operand is rescaled at compile time by 348's `rescale`; 348a's
+  review took that branch out of `rescale()`, since a comparison's or a choice's literal folds
+  under coercion's cast before it gets there. An arithmetic operand has no such cast, so the
+  third merge of `varka-348-conditions` (`cd54af3d775`) gave `sum()` its own fold, `atScale`,
+  which takes the literal's unscaled value at the result's scale into one slot. The old branch
+  had also left the literal's own slot in the long table unused; the fold does not, which moved
+  the emitted bytes of `d9 + 1.5 < d9b`.
+- **The 18-digit declines of `+`, `-` and `*` are named in `wideReason`.** 348a's review put one
+  width check at the top of `value()`, ahead of every arm, so the arms' own checks past 18 digits
+  could no longer be reached; the merge moved their reasons, rows 359 to 363 as listed above,
+  into `wideReason`, and the arms keep only the check that a node is typed by Spark's rule.
+
+### The second review of 349a (1 November 2026)
+
+- **One constant fold.** `value()` folded a literal under casts, and `sum()` and `product()`
+  folded a tree of literals; a decimal constant of any shape, Spark's `foldable` (a superset of a
+  literal under casts, since a cast is foldable where its child is), now folds once at the top of
+  `value()`, and `valid()` reads the same test. `atScale` keeps its fold, which takes the
+  operand's value at the result's scale. `emitted_bytes.json` and `coverage.json` did not move;
+  `VarkaDecimalArithmeticSuite` holds `abs(-1.25)` and `1.5 + 2.25` to one slot each.
+- **The type rule is one record**, `ResultType`, read by `sum`, `product` and their wide
+  reasons, and the mistyped check renders the rule's type from its two ints: past 38 digits
+  `DecimalType` throws, which a spied product typed `DECIMAL(10, 0)` over two `DECIMAL(20, 0)`
+  columns, rule 41 digits, now declines instead.
+- The default decline names row 351 and says a quotient or a remainder is no row's in this
+  milestone, and the time compiler's reason for a decimal column as a value names 157 for an
+  output and 350 and 366 for its casts.
+
+### The test-oracle review of 349a (2 November 2026)
+
+- **The type-rule sweep's reduction check read the IR.** The sweep checked that a sum's rescaled
+  operands have at most `P - 1` digits, and a product's two operands as many between them, by
+  recomputing them from Spark's type rule, the formula that gives `P - 1`, so it could not fail.
+  It now compiles every fused pair and reads the digits from the IR: a `DecimalColumn`'s
+  precision plus `k` for each `IntArith(MUL, x, LiteralSlot)` whose slot holds `10^k`, held to
+  `P - 1` at every `ADD`, `SUB` and two-operand `MUL`; a pair whose IR has no such site fails.
+- **Departure: the product's ring layer multiplies two unknowns.** Section 3 item 5 planned the
+  bound on an exact product as an instance of `value_range.smt2`'s multiply lemma over the reals, so
+  that no query multiplies two unknowns. `decimal64.smt2` asks it directly instead, one check per
+  `p1 + p2` below 18 (136 of them) over two unknown `Int`s under `QF_NIA`: `|x| <= m1` and
+  `|y| <= m2` give `|x * y| <= m1 * m2`. Both pinned solvers, Z3 5.1.0 and cvc5 1.4.1, proved the
+  file's 550 checks in under two seconds, before the review's four neighbours. The risk is that
+  nonlinear integer arithmetic has no decision procedure, so a later solver version may answer
+  `unknown`; `dev/varka_prove.sh` fails on any verdict other than the expected one, so that would
+  show as a failed proof, not a silent pass, and the fix is the planned instantiation of the
+  lemma.

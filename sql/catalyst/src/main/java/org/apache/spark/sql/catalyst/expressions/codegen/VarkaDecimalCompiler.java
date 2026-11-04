@@ -93,8 +93,8 @@ import org.apache.spark.sql.types.DecimalType;
  * {@code S} has at most {@code P - 1} digits, so their sum has at most {@code P}; a product of
  * values below {@code 10^p1} and {@code 10^p2} is below {@code 10^(P - 1)}. So Spark's precision
  * check never fires, LEGACY's null, ANSI's raise and TRY's null are dead, and one wrapping long
- * operation, which cannot wrap below {@code 10^18}, is Spark's answer in every mode. A wider
- * result is a decline, never a check.
+ * operation, which cannot wrap below {@code 10^18}, is Spark's answer in every mode
+ * ({@code decimal64.smt2}). A wider result is a decline, never a check.
  *
  * <p>What declines, each naming its row: a type wider than 18 digits (row 359, and row 360 where
  * a rescale is needed); a sum or difference past 18 digits (row 360, and 363 past 38), a product

@@ -31,7 +31,8 @@
     "d18" : "decimal(18,2)",
     "d18b" : "decimal(18,2)",
     "d9s4" : "decimal(9,4)",
-    "d16s9" : "decimal(16,9)"
+    "d16s9" : "decimal(16,9)",
+    "d8" : "decimal(8,2)"
   },
   "expressions" : [ {
     "sql" : "date_add(d, 3)",
@@ -6165,6 +6166,126 @@
     "domain" : "",
     "note" : "a choice at DECIMAL(11, 4) under a comparison; the branch of the smaller scale carries its rescale",
     "verified" : "refinement: CASE WHEN d9 < d9b THEN d9 ELSE d9s4 END > 0.0"
+  }, {
+    "sql" : "d9 + d9b < d18",
+    "executable" : "d9 + d9b < d18",
+    "family" : "DECIMAL arithmetic",
+    "form" : "predicate",
+    "catalyst" : [ "Add", "Cast", "LessThan" ],
+    "casts" : [ "dec>dec:ansi" ],
+    "operands" : [ "Add:dec", "Cast:dec", "LessThan:dec" ],
+    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
+    "domain" : "",
+    "note" : "DECIMAL(10, 2), compared at DECIMAL(18, 2): the sum under the rescale-free cast coercion puts over it",
+    "verified" : "refinement: d9 + d9b < d18"
+  }, {
+    "sql" : "d9 - d8 >= d9b",
+    "executable" : "d9 - d8 >= d9b",
+    "family" : "DECIMAL arithmetic",
+    "form" : "predicate",
+    "catalyst" : [ "Cast", "GreaterThanOrEqual", "Subtract" ],
+    "casts" : [ "dec>dec:ansi" ],
+    "operands" : [ "Cast:dec", "GreaterThanOrEqual:dec", "Subtract:dec" ],
+    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
+    "domain" : "",
+    "note" : "DECIMAL(10, 2) against DECIMAL(9, 2)",
+    "verified" : "refinement: d9 - d8 >= d9b"
+  }, {
+    "sql" : "d8 * d9 <= d9b",
+    "executable" : "d8 * d9 <= d9b",
+    "family" : "DECIMAL arithmetic",
+    "form" : "predicate",
+    "catalyst" : [ "Cast", "LessThanOrEqual", "Multiply" ],
+    "casts" : [ "dec>dec:ansi" ],
+    "operands" : [ "Cast:dec", "LessThanOrEqual:dec", "Multiply:dec" ],
+    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
+    "domain" : "",
+    "note" : "DECIMAL(18, 4), the widest product of the long lane; d9b is rescaled by 10^2 to meet it",
+    "verified" : "refinement: d8 * d9 <= d9b"
+  }, {
+    "sql" : "try_add(d9, d9b) > d18",
+    "executable" : "try_add(d9, d9b) > d18",
+    "family" : "DECIMAL arithmetic",
+    "form" : "predicate",
+    "catalyst" : [ "Add", "Cast", "GreaterThan", "TryAdd" ],
+    "casts" : [ "dec>dec:ansi" ],
+    "operands" : [ "Add:dec", "Cast:dec", "GreaterThan:dec", "TryAdd:dec" ],
+    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
+    "domain" : "",
+    "note" : "the TRY form is the same kernel: no sum within 18 digits overflows",
+    "verified" : "refinement: try_add(d9, d9b) > d18"
+  }, {
+    "sql" : "d9 * 0.5 > d9b",
+    "executable" : "d9 * 0.5 > d9b",
+    "family" : "DECIMAL arithmetic",
+    "form" : "predicate",
+    "catalyst" : [ "Cast", "GreaterThan", "Multiply" ],
+    "casts" : [ "dec>dec:ansi" ],
+    "operands" : [ "Cast:dec", "GreaterThan:dec", "Multiply:dec" ],
+    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
+    "domain" : "",
+    "note" : "the literal is DECIMAL(1, 1), its unscaled 5 a slot; the product is DECIMAL(11, 3)",
+    "verified" : "refinement: d9 * 0.5 > d9b"
+  }, {
+    "sql" : "d9 + 1.5 < d9b",
+    "executable" : "d9 + 1.5 < d9b",
+    "family" : "DECIMAL arithmetic",
+    "form" : "predicate",
+    "catalyst" : [ "Add", "Cast", "LessThan" ],
+    "casts" : [ "dec>dec:ansi" ],
+    "operands" : [ "Add:dec", "Cast:dec", "LessThan:dec" ],
+    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
+    "domain" : "",
+    "note" : "the literal is rescaled to the sum's scale at compile time",
+    "verified" : "refinement: d9 + 1.5 < d9b"
+  }, {
+    "sql" : "d9 - d9s4 > 0.00",
+    "executable" : "d9 - d9s4 > 0.00",
+    "family" : "DECIMAL arithmetic",
+    "form" : "predicate",
+    "catalyst" : [ "Cast", "GreaterThan", "Subtract" ],
+    "casts" : [ "dec>dec:ansi" ],
+    "operands" : [ "Cast:dec", "GreaterThan:dec", "Subtract:dec" ],
+    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
+    "domain" : "",
+    "note" : "DECIMAL(12, 4): d9 is rescaled by 10^2 before the subtract",
+    "verified" : "refinement: d9 - d9s4 > 0.00"
+  }, {
+    "sql" : "d9 + d16s9 > d9s4",
+    "executable" : "d9 + d16s9 > d9s4",
+    "family" : "DECIMAL arithmetic",
+    "form" : "predicate",
+    "catalyst" : [ "Add", "Cast", "GreaterThan" ],
+    "casts" : [ "dec>dec:ansi" ],
+    "operands" : [ "Add:dec", "Cast:dec", "GreaterThan:dec" ],
+    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
+    "domain" : "",
+    "note" : "DECIMAL(17, 9): a rescale of 10^7 under the add",
+    "verified" : "refinement: d9 + d16s9 > d9s4"
+  }, {
+    "sql" : "-(d9 + d9b) = d9s4",
+    "executable" : "-(d9 + d9b) = d9s4",
+    "family" : "DECIMAL arithmetic",
+    "form" : "predicate",
+    "catalyst" : [ "Add", "Cast", "EqualTo", "UnaryMinus" ],
+    "casts" : [ "dec>dec:ansi" ],
+    "operands" : [ "Add:dec", "Cast:dec", "EqualTo:dec", "UnaryMinus:dec" ],
+    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
+    "domain" : "",
+    "note" : "the negation of a sum, compared at DECIMAL(12, 4)",
+    "verified" : "refinement: -(d9 + d9b) = d9s4"
+  }, {
+    "sql" : "try_multiply(d8, d9) IS NULL",
+    "executable" : "try_multiply(d8, d9) IS NULL",
+    "family" : "DECIMAL arithmetic",
+    "form" : "predicate",
+    "catalyst" : [ "IsNull", "Multiply", "TryMultiply" ],
+    "casts" : [ ],
+    "operands" : [ "IsNull:dec", "Multiply:dec", "TryMultiply:dec" ],
+    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
+    "domain" : "",
+    "note" : "null only where an operand is: no product within 18 digits overflows, so TRY's null past the precision never fires",
+    "verified" : "refinement: try_multiply(d8, d9) IS NULL"
   }, {
     "sql" : "t - t2",
     "executable" : "t - t2",

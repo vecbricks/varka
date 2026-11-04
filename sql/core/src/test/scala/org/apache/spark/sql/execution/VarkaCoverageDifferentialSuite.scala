@@ -576,7 +576,7 @@ private object VarkaCoverageDifferentialSuite {
    *
    * The floating columns are derived too (VARKA-341), `floatingColumns` picked by `rid`, null
    * where `d`, `d2`, `i` and `l2` are. The DECIMAL columns are derived from the bigints:
-   * `d9` and `d18` from `l`, `d9b`, `d18b` and `d16s9` from `l2`. `d9s4` is no multiple of
+   * `d9` and `d18` from `l`, `d9b`, `d18b`, `d16s9` and `d8` from `l2`. `d9s4` is no multiple of
    * either, so a comparison that rescales it answers on more than the operands' signs: its
    * unscaled value is the last seven digits of `coalesce(l, l2)` times 100 on an even `rid`,
    * equal to `d9`'s rescaled where `l` is short, and times 50 on an odd one, between `d9`
@@ -615,7 +615,8 @@ private object VarkaCoverageDifferentialSuite {
        |       ${decimal("l", 18)} AS d18,
        |       ${decimal("l2", 18)} AS d18b,
        |       ${decimal(d9s4Unscaled, 9, 4)} AS d9s4,
-       |       ${decimal("l2", 16, 9)} AS d16s9
+       |       ${decimal("l2", 16, 9)} AS d16s9,
+       |       ${decimal("l2", 8)} AS d8
        |FROM VALUES ${withIds.mkString(",\n  ")}
        |AS v(rid, d, d2, i, m, y, mm, l, l2, t, t2, dt, dt2, y1, y2, s1, s2)$where""".stripMargin
   }
