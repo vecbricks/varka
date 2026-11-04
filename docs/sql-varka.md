@@ -945,6 +945,9 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `CASE WHEN f > 1.5F THEN i END` | `predicate`, `condition` |  | the float condition crossed to the int values' lane | vector |
 | `IF(i > 3, x, x2)` | `predicate`, `condition` |  | the int condition crossed up to the double values by its word | per-lane: blend, mask broadcast, load or store, mask test |
 | `CASE WHEN x > 1.5D THEN i END` | `predicate`, `condition` |  | a 64-bit mask's word read by the int species | per-lane: compare to mask, mask cast, mask logic, mask broadcast, load or store |
+| `IF(l > 5, f, f2)` | `predicate`, `condition`, `intArithmetic` |  | the long condition crossed down to the float values by its word | per-lane: compare to mask, mask cast, mask broadcast, load or store |
+| `IF(b, x, x2)` | `condition` |  | the boolean column relabelled to the double values' lane | per-lane: blend, mask broadcast |
+| `CASE WHEN b THEN f ELSE f2 END` | `condition` |  | the float twin | vector |
 | `IF(NOT (x > 1.5D OR f > 1.5F), i, 7)` | `predicate`, `condition` |  | NOT and OR at the double lane, then down | per-lane: compare to mask, mask cast, mask logic, mask broadcast, load or store |
 | `CASE WHEN f > 1.5F AND i > 3 THEN i END` | `predicate`, `condition` |  | a mixed AND at the int lane, as a guard | vector |
 | `CAST((f > 1.5F AND i > 3) AS INT)` | `predicate`, `integralCast` |  | the mixed AND as its one or zero | vector |
@@ -1032,15 +1035,15 @@ operands (a row counts once for each type it reads):
 <!-- BEGIN generated verification counts -->
 | Type | Rows | refinement | proof | exhaustive | owed | differential |
 | :--- | ---: | ---: | ---: | ---: | ---: | ---: |
-| `bigint` | 68 | 0 | 2 | 0 | 2 | 64 |
-| `bool` | 30 | 0 | 0 | 13 | 0 | 17 |
+| `bigint` | 69 | 0 | 2 | 0 | 2 | 65 |
+| `bool` | 32 | 0 | 0 | 13 | 0 | 19 |
 | `byte` | 33 | 0 | 0 | 0 | 8 | 25 |
 | `date` | 102 | 17 | 0 | 1 | 0 | 84 |
-| `dec` | 26 | 9 | 0 | 0 | 0 | 17 |
-| `double` | 53 | 0 | 0 | 0 | 0 | 53 |
+| `dec` | 30 | 12 | 0 | 0 | 0 | 18 |
+| `double` | 54 | 0 | 0 | 0 | 0 | 54 |
 | `dt` | 25 | 2 | 0 | 0 | 0 | 23 |
-| `float` | 42 | 0 | 0 | 0 | 0 | 42 |
-| `int` | 121 | 14 | 2 | 0 | 1 | 104 |
+| `float` | 44 | 0 | 0 | 0 | 0 | 44 |
+| `int` | 122 | 14 | 2 | 0 | 1 | 105 |
 | `ntz` | 24 | 0 | 1 | 0 | 0 | 23 |
 | `short` | 31 | 0 | 0 | 0 | 8 | 23 |
 | `time` | 41 | 6 | 0 | 0 | 2 | 33 |

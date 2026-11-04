@@ -5638,6 +5638,42 @@
     "note" : "a 64-bit mask's word read by the int species",
     "verified" : "differential"
   }, {
+    "sql" : "IF(l > 5, f, f2)",
+    "executable" : "IF(l > 5, f, f2)",
+    "family" : "Floating casts",
+    "form" : "projection",
+    "catalyst" : [ "Cast", "GreaterThan", "If" ],
+    "casts" : [ "int>bigint:ansi" ],
+    "operands" : [ "Cast:int", "GreaterThan:bigint", "If:float" ],
+    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled", "spark.sql.codegen.varka.family.condition.enabled", "spark.sql.codegen.varka.family.intArithmetic.enabled" ],
+    "domain" : "",
+    "note" : "the long condition crossed down to the float values by its word",
+    "verified" : "differential"
+  }, {
+    "sql" : "IF(b, x, x2)",
+    "executable" : "IF(b, x, x2)",
+    "family" : "Floating casts",
+    "form" : "projection",
+    "catalyst" : [ "If" ],
+    "casts" : [ ],
+    "operands" : [ "If:bool", "If:double" ],
+    "switches" : [ "spark.sql.codegen.varka.family.condition.enabled" ],
+    "domain" : "",
+    "note" : "the boolean column relabelled to the double values' lane",
+    "verified" : "differential"
+  }, {
+    "sql" : "CASE WHEN b THEN f ELSE f2 END",
+    "executable" : "CASE WHEN b THEN f ELSE f2 END",
+    "family" : "Floating casts",
+    "form" : "projection",
+    "catalyst" : [ "CaseWhen" ],
+    "casts" : [ ],
+    "operands" : [ "CaseWhen:bool", "CaseWhen:float" ],
+    "switches" : [ "spark.sql.codegen.varka.family.condition.enabled" ],
+    "domain" : "",
+    "note" : "the float twin",
+    "verified" : "differential"
+  }, {
     "sql" : "IF(NOT (x > 1.5D OR f > 1.5F), i, 7)",
     "executable" : "IF(NOT (x > 1.5D OR f > 1.5F), i, 7)",
     "family" : "Floating casts",
