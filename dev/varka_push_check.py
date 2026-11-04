@@ -356,9 +356,11 @@ def regen_marker(repo):
     return (lines[0], set(lines[1:])) if lines else ("", set())
 
 
-def first_change(repo, onto, sha, path):
-    """The oldest commit of onto..sha that changes path, the one a rebase text-merged it into."""
-    log = repo.git("log", "--reverse", "--format=%H", f"{onto}..{sha}", "--", path).stdout.split()
+def first_change(repo, onto, sha, path, newest=False):
+    """The oldest commit of onto..sha that changes path, the one a rebase text-merged it into,
+    or with newest the latest, the one a payment rebased with the branch lands on."""
+    order = () if newest else ("--reverse",)
+    log = repo.git("log", *order, "--format=%H", f"{onto}..{sha}", "--", path).stdout.split()
     return log[0] if log else ""
 
 
@@ -384,19 +386,24 @@ def rebase_debt(repo, branch, generated):
     regen_at = max((i for i, s in enumerate(shas) if s == regenerated), default=-1)
     events = {}  # file -> [(commit, its rebase, or "" for a payment)], in the reflog's order
 
+    def latest(path, rev):
+        return next(((c, r) for c, r in reversed(events[path]) if repo.ancestor(c, rev)), None)
+
     def owed_at(path, rev):
-        return next((r for c, r in reversed(events[path]) if repo.ancestor(c, rev)), "")
+        return (latest(path, rev) or ("", ""))[1]
 
     for i, line in enumerate(log[1:], 1):
         sha, _, subject = line.partition(" ")
         before = shas[i - 1]
         onto = REBASED.search(subject)
         if events and (onto or subject.startswith(AMENDED)):
+            # The rewrite carries the file's latest event, a debt or a payment, to its new commits.
             for path in list(events):
-                rebase = owed_at(path, before)
-                carrier = first_change(repo, onto[1], sha, path) if onto else sha
-                if rebase and carrier:
-                    events[path].append((carrier, rebase))
+                event = latest(path, before)
+                rebase = event[1] if event else ""
+                anchor = first_change(repo, onto[1], sha, path, not rebase) if onto else sha
+                if event and anchor:
+                    events[path].append((anchor, rebase))
         if events and COMMITTED.match(subject):
             for path in repo.git("diff", "--name-only", before, sha, "--", *events).stdout.split():
                 events[path].append((sha, ""))
@@ -849,10 +856,13 @@ class SelfTest(unittest.TestCase):
             self.assertEqual(rebase_debt(repo, "topic", gen), {})
             repo.git("reset", "-q", "--hard", tip, check=True)
             self.assertEqual(rebase_debt(repo, "topic", gen), debt)
-            # A payment reset away pays nothing.
+            # A commit pays g.json.
             with open(os.path.join(d, "g.json"), "a", encoding="utf-8") as f:
                 f.write("regenerated\n")
             repo.git("commit", "-q", "-am", "regenerate g", check=True)
+            self.assertEqual(list(rebase_debt(repo, "topic", gen)), ["h.json"])
+            # Reworded, the payment still pays; reset away, it pays nothing.
+            repo.git("commit", "-q", "--amend", "-m", "reworded", check=True)
             self.assertEqual(list(rebase_debt(repo, "topic", gen)), ["h.json"])
             repo.git("reset", "-q", "--hard", "HEAD~1", check=True)
             self.assertEqual(rebase_debt(repo, "topic", gen), debt)
