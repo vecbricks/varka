@@ -335,7 +335,7 @@ def generated_findings(owed, check_rc, check_out):
 
 def regen_marker(repo):
     """The (path, blob) pairs every dev/varka_regen_generated.sh --all wrote, in any worktree:
-    the shared git dir's varka-regen-all, one `blob path` line each (its last 500 kept)."""
+    the shared git dir's varka-regen-all, one `blob path` line each (its last 5000 kept)."""
     common = repo.git("rev-parse", "--path-format=absolute", "--git-common-dir").stdout.strip()
     try:
         with open(os.path.join(common, "varka-regen-all"), encoding="utf-8") as f:
@@ -350,12 +350,21 @@ def unregenerated(repo, generated):
     wrote. git's text merge of a rebase, a cherry-pick or a merge records nothing owed, so a file
     the branch changes is paid only by a run that wrote that very blob: a regeneration commit,
     an amend, a reset or a stacked branch keeping it stays paid, and a later edit, a dropped
-    regeneration or an uncommitted one is owed. A file as the base has it owes nothing."""
+    regeneration or an uncommitted one is owed. A file as the base has it owes nothing. A git
+    call that fails raises RuntimeError, so that R3 fails rather than passes unread."""
     if not generated:
         return []
-    changed = repo.git("diff", "--name-only", "--no-renames", repo.base, "HEAD", "--", *generated)
-    changed = changed.stdout.split()
-    tree = repo.git("ls-tree", "-r", "HEAD", "--", *changed).stdout.splitlines() if changed else []
+
+    def git(*args):
+        done = repo.git(*args)
+        if done.returncode != 0:
+            tail = done.stderr.strip().splitlines()[-1:] or [f"exit {done.returncode}"]
+            raise RuntimeError(f"git {args[0]} failed: {tail[0]}")
+        return done.stdout
+
+    changed = git("diff", "--name-only", "--no-renames", repo.base, "HEAD", "--", *generated)
+    changed = changed.split()
+    tree = git("ls-tree", "-r", "HEAD", "--", *changed).splitlines() if changed else []
     blobs = dict((t.split("\t", 1)[1], t.split()[2]) for t in tree)
     paid = regen_marker(repo)
     return [p for p in changed if (p, blobs.get(p)) not in paid]
@@ -402,7 +411,15 @@ def plan(repo, args):
         )
     ]
     listed = subprocess.run([*py, "--list"], cwd=repo.root, capture_output=True, text=True)
-    owed = unregenerated(repo, set(listed.stdout.split()))
+    generated = set(listed.stdout.split())
+    try:
+        if listed.returncode != 0:
+            tail = (listed.stdout + listed.stderr).strip().splitlines()[-1:] or ["failed"]
+            raise RuntimeError(f"dev/varka_generated_merge.py --list: {tail[0]}")
+        owed = unregenerated(repo, generated)
+    except RuntimeError as e:
+        owed = []
+        findings.append(("R3", f"the generated files could not be read, {e}; fix it and rerun"))
     if owed:
         findings.append(
             (
@@ -411,7 +428,7 @@ def plan(repo, args):
                 f"them, so a text merge may have left them stale; run it and commit its files",
             )
         )
-    if touches_generated(changed, set(listed.stdout.split())):
+    if touches_generated(changed, generated):
         names = GENERATED_SUITES + ((AUDIT_SUITE,) if args.full else ())
         tests = repo.tracked(TEST_TREES)
         want(
@@ -792,10 +809,96 @@ class SelfTest(unittest.TestCase):
             repo.git("checkout", "-q", "--detach", "stacked", check=True)
             self.assertEqual(self.owed(repo), [])
 
-    def test_r3_the_regeneration_marker_appends_blobs_and_leaves_a_skipped_audit_out(self):
+    AUDIT = "sql/varka/width_audit.json"
+
+    def stub_regen(self, root, listed=None):
+        """The regeneration script over stubs in root: a merge driver whose --list names g.json
+        and the width audit (or runs listed), a census that rewrites g.json if `dirty` exists."""
         script = os.path.join(
             os.path.dirname(os.path.abspath(__file__)), "varka_regen_generated.sh"
         )
+        with open(script, encoding="utf-8") as f:
+            regen = f.read()
+        if listed is None:
+            listed = f"print('g.json\\n{self.AUDIT}')"
+        stubs = {
+            "dev/varka_regen_generated.sh": regen,
+            "dev/varka_generated_merge.py": f"import sys\nif sys.argv[1:] == ['--list']:\n"
+            f"    {listed}\n",
+            "dev/varka_census.py": "import os\n"
+            "if os.path.exists('dirty'):\n"
+            "    open('g.json', 'a').write('rewritten\\n')\n",
+            "build/sbt": "#!/bin/sh\n",
+            self.AUDIT: '{"host": {"cpu": "Audit CPU"}}\n',
+        }
+        for rel, text in stubs.items():
+            os.makedirs(os.path.join(root, os.path.dirname(rel)), exist_ok=True)
+            with open(os.path.join(root, rel), "w", encoding="utf-8") as f:
+                f.write(text)
+            os.chmod(os.path.join(root, rel), 0o755)
+
+    def run_regen(self, repo, root, cpu):
+        """--all in root on a CPU of that name, which must pass."""
+        with open(os.path.join(repo.root, ".git", "cpuinfo"), "w", encoding="utf-8") as f:
+            f.write(f"model name\t: {cpu}\n")
+        env = dict(repo.env, VARKA_CPUINFO=os.path.join(repo.root, ".git", "cpuinfo"))
+        env["VARKA_HEAVY_LOCK"] = os.path.join(repo.root, ".git", "heavy.lock")
+        cmd = [os.path.join(root, "dev", "varka_regen_generated.sh"), "--all"]
+        run = subprocess.run(cmd, cwd=root, env=env, capture_output=True, text=True)
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+
+    def r3(self, repo):
+        """plan()'s R3 findings over the merge base with master."""
+        repo.base = repo.git("merge-base", "HEAD", "master", check=True).stdout.strip()
+        args = argparse.Namespace(full=False, no_precommit=True, lint=False, no_jvm=True)
+        return [f for rule, f in plan(repo, args)[0] if rule == "R3"]
+
+    def test_r3_the_push_check_owes_an_audit_that_all_skipped_on_another_cpu(self):
+        with tempfile.TemporaryDirectory() as d:
+            repo, _ = self.topic(d)
+            self.stub_regen(d)
+            repo.git("add", ".", check=True)
+            repo.git("commit", "-q", "-m", "stubs", check=True)
+            self.assertEqual(len(self.r3(repo)), 1)
+            self.assertIn("g.json", self.r3(repo)[0])
+            self.run_regen(repo, d, "Another CPU")
+            found = self.r3(repo)
+            self.assertEqual(len(found), 1, found)
+            self.assertIn(f"changes {self.AUDIT}, which no {REGEN}", found[0])
+            self.run_regen(repo, d, "Audit CPU")
+            self.assertEqual(self.r3(repo), [])
+
+    def test_r3_a_failing_list_fails_the_push_check(self):
+        with tempfile.TemporaryDirectory() as d:
+            repo, _ = self.topic(d)
+            self.stub_regen(d, listed="sys.exit('no driver list')")
+            found = self.r3(repo)
+            self.assertEqual(len(found), 1, found)
+            self.assertIn("--list: no driver list", found[0])
+            repo.base = "no-such-rev"
+            with self.assertRaisesRegex(RuntimeError, "git diff failed"):
+                unregenerated(repo, {"g.json"})
+
+    def test_r3_the_marker_keeps_each_line_once_at_its_last_place_and_its_last_5000(self):
+        with tempfile.TemporaryDirectory() as d:
+            repo, _ = self.topic(d)
+            self.stub_regen(d)
+            g = f"{repo.git('hash-object', 'g.json').stdout.strip()} g.json"
+            marker = os.path.join(d, ".git", "varka-regen-all")
+            with open(marker, "w", encoding="utf-8") as f:
+                f.write("".join(f"{i:040x} old{i}\n" for i in range(6000)) + f"{g}\n")
+                f.write(f"{g}\n{0:040x} old0\n")
+            self.run_regen(repo, d, "Audit CPU")
+            self.run_regen(repo, d, "Audit CPU")
+            with open(marker, encoding="utf-8") as f:
+                lines = f.read().splitlines()
+            self.assertEqual(len(lines), 5000)
+            self.assertEqual(len(set(lines)), 5000)
+            self.assertEqual(lines[-2], g)
+            self.assertEqual(lines[-3], f"{0:040x} old0")
+            self.assertEqual(lines[0], f"{1003:040x} old1003")
+
+    def test_r3_the_regeneration_marker_appends_blobs_and_leaves_a_skipped_audit_out(self):
         with tempfile.TemporaryDirectory() as d, tempfile.TemporaryDirectory() as e:
             repo, _ = self.topic(d)
             # Run in a second worktree, so that the marker is read back from the shared git dir.
@@ -803,24 +906,8 @@ class SelfTest(unittest.TestCase):
             repo.git("worktree", "add", "-q", "--detach", wt, check=True)
             other = Repo(wt, "master")
             other.env = repo.env
-            audit = "sql/varka/width_audit.json"
-            with open(script, encoding="utf-8") as f:
-                regen = f.read()
-            stubs = {
-                "dev/varka_regen_generated.sh": regen,
-                "dev/varka_generated_merge.py": f"import sys\nif sys.argv[1:] == ['--list']:\n"
-                f"    print('g.json\\n{audit}')\n",
-                "dev/varka_census.py": "import os\n"
-                "if os.path.exists('dirty'):\n"
-                "    open('g.json', 'a').write('rewritten\\n')\n",
-                "build/sbt": "#!/bin/sh\n",
-                audit: '{"host": {"cpu": "Audit CPU"}}\n',
-            }
-            for rel, text in stubs.items():
-                os.makedirs(os.path.join(wt, os.path.dirname(rel)), exist_ok=True)
-                with open(os.path.join(wt, rel), "w", encoding="utf-8") as f:
-                    f.write(text)
-                os.chmod(os.path.join(wt, rel), 0o755)
+            audit = self.AUDIT
+            self.stub_regen(wt)
             marker = os.path.join(d, ".git", "varka-regen-all")
             # A rewritten file is listed as the run left it; the last run appends to the first.
             cases = (
@@ -837,13 +924,7 @@ class SelfTest(unittest.TestCase):
                         os.remove(marker)
                 if flag:
                     open(os.path.join(wt, flag), "w").close()
-                with open(os.path.join(e, "cpuinfo"), "w", encoding="utf-8") as f:
-                    f.write(f"model name\t: {cpu}\n")
-                env = dict(repo.env, VARKA_CPUINFO=os.path.join(e, "cpuinfo"))
-                env["VARKA_HEAVY_LOCK"] = os.path.join(e, "heavy.lock")
-                cmd = [os.path.join(wt, "dev", "varka_regen_generated.sh"), "--all"]
-                run = subprocess.run(cmd, cwd=wt, env=env, capture_output=True, text=True)
-                self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+                self.run_regen(repo, wt, cpu)
                 want |= {(p, other.git("hash-object", p).stdout.strip()) for p in listed}
                 self.assertEqual(regen_marker(repo), want, (cpu, flag))
             self.assertEqual(len(want), 3)  # both runs' g.json and the one audit blob
