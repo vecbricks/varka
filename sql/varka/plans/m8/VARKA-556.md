@@ -366,9 +366,10 @@ agrees as any NaN. All of it passes: no Varka answer moved.
 
 **Left for m8's math.** `VarkaSameAnswer`'s `Other` step treats a two-operand math function over
 two column NaNs as fixed, but fdlibm returns `x + y` for NaN operands, an add, so its payload is
-tier-dependent; when m8's math lands on these suites, those nodes are marked either-payload.
+tier-dependent; when m8's math lands on these suites, mark those nodes either-payload.
 
-**Size and tests.** `dev/varka_msg_check.py size --base varka-556-same-answer` reads 995 counted
-lines, 458 of them 556a2's. `dev/varka_matrix.sh --defaults` (the both-bodies check and the
-sanitizer on) over the two contract suites, `VarkaEvaluatorComponentsSuite`,
-`VarkaFloatingLaneSuite` and `VarkaEmitterFloatingArithSuite`: RESULT.
+**Size and tests.** `dev/varka_msg_check.py size --base varka-556-same-answer` reads 996 counted
+lines, 458 of them 556a2's. `dev/varka_matrix.sh --defaults` (both-bodies check, sanitizer on)
+over the two contract suites, `VarkaEvaluatorComponentsSuite`, `VarkaFloatingLaneSuite` and
+`VarkaEmitterFloatingArithSuite`: 205 passed, none failed, one cancelled (the float sweep). The
+run before the review, over 20 suites, passed 2215; no main code has changed since.
