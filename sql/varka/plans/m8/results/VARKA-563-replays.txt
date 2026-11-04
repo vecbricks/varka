@@ -169,3 +169,37 @@ varka push check: to push past a finding judged wrong, VARKA_PUSH_CHECK_SKIP=R2 
 # 4c7fd1c90d8 (343a3b fixed)     fast      0    25  -
 # d83b86566e2, no marker         fast      1    15  R3 (coverage.json, census.tsv, width_audit.json)
 # d83b86566e2, --all's marker    fast      0    15  -
+
+# Fifth round (VARKA-563.md 8, the coarse rule), 4 November 2026, fast only. Script at
+# 5c9967eedcf, run from each scratch worktree (git worktree add --detach) as
+#   python3 /path/to/dev/varka_push_check.py --no-jvm
+# with no --branch, which is gone: every local reflog is read. A "marker C" row writes the git
+# dir's varka-regen-all by hand naming C and the files an --all on C would list; no such run
+# happened on 0c729cce782 or d83b86566e2 (the e14a5c40cc1 and 0a0e82df11f rows mirror the runs
+# that did, which rewrote the files the next commit holds). origin/master has moved to
+# eaf2d7ac3be. All five branch heads were rebased and change generated files, so each owes the
+# files it changes until --all runs on a commit no generated change follows: #1317 and #1338
+# now fail R3 too, and 4c7fd1c90d8 (whose 0c729cce782 regenerated after the rebase) and
+# d83b86566e2 fail without a marker on that commit. These are the rule's accepted false
+# failures, a second --all each.
+#
+# head                           level  exit  secs  failed under
+# #1317 d94ca2ad5a4              fast      1    23  R2, R3 (six files; regenerated, no marker)
+# #1338 7897bd11a2f (343a3b)     fast      1    22  R1, R3 (four files; as 4c7fd1c90d8)
+# #1323 0a0e82df11f (348a2-abs)  fast      1    15  R3 (five files)
+# origin/master eaf2d7ac3be      fast      0     4  -
+# 4c7fd1c90d8, no marker         fast      1    34  R3 (four files)
+# 4c7fd1c90d8, marker e14a5c40cc1 fast     1    32  R3 (the four the run rewrote)
+# 4c7fd1c90d8, marker 0c729cce782 fast     0    30  -
+# d83b86566e2, no marker         fast      1    29  R3 (five files)
+# d83b86566e2, marker 0a0e82df11f fast     1    22  R3 (docs/sql-varka.md, emitted_bytes.json)
+# d83b86566e2, marker d83b86566e2 fast     0    19  -
+
+== fifth round, 0a0e82df11f --no-jvm
+R3: HEAD carries the rebase that made 96d26da9cf0, so a text merge may have left docs/sql-varka.md, sql/varka/coverage.json, sql/varka/emitted_bytes.json, sql/varka/plans/m8/census.tsv, sql/varka/width_audit.json stale; run dev/varka_regen_generated.sh --all on the commit that holds them
+varka push check: FAILED
+
+== fifth round, 4c7fd1c90d8 --no-jvm, no marker
+R1: the IR records CrossLane changed; the registry suites run
+R3: HEAD carries the rebase that made 887caffa08b, so a text merge may have left docs/sql-varka.md, sql/varka/coverage.json, sql/varka/emitted_bytes.json, sql/varka/width_audit.json stale; run dev/varka_regen_generated.sh --all on the commit that holds them
+varka push check: FAILED
