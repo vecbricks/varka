@@ -41,6 +41,10 @@ VARKA-241 added the long lane's division forms, and VARKA-242 the calendar's div
     dev/varka_prove.sh --self-test       # the checker of verdicts, checked
     dev/varka_prove.sh --lint            # as the linters' job runs them
 
+A worktree without its own `target/varka-solvers/` takes the solvers from the machine's shared
+directory, `$VARKA_SOLVERS_DIR` or by default `~/.cache/varka-solvers/`, so one
+`dev/varka_prove.sh --install-shared both` serves every worktree; CI keeps installing per run.
+
 By hand, the prelude goes after the file's `set-logic` line:
 `sed '/^(set-logic/r sql/varka/proofs/java.smt2' sql/varka/proofs/int_mulhi_divide.smt2 | z3 -in`.
 A solver's line numbers count the inserted prelude.
