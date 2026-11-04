@@ -137,8 +137,9 @@ fi
 # Last, so that it marks only a run whose every step passed: the commit the generated files were
 # regenerated on and those the regeneration left as that commit has them, which pays a rebase's
 # text merge of them (dev/varka_push_check.py's rebase_debt). A file it rewrote is not listed,
-# so its commit pays it, nor is a width audit skipped on this CPU, which stays owed. No marker
-# when HEAD moved during the run; it is written whole, through a temporary file.
+# so it stays owed until --all runs again on the commit that holds it, nor is a width audit
+# skipped on this CPU. No marker when HEAD moved during the run; it is written whole, through a
+# temporary file.
 if [ $all = 1 ]; then
   marker="$(git rev-parse --git-path varka-regen-all)"
   if [ "$(git rev-parse HEAD)" != "$start" ]; then
@@ -152,5 +153,9 @@ if [ $all = 1 ]; then
       done
     } > "$marker.tmp"
     mv "$marker.tmp" "$marker"
+    if ! git diff --quiet HEAD -- $files; then
+      echo "varka regen: the marker leaves the rewritten files owed; commit them, then run" \
+        "--all again so that its marker names the commit that holds them"
+    fi
   fi
 fi
