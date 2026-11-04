@@ -357,7 +357,7 @@ replaces the restatement 556a2 carries, which two pull requests would show added
   the six comparators 556 removed; it cannot see `nanAsOne`'s one-column relaxation, a boxed
   `equals`, or a rule behind a helper of another name. Over the tree it finds six expressions, on
   no line a commit here writes; one accepts any NaN, `VarkaEmitterFloatingArithSuite`'s
-  `nanByNess` acceptance of any two NaNs, left as it was.
+  `nanByNess`, which the next 556 part moves onto `VarkaSameAnswer`'s `ANY_NAN` (Max, 4 November).
 
 **Where verdicts move** (3.4, 7): a row with two unlike NaN inputs no longer excuses every form
 in `VarkaEmitterFloatingArithSuite`, nor `nanAsOne` every NaN of a column over two operands
