@@ -394,13 +394,13 @@ public final class VarkaSameAnswer {
       if (t instanceof DoubleType) {
         same = Double.doubleToRawLongBits(want.getDouble(o))
             == Double.doubleToRawLongBits(got.getDouble(o))
-            || Double.isNaN(want.getDouble(o)) && Double.isNaN(got.getDouble(o))
-            && open != null && open.test(o);
+            || (Double.isNaN(want.getDouble(o)) && Double.isNaN(got.getDouble(o))
+                && open != null && open.test(o));
       } else if (t instanceof FloatType) {
         same = Float.floatToRawIntBits(want.getFloat(o))
             == Float.floatToRawIntBits(got.getFloat(o))
-            || Float.isNaN(want.getFloat(o)) && Float.isNaN(got.getFloat(o))
-            && open != null && open.test(o);
+            || (Float.isNaN(want.getFloat(o)) && Float.isNaN(got.getFloat(o))
+                && open != null && open.test(o));
       } else if (t instanceof DecimalType d) {
         BigInteger w = unscaledAt(want.getDecimal(o, d.precision(), d.scale()), d);
         same = w != null && w.equals(unscaledAt(got.getDecimal(o, d.precision(), d.scale()), d));
