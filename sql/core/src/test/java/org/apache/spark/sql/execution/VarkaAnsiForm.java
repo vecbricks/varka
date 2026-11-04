@@ -40,6 +40,7 @@ import org.apache.spark.sql.types.ByteType;
 import org.apache.spark.sql.types.DataType;
 import org.apache.spark.sql.types.DateType;
 import org.apache.spark.sql.types.DayTimeIntervalType;
+import org.apache.spark.sql.types.DecimalType;
 import org.apache.spark.sql.types.DoubleType;
 import org.apache.spark.sql.types.FloatType;
 import org.apache.spark.sql.types.IntegerType;
@@ -142,6 +143,9 @@ public final class VarkaAnsiForm {
         return Optional.of(ym.startField() == YearMonthIntervalType.YEAR() ? "ymy" : "ymm");
       }
       return Optional.of("ym");
+    } else if (t instanceof DecimalType) {
+      // The fixture has no column of every decimal type; a typed null stands in (VARKA-157).
+      return Optional.of("CAST(NULL AS " + t.sql() + ")");
     }
     return Optional.empty();
   }
@@ -281,12 +285,15 @@ public final class VarkaAnsiForm {
     for (String sql : List.of("CAST(l AS TINYINT)", "CAST(l AS SMALLINT)")) {
       out.put(sql + "\t" + COALESCE_TAIL, narrowChoice);
     }
-    // A TIME function's decimal fuses only as an output root; under a CASE it is an operand,
-    // row 348's, and the fixture has no column of its DECIMAL type for the other arm (VARKA-157).
-    String decimalOperand = "a TIME function's decimal fuses only as an output root; as a CASE "
-        + "arm it is an operand, row 348's (VARKA-157.md 2.1)";
+    // A TIME function's decimal fuses only as an output root; in a CASE arm or a comparison it
+    // is an operand, which row 348 consumes (VARKA-157.md 2.1). The COALESCE form fuses: the
+    // optimizer drops the typed null standing in for its first argument.
+    String decimalOperand = "a TIME function's decimal fuses only as an output root; anywhere "
+        + "else it is an operand, row 348's (VARKA-157.md 2.1)";
     for (String sql : List.of("time_to_seconds(t)", "extract(SECOND FROM t)")) {
-      out.put(sql + "\t" + CASE_ARM, decimalOperand);
+      for (String position : List.of(CASE_ARM, FALSE_AND)) {
+        out.put(sql + "\t" + position, decimalOperand);
+      }
     }
     return Map.copyOf(out);
   }
