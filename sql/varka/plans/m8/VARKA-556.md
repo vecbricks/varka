@@ -325,61 +325,50 @@ null over stale bits (an `UnsafeRow`) and `BOOLEAN` values. Dropped from 3.3, wi
   pair would test one no caller hands over.
 - *A bit output's data bit under a clear validity bit, and a selection bitmap*: those are compared
   as bits by `compareBodies` and by `VarkaKernelChecks`' selection check, outside
-  `VarkaSameAnswer`, which the catalyst tree cannot register; the sql/core twin (556b) can.
+  `VarkaSameAnswer`; `VarkaEvaluatorComponentsSuite` holds both (11), not the twin.
 - *The `nanvl` pair over the IR*: Varka does not lower `nanvl`, and the shape written for it was
   invented; the expression pair stays.
 
 ## 11. Outcome of 556b (4 November 2026, branch `varka-556b-twin`)
 
-**Built**, stacked on 556a with 556a2's two commits folded in (below):
+**Built**, stacked on 556a with 556a2's two commits folded in: the twin runs 556a2's table and
+replaces the restatement 556a2 carries, which two pull requests would show added, then deleted.
 
-- *The sql/core twin*, `VarkaSameAnswerCoreContractSuite`, runs the catalyst suite's table
-  against the comparators only sql/core reaches, each called as it runs:
-  `VarkaKernelRunner.compareBodies` at `TYPE`, over one-row Arrow outputs built from Spark's
-  field for the pair's type, with the width and the floating flag the evaluator gives them
-  (`VarkaKernelRunner.outputWidth` and `floatingOutput`, moved out of `VarkaEvaluatorBase` for
-  it); `VarkaExpressionHarness.sameRow` at `EXACT` and, with `unfixedNaN`, at `ROW`; Spark's
-  `checkAnswer` row comparison (`QueryTest.sameRows`) at `ANY_NAN`, registered and left as 9.2
-  settled; and `VarkaSparkFuzz`'s `Row.toString` at `ANY_NAN`, its decimal pairs not its own,
-  since a collected row carries a decimal at its type's scale (3.4's scale caveat). The catalyst
-  suite's restatement of `compareBodies`' rule is deleted; the table's `ANY_NAN` verdict is the
-  type level's, as the two differ only on an output that carries no NaN.
-- *The suite-local rules* (rule 7) are row-level calls: `VarkaEmitterFloatingArithSuite` asks
-  `VarkaSparkOracle.openNaN`, `VarkaSameAnswer.openNaN` over the expression the oracle
-  evaluates, where `twoUnlikeNaNs` asked whether the row held two unlike NaN inputs; and
-  `VarkaFloatingLaneSuite`'s arithmetic forms are held by `VarkaSameAnswer.sameRow`, the open
-  columns read off the row engine's optimized projection bound to the rows its child reads, where
-  `nanAsOne` relaxed every NaN in the first `relaxed` columns.
-- *The lint rule*, `nan-compare` in `dev/varka_lint.py`: a written line of Varka code that holds
-  two floating answers equal by their raw bits, or accepts `isNaN(a) && isNaN(b)`, outside
-  `VarkaSameAnswer` and the two contract suites. Over the whole tree it finds two lines, neither a
-  comparator (a data generator's choice in `VarkaEmitterFloatingArithSuite` and a planted answer
-  in `VarkaCoverageHarnessSuite`), and since it reads only the lines a commit writes, neither is
-  reported.
+- *The sql/core twin*, `VarkaSameAnswerCoreContractSuite`, holds the table against the
+  comparators only sql/core reaches: `VarkaKernelRunner.compareBodies` at `TYPE`, over one-row
+  Arrow outputs built from Spark's field for the pair's type, with the evaluator's width and
+  floating flag (`VarkaKernelRunner.outputWidth` and `floatingOutput`, moved out of
+  `VarkaEvaluatorBase`; public, as `VarkaKernelRunner` is in `execution.varka` and both callers
+  in `execution`); `VarkaExpressionHarness.sameRow` at `EXACT` and, with `unfixedNaN`, at `ROW`;
+  `checkAnswer`'s `QueryTest.sameRows` at `ANY_NAN` (9.2); and `VarkaSparkFuzz`'s `Row.toString`
+  at `ANY_NAN`, decimals apart (a collected row carries its type's scale). Every pair but the four
+  decimals the type cannot hold reaches `compareBodies`, two of them disagreeing at the type's
+  scale (`1.50` against `1.51`, and a `DECIMAL(38,4)` apart only in its high 8 bytes). One
+  null-free row is a batch the running check skips (`dense && len == 1`); a nullable batch (a null
+  input's row skipped) and a selection bitmap are a two-row case in `VarkaEvaluatorComponentsSuite`
+  beside its bit output under a clear validity bit, so the twin adds neither pair.
+- *The suite-local rules* (rule 7) are row-level calls: `VarkaSparkOracle.openNaN` in
+  `VarkaEmitterFloatingArithSuite` for `twoUnlikeNaNs`, and `VarkaSameAnswer.sameRow` over the
+  row engine's optimized projection in `VarkaFloatingLaneSuite` for `nanAsOne`.
+- *The lint rule*, `nan-compare` in `dev/varka_lint.py`, reads an expression across its
+  continuation lines, outside `VarkaSameAnswer` and the contract suites: two answers' bits
+  compared (raw or canonical; a constant operand is a sign test), `Double.compare(a, b) == 0`, or
+  two un-negated NaN tests joined by `&&`, unless `openNaN` decides the pair. It catches five of
+  the six comparators 556 removed; it cannot see `nanAsOne`'s one-column relaxation, a boxed
+  `equals`, or a rule behind a helper of another name. Over the tree it finds six expressions, on
+  no line a commit here writes; one is a comparator, `VarkaEmitterFloatingArithSuite`'s
+  `nanByNess` acceptance of any two NaNs, left as it was.
 
-**Why 556a2 is folded in.** The twin runs 556a2's table, so 556b could not stand on 556a alone,
-and the restatement 556a2 carries is the line the twin replaces; one pull request shows the
-table, its real both-bodies entry and the restatement's removal together, where two would show
-a placeholder and then its deletion. Measured with `dev/varka_msg_check.py size --base
-varka-556-same-answer`: 958 counted lines with this section, 458 of them 556a2's. 556b's own
-500 are about twice 6's 250: the twin is 214 (6 said 100), the lint rule and its self-test 50,
-and moving the floating-lane suite onto `sameRow` 75 where dropping `nanAsOne` was assumed.
+**Where verdicts move** (3.4, 7): a row with two unlike NaN inputs no longer excuses every form
+in `VarkaEmitterFloatingArithSuite`, nor `nanAsOne` every NaN of a column over two operands
+(`x1 - x2`, `try_divide(x1, x2)`) in `VarkaFloatingLaneSuite`; only a NaN open by its provenance
+agrees as any NaN. All of it passes: no Varka answer moved.
 
-**Where verdicts move**, each on purpose (3.4, 7):
+**Left for m8's math.** `VarkaSameAnswer`'s `Other` step treats a two-operand math function over
+two column NaNs as fixed, but fdlibm returns `x + y` for NaN operands, an add, so its payload is
+tier-dependent; when m8's math lands on these suites, those nodes are marked either-payload.
 
-1. *`VarkaEmitterFloatingArithSuite`*: a row with two unlike NaN inputs no longer excuses every
-   form over it. A subtraction or a division over two NaNs (10.8), a pick, and a form whose NaN
-   comes from one operand are now held to Spark's bits there; an add or a multiply over two
-   unlike NaNs, and what passes one on, still agree as any NaN.
-2. *`VarkaFloatingLaneSuite`*: `x1 - x2`, `f2 - f1` and `try_divide(x1, x2)`, which `nanAsOne`
-   relaxed as columns over two operands, are held to the row engine's bits, and so is a column
-   whose NaN is fixed on a row where another column's is open. All of it passes: no Varka answer
-   moved under the stricter rule (below).
-3. No other verdict moves: `compareBodies` and the harness are called as before, and the
-   `checkAnswer` suites are unchanged.
-
-**Tested** with `dev/varka_matrix.sh --defaults` (the both-bodies check and the sanitizer on) over
-the two contract suites, `VarkaEmitterFloatingArithSuite`, `VarkaEvaluatorComponentsSuite`,
-`VarkaCoverageHarnessSuite`, `VarkaCoverageDifferentialSuite`, `VarkaFloatingLaneSuite`, the
-differential, parity, store and time harness suites, `VarkaDifferentialSuite` and the nine
-decimal suites: 2215 passed, none failed, one cancelled (the opt-in float operator sweep).
+**Size and tests.** `dev/varka_msg_check.py size --base varka-556-same-answer` reads 999 counted
+lines, 458 of them 556a2's. `dev/varka_matrix.sh --defaults` (the both-bodies check and the
+sanitizer on) over the two contract suites, `VarkaEvaluatorComponentsSuite`,
+`VarkaFloatingLaneSuite` and `VarkaEmitterFloatingArithSuite`: RESULT.

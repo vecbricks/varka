@@ -271,6 +271,7 @@ public final class VarkaSameAnswerContractSuite {
     DecimalType d10 = DataTypes.createDecimalType(10, 2);
     DecimalType d38 = DataTypes.createDecimalType(38, 4);
     t.add(decimal("DECIMAL(10,2) 1.50 against 1.5 carried at scale 1", d10, "1.50", "1.5", true));
+    t.add(decimal("DECIMAL(10,2) 1.50 against 1.51, at the scale", d10, "1.50", "1.51", false));
     t.add(decimal("DECIMAL(10,2) 1.50 against 0.0150, another value", d10, "1.50", "0.0150",
         false));
     t.add(decimal("DECIMAL(10,2) 1.23 against 1.234, which the type cannot hold", d10, "1.23",
@@ -282,6 +283,9 @@ public final class VarkaSameAnswerContractSuite {
         wide + "00", true));
     t.add(decimal("DECIMAL(38,4) against another value of the same digits", d38, wide,
         new BigDecimal(new BigDecimal(wide).unscaledValue(), 6).toPlainString(), false));
+    t.add(decimal("DECIMAL(38,4) against it plus 2^64 unscaled, apart in the high word", d38,
+        wide, new BigDecimal(wide).add(new BigDecimal(2).pow(64).movePointLeft(4)).toString(),
+        false));
     return List.copyOf(t);
   }
 

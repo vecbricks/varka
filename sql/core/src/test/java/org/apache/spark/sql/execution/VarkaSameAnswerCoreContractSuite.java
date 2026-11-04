@@ -16,6 +16,7 @@
  */
 package org.apache.spark.sql.execution;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.math.BigDecimal;
@@ -50,10 +51,11 @@ import org.apache.spark.sql.util.ArrowUtils;
 
 /**
  * The sql/core twin of {@link VarkaSameAnswerContractSuite} (VARKA-556): the same table of
- * tricky pairs, held against the comparators only sql/core reaches, each called as it runs. The
- * both-bodies check is {@link VarkaKernelRunner#compareBodies} itself, over one-row Arrow outputs
- * built from Spark's field for the pair's type, with the width and the floating flag the
- * evaluator gives them, so its {@code TYPE} verdict is the main code's and not a restatement.
+ * tricky pairs, held against the comparators only sql/core reaches. The both-bodies check is
+ * {@link VarkaKernelRunner#compareBodies} itself, over one-row Arrow outputs built from Spark's
+ * field for the pair's type, with the evaluator's width and floating flag, so its {@code TYPE}
+ * verdict is the main code's; one null-free row is a batch the running check skips, and its
+ * nullable and selection rows are {@code VarkaEvaluatorComponentsSuite}'s.
  * Spark's {@code checkAnswer} is held at {@code ANY_NAN} through its row comparison
  * ({@code QueryTest.sameRows}), the level its suites stay on (section 9.2 of
  * {@code m8/VARKA-556.md}).
@@ -107,7 +109,7 @@ public final class VarkaSameAnswerCoreContractSuite {
     assertTrue(failures.isEmpty(), String.join("\n", failures));
     int size = VarkaSameAnswerContractSuite.pairs().size();
     // The four decimals the type cannot hold are the only pairs no body writes.
-    assertTrue(bodies >= size - 4, "the both-bodies check read too few pairs: " + bodies);
+    assertEquals(size - 4, bodies, "the pairs the both-bodies check read");
     assertTrue(compared > 4 * size, "the comparators read too few pairs: " + compared);
   }
 
@@ -115,11 +117,7 @@ public final class VarkaSameAnswerCoreContractSuite {
   // The both-bodies check over one row of each body's output.
   // ---------------------------------------------------------------------------------------------
 
-  /**
-   * Whether {@link VarkaKernelRunner#compareBodies} accepts the served body's {@code want}
-   * against the other body's {@code got}, one row of a null-free batch; null for a decimal the
-   * output's type cannot hold, which no body writes.
-   */
+  /** Whether compareBodies accepts {@code want} against {@code got}; null where none is written. */
   private static @Nullable Boolean bodiesAgree(Pair p) {
     try (BufferAllocator allocator =
              ArrowUtils.rootAllocator().newChildAllocator("varka-contract", 0, Long.MAX_VALUE);

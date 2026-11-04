@@ -509,4 +509,24 @@ class VarkaEvaluatorComponentsSuite extends SparkFunSuite {
       arena.close()
     }
   }
+
+  test("the both-bodies check skips a row with a null input and reads a selection's bits") {
+    // A nullable batch of two rows, its input null on row 0, where both bodies differ on a long
+    // output and on a selection bitmap (no data, width 0); row 1 is compared on both.
+    val arena = Arena.ofConfined()
+    try {
+      def seg(rows: Long*): Long = arena.allocateFrom(ValueLayout.JAVA_LONG, rows: _*).address()
+      def check(sel: Long): Unit = {
+        VarkaKernelRunner.compareBodies("shape", 2, false, Array(seg(2, 0)), Array(1),
+          Array(8, 0), Array(false, false),
+          new VarkaKernelRunner.BodyOutputs(Array(seg(5, 7), 0L), Array(seg(3, 0), seg(3, 0))),
+          new VarkaKernelRunner.BodyOutputs(Array(seg(6, 7), 0L), Array(seg(2, 0), seg(sel, 0))))
+      }
+      check(sel = 2)
+      val e = intercept[IllegalStateException](check(sel = 1))
+      assert(e.getMessage.contains("disagree on output 1 at row 1 of a nullable"), e.getMessage)
+    } finally {
+      arena.close()
+    }
+  }
 }
