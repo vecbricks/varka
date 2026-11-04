@@ -119,10 +119,10 @@ class VarkaLaneTypeSuite extends SparkFunSuite with VarkaTestWatchdog {
     // decimal column, an unscaled long whose constructor refuses the int lane until the int arm
     // of VARKA-347 2.3 is built, the decimal output, which widens a long value into a decimal
     // slot and refuses an int child (VARKA-157), and the conversion, one side of which is
-    // floating (VARKA-343), and the crossing, whose child is a condition of another lane.
+    // floating (VARKA-343).
     assert(everyIntNode.map(_.getClass).toSet + classOf[WidenLane] + classOf[MathUnary] +
-      classOf[DecimalColumn] + classOf[WidenDecimal] + classOf[ConvertLane] + classOf[CrossLane]
-      === concreteNodeTypes(classOf[VarkaVectorIR]))
+      classOf[DecimalColumn] + classOf[WidenDecimal] + classOf[ConvertLane] ===
+      concreteNodeTypes(classOf[VarkaVectorIR]) - classOf[CrossLane]) // its child: another lane
     val doubleCol = new ColumnRef(0, LaneType.DOUBLE)
     assert(new MathUnary(MathFn.SQRT, doubleCol).laneType() === LaneType.DOUBLE)
     everyIntNode.foreach { node =>

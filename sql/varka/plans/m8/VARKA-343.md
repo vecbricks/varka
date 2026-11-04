@@ -612,15 +612,14 @@ Cut from #1303's final tree, without its `BIGINT` conversions (343a4), sweeps an
   removed; `lanesShare` joins `INT`, `FLOAT` and the narrow lanes at `INT` and `LONG` with
   `DOUBLE`. Conditions of the integral kind alone meet as before; prediction 4.1 holds - the
   bytes file gains the new rows' shapes and moves only `option_arms` digests.
-- **Now fused:** a filter's floating conjunct beside an integral one, the optimizer's inferred
-  null tests among them, and the boolean column beside a floating cast's test; a value choice
-  whose condition is of the other kind (below), a `LONG` condition over floating values,
-  `IF(l > 5, f, f2)`, among them; and a boolean column choosing floating values, `IF(b, x, x2)`
-  and `CASE WHEN b THEN f ELSE f2 END`, the column relabelled to the values' lane. Freed from
-  `VarkaAnsiForm.DECLINED`: the six boolean-column positions of `CAST(x AS BOOLEAN)` and
-  `CAST(f AS BOOLEAN)`, and 17 of the 19 floating casts' false-AND positions. *Still declined:*
-  `CAST(y1 AS DOUBLE)` and `CAST(s1 AS DOUBLE)` there, whose inferred narrow null test has no
-  lowering under a double kernel (2.2.1's "still declines").
+- **Now fused:** a filter's floating conjunct beside an integral one, the optimizer's inferred null
+  tests among them, and the boolean column beside a floating cast's test; a value choice whose
+  condition is of the other kind (below), `IF(l > 5, f, f2)`'s `LONG` condition over floating values
+  among them; and a boolean column, relabelled to the values' lane, choosing floating values: `IF(b,
+  x, x2)`, `CASE WHEN b THEN f ELSE f2 END`. Freed from `VarkaAnsiForm.DECLINED`: the six
+  boolean-column positions of `CAST(x AS BOOLEAN)` and `CAST(f AS BOOLEAN)`, and 17 of the 19
+  floating casts' false-AND positions. *Still declined:* `CAST(y1 AS DOUBLE)` and `CAST(s1 AS
+  DOUBLE)` there: their inferred narrow null test has no lowering under a double kernel (2.2.1).
 - **Coverage:** the family "Floating casts as conditions", six rows, and the owed
   `CAST(CAST(l AS INT) AS FLOAT)`, whose false-AND form is served and declines its batch on the
   extremes row, the right side of an AND unqualified like the integral casts' (m9 item 96).

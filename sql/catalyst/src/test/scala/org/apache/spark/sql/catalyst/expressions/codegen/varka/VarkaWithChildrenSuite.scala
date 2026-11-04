@@ -71,10 +71,10 @@ class VarkaWithChildrenSuite extends SparkFunSuite {
     // the committed sequences. `VarkaEmitterFloatingArithSuite` holds it to the reference, and it
     // is rebuilt directly below.
     // No grammar draws the floating conversion (VARKA-343) yet, for the same reason; it is
-    // rebuilt directly below. Nor does one draw the lane crossing, until 343a5.
+    // rebuilt directly below.
     val undrawn = permitted -- seen - "NullSafeEqual" - "BoolColumn" - "CondConst" -
       "BoolCompare" - "CondIf" - "BoolNullSafeEq" - "CondValue" - "BoolOutput" - "DecimalColumn" -
-      "MathUnary" - "ConvertLane" - "CrossLane"
+      "MathUnary" - "ConvertLane" - "CrossLane" // the crossing is drawn from 343a5
     assert(undrawn.isEmpty, s"the grammars never drew: ${undrawn.toSeq.sorted.mkString(", ")}")
   }
 
