@@ -17,11 +17,11 @@
 
 package org.apache.spark.sql.catalyst.expressions.codegen;
 
-import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.TreeSet;
 import java.util.function.BinaryOperator;
 import java.util.regex.Pattern;
@@ -984,17 +984,38 @@ final class VarkaDecimalCompiler {
       return sink.decline("a null decimal literal needs a typed null value, which is row "
           + "333's", e);
     }
-    BigDecimal exact = d.toJavaBigDecimal();
-    long unscaled;
-    try {
-      unscaled = exact.setScale(type.scale()).unscaledValue().longValueExact();
-    } catch (ArithmeticException notExact) {
+    OptionalLong unscaled = exactUnscaled(d, type.scale());
+    if (unscaled.isEmpty()) {
       return sink.decline("a decimal literal with no exact long at the scale", e);
     }
-    long bound = bound(type);
-    if (unscaled > bound || unscaled < -bound) {
+    if (!withinPrecision(unscaled.getAsLong(), type)) {
       return sink.decline("a decimal literal outside its type's precision", e);
     }
-    return Optional.of(new Scaled(sink.longSlot(unscaled), type));
+    return Optional.of(new Scaled(sink.longSlot(unscaled.getAsLong()), type));
+  }
+
+  /**
+   * The unscaled long of {@code d} at {@code type}'s scale, or empty where no value of the type
+   * equals it: its digits do not end within the scale, or it is past the precision. An
+   * {@code IN} element's read (VARKA-348 2.3): {@code setScale} exact, as {@link #literal} reads.
+   */
+  static OptionalLong unscaledAt(Decimal d, DecimalType type) {
+    OptionalLong unscaled = exactUnscaled(d, type.scale());
+    return unscaled.isPresent() && withinPrecision(unscaled.getAsLong(), type) ? unscaled
+        : OptionalLong.empty();
+  }
+
+  private static OptionalLong exactUnscaled(Decimal d, int scale) {
+    try {
+      return OptionalLong.of(
+          d.toJavaBigDecimal().setScale(scale).unscaledValue().longValueExact());
+    } catch (ArithmeticException notExact) {
+      return OptionalLong.empty();
+    }
+  }
+
+  private static boolean withinPrecision(long unscaled, DecimalType type) {
+    long bound = bound(type);
+    return unscaled <= bound && unscaled >= -bound;
   }
 }

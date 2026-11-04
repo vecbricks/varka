@@ -35,7 +35,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.VarkaOutputSpec.{Forwar
 import org.apache.spark.sql.catalyst.parser.CatalystSqlParser
 import org.apache.spark.sql.catalyst.util.DateTimeConstants.{MICROS_PER_DAY, NANOS_PER_DAY, NANOS_PER_MICROS, NANOS_PER_MILLIS}
 import org.apache.spark.sql.internal.SQLConf
-import org.apache.spark.sql.types.{BooleanType, ByteType, DataType, DateType, DayTimeIntervalType, DecimalType, DoubleType, FloatType, IntegerType, LongType, ShortType, TimestampNTZType, TimeType, YearMonthIntervalType}
+import org.apache.spark.sql.types.{BooleanType, ByteType, DataType, DateType, DayTimeIntervalType, Decimal, DecimalType, DoubleType, FloatType, IntegerType, LongType, ShortType, TimestampNTZType, TimeType, YearMonthIntervalType}
 import org.apache.spark.util.Utils
 
 /**
@@ -135,6 +135,11 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
   // DECIMAL(8, 2) (VARKA-349), so that a product with d9 is DECIMAL(18, 4), within the long
   // lane, where d9 * d9b is DECIMAL(19, 4).
   private val d8 = AttributeReference("d8", DecimalType(8, 2))()
+
+  // The InSet row's eleven elements at d18's scale: three the differential fixtures hold, a
+  // negative one among them, and eight more.
+  private val decimalSet = Seq("0.42", "50000000.00", "-50000000.00") ++
+    (1 to 8).map(k => s"$k.0$k")
 
   private val columns: Seq[Attribute] = Seq(d, d2, i, ymm, ymy, ym, l, l2, t, t2, dt, dt2, b, b2,
     y1, y2, s1, s2, ntz, ntz2, x, x2, f, f2, d9, d9b, d18, d18b,
@@ -1078,7 +1083,19 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
         + "ORed, and every leaf's slots checked"),
       Row("(-d18) IS NOT NULL", "a negation is null where its operand is"),
       Row("CASE WHEN d9 < d9b THEN d9 ELSE d9s4 END > 0.0", "a choice at DECIMAL(11, 4) under a "
-        + "comparison; the branch of the smaller scale carries its rescale"))),
+        + "comparison; the branch of the smaller scale carries its rescale"),
+      // IN through the one arm of every lane (VARKA-497), each element its unscaled long at the
+      // value's scale (VARKA-348a4). The short list holds values the differential fixtures hold.
+      Row("d9 IN (0.42, 0.00, -1.25)", "the equality chain of every lane's IN, each literal's "
+        + "unscaled long at the column's scale a slot in the long table"),
+      Row("d9 IN (0.425, 1.5)", "in the analyzed form at DECIMAL(10, 3), the column times 10 "
+        + "against 425 and 1500; the optimizer drops 0.425, which no value of d9 equals, and "
+        + "leaves d9 = 1.50"),
+      Row("d18 IN (11 to 16 decimal literals)",
+        "an IN list this long arrives from the optimizer as an InSet of Decimals, each read at "
+          + "the column's scale",
+        Some(InSet(d18, decimalSet.map(v => Decimal(v).asInstanceOf[Any]).toSet)),
+        Some(decimalSet.mkString("d18 IN (", ", ", ")"))))),
 
     // Decimal +, - and * whose result stays within 18 digits (VARKA-349), under a comparison:
     // a sum or difference is one long add or subtract of the operands rescaled to the result's
@@ -1744,7 +1761,10 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
     "-(d9 + d9b) = d9s4" -> Refined("-(d9 + d9b) = d9s4"),
     "d9 * 0.5 > d9b" -> Refined("d9 * 0.5 > d9b"),
     "d8 * d9 <= d9b" -> Refined("d8 * d9 <= d9b"),
-    "try_multiply(d8, d9) IS NULL" -> Refined("try_multiply(d8, d9) IS NULL"))
+    "try_multiply(d8, d9) IS NULL" -> Refined("try_multiply(d8, d9) IS NULL"),
+    "d9 IN (0.42, 0.00, -1.25)" -> Refined("d9 IN (0.42, 0.00, -1.25)"),
+    "d9 IN (0.425, 1.5)" -> Refined("d9 IN (0.425, 1.5)"),
+    "d18 IN (11 to 16 decimal literals)" -> Refined("d18 IN (11 to 16 decimal literals)"))
 
   private def verifiedOf(family: Family, row: Row): Verified =
     rowVerified.getOrElse(row.sql, familyVerified.getOrElse(family.title, Differential))

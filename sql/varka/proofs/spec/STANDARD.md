@@ -265,6 +265,8 @@ into `InSet` (`In`, `InSet`). SQL-92 8.4 and 8.7.
 **Definition.** True if `x = v` is true for some list element `v`; false if it is false for every
 one; unknown otherwise, which is when no element equals `x` and `x` or some element is null.
 `In` and `InSet` are one operation.
+Over `DECIMAL`, `x = v` is 4.2's comparison of the rationals, so an element no value of `x`'s
+type equals (more digits of scale, or past the precision) is false for every `x`.
 
 **Truncates or floors:** not arithmetic.
 

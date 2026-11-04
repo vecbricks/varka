@@ -20,9 +20,10 @@ package org.apache.spark.sql.catalyst.expressions.codegen.varka
 import org.apache.spark.sql.catalyst.analysis.{SimpleAnalyzer, UnresolvedAttribute}
 import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, AttributeReference,
   BindReferences, Cast, Expression, Literal, NamedExpression}
-import org.apache.spark.sql.catalyst.optimizer.RewriteWithExpression
+import org.apache.spark.sql.catalyst.optimizer.{ConstantFolding, OptimizeIn, RewriteWithExpression,
+  UnwrapCastInBinaryComparison}
 import org.apache.spark.sql.catalyst.parser.CatalystSqlParser
-import org.apache.spark.sql.catalyst.plans.logical.{LocalRelation, Project}
+import org.apache.spark.sql.catalyst.plans.logical.{Filter, LocalRelation, LogicalPlan, Project}
 import org.apache.spark.sql.types.{DataType, DoubleType, FloatType, StringType}
 
 /**
@@ -58,6 +59,20 @@ object VarkaSqlResolve {
    */
   def bind(e: Expression, columns: Seq[Attribute]): Expression =
     BindReferences.bindReference(e, columns)
+
+  /**
+   * The filter condition `e` after the optimizer rules that rewrite an `IN`, in their batch's
+   * order: the literals folded, a cast over the value unwrapped where every literal fits the
+   * value's own type (`UnwrapCastInBinaryComparison`), and a list longer than
+   * `spark.sql.optimizer.inSetConversionThreshold` turned into an `InSet` (`OptimizeIn`).
+   */
+  def optimizeIn(e: Expression, columns: Seq[Attribute]): Expression = {
+    val rules = Seq(ConstantFolding, UnwrapCastInBinaryComparison, ConstantFolding, OptimizeIn)
+    rules.foldLeft[LogicalPlan](Filter(e, LocalRelation(columns)))((p, r) => r(p)) match {
+      case Filter(c, _) => c
+      case other => throw new IllegalStateException(s"not a filter: $other")
+    }
+  }
 
   /**
    * Bind `e` against `columns` and run the analyzer over the result, so operators get the type
