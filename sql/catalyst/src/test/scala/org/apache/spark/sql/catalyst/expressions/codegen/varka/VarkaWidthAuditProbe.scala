@@ -223,7 +223,11 @@ object VarkaWidthAuditProbe {
           (validity.get(ValueLayout.JAVA_BYTE, off) & ~(1 << (r % 8))).toByte)
         nulls += 1
       }
-      val outs = shape.roots.map(_ => arena.allocate(rows * stride, 64))
+      // A decimal output's store writes Arrow's sixteen-byte slot a row (VARKA-157).
+      val outs = shape.roots.map {
+        case _: VarkaVectorIR.WidenDecimal => arena.allocate(rows * 16L, 64)
+        case _ => arena.allocate(rows * stride, 64)
+      }
       val outValidity = shape.roots.map(_ => arena.allocate((rows + 7) / 8L, 8))
       val dstData = shape.roots.zip(outs).map { case (root, o) =>
         if (root.isInstanceOf[Cond]) 0L else o.address()

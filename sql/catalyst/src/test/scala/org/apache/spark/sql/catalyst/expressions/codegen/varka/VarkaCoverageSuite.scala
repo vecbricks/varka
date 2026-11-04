@@ -1829,7 +1829,10 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
     val at = Seq("test(\"" + test, "@DisplayName(\"" + test).map(src.indexOf).filter(_ >= 0).min
     val declaration = src.substring(at, math.min(src.length, at + 600))
     val head = declaration.takeWhile(_ != '{')
-    head.contains("opt-in") || declaration.take(head.length + 300).contains("varka.sweep")
+    // The body ends at the next test's declaration, so an opt-in test just after does not count.
+    val body = declaration.substring(head.length).take(300)
+    val next = Seq("@Test", "test(\"").map(body.indexOf).filter(_ >= 0)
+    head.contains("opt-in") || body.take((next :+ body.length).min).contains("varka.sweep")
   }
 
   /**
