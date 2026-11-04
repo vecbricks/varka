@@ -143,6 +143,61 @@ record names 343a3 when this lands. A narrow column in a 64-bit kernel - `CAST(y
 needs the narrow load at the long width that 332's `CAST(y AS BIGINT)` needs too; the first of the
 two rows to land builds it.
 
+#### 2.2.1 The root-level crossing (part 343a3b, planned 4 November 2026)
+
+343a3 crosses a mask between the kinds inside one root's tree; what it left is the meeting of
+conditions of two kinds, which every connective, boolean choice and filter makes, since `And`,
+`Or`, `CondIf` and `BoolCompare` refuse operands of two lanes. Two designs meet them: one root a
+kind, the filter's clauses ANDing the selection bitmaps after the kernel (`CompiledVarkaPredicate`
+already ANDs a split predicate's clauses), or a crossing inside the kernel. The first leaves the
+connectives and the boolean choices of one tree unserved, needs a second bitmap a batch and a
+split that keeps the kinds apart, and joins cross-width roots that the projection side does not;
+so the crossing is the one built.
+
+- **The node.** `CrossLane(Cond child, LaneType lane)`: the child's three-valued answer read at
+  another lane, refusing a narrow lane and the child's own. In the masked body it is free - the
+  known-true and known-false words are a bit a row whatever the lane, so its words alias the
+  child's, as `Not`'s swap does. In the dense body it is the child's mask as one of the other
+  lane's species: by `VectorMask.cast` between lanes of one width, which have one lane count, and
+  by the word, `toLong` then `fromLong`, between the widths, as `emitToDrivingLane` crosses a
+  32-bit mask to a 64-bit drive (a 32-bit mask's low lanes are the group's rows; a 64-bit mask's
+  word read by a 32-bit species sets only its low half). Neither pair is the one C2 miscompiles,
+  which is `fromLong` of `toLong` at one lane count (VARKA-396). The reference, the range analysis
+  and the cost read it as its child.
+- **Where the compiler crosses.** One meeting rule for a list of conditions, `meetAll` for the
+  connectives and boolean choices and the filter's conjunct fold alike. Conditions of the
+  integral kind alone meet as before (narrow to `INT`, `INT` to `LONG` by `onLongLane`), so no
+  existing shape moves. Where a floating condition is among them, they meet at one lane by the
+  width rule of 2.2 read over the conditions' lanes - `LONG` if one is, else `DOUBLE`, else `INT`,
+  else `FLOAT` - the integral ones lifted among themselves first; each condition still off it is
+  crossed, a boolean column or constant relabelled instead (its bit does not depend on the lane).
+  So `frid < 0 AND CAST(i AS FLOAT) = f2 AND isnotnull(i)` is one `INT` root with the float
+  conjuncts cast across, and `xrid < 0 AND CAST(i AS DOUBLE) = x2 AND isnotnull(i)` one `DOUBLE`
+  root with the int null test crossed by its word. `floatingConjunctRefusal` and its reason go.
+- **The projection's roots.** `lanesShare` joins roots of one width: `INT`, `FLOAT` and the narrow
+  lanes at `INT`, `LONG` and `DOUBLE` at `LONG`. A 32-bit root beside a 64-bit one keeps a kernel
+  of its own, as an `INT` root beside a `LONG` one does (VARKA-480): the store of a 32-bit value
+  from the low half of a 64-bit kernel's species is built only for a narrowing at its store.
+- **The epilogue** needs nothing new: a crossed mask is computed from loads the epilogue already
+  masks, and every store and selection word is truncated to the group's rows.
+- **Still declines:** a value choice whose condition is of the other kind (`CASE WHEN f > 1.5 THEN
+  i END`), since `IfElse` keeps its condition on the values' lane and this part does not cross
+  there; any combination the kernel plan refuses (a narrow node under a `DOUBLE` kernel but a
+  column read as a value, among them a narrow null test there); and on a two-lane x86 host a
+  condition in a 64-bit kernel, by the host refusal (VARKA-503).
+- **Tests:** `VarkaEmitterFloatingCastSuite` holds kernels joining conditions of two kinds - each
+  pair of lanes, both widths, both the cast and the word - to the reference at three widths, the
+  ten lengths, four null patterns and both bodies, and the projection kernels of an `INT` and a
+  `FLOAT` root and a `LONG` and a `DOUBLE` one; the compiler suite states the meeting (one root,
+  where `CrossLane` sits, the relabelled boolean column); coverage rows for the filter forms now
+  fused, `CAST(CAST(l AS INT) AS FLOAT)` among them; the freed `VarkaAnsiForm.DECLINED` entries
+  removed, which the strict check enforces.
+
+*Open points for the lead* (4 November 2026): whether the value choice of the other kind
+(`CASE WHEN f > 1.5 THEN i END`) belongs in this part, which would cross an `IfElse`'s
+condition in the same way; and whether the projection side should join 32-bit and 64-bit roots,
+which needs the 32-bit value store from the low half.
+
 ### 2.3 The lowering per host
 
 | conversion | AVX512DQ (laptop) | AVX2 (EPYC 7763) | NEON and SVE (Neoverse N2) |
@@ -357,7 +412,7 @@ they are upper bounds.
 | 343a1 | `CAST(x AS BOOLEAN)` over a `FLOAT` or `DOUBLE` (2.5): the lane's `EQ` against zero, negated, in the condition compiler; its coverage rows | master | 200 |
 | 343a2 | `ConvertLane` (2.1) with its refusals, the reference's casts and the range analysis, the `convertShape` lowering, and the compiler arm for the one-count pair, `INT` to `FLOAT`; the reference cells and the refusal tests | master | 750 |
 | 343a3 | the kernel of two lane counts (2.2): the width rules in the kernel plan, `Analysis`, `Slots` and the walk, the warm-up blocks, and the pairs it carries, `INT` to `DOUBLE`, `FLOAT` with `DOUBLE`, the narrow sources, a condition as a value and the mixed trees (`x + i`, `f * i`, `f + x`); the three failures #1303's last matrix found are fixed here, the `INTERNAL_ERROR` under `validityByWidth=false` as a defect, not a skip | 343a2 | 950 |
-| 343a3b | the root-level crossing (2.2): roots of two kinds share one kernel (`lanesShare` joins roots of one width), so a filter's floating conjunct beside an integral one - the null test the optimizer infers on a cast's source among them - no longer declines (`floatingConjunctRefusal`), and an integral and a floating output take one kernel; the forms `VarkaAnsiForm.DECLINED` lists for it fuse, and the coverage row `CAST(CAST(l AS INT) AS FLOAT)` is added, whose domain check's filter form needs this join. Added by the owner's word of 3 November 2026, when 343a3 stayed under the cap without it. *Owed by 343a3 (10):* `CompiledVarkaProjection`'s long-literal check plans under `VarkaEmitOptions.DEFAULTS`, so a 128-bit host with `lanesOverride=4` fails `CAST(y1 AS DOUBLE) / 2.0D` with `INTERNAL_ERROR`; check under the session's options, as row 332's load needs too | 343a3 | to be sized |
+| 343a3b | the root-level crossing (2.2): roots of two kinds share one kernel (`lanesShare` joins roots of one width), so a filter's floating conjunct beside an integral one - the null test the optimizer infers on a cast's source among them - no longer declines (`floatingConjunctRefusal`), and an integral and a floating output take one kernel; the forms `VarkaAnsiForm.DECLINED` lists for it fuse, and the coverage row `CAST(CAST(l AS INT) AS FLOAT)` is added, whose domain check's filter form needs this join. Added by the owner's word of 3 November 2026, when 343a3 stayed under the cap without it. *Owed by 343a3 (10):* `CompiledVarkaProjection`'s long-literal check plans under `VarkaEmitOptions.DEFAULTS`, so a 128-bit host with `lanesOverride=4` fails `CAST(y1 AS DOUBLE) / 2.0D` with `INTERNAL_ERROR`; check under the session's options, as row 332's load needs too. *Sized 4 November 2026 (2.2.1):* a `CrossLane` node, the meeting rule and `lanesShare`'s width join, about 600 hand-written lines with the tests; one part | 343a3 | 600 |
 | 343a4 | `BIGINT` to `FLOAT` and `DOUBLE` where the host has AVX512DQ: level 3 resolved from the host, the unknown level declining them, the option matrix's level-3 runs and their Spark check | 343a3b | 450 |
 | 343a5 | the fuzz grammar's conversions, the 2^32 sweeps of 3.1 and the harness check of each fused cast on both lanes | 343a4 | 400 |
 | 343b1 | the paper and the AVX2 forms (2.3, step 4): `L2D` by the exact split, `L2F` by round-to-odd, behind `wideConversionForm`, the SMT claims and the failing case | 343a5 | 900 |
