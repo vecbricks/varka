@@ -128,3 +128,17 @@ R3: HEAD is detached, so no reflog shows a rebase's debt; unchecked, pass --bran
 R2: the document docs/sql-varka.md still holds "CASE WHEN without an ELSE", which sql/catalyst/src/main/java/org/apache/spark/sql/catalyst/expressions/codegen/VarkaConditionCompiler.java no longer says
 varka push check: FAILED
 varka push check: to push past a finding judged wrong, VARKA_PUSH_CHECK_SKIP=R2 (those only) or VARKA_PUSH_CHECK=off (the whole check); git push --no-verify skips the message and line checks too
+
+# Fourth round (the split), 4 November 2026, fast only. Part one, varka-563-push-check at
+# 1dc2a790053, carries R1, R2, R4 and R3's --owed, --check and generated suites; the reflog's
+# rebase debt is the second part's. Run from each scratch worktree as
+#   python3 /path/to/dev/varka_push_check.py --no-jvm
+# Without the second part #1323 passes at fast, its --owed and --check passing; full catches it.
+#
+# head                           level  exit  secs  failed under
+# #1317 d94ca2ad5a4              fast      1    25  R2 (VarkaFilterExecSuite holds the old text)
+# #1338 7897bd11a2f (343a3b)     fast      1    29  R1 (three registries name no CrossLane)
+# #1323 0a0e82df11f (348a2-abs)  fast      0    17  - (the rebase debt is the second part's)
+# origin/master 85eb50e5e60      fast      0     4  -
+# 4c7fd1c90d8 (343a3b fixed)     fast      0    28  -
+# d83b86566e2 (#1323's fix)      fast      0    19  -
