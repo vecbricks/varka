@@ -241,8 +241,16 @@ host. The AVX2 forms live in a
   `m` and `D2F` rounds once; above, `d` is `m` rounded to odd with at least 41 bits kept, and
   `D2F` of it equals one rounding of `m`: round-to-odd at `p` bits then to nearest at `q` bits
   is one rounding to nearest when `p >= q + 2`, here 41 >= 26 (Boldo and Melquiond, IEEE TC
-  2008; the theorem's number and statement are quoted from its transcription, 5 step 4, not
-  from memory). A seeded draw of the whole range agrees with the condition.
+  2008). A seeded draw of the whole range agrees with the condition.
+  *4 November 2026, read from the PDF* (`READING_ROUNDING_TO_ODD.md`; the deposit's terms permit
+  no transcription, 5 step 4): **Theorem 3 (To_Odd_Even_is_Even)**, "Assuming p >= 2, k >= 2,
+  and E_e >= 2 + E_w, for all x in R, round_p(odd_{p+k}(x)) = round_p(x)", the extended format
+  being `(p + k, E_e)` and the working one `(p, E_w)`, `2^-E` a format's smallest positive
+  number. The precision condition is `k >= 2`. Here `p = 24`; for `m` in `[2^j, 2^(j+1))`,
+  `j` from 52 to 63, the 12-bit truncation with its sticky bit is rounding to odd at `j - 11`
+  bits (section III-B's construction), so `k = j - 35 >= 17`; `E_e = 1074 >= 2 + 149`, and the
+  values are integers far from either format's subnormals. Since `k` moves with the binade,
+  3.3's proof states the instance per binade.
 - **`D2L`, assembly** (whole range): from the bits, `e = ((b >>> 52) & 0x7FF) - 1075` and `m =
   (b & 0xFFFFFFFFFFFFF) | 2^52`; the magnitude is `m << e` for `0 <= e <= 10` and `m >>>
   min(-e, 63)` for `e < 0` (the Vector API takes a shift count modulo 64, so the count is clamped);
@@ -478,6 +486,11 @@ The `DATE` pairs follow 333 in either.
    deposit's terms do not permit a copy, the reading notes and the citation instead. The theorem
    the `L2F` form rests on is then quoted, with its number and its precision condition, at 2.3
    and in 3.3's proof file, read from the PDF. Nothing is downloaded before this step.
+   *As built (4 November 2026, 343b1's groundwork):* the HAL deposit (`inria-00080427v2`, the
+   authors' manuscript) carries the HAL Authorisation v1 - read, consult and cite, and ask the
+   author before reproducing - so no transcription is kept: `READING_ROUNDING_TO_ODD.md` holds the
+   reading notes and the citation, and `papers/README.md` says so in a paragraph, with no row in
+   its contents. The theorem is quoted at 2.3 and in `round_to_odd.smt2`'s header.
 5. **Floating to integral** in the three modes (2.4), the `GuardedRange` disposal with it: 342's
    interval forms are unblocked here.
 6. **The booleans** (2.5), and the `DATE` pairs once 333 lands.
@@ -505,7 +518,7 @@ The `DATE` pairs follow 333 in either.
 | `VarkaNodeCompiler.java`, `VarkaTimeCompiler.java` | `floatingDecline`, `time_from_seconds` |
 | `varka/VarkaEmitBudget.java`, `VarkaEmitCostRegister.java` | the conversion features |
 | `sql/varka/proofs/round_to_odd.smt2`, `VarkaProofFiles.java` | 3.3's claims |
-| `sql/varka/papers/boldo-melquiond-2008-rounding-to-odd.md`, its `README.md` | step 4's paper |
+| `READING_ROUNDING_TO_ODD.md`, a paragraph in `papers/README.md` | step 4's paper: notes and the citation, the deposit's terms permitting no transcription (*4 November 2026*; planned as `papers/boldo-melquiond-2008-rounding-to-odd.md`) |
 | tests | sweeps, twins, cells, mixed-width kernels, coverage rows, failing case, fuzz grammar |
 | benchmark | the baseline class, its results files at both widths from the EPYC runners |
 | generated | `coverage.json`, `docs/sql-varka.md`, `width_audit.json`, `emitted_bytes.json` |
