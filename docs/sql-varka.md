@@ -1038,8 +1038,8 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 
 | Expression | Switches | Domain | Notes | 128-bit lanes |
 |---|---|---|---|---|
-| `time_to_seconds(t)` | none |  | a DECIMAL(14, 6), (n + 500) / 1000: the exact quotient by 10^9 rounded half up to six digits, written as the low word and its sign extension | per-lane: compare to mask, mask cast, other, blend |
-| `extract(SECOND FROM t)` | none |  | a DECIMAL(8, 6), s * 10^6 + (n % 10^9) / 1000; Spark rounds a Double back to six digits, which lands on the same value for every (s, g) | per-lane: compare to mask, mask cast, other, blend |
+| `time_to_seconds(t)` | `time` |  | a DECIMAL(14, 6), (n + 500) / 1000: the exact quotient by 10^9 rounded half up to six digits, written as the low word and its sign extension | per-lane: compare to mask, mask cast, other, blend |
+| `extract(SECOND FROM t)` | `time` |  | a DECIMAL(8, 6), s * 10^6 + (n % 10^9) / 1000; Spark rounds a Double back to six digits, which lands on the same value for every (s, g) | per-lane: compare to mask, mask cast, other, blend |
 
 <!-- END generated coverage table -->
 
