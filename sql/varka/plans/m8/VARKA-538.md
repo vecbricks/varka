@@ -413,6 +413,26 @@ The other three row counts (in L3, leaving L3, past L3) read the same within a f
   the default at every width; test 3.6 expects the width-aware level on the running JVM. The
   conf's doc and `docs/sql-varka.md` state the condition.
 
+### 9.4 The flip on master, 4 November 2026
+
+#1255 merged 9.1's first two items and the readers on 1 November 2026, without the flip. Branch
+`varka-538-flip` carries the rest onto master at `85eb50e5e60`: the flip (the default of
+`emit.useAVX` becomes `-2` and test 3.6 runs the conf's own default), 9.3's results and record,
+the width rule of 9.3 and the done-when's width condition. Two conflicts, both with master's
+later work:
+
+* **Row 538's cell**, against the rows added since: master's table with row 538's cell replaced.
+* **Row 503's two-lane default**, which reads the same `VarkaHostIsa.Reading`: its test in
+  `VarkaEvaluatorComponentsSuite` and `VarkaTwoLaneConditionSuite` build readings without the
+  width component, and now pass one. The two-lane answer still takes its lane count from the
+  running JVM's long species, not from the reading's `longBits`, so a planted width moves the
+  level alone. The width test sets the two-lane refusal off, so that its record compares with
+  `DEFAULTS` under `-XX:MaxVectorSize=16` too.
+
+`VarkaTwoLaneDefault128Suite` builds its sessions through `VarkaArrowSessions`, unpinned, so they
+now resolve from the host; its child JVM runs at `-XX:UseAVX=2 -XX:MaxVectorSize=16`, a 128-bit
+long species, where the width rule leaves the emitter's default on every CPU.
+
 ## 10. Open points for the lead
 
 1. **One place for the Varka SQL test sessions' conf.** Settled in 2.2: `TestSQLContext` plus the
