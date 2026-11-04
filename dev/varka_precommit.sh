@@ -425,8 +425,13 @@ if [ "${#py_files[@]}" -gt 0 ]; then
       note "ruff format: $hit would be reformatted; run ruff format on it"
     done < <(ruff format --check "${py_files[@]}" 2>&1 | sed -n 's/^Would reformat: //p')
   else
-    note "ruff not found: CI runs ruff check and ruff format over ${#py_files[@]} Python file(s); \
-install the version dev/lint-python pins"
+    # The pin of dev/requirements.txt, which the lint job of build_and_test.yml installs too;
+    # read here so that the message cannot drift from it.
+    pin="$(grep -m1 '^ruff==' dev/requirements.txt 2> /dev/null || echo ruff)"
+    note "ruff not found on PATH: CI runs ruff check and ruff format over ${#py_files[@]} Python \
+file(s) with $pin (dev/requirements.txt's pin, which the Build's lint job installs); install it \
+into a venv and put its bin on PATH: python3 -m venv ~/.venv-ruff && ~/.venv-ruff/bin/pip install \
+'$pin' && export PATH=~/.venv-ruff/bin:\$PATH"
   fi
 fi
 

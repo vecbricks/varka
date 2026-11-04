@@ -23,22 +23,26 @@
     dev/varka_push_check.py --no-jvm     # the rules that need no JVM
     dev/varka_push_check.py --lint       # add Error Prone, scalastyle and lint-java
     dev/varka_push_check.py --full       # add the width audit, which is one CPU's census
+    dev/varka_push_check.py --branch B   # read B's reflog for its rebases (default HEAD's branch)
     dev/varka_push_check.py --self-test  # each rule over fixture diffs and trees
 
 The rules, each a lesson of a lost CI round (m8/VARKA-563.md 1):
 
   R1  a record of the IR added, removed or with its components changed runs every suite that
-      enumerates node types, found by a grep of the test trees at run time (#1338);
+      enumerates node types, found by a grep of the test trees at run time, and fails at once
+      on a registry whose text names the record nowhere it must (`REGISTRIES`) (#1338);
   R2  a string literal a removed line of a Varka main file held, still in a test, the coverage
       file or the docs, fails at once; the suites holding the old or the new text run (#1317);
-  R3  the generated files: nothing owed by a merge, no coverage row missing, and when a Varka
-      main or generated file changed, their suites run without REGEN variables (#1323);
+  R3  the generated files: nothing owed by a merge, nothing a committed rebase text-merged
+      left unregenerated (the branch's reflog), no coverage row missing, and when a Varka main
+      or generated file changed, their suites run without REGEN variables (#1323);
   R4  the house checks a push owes: the pre-commit rules over the range, the plan lint, the
       quote check, the census check and the size cap.
 
 The suites run in one dev/varka_matrix.sh call, under flock on VARKA_HEAVY_LOCK (default
 ~/proj/.varka-locks/heavy.lock; `none` runs without a lock) with SPARK_LOCAL_IP=127.0.0.1, and a
 failed suite is reported under the rules that chose it. Exit status 1 when a rule failed.
+VARKA_PUSH_CHECK_SKIP=R2 (or "R2,R3") drops a rule's findings, suites and steps for one run.
 """
 
 import argparse
@@ -111,12 +115,15 @@ class Repo:
     tree, which is what the suites run over, read from disk because it is fast."""
 
     def __init__(self, root, base):
-        self.root, self.base = root, base
+        self.root, self.base, self.env = root, base, None
 
     def git(self, *args, check=False):
         return subprocess.run(
-            ["git", *args], cwd=self.root, capture_output=True, text=True, check=check
+            ["git", *args], cwd=self.root, capture_output=True, text=True, check=check, env=self.env
         )
+
+    def ancestor(self, a, b):
+        return self.git("merge-base", "--is-ancestor", a, b).returncode == 0
 
     def diff(self):
         return self.git("diff", "-U0", "--no-renames", "--no-color", self.base, check=True).stdout
@@ -206,6 +213,45 @@ def registry_suites(repo):
     return suites_in(repo, sorted(set(paths) | set(named)))
 
 
+# What a registry the grep finds must say of a record, read as text (comments dropped) so that
+# no JVM is needed: a pattern over the suite and the files it draws from, {n} the record's name.
+# None marks a registry that names no record, enumerating them reflectively; a registry missing
+# here is reported as unchecked, which the JVM run covers. One line a registry.
+BUILT = r"new (?:VarkaVectorIR\.)?{n}\(|\b{n}\.of\("
+TEST_JAVA = "sql/catalyst/src/test/java/org/apache/spark/sql/catalyst/expressions/codegen/varka/"
+REGISTRIES = {
+    "VarkaWithChildrenSuite": ("undrawn entry or draw", r'"{n}"|' + BUILT, ("IrGrammar",)),
+    "VarkaIrFuzzSuite": ("unbuilt entry or draw", r'"{n}"|' + BUILT, ("IrGrammar",)),
+    "VarkaLaneTypeSuite": ('instance recipe (case "{n}")', r'case "{n}"', ()),
+    "VarkaEmitterBudgetSuite": ("register row", BUILT, ()),
+    "VarkaReproductionSuite": ("round trip or NOT_PARSED_YET entry", BUILT + r"|\b{n}\.class", ()),
+    "VarkaEmitCostSuite": ("feature or awaiting-refit entry", r'"{n}["/]', ("EmitCostFit",)),
+    "VarkaVectorIRSharingSuite": None,
+}
+
+
+def registry_findings(repo, names):
+    """(findings, notes): the registries the grep finds that do not name a record of names, and
+    those this check cannot read."""
+    found, notes = [], []
+    for path in repo.files(REGISTRY_PATTERN, TEST_TREES, fixed=False):
+        suite = os.path.basename(path).split(".")[0]
+        if suite not in REGISTRIES:
+            notes.append(f"{path} enumerates node types unread here; unchecked, the JVM run is")
+            continue
+        if REGISTRIES[suite] is None:
+            continue
+        what, pattern, extra = REGISTRIES[suite]
+        texts = [
+            repo.text("HEAD", p) for p in [path] + [f"{TEST_JAVA}Varka{e}.java" for e in extra]
+        ]
+        text = COMMENT.sub(" ", "\n".join(texts))
+        for n in names:
+            if not re.search(pattern.replace("{n}", n), text):
+                found.append(f"{path} names {n} in no {what.replace('{n}', n)}")
+    return found, notes
+
+
 # --- R2: a removed reason still pinned -----------------------------------------------------
 
 
@@ -277,6 +323,42 @@ def generated_findings(owed, check_rc, check_out):
     return out
 
 
+REBASED = re.compile(r"\(finish\): \S+ onto ([0-9a-f]{40})")
+
+
+def rebase_debt(repo, branch, generated):
+    """{generated file: its rebase}: the files a rebase of branch now on HEAD text-merged, both
+    sides having changed them, which the merge driver owes in full (a rebase names no other
+    side) but records nowhere once committed. Read from the branch's reflog, the rebase's entry
+    and the tip before it; paid by a later commit changing any of them (a regeneration commits
+    only the files that moved) or by dev/varka_regen_generated.sh --all run on a commit since."""
+    log = repo.git("reflog", "show", "--format=%H %gs", branch, "--").stdout.splitlines()
+    marker = repo.git("rev-parse", "--git-path", "varka-regen-all").stdout.strip()
+    try:
+        with open(os.path.join(repo.root, marker), encoding="utf-8") as f:
+            regenerated = f.read().strip()
+    except OSError:
+        regenerated = ""
+    debt = {}
+    for line, before in zip(log, log[1:]):
+        sha, _, subject = line.partition(" ")
+        onto = REBASED.search(subject)
+        if not onto or not repo.ancestor(sha, "HEAD") or repo.ancestor(sha, repo.base):
+            continue
+        before = before.split(" ", 1)[0]
+        old = repo.git("merge-base", before, onto[1]).stdout.strip()
+        sides = [
+            set(repo.git("diff", "--name-only", old, s).stdout.split()) for s in (before, onto[1])
+        ]
+        both = sorted(sides[0] & sides[1] & generated) if old else []
+        paid = repo.git("rev-list", "-1", f"{sha}..HEAD", "--", *both).stdout.strip() or (
+            regenerated and repo.ancestor(sha, regenerated) and repo.ancestor(regenerated, "HEAD")
+        )
+        if both and not paid:
+            debt.update(dict.fromkeys(both, f"{sha[:11]} onto {onto[1][:11]}"))
+    return debt
+
+
 def touches_generated(changed, generated):
     return any(
         p in generated or (is_varka_main(p) and p.startswith(GENERATING_TREES)) for p in changed
@@ -300,6 +382,11 @@ def plan(repo, args):
     if moved:
         print(f"R1: the IR records {', '.join(moved)} changed; the registry suites run")
         want(registry_suites(repo), "R1")
+        ir = COMMENT.sub(" ", repo.text("HEAD", IR_FILE))
+        found, notes = registry_findings(repo, [n for n in moved if f"record {n}(" in ir])
+        findings += [("R1", f) for f in found]
+        for note in notes:
+            print(f"R1: {note}")
     found, chosen = reason_findings(repo, diff)
     findings += [("R2", f) for f in found]
     want(chosen, "R2")
@@ -313,6 +400,11 @@ def plan(repo, args):
         )
     ]
     listed = subprocess.run([*py, "--list"], cwd=repo.root, capture_output=True, text=True)
+    branch = args.branch or repo.git("symbolic-ref", "-q", "--short", "HEAD").stdout.strip()
+    debt = rebase_debt(repo, branch, set(listed.stdout.split())) if branch else {}
+    for rebase in sorted(set(debt.values())):
+        files = ", ".join(p for p, r in sorted(debt.items()) if r == rebase)
+        findings.append(("R3", f"the rebase {rebase} text-merged {files}; run {REGEN}"))
     if touches_generated(changed, set(listed.stdout.split())):
         names = GENERATED_SUITES + ((AUDIT_SUITE,) if args.full else ())
         tests = repo.tracked(TEST_TREES)
@@ -409,6 +501,17 @@ def run(args):
             "beyond HEAD"
         )
     findings, steps, jvm, suites = plan(repo, args)
+    # A rule's findings, suites and steps dropped for one push, for a finding read and judged
+    # wrong (an R2 hit on a reason that moved, say): VARKA_PUSH_CHECK_SKIP=R2 (or "R2,R3").
+    skip = {"R1", "R2", "R3", "R4"} & set(
+        os.environ.get("VARKA_PUSH_CHECK_SKIP", "").replace(",", " ").split()
+    )
+    if skip:
+        print(f"varka push check: skipping {', '.join(sorted(skip))} (VARKA_PUSH_CHECK_SKIP)")
+        findings = [f for f in findings if f[0] not in skip]
+        steps = [s for s in steps if s[0] not in skip]
+        jvm = [j for j in jvm if j[0] not in skip]
+        suites = {n: [m, q, r - skip] for n, (m, q, r) in suites.items() if r - skip}
     failed = list(findings)
     for rule, text in findings:
         print(f"{rule}: {text}")
@@ -541,6 +644,66 @@ class SelfTest(unittest.TestCase):
             sorted(registry_suites(repo)), ["VarkaIrFuzzSuite", "VarkaWithChildrenSuite"]
         )
 
+    def test_r1_names_the_registry_that_lacks_a_record_without_a_jvm(self):
+        t = "sql/catalyst/src/test/scala/a/"
+        repo = FakeRepo(
+            {},
+            {
+                t + "VarkaWithChildrenSuite.scala": 'getPermittedSubclasses - "Not"',
+                t + "VarkaLaneTypeSuite.scala": 'a node type was added case "CrossLane" =>',
+                t + "VarkaEmitterBudgetSuite.scala": "getPermittedSubclasses BoundedDivide.of(c)",
+                t + "VarkaNewSuite.scala": "never drew",
+            },
+        )
+        found, notes = registry_findings(repo, ["CrossLane", "BoundedDivide"])
+        self.assertCountEqual(
+            [f.split("/")[-1] for f in found],
+            [
+                "VarkaWithChildrenSuite.scala names CrossLane in no undrawn entry or draw",
+                "VarkaWithChildrenSuite.scala names BoundedDivide in no undrawn entry or draw",
+                "VarkaLaneTypeSuite.scala names BoundedDivide in no instance recipe "
+                '(case "BoundedDivide")',
+                "VarkaEmitterBudgetSuite.scala names CrossLane in no register row",
+            ],
+        )
+        self.assertEqual(len(notes), 1)
+        self.assertIn("VarkaNewSuite.scala enumerates node types unread here", notes[0])
+
+    def test_r3_a_committed_rebase_owes_what_both_sides_changed_until_regenerated(self):
+        with tempfile.TemporaryDirectory() as d:
+            repo = Repo(d, "master")
+            env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+            repo.env = {**env, "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
+
+            def commit(path, text, msg):
+                with open(os.path.join(d, path), "w", encoding="utf-8") as f:
+                    f.write(text)
+                repo.git("add", path, check=True)
+                repo.git("commit", "-q", "-m", msg, check=True)
+
+            repo.git("init", "-q", "-b", "master", check=True)
+            for k, v in (("user.name", "t"), ("user.email", "t@t"), ("core.hooksPath", "/n")):
+                repo.git("config", k, v, check=True)
+            commit("g.json", "1\n2\n3\n4\n5\n", "base")
+            repo.git("checkout", "-q", "-b", "topic", check=True)
+            commit("g.json", "1 topic\n2\n3\n4\n5\n", "topic")
+            commit("x.txt", "x\n", "topic's own file")
+            repo.git("checkout", "-q", "master", check=True)
+            commit("g.json", "1\n2\n3\n4\n5 master\n", "master")
+            repo.git("checkout", "-q", "topic", check=True)
+            repo.git("rebase", "-q", "master", check=True)
+            head = repo.git("rev-parse", "HEAD").stdout.strip()
+            debt = rebase_debt(repo, "topic", {"g.json", "x.txt"})
+            self.assertEqual(list(debt), ["g.json"])
+            self.assertTrue(debt["g.json"].startswith(head[:11]))
+            marker = repo.git("rev-parse", "--git-path", "varka-regen-all").stdout.strip()
+            with open(os.path.join(d, marker), "w", encoding="utf-8") as f:
+                f.write(head + "\n")
+            self.assertEqual(rebase_debt(repo, "topic", {"g.json"}), {})
+            os.remove(os.path.join(d, marker))
+            commit("g.json", "1 topic\n2\n3\n4\n5 master regenerated\n", "regenerate")
+            self.assertEqual(rebase_debt(repo, "topic", {"g.json"}), {})
+
     def test_r2_fires_on_a_removed_reason_a_test_pins_split_elsewhere(self):
         base = {PLAN: OLD, SUITE: PINNED}
         head = {PLAN: NEW, SUITE: PINNED}
@@ -614,6 +777,7 @@ def main(argv):
     p.add_argument("--lint", action="store_true")
     p.add_argument("--full", action="store_true")
     p.add_argument("--no-precommit", action="store_true", help="the pre-push hook ran it already")
+    p.add_argument("--branch", help="the branch whose reflog records its rebases (default HEAD's)")
     return run(p.parse_args(argv[1:]))
 
 

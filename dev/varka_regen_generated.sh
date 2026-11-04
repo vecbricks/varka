@@ -115,6 +115,9 @@ if [ ${#steps[@]} -gt 0 ]; then
 fi
 python3 dev/varka_census.py > /dev/null
 python3 dev/varka_census.py --check
+# The commit every generated file was regenerated on, which pays a rebase's text merge of them
+# when the regeneration changed nothing to commit (dev/varka_push_check.py's rebase_debt).
+if [ $all = 1 ]; then git rev-parse HEAD > "$(git rev-parse --git-path varka-regen-all)"; fi
 if [ $audit_skipped = 1 ]; then
   python3 dev/varka_generated_merge.py --check --no-audit
   # The list keeps the width audit only if a merge owed it: --all on another CPU skips an
