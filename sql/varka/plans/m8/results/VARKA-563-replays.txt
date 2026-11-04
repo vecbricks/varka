@@ -1,0 +1,31 @@
+# VARKA-563: dev/varka_push_check.py over the pre-fix heads of three incidents, 4 November 2026
+# Laptop, scratch detached worktrees; each replay is the script's own output, trimmed to its
+# rule lines, the matrix's table and the summary. Lock wait and build are in the total seconds.
+
+== #1317 at d94ca2ad5a4 (the push before e667ad91841), --dry-run --no-jvm
+R1: the IR records ConvertLane changed; the registry suites run
+R2: sql/core/src/test/scala/org/apache/spark/sql/execution/VarkaFilterExecSuite.scala still holds "integral lane, and a mask", which sql/catalyst/src/main/java/org/apache/spark/sql/catalyst/expressions/codegen/varka/VarkaKernelPlan.java no longer says
+varka push check: FAILED
+  R2: sql/core/src/test/scala/org/apache/spark/sql/execution/VarkaFilterExecSuite.scala still holds "integral lane, and a mask", which sql/catalyst/src/main/java/org/apache/spark/sql/catalyst/expressions/codegen/varka/VarkaKernelPlan.java no longer says
+
+== #1338 at 7897bd11a2f, full run, exit 1 seconds 589
+R1: the IR records CrossLane changed; the registry suites run
+configuration                    exit  secs    ok fail canc abort unfused atdef
+defaults                            1   247   133    4    5     0       0     0
+  defaults: - every weight is what its node emits alone, over every node the IR permits (VARKA-254) *** FAILED ***
+  defaults: - the lane of an int tree is INT at every node type *** FAILED ***
+  defaults: - every node type is emittable at exactly the lanes the table admits *** FAILED ***
+  defaults: - rebuilding a node over its own children gives the node, for every drawn node type *** FAILED ***
+varka push check: FAILED
+  R1: VarkaEmitterBudgetSuite failed
+  R1: VarkaLaneTypeSuite failed
+  R1: VarkaWithChildrenSuite failed
+
+== #1323 at 0a0e82df11f (the push before d83b86566e2), full run, exit 1 seconds 303
+configuration                    exit  secs    ok fail canc abort unfused atdef
+defaults                            1    73    24    2    3     0       0     0
+  defaults: - docs/sql-varka.md carries the generated coverage table and family switches *** FAILED ***
+  defaults: - sql/varka/emitted_bytes.json pins what the emitter produces for every shape *** FAILED ***
+varka push check: FAILED
+  R3: VarkaCoverageSuite failed; run dev/varka_regen_generated.sh --all if the files are stale
+  R3: VarkaEmittedBytesSuite failed; run dev/varka_regen_generated.sh --all if the files are stale

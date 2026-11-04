@@ -85,3 +85,16 @@ three incidents' pre-fix heads each fail under the rule that names their cause.
 
 ## 6. Outcome
 
+Built 4 November 2026 as one pull request, and replayed on the three incidents' pre-fix heads in
+scratch worktrees (`results/VARKA-563-replays.txt`). Each fails, under the rule its lesson names:
+
+- **#1317** at `d94ca2ad5a4`, the push before the suite was repinned: R2 names
+  `VarkaFilterExecSuite` as still holding the removed text, in about six seconds with no JVM.
+- **#1338** at `7897bd11a2f`: R1 runs eleven suites, and `VarkaWithChildrenSuite`,
+  `VarkaLaneTypeSuite` (two tests) and `VarkaEmitterBudgetSuite` fail on `CrossLane`, as the
+  pull request's Build did; 247 seconds of suites, 589 with the lock's wait and the build.
+- **#1323** at `0a0e82df11f`: `--owed` and `--check` pass, and R3's suites fail on the docs'
+  counts and `emitted_bytes.json`; 73 seconds of suites, 303 in all.
+
+A branch that changes a Varka main file and no IR record pays R3's four suites, 73 seconds of
+suites on the laptop beside the build, as #1323 did; one that changes only plans or docs starts no JVM.
