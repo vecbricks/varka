@@ -368,7 +368,7 @@ agrees as any NaN. All of it passes: no Varka answer moved.
 two column NaNs as fixed, but fdlibm returns `x + y` for NaN operands, an add, so its payload is
 tier-dependent; when m8's math lands on these suites, those nodes are marked either-payload.
 
-**Size and tests.** `dev/varka_msg_check.py size --base varka-556-same-answer` reads 999 counted
+**Size and tests.** `dev/varka_msg_check.py size --base varka-556-same-answer` reads 995 counted
 lines, 458 of them 556a2's. `dev/varka_matrix.sh --defaults` (the both-bodies check and the
 sanitizer on) over the two contract suites, `VarkaEvaluatorComponentsSuite`,
 `VarkaFloatingLaneSuite` and `VarkaEmitterFloatingArithSuite`: RESULT.
