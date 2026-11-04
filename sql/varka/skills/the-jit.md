@@ -1290,24 +1290,33 @@ fast-thrown exceptions (`/ by zero`, a null pointer, an index out of bounds) beh
 Found by `VarkaCoverageHarnessSuite` failing `try_add(x, x2)` on an option-matrix run: the
 both-bodies check held the dense and masked bodies byte-equal on a row of two NaNs of different
 bits, and the two bodies had returned different ones (`VARKA-555.md`). Neither the JLS nor Spark
-fixes the payload there, and HotSpot's tiers answer it differently. The x86 interpreter's `dadd`
-and `dmul` return the right operand's payload and its `dsub` and `ddiv` the left's
-(`cpu/x86/templateTable_x86.cpp`, `TemplateTable::dop2`: `addsd` into the register holding the
-right operand, `subsd` into the left's); C1 and the Vector API's Java fallback the left's; C2
-commutes a scalar add or multiply (`opto/addnode.cpp`, `commute`) and orders a non-predicated
-commutative vector op's inputs by node index
-(`VectorNode::should_swap_inputs_to_help_global_value_numbering`, `opto/vectornode.cpp` 1088 to
-1146 in jdk-25-ga). One operation over one NaN returns that NaN on every tier. So two bodies, two
-engines, or one method before and after a compile can disagree on such a payload and on nothing
-else, and not only on a commutative expression: with the both-bodies acceptance removed,
-`(x + x2) * x2 - x` failed in almost every tier-split run (`results/VARKA-557-trial.txt`).
+fixes the payload there, and HotSpot's tiers answer an add or a multiply differently (read in
+jdk-25-ga). The x86 interpreter's `dadd` and `dmul` return the right operand's payload and its
+`dsub` and `ddiv` the left's (`cpu/x86/templateTable_x86.cpp`, `TemplateTable::dop2`: `addsd`
+into the register holding the right operand, `subsd` into the left's). C1 returns the left's
+(`c1_LIRAssembler_x86.cpp`, `addsd(lreg, rreg)`), except that `Canonicalizer::move_const_to_right`
+(`c1/c1_Canonicalizer.cpp` 64 to 65) swaps a constant left operand of a `dadd`, `fadd`, `dmul` or
+`fmul` to the right (`ArithmeticOp::is_commutative`, `c1_Instruction.cpp` 232 to 245). C2 commutes
+a scalar add (`opto/addnode.cpp`, `commute`) and orders a multiply's inputs by node index
+(`MulNode::Ideal`, `opto/mulnode.cpp` 106 to 118), and orders a non-predicated commutative vector
+op's inputs the same way (`VectorNode::should_swap_inputs_to_help_global_value_numbering`,
+`opto/vectornode.cpp` 1088 to 1146; `MaxV` and `MinV` are on its list, 1108 to 1109, which would
+matter if a floating `greatest` or `least` were ever lowered to a lanewise `MAX` or `MIN`). The
+Vector API's Java fallback is a plain `(double)(a + b)` in a lambda (`DoubleVector.java` 861), so
+its payload is whichever tier runs the lambda. A subtraction or a division returns the left
+operand's payload on every tier: no tier swaps them (C2's `SubDNode`, `DivDNode` and their vector
+nodes included), and `subsd` and `divsd` keep the first operand's NaN. One operation over one NaN
+returns that NaN on every tier. So two bodies, two engines, or one method before and after a
+compile can disagree on such a payload and on nothing else, and not only on a lone add:
+with the both-bodies acceptance removed, `(x + x2) * x2 - x` failed in almost every tier-split
+run (`results/VARKA-557-trial.txt`).
 
-A comparator excuses that payload through `VarkaSameAnswer`, never on its own: at the row level
-by provenance (the row's NaN came from an arithmetic over two unlike NaNs, or a node that passed
-one on), or, where only the output's type is known, as the both-bodies check is, at the type
-level. A pick (`coalesce`, `greatest`, `IF`, `nanvl`), a negation or an `abs` returns a NaN whose
-bits follow from its inputs, and a different one there is a wrong answer. A rule must not decide
-provenance by comparing a node's NaN bits with a child's: those are two evaluations of an open
-payload, which need not agree. And a test that warms neither body, as the suites do with the
-warm-up off, cannot see the split; `dev/varka_tier_split.py` compiles one body and holds the
-other back so that it can (VARKA-557).
+A comparator excuses that payload through `VarkaSameAnswer`, never on its own: at the row level by
+provenance (the row's NaN came from an add, a multiply or a remainder over two unlike NaNs, or a
+node that passed one on), or, where only the output's type is known, as the both-bodies check is, at
+the type level. A pick (`coalesce`, `greatest`, `IF`, `nanvl`), a negation or an `abs` returns a NaN
+whose bits follow from its inputs, and a different one there is a wrong answer. A rule must not
+decide provenance by comparing a node's NaN bits with a child's: those are two evaluations of an
+open payload, which need not agree. And a test that warms neither body, as the suites do with the
+warm-up off, cannot see the split; `dev/varka_tier_split.py` compiles one body and holds the other
+back so that it can (VARKA-557).

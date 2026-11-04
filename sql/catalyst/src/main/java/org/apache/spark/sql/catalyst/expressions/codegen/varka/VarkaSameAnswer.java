@@ -32,11 +32,13 @@ import org.apache.spark.sql.catalyst.InternalRow;
 import org.apache.spark.sql.catalyst.expressions.BinaryArithmetic;
 import org.apache.spark.sql.catalyst.expressions.CaseWhen;
 import org.apache.spark.sql.catalyst.expressions.Coalesce;
+import org.apache.spark.sql.catalyst.expressions.Divide;
 import org.apache.spark.sql.catalyst.expressions.Expression;
 import org.apache.spark.sql.catalyst.expressions.Greatest;
 import org.apache.spark.sql.catalyst.expressions.If;
 import org.apache.spark.sql.catalyst.expressions.Least;
 import org.apache.spark.sql.catalyst.expressions.NaNvl;
+import org.apache.spark.sql.catalyst.expressions.Subtract;
 import org.apache.spark.sql.types.DataType;
 import org.apache.spark.sql.types.DateType;
 import org.apache.spark.sql.types.DayTimeIntervalType;
@@ -58,13 +60,14 @@ import org.apache.spark.sql.types.YearMonthIntervalType;
  * <p>Two answers agree when they are the same bits at the output's width: the sign of a zero
  * counts, a null's data is never read, a decimal is its unscaled value at the output's scale, a
  * bit output is its data bit under its validity bit. The one question the levels answer
- * differently is two NaNs of different bits. Neither the JLS nor Spark fixes which NaN an
- * arithmetic over two NaNs returns, and HotSpot's tiers answer it differently (the interpreter's
- * {@code dadd} returns the right operand's payload, C1 the left's, C2 either, see
- * {@code sql/varka/skills/the-jit.md}), so two engines, two bodies, or one method before and
- * after a compile can return different NaNs there and be equally right. Everywhere else a NaN's
- * payload is fixed - a pick, a negation, an {@code abs} or an arithmetic over one NaN returns a
- * NaN whose bits follow from its inputs - and a different NaN is a wrong answer.
+ * differently is two NaNs of different bits. Neither the JLS nor Spark fixes which NaN an add or
+ * a multiply over two NaNs returns, and HotSpot's tiers answer it differently (the interpreter's
+ * {@code dadd} returns the right operand's payload, C1 the left's unless it moved a constant
+ * left operand right, C2 either, see {@code sql/varka/skills/the-jit.md}), so two engines, two
+ * bodies, or one method before and after a compile can return different NaNs there and be
+ * equally right. Everywhere else a NaN's payload is fixed - a subtraction or a division returns
+ * its left operand's on every tier, and a pick, a negation, an {@code abs} or an arithmetic over
+ * one NaN returns a NaN whose bits follow from its inputs - and a different NaN is a wrong answer.
  */
 public final class VarkaSameAnswer {
 
@@ -121,8 +124,11 @@ public final class VarkaSameAnswer {
 
   /** How a node's value on the row is made from its children's, as far as a NaN's bits go. */
   private sealed interface Step<N> {
-    /** A two-operand floating arithmetic. */
-    record Arith<N>(N left, N right) implements Step<N> {}
+    /**
+     * A two-operand floating arithmetic; {@code commutes} where a tier may swap its operands (an
+     * add or a multiply) or its payload over two NaNs is not pinned (a remainder).
+     */
+    record Arith<N>(N left, N right, boolean commutes) implements Step<N> {}
 
     /** A node of one child that passes its child's payload on: a negation, a cast, a root. */
     record Pass<N>(N child) implements Step<N> {}
@@ -149,14 +155,16 @@ public final class VarkaSameAnswer {
 
   /**
    * Whether {@code node}'s value on the row is a NaN whose payload Java leaves open: one made by
-   * a floating arithmetic from two NaN operands of different bits, or passed on from one. An
-   * arithmetic over one NaN returns that NaN, quieted, on every tier, so its payload is fixed by
-   * the operand's; a node of one child passes its child's on; a pick passes on the payload of the
-   * one child it returns on the row, and of no other: an {@code IF} or a {@code CASE} the branch
-   * its conditions take, a {@code coalesce} its first non-null child, a {@code nanvl} its second
-   * where its first is a NaN, a {@code greatest} or {@code least} its first child whose value is
-   * a NaN (Spark's fold keeps the first of equal values, and every NaN compares equal to every
-   * other). Any other node is open where a floating child whose value is a NaN is.
+   * an add, a multiply or a remainder from two NaN operands of different bits, or passed on from
+   * one. A node whose own value is not a NaN is never open, whatever its children. An arithmetic
+   * over one NaN returns that NaN, quieted, on every tier, and a subtraction or a division over
+   * two returns its left one, so its payload is fixed by that operand's; a node of one child
+   * passes its child's on; a pick passes on the payload of the one child it returns on the row,
+   * and of no other: an {@code IF} or a {@code CASE} the branch its conditions take, a
+   * {@code coalesce} its first non-null child, a {@code nanvl} its second where its first is a
+   * NaN, a {@code greatest} or {@code least} its first child whose value is a NaN (Spark's fold
+   * keeps the first of equal values, and every NaN compares equal to every other). Any other node
+   * is open where a floating child whose value is a NaN is.
    *
    * <p>The rule reads no payload it decides is open. Which values are NaNs is the same on every
    * tier, and an arithmetic compares its operands' bits only once neither is open, when each is
@@ -166,14 +174,14 @@ public final class VarkaSameAnswer {
    * read no payload: a comparison, {@code isnan} or a null test holds alike of every NaN.
    */
   private static <N> boolean open(N node, Front<N> front) {
-    if (!front.floating(node)) {
+    if (!front.floating(node) || front.nanBits(node) == null) {
       return false;
     }
     return switch (front.step(node)) {
       case Step.Arith<N> a -> {
         Long l = front.nanBits(a.left());
         Long r = front.nanBits(a.right());
-        if (l != null && r != null) {
+        if (l != null && r != null && a.commutes()) {
           yield open(a.left(), front) || open(a.right(), front) || !l.equals(r);
         }
         yield l != null ? open(a.left(), front) : r != null && open(a.right(), front);
@@ -237,21 +245,37 @@ public final class VarkaSameAnswer {
 
       @Override public Step<VarkaVectorIR> step(VarkaVectorIR n) {
         return switch (n) {
-          case VarkaVectorIR.IntArith a -> new Step.Arith<>(a.left(), a.right());
+          case VarkaVectorIR.IntArith a -> new Step.Arith<>(a.left(), a.right(),
+              a.op() == VarkaVectorIR.IntOp.ADD || a.op() == VarkaVectorIR.IntOp.MUL);
           case VarkaVectorIR.IfElse i ->
               new Step.Pick<>(row.holds(i.cond()) ? i.thenNode() : i.elseNode());
           case VarkaVectorIR.Greatest g -> new Step.FirstNaN<>(List.of(g.left(), g.right()));
           case VarkaVectorIR.Least l -> new Step.FirstNaN<>(List.of(l.left(), l.right()));
-          default -> {
-            var values = new ArrayList<VarkaVectorIR>();
-            for (VarkaVectorIR child : VarkaVectorIR.childrenOf(n)) {
-              if (!(child instanceof VarkaVectorIR.Cond)) {
-                values.add(child);
-              }
-            }
-            yield values.size() == 1 ? new Step.Pass<>(values.get(0)) : new Step.Other<>(values);
-          }
+          // Listed, not defaulted, so that a new node is a compile error here until it says how
+          // its value is made from its children's.
+          case VarkaVectorIR.ColumnRef _, VarkaVectorIR.DecimalColumn _,
+              VarkaVectorIR.LiteralSlot _, VarkaVectorIR.NullValue _, VarkaVectorIR.AddDays _,
+              VarkaVectorIR.SubDays _, VarkaVectorIR.DateDiff _, VarkaVectorIR.CondValue _,
+              VarkaVectorIR.BoolOutput _, VarkaVectorIR.DayOfWeek _, VarkaVectorIR.WeekDay _,
+              VarkaVectorIR.DayOfWeekIso _, VarkaVectorIR.NextDay _, VarkaVectorIR.ThursdayOf _,
+              VarkaVectorIR.Chrono _, VarkaVectorIR.AddMonths _, VarkaVectorIR.MakeDate _,
+              VarkaVectorIR.IntNeg _, VarkaVectorIR.ConstDivide _, VarkaVectorIR.BoundedDivide _,
+              VarkaVectorIR.BitOp _, VarkaVectorIR.BitCount _, VarkaVectorIR.MathUnary _,
+              VarkaVectorIR.Cond _, VarkaVectorIR.GuardedDay _, VarkaVectorIR.GuardedRange _,
+              VarkaVectorIR.WidenLane _, VarkaVectorIR.ConvertLane _, VarkaVectorIR.NarrowLane _,
+              VarkaVectorIR.WidenDecimal _ -> byValueChildren(n);
         };
+      }
+
+      /** A node of one value child passes its payload on; one of more may return any. */
+      private Step<VarkaVectorIR> byValueChildren(VarkaVectorIR n) {
+        var values = new ArrayList<VarkaVectorIR>();
+        for (VarkaVectorIR child : VarkaVectorIR.childrenOf(n)) {
+          if (!(child instanceof VarkaVectorIR.Cond)) {
+            values.add(child);
+          }
+        }
+        return values.size() == 1 ? new Step.Pass<>(values.get(0)) : new Step.Other<>(values);
       }
 
       @Override public @Nullable Long nanBits(VarkaVectorIR n) {
@@ -288,7 +312,8 @@ public final class VarkaSameAnswer {
       @Override public Step<Expression> step(Expression n) {
         List<Expression> children = CollectionConverters.asJava(n.children());
         if (n instanceof BinaryArithmetic a) {
-          return new Step.Arith<>(a.left(), a.right());
+          return new Step.Arith<>(a.left(), a.right(),
+              !(a instanceof Subtract || a instanceof Divide));
         }
         if (children.size() == 1) {
           return new Step.Pass<>(children.get(0));
@@ -418,9 +443,10 @@ public final class VarkaSameAnswer {
    * {@code d}'s unscaled value at {@code type}'s scale, which is what a column of the type
    * stores; null where {@code d} is no value of the type, needing rounding to reach the scale or
    * more digits than the precision. Normalizing first lets a row that carries a {@code Decimal}
-   * at another internal scale, as an interpreted expression may, agree with the same value
-   * stored at the type's; comparing unscaled values then sees a writer that stored the wrong
-   * scale, which reads back as another value.
+   * at another internal scale, as an interpreted expression may, agree with the same value at
+   * the type's. On every row a caller hands it this gives {@code Decimal.equals}' verdict: Spark's
+   * side comes through an {@code UnsafeProjection} at the type's scale, and a Varka writer's
+   * wrong scale is caught by the readers that build the other side, not here.
    */
   static @Nullable BigInteger unscaledAt(Decimal d, DecimalType type) {
     BigDecimal at;
