@@ -1817,7 +1817,7 @@ public final class VarkaKernelChecks {
             if (spark != null) {
               agreeWithSpark(context, spark, o, i, values, isNull,
                   known ? OptionalLong.of(truth.isTrue() ? 1L : 0L) : OptionalLong.empty(), b,
-                  node -> OptionalLong.empty());
+                  rowRef);
             }
             for (int f = 0; f < runs; f++) {
               boolean valid = bit(outs[f].bits()[o], i);
