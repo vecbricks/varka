@@ -865,4 +865,5 @@ hash (VARKA-559, 4 November 2026) the `coalesce` nests 20 deep again.
 The nightly fuzz run 41798852105 failed at seed 202611041: the decimal value draw's reach test
 read the night's seed and drew no rescale by `10^17` in its 500 draws, so `VarkaIrFuzzSuite` now
 draws every reachability check at its committed seed and the night's seed moves the fuzz trees
-only.
+only, but for the wide compositions' mechanism reach, which draws further compositions before it
+fails.

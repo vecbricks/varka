@@ -118,7 +118,8 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
   // `-Dvarka.fuzz.seed` moves the fuzz trees only. A test that asserts a draw reaches a form (or
   // that the committed draws hold none) states a property of the grammar, so it draws at the
   // committed seed - `fuzzSeed`, `longFuzzSeed` or a `VarkaIrGrammar.*_FUZZ_SEED` - and passes or
-  // fails the same at every night's seed (VARKA-348).
+  // fails the same at every night's seed (VARKA-348). The wide compositions' mechanism reach
+  // stays on the night's seed: it draws further compositions before it fails.
   private val seed = sys.props.get("varka.fuzz.seed").map(_.toLong).getOrElse(fuzzSeed)
   private val longSeed = sys.props.get("varka.fuzz.seed").map(_.toLong).getOrElse(longFuzzSeed)
   private val mixedSeed =
