@@ -366,16 +366,20 @@ def matrix_command(suites):
     return cmd
 
 
-def failed_suites(out):
-    failed = set()
+def reported_suites(out):
+    """(ran, failed): the simple names of the suites the run's JUnit reports name, and of those
+    with a failed or errored test."""
+    ran, failed = set(), set()
     for xml in glob.glob(os.path.join(out, "runs", "defaults", "*", "junit", "TEST-*.xml")):
         try:
             suite = ET.parse(xml).getroot()
         except ET.ParseError:
             continue
+        name = suite.get("name", "").rsplit(".", 1)[-1]
+        ran.add(name)
         if int(suite.get("failures", 0) or 0) + int(suite.get("errors", 0) or 0):
-            failed.add(suite.get("name", "").rsplit(".", 1)[-1])
-    return failed
+            failed.add(name)
+    return ran, failed
 
 
 def show(cmd):
@@ -422,12 +426,16 @@ def run(args):
         if rule == "suites":
             shutil.rmtree(os.path.join(OUT, "runs"), ignore_errors=True)
         rc = subprocess.run(cmd, stdin=subprocess.DEVNULL).returncode
+        if rule == "suites":
+            ran, bad = reported_suites(OUT)
+            # A suite the matrix's search does not find runs nowhere, which must not read as a pass.
+            for name in sorted(set(suites) - ran):
+                failed.append(("+".join(sorted(suites[name][2])), f"{name} did not run"))
         if rc == 0:
             continue
         if rule != "suites":
             failed.append((rule, f"{show(cmd)} exited {rc}"))
             continue
-        bad = failed_suites(OUT)
         if not bad:
             failed.append(("suites", f"the suites' run failed without a failed report; see {OUT}"))
         for name in sorted(bad):
