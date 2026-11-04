@@ -941,6 +941,18 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `f * i` | `floatingArithmetic`, `floatingCast` |  | the int cast to a float beside the float column, at one lane count | per-lane: mask broadcast, mask test |
 | `f + x` | `floatingArithmetic`, `floatingCast` |  | the float widened exactly to meet the double | per-lane: mask broadcast, load or store, mask test |
 | `i / 2.0D` | `floatingArithmetic`, `floatingCast` |  | an int division is a double division over its cast | per-lane: mask broadcast, mask test |
+| `CAST(CAST(l AS INT) AS FLOAT)` | `intArithmetic`, `floatingCast` | `l BETWEEN -2147483648 AND 2147483647` | the bigint narrowed to INT, checked under ANSI, then I2F, a float value in a long kernel | per-lane: compare to mask, mask logic, mask broadcast, mask test, load or store |
+
+#### Floating casts as conditions
+
+| Predicate | Switches | Domain | Notes | 128-bit lanes |
+|---|---|---|---|---|
+| `CAST(i AS FLOAT) > 1.5F` | `predicate`, `floatingCast` |  | the float comparison crossed to the int lane, beside the null test of i the optimizer infers | vector |
+| `CAST(i AS DOUBLE) < x` | `predicate`, `floatingCast` |  | the int null test crossed to the double lane by its word | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL up to 18 digits), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
+| `f > 1.5F AND i < 3` | `predicate` |  | a float conjunct beside an int one, one kernel | vector |
+| `x > 1.5D AND l < l2` | `predicate` |  | a double conjunct beside a long one, crossed by the cast | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL up to 18 digits), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback; a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL up to 18 digits), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
+| `f > 1.5F AND x < x2` | `predicate` |  | two floating widths, the float mask crossed by its word | not emitted: the conjunct (x < x2), the rest fused: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL up to 18 digits), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
+| `CAST(x AS BOOLEAN) = b2` | `predicate` |  | the boolean column relabelled to the double lane, its bit read the same | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL up to 18 digits), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
 
 #### DECIMAL columns
 
@@ -1012,15 +1024,15 @@ operands (a row counts once for each type it reads):
 <!-- BEGIN generated verification counts -->
 | Type | Rows | refinement | proof | exhaustive | owed | differential |
 | :--- | ---: | ---: | ---: | ---: | ---: | ---: |
-| `bigint` | 65 | 0 | 2 | 0 | 2 | 61 |
-| `bool` | 29 | 0 | 0 | 13 | 0 | 16 |
+| `bigint` | 67 | 0 | 2 | 0 | 2 | 63 |
+| `bool` | 30 | 0 | 0 | 13 | 0 | 17 |
 | `byte` | 33 | 0 | 0 | 0 | 8 | 25 |
 | `date` | 101 | 17 | 0 | 1 | 0 | 83 |
-| `dec` | 30 | 12 | 0 | 0 | 0 | 18 |
-| `double` | 44 | 0 | 0 | 0 | 0 | 44 |
+| `dec` | 26 | 9 | 0 | 0 | 0 | 17 |
+| `double` | 48 | 0 | 0 | 0 | 0 | 48 |
 | `dt` | 25 | 2 | 0 | 0 | 0 | 23 |
-| `float` | 34 | 0 | 0 | 0 | 0 | 34 |
-| `int` | 109 | 14 | 2 | 0 | 1 | 92 |
+| `float` | 37 | 0 | 0 | 0 | 0 | 37 |
+| `int` | 113 | 14 | 2 | 0 | 1 | 96 |
 | `ntz` | 24 | 0 | 1 | 0 | 0 | 23 |
 | `short` | 31 | 0 | 0 | 0 | 8 | 23 |
 | `time` | 41 | 6 | 0 | 0 | 2 | 33 |
