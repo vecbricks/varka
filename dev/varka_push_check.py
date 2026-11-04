@@ -402,6 +402,8 @@ def plan(repo, args):
     listed = subprocess.run([*py, "--list"], cwd=repo.root, capture_output=True, text=True)
     branch = args.branch or repo.git("symbolic-ref", "-q", "--short", "HEAD").stdout.strip()
     debt = rebase_debt(repo, branch, set(listed.stdout.split())) if branch else {}
+    if not branch:
+        print("R3: HEAD is detached, so no reflog shows a rebase's debt; unchecked, pass --branch")
     for rebase in sorted(set(debt.values())):
         files = ", ".join(p for p, r in sorted(debt.items()) if r == rebase)
         findings.append(("R3", f"the rebase {rebase} text-merged {files}; run {REGEN}"))
