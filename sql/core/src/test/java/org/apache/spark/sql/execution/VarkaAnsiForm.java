@@ -263,34 +263,16 @@ public final class VarkaAnsiForm {
         "y1 - y2", "y1 * y2", "-y1", "abs(y1)", "s1 + s2", "s1 - s2", "s1 * s2", "-s1",
         "abs(s1)", "x / x2", "ntz + dt", "CAST(s1 AS TINYINT)", "CAST(i AS TINYINT)",
         "CAST(i AS SMALLINT)", "CAST(l AS TINYINT)", "CAST(l AS SMALLINT)",
-        "CAST(i + 1 AS TINYINT)")) {
+        "CAST(i + 1 AS TINYINT)", "CAST(CAST(l AS INT) AS FLOAT)")) {
       out.put(sql + "\t" + FALSE_AND, unqualified);
     }
-    // A boolean row's forms set it beside the boolean column b2 - the CASE's other arm, the
-    // COALESCE's first argument, the AND's comparand - which is read on an integral lane
-    // (BoolColumn), beside the cast's test on a floating lane.
-    String boolColumn = "the form's boolean column b2 is read on an integral lane and the "
-        + "cast's test on a floating lane, which share no kernel until the root-level crossing "
-        + "(VARKA-343.md 10, part 343a3b)";
-    for (String sql : List.of("CAST(x AS BOOLEAN)", "CAST(f AS BOOLEAN)")) {
-      for (String position : List.of(CASE_ARM, COALESCE_TAIL, FALSE_AND)) {
-        out.put(sql + "\t" + position, boolColumn);
-      }
-    }
-    // The optimizer infers a null test on every column the floating cast reads, and that test
-    // sits on the column's own lane: an int, narrow, boolean or float one beside the double
-    // comparison (or a double one beside a float comparison), a conjunct of another lane than
-    // the floating ones, which declines until the root-level crossing is built.
-    String laneSplit = "the null test the optimizer infers on the cast's source is on another "
-        + "lane than the floating comparison, and conjuncts of two such lanes share no kernel "
-        + "until the root-level crossing (VARKA-343.md 10, part 343a3b)";
-    for (String sql : List.of("CAST(i AS FLOAT)", "try_cast(i AS FLOAT)",
-        "CAST(CAST(y1 AS INT) * CAST(y2 AS INT) AS FLOAT)", "CAST(i AS DOUBLE)",
-        "CAST(y1 AS FLOAT)", "CAST(s1 AS FLOAT)", "CAST(y1 AS DOUBLE)", "CAST(s1 AS DOUBLE)",
-        "CAST(f AS DOUBLE)", "CAST(x AS FLOAT)",
-        "CAST(b AS DOUBLE)", "CAST(b AS FLOAT)", "CAST(i > 3 AS DOUBLE)", "x + i", "f * i",
-        "f + x", "i / 2.0D", "CAST(l > 5 AS DOUBLE)", "CAST(l > 5 AS FLOAT)")) {
-      out.put(sql + "\t" + FALSE_AND, laneSplit);
+    // CAST(y1 AS DOUBLE) beside the null test the optimizer infers on y1: a narrow column's null
+    // test has no lowering under a double kernel, which reads a narrow column only as a value
+    // (VARKA-343.md 2.2.1), so the conjunct declines.
+    String narrowTest = "the null test the optimizer infers on the narrow source is a narrow "
+        + "node under a double kernel, which has no lowering for it (VARKA-343.md 2.2.1)";
+    for (String sql : List.of("CAST(y1 AS DOUBLE)", "CAST(s1 AS DOUBLE)")) {
+      out.put(sql + "\t" + FALSE_AND, narrowTest);
     }
     // A bigint narrowed to a narrow type as a COALESCE argument beside a narrow column: a narrow
     // choice in a long kernel, which has no lowering there (VARKA-332.md 10.1).
