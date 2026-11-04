@@ -412,18 +412,17 @@ class VarkaFloatingLaneSuite extends QueryTest with VarkaSharedSessions with Var
     }
   }
 
-  test("a choice between floating values under a date condition declines: the lanes differ") {
-    checkDeclined("SELECT CASE WHEN d > d2 THEN x1 ELSE x2 END AS v FROM $t")
+  test("a choice between floating values under a date condition fuses, its condition crossed") {
+    checkFused("SELECT CASE WHEN d > d2 THEN x1 ELSE x2 END AS v FROM $t")
   }
 
-  test("beside a date conjunct, a floating one stays with the row filter") {
-    // The date conjunct keeps the kernel's integral lane, and the floating one is the residual
-    // until a mask crosses between the kinds.
+  test("beside a date conjunct, a floating one shares the kernel") {
+    // The conjuncts meet across the kinds, each off the meeting lane crossed (VARKA-343 2.2.1).
     fixtures.foreach { case (fixture, _) =>
       for (q <- Seq(s"SELECT d FROM $fixture WHERE x1 IS NOT NULL AND d > d2",
           s"SELECT d FROM $fixture WHERE d < d2 AND x1 < 1.5D",
           s"SELECT d FROM $fixture WHERE f1 = f2 AND d <= d2",
-          // A FLOAT and a DOUBLE conjunct meet on no lane: one keeps the kernel.
+          // A FLOAT and a DOUBLE conjunct meet at the double lane.
           s"SELECT d FROM $fixture WHERE x1 > 0.0D AND f1 < 1.5F")) {
         val actual = varkaSpark.sql(q)
         withClue(q) {
