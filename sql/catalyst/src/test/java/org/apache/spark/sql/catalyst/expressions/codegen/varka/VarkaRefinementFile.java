@@ -1021,8 +1021,11 @@ final class VarkaRefinementFile {
    * whose lane value the specification reads as {@code u / 10^s} (STANDARD.md 4.1). The kernel
    * declines on a valid slot outside the precision in any of the row's columns, by its leaves'
    * slot checks ({@code decimal_slot.smt2}), and the specification raises where Spark's column
-   * reader does, on such a slot in a column Spark reads: every column here, which the
-   * comparisons, negation and abs all evaluate. The kernel's truth {@code k} and the
+   * reader does, on such a slot in a column Spark reads: every column here. A filter's generated
+   * code evaluates every column its predicate references before the predicate
+   * ({@code FilterExec.genPredicate}), so Spark reads a {@code coalesce}'s later operands and a
+   * {@code CASE}'s untaken branches on every row too, as it reads the operands of the
+   * comparisons, negation, abs and {@code greatest}. The kernel's truth {@code k} and the
    * specification's {@code t} are conditions, compared on the lanes where the specification's
    * answer is known.
    */
@@ -1045,8 +1048,7 @@ final class VarkaRefinementFile {
   }
 
   private static void decimals(StringBuilder out) {
-    section(out, "STANDARD.md 4.1, 4.2 and EXTENSIONS.md 3: the 64-bit decimal's comparisons, "
-        + "negation and abs");
+    section(out, "STANDARD.md 4.1, 4.2, 4.5, 4.8, 4.9 and EXTENSIONS.md 3: the 64-bit decimal");
     var d9 = new Dec("a", "va", 9, 2);
     var d9b = new Dec("b", "vb", 9, 2);
     var d9s4 = new Dec("c", "vc", 9, 4);
@@ -1083,6 +1085,29 @@ final class VarkaRefinementFile {
     decimalRow(out, "abs(d9) >= d9b, Spark mode: the blend, which decimal64.smt2 shows the "
         + "lanewise ABS equal to", List.of(d9, d9b), List.of(), "(and va vb)", "(and va vb)",
         "(>= (ite (< a 0) (jlong.neg a) a) b)", "(>= (abs a) b)");
+    // greatest at DECIMAL(11, 4), null-skipping, compared with d9b rescaled to it.
+    decimalRow(out, "greatest(d9, d9s4) > d9b, Spark mode: the null-skipping pick at DECIMAL(11, "
+        + "4)", List.of(d9, d9s4, d9b), List.of(
+            "(define-fun ka () Int (jlong.mul a 100))",
+            "(define-fun kg () Int (ite (and va vc) (ite (> ka c) ka c) (ite va ka c)))",
+            "(define-fun sa () Int (* a 100))",
+            "(define-fun sg () Int (ite (and va vc) (ite (> sa c) sa c) (ite va sa c)))"),
+        "(and (or va vc) vb)", "(and (or va vc) vb)", "(> kg (jlong.mul b 100))",
+        "(> sg (* b 100))");
+    decimalRow(out, "coalesce(d9, d9b) IS NULL, Spark mode: null where every operand is",
+        List.of(d9, d9b), List.of(),
+        // The kernel's null test is the negated OR of the leaves' validity, as
+        // VarkaDecimalCompiler.valid builds a coalesce's; Spark's coalesce is null where every
+        // operand is.
+        "true", "true", "(not (or va vb))", "(and (not va) (not vb))");
+    // The CASE at DECIMAL(11, 4): its condition known true takes d9 rescaled, otherwise d9s4.
+    decimalRow(out, "CASE WHEN d9 < d9b THEN d9 ELSE d9s4 END > 0.0, Spark mode: a choice at "
+        + "DECIMAL(11, 4) under a comparison", List.of(d9, d9b, d9s4), List.of(
+            "(define-fun kt () Bool (and va vb (< a b)))",
+            "(define-fun kx () Int (ite kt (jlong.mul a 100) c))",
+            "(define-fun sx () Int (ite kt (* a 100) c))",
+            "(define-fun vx () Bool (ite kt va vc))"),
+        "vx", "vx", "(> kx 0)", "(> sx 0)");
   }
 
   private static void section(StringBuilder out, String title) {

@@ -1088,13 +1088,15 @@ final class VarkaConditionCompiler {
   }
 
   /**
-   * Compiles the operand of a validity predicate, which must be a predicate itself or land on a
-   * bare column. A predicate compiles as a condition, whose validity is whether it is known. A
-   * value must land on a bare column: the emitter reads the column's per-lane-group validity
-   * word, and only a column's word is live before value emission (the recorded milestone-3
-   * restriction). As in {@code compileCoalesce} above, the {@code ColumnRef} match is a proxy for
-   * "bare column" that depends on every relabel expression compiling to {@code ColumnRef}
-   * staying a null-intolerant identity.
+   * Compiles the operand of a validity predicate, which must be a predicate itself, a decimal
+   * value, or land on a bare column. A predicate compiles as a condition, whose validity is
+   * whether it is known. A decimal value of any form {@code VarkaDecimalCompiler} builds has its
+   * validity derived from its leaves' words ({@code VarkaDecimalCompiler.nullTested}), so it
+   * need not be a bare column. Any other value must land on a bare column: the emitter reads the
+   * column's per-lane-group validity word, and only a column's word is live before value
+   * emission (the recorded milestone-3 restriction). As in {@code compileCoalesce} above, the
+   * {@code ColumnRef} match is a proxy for "bare column" that depends on every relabel
+   * expression compiling to {@code ColumnRef} staying a null-intolerant identity.
    *
    * <p>The column may be a date or an {@code IntegerType} one. Both are the same int32 lane and
    * the same validity word, and the int case is not optional: Spark's optimizer infers
@@ -1113,10 +1115,10 @@ final class VarkaConditionCompiler {
     if (child.dataType().equals(DataTypes.BooleanType)) {
       return compileCond(child, inputs, literals, sink).map(VarkaVectorIR.IsNotNull::new);
     }
-    // A decimal column's null test reads its word, over the decimal leaf (VARKA-347).
+    // A decimal value's null test reads its leaves' words, over the decimal leaf (VARKA-347,
+    // VARKA-348).
     if (VarkaDecimalCompiler.isDecimal(child)) {
-      return VarkaDecimalCompiler.nullTested(whole, child, inputs, sink)
-          .map(VarkaVectorIR.IsNotNull::new);
+      return VarkaDecimalCompiler.nullTested(child, inputs, literals, sink);
     }
     Optional<VarkaVectorIR> compiled;
     if (child instanceof BoundReference br && br.dataType().equals(DataTypes.IntegerType)) {
@@ -1331,7 +1333,8 @@ final class VarkaConditionCompiler {
     // (VARKA-347, VARKA-348), read by the decimal compiler rather than by compileNode, which
     // declines a decimal in a value position.
     if (VarkaDecimalCompiler.isDecimal(cmp.left())) {
-      return VarkaDecimalCompiler.operands(cmp, cmp.left(), cmp.right(), inputs, sink)
+      return VarkaDecimalCompiler.operands(cmp, cmp.left(), cmp.right(), inputs, literals,
+          sink)
           .map(both -> new Compare(op, both.get(0), both.get(1)));
     }
     Optional<VarkaVectorIR> left = operand(cmp.left(), inputs, literals, sink);
@@ -1390,7 +1393,7 @@ final class VarkaConditionCompiler {
     }
     // Two decimals at their common scale, as compare takes them (VARKA-347, VARKA-348).
     if (VarkaDecimalCompiler.isDecimal(n.left())) {
-      return VarkaDecimalCompiler.operands(n, n.left(), n.right(), inputs, sink)
+      return VarkaDecimalCompiler.operands(n, n.left(), n.right(), inputs, literals, sink)
           .map(both -> new VarkaVectorIR.NullSafeEqual(both.get(0), both.get(1)));
     }
     Optional<VarkaVectorIR> left = operand(n.left(), inputs, literals, sink);
