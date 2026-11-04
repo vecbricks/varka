@@ -203,3 +203,26 @@ varka push check: FAILED
 R1: the IR records CrossLane changed; the registry suites run
 R3: HEAD carries the rebase that made 887caffa08b, so a text merge may have left docs/sql-varka.md, sql/varka/coverage.json, sql/varka/emitted_bytes.json, sql/varka/width_audit.json stale; run dev/varka_regen_generated.sh --all on the commit that holds them
 varka push check: FAILED
+
+# Sixth round (VARKA-563.md 8, the blob rule), 4 November 2026, fast only. Script at
+# 483f95ec966, run from each scratch worktree (git worktree add --detach) as
+#   python3 /path/to/dev/varka_push_check.py --no-jvm
+# R3 reads no reflog: a generated file the branch changes against its merge base with
+# origin/master (now 887caffa08b) is paid only by a blob some --all wrote. A "marker" row writes
+# the shared git dir's varka-regen-all by hand with the 16 blobs two real --all runs wrote: on
+# e14a5c40cc1, committed unchanged as 0c729cce782, and on 0a0e82df11f, committed as d83b86566e2
+# (the --list files of each commit). Of 0c729cce782..4c7fd1c90d8 only 0c729cce782 touches a
+# generated file (git log --name-only); 7897bd11a2f, 1658d275318 and 4c7fd1c90d8 touch none.
+#
+# head                           level  exit  secs  failed under
+# #1323 0a0e82df11f, no marker   fast      1    25  R3 (five files)
+# #1323 0a0e82df11f, marker      fast      1    26  R3 (docs/sql-varka.md, emitted_bytes.json)
+# d83b86566e2 (#1323's fix), marker fast   0    26  -
+# 4c7fd1c90d8, no marker         fast      1    40  R3 (four files)
+# 4c7fd1c90d8, marker            fast      0    41  -
+# #1338 7897bd11a2f, no marker   fast      1    36  R1, R3 (four files)
+# #1338 7897bd11a2f, marker      fast      1    37  R1 (three registries name no CrossLane)
+# #1317 d94ca2ad5a4, no marker   fast      1    37  R2, R3 (six files)
+# #1317 d94ca2ad5a4, marker      fast      1    37  R2, R3 (four; the casts files' blobs match)
+# origin/master 887caffa08b      fast      0     8  -
+# origin/master 887caffa08b, marker fast   0     8  -

@@ -97,46 +97,42 @@ R2, #1338 under R1 (three suites on `CrossLane`, as CI) and #1323 under R3, only
   `VarkaVectorIRSharingSuite` enumerates reflectively, and an unlisted registry is printed as
   unchecked. Over every record it finds nothing on origin/master or `4c7fd1c90d8`, and names
   `CrossLane` in exactly the three suites CI failed (`VarkaReproductionSuite` had its round trip).
-- **R3's rebase debt is a second part, `varka-563b-rebase-debt`** (section 8), stacked on this: the
-  branch's reflog read for a rebase's text merges, and `dev/varka_regen_generated.sh --all`'s
-  marker. Without it `fast` does not catch #1323, whose `--owed` and `--check` pass; `full` does.
+- **R3's stale generated files are a second part, `varka-563b-rebase-debt`** (section 8),
+  stacked on this: each generated file the branch changes checked against the blobs
+  `dev/varka_regen_generated.sh --all` wrote. Without it `fast` does not catch #1323, whose
+  `--owed` and `--check` pass; `full` does.
 - **A missing ruff names its pin**: `dev/varka_precommit.sh` reads `ruff==` from
   `dev/requirements.txt`, which the Build's lint job installs, and prints a venv recipe.
 - `dev/varka_precommit.sh --range` on `varka-348a3-choices` (master merged twice) reads 19 files.
 - Third round (the high review's fixes): on this part #1317 fails under R2 and #1338 under R1 at
   `fast`, #1323 only at `full`, and the clean heads pass (`results/VARKA-563-replays.txt`).
 
-## 8. The second part: R3's rebase debt
+## 8. The second part: R3's regenerated blobs
 
-Each review round of a per-file design (a debt on the commit that merged each file, carried
-through rewrites, paid by the commits that touch it) found a new false pass: a later `rebase -i`
-dropping the regeneration still counted as paid, and a branch made from a rebased one read no
-debt. The owner chose a coarse rule instead (option A): false failures cost a spare `--all` of a
-few minutes; false passes are not accepted.
+Every reflog design of the earlier rounds failed a review: a per-file debt carried through
+rewrites found a new false pass each round, and the coarse rule that replaced it (a rebase
+owes every generated file until an `--all` marker names a commit no generated change follows)
+voided itself, since the regeneration commit changes the files after the marker's commit, and
+failed `4c7fd1c90d8`, #1317 and #1338 unless `--all` ran twice. The rule is now content-addressed
+and reads no reflog.
 
-- **A rebase the branch carries.** The local reflogs are read as files: every branch's
-  `rebase (finish)` and `pull --rebase (finish)` entry, whatever is checked out, and the steps
-  in each worktree's HEAD log (a detached rebase writes no finish entry), less a run of steps an
-  abort closed. HEAD carries a rebase when a commit of `base..HEAD` shares its author email and
-  time with a commit a rebase made (a later rebase, amend, reword, drop, cherry-pick or branch
-  keeps them), or holds a generated file the branch changes as a rebased commit wrote it (a
-  squash committed again by hand). `base` is the merge base with `origin/master`, not the
-  parent branch, so a branch stacked on a rebased one owes too.
-- **Then every generated file the branch changes is owed** (one `base..HEAD` leaves as the base
-  has it is not), whether or not master changed it: `--owed` records nothing for a rebase.
-- **The marker pays.** `--all` leaves in the git dir's `varka-regen-all` the commit C it ran on
-  and the files it left as C has them. A listed file is paid when HEAD descends from C and no
-  commit changed the file since; a rebase after C rewrites C, so HEAD leaves it. A file the run
-  rewrote is not listed: committed, it is owed until `--all` runs again on that commit, which the
-  script now says.
-- **Accepted false failures:** the second `--all` after a regeneration that rewrote files (the
-  usual case); any commit to a generated file after the marker, prose too; a reword of the
-  marker's commit; a rebase undone by `reset --hard ORIG_HEAD` (the old commits keep the author
-  times the rebased ones copied, so an undo reads as a rewrite); a rebase that text-merged
-  nothing, master not having touched the branch's generated files.
-- **Limits:** the reflog is local (a fresh clone, another machine, an expired reflog, `git am`,
-  a worktree removed after a detached rebase); `--reset-author` or `--ignore-date` with a hand
-  edit of every rebased generated file leaves no trace. There the JVM step is the check. A
-  marker that also recorded each rewritten file's blob would save the second `--all`; the
-  owner kept the marker's form.
-- The replays are in `results/VARKA-563-replays.txt`, fifth round.
+- **`--all` records blobs.** Once every step passed, it appends `blob path` (`git hash-object`)
+  for each generated file as the run left it, a skipped width audit not listed, to
+  `varka-regen-all` in the shared git dir (`git rev-parse --git-common-dir`), so that a run in
+  one worktree pays a stacked branch checked in another; the last 500 lines are kept, written
+  through a temporary file.
+- **A generated file is paid iff its blob at HEAD is one `--all` wrote.** R3 checks each file
+  the branch changes against the merge base with `origin/master` (`git diff --name-only`, the
+  driver's `--list` files). That closes, with no rebase detection: the regeneration commit,
+  which holds the very blob; a `rebase -i` that drops it; files regenerated but not committed;
+  an amend; a reset to `ORIG_HEAD`; stacked branches and `checkout -b`. A file as the base has
+  it owes nothing.
+- **Accepted false failure:** a branch that changes a generated file without `--all` having run
+  on that exact content, for example a clean per-key merge by the driver or a branch that
+  regenerated before the marker existed, needs one `--all` before the push.
+- **Limits:** the marker is local, so a fresh clone or another machine runs `--all` once; a blob
+  `--all` wrote for another branch pays the same text here, which is right by construction.
+  Beyond that the JVM step is the check.
+- The replays are in `results/VARKA-563-replays.txt`, sixth round: #1323's head fails R3 with or
+  without the marker of the `--all` that later ran on it, `4c7fd1c90d8` and #1323's fix pass
+  given their runs' markers, #1338 fails R1 alone and #1317 R2 and R3.
