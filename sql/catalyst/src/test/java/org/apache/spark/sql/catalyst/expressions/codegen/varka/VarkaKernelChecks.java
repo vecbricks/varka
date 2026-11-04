@@ -586,14 +586,16 @@ public final class VarkaKernelChecks {
         return true;
       }
       todo.addAll(Arrays.asList(VarkaVectorIR.childrenOf(root)));
-      if (root instanceof VarkaVectorIR.WidenLane || root instanceof VarkaVectorIR.ConvertLane) {
+      // A crossing joins a condition of another lane, whose literals may be the other table's.
+      if (root instanceof VarkaVectorIR.WidenLane || root instanceof VarkaVectorIR.ConvertLane
+          || root instanceof VarkaVectorIR.CrossLane) {
         return true;
       }
     }
     while (!todo.isEmpty()) {
       VarkaVectorIR node = todo.pop();
       if (node instanceof VarkaVectorIR.WidenLane || node instanceof NarrowLane
-          || node instanceof VarkaVectorIR.ConvertLane) {
+          || node instanceof VarkaVectorIR.ConvertLane || node instanceof VarkaVectorIR.CrossLane) {
         return true;
       }
       if (seen.add(node)) {
