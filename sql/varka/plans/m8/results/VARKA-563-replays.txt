@@ -31,7 +31,9 @@ varka push check: FAILED
   R3: VarkaEmittedBytesSuite failed; run dev/varka_regen_generated.sh --all if the files are stale
 
 # Second round (VARKA-563.md 7), 4 November 2026: R1's registry text and R3's rebase reflog.
-# Script at ffa76d8345e, run from each scratch worktree (git worktree add --detach) as
+# Script at 31f4a459d62 for the fast runs of #1338, #1323 and both fixed heads, at ffa76d8345e
+# (which adds only R3's note on a detached HEAD) for the rest; run from each scratch worktree
+# (git worktree add --detach) as
 #   python3 /path/to/dev/varka_push_check.py [--no-jvm] [--branch B]
 # with --branch naming the incident's branch, whose reflog holds its rebases (HEAD is detached);
 # fast is --no-jvm (R4's house checks run), full has no flag. Seconds are wall time, the

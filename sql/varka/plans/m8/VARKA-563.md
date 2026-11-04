@@ -136,6 +136,8 @@ By the lead's brief of 4 November 2026, after the replays above: only #1317 fail
   changed nothing. `--branch` names the branch when HEAD is detached, as in the replays. One
   over-count: the driver owes `docs/sql-varka.md` only for its generated blocks, and this rule
   sees the whole file, so prose both sides edited owes a run of `--all` that changes nothing.
+  And `--all` on a CPU that is not the width audit's host marks the audit paid too, as its
+  `--owed --keep` does: only that host can regenerate it, at any level.
 - **The reflog is local, so the source stamp is still owed** (point 2). A fresh clone, another
   machine or a reflog past `gc.reflogExpire` has no entry, and a rebase by `git am` or by hand
   leaves none to read; there the JVM step is the check. The stamp: each generated file's header
