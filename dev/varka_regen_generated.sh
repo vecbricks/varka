@@ -40,8 +40,6 @@ set -euo pipefail
 
 top="$(git rev-parse --show-toplevel)"
 cd "$top"
-# The commit the files are regenerated on, which the --all marker names at the end.
-start="$(git rev-parse HEAD)"
 all=0; dry=0
 for arg in "$@"; do
   case "$arg" in
@@ -134,28 +132,22 @@ else
   rm -f "$(git rev-parse --git-path varka-regen-owed)"
   echo "varka regen: done; review git diff and commit the regenerated files"
 fi
-# Last, so that it marks only a run whose every step passed: the commit the generated files were
-# regenerated on and those the regeneration left as that commit has them, which pays a rebase's
-# text merge of them (dev/varka_push_check.py's rebase_debt). A file it rewrote is not listed,
-# so it stays owed until --all runs again on the commit that holds it, nor is a width audit
-# skipped on this CPU. No marker when HEAD moved during the run; it is written whole, through a
-# temporary file.
+# Last, so that only a run whose every step passed writes it: each generated file's blob as the
+# run left it, which pays the branch's change to that file wherever the blob is committed, in any
+# worktree (dev/varka_push_check.py's unregenerated); a width audit skipped on this CPU is not
+# listed. Runs append, the last 500 lines kept, through a temporary file in the shared git dir;
+# two runs ending at once may lose one's lines, which a rerun restores.
 if [ $all = 1 ]; then
-  marker="$(git rev-parse --git-path varka-regen-all)"
-  if [ "$(git rev-parse HEAD)" != "$start" ]; then
-    echo "varka regen: HEAD moved during the run; no --all marker written" >&2
-  else
-    {
-      echo "$start"
-      for f in $files; do
-        if [ $audit_skipped = 1 ] && [ "$f" = sql/varka/width_audit.json ]; then continue; fi
-        if git diff --quiet HEAD -- "$f"; then echo "$f"; fi
-      done
-    } > "$marker.tmp"
-    mv "$marker.tmp" "$marker"
-    if ! git diff --quiet HEAD -- $files; then
-      echo "varka regen: the marker leaves the rewritten files owed; commit them, then run" \
-        "--all again so that its marker names the commit that holds them"
-    fi
-  fi
+  marker="$(git rev-parse --path-format=absolute --git-common-dir)/varka-regen-all"
+  tmp="$(mktemp "$marker.XXXXXX")"
+  {
+    cat "$marker" 2>/dev/null || true
+    for f in $files; do
+      if [ $audit_skipped = 1 ] && [ "$f" = sql/varka/width_audit.json ]; then continue; fi
+      if [ -f "$f" ]; then echo "$(git hash-object "$f") $f"; fi
+    done
+  } | tail -n 500 > "$tmp"
+  mv "$tmp" "$marker"
+  echo "varka regen: marked the generated files as written; committed unchanged, they pass" \
+    "the push check's R3"
 fi
