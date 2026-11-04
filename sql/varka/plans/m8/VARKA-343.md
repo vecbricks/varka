@@ -134,7 +134,9 @@ or `DOUBLE`) drives at 64 bits, at `LONG` if it holds one and at `DOUBLE` otherw
 32-bit nodes only drives at `INT` if it holds one, else at `FLOAT`. A 32-bit value in a 64-bit
 kernel fills the low half of its species of the drive's width, as an int value does in a long
 kernel (`VARKA-28.md` 9). `Analysis`' fit rule (item 0.3) becomes the width rule, and `lanesShare`
-joins roots of one width. A mask crosses to a lane of another count through the word, as
+joins roots of one width (343a3 builds the crossing within a root's tree; the join of roots of
+two kinds is part 343a3b's, 3 November 2026). A mask crosses to a lane of another count through
+the word, as
 `emitToDrivingLane` does, and to one of the same count by `VectorMask.cast`. #1065 leaves that
 crossing owed (its `VARKA-341.md` 5.1); 343a3 builds it, so it closes 341's owed item, and 341's
 record names 343a3 when this lands. A narrow column in a 64-bit kernel - `CAST(y AS DOUBLE)` -
@@ -355,14 +357,17 @@ they are upper bounds.
 | 343a1 | `CAST(x AS BOOLEAN)` over a `FLOAT` or `DOUBLE` (2.5): the lane's `EQ` against zero, negated, in the condition compiler; its coverage rows | master | 200 |
 | 343a2 | `ConvertLane` (2.1) with its refusals, the reference's casts and the range analysis, the `convertShape` lowering, and the compiler arm for the one-count pair, `INT` to `FLOAT`; the reference cells and the refusal tests | master | 750 |
 | 343a3 | the kernel of two lane counts (2.2): the width rules in the kernel plan, `Analysis`, `Slots` and the walk, the warm-up blocks, and the pairs it carries, `INT` to `DOUBLE`, `FLOAT` with `DOUBLE`, the narrow sources, a condition as a value and the mixed trees (`x + i`, `f * i`, `f + x`); the three failures #1303's last matrix found are fixed here, the `INTERNAL_ERROR` under `validityByWidth=false` as a defect, not a skip | 343a2 | 950 |
-| 343a4 | `BIGINT` to `FLOAT` and `DOUBLE` where the host has AVX512DQ: level 3 resolved from the host, the unknown level declining them, the option matrix's level-3 runs and their Spark check | 343a3 | 450 |
+| 343a3b | the root-level crossing (2.2): roots of two kinds share one kernel (`lanesShare` joins roots of one width), so a filter's floating conjunct beside an integral one - the null test the optimizer infers on a cast's source among them - no longer declines (`floatingConjunctRefusal`), and an integral and a floating output take one kernel; the forms `VarkaAnsiForm.DECLINED` lists for it fuse, and the coverage row `CAST(CAST(l AS INT) AS FLOAT)` is added, whose domain check's filter form needs this join. Added by the owner's word of 3 November 2026, when 343a3 stayed under the cap without it. *Owed by 343a3 (10):* `CompiledVarkaProjection`'s long-literal check plans under `VarkaEmitOptions.DEFAULTS`, so a 128-bit host with `lanesOverride=4` fails `CAST(y1 AS DOUBLE) / 2.0D` with `INTERNAL_ERROR`; check under the session's options, as row 332's load needs too | 343a3 | to be sized |
+| 343a4 | `BIGINT` to `FLOAT` and `DOUBLE` where the host has AVX512DQ: level 3 resolved from the host, the unknown level declining them, the option matrix's level-3 runs and their Spark check | 343a3b | 450 |
 | 343a5 | the fuzz grammar's conversions, the 2^32 sweeps of 3.1 and the harness check of each fused cast on both lanes | 343a4 | 400 |
 | 343b1 | the paper and the AVX2 forms (2.3, step 4): `L2D` by the exact split, `L2F` by round-to-odd, behind `wideConversionForm`, the SMT claims and the failing case | 343a5 | 900 |
 | 343b2 | floating to integral in the three modes (2.4, step 5), with `GuardedRange`'s floating bounds and `NULL` disposal; `D2L`'s assembly on AVX2 | 343b1 | 900 |
 | 343b3 | `time_from_seconds` (2.6, step 7), after 342's first pull request, and the measurement against the baseline (step 8) | 343b2 | 500 |
 
 343a3 is the one nearest the cap: if it passes 1000 lines, the mixed trees and the condition as a
-value move to a part of their own after it. 343a1 needs none of the others and may land first.
+value move to a part of their own after it. *As built (3 November 2026, section 10):* it stayed
+under the cap whole, and it also carries `TINYINT` and `SMALLINT` to `DOUBLE`, since row 332
+had built the narrow load at the long width. 343a1 needs none of the others and may land first.
 Only a real code dependency chains one part's matrix on another's. A part over the cap is split
 again before it is pushed, never merged over it.
 
@@ -465,8 +470,8 @@ None open; both were settled with an advisor's review on 27 October 2026.
    make two rows own one node.
 
 The size, large, was confirmed by the owner on 27 October 2026, in two parts; on 3 November 2026
-he set a cap of 1000 changed hand-written lines per pull request, so the row lands in the eight
-parts of 4.
+he set a cap of 1000 changed hand-written lines per pull request, so the row lands in the parts
+of 4: eight then, nine since 343a3b was added the same day.
 
 The baseline comes first, as its own pull request (5.1): not a question, since the house rule
 settles it, as it did for rows 377, 27, 339 and 342.
@@ -483,4 +488,47 @@ PR build and the option matrix pass; the measurement is committed with its predi
 
 ## 10. Outcome
 
-(Written when the work lands.)
+### 343a3 as built (3 November 2026)
+
+Cut from #1303's final tree, without its `BIGINT` conversions (343a4), sweeps and fuzz (343a5).
+
+- **The width rules** (2.2): `emissionLane` drives a tree holding a `LONG` node at the long lane,
+  one holding a `DOUBLE` node otherwise at the double lane, and a 32-bit tree at the int lane
+  over the float one; `Analysis`' fit rule is by width. A 32-bit value of a 64-bit kernel takes
+  the low half of its species of the drive's width, a value of the other kind of that width its
+  whole species. The plan admits `I2F`, `I2D`, `F2D` and `D2F` (`convertShape`) and refuses a
+  `BIGINT` source (343a4) and a floating one to an integral lane (343b2), `Kind.CONVERSION`.
+- **The pairs**: `INT`, `TINYINT`, `SMALLINT` and `BOOLEAN` to both floating types, `FLOAT` with
+  `DOUBLE`, a bigint narrowed to `INT`, and type coercion's mixed trees (`x + i`, `f * i`,
+  `f + x`, `i / 2.0D`). A condition converts as `CondValue` at the int lane, a long one narrowed
+  first, so none needs `L2F` or `L2D`. *Departure from 2.2:* `CAST(y AS DOUBLE)` takes row 332's
+  load at the long width (#1303 declined it); any other narrow node there declines.
+- **The mask crossing at one lane count** #1065 left owed (`VARKA-341.md` 5.1): a guard's mask,
+  an arm's condition and the epilogue's bounds mask cross between the kinds of the drive's width
+  by `VectorMask.cast`, both ways at both widths; the warm-up gains `F2D`, `D2F` and the four
+  casts. *Not built:* roots of two kinds share no kernel (`lanesShare`) and a filter's floating
+  conjunct beside an integral one declines: part 343a3b's (4); `VarkaAnsiForm.DECLINED` lists it.
+- **Tests**: `VarkaEmitterFloatingCastSuite` holds each conversion and the two-lane kernels to
+  the reference at three widths, ten lengths, four null patterns and both bodies, and a zero
+  divisor's decline to its row's validity; the "Floating casts" coverage rows, a long-driven
+  kernel of float and double values among them, are checked against Spark by the harness.
+- **The three failures of #1303's last option matrix** (run 41572066746):
+  1. *Every configuration*: a test said a narrow value in a two-lane 64-bit kernel declines; row
+     332 built that load, so it fuses where a long lane count is baked, else the plan declines it.
+  2. *`lanesOverride=4` and `16`*: the `FLOAT`, `DOUBLE` and `BOOLEAN` conformance suites' casts
+     fuse two-width kernels whose int species is not the 32-bit suites', which the shared JVM's
+     guard refused (at 16 the long lane has none; int values take the preferred, 256 bits on EPYC,
+     beside `SPECIES_512`): `ownJvm` now.
+  3. *`validityByWidth=false`*: an emitter test handed the emitter a plan that refuses it, which
+     threw `INTERNAL_ERROR`; it now asserts the refusal. The SQL path declined cleanly all along.
+
+  Each passed on the laptop under its configuration (`dev/varka_matrix.sh`). The six new
+  `skips.tsv` lines fix none: they expect the new narrow-column rows to decline where no lane
+  count is baked,
+  `validityByWidth=false` and, for `DOUBLE`, `lanesOverride=16`.
+- **A known limit**, shared with row 332: `CompiledVarkaProjection` checks a long literal table
+  against the drive under `VarkaEmitOptions.DEFAULTS`, which refuse what the session admits at
+  128 bits with `lanesOverride=4`, `CAST(y1 AS DOUBLE) / 2.0D`: planning raises `INTERNAL_ERROR`.
+  No CI step pairs them (the matrix sets it only on x86 of 256+ bits); no SQL conf sets it. Owed:
+  343a3b.
+- **Prediction 4.1** holds: only the new rows' shapes and the `option_arms` digests move.

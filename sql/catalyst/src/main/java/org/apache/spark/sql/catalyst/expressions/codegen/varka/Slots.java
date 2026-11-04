@@ -687,7 +687,7 @@ final class Slots {
     // follows from which lanes a kernel holds and not from the order the plan met them. A lane's
     // slots index the table of its width, the int table at 32 bits and the long table at 64.
     // Two lanes of one width share that table, which only a kernel holding a floating lane has
-    // (an int and a float lane), so such a kernel plans each lane's
+    // (an int and a float lane, or a long and a double one), so such a kernel plans each lane's
     // locals and broadcasts only for the slots its own nodes read (`perLane`). A long kernel of
     // int values has a table per lane, so each lane numbers every slot below its highest, read
     // or not. A single-lane kernel's one table is `numLiterals` long.

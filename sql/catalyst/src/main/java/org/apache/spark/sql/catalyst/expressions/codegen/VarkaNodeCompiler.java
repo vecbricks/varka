@@ -100,6 +100,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Nar
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Overflow;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WidenLane;
 import org.apache.spark.sql.types.DataTypes;
+import org.apache.spark.sql.types.DecimalType;
 
 /**
  * The recursive node compiler of the Varka expression compiler: the chain of families that
@@ -353,11 +354,11 @@ final class VarkaNodeCompiler {
    * {@code IN}, {@code isnan} and {@code nanvl} - and are lowered in Spark's order, in which NaN
    * equals NaN and is greater than every other value and {@code -0.0} equals {@code 0.0}, not
    * the vector compare's or {@code max}'s. The arithmetic the floating family lowers is named
-   * here too, as are the casts of INT to FLOAT and of a float to BOOLEAN; the other casts, the
-   * remainders and the interval forms by a floating factor are not. So the list is of what is
-   * served, not of what is refused, and a node no one has thought of declines. Both compile
-   * entries ask it before any arm claims, so no arm sees a floating operand it was not written
-   * for. A {@link RuntimeReplaceable} passes, to be asked again as its replacement.
+   * here too, as are the floating casts family's pairs and a floating value's cast to BOOLEAN;
+   * the other casts, the remainders and the interval forms by a floating factor are not. So the
+   * list is of what is served, not of what is refused, and a node no one has thought of declines.
+   * Both compile entries ask it before any arm claims, so no arm sees a floating operand it was
+   * not written for. A {@link RuntimeReplaceable} passes, to be asked again as its replacement.
    */
   static Optional<String> floatingDecline(Expression e) {
     if (!touchesFloating(e) || e instanceof BoundReference || e instanceof Literal
@@ -376,13 +377,22 @@ final class VarkaNodeCompiler {
         || e instanceof Sqrt || e instanceof ToDegrees || e instanceof ToRadians
         || (e instanceof Signum s && isFloating(s.child().dataType()))
         // The floating casts family's pairs (VARKA-343), by pair for the same reason.
-        || (e instanceof Cast c && VarkaFloatingCastCompiler.admits(c))
-        // A floating value as a boolean (VARKA-343 2.5), the predicate family's `x != 0`.
-        || (e instanceof Cast b && DataTypes.BooleanType.equals(b.dataType()))) {
+        || (e instanceof Cast c && (VarkaFloatingCastCompiler.admits(c)
+            || DataTypes.BooleanType.equals(c.dataType())))) {
       return Optional.empty();
     }
     String what = switch (e) {
-      case Cast _ -> "a cast to or from a floating type (row 343)";
+      case Cast c when DataTypes.DateType.equals(c.child().dataType()) ->
+          "a cast of DATE to a floating type, always null (row 343, after row 333's null leaf)";
+      case Cast c when c.child().dataType() instanceof DecimalType
+          || c.dataType() instanceof DecimalType -> "a decimal cast with a floating side (rows "
+          + "346, 350, 364 and 366)";
+      case Cast c when isFloating(c.child().dataType()) ->
+          "a cast from a floating type (row 343's second part)";
+      case Cast c when DataTypes.LongType.equals(c.child().dataType()) ->
+          "a cast of BIGINT to a floating type, not intrinsic without AVX512DQ (row 343, part "
+          + "343a4)";
+      case Cast _ -> "a cast to or from a floating type that no floating lowering serves";
       case Remainder _, Pmod _ -> "a floating remainder (row 346)";
       // The interval products and quotients by a floating factor, and signum over an interval,
       // are row 342's step after row 343's conversions. UnaryPositive is RuntimeReplaceable, so
