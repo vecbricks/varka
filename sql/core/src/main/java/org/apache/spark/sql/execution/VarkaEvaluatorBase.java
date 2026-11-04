@@ -893,8 +893,15 @@ public abstract class VarkaEvaluatorBase {
       return true;
     }
     if (warmupGate == null) {
-      warmupGate = new VarkaWarmupGate(fusedRunner(), anyNullableInput(), this::inputWidths,
-          this::kernelIdentity);
+      var runner = fusedRunner();
+      int[] outputBytes = new int[runner.dstData.length];
+      for (int o = 0; o < outputBytes.length; o++) {
+        // A decimal output's slot is sixteen bytes, whatever its precision (VARKA-157); a filter
+        // has no typed outputs, its one destination being the selection.
+        outputBytes[o] = o < outputTypes.length && outputTypes[o] instanceof DecimalType ? 16 : 8;
+      }
+      warmupGate = new VarkaWarmupGate(runner, anyNullableInput(), this::inputWidths,
+          this::kernelIdentity, outputBytes);
     }
     return warmupGate.kernelReady(input);
   }

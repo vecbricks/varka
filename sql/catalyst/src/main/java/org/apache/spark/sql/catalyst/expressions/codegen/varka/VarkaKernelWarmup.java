@@ -25,6 +25,7 @@ import java.lang.management.ManagementFactory;
 import java.lang.management.MemoryPoolMXBean;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.TreeSet;
 import java.util.concurrent.ArrayBlockingQueue;
@@ -298,6 +299,20 @@ public final class VarkaKernelWarmup {
   public static boolean start(VarkaKernelWarmth warmth, String shapeHash, VarkaFusedKernel kernel,
       boolean longLane, long[] srcData, long[] srcValidity, int[] srcNullCount, int[] srcWidths,
       boolean nullable, int length, int numOutputs, int[] scalarArgs, long[] longArgs) {
+    int[] eightBytes = new int[numOutputs];
+    Arrays.fill(eightBytes, 8);
+    return start(warmth, shapeHash, kernel, longLane, srcData, srcValidity, srcNullCount,
+        srcWidths, nullable, length, eightBytes, scalarArgs, longArgs);
+  }
+
+  /**
+   * As above, for outputs of the given bytes per row: eight for a lane's value, sixteen for the
+   * slot a decimal output's store writes (VARKA-157), each warm-up output being allocated and
+   * registered at its width, so that a kernel's store is checked against its own extent.
+   */
+  public static boolean start(VarkaKernelWarmth warmth, String shapeHash, VarkaFusedKernel kernel,
+      boolean longLane, long[] srcData, long[] srcValidity, int[] srcNullCount, int[] srcWidths,
+      boolean nullable, int length, int[] dstWidths, int[] scalarArgs, long[] longArgs) {
     if (!canWarm() || length <= 0) {
       warmth.release();
       return false;
@@ -308,7 +323,7 @@ public final class VarkaKernelWarmup {
       return false;
     }
     Job job = new Job(warmth, shapeHash, kernel, longLane, srcData, srcValidity, srcNullCount,
-        srcWidths, nullable, length, numOutputs, scalarArgs, longArgs);
+        srcWidths, nullable, length, dstWidths, scalarArgs, longArgs);
     boolean queued = false;
     try {
       ensureWorker();
@@ -601,7 +616,8 @@ public final class VarkaKernelWarmup {
 
     Job(VarkaKernelWarmth warmth, String shapeHash, VarkaFusedKernel kernel, boolean longLane,
         long[] batchData, long[] batchValidity, int[] batchNullCount, int[] widths,
-        boolean nullable, int length, int numOutputs, int[] scalarArgs, long[] longArgs) {
+        boolean nullable, int length, int[] dstWidths, int[] scalarArgs, long[] longArgs) {
+      int numOutputs = dstWidths.length;
       this.warmth = warmth;
       this.shapeHash = shapeHash;
       this.kernel = kernel;
@@ -661,7 +677,7 @@ public final class VarkaKernelWarmup {
         this.dstData = new long[numOutputs];
         this.dstValidity = new long[numOutputs];
         for (int o = 0; o < numOutputs; o++) {
-          dstData[o] = allocRows(MAX_CALL_ROWS, 8).address();
+          dstData[o] = allocRows(MAX_CALL_ROWS, dstWidths[o]).address();
           dstValidity[o] = allocValidity(MAX_CALL_ROWS).address();
         }
         // The probe's argument sets: the dense driver's with every count at zero, the masked
@@ -684,7 +700,7 @@ public final class VarkaKernelWarmup {
         this.probeDstData = new long[numOutputs];
         this.probeDstValidity = new long[numOutputs];
         for (int o = 0; o < numOutputs; o++) {
-          probeDstData[o] = allocRows(PROBE_ROWS, 8).address();
+          probeDstData[o] = allocRows(PROBE_ROWS, dstWidths[o]).address();
           probeDstValidity[o] = allocValidity(PROBE_ROWS).address();
         }
         // Sized for the longest call, the probe's; a warm-up call passes the same region.
