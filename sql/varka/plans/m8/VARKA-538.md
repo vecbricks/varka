@@ -433,6 +433,17 @@ later work:
 now resolve from the host; its child JVM runs at `-XX:UseAVX=2 -XX:MaxVectorSize=16`, a 128-bit
 long species, where the width rule leaves the emitter's default on every CPU.
 
+On the laptop, at the branch's head: `dev/varka_regen_generated.sh --all` moved no generated
+file, `operator_census.json` included, so prediction 2 holds with the flip; the touched suites
+(`VarkaHostIsaSuite`, `VarkaTwoLaneConditionSuite`, the width audit, the census, the bytes and
+coverage suites, `VarkaShapeCacheSuite`, `VarkaEvaluatorComponentsSuite`,
+`VarkaTimeArithmeticSuite`, the three two-lane host suites and the sql suites that pin the level)
+pass at the defaults, with both bodies checked, as does every sql-module Varka suite (74 suites,
+2535 tests); and the four that resolve a level pass under
+`-XX:UseAVX=2`, where the read falls back at 256 bits (as the census suite's fork under that
+flag holds it to) and test 3.6 plans level `2`, and under `-XX:UseAVX=2 -XX:MaxVectorSize=16`,
+where it plans the emitter's default.
+
 ## 10. Open points for the lead
 
 1. **One place for the Varka SQL test sessions' conf.** Settled in 2.2: `TestSQLContext` plus the
@@ -453,3 +464,5 @@ long species, where the width rule leaves the emitter's default on every CPU.
    row's code, and their files, with their provenance, came in with the row's pull request (9.3).
 6. **`VarkaArrowSessions` is not pinned** (9.1 item 2), against 2.2's list of six: it builds only
    benchmark sessions, and 2.2 keeps the default for benchmarks.
+   Since row 503 it builds `VarkaTwoLaneDefault128Suite`'s sessions too, which stay at the
+   emitter's default under the width rule (9.4).
