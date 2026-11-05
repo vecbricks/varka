@@ -47,6 +47,7 @@ the pre-commit hook also checks. Groups below are in file order.
 * [A Java benchmark extends `BenchmarkBase` and declares no `main`](sql/varka/skills/benchmarking.md#a-java-benchmark-extends-benchmarkbase-and-declares-no-main)
 * [After a warm-up's `RELEASED` verdict, the "once compiled" rows measure the row engine](sql/varka/skills/benchmarking.md#after-a-warm-ups-released-verdict-the-once-compiled-rows-measure-the-row-engine)
 * [Spark's codegen cache: what a compile count and a cache hit measure](sql/varka/skills/benchmarking.md#sparks-codegen-cache-what-a-compile-count-and-a-cache-hit-measure)
+* [An Arm benchmark is a dispatch of `benchmark.yml` with `runner=ubuntu-24.04-arm`](sql/varka/skills/benchmarking.md#an-arm-benchmark-is-a-dispatch-of-benchmarkyml-with-runnerubuntu-2404-arm)
 
 #### [Build and environment](sql/varka/skills/build-and-environment.md)
 * [Classpath Shadowing (the stub trap)](sql/varka/skills/build-and-environment.md#classpath-shadowing-the-stub-trap)

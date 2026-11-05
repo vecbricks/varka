@@ -860,3 +860,15 @@ needs first:
   four to six times faster, with the different machines as the other part of the gap. A hosted
   run cannot pin its CPU (one run's two attempts landed on two EPYC models), so the CPU is
   recorded per attempt, and relative columns measured on different machines are never compared.
+
+## An Arm benchmark is a dispatch of `benchmark.yml` with `runner=ubuntu-24.04-arm`
+
+The benchmark jobs run on `ubuntu-latest` unless the dispatch names a `runner`. Name
+`ubuntu-24.04-arm` for GitHub's Arm pool, a Neoverse N2 with 128-bit vectors only, and set
+`expected-cpu` to `Neoverse-N2` and `generate-tpcds` to false (the TPC-DS data job stays on
+`ubuntu-latest`). `dev/varka_datapath.sh` reads the model from `lscpu` there, since an aarch64
+`/proc/cpuinfo` has no `model name`, and does not run the width probe, whose 128/256/512 comparison
+has nothing to measure on a 128-bit core; the summary then reads `n/a` for the lanes, the control
+and the ratio. A result from the Arm runner is comparable only with another from it, and an x86
+result only with one from its own pinned CPU (the EPYC 7763 rule is unchanged).
+

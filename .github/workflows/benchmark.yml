@@ -61,6 +61,11 @@ on:
         description: 'Generate TPC-DS data (required for TPC-DS benchmarks and all-benchmark runs)'
         required: true
         default: true
+      runner:
+        type: string
+        description: 'The runner of the benchmark jobs: ubuntu-latest (default) or ubuntu-24.04-arm, a Neoverse N2 with 128-bit vectors only. For Arm, pin expected-cpu to its model ("Neoverse-N2") and set generate-tpcds to false, whose data job stays on ubuntu-latest.'
+        required: false
+        default: 'ubuntu-latest'
       expected-cpu:
         type: string
         description: 'Expected CPU model (e.g. "AMD EPYC 7763"). If set, the job fails early when the runner CPU does not match.'
@@ -241,7 +246,7 @@ jobs:
     name: "Run benchmarks: ${{ matrix.class.name }} (JDK ${{ inputs.jdk }}, Scala ${{ inputs.scala }}, ${{ matrix.split }} out of ${{ inputs.num-splits }} splits)"
     if: always() && !inputs.pair && needs.matrix-gen.result == 'success'
     needs: [matrix-gen, tpcds-1g-gen]
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.runner || 'ubuntu-latest' }}
     permissions:
       contents: write
     strategy:
@@ -435,7 +440,7 @@ jobs:
     name: "Benchmark pair: ${{ matrix.class.name }}"
     if: inputs.pair
     needs: matrix-gen
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.runner || 'ubuntu-latest' }}
     timeout-minutes: 355
     strategy:
       fail-fast: false
