@@ -110,6 +110,14 @@ class VarkaMatrixSuite extends SparkFunSuite with VarkaTestWatchdog {
     run("groupBudget=8")(())
   }
 
+  test("a test listed under the JVM's platform is expected to fail there (VARKA-505)") {
+    val entries = Seq(Skip("isa=w128", "S", "t", Kind.FAILS, "no byte load"))
+    // A platform JVM is a defaults JVM (empty configuration) that names its platform.
+    assert(VarkaMatrixRuns.expectedFailure(entries.asJava, "", "isa=w128", "S", "t").isPresent)
+    assert(!VarkaMatrixRuns.expectedFailure(entries.asJava, "", "isa=arm", "S", "t").isPresent)
+    assert(!VarkaMatrixRuns.expectedFailure(entries.asJava, "", "", "S", "t").isPresent)
+  }
+
   test("each test's fused batches go to the report file") {
     val report = Files.createTempFile("varka-matrix", ".tsv")
     val saved = VarkaMatrix.fusedBatches

@@ -59,9 +59,12 @@ November 2026 with `gh api` GETs. Nothing was dispatched.
 
 **Goal.** Every dispatch of the option matrix also runs the Varka suites at the defaults under
 three fixed platforms: AVX2 (`-XX:UseAVX=2 -XX:MaxVectorSize=32`), the 128-bit species
-(`-XX:MaxVectorSize=16`) and Arm (`ubuntu-24.04-arm`, defaults). A defect of row 396's class,
-which C2 shows only without mask registers, then fails a pull request's matrix on its first
-run, not on a lucky night.
+(`-XX:MaxVectorSize=16`) and Arm (`ubuntu-24.04-arm`, defaults). A defect that shows only at two
+long lanes or on Arm then fails a pull request's matrix on its first run, not on a lucky night.
+*Restated on 5 November 2026 by the owner's word, after the check of 2.2 (outcome 10.2):* the
+axis at the committed iteration counts does not catch row 396's class without a test written for
+it, so that class stays with `VarkaAvx2SelectSuite` and the fuzz nights, and the axis's claim is
+the 128-bit species and Arm, where its first dispatch found 30 failures.
 
 **Non-goal.** No option configuration crossed with the axis: only the defaults run under each
 platform. No change to the PR Build. No new skip rules beyond what the axis's first run finds.
@@ -181,8 +184,8 @@ Size: medium, as the row says.
 
 - every dispatch of `varka-option-matrix.yml` runs the defaults under `isa=avx2`, `isa=w128` and
   `isa=arm`, with each platform bin's CPU and flags in the report;
-- the scratch-branch check is recorded with its run ids, `isa=avx2` failing without row 491's
-  guard;
+- the scratch-branch check is recorded with its run ids (done, outcome 10.2: `isa=avx2` did not
+  fail without row 491's guard, so the goal no longer claims that class);
 - a dispatch on master passes with the axis;
 - the workflow's comment states the run's job count and how it fits the fork's 40 slots under
   the owner's answer to question 1.
@@ -198,3 +201,51 @@ Size: medium, as the row says.
    worded. The plan did not open it.
 
 ## 10. Outcome
+
+### 10.1 Step 1: the platform bins (5 November 2026)
+
+Built on branch `varka-505-axis`, one change to each of three files.
+
+- `dev/varka_matrix_bins.py` has `PLATFORMS`, the three configurations with a runner and JVM
+  flags each, and `plan --platforms` packs their units apart from the matrix's own: one group of
+  bins for each runner, listed first so that they start at once. A platform unit runs every suite
+  (the reach record never cuts it), takes the defaults' seconds, and its line carries its flags as a
+  fourth field. Every bin has a `runner` field. A unit test pins the flags, the runners, the full
+  reach and that no bin mixes a platform with the matrix's units.
+- `dev/varka_matrix.sh --platform NAME`, with `--defaults` and `--jvm-arg`, files a run under
+  `runs/NAME`, so that the report lists `isa=avx2` beside the configurations and the defaults'
+  own run stays alone.
+- `varka-option-matrix.yml` plans with `--platforms`, takes `runs-on` from the bin's runner, runs a
+  platform unit as `--defaults --platform` with its flags and no reach file, raises `max-parallel`
+  from 30 to 38 (question 1's 8 slots, by the owner's word) and prints each platform bin's CPU and
+  flags in the summary.
+
+Differences from section 2.1: the platforms are not added to `VarkaTestReach.FULL`, because a
+platform unit never reads the reach file; a platform is therefore not a reach configuration at all.
+Planned against the committed suite lists and the 48 weights of `matrix/seconds.tsv`, the axis adds
+15 bins, five for each platform, to the 208 of the same plan without them.
+
+Owed: the scratch-branch check of 2.2, a green dispatch on master, and the skip lines the first
+`isa=w128` run finds.
+
+### 10.2 The first dispatches (5 November 2026)
+
+**Run 42018067671, on this branch.** Every dispatch of the matrix now ran the defaults under the
+three platforms. `isa=avx2` passed. `isa=w128` and `isa=arm` failed 14 and 16 tests, all listed in
+`sql/varka/matrix/skips.tsv` with rows 575 and 576 as their reasons: a `BYTE` column has no load at
+two long lanes (the 14 shared), and on Arm a signalling NaN operand's payload wins in
+`try_subtract(f, f2)` (the 2 Arm-only).
+
+**The scratch-branch check of 2.2, run 42028615914 on `varka-505-scratch`** (row 491's guard off in
+`VarkaVectorWalk.emitMaskOfWord`, `VarkaAvx2SelectSuite` disabled, the option configurations
+emptied): **prediction P3 did not hold.** Under `isa=avx2` the failures were three, the same three
+as under `defaults`: the two source checks that no kernel hands `fromLong` a word a `toLong`
+reaches, and the committed price table. All three are tests written for the guard or generated from
+the emitted bytes; none is a behavioural failure. `isa=w128` and `isa=arm` failed those three and
+the 14 and 16 of the first run, nothing more. The compiled-history test of `VarkaIrFuzzSuite`
+(`random IR trees compiled by C2 match the reference evaluator over eight batch histories`) ran and
+passed under `isa=avx2` in 416 s, on an EPYC 9V74 whose own JVM reads `UseAVX=3`, so with the
+guard off and a forced AVX2 level the broad suites did not show row 396's wrong answer. By 2.2 the
+row stops and reports: the axis at the committed iteration counts does not catch that class
+without a test written for it. Row 396's class stays with `VarkaAvx2SelectSuite` and the fuzz nights.
+

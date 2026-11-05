@@ -1636,3 +1636,15 @@ From VARKA-89 (21 October 2026), which fused `ym / num` and the two YEAR-unit ca
   row engine then raises: `ym / -1` as a checked negation declined correctly on `Int.MinValue`,
   but the error that reached the user lacked the SQL context block Spark's own carries, so
   `VarkaMaybeThrows` failed it. Compare the raised outcomes before calling an overflow arm done.
+
+## A platform bin runs the defaults under a fixed instruction set, so read its name before its failure
+
+The option matrix's `isa=avx2`, `isa=w128` and `isa=arm` runs (`dev/varka_matrix_bins.py`
+`PLATFORMS`) are the defaults under `-XX:UseAVX=2 -XX:MaxVectorSize=32`, `-XX:MaxVectorSize=16`
+and the defaults on `ubuntu-24.04-arm`, every test, never cut by the reach record. A failure under
+one of them and not under `defaults` is a defect of what C2 does on that instruction set, not of an
+option. The summary's "Platform bins" lines give each one's runner CPU and the JVM's own flags on
+that host: a forced `UseAVX=2` on a host whose JVM already says `UseAVX=2` was a no-op, so the
+pass says nothing about masks. A test that cannot hold under a platform by design goes in
+`sql/varka/matrix/skips.tsv` under the platform's name, with its reason.
+

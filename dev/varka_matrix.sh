@@ -52,6 +52,10 @@
 # shares of one configuration land side by side when their runs/ directories are merged; and
 # --report-only DIR reports on the merged DIR/runs and runs nothing.
 #
+# A platform run (VARKA-505): --platform NAME, with --defaults and --jvm-arg flags, runs the
+# defaults under a fixed instruction set and files the runs under runs/NAME, so that the report lists it
+# beside the configurations and the defaults' own run stays alone.
+#
 # sbt builds once and exports the test classpath and JVM options; each configuration then runs
 # as its own runner JVM (VarkaSuiteRunner: ScalaTest's Runner, then the JUnit suites) in its own
 # directory under target/varka-matrix/, so parallel runs share no sbt lock, warehouse or temporary
@@ -99,6 +103,7 @@ split_weights=""
 build_only=0
 runs_only=0
 leaf_suffix=""
+platform=""
 report_only=""
 
 # The report over a run's runs/ directory: one line per configuration and what failed
@@ -151,6 +156,7 @@ while [ $# -gt 0 ]; do
     --build-only) build_only=1; shift ;;
     --runs-only) runs_only=1; shift ;;
     --leaf-suffix) leaf_suffix="$2"; shift 2 ;;
+    --platform) platform="$2"; shift 2 ;;
     --report-only) report_only=$(realpath -m "$2"); shift 2 ;;
     -h|--help) usage 0 ;;
     *) echo "unknown argument: $1" >&2; usage ;;
@@ -395,7 +401,7 @@ own_jvm_flags() {
 # prints one Suites: and one Tests: line over both, which the report reads (VARKA-312).
 RUNNER=org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaSuiteRunner
 run_one() {
-  local config=$1 module=$2 part=$3 name=${1:-defaults}
+  local config=$1 module=$2 part=$3 name=${platform:-${1:-defaults}}
   local leaf=$module
   [ -n "$leaf_suffix" ] && leaf=$module-$leaf_suffix
   [ "$(wc -l < "$OUT/shards/$module")" -gt 1 ] && leaf=$leaf-$part
@@ -413,6 +419,7 @@ run_one() {
   local start; start=$(date +%s)
   (cd "$dir" && SPARK_TESTING=1 SPARK_SCALA_VERSION=2.13 java "${OPTS[@]}" "${own[@]}" \
     -Djava.io.tmpdir="$dir/tmp" -Dvarka.matrix.config="$config" \
+    -Dvarka.matrix.platform="$platform" \
     -Dvarka.matrix.report="$dir/fused.tsv" \
     -cp "$CP" "$RUNNER" -oW -u "$dir/junit" "${suites[@]}" > "$dir/run.log" 2>&1)
   echo "$?" > "$dir/exit"

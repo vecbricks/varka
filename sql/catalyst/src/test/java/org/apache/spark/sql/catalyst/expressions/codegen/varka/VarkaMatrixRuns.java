@@ -57,6 +57,17 @@ public final class VarkaMatrixRuns {
   /** The system property naming this JVM's configuration. */
   public static final String PROPERTY = "varka.matrix.config";
 
+  /**
+   * The system property naming this JVM's platform (VARKA-505), {@code isa=avx2}, {@code isa=w128}
+   * or {@code isa=arm}: the defaults under fixed JVM flags. It is not an emit option, so
+   * {@link #CONFIG} stays empty and the JVM is a defaults JVM in every other respect; only the
+   * skip list reads it, so that a test listed under the platform is expected to fail there.
+   */
+  public static final String PLATFORM_PROPERTY = "varka.matrix.platform";
+
+  /** This JVM's platform, {@code ""} for none. */
+  public static final String PLATFORM = System.getProperty(PLATFORM_PROPERTY, "").trim();
+
   /** The system property naming the file each test's fused-batch count is appended to. */
   public static final String REPORT_PROPERTY = "varka.matrix.report";
 
@@ -406,8 +417,18 @@ public final class VarkaMatrixRuns {
   /** The {@code fails} entry for this test under {@code config}, if the skip list has one. */
   public static Optional<Skip> expectedFailure(List<Skip> entries, String config, String suite,
       String test) {
+    return expectedFailure(entries, config, "", suite, test);
+  }
+
+  /**
+   * {@link #expectedFailure(List, String, String, String)} for a JVM that also runs under a
+   * platform: an entry under the platform's name counts as well as one under {@code config}.
+   */
+  public static Optional<Skip> expectedFailure(List<Skip> entries, String config, String platform,
+      String suite, String test) {
     return entries.stream()
-        .filter(s -> s.kind() == Kind.FAILS && s.config().equals(config)
+        .filter(s -> s.kind() == Kind.FAILS
+            && (s.config().equals(config) || (!platform.isEmpty() && s.config().equals(platform)))
             && s.suite().equals(suite) && s.test().equals(test))
         .findFirst();
   }
@@ -463,7 +484,7 @@ public final class VarkaMatrixRuns {
   /** {@link #around} with its skip list, configuration and report named: the seam its tests use. */
   public static <T> T around(List<Skip> entries, String config, Optional<String> report,
       String suite, String test, Outcomes outcomes, Body<T> body) throws Throwable {
-    Optional<Skip> expected = expectedFailure(entries, config, suite, test);
+    Optional<Skip> expected = expectedFailure(entries, config, PLATFORM, suite, test);
     // A test nothing of which this configuration changes was run by the defaults' run already
     // (VarkaTestReach): it passes here unrun, with no fused count for the declining check.
     if (VarkaTestReach.skips(config, suite, test, expected.isPresent())) {
