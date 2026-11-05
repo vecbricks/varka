@@ -89,6 +89,18 @@ def reaches(config, module):
 
 LANES = 2
 
+# The platform configurations (VARKA-505): the Varka suites at the defaults under a fixed
+# instruction set, whatever the pool's machine is. Each is (runner, JVM flags). A platform changes
+# what C2 does with the same bytes, so none of them is cut by the reach record, and a run takes
+# the defaults' seconds. The matrix's own bins run on `ubuntu-latest`; a platform's runs go in bins
+# of their own, in the order below.
+RUNNER = "ubuntu-latest"
+PLATFORMS = {
+    "isa=avx2": (RUNNER, "-XX:UseAVX=2 -XX:MaxVectorSize=32"),
+    "isa=w128": (RUNNER, "-XX:MaxVectorSize=16"),
+    "isa=arm": ("ubuntu-24.04-arm", ""),
+}
+
 
 def read_tsv(path):
     """`name<TAB>number` lines, `#` comments and blank lines aside; empty for a missing file."""
@@ -196,7 +208,16 @@ def reach_share(reach, config, suite):
     return sum(config in m or "*" in m for m in moved) / len(moved)
 
 
-def units(configurations, suites, weight, config_weights, lane, reach=None, config_seconds=None):
+def units(
+    configurations,
+    suites,
+    weight,
+    config_weights,
+    lane,
+    reach=None,
+    config_seconds=None,
+    platforms=(),
+):
     """Every (configuration, module, suites, seconds) JVM the matrix runs, the defaults first. A
     suite's whole run under a configuration takes its measured seconds there (`config_seconds`,
     keyed by the configuration's run directory) or else its weight times the configuration's
@@ -206,15 +227,16 @@ def units(configurations, suites, weight, config_weights, lane, reach=None, conf
     fill = statistics.median(config_weights.values()) if config_weights else 1.0
     config_seconds = config_seconds or {}
     out = []
-    for config in [DEFAULTS] + list(configurations):
-        factor = 1.0 if config == DEFAULTS else config_weights.get(config, fill)
+    for config in [DEFAULTS] + list(configurations) + list(platforms):
+        platform = config in platforms
+        factor = 1.0 if config == DEFAULTS or platform else config_weights.get(config, fill)
         directory = run_dir(config)
         for module, listed in suites:
             if not reaches(config, module):
                 continue
             shared = []
             for name, alone in listed:
-                share = reach_share(reach, config, name)
+                share = 1.0 if platform else reach_share(reach, config, name)
                 if share == 0.0:
                     continue
                 whole = config_seconds.get((directory, name))
@@ -267,19 +289,38 @@ def plan(
     lane,
     reach=None,
     config_seconds=None,
+    platforms=(),
 ):
+    """The job matrix. The platform configurations named in `platforms` (keys of PLATFORMS) are
+    packed apart from the others, one group of bins for each runner and ahead of the matrix's own
+    bins, so that they start at once and the matrix keeps its slots; a platform unit's line
+    carries its JVM flags as a fourth field."""
     weight = suite_weight(suite_seconds, suite_times)
-    all_units = units(configurations, suites, weight, config_weights, lane, reach, config_seconds)
-    bins = pack(all_units, lane)
+    all_units = units(
+        configurations, suites, weight, config_weights, lane, reach, config_seconds, platforms
+    )
+    # The platforms' bins come first, so that they start at once and hold their slots while the
+    # matrix's own bins fill the rest.
+    groups = []
+    for runner in dict.fromkeys(PLATFORMS[p][0] for p in platforms):
+        mine = [u for u in all_units if u[0] in platforms and PLATFORMS[u[0]][0] == runner]
+        groups.append((runner, mine))
+    groups.append((RUNNER, [u for u in all_units if u[0] not in platforms]))
     include = []
-    for k, b in enumerate(bins):
-        include.append(
-            {
-                "bin": f"b{k:03d}",
-                "seconds": round(max(b["lanes"])),
-                "units": "\n".join(f"{c}|{m}|{','.join(s)}" for c, m, s, _ in b["units"]),
-            }
-        )
+    for runner, group in groups:
+        for b in pack(group, lane):
+            lines = []
+            for c, m, s, _ in b["units"]:
+                line = f"{c}|{m}|{','.join(s)}"
+                lines.append(f"{line}|{PLATFORMS[c][1]}" if c in platforms else line)
+            include.append(
+                {
+                    "bin": f"b{len(include):03d}",
+                    "seconds": round(max(b["lanes"])),
+                    "runner": runner,
+                    "units": "\n".join(lines),
+                }
+            )
     return {"include": include}
 
 
@@ -574,6 +615,38 @@ class SelfTest(unittest.TestCase):
         expected = sorted((c, s) for c in ["defaults"] + configs for s in "ABCDE")
         self.assertEqual(met, expected)
         self.assertTrue(all(b["seconds"] <= 700 for b in out), out)
+
+    def test_the_platforms_run_every_suite_in_bins_of_their_own_with_their_flags(self):
+        suites = [("sql", [("A", False), ("C", True)]), ("catalyst", [("D", False)])]
+        weights = {"A": 100.0, "C": 300.0, "D": 10.0}
+        # A record that says no test moves under x=1 leaves it out of the matrix's bins, and
+        # every platform runs every suite all the same.
+        reach = ({"x=1"}, {"A": [set()], "C": [set()], "D": [set()]})
+        out = plan(["x=1"], suites, weights, {}, {}, 700.0, reach, None, tuple(PLATFORMS))
+        out = out["include"]
+        self.assertEqual({b["runner"] for b in out}, {RUNNER, "ubuntu-24.04-arm"})
+        met = {}
+        for b in out:
+            for line in b["units"].split("\n"):
+                parts = line.split("|")
+                if parts[0] in PLATFORMS:
+                    self.assertEqual(len(parts), 4, line)
+                    self.assertEqual(parts[3], PLATFORMS[parts[0]][1])
+                    self.assertEqual(b["runner"], PLATFORMS[parts[0]][0], line)
+                    met.setdefault(parts[0], []).extend(parts[2].split(","))
+                else:
+                    self.assertEqual(len(parts), 3, line)
+                    self.assertEqual(b["runner"], RUNNER, line)
+        for name in PLATFORMS:
+            self.assertEqual(sorted(met[name]), ["A", "C", "D"], name)
+        # No bin mixes a platform with the matrix's own units.
+        for b in out:
+            first = [line.split("|")[0] in PLATFORMS for line in b["units"].split("\n")]
+            self.assertEqual(len(set(first)), 1, b)
+        # Without --platforms nothing changes: every unit has three fields on the default runner.
+        plain = plan(["x=1"], suites, weights, {}, {}, 700.0)["include"]
+        self.assertEqual({b["runner"] for b in plain}, {RUNNER})
+        self.assertFalse(any("isa=" in b["units"] for b in plain))
 
     def test_a_unit_longer_than_a_lane_takes_a_lane_of_its_own(self):
         bins = pack(
@@ -968,6 +1041,13 @@ def main(argv):
         help="a lane's seconds on a fast runner (default 480)",
     )
     p.add_argument("--reach", help="the Build's record of the tests each configuration moves")
+    p.add_argument(
+        "--platforms",
+        action="store_true",
+        help="also plan the platform configurations ("
+        + ", ".join(PLATFORMS)
+        + ") in bins of their own",
+    )
     t = sub.add_parser("times")
     t.add_argument("dirs", nargs="+")
     t.add_argument("--reach", help="the run's record: only whole runs of a suite count")
@@ -1013,6 +1093,7 @@ def main(argv):
         args.target,
         read_reach(args.reach) if args.reach else None,
         read_config_seconds(CONFIG_SUITE_SECONDS),
+        tuple(PLATFORMS) if args.platforms else (),
     )
     json.dump(out, sys.stdout)
     print()

@@ -225,7 +225,7 @@ jobs:
         python3 dev/varka_matrix_bins.py plan \
           --configurations target/varka-matrix/configurations \
           --suites sql=target/varka-bins/sql --suites catalyst=target/varka-bins/catalyst \
-          "${reach[@]}" > target/varka-bins/bins.json 2> target/varka-bins/plan.txt
+          --platforms "${reach[@]}" > target/varka-bins/bins.json 2> target/varka-bins/plan.txt
         cat target/varka-bins/plan.txt | tee -a "$GITHUB_STEP_SUMMARY"
         echo "bins=$(cat target/varka-bins/bins.json)" >> "$GITHUB_OUTPUT"
     # Every entry of the test classpath, the build's class directories and the dependencies' jars
@@ -251,14 +251,20 @@ jobs:
         if-no-files-found: ignore
         retention-days: 30
 
+  # The matrix's own bins take 30 slots and the platform bins (VARKA-505: the defaults under
+  # `isa=avx2`, `isa=w128` and `isa=arm`, dev/varka_matrix_bins.py PLATFORMS) about 8 more, which
+  # is the fork's 40 less the build and report jobs: a job's runner is its bin's `runner`. One job
+  # holds both, so max-parallel is the sum; the planner lists the platform bins first, so they
+  # start at once and the matrix's bins take the other slots. A push chain's job ceiling is 40 less the
+  # platform bins, and the rows that run beside a matrix wait for it.
   bins:
     name: "Option matrix: ${{ matrix.bin }}"
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
     strategy:
       fail-fast: false
-      max-parallel: 30
+      max-parallel: 38
       matrix: ${{ fromJSON(needs.build.outputs.bins) }}
     steps:
     # The run's wall time is its slowest bin's, so a setup step that stalls holds back the whole
@@ -347,10 +353,20 @@ jobs:
         # The step's shell is bash -e: a unit's status is captured, so that a failing unit
         # neither ends the step before the others run nor goes unrecorded.
         run_unit() {
-          local k=$1 config=$2 module=$3 suites=$4 mode status=0
-          if [ "$config" = defaults ]; then mode=(--defaults); else mode=(--config "$config"); fi
+          local k=$1 config=$2 module=$3 suites=$4 flags=$5 mode status=0 flag
+          if [ "$config" = defaults ]; then
+            mode=(--defaults)
+          elif [ -n "$flags" ] || [[ "$config" == isa=* ]]; then
+            # A platform (VARKA-505): the defaults under fixed JVM flags, every test, in
+            # runs/<platform>.
+            mode=(--defaults --platform "$config")
+            for flag in $flags; do mode+=(--jvm-arg "$flag"); done
+          else
+            mode=(--config "$config")
+          fi
           # A configuration runs only the tests the Build's record says it moves.
-          if [ "$config" != defaults ] && [ -s target/varka-matrix/reach.tsv ]; then
+          if [ "$config" != defaults ] && [[ "$config" != isa=* ]] && \
+              [ -s target/varka-matrix/reach.tsv ]; then
             mode+=(--jvm-arg "-Dvarka.matrix.reachFile=$PWD/target/varka-matrix/reach.tsv")
           fi
           # A configuration's harness takes the plans and answers the Build's defaults wrote.
@@ -364,9 +380,9 @@ jobs:
           echo "$status" > "$out/$BIN-u$k.exit"
         }
         k=0 running=0
-        while IFS='|' read -r config module suites; do
+        while IFS='|' read -r config module suites flags; do
           [ -n "$config" ] || continue
-          run_unit "$k" "$config" "$module" "$suites" &
+          run_unit "$k" "$config" "$module" "$suites" "$flags" &
           k=$((k + 1)) running=$((running + 1))
           if [ "$running" -ge 2 ]; then wait -n || true; running=$((running - 1)); fi
         done <<< "$UNITS"
@@ -436,6 +452,22 @@ jobs:
           echo "Bins by CPU:"
           echo '```'
           grep -h '^CPU' target/varka-bins/*-platform/platform.txt | sort | uniq -c || true
+          echo '```'
+          # Each platform's runner CPU and the JVM's own flags there (VARKA-505): a forced
+          # UseAVX=2 on a host whose JVM already reads UseAVX=2 is a no-op, not coverage.
+          echo "Platform bins (flags forced; JVM: is the host's own):"
+          echo '```'
+          for d in target/varka-bins/b*-u*/runs/isa=*; do
+            [ -d "$d" ] || continue
+            bin=$(basename "$(dirname "$(dirname "$d")")")
+            bin=${bin%-u*}
+            platform=$(basename "$d")
+            flags=$(python3 -c 'import sys; sys.path.insert(0, "dev"); \
+              import varka_matrix_bins as m; print(m.PLATFORMS[sys.argv[1]][1] or "defaults")' \
+              "$platform")
+            echo "$platform [$flags] $(grep -h '^CPU' "target/varka-bins/$bin-platform/platform.txt")" \
+              "$(grep -h '^JVM' "target/varka-bins/$bin-platform/platform.txt")"
+          done | sort | uniq -c
           echo '```'
           # The bins a setup step held back, each retried once (VARKA-513).
           echo "Setup steps retried:"

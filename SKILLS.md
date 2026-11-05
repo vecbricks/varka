@@ -165,6 +165,7 @@ the pre-commit hook also checks. Groups below are in file order.
 * [Cost predictions run optimistic: the calibration table](sql/varka/skills/testing-and-debugging.md#cost-predictions-run-optimistic-the-calibration-table)
 * [A forked JVM proves its own tier, and the default JVM's expectations are not that proof](sql/varka/skills/testing-and-debugging.md#a-forked-jvm-proves-its-own-tier-and-the-default-jvms-expectations-are-not-that-proof)
 * [A compiler arm is held to Spark by the oracle, not by the reference evaluator](sql/varka/skills/testing-and-debugging.md#a-compiler-arm-is-held-to-spark-by-the-oracle-not-by-the-reference-evaluator)
+* [A platform bin runs the defaults under a fixed instruction set, so read its name before its failure](sql/varka/skills/testing-and-debugging.md#a-platform-bin-runs-the-defaults-under-a-fixed-instruction-set-so-read-its-name-before-its-failure)
 
 #### [What C2 does with these loops](sql/varka/skills/the-jit.md)
 * [C2 Compile Latency Is the Wide-Vector-Loop Cliff (root cause, proven)](sql/varka/skills/the-jit.md#c2-compile-latency-is-the-wide-vector-loop-cliff-root-cause-proven)

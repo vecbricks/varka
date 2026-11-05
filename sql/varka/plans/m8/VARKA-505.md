@@ -198,3 +198,30 @@ Size: medium, as the row says.
    worded. The plan did not open it.
 
 ## 10. Outcome
+
+### 10.1 Step 1: the platform bins (5 November 2026)
+
+Built on branch `varka-505-axis`, one change to each of three files.
+
+- `dev/varka_matrix_bins.py` has `PLATFORMS`, the three configurations with a runner and JVM
+  flags each, and `plan --platforms` packs their units apart from the matrix's own: one group of
+  bins for each runner, listed first so that they start at once. A platform unit runs every suite
+  (the reach record never cuts it), takes the defaults' seconds, and its line carries its flags as a
+  fourth field. Every bin has a `runner` field. A unit test pins the flags, the runners, the full
+  reach and that no bin mixes a platform with the matrix's units.
+- `dev/varka_matrix.sh --platform NAME`, with `--defaults` and `--jvm-arg`, files a run under
+  `runs/NAME`, so that the report lists `isa=avx2` beside the configurations and the defaults'
+  own run stays alone.
+- `varka-option-matrix.yml` plans with `--platforms`, takes `runs-on` from the bin's runner, runs a
+  platform unit as `--defaults --platform` with its flags and no reach file, raises `max-parallel`
+  from 30 to 38 (question 1's 8 slots, by the owner's word) and prints each platform bin's CPU and
+  flags in the summary.
+
+Differences from section 2.1: the platforms are not added to `VarkaTestReach.FULL`, because a
+platform unit never reads the reach file; a platform is therefore not a reach configuration at all.
+Planned against the committed suite lists and the 48 weights of `matrix/seconds.tsv`, the axis adds
+15 bins, five for each platform, to the 208 of the same plan without them.
+
+Owed: the scratch-branch check of 2.2, a green dispatch on master, and the skip lines the first
+`isa=w128` run finds.
+
