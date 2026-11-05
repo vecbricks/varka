@@ -253,10 +253,10 @@ jobs:
 
   # The matrix's own bins take 30 slots and the platform bins (VARKA-505: the defaults under
   # `isa=avx2`, `isa=w128` and `isa=arm`, dev/varka_matrix_bins.py PLATFORMS) about 8 more, which
-  # is the fork's 40 less the build and report jobs: a job's runner is its bin's `runner`. One job
+  # is the fork's 40 less the build and report jobs; a bin's `runner` is its job's. One job
   # holds both, so max-parallel is the sum; the planner lists the platform bins first, so they
-  # start at once and the matrix's bins take the other slots. A push chain's job ceiling is 40 less the
-  # platform bins, and the rows that run beside a matrix wait for it.
+  # start at once and the matrix's bins take the other slots. A push chain's job ceiling is 40
+  # less the platform bins, and the rows that run beside a matrix wait for it.
   bins:
     name: "Option matrix: ${{ matrix.bin }}"
     needs: build
@@ -370,7 +370,7 @@ jobs:
             mode+=(--jvm-arg "-Dvarka.matrix.reachFile=$PWD/target/varka-matrix/reach.tsv")
           fi
           # A configuration's harness takes the plans and answers the Build's defaults wrote.
-          if [ "$config" != defaults ] && \
+          if [ "$config" != defaults ] && [[ "$config" != isa=* ]] && \
               compgen -G "target/varka-matrix/harness-store/harness-*.bin" > /dev/null; then
             mode+=(--jvm-arg "-Dvarka.harness.store=$PWD/target/varka-matrix/harness-store")
           fi
@@ -465,8 +465,9 @@ jobs:
             flags=$(python3 -c 'import sys; sys.path.insert(0, "dev"); \
               import varka_matrix_bins as m; print(m.PLATFORMS[sys.argv[1]][1] or "defaults")' \
               "$platform")
-            echo "$platform [$flags] $(grep -h '^CPU' "target/varka-bins/$bin-platform/platform.txt")" \
-              "$(grep -h '^JVM' "target/varka-bins/$bin-platform/platform.txt")"
+            file=target/varka-bins/$bin-platform/platform.txt
+            echo "$platform [$flags] $(grep -h '^CPU' "$file")" \
+              "$(grep -h '^JVM' "$file")"
           done | sort | uniq -c
           echo '```'
           # The bins a setup step held back, each retried once (VARKA-513).

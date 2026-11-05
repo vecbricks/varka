@@ -52,8 +52,8 @@
 # shares of one configuration land side by side when their runs/ directories are merged; and
 # --report-only DIR reports on the merged DIR/runs and runs nothing.
 #
-# A platform run (VARKA-505): --platform NAME, with --defaults and --jvm-arg flags, runs the defaults
-# under a fixed instruction set and files the runs under runs/NAME, so that the report lists it
+# A platform run (VARKA-505): --platform NAME, with --defaults and --jvm-arg flags, runs the
+# defaults under a fixed instruction set and files the runs under runs/NAME, so that the report lists it
 # beside the configurations and the defaults' own run stays alone.
 #
 # sbt builds once and exports the test classpath and JVM options; each configuration then runs

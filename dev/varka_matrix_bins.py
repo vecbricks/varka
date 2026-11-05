@@ -359,7 +359,9 @@ def times(junit_dirs, reach=None):
     is a run's typical cost of the suite rather than the cost on the fastest or the slowest
     machine."""
     runs = {}
-    for (_, suite), seconds in whole_runs(junit_dirs, reach).items():
+    for (config, suite), seconds in whole_runs(junit_dirs, reach).items():
+        if config in PLATFORMS:
+            continue  # a platform's runner (Arm) would skew the median; `units` times it by itself
         runs.setdefault(suite, []).append(seconds)
     return {suite: statistics.median(seconds) for suite, seconds in runs.items()}
 
@@ -647,6 +649,17 @@ class SelfTest(unittest.TestCase):
         plain = plan(["x=1"], suites, weights, {}, {}, 700.0)["include"]
         self.assertEqual({b["runner"] for b in plain}, {RUNNER})
         self.assertFalse(any("isa=" in b["units"] for b in plain))
+
+    def test_a_platform_run_stays_out_of_the_suite_median_but_keeps_its_own_seconds(self):
+        with tempfile.TemporaryDirectory() as d:
+            for config, seconds in (("defaults", 10), ("isa=arm", 90)):
+                junit = Path(d, config, "sql-b000-u0", "junit")
+                junit.mkdir(parents=True)
+                (junit / "TEST-p.A.xml").write_text(
+                    f'<testsuite name="p.A" time="{seconds}"></testsuite>', encoding="utf-8"
+                )
+            self.assertEqual(times([d]), {"A": 10.0})
+            self.assertEqual(whole_runs([d])[("isa=arm", "A")], 90.0)
 
     def test_a_unit_longer_than_a_lane_takes_a_lane_of_its_own(self):
         bins = pack(
