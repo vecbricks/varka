@@ -59,9 +59,12 @@ November 2026 with `gh api` GETs. Nothing was dispatched.
 
 **Goal.** Every dispatch of the option matrix also runs the Varka suites at the defaults under
 three fixed platforms: AVX2 (`-XX:UseAVX=2 -XX:MaxVectorSize=32`), the 128-bit species
-(`-XX:MaxVectorSize=16`) and Arm (`ubuntu-24.04-arm`, defaults). A defect of row 396's class,
-which C2 shows only without mask registers, then fails a pull request's matrix on its first
-run, not on a lucky night.
+(`-XX:MaxVectorSize=16`) and Arm (`ubuntu-24.04-arm`, defaults). A defect that shows only at two
+long lanes or on Arm then fails a pull request's matrix on its first run, not on a lucky night.
+*Restated on 5 November 2026 by the owner's word, after the check of 2.2 (outcome 10.2):* the
+axis at the committed iteration counts does not catch row 396's class without a test written for
+it, so that class stays with `VarkaAvx2SelectSuite` and the fuzz nights, and the axis's claim is
+the 128-bit species and Arm, where its first dispatch found 30 failures.
 
 **Non-goal.** No option configuration crossed with the axis: only the defaults run under each
 platform. No change to the PR Build. No new skip rules beyond what the axis's first run finds.
@@ -181,8 +184,8 @@ Size: medium, as the row says.
 
 - every dispatch of `varka-option-matrix.yml` runs the defaults under `isa=avx2`, `isa=w128` and
   `isa=arm`, with each platform bin's CPU and flags in the report;
-- the scratch-branch check is recorded with its run ids, `isa=avx2` failing without row 491's
-  guard;
+- the scratch-branch check is recorded with its run ids (done, outcome 10.2: `isa=avx2` did not
+  fail without row 491's guard, so the goal no longer claims that class);
 - a dispatch on master passes with the axis;
 - the workflow's comment states the run's job count and how it fits the fork's 40 slots under
   the owner's answer to question 1.
