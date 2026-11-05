@@ -1825,6 +1825,10 @@ jobs:
       run: ./dev/varka_census.py --check
     - name: Nothing cites a moved catalogue path
       run: ./dev/varka_catalogue_move.sh --check 8 9
+    # An exhaustive sweep is a test that does nothing unless a property switches it on, and a
+    # PR's Build runs none of them (VARKA-573): each is listed once, with the job that runs it.
+    - name: Every exhaustive sweep is in the sweep manifest
+      run: ./dev/varka_sweeps.py --check
     # The width audit's own check runs only on its host's CPU, so CI would pass a width audit
     # (or a bytes file) missing a coverage row; this reads the rows without a JVM and prints
     # the regeneration command. The merge driver's cases run beside it (VARKA-546).
@@ -1859,9 +1863,11 @@ jobs:
     - name: The house rules' checks pass their own cases
       run: |
         python3 dev/varka_lint.py --selftest
+        python3 dev/varka_sweeps.py --self-test
         python3 dev/varka_msg_check.py --selftest
         python3 dev/varka_matrix_shards.py --selftest
         dev/varka_precommit.sh --selftest
+        python3 dev/varka_bin_units_test.py --selftest
         dev/varka_prepush.sh --selftest
     - name: The branch's commit messages and its pull request follow the house rules
       env:
