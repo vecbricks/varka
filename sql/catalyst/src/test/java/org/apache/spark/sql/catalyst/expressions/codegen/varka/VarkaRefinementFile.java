@@ -1049,7 +1049,8 @@ final class VarkaRefinementFile {
   }
 
   private static void decimals(StringBuilder out) {
-    section(out, "STANDARD.md 4.1, 4.2, 4.5, 4.8, 4.9 and EXTENSIONS.md 3: the 64-bit decimal");
+    section(out, "STANDARD.md 4.1, 4.2, 4.5, 4.7, 4.8, 4.9 and EXTENSIONS.md 3: the 64-bit "
+        + "decimal");
     var d9 = new Dec("a", "va", 9, 2);
     var d9b = new Dec("b", "vb", 9, 2);
     var d9s4 = new Dec("c", "vc", 9, 4);
@@ -1109,6 +1110,35 @@ final class VarkaRefinementFile {
             "(define-fun sx () Int (ite kt (* a 100) c))",
             "(define-fun vx () Bool (ite kt va vc))"),
         "vx", "vx", "(> kx 0)", "(> sx 0)");
+    // IN (VARKA-348a4): the kernel's chain of equalities over the elements' unscaled longs at the
+    // value's scale, sorted; the specification's x = v for some element, each the rationals'
+    // comparison. No element is null, so the IN is unknown only where the value is.
+    decimalRow(out, "d9 IN (0.42, 0.00, -1.25), Spark mode: each element's unscaled long at "
+        + "scale 2", List.of(d9), List.of(), "va", "va", inChain("a", List.of(-125L, 0L, 42L)),
+        inSpec("(* a 100)", List.of(42L, 0L, -125L), "100"));
+    decimalRow(out, "d9 IN (0.425, 1.5), Spark mode: in the analyzed form at DECIMAL(10, 3), the "
+        + "column times 10 and the literals 425 and 1500", List.of(d9), List.of(), "va", "va",
+        inChain("(jlong.mul a 10)", List.of(425L, 1500L)),
+        "(or (= (* a 1000) (* 425 100)) (= (* a 10) (* 15 100)))");
+    List<Long> set = new ArrayList<>(List.of(42L, 5_000_000_000L, -5_000_000_000L));
+    for (long k = 1; k <= 8; k++) {
+      set.add(k * 100 + k);
+    }
+    decimalRow(out, "d18 IN (11 to 16 decimal literals), Spark mode: the InSet's Decimals at "
+        + "scale 2", List.of(d18), List.of(), "va", "va",
+        inChain("a", set.stream().sorted().toList()), inSpec("(* a 100)", set, "100"));
+  }
+
+  /** The kernel's IN: the OR of {@code x}'s equality with each unscaled element. */
+  private static String inChain(String x, List<Long> elements) {
+    return "(or " + String.join(" ", elements.stream().map(u -> "(= " + x + " " + lit(u) + ")")
+        .toList()) + ")";
+  }
+
+  /** The specification's IN: {@code x} equal to some element over {@code pow}. */
+  private static String inSpec(String x, List<Long> elements, String pow) {
+    return "(or " + String.join(" ", elements.stream()
+        .map(u -> "(= " + x + " (* " + lit(u) + " " + pow + "))").toList()) + ")";
   }
 
   // -----------------------------------------------------------------------------------------

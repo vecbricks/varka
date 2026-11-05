@@ -62,7 +62,7 @@ public final class VarkaDecimalValueSuite {
   private static final String[] OPS = {"<", "<=", ">", ">=", "=", "<>", "<=>"};
 
   /** One row of two operands' unscaled values, {@code null} for a null. */
-  private record Pair(Long a, Long b) { }
+  record Pair(Long a, Long b) { }
 
   @Test
   @DisplayName("p + k = 18: DECIMAL(9, 0) against DECIMAL(18, 9) rescales by 10^9 and compares as "
@@ -223,7 +223,7 @@ public final class VarkaDecimalValueSuite {
     }
   }
 
-  private static Decimal decimal(Long unscaled, DecimalType type) {
+  static Decimal decimal(Long unscaled, DecimalType type) {
     return unscaled == null ? null : Decimal.apply(unscaled, type.precision(), type.scale());
   }
 
@@ -293,11 +293,11 @@ public final class VarkaDecimalValueSuite {
     }
   }
 
-  private static scala.collection.immutable.Seq<Attribute> seq(List<Attribute> columns) {
+  static scala.collection.immutable.Seq<Attribute> seq(List<Attribute> columns) {
     return CollectionConverters.asScala(columns).toSeq();
   }
 
-  private static CompiledVarkaPredicate compile(String sql, List<Attribute> columns) {
+  static CompiledVarkaPredicate compile(String sql, List<Attribute> columns) {
     Expression e = VarkaSqlResolve.parse(sql, seq(columns));
     var compiled = VarkaExpressionCompiler.compilePredicate(e, seq(columns), VarkaMatrixRuns.BASE,
             VarkaAdmission.NO_HOST_REFUSAL)
@@ -337,7 +337,7 @@ public final class VarkaDecimalValueSuite {
    * {@code ta} and {@code b} of type {@code tb} holding {@code rows}, and returns per row 1 where
    * it is true and 0 otherwise.
    */
-  private static long[] answers(CompiledVarkaPredicate compiled, List<Pair> rows,
+  static long[] answers(CompiledVarkaPredicate compiled, List<Pair> rows,
       DecimalType ta, DecimalType tb) {
     var fused = compiled.fused();
     assertEquals(1, fused.outputs().size());

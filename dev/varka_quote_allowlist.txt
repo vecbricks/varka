@@ -178,3 +178,5 @@ sql/varka/plans/m8/VARKA-340.md	10.1	not a measurement: a section number (of thi
 sql/varka/plans/m8/VARKA-359.md	10.1	not a measurement: a section number (of this plan or the one it names), read by the regex as a rate
 sql/varka/skills/benchmarking.md	481.1	an in-run control's reading in VARKA-48's A/B runs, which were not committed
 docs/sql-varka.md	123456789012.34	not a measurement: a decimal literal in the coverage table's row `d18 >= 123456789012.34` (VARKA-347)
+sql/varka/plans/m8/VARKA-348.md	10.10	a section number, not a rate - the tool cannot tell the two apart
+sql/varka/plans/m8/PLAN.md	10.10	a section number (VARKA-348.md 10.10), not a rate - the tool cannot tell the two apart

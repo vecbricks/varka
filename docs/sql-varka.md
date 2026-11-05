@@ -999,6 +999,9 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `coalesce(d9, d9b) IS NULL` | `predicate`, `condition` |  | null where every operand is: the validity of each leaf, ORed, and every leaf's slots checked | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL up to 18 digits), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
 | `(-d18) IS NOT NULL` | `predicate` |  | a negation is null where its operand is | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL up to 18 digits), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
 | `CASE WHEN d9 < d9b THEN d9 ELSE d9s4 END > 0.0` | `predicate`, `condition` |  | a choice at DECIMAL(11, 4) under a comparison; the branch of the smaller scale carries its rescale | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL up to 18 digits), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
+| `d9 IN (0.42, 0.00, -1.25)` | `predicate` |  | the equality chain of every lane's IN, each literal's unscaled long at the column's scale a slot in the long table | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL up to 18 digits), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
+| `d9 IN (0.425, 1.5)` | `predicate` |  | in the analyzed form at DECIMAL(10, 3), the column times 10 against 425 and 1500; the optimizer drops 0.425, which no value of d9 equals, and leaves d9 = 1.50 | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL up to 18 digits), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
+| `d18 IN (11 to 16 decimal literals)` | `predicate` |  | an IN list this long arrives from the optimizer as an InSet of Decimals, each read at the column's scale | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL up to 18 digits), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
 
 #### DECIMAL arithmetic
 
@@ -1061,7 +1064,7 @@ operands (a row counts once for each type it reads):
 | `bool` | 32 | 0 | 0 | 13 | 0 | 19 |
 | `byte` | 33 | 0 | 0 | 0 | 8 | 25 |
 | `date` | 102 | 17 | 0 | 1 | 0 | 84 |
-| `dec` | 40 | 22 | 0 | 0 | 0 | 18 |
+| `dec` | 43 | 25 | 0 | 0 | 0 | 18 |
 | `double` | 54 | 0 | 0 | 0 | 0 | 54 |
 | `dt` | 25 | 2 | 0 | 0 | 0 | 23 |
 | `float` | 44 | 0 | 0 | 0 | 0 | 44 |

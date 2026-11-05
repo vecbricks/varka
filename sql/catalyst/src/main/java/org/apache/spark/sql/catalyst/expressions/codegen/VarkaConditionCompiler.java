@@ -28,6 +28,7 @@ import java.util.Set;
 import java.util.TreeSet;
 import java.util.function.BinaryOperator;
 import java.util.function.Supplier;
+import java.util.stream.Stream;
 
 import javax.annotation.Nullable;
 
@@ -75,6 +76,8 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.InR
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LaneType;
 import org.apache.spark.sql.types.DataType;
 import org.apache.spark.sql.types.DataTypes;
+import org.apache.spark.sql.types.Decimal;
+import org.apache.spark.sql.types.DecimalType;
 
 /**
  * Two families of the compiler, each with its own switch (VARKA-318). The predicate family is the
@@ -974,10 +977,10 @@ final class VarkaConditionCompiler {
   /**
    * The arm of an {@code IN} over {@code value}, or {@code null} for one it leaves unclaimed: the
    * registry has to read the value's literals, which {@link VarkaTypes.Info#laneBits} does for
-   * every type whose admission is a lane of its own. A decimal's literal is a {@code Decimal} at
-   * the value's scale rather than lane bits, so a decimal {@code IN} is left to the predicate's
-   * general decline (VARKA-348). The type is looked up once, here, and the arm reads its
-   * elements against the entry it found.
+   * every type whose admission is a lane of its own. A decimal's literal is read instead at the
+   * value's scale ({@link #compileDecimalIn}, VARKA-348): every decimal is claimed, so that one
+   * whose common type passes 18 digits declines through the decimal compiler, naming its row.
+   * The type is looked up once, here, and the arm reads its elements against the entry it found.
    */
   private static @Nullable Supplier<Optional<Cond>> inArm(
       Expression value,
@@ -991,9 +994,13 @@ final class VarkaConditionCompiler {
     }
     VarkaTypes.Info info = VarkaTypes.info(id);
     return switch (info.admission()) {
-      case VarkaTypes.Admission.OnLane onLane ->
-          () -> compileIn(value, info, whole, inputs, literals, sink);
-      case VarkaTypes.Admission.UpToPrecision upTo -> null;
+      // A comparison's operand: an int column is read as one here as in `i = 5`.
+      case VarkaTypes.Admission.OnLane onLane -> () -> compileIn(
+          inElements(whole, id).map(v -> NOT_CONSTANT.equals(v) ? OptionalLong.empty()
+              : info.laneBits(v)).iterator(),
+          () -> operand(value, inputs, literals, sink), info, whole, literals, sink);
+      case VarkaTypes.Admission.UpToPrecision upTo -> value.dataType() instanceof DecimalType t
+          ? () -> compileDecimalIn(value, t, info, whole, inputs, literals, sink) : null;
       case VarkaTypes.Admission.AsCondition condition -> null;
       case VarkaTypes.Admission.Owed owed -> null;
       case VarkaTypes.Admission.Declined declined -> null;
@@ -1001,44 +1008,85 @@ final class VarkaConditionCompiler {
   }
 
   /**
-   * The elements of {@code whole}, an {@code In} or an {@code InSet}, as lane bits, read one at a
-   * time as the iterator is advanced, so that a list longer than the cap is read only up to the
-   * element that passes it: an {@code InSet} can hold thousands. {@code In} holds expressions,
-   * each read through {@link #constantBits}, and {@code InSet} the values themselves.
+   * A decimal {@code IN}: the value through {@link VarkaDecimalCompiler#value}, first, so that a
+   * type past the long lane declines with that compiler's reason (rows 359 and 360) before an
+   * element is read, and each element as its unscaled long at the value's scale. Type coercion
+   * gives the value and every element of an {@code In} one type, a column of the smaller scale
+   * sitting under its rescale, so each {@code In} element is held exactly. An {@code InSet}'s
+   * raw {@code Decimal}s compare with Spark's {@code Decimal} equality, by value, so one that no
+   * value of the type can equal - more digits of scale than the type's, or past its precision -
+   * is dropped, as false on every row, never as unknown; a list that drops to nothing declines
+   * as an empty one.
    */
-  private static Iterator<OptionalLong> inElements(Expression whole, VarkaTypes.Info info) {
+  private static Optional<Cond> compileDecimalIn(
+      Expression value,
+      DecimalType type,
+      VarkaTypes.Info info,
+      Expression whole,
+      VarkaSlotTable inputs,
+      VarkaSlotTable literals,
+      DeclineSink sink) {
+    sink.enterDecimal();
+    try {
+      Optional<VarkaVectorIR> compiled = VarkaDecimalCompiler.value(value, inputs, literals, sink)
+          .map(VarkaDecimalCompiler.Scaled::unscaled);
+      if (compiled.isEmpty()) {
+        return Optional.empty();
+      }
+      Iterator<OptionalLong> elements = inElements(whole, info.id())
+          .filter(v -> !(v instanceof Decimal d) || VarkaDecimalCompiler.unscaledAt(d, type)
+              .isPresent())
+          .map(v -> v instanceof Decimal d ? VarkaDecimalCompiler.unscaledAt(d, type)
+              : OptionalLong.empty())
+          .iterator();
+      return compileIn(elements, () -> compiled, info, whole, literals, sink);
+    } finally {
+      sink.exitDecimal();
+    }
+  }
+
+  /** An {@code In} element that is not a constant of the value's type, which declines the list. */
+  private static final Object NOT_CONSTANT = new Object();
+
+  /**
+   * The elements of {@code whole}, an {@code In} or an {@code InSet}, as Spark values, read one at
+   * a time as the stream is consumed, so that a list longer than the cap is read only up to the
+   * element that passes it: an {@code InSet} can hold thousands. {@code In} holds expressions,
+   * each read through {@link #constantValue}, and {@code InSet} the values themselves.
+   */
+  private static Stream<Object> inElements(Expression whole, VarkaTypeId id) {
     return switch (whole) {
       case In in -> CollectionConverters.asJava(in.list()).stream()
-          .map(element -> constantBits(element, info)).iterator();
-      case InSet inSet ->
-          CollectionConverters.asJava(inSet.hset()).stream().map(info::laneBits).iterator();
+          .map(element -> constantValue(element, id));
+      case InSet inSet -> CollectionConverters.asJava(inSet.hset()).stream().map(v -> (Object) v);
       default -> throw VarkaErrors.illegalArgument("not an IN: " + whole);
     };
   }
 
   /**
-   * The lane bits of an {@code In} element that is a constant of the value's type: a literal, or
-   * a foldable expression evaluated once here, such as the cast type coercion puts over an int
-   * literal in a bigint {@code IN}, which a query's optimizer folds and a hand-built tree may
-   * not. Empty for anything else, and for an element whose evaluation throws - an ANSI cast out
-   * of range - which the row engine then raises on the row. Any throw Spark's {@code NonFatal}
-   * admits declines, a checked one out of Scala code as well, so that the list stays on the row
-   * engine instead of failing the plan; a fatal one, such as running out of memory, propagates.
+   * The value of an {@code In} element that is a constant of the value's type, null for a null:
+   * a literal, or a foldable expression evaluated once here, such as the cast type coercion puts
+   * over an int literal in a bigint {@code IN}, which a query's optimizer folds and a hand-built
+   * tree may not. {@link #NOT_CONSTANT} for anything else, and for an element whose evaluation
+   * throws - an ANSI cast out of range - which the row engine then raises on the row. Any throw
+   * Spark's {@code NonFatal} admits declines, a checked one out of Scala code as well, so that the
+   * list stays on the row engine instead of failing the plan; a fatal one, such as running out of
+   * memory, propagates.
    */
-  private static OptionalLong constantBits(Expression element, VarkaTypes.Info info) {
-    if (!element.foldable() || VarkaTypes.idOf(element.dataType()) != info.id()) {
-      return OptionalLong.empty();
+  private static @Nullable Object constantValue(Expression element, VarkaTypeId id) {
+    if (!element.foldable() || VarkaTypes.idOf(element.dataType()) != id) {
+      return NOT_CONSTANT;
     }
     if (element instanceof Literal l) {
-      return info.laneBits(l.value());
+      return l.value();
     }
     try {
-      return info.laneBits(element.eval(null));
+      return element.eval(null);
     } catch (Throwable t) {
       if (!NonFatal.apply(t)) {
         throw t;
       }
-      return OptionalLong.empty();
+      return NOT_CONSTANT;
     }
   }
 
@@ -1057,21 +1105,21 @@ final class VarkaConditionCompiler {
    * the list - a null or non-literal one, or the one whose value passes the cap - so a list
    * that is both too long and holds a null names whichever its reading meets first.
    *
-   * <p>The value has to compile onto its type's own lane, and each literal takes a slot on that
-   * lane, in the table of its width ({@link VarkaNodeCompiler#bitsSlot}). A value on any other
-   * lane declines: an int's literal slotted on a narrower lane would be truncated ({@code 300}
-   * on the byte lane is {@code 44}), and a float's bits compared as ints are not its equality.
-   * No compiled value is on another lane than its type's, since every widening is a cast that
-   * changes the type as well, so the decline guards against a lowering that breaks that rule.
+   * <p>The value, compiled by {@code value} once the elements are read, has to be on its type's
+   * own lane, and each literal takes a slot on that lane, in the table of its width
+   * ({@link VarkaNodeCompiler#bitsSlot}). A value on any other lane declines: an int's literal
+   * slotted on a narrower lane would be truncated ({@code 300} on the byte lane is {@code 44}),
+   * and a float's bits compared as ints are not its equality. No compiled value is on another
+   * lane than its type's, since every widening is a cast that changes the type as well, so the
+   * decline guards against a lowering that breaks that rule.
    */
   private static Optional<Cond> compileIn(
-      Expression value,
+      Iterator<OptionalLong> elements,
+      Supplier<Optional<VarkaVectorIR>> value,
       VarkaTypes.Info info,
       Expression whole,
-      VarkaSlotTable inputs,
       VarkaSlotTable literals,
       DeclineSink sink) {
-    Iterator<OptionalLong> elements = inElements(whole, info);
     if (!elements.hasNext()) {
       // Spark's answer is false, or null over a null value under its legacy flag; the optimizer
       // folds it before a plan reaches here, so only a hand-built tree arrives.
@@ -1093,8 +1141,7 @@ final class VarkaConditionCompiler {
         return Optional.empty();
       }
     }
-    // A comparison's operand: an int column is read as one here as in `i = 5`.
-    Optional<VarkaVectorIR> compiledValue = operand(value, inputs, literals, sink);
+    Optional<VarkaVectorIR> compiledValue = value.get();
     if (compiledValue.isEmpty()) {
       return Optional.empty();
     }

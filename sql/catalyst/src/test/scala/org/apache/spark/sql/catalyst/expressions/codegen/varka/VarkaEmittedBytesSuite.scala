@@ -29,7 +29,7 @@ import com.fasterxml.jackson.databind.{JsonNode, ObjectMapper}
 
 import org.apache.spark.SparkFunSuite
 import org.apache.spark.sql.catalyst.expressions.{Add, Alias, Attribute, AttributeReference,
-  EvalMode, Expression, In, InSet, Literal, Multiply, NumericEvalContext, Subtract}
+  EvalMode, Expression, In, InSet, Multiply, NumericEvalContext, Subtract}
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaExpressionCompiler
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaIrGrammar._
 import org.apache.spark.sql.catalyst.parser.CatalystSqlParser
@@ -208,11 +208,12 @@ class VarkaEmittedBytesSuite extends SparkFunSuite with VarkaTestWatchdog {
    * is parsed and resolved and that is all - so a row the table records as arriving as an `InSet`
    * would otherwise be pinned through the compiler's `In` arm, which is not the arm production
    * takes. `OptimizeIn`'s rewrite is the only such difference the table has; the row's own
-   * `catalyst` field says which rows it applies to.
+   * `catalyst` field says which rows it applies to. Each element is folded first, as
+   * `ConstantFolding` folds the cast coercion puts over a decimal literal of another type.
    */
   private def asCatalystClaims(expr: Expression, catalyst: Set[String]): Expression = expr match {
-    case In(value, list) if catalyst.contains("InSet") && list.forall(_.isInstanceOf[Literal]) =>
-      InSet(value, list.map(_.asInstanceOf[Literal].value).toSet)
+    case In(value, list) if catalyst.contains("InSet") && list.forall(_.foldable) =>
+      InSet(value, list.map(_.eval()).toSet)
     case other if catalyst.contains("InSet") =>
       // The rewrite is the only thing standing between this row and the wrong compiler arm, so
       // a row that claims InSet and does not get one fails rather than being pinned quietly.

@@ -417,11 +417,11 @@ public class VarkaDecimalBaselineBenchmark extends VarkaSqlBenchmarkBase {
     for (Precision p : PAIR_PRECISIONS) {
       addComparisons(out, p, Optional.empty(), shape -> Fusion.NONE);
     }
-    // The rescaled comparison, the negation, abs, <=> and the projected comparison fuse whole
-    // (VARKA-348); IN infers no null test and runs on the row path until its reader case.
+    // The rescaled comparison, IN, the negation, abs, <=> and the projected comparison fuse
+    // whole (VARKA-348).
     Map<ComparisonShape, Fusion> longFusion = Map.of(
         ComparisonShape.RESCALED, Fusion.WHOLE,
-        ComparisonShape.IN, Fusion.NONE,
+        ComparisonShape.IN, Fusion.WHOLE,
         ComparisonShape.NULL_SAFE, Fusion.WHOLE,
         ComparisonShape.NEGATED, Fusion.WHOLE,
         ComparisonShape.ABS, Fusion.WHOLE,

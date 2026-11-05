@@ -6167,6 +6167,42 @@
     "note" : "a choice at DECIMAL(11, 4) under a comparison; the branch of the smaller scale carries its rescale",
     "verified" : "refinement: CASE WHEN d9 < d9b THEN d9 ELSE d9s4 END > 0.0"
   }, {
+    "sql" : "d9 IN (0.42, 0.00, -1.25)",
+    "executable" : "d9 IN (0.42, 0.00, -1.25)",
+    "family" : "DECIMAL columns",
+    "form" : "predicate",
+    "catalyst" : [ "Cast", "In" ],
+    "casts" : [ "dec>dec:ansi" ],
+    "operands" : [ "Cast:dec", "In:dec" ],
+    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
+    "domain" : "",
+    "note" : "the equality chain of every lane's IN, each literal's unscaled long at the column's scale a slot in the long table",
+    "verified" : "refinement: d9 IN (0.42, 0.00, -1.25)"
+  }, {
+    "sql" : "d9 IN (0.425, 1.5)",
+    "executable" : "d9 IN (0.425, 1.5)",
+    "family" : "DECIMAL columns",
+    "form" : "predicate",
+    "catalyst" : [ "Cast", "In" ],
+    "casts" : [ "dec>dec:ansi" ],
+    "operands" : [ "Cast:dec", "In:dec" ],
+    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
+    "domain" : "",
+    "note" : "in the analyzed form at DECIMAL(10, 3), the column times 10 against 425 and 1500; the optimizer drops 0.425, which no value of d9 equals, and leaves d9 = 1.50",
+    "verified" : "refinement: d9 IN (0.425, 1.5)"
+  }, {
+    "sql" : "d18 IN (11 to 16 decimal literals)",
+    "executable" : "d18 IN (0.42, 50000000.00, -50000000.00, 1.01, 2.02, 3.03, 4.04, 5.05, 6.06, 7.07, 8.08)",
+    "family" : "DECIMAL columns",
+    "form" : "predicate",
+    "catalyst" : [ "InSet" ],
+    "casts" : [ ],
+    "operands" : [ "InSet:dec" ],
+    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
+    "domain" : "",
+    "note" : "an IN list this long arrives from the optimizer as an InSet of Decimals, each read at the column's scale",
+    "verified" : "refinement: d18 IN (11 to 16 decimal literals)"
+  }, {
     "sql" : "d9 + d9b < d18",
     "executable" : "d9 + d9b < d18",
     "family" : "DECIMAL arithmetic",

@@ -387,6 +387,7 @@ its own regenerated files.
 | 348a1 | `Scaled`, `value()` over a column, a literal and coercion's rescaling cast, `rescale`, the comparisons at two scales; `decimal64.smt2`; the fixture columns `d9s4` and `d16s9` and seven comparison rows, each refined; `VarkaDecimalValueSuite`; this table | master | 917 |
 | 348a2 | negation and `abs`, the long-lane `abs` arm behind `decimalAbsLanewise` and the reference's `Math.abs`; two rows, refined; the slot table under a rescale, a negation and `abs`, with the fault injector `dropDecimalBound`; the IR fuzzer's decimal sequence and its frozen option order | 348a1 | 935 |
 | 348a3 | `IF`, `CASE` with an `ELSE`, `coalesce`, `greatest` and `least`, and the null test over any decimal value, with its probe and each condition compiled once; four rows, three refined | 348a2 | 959 |
+| 348a4 | decimal `IN` and `InSet` through 497's arm, each element's unscaled long at the value's scale and the value through `VarkaDecimalCompiler`; three rows, refined; `VarkaDecimalInSuite` | master | see 10.10 |
 
 348b, the values, still follows 157. A part over the cap is split again before it is pushed,
 never merged over it.
@@ -867,3 +868,54 @@ read the night's seed and drew no rescale by `10^17` in its 500 draws, so `Varka
 draws every reachability check at its committed seed and the night's seed moves the fuzz trees
 only, but for the wide compositions' mechanism reach, which draws further compositions before it
 fails.
+
+### 10.10 Step 4: 348a4, decimal `IN`
+
+*Built 4 November 2026 on branch `varka-348a4-in`, on master after 348a3 and 497 (section 5).*
+
+**The arm.** Row 497's `inArm` claims a decimal value in its `UpToPrecision` case and sends it
+to `compileDecimalIn`, which compiles the value through `VarkaDecimalCompiler.value` (bracketed by
+`enterDecimal` and `exitDecimal`, as the comparison's operands are) and then reads each element as
+its unscaled long at the value's scale, `VarkaDecimalCompiler.unscaledAt`: `setScale` exact, then
+the precision's bound, the read `literal()` now shares. The dedup, sort, cap of 16, null-element
+decline and balanced fold are 497's, unchanged; the elements are read as Spark values
+(`inElements`, `constantValue`), and the lane types map them through `Info.laneBits` as before.
+NOT IN is the `Not` arm over it.
+
+**What Spark hands it.** Coercion gives the value and every `In` element one type, the column of
+the smaller scale under its rescale. The optimizer then unwraps that cast
+(`UnwrapCastInBinaryComparison`) and drops each literal the column's type cannot hold:
+`d9 IN (0.425, 1.5, 2.25)` reaches Varka as `d9 IN (1.50, 2.25)`, and with one literal left
+`OptimizeIn` makes it an equality. So in a query the rescale under `IN` is the analyzed form
+only, which the coverage row `d9 IN (0.425, 1.5)` compiles; past
+`spark.sql.optimizer.inSetConversionThreshold` (ten) the list is an `InSet` of `Decimal`s at the
+common type, which `VarkaDecimalInSuite` reaches through the optimizer's rules.
+
+**The coverage rows.** Three predicate rows, each refined in the decimal section of
+`refinement.smt2` (now citing `STANDARD.md` 4.7, which gains the decimal sentence):
+`d9 IN (0.42, 0.00, -1.25)`, `d9 IN (0.425, 1.5)` and the eleven-literal `InSet` twin
+`d18 IN (11 to 16 decimal literals)`. `decimal64.smt2` needs no lemma: the scale read is exact
+`BigDecimal` arithmetic at compile time, and the value's rescale is the lemma 348a1 proved. The
+census notes of `in` and `in_set` say that `dec` fuses to precision 18 and counts with 359, 360
+and 363, as the comparisons' do. No test pinned a decimal `IN` decline.
+
+**Tests.** `VarkaDecimalInSuite`: `IN` and `NOT IN` at scales 0, 2, `p / 2` and `p` of
+precisions 9 and 18, over both ends of the precision, negative values and one unit either side
+of each element; the larger-scale literal in the analyzed and the optimized forms; the `InSet`
+past the threshold at scales 0 and 9 of precision 18; a hand-built `InSet` with elements no value
+equals; a null in the list; a common type past 18 digits; and fusion beside a comparison. Each
+kernel runs over a batch with nulls and one without, both bodies, against Spark's `eval`.
+
+### Departures from the plan in 348a4
+
+- **Every decimal is claimed, not only one whose type `reads`.** VARKA-497 10.3 item 1 admits a
+  type whose `UpToPrecision.reads` holds. A wider one would then fall to the predicate's general
+  decline; claimed, it declines through `VarkaDecimalCompiler.value`, naming 359, and 360 for a
+  rescale into it (2.7). The value is compiled before an element is read for this reason.
+- **The read is `setScale` exact, not `changePrecision`** (497 10.3 item 2 offers either): it is
+  347's literal read, and 2.3 asks for it.
+- **An `InSet` element no value of the type equals is dropped, not declined.** Section 2.3 has an
+  inexact element decline. `InSet` compares by `Decimal` equality, by value, so such an element
+  is false on every row and dropping it is Spark's answer; a set that drops to nothing declines as
+  an empty list. Only a hand-built `InSet` holds one: an `In`'s elements share the value's type.
+
