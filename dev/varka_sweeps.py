@@ -20,6 +20,7 @@
   dev/varka_sweeps.py --check      # fail on a sweep the manifest misses or lists wrongly
   dev/varka_sweeps.py --list       # print the manifest
   dev/varka_sweeps.py --matrix     # the scheduled jobs' suites and shards, as JSON
+  dev/varka_sweeps.py --nightly    # the sbt commands of dev/varka_nightly.sh's sweep step
   dev/varka_sweeps.py --self-test  # the check's cases, over fixture trees
 
 An opt-in sweep is a test that does nothing unless a system property switches it on
@@ -74,6 +75,9 @@ READS = re.compile(
 # A JUnit test's display name, which may be a literal split over lines with `+`.
 DISPLAY = re.compile(r"""@DisplayName\(\s*((?:"(?:[^"\\]|\\.)*"\s*\+?\s*)+)\)""", re.S)
 SHARD_SEP = "|"
+# A suite of the nightly's step runs whole in one JVM, and the narrow-integer one takes about an
+# hour on the laptop, so the cap of a test (minutes) and the watchdog are raised over the defaults.
+NIGHTLY_TIMEOUTS = '"-Dspark.test.timeout=170", "-Dvarka.test.watchdog.minutes=170"'
 
 
 def display_names(path):
@@ -243,6 +247,28 @@ def matrix(root):
     return jobs
 
 
+def nightly(root):
+    """The sbt commands of the nightly's sweep step, one a line, from every row of the manifest:
+    for each property, the ScalaTest suites by their filter text and then the JUnit suites whole
+    (sbt's `-z` selects none of a JUnit suite's tests, and a suite run whole runs its shards'
+    parts too, so a shard row adds nothing to the whole class)."""
+    rows, _ = manifest(root)
+    commands = []
+    for prop in sorted({r["property"] for _, r in rows}):
+        mine = [r for _, r in rows if r["property"] == prop]
+        commands.append(f'set Test/javaOptions ++= Seq("-D{prop}=true", {NIGHTLY_TIMEOUTS})')
+        filters = {}
+        for r in mine:
+            if r["how"] == "filter":
+                filters.setdefault(r["select"], []).append("*" + r["suite"])
+        for text, suites in sorted(filters.items()):
+            commands.append(f"testOnly {' '.join(sorted(suites))} -- -z {text}")
+        classes = sorted({"*" + r["suite"] for r in mine if r["how"] in ("class", "shard")})
+        if classes:
+            commands.append(f"testOnly {' '.join(classes)}")
+    return commands
+
+
 def self_test():
     failures = []
 
@@ -318,6 +344,17 @@ def self_test():
         {**both, "sql/core/src/test/java/q/A.java": java, MANIFEST: good},
         "two test sources",
     )
+    got = nightly(tree({**both, MANIFEST: good}))
+    if got != [
+        f'set Test/javaOptions ++= Seq("-Dvarka.sweep=true", {NIGHTLY_TIMEOUTS})',
+        "testOnly *A",
+        f'set Test/javaOptions ++= Seq("-Dvarka.sweep.long=true", {NIGHTLY_TIMEOUTS})',
+        "testOnly *B -- -z opt-in",
+    ]:
+        failures.append(f"nightly commands: {got}")
+    got = nightly(tree({**shard_files, MANIFEST: shard_rows("pair for + in", "pair for - in")}))
+    if got[1:] != ["testOnly *S"]:
+        failures.append(f"nightly runs a sharded suite whole, once: {got}")
     expect(
         "an empty shard text",
         {**shard_files, MANIFEST: shard_rows("pair for + in|")},
@@ -403,6 +440,7 @@ def main(argv):
     ap.add_argument("--check", action="store_true", help="the default action")
     ap.add_argument("--list", action="store_true", help="print the manifest")
     ap.add_argument("--matrix", action="store_true", help="print the scheduled jobs as JSON")
+    ap.add_argument("--nightly", action="store_true", help="print the nightly's sbt commands")
     ap.add_argument("--self-test", action="store_true", help="run the check's cases")
     args = ap.parse_args(argv)
     if args.self_test:
@@ -414,6 +452,14 @@ def main(argv):
         return len(findings)
     if args.matrix:
         print(json.dumps(matrix(ROOT), indent=1))
+        return 0
+    if args.nightly:
+        findings = check(ROOT)
+        for f in findings:
+            print(f, file=sys.stderr)
+        if findings:
+            return 1
+        print("\n".join(nightly(ROOT)))
         return 0
     findings = check(ROOT)
     for f in findings:

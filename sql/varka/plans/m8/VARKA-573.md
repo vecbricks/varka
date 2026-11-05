@@ -116,3 +116,17 @@ Checked through `VarkaSuiteRunner` over the exported test classpath with `-Dvark
 `-Dvarka.ownJvm=true`: `-z "oracle's share"` ran the one test and `-z "pair for + in ANSI"` the
 two ANSI sweeps for `+`, all passing. A first try without `-Dvarka.ownJvm=true` forked the child
 JVM, which ran the whole suite; it was stopped after more than ten minutes.
+
+### 10.3 Step 3: the nightly script reads the manifest (5 November 2026)
+
+`dev/varka_sweeps.py --nightly` checks the manifest, then prints the sbt commands of the nightly's
+sweep step: for each property, `set Test/javaOptions` with the property and the raised test cap and
+watchdog (170 minutes, under the step's default deadline of 10800 s), a `testOnly` of the ScalaTest
+suites with their filter text, and a `testOnly` of the JUnit suites whole. The shard rows of a suite
+run as that whole suite here, since sbt's `-z` selects none of a JUnit suite's tests. The step in
+`dev/varka_nightly.sh` runs those commands in one `build/sbt -batch`, and a manifest that fails its
+check makes the step `FAILED` with the findings in `sweep-manifest.err`. The suites that the old
+filter skipped now run; by the times of section 3 the step takes about 5400 s of the laptop. The
+gate's sweep step (`dev/varka_gate.sh`) keeps its calendar filter on purpose: it is the quick one.
+The step has not run on the laptop yet.
+

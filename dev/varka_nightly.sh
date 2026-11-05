@@ -158,22 +158,25 @@ if [ "$golden" -eq 1 ]; then
   # Each arm's own deadline keeps both arms and the build inside the step's.
   run_step golden dev/varka_golden_suite.sh --attribute --deadline 4800 --out "$logdir/golden"
 fi
-# A JUnit suite matches no ScalaTest `-z` filter and runs nothing under it, so the JUnit suite with
-# an opt-in sweep (VARKA-28's conversions) runs whole, its sweep switched on by the property. The
-# year-month division sweep (VARKA-89, 409 divisors over every int) is a long sweep: its name
-# carries no "opt-in", so the first filter and the gate's sweep step skip it, and it runs last, in
-# its own property and under a cap of an hour, since it takes about twelve minutes on the laptop,
-# more than an own-JVM suite's default nine. The TIME fraction's sweep (VARKA-157) is a JUnit suite
-# run whole, TIME(8) and TIME(9) under the long property (about twelve minutes on the laptop). A failure in an earlier
-# command of the batch ends the batch (the step is red) before the long sweep starts.
+# The sweeps are the manifest's (sql/varka/ci/sweeps.tsv, VARKA-573): every suite that reads
+# -Dvarka.sweep or -Dvarka.sweep.long, which `dev/varka_sweeps.py --nightly` turns into sbt
+# commands, the short property first. A ScalaTest suite runs by its opt-in filter, and a JUnit suite
+# runs whole, since a ScalaTest `-z` selects none of a JUnit suite's tests: the filter that this
+# step used to give them skipped five JUnit suites, among them the float arithmetic sweep and the
+# narrow-integer pair sweeps, while the step passed. The manifest check fails a suite it does not
+# list, so a new sweep joins this step or fails the lint job. Expect the step to take about 90
+# minutes of the laptop's 24 threads (m8/results/VARKA-573-sweep-times.txt) and no more than
+# $VARKA_STEP_DEADLINE; a failure in an earlier command of the batch ends the batch (the step is
+# red) before the later ones start.
 if [ "$sweep" -eq 1 ]; then
-  run_step sweep build/sbt -batch "project catalyst" \
-    'set Test/javaOptions += "-Dvarka.sweep=true"' \
-    'testOnly *VarkaChronoSuite *VarkaEmitter*Suite -- -z opt-in' \
-    'testOnly *VarkaEmitterMixedLaneSuite' \
-    'set Test/javaOptions ++= Seq("-Dvarka.sweep.long=true", "-Dspark.test.timeout=60", "-Dvarka.test.watchdog.minutes=60")' \
-    'testOnly *VarkaEmitterYmDivideSuite -- -z long-sweep' \
-    'testOnly *VarkaTimeFractionSuite'
+  if sweep_commands=$(python3 dev/varka_sweeps.py --nightly 2> "$logdir/sweep-manifest.err"); then
+    mapfile -t sweep_commands <<< "$sweep_commands"
+    run_step sweep build/sbt -batch "project catalyst" "${sweep_commands[@]}"
+  else
+    echo "== sweep (the manifest check failed: $logdir/sweep-manifest.err)"
+    status[sweep]=FAILED; secs[sweep]=0
+    echo 0 > "$logdir/sweep.secs"; echo FAILED > "$logdir/sweep.status"
+  fi
 fi
 # The proofs under Z3 and cvc5, each held to every expectation, so the two agree (VARKA-240); the
 # lint job runs Z3 alone. Beside the sweep step, whose multiply-high sweep checks the statement of
