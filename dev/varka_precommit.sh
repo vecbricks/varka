@@ -521,6 +521,17 @@ if printf '%s\n' "${files[@]}" | grep -qE "$census_inputs"; then
   done
 fi
 
+# Every exhaustive sweep is listed once in sql/varka/ci/sweeps.tsv, as the job that runs it can
+# select it (VARKA-573): a change to a test source that reads a sweep property, to the manifest or
+# to the script re-runs the check, so a sweep cannot go unscheduled unseen.
+sweep_inputs='^(dev/varka_sweeps\.py|sql/varka/ci/sweeps\.tsv|sql/[a-z]+/src/test/.*\.(java|scala))$'
+if printf '%s\n' "${files[@]}" | grep -qE "$sweep_inputs" && [ -x dev/varka_sweeps.py ]; then
+  out="$(dev/varka_sweeps.py --check 2>&1)" || {
+    echo "$out" | sed 's/^/sweeps: /'
+    findings=$((findings + 1))
+  }
+fi
+
 # A lane is wired at sites no compiler checks (VARKA-474 2.3): a change to the lane's members,
 # its compiler admission, the script or a site it walks re-runs the walk, so a site a new lane
 # misses is a line here rather than a silent decline at run time.

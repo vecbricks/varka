@@ -1,0 +1,51 @@
+# The exhaustive sweeps' times on the laptop, 5 November 2026 (VARKA-573)
+#
+# Host:     AMD Ryzen AI 9 HX PRO 370, 24 threads, plugged in; JDK 25
+# Tree:     master at bc285359f01
+# Run 1:    the sweep step of dev/varka_nightly.sh, as it runs it: 2004 s wall, exit 0, 48 tests run
+#           build/sbt -batch "project catalyst" -Dvarka.sweep=true
+#             testOnly *VarkaChronoSuite *VarkaEmitter*Suite -- -z opt-in
+#             testOnly *VarkaEmitterMixedLaneSuite
+#           then -Dvarka.sweep.long=true:
+#             testOnly *VarkaEmitterYmDivideSuite -- -z long-sweep; testOnly *VarkaTimeFractionSuite
+# Run 2:    the sweeps that step does not run, with the property on and each suite whole:
+#             testOnly *VarkaEmitterNarrowArithSuite; testOnly *VarkaEmitterFloatingArithSuite;
+#             testOnly *VarkaCoverageSuite -- -z opt-in; 3568 s wall, exit 0
+#
+# In run 1 the filter ran no test of VarkaEmitterFloatingArithSuite (47 skipped),
+# VarkaEmitterFloatingCastSuite (27), VarkaEmitterIntegralCastSuite (8),
+# VarkaEmitterNarrowArithSuite (51) and VarkaEmitterNarrowSuite (16): a name filter selects no test
+# of a JUnit suite. VarkaCoverageSuite's opt-in test reads no sweep property; it is a source check.
+#
+# Seconds are the JUnit report's, summed over a suite's tests that ran; a sweep uses every core.
+#
+# suite                                seconds
+# VarkaEmitterNarrowArithSuite             3389
+# VarkaTimeFractionSuite                    991
+# VarkaEmitterYmDivideSuite                 640
+# VarkaEmitterFloatingArithSuite            148
+# VarkaEmitterDivisionSuite                 106
+# VarkaEmitterBitwiseSuite                   68
+# VarkaEmitterChronoSuite                    51
+# VarkaEmitterMixedLaneSuite                  8
+# VarkaChronoSuite                            1
+#
+# Tests of 0.4 s or more:
+# suite / test                                                                      seconds
+# VarkaEmitterNarrowArithSuite / a2Pow24RowSmallintMultiplySliceInTryOnTheWidenedArm()   3388.7
+# VarkaTimeFractionSuite / everyNanosecondOfAMinute()                                     982.9
+# VarkaEmitterYmDivideSuite / the rule equals IntMath.divide HALF_UP at every int32 di    639.7
+# VarkaEmitterFloatingArithSuite / floatingArithmeticHasNoCheckedFormAndAnIntegralLane    147.8
+# VarkaEmitterDivisionSuite / the emitted calendar kernels agree over the whole covere    106.1
+# VarkaEmitterBitwiseSuite / ~ and bit_count match Spark over every int (opt-in: -Dvar     67.6
+# VarkaEmitterChronoSuite / the emitted calendar kernel matches LocalDate over its who     29.5
+# VarkaEmitterChronoSuite / the emitted dynamic trunc kernel matches DateTimeUtils.tru     11.7
+# VarkaEmitterChronoSuite / the emitted trunc kernels match DateTimeUtils.truncDate ov      8.1
+# VarkaTimeFractionSuite / everyPairToSeven()                                               7.8
+# VarkaEmitterMixedLaneSuite / widenColumn()                                                7.7
+# VarkaEmitterChronoSuite / the emitted last_day kernel matches DateTimeUtils over its      1.2
+# VarkaChronoSuite / the decomposition matches java.time over the extended range, both      0.5
+# VarkaChronoSuite / the scalar weekOfYear matches DateTimeUtils over the covered rang      0.5
+# VarkaTimeFractionSuite / timeToSecondsRounding()                                          0.5
+#
+# Sum over the suites: 5401 s, about 90 minutes of the laptop's 24 threads.
