@@ -249,3 +249,13 @@ guard off and a forced AVX2 level the broad suites did not show row 396's wrong 
 row stops and reports: the axis at the committed iteration counts does not catch that class
 without a test written for it. Row 396's class stays with `VarkaAvx2SelectSuite` and the fuzz nights.
 
+### 10.3 The bin step is tested (5 November 2026)
+
+`dev/varka_bin_units_test.py --selftest`, run by the lint job's house-rules step, takes the `run:`
+text of the workflow's `Run this bin's units` step, runs it against a stub `dev/varka_matrix.sh`
+that records its arguments, and checks what each kind of unit line passes: the defaults alone, an
+option configuration with the reach file and the harness store, a platform with its flags and
+neither file, a platform with no flags, and that a failing unit fails the step without stopping the
+others. Two plausible bugs, a platform line routed as an option configuration and a platform given
+the harness store, each fail it.
+
