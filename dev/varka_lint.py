@@ -89,12 +89,15 @@ SAME_ANSWER_FILES = (
 _ARG = r"\((?:[^()]|\([^()]*\))*\)"
 _BITS = r"(?:[\w.]+\.)?(?:double|float)To(?:Raw)?(?:Long|Int)Bits(?!\(\s*-?[\d.]+[dDfF]?\s*\))"
 _NAN = rf"(?<![!\w.])(?:[\w.]+\.)?(?:isNaN(?:{_ARG})?|nanBits{_ARG}|\w+NaN\b(?!\())"
+# Between two NaN tests joined by `&&`: a third condition, with `||` only inside parentheses.
+_MID = r"(?:[^&|;{}()]|\((?:[^()]|\([^()]*\))*\))*?"
 NAN_COMPARES = (
     re.compile(
         rf"(?<![\w.]){_BITS}{_ARG}\s*[!=]=\s*{_BITS}(?!\(\s*(?:Double|Float)\.(?:NaN|[A-Z_]+)\b){_ARG}"
     ),
     re.compile(rf"\b(?:Double|Float)\.compare{_ARG}\s*[!=]=\s*0\b"),
-    re.compile(rf"{_NAN}\s*&&\s*{_NAN}"),
+    re.compile(rf"\b0\s*[!=]=\s*(?:Double|Float)\.compare{_ARG}"),
+    re.compile(rf"{_NAN}\s*&&\s*(?:{_MID}&&\s*)*{_NAN}"),
 )
 _RUN_ON = re.compile(r"(&&|\|\||[!=]=|\(|,)\s*$")
 _RUN_FROM = re.compile(r"\s*(&&|\|\||[!=]=|\.)")
@@ -537,13 +540,59 @@ def rule_guava(ch):
                 )
 
 
+def without_comment(line):
+    """The line without its comments: `/* ... */` and a trailing `// ...`, outside string
+    literals."""
+    out, i, quote = [], 0, None
+    while i < len(line):
+        c = line[i]
+        if quote:
+            out.append(c)
+            if c == "\\" and i + 1 < len(line):
+                out.append(line[i + 1])
+                i += 1
+            elif c == quote:
+                quote = None
+        elif c in "\"'":
+            quote = c
+            out.append(c)
+        elif line.startswith("//", i):
+            break
+        elif line.startswith("/*", i):
+            end = line.find("*/", i + 2)
+            if end < 0:
+                break
+            out.append(" ")
+            i = end + 1
+        else:
+            out.append(c)
+        i += 1
+    return "".join(out).rstrip()
+
+
+def statements(text):
+    """The text split at each `;` outside braces, so a lambda's body stays in its statement."""
+    parts, depth, start = [], 0, 0
+    for i, c in enumerate(text):
+        if c == "{":
+            depth += 1
+        elif c == "}":
+            depth = max(0, depth - 1)
+        elif c == ";" and depth == 0:
+            parts.append(text[start:i])
+            start = i + 1
+    parts.append(text[start:])
+    return parts
+
+
 def expression_runs(text):
     """Each run of (line number, line) one expression continues across: a line ending in an
-    operator, `(` or `,`, or followed by one opening with an operator or `.`; a comment ends it."""
+    operator, `(` or `,` before any trailing comment, or followed by one opening with an operator
+    or `.`; a comment line ends it."""
     run = []
     for n, line in enumerate(text.splitlines(), 1):
         code = not re.match(r"\s*(//|\*|/\*)", line)
-        if run and code and (_RUN_ON.search(run[-1][1]) or _RUN_FROM.match(line)):
+        if run and code and (_RUN_ON.search(without_comment(run[-1][1])) or _RUN_FROM.match(line)):
             run.append((n, line))
             continue
         if run:
@@ -555,14 +604,24 @@ def expression_runs(text):
 
 def rule_nan_compare(ch):
     for path in ch.files:
-        if not re.search(r"\.(java|scala)$", path) or not is_varka(path):
+        if not re.search(r"\.(java|scala)$", path):
+            continue
+        if not (is_varka(path) or path.startswith("dev/varka_canary/")):
             continue
         if os.path.basename(path) in SAME_ANSWER_FILES:
             continue
         for run in expression_runs(read(path)):
-            text = " ".join(line.strip() for _, line in run)
-            # A NaN pair `openNaN` decides is held to VarkaSameAnswer's row level.
-            if "openNaN(" in text or not any(p.search(text) for p in NAN_COMPARES):
+            # A comparison that is not of two answers (an input chosen, two Java results held
+            # to the same bits) says so, `nan-compare: ok`, on one of its lines.
+            if any("nan-compare: ok" in line for _, line in run):
+                continue
+            text = " ".join(without_comment(line).strip() for _, line in run)
+            # A NaN pair `openNaN` decides is held to VarkaSameAnswer's row level, in the
+            # statement it is called in: one call does not excuse the rest of a long run.
+            if not any(
+                any(p.search(part) for p in NAN_COMPARES) and "openNaN(" not in part
+                for part in statements(text)
+            ):
                 continue
             if any(ch.wrote(path, n) for n, _ in run):
                 yield (
@@ -829,6 +888,19 @@ def selftest():
             (y, "ok = a == b || two(r)\n    && nanBits(a, f) && nanBits(b, f);\n", True),
             (y, "ok = doubleToLongBits(a) == floatToIntBits(b);\n", True),
             (y, "ok = Double.compare(a, b) == 0;\n", True),
+            (y, "ok = 0 == Double.compare(a, b);\n", True),
+            (y, "ok = isNaN(a) && y > 0\n    && isNaN(b);\n", True),
+            (y, "ok = isNaN(a) && // both\n    isNaN(b);\n", True),
+            (y, "f(oracle.openNaN(0, r));\nok = isNaN(a) && isNaN(b);\n", True),
+            ("dev/varka_canary/P.java", "ok = isNaN(a) && isNaN(b);\n", True),
+            (y, "ok = isNaN(a) && y > 0 || isNaN(b);\n", False),
+            (y, "ok = isNaN(a) && (y > 0 || z) && isNaN(b);\n", True),
+            (y, 'ok = isNaN(a) && s.equals("a // b") && isNaN(b);\n', True),
+            (y, "ok = isNaN(a) && /* c */ isNaN(b);\n", True),
+            (y, "ok = isNaN(a) &&// c\n    isNaN(b);\n", True),
+            (y, "ok = isNaN(a) && any(x -> { return x; }) && isNaN(b);\n", True),
+            (y, "if (isNaN(a) && isNaN(b)) { return openNaN(root, row); }\n", False),
+            (y, "ok = isNaN(a) // nan-compare: ok\n    && isNaN(b);\n", False),
             (y, "ok = !Double.isNaN(a) && !Double.isNaN(b);\n", False),
             (y, "ok = isNaN(a) && !isNaN(b);\n", False),
             (y, "z = doubleToRawLongBits(x) == doubleToRawLongBits(-0.0);\n", False),

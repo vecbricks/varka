@@ -373,3 +373,24 @@ lines, 458 of them 556a2's. `dev/varka_matrix.sh --defaults` (both-bodies check,
 over the two contract suites, `VarkaEvaluatorComponentsSuite`, `VarkaFloatingLaneSuite` and
 `VarkaEmitterFloatingArithSuite`: 205 passed, none failed, one cancelled (the float sweep). The
 run before the review, over 20 suites, passed 2215; no main code has changed since.
+
+### 11.1 Row 568: `nanByNess` gone (5 November 2026)
+
+`VarkaEmitterFloatingArithSuite.sweepFloat` no longer takes `nanByNess`, the flag that let its
++, - and * sweep accept any two NaNs. It holds each of the 2^32 patterns to
+`VarkaSameAnswer.sameAnswer` at the row level, through a `PatternRow` that gives the rule the
+column's pattern, the literal's bits and the root's expected bits. So an add or a multiply of two
+NaN operands of different bits is open, as before, and nothing else is: a subtraction over two
+NaNs must return the left's payload, and an arithmetic over one NaN its payload. The negation and
+`abs` sweeps pass through the same rule and read exact bits, as they did. A unit test,
+`sweepComparisonOpensUnlikeNaNsOnlyWhereJavaLeavesThemOpen`, holds that table without the sweep.
+
+The `nan-compare` lint rule now also flags: a call on the left (`0 == Double.compare(a, b)`); two
+NaN tests joined across a third condition; a comparison whose operator is followed by a `//`
+comment; and `openNaN` is read per statement, not per run of lines. It reads `dev/varka_canary`.
+Six places that compare no answers say `nan-compare: ok` on a line of the expression: two
+input generators and the `toDegrees` and `toRadians` checks of this suite, the harness's choice of
+a different NaN for a test, and the canary's diagnostic. The rule finds no expression in the tree.
+
+The sweep's rule that a subtraction over two NaNs returns the left's payload is the x86 one the
+row level states; the sweep has not been run on another architecture.
