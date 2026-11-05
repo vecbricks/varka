@@ -79,3 +79,14 @@ The four forms fuse at two long lanes where the measurement admits them, the 14 
 this row are deleted with their tests passing under `isa=w128` and `isa=arm`, and a dispatch of the
 option matrix shows both green. If the measurement says no, the row records it and the lines stay,
 with the reason now the measurement.
+
+## 10. Outcome
+
+### 10.1 Step 1: the benchmark workflow's Arm path (5 November 2026)
+
+Built: `benchmark.yml` has a `runner` input for the benchmark and pair jobs, and
+`dev/varka_datapath.sh` reads the CPU model from `lscpu` on aarch64 and does not run its width
+probe there, whose comparison of 128, 256 and 512 bits has nothing to measure on a 128-bit core.
+`sql/varka/skills/benchmarking.md` says how to dispatch it. Not proven: the first dispatch with
+`runner=ubuntu-24.04-arm` is the proof, and it also shows whether the build steps run on arm64.
+
