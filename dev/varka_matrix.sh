@@ -419,6 +419,7 @@ run_one() {
   local start; start=$(date +%s)
   (cd "$dir" && SPARK_TESTING=1 SPARK_SCALA_VERSION=2.13 java "${OPTS[@]}" "${own[@]}" \
     -Djava.io.tmpdir="$dir/tmp" -Dvarka.matrix.config="$config" \
+    -Dvarka.matrix.platform="$platform" \
     -Dvarka.matrix.report="$dir/fused.tsv" \
     -cp "$CP" "$RUNNER" -oW -u "$dir/junit" "${suites[@]}" > "$dir/run.log" 2>&1)
   echo "$?" > "$dir/exit"
