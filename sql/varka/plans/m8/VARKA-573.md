@@ -35,19 +35,27 @@ suites (row 505).
 
 ## 2. Design
 
-1. **A manifest, `sql/varka/ci/sweeps.tsv`**: one row for each suite that reads a sweep property:
-   suite, kind (`java` or `scala`), property, how a job selects it (`class`: the whole suite with
-   the property set; `filter`: its opt-in tests by name), the job that runs it or `unscheduled`,
-   and a note.
+1. **A manifest, `sql/varka/ci/sweeps.tsv`**: one row for each suite that reads a sweep property,
+   and for each shard of one too long for a job: suite, kind (`java` or `scala`), property, how a
+   job selects it (`class`: the whole suite with the property set; `filter`: a ScalaTest suite's
+   opt-in tests by name; `shard`: the part of a JUnit suite whose test names contain one of the
+   row's texts), the select text, the job that runs it or `unscheduled`, and a note.
 2. **A check, `dev/varka_sweeps.py --check`**, run by the pre-commit hook and by the lint job. It
    fails a suite that reads a sweep property and has no row, a row whose suite no longer does, a
-   wrong kind or property, a duplicate, and a JUnit suite listed as `filter`, which is how five
-   suites went unrun (section 0, item 3). `--self-test` pins each case.
+   wrong kind or property, a duplicate, a JUnit suite listed as `filter`, which is how five
+   suites went unrun (section 0, item 3), and shards that do not between them select each opt-in
+   test exactly once, so a sweep added to a sharded suite lands in a shard or fails.
+   `--self-test` pins each case, and `--matrix` prints the scheduled jobs as JSON for the workflow.
 3. **A scheduled workflow**, `varka-sweeps.yml`, at night like `varka-fuzz.yml`, with
-   `workflow_dispatch`. It builds a job matrix from the manifest's rows whose job is not
-   `unscheduled`, on `ubuntu-latest` and on `ubuntu-24.04-arm`, each job one `testOnly` of its
-   suites with the property set and `-Dspark.test.timeout` raised. A suite over the six-hour cap
-   is sharded by test name (`-z`). A failure turns the job red and uploads the JUnit reports.
+   `workflow_dispatch`. It builds a job matrix from `--matrix`, on `ubuntu-latest` and on
+   `ubuntu-24.04-arm`, each job one run of the project's own runner, `VarkaSuiteRunner` (the one
+   `dev/varka_matrix.sh` starts), over a classpath exported once, with `-s <class>` and a `-z` for
+   each of its shard's texts, the property set, `-Dvarka.ownJvm=true` and `-Dspark.test.timeout`
+   raised. That runner matches a `-z` to a JUnit test's display name, which sbt's `testOnly -z`
+   does not. Without `-Dvarka.ownJvm=true` a `@VarkaSuite(ownJvm = true)` suite forks a child JVM
+   that runs the whole suite, and each test then reads its result from the child's report
+   (`VarkaOwnJvm`), so a `-z` shortens nothing; the property runs the tests in the JVM at hand, as
+   `varka-fuzz.yml` does. A failure turns the job red and uploads the JUnit reports.
 4. **The nightly script reads the manifest**, so that a suite it lists as `class` runs whole, and
    the second selector that dropped five suites is gone.
 
@@ -65,7 +73,10 @@ A GitHub runner has 4 cores, so each sweep takes about six times as long on one 
 with cores, and a runner's core is slower than the laptop's. Neither is measured. On that reading
 `VarkaEmitterNarrowArithSuite` is about 5.6 hours or more on one runner, so it needs shards;
 `VarkaTimeFractionSuite` about 1.6 hours and the year-month divide about 1.1; the rest are
-minutes. The first step of the workflow is therefore a calibration: one sweep dispatched on each
+minutes. The narrow-arithmetic suite is cut by operator into three shards of about 1100 s on the
+laptop each (`+` 1111, `-` 1065, `*` 1177: the 12 sweeps of 200 to 320 s of the three modes'
+LEGACY and TRY arms, and the six ANSI ones of about 55 s), which on the same reading is about 1.8
+hours a shard, and a fourth shard for its few-second timing test. The first step of the workflow is therefore a calibration: one sweep dispatched on each
 runner type, and the table above scaled by what it reads.
 
 ## 4. Order
@@ -91,3 +102,17 @@ self-test, run by `dev/varka_precommit.sh` for a change to a test source, the ma
 script, and by the lint job. Its discovery reads a sweep property through `getProperty`,
 `getBoolean`, `getInteger` or `props`; a string that only names the property, as the coverage
 suite's source check does, reads nothing.
+
+
+### 10.2 Step 2: the narrow-arithmetic shards (5 November 2026)
+
+The suite has 19 tests whose display names say `opt-in`: the 18 all-pairs `SMALLINT` sweeps (three
+operators, three modes, two arms) and a timing test. `sweeps.tsv` lists four `shard` rows for it,
+one for each of `pair for + in`, `pair for - in` and `pair for * in`, and `oracle's share`; the
+check finds each of the 19 selected exactly once. The shard texts run through
+`VarkaSuiteRunner -s <class> -z <text>`, whose filter matches a display name by substring.
+
+Checked through `VarkaSuiteRunner` over the exported test classpath with `-Dvarka.sweep=true` and
+`-Dvarka.ownJvm=true`: `-z "oracle's share"` ran the one test and `-z "pair for + in ANSI"` the
+two ANSI sweeps for `+`, all passing. A first try without `-Dvarka.ownJvm=true` forked the child
+JVM, which ran the whole suite; it was stopped after more than ten minutes.
