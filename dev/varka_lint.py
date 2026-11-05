@@ -375,6 +375,17 @@ def unescape(name):
     return name.replace('\\"', '"').replace("\\\\", "\\")
 
 
+def platform_names():
+    """The option matrix's platform configurations, `PLATFORMS` of dev/varka_matrix_bins.py."""
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    try:
+        import varka_matrix_bins
+
+        return set(varka_matrix_bins.PLATFORMS)
+    finally:
+        sys.path.pop(0)
+
+
 def rule_skips_tsv(ch):
     if SKIPS not in ch.files:
         return
@@ -394,7 +405,8 @@ def rule_skips_tsv(ch):
             yield f"{SKIPS}:{n}: skips-tsv: {len(fields)} tab-separated fields, not 5"
             continue
         config, suite, test, kind, reason = fields
-        for part in config.split(","):
+        # A platform configuration (VARKA-505) is the defaults under JVM flags, not an option.
+        for part in [] if config in platform_names() else config.split(","):
             key = part.split("=")[0].strip()
             if key and options and key not in options:
                 yield f"{SKIPS}:{n}: skips-tsv: '{key}' is not an option of VarkaEmitOption"
