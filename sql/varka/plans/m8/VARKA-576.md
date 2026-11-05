@@ -72,3 +72,10 @@ x86, and a dispatch of the option matrix shows `isa=arm` green.
    floating `+`, `-`, `*` and `/`. Recommended: the host-dependent rule, since vanilla Spark's own
    answer differs by host and the project's rule is to follow it (the owner's decision of
    1 November 2026 on row 365).
+
+   *5 November 2026, by the owner's word:* the host-dependent rule (option A). Varka's answer must
+   equal vanilla Spark's on the same host; the reference evaluator and `VarkaSameAnswer` take a
+   table per architecture, and the kernel is changed only where the Arm table shows Spark's scalar
+   code and the kernel's lanes disagree. The alternatives were one payload forced on every host, at
+   a kernel cost on every floating `+`, `-`, `*` and `/` and a departure from vanilla on one host,
+   and no payload check, which the owner's decision of 4 November 2026 on `nanByNess` rules out.
