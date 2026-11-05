@@ -52,8 +52,12 @@ import tempfile
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MANIFEST = "sql/varka/ci/sweeps.tsv"
 COLUMNS = ["suite", "kind", "property", "how", "job", "note"]
-# A test reads a sweep property by naming it in a string literal.
-READS = re.compile(r"""["'](varka\.sweep(?:\.long)?)["']""")
+# A test reads a sweep property through a property accessor; a string that only mentions the name,
+# as `contains("varka.sweep")` does in a check of the sources, reads nothing.
+READS = re.compile(
+    r"""(?:getProperty|getBoolean|getInteger|props\.get|props)\(\s*"""
+    r"""["'](varka\.sweep(?:\.long)?)["']"""
+)
 
 
 def discover(root):
@@ -205,8 +209,13 @@ def self_test():
     expect("a missing manifest", both, "missing")
     expect("a wrong header", {**both, MANIFEST: "suite\tkind\n"}, "header")
     expect(
-        "a mention outside a string literal reads nothing",
+        "a mention outside a property read reads nothing",
         {sc + "C.scala": "// -Dvarka.sweep=true\n", MANIFEST: head},
+        None,
+    )
+    expect(
+        "a string that names the property but reads nothing",
+        {sc + "C.scala": 'val t = body.contains("varka.sweep")\n', MANIFEST: head},
         None,
     )
     expect(
