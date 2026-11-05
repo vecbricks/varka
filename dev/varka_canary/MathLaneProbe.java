@@ -278,7 +278,7 @@ public class MathLaneProbe {
   static String bandLine(String op, String in, double lane, double strict, double math,
       String label) {
     return String.format("%-4s %-34s lane=%-24s StrictMath=%-24s Math=%-24s %s%s", op, in,
-        lane, strict, math, label,
+        lane, strict, math, label,  // nan-compare: ok
         Double.doubleToLongBits(lane) == Double.doubleToLongBits(strict) ? "" : "  <- differs");
   }
 

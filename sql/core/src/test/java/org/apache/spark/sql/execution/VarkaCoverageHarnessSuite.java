@@ -548,8 +548,8 @@ public final class VarkaCoverageHarnessSuite {
       double v = (Double) outputs.get(o).eval(input);
       assertTrue(Double.isNaN(v), "output " + o + " is not a NaN: " + v);
       spark[o] = v;
-      other[o] = Double.doubleToRawLongBits(v) == Double.doubleToRawLongBits(first)
-          ? second : first;
+      other[o] = Double.doubleToRawLongBits(v)  // nan-compare: ok
+          == Double.doubleToRawLongBits(first) ? second : first;
     }
     java.util.function.IntPredicate unfixed =
         o -> VarkaExpressionHarness.unfixedNaN(outputs.get(o), input);

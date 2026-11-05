@@ -17,6 +17,7 @@
 package org.apache.spark.sql.catalyst.expressions.codegen.varka;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -366,7 +367,7 @@ public final class VarkaEmitterFloatingArithSuite {
     int n = DOUBLE_SPECIALS.length;
     long a = DOUBLE_SPECIALS[i % n];
     long b = DOUBLE_SPECIALS[(i / n + i) % n];
-    boolean bothNaN = Double.isNaN(Double.longBitsToDouble(a))
+    boolean bothNaN = Double.isNaN(Double.longBitsToDouble(a))  // nan-compare: ok
         && Double.isNaN(Double.longBitsToDouble(b));
     return col == 0 || bothNaN ? a : b;
   }
@@ -375,7 +376,8 @@ public final class VarkaEmitterFloatingArithSuite {
     int n = FLOAT_SPECIALS.length;
     int a = FLOAT_SPECIALS[i % n];
     int b = FLOAT_SPECIALS[(i / n + i) % n];
-    boolean bothNaN = Float.isNaN(Float.intBitsToFloat(a)) && Float.isNaN(Float.intBitsToFloat(b));
+    boolean bothNaN = Float.isNaN(Float.intBitsToFloat(a))  // nan-compare: ok
+        && Float.isNaN(Float.intBitsToFloat(b));
     return col == 0 || bothNaN ? a : b;
   }
 
@@ -1101,11 +1103,11 @@ public final class VarkaEmitterFloatingArithSuite {
 
   /** Asserts that `Math.toDegrees` and `Math.toRadians` of `v` are one multiply each. */
   private static void checkConversions(double v, double toDeg, double toRad) {
-    if (Double.doubleToRawLongBits(Math.toDegrees(v))
+    if (Double.doubleToRawLongBits(Math.toDegrees(v))  // nan-compare: ok
         != Double.doubleToRawLongBits(v * toDeg)) {
       fail("toDegrees(" + v + ")");
     }
-    if (Double.doubleToRawLongBits(Math.toRadians(v))
+    if (Double.doubleToRawLongBits(Math.toRadians(v))  // nan-compare: ok
         != Double.doubleToRawLongBits(v * toRad)) {
       fail("toRadians(" + v + ")");
     }
@@ -1136,12 +1138,51 @@ public final class VarkaEmitterFloatingArithSuite {
   private static final int CHUNK = 1 << 16;
 
   /**
+   * One row of {@code sweepFloat} as {@code VarkaSameAnswer}'s row rule reads it: the column's
+   * pattern, the literal slots' bits, and the root's expected bits, which is the only other
+   * node the rule asks about.
+   */
+  /** The sweep's comparison of one row: {@code expected} and {@code got} at the row level. */
+  private static boolean sameFloat(VarkaVectorIR root, PatternRow row, int pattern, int expected,
+      int got) {
+    row.pattern = pattern;
+    row.root = expected & 0xFFFFFFFFL;
+    return VarkaSameAnswer.sameAnswer(root, row.root, got & 0xFFFFFFFFL, row);
+  }
+
+  private static final class PatternRow implements VarkaSameAnswer.IrRow {
+    private final int[] lits;
+    int pattern;
+    long root;
+
+    PatternRow(int[] lits) {
+      this.lits = lits;
+    }
+
+    @Override
+    public OptionalLong value(VarkaVectorIR node) {
+      return switch (node) {
+        case ColumnRef _ -> OptionalLong.of(pattern & 0xFFFFFFFFL);
+        case LiteralSlot s -> OptionalLong.of(lits[s.index()] & 0xFFFFFFFFL);
+        default -> OptionalLong.of(root);
+      };
+    }
+
+    @Override
+    public boolean holds(Cond cond) {
+      return false;
+    }
+  }
+
+  /**
    * Every FLOAT pattern through `root`, a kernel over one FLOAT column with `lits` its int
-   * literal table, each row against `want` of the pattern: the same bits, or both NaN where
-   * `nanByNess`. A strided slice is also held to Spark's `spark` expression over the column.
+   * literal table, each row against `want` of the pattern at {@code VarkaSameAnswer}'s row level:
+   * the same bits, or two NaNs where the row's NaN is open by its provenance, which an add or a
+   * multiply of two unlike NaNs is and a subtraction is not. A strided slice is also held to
+   * Spark's `spark` expression over the column, bit for bit.
    */
   private static void sweepFloat(String ctx, VarkaVectorIR root, int[] lits,
-      IntUnaryOperator want, boolean nanByNess, Optional<Expression> spark) {
+      IntUnaryOperator want, Optional<Expression> spark) {
     var emitted = VarkaEmitterFixtures.emit(List.of(root), 1, lits.length, VarkaMatrixRuns.BASE);
     var loaders = new ConcurrentLinkedQueue<VarkaGeneratedClassLoader>();
     ThreadLocal<VarkaFusedKernel> kernels = ThreadLocal.withInitial(() -> {
@@ -1158,6 +1199,7 @@ public final class VarkaEmitterFloatingArithSuite {
         }
         long first = k * CHUNK;
         VarkaFusedKernel kernel = kernels.get();
+        var row = new PatternRow(lits);
         try (Arena arena = Arena.ofConfined()) {
           MemorySegment in = VarkaEmitterFixtures.alloc(arena, CHUNK * 4L);
           for (int i = 0; i < CHUNK; i++) {
@@ -1174,10 +1216,7 @@ public final class VarkaEmitterFloatingArithSuite {
             int pattern = (int) (first + i);
             int got = out.data().get(ValueLayout.JAVA_INT, i * 4L);
             int expected = want.applyAsInt(pattern);
-            boolean same = got == expected || nanByNess
-                && Float.isNaN(Float.intBitsToFloat(got))
-                && Float.isNaN(Float.intBitsToFloat(expected));
-            if (!same) {
+            if (!sameFloat(root, row, pattern, expected, got)) {
               failure.compareAndSet(null, String.format(
                   "%s: over %08x the kernel gave %08x and the definition %08x",
                   ctx, pattern, got, expected));
@@ -1186,7 +1225,7 @@ public final class VarkaEmitterFloatingArithSuite {
               float v = (Float) spark.get().eval(
                   new GenericInternalRow(new Object[] {Float.intBitsToFloat(pattern)}));
               int sb = Float.floatToRawIntBits(v);
-              if (sb != got && !(nanByNess && Float.isNaN(v))) {
+              if (sb != got) {
                 failure.compareAndSet(null, String.format(
                     "%s: over %08x the kernel gave %08x and Spark %08x", ctx, pattern, got, sb));
               }
@@ -1204,6 +1243,24 @@ public final class VarkaEmitterFloatingArithSuite {
     }
   }
 
+  @Test
+  @DisplayName("the sweep's comparison opens two unlike NaNs of + and *, and of nothing else")
+  public void sweepComparisonOpensUnlikeNaNsOnlyWhereJavaLeavesThemOpen() {
+    var k = new LiteralSlot(0, LaneType.FLOAT);
+    int left = 0x7fc00001;
+    int right = 0x7fc00002;
+    for (IntOp op : List.of(IntOp.ADD, IntOp.MUL, IntOp.SUB)) {
+      var root = new IntArith(op, Overflow.WRAP, F, k);
+      // Two NaN operands of different payloads: a tier may return either one of an add or a
+      // multiply, and a subtraction returns the left's on every tier.
+      assertEquals(op != IntOp.SUB, sameFloat(root, new PatternRow(new int[] {right}), left, left,
+          right), op + " over two unlike NaNs");
+      // One NaN operand: its payload is returned on every tier, so no other payload agrees.
+      assertFalse(sameFloat(root, new PatternRow(new int[] {Float.floatToRawIntBits(1.0f)}), left,
+          left, right), op + " over one NaN");
+    }
+  }
+
   private static final BoundReference FLOAT_COL =
       new BoundReference(0, DataTypes.FloatType, true);
 
@@ -1214,10 +1271,10 @@ public final class VarkaEmitterFloatingArithSuite {
     // at FLOAT neither checks anything, so the flag only keeps the expressions Spark's own.
     boolean ansi = SQLConf.get().ansiEnabled();
     sweepFloat("-f", new IntNeg(Overflow.WRAP, F), new int[0],
-        p -> Float.floatToRawIntBits(-Float.intBitsToFloat(p)), false,
+        p -> Float.floatToRawIntBits(-Float.intBitsToFloat(p)),
         Optional.of(UnaryMinus$.MODULE$.apply(FLOAT_COL, ansi)));
     sweepFloat("abs(f)", new IntNeg(Overflow.WRAP, F, true), new int[0],
-        p -> Float.floatToRawIntBits(Math.abs(Float.intBitsToFloat(p))), false,
+        p -> Float.floatToRawIntBits(Math.abs(Float.intBitsToFloat(p))),
         Optional.of(Abs$.MODULE$.apply(FLOAT_COL, ansi)));
   }
 
@@ -1241,7 +1298,7 @@ public final class VarkaEmitterFloatingArithSuite {
           });
         };
         sweepFloat(String.format("%s by %08x", op, operand),
-            new IntArith(op, Overflow.WRAP, F, k), new int[] {operand}, want, true,
+            new IntArith(op, Overflow.WRAP, F, k), new int[] {operand}, want,
             Optional.empty());
       }
     }
