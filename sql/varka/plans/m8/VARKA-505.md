@@ -225,3 +225,24 @@ Planned against the committed suite lists and the 48 weights of `matrix/seconds.
 Owed: the scratch-branch check of 2.2, a green dispatch on master, and the skip lines the first
 `isa=w128` run finds.
 
+### 10.2 The first dispatches (5 November 2026)
+
+**Run 42018067671, on this branch.** Every dispatch of the matrix now ran the defaults under the
+three platforms. `isa=avx2` passed. `isa=w128` and `isa=arm` failed 14 and 16 tests, all listed in
+`sql/varka/matrix/skips.tsv` with rows 575 and 576 as their reasons: a `BYTE` column has no load at
+two long lanes (the 14 shared), and on Arm a signalling NaN operand's payload wins in
+`try_subtract(f, f2)` (the 2 Arm-only).
+
+**The scratch-branch check of 2.2, run 42028615914 on `varka-505-scratch`** (row 491's guard off in
+`VarkaVectorWalk.emitMaskOfWord`, `VarkaAvx2SelectSuite` disabled, the option configurations
+emptied): **prediction P3 did not hold.** Under `isa=avx2` the failures were three, the same three
+as under `defaults`: the two source checks that no kernel hands `fromLong` a word a `toLong`
+reaches, and the committed price table. All three are tests written for the guard or generated from
+the emitted bytes; none is a behavioural failure. `isa=w128` and `isa=arm` failed those three and
+the 14 and 16 of the first run, nothing more. The compiled-history test of `VarkaIrFuzzSuite`
+(`random IR trees compiled by C2 match the reference evaluator over eight batch histories`) ran and
+passed under `isa=avx2` in 416 s, on an EPYC 9V74 whose own JVM reads `UseAVX=3`, so with the
+guard off and a forced AVX2 level the broad suites did not show row 396's wrong answer. By 2.2 the
+row stops and reports: the axis at the committed iteration counts does not catch that class
+without a test written for it. Row 396's class stays with `VarkaAvx2SelectSuite` and the fuzz nights.
+
