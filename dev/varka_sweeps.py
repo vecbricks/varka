@@ -89,7 +89,7 @@ def class_name(path):
     return os.path.splitext(tail)[0].replace("/", ".")
 
 
-def discover(root):
+def discover(root, dupes=None):
     """The test sources that read a sweep property: {suite: (kind, properties, path)}."""
     found = {}
     top = os.path.join(root, "sql")
@@ -103,6 +103,8 @@ def discover(root):
             with open(os.path.join(dirpath, name), encoding="utf-8", errors="replace") as f:
                 props = set(READS.findall(f.read()))
             if props:
+                if stem in found and dupes is not None:
+                    dupes.append(stem)
                 found[stem] = (ext[1:], props, os.path.join(dirpath, name))
     return found
 
@@ -132,7 +134,10 @@ def manifest(root):
 def check(root):
     """The findings, one string each."""
     rows, findings = manifest(root)
-    found = discover(root)
+    dupes = []
+    found = discover(root, dupes)
+    for stem in sorted(set(dupes)):
+        findings.append(f"{stem} is declared by two test sources that read a sweep property")
     by_suite = {}
     seen = set()
     for n, r in rows:
@@ -166,6 +171,8 @@ def check(root):
                     f"{MANIFEST}:{n}: {suite} reads {', '.join(sorted(props))}, not {r['property']}"
                 )
             how = r["how"]
+            if how == "shard" and any(not t.strip() for t in r["select"].split(SHARD_SEP)):
+                findings.append(f"{MANIFEST}:{n}: a shard text is empty")
             if how not in ("class", "filter", "shard"):
                 findings.append(f"{MANIFEST}:{n}: how is `class`, `filter` or `shard`, not {how}")
             elif how == "class" and r["select"] != "-":
@@ -227,6 +234,8 @@ def matrix(root):
                 "suite": r["suite"],
                 "class": class_name(found[r["suite"]][2]),
                 "property": r["property"],
+                "kind": found[r["suite"]][0],
+                "own_jvm": found[r["suite"]][0] == "java",
                 "z": zs,
                 "job": r["job"],
             }
@@ -304,6 +313,16 @@ def self_test():
         "is `-`",
     )
     expect("a duplicate", {**both, MANIFEST: good + good.split("\n")[1] + "\n"}, "listed twice")
+    expect(
+        "two sources with one name",
+        {**both, "sql/core/src/test/java/q/A.java": java, MANIFEST: good},
+        "two test sources",
+    )
+    expect(
+        "an empty shard text",
+        {**shard_files, MANIFEST: shard_rows("pair for + in|")},
+        "shard text is empty",
+    )
     expect(
         "an empty field", {**both, MANIFEST: good.replace("unscheduled", "")}, "non-empty fields"
     )
