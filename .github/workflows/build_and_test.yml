@@ -1862,6 +1862,7 @@ jobs:
         python3 dev/varka_msg_check.py --selftest
         python3 dev/varka_matrix_shards.py --selftest
         dev/varka_precommit.sh --selftest
+        dev/varka_prepush.sh --selftest
     - name: The branch's commit messages and its pull request follow the house rules
       env:
         GH_TOKEN: ${{ github.token }}
