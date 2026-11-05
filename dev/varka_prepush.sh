@@ -55,6 +55,7 @@ if [ "${1:-}" = "--selftest" ]; then
     bare git init -q -b master .
     bare git config user.email t@example.com
     bare git config user.name t
+    bare git config commit.gpgsign false
     mkdir dev
     printf '#!/bin/bash\necho ran >> "$(git rev-parse --show-toplevel)/precommit.ran"\n' \
       > dev/varka_precommit.sh
@@ -64,6 +65,7 @@ if [ "${1:-}" = "--selftest" ]; then
     bare git update-ref refs/remotes/origin/master HEAD
     bare git checkout -q -b feature
     printf 'x\n' > Pushed.scala
+    printf 'x\n' > "$(printf 'caf\303\251.scala')"
     bare git add -A
     bare git commit -qm feature
     bare git checkout -q master
@@ -127,12 +129,18 @@ while read -r local_ref local_sha remote_ref remote_sha; do
   # the branch checked out. A push of a ref this checkout does not hold would be checked against
   # the wrong files, and say that a file it adds is missing: it is refused where the files its
   # commits change differ here (VARKA-569).
-  mapfile -t touched < <(git diff --name-only --diff-filter=ACMR "$range")
+  # NUL-separated and read in a loop, so that a name with non-ASCII bytes or a newline is not
+  # quoted into a pathspec that matches nothing, and bash 3.2 has no mapfile to need.
+  touched=()
+  while IFS= read -r -d '' f; do
+    touched+=("$f")
+  done < <(git diff -z --name-only --diff-filter=ACMR "$range")
   if [ "${#touched[@]}" -gt 0 ] \
       && ! git diff --quiet "$local_sha" -- "${touched[@]}" 2> /dev/null; then
     echo "varka pre-push: $local_ref is not what this checkout holds: a file it changes differs"
-    echo "  here, so the line checks would read the wrong files (${touched[0]}); push it from the"
-    echo "  worktree that has it checked out (git worktree list), or with --no-verify"
+    echo "  here, or has uncommitted edits (${touched[0]}...), so the line checks would read the"
+    echo "  wrong files; push it from the worktree that has it checked out (git worktree list),"
+    echo "  or with --no-verify"
     status=1
     continue
   fi
