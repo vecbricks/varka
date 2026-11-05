@@ -1,0 +1,74 @@
+# VARKA-576: the Arm rule for the NaN payload of floating arithmetic
+
+Row 576 of `PLAN.md`. Found on 5 November 2026 by the first dispatch of row 505's axis.
+
+## 0. What exists now (admission check)
+
+1. **One answer from Arm.** Run 42018067671 of the option matrix, under `isa=arm`, failed
+   `VarkaCoverageCompositionFuzzSuite`'s two tests on `try_subtract(f, f2)` over the `FLOAT`
+   patterns `0x7FC00000` and `0x7F800001`: Spark's own `eval` answers `2143289345` (`0x7FC00001`)
+   and the reference evaluator `2143289344` (`0x7FC00000`). The pair is a quiet NaN and a
+   signalling NaN with payload 1; Spark's answer is the signalling one quieted, the reference's the
+   first operand. On x86 the same pair gives the first operand, which is the rule rows 568 and 556
+   built (`VARKA-556.md` 11.1): `VarkaSameAnswer`'s row level opens only the add and the multiply of
+   two unlike NaNs, and the subtract and the divide are fixed to the left payload.
+2. **What is not known.** Every other operator and operand class on Arm: `+`, `-`, `*` and `/`; both
+   widths; quiet against quiet, signalling against quiet in both orders, signalling against
+   signalling; payloads and signs that differ. The rule for an x86 host is a table in the
+   reference evaluator and `VarkaSameAnswer`; nothing says what Arm's table is except the one cell
+   above and the architecture manual, which the row does not rely on.
+3. **Two engines are compared, not one.** Spark's `eval` is scalar code the JIT compiles for the
+   host, and a kernel's lanes are the Vector API's. Whether the two agree with each other on Arm is
+   a second question: if they differ, the fix is in the kernel, not in the reference.
+
+## 1. Goal and non-goal
+
+Goal: the reference evaluator and `VarkaSameAnswer` give Arm its own NaN-payload answers for `+`,
+`-`, `*` and `/` on `FLOAT` and `DOUBLE`, read from the Arm runner's own results, so that the two
+tests of `isa=arm` pass and their lines leave `sql/varka/matrix/skips.tsv`.
+
+Not in this row: x86's rule, which rows 568 and 556 own; SVE hosts, which the pool does not offer;
+the kernel itself, unless step 1's table shows its lanes differ from Spark's scalar code.
+
+## 2. Design
+
+1. **A probe, not a derivation.** A canary class `NaNPayloadProbe` under `dev/varka_canary`, run by
+   `varka-canary.yml` on both architectures as `MathLaneProbe` is. For each operator, each width
+   and each pair of a fixed pattern set (quiet and signalling NaNs of both signs and several
+   payloads, and the infinities and zeros that make a NaN), it prints the result bits of the scalar
+   expression after C2 has compiled it and of the same operator through the Vector API's lanes.
+   The output is a table per architecture.
+2. **The table is committed** as `results/VARKA-576-nan-payload.txt` with the host's CPU and the
+   JVM's flags, for the Arm runner and for an x86 one, so that the x86 column checks the probe
+   against the rule that is already built.
+3. **The rule follows the table.** If Arm's scalar and vector answers agree, the reference
+   evaluator and `VarkaSameAnswer` take a host-dependent rule keyed on the architecture, as
+   `VarkaHostIsa` keys other host facts; if they differ, the row stops and reports the kernel
+   difference first.
+
+## 3. Tests
+
+1. The probe's x86 column equals the x86 rule on every cell.
+2. `VarkaSameAnswerContractSuite` gains a case per Arm cell.
+3. The two `isa=arm` tests pass and their skip lines are deleted, which the stale-line check
+   enforces.
+
+## 4. Order
+
+1. The probe (small); one dispatch of `varka-canary.yml` for `NaNPayloadProbe`, which needs the
+   owner's word.
+2. The table, committed.
+3. The rule and its tests, under a plan of its own if the table shows more than the one cell.
+
+## 5. Done when
+
+The two tests pass under `isa=arm` with their skip lines deleted, the table is committed for Arm and
+x86, and a dispatch of the option matrix shows `isa=arm` green.
+
+## 6. Questions for the owner
+
+1. **Is a host-dependent rule acceptable, or should Varka make the answer the same on every
+   host?** A kernel can force one payload where the two hardware rules differ, at a cost in every
+   floating `+`, `-`, `*` and `/`. Recommended: the host-dependent rule, since vanilla Spark's own
+   answer differs by host and the project's rule is to follow it (the owner's decision of
+   1 November 2026 on row 365).
