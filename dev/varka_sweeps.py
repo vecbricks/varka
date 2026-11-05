@@ -77,6 +77,9 @@ DISPLAY = re.compile(r"""@DisplayName\(\s*((?:"(?:[^"\\]|\\.)*"\s*\+?\s*)+)\)"""
 SHARD_SEP = "|"
 # A suite of the nightly's step runs whole in one JVM, and the narrow-integer one takes about an
 # hour on the laptop, so the cap of a test (minutes) and the watchdog are raised over the defaults.
+# A sweep job's per-test cap and watchdog, in minutes: under the job's 350-minute limit, over the
+# narrow-integer shards' estimated two hours on a runner.
+SWEEP_MINUTES = 300
 NIGHTLY_TIMEOUTS = '"-Dspark.test.timeout=170", "-Dvarka.test.watchdog.minutes=170"'
 
 
@@ -222,13 +225,16 @@ def shard_findings(suite, group, path):
     return findings
 
 
-def matrix(root):
-    """The scheduled jobs: one entry for each row whose job is not `unscheduled`."""
+def matrix(root, include_all=False, suite=""):
+    """The jobs: one entry for each row whose job is not `unscheduled`, or for every row with
+    `include_all`, and for one suite's rows only with `suite`."""
     rows, _ = manifest(root)
     found = discover(root)
     jobs = []
     for _, r in rows:
-        if r["job"] == "unscheduled" or r["suite"] not in found:
+        if r["suite"] not in found or (suite and r["suite"] != suite):
+            continue
+        if r["job"] == "unscheduled" and not include_all:
             continue
         zs = [] if r["select"] == "-" else r["select"].split(SHARD_SEP)
         if r["how"] == "filter":
@@ -242,9 +248,34 @@ def matrix(root):
                 "own_jvm": found[r["suite"]][0] == "java",
                 "z": zs,
                 "job": r["job"],
+                "label": r["suite"] + (": " + "|".join(zs) if r["how"] == "shard" else ""),
             }
         )
     return jobs
+
+
+def jvm_args(entry, minutes=SWEEP_MINUTES):
+    """The JVM options that switch one matrix entry's sweep on: its property, the raised caps of a
+    test and of the watchdog, and `varka.ownJvm` for a JUnit suite, which otherwise forks a child
+    JVM that runs the whole suite and ignores the entry's `-z` (VARKA-573.md 2)."""
+    args = [
+        f"-D{entry['property']}=true",
+        f"-Dspark.test.timeout={minutes}",
+        f"-Dvarka.test.watchdog.minutes={minutes}",
+    ]
+    if entry["own_jvm"]:
+        args.append("-Dvarka.ownJvm=true")
+    return args
+
+
+def runner_args(entry):
+    """The arguments of `VarkaSuiteRunner` for one matrix entry: its class, then a `-z` for each
+    of its filter or shard texts (a name substring, which the runner matches to a ScalaTest
+    test's name and to a JUnit test's display name)."""
+    args = ["-s", entry["class"]]
+    for text in entry["z"]:
+        args += ["-z", text]
+    return args
 
 
 def nightly(root):
@@ -352,6 +383,32 @@ def self_test():
         "testOnly *B -- -z opt-in",
     ]:
         failures.append(f"nightly commands: {got}")
+    # The matrix: unscheduled rows only with `include_all`, one suite's rows with `suite`, a
+    # shard's label naming its texts, and the entry's arguments.
+    root = tree(
+        {**shard_files, **both, MANIFEST: good + shard_rows("pair for + in").split("\n", 1)[1]}
+    )
+    # Only B's row names a job (`n`); the others are `unscheduled`.
+    if [e["suite"] for e in matrix(root)] != ["B"]:
+        failures.append(f"matrix: {[e['suite'] for e in matrix(root)]}")
+    every = matrix(root, include_all=True)
+    if [e["suite"] for e in every] != ["A", "B", "S"]:
+        failures.append(f"matrix --all: {[e['suite'] for e in every]}")
+    if [e["suite"] for e in matrix(root, include_all=True, suite="S")] != ["S"]:
+        failures.append("matrix --suite")
+    shard = next(e for e in every if e["suite"] == "S")
+    if shard["label"] != "S: pair for + in" or shard["z"] != ["pair for + in"]:
+        failures.append(f"a shard's entry: {shard}")
+    if runner_args(shard) != ["-s", shard["class"], "-z", "pair for + in"]:
+        failures.append(f"runner args: {runner_args(shard)}")
+    if "-Dvarka.ownJvm=true" not in jvm_args(shard) or "-Dvarka.sweep=true" not in jvm_args(shard):
+        failures.append(f"jvm args of a JUnit shard: {jvm_args(shard)}")
+    scala_entry = next(e for e in every if e["suite"] == "B")
+    if "-Dvarka.ownJvm=true" in jvm_args(scala_entry) or runner_args(scala_entry)[2:] != [
+        "-z",
+        "opt-in",
+    ]:
+        failures.append(f"a ScalaTest entry: {jvm_args(scala_entry)} {runner_args(scala_entry)}")
     got = nightly(tree({**shard_files, MANIFEST: shard_rows("pair for + in", "pair for - in")}))
     if got[1:] != ["testOnly *S"]:
         failures.append(f"nightly runs a sharded suite whole, once: {got}")
@@ -441,6 +498,12 @@ def main(argv):
     ap.add_argument("--list", action="store_true", help="print the manifest")
     ap.add_argument("--matrix", action="store_true", help="print the scheduled jobs as JSON")
     ap.add_argument("--nightly", action="store_true", help="print the nightly's sbt commands")
+    ap.add_argument("--all", action="store_true", help="--matrix: every row, scheduled or not")
+    ap.add_argument("--suite", default="", help="--matrix: only this suite's rows")
+    ap.add_argument("--jvm-args", metavar="ENTRY", help="the JVM options of a matrix entry (JSON)")
+    ap.add_argument(
+        "--runner-args", metavar="ENTRY", help="the VarkaSuiteRunner arguments of an entry (JSON)"
+    )
     ap.add_argument("--self-test", action="store_true", help="run the check's cases")
     args = ap.parse_args(argv)
     if args.self_test:
@@ -450,8 +513,12 @@ def main(argv):
         for _, r in rows:
             print("\t".join(r[c] for c in COLUMNS[:6]))
         return len(findings)
+    if args.jvm_args or args.runner_args:
+        entry = json.loads(args.jvm_args or args.runner_args)
+        print("\n".join(jvm_args(entry) if args.jvm_args else runner_args(entry)))
+        return 0
     if args.matrix:
-        print(json.dumps(matrix(ROOT), indent=1))
+        print(json.dumps(matrix(ROOT, args.all, args.suite)))
         return 0
     if args.nightly:
         findings = check(ROOT)

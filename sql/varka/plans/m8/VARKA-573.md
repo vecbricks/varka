@@ -130,3 +130,19 @@ filter skipped now run; by the times of section 3 the step takes about 5400 s of
 gate's sweep step (`dev/varka_gate.sh`) keeps its calendar filter on purpose: it is the quick one.
 The step has not run on the laptop yet.
 
+### 10.4 Steps 3 and 4: the laptop run and the workflow draft (5 November 2026)
+
+**The nightly's sweep step ran once on the laptop** (the commands of `dev/varka_sweeps.py
+--nightly`, on master `3f4b1fb22da`): every suite passed, exit 0 in 6127 s, against the 5400 s of
+section 3, 13% more. That includes the suites the old name filter skipped.
+
+**`varka-sweeps.yml`**, dispatch only: a build job checks the manifest, lists the rows with
+`dev/varka_sweeps.py --matrix` (every row, one suite's, or only the scheduled ones) and archives the
+test classpath as the option matrix does; each row then runs as one job on `ubuntu-latest` and on
+`ubuntu-24.04-arm` through `VarkaSuiteRunner`, with the options of `--jvm-args` (the sweep's
+property, a 300-minute cap of a test and of the watchdog, and `-Dvarka.ownJvm=true` for a JUnit
+suite) and the arguments of `--runner-args` (`-s`, and a `-z` for each text). The step is tested
+against a stub `java` by `dev/varka_bin_units_test.py`: a JUnit shard, a ScalaTest filter, a long
+sweep, and a failing status. It has not run on a runner. No schedule yet: the first dispatch, of
+one suite on each runner type, is the calibration of section 3.
+
