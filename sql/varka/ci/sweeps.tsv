@@ -1,0 +1,11 @@
+suite	kind	property	how	job	note
+VarkaChronoSuite	scala	varka.sweep	filter	unscheduled	calendar round trips over the covered years; under two seconds
+VarkaEmitterBitwiseSuite	scala	varka.sweep	filter	unscheduled	every int through ~ and bit_count; about a minute on 24 cores
+VarkaEmitterChronoSuite	scala	varka.sweep	filter	unscheduled	the emitted calendar and trunc kernels over their whole range
+VarkaEmitterDivisionSuite	scala	varka.sweep	filter	unscheduled	the calendar kernels under both double division forms
+VarkaEmitterYmDivideSuite	scala	varka.sweep.long	filter	unscheduled	409 divisors over every int; its name carries no opt-in, so it is a long sweep
+VarkaEmitterFloatingArithSuite	java	varka.sweep	class	unscheduled	every FLOAT pattern through + - * and negation and abs; a JUnit suite, so a name filter selects none of it
+VarkaEmitterMixedLaneSuite	java	varka.sweep	class	unscheduled	runs whole; its sweep is switched on by the property
+VarkaEmitterNarrowArithSuite	java	varka.sweep	class	unscheduled	every SMALLINT and TINYINT pair and the 2^24-row slices; a JUnit suite
+VarkaTimeFractionSuite	java	varka.sweep.long	class	unscheduled	every nanosecond of a minute at TIME(8) and TIME(9); a JUnit suite
+VarkaCoverageSuite	scala	varka.sweep	filter	unscheduled	times the oracle's share of the coverage harness
