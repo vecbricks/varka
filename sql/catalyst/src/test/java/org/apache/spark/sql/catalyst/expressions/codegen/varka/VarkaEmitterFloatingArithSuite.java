@@ -1137,11 +1137,6 @@ public final class VarkaEmitterFloatingArithSuite {
 
   private static final int CHUNK = 1 << 16;
 
-  /**
-   * One row of {@code sweepFloat} as {@code VarkaSameAnswer}'s row rule reads it: the column's
-   * pattern, the literal slots' bits, and the root's expected bits, which is the only other
-   * node the rule asks about.
-   */
   /** The sweep's comparison of one row: {@code expected} and {@code got} at the row level. */
   private static boolean sameFloat(VarkaVectorIR root, PatternRow row, int pattern, int expected,
       int got) {
@@ -1150,6 +1145,11 @@ public final class VarkaEmitterFloatingArithSuite {
     return VarkaSameAnswer.sameAnswer(root, row.root, got & 0xFFFFFFFFL, row);
   }
 
+  /**
+   * One row of {@code sweepFloat} as {@code VarkaSameAnswer}'s row rule reads it: the column's
+   * pattern, the literal slots' bits, and the root's expected bits, which is the only other
+   * node the rule asks about.
+   */
   private static final class PatternRow implements VarkaSameAnswer.IrRow {
     private final int[] lits;
     int pattern;
