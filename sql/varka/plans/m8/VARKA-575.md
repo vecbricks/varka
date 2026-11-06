@@ -131,3 +131,18 @@ lanes, where `width_audit.json` records the mask calls of these shapes as not lo
 their `SMALLINT` twins; no host that prefers that width exists on x86 (`VARKA-332.md`, the
 2 November 2026 review), and the row-503 rule is read on the host the form serves, Arm.
 
+### 10.4 The matrix and the close (6 November 2026)
+
+The option matrix of the merged head, run 42187218199 on the fork, took 39 minutes and passed every
+configuration: `defaults`, `isa=avx2` and `isa=w128` ran 3809 tests each with none failed, `isa=arm`
+3804, and `isa=w128` and `isa=arm` ran the 14 tests each whose skip lines this row deleted. The first
+matrix of the branch, run 42180972691, failed one test in one configuration: the assertion this row
+added to `VarkaEmitterNarrowSuite` expected two baked long lanes under `validityByWidth=false`,
+which bakes none; it now expects the refusal there, and passes under that configuration.
+
+Done when, read against the merged work: the four forms fuse at two long lanes, the listed skip
+lines are gone with their tests passing under both platforms, and the committed generated files
+agree on the 256-bit and the 128-bit host. P1 held on Arm, P2 and P3 held on the laptop. Left
+open and not a row: the speed of these shapes on x86 at two long lanes, a width no x86 host
+prefers.
+
