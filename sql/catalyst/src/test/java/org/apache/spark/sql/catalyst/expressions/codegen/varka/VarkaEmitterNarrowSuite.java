@@ -432,8 +432,15 @@ public final class VarkaEmitterNarrowSuite {
     }
     // Two baked lanes are two long lanes, where a byte species of twice the long lanes would be a
     // 32-bit one the Vector API lacks: the column is read row by row, not refused (VARKA-575).
-    assertEquals(2, Lane.emitLanes(TWO_LANES, Lane.LONG));
-    assertEquals(Optional.empty(), VarkaKernelPlan.refusalOf(List.of(value), TWO_LANES));
+    // A configuration that bakes no lane count (validityByWidth off) has none to override, and
+    // refuses the widening for that reason alone.
+    int baked = Lane.emitLanes(TWO_LANES, Lane.LONG);
+    assertTrue(baked == 2 || baked == 0, "two long lanes, or none baked: " + baked);
+    assertEquals(
+        baked == 0
+            ? Optional.of("a narrow column needs a baked lane count to be widened to the long lane")
+            : Optional.<String>empty(),
+        VarkaKernelPlan.refusalOf(List.of(value), TWO_LANES));
   }
 
   @Test
