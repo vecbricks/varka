@@ -856,6 +856,19 @@ final class VarkaNodeCompiler {
     return new ConstDivide(new IntArith(IntOp.ADD, Overflow.WRAP, y, down), odd, bound);
   }
 
+  /**
+   * Java's truncating {@code x / divisor} over every long {@code x}, for a positive even divisor
+   * {@link #floorDivLong} accepts: a negative dividend is moved up by {@code divisor - 1}, so
+   * that the floor division truncates. {@code x + ((x >> 63) & (divisor - 1))} cannot overflow,
+   * since a negative {@code x} gains at most {@code divisor - 1} and stays negative.
+   * {@code long_divide.smt2} proves the identity (`VARKA-332.md` 2.4).
+   */
+  static VarkaVectorIR truncDivLong(VarkaVectorIR x, long divisor, DeclineSink sink) {
+    VarkaVectorIR bias = new BitOp(BitOpKind.AND, new BitOp(BitOpKind.SHR, x, sink.longSlot(63)),
+        sink.longSlot(divisor - 1));
+    return floorDivLong(new IntArith(IntOp.ADD, Overflow.WRAP, x, bias), divisor, sink);
+  }
+
   private static VarkaVectorIR greatest(VarkaVectorIR left, VarkaVectorIR right) {
     return new VarkaVectorIR.Greatest(left, right);
   }
@@ -1049,7 +1062,7 @@ final class VarkaNodeCompiler {
    * at or under {@code Int.MaxValue} - one past it, {@code 2^31}, is the first magnitude that
    * overflows.
    */
-  private static boolean cannotOverflow(
+  static boolean cannotOverflow(
       IntOp op, VarkaVectorIR l, VarkaVectorIR r, VarkaSlotTable literals, DeclineSink sink) {
     return boundedByIntMax(new IntArith(op, Overflow.WRAP, l, r), literals, sink);
   }

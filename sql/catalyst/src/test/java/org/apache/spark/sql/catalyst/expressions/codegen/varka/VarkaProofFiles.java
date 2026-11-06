@@ -231,6 +231,11 @@ final class VarkaProofFiles {
       (long) DateTimeConstants.SECONDS_PER_MINUTE,
       -60L,
       NTZ_DAY_ODD,
+      // CAST(dt AS BIGINT) of a day-time interval ending in MINUTE or HOUR divides microseconds
+      // by these under a 2^52 guard (VARKA-332); the SECOND end's 10^6 is above, the DAY end's is
+      // the odd part of a day.
+      DateTimeConstants.MICROS_PER_MINUTE,
+      DateTimeConstants.MICROS_PER_HOUR,
       // extract(SECOND FROM t)'s fraction over TIME(p), the remainder of a second divided by
       // 10^(9 - p) for p from 1 to 8 (VARKA-157 2.3); 10^3 and 10^6 are above.
       100_000_000L,
@@ -327,6 +332,7 @@ final class VarkaProofFiles {
       magicExact(out, d, m);
     }
     floorDivDay(out);
+    truncDivDay(out);
     return out.toString();
   }
 
@@ -372,6 +378,32 @@ final class VarkaProofFiles {
       throw new IllegalStateException("the floor division's dividend bound " + bound
           + " is past ConstDivide's 2^52");
     }
+  }
+
+  /**
+   * {@code CAST(dt AS BIGINT)} of a DAY-ended interval: Java's truncating {@code x / day} as
+   * {@code VarkaNodeCompiler.truncDivLong} builds it (VARKA-332), the floor division of the
+   * previous section over {@code x + ((x >> 63) & (day - 1))}. The bias cannot overflow, and the
+   * floor division of the biased dividend is the truncating quotient of {@code x} for every long.
+   * The floor division's own exactness is the previous section's.
+   */
+  private static void truncDivDay(StringBuilder out) {
+    long day = DateTimeConstants.MICROS_PER_DAY;
+    out.append("\n; CAST(dt AS BIGINT), DAY end: x / ").append(day)
+        .append(" = floorDiv(x + ((x >> 63) & ").append(day - 1).append("), ").append(day)
+        .append(")\n");
+    var steps = List.of("(declare-const x Int)", "(assert (jlong.in x))",
+        "(define-fun b () Int (* (- (jlong.shr x 63)) " + lit(day - 1) + "))");
+    var fits = new ArrayList<>(steps);
+    fits.add("(assert (not (jlong.in (+ x b))))");
+    check(out, "the bias leaves x + b a long", "unsat", fits);
+    var identity = new ArrayList<>(steps);
+    identity.add("(assert (not (= (jlong.floorDiv (+ x b) " + day + ") (jlong.div x " + day
+        + "))))");
+    check(out, "it is Java's x / " + day + " for every long x", "unsat", identity);
+    var wrong = new ArrayList<>(steps);
+    wrong.add("(assert (not (= (jlong.floorDiv x " + day + ") (jlong.div x " + day + "))))");
+    check(out, "without the bias the floor division is not the truncating one", "sat", wrong);
   }
 
   /** The conversion form, for every {@code 0 < |v| < 2^53}: one check per quotient binade. */

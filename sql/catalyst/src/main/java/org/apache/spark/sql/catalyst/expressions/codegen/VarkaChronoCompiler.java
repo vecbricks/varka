@@ -616,9 +616,9 @@ final class VarkaChronoCompiler {
     // The month-count position takes int arithmetic (`VarkaOperandPosition.MONTH_COUNT`),
     // unlike `next_day`'s weekday, which shares no guard with it. So this is that
     // multiply, always checked because `IntervalUtils.intToYearMonthInterval` uses
-    // `Math.multiplyExact` whatever the session's ANSI mode, and `arithOver`'s bound is what
-    // removes the check - `CAST(year(d) AS INTERVAL YEAR)` fuses on its 40000 bound while a
-    // bare column declines, as every unbounded checked multiply does. A foldable year count
+    // `Math.multiplyExact` whatever the session's ANSI mode. A bound on the operand removes the
+    // check - `CAST(year(d) AS INTERVAL YEAR)` has its 40000 bound - and a bare column is
+    // guarded on its year count instead (`yearsToMonths`). A foldable year count
     // never reaches this arm at all: `foldDaysOffset` above folds `CAST(5 AS INTERVAL YEAR)`
     // to 60 before the match.
     if (months instanceof Cast c && c.dataType() instanceof YearMonthIntervalType t

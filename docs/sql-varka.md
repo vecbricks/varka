@@ -349,7 +349,8 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `ym - ymm` | `interval` | `CAST(ym AS BIGINT) - CAST(ymm AS BIGINT) BETWEEN -2147483648 AND 2147483647` | exact in every mode: a difference outside the month count's int declines | vector |
 | `ym + ym` | `interval` | `CAST(ym AS BIGINT) + CAST(ym AS BIGINT) BETWEEN -2147483648 AND 2147483647` | the sum, exact in every mode as the difference is | vector |
 | `CAST(ymy AS INTERVAL MONTH)` | none |  |  | vector |
-| `CAST(i AS INTERVAL MONTH)` | none |  | a relabel of the count; `CAST(i AS INTERVAL YEAR)` multiplies by twelve, checked, and declines over a bare int column | vector |
+| `CAST(i AS INTERVAL MONTH)` | none |  | a relabel of the count; `CAST(i AS INTERVAL YEAR)` multiplies by twelve, checked | vector |
+| `CAST(i AS INTERVAL YEAR)` | `interval` | `i BETWEEN -178956970 AND 178956970` | a multiply by twelve behind a range guard on the year count, which Spark checks in every mode: a count past it declines the batch and the row engine raises, and inside it the wrapping multiply is exact | vector |
 | `CAST(ymm AS INT)` | none |  | a relabel of a MONTH-ended interval; a YEAR-ended one divides by twelve | vector |
 | `CAST(ymy AS INT)` | `interval` |  | the whole years: `v / 12` over a count nothing bounds, the division `extract(YEAR FROM ym)` builds | vector |
 | `CAST(ym AS INTERVAL YEAR)` | `interval` |  | narrowing to a YEAR-ended unit drops the months: `(v / 12) * 12`, a wrapping multiply that cannot overflow since the product is no larger than the count | vector |
@@ -674,6 +675,7 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `greatest(y1, l)` | `intArithmetic`, `integralCast` |  | type coercion widens the byte, loaded at the long width, to meet the bigint; differential | per-lane: blend, mask broadcast, load or store, mask test |
 | `CAST(i + 1 AS TINYINT)` | `intArithmetic`, `integralCast` | `i BETWEEN -129 AND 126` | a computed int narrowed, the add checked under ANSI as any int add is; differential | vector |
 | `CAST(i < 5 AS TINYINT)` | `predicate`, `integralCast` |  | a comparison's value at the int lane, narrowed: a 0 or a 1 needs no wrap; differential | vector |
+| `CAST(dt AS BIGINT)` | `time` | `dt > INTERVAL '-50000' DAY AND dt < INTERVAL '50000' DAY` | the whole seconds of a DAY TO SECOND interval: a truncating division by 10^6 under a guard of 2^52 microseconds, past which the row engine divides; the DAY end is exact over every long | per-lane: compare to mask, mask logic, mask broadcast, mask test |
 
 #### Integral cast predicates
 
@@ -1072,9 +1074,9 @@ operands (a row counts once for each type it reads):
 | `date` | 102 | 17 | 0 | 1 | 0 | 84 |
 | `dec` | 43 | 25 | 0 | 0 | 0 | 18 |
 | `double` | 54 | 0 | 0 | 0 | 0 | 54 |
-| `dt` | 25 | 2 | 0 | 0 | 0 | 23 |
+| `dt` | 26 | 2 | 1 | 0 | 0 | 23 |
 | `float` | 44 | 0 | 0 | 0 | 0 | 44 |
-| `int` | 124 | 14 | 2 | 0 | 1 | 107 |
+| `int` | 123 | 14 | 2 | 1 | 1 | 105 |
 | `ntz` | 24 | 0 | 1 | 0 | 0 | 23 |
 | `short` | 32 | 0 | 0 | 0 | 8 | 24 |
 | `time` | 43 | 6 | 1 | 1 | 2 | 33 |
