@@ -807,6 +807,35 @@ public final class VarkaDifferentialHarnessSuite {
             shape("y + y AS a, greatest(l, 5000000000) AS b", RUNS, "kernel 2 of 2"),
             shape("CAST(y AS INT) + 1 AS a, greatest(l, 5000000000) AS b", RUNS,
                 "kernel 2 of 2"))));
+    // Level 3 is the one level that admits a BIGINT conversion to FLOAT or DOUBLE, so these are
+    // the only shapes that check its kernels' answers: the extremes, values past 2^53, where a
+    // DOUBLE rounds, and past 2^24, where a FLOAT does, on both sides of a tie, nulls in each
+    // column. x - l is the subtraction's implicit cast; a double literal beside a cast goes to
+    // the long table of a kernel driven at 64 bits.
+    var conversionRows = new ArrayList<String>();
+    List<String> bigints = List.of("-9223372036854775808L", "9223372036854775807L",
+        "-9223372036854775807L", "9223372036854775806L", "9007199254740992L",
+        "9007199254740993L", "9007199254740994L", "9007199254740995L", "-9007199254740993L",
+        "-9007199254740995L", "16777217L", "16777219L", "-16777217L", "0L", "1L", "-1L",
+        "123456789012345678L", "CAST(NULL AS BIGINT)");
+    List<String> doubles = List.of("1.5D", "-0.0D", "CAST('NaN' AS DOUBLE)",
+        "CAST('Infinity' AS DOUBLE)", "CAST('-Infinity' AS DOUBLE)", "9.007199254740993E15D",
+        "1.0E300D", "-2.5D", "CAST(NULL AS DOUBLE)", "4.9E-324D", "0.0D",
+        "-1.7976931348623157E308D", "3.0D", "1.5D", "CAST(NULL AS DOUBLE)", "-0.0D", "7.0D",
+        "1.2345678901234568E17D");
+    for (int i = 0; i < bigints.size(); i++) {
+      conversionRows.add(bigints.get(i) + ", " + doubles.get(i));
+    }
+    out.add(new Case("at level 3 a bigint cast to DOUBLE or FLOAT fuses and matches the row "
+        + "engine over the extremes and the values a floating type rounds",
+        List.of(options(o -> o.withUseAVX(VarkaEmitOptions.AVX512_LEVEL),
+            table("l, x", "CAST(NULL AS BIGINT), CAST(NULL AS DOUBLE)",
+                conversionRows.toArray(String[]::new)),
+            shape("CAST(l AS DOUBLE) AS v", SERVED),
+            shape("CAST(l AS FLOAT) AS v", SERVED),
+            shape("x - l AS v", SERVED),
+            shape("CAST(l AS DOUBLE) + 1.5D AS v", SERVED),
+            shape("CAST(l AS DOUBLE) AS a, CAST(l AS FLOAT) AS b, x AS c", SERVED)))));
     return out;
   }
 

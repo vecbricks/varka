@@ -88,8 +88,9 @@ public record VarkaSessionEmit(
   /**
    * The conf's value asking for the level to be resolved from the driver's JVM
    * ({@link VarkaHostIsa}): {@link #FALLBACK_LEVEL} where its 64-bit floating conversions fall
-   * back to Java and its long species is at least {@link #MAGIC_MIN_LONG_BITS} wide, the base
-   * options' level otherwise.
+   * back to Java and its long species is at least {@link #MAGIC_MIN_LONG_BITS} wide,
+   * {@link VarkaEmitOptions#AVX512_LEVEL} on an x86 host whose feature list holds AVX512DQ, the
+   * base options' level otherwise.
    */
   public static final int USE_AVX_FROM_HOST = -2;
 
@@ -192,9 +193,21 @@ public record VarkaSessionEmit(
   /**
    * The level a session that asks for the host's gets: {@link #FALLBACK_LEVEL} where the host's
    * conversions fall back and its preferred long species is at least
-   * {@link #MAGIC_MIN_LONG_BITS} wide, {@link VarkaEmitOptions#USE_AVX_UNKNOWN} otherwise: a
-   * narrower species, or one whose width could not be read, keeps the conversion form. A feature
-   * list that could not be read leaves the emitter's default, as before this setting existed. On
+   * {@link #MAGIC_MIN_LONG_BITS} wide, {@link VarkaEmitOptions#AVX512_LEVEL} on an x86 host
+   * whose feature list was read and holds AVX512DQ, and {@link VarkaEmitOptions#USE_AVX_UNKNOWN}
+   * otherwise: a narrower species, or one whose width could not be read, keeps the conversion
+   * form.
+   *
+   * <p>The DQ host resolves to a level rather than to the emitter's default because the default
+   * level is unknown, at which the kernel plan declines a {@code BIGINT} conversion to
+   * {@code FLOAT} or {@code DOUBLE} ({@link VarkaEmitOptions#convertsMayFallBack()}); level 3
+   * admits it, and lowers every other node as the unknown level does. Its key renders the level,
+   * so such a session caches its classes apart from the default's, with the same bytes.
+   *
+   * <p>A host that is not x86 stays unknown: aarch64 has every conversion, but no level names
+   * that, so a {@code BIGINT} cast to a floating type declines there unless the session names
+   * level 3. A feature list that could not be read leaves the emitter's default too, which is
+   * safe: the division keeps the conversion form, and the plan declines the conversions. On
    * x86, the one architecture where the answer could have changed the level, that says so once
    * in the driver's log, since nothing else would show that the host was never read.
    */
@@ -203,12 +216,18 @@ public record VarkaSessionEmit(
       LOG.warn("Varka could not read this JVM's CPU features (" + host.failure() + "), so "
           + "spark.sql.codegen.varka.emit.useAVX=-2 keeps the emitter's default level: a 64-bit "
           + "constant division keeps the conversion form, which falls back to Java on a CPU "
-          + "without AVX512DQ. The likely cause is a JVM started without "
+          + "without AVX512DQ, and a BIGINT cast to FLOAT or DOUBLE declines. The likely cause "
+          + "is a JVM started without "
           + "--add-exports=java.base/jdk.internal.vm.vector=ALL-UNNAMED, which Spark's launcher "
-          + "adds; an explicit level 2 selects the magic form without the read.");
+          + "adds; an explicit level 2 selects the magic form, and 3 fuses those casts, without "
+          + "the read.");
     }
-    return host.conversionsFallBack() && host.longBits() >= MAGIC_MIN_LONG_BITS
-        ? FALLBACK_LEVEL : VarkaEmitOptions.USE_AVX_UNKNOWN;
+    if (host.conversionsFallBack()) {
+      return host.longBits() >= MAGIC_MIN_LONG_BITS
+          ? FALLBACK_LEVEL : VarkaEmitOptions.USE_AVX_UNKNOWN;
+    }
+    return host.x86() && host.readable() && !host.features().isEmpty()
+        ? VarkaEmitOptions.AVX512_LEVEL : VarkaEmitOptions.USE_AVX_UNKNOWN;
   }
 
   /** Plants the host {@link #of(SQLConf)} resolves from; null restores this JVM's own. */

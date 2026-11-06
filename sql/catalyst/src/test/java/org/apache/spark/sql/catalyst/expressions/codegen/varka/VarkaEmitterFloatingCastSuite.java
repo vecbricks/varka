@@ -147,6 +147,14 @@ public final class VarkaEmitterFloatingCastSuite {
   }
 
   /**
+   * The base options at level 3, where a {@code BIGINT} conversion to a floating type is admitted:
+   * the unknown level and every level below 3 decline it
+   * ({@link VarkaEmitOptions#convertsMayFallBack()}), so a test of its lowering names the level.
+   */
+  private static final VarkaEmitOptions DQ =
+      VarkaMatrixRuns.BASE.withUseAVX(VarkaEmitOptions.AVX512_LEVEL);
+
+  /**
    * {@code roots} emitted at every width of their drive and compared with the reference over
    * every length and null pattern, both bodies; a batch must not decline. The int literals go
    * to the int table, which the int and float lanes share, and the long ones to the long table,
@@ -156,14 +164,19 @@ public final class VarkaEmitterFloatingCastSuite {
    */
   private static void check(String name, List<VarkaVectorIR> roots, int numInputs,
       int[] intLits, long[] longLits, Data data) {
-    Optional<LaneType> planned =
-        VarkaKernelPlan.driveOf(roots, VarkaMatrixRuns.BASE.withLanesOverride(4));
+    check(name, roots, numInputs, intLits, longLits, data, VarkaMatrixRuns.BASE);
+  }
+
+  /** {@link #check(String, List, int, int[], long[], Data)} under {@code base}. */
+  private static void check(String name, List<VarkaVectorIR> roots, int numInputs,
+      int[] intLits, long[] longLits, Data data, VarkaEmitOptions base) {
+    Optional<LaneType> planned = VarkaKernelPlan.driveOf(roots, base.withLanesOverride(4));
     assertTrue(planned.isPresent(), () -> name + ": "
-        + VarkaKernelPlan.refusalOf(roots, VarkaMatrixRuns.BASE.withLanesOverride(4)));
+        + VarkaKernelPlan.refusalOf(roots, base.withLanesOverride(4)));
     LaneType drive = planned.get();
     int[] widths = drive.bits() == Long.SIZE ? WIDE_LANES : NARROW_LANES;
     for (int lanes : widths) {
-      var options = VarkaMatrixRuns.BASE.withLanesOverride(lanes);
+      var options = base.withLanesOverride(lanes);
       var emitted = VarkaEmitterFixtures.emit(roots, numInputs,
           intLits.length + longLits.length, options);
       for (int length : LENGTHS) {
@@ -247,6 +260,20 @@ public final class VarkaEmitterFloatingCastSuite {
   }
 
   @Test
+  @DisplayName("a bigint column to FLOAT, rounded once and stored from the low half")
+  void longToFloat() {
+    check("cast(l AS float)", List.of(convert(L, LaneType.FLOAT)), 1, new int[0], new long[0],
+        cells(LONGS), DQ);
+  }
+
+  @Test
+  @DisplayName("a bigint column to DOUBLE, a kernel of the long and double lanes")
+  void longToDouble() {
+    check("cast(l AS double)", List.of(convert(L, LaneType.DOUBLE)), 1, new int[0], new long[0],
+        cells(LONGS), DQ);
+  }
+
+  @Test
   @DisplayName("a float column to DOUBLE, exact, NaN payloads and both zeros kept")
   void floatToDouble() {
     check("cast(f AS double)", List.of(convert(F, LaneType.DOUBLE)), 1, new int[0], new long[0],
@@ -298,6 +325,42 @@ public final class VarkaEmitterFloatingCastSuite {
     var overInt = new Compare(CompareOp.LT, I, new LiteralSlot(1, LaneType.INT));
     check("cast(i AS float) > 1.5, i < 1 << 30", List.of(overFloat, overInt), 1,
         new int[] {Float.floatToRawIntBits(1.5f), 1 << 30}, new long[0], cells(INTS));
+  }
+
+  @Test
+  @DisplayName("a converted bigint beside a double column, in a long kernel, with a double pick")
+  void longBesideDouble() {
+    var x = new ColumnRef(1, LaneType.DOUBLE);
+    var lx = convert(L, LaneType.DOUBLE);
+    var root = new IfElse(new Compare(CompareOp.GT, x, new LiteralSlot(1, LaneType.DOUBLE)),
+        new IntArith(IntOp.SUB, Overflow.WRAP, lx, x), lx);
+    check("IF(x > 1.0, cast(l AS double) - x, cast(l AS double))",
+        List.of(root, new IntArith(IntOp.ADD, Overflow.WRAP, L, new LiteralSlot(0,
+            LaneType.LONG))), 2, new int[0], new long[] {5L, Double.doubleToRawLongBits(1.0)},
+        cells(LONGS, DOUBLES), DQ);
+  }
+
+  @Test
+  @DisplayName("a converted bigint beside a float column, in a long kernel of float values")
+  void floatBesideLong() {
+    var f = new ColumnRef(1, LaneType.FLOAT);
+    var root = new IntArith(IntOp.ADD, Overflow.WRAP, convert(L, LaneType.FLOAT), f);
+    check("cast(l AS float) + f", List.of(root), 2, new int[0], new long[0],
+        cells(LONGS, FLOATS), DQ);
+  }
+
+  @Test
+  @DisplayName("an ANSI division by a double column of a converted bigint condemns only by its "
+      + "divisor")
+  void guardOnTheConvertedLong() {
+    var x = new ColumnRef(1, LaneType.DOUBLE);
+    var root = new IntArith(IntOp.DIV, Overflow.FAIL, convert(L, LaneType.DOUBLE), x);
+    // No zero divisor in the data, so no batch may decline: a mask crossed wrongly to the long
+    // lane would condemn one.
+    long[] divisors = doubleBits(1.5, -2.0, 1e-300, Double.NaN, Double.POSITIVE_INFINITY, 3.0);
+    check("cast(l AS double) / x under ANSI",
+        List.of(root, new IntArith(IntOp.ADD, Overflow.WRAP, L, L)), 2, new int[0], new long[0],
+        cells(LONGS, divisors), DQ);
   }
 
   @Test
@@ -684,11 +747,45 @@ public final class VarkaEmitterFloatingCastSuite {
   }
 
   @Test
-  @DisplayName("the plan refuses a bigint source and a floating one converted to an integral lane")
+  @DisplayName("a bigint conversion declines on a host without AVX512DQ, and no other does")
+  void hostRefusal() {
+    var avx2 = VarkaMatrixRuns.BASE.withUseAVX(2);
+    for (LaneType target : List.of(LaneType.FLOAT, LaneType.DOUBLE)) {
+      Optional<String> refusal = VarkaKernelPlan.refusalOf(List.of(convert(L, target)), avx2);
+      assertTrue(refusal.isPresent() && refusal.get().contains("AVX512DQ"), refusal.toString());
+      assertTrue(VarkaKernelPlan.refusalOf(List.of(convert(I, target)), avx2).isEmpty());
+    }
+    assertTrue(VarkaKernelPlan.refusalOf(List.of(convert(X, LaneType.FLOAT)), avx2).isEmpty());
+    assertTrue(VarkaKernelPlan.refusalOf(List.of(convert(L, LaneType.DOUBLE)), DQ).isEmpty());
+    // A floating source converted to an integral lane waits for 343b2 at every level.
+    assertTrue(VarkaKernelPlan.refusalOf(List.of(convert(F, LaneType.INT)), DQ).isPresent());
+  }
+
+  @Test
+  @DisplayName("an unknown level declines a bigint conversion, and keeps the division's "
+      + "conversion form")
+  void unknownLevelRefusal() {
+    // The defaults' level, which a session with the level unset runs at on every host: an AVX2
+    // host there would run L2D and L2F as the Vector API's Java loop, so the plan declines them.
+    // The division still takes the conversion form there, so no other shape's bytes move.
+    var unknown = VarkaEmitOptions.DEFAULTS;
+    assertEquals(VarkaEmitOptions.USE_AVX_UNKNOWN, unknown.useAVX());
+    assertTrue(unknown.convertsMayFallBack());
+    assertTrue(!unknown.convertsFallBack());
+    for (LaneType target : List.of(LaneType.FLOAT, LaneType.DOUBLE)) {
+      Optional<VarkaKernelPlan.Refusal> refusal =
+          VarkaKernelPlan.of(List.of(convert(L, target)), unknown).refusal();
+      assertEquals(Optional.of(VarkaKernelPlan.Kind.CONVERSION),
+          refusal.map(VarkaKernelPlan.Refusal::kind), refusal.toString());
+      assertTrue(VarkaKernelPlan.refusalOf(List.of(convert(I, target)), unknown).isEmpty());
+    }
+  }
+
+  @Test
+  @DisplayName("the plan refuses a floating source converted to an integral lane, at every level")
   void conversionRefusal() {
-    for (var c : List.of(convert(L, LaneType.FLOAT), convert(L, LaneType.DOUBLE),
-        convert(F, LaneType.INT), convert(F, LaneType.LONG), convert(X, LaneType.INT),
-        convert(X, LaneType.LONG))) {
+    for (var c : List.of(convert(F, LaneType.INT), convert(F, LaneType.LONG),
+        convert(X, LaneType.INT), convert(X, LaneType.LONG))) {
       var refusal = VarkaKernelPlan.of(List.of(c), VarkaMatrixRuns.BASE).refusal();
       assertTrue(refusal.isPresent(), VarkaVectorIR.canonical(c));
       assertEquals(VarkaKernelPlan.Kind.CONVERSION, refusal.get().kind());
