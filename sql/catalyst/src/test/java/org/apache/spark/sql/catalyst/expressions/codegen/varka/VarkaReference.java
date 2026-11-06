@@ -661,11 +661,27 @@ public final class VarkaReference {
     if (r.isEmpty()) {
       return r;
     }
-    var v = floatingArith(n, Float.intBitsToFloat(l.getAsInt()),
+    return floatArithmetic(n, Float.intBitsToFloat(l.getAsInt()),
         Float.intBitsToFloat(r.getAsInt()));
-    return v.isEmpty()
-        ? OptionalInt.empty()
-        : OptionalInt.of(Float.floatToRawIntBits((float) v.getAsDouble()));
+  }
+
+  /**
+   * {@link #floatingArith} at the {@code FLOAT} lane, in float arithmetic as Spark's {@code eval}
+   * does it. The result is the same as through doubles but for a NaN's payload: widening a
+   * signalling NaN to a double quiets it before the operation, so the host's own rule for two NaN
+   * operands, which Spark's float operation follows and x86 and Arm differ in (VARKA-576), would
+   * never be seen.
+   */
+  private static OptionalInt floatArithmetic(IntArith n, float a, float b) {
+    if (n.op() == IntOp.DIV && n.mode() != Overflow.WRAP && b == 0.0f) {
+      return OptionalInt.empty();
+    }
+    return OptionalInt.of(Float.floatToRawIntBits(switch (n.op()) {
+      case ADD -> a + b;
+      case SUB -> a - b;
+      case MUL -> a * b;
+      case DIV -> a / b;
+    }));
   }
 
   /** A floating {@code IntArith} at the {@code DOUBLE} lane, by {@link #floatingArith}. */

@@ -79,3 +79,34 @@ x86, and a dispatch of the option matrix shows `isa=arm` green.
    code and the kernel's lanes disagree. The alternatives were one payload forced on every host, at
    a kernel cost on every floating `+`, `-`, `*` and `/` and a departure from vanilla on one host,
    and no payload check, which the owner's decision of 4 November 2026 on `nanByNess` rules out.
+
+## 10. Outcome
+
+### 10.1 The probe and the cause (6 November 2026)
+
+`dev/varka_canary/NaNPayloadProbe.java` ran on `ubuntu-latest` (an AMD EPYC 9V45) and
+`ubuntu-24.04-arm` (a Neoverse N2) in run 42193042419, 840 cells each, and the table is
+`results/VARKA-576-nan-payload.txt`. Section 0's unknowns, answered:
+
+- **Arm's rule, all four operators at both widths, scalar:** a signalling NaN operand's payload,
+  quieted, the first such operand when both are, else the first quiet operand's: 105 of 105 pairs
+  with a NaN, in each of the eight cells of operator and width. x86's, in a subtract, a multiply
+  and a divide: the first operand's, quieted, 105 of 105; its add follows neither rule (65 of
+  105), since a tier may swap its operands.
+- **Scalar against lanes:** on Arm they agree in every pair but a DOUBLE add and multiply of two
+  NaNs (18 pairs each), where the lane returns the other operand's payload; on x86 the lanes of a
+  multiply and an add differ in pairs of two NaNs only (float 40 for the multiply, double 40 and
+  16). Both are the case the row rule of `VarkaSameAnswer` leaves open, so no kernel change and no
+  new rule table are needed.
+- **Why the two tests failed.** `VarkaReference.floatArith` evaluated a `FLOAT` operation through
+  doubles, as the double lane does. Widening a signalling NaN to a double quiets it, so on Arm the
+  reference saw two quiet NaNs and returned the first, `0x7FC00000`, where Spark's float operation
+  returns the signalling operand quieted, `0x7FC00001`. On x86 both give the first operand, which
+  is why only Arm failed. The reference now evaluates a `FLOAT` operation in float
+  (`floatArithmetic`), so it follows the host as Spark does, which the owner's answer of
+  6 November 2026 (option A) asks for; `VarkaSameAnswerContractSuite` pins it over every pair of
+  NaN patterns for the subtract and the divide against Java's float operators.
+- **Locally**, `VarkaSameAnswerContractSuite` and `VarkaEmitterFloatingArithSuite` pass (49
+  tests). Not run: `isa=arm`, which the option matrix runs; the two skip lines of this row are
+  deleted, and a dispatch that shows them passing there is what is left.
+
