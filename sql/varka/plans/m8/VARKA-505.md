@@ -259,3 +259,17 @@ neither file, a platform with no flags, and that a failing unit fails the step w
 others. Two plausible bugs, a platform line routed as an option configuration and a platform given
 the harness store, each fail it.
 
+### 10.4 The close (6 November 2026)
+
+Done when, read against the merged work: every dispatch of `varka-option-matrix.yml` runs the
+defaults under `isa=avx2`, `isa=w128` and `isa=arm`, each platform bin's CPU and flags in the
+report (#1369); the scratch-branch check is recorded with its run ids and its result, `isa=avx2`
+not failing without row 491's guard, which the owner's answer of 5 November 2026 restated the goal
+around (outcome 10.2); a dispatch passes with the axis: run 42187218199, on the tree of the merge
+of row 575, passed `defaults`, `isa=avx2`, `isa=w128` and `isa=arm` and every option configuration;
+and the workflow's comment states the job count against the fork's 40 slots: 99 bin jobs, 11 of
+them platform bins, 7 on x86 and 4 on Arm, in 39 minutes, with `max-parallel` 38.
+
+Left open and not part of this row: the two tests of `isa=arm` that row 576 skipped, which its
+pull request, #1380, closes.
+

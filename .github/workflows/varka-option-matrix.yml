@@ -252,11 +252,13 @@ jobs:
         retention-days: 30
 
   # The matrix's own bins take 30 slots and the platform bins (VARKA-505: the defaults under
-  # `isa=avx2`, `isa=w128` and `isa=arm`, dev/varka_matrix_bins.py PLATFORMS) about 8 more, which
-  # is the fork's 40 less the build and report jobs; a bin's `runner` is its job's. One job
-  # holds both, so max-parallel is the sum; the planner lists the platform bins first, so they
-  # start at once and the matrix's bins take the other slots. A push chain's job ceiling is 40
-  # less the platform bins, and the rows that run beside a matrix wait for it.
+  # `isa=avx2`, `isa=w128` and `isa=arm`, dev/varka_matrix_bins.py PLATFORMS) 8 more, which is the
+  # fork's 40 less the build and report jobs; a bin's `runner` is its job's. One job holds both,
+  # so max-parallel is the sum; the planner lists the platform bins first, so they start at once
+  # and the matrix's bins take the other slots. A run has about a hundred bin jobs, 11 of them
+  # platform bins (7 on x86, 4 on Arm) in run 42187218199, which took 39 minutes. A push chain's
+  # job ceiling is 40 less the platform bins' 11, and the rows that run beside a matrix wait for
+  # it.
   bins:
     name: "Option matrix: ${{ matrix.bin }}"
     needs: build
