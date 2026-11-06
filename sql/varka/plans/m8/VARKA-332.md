@@ -648,3 +648,21 @@ recorded here rather than built in 332a:
 - `CAST(y AS BOOLEAN)` and `CAST(b AS TINYINT)` beside a long column decline in a long kernel:
   the zero literal and the boolean's value are built on the narrow lane, which a long kernel
   does not lower. Built on the int lane, they would use the forms it already lowers.
+
+### 10.2 The measurement on Arm (6 November 2026)
+
+Section 4's predictions need the EPYC 7763 at 256 bits for the first two, which no fused run has
+timed; the Arm runner's 128 bits (run 42177946163, `results/VARKA-332-arm-measurement.txt`)
+answers the third and says what the first two would meet:
+
+- **Prediction 3 holds on Arm.** The int-lane narrowings keep 3.7 to 4.2 times without nulls and
+  5.4 to 6.1 with one row in ten null, against the 2 times predicted, and the long-driven
+  `CAST(y AS BIGINT)`, whose byte load is row 575's, runs 4.2 and 5.3 times the row path, past a tie.
+- **Predictions 1 and 2 are not scored.** Prediction 1 names 256 bits, and its TRY clause compares
+  `try_cast` with its LEGACY twin, but the class lists `try_cast(k AS TINYINT)` as `NONE`, and it
+  does not fuse: 107.6 against 108.3 ns a row. Prediction 2 compares two interval casts, and
+  `CAST(m AS INTERVAL YEAR)` and `CAST(dt AS BIGINT)` are `NONE` too, at 1.0 times.
+- **What the run adds to what is left:** the `try_cast` of an int to a narrower type and the two
+  interval casts still run on the row path on that host; the three sections of the class are where
+  a row that fuses them sets the new class.
+

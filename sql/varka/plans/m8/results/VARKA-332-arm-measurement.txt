@@ -1,0 +1,42 @@
+# VarkaIntegralCastBaselineBenchmark on GitHub's Arm runner, 6 November 2026 (VARKA-332).
+# GitHub Actions run 42177946163 on the MaxGekk/spark fork, benchmark.yml with runner=ubuntu-24.04-arm,
+# expected-cpu=Neoverse-N2, JDK 25, at commit 49150aeae33 (branch varka-575c-byte-load, which has
+# row 575's byte load on top of master). The JVM's vector length there is 16 bytes (MaxVectorSize=16),
+# so every kernel is at 128 bits. The Spark row path is the run's own "spark row path (varka off)" arm,
+# 2,000,000 Arrow-cached rows, best of the run's iterations.
+#
+# Per Row (ns): the row path, Varka, and the speed-up of Varka over the row path.
+#
+# Reading:
+#   * The 8 sections the class lists as fusing (16 rows, with and without nulls) run 3.1 to 6.4 times
+#     faster than the row path: the
+#     narrowings of an INT and a BIGINT, CAST(y AS BIGINT) of a TINYINT (4.2 times without nulls, 5.3
+#     with one row in ten null), CAST(b AS INT) of a BOOLEAN, the bare filter CAST(i AS BOOLEAN), and
+#     the control CAST(i AS BIGINT), which fuses today.
+#   * Three sections (6 rows) run at 1.0 times because the class lists them as NONE and they do not fuse:
+#     try_cast(k AS TINYINT), CAST(m AS INTERVAL YEAR) and CAST(dt AS BIGINT). Their Varka arm is
+#     the row path.
+#
+# section | row path ns | Varka ns | speed-up
+INT CAST(i AS TINYINT), LEGACY, no nulls | 47.5 | 13.0 | 3.7x
+INT CAST(j AS TINYINT), ANSI, no nulls | 43.0 | 10.8 | 4.0x
+INT try_cast(k AS TINYINT), no nulls | 107.6 | 108.3 | 1.0x
+INT CAST(k AS TINYINT), LEGACY, no nulls | 42.0 | 10.1 | 4.2x
+BIGINT CAST(l AS SMALLINT), LEGACY, no nulls | 44.1 | 10.7 | 4.1x
+TINYINT CAST(y AS BIGINT), no nulls | 42.8 | 10.3 | 4.2x
+BOOLEAN CAST(b AS INT), no nulls | 43.4 | 9.5 | 4.6x
+INT filter CAST(i AS BOOLEAN), no nulls | 43.0 | 13.8 | 3.1x
+INT CAST(m AS INTERVAL YEAR), no nulls | 43.4 | 43.6 | 1.0x
+INTERVAL DAY TO SECOND CAST(dt AS BIGINT), no nulls | 43.1 | 43.2 | 1.0x
+INT CAST(i AS BIGINT), control, fuses today, no nulls | 42.5 | 8.0 | 5.3x
+INT CAST(i AS TINYINT), LEGACY, one row in ten null | 44.4 | 7.5 | 5.9x
+INT CAST(j AS TINYINT), ANSI, one row in ten null | 44.1 | 8.2 | 5.4x
+INT try_cast(k AS TINYINT), one row in ten null | 111.9 | 111.7 | 1.0x
+INT CAST(k AS TINYINT), LEGACY, one row in ten null | 44.0 | 7.2 | 6.1x
+BIGINT CAST(l AS SMALLINT), LEGACY, one row in ten null | 43.4 | 7.8 | 5.6x
+TINYINT CAST(y AS BIGINT), one row in ten null | 41.3 | 7.9 | 5.3x
+BOOLEAN CAST(b AS INT), one row in ten null | 41.4 | 7.4 | 5.6x
+INT filter CAST(i AS BOOLEAN), one row in ten null | 41.0 | 12.0 | 3.4x
+INT CAST(m AS INTERVAL YEAR), one row in ten null | 42.3 | 42.3 | 1.0x
+INTERVAL DAY TO SECOND CAST(dt AS BIGINT), one row in ten null | 41.8 | 41.9 | 1.0x
+INT CAST(i AS BIGINT), control, fuses today, one row in ten null | 42.0 | 6.6 | 6.4x
