@@ -112,3 +112,22 @@ lanes does not exist, with no bound test since the loop stops while a whole grou
   host, where these shapes run per-lane mask calls like the `SMALLINT` twin. The admission waits on
   the Arm measurement.
 
+### 10.3 Step 3: the speed on Arm (6 November 2026)
+
+**P1 holds.** `benchmark.yml` on the fork's `ubuntu-24.04-arm` runner, pinned to `Neoverse-N2`, JDK 25,
+from branch `varka-575c-byte-load` (run 42177946163): the benchmark's own fuse check passes, so
+`TINYINT CAST(y AS BIGINT)` now plans as WHOLE there, and against the row path of the same run
+(Arrow-cached 2,000,000 rows):
+
+| `TINYINT CAST(y AS BIGINT)` | Row path | Varka | Speed-up |
+|---|---|---|---|
+| no nulls | 42.9 ns a row | 10.3 ns a row | 4.2 times |
+| one row in ten null | 41.3 ns a row | 7.8 ns a row | 5.3 times |
+
+The row path of run 42091113475, before the form, was 44.9 ns a row, which the same-run row path
+agrees with within the runner's spread. The neighbouring casts that fuse on that host run 2.8 to
+4 times faster than the row path, so the form is in line with them. Not measured: x86 at two long
+lanes, where `width_audit.json` records the mask calls of these shapes as not lowered, as for
+their `SMALLINT` twins; no host that prefers that width exists on x86 (`VARKA-332.md`, the
+2 November 2026 review), and the row-503 rule is read on the host the form serves, Arm.
+
