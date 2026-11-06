@@ -241,8 +241,16 @@ host. The AVX2 forms live in a
   `m` and `D2F` rounds once; above, `d` is `m` rounded to odd with at least 41 bits kept, and
   `D2F` of it equals one rounding of `m`: round-to-odd at `p` bits then to nearest at `q` bits
   is one rounding to nearest when `p >= q + 2`, here 41 >= 26 (Boldo and Melquiond, IEEE TC
-  2008; the theorem's number and statement are quoted from its transcription, 5 step 4, not
-  from memory). A seeded draw of the whole range agrees with the condition.
+  2008). A seeded draw of the whole range agrees with the condition.
+  *4 November 2026, read from the PDF* (`READING_ROUNDING_TO_ODD.md`; the deposit's terms permit
+  no transcription, 5 step 4): **Theorem 3 (To_Odd_Even_is_Even)**, "Assuming p >= 2, k >= 2,
+  and E_e >= 2 + E_w, for all x in R, round_p(odd_{p+k}(x)) = round_p(x)", the extended format
+  being `(p + k, E_e)` and the working one `(p, E_w)`, `2^-E` a format's smallest positive
+  number. The precision condition is `k >= 2`. Here `p = 24`; for `m` in `[2^j, 2^(j+1))`,
+  `j` from 52 to 63, the 12-bit truncation with its sticky bit is rounding to odd at `j - 11`
+  bits (section III-B's construction), so `k = j - 35 >= 17`; `E_e = 1074 >= 2 + 149`, and the
+  values are integers far from either format's subnormals. Since `k` moves with the binade,
+  3.3's proof states the instance per binade.
 - **`D2L`, assembly** (whole range): from the bits, `e = ((b >>> 52) & 0x7FF) - 1075` and `m =
   (b & 0xFFFFFFFFFFFFF) | 2^52`; the magnitude is `m << e` for `0 <= e <= 10` and `m >>>
   min(-e, 63)` for `e < 0` (the Vector API takes a shift count modulo 64, so the count is clamped);
@@ -360,6 +368,18 @@ thrown `CAST_OVERFLOW` costs microseconds and a large share of the float pattern
    `dev/varka_prove.sh`: for every 64-bit `m >= 2^52`, rounding `m` to 24 bits equals rounding `t
    << 12` to 24 bits, the rounding written in bit vectors (leading-zero count, guard and sticky
    bits). And the split's exactness, `(hi << 32) + lo = v` with each part inside its exact window.
+   *As built (4 November 2026, 343b1's groundwork, section 10):* `round_to_odd.smt2`, rendered by
+   `VarkaProofFiles.roundToOdd`, states the claims over SMT-LIB's floating-point theory rather
+   than a rounding written by hand in bit vectors, so the reference is IEEE 754's own conversion
+   (`to_fp` under `RNE`, JLS 5.1.2) and no hand-written rounding can be wrong with it: the
+   rounding of `t << 12` equals the rounding of `m` per binade (Theorem 3's instance), and beside
+   it the whole `L2F` form of 2.3, magnitude and sign, is `(float) v`. The split is three lemmas;
+   its last step, the one rounding of the exact `dh + dl`, is IEEE addition's definition, not a
+   check (stated whole, Z3 passed 30 s and cvc5 took about 17 s). Each check runs after a
+   `(reset)`, not between `push` and `pop`: once a file pushes, Z3 answers from its incremental
+   core, where one 64-bit `fp.sub` took about 6 s and four checks passed the 10 s limit (the
+   whole file about two minutes), while the same checks in fresh contexts take the file about
+   5 s under each solver on the laptop, the slowest check about 2 s.
 4. **The named failing case** (`READING_0X80.md` item 3): the split-and-add form, the low 31 bits
    converted and `2^31` added, gives 4275361280 for 4275361147 against 4275361024, and misrounds
    about 16.5% of a seeded draw of `[2^31, 2^32)`; the test asserts that it fails and that the
@@ -429,7 +449,7 @@ they are upper bounds.
 | 343a3b | the root-level crossing (2.2): roots of two kinds share one kernel (`lanesShare` joins roots of one width), so a filter's floating conjunct beside an integral one - the null test the optimizer infers on a cast's source among them - no longer declines (`floatingConjunctRefusal`), and an integral and a floating output take one kernel; the forms `VarkaAnsiForm.DECLINED` lists for it fuse, and the coverage row `CAST(CAST(l AS INT) AS FLOAT)` is added, whose domain check's filter form needs this join. Added by the owner's word of 3 November 2026, when 343a3 stayed under the cap without it. *Owed by 343a3 (10):* `CompiledVarkaProjection`'s long-literal check plans under `VarkaEmitOptions.DEFAULTS`, so a 128-bit host with `lanesOverride=4` fails `CAST(y1 AS DOUBLE) / 2.0D` with `INTERNAL_ERROR`; check under the session's options, as row 332's load needs too. *Sized 4 November 2026 (2.2.1):* a `CrossLane` node, the meeting rule and `lanesShare`'s width join, about 600 hand-written lines with the tests; one part. *Added 4 November 2026 by the owner's choice:* the value choice whose condition is of the other kind, its condition crossed to the values' lane | 343a3 | 600 |
 | 343a4 | `BIGINT` to `FLOAT` and `DOUBLE` where the host has AVX512DQ: level 3 resolved from the host, the unknown level declining them, the option matrix's level-3 runs and their Spark check | 343a3b | 450 |
 | 343a5 | the fuzz grammar's conversions, the 2^32 sweeps of 3.1 and the harness check of each fused cast on both lanes. *Owed by 343a3b (10):* the false-AND forms of `CAST(y1 AS DOUBLE)` and `CAST(s1 AS DOUBLE)`, which still decline: the narrow null test the optimizer infers on the source has no lowering under a double kernel, as their reason in `VarkaAnsiForm.DECLINED` names; a narrow column's null test at the long width, or the test kept on its own kernel, frees them | 343a4 | 400 |
-| 343b1 | the paper and the AVX2 forms (2.3, step 4): `L2D` by the exact split, `L2F` by round-to-odd, behind `wideConversionForm`, the SMT claims and the failing case | 343a5 | 900 |
+| 343b1 | the paper and the AVX2 forms (2.3, step 4): `L2D` by the exact split, `L2F` by round-to-odd, behind `wideConversionForm`, the SMT claims and the failing case. *4 November 2026:* the groundwork - the paper's reading notes (5 step 4) and `round_to_odd.smt2` (3.3) - is built on branch `varka-343b1-proofs`, touching no kernel, emitter or compiler code; the forms, the option and the failing case are owed (section 10) | 343a5 | 900 |
 | 343b2 | floating to integral in the three modes (2.4, step 5), with `GuardedRange`'s floating bounds and `NULL` disposal; `D2L`'s assembly on AVX2 | 343b1 | 900 |
 | 343b3 | `time_from_seconds` (2.6, step 7), after 342's first pull request, and the measurement against the baseline (step 8) | 343b2 | 500 |
 
@@ -478,6 +498,11 @@ The `DATE` pairs follow 333 in either.
    deposit's terms do not permit a copy, the reading notes and the citation instead. The theorem
    the `L2F` form rests on is then quoted, with its number and its precision condition, at 2.3
    and in 3.3's proof file, read from the PDF. Nothing is downloaded before this step.
+   *As built (4 November 2026, 343b1's groundwork):* the HAL deposit (`inria-00080427v2`, the
+   authors' manuscript) carries the HAL Authorisation v1 - read, consult and cite, and ask the
+   author before reproducing - so no transcription is kept: `READING_ROUNDING_TO_ODD.md` holds the
+   reading notes and the citation, and `papers/README.md` says so in a paragraph, with no row in
+   its contents. The theorem is quoted at 2.3 and in `round_to_odd.smt2`'s header.
 5. **Floating to integral** in the three modes (2.4), the `GuardedRange` disposal with it: 342's
    interval forms are unblocked here.
 6. **The booleans** (2.5), and the `DATE` pairs once 333 lands.
@@ -505,7 +530,7 @@ The `DATE` pairs follow 333 in either.
 | `VarkaNodeCompiler.java`, `VarkaTimeCompiler.java` | `floatingDecline`, `time_from_seconds` |
 | `varka/VarkaEmitBudget.java`, `VarkaEmitCostRegister.java` | the conversion features |
 | `sql/varka/proofs/round_to_odd.smt2`, `VarkaProofFiles.java` | 3.3's claims |
-| `sql/varka/papers/boldo-melquiond-2008-rounding-to-odd.md`, its `README.md` | step 4's paper |
+| `READING_ROUNDING_TO_ODD.md`, a paragraph in `papers/README.md` | step 4's paper: notes and the citation, the deposit's terms permitting no transcription (*4 November 2026*; planned as `papers/boldo-melquiond-2008-rounding-to-odd.md`) |
 | tests | sweeps, twins, cells, mixed-width kernels, coverage rows, failing case, fuzz grammar |
 | benchmark | the baseline class, its results files at both widths from the EPYC runners |
 | generated | `coverage.json`, `docs/sql-varka.md`, `width_audit.json`, `emitted_bytes.json` |
@@ -647,4 +672,56 @@ Cut from #1303's final tree, without its `BIGINT` conversions (343a4), sweeps an
   coverage rows in "Floating casts" and two in its conditions' family. Its forms make
   `IF(x <=> x, d2, ...)` fuse, which the compiler suite now states.
 - **Open points:** 32-bit beside 64-bit roots stay open, `m9/SCOPE.md` item 15 (the owner's word).
+
+### 343b1's groundwork as built (4 November 2026)
+
+On branch `varka-343b1-proofs`, from master; no kernel, emitter or compiler code is touched.
+
+- **The paper** (5 step 4): its HAL deposit carries the HAL Authorisation v1, which permits
+  reading and citing and not a copy, so `READING_ROUNDING_TO_ODD.md` holds the notes and the
+  citation and `papers/README.md` says why; Theorem 3 is quoted at 2.3 and in the proof's header.
+- **The proof** (3.3), `round_to_odd.smt2`, 45 checks, 5.0 s under Z3 and 5.2 to 5.3 s under
+  cvc5 on the laptop (`dev/varka_prove.sh --solver both`, two runs), 5.3 s of the `--lint` run,
+  whose whole folder took 30 s on the laptop. What it proves, with `M = 0x1.8p52` and `MB` its
+  bits:
+  1. *`L2D` split*: for every int `hi`, `(bitsToDouble(sext(hi) + MB) - M) * 0x1p32` is exactly
+     the double of `hi * 2^32` (equal to its conversions toward both infinities, which differ
+     on every inexact value); for every unsigned int `lo`, `bitsToDouble(lo | bits(0x1p52)) -
+     0x1p52` is exactly the double of `lo`; and `(v >> 32) * 2^32 + (v & 0xFFFFFFFF) = v` over 66
+     bits for every long. So `d = dh + dl` is one rounding of `v`, `(double) v`. Refuted: `MB + 1`
+     and the low word's magic `+ 1` (the whole form against `(double) v`), and a shift of 31.
+  2. *`L2D` bounded magic*: `bitsToDouble(v + MB) - M` is `(double) v` for every `|v| <= 2^51`,
+     and is not at `2^51 + 1` or `-(2^51 + 1)`. The window is closed: 2.3's guard `|v| < 2^51` is
+     one narrower than it needs to be at either end, which costs nothing but a decline at the
+     two ends.
+  3. *`L2F` round-to-odd*: `(float) v` is the rounding of `m = |v|` read unsigned, negated where
+     `v < 0`, for every long, and is not with `m = v ^ s`, the `- s` dropped; below `2^52` the
+     form (`d0 = bitsToDouble(m | bits(0x1p52)) - 0x1p52`, then `D2F`) is the rounding of `m`;
+     on each binade `[2^j, 2^(j+1))`, `j` from 52 to 63, the form (`t = (m >>> 12) | ((m & 0xFFF) != 0 ? 1 : 0)`, `d = (bitsToDouble(t |
+     bits(0x1p52)) - 0x1p52) * 0x1p12`, then `D2F`) is the rounding of `m`, and so is the rounding
+     of `t << 12` to 24 bits, the theorem's instance at `k = j - 35`. Every 64-bit `m` from `2^52`
+     up is covered, a superset of the magnitudes, which reach `2^63`. Refuted: no sticky bit, two
+     roundings to nearest (to a double, then to a float), a shift of 11 (t reaches `2^52` on the
+     top binade) and the small arm up to `2^53`. The bound is tight: rounding to odd at 26 bits
+     then to nearest at 24 is one rounding on `[2^63, 2^64)`, at 25 bits it is not. A shift of
+     13 still holds (k = 16 at `2^52`), the theorem's slack, kept as an `unsat` check.
+- **A one-off check not committed**: the whole split form against `(double) v`, stated per
+  binade of `v` (63 positive, 63 negative), was `unsat` on all 126 under both solvers, about two
+  minutes each, which is past the linters' budget; it confirms the composition the file states by
+  IEEE addition's definition. The whole `L2F` form per binade of signed `v` was likewise `unsat`.
+- **Open points for the lead**:
+  1. The constants (`M`, `0x1p52`, `0x1p32`, the shift 12, the small arm's 52 bits, the window
+     `2^51`) are the plan's, held in `VarkaProofFiles`; when `VarkaConversionLowering` lands, the
+     generator reads them from it, as the other proof files read theirs.
+  2. 2.3 writes `sticky(m & 0xFFF)` without its lowering; the proof states it as `(m & 0xFFF) !=
+     0 ? 1 : 0`, a compare and a blend. A lowering by another route (`((m & 0xFFF) + 0xFFF) >>>
+     12`, say) must be shown equal to it, or the proof restated over it.
+  3. 2.3's scale is proven as a blend of `d0 * 0x1p12` and `d0`, and the sign as `fp.neg` of the
+     float (its sign bit flipped); a lowering that multiplies by a blended scale of `1.0` or
+     `0x1p12`, or flips the bit by an `XOR` of the float's bits, is the same value but is not the
+     proven form.
+  4. The split's final addition is stated by IEEE semantics, not checked whole, within the
+     linters' budget (the one-off above checked it).
+  5. The form whose arms are the `wideConversionForm` option, the reduced-width twins (3.2) and
+     the named failing case (3.4) are the rest of 343b1.
 
