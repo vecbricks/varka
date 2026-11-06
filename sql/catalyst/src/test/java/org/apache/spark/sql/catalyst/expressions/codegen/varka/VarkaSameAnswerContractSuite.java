@@ -290,6 +290,30 @@ public final class VarkaSameAnswerContractSuite {
   }
 
   @Test
+  @DisplayName("the reference evaluator subtracts and divides at the FLOAT lane as Java does, so "
+      + "that two NaNs get the host's own payload, as Spark's float operation does (VARKA-576)")
+  void referenceFloatArithmeticIsJavasOverNaNs() {
+    int[] patterns = {0x7FC00000, 0x7FC00001, 0xFFC00000, 0xFFC00002, 0x7F800001, 0x7FA00000,
+        0xFF800001, 0x3F800000, 0x7F800000};
+    for (IntOp op : List.of(IntOp.SUB, IntOp.DIV)) {
+      VarkaVectorIR node = arith(op, new ColumnRef(0, LaneType.FLOAT),
+          new ColumnRef(1, LaneType.FLOAT));
+      for (int a : patterns) {
+        for (int b : patterns) {
+          float x = Float.intBitsToFloat(a);
+          float y = Float.intBitsToFloat(b);
+          int want = Float.floatToRawIntBits(op == IntOp.SUB ? x - y : x / y);
+          var got = VarkaReference.value(node, new int[] {a, b}, new boolean[2], new int[0]);
+          assertTrue(got.isPresent() && got.getAsInt() == want,
+              op + " " + Integer.toHexString(a) + " " + Integer.toHexString(b) + ": reference "
+                  + (got.isPresent() ? Integer.toHexString(got.getAsInt()) : "null") + ", Java "
+                  + Integer.toHexString(want));
+        }
+      }
+    }
+  }
+
+  @Test
   @DisplayName("every comparator gives every pair of the table its level's verdict")
   void everyComparatorAtItsLevel() {
     var failures = new ArrayList<String>();
