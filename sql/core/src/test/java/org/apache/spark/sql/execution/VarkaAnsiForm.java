@@ -282,7 +282,8 @@ public final class VarkaAnsiForm {
     // choice in a long kernel, which has no lowering there (VARKA-332.md 10.1).
     String narrowChoice = "a narrow choice beside a bigint value has no lowering in a long "
         + "kernel (VARKA-332.md 10.1)";
-    for (String sql : List.of("CAST(l AS TINYINT)", "CAST(l AS SMALLINT)")) {
+    for (String sql : List.of("CAST(l AS TINYINT)", "CAST(l AS SMALLINT)",
+        "try_cast(l AS TINYINT)", "try_cast(l AS SMALLINT)")) {
       out.put(sql + "\t" + COALESCE_TAIL, narrowChoice);
     }
     // A TIME function's decimal fuses only as an output root; in a CASE arm or a comparison it

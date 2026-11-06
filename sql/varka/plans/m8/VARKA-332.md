@@ -666,3 +666,20 @@ answers the third and says what the first two would meet:
   interval casts still run on the row path on that host; the three sections of the class are where
   a row that fuses them sets the new class.
 
+### 10.2 332b, the TRY narrowings (6 November 2026, branch `varka-332d-try-cast`)
+
+The six integral narrowings (`SMALLINT`, `INT` and `BIGINT` to a narrower type) no longer decline
+under TRY. `VarkaIntegralCastCompiler.narrow` and `VarkaNodeCompiler.narrowing` wrap the operand in
+`GuardedRange` over the target's range in NULL mode, which row 481's first step built, and then
+`NarrowLane`; LEGACY stays the bare wrap and ANSI the FAIL-mode guard. A lane out of range is
+nulled in the validity word and the batch runs on, where the row engine used to answer it.
+
+- `casts.tsv` and `casts_fused.tsv` list the six pairs as fused in `LEGACY,ANSI,TRY`.
+- `VarkaEmitterIntegralCastSuite` no longer asserts a TRY decline: TRY now must answer every batch,
+  and its values are compared with the row engine's over the exhaustive and boundary sets.
+- Six `try_cast` rows join the coverage family of the integral casts, with `coverage.json` and the
+  docs table regenerated.
+- The baseline class sets `try_cast(k AS TINYINT)` to `WHOLE`.
+
+Not done here: the Arm and 256-bit runs of the new section, the two interval casts, and the ANSI
+in-range value sets.

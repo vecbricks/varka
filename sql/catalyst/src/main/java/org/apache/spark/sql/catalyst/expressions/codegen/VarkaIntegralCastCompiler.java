@@ -71,8 +71,8 @@ import org.apache.spark.sql.types.DataTypes;
  * <p>The three casts row 28 lowered - {@code BIGINT} to {@code INT}, {@code INT} to
  * {@code BIGINT} and a narrow value to {@code INT} - stay in the int arithmetic family's arm,
  * under its switch, so this family claims none of them ({@link #claims}). A {@code TRY}
- * narrowing declines: its null where the value does not fit is the second step of the row
- * (332b), over the range guard's {@code NULL} mode.
+ * narrowing is the same composition over the range guard's {@code NULL} mode: its null where
+ * the value does not fit is a lane made null, not a declined batch.
  */
 final class VarkaIntegralCastCompiler {
 
@@ -195,21 +195,18 @@ final class VarkaIntegralCastCompiler {
 
   /**
    * The low bits under {@code LEGACY}; under {@code ANSI} the same narrowing over a range guard of
-   * the target's range, which declines the batch where Spark raises. {@code TRY} declines.
+   * the target's range, which declines the batch where Spark raises; under {@code TRY} over the
+   * same guard in its {@code NULL} mode, which makes the lane null where the value does not fit
+   * and lets the batch run on.
    */
   private static Optional<VarkaVectorIR> narrow(
       Cast c, VarkaSlotTable inputs, VarkaSlotTable literals, DeclineSink sink) {
     Overflow mode = VarkaNodeCompiler.overflowOf(c.evalMode());
-    if (mode == Overflow.NULL) {
-      return sink.decline("try_cast of a " + c.child().dataType().simpleString() + " to "
-          + c.dataType().simpleString() + ", whose null where the value does not fit is not "
-          + "fused yet (VARKA-332)", c);
-    }
     LaneType target = laneOf(c.dataType());
     return operand(c, inputs, literals, sink).map(x -> {
       VarkaTypes.IntegralRange range = VarkaTypes.integralRange(target);
-      VarkaVectorIR guarded = mode == Overflow.FAIL
-          ? new GuardedRange(x, range.min(), range.max()) : x;
+      VarkaVectorIR guarded = mode == Overflow.WRAP
+          ? x : new GuardedRange(x, range.min(), range.max(), mode);
       return new NarrowLane(guarded, target);
     });
   }
