@@ -64,8 +64,8 @@ import org.apache.spark.sql.types.DataTypes;
  * every target in the three modes on both narrow arms; the named boundary cases of the wider
  * sources, each with a null beside it; and the narrow load and store at the long width at every
  * baked width. Under {@code ANSI} a batch holding a value Spark raises {@code CAST_OVERFLOW} on
- * must decline and every other must answer; a {@code TRY} narrowing declines to compile, its
- * null being the row's second step.
+ * must decline and every other must answer; a {@code TRY} narrowing answers every batch, nulling
+ * the lanes whose value does not fit, as Spark's {@code try_cast} does.
  *
  * <p>In its own JVM: the native arm needs a narrow species beside the int one.
  */
@@ -293,19 +293,14 @@ public final class VarkaEmitterIntegralCastSuite {
   }
 
   /**
-   * One cast over every batch of {@code values} at one arm: a {@code TRY} narrowing must decline
-   * naming the step that builds it, a width the configuration cannot load at cancels, and
-   * anything else must fuse and answer as Spark does. Returns the cancellation, if any.
+   * One cast over every batch of {@code values} at one arm: a width the configuration cannot load
+   * at cancels, and anything else must fuse and answer as Spark does, a {@code TRY} narrowing
+   * every batch with a null where the value does not fit. Returns the cancellation, if any.
    */
   private static Optional<String> check(Type from, Type to, Mode mode, Arm arm, long[] values) {
     Expression expr = cast(from.column(), to, mode);
     String where = expr.sql() + " " + mode.name() + " on " + arm.name();
     Object compiled = compile(expr, List.of(from.column()), arm.options());
-    if (mode == TRY && narrows(from, to)) {
-      assertTrue(compiled instanceof String reason && reason.contains("try_cast")
-          && reason.contains("VARKA-332"), where + ": " + compiled);
-      return Optional.empty();
-    }
     if (compiled instanceof String reason) {
       if (widthDecline(reason)) {
         return Optional.of(where + ": " + reason);
@@ -313,7 +308,12 @@ public final class VarkaEmitterIntegralCastSuite {
       fail(where + " declined: " + reason);
     }
     Kernel k = (Kernel) compiled;
-    runAll(k, batches(values), where);
+    var all = batches(values);
+    int answeredAll = runAll(k, all, where);
+    if (mode == TRY && narrows(from, to)) {
+      // A nulling guard never declines a batch: every one is answered, the out-of-range lanes null.
+      assertEquals(all.size(), answeredAll, where + ": a TRY narrowing declined a batch");
+    }
     if (mode == ANSI && narrows(from, to)) {
       // The batches above that hold an out-of-range value declined; the in-range values answer.
       int answered = runAll(k, batches(within(values, to.range())), where + " in range");
@@ -419,11 +419,6 @@ public final class VarkaEmitterIntegralCastSuite {
             Expression expr = cast(from.column(), to, mode);
             String where = expr.sql() + " " + mode.name() + " on " + arm.name();
             Object compiled = compile(expr, List.of(from.column()), arm.options());
-            if (mode == TRY && narrows(from, to)) {
-              assertTrue(compiled instanceof String reason && reason.contains("try_cast"),
-                  where + ": " + compiled);
-              continue;
-            }
             if (compiled instanceof String reason) {
               if (widthDecline(reason)) {
                 cancelled.add(where + ": " + reason);

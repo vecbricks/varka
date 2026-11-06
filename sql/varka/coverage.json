@@ -3239,6 +3239,78 @@
     "note" : "the long lane; exhaustive",
     "verified" : "differential"
   }, {
+    "sql" : "try_cast(s1 AS TINYINT)",
+    "executable" : "try_cast(s1 AS TINYINT)",
+    "family" : "Integral casts",
+    "form" : "projection",
+    "catalyst" : [ "Cast" ],
+    "casts" : [ "short>byte:try" ],
+    "operands" : [ "Cast:short" ],
+    "switches" : [ "spark.sql.codegen.varka.family.integralCast.enabled" ],
+    "domain" : "",
+    "note" : "a nulling range guard: null where the short does not fit the byte, no declined batch; exhaustive",
+    "verified" : "differential"
+  }, {
+    "sql" : "try_cast(i AS TINYINT)",
+    "executable" : "try_cast(i AS TINYINT)",
+    "family" : "Integral casts",
+    "form" : "projection",
+    "catalyst" : [ "Cast" ],
+    "casts" : [ "int>byte:try" ],
+    "operands" : [ "Cast:int" ],
+    "switches" : [ "spark.sql.codegen.varka.family.integralCast.enabled" ],
+    "domain" : "",
+    "note" : "the int's nulling guard over the byte range; differential",
+    "verified" : "differential"
+  }, {
+    "sql" : "try_cast(i AS SMALLINT)",
+    "executable" : "try_cast(i AS SMALLINT)",
+    "family" : "Integral casts",
+    "form" : "projection",
+    "catalyst" : [ "Cast" ],
+    "casts" : [ "int>short:try" ],
+    "operands" : [ "Cast:int" ],
+    "switches" : [ "spark.sql.codegen.varka.family.integralCast.enabled" ],
+    "domain" : "",
+    "note" : "the short twin; differential",
+    "verified" : "differential"
+  }, {
+    "sql" : "try_cast(l AS TINYINT)",
+    "executable" : "try_cast(l AS TINYINT)",
+    "family" : "Integral casts",
+    "form" : "projection",
+    "catalyst" : [ "Cast" ],
+    "casts" : [ "bigint>byte:try" ],
+    "operands" : [ "Cast:bigint" ],
+    "switches" : [ "spark.sql.codegen.varka.family.integralCast.enabled" ],
+    "domain" : "",
+    "note" : "the bigint's nulling guard, L2I and the byte store; differential",
+    "verified" : "differential"
+  }, {
+    "sql" : "try_cast(l AS SMALLINT)",
+    "executable" : "try_cast(l AS SMALLINT)",
+    "family" : "Integral casts",
+    "form" : "projection",
+    "catalyst" : [ "Cast" ],
+    "casts" : [ "bigint>short:try" ],
+    "operands" : [ "Cast:bigint" ],
+    "switches" : [ "spark.sql.codegen.varka.family.integralCast.enabled" ],
+    "domain" : "",
+    "note" : "the short twin; differential",
+    "verified" : "differential"
+  }, {
+    "sql" : "try_cast(l AS INT)",
+    "executable" : "try_cast(l AS INT)",
+    "family" : "Integral casts",
+    "form" : "projection",
+    "catalyst" : [ "Cast" ],
+    "casts" : [ "bigint>int:try" ],
+    "operands" : [ "Cast:bigint" ],
+    "switches" : [ "spark.sql.codegen.varka.family.intArithmetic.enabled" ],
+    "domain" : "",
+    "note" : "the bigint's nulling guard over the int range; differential",
+    "verified" : "differential"
+  }, {
     "sql" : "greatest(y1, l)",
     "executable" : "greatest(y1, l)",
     "family" : "Integral casts",
