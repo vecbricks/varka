@@ -267,7 +267,8 @@ public final class VarkaAnsiForm {
         "y1 - y2", "y1 * y2", "-y1", "abs(y1)", "s1 + s2", "s1 - s2", "s1 * s2", "-s1",
         "abs(s1)", "x / x2", "ntz + dt", "CAST(s1 AS TINYINT)", "CAST(i AS TINYINT)",
         "CAST(i AS SMALLINT)", "CAST(l AS TINYINT)", "CAST(l AS SMALLINT)",
-        "CAST(i + 1 AS TINYINT)", "CAST(CAST(l AS INT) AS FLOAT)")) {
+        "CAST(i + 1 AS TINYINT)", "CAST(CAST(l AS INT) AS FLOAT)", "CAST(i AS INTERVAL YEAR)",
+        "CAST(dt AS BIGINT)")) {
       out.put(sql + "\t" + FALSE_AND, unqualified);
     }
     // CAST(y1 AS DOUBLE) beside the null test the optimizer infers on y1: a narrow column's null
