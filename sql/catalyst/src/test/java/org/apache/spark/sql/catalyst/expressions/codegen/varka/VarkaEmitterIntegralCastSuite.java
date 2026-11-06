@@ -453,7 +453,7 @@ public final class VarkaEmitterIntegralCastSuite {
 
   @Test
   @DisplayName("a narrow column widened to BIGINT and a BIGINT narrowed to a narrow type answer "
-      + "at every baked long width, or decline by name where the width has no load")
+      + "at every baked long width, the load read row by row where the width has no species")
   public void narrowLoadAndStoreAtTheLongWidth() {
     for (int lanes : new int[] {2, 4, 8}) {
       VarkaEmitOptions options = VarkaMatrixRuns.BASE.toBuilder().lanesOverride(lanes).build();
@@ -461,12 +461,11 @@ public final class VarkaEmitterIntegralCastSuite {
         continue;
       }
       for (Type narrow : List.of(TINYINT, SMALLINT)) {
-        // The width rule, stated from the species the load names: twice the long lanes.
-        boolean loads = Lane.widenLanes(2 * lanes, Lane.of(VarkaTypes.lane(narrow.spark())
-            .orElseThrow())) == 2 * lanes;
         VarkaVectorIR widen = new WidenLane(new ColumnRef(0, VarkaTypes.lane(narrow.spark())
             .orElseThrow()), LaneType.LONG);
-        assertEquals(loads, VarkaKernelPlan.refusalOf(List.of(widen), options).isEmpty(),
+        // The load is served at every baked width: the species of twice the long lanes where the
+        // width has one, and the rows read one at a time where it has not (VARKA-575).
+        assertTrue(VarkaKernelPlan.refusalOf(List.of(widen), options).isEmpty(),
             narrow.sql() + " at " + lanes + " long lanes");
         // The store needs no load: a long value narrowed at its root is served at every width.
         VarkaVectorIR store = new NarrowLane(new ColumnRef(0, LaneType.LONG),
@@ -476,26 +475,22 @@ public final class VarkaEmitterIntegralCastSuite {
         String at = " at " + lanes + " long lanes";
         Object up = compile(cast(narrow.column(), BIGINT, LEGACY), List.of(narrow.column()),
             options);
-        if (loads) {
-          runAll((Kernel) up, batches(every(narrow)), narrow.sql() + " to BIGINT" + at);
-          // The load feeding a long-lane pick beside a bigint column.
-          List<Attribute> two = List.of(narrow.column(), BIGINT.column());
-          Expression sum = new Greatest(CollectionConverters.asScala(List.<Expression>of(
-              cast(narrow.column(), BIGINT, LEGACY), BIGINT.column())).toSeq());
-          Kernel k = (Kernel) compile(sum, two, options);
-          long[] values = every(narrow);
-          var data = new long[][] {values, prefix(new long[] {0, 1, -1, Long.MAX_VALUE,
-              Long.MIN_VALUE, 1L << 40}, values.length)};
-          var isNull = new boolean[2][values.length];
-          for (int i = 0; i < values.length; i++) {
-            isNull[0][i] = i % 11 == 4;
-            isNull[1][i] = i % 13 == 6;
-          }
-          runAll(k, List.of(new LongBatch(values.length, isNull, data, false)),
-              sum.sql() + at);
-        } else {
-          assertTrue(up instanceof String reason && widthDecline(reason), at + ": " + up);
+        runAll((Kernel) up, batches(every(narrow)), narrow.sql() + " to BIGINT" + at);
+        // The load feeding a long-lane pick beside a bigint column.
+        List<Attribute> pickColumns = List.of(narrow.column(), BIGINT.column());
+        Expression sum = new Greatest(CollectionConverters.asScala(List.<Expression>of(
+            cast(narrow.column(), BIGINT, LEGACY), BIGINT.column())).toSeq());
+        Kernel k = (Kernel) compile(sum, pickColumns, options);
+        long[] pickValues = every(narrow);
+        var pickData = new long[][] {pickValues, prefix(new long[] {0, 1, -1, Long.MAX_VALUE,
+            Long.MIN_VALUE, 1L << 40}, pickValues.length)};
+        var pickNull = new boolean[2][pickValues.length];
+        for (int i = 0; i < pickValues.length; i++) {
+          pickNull[0][i] = i % 11 == 4;
+          pickNull[1][i] = i % 13 == 6;
         }
+        runAll(k, List.of(new LongBatch(pickValues.length, pickNull, pickData, false)),
+            sum.sql() + at);
         for (Mode mode : List.of(LEGACY, ANSI)) {
           Object down = compile(cast(BIGINT.column(), narrow, mode), List.of(BIGINT.column()),
               options);
@@ -512,17 +507,12 @@ public final class VarkaEmitterIntegralCastSuite {
           Expression equal = new EqualTo(cast(BIGINT.column(), narrow, mode), narrow.column());
           List<Attribute> two = List.of(BIGINT.column(), narrow.column());
           Object compared = compile(equal, two, options);
-          if (loads) {
-            var data = new long[][] {values, prefix(new long[] {0, 1, -1, 127, -128, 32767,
-                -32768}, values.length)};
-            var isNull = new boolean[2][values.length];
-            isNull[1][3] = true;
-            runAll((Kernel) compared, List.of(new LongBatch(values.length, isNull, data, false)),
-                equal.sql() + " " + mode.name() + at);
-          } else {
-            assertTrue(compared instanceof String reason && widthDecline(reason),
-                at + ": " + compared);
-          }
+          var data = new long[][] {values, prefix(new long[] {0, 1, -1, 127, -128, 32767,
+              -32768}, values.length)};
+          var isNull = new boolean[2][values.length];
+          isNull[1][3] = true;
+          runAll((Kernel) compared, List.of(new LongBatch(values.length, isNull, data, false)),
+              equal.sql() + " " + mode.name() + at);
         }
       }
     }
