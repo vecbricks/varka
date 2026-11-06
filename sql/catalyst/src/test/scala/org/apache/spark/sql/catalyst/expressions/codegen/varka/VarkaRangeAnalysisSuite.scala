@@ -403,6 +403,7 @@ class VarkaRangeAnalysisSuite extends SparkFunSuite with VarkaTestWatchdog {
         case c: ColumnRef => role(c.ordinal(), if (kind == Kind.DAY) Role.Day else Role.Int)
         // A long-lane leaf, which no range rule reads.
         case _: DecimalColumn =>
+        case _: DecimalWord =>
         case _: LiteralSlot =>
         // A typed null reads no column, so it gives no column a role; its range is the zero
         // its vector holds.
@@ -550,7 +551,7 @@ class VarkaRangeAnalysisSuite extends SparkFunSuite with VarkaTestWatchdog {
       case x: MathUnary => go(x.child(), armed)
       case x: ConvertLane => go(x.child(), armed)
       // A typed null reads nothing, so no row is declined on its account.
-      case _: ColumnRef | _: DecimalColumn | _: LiteralSlot | _: NullValue => true
+      case _: ColumnRef | _: DecimalColumn | _: DecimalWord | _: LiteralSlot | _: NullValue => true
       case c: Cond => goCond(c, armed)
     }
     def goCond(c: Cond, armed: Boolean): Boolean = c match {

@@ -114,6 +114,7 @@ final class VarkaEmitCost {
     return switch (node) {
       case ColumnRef n -> name + '/' + n.lane();
       case DecimalColumn n -> name + '/' + n.lane();
+      case VarkaVectorIR.DecimalWord n -> name + '/' + n.word();
       case LiteralSlot n -> name + '/' + n.lane();
       case IntArith n -> name + '/' + n.op() + '/' + n.mode() + '/' + n.laneType();
       case IntNeg n -> name + (n.abs() ? "/abs/" : "/") + n.mode() + '/' + n.laneType();

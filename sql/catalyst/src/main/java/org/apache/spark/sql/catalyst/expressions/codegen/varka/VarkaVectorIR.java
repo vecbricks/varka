@@ -26,6 +26,7 @@ import java.util.Objects;
 import java.util.function.ToIntFunction;
 
 import org.apache.spark.sql.types.Decimal;
+import org.apache.spark.sql.types.DecimalType$;
 
 /**
  * The vector IR a fused Varka loop is emitted from. A node is a value over
@@ -68,7 +69,8 @@ import org.apache.spark.sql.types.Decimal;
  * and means a selection bitmap - see {@link Cond} for the null rule there.
  */
 public sealed interface VarkaVectorIR
-    permits VarkaVectorIR.ColumnRef, VarkaVectorIR.DecimalColumn, VarkaVectorIR.LiteralSlot,
+    permits VarkaVectorIR.ColumnRef, VarkaVectorIR.DecimalColumn, VarkaVectorIR.DecimalWord,
+            VarkaVectorIR.LiteralSlot,
             VarkaVectorIR.NullValue,
             VarkaVectorIR.AddDays, VarkaVectorIR.SubDays, VarkaVectorIR.DateDiff,
             VarkaVectorIR.IfElse, VarkaVectorIR.CondValue, VarkaVectorIR.BoolOutput,
@@ -155,6 +157,7 @@ public sealed interface VarkaVectorIR
     return switch (this) {
       case ColumnRef n -> n.lane();
       case DecimalColumn n -> n.lane();
+      case DecimalWord n -> LaneType.LONG;
       case LiteralSlot n -> n.lane();
       case IntArith n -> n.left().laneType();
       case IntNeg n -> n.child().laneType();
@@ -224,6 +227,7 @@ public sealed interface VarkaVectorIR
     return switch (node) {
       case ColumnRef c -> c.ordinal();
       case DecimalColumn c -> c.ordinal();
+      case DecimalWord c -> c.ordinal();
       case BoolColumn b -> b.ordinal();
       case LiteralSlot _, IntArith _, IntNeg _, ConstDivide _, BoundedDivide _, BitOp _,
           BitCount _, MathUnary _, Greatest _, Least _, IfElse _, CondValue _, BoolOutput _,
@@ -304,7 +308,8 @@ public sealed interface VarkaVectorIR
           lanes.add(c.laneType());
         }
       }
-      case LiteralSlot _, BoolColumn _, CondConst _, DecimalColumn _, NullValue _ -> { }
+      case LiteralSlot _, BoolColumn _, CondConst _, DecimalColumn _, DecimalWord _,
+          NullValue _ -> { }
       case WidenLane _, NarrowLane _, ConvertLane _, WidenDecimal _, AddDays _, SubDays _,
           AddMonths _,
           MakeDate _, IntArith _, IntNeg _, GuardedDay _, GuardedRange _, NextDay _,
@@ -349,7 +354,7 @@ public sealed interface VarkaVectorIR
           && needsNarrowSpecies(c, seen);
       case ColumnRef c -> c.laneType().isNarrow();
       case LiteralSlot l -> l.laneType().isNarrow();
-      case BoolColumn _, CondConst _, DecimalColumn _, NullValue _ -> false;
+      case BoolColumn _, CondConst _, DecimalColumn _, DecimalWord _, NullValue _ -> false;
       case NarrowLane n -> n.target().isNarrow() || needsNarrowSpecies(n.child(), seen);
       case WidenLane _, ConvertLane _, WidenDecimal _, AddDays _, SubDays _, AddMonths _,
           MakeDate _,
@@ -435,6 +440,11 @@ public sealed interface VarkaVectorIR
    */
   private static String laneTag(LaneType lane) {
     return lane == LaneType.INT ? "" : ":" + lane.name().toLowerCase(Locale.ROOT);
+  }
+
+  /** A {@link DecimalWord}'s rendering: {@code decw:<ordinal>:lo:p<precision>}, or {@code :hi:}. */
+  private static String wordTag(DecimalWord n) {
+    return "decw:" + n.ordinal() + (n.word() == Word.LOW ? ":lo" : ":hi") + ":p" + n.precision();
   }
 
   /**
@@ -601,6 +611,60 @@ public sealed interface VarkaVectorIR
      */
     public long bound() {
       return Decimal.POW_10()[precision] - 1L;
+    }
+  }
+
+  /** Which of a 128-bit decimal's two words a {@link DecimalWord} reads. */
+  enum Word { LOW, HIGH }
+
+  /**
+   * One word of a {@code DECIMAL(p, s)} column with {@code 19 <= p <= 38}, on the long lane
+   * (VARKA-359): {@code LOW} the unscaled value's low 64 bits, which the pair's comparisons read
+   * unsigned, {@code HIGH} its high 64 bits, signed, so {@code v = hi * 2^64 + lo}. Arrow's
+   * sixteen-byte slot holds exactly these two words, the low first, so a lane group's two
+   * vectors of slots de-interleave into a vector of low words and one of high words by the
+   * same two rearranges {@link DecimalColumn}'s load takes.
+   *
+   * <p>The two words of one column share one load: whichever a body visits first loads both
+   * vectors of slots, takes both rearranges, parks both words and checks the slots; the other
+   * word, and every later visit, reads its parked local ({@code VarkaVectorWalk}'s pair load).
+   * The check declines a batch with a valid slot outside {@code [-(10^p - 1), 10^p - 1]}, which
+   * Spark's column reader raises on, as {@link DecimalColumn}'s does; a null slot never
+   * declines. Every slot is a value of 128 bits, so there is no high-word check here.
+   *
+   * <p>It renders as {@code decw:} with the ordinal, the word and the precision, so it shares
+   * no kernel with a {@link DecimalColumn} or a {@code BIGINT} column of the same ordinal, and
+   * two precisions, whose bounds are constants in the code, take two classes.
+   */
+  record DecimalWord(int ordinal, Word word, int precision) implements VarkaVectorIR {
+    public DecimalWord {
+      Objects.requireNonNull(word, "word");
+      if (ordinal < 0) {
+        throw VarkaErrors.illegalArgument("a decimal word's ordinal is not negative: "
+            + ordinal);
+      }
+      if (precision <= DecimalColumn.MAX_LONG_PRECISION
+          || precision > DecimalType$.MODULE$.MAX_PRECISION()) {
+        throw VarkaErrors.illegalArgument("a decimal word pair has a precision from "
+            + (DecimalColumn.MAX_LONG_PRECISION + 1) + " to "
+            + DecimalType$.MODULE$.MAX_PRECISION()
+            + ", not " + precision);
+      }
+    }
+
+    /** The column's low word: the key its pair's shared locals are planned under. */
+    public DecimalWord low() {
+      return word == Word.LOW ? this : new DecimalWord(ordinal, Word.LOW, precision);
+    }
+
+    /** The column's other word. */
+    public DecimalWord sibling() {
+      return new DecimalWord(ordinal, word == Word.LOW ? Word.HIGH : Word.LOW, precision);
+    }
+
+    /** The words of the largest unscaled value of the precision, {@code 10^p - 1}. */
+    public DecimalWords bound() {
+      return DecimalWords.bound(precision);
     }
   }
 
@@ -2074,6 +2138,7 @@ public sealed interface VarkaVectorIR
     return switch (node) {
       case ColumnRef n -> "col:" + n.ordinal() + laneTag(n.lane());
       case DecimalColumn n -> "dec:" + n.ordinal() + laneTag(n.lane()) + ":p" + n.precision();
+      case DecimalWord n -> wordTag(n);
       case LiteralSlot n -> "lit:" + n.index() + laneTag(n.lane());
       case AddDays n -> "(addDays " + canonical(n.days()) + " " + canonical(n.offset()) + ")";
       case SubDays n -> "(subDays " + canonical(n.days()) + " " + canonical(n.offset()) + ")";
@@ -2171,6 +2236,7 @@ public sealed interface VarkaVectorIR
     return switch (node) {
       case ColumnRef n -> "col:" + n.ordinal() + laneTag(n.lane());
       case DecimalColumn n -> "dec:" + n.ordinal() + laneTag(n.lane()) + ":p" + n.precision();
+      case DecimalWord n -> wordTag(n);
       case LiteralSlot n -> "lit:" + n.index() + laneTag(n.lane());
       case AddDays n -> "(addDays " + lineOf.applyAsInt(n.days()) + " "
           + lineOf.applyAsInt(n.offset()) + ")";
@@ -2274,6 +2340,7 @@ public sealed interface VarkaVectorIR
     return switch (node) {
       case ColumnRef c -> new VarkaVectorIR[0];
       case DecimalColumn c -> new VarkaVectorIR[0];
+      case DecimalWord c -> new VarkaVectorIR[0];
       case LiteralSlot l -> new VarkaVectorIR[0];
       case AddDays n -> new VarkaVectorIR[] {n.days(), n.offset()};
       case SubDays n -> new VarkaVectorIR[] {n.days(), n.offset()};
@@ -2351,6 +2418,7 @@ public sealed interface VarkaVectorIR
     return switch (node) {
       case ColumnRef n -> n;
       case DecimalColumn n -> n;
+      case DecimalWord n -> n;
       case LiteralSlot n -> n;
       case AddDays n -> new AddDays(children[0], children[1]);
       case SubDays n -> new SubDays(children[0], children[1]);

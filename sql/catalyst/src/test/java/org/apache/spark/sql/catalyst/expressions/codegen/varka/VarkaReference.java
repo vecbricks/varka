@@ -92,6 +92,8 @@ public final class VarkaReference {
           : OptionalInt.of(row[c.ordinal()]);
       case DecimalColumn c ->
           throw new IllegalArgumentException("a decimal column is on the long lane: " + c);
+      case VarkaVectorIR.DecimalWord c ->
+          throw new IllegalArgumentException("a decimal word is on the long lane: " + c);
       case LiteralSlot l -> OptionalInt.of(lits[l.index()]);
       case AddDays(var days, var offset, _) ->
           both(days, offset, row, isNull, lits, (d, o) -> d + o);
@@ -477,6 +479,10 @@ public final class VarkaReference {
       // VarkaDecimalLoadSuite checks that against Spark's column reader.
       case DecimalColumn c -> isNull[c.ordinal()] ? OptionalLong.empty()
           : OptionalLong.of(row[c.ordinal()]);
+      // A row of lane values carries one long a column, and a 128-bit column has two words, so
+      // the reference does not read one: VarkaDecimalPairTables holds the words to BigDecimal.
+      case VarkaVectorIR.DecimalWord c ->
+          throw new IllegalArgumentException("a row of lane values holds no decimal word: " + c);
       case LiteralSlot l -> OptionalLong.of(lits[l.index()]);
       case IntArith n when n.laneType() == LaneType.DOUBLE -> doubleArith(n, row, isNull, lits);
       case IntArith n -> longArith(n, row, isNull, lits);

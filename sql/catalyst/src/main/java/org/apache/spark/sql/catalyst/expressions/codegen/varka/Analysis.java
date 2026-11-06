@@ -57,6 +57,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Day
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.DayOfWeekIso;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.DayOfYear;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.DecimalColumn;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.DecimalWord;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Greatest;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.GuardedDay;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.GuardedRange;
@@ -771,7 +772,8 @@ final class Analysis {
    * it costs only batches holding a slot Spark's own writer never writes.
    */
   List<List<ArmStep>> armChainsOf(VarkaVectorIR node) {
-    if (!options.guardUnderArm() || node instanceof DecimalColumn) {
+    if (!options.guardUnderArm() || node instanceof DecimalColumn
+        || node instanceof DecimalWord) {
       return List.of();
     }
     List<List<ArmStep>> chains = armChains.get(node);
@@ -947,6 +949,8 @@ final class Analysis {
           }
         }
         case DecimalColumn n -> refuse(node, Refusal.DECIMAL_SLOT);
+        // Both words carry the check, since whichever a body visits first emits it.
+        case DecimalWord n -> refuse(node, Refusal.DECIMAL_SLOT);
         // Everything else computes every lane it is given. Written out rather than defaulted.
         case ColumnRef n -> { }
         case LiteralSlot n -> { }
@@ -1069,7 +1073,8 @@ final class Analysis {
       // error here, so its author decides whether its value commutes with the reduction - a
       // narrow AND, OR or XOR does, a compare or a shift right does not - instead of falling
       // into "not ring" and leaving an unreduced int value for its readers.
-      case ColumnRef _, DecimalColumn _, LiteralSlot _, WidenLane _, NarrowLane _, ConvertLane _,
+      case ColumnRef _, DecimalColumn _, DecimalWord _, LiteralSlot _, WidenLane _,
+          NarrowLane _, ConvertLane _,
           WidenDecimal _, AddDays _, SubDays _, AddMonths _, MakeDate _, GuardedDay _,
           GuardedRange _, NextDay _,
           TruncDateDynamic _, DateDiff _, Greatest _, Least _, DayOfWeek _,
@@ -1400,6 +1405,7 @@ final class Analysis {
     return switch (node) {
       case ColumnRef c -> new WordOwner.Input(c.ordinal());
       case DecimalColumn c -> new WordOwner.Input(c.ordinal());
+      case DecimalWord c -> new WordOwner.Input(c.ordinal());
       case BoolColumn c -> new WordOwner.Input(c.ordinal());
       case LiteralSlot l -> WordOwner.Const.ALL_TRUE;
       case AddDays n -> andOwner(node, n.days(), n.offset());
@@ -1459,6 +1465,7 @@ final class Analysis {
     return switch (node) {
       case ColumnRef c -> new WordExpr.Input(c.ordinal());
       case DecimalColumn c -> new WordExpr.Input(c.ordinal());
+      case DecimalWord c -> new WordExpr.Input(c.ordinal());
       case BoolColumn c -> new WordExpr.Input(c.ordinal());
       case LiteralSlot l -> WordExpr.Const.ALL_TRUE;
       case AddDays n -> andExpr(pureWord.get(n.days()), pureWord.get(n.offset()));
@@ -1637,6 +1644,10 @@ final class Analysis {
       }
       case DecimalColumn c -> {
         registerInput(node, c.ordinal(), c.lane());
+        decimalInputs |= 1L << c.ordinal();
+      }
+      case DecimalWord c -> {
+        registerInput(node, c.ordinal(), VarkaVectorIR.LaneType.LONG);
         decimalInputs |= 1L << c.ordinal();
       }
       case LiteralSlot l -> {
@@ -1858,9 +1869,9 @@ final class Analysis {
         // same, for the slot check Spark's IS NULL makes by reading the value (VARKA-347).
         VarkaVectorIR column = n.child() instanceof WidenLane w ? w.child() : n.child();
         if (!(column instanceof ColumnRef) && !(n.child() instanceof DecimalColumn)
-            && !(n.child() instanceof Cond)) {
+            && !(n.child() instanceof DecimalWord) && !(n.child() instanceof Cond)) {
           throw VarkaErrors.illegalArgument("IsNotNull child must be a ColumnRef, a widened one, "
-              + "a DecimalColumn or a Cond, got " + n.child());
+              + "a DecimalColumn, a DecimalWord or a Cond, got " + n.child());
         }
         if (lane == Lane.LONG && n.child() instanceof WidenLane
             && column.laneType().isNarrow()) {

@@ -64,6 +64,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Day
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.DayOfWeekIso;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.DayOfYear;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.DecimalColumn;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.DecimalWord;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Greatest;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.GuardedDay;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.GuardedRange;
@@ -328,7 +329,9 @@ final class Slots {
   /**
    * Per {@link DecimalColumn}: the two vectors of sixteen-byte slots a lane group loads, each
    * holding half the group's rows as low and high words, parked because both shuffles read both.
-   * The low words the shuffle takes are parked in {@link #guardTmp}.
+   * The low words the shuffle takes are parked in {@link #guardTmp}. Per 128-bit column, keyed
+   * by its {@link DecimalWord#low()} word: the same two vectors, then the low and the high words
+   * the two shuffles take, which the check and every visit of either word read.
    */
   final Map<VarkaVectorIR, int[]> decimalTmp = new HashMap<>();
 
@@ -430,6 +433,14 @@ final class Slots {
    * {@code VarkaVectorWalk.emitValue} refuses rather than recompute the node's subtree.
    */
   final Set<VarkaVectorIR> emittedUnshared = new HashSet<>();
+
+  /**
+   * The 128-bit decimal columns, by their {@link DecimalWord#low()} word, whose slots the body
+   * being emitted has loaded and checked: the first visit of either word loads and parks both,
+   * and every later one reads its parked word. Cleared with {@link #emittedUnshared}, at the
+   * start of each body, so a group split by the budget loads its own.
+   */
+  final Set<DecimalWord> pairLoaded = new HashSet<>();
 
   Slots(int numInputs, int numOutputs) {
     srcSeg = new int[numInputs];
@@ -987,6 +998,9 @@ final class Slots {
           if (node instanceof DecimalColumn) {
             s.decimalTmp.put(node, new int[] {slot++, slot++});
           }
+          if (node instanceof DecimalWord w && !s.decimalTmp.containsKey(w.low())) {
+            s.decimalTmp.put(w.low(), new int[] {slot++, slot++, slot++, slot++});
+          }
           if (node instanceof WidenDecimal) {
             if (s.decimalZip == null) {
               s.decimalZip = new int[] {slot++, slot++};
@@ -1086,6 +1100,7 @@ final class Slots {
     return switch (node) {
       case ColumnRef c -> s.word[c.ordinal()];
       case DecimalColumn c -> s.word[c.ordinal()];
+      case DecimalWord c -> s.word[c.ordinal()];
       case LiteralSlot l -> WORD_ALL_TRUE;
       case AddDays n -> andRef(s.wordRef.get(n.days()), s.wordRef.get(n.offset()));
       case SubDays n -> andRef(s.wordRef.get(n.days()), s.wordRef.get(n.offset()));
@@ -1224,7 +1239,8 @@ final class Slots {
   private static boolean guardScratch(Analysis analysis, VarkaVectorIR node,
       Set<Analysis.Refusal.Family> families, boolean loop) {
     Analysis.Refusal reason = analysis.refusals.get(node);
-    return reason != null && reason.parksValue
+    // A decimal word parks its words in the pair's own locals (decimalTmp), not in a guard's.
+    return reason != null && reason.parksValue && !(node instanceof DecimalWord)
         && (reason.family == Analysis.Refusal.Family.REARMED || families.contains(reason.family))
         && !analysis.accumulatesRange(node, loop);
   }
@@ -1345,7 +1361,8 @@ final class Slots {
       VarkaVectorIR skipped = null;
       if (node instanceof IsNotNull isNotNull
           && (!isNotNull.overCondition() || dense)
-          && !(isNotNull.child() instanceof DecimalColumn)) {
+          && !(isNotNull.child() instanceof DecimalColumn)
+          && !(isNotNull.child() instanceof DecimalWord)) {
         // Over a column, widened or not, it reads the word, and over a condition in a dense body
         // it is constant true; only a masked body lowers a condition child, to read its masks.
         // A decimal column is visited all the same, in both bodies, for its slot check.
@@ -1605,6 +1622,7 @@ final class Slots {
         // propagation loop, which is where the demand for its own word arrives.
         case ColumnRef c -> { }
         case DecimalColumn c -> { }
+        case DecimalWord c -> { }
         case LiteralSlot l -> { }
         // Writes its all-clear word itself and reads none.
         case VarkaVectorIR.NullValue x -> { }
@@ -1699,6 +1717,7 @@ final class Slots {
         // entry in `wordOwner` at all.
         case ColumnRef x -> { }
         case DecimalColumn x -> { }
+        case DecimalWord x -> { }
         case LiteralSlot x -> { }
         case VarkaVectorIR.NullValue x -> { }
         case DayOfWeek x -> { }
