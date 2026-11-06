@@ -158,7 +158,7 @@ final class VarkaTimeCompiler {
     if (endField == DayTimeIntervalType.SECOND()) {
       return DateTimeConstants.MICROS_PER_SECOND;
     }
-    throw new IllegalArgumentException("not a day-time interval field: " + endField);
+    throw VarkaErrors.illegalArgument("not a day-time interval field: " + endField);
   }
 
   /** {@code CAST(dt AS BIGINT)}; see the arm in {@link #arm}. */
