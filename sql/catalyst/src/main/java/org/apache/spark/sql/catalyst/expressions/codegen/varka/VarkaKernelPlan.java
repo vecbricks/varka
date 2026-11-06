@@ -538,12 +538,19 @@ public final class VarkaKernelPlan {
   }
 
   /**
-   * Whether every narrow node of {@code root} is a column read as a value, and the root itself is
-   * not narrow: the narrow nodes a double kernel lowers, each through the long kernel's narrow
-   * load. A narrow column's null test is not one: the long drive alone marks such a column as
-   * read for its word ({@code Analysis.validityOnlyNarrow}), so CAST(y IS NOT NULL AS DOUBLE)
-   * declines.
+   * Whether every narrow node of {@code root} is a column, read as a value or for its validity
+   * word alone, and the root itself is not narrow: the narrow nodes a double kernel lowers, a
+   * value through the long kernel's narrow load and a null test through the word, a bit per row
+   * at every lane. The test is {@code IS NOT NULL} of a narrow column, as the optimizer infers
+   * it on a cast's source: the column widened to the int lane or bare, and nothing narrow below
+   * it but that column.
    */
+  /** Whether {@code n} tests a narrow column, bare or widened, and nothing else narrow. */
+  private static boolean readsColumnWord(VarkaVectorIR.IsNotNull n) {
+    VarkaVectorIR child = n.child() instanceof VarkaVectorIR.WidenLane w ? w.child() : n.child();
+    return child instanceof VarkaVectorIR.ColumnRef;
+  }
+
   private static boolean narrowColumnsOnly(VarkaVectorIR root) {
     if (root.laneType().isNarrow()) {
       return false;
@@ -559,7 +566,8 @@ public final class VarkaKernelPlan {
         return false;
       }
       if (node instanceof VarkaVectorIR.IsNotNull n
-          && VarkaVectorIR.lanesIn(n).stream().anyMatch(LaneType::isNarrow)) {
+          && VarkaVectorIR.lanesIn(n).stream().anyMatch(LaneType::isNarrow)
+          && !readsColumnWord(n)) {
         return false;
       }
       todo.addAll(List.of(VarkaVectorIR.childrenOf(node)));
