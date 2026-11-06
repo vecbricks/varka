@@ -25,13 +25,18 @@
 # forks a child JVM that runs the whole suite and ignores the -z. A failure turns the job red and
 # its JUnit reports are kept.
 #
-# Dispatch only, until one dispatch has timed a sweep on each runner type (the plan's calibration):
-# the times of results/VARKA-573-sweep-times.txt under sql/varka/plans/m8 are the laptop's, and a
-# runner has four cores. Then a schedule goes in beside the dispatch, as varka-fuzz.yml has, and the manifest's
-# `job` column names this workflow for the rows that fit.
+# Every Saturday at 02:00 UTC, by the owner's word of 6 November 2026, and on dispatch. The sweeps
+# run over fixed domains, so their result changes only when the code under test does, and a week
+# is as often as a change can matter. The calibration of 6 November 2026 (VARKA-573.md 10.5) found
+# a runner no more than 3.7 times slower than the laptop's 24 threads on any sweep timed, the
+# narrow-integer shards 1.0 to 1.4 times, so the longest job takes under about an hour and every row
+# of the manifest names this workflow in its `job` column.
 name: Varka sweeps
 
 on:
+  schedule:
+    # Saturday 02:00 UTC.
+    - cron: '0 2 * * 6'
   workflow_dispatch:
     inputs:
       suite:
@@ -50,8 +55,12 @@ on:
 jobs:
   build:
     name: "Sweeps: build and plan"
-    # Never on apache/spark, whose tree has no Varka. A dispatch runs on either repository.
-    if: github.repository != 'apache/spark'
+    # Never on apache/spark, whose tree has no Varka. The schedule runs on vecbricks/varka only:
+    # the fork's master follows this project's by a manual sync, and a failure there reports
+    # nowhere. A dispatch runs on either repository.
+    if: >-
+      github.repository != 'apache/spark'
+      && (github.event_name != 'schedule' || github.repository == 'vecbricks/varka')
     runs-on: ubuntu-latest
     timeout-minutes: 60
     outputs:
@@ -94,7 +103,10 @@ jobs:
         ROWS: ${{ inputs.rows }}
       run: |
         python3 dev/varka_sweeps.py --check
-        all=(); [ "${ROWS:-all}" = scheduled ] || all=(--all)
+        # A scheduled run takes the rows that name this workflow; a dispatch takes every row
+        # unless it asks for the scheduled ones.
+        all=(--all)
+        if [ "${ROWS:-all}" = scheduled ] || [ "$GITHUB_EVENT_NAME" = schedule ]; then all=(); fi
         suite=(); [ -z "$SUITE" ] || suite=(--suite "$SUITE")
         sweeps=$(python3 dev/varka_sweeps.py --matrix "${all[@]}" "${suite[@]}")
         [ "$sweeps" != '[]' ] || { echo "::error::no sweep row matches"; exit 1; }
@@ -191,3 +203,29 @@ jobs:
           target/varka-sweep-run/junit/*.xml
         if-no-files-found: ignore
         retention-days: 30
+
+  report-failure:
+    name: Report a failed run
+    # Only a scheduled run, since a person who dispatches one sees its result; only on the
+    # project's own repository, where issues are on; and when a job failed or was cancelled.
+    needs: [build, sweep]
+    if: >-
+      always() && github.event_name == 'schedule' && github.repository == 'vecbricks/varka'
+      && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+      issues: write
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v6
+      with:
+        sparse-checkout: |
+          .github/actions
+          dev
+    - name: Report the failure
+      uses: ./.github/actions/report-scheduled-failure
+      with:
+        needs: ${{ toJSON(needs) }}
