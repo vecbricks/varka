@@ -448,7 +448,7 @@ they are upper bounds.
 | 343a3 | the kernel of two lane counts (2.2): the width rules in the kernel plan, `Analysis`, `Slots` and the walk, the warm-up blocks, and the pairs it carries, `INT` to `DOUBLE`, `FLOAT` with `DOUBLE`, the narrow sources, a condition as a value and the mixed trees (`x + i`, `f * i`, `f + x`); the three failures #1303's last matrix found are fixed here, the `INTERNAL_ERROR` under `validityByWidth=false` as a defect, not a skip | 343a2 | 950 |
 | 343a3b | the root-level crossing (2.2): roots of two kinds share one kernel (`lanesShare` joins roots of one width), so a filter's floating conjunct beside an integral one - the null test the optimizer infers on a cast's source among them - no longer declines (`floatingConjunctRefusal`), and an integral and a floating output take one kernel; the forms `VarkaAnsiForm.DECLINED` lists for it fuse, and the coverage row `CAST(CAST(l AS INT) AS FLOAT)` is added, whose domain check's filter form needs this join. Added by the owner's word of 3 November 2026, when 343a3 stayed under the cap without it. *Owed by 343a3 (10):* `CompiledVarkaProjection`'s long-literal check plans under `VarkaEmitOptions.DEFAULTS`, so a 128-bit host with `lanesOverride=4` fails `CAST(y1 AS DOUBLE) / 2.0D` with `INTERNAL_ERROR`; check under the session's options, as row 332's load needs too. *Sized 4 November 2026 (2.2.1):* a `CrossLane` node, the meeting rule and `lanesShare`'s width join, about 600 hand-written lines with the tests; one part. *Added 4 November 2026 by the owner's choice:* the value choice whose condition is of the other kind, its condition crossed to the values' lane | 343a3 | 600 |
 | 343a4 | `BIGINT` to `FLOAT` and `DOUBLE` where the host has AVX512DQ: level 3 resolved from the host, the unknown level declining them, the option matrix's level-3 runs and their Spark check | 343a3b | 450 |
-| 343a5 | the fuzz grammar's conversions, the 2^32 sweeps of 3.1 and the harness check of each fused cast on both lanes. *Owed by 343a3b (10):* the false-AND forms of `CAST(y1 AS DOUBLE)` and `CAST(s1 AS DOUBLE)`, which still decline: the narrow null test the optimizer infers on the source has no lowering under a double kernel, as their reason in `VarkaAnsiForm.DECLINED` names; a narrow column's null test at the long width, or the test kept on its own kernel, frees them | 343a4 | 400 |
+| 343a5 | *(built, 10)* the fuzz grammar's conversions, the 2^32 sweeps of 3.1 and the harness check of each fused cast on both lanes. *Owed by 343a3b (10):* the false-AND forms of `CAST(y1 AS DOUBLE)` and `CAST(s1 AS DOUBLE)`, which still decline: the narrow null test the optimizer infers on the source has no lowering under a double kernel, as their reason in `VarkaAnsiForm.DECLINED` names; a narrow column's null test at the long width, or the test kept on its own kernel, frees them | 343a4 | 400 |
 | 343b1 | the paper and the AVX2 forms (2.3, step 4): `L2D` by the exact split, `L2F` by round-to-odd, behind `wideConversionForm`, the SMT claims and the failing case. *4 November 2026:* the groundwork - the paper's reading notes (5 step 4) and `round_to_odd.smt2` (3.3) - is built on branch `varka-343b1-proofs`, touching no kernel, emitter or compiler code; the forms, the option and the failing case are owed (section 10) | 343a5 | 900 |
 | 343b2 | floating to integral in the three modes (2.4, step 5), with `GuardedRange`'s floating bounds and `NULL` disposal; `D2L`'s assembly on AVX2 | 343b1 | 900 |
 | 343b3 | `time_from_seconds` (2.6, step 7), after 342's first pull request, and the measurement against the baseline (step 8) | 343b2 | 500 |
@@ -753,3 +753,41 @@ On branch `varka-343b1-proofs`, from master; no kernel, emitter or compiler code
   5. The form whose arms are the `wideConversionForm` option, the reduced-width twins (3.2) and
      the named failing case (3.4) are the rest of 343b1.
 
+
+### 343a5 as built (6 November 2026, branch `varka-343a5-fuzz`)
+
+Cut from #1303's final tree and rebuilt on 343a4 (#1385), whose files it leaves alone:
+
+- **The fuzz grammar.** `VarkaIrGrammar.drawFloatingCastShape` draws one to three roots of one
+  kernel over an int, a bigint, a float and a double column and both literal tables: a leaf, a
+  `ConvertLane` into a floating lane from an integral lane or the other floating one, a wrapping
+  `+`, `-` or `*`, a pick, and a choice over a comparison at the same lane or at another, joined
+  by a `CrossLane` (343a3b's crossing, which #1303 predates). Its seed, `FLOATING_CAST_FUZZ_SEED`,
+  is its own, so no committed corpus moves. `VarkaIrFuzzSuite` runs it against `mixedValue` at
+  the drawn options, half the draws held at emit level 3, where a bigint conversion is admitted;
+  a plan that refuses the draw (a bigint conversion below level 3) is counted and skipped, and the
+  test fails if half the draws are skipped. A reach test asserts all six conversions, the four
+  drives, a 32-bit root of a 64-bit kernel and a crossing between and within the widths.
+  `ConvertLane` and `CrossLane` stay out of the older corpora, which the reach test lists.
+- **The sweeps** of 3.1 that belong to the to-floating half: every `INT` to `FLOAT` and `DOUBLE`,
+  every `FLOAT` pattern to `DOUBLE` and to `BOOLEAN` (the condition `NOT (f = 0.0F)` as its one or
+  zero), in `VarkaEmitterFloatingCastSuite`, each row held to Java's cast bit for bit. Every
+  256th chunk of the 2^32 runs on every build; the whole, under `-Dvarka.sweep=true`, is a `class`
+  row of `sql/varka/ci/sweeps.tsv` for the `varka-sweeps` job. *Not timed:* only the slice ran
+  here. The `TINYINT`, `SMALLINT` and `BOOLEAN` sweeps stay the coverage rows' fixtures (343a),
+  the floating-to-integral and `time_from_seconds` sweeps are 343b2 and 343b3, and the two AVX2
+  arms 343b1.
+- **The owed false-AND forms.** `CAST(y1 AS DOUBLE)` and `CAST(s1 AS DOUBLE)` fuse now. The plan
+  refused every null test over a narrow column under a double kernel, because only the long
+  drive marked such a column as read for its word. The word is a bit per row at every lane and
+  the double emission already loads a narrow column as the long one does, so
+  `VarkaKernelPlan.narrowColumnsOnly` admits `IS NOT NULL` of a narrow column, bare or widened to
+  the int lane, and nothing else narrow. `CAST(y IS NOT NULL AS DOUBLE)` fuses with them. Both
+  came off `VarkaAnsiForm.DECLINED`. `VarkaReference.flatten` stood a widening in as a long
+  column whatever its target; it keeps the target's lane, so a `CondValue` at the int lane over
+  such a test rebuilds.
+- **Tests.** `VarkaFloatingLaneSuite` plants an AVX-512 host without DQ and one with it, and
+  checks the bigint cast declines at the level the first resolves to, fuses at the second's
+  level 3, declines at the unknown level, and that `CAST(l AS DOUBLE) + 1.5D` compiles at level 3;
+  and that a smallint's null test fuses as `DOUBLE` and `FLOAT`. 343a4 already holds the
+  differential harness's level-3 cells, the conformance rows and the emitter suite's refusals.
