@@ -1,0 +1,193 @@
+#
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements.  See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License.  You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+
+# The exhaustive sweeps (VARKA-573, VARKA-573.md): every test that reads -Dvarka.sweep or
+# -Dvarka.sweep.long, listed in sql/varka/ci/sweeps.tsv, each as its own job on an x86 and an Arm
+# runner. A sweep is the only complete check of an operator over a 32-bit domain, and no other
+# workflow runs one. One job builds the test classes once and archives their classpath
+# (dev/varka_matrix_archive.sh, as the option matrix does); dev/varka_sweeps.py --matrix lists
+# the jobs, and each runs the project's own runner, VarkaSuiteRunner, with a -z for each of its
+# shard's texts, the property set and -Dvarka.ownJvm=true: without that property a JUnit suite
+# forks a child JVM that runs the whole suite and ignores the -z. A failure turns the job red and
+# its JUnit reports are kept.
+#
+# Dispatch only, until one dispatch has timed a sweep on each runner type (the plan's calibration):
+# the times of results/VARKA-573-sweep-times.txt under sql/varka/plans/m8 are the laptop's, and a
+# runner has four cores. Then a schedule goes in beside the dispatch, as varka-fuzz.yml has, and the manifest's
+# `job` column names this workflow for the rows that fit.
+name: Varka sweeps
+
+on:
+  workflow_dispatch:
+    inputs:
+      suite:
+        description: 'One suite of sql/varka/ci/sweeps.tsv by its simple name; every row when empty. The calibration runs one.'
+        required: false
+        default: ''
+      runners:
+        description: 'Which runners: both, x86 (ubuntu-latest) or arm (ubuntu-24.04-arm)'
+        required: false
+        default: 'both'
+      rows:
+        description: 'all: every row of the manifest; scheduled: only the rows whose job names this workflow'
+        required: false
+        default: 'all'
+
+jobs:
+  build:
+    name: "Sweeps: build and plan"
+    # Never on apache/spark, whose tree has no Varka. A dispatch runs on either repository.
+    if: github.repository != 'apache/spark'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    outputs:
+      sweeps: ${{ steps.plan.outputs.sweeps }}
+      runners: ${{ steps.plan.outputs.runners }}
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v6
+    - name: Cache SBT and Maven
+      uses: actions/cache@v4
+      with:
+        path: |
+          build/apache-maven-*
+          build/*.jar
+          ~/.sbt
+        key: build-${{ hashFiles('**/pom.xml', 'project/build.properties', 'build/mvn', 'build/sbt', 'build/sbt-launch-lib.bash', 'build/spark-build-info') }}
+        restore-keys: |
+          build-
+    - name: Cache Coursier local repository
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/coursier
+        key: varka-sweeps-coursier-${{ hashFiles('**/pom.xml', '**/plugins.sbt') }}
+        restore-keys: |
+          varka-sweeps-coursier-
+    - name: Install Java 25
+      uses: actions/setup-java@v5
+      with:
+        distribution: zulu
+        java-version: '25'
+    - name: Install the Varka engine
+      uses: ./.github/actions/install-varka-engine
+    # The manifest's own check first: a sweep it does not list, or lists wrongly, fails here and
+    # not as a silent absence from the night.
+    - name: Check the sweep manifest and plan the jobs
+      id: plan
+      env:
+        SUITE: ${{ inputs.suite }}
+        RUNNERS: ${{ inputs.runners }}
+        ROWS: ${{ inputs.rows }}
+      run: |
+        python3 dev/varka_sweeps.py --check
+        all=(); [ "${ROWS:-all}" = scheduled ] || all=(--all)
+        suite=(); [ -z "$SUITE" ] || suite=(--suite "$SUITE")
+        sweeps=$(python3 dev/varka_sweeps.py --matrix "${all[@]}" "${suite[@]}")
+        [ "$sweeps" != '[]' ] || { echo "::error::no sweep row matches"; exit 1; }
+        case "${RUNNERS:-both}" in
+          both) runners='["ubuntu-latest","ubuntu-24.04-arm"]' ;;
+          x86) runners='["ubuntu-latest"]' ;;
+          arm) runners='["ubuntu-24.04-arm"]' ;;
+          *) echo "::error::runners is both, x86 or arm"; exit 1 ;;
+        esac
+        echo "sweeps=$sweeps" >> "$GITHUB_OUTPUT"
+        echo "runners=$runners" >> "$GITHUB_OUTPUT"
+        {
+          echo "## Sweeps: $(jq length <<< "$sweeps") rows on $runners"
+          jq -r '.[] | "- " + .label + " (" + .property + ")"' <<< "$sweeps"
+        } >> "$GITHUB_STEP_SUMMARY"
+    - name: Build the test classes
+      run: ./dev/varka_matrix.sh --build-only --sbt-arg -Phive --out target/varka-sweeps
+    - name: Archive the classpath
+      run: ./dev/varka_matrix_archive.sh pack target/varka-sweeps target/varka-sweeps.tar
+    - name: Upload the classpath
+      uses: actions/upload-artifact@v4
+      with:
+        name: varka-sweeps-build
+        path: target/varka-sweeps.tar
+        retention-days: 1
+        compression-level: 1
+
+  sweep:
+    name: "Sweep: ${{ matrix.sweep.label }} on ${{ matrix.runner }}"
+    needs: build
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 350
+    strategy:
+      fail-fast: false
+      matrix:
+        sweep: ${{ fromJSON(needs.build.outputs.sweeps) }}
+        runner: ${{ fromJSON(needs.build.outputs.runners) }}
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v6
+    - name: Install Java 25
+      uses: actions/setup-java@v5
+      with:
+        distribution: zulu
+        java-version: '25'
+    # The machine each time is a fact of the result: the pool mixes AVX2 and AVX-512 hosts.
+    - name: Record the CPU and the vector width
+      uses: ./.github/actions/record-runner-platform
+      with:
+        dir: target/varka-sweep-run/platform
+    - name: Download the classpath
+      uses: actions/download-artifact@v4
+      with:
+        name: varka-sweeps-build
+        path: target
+    - name: Unpack the classpath
+      run: |
+        ./dev/varka_matrix_archive.sh unpack target/varka-sweeps.tar target/varka-sweeps
+        rm target/varka-sweeps.tar
+    # One JVM, as dev/varka_matrix.sh runs one: the exported options and classpath, the runner,
+    # and the sweep's own property, caps and -z texts from the manifest.
+    - name: Run the sweep
+      env:
+        ENTRY: ${{ toJSON(matrix.sweep) }}
+      run: |
+        set -uo pipefail
+        dir=target/varka-sweep-run
+        mkdir -p "$dir/tmp"
+        CP=$(cat target/varka-sweeps/classpath)
+        mapfile -t OPTS < target/varka-sweeps/jvm.opts
+        mapfile -t JVM < <(python3 dev/varka_sweeps.py --jvm-args "$ENTRY")
+        mapfile -t ARGS < <(python3 dev/varka_sweeps.py --runner-args "$ENTRY")
+        start=$SECONDS
+        SPARK_TESTING=1 SPARK_SCALA_VERSION=2.13 java "${OPTS[@]}" "${JVM[@]}" \
+          -Djava.io.tmpdir="$dir/tmp" -cp "$CP" \
+          org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaSuiteRunner \
+          -oW -u "$dir/junit" "${ARGS[@]}" 2>&1 | tee "$dir/run.log"
+        status=${PIPESTATUS[0]}
+        {
+          echo "## ${{ matrix.sweep.label }} on ${{ matrix.runner }}: exit $status, $((SECONDS - start)) s"
+          grep -E "Tests: succeeded|FAILED|^failed " "$dir/run.log" | head -20 || true
+        } >> "$GITHUB_STEP_SUMMARY"
+        echo "$((SECONDS - start))" > "$dir/seconds"
+        exit "$status"
+    - name: Upload the reports
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: varka-sweep-${{ strategy.job-index }}
+        path: |
+          target/varka-sweep-run/run.log
+          target/varka-sweep-run/seconds
+          target/varka-sweep-run/platform/platform.txt
+          target/varka-sweep-run/junit/*.xml
+        if-no-files-found: ignore
+        retention-days: 30

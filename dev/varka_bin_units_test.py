@@ -26,9 +26,13 @@ The test takes the step's `run:` text from the workflow, runs it in a scratch di
 stub `dev/varka_matrix.sh` that records its arguments, and compares them with what each kind of
 unit line must pass.
 
+The same is done for the sweep workflow's `Run the sweep` step (VARKA-573): its JVM options and
+runner arguments come from `dev/varka_sweeps.py`, and it must pass a failing sweep's status on.
+
   dev/varka_bin_units_test.py --selftest
 """
 
+import json
 import os
 import subprocess
 import sys
@@ -66,6 +70,65 @@ def step_script():
         if step.get("name") == STEP:
             return step["run"]
     raise SystemExit(f"no step named {STEP!r} in {WORKFLOW}")
+
+
+SWEEPS = ROOT / ".github/workflows/varka-sweeps.yml"
+
+# A stub `java` that records its arguments, one a line, and exits with $STUB_EXIT.
+JAVA_STUB = """#!/bin/bash
+printf '%s\\n' "$@" > "$STUB_ARGS"
+exit "${STUB_EXIT:-0}"
+"""
+
+
+def run_sweep_step(suite, exit_status=0):
+    """Runs the sweep workflow's `Run the sweep` step for the first matrix row of `suite`;
+    returns (exit status, the arguments the stub `java` got)."""
+    doc = yaml.safe_load(SWEEPS.read_text(encoding="utf-8"))
+    script = next(
+        s["run"] for s in doc["jobs"]["sweep"]["steps"] if s.get("name") == "Run the sweep"
+    )
+    listed = subprocess.run(
+        [sys.executable, str(ROOT / "dev/varka_sweeps.py"), "--matrix", "--all", "--suite", suite],
+        capture_output=True,
+        text=True,
+        check=True,
+        cwd=ROOT,
+    ).stdout
+    entry = json.loads(listed)[0]
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp = Path(tmp)
+        (tmp / "dev").symlink_to(ROOT / "dev")
+        (tmp / "sql").symlink_to(ROOT / "sql")
+        build = tmp / "target/varka-sweeps"
+        build.mkdir(parents=True)
+        (build / "classpath").write_text("/a/b:/c/d\n", encoding="utf-8")
+        (build / "jvm.opts").write_text("--add-modules=jdk.incubator.vector\n", encoding="utf-8")
+        bin_dir = tmp / "bin"
+        bin_dir.mkdir()
+        java = bin_dir / "java"
+        java.write_text(JAVA_STUB, encoding="utf-8")
+        java.chmod(0o755)
+        env = {
+            "PATH": f"{bin_dir}:{os.environ['PATH']}",
+            "ENTRY": json.dumps(entry),
+            "STUB_ARGS": str(tmp / "java.args"),
+            "STUB_EXIT": str(exit_status),
+            "GITHUB_STEP_SUMMARY": str(tmp / "summary.md"),
+        }
+        script = script.replace("${{ matrix.sweep.label }}", entry["label"]).replace(
+            "${{ matrix.runner }}", "ubuntu-latest"
+        )
+        done = subprocess.run(
+            ["bash", "-e", "-c", script],
+            cwd=tmp,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        args = (tmp / "java.args").read_text(encoding="utf-8").splitlines()
+        return done.returncode, args
 
 
 def run_step(units, reach=True, store=True):
@@ -164,6 +227,43 @@ class BinUnits(unittest.TestCase):
         status, args = run_step(["defaults|sql|OK1", "cse=false|sql|FAIL1", "isa=arm|sql|OK2|"])
         self.assertNotEqual(status, 0)
         self.assertEqual(sorted(args), [0, 1, 2], "a failing unit must not stop the others")
+
+
+class SweepStep(unittest.TestCase):
+    def test_a_junit_shard_runs_in_this_jvm_with_its_property_and_its_texts(self):
+        status, args = run_sweep_step("VarkaEmitterNarrowArithSuite")
+        self.assertEqual(status, 0)
+        self.assertIn("-Dvarka.sweep=true", args)
+        self.assertIn("-Dvarka.ownJvm=true", args)
+        self.assertIn("--add-modules=jdk.incubator.vector", args)
+        self.assertTrue(has_run(args, "-cp", "/a/b:/c/d"), args)
+        i = args.index("org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaSuiteRunner")
+        runner = args[i + 1 :]
+        self.assertTrue(
+            has_run(
+                runner,
+                "-s",
+                "org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitterNarrowArithSuite",
+            ),
+            runner,
+        )
+        self.assertTrue(has_run(runner, "-z", "pair for + in"), runner)
+        self.assertTrue(has_run(runner, "-u", "target/varka-sweep-run/junit"), runner)
+
+    def test_a_scalatest_suite_is_selected_by_its_filter_and_forks_no_child_jvm(self):
+        status, args = run_sweep_step("VarkaEmitterBitwiseSuite")
+        self.assertEqual(status, 0)
+        self.assertNotIn("-Dvarka.ownJvm=true", args)
+        self.assertTrue(has_run(args, "-z", "opt-in"), args)
+
+    def test_a_long_sweep_sets_the_long_property(self):
+        _, args = run_sweep_step("VarkaTimeFractionSuite")
+        self.assertIn("-Dvarka.sweep.long=true", args)
+        self.assertNotIn("-Dvarka.sweep=true", args)
+
+    def test_a_failing_sweep_fails_the_step(self):
+        status, _ = run_sweep_step("VarkaEmitterBitwiseSuite", exit_status=3)
+        self.assertEqual(status, 3)
 
 
 def main(argv):
