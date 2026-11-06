@@ -69,7 +69,15 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 note() { echo "::notice::$*"; }
 fail() { echo "::error::$*"; exit 1; }
 
-cpu_model=$(grep "model name" /proc/cpuinfo | head -1 | sed 's/model name\s*:\s*//')
+# An x86 /proc/cpuinfo names the model; an aarch64 one gives only the implementer and the part, so
+# lscpu's name is read there (Neoverse-N2 on GitHub's ubuntu-24.04-arm), the part as the fallback.
+arch=$(uname -m)
+if [ "$arch" = aarch64 ]; then
+  cpu_model=$(lscpu | sed -n 's/^Model name:\s*//p' | head -1)
+  [ -n "$cpu_model" ] || cpu_model="Arm part $(sed -n 's/^CPU part\s*:\s*//p' /proc/cpuinfo | head -1)"
+else
+  cpu_model=$(grep "model name" /proc/cpuinfo | head -1 | sed 's/model name\s*:\s*//')
+fi
 note "Runner CPU: $cpu_model"
 echo "cores: $(nproc) | memory: $(free -g | awk '/^Mem:/{print $2}') GiB"
 echo "AVX/SVE flags: $(lscpu | tr ' ' '\n' | grep -E '^avx|^sve' | sort -u | tr '\n' ' ')"
@@ -84,6 +92,18 @@ java -XX:+PrintFlagsFinal -version 2>/dev/null | grep -E ' (MaxVectorSize|UseAVX
 
 if [ -n "$expected_cpu" ] && ! echo "$cpu_model" | grep -qF "$expected_cpu"; then
   fail "CPU mismatch! Expected '$expected_cpu' but got '$cpu_model'"
+fi
+
+# An Arm core runs the Vector API at 128 bits whatever MaxVectorSize says, so the probe, which
+# compares 128, 256 and 512 bits, has nothing to measure and its control would fail on every
+# machine. The CPU check above is the whole gate there; the numbers are recorded as `n/a`.
+if [ "$arch" = aarch64 ]; then
+  [ "$require" = 512 ] && fail "--require 512 cannot hold on an aarch64 machine"
+  note "datapath probe: not run on aarch64 (128-bit vectors only)"
+  if [ "$github" = 1 ] && [ -n "${GITHUB_OUTPUT:-}" ]; then
+    { echo "cpu=$cpu_model"; echo "lanes=n/a"; echo "control=n/a"; echo "ratio=n/a"; } >> "$GITHUB_OUTPUT"
+  fi
+  exit 0
 fi
 
 # The datapath probe: dev/varka_canary/Datapath.java, the same one
