@@ -110,3 +110,19 @@ x86, and a dispatch of the option matrix shows `isa=arm` green.
   tests). Not run: `isa=arm`, which the option matrix runs; the two skip lines of this row are
   deleted, and a dispatch that shows them passing there is what is left.
 
+### 10.2 The matrix and the close (6 November 2026)
+
+The option matrix of the merged head, run 42195530460 on the fork, took 44 minutes and passed
+every configuration: `defaults`, `isa=avx2` and `isa=w128` ran 3810 tests each with none failed,
+`isa=arm` 3807, with the two `VarkaCoverageCompositionFuzzSuite` tests that had been skipped there
+running and passing. The compile of the catalyst and sql tests on the merged master passes.
+
+Done when, read against the merged work: the two tests pass under `isa=arm` with their skip lines
+deleted; the table is committed for Arm and x86 (`results/VARKA-576-nan-payload.txt`); and a
+dispatch of the option matrix shows `isa=arm` green. The design of section 2 gave the rule to
+`VarkaSameAnswer` and the reference evaluator; the probe showed neither needs an Arm table, since
+the reference evaluating `FLOAT` arithmetic in float follows the host as Spark does (the outcome above),
+and the add and multiply of two NaNs that Arm's lanes and scalar code answer differently are the
+case the row rule already leaves open. The owner's answer of 6 November 2026, the host-dependent
+rule, is what the merged code does.
+
