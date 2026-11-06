@@ -292,9 +292,9 @@ final class VarkaConditionCompiler {
   /**
    * The null of {@code e}'s type as a value ({@link VarkaVectorIR.NullValue}): the missing ELSE
    * of a {@code CASE WHEN}, or a {@code NULL} literal at a choice's position. It exists for the
-   * six types the int and long lanes carry as plain values; every other type declines with its
-   * name, until the row that adds the type's choices tests its null (VARKA-333.md section 9,
-   * open point 3).
+   * eight types the narrow, int and long lanes carry as plain values; every other type declines
+   * with its name, until the row that adds the type's choices tests its null (VARKA-333.md
+   * section 9, open point 3).
    */
   private static Optional<VarkaVectorIR> nullLeaf(Expression e, DeclineSink sink) {
     DataType t = e.dataType();
@@ -303,8 +303,11 @@ final class VarkaConditionCompiler {
       case LONG, TIME, DT_INTERVAL -> Optional.of(LaneType.LONG);
       // A boolean choice is a condition, whose null is CondConst's, not a value's.
       case BOOLEAN -> Optional.empty();
-      // The narrow and floating lanes: NullValue refuses them until their emission is tested.
-      case BYTE, SHORT, FLOAT, DOUBLE -> Optional.empty();
+      // The narrow lanes carry their own null (VARKA-329): a broadcast zero in the narrow species.
+      case BYTE -> Optional.of(LaneType.BYTE);
+      case SHORT -> Optional.of(LaneType.SHORT);
+      // The floating lanes: NullValue refuses them until their emission is tested.
+      case FLOAT, DOUBLE -> Optional.empty();
       // A decimal to precision 18 and an NTZ ride the long lane, but their own rows add their
       // choices' null and its coverage rows.
       case DECIMAL, TIMESTAMP_NTZ -> Optional.empty();
@@ -720,6 +723,24 @@ final class VarkaConditionCompiler {
         return rest;
       }
       return Optional.of(new IfElse(new VarkaVectorIR.IsNotNull(ref), ref, rest.get()));
+    }
+    // A narrow column promoted to the int lane, as type coercion does in `zeroifnull(y1)` =
+    // `coalesce(CAST(y1 AS INT), 0)` (VARKA-329): the null test reads the column's own validity
+    // word, which the widening does not change, and the test and the value lift to the int lane
+    // together, as an `IF` over a narrow test does.
+    if (compiled.get() instanceof VarkaVectorIR.WidenLane w && w.target() == LaneType.INT
+        && w.child() instanceof ColumnRef ref && ref.laneType().isNarrow()) {
+      Optional<VarkaVectorIR> rest =
+          compileCoalesce(whole, children, from + 1, inputs, literals, sink);
+      if (rest.isEmpty()) {
+        return rest;
+      }
+      VarkaVectorIR otherwise = onIntValue(rest.get());
+      if (!sameLane(whole, sink, compiled.get(), otherwise)) {
+        return Optional.empty();
+      }
+      return Optional.of(new IfElse(
+          onIntLane(new VarkaVectorIR.IsNotNull(ref)), compiled.get(), otherwise));
     }
     return sink.decline("coalesce operand before the last is not a bare column", head);
   }

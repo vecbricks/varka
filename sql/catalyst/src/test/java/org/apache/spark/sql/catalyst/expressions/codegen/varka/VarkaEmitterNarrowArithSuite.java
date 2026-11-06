@@ -40,15 +40,25 @@ import scala.jdk.javaapi.CollectionConverters;
 import org.apache.spark.sql.catalyst.expressions.Abs$;
 import org.apache.spark.sql.catalyst.expressions.Add$;
 import org.apache.spark.sql.catalyst.expressions.Attribute;
+import org.apache.spark.sql.catalyst.expressions.BitwiseAnd;
+import org.apache.spark.sql.catalyst.expressions.BitwiseCount;
+import org.apache.spark.sql.catalyst.expressions.BitwiseNot;
+import org.apache.spark.sql.catalyst.expressions.BitwiseOr;
+import org.apache.spark.sql.catalyst.expressions.BitwiseXor;
+import org.apache.spark.sql.catalyst.expressions.DateAdd;
+import org.apache.spark.sql.catalyst.expressions.EqualTo;
 import org.apache.spark.sql.catalyst.expressions.EvalMode;
 import org.apache.spark.sql.catalyst.expressions.Expression;
 import org.apache.spark.sql.catalyst.expressions.Greatest$;
 import org.apache.spark.sql.catalyst.expressions.GreaterThan$;
+import org.apache.spark.sql.catalyst.expressions.If;
 import org.apache.spark.sql.catalyst.expressions.If$;
+import org.apache.spark.sql.catalyst.expressions.Literal$;
 import org.apache.spark.sql.catalyst.expressions.Multiply$;
 import org.apache.spark.sql.catalyst.expressions.NamedExpression;
 import org.apache.spark.sql.catalyst.expressions.Subtract$;
 import org.apache.spark.sql.catalyst.expressions.UnaryMinus$;
+import org.apache.spark.sql.catalyst.expressions.Year;
 import org.apache.spark.sql.catalyst.expressions.codegen.CompiledVarkaProjection;
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaExpressionCompiler;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaKernelChecks.Batch;
@@ -57,6 +67,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaKernelChecks
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ColumnRef;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LaneType;
 import org.apache.spark.sql.types.ByteType;
+import org.apache.spark.sql.types.DateType;
 import org.apache.spark.sql.types.ShortType;
 
 /**
@@ -1229,5 +1240,154 @@ public final class VarkaEmitterNarrowArithSuite {
   @DisplayName("every SMALLINT pair for * in TRY on the native arm (opt-in: -Dvarka.sweep=true)")
   public void everySmallintPairForMultiplyInTryOnTheNativeArm() {
     fullSweep(TRY, "*", NATIVE_ARM);
+  }
+
+  // -------------------------------------------------------------------------------------------
+  // The bitwise operators, bit_count, nullif and the date offset at a narrow type (VARKA-329)
+  // -------------------------------------------------------------------------------------------
+
+  private static Expression bitwise(String op, Expression l, Expression r) {
+    return switch (op) {
+      case "&" -> new BitwiseAnd(l, r);
+      case "|" -> new BitwiseOr(l, r);
+      case "^" -> new BitwiseXor(l, r);
+      default -> throw new IllegalArgumentException(op);
+    };
+  }
+
+  /** {@code ~x} and {@code bit_count(x)} over the first column, the unary cases of the family. */
+  private static Expression unaryBit(String op, Expression x) {
+    return switch (op) {
+      case "~" -> new BitwiseNot(x);
+      case "bit_count" -> new BitwiseCount(x);
+      default -> throw new IllegalArgumentException(op);
+    };
+  }
+
+  /** The TINYINT or SMALLINT values the unary cases run over, each once: 2^16 rows. */
+  private static Batch everyValue(boolean tiny) {
+    int length = 65536;
+    var data = new int[1][length];
+    for (int i = 0; i < length; i++) {
+      data[0][i] = tiny ? (i & 0xFF) - 128 : i - 32768;
+    }
+    return new Batch(length, new boolean[1][length], data, false);
+  }
+
+  @Test
+  @DisplayName("& | ^ over every TINYINT pair and every SMALLINT operand slice, both arms")
+  public void bitwiseOperatorsAnswerEveryPairOnBothArms() {
+    for (Arm arm : ARMS) {
+      for (String op : new String[] {"&", "|", "^"}) {
+        String where = "TINYINT " + op + " " + arm.name();
+        EmittedClass bytes = emitArm(bitwise(op, BYTE_COLS.get(0), BYTE_COLS.get(1)), BYTE_COLS,
+            LaneType.BYTE, arm.options(), where);
+        assertTrue(answered(bytes, byteSquare(), where), where + ": the kernel declined");
+        String shorts = "SMALLINT " + op + " " + arm.name();
+        EmittedClass emitted = emitArm(bitwise(op, SHORT_COLS.get(0), SHORT_COLS.get(1)),
+            SHORT_COLS, LaneType.SHORT, arm.options(), shorts);
+        withKernel(emitted, kernel -> {
+          Sweep sweep = sweepShort(emitted, kernel, SLICE_OPERANDS, 8, v -> true, shorts);
+          assertEquals(SLICE_OPERANDS.size(), sweep.took(), shorts + ": a batch declined");
+        });
+      }
+    }
+  }
+
+  @Test
+  @DisplayName("~ and bit_count over every TINYINT and SMALLINT value, both arms")
+  public void notAndBitCountAnswerEveryValueOnBothArms() {
+    for (Arm arm : ARMS) {
+      for (String op : new String[] {"~", "bit_count"}) {
+        String where = op + " " + arm.name();
+        EmittedClass bytes = emitArm(unaryBit(op, BYTE_COLS.get(0)), BYTE_COLS, LaneType.BYTE,
+            arm.options(), "TINYINT " + where);
+        assertTrue(answered(bytes, everyValue(true), "TINYINT " + where),
+            "TINYINT " + where + ": the kernel declined");
+        EmittedClass shorts = emitArm(unaryBit(op, SHORT_COLS.get(0)), SHORT_COLS,
+            LaneType.SHORT, arm.options(), "SMALLINT " + where);
+        assertTrue(answered(shorts, everyValue(false), "SMALLINT " + where),
+            "SMALLINT " + where + ": the kernel declined");
+      }
+    }
+  }
+
+  @Test
+  @DisplayName("narrow & | ^ ~ bit_count and nullif at every length and null pattern, both arms")
+  public void narrowBitwiseAndNullifAnswerUnderEveryNullPattern() {
+    int[][] pairs = {{-128, 127}, {127, 127}, {-128, -128}, {0, -1}, {-32768, 32767},
+        {32767, -32768}, {-1, -1}, {5, 5}};
+    for (Arm arm : ARMS) {
+      for (boolean tiny : new boolean[] {true, false}) {
+        List<Attribute> cols = tiny ? BYTE_COLS : SHORT_COLS;
+        LaneType lane = tiny ? LaneType.BYTE : LaneType.SHORT;
+        var type = tiny ? new ByteType() : new ShortType();
+        List<Expression> exprs = new ArrayList<>();
+        for (String op : new String[] {"&", "|", "^"}) {
+          exprs.add(bitwise(op, cols.get(0), cols.get(1)));
+        }
+        exprs.add(unaryBit("~", cols.get(0)));
+        exprs.add(unaryBit("bit_count", cols.get(0)));
+        // The operators under each other and under a ring node, whose unreduced wrapping sum on
+        // the widened arm must be reduced before the bitwise operation reads it.
+        exprs.add(unaryBit("bit_count", bitwise("&", cols.get(0), cols.get(1))));
+        exprs.add(bitwise("^", Add$.MODULE$.apply(cols.get(0), cols.get(1), EvalMode.LEGACY()),
+            cols.get(1)));
+        exprs.add(Add$.MODULE$.apply(bitwise("|", cols.get(0), cols.get(1)), cols.get(1),
+            EvalMode.LEGACY()));
+        // nullif(a, b) is if(a = b, NULL, a): the null of the narrow lane beside a column.
+        exprs.add(new If(new EqualTo(cols.get(0), cols.get(1)),
+            Literal$.MODULE$.create(null, type), cols.get(0)));
+        // nullifzero(a) is if(a = 0, NULL, a).
+        Object zero = tiny ? (Object) Byte.valueOf((byte) 0) : Short.valueOf((short) 0);
+        exprs.add(new If(new EqualTo(cols.get(0), Literal$.MODULE$.create(zero, type)),
+            Literal$.MODULE$.create(null, type), cols.get(0)));
+        for (Expression expr : exprs) {
+          String where = expr.sql() + " " + arm.name();
+          EmittedClass emitted = emitArm(expr, cols, lane, arm.options(), where);
+          withKernel(emitted, kernel -> {
+            for (int[] pair : pairs) {
+              if (tiny && (pair[0] != (byte) pair[0] || pair[1] != (byte) pair[1])) {
+                continue;
+              }
+              for (int length : new int[] {1, 7, 31, 64, 65, 130}) {
+                for (NullPattern np : NULL_PATTERNS) {
+                  assertTrue(run(emitted, kernel,
+                      batch(length, np.pattern(), List.of(pair[0], pair[1])),
+                      where + " " + pair[0] + "," + pair[1] + " len=" + length + " " + np.name(),
+                      true), where + ": the kernel declined");
+                }
+              }
+            }
+          });
+        }
+      }
+    }
+  }
+
+  @Test
+  @DisplayName("date_add with a TINYINT or SMALLINT offset answers every offset, both arms")
+  public void dateAddOfANarrowOffsetAnswersEveryOffset() {
+    for (Arm arm : ARMS) {
+      for (boolean tiny : new boolean[] {true, false}) {
+        var offset = tiny ? BYTE_COLS.get(0) : SHORT_COLS.get(0);
+        var cols = List.of(VarkaSqlResolve.column("d", new DateType()), offset);
+        int length = 65536;
+        var data = new int[2][length];
+        for (int i = 0; i < length; i++) {
+          data[0][i] = i * 13 - 400000;
+          data[1][i] = tiny ? (i & 0xFF) - 128 : i - 32768;
+        }
+        // The sum itself, and a calendar field of it, which arms the range guard on the offset.
+        for (Expression expr : List.of(new DateAdd(cols.get(0), offset),
+            new Year(new DateAdd(cols.get(0), offset)))) {
+          String where = (tiny ? "TINYINT " : "SMALLINT ") + expr.sql() + " " + arm.name();
+          EmittedClass emitted = emitArm(expr, cols, tiny ? LaneType.BYTE : LaneType.SHORT,
+              arm.options(), where);
+          assertTrue(answered(emitted, new Batch(length, new boolean[2][length], data, false),
+              where), where + ": the kernel declined");
+        }
+      }
+    }
   }
 }

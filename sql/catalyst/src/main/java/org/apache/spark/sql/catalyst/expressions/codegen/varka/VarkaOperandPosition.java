@@ -82,6 +82,11 @@ public enum VarkaOperandPosition {
         case DAY_OFFSET, MONTH_COUNT, WEEKDAY -> true;
         case TRUNC_LEVEL -> false;
       };
+      // A narrow column widened to the int lane (VARKA-329): `date_add(d, tinyint_column)`. The
+      // offset is the column's value, a sign extension that its load already does, so it is a
+      // column at this position; the widening of anything computed is not.
+      case WidenLane w -> this == DAY_OFFSET && w.target() == LaneType.INT
+          && w.child() instanceof ColumnRef c && c.laneType().isNarrow();
       case IntArith _, IntNeg _ -> switch (this) {
         case DAY_OFFSET, MONTH_COUNT -> true;
         case WEEKDAY, TRUNC_LEVEL -> false;
@@ -90,7 +95,7 @@ public enum VarkaOperandPosition {
            WeekDay _, DayOfWeekIso _, NextDay _, ThursdayOf _, AddMonths _, MakeDate _,
            ConstDivide _, BoundedDivide _, BitOp _, BitCount _, MathUnary _, GuardedDay _,
            GuardedRange _,
-           WidenLane _, ConvertLane _,
+           ConvertLane _,
            NarrowLane _, WidenDecimal _, Year _, Month _, DayOfMonth _, Quarter _, DayOfYear _,
            LastDay _,
            TruncDate _, TruncDateDynamic _, WeekOfYear _,

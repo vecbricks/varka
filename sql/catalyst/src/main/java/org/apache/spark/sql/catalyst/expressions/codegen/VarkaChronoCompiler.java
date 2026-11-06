@@ -60,6 +60,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaDerivedKind;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaFamily;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaOperandPosition;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaRangeAnalysis;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTypes;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaValueRange;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.AddDays;
@@ -464,6 +465,13 @@ final class VarkaChronoCompiler {
     if (days instanceof BoundReference br) {
       if (br.dataType().equals(DataTypes.IntegerType)) {
         return Optional.of(VarkaNodeCompiler.columnRef(br, inputs, LaneType.INT));
+      }
+      // A TINYINT or SMALLINT offset (VARKA-329): Spark's DateAdd takes it as it is, and the
+      // kernel reads it widened to the int lane, a sign extension that is exact in every mode.
+      Optional<LaneType> narrow = VarkaTypes.lane(br.dataType()).filter(LaneType::isNarrow);
+      if (narrow.isPresent()) {
+        return Optional.of(new VarkaVectorIR.WidenLane(
+            VarkaNodeCompiler.columnRef(br, inputs, narrow.get()), LaneType.INT));
       }
       return sink.decline("non-integer day offset column of type " + br.dataType().simpleString(),
           br);

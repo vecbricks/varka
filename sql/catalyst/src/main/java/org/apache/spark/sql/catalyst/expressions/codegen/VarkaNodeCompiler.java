@@ -615,6 +615,30 @@ final class VarkaNodeCompiler {
               a.failOnError() ? Overflow.FAIL : Overflow.WRAP, x, true));
       // The bitwise family (VARKA-335): one lane-wise operation at the operand's width, which
       // neither overflows nor nulls a valid lane, so the evaluation mode does not reach it.
+      // The same three operations at a narrow type (VARKA-329, row 335b): `tinyint & tinyint` is a
+      // tinyint, and the operation of two sign-extended values is sign-extended, so it is one
+      // lanewise operation on the narrow lane (or on the int lane that holds it, widened arm)
+      // with no reduction of its own and in no evaluation mode.
+      case BitwiseAnd b when isNarrow(b) ->
+          () -> narrowBitOp(BitOpKind.AND, b, b.left(), b.right(), inputs, literals, sink);
+      case BitwiseOr b when isNarrow(b) ->
+          () -> narrowBitOp(BitOpKind.OR, b, b.left(), b.right(), inputs, literals, sink);
+      case BitwiseXor b when isNarrow(b) ->
+          () -> narrowBitOp(BitOpKind.XOR, b, b.left(), b.right(), inputs, literals, sink);
+      // `~x` at a narrow width is `x ^ -1`, the literal on the operand's narrow lane.
+      case BitwiseNot b when isNarrow(b) -> () -> {
+        LaneType lane = VarkaTypes.lane(b.dataType()).orElseThrow();
+        return narrowOperand(b.child(), lane, inputs, literals, sink)
+            .map(x -> (VarkaVectorIR) new BitOp(BitOpKind.XOR, x, slot(-1, lane, literals)));
+      };
+      // `bit_count` of a narrow value is the int `bit_count` of its sign extension: a 64-bit
+      // popcount of the sign-extended value, which is what the int node already computes. The
+      // widening is the one a `CAST(x AS INT)` is, free after a narrow load.
+      case BitwiseCount c when isNarrow(c.child()) -> () -> {
+        LaneType lane = VarkaTypes.lane(c.child().dataType()).orElseThrow();
+        return narrowOperand(c.child(), lane, inputs, literals, sink)
+            .map(x -> (VarkaVectorIR) new BitCount(new WidenLane(x, LaneType.INT)));
+      };
       case BitwiseAnd b when onBitLane(b) ->
           () -> bitOp(BitOpKind.AND, b.left(), b.right(), inputs, literals, sink);
       case BitwiseOr b when onBitLane(b) ->
@@ -670,6 +694,24 @@ final class VarkaNodeCompiler {
       return sink.decline("a bigint operand computed on the int lane", e);
     }
     return compiled;
+  }
+
+  /** {@link #bitOp} for the operands of a narrow type: both on {@code whole}'s narrow lane. */
+  private static Optional<VarkaVectorIR> narrowBitOp(
+      BitOpKind op,
+      Expression whole,
+      Expression l,
+      Expression r,
+      VarkaSlotTable inputs,
+      VarkaSlotTable literals,
+      DeclineSink sink) {
+    LaneType lane = VarkaTypes.lane(whole.dataType()).orElseThrow();
+    Optional<VarkaVectorIR> x = narrowOperand(l, lane, inputs, literals, sink);
+    if (x.isEmpty()) {
+      return x;
+    }
+    return narrowOperand(r, lane, inputs, literals, sink)
+        .map(y -> (VarkaVectorIR) new BitOp(op, x.get(), y));
   }
 
   private static Optional<VarkaVectorIR> bitOp(

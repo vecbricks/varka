@@ -590,6 +590,7 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `y1 <=> y2` | `predicate` |  | never unknown: two nulls are equal | vector |
 | `y1 IN (1Y, 2Y, 3Y, -1Y)` | `predicate` |  | an IN list over a narrow column, lowered to an equality chain | vector |
 | `y1 IN (11 to 16 byte literals)` | `predicate` |  | an IN list this long arrives from the optimizer as an InSet and fuses the same way | vector |
+| `y1 BETWEEN y2 AND 5Y` | `predicate` |  | two comparisons and an AND at the byte lane | vector |
 
 #### TINYINT columns choosing values
 
@@ -600,6 +601,13 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `greatest(y1, y2)` | `intArithmetic` |  |  | vector |
 | `least(y1, y2)` | `intArithmetic` |  |  | vector |
 | `coalesce(y1, y2)` | `condition` |  | the first non-null of two narrow columns | vector |
+| `nvl(y1, y2)` | `condition` |  | rewritten to coalesce(y1, y2) | vector |
+| `ifnull(y1, y2)` | `condition` |  | rewritten to coalesce(y1, y2) | vector |
+| `nvl2(y1, y2, y1)` | `predicate`, `condition` |  | rewritten to if(y1 IS NOT NULL, y2, y1) | vector |
+| `nullif(y1, y2)` | `predicate`, `condition` |  | rewritten to if(y1 = y2, NULL, y1): the byte lane's null, a zero broadcast with its validity clear, so the kernel is masked-only | vector |
+| `nullifzero(y1)` | `predicate`, `condition` |  | rewritten to if(y1 = 0, NULL, y1) | vector |
+| `CASE WHEN y1 > y2 THEN y1 END` | `predicate`, `condition` |  | the missing ELSE is the null of the byte lane | vector |
+| `zeroifnull(y1)` | `condition` |  | rewritten to coalesce(CAST(y1 AS INT), 0): an INT result, the literal 0 being an int, so the byte column is widened under the null test | vector |
 
 #### SMALLINT columns
 
@@ -613,6 +621,7 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `s1 <=> s2` | `predicate` |  |  | vector |
 | `s1 IN (1S, 2S, 3S, -1S)` | `predicate` |  |  | vector |
 | `s1 IN (11 to 16 short literals)` | `predicate` |  | an IN list this long arrives from the optimizer as an InSet and fuses the same way | vector |
+| `s1 BETWEEN s2 AND 5S` | `predicate` |  | the SMALLINT twin of the TINYINT range test | vector |
 
 #### SMALLINT columns choosing values
 
@@ -623,6 +632,29 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `greatest(s1, s2)` | `intArithmetic` |  |  | vector |
 | `least(s1, s2)` | `intArithmetic` |  |  | vector |
 | `coalesce(s1, s2)` | `condition` |  |  | vector |
+| `nvl(s1, s2)` | `condition` |  |  | vector |
+| `ifnull(s1, s2)` | `condition` |  |  | vector |
+| `nvl2(s1, s2, s1)` | `predicate`, `condition` |  |  | vector |
+| `nullif(s1, s2)` | `predicate`, `condition` |  |  | vector |
+| `nullifzero(s1)` | `predicate`, `condition` |  |  | vector |
+| `CASE WHEN s1 > s2 THEN s1 END` | `predicate`, `condition` |  |  | vector |
+| `zeroifnull(s1)` | `condition` |  | an INT result, as the TINYINT twin | vector |
+
+#### Bitwise on narrow columns
+
+| Expression | Switches | Domain | Notes | 128-bit lanes |
+|---|---|---|---|---|
+| `y1 & y2` | `intArithmetic` |  |  | vector |
+| `y1 \| y2` | `intArithmetic` |  |  | vector |
+| `y1 ^ y2` | `intArithmetic` |  |  | vector |
+| `~y1` | `intArithmetic` |  | the byte XOR -1 | vector |
+| `y1 & 5Y` | `intArithmetic` |  | a narrow literal operand | vector |
+| `bit_count(y1)` | `intArithmetic` |  | the popcount of the sign-extended value: a negative byte counts its 56 high bits as well | vector |
+| `s1 & s2` | `intArithmetic` |  |  | vector |
+| `s1 \| s2` | `intArithmetic` |  |  | vector |
+| `s1 ^ s2` | `intArithmetic` |  |  | vector |
+| `~s1` | `intArithmetic` |  |  | vector |
+| `bit_count(s1)` | `intArithmetic` |  | a negative short counts its 48 high bits as well | vector |
 
 #### TINYINT and SMALLINT widened to int
 
@@ -636,6 +668,12 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | Expression | Switches | Domain | Notes | 128-bit lanes |
 |---|---|---|---|---|
 | `y1 + i` | `intArithmetic` | `CAST(y1 AS BIGINT) + i BETWEEN -2147483648 AND 2147483647` | an int add over a widened byte load, checked under ANSI as any int add is | vector |
+| `CASE WHEN i < 0 THEN y1 END` | `predicate`, `condition` |  | the byte lane's null beside an int guard: the choice runs on the int lane and stores one byte a row | vector |
+| `CASE WHEN i < 0 THEN s1 END` | `predicate`, `condition` |  | the short twin | vector |
+| `date_add(d, y1)` | `calendar` |  | a byte offset, read widened to the int lane; the day sum wraps as the int offset's does | vector |
+| `date_add(d, s1)` | `calendar` |  | the short twin | vector |
+| `date_sub(d, y1)` | `calendar` |  | the offset subtracted: the same widened column | vector |
+| `date_sub(d, s1)` | `calendar` |  |  | vector |
 | `CAST(s1 AS INT)` | none |  | the widening alone, stored four bytes a row | vector |
 | `CAST(y1 AS INT) * CAST(y2 AS INT)` | `intArithmetic` |  | an int multiply that cannot overflow, the byte columns' range bounding the product by 2^14, so it needs no check (VARKA-480) | vector |
 | `CAST(s1 AS INT) * CAST(s2 AS INT)` | `intArithmetic` |  | the short twin: a product of at most 2^30 | vector |
@@ -1068,15 +1106,15 @@ operands (a row counts once for each type it reads):
 | :--- | ---: | ---: | ---: | ---: | ---: | ---: |
 | `bigint` | 72 | 0 | 2 | 0 | 2 | 68 |
 | `bool` | 32 | 0 | 0 | 13 | 0 | 19 |
-| `byte` | 33 | 0 | 0 | 0 | 8 | 25 |
-| `date` | 102 | 17 | 0 | 1 | 0 | 84 |
+| `byte` | 50 | 0 | 0 | 0 | 8 | 42 |
+| `date` | 106 | 17 | 0 | 1 | 0 | 88 |
 | `dec` | 43 | 25 | 0 | 0 | 0 | 18 |
 | `double` | 54 | 0 | 0 | 0 | 0 | 54 |
 | `dt` | 25 | 2 | 0 | 0 | 0 | 23 |
 | `float` | 44 | 0 | 0 | 0 | 0 | 44 |
-| `int` | 124 | 14 | 2 | 0 | 1 | 107 |
+| `int` | 130 | 14 | 2 | 0 | 1 | 113 |
 | `ntz` | 24 | 0 | 1 | 0 | 0 | 23 |
-| `short` | 32 | 0 | 0 | 0 | 8 | 24 |
+| `short` | 48 | 0 | 0 | 0 | 8 | 40 |
 | `time` | 43 | 6 | 1 | 1 | 2 | 33 |
 | `ym` | 35 | 7 | 2 | 0 | 2 | 24 |
 <!-- END generated verification counts -->

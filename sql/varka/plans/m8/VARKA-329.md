@@ -1352,3 +1352,73 @@ Left as they were, by design or to a row: an entry demoted for joining is not re
 of its own (row 480, as for a lane mismatch); an int entry moves the kernel's native narrow entries
 to the widened lowering, the mixed shape the arms tie on (9.5); and the IR fuzzers draw no narrow
 arithmetic, narrow choice or `abs`, which row 352 owns.
+
+### 9.10 The SMALLINT and TINYINT parity part (6 November 2026)
+
+The census (`census.tsv`, `scope=in`) counted `SMALLINT` and `TINYINT` fused for 24 of 75 admitted
+expressions each, against `INT` 48 of 90. The cheapest targets are the entries whose `fused_today`
+holds `int` and not `short` (the same list for `byte`): 16 of them. This part is their admission
+check, taken at master `511bb552070` with `dev/varka_emit.sh` on a byte and a short column for
+each, and then the build of the ones that needed code.
+
+| entry | rows | what master said | class | what this part does |
+| :-- | :-- | :-- | :-- | :-- |
+| `ifnull`, `nvl` | 359, 348 | fused already (rewritten to `coalesce`) | census only | coverage rows, census claim |
+| `nvl2`, `between` | 359, 348 | fused already (`IF` over a null test; two comparisons) | census only | coverage rows, census claim |
+| `&`, `\|`, `^`, `~` | 335, 329 | "unsupported expression": `onBitLane` is int and long | arm | `BitOp` on the narrow lane (`~x` is `x ^ -1` on that lane) |
+| `bit_count` | 335, 329, 331 | "unsupported expression" | arm | the int `BitCount` over a `WidenLane` of the narrow value |
+| `nullif`, `nullifzero` | 359 | "no null leaf for type tinyint" | lane | `NullValue` admitted on the byte and short lanes |
+| `zeroifnull` | 359, 348 | "coalesce operand before the last is not a bare column" | arm | the null test of a widened narrow column lifts to the int lane |
+| `date_add`, `dateadd` (and `date_sub`) | 329 | "non-integer day offset column of type tinyint" | arm | the offset is a `WidenLane` of the narrow column, admitted at `DAY_OFFSET` |
+| `bigint` (the cast) | 332, 343, 350, 28, 364 | cast code | out | other work in flight; untouched |
+| `ym_times_num` | 103, 329, 342 | interval product by a narrow factor | semantics | out: row 342's product rules |
+
+Semantics, each against the row engine as the oracle:
+
+* **Bitwise.** Spark's `&`, `|`, `^` and `~` keep the operand type (`bitwiseExpressions.scala`
+  casts back to byte or short). The operation of two sign-extended values is sign-extended, so it
+  is one lanewise operation on the narrow lane (native arm) or on the int lane that holds the
+  values (widened arm) with no reduction of its own, in every evaluation mode. `Analysis.isNarrowRing`
+  keeps `BitOp` out of the ring set, so a ring child (`(y1 + y2) & y3`) is reduced before it, as
+  any non-ring reader does.
+* **`bit_count`.** `BitwiseCount` is `Long.bitCount` of the sign-extended value for every
+  integral type, so `bit_count(-1Y)` is 64. The landed int node is `bitCount(x) + ((x >> 31) &
+  32)`, which is exactly that for a sign-extended int, so the narrow form is that node over the
+  widening a `CAST(x AS INT)` is. The result is an `INT`, and no narrowing follows.
+* **`nullif`, `nullifzero`, `CASE WHEN` with no `ELSE`.** `NullValue` is a broadcast zero in the
+  lane's own species with its validity word clear; the emission was lane-generic already
+  (`Lane.pushScalar`), and what refused the narrow lanes was the constructor and `nullLeaf`
+  ("until a row tests its emission", 333 open point 3). This part is that test.
+* **`zeroifnull`.** The analyzer spells `zeroifnull(y1)` as `coalesce(CAST(y1 AS INT), 0)`: the
+  result is an `INT`, the literal being one, not a `TINYINT`. The null test reads the column's own
+  validity word, which the widening does not change.
+* **`date_add(d, y1)`.** Spark's `DateAdd` takes a byte or short offset as it is. The kernel reads
+  it widened (a sign extension, exact in every mode), so the day sum wraps as the int offset's
+  does and a calendar node above it still gets the runtime range guard, which reads any
+  non-literal offset as a column shift.
+
+Tests: `VarkaEmitterNarrowArithSuite` gained four, each over both arms: `&`, `|`, `^` over every
+`TINYINT` pair (2^16 rows) and, for `SMALLINT`, the 256-operand slice of the arithmetic sweeps
+against every short; `~` and `bit_count` over every value of both types; the bitwise operators,
+`nullif` and `nullifzero` at the extremes `-128`, `127`, `-32768`, `32767`, `0` and `-1` under the
+four null patterns at six lengths; and `date_add` over every byte and short offset. 34 coverage
+rows (`VarkaCoverageSuite`) run through `VarkaCoverageDifferentialSuite` against Spark under the
+defaults.
+
+Owner decisions taken (the plan's recommended option each time): `NullValue` on the narrow lanes
+is admitted now rather than waiting for row 352 (333 open point 3 says the row that needs it tests
+it); `zeroifnull` of a narrow column is an `INT` kernel, as Catalyst types it; no new emit option,
+since the narrow bitwise operations are the same IR on both arms.
+
+Left for follow-up parts: the casts to and from the narrow types (332, 343, 350, 364), `bigint(x)`
+among them; `ym_times_num` and the other interval factors (342); `bit_get` and `getbit`, whose
+byte result is a byte root (335b); `equal_null` and `positive` (336, 333), which fuse for the
+narrow types already and are claimed with their rows; `time_from_millis` and `time_from_micros`
+with a narrow operand (329's census rows); the rounding and `mod` families (344, 346, 30); the
+fuzzers' draw of narrow operands (352).
+
+
+After this part the census reads `byte` and `short` 39 of 75 each (24 before) and `int` 49 of 90
+(48 before; `date_sub`, which fuses for an int offset, was never claimed, and is now claimed for
+all three offsets). The two types are still behind `int` by the entries in the follow-up list
+above and by the entries `int` does not fuse either.

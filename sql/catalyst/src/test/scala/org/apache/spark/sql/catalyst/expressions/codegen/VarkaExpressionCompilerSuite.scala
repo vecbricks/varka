@@ -1732,12 +1732,17 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
         new LiteralSlot(0))))
   }
 
-  test("declines a ShortType or ByteType offset column, and an interval column") {
+  test("reads a ShortType or ByteType offset column widened, and declines an interval column") {
     // DateAdd.inputTypes accepts ShortType/ByteType with no cast, so a short or byte column
-    // arrives as a bare BoundReference the leaf arm must not accept - its Arrow vector is 2 or
-    // 1 bytes wide, which an int32 lane load would read as garbage rather than decline.
-    assert(VarkaExpressionCompiler.compile(Seq(out(DateAdd(d, sh))), childOutput).isEmpty)
-    assert(VarkaExpressionCompiler.compile(Seq(out(DateAdd(d, by))), childOutput).isEmpty)
+    // arrives as a bare BoundReference. Its Arrow vector is 2 or 1 bytes wide, which an int32
+    // lane load would read as garbage, so the offset is the column on its own narrow lane under
+    // a widening to the int lane (VARKA-329), and nothing else is admitted at that position.
+    for ((offset, lane) <- Seq((sh, LaneType.SHORT), (by, LaneType.BYTE))) {
+      val compiled = VarkaExpressionCompiler.compile(
+        Seq(out(DateAdd(d, offset))), childOutput).get
+      assert(compiled.outputs.asScala.toSeq === Seq(new AddDays(new ColumnRef(0),
+        new WidenLane(new ColumnRef(1, lane), LaneType.INT))))
+    }
     // `d + <non-foldable INTERVAL DAY column>` resolves to
     // DateAdd(d, ExtractANSIIntervalDays(intervalCol)) (BinaryArithmeticWithDatetimeResolver);
     // ExtractANSIIntervalDays has no compiler arm, so this declines through the ordinary
@@ -2053,10 +2058,15 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     // A type the null leaf does not serve yet keeps a reason naming it, and an int is still
     // no date: a date choice over a cast of an int column declines rather than reading it.
     val partial = VarkaExpressionCompiler.compilePartial(
-      Seq(out(CaseWhen(Seq((lt, by)), None)), out(If(lt, Cast(i, DateType), d)),
+      Seq(out(CaseWhen(Seq((lt, Literal(1.5f))), None)), out(If(lt, Cast(i, DateType), d)),
         out(DateAdd(d, Literal(1)))), childOutput).get
     assert(partial.declines.asScala(0).reason ===
-      "no null leaf for type tinyint, the missing ELSE of a CASE WHEN")
+      "no null leaf for type float, the missing ELSE of a CASE WHEN")
+    // The narrow lanes have their own null (VARKA-329): a byte CASE WHEN with no ELSE is a
+    // choice with the byte lane's null, stored at the byte's width.
+    val narrowNull = VarkaExpressionCompiler.compile(
+      Seq(out(CaseWhen(Seq((lt, by)), None))), childOutput).get
+    assert(narrowNull.outputs.asScala.head.laneType === LaneType.BYTE)
     assert(partial.declines.asScala(1) != null)
     // A branch that is not an int is named by the choice's SQL keyword and its position. The
     // analyzer's coercion never leaves one under an int choice, and Catalyst refuses the mixed
@@ -2172,12 +2182,12 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
       Seq(out(DateAdd(d, Literal(1))), out(i)), childOutput).isEmpty)
     assert(VarkaExpressionCompiler.compilePartial(
       Seq(out(DateAdd(d, Literal(1))), out(i)), childOutput).isPresent)
-    // An IntegerType column offset compiles (VARKA-38); a ShortType one declines, so `compile`
-    // declines the whole projection over it.
+    // An IntegerType column offset compiles (VARKA-38), and so does a ShortType one
+    // (VARKA-329); a day-interval column offset still declines the whole projection.
     assert(VarkaExpressionCompiler.compile(
       Seq(out(DateAdd(d, i))), childOutput).isPresent)
     assert(VarkaExpressionCompiler.compile(
-      Seq(out(DateAdd(d, sh))), childOutput).isEmpty)
+      Seq(out(DateAdd(d, sh))), childOutput).isPresent)
     // A cast in the tree (how `date_add` over a `datediff` result reaches the planner).
     assert(VarkaExpressionCompiler.compile(
       Seq(out(DateAdd(Cast(DateDiff(d, d2), DateType), Literal(1)))), childOutput).isEmpty)
@@ -3468,9 +3478,12 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     assert(under.outputs.asScala.toSeq === Seq(new IntArith(IntOp.ADD, Overflow.WRAP,
       new NarrowLane(new BitCount(longCol)), new LiteralSlot(0))))
     assert(under.outputTypes.asScala.toSeq === Seq(IntegerType))
-    // A narrow operand waits for its lane.
-    assert(!fuses(BitwiseCount(sh)))
-    assert(!fuses(BitwiseCount(by)))
+    // A narrow operand is the int count over its sign extension (VARKA-329): -1Y counts 64 bits.
+    for ((narrow, lane) <- Seq((sh, LaneType.SHORT), (by, LaneType.BYTE))) {
+      val counted = VarkaExpressionCompiler.compile(Seq(out(BitwiseCount(narrow))), childOutput).get
+      assert(counted.outputs.asScala.toSeq ===
+        Seq(new BitCount(new WidenLane(new ColumnRef(0, lane), LaneType.INT))))
+    }
   }
 
   test("the bitmap functions compile, as written and as the StaticInvoke they are replaced by") {
