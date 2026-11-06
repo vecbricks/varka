@@ -146,3 +146,27 @@ against a stub `java` by `dev/varka_bin_units_test.py`: a JUnit shard, a ScalaTe
 sweep, and a failing status. It has not run on a runner. No schedule yet: the first dispatch, of
 one suite on each runner type, is the calibration of section 3.
 
+### 10.5 The calibration and the schedule (6 November 2026)
+
+**Two dispatches of `varka-sweeps.yml`** on vecbricks/varka, at master `53a81e281f2`, timed the
+`Run the sweep` step on each runner type, against the laptop's times of section 3:
+
+| Sweep | Laptop | `ubuntu-latest` | `ubuntu-24.04-arm` |
+|---|---|---|---|
+| `VarkaEmitterFloatingArithSuite` (run 42167775744) | 148 s | 550 s | 364 s |
+| narrow `+` | 1111 s | 1103 s | 1344 s |
+| narrow `-` | 1065 s | 1141 s | 1361 s |
+| narrow `*` | 1177 s | 1671 s | 1618 s |
+| narrow oracle's share (run 42171236541) | a few seconds | 4 s | 4 s |
+
+The runner is 1.0 to 1.4 times the laptop on the narrow shards and 2.5 to 3.7 times on the float
+sweep, not the 6 times section 3 assumed: the narrow sweeps barely use the laptop's 24 threads.
+The build job took 10 minutes and a job's setup under 15 s. Not timed: the other suites, among
+them `VarkaTimeFractionSuite` (991 s on the laptop), whose factor is somewhere in 1.0 to 3.7, so at
+most about an hour. The longest timed job is the narrow `*` shard, 28 minutes.
+
+**The schedule**, by the owner's word of 6 November 2026: every Saturday at 02:00 UTC, and on
+dispatch, since a sweep's domain is fixed and its result changes only with the code. Every row of
+the manifest names `varka-sweeps` as its job; a failed or cancelled scheduled run opens an issue as
+the fuzz and the matrix runs do. The first scheduled run is to be cited here.
+

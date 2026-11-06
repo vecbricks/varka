@@ -1,13 +1,13 @@
 suite	kind	property	how	select	job	note
-VarkaChronoSuite	scala	varka.sweep	filter	opt-in	unscheduled	calendar round trips over the covered years; 1 s on the laptop
-VarkaEmitterBitwiseSuite	scala	varka.sweep	filter	opt-in	unscheduled	every int through ~ and bit_count; 68 s
-VarkaEmitterChronoSuite	scala	varka.sweep	filter	opt-in	unscheduled	the emitted calendar and trunc kernels over their whole range; 51 s
-VarkaEmitterDivisionSuite	scala	varka.sweep	filter	opt-in	unscheduled	the calendar kernels under both double division forms; 106 s
-VarkaEmitterYmDivideSuite	scala	varka.sweep.long	filter	long-sweep	unscheduled	409 divisors over every int; its name carries no opt-in; 640 s
-VarkaEmitterFloatingArithSuite	java	varka.sweep	class	-	unscheduled	every FLOAT pattern through + - * and negation and abs; 148 s
-VarkaEmitterMixedLaneSuite	java	varka.sweep	class	-	unscheduled	runs whole; its sweep is switched on by the property; 8 s
-VarkaEmitterNarrowArithSuite	java	varka.sweep	shard	pair for + in	unscheduled	SMALLINT pairs for +: 6 sweeps, 1111 s on the laptop
-VarkaEmitterNarrowArithSuite	java	varka.sweep	shard	pair for - in	unscheduled	SMALLINT pairs for -: 6 sweeps, 1065 s
-VarkaEmitterNarrowArithSuite	java	varka.sweep	shard	pair for * in	unscheduled	SMALLINT pairs for *: 6 sweeps, 1177 s
-VarkaEmitterNarrowArithSuite	java	varka.sweep	shard	oracle's share	unscheduled	times the oracle's share of a sweep batch; a few seconds
-VarkaTimeFractionSuite	java	varka.sweep.long	class	-	unscheduled	every nanosecond of a minute at TIME(8) and TIME(9); 991 s
+VarkaChronoSuite	scala	varka.sweep	filter	opt-in	varka-sweeps	calendar round trips over the covered years; 1 s on the laptop
+VarkaEmitterBitwiseSuite	scala	varka.sweep	filter	opt-in	varka-sweeps	every int through ~ and bit_count; 68 s
+VarkaEmitterChronoSuite	scala	varka.sweep	filter	opt-in	varka-sweeps	the emitted calendar and trunc kernels over their whole range; 51 s
+VarkaEmitterDivisionSuite	scala	varka.sweep	filter	opt-in	varka-sweeps	the calendar kernels under both double division forms; 106 s
+VarkaEmitterYmDivideSuite	scala	varka.sweep.long	filter	long-sweep	varka-sweeps	409 divisors over every int; its name carries no opt-in; 640 s
+VarkaEmitterFloatingArithSuite	java	varka.sweep	class	-	varka-sweeps	every FLOAT pattern through + - * and negation and abs; 148 s
+VarkaEmitterMixedLaneSuite	java	varka.sweep	class	-	varka-sweeps	runs whole; its sweep is switched on by the property; 8 s
+VarkaEmitterNarrowArithSuite	java	varka.sweep	shard	pair for + in	varka-sweeps	SMALLINT pairs for +: 6 sweeps, 1111 s on the laptop
+VarkaEmitterNarrowArithSuite	java	varka.sweep	shard	pair for - in	varka-sweeps	SMALLINT pairs for -: 6 sweeps, 1065 s
+VarkaEmitterNarrowArithSuite	java	varka.sweep	shard	pair for * in	varka-sweeps	SMALLINT pairs for *: 6 sweeps, 1177 s
+VarkaEmitterNarrowArithSuite	java	varka.sweep	shard	oracle's share	varka-sweeps	times the oracle's share of a sweep batch; a few seconds
+VarkaTimeFractionSuite	java	varka.sweep.long	class	-	varka-sweeps	every nanosecond of a minute at TIME(8) and TIME(9); 991 s
