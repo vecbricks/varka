@@ -562,8 +562,9 @@ byte:
 
 **Departures.** `Info.lane()` is kept: it says the lane a type computes on, whatever its storage.
 `types.tsv` keeps `storage_bits` beside the new columns. A band carries its row and whether its
-reader is built. The unsigned draw runs a third of the corpora's iterations: at the full count it
-took about three and a half minutes on the laptop, which the Build would pay on every run.
+reader is built. The unsigned draw runs a third of the corpora's iterations: the first attempt
+recorded about three and a half minutes at the full count on the laptop, which the Build would
+pay on every run (not re-measured here).
 
 **Not in this part**, owed in the following ones: the compiler's pair (11.5 item 4), the word
 leaf, its shared load and check, the lowerings, the carry layer, the slot table and word edges,
