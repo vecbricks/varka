@@ -341,8 +341,9 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
         "a relabel of the count; `CAST(i AS INTERVAL YEAR)` multiplies by twelve, checked"),
       Row("CAST(i AS INTERVAL YEAR)",
         "a multiply by twelve behind a range guard on the year count, which Spark checks in "
-          + "every mode: a count past it declines the batch and the row engine raises, and "
-          + "inside it the wrapping multiply is exact",
+          + "every mode: a count past it declines the batch under LEGACY and ANSI, where "
+          + "the row engine raises, and nulls the lane under try_cast; inside it the "
+          + "wrapping multiply is exact",
         domain = Some(s"i BETWEEN ${Int.MaxValue / -12} AND ${Int.MaxValue / 12}")),
       Row("CAST(ymm AS INT)",
         "a relabel of a MONTH-ended interval; a YEAR-ended one divides by twelve"),

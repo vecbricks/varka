@@ -11,7 +11,7 @@ VARKA-241 added the long lane's division forms, and VARKA-242 the calendar's div
 | `java.smt2` | the prelude: Java's `int` and `long` operators over SMT-LIB's integers, each defined as the JLS defines it, and doubles by their rounding | hand |
 | `java_check.smt2` | the prelude against the JVM: each operator over boundary operands, the expected values computed by Java | `VarkaProofFiles` |
 | `int_mulhi_divide.smt2` | the int lane's multiply-high division (VARKA-149) exact for every divisor in use, with `signedMagic`'s constants | `VarkaProofFiles` |
-| `long_divide.smt2` | the long lane's two division forms exact under `ConstDivide.EXACT_DIVIDEND_BOUND` for every divisor in use, and the conversion form's exact bound past it (VARKA-241); `VarkaDivisorProofSuite` fails on a divisor the compiler builds that it leaves out (VARKA-496) | `VarkaProofFiles` |
+| `long_divide.smt2` | the long lane's division forms (floor and, for a day, truncating) exact under `ConstDivide.EXACT_DIVIDEND_BOUND` for every divisor in use, and the conversion form's exact bound past it (VARKA-241); `VarkaDivisorProofSuite` fails on a divisor the compiler builds that it leaves out (VARKA-496) | `VarkaProofFiles` |
 | `chrono_divide.smt2` | every calendar division site (`ChronoDivide`): the magic form with its carry exact over the site's dividends and first failing where the table says, and both double forms exact over the range (VARKA-242) | `VarkaProofFiles` |
 | `floor_mod7.smt2` | `emitFloorMod7`'s three forms, `Math.floorMod(v, 7)` for every int, by lemmas over each fold's digits (VARKA-242) | `VarkaProofFiles` |
 | `leap_hash.smt2` | the leap flag's perfect hash and its unsigned compare exact over every biased year to `LEAP_HASH_MAX_BIASED_YEAR`, over bit-vectors (VARKA-242) | `VarkaProofFiles` |
@@ -126,7 +126,8 @@ serves; before, it was assumed, and a cached far day was served wrong.
 3. `dev/varka_prove.sh --solver both` holds, in seconds: the linters' job allows a minute for all of
    them. The runner is about twice the laptop. `--lint` runs a file under Z3 unless the script's
    `CVC5_IN_LINT` names it, which it does for a file one solver proves much faster than the other:
-   `long_divide.smt2` takes Z3 28 s on the laptop and cvc5 8 s (VARKA-241.md 9.5).
+   `long_divide.smt2` takes Z3 63 s on the laptop and cvc5 20 s (1914 checks, 6 November 2026,
+   after VARKA-332 added the truncating division and the sub-day divisors; 28 s and 8 s before).
 4. cvc5 is the fragile one (`VARKA-242.md` 2.2 and 9). Where it answers `unknown`, try in order:
    `(set-logic ALL)` in place of `QF_NIA`; one lemma per step over named digits or quotients, so
    each check is linear arithmetic over a few small variables; a residue written as 7 times a

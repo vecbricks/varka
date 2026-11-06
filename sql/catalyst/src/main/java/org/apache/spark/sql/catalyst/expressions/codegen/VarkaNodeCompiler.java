@@ -859,8 +859,9 @@ final class VarkaNodeCompiler {
   /**
    * Java's truncating {@code x / divisor} over every long {@code x}, for a positive even divisor
    * {@link #floorDivLong} accepts: a negative dividend is moved up by {@code divisor - 1}, so
-   * that the floor division truncates. {@code x + ((x >> 63) & (divisor - 1))} cannot overflow,
-   * since a negative {@code x} gains at most {@code divisor - 1} and stays negative.
+   * that the floor division truncates. {@code x + ((x >> 63) & (divisor - 1))} cannot overflow:
+   * only a negative {@code x} gains anything, at most {@code divisor - 1}, and a value of at
+   * most {@code -1} plus at most {@code divisor - 1} cannot pass {@code Long.MAX_VALUE}.
    * {@code long_divide.smt2} proves the identity (`VARKA-332.md` 2.4).
    */
   static VarkaVectorIR truncDivLong(VarkaVectorIR x, long divisor, DeclineSink sink) {

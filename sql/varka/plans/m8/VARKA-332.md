@@ -716,6 +716,17 @@ two interval casts are 10.3).
   as the existing MONTH and relabel arms do, so no family switch moves. A declined sub-day
   batch under TRY is not nulled: Spark's answer is the quotient, so the row engine's is the right
   one ("answers follow vanilla Spark exactly").
+- **Known limits.** A sub-day interval of 2^52 microseconds (about 142 years) or more sends its
+  whole batch to the row engine, so a column with a sentinel such as `Long.MAX_VALUE` loses fusion
+  for every batch holding one; the cliff is silent and no benchmark measures it. The year cast
+  and `CAST(dt AS BIGINT)` are gated by the interval and time switches, not `integralCast`, so
+  turning `integralCast` off leaves them fused.
+  A value that overflows only in a null row still declines a LEGACY or ANSI batch, because the
+  guard reads the stored slot; and under TRY in `add_months`' month-count position the nulled
+  count keeps its wrapped product, which the month-count guard declines, so that shape fuses only
+  while no count overflows. Both are declines, which the row engine answers; the suite holds
+  that no answer differs from Spark's. `verify_double_division.py` does not yet cover
+  the three sub-day divisors (the SMT file does).
 - **Tests.** `VarkaEmitterIntervalCastSuite`: the year guard against `multiplyExact` over every
   int, the kernel's answers, declines and nulls around the guard's ends and over a spread of
   counts in the three modes, and the division for all ten day-time field ranges in the three

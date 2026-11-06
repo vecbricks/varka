@@ -41,7 +41,9 @@ import scala.jdk.javaapi.CollectionConverters;
 import org.apache.spark.sql.catalyst.expressions.Attribute;
 import org.apache.spark.sql.catalyst.expressions.Cast;
 import org.apache.spark.sql.catalyst.expressions.EvalMode;
+import org.apache.spark.sql.catalyst.expressions.DateAddYMInterval;
 import org.apache.spark.sql.catalyst.expressions.Expression;
+import org.apache.spark.sql.catalyst.expressions.Literal;
 import org.apache.spark.sql.catalyst.expressions.codegen.CompiledVarkaProjection;
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaExpressionCompiler;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaKernelChecks.Batch;
@@ -240,6 +242,62 @@ public final class VarkaEmitterIntervalCastSuite {
     }
   }
 
+  @Test
+  @DisplayName("an overflowing value that sits only in a NULL row never makes the kernel answer "
+      + "differently from Spark, which does not evaluate the cast on a null input; the kernel "
+      + "may decline such a batch, and the row engine then answers it")
+  void overflowingValueInANullRowOnly() {
+    Attribute i = VarkaSqlResolve.column("i", DataTypes.IntegerType);
+    long[] counts = {Integer.MAX_VALUE, 3, Integer.MIN_VALUE, -4};
+    boolean[] nulls = {true, false, true, false};
+    for (Enumeration.Value mode : MODES) {
+      assertTrue(kernel(cast(i, YEAR_INTERVAL, mode), List.of(i))
+          .answersOrDeclines(counts, nulls), mode + " answered differently from Spark");
+    }
+    for (int end = 1; end <= 3; end++) {
+      var type = new DayTimeIntervalType((byte) 0, (byte) end);
+      Attribute dt = VarkaSqlResolve.column("dt", type);
+      long[] values = {Long.MAX_VALUE, 7, Long.MIN_VALUE, -9};
+      for (Enumeration.Value mode : MODES) {
+        assertTrue(kernel(cast(dt, DataTypes.LongType, mode), List.of(dt))
+            .answersOrDeclines(values, nulls), type.simpleString() + " " + mode
+            + " answered differently from Spark");
+      }
+    }
+  }
+
+  @Test
+  @DisplayName("a year-interval count in add_months' month-count position, when it fuses, "
+      + "answers as Spark does inside the guard and never differently past it")
+  void tryCastCountInAddMonths() {
+    Attribute i = VarkaSqlResolve.column("i", DataTypes.IntegerType);
+    long[] counts = {0, 1, -1, 12, MAX_YEARS, -MAX_YEARS, MAX_YEARS + 1, -MAX_YEARS - 1,
+        Integer.MAX_VALUE, Integer.MIN_VALUE};
+    for (Enumeration.Value mode : MODES) {
+      Expression shifted = new DateAddYMInterval(new Literal(19_000, DataTypes.DateType),
+          cast(i, YEAR_INTERVAL, mode));
+      Optional<CompiledVarkaProjection> plan = compile(shifted, List.of(i));
+      if (plan.isEmpty()) {
+        continue;
+      }
+      Kernel k = new Kernel(shifted, List.of(i), plan.get());
+      boolean[] none = new boolean[counts.length];
+      // Counts whose month total keeps the date in Spark's range; the guard's own ends do not.
+      assertTrue(k.answers(new long[] {0, 1, -1, 12, 100, -100}),
+          mode + ": date + CAST(i AS INTERVAL YEAR) differs from Spark");
+      if (mode == EvalMode.TRY()) {
+        // The nulled count's stored value is the wrapped product, which the month-count guard may
+        // decline; the row engine then answers null. What the kernel must never do is answer
+        // something else.
+        assertTrue(k.answersOrDeclines(counts, none),
+            "TRY: date + try_cast(i AS INTERVAL YEAR) answered differently from Spark");
+      } else {
+        assertNotEquals(0, k.status(new long[] {0, MAX_YEARS + 1}),
+            mode + " answered a batch Spark raises on");
+      }
+    }
+  }
+
   // -------------------------------------------------------------------------------------------
   // Running a kernel
   // -------------------------------------------------------------------------------------------
@@ -303,6 +361,53 @@ public final class VarkaEmitterIntervalCastSuite {
 
     private int[] intLits() {
       return plan.literals().stream().mapToInt(Integer::intValue).toArray();
+    }
+
+    /**
+     * The kernel's status over rows whose {@code nulls} are given: non-zero when it declines the
+     * batch.
+     */
+    int statusWithNulls(long[] values, boolean[] nulls) {
+      String ctx = className + " " + expr.sql();
+      int n = values.length;
+      var nullMask = new boolean[][] {nulls};
+      if (longLane) {
+        return VarkaKernelChecks.runAndCompareLongStatus(ctx, className, bytes, plan.outputs(), 1,
+            longLits(), new LongBatch(n, nullMask, new long[][] {values}, false), true);
+      }
+      var ints = new int[1][n];
+      for (int i = 0; i < n; i++) {
+        ints[0][i] = (int) values[i];
+      }
+      return VarkaKernelChecks.runAndCompareStatus(ctx, className, bytes, plan.outputs(), 1,
+          intLits(), new Batch(n, nullMask, ints, false), true);
+    }
+
+    /**
+     * Whether the kernel either declines the batch, which leaves the answer to the row engine, or
+     * answers it as Spark does. Never an answer that differs from Spark's.
+     */
+    boolean answersOrDeclines(long[] values, boolean[] nulls) {
+      return statusWithNulls(values, nulls) != 0 || answersWithNulls(values, nulls);
+    }
+
+    /** Whether the kernel answers rows whose {@code nulls} are given, each compared with Spark. */
+    boolean answersWithNulls(long[] values, boolean[] nulls) {
+      String ctx = className + " " + expr.sql();
+      int n = values.length;
+      var data = new long[][] {values};
+      var nullMask = new boolean[][] {nulls};
+      if (longLane) {
+        return VarkaKernelChecks.runAndCompareLong(ctx, className, bytes, plan.outputs(), 1,
+            longLits(), intLits(), new LongBatch(n, nullMask, data, false), false,
+            sparkAnswers(oracle));
+      }
+      var ints = new int[1][n];
+      for (int i = 0; i < n; i++) {
+        ints[0][i] = (int) values[i];
+      }
+      return VarkaKernelChecks.runAndCompare(ctx, className, bytes, plan.outputs(), 1,
+          intLits(), new Batch(n, nullMask, ints, false), false, sparkAnswers(oracle));
     }
 
     /** Whether the kernel answers {@code values}, every row compared with Spark. */

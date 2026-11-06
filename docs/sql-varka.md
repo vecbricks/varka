@@ -350,7 +350,7 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `ym + ym` | `interval` | `CAST(ym AS BIGINT) + CAST(ym AS BIGINT) BETWEEN -2147483648 AND 2147483647` | the sum, exact in every mode as the difference is | vector |
 | `CAST(ymy AS INTERVAL MONTH)` | none |  |  | vector |
 | `CAST(i AS INTERVAL MONTH)` | none |  | a relabel of the count; `CAST(i AS INTERVAL YEAR)` multiplies by twelve, checked | vector |
-| `CAST(i AS INTERVAL YEAR)` | `interval` | `i BETWEEN -178956970 AND 178956970` | a multiply by twelve behind a range guard on the year count, which Spark checks in every mode: a count past it declines the batch and the row engine raises, and inside it the wrapping multiply is exact | vector |
+| `CAST(i AS INTERVAL YEAR)` | `interval` | `i BETWEEN -178956970 AND 178956970` | a multiply by twelve behind a range guard on the year count, which Spark checks in every mode: a count past it declines the batch under LEGACY and ANSI, where the row engine raises, and nulls the lane under try_cast; inside it the wrapping multiply is exact | vector |
 | `CAST(ymm AS INT)` | none |  | a relabel of a MONTH-ended interval; a YEAR-ended one divides by twelve | vector |
 | `CAST(ymy AS INT)` | `interval` |  | the whole years: `v / 12` over a count nothing bounds, the division `extract(YEAR FROM ym)` builds | vector |
 | `CAST(ym AS INTERVAL YEAR)` | `interval` |  | narrowing to a YEAR-ended unit drops the months: `(v / 12) * 12`, a wrapping multiply that cannot overflow since the product is no larger than the count | vector |
