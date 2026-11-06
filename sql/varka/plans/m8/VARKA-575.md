@@ -90,3 +90,44 @@ probe there, whose comparison of 128, 256 and 512 bits has nothing to measure on
 `sql/varka/skills/benchmarking.md` says how to dispatch it. Not proven: the first dispatch with
 `runner=ubuntu-24.04-arm` is the proof, and it also shows whether the build steps run on arm64.
 
+### 10.2 Step 2: the form (6 November 2026)
+
+Built on branch `varka-575c-byte-load`: `VarkaVectorWalk.narrowRowsInBody` selects the epilogue's
+row-at-a-time load for the loop body of a long kernel where the narrow species of twice the long
+lanes does not exist, with no bound test since the loop stops while a whole group fits, and
+`VarkaKernelPlan.longNarrowRefusal` no longer refuses a byte column at two long lanes.
+
+- **At 128 bits on the laptop** (`-XX:MaxVectorSize=16`), `VarkaCastMatrixSuite`,
+  `VarkaCoverageSuite` and `VarkaTinyIntConformanceSuite` pass: 20 tests, none failed.
+- **P2 holds.** At the default width the byte-moving suites pass but for the three generated-file
+  checks. Regenerated, `emitted_bytes.json` gains the classes of `CAST(y1 AS BIGINT)`,
+  `greatest(y1, l)` and `CAST(y1 AS DOUBLE)` at four int lanes and moves the option-arm digests,
+  which hash every shape; no existing kernel's bytes move. `width_audit.json` and
+  `docs/sql-varka.md` change for the same three shapes: they read "per-lane: mask broadcast, mask
+  test", as the `SMALLINT` twin already does at two long lanes.
+- **P3 holds** for the three files named above.
+- **The 28 skip lines** of `isa=w128` and `isa=arm` that named this row are deleted.
+- **Not yet measured:** P1, the form's speed against the row path on the Arm runner (the row path
+  there is 44.9 ns a row for `CAST(y AS BIGINT)`, no nulls, run 42091113475), and the two-lane x86
+  host, where these shapes run per-lane mask calls like the `SMALLINT` twin. The admission waits on
+  the Arm measurement.
+
+### 10.3 Step 3: the speed on Arm (6 November 2026)
+
+**P1 holds.** `benchmark.yml` on the fork's `ubuntu-24.04-arm` runner, pinned to `Neoverse-N2`, JDK 25,
+from branch `varka-575c-byte-load` (run 42177946163): the benchmark's own fuse check passes, so
+`TINYINT CAST(y AS BIGINT)` now plans as WHOLE there, and against the row path of the same run
+(Arrow-cached 2,000,000 rows):
+
+| `TINYINT CAST(y AS BIGINT)` | Row path | Varka | Speed-up |
+|---|---|---|---|
+| no nulls | 42.9 ns a row | 10.3 ns a row | 4.2 times |
+| one row in ten null | 41.3 ns a row | 7.8 ns a row | 5.3 times |
+
+The row path of run 42091113475, before the form, was 44.9 ns a row, which the same-run row path
+agrees with within the runner's spread. The neighbouring casts that fuse on that host run 2.8 to
+4 times faster than the row path, so the form is in line with them. Not measured: x86 at two long
+lanes, where `width_audit.json` records the mask calls of these shapes as not lowered, as for
+their `SMALLINT` twins; no host that prefers that width exists on x86 (`VARKA-332.md`, the
+2 November 2026 review), and the row-503 rule is read on the host the form serves, Arm.
+

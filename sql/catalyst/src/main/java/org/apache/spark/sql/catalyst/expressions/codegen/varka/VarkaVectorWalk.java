@@ -764,7 +764,11 @@ final class VarkaVectorWalk {
   private static void emitNarrowLoad(
       CodeBuilder cb, ColumnRef c, Lane stored, Analysis analysis, Slots s) {
     if (narrowRowsInEpilogue(analysis, s)) {
-      emitNarrowRowsLoad(cb, c, stored, analysis, s);
+      emitNarrowRowsLoad(cb, c, stored, analysis, s, true);
+      return;
+    }
+    if (narrowRowsInBody(analysis, s, stored)) {
+      emitNarrowRowsLoad(cb, c, stored, analysis, s, false);
       return;
     }
     int groups = analysis.narrowGroups();
@@ -820,29 +824,45 @@ final class VarkaVectorWalk {
   }
 
   /**
+   * Whether a narrow column in the loop body of a kernel driven at the long lane is read one row
+   * at a time as the epilogue reads it: the lane count is baked and the narrow species of twice
+   * the long lanes does not exist, as a byte at two long lanes would need a 32-bit one (VARKA-575).
+   * The loop stops while a whole group fits, so no row is past the batch and no bound is tested.
+   */
+  static boolean narrowRowsInBody(Analysis analysis, Slots s, Lane stored) {
+    return !s.epilogue
+        && analysis.lane.bits == Long.SIZE
+        && analysis.lanes != 0
+        && Lane.widenLanes(2 * analysis.lanes, stored) != 2 * analysis.lanes;
+  }
+
+  /**
    * A narrow column in the epilogue of a kernel driven at the long lane
    * ({@link #narrowRowsInEpilogue}): {@code [] -> [int vector]}, the int species of the long
    * width, zero, with lane {@code k} replaced by row {@code i + k} for each {@code k} below the
    * long lane count, read one row at a time by {@code VarkaVectorSupport.byteAt} or
-   * {@code shortAt}, and zero past the remainder {@code lanes}, as a masked load's inactive lanes
-   * read. The test is on scalars and every path pushes the same vector, so no vector value meets
+   * {@code shortAt}, and, when {@code bounded}, zero past the remainder {@code lanes}, as a masked
+   * load's inactive lanes read; the loop body's form ({@link #narrowRowsInBody}) reads every row.
+   * The test is on scalars and every path pushes the same vector, so no vector value meets
    * another at a join. {@code withLane} at a constant index is an insert, which C2 lowers on
    * every x86 with SSE4.1.
    */
   private static void emitNarrowRowsLoad(
-      CodeBuilder cb, ColumnRef c, Lane stored, Analysis analysis, Slots s) {
+      CodeBuilder cb, ColumnRef c, Lane stored, Analysis analysis, Slots s, boolean bounded) {
     emitConstantSpecies(cb, Lane.INT, analysis);
     cb.invokestatic(Lane.INT.vector, "zero", INT_ZERO);
     for (int k = 0; k < analysis.lanes; k++) {
       Label read = cb.newLabel();
       Label join = cb.newLabel();
       cb.loadConstant(k);                                       // [v, k]
-      cb.iload(s.lanes);
-      cb.loadConstant(k);
-      cb.if_icmpgt(read);
-      cb.loadConstant(0);                                       // [v, k, 0] past the remainder
-      cb.goto_(join);
-      cb.labelBinding(read);
+      if (bounded) {
+        cb.iload(s.lanes);
+        cb.loadConstant(k);
+        cb.if_icmpgt(read);
+        cb.loadConstant(0);                                     // [v, k, 0] past the remainder
+        cb.goto_(join);
+        cb.labelBinding(read);
+      }
       cb.aload(s.srcSeg(c.ordinal()));
       cb.iload(s.iVar);
       cb.loadConstant(k);
@@ -851,7 +871,9 @@ final class VarkaVectorWalk {
       cb.loadConstant(stored.byteStride);
       cb.lmul();                                                // (long) (i + k) * stride
       cb.invokestatic(SUPPORT, stored == Lane.BYTE ? "byteAt" : "shortAt", NARROW_AT);
-      cb.labelBinding(join);                                    // [v, k, row]
+      if (bounded) {
+        cb.labelBinding(join);                                  // [v, k, row]
+      }
       cb.invokevirtual(Lane.INT.vector, "withLane", INT_WITH_LANE);
     }
   }

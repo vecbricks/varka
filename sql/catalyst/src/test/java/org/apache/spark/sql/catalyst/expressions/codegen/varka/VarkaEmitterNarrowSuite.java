@@ -401,8 +401,9 @@ public final class VarkaEmitterNarrowSuite {
     // no narrow species at any lane count or width, the bigint lane's included: the word is a bit
     // per row at every lane (VARKA-480), so a null test lifted beside a bigint conjunct fuses. The
     // value form of the same widening is the narrow load at the long width (VARKA-332), which
-    // needs a byte species of twice the long lanes: served where the width has one, refused by
-    // name where it has not. Narrow arithmetic widened to the long lane has no lowering at all.
+    // needs a byte species of twice the long lanes: served where the width has one, and read
+    // one row at a time where it has not (VARKA-575). Narrow arithmetic widened to the long lane
+    // has no lowering at all.
     Cond validityOnly = new IsNotNull(BYTE_COL);
     Cond lifted = new IsNotNull(new WidenLane(BYTE_COL, LaneType.LONG));
     VarkaVectorIR value = new WidenLane(BYTE_COL, LaneType.LONG);
@@ -417,18 +418,29 @@ public final class VarkaEmitterNarrowSuite {
       // takes it (VARKA-480); a narrow value under one still has no lowering.
       assertTrue(VarkaKernelPlan.refusalOf(List.of(lifted), arm.options()).isEmpty(),
           arm.name());
-      // The outcome from the species the load names: none where no long lane count is baked,
-      // and otherwise a byte species of twice the long lanes, served where the width has it.
+      // The outcome: a refusal where no long lane count is baked, and otherwise none, the load
+      // being the byte species of twice the long lanes where the width has it and the rows one at
+      // a time where it has not (VARKA-575).
       int longLanes = Lane.emitLanes(arm.options(), Lane.LONG);
       Optional<String> expected = longLanes == 0
           ? Optional.of("a narrow column needs a baked lane count to be widened to the long lane")
-          : Lane.widenLanes(2 * longLanes, Lane.BYTE) == 2 * longLanes ? Optional.empty()
-          : Optional.of("a BYTE column has no load at " + longLanes + " long lanes");
+          : Optional.empty();
       assertEquals(expected, VarkaKernelPlan.refusalOf(List.of(value), arm.options()),
           arm.name());
       assertEquals(Optional.of("a narrow value under a bigint kernel has no lowering"),
           VarkaKernelPlan.refusalOf(List.of(computed), arm.options()), arm.name());
     }
+    // Two baked lanes are two long lanes, where a byte species of twice the long lanes would be a
+    // 32-bit one the Vector API lacks: the column is read row by row, not refused (VARKA-575).
+    // A configuration that bakes no lane count (validityByWidth off) has none to override, and
+    // refuses the widening for that reason alone.
+    int baked = Lane.emitLanes(TWO_LANES, Lane.LONG);
+    assertTrue(baked == 2 || baked == 0, "two long lanes, or none baked: " + baked);
+    assertEquals(
+        baked == 0
+            ? Optional.of("a narrow column needs a baked lane count to be widened to the long lane")
+            : Optional.<String>empty(),
+        VarkaKernelPlan.refusalOf(List.of(value), TWO_LANES));
   }
 
   @Test

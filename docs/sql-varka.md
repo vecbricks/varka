@@ -654,7 +654,7 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | Expression | Switches | Domain | Notes | 128-bit lanes |
 |---|---|---|---|---|
 | `CAST(y1 AS SMALLINT)` | `integralCast` |  | a sign extension at the int lane, no instruction; every byte value in the exhaustive suite | vector |
-| `CAST(y1 AS BIGINT)` | `integralCast` |  | the byte column loaded at the long width, widened in the int species and converted with I2L; exhaustive | not emitted: a BYTE column has no load at 2 long lanes |
+| `CAST(y1 AS BIGINT)` | `integralCast` |  | the byte column loaded at the long width, widened in the int species and converted with I2L; exhaustive | per-lane: mask broadcast, mask test |
 | `CAST(s1 AS BIGINT)` | `integralCast` |  | the short twin; exhaustive | per-lane: mask broadcast, mask test |
 | `CAST(s1 AS TINYINT)` | `integralCast` | `s1 BETWEEN -128 AND 127` | the low byte under the legacy mode; under ANSI a value past the byte range declines and the row engine raises CAST_OVERFLOW; exhaustive | vector |
 | `CAST(i AS TINYINT)` | `integralCast` | `i BETWEEN -128 AND 127` | the int narrowed at its store; checked under ANSI; the wrap and the range compare proven in casts.smt2 | vector |
@@ -665,7 +665,7 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `CAST(b AS SMALLINT)` | `integralCast` |  | the short twin; exhaustive | vector |
 | `CAST(b AS INT)` | `integralCast` |  | the int lane; exhaustive | vector |
 | `CAST(b AS BIGINT)` | `integralCast` |  | the long lane; exhaustive | per-lane: masked operation, mask broadcast |
-| `greatest(y1, l)` | `intArithmetic`, `integralCast` |  | type coercion widens the byte, loaded at the long width, to meet the bigint; differential | not emitted: a BYTE column has no load at 2 long lanes |
+| `greatest(y1, l)` | `intArithmetic`, `integralCast` |  | type coercion widens the byte, loaded at the long width, to meet the bigint; differential | per-lane: blend, mask broadcast, load or store, mask test |
 | `CAST(i + 1 AS TINYINT)` | `intArithmetic`, `integralCast` | `i BETWEEN -129 AND 126` | a computed int narrowed, the add checked under ANSI as any int add is; differential | vector |
 | `CAST(i < 5 AS TINYINT)` | `predicate`, `integralCast` |  | a comparison's value at the int lane, narrowed: a 0 or a 1 needs no wrap; differential | vector |
 
@@ -928,7 +928,7 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `CAST(i AS DOUBLE)` | `floatingCast` |  | exact: an int's 32 bits fit the double's 53 | per-lane: mask broadcast, mask test |
 | `CAST(y1 AS FLOAT)` | `floatingCast` |  | the byte widened at its load, then converted, exact | vector |
 | `CAST(s1 AS FLOAT)` | `floatingCast` |  | the short twin | vector |
-| `CAST(y1 AS DOUBLE)` | `floatingCast` |  | the byte loaded as a bigint kernel loads it, into the low half of the int species, then converted | not emitted: a BYTE column has no load at 2 long lanes |
+| `CAST(y1 AS DOUBLE)` | `floatingCast` |  | the byte loaded as a bigint kernel loads it, into the low half of the int species, then converted | per-lane: mask broadcast, mask test |
 | `CAST(s1 AS DOUBLE)` | `floatingCast` |  | the short twin | per-lane: mask broadcast, mask test |
 | `CAST(f AS DOUBLE)` | `floatingCast` |  | exact, a NaN's payload and both zeros kept | per-lane: mask broadcast, mask test |
 | `CAST(x AS FLOAT)` | `floatingCast` |  | rounded once; past the float range an infinity, never an error | per-lane: mask broadcast, load or store |
