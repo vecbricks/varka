@@ -278,6 +278,21 @@ EOF
 (check-sat)
 (pop 1)
 EOF
+  # The same check after a (reset), as round_to_odd.smt2 runs every check: the limit is given
+  # on the solver's command line, which a (reset) does not undo under either pinned solver.
+  cat > "$dir/limit_reset.smt2" <<'EOF'
+(set-logic QF_BV)
+(echo "a check before the reset: expect sat")
+(declare-const a (_ BitVec 8))
+(check-sat)
+(reset)
+(set-logic QF_BV)
+(declare-const n (_ BitVec 32))
+(echo "a check no solver finishes inside the limit, after a reset: expect unsat")
+(assert (not (= (bvadd ((_ extract 31 0) (bvashr (bvmul ((_ sign_extend 32) n)
+  #x000000002aaaaaab) #x0000000000000021)) (bvlshr n #x0000001f)) (bvsdiv n #x0000000c))))
+(check-sat)
+EOF
   cat > "$dir/missing.smt2" <<'EOF'
 (set-logic QF_NIA)
 (echo "a check whose verdict never comes: expect sat")
@@ -305,6 +320,19 @@ EOF
     run_file "$name" "$solver" "$dir/limit.smt2" ""
   }
   expect_run "a check past its time limit fails" fails past_limit
+  # Fails as unknown at the per-check limit, not by running on to the run limit.
+  past_limit_after_reset() {
+    local limit_ms=1000 run_limit=20
+    run_file "$name" "$solver" "$dir/limit_reset.smt2" "" > "$dir/reset.out" 2>&1
+    cat "$dir/reset.out"
+    if grep -q -E 'unknown$' "$dir/reset.out" && ! grep -q 'past the run limit' "$dir/reset.out"
+    then
+      return 1
+    fi
+    return 0
+  }
+  expect_run "a check past its time limit after a (reset) fails as unknown" fails \
+    past_limit_after_reset
   expect_run "an expectation with no verdict fails" fails \
     run_file "$name" "$solver" "$dir/missing.smt2"
   expect_run "a missing solver fails" fails \

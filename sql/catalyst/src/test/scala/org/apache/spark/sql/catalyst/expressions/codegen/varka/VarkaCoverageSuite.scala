@@ -759,6 +759,16 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
       Row("CAST(b AS SMALLINT)", "the short twin; exhaustive"),
       Row("CAST(b AS INT)", "the int lane; exhaustive"),
       Row("CAST(b AS BIGINT)", "the long lane; exhaustive"),
+      // TRY (VARKA-332): the same narrowings over the range guard's NULL mode, which makes the
+      // lane null where the value does not fit and never declines a batch.
+      Row("try_cast(s1 AS TINYINT)", "a nulling range guard: null where the short does not fit "
+        + "the byte, no declined batch; exhaustive"),
+      Row("try_cast(i AS TINYINT)", "the int's nulling guard over the byte range; differential"),
+      Row("try_cast(i AS SMALLINT)", "the short twin; differential"),
+      Row("try_cast(l AS TINYINT)", "the bigint's nulling guard, L2I and the byte store; "
+        + "differential"),
+      Row("try_cast(l AS SMALLINT)", "the short twin; differential"),
+      Row("try_cast(l AS INT)", "the bigint's nulling guard over the int range; differential"),
       Row("greatest(y1, l)", "type coercion widens the byte, loaded at the long width, to "
         + "meet the bigint; differential"),
       Row("CAST(i + 1 AS TINYINT)", "a computed int narrowed, the add checked under ANSI as "

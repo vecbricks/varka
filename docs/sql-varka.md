@@ -665,6 +665,12 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `CAST(b AS SMALLINT)` | `integralCast` |  | the short twin; exhaustive | vector |
 | `CAST(b AS INT)` | `integralCast` |  | the int lane; exhaustive | vector |
 | `CAST(b AS BIGINT)` | `integralCast` |  | the long lane; exhaustive | per-lane: masked operation, mask broadcast |
+| `try_cast(s1 AS TINYINT)` | `integralCast` |  | a nulling range guard: null where the short does not fit the byte, no declined batch; exhaustive | vector |
+| `try_cast(i AS TINYINT)` | `integralCast` |  | the int's nulling guard over the byte range; differential | vector |
+| `try_cast(i AS SMALLINT)` | `integralCast` |  | the short twin; differential | vector |
+| `try_cast(l AS TINYINT)` | `integralCast` |  | the bigint's nulling guard, L2I and the byte store; differential | per-lane: compare to mask, mask logic, mask cast |
+| `try_cast(l AS SMALLINT)` | `integralCast` |  | the short twin; differential | per-lane: compare to mask, mask logic, mask cast, mask broadcast, load or store |
+| `try_cast(l AS INT)` | `intArithmetic` |  | the bigint's nulling guard over the int range; differential | per-lane: compare to mask, mask logic, mask cast |
 | `greatest(y1, l)` | `intArithmetic`, `integralCast` |  | type coercion widens the byte, loaded at the long width, to meet the bigint; differential | per-lane: blend, mask broadcast, load or store, mask test |
 | `CAST(i + 1 AS TINYINT)` | `intArithmetic`, `integralCast` | `i BETWEEN -129 AND 126` | a computed int narrowed, the add checked under ANSI as any int add is; differential | vector |
 | `CAST(i < 5 AS TINYINT)` | `predicate`, `integralCast` |  | a comparison's value at the int lane, narrowed: a 0 or a 1 needs no wrap; differential | vector |
@@ -1060,7 +1066,7 @@ operands (a row counts once for each type it reads):
 <!-- BEGIN generated verification counts -->
 | Type | Rows | refinement | proof | exhaustive | owed | differential |
 | :--- | ---: | ---: | ---: | ---: | ---: | ---: |
-| `bigint` | 69 | 0 | 2 | 0 | 2 | 65 |
+| `bigint` | 72 | 0 | 2 | 0 | 2 | 68 |
 | `bool` | 32 | 0 | 0 | 13 | 0 | 19 |
 | `byte` | 33 | 0 | 0 | 0 | 8 | 25 |
 | `date` | 102 | 17 | 0 | 1 | 0 | 84 |
@@ -1068,9 +1074,9 @@ operands (a row counts once for each type it reads):
 | `double` | 54 | 0 | 0 | 0 | 0 | 54 |
 | `dt` | 25 | 2 | 0 | 0 | 0 | 23 |
 | `float` | 44 | 0 | 0 | 0 | 0 | 44 |
-| `int` | 122 | 14 | 2 | 0 | 1 | 105 |
+| `int` | 124 | 14 | 2 | 0 | 1 | 107 |
 | `ntz` | 24 | 0 | 1 | 0 | 0 | 23 |
-| `short` | 31 | 0 | 0 | 0 | 8 | 23 |
+| `short` | 32 | 0 | 0 | 0 | 8 | 24 |
 | `time` | 43 | 6 | 1 | 1 | 2 | 33 |
 | `ym` | 35 | 7 | 2 | 0 | 2 | 24 |
 <!-- END generated verification counts -->

@@ -29,7 +29,7 @@ byte	dt	TINYINT	INTERVAL MINUTE	declined	declined	declined
 byte	dt	TINYINT	INTERVAL MINUTE TO SECOND	declined	declined	declined
 byte	dt	TINYINT	INTERVAL SECOND	declined	declined	declined
 short	bool	SMALLINT	BOOLEAN	fused	fused	fused
-short	byte	SMALLINT	TINYINT	fused	fused	declined
+short	byte	SMALLINT	TINYINT	fused	fused	fused
 short	int	SMALLINT	INT	fused	fused	fused
 short	bigint	SMALLINT	BIGINT	fused	fused	fused
 short	float	SMALLINT	FLOAT	fused	fused	fused
@@ -50,8 +50,8 @@ short	dt	SMALLINT	INTERVAL MINUTE	declined	declined	declined
 short	dt	SMALLINT	INTERVAL MINUTE TO SECOND	declined	declined	declined
 short	dt	SMALLINT	INTERVAL SECOND	declined	declined	declined
 int	bool	INT	BOOLEAN	fused	fused	fused
-int	byte	INT	TINYINT	fused	fused	declined
-int	short	INT	SMALLINT	fused	fused	declined
+int	byte	INT	TINYINT	fused	fused	fused
+int	short	INT	SMALLINT	fused	fused	fused
 int	bigint	INT	BIGINT	fused	fused	fused
 int	float	INT	FLOAT	fused	fused	fused
 int	double	INT	DOUBLE	fused	fused	fused
@@ -71,9 +71,9 @@ int	dt	INT	INTERVAL MINUTE	declined	declined	declined
 int	dt	INT	INTERVAL MINUTE TO SECOND	declined	declined	declined
 int	dt	INT	INTERVAL SECOND	declined	declined	declined
 bigint	bool	BIGINT	BOOLEAN	fused	fused	fused
-bigint	byte	BIGINT	TINYINT	fused	fused	declined
-bigint	short	BIGINT	SMALLINT	fused	fused	declined
-bigint	int	BIGINT	INT	fused	fused	declined
+bigint	byte	BIGINT	TINYINT	fused	fused	fused
+bigint	short	BIGINT	SMALLINT	fused	fused	fused
+bigint	int	BIGINT	INT	fused	fused	fused
 bigint	float	BIGINT	FLOAT	declined	declined	declined
 bigint	double	BIGINT	DOUBLE	declined	declined	declined
 bigint	dec	BIGINT	DECIMAL(10,2)	declined	declined	declined

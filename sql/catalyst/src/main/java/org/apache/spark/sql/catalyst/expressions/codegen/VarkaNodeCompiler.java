@@ -760,16 +760,12 @@ final class VarkaNodeCompiler {
       VarkaSlotTable literals,
       DeclineSink sink) {
     Overflow mode = overflowOf(c.evalMode());
-    if (mode == Overflow.NULL) {
-      return sink.decline("try_cast of a bigint to int, whose null where the value does not "
-          + "fit is not fused (VARKA-332)", c);
-    }
     return compileNode(c.child(), inputs, literals, sink).flatMap(x -> {
       if (x.laneType() != LaneType.LONG) {
         return sink.decline("a bigint operand that is not on the long lane", c);
       }
-      VarkaVectorIR guarded = mode == Overflow.FAIL
-          ? new GuardedRange(x, Integer.MIN_VALUE, Integer.MAX_VALUE) : x;
+      VarkaVectorIR guarded = mode == Overflow.WRAP
+          ? x : new GuardedRange(x, Integer.MIN_VALUE, Integer.MAX_VALUE, mode);
       return Optional.of((VarkaVectorIR) new NarrowLane(guarded));
     });
   }

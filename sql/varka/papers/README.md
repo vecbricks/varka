@@ -116,3 +116,11 @@ Unified Regression Testing" (ICSE 2023, IEEE), and Gligoric, Eloussi and
 Marinov, "Practical Regression Test Selection with Dynamic File Dependencies"
 (ISSTA 2015, ACM). Neither copy prints terms that permit one here, so
 `plans/m8/READING_TEST_SELECTION.md` keeps the reading notes and the citations.
+
+Boldo and Melquiond, "Emulation of a FMA and correctly-rounded sums: proved algorithms using
+rounding to odd" (IEEE Transactions on Computers 57(4), 2008), was read on 4 November 2026 for
+`plans/m8/VARKA-343.md` 2.3 (row 343's `L2F` form on AVX2, which rests on its Theorem 3). Its HAL
+deposit, `inria-00080427v2`, carries the HAL Authorisation v1, which lets a reader read, consult and
+cite the paper and asks for the author's or rights holder's permission to reproduce it; so
+`plans/m8/READING_ROUNDING_TO_ODD.md` keeps the reading notes, the theorem's statement and the
+citation instead of a transcription.
