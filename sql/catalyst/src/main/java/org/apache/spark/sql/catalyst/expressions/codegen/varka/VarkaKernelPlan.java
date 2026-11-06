@@ -610,9 +610,9 @@ public final class VarkaKernelPlan {
    * Any other narrow node under a long kernel - a narrow literal, narrow arithmetic, a narrow
    * choice - has no lowering there and declines. The load reads as
    * many narrow lanes as the int species has, twice the long lanes, where the Vector API has that
-   * species: a byte column at two long lanes would need a 32-bit species, and the part form of
-   * the int-driven load is not built at the long width, so it declines, as a width with no baked
-   * lane count does.
+   * species; a byte column at two long lanes would need a 32-bit species, so the loop body reads
+   * its rows one at a time as the epilogue does ({@code VarkaVectorWalk.narrowRowsInBody},
+   * VARKA-575). A width with no baked lane count declines, as before.
    */
   private static Optional<Refusal> longNarrowRefusal(VarkaVectorIR root,
       VarkaEmitOptions options) {
@@ -625,12 +625,9 @@ public final class VarkaKernelPlan {
     if (longLanes == 0 && !loads.isEmpty()) {
       return Optional.of(new Refusal(Kind.NARROW, NO_BAKED_LONG_LANES));
     }
-    for (LaneType type : loads) {
-      if (Lane.widenLanes(2 * longLanes, Lane.of(type)) != 2 * longLanes) {
-        return Optional.of(new Refusal(Kind.NARROW, "a " + type + " column has no load at "
-            + longLanes + " long lanes"));
-      }
-    }
+    // A narrow species of twice the long lanes may not exist, as a byte's does not at two long
+    // lanes: the loop body then reads the column one row at a time, as the epilogue does
+    // (VarkaVectorWalk.narrowRowsInBody, VARKA-575).
     return Optional.empty();
   }
 
