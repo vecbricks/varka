@@ -50,4 +50,16 @@ public final class VarkaDayTimeIntervalConformanceSuite extends VarkaTypeConform
         integralValues(Long.MIN_VALUE, Long.MAX_VALUE), new long[] {1, -1},
         new PairForm("x + y", "+", halfRange(Long.MIN_VALUE, Long.MAX_VALUE)));
   }
+
+  /**
+   * A DAY TO SECOND interval cast to {@code BIGINT} divides microseconds by a million under a
+   * guard of {@code 2^52} microseconds, past which the batch declines and the row engine divides;
+   * the cast is checked over values inside the guard. The DAY end, exact over every long, is
+   * checked at the extremes in {@code VarkaEmitterIntervalCastSuite}.
+   */
+  @Override
+  protected long[] castValues(String to) {
+    long guard = 1L << 52;
+    return to.equals("bigint") ? integralValues(-(guard - 1), guard - 1) : null;
+  }
 }

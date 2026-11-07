@@ -36,6 +36,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Compare;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.CompareOp;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ConstDivide;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.GuardedRange;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IfElse;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IntArith;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IntNeg;
@@ -129,8 +130,9 @@ final class VarkaIntervalCompiler {
           () -> VarkaNodeCompiler.compileNode(c.child(), inputs, literals, sink);
       // `CAST(i AS INTERVAL YEAR)` in a value position, which is `12 * i` with an interval
       // output. `IntervalUtils.intToYearMonthInterval` computes it with `Math.multiplyExact`
-      // whatever the session's ANSI mode, so the multiply is checked and the bound is the only
-      // thing that removes it. The calendar family lowers the same cast the same way in
+      // whatever the session's ANSI mode, so the multiply is checked: a bound on the operand
+      // removes the check, and otherwise a range guard on the count stands in for it
+      // (`yearsToMonths`). The calendar family lowers the same cast the same way in
       // `add_months`' month-count position, through `yearsToMonths`.
       case Cast c when c.dataType().equals(YEAR_INTERVAL)
           && c.child().dataType().equals(DataTypes.IntegerType) ->
@@ -241,8 +243,26 @@ final class VarkaIntervalCompiler {
   }
 
   /**
-   * {@code 12 * i}, checked, for {@code CAST(i AS INTERVAL YEAR)}: this family's arm, and the
-   * calendar family's in {@code add_months}' month-count position.
+   * The largest count of years whose months fit an int: {@code Int.MaxValue / 12}. Spark's
+   * {@code intToYearMonthInterval} multiplies with {@code Math.multiplyExact}, so a year count
+   * outside {@code [-MAX_YEARS, MAX_YEARS]} raises {@code CAST_OVERFLOW}; the bounds are
+   * symmetric because 12 does not divide {@code 2^31} (`VARKA-332.md` 0.5).
+   */
+  static final long MAX_YEARS = Integer.MAX_VALUE / 12;
+
+  /**
+   * {@code 12 * i} for {@code CAST(i AS INTERVAL YEAR)}: this family's arm, and the calendar
+   * family's in {@code add_months}' month-count position. Spark checks the multiply in every
+   * evaluation mode, LEGACY included, so there are two cases:
+   *
+   * <ul>
+   *   <li>an operand whose bounds prove the product fits (`year(d)`) is the wrapping multiply
+   *       alone;
+   *   <li>any other operand is guarded by {@code [-MAX_YEARS, MAX_YEARS]}, and inside it the
+   *       wrapping multiply is exact. Under LEGACY and ANSI the guard {@code FAIL}s, declining
+   *       the batch so the row engine raises Spark's error on the row; under TRY it {@code NULL}s
+   *       the lane, Spark's {@code try_cast}.
+   * </ul>
    */
   static Optional<VarkaVectorIR> yearsToMonths(
       Cast c,
@@ -252,8 +272,14 @@ final class VarkaIntervalCompiler {
     int mark = literals.size();
     Optional<VarkaVectorIR> built = VarkaNodeCompiler.intOperand(c.child(), inputs, literals, sink);
     if (built.isPresent()) {
-      built = VarkaNodeCompiler.arithOver(
-          IntOp.MUL, Overflow.FAIL, built.get(), twelve(literals), c, literals, mark, sink);
+      VarkaVectorIR x = built.get();
+      LiteralSlot twelve = twelve(literals);
+      if (!VarkaNodeCompiler.cannotOverflow(IntOp.MUL, x, twelve, literals, sink)) {
+        Overflow mode = VarkaNodeCompiler.overflowOf(c.evalMode()) == Overflow.NULL
+            ? Overflow.NULL : Overflow.FAIL;
+        x = new GuardedRange(x, -MAX_YEARS, MAX_YEARS, mode);
+      }
+      built = Optional.of(new IntArith(IntOp.MUL, Overflow.WRAP, x, twelve));
     }
     return rolledBack(built, literals, mark);
   }

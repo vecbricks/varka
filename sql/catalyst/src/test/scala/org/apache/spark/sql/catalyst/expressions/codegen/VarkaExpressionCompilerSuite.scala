@@ -1251,17 +1251,26 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
 
   test("the YEAR-unit cast is a checked 12x, in both positions, bound permitting") {
     // `intToYearMonthInterval` multiplies by twelve with `Math.multiplyExact` whatever the
-    // session's ANSI mode, so the multiply is checked and only a bound removes it. `year(d)`
+    // session's ANSI mode, so the multiply is checked and a bound removes it. `year(d)`
     // is bounded (`YEAR_FIELD_MAGNITUDE`, 42400) and 42400 * 12 is inside int32; a bare int
-    // column is not bounded and
-    // declines like every other unbounded checked multiply.
+    // column is not bounded, so a range guard on its year count stands in for the check: the
+    // batch declines (LEGACY and ANSI) or the lane is nulled (TRY) past it, and the multiply
+    // inside it wraps.
     val bounded = VarkaExpressionCompiler.compile(
       Seq(out(Cast(Year(d), ymy.dataType))), withIntervals).get
     assert(bounded.outputs.asScala.toSeq === Seq(
       new IntArith(IntOp.MUL, Overflow.WRAP, new IRYear(inBound(0)), new LiteralSlot(0))))
     assert(bounded.outputTypes.asScala.toSeq === Seq(ymy.dataType))
-    assert(declineReason(Cast(i, ymy.dataType), withIntervals) ===
-      "checked int multiply whose operands do not rule out overflow")
+    for ((mode, guardMode) <- Seq(EvalMode.LEGACY -> Overflow.FAIL, EvalMode.ANSI -> Overflow.FAIL,
+        EvalMode.TRY -> Overflow.NULL)) {
+      val guarded = VarkaExpressionCompiler.compile(
+        Seq(out(Cast(i, ymy.dataType, None, mode))), withIntervals).get
+      val mul = guarded.outputs.asScala.head.asInstanceOf[IntArith]
+      assert(mul.op() === IntOp.MUL && mul.mode() === Overflow.WRAP)
+      val guard = mul.left().asInstanceOf[GuardedRange]
+      assert(guard.mode() === guardMode)
+      assert(guard.lo() === -(Int.MaxValue / 12) && guard.hi() === Int.MaxValue / 12)
+    }
 
     // The same expression in `add_months`' month-count position, which VARKA-68's emitter split
     // opened, fuses; `VarkaOperandPosition.MONTH_COUNT`, which the emitter checks, is what has
@@ -1271,8 +1280,10 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     assert(inCount.outputs.asScala.toSeq === Seq(new IRAddMonths(inBound(0),
       new IntArith(IntOp.MUL, Overflow.WRAP, new IRYear(inBound(0)),
         new LiteralSlot(0)))))
-    assert(declineReason(DateAddYMInterval(d, Cast(i, ymy.dataType)), withIntervals) ===
-      "checked int multiply whose operands do not rule out overflow")
+    // A bare column's count is guarded in that position too.
+    val guardedCount = VarkaExpressionCompiler.compile(
+      Seq(out(DateAddYMInterval(d, Cast(i, ymy.dataType)))), withIntervals).get
+    assert(guardedCount.outputs.asScala.head.isInstanceOf[IRAddMonths])
   }
 
   test("`d - ym` fuses, its count a checked negation the guard covers") {

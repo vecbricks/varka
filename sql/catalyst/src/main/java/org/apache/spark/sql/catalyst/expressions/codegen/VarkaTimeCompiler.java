@@ -144,6 +144,44 @@ final class VarkaTimeCompiler {
   private VarkaTimeCompiler() {
   }
 
+  /** Microseconds in one unit of a day-time interval's end field. */
+  private static long unitMicros(byte endField) {
+    if (endField == DayTimeIntervalType.DAY()) {
+      return DateTimeConstants.MICROS_PER_DAY;
+    }
+    if (endField == DayTimeIntervalType.HOUR()) {
+      return DateTimeConstants.MICROS_PER_HOUR;
+    }
+    if (endField == DayTimeIntervalType.MINUTE()) {
+      return DateTimeConstants.MICROS_PER_MINUTE;
+    }
+    if (endField == DayTimeIntervalType.SECOND()) {
+      return DateTimeConstants.MICROS_PER_SECOND;
+    }
+    throw VarkaErrors.illegalArgument("not a day-time interval field: " + endField);
+  }
+
+  /** {@code CAST(dt AS BIGINT)}; see the arm in {@link #arm}. */
+  private static Optional<VarkaVectorIR> dayTimeToLong(
+      Cast c,
+      DayTimeIntervalType from,
+      VarkaSlotTable inputs,
+      VarkaSlotTable literals,
+      DeclineSink sink) {
+    long unit = unitMicros(from.endField());
+    return VarkaNodeCompiler.compileNode(c.child(), inputs, literals, sink).flatMap(x -> {
+      if (x.laneType() != LaneType.LONG) {
+        return sink.decline("a day-time interval operand that is not on the long lane", c);
+      }
+      if (unit == DateTimeConstants.MICROS_PER_DAY) {
+        return Optional.of(VarkaNodeCompiler.truncDivLong(x, unit, sink));
+      }
+      long bound = ConstDivide.EXACT_DIVIDEND_BOUND;
+      return Optional.of((VarkaVectorIR) new ConstDivide(
+          new GuardedRange(x, -(bound - 1), bound - 1), unit, bound));
+    });
+  }
+
   /**
    * The arm that claims {@code e}, or {@code null}: the long-lane and TIME arms of
    * {@code compileNode}, in their original order - the leaves and casts, and the
@@ -212,6 +250,15 @@ final class VarkaTimeCompiler {
           && c.child().dataType() instanceof DayTimeIntervalType ->
           () -> sink.decline(
               "day-time interval narrowed to a coarser end field, which truncates", c);
+      // `CAST(dt AS BIGINT)`: the day-time interval's whole units, `v / unit` for the end field's
+      // unit over Java's truncating `/` (`IntervalUtils.dayTimeIntervalToLong`). It cannot fail in
+      // any mode, so LEGACY, ANSI and TRY are one kernel. A DAY end is the exact division over
+      // every long (`truncDivLong`); a coarser unit has no exact full-range form, so its dividend
+      // is guarded to |v| < 2^52 microseconds (about 142 years) and a batch holding a longer
+      // interval goes to the row engine, which divides it (`VARKA-332.md` 2.4).
+      case Cast c when c.dataType().equals(DataTypes.LongType)
+          && c.child().dataType() instanceof DayTimeIntervalType from ->
+          () -> dayTimeToLong(c, from, inputs, literals, sink);
       // A TIME expression, which arrives as the StaticInvoke its RuntimeReplaceable rewrote
       // itself into (see `TIME_TARGETS`). The lowered ones are matched by the method they
       // invoke; the rest decline by name through the same table.
