@@ -1,0 +1,16 @@
+# Written by VarkaFuzzTypesSuite from VarkaFuzzTypes (VARKA-352); regenerate with VARKA_FUZZ_TYPES_REGEN=true build/sbt 'catalyst/testOnly *VarkaFuzzTypesSuite'
+id	lane	ir	ir_seed	spark	spark_columns	values
+BOOLEAN	-	owed:331	-	owed:352	-	present
+BYTE	BYTE	owed:352	-	owed:352	-	present
+SHORT	SHORT	owed:352	-	owed:352	-	present
+INT	INT	present	20260903	present	i,m,y,mm	present
+LONG	LONG	present	20260919	present	l,l2	present
+FLOAT	FLOAT	owed:341	-	present	f,f2	present
+DOUBLE	DOUBLE	owed:341	-	present	x,x2	present
+DECIMAL	LONG	owed:347	-	owed:347	-	owed:347
+DATE	INT	present	20260903	present	d,d2	present
+TIMESTAMP_NTZ	LONG	present	20260919	present	ntz,ntz2	present
+TIME	LONG	present	20260919	present	t,t2	present
+YM_INTERVAL	INT	present	20260903	present	ymm,ymy,ym	present
+DT_INTERVAL	LONG	present	20260919	present	dt,dt2	present
+TIMESTAMP	-	n/a	-	n/a	-	n/a

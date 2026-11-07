@@ -62,6 +62,10 @@ steps=()
 envs=(SPARK_LOCAL_IP=127.0.0.1)
 want sql/varka/types.tsv && {
   envs+=(VARKA_TYPES_REGEN=true); steps+=("catalyst/testOnly *VarkaTypesSuite"); }
+# The fuzz descriptor's table is a tool-written file the merge driver does not merge (its name
+# would collide with types.tsv's), so it is regenerated on every --all run and never owed.
+[ $all = 1 ] && {
+  envs+=(VARKA_FUZZ_TYPES_REGEN=true); steps+=("catalyst/testOnly *VarkaFuzzTypesSuite"); }
 want sql/varka/plans/m8/casts_fused.tsv && {
   envs+=(VARKA_CASTS_REGEN=true); steps+=("catalyst/testOnly *VarkaCastMatrixSuite"); }
 audit=0; bytes=0

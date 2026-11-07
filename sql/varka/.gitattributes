@@ -10,6 +10,7 @@
 /plans/m8/casts_fused.tsv merge=varka-generated
 # Other files a tool writes (VARKA-554): the pull-request size check does not count them, and
 # GitHub folds them in a diff. Results files under results/ and benchmarks/ need no line here.
+/fuzz/types.tsv linguist-generated
 /ci/step-budget.tsv linguist-generated
 /ci/suite-times.tsv linguist-generated
 /matrix/*seconds.tsv linguist-generated
