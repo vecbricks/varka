@@ -466,6 +466,13 @@ final class VarkaChronoCompiler {
       if (br.dataType().equals(DataTypes.IntegerType)) {
         return Optional.of(VarkaNodeCompiler.columnRef(br, inputs, LaneType.INT));
       }
+      // A TINYINT or SMALLINT offset (VARKA-329): Spark's DateAdd takes it as it is, and the
+      // kernel reads it widened to the int lane, a sign extension that is exact in every mode.
+      Optional<LaneType> narrow = VarkaTypes.lane(br.dataType()).filter(LaneType::isNarrow);
+      if (narrow.isPresent()) {
+        return Optional.of(new VarkaVectorIR.WidenLane(
+            VarkaNodeCompiler.columnRef(br, inputs, narrow.get()), LaneType.INT));
+      }
       return sink.decline("non-integer day offset column of type " + br.dataType().simpleString(),
           br);
     }
