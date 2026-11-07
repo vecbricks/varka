@@ -1,0 +1,83 @@
+================================================================================================
+decimal lane pair hand loops at 512 bits, forms [a, p, s]
+================================================================================================
+
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-42-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+4096 rows - in L2, 256 KB:                      Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------------
+1. the load and its 10^38 check, P                          6              6           0       2772.7           0.4       1.0X
+1. the load and its 10^38 check, A                          6              7           0       2592.0           0.4       0.9X
+1. the load and its 10^38 check, S                         11             11           0       1543.0           0.6       0.6X
+2. x < y into a selection word, P                           5              5           0       3517.8           0.3       1.3X
+2. x < y into a selection word, A                           4              4           0       3850.8           0.3       1.4X
+2. x < y into a selection word, S                          11             11           0       1573.0           0.6       0.6X
+3. -x stored, P                                             4              4           0       4202.4           0.2       1.5X
+3. -x stored, A                                             2              2           0       7329.6           0.1       2.6X
+3. -x stored, S                                             8              8           0       2158.7           0.5       0.8X
+3. abs(x) stored, P                                         5              5           0       3613.7           0.3       1.3X
+3. abs(x) stored, A                                         4              4           0       4169.4           0.2       1.5X
+3. abs(x) stored, S                                         7              7           0       2378.2           0.4       0.9X
+4. CASE WHEN x < y THEN x ELSE y END stored, P              7              7           0       2338.9           0.4       0.8X
+4. CASE WHEN x < y THEN x ELSE y END stored, A              4              4           0       4194.0           0.2       1.5X
+4. CASE WHEN x < y THEN x ELSE y END stored, S             10             10           0       1660.3           0.6       0.6X
+5. x * y into 256 bits, stored, P                          34             34           0        496.7           2.0       0.2X
+5. x * y into 256 bits, stored, S                          55             55           0        307.7           3.2       0.1X
+6. the product's 10^38 check, P                             6              6           0       2592.8           0.4       0.9X
+6. the product's 10^38 check, S                            17             18           0        965.2           1.0       0.3X
+7. HALF_UP of x / 10^6 stored, P                           37             37           0        449.8           2.2       0.2X
+7. HALF_UP of x / 10^6 stored, S                           57             57           1        296.5           3.4       0.1X
+
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-42-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+262144 rows - in L3, 16 MB:                     Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------------
+1. the load and its 10^38 check, P                          6              6           0       2771.8           0.4       1.0X
+1. the load and its 10^38 check, A                          6              7           0       2643.3           0.4       1.0X
+1. the load and its 10^38 check, S                         14             14           0       1205.8           0.8       0.4X
+2. x < y into a selection word, P                           5              5           0       3206.4           0.3       1.2X
+2. x < y into a selection word, A                           5              5           0       3511.4           0.3       1.3X
+2. x < y into a selection word, S                          72             74           2        232.3           4.3       0.1X
+3. -x stored, P                                             4              4           0       3879.9           0.3       1.4X
+3. -x stored, A                                             4              4           0       4435.9           0.2       1.6X
+3. -x stored, S                                             8              8           0       2131.9           0.5       0.8X
+3. abs(x) stored, P                                         5              5           0       3426.1           0.3       1.2X
+3. abs(x) stored, A                                         4              5           0       3756.1           0.3       1.4X
+3. abs(x) stored, S                                        50             51           1        335.9           3.0       0.1X
+4. CASE WHEN x < y THEN x ELSE y END stored, P              8              9           0       1981.6           0.5       0.7X
+4. CASE WHEN x < y THEN x ELSE y END stored, A              6              7           0       2648.0           0.4       1.0X
+4. CASE WHEN x < y THEN x ELSE y END stored, S             66             67           0        253.0           4.0       0.1X
+5. x * y into 256 bits, stored, P                          37             37           0        452.0           2.2       0.2X
+5. x * y into 256 bits, stored, S                          89             90           1        188.0           5.3       0.1X
+6. the product's 10^38 check, P                             7              7           0       2442.6           0.4       0.9X
+6. the product's 10^38 check, S                            68             68           0        245.9           4.1       0.1X
+7. HALF_UP of x / 10^6 stored, P                           37             37           0        449.2           2.2       0.2X
+7. HALF_UP of x / 10^6 stored, S                          133            133           0        126.6           7.9       0.0X
+
+OpenJDK 64-Bit Server VM 25.0.4.1+1-1-26.04.4-Ubuntu on Linux 7.0.0-42-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+4194304 rows - past L3, 256 MB:                 Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------------
+1. the load and its 10^38 check, P                          7              7           0       2565.8           0.4       1.0X
+1. the load and its 10^38 check, A                          7              7           0       2433.2           0.4       0.9X
+1. the load and its 10^38 check, S                         16             16           0       1059.7           0.9       0.4X
+2. x < y into a selection word, P                          10             10           1       1698.3           0.6       0.7X
+2. x < y into a selection word, A                          10             10           0       1693.6           0.6       0.7X
+2. x < y into a selection word, S                          78             79           0        214.7           4.7       0.1X
+3. -x stored, P                                            12             13           0       1342.5           0.7       0.5X
+3. -x stored, A                                            12             13           0       1345.7           0.7       0.5X
+3. -x stored, S                                            13             13           0       1318.3           0.8       0.5X
+3. abs(x) stored, P                                        13             13           0       1331.6           0.8       0.5X
+3. abs(x) stored, A                                        13             13           0       1338.2           0.7       0.5X
+3. abs(x) stored, S                                        53             53           0        315.6           3.2       0.1X
+4. CASE WHEN x < y THEN x ELSE y END stored, P             19             19           0        904.1           1.1       0.4X
+4. CASE WHEN x < y THEN x ELSE y END stored, A             19             19           0        877.8           1.1       0.3X
+4. CASE WHEN x < y THEN x ELSE y END stored, S             70             71           0        238.9           4.2       0.1X
+5. x * y into 256 bits, stored, P                          44             44           0        378.5           2.6       0.1X
+5. x * y into 256 bits, stored, S                          94             94           0        178.1           5.6       0.1X
+6. the product's 10^38 check, P                            12             12           0       1415.3           0.7       0.6X
+6. the product's 10^38 check, S                            70             71           0        238.4           4.2       0.1X
+7. HALF_UP of x / 10^6 stored, P                           38             39           0        435.9           2.3       0.2X
+7. HALF_UP of x / 10^6 stored, S                          133            133           0        126.3           7.9       0.0X
+
+
