@@ -165,8 +165,8 @@ The sources of each cell:
 
 ### What differs from the row text and the milestone plan
 
-- **The double rule is computed as the exact rule below precision 17** (item 14), a refinement put
-  to the owner as question 1 of section 8, not a departure: the semantics are the owner's answer -
+- **The double rule is computed as the exact rule below precision 17** (item 14), a refinement
+  accepted by the owner on 7 November 2026 (question 1 of section 8), not a departure: the semantics are the owner's answer -
   the double rule at every precision - and the kernel's answer is that rule's on every input; what
   changes is the lowering and what proves it. Two thresholds follow, for two different casts:
   **decimal to an integral type** needs the double only at `p >= 17`, and **decimal to a floating
@@ -571,6 +571,11 @@ reading and row 503 decline.
    **Recommended: (a)**: integer arithmetic below 17 costs a truncating division where (b) costs an
    `L2D`, a divide, two floating compares and a `D2I` - the conversions being the EPYC 7763's
    fallbacks or 343's AVX2 forms - and it adds an SMT proof without removing the sampled one.
+
+   *7 November 2026, by the owner's word:* (a). This changes the owner's 16 October clause that
+   the double rule is "proven by the sampled arm and not SMT": below precision 17 the integer rule
+   is now also proven by SMT, the sampled checks against Spark's `Cast` kept at every precision;
+   at 17 and 18 the kernel takes the double through 366's arm.
 2. **2.2's guard wording, flagged as the owner's text.** The milestone plan's 2.2 states the
    `DOUBLE` guard as `(long) (double) u == u`; this plan builds the cheaper form the lead settled
    (precision rules, and `abs(u) <= 2^53` wherever a guard is used), equally correct. The text is
