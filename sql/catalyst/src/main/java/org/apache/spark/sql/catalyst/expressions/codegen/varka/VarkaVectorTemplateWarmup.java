@@ -798,6 +798,11 @@ final class VarkaVectorTemplateWarmup {
         acc += (long) (x.lanewise(VectorOperators.ABS).lane(0)
             + x.lanewise(VectorOperators.SQRT).lane(0)) + y.compare(VectorOperators.EQ, 0.0)
             .toLong();
+        // The rounding's calls (VARKA-344): the compare against the scalar 2^52, and the sign
+        // bit taken from one lane view and or-ed into another.
+        acc += x.compare(VectorOperators.LT, 0x1.0p52).toLong()
+            + (long) x.reinterpretAsLongs().and(Long.MIN_VALUE).or(y.reinterpretAsLongs())
+            .reinterpretAsDoubles().lane(0);
       }
       return acc;
     }

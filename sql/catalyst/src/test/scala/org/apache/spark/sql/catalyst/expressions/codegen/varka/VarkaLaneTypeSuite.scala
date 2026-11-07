@@ -121,6 +121,7 @@ class VarkaLaneTypeSuite extends SparkFunSuite with VarkaTestWatchdog {
     // slot and refuses an int child (VARKA-157), and the conversion, one side of which is
     // floating (VARKA-343).
     assert(everyIntNode.map(_.getClass).toSet + classOf[WidenLane] + classOf[MathUnary] +
+      classOf[RoundToIntegral] +
       classOf[DecimalColumn] + classOf[WidenDecimal] + classOf[ConvertLane] ===
       concreteNodeTypes(classOf[VarkaVectorIR]) - classOf[CrossLane]) // its child: another lane
     val doubleCol = new ColumnRef(0, LaneType.DOUBLE)
@@ -467,6 +468,7 @@ class VarkaLaneTypeSuite extends SparkFunSuite with VarkaTestWatchdog {
         case "WeekOfYear" => new WeekOfYear(new ThursdayOf(c))
         // A floating lane's only: refused at both integral lanes, and emitted at DOUBLE below.
         case "MathUnary" => new MathUnary(MathFn.SQRT, c)
+        case "RoundToIntegral" => new RoundToIntegral(RoundMode.RINT, c)
         // An int converted to a floating lane (VARKA-343): a column to FLOAT in an int kernel,
         // and a bigint narrowed to INT, then to DOUBLE, in one driven at the long lane. A bigint's
         // own conversion is refused by the plan, as L2D is intrinsic only with AVX512DQ.
@@ -496,7 +498,8 @@ class VarkaLaneTypeSuite extends SparkFunSuite with VarkaTestWatchdog {
     }
     val atLong = buildable.filter(_._1 == LaneType.LONG).map(_._2).toSet
     val atInt = buildable.filter(_._1 == LaneType.INT).map(_._2).toSet
-    assert(atInt + "MathUnary" === types.map(_.getSimpleName).toSet - "DecimalColumn",
+    assert(atInt + "MathUnary" + "RoundToIntegral" ===
+      types.map(_.getSimpleName).toSet - "DecimalColumn",
       "every integral node type but the decimal column is emittable at INT")
     val sqrt = new MathUnary(MathFn.SQRT, new ColumnRef(0, LaneType.DOUBLE))
     val sqrtBytes = VarkaLoopEmitter.emit("VarkaReachMathUnaryDOUBLE",

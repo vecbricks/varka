@@ -264,6 +264,7 @@ public final class VarkaSameAnswer {
               VarkaVectorIR.Chrono _, VarkaVectorIR.AddMonths _, VarkaVectorIR.MakeDate _,
               VarkaVectorIR.IntNeg _, VarkaVectorIR.ConstDivide _, VarkaVectorIR.BoundedDivide _,
               VarkaVectorIR.BitOp _, VarkaVectorIR.BitCount _, VarkaVectorIR.MathUnary _,
+              VarkaVectorIR.RoundToIntegral _,
               VarkaVectorIR.Cond _, VarkaVectorIR.GuardedDay _, VarkaVectorIR.GuardedRange _,
               VarkaVectorIR.WidenLane _, VarkaVectorIR.ConvertLane _, VarkaVectorIR.NarrowLane _,
               VarkaVectorIR.WidenDecimal _ -> byValueChildren(n);

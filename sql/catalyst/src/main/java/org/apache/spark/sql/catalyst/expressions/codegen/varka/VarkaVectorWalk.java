@@ -66,6 +66,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Las
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Least;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LiteralSlot;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.MathUnary;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.RoundToIntegral;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.MakeDate;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Month;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.NarrowLane;
@@ -264,6 +265,8 @@ final class VarkaVectorWalk {
       case BitOp n -> emitBitOp(cb, n, dense, analysis, s, computed);
       case BitCount n -> emitBitCount(cb, n, dense, analysis, s, computed);
       case MathUnary n -> emitMathUnary(cb, n, dense, analysis, s, computed);
+      case RoundToIntegral n ->
+          VarkaRoundingLowering.emitRint(cb, n, dense, analysis, s, computed);
       case DateDiff n -> {
         lane.requireInt(n);
         emitAndValidatedOp(cb, node, n.end(), n.start(), "sub", LANEWISE_VV,

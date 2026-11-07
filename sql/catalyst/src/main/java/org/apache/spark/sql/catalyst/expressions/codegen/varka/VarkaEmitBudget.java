@@ -697,6 +697,7 @@ final class VarkaEmitBudget {
       case BitCount n -> n.laneType() == VarkaVectorIR.LaneType.LONG ? 1 : 4;
       // The lanewise square root: one call.
       case VarkaVectorIR.MathUnary _ -> 1;
+      case VarkaVectorIR.RoundToIntegral _ -> 1;
     };
   }
 
