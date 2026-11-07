@@ -87,7 +87,10 @@ public enum VarkaFamily {
   INTEGRAL_CAST("integral cast", "integralCast", "the casts among tinyint, smallint, int,"
       + " bigint and boolean that the int arithmetic family does not hold: the narrowings to"
       + " tinyint and smallint (wrapping, or checked under ANSI), a tinyint or smallint widened"
-      + " to smallint or bigint, a number cast to boolean and a boolean cast to a number");
+      + " to smallint or bigint, a number cast to boolean and a boolean cast to a number"),
+  /** {@code VarkaRoundingCompiler}. */
+  ROUNDING("rounding", "rounding", "rint over a double, and floor, ceil and ceiling over bigint"
+      + " and int operands");
 
   /** The prefix every family's switch shares. */
   public static final String SWITCH_PREFIX = "spark.sql.codegen.varka.family.";

@@ -1034,6 +1034,17 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
       Row("f * 2.5F"),
       Row("-f"),
       Row("abs(f)"))),
+    // The rounding functions (VARKA-344): rint is the 2^52 construction, exact in every mode;
+    // floor and ceil of a bigint are the operand and of an int its widening to a bigint, exact
+    // in every mode.
+    Family("Rounding", predicates = false, Seq(
+      Row("rint(x)", "the nearest integer, a tie to the even one, the sign kept on a zero"),
+      Row("floor(l)", "the identity over a bigint, in every mode"),
+      Row("ceil(l)"),
+      Row("ceiling(l)", "ceil by another name"),
+      Row("floor(i)", "FLOOR(CAST(i AS DOUBLE)): the int widened to a bigint, exact in every "
+        + "mode, with no conversion to a double"),
+      Row("ceil(i)"))),
     // A floating value as a boolean (VARKA-343 2.5): Spark's x != 0 in every mode, the negation
     // of the lane's EQ against zero, so a NaN is true and both zeros false; never an error.
     Family("Floating casts to BOOLEAN", predicates = false, Seq(

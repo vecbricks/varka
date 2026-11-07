@@ -37,6 +37,7 @@ import org.apache.spark.sql.catalyst.expressions.BitwiseXor;
 import org.apache.spark.sql.catalyst.expressions.BoundReference;
 import org.apache.spark.sql.catalyst.expressions.CaseWhen;
 import org.apache.spark.sql.catalyst.expressions.Cast;
+import org.apache.spark.sql.catalyst.expressions.Ceil;
 import org.apache.spark.sql.catalyst.expressions.Coalesce;
 import org.apache.spark.sql.catalyst.expressions.Divide;
 import org.apache.spark.sql.catalyst.expressions.DivideDTInterval;
@@ -45,6 +46,7 @@ import org.apache.spark.sql.catalyst.expressions.EqualNullSafe;
 import org.apache.spark.sql.catalyst.expressions.EqualTo;
 import org.apache.spark.sql.catalyst.expressions.EvalMode$;
 import org.apache.spark.sql.catalyst.expressions.Expression;
+import org.apache.spark.sql.catalyst.expressions.Floor;
 import org.apache.spark.sql.catalyst.expressions.GreaterThan;
 import org.apache.spark.sql.catalyst.expressions.GreaterThanOrEqual;
 import org.apache.spark.sql.catalyst.expressions.Greatest;
@@ -64,6 +66,7 @@ import org.apache.spark.sql.catalyst.expressions.MultiplyYMInterval;
 import org.apache.spark.sql.catalyst.expressions.NaNvl;
 import org.apache.spark.sql.catalyst.expressions.Pmod;
 import org.apache.spark.sql.catalyst.expressions.Remainder;
+import org.apache.spark.sql.catalyst.expressions.Rint;
 import org.apache.spark.sql.catalyst.expressions.RuntimeReplaceable;
 import org.apache.spark.sql.catalyst.expressions.ShiftLeft;
 import org.apache.spark.sql.catalyst.expressions.ShiftRight;
@@ -222,7 +225,8 @@ final class VarkaNodeCompiler {
       new Family(VarkaFamily.INT_ARITHMETIC, VarkaNodeCompiler::arithmeticArm),
       new Family(VarkaFamily.FLOATING_ARITHMETIC, VarkaFloatingCompiler::arm),
       new Family(VarkaFamily.FLOATING_CAST, VarkaFloatingCastCompiler::arm),
-      new Family(VarkaFamily.INTEGRAL_CAST, VarkaIntegralCastCompiler::arm));
+      new Family(VarkaFamily.INTEGRAL_CAST, VarkaIntegralCastCompiler::arm),
+      new Family(VarkaFamily.ROUNDING, VarkaRoundingCompiler::arm));
 
   /**
    * The predicate family, which is not a link of the chain: {@code compileNode} never claims a
@@ -376,6 +380,9 @@ final class VarkaNodeCompiler {
         || e instanceof Divide || e instanceof UnaryMinus || e instanceof Abs
         || e instanceof Sqrt || e instanceof ToDegrees || e instanceof ToRadians
         || (e instanceof Signum s && isFloating(s.child().dataType()))
+        // The rounding family's forms (VARKA-344): rint, and floor and ceil, whose arm builds
+        // the int operand's widening and declines a double or any other cast by name.
+        || e instanceof Rint || e instanceof Floor || e instanceof Ceil
         // The floating casts family's pairs (VARKA-343), by pair for the same reason.
         || (e instanceof Cast c && (VarkaFloatingCastCompiler.admits(c)
             || DataTypes.BooleanType.equals(c.dataType())))) {
