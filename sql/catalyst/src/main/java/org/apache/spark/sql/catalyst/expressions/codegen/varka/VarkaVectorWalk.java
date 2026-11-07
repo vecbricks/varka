@@ -214,7 +214,7 @@ final class VarkaVectorWalk {
         // reach it, since a kernel holding one has no dense body (nullsFromValidInputs).
         line(cb, analysis, node);
         cb.aload(s.species(lane));
-        lane.pushScalar(cb, 0);
+        lane.pushZero(cb);
         cb.invokestatic(lane.vector, "broadcast", lane.broadcast);
         if (!dense && s.ownWord.contains(node)) {
           cb.loadConstant(0L);

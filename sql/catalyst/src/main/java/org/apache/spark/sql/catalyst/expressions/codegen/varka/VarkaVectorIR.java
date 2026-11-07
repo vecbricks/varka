@@ -609,18 +609,14 @@ public sealed interface VarkaVectorIR
    * no slot, so it is structure and in the shape, as {@link CondConst} is. A null from valid
    * inputs, which a dense body cannot hold: {@code Analysis} sets {@code nullsFromValidInputs}
    * for a kernel holding one, so every batch takes the masked body, where the blend of
-   * {@link IfElse} answers null wherever it chooses this branch. The integral lanes only, which
-   * carry the eight types the row admits it for; a floating lane is refused until a row that
-   * needs it tests its emission. The narrow lanes carry it as the int and long ones do
-   * ({@code nullif} over a {@code TINYINT} or {@code SMALLINT}, VARKA-329): the emission is
-   * lane-generic, a broadcast zero in the lane's own species.
+   * {@link IfElse} answers null wherever it chooses this branch. Every value lane carries it
+   * ({@code nullif} over a {@code TINYINT} or {@code SMALLINT}, a {@code DOUBLE} or a
+   * {@code TIMESTAMP_NTZ}): the emission is lane-generic, a broadcast zero in the lane's own
+   * species, and no consumer reads the zero of a lane whose validity word is clear.
    */
   record NullValue(LaneType lane) implements VarkaVectorIR {
     public NullValue {
       Objects.requireNonNull(lane, "lane");
-      if (lane.isFloating()) {
-        throw VarkaErrors.illegalArgument("NullValue at the " + lane + " lane is untested");
-      }
     }
   }
 

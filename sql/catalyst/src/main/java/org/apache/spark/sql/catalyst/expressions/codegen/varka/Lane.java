@@ -361,6 +361,19 @@ enum Lane {
     }
   }
 
+  /**
+   * Pushes this lane's zero scalar, for the broadcast of a null value, whose vector data no
+   * consumer reads: the integral lanes' zero as {@link #pushScalar} writes it, and the floating
+   * lanes' positive zero.
+   */
+  void pushZero(CodeBuilder cb) {
+    switch (laneType) {
+      case BYTE, SHORT, INT, LONG -> pushScalar(cb, 0);
+      case FLOAT -> cb.loadConstant(0.0f);
+      case DOUBLE -> cb.loadConstant(0.0d);
+    }
+  }
+
   /** The most negative value of this lane: the one input a negate cannot represent. */
   long mostNegative() {
     return integral().mostNegative();

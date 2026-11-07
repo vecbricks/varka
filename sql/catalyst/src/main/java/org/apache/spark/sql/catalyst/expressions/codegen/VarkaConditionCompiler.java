@@ -292,9 +292,8 @@ final class VarkaConditionCompiler {
   /**
    * The null of {@code e}'s type as a value ({@link VarkaVectorIR.NullValue}): the missing ELSE
    * of a {@code CASE WHEN}, or a {@code NULL} literal at a choice's position. It exists for the
-   * eight types the narrow, int and long lanes carry as plain values; every other type declines
-   * with its name, until the row that adds the type's choices tests its null (VARKA-333.md
-   * section 9, open point 3).
+   * types the narrow, int, long and floating lanes carry as plain values, and a TIMESTAMP_NTZ on
+   * the long lane; every other type declines with its name.
    */
   private static Optional<VarkaVectorIR> nullLeaf(Expression e, DeclineSink sink) {
     DataType t = e.dataType();
@@ -306,11 +305,13 @@ final class VarkaConditionCompiler {
       // The narrow lanes carry their own null (VARKA-329): a broadcast zero in the narrow species.
       case BYTE -> Optional.of(LaneType.BYTE);
       case SHORT -> Optional.of(LaneType.SHORT);
-      // The floating lanes: NullValue refuses them until their emission is tested.
-      case FLOAT, DOUBLE -> Optional.empty();
-      // A decimal to precision 18 and an NTZ ride the long lane, but their own rows add their
-      // choices' null and its coverage rows.
-      case DECIMAL, TIMESTAMP_NTZ -> Optional.empty();
+      // The floating lanes carry a broadcast zero in their own species, null by its clear word.
+      case FLOAT -> Optional.of(LaneType.FLOAT);
+      case DOUBLE -> Optional.of(LaneType.DOUBLE);
+      // An NTZ rides the long lane as its microseconds.
+      case TIMESTAMP_NTZ -> Optional.of(LaneType.LONG);
+      // A decimal to precision 18 rides the long lane, but its own row adds its choices' null.
+      case DECIMAL -> Optional.empty();
       // No lane reads it as values.
       case TIMESTAMP -> Optional.empty();
     });
