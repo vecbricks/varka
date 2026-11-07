@@ -401,31 +401,43 @@ Predictions, registered before the spike and the build:
 1. **The baseline addition** (4).
 2. **The spike loops** (2.1), with 359's spike and rows 360 to 362's loops; the verdict in
    section 10.
-3. **363a, the helper and its 128-bit callers**: the node, the constant table and its proof file,
-   the lemma, the exemption's proof for 364's coercion cast, the class C sums at equal scales, the
-   cut products with `p1 + p2 <= 38`, tests 1, 4, 5 and 6, the filter coverage rows. Needs 359a,
-   360b and 362a.
-4. **363b, the 256-bit callers**: the cut products with `p1 + p2 >= 39`, the live check through
+3. **363a0, the constant table and its proof, needing no pair, node or emitter change** (split off
+   on 7 November 2026, by the owner's word, to land while 359a's pair layout does):
+   `VarkaDecimalScale`, the table of 2.3 by `(k, bound)` with the limbs of `c` and the shift `L`,
+   each shape taking the entry of the least bound above its own, and its reference arithmetic over
+   `BigInteger` and over 32-bit limbs, the test oracle of every later part; `decimal_scale.smt2`,
+   rendered from the table (3 item 6): the constants' claims and first failures, identities (1) and
+   (2), item 0.7's bounds and the lemma of 2.4; test 4's sweep of the result types against Spark's
+   rule, held to 2.5's table and `results/VARKA-363-shapes.txt`; test 1's values over the reference,
+   with no kernel; and the proof's time, stated in this plan. Needs nothing.
+4. **363a, the helper and its 128-bit callers**: the node, the emission of the constant's multiply
+   (the carry network, the check at full width and the planted carry as 3 item 6's remaining
+   checks, added to `decimal_scale.smt2`), the exemption's use for 364's coercion cast, the class C
+   sums at equal scales, the cut products with `p1 + p2 <= 38`, test 1 run through kernels, test
+   4's last step (the compiler's caller held to the sweep), test 5, the filter coverage rows. Needs
+   363a0, 359a, 360b and 362a.
+5. **363b, the 256-bit callers**: the cut products with `p1 + p2 >= 39`, the live check through
    row 481's mode (after 481 and 360c), the SPARK-45786 port, tests 2 and 3. Needs 362b.
-5. **363c, class C at unequal scales**: `WIDE` and `SPLIT` behind `decimalScaleDownAdd`.
-6. **363d, after 359b's store**: the projections, the measurement against the baseline at both
+6. **363c, class C at unequal scales**: `WIDE` and `SPLIT` behind `decimalScaleDownAdd`.
+7. **363d, after 359b's store**: the projections, the measurement against the baseline at both
    widths and 512 bits on the laptop, the predictions scored.
 
 | file | what |
 |---|---|
 | `varka/VarkaVectorIR.java`, `varka/VarkaVectorWalk.java`, `varka/Slots.java` | `ScaleDown` |
-| `varka/VarkaDecimalScale.java` (new) | the constant table, read by the emitter and the proofs |
+| `varka/VarkaDecimalScale.java` (new, 363a0) | the constant table and its reference arithmetic, read by the emitter, the proofs and the tests |
 | `varka/VarkaEmitOption.java`, `varka/VarkaEmitOptions.java` | `decimalScaleDownAdd` |
 | `VarkaDecimalCompiler.java` (rows 348 and 349's) | 2.5's callers |
 | `varka/VarkaEmitBudget.java`, the cost register, the warm-up | weight, feature, reach |
-| `sql/varka/proofs/decimal_scale.smt2`, `VarkaProofFiles.java` | 3 item 6 |
-| tests | rescale table, callers, SPARK-45786 port, type sweep, one-kernel test, coverage rows |
+| `sql/varka/proofs/decimal_scale.smt2`, `VarkaProofFiles.java` | 3 item 6, the table's part in 363a0 |
+| tests | rescale table (over the reference in 363a0), callers, SPARK-45786 port, type sweep (363a0), one-kernel test, coverage rows |
 | benchmark | the baseline sections, the spike loops, their results files |
 | generated | `coverage.json`, `docs/sql-varka.md`, `emitted_bytes.json`, `census.tsv` |
 
-**Size: large, in five pull requests after the baseline**: the spike loops about a day, 363a about
-four days, 363b three, 363c three, 363d one. Test time: the rescale table at 39 `k` and two bounds
-is pure kernels of the slot table's size, seconds; the type sweep under a second; the SPARK-45786
+**Size: large, in six pull requests after the baseline**: the spike loops about a day, 363a0 about
+two days, 363a about three, 363b three, 363c three, 363d one. Test time: the rescale table at 39 `k`
+and two bounds is pure kernels of the slot table's size, seconds; the type sweep under a
+second; the SPARK-45786
 port a thousand rows; the proof file has a constant per `(k, bound)` the compiler can meet and
 the lemma's cases, priced from its
 spiked form at VARKA-245's observed ratio in the calibration table, its time stated before it
