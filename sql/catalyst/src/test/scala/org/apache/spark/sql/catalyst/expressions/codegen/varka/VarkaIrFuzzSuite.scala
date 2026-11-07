@@ -1125,9 +1125,12 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
     }
     // The null-safe equality is out of this corpus for the reason the int one gives above, and
     // the decimal output for the reason given there: its draw is a sequence of its own.
+    // The null leaf is drawn by the nulling draw only (see the int corpus above). It counts as
+    // lane-generic here because the narrow lanes admit it (VARKA-329): the probe builds it with
+    // the first lane of the enum, which is the byte one.
     val missing = laneGeneric.map(_.getSimpleName) -- seen - "NullSafeEqual" - "BoolColumn" -
       "CondConst" - "BoolCompare" - "CondIf" - "BoolNullSafeEq" - "CondValue" - "BoolOutput" -
-      "WidenDecimal"
+      "WidenDecimal" - "NullValue"
     assert(missing.isEmpty,
       s"the long-lane generator never built: ${missing.toSeq.sorted.mkString(", ")} - add an " +
         "arm to LongShapes, or state here why the node type is deliberately out of its reach")

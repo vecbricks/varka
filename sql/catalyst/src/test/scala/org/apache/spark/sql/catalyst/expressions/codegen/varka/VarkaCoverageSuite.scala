@@ -678,7 +678,8 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
       Row("y1 IN (11 to 16 byte literals)",
         "an IN list this long arrives from the optimizer as an InSet and fuses the same way",
         Some(InSet(y1, (1 to 11).map(v => v.toByte.asInstanceOf[Any]).toSet)),
-        Some((1 to 11).map(v => s"${v}Y").mkString("y1 IN (", ", ", ")"))))),
+        Some((1 to 11).map(v => s"${v}Y").mkString("y1 IN (", ", ", ")"))),
+      Row("y1 BETWEEN y2 AND 5Y", "two comparisons and an AND at the byte lane"))),
 
     Family("TINYINT columns choosing values", predicates = false, Seq(
       Row("CASE WHEN y1 > y2 THEN y1 ELSE y2 END",
@@ -687,7 +688,16 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
         "byte a row and the missing row takes the constant"),
       Row("greatest(y1, y2)"),
       Row("least(y1, y2)"),
-      Row("coalesce(y1, y2)", "the first non-null of two narrow columns"))),
+      Row("coalesce(y1, y2)", "the first non-null of two narrow columns"),
+      Row("nvl(y1, y2)", "rewritten to coalesce(y1, y2)"),
+      Row("ifnull(y1, y2)", "rewritten to coalesce(y1, y2)"),
+      Row("nvl2(y1, y2, y1)", "rewritten to if(y1 IS NOT NULL, y2, y1)"),
+      Row("nullif(y1, y2)", "rewritten to if(y1 = y2, NULL, y1): the byte lane's null, a zero "
+        + "broadcast with its validity clear, so the kernel is masked-only"),
+      Row("nullifzero(y1)", "rewritten to if(y1 = 0, NULL, y1)"),
+      Row("CASE WHEN y1 > y2 THEN y1 END", "the missing ELSE is the null of the byte lane"),
+      Row("zeroifnull(y1)", "rewritten to coalesce(CAST(y1 AS INT), 0): an INT result, the "
+        + "literal 0 being an int, so the byte column is widened under the null test"))),
 
     // The SMALLINT twins of the eight rows above.
     Family("SMALLINT columns", predicates = true, Seq(
@@ -701,7 +711,8 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
       Row("s1 IN (11 to 16 short literals)",
         "an IN list this long arrives from the optimizer as an InSet and fuses the same way",
         Some(InSet(s1, (1 to 11).map(v => v.toShort.asInstanceOf[Any]).toSet)),
-        Some((1 to 11).map(v => s"${v}S").mkString("s1 IN (", ", ", ")"))))),
+        Some((1 to 11).map(v => s"${v}S").mkString("s1 IN (", ", ", ")"))),
+      Row("s1 BETWEEN s2 AND 5S", "the SMALLINT twin of the TINYINT range test"))),
 
     // The SMALLINT twins of the five choice rows above.
     Family("SMALLINT columns choosing values", predicates = false, Seq(
@@ -709,7 +720,32 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
       Row("if(s1 IS NULL, 5S, s1)", "the two-byte twin of the TINYINT constant choice"),
       Row("greatest(s1, s2)"),
       Row("least(s1, s2)"),
-      Row("coalesce(s1, s2)"))),
+      Row("coalesce(s1, s2)"),
+      Row("nvl(s1, s2)"),
+      Row("ifnull(s1, s2)"),
+      Row("nvl2(s1, s2, s1)"),
+      Row("nullif(s1, s2)"),
+      Row("nullifzero(s1)"),
+      Row("CASE WHEN s1 > s2 THEN s1 END"),
+      Row("zeroifnull(s1)", "an INT result, as the TINYINT twin"))),
+
+    // The bitwise operations at a narrow type (VARKA-329, row 335b): one lanewise operation on
+    // the narrow lane, whose result is sign-extended whenever its operands are, so none reduces.
+    // `bit_count` is the int node over the sign extension, an INT result in the popcount of 64
+    // bits, so `bit_count(-1Y)` is 64.
+    Family("Bitwise on narrow columns", predicates = false, Seq(
+      Row("y1 & y2"),
+      Row("y1 | y2"),
+      Row("y1 ^ y2"),
+      Row("~y1", "the byte XOR -1"),
+      Row("y1 & 5Y", "a narrow literal operand"),
+      Row("bit_count(y1)", "the popcount of the sign-extended value: a negative byte counts its "
+        + "56 high bits as well"),
+      Row("s1 & s2"),
+      Row("s1 | s2"),
+      Row("s1 ^ s2"),
+      Row("~s1"),
+      Row("bit_count(s1)", "a negative short counts its 48 high bits as well"))),
 
     // A narrow value meeting an int one (VARKA-329): Catalyst's coercion casts the narrow side
     // to int, and the cast is the column's widening load, so these are int kernels reading a
@@ -720,6 +756,14 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
     Family("TINYINT and SMALLINT widened to int, as values", predicates = false, Seq(
       Row("y1 + i", "an int add over a widened byte load, checked under ANSI as any int add is",
         domain = Some(s"CAST(y1 AS BIGINT) + i BETWEEN ${Int.MinValue} AND ${Int.MaxValue}")),
+      Row("CASE WHEN i < 0 THEN y1 END", "the byte lane's null beside an int guard: the choice "
+        + "runs on the int lane and stores one byte a row"),
+      Row("CASE WHEN i < 0 THEN s1 END", "the short twin"),
+      Row("date_add(d, y1)", "a byte offset, read widened to the int lane; the day sum wraps as "
+        + "the int offset's does"),
+      Row("date_add(d, s1)", "the short twin"),
+      Row("date_sub(d, y1)", "the offset subtracted: the same widened column"),
+      Row("date_sub(d, s1)"),
       Row("CAST(s1 AS INT)", "the widening alone, stored four bytes a row"),
       Row("CAST(y1 AS INT) * CAST(y2 AS INT)", "an int multiply that cannot overflow, the byte "
         + "columns' range bounding the product by 2^14, so it needs no check (VARKA-480)"),
