@@ -115,6 +115,17 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
   private val fuzzSeed = VarkaIrGrammar.FUZZ_SEED
   private val longFuzzSeed = VarkaIrGrammar.LONG_FUZZ_SEED
 
+  // Every column cell is drawn by its type's value source (`VarkaFuzzTypes`): the int lane's
+  // columns by `INT`'s, the long lane's by `LONG`'s. A source draws the uniform cell from the
+  // case's own stream, exactly as the grammar's `within` does, and replaces one cell in
+  // `-Dvarka.fuzz.edges` by an edge value of the type, the coin and the edge drawn from a stream
+  // of the case's own (`valueStream`). The default is no edges, so every cell is the uniform
+  // draw it always was; a hunt turns them on.
+  private val intValues = VarkaFuzzTypes.values(VarkaTypeId.INT)
+  private val longValues = VarkaFuzzTypes.values(VarkaTypeId.LONG)
+  private val edgeOneIn = sys.props.get("varka.fuzz.edges").map(_.toInt)
+    .getOrElse(VarkaFuzzTypes.ValueSource.NO_EDGES)
+
   // `-Dvarka.fuzz.seed` moves the fuzz trees only. A test that asserts a draw reaches a form (or
   // that the committed draws hold none) states a property of the grammar, so it draws at the
   // committed seed - `fuzzSeed`, `longFuzzSeed` or a `VarkaIrGrammar.*_FUZZ_SEED` - and passes or
@@ -178,6 +189,10 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
   private def ownStream(drawSeed: Long, iteration: Int, name: String): Random =
     new Random(new java.util.SplittableRandom(
       (drawSeed * 1000003L + iteration) ^ (name.hashCode * 0x9E3779B97F4A7C15L)).nextLong())
+
+  /** The stream the edge arm of a case's value sources draws from. */
+  private def valueStream(drawSeed: Long, iteration: Int): Random =
+    ownStream(drawSeed, iteration, "values")
 
   /**
    * The options only a decimal output's store reads (VARKA-157), in table order: `decimalStore`.
@@ -373,6 +388,7 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
     // every one at length 1) before it found anything about the kernel.
     val forceMasked = length > 1 && rnd.nextInt(4) == 0
     val options = randomOptions(rnd, base, drawSeed, iteration)
+    val values = valueStream(drawSeed, iteration)
     val data = Array.tabulate(numInputs, length) { (c, _) =>
       if (c == levelOrdinal) {
         // Exactly the codes TruncLevelLeaf produces; a value outside them is a lane the
@@ -381,8 +397,9 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
           DateTimeUtils.TRUNC_TO_YEAR - DateTimeUtils.TRUNC_TO_WEEK + 1)
       } else {
         // Uniform over the column's bound, the draw `VarkaIrGrammar.within` documents.
-        VarkaIrGrammar.intWithin(rnd,
-          if (c == smallOrdinal) VarkaChrono.MONTH_ARITH_MAX_MONTHS else intColumnBound)
+        intValues.draw(rnd, values,
+          if (c == smallOrdinal) VarkaChrono.MONTH_ARITH_MAX_MONTHS else intColumnBound,
+          edgeOneIn).toInt
       }
     }
 
@@ -423,8 +440,9 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
     val forceMasked = length > 1 && rnd.nextInt(4) == 0
     val drawnOptions = randomOptions(rnd, base, drawSeed, iteration)
     val options = if (!decimal) drawnOptions else drawOptions(rnd, drawnOptions, decimalOptions)
-    val data =
-      Array.tabulate(numInputs, length)((_, _) => VarkaIrGrammar.within(rnd, longColumnBound))
+    val values = valueStream(drawSeed, iteration)
+    val data = Array.tabulate(numInputs, length)(
+      (_, _) => longValues.draw(rnd, values, longColumnBound, edgeOneIn))
 
     val context = s"lane=long seed=$drawSeed iteration=$iteration " +
       s"roots=${roots.asScala.map(r => VarkaVectorIR.canonical(r)).mkString("[", ", ", "]")} " +
@@ -534,9 +552,10 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
     val patterns = patternIds.map(pattern(rnd, _, length))
     val forceMasked = length > 1 && rnd.nextInt(4) == 0
     val options = randomOptions(rnd, VarkaMatrix.base, mixedSeed, iteration)
+    val values = valueStream(mixedSeed, iteration)
     val data = Array.tabulate(numInputs, length) { (c, _) =>
-      if (c < drawn.intInputs) VarkaIrGrammar.intWithin(rnd, intColumnBound).toLong
-      else VarkaIrGrammar.within(rnd, longColumnBound)
+      if (c < drawn.intInputs) intValues.draw(rnd, values, intColumnBound, edgeOneIn)
+      else longValues.draw(rnd, values, longColumnBound, edgeOneIn)
     }
     val label = s"lane=mixed seed=$mixedSeed iteration=$iteration " +
       s"roots=${roots.asScala.map(r => VarkaVectorIR.canonical(r)).mkString("[", ", ", "]")} " +
