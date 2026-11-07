@@ -517,3 +517,37 @@ unchanged between refits and each refit's moves are listed; rows 431 and 432 are
 cross-type disagreement found is fixed or a named row.
 
 ## 10. Outcome
+
+### 10.1 Step 1 of 352a, the descriptor (7 November 2026)
+
+Built to 5 item 1: `VarkaFuzzTypes` and `VarkaFuzzTypesSuite` (catalyst, Java), an entry for each
+of the fourteen registry ids (the twelve the registry admits, `DECIMAL` with every site `Owed` to
+347, `TIMESTAMP` `NotApplicable`), `sql/varka/fuzz/types.tsv`, `dev/varka_new_lane.py` reading
+it in place of its regex over `new ColumnRef(` and its owed map for the fuzz grammar,
+`dev/varka_bytes_moved.py`, and the IR fuzzer's three column draws (`drawInt`, `drawLong`,
+`runOneMixed`) taking their cells from the `INT` and `LONG` value sources.
+
+*What the descriptor says today.* IR site `Present` for `INT`, `DATE`, `YM_INTERVAL` (the int
+corpus) and `LONG`, `TIMESTAMP_NTZ`, `TIME`, `DT_INTERVAL` (the long one); `Owed` to 352 for `BYTE`
+and `SHORT`, to 341 for `FLOAT` and `DOUBLE`, to 331 for `BOOLEAN`, to 347 for `DECIMAL`. Spark
+site `Present` for the nine types the fixture holds a column of, `Owed` to 352 for `BOOLEAN`,
+`BYTE`, `SHORT`. A `Present` IR site is tested, not declared: 100 shapes of its seed must hold a
+column leaf of its lane.
+
+*No draw moved.* The cells are the grammar's `within` draw from the case's own stream; the edge
+arm (one cell in `-Dvarka.fuzz.edges`, off by default) takes its coin and its edge from a stream of
+its own, and a test shows the main stream is where it was with the arm on or off. Proven on the
+fuzzer: `VarkaIrFuzzSuite`'s int, long and mixed draws with `-Dvarka.fuzz.answers`, 18603 batches
+before and after, byte-identical (`cmp`). `dev/varka_bytes_moved.py origin/master` prints nothing,
+`option_arms` included, and `dev/varka_regen_generated.sh --all` changed no file.
+
+*What differs from 2.1.* The conformance suites' value lists did not move into the descriptor
+(`ConformanceType` still holds them); the edges are the type's own range edges, listed again, and
+moving the lists is step 2's, with the narrow sequence that draws them. `SparkColumns` holds names,
+SQL types and the derived flag; the cell drawers, the pools, the catalyst grammar's `Type` and the
+`tlpShapes` (empty lists) come with steps 2 and 3. The check that an `Owed` site names an open row
+is only that the row is spelled as one: the plan's status is prose, and reading it is not built.
+369's open point 1 (a drawer that renders a typed value as `VALUES` text) is still open: a
+`ValueSource` yields lane bits and nothing renders them. The table is not under the merge driver,
+whose rules are keyed by file name and would take `fuzz/types.tsv` for `types.tsv`; it is marked
+generated, and `varka_regen_generated.sh --all` rewrites it.
