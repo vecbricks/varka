@@ -293,9 +293,10 @@ class VarkaEvaluatorComponentsSuite extends SparkFunSuite {
   }
 
   test("a session asking for the host's level resolves it once, from the host's features") {
-    // VARKA-538 test 3.2. Catches: a fallback host left at the conversion form, a converting
-    // or unknown host moved off the emitter's default, an explicit level the host overrides,
-    // and an unreadable feature list that throws or logs on every query.
+    // VARKA-538 test 3.2. Catches: a fallback host left at the conversion form, an AVX512DQ
+    // host not resolved to level 3 (where the plan admits a BIGINT conversion to a floating
+    // type, VARKA-343), an unknown host moved off the emitter's default, an explicit level the
+    // host overrides, and an unreadable feature list that throws or logs on every query.
     val fallsBack = new VarkaHostIsa.Reading("amd64", "avx, avx2, fma", null, 256)
     val converts = new VarkaHostIsa.Reading("amd64", "avx2, avx512f, avx512dq", null, 512)
     val arm = new VarkaHostIsa.Reading("aarch64", "fp, asimd, sve", null, 128)
@@ -308,7 +309,11 @@ class VarkaEvaluatorComponentsSuite extends SparkFunSuite {
     assert(VarkaSessionEmit.of(conf, fallsBack).useAVX === 2)
     assert(VarkaSessionEmit.of(conf, fallsBack).apply(VarkaEmitOptions.DEFAULTS)
       .convertsFallBack())
-    for (host <- Seq(converts, arm, unread)) {
+    val dq = VarkaSessionEmit.of(conf, converts)
+    assert(dq.useAVX === VarkaEmitOptions.AVX512_LEVEL)
+    assert(!dq.apply(VarkaEmitOptions.DEFAULTS).convertsMayFallBack())
+    assert(!dq.apply(VarkaEmitOptions.DEFAULTS).convertsFallBack())
+    for (host <- Seq(arm, unread)) {
       assert(VarkaSessionEmit.of(conf, host) === VarkaSessionEmit.DEFAULTS, host)
     }
     for (level <- Seq(VarkaEmitOptions.USE_AVX_UNKNOWN, 2, 3)) {
@@ -379,8 +384,8 @@ class VarkaEvaluatorComponentsSuite extends SparkFunSuite {
     // 256 bits and lost 1 to 2 at 128, so a fallback host resolves to level 2 only where its
     // preferred long species is at least 256 bits wide. Catches: the width ignored (a 128-bit
     // fallback host at level 2), the bound off by one width (a 256-bit host left at the
-    // default), and the width read where the features already said no (a converting host or an
-    // unread list moved to 2 at any width).
+    // default), and the width read where the features already said no (a converting host moved
+    // off level 3, or an unread list moved to 2 at any width).
     val avx2 = "avx, avx2, fma"
     def at(features: String, failure: String, bits: Int): Int = VarkaSessionEmit.resolve(
       new VarkaHostIsa.Reading("amd64", features, failure, bits))
@@ -390,7 +395,8 @@ class VarkaEvaluatorComponentsSuite extends SparkFunSuite {
     assert(at(avx2, null, 128) === unknown)
     assert(at(avx2, null, 0) === unknown, "an unread width")
     for (bits <- Seq(0, 128, 256, 512)) {
-      assert(at("avx2, avx512f, avx512dq", null, bits) === unknown, s"converting at $bits")
+      assert(at("avx2, avx512f, avx512dq", null, bits) === VarkaEmitOptions.AVX512_LEVEL,
+        s"converting at $bits")
       val loggedBefore = VarkaSessionEmit.setUnreadableLoggedForTesting(true)
       try {
         assert(at("", "IllegalAccessException: no export", bits) === unknown, s"unread at $bits")

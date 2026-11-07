@@ -673,6 +673,34 @@ Cut from #1303's final tree, without its `BIGINT` conversions (343a4), sweeps an
   `IF(x <=> x, d2, ...)` fuse, which the compiler suite now states.
 - **Open points:** 32-bit beside 64-bit roots stay open, `m9/SCOPE.md` item 15 (the owner's word).
 
+### 343a4 as built (6 November 2026, branch `varka-343a4-level3`)
+
+Cut from #1303's final tree and rebuilt on master, since master had moved under the files: the
+`BIGINT` to `FLOAT` and `DOUBLE` casts fuse where the emit level assures AVX512DQ.
+
+- **The admission.** `VarkaFloatingCastCompiler.admits` takes a `BIGINT` source, and
+  `VarkaKernelPlan.conversionRefusal` reads the options: `VarkaEmitOptions.convertsMayFallBack()`
+  (a level below 3, and the unknown one) declines `L2F` and `L2D` by name; a floating source
+  converted to an integral lane still declines at every level. The emitter lowers both through
+  `convertShape`, part 0.
+- **Why a second predicate.** `convertsFallBack()` picks the division's form and is optimistic at
+  the unknown level, where a wrong guess costs nothing. Whether a kernel exists is the opposite
+  error, a scalar Java loop inside a vector kernel, so the unknown level, the defaults' and an
+  unset session's, declines.
+- **The session.** `VarkaSessionEmit.resolve` maps an x86 host whose feature list was read and holds
+  AVX512DQ to level 3, a host without it to level 2 as before, and everything else (aarch64, an
+  unreadable list) to the unknown level; `SQLConf` and `VarkaFamily` say so. Level 3 keys apart
+  from the unknown level, so such a session caches its classes apart, with the same bytes.
+- **The matrix.** `VarkaMatrixRuns.emissionKey` has three classes, and `useAVX=3` runs as its own
+  configuration, the only one whose answer tests reach the kernel. `VarkaTypeConformance` takes
+  the `BIGINT` pairs from the level, not the register, which is written at the unknown level.
+- **Tests.** `VarkaEmitterFloatingCastSuite` holds five `BIGINT` shapes (to each type, beside a
+  double column and a float one, under an ANSI division) at every width, and the refusals at the
+  unknown level and below 3; `VarkaDifferentialHarnessSuite` compares eighteen extremes and
+  rounding cells with the row engine at level 3. No emitted-bytes, census or coverage record moves.
+- **Not here:** the AVX2 forms (343b1), which make the casts fuse at every level, and the fuzz
+  grammar and sweeps (343a5).
+
 ### 343b1's groundwork as built (4 November 2026)
 
 On branch `varka-343b1-proofs`, from master; no kernel, emitter or compiler code is touched.

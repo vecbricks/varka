@@ -714,12 +714,13 @@ final class VarkaVectorWalk {
 
   /**
    * The value on the stack, of lane {@code from}, as lane {@code to}: {@code I2L} and
-   * {@code L2I}, and the four conversions the kernel plan admits, {@code I2F}, {@code I2D},
-   * {@code F2D} and {@code D2F}, part 0, each into the target species of the width the emission
-   * bakes. A narrow value is widened once at its load and narrowed once at its store, so a
-   * conversion node over one names the lane it is already emitted at and emits nothing, and any
-   * other pair is a lowering this emitter has not built: {@code L2F} and {@code L2D}, and the
-   * conversions from a floating lane to an integral one, are row 343's later parts.
+   * {@code L2I}, and the six conversions to a floating lane and between the two, part 0, each
+   * into the target species of the width the emission bakes. A narrow value is widened once at
+   * its load and narrowed once at its store, so a conversion node over one names the lane it is
+   * already emitted at and emits nothing, and any other pair is a lowering this emitter has not
+   * built: the conversions from a floating lane to an integral one are row 343's second part.
+   * The kernel plan admits {@code L2F} and {@code L2D} only where the emit level assures
+   * AVX512DQ ({@code VarkaKernelPlan.conversionRefusal}).
    * The one form of the conversion: a long kernel's narrowing store converts through it too
    * ({@code VarkaBodyEmitter.emitNarrowStore}), into the low half of the int species.
    */
@@ -732,6 +733,8 @@ final class VarkaVectorWalk {
         : from == Lane.LONG && to == Lane.INT ? "L2I"
         : from == Lane.INT && to == Lane.FLOAT ? "I2F"
         : from == Lane.INT && to == Lane.DOUBLE ? "I2D"
+        : from == Lane.LONG && to == Lane.FLOAT ? "L2F"
+        : from == Lane.LONG && to == Lane.DOUBLE ? "L2D"
         : from == Lane.FLOAT && to == Lane.DOUBLE ? "F2D"
         : from == Lane.DOUBLE && to == Lane.FLOAT ? "D2F"
         : null;
