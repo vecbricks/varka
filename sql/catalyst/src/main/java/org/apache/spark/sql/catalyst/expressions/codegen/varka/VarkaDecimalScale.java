@@ -39,8 +39,9 @@ import java.util.List;
  * {@code e * Nmax < 2^L}, where {@code e = c * 5^k - 2^L} is how far {@code c} rounds up. Write
  * {@code N = q * 5^k + r}: then {@code N * c / 2^L = q + (r + N * e / 2^L) / 5^k}, and the sum
  * stays below {@code q + 1} while {@code r + N * e / 2^L < 5^k}, which {@code r <= 5^k - 1} and
- * {@code N * e / 2^L < 1} guarantee. {@link #of} picks the least such {@code L}, so the constant is
- * as narrow as the bound allows, and a narrower constant is fewer limb products in the kernel.
+ * {@code N * e / 2^L < 1} guarantee. {@link #derive} picks the least such {@code L}, so the
+ * constant is as narrow as the bound allows, and a narrower constant is fewer limb products in the
+ * kernel.
  *
  * <p>The condition is sufficient, not necessary, so {@link Entry#firstFailure} says where the
  * constant really stops being exact, and {@code decimal_scale.smt2} proves both ends. Nothing here
@@ -176,8 +177,8 @@ final class VarkaDecimalScale {
 
   /**
    * The least shift that meets {@code e * Nmax < 2^shift} for this {@code k} and bound, with the
-   * round-up multiplier it gives. The search starts at 0 and counts up, so the answer is the
-   * least by construction.
+   * round-up multiplier it gives. The search counts up from 1, so the answer is the least by
+   * construction.
    */
   static Entry derive(int k, BigInteger bound) {
     BigInteger divisor = BigInteger.valueOf(5).pow(k);

@@ -230,6 +230,12 @@ same network. The emitter takes the constant for the shape's own bound, from the
 column headroom, `VARKA-362.md` 2.1); only the words from bit `L` up are kept, and the low columns
 are still summed for their carries, no truncated product being proven (`READING_M8_PAPERS.md` 2).
 
+*7 November 2026, 363a0:* the constants are not derived for each shape's own bound but for nine
+rungs, `2^64 - 1`, `2^96 - 1`, `10^38 - 1`, `2 * 10^38 - 2`, `2^128 - 1`, `2^160 - 1`, `2^192 - 1`,
+`(10^38 - 1)^2` and `2^256 - 1`, and a shape takes the least rung at or above its bound, so the
+proof file states a finite table and still covers every shape; a shape just under a rung's bound
+may carry a limb more than its own bound would need.
+
 **Exact, or declined: exact.** For every `k` and bound the compiler meets, the constant is proven
 over the whole bound by the proof file (3 item 6), and the proof renderer finds the first `N`
 past the bound where it fails; no shape needs a decline band for the arithmetic. A shape still
