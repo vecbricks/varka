@@ -57,7 +57,7 @@ int	float	INT	FLOAT	fused	fused	fused
 int	double	INT	DOUBLE	fused	fused	fused
 int	dec	INT	DECIMAL(10,2)	declined	declined	declined
 int	dec	INT	DECIMAL(30,4)	declined	declined	declined
-int	ym	INT	INTERVAL YEAR	declined	declined	declined
+int	ym	INT	INTERVAL YEAR	fused	fused	fused
 int	ym	INT	INTERVAL YEAR TO MONTH	fused	fused	fused
 int	ym	INT	INTERVAL MONTH	fused	fused	fused
 int	dt	INT	INTERVAL DAY	declined	declined	declined
@@ -244,16 +244,16 @@ dt	int	INTERVAL HOUR TO SECOND	INT	declined	declined	declined
 dt	int	INTERVAL MINUTE	INT	declined	declined	declined
 dt	int	INTERVAL MINUTE TO SECOND	INT	declined	declined	declined
 dt	int	INTERVAL SECOND	INT	declined	declined	declined
-dt	bigint	INTERVAL DAY	BIGINT	declined	declined	declined
-dt	bigint	INTERVAL DAY TO HOUR	BIGINT	declined	declined	declined
-dt	bigint	INTERVAL DAY TO MINUTE	BIGINT	declined	declined	declined
-dt	bigint	INTERVAL DAY TO SECOND	BIGINT	declined	declined	declined
-dt	bigint	INTERVAL HOUR	BIGINT	declined	declined	declined
-dt	bigint	INTERVAL HOUR TO MINUTE	BIGINT	declined	declined	declined
-dt	bigint	INTERVAL HOUR TO SECOND	BIGINT	declined	declined	declined
-dt	bigint	INTERVAL MINUTE	BIGINT	declined	declined	declined
-dt	bigint	INTERVAL MINUTE TO SECOND	BIGINT	declined	declined	declined
-dt	bigint	INTERVAL SECOND	BIGINT	declined	declined	declined
+dt	bigint	INTERVAL DAY	BIGINT	fused	fused	fused
+dt	bigint	INTERVAL DAY TO HOUR	BIGINT	fused	fused	fused
+dt	bigint	INTERVAL DAY TO MINUTE	BIGINT	fused	fused	fused
+dt	bigint	INTERVAL DAY TO SECOND	BIGINT	fused	fused	fused
+dt	bigint	INTERVAL HOUR	BIGINT	fused	fused	fused
+dt	bigint	INTERVAL HOUR TO MINUTE	BIGINT	fused	fused	fused
+dt	bigint	INTERVAL HOUR TO SECOND	BIGINT	fused	fused	fused
+dt	bigint	INTERVAL MINUTE	BIGINT	fused	fused	fused
+dt	bigint	INTERVAL MINUTE TO SECOND	BIGINT	fused	fused	fused
+dt	bigint	INTERVAL SECOND	BIGINT	fused	fused	fused
 dt	dec	INTERVAL DAY	DECIMAL(10,2)	declined	declined	declined
 dt	dec	INTERVAL DAY	DECIMAL(30,4)	declined	declined	declined
 dt	dec	INTERVAL DAY TO HOUR	DECIMAL(10,2)	declined	declined	declined

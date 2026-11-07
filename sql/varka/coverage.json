@@ -476,8 +476,20 @@
     "operands" : [ "Cast:int" ],
     "switches" : [ ],
     "domain" : "",
-    "note" : "a relabel of the count; `CAST(i AS INTERVAL YEAR)` multiplies by twelve, checked, and declines over a bare int column",
+    "note" : "a relabel of the count; `CAST(i AS INTERVAL YEAR)` multiplies by twelve, checked",
     "verified" : "differential"
+  }, {
+    "sql" : "CAST(i AS INTERVAL YEAR)",
+    "executable" : "CAST(i AS INTERVAL YEAR)",
+    "family" : "Months and year-month intervals",
+    "form" : "projection",
+    "catalyst" : [ "Cast" ],
+    "casts" : [ "int>ym:ansi" ],
+    "operands" : [ "Cast:int" ],
+    "switches" : [ "spark.sql.codegen.varka.family.interval.enabled" ],
+    "domain" : "i BETWEEN -178956970 AND 178956970",
+    "note" : "a multiply by twelve behind a range guard on the year count, which Spark checks in every mode: a count past it declines the batch under LEGACY and ANSI, where the row engine raises, and nulls the lane under try_cast; inside it the wrapping multiply is exact",
+    "verified" : "exhaustive: VarkaEmitterIntervalCastSuite, the guard of INT to INTERVAL YEAR is multiplyExact's, over every int"
   }, {
     "sql" : "CAST(ymm AS INT)",
     "executable" : "CAST(ymm AS INT)",
@@ -3346,6 +3358,18 @@
     "domain" : "",
     "note" : "a comparison's value at the int lane, narrowed: a 0 or a 1 needs no wrap; differential",
     "verified" : "differential"
+  }, {
+    "sql" : "CAST(dt AS BIGINT)",
+    "executable" : "CAST(dt AS BIGINT)",
+    "family" : "Integral casts",
+    "form" : "projection",
+    "catalyst" : [ "Cast" ],
+    "casts" : [ "dt>bigint:ansi" ],
+    "operands" : [ "Cast:dt" ],
+    "switches" : [ "spark.sql.codegen.varka.family.time.enabled" ],
+    "domain" : "dt > INTERVAL '-50000' DAY AND dt < INTERVAL '50000' DAY",
+    "note" : "the whole seconds of a DAY TO SECOND interval: a truncating division by 10^6 under a guard of 2^52 microseconds, past which the row engine divides; the DAY end is exact over every long",
+    "verified" : "proof: long_divide.smt2"
   }, {
     "sql" : "CAST(y1 AS BOOLEAN)",
     "executable" : "CAST(y1 AS BOOLEAN)",
