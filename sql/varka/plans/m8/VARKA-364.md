@@ -180,7 +180,8 @@ The sources of each cell, and the facts the design rests on:
 - **Lanes with `|u| < 2^64` take one exact pass** (2.4), so a `DECIMAL(20, 2)` column of ordinary
   values reaches neither the second pass nor the correction.
 - **The double rule is computed as the exact rule below scale 7, 12 and 14** (item 6), a refinement
-  of the answer to question 3 in the shape of row 350's question 1, put to the owner (section 8).
+  of the answer to question 3 in the shape of row 350's question 1, accepted by the owner on 7
+  November 2026 (section 8, question 1).
 - **`BIGINT` raises above 18 under ANSI** (item 4): an integer check on the truncated pair, by SMT.
 - **`s >= 28`, 66 of the 590 types above 18 [A]**, declines by Varka's choice, as row 366's does (PR
   #1183's wording of 2.2; settled by the lead): a gap, recorded with one `m9/SCOPE.md` item shared
@@ -556,6 +557,10 @@ int-driven kernel (347's leaf rule); a negative scale; at two long lanes on x86 
    `ScaleDown` against the normalisation, a whole exact-arm pass and the correction, and an SMT
    proof added without removing the sampled one; it is row 350's question 1 at a scale threshold
    instead of a precision one.
+
+   *7 November 2026, by the owner's word:* (a). Below the threshold the kernel truncates with
+   `ScaleDown` and an SMT proof backs the integer rule, the sampled checks kept at every scale; at
+   and above it the kernel takes the double through 2.4.
 2. **Flagged, the owner's text: "accepted when equal and declined otherwise".** Row 364's text and
    the milestone plan's 2.2 ("declines the lane otherwise, about one in a thousand by the reading's
    estimate") treat the decline as rare; in Varka a decline is per batch, and the admission's draws
