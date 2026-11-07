@@ -233,9 +233,11 @@ class VarkaTimeArithmeticSuite extends QueryTest with VarkaMaybeThrows with Vark
       val host = VarkaHostIsa.host()
       // The level, not the options' predicate: a matrix configuration may set a base level the
       // session's unknown leaves in place.
-      val expected = if (host.conversionsFallBack() &&
-          host.longBits() >= VarkaSessionEmit.MAGIC_MIN_LONG_BITS) {
-        2
+      val expected = if (host.conversionsFallBack()) {
+        // Below AVX512DQ: the magic form where the long species is wide enough, else unknown
+        // (an AVX2 host under -XX:MaxVectorSize=16 has a 128-bit species).
+        if (host.longBits() >= VarkaSessionEmit.MAGIC_MIN_LONG_BITS) 2
+        else VarkaEmitOptions.USE_AVX_UNKNOWN
       } else if (host.x86() && host.readable() && !host.features().isEmpty) {
         VarkaEmitOptions.AVX512_LEVEL
       } else {

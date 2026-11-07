@@ -497,9 +497,11 @@ public final class VarkaEmitterFloatingCastSuite {
       check("cast(l > 5 AS " + target + ")", List.of(root), 1, new int[0], new long[] {5L},
           cells(LONGS));
     }
-    // The form it replaces, the long one or zero converted directly, is the refused one.
-    assertTrue(VarkaKernelPlan.refusalOf(List.of(convert(new CondValue(cond, LaneType.LONG),
-        LaneType.DOUBLE)), VarkaMatrixRuns.BASE).isPresent());
+    // The form it replaces, the long one or zero converted directly, is the refused one where
+    // the level does not assure AVX512DQ; at level 3 the conversion is admitted (row 343).
+    assertEquals(VarkaMatrixRuns.BASE.convertsMayFallBack(),
+        VarkaKernelPlan.refusalOf(List.of(convert(new CondValue(cond, LaneType.LONG),
+            LaneType.DOUBLE)), VarkaMatrixRuns.BASE).isPresent());
   }
 
   @Test
