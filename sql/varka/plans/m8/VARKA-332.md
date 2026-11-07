@@ -681,5 +681,74 @@ nulled in the validity word and the batch runs on, where the row engine used to 
   docs table regenerated.
 - The baseline class sets `try_cast(k AS TINYINT)` to `WHOLE`.
 
-Not done here: the Arm and 256-bit runs of the new section, the two interval casts, and the ANSI
-in-range value sets.
+Not done here: the Arm and 256-bit runs of the new section and the ANSI in-range value sets (the
+two interval casts are 10.3).
+
+### 10.3 The two interval casts that move numbers (6 November 2026, branch `varka-332e-interval-casts`)
+
+`CAST(i AS INTERVAL YEAR)` and `CAST(dt AS BIGINT)`, the two sections of the baseline that stayed
+`NONE`, fuse in LEGACY, ANSI and TRY. Section 5's step 4 assigned them to 332b behind row 481's
+`NULL` guard; that guard has merged (#1176), so neither needs more than a node that exists.
+
+- **`CAST(i AS INTERVAL YEAR)`** (`VarkaIntervalCompiler.yearsToMonths`). Spark multiplies with
+  `Math.multiplyExact` in every mode (item 0.5), so the year count is guarded by
+  `[-178956970, 178956970]` (`Int.MaxValue / 12`, symmetric since 12 does not divide `2^31`) and
+  the multiply by twelve wraps, exact inside the guard. The guard is `FAIL` under LEGACY and ANSI,
+  declining the batch so the row engine raises `CAST_OVERFLOW` on the row, and `NULL` under TRY.
+  An operand whose bounds already prove the product fits (`year(d)`, the calendar family's
+  `add_months` count) keeps the bare wrapping multiply, so no existing shape's bytes move. The
+  same function serves `add_months`' month-count position, where a bare `CAST(i AS INTERVAL
+  YEAR)` declined before and now fuses. A `TINYINT` or `SMALLINT` source is a different cast
+  (`intToYearMonthInterval` on a widened value, which cannot overflow) and is not claimed here.
+- **`CAST(dt AS BIGINT)`** (`VarkaTimeCompiler.dayTimeToLong`, for every field range). The
+  quotient is `v / unit` of the end field, Java's truncating division, and it cannot fail, so the
+  three modes are one kernel. A DAY end is `VarkaNodeCompiler.truncDivLong`, the plan's 2.4: the
+  dividend moved up by `(v >> 63) & (d - 1)` and floor-divided by `floorDivLong`, exact over
+  every long (`long_divide.smt2` proves the bias cannot overflow, that the floor division of the
+  biased dividend is `x / d` for every long, and that without the bias it is not). HOUR, MINUTE
+  and SECOND have no exact full-range form (item 0.8), so their dividend is guarded to
+  `|v| < 2^52` microseconds (about 142 years) and divided by `ConstDivide`; a longer interval
+  declines the batch and the row engine divides it, in every mode alike. Their divisors,
+  `3,600,000,000` and `60,000,000` (and `10^6` and the day's odd part, already there), join
+  `long_divide.smt2`, which `VarkaDivisorProofSuite` holds to what the cast matrix compiles.
+- **Decided where the plan left it open.** The plan's table (2.1) puts the interval casts in the
+  `INTEGRAL_CAST` family; they stay in the interval and time families whose columns they read,
+  as the existing MONTH and relabel arms do, so no family switch moves. A declined sub-day
+  batch under TRY is not nulled: Spark's answer is the quotient, so the row engine's is the right
+  one ("answers follow vanilla Spark exactly").
+- **Known limits.** A sub-day interval of 2^52 microseconds (about 142 years) or more sends its
+  whole batch to the row engine, so a column with a sentinel such as `Long.MAX_VALUE` loses fusion
+  for every batch holding one; the cliff is silent and no benchmark measures it. The year cast
+  and `CAST(dt AS BIGINT)` are gated by the interval and time switches, not `integralCast`, so
+  turning `integralCast` off leaves them fused.
+  A value that overflows only in a null row still declines a LEGACY or ANSI batch, because the
+  guard reads the stored slot; and under TRY in `add_months`' month-count position the nulled
+  count keeps its wrapped product, which the month-count guard declines, so that shape fuses only
+  while no count overflows. Both are declines, which the row engine answers; the suite holds
+  that no answer differs from Spark's. `verify_double_division.py` does not yet cover
+  the three sub-day divisors (the SMT file does).
+- **Tests.** `VarkaEmitterIntervalCastSuite`: the year guard against `multiplyExact` over every
+  int, the kernel's answers, declines and nulls around the guard's ends and over a spread of
+  counts in the three modes, and the division for all ten day-time field ranges in the three
+  modes at the unit's multiples, the `2^52` guard's ends, the long's ends and a spread, each row
+  held to Spark's `Cast.eval`. Coverage rows `CAST(i AS INTERVAL YEAR)` and `CAST(dt AS BIGINT)`.
+  `casts_fused.tsv` flips 11 forms: `int` to `INTERVAL YEAR` and the ten `dt` to `BIGINT`
+  forms. The baseline's two sections are now `WHOLE`.
+- **What the checks found.** The bytes oracle moves no existing shape: `emitted_bytes.json` gains
+  the two new rows and only the option-arm digests that hash every shape change. The harness'
+  ANSI form lists gain the two rows under `FALSE_AND` (`VarkaAnsiForm`), like the other guarded
+  casts: the guard condemns a batch from a lane the left side of the AND rejected. The day-time
+  conformance suite checks its `BIGINT` cast over values inside the `2^52` guard
+  (`VarkaTypeConformance.castValues`), since its type's extremes decline by design. The
+  compiler suite's expectation that a bare column's `CAST(i AS INTERVAL YEAR)` declines is now
+  the guarded tree in the three modes, and in `add_months`' count position. Under
+  `-XX:UseAVX=2` the preferred-width audit passes; the host-pinned `width_audit.json` check
+  fails there as 10.1 recorded.
+- **Not measured.** The two sections' speed against the row path waits for a runner dispatch
+  (the baseline's results files are the row path's), so the predictions of section 4 stay
+  unscored for these two casts.
+- **Still declining**, each by its own reason: `BIGINT` to an interval, `INT` to the day-time
+  ends other than in a date offset, year-month to the narrow targets and to `BIGINT`, and the
+  day-time interval to `INT`, `SMALLINT` and `TINYINT`, which need the narrow range checks over
+  a quotient; TRY's integral narrowings (row 481's guard, wired by the `try_cast` PR); a
+  `YEAR TO MONTH` source to `INT` (the multi-field fix of item 0.5).

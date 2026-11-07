@@ -35,7 +35,7 @@ int	bigint	yes	yes	yes	widening	sign extension, exact	exhaustion	LEGACY,ANSI,TRY
 int	float	yes	yes	yes	rounding	round to nearest even, as the JVM converts; no error	exhaustion	LEGACY,ANSI,TRY	343	all
 int	double	yes	yes	yes	widening	exact	exhaustion	LEGACY,ANSI,TRY	343	all
 int	dec	yes	yes	yes	scale up	exact; overflow past p - s digits: LEGACY null, ANSI NUMERIC_VALUE_OUT_OF_RANGE	exhaustion		350,364	
-int	ym	yes	yes	yes	scale up	times the unit; a YEAR end overflows past 178,956,970 (multiplyExact in int): raises under LEGACY and ANSI, TRY nulls; a MONTH end never	exhaustion	LEGACY,ANSI,TRY	103,332	2 of 3
+int	ym	yes	yes	yes	scale up	times the unit; a YEAR end overflows past 178,956,970 (multiplyExact in int): raises under LEGACY and ANSI, TRY nulls; a MONTH end never	exhaustion	LEGACY,ANSI,TRY	103,332	all
 int	dt	yes	yes	yes	scale up	times the unit; a DAY end overflows past 106,751,991: raises under LEGACY and ANSI, TRY nulls; the other ends never	exhaustion		103,332	context: only as date_add's offset: d + CAST(i AS INTERVAL DAY)
 bigint	bool	yes	yes	yes	test	x != 0 (a NaN is true)	SMT (dev/varka_prove.sh) for the integer rule, sampled regions and the fuzzer	LEGACY,ANSI,TRY	332	all
 bigint	byte	yes	yes	yes	narrowing	LEGACY wraps; ANSI raises CAST_OVERFLOW; TRY nulls	SMT (dev/varka_prove.sh) for the integer rule, sampled regions and the fuzzer	LEGACY,ANSI,TRY	332,28	all
@@ -102,6 +102,6 @@ ym	ym	yes	yes	yes	relabel or unit narrowing	MONTH end field keeps the count; YEA
 dt	byte	yes	yes	yes	unit division	truncating division by the end field's unit; narrower targets check	SMT (dev/varka_prove.sh) for the integer rule, sampled regions and the fuzzer		103,332	
 dt	short	yes	yes	yes	unit division	truncating division by the end field's unit; narrower targets check	SMT (dev/varka_prove.sh) for the integer rule, sampled regions and the fuzzer		103,332	
 dt	int	yes	yes	yes	unit division	truncating division by the end field's unit; narrower targets check	SMT (dev/varka_prove.sh) for the integer rule, sampled regions and the fuzzer		103,332	
-dt	bigint	yes	yes	yes	unit division	truncating division by the end field's unit; narrower targets check	SMT (dev/varka_prove.sh) for the integer rule, sampled regions and the fuzzer		103,332	
+dt	bigint	yes	yes	yes	unit division	truncating division by the end field's unit; narrower targets check	SMT (dev/varka_prove.sh) for the integer rule, sampled regions and the fuzzer	LEGACY,ANSI,TRY	103,332	all
 dt	dec	yes	yes	yes	unit division	to the end field's unit; a SECOND end keeps six decimals	SMT (dev/varka_prove.sh) for the integer rule, sampled regions and the fuzzer		103	
 dt	dt	yes	yes	yes	relabel or unit narrowing	SECOND end field keeps the micros; coarser divides	SMT (dev/varka_prove.sh) for the integer rule, sampled regions and the fuzzer	LEGACY,ANSI,TRY	103	36 of 90

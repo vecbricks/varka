@@ -57,9 +57,10 @@ import org.apache.spark.sql.internal.SQLConf;
  * results file notes each section that fuses. The control is {@code WHOLE}. VARKA-332's first
  * pull request (332a) fuses the LEGACY and ANSI narrowings, {@code CAST(y AS BIGINT)},
  * {@code CAST(b AS INT)} and the filter's {@code CAST(i AS BOOLEAN)} whole too, at both
- * densities; its TRY part fuses {@code try_cast(k AS TINYINT)} whole; {@code CAST(m AS INTERVAL
- * YEAR)} and {@code CAST(dt AS BIGINT)} stay {@code NONE}. A row that fuses more of a section
- * sets its new class, so that its fusion cannot turn a baseline section into a fused one unnoticed.
+ * densities, as do {@code try_cast(k AS TINYINT)} and the two interval casts,
+ * {@code CAST(m AS INTERVAL YEAR)} and {@code CAST(dt AS BIGINT)}. A row that fuses more of a
+ * section sets its new class, so that its fusion cannot turn a baseline section into a fused one
+ * unnoticed.
  *
  * <p>The filter times the bare {@code WHERE CAST(i AS BOOLEAN)} at both densities, under
  * {@code spark.sql.constraintPropagation.enabled=false} on both sessions. With constraint
@@ -213,9 +214,9 @@ public class VarkaIntegralCastBaselineBenchmark extends VarkaSqlBenchmarkBase {
           "SELECT " + i + from + " WHERE CAST(" + i + " AS BOOLEAN)", noConstraints,
           Fusion.WHOLE));
       out.add(new Section("INT CAST(m AS INTERVAL YEAR)" + density,
-          "SELECT CAST(" + m + " AS INTERVAL YEAR)" + from, Map.of(), Fusion.NONE));
+          "SELECT CAST(" + m + " AS INTERVAL YEAR)" + from, Map.of(), Fusion.WHOLE));
       out.add(new Section("INTERVAL DAY TO SECOND CAST(dt AS BIGINT)" + density,
-          "SELECT CAST(" + dt + " AS BIGINT)" + from, Map.of(), Fusion.NONE));
+          "SELECT CAST(" + dt + " AS BIGINT)" + from, Map.of(), Fusion.WHOLE));
       out.add(new Section("INT CAST(i AS BIGINT), control, fuses today" + density,
           "SELECT CAST(" + i + " AS BIGINT)" + from, Map.of(), Fusion.WHOLE));
     }

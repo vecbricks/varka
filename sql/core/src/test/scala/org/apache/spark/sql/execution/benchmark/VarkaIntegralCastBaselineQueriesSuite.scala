@@ -153,6 +153,7 @@ class VarkaIntegralCastBaselineQueriesSuite extends QueryTest with VarkaSharedSe
         "INT try_cast(k AS TINYINT)", "INT CAST(k AS TINYINT), LEGACY",
         "BIGINT CAST(l AS SMALLINT), LEGACY",
         "TINYINT CAST(y AS BIGINT)", "BOOLEAN CAST(b AS INT)", "INT filter CAST(i AS BOOLEAN)",
+        "INT CAST(m AS INTERVAL YEAR)", "INTERVAL DAY TO SECOND CAST(dt AS BIGINT)",
         "INT CAST(i AS BIGINT), control, fuses today")
       assert(sections.filter(_.fusion != VarkaSqlBenchmarkBase.Fusion.NONE).map(_.title) ===
         Seq("no nulls", "one row in ten null").flatMap(d => fused.map(t => s"$t, $d")))

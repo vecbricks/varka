@@ -354,8 +354,8 @@ public final class VarkaDifferentialHarnessSuite {
         List.of(where("date_add(d, i) > d2", WHOLE))));
     // The type's admission: `d + ym` is VARKA-60's column-count add_months with the same guard,
     // so the rows outside MONTH_ARITH_MIN/MAX_MONTHS decline their batch; the rest of the
-    // surface Spark's typing reaches fuses; and the YEAR cast of an unbounded int column stays
-    // residual for its checked multiply by twelve.
+    // surface Spark's typing reaches fuses; and the YEAR cast of an unbounded int column fuses
+    // behind a range guard on its count, whose far counts decline their batch.
     out.add(new Case("a year-month interval column fuses in every unit, and its far counts "
         + "decline", INTERVALS, List.of(
             shape("d + ymm AS a", DECLINES), shape("d + ymy AS a", FUSED),
@@ -368,7 +368,7 @@ public final class VarkaDifferentialHarnessSuite {
                 FUSED),
             shape("CAST(m AS INTERVAL MONTH) AS a", FUSED), shape("CAST(ymm AS INT) AS a", FUSED),
             shape("d - ymm AS a", FUSED),
-            shape("d + CAST(m AS INTERVAL YEAR) AS a", NOT_FUSED))));
+            shape("d + CAST(m AS INTERVAL YEAR) AS a", DECLINES))));
     // Group A, the interval-to-interval arithmetic: Spark computes every one with addExact and
     // its kin whatever the ANSI mode, so both modes fuse alike and nothing declines. Group C,
     // the same expressions as a month count, declines the far rows' batch in both. A checked

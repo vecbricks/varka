@@ -167,6 +167,15 @@ public abstract class VarkaTypeConformance {
   protected abstract ConformanceType type();
 
   /**
+   * The values the type's cast to the census type {@code to} is checked over, or {@code null} for
+   * the type's own. A cast whose kernel guards its operand declines a batch holding a value past
+   * the guard, so the check that it answers runs over values inside it (VARKA-332).
+   */
+  protected long[] castValues(String to) {
+    return null;
+  }
+
+  /**
    * A form of the type's own arithmetic that the census's arithmetic operators do not name: its
    * SQL over {@code x} and {@code y}, and the census entry that says whether it fuses.
    */
@@ -295,7 +304,7 @@ public abstract class VarkaTypeConformance {
         }
         String sql = (mode == Mode.TRY ? "try_cast" : "CAST") + "(x AS " + target + ")";
         Form f = new Form(sql, toBoolean ? Kind.CONDITION : Kind.VALUE,
-            "cast:" + pair.to(), mode, false);
+            "cast:" + pair.to(), mode, false).over(castValues(pair.to()));
         forms.add(f);
       }
     }
