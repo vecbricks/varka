@@ -473,7 +473,10 @@ and its `-laptop-256bit` and `-laptop-128bit` companions, each with a provenance
 7763 columns are the two `-runner-epyc7763` files of #1250. The laptop's datapath is 256 bits
 wide (`dev/varka_datapath.sh` read 512:256 as 1.14 against a 256:128 control of 2.01), so its
 512-bit column is eight long lanes issued as two 256-bit halves: double-pumped, not a wider
-machine. Every arm settled at level 4, the 128-bit fallbacks included.*
+machine. The canary and the datapath probe ran once, before the three widths; each width's provenance file
+records the machine's load at its own start (1.15 at 512 bits, 1.10 at 256, 1.60 at 128), so the
+128-bit run, the last of the three, has no idle check of its own. Its columns are read only for
+the 2x to 3x gap between A and P, which no such load explains, and decide nothing.*
 
 Nanoseconds a row, P / A / S (the arithmetic P / S), from the files' `Per Row(ns)` column:
 
@@ -514,9 +517,10 @@ comparison by minimums AGENTS.md asks for.
   are met there - as they already are by the EPYC's 128-bit column (67.0 against 137.5 ns a row
   on the load). Both are two-lane x86 columns where P and A are the Java fallback and S runs at
   the speed of the wider widths; the 359a plan's 11.4 decides that case (every 359a condition
-  declines there, S is a row of its own) and its 11.3 reads rule 1 as holding on the EPYC with
-  that column in it, so the laptop's 128-bit column is read the same way and does not trigger the
-  ask.
+  declines there, S is a row of its own), and its 11.3 (amended on 7 November 2026 to say so)
+  limits rule 2 to widths of more than two long lanes, so neither host's 128-bit column triggers
+  the ask. That limit is a reading of the rule the owner has not yet confirmed; the pull request
+  that merges this plan asks for it.
 
 **Verdict: build P.** Neither A nor S wins by the rule's margin at 256 or 512 bits on either host;
 the laptop's 512-bit column, double-pumped on its 256-bit datapath, agrees with its 256-bit one.
@@ -527,18 +531,21 @@ row in L3 at 512), and S leads everything at 128 bits.
 ## 11. 359a, the build plan (1 November 2026)
 
 Written from master at `239995f4fe4` before the laptop's reading of the spike, so that 359a can
-start the moment the reading lands. Line numbers are master's; Varka paths are under
+start the moment the reading lands, and refreshed on 7 November 2026 against master at
+`0b682025e09` (the line numbers, the baseline figures of item 5 and the state of rows 503 and
+538). Line numbers are that master's; Varka paths are under
 `sql/catalyst/src/main/java/org/apache/spark/sql/catalyst/expressions/codegen/` as in section 0.
 359a is section 5's step 3, the pair's reading half; nothing below changes 359b's scope.
 
 ### 11.1 What exists now
 
 1. **Row 347's leaf and reader are on master** (#1230), so section 0's branch line numbers moved:
-   `emitDecimalLoad` is `varka/VarkaVectorWalk.java:558`, `Slots.decimalTmp` is
-   `varka/Slots.java:312` (keyed by the leaf node, filled at `:887`), `Refusal.DECIMAL_SLOT` is
-   `varka/Analysis.java:351`, `VarkaTypes.lane(DataType)` and `declineReason` are
-   `varka/VarkaTypes.java:335` and `:352`, the decimal's entry `:422-428`, and the reader's two
-   declines naming this row are `VarkaDecimalCompiler.java:82-85` and `:195-197`. The 64-bit load
+   `emitDecimalLoad` is `varka/VarkaVectorWalk.java:613`, `Slots.decimalTmp` is
+   `varka/Slots.java:333` (keyed by the leaf node, filled at `:988`), `Refusal.DECIMAL_SLOT` is
+   `varka/Analysis.java:367`, `VarkaTypes.lane(DataType)` and `declineReason` are
+   `varka/VarkaTypes.java:355` and `:406`, the decimal's entry `:515`, and the reader's declines
+   naming this row are in `VarkaDecimalCompiler.java` (the wide-type reason at `:342`, the
+   column's at `:856`). The 64-bit load
    is already the P form: two loads, the even and odd two-vector rearranges, the check folded
    under `emitGuardCollect`.
 2. **The readers of the lane question**, by a grep of `VarkaTypes.lane(` and `storageBits` over
@@ -571,18 +578,21 @@ start the moment the reading lands. Line numbers are master's; Varka paths are u
 5. **The baseline's sections that 359a fuses** (row path, ns a row, at 256 and at 128 bits, from
    `sql/core/benchmarks`' two files
    `VarkaDecimalBaselineBenchmark-jdk25-runner-epyc7763-results.txt` and
-   `VarkaDecimalBaselineBenchmark-jdk25-runner-epyc7763-128bit-results.txt`): at `(38, 10)` the
-   comparison filter 365.0 and 372.3 (one row in ten null: 343.1 and 334.6), `<=>` 348.3 and
-   392.9, `IS NULL` 5.2 and 5.4 (one row in ten null: 174.7 and 179.8), `x < y` as a value 353.6
-   and 414.7; at `(20, 2)` `<=>` 369.3 and 390.3, `IS NULL` 4.4 and 4.6, `x < y` as a value 384.1
-   and 408.5. `IN`, `-x < y`, `abs(x) < y` and the choice need
+   `VarkaDecimalBaselineBenchmark-jdk25-runner-epyc7763-128bit-results.txt`, the "spark row path
+   (varka off)" lines, as #1258 left them; the figures first quoted here were the files'
+   earlier ones): at `(38, 10)` the comparison filter 365.5 and 373.9 (one row in ten null: 325.9
+   and 331.8), `<=>` 358.5 and 353.6, `IS NULL` 6.7 and 5.5 (one row in ten null: 178.2 and
+   158.8), `x < y` as a value 358.3 and 359.2; at `(20, 2)` `<=>` 370.9 and 373.8, `IS NULL` 6.2
+   and 4.8, `x < y` as a value 411.3 and 401.6. `IN`, `-x < y`, `abs(x) < y` and the choice need
    359b's operators. The null test without nulls is the one section where the row path does not
    pay a `BigDecimal` a row, so it is where 359a's margin is smallest.
-6. **What 359a leans on that is not merged**: row 503's two-lane decline (branch
-   `varka-503-two-lane-decline`, built, unmerged, no row in this milestone's table yet), row 538's
-   host reading (branch `varka-538-host-isa`, unmerged; 359a needs none of it, since a species'
-   lane count needs no module export), row 489's descriptor ("before 359", not started), and row
-   506's note that 359a emits `gt128` from the walk (the PLAN.md cell).
+6. **What 359a leans on**: row 503's two-lane decline is merged (#1262, 2 November 2026; it has
+   its row in `PLAN.md`, "Done in part"): `VarkaKernelPlan.twoLaneMasksFallBack` and the
+   `emit.declineTwoLaneConditions` conf (`SQLConf.VARKA_DECLINE_TWO_LANE_CONDITIONS`) are on
+   master. Row 538's host reading is merged too (#1255, 1 November 2026, without its default
+   flip); 359a needs none of it beyond what 503 reads, since a species' lane count needs no
+   module export. Still open: row 489's descriptor ("before 359", not started), and row 506's
+   note that 359a emits `gt128` from the walk (the `PLAN.md` cell).
 
 ### 11.2 One design, a gate, and two exits
 
@@ -608,8 +618,10 @@ and past-L3 rungs (11.1 item 4):
 
 1. **P is built** unless 2 or 3 holds.
 2. **A replan**: A is faster than P by at least 1.3x (AGENTS.md's re-run threshold) on both
-   sections at both rungs at one width on one host, the laptop's 512 bits included. Then the
-   owner is asked (11.2).
+   sections at both rungs at one width of more than two long lanes (256 or 512 bits) on one host,
+   the laptop's 512 bits included. The 128-bit columns are two-lane x86 columns, where P and A
+   are both the Java fallback and 11.4 decides the case, so they are read under 11.4 and do not
+   trigger this rule. Then the owner is asked (11.2).
 3. **S replan**: S is faster than P by at least 1.3x on either section at 256 or 512 bits on
    either host. Then the owner is asked whether S becomes an emission mode beyond two lanes.
 4. A move under 1.3x is a tie and leaves 1. The laptop's 512-bit column is eight long lanes issued
@@ -620,11 +632,10 @@ On the EPYC 7763's committed numbers 1 holds already: P is faster than A on the 
 (0.9 against 1.5, 1.1 against 1.6) and A ties on the compare, and S is slower than P on both
 sections at both rungs. If the laptop triggers rule 2 or 3, the EPYC's reading travels with the
 ask as the counter-evidence, not as a veto: a win on one machine is a machine-dependent winner,
-and whether it pays for a replan is the owner's call. The verdict is written below with the
-laptop's file named; the cell of row 359 is updated in the same commit.
+and whether it pays for a replan is the owner's call. The verdict is written in 10.1, with the
+laptop's files named and this rule applied; the cell of row 359 is updated in the same commit.
 
-**The laptop reading and the verdict.** (Written when the laptop's 512-, 256- and 128-bit files
-are committed: the files and their run facts, this rule applied, and the layout 359a builds.)
+**The laptop reading and the verdict:** 10.1. Build P.
 
 ### 11.4 The width rule: what runs at two long lanes on x86
 
@@ -646,7 +657,7 @@ class name two bodies). Consequences for 359a:
   mechanism with the measured reason.
 - **aarch64 at 128 bits fuses** (the Neoverse N2's census cells, all intrinsic).
 - **The case S wins is left to a row of its own** (11.8 point 3): at 128 bits S's `x < y` reads
-  5.9 in L3 against P's 168.7 and the row path's 372.3 for the comparison.
+  5.9 in L3 against P's 168.7 and the row path's 373.9 for the comparison.
 
 ### 11.5 What is layout-independent, built first
 
@@ -678,8 +689,7 @@ Each of these commits leaves `emitted_bytes.json` unchanged and survives an A or
 5. **The fixtures and oracles**: the slot table's and the word edges' data (section 3 items 1 and
    2) with `ArrowColumnVector.getDecimal` and `BigDecimal` as oracles, and
    `VarkaTypeConformance` taught sixteen-byte slots and a `Decimal` oracle (question 4).
-6. **The width rule's predicate** (11.4), which is 503's: nothing to build if 503 merges first,
-   else a twin under the same conf name (11.8 point 2).
+6. **The width rule's predicate** (11.4), which is 503's and is on master: nothing to build.
 
 ### 11.6 What depends on the layout (P, built after the verdict)
 
@@ -724,19 +734,20 @@ the sibling word parked from the wrong rearrange (the word edges, every row).
 2. **No existing shape's bytes move**: `emitted_bytes.json` gains rows and changes none, and the
    `option_arms` digests are unchanged, since 359a adds no option.
 3. **The comparison filter at `(38, 10)` at 256 bits on the EPYC 7763** is 10 to 50 times faster
-   than the row path's 365.0 ns a row (section 4's prediction 4, kept); `<=>` and `x < y` as a
+   than the row path's 365.5 ns a row (section 4's prediction 4, kept); `<=>` and `x < y` as a
    value in the same band.
-4. **`IS NULL` without nulls** is faster than the row path by 1.5 to 4 times only, against 5.2 at
-   `(38, 10)` and 4.4 at `(20, 2)`: the kernel still loads and checks sixteen bytes a row where
+4. **`IS NULL` without nulls** is faster than the row path by 1.5 to 4 times only, against 6.7 at
+   `(38, 10)` and 6.2 at `(20, 2)`: the kernel still loads and checks sixteen bytes a row where
    the row path reads the validity alone.
 5. **At 128 bits on the EPYC 7763** the filter sections decline and tie the row path within the
-   family's band; `x < y` as a value fuses and is 2 to 5 times faster than the row path's 414.7
-   (section 4's prediction 5).
+   family's band; `x < y` as a value fuses and is 2 to 5 times faster than the row path's 359.2
+   (section 4's prediction 5; the band is kept, its anchor requoted from the files as they stand).
 6. **The census** moves by 2 fused pairs, `isnull` and `isnotnull`; `negative` and `abs` wait
    for 359b.
 7. **`width_audit.json`'s 128-bit column** records one refusal per 359a coverage row that is a
    filter, and none for the projected comparison. This holds only if the audit simulates the
-   two-lane host as 503's branch does, so it rests on 11.8 point 2's answer.
+   two-lane host as 503's merged rule does; a check of the audit's simulation is a step of the
+   build.
 
 **Costs.** The proof file's ring and carry layers for 359a are about 30 checks (four compares and
 twenty bounds, each with its refutation, and the carry forms), priced at VARKA-245's observed
@@ -753,12 +764,11 @@ are of the size of 347's, seconds. The build's CI steps are read against
 1. **The margin for A.** Section 2.1 says "the owner's margin" and no record names one.
    *Recommended:* 1.3x by minimums at the in-L3 and past-L3 rungs, as 11.3 writes it, and a win
    by that margin asks the owner for a replan rather than building A.
-2. **Row 503 first, or a twin.** 359a's width rule is 503's predicate and conf. *Recommended:*
-   merge 503 first (it is built and tested on its branch); if it is held, 359a carries the
-   predicate under the same conf name and 503 removes the twin. 503 also has no row in this
-   milestone's table, which the lead may want added.
+2. **Row 503 is merged (#1262).** 359a's width rule is 503's predicate and conf, both on master,
+   so there is no twin to carry and no row to add; this point is settled and kept only so that
+   prediction 7 can name what it rests on.
 3. **S at two long lanes on x86.** At 128 bits S reads 1.8 to 6.3 ns a row on 359a's sections
-   against P's fallback at 135.3 to 168.7 and the row path's 372.3 for the comparison, so it is the
+   against P's fallback at 135.3 to 168.7 and the row path's 373.9 for the comparison, so it is the
    only form that fuses well there. Under the owner's answer (a) to question 3 it is a row of its
    own. *Recommended:* open that row now (a scalar subtree in the kernel's loop feeding the
    selection word), owned outside 359a, placed in this milestone only if its done-when claims x86
