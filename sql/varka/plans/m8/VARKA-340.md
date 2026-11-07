@@ -371,6 +371,11 @@ Predictions:
 3. Test time: the scalar sweep was predicted under 10 s. The first draft (a day in 61) took 16.8 s
    in a matrix JVM beside two others, so it missed; it is a day in 211 now.
 
+Found: `minute(ntz)` and `second(ntz)` fit the emitter's byte budget alone, but not beside the
+three conjuncts the optimizer adds to the ANSI form's "right side of a false AND" position
+(`isnotnull` of both columns and `rid < 0`), so that position declines the conjunct and Spark
+answers it. They are on `VarkaAnsiForm`'s declined list with that reason; `hour(ntz)` fits.
+
 Found: a calendar node over a guarded narrowed long is not in the IR fuzzer's mixed draw (row 578).
 `verify_double_division.py` needs numpy, which this machine lacks: the new rows were not run
 locally, only the constants' function.
