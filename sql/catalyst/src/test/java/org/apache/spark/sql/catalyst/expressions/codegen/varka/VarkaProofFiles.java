@@ -94,6 +94,7 @@ final class VarkaProofFiles {
     files.put("ym_divide.smt2", ymDivide());
     files.put("decimal_slot.smt2", decimalSlot());
     files.put("decimal64.smt2", decimal64());
+    files.put("decimal_scale.smt2", decimalScale());
     files.put("casts.smt2", casts());
     files.put("round_to_odd.smt2", roundToOdd());
     files.put("decimal128.smt2", decimal128());
@@ -3371,6 +3372,7 @@ final class VarkaProofFiles {
             "(assert (not (= (jlong.wrap z) z)))"));
   }
 
+  // -----------------------------------------------------------------------------------------
   // The 128-bit decimal's word lowerings (VARKA-359).
   // -----------------------------------------------------------------------------------------
 
@@ -3485,6 +3487,155 @@ final class VarkaProofFiles {
       }
     }
     return out.toString();
+  }
+
+  // -----------------------------------------------------------------------------------------
+  // The HALF_UP rescale down by 10^k (VARKA-363).
+  // -----------------------------------------------------------------------------------------
+
+  /**
+   * {@code decimal_scale.smt2}: the table of {@link VarkaDecimalScale} and the identities it rests
+   * on, over integers at full width. Every claim is linear, since each multiplier is a constant.
+   * Per table entry, the constant's claim over the pre-shifted bound, the same claim to the entry's
+   * first failure, and the failure itself; per {@code k}, the two identities of VARKA-363 2.3,
+   * which compose with the claim into the whole division. As one check the nested divisions are
+   * beyond cvc5 at 256 bits, where each step alone is instant, so the suite holds the composition
+   * to {@code BigDecimal}; per digit count and {@code k}, the
+   * precision-loss lemma of 2.4; and per quotient digit count and {@code k}, the bounds of 0.7.
+   */
+  static String decimalScale() {
+    var out = new StringBuilder(LICENSE);
+    out.append("""
+        ; The HALF_UP division of a decimal's unscaled value by 10^k (VARKA-363 2.3), as
+        ; VarkaDecimalScale tabulates it. For a magnitude n >= 0:
+        ;
+        ;   N = floor(n / 2^(k-1))                          the pre-shift
+        ;   floor(N / 5^k) = floor(2n / 10^k)               identity (1)
+        ;   HALF_UP(n / 10^k) = floor((floor(2n / 10^k) + 1) / 2) = floor((2n + 10^k) / 2*10^k)
+        ;                                                   identity (2)
+        ;   floor(N / 5^k) = floor(N * c / 2^L)             the constant, for N <= Nmax
+        ;
+        ; Per table entry (k, bound): the constant's claim over [0, Nmax], the claim to the
+        ; entry's first failure minus one and the failure itself (so the table finds where the
+        ; constant stops, not only that it holds). The three steps compose: the claim, then (1)
+        ; and (2), give the division over [0, bound]; as one check the nested divisions are out of
+        ; cvc5's reach at 256 bits, and VarkaDecimalScaleSuite holds the composition to
+        ; BigDecimal. The precision-loss lemma (2.4) and the bounds of the 10^38 check (0.7)
+        ; follow. A refuted neighbour of each identity shows the statement is not vacuous.
+        """);
+    out.append(rendered("QF_NIA"));
+    String n = "(declare-const n Int)";
+    String big = "(declare-const e Int) (declare-const f Int)";
+    for (int k = VarkaDecimalScale.MIN_K; k <= VarkaDecimalScale.MAX_K; k++) {
+      BigInteger two = BigInteger.ONE.shiftLeft(k - 1);
+      BigInteger five = BigInteger.valueOf(5).pow(k);
+      BigInteger ten = BigInteger.TEN.pow(k);
+      String nn = "(div n " + two + ")";
+      check(out, "k = " + k + ": floor(floor(n / 2^" + (k - 1) + ") / 5^" + k + ") is floor(2n / "
+          + "10^" + k + ") for every n >= 0 (1)", "unsat", List.of(n, "(assert (>= n 0))",
+              "(assert (not (= (div " + nn + " " + five + ") (div (* 2 n) " + ten + "))))"));
+      check(out, "and one more than 5^" + k + " as the divisor is not (1)", "sat", List.of(n,
+          "(assert (>= n 0))", "(assert (not (= (div " + nn + " " + five.add(BigInteger.ONE)
+              + ") (div (* 2 n) " + ten + "))))"));
+      check(out, "k = " + k + ": floor((floor(2n / 10^" + k + ") + 1) / 2) is the half-up "
+          + "quotient floor((2n + 10^" + k + ") / 2 * 10^" + k + ") (2)", "unsat", List.of(n,
+              "(assert (>= n 0))", "(assert (not (= (div (+ (div (* 2 n) " + ten + ") 1) 2) "
+                  + halfUp("n", ten) + ")))"));
+      check(out, "and without the + 1 it is not (2)", "sat", List.of(n, "(assert (>= n 0))",
+          "(assert (not (= (div (div (* 2 n) " + ten + ") 2) " + halfUp("n", ten) + ")))"));
+    }
+    for (VarkaDecimalScale.Entry entry : VarkaDecimalScale.TABLE) {
+      int k = entry.k();
+      BigInteger five = entry.divisor();
+      BigInteger power = BigInteger.ONE.shiftLeft(entry.shift());
+      BigInteger first = entry.firstFailure();
+      String claim = "(not (= (div (* n " + entry.multiplier() + ") " + power + ") (div n "
+          + five + ")))";
+      String shape = "k = " + k + ", bound " + entry.bound().bitLength() + " bits (" + entry.bound()
+          + ")";
+      check(out, shape + ": floor(N * " + entry.multiplier() + " / 2^" + entry.shift() + ") is "
+          + "floor(N / 5^" + k + ") for N <= " + entry.maxPreShifted(), "unsat", List.of(n,
+              "(assert (and (<= 0 n) (<= n " + entry.maxPreShifted() + ")))", "(assert " + claim
+                  + ")"));
+      check(out, "and to N = " + first.subtract(BigInteger.ONE), "unsat", List.of(n,
+          "(assert (and (<= 0 n) (<= n " + first.subtract(BigInteger.ONE) + ")))",
+          "(assert " + claim + ")"));
+      check(out, "and N = " + first + ", the first past the bound, is not", "sat", List.of(n,
+          "(assert (= n " + first + "))", "(assert " + claim + ")"));
+    }
+    precisionLossLemma(out, big);
+    checkBounds(out, n);
+    return out.toString();
+  }
+
+  /** {@code floor((2x + t) / 2t)} for {@code t = 10^k}: x / t rounded half up, for x >= 0. */
+  private static String halfUp(String x, BigInteger ten) {
+    return "(div (+ (* 2 " + x + ") " + ten + ") " + ten.shiftLeft(1) + ")";
+  }
+
+  /**
+   * VARKA-363 2.4: Spark's product is the half-up quotient of the exact product cut to its first
+   * 39 significant digits, toward zero. For an exact value {@code e} of {@code D} digits, the cut
+   * is {@code 10^j * floor(e / 10^j)} with {@code j = D - 39}, and the claim, per {@code D} and
+   * {@code k}, is that the cut and the exact value give the same quotient where it fits 38 digits
+   * and both leave 38 digits where it does not.
+   */
+  private static void precisionLossLemma(StringBuilder out, String decls) {
+    BigInteger limit = BigInteger.TEN.pow(38);
+    out.append("""
+
+        ; The precision-loss lemma (VARKA-363 2.4), per digit count D of the exact value e, from
+        ; 40, and per k: f = floor(e / 10^(D-39)) is the 39 digits Spark keeps, and the half-up
+        ; quotient of e and of the cut 10^(D-39) * f agree below 10^38 and both reach it above.
+        """);
+    for (int digits = 40; digits <= 76; digits++) {
+      BigInteger cut = BigInteger.TEN.pow(digits - 39);
+      String bounds = "(assert (and (<= " + BigInteger.TEN.pow(digits - 1) + " e) (< e "
+          + BigInteger.TEN.pow(digits) + ") (<= (* " + cut + " f) e) (< e (* " + cut
+          + " (+ f 1)))))";
+      check(out, "D = " + digits + ": the first 39 digits are cut, e is not the cut", "sat",
+          List.of(decls, bounds, "(assert (not (= e (* " + cut + " f))))"));
+      for (int k = VarkaDecimalScale.MIN_K; k <= VarkaDecimalScale.MAX_K; k++) {
+        BigInteger ten = BigInteger.TEN.pow(k);
+        String exact = halfUp("e", ten);
+        String kept = halfUp("(* " + cut + " f)", ten);
+        check(out, "D = " + digits + ", k = " + k + ": the rounded cut equals the rounded exact "
+            + "value below 10^38, and both reach 10^38 above", "unsat", List.of(decls, bounds,
+                "(assert (not (or (and (< " + exact + " " + limit + ") (= " + exact + " " + kept
+                    + ")) (and (>= " + exact + " " + limit + ") (>= " + kept + " " + limit
+                    + ")))))"));
+      }
+    }
+  }
+
+  /**
+   * VARKA-363 0.7: a magnitude below {@code 10^(d + k)} divided half-up by {@code 10^k} is at most
+   * {@code 10^d}, the rounding carry included, so the quotient has no more than {@code d + 1}
+   * digits and a cast to a type of precision above {@code d} cannot overflow; at {@code d = 38}
+   * the bound is reached, and the {@code 10^38} check is live.
+   */
+  private static void checkBounds(StringBuilder out, String n) {
+    out.append("""
+
+        ; The bounds of the 10^38 check (VARKA-363 0.7), per quotient digit count d and k: a
+        ; dividend of d + k digits rounds half-up to at most 10^d. The check is dead wherever the
+        ; type holds d + 1 digits, and live where it does not.
+        """);
+    for (int k = VarkaDecimalScale.MIN_K; k <= VarkaDecimalScale.MAX_K; k++) {
+      BigInteger ten = BigInteger.TEN.pow(k);
+      for (int d = 1; d <= 38 && d + k <= 76; d++) {
+        BigInteger top = BigInteger.TEN.pow(d + k).subtract(BigInteger.ONE);
+        check(out, "k = " + k + ", d = " + d + ": n <= 10^" + (d + k) + " - 1 rounds half-up to at "
+            + "most 10^" + d, "unsat", List.of(n, "(assert (and (<= 0 n) (<= n " + top + ")))",
+                "(assert (> " + halfUp("n", ten) + " " + BigInteger.TEN.pow(d) + "))"));
+      }
+      if (38 + k <= 76) {
+        BigInteger top = BigInteger.TEN.pow(38 + k).subtract(BigInteger.ONE);
+        check(out, "k = " + k + ", d = 38: and 10^38 itself is reached, so the check can fire",
+            "sat", List.of(n, "(assert (and (<= 0 n) (<= n " + top + ")))",
+                "(assert (= " + halfUp("n", ten) + " " + BigInteger.TEN.pow(38) + "))"));
+      }
+    }
   }
 
   /** A long as a 64-bit SMT-LIB bit-vector literal. */
