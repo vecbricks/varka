@@ -135,22 +135,22 @@ date_diff|date|int|date|done||alias of datediff
 date_add|date,INTEGRAL|date|date,int|plumbing|329|byte and short offsets are new
 dateadd|date,INTEGRAL|date|date,int|plumbing|329|alias of date_add
 date_sub|date,INTEGRAL|date|date|plumbing|329|byte and short offsets, and int, are new
-day|date,ntz|int|date|plumbing|340|ntz through its date
-dayofyear|date,ntz|int|date|plumbing|340|ntz through its date
-dayofmonth|date,ntz|int|date|plumbing|340|ntz through its date
-hour|time,ntz|int|time|plumbing|340|ntz in UTC: a floor-mod of the micros
-last_day|date,ntz|date|date|plumbing|340|ntz through its date
-minute|time,ntz|int|time|plumbing|340|ntz in UTC
-month|date,ntz|int|date|plumbing|340|ntz through its date
-next_day|date,ntz|date|date|plumbing|340|ntz through its date
-quarter|date,ntz|int|date|plumbing|340|ntz through its date
-second|time,ntz|int,dec|time|plumbing|340,351|the fractional form is a decimal (row 157)
+day|date,ntz|int|date,ntz~|done|340|ntz through its date, the cast to DATE under the node: `day(ntz)`
+dayofyear|date,ntz|int|date,ntz~|done|340|ntz through its date, the cast to DATE under the node: `dayofyear(ntz)`
+dayofmonth|date,ntz|int|date,ntz~|done|340|ntz through its date, the cast to DATE under the node: `day(ntz)`
+hour|time,ntz|int|time,ntz|done|340|ntz in UTC: the TIME lowering over the nanosecond of the day (VARKA-340)
+last_day|date,ntz|date|date,ntz~|done|340|ntz through its date, the cast to DATE under the node: `last_day(ntz)`
+minute|time,ntz|int|time,ntz|done|340|ntz in UTC: the TIME lowering over the nanosecond of the day (VARKA-340)
+month|date,ntz|int|date,ntz~|done|340|ntz through its date, the cast to DATE under the node: `month(ntz)`
+next_day|date,ntz|date|date,ntz~|done|340|ntz through its date, the cast to DATE under the node: `next_day(ntz, 'MONDAY')`
+quarter|date,ntz|int|date,ntz~|done|340|ntz through its date, the cast to DATE under the node: `quarter(ntz)`
+second|time,ntz|int,dec|time,ntz|done|340,351|whole seconds of ntz fuse (VARKA-340); the fractional form is a decimal (row 157), ntz's is row 351's
 time_diff|time|bigint|time|done||
-trunc|date,ntz|date|date|plumbing|340|ntz through its date
-dayofweek|date,ntz|int|date|plumbing|340|ntz through its date
-weekday|date,ntz|int|date|plumbing|340|ntz through its date
-weekofyear|date,ntz|int|date|plumbing|340|ntz through its date
-year|date,ntz|int|date|plumbing|340|ntz through its date
+trunc|date,ntz|date|date,ntz~|done|340|ntz through its date, the cast to DATE under the node: `trunc(ntz, 'YEAR')`
+dayofweek|date,ntz|int|date,ntz~|done|340|ntz through its date, the cast to DATE under the node: `dayofweek(ntz)`
+weekday|date,ntz|int|date,ntz~|done|340|ntz through its date, the cast to DATE under the node: `weekday(ntz)`
+weekofyear|date,ntz|int|date,ntz~|done|340|ntz through its date, the cast to DATE under the node: `weekofyear(ntz)`
+year|date,ntz|int|date,ntz~|done|340|ntz through its date, the cast to DATE under the node: `year(ntz)`
 make_date|int|date|int|done||
 make_time|int,dec|time||semantics|351|seconds arrive as DECIMAL(16,6)
 time_trunc|time|time|time|done||
@@ -164,9 +164,9 @@ make_timestamp_ntz|date,time,int,dec|ntz||semantics|340,351|the date and time fo
 try_make_timestamp_ntz|int,dec|ntz||semantics|351|null instead of an error
 make_dt_interval|int,bigint,dec|dt||semantics|351,103|seconds arrive as DECIMAL(18,6)
 make_ym_interval|int|ym|int~|done||fused in `make_ym_interval(year(d), month(d))`
-extract|date,ntz,time,ym,dt|int,byte,dec|date,ym,time|semantics|340,103,351|fields over ntz and dt are new; SECOND over time gives a decimal (row 157)
-date_part|date,ntz,time,ym,dt|int,byte,dec|date,ym|semantics|340,103,351|as extract
-datepart|date,ntz,time,ym,dt|int,byte,dec|date,ym|semantics|340,103,351|as extract
+extract|date,ntz,time,ym,dt|int,byte,dec|date,ym,time,ntz|semantics|340,103,351|every field of ntz but SECOND, which gives a decimal and is row 351's (VARKA-340); fields over dt are new; SECOND over time gives a decimal (row 157)
+date_part|date,ntz,time,ym,dt|int,byte,dec|date,ym,ntz|semantics|340,103,351|as extract
+datepart|date,ntz,time,ym,dt|int,byte,dec|date,ym,ntz|semantics|340,103,351|as extract
 date_from_unix_date|int|date|int~|done||fused in `date_from_unix_date(unix_date(d))`
 unix_date|date|int|date|done||
 time_bucket|IVL,ntz|ntz||semantics|339|a floor division of the micros by the bucket
@@ -181,8 +181,8 @@ bigint|legal|bigint|int|semantics|332,343,350,28,364|cast alias
 float|legal|float||semantics|343,364,366|cast alias
 double|legal|double||semantics|343,364,366|cast alias
 decimal|legal|dec||semantics|350,364,366|cast alias; DECIMAL(10,0) by default
-date|legal|date||plumbing|340|cast alias
-time|legal|time||plumbing|340|cast alias; TIME widening is fused today
+date|legal|date|ntz|plumbing|340|cast alias; ntz is fused (VARKA-338), the other sources are their rows'
+time|legal|time|ntz|plumbing|340|cast alias; TIME widening is fused today, and ntz to TIME (VARKA-340)
 bitmap_bucket_number|bigint|bigint|bigint|done||a shift and an offset over a blend, proven by SMT (bitmap.smt2)
 bitmap_bit_position|bigint|bigint|bigint|done||a mask over a blend, proven by SMT (bitmap.smt2)
 

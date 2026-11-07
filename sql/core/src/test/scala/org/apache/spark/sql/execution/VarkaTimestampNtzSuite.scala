@@ -20,7 +20,8 @@ package org.apache.spark.sql.execution
 import java.time.{Duration, LocalDate, LocalDateTime, ZoneOffset}
 
 import org.apache.spark.sql.{Row, SparkSession}
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTestWatchdog
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaChrono, VarkaRangeAnalysis,
+  VarkaTestWatchdog}
 import org.apache.spark.sql.catalyst.util.{DateTimeConstants, IntervalUtils}
 import org.apache.spark.sql.execution.VarkaMaybeThrows.{Answered, Raised}
 import org.apache.spark.sql.internal.SQLConf
@@ -40,6 +41,11 @@ import org.apache.spark.sql.types.{DateType, DayTimeIntervalType, IntegerType, S
  * Each row past the long sits in one batch of three, which the kernel declines, and the row engine
  * raises on it under LEGACY and ANSI alike; the values at the long range's ends that still fit are
  * answered by the kernel with no batch declined.
+ *
+ * And the fields (VARKA-340): the calendar fields read the date of the count inside a guard, from
+ * 1 March -12799 to 15 August 33134, and a batch holding a live count outside it, the long range's
+ * ends among them, goes to the row engine alone; the weekday forms, `hour`, `minute`, `second` and
+ * the cast to `TIME` answer every long on the kernel.
  */
 class VarkaTimestampNtzSuite extends VarkaMaybeThrows with VarkaTestWatchdog {
 
@@ -73,6 +79,17 @@ class VarkaTimestampNtzSuite extends VarkaMaybeThrows with VarkaTestWatchdog {
       lastDay * DateTimeConstants.MICROS_PER_DAY, -lastDay * DateTimeConstants.MICROS_PER_DAY)
     values.zipWithIndex.map { case (v, i) => Row(i, micros(v)) } :+ Row(values.size, null)
   }
+
+  /** The counts the date guard admits: its first and last microsecond, and a null. */
+  private val guardLow = VarkaRangeAnalysis.NTZ_MIN_DAYS.toLong * DateTimeConstants.MICROS_PER_DAY
+  private val guardHigh =
+    (VarkaChrono.NARROW_MAX_DAYS + 1L) * DateTimeConstants.MICROS_PER_DAY - 1
+
+  private def ntzAt(values: Seq[Long]): Seq[Row] =
+    values.zipWithIndex.map { case (v, i) => Row(i, micros(v)) }
+
+  /** Three batches of two rows; the second holds `past`. */
+  private def pastGuardRows(past: Long): Seq[Row] = ntzAt(Seq(0L, 1L, past, 2L, 3L, 4L))
 
   private def interval(v: Long): Duration = IntervalUtils.microsToDuration(v)
 
@@ -123,6 +140,10 @@ class VarkaTimestampNtzSuite extends VarkaMaybeThrows with VarkaTestWatchdog {
       ("varka_ntz_past", dateSchema, pastRows(lastDay + 1)),
       ("varka_ntz_past_negative", dateSchema, pastRows(-lastDay - 1)),
       ("varka_ntz_values", ntzSchema, ntzRows),
+      ("varka_ntz_guard", ntzSchema, ntzAt(Seq(guardLow, guardHigh, 0L, -1L, guardLow + 1,
+        guardHigh - 1))),
+      ("varka_ntz_below", ntzSchema, pastGuardRows(guardLow - 1)),
+      ("varka_ntz_above", ntzSchema, pastGuardRows(guardHigh + 1)),
       ("varka_ntz_arith_inside", arithSchema, arithInsideRows)) ++
       arithPast.map { case (_, name, past) =>
         (s"varka_ntz_arith_$name", arithSchema, arithPastRows(past))
@@ -239,6 +260,74 @@ class VarkaTimestampNtzSuite extends VarkaMaybeThrows with VarkaTestWatchdog {
       assertFused(varkaSpark.sql(query).queryExecution.executedPlan)
       assert(checkSparkAnswerMaybeThrows(query).isInstanceOf[Raised],
         s"ansi=$ansi: $query: answered where Spark raises")
+    }
+  }
+
+  /** The calendar fields of `t`, whose date is held to the guard. */
+  private val calendarFields = Seq("year(t)", "month(t)", "day(t)", "quarter(t)", "dayofyear(t)",
+    "weekofyear(t)", "extract(YEAROFWEEK FROM t)", "last_day(t)", "trunc(t, 'YEAR')",
+    "trunc(t, 'MONTH')", "trunc(t, 'QUARTER')")
+
+  /** The fields that answer every long: the weekday forms and the time of day. */
+  private val openFields = Seq("dayofweek(t)", "weekday(t)", "extract(DAYOFWEEK_ISO FROM t)",
+    "next_day(t, 'MONDAY')", "trunc(t, 'WEEK')", "hour(t)", "minute(t)", "second(t)",
+    "CAST(t AS TIME)", "CAST(t AS TIME(3))")
+
+  // varka-session-lint: allow a path: each field of the family through the plan, in both modes,
+  // batch declined; the answers themselves are the kernel suite's
+  test("the calendar fields of a TIMESTAMP_NTZ at the date guard's ends, in every mode, on the " +
+    "kernel") {
+    for (ansi <- Seq(false, true)) withAnsi(ansi) {
+      for (field <- calendarFields) {
+        checkServed(s"SELECT i, $field AS v FROM varka_ntz_guard")
+      }
+    }
+  }
+
+  // varka-session-lint: allow a path: the declined batch's way to the row engine, as the
+  // plan's metrics count it
+  test("a calendar field of a count past the date guard goes to the row engine with its batch " +
+    "alone") {
+    for (table <- Seq("varka_ntz_below", "varka_ntz_above");
+         field <- Seq("year(t)", "weekofyear(t)", "last_day(t)", "trunc(t, 'YEAR')")) {
+      val query = s"SELECT i, $field AS v FROM $table"
+      val actual = varkaSpark.sql(query)
+      val plan = actual.queryExecution.executedPlan
+      assertFused(plan)
+      checkSparkAnswerMaybeThrows(query)
+      actual.collect()
+      val node = varkaNode(plan)
+      assert(node.metrics("numFallbackBatchesDeclined").value === 1L, query)
+      assert(node.metrics("numVarkaBatches").value === 2L, query)
+    }
+  }
+
+  // varka-session-lint: allow a path: which batches of one table decline, and which fields
+  // stay on the kernel
+  test("the long range's ends: a calendar field's batches go to the row engine, the weekday " +
+    "forms and the time of day stay on the kernel, in every mode") {
+    // varka_ntz_values holds seven batches of two; five hold a count past the date guard.
+    for (ansi <- Seq(false, true)) withAnsi(ansi) {
+      for (field <- Seq("year(t)", "weekofyear(t)", "last_day(t)")) {
+        val query = s"SELECT i, $field AS v FROM varka_ntz_values"
+        val actual = varkaSpark.sql(query)
+        val plan = actual.queryExecution.executedPlan
+        assertFused(plan)
+        checkSparkAnswerMaybeThrows(query)
+        actual.collect()
+        val node = varkaNode(plan)
+        assert(node.metrics("numFallbackBatchesDeclined").value === 5L, query)
+        assert(node.metrics("numVarkaBatches").value === 2L, query)
+      }
+      for (field <- openFields) {
+        checkServed(s"SELECT i, $field AS v FROM varka_ntz_values")
+      }
+    }
+    // And the year is java.time's, past the guard too, where the row engine computes it.
+    val years = varkaSpark.sql("SELECT i, year(t) AS y FROM varka_ntz_values").collect()
+      .filter(!_.isNullAt(1)).map(r => r.getInt(0) -> r.getInt(1)).toMap
+    for (Row(i: Int, t: LocalDateTime) <- ntzRows) {
+      assert(years(i) === t.getYear, s"row $i: $t")
     }
   }
 }

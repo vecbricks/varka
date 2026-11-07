@@ -208,20 +208,20 @@ date_add	DateAdd	datetimeExpressions	in		byte,short,int,bigint,date	date	int,dat
 dateadd	DateAdd	datetimeExpressions	in		byte,short,int,bigint,date	date	int,date	byte,short	plumbing	329	alias of date_add
 date_format	DateFormatClass	datetimeExpressions	out	STRING input or output: owner's decision, 14 October 2026							
 date_sub	DateSub	datetimeExpressions	in		byte,short,int,bigint,date	date	date	byte,short	plumbing	329	byte and short offsets, and int, are new
-day	DayOfMonth	datetimeExpressions	in		date,ntz	int	date	ntz	plumbing	340	ntz through its date
-dayofyear	DayOfYear	datetimeExpressions	in		date,ntz	int	date	ntz	plumbing	340	ntz through its date
-dayofmonth	DayOfMonth	datetimeExpressions	in		date,ntz	int	date	ntz	plumbing	340	ntz through its date
+day	DayOfMonth	datetimeExpressions	in		date,ntz	int	date,ntz	ntz	done	340	ntz through its date, the cast to DATE under the node: `day(ntz)`
+dayofyear	DayOfYear	datetimeExpressions	in		date,ntz	int	date,ntz	ntz	done	340	ntz through its date, the cast to DATE under the node: `dayofyear(ntz)`
+dayofmonth	DayOfMonth	datetimeExpressions	in		date,ntz	int	date,ntz	ntz	done	340	ntz through its date, the cast to DATE under the node: `day(ntz)`
 from_unixtime	FromUnixTime	datetimeExpressions	out	STRING input or output: owner's decision, 14 October 2026							
 from_utc_timestamp	FromUTCTimestamp	datetimeExpressions	out	TIMESTAMP with local time zone: owner's decision, 14 October 2026							
-hour	HourExpressionBuilder	datetimeExpressions	in		ntz,time	int	time	ntz	plumbing	340	ntz in UTC: a floor-mod of the micros
-last_day	LastDay	datetimeExpressions	in		date,ntz	date	date	ntz	plumbing	340	ntz through its date
-minute	MinuteExpressionBuilder	datetimeExpressions	in		ntz,time	int	time	ntz	plumbing	340	ntz in UTC
-month	Month	datetimeExpressions	in		date,ntz	int	date	ntz	plumbing	340	ntz through its date
+hour	HourExpressionBuilder	datetimeExpressions	in		ntz,time	int	ntz,time	ntz	done	340	ntz in UTC: the TIME lowering over the nanosecond of the day (VARKA-340)
+last_day	LastDay	datetimeExpressions	in		date,ntz	date	date,ntz	ntz	done	340	ntz through its date, the cast to DATE under the node: `last_day(ntz)`
+minute	MinuteExpressionBuilder	datetimeExpressions	in		ntz,time	int	ntz,time	ntz	done	340	ntz in UTC: the TIME lowering over the nanosecond of the day (VARKA-340)
+month	Month	datetimeExpressions	in		date,ntz	int	date,ntz	ntz	done	340	ntz through its date, the cast to DATE under the node: `month(ntz)`
 months_between	MonthsBetween	datetimeExpressions	out	TIMESTAMP with local time zone: owner's decision, 14 October 2026							
-next_day	NextDay	datetimeExpressions	in		date,ntz	date	date	ntz	plumbing	340	ntz through its date
+next_day	NextDay	datetimeExpressions	in		date,ntz	date	date,ntz	ntz	done	340	ntz through its date, the cast to DATE under the node: `next_day(ntz, 'MONDAY')`
 now	NowExpressionBuilder	datetimeExpressions	out	TIMESTAMP with local time zone: owner's decision, 14 October 2026							
-quarter	Quarter	datetimeExpressions	in		date,ntz	int	date	ntz	plumbing	340	ntz through its date
-second	SecondExpressionBuilder	datetimeExpressions	in		ntz,time	int,dec	time	dec,ntz	plumbing	340,351	the fractional form is a decimal (row 157)
+quarter	Quarter	datetimeExpressions	in		date,ntz	int	date,ntz	ntz	done	340	ntz through its date, the cast to DATE under the node: `quarter(ntz)`
+second	SecondExpressionBuilder	datetimeExpressions	in		ntz,time	int,dec	ntz,time	dec,ntz	done	340,351	whole seconds of ntz fuse (VARKA-340); the fractional form is a decimal (row 157), ntz's is row 351's
 to_timestamp	ParseToTimestamp	datetimeExpressions	out	STRING input or output: owner's decision, 14 October 2026							
 to_date	ParseToDate	datetimeExpressions	out	STRING input or output: owner's decision, 14 October 2026							
 time_diff	TimeDiff	datetimeExpressions	in		time	bigint	time		done		
@@ -230,14 +230,14 @@ to_unix_timestamp	ToUnixTimestamp	datetimeExpressions	out	STRING input or output
 to_utc_timestamp	ToUTCTimestamp	datetimeExpressions	out	TIMESTAMP with local time zone: owner's decision, 14 October 2026							
 to_timestamp_ntz	ParseToTimestampNTZExpressionBuilder	datetimeExpressions	out	STRING input or output: owner's decision, 14 October 2026							
 to_timestamp_ltz	ParseToTimestampLTZExpressionBuilder	datetimeExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-trunc	TruncDate	datetimeExpressions	in		date,ntz	date	date	ntz	plumbing	340	ntz through its date
+trunc	TruncDate	datetimeExpressions	in		date,ntz	date	date,ntz	ntz	done	340	ntz through its date, the cast to DATE under the node: `trunc(ntz, 'YEAR')`
 date_trunc	TruncTimestamp	datetimeExpressions	out	TIMESTAMP with local time zone: owner's decision, 14 October 2026							
 unix_timestamp	UnixTimestamp	datetimeExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-dayofweek	DayOfWeek	datetimeExpressions	in		date,ntz	int	date	ntz	plumbing	340	ntz through its date
-weekday	WeekDay	datetimeExpressions	in		date,ntz	int	date	ntz	plumbing	340	ntz through its date
+dayofweek	DayOfWeek	datetimeExpressions	in		date,ntz	int	date,ntz	ntz	done	340	ntz through its date, the cast to DATE under the node: `dayofweek(ntz)`
+weekday	WeekDay	datetimeExpressions	in		date,ntz	int	date,ntz	ntz	done	340	ntz through its date, the cast to DATE under the node: `weekday(ntz)`
 dayname	DayName	datetimeExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-weekofyear	WeekOfYear	datetimeExpressions	in		date,ntz	int	date	ntz	plumbing	340	ntz through its date
-year	Year	datetimeExpressions	in		date,ntz	int	date	ntz	plumbing	340	ntz through its date
+weekofyear	WeekOfYear	datetimeExpressions	in		date,ntz	int	date,ntz	ntz	done	340	ntz through its date, the cast to DATE under the node: `weekofyear(ntz)`
+year	Year	datetimeExpressions	in		date,ntz	int	date,ntz	ntz	done	340	ntz through its date, the cast to DATE under the node: `year(ntz)`
 window	TimeWindow	datetimeExpressions	out	STRUCT result: nested types, no representation							
 session_window	SessionWindow	datetimeExpressions	out	STRUCT result: nested types, no representation							
 window_time	WindowTime	datetimeExpressions	out	STRUCT input: nested types, no representation							
@@ -260,9 +260,9 @@ try_make_timestamp_ltz	TryMakeTimestampLTZExpressionBuilder	datetimeExpressions	
 make_interval	MakeInterval	datetimeExpressions	out	CALENDAR INTERVAL result: outside the type set							
 make_dt_interval	MakeDTInterval	datetimeExpressions	in		int,bigint,dec	dt		dec	semantics	351,103	seconds arrive as DECIMAL(18,6)
 make_ym_interval	MakeYMInterval	datetimeExpressions	in		int	ym	int		done		fused in `make_ym_interval(year(d), month(d))`
-extract	Extract	datetimeExpressions	in		date,ntz,time,ym,dt	byte,int,dec	date,time,ym	byte,dec,ntz	semantics	340,103,351	fields over ntz and dt are new; SECOND over time gives a decimal (row 157)
-date_part	DatePartExpressionBuilder	datetimeExpressions	in		date,ntz,time,ym,dt	byte,int,dec	date,ym	byte,dec,ntz	semantics	340,103,351	as extract
-datepart	DatePartExpressionBuilder	datetimeExpressions	in		date,ntz,time,ym,dt	byte,int,dec	date,ym	byte,dec,ntz	semantics	340,103,351	as extract
+extract	Extract	datetimeExpressions	in		date,ntz,time,ym,dt	byte,int,dec	date,ntz,time,ym	byte,dec,ntz	semantics	340,103,351	every field of ntz but SECOND, which gives a decimal and is row 351's (VARKA-340); fields over dt are new; SECOND over time gives a decimal (row 157)
+date_part	DatePartExpressionBuilder	datetimeExpressions	in		date,ntz,time,ym,dt	byte,int,dec	date,ntz,ym	byte,dec,ntz	semantics	340,103,351	as extract
+datepart	DatePartExpressionBuilder	datetimeExpressions	in		date,ntz,time,ym,dt	byte,int,dec	date,ntz,ym	byte,dec,ntz	semantics	340,103,351	as extract
 date_from_unix_date	DateFromUnixDate	datetimeExpressions	in		int	date	int		done		fused in `date_from_unix_date(unix_date(d))`
 unix_date	UnixDate	datetimeExpressions	in		date	int	date		done		
 timestamp_seconds	SecondsToTimestamp	datetimeExpressions	out	TIMESTAMP with local time zone: owner's decision, 14 October 2026							
@@ -453,9 +453,9 @@ bigint	Cast	conversionExpressions	in		bool,byte,short,int,bigint,float,double,de
 float	Cast	conversionExpressions	in		bool,byte,short,int,bigint,float,double,dec,date	float		bool,byte,short,float,double,dec	semantics	343,364,366	cast alias
 double	Cast	conversionExpressions	in		bool,byte,short,int,bigint,float,double,dec,date	double		bool,byte,short,float,double,dec	semantics	343,364,366	cast alias
 decimal	Cast	conversionExpressions	in		bool,byte,short,int,bigint,float,double,dec,date,time,ym,dt	dec		bool,byte,short,float,double,dec	semantics	350,364,366	cast alias; DECIMAL(10,0) by default
-date	Cast	conversionExpressions	in		date,ntz	date		ntz	plumbing	340	cast alias
+date	Cast	conversionExpressions	in		date,ntz	date	ntz	ntz	plumbing	340	cast alias; ntz is fused (VARKA-338), the other sources are their rows'
 timestamp	Cast	conversionExpressions	out	TIMESTAMP with local time zone: owner's decision, 14 October 2026							
-time	Cast	conversionExpressions	in		ntz,time	time		ntz	plumbing	340	cast alias; TIME widening is fused today
+time	Cast	conversionExpressions	in		ntz,time	time	ntz	ntz	plumbing	340	cast alias; TIME widening is fused today, and ntz to TIME (VARKA-340)
 binary	Cast	conversionExpressions	out	BINARY: outside the type set							
 string	Cast	conversionExpressions	out	STRING input or output: owner's decision, 14 October 2026							
 from_csv	CsvToStructs	csvExpressions	out	parses or produces STRING: owner's decision, 14 October 2026							

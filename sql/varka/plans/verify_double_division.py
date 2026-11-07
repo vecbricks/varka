@@ -125,6 +125,12 @@ TIME_ROWS = [
     ("time/mod60s", 60, 0, 86400, "second(t) step 2: /60 over the second of day"),
     ("time/trunc_ms", 1_000_000, 0, NANOS_PER_DAY, "time_trunc to milliseconds: /1e6"),
     ("time/trunc_us", 1_000, 0, NANOS_PER_DAY, "time_trunc to microseconds: /1e3"),
+    # CAST(ntz AS TIME(p)) for p < 6 divides the nanosecond of the day by 10^(9 - p) and
+    # multiplies it back (VARKA-340); 10^3, 10^6 and 10^9 are the rows above.
+    ("time/cast_p5", 10_000, 0, NANOS_PER_DAY, "CAST(ntz AS TIME(5)): /1e4"),
+    ("time/cast_p4", 100_000, 0, NANOS_PER_DAY, "CAST(ntz AS TIME(4)): /1e5"),
+    ("time/cast_p2", 10_000_000, 0, NANOS_PER_DAY, "CAST(ntz AS TIME(2)): /1e7"),
+    ("time/cast_p1", 100_000_000, 0, NANOS_PER_DAY, "CAST(ntz AS TIME(1)): /1e8"),
 ]
 
 # Day-time intervals are signed microseconds, and only the day extract divides:
@@ -176,9 +182,32 @@ EXPECTED = {
     "time/mod60s": (True, True),
     "time/trunc_ms": (True, True),
     "time/trunc_us": (True, True),
+    "time/cast_p5": (True, True),
+    "time/cast_p4": (True, True),
+    "time/cast_p2": (True, True),
+    "time/cast_p1": (True, True),
     "dt/days": (True, True),
     "ntz/date": (True, True),
 }
+
+
+def granlund_montgomery(d, shift):
+    """The multiply-shift form of `n / d` and where it first goes wrong, by exact integers.
+
+    `m = ceil(2^shift / d)` over `m * n >> shift` is `n / d` while the error `e = m * d - 2^shift`
+    times `n` stays under `2^shift`: the fraction of `n / d` is at most `(d - 1) / d`, reached at
+    `n = d - 1 (mod d)`, and the product's excess over `n / d` is `n * e / (d * 2^shift)`. So the
+    first wrong dividend is the least `n = d - 1 (mod d)` with `n * e >= 2^shift`. That needs a
+    64-bit high multiply, which JDK 25's Vector API lacks, so VARKA-340 records the constants
+    and builds no arm. Returns `(m, first_wrong)`, checked against the multiply itself.
+    """
+    m = -(-(1 << shift) // d)
+    e = m * d - (1 << shift)
+    n_min = -(-(1 << shift) // e)
+    first = n_min + ((d - 1 - n_min) % d)
+    assert (first * m >> shift) != first // d, "the form is right at its first wrong dividend"
+    assert ((first - d) * m >> shift) == (first - d) // d, "and right one divisor earlier"
+    return m, first
 
 
 def java_quotient(v, d):
@@ -360,6 +389,14 @@ def main():
             "TIMESTAMP_NTZ, signed microseconds - the cast to DATE's floor division:",
         )
     )
+
+    m, first = granlund_montgomery(10_546_875, 71)
+    print("The 64-bit high multiply form of the day's odd part, /10546875, recorded and not built:")
+    print(f"  multiplier {m}, shift 71, first wrong dividend {first}")
+    if (m, first) != (223_875_151_780_487, 1_933_372_399_218_749):
+        print("FAIL: the constants VARKA-340.md 0 item 8 records moved.")
+        return 1
+    print()
 
     print("Past the bound, for the one row whose range reaches it: the first dividend above")
     print("2^52 where each form goes wrong, at the multiples' neighbourhoods up to 2^53:")

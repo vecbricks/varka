@@ -31,11 +31,14 @@ import scala.jdk.javaapi.CollectionConverters;
 import org.apache.spark.sql.catalyst.expressions.BoundReference;
 import org.apache.spark.sql.catalyst.expressions.Cast;
 import org.apache.spark.sql.catalyst.expressions.Expression;
+import org.apache.spark.sql.catalyst.expressions.Hour;
 import org.apache.spark.sql.catalyst.expressions.HoursOfTime;
 import org.apache.spark.sql.catalyst.expressions.Literal;
 import org.apache.spark.sql.catalyst.expressions.MakeTime;
+import org.apache.spark.sql.catalyst.expressions.Minute;
 import org.apache.spark.sql.catalyst.expressions.MinutesOfTime;
 import org.apache.spark.sql.catalyst.expressions.RuntimeReplaceable;
+import org.apache.spark.sql.catalyst.expressions.Second;
 import org.apache.spark.sql.catalyst.expressions.SecondsOfTime;
 import org.apache.spark.sql.catalyst.expressions.SecondsOfTimeWithFraction;
 import org.apache.spark.sql.catalyst.expressions.SubtractTimes;
@@ -278,8 +281,83 @@ final class VarkaTimeCompiler {
       case TimestampAddInterval a when VarkaTypes.isNtz(a.start().dataType())
           && a.interval().dataType() instanceof DayTimeIntervalType ->
           () -> ntzPlusInterval(a, inputs, literals, sink);
+      // The time of day of a TIMESTAMP_NTZ (VARKA-340): the count read at UTC, so the fields are
+      // the TIME lowerings over the nanosecond of the day. The analyzer fills in the session zone
+      // these expressions carry, and an NTZ value does not read it.
+      case Hour h when VarkaTypes.isNtz(h.child().dataType()) -> () -> ntzTimeField(
+          h.child(), (n, ignored) -> hourOf(n), inputs, literals, sink);
+      case Minute m when VarkaTypes.isNtz(m.child().dataType()) -> () -> ntzTimeField(
+          m.child(), VarkaTimeCompiler::minuteOf, inputs, literals, sink);
+      case Second s when VarkaTypes.isNtz(s.child().dataType()) -> () -> ntzTimeField(
+          s.child(), VarkaTimeCompiler::secondOf, inputs, literals, sink);
+      case Cast c when c.dataType() instanceof TimeType to
+          && VarkaTypes.isNtz(c.child().dataType()) ->
+          () -> ntzToTime(c, to, inputs, literals, sink);
       default -> null;
     };
+  }
+
+  /** The hour of the day of a nanosecond of the day: one division. */
+  private static VarkaVectorIR hourOf(VarkaVectorIR nanos) {
+    return new NarrowLane(new ConstDivide(nanos, NANOS_PER_TIME_UNIT.get("HOUR"), DAY_OF_NANOS));
+  }
+
+  /** The minute of the hour: a division and the remainder of a further one by sixty. */
+  private static VarkaVectorIR minuteOf(VarkaVectorIR nanos, DeclineSink sink) {
+    return new NarrowLane(remainderOfSixty(
+        new ConstDivide(nanos, NANOS_PER_TIME_UNIT.get("MINUTE"), DAY_OF_NANOS), sink));
+  }
+
+  /** The second of the minute, built as the minute is. */
+  private static VarkaVectorIR secondOf(VarkaVectorIR nanos, DeclineSink sink) {
+    return new NarrowLane(remainderOfSixty(
+        new ConstDivide(nanos, NANOS_PER_TIME_UNIT.get("SECOND"), DAY_OF_NANOS), sink));
+  }
+
+  /**
+   * The nanosecond of the day of an NTZ operand, {@code CAST(ntz AS TIME)}'s value: the
+   * microsecond of the day times a thousand, under {@code 2^47}, so under the bound every
+   * {@code TIME} divisor is proven for and never guarded.
+   */
+  private static Optional<VarkaVectorIR> ntzNanos(
+      Expression ntz,
+      VarkaSlotTable inputs,
+      VarkaSlotTable literals,
+      DeclineSink sink) {
+    return longOperand(ntz, inputs, literals, sink).map(t -> new IntArith(IntOp.MUL,
+        Overflow.WRAP, VarkaNodeCompiler.microsOfDay(t, sink),
+        sink.longSlot(DateTimeConstants.NANOS_PER_MICROS)));
+  }
+
+  /** {@code build} over the nanosecond of the day of {@code ntz}. */
+  private static Optional<VarkaVectorIR> ntzTimeField(
+      Expression ntz,
+      java.util.function.BiFunction<VarkaVectorIR, DeclineSink, VarkaVectorIR> build,
+      VarkaSlotTable inputs,
+      VarkaSlotTable literals,
+      DeclineSink sink) {
+    return ntzNanos(ntz, inputs, literals, sink).map(n -> build.apply(n, sink));
+  }
+
+  /**
+   * {@code CAST(ntz AS TIME(p))}: Spark's {@code truncateTimeToPrecision} of the nanosecond of
+   * the day, which floors a non-negative count to a multiple of {@code 10^(9 - p)}. A microsecond
+   * count has no digit past the sixth, so from precision 6 up it is the nanosecond itself; below,
+   * the quotient and the product by the same power of ten. It cannot fail in any mode.
+   */
+  private static Optional<VarkaVectorIR> ntzToTime(
+      Cast c,
+      TimeType to,
+      VarkaSlotTable inputs,
+      VarkaSlotTable literals,
+      DeclineSink sink) {
+    Optional<VarkaVectorIR> n = ntzNanos(c.child(), inputs, literals, sink);
+    if (n.isEmpty() || to.precision() >= TimeType.MICROS_PRECISION()) {
+      return n;
+    }
+    long unit = Decimal.POW_10()[TimeType.NANOS_PRECISION() - to.precision()];
+    return n.map(v -> new IntArith(IntOp.MUL, Overflow.WRAP,
+        new ConstDivide(v, unit, DAY_OF_NANOS), sink.longSlot(unit)));
   }
 
   /**
@@ -543,23 +621,17 @@ final class VarkaTimeCompiler {
       // so nothing overflows and nothing is guarded.
       case "getHoursOfTime" -> {
         if (args.size() == 1) {
-          Optional<VarkaVectorIR> t = longOperand(args.get(0), inputs, literals, sink);
-          return t.map(v -> new NarrowLane(
-              new ConstDivide(v, NANOS_PER_TIME_UNIT.get("HOUR"), DAY_OF_NANOS)));
+          return longOperand(args.get(0), inputs, literals, sink).map(v -> hourOf(v));
         }
       }
       case "getMinutesOfTime" -> {
         if (args.size() == 1) {
-          Optional<VarkaVectorIR> t = longOperand(args.get(0), inputs, literals, sink);
-          return t.map(v -> new NarrowLane(remainderOfSixty(
-              new ConstDivide(v, NANOS_PER_TIME_UNIT.get("MINUTE"), DAY_OF_NANOS), sink)));
+          return longOperand(args.get(0), inputs, literals, sink).map(v -> minuteOf(v, sink));
         }
       }
       case "getSecondsOfTime" -> {
         if (args.size() == 1) {
-          Optional<VarkaVectorIR> t = longOperand(args.get(0), inputs, literals, sink);
-          return t.map(v -> new NarrowLane(remainderOfSixty(
-              new ConstDivide(v, NANOS_PER_TIME_UNIT.get("SECOND"), DAY_OF_NANOS), sink)));
+          return longOperand(args.get(0), inputs, literals, sink).map(v -> secondOf(v, sink));
         }
       }
       // timeAddInterval(t, p, dt, endField, target): addExact(t, multiplyExact(dt, 1000)),

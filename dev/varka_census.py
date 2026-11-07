@@ -401,6 +401,10 @@ VIA = {
 }
 
 
+# The classes a timestamp's field is, beside the TIME class VIA names: `hour(ntz)` is `Hour`.
+VIA_NTZ = {"hour": "Hour", "minute": "Minute", "second": "Second"}
+
+
 def check_cls_of(name, cls):
     return VIA.get(name, cls)
 
@@ -477,7 +481,7 @@ def row(section, name, cls, types, result, fused, need, rows, note, cov, errors)
             errors.append(f"{name}: fused type {x} is not among its types")
         if x in derived:
             continue
-        if x not in cov.get(check_cls, set()):
+        if x not in cov.get(check_cls, set()) | cov.get(VIA_NTZ.get(name, ""), set()):
             errors.append(f"{name}: no coverage row has a {check_cls} node over a {x} operand")
     if need not in NEEDS:
         errors.append(f"{name}: unknown need {need!r}")
@@ -827,10 +831,7 @@ CONTEXT_CASTS = {
 # its columns can cast them as a plan does: the probe holds every form, and a row writing the cast
 # over a literal shows nothing, since the optimizer folds it. Each must still fuse in the probe;
 # one that a coverage row comes to cast leaves this list.
-UNSHOWN_CASTS = {
-    ("time", "time"): "only a widening from TIME(0) or TIME(3), and the table's TIME columns "
-    "are TIME(6)",
-}
+UNSHOWN_CASTS: dict[tuple[str, str], str] = {}
 
 
 def casts_fused(root=ROOT):

@@ -60,6 +60,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaDerivedKind;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaFamily;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaOperandPosition;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaRangeAnalysis;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTypes;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaValueRange;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.AddDays;
@@ -306,7 +307,7 @@ final class VarkaChronoCompiler {
       VarkaSlotTable inputs,
       VarkaSlotTable literals,
       DeclineSink sink) {
-    Optional<VarkaVectorIR> node = VarkaNodeCompiler.compileNode(child, inputs, literals, sink);
+    Optional<VarkaVectorIR> node = calendarDay(child, inputs, literals, sink);
     if (node.isEmpty()) {
       return node;
     }
@@ -684,8 +685,30 @@ final class VarkaChronoCompiler {
       VarkaSlotTable inputs,
       VarkaSlotTable literals,
       DeclineSink sink) {
-    Optional<VarkaVectorIR> node = VarkaNodeCompiler.compileNode(child, inputs, literals, sink);
+    Optional<VarkaVectorIR> node = calendarDay(child, inputs, literals, sink);
     return node.flatMap(v -> admitCalendar(v, calendar, literals, sink));
+  }
+
+  /**
+   * The day a calendar node reads: the compiled child, except that {@code CAST(ntz AS DATE)} -
+   * the cast the analyzer puts under a date field of a {@code TIMESTAMP_NTZ} - compiles as
+   * {@link VarkaNodeCompiler#ntzDay}, whose range the analysis knows. The plain cast has no day
+   * range and its consumers here would decline (VARKA-340). A cast under a day shift is not this
+   * case: its producer stays unknown, and declines.
+   */
+  private static Optional<VarkaVectorIR> calendarDay(
+      Expression child,
+      VarkaSlotTable inputs,
+      VarkaSlotTable literals,
+      DeclineSink sink) {
+    if (child instanceof Cast c && DataTypes.DateType.equals(c.dataType())
+        && VarkaTypes.isNtz(c.child().dataType())) {
+      return VarkaNodeCompiler.compileNode(c.child(), inputs, literals, sink).flatMap(t ->
+          t.laneType() == LaneType.LONG
+              ? Optional.of(VarkaNodeCompiler.ntzDay(t, sink))
+              : sink.decline("a timestamp_ntz operand that is not on the long lane", c));
+    }
+    return VarkaNodeCompiler.compileNode(child, inputs, literals, sink);
   }
 
   /**
