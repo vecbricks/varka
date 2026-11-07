@@ -518,9 +518,11 @@ comparison by minimums AGENTS.md asks for.
   on the load). Both are two-lane x86 columns where P and A are the Java fallback and S runs at
   the speed of the wider widths; the 359a plan's 11.4 decides that case (every 359a condition
   declines there, S is a row of its own), and its 11.3 (amended on 7 November 2026 to say so)
-  limits rule 2 to widths of more than two long lanes, so neither host's 128-bit column triggers
-  the ask. That limit is a reading of the rule the owner has not yet confirmed; the pull request
-  that merges this plan asks for it.
+  limits rule 2 to widths of more than two long lanes, so neither x86 host's 128-bit column
+  triggers the ask. That limit is a reading of the rule the owner has not yet confirmed; the pull
+  request that merges this plan asks for it. The aarch64 128-bit column, where the pair runs
+  natively, is not among those columns: it has no reading yet and 359a measures it (11.3,
+  11.8 point 5).
 
 **Verdict: build P.** Neither A nor S wins by the rule's margin at 256 or 512 bits on either host;
 the laptop's 512-bit column, double-pumped on its 256-bit datapath, agrees with its 256-bit one.
@@ -621,7 +623,11 @@ and past-L3 rungs (11.1 item 4):
    sections at both rungs at one width of more than two long lanes (256 or 512 bits) on one host,
    the laptop's 512 bits included. The 128-bit columns are two-lane x86 columns, where P and A
    are both the Java fallback and 11.4 decides the case, so they are read under 11.4 and do not
-   trigger this rule. Then the owner is asked (11.2).
+   trigger this rule. The one 128-bit column that does bear on it is aarch64's, where the pair
+   runs natively (11.4) and no reading exists yet: 359a's measurement step (11.8 point 5) runs
+   the pair spike on the Arm runner, and rule 2 is applied to that column as to the 256- and
+   512-bit ones. A 1.3x win by A there asks the owner for a replan of the aarch64 case alone; x86
+   at 256 and 512 bits stays P. Then the owner is asked (11.2).
 3. **S replan**: S is faster than P by at least 1.3x on either section at 256 or 512 bits on
    either host. Then the owner is asked whether S becomes an emission mode beyond two lanes.
 4. A move under 1.3x is a tie and leaves 1. The laptop's 512-bit column is eight long lanes issued
@@ -778,7 +784,9 @@ are of the size of 347's, seconds. The build's CI steps are read against
 5. **Measuring 359a's sections on its own head.** Section 5 puts the measurement in 359b, but
    four of the baseline's sections are 359a's forms. *Recommended:* dispatch `benchmark.yml` on
    359a's branch at 256 and 128 bits on the EPYC 7763 (runners, not the laptop) and score 11.7's
-   predictions 3 to 5 in 359a; 359b measures its own.
+   predictions 3 to 5 in 359a; 359b measures its own. Also dispatch
+   `VarkaDecimalPairSpikeBenchmark` on the Arm runner (`runner: ubuntu-24.04-arm`, row 575), whose
+   128-bit column is the one reading rule 2 still lacks (11.3).
 6. **The conformance suite's checks while 348 is open.** *Recommended:* the decimal suite runs the
    load, the null and the ordering checks over both representations (the reader already compares
    below 19 digits), and leaves the choice and cast checks owed to 359b and 364.
