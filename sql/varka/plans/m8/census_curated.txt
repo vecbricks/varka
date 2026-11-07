@@ -85,9 +85,9 @@ log10|double|double||ulp|367,358|StrictMath
 log1p|double|double||ulp|367,358|StrictMath
 log2|double|double||ulp|367,358|StrictMath.log over a constant
 ln|double|double||ulp|367,358|StrictMath
-mod|NUM|same||semantics|30,95,104,346,363|integral is semantics (zero divisor); floating by the one-FMA remainder (346); decimal: a remainder by a variable divisor, which the long lane has no vector division for; unclaimed, suggested home row 30 (VARKA-349.md 7)
+mod|NUM|same||semantics|30,95,104,346,577|integral is semantics (zero divisor); floating by the one-FMA remainder (346); decimal: a remainder by a variable divisor, which the long lane has no vector division for; row 577 (VARKA-577.md; the owner's word of 7 November 2026)
 negative|NUM,IVL|same|byte,short,int,ym,float,double|semantics|330,104,103,342,348,359|the minimum value overflows; not for dec, whose unscaled value within 18 digits is never the minimum: dec to precision 18 fuses under a comparison or a null test (348), as an output with row 157, and counts fused with 359 (2.8)
-pmod|NUM|same||semantics|30,104,346,363|integral is semantics (item 33's sign rule; pmod(-1, Int.MinValue) is Int.MaxValue, SPARK-59934); floating by the one-FMA remainder (346)
+pmod|NUM|same||semantics|30,104,346,577|integral is semantics (item 33's sign rule; pmod(-1, Int.MinValue) is Int.MaxValue, SPARK-59934); floating by the one-FMA remainder (346); decimal: a remainder by a variable divisor, row 577
 positive|NUM,IVL|same||plumbing|333|rewritten to its child
 pow|double|double||ulp|367,358|StrictMath; fused behind the guard on fdlibm's weak branch, its exact exponents as exact nodes (358)
 power|double|double||ulp|367,358|alias of pow
@@ -113,7 +113,7 @@ div|INTEGRAL,dec!,IVL|bigint||semantics|30,104,103|zero divisor null or error; o
 %|NUM|same||semantics|30,95,104,346,363|integral is semantics (zero divisor); floating by the one-FMA remainder (346); decimal: a remainder by a variable divisor, which the long lane has no vector division for; unclaimed, suggested home row 30 (VARKA-349.md 7)
 try_add|NUM,IVL|same|byte,short,int,float,double|semantics|330,104,342,349,360|overflow gives null; over ym and dt it is `TryEval`, which no row builds (`m9/SCOPE.md` item 125); decimal: fused where the result is within 18 digits (349a, a filter until 157); the pair counts with 360 at every precision to 38
 try_divide|double,dec!|same|double|done|342|zero divisor gives null; decimal division is out of milestone 8
-try_mod|NUM|same||semantics|30,104,346,363|floating by the one-FMA remainder (346)
+try_mod|NUM|same||semantics|30,104,346,577|floating by the one-FMA remainder (346); decimal: a remainder by a variable divisor, row 577
 try_subtract|NUM,IVL|same|byte,short,int,float,double|semantics|330,104,342,349,360|overflow gives null; over ym and dt it is `TryEval`, which no row builds (`m9/SCOPE.md` item 125); decimal: fused where the result is within 18 digits (349a, a filter until 157); the pair counts with 360 at every precision to 38
 try_multiply|NUM|same|byte,short,float,double|semantics|330,104,342,349,361,362|overflow gives null; decimal: fused where the result is within 18 digits (349a, a filter until 157); the pair counts with 361 and 362 at every precision to 38
 shiftleft|int,bigint|same|int,bigint|done||item 32; byte and short widen to int first; a bigint shifted by an int column fuses (335b, 20 October 2026), the count widened to the long lane

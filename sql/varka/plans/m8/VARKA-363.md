@@ -462,7 +462,8 @@ differs"); 364 owns the coercion's cast expression and this row the division und
 G3's row; the interval quotients by a decimal are claimed here, as row 349's plan sends them; and
 `%`, `mod` and `pmod` decline naming no row. What stays, for the owner:
 
-1. **Decimal `%`, `mod`, `pmod` and `try_mod` have no home.** Three plans disagree:
+1. **Decimal `%`, `mod`, `pmod` and `try_mod` have no home.** *7 November 2026, by the owner's
+   word: a milestone 8 row of its own, row 577 (`VARKA-577.md`); the census sends them there.* Three plans disagree:
    `VARKA-359.md` 6 lists them under 363; row 349's plan (section 7, branch `varka-348-349-plan`)
    suggests row 30; this plan finds they never cut a scale (item 0.5), so this row's division does
    not serve them. A decimal remainder by a column needs a general 128-bit division by a variable,
