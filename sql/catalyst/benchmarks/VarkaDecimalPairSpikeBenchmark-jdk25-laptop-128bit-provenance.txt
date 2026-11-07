@@ -1,0 +1,15 @@
+benchmark:   org.apache.spark.sql.VarkaDecimalPairSpikeBenchmark
+where:       the laptop (host aqua), pinned to its fast CCX, both heavy locks held
+commit:      5c660201b35
+date:        2026-11-01T18:16:39Z
+jdk:         OpenJDK Runtime Environment (build 25.0.4.1+1-1-26.04.4-Ubuntu)
+kernel:      7.0.0-42-generic
+cpu:         AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+width:       -XX:MaxVectorSize=16 (128-bit vectors)
+datapath:    67.7 / 136.3 / 155.3 lane-ops/ns at 128 / 256 / 512 bits; 256:128 = 2.01 (control), 512:256 = 1.14 (dev/varka_datapath.sh, run once before the three widths)
+power:       governor=performance epp=performance profile=performance
+pinned to:   taskset -c 0,12,13,14,15,1,2,3
+load at start: 1.60 (this width; 0.96 before the canary, the tail of the run before it after)
+canary:      ok (compute +0.2% cache +2.6% memory -0.8% )
+run:         SPARK_GENERATE_BENCHMARK_FILES=1 SPARK_LOCAL_IP=127.0.0.1 taskset -c 0,12,13,14,15,1,2,3 build/sbt "project catalyst" 'set Test/javaOptions ++= Seq("-XX:MaxVectorSize=16", "-XX:CompileCommand=dontinline,org.apache.spark.sql.VarkaDecimalPairSpikeBenchmark::loop*")' "Test/runMain org.apache.spark.sql.VarkaDecimalPairSpikeBenchmark"
+sbt exit:    0

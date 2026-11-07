@@ -633,8 +633,12 @@ public record VarkaEmitOptions(
    */
   public static final int HOST_USE_AVX = readUseAVX();
 
-  /** The {@code UseAVX} level at which HotSpot enables its AVX-512 paths. */
-  private static final int AVX512_LEVEL = 3;
+  /**
+   * The {@code UseAVX} level at which HotSpot enables its AVX-512 paths: the lowest level whose
+   * conversions the kernel plan admits ({@link #convertsMayFallBack()}), and the one a session
+   * asking for the host's resolves a CPU with AVX512DQ to.
+   */
+  public static final int AVX512_LEVEL = 3;
 
   /**
    * Whether this level is one where the long-to-double conversions do not become instructions,
@@ -654,6 +658,27 @@ public record VarkaEmitOptions(
    */
   public boolean convertsFallBack() {
     return useAVX != USE_AVX_UNKNOWN && useAVX < AVX512_LEVEL;
+  }
+
+  /**
+   * Whether this level gives no assurance that the long-to-floating conversions become
+   * instructions: a level below 3, as in {@link #convertsFallBack()}, and also an unknown one.
+   * The kernel plan admits a {@code BIGINT} conversion to {@code FLOAT} or {@code DOUBLE} only
+   * where this is false ({@code VarkaKernelPlan.conversionRefusal}).
+   *
+   * <p>It differs from {@link #convertsFallBack()} on the unknown level alone, and on purpose.
+   * That predicate picks a lowering, and its optimism costs nothing where it is wrong: both
+   * division forms are vector code. This one decides whether a kernel exists, and the two errors
+   * are not alike: a wrong decline costs the row engine's speed, while a wrong admission runs
+   * the Vector API's scalar Java loop inside a vector kernel. The unknown level is what
+   * {@link #DEFAULTS} carries, so it has to be the safe answer. It is still a function of the
+   * record alone - no CPU read reaches it - so a shape is admitted or declined alike on every
+   * machine, and its key never depends on the host. A session that wants the conversions fused
+   * names level 3, or asks for the host's level, which resolves a CPU with AVX512DQ to 3
+   * ({@code VarkaSessionEmit.resolve}).
+   */
+  public boolean convertsMayFallBack() {
+    return useAVX == USE_AVX_UNKNOWN || useAVX < AVX512_LEVEL;
   }
 
   private static int readUseAVX() {

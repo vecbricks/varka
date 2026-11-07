@@ -191,7 +191,8 @@ class VarkaTimeArithmeticSuite extends QueryTest with VarkaMaybeThrows with Vark
   test("a session resolving its level on a host whose converts fall back plans the magic form") {
     // VARKA-538 test 3.2: a fallback host, planted, makes the driver resolve level 2; the plan
     // carries that record to the executors, whose compile reads it, and the answers stay the
-    // row engine's. A converting host, planted, leaves the emitter's default.
+    // row engine's. A converting host, planted, resolves level 3, which lowers the division as
+    // the emitter's default does.
     resolvingFromHost {
       VarkaSessionEmit.setHostForTesting(
         new VarkaHostIsa.Reading("amd64", "avx, avx2, fma", null, 256))
@@ -210,7 +211,7 @@ class VarkaTimeArithmeticSuite extends QueryTest with VarkaMaybeThrows with Vark
         new VarkaHostIsa.Reading("amd64", "avx, avx2, avx512f, avx512dq, avx512vl", null, 512))
       try {
         val plan = varkaSpark.sql(s"SELECT hour(t) AS v FROM $day").queryExecution.executedPlan
-        assert(plannedEmit(plan).forall(_.useAVX === VarkaEmitOptions.USE_AVX_UNKNOWN),
+        assert(plannedEmit(plan).forall(_.useAVX === VarkaEmitOptions.AVX512_LEVEL),
           plan.treeString)
       } finally {
         VarkaSessionEmit.setHostForTesting(null)
@@ -221,7 +222,7 @@ class VarkaTimeArithmeticSuite extends QueryTest with VarkaMaybeThrows with Vark
   test("a session at the default level plans what the JVM's features say") {
     // VARKA-538 test 3.6, nothing planted: the default level -2, the real export, the
     // reflective read and of(conf) on whatever CPU runs the suite - the magic form on an AVX2
-    // runner whose long species is 256 bits or more, the conversion form on an AVX-512 one or
+    // runner whose long species is 256 bits or more, level 3 on an AVX512DQ one, the unknown level
     // under -XX:MaxVectorSize=16 - and the answers are the row engine's either way. The suite's
     // session pins -1, so the default is set back for the test.
     assert(SQLConf.VARKA_EMIT_USE_AVX.defaultValue.contains(VarkaSessionEmit.USE_AVX_FROM_HOST))
@@ -232,9 +233,13 @@ class VarkaTimeArithmeticSuite extends QueryTest with VarkaMaybeThrows with Vark
       val host = VarkaHostIsa.host()
       // The level, not the options' predicate: a matrix configuration may set a base level the
       // session's unknown leaves in place.
-      val expected = if (host.conversionsFallBack() &&
-          host.longBits() >= VarkaSessionEmit.MAGIC_MIN_LONG_BITS) {
-        2
+      val expected = if (host.conversionsFallBack()) {
+        // Below AVX512DQ: the magic form where the long species is wide enough, else unknown
+        // (an AVX2 host under -XX:MaxVectorSize=16 has a 128-bit species).
+        if (host.longBits() >= VarkaSessionEmit.MAGIC_MIN_LONG_BITS) 2
+        else VarkaEmitOptions.USE_AVX_UNKNOWN
+      } else if (host.x86() && host.readable() && !host.features().isEmpty) {
+        VarkaEmitOptions.AVX512_LEVEL
       } else {
         VarkaEmitOptions.USE_AVX_UNKNOWN
       }

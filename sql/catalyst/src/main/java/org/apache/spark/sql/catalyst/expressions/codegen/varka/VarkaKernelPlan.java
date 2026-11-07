@@ -96,7 +96,7 @@ public final class VarkaKernelPlan {
     if (roots.isEmpty()) {
       throw VarkaErrors.illegalArgument("no output chains to plan");
     }
-    Optional<Refusal> conversion = conversionRefusal(roots);
+    Optional<Refusal> conversion = conversionRefusal(roots, options);
     if (conversion.isPresent()) {
       return refused(conversion.get());
     }
@@ -571,12 +571,22 @@ public final class VarkaKernelPlan {
    * Why a conversion of these roots has no kernel yet. The emitter lowers the four conversions
    * that are one {@code convertShape} on every x86 host, {@code I2F}, {@code I2D}, {@code F2D}
    * and {@code D2F}, in a kernel of one lane count or of two (`VARKA-343.md` 2.2). A
-   * {@code BIGINT} source, {@code L2F} or {@code L2D}, has no intrinsic on a host without
-   * AVX512DQ and waits for row 343's part 343a4; a floating source converted to an integral
-   * lane waits for its part 343b2. A boolean whose condition compares longs is not one: the
-   * compiler narrows its one or zero to the int lane first.
+   * {@code BIGINT} source, {@code L2F} or {@code L2D}, is admitted where
+   * {@link VarkaEmitOptions#convertsMayFallBack()} is false: x86 has no rule for either without
+   * AVX512DQ, so below level 3 and at the unknown level, the defaults' and an unset session's,
+   * which may be such a host, the conversion would run as the Vector API's Java loop and the
+   * entry declines. Its AVX2 forms are row 343's second part. A floating source converted to an
+   * integral lane waits for part 343b2, at every level. A boolean whose condition compares longs
+   * is not a conversion from a long: the compiler narrows its one or zero to the int lane first.
+   *
+   * <p>The test reads the options' {@code UseAVX} level and not the CPU: the level is part of
+   * the shape key, and a plan that read the host would key one shape two ways. The feature
+   * reaches it through the level: a session that asks for the host's level resolves a CPU whose
+   * HotSpot feature list holds AVX512DQ to level 3 and one that lacks it, an AVX-512 one without
+   * DQ included, to level 2 ({@code VarkaSessionEmit.resolve}).
    */
-  private static Optional<Refusal> conversionRefusal(List<VarkaVectorIR> roots) {
+  private static Optional<Refusal> conversionRefusal(List<VarkaVectorIR> roots,
+      VarkaEmitOptions options) {
     var seen = new HashSet<VarkaVectorIR>();
     var todo = new ArrayDeque<VarkaVectorIR>(roots);
     while (!todo.isEmpty()) {
@@ -584,10 +594,16 @@ public final class VarkaKernelPlan {
       if (!seen.add(node)) {
         continue;
       }
-      if (node instanceof ConvertLane c
-          && (c.child().laneType() == LaneType.LONG || !c.target().isFloating())) {
-        return Optional.of(new Refusal(Kind.CONVERSION, "a conversion from "
-            + c.child().laneType() + " to " + c.target() + " is not built yet (row 343)"));
+      if (node instanceof ConvertLane c) {
+        if (!c.target().isFloating()) {
+          return Optional.of(new Refusal(Kind.CONVERSION, "a conversion from "
+              + c.child().laneType() + " to " + c.target() + " is not built yet (row 343)"));
+        }
+        if (c.child().laneType() == LaneType.LONG && options.convertsMayFallBack()) {
+          return Optional.of(new Refusal(Kind.CONVERSION, "a BIGINT conversion to " + c.target()
+              + " at an emit level that does not assure AVX512DQ, without which it is not"
+              + " intrinsic (row 343)"));
+        }
       }
       for (VarkaVectorIR child : VarkaVectorIR.childrenOf(node)) {
         todo.push(child);
