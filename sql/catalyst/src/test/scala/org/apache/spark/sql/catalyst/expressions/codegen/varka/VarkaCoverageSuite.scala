@@ -338,8 +338,13 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
           + s"${Int.MinValue} AND ${Int.MaxValue}")),
       Row("CAST(ymy AS INTERVAL MONTH)"),
       Row("CAST(i AS INTERVAL MONTH)",
-        "a relabel of the count; `CAST(i AS INTERVAL YEAR)` multiplies by twelve, checked, and "
-          + "declines over a bare int column"),
+        "a relabel of the count; `CAST(i AS INTERVAL YEAR)` multiplies by twelve, checked"),
+      Row("CAST(i AS INTERVAL YEAR)",
+        "a multiply by twelve behind a range guard on the year count, which Spark checks in "
+          + "every mode: a count past it declines the batch under LEGACY and ANSI, where "
+          + "the row engine raises, and nulls the lane under try_cast; inside it the "
+          + "wrapping multiply is exact",
+        domain = Some(s"i BETWEEN ${Int.MaxValue / -12} AND ${Int.MaxValue / 12}")),
       Row("CAST(ymm AS INT)",
         "a relabel of a MONTH-ended interval; a YEAR-ended one divides by twelve"),
       Row("CAST(ymy AS INT)",
@@ -775,7 +780,11 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
         + "any int add is; differential",
         domain = Some(s"i BETWEEN ${Byte.MinValue - 1} AND ${Byte.MaxValue - 1}")),
       Row("CAST(i < 5 AS TINYINT)", "a comparison's value at the int lane, narrowed: a 0 or a 1 "
-        + "needs no wrap; differential"))),
+        + "needs no wrap; differential"),
+      Row("CAST(dt AS BIGINT)", "the whole seconds of a DAY TO SECOND interval: a truncating "
+        + "division by 10^6 under a guard of 2^52 microseconds, past which the row engine "
+        + "divides; the DAY end is exact over every long",
+        domain = Some("dt > INTERVAL '-50000' DAY AND dt < INTERVAL '50000' DAY")))),
 
     Family("Integral cast predicates", predicates = true, Seq(
       Row("CAST(y1 AS BOOLEAN)", "x != 0, which cannot fail; exhaustive"),
@@ -1708,6 +1717,9 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
     // `make_ym_interval(year(d), month(d)) * 2`: no refinement states make_ym_interval.
     "CAST(ymy AS INT)" -> Owed(490),
     "CAST(ym AS INTERVAL YEAR)" -> Owed(490),
+    "CAST(i AS INTERVAL YEAR)" -> Exhausted("VarkaEmitterIntervalCastSuite",
+      "the guard of INT to INTERVAL YEAR is multiplyExact's, over every int"),
+    "CAST(dt AS BIGINT)" -> Proved("long_divide.smt2"),
     "ym / 12" -> Proved("ym_divide.smt2"),
     "ym / -7" -> Proved("ym_divide.smt2"),
     "extract(YEAR FROM ym)" -> Refined("extract(YEAR FROM ym)"),
