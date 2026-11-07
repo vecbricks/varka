@@ -975,6 +975,20 @@ build should wait for them rather than fix the scratch buffer as a special case.
 *Added 6 October 2026: item 85 records what jegg 0.1.0 did on the real IR, takes up this item's
 "what it needs first" as its step 1, and names the steps that go deeper.*
 
+*Added 7 November 2026, from the owner's question on the 359a plan: the 128-bit decimal is the
+first case with measured data. Its physical forms are the de-interleaved pair (P), adjacent
+lanes (A) and the scalar loop (S), measured at 128, 256 and 512 bits on two hosts
+(`VARKA-359.md` 10.1). Today the choice is a fixed rule and a width rule: 359a builds P, and at two
+long lanes on x86, where P and A are Java fallbacks, its filters decline and S is a row of its own
+(`VARKA-359.md` 11.4 and 11.8 point 3). What an extraction would still need is missing: no
+measurement of A against P at 128 bits on Arm, where P runs natively (11.4 says aarch64 at 128
+bits fuses), and no cost for converting between the forms. That is the data to collect, not a
+reason to start the engine inside 359a. The second candidate is the limb-product and carry
+networks of rows 361 to 363, which row 506's printer lowers from composite nodes to primitive
+ones: several equivalent integer forms compete there. The paragraph "what must hold whatever is
+built" applies to both: costs measured, Spark's semantics proved for every rewrite, and a
+deterministic extraction.*
+
 ### Item 12. Fork-only date functions on intermediates the kernels already hold
 
 Recorded on 4 September 2026 while planning VARKA-37, at the owner's request.
