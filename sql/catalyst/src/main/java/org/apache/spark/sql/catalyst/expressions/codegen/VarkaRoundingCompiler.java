@@ -40,9 +40,9 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Bit
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BitOpKind;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Compare;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.CompareOp;
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.CondValue;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ConstDivide;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.GuardedRange;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IfElse;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IntArith;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IntOp;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LaneType;
@@ -179,18 +179,18 @@ public final class VarkaRoundingCompiler {
       RoundBase whole, RoundingMode mode, boolean ansi, VarkaSlotTable inputs,
       VarkaSlotTable literals, DeclineSink sink) {
     Expression child = whole.left();
-    // A decimal is declined by its type, before the lane: a DECIMAL of precision 18 or less is
-    // read on the long lane as its unscaled value, and the integer rounding of that value would
-    // ignore the scale and the result's type, at a non-negative scale as much as a negative one.
-    if (child.dataType() instanceof DecimalType) {
-      return sink.decline("round, bround or truncate over " + child.dataType().simpleString()
-          + " (rows 351, 363)", whole);
-    }
-    // A floating operand never reaches here: VarkaNodeCompiler.floatingDecline declines it first.
-    Optional<LaneType> typeLane = VarkaTypes.lane(child.dataType()).filter(l -> !l.isFloating());
-    if (typeLane.isEmpty()) {
-      return sink.decline("round, bround or truncate over " + child.dataType().simpleString(),
-          whole);
+    // The four integral types by name, not by lane: a DECIMAL of precision 18 or less is read on
+    // the long lane as its unscaled value, and the integer rounding of that value would ignore
+    // the scale and the result's type, at a non-negative scale as much as a negative one. A
+    // floating operand never reaches here: VarkaNodeCompiler.floatingDecline declines it first.
+    DataType t = child.dataType();
+    LaneType lane = DataTypes.ByteType.equals(t) ? LaneType.BYTE
+        : DataTypes.ShortType.equals(t) ? LaneType.SHORT
+        : DataTypes.IntegerType.equals(t) ? LaneType.INT
+        : DataTypes.LongType.equals(t) ? LaneType.LONG : null;
+    if (lane == null) {
+      return sink.decline("round, bround or truncate over " + t.simpleString()
+          + (t instanceof DecimalType ? " (rows 351, 363)" : ""), whole);
     }
     Expression scaleExpr = whole.right();
     if (!scaleExpr.foldable()) {
@@ -199,7 +199,6 @@ public final class VarkaRoundingCompiler {
     if (!(scaleExpr.eval(null) instanceof Integer scale)) {
       return sink.decline("a null scale", whole);
     }
-    LaneType lane = typeLane.get();
     if (scale >= 0) {
       return operand(child, lane, inputs, literals, sink);
     }
@@ -251,11 +250,11 @@ public final class VarkaRoundingCompiler {
       VarkaSlotTable literals) {
     VarkaVectorIR q0 = new ConstDivide(x, d);
     VarkaVectorIR dSlot = VarkaNodeCompiler.slot(d, LaneType.INT, literals);
+    VarkaVectorIR q0d = new IntArith(IntOp.MUL, Overflow.WRAP, q0, dSlot);
     if (mode == RoundingMode.DOWN) {
-      return new IntArith(IntOp.MUL, Overflow.WRAP, q0, dSlot);
+      return q0d;
     }
-    VarkaVectorIR r = new IntArith(IntOp.SUB, Overflow.WRAP, x,
-        new IntArith(IntOp.MUL, Overflow.WRAP, q0, dSlot));
+    VarkaVectorIR r = new IntArith(IntOp.SUB, Overflow.WRAP, x, q0d);
     int h = d / 2;
     VarkaVectorIR half = VarkaNodeCompiler.slot(h, LaneType.INT, literals);
     VarkaVectorIR negHalf = VarkaNodeCompiler.slot(-h, LaneType.INT, literals);
@@ -268,31 +267,35 @@ public final class VarkaRoundingCompiler {
       // The tie test folded into one compare per side: r and h are integers and q0 & 1 is 0 or
       // 1 (1 for a negative odd q0 too, in two's complement), so r + (q0 & 1) > h is r > h, or
       // r == h with q0 odd, and r - (q0 & 1) < -h its mirror. |r| < d <= 10^9, so neither
-      // wraps. The chain is a node shallower than an Or of an And, which leaves room for a
-      // CASE or a comparison above a narrow operand under ANSI within the emitter's depth.
+      // wraps. The chain is a node shallower than an Or of an And, which leaves room above a
+      // narrow operand under ANSI within the emitter's depth for a CASE over a comparison.
       VarkaVectorIR odd = new BitOp(BitOpKind.AND, q0,
           VarkaNodeCompiler.slot(1, LaneType.INT, literals));
       up = new Compare(CompareOp.GT, new IntArith(IntOp.ADD, Overflow.WRAP, r, odd), half);
       down = new Compare(CompareOp.LT, new IntArith(IntOp.SUB, Overflow.WRAP, r, odd), negHalf);
     }
-    // The steps as values, q0 + [up] - [down], rather than as IfElse arms: a guard below a
-    // conditional's arms is qualified by their conditions, and an arm-free tree keeps the ANSI
-    // guard qualified by an enclosing CASE alone. CondValue is null where its condition is
-    // unknown, which is where the operand is null.
-    VarkaVectorIR q = new IntArith(IntOp.SUB, Overflow.WRAP,
-        new IntArith(IntOp.ADD, Overflow.WRAP, q0, new CondValue(up, LaneType.INT)),
-        new CondValue(down, LaneType.INT));
-    return new IntArith(IntOp.MUL, Overflow.WRAP, q, dSlot);
+    // (q0 + [up] - [down]) * d, which wraps to q0 * d + [up] * d - [down] * d, so the steps are
+    // d or 0 added to and taken from the q0 * d already built for r, one multiply fewer. Each
+    // step's arms are constants: the ANSI guard sits below the conditions and q0 * d, never
+    // below an arm, so an enclosing CASE alone qualifies it. Where the operand is null the
+    // conditions are unknown and the steps 0, and q0 * d carries the null.
+    VarkaVectorIR zero = VarkaNodeCompiler.slot(0, LaneType.INT, literals);
+    return new IntArith(IntOp.SUB, Overflow.WRAP,
+        new IntArith(IntOp.ADD, Overflow.WRAP, q0d, new IfElse(up, dSlot, zero)),
+        new IfElse(down, dSlot, zero));
   }
 
-  /** The most decimal digits {@code 10^k} may have before every value of the type rounds to 0. */
-  private static int digits(LaneType lane) {
+  /**
+   * The largest {@code k} at which some value of an int-lane type rounds to a nonzero multiple of
+   * {@code 10^k}; the long lane's, where {@code 10^19} is not a long, is 344a3's.
+   */
+  public static int digits(LaneType lane) {
     return switch (lane) {
       case BYTE -> 2;
       case SHORT -> 4;
       case INT -> 9;
-      case LONG -> 18;
-      case FLOAT, DOUBLE -> throw VarkaErrors.illegalArgument("a floating lane: " + lane);
+      case LONG, FLOAT, DOUBLE -> throw VarkaErrors.illegalArgument("not an int-lane type: "
+          + lane);
     };
   }
 

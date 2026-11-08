@@ -781,14 +781,15 @@ remainder of `ConstDivide`'s truncating quotient by `10^k` on the int lane, a na
 widened to it and the answer narrowed back, every step wrapping. Two changes from the text: the
 `HALF_EVEN` tie test is one compare per side, `r + (q0 & 1) > h` and its mirror, a node shallower
 than an `Or` of an `And`, so `bround` of a `TINYINT` under ANSI still nests in a `CASE` within the
-emitter's depth; and the steps are `CondValue`s added to `q0`, not `IfElse` arms, so the ANSI guard
-below them is qualified by an enclosing `CASE` alone. ANSI's windows are bisected at compile time
-over `BigDecimal.setScale` (`VarkaRoundingCompiler.window`), a `GuardedRange` declining a batch
-outside them; past the type's digits every value is 0. A decimal operand declines by its type
-(rows 351, 363), a scale below -100 and a `BIGINT` at a negative scale decline, the last naming
-344a3. `int_round.smt2` proves the form equal to Spark's rounding wrapped for every int and `k`
-from 1 to 9, the multiply-high quotient by each `10^k`, and every window of the three types, with
-two refutations of `bround`; 133 checks.
+emitter's depth; and the steps are `d` or 0, an `IfElse` over constant arms, added to the `q0 * d`
+built for `r`, a multiply fewer than `q * d`, the ANSI guard below no arm. ANSI's windows are
+bisected at compile time over `BigDecimal.setScale` (`VarkaRoundingCompiler.window`), a
+`GuardedRange` declining a batch outside them; past the type's digits every value is 0. A decimal
+operand declines by its type (rows 351, 363), a scale below -100 and a `BIGINT` at a negative scale
+decline, the last naming 344a3. `int_round.smt2` proves the form equal to Spark's rounding wrapped
+for every int and `k` from 1 to 9, and every window of the three types, with two refutations of
+`bround`; 124 checks. The multiply-high quotient by each `10^k` is `int_mulhi_divide.smt2`'s, the
+powers being in `VarkaProofFiles.INT_DIVISORS`.
 
 *Differs from the text.* The proof file is stated under `(set-logic ALL)`: every product is by a
 constant, and under `QF_NIA` cvc5 answered unknown on six of `bround`'s checks at its 10-second

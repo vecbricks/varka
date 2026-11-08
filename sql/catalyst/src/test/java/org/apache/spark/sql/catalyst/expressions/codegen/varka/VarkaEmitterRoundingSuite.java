@@ -32,6 +32,7 @@ import java.util.Optional;
 import java.util.SplittableRandom;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.IntSupplier;
 import java.util.function.LongToIntFunction;
 import java.util.stream.IntStream;
 import java.util.stream.LongStream;
@@ -258,7 +259,7 @@ public final class VarkaEmitterRoundingSuite {
 
   private static Expression spark(String fn, int scale, boolean ansi, DataType type) {
     var child = new BoundReference(0, type, false);
-    var s = Literal$.MODULE$.apply(scale);
+    Expression s = Literal$.MODULE$.apply(scale);
     return switch (fn) {
       case "round" -> new Round(child, s, ansi);
       case "bround" -> new BRound(child, s, ansi);
@@ -320,6 +321,8 @@ public final class VarkaEmitterRoundingSuite {
   /**
    * {@code fn(col, scale)} over {@code rows} values, {@code input(r)} the value of row {@code r},
    * in chunks run in parallel, each worker on a kernel of its own; the first difference fails.
+   * A chunk holding a value Spark raises on must decline; it is run again with those values set
+   * to 0, so every other value, a guard window's ends among them, is held to its own answer.
    */
   private static void sweep(Operand op, String fn, int scale, boolean ansi, long rows,
       LongToIntFunction input) {
@@ -327,8 +330,8 @@ public final class VarkaEmitterRoundingSuite {
     String ctx = sql + (ansi ? " under ANSI" : " under LEGACY");
     CompiledVarkaProjection plan = compile(sql, ansi, op.col(), op.type());
     Expression expr = spark(fn, scale, ansi, op.type());
-    var emitted = VarkaEmitterFixtures.emit(plan.outputs(), plan.inputOrdinals().size(),
-        plan.numLiterals(), VarkaMatrixRuns.BASE);
+    VarkaEmitterFixtures.Emitted emitted = VarkaEmitterFixtures.emit(plan.outputs(),
+        plan.inputOrdinals().size(), plan.numLiterals(), VarkaMatrixRuns.BASE);
     int[] lits = plan.literals().stream().mapToInt(Integer::intValue).toArray();
     var loaders = new ConcurrentLinkedQueue<VarkaGeneratedClassLoader>();
     var kernels = ThreadLocal.withInitial(() -> {
@@ -347,12 +350,14 @@ public final class VarkaEmitterRoundingSuite {
         int n = (int) Math.min(CHUNK, rows - first);
         var row = new GenericInternalRow(new Object[1]);
         int[] want = new int[n];
+        boolean[] raised = new boolean[n];
         boolean raises = false;
         for (int i = 0; i < n; i++) {
           row.update(0, op.box(input.applyAsInt(first + i)));
           try {
             want[i] = ((Number) expr.eval(row)).intValue();
           } catch (ArithmeticException e) {
+            raised[i] = true;
             raises = true;
           }
         }
@@ -363,16 +368,23 @@ public final class VarkaEmitterRoundingSuite {
             op.set(data, i, input.applyAsInt(first + i));
           }
           Output out = VarkaEmitterFixtures.makeOutput(arena, n, -1L);
-          int status = kernel.run(new long[] {data.address()}, new long[] {0L}, new int[] {0},
-              new long[] {out.data().address()}, new long[] {out.validity().address()}, lits, n,
+          IntSupplier run = () -> kernel.run(new long[] {data.address()}, new long[] {0L},
+              new int[] {0}, new long[] {out.data().address()},
+              new long[] {out.validity().address()}, lits, n,
               VarkaEmitterTestSupport.scratch(kernel, n));
           if (raises) {
-            if (status == 0) {
+            if (run.getAsInt() == 0) {
               failure.compareAndSet(null, ctx + ": the chunk at row " + first
                   + " holds a value Spark raises on and was answered");
+              return;
             }
-            return;
+            for (int i = 0; i < n; i++) {
+              if (raised[i]) {
+                op.set(data, i, 0);
+              }
+            }
           }
+          int status = run.getAsInt();
           if (status != 0) {
             failure.compareAndSet(null, ctx + ": status " + status + " at row " + first
                 + ", where Spark answers every value");
@@ -381,7 +393,7 @@ public final class VarkaEmitterRoundingSuite {
           for (int i = 0; i < n; i++) {
             int got = op.get(out.data(), i);
             if (got != want[i]) {
-              failure.compareAndSet(null, ctx + ": over " + input.applyAsInt(first + i)
+              failure.compareAndSet(null, ctx + ": over " + op.get(data, i)
                   + " the kernel gave " + got + " and Spark " + want[i]);
               return;
             }
@@ -440,9 +452,9 @@ public final class VarkaEmitterRoundingSuite {
   @DisplayName("bround of a tinyint at -1 under ANSI fuses inside a CASE, at the chain depth the "
       + "emitter allows")
   void narrowHalfEvenNests() {
-    // The narrow operand is widened, guarded, rounded at the int lane and narrowed back, 12
-    // deep; the comparison's widening and compare and the CASE bring it to MAX_CHAIN_DEPTH, 16.
-    // The tie test as an Or of an And would make it 17, and the shape would decline.
+    // The narrow operand is widened, guarded, rounded at the int lane and narrowed back, 11
+    // deep; the comparison's widening and compare and the CASE bring it to 15, one below
+    // MAX_CHAIN_DEPTH, so the shape fuses with a node to spare.
     compile("CASE WHEN bround(y, -1) > 0 THEN bround(y, -1) ELSE 0Y END", true, "y",
         DataTypes.ByteType);
   }

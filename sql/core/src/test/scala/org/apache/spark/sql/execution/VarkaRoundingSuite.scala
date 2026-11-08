@@ -54,15 +54,15 @@ class VarkaRoundingSuite extends QueryTest with VarkaSharedSessions with VarkaTe
 
   /**
    * Each column cycling through its own cells: the first `n` rows hold every cell of every column
-   * on a valid lane, and the next `n` the cells again with a null at every third row, a different
+   * on a valid lane, and the next `n` the cells again with a null at every fourth row, a different
    * row per column, so the null lanes run beside valid ones without hiding a cell.
    */
   private def rows: Seq[Row] = {
     val n = Seq(ints, longs, bytes, shorts).map(_.size).max
     (0 until 2 * n).map { k =>
       def at[T <: AnyRef](cells: Seq[T], shift: Int): T =
-        if (k >= n && (k + shift) % 3 == 0) null.asInstanceOf[T] else cells(k % cells.size)
-      Row(k, at(ints, 0), at(longs, 1), at(bytes, 2), at(shorts, 1))
+        if (k >= n && (k + shift) % 4 == 0) null.asInstanceOf[T] else cells(k % cells.size)
+      Row(k, at(ints, 0), at(longs, 1), at(bytes, 2), at(shorts, 3))
     }
   }
 
@@ -113,7 +113,6 @@ class VarkaRoundingSuite extends QueryTest with VarkaSharedSessions with VarkaTe
   test("ANSI: a form that raises answers or raises as the row engine on each cell") {
     withAnsi(true) {
       forms.filter(raising.contains).foreach { form =>
-        assertFused(varkaSpark.sql(s"SELECT $form AS v FROM $table").queryExecution.executedPlan)
         rows.indices.foreach { id =>
           val one = s"SELECT $form AS v FROM $table WHERE id = $id"
           def outcome(session: SparkSession): Either[String, Seq[Row]] =
@@ -122,6 +121,10 @@ class VarkaRoundingSuite extends QueryTest with VarkaSharedSessions with VarkaTe
               case e => throw e
             }
           withClue(s"$one: ") {
+            // The id filter fuses on its own, so no row-engine projection may be left beside it.
+            val plan = varkaSpark.sql(one).queryExecution.executedPlan
+            assertFused(plan)
+            assert(find(plan)(_.isInstanceOf[ProjectExec]).isEmpty, plan)
             assert(outcome(varkaSpark) === outcome(spark))
           }
         }
