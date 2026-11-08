@@ -160,9 +160,9 @@ date	dec	DATE	DECIMAL(10,2)	declined	illegal	illegal
 date	dec	DATE	DECIMAL(30,4)	declined	illegal	illegal
 date	ntz	DATE	TIMESTAMP_NTZ	fused	fused	fused
 ntz	date	TIMESTAMP_NTZ	DATE	fused	fused	fused
-ntz	time	TIMESTAMP_NTZ	TIME(0)	declined	declined	declined
-ntz	time	TIMESTAMP_NTZ	TIME(3)	declined	declined	declined
-ntz	time	TIMESTAMP_NTZ	TIME(6)	declined	declined	declined
+ntz	time	TIMESTAMP_NTZ	TIME(0)	fused	fused	fused
+ntz	time	TIMESTAMP_NTZ	TIME(3)	fused	fused	fused
+ntz	time	TIMESTAMP_NTZ	TIME(6)	fused	fused	fused
 time	byte	TIME(0)	TINYINT	declined	declined	declined
 time	byte	TIME(3)	TINYINT	declined	declined	declined
 time	byte	TIME(6)	TINYINT	declined	declined	declined

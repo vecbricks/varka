@@ -346,7 +346,8 @@ final class VarkaProofFiles {
    * {@code y'} is under the bound the compiler states to {@code ConstDivide}, which the checks
    * above prove the division exact under, and its quotient fits an int, so the narrowing to a
    * {@code DATE} is exact. The integer identity only: the shift and the AND are the prelude's
-   * Java operators.
+   * Java operators. The time of day of an NTZ count, {@code x - q * day} with a wrapping product,
+   * is {@code Math.floorMod(x, day)} for every long (VARKA-340).
    */
   private static void floorDivDay(StringBuilder out) {
     long day = DateTimeConstants.MICROS_PER_DAY;
@@ -376,6 +377,24 @@ final class VarkaProofFiles {
         + Long.MAX_VALUE / day + "))))");
     check(out, "its quotient is a day in [" + (Long.MIN_VALUE / day - 1) + ", "
         + Long.MAX_VALUE / day + "], which an int holds", "unsat", fits);
+    // The remainder (VARKA-340): the time of day of an NTZ count, x - q * day in the long's
+    // wrapping arithmetic, as VarkaNodeCompiler.microsOfDay builds it. The quotient is the floor
+    // division the identity above proves it is, so the claim is stated over it, which is linear.
+    var floorQuotient = List.of("(declare-const x Int)", "(assert (jlong.in x))",
+        "(define-fun q () Int (jlong.floorDiv x " + day + "))");
+    var remainder = new ArrayList<>(floorQuotient);
+    remainder.add("(define-fun r () Int (jlong.sub x (jlong.mul q " + day + ")))");
+    var floorMod = new ArrayList<>(remainder);
+    floorMod.add("(assert (not (= r (jlong.floorMod x " + day + "))))");
+    check(out, "the count less its day times " + day + ", in the long's wrapping arithmetic, is "
+        + "Math.floorMod(x, " + day + ") for every long x", "unsat", floorMod);
+    var inDay = new ArrayList<>(remainder);
+    inDay.add("(assert (not (and (<= 0 r) (< r " + day + "))))");
+    check(out, "and it lies in [0, " + day + ")", "unsat", inDay);
+    var unwrapped = new ArrayList<>(floorQuotient);
+    unwrapped.add("(assert (not (= (* q " + day + ") (jlong.mul q " + day + "))))");
+    check(out, "the product q * " + day + " wraps for some long, at the lowest day", "sat",
+        unwrapped);
     if (bound > P52) {
       throw new IllegalStateException("the floor division's dividend bound " + bound
           + " is past ConstDivide's 2^52");

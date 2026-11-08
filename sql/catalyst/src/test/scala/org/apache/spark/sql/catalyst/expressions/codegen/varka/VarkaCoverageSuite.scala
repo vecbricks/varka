@@ -201,6 +201,13 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
   /** The days `CAST(d AS TIMESTAMP_NTZ)` converts without overflow: the cast's range guard. */
   private val ntzDayBound = s"unix_date(d) BETWEEN -$maxDateDiffDays AND $maxDateDiffDays"
   /**
+   * The days of an NTZ value a calendar field answers for: the guard `ntzDay` puts on the date of
+   * the count (VARKA-340), from 1 March -12799 to 15 August 33134. A day outside goes to the row
+   * engine, which computes the field.
+   */
+  private val ntzFieldDays = "unix_date(CAST(ntz AS DATE)) BETWEEN " +
+    s"${VarkaRangeAnalysis.NTZ_MIN_DAYS} AND ${VarkaChrono.NARROW_MAX_DAYS}"
+  /**
    * The domain of an NTZ arithmetic row: unknown where an operand is null, and otherwise whether
    * Spark's `try_` form of the row has a value, which it has exactly where the row does not
    * raise. Spark's own arithmetic is the bound, since no SQL spells an NTZ value as its count.
@@ -1016,6 +1023,47 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
           ntzDomain("try_subtract(ntz, dt)", "ntz", "dt"))),
       Row("ntz + INTERVAL '1' DAY", "a literal interval takes a slot in the long lane's table",
         domain = Some(ntzDomain("try_add(ntz, INTERVAL '1' DAY)", "ntz"))))),
+
+    // The decomposition of a TIMESTAMP_NTZ (VARKA-340): the count is read at UTC, so its date is
+    // an exact floor division by a day and its time of day the remainder. The calendar fields
+    // run over the date inside a day guard, the five that need none (the weekdays, next_day and
+    // trunc to a week) over the unguarded cast, and the time fields over the nanosecond of the
+    // day, which no guard is needed for.
+    Family("TIMESTAMP_NTZ fields", predicates = false, Seq(
+      Row("year(ntz)", "the date of the count, held to the calendar lowering's range",
+        domain = Some(ntzFieldDays)),
+      Row("month(ntz)", domain = Some(ntzFieldDays)),
+      Row("day(ntz)", domain = Some(ntzFieldDays)),
+      Row("quarter(ntz)", domain = Some(ntzFieldDays)),
+      Row("dayofyear(ntz)", domain = Some(ntzFieldDays)),
+      Row("weekofyear(ntz)", "the Thursday shift needs the guard's floor to leave room",
+        domain = Some(ntzFieldDays)),
+      Row("extract(YEAROFWEEK FROM ntz)", domain = Some(ntzFieldDays)),
+      Row("last_day(ntz)", domain = Some(ntzFieldDays)),
+      Row("trunc(ntz, 'YEAR')", "a year back is the room the guard's floor leaves",
+        domain = Some(ntzFieldDays)),
+      Row("trunc(ntz, 'MONTH')", domain = Some(ntzFieldDays)),
+      Row("trunc(ntz, 'QUARTER')", domain = Some(ntzFieldDays)),
+      Row("dayofweek(ntz)", "exact over every day, so no guard"),
+      Row("weekday(ntz)"),
+      Row("extract(DAYOFWEEK_ISO FROM ntz)"),
+      Row("next_day(ntz, 'MONDAY')"),
+      Row("trunc(ntz, 'WEEK')"),
+      Row("hour(ntz)", "the microsecond of the day divided; never guarded"),
+      Row("minute(ntz)"),
+      Row("second(ntz)", "the whole second, an int; the fraction of `extract(SECOND ...)` is a " +
+        "decimal"),
+      Row("CAST(ntz AS TIME(6))", "the nanosecond of the day, a multiple of a thousand"),
+      Row("CAST(ntz AS TIME(3))", "truncated to milliseconds: a quotient and a product"),
+      Row("CAST(ntz AS TIME(0))"))),
+
+    // The same fields as a filter's condition, where a batch the guard declines is the filter's
+    // kernel declining it (VARKA-340).
+    Family("TIMESTAMP_NTZ fields in a condition", predicates = true, Seq(
+      Row("hour(ntz) > 12", "the time of day needs no guard"),
+      Row("CAST(ntz AS TIME(3)) < TIME'12:00:00'"),
+      Row("year(ntz) = 2021", domain = Some(ntzFieldDays)),
+      Row("dayofweek(ntz) = 2"))),
 
     Family("Null family on floating columns", predicates = false,
       floatingNullFamily("x", "x2", zeroRows = true) ++
@@ -1838,6 +1886,14 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
     "CAST(ntz AS DATE)" -> Proved("long_divide.smt2"),
     "CAST(d AS TIMESTAMP_NTZ)" -> Exhausted("VarkaTimestampNtzCastSuite",
       "the guard of DATE to NTZ admits exactly the days multiplyExact converts"),
+    // The time of day of an NTZ count (VARKA-340): the remainder of the floor division, proven
+    // for every long beside the quotient; the divisions of the nanosecond are the TIME rows'.
+    "hour(ntz)" -> Proved("long_divide.smt2"),
+    "minute(ntz)" -> Proved("long_divide.smt2"),
+    "second(ntz)" -> Proved("long_divide.smt2"),
+    "CAST(ntz AS TIME(6))" -> Proved("long_divide.smt2"),
+    "CAST(ntz AS TIME(3))" -> Proved("long_divide.smt2"),
+    "CAST(ntz AS TIME(0))" -> Proved("long_divide.smt2"),
     "b" -> connectives,
     "NOT b" -> connectives,
     // A boolean beside a date, int or long comparison: the connective is swept over the
