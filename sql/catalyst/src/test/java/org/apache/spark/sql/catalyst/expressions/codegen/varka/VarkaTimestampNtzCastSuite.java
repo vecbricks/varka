@@ -279,9 +279,13 @@ public final class VarkaTimestampNtzCastSuite {
     for (long v : insideGuard()) {
       values.add(v);
     }
+    // The lowest and highest whole days of the long range: the days its ends fall in are partial.
+    long lowDay = Math.floorDiv(Long.MIN_VALUE, DAY) + 1;
+    long highDay = Math.floorDiv(Long.MAX_VALUE, DAY) - 1;
     for (long v : new long[] {Long.MIN_VALUE, Long.MIN_VALUE + 1, Long.MAX_VALUE,
-        Long.MAX_VALUE - 1, GUARD_LO - 1, GUARD_HI + 1, -106751992L * DAY,
-        -106751991L * DAY, 106751991L * DAY + DAY - 1}) {
+        Long.MAX_VALUE - 1, GUARD_LO - 1, GUARD_HI + 1, Math.multiplyExact(lowDay, DAY) - 1,
+        Math.multiplyExact(lowDay, DAY), Math.multiplyExact(highDay + 1, DAY) - 1,
+        Math.multiplyExact(highDay + 1, DAY)}) {
       values.add(v);
     }
     return values.stream().mapToLong(Long::longValue).toArray();

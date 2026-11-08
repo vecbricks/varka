@@ -25,8 +25,8 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaChrono, Var
 import org.apache.spark.sql.catalyst.util.{DateTimeConstants, IntervalUtils}
 import org.apache.spark.sql.execution.VarkaMaybeThrows.{Answered, Raised}
 import org.apache.spark.sql.internal.SQLConf
-import org.apache.spark.sql.types.{DateType, DayTimeIntervalType, IntegerType, StructField,
-  StructType, TimestampNTZType}
+import org.apache.spark.sql.types.{DateType, DayTimeIntervalType, IntegerType, StringType,
+  StructField, StructType, TimestampNTZType}
 
 /**
  * The casts between `DATE` and `TIMESTAMP_NTZ` (VARKA-338) through a query, against the row
@@ -80,8 +80,9 @@ class VarkaTimestampNtzSuite extends VarkaMaybeThrows with VarkaTestWatchdog {
     values.zipWithIndex.map { case (v, i) => Row(i, micros(v)) } :+ Row(values.size, null)
   }
 
-  /** The counts the date guard admits: its first and last microsecond, and a null. */
+  /** The first microsecond the date guard admits. */
   private val guardLow = VarkaRangeAnalysis.NTZ_MIN_DAYS.toLong * DateTimeConstants.MICROS_PER_DAY
+  /** The last microsecond the date guard admits. */
   private val guardHigh =
     (VarkaChrono.NARROW_MAX_DAYS + 1L) * DateTimeConstants.MICROS_PER_DAY - 1
 
@@ -90,6 +91,14 @@ class VarkaTimestampNtzSuite extends VarkaMaybeThrows with VarkaTestWatchdog {
 
   /** Three batches of two rows; the second holds `past`. */
   private def pastGuardRows(past: Long): Seq[Row] = ntzAt(Seq(0L, 1L, past, 2L, 3L, 4L))
+
+  private val truncSchema = StructType(ntzSchema.fields :+ StructField("f", StringType))
+
+  /** `values` with a trunc format each, every level the format column reads, and a null. */
+  private def truncAt(values: Seq[Long]): Seq[Row] =
+    ntzAt(values).zip(Seq("YEAR", "MONTH", "QUARTER", "WEEK", "MM", null)).map {
+      case (Row(i, t), f) => Row(i, t, f)
+    }
 
   private def interval(v: Long): Duration = IntervalUtils.microsToDuration(v)
 
@@ -140,8 +149,12 @@ class VarkaTimestampNtzSuite extends VarkaMaybeThrows with VarkaTestWatchdog {
       ("varka_ntz_past", dateSchema, pastRows(lastDay + 1)),
       ("varka_ntz_past_negative", dateSchema, pastRows(-lastDay - 1)),
       ("varka_ntz_values", ntzSchema, ntzRows),
+      // The guard's first and last microsecond and their neighbours inside it, with the epoch.
       ("varka_ntz_guard", ntzSchema, ntzAt(Seq(guardLow, guardHigh, 0L, -1L, guardLow + 1,
         guardHigh - 1))),
+      ("varka_ntz_trunc", truncSchema, truncAt(Seq(guardLow, guardHigh, 0L, -1L, guardLow + 1,
+        guardHigh - 1))),
+      ("varka_ntz_trunc_below", truncSchema, truncAt(Seq(0L, 1L, guardLow - 1, 2L, 3L, 4L))),
       ("varka_ntz_below", ntzSchema, pastGuardRows(guardLow - 1)),
       ("varka_ntz_above", ntzSchema, pastGuardRows(guardHigh + 1)),
       ("varka_ntz_arith_inside", arithSchema, arithInsideRows)) ++
@@ -281,6 +294,22 @@ class VarkaTimestampNtzSuite extends VarkaMaybeThrows with VarkaTestWatchdog {
       for (field <- calendarFields) {
         checkServed(s"SELECT i, $field AS v FROM varka_ntz_guard")
       }
+    }
+  }
+
+  // varka-session-lint: allow a path: the format column's levels over the guarded date, and
+  // the batch the guard declines
+  test("trunc of a TIMESTAMP_NTZ by a format column runs on the kernel inside the date guard " +
+    "and sends a batch past it to the row engine") {
+    for (ansi <- Seq(false, true)) withAnsi(ansi) {
+      checkServed("SELECT i, trunc(t, f) AS v FROM varka_ntz_trunc")
+      val query = "SELECT i, trunc(t, f) AS v FROM varka_ntz_trunc_below"
+      val actual = varkaSpark.sql(query)
+      val plan = actual.queryExecution.executedPlan
+      assertFused(plan)
+      checkSparkAnswerMaybeThrows(query)
+      actual.collect()
+      assert(varkaNode(plan).metrics("numFallbackBatchesDeclined").value === 1L, query)
     }
   }
 
