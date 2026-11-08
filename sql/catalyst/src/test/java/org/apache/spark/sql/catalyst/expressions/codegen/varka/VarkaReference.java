@@ -479,10 +479,12 @@ public final class VarkaReference {
       // VarkaDecimalLoadSuite checks that against Spark's column reader.
       case DecimalColumn c -> isNull[c.ordinal()] ? OptionalLong.empty()
           : OptionalLong.of(row[c.ordinal()]);
-      // A row of lane values carries one long a column, and a 128-bit column has two words, so
-      // the reference does not read one: VarkaDecimalPairTables holds the words to BigDecimal.
-      case VarkaVectorIR.DecimalWord c ->
-          throw new IllegalArgumentException("a row of lane values holds no decimal word: " + c);
+      // A row of lane values carries one long a column, which the harness lays out as a slot of
+      // that long and its sign (VarkaKernelChecks), so its words are the long and its sign;
+      // VarkaDecimalWordSuite checks the slots past 64 bits against Spark's column reader.
+      case VarkaVectorIR.DecimalWord c -> isNull[c.ordinal()] ? OptionalLong.empty()
+          : OptionalLong.of(c.word() == VarkaVectorIR.Word.LOW ? row[c.ordinal()]
+              : row[c.ordinal()] >> 63);
       case LiteralSlot l -> OptionalLong.of(lits[l.index()]);
       case IntArith n when n.laneType() == LaneType.DOUBLE -> doubleArith(n, row, isNull, lits);
       case IntArith n -> longArith(n, row, isNull, lits);
