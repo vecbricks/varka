@@ -189,6 +189,14 @@ public final class VarkaRangeAnalysis {
    */
   static final Shift TRUNC_SHIFT = new Shift(-365, 0);
 
+  /**
+   * The least day an NTZ value's date is held to under a calendar node: {@link
+   * VarkaChrono#NARROW_MIN_DAYS} moved up by the widest downward shift a calendar node makes
+   * ({@link #TRUNC_SHIFT}'s 365 days), so the shifted day stays inside the narrowed range.
+   */
+  public static final int NTZ_MIN_DAYS =
+      (int) (VarkaChrono.NARROW_MIN_DAYS - TRUNC_SHIFT.lo());
+
   /** The shortest and the longest month: what one month of {@code add_months} moves a day by. */
   static final int MONTH_DAYS_MIN = 28;
   static final int MONTH_DAYS_MAX = 31;
