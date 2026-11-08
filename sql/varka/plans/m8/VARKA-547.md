@@ -37,7 +37,7 @@ Against master at `9eefe2a2d13`.
    not the defaults; against the defaults they move at least what `denseValidityOnce=false` does,
    276 of 560. **[I]** the counts at today's 581 rows; section 4 scales them.
 5. **How the merge treats it.** `.gitattributes` names `emitted_bytes.json` for the driver
-   (`sql/varka/.gitattributes:4`). The driver merges the `lanes` maps per key, cannot compute an
+   (`sql/varka/.gitattributes:5`). The driver merges the `lanes` maps per key, cannot compute an
    `option_arms` value both sides changed, writes the smaller and owes the file (`merge_value`,
    `:167`; docstring `:36`). It also owes the file for two more reasons this row's text does not
    name:
