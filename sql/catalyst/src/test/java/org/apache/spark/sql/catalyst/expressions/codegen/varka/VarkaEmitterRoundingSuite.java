@@ -23,13 +23,41 @@ import static org.junit.jupiter.api.Assertions.fail;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import java.lang.foreign.Arena;
+import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
+import java.math.BigInteger;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.SplittableRandom;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.LongToIntFunction;
 import java.util.stream.IntStream;
+import java.util.stream.LongStream;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+
+import scala.jdk.javaapi.CollectionConverters;
+
+import org.apache.spark.sql.catalyst.expressions.Attribute;
+import org.apache.spark.sql.catalyst.expressions.BRound;
+import org.apache.spark.sql.catalyst.expressions.BoundReference;
+import org.apache.spark.sql.catalyst.expressions.Expression;
+import org.apache.spark.sql.catalyst.expressions.GenericInternalRow;
+import org.apache.spark.sql.catalyst.expressions.Literal$;
+import org.apache.spark.sql.catalyst.expressions.NamedExpression;
+import org.apache.spark.sql.catalyst.expressions.Round;
+import org.apache.spark.sql.catalyst.expressions.Truncate;
+import org.apache.spark.sql.catalyst.expressions.codegen.CompiledVarkaProjection;
+import org.apache.spark.sql.catalyst.expressions.codegen.VarkaExpressionCompiler;
+import org.apache.spark.sql.catalyst.expressions.codegen.VarkaGeneratedClassLoader;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitterFixtures.Output;
+import org.apache.spark.sql.internal.SQLConf;
+import org.apache.spark.sql.internal.SQLConf$;
+import org.apache.spark.sql.types.DataType;
+import org.apache.spark.sql.types.DataTypes;
 
 /**
  * {@code RoundToIntegral} with mode {@code RINT} (VARKA-344): the kernel's answer is held to
@@ -38,6 +66,14 @@ import org.junit.jupiter.api.Test;
  * (its sign is the implementation's, {@code VARKA-344.md} 0.10). Every cell is on a valid lane and
  * the nulls fall among the rest, where a null lane's output is null; the construction's binary32
  * twin is exhausted over all 2^32 patterns behind {@code -Dvarka.sweep=true}.
+ *
+ * <p>The integral rounding on the int lane through its emitted kernels against Spark's own
+ * {@code Round}, {@code BRound} and {@code Truncate}: every {@code INT} through each function at
+ * each scale from -1 to -10, LEGACY's value and ANSI's raise ({@code VARKA-344.md} 3.5), behind
+ * {@code -Dvarka.sweep=true}, and a strided slice of the ints, the windows' ends, the ties and
+ * the extremes among them, on every build; {@code TINYINT} and {@code SMALLINT} over every value
+ * at every scale where the answer is not constant. Under ANSI a chunk the kernel answers holds
+ * no value Spark raises on, and a chunk holding one is declined.
  */
 @VarkaSuite(ownJvm = true)
 public final class VarkaEmitterRoundingSuite {
@@ -177,5 +213,237 @@ public final class VarkaEmitterRoundingSuite {
     if (bad != 0) {
       fail(bad + " binary32 patterns differ from rint");
     }
+  }
+
+  // -----------------------------------------------------------------------------------------
+  // round, bround and truncate on the int lane.
+  // -----------------------------------------------------------------------------------------
+
+  private static final int CHUNK = 4096;
+  private static final long SLICE_ROWS = 1L << 20;
+  private static final List<String> FUNCTIONS = List.of("round", "bround", "truncate");
+
+  /**
+   * The ints every slice starts with: the extremes, the ends of ANSI's windows at -1, and at each
+   * scale -k from -1 to -9 the ties {@code q0 * 10^k + 10^k / 2} and their neighbours on both
+   * signs, for quotients of both parities near zero and near the top, where HALF_EVEN's
+   * {@code r + (q0 & 1) > h} decides.
+   */
+  private static final int[] EDGES = edges();
+
+  private static int[] edges() {
+    var out = new LinkedHashSet<Integer>(List.of(Integer.MIN_VALUE, Integer.MAX_VALUE, 0, -1, 1,
+        5, -5, 2147483644, -2147483644, 2147483645, -2147483645, 2147483646, -2147483646,
+        1999999999, -1999999999, 2147483640, -2147483640));
+    for (int k = 1; k <= 9; k++) {
+      long d = BigInteger.TEN.pow(k).longValueExact();
+      long top = Integer.MAX_VALUE / d;
+      for (long q0 : new long[] {0, 1, 2, 3, top - 1, top}) {
+        for (long off = -1; off <= 1; off++) {
+          long v = q0 * d + d / 2 + off;
+          if (v <= Integer.MAX_VALUE) {
+            out.add((int) v);
+            out.add((int) -v);
+          }
+        }
+      }
+    }
+    return out.stream().mapToInt(Integer::intValue).toArray();
+  }
+
+  /** The slice's row {@code r}: the edges, then a stride whose every byte varies. */
+  private static int slice(long r) {
+    return r < EDGES.length ? EDGES[(int) r] : (int) (r * 0x9E3779B1L);
+  }
+
+  private static Expression spark(String fn, int scale, boolean ansi, DataType type) {
+    var child = new BoundReference(0, type, false);
+    var s = Literal$.MODULE$.apply(scale);
+    return switch (fn) {
+      case "round" -> new Round(child, s, ansi);
+      case "bround" -> new BRound(child, s, ansi);
+      case "truncate" -> new Truncate(child, s, ansi);
+      default -> throw new IllegalArgumentException(fn);
+    };
+  }
+
+  private static CompiledVarkaProjection compile(String sql, boolean ansi, String col,
+      DataType type) {
+    List<Attribute> columns = List.of(VarkaSqlResolve.column(col, type));
+    SQLConf conf = SQLConf.get().clone();
+    conf.setConfString(SQLConf.ANSI_ENABLED().key(), Boolean.toString(ansi));
+    Expression e = SQLConf$.MODULE$.withExistingConf(conf,
+        () -> VarkaSqlResolve.parse(sql, CollectionConverters.asScala(columns).toSeq()));
+    scala.collection.immutable.Seq<NamedExpression> entry =
+        CollectionConverters.asScala(List.of(VarkaSqlResolve.named(e, "c"))).toSeq();
+    var cols = CollectionConverters.asScala(columns).toSeq();
+    Optional<CompiledVarkaProjection> plan =
+        VarkaExpressionCompiler.compile(entry, cols, VarkaMatrixRuns.BASE);
+    if (plan.isEmpty()) {
+      fail(sql + " declines: " + VarkaExpressionCompiler.declines(entry, cols,
+          VarkaMatrixRuns.BASE));
+    }
+    return plan.get();
+  }
+
+  /** The column, its type and the store's width in bytes, for an operand type. */
+  private record Operand(String col, DataType type, int width) {
+    Object box(int v) {
+      return switch (width) {
+        case 1 -> (byte) v;
+        case 2 -> (short) v;
+        default -> v;
+      };
+    }
+
+    void set(MemorySegment m, int i, int v) {
+      switch (width) {
+        case 1 -> m.set(ValueLayout.JAVA_BYTE, i, (byte) v);
+        case 2 -> m.set(ValueLayout.JAVA_SHORT, i * 2L, (short) v);
+        default -> m.set(ValueLayout.JAVA_INT, i * 4L, v);
+      }
+    }
+
+    int get(MemorySegment m, int i) {
+      return switch (width) {
+        case 1 -> m.get(ValueLayout.JAVA_BYTE, i);
+        case 2 -> m.get(ValueLayout.JAVA_SHORT, i * 2L);
+        default -> m.get(ValueLayout.JAVA_INT, i * 4L);
+      };
+    }
+  }
+
+  private static final Operand INT = new Operand("i", DataTypes.IntegerType, 4);
+  private static final Operand SHORT = new Operand("s", DataTypes.ShortType, 2);
+  private static final Operand BYTE = new Operand("y", DataTypes.ByteType, 1);
+
+  /**
+   * {@code fn(col, scale)} over {@code rows} values, {@code input(r)} the value of row {@code r},
+   * in chunks run in parallel, each worker on a kernel of its own; the first difference fails.
+   */
+  private static void sweep(Operand op, String fn, int scale, boolean ansi, long rows,
+      LongToIntFunction input) {
+    String sql = fn + "(" + op.col() + ", " + scale + ")";
+    String ctx = sql + (ansi ? " under ANSI" : " under LEGACY");
+    CompiledVarkaProjection plan = compile(sql, ansi, op.col(), op.type());
+    Expression expr = spark(fn, scale, ansi, op.type());
+    var emitted = VarkaEmitterFixtures.emit(plan.outputs(), plan.inputOrdinals().size(),
+        plan.numLiterals(), VarkaMatrixRuns.BASE);
+    int[] lits = plan.literals().stream().mapToInt(Integer::intValue).toArray();
+    var loaders = new ConcurrentLinkedQueue<VarkaGeneratedClassLoader>();
+    var kernels = ThreadLocal.withInitial(() -> {
+      var loaded = VarkaEmitterFixtures.load(emitted);
+      loaders.add(loaded.loader());
+      return loaded.kernel();
+    });
+    var failure = new AtomicReference<String>();
+    long chunks = (rows + CHUNK - 1) / CHUNK;
+    try {
+      LongStream.range(0, chunks).parallel().forEach(k -> {
+        if (failure.get() != null) {
+          return;
+        }
+        long first = k * CHUNK;
+        int n = (int) Math.min(CHUNK, rows - first);
+        var row = new GenericInternalRow(new Object[1]);
+        int[] want = new int[n];
+        boolean raises = false;
+        for (int i = 0; i < n; i++) {
+          row.update(0, op.box(input.applyAsInt(first + i)));
+          try {
+            want[i] = ((Number) expr.eval(row)).intValue();
+          } catch (ArithmeticException e) {
+            raises = true;
+          }
+        }
+        var kernel = kernels.get();
+        try (Arena arena = Arena.ofConfined()) {
+          MemorySegment data = VarkaEmitterFixtures.alloc(arena, (long) n * op.width());
+          for (int i = 0; i < n; i++) {
+            op.set(data, i, input.applyAsInt(first + i));
+          }
+          Output out = VarkaEmitterFixtures.makeOutput(arena, n, -1L);
+          int status = kernel.run(new long[] {data.address()}, new long[] {0L}, new int[] {0},
+              new long[] {out.data().address()}, new long[] {out.validity().address()}, lits, n,
+              VarkaEmitterTestSupport.scratch(kernel, n));
+          if (raises) {
+            if (status == 0) {
+              failure.compareAndSet(null, ctx + ": the chunk at row " + first
+                  + " holds a value Spark raises on and was answered");
+            }
+            return;
+          }
+          if (status != 0) {
+            failure.compareAndSet(null, ctx + ": status " + status + " at row " + first
+                + ", where Spark answers every value");
+            return;
+          }
+          for (int i = 0; i < n; i++) {
+            int got = op.get(out.data(), i);
+            if (got != want[i]) {
+              failure.compareAndSet(null, ctx + ": over " + input.applyAsInt(first + i)
+                  + " the kernel gave " + got + " and Spark " + want[i]);
+              return;
+            }
+          }
+        }
+      });
+    } finally {
+      loaders.forEach(VarkaGeneratedClassLoader::release);
+    }
+    if (failure.get() != null) {
+      fail(failure.get());
+    }
+  }
+
+  private static void sweepInts(long rows, LongToIntFunction input) {
+    for (String fn : FUNCTIONS) {
+      for (int k = 1; k <= 10; k++) {
+        sweep(INT, fn, -k, false, rows, input);
+        sweep(INT, fn, -k, true, rows, input);
+      }
+    }
+  }
+
+  @Test
+  @DisplayName("round, bround and truncate of an int at scales -1 to -10 match Spark over a "
+      + "strided slice of the ints, in LEGACY and ANSI")
+  void intSlice() {
+    sweepInts(SLICE_ROWS, VarkaEmitterRoundingSuite::slice);
+  }
+
+  @Test
+  @DisplayName("round, bround and truncate of an int at scales -1 to -10 match Spark over every "
+      + "int, in LEGACY and ANSI (opt-in: -Dvarka.sweep=true)")
+  void everyInt() {
+    assumeTrue(Boolean.getBoolean("varka.sweep"), "an opt-in 2^32 sweep: -Dvarka.sweep=true");
+    sweepInts(1L << 32, r -> (int) r);
+  }
+
+  @Test
+  @DisplayName("round, bround and truncate of a tinyint and a smallint match Spark over every "
+      + "value at every scale where the answer is not constant, in LEGACY and ANSI")
+  void narrowEveryValue() {
+    for (String fn : FUNCTIONS) {
+      for (boolean ansi : new boolean[] {false, true}) {
+        for (int k = 1; k <= 3; k++) {
+          sweep(BYTE, fn, -k, ansi, 256, r -> (int) r - 128);
+        }
+        for (int k = 1; k <= 5; k++) {
+          sweep(SHORT, fn, -k, ansi, 65536, r -> (int) r - 32768);
+        }
+      }
+    }
+  }
+
+  @Test
+  @DisplayName("bround of a tinyint at -1 under ANSI fuses inside a CASE, at the chain depth the "
+      + "emitter allows")
+  void narrowHalfEvenNests() {
+    // The narrow operand is widened, guarded, rounded at the int lane and narrowed back, 12
+    // deep; the comparison's widening and compare and the CASE bring it to MAX_CHAIN_DEPTH, 16.
+    // The tie test as an Or of an And would make it 17, and the shape would decline.
+    compile("CASE WHEN bround(y, -1) > 0 THEN bround(y, -1) ELSE 0Y END", true, "y",
+        DataTypes.ByteType);
   }
 }
