@@ -18,6 +18,8 @@ package org.apache.spark.sql.execution.benchmark;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
+import java.util.regex.Pattern;
 
 import org.apache.spark.sql.SparkSession;
 import org.apache.spark.sql.VarkaBenchmark;
@@ -112,14 +114,6 @@ public class VarkaMathBaselineBenchmark extends VarkaSqlBenchmarkBase {
    * </ul>
    */
   static String tableSql(int rows) {
-    return tableSql("range(0, " + rows + ")");
-  }
-
-  /**
-   * {@link #tableSql(int)} over the ids of {@code ids}, a relation with a {@code BIGINT} column
-   * {@code id}.
-   */
-  static String tableSql(String ids) {
     return """
         select x, y, p,
                case when id %% 10 = 1 then null else x end as x_n,
@@ -129,29 +123,49 @@ public class VarkaMathBaselineBenchmark extends VarkaSqlBenchmarkBase {
                      hash(id, 1) / 2147483648.0d * 10.0d as x,
                      hash(id, 2) / 2147483648.0d * 10.0d as y,
                      power(10.0d, hash(id, 3) / 2147483648.0d * 6.0d) as p
-              from %s)""".formatted(ids);
+              from range(0, %d))""".formatted(rows);
   }
 
   /**
-   * A function: its title and its expression, with {@code X}, {@code Y} and {@code P} standing
-   * for the columns of one null density, and how many of the columns it reads.
+   * A column placeholder of a {@link Form}'s expression: {@code X}, {@code Y} or {@code P} as a
+   * whole token, so a function name such as {@code EXP} or {@code PI} keeps its letters.
    */
-  private record Form(String title, String expr, int columns) {}
+  private static final Pattern PLACEHOLDER = Pattern.compile("\\b([XYP])\\b");
+
+  /**
+   * A function: its title and its expression, with the placeholders {@code X}, {@code Y} and
+   * {@code P} standing for the columns of one null density.
+   */
+  private record Form(String title, String expr) {
+    /** The expression over the columns whose names end in {@code suffix}. */
+    String over(String suffix) {
+      return PLACEHOLDER.matcher(expr)
+          .replaceAll(m -> m.group(1).toLowerCase(Locale.ROOT) + suffix);
+    }
+
+    /** How many distinct columns the expression reads. */
+    int columns() {
+      return (int) PLACEHOLDER.matcher(expr).results().map(m -> m.group(1)).distinct().count();
+    }
+  }
 
   /** Every function, in the order the plan lists them (VARKA-345.md 4). */
   private static final List<Form> FORMS = List.of(
-      new Form("DOUBLE sin(x)", "sin(X)", 1),
-      new Form("DOUBLE tan(x)", "tan(X)", 1),
-      new Form("DOUBLE cbrt(x)", "cbrt(X)", 1),
-      new Form("DOUBLE exp(x)", "exp(X)", 1),
-      new Form("DOUBLE log(p)", "log(P)", 1),
-      new Form("DOUBLE log10(p)", "log10(P)", 1),
-      new Form("DOUBLE pow(p, y)", "pow(P, Y)", 2),
-      new Form("DOUBLE atan2(y, x)", "atan2(Y, X)", 2),
-      new Form("DOUBLE sinh(x)", "sinh(X)", 1),
-      new Form("DOUBLE hypot(x, y)", "hypot(X, Y)", 2),
-      new Form("DOUBLE sec(x)", "sec(X)", 1),
-      new Form("DOUBLE exp(x) * 2 + 1", "exp(X) * 2 + 1", 1));
+      new Form("DOUBLE sin(x)", "sin(X)"),
+      new Form("DOUBLE tan(x)", "tan(X)"),
+      new Form("DOUBLE cbrt(x)", "cbrt(X)"),
+      new Form("DOUBLE exp(x)", "exp(X)"),
+      new Form("DOUBLE log(p)", "log(P)"),
+      new Form("DOUBLE log10(p)", "log10(P)"),
+      new Form("DOUBLE pow(p, y)", "pow(P, Y)"),
+      new Form("DOUBLE atan2(y, x)", "atan2(Y, X)"),
+      new Form("DOUBLE sinh(x)", "sinh(X)"),
+      new Form("DOUBLE hypot(x, y)", "hypot(X, Y)"),
+      new Form("DOUBLE sec(x)", "sec(X)"),
+      // NONE, not PARTIAL: a declined child declines the whole projected entry, so the DOUBLE
+      // `*` and `+` around exp stay on the row path too; on 8 November 2026 the queries suite
+      // planned both densities as one row Project over the cached scan, with no Varka node.
+      new Form("DOUBLE exp(x) * 2 + 1", "exp(X) * 2 + 1"));
 
   /** Every section, in the order they run: each null density, then each function. */
   static List<Section> sections() {
@@ -160,11 +174,7 @@ public class VarkaMathBaselineBenchmark extends VarkaSqlBenchmarkBase {
       String nulls = nullInputs ? "_n" : "";
       String density = ", " + (nullInputs ? "one row in ten null" : "no nulls");
       for (Form f : FORMS) {
-        String expr = f.expr()
-            .replace("X", "x" + nulls)
-            .replace("Y", "y" + nulls)
-            .replace("P", "p" + nulls);
-        out.add(new Section(f.title() + density, "SELECT " + expr + " AS a FROM " + VIEW,
+        out.add(new Section(f.title() + density, "SELECT " + f.over(nulls) + " AS a FROM " + VIEW,
             Fusion.NONE, nullInputs, f.columns()));
       }
     }

@@ -46,61 +46,67 @@ class VarkaMathBaselineQueriesSuite extends QueryTest with VarkaSharedSessions {
 
   private val rows = 2000
 
-  /** Runs `body` with the benchmark's table over the first `rows` ids, cached on both sessions. */
-  private def withTable(body: => Unit): Unit = {
-    val view = VarkaMathBaselineBenchmark.VIEW
-    val sessions = Seq(spark, varkaSpark)
+  private val view = VarkaMathBaselineBenchmark.VIEW
+
+  /** The benchmark's table over the first `rows` ids, built and cached once on both sessions. */
+  override protected def beforeAll(): Unit = {
+    super.beforeAll()
+    for (session <- Seq(spark, varkaSpark)) {
+      session.sql(VarkaMathBaselineBenchmark.tableSql(rows)).createOrReplaceTempView(view)
+      session.catalog.cacheTable(view)
+    }
+  }
+
+  override protected def afterAll(): Unit = {
     try {
-      for (session <- sessions) {
-        session.sql(VarkaMathBaselineBenchmark.tableSql(rows)).createOrReplaceTempView(view)
-        session.catalog.cacheTable(view)
-      }
-      body
-    } finally {
-      for (session <- sessions if session.catalog.tableExists(view)) {
+      for (session <- Seq(spark, varkaSpark)
+          if session != null && session.catalog.tableExists(view)) {
         session.catalog.uncacheTable(view)
         session.catalog.dropTempView(view)
       }
+    } finally {
+      super.afterAll()
     }
   }
 
   test("every section of the math baseline runs, and both sessions answer alike") {
-    val view = VarkaMathBaselineBenchmark.VIEW
-    withTable {
-      val r = spark.sql(
-        s"""select min(x), max(x), min(y), max(y), min(p), max(p),
-           |       count(distinct signum(x), signum(y)),
-           |       count_if(abs(x) > pi() / 4),
-           |       count_if(x_n is null), count_if(y_n is null), count_if(p_n is null),
-           |       count_if(x_n is null and y_n is null)
-           |from $view""".stripMargin).head()
-      assert(r.getDouble(0) >= -10 && r.getDouble(0) < -9.9)
-      assert(r.getDouble(1) < 10 && r.getDouble(1) > 9.9)
-      assert(r.getDouble(2) >= -10 && r.getDouble(2) < -9.9)
-      assert(r.getDouble(3) < 10 && r.getDouble(3) > 9.9)
-      assert(r.getDouble(4) >= 1e-6 && r.getDouble(4) < 2e-6)
-      assert(r.getDouble(5) < 1e6 && r.getDouble(5) > 5e5)
-      // All four quadrants of atan2, and no zero.
-      assert(r.getLong(6) === 4)
-      assert(r.getLong(7) > rows * 9 / 10)
-      assert(r.getLong(8) === rows / 10 && r.getLong(9) === rows / 10)
-      assert(r.getLong(10) === rows / 10)
-      // Each column is null at its own rows, so a two-column section's nulls add up.
-      assert(r.getLong(11) === 0)
+    val r = spark.sql(
+      s"""select min(x), max(x), min(y), max(y), min(p), max(p),
+         |       count(distinct signum(x), signum(y)),
+         |       count_if(abs(x) > pi() / 4),
+         |       count_if(x_n is null), count_if(y_n is null), count_if(p_n is null),
+         |       count_if(x_n is null and y_n is null), count_if(p_n is null and y_n is null)
+         |from $view""".stripMargin).head()
+    assert(r.getDouble(0) >= -10 && r.getDouble(0) < -9.9)
+    assert(r.getDouble(1) < 10 && r.getDouble(1) > 9.9)
+    assert(r.getDouble(2) >= -10 && r.getDouble(2) < -9.9)
+    assert(r.getDouble(3) < 10 && r.getDouble(3) > 9.9)
+    assert(r.getDouble(4) >= 1e-6 && r.getDouble(4) < 2e-6)
+    assert(r.getDouble(5) < 1e6 && r.getDouble(5) > 5e5)
+    // All four quadrants of atan2, and no zero.
+    assert(r.getLong(6) === 4)
+    assert(r.getLong(7) > rows * 9 / 10)
+    assert(r.getLong(8) === rows / 10 && r.getLong(9) === rows / 10)
+    assert(r.getLong(10) === rows / 10)
+    // Each column is null at its own rows, so a two-column section's nulls add up: atan2 and
+    // hypot read x_n and y_n, pow reads p_n and y_n.
+    assert(r.getLong(11) === 0 && r.getLong(12) === 0)
 
-      val sections = VarkaMathBaselineBenchmark.sections().asScala.toSeq
-      assert(sections.size === 24, sections.map(_.title).mkString("sections:\n", "\n", ""))
-      assert(sections.map(_.title).distinct.size === sections.size)
-      for (s <- sections) {
-        withClue(s.title) {
-          val answer = spark.sql(s.query)
-          assert(answer.schema.map(_.name) === Seq("a"))
-          assert(answer.schema.head.dataType.sql === "DOUBLE")
-          checkAnswer(varkaSpark.sql(s.query), answer)
-          val nulls = if (s.nullInputs) s.columns * rows / 10L else 0L
-          assert(answer.where("a IS NULL").count() === nulls)
-          assert(answer.where("isnan(a) OR abs(a) = double('Infinity')").count() === 0)
-        }
+    val sections = VarkaMathBaselineBenchmark.sections().asScala.toSeq
+    assert(sections.size === 24, sections.map(_.title).mkString("sections:\n", "\n", ""))
+    assert(sections.map(_.title).distinct.size === sections.size)
+    for (s <- sections) {
+      withClue(s.title) {
+        // One job a session: the row engine's answer is collected once, Varka's is checked
+        // against it, and the nulls and non-finite values are counted from it in memory.
+        val df = spark.sql(s.query)
+        assert(df.schema.map(_.name) === Seq("a"))
+        assert(df.schema.head.dataType.sql === "DOUBLE")
+        val answer = df.collect().toSeq
+        checkAnswer(varkaSpark.sql(s.query), answer)
+        val nulls = if (s.nullInputs) s.columns * rows / 10 else 0
+        assert(answer.count(_.isNullAt(0)) === nulls)
+        assert(answer.filterNot(_.isNullAt(0)).count(row => !row.getDouble(0).isFinite) === 0)
       }
     }
   }
@@ -113,17 +119,14 @@ class VarkaMathBaselineQueriesSuite extends QueryTest with VarkaSharedSessions {
     // run that lifts the benchmark's check.
     assume(VarkaSqlBenchmarkBase.fuseCheck(),
       s"-D${VarkaSqlBenchmarkBase.FUSE_CHECK_PROPERTY}=false times the sections fused")
-    withTable {
-      // Every section is NONE, so a check that could not see a Varka node anywhere would pass
-      // each of them; a comparison of the two DOUBLE columns fuses, and fails such a check here.
-      val view = VarkaMathBaselineBenchmark.VIEW
-      assert(VarkaSqlBenchmarkBase.fusedPlan(varkaSpark, s"SELECT x FROM $view WHERE x < y")
-        .isPresent)
-      for (s <- VarkaMathBaselineBenchmark.sections().asScala) {
-        withClue(s.title) {
-          val plan = varkaSpark.sql(s.query).queryExecution.executedPlan
-          assert(VarkaSqlBenchmarkBase.fusion(plan) === Optional.of(s.fusion))
-        }
+    // Every section is NONE, so a check that could not see a Varka node anywhere would pass
+    // each of them; a comparison of the two DOUBLE columns fuses, and fails such a check here.
+    assert(VarkaSqlBenchmarkBase.fusedPlan(varkaSpark, s"SELECT x FROM $view WHERE x < y")
+      .isPresent)
+    for (s <- VarkaMathBaselineBenchmark.sections().asScala) {
+      withClue(s.title) {
+        val plan = varkaSpark.sql(s.query).queryExecution.executedPlan
+        assert(VarkaSqlBenchmarkBase.fusion(plan) === Optional.of(s.fusion))
       }
     }
   }
