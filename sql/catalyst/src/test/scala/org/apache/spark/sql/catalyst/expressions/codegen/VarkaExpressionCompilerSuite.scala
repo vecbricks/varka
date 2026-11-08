@@ -1176,21 +1176,33 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     assert(reason.contains("VARKA-102"), reason)
   }
 
-  test("floor and ceil over a double or another type's cast name the row that owns it") {
-    // The analyzer casts a FLOAT or STRING operand to DOUBLE, so the rounding arm sees a cast
-    // and names the casts' row; a bare double names the row that converts it to a bigint.
+  test("floor and ceil over a double, a decimal or a cast name the row that owns it") {
+    // The analyzer casts a FLOAT, SMALLINT or STRING operand to DOUBLE, so the rounding arm sees
+    // a cast and names the row that serves its source type, if any; a bare double names the row
+    // that converts it to a bigint, and a decimal the row of the decimal floor.
     val f = AttributeReference("f", FloatType)()
     val s = AttributeReference("s", StringType)()
     val dbl = AttributeReference("dbl", DoubleType)()
-    val output = childOutput ++ Seq(f, s, dbl)
-    for (from <- Seq(f, s, sh); e <- Seq(Floor(Cast(from, DoubleType)),
-        Ceil(Cast(from, DoubleType)))) {
+    val dec = AttributeReference("dec", DecimalType(10, 2))()
+    val output = childOutput ++ Seq(f, s, dbl, dec)
+    def bothOver(x: Expression): Seq[Expression] = Seq(Floor(x), Ceil(x))
+    // A FLOAT and a SMALLINT are 344c's; a STRING is no rounding row's, so none is named.
+    for (from <- Seq(f, sh, s); e <- bothOver(Cast(from, DoubleType))) {
       val reason = declineReason(e, output)
       assert(reason.contains(s"a cast from ${from.dataType.simpleString} to double"), reason)
-      assert(reason.contains("row 344c"), reason)
+      if (from eq s) {
+        assert(reason.contains("which no rounding form serves") && !reason.contains("row 34"),
+          reason)
+      } else {
+        assert(reason.contains("row 344c"), reason)
+      }
     }
-    for (e <- Seq(Floor(dbl), Ceil(dbl))) {
+    for (e <- bothOver(dbl)) {
       assert(declineReason(e, output).contains("floor or ceil over double (row 344b)"))
+    }
+    for (e <- bothOver(dec)) {
+      val reason = declineReason(e, output)
+      assert(reason.contains("floor or ceil over a decimal (row 351)"), reason)
     }
   }
 

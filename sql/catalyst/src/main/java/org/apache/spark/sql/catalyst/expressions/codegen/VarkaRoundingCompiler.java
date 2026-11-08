@@ -32,6 +32,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Rou
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WidenLane;
 import org.apache.spark.sql.types.DataType;
 import org.apache.spark.sql.types.DataTypes;
+import org.apache.spark.sql.types.DecimalType;
 
 /**
  * The rounding family (VARKA-344): {@code rint} over a {@code DOUBLE}, and {@code floor},
@@ -44,8 +45,11 @@ import org.apache.spark.sql.types.DataTypes;
  * inside the long range that {@code MathUtils.doubleToLong} checks under ANSI, so Spark's answer
  * in both modes is the int widened to the long. That widening is built directly, from the cast's
  * int operand, so the cast itself is never compiled. A {@code DOUBLE} operand needs the
- * double-to-long conversion and a narrow or {@code FLOAT} one the narrow load and the floating
- * casts; each declines with the row that owns it.
+ * double-to-long conversion (row 344b), a {@code SMALLINT} or {@code TINYINT} one the narrow load
+ * in a {@code BIGINT} kernel and a {@code FLOAT} one the cast to a double (both row 344c), and a
+ * {@code DECIMAL} one the decimal floor and ceiling (row 351); each declines naming that row. A
+ * cast from any other type, such as a {@code STRING}, declines naming no row, since no rounding
+ * row plans it.
  */
 final class VarkaRoundingCompiler {
 
@@ -80,13 +84,26 @@ final class VarkaRoundingCompiler {
         return operand(c.child(), LaneType.INT, inputs, literals, sink)
             .map(x -> (VarkaVectorIR) new WidenLane(x, LaneType.LONG));
       }
+      if (DataTypes.ShortType.equals(from) || DataTypes.ByteType.equals(from)) {
+        return sink.decline("floor or ceil over a cast from " + from.simpleString()
+            + " to double, which needs the narrow load in a BIGINT kernel (row 344c)", whole);
+      }
+      if (DataTypes.FloatType.equals(from)) {
+        return sink.decline("floor or ceil over a cast from float to double, which needs the"
+            + " cast to a double (row 344c)", whole);
+      }
       if (!DataTypes.DoubleType.equals(from)) {
         return sink.decline("floor or ceil over a cast from " + from.simpleString()
-            + " to double, which needs the narrow load in a BIGINT kernel or the floating casts"
-            + " (row 344c)", whole);
+            + " to double, which no rounding form serves", whole);
       }
     }
-    return sink.decline("floor or ceil over " + t.simpleString() + " (row 344b)", whole);
+    if (DataTypes.DoubleType.equals(t)) {
+      return sink.decline("floor or ceil over double (row 344b)", whole);
+    }
+    if (t instanceof DecimalType) {
+      return sink.decline("floor or ceil over a decimal (row 351)", whole);
+    }
+    return sink.decline("floor or ceil over " + t.simpleString(), whole);
   }
 
   /** An operand compiled to {@code lane}, or empty with the lane named. */
