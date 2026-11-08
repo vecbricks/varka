@@ -508,22 +508,30 @@ the ones that do:
   zero, one, minus one and nulls. Two coverage rows, `signum(ym)` and `signum(dt)`.
 - **The rounding's proof is built ahead of its lowering** (3.7), as 343b1 built its proofs ahead
   of `VarkaConversionLowering`: `sql/varka/proofs/fp_half_up.smt2`, rendered by
-  `VarkaProofFiles.fpHalfUp` from the plan's bounds, which it holds until the lowering exists.
-  It states 2.4 against Guava 33.6.0's code read from its sources jar: for each of the int and
-  the long, the inclusive guard holds exactly the doubles `roundToInt` or `roundToLong` answers
-  (so a NaN, an infinity and every double past the type decline), inside it `t + bump` is
-  Guava's answer, and `f = 0` at every `|p| >= 2^52`; each guard one double wider at either end
-  and the tie taken by `f > 0.5` are refuted. 2.4 holds as written: Guava tests the rounded `z`,
-  and the plan's exclusive `(-2^31 - 0.5, 2^31 - 0.5)` and `[-2^63, 2^63)` on `p` are the same
-  test. The pinned cells are the ties of 3.7 and row 103's products (PLAN.md's 30 October note,
-  `results/VARKA-103-admission.txt` item 7), each against the answer Spark gave there.
-  Stated whole, the in-guard claim ran past the 10 s per-check limit under both solvers, so it
-  is checked per binade of `|p|`: 130 checks, 80 s under Z3 and 118 s under cvc5 on the laptop
+  `VarkaProofFiles.fpHalfUp` from the plan's bounds, which it holds until the lowering exists. It
+  states 2.4 against Guava 33.6.0's code read from its sources jar: for each of the int and the
+  long, the inclusive guard holds exactly the doubles `roundToInt` or `roundToLong` answers (so a
+  NaN, an infinity and every double past the type decline), inside it `t + bump` is Guava's
+  answer, and for the long `f = 0` at every `|p| >= 2^52`; each guard one double wider at either
+  end and the tie taken by `f > 0.5` are refuted. 2.4 holds as written: Guava tests the rounded
+  `z`, and the plan's exclusive `(-2^31 - 0.5, 2^31 - 0.5)` and `[-2^63, 2^63)` on `p` are the
+  same test. The pinned cells are the ties of 3.7 and row 103's products (PLAN.md's 30 October
+  note, `results/VARKA-103-admission.txt` item 7), each against the answer Spark gave there.
+  Stated whole, the in-guard claim ran past the 10 s per-check limit under both solvers, so it is
+  checked per binade of `|p|`: 129 checks, 80 s under Z3 and 118 s under cvc5 on the laptop
   (`dev/varka_prove.sh --solver both`, one run), each check within the limit. Prediction 4.5
   ("each SMT claim under 60 s") holds per check; the file as a whole is past it.
 - **The decline names its wait.** `floatingDecline` gives the four interval classes their own
   reason, the conversions to an integral lane (row 342 after part 343b2), in place of "floating
   arithmetic (row 342)".
+
+**Open for the owner: where the proof runs.** `dev/varka_prove.sh --lint`, the linters' job's
+step, which its workflow comment keeps "inside its minute", took 142 s on the laptop with the
+file and about 49 s without it: `fp_half_up.smt2` took Z3 62 to 115 s over four runs, each of its
+129 checks within the 10 s limit, its slowest 3.7 s on an idle laptop core and one past the
+limit on a loaded one. Fixing the sign or grouping binades made no check cheaper. The choices:
+keep it in the step, run it in the nightly alone (a list in `dev/varka_prove.sh` beside
+`CVC5_IN_LINT`), or hold the file for the lowering's pull request.
 
 **Still owed by step 4**, after 343b2: `ym * x`, `ym / x`, `dt * x` and `dt / x` by 2.4's
 construction over `D2I` and `D2L` and the floating guard, with 3.7's pinned cells through the

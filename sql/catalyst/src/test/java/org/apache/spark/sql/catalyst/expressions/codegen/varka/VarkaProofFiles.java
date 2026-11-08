@@ -3304,10 +3304,13 @@ final class VarkaProofFiles {
               "(assert (fp.geq (fp.abs p) " + f64(Math.scalb(1.0, k)) + "))",
               "(assert (fp.lt (fp.abs p) " + f64(Math.scalb(1.0, k + 1)) + "))", same));
     }
-    fresh(out, type + ": inside the guard f is zero wherever |p| >= 2^52", "unsat", defs,
-        List.of(p, "(assert " + inGuard("p", lo, hi) + ")",
-            "(assert (fp.geq (fp.abs p) " + f64(0x1p52) + "))",
-            "(assert (not (fp.isZero (hu.f p))))"));
+    // The int's guard ends below 2^52, where the check would hold vacuously.
+    if (Math.getExponent(Math.max(-lo, hi)) >= 52) {
+      fresh(out, type + ": inside the guard f is zero wherever |p| >= 2^52", "unsat", defs,
+          List.of(p, "(assert " + inGuard("p", lo, hi) + ")",
+              "(assert (fp.geq (fp.abs p) " + f64(0x1p52) + "))",
+              "(assert (not (fp.isZero (hu.f p))))"));
+    }
     fresh(out, type + ": the guard one double lower at its low end admits a double Guava raises "
         + "on", "sat", defs, List.of(p,
             "(assert (not (= " + inGuard("p", Math.nextDown(lo), hi) + " " + guavaAnswers
