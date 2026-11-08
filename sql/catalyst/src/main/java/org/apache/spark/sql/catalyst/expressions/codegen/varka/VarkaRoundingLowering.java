@@ -46,7 +46,11 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Rou
  */
 final class VarkaRoundingLowering {
 
-  /** {@code 2^52}: from here on every double is an integer. */
+  /**
+   * {@code 2^52}: from here on every double is an integer. {@code VarkaDivisionLowering}'s magic
+   * form rounds its quotient by it too ({@link #emitRoundToNearest}), and {@code VarkaProofFiles}
+   * renders it into {@code fp_round.smt2}.
+   */
   static final double TWO_52 = 0x1.0p52;
 
   private VarkaRoundingLowering() {
@@ -54,8 +58,9 @@ final class VarkaRoundingLowering {
 
   /**
    * {@code Math.rint(child)} per lane. The operand is parked in the node's scratch local, since
-   * the construction reads it three times: for the magnitude, for the sign and for the
-   * {@code |x| < 2^52} test whose false lanes keep it. The validity is the child's.
+   * the construction reads it three times: as the blend's receiver, whose lanes the false lanes
+   * of {@code |x| < 2^52} keep, for the magnitude and for the sign. The magnitude is taken once
+   * and duplicated, for the compare and for the rounding. The validity is the child's.
    */
   static void emitRint(CodeBuilder cb, RoundToIntegral n, boolean dense, Analysis analysis,
       Slots s, Set<VarkaVectorIR> computed) {
@@ -64,26 +69,34 @@ final class VarkaRoundingLowering {
     line(cb, analysis, n);
     cb.astore(x);                                               // []
     cb.aload(x);
-    emitAbs(cb);                                                // [a]
+    cb.aload(x);
+    emitAbs(cb);                                                // [x, a]
+    cb.dup();
+    cb.getstatic(VECTOR_OPERATORS, "LT", VO_COMPARISON);
     cb.loadConstant(TWO_52);
-    cb.invokevirtual(DOUBLE_VECTOR, "add", LANEWISE_VD);
-    cb.loadConstant(TWO_52);
-    cb.invokevirtual(DOUBLE_VECTOR, "sub", LANEWISE_VD);        // [rint(a)]
+    cb.invokevirtual(DOUBLE_VECTOR, "compare", Lane.DOUBLE.compareVI);  // [x, a, a<C]
+    cb.swap();                                                  // [x, a<C, a]
+    emitRoundToNearest(cb);                                     // [x, a<C, rint(a)]
     cb.invokevirtual(VECTOR, "reinterpretAsLongs", REINTERPRET_L);
     cb.aload(x);
     cb.invokevirtual(VECTOR, "reinterpretAsLongs", REINTERPRET_L);
     cb.loadConstant(Long.MIN_VALUE);
-    cb.invokevirtual(LONG_VECTOR, "and", Lane.LONG.lanewiseVI); // [rint(a), sign of x]
+    cb.invokevirtual(LONG_VECTOR, "and", Lane.LONG.lanewiseVI); // [x, a<C, rint(a), sign of x]
     cb.invokevirtual(LONG_VECTOR, "or", Lane.LONG.lanewiseVV);
-    cb.invokevirtual(VECTOR, "reinterpretAsDoubles", REINTERPRET_D); // [rint(x)]
-    cb.aload(x);                                                // [rint(x), x]
-    cb.swap();                                                  // [x, rint(x)]
-    cb.aload(x);
-    emitAbs(cb);
-    cb.getstatic(VECTOR_OPERATORS, "LT", VO_COMPARISON);
-    cb.loadConstant(TWO_52);
-    cb.invokevirtual(DOUBLE_VECTOR, "compare", Lane.DOUBLE.compareVI);  // [x, rint(x), |x|<C]
+    cb.invokevirtual(VECTOR, "reinterpretAsDoubles", REINTERPRET_D); // [x, a<C, rint(x)]
+    cb.swap();                                                  // [x, rint(x), a<C]
     cb.invokevirtual(DOUBLE_VECTOR, "blend", Lane.DOUBLE.blend);
+  }
+
+  /**
+   * {@code [v] -> [(v + 2^52) - 2^52]}: for {@code 0 <= v < 2^52}, {@code v} rounded to the
+   * nearest integer with a tie to the even one, exactly (the class doc says why).
+   */
+  static void emitRoundToNearest(CodeBuilder cb) {
+    cb.loadConstant(TWO_52);
+    cb.invokevirtual(DOUBLE_VECTOR, "add", LANEWISE_VD);
+    cb.loadConstant(TWO_52);
+    cb.invokevirtual(DOUBLE_VECTOR, "sub", LANEWISE_VD);
   }
 
   /** {@code [v] -> [|v|]}: the sign bit cleared, NaN included, as {@code Math.abs}. */
