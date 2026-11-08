@@ -666,10 +666,10 @@ change; and the node is a row in every exhaustive switch part 2 touched, past th
     sign extension's words holding the long. 73 checks, from 67; Z3 0.02 s and cvc5 0.07 s on the
     laptop, against 0.03 and 0.07 before. With the flip planted as the identity the four ordering
     claims turn `sat`.
-12. **Coverage rows**, the family "DECIMAL lane pair" over `d19`, `d38`, `d38b` and `d3810`,
-    verified by `decimal128.smt2`; the differential fixtures build them from `l` and `l2`, so both
-    words carry bits and both signs. The census's `isnull` and `isnotnull` count `dec` fused, and
-    `dev/varka_new_lane.py` drops the census entry it held owed to this row.
+12. **Coverage rows**, the family "DECIMAL lane pair" over `d19`, `d38`, `d38b` and `d3810`, the
+    comparisons proven by `decimal128.smt2`; the differential fixtures build them from `l` and
+    `l2`, so both words carry bits and both signs. The census's `isnull` and `isnotnull` count
+    `dec` fused, and `dev/varka_new_lane.py` drops the census entry it held owed to this row.
 
 **Tests.** `VarkaDecimalPairSuite` (`ownJvm`, at 1, 2, 4 and 8 long lanes): the word edges of
 section 3 item 2 through the real compiler, every ordered pair of up to seventeen edge values and the
@@ -711,7 +711,8 @@ tests; the sql ones, the golden suite's Varka arm and the literal-lift suite amo
   a lowering cast still decline (each can null or raise on valid leaves), and so do `-x` and
   `abs(x)`: Spark negates a wide value through Scala's `BigDecimal`, which rounds it to 34
   digits (`Decimal.unary_-`), and near the bound raises `NUMERIC_VALUE_OUT_OF_RANGE`, as
-  `VarkaDecimalPairSuite` showed. **Owed to 359b:** 2.5's exact `-x` and `abs(x)` differ from
+  `VarkaDecimalPairSuite` showed; a 37-digit value's negation comes back rounded to 34 digits,
+  on upstream master's `Decimal` too. **Owed to 359b:** 2.5's exact `-x` and `abs(x)` differ from
   Spark on every value of 35 or more significant digits; 359b matches the rounding or declines.
   The census note says which forms over a wide value stay owed.
 - *Verification*: `decimal128.smt2` models values, not validity, so the family's `<=>` and null
