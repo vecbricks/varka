@@ -2024,6 +2024,9 @@ final class VarkaVectorWalk {
         cb.invokevirtual(VECTOR_MASK, "not", MASK_UNARY);
         cb.invokevirtual(VECTOR_MASK, "or", MASK_BINARY);
       }
+      case ULT, ULE, UGT, UGE ->
+          throw VarkaErrors.illegalState("an unsigned ordering reaches a boolean comparison: "
+              + op);
     }
   }
 
@@ -2065,6 +2068,9 @@ final class VarkaVectorWalk {
         cb.land();
       }
       case EQ -> throw VarkaErrors.illegalState("EQ is emitted above");
+      case ULT, ULE, UGT, UGE ->
+          throw VarkaErrors.illegalState("an unsigned ordering reaches a boolean comparison: "
+              + n.op());
     }
     cb.lstore(kt);
     cb.lload(s.cmpTmp);

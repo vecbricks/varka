@@ -195,6 +195,16 @@ public final class VarkaReproductionSuite {
   }
 
   @Test
+  @DisplayName("every comparison reads back, the four unsigned ones over the long lane among them")
+  void everyCompareOpRoundTrips() {
+    var a = new ColumnRef(0, LaneType.LONG);
+    var b = new LiteralSlot(0, LaneType.LONG);
+    for (CompareOp op : CompareOp.values()) {
+      assertRoundTrips(new CondValue(new Compare(op, a, b), LaneType.LONG));
+    }
+  }
+
+  @Test
   @DisplayName("every tree the IR grammar draws reads back to its shape hash, and the long "
       + "lane's to the same bytes")
   void drawnTreesRoundTrip() {

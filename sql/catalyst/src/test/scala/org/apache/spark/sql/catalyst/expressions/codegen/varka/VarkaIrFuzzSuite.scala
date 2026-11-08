@@ -124,6 +124,8 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
   private val longSeed = sys.props.get("varka.fuzz.seed").map(_.toLong).getOrElse(longFuzzSeed)
   private val mixedSeed =
     sys.props.get("varka.fuzz.seed").map(_.toLong).getOrElse(VarkaIrGrammar.MIXED_FUZZ_SEED)
+  private val floatingCastSeed = sys.props.get("varka.fuzz.seed").map(_.toLong)
+    .getOrElse(VarkaIrGrammar.FLOATING_CAST_FUZZ_SEED)
   private val iterations = sys.props.get("varka.fuzz.iterations").map(_.toInt).getOrElse(300)
   private val only = sys.props.get("varka.fuzz.only").map(_.toInt)
   private val variantsEvery = sys.props.get("varka.fuzz.variantsEvery").map(_.toInt).getOrElse(1)
@@ -407,11 +409,12 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
    */
   private def drawLong(iteration: Int, drawSeed: Long = longSeed,
       base: VarkaEmitOptions = VarkaMatrix.base, nulling: Boolean = false,
-      decimal: Boolean = false): VarkaFuzzCase = {
+      decimal: Boolean = false, unsigned: Boolean = false): VarkaFuzzCase = {
     val rnd = VarkaIrGrammar.shapeRandom(drawSeed, iteration)
     val drawn =
       if (decimal) VarkaIrGrammar.drawDecimalShape(rnd)
       else if (nulling) VarkaIrGrammar.drawNullingLongShape(rnd)
+      else if (unsigned) VarkaIrGrammar.drawUnsignedLongShape(rnd)
       else VarkaIrGrammar.drawLongShape(rnd)
     val roots = drawn.roots
     val (numInputs, numLiterals) = (drawn.numInputs, drawn.numLiterals)
@@ -554,6 +557,83 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
           Array.tabulate(numInputs, length)((c, i) => patterns(c)(i)), data, forceMasked),
         false, null)
     }
+  }
+
+  /** A column value of `lane` as the bits a row of both lanes holds: finite at a floating one. */
+  private def floatingCastValue(rnd: java.util.Random, lane: LaneType): Long = lane match {
+    case LaneType.INT =>
+      if (rnd.nextInt(4) == 0) Seq(Int.MinValue, Int.MaxValue, 16777217, -16777217)(rnd.nextInt(4))
+      else rnd.nextInt().toLong
+    case LaneType.LONG =>
+      if (rnd.nextInt(4) == 0) {
+        Seq(Long.MinValue, Long.MaxValue, (1L << 53) + 1, (1L << 53) + (1L << 29) + 1,
+          4275361147L)(rnd.nextInt(5))
+      } else rnd.nextLong() >> rnd.nextInt(64)
+    // Finite values only: an arithmetic over two NaNs of different payloads has no one answer
+    // (`VARKA-342.md`), and every conversion of a finite value has one.
+    case LaneType.FLOAT =>
+      var f = java.lang.Float.intBitsToFloat(rnd.nextInt())
+      while (f.isNaN || f.isInfinite) f = java.lang.Float.intBitsToFloat(rnd.nextInt())
+      java.lang.Float.floatToRawIntBits(f).toLong
+    case LaneType.DOUBLE =>
+      var d = java.lang.Double.longBitsToDouble(rnd.nextLong())
+      while (d.isNaN || d.isInfinite) d = java.lang.Double.longBitsToDouble(rnd.nextLong())
+      java.lang.Double.doubleToRawLongBits(d)
+    case other => throw new IllegalArgumentException(s"no floating cast column at $other")
+  }
+
+  /**
+   * One draw of the floating conversions' corpus (VARKA-343): the conversions to a floating lane
+   * and between the two, over an int, a bigint, a float and a double column, compared with
+   * `VarkaReference.mixedValue` through `VarkaKernelChecks.runAndCompareMixed`. A draw whose kernel
+   * the plan refuses under the drawn options - a bigint conversion below `useAVX=3` - is counted
+   * and skipped, as the compiler declines it.
+   */
+  private def runOneFloatingCast(iteration: Int): Boolean = {
+    val rnd = VarkaIrGrammar.shapeRandom(floatingCastSeed, iteration)
+    val roots = VarkaIrGrammar.drawFloatingCastShape(rnd)
+    val lanes = VarkaIrGrammar.FLOATING_CAST_COLUMNS.asScala.toIndexedSeq
+    val numInputs = lanes.size
+    val literals = VarkaIrGrammar.FLOATING_CAST_LITERALS
+    // A slot is read as either lane of its width, so each table holds bits that are finite as
+    // its floating lane's values; any bits are an integer.
+    val intLits = Array.fill(literals)(floatingCastValue(rnd, LaneType.FLOAT).toInt)
+    val longLits = Array.fill(literals)(floatingCastValue(rnd, LaneType.DOUBLE))
+    val length = lengths(rnd.nextInt(lengths.length))
+    val patternIds = Seq.fill(numInputs)(rnd.nextInt(patternNames.length))
+    val patterns = patternIds.map(pattern(rnd, _, length))
+    val forceMasked = length > 1 && rnd.nextInt(4) == 0
+    // The bigint conversions are admitted at emit level 3 alone, which the options draw only now
+    // and then, so half the draws are held at it; the rest keep the drawn level, and the plan
+    // refuses a bigint conversion there as the compiler does.
+    val drawn = randomOptions(rnd, VarkaMatrix.base, floatingCastSeed, iteration)
+    val options = if (rnd.nextBoolean()) drawn.withUseAVX(VarkaEmitOptions.AVX512_LEVEL) else drawn
+    val data = Array.tabulate(numInputs, length)((c, _) => floatingCastValue(rnd, lanes(c)))
+    val label = s"lane=floatingCast seed=$floatingCastSeed iteration=$iteration " +
+      s"roots=${roots.asScala.map(r => VarkaVectorIR.canonical(r)).mkString("[", ", ", "]")} " +
+      s"options=${if (options.isDefault) "(defaults)" else options.canonical()} " +
+      s"length=$length patterns=${patternIds.map(patternNames).mkString(",")} " +
+      s"intLiterals=${intLits.mkString(",")} longLiterals=${longLits.mkString(",")} " +
+      s"forceMasked=$forceMasked"
+    if (VarkaKernelPlan.refusalOf(roots, options).isPresent) {
+      return false
+    }
+    val className = "org.apache.spark.sql.varka.execution.VarkaFusedFuzzFloatingCast" +
+      classCounter.addAndGet(1)
+    // The count the emitter is told, as the compiler's tables give it: a kernel of one lane reads
+    // the one table of its width, of `literals` slots; one of several lanes indexes each lane's
+    // own, whatever the total.
+    val oneLane = roots.asScala.flatMap(r => VarkaVectorIR.lanesIn(r).asScala).toSet.size == 1
+    val numLiterals = if (oneLane) literals else 2 * literals
+    def emitWith(o: VarkaEmitOptions): Array[Byte] = VarkaLoopEmitter.emitTraced(
+      className, roots, numInputs, numLiterals, o, randomTrace)
+    emitOrSkip(label, options)(emitWith).foreach { bytes =>
+      VarkaKernelChecks.runAndCompareMixed(label, className, bytes, roots, numInputs, intLits,
+        longLits, new VarkaKernelChecks.LongBatch(length,
+          Array.tabulate(numInputs, length)((c, i) => patterns(c)(i)), data, forceMasked),
+        false, null)
+    }
+    true
   }
 
   private def variantsDue(iteration: Int): Boolean =
@@ -1093,10 +1173,10 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
     // moves: the decimal-store test above runs it.
     // The floating math function (VARKA-342) is out with the floating lanes: the grammar draws no
     // floating tree yet, the floating sequence `VARKA-341.md` 5.1 owes, and a production is a row
-    // of the same refit. `VarkaEmitterFloatingArithSuite` and the coverage rows cover it. So is
-    // the floating conversion (VARKA-343): `VarkaEmitterFloatingCastSuite` and the coverage rows
-    // cover it until row 343's own fuzz sequence, on a seed of its own, and the lane crossing
-    // (`VARKA-343.md` 2.2.1), which joins a floating condition to another lane, with them.
+    // of the same refit. `VarkaEmitterFloatingArithSuite` and the coverage rows cover it.
+    // The floating conversion (VARKA-343) and the lane crossing under it have their own draw, on
+    // its own seed, so that no shape here moves: the floating cast test above runs it, and the
+    // test after it asserts its reach.
     val missing = permitted -- seen - "NarrowLane" - "WidenLane" - "NullSafeEqual" -
       "BoolColumn" - "CondConst" - "BoolCompare" - "CondIf" - "BoolNullSafeEq" - "CondValue" -
       "BoolOutput" - "DecimalColumn" - "NullValue" - "WidenDecimal" - "MathUnary" -
@@ -1925,6 +2005,28 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
     assert(shown, "no decimal draw of 64 with an untaken long-lane arm had a mutant replace it")
   }
 
+  // The unsigned compares (VARKA-359): their own draw at the long lane, run against the
+  // reference evaluator's Long.compareUnsigned.
+  private val unsignedSeed =
+    sys.props.get("varka.fuzz.seed").map(_.toLong).getOrElse(VarkaIrGrammar.UNSIGNED_FUZZ_SEED)
+
+  test(s"random long-lane IR trees with unsigned comparisons match the reference evaluator " +
+      s"(seed $unsignedSeed, $iterations iterations)") {
+    val ks = only.map(Seq(_)).getOrElse(0 until iterations)
+    var unsignedDrawn = 0
+    for (k <- ks) {
+      val c = drawLong(k, unsignedSeed, unsigned = true)
+      if (c.roots.asScala.exists(r => VarkaVectorIR.canonical(r).contains("(cmp:U"))) {
+        unsignedDrawn += 1
+      }
+      runChecked(c)
+    }
+    if (only.isEmpty) {
+      assert(unsignedDrawn > 0, "the unsigned draw drew no unsigned comparison")
+    }
+    reportSkipped()
+  }
+
   test("the nulling draw reaches a nulling range guard at both lanes, and the committed draws " +
       "hold none") {
     // Asserted rather than assumed, as the other generators' reach is: a guard is drawn in NULL
@@ -1952,6 +2054,53 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
       nulling(VarkaIrGrammar.drawShape(VarkaIrGrammar.shapeRandom(fuzzSeed, k)).roots) ++
         nulling(VarkaIrGrammar.drawLongShape(VarkaIrGrammar.shapeRandom(longFuzzSeed, k)).roots))
     assert(committed.isEmpty, s"a committed draw holds a nulling guard: ${committed.headOption}")
+  }
+
+  test(s"random trees converting to a floating lane match the reference evaluator (seed " +
+      s"$floatingCastSeed, $iterations iterations)") {
+    val ran = only match {
+      case Some(k) => Seq(runOneFloatingCast(k))
+      case None => (0 until iterations).map(runOneFloatingCast)
+    }
+    // The plan refuses only a bigint conversion below emit level 3: most draws run.
+    assert(only.isDefined || ran.count(identity) > iterations / 2,
+      s"only ${ran.count(identity)} of $iterations floating cast draws were emitted")
+  }
+
+  test("the floating cast generator reaches every conversion, both drives of each width and a " +
+      "32-bit root of a 64-bit kernel") {
+    val conversions = scala.collection.mutable.Set.empty[String]
+    val drives = scala.collection.mutable.Set.empty[LaneType]
+    var lowHalfRoot = false
+    val crossings = scala.collection.mutable.Set.empty[String]
+    def walk(n: VarkaVectorIR): Unit = {
+      n match {
+        case c: ConvertLane => conversions += s"${c.child().laneType()}->${c.target()}"
+        case x: CrossLane => crossings += s"${x.child().laneType()}->${x.lane()}"
+        case _ =>
+      }
+      VarkaVectorIR.childrenOf(n).foreach(walk)
+    }
+    for (k <- 0 until 4000) {
+      val roots = VarkaIrGrammar.drawFloatingCastShape(
+        VarkaIrGrammar.shapeRandom(floatingCastSeed, k))
+      roots.asScala.foreach(walk)
+      val drive = VarkaKernelPlan.emissionLane(roots.get(0), VarkaEmitOptions.DEFAULTS)
+      drives += drive
+      if (drive.bits() == 64 && roots.asScala.exists(_.laneType().bits() == 32)) {
+        lowHalfRoot = true
+      }
+    }
+    val wanted = Set("INT->FLOAT", "INT->DOUBLE", "LONG->FLOAT", "LONG->DOUBLE",
+      "FLOAT->DOUBLE", "DOUBLE->FLOAT")
+    assert((wanted -- conversions).isEmpty, s"never drawn: ${(wanted -- conversions).toSeq}")
+    assert(Set(LaneType.INT, LaneType.FLOAT, LaneType.LONG, LaneType.DOUBLE).subsetOf(drives),
+      s"drives drawn: $drives")
+    assert(lowHalfRoot, "no 32-bit root of a 64-bit kernel was drawn")
+    // A crossing in each direction between the widths, and one between two lanes of one width.
+    assert(crossings.exists(c => c == "DOUBLE->INT" || c == "FLOAT->LONG"), s"crossed: $crossings")
+    assert(crossings.exists(c => c == "INT->DOUBLE" || c == "LONG->FLOAT"), s"crossed: $crossings")
+    assert(crossings.exists(c => c == "INT->FLOAT" || c == "LONG->DOUBLE"), s"crossed: $crossings")
   }
 
   test("the nulling draw reaches the null leaf at both lanes and at each of its positions, and " +

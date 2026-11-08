@@ -165,7 +165,7 @@ final class VarkaEmitCostFit {
       for (Overflow mode : Overflow.values()) {
         f.add("IntNeg/" + mode + "/" + lane);
       }
-      for (CompareOp op : CompareOp.values()) {
+      for (CompareOp op : CompareOp.signed()) {
         f.add("Compare/" + op + "/" + lane);
       }
       f.add("ConstDivide/" + lane + "/pos");

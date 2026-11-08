@@ -841,8 +841,9 @@ public final class VarkaReference {
     /** {@code node} with every conversion replaced by a column holding its answer. */
     VarkaVectorIR flatten(VarkaVectorIR node, int[] intLits, long[] longLits) {
       if (node instanceof WidenLane w) {
-        // Exact: the int child's value, which `mixedValue` already sign-extends.
-        return column(mixedOf(w.child(), intLits, longLits), LaneType.LONG);
+        // Exact: the child's value, which `mixedValue` already sign-extends, at the target's lane
+        // (the int lane for a narrow column under a null test, the long lane for an int).
+        return column(mixedOf(w.child(), intLits, longLits), w.target());
       }
       // A narrowing keeps the low bits of the target's width, sign-extended: Spark's LEGACY
       // CAST(bigint AS INT) and, at a narrow target, CAST(bigint AS TINYINT) (VARKA-332).
@@ -1018,6 +1019,11 @@ public final class VarkaReference {
     return a.isPresent() ? a : b;
   }
 
+  /**
+   * {@code l op r} over two lane values sign-extended to a long. An unsigned member orders them
+   * by {@code Long.compareUnsigned}, which is the unsigned order of the lane's own width too:
+   * sign extension keeps the unsigned order of two values of one width.
+   */
   private static boolean compare(CompareOp op, long l, long r) {
     return switch (op) {
       case LT -> l < r;
@@ -1025,6 +1031,10 @@ public final class VarkaReference {
       case GT -> l > r;
       case GE -> l >= r;
       case EQ -> l == r;
+      case ULT -> Long.compareUnsigned(l, r) < 0;
+      case ULE -> Long.compareUnsigned(l, r) <= 0;
+      case UGT -> Long.compareUnsigned(l, r) > 0;
+      case UGE -> Long.compareUnsigned(l, r) >= 0;
     };
   }
 
@@ -1036,6 +1046,8 @@ public final class VarkaReference {
       case GT -> c > 0;
       case GE -> c >= 0;
       case EQ -> c == 0;
+      case ULT, ULE, UGT, UGE -> throw new IllegalArgumentException("an ordering's answer has "
+          + "no unsigned form: " + op);
     };
   }
 

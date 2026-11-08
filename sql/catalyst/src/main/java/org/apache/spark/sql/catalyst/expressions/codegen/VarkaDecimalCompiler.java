@@ -850,8 +850,10 @@ final class VarkaDecimalCompiler {
    */
   private static Optional<Scaled> column(BoundReference br, DecimalType type,
       VarkaSlotTable inputs, DeclineSink sink) {
-    if (VarkaTypes.lane(type).orElse(null) != LaneType.LONG
-        || type.precision() > MAX_PRECISION) {
+    boolean oneLongWord = VarkaTypes.read(type).orElse(null)
+        instanceof VarkaTypes.Read.Lanes(LaneType lane, int words, var storage)
+        && lane == LaneType.LONG && words == 1;
+    if (!oneLongWord || type.precision() > MAX_PRECISION) {
       return sink.decline(VarkaTypes.declineReason(type).orElse(type.precision() > MAX_PRECISION
           ? "a decimal column wider than " + MAX_PRECISION + " digits is row 359's"
           : "a decimal column the registry puts off the long lane"), br);
