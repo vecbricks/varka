@@ -222,10 +222,10 @@ public final class VarkaMatrixRuns {
    * joins with its entry. Then the batch-size axis, which changes the sessions' cached batches
    * rather than an option.
    *
-   * <p>A flag or a choice whose {@code VarkaEmitOption.Subject} is not the defaults runs its other
-   * values over that subject, {@code denseValidityOnce=false,validityByBitmap=false,
-   * validityOrFirst=false} and {@code useAVX=2,wideConversionForm=MAGIC}: at the defaults the
-   * value emits the defaults' bytes, and the configuration would test nothing (VARKA-247).
+   * <p>A flag or choice whose {@code VarkaEmitOption.Subject} is not the defaults runs over
+   * that subject, {@code denseValidityOnce=false,validityByBitmap=false,validityOrFirst=false}:
+   * at the defaults the value emits the defaults' bytes, and the configuration would test nothing
+   * (VARKA-247).
    *
    * <p>An arm runs only if it emits something the defaults and the option's other arms do not, by
    * {@link #emissionKey}: see {@link #distinctArms}.
@@ -306,8 +306,8 @@ public final class VarkaMatrixRuns {
    * The arms of one option that emit something new: an arm whose {@link #emissionKey} is the
    * defaults' is left out, and of arms that share a key one runs, the one whose options are the
    * key itself where there is one, else the first. So {@code useAVX=0}, {@code 1} and {@code 2}
-   * run once, as {@code useAVX=2}, the AVX2 forms of the {@code BIGINT} conversions among what it
-   * runs, and {@code useAVX=3} runs as the one level that converts them in one instruction.
+   * run once, as {@code useAVX=2}, and {@code useAVX=3} runs as the one level that admits the
+   * {@code BIGINT} conversions as one instruction.
    */
   static List<VarkaEmitOption.Arm> distinctArms(List<VarkaEmitOption.Arm> arms,
       VarkaEmitOptions defaults) {

@@ -64,9 +64,8 @@ final class VarkaConversionLowering {
   /** {@code 2^52}, the magic number of a non-negative integer below it. */
   static final double TWO_52 = 0x1p52;
   static final long TWO_52_BITS = Double.doubleToRawLongBits(TWO_52);
-  /** The split's high word's weight. */
+  /** The split's high word's weight, shift and low word. */
   static final double TWO_32 = 0x1p32;
-  /** The split's shift, and the mask of its low word. */
   static final int SPLIT_SHIFT = 32;
   static final long LOW_WORD = 0xFFFFFFFFL;
   /** The magic form's window: exact for {@code |v| <= MAGIC_WINDOW}, and not one past it. */
@@ -82,11 +81,7 @@ final class VarkaConversionLowering {
   static final int SPLIT_CALLS = 10;
   static final int ODD_CALLS = 24;
 
-  /**
-   * Whether {@code n} takes an AVX2 form here: a conversion from the long lane to a floating
-   * one at a level below 3. Slots, the refusals and the emission all ask this, so a scratch
-   * local or a guard exists exactly where a form reads it.
-   */
+  /** Whether {@code n} takes an AVX2 form: Slots, the refusals and the emission all ask. */
   static boolean takesWideForm(Analysis analysis, ConvertLane n) {
     return n.child().laneType() == LaneType.LONG && n.target().isFloating()
         && analysis.options.convertsFallBack();
@@ -103,10 +98,7 @@ final class VarkaConversionLowering {
     return takesWideForm(analysis, n) && n.target() == LaneType.FLOAT ? 4 : 0;
   }
 
-  /**
-   * {@code [v] -> [d]}: the long vector on the stack converted by {@code n}'s form, into the
-   * target species of the kernel's width, a float filling the low half of its own.
-   */
+  /** {@code [v] -> [d]}, a float filling the low half of its species. */
   static void emit(CodeBuilder cb, ConvertLane n, boolean dense, Analysis analysis, Slots s) {
     if (n.target() == LaneType.FLOAT) {
       emitRoundToOdd(cb, s.convertTmp.get(n), analysis);

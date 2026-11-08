@@ -591,10 +591,8 @@ public sealed interface VarkaEmitOption
       new Choice<>("decimalStore", Reason.MACHINE, DecimalStore.class, DecimalStore.REARRANGE,
           VarkaEmitOptions::decimalStore, Builder::decimalStore,
           new ChoiceTag("decimalStore="), Optional.of(WidenDecimal.class)),
-      // A machine choice: the two AVX2 forms of L2D (`VARKA-343.md` 2.3), the whole-range split
-      // by default and the bounded magic, which declines a batch past 2^51, the arm. Only a
-      // conversion from the long lane reads it, and only at a level below 3, so its matrix
-      // configuration runs over useAVX=2. Its tag keeps the default's rendering empty.
+      // A machine choice of L2D's AVX2 forms (`VARKA-343.md` 2.3), read by a long's ConvertLane
+      // below level 3 alone, so it runs over useAVX=2. Its tag keeps the default rendering empty.
       new Choice<>("wideConversionForm", Reason.MACHINE, WideConversionForm.class,
           WideConversionForm.SPLIT, VarkaEmitOptions::wideConversionForm,
           Builder::wideConversionForm, new ChoiceTag("wideConversionForm="),

@@ -38,14 +38,10 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Lan
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Overflow;
 
 /**
- * The AVX2 forms of {@code BIGINT} to {@code DOUBLE} and {@code FLOAT} (`VARKA-343.md` 2.3,
- * {@link VarkaConversionLowering}): emitted at {@code useAVX=2}, the level of a host without
- * AVX512DQ, and held bit for bit to Java's {@code (double) v} and {@code (float) v} through the
- * reference evaluator. The forms are vector arithmetic every x86 host has, so this machine runs
- * them whatever its own level; what C2 makes of them on an AVX2 host is read with
- * {@code -XX:UseAVX=2} (section 10 of the plan). Both arms of {@code wideConversionForm}, the
- * bounded one's decline past {@code 2^51}, the cells where a form that rounds twice or drops its
- * sticky bit is wrong, a seeded draw per binade, and 3.4's named failing case.
+ * The AVX2 forms of {@code BIGINT} to {@code DOUBLE} and {@code FLOAT} ({@link
+ * VarkaConversionLowering}) emitted at {@code useAVX=2} and held bit for bit to Java's casts
+ * through the reference: plain vector arithmetic, so any x86 host runs them. Both arms of
+ * {@code wideConversionForm}, the bounded one's decline, and 3.4's named failing case.
  */
 @VarkaSuite(ownJvm = true)
 public final class VarkaEmitterWideConversionSuite {
@@ -58,12 +54,10 @@ public final class VarkaEmitterWideConversionSuite {
       i -> false, i -> i % 5 == 0, i -> i % 2 == 1, i -> true);
 
   /**
-   * The whole-range cells and their negations: the arms' boundary at {@code 2^52} and its
-   * neighbours; the float ties {@code 2^52 + 2^28} and {@code 2^62 + 2^38}, which round to even,
-   * and their neighbours one sticky bit above, which a form without the sticky bit rounds down;
-   * the double ties past {@code 2^53}; {@code 2^53 + 2^29 + 1}, which {@code (float) (double) v}
-   * rounds to {@code 2^53} against {@code 2^53 + 2^30}; the top of the range, which rounds to
-   * {@code 2^63}; both extremes; and 3.4's named case.
+   * The cells and their negations: the arms' boundary {@code 2^52}; the float ties
+   * {@code 2^52 + 2^28} and {@code 2^62 + 2^38} and one sticky bit above, which a form without
+   * the sticky bit rounds down; the double ties; {@code 2^53 + 2^29 + 1}, which two roundings
+   * miss; the extremes; and 3.4's named case.
    */
   private static final long[] CELLS = withMinimum(withNegations(0, 1, 3, (1L << 24) + 1,
       (1L << 24) + 3, 1L << 31, (1L << 32) - 1, 1L << 32, (1L << 52) - 1, 1L << 52, (1L << 52) + 1,
@@ -177,8 +171,7 @@ public final class VarkaEmitterWideConversionSuite {
               emitted.bytes(), List.of(root), 1, new int[0], new long[0],
               new VarkaKernelChecks.LongBatch(length, nulls, values, false), true);
           assertEquals(VarkaFusedKernel.STATUS_VALUE_RANGE, status, context);
-          // The same lane null: in the masked body its stored value condemns nothing, and the
-          // batch is answered. The harness's second run is the dense body, all lanes live.
+          // Null, the lane condemns nothing in the masked body (the second run is the dense one).
           nulls[0][length - 1] = true;
           List<Integer> each = VarkaKernelChecks.runEachBodyMixedStatus(context + ", null",
               emitted.className(), emitted.bytes(), List.of(root), 1, new int[0], new long[0],
@@ -189,10 +182,6 @@ public final class VarkaEmitterWideConversionSuite {
     }
   }
 
-  /**
-   * A seeded draw per binade of {@code |v|}, both signs, with each binade's first value and the
-   * float and double ties at its scale, in batches of 4096 rows: every row held to Java's casts.
-   */
   @Test
   @DisplayName("a seeded draw over every binade of both signs, ties among it, for each form")
   void binades() {
@@ -231,12 +220,7 @@ public final class VarkaEmitterWideConversionSuite {
     }
   }
 
-  /**
-   * 3.4's named failing case (`READING_0X80.md` item 3): converting an unsigned 32-bit value
-   * past {@code 2^31} as its low 31 bits plus {@code 2^31} rounds twice, so 4275361147 gives
-   * 4275361280 against one rounding's 4275361024, and about one value in six of
-   * {@code [2^31, 2^32)} misrounds. The kernel's {@code L2F} rounds once.
-   */
+  /** 3.4's named failing case (`READING_0X80.md` item 3): the split-and-add rounds twice. */
   @Test
   @DisplayName("the split-and-add conversion misrounds 4275361147 and about 16.5% of [2^31, "
       + "2^32); the kernel's L2F does not")
