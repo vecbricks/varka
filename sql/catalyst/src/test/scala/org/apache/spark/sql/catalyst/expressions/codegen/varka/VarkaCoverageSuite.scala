@@ -1154,6 +1154,8 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
       Row("ceil(i)"),
       Row("round(i, 0)", "a scale of 0 or more is the identity"),
       Row("round(l, 0)"),
+      Row("bround(l, 0)"),
+      Row("truncate(l, 0)"),
       Row("round(i, -1)", "HALF_UP to a multiple of ten; under ANSI a value whose rounding "
         + "leaves the int raises, so its batch declines",
         domain = Some("i BETWEEN -2147483644 AND 2147483644")),
