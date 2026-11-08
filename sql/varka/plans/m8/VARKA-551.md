@@ -247,7 +247,8 @@ compares against it.
   axis' hosts. No change to the axis.
 - **Per-executor readings** (a mixed cluster) and the mask guard on the driver: out, as row 538
   put them.
-- **Which scope items 115 and 127 are**: question 4.
+- **Which scope items 115 and 127 are**: none; the row now points at sections 2.3 and 7
+  (question 4, answered on 8 November 2026).
 
 ## 8. Questions for the owner
 
@@ -255,15 +256,28 @@ compares against it.
    (a) Yes: carry it now, read `rearrange(shuffle, v)` for 359a. (b) No: leave it to 359a.
    **Recommended (a).** 11.4's width rule is a verdict the decimal chain is built on; a host
    fact it may have missed on every AVX2 machine is worth one read before the pair is built.
+
+   *8 November 2026, by the owner's word:* (a). The record carries `selectFromTwo`, and item 7 is
+   read before 359a's pair is built on its de-interleave.
 2. **Does the record replace `useAVX` as the stored component, or sit beside it as derived?**
    (a) Beside it, the level the user-facing surface (section 2.2). (b) Replace: the level becomes
    a setter only. **Recommended (a)**: the committed keys stay, and `useAVX` remains the one
    knob users have.
+
+   *8 November 2026, by the owner's word:* (a). The record sits beside `useAVX`, which stays the
+   user-facing setting.
 3. **Where is the AVX-512 arm of the epilogue pair measured?** (a) The laptop, idle, its 256-bit datapath
    named in the results. (b) A Xeon 8573C runner, which `benchmark.yml` cannot pin today. **Recommended
    (a)**, with (b) only if the laptop shows the masked form 1.3x faster.
+
+   *8 November 2026, by the owner's word:* (a), with (b) as the fallback: the laptop first, idle,
+   its 256-bit datapath named in the results; a Xeon 8573C runner only if the laptop shows the
+   masked form 1.3x faster.
 4. **Which scope items are 115 and 127?** Master's catalogue has no item with the row's meaning.
    **Recommended:** correct the row's pointers to this plan's sections 2.3 and 7.
+
+   *8 November 2026, by the owner's word:* (a). The row's pointers now name sections 2.3 and 7 of
+   this plan.
 
 ## 9. Done when
 

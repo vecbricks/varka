@@ -5,6 +5,7 @@ VarkaEmitterChronoSuite	scala	varka.sweep	filter	opt-in	varka-sweeps	the emitted
 VarkaEmitterDivisionSuite	scala	varka.sweep	filter	opt-in	varka-sweeps	the calendar kernels under both double division forms; 106 s
 VarkaEmitterYmDivideSuite	scala	varka.sweep.long	filter	long-sweep	varka-sweeps	409 divisors over every int; its name carries no opt-in; 640 s
 VarkaEmitterFloatingArithSuite	java	varka.sweep	class	-	varka-sweeps	every FLOAT pattern through + - * and negation and abs; 148 s
+VarkaEmitterFloatingCastSuite	java	varka.sweep	class	-	varka-sweeps	every INT to FLOAT and DOUBLE, every FLOAT pattern to DOUBLE and BOOLEAN; not yet timed
 VarkaEmitterMixedLaneSuite	java	varka.sweep	class	-	varka-sweeps	runs whole; its sweep is switched on by the property; 8 s
 VarkaEmitterNarrowArithSuite	java	varka.sweep	shard	pair for + in	varka-sweeps	SMALLINT pairs for +: 6 sweeps, 1111 s on the laptop
 VarkaEmitterNarrowArithSuite	java	varka.sweep	shard	pair for - in	varka-sweeps	SMALLINT pairs for -: 6 sweeps, 1065 s
