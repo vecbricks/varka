@@ -113,7 +113,8 @@ final class VarkaFloatingCompiler {
           -> () -> signum(g, inputs, literals, sink);
       // Signum over an interval, its lane read once; any other operand type is not claimed.
       case Signum g when l == LaneType.DOUBLE -> intervalLane(g.child().dataType())
-          .<VarkaFamilyArm>map(count -> () -> intervalSignum(g, count, inputs, literals, sink))
+          .<VarkaFamilyArm>map(countLane -> () -> intervalSignum(g, countLane, inputs, literals,
+              sink))
           .orElse(null);
       default -> null;
     };
