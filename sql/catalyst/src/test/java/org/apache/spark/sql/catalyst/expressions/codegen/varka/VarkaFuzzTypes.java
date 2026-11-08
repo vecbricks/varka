@@ -274,11 +274,11 @@ public final class VarkaFuzzTypes {
   private static final ValueSource BOOLEAN_VALUES = new ValueSource(new long[] {0, 1},
       Kind.BOOLEAN);
 
-  private static long f(float v) {
+  private static long fb(float v) {
     return Integer.toUnsignedLong(Float.floatToRawIntBits(v));
   }
 
-  private static long d(double v) {
+  private static long db(double v) {
     return Double.doubleToRawLongBits(v);
   }
 
@@ -288,13 +288,13 @@ public final class VarkaFuzzTypes {
    * largest finite value, the smallest normal and the smallest subnormal.
    */
   private static final ValueSource FLOAT_VALUES = new ValueSource(new long[] {
-      f(0.0f), f(-0.0f), f(Float.NaN), 0xFFC00000L, 0x7F800001L, f(Float.POSITIVE_INFINITY),
-      f(Float.NEGATIVE_INFINITY), f(Float.MAX_VALUE), f(Float.MIN_NORMAL), f(Float.MIN_VALUE)},
+      fb(0.0f), fb(-0.0f), fb(Float.NaN), 0xFFC00000L, 0x7F800001L, fb(Float.POSITIVE_INFINITY),
+      fb(Float.NEGATIVE_INFINITY), fb(Float.MAX_VALUE), fb(Float.MIN_NORMAL), fb(Float.MIN_VALUE)},
       Kind.FLOAT);
   private static final ValueSource DOUBLE_VALUES = new ValueSource(new long[] {
-      d(0.0), d(-0.0), d(Double.NaN), 0xFFF8000000000000L, 0x7FF0000000000001L,
-      d(Double.POSITIVE_INFINITY), d(Double.NEGATIVE_INFINITY), d(Double.MAX_VALUE),
-      d(Double.MIN_NORMAL), d(Double.MIN_VALUE)}, Kind.DOUBLE);
+      db(0.0), db(-0.0), db(Double.NaN), 0xFFF8000000000000L, 0x7FF0000000000001L,
+      db(Double.POSITIVE_INFINITY), db(Double.NEGATIVE_INFINITY), db(Double.MAX_VALUE),
+      db(Double.MIN_NORMAL), db(Double.MIN_VALUE)}, Kind.DOUBLE);
 
   private static Column col(String name, String sql) {
     return new Column(name, sql, false);
