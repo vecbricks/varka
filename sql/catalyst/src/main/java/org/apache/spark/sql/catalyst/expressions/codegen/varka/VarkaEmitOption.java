@@ -178,6 +178,14 @@ public sealed interface VarkaEmitOption
    * IR that reads the flag without one, and no draw or compiled shape builds it. A {@link Choice}
    * and a {@link Flag} carry one, as their {@code readOnlyBy} component.
    */
+  static Optional<Class<? extends VarkaVectorIR>> readOnlyBy(VarkaEmitOption option) {
+    return switch (option) {
+      case Flag flag -> flag.readOnlyBy();
+      case Count _ -> Optional.empty();
+      case Choice<?> choice -> choice.readOnlyBy();
+    };
+  }
+
   /**
    * The options under which {@code option}'s values differ ({@link Subject}): a flag's or a
    * choice's own, and the defaults for a count.
@@ -187,14 +195,6 @@ public sealed interface VarkaEmitOption
       case Flag flag -> flag.subject();
       case Count _ -> Subject.DEFAULTS;
       case Choice<?> choice -> choice.subject();
-    };
-  }
-
-  static Optional<Class<? extends VarkaVectorIR>> readOnlyBy(VarkaEmitOption option) {
-    return switch (option) {
-      case Flag flag -> flag.readOnlyBy();
-      case Count _ -> Optional.empty();
-      case Choice<?> choice -> choice.readOnlyBy();
     };
   }
 

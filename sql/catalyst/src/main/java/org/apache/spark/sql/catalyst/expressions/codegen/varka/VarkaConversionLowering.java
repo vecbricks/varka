@@ -21,6 +21,8 @@ import static org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaDescr
 
 import java.lang.classfile.CodeBuilder;
 
+import javax.annotation.Nullable;
+
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions.WideConversionForm;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ConvertLane;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LaneType;
@@ -158,7 +160,7 @@ final class VarkaConversionLowering {
     cb.invokevirtual(LONG_VECTOR, op, Lane.LONG.lanewiseVI);
   }
 
-  private static void emitRoundToOdd(CodeBuilder cb, int[] tmp, Analysis analysis) {
+  private static void emitRoundToOdd(CodeBuilder cb, @Nullable int[] tmp, Analysis analysis) {
     if (tmp == null) {
       throw VarkaErrors.illegalState("an L2F form with no scratch planned");
     }
