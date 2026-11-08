@@ -15,23 +15,30 @@
 # 2        128839514109  two censuses of one width agree ...                97.805  1
 # 2        128839514109  a forced 128-bit census declines ...              318.791  3
 
-## Laptop: AMD Ryzen AI 9 HX PRO 370, 24 threads, JDK 25.0.4.1, 8 November 2026
+## Laptop: AMD Ryzen AI 9 HX PRO 370, 24 threads, JDK 25.0.4.1, 9 November 2026
 #
-# The suite after VARKA-581's third commit: the flag query, then one probe at the preferred
-# width and one per forced width the host can run, on max(1, min(probes, cores - 1)) threads,
-# each probe -Xmx1g. build/sbt 'catalyst/testOnly *VarkaWidthAuditSuite', other agents' JVMs
-# running beside it. Probe seconds are the suite's log lines, counted from each probe's start.
+# The suite after VARKA-581's fourth commit: the five probes one after another in beforeAll
+# (preferred, preferred again, forced 16, 32 and 64 bytes), each -Xmx1g. build/sbt
+# 'catalyst/testOnly *VarkaWidthAuditSuite', other agents' JVMs running beside it. Probe seconds
+# are the suite's log lines; "probes" is the first probe's start to the last one's end, and the
+# sbt wall of the 24-core run includes compiling the suite.
+#
+# run              per probe (s)          probes   sbt wall  load before/after
+# 24 cores         121 113 125 123 88     572 s    619 s     24.59 / 1.84
+# taskset -c 0-3   106 92 115 103 95      514 s    542 s     1.32 / 1.14
+#
+## Laptop, an earlier design not merged: the probes at once (8 November 2026)
+#
+# VARKA-581's third commit ran the probe at the preferred width and one per forced width the
+# host runs, on max(1, min(probes, cores - 1)) threads. Kept as the measure a follow-up that runs
+# the probes concurrently would start from.
 #
 # run                                   probes  threads  per probe (s)     wait (s)  together  sbt wall  load before/after
 # 24 cores                              4       4        138 139 152 165   0         165 s     193 s     5.67 / 5.94
 # taskset -c 0-3                        4       3        158 170 184 125   0 0 0 158 284 s     322 s     5.74 / 4.98
 # taskset -c 0-3, UseAVX=2 (AVX2 shape) 3       3        165 166 180       0         180 s     214 s     3.72 / 5.90
 #
-# UseAVX=2 came through JDK_JAVA_OPTIONS, which reaches the probes; the flag query read 32 bytes,
-# so forced 64 was not probed and the three probes ran in one round. Its census test failed, as
-# expected: the committed census is the laptop's at UseAVX 3, and AVX2 has no masked byte store.
-#
-# Heap, the 24-core run under JDK_JAVA_OPTIONS=-Xlog:gc, per probe:
+# Heap, the concurrent design's 24-core run under JDK_JAVA_OPTIONS=-Xlog:gc, per probe:
 #
 # probe             collections  largest before a collection  largest after  full collections
 # preferred         360          297 MB                       159 MB         0
