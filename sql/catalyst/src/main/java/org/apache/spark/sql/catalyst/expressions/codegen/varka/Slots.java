@@ -937,8 +937,10 @@ final class Slots {
           }
           // A leaf the walk re-emits at each use is never shared: a literal, and the null of a
           // lane, a broadcast zero and an all-clear word a local would only hold across the body.
+          // Nor is a decimal word, whose every later visit reads the local its pair's load parks
+          // it in (decimalTmp), so a shared slot would hold the same vector twice.
           if (cse && bodyUses.getOrDefault(node, 0) > 1 && !(node instanceof LiteralSlot)
-              && !(node instanceof VarkaVectorIR.NullValue)) {
+              && !(node instanceof VarkaVectorIR.NullValue) && !(node instanceof DecimalWord)) {
             s.sharedSlot.put(node, slot++);
           }
           // A floating pick reads each operand twice, so it parks both in either body, where an
