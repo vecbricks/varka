@@ -33,10 +33,11 @@ import org.junit.jupiter.api.Test;
 
 /**
  * {@code RoundToIntegral} with mode {@code RINT} (VARKA-344): the kernel's answer is held to
- * {@code Math.rint} bit for bit over the cells that decide the 2^52 construction and a seeded
- * draw of every exponent, with a NaN compared by being one (its sign is the implementation's,
- * {@code VARKA-344.md} 0.10). A null lane's output is null, and the construction's binary32 twin
- * is exhausted over all 2^32 patterns behind {@code -Dvarka.sweep=true}.
+ * {@code Math.rint} bit for bit over the cells that decide the 2^52 construction, every binary
+ * exponent from -1074 to 1023 in both signs and a seeded draw, with a NaN compared by being one
+ * (its sign is the implementation's, {@code VARKA-344.md} 0.10). Every cell is on a valid lane and
+ * the nulls fall among the rest, where a null lane's output is null; the construction's binary32
+ * twin is exhausted over all 2^32 patterns behind {@code -Dvarka.sweep=true}.
  */
 @VarkaSuite(ownJvm = true)
 public final class VarkaEmitterRoundingSuite {
@@ -46,6 +47,9 @@ public final class VarkaEmitterRoundingSuite {
 
   private static final VarkaVectorIR RINT =
       new VarkaVectorIR.RoundToIntegral(VarkaVectorIR.RoundMode.RINT, X);
+
+  /** How many of {@link #data}'s rows are the cells, which no null covers. */
+  private static final int CELLS = cells().length;
 
   /** The cells of {@code VARKA-344.md} 3.1 for {@code rint}, as doubles. */
   private static double[] cells() {
@@ -60,14 +64,18 @@ public final class VarkaEmitterRoundingSuite {
         2147483647.5, -2147483648.5, 9007199254740991.0};
   }
 
-  /** The cells, every exponent in both signs with its ties and neighbours, and a seeded draw. */
+  /**
+   * The cells, then each power of two {@code 2^e} for every {@code e} from -1074 (the smallest
+   * subnormal) to 1023, with {@code 1.5 * 2^e} and both neighbours, in both signs, the ties below
+   * {@code 2^52} and their neighbours, and a seeded draw.
+   */
   private static double[] data() {
     var out = new java.util.ArrayList<Double>();
     for (double d : cells()) {
       out.add(d);
     }
-    for (int e = -1074; e <= 1023; e += 7) {
-      double p = Math.scalb(1.0, Math.max(e, -1022));
+    for (int e = -1074; e <= 1023; e++) {
+      double p = Math.scalb(1.0, e);
       for (double v : new double[] {p, 1.5 * p, Math.nextUp(p), Math.nextDown(p)}) {
         out.add(v);
         out.add(-v);
@@ -89,6 +97,11 @@ public final class VarkaEmitterRoundingSuite {
     return out.stream().mapToDouble(Double::doubleValue).toArray();
   }
 
+  /** Whether row {@code i} of {@link #data} is null: none of the cells, every seventh after. */
+  private static boolean nullAt(int i) {
+    return i >= CELLS && i % 7 == 3;
+  }
+
   @Test
   @DisplayName("rint is Math.rint for the cells, every exponent and a draw, nulls staying null")
   void rintMatchesMathRint() {
@@ -97,7 +110,7 @@ public final class VarkaEmitterRoundingSuite {
     var loaded = VarkaEmitterFixtures.load(
         VarkaEmitterFixtures.emit(List.of(RINT), 1, 0, VarkaMatrixRuns.BASE));
     try (Arena arena = Arena.ofConfined()) {
-      var col = VarkaEmitterFixtures.makeLongInput(arena, n, i -> i % 7 == 3,
+      var col = VarkaEmitterFixtures.makeLongInput(arena, n, VarkaEmitterRoundingSuite::nullAt,
           i -> Double.doubleToRawLongBits(values[i]), true);
       var out = VarkaEmitterFixtures.makeLongOutput(arena, n);
       int status = loaded.kernel().run(new long[] {col.data().address()},
@@ -107,7 +120,7 @@ public final class VarkaEmitterRoundingSuite {
       assertEquals(0, status, "the kernel declined a batch it computes");
       for (int i = 0; i < n; i++) {
         boolean valid = (out.validity().get(ValueLayout.JAVA_BYTE, i / 8L) & (1 << (i % 8))) != 0;
-        assertEquals(i % 7 != 3, valid, "validity of row " + i);
+        assertEquals(!nullAt(i), valid, "validity of row " + i);
         if (valid) {
           double want = Math.rint(values[i]);
           double got = Double.longBitsToDouble(out.data().get(ValueLayout.JAVA_LONG, i * 8L));
