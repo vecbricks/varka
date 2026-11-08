@@ -1139,6 +1139,31 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
       Row("f * 2.5F"),
       Row("-f"),
       Row("abs(f)"))),
+    // The same forms over another type (VARKA-342 3.9): Spark's division and math functions take
+    // DOUBLE only, so type coercion casts any other numeric operand to double, which the floating
+    // casts family lowers exactly (VARKA-343); a BIGINT operand is not listed, since L2D declines
+    // below AVX512DQ. Signum over an interval answers the double of its count's sign.
+    Family("Floating arithmetic over other types", predicates = false, Seq(
+      Row("i / y1", "both operands cast to double, then the double division; a zero divisor of "
+        + "the cast raises under ANSI and is null under the legacy mode",
+        domain = Some("CASE WHEN i IS NOT NULL THEN y1 <> 0 END")),
+      Row("s1 / i", "a short over an int, each converted exactly",
+        domain = Some("CASE WHEN s1 IS NOT NULL THEN i <> 0 END")),
+      Row("x / i", "the int divisor cast beside the double dividend",
+        domain = Some("CASE WHEN x IS NOT NULL THEN i <> 0 END")),
+      Row("f / f2", "both floats widened exactly: Spark divides floats as doubles",
+        domain = Some("CASE WHEN f IS NOT NULL THEN f2 <> 0.0F END")),
+      Row("try_divide(i, y1)", "the legacy division over the casts: null on a zero divisor"),
+      Row("sqrt(i)", "the int converted exactly, then the square root"),
+      Row("signum(i)"),
+      Row("degrees(i)"),
+      Row("sqrt(f)", "the float widened exactly, then the double square root"),
+      Row("signum(f)", "a float NaN widened keeps its payload, which signum returns"),
+      Row("radians(s1)"),
+      Row("signum(ym)", "the months' sign as a double: (m > 0) - (m < 0) on the int lane, then "
+        + "I2D, so a zero is +0.0 and a null null"),
+      Row("signum(dt)", "the microseconds' sign on the long lane, narrowed to the int lane, then "
+        + "I2D: no conversion from a long"))),
     // A floating value as a boolean (VARKA-343 2.5): Spark's x != 0 in every mode, the negation
     // of the lane's EQ against zero, so a NaN is true and both zeros false; never an error.
     Family("Floating casts to BOOLEAN", predicates = false, Seq(

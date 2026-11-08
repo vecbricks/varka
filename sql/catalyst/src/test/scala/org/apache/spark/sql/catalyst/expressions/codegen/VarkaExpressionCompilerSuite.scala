@@ -1424,9 +1424,11 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     assert(declineReason(DivideYMInterval(ymm, Literal(2L)), withIntervals) ===
       "interval divisor of type bigint takes LongMath.divide, which the int lane does not " +
         "lower")
-    // A floating divisor is floating arithmetic, which every floating operand declines as.
+    // A floating divisor is rounded to the interval's integer, which waits for row
+    // 343's conversions to an integral lane.
     assert(declineReason(DivideYMInterval(ymm, Literal(2.5d)), withIntervals) ===
-      "floating arithmetic (row 342)")
+      "an interval product or quotient by a floating factor, which waits for the conversions " +
+        "to an integral lane (row 342 after part 343b2)")
     assert(declineReason(DivideYMInterval(ymm, Literal(BigDecimal("2.5"))), withIntervals) ===
       "interval divisor of type decimal(2,1) is not an integral literal")
     assert(declineReason(DivideYMInterval(ymm, i), withIntervals) ===
@@ -1480,9 +1482,11 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
       "checked int multiply whose operands do not rule out overflow")
     assert(declineReason(MultiplyYMInterval(ymm, Literal(3L)), withIntervals) ===
       "interval multiplier of type bigint is not an int32 lane")
-    // A floating factor is floating arithmetic, which every floating operand declines as.
+    // A floating factor is rounded to the interval's integer, which waits for row
+    // 343's conversions to an integral lane.
     assert(declineReason(MultiplyYMInterval(ymm, Literal(2.5d)), withIntervals) ===
-      "floating arithmetic (row 342)")
+      "an interval product or quotient by a floating factor, which waits for the conversions " +
+        "to an integral lane (row 342 after part 343b2)")
   }
 
   test("a literal day shift fuses at the bound and declines one day past it") {

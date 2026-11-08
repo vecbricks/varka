@@ -371,12 +371,13 @@ final class VarkaNodeCompiler {
         || e instanceof LessThanOrEqual || e instanceof GreaterThan
         || e instanceof GreaterThanOrEqual || e instanceof Greatest || e instanceof Least
         || e instanceof In || e instanceof InSet || e instanceof IsNaN || e instanceof NaNvl
-        // The floating arithmetic family's forms (VARKA-342), by name for the same reason.
-        // Signum over an interval answers a double too, and stays out until its own step.
+        // The floating arithmetic family's forms (VARKA-342), by name for the same reason;
+        // signum over either interval type answers a double too.
         || e instanceof Add || e instanceof Subtract || e instanceof Multiply
         || e instanceof Divide || e instanceof UnaryMinus || e instanceof Abs
         || e instanceof Sqrt || e instanceof ToDegrees || e instanceof ToRadians
-        || (e instanceof Signum s && isFloating(s.child().dataType()))
+        || (e instanceof Signum s && (isFloating(s.child().dataType())
+            || VarkaFloatingCompiler.intervalLane(s.child().dataType()).isPresent()))
         // The floating casts family's pairs (VARKA-343), by pair for the same reason.
         || (e instanceof Cast c && (VarkaFloatingCastCompiler.admits(c)
             || DataTypes.BooleanType.equals(c.dataType())))) {
@@ -395,12 +396,14 @@ final class VarkaNodeCompiler {
           + "343a4)";
       case Cast _ -> "a cast to or from a floating type that no floating lowering serves";
       case Remainder _, Pmod _ -> "a floating remainder (row 346)";
-      // The interval products and quotients by a floating factor, and signum over an interval,
-      // are row 342's step after row 343's conversions. UnaryPositive is RuntimeReplaceable, so
-      // it never reaches this switch: it passes above and is asked again as its child.
-      case Signum _, MultiplyYMInterval _, DivideYMInterval _, MultiplyDTInterval _,
-          DivideDTInterval _, BinaryArithmetic _ ->
-          "floating arithmetic (row 342)";
+      // The interval products and quotients by a floating factor round the double result to
+      // the interval's integer, which needs the conversions from a floating lane to an integral
+      // one (row 343, part 343b2). UnaryPositive is RuntimeReplaceable, so it never reaches this
+      // switch: it passes above and is asked again as its child.
+      case MultiplyYMInterval _, DivideYMInterval _, MultiplyDTInterval _, DivideDTInterval _ ->
+          "an interval product or quotient by a floating factor, which waits for the "
+          + "conversions to an integral lane (row 342 after part 343b2)";
+      case Signum _, BinaryArithmetic _ -> "floating arithmetic (row 342)";
       default -> "an operation over floating values that no floating lowering serves";
     };
     return Optional.of(what);

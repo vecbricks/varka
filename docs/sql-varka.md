@@ -1053,6 +1053,24 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `-f` | `floatingArithmetic` |  |  | vector |
 | `abs(f)` | `floatingArithmetic` |  |  | vector |
 
+#### Floating arithmetic over other types
+
+| Expression | Switches | Domain | Notes | 128-bit lanes |
+|---|---|---|---|---|
+| `i / y1` | `floatingArithmetic`, `floatingCast` | `CASE WHEN i IS NOT NULL THEN y1 <> 0 END` | both operands cast to double, then the double division; a zero divisor of the cast raises under ANSI and is null under the legacy mode | per-lane: compare to mask, mask logic, mask broadcast, mask test |
+| `s1 / i` | `floatingArithmetic`, `floatingCast` | `CASE WHEN s1 IS NOT NULL THEN i <> 0 END` | a short over an int, each converted exactly | per-lane: compare to mask, mask logic, mask broadcast, mask test |
+| `x / i` | `floatingArithmetic`, `floatingCast` | `CASE WHEN x IS NOT NULL THEN i <> 0 END` | the int divisor cast beside the double dividend | per-lane: compare to mask, mask logic, mask broadcast, mask test, load or store |
+| `f / f2` | `floatingArithmetic`, `floatingCast` | `CASE WHEN f IS NOT NULL THEN f2 <> 0.0F END` | both floats widened exactly: Spark divides floats as doubles | per-lane: compare to mask, mask logic, mask broadcast, mask test |
+| `try_divide(i, y1)` | `floatingArithmetic`, `floatingCast` |  | the legacy division over the casts: null on a zero divisor | per-lane: compare to mask, mask cast, mask broadcast, mask test |
+| `sqrt(i)` | `floatingArithmetic`, `floatingCast` |  | the int converted exactly, then the square root | per-lane: mask broadcast, mask test |
+| `signum(i)` | `floatingArithmetic`, `floatingCast` |  |  | per-lane: compare to mask, mask cast, mask logic, mask broadcast, blend, mask test |
+| `degrees(i)` | `floatingArithmetic`, `floatingCast` |  |  | per-lane: mask broadcast, mask test |
+| `sqrt(f)` | `floatingArithmetic`, `floatingCast` |  | the float widened exactly, then the double square root | per-lane: mask broadcast, mask test |
+| `signum(f)` | `floatingArithmetic`, `floatingCast` |  | a float NaN widened keeps its payload, which signum returns | per-lane: compare to mask, mask cast, mask logic, mask broadcast, blend, mask test |
+| `radians(s1)` | `floatingArithmetic`, `floatingCast` |  |  | per-lane: mask broadcast, mask test |
+| `signum(ym)` | `floatingArithmetic` |  | the months' sign as a double: (m > 0) - (m < 0) on the int lane, then I2D, so a zero is +0.0 and a null null | per-lane: mask broadcast, mask test |
+| `signum(dt)` | `floatingArithmetic` |  | the microseconds' sign on the long lane, narrowed to the int lane, then I2D: no conversion from a long | per-lane: compare to mask, masked operation, mask cast, mask broadcast, load or store, mask test |
+
 #### Floating casts to BOOLEAN
 
 | Expression | Switches | Domain | Notes | 128-bit lanes |
@@ -1211,17 +1229,17 @@ operands (a row counts once for each type it reads):
 | :--- | ---: | ---: | ---: | ---: | ---: | ---: |
 | `bigint` | 72 | 0 | 2 | 0 | 2 | 68 |
 | `bool` | 38 | 0 | 0 | 13 | 0 | 25 |
-| `byte` | 51 | 0 | 0 | 0 | 8 | 43 |
+| `byte` | 53 | 0 | 0 | 0 | 8 | 45 |
 | `date` | 124 | 17 | 0 | 1 | 0 | 106 |
 | `dec` | 43 | 25 | 0 | 0 | 0 | 18 |
-| `double` | 64 | 0 | 0 | 0 | 0 | 64 |
-| `dt` | 27 | 2 | 1 | 0 | 0 | 24 |
-| `float` | 52 | 0 | 0 | 0 | 0 | 52 |
-| `int` | 138 | 14 | 2 | 1 | 1 | 120 |
+| `double` | 75 | 0 | 0 | 0 | 0 | 75 |
+| `dt` | 28 | 2 | 1 | 0 | 0 | 25 |
+| `float` | 55 | 0 | 0 | 0 | 0 | 55 |
+| `int` | 145 | 14 | 2 | 1 | 1 | 127 |
 | `ntz` | 57 | 0 | 7 | 0 | 0 | 50 |
-| `short` | 49 | 0 | 0 | 0 | 8 | 41 |
+| `short` | 51 | 0 | 0 | 0 | 8 | 43 |
 | `time` | 45 | 6 | 1 | 1 | 2 | 35 |
-| `ym` | 36 | 7 | 2 | 0 | 2 | 25 |
+| `ym` | 37 | 7 | 2 | 0 | 2 | 26 |
 <!-- END generated verification counts -->
 
 ## Glossary
