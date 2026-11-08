@@ -299,7 +299,9 @@ class VarkaEmitterBudgetSuite extends VarkaEmitterTestBase with VarkaOwnJvm {
     //    month step (VARKA-48), so it emits its weight less that step;
     //  - a connective emits only mask calls, so it emits nothing a weight counts, and its weight
     //    is the floor of 1, asserted as such;
-    //  - a leaf weighs 0, its load or broadcast being the overhead.
+    //  - a leaf weighs 0, its load or broadcast being the overhead;
+    //  - each word of a 128-bit column weighs the column's shared load, which a shape holding
+    //    both words emits once, so the second word emits its weight less that load.
     // Every record the sealed IR permits needs a row, so a node added to the IR without one fails
     // here, and a lowering change that moves a count fails here naming the node to recount.
     val c = new ColumnRef(0)
@@ -385,6 +387,13 @@ class VarkaEmitterBudgetSuite extends VarkaEmitterTestBase with VarkaOwnJvm {
       (new ConvertLane(new IntNeg(Overflow.WRAP, c), LaneType.FLOAT), 1, 0, VarkaMatrix.base),
       (new CrossLane(new Compare(CompareOp.LT, c, c1), LaneType.LONG), 2, 0, VarkaMatrix.base),
       (new DecimalColumn(0, LaneType.LONG, 9), 1, 0, VarkaMatrix.base),
+      // A 128-bit column's two words, which share one load and check a body (VARKA-359).
+      (new IntArith(IntOp.ADD, Overflow.WRAP, new DecimalWord(0, Word.LOW, 38),
+        new DecimalWord(0, Word.HIGH, 38)), 1, 0, VarkaMatrix.base),
+      // A body holding one word alone pays the whole load, the low word (Spark's inferred
+      // isnotnull reads only it) or the high one.
+      (new IntNeg(Overflow.WRAP, new DecimalWord(0, Word.LOW, 38)), 1, 0, VarkaMatrix.base),
+      (new IntNeg(Overflow.WRAP, new DecimalWord(0, Word.HIGH, 38)), 1, 0, VarkaMatrix.base),
       (new WidenDecimal(new IntNeg(Overflow.WRAP, lc)), 1, 0, VarkaMatrix.base))
     // The calendar nodes whose own tail reads no month, so their prefix elides the month step.
     def elidesMonthStep(n: VarkaVectorIR): Boolean =
@@ -422,7 +431,10 @@ class VarkaEmitterBudgetSuite extends VarkaEmitterTestBase with VarkaOwnJvm {
       val zip = if (!all.exists(_.isInstanceOf[WidenDecimal])) 0
         else 2 * 6 + 1 + (if (options.decimalStore() == DecimalStore.REARRANGE) 2 else 0)
       val overhead = loads + lits + store + zip
-      val expected = all.toSeq.map(emits).sum
+      val pairedColumns = all.toSeq.collect { case w: DecimalWord => w }
+        .groupBy(_.low()).count(_._2.size == 2)
+      val expected =
+        all.toSeq.map(emits).sum - pairedColumns * VarkaEmitBudget.DECIMAL_PAIR_LOAD_WEIGHT
       val emitted = laneCalls(emitMulti(Seq(root), inputs, lits, options)._2) - overhead
       assert(emitted === expected,
         s"${VarkaVectorIR.canonical(root)} emits $emitted lane calls past its loads and store, " +

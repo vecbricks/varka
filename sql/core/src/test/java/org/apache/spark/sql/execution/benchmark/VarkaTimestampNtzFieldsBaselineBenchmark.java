@@ -198,16 +198,16 @@ public class VarkaTimestampNtzFieldsBaselineBenchmark extends VarkaSqlBenchmarkB
       int one = nulls.isEmpty() ? 0 : 1;
       int two = 2 * one;
       out.add(new Section("TIMESTAMP_NTZ year(ntz)" + density,
-          "SELECT year(" + ntz + ")" + from, integer, one, false, false));
+          "SELECT year(" + ntz + ")" + from, integer, one, false, true));
       out.add(new Section("TIMESTAMP_NTZ weekofyear(ntz)" + density,
-          "SELECT weekofyear(" + ntz + ")" + from, integer, one, false, false));
+          "SELECT weekofyear(" + ntz + ")" + from, integer, one, false, true));
       out.add(new Section("TIMESTAMP_NTZ hour(ntz)" + density,
-          "SELECT hour(" + ntz + ")" + from, integer, one, false, false));
+          "SELECT hour(" + ntz + ")" + from, integer, one, false, true));
       out.add(new Section("TIMESTAMP_NTZ CAST(ntz AS TIME)" + density,
           "SELECT CAST(" + ntz + " AS TIME)" + from, new TimeType(TimeType.MICROS_PRECISION()),
-          one, false, false));
+          one, false, true));
       out.add(new Section("TIMESTAMP_NTZ CAST(ntz AS TIME(3))" + density,
-          "SELECT CAST(" + ntz + " AS TIME(3))" + from, new TimeType(3), one, false, false));
+          "SELECT CAST(" + ntz + " AS TIME(3))" + from, new TimeType(3), one, false, true));
       out.add(new Section("TIMESTAMP_NTZ CAST(tm AS TIMESTAMP_NTZ)" + density,
           "SELECT CAST(" + tm + " AS TIMESTAMP_NTZ)" + from, ntzType, one, true, false));
       out.add(new Section("TIMESTAMP_NTZ make_timestamp_ntz(d, tm)" + density,

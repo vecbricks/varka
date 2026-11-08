@@ -300,7 +300,8 @@ This row can start before 339 lands; both touch `VarkaNodeCompiler.java` beside 
 
 A batch with a live day outside `ntzDay`'s range; a date-field cast under a day shift; a field over
 `trunc(ntz, 'WEEK')` (`year(trunc(ntz, 'WEEK'))`), whose plain cast is an unknown producer; literal
-shifts stacked past the year of room (`weekofyear(trunc(ntz, 'YEAR'))`, down to -368 days); an
+shifts stacked past the year of room (`weekofyear(trunc(ntz, 'YEAR'))`, down to -368 days); a
+month shift of the date (`add_months(ntz, i)`, `CAST(ntz AS DATE) + INTERVAL n MONTH`), 339's; an
 unrewritten `TIME` to NTZ cast; a literal date outside `+-106,751,991` days; a batch with a date
 column outside it.
 
@@ -326,4 +327,66 @@ matrix pass; the measurement is committed with its predictions scored.
 
 ## 10. Outcome
 
-(Written when the work lands.)
+### 10.1 Part 1: steps 2 to 4 (branch `varka-340-fields`, 7 November 2026)
+
+Built: `microsOfDay` and `ntzDay` (2.1; `VarkaRangeAnalysis.NTZ_MIN_DAYS` names the guard's floor),
+the date fields over `ntzDay` through `calendarInput` and `thursdayOver` (2.2), the weekday forms
+over the plain cast, `hour`, `minute`, `second` and `CAST(ntz AS TIME(p))` over the nanosecond of
+the day (2.3), with the remainder's claim in `long_divide.smt2` (checked under Z3 and cvc5), the
+Granlund-Montgomery constants checked by exact integers in `verify_double_division.py` (8.2), the
+four `TIME(p)` truncation divisors added to that script, the kernel tests in
+`VarkaTimestampNtzCastSuite` (three widths, the guard's ends and one past each, a null row holding
+`Long.MIN_VALUE`, the long range's ends, a sampled walk of every day against `java.time`), the query
+tests in `VarkaTimestampNtzSuite`, 26 coverage rows in two families, productions in the Catalyst
+grammar the fuzzers draw from, and the census. The flipped test is `dateFieldDeclines`: it is gone,
+replaced by the tests above. Left: step 5 (`TIME` to NTZ, `make_timestamp_ntz`, the pinning test),
+step 6 (the measurement), and the IR fuzzer's mixed draw (row 579).
+
+Census, entries that accept `TIMESTAMP_NTZ` and fuse it: 19 of 54 (35%) before, 39 of 54 (72%) after;
+`DATE`'s are 45 of 63 (71%).
+
+Section 0 against master at `0b682025e09`:
+
+- Items 1 to 6 and 8 hold. `dateFieldDeclines` (item 5) pinned the decline; it now fuses.
+- Item 7 holds: `Hour`, `Minute` and `Second` over NTZ had no arm. They are three arms beside the
+  `StaticInvoke` ones; the arms' bodies became the helpers `hourOf`, `minuteOf` and `secondOf`.
+- Item 10 changed: row 157's decimal store landed (`VarkaTimeCompiler.decimalProducer`), so `TIME`'s
+  `extract(SECOND ...)` fuses. NTZ's `SecondWithFraction` still declines and stays row 351's.
+- Section 2.3 said the divisors `10^4`, `10^5`, `10^7`, `10^8` "join" the proof file's list: they
+  were already in `LONG_DIVISORS` from row 157 (the fraction of a second divides by them).
+  `VarkaDivisorProofSuite` passes with no change to the list. `verify_double_division.py` lacked
+  them, and has them now.
+- Section 5 said 339's month forms take `ntzDay`. Row 339 landed only the arithmetic, so its month
+  forms (`ntz_plus_ym`, `timestampadd`, `time_bucket`) are still to come and take this helper.
+- The census checks a claim against the class a coverage row's operand list names; a date field of
+  NTZ is `Year(Cast(ntz AS DATE))`, so those entries are `~` claims quoting their rows, and
+  `hour`, `minute` and `second` are checked against `Hour`, `Minute` and `Second` too
+  (`dev/varka_census.py`, whose `VIA` maps each of those names to both classes).
+
+Predictions:
+
+1. No existing shape's bytes move: held. `emitted_bytes.json` gains the new shapes; the only changed
+   lines are the digests of `option_arms`, which aggregate every shape.
+2. Speed against the row path: not measured; the runners owe the after-run of
+   `VarkaTimestampNtzFieldsBaselineBenchmark`, whose five fusing sections are listed now.
+3. Test time: the scalar sweep was predicted under 10 s. The first draft (a day in 61) took 16.8 s
+   in a matrix JVM beside two others, so it missed; it is a day in 211 now.
+
+Found: `minute(ntz)` and `second(ntz)` fit the emitter's byte budget alone, but not beside the three
+conjuncts the optimizer adds to the ANSI form's "right side of a false AND" position (`isnotnull` of
+both columns and `rid < 0`), so that position declines the conjunct and Spark answers it. They are
+on `VarkaAnsiForm`'s declined list with that reason; `hour(ntz)` fits. *Superseded in review:*
+dividing the microsecond of the day, one multiply fewer, they fit there too, and the declined
+entries are gone.
+
+Found: a calendar node over a guarded narrowed long is not in the IR fuzzer's mixed draw (row 579).
+`verify_double_division.py` ran with every row at its expected verdict, the four `TIME(p)`
+truncation rows and three rows for the NTZ time fields among them.
+
+Changed in review: the date of a calendar field compiles through `CAST(ntz AS DATE)`'s own arm, so
+its division is under the int arithmetic family's switch as the bare cast's is; the time fields hold
+no cast and stay under the time family's switch alone, which covers its own nodes. `hour`, `minute`
+and `second` divide the microsecond of the day by the micros in each unit, not its nanosecond by the
+nanos. `add_months(ntz, i)` and `CAST(ntz AS DATE) + INTERVAL n MONTH` decline as 339's month forms
+(7); `trunc(ntz, f)` by a format column fuses inside the guard, tested in `VarkaTimestampNtzSuite`,
+since the coverage table has no format column.

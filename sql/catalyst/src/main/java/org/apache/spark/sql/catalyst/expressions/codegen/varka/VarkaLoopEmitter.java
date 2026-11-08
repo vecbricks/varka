@@ -1828,6 +1828,10 @@ public final class VarkaLoopEmitter {
         tally.node(node);
       }
       int weight = weightOf(node);
+      if (node instanceof VarkaVectorIR.DecimalWord w && nodes.contains(w.sibling())) {
+        // The column's shared load is the first word's, which weighs it whole.
+        weight -= DECIMAL_PAIR_LOAD_WEIGHT;
+      }
       if (isChrono(node)) {
         VarkaVectorIR date = chronoChild(node);
         boolean loaded = false;

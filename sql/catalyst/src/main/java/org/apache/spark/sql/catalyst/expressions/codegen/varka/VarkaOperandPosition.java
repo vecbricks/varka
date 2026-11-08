@@ -78,6 +78,7 @@ public enum VarkaOperandPosition {
       case ColumnRef _ -> true;
       // A decimal's unscaled value is no day count, month count, weekday or level.
       case DecimalColumn _ -> false;
+      case DecimalWord _ -> false;
       case LiteralSlot _ -> switch (this) {
         case DAY_OFFSET, MONTH_COUNT, WEEKDAY -> true;
         case TRUNC_LEVEL -> false;
@@ -127,7 +128,8 @@ public enum VarkaOperandPosition {
           new Restricted(WEEKDAY, n.offset(), "next_day's weekday"));
       case TruncDateDynamic n -> List.of(
           new Restricted(TRUNC_LEVEL, n.level(), "trunc's level"));
-      case ColumnRef _, DecimalColumn _, LiteralSlot _, DateDiff _, IfElse _, Greatest _, Least _,
+      case ColumnRef _, DecimalColumn _, DecimalWord _, LiteralSlot _, DateDiff _, IfElse _,
+           Greatest _, Least _,
            DayOfWeek _,
            WeekDay _, DayOfWeekIso _, ThursdayOf _, MakeDate _, IntArith _, IntNeg _,
            ConstDivide _, BoundedDivide _, BitOp _, BitCount _, MathUnary _, GuardedDay _,

@@ -498,8 +498,9 @@ import com.sun.management.HotSpotDiagnosticMXBean;
  * @param dropDecimalBound a fault injector for the decimal leaf (VARKA-348 3 item 1): the leaf
  *        keeps its high-word check and drops the digit check, so a valid slot outside the
  *        precision is computed on where Spark's reader raises, and a rescale of it can wrap.
- *        What the slot table plants to show it catches a leaf that misses its bound. False in
- *        production.
+ *        What the slot table plants to show it catches a leaf that misses its bound. A 128-bit
+ *        column's word pair, whose check is the digit check alone, checks nothing under it.
+ *        False in production.
  * @param decimalStore how a {@code WidenDecimal} root interleaves its words into Arrow's
  *        sixteen-byte decimal slots (VARKA-157 2.2): see {@link DecimalStore}. No other root reads
  *        it, so every shape without a decimal output emits the same bytes under either value.

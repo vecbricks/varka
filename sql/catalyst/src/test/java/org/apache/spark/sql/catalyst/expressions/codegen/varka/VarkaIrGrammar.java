@@ -174,6 +174,13 @@ public final class VarkaIrGrammar {
   public static final long CAST_FUZZ_SEED = 20261031L;
 
   /**
+   * The seed of {@link #drawNullingLaneShape}, the typed null at the lanes the nulling draw does
+   * not reach (VARKA-578): a sequence of its own for the reason {@link #NARROW_FUZZ_SEED} gives.
+   * {@code VarkaIrFuzzSuite} runs it against the reference evaluator; nothing pins its bytes.
+   */
+  public static final long NULLING_LANE_FUZZ_SEED = 20261108L;
+
+  /**
    * The seed of {@link #drawUnsignedLongShape}, a sequence of its own for the reason
    * {@link #NARROW_FUZZ_SEED} gives: the unsigned compares (VARKA-359) drawn into the long
    * corpus would move its committed blocks. {@code VarkaIrFuzzSuite} runs it against the
@@ -294,6 +301,8 @@ public final class VarkaIrGrammar {
       // The grammar draws no decimal column here: drawDecimalValueShape draws its own values.
       case DecimalColumn _ ->
           throw new IllegalArgumentException("the grammar draws no decimal column: " + node);
+      case VarkaVectorIR.DecimalWord _ ->
+          throw new IllegalArgumentException("the grammar draws no decimal word: " + node);
       case LiteralSlot _ -> new Bounds(LITERAL_BOUND, 0L);
       case AddDays n -> shift(n.days(), n.offset());
       case SubDays n -> shift(n.days(), n.offset());
@@ -750,6 +759,47 @@ public final class VarkaIrGrammar {
         yield new CondValue(new BoolColumn(CAST_BOOL_COLUMN, lane), lane);
       }
     };
+  }
+
+  /**
+   * The lanes of {@link #drawNullingLaneShape}, each with the {@link #CAST_COLUMNS} ordinal whose
+   * values it reads: a narrow lane its own column, and a floating lane the column of its width,
+   * whose values are its bits ({@code VarkaReference}), so that the ends of the int and long
+   * ranges reach a NaN with a payload and minus zero.
+   */
+  public static final List<LaneType> NULLING_LANES = List.of(LaneType.BYTE, LaneType.SHORT,
+      LaneType.FLOAT, LaneType.DOUBLE);
+
+  /** The {@link #CAST_COLUMNS} ordinal a {@link #NULLING_LANES} column reads. */
+  public static int nullingLaneColumn(LaneType lane) {
+    return switch (lane) {
+      case BYTE -> 0;
+      case SHORT -> 1;
+      case INT, FLOAT -> 2;
+      case LONG, DOUBLE -> 3;
+    };
+  }
+
+  /**
+   * One choice with the lane's null ({@link #nullChoice}, at each of its positions) over one
+   * column of a {@link #NULLING_LANES} lane, the conditions comparisons of the column with the
+   * zero of literal slot 0: {@code nullifzero} and a {@code CASE WHEN} without an {@code ELSE}
+   * at the narrow and floating lanes, whose null the general draws never reach, since their
+   * grammar draws neither lane (VARKA-578). One root a draw, over the cast draw's columns, so the
+   * cast draw's harness runs it.
+   */
+  public static VarkaVectorIR drawNullingLaneShape(Random rnd) {
+    // A bound of four reads the high bits of a first draw that consecutive seeds vary only in
+    // the low ones (drawCastShape's reason), which drew the narrow lanes alone: one is discarded.
+    rnd.nextLong();
+    LaneType lane = NULLING_LANES.get(rnd.nextInt(NULLING_LANES.size()));
+    var col = new ColumnRef(nullingLaneColumn(lane), lane);
+    var zero = new LiteralSlot(0, lane);
+    // Signed only: the unsigned comparisons take an integral lane, and this draw reaches the
+    // floating ones.
+    List<CompareOp> ops = CompareOp.signed();
+    Supplier<Cond> cond = () -> new Compare(ops.get(rnd.nextInt(ops.size())), col, zero);
+    return nullChoice(rnd, cond.get(), new Gen(col, Long.MAX_VALUE), lane, cond).node();
   }
 
   /**
@@ -2072,9 +2122,8 @@ public final class VarkaIrGrammar {
             value(lane, depth - 1), value(lane, depth - 1));
         case 1 -> rnd.nextBoolean() ? new Greatest(value(lane, depth - 1), value(lane, depth - 1))
             : new Least(value(lane, depth - 1), value(lane, depth - 1));
-        case 2 -> new IfElse(new Compare(CompareOp.values()[rnd.nextInt(CompareOp.values().length)],
-            value(lane, depth - 1), value(lane, depth - 1)), value(lane, depth - 1),
-            value(lane, depth - 1));
+        case 2 -> new IfElse(new Compare(signedOp(), value(lane, depth - 1),
+            value(lane, depth - 1)), value(lane, depth - 1), value(lane, depth - 1));
         case 3 -> leaf(lane);
         case 4 -> new IfElse(crossed(lane, depth - 1), value(lane, depth - 1),
             value(lane, depth - 1));
@@ -2090,8 +2139,17 @@ public final class VarkaIrGrammar {
     private Cond crossed(LaneType lane, int depth) {
       var others = FLOATING_CAST_COLUMNS.stream().filter(l -> l != lane).toList();
       LaneType other = others.get(rnd.nextInt(others.size()));
-      var op = CompareOp.values()[rnd.nextInt(CompareOp.values().length)];
-      return new CrossLane(new Compare(op, value(other, depth), value(other, depth)), lane);
+      return new CrossLane(new Compare(signedOp(), value(other, depth), value(other, depth)), lane);
+    }
+
+    /**
+     * A signed comparison: the unsigned ones take an integral lane only, and the floating lanes
+     * are what this generator draws. The five are drawn in the enum's order, so the draws are
+     * the ones this generator made before the unsigned comparisons joined the enum.
+     */
+    private CompareOp signedOp() {
+      List<CompareOp> ops = CompareOp.signed();
+      return ops.get(rnd.nextInt(ops.size()));
     }
 
     /** A source a floating {@code lane} converts from: either integral lane or the other kind. */
