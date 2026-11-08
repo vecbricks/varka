@@ -697,42 +697,59 @@ predictions scored.
 
 ### 344a1, built 7 November 2026
 
-*Built.* `RoundToIntegral(RoundMode.RINT, child)` over the `DOUBLE` lane
-(`VarkaVectorIR.java`), lowered by `VarkaRoundingLowering` as 2.3's `RINT` construction with one
-change from the text: the magnitude and the sign come from the lanewise `ABS` and a reinterpreted
-`AND` and `OR` of the sign bit, so the lowering is `abs`, an add and a subtract of `2^52`, the
-sign or-ed back and one blend under the compare `|x| < 2^52`, whose false lanes (every integer,
-every infinity, NaN) keep `x`; no mask crosses between the kinds. The node is one scratch local
-(`Slots.roundTmp`) and one blend; `VarkaReference` evaluates it by `StrictMath.rint`. A family
-`ROUNDING` (`VarkaRoundingCompiler`, the switch `spark.sql.codegen.varka.family.rounding.enabled`)
-claims `Rint`, and `Floor` and `Ceil` over a `BIGINT` (the operand) and over `CAST(i AS DOUBLE)`
-for an `INT` `i` (`WidenLane`, the cast not compiled); a `DOUBLE` operand names 344b, any other
-cast names 344c. `floatingDecline` admits the three classes by name. `fp_round.smt2` proves the
-construction equal to `fp.roundToIntegral RNE` at binary32 and binary64 and refutes it with
-`C` a binade lower or without the sign. The warm-up's double block gains the compare against a
-scalar and the reinterpret chain.
+*Built.* `RoundToIntegral(RoundMode.RINT, child)` over the `DOUBLE` lane (`VarkaVectorIR.java`),
+lowered by `VarkaRoundingLowering` as 2.3's `RINT` construction with one change from the text: the
+magnitude and the sign come from the lanewise `ABS` and a reinterpreted `AND` and `OR` of the sign
+bit, so the lowering is one `abs`, duplicated for the compare and the rounding, an add and a
+subtract of `2^52` (`emitRoundToNearest`, which `VarkaDivisionLowering`'s magic form now calls for
+its own rounding, with the one constant `TWO_52`, its bytes unchanged), the sign or-ed back and one
+blend under the compare `|x| < 2^52`, whose false lanes (every integer, every infinity, NaN) keep
+`x`; no mask crosses between the kinds. The node is one scratch local (`Slots.roundTmp`) and one
+blend; `VarkaReference` evaluates it by `StrictMath.rint`. A family `ROUNDING`
+(`VarkaRoundingCompiler`, the switch `spark.sql.codegen.varka.family.rounding.enabled`) claims
+`Rint`, and `Floor` and `Ceil` over a `BIGINT` (the operand) and over `CAST(i AS DOUBLE)` for an
+`INT` `i` (`WidenLane`, the cast not compiled); a `DOUBLE` operand names 344b, a cast from `FLOAT`,
+`SMALLINT` or `TINYINT` names 344c, a `DECIMAL` operand names 351 (`VARKA-351.md` 0, item 3), and a
+cast from any other type names no row. `floatingDecline` admits the three classes by name.
+`fp_round.smt2` proves the construction equal to `fp.roundToIntegral RNE` at binary32 and binary64
+and refutes it with `C` a binade lower or without the sign. The warm-up's double block gains the
+compare against a scalar and the reinterpret chain.
 
 *Differs from the text.* The binary16 claim of 3.2 is not stated: cvc5 admits only binary32 and
 binary64 in its default mode. The IR fuzz sequence does not draw `RoundToIntegral`, as it draws no
 floating node yet (3.10, owed to the row that builds the floating sequence).
 
-*Tested, 8 November 2026, on the laptop (AVX-512).* `VarkaEmitterRoundingSuite`: the kernel
-against `Math.rint` bit for bit over the cells, every exponent in both signs and a seeded draw of
-about 10,700 values, nulls staying null; the binary32 twin of the construction against
-`StrictMath.rint` over all 2^32 patterns (`-Dvarka.sweep=true`, in the one sbt call that took 12
-seconds in all, so the sweep itself took seconds; the opt-in row is in `sweeps.tsv`).
-`fp_round.smt2`: 6 checks, holding under Z3 (1.81 s) and cvc5 (3.09 s). The catalyst matrix at
-the defaults, `--split 4 -j 4`: 1254 passed, 0 failed, 86 canceled (the opt-in ones), 661 s; the
-sql matrix with `-Phive`: 2777 passed, 0 failed, 7 canceled, 479 s. `emitted_bytes.json`: 108
+*Tested, 8 November 2026, on the laptop (AVX-512).* `VarkaEmitterRoundingSuite`: the kernel against
+`Math.rint` bit for bit over the cells, each on a valid lane, every exponent from -1074 to 1023 in
+both signs and a seeded draw, about 25,100 values, nulls staying null among the rest; the binary32
+twin of the construction against `StrictMath.rint` over all 2^32 patterns (`-Dvarka.sweep=true`, in
+the one sbt call that took 12 seconds in all, so the sweep itself took seconds; the opt-in row is in
+`sweeps.tsv`). `fp_round.smt2`: 6 checks, holding under Z3 (1.81 s) and cvc5 (3.09 s). The catalyst
+matrix at the defaults, `--split 4 -j 4`: 1254 passed, 0 failed, 86 canceled (the opt-in ones), 661
+s; the sql matrix with `-Phive`: 2777 passed, 0 failed, 7 canceled, 479 s. `emitted_bytes.json`: 108
 entries added for the new coverage shapes, 22 `option_arms` digests moved with them, no existing
 shape's bytes changed (prediction 4.1 holds). The census marks 4 more entries as fused in part:
 `rint` (all of it), `ceil` and `floor` for `INT` and `BIGINT`, `ceiling` for `BIGINT`. The first
-full matrix found what the first tests had not: the row level of `VarkaSameAnswer` took `rint` of
-a NaN to pass its operand's payload, where by 0.10 (derived from the source, the probe of 3.7
-not yet run) a signalling NaN is quieted and a negative one loses its sign on the interpreter
-and C1 but not on C2, so a `RoundToIntegral` (and Spark's `Rint`) now
-leaves a NaN answer open, compared by being a NaN (0.10, 2.9); and the budget register needed the
-node's weight, 11 lane calls, three of them reinterpretations that emit nothing.
+full matrix found what the first tests had not: the row level of `VarkaSameAnswer` took `rint` of a
+NaN to pass its operand's payload, where by 0.10 (derived from the source, the probe of 3.7 not yet
+run) a signalling NaN is quieted and a negative one loses its sign on the interpreter and C1 but not
+on C2, so a `RoundToIntegral` (and Spark's `Rint`) now leaves a NaN answer open, compared by being a
+NaN (0.10, 2.9); and the budget register needed the node's weight, 10 lane calls, three of them
+reinterpretations that emit nothing.
+
+*Reviewed, 8 November 2026.* The author's review found eight points, all fixed here: the null
+pattern had hidden five cells and the exponent loop clamped the subnormals and stepped by 7 (both as
+the text above now has them); `fp_round.smt2` computed its constant, and now renders binary64's `C`
+from the bits of `VarkaRoundingLowering.TWO_52`; the casts' declines named 344b and 344c for forms
+those rows do not own; the coverage ledger lacked `rint(x)` as proved by `fp_round.smt2`;
+`VarkaSameAnswer`'s rule for `rint` was undocumented and had no contract case; and the second `abs`
+and the copied `2^52` step are gone. A decimal operand's arm (row 351) is not reached from a
+projection, whose `DECIMAL(9, 0)` output the decimal store declines first. After the fixes:
+`fp_round.smt2` holds under Z3 (4.98 s) and cvc5 (7.43 s, both beside a loaded laptop); only
+`rint(x)`'s bytes moved in `emitted_bytes.json`, with the `option_arms` digests over it; the
+catalyst matrix at the defaults, `--split 4 -j 4`: 1258 passed, 2 failed, 87 canceled, 1138 s, the
+two failures master's own (`VarkaIrFuzzSuite`'s floating-cast generator draws the unsigned compares,
+fixed apart from this row).
 
 *Left.* 344a2 (the integral rounding), 344b, 344c as section 5 has them. Owed with 344a1: 3.7's
 `rint(-NaN)` probe on the three runners, and the measurement against the baseline (section 5,
