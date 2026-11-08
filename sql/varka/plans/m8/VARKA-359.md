@@ -613,6 +613,22 @@ the first visit of either emits it, not the half-and-half split the first attemp
 (item 10), the coverage rows (item 11) and the generated files they move, the planted faults for
 row 504, and the conformance suite (11.5 item 5).
 
+**The review's fixes (8 November 2026).** `Analysis` refuses a column whose two words carry two
+precisions and one read both as a `DecimalColumn` and as words; `dropDecimalBound` drops the pair's
+check too, a fault test showing the slot table catches it; a repeated word takes no CSE shared slot
+beside its parked local; the long-lane harness lays a word column out as sixteen-byte slots and
+the reference answers its words; the shared-load test reads the epilogues as well; one precision
+check in `DecimalWords`.
+
+**Owed, as a later part of this row: one pair-load node.** The shared load is side state on two
+leaves: `Slots.pairLoaded`, `decimalTmp` keyed by the low word, the `guardScratch` exemption, the
+CSE exemption, `GroupOps` taking the load back from the second word and the budget suite's
+`pairedColumns`, and both words carrying the refusal. One `DecimalPair(ordinal, precision)` node
+that loads, checks and parks both words, which the two words project, would hold all of it in one
+place. Not here: a new node is a row in every exhaustive switch this part already touched, past
+this pull request's 1000-line cap, and it reopens 2.2's words-not-pairs choice, which the
+lowerings of the next part are planned on. The next part decides it before its lowerings land.
+
 ## 11. 359a, the build plan (1 November 2026)
 
 Written from master at `239995f4fe4` before the laptop's reading of the spike, so that 359a can
