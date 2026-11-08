@@ -90,6 +90,11 @@ import org.apache.spark.sql.VarkaBenchmark;
  * projections. The columns {@code w9}, {@code w18} and {@code x8} come last in the table, with
  * integer parts at half their types' ranges.
  *
+ * <p>Sixteen more sections time the decimal remainders by a column (VARKA-577), {@code x % y}
+ * and {@code pmod(x, y)} as projections at {@code DECIMAL(9, 2)}, {@code DECIMAL(18, 4)},
+ * {@code DECIMAL(38, 10)} and {@code DECIMAL(20, 2)}, each with no nulls and with one row in ten
+ * null. Spark computes them through {@code BigDecimal.remainder} per row at every precision.
+ *
  * <p>Each section has two arms, named so the labels survive the lanes landing:
  * {@code spark row path (varka off)}, a session without the Varka rule, and {@code varka on}, a
  * session with it. Where nothing fuses both are the row path, so they should tie.
@@ -208,6 +213,16 @@ public class VarkaDecimalBaselineBenchmark extends VarkaSqlBenchmarkBase {
   static final List<Precision> PAIR_PRECISIONS = List.of(
       precision(38),
       new Precision(20, 2, "20", 500_000_000_000_000_000L));
+
+  /**
+   * The precisions of the remainder sections, {@code x % y} and {@code pmod(x, y)} as values:
+   * the two 64-bit ones, then the lane pair's two. Both operands share a type, so the result has
+   * it too ({@code min(p - s, p - s) + s = p}) and no operand is rescaled. A zero divisor would
+   * raise under ANSI and stop the run; the queries suite checks that no {@code y} is zero at
+   * {@link #NUM_ROWS} rows.
+   */
+  static final List<Precision> REMAINDER_PRECISIONS = List.of(
+      precision(9), precision(18), precision(38), PAIR_PRECISIONS.get(1));
 
   /** The columns of the 64-bit sections, in the order the table adds them. */
   static final List<OperandColumn> OPERAND_COLUMNS = List.of(W9, W18, X8);
@@ -379,7 +394,8 @@ public class VarkaDecimalBaselineBenchmark extends VarkaSqlBenchmarkBase {
    * Every section, in the order they run: each precision, then each null density, then each
    * shape; then the two time producers at each null density; then the lane pair's six shapes,
    * each precision, then each null density, then each shape; then the 64-bit comparisons' six
-   * shapes in the same order; then the 64-bit arithmetic's six at each null density.
+   * shapes in the same order; then the 64-bit arithmetic's six at each null density; then the
+   * two remainders, each remainder precision, then each null density.
    */
   static List<Section> sections() {
     List<Section> out = new ArrayList<>();
@@ -454,6 +470,18 @@ public class VarkaDecimalBaselineBenchmark extends VarkaSqlBenchmarkBase {
           "SELECT " + x + " - " + w + " AS a FROM varka_decimal", Fusion.NONE));
       out.add(new Section(type + " x8 * y as a value, x8 a DECIMAL(8, 2), " + density,
           "SELECT " + x8 + " * " + y + " AS a FROM varka_decimal", Fusion.NONE));
+    }
+    // The remainders by a column (VARKA-577): no decimal remainder fuses at any precision.
+    for (Precision p : REMAINDER_PRECISIONS) {
+      for (Density d : Density.values()) {
+        String x = d.column("x" + p.suffix());
+        String y = d.column("y" + p.suffix());
+        String tail = " as a value, " + d.words();
+        out.add(new Section(p.type() + " x % y" + tail,
+            "SELECT " + x + " % " + y + " AS a FROM varka_decimal", Fusion.NONE));
+        out.add(new Section(p.type() + " pmod(x, y)" + tail,
+            "SELECT pmod(" + x + ", " + y + ") AS a FROM varka_decimal", Fusion.NONE));
+      }
     }
     return out;
   }
