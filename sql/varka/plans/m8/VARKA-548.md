@@ -26,8 +26,9 @@ Against master at `9eefe2a2d13`.
    (`VarkaKernelCompileDirective.java:93`, `VarkaKernelWarmup.java:245` and `:395`,
    `VarkaShapeCache.java:77-78`); the static test hooks `setFailForTesting` and
    `setFailInFamilyForTesting` (`VarkaExpressionCompiler.java:264-284`,
-   `VarkaNodeCompiler.java:205`) make a compile fail, which the ghost fallback answers correctly. Only a fault produces a wrong
-   class the cache could serve under a clean key, which is the hazard the row names.
+   `VarkaNodeCompiler.java:205`) make a compile fail, which the ghost fallback answers
+   correctly. Only a fault produces a wrong class the cache could serve under a clean key, which
+   is the hazard the row names.
 3. **Two of the three floating faults are read at compile time, not at emission.**
    `NEGATION_AS_SUBTRACTION` and `DEGREES_ROUNDED` change the IR `VarkaFloatingCompiler` builds
    (`negate`, `:171-179`; `degreesPerRadian`, `:185-188`), and the family's `arm` (`:75`) takes
