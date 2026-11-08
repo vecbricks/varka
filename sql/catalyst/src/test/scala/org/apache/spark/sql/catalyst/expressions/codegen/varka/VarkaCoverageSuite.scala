@@ -271,7 +271,7 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
     Row(s"coalesce($a, $b)"))
 
   /**
-   * The null family over one floating column pair (VARKA-329): the rewritten conditionals whose
+   * The null family over one floating column pair (VARKA-578): the rewritten conditionals whose
    * null is the floating lane's own, a broadcast zero with its validity clear. `nullif` and
    * `nullifzero` compare under the lane's equality, so NaN equals NaN and -0.0 equals 0.0.
    */
@@ -894,7 +894,8 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
       Row("coalesce(dt, dt2)"))),
 
     // The choices over INT, whose branches take the int operand's rule at a choice's position
-    // only (VARKA-333 3.1), and the null branch on the six types of the int and long lanes: a
+    // only (VARKA-333 3.1), and the null branch on the six types of the int and long lanes (the
+    // narrow, floating and NTZ ones are their own families', VARKA-329 and VARKA-578): a
     // CASE WHEN without an ELSE, IF over NULL, and nullif and nullifzero, which the optimizer
     // rewrites to that IF (3.2). A kernel holding the null takes the masked body for every batch.
     // The extremes beside nulls hold greatest and least to their null-skipping blend: a sentinel
@@ -1022,7 +1023,7 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
     Family("Null family predicates on floating columns", predicates = true,
       floatingNullPredicates("x", "x2", "D") ++ floatingNullPredicates("f", "f2", "F")),
 
-    // The null family over TIMESTAMP_NTZ and BOOLEAN columns (VARKA-329).
+    // The null family over TIMESTAMP_NTZ and BOOLEAN columns (VARKA-578).
     Family("Null family on TIMESTAMP_NTZ columns", predicates = false, Seq(
       Row("nvl(ntz, ntz2)"),
       Row("ifnull(ntz, ntz2)"),

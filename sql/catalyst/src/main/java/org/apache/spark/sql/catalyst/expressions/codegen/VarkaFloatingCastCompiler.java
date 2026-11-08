@@ -46,7 +46,7 @@ import org.apache.spark.sql.types.DataTypes;
  * narrowed from the long lane where its condition compares longs, then converted, which is exact.
  *
  * <p>The conversions from a floating type, from {@code BIGINT}, the {@code DATE} pairs (always
- * null under LEGACY, row 333's typed null leaf) and every other source decline by
+ * null under LEGACY, the floating lane's typed null) and every other source decline by
  * {@link VarkaNodeCompiler}'s {@code floatingDecline}, which admits exactly the pairs
  * {@link #admits} names.
  */

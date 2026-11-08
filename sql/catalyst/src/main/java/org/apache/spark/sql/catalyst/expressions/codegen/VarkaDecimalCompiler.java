@@ -755,7 +755,7 @@ final class VarkaDecimalCompiler {
   private static Optional<Scaled> caseWhen(CaseWhen c, DecimalType type, VarkaSlotTable inputs,
       VarkaSlotTable literals, DeclineSink sink) {
     if (c.elseValue().isEmpty()) {
-      return sink.decline("a CASE without an ELSE needs a typed null value, which is row 333's",
+      return sink.decline("a CASE without an ELSE needs a decimal null value, rows 348 and 359's",
           c);
     }
     List<Tuple2<Expression, Expression>> branches = CollectionConverters.asJava(c.branches());
@@ -1012,10 +1012,10 @@ final class VarkaDecimalCompiler {
    * arrives folded in a real query; in a tree the analyzer alone resolved it is the literal under
    * the casts type coercion put over it, or another tree over literals alone, and is folded here
    * by evaluating it, which Spark's constant folding does the same way. A null constant declines
-   * naming row 333, whose typed null value it needs: a choice keeps one in a real query, as
-   * {@code IF(c, NULL, d)}, a {@code CASE} branch of {@code NULL} and {@code nullif}, which the
-   * analyzer rewrites to an {@code IF}, do. An evaluation that fails, or a value that does not fit
-   * 18 digits, declines too, and leaves the row engine to raise or answer.
+   * naming rows 348 and 359, whose decimal null value it needs: a choice keeps one in a real
+   * query, as {@code IF(c, NULL, d)}, a {@code CASE} branch of {@code NULL} and {@code nullif},
+   * which the analyzer rewrites to an {@code IF}, do. An evaluation that fails, or a value that
+   * does not fit 18 digits, declines too, and leaves the row engine to raise or answer.
    */
   private static Optional<Scaled> literal(Expression e, DecimalType type, DeclineSink sink) {
     Object value;
@@ -1025,8 +1025,8 @@ final class VarkaDecimalCompiler {
       return sink.decline("a decimal constant whose evaluation fails", e);
     }
     if (!(value instanceof Decimal d)) {
-      return sink.decline("a null decimal literal needs a typed null value, which is row "
-          + "333's", e);
+      return sink.decline("a null decimal literal needs a decimal null value, rows 348 and 359's",
+          e);
     }
     OptionalLong unscaled = exactUnscaled(d, type.scale());
     if (unscaled.isEmpty()) {

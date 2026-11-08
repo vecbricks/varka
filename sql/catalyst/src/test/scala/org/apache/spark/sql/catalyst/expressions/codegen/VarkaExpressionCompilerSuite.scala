@@ -2088,7 +2088,7 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
       Seq(out(IsNull(CaseWhen(Seq((lt, Literal.create(Decimal(1), DecimalType(16, 6)))), None))),
         out(If(lt, Cast(i, DateType), d)), out(DateAdd(d, Literal(1)))), childOutput).get
     assert(partial.declines.asScala(0).reason ===
-      "a CASE without an ELSE needs a typed null value, which is row 333's")
+      "a CASE without an ELSE needs a decimal null value, rows 348 and 359's")
     // The narrow lanes have their own null (VARKA-329): a byte CASE WHEN with no ELSE is a
     // choice with the byte lane's null, stored at the byte's width.
     val narrowNull = VarkaExpressionCompiler.compile(
