@@ -33,6 +33,12 @@ over `TINYINT` and `SMALLINT`.
   `TIMESTAMP_NTZ`; `Lane.pushZero` is the zero scalar of any lane.
 * 37 coverage rows in six families (`VarkaCoverageSuite`), their generated files, and the
   census claims of the eight entries.
+* The null at the lanes the IR fuzzer's nulling draw does not reach: a null-lane draw of its own
+  (`drawNullingLaneShape`, `NULLING_LANE_FUZZ_SEED`) over `TINYINT`, `SMALLINT`, `FLOAT` and
+  `DOUBLE` columns through the cast draw's harness, so no committed corpus moves; and `nullif`
+  and a `CASE` without `ELSE` in every `VarkaTypeConformance` suite's choice check. An NTZ's
+  null is the long lane's, which the nulling draw already reaches.
+* The decimal declines that named row 333 for a null it built now name rows 348 and 359.
 
 ## 2. Declines that stay
 
