@@ -751,6 +751,17 @@ catalyst matrix at the defaults, `--split 4 -j 4`: 1258 passed, 2 failed, 87 can
 two failures master's own (`VarkaIrFuzzSuite`'s floating-cast generator draws the unsigned compares,
 fixed apart from this row).
 
+*Measured and decided, 8 November 2026.* The probe of 3.7 ran on the laptop (Zen 5, openjdk
+25.0.4.1; `results/VARKA-344-rint-nan-tiers.txt`): the interpreter and C1 return a NaN of `rint`
+quiet and positive (`fff8...` to `7ff8...`, `fff0...01` to `7ff8...01`), and C2, whose `Math::rint`
+is an intrinsic, returns it quiet with its sign (`fff8...` to `fff8...`); every tier keeps the
+payload and quiets a signalling NaN. So 0.10's derivation holds, and Spark's own answer to `rint` of
+a negative NaN depends on the tier its row path runs at. The kernel returns a NaN input unchanged
+(the blend's keep arm), which is C2's answer for a quiet NaN and one bit away from every tier's for
+a signalling one. The owner chose on 8 November 2026 to keep the rule as built: a NaN answer of
+`rint` is open, NaN against NaN only, and the kernel is not made to quiet it. The runners' probe
+stays owed below.
+
 *Left.* 344a2 (the integral rounding), 344b, 344c as section 5 has them. Owed with 344a1: 3.7's
-`rint(-NaN)` probe on the three runners, and the measurement against the baseline (section 5,
+`rint(-NaN)` probe on the two runners, and the measurement against the baseline (section 5,
 item 6), both of which need the EPYC 7763 and Neoverse N2 runners.
