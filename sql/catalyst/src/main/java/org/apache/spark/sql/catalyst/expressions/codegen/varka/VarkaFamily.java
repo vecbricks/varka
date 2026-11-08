@@ -76,8 +76,8 @@ public enum VarkaFamily {
   /** {@code VarkaFloatingCompiler}. */
   FLOATING_ARITHMETIC("floating arithmetic", "floatingArithmetic", "+, -, *, unary minus and abs"
       + " over double and float operands, and /, try_divide, sqrt, signum, degrees and radians"
-      + " over double ones, a zero divisor null under LEGACY and TRY and raised by the row engine"
-      + " under ANSI"),
+      + " over double ones, signum over year-month and day-time intervals too, a zero divisor"
+      + " null under LEGACY and TRY and raised by the row engine under ANSI"),
   /** {@code VarkaFloatingCastCompiler}. */
   FLOATING_CAST("floating casts", "floatingCast", "the casts to float from tinyint, smallint,"
       + " int, bigint and boolean, to double from tinyint, smallint, int, bigint and boolean, and"

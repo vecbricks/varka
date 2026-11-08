@@ -79,7 +79,7 @@ rint	Rint	mathExpressions	in		double	double		double	semantics	344	round half eve
 round	Round	mathExpressions	in		byte,short,int,bigint,float,double,dec	byte,short,int,bigint,float,double,dec		byte,short,float,double,dec	semantics	344,346,351,363	HALF_UP; integral and decimal are semantics, double by the tie test over the shortest decimal for scales 0 to 22, a band declined (346)
 truncate	Truncate	mathExpressions	in		byte,short,int,bigint,float,double,dec	byte,short,int,bigint,float,double,dec		byte,short,float,double,dec	semantics	344,346,351,363	ROUND_DOWN to a scale; integral and decimal are semantics, double as round (346)
 sign	Signum	mathExpressions	in		double,ym,dt	double		double	plumbing	342	exact: a compare and a blend
-signum	Signum	mathExpressions	in		double,ym,dt	double	double	double	plumbing	342	alias of sign
+signum	Signum	mathExpressions	in		double,ym,dt	double	double,ym,dt	double	done	342	alias of sign
 sin	Sin	mathExpressions	in		double	double		double	ulp	367,356	Math
 csc	Csc	mathExpressions	in		double	double		double	ulp	367,356	1 / Math.sin
 sinh	Sinh	mathExpressions	in		double	double		double	ulp	367,357	Math

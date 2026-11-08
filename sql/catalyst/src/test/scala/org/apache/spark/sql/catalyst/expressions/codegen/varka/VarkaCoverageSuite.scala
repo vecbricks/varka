@@ -1785,9 +1785,10 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
    * Matched by the compiler but not expressions a reader writes: `Alias` wraps every
    * projection entry, `BoundReference` is what a column becomes once bound, `Literal` is a
    * constant inside another row, and `RuntimeReplaceable` is a trait the compiler unwraps.
+   * `BinaryArithmetic` is an abstract class, matched only to name a floating operand's decline.
    */
   private val infrastructure =
-    Set("Alias", "BoundReference", "Literal", "RuntimeReplaceable")
+    Set("Alias", "BoundReference", "Literal", "RuntimeReplaceable", "BinaryArithmetic")
 
   /**
    * Expressions the compiler matches only in order to decline them with a specific reason.

@@ -33,6 +33,7 @@ import java.util.function.LongBinaryOperator;
 import com.google.common.math.IntMath;
 
 import org.apache.spark.sql.catalyst.expressions.BitmapExpressionUtils;
+import org.apache.spark.sql.catalyst.expressions.codegen.VarkaIntervalCompiler;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaDivisionLowering.MulHiMagic;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaValueRange.Range;
 import org.apache.spark.sql.catalyst.util.DateTimeConstants;
@@ -3161,18 +3162,6 @@ final class VarkaProofFiles {
   // The interval products and quotients' HALF_UP by a floating factor (VARKA-342).
   // -----------------------------------------------------------------------------------------
 
-  /**
-   * The guards of {@code VARKA-342.md} 2.4, inclusive as a range guard holds its bounds: the
-   * doubles whose HALF_UP lands in the int, {@code (-2^31 - 0.5, 2^31 - 0.5)} exclusive, and in
-   * the long, {@code [-2^63, 2^63)}. They are the plan's, not read from code: the lowering, which
-   * needs the conversions from a floating lane to an integral one (row 343's part 343b2), is not
-   * built yet, and the plan's 5.2 lists reading them from it as owed.
-   */
-  static final double HALF_UP_INT_LO = Math.nextUp(-0x1p31 - 0.5);
-  static final double HALF_UP_INT_HI = Math.nextDown(0x1p31 - 0.5);
-  static final double HALF_UP_LONG_LO = -0x1p63;
-  static final double HALF_UP_LONG_HI = Math.nextDown(0x1p63);
-
   /** A double literal, by its bits. */
   private static String f64(double d) {
     return "((_ to_fp 11 53) " + bv64(Double.doubleToRawLongBits(d)) + ")";
@@ -3244,9 +3233,13 @@ final class VarkaProofFiles {
         """);
     out.append(rendered("ALL"));
     String p = "(declare-const p Float64)";
-    halfUpChecks(out, "ym", 32, HALF_UP_INT_LO, HALF_UP_INT_HI,
+    // The guards' bounds are the lowering's own, from the class that will build it.
+    double longLo = VarkaIntervalCompiler.HALF_UP_LONG_LO;
+    double longHi = VarkaIntervalCompiler.HALF_UP_LONG_HI;
+    halfUpChecks(out, "ym", 32, VarkaIntervalCompiler.HALF_UP_INT_LO,
+        VarkaIntervalCompiler.HALF_UP_INT_HI,
         "(and (fp.gt z " + f64(-0x1p31 - 1.0) + ") (fp.lt z " + f64(0x1p31) + "))");
-    halfUpChecks(out, "dt", 64, HALF_UP_LONG_LO, HALF_UP_LONG_HI,
+    halfUpChecks(out, "dt", 64, longLo, longHi,
         "(and (fp.lt (fp.sub RNE " + f64(-0x1p63) + " z) " + f64(1.0) + ") (fp.lt z "
             + f64(0x1p63) + "))");
     String defs = halfUpDefs(32);
@@ -3273,8 +3266,8 @@ final class VarkaProofFiles {
       double x = (Double) c[1];
       String product = "(fp.mul RNE ((_ to_fp 11 53) RNE " + bv64(m) + ") " + f64(x) + ")";
       String claim = c[2] == null
-          ? "(assert " + inGuard("p", HALF_UP_LONG_LO, HALF_UP_LONG_HI) + ")"
-          : "(assert (not (and " + inGuard("p", HALF_UP_LONG_LO, HALF_UP_LONG_HI)
+          ? "(assert " + inGuard("p", longLo, longHi) + ")"
+          : "(assert (not (and " + inGuard("p", longLo, longHi)
               + " (= (hu.form p false) " + bv64((Long) c[2]) + "))))";
       fresh(out, "dt: " + m + " * " + x + (c[2] == null ? " is outside the guard, where Spark "
           + "raises" : " answers " + c[2]), "unsat", defs,

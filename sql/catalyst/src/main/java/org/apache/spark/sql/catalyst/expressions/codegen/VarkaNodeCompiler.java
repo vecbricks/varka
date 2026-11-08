@@ -403,7 +403,10 @@ final class VarkaNodeCompiler {
       case MultiplyYMInterval _, DivideYMInterval _, MultiplyDTInterval _, DivideDTInterval _ ->
           "an interval product or quotient by a floating factor, which waits for the "
           + "conversions to an integral lane (row 342 after part 343b2)";
-      case Signum _, BinaryArithmetic _ -> "floating arithmetic (row 342)";
+      // Signum passes above over each type it takes. The arithmetic the family lowers passes too
+      // and every other BinaryArithmetic takes no floating operand once types are coerced, so
+      // this arm is met only by a tree the analyzer has not coerced.
+      case BinaryArithmetic _ -> "floating arithmetic (row 342)";
       default -> "an operation over floating values that no floating lowering serves";
     };
     return Optional.of(what);

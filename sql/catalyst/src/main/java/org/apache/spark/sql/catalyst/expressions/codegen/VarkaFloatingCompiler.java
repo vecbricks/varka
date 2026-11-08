@@ -34,6 +34,7 @@ import org.apache.spark.sql.catalyst.expressions.ToDegrees;
 import org.apache.spark.sql.catalyst.expressions.ToRadians;
 import org.apache.spark.sql.catalyst.expressions.UnaryMinus;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaFloatingFault;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTypeId;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTypes;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.And;
@@ -52,8 +53,6 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Nar
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Not;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Overflow;
 import org.apache.spark.sql.types.DataType;
-import org.apache.spark.sql.types.DayTimeIntervalType;
-import org.apache.spark.sql.types.YearMonthIntervalType;
 
 /**
  * The floating arithmetic family (VARKA-342): Spark's {@code +}, {@code -}, {@code *},
@@ -112,9 +111,10 @@ final class VarkaFloatingCompiler {
           inputs, literals, sink);
       case Signum g when l == LaneType.DOUBLE && floatingLane(g.child().dataType()).isPresent()
           -> () -> signum(g, inputs, literals, sink);
-      case Signum g when l == LaneType.DOUBLE && intervalLane(g.child().dataType()).isPresent()
-          -> () -> intervalSignum(g, intervalLane(g.child().dataType()).get(), inputs, literals,
-              sink);
+      // Signum over an interval, its lane read once; any other operand type is not claimed.
+      case Signum g when l == LaneType.DOUBLE -> intervalLane(g.child().dataType())
+          .<VarkaFamilyArm>map(count -> () -> intervalSignum(g, count, inputs, literals, sink))
+          .orElse(null);
       default -> null;
     };
   }
@@ -125,12 +125,14 @@ final class VarkaFloatingCompiler {
   }
 
   /**
-   * The lane of an interval type: {@code INT} for a year-month interval's months, {@code LONG}
-   * for a day-time interval's microseconds; empty for any other type.
+   * The lane of an interval type, as {@link VarkaTypes#lane} reads it: {@code INT} for a
+   * year-month interval's months, {@code LONG} for a day-time interval's microseconds; empty for
+   * any other type.
    */
   static Optional<LaneType> intervalLane(DataType t) {
-    return t instanceof YearMonthIntervalType ? Optional.of(LaneType.INT)
-        : t instanceof DayTimeIntervalType ? Optional.of(LaneType.LONG) : Optional.empty();
+    return VarkaTypes.of(t)
+        .filter(id -> id == VarkaTypeId.YM_INTERVAL || id == VarkaTypeId.DT_INTERVAL)
+        .flatMap(id -> VarkaTypes.lane(t));
   }
 
   /**
@@ -247,7 +249,13 @@ final class VarkaFloatingCompiler {
    */
   private static Optional<VarkaVectorIR> intervalSignum(
       Signum g, LaneType lane, VarkaSlotTable inputs, VarkaSlotTable literals, DeclineSink sink) {
-    return operand(g.child(), lane, inputs, literals, sink).map(m -> {
+    Optional<VarkaVectorIR> count = VarkaNodeCompiler.compileNode(g.child(), inputs, literals,
+        sink);
+    if (count.isPresent() && count.get().laneType() != lane) {
+      return sink.decline("an interval count computed on the " + count.get().laneType()
+          + " lane, not its type's " + lane + " lane", g.child());
+    }
+    return count.map(m -> {
       VarkaVectorIR zero = VarkaNodeCompiler.bitsSlot(0, lane, literals, sink);
       VarkaVectorIR sign = new IntArith(IntOp.SUB, Overflow.WRAP,
           new CondValue(new Compare(CompareOp.GT, m, zero), lane),
