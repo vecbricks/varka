@@ -551,7 +551,8 @@ it is on) takes its coin and its edge from a stream of its own, and a test shows
 is where it was with the arm on or off. The int corpus's bound of 2.5 million days clamps
 `DATE`'s last day, 2932896, to it. Proven on the
 fuzzer: `VarkaIrFuzzSuite`'s int, long and mixed draws with `-Dvarka.fuzz.answers`, 18603 batches
-before and after, byte-identical (`cmp`). `dev/varka_bytes_moved.py origin/master` prints nothing,
+before and after, byte-identical (`cmp`), and 19203 lines after the review's fixes against the
+step's first head. `dev/varka_bytes_moved.py origin/master` prints nothing,
 `option_arms` included, and `dev/varka_regen_generated.sh --all` changed no file.
 
 *What differs from 2.1.* The conformance suites' value lists did not move into the descriptor
