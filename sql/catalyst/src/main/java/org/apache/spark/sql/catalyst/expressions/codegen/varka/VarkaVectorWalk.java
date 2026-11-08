@@ -707,21 +707,28 @@ final class VarkaVectorWalk {
       cb.astore(lo);
       emitRearrange(cb, tmp, s.decimalShuffle[1]);
       cb.astore(hi);
-      DecimalWords bound = w.bound();
-      DecimalWords negated = bound.negate();
-      // v > B
-      emitWordCompare(cb, hi, "GT", bound.hi());
-      emitWordCompare(cb, hi, "EQ", bound.hi());
-      emitWordCompare(cb, lo, "UGT", bound.lo());
-      cb.invokevirtual(VECTOR_MASK, "and", MASK_BINARY);
-      cb.invokevirtual(VECTOR_MASK, "or", MASK_BINARY);
-      // | v < -B
-      emitWordCompare(cb, hi, "LT", negated.hi());
-      emitWordCompare(cb, hi, "EQ", negated.hi());
-      emitWordCompare(cb, lo, "ULT", negated.lo());
-      cb.invokevirtual(VECTOR_MASK, "and", MASK_BINARY);
-      cb.invokevirtual(VECTOR_MASK, "or", MASK_BINARY);
-      cb.invokevirtual(VECTOR_MASK, "or", MASK_BINARY);
+      if (analysis.options.dropDecimalBound()) {
+        // The fault injector dropDecimalBound leaves the digit check out (VARKA-348 3 item 1):
+        // hi < Long.MIN_VALUE, a mask no lane sets, is collected in its place, so the guard's
+        // accumulator and its inventories are those of the sound kernel.
+        emitWordCompare(cb, hi, "LT", Long.MIN_VALUE);
+      } else {
+        DecimalWords bound = w.bound();
+        DecimalWords negated = bound.negate();
+        // v > B
+        emitWordCompare(cb, hi, "GT", bound.hi());
+        emitWordCompare(cb, hi, "EQ", bound.hi());
+        emitWordCompare(cb, lo, "UGT", bound.lo());
+        cb.invokevirtual(VECTOR_MASK, "and", MASK_BINARY);
+        cb.invokevirtual(VECTOR_MASK, "or", MASK_BINARY);
+        // | v < -B
+        emitWordCompare(cb, hi, "LT", negated.hi());
+        emitWordCompare(cb, hi, "EQ", negated.hi());
+        emitWordCompare(cb, lo, "ULT", negated.lo());
+        cb.invokevirtual(VECTOR_MASK, "and", MASK_BINARY);
+        cb.invokevirtual(VECTOR_MASK, "or", MASK_BINARY);
+        cb.invokevirtual(VECTOR_MASK, "or", MASK_BINARY);
+      }
       emitGuardCollect(cb, w, dense ? null : s.wordRef.get(w), dense, analysis, s);
     }
     cb.aload(w.word() == VarkaVectorIR.Word.LOW ? lo : hi);
