@@ -19,12 +19,15 @@ package org.apache.spark.sql.execution
 
 import org.apache.spark.sql.{DataFrame, QueryTest, Row, SparkSession}
 import org.apache.spark.sql.catalyst.{CatalystTypeConverters, InternalRow}
-import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, AttributeReference,
-  BindReferences, Coalesce, Expression, Greatest}
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaSameAnswer, VarkaTestWatchdog}
+import org.apache.spark.sql.catalyst.expressions.{Add, Alias, Attribute, AttributeReference,
+  BindReferences, Cast, Coalesce, Expression, GreaterThan, Greatest, IsNotNull, Literal}
+import org.apache.spark.sql.catalyst.expressions.codegen.VarkaExpressionCompiler
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaEmitOptions, VarkaHostIsa,
+  VarkaSameAnswer, VarkaTestWatchdog}
 import org.apache.spark.sql.catalyst.plans.logical.Project
 import org.apache.spark.sql.internal.SQLConf
-import org.apache.spark.sql.types.{DateType, DoubleType, FloatType, IntegerType, StructField, StructType}
+import org.apache.spark.sql.types.{DataType, DateType, DoubleType, FloatType, IntegerType,
+  LongType, ShortType, StructField, StructType}
 
 /**
  * The floating lanes' first nodes, end to end: a `DOUBLE` or `FLOAT` column read from Varka's
@@ -410,6 +413,57 @@ class VarkaFloatingLaneSuite extends QueryTest with VarkaSharedSessions with Var
       checkFusedArith("SELECT x2 + CAST(f2 AS DOUBLE) AS b, CAST(f1 AS DOUBLE) AS a, "
         + "CAST(x1 AS FLOAT) AS c, CAST(f1 AS DOUBLE) / 2.0D AS e FROM $t", ansi)
     }
+  }
+
+  private val l = AttributeReference("l", LongType)()
+  private val y = AttributeReference("y", ShortType)()
+
+  /** Why `CAST(child AS to)` alone, over `l` and `y`, declines, or None where it fuses. */
+  private def castDecline(
+      child: Expression, to: DataType, options: VarkaEmitOptions): Option[String] = {
+    val declines = VarkaExpressionCompiler.declines(Seq(Alias(Cast(child, to), "c")()),
+      Seq(l, y), options)
+    Option(declines.get(0)).map(_.toString)
+  }
+
+  test("on a planted host without AVX512DQ a bigint cast to DOUBLE declines, and a bigint " +
+      "condition as a DOUBLE or FLOAT fuses through the int lane") {
+    // An AVX-512 host without DQ, which no AMD host makes the JVM report, beside one with it.
+    val knights = new VarkaHostIsa.Reading("amd64",
+      "avx, avx2, avx512f, avx512cd, avx512er, avx512pf", null, 512)
+    val withDq = new VarkaHostIsa.Reading("amd64", "avx, avx2, avx512f, avx512dq", null, 512)
+    val conf = new SQLConf
+    conf.setConf(SQLConf.VARKA_EMIT_USE_AVX, VarkaSessionEmit.USE_AVX_FROM_HOST)
+    def options(host: VarkaHostIsa.Reading): VarkaEmitOptions =
+      VarkaColumnarToRowExec.emitOptions(VarkaSessionEmit.of(conf, host))
+    assert(options(knights).convertsMayFallBack())
+    assert(!options(withDq).convertsMayFallBack())
+    val positive = GreaterThan(l, Literal(0L))
+    val refused = castDecline(l, DoubleType, options(knights))
+    assert(refused.exists(_.contains("AVX512DQ")), refused)
+    for (to <- Seq(DoubleType, FloatType)) {
+      assert(castDecline(positive, to, options(knights)).isEmpty, to)
+      assert(castDecline(l, to, options(withDq)).isEmpty, to)
+      // The default level names no host, so it declines the cast too: an AVX2 host there would
+      // run L2D and L2F as the Vector API's Java loop.
+      val unknown = castDecline(l, to, VarkaEmitOptions.DEFAULTS)
+      assert(unknown.exists(_.contains("AVX512DQ")), unknown)
+    }
+    // Beside a double literal, which goes to the long table: the projection checks its kernel
+    // drives at 64 bits under the defaults' plan, which declines the conversion, and must not
+    // take that refusal for an int drive.
+    val withLiteral = VarkaExpressionCompiler.compile(Seq(Alias(
+      Add(Cast(l, DoubleType), Literal(1.5d)), "c")()), Seq(l, y), options(withDq))
+    assert(withLiteral.isPresent, "CAST(l AS DOUBLE) + 1.5D did not compile at level 3")
+    // VarkaDifferentialHarnessSuite runs it at level 3 against the row engine, beside the casts.
+  }
+
+  test("a smallint read for its validity alone fuses as a DOUBLE and as a FLOAT") {
+    // The double kernel has no narrow value but a column, and a null test reads only the
+    // column's validity word, a bit per row at every lane (VARKA-343.md 10, 343a5).
+    val base = VarkaEmitOptions.DEFAULTS
+    assert(castDecline(IsNotNull(y), DoubleType, base).isEmpty)
+    assert(castDecline(IsNotNull(y), FloatType, base).isEmpty)
   }
 
   // The divisors are literals: the fixtures' zero divisors raise under ANSI on both sides. The
