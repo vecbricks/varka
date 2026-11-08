@@ -48,7 +48,8 @@ import org.apache.spark.util.ThreadUtils
  * produces a mask. Every long-lane guard is built from exactly those.
  *
  * So this suite asks the question for every shape, at every width the host can be asked for.
- * It forks [[VarkaWidthAuditProbe]] once per width under `-XX:MaxVectorSize=<bytes> -Xbatch`
+ * It forks [[VarkaWidthAuditProbe]] once per width the host runs, under
+ * `-XX:MaxVectorSize=<bytes> -Xbatch`
  * and a `PrintIntrinsics` directive scoped to the emitted classes, and reads the refusals
  * between the probe's per-shape markers. Every probe the tests read runs in `beforeAll`, several
  * at once, so no test body waits on a child JVM (see `beforeAll`). Two things are then done with
