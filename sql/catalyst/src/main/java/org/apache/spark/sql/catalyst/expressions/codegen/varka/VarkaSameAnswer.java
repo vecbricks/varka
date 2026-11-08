@@ -257,6 +257,7 @@ public final class VarkaSameAnswer {
           // how its value is made from its children's (a condition or a calendar node, never
           // floating, is matched by its family).
           case VarkaVectorIR.ColumnRef _, VarkaVectorIR.DecimalColumn _,
+              VarkaVectorIR.DecimalWord _,
               VarkaVectorIR.LiteralSlot _, VarkaVectorIR.NullValue _, VarkaVectorIR.AddDays _,
               VarkaVectorIR.SubDays _, VarkaVectorIR.DateDiff _, VarkaVectorIR.CondValue _,
               VarkaVectorIR.BoolOutput _, VarkaVectorIR.DayOfWeek _, VarkaVectorIR.WeekDay _,

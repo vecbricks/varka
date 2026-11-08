@@ -241,6 +241,7 @@ public final class VarkaRangeAnalysis {
     return switch (node) {
       // A long-lane leaf, answered UNKNOWN above; listed so that the switch stays exhaustive.
       case DecimalColumn c -> VarkaValueRange.UNKNOWN;
+      case VarkaVectorIR.DecimalWord c -> VarkaValueRange.UNKNOWN;
       // A long-lane root, answered UNKNOWN above for the same reason.
       case WidenDecimal n -> VarkaValueRange.UNKNOWN;
       // A day column is the column bound, which the answer rests on: the caller that relies on

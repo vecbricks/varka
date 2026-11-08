@@ -3466,7 +3466,8 @@ final class VarkaProofFiles {
         + "values", "unsat", nullSafe);
     List<String> u = List.of("(declare-const uh Int)", "(declare-const ul Int)",
         "(assert (and (w.hi uh) (w.lo ul)))");
-    for (int p = DecimalWords.MAX_LONG_PRECISION + 1; p <= DecimalWords.MAX_PRECISION; p++) {
+    for (int p = VarkaVectorIR.DecimalColumn.MAX_LONG_PRECISION + 1;
+        p <= org.apache.spark.sql.types.DecimalType.MAX_PRECISION(); p++) {
       DecimalWords b = DecimalWords.bound(p);
       BigInteger bound = b.value();
       for (int off : new int[] {0, 1, -1}) {

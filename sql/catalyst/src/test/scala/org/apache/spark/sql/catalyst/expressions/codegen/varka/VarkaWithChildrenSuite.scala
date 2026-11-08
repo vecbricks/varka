@@ -74,7 +74,7 @@ class VarkaWithChildrenSuite extends SparkFunSuite {
     // rebuilt directly below.
     val undrawn = permitted -- seen - "NullSafeEqual" - "BoolColumn" - "CondConst" -
       "BoolCompare" - "CondIf" - "BoolNullSafeEq" - "CondValue" - "BoolOutput" - "DecimalColumn" -
-      "MathUnary" - "ConvertLane" - "CrossLane" // the crossing is drawn from 343a5
+      "DecimalWord" - "MathUnary" - "ConvertLane" - "CrossLane" // the crossing is drawn from 343a5
     assert(undrawn.isEmpty, s"the grammars never drew: ${undrawn.toSeq.sorted.mkString(", ")}")
   }
 

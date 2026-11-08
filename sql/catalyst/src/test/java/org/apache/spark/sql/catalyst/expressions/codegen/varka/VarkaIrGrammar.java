@@ -294,6 +294,8 @@ public final class VarkaIrGrammar {
       // The grammar draws no decimal column here: drawDecimalValueShape draws its own values.
       case DecimalColumn _ ->
           throw new IllegalArgumentException("the grammar draws no decimal column: " + node);
+      case VarkaVectorIR.DecimalWord _ ->
+          throw new IllegalArgumentException("the grammar draws no decimal word: " + node);
       case LiteralSlot _ -> new Bounds(LITERAL_BOUND, 0L);
       case AddDays n -> shift(n.days(), n.offset());
       case SubDays n -> shift(n.days(), n.offset());
