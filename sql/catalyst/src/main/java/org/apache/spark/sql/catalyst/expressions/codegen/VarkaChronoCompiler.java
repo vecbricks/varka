@@ -323,6 +323,12 @@ final class VarkaChronoCompiler {
       VarkaSlotTable inputs,
       VarkaSlotTable literals,
       DeclineSink sink) {
+    if (isNtzDate(date)) {
+      // A month shift of a TIMESTAMP_NTZ's date is a month form of row 339, which guards and
+      // tests it with the timestamp's own month arithmetic; until then it stays with Spark.
+      return sink.decline("a month shift of a timestamp_ntz's date, which is row 339's "
+          + "(VARKA-339)", whole);
+    }
     Optional<VarkaVectorIR> node = calendarInput(date, whole, inputs, literals, sink);
     if (node.isEmpty()) {
       return node;
@@ -698,24 +704,25 @@ final class VarkaChronoCompiler {
 
   /**
    * The day a calendar node reads: the compiled child, except that {@code CAST(ntz AS DATE)} -
-   * the cast the analyzer puts under a date field of a {@code TIMESTAMP_NTZ} - compiles as
-   * {@link VarkaNodeCompiler#ntzDay}, whose range the analysis knows. The plain cast has no day
-   * range and its consumers here would decline (VARKA-340). A cast under a day shift is not this
-   * case: its producer stays unknown, and declines.
+   * the cast the analyzer puts under a date field of a {@code TIMESTAMP_NTZ} - is held to
+   * {@link VarkaNodeCompiler#ntzDay}'s range, which the analysis knows. The plain cast has no day
+   * range and its consumers here would decline (VARKA-340). The cast itself compiles through the
+   * chain, so its division stays under the int arithmetic family's switch as the bare cast's
+   * does. A cast under a day shift is not this case: its producer stays unknown, and declines.
    */
   private static Optional<VarkaVectorIR> calendarDay(
       Expression child,
       VarkaSlotTable inputs,
       VarkaSlotTable literals,
       DeclineSink sink) {
-    if (child instanceof Cast c && DataTypes.DateType.equals(c.dataType())
-        && VarkaTypes.isNtz(c.child().dataType())) {
-      return VarkaNodeCompiler.compileNode(c.child(), inputs, literals, sink).flatMap(t ->
-          t.laneType() == LaneType.LONG
-              ? Optional.of(VarkaNodeCompiler.ntzDay(t, sink))
-              : sink.decline("a timestamp_ntz operand that is not on the long lane", c));
-    }
-    return VarkaNodeCompiler.compileNode(child, inputs, literals, sink);
+    Optional<VarkaVectorIR> day = VarkaNodeCompiler.compileNode(child, inputs, literals, sink);
+    return isNtzDate(child) ? day.map(VarkaNodeCompiler::ntzDay) : day;
+  }
+
+  /** Whether {@code e} is {@code CAST(ntz AS DATE)}, the date of a {@code TIMESTAMP_NTZ}. */
+  private static boolean isNtzDate(Expression e) {
+    return e instanceof Cast c && DataTypes.DateType.equals(c.dataType())
+        && VarkaTypes.isNtz(c.child().dataType());
   }
 
   /**

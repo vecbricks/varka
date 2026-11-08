@@ -911,16 +911,16 @@ final class VarkaNodeCompiler {
   }
 
   /**
-   * The date of an NTZ count {@code t} as a calendar node's day: {@link #dateOfNtz}'s quotient
-   * narrowed to the int lane and held to {@link VarkaRangeAnalysis#NTZ_MIN_DAYS} to
-   * {@code NARROW_MAX_DAYS}, so the calendar lowering, exact over the narrowed range only, sees a
-   * day inside it, and a batch holding a live day outside goes to the row engine. The floor
-   * leaves a year of room under {@code NARROW_MIN_DAYS} for the week forms' Thursday and a
-   * {@code trunc} to a year, which move a day down. The plain cast keeps its unguarded form.
+   * The date of an NTZ count as a calendar node's day: {@code day}, the compiled
+   * {@code CAST(ntz AS DATE)} ({@link #dateOfNtz}'s narrowed quotient), held to
+   * {@link VarkaRangeAnalysis#NTZ_MIN_DAYS} to {@code NARROW_MAX_DAYS}, so the calendar lowering,
+   * exact over the narrowed range only, sees a day inside it, and a batch holding a live day
+   * outside goes to the row engine. The floor leaves a year of room under
+   * {@code NARROW_MIN_DAYS} for the week forms' Thursday and a {@code trunc} to a year, which
+   * move a day down. The plain cast keeps its unguarded form.
    */
-  static VarkaVectorIR ntzDay(VarkaVectorIR t, DeclineSink sink) {
-    return new GuardedRange(new NarrowLane(floorDivLong(t, MICROS_PER_DAY, sink)),
-        VarkaRangeAnalysis.NTZ_MIN_DAYS, VarkaChrono.NARROW_MAX_DAYS);
+  static VarkaVectorIR ntzDay(VarkaVectorIR day) {
+    return new GuardedRange(day, VarkaRangeAnalysis.NTZ_MIN_DAYS, VarkaChrono.NARROW_MAX_DAYS);
   }
 
   /**
