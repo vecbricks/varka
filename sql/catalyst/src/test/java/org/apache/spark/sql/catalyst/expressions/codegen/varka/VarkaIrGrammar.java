@@ -1437,7 +1437,7 @@ public final class VarkaIrGrammar {
    * a column, as they do at the long lane, whose columns are bounded the same way.
    */
   public static long narrowColumnBound(LaneType lane, int ordinal) {
-    var range = VarkaTypes.integralRange(lane);
+    VarkaTypes.IntegralRange range = VarkaTypes.integralRange(lane);
     return ordinal == 0 ? -range.min() : range.max() / 2;
   }
 
@@ -1576,8 +1576,8 @@ public final class VarkaIrGrammar {
    * narrowing and, as every narrow draw, the nulling guards and the
    * unsigned compares. A checked mode is drawn where the bounds rule out an overflow of the
    * lane, the multiply's too, the negation is an {@code abs} half the time, and a condition may
-   * be a range set ({@code IN}), which the long lane's never is. The long lane draws what it
-   * drew: every narrow choice is made without a draw at the long lane.
+   * be a range set ({@code IN}), which the long lane's never is. A narrow choice draws no coin
+   * at the long lane, so the long lane's sequence is the same with or without the narrow arms.
    */
   public static final class LongShapes {
     /**
@@ -1777,8 +1777,7 @@ public final class VarkaIrGrammar {
         VarkaVectorIR left = value(depth).node();
         return new Compare(op, left, value(depth).node());
       }
-      // A narrow lane has a fifth arm, the range set; the long lane draws from its four as it
-      // always did.
+      // A narrow lane has a fifth arm, the range set; the long lane draws from its four alone.
       return switch (rnd.nextInt(lane.isNarrow() ? 5 : 4)) {
         case 0 -> {
           Cond left = cond(depth - 1);

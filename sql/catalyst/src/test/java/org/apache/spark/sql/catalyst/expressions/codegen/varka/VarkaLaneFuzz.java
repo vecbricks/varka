@@ -51,9 +51,9 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Ove
  * ones (VARKA-352 2.2), the count of the narrow draws per {@code narrowLanes} arm, and the reach
  * of the generators, asked of the IR's own constructors.
  *
- * <p>The draw's order is the long sequence's as it froze, coin for coin: a recorded failure
- * ({@code sql/varka/fuzz/known_failures.tsv}) names a seed and an iteration and must keep
- * drawing the case it drew.
+ * <p>The draw's order is the long sequence's, coin for coin: a recorded failure
+ * ({@code sql/varka/fuzz/known_failures.tsv}) names a seed and an iteration, and the pair must
+ * name one case for as long as the entry is listed.
  *
  * @see VarkaIrGrammar.LongShapes
  */
@@ -128,8 +128,8 @@ public final class VarkaLaneFuzz {
    * column's pattern, the masking coin, the options ({@code options}, the suite's draw of them)
    * and the cells; the edge coins come from {@code values}, the case's own stream. Forcing the
    * masked path is never drawn at length 1, where one null over a full bitmap would be an
-   * all-null column. The label names everything a replay needs, and the edge share only when
-   * there is one, as the committed sequences' labels always have.
+   * all-null column. The label names everything a replay needs; the int and long sequences'
+   * labels name the edge share only when there is one, and a narrow one's always does.
    */
   public static VarkaFuzzCase drawCase(long seed, int iteration, Random rnd, DrawnLong drawn,
       LaneSource source, Random values, Function<Random, VarkaEmitOptions> options) {
@@ -174,7 +174,8 @@ public final class VarkaLaneFuzz {
         + " options=" + (drawnOptions.isDefault() ? "(defaults)" : drawnOptions.canonical())
         + " length=" + length + " patterns=" + patterns + " literals=" + literals
         + " forceMasked=" + forceMasked
-        + (source.edgeOneIn() > 0 ? " edges=" + source.edgeOneIn() : "");
+        + (source.edgeOneIn() > 0 || source.lane().isNarrow()
+            ? " edges=" + source.edgeOneIn() : "");
     return new VarkaFuzzCase(source.lane(), drawn.roots(), numInputs, lits, length, nulls, data,
         forceMasked, drawnOptions, -1, -1, label);
   }
@@ -209,15 +210,17 @@ public final class VarkaLaneFuzz {
     }
 
     /**
-     * The arms of both that drew at least {@code minDraws} cases and answered none. An arm of
-     * fewer draws is not asked for: under {@code -Dvarka.fuzz.iterations} or the matrix's
-     * configurations a coin may give it a handful, all refused by design.
+     * The arms of both that drew at least {@code minDraws} cases and answered none, and, once
+     * the run drew {@code minDraws}, an arm never drawn. An arm of fewer draws is not asked for:
+     * under {@code -Dvarka.fuzz.narrowIterations} or the matrix's configurations a coin may give
+     * it a handful, all refused by design.
      */
     public List<Boolean> unanswered(int minDraws) {
       var arms = new ArrayList<Boolean>();
+      int total = counts.values().stream().mapToInt(c -> c[0]).sum();
       for (boolean arm : new boolean[] {false, true}) {
         int[] c = counts.get(arm);
-        if (c != null && c[0] >= minDraws && c[1] == 0) {
+        if (c == null ? total >= minDraws : c[0] >= minDraws && c[1] == 0) {
           arms.add(arm);
         }
       }

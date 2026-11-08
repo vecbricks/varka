@@ -99,7 +99,9 @@ import org.apache.spark.sql.catalyst.util.DateTimeUtils
  * 0 none), which is how the nightly's forty thousand draws a lane stay inside the test's cap.
  * `-Dvarka.fuzz.edges=n` puts a type's edge value in one cell in n of the int, long and mixed
  * draws (default 0, none: `VarkaFuzzTypes.ValueSource`) and of the narrow ones (default 4, and
- * 0 for none); a failure under it names it, and its replay needs it too.
+ * 0 for none): one property moves both. A failure under it names it, and its replay needs it
+ * too; a narrow failure's label always names its share. The narrow sequences take
+ * `-Dvarka.fuzz.narrowIterations` (default 300), which `varka.fuzz.iterations` does not scale.
  *
  * Under another JVM (VARKA-272, `dev/varka_platform.sh`): `-Dvarka.fuzz.tier=interpreter|c1|c2|
  * xcomp` names the tier the JVM's flags must show and the compiled test's rules follow,
@@ -1080,11 +1082,13 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
     val replay = (e: VarkaKnownFailures.Entry) => e.lane match {
       case "int" => outcomeOf(drawInt(e.iteration, e.seed))
       case "long" => outcomeOf(drawLong(e.iteration, e.seed))
-      // A narrow draw the plan refuses for its width is not run, so it has no outcome.
+      // A narrow draw the plan refuses for this host's width cannot be replayed here, so it
+      // stands, as a composition fuzzer's entry does.
       case "byte" | "short" =>
         val c = drawNarrow(LaneType.valueOf(e.lane.toUpperCase(java.util.Locale.ROOT)),
           e.seed, e.iteration)
-        if (VarkaKernelPlan.refusalOf(c.roots, c.options).isPresent) None else outcomeOf(c)
+        if (VarkaKernelPlan.refusalOf(c.roots, c.options).isPresent) Some(e.signature)
+        else outcomeOf(c)
       // A composition fuzzer's entry (VARKA-294) is replayed by its own suite.
       case _ => Some(e.signature)
     }
@@ -1514,6 +1518,8 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
    * so their cells need not be the uniform draws a committed corpus keeps.
    */
   private val narrowEdgeOneIn = sys.props.get("varka.fuzz.edges").map(_.toInt).getOrElse(4)
+  private val narrowIterations =
+    sys.props.get("varka.fuzz.narrowIterations").map(_.toInt).getOrElse(300)
 
   /**
    * Case `iteration` of the narrow sequence of `lane`: the shape from `drawNarrowLaneShape`,
@@ -1549,7 +1555,7 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
   }
 
   /**
-   * The narrow sequence of `lane` over `iterations` draws, and both `narrowLanes` arms answered.
+   * The narrow sequence of `lane` over `narrowIterations` draws, both `narrowLanes` arms answered.
    * The arm is the options draw's coin, so at the default count each arm takes about half the
    * draws; an arm of fewer than 20 is not asked for, as the cast test asks only of a class of 20
    * or more, and at the lane counts the matrix's base bakes none every draw is refused, by
@@ -1560,7 +1566,8 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
     val name = lane.toString.toLowerCase(java.util.Locale.ROOT)
     val reach = VarkaEmitReach.attach(randomTrace, s"$name draws")
     try {
-      only.map(Seq(_)).getOrElse(0 until iterations).foreach(runOneNarrow(lane, drawSeed, _, arms))
+      only.map(Seq(_)).getOrElse(0 until narrowIterations)
+        .foreach(runOneNarrow(lane, drawSeed, _, arms))
     } finally {
       VarkaEmitReach.detach(randomTrace)
     }
@@ -1575,12 +1582,12 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
   }
 
   test(s"random TINYINT IR trees match the reference evaluator at both narrow arms " +
-      s"(seed $byteSeed, $iterations iterations)") {
+      s"(seed $byteSeed, $narrowIterations iterations)") {
     runNarrowSequence(LaneType.BYTE, byteSeed)
   }
 
   test(s"random SMALLINT IR trees match the reference evaluator at both narrow arms " +
-      s"(seed $shortSeed, $iterations iterations)") {
+      s"(seed $shortSeed, $narrowIterations iterations)") {
     runNarrowSequence(LaneType.SHORT, shortSeed)
   }
 

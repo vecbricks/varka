@@ -602,7 +602,12 @@ boolean conformance suites read their values from the descriptor.
   run drew `BitCount` at the narrow lanes and found the emitter adds the int lane's 32 sign bits
   to a negative byte's or short's popcount where Spark adds 56 or 48: a node the IR constructs
   and the emitter lowers wrongly, though no compiled expression builds it (row 580). The negation
-  draws `abs` beside it at the narrow lanes, which the long lane's never does.
+  draws `abs` beside it at the narrow lanes, which the long lane's never does, and a condition
+  may be a range set (`InRanges`, what `IN` over a narrow column compiles to), which it never is.
+- **Owed to the Spark-level part:** the variants of a passing narrow draw (`VarkaVariantChecks`
+  runs a case through the int or long harness only), and a nightly volume. The narrow tests take
+  `varka.fuzz.narrowIterations`, the gate's 300, which the nightly's 40000 does not scale: the
+  step budget's one nightly sample predates the suite's growth, so it shows no room to rely on.
 - **The edge arm is on in the new sequences**, one cell in four (2.1's mix), from the value stream
   (2.2 rule 5); the committed sequences keep it off.
 - **`option_arms` is not extended.** Its digest is over every shape of the three committed
