@@ -20,7 +20,7 @@ package org.apache.spark.sql.catalyst.expressions.codegen.varka;
 import java.math.BigInteger;
 
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.DecimalColumn;
-import org.apache.spark.sql.types.DecimalType$;
+import org.apache.spark.sql.types.DecimalType;
 
 /**
  * A 128-bit unscaled decimal value as the two long words Arrow's sixteen-byte slot holds it in
@@ -32,6 +32,9 @@ import org.apache.spark.sql.types.DecimalType$;
  * {@code 10^p} check, built once a shape.
  */
 public record DecimalWords(long lo, long hi) {
+
+  /** The widest precision of a decimal, Spark's {@code DecimalType.MAX_PRECISION}. */
+  public static final int MAX_PRECISION = DecimalType.MAX_PRECISION();
 
   private static final BigInteger WORD = BigInteger.ONE.shiftLeft(64);
   private static final BigInteger MIN = BigInteger.ONE.shiftLeft(127).negate();
@@ -47,15 +50,23 @@ public record DecimalWords(long lo, long hi) {
   }
 
   /**
+   * Refuses a precision a pair does not hold: one of {@link DecimalColumn#MAX_LONG_PRECISION}
+   * digits or fewer, which is one long word, or one wider than {@link #MAX_PRECISION}.
+   */
+  static void requirePairPrecision(int precision) {
+    if (precision <= DecimalColumn.MAX_LONG_PRECISION || precision > MAX_PRECISION) {
+      throw VarkaErrors.illegalArgument("a pair's precision is from "
+          + (DecimalColumn.MAX_LONG_PRECISION + 1) + " to " + MAX_PRECISION + ", not "
+          + precision);
+    }
+  }
+
+  /**
    * The words of {@code 10^precision - 1}, the largest unscaled value of a decimal of the
-   * precision, for a precision of the pair, above {@link DecimalColumn#MAX_LONG_PRECISION}.
+   * precision, for a precision of the pair ({@link #requirePairPrecision}).
    */
   public static DecimalWords bound(int precision) {
-    int widest = DecimalType$.MODULE$.MAX_PRECISION();
-    if (precision <= DecimalColumn.MAX_LONG_PRECISION || precision > widest) {
-      throw VarkaErrors.illegalArgument("a pair's precision is from "
-          + (DecimalColumn.MAX_LONG_PRECISION + 1) + " to " + widest + ", not " + precision);
-    }
+    requirePairPrecision(precision);
     return of(BigInteger.TEN.pow(precision).subtract(BigInteger.ONE));
   }
 

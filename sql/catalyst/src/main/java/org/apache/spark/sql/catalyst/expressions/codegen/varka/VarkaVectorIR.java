@@ -26,7 +26,6 @@ import java.util.Objects;
 import java.util.function.ToIntFunction;
 
 import org.apache.spark.sql.types.Decimal;
-import org.apache.spark.sql.types.DecimalType$;
 
 /**
  * The vector IR a fused Varka loop is emitted from. A node is a value over
@@ -643,13 +642,7 @@ public sealed interface VarkaVectorIR
         throw VarkaErrors.illegalArgument("a decimal word's ordinal is not negative: "
             + ordinal);
       }
-      if (precision <= DecimalColumn.MAX_LONG_PRECISION
-          || precision > DecimalType$.MODULE$.MAX_PRECISION()) {
-        throw VarkaErrors.illegalArgument("a decimal word pair has a precision from "
-            + (DecimalColumn.MAX_LONG_PRECISION + 1) + " to "
-            + DecimalType$.MODULE$.MAX_PRECISION()
-            + ", not " + precision);
-      }
+      DecimalWords.requirePairPrecision(precision);
     }
 
     /** The column's low word: the key its pair's shared locals are planned under. */
