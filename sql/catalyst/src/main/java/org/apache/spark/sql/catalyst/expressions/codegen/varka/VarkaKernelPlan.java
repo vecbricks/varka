@@ -579,15 +579,13 @@ public final class VarkaKernelPlan {
    * Why a conversion of these roots has no kernel yet. The emitter lowers the four conversions
    * that are one {@code convertShape} on every x86 host, {@code I2F}, {@code I2D}, {@code F2D}
    * and {@code D2F}, in a kernel of one lane count or of two (`VARKA-343.md` 2.2). A
-   * {@code BIGINT} source, {@code L2F} or {@code L2D}, is one {@code convertShape} at level 3,
-   * where x86 has AVX512DQ, and below it the AVX2 forms of {@code VarkaConversionLowering},
-   * which need no 64-bit conversion instruction. At the unknown level
-   * ({@link VarkaEmitOptions#levelUnknown()}), the defaults' and an unset session's, neither is
-   * known to be right: the host may be an AVX2 one, where {@code convertShape} runs as the
-   * Vector API's Java loop, or one where it is an instruction and the form only costs, so the
-   * entry declines. A floating source converted to an integral lane waits for part 343b2, at
-   * every level. A boolean whose condition compares longs is not a conversion from a long: the
-   * compiler narrows its one or zero to the int lane first.
+   * {@code BIGINT} source, {@code L2F} or {@code L2D}, takes the AVX2 forms of
+   * {@code VarkaConversionLowering} below level 3, where x86 has no rule for either without
+   * AVX512DQ; at the unknown level ({@link VarkaEmitOptions#levelUnknown()}), the defaults' and an
+   * unset session's, which may be such a host, {@code convertShape} would run as the Vector API's
+   * Java loop and the entry declines. A floating source converted to an
+   * integral lane waits for part 343b2, at every level. A boolean whose condition compares longs
+   * is not a conversion from a long: the compiler narrows its one or zero to the int lane first.
    *
    * <p>The test reads the options' {@code UseAVX} level and not the CPU: the level is part of
    * the shape key, and a plan that read the host would key one shape two ways. The feature
@@ -611,8 +609,7 @@ public final class VarkaKernelPlan {
         }
         if (c.child().laneType() == LaneType.LONG && options.levelUnknown()) {
           return Optional.of(new Refusal(Kind.CONVERSION, "a BIGINT conversion to " + c.target()
-              + " at an unknown emit level, which says neither that AVX512DQ makes it one"
-              + " instruction nor that it needs its AVX2 form (row 343)"));
+              + " at an unknown emit level, which may be a host's without AVX512DQ (row 343)"));
         }
       }
       for (VarkaVectorIR child : VarkaVectorIR.childrenOf(node)) {

@@ -70,11 +70,11 @@ final class VarkaFloatingCastCompiler {
 
   /**
    * Whether {@code c} is one of this family's pairs: an integral or boolean source to a floating
-   * target, or one floating type to the other. A {@code BIGINT} source is admitted here; the
-   * emit level, an option the compiler's arms do not read, picks its lowering - one instruction
-   * at level 3, the AVX2 forms below - and the kernel plan refuses it at the unknown level
-   * ({@code VarkaKernelPlan}). The identities never reach here, as the optimizer removes them,
-   * and are its child where one does.
+   * target, or one floating type to the other. A {@code BIGINT} source is admitted here and
+   * refused by the kernel plan at the unknown emit level, which may be an AVX2 host's, where
+   * {@code convertShape} of a long is the Vector API's Java loop; the level is an emit
+   * option the compiler's arms do not read ({@code VarkaKernelPlan}). The identities never reach
+   * here, as the optimizer removes them, and are its child where one does.
    */
   static boolean admits(Cast c) {
     DataType to = c.dataType();

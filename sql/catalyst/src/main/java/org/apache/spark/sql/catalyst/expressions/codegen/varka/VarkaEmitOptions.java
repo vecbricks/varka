@@ -504,10 +504,8 @@ import com.sun.management.HotSpotDiagnosticMXBean;
  * @param decimalStore how a {@code WidenDecimal} root interleaves its words into Arrow's
  *        sixteen-byte decimal slots (VARKA-157 2.2): see {@link DecimalStore}. No other root reads
  *        it, so every shape without a decimal output emits the same bytes under either value.
- * @param wideConversionForm how a {@code BIGINT} value converts to {@code DOUBLE} where the level
- *        says the 64-bit conversions are not instructions ({@link #convertsFallBack()}): see
- *        {@link WideConversionForm}. Read by a {@code ConvertLane} from the long lane and only
- *        at such a level, so every other shape emits the same bytes under either value.
+ * @param wideConversionForm the form of {@code L2D} where {@link #convertsFallBack()} holds:
+ *        see {@link WideConversionForm}. No other shape reads it.
  */
 public record VarkaEmitOptions(
     int groupBudget,
@@ -606,12 +604,9 @@ public record VarkaEmitOptions(
   public enum DecimalStore { REARRANGE, SELECT_FROM }
 
   /**
-   * The two AVX2 forms of {@code L2D} (`VARKA-343.md` 2.3, {@code VarkaConversionLowering}).
-   * {@link #SPLIT} converts the high and the low 32 bits exactly and adds them, one rounding of
-   * the whole long, over every value; {@link #MAGIC} adds the magic number's bits and subtracts
-   * it, exact for {@code |v| <= 2^51} only, under a guard that declines a batch with a live lane
-   * outside. The whole-range split is the default; the bounded form is the reference arm, kept
-   * to be measured against it. {@code L2F} has one form, by rounding to odd.
+   * The AVX2 forms of {@code L2D} ({@code VarkaConversionLowering}): {@link #SPLIT}, exact over
+   * every long, the default, and {@link #MAGIC}, exact for {@code |v| <= 2^51} under a guard
+   * that declines a batch past it, the reference arm kept to be measured against it.
    */
   public enum WideConversionForm { SPLIT, MAGIC }
 
@@ -681,29 +676,27 @@ public record VarkaEmitOptions(
   /**
    * Whether this level gives no assurance that the long-to-floating conversions become
    * instructions: a level below 3, as in {@link #convertsFallBack()}, and also an unknown one.
-   * Below 3 the emitter lowers {@code L2D} and {@code L2F} by their AVX2 forms instead
-   * ({@code VarkaConversionLowering}); at the unknown level, where neither the instruction nor
-   * the need for a form is known, the kernel plan declines them ({@link #levelUnknown()}).
+   * The kernel plan declines a {@code BIGINT} conversion to {@code FLOAT} or {@code DOUBLE} where
+   * this holds at the unknown level ({@link #levelUnknown()}); below 3 it takes its AVX2 form.
    *
    * <p>It differs from {@link #convertsFallBack()} on the unknown level alone, and on purpose.
    * That predicate picks a lowering, and its optimism costs nothing where it is wrong: both
-   * division forms are vector code. A {@code convertShape} of a long chosen on that optimism
-   * would be wrong in the other way: on an AVX2 host it is the Vector API's scalar Java loop
-   * inside a vector kernel. The unknown level is what {@link #DEFAULTS} carries, so it has to be
-   * the safe answer. It is still a function of the record alone - no CPU read reaches it - so a
-   * shape is admitted or declined alike on every machine, and its key never depends on the host.
+   * division forms are vector code. This one decides whether a kernel exists, and the two errors
+   * are not alike: a wrong decline costs the row engine's speed, while a wrong admission runs
+   * the Vector API's scalar Java loop inside a vector kernel. The unknown level is what
+   * {@link #DEFAULTS} carries, so it has to be the safe answer. It is still a function of the
+   * record alone - no CPU read reaches it - so a shape is admitted or declined alike on every
+   * machine, and its key never depends on the host. A session that wants the conversions fused
+   * names a level, or asks for the host's ({@code VarkaSessionEmit.resolve}).
    */
   public boolean convertsMayFallBack() {
     return useAVX == USE_AVX_UNKNOWN || useAVX < AVX512_LEVEL;
   }
 
   /**
-   * Whether this record names no {@code UseAVX} level: the defaults' and an unset session's, and
-   * every aarch64 host's ({@code VarkaSessionEmit.resolve}). The kernel plan declines a
-   * {@code BIGINT} conversion to {@code FLOAT} or {@code DOUBLE} here alone
-   * ({@code VarkaKernelPlan.conversionRefusal}): a known level below 3 takes the AVX2 forms,
-   * and level 3 the one instruction. A session that wants the conversions fused names a level,
-   * or asks for the host's.
+   * Whether this record names no {@code UseAVX} level: the defaults', an unset session's and an
+   * aarch64 host's ({@code VarkaSessionEmit.resolve}), where the kernel plan declines a
+   * {@code BIGINT} conversion to {@code FLOAT} or {@code DOUBLE}.
    */
   public boolean levelUnknown() {
     return useAVX == USE_AVX_UNKNOWN;

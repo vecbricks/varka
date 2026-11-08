@@ -807,12 +807,11 @@ public final class VarkaDifferentialHarnessSuite {
             shape("y + y AS a, greatest(l, 5000000000) AS b", RUNS, "kernel 2 of 2"),
             shape("CAST(y AS INT) + 1 AS a, greatest(l, 5000000000) AS b", RUNS,
                 "kernel 2 of 2"))));
-    // A BIGINT conversion to FLOAT or DOUBLE fuses at a named level only, so these are the
-    // shapes that check its kernels' answers, one instruction at level 3 and the AVX2 forms at
-    // level 2: the extremes, values past 2^53, where a DOUBLE rounds, and past 2^24, where a
-    // FLOAT does, on both sides of a tie, nulls in each column. x - l is the subtraction's
-    // implicit cast; a double literal beside a cast goes to the long table of a kernel driven at
-    // 64 bits.
+    // A BIGINT conversion to FLOAT or DOUBLE fuses at a named level only, so these and level 2's
+    // below are the only shapes that check its kernels' answers: the extremes, values past
+    // 2^53, where a DOUBLE rounds, and past 2^24, where a FLOAT does, on both sides of a tie,
+    // nulls in each column. x - l is the subtraction's implicit cast; a double literal beside a
+    // cast goes to the long table of a kernel driven at 64 bits.
     var conversionRows = new ArrayList<String>();
     List<String> bigints = List.of("-9223372036854775808L", "9223372036854775807L",
         "-9223372036854775807L", "9223372036854775806L", "9007199254740992L",

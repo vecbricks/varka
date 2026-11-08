@@ -26,6 +26,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Random;
 import java.util.function.IntPredicate;
+import java.util.stream.LongStream;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions.WideConversionForm;
@@ -86,9 +87,7 @@ public final class VarkaEmitterWideConversionSuite {
 
   /** {@code values} and {@code Long.MIN_VALUE}, whose magnitude is {@code 2^63} unsigned. */
   private static long[] withMinimum(long[] values) {
-    var all = Arrays.copyOf(values, values.length + 1);
-    all[values.length] = Long.MIN_VALUE;
-    return all;
+    return LongStream.concat(Arrays.stream(values), LongStream.of(Long.MIN_VALUE)).toArray();
   }
 
   private static ConvertLane convert(LaneType target) {
@@ -213,20 +212,10 @@ public final class VarkaEmitterWideConversionSuite {
         }
       }
     }
-    int n = values.size();
-    long[] all = new long[2 * n + 1];
-    for (int k = 0; k < n; k++) {
-      all[2 * k] = values.get(k);
-      all[2 * k + 1] = -values.get(k);
-    }
-    all[2 * n] = Long.MIN_VALUE;
-    var window = new ArrayList<Long>();
-    for (long v : all) {
-      if (Math.abs(v) <= VarkaConversionLowering.MAGIC_WINDOW && v != Long.MIN_VALUE) {
-        window.add(v);
-      }
-    }
-    long[] inWindow = window.stream().mapToLong(Long::longValue).toArray();
+    long[] all = withMinimum(withNegations(values.stream().mapToLong(x -> x).toArray()));
+    long[] inWindow = Arrays.stream(all)
+        .filter(v -> v != Long.MIN_VALUE && Math.abs(v) <= VarkaConversionLowering.MAGIC_WINDOW)
+        .toArray();
     var magic = AVX2.withWideConversionForm(WideConversionForm.MAGIC);
     int rows = 4096;
     for (int lanes : new int[] {4, 8}) {
@@ -284,16 +273,11 @@ public final class VarkaEmitterWideConversionSuite {
   void formsHoldNoConversion() {
     for (LaneType target : List.of(LaneType.DOUBLE, LaneType.FLOAT)) {
       String op = target == LaneType.DOUBLE ? "L2D" : "L2F";
-      for (var options : List.of(AVX2, AVX2.withWideConversionForm(WideConversionForm.MAGIC),
-          VarkaMatrixRuns.BASE.withUseAVX(0))) {
+      for (int level : new int[] {0, 2, VarkaEmitOptions.AVX512_LEVEL}) {
         String text = new String(VarkaEmitterFixtures.emit(List.of(convert(target)), 1, 0,
-            options.withLanesOverride(4)).bytes(), StandardCharsets.ISO_8859_1);
-        assertTrue(!text.contains(op), op + " under " + options.canonical());
+            AVX2.withUseAVX(level).withLanesOverride(4)).bytes(), StandardCharsets.ISO_8859_1);
+        assertEquals(level == VarkaEmitOptions.AVX512_LEVEL, text.contains(op), op + " " + level);
       }
-      String atDq = new String(VarkaEmitterFixtures.emit(List.of(convert(target)), 1, 0,
-          VarkaMatrixRuns.BASE.withUseAVX(VarkaEmitOptions.AVX512_LEVEL).withLanesOverride(4))
-          .bytes(), StandardCharsets.ISO_8859_1);
-      assertTrue(atDq.contains(op), op + " at level 3");
     }
   }
 }
