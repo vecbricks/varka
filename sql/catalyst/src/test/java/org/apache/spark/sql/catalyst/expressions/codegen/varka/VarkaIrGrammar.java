@@ -174,6 +174,13 @@ public final class VarkaIrGrammar {
   public static final long CAST_FUZZ_SEED = 20261031L;
 
   /**
+   * The seed of {@link #drawNullingLaneShape}, the typed null at the lanes the nulling draw does
+   * not reach (VARKA-578): a sequence of its own for the reason {@link #NARROW_FUZZ_SEED} gives.
+   * {@code VarkaIrFuzzSuite} runs it against the reference evaluator; nothing pins its bytes.
+   */
+  public static final long NULLING_LANE_FUZZ_SEED = 20261108L;
+
+  /**
    * The seed of {@link #drawUnsignedLongShape}, a sequence of its own for the reason
    * {@link #NARROW_FUZZ_SEED} gives: the unsigned compares (VARKA-359) drawn into the long
    * corpus would move its committed blocks. {@code VarkaIrFuzzSuite} runs it against the
@@ -294,6 +301,8 @@ public final class VarkaIrGrammar {
       // The grammar draws no decimal column here: drawDecimalValueShape draws its own values.
       case DecimalColumn _ ->
           throw new IllegalArgumentException("the grammar draws no decimal column: " + node);
+      case VarkaVectorIR.DecimalWord _ ->
+          throw new IllegalArgumentException("the grammar draws no decimal word: " + node);
       case LiteralSlot _ -> new Bounds(LITERAL_BOUND, 0L);
       case AddDays n -> shift(n.days(), n.offset());
       case SubDays n -> shift(n.days(), n.offset());
@@ -750,6 +759,47 @@ public final class VarkaIrGrammar {
         yield new CondValue(new BoolColumn(CAST_BOOL_COLUMN, lane), lane);
       }
     };
+  }
+
+  /**
+   * The lanes of {@link #drawNullingLaneShape}, each with the {@link #CAST_COLUMNS} ordinal whose
+   * values it reads: a narrow lane its own column, and a floating lane the column of its width,
+   * whose values are its bits ({@code VarkaReference}), so that the ends of the int and long
+   * ranges reach a NaN with a payload and minus zero.
+   */
+  public static final List<LaneType> NULLING_LANES = List.of(LaneType.BYTE, LaneType.SHORT,
+      LaneType.FLOAT, LaneType.DOUBLE);
+
+  /** The {@link #CAST_COLUMNS} ordinal a {@link #NULLING_LANES} column reads. */
+  public static int nullingLaneColumn(LaneType lane) {
+    return switch (lane) {
+      case BYTE -> 0;
+      case SHORT -> 1;
+      case INT, FLOAT -> 2;
+      case LONG, DOUBLE -> 3;
+    };
+  }
+
+  /**
+   * One choice with the lane's null ({@link #nullChoice}, at each of its positions) over one
+   * column of a {@link #NULLING_LANES} lane, the conditions comparisons of the column with the
+   * zero of literal slot 0: {@code nullifzero} and a {@code CASE WHEN} without an {@code ELSE}
+   * at the narrow and floating lanes, whose null the general draws never reach, since their
+   * grammar draws neither lane (VARKA-578). One root a draw, over the cast draw's columns, so the
+   * cast draw's harness runs it.
+   */
+  public static VarkaVectorIR drawNullingLaneShape(Random rnd) {
+    // A bound of four reads the high bits of a first draw that consecutive seeds vary only in
+    // the low ones (drawCastShape's reason), which drew the narrow lanes alone: one is discarded.
+    rnd.nextLong();
+    LaneType lane = NULLING_LANES.get(rnd.nextInt(NULLING_LANES.size()));
+    var col = new ColumnRef(nullingLaneColumn(lane), lane);
+    var zero = new LiteralSlot(0, lane);
+    // Signed only: the unsigned comparisons take an integral lane, and this draw reaches the
+    // floating ones.
+    List<CompareOp> ops = CompareOp.signed();
+    Supplier<Cond> cond = () -> new Compare(ops.get(rnd.nextInt(ops.size())), col, zero);
+    return nullChoice(rnd, cond.get(), new Gen(col, Long.MAX_VALUE), lane, cond).node();
   }
 
   /**

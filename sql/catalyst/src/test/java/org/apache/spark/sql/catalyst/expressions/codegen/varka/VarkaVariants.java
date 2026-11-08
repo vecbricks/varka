@@ -393,6 +393,8 @@ final class VarkaVariants {
       // withChildren hands a leaf back as it is, so the leaves are built here.
       case ColumnRef c -> new ColumnRef(c.ordinal(), c.lane());
       case DecimalColumn d -> new DecimalColumn(d.ordinal(), d.lane(), d.precision());
+      case VarkaVectorIR.DecimalWord d ->
+          new VarkaVectorIR.DecimalWord(d.ordinal(), d.word(), d.precision());
       case LiteralSlot l -> new LiteralSlot(l.index(), l.lane());
       default -> {
         VarkaVectorIR[] children = VarkaVectorIR.childrenOf(node);

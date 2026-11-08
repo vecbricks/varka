@@ -17,6 +17,7 @@
 
 package org.apache.spark.sql.catalyst.expressions.codegen.varka
 
+import java.lang.classfile.{ClassBuilder, ClassFile, CodeBuilder, TypeKind}
 import java.lang.constant.{ClassDesc, ConstantDescs, MethodTypeDesc}
 import java.util.Locale
 
@@ -121,7 +122,8 @@ class VarkaLaneTypeSuite extends SparkFunSuite with VarkaTestWatchdog {
     // slot and refuses an int child (VARKA-157), and the conversion, one side of which is
     // floating (VARKA-343).
     assert(everyIntNode.map(_.getClass).toSet + classOf[WidenLane] + classOf[MathUnary] +
-      classOf[DecimalColumn] + classOf[WidenDecimal] + classOf[ConvertLane] ===
+      classOf[DecimalColumn] + classOf[DecimalWord] + classOf[WidenDecimal] +
+      classOf[ConvertLane] ===
       concreteNodeTypes(classOf[VarkaVectorIR]) - classOf[CrossLane]) // its child: another lane
     val doubleCol = new ColumnRef(0, LaneType.DOUBLE)
     assert(new MathUnary(MathFn.SQRT, doubleCol).laneType() === LaneType.DOUBLE)
@@ -338,6 +340,38 @@ class VarkaLaneTypeSuite extends SparkFunSuite with VarkaTestWatchdog {
     assert(Lane.FLOAT.speciesField(16) === "SPECIES_512")
   }
 
+  test("a lane's zero is its scalar type's zero, and a floating lane's is positive") {
+    // The broadcast of a typed null pushes it (VARKA-578): an integral lane's is the constant
+    // pushScalar writes, so no integral kernel's bytes move, and a floating lane's is +0.0 of its
+    // own type, since pushScalar is integral by contract. Each is returned from a method of the
+    // lane's scalar type: the verifier checks the type, and the boxed equality the bits.
+    val expected = Map[Lane, AnyRef](Lane.BYTE -> java.lang.Byte.valueOf(0.toByte),
+      Lane.SHORT -> java.lang.Short.valueOf(0.toShort), Lane.INT -> Integer.valueOf(0),
+      Lane.LONG -> java.lang.Long.valueOf(0L), Lane.FLOAT -> java.lang.Float.valueOf(0.0f),
+      Lane.DOUBLE -> java.lang.Double.valueOf(0.0d))
+    assert(expected.keySet === Lane.values().toSet)
+    val loader = new VarkaGeneratedClassLoader(getClass.getClassLoader)
+    try {
+      for (lane <- Lane.values()) {
+        val name = s"org.apache.spark.sql.varka.execution.VarkaLaneZero$lane"
+        val bytes = ClassFile.of().build(ClassDesc.of(name), (clb: ClassBuilder) => {
+          clb.withMethodBody("zero", MethodTypeDesc.of(lane.scalar),
+            ClassFile.ACC_PUBLIC | ClassFile.ACC_STATIC, (cb: CodeBuilder) => {
+              lane.pushZero(cb)
+              cb.return_(TypeKind.from(lane.scalar))
+              ()
+            })
+          ()
+        })
+        loader.defineGeneratedClass(name, bytes)
+        val zero = loader.loadClass(name).getMethod("zero").invoke(null)
+        assert(zero.equals(expected(lane)), s"$lane pushes $zero")
+      }
+    } finally {
+      loader.release()
+    }
+  }
+
   test("every descriptor the lane derives is the one the Vector API declares") {
     // The emitter builds its descriptors from two facts - the vector class and the scalar type -
     // instead of writing one table per lane, so nothing but this test stands between a wrong
@@ -407,6 +441,10 @@ class VarkaLaneTypeSuite extends SparkFunSuite with VarkaTestWatchdog {
         case "ColumnRef" => c
         // Refused off the long lane by its constructor (VARKA-347).
         case "DecimalColumn" => new DecimalColumn(0, lane, 9)
+        // A long-lane leaf by its record (VARKA-359), so refused at every other lane here.
+        case "DecimalWord" =>
+          require(lane == LaneType.LONG, "a decimal word is on the long lane")
+          new DecimalWord(0, Word.LOW, 38)
         case "LiteralSlot" => l
         case "IntArith" => new IntArith(IntOp.ADD, Overflow.WRAP, c, c1)
         case "IntNeg" => new IntNeg(Overflow.WRAP, c)
@@ -496,8 +534,9 @@ class VarkaLaneTypeSuite extends SparkFunSuite with VarkaTestWatchdog {
     }
     val atLong = buildable.filter(_._1 == LaneType.LONG).map(_._2).toSet
     val atInt = buildable.filter(_._1 == LaneType.INT).map(_._2).toSet
-    assert(atInt + "MathUnary" === types.map(_.getSimpleName).toSet - "DecimalColumn",
-      "every integral node type but the decimal column is emittable at INT")
+    assert(atInt + "MathUnary" === types.map(_.getSimpleName).toSet - "DecimalColumn" -
+      "DecimalWord",
+      "every integral node type is emittable at INT but the decimal column and the decimal word")
     val sqrt = new MathUnary(MathFn.SQRT, new ColumnRef(0, LaneType.DOUBLE))
     val sqrtBytes = VarkaLoopEmitter.emit("VarkaReachMathUnaryDOUBLE",
       java.util.List.of[VarkaVectorIR](sqrt), 1, 0, null, null, VarkaMatrix.base)
@@ -508,7 +547,7 @@ class VarkaLaneTypeSuite extends SparkFunSuite with VarkaTestWatchdog {
       "Compare", "NullSafeEqual", "And", "Or", "Not", "IsNotNull", "IfElse", "ConstDivide",
       "BoolColumn", "CondConst", "BoolCompare", "CondIf", "BoolNullSafeEq", "CondValue",
       "BoolOutput", "GuardedRange", "NarrowLane", "WidenLane", "BitOp", "BitCount",
-      "DecimalColumn", "NullValue", "WidenDecimal", "ConvertLane", "CrossLane"),
+      "DecimalColumn", "DecimalWord", "NullValue", "WidenDecimal", "ConvertLane", "CrossLane"),
       "the long lane serves the lane-generic subset, VARKA-88's division, VARKA-102's guard, " +
         "the two conversions, which build over the other lane's child whatever the row, " +
         "VARKA-335's bitwise operations, VARKA-336's null-safe equality, VARKA-460's " +

@@ -144,6 +144,7 @@ public final class VarkaWordCensus {
     return switch (n) {
       case ColumnRef c -> new In(c.ordinal());
       case DecimalColumn c -> new In(c.ordinal());
+      case VarkaVectorIR.DecimalWord c -> new In(c.ordinal());
       case LiteralSlot l -> CONSTANT;
       case AddDays x -> andW(pure(x.days(), coalesce, absorb), pure(x.offset(), coalesce, absorb),
           absorb);

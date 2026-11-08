@@ -340,7 +340,7 @@ four `TIME(p)` truncation divisors added to that script, the kernel tests in
 tests in `VarkaTimestampNtzSuite`, 26 coverage rows in two families, productions in the Catalyst
 grammar the fuzzers draw from, and the census. The flipped test is `dateFieldDeclines`: it is gone,
 replaced by the tests above. Left: step 5 (`TIME` to NTZ, `make_timestamp_ntz`, the pinning test),
-step 6 (the measurement), and the IR fuzzer's mixed draw (row 578).
+step 6 (the measurement), and the IR fuzzer's mixed draw (row 579).
 
 Census, entries that accept `TIMESTAMP_NTZ` and fuse it: 19 of 54 (35%) before, 39 of 54 (72%) after;
 `DATE`'s are 45 of 63 (71%).
@@ -379,7 +379,7 @@ on `VarkaAnsiForm`'s declined list with that reason; `hour(ntz)` fits. *Supersed
 dividing the microsecond of the day, one multiply fewer, they fit there too, and the declined
 entries are gone.
 
-Found: a calendar node over a guarded narrowed long is not in the IR fuzzer's mixed draw (row 578).
+Found: a calendar node over a guarded narrowed long is not in the IR fuzzer's mixed draw (row 579).
 `verify_double_division.py` ran with every row at its expected verdict, the four `TIME(p)`
 truncation rows and three rows for the NTZ time fields among them.
 

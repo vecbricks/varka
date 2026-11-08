@@ -103,6 +103,10 @@ public final class VarkaReproductionSuite {
         // A decimal column beside an int one widened to its lane.
         new IntArith(IntOp.ADD, Overflow.WRAP, new DecimalColumn(2, LaneType.LONG, 9),
             new WidenLane(new ColumnRef(0), LaneType.LONG)),
+        // The two words of a 128-bit decimal column (VARKA-359).
+        new IntArith(IntOp.ADD, Overflow.WRAP,
+            new VarkaVectorIR.DecimalWord(2, VarkaVectorIR.Word.LOW, 38),
+            new VarkaVectorIR.DecimalWord(2, VarkaVectorIR.Word.HIGH, 38)),
         // A decimal output over a long column's arithmetic.
         new WidenDecimal(new IntArith(IntOp.ADD, Overflow.WRAP, x,
             new LiteralSlot(0, LaneType.LONG))),
@@ -254,6 +258,10 @@ public final class VarkaReproductionSuite {
     assertThrows(IllegalArgumentException.class,
         () -> VarkaCanonicalIr.parse("dec:0:long:p19"));
     assertThrows(IllegalArgumentException.class, () -> VarkaCanonicalIr.parse("dec:0:long:9"));
+    // A decimal word names its word and a precision from 19 to 38.
+    assertThrows(IllegalArgumentException.class, () -> VarkaCanonicalIr.parse("decw:0:p38"));
+    assertThrows(IllegalArgumentException.class, () -> VarkaCanonicalIr.parse("decw:0:mid:p38"));
+    assertThrows(IllegalArgumentException.class, () -> VarkaCanonicalIr.parse("decw:0:lo:p18"));
   }
 
   private static VarkaReproduction sample(VarkaReproduction.KernelCall call) {

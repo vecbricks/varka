@@ -1401,6 +1401,7 @@ final class VarkaBodyEmitter {
     // slot stays untouched, per the interface contract.
     Set<VarkaVectorIR> computed = new HashSet<>();
     s.emittedUnshared.clear();
+    s.pairLoaded.clear();
     s.emittedFragments.clear();
     planFragmentsReadingMonth(outputs, outputIdx, dense, s, analysis);
     var roots = new ArrayList<VarkaVectorIR>();

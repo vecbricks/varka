@@ -277,6 +277,29 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
     Row(s"if($a IS NULL, $b, $a)"),
     Row(s"coalesce($a, $b)"))
 
+  /**
+   * The null family over one floating column pair (VARKA-578): the rewritten conditionals whose
+   * null is the floating lane's own, a broadcast zero with its validity clear. `nullif` and
+   * `nullifzero` compare under the lane's equality, so NaN equals NaN and -0.0 equals 0.0.
+   */
+  private def floatingNullFamily(a: String, b: String, zeroRows: Boolean): Seq[Row] = Seq(
+    Row(s"nvl($a, $b)", s"rewritten to coalesce($a, $b)"),
+    Row(s"ifnull($a, $b)"),
+    Row(s"nvl2($a, $b, $a)", s"rewritten to if($a IS NOT NULL, $b, $a)"),
+    Row(s"nullif($a, $b)", s"rewritten to if($a = $b, NULL, $a): NaN equals NaN and -0.0 equals "
+      + "0.0, and the null is the lane's zero with its validity clear, so the kernel is "
+      + "masked-only"),
+    Row(s"CASE WHEN $a < $b THEN $a END", "the missing ELSE is the null of the floating lane"),
+    Row(s"if($a IS NULL, $b, NULL)")) ++ (if (zeroRows) Seq(
+    Row(s"nullifzero($a)", s"rewritten to if($a = 0, NULL, $a): -0.0 is zero, NaN is not"),
+    Row(s"zeroifnull($a)", s"rewritten to coalesce($a, 0)")) else Seq.empty)
+
+  /** The floating predicates of the null family: `BETWEEN` and `equal_null`. */
+  private def floatingNullPredicates(a: String, b: String, suffix: String): Seq[Row] = Seq(
+    Row(s"$a BETWEEN $b AND 5.5$suffix", "two comparisons in Spark's order and an AND: a NaN is "
+      + "above every bound"),
+    Row(s"equal_null($a, $b)", "rewritten to the null-safe equality, under the lane's equality"))
+
   private val families: Seq[Family] = Seq(
     Family("Day arithmetic", predicates = false, Seq(
       Row("date_add(d, 3)"),
@@ -878,7 +901,8 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
       Row("coalesce(dt, dt2)"))),
 
     // The choices over INT, whose branches take the int operand's rule at a choice's position
-    // only (VARKA-333 3.1), and the null branch on the six types of the int and long lanes: a
+    // only (VARKA-333 3.1), and the null branch on the six types of the int and long lanes (the
+    // narrow, floating and NTZ ones are their own families', VARKA-329 and VARKA-578): a
     // CASE WHEN without an ELSE, IF over NULL, and nullif and nullifzero, which the optimizer
     // rewrites to that IF (3.2). A kernel holding the null takes the masked body for every batch.
     // The extremes beside nulls hold greatest and least to their null-skipping blend: a sentinel
@@ -1040,6 +1064,39 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
       Row("CAST(ntz AS TIME(3)) < TIME'12:00:00'"),
       Row("year(ntz) = 2021", domain = Some(ntzFieldDays)),
       Row("dayofweek(ntz) = 2"))),
+
+    Family("Null family on floating columns", predicates = false,
+      floatingNullFamily("x", "x2", zeroRows = true) ++
+        floatingNullFamily("f", "f2", zeroRows = false)),
+    Family("Null family predicates on floating columns", predicates = true,
+      floatingNullPredicates("x", "x2", "D") ++ floatingNullPredicates("f", "f2", "F")),
+
+    // The null family over TIMESTAMP_NTZ and BOOLEAN columns (VARKA-578).
+    Family("Null family on TIMESTAMP_NTZ columns", predicates = false, Seq(
+      Row("nvl(ntz, ntz2)"),
+      Row("ifnull(ntz, ntz2)"),
+      Row("nvl2(ntz, ntz2, ntz)"),
+      Row("nullif(ntz, ntz2)", "the long lane's null: the NTZ is its microseconds"),
+      Row("CASE WHEN ntz < ntz2 THEN ntz END"))),
+    Family("Null family predicates on TIMESTAMP_NTZ columns", predicates = true, Seq(
+      Row("ntz BETWEEN ntz2 AND TIMESTAMP_NTZ '2000-01-01 00:00:00'"),
+      Row("equal_null(ntz, ntz2)"))),
+    // The function form of null-safe equality over the types whose operator form is covered
+    // above, so that every non-decimal type has a row under its census entry.
+    Family("equal_null on every other type", predicates = true, Seq(
+      Row("equal_null(y1, y2)"),
+      Row("equal_null(s1, s2)"),
+      Row("equal_null(i, 5)"),
+      Row("equal_null(t, t2)"),
+      Row("equal_null(dt, dt2)"),
+      Row("equal_null(ym, INTERVAL '1-2' YEAR TO MONTH)"))),
+    Family("Null family on BOOLEAN columns", predicates = true, Seq(
+      Row("nvl(b, b2)", "rewritten to coalesce(b, b2)"),
+      Row("ifnull(b, b2)"),
+      Row("nvl2(b, b2, b)"),
+      Row("nullif(b, b2)", "rewritten to if(b = b2, NULL, b): a boolean choice with a null arm"),
+      Row("b BETWEEN b2 AND b", "false before true: two orderings and an AND"),
+      Row("equal_null(b, b2)"))),
 
     // DOUBLE and FLOAT on their own lanes (VARKA-341), in Spark's order: NaN equals NaN and is
     // above every other value, and -0.0 equals 0.0. A comparison is the IEEE compare corrected
