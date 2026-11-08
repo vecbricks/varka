@@ -841,8 +841,9 @@ public final class VarkaReference {
     /** {@code node} with every conversion replaced by a column holding its answer. */
     VarkaVectorIR flatten(VarkaVectorIR node, int[] intLits, long[] longLits) {
       if (node instanceof WidenLane w) {
-        // Exact: the int child's value, which `mixedValue` already sign-extends.
-        return column(mixedOf(w.child(), intLits, longLits), LaneType.LONG);
+        // Exact: the child's value, which `mixedValue` already sign-extends, at the target's lane
+        // (the int lane for a narrow column under a null test, the long lane for an int).
+        return column(mixedOf(w.child(), intLits, longLits), w.target());
       }
       // A narrowing keeps the low bits of the target's width, sign-extended: Spark's LEGACY
       // CAST(bigint AS INT) and, at a narrow target, CAST(bigint AS TINYINT) (VARKA-332).
