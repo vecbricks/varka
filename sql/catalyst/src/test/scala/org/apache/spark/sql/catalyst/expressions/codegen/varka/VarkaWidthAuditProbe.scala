@@ -170,6 +170,7 @@ object VarkaWidthAuditProbe {
       seen.put(n, ())
       val own = n match {
         case c: VarkaVectorIR.DecimalColumn => Set(c.ordinal)
+        case c: VarkaVectorIR.DecimalWord => Set(c.ordinal)
         case _ => Set.empty[Int]
       }
       own ++ VarkaVectorIR.childrenOf(n).flatMap(walk)

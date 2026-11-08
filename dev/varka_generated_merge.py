@@ -324,6 +324,16 @@ def merge_json(base_text, ours_text, theirs_text, owed, rules):
 # row per form pair of a cast, so (from, to) repeats and its key takes the two type columns too.
 TSV_KEYS = {"types.tsv": 1, "census.tsv": 1, "casts.tsv": 2, "casts_fused.tsv": 4}
 
+# The rules are keyed by a file's name, but for a file whose name another generated file has:
+# the fuzz descriptor's table (`VarkaFuzzTypesSuite`) is a types.tsv too, keyed by its path.
+PATH_NAMES = {"sql/varka/fuzz/types.tsv": "fuzz/types.tsv"}
+TSV_KEYS["fuzz/types.tsv"] = 1
+
+
+def rule_name(repo_path):
+    """The key of `repo_path`'s merge rules: its name, or its entry in PATH_NAMES."""
+    return PATH_NAMES.get(repo_path, os.path.basename(repo_path))
+
 
 def lines_of(text, keepends=False):
     r"""A file's lines, split at "\n" alone: `str.splitlines` also splits at "\r", a form feed,
@@ -913,7 +923,7 @@ def driver(base_path, ours_path, theirs_path, repo_path):
         with open(p, encoding="utf-8", newline="") as f:
             return f.read()
 
-    name = os.path.basename(repo_path)
+    name = rule_name(repo_path)
     owed = Owed()
     real = False
     try:
@@ -1397,6 +1407,16 @@ def review_cases(expect, merged):
         with open(paths[1], encoding="utf-8", newline="") as f:
             t = f.read()
         expect(rc == 0 and t == "id\tx\nA\t1\nB\tf\rg\nZ\t2\n", f"20: the driver wrote {t!r}")
+    # 22. The fuzz descriptor's types.tsv has rules of its own, keyed by its path.
+    expect(
+        rule_name("sql/varka/fuzz/types.tsv") == "fuzz/types.tsv"
+        and rule_name("sql/varka/types.tsv") == rule_name("c/types.tsv") == "types.tsv",
+        "22: a path's rule name",
+    )
+    t, o = merged(
+        "fuzz/types.tsv", "# c\nid\tx\nA\t1\n", "# c\nid\tx\nA\t2\n", "# c\nid\tx\nA\t1\nB\t1\n"
+    )
+    expect(t == "# c\nid\tx\nA\t2\nB\t1\n" and not o, f"22: {t!r} {o}")
     # 7. Both sides change a generated block, on different lines, so merge-file is clean.
     with tempfile.TemporaryDirectory() as tmp:
 

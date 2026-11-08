@@ -34,7 +34,6 @@ import org.apache.spark.sql.types.DataTypes;
 import org.apache.spark.sql.types.DayTimeIntervalType;
 import org.apache.spark.sql.types.DayTimeIntervalType$;
 import org.apache.spark.sql.types.DecimalType;
-import org.apache.spark.sql.types.DecimalType$;
 import org.apache.spark.sql.types.TimeType;
 import org.apache.spark.sql.types.YearMonthIntervalType;
 import org.apache.spark.sql.types.YearMonthIntervalType$;
@@ -648,7 +647,7 @@ public final class VarkaTypes {
       case DECIMAL -> new Info(id, "dec", "DECIMAL(10, 2)",
           new Admission.ByPrecision(LaneType.LONG, List.of(
               new Admission.Band(VarkaVectorIR.DecimalColumn.MAX_LONG_PRECISION, 1, "347", true),
-              new Admission.Band(DecimalType$.MODULE$.MAX_PRECISION(), 2, "359", false))),
+              new Admission.Band(DecimalWords.MAX_PRECISION, 2, "359", false))),
           new Storage.DecimalSlot(),
           List.of(DataTypes.createDecimalType(10, 2), DataTypes.createDecimalType(30, 4)),
           // The decimal conformance suite is row 359's, over both representations, by its

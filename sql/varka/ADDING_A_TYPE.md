@@ -117,10 +117,18 @@ compares the kernel against it. A node the reference does not know is a node the
 check.
 Check: `build/sbt 'catalyst/testOnly *VarkaIrFuzzSuite'`.
 
-**9. Let the fuzzers draw it.** `VarkaIrGrammar` for the IR fuzzer, and the Spark-level fuzzer's
-fixture for the type's columns.
-Check: `build/sbt 'catalyst/testOnly *VarkaIrFuzzSuite'` and
-`build/sbt 'sql/testOnly *VarkaSparkFuzzSuite'`.
+**9. Let the fuzzers draw it.** The type's entry in `VarkaFuzzTypes` (a switch over `VarkaTypeId`,
+so the compiler asks for it) says per fuzzer whether the type is drawn: its IR site turns from
+`Owed` to `Present` with the leaf and the seeded sequence its trees come from (`VarkaIrGrammar`),
+its Spark site with the fixture's columns, and its `ValueSource` holds the values a column of it
+is filled with. A type draws in a sequence of its own seed, so that no committed corpus moves;
+`VarkaFuzzTypesSuite` fails until `sql/varka/fuzz/types.tsv` is regenerated
+(`VARKA_FUZZ_TYPES_REGEN=true build/sbt 'catalyst/testOnly *VarkaFuzzTypesSuite'`).
+Check: `build/sbt 'catalyst/testOnly *VarkaFuzzTypesSuite *VarkaIrFuzzSuite'`,
+`build/sbt 'sql/testOnly *VarkaSparkFuzzSuite'` and
+`python3 dev/varka_bytes_moved.py origin/master --ignore option_arms`, which must print nothing:
+a new coverage row moves `option_arms` and nothing else of the existing keys, and a new sequence
+adds keys.
 
 **10. Admit it in and out of Arrow.** The lane's entry in `VarkaLaneArrow.of`: each Arrow vector
 class the lane's types arrive in and are written to, the Spark types stored in it, and how a
@@ -184,7 +192,8 @@ Two kinds of site exist (see `plans/m8/VARKA-474.md` 1). Exhaustive switches the
 the IR's per-kind dispatch, `Lane.of`, the registry's entries and `VarkaLaneArrow.of` (both over
 `VarkaTypeId`), and the per-lane switches of the reference evaluator and the fuzz grammar. And
 sites a new lane compiles without, which `dev/varka_new_lane.py --check <LANE>` walks: per lane,
-the registry's admission, the template warm-up, a fuzz-grammar leaf and a benchmark; per Spark
+the registry's admission, the template warm-up, a fuzz-grammar leaf (read from the descriptor
+`sql/varka/fuzz/types.tsv`) and a benchmark; per Spark
 type on the lane, a coverage column, the width audit's shapes and the census, so a new type on an
 existing lane is checked once the registry puts it on the lane. It prints each site with no case,
 and a gap a later row owns as owed to that row. Sites keyed by node kind rather than by lane -

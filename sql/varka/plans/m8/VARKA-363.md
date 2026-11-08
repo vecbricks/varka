@@ -230,6 +230,13 @@ same network. The emitter takes the constant for the shape's own bound, from the
 column headroom, `VARKA-362.md` 2.1); only the words from bit `L` up are kept, and the low columns
 are still summed for their carries, no truncated product being proven (`READING_M8_PAPERS.md` 2).
 
+*7 November 2026, 363a0:* the constants are not derived for each shape's own bound but for ten
+rungs, `2^64 - 1`, `2^96 - 1`, `10^38 - 1`, `2 * 10^38 - 2`, `2^128 - 1`, `2^160 - 1`, `2^192 - 1`,
+`2^224 - 1`, `(10^38 - 1)^2` and `2^256 - 1` (the 224-bit rung added in review on 8 November, so
+a product bound in `(2^192, 2^224]` takes seven dividend limbs, not eight), and a shape takes the least rung at or above its bound, so the
+proof file states a finite table and still covers every shape; a shape just under a rung's bound
+may carry a limb more than its own bound would need.
+
 **Exact, or declined: exact.** For every `k` and bound the compiler meets, the constant is proven
 over the whole bound by the proof file (3 item 6), and the proof renderer finds the first `N`
 past the bound where it fails; no shape needs a decline band for the arithmetic. A shape still
@@ -349,6 +356,11 @@ held by `VarkaWarmupReachSuite`.
    `widerDecimalType` over every `(p1, s1, p2, s2)` under both settings hold the compiler's caller,
    `k`, bound and check to 2.5's table and to `results/VARKA-363-shapes.txt`'s counts, the
    coercion's exemption included. A pure function, under a second.
+
+   *363a0, 8 November 2026:* scored loosely: the sweep was not timed alone, and the whole of
+   `VarkaDecimalScaleSuite` (the sweep, the table against the magic file, the shift and first
+   failure of every entry, and the rescale over the table against `BigDecimal`) runs in 1.3 to
+   1.4 s on the laptop, so the sweep is at most that, a ratio of at most about 1.4.
 5. **One kernel where it should be**: a dead-check row has one shape hash under LEGACY, ANSI and
    TRY, a live one two (LEGACY and TRY, ANSI).
 6. **The SMT proofs**, `sql/varka/proofs/decimal_scale.smt2`, its own file under Z3 and cvc5
@@ -359,6 +371,28 @@ held by `VarkaWarmupReachSuite`.
    check exactly `|q| <= 10^38 - 1`; item 0.7's dead-check and exemption bounds per shape class;
    the lemma of 2.4 per `(D, k)`; and the planted carry order as a `sat` witness. The file's times
    stated before and after, against the milestone plan's risk on proof time.
+
+   *363a0, 7 November 2026:* the file holds the constants' claims per entry of nine dividend rungs
+   by 39 values of `k` (the claim over `[0, Nmax]`, over `[0, first failure - 1]`, and the failure
+   itself as a `sat` witness, the first failure computed in closed form by
+   `VarkaDecimalScale.Entry.firstFailure`), identities (1) and (2) per `k` with a refuted
+   neighbour each, the lemma of 2.4 per `(D, k)` for `D` from 40 to 76, and item 0.7's bound per
+   quotient digit count and `k`, with the bound reached at 38 digits. 4208 checks, all linear:
+   **Z3 1.3 s and cvc5 3.4 s** on the laptop (`dev/varka_prove.sh --solver both`), against the
+   milestone plan's risk of a long proof file; there is no earlier figure, the file being new. The
+   whole division as one check, `(floor(N * c / 2^L) + 1) / 2` against the half-up quotient with
+   the pre-shift inside, took Z3 56 s over the file and cvc5 past a 300 s limit (it answers
+   `unknown` at 256 bits), so it is not stated: the claim, (1) and (2) are each instant and
+   compose, and `VarkaDecimalScaleSuite` holds the composition to `BigDecimal` at every
+   `(k, rung)`. The carry network of `N * c`, the check at full width and the planted carry
+   stay with 363a.
+
+   *363a0 review, 8 November 2026:* the claim over `[0, Nmax]` is dropped, since the claim to
+   `first failure - 1` covers it (the renderer refuses an entry whose first failure is not past
+   `Nmax`, and the label still names `Nmax`), and the `2^224 - 1` rung is added: ten rungs, 390
+   entries, **3935 checks**, linear in substance though declared `QF_NIA` like the other integer
+   files, **Z3 1.3 to 1.5 s and cvc5 3.8 to 5.5 s** at load 10 to 11, against 1.3 s and 3.4 s
+   for 4208 checks above.
 7. **Coverage rows**, a "DECIMAL rescale down" family: `d19s8 * d19s8b` (128-bit dividend),
    `d38s10 * d38s10b` (256-bit, live check), `d38s38 * d38s38b` (`k = 39`), `d38s10 + d38s10b`,
    `d38 + d38s38` (class C at unequal scales), `try_multiply(d38s10, d38s10b)`, as filters now and
@@ -401,25 +435,38 @@ Predictions, registered before the spike and the build:
 1. **The baseline addition** (4).
 2. **The spike loops** (2.1), with 359's spike and rows 360 to 362's loops; the verdict in
    section 10.
-3. **363a, the helper and its 128-bit callers**: the node, the constant table and its proof file,
-   the lemma, the exemption's proof for 364's coercion cast, the class C sums at equal scales, the
-   cut products with `p1 + p2 <= 38`, tests 1, 4, 5 and 6, the filter coverage rows. Needs 359a,
-   360b and 362a.
-4. **363b, the 256-bit callers**: the cut products with `p1 + p2 >= 39`, the live check through
+3. **363a0, the constant table and its proof, needing no pair, node or emitter change** (split off
+   on 7 November 2026, by the owner's word, to land while 359a's pair layout does):
+   `VarkaDecimalScale`, the table of 2.3 by `(k, bound)` with the limbs of `c` and the shift `L`,
+   each shape taking the entry of the least bound above its own, and its reference arithmetic over
+   `BigInteger` and over 32-bit limbs, the test oracle of every later part; `decimal_scale.smt2`,
+   rendered from the table (3 item 6): the constants' claims and first failures, identities (1) and
+   (2), item 0.7's bounds and the lemma of 2.4; test 4's sweep of the result types against Spark's
+   rule, held to 2.5's table and `results/VARKA-363-shapes.txt`; test 1's values over the reference
+   (the divisor table, the ties and the bound at every `k` and rung; Trino's fixtures and the null
+   patterns need a kernel and stay with 363a); and the proof's time, stated in 3 item 6. Needs
+   nothing.
+4. **363a, the helper and its 128-bit callers**: the node, the emission of the constant's multiply
+   (the carry network, the check at full width and the planted carry as 3 item 6's remaining
+   checks, added to `decimal_scale.smt2`), the exemption's use for 364's coercion cast, the class C
+   sums at equal scales, the cut products with `p1 + p2 <= 38`, test 1 run through kernels, test
+   4's last step (the compiler's caller held to the sweep), test 5, the filter coverage rows. Needs
+   363a0, 359a, 360b and 362a.
+5. **363b, the 256-bit callers**: the cut products with `p1 + p2 >= 39`, the live check through
    row 481's mode (after 481 and 360c), the SPARK-45786 port, tests 2 and 3. Needs 362b.
-5. **363c, class C at unequal scales**: `WIDE` and `SPLIT` behind `decimalScaleDownAdd`.
-6. **363d, after 359b's store**: the projections, the measurement against the baseline at both
+6. **363c, class C at unequal scales**: `WIDE` and `SPLIT` behind `decimalScaleDownAdd`.
+7. **363d, after 359b's store**: the projections, the measurement against the baseline at both
    widths and 512 bits on the laptop, the predictions scored.
 
 | file | what |
 |---|---|
 | `varka/VarkaVectorIR.java`, `varka/VarkaVectorWalk.java`, `varka/Slots.java` | `ScaleDown` |
-| `varka/VarkaDecimalScale.java` (new) | the constant table, read by the emitter and the proofs |
+| `varka/VarkaDecimalScale.java` (new, 363a0) | the constant table and its reference arithmetic, read by the emitter, the proofs and the tests |
 | `varka/VarkaEmitOption.java`, `varka/VarkaEmitOptions.java` | `decimalScaleDownAdd` |
 | `VarkaDecimalCompiler.java` (rows 348 and 349's) | 2.5's callers |
 | `varka/VarkaEmitBudget.java`, the cost register, the warm-up | weight, feature, reach |
-| `sql/varka/proofs/decimal_scale.smt2`, `VarkaProofFiles.java` | 3 item 6 |
-| tests | rescale table, callers, SPARK-45786 port, type sweep, one-kernel test, coverage rows |
+| `sql/varka/proofs/decimal_scale.smt2`, `VarkaProofFiles.java` | 3 item 6, the table's part in 363a0 |
+| tests | rescale table (over the reference in 363a0), callers, SPARK-45786 port, type sweep (363a0), one-kernel test, coverage rows |
 | benchmark | the baseline sections, the spike loops, their results files |
 | generated | `coverage.json`, `docs/sql-varka.md`, `emitted_bytes.json`, `census.tsv` |
 
@@ -430,6 +477,9 @@ port a thousand rows; the proof file has a constant per `(k, bound)` the compile
 the lemma's cases, priced from its
 spiked form at VARKA-245's observed ratio in the calibration table, its time stated before it
 joins the gate. It rests on 347 to 349, 359, 360b and 360c, 361, 362, 481 and 503.
+
+*7-8 November 2026, 363a0:* splitting 363a0 off 363a makes it six pull requests: 363a0 about two days
+out of 363a's four, leaving 363a about three. The type sweep's time is scored with 3 item 4.
 
 ## 6. What it unlocks in the census
 

@@ -287,8 +287,8 @@ class VarkaFloatingLaneSuite extends QueryTest with VarkaSharedSessions with Var
     // Every condition as a filter and as a choice: the filter fuses whole, the null tests the
     // optimizer infers beside a comparison included, and the choice shows the condition's own
     // three-valued answer, which a filter folds unknown into false and hides - a value of its
-    // own for each of true, false and unknown. (A `BOOLEAN` output is no lane's yet, and a CASE
-    // with no ELSE waits for a typed null leaf, row 333.)
+    // own for each of true, false and unknown. (A `BOOLEAN` output is no lane's yet; a CASE
+    // with no ELSE is the floating lane's null, whose rows are the coverage suite's, VARKA-578.)
     Seq(s"$a < $b", s"$a <= $b", s"$a > $b", s"$a >= $b", s"$a = $b", s"$a <> $b",
       s"$a <=> $b", s"NOT ($a < $b)", s"isnan($a)", s"NOT isnan($a)", s"$a = $zero",
       s"$a < $nan", s"$a >= $nan", s"$a = $nan", s"$a <=> $nan", s"$a IS NULL OR $a > $b",

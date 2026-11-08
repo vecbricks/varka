@@ -214,10 +214,21 @@ public final class VarkaCanonicalIr {
 
   /**
    * {@code col:N} or {@code lit:N}, each with {@code :long} on the long lane, or
-   * {@code dec:N:long:pP}, a decimal column, which always names its lane and its precision.
+   * {@code dec:N:long:pP}, a decimal column, which always names its lane and its precision, or
+   * {@code decw:N:lo:pP} and {@code decw:N:hi:pP}, the two words of a 128-bit one.
    */
   private static VarkaVectorIR leaf(String token) {
     String[] parts = token.split(":");
+    if (parts[0].equals("decw")) {
+      if (parts.length != 4 || !parts[3].startsWith("p")
+          || !(parts[2].equals("lo") || parts[2].equals("hi"))) {
+        throw new IllegalArgumentException("not a decimal word leaf: '" + token + "'");
+      }
+      // The record refuses a precision outside 19 to 38.
+      return new VarkaVectorIR.DecimalWord(Integer.parseInt(parts[1]),
+          parts[2].equals("lo") ? VarkaVectorIR.Word.LOW : VarkaVectorIR.Word.HIGH,
+          Integer.parseInt(parts[3].substring(1)));
+    }
     if (parts[0].equals("dec")) {
       if (parts.length != 4 || !parts[3].startsWith("p")) {
         throw new IllegalArgumentException("not a decimal leaf: '" + token + "'");

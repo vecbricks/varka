@@ -21,13 +21,18 @@ import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
+import java.time.temporal.IsoFields;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.ToLongFunction;
 import java.util.stream.IntStream;
 
 import org.junit.jupiter.api.DisplayName;
@@ -39,7 +44,6 @@ import scala.jdk.javaapi.CollectionConverters;
 import org.apache.spark.sql.catalyst.expressions.Attribute;
 import org.apache.spark.sql.catalyst.expressions.Expression;
 import org.apache.spark.sql.catalyst.expressions.codegen.CompiledVarkaProjection;
-import org.apache.spark.sql.catalyst.expressions.codegen.VarkaDecline;
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaExpressionCompiler;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaKernelChecks.LongBatch;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaKernelChecks.SparkAnswers;
@@ -61,8 +65,9 @@ import org.apache.spark.sql.types.DataTypes;
  * every mode, and a batch with a day past the guard declines in LEGACY, ANSI and TRY alike, so
  * that the row engine raises or nulls on the row. {@code CAST(ntz AS DATE)} is the floor division
  * of {@code long_divide.smt2}, run here at the long range's extremes and at the day's boundaries,
- * against Spark and against {@code java.time}. And a date field of an NTZ value still declines,
- * which row 340 changes.
+ * against Spark and against {@code java.time}. The fields of an NTZ value (VARKA-340) are tested
+ * here too, at the same widths: the calendar fields over the guarded date, the weekday forms and
+ * the time of day over every long.
  *
  * <p>In its own JVM: each cast runs a kernel of both lanes, whose int species is the long species'
  * width beside the int lane's own.
@@ -218,22 +223,147 @@ public final class VarkaTimestampNtzCastSuite {
     }
   }
 
-  @Test
-  @DisplayName("a date field of an NTZ value declines: the cast to DATE has no day range for the "
-      + "calendar, which row 340 gives it")
-  void dateFieldDeclines() {
-    Expression year = resolve("year(ntz)", true);
-    var declines = VarkaExpressionCompiler.declines(
-        CollectionConverters.asScala(List.of(VarkaSqlResolve.named(year, "c"))).toSeq(),
-        CollectionConverters.asScala(columns).toSeq(), VarkaMatrixRuns.BASE);
-    VarkaDecline decline = declines.get(0);
-    assertTrue(decline != null, "year(ntz) fuses");
-    assertEquals(YEAR_OF_NTZ_DECLINE, decline.reason(), year.sql());
+  // -------------------------------------------------------------------------------------------
+  // The fields of a TIMESTAMP_NTZ (VARKA-340)
+  // -------------------------------------------------------------------------------------------
+
+  /** The long lane's counts the fields run at: the default, and 128 and 512 bits. */
+  private static final int[] LANES = {0, 2, 8};
+
+  /** The calendar fields: exact over the date only inside the guard {@code ntzDay} puts on it. */
+  private static final List<String> CALENDAR_FIELDS = List.of("year(ntz)", "month(ntz)",
+      "day(ntz)", "quarter(ntz)", "dayofyear(ntz)", "weekofyear(ntz)",
+      "extract(YEAROFWEEK FROM ntz)", "last_day(ntz)", "trunc(ntz, 'YEAR')",
+      "trunc(ntz, 'MONTH')", "trunc(ntz, 'QUARTER')");
+
+  /** The fields that answer every long: the weekday forms, and the time of day. */
+  private static final List<String> OPEN_FIELDS = List.of("dayofweek(ntz)", "weekday(ntz)",
+      "extract(DAYOFWEEK_ISO FROM ntz)", "next_day(ntz, 'MONDAY')", "trunc(ntz, 'WEEK')",
+      "hour(ntz)", "minute(ntz)", "second(ntz)", "CAST(ntz AS TIME(6))", "CAST(ntz AS TIME(3))",
+      "CAST(ntz AS TIME(0))");
+
+  /** The least and greatest count the date guard admits: its first and last day, whole. */
+  private static final long GUARD_LO = (long) VarkaRangeAnalysis.NTZ_MIN_DAYS * DAY;
+  private static final long GUARD_HI = ((long) VarkaChrono.NARROW_MAX_DAYS + 1) * DAY - 1;
+
+  /** The dates the fields are read at: the calendar's seams and the guard's own ends. */
+  private static final List<LocalDate> SEAMS = List.of(LocalDate.of(1970, 1, 1),
+      LocalDate.of(1969, 12, 31), LocalDate.of(2000, 2, 29), LocalDate.of(1900, 3, 1),
+      LocalDate.of(2100, 3, 1), LocalDate.of(1582, 10, 15), LocalDate.of(1582, 10, 4),
+      LocalDate.of(1, 1, 1), LocalDate.of(9999, 12, 31), LocalDate.of(2021, 1, 3),
+      LocalDate.of(2018, 12, 31), LocalDate.of(2020, 12, 31), LocalDate.of(2024, 2, 29),
+      LocalDate.of(-12799, 3, 1), LocalDate.of(-12799, 3, 2), LocalDate.of(33134, 8, 15),
+      LocalDate.of(33134, 8, 14), LocalDate.of(-4, 2, 29));
+
+  /** The times of a day: its first and last microsecond, the seams of the hour, minute, second. */
+  private static final long[] TIMES = {0, 1, 999_999, 1_000_000, 59_999_999, 60_000_000,
+      3_599_999_999L, 3_600_000_000L, 43_200_000_000L, 45_296_789_012L, DAY - 1};
+
+  /** The counts inside the guard: each seam date at each time, before and after the epoch. */
+  private static long[] insideGuard() {
+    var values = new ArrayList<Long>();
+    for (LocalDate date : SEAMS) {
+      for (long time : TIMES) {
+        values.add(date.toEpochDay() * DAY + time);
+      }
+    }
+    for (long v : new long[] {-1, -DAY, -DAY - 1, GUARD_LO, GUARD_HI}) {
+      values.add(v);
+    }
+    return values.stream().mapToLong(Long::longValue).toArray();
   }
 
-  /** Why {@code year(ntz)} declines today; row 340 makes it fuse. */
-  private static final String YEAR_OF_NTZ_DECLINE =
-      "day producer the calendar range analysis does not bound";
+  /** {@link #insideGuard} and the long range's ends, for the fields that answer every long. */
+  private static long[] wholeLong() {
+    var values = new ArrayList<Long>();
+    for (long v : insideGuard()) {
+      values.add(v);
+    }
+    // The lowest and highest whole days of the long range: the days its ends fall in are partial.
+    long lowDay = Math.floorDiv(Long.MIN_VALUE, DAY) + 1;
+    long highDay = Math.floorDiv(Long.MAX_VALUE, DAY) - 1;
+    for (long v : new long[] {Long.MIN_VALUE, Long.MIN_VALUE + 1, Long.MAX_VALUE,
+        Long.MAX_VALUE - 1, GUARD_LO - 1, GUARD_HI + 1, Math.multiplyExact(lowDay, DAY) - 1,
+        Math.multiplyExact(lowDay, DAY), Math.multiplyExact(highDay + 1, DAY) - 1,
+        Math.multiplyExact(highDay + 1, DAY)}) {
+      values.add(v);
+    }
+    return values.stream().mapToLong(Long::longValue).toArray();
+  }
+
+  @Test
+  @DisplayName("a calendar field of an NTZ value answers every count inside the date guard, as "
+      + "Spark does, and declines a batch holding a live count past either end")
+  void calendarFieldsAtTheGuard() {
+    long[] inside = insideGuard();
+    for (boolean ansi : new boolean[] {false, true}) {
+      for (String sql : CALENDAR_FIELDS) {
+        for (int lanes : LANES) {
+          Kernel k = kernel(resolve(sql, ansi), lanes);
+          String where = sql + " at " + lanes + " long lanes, ansi " + ansi;
+          assertTrue(k.answers(inside), where + " declined a count inside the guard");
+          for (long past : new long[] {GUARD_LO - 1, GUARD_HI + 1, Long.MIN_VALUE,
+              Long.MAX_VALUE}) {
+            assertNotEquals(0, k.status(new long[] {0, past, 1}),
+                where + " answered a batch holding the count " + past);
+          }
+          // A null row holding a count past the guard does not decline its batch, which is the
+          // masked body's; the dense body, handed the same values with the null dropped, does.
+          var statuses = k.eachBodyStatus(new long[] {0, 1}, Long.MIN_VALUE);
+          assertEquals(0, statuses.get(0), where + " declined a null row's stored value");
+          assertNotEquals(0, statuses.get(1), where + " ignored a live count past the guard");
+        }
+      }
+    }
+  }
+
+  @Test
+  @DisplayName("the weekday forms and the time of day of an NTZ value answer every long, the "
+      + "long range's ends included, as Spark does")
+  void openFieldsAtTheLongRange() {
+    long[] values = wholeLong();
+    for (boolean ansi : new boolean[] {false, true}) {
+      for (String sql : OPEN_FIELDS) {
+        for (int lanes : LANES) {
+          Kernel k = kernel(resolve(sql, ansi), lanes);
+          assertTrue(k.answers(values), sql + " declined a batch at " + lanes + " long lanes, "
+              + "ansi " + ansi + "; it cannot fail");
+        }
+      }
+    }
+  }
+
+  @Test
+  @DisplayName("the fields over a sampled walk of every day the guard admits, against java.time: "
+      + "a day in 211, at a time of day drawn from the day")
+  void fieldsAgainstJavaTime() {
+    int first = VarkaRangeAnalysis.NTZ_MIN_DAYS;
+    int last = VarkaChrono.NARROW_MAX_DAYS;
+    var counts = new ArrayList<Long>();
+    for (long day = first; day <= last; day += 211) {
+      counts.add(day * DAY + Math.floorMod(day * 7_919_003_001L, DAY));
+    }
+    for (long day = first; day < first + 800; day++) {
+      counts.add(day * DAY + (day % 2 == 0 ? 0 : DAY - 1));
+      counts.add((last - (day - first)) * DAY + (day % 2 == 0 ? DAY - 1 : 0));
+    }
+    long[] values = counts.stream().mapToLong(Long::longValue).toArray();
+    Map<String, ToLongFunction<LocalDateTime>> fields = new LinkedHashMap<>();
+    fields.put("year(ntz)", LocalDateTime::getYear);
+    fields.put("month(ntz)", LocalDateTime::getMonthValue);
+    fields.put("day(ntz)", LocalDateTime::getDayOfMonth);
+    fields.put("dayofyear(ntz)", LocalDateTime::getDayOfYear);
+    fields.put("weekofyear(ntz)", t -> t.get(IsoFields.WEEK_OF_WEEK_BASED_YEAR));
+    fields.put("extract(YEAROFWEEK FROM ntz)", t -> t.get(IsoFields.WEEK_BASED_YEAR));
+    fields.put("hour(ntz)", LocalDateTime::getHour);
+    fields.put("minute(ntz)", LocalDateTime::getMinute);
+    fields.put("second(ntz)", LocalDateTime::getSecond);
+    fields.put("CAST(ntz AS TIME(6))", t -> t.toLocalTime().toNanoOfDay());
+    fields.forEach((sql, field) -> {
+      Kernel k = kernel(resolve(sql, true), 0);
+      assertTrue(k.answersJavaTime(values, field), sql + " differs from java.time");
+    });
+  }
 
   // -------------------------------------------------------------------------------------------
   // Running a kernel
@@ -247,13 +377,14 @@ public final class VarkaTimestampNtzCastSuite {
     final byte[] bytes;
     final VarkaSparkOracle oracle;
 
-    Kernel(Expression expr, CompiledVarkaProjection plan) {
+    Kernel(Expression expr, CompiledVarkaProjection plan, int lanes) {
       this.expr = expr;
       this.plan = plan;
       this.className = "org.apache.spark.sql.varka.execution.VarkaNtzCast"
           + CLASS_COUNTER.incrementAndGet();
       this.bytes = VarkaLoopEmitter.emit(className, plan.outputs(), plan.inputOrdinals().size(),
-          plan.numLiterals(), null, null, VarkaMatrixRuns.BASE);
+          plan.numLiterals(), null, null,
+          lanes == 0 ? VarkaMatrixRuns.BASE : VarkaMatrixRuns.BASE.withLanesOverride(lanes));
       var input = columns.get(plan.inputOrdinals().get(0));
       this.oracle = new VarkaSparkOracle(CollectionConverters.asScala(List.of(expr)).toSeq(),
           CollectionConverters.asScala(List.of(input)).toSeq());
@@ -285,6 +416,45 @@ public final class VarkaTimestampNtzCastSuite {
           plan.outputs(), 1, longLits(), intLits(), batch(values), false, sparkAnswers(oracle));
     }
 
+    /** Whether the kernel answers {@code values} as {@code field} of their date-time says. */
+    boolean answersJavaTime(long[] values, ToLongFunction<LocalDateTime> field) {
+      var answers = new SparkAnswers() {
+        @Override
+        public VarkaKernelChecks.Answer answer(int output, long[] row, boolean[] isNull) {
+          if (isNull[0]) {
+            return new VarkaKernelChecks.Answer.Null();
+          }
+          long seconds = Math.floorDiv(row[0], 1_000_000L);
+          int nanos = (int) Math.floorMod(row[0], 1_000_000L) * 1000;
+          return new VarkaKernelChecks.Answer.Value(
+              field.applyAsLong(LocalDateTime.ofEpochSecond(seconds, nanos, ZoneOffset.UTC)));
+        }
+
+        @Override
+        public String sql(int output) {
+          return expr.sql();
+        }
+      };
+      return VarkaKernelChecks.runAndCompareLong(className + " " + expr.sql(), className, bytes,
+          plan.outputs(), 1, longLits(), intLits(), batch(values), false, answers);
+    }
+
+    /**
+     * The status of each body over {@code valid} rows and then one null row holding
+     * {@code underNull}: the masked body's first, then the dense body's over the same values with
+     * the null dropped.
+     */
+    List<Integer> eachBodyStatus(long[] valid, long underNull) {
+      int n = valid.length + 1;
+      var data = new long[1][n];
+      var nulls = new boolean[1][n];
+      System.arraycopy(valid, 0, data[0], 0, valid.length);
+      data[0][n - 1] = underNull;
+      nulls[0][n - 1] = true;
+      return VarkaKernelChecks.runEachBodyLongStatus(className + " " + expr.sql(), className,
+          bytes, plan.outputs(), 1, longLits(), new LongBatch(n, nulls, data, false));
+    }
+
     /** The kernel's status over {@code values}: non-zero when it declines the batch. */
     int status(long[] values) {
       return VarkaKernelChecks.runAndCompareLongStatus(className + " " + expr.sql(), className,
@@ -293,8 +463,13 @@ public final class VarkaTimestampNtzCastSuite {
   }
 
   private Kernel kernel(Expression cast) {
-    return new Kernel(cast, compile(cast).orElseThrow(() ->
-        new AssertionError(cast.sql() + " declines")));
+    return kernel(cast, 0);
+  }
+
+  /** {@code expr} compiled and emitted at {@code lanes} long lanes, or at the default for 0. */
+  private Kernel kernel(Expression expr, int lanes) {
+    return new Kernel(expr, compile(expr).orElseThrow(() ->
+        new AssertionError(expr.sql() + " declines")), lanes);
   }
 
   private static scala.collection.immutable.Seq<Option<Object>> rowOf(long v) {
