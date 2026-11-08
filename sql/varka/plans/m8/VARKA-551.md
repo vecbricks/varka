@@ -71,6 +71,22 @@ Against master at `d932baa1931`.
    **[I]** It decides whether 11.4's rule "two long lanes on x86 is the fallback" is the whole width
    rule on AVX2 at 256 bits (section 2.4, question 1).
 
+   *Read on 8 November 2026, as the owner's answer to question 1 asked:* it does not reach it.
+   `Long256Vector.rearrange(s, v)` (`Long256Vector.java:459-465`) calls
+   `LongVector.rearrangeTemplate(shuffletype, shuffle, v)` (`LongVector.java:2333-2353`), which is
+   two one-vector `VectorSupport.rearrangeOp` calls, one per source, and a `blend` under
+   `shuffle.laneIsValid()`, itself a compare `GE 0` of the shuffle's bits and a mask cast
+   (`Long256Vector.java:910-913`). Only `selectFrom(v1, v2)` calls `selectFromTwoVectorOp`
+   (`LongVector.java:2468-2470`). So the load's de-interleave is `Op_VectorRearrange`, refused on
+   x86 at two lanes and at 256 bits below AVX2 (`x86.ad:1726-1733`), `Op_VectorBlend`, refused only
+   below SSE4.1 (`:1469-1473`), and a compare, and 11.4's rule is the whole width rule for it; the
+   EPYC 7763 census agrees (`long.rearrange2` intrinsic at 256 bits, the fallback at 128,
+   `VARKA-157.md` 0 item 9). The one form that does reach `Op_SelectFromTwoVector` is the store's
+   option `decimalStore=SELECT_FROM` (row 157; the default is `REARRANGE`), native below 512 bits
+   only with `avx512vl` (`x86.ad:1833-1836`), so the Java fallback on the EPYC 7763 **[I, derived;
+   no EPYC cell of the store exists]**. `selectFromTwo` therefore serves that option's choice, not
+   359a's load.
+
 ### What differs from the row text
 
 - **The reading is not yet the record the row starts from.** The row says `VarkaHostIsa`'s reading
@@ -162,12 +178,10 @@ differs. It needs the module export on the executor, which Spark's module option
 ### 2.4 What row 359 gets
 
 The width rule (`VARKA-359.md` 11.4) reads `masksAtTwoLanes` and `rearrangeAtTwoLanes` from the
-session's record instead of `twoLaneMasksFallBack`; the same sessions, the same fusing. Item 7 is
-the open reading: if the pair's de-interleave reaches `Op_SelectFromTwoVector`, `selectFromTwo` is the
-fact that makes 256-bit AVX2 hosts decline the pair, and 11.4's table gains a row. The record carries
-the question so that 359a can ask it without a new read; answering it is a read of
-`Long256Vector`'s `rearrange(shuffle, v)` and the intrinsic's guard in `vectorIntrinsics.cpp`
-**[I]**, or a width-audit shape on the EPYC 7763, which already refuses what its C2 does not lower.
+session's record instead of `twoLaneMasksFallBack`; the same sessions, the same fusing. Item 7,
+read on 8 November 2026, found that the pair's de-interleave never reaches
+`Op_SelectFromTwoVector`, so 11.4's table gains no row; `selectFromTwo` is read by the store's
+`decimalStore=SELECT_FROM` option instead, which an AVX2 host should not choose.
 
 ## 3. Tests and proofs
 
