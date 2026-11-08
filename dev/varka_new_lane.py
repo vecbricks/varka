@@ -111,22 +111,16 @@ def spark_types():
     table (`sql/varka/types.tsv`, written by `VarkaTypesSuite` from `VarkaTypes`). A decimal is
     read on its lane in bands of precision (`by_precision`), and is checked there like the rest."""
     out = {}
-    for row in types_rows():
+    for row in tsv_rows(TYPES):
         if row["admission"] in ("on_lane", "by_precision"):
             out.setdefault(row["lane"], []).extend(row["spark"].split(","))
     return out
 
 
-def types_rows():
-    """The registry's rows, a dict per id, from `sql/varka/types.tsv`."""
-    lines = [line for line in read(TYPES).splitlines() if line and not line.startswith("#")]
-    header = lines[0].split("\t")
-    return [dict(zip(header, line.split("\t"))) for line in lines[1:]]
-
-
-def fuzz_rows():
-    """The IR fuzzer's descriptor, a dict per type id, from `sql/varka/fuzz/types.tsv`."""
-    lines = [line for line in read(FUZZ_TYPES).splitlines() if line and not line.startswith("#")]
+def tsv_rows(path):
+    """A committed table's rows, a dict per line by its header: the registry's
+    (`sql/varka/types.tsv`) or the fuzz descriptor's (`sql/varka/fuzz/types.tsv`)."""
+    lines = [line for line in read(path).splitlines() if line and not line.startswith("#")]
     header = lines[0].split("\t")
     return [dict(zip(header, line.split("\t"))) for line in lines[1:]]
 
@@ -135,7 +129,7 @@ def grammar_leaf_lanes():
     """The lanes the IR fuzzer draws a column leaf of, and for each other lane the rows its types'
     leaves are owed by. A lane is wired when some type of it has a `present` IR site."""
     drawn, owed = set(), {}
-    for row in fuzz_rows():
+    for row in tsv_rows(FUZZ_TYPES):
         if row["lane"] == "-":
             continue
         if row["ir"] == "present":
@@ -204,7 +198,7 @@ def check(lanes_wanted):
             print(f"{LANE}: no Lane constant names LaneType.{lane}")
             missing += 1
     census_name = {}
-    for row in types_rows():
+    for row in tsv_rows(TYPES):
         for t in row["spark"].split(","):
             census_name[t] = row["census"]
     for lane, names in types.items():

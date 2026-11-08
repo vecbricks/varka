@@ -16,11 +16,12 @@ rather than a read of the 1900-line `match` in `VarkaExpressionCompiler`, and th
 answer is as current as the last build.
 
 The generated files every type row rewrites (`coverage.json`, `emitted_bytes.json`,
-`width_audit.json`, `types.tsv`, the census and cast tables, the docs blocks) are never merged
-by hand. `sql/varka/.gitattributes` gives them a merge driver, `dev/varka_generated_merge.py`,
-which merges them per row and writes what it cannot compute (`option_arms`, the docs counts)
-from one side, listed as owed; after the merge, `dev/varka_regen_generated.sh` runs the owed
-regenerations in order, and CI's checks fail a stale file with its command (`VARKA-546.md`).
+`width_audit.json`, `types.tsv`, `fuzz/types.tsv`, the census and cast tables, the docs
+blocks) are never merged by hand. `sql/varka/.gitattributes` gives them a merge driver,
+`dev/varka_generated_merge.py`, which merges them per row and writes what it cannot compute
+(`option_arms`, the docs counts) from one side, listed as owed; after the merge,
+`dev/varka_regen_generated.sh` runs the owed regenerations in order, and CI's checks fail a
+stale file with its command (`VARKA-546.md`).
 
 Adding an expression is the most common change here and has its own recipe:
 `ADDING_AN_EXPRESSION.md`, ten numbered steps each ending in a command whose result

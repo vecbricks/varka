@@ -521,22 +521,35 @@ cross-type disagreement found is fixed or a named row.
 ### 10.1 Step 1 of 352a, the descriptor (7 November 2026)
 
 Built to 5 item 1: `VarkaFuzzTypes` and `VarkaFuzzTypesSuite` (catalyst, Java), an entry for each
-of the fourteen registry ids (the twelve the registry admits, `DECIMAL` with every site `Owed` to
-347, `TIMESTAMP` `NotApplicable`), `sql/varka/fuzz/types.tsv`, `dev/varka_new_lane.py` reading
-it in place of its regex over `new ColumnRef(` and its owed map for the fuzz grammar,
-`dev/varka_bytes_moved.py`, and the IR fuzzer's three column draws (`drawInt`, `drawLong`,
-`runOneMixed`) taking their cells from the `INT` and `LONG` value sources.
+of the fourteen registry ids (`TIMESTAMP` `NotApplicable`, by the registry's decline),
+`sql/varka/fuzz/types.tsv`, `dev/varka_new_lane.py` reading it in place of its regex over
+`new ColumnRef(` and its owed map for the fuzz grammar, `dev/varka_bytes_moved.py`, and the IR
+fuzzer's three column draws (`drawInt`, `drawLong`, `runOneMixed`) taking their cells from the
+value sources: the int corpus's day columns `DATE`'s and its month count `YM_INTERVAL`'s, the
+mixed draw's int columns `INT`'s, the long columns `LONG`'s.
 
 *What the descriptor says today.* IR site `Present` for `INT`, `DATE`, `YM_INTERVAL` (the int
-corpus) and `LONG`, `TIMESTAMP_NTZ`, `TIME`, `DT_INTERVAL` (the long one); `Owed` to 352 for `BYTE`
-and `SHORT`, to 341 for `FLOAT` and `DOUBLE`, to 331 for `BOOLEAN`, to 347 for `DECIMAL`. Spark
-site `Present` for the nine types the fixture holds a column of, `Owed` to 352 for `BOOLEAN`,
-`BYTE`, `SHORT`. A `Present` IR site is tested, not declared: 100 shapes of its seed must hold a
-column leaf of its lane.
+corpus) and `LONG`, `TIMESTAMP_NTZ`, `TIME`, `DT_INTERVAL` (the long one), for `BYTE`, `SHORT` and
+`BOOLEAN` (the cast sequence, `CAST_FUZZ_SEED`, its cells `castValue`'s) and for `DECIMAL` (the
+decimal values' sequence, `DECIMAL_VALUE_FUZZ_SEED`, its cells the decimal draw's); `Owed` to 341
+for `FLOAT` and `DOUBLE` alone. Spark site `Present` for the nine types the fixture's view holds a
+column of, `Owed` to 352 for `BOOLEAN`, `BYTE`, `SHORT` and to 347 for `DECIMAL`. A `Present` IR
+site is tested, not declared: 100 shapes of its seed must hold a node reading a column as the
+type, and no form passes a bare int column - integer arithmetic over a column for `INT` and
+`LONG`, a calendar field or day addition over one for `DATE`, `add_months`' month count for
+`YM_INTERVAL`, the lane's column for `BYTE` and `SHORT`, a boolean or decimal column. The long
+grammar has no node of `TIMESTAMP_NTZ`, `TIME` or `DT_INTERVAL`: their form is the long column
+and the table marks it `(untyped)`. A `Present` Spark site is held to the view by
+`VarkaSparkFuzzSuite`: each column is one of the view's output columns, of its SQL type, and
+derived exactly when it is not a `VALUES` column. A value source's uniform arm is of its kind
+(an integer by `within`, a finite float or double as its bits, a 0 or 1), from one value of the
+case's stream whatever the kind.
 
 *No draw moved.* The cells are the grammar's `within` draw from the case's own stream; the edge
-arm (one cell in `-Dvarka.fuzz.edges`, off by default) takes its coin and its edge from a stream of
-its own, and a test shows the main stream is where it was with the arm on or off. Proven on the
+arm (one cell in `-Dvarka.fuzz.edges`, off by default; a failure's label and replay carry it when
+it is on) takes its coin and its edge from a stream of its own, and a test shows the main stream
+is where it was with the arm on or off. The int corpus's bound of 2.5 million days clamps
+`DATE`'s last day, 2932896, to it. Proven on the
 fuzzer: `VarkaIrFuzzSuite`'s int, long and mixed draws with `-Dvarka.fuzz.answers`, 18603 batches
 before and after, byte-identical (`cmp`). `dev/varka_bytes_moved.py origin/master` prints nothing,
 `option_arms` included, and `dev/varka_regen_generated.sh --all` changed no file.
@@ -548,6 +561,8 @@ SQL types and the derived flag; the cell drawers, the pools, the catalyst gramma
 `tlpShapes` (empty lists) come with steps 2 and 3. The check that an `Owed` site names an open row
 is only that the row is spelled as one: the plan's status is prose, and reading it is not built.
 369's open point 1 (a drawer that renders a typed value as `VALUES` text) is still open: a
-`ValueSource` yields lane bits and nothing renders them. The table is not under the merge driver,
-whose rules are keyed by file name and would take `fuzz/types.tsv` for `types.tsv`; it is marked
-generated, and `varka_regen_generated.sh --all` rewrites it.
+`ValueSource` yields lane bits and nothing renders them. The table is under the merge driver,
+merged per row id like `types.tsv`; the driver keys its rules by file name but for this file,
+which it keys by its path (`PATH_NAMES`), so the two names do not collide.
+`varka_regen_generated.sh` rewrites it when owed and on `--all`, and the push check runs
+`VarkaFuzzTypesSuite` with the other generating suites.

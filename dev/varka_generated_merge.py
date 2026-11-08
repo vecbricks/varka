@@ -26,23 +26,23 @@
   dev/varka_generated_merge.py --list       # the generated files, one path a line
 
 Every type row regenerates the same few files - coverage.json, emitted_bytes.json,
-width_audit.json, types.tsv, the census and the cast tables, and the generated blocks of
-docs/sql-varka.md - so a merge of master into a branch conflicted in them whenever both sides
-added rows (VARKA-546). Most of each file is per row: a coverage expression keyed by its SQL,
-a row's method digests, a shape's width-audit refusals, a TSV row keyed by its leading columns.
-This driver merges those parts per key, exactly, and writes the file back in the form the suite
-writes (Jackson's pretty printer for the JSON files, which `render_json` reproduces byte for
-byte). Only the structures a suite's writer sorts (`RULES`) are merged as sorted; every other
-list keeps its sides' order. What it cannot compute - a digest over every row (`option_arms`),
-a docs block both sides changed, two rows added at the same place in a list whose order the
-suite's source decides, a value list inside one row that both sides changed, a TSV header both
-sides changed, a file whose keys repeat - it writes from one side, chosen so that the result
-is the same whichever side is "ours", and lists as owed. A JSON file whose rows were computed
-from code both sides changed (`code_both_sides`) is merged per key as a best guess and listed
-as owed too. The list goes to stderr and to
-`$(git rev-parse --git-path varka-regen-owed)`, tagged with the merge that owed them, which
-`dev/varka_regen_generated.sh` reads (through `--owed`, which skips the entries of an aborted
-or unrelated merge) to run only the owed regenerations, in order.
+width_audit.json, types.tsv, the fuzz descriptor's fuzz/types.tsv, the census and the cast
+tables, and the generated blocks of docs/sql-varka.md - so a merge of master into a branch
+conflicted in them whenever both sides added rows (VARKA-546). Most of each file is per row: a
+coverage expression keyed by its SQL, a row's method digests, a shape's width-audit refusals, a
+TSV row keyed by its leading columns. This driver merges those parts per key, exactly, and
+writes the file back in the form the suite writes (Jackson's pretty printer for the JSON files,
+which `render_json` reproduces byte for byte). Only the structures a suite's writer sorts
+(`RULES`) are merged as sorted; every other list keeps its sides' order. What it cannot compute
+- a digest over every row (`option_arms`), a docs block both sides changed, two rows added at
+the same place in a list whose order the suite's source decides, a value list inside one row
+that both sides changed, a TSV header both sides changed, a file whose keys repeat - it writes
+from one side, chosen so that the result is the same whichever side is "ours", and lists as
+owed. A JSON file whose rows were computed from code both sides changed (`code_both_sides`) is
+merged per key as a best guess and listed as owed too. The list goes to stderr and to `$(git
+rev-parse --git-path varka-regen-owed)`, tagged with the merge that owed them, which
+`dev/varka_regen_generated.sh` reads (through `--owed`, which skips the entries of an aborted or
+unrelated merge) to run only the owed regenerations, in order.
 
 So a generated file never ends a merge with conflict markers. A conflict in the docs file's
 prose, outside its generated blocks, is a real one and is left with its markers, and so is any
@@ -322,7 +322,22 @@ def merge_json(base_text, ours_text, theirs_text, owed, rules):
 # The leading columns that key a row of each generated TSV: the columns unique in the committed
 # file, which `merge_tsv` checks again on every side of every merge. `casts_fused.tsv` has one
 # row per form pair of a cast, so (from, to) repeats and its key takes the two type columns too.
-TSV_KEYS = {"types.tsv": 1, "census.tsv": 1, "casts.tsv": 2, "casts_fused.tsv": 4}
+TSV_KEYS = {
+    "types.tsv": 1,
+    "fuzz/types.tsv": 1,
+    "census.tsv": 1,
+    "casts.tsv": 2,
+    "casts_fused.tsv": 4,
+}
+
+# The rules are keyed by a file's name, but for a file whose name another generated file has:
+# the fuzz descriptor's table (`VarkaFuzzTypesSuite`) is a types.tsv too, keyed by its path.
+PATH_NAMES = {"sql/varka/fuzz/types.tsv": "fuzz/types.tsv"}
+
+
+def rule_name(repo_path):
+    """The key of `repo_path`'s merge rules: its name, or its entry in PATH_NAMES."""
+    return PATH_NAMES.get(repo_path, os.path.basename(repo_path))
 
 
 def lines_of(text, keepends=False):
@@ -913,7 +928,7 @@ def driver(base_path, ours_path, theirs_path, repo_path):
         with open(p, encoding="utf-8", newline="") as f:
             return f.read()
 
-    name = os.path.basename(repo_path)
+    name = rule_name(repo_path)
     owed = Owed()
     real = False
     try:
@@ -1397,6 +1412,16 @@ def review_cases(expect, merged):
         with open(paths[1], encoding="utf-8", newline="") as f:
             t = f.read()
         expect(rc == 0 and t == "id\tx\nA\t1\nB\tf\rg\nZ\t2\n", f"20: the driver wrote {t!r}")
+    # 22. The fuzz descriptor's types.tsv has rules of its own, keyed by its path.
+    expect(
+        rule_name("sql/varka/fuzz/types.tsv") == "fuzz/types.tsv"
+        and rule_name("sql/varka/types.tsv") == rule_name("c/types.tsv") == "types.tsv",
+        "22: a path's rule name",
+    )
+    t, o = merged(
+        "fuzz/types.tsv", "# c\nid\tx\nA\t1\n", "# c\nid\tx\nA\t2\n", "# c\nid\tx\nA\t1\nB\t1\n"
+    )
+    expect(t == "# c\nid\tx\nA\t2\nB\t1\n" and not o, f"22: {t!r} {o}")
     # 7. Both sides change a generated block, on different lines, so merge-file is clean.
     with tempfile.TemporaryDirectory() as tmp:
 
