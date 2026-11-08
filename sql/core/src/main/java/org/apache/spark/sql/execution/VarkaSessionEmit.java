@@ -219,8 +219,8 @@ public record VarkaSessionEmit(
           + "without AVX512DQ, and a BIGINT cast to FLOAT or DOUBLE declines. The likely cause "
           + "is a JVM started without "
           + "--add-exports=java.base/jdk.internal.vm.vector=ALL-UNNAMED, which Spark's launcher "
-          + "adds; an explicit level 2 selects the magic form, and either level fuses those "
-          + "casts, without the read.");
+          + "adds; an explicit level 2 selects the magic form, and 3 fuses those casts, without "
+          + "the read.");
     }
     if (host.conversionsFallBack()) {
       return host.longBits() >= MAGIC_MIN_LONG_BITS
