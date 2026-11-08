@@ -358,6 +358,7 @@ class VarkaLaneTypeSuite extends SparkFunSuite with VarkaTestWatchdog {
             ClassFile.ACC_PUBLIC | ClassFile.ACC_STATIC, (cb: CodeBuilder) => {
               lane.pushZero(cb)
               cb.return_(TypeKind.from(lane.scalar))
+              ()
             })
           ()
         })
