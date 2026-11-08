@@ -1057,7 +1057,7 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 
 | Expression | Switches | Domain | Notes | 128-bit lanes |
 |---|---|---|---|---|
-| `i / y1` | `floatingArithmetic`, `floatingCast` | `CASE WHEN i IS NOT NULL THEN y1 <> 0 END` | both operands cast to double, then the double division; a zero divisor of the cast raises under ANSI and is null under the legacy mode | per-lane: compare to mask, mask logic, mask broadcast, mask test |
+| `y1 / i` | `floatingArithmetic`, `floatingCast` | `CASE WHEN y1 IS NOT NULL THEN i <> 0 END` | both operands cast to double, then the double division; a zero divisor of the cast raises under ANSI and is null under the legacy mode | per-lane: compare to mask, mask logic, mask broadcast, mask test |
 | `s1 / i` | `floatingArithmetic`, `floatingCast` | `CASE WHEN s1 IS NOT NULL THEN i <> 0 END` | a short over an int, each converted exactly | per-lane: compare to mask, mask logic, mask broadcast, mask test |
 | `x / i` | `floatingArithmetic`, `floatingCast` | `CASE WHEN x IS NOT NULL THEN i <> 0 END` | the int divisor cast beside the double dividend | per-lane: compare to mask, mask logic, mask broadcast, mask test, load or store |
 | `f / f2` | `floatingArithmetic`, `floatingCast` | `CASE WHEN f IS NOT NULL THEN f2 <> 0.0F END` | both floats widened exactly: Spark divides floats as doubles | per-lane: compare to mask, mask logic, mask broadcast, mask test |

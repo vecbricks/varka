@@ -485,7 +485,7 @@ without building 343's code here, which 8 rules out. By 8's rule of landing what
 step lands in two pieces, cut between the forms that need no conversion to an integral lane and
 the ones that do:
 
-- **The cast forms fuse as they are.** `dev/varka_emit.sh` on master: `i / y1`, `s1 / i`,
+- **The cast forms fuse as they are.** `dev/varka_emit.sh` on master: `y1 / i`, `s1 / i`,
   `x / i`, `f / f2`, `try_divide(i, y1)`, `sqrt(i)`, `signum(i)`, `degrees(i)`, `sqrt(f)`,
   `signum(f)` and `radians(s1)` each compile to one fused output, the division and the
   functions over 343's exact conversions with no code of this step. The coverage table gains

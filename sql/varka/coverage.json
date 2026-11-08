@@ -6563,15 +6563,15 @@
     "note" : "",
     "verified" : "differential"
   }, {
-    "sql" : "i / y1",
-    "executable" : "i / y1",
+    "sql" : "y1 / i",
+    "executable" : "y1 / i",
     "family" : "Floating arithmetic over other types",
     "form" : "projection",
     "catalyst" : [ "Cast", "Divide" ],
     "casts" : [ "byte>double:ansi", "int>double:ansi" ],
     "operands" : [ "Cast:byte", "Cast:int", "Divide:double" ],
     "switches" : [ "spark.sql.codegen.varka.family.floatingArithmetic.enabled", "spark.sql.codegen.varka.family.floatingCast.enabled" ],
-    "domain" : "CASE WHEN i IS NOT NULL THEN y1 <> 0 END",
+    "domain" : "CASE WHEN y1 IS NOT NULL THEN i <> 0 END",
     "note" : "both operands cast to double, then the double division; a zero divisor of the cast raises under ANSI and is null under the legacy mode",
     "verified" : "differential"
   }, {

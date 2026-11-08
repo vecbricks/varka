@@ -266,7 +266,7 @@ public final class VarkaAnsiForm {
     for (String sql : List.of("make_date(2021, i, 1)", "add_months(d, i)", "d + ym", "d - ym",
         "ym - ymm", "ym + ym", "i + 1", "year(d) + i", "if(i < 0, i, i + 1)", "y1 + y2",
         "y1 - y2", "y1 * y2", "-y1", "abs(y1)", "s1 + s2", "s1 - s2", "s1 * s2", "-s1",
-        "abs(s1)", "x / x2", "ntz + dt", "CAST(s1 AS TINYINT)", "CAST(i AS TINYINT)",
+        "abs(s1)", "x / x2", "f / f2", "ntz + dt", "CAST(s1 AS TINYINT)", "CAST(i AS TINYINT)",
         "CAST(i AS SMALLINT)", "CAST(l AS TINYINT)", "CAST(l AS SMALLINT)",
         "CAST(i + 1 AS TINYINT)", "CAST(CAST(l AS INT) AS FLOAT)", "CAST(i AS INTERVAL YEAR)",
         "CAST(dt AS BIGINT)")) {

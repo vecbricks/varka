@@ -1144,9 +1144,9 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
     // casts family lowers exactly (VARKA-343); a BIGINT operand is not listed, since L2D declines
     // below AVX512DQ. Signum over an interval answers the double of its count's sign.
     Family("Floating arithmetic over other types", predicates = false, Seq(
-      Row("i / y1", "both operands cast to double, then the double division; a zero divisor of "
+      Row("y1 / i", "both operands cast to double, then the double division; a zero divisor of "
         + "the cast raises under ANSI and is null under the legacy mode",
-        domain = Some("CASE WHEN i IS NOT NULL THEN y1 <> 0 END")),
+        domain = Some("CASE WHEN y1 IS NOT NULL THEN i <> 0 END")),
       Row("s1 / i", "a short over an int, each converted exactly",
         domain = Some("CASE WHEN s1 IS NOT NULL THEN i <> 0 END")),
       Row("x / i", "the int divisor cast beside the double dividend",
