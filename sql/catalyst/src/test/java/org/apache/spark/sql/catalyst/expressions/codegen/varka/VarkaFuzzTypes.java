@@ -20,17 +20,24 @@ package org.apache.spark.sql.catalyst.expressions.codegen.varka;
 import java.util.List;
 import java.util.Random;
 import java.util.function.Function;
-import java.util.function.IntFunction;
+import java.util.function.Predicate;
 
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTypes.Admission;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.AddDays;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.AddMonths;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BoolColumn;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Chrono;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ColumnRef;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.DecimalColumn;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IntArith;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LaneType;
 
 /**
- * What the two fuzzers know of each type, in one place (VARKA-352): how the IR fuzzer builds a
- * column leaf of it and which seeded sequence draws its trees, how a column of it is filled with
- * values, and which columns of it the Spark-level fuzzer's fixture holds. A type row changes the
- * descriptor in its first pull request, a site from {@link Owed} to {@link Present}, and no fuzzer
- * keeps a list of types of its own.
+ * What the two fuzzers know of each type, in one place (VARKA-352): which seeded sequence of the
+ * IR fuzzer draws its trees and which node of them reads a column as the type, how a column of
+ * it is filled with values, and which columns of it the Spark-level fuzzer's fixture holds. A
+ * type row changes the descriptor in its first pull request, a site from {@link Owed} to
+ * {@link Present}, and no fuzzer keeps a list of types of its own.
  *
  * <p>{@link #of} is a switch over {@link VarkaTypeId} with no {@code default}, so a type added to
  * the registry does not compile until it has an entry here. Each site of an entry says one of
@@ -40,8 +47,10 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Lan
  * {@code VarkaFuzzTypesSuite}; {@code dev/varka_new_lane.py} reads it to say which lane has no
  * fuzzer leaf yet.
  *
- * <p>Nothing here draws by itself. The IR fuzzer's three column draws ask a {@link ValueSource}
- * for each cell, and a new sequence names its seed and draw function in an {@link IrLeaf}.
+ * <p>Nothing here draws by itself. The IR fuzzer's int, long and mixed column draws ask a
+ * {@link ValueSource} for each cell, and a new sequence names its seed and draw function in an
+ * {@link IrLeaf}; the cast and decimal sequences fill their columns with draws of their own,
+ * which their {@link IrLeaf#cells} names.
  */
 public final class VarkaFuzzTypes {
 
@@ -73,46 +82,89 @@ public final class VarkaFuzzTypes {
   // -------------------------------------------------------------------------------------------
 
   /**
-   * How the IR fuzzer draws trees over columns of a type: {@code leaf} builds the column leaf of
-   * ordinal {@code o}, and {@code roots} draws the roots of one shape of the sequence the type's
-   * trees come from, which {@code seed} names ({@code VarkaIrGrammar.shapeRandom(seed, k)} is
-   * shape {@code k}'s generator). Types of one lane share the lane's committed sequence, since
-   * the grammar draws the lane and not the type; a type that needs its own sequence names its
-   * own seed.
+   * How the IR fuzzer draws trees over columns of a type. Shape {@code k} of the seeded sequence
+   * {@code seed} names is {@code roots} over {@code VarkaIrGrammar.shapeRandom(seed, k)}, and a
+   * tree reads a column as the type where a node of it passes {@code reads}, the form
+   * {@code form} spells. {@code typed} is false for a type whose lane's grammar has no node of
+   * the type's own: its form is the lane's column, which is all a lane-generic grammar draws of
+   * it. {@code cells} names what fills the sequence's columns: the value sources of the types
+   * it lists, or a draw of the sequence's own.
    */
-  public record IrLeaf(LaneType lane, IntFunction<VarkaVectorIR> leaf, long seed,
-      Function<Random, List<VarkaVectorIR>> roots) {
+  public record IrLeaf(String form, boolean typed, Predicate<VarkaVectorIR> reads, long seed,
+      Function<Random, List<VarkaVectorIR>> roots, String cells) {
+
+    /** Whether {@code node} or a node under it reads a column as the type. */
+    public boolean readIn(VarkaVectorIR node) {
+      if (reads.test(node)) {
+        return true;
+      }
+      for (VarkaVectorIR child : VarkaVectorIR.childrenOf(node)) {
+        if (readIn(child)) {
+          return true;
+        }
+      }
+      return false;
+    }
   }
+
+  /** What a value source's uniform arm draws: an integer, a float's or a double's bits, a bit. */
+  public enum Kind { INTEGRAL, FLOAT, DOUBLE, BOOLEAN }
 
   /**
    * How a column of a type is filled, as lane bits (the low bits of a {@code long} for the
-   * narrower lanes). {@code edges} are the type's own special values, and {@code numeric} says
-   * they order as numbers, so a draw inside a bound can clamp one to it; a floating type's
-   * edges are bit patterns and are drawn as they are.
+   * narrower lanes). {@code edges} are the type's own special values; those of an integral or
+   * boolean source order as numbers ({@link #numeric}), so a draw inside a bound clamps one to
+   * it, and a floating type's edges are bit patterns, drawn as they are.
    *
-   * <p>A draw has two arms. The uniform one is {@link VarkaIrGrammar#within}, the draw every
-   * fuzzer made before this class existed, from the case's own stream. The edge arm replaces the
-   * cell with one of {@code edges} one time in {@code edgeOneIn}, the coin and the edge both
-   * drawn from a second stream, so that a fuzzer which turns the arm on changes the cells it
-   * replaces and nothing it draws afterwards.
+   * <p>A draw has two arms. The uniform one is a value of the type within plus or minus the
+   * bound, from one {@code nextLong} of the case's own stream: for an integral source exactly
+   * {@link VarkaIrGrammar#within}, the draw every fuzzer made before this class existed. The edge
+   * arm replaces the cell with one of {@code edges} one time in {@code edgeOneIn}, the coin and
+   * the edge both drawn from a second stream, so that a fuzzer which turns the arm on changes the
+   * cells it replaces and nothing it draws afterwards.
    */
-  public record ValueSource(long[] edges, boolean numeric) {
+  public record ValueSource(long[] edges, Kind kind) {
 
     /** The edge share of the committed draws: none, so that every cell is the uniform draw. */
     public static final int NO_EDGES = 0;
 
+    /** Whether the edges order as numbers and are clamped into a draw's bound. */
+    public boolean numeric() {
+      return kind == Kind.INTEGRAL || kind == Kind.BOOLEAN;
+    }
+
     /**
      * The cell of a column whose values the grammar keeps within plus or minus {@code bound}.
      * {@code main} advances exactly as {@code VarkaIrGrammar.within(main, bound)} advances it, with
-     * or without edges; {@code own} is touched only when {@code edgeOneIn} is positive.
+     * or without edges, whatever the kind; {@code own} is touched only when {@code edgeOneIn} is
+     * positive.
      */
     public long draw(Random main, Random own, long bound, int edgeOneIn) {
-      long uniform = VarkaIrGrammar.within(main, bound);
+      long uniform = uniform(main, bound);
       if (edgeOneIn <= 0 || own.nextInt(edgeOneIn) != 0) {
         return uniform;
       }
       long edge = edges[own.nextInt(edges.length)];
-      return numeric ? Math.max(-bound, Math.min(bound, edge)) : edge;
+      return numeric() ? Math.max(-bound, Math.min(bound, edge)) : edge;
+    }
+
+    /**
+     * The uniform arm: an integer within the bound, a finite float or double within it as its
+     * bits, or a 0 or a 1 read off the high bit (a {@code Random}'s low bits are its weakest).
+     */
+    private long uniform(Random main, long bound) {
+      return switch (kind) {
+        case INTEGRAL -> VarkaIrGrammar.within(main, bound);
+        case FLOAT -> Integer.toUnsignedLong(
+            Float.floatToRawIntBits((float) (unit(main.nextLong()) * bound)));
+        case DOUBLE -> Double.doubleToRawLongBits(unit(main.nextLong()) * bound);
+        case BOOLEAN -> main.nextLong() >>> 63;
+      };
+    }
+
+    /** A double in {@code [-1, 1)} from the high 53 bits of {@code bits}. */
+    private static double unit(long bits) {
+      return (bits >> 11) * 0x1.0p-52;
     }
   }
 
@@ -121,8 +173,10 @@ public final class VarkaFuzzTypes {
   }
 
   /**
-   * The columns of a type in {@code VarkaSparkFuzz}'s fixture, {@code derived} when the fixture
-   * computes the column from the {@code VALUES} columns and does not hold it as one.
+   * The columns of a type in {@code VarkaSparkFuzz}'s fixture, the view's output columns:
+   * {@code derived} when the view computes the column from the {@code VALUES} columns, not when
+   * it reads one by its name ({@code CAST(t AS TIME(6)) AS t} reads {@code t}).
+   * {@code VarkaSparkFuzzSuite} holds each to the view's schema.
    */
   public record SparkColumns(List<Column> columns) {
   }
@@ -140,39 +194,91 @@ public final class VarkaFuzzTypes {
   // The entries
   // -------------------------------------------------------------------------------------------
 
-  /** The int lane's trees, the committed corpus {@code VarkaEmittedBytesSuite} pins. */
-  private static final IrLeaf INT_LANE = new IrLeaf(LaneType.INT, ColumnRef::new,
-      VarkaIrGrammar.FUZZ_SEED, rnd -> VarkaIrGrammar.drawShape(rnd).roots());
+  // The int corpus, which VarkaEmittedBytesSuite pins: its columns hold days, and the last one
+  // of two or more the month count `add_months` reads, so a column is filled by DATE's source
+  // and the month count by YM_INTERVAL's (VarkaIrFuzzSuite.drawInt). The INT type is read by
+  // the integer arithmetic over a column, a date by a calendar field or a day addition over one,
+  // a year-month interval as the month count.
+  private static final String INT_CELLS = "values:DATE,YM_INTERVAL";
 
-  /** The long lane's trees, the second committed corpus. */
-  private static final IrLeaf LONG_LANE = new IrLeaf(LaneType.LONG,
-      o -> new ColumnRef(o, LaneType.LONG), VarkaIrGrammar.LONG_FUZZ_SEED,
-      rnd -> VarkaIrGrammar.drawLongShape(rnd).roots());
-
-  private static ValueSource integral(long... edges) {
-    return new ValueSource(edges, true);
+  private static IrLeaf intCorpus(String form, Predicate<VarkaVectorIR> reads) {
+    return new IrLeaf(form, true, reads, VarkaIrGrammar.FUZZ_SEED,
+        rnd -> VarkaIrGrammar.drawShape(rnd).roots(), INT_CELLS);
   }
 
-  private static final ValueSource INT_VALUES = integral(Integer.MIN_VALUE,
-      Integer.MIN_VALUE + 1L, -1, 0, 1, Integer.MAX_VALUE - 1L, Integer.MAX_VALUE);
-  private static final ValueSource LONG_VALUES = integral(Long.MIN_VALUE, Long.MIN_VALUE + 1,
-      -1, 0, 1, Long.MAX_VALUE - 1, Long.MAX_VALUE);
+  private static boolean column(VarkaVectorIR node, LaneType lane) {
+    return node instanceof ColumnRef c && c.lane() == lane;
+  }
 
-  /** Days since the epoch: Spark's first and last day, the Gregorian switch and a leap day. */
+  private static boolean arithOver(VarkaVectorIR node, LaneType lane) {
+    return node instanceof IntArith a && (column(a.left(), lane) || column(a.right(), lane));
+  }
+
+  // A calendar field's first child is the days it reads; TruncDateDynamic's second is its level.
+  private static final IrLeaf INT_LANE =
+      intCorpus("intArith(col)", n -> arithOver(n, LaneType.INT));
+  private static final IrLeaf DATE_LEAF = intCorpus("days(col)", n ->
+      (n instanceof Chrono && column(VarkaVectorIR.childrenOf(n)[0], LaneType.INT))
+          || (n instanceof AddDays a && column(a.days(), LaneType.INT)));
+  private static final IrLeaf MONTHS_LEAF = intCorpus("months(col)",
+      n -> n instanceof AddMonths a && column(a.months(), LaneType.INT));
+
+  // The long corpus, the second committed one. Its grammar is the lane's integer arithmetic and
+  // has no node of TIMESTAMP_NTZ, TIME or DT_INTERVAL: they share the lane's column untyped.
+  private static IrLeaf longCorpus(String form, boolean typed, Predicate<VarkaVectorIR> reads) {
+    return new IrLeaf(form, typed, reads, VarkaIrGrammar.LONG_FUZZ_SEED,
+        rnd -> VarkaIrGrammar.drawLongShape(rnd).roots(), "values:LONG");
+  }
+
+  private static final IrLeaf LONG_LANE =
+      longCorpus("intArith(col:long)", true, n -> arithOver(n, LaneType.LONG));
+  private static final IrLeaf LONG_COLUMN =
+      longCorpus("col:long", false, n -> column(n, LaneType.LONG));
+
+  // The cast sequence (VARKA-332): a TINYINT, SMALLINT, INT, BIGINT and BOOLEAN column, every cell
+  // VarkaIrGrammar.castValue's, which draws the lanes' ends and the narrower lanes' around them.
+  private static IrLeaf castSequence(String form, Predicate<VarkaVectorIR> reads) {
+    return new IrLeaf(form, true, reads, VarkaIrGrammar.CAST_FUZZ_SEED,
+        rnd -> List.of(VarkaIrGrammar.drawCastShape(rnd)), "castValue");
+  }
+
+  // The decimal values' sequence (VARKA-348), every cell drawn by its column's precision there.
+  private static final IrLeaf DECIMAL_LEAF = new IrLeaf("dec", true,
+      n -> n instanceof DecimalColumn, VarkaIrGrammar.DECIMAL_VALUE_FUZZ_SEED,
+      rnd -> VarkaIrGrammar.drawDecimalValueShape(rnd).roots(), "decimal draw");
+
+  private static ValueSource integral(long... edges) {
+    return new ValueSource(edges, Kind.INTEGRAL);
+  }
+
+  /** An integral lane's range ends, their neighbours inside it, and -1, 0 and 1. */
+  private static ValueSource integral(LaneType lane) {
+    VarkaTypes.IntegralRange r = VarkaTypes.integralRange(lane);
+    return integral(r.min(), r.min() + 1, -1, 0, 1, r.max() - 1, r.max());
+  }
+
+  private static final ValueSource INT_VALUES = integral(LaneType.INT);
+  private static final ValueSource LONG_VALUES = integral(LaneType.LONG);
+
+  /**
+   * Days since the epoch: Spark's first and last day, the Gregorian switch and a leap day. The
+   * int corpus's bound of 2.5 million days clamps the last day to it.
+   */
   private static final ValueSource DATE_VALUES = integral(-719162, -141427, -1, 0, 1, 19782,
       2932896);
   private static final ValueSource NTZ_VALUES = integral(-62135596800000000L, -1, 0, 1,
       86400000000L, 253402300799999999L);
-  private static final ValueSource TIME_VALUES = integral(0, 1, 43200000000000L,
-      86399999999999L);
+  /** Nanoseconds of the day, each a {@code TIME(6)} value: whole microseconds. */
+  private static final ValueSource TIME_VALUES = integral(0, 1000, 43200000000000L,
+      86399999999000L);
   private static final ValueSource YM_VALUES = integral(Integer.MIN_VALUE, -12, -1, 0, 1, 12,
       Integer.MAX_VALUE);
   private static final ValueSource DT_VALUES = integral(Long.MIN_VALUE, -86400000000L, -1, 0, 1,
       86400000000L, Long.MAX_VALUE);
-  private static final ValueSource BYTE_VALUES = integral(-128, -127, -1, 0, 1, 126, 127);
-  private static final ValueSource SHORT_VALUES = integral(-32768, -32767, -1, 0, 1, 32766,
-      32767);
-  private static final ValueSource BOOLEAN_VALUES = integral(0, 1);
+  private static final ValueSource BYTE_VALUES = integral(LaneType.BYTE);
+  private static final ValueSource SHORT_VALUES = integral(LaneType.SHORT);
+  private static final ValueSource BOOLEAN_VALUES = new ValueSource(new long[] {0, 1},
+      Kind.BOOLEAN);
 
   private static long f(float v) {
     return Integer.toUnsignedLong(Float.floatToRawIntBits(v));
@@ -190,11 +296,11 @@ public final class VarkaFuzzTypes {
   private static final ValueSource FLOAT_VALUES = new ValueSource(new long[] {
       f(0.0f), f(-0.0f), f(Float.NaN), 0xFFC00000L, 0x7F800001L, f(Float.POSITIVE_INFINITY),
       f(Float.NEGATIVE_INFINITY), f(Float.MAX_VALUE), f(Float.MIN_NORMAL), f(Float.MIN_VALUE)},
-      false);
+      Kind.FLOAT);
   private static final ValueSource DOUBLE_VALUES = new ValueSource(new long[] {
       d(0.0), d(-0.0), d(Double.NaN), 0xFFF8000000000000L, 0x7FF0000000000001L,
       d(Double.POSITIVE_INFINITY), d(Double.NEGATIVE_INFINITY), d(Double.MAX_VALUE),
-      d(Double.MIN_NORMAL), d(Double.MIN_VALUE)}, false);
+      d(Double.MIN_NORMAL), d(Double.MIN_VALUE)}, Kind.DOUBLE);
 
   private static Column col(String name, String sql) {
     return new Column(name, sql, false);
@@ -213,16 +319,27 @@ public final class VarkaFuzzTypes {
     return new FuzzType(id, ir, spark, values, List.of());
   }
 
+  /** The registry's decision for a declined type, which no fuzzer draws. */
+  private static <T> Site<T> declined(VarkaTypeId id) {
+    if (VarkaTypes.info(id).admission() instanceof Admission.Declined d) {
+      return new NotApplicable<>("declined: " + d.decision());
+    }
+    throw new IllegalStateException(id + " is not declined in the registry");
+  }
+
   /** The entry of {@code id}. Adding a type to {@link VarkaTypeId} fails to compile here. */
   public static FuzzType of(VarkaTypeId id) {
     return switch (id) {
-      case BOOLEAN -> entry(id, new Owed<>("331"), new Owed<>("352"),
-          new Present<>(BOOLEAN_VALUES));
-      case BYTE -> entry(id, new Owed<>("352"), new Owed<>("352"), new Present<>(BYTE_VALUES));
-      case SHORT -> entry(id, new Owed<>("352"), new Owed<>("352"),
-          new Present<>(SHORT_VALUES));
-      case INT -> entry(id, new Present<>(INT_LANE),
-          columns(col("i", "INT"), col("m", "INT"), col("y", "INT"), col("mm", "INT")),
+      case BOOLEAN -> entry(id,
+          new Present<>(castSequence("bool", n -> n instanceof BoolColumn)),
+          new Owed<>("352"), new Present<>(BOOLEAN_VALUES));
+      case BYTE -> entry(id,
+          new Present<>(castSequence("col:byte", n -> column(n, LaneType.BYTE))),
+          new Owed<>("352"), new Present<>(BYTE_VALUES));
+      case SHORT -> entry(id,
+          new Present<>(castSequence("col:short", n -> column(n, LaneType.SHORT))),
+          new Owed<>("352"), new Present<>(SHORT_VALUES));
+      case INT -> entry(id, new Present<>(INT_LANE), columns(col("i", "INT")),
           new Present<>(INT_VALUES));
       case LONG -> entry(id, new Present<>(LONG_LANE),
           columns(col("l", "BIGINT"), col("l2", "BIGINT")), new Present<>(LONG_VALUES));
@@ -231,26 +348,23 @@ public final class VarkaFuzzTypes {
       case DOUBLE -> entry(id, new Owed<>("341"),
           columns(derived("x", "DOUBLE"), derived("x2", "DOUBLE")),
           new Present<>(DOUBLE_VALUES));
-      case DECIMAL -> entry(id, new Owed<>("347"), new Owed<>("347"), new Owed<>("347"));
-      case DATE -> entry(id, new Present<>(INT_LANE),
+      case DECIMAL -> entry(id, new Present<>(DECIMAL_LEAF), new Owed<>("347"),
+          new Owed<>("347"));
+      case DATE -> entry(id, new Present<>(DATE_LEAF),
           columns(col("d", "DATE"), col("d2", "DATE")), new Present<>(DATE_VALUES));
-      case TIMESTAMP_NTZ -> entry(id, new Present<>(LONG_LANE),
+      case TIMESTAMP_NTZ -> entry(id, new Present<>(LONG_COLUMN),
           columns(derived("ntz", "TIMESTAMP_NTZ"), derived("ntz2", "TIMESTAMP_NTZ")),
           new Present<>(NTZ_VALUES));
-      case TIME -> entry(id, new Present<>(LONG_LANE),
+      case TIME -> entry(id, new Present<>(LONG_COLUMN),
           columns(col("t", "TIME(6)"), col("t2", "TIME(6)")), new Present<>(TIME_VALUES));
-      case YM_INTERVAL -> entry(id, new Present<>(INT_LANE),
+      case YM_INTERVAL -> entry(id, new Present<>(MONTHS_LEAF),
           columns(derived("ymm", "INTERVAL MONTH"), derived("ymy", "INTERVAL YEAR"),
               derived("ym", "INTERVAL YEAR TO MONTH")),
           new Present<>(YM_VALUES));
-      case DT_INTERVAL -> entry(id, new Present<>(LONG_LANE),
+      case DT_INTERVAL -> entry(id, new Present<>(LONG_COLUMN),
           columns(col("dt", "INTERVAL DAY TO SECOND"), col("dt2", "INTERVAL DAY TO SECOND")),
           new Present<>(DT_VALUES));
-      case TIMESTAMP -> {
-        var never = "declined: its arithmetic is in the session time zone";
-        yield entry(id, new NotApplicable<>(never), new NotApplicable<>(never),
-            new NotApplicable<>(never));
-      }
+      case TIMESTAMP -> entry(id, declined(id), declined(id), declined(id));
     };
   }
 

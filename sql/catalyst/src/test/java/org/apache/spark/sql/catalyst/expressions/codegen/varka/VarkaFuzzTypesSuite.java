@@ -18,6 +18,7 @@
 package org.apache.spark.sql.catalyst.expressions.codegen.varka;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
@@ -29,6 +30,7 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Random;
+import java.util.Set;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
@@ -38,6 +40,7 @@ import org.junit.jupiter.api.Test;
 
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaFuzzTypes.FuzzType;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaFuzzTypes.IrLeaf;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaFuzzTypes.Kind;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaFuzzTypes.NotApplicable;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaFuzzTypes.Owed;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaFuzzTypes.Present;
@@ -46,6 +49,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaFuzzTypes.Sp
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaFuzzTypes.ValueSource;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTypes.Admission;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTypes.Info;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ColumnRef;
 
 /**
  * The fuzz descriptor ({@link VarkaFuzzTypes}) held to the registry and to the grammar it names,
@@ -59,7 +63,8 @@ public final class VarkaFuzzTypesSuite {
   private static final String REGEN =
       "VARKA_FUZZ_TYPES_REGEN=true build/sbt 'catalyst/testOnly *VarkaFuzzTypesSuite'";
 
-  private static final String HEADER = "id\tlane\tir\tir_seed\tspark\tspark_columns\tvalues";
+  private static final String HEADER =
+      "id\tlane\tir\tir_seed\tir_form\tir_cells\tspark\tspark_columns\tvalues";
 
   private static Path file() {
     String home = System.getProperty("spark.test.home", System.getenv("SPARK_HOME"));
@@ -85,13 +90,16 @@ public final class VarkaFuzzTypesSuite {
     for (VarkaTypeId id : VarkaTypeId.values()) {
       FuzzType t = VarkaFuzzTypes.of(id);
       String lane = VarkaTypes.info(id).lane().map(Enum::name).orElse("-");
-      String seed = t.ir() instanceof Present<IrLeaf> p ? Long.toString(p.value().seed()) : "-";
+      IrLeaf leaf = t.ir() instanceof Present<IrLeaf> p ? p.value() : null;
+      String seed = leaf == null ? "-" : Long.toString(leaf.seed());
+      String form = leaf == null ? "-" : leaf.form() + (leaf.typed() ? "" : " (untyped)");
+      String cells = leaf == null ? "-" : leaf.cells();
       String columns = t.spark() instanceof Present<SparkColumns> p
           ? p.value().columns().stream().map(VarkaFuzzTypes.Column::name)
               .collect(Collectors.joining(","))
           : "-";
-      out.add(String.join("\t", id.name(), lane, cell(t.ir()), seed, cell(t.spark()), columns,
-          cell(t.values())));
+      out.add(String.join("\t", id.name(), lane, cell(t.ir()), seed, form, cells,
+          cell(t.spark()), columns, cell(t.values())));
     }
     return out;
   }
@@ -140,7 +148,7 @@ public final class VarkaFuzzTypesSuite {
   }
 
   @Test
-  @DisplayName("a Present IR site is on its type's lane, and its sequence draws a column of it")
+  @DisplayName("a Present IR site's sequence draws a node reading a column as its type")
   void presentIrSitesDrawTheirLeaf() {
     int present = 0;
     for (VarkaTypeId id : VarkaTypeId.values()) {
@@ -149,19 +157,14 @@ public final class VarkaFuzzTypesSuite {
       }
       present++;
       IrLeaf leaf = p.value();
-      assertEquals(VarkaTypes.info(id).lane().orElseThrow(), leaf.lane(), id.name());
-      // "col:3" for the int lane, "col:3:long" for the long one: the leaf's own spelling, with
-      // its ordinal read as any digits, and not followed by more of a longer tag.
-      String spelled = VarkaVectorIR.canonical(leaf.leaf().apply(0));
-      var column = Pattern.compile("col:\\d+" + Pattern.quote(spelled.substring("col:0".length()))
-          + "(?![\\w:])");
+      // A form that any column passes would hold of every sequence and test nothing.
+      assertFalse(leaf.readIn(new ColumnRef(0)), id + ": a bare int column is a " + leaf.form());
       boolean drawn = false;
       for (int k = 0; k < 100 && !drawn; k++) {
         Random rnd = VarkaIrGrammar.shapeRandom(leaf.seed(), k);
-        drawn = leaf.roots().apply(rnd).stream()
-            .anyMatch(r -> column.matcher(VarkaVectorIR.canonical(r)).find());
+        drawn = leaf.roots().apply(rnd).stream().anyMatch(leaf::readIn);
       }
-      assertTrue(drawn, id + ": 100 shapes of seed " + leaf.seed() + " hold no " + spelled);
+      assertTrue(drawn, id + ": 100 shapes of seed " + leaf.seed() + " hold no " + leaf.form());
     }
     assertTrue(present > 0);
   }
@@ -193,32 +196,62 @@ public final class VarkaFuzzTypesSuite {
   }
 
   @Test
-  @DisplayName("without edges a draw is the grammar's own, and with them the main stream is too")
+  @DisplayName("a draw takes one value of the main stream, as the grammar's does, edges or not")
   void theUniformArmIsTheGrammarsDraw() {
-    ValueSource source = VarkaFuzzTypes.values(VarkaTypeId.LONG);
     long bound = VarkaIrGrammar.LONG_COLUMN_BOUND;
-    for (int edgeOneIn : new int[] {ValueSource.NO_EDGES, 4}) {
-      Random viaSource = new Random(3);
-      Random plain = new Random(3);
-      Random own = new Random(5);
-      Random ownUntouched = new Random(5);
-      var uniform = new ArrayList<Long>();
-      var drawn = new ArrayList<Long>();
-      for (int k = 0; k < 500; k++) {
-        uniform.add(VarkaIrGrammar.within(plain, bound));
-        drawn.add(source.draw(viaSource, own, bound, edgeOneIn));
+    for (VarkaTypeId id : VarkaTypeId.values()) {
+      if (!(VarkaFuzzTypes.of(id).values() instanceof Present<ValueSource> p)) {
+        continue;
       }
-      assertEquals(plain.nextLong(), viaSource.nextLong(), "the main stream moved apart");
-      if (edgeOneIn == ValueSource.NO_EDGES) {
-        assertEquals(uniform, drawn);
-        assertEquals(ownUntouched.nextLong(), own.nextLong(), "the second stream was drawn");
-      } else {
-        // About a quarter of the cells are edges, and an edge equals the uniform cell by chance
-        // alone, so the cells that differ are some but far from all.
-        long differing = IntStream.range(0, uniform.size())
-            .filter(k -> !uniform.get(k).equals(drawn.get(k))).count();
-        assertTrue(differing > 0 && differing < uniform.size() / 2, differing + " cells differ");
+      ValueSource source = p.value();
+      for (int edgeOneIn : new int[] {ValueSource.NO_EDGES, 4}) {
+        Random viaSource = new Random(3);
+        Random plain = new Random(3);
+        Random own = new Random(5);
+        Random ownUntouched = new Random(5);
+        var uniform = new ArrayList<Long>();
+        var drawn = new ArrayList<Long>();
+        for (int k = 0; k < 500; k++) {
+          uniform.add(VarkaIrGrammar.within(plain, bound));
+          drawn.add(source.draw(viaSource, own, bound, edgeOneIn));
+        }
+        assertEquals(plain.nextLong(), viaSource.nextLong(), id + ": the main stream moved");
+        if (edgeOneIn == ValueSource.NO_EDGES) {
+          assertEquals(ownUntouched.nextLong(), own.nextLong(), id + ": the second stream moved");
+          uniformOfItsKind(id, source, drawn, uniform, bound);
+        } else if (source.kind() == Kind.INTEGRAL) {
+          // About a quarter of the cells are edges, and an edge equals the uniform cell by
+          // chance alone, so the cells that differ are some but far from all.
+          long differing = IntStream.range(0, uniform.size())
+              .filter(k -> !uniform.get(k).equals(drawn.get(k))).count();
+          assertTrue(differing > 0 && differing < uniform.size() / 2, differing + " differ");
+        }
       }
+    }
+  }
+
+  /** The uniform cells are the type's: the grammar's integers, finite floats, 0 and 1. */
+  private static void uniformOfItsKind(VarkaTypeId id, ValueSource source, List<Long> drawn,
+      List<Long> within, long bound) {
+    switch (source.kind()) {
+      case INTEGRAL -> assertEquals(within, drawn, id.name());
+      case FLOAT -> drawn.forEach(v -> {
+        float x = Float.intBitsToFloat((int) (long) v);
+        assertTrue(v >>> 32 == 0 && Float.isFinite(x) && Math.abs(x) <= bound, id + " " + x);
+      });
+      case DOUBLE -> drawn.forEach(v -> {
+        double x = Double.longBitsToDouble(v);
+        assertTrue(Double.isFinite(x) && Math.abs(x) <= bound, id + " " + x);
+      });
+      case BOOLEAN -> assertEquals(Set.of(0L, 1L), new HashSet<>(drawn), id.name());
+    }
+  }
+
+  @Test
+  @DisplayName("TIME's edges are TIME(6) values: whole microseconds of one day")
+  void timeEdgesAreMicroseconds() {
+    for (long edge : VarkaFuzzTypes.values(VarkaTypeId.TIME).edges()) {
+      assertTrue(edge % 1000 == 0 && edge >= 0 && edge < 86_400_000_000_000L, "edge " + edge);
     }
   }
 }
