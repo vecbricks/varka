@@ -1567,7 +1567,7 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
     try {
       only match {
         case Some(k) => runOneCast(k)
-        case None => (0 until iterations).foreach(runOneCast)
+        case None => (0 until iterations).foreach(k => runOneCast(k))
       }
     } finally {
       VarkaEmitReach.detach(randomTrace)
