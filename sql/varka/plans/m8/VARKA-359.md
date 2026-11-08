@@ -164,7 +164,9 @@ so its 512-bit numbers are double-pumped and labelled so, and `benchmark.yml` on
 256 and 128; `benchmark.yml` has no Arm runner, so the Neoverse N2 reading is the census's cells
 only. *Corrected 8 November 2026:* it has one now, its `runner` input taking `ubuntu-24.04-arm`, a
 Neoverse N2 (row 575), and a run of `VarkaDecimalPairSpikeBenchmark` there committed its results as
-`2095329e157` on the fork branch `varka-359-arm-results`.
+`2095329e157` on the fork branch `varka-359-arm-results`, now
+`VarkaDecimalPairSpikeBenchmark-jdk25-runner-arm-128bit-results.txt` with its provenance file,
+read in 10.1.
 
 ### 2.2 The IR: words, not pairs
 
@@ -531,6 +533,25 @@ the laptop's 512-bit column, double-pumped on its 256-bit datapath, agrees with 
 The reading also shows the arithmetic travelling as section 2.1 expects: P's product and rescale
 lead S at 512 and 256 bits on the laptop as on the EPYC (2.2 against 5.3 and 2.2 against 7.9 ns a
 row in L3 at 512), and S leads everything at 128 bits.
+
+**The aarch64 column at 128 bits** (8 November 2026). Run 42437050350 of `benchmark.yml` on the
+`ubuntu-24.04-arm` runner (row 575; the file's processor line is empty, the job's runner label
+is the source), committed as `VarkaDecimalPairSpikeBenchmark-jdk25-runner-arm-128bit-results.txt`
+with its provenance file. NEON is 128 bits wide, so this is the two-lane column where the pair
+runs natively (the width rule's case), the one 128-bit column the decision rule's
+replan clause is applied to. By `Rate(M/s)`:
+
+- *A against P:* the load is P's, 430.1 against 93.3 M rows/s in L3 and 410.5 against 93.1 past
+  it; `x < y` is P's, 475.2 against 182.8 and 435.6 against 181.7. A is 2.4 to 4.6 times slower,
+  so rule 2 does not hold and the aarch64 case asks for no replan.
+- *S against P,* read for the record (rule 3 names only 256 and 512 bits): S leads the load,
+  530.8 against 430.1 in L3 and 503.0 against 410.5 past it, 1.23 times, under the 1.3x margin
+  and so a tie by rule 4; P leads `x < y`, 475.2 against 220.2 and 435.6 against 213.1.
+
+**Verdict on aarch64: build P**, as on x86. The arithmetic reads as on the 128-bit x86 columns
+only in part: S leads the product into 256 bits (6.4 against 12.8 ns a row in L3) and the
+`HALF_UP` rescale (8.4 against 13.3), but P leads the product's `10^38` check (2.9 against 4.8),
+readings that travel to rows 361 to 363 as their admission inputs on Arm.
 
 ### 10.2 359a, part 1: the layout-free base (6 November 2026)
 
