@@ -40,7 +40,7 @@ class VarkaKnownFailuresSuite extends SparkFunSuite {
 
   test("a line without a reason or with the wrong lane is refused") {
     intercept[IllegalArgumentException](VarkaKnownFailures.parse("int\t1\t2\tk\tt\t"))
-    intercept[IllegalArgumentException](VarkaKnownFailures.parse("short\t1\t2\tk\tt\tr"))
+    intercept[IllegalArgumentException](VarkaKnownFailures.parse("bool\t1\t2\tk\tt\tr"))
     intercept[IllegalArgumentException](VarkaKnownFailures.parse("int\t1\t2\tk\tt"))
   }
 
