@@ -640,6 +640,25 @@ class VarkaEmitterBudgetSuite extends VarkaEmitterTestBase with VarkaOwnJvm {
     }
   }
 
+  test("a bigint conversion to a floating lane weighs its AVX2 form, the larger of its forms",
+      PinsDefaults) {
+    // One convertShape at level 3, and below it VarkaConversionLowering's form, whose calls the
+    // weight counts; the bounded L2D, three calls and its guard's two compares, is the smaller.
+    def ops(target: LaneType, options: VarkaEmitOptions): Int = vectorOps(emitMulti(
+      Seq(new ConvertLane(new ColumnRef(0, LaneType.LONG), target)), 1, 0, options)._2)
+    for (target <- Seq(LaneType.DOUBLE, LaneType.FLOAT)) {
+      val atDq = ops(target, VarkaMatrix.base.withUseAVX(3))
+      val form = ops(target, VarkaMatrix.base.withUseAVX(2)) - atDq + 1
+      val weight = VarkaEmitBudget.weightOf(new ConvertLane(new ColumnRef(0, LaneType.LONG),
+        target))
+      assert(weight === form, s"$target weighs $weight and its AVX2 form emits $form lane ops")
+    }
+    val magic = ops(LaneType.DOUBLE, VarkaMatrix.base.withUseAVX(2)
+      .withWideConversionForm(VarkaEmitOptions.WideConversionForm.MAGIC)) -
+      ops(LaneType.DOUBLE, VarkaMatrix.base.withUseAVX(3)) + 1
+    assert(magic === 5 && magic < VarkaConversionLowering.SPLIT_CALLS, s"the magic emits $magic")
+  }
+
   test("int-lane divisions over four columns take a loop method each, and a subtraction from " +
       "one joins its division", PinsDefaults) {
     // The budget's rule, which is what this pins: the prediction bounds groups by default

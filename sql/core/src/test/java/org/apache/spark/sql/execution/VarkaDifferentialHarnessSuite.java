@@ -807,11 +807,12 @@ public final class VarkaDifferentialHarnessSuite {
             shape("y + y AS a, greatest(l, 5000000000) AS b", RUNS, "kernel 2 of 2"),
             shape("CAST(y AS INT) + 1 AS a, greatest(l, 5000000000) AS b", RUNS,
                 "kernel 2 of 2"))));
-    // Level 3 is the one level that admits a BIGINT conversion to FLOAT or DOUBLE, so these are
-    // the only shapes that check its kernels' answers: the extremes, values past 2^53, where a
-    // DOUBLE rounds, and past 2^24, where a FLOAT does, on both sides of a tie, nulls in each
-    // column. x - l is the subtraction's implicit cast; a double literal beside a cast goes to
-    // the long table of a kernel driven at 64 bits.
+    // A BIGINT conversion to FLOAT or DOUBLE fuses at a named level only, so these are the
+    // shapes that check its kernels' answers, one instruction at level 3 and the AVX2 forms at
+    // level 2: the extremes, values past 2^53, where a DOUBLE rounds, and past 2^24, where a
+    // FLOAT does, on both sides of a tie, nulls in each column. x - l is the subtraction's
+    // implicit cast; a double literal beside a cast goes to the long table of a kernel driven at
+    // 64 bits.
     var conversionRows = new ArrayList<String>();
     List<String> bigints = List.of("-9223372036854775808L", "9223372036854775807L",
         "-9223372036854775807L", "9223372036854775806L", "9007199254740992L",
@@ -836,6 +837,29 @@ public final class VarkaDifferentialHarnessSuite {
             shape("x - l AS v", SERVED),
             shape("CAST(l AS DOUBLE) + 1.5D AS v", SERVED),
             shape("CAST(l AS DOUBLE) AS a, CAST(l AS FLOAT) AS b, x AS c", SERVED)))));
+    // The bounded L2D declines a batch with a bigint past 2^51, which the row engine answers,
+    // and serves one inside its window; L2F has one form under either arm.
+    var source = table("l, x", "CAST(NULL AS BIGINT), CAST(NULL AS DOUBLE)",
+        conversionRows.toArray(String[]::new));
+    var window = table("l, x", "CAST(NULL AS BIGINT), CAST(NULL AS DOUBLE)",
+        "2251799813685248L, 1.5D", "-2251799813685248L, -0.0D", "2251799813685247L, 3.0D",
+        "16777217L, CAST('NaN' AS DOUBLE)", "-1L, 7.0D", "4275361147L, 1.0E300D");
+    UnaryOperator<VarkaEmitOptions> magic = o -> o.withUseAVX(2)
+        .withWideConversionForm(VarkaEmitOptions.WideConversionForm.MAGIC);
+    out.add(new Case("at level 2 a bigint cast to DOUBLE or FLOAT fuses by its AVX2 form and "
+        + "matches the row engine; the bounded form declines past 2^51",
+        List.of(options(o -> o.withUseAVX(2)
+                .withWideConversionForm(VarkaEmitOptions.WideConversionForm.SPLIT), source,
+            shape("CAST(l AS DOUBLE) AS v", SERVED),
+            shape("CAST(l AS FLOAT) AS v", SERVED),
+            shape("x - l AS v", SERVED),
+            shape("CAST(l AS DOUBLE) AS a, CAST(l AS FLOAT) AS b, x AS c", SERVED)),
+          options(magic, source,
+            shape("CAST(l AS DOUBLE) AS v", DECLINES),
+            shape("CAST(l AS FLOAT) AS v", SERVED)),
+          options(magic, window,
+            shape("CAST(l AS DOUBLE) AS v", SERVED),
+            shape("x - l AS v", SERVED)))));
     return out;
   }
 

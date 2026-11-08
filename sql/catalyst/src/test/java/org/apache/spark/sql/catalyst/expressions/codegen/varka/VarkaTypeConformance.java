@@ -942,13 +942,14 @@ public abstract class VarkaTypeConformance {
     boolean fusedIn(Mode mode, DataType source, DataType target) {
       String answer = Registers.answers(source, target)[mode.ordinal()];
       // The compiler writes the register at the defaults' unknown level, where the BIGINT casts
-      // to FLOAT and DOUBLE decline because the conversion may run as the Vector API's Java loop
-      // (VarkaKernelPlan.conversionRefusal). A configuration whose options admit them (useAVX=3)
-      // fuses them in every mode, so their fused forms are held to the reference and to Spark
-      // there instead of being reported as drift. A register that marks them fused stands.
+      // to FLOAT and DOUBLE decline because the level says neither that the conversion is one
+      // instruction nor that it needs its AVX2 form (VarkaKernelPlan.conversionRefusal). A
+      // configuration that names a level (useAVX=2, useAVX=3) fuses them in every mode, so their
+      // fused forms are held to the reference and to Spark there instead of being reported as
+      // drift. A register that marks them fused stands.
       if (answer.equals("declined") && source.equals(DataTypes.LongType)
           && (target.equals(DataTypes.FloatType) || target.equals(DataTypes.DoubleType))) {
-        return !VarkaMatrixRuns.BASE.convertsMayFallBack();
+        return !VarkaMatrixRuns.BASE.levelUnknown();
       }
       return answer.equals("fused");
     }

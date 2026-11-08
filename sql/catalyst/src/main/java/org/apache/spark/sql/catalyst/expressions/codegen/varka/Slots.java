@@ -199,6 +199,8 @@ final class Slots {
   final Map<VarkaVectorIR, int[]> intArithTmp = new HashMap<>();
   /** The four vector locals {@code emitMagicDivide} needs; empty where it is not emitted. */
   final Map<VarkaVectorIR, int[]> constDivideTmp = new HashMap<>();
+  /** The locals of a conversion's AVX2 form ({@link VarkaConversionLowering#scratch}). */
+  final Map<VarkaVectorIR, int[]> convertTmp = new HashMap<>();
   /** Per DayOfWeek/WeekDay/NextDay: {@code emitFloorMod7}'s own original-value and fold
    * temporaries. NextDay needs no third slot for the date it reuses after the mod - its
    * emitValue arm keeps that copy on the operand stack instead (dup/swap). */
@@ -975,6 +977,15 @@ final class Slots {
           if (node instanceof ConstDivide n
               && VarkaDivisionLowering.takesMulHiDivide(analysis, n)) {
             s.constDivideTmp.put(node, new int[] {slot++});
+          }
+          // A conversion's AVX2 form parks its long and the values it reads more than once; only a
+          // conversion from the long lane below level 3 takes any, so no other numbering moves.
+          if (node instanceof ConvertLane n && VarkaConversionLowering.scratch(analysis, n) > 0) {
+            int[] tmp = new int[VarkaConversionLowering.scratch(analysis, n)];
+            for (int k = 0; k < tmp.length; k++) {
+              tmp[k] = slot++;
+            }
+            s.convertTmp.put(node, tmp);
           }
           if (node instanceof DayOfWeek || node instanceof WeekDay || node instanceof NextDay
               || node instanceof TruncDateDynamic || node instanceof ThursdayOf

@@ -200,7 +200,7 @@ public record VarkaSessionEmit(
    *
    * <p>The DQ host resolves to a level rather than to the emitter's default because the default
    * level is unknown, at which the kernel plan declines a {@code BIGINT} conversion to
-   * {@code FLOAT} or {@code DOUBLE} ({@link VarkaEmitOptions#convertsMayFallBack()}); level 3
+   * {@code FLOAT} or {@code DOUBLE} ({@link VarkaEmitOptions#levelUnknown()}); level 3
    * admits it, and lowers every other node as the unknown level does. Its key renders the level,
    * so such a session caches its classes apart from the default's, with the same bytes.
    *
@@ -219,8 +219,8 @@ public record VarkaSessionEmit(
           + "without AVX512DQ, and a BIGINT cast to FLOAT or DOUBLE declines. The likely cause "
           + "is a JVM started without "
           + "--add-exports=java.base/jdk.internal.vm.vector=ALL-UNNAMED, which Spark's launcher "
-          + "adds; an explicit level 2 selects the magic form, and 3 fuses those casts, without "
-          + "the read.");
+          + "adds; an explicit level 2 selects the magic form, and either level fuses those "
+          + "casts, without the read.");
     }
     if (host.conversionsFallBack()) {
       return host.longBits() >= MAGIC_MIN_LONG_BITS

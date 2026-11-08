@@ -791,3 +791,49 @@ Cut from #1303's final tree and rebuilt on 343a4 (#1385), whose files it leaves 
   level 3, declines at the unknown level, and that `CAST(l AS DOUBLE) + 1.5D` compiles at level 3;
   and that a smallint's null test fuses as `DOUBLE` and `FLOAT`. 343a4 already holds the
   differential harness's level-3 cells, the conformance rows and the emitter suite's refusals.
+
+### 343b1 as built (8 November 2026, branch `varka-343b1-forms`)
+
+`BIGINT` to `DOUBLE` and `FLOAT` fuse at every named emit level: one `convertShape` at level 3,
+and below it the AVX2 forms of 2.3 in `VarkaConversionLowering`, chosen by
+`convertsFallBack()`. The reduced-width twins (3.2) are not built; the SMT file proves the
+forms over every long, which the twins would only sample at half width.
+
+- **The level.** `conversionRefusal` declines a long source at the unknown level alone
+  (`VarkaEmitOptions.levelUnknown()`), by 2.3's own rule: the forms are read only where
+  `convertsFallBack()` holds, which is false there, and `convertShape` at that level would be the
+  Java loop on an AVX2 host. So the defaults still decline, no coverage row can hold the casts
+  (the coverage suite compiles at the defaults), and an aarch64 session, which resolves to the
+  unknown level, declines them although 2.3's table says `convertShape` there.
+- **`L2D`.** The split as 2.3 states it, and under `wideConversionForm=MAGIC` the bounded magic
+  behind a `VALUE_RANGE` refusal of the `ConvertLane` itself over `[-2^51, 2^51]`, the proof's
+  closed window rather than 2.3's open one; the guard compares the long child
+  (`VarkaVectorWalk.guardLane`). No IR node is added: the compiler reads no option.
+- **`L2F` without a mask.** At two 64-bit lanes C2 on x86 lowers no mask, so the form settles the
+  groundwork's open points 2 and 3 by arithmetic: the sticky bit is `((m & 0xFFF) + 0xFFF) >>> 12`,
+  the arm a blend by `sel = -(((m >>> 52) + Long.MAX_VALUE) >>> 63)` in logic, the scale a magic
+  number of `2^64` whose ulp is `2^12`, and the sign `v`'s sign bit set in that magic number.
+  `round_to_odd.smt2` is restated over these operations, read from the class's constants (open
+  point 1): 50 checks, 7.8 s under Z3 and 6.8 s under cvc5 on the laptop. The new ones: the
+  sticky bit is Theorem 3's rounding to odd, the sign bit is set exactly where `v < 0`, each arm's
+  signed magic gives the negated double for every `t` from 1, and `D2F` commutes with negation.
+- **The option.** `wideConversionForm` (`SPLIT`, `MAGIC`) reads only a `ConvertLane` and only
+  below level 3, so a `Choice` now carries a `Subject` as a `Flag` does, `useAVX=2`, and the matrix
+  runs `useAVX=2,wideConversionForm=MAGIC` (`ConvertLane` joins `COMPILED_NODE_KINDS`).
+- **Tests.** `VarkaEmitterWideConversionSuite` holds both forms and both arms at three widths, the
+  lengths and null patterns to Java's casts at the cells (the arms' boundary at `2^52`, the float
+  ties `2^52 + 2^28` and `2^62 + 2^38` and one sticky bit above them, the double ties past
+  `2^53`, `2^53 + 2^29 + 1`, the extremes, every negation) and over a seeded draw of 512 values a
+  binade of both signs with their float and double ties, the magic's decline past `2^51` and not
+  under a null, and 3.4's case: the split-and-add form gives 4275361280 for 4275361147 and misrounds
+  between 16% and 17% of a seeded draw of `[2^31, 2^32)`, the kernel 4275361024.
+  `VarkaDifferentialHarnessSuite` runs the level-3 cells at level 2 in both arms against Spark.
+  The budget weighs a long conversion by its AVX2 form, 10 lane calls for the split and 24 for
+  `L2F` (the magic is 5).
+- **C2 at `-XX:UseAVX=2`** on the laptop (`dev/varka_emit.sh --asm`, `JDK_JAVA_OPTIONS`): both
+  forms are 256-bit `ymm` code with no call but the traps and no `vcvtqq2pd`; the split is
+  `vpand`, `vpor`, `vsubpd`, the arithmetic shift as `vpsrlq`, `vpxor` and `vpsubq` over a
+  sign-mask load, `vpaddq`, `vsubpd`, `vmulpd`, `vaddpd`; `L2F` ends in `vcvtpd2ps ymm, xmm`.
+  The tool's own timing, not a benchmark, read 322 ns a round of 1024 rows for the split, 218 for
+  the magic and 542 for `L2F`: the split is past prediction 4.4's 1.3 times there, which the
+  measurement on the EPYC runners (step 8) decides.

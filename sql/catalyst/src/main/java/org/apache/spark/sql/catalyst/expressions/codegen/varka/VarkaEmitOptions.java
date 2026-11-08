@@ -504,6 +504,10 @@ import com.sun.management.HotSpotDiagnosticMXBean;
  * @param decimalStore how a {@code WidenDecimal} root interleaves its words into Arrow's
  *        sixteen-byte decimal slots (VARKA-157 2.2): see {@link DecimalStore}. No other root reads
  *        it, so every shape without a decimal output emits the same bytes under either value.
+ * @param wideConversionForm how a {@code BIGINT} value converts to {@code DOUBLE} where the level
+ *        says the 64-bit conversions are not instructions ({@link #convertsFallBack()}): see
+ *        {@link WideConversionForm}. Read by a {@code ConvertLane} from the long lane and only
+ *        at such a level, so every other shape emits the same bytes under either value.
  */
 public record VarkaEmitOptions(
     int groupBudget,
@@ -556,7 +560,8 @@ public record VarkaEmitOptions(
     boolean fromLongMasks,
     boolean decimalAbsLanewise,
     boolean dropDecimalBound,
-    DecimalStore decimalStore) {
+    DecimalStore decimalStore,
+    WideConversionForm wideConversionForm) {
 
   /**
    * The three mod-7 lowerings. {@link #MAGIC} is what ships: two 15-bit digit-sum folds followed
@@ -600,6 +605,16 @@ public record VarkaEmitOptions(
    */
   public enum DecimalStore { REARRANGE, SELECT_FROM }
 
+  /**
+   * The two AVX2 forms of {@code L2D} (`VARKA-343.md` 2.3, {@code VarkaConversionLowering}).
+   * {@link #SPLIT} converts the high and the low 32 bits exactly and adds them, one rounding of
+   * the whole long, over every value; {@link #MAGIC} adds the magic number's bits and subtracts
+   * it, exact for {@code |v| <= 2^51} only, under a guard that declines a batch with a live lane
+   * outside. The whole-range split is the default; the bounded form is the reference arm, kept
+   * to be measured against it. {@code L2F} has one form, by rounding to odd.
+   */
+  public enum WideConversionForm { SPLIT, MAGIC }
+
   /*
    * A note this enum cannot express, kept beside it rather than inside its javadoc, which
    * describes the calendar prefix: the 64-bit lane has a fourth lowering, the magic-number
@@ -636,14 +651,16 @@ public record VarkaEmitOptions(
 
   /**
    * The {@code UseAVX} level at which HotSpot enables its AVX-512 paths: the lowest level whose
-   * conversions the kernel plan admits ({@link #convertsMayFallBack()}), and the one a session
-   * asking for the host's resolves a CPU with AVX512DQ to.
+   * long-to-floating conversions are one instruction ({@link #convertsMayFallBack()}), and the
+   * one a session asking for the host's resolves a CPU with AVX512DQ to.
    */
   public static final int AVX512_LEVEL = 3;
 
   /**
    * Whether this level is one where the long-to-double conversions do not become instructions,
-   * so a 64-bit constant division takes the magic-number form instead of converting.
+   * so a 64-bit constant division takes the magic-number form instead of converting, and a
+   * {@code BIGINT} cast to {@code FLOAT} or {@code DOUBLE} its AVX2 form
+   * ({@code VarkaConversionLowering}).
    *
    * <p>The level is a target, not a reading of the host: below 3 it is exact, since HotSpot
    * clears AVX512DQ there, and a host enters only through the session, which resolves a JVM
@@ -664,22 +681,32 @@ public record VarkaEmitOptions(
   /**
    * Whether this level gives no assurance that the long-to-floating conversions become
    * instructions: a level below 3, as in {@link #convertsFallBack()}, and also an unknown one.
-   * The kernel plan admits a {@code BIGINT} conversion to {@code FLOAT} or {@code DOUBLE} only
-   * where this is false ({@code VarkaKernelPlan.conversionRefusal}).
+   * Below 3 the emitter lowers {@code L2D} and {@code L2F} by their AVX2 forms instead
+   * ({@code VarkaConversionLowering}); at the unknown level, where neither the instruction nor
+   * the need for a form is known, the kernel plan declines them ({@link #levelUnknown()}).
    *
    * <p>It differs from {@link #convertsFallBack()} on the unknown level alone, and on purpose.
    * That predicate picks a lowering, and its optimism costs nothing where it is wrong: both
-   * division forms are vector code. This one decides whether a kernel exists, and the two errors
-   * are not alike: a wrong decline costs the row engine's speed, while a wrong admission runs
-   * the Vector API's scalar Java loop inside a vector kernel. The unknown level is what
-   * {@link #DEFAULTS} carries, so it has to be the safe answer. It is still a function of the
-   * record alone - no CPU read reaches it - so a shape is admitted or declined alike on every
-   * machine, and its key never depends on the host. A session that wants the conversions fused
-   * names level 3, or asks for the host's level, which resolves a CPU with AVX512DQ to 3
-   * ({@code VarkaSessionEmit.resolve}).
+   * division forms are vector code. A {@code convertShape} of a long chosen on that optimism
+   * would be wrong in the other way: on an AVX2 host it is the Vector API's scalar Java loop
+   * inside a vector kernel. The unknown level is what {@link #DEFAULTS} carries, so it has to be
+   * the safe answer. It is still a function of the record alone - no CPU read reaches it - so a
+   * shape is admitted or declined alike on every machine, and its key never depends on the host.
    */
   public boolean convertsMayFallBack() {
     return useAVX == USE_AVX_UNKNOWN || useAVX < AVX512_LEVEL;
+  }
+
+  /**
+   * Whether this record names no {@code UseAVX} level: the defaults' and an unset session's, and
+   * every aarch64 host's ({@code VarkaSessionEmit.resolve}). The kernel plan declines a
+   * {@code BIGINT} conversion to {@code FLOAT} or {@code DOUBLE} here alone
+   * ({@code VarkaKernelPlan.conversionRefusal}): a known level below 3 takes the AVX2 forms,
+   * and level 3 the one instruction. A session that wants the conversions fused names a level,
+   * or asks for the host's.
+   */
+  public boolean levelUnknown() {
+    return useAVX == USE_AVX_UNKNOWN;
   }
 
   private static int readUseAVX() {
@@ -714,7 +741,7 @@ public record VarkaEmitOptions(
           true, true, true, true,
           VarkaEmitBudget.CALL_SITE_BUDGET, VarkaEmitBudget.HEAVY_GROUP_OUTPUTS,
           true, true, true, true, true, true, true, 0, 0, 0, false, false, false, 0, false,
-          false, false, DecimalStore.REARRANGE);
+          false, false, DecimalStore.REARRANGE, WideConversionForm.SPLIT);
 
   public VarkaEmitOptions {
     if (groupBudget < 1) {
@@ -750,6 +777,9 @@ public record VarkaEmitOptions(
     }
     if (decimalStore == null) {
       throw VarkaErrors.illegalArgument("decimalStore must not be null");
+    }
+    if (wideConversionForm == null) {
+      throw VarkaErrors.illegalArgument("wideConversionForm must not be null");
     }
     if (lanesOverride != 0 && (lanesOverride < 1 || Integer.bitCount(lanesOverride) != 1)) {
       throw VarkaErrors.illegalArgument(
@@ -823,6 +853,7 @@ public record VarkaEmitOptions(
       b.decimalAbsLanewise = decimalAbsLanewise;
       b.dropDecimalBound = dropDecimalBound;
       b.decimalStore = decimalStore;
+      b.wideConversionForm = wideConversionForm;
     return b;
   }
 
@@ -879,6 +910,7 @@ public record VarkaEmitOptions(
     private boolean decimalAbsLanewise;
     private boolean dropDecimalBound;
     private DecimalStore decimalStore;
+    private WideConversionForm wideConversionForm;
 
     private Builder() {
     }
@@ -1138,6 +1170,11 @@ public record VarkaEmitOptions(
       return this;
     }
 
+    public Builder wideConversionForm(WideConversionForm form) {
+      this.wideConversionForm = form;
+      return this;
+    }
+
     public VarkaEmitOptions build() {
       return new VarkaEmitOptions(
           groupBudget, fusedCeiling, cse, shareChronoPrefix, denseValidityOnce,
@@ -1152,7 +1189,7 @@ public record VarkaEmitOptions(
           elideUnreadLocals, planSize, misdescribeDriverBytes, forceResidualAt,
           misdescribeRollback, exactRefusalStatus, groupBudgetUnderPrediction, dropStackMaps,
           misdescribeDataBytes, fromLongMasks, decimalAbsLanewise, dropDecimalBound,
-          decimalStore);
+          decimalStore, wideConversionForm);
     }
   }
 
@@ -1348,6 +1385,10 @@ public record VarkaEmitOptions(
 
   public VarkaEmitOptions withDecimalStore(DecimalStore form) {
     return toBuilder().decimalStore(form).build();
+  }
+
+  public VarkaEmitOptions withWideConversionForm(WideConversionForm form) {
+    return toBuilder().wideConversionForm(form).build();
   }
 
   /**

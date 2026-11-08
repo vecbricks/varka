@@ -157,9 +157,10 @@ public final class VarkaEmitterFloatingCastSuite {
   }
 
   /**
-   * The base options at level 3, where a {@code BIGINT} conversion to a floating type is admitted:
-   * the unknown level and every level below 3 decline it
-   * ({@link VarkaEmitOptions#convertsMayFallBack()}), so a test of its lowering names the level.
+   * The base options at level 3, where a {@code BIGINT} conversion to a floating type is one
+   * {@code convertShape}: the unknown level declines it ({@link VarkaEmitOptions#levelUnknown()})
+   * and a level below 3 takes its AVX2 form ({@code VarkaEmitterWideConversionSuite}), so a test
+   * of its lowering names the level.
    */
   private static final VarkaEmitOptions DQ =
       VarkaMatrixRuns.BASE.withUseAVX(VarkaEmitOptions.AVX512_LEVEL);
@@ -507,9 +508,9 @@ public final class VarkaEmitterFloatingCastSuite {
       check("cast(l > 5 AS " + target + ")", List.of(root), 1, new int[0], new long[] {5L},
           cells(LONGS));
     }
-    // The form it replaces, the long one or zero converted directly, is the refused one where
-    // the level does not assure AVX512DQ; at level 3 the conversion is admitted (row 343).
-    assertEquals(VarkaMatrixRuns.BASE.convertsMayFallBack(),
+    // The form it replaces, the long one or zero converted directly, is the refused one at the
+    // unknown level; at a named level the conversion is admitted (row 343).
+    assertEquals(VarkaMatrixRuns.BASE.levelUnknown(),
         VarkaKernelPlan.refusalOf(List.of(convert(new CondValue(cond, LaneType.LONG),
             LaneType.DOUBLE)), VarkaMatrixRuns.BASE).isPresent());
   }
@@ -877,16 +878,15 @@ public final class VarkaEmitterFloatingCastSuite {
   }
 
   @Test
-  @DisplayName("a bigint conversion declines on a host without AVX512DQ, and no other does")
+  @DisplayName("a bigint conversion is admitted at every named level, below 3 by its AVX2 form")
   void hostRefusal() {
-    var avx2 = VarkaMatrixRuns.BASE.withUseAVX(2);
-    for (LaneType target : List.of(LaneType.FLOAT, LaneType.DOUBLE)) {
-      Optional<String> refusal = VarkaKernelPlan.refusalOf(List.of(convert(L, target)), avx2);
-      assertTrue(refusal.isPresent() && refusal.get().contains("AVX512DQ"), refusal.toString());
-      assertTrue(VarkaKernelPlan.refusalOf(List.of(convert(I, target)), avx2).isEmpty());
+    for (int level : new int[] {0, 2, VarkaEmitOptions.AVX512_LEVEL}) {
+      var options = VarkaMatrixRuns.BASE.withUseAVX(level);
+      for (LaneType target : List.of(LaneType.FLOAT, LaneType.DOUBLE)) {
+        Optional<String> refusal = VarkaKernelPlan.refusalOf(List.of(convert(L, target)), options);
+        assertTrue(refusal.isEmpty(), level + ": " + refusal);
+      }
     }
-    assertTrue(VarkaKernelPlan.refusalOf(List.of(convert(X, LaneType.FLOAT)), avx2).isEmpty());
-    assertTrue(VarkaKernelPlan.refusalOf(List.of(convert(L, LaneType.DOUBLE)), DQ).isEmpty());
     // A floating source converted to an integral lane waits for 343b2 at every level.
     assertTrue(VarkaKernelPlan.refusalOf(List.of(convert(F, LaneType.INT)), DQ).isPresent());
   }

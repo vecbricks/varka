@@ -352,7 +352,8 @@ final class Analysis {
     /**
      * {@link GuardedRange}: the day guard's twin at either lane, with the bounds it carries - a
      * value the row engine throws on, or a date column outside the column bound (VARKA-379). A
-     * {@code NULL}-mode guard is not one: it nulls its lane and declines nothing.
+     * {@code NULL}-mode guard is not one: it nulls its lane and declines nothing. And the
+     * bounded {@code L2D}'s window, a {@code ConvertLane}'s, checked on its long child.
      */
     VALUE_RANGE(Family.REARMED, true, VarkaFusedKernel.STATUS_VALUE_RANGE),
     /**
@@ -964,7 +965,13 @@ final class Analysis {
         case ColumnRef n -> { }
         case LiteralSlot n -> { }
         case WidenLane n -> { }
-        case ConvertLane n -> { }
+        // The bounded L2D is exact over |v| <= 2^51 alone, so a lane past it declines the batch,
+        // as a FAIL range guard's does (VarkaConversionLowering); every other form is whole-range.
+        case ConvertLane n -> {
+          if (VarkaConversionLowering.takesMagic(this, n)) {
+            refuse(node, Refusal.VALUE_RANGE);
+          }
+        }
         case NarrowLane n -> { }
         case WidenDecimal n -> { }
         case NextDay n -> { }
