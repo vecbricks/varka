@@ -130,5 +130,5 @@ null, appended after the existing 88 so the committed results keep their places.
 `Fusion.NONE`, and `VarkaDecimalBaselineQueriesSuite`'s fuse test passes with that class, so item
 0.1 holds on the plan as well as in the census. Both operands share a type, so no section
 rescales; the queries suite also checks that no divisor is zero at the benchmark's 2,000,000
-rows, since one would raise under ANSI. The runner results at 256 and 128 bits are spliced into
-the committed `-runner-epyc7763` files, the new sections only, with their provenance.
+rows, since one would raise under ANSI. The runner results at 256 and 128 bits are to be spliced
+into the committed `-runner-epyc7763` files, the new sections only, with their provenance.
