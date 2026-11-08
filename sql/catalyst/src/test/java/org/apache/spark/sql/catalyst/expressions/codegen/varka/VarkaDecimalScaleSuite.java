@@ -31,6 +31,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import org.junit.jupiter.api.DisplayName;
@@ -80,7 +81,7 @@ public final class VarkaDecimalScaleSuite {
     for (int s = 0; s < bounds.size(); s++) {
       int rows = 0;
       for (String line : sections[s + 1].split("\n")) {
-        var m = MAGIC_ROW.matcher(line);
+        Matcher m = MAGIC_ROW.matcher(line);
         if (!m.matches()) {
           continue;
         }
@@ -112,9 +113,46 @@ public final class VarkaDecimalScaleSuite {
       assertEquals(TEN_38_LESS_1.shiftLeft(1),
           VarkaDecimalScale.of(k, TEN_38_LESS_1.add(BigInteger.ONE)).bound());
       assertEquals(k, VarkaDecimalScale.of(k, TEN_38_LESS_1).k());
+      // Each rung's edge: its own bound takes it, one more takes the next.
+      for (int r = 0; r < VarkaDecimalScale.BOUNDS.size(); r++) {
+        BigInteger rung = VarkaDecimalScale.BOUNDS.get(r);
+        Entry at = VarkaDecimalScale.of(k, rung);
+        assertEquals(rung, at.bound(), "k = " + k + " at rung " + r);
+        assertEquals(k, at.k(), "k = " + k + " at rung " + r);
+        if (r > 0) {
+          BigInteger below = VarkaDecimalScale.BOUNDS.get(r - 1).add(BigInteger.ONE);
+          assertEquals(rung, VarkaDecimalScale.of(k, below).bound(), "k = " + k + " past rung "
+              + (r - 1));
+        }
+      }
     }
     assertThrows(IllegalArgumentException.class,
         () -> VarkaDecimalScale.of(1, BigInteger.ONE.shiftLeft(256)));
+  }
+
+  @Test
+  @DisplayName("a k outside 1..39 has no entry, at the first, an inner and the last rung")
+  void lookupRefusesAKOutsideTheTable() {
+    for (BigInteger rung : List.of(VarkaDecimalScale.BOUNDS.get(0), BigInteger.ONE.shiftLeft(70),
+        VarkaDecimalScale.BOUNDS.get(VarkaDecimalScale.BOUNDS.size() - 1))) {
+      for (int k : List.of(VarkaDecimalScale.MIN_K - 1, VarkaDecimalScale.MAX_K + 1)) {
+        assertThrows(IllegalArgumentException.class, () -> VarkaDecimalScale.of(k, rung),
+            "k = " + k + " at " + rung.bitLength() + " bits");
+      }
+    }
+  }
+
+  @Test
+  @DisplayName("an entry whose multiplier is not the round-up or whose shift is short is refused")
+  void entryRefusesAWrongConstant() {
+    Entry entry = VarkaDecimalScale.of(19, TEN_38_LESS_1);
+    assertThrows(IllegalArgumentException.class, () -> new Entry(entry.k(), entry.bound(),
+        entry.shift(), entry.multiplier().add(BigInteger.ONE)));
+    BigInteger d = entry.divisor();
+    BigInteger shorter = BigInteger.ONE.shiftLeft(entry.shift() - 1).add(d)
+        .subtract(BigInteger.ONE).divide(d);
+    assertThrows(IllegalArgumentException.class,
+        () -> new Entry(entry.k(), entry.bound(), entry.shift() - 1, shorter));
   }
 
   @Test
@@ -269,8 +307,10 @@ public final class VarkaDecimalScaleSuite {
   /** The entry a shape of this bound takes must exist, and its dividend limbs must hold it. */
   private static void checkEntry(int k, BigInteger bound) {
     Entry entry = VarkaDecimalScale.of(k, bound);
+    BigInteger preShifted = bound.shiftRight(k - 1);
     assertTrue(entry.bound().compareTo(bound) >= 0);
-    assertTrue(entry.products() >= 1);
+    assertTrue(VarkaDecimalScale.limbsOf(preShifted).length <= entry.dividendLimbs());
+    assertTrue(entry.maxPreShifted().compareTo(preShifted) >= 0);
   }
 
   /** {@code Multiply}'s cut shapes under a rule: scale cut by {@code k}, the check, the bound. */

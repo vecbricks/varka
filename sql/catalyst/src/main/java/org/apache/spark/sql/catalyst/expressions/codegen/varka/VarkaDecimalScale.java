@@ -72,13 +72,14 @@ final class VarkaDecimalScale {
    * {@code 10^p - 1}, a product's {@code (10^p1 - 1)(10^p2 - 1)}) takes the entry of the least
    * rung at or above it, so the open set of shapes the compiler meets is covered by this short
    * list, each rung proven once. The three named ones are the 128-bit value, an equal-scale sum
-   * and a 256-bit product (VARKA-363 2.3); the others are the whole of a 32-bit limb count.
+   * and a 256-bit product (VARKA-363 2.3); the others are {@code 2^(32w) - 1} for every limb
+   * count {@code w} from 2 to 8.
    */
   static final List<BigInteger> BOUNDS = List.of(
       twoToThe(64), twoToThe(96),
       TEN_38_LESS_1,
       TEN_38_LESS_1.shiftLeft(1),
-      twoToThe(128), twoToThe(160), twoToThe(192),
+      twoToThe(128), twoToThe(160), twoToThe(192), twoToThe(224),
       TEN_38_LESS_1.multiply(TEN_38_LESS_1),
       twoToThe(256));
 
@@ -99,6 +100,17 @@ final class VarkaDecimalScale {
       }
       if (bound.signum() <= 0 || shift <= 0 || multiplier.signum() <= 0) {
         throw new IllegalArgumentException("a bound, shift and multiplier must be positive");
+      }
+      // From the parameters: the accessors read the fields, unassigned until this body ends.
+      BigInteger fives = BigInteger.valueOf(5).pow(k);
+      BigInteger power = BigInteger.ONE.shiftLeft(shift);
+      if (!multiplier.equals(power.add(fives).subtract(BigInteger.ONE).divide(fives))) {
+        throw new IllegalArgumentException("the multiplier is not ceil(2^" + shift + " / 5^" + k
+            + ")");
+      }
+      BigInteger error = multiplier.multiply(fives).subtract(power);
+      if (error.multiply(bound.shiftRight(k - 1)).compareTo(power) >= 0) {
+        throw new IllegalArgumentException("e * Nmax reaches 2^" + shift + " at k = " + k);
       }
     }
 
@@ -164,9 +176,13 @@ final class VarkaDecimalScale {
 
   /**
    * The constant for dividends up to {@code bound}: the entry of the least rung of
-   * {@link #BOUNDS} at or above it. A bound past the last rung, 256 bits, has no entry.
+   * {@link #BOUNDS} at or above it. A bound past the last rung, 256 bits, has no entry, and nor
+   * has a {@code k} outside {@code MIN_K..MAX_K}, which would index a neighbouring rung.
    */
   static Entry of(int k, BigInteger bound) {
+    if (k < MIN_K || k > MAX_K) {
+      throw new IllegalArgumentException("k = " + k + " is outside " + MIN_K + ".." + MAX_K);
+    }
     for (BigInteger rung : BOUNDS) {
       if (bound.compareTo(rung) <= 0) {
         return TABLE.get(BOUNDS.indexOf(rung) * (MAX_K - MIN_K + 1) + (k - MIN_K));

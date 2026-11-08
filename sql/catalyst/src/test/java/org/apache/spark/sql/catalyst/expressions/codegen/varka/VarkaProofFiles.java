@@ -3495,9 +3495,10 @@ final class VarkaProofFiles {
 
   /**
    * {@code decimal_scale.smt2}: the table of {@link VarkaDecimalScale} and the identities it rests
-   * on, over integers at full width. Every claim is linear, since each multiplier is a constant.
-   * Per table entry, the constant's claim over the pre-shifted bound, the same claim to the entry's
-   * first failure, and the failure itself; per {@code k}, the two identities of VARKA-363 2.3,
+   * on, over integers at full width. Every multiplier and divisor is a constant, so each claim is
+   * linear in its unknowns, though the file declares {@code QF_NIA} as the other integer files do.
+   * Per table entry, the constant's claim to the entry's first failure, which lies past the
+   * pre-shifted bound, and the failure itself; per {@code k}, the two identities of VARKA-363 2.3,
    * which compose with the claim into the whole division. As one check the nested divisions are
    * beyond cvc5 at 256 bits, where each step alone is instant, so the suite holds the composition
    * to {@code BigDecimal}; per digit count and {@code k}, the
@@ -3515,15 +3516,16 @@ final class VarkaProofFiles {
         ;                                                   identity (2)
         ;   floor(N / 5^k) = floor(N * c / 2^L)             the constant, for N <= Nmax
         ;
-        ; Per table entry (k, bound): the constant's claim over [0, Nmax], the claim to the
-        ; entry's first failure minus one and the failure itself (so the table finds where the
-        ; constant stops, not only that it holds). The three steps compose: the claim, then (1)
-        ; and (2), give the division over [0, bound]; as one check the nested divisions are out of
-        ; cvc5's reach at 256 bits, and VarkaDecimalScaleSuite holds the composition to
-        ; BigDecimal. The precision-loss lemma (2.4) and the bounds of the 10^38 check (0.7)
+        ; Per table entry (k, bound): the constant's claim over [0, F - 1], F the entry's first
+        ; failure, which is past Nmax and so covers [0, Nmax], and the failure at F itself (so the
+        ; table finds where the constant stops, not only that it holds). Every multiplier and
+        ; divisor is a constant, so each claim is linear. The three steps compose: the claim,
+        ; then (1) and (2), give the division over [0, bound]; as one check the nested divisions
+        ; are out of cvc5's reach at 256 bits, and VarkaDecimalScaleSuite holds the composition
+        ; to BigDecimal. The precision-loss lemma (2.4) and the bounds of the 10^38 check (0.7)
         ; follow. A refuted neighbour of each identity shows the statement is not vacuous.
         """);
-    out.append(rendered("QF_NIA"));
+    out.append(RENDERED);
     String n = "(declare-const n Int)";
     String big = "(declare-const e Int) (declare-const f Int)";
     for (int k = VarkaDecimalScale.MIN_K; k <= VarkaDecimalScale.MAX_K; k++) {
@@ -3553,14 +3555,15 @@ final class VarkaProofFiles {
           + five + ")))";
       String shape = "k = " + k + ", bound " + entry.bound().bitLength() + " bits (" + entry.bound()
           + ")";
+      if (first.compareTo(entry.maxPreShifted()) <= 0) {
+        throw new IllegalStateException("the first failure is inside the bound: " + entry);
+      }
       check(out, shape + ": floor(N * " + entry.multiplier() + " / 2^" + entry.shift() + ") is "
-          + "floor(N / 5^" + k + ") for N <= " + entry.maxPreShifted(), "unsat", List.of(n,
-              "(assert (and (<= 0 n) (<= n " + entry.maxPreShifted() + ")))", "(assert " + claim
-                  + ")"));
-      check(out, "and to N = " + first.subtract(BigInteger.ONE), "unsat", List.of(n,
-          "(assert (and (<= 0 n) (<= n " + first.subtract(BigInteger.ONE) + ")))",
-          "(assert " + claim + ")"));
-      check(out, "and N = " + first + ", the first past the bound, is not", "sat", List.of(n,
+          + "floor(N / 5^" + k + ") for N <= " + first.subtract(BigInteger.ONE) + ", past Nmax = "
+          + entry.maxPreShifted(), "unsat", List.of(n,
+              "(assert (and (<= 0 n) (<= n " + first.subtract(BigInteger.ONE) + ")))",
+              "(assert " + claim + ")"));
+      check(out, "and N = " + first + ", the first failure, is not", "sat", List.of(n,
           "(assert (= n " + first + "))", "(assert " + claim + ")"));
     }
     precisionLossLemma(out, big);
