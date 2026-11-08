@@ -174,6 +174,13 @@ public final class VarkaIrGrammar {
   public static final long CAST_FUZZ_SEED = 20261031L;
 
   /**
+   * The seed of {@link #drawNullingLaneShape}, the typed null at the lanes the nulling draw does
+   * not reach (VARKA-578): a sequence of its own for the reason {@link #NARROW_FUZZ_SEED} gives.
+   * {@code VarkaIrFuzzSuite} runs it against the reference evaluator; nothing pins its bytes.
+   */
+  public static final long NULLING_LANE_FUZZ_SEED = 20261108L;
+
+  /**
    * The seed of {@link #drawUnsignedLongShape}, a sequence of its own for the reason
    * {@link #NARROW_FUZZ_SEED} gives: the unsigned compares (VARKA-359) drawn into the long
    * corpus would move its committed blocks. {@code VarkaIrFuzzSuite} runs it against the
@@ -294,6 +301,8 @@ public final class VarkaIrGrammar {
       // The grammar draws no decimal column here: drawDecimalValueShape draws its own values.
       case DecimalColumn _ ->
           throw new IllegalArgumentException("the grammar draws no decimal column: " + node);
+      case VarkaVectorIR.DecimalWord _ ->
+          throw new IllegalArgumentException("the grammar draws no decimal word: " + node);
       case LiteralSlot _ -> new Bounds(LITERAL_BOUND, 0L);
       case AddDays n -> shift(n.days(), n.offset());
       case SubDays n -> shift(n.days(), n.offset());
@@ -379,7 +388,7 @@ public final class VarkaIrGrammar {
       // The conversions: a widening keeps every value, and a narrowing keeps the low 32 bits,
       // whose magnitude is the child's where that fits an int and an int's otherwise.
       case WidenLane n -> boundsOf(n.child());
-      // The grammar draws no floating node (VARKA-343).
+      // The grammar draws no floating tree outside its own conversion production.
       case ConvertLane n -> throw new IllegalArgumentException("a floating node: " + n);
       case NarrowLane n -> {
         Bounds b = boundsOf(n.child());
@@ -750,6 +759,47 @@ public final class VarkaIrGrammar {
         yield new CondValue(new BoolColumn(CAST_BOOL_COLUMN, lane), lane);
       }
     };
+  }
+
+  /**
+   * The lanes of {@link #drawNullingLaneShape}, each with the {@link #CAST_COLUMNS} ordinal whose
+   * values it reads: a narrow lane its own column, and a floating lane the column of its width,
+   * whose values are its bits ({@code VarkaReference}), so that the ends of the int and long
+   * ranges reach a NaN with a payload and minus zero.
+   */
+  public static final List<LaneType> NULLING_LANES = List.of(LaneType.BYTE, LaneType.SHORT,
+      LaneType.FLOAT, LaneType.DOUBLE);
+
+  /** The {@link #CAST_COLUMNS} ordinal a {@link #NULLING_LANES} column reads. */
+  public static int nullingLaneColumn(LaneType lane) {
+    return switch (lane) {
+      case BYTE -> 0;
+      case SHORT -> 1;
+      case INT, FLOAT -> 2;
+      case LONG, DOUBLE -> 3;
+    };
+  }
+
+  /**
+   * One choice with the lane's null ({@link #nullChoice}, at each of its positions) over one
+   * column of a {@link #NULLING_LANES} lane, the conditions comparisons of the column with the
+   * zero of literal slot 0: {@code nullifzero} and a {@code CASE WHEN} without an {@code ELSE}
+   * at the narrow and floating lanes, whose null the general draws never reach, since their
+   * grammar draws neither lane (VARKA-578). One root a draw, over the cast draw's columns, so the
+   * cast draw's harness runs it.
+   */
+  public static VarkaVectorIR drawNullingLaneShape(Random rnd) {
+    // A bound of four reads the high bits of a first draw that consecutive seeds vary only in
+    // the low ones (drawCastShape's reason), which drew the narrow lanes alone: one is discarded.
+    rnd.nextLong();
+    LaneType lane = NULLING_LANES.get(rnd.nextInt(NULLING_LANES.size()));
+    var col = new ColumnRef(nullingLaneColumn(lane), lane);
+    var zero = new LiteralSlot(0, lane);
+    // Signed only: the unsigned comparisons take an integral lane, and this draw reaches the
+    // floating ones.
+    List<CompareOp> ops = CompareOp.signed();
+    Supplier<Cond> cond = () -> new Compare(ops.get(rnd.nextInt(ops.size())), col, zero);
+    return nullChoice(rnd, cond.get(), new Gen(col, Long.MAX_VALUE), lane, cond).node();
   }
 
   /**
@@ -1994,6 +2044,121 @@ public final class VarkaIrGrammar {
       VarkaVectorIR narrow = new NarrowLane(longValue(Math.max(0, depth - 1)).node(),
           LaneType.INT);
       return new Compare(op, narrow, intValue(Math.max(0, depth - 1)).node());
+    }
+  }
+
+  // ---------------------------------------------------------------------------------------------
+  // The conversions to a floating lane (VARKA-343).
+  // ---------------------------------------------------------------------------------------------
+
+  /**
+   * The seed of the floating conversions' corpus: trees over an int, a bigint, a float and a
+   * double column that convert to a floating lane and between the two, with the arithmetic, the
+   * picks and the conditional over each lane above them. A sequence of its own, so that drawing
+   * it moves no committed corpus.
+   */
+  public static final long FLOATING_CAST_FUZZ_SEED = 20261102L;
+
+  /** The four columns' lanes, by ordinal: an int, a bigint, a float and a double. */
+  public static final List<LaneType> FLOATING_CAST_COLUMNS =
+      List.of(LaneType.INT, LaneType.LONG, LaneType.FLOAT, LaneType.DOUBLE);
+
+  /** The literal slots each table holds: the int table's two, the long table's two. */
+  public static final int FLOATING_CAST_LITERALS = 2;
+
+  /**
+   * One draw of the floating conversions' corpus: one to three roots of one kernel - each kept
+   * only where its drive is the first root's, since roots of two drives share none - over the
+   * four columns of {@link #FLOATING_CAST_COLUMNS}, reading both literal tables.
+   */
+  public static List<VarkaVectorIR> drawFloatingCastShape(Random rnd) {
+    var shapes = new FloatingCastShapes(rnd);
+    int depth = 1 + rnd.nextInt(4);
+    LaneType[] lanes = {LaneType.FLOAT, LaneType.DOUBLE, LaneType.INT, LaneType.LONG};
+    // A floating root three times in four: the integral roots are there to share its kernel.
+    VarkaVectorIR first = shapes.value(lanes[rnd.nextInt(2)], depth);
+    LaneType drive = VarkaKernelPlan.emissionLane(first, VarkaEmitOptions.DEFAULTS);
+    var drawn = new ArrayList<VarkaVectorIR>(List.of(first));
+    int more = rnd.nextInt(3);
+    for (int k = 0; k < more; k++) {
+      VarkaVectorIR root = shapes.value(lanes[rnd.nextInt(lanes.length)], depth);
+      if (VarkaKernelPlan.emissionLane(root, VarkaEmitOptions.DEFAULTS) == drive) {
+        drawn.add(root);
+      }
+    }
+    return distinct(drawn);
+  }
+
+  /**
+   * The generator of {@link #drawFloatingCastShape}: a value at a lane is a leaf of it, a
+   * {@link ConvertLane} into it (a floating lane only, from an integral lane or the other
+   * floating one), a wrapping {@code +}, {@code -} or {@code *}, a pick, or a conditional over a
+   * comparison at the same lane or at another one, crossed. No division and no checked mode, so
+   * no draw declines.
+   */
+  static final class FloatingCastShapes {
+    private final Random rnd;
+    private int budget = 16;
+
+    FloatingCastShapes(Random rnd) {
+      this.rnd = rnd;
+    }
+
+    private VarkaVectorIR leaf(LaneType lane) {
+      if (rnd.nextInt(4) == 0) {
+        return new LiteralSlot(rnd.nextInt(FLOATING_CAST_LITERALS), lane);
+      }
+      return new ColumnRef(FLOATING_CAST_COLUMNS.indexOf(lane), lane);
+    }
+
+    VarkaVectorIR value(LaneType lane, int depth) {
+      if (depth <= 0 || budget <= 0 || rnd.nextInt(5) == 0) {
+        return leaf(lane);
+      }
+      budget--;
+      int pick = rnd.nextInt(lane.isFloating() ? 7 : 5);
+      return switch (pick) {
+        case 0 -> new IntArith(IntOp.values()[rnd.nextInt(3)], Overflow.WRAP,
+            value(lane, depth - 1), value(lane, depth - 1));
+        case 1 -> rnd.nextBoolean() ? new Greatest(value(lane, depth - 1), value(lane, depth - 1))
+            : new Least(value(lane, depth - 1), value(lane, depth - 1));
+        case 2 -> new IfElse(new Compare(signedOp(), value(lane, depth - 1),
+            value(lane, depth - 1)), value(lane, depth - 1), value(lane, depth - 1));
+        case 3 -> leaf(lane);
+        case 4 -> new IfElse(crossed(lane, depth - 1), value(lane, depth - 1),
+            value(lane, depth - 1));
+        default -> new ConvertLane(value(source(lane), depth - 1), lane);
+      };
+    }
+
+    /**
+     * A comparison at another column lane than {@code lane}, crossed to {@code lane}: the choice
+     * between two values of one lane made by a condition of another (VARKA-343, the lane
+     * crossing).
+     */
+    private Cond crossed(LaneType lane, int depth) {
+      var others = FLOATING_CAST_COLUMNS.stream().filter(l -> l != lane).toList();
+      LaneType other = others.get(rnd.nextInt(others.size()));
+      return new CrossLane(new Compare(signedOp(), value(other, depth), value(other, depth)), lane);
+    }
+
+    /**
+     * A signed comparison: the unsigned ones take an integral lane only, and the floating lanes
+     * are what this generator draws. The five are drawn in the enum's order, so the draws are
+     * the ones this generator made before the unsigned comparisons joined the enum.
+     */
+    private CompareOp signedOp() {
+      List<CompareOp> ops = CompareOp.signed();
+      return ops.get(rnd.nextInt(ops.size()));
+    }
+
+    /** A source a floating {@code lane} converts from: either integral lane or the other kind. */
+    private LaneType source(LaneType lane) {
+      return switch (rnd.nextInt(3)) {
+        case 0 -> LaneType.INT;
+        case 1 -> LaneType.LONG;
+        default -> lane == LaneType.FLOAT ? LaneType.DOUBLE : LaneType.FLOAT;
+      };
     }
   }
 }

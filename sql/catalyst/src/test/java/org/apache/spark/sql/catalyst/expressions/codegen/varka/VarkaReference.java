@@ -92,6 +92,8 @@ public final class VarkaReference {
           : OptionalInt.of(row[c.ordinal()]);
       case DecimalColumn c ->
           throw new IllegalArgumentException("a decimal column is on the long lane: " + c);
+      case VarkaVectorIR.DecimalWord c ->
+          throw new IllegalArgumentException("a decimal word is on the long lane: " + c);
       case LiteralSlot l -> OptionalInt.of(lits[l.index()]);
       case AddDays(var days, var offset, _) ->
           both(days, offset, row, isNull, lits, (d, o) -> d + o);
@@ -477,6 +479,12 @@ public final class VarkaReference {
       // VarkaDecimalLoadSuite checks that against Spark's column reader.
       case DecimalColumn c -> isNull[c.ordinal()] ? OptionalLong.empty()
           : OptionalLong.of(row[c.ordinal()]);
+      // A row of lane values carries one long a column, which the harness lays out as a slot of
+      // that long and its sign (VarkaKernelChecks), so its words are the long and its sign;
+      // VarkaDecimalWordSuite checks the slots past 64 bits against Spark's column reader.
+      case VarkaVectorIR.DecimalWord c -> isNull[c.ordinal()] ? OptionalLong.empty()
+          : OptionalLong.of(c.word() == VarkaVectorIR.Word.LOW ? row[c.ordinal()]
+              : row[c.ordinal()] >> 63);
       case LiteralSlot l -> OptionalLong.of(lits[l.index()]);
       case IntArith n when n.laneType() == LaneType.DOUBLE -> doubleArith(n, row, isNull, lits);
       case IntArith n -> longArith(n, row, isNull, lits);
@@ -841,8 +849,9 @@ public final class VarkaReference {
     /** {@code node} with every conversion replaced by a column holding its answer. */
     VarkaVectorIR flatten(VarkaVectorIR node, int[] intLits, long[] longLits) {
       if (node instanceof WidenLane w) {
-        // Exact: the int child's value, which `mixedValue` already sign-extends.
-        return column(mixedOf(w.child(), intLits, longLits), LaneType.LONG);
+        // Exact: the child's value, which `mixedValue` already sign-extends, at the target's lane
+        // (the int lane for a narrow column under a null test, the long lane for an int).
+        return column(mixedOf(w.child(), intLits, longLits), w.target());
       }
       // A narrowing keeps the low bits of the target's width, sign-extended: Spark's LEGACY
       // CAST(bigint AS INT) and, at a narrow target, CAST(bigint AS TINYINT) (VARKA-332).

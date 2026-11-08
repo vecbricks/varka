@@ -36,6 +36,10 @@ each lane's Vector API class from `Lane`, and the Spark types on each lane, with
 names, from the type registry's committed table, `sql/varka/types.tsv` (`VarkaTypes`, the
 compiler's admission).
 
+The fuzz grammar site is read from the fuzzer's descriptor, `sql/varka/fuzz/types.tsv` (written by
+`VarkaFuzzTypesSuite`, VARKA-352): a lane is wired once a type of it is `present` there, and is owed
+to the row the descriptor names while its types are `owed`.
+
 Sites keyed by IR node kind rather than by lane - the cost model's feature names, the census
 catalog of operators, the reference evaluator and the fuzz grammar's per-kind switches - need no
 arm for a lane, or are exhaustive switches the compiler already checks, and are not walked. A
@@ -50,13 +54,12 @@ import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CODEGEN = "sql/catalyst/src/main/java/org/apache/spark/sql/catalyst/expressions/codegen"
-CODEGEN_TEST = "sql/catalyst/src/test/java/org/apache/spark/sql/catalyst/expressions/codegen"
 CODEGEN_SCALA_TEST = "sql/catalyst/src/test/scala/org/apache/spark/sql/catalyst/expressions/codegen"
 IR = f"{CODEGEN}/varka/VarkaVectorIR.java"
 LANE = f"{CODEGEN}/varka/Lane.java"
 REGISTRY = f"{CODEGEN}/varka/VarkaTypes.java"
 WARMUP = f"{CODEGEN}/varka/VarkaVectorTemplateWarmup.java"
-GRAMMAR = f"{CODEGEN_TEST}/varka/VarkaIrGrammar.java"
+FUZZ_TYPES = "sql/varka/fuzz/types.tsv"
 COVERAGE_SUITE = f"{CODEGEN_SCALA_TEST}/varka/VarkaCoverageSuite.scala"
 WIDTH_AUDIT = f"{CODEGEN_SCALA_TEST}/varka/VarkaWidthAuditShapes.scala"
 CENSUS = "sql/varka/plans/m8/census.tsv"
@@ -68,11 +71,7 @@ BENCHMARKS = [
 
 # (site, lane) -> the row that owns the gap.
 OWED = {
-    ("fuzz grammar", "BYTE"): "row 352 (the fuzzers across types)",
-    ("fuzz grammar", "SHORT"): "row 352 (the fuzzers across types)",
-    ("fuzz grammar", "FLOAT"): "row 341 (the floating lanes, after their split)",
     ("benchmark", "FLOAT"): "row 341 (the floating lanes, after their split)",
-    ("fuzz grammar", "DOUBLE"): "row 341 (the floating lanes, after their split)",
     ("benchmark", "DOUBLE"): "row 341 (the floating lanes, after their split)",
     # A decimal pair counts fused only when it fuses at every precision up to 38 (m8/PLAN.md 2.8),
     # so the comparisons and null tests row 347 fuses up to precision 18 are a note, not a claim.
@@ -112,62 +111,32 @@ def spark_types():
     table (`sql/varka/types.tsv`, written by `VarkaTypesSuite` from `VarkaTypes`). A decimal is
     read on its lane in bands of precision (`by_precision`), and is checked there like the rest."""
     out = {}
-    for row in types_rows():
+    for row in tsv_rows(TYPES):
         if row["admission"] in ("on_lane", "by_precision"):
             out.setdefault(row["lane"], []).extend(row["spark"].split(","))
     return out
 
 
-def types_rows():
-    """The registry's rows, a dict per id, from `sql/varka/types.tsv`."""
-    lines = [line for line in read(TYPES).splitlines() if line and not line.startswith("#")]
+def tsv_rows(path):
+    """A committed table's rows, a dict per line by its header: the registry's
+    (`sql/varka/types.tsv`) or the fuzz descriptor's (`sql/varka/fuzz/types.tsv`)."""
+    lines = [line for line in read(path).splitlines() if line and not line.startswith("#")]
     header = lines[0].split("\t")
     return [dict(zip(header, line.split("\t"))) for line in lines[1:]]
 
 
-def call_args(src, start):
-    """The text between the parenthesis at `start` and its match."""
-    depth = 0
-    for i in range(start, len(src)):
-        if src[i] == "(":
-            depth += 1
-        elif src[i] == ")":
-            depth -= 1
-            if depth == 0:
-                return src[start + 1 : i]
-    return ""
-
-
-def top_level_args(text):
-    args, depth, cur = [], 0, ""
-    for ch in text:
-        if ch == "(":
-            depth += 1
-        elif ch == ")":
-            depth -= 1
-        if ch == "," and depth == 0:
-            args.append(cur.strip())
-            cur = ""
-        else:
-            cur += ch
-    if cur.strip():
-        args.append(cur.strip())
-    return args
-
-
 def grammar_leaf_lanes():
-    """The lanes the IR fuzz grammar draws a column leaf of; a one-argument ColumnRef is INT."""
-    src = read(GRAMMAR)
-    lanes = set()
-    for m in re.finditer(r"new ColumnRef\(", src):
-        args = top_level_args(call_args(src, m.end() - 1))
-        if len(args) == 1:
-            lanes.add("INT")
-        elif len(args) == 2:
-            lm = re.search(r"LaneType\.([A-Z_]+)", args[1])
-            if lm:
-                lanes.add(lm.group(1))
-    return lanes
+    """The lanes the IR fuzzer draws a column leaf of, and for each other lane the rows its types'
+    leaves are owed by. A lane is wired when some type of it has a `present` IR site."""
+    drawn, owed = set(), {}
+    for row in tsv_rows(FUZZ_TYPES):
+        if row["lane"] == "-":
+            continue
+        if row["ir"] == "present":
+            drawn.add(row["lane"])
+        elif row["ir"].startswith("owed:"):
+            owed.setdefault(row["lane"], set()).add(row["ir"][len("owed:") :])
+    return drawn, {lane: rows for lane, rows in owed.items() if lane not in drawn}
 
 
 def column_types(path):
@@ -229,7 +198,7 @@ def check(lanes_wanted):
             print(f"{LANE}: no Lane constant names LaneType.{lane}")
             missing += 1
     census_name = {}
-    for row in types_rows():
+    for row in tsv_rows(TYPES):
         for t in row["spark"].split(","):
             census_name[t] = row["census"]
     for lane, names in types.items():
@@ -238,7 +207,10 @@ def check(lanes_wanted):
                 print(f"{TYPES}: {t} is on {lane} and has no census name")
                 missing += 1
 
-    leaves = grammar_leaf_lanes()
+    leaves, leaf_owed = grammar_leaf_lanes()
+    for lane, rows in leaf_owed.items():
+        owner = f"row {', '.join(sorted(rows))} (the fuzz descriptor, {FUZZ_TYPES})"
+        OWED[("fuzz grammar", lane)] = owner
     coverage = column_types(COVERAGE_SUITE)
     audit = column_types(WIDTH_AUDIT)
     fused = census_fused()
@@ -267,7 +239,7 @@ def check(lanes_wanted):
                 f"a block loading the lane's {vector or 'vector class'}",
                 bool(vector) and f"{vector}.fromMemorySegment" in warmup,
             ),
-            ("fuzz grammar", GRAMMAR, "a column leaf of the lane", lane in leaves),
+            ("fuzz grammar", FUZZ_TYPES, "a type of the lane the IR fuzzer draws", lane in leaves),
             (
                 "benchmark",
                 "Varka*Benchmark.java",

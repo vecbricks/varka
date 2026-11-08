@@ -97,6 +97,9 @@ import org.apache.spark.sql.catalyst.util.DateTimeUtils
  * reproducible and a nightly can vary it). The iterations and the seed apply to both lanes.
  * `-Dvarka.fuzz.variantsEvery=n` takes the variants of every n-th draw (default 1, every draw;
  * 0 none), which is how the nightly's forty thousand draws a lane stay inside the test's cap.
+ * `-Dvarka.fuzz.edges=n` puts a type's edge value in one cell in n of the int, long and mixed
+ * draws (default 0, none: `VarkaFuzzTypes.ValueSource`); a failure under it names it, and its
+ * replay needs it too.
  *
  * Under another JVM (VARKA-272, `dev/varka_platform.sh`): `-Dvarka.fuzz.tier=interpreter|c1|c2|
  * xcomp` names the tier the JVM's flags must show and the compiled test's rules follow,
@@ -115,6 +118,24 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
   private val fuzzSeed = VarkaIrGrammar.FUZZ_SEED
   private val longFuzzSeed = VarkaIrGrammar.LONG_FUZZ_SEED
 
+  // Every column cell is drawn by its type's value source (`VarkaFuzzTypes`): the int corpus's
+  // day columns by `DATE`'s and its month count by `YM_INTERVAL`'s, the mixed draw's int columns
+  // by `INT`'s, the long lane's by `LONG`'s. A source draws the uniform cell from the case's own
+  // stream, exactly as the grammar's `within` does, and replaces one cell in
+  // `-Dvarka.fuzz.edges` by an edge value of the type, the coin and the edge drawn from a stream
+  // of the case's own (`valueStream`). The default is no edges, so every cell is the uniform
+  // draw it always was; a hunt turns them on.
+  private val intValues = VarkaFuzzTypes.values(VarkaTypeId.INT)
+  private val dateValues = VarkaFuzzTypes.values(VarkaTypeId.DATE)
+  private val monthValues = VarkaFuzzTypes.values(VarkaTypeId.YM_INTERVAL)
+  private val longValues = VarkaFuzzTypes.values(VarkaTypeId.LONG)
+  private val edgeOneIn = sys.props.get("varka.fuzz.edges").map(_.toInt)
+    .getOrElse(VarkaFuzzTypes.ValueSource.NO_EDGES)
+  // In a failure's label and replay only when set, so the committed draws' labels, which the
+  // answers log keys its digests by, stay as they were.
+  private val edgesLabel = if (edgeOneIn > 0) s" edges=$edgeOneIn" else ""
+  private val edgesReplay = if (edgeOneIn > 0) s" -Dvarka.fuzz.edges=$edgeOneIn" else ""
+
   // `-Dvarka.fuzz.seed` moves the fuzz trees only. A test that asserts a draw reaches a form (or
   // that the committed draws hold none) states a property of the grammar, so it draws at the
   // committed seed - `fuzzSeed`, `longFuzzSeed` or a `VarkaIrGrammar.*_FUZZ_SEED` - and passes or
@@ -124,6 +145,8 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
   private val longSeed = sys.props.get("varka.fuzz.seed").map(_.toLong).getOrElse(longFuzzSeed)
   private val mixedSeed =
     sys.props.get("varka.fuzz.seed").map(_.toLong).getOrElse(VarkaIrGrammar.MIXED_FUZZ_SEED)
+  private val floatingCastSeed = sys.props.get("varka.fuzz.seed").map(_.toLong)
+    .getOrElse(VarkaIrGrammar.FLOATING_CAST_FUZZ_SEED)
   private val iterations = sys.props.get("varka.fuzz.iterations").map(_.toInt).getOrElse(300)
   private val only = sys.props.get("varka.fuzz.only").map(_.toInt)
   private val variantsEvery = sys.props.get("varka.fuzz.variantsEvery").map(_.toInt).getOrElse(1)
@@ -178,6 +201,10 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
   private def ownStream(drawSeed: Long, iteration: Int, name: String): Random =
     new Random(new java.util.SplittableRandom(
       (drawSeed * 1000003L + iteration) ^ (name.hashCode * 0x9E3779B97F4A7C15L)).nextLong())
+
+  /** The stream the edge arm of a case's value sources draws from. */
+  private def valueStream(drawSeed: Long, iteration: Int): Random =
+    ownStream(drawSeed, iteration, "values")
 
   /**
    * The options only a decimal output's store reads (VARKA-157), in table order: `decimalStore`.
@@ -373,6 +400,7 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
     // every one at length 1) before it found anything about the kernel.
     val forceMasked = length > 1 && rnd.nextInt(4) == 0
     val options = randomOptions(rnd, base, drawSeed, iteration)
+    val values = valueStream(drawSeed, iteration)
     val data = Array.tabulate(numInputs, length) { (c, _) =>
       if (c == levelOrdinal) {
         // Exactly the codes TruncLevelLeaf produces; a value outside them is a lane the
@@ -380,9 +408,13 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
         DateTimeUtils.TRUNC_TO_WEEK + rnd.nextInt(
           DateTimeUtils.TRUNC_TO_YEAR - DateTimeUtils.TRUNC_TO_WEEK + 1)
       } else {
-        // Uniform over the column's bound, the draw `VarkaIrGrammar.within` documents.
-        VarkaIrGrammar.intWithin(rnd,
-          if (c == smallOrdinal) VarkaChrono.MONTH_ARITH_MAX_MONTHS else intColumnBound)
+        // Uniform over the column's bound, the draw `VarkaIrGrammar.within` documents; the
+        // sources differ only in their edges.
+        if (c == smallOrdinal) {
+          monthValues.draw(rnd, values, VarkaChrono.MONTH_ARITH_MAX_MONTHS, edgeOneIn).toInt
+        } else {
+          dateValues.draw(rnd, values, intColumnBound, edgeOneIn).toInt
+        }
       }
     }
 
@@ -390,7 +422,7 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
       s"roots=${roots.asScala.map(r => VarkaVectorIR.canonical(r)).mkString("[", ", ", "]")} " +
       s"options=${if (options.isDefault) "(defaults)" else options.canonical()} " +
       s"length=$length patterns=${patternIds.map(patternNames).mkString(",")} " +
-      s"literals=${lits.mkString(",")} forceMasked=$forceMasked"
+      s"literals=${lits.mkString(",")} forceMasked=$forceMasked$edgesLabel"
 
     new VarkaFuzzCase(LaneType.INT, roots, numInputs, lits.map(_.toLong), length,
       Array.tabulate(numInputs, length)((c, i) => patterns(c)(i)), data.map(_.map(_.toLong)),
@@ -423,14 +455,15 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
     val forceMasked = length > 1 && rnd.nextInt(4) == 0
     val drawnOptions = randomOptions(rnd, base, drawSeed, iteration)
     val options = if (!decimal) drawnOptions else drawOptions(rnd, drawnOptions, decimalOptions)
-    val data =
-      Array.tabulate(numInputs, length)((_, _) => VarkaIrGrammar.within(rnd, longColumnBound))
+    val values = valueStream(drawSeed, iteration)
+    val data = Array.tabulate(numInputs, length)(
+      (_, _) => longValues.draw(rnd, values, longColumnBound, edgeOneIn))
 
     val context = s"lane=long seed=$drawSeed iteration=$iteration " +
       s"roots=${roots.asScala.map(r => VarkaVectorIR.canonical(r)).mkString("[", ", ", "]")} " +
       s"options=${if (options.isDefault) "(defaults)" else options.canonical()} " +
       s"length=$length patterns=${patternIds.map(patternNames).mkString(",")} " +
-      s"literals=${lits.mkString(",")} forceMasked=$forceMasked"
+      s"literals=${lits.mkString(",")} forceMasked=$forceMasked$edgesLabel"
 
     new VarkaFuzzCase(LaneType.LONG, roots, numInputs, lits, length,
       Array.tabulate(numInputs, length)((c, i) => patterns(c)(i)), data, forceMasked, options,
@@ -534,16 +567,17 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
     val patterns = patternIds.map(pattern(rnd, _, length))
     val forceMasked = length > 1 && rnd.nextInt(4) == 0
     val options = randomOptions(rnd, VarkaMatrix.base, mixedSeed, iteration)
+    val values = valueStream(mixedSeed, iteration)
     val data = Array.tabulate(numInputs, length) { (c, _) =>
-      if (c < drawn.intInputs) VarkaIrGrammar.intWithin(rnd, intColumnBound).toLong
-      else VarkaIrGrammar.within(rnd, longColumnBound)
+      if (c < drawn.intInputs) intValues.draw(rnd, values, intColumnBound, edgeOneIn)
+      else longValues.draw(rnd, values, longColumnBound, edgeOneIn)
     }
     val label = s"lane=mixed seed=$mixedSeed iteration=$iteration " +
       s"roots=${roots.asScala.map(r => VarkaVectorIR.canonical(r)).mkString("[", ", ", "]")} " +
       s"options=${if (options.isDefault) "(defaults)" else options.canonical()} " +
       s"length=$length patterns=${patternIds.map(patternNames).mkString(",")} " +
       s"intLiterals=${intLits.mkString(",")} longLiterals=${longLits.mkString(",")} " +
-      s"forceMasked=$forceMasked"
+      s"forceMasked=$forceMasked$edgesLabel"
     val className = "org.apache.spark.sql.varka.execution.VarkaFusedFuzzMixed" +
       classCounter.addAndGet(1)
     val numLiterals = drawn.numLiterals
@@ -555,6 +589,83 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
           Array.tabulate(numInputs, length)((c, i) => patterns(c)(i)), data, forceMasked),
         false, null)
     }
+  }
+
+  /** A column value of `lane` as the bits a row of both lanes holds: finite at a floating one. */
+  private def floatingCastValue(rnd: java.util.Random, lane: LaneType): Long = lane match {
+    case LaneType.INT =>
+      if (rnd.nextInt(4) == 0) Seq(Int.MinValue, Int.MaxValue, 16777217, -16777217)(rnd.nextInt(4))
+      else rnd.nextInt().toLong
+    case LaneType.LONG =>
+      if (rnd.nextInt(4) == 0) {
+        Seq(Long.MinValue, Long.MaxValue, (1L << 53) + 1, (1L << 53) + (1L << 29) + 1,
+          4275361147L)(rnd.nextInt(5))
+      } else rnd.nextLong() >> rnd.nextInt(64)
+    // Finite values only: an arithmetic over two NaNs of different payloads has no one answer
+    // (`VARKA-342.md`), and every conversion of a finite value has one.
+    case LaneType.FLOAT =>
+      var f = java.lang.Float.intBitsToFloat(rnd.nextInt())
+      while (f.isNaN || f.isInfinite) f = java.lang.Float.intBitsToFloat(rnd.nextInt())
+      java.lang.Float.floatToRawIntBits(f).toLong
+    case LaneType.DOUBLE =>
+      var d = java.lang.Double.longBitsToDouble(rnd.nextLong())
+      while (d.isNaN || d.isInfinite) d = java.lang.Double.longBitsToDouble(rnd.nextLong())
+      java.lang.Double.doubleToRawLongBits(d)
+    case other => throw new IllegalArgumentException(s"no floating cast column at $other")
+  }
+
+  /**
+   * One draw of the floating conversions' corpus (VARKA-343): the conversions to a floating lane
+   * and between the two, over an int, a bigint, a float and a double column, compared with
+   * `VarkaReference.mixedValue` through `VarkaKernelChecks.runAndCompareMixed`. A draw whose kernel
+   * the plan refuses under the drawn options - a bigint conversion below `useAVX=3` - is counted
+   * and skipped, as the compiler declines it.
+   */
+  private def runOneFloatingCast(iteration: Int): Boolean = {
+    val rnd = VarkaIrGrammar.shapeRandom(floatingCastSeed, iteration)
+    val roots = VarkaIrGrammar.drawFloatingCastShape(rnd)
+    val lanes = VarkaIrGrammar.FLOATING_CAST_COLUMNS.asScala.toIndexedSeq
+    val numInputs = lanes.size
+    val literals = VarkaIrGrammar.FLOATING_CAST_LITERALS
+    // A slot is read as either lane of its width, so each table holds bits that are finite as
+    // its floating lane's values; any bits are an integer.
+    val intLits = Array.fill(literals)(floatingCastValue(rnd, LaneType.FLOAT).toInt)
+    val longLits = Array.fill(literals)(floatingCastValue(rnd, LaneType.DOUBLE))
+    val length = lengths(rnd.nextInt(lengths.length))
+    val patternIds = Seq.fill(numInputs)(rnd.nextInt(patternNames.length))
+    val patterns = patternIds.map(pattern(rnd, _, length))
+    val forceMasked = length > 1 && rnd.nextInt(4) == 0
+    // The bigint conversions are admitted at emit level 3 alone, which the options draw only now
+    // and then, so half the draws are held at it; the rest keep the drawn level, and the plan
+    // refuses a bigint conversion there as the compiler does.
+    val drawn = randomOptions(rnd, VarkaMatrix.base, floatingCastSeed, iteration)
+    val options = if (rnd.nextBoolean()) drawn.withUseAVX(VarkaEmitOptions.AVX512_LEVEL) else drawn
+    val data = Array.tabulate(numInputs, length)((c, _) => floatingCastValue(rnd, lanes(c)))
+    val label = s"lane=floatingCast seed=$floatingCastSeed iteration=$iteration " +
+      s"roots=${roots.asScala.map(r => VarkaVectorIR.canonical(r)).mkString("[", ", ", "]")} " +
+      s"options=${if (options.isDefault) "(defaults)" else options.canonical()} " +
+      s"length=$length patterns=${patternIds.map(patternNames).mkString(",")} " +
+      s"intLiterals=${intLits.mkString(",")} longLiterals=${longLits.mkString(",")} " +
+      s"forceMasked=$forceMasked"
+    if (VarkaKernelPlan.refusalOf(roots, options).isPresent) {
+      return false
+    }
+    val className = "org.apache.spark.sql.varka.execution.VarkaFusedFuzzFloatingCast" +
+      classCounter.addAndGet(1)
+    // The count the emitter is told, as the compiler's tables give it: a kernel of one lane reads
+    // the one table of its width, of `literals` slots; one of several lanes indexes each lane's
+    // own, whatever the total.
+    val oneLane = roots.asScala.flatMap(r => VarkaVectorIR.lanesIn(r).asScala).toSet.size == 1
+    val numLiterals = if (oneLane) literals else 2 * literals
+    def emitWith(o: VarkaEmitOptions): Array[Byte] = VarkaLoopEmitter.emitTraced(
+      className, roots, numInputs, numLiterals, o, randomTrace)
+    emitOrSkip(label, options)(emitWith).foreach { bytes =>
+      VarkaKernelChecks.runAndCompareMixed(label, className, bytes, roots, numInputs, intLits,
+        longLits, new VarkaKernelChecks.LongBatch(length,
+          Array.tabulate(numInputs, length)((c, i) => patterns(c)(i)), data, forceMasked),
+        false, null)
+    }
+    true
   }
 
   private def variantsDue(iteration: Int): Boolean =
@@ -816,7 +927,7 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
       for ((draw, drawSeed) <- draws; k <- only.map(Seq(_)).getOrElse(range)) {
         val drawn = draw(k, VarkaMatrix.base)
         val c = if (compiledBaseOptions) drawn.withOptions(VarkaMatrix.base) else drawn
-        val replay = s"-Dvarka.fuzz.seed=$drawSeed -Dvarka.fuzz.only=$k"
+        val replay = s"-Dvarka.fuzz.seed=$drawSeed -Dvarka.fuzz.only=$k$edgesReplay"
         // Under a configuration, a draw whose options are the ones the defaults run drew for it
         // is the defaults run's case, already compared over all eight histories (VARKA-507).
         if (!compiledBaseOptions && VarkaMatrixRuns.CONFIG.nonEmpty &&
@@ -1087,18 +1198,20 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
     // `VarkaDecimalLoadSuite`'s, and its fuzz sequence is the decimal draw below, on a seed of its
     // own so that no shape here moves (VARKA-348).
     // The null leaf (VARKA-333) is drawn by the nulling draw only, on its own seed, so that no
-    // shape here moves; the test of the nulling draw's reach below holds it to both lanes.
+    // shape here moves; the test of the nulling draw's reach below holds it to both lanes. The
+    // grammar draws no narrow or floating lane, so their null (VARKA-578) has a draw of its own,
+    // the null-lane draw below; an NTZ's null is the long lane's.
     // The decimal output (VARKA-157) has its own draw, on its own seed, so that no shape here
     // moves: the decimal-store test above runs it.
     // The floating math function (VARKA-342) is out with the floating lanes: the grammar draws no
     // floating tree yet, the floating sequence `VARKA-341.md` 5.1 owes, and a production is a row
-    // of the same refit. `VarkaEmitterFloatingArithSuite` and the coverage rows cover it. So is
-    // the floating conversion (VARKA-343): `VarkaEmitterFloatingCastSuite` and the coverage rows
-    // cover it until row 343's own fuzz sequence, on a seed of its own, and the lane crossing
-    // (`VARKA-343.md` 2.2.1), which joins a floating condition to another lane, with them.
+    // of the same refit. `VarkaEmitterFloatingArithSuite` and the coverage rows cover it.
+    // The floating conversion (VARKA-343) and the lane crossing under it have their own draw, on
+    // its own seed, so that no shape here moves: the floating cast test above runs it, and the
+    // test after it asserts its reach.
     val missing = permitted -- seen - "NarrowLane" - "WidenLane" - "NullSafeEqual" -
       "BoolColumn" - "CondConst" - "BoolCompare" - "CondIf" - "BoolNullSafeEq" - "CondValue" -
-      "BoolOutput" - "DecimalColumn" - "NullValue" - "WidenDecimal" - "MathUnary" -
+      "BoolOutput" - "DecimalColumn" - "DecimalWord" - "NullValue" - "WidenDecimal" - "MathUnary" -
       "ConvertLane" - "CrossLane"
     assert(missing.isEmpty,
       s"the generator never built: ${missing.toSeq.sorted.mkString(", ")} - add an arm, or " +
@@ -1441,24 +1554,26 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
    * is counted and skipped; a failing range guard may decline the batch, which the reference has
    * no value for, so such a draw allows it. Not shrunk on failure, as the mixed corpus is not.
    */
-  private def runOneCast(iteration: Int): Unit = {
-    val rnd = VarkaIrGrammar.shapeRandom(castSeed, iteration)
-    val root = VarkaIrGrammar.drawCastShape(rnd)
+  private def runOneCast(iteration: Int, seed: Long = castSeed, name: String = "cast",
+      draw: Random => VarkaVectorIR = VarkaIrGrammar.drawCastShape,
+      categoryOf: VarkaVectorIR => String = castCategory): Unit = {
+    val rnd = VarkaIrGrammar.shapeRandom(seed, iteration)
+    val root = draw(rnd)
     val roots = java.util.List.of(root)
     val numInputs = VarkaIrGrammar.CAST_BOOL_COLUMN + 1
     val length = lengths(rnd.nextInt(lengths.length))
     val patternIds = Seq.fill(numInputs)(rnd.nextInt(patternNames.length))
     val patterns = patternIds.map(pattern(rnd, _, length))
     val forceMasked = length > 1 && rnd.nextInt(4) == 0
-    val options = randomOptions(rnd, VarkaMatrix.base, castSeed, iteration)
+    val options = randomOptions(rnd, VarkaMatrix.base, seed, iteration)
     val data = Array.tabulate(numInputs, length)((c, _) => VarkaIrGrammar.castValue(rnd, c))
     val nulls = Array.tabulate(numInputs, length)((c, i) => patterns(c)(i))
-    val label = s"lane=cast seed=$castSeed iteration=$iteration " +
+    val label = s"lane=$name seed=$seed iteration=$iteration " +
       s"root=${VarkaVectorIR.canonical(root)} " +
       s"options=${if (options.isDefault) "(defaults)" else options.canonical()} " +
       s"length=$length patterns=${patternIds.map(patternNames).mkString(",")} " +
       s"forceMasked=$forceMasked"
-    val category = castCategory(root)
+    val category = categoryOf(root)
     val refusal = VarkaKernelPlan.refusalOf(roots, options)
     if (refusal.isPresent) {
       castDrawn(category) = castDrawn.getOrElse(category, 0) + 1
@@ -1523,11 +1638,14 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
     reason.contains("has no load at") || reason.contains("has no widening load at") ||
       reason.contains("needs a baked")
 
-  /** One compiled cast draw through the harness of its drive lane. */
+  /**
+   * One compiled cast draw through the harness of its drive lane: the long one for a 64-bit
+   * drive, a DOUBLE's bits included (the null-lane draw's), and the narrow one otherwise.
+   */
   private def runCast(label: String, className: String, bytes: Array[Byte],
       roots: java.util.List[VarkaVectorIR], numInputs: Int, batch: VarkaKernelChecks.LongBatch,
       options: VarkaEmitOptions, declineAllowed: Boolean): Unit = {
-    if (VarkaKernelPlan.driveOf(roots, options).get() == LaneType.LONG) {
+    if (VarkaKernelPlan.driveOf(roots, options).get().bits() == java.lang.Long.SIZE) {
       VarkaKernelChecks.runAndCompareMixed(label, className, bytes, roots, numInputs,
         Array(0), Array(0L), batch, declineAllowed, null)
     } else {
@@ -1561,7 +1679,7 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
     try {
       only match {
         case Some(k) => runOneCast(k)
-        case None => (0 until iterations).foreach(runOneCast)
+        case None => (0 until iterations).foreach(k => runOneCast(k))
       }
     } finally {
       VarkaEmitReach.detach(randomTrace)
@@ -1607,6 +1725,57 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
       Seq("SHORT", "INT", "LONG").map(t => s"narrowing read by a widening to $t") ++
       (for (n <- Seq("Compare", "NullSafeEqual", "Not", "And", "Or"); l <- Seq("BYTE", "SHORT"))
         yield s"narrowing read by $n at $l")
+    assert((wanted.toSet -- seen).isEmpty, s"never drawn: ${(wanted.toSet -- seen).toSeq.sorted}")
+  }
+
+  // The typed null at the narrow and floating lanes (VARKA-578), which no other draw reaches: its
+  // own draw over the cast draw's columns, through the cast draw's harness.
+  private val nullingLaneSeed = sys.props.get("varka.fuzz.seed").map(_.toLong)
+    .getOrElse(VarkaIrGrammar.NULLING_LANE_FUZZ_SEED)
+
+  /** A null-lane draw's class: its lane. */
+  private def nullingLaneCategory(root: VarkaVectorIR): String = s"null at ${root.laneType()}"
+
+  test(s"random typed nulls at the narrow and floating lanes match the reference evaluator " +
+      s"(seed $nullingLaneSeed, $iterations iterations)") {
+    castDrawn.clear()
+    castFused.clear()
+    val reach = VarkaEmitReach.attach(randomTrace, "null-lane draws")
+    try {
+      val ks = only.map(Seq(_)).getOrElse(0 until iterations)
+      ks.foreach(k => runOneCast(k, nullingLaneSeed, "null-lane",
+        VarkaIrGrammar.drawNullingLaneShape, nullingLaneCategory))
+    } finally {
+      VarkaEmitReach.detach(randomTrace)
+    }
+    val counts = castDrawn.keys.toSeq.sorted.map { c =>
+      s"$c ${castFused.getOrElse(c, 0)}/${castDrawn(c)}"
+    }
+    logInfo(s"null-lane draws fused per lane: ${counts.mkString(", ")}")
+    if (only.isEmpty && castArmLongLanes >= 4) {
+      for ((c, drawn) <- castDrawn if drawn >= 20) {
+        assert(castFused.getOrElse(c, 0) >= 1,
+          s"none of $drawn $c draws fused; counts: ${counts.mkString(", ")}")
+      }
+    }
+    reportReach(reach)
+    reportSkipped()
+  }
+
+  test("the null-lane draw reaches every lane at each of the null's positions") {
+    def position(n: VarkaVectorIR): String = n match {
+      case x: IfElse if x.elseNode().isInstanceOf[IfElse] => "twice"
+      case x: IfElse if x.elseNode().isInstanceOf[VarkaVectorIR.NullValue] => "else"
+      case _: IfElse => "then"
+      case _ => "pick"
+    }
+    val seen = (0 until 400).map { k =>
+      val root = VarkaIrGrammar.drawNullingLaneShape(
+        VarkaIrGrammar.shapeRandom(VarkaIrGrammar.NULLING_LANE_FUZZ_SEED, k))
+      s"${position(root)} at ${root.laneType()}"
+    }.toSet
+    val wanted = for (l <- VarkaIrGrammar.NULLING_LANES.asScala;
+      p <- Seq("else", "then", "pick", "twice")) yield s"$p at $l"
     assert((wanted.toSet -- seen).isEmpty, s"never drawn: ${(wanted.toSet -- seen).toSeq.sorted}")
   }
 
@@ -1917,6 +2086,53 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
       nulling(VarkaIrGrammar.drawShape(VarkaIrGrammar.shapeRandom(fuzzSeed, k)).roots) ++
         nulling(VarkaIrGrammar.drawLongShape(VarkaIrGrammar.shapeRandom(longFuzzSeed, k)).roots))
     assert(committed.isEmpty, s"a committed draw holds a nulling guard: ${committed.headOption}")
+  }
+
+  test(s"random trees converting to a floating lane match the reference evaluator (seed " +
+      s"$floatingCastSeed, $iterations iterations)") {
+    val ran = only match {
+      case Some(k) => Seq(runOneFloatingCast(k))
+      case None => (0 until iterations).map(runOneFloatingCast)
+    }
+    // The plan refuses only a bigint conversion below emit level 3: most draws run.
+    assert(only.isDefined || ran.count(identity) > iterations / 2,
+      s"only ${ran.count(identity)} of $iterations floating cast draws were emitted")
+  }
+
+  test("the floating cast generator reaches every conversion, both drives of each width and a " +
+      "32-bit root of a 64-bit kernel") {
+    val conversions = scala.collection.mutable.Set.empty[String]
+    val drives = scala.collection.mutable.Set.empty[LaneType]
+    var lowHalfRoot = false
+    val crossings = scala.collection.mutable.Set.empty[String]
+    def walk(n: VarkaVectorIR): Unit = {
+      n match {
+        case c: ConvertLane => conversions += s"${c.child().laneType()}->${c.target()}"
+        case x: CrossLane => crossings += s"${x.child().laneType()}->${x.lane()}"
+        case _ =>
+      }
+      VarkaVectorIR.childrenOf(n).foreach(walk)
+    }
+    for (k <- 0 until 4000) {
+      val roots = VarkaIrGrammar.drawFloatingCastShape(
+        VarkaIrGrammar.shapeRandom(floatingCastSeed, k))
+      roots.asScala.foreach(walk)
+      val drive = VarkaKernelPlan.emissionLane(roots.get(0), VarkaEmitOptions.DEFAULTS)
+      drives += drive
+      if (drive.bits() == 64 && roots.asScala.exists(_.laneType().bits() == 32)) {
+        lowHalfRoot = true
+      }
+    }
+    val wanted = Set("INT->FLOAT", "INT->DOUBLE", "LONG->FLOAT", "LONG->DOUBLE",
+      "FLOAT->DOUBLE", "DOUBLE->FLOAT")
+    assert((wanted -- conversions).isEmpty, s"never drawn: ${(wanted -- conversions).toSeq}")
+    assert(Set(LaneType.INT, LaneType.FLOAT, LaneType.LONG, LaneType.DOUBLE).subsetOf(drives),
+      s"drives drawn: $drives")
+    assert(lowHalfRoot, "no 32-bit root of a 64-bit kernel was drawn")
+    // A crossing in each direction between the widths, and one between two lanes of one width.
+    assert(crossings.exists(c => c == "DOUBLE->INT" || c == "FLOAT->LONG"), s"crossed: $crossings")
+    assert(crossings.exists(c => c == "INT->DOUBLE" || c == "LONG->FLOAT"), s"crossed: $crossings")
+    assert(crossings.exists(c => c == "INT->FLOAT" || c == "LONG->DOUBLE"), s"crossed: $crossings")
   }
 
   test("the nulling draw reaches the null leaf at both lanes and at each of its positions, and " +

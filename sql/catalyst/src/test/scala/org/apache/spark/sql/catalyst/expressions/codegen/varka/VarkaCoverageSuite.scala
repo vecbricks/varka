@@ -201,6 +201,13 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
   /** The days `CAST(d AS TIMESTAMP_NTZ)` converts without overflow: the cast's range guard. */
   private val ntzDayBound = s"unix_date(d) BETWEEN -$maxDateDiffDays AND $maxDateDiffDays"
   /**
+   * The days of an NTZ value a calendar field answers for: the guard `ntzDay` puts on the date of
+   * the count (VARKA-340), from 1 March -12799 to 15 August 33134. A day outside goes to the row
+   * engine, which computes the field.
+   */
+  private val ntzFieldDays = "unix_date(CAST(ntz AS DATE)) BETWEEN " +
+    s"${VarkaRangeAnalysis.NTZ_MIN_DAYS} AND ${VarkaChrono.NARROW_MAX_DAYS}"
+  /**
    * The domain of an NTZ arithmetic row: unknown where an operand is null, and otherwise whether
    * Spark's `try_` form of the row has a value, which it has exactly where the row does not
    * raise. Spark's own arithmetic is the bound, since no SQL spells an NTZ value as its count.
@@ -269,6 +276,29 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
     Row(s"CASE WHEN $a < $b THEN $a ELSE $b END"),
     Row(s"if($a IS NULL, $b, $a)"),
     Row(s"coalesce($a, $b)"))
+
+  /**
+   * The null family over one floating column pair (VARKA-578): the rewritten conditionals whose
+   * null is the floating lane's own, a broadcast zero with its validity clear. `nullif` and
+   * `nullifzero` compare under the lane's equality, so NaN equals NaN and -0.0 equals 0.0.
+   */
+  private def floatingNullFamily(a: String, b: String, zeroRows: Boolean): Seq[Row] = Seq(
+    Row(s"nvl($a, $b)", s"rewritten to coalesce($a, $b)"),
+    Row(s"ifnull($a, $b)"),
+    Row(s"nvl2($a, $b, $a)", s"rewritten to if($a IS NOT NULL, $b, $a)"),
+    Row(s"nullif($a, $b)", s"rewritten to if($a = $b, NULL, $a): NaN equals NaN and -0.0 equals "
+      + "0.0, and the null is the lane's zero with its validity clear, so the kernel is "
+      + "masked-only"),
+    Row(s"CASE WHEN $a < $b THEN $a END", "the missing ELSE is the null of the floating lane"),
+    Row(s"if($a IS NULL, $b, NULL)")) ++ (if (zeroRows) Seq(
+    Row(s"nullifzero($a)", s"rewritten to if($a = 0, NULL, $a): -0.0 is zero, NaN is not"),
+    Row(s"zeroifnull($a)", s"rewritten to coalesce($a, 0)")) else Seq.empty)
+
+  /** The floating predicates of the null family: `BETWEEN` and `equal_null`. */
+  private def floatingNullPredicates(a: String, b: String, suffix: String): Seq[Row] = Seq(
+    Row(s"$a BETWEEN $b AND 5.5$suffix", "two comparisons in Spark's order and an AND: a NaN is "
+      + "above every bound"),
+    Row(s"equal_null($a, $b)", "rewritten to the null-safe equality, under the lane's equality"))
 
   private val families: Seq[Family] = Seq(
     Family("Day arithmetic", predicates = false, Seq(
@@ -871,7 +901,8 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
       Row("coalesce(dt, dt2)"))),
 
     // The choices over INT, whose branches take the int operand's rule at a choice's position
-    // only (VARKA-333 3.1), and the null branch on the six types of the int and long lanes: a
+    // only (VARKA-333 3.1), and the null branch on the six types of the int and long lanes (the
+    // narrow, floating and NTZ ones are their own families', VARKA-329 and VARKA-578): a
     // CASE WHEN without an ELSE, IF over NULL, and nullif and nullifzero, which the optimizer
     // rewrites to that IF (3.2). A kernel holding the null takes the masked body for every batch.
     // The extremes beside nulls hold greatest and least to their null-skipping blend: a sentinel
@@ -992,6 +1023,80 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
           ntzDomain("try_subtract(ntz, dt)", "ntz", "dt"))),
       Row("ntz + INTERVAL '1' DAY", "a literal interval takes a slot in the long lane's table",
         domain = Some(ntzDomain("try_add(ntz, INTERVAL '1' DAY)", "ntz"))))),
+
+    // The decomposition of a TIMESTAMP_NTZ (VARKA-340): the count is read at UTC, so its date is
+    // an exact floor division by a day and its time of day the remainder. The calendar fields
+    // run over the date inside a day guard, the five that need none (the weekdays, next_day and
+    // trunc to a week) over the unguarded cast, and the time fields over the nanosecond of the
+    // day, which no guard is needed for.
+    Family("TIMESTAMP_NTZ fields", predicates = false, Seq(
+      Row("year(ntz)", "the date of the count, held to the calendar lowering's range",
+        domain = Some(ntzFieldDays)),
+      Row("month(ntz)", domain = Some(ntzFieldDays)),
+      Row("day(ntz)", domain = Some(ntzFieldDays)),
+      Row("quarter(ntz)", domain = Some(ntzFieldDays)),
+      Row("dayofyear(ntz)", domain = Some(ntzFieldDays)),
+      Row("weekofyear(ntz)", "the Thursday shift needs the guard's floor to leave room",
+        domain = Some(ntzFieldDays)),
+      Row("extract(YEAROFWEEK FROM ntz)", domain = Some(ntzFieldDays)),
+      Row("last_day(ntz)", domain = Some(ntzFieldDays)),
+      Row("trunc(ntz, 'YEAR')", "a year back is the room the guard's floor leaves",
+        domain = Some(ntzFieldDays)),
+      Row("trunc(ntz, 'MONTH')", domain = Some(ntzFieldDays)),
+      Row("trunc(ntz, 'QUARTER')", domain = Some(ntzFieldDays)),
+      Row("dayofweek(ntz)", "exact over every day, so no guard"),
+      Row("weekday(ntz)"),
+      Row("extract(DAYOFWEEK_ISO FROM ntz)"),
+      Row("next_day(ntz, 'MONDAY')"),
+      Row("trunc(ntz, 'WEEK')"),
+      Row("hour(ntz)", "the microsecond of the day divided; never guarded"),
+      Row("minute(ntz)"),
+      Row("second(ntz)", "the whole second, an int; the fraction of `extract(SECOND ...)` is a " +
+        "decimal"),
+      Row("CAST(ntz AS TIME(6))", "the nanosecond of the day, a multiple of a thousand"),
+      Row("CAST(ntz AS TIME(3))", "truncated to milliseconds: a quotient and a product"),
+      Row("CAST(ntz AS TIME(0))"))),
+
+    // The same fields as a filter's condition, where a batch the guard declines is the filter's
+    // kernel declining it (VARKA-340).
+    Family("TIMESTAMP_NTZ fields in a condition", predicates = true, Seq(
+      Row("hour(ntz) > 12", "the time of day needs no guard"),
+      Row("CAST(ntz AS TIME(3)) < TIME'12:00:00'"),
+      Row("year(ntz) = 2021", domain = Some(ntzFieldDays)),
+      Row("dayofweek(ntz) = 2"))),
+
+    Family("Null family on floating columns", predicates = false,
+      floatingNullFamily("x", "x2", zeroRows = true) ++
+        floatingNullFamily("f", "f2", zeroRows = false)),
+    Family("Null family predicates on floating columns", predicates = true,
+      floatingNullPredicates("x", "x2", "D") ++ floatingNullPredicates("f", "f2", "F")),
+
+    // The null family over TIMESTAMP_NTZ and BOOLEAN columns (VARKA-578).
+    Family("Null family on TIMESTAMP_NTZ columns", predicates = false, Seq(
+      Row("nvl(ntz, ntz2)"),
+      Row("ifnull(ntz, ntz2)"),
+      Row("nvl2(ntz, ntz2, ntz)"),
+      Row("nullif(ntz, ntz2)", "the long lane's null: the NTZ is its microseconds"),
+      Row("CASE WHEN ntz < ntz2 THEN ntz END"))),
+    Family("Null family predicates on TIMESTAMP_NTZ columns", predicates = true, Seq(
+      Row("ntz BETWEEN ntz2 AND TIMESTAMP_NTZ '2000-01-01 00:00:00'"),
+      Row("equal_null(ntz, ntz2)"))),
+    // The function form of null-safe equality over the types whose operator form is covered
+    // above, so that every non-decimal type has a row under its census entry.
+    Family("equal_null on every other type", predicates = true, Seq(
+      Row("equal_null(y1, y2)"),
+      Row("equal_null(s1, s2)"),
+      Row("equal_null(i, 5)"),
+      Row("equal_null(t, t2)"),
+      Row("equal_null(dt, dt2)"),
+      Row("equal_null(ym, INTERVAL '1-2' YEAR TO MONTH)"))),
+    Family("Null family on BOOLEAN columns", predicates = true, Seq(
+      Row("nvl(b, b2)", "rewritten to coalesce(b, b2)"),
+      Row("ifnull(b, b2)"),
+      Row("nvl2(b, b2, b)"),
+      Row("nullif(b, b2)", "rewritten to if(b = b2, NULL, b): a boolean choice with a null arm"),
+      Row("b BETWEEN b2 AND b", "false before true: two orderings and an AND"),
+      Row("equal_null(b, b2)"))),
 
     // DOUBLE and FLOAT on their own lanes (VARKA-341), in Spark's order: NaN equals NaN and is
     // above every other value, and -0.0 equals 0.0. A comparison is the IEEE compare corrected
@@ -1781,6 +1886,14 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
     "CAST(ntz AS DATE)" -> Proved("long_divide.smt2"),
     "CAST(d AS TIMESTAMP_NTZ)" -> Exhausted("VarkaTimestampNtzCastSuite",
       "the guard of DATE to NTZ admits exactly the days multiplyExact converts"),
+    // The time of day of an NTZ count (VARKA-340): the remainder of the floor division, proven
+    // for every long beside the quotient; the divisions of the nanosecond are the TIME rows'.
+    "hour(ntz)" -> Proved("long_divide.smt2"),
+    "minute(ntz)" -> Proved("long_divide.smt2"),
+    "second(ntz)" -> Proved("long_divide.smt2"),
+    "CAST(ntz AS TIME(6))" -> Proved("long_divide.smt2"),
+    "CAST(ntz AS TIME(3))" -> Proved("long_divide.smt2"),
+    "CAST(ntz AS TIME(0))" -> Proved("long_divide.smt2"),
     "b" -> connectives,
     "NOT b" -> connectives,
     // A boolean beside a date, int or long comparison: the connective is swept over the

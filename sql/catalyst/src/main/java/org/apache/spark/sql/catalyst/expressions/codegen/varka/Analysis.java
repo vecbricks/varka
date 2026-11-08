@@ -57,6 +57,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Day
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.DayOfWeekIso;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.DayOfYear;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.DecimalColumn;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.DecimalWord;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Greatest;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.GuardedDay;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.GuardedRange;
@@ -549,6 +550,15 @@ final class Analysis {
    * column read both as a decimal and as a plain long, two strides over one buffer, is refused.
    */
   private long valueInputs = 0L;
+  /**
+   * The inputs of {@link #decimalInputs} read as a 64-bit {@link DecimalColumn} and as a 128-bit
+   * column's {@link DecimalWord}s, kept apart so that a column read both ways is refused, and
+   * each word column's precision, which both its words must carry: the pair's load and check
+   * are one a column, and two precisions would plan two of them over one buffer.
+   */
+  private long longDecimalInputs = 0L;
+  private long wordInputs = 0L;
+  private final Map<Integer, Integer> wordPrecision = new HashMap<>();
   private int opNodes = 0;
 
   Analysis(int numInputs, int numLiterals, VarkaEmitOptions options, VarkaKernelPlan plan) {
@@ -771,7 +781,8 @@ final class Analysis {
    * it costs only batches holding a slot Spark's own writer never writes.
    */
   List<List<ArmStep>> armChainsOf(VarkaVectorIR node) {
-    if (!options.guardUnderArm() || node instanceof DecimalColumn) {
+    if (!options.guardUnderArm() || node instanceof DecimalColumn
+        || node instanceof DecimalWord) {
       return List.of();
     }
     List<List<ArmStep>> chains = armChains.get(node);
@@ -947,6 +958,8 @@ final class Analysis {
           }
         }
         case DecimalColumn n -> refuse(node, Refusal.DECIMAL_SLOT);
+        // Both words carry the check, since whichever a body visits first emits it.
+        case DecimalWord n -> refuse(node, Refusal.DECIMAL_SLOT);
         // Everything else computes every lane it is given. Written out rather than defaulted.
         case ColumnRef n -> { }
         case LiteralSlot n -> { }
@@ -1069,7 +1082,8 @@ final class Analysis {
       // error here, so its author decides whether its value commutes with the reduction - a
       // narrow AND, OR or XOR does, a compare or a shift right does not - instead of falling
       // into "not ring" and leaving an unreduced int value for its readers.
-      case ColumnRef _, DecimalColumn _, LiteralSlot _, WidenLane _, NarrowLane _, ConvertLane _,
+      case ColumnRef _, DecimalColumn _, DecimalWord _, LiteralSlot _, WidenLane _,
+          NarrowLane _, ConvertLane _,
           WidenDecimal _, AddDays _, SubDays _, AddMonths _, MakeDate _, GuardedDay _,
           GuardedRange _, NextDay _,
           TruncDateDynamic _, DateDiff _, Greatest _, Least _, DayOfWeek _,
@@ -1400,6 +1414,7 @@ final class Analysis {
     return switch (node) {
       case ColumnRef c -> new WordOwner.Input(c.ordinal());
       case DecimalColumn c -> new WordOwner.Input(c.ordinal());
+      case DecimalWord c -> new WordOwner.Input(c.ordinal());
       case BoolColumn c -> new WordOwner.Input(c.ordinal());
       case LiteralSlot l -> WordOwner.Const.ALL_TRUE;
       case AddDays n -> andOwner(node, n.days(), n.offset());
@@ -1459,6 +1474,7 @@ final class Analysis {
     return switch (node) {
       case ColumnRef c -> new WordExpr.Input(c.ordinal());
       case DecimalColumn c -> new WordExpr.Input(c.ordinal());
+      case DecimalWord c -> new WordExpr.Input(c.ordinal());
       case BoolColumn c -> new WordExpr.Input(c.ordinal());
       case LiteralSlot l -> WordExpr.Const.ALL_TRUE;
       case AddDays n -> andExpr(pureWord.get(n.days()), pureWord.get(n.offset()));
@@ -1574,14 +1590,20 @@ final class Analysis {
   /**
    * Refuses a column read both as a {@link DecimalColumn} and as a {@link ColumnRef}: both are on
    * the long lane, so {@link #registerInput}'s lane rule admits them, but one maps the buffer at
-   * sixteen bytes a row and the other at eight. Run once, after every root is analyzed, since
-   * the two reads can sit in different roots; it names the lowest such column.
+   * sixteen bytes a row and the other at eight. So too one read both as a 64-bit decimal and as
+   * a 128-bit one's words, whose loads and checks differ. Run once, after every root is
+   * analyzed, since the two reads can sit in different roots; it names the lowest such column.
    */
   void requireOneStride() {
     long both = decimalInputs & valueInputs;
     if (both != 0) {
       throw VarkaErrors.illegalArgument("column " + Long.numberOfTrailingZeros(both)
           + " is read both as a decimal and as a long column");
+    }
+    long mixed = wordInputs & longDecimalInputs;
+    if (mixed != 0) {
+      throw VarkaErrors.illegalArgument("column " + Long.numberOfTrailingZeros(mixed)
+          + " is read both as a 64-bit decimal and as a 128-bit decimal's words");
     }
   }
 
@@ -1638,6 +1660,17 @@ final class Analysis {
       case DecimalColumn c -> {
         registerInput(node, c.ordinal(), c.lane());
         decimalInputs |= 1L << c.ordinal();
+        longDecimalInputs |= 1L << c.ordinal();
+      }
+      case DecimalWord c -> {
+        registerInput(node, c.ordinal(), VarkaVectorIR.LaneType.LONG);
+        Integer had = wordPrecision.putIfAbsent(c.ordinal(), c.precision());
+        if (had != null && had != c.precision()) {
+          throw VarkaErrors.illegalArgument("column " + c.ordinal() + " is read as decimal "
+              + "words of precision " + had + " and of " + c.precision());
+        }
+        decimalInputs |= 1L << c.ordinal();
+        wordInputs |= 1L << c.ordinal();
       }
       case LiteralSlot l -> {
         if (l.index() < 0 || l.index() >= numLiterals) {
@@ -1858,9 +1891,9 @@ final class Analysis {
         // same, for the slot check Spark's IS NULL makes by reading the value (VARKA-347).
         VarkaVectorIR column = n.child() instanceof WidenLane w ? w.child() : n.child();
         if (!(column instanceof ColumnRef) && !(n.child() instanceof DecimalColumn)
-            && !(n.child() instanceof Cond)) {
+            && !(n.child() instanceof DecimalWord) && !(n.child() instanceof Cond)) {
           throw VarkaErrors.illegalArgument("IsNotNull child must be a ColumnRef, a widened one, "
-              + "a DecimalColumn or a Cond, got " + n.child());
+              + "a DecimalColumn, a DecimalWord or a Cond, got " + n.child());
         }
         if (lane == Lane.LONG && n.child() instanceof WidenLane
             && column.laneType().isNarrow()) {

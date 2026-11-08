@@ -74,6 +74,7 @@ GENERATED_SUITES = (
     "VarkaCoverageSuite",
     "VarkaEmittedBytesSuite",
     "VarkaTypesSuite",
+    "VarkaFuzzTypesSuite",
     "VarkaCastMatrixSuite",
 )
 AUDIT_SUITE = "VarkaWidthAuditSuite"

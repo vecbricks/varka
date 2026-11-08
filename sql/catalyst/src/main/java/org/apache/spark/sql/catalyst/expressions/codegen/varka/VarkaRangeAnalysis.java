@@ -189,6 +189,14 @@ public final class VarkaRangeAnalysis {
    */
   static final Shift TRUNC_SHIFT = new Shift(-365, 0);
 
+  /**
+   * The least day an NTZ value's date is held to under a calendar node: {@link
+   * VarkaChrono#NARROW_MIN_DAYS} moved up by the widest downward shift a calendar node makes
+   * ({@link #TRUNC_SHIFT}'s 365 days), so the shifted day stays inside the narrowed range.
+   */
+  public static final int NTZ_MIN_DAYS =
+      (int) (VarkaChrono.NARROW_MIN_DAYS - TRUNC_SHIFT.lo());
+
   /** The shortest and the longest month: what one month of {@code add_months} moves a day by. */
   static final int MONTH_DAYS_MIN = 28;
   static final int MONTH_DAYS_MAX = 31;
@@ -241,6 +249,7 @@ public final class VarkaRangeAnalysis {
     return switch (node) {
       // A long-lane leaf, answered UNKNOWN above; listed so that the switch stays exhaustive.
       case DecimalColumn c -> VarkaValueRange.UNKNOWN;
+      case VarkaVectorIR.DecimalWord c -> VarkaValueRange.UNKNOWN;
       // A long-lane root, answered UNKNOWN above for the same reason.
       case WidenDecimal n -> VarkaValueRange.UNKNOWN;
       // A day column is the column bound, which the answer rests on: the caller that relies on
@@ -340,7 +349,8 @@ public final class VarkaRangeAnalysis {
       // A condition as a value is 0 or 1 where it is known; an unknown row is null, whose value
       // no consumer reads.
       case CondValue n -> kind != Kind.INT ? VarkaValueRange.UNKNOWN : VarkaValueRange.of(0, 1);
-      // Null on every lane, and its vector zero: the zero is what a consumer computes over.
+      // Null on every lane, and its vector zero: the zero is what a consumer computes over. The
+      // int lane's only: a null of any other lane is answered UNKNOWN above, a floating one too.
       case VarkaVectorIR.NullValue n -> VarkaValueRange.point(0);
       // A condition has no value of its own, and a boolean output's bits are no lane value.
       case BoolOutput b -> VarkaValueRange.UNKNOWN;
