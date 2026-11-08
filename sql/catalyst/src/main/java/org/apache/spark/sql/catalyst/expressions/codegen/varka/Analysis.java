@@ -550,6 +550,15 @@ final class Analysis {
    * column read both as a decimal and as a plain long, two strides over one buffer, is refused.
    */
   private long valueInputs = 0L;
+  /**
+   * The inputs of {@link #decimalInputs} read as a 64-bit {@link DecimalColumn} and as a 128-bit
+   * column's {@link DecimalWord}s, kept apart so that a column read both ways is refused, and
+   * each word column's precision, which both its words must carry: the pair's load and check
+   * are one a column, and two precisions would plan two of them over one buffer.
+   */
+  private long longDecimalInputs = 0L;
+  private long wordInputs = 0L;
+  private final Map<Integer, Integer> wordPrecision = new HashMap<>();
   private int opNodes = 0;
 
   Analysis(int numInputs, int numLiterals, VarkaEmitOptions options, VarkaKernelPlan plan) {
@@ -1581,14 +1590,20 @@ final class Analysis {
   /**
    * Refuses a column read both as a {@link DecimalColumn} and as a {@link ColumnRef}: both are on
    * the long lane, so {@link #registerInput}'s lane rule admits them, but one maps the buffer at
-   * sixteen bytes a row and the other at eight. Run once, after every root is analyzed, since
-   * the two reads can sit in different roots; it names the lowest such column.
+   * sixteen bytes a row and the other at eight. So too one read both as a 64-bit decimal and as
+   * a 128-bit one's words, whose loads and checks differ. Run once, after every root is
+   * analyzed, since the two reads can sit in different roots; it names the lowest such column.
    */
   void requireOneStride() {
     long both = decimalInputs & valueInputs;
     if (both != 0) {
       throw VarkaErrors.illegalArgument("column " + Long.numberOfTrailingZeros(both)
           + " is read both as a decimal and as a long column");
+    }
+    long mixed = wordInputs & longDecimalInputs;
+    if (mixed != 0) {
+      throw VarkaErrors.illegalArgument("column " + Long.numberOfTrailingZeros(mixed)
+          + " is read both as a 64-bit decimal and as a 128-bit decimal's words");
     }
   }
 
@@ -1645,10 +1660,17 @@ final class Analysis {
       case DecimalColumn c -> {
         registerInput(node, c.ordinal(), c.lane());
         decimalInputs |= 1L << c.ordinal();
+        longDecimalInputs |= 1L << c.ordinal();
       }
       case DecimalWord c -> {
         registerInput(node, c.ordinal(), VarkaVectorIR.LaneType.LONG);
+        Integer had = wordPrecision.putIfAbsent(c.ordinal(), c.precision());
+        if (had != null && had != c.precision()) {
+          throw VarkaErrors.illegalArgument("column " + c.ordinal() + " is read as decimal "
+              + "words of precision " + had + " and of " + c.precision());
+        }
         decimalInputs |= 1L << c.ordinal();
+        wordInputs |= 1L << c.ordinal();
       }
       case LiteralSlot l -> {
         if (l.index() < 0 || l.index() >= numLiterals) {
