@@ -2074,9 +2074,8 @@ public final class VarkaIrGrammar {
             value(lane, depth - 1), value(lane, depth - 1));
         case 1 -> rnd.nextBoolean() ? new Greatest(value(lane, depth - 1), value(lane, depth - 1))
             : new Least(value(lane, depth - 1), value(lane, depth - 1));
-        case 2 -> new IfElse(new Compare(CompareOp.values()[rnd.nextInt(CompareOp.values().length)],
-            value(lane, depth - 1), value(lane, depth - 1)), value(lane, depth - 1),
-            value(lane, depth - 1));
+        case 2 -> new IfElse(new Compare(signedOp(), value(lane, depth - 1),
+            value(lane, depth - 1)), value(lane, depth - 1), value(lane, depth - 1));
         case 3 -> leaf(lane);
         case 4 -> new IfElse(crossed(lane, depth - 1), value(lane, depth - 1),
             value(lane, depth - 1));
@@ -2092,8 +2091,17 @@ public final class VarkaIrGrammar {
     private Cond crossed(LaneType lane, int depth) {
       var others = FLOATING_CAST_COLUMNS.stream().filter(l -> l != lane).toList();
       LaneType other = others.get(rnd.nextInt(others.size()));
-      var op = CompareOp.values()[rnd.nextInt(CompareOp.values().length)];
-      return new CrossLane(new Compare(op, value(other, depth), value(other, depth)), lane);
+      return new CrossLane(new Compare(signedOp(), value(other, depth), value(other, depth)), lane);
+    }
+
+    /**
+     * A signed comparison: the unsigned ones take an integral lane only, and the floating lanes
+     * are what this generator draws. The five are drawn in the enum's order, so the draws are
+     * the ones this generator made before the unsigned comparisons joined the enum.
+     */
+    private CompareOp signedOp() {
+      List<CompareOp> ops = CompareOp.signed();
+      return ops.get(rnd.nextInt(ops.size()));
     }
 
     /** A source a floating {@code lane} converts from: either integral lane or the other kind. */
