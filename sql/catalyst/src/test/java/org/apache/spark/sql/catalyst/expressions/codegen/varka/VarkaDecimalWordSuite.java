@@ -334,20 +334,43 @@ public final class VarkaDecimalWordSuite {
 
   @Test
   @DisplayName("a body that reads both words of a column loads its slots once and checks them "
-      + "once")
+      + "once, in the loop and in the epilogue")
   void bothWordsShareOneLoad() {
     for (int lanes : WIDTHS) {
       var roots = List.<VarkaVectorIR>of(hi(0, 38), lo(0, 38),
           new IfElse(new IsNotNull(lo(0, 38)), hi(0, 38), lo(0, 38)));
       var emitted = VarkaEmitterFixtures.emit(roots, 1, 0, at(lanes));
-      List<String> loops = VarkaEmitterTestSupport.methodNames(emitted.bytes()).stream()
-          .filter(m -> m.startsWith("loop")).toList();
-      assertTrue(!loops.isEmpty(), "no loop body");
-      for (String loop : loops) {
+      List<String> bodies = VarkaEmitterTestSupport.methodNames(emitted.bytes()).stream()
+          .filter(m -> m.startsWith("loop") || m.startsWith("epilogue")).toList();
+      assertTrue(bodies.stream().anyMatch(m -> m.startsWith("loop"))
+          && bodies.stream().anyMatch(m -> m.startsWith("epilogue")), () -> "bodies " + bodies);
+      for (String loop : bodies) {
         assertEquals(2, count(emitted.bytes(), loop, "rearrange"),
             () -> loop + " at " + label(lanes) + " takes the two rearranges once");
         assertEquals(2, count(emitted.bytes(), loop, "fromMemorySegment"),
             () -> loop + " at " + label(lanes) + " loads the two vectors of slots once");
+      }
+    }
+  }
+
+  @Test
+  @DisplayName("the long-lane harness lays a word column out as sixteen-byte slots")
+  void harnessReadsTheSlots() {
+    var random = new Random(11L);
+    for (var roots : List.<List<VarkaVectorIR>>of(List.of(lo(0, 38), hi(0, 38)),
+        List.of(new IfElse(new IsNotNull(hi(0, 20)), lo(0, 20), hi(0, 20))))) {
+      for (int lanes : WIDTHS) {
+        var e = VarkaEmitterFixtures.emit(roots, 1, 0, at(lanes));
+        for (int length : LENGTHS) {
+          boolean[][] nulls = {new boolean[length]};
+          for (int i = 0; i < length; i++) {
+            nulls[0][i] = random.nextInt(4) == 0;
+          }
+          var batch = new VarkaKernelChecks.LongBatch(length, nulls,
+              new long[][] {random.longs(length).toArray()}, false);
+          assertTrue(VarkaKernelChecks.runAndCompareLong(label(lanes) + ", length " + length,
+              e.className(), e.bytes(), roots, 1, new long[0], batch, false, null));
+        }
       }
     }
   }
@@ -404,6 +427,25 @@ public final class VarkaDecimalWordSuite {
     }
   }
 
+  @Test
+  @DisplayName("the planted fault: with the digit check dropped the pair computes where Spark's "
+      + "reader raises, and the slot table fails")
+  void plantedFaultIsCaught() {
+    boolean[] declined = new boolean[1];
+    for (int lanes : WIDTHS) {
+      VarkaEmitOptions faulty = at(lanes).toBuilder().dropDecimalBound(true).build();
+      VarkaFusedKernel k = kernel(List.of(lo(0, 38), hi(0, 38)), 1, 0, faulty).kernel();
+      for (int length : LENGTHS) {
+        Column c = column(length, 38, true, 3L * lanes + length);
+        c.values()[length - 1] = BigInteger.TEN.pow(38);
+        c.nulls()[length - 1] = false;
+        String at = label(lanes) + ", length " + length;
+        String m = checkWords(at, k, c, declined);
+        assertTrue(m != null && !declined[0], () -> at + ": the fault computes, and is caught");
+      }
+    }
+  }
+
   // ------------------------------------------------------------------------------------------
   // The leaf's record
   // ------------------------------------------------------------------------------------------
@@ -421,5 +463,21 @@ public final class VarkaDecimalWordSuite {
     assertThrows(IllegalArgumentException.class, () -> lo(0, 39));
     assertThrows(IllegalArgumentException.class, () -> lo(-1, 38));
     assertEquals(new BigDecimal(bound(38)).toBigInteger(), lo(0, 38).bound().value());
+  }
+
+  @Test
+  @DisplayName("a column's words carry one precision, and a column is read as words or as the "
+      + "64-bit leaf, never both")
+  void oneReadingAColumn() {
+    var asLong = new VarkaVectorIR.DecimalColumn(0, LaneType.LONG, 18);
+    for (var roots : List.<List<VarkaVectorIR>>of(List.of(lo(0, 19), hi(0, 38)),
+        List.of(lo(0, 38), asLong), List.of(asLong, hi(0, 38)))) {
+      var e = assertThrows(IllegalArgumentException.class,
+          () -> VarkaEmitterFixtures.emit(roots, 1, 0, at(2)), () -> "emitted " + roots);
+      String expected = roots.contains(asLong) ? "column 0 is read both as a 64-bit decimal "
+          + "and as a 128-bit decimal's words" : "column 0 is read as decimal words of precision "
+          + "19 and of 38";
+      assertTrue(e.getMessage().contains(expected), e.getMessage());
+    }
   }
 }
