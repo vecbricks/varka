@@ -177,13 +177,14 @@ final class VarkaDecimalScale {
 
   /**
    * The least shift that meets {@code e * Nmax < 2^shift} for this {@code k} and bound, with the
-   * round-up multiplier it gives. The search counts up from 1, so the answer is the least by
-   * construction.
+   * round-up multiplier it gives. The search counts up, so the answer is the least by
+   * construction. It starts at the width of {@code Nmax}: {@code 5^k} never divides
+   * {@code 2^shift}, so {@code e >= 1}, and the condition needs {@code Nmax < 2^shift}.
    */
   static Entry derive(int k, BigInteger bound) {
     BigInteger divisor = BigInteger.valueOf(5).pow(k);
     BigInteger preShifted = bound.shiftRight(k - 1);
-    for (int shift = 1; ; shift++) {
+    for (int shift = Math.max(1, preShifted.bitLength()); ; shift++) {
       BigInteger power = BigInteger.ONE.shiftLeft(shift);
       BigInteger multiplier = power.add(divisor).subtract(BigInteger.ONE).divide(divisor);
       BigInteger error = multiplier.multiply(divisor).subtract(power);
