@@ -83,7 +83,7 @@ object VarkaArrowSource {
    * precision up to 18 among them, whose comparisons and null tests fuse (VARKA-347).
    */
   def varkaTyped(plan: LogicalPlan): Boolean =
-    plan.output.exists(a => VarkaTypes.lane(a.dataType).isPresent)
+    plan.output.exists(a => VarkaTypes.read(a.dataType).isPresent)
 
   // Set while the cache rule plans a relation's cached copy: that plan goes through the
   // optimizer too, and the rule must not wrap the relation inside its own copy.
@@ -218,7 +218,7 @@ object VarkaArrowSource {
     }
 
     private def liftable(e: Expression): Boolean = e match {
-      case l: Literal => l.value != null && VarkaTypes.lane(l.dataType).isPresent
+      case l: Literal => l.value != null && VarkaTypes.read(l.dataType).isPresent
       case _ => false
     }
   }

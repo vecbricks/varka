@@ -80,7 +80,8 @@ public final class VarkaAnsiForm {
    * and the expression it guards share a kernel.
    */
   static String guardOf(DataType t) {
-    Optional<LaneType> lane = VarkaTypes.lane(t);
+    Optional<LaneType> lane = VarkaTypes.read(t)
+        .map(r -> r instanceof VarkaTypes.Read.Lanes l ? l.lane() : null);
     if (lane.isEmpty()) {
       return "rid";
     }

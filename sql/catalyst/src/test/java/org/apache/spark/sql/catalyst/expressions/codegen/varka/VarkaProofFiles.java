@@ -96,6 +96,7 @@ final class VarkaProofFiles {
     files.put("decimal64.smt2", decimal64());
     files.put("casts.smt2", casts());
     files.put("round_to_odd.smt2", roundToOdd());
+    files.put("decimal128.smt2", decimal128());
     files.put("refinement.smt2", VarkaRefinementFile.render());
     return files;
   }
@@ -3368,6 +3369,122 @@ final class VarkaProofFiles {
     check(out, "and first fails one past it", "sat",
         List.of(z, "(assert (dec.in z " + BigInteger.ONE.shiftLeft(63) + "))",
             "(assert (not (= (jlong.wrap z) z)))"));
+  }
+
+  // The 128-bit decimal's word lowerings (VARKA-359).
+  // -----------------------------------------------------------------------------------------
+
+  /** {@code 2^64}, the low word's range and the high word's weight. */
+  private static final BigInteger WORD = BigInteger.ONE.shiftLeft(64);
+
+  /** The low word of {@code w} as SMT-LIB's unsigned integer, {@code [0, 2^64)}. */
+  private static String unsignedLo(DecimalWords w) {
+    BigInteger lo = BigInteger.valueOf(w.lo());
+    return lit(lo.signum() < 0 ? lo.add(WORD) : lo);
+  }
+
+  /**
+   * {@code decimal128.smt2}'s ring layer: a 128-bit decimal value as its two words,
+   * {@code v = hi * 2^64 + lo} with {@code hi} signed and {@code lo} read unsigned, and the
+   * lowerings over the words equal to the comparisons of the values: {@code <}, {@code <=},
+   * {@code =}, {@code >}, {@code >=}, and {@code <=>} with one validity bit for both words. Then
+   * for each precision of the pair, the load's check over the constant pairs of
+   * {@link DecimalWords#bound}, two {@code gt128} compares, holds exactly where
+   * {@code |v| > 10^p - 1}, and with a bound one off it does not. Value semantics only: the
+   * words as integers, so it holds whatever layout carries them; the carry layer, the words as
+   * Java's wrapping longs, joins it with the emitted forms.
+   */
+  static String decimal128() {
+    var out = new StringBuilder(LICENSE);
+    out.append("""
+        ; The 128-bit decimal's word lowerings (VARKA-359), the ring layer. A value of precision 19
+        ; to 38 is two long words, v = hi * 2^64 + lo, hi signed in [-2^63, 2^63) and lo read
+        ; unsigned in [0, 2^64) (DecimalWords). The comparisons over the words are
+        ;
+        ;   x < y    LT(x.hi, y.hi) | (EQ(x.hi, y.hi) & ULT(x.lo, y.lo))
+        ;   x <= y   LT(x.hi, y.hi) | (EQ(x.hi, y.hi) & ULE(x.lo, y.lo))
+        ;   x = y    EQ(x.hi, y.hi) & EQ(x.lo, y.lo)
+        ;   x <=> y  NullSafeEqual on each word, ANDed, the words sharing one validity bit
+        ;
+        ; and > and >= the first two with the operands swapped. The load's check declines a valid
+        ; slot where gt128(u, B) | gt128(-B, u), gt128(u, c) = GT(u.hi, c.hi) | (EQ(u.hi, c.hi) &
+        ; UGT(u.lo, c.lo)), with B = 10^p - 1 as its constant pair. Each is proven equal to the
+        ; integer statement; a bound one off is refuted at every precision.
+        """);
+    out.append(RENDERED);
+    String two63 = BigInteger.ONE.shiftLeft(63).toString();
+    String two64 = WORD.toString();
+    out.append("""
+
+        (define-fun w.hi ((h Int)) Bool (and (<= (- %1$s) h) (< h %1$s)))
+        (define-fun w.lo ((l Int)) Bool (and (<= 0 l) (< l %2$s)))
+        (define-fun w.val ((h Int) (l Int)) Int (+ (* %2$s h) l))
+        (define-fun w.lt ((xh Int) (xl Int) (yh Int) (yl Int)) Bool
+          (or (< xh yh) (and (= xh yh) (< xl yl))))
+        (define-fun w.le ((xh Int) (xl Int) (yh Int) (yl Int)) Bool
+          (or (< xh yh) (and (= xh yh) (<= xl yl))))
+        (define-fun w.eq ((xh Int) (xl Int) (yh Int) (yl Int)) Bool
+          (and (= xh yh) (= xl yl)))
+        (define-fun w.gt128 ((uh Int) (ul Int) (ch Int) (cl Int)) Bool
+          (or (> uh ch) (and (= uh ch) (> ul cl))))
+        """.formatted(two63, two64));
+    List<String> words = List.of("(declare-const xh Int)", "(declare-const xl Int)",
+        "(declare-const yh Int)", "(declare-const yl Int)",
+        "(assert (and (w.hi xh) (w.lo xl) (w.hi yh) (w.lo yl)))");
+    String vx = "(w.val xh xl)";
+    String vy = "(w.val yh yl)";
+    String[][] forms = {
+        {"<", "(w.lt xh xl yh yl)", "(< " + vx + " " + vy + ")"},
+        {"<=", "(w.le xh xl yh yl)", "(<= " + vx + " " + vy + ")"},
+        {"=", "(w.eq xh xl yh yl)", "(= " + vx + " " + vy + ")"},
+        {">", "(w.lt yh yl xh xl)", "(> " + vx + " " + vy + ")"},
+        {">=", "(w.le yh yl xh xl)", "(>= " + vx + " " + vy + ")"},
+    };
+    for (String[] f : forms) {
+      var body = new ArrayList<>(words);
+      body.add("(assert (not (= " + f[1] + " " + f[2] + ")))");
+      check(out, "x " + f[0] + " y over the words is the comparison of the values", "unsat",
+          body);
+    }
+    // The signed low compare a fault would plant: wrong where a low word has its top bit set.
+    var signedLo = new ArrayList<>(words);
+    signedLo.add("(assert (not (= (or (< xh yh) (and (= xh yh) (< (- xl (ite (>= xl " + two63
+        + ") " + two64 + " 0)) (- yl (ite (>= yl " + two63 + ") " + two64 + " 0))))) (< " + vx
+        + " " + vy + "))))");
+    check(out, "and with the low words compared signed, x < y over the words is not", "sat",
+        signedLo);
+    var nullSafe = new ArrayList<>(words);
+    nullSafe.add("(declare-const va Bool)");
+    nullSafe.add("(declare-const vb Bool)");
+    String wordEq = "(or (and %s va vb) (and (not va) (not vb)))";
+    nullSafe.add("(assert (not (= (and " + wordEq.formatted("(= xh yh)") + " "
+        + wordEq.formatted("(= xl yl)") + ") (or (and va vb (= " + vx + " " + vy + ")) "
+        + "(and (not va) (not vb))))))");
+    check(out, "x <=> y, each word's null-safe equality ANDed, is the null-safe equality of the "
+        + "values", "unsat", nullSafe);
+    List<String> u = List.of("(declare-const uh Int)", "(declare-const ul Int)",
+        "(assert (and (w.hi uh) (w.lo ul)))");
+    for (int p = DecimalWords.MAX_LONG_PRECISION + 1; p <= DecimalWords.MAX_PRECISION; p++) {
+      DecimalWords b = DecimalWords.bound(p);
+      BigInteger bound = b.value();
+      for (int off : new int[] {0, 1, -1}) {
+        DecimalWords up = DecimalWords.of(bound.add(BigInteger.valueOf(off)));
+        DecimalWords down = up.negate();
+        String decline = "(or (w.gt128 uh ul " + lit(up.hi()) + " " + unsignedLo(up) + ") "
+            + "(w.gt128 " + lit(down.hi()) + " " + unsignedLo(down) + " uh ul))";
+        String outside = "(or (> (w.val uh ul) " + lit(bound) + ") (< (w.val uh ul) "
+            + lit(bound.negate()) + "))";
+        var body = new ArrayList<>(u);
+        body.add("(assert (not (= " + decline + " " + outside + ")))");
+        String what = off == 0
+            ? "precision " + p + ": the check over the pairs of +-(10^" + p + " - 1) declines "
+                + "exactly where |v| > 10^" + p + " - 1"
+            : "and over the pairs of +-(10^" + p + " - 1 " + (off > 0 ? "+" : "-") + " 1) it "
+                + "does not";
+        check(out, what, off == 0 ? "unsat" : "sat", body);
+      }
+    }
+    return out.toString();
   }
 
   /** A long as a 64-bit SMT-LIB bit-vector literal. */

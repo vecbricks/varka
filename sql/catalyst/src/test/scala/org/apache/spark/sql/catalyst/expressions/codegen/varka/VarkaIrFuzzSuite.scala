@@ -407,11 +407,12 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
    */
   private def drawLong(iteration: Int, drawSeed: Long = longSeed,
       base: VarkaEmitOptions = VarkaMatrix.base, nulling: Boolean = false,
-      decimal: Boolean = false): VarkaFuzzCase = {
+      decimal: Boolean = false, unsigned: Boolean = false): VarkaFuzzCase = {
     val rnd = VarkaIrGrammar.shapeRandom(drawSeed, iteration)
     val drawn =
       if (decimal) VarkaIrGrammar.drawDecimalShape(rnd)
       else if (nulling) VarkaIrGrammar.drawNullingLongShape(rnd)
+      else if (unsigned) VarkaIrGrammar.drawUnsignedLongShape(rnd)
       else VarkaIrGrammar.drawLongShape(rnd)
     val roots = drawn.roots
     val (numInputs, numLiterals) = (drawn.numInputs, drawn.numLiterals)
@@ -1865,6 +1866,28 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
         armReplaced
       }
     assert(shown, "no decimal draw of 64 with an untaken long-lane arm had a mutant replace it")
+  }
+
+  // The unsigned compares (VARKA-359): their own draw at the long lane, run against the
+  // reference evaluator's Long.compareUnsigned.
+  private val unsignedSeed =
+    sys.props.get("varka.fuzz.seed").map(_.toLong).getOrElse(VarkaIrGrammar.UNSIGNED_FUZZ_SEED)
+
+  test(s"random long-lane IR trees with unsigned comparisons match the reference evaluator " +
+      s"(seed $unsignedSeed, $iterations iterations)") {
+    val ks = only.map(Seq(_)).getOrElse(0 until iterations)
+    var unsignedDrawn = 0
+    for (k <- ks) {
+      val c = drawLong(k, unsignedSeed, unsigned = true)
+      if (c.roots.asScala.exists(r => VarkaVectorIR.canonical(r).contains("(cmp:U"))) {
+        unsignedDrawn += 1
+      }
+      runChecked(c)
+    }
+    if (only.isEmpty) {
+      assert(unsignedDrawn > 0, "the unsigned draw drew no unsigned comparison")
+    }
+    reportSkipped()
   }
 
   test("the nulling draw reaches a nulling range guard at both lanes, and the committed draws " +
