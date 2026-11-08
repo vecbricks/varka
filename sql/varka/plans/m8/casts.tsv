@@ -85,7 +85,7 @@ date	date	yes	yes	yes	identity		exhaustion		332
 date	ntz	yes	yes	yes	scale up	days times micros per day; past 106,751,991 days multiplyExact raises under LEGACY and ANSI, TRY nulls	exhaustion	LEGACY,ANSI,TRY	338	all
 ntz	date	yes	yes	yes	floor division	floorDiv by micros per day, exact	SMT (dev/varka_prove.sh) for the integer rule, sampled regions and the fuzzer	LEGACY,ANSI,TRY	338	all
 ntz	ntz	yes	yes	yes	identity		SMT (dev/varka_prove.sh) for the integer rule, sampled regions and the fuzzer		338	
-ntz	time	yes	yes	yes	floor modulo	floorMod by micros per day, to nanos, truncated to the precision	SMT (dev/varka_prove.sh) for the integer rule, sampled regions and the fuzzer		340	
+ntz	time	yes	yes	yes	floor modulo	floorMod by micros per day, to nanos, truncated to the precision	SMT (dev/varka_prove.sh) for the integer rule, sampled regions and the fuzzer	LEGACY,ANSI,TRY	340	all
 time	byte	yes	yes	yes	floor division	floorDiv by nanos per second; narrower targets range-check	SMT (dev/varka_prove.sh) for the integer rule, sampled regions and the fuzzer		unclaimed	
 time	short	yes	yes	yes	floor division	floorDiv by nanos per second; narrower targets range-check	SMT (dev/varka_prove.sh) for the integer rule, sampled regions and the fuzzer		unclaimed	
 time	int	yes	yes	yes	floor division	floorDiv by nanos per second; narrower targets range-check	SMT (dev/varka_prove.sh) for the integer rule, sampled regions and the fuzzer		unclaimed	

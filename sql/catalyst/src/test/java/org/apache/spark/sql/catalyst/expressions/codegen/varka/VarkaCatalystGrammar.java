@@ -245,6 +245,18 @@ public final class VarkaCatalystGrammar {
     // mode, which reaches the fuzzer as the job's SparkException and no condition, a class the
     // expected-errors list cannot hold without excusing every task failure (VARKA-298.md 9).
     choices(out, y, y, 2);
+    // The fields of a TIMESTAMP_NTZ (VARKA-340): the date fields through its date, the weekday
+    // forms, the time of day, and the casts to TIME at a precision below and at the micros.
+    for (String f : List.of("year", "month", "day", "quarter", "dayofyear", "dayofweek",
+        "weekday", "weekofyear", "hour", "minute", "second")) {
+      out.add(new Production(i, f + "($0)", List.of(n), 1));
+    }
+    out.add(new Production(i, "extract(YEAROFWEEK FROM $0)", List.of(n), 1));
+    out.add(new Production(d, "last_day($0)", List.of(n), 1));
+    out.add(new Production(d, "trunc($0, 'QUARTER')", List.of(n), 1));
+    out.add(new Production(d, "trunc($0, 'WEEK')", List.of(n), 1));
+    out.add(new Production(t, "CAST($0 AS TIME)", List.of(n), 1));
+    out.add(new Production(t, "CAST($0 AS TIME(3))", List.of(n), 1));
     // TIMESTAMP_NTZ: plus and minus a day-time interval of any fields (VARKA-339), and choice.
     out.add(new Production(n, "($0 + $1)", List.of(n, x), 3));
     out.add(new Production(n, "($0 - $1)", List.of(n, x), 3));

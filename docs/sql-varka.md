@@ -859,6 +859,42 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `ntz - dt` | `time` | `dt <> INTERVAL '-106751991 04:00:54.775808' DAY TO SECOND AND if(ntz IS NULL OR dt IS NULL, NULL, try_subtract(ntz, dt) IS NOT NULL)` | the interval's negation is folded into a checked subtraction; Spark negates with negateExact in every mode, so the least interval, which it raises on, is guarded | per-lane: compare to mask, mask logic, mask broadcast, mask test |
 | `ntz + INTERVAL '1' DAY` | `time` | `if(ntz IS NULL, NULL, try_add(ntz, INTERVAL '1' DAY) IS NOT NULL)` | a literal interval takes a slot in the long lane's table | per-lane: compare to mask, mask logic, mask broadcast, mask test |
 
+#### TIMESTAMP_NTZ fields
+
+| Expression | Switches | Domain | Notes | 128-bit lanes |
+|---|---|---|---|---|
+| `year(ntz)` | `calendar`, `intArithmetic` | `unix_date(CAST(ntz AS DATE)) BETWEEN -5394207 AND 11382643` | the date of the count, held to the calendar lowering's range | per-lane: mask logic, mask broadcast, mask test, load or store |
+| `month(ntz)` | `calendar`, `intArithmetic` | `unix_date(CAST(ntz AS DATE)) BETWEEN -5394207 AND 11382643` |  | per-lane: mask logic, mask broadcast, mask test, load or store |
+| `day(ntz)` | `calendar`, `intArithmetic` | `unix_date(CAST(ntz AS DATE)) BETWEEN -5394207 AND 11382643` |  | per-lane: mask logic, mask broadcast, mask test, load or store |
+| `quarter(ntz)` | `calendar`, `intArithmetic` | `unix_date(CAST(ntz AS DATE)) BETWEEN -5394207 AND 11382643` |  | per-lane: mask logic, mask broadcast, mask test, load or store |
+| `dayofyear(ntz)` | `calendar`, `intArithmetic` | `unix_date(CAST(ntz AS DATE)) BETWEEN -5394207 AND 11382643` |  | per-lane: mask logic, mask broadcast, mask test, load or store |
+| `weekofyear(ntz)` | `calendar`, `intArithmetic` | `unix_date(CAST(ntz AS DATE)) BETWEEN -5394207 AND 11382643` | the Thursday shift needs the guard's floor to leave room | per-lane: mask logic, mask broadcast, mask test, load or store |
+| `extract(YEAROFWEEK FROM ntz)` | `calendar`, `intArithmetic` | `unix_date(CAST(ntz AS DATE)) BETWEEN -5394207 AND 11382643` |  | per-lane: mask logic, mask broadcast, mask test, load or store |
+| `last_day(ntz)` | `calendar`, `intArithmetic` | `unix_date(CAST(ntz AS DATE)) BETWEEN -5394207 AND 11382643` |  | per-lane: mask logic, mask broadcast, mask test, load or store |
+| `trunc(ntz, 'YEAR')` | `calendar`, `intArithmetic` | `unix_date(CAST(ntz AS DATE)) BETWEEN -5394207 AND 11382643` | a year back is the room the guard's floor leaves | per-lane: mask logic, mask broadcast, mask test, load or store |
+| `trunc(ntz, 'MONTH')` | `calendar`, `intArithmetic` | `unix_date(CAST(ntz AS DATE)) BETWEEN -5394207 AND 11382643` |  | per-lane: mask logic, mask broadcast, mask test, load or store |
+| `trunc(ntz, 'QUARTER')` | `calendar`, `intArithmetic` | `unix_date(CAST(ntz AS DATE)) BETWEEN -5394207 AND 11382643` |  | per-lane: mask logic, mask broadcast, mask test, load or store |
+| `dayofweek(ntz)` | `calendar`, `intArithmetic` |  | exact over every day, so no guard | per-lane: mask broadcast, load or store |
+| `weekday(ntz)` | `calendar`, `intArithmetic` |  |  | per-lane: mask broadcast, load or store |
+| `extract(DAYOFWEEK_ISO FROM ntz)` | `calendar`, `intArithmetic` |  |  | per-lane: mask broadcast, load or store |
+| `next_day(ntz, 'MONDAY')` | `calendar`, `intArithmetic` |  |  | per-lane: mask broadcast, load or store |
+| `trunc(ntz, 'WEEK')` | `calendar`, `intArithmetic` |  |  | per-lane: mask broadcast, load or store |
+| `hour(ntz)` | `time` |  | the microsecond of the day divided; never guarded | vector |
+| `minute(ntz)` | `time` |  |  | vector |
+| `second(ntz)` | `time` |  | the whole second, an int; the fraction of `extract(SECOND ...)` is a decimal | vector |
+| `CAST(ntz AS TIME(6))` | `time` |  | the nanosecond of the day, a multiple of a thousand | vector |
+| `CAST(ntz AS TIME(3))` | `time` |  | truncated to milliseconds: a quotient and a product | vector |
+| `CAST(ntz AS TIME(0))` | `time` |  |  | vector |
+
+#### TIMESTAMP_NTZ fields in a condition
+
+| Predicate | Switches | Domain | Notes | 128-bit lanes |
+|---|---|---|---|---|
+| `hour(ntz) > 12` | `time`, `predicate` |  | the time of day needs no guard | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL up to 18 digits), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
+| `CAST(ntz AS TIME(3)) < TIME'12:00:00'` | `time`, `predicate` |  |  | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL up to 18 digits), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
+| `year(ntz) = 2021` | `calendar`, `predicate`, `intArithmetic` | `unix_date(CAST(ntz AS DATE)) BETWEEN -5394207 AND 11382643` |  | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL up to 18 digits), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
+| `dayofweek(ntz) = 2` | `calendar`, `predicate`, `intArithmetic` |  |  | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL up to 18 digits), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
+
 #### Null family on floating columns
 
 | Expression | Switches | Domain | Notes | 128-bit lanes |
@@ -1200,10 +1236,10 @@ operands (a row counts once for each type it reads):
 | `double` | 64 | 0 | 0 | 0 | 0 | 64 |
 | `dt` | 27 | 2 | 1 | 0 | 0 | 24 |
 | `float` | 52 | 0 | 0 | 0 | 0 | 52 |
-| `int` | 134 | 14 | 2 | 1 | 1 | 116 |
-| `ntz` | 31 | 0 | 1 | 0 | 0 | 30 |
+| `int` | 138 | 14 | 2 | 1 | 1 | 120 |
+| `ntz` | 57 | 0 | 7 | 0 | 0 | 50 |
 | `short` | 49 | 0 | 0 | 0 | 8 | 41 |
-| `time` | 44 | 6 | 1 | 1 | 2 | 34 |
+| `time` | 45 | 6 | 1 | 1 | 2 | 35 |
 | `ym` | 36 | 7 | 2 | 0 | 2 | 25 |
 <!-- END generated verification counts -->
 
@@ -2067,9 +2103,9 @@ coverage table, and regenerated by the same command:
 <!-- BEGIN generated family switches -->
 | Config | Default | Covers |
 | :--- | :--- | :--- |
-| `spark.sql.codegen.varka.family.calendar.enabled` | `true` | The calendar family: day arithmetic (date_add, date_sub, datediff, unix_date, date_from_unix_date), the calendar fields (year to weekofyear), make_date, last_day, next_day, trunc, add_months and a date plus a year-month interval. |
+| `spark.sql.codegen.varka.family.calendar.enabled` | `true` | The calendar family: day arithmetic (date_add, date_sub, datediff, unix_date, date_from_unix_date), the calendar fields (year to weekofyear), make_date, last_day, next_day, trunc, add_months and a date plus a year-month interval, and the same fields of a TIMESTAMP_NTZ through its date. |
 | `spark.sql.codegen.varka.family.interval.enabled` | `true` | The interval family: year-month interval arithmetic, negation and abs, make_ym_interval, the year and month extractions, the multiply by an int and the casts between year-month intervals and ints. |
-| `spark.sql.codegen.varka.family.time.enabled` | `true` | The time family: the TIME functions (hour, minute, second, time_trunc, time_diff, the conversions to and from micros and millis, a time plus a day-time interval), the casts to TIME and to a day-time interval, and TIMESTAMP_NTZ minus TIMESTAMP_NTZ and a TIMESTAMP_NTZ plus or minus a day-time interval. |
+| `spark.sql.codegen.varka.family.time.enabled` | `true` | The time family: the TIME functions (hour, minute, second, time_trunc, time_diff, the conversions to and from micros and millis, a time plus a day-time interval), the casts to TIME and to a day-time interval, hour, minute and second of a TIMESTAMP_NTZ, and TIMESTAMP_NTZ minus TIMESTAMP_NTZ and a TIMESTAMP_NTZ plus or minus a day-time interval. |
 | `spark.sql.codegen.varka.family.predicate.enabled` | `true` | The predicate family: the comparisons, IN over dates and year-month intervals, IS NULL and IS NOT NULL, AND, OR and NOT, wherever they sit: a filter's predicates, so that no filter fuses, and the conditions of IF and CASE WHEN. |
 | `spark.sql.codegen.varka.family.condition.enabled` | `true` | The condition family: the conditionals IF, CASE WHEN and coalesce (the comparisons in their conditions are the predicate family's). |
 | `spark.sql.codegen.varka.family.intArithmetic.enabled` | `true` | The int arithmetic family: +, -, * and unary minus over int, tinyint and smallint operands and abs over the narrow two, checked under ANSI, greatest and least, the casts between int and bigint, and a tinyint or smallint widened to int. |
