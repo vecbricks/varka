@@ -28,7 +28,8 @@ import scala.util.Random
 import org.apache.spark.sql.DataFrame
 import org.apache.spark.sql.catalyst.expressions.Cast
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaCatalystGrammar,
-  VarkaJitEvidence, VarkaKernelWarmth, VarkaKernelWarmup, VarkaShapeCache}
+  VarkaFuzzTypes, VarkaJitEvidence, VarkaKernelWarmth, VarkaKernelWarmup, VarkaShapeCache,
+  VarkaTypeId}
 import org.apache.spark.sql.catalyst.plans.logical.Filter
 import org.apache.spark.sql.execution.VarkaSparkFuzz._
 
@@ -470,6 +471,32 @@ class VarkaSparkFuzzSuite extends VarkaSparkDifferential {
         }
       }
     }
+  }
+
+  test("each column the fuzz descriptor puts in the fixture is one of the view's, of its type") {
+    // `VarkaFuzzTypes`' Spark sites name the view's output columns; a name the view only reads
+    // from `VALUES` (the month and year counts) or a column of another type would be a site that
+    // claims a column nothing draws. Analysis alone gives the schema; no row is computed.
+    val c = draw(rows, seed, 0)
+    val schema = spark.sql(c.fixture).schema
+    val sources = "AS v\\(([^)]*)\\)".r.findFirstMatchIn(c.fixture).get.group(1)
+      .split(",").map(_.trim).toSet
+    var present = 0
+    for (id <- VarkaTypeId.values()) VarkaFuzzTypes.of(id).spark() match {
+      case p: VarkaFuzzTypes.Present[_] =>
+        p.value().asInstanceOf[VarkaFuzzTypes.SparkColumns].columns().asScala.foreach { col =>
+          present += 1
+          val field = schema.find(_.name == col.name())
+          assert(field.isDefined, s"$id: no column ${col.name()} in the view, only " +
+            schema.map(_.name).mkString(", "))
+          assert(field.get.dataType.sql == col.sql(), s"$id: ${col.name()} is " +
+            s"${field.get.dataType.sql}, not ${col.sql()}")
+          assert(col.derived() != sources(col.name()), s"$id: ${col.name()} is " +
+            s"${if (col.derived()) "" else "not "}derived, but the VALUES columns are $sources")
+        }
+      case _ =>
+    }
+    assert(present > 0)
   }
 
   test("the shrinker reduces a planted failure to the output that causes it and one row") {
