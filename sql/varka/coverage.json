@@ -5216,7 +5216,7 @@
     "operands" : [ "Hour:ntz" ],
     "switches" : [ "spark.sql.codegen.varka.family.time.enabled" ],
     "domain" : "",
-    "note" : "the nanosecond of the day divided; never guarded",
+    "note" : "the microsecond of the day divided; never guarded",
     "verified" : "proof: long_divide.smt2"
   }, {
     "sql" : "minute(ntz)",

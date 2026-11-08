@@ -879,7 +879,7 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `extract(DAYOFWEEK_ISO FROM ntz)` | `calendar`, `intArithmetic` |  |  | per-lane: mask broadcast, load or store |
 | `next_day(ntz, 'MONDAY')` | `calendar`, `intArithmetic` |  |  | per-lane: mask broadcast, load or store |
 | `trunc(ntz, 'WEEK')` | `calendar`, `intArithmetic` |  |  | per-lane: mask broadcast, load or store |
-| `hour(ntz)` | `time` |  | the nanosecond of the day divided; never guarded | vector |
+| `hour(ntz)` | `time` |  | the microsecond of the day divided; never guarded | vector |
 | `minute(ntz)` | `time` |  |  | vector |
 | `second(ntz)` | `time` |  | the whole second, an int; the fraction of `extract(SECOND ...)` is a decimal | vector |
 | `CAST(ntz AS TIME(6))` | `time` |  | the nanosecond of the day, a multiple of a thousand | vector |
