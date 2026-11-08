@@ -17,6 +17,7 @@
 
 package org.apache.spark.sql.catalyst.expressions.codegen.varka;
 
+import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.math.RoundingMode;
 import java.time.LocalDate;
@@ -33,6 +34,7 @@ import java.util.function.LongBinaryOperator;
 import com.google.common.math.IntMath;
 
 import org.apache.spark.sql.catalyst.expressions.BitmapExpressionUtils;
+import org.apache.spark.sql.catalyst.expressions.codegen.VarkaRoundingCompiler;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaDivisionLowering.MulHiMagic;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaValueRange.Range;
 import org.apache.spark.sql.catalyst.util.DateTimeConstants;
@@ -99,6 +101,7 @@ final class VarkaProofFiles {
     files.put("round_to_odd.smt2", roundToOdd());
     files.put("decimal128.smt2", decimal128());
     files.put("fp_round.smt2", fpRound());
+    files.put("int_round.smt2", intRound());
     files.put("refinement.smt2", VarkaRefinementFile.render());
     return files;
   }
@@ -3218,6 +3221,191 @@ final class VarkaProofFiles {
         + ")";
     return "((_ to_fp 8 24) RNE (ite " + big + " (fp.mul RNE " + d0 + " " + scale + ") " + d0
         + "))";
+  }
+
+  // -----------------------------------------------------------------------------------------
+  // The integral rounding on the int lane (VARKA-344).
+  // -----------------------------------------------------------------------------------------
+
+  /** The three modes of the integral rounding, each with its function and its spec's name. */
+  private static final List<RoundingMode> ROUND_MODES =
+      List.of(RoundingMode.HALF_UP, RoundingMode.HALF_EVEN, RoundingMode.DOWN);
+
+  private static String roundSpec(RoundingMode mode) {
+    return switch (mode) {
+      case HALF_UP -> "rnd.half.up";
+      case HALF_EVEN -> "rnd.half.even";
+      case DOWN -> "rnd.down";
+      default -> throw new IllegalArgumentException(mode.toString());
+    };
+  }
+
+  private static String roundName(RoundingMode mode) {
+    return switch (mode) {
+      case HALF_UP -> "round";
+      case HALF_EVEN -> "bround";
+      case DOWN -> "truncate";
+      default -> throw new IllegalArgumentException(mode.toString());
+    };
+  }
+
+  /**
+   * {@code int_round.smt2}: {@code VarkaRoundingCompiler}'s rounding at scale {@code -k} on the
+   * int lane is Spark's {@code BigDecimal.setScale(-k, mode).intValue()} for every int, the
+   * division it rests on is exact by each {@code 10^k}, and the ANSI guard of each type, scale
+   * and mode, rendered from {@link VarkaRoundingCompiler#window}, holds exactly the operands
+   * whose rounding fits the type.
+   */
+  static String intRound() {
+    var out = new StringBuilder(LICENSE);
+    out.append("""
+        ; The integral rounding at scale -k on the int lane (VARKA-344), round, bround and
+        ; truncate over TINYINT, SMALLINT and INT, is Spark's
+        ; BigDecimal.setScale(-k, HALF_UP | HALF_EVEN | DOWN).intValue() for every int. What
+        ; VarkaRoundingCompiler.remainderForm emits, per lane, for 1 <= k <= 9, d = 10^k,
+        ; h = d / 2, every operation the int lane's wrapping one:
+        ;
+        ;   q0 = x / d                     ConstDivide, Java's truncating division
+        ;   r  = x - q0 * d                x's sign, |r| < d
+        ;   q  = q0 + [up] - [down]        HALF_UP:   up = r >= h, down = r <= -h
+        ;                                  HALF_EVEN: up = r + (q0 & 1) > h,
+        ;                                             down = r - (q0 & 1) < -h
+        ;   out = q * d                    DOWN:      out = q0 * d
+        ;
+        ; A TINYINT or SMALLINT operand is widened to the int lane first and the answer narrowed
+        ; back to its low 8 or 16 bits; 2^8 and 2^16 divide 2^32, so the low bits of the int
+        ; answer are those of the exact rounding, byteValue()'s and shortValue()'s. Past the
+        ; type's digits (k > 2, 4 and 9) every value rounds to 0 and the answer is x * 0.
+        ;
+        ; The specification is the rounding in unbounded integers: |x| divided by d, raised by
+        ; one past the half (HALF_UP at it too, HALF_EVEN at it for an odd quotient), the sign
+        ; put back, times d; intValue() is its low 32 bits, jint.wrap. It is pinned to BigDecimal
+        ; at sample values. The division by each 10^k is the multiply-high form of
+        ; int_mulhi_divide.smt2, proven here for these divisors the same way; the conversion
+        ; form, the option's reference arm, is exact for every int whatever the divisor.
+        ;
+        ; Under ANSI the kernel guards the operand to the window VarkaRoundingCompiler.window
+        ; bisects over BigDecimal: inside it the rounding fits the type, one past either end it
+        ; does not, and where no window is rendered every operand of the type fits. The sat
+        ; checks show the statement tells the forms apart: bround's steps are not round, and
+        ; bround without the odd test is not bround. Every product is by a constant, so the file
+        ; is linear; under QF_NIA cvc5 answers unknown on bround's checks, and under ALL it
+        ; decides them in milliseconds.
+        """);
+    out.append(rendered("ALL"));
+    out.append("""
+
+        (define-fun mulhi.divide ((n Int) (mu Int) (shift Int)) Int
+          (jint.add (l2i (jlong.shr (jlong.mul (i2l n) mu) shift)) (jint.ushr n 31)))
+
+        (define-fun rnd.half.up ((x Int) (d Int)) Int
+          (let ((m (+ (div (abs x) d) (ite (>= (* 2 (mod (abs x) d)) d) 1 0))))
+            (ite (< x 0) (- (* m d)) (* m d))))
+        (define-fun rnd.half.even ((x Int) (d Int)) Int
+          (let ((q (div (abs x) d)) (r2 (* 2 (mod (abs x) d))))
+            (let ((m (+ q (ite (or (> r2 d) (and (= r2 d) (= (mod q 2) 1))) 1 0))))
+              (ite (< x 0) (- (* m d)) (* m d)))))
+        (define-fun rnd.down ((x Int) (d Int)) Int
+          (let ((m (div (abs x) d)))
+            (ite (< x 0) (- (* m d)) (* m d))))
+
+        (define-fun form.half.up ((x Int) (d Int) (h Int)) Int
+          (let ((q0 (jint.div x d)))
+            (let ((r (jint.sub x (jint.mul q0 d))))
+              (jint.mul (jint.sub (jint.add q0 (ite (>= r h) 1 0)) (ite (<= r (- h)) 1 0)) d))))
+        (define-fun form.half.even ((x Int) (d Int) (h Int)) Int
+          (let ((q0 (jint.div x d)))
+            (let ((r (jint.sub x (jint.mul q0 d))) (odd (jint.and.low q0 2)))
+              (jint.mul (jint.sub (jint.add q0 (ite (> (jint.add r odd) h) 1 0))
+                  (ite (< (jint.sub r odd) (- h)) 1 0)) d))))
+        (define-fun form.down ((x Int) (d Int) (h Int)) Int
+          (jint.mul (jint.div x d) d))
+        ; bround without the odd test, for a sat check.
+        (define-fun form.no.odd ((x Int) (d Int) (h Int)) Int
+          (let ((q0 (jint.div x d)))
+            (let ((r (jint.sub x (jint.mul q0 d))))
+              (jint.mul (jint.sub (jint.add q0 (ite (> r h) 1 0)) (ite (< r (- h)) 1 0)) d))))
+        """);
+    String x = "(declare-const x Int)\n(assert (jint.in x))";
+    for (int k = 1; k <= 9; k++) {
+      int d = BigInteger.TEN.pow(k).intValueExact();
+      MulHiMagic magic = VarkaDivisionLowering.signedMagicForTest(d);
+      out.append("\n; k = ").append(k).append(", d = ").append(d).append(": signedMagic(")
+          .append(d).append(") = (").append(magic.multiplier()).append(", ")
+          .append(magic.shift()).append(")\n");
+      check(out, "k = " + k + ": the multiply-high form is x / " + d + " for every int", "unsat",
+          List.of(x, "(assert (not (= (mulhi.divide x " + magic.multiplier() + " "
+              + magic.shift() + ") (jint.div x " + d + "))))"));
+      for (RoundingMode mode : ROUND_MODES) {
+        String form = roundSpec(mode).replace("rnd.", "form.");
+        check(out, "k = " + k + ": " + roundName(mode) + "'s steps are the rounding wrapped, "
+            + "for every int", "unsat", List.of(x, "(assert (not (= (" + form + " x " + d + " "
+                + d / 2 + ") (jint.wrap (" + roundSpec(mode) + " x " + d + ")))))"));
+      }
+    }
+    check(out, "k = 1: bround's steps in round's place are not round", "sat", List.of(x,
+        "(assert (not (= (form.half.even x 10 5) (jint.wrap (rnd.half.up x 10)))))"));
+    check(out, "k = 1: bround without the odd test is not bround", "sat", List.of(x,
+        "(assert (not (= (form.no.odd x 10 5) (jint.wrap (rnd.half.even x 10)))))"));
+    for (var lane : List.of(VarkaVectorIR.LaneType.BYTE, VarkaVectorIR.LaneType.SHORT,
+        VarkaVectorIR.LaneType.INT)) {
+      VarkaTypes.IntegralRange type = VarkaTypes.integralRange(lane);
+      String in = "(declare-const x Int)\n(assert (and (<= " + lit(type.min()) + " x) (<= x "
+          + type.max() + ")))";
+      int digits = lane == VarkaVectorIR.LaneType.BYTE ? 2
+          : lane == VarkaVectorIR.LaneType.SHORT ? 4 : 9;
+      for (RoundingMode mode : ROUND_MODES) {
+        String zero = "(" + roundSpec(mode) + " x " + BigInteger.TEN.pow(digits + 1) + ")";
+        check(out, lane + ", k = " + (digits + 1) + ": " + roundName(mode) + " is 0 for every "
+            + "value, as at every larger k", "unsat", List.of(in, "(assert (not (= " + zero
+                + " 0)))"));
+        for (int k = 1; k <= digits; k++) {
+          ansiWindow(out, lane, type, k, mode);
+        }
+      }
+    }
+    int[] pins = {15, -15, 25, -25, 35, 1234567895, -1234567895, 2147483645, Integer.MAX_VALUE,
+        Integer.MIN_VALUE};
+    for (RoundingMode mode : ROUND_MODES) {
+      for (int k : new int[] {1, 3, 9}) {
+        var v = new StringBuilder();
+        for (int p : pins) {
+          int want = BigDecimal.valueOf(p).setScale(-k, mode).intValue();
+          v.append("\n  (= (jint.wrap (").append(roundSpec(mode)).append(' ').append(lit(p))
+              .append(' ').append(BigInteger.TEN.pow(k)).append(")) ").append(lit(want))
+              .append(')');
+        }
+        check(out, "the specification of " + roundName(mode) + " at k = " + k + " is "
+            + "BigDecimal's at sample values", "unsat",
+            List.of("(assert (not (and" + v + ")))"));
+      }
+    }
+    return out.toString();
+  }
+
+  /**
+   * The ANSI guard of {@code lane} at scale {@code -k}: inside the compiler's window the rounding
+   * fits the type and one past each end it does not, or with no window it fits everywhere.
+   */
+  private static void ansiWindow(StringBuilder out, VarkaVectorIR.LaneType lane,
+      VarkaTypes.IntegralRange type, int k, RoundingMode mode) {
+    String spec = "(" + roundSpec(mode) + " x " + BigInteger.TEN.pow(k) + ")";
+    String fits = "(and (<= " + lit(type.min()) + " " + spec + ") (<= " + spec + " "
+        + type.max() + "))";
+    String what = "ANSI, " + lane + ", k = " + k + ": " + roundName(mode);
+    var w = VarkaRoundingCompiler.window(lane, k, mode);
+    long lo = w.map(VarkaTypes.IntegralRange::min).orElse(type.min());
+    long hi = w.map(VarkaTypes.IntegralRange::max).orElse(type.max());
+    check(out, what + " over [" + lo + ", " + hi + "] fits the type", "unsat", List.of(
+        "(declare-const x Int)", "(assert (and (<= " + lit(lo) + " x) (<= x " + hi + ")))",
+        "(assert (not " + fits + "))"));
+    for (long past : new long[] {lo - 1, hi + 1}) {
+      if (past >= type.min() && past <= type.max()) {
+        check(out, what + " at " + past + ", one past the window, leaves the type", "unsat",
+            List.of("(declare-const x Int)", "(assert (= x " + lit(past) + "))",
+                "(assert " + fits + ")"));
+      }
+    }
   }
 
   // -----------------------------------------------------------------------------------------
