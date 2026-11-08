@@ -7537,7 +7537,7 @@
     "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
     "domain" : "",
     "note" : "each word's null-safe equality, ANDed: the words share a validity",
-    "verified" : "proof: decimal128.smt2"
+    "verified" : "differential"
   }, {
     "sql" : "d19 < d38",
     "executable" : "d19 < d38",
@@ -7561,6 +7561,18 @@
     "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
     "domain" : "",
     "note" : "across the 64-bit boundary: d18b's long and its sign extension",
+    "verified" : "proof: decimal128.smt2"
+  }, {
+    "sql" : "d9s4 < d3810",
+    "executable" : "d9s4 < d3810",
+    "family" : "DECIMAL lane pair",
+    "form" : "predicate",
+    "catalyst" : [ "Cast", "LessThan" ],
+    "casts" : [ "dec>dec:ansi" ],
+    "operands" : [ "Cast:dec", "LessThan:dec" ],
+    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
+    "domain" : "",
+    "note" : "d9s4 cast up six digits of scale, to 15 digits: one long multiply, then its sign extension",
     "verified" : "proof: decimal128.smt2"
   }, {
     "sql" : "d38 = 12345678901234567890123",
@@ -7597,7 +7609,7 @@
     "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
     "domain" : "",
     "note" : "the low word's validity, its slots checked as Spark's reader does",
-    "verified" : "proof: decimal128.smt2"
+    "verified" : "differential"
   }, {
     "sql" : "d38 IS NOT NULL",
     "executable" : "d38 IS NOT NULL",
@@ -7609,7 +7621,7 @@
     "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
     "domain" : "",
     "note" : "",
-    "verified" : "proof: decimal128.smt2"
+    "verified" : "differential"
   }, {
     "sql" : "d19 IS NULL",
     "executable" : "d19 IS NULL",
@@ -7621,7 +7633,43 @@
     "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
     "domain" : "",
     "note" : "",
-    "verified" : "proof: decimal128.smt2"
+    "verified" : "differential"
+  }, {
+    "sql" : "IF(d18 > 0.00, d38, d38b) IS NULL",
+    "executable" : "IF(d18 > 0.00, d38, d38b) IS NULL",
+    "family" : "DECIMAL lane pair",
+    "form" : "predicate",
+    "catalyst" : [ "Cast", "GreaterThan", "If", "IsNull" ],
+    "casts" : [ "dec>dec:ansi" ],
+    "operands" : [ "Cast:dec", "GreaterThan:dec", "If:dec", "IsNull:dec" ],
+    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled", "spark.sql.codegen.varka.family.condition.enabled" ],
+    "domain" : "",
+    "note" : "a choice or a pick of wide values is null only where its leaves are, so the test reads no word of the value",
+    "verified" : "differential"
+  }, {
+    "sql" : "coalesce(d38, d19) IS NULL",
+    "executable" : "coalesce(d38, d19) IS NULL",
+    "family" : "DECIMAL lane pair",
+    "form" : "predicate",
+    "catalyst" : [ "Cast", "Coalesce", "IsNull" ],
+    "casts" : [ "dec>dec:ansi" ],
+    "operands" : [ "Cast:dec", "Coalesce:dec", "IsNull:dec" ],
+    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled", "spark.sql.codegen.varka.family.condition.enabled" ],
+    "domain" : "",
+    "note" : "",
+    "verified" : "differential"
+  }, {
+    "sql" : "greatest(d38, d38b) IS NOT NULL",
+    "executable" : "greatest(d38, d38b) IS NOT NULL",
+    "family" : "DECIMAL lane pair",
+    "form" : "predicate",
+    "catalyst" : [ "Greatest", "IsNotNull" ],
+    "casts" : [ ],
+    "operands" : [ "Greatest:dec", "IsNotNull:dec" ],
+    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled", "spark.sql.codegen.varka.family.intArithmetic.enabled" ],
+    "domain" : "",
+    "note" : "",
+    "verified" : "differential"
   }, {
     "sql" : "d9 + d9b < d18",
     "executable" : "d9 + d9b < d18",

@@ -266,14 +266,50 @@ public final class VarkaDecimalPairSuite {
   }
 
   @Test
-  @DisplayName("the null tests of a wide column, and of a widening cast over one, read its "
-      + "validity")
+  @DisplayName("a narrower side whose rescale up still fits 18 digits is rescaled by one long "
+      + "multiply and widened by its sign extension")
+  void sidesRescaledWithinALong() {
+    record Case(DecimalType narrow, DecimalType wide) { }
+    for (Case c : List.of(new Case(new DecimalType(9, 4), new DecimalType(38, 10)),
+        new Case(new DecimalType(16, 9), new DecimalType(38, 10)),
+        new Case(new DecimalType(10, 2), new DecimalType(20, 4)))) {
+      for (String op : OPS) {
+        check("a " + op + " b", c.narrow(), c.wide());
+        check("b " + op + " a", c.narrow(), c.wide());
+      }
+    }
+    // At 17 digits rescaled by 2, 19 digits, the rescale is the wide one, row 360's.
+    assertTrue(decline("a < b", new DecimalType(17, 2), new DecimalType(20, 4)).contains("360"));
+  }
+
+  @Test
+  @DisplayName("the null tests of a wide column, of a widening cast, a choice or a pick over one "
+      + "read its validity, and a wide negation, abs, sum or lowering cast declines")
   void nullTests() {
     var t = new DecimalType(20, 2);
     for (String sql : List.of("a IS NULL", "a IS NOT NULL", "CAST(a AS DECIMAL(38, 2)) IS NULL",
-        "b IS NOT NULL")) {
+        "b IS NOT NULL", "IF(a > 0, a, b) IS NULL", "coalesce(a, b) IS NULL",
+        "greatest(a, b) IS NOT NULL", "least(b, a) IS NULL",
+        "CASE WHEN a > 0 THEN b WHEN a < 0 THEN a ELSE b END IS NULL")) {
       check(sql, t, new DecimalType(38, 2));
     }
+    // Each can raise, or null a row whose leaves are valid: a sum by overflowing, a lowering
+    // cast likewise, and Spark's negation and abs of a 38-digit value, which round it to 34
+    // digits through Scala's BigDecimal and can overflow the type (Decimal.unary_-).
+    for (String sql : List.of("(a + b) IS NULL", "CAST(b AS DECIMAL(20, 2)) IS NULL",
+        "-b IS NULL", "abs(b) IS NOT NULL")) {
+      String reason = decline(sql, t, new DecimalType(38, 2));
+      assertTrue(reason.contains("row"), () -> sql + ": " + reason);
+    }
+  }
+
+  @Test
+  @DisplayName("a wide value cast down to 18 digits names the rows of the same cast to 38")
+  void wideCastDownNamesTheWideRows() {
+    var t = new DecimalType(38, 10);
+    String cast = decline("CAST(a AS DECIMAL(18, 2)) > 0", t, t);
+    assertEquals(decline("CAST(a AS DECIMAL(38, 2)) > 0", t, t), cast);
+    assertTrue(cast.contains("rows 350, 359 and 363"), cast);
   }
 
   @Test
@@ -282,13 +318,19 @@ public final class VarkaDecimalPairSuite {
     record Case(DecimalType ta, DecimalType tb, String row) { }
     for (Case c : List.of(new Case(new DecimalType(20, 2), new DecimalType(20, 4), "360"),
         new Case(new DecimalType(38, 10), new DecimalType(38, 2), "363"))) {
-      List<Attribute> columns =
-          List.of(VarkaSqlResolve.column("a", c.ta()), VarkaSqlResolve.column("b", c.tb()));
-      Expression e = VarkaSqlResolve.parse("a < b", seq(columns));
-      List<VarkaConjunctSpec> specs = VarkaExpressionCompiler.explainPredicate(e, seq(columns),
-          VarkaMatrixRuns.BASE, VarkaAdmission.NO_HOST_REFUSAL);
-      String reason = specs.get(0).decline().map(d -> d.reason()).orElse("fused");
+      String reason = decline("a < b", c.ta(), c.tb());
       assertTrue(reason.contains(c.row()), () -> c + ": " + reason);
     }
+  }
+
+  /** The decline reason of the one conjunct {@code sql} over {@code a}, {@code b}, or "fused". */
+  private static String decline(String sql, DecimalType ta, DecimalType tb) {
+    List<Attribute> columns =
+        List.of(VarkaSqlResolve.column("a", ta), VarkaSqlResolve.column("b", tb));
+    Expression e = VarkaSqlResolve.parse(sql, seq(columns));
+    List<VarkaConjunctSpec> specs = VarkaExpressionCompiler.explainPredicate(e, seq(columns),
+        VarkaMatrixRuns.BASE, VarkaAdmission.NO_HOST_REFUSAL);
+    assertEquals(1, specs.size(), sql);
+    return specs.get(0).decline().map(d -> d.reason()).orElse("fused");
   }
 }
