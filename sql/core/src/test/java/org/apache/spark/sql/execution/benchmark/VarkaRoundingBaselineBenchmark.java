@@ -69,14 +69,15 @@ import org.apache.spark.sql.internal.SQLConf;
  *
  * <p>Each section has two arms, named so the labels survive the row landing:
  * {@code spark row path (varka off)}, a session without the Varka rule, and {@code varka on}, a
- * session with it. Today no section plans a Varka node, so both arms are the row path and should
- * tie.
+ * session with it. On a section no row has fused both arms are the row path and should tie.
  *
  * <p>A baseline is only one while nothing fuses: before any section is timed, the run checks
  * each section's plan on the Varka session against the section's {@code fuses} flag, the list of
  * the sections a row has fused, and fails when an unlisted section fuses or a listed one does not;
- * the results file notes each section that fuses. No section is listed. A row that fuses a
- * section lists it, so that its fusion cannot turn a baseline section into a fused one unnoticed.
+ * the results file notes each section that fuses. Listed: {@code rint(x)} and {@code floor(i)}
+ * (344a1), and {@code round(i, -2)} and {@code bround(i, -2)} (344a2), in every mode and density.
+ * A row that fuses a section lists it, so that its fusion cannot turn a baseline section into a
+ * fused one unnoticed.
  *
  * <p>To run this benchmark, on a GitHub runner (the results come back as an artifact):
  * <pre>
@@ -231,10 +232,14 @@ public class VarkaRoundingBaselineBenchmark extends VarkaSqlBenchmarkBase {
   }
 
   /**
-   * A function over one column: its title, its expression, its result type. The list it is in
-   * sets the modes it is timed in.
+   * A function over one column: its title, its expression, its result type, and whether a row
+   * has fused it. The list it is in sets the modes it is timed in.
    */
-  private record Form(String title, String expr, String resultType) {}
+  private record Form(String title, String expr, String resultType, boolean fuses) {
+    Form(String title, String expr, String resultType) {
+      this(title, expr, resultType, false);
+    }
+  }
 
   /**
    * Every section, in the order they run: each null density, then each function, a function
@@ -256,17 +261,17 @@ public class VarkaRoundingBaselineBenchmark extends VarkaSqlBenchmarkBase {
       String density = ", " + (nullInputs ? "one row in ten null" : "no nulls");
       String from = " AS a FROM " + VIEW;
       out.add(new Section("DOUBLE rint(x)" + density, "SELECT rint(" + x + ")" + from,
-          Map.of(), false, "DOUBLE", nullInputs, NullRule.INPUT));
+          Map.of(), true, "DOUBLE", nullInputs, NullRule.INPUT));
       for (Form f : List.of(
           new Form("DOUBLE floor(x)", "floor(" + x + ")", "BIGINT"),
           new Form("DOUBLE ceil(x)", "ceil(" + x + ")", "BIGINT"),
-          new Form("INT floor(i)", "floor(" + i + ")", "BIGINT"),
-          new Form("INT round(i, -2)", "round(" + i + ", -2)", "INT"),
-          new Form("INT bround(i, -2)", "bround(" + i + ", -2)", "INT"),
+          new Form("INT floor(i)", "floor(" + i + ")", "BIGINT", true),
+          new Form("INT round(i, -2)", "round(" + i + ", -2)", "INT", true),
+          new Form("INT bround(i, -2)", "bround(" + i + ", -2)", "INT", true),
           new Form("BIGINT truncate(l, -3)", "truncate(" + l + ", -3)", "BIGINT"))) {
         for (String mode : new String[] {"LEGACY", "ANSI"}) {
           out.add(new Section(f.title() + ", " + mode + density, "SELECT " + f.expr() + from,
-              mode.equals("ANSI") ? ansi : legacy, false, f.resultType(), nullInputs,
+              mode.equals("ANSI") ? ansi : legacy, f.fuses(), f.resultType(), nullInputs,
               NullRule.INPUT));
         }
       }
