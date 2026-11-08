@@ -340,7 +340,8 @@ public final class VarkaRangeAnalysis {
       // A condition as a value is 0 or 1 where it is known; an unknown row is null, whose value
       // no consumer reads.
       case CondValue n -> kind != Kind.INT ? VarkaValueRange.UNKNOWN : VarkaValueRange.of(0, 1);
-      // Null on every lane, and its vector zero: the zero is what a consumer computes over.
+      // Null on every lane, and its vector zero: the zero is what a consumer computes over. The
+      // int lane's only: a null of any other lane is answered UNKNOWN above, a floating one too.
       case VarkaVectorIR.NullValue n -> VarkaValueRange.point(0);
       // A condition has no value of its own, and a boolean output's bits are no lane value.
       case BoolOutput b -> VarkaValueRange.UNKNOWN;

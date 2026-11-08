@@ -320,6 +320,17 @@ class VarkaRangeAnalysisSuite extends SparkFunSuite with VarkaTestWatchdog {
       UNKNOWN)
   }
 
+  test("a typed null is its zero at the int lane and unknown at every other lane") {
+    assert(day(new NullValue(LaneType.INT), GuardPolicy.NONE) === r(0, 0))
+    assert(int(new NullValue(LaneType.INT)) === r(0, 0))
+    // A floating null's zero is no integer, and the long lane tracks no range (VARKA-578).
+    for (lane <- Seq(LaneType.BYTE, LaneType.SHORT, LaneType.LONG, LaneType.FLOAT,
+        LaneType.DOUBLE)) {
+      assert(int(new NullValue(lane)) === UNKNOWN, lane)
+      assert(day(new NullValue(lane), GuardPolicy.ARMED) === UNKNOWN, lane)
+    }
+  }
+
   test("table 3.4: a condition has no value") {
     val cond = new Compare(CompareOp.LT, c0, c1)
     for (node <- Seq[VarkaVectorIR](cond, new And(cond, cond), new Or(cond, cond), new Not(cond),
@@ -404,8 +415,8 @@ class VarkaRangeAnalysisSuite extends SparkFunSuite with VarkaTestWatchdog {
         // A long-lane leaf, which no range rule reads.
         case _: DecimalColumn =>
         case _: LiteralSlot =>
-        // A typed null reads no column, so it gives no column a role; its range is the zero
-        // its vector holds.
+        // A typed null reads no column, so it gives no column a role; its range at the int lane
+        // is the zero its vector holds.
         case _: NullValue =>
         case x: AddDays => value(x.days(), Kind.DAY); leafRole(x.offset(), Role.Offset)
         case x: SubDays => value(x.days(), Kind.DAY); leafRole(x.offset(), Role.Offset)
