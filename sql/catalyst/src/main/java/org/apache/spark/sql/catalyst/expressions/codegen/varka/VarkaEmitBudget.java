@@ -581,6 +581,17 @@ final class VarkaEmitBudget {
   static final int INT_CONST_DIVIDE_WEIGHT = 11;
 
   /**
+   * The lane calls a 128-bit decimal column's shared load spends a body past the leaf's own
+   * load, on the first visit of either of its {@link VarkaVectorIR.DecimalWord}s. The visit emits
+   * ten ({@code VarkaVectorWalk.emitDecimalWord}): the two slot loads, the two rearranges that
+   * take the low and the high words, and the six compares of the digit check. The first load is
+   * the one a group pays once per column, as for every leaf, so the weight is the other nine; the
+   * five mask calls that join the compares are not lane calls. A later visit of either word reads
+   * a local and spends none.
+   */
+  static final int DECIMAL_PAIR_LOAD_WEIGHT = 9;
+
+  /**
    * What one node costs against {@link #GROUP_BUDGET} and {@link #FUSED_CEILING}. Every node has
    * weighed 1, because every node was one or two lane ops; the calendar nodes are not - each
    * expands to thirty-odd or more, since a civil-from-days decomposition is mostly division and
@@ -613,6 +624,11 @@ final class VarkaEmitBudget {
       // and the add and unsigned compare of the digit check. The OR that gathers the compares
       // is a mask call, not a lane call.
       case DecimalColumn _ -> 7;
+      // A 128-bit column's two words share one load a body, which the first visit of either
+      // emits whole: the second of its two loads, the two shuffles and the six compares of the
+      // digit check. Each word weighs the whole load, so that a body holding one word is never
+      // under-charged, and GroupOps takes it back from the second word of a column.
+      case VarkaVectorIR.DecimalWord _ -> DECIMAL_PAIR_LOAD_WEIGHT;
       // The decimal store: the sign shift, the two interleaves and the second of its two stores;
       // the first store is the one every value root pays.
       case WidenDecimal _ -> 4;

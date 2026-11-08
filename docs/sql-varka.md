@@ -859,6 +859,73 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `ntz - dt` | `time` | `dt <> INTERVAL '-106751991 04:00:54.775808' DAY TO SECOND AND if(ntz IS NULL OR dt IS NULL, NULL, try_subtract(ntz, dt) IS NOT NULL)` | the interval's negation is folded into a checked subtraction; Spark negates with negateExact in every mode, so the least interval, which it raises on, is guarded | per-lane: compare to mask, mask logic, mask broadcast, mask test |
 | `ntz + INTERVAL '1' DAY` | `time` | `if(ntz IS NULL, NULL, try_add(ntz, INTERVAL '1' DAY) IS NOT NULL)` | a literal interval takes a slot in the long lane's table | per-lane: compare to mask, mask logic, mask broadcast, mask test |
 
+#### Null family on floating columns
+
+| Expression | Switches | Domain | Notes | 128-bit lanes |
+|---|---|---|---|---|
+| `nvl(x, x2)` | `condition` |  | rewritten to coalesce(x, x2) | per-lane: blend, mask broadcast |
+| `ifnull(x, x2)` | `condition` |  |  | per-lane: blend, mask broadcast |
+| `nvl2(x, x2, x)` | `predicate`, `condition` |  | rewritten to if(x IS NOT NULL, x2, x) | per-lane: blend, mask broadcast |
+| `nullif(x, x2)` | `predicate`, `condition` |  | rewritten to if(x = x2, NULL, x): NaN equals NaN and -0.0 equals 0.0, and the null is the lane's zero with its validity clear, so the kernel is masked-only | per-lane: compare to mask, mask cast, mask logic, blend, mask broadcast |
+| `CASE WHEN x < x2 THEN x END` | `predicate`, `condition` |  | the missing ELSE is the null of the floating lane | per-lane: compare to mask, mask cast, mask logic, mask broadcast, blend |
+| `if(x IS NULL, x2, NULL)` | `predicate`, `condition` |  |  | per-lane: blend, mask broadcast |
+| `nullifzero(x)` | `predicate`, `condition`, `floatingCast` |  | rewritten to if(x = 0, NULL, x): -0.0 is zero, NaN is not | per-lane: compare to mask, mask cast, mask logic, blend, mask broadcast, load or store, mask test |
+| `zeroifnull(x)` | `condition`, `floatingCast` |  | rewritten to coalesce(x, 0) | per-lane: blend, mask broadcast, load or store, mask test |
+| `nvl(f, f2)` | `condition` |  | rewritten to coalesce(f, f2) | vector |
+| `ifnull(f, f2)` | `condition` |  |  | vector |
+| `nvl2(f, f2, f)` | `predicate`, `condition` |  | rewritten to if(f IS NOT NULL, f2, f) | vector |
+| `nullif(f, f2)` | `predicate`, `condition` |  | rewritten to if(f = f2, NULL, f): NaN equals NaN and -0.0 equals 0.0, and the null is the lane's zero with its validity clear, so the kernel is masked-only | vector |
+| `CASE WHEN f < f2 THEN f END` | `predicate`, `condition` |  | the missing ELSE is the null of the floating lane | vector |
+| `if(f IS NULL, f2, NULL)` | `predicate`, `condition` |  |  | vector |
+
+#### Null family predicates on floating columns
+
+| Predicate | Switches | Domain | Notes | 128-bit lanes |
+|---|---|---|---|---|
+| `x BETWEEN x2 AND 5.5D` | `predicate` |  | two comparisons in Spark's order and an AND: a NaN is above every bound | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL up to 18 digits), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
+| `equal_null(x, x2)` | `predicate` |  | rewritten to the null-safe equality, under the lane's equality | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL up to 18 digits), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
+| `f BETWEEN f2 AND 5.5F` | `predicate` |  | two comparisons in Spark's order and an AND: a NaN is above every bound | vector |
+| `equal_null(f, f2)` | `predicate` |  | rewritten to the null-safe equality, under the lane's equality | vector |
+
+#### Null family on TIMESTAMP_NTZ columns
+
+| Expression | Switches | Domain | Notes | 128-bit lanes |
+|---|---|---|---|---|
+| `nvl(ntz, ntz2)` | `condition` |  |  | per-lane: blend, mask broadcast |
+| `ifnull(ntz, ntz2)` | `condition` |  |  | per-lane: blend, mask broadcast |
+| `nvl2(ntz, ntz2, ntz)` | `predicate`, `condition` |  |  | per-lane: blend, mask broadcast |
+| `nullif(ntz, ntz2)` | `predicate`, `condition` |  | the long lane's null: the NTZ is its microseconds | per-lane: compare to mask, mask cast, blend, mask broadcast |
+| `CASE WHEN ntz < ntz2 THEN ntz END` | `predicate`, `condition` |  |  | per-lane: compare to mask, mask cast, blend, mask broadcast |
+
+#### Null family predicates on TIMESTAMP_NTZ columns
+
+| Predicate | Switches | Domain | Notes | 128-bit lanes |
+|---|---|---|---|---|
+| `ntz BETWEEN ntz2 AND TIMESTAMP_NTZ '2000-01-01 00:00:00'` | `predicate` |  |  | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL up to 18 digits), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
+| `equal_null(ntz, ntz2)` | `predicate` |  |  | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL up to 18 digits), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
+
+#### equal_null on every other type
+
+| Predicate | Switches | Domain | Notes | 128-bit lanes |
+|---|---|---|---|---|
+| `equal_null(y1, y2)` | `predicate` |  |  | vector |
+| `equal_null(s1, s2)` | `predicate` |  |  | vector |
+| `equal_null(i, 5)` | `predicate` |  |  | vector |
+| `equal_null(t, t2)` | `predicate` |  |  | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL up to 18 digits), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
+| `equal_null(dt, dt2)` | `predicate` |  |  | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL up to 18 digits), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
+| `equal_null(ym, INTERVAL '1-2' YEAR TO MONTH)` | `predicate` |  |  | vector |
+
+#### Null family on BOOLEAN columns
+
+| Predicate | Switches | Domain | Notes | 128-bit lanes |
+|---|---|---|---|---|
+| `nvl(b, b2)` | `predicate` |  | rewritten to coalesce(b, b2) | vector |
+| `ifnull(b, b2)` | `predicate` |  |  | vector |
+| `nvl2(b, b2, b)` | `predicate` |  |  | vector |
+| `nullif(b, b2)` | `predicate` |  | rewritten to if(b = b2, NULL, b): a boolean choice with a null arm | vector |
+| `b BETWEEN b2 AND b` | `predicate` |  | false before true: two orderings and an AND | vector |
+| `equal_null(b, b2)` | `predicate` |  |  | vector |
+
 #### DOUBLE columns
 
 | Predicate | Switches | Domain | Notes | 128-bit lanes |
@@ -1117,19 +1184,19 @@ operands (a row counts once for each type it reads):
 <!-- BEGIN generated verification counts -->
 | Type | Rows | refinement | proof | exhaustive | owed | differential |
 | :--- | ---: | ---: | ---: | ---: | ---: | ---: |
-| `bigint` | 75 | 0 | 2 | 0 | 2 | 71 |
-| `bool` | 32 | 0 | 0 | 13 | 0 | 19 |
-| `byte` | 50 | 0 | 0 | 0 | 8 | 42 |
+| `bigint` | 72 | 0 | 2 | 0 | 2 | 68 |
+| `bool` | 38 | 0 | 0 | 13 | 0 | 25 |
+| `byte` | 51 | 0 | 0 | 0 | 8 | 43 |
 | `date` | 106 | 17 | 0 | 1 | 0 | 88 |
 | `dec` | 43 | 25 | 0 | 0 | 0 | 18 |
-| `double` | 57 | 0 | 1 | 0 | 0 | 56 |
-| `dt` | 26 | 2 | 1 | 0 | 0 | 23 |
-| `float` | 44 | 0 | 0 | 0 | 0 | 44 |
-| `int` | 133 | 14 | 2 | 1 | 1 | 115 |
-| `ntz` | 24 | 0 | 1 | 0 | 0 | 23 |
-| `short` | 48 | 0 | 0 | 0 | 8 | 40 |
-| `time` | 43 | 6 | 1 | 1 | 2 | 33 |
-| `ym` | 35 | 7 | 2 | 0 | 2 | 24 |
+| `double` | 64 | 0 | 0 | 0 | 0 | 64 |
+| `dt` | 27 | 2 | 1 | 0 | 0 | 24 |
+| `float` | 52 | 0 | 0 | 0 | 0 | 52 |
+| `int` | 134 | 14 | 2 | 1 | 1 | 116 |
+| `ntz` | 31 | 0 | 1 | 0 | 0 | 30 |
+| `short` | 49 | 0 | 0 | 0 | 8 | 41 |
+| `time` | 44 | 6 | 1 | 1 | 2 | 34 |
+| `ym` | 36 | 7 | 2 | 0 | 2 | 25 |
 <!-- END generated verification counts -->
 
 ## Glossary

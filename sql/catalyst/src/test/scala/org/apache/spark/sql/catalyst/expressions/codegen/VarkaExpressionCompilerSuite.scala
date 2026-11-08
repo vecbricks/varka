@@ -1979,6 +1979,22 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     inTime -> Seq(43200000000000L, 0L, 21600000000000L),
     inDt -> Seq(86400000000L, -1L, 172800000000L))
 
+  test("nullifzero and zeroifnull over a FLOAT column decline: the int zero widens it to DOUBLE") {
+    // Type coercion compares or coalesces a float with the int 0 in DOUBLE, so the analyzed tree
+    // casts the column up and the condition's lane is not the value's. The mix of the two
+    // floating lanes in one kernel is the floating conversions' to fuse; until then the
+    // decline names it, and the same pair over a DOUBLE column fuses.
+    val zero = Cast(Literal(0), DoubleType)
+    val nullifzero = If(EqualTo(Cast(inFloat, DoubleType), zero),
+      Literal(null, FloatType), inFloat)
+    assert(declineReason(nullifzero, inOutput).contains("mixes the DOUBLE and FLOAT lanes"))
+    val zeroifnull = Coalesce(Seq(Cast(inFloat, DoubleType), zero))
+    assert(declineReason(zeroifnull, inOutput) ===
+      "coalesce operand before the last is not a bare column")
+    val onDouble = If(EqualTo(inDouble, zero), Literal(null, DoubleType), inDouble)
+    assert(VarkaExpressionCompiler.compile(Seq(out(onDouble)), inOutput).isPresent)
+  }
+
   test("IN keeps each value once in ascending bit order, whatever order its list or set has") {
     // A value's lane bits, sign-extended: what orders the literal tables. A floating value is
     // kept as Spark's IN tells values apart, both zeros as 0.0 and every NaN as the one NaN.
@@ -2099,13 +2115,13 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     val (p0, p1) = (new ColumnRef(0), new ColumnRef(1))
     assert(picks.outputs.asScala.toSeq === Seq(new IRGreatest(p0, nullInt),
       new IRLeast(new IRLeast(nullInt, p1), nullInt)))
-    // A type the null leaf does not serve yet keeps a reason naming it, and an int is still
+    // A decimal choice has no null value yet and keeps a reason naming it, and an int is still
     // no date: a date choice over a cast of an int column declines rather than reading it.
     val partial = VarkaExpressionCompiler.compilePartial(
-      Seq(out(CaseWhen(Seq((lt, Literal(1.5f))), None)), out(If(lt, Cast(i, DateType), d)),
-        out(DateAdd(d, Literal(1)))), childOutput).get
+      Seq(out(IsNull(CaseWhen(Seq((lt, Literal.create(Decimal(1), DecimalType(16, 6)))), None))),
+        out(If(lt, Cast(i, DateType), d)), out(DateAdd(d, Literal(1)))), childOutput).get
     assert(partial.declines.asScala(0).reason ===
-      "no null leaf for type float, the missing ELSE of a CASE WHEN")
+      "a CASE without an ELSE needs a decimal null value, rows 348 and 359's")
     // The narrow lanes have their own null (VARKA-329): a byte CASE WHEN with no ELSE is a
     // choice with the byte lane's null, stored at the byte's width.
     val narrowNull = VarkaExpressionCompiler.compile(

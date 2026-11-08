@@ -450,8 +450,9 @@ public final class VarkaKernelChecks {
   }
 
   /**
-   * The inputs {@code roots} read as a decimal column, as a bit per input ordinal. A decimal
-   * column at ordinal 64 or above has no bit, and throws rather than being read as a long column.
+   * The inputs {@code roots} read as a decimal column, the 64-bit leaf or a 128-bit column's
+   * words, both of Arrow's sixteen-byte slots, as a bit per input ordinal. A decimal column at
+   * ordinal 64 or above has no bit, and throws rather than being read as a long column.
    */
   static long decimalColumns(List<VarkaVectorIR> roots) {
     long bits = 0L;
@@ -460,12 +461,14 @@ public final class VarkaKernelChecks {
     while (!todo.isEmpty()) {
       VarkaVectorIR node = todo.pop();
       if (seen.add(node)) {
-        if (node instanceof VarkaVectorIR.DecimalColumn c) {
-          if (c.ordinal() >= Long.SIZE) {
-            throw new IllegalArgumentException("a decimal column at ordinal " + c.ordinal()
-                + " is past the " + Long.SIZE + " this check's bit set holds");
-          }
-          bits |= 1L << c.ordinal();
+        int ordinal = node instanceof VarkaVectorIR.DecimalColumn c ? c.ordinal()
+            : node instanceof VarkaVectorIR.DecimalWord w ? w.ordinal() : -1;
+        if (ordinal >= Long.SIZE) {
+          throw new IllegalArgumentException("a decimal column at ordinal " + ordinal
+              + " is past the " + Long.SIZE + " this check's bit set holds");
+        }
+        if (ordinal >= 0) {
+          bits |= 1L << ordinal;
         }
         todo.addAll(Arrays.asList(VarkaVectorIR.childrenOf(node)));
       }

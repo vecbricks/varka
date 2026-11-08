@@ -85,7 +85,7 @@ class VarkaEmitCostSuite extends VarkaEmitterTestBase with VarkaOwnJvm {
     // is always floating (VARKA-343), and the lane crossing, which joins a floating condition
     // to an integral one (`VARKA-343.md` 2.2.1).
     val awaitingRefit = Set("NullSafeEqual", "BoolColumn", "CondConst", "BoolCompare", "CondIf",
-      "BoolNullSafeEq", "CondValue", "BoolOutput", "DecimalColumn", "NullValue",
+      "BoolNullSafeEq", "CondValue", "BoolOutput", "DecimalColumn", "DecimalWord", "NullValue",
       "WidenDecimal", "MathUnary", "RoundToIntegral", "ConvertLane", "CrossLane", "Compare/ULT",
       "Compare/ULE", "Compare/UGT", "Compare/UGE")
     assert(awaitingRefit.forall(t => !expected.exists(f => f == t || f.startsWith(t + "/"))),

@@ -162,7 +162,9 @@ spike's loops stay committed as the reference arm; whether S is also emitted is 
 runs are the laptop at 512, 256 and 128 bits (`MaxVectorSize`), whose datapath is 256 bits wide
 so its 512-bit numbers are double-pumped and labelled so, and `benchmark.yml` on the EPYC 7763 at
 256 and 128; `benchmark.yml` has no Arm runner, so the Neoverse N2 reading is the census's cells
-only.
+only. *Corrected 8 November 2026:* it has one now, its `runner` input taking `ubuntu-24.04-arm`, a
+Neoverse N2 (row 575), and a run of `VarkaDecimalPairSpikeBenchmark` there committed its results as
+`2095329e157` on the fork branch `varka-359-arm-results`.
 
 ### 2.2 The IR: words, not pairs
 
@@ -564,10 +566,68 @@ byte:
 `types.tsv` keeps `storage_bits` beside the new columns. A band carries its row and whether its
 reader is built. The unsigned draw runs a third of the corpora's iterations: at the full count it
 took about three and a half minutes on the laptop, which the Build would pay on every run.
+*Corrected 8 November 2026:* the three and a half minutes is the first attempt's reading at the
+full count, carried over; this part did not measure it again.
 
 **Not in this part**, owed in the following ones: the compiler's pair (11.5 item 4), the word
 leaf, its shared load and check, the lowerings, the carry layer, the slot table and word edges,
 the coverage rows and the conformance suite (11.5 item 5, 11.6).
+
+### 10.3 359a, part 2: the word leaf, its shared load and its check (6 November 2026)
+
+*Same branch, on part 1. Local commits only.* 11.6 items 7 and 8, hand-ported from the first
+attempt's branch onto the master that now holds row 348 and row 157, without the planted faults
+and without the lowerings, which are the next part's.
+
+7. **The word leaf and its shared load.** `VarkaVectorIR.DecimalWord(ordinal, Word, precision)`,
+   precision 19 to 38 on the long lane, rendering `decw:<n>:lo:p<p>` or `:hi:`. `Slots.decimalTmp`
+   holds four locals per column under its low word's key (the two vectors of slots, then the low
+   and the high words), and `Slots.pairLoaded`, cleared with `emittedUnshared` at each body, says
+   whether the body has loaded the column: the first visit of either word loads, takes both
+   rearranges, parks both words and checks; every later visit reads its word's local
+   (`VarkaVectorWalk.emitDecimalWord`). Both words carry `Refusal.DECIMAL_SLOT`, whichever is
+   visited first collecting it. `Analysis` registers the column at sixteen bytes a row
+   (`decimalInputs`), and a null test over a word visits its leaf for the check, as the 64-bit
+   leaf's does. The budget weighs each word the whole load (`DECIMAL_PAIR_LOAD_WEIGHT`, 9) and
+   `GroupOps` takes it back from the second word of a column in a group; the cost model's feature
+   `DecimalWord/<word>` joins row 352's awaiting-refit list. Every site that lists the IR's
+   nodes learned the new one: the plan's switch over long-narrow roles, the same-answer walk, the
+   range analysis, the operand positions, the word owners, the canonical parser, the reference
+   evaluator, the lane-type, children, cost, budget and fuzz suites.
+8. **The check**: `v > B` as `GT(hi, bhi) | (EQ(hi, bhi) & UGT(lo, blo))` and `v < -B` as
+   `LT(hi, nhi) | (EQ(hi, nhi) & ULT(lo, nlo))`, ORed, ten lane calls and five mask calls, under
+   `emitGuardCollect` and never qualified by an arm.
+
+**Tests.** `VarkaDecimalWordSuite` (`ownJvm`, at 1, 2, 4 and 8 long lanes, both bodies): the slot
+table over precisions 19, 20, 30 and 38 and lengths 1, 3, 37 and 64 (`10^p - 1`, `-(10^p - 1)`,
+`2^63` and `-2^63 - 1` passing; `10^p`, `-10^p`, `2^127 - 1` and `-2^127` declining at the first,
+middle and last row, valid and under a null; the oracle Spark's `ArrowColumnVector.getDecimal`), a
+body reading both words loads and rearranges once, a null test still checks the slots, and the
+leaf's record.
+
+**Departures.** The pair's locals are four of their own, not `guardTmp`, because the check reads
+both words and a body may hold only one of them. Each word weighs the whole shared load, since
+the first visit of either emits it, not the half-and-half split the first attempt began with.
+
+**Not in this part**, owed: the compile-time pair and the lowerings (11.6 item 9), the carry layer
+(item 10), the coverage rows (item 11) and the generated files they move, the planted faults for
+row 504, and the conformance suite (11.5 item 5).
+
+**The review's fixes (8 November 2026).** `Analysis` refuses a column whose two words carry two
+precisions and one read both as a `DecimalColumn` and as words; `dropDecimalBound` drops the pair's
+check too, a fault test showing the slot table catches it; a repeated word takes no CSE shared slot
+beside its parked local; the long-lane harness lays a word column out as sixteen-byte slots and
+the reference answers its words; the shared-load test reads the epilogues as well; one precision
+check in `DecimalWords`.
+
+**Owed, as a later part of this row: one pair-load node.** The shared load is side state on two
+leaves: `Slots.pairLoaded`, `decimalTmp` keyed by the low word, the `guardScratch` exemption, the
+CSE exemption, `GroupOps` taking the load back from the second word and the budget suite's
+`pairedColumns`, and both words carrying the refusal. One `DecimalPair(ordinal, precision)` node
+that loads, checks and parks both words, which the two words project, would hold all of it in one
+place. Not here: a new node is a row in every exhaustive switch this part already touched, past
+this pull request's 1000-line cap, and it reopens 2.2's words-not-pairs choice, which the
+lowerings of the next part are planned on. The next part decides it before its lowerings land.
 
 ## 11. 359a, the build plan (1 November 2026)
 

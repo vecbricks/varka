@@ -361,6 +361,21 @@ enum Lane {
     }
   }
 
+  /**
+   * Pushes this lane's zero as its scalar type, for the broadcast of a null value
+   * ({@link VarkaVectorIR.NullValue}), whose vector data no consumer reads under its clear
+   * validity word. Every lane has one: an integral lane's is {@link #pushScalar}'s, so its bytes
+   * are the ones that call wrote before this method existed, and a floating lane's, which
+   * {@link #pushScalar} refuses, is the positive zero of its own type.
+   */
+  void pushZero(CodeBuilder cb) {
+    switch (laneType) {
+      case BYTE, SHORT, INT, LONG -> pushScalar(cb, 0);
+      case FLOAT -> cb.loadConstant(0.0f);
+      case DOUBLE -> cb.loadConstant(0.0d);
+    }
+  }
+
   /** The most negative value of this lane: the one input a negate cannot represent. */
   long mostNegative() {
     return integral().mostNegative();

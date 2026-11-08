@@ -390,7 +390,7 @@ final class VarkaNodeCompiler {
     }
     String what = switch (e) {
       case Cast c when DataTypes.DateType.equals(c.child().dataType()) ->
-          "a cast of DATE to a floating type, always null (row 343, after row 333's null leaf)";
+          "a cast of DATE to a floating type, always null (row 343)";
       case Cast c when c.child().dataType() instanceof DecimalType
           || c.dataType() instanceof DecimalType -> "a decimal cast with a floating side (rows "
           + "346, 350, 364 and 366)";
