@@ -485,12 +485,12 @@ without building 343's code here, which 8 rules out. By 8's rule of landing what
 step lands in two pieces, cut between the forms that need no conversion to an integral lane and
 the ones that do:
 
-- **The cast forms fuse as they are.** `dev/varka_emit.sh` on master: `y1 / i`, `s1 / i`,
-  `x / i`, `f / f2`, `try_divide(i, y1)`, `sqrt(i)`, `signum(i)`, `degrees(i)`, `sqrt(f)`,
-  `signum(f)` and `radians(s1)` each compile to one fused output, the division and the
-  functions over 343's exact conversions with no code of this step. The coverage table gains
-  the family "Floating arithmetic over other types" with the eleven, the divisions under a
-  domain that keeps the divisor non-zero, as `x / x2`'s. A `BIGINT` operand (`l / l2`,
+- **The cast forms fuse as they are.** `dev/varka_emit.sh` and the coverage suite on master:
+  `y1 / i`, `s1 / i`, `x / i`, `f / f2`, `try_divide(i, y1)`, `sqrt(i)`, `signum(i)`,
+  `degrees(i)`, `sqrt(f)`, `signum(f)` and `radians(s1)` each compile to one fused output, the
+  division and the functions over 343's exact conversions with no code of this step. The coverage
+  table gains the family "Floating arithmetic over other types" with the eleven, the divisions
+  under a domain that keeps the divisor non-zero, as `x / x2`'s. A `BIGINT` operand (`l / l2`,
   `sqrt(l)`) is not a row: the coverage suite compiles at the defaults' unknown emit level, where
   `L2D` declines. Each row is verified differentially (`differential` in `coverage.json`): the
   conversions are exhausted by 343a5's sweeps and the double forms by this row's step 3, but no
@@ -517,6 +517,10 @@ the ones that do:
   and the plan's exclusive `(-2^31 - 0.5, 2^31 - 0.5)` and `[-2^63, 2^63)` on `p` are the same
   test. The pinned cells are the ties of 3.7 and row 103's products (PLAN.md's 30 October note,
   `results/VARKA-103-admission.txt` item 7), each against the answer Spark gave there.
+  Stated whole, the in-guard claim ran past the 10 s per-check limit under both solvers, so it
+  is checked per binade of `|p|`: 130 checks, 80 s under Z3 and 118 s under cvc5 on the laptop
+  (`dev/varka_prove.sh --solver both`, one run), each check within the limit. Prediction 4.5
+  ("each SMT claim under 60 s") holds per check; the file as a whole is past it.
 - **The decline names its wait.** `floatingDecline` gives the four interval classes their own
   reason, the conversions to an integral lane (row 342 after part 343b2), in place of "floating
   arithmetic (row 342)".

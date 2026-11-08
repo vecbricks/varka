@@ -390,8 +390,9 @@ class VarkaFloatingLaneSuite extends QueryTest with VarkaSharedSessions with Var
 
   /** Each interval type's ends, -1, 0 and 1, and nulls in each column, beside a factor. */
   private def cacheIntervals(session: SparkSession): Unit = {
-    def ym(months: Int) = java.time.Period.ofMonths(months)
-    def dt(micros: Long) = java.time.Duration.of(micros, java.time.temporal.ChronoUnit.MICROS)
+    def ym(months: Int): java.time.Period = java.time.Period.ofMonths(months)
+    def dt(micros: Long): java.time.Duration =
+      java.time.Duration.of(micros, java.time.temporal.ChronoUnit.MICROS)
     val rows = Seq(Row(ym(Int.MinValue), dt(Long.MinValue), 0.5), Row(ym(-1), dt(-1L), -1.0),
       Row(ym(0), dt(0L), 1.5), Row(ym(1), dt(1L), 2.5),
       Row(ym(Int.MaxValue), dt(Long.MaxValue), 0.25), Row(null, dt(0L), 1.0),
@@ -406,7 +407,7 @@ class VarkaFloatingLaneSuite extends QueryTest with VarkaSharedSessions with Var
   test("signum over both interval types fuses and answers the row engine's doubles bit for bit "
       + "at each type's ends, at zero and on nulls, generated and interpreted alike") {
     val q = s"SELECT signum(ym) AS a, signum(dt) AS b FROM $intervals"
-    def d(v: Double) = ("double", java.lang.Double.doubleToRawLongBits(v))
+    def d(v: Double): (String, Long) = ("double", java.lang.Double.doubleToRawLongBits(v))
     // A zero count answers +0.0, never -0.0, and a null count null.
     val want = Seq(Seq(d(-1.0), d(-1.0)), Seq(d(-1.0), d(-1.0)), Seq(d(0.0), d(0.0)),
       Seq(d(1.0), d(1.0)), Seq(d(1.0), d(1.0)), Seq(null, d(0.0)), Seq(d(0.0), null),
