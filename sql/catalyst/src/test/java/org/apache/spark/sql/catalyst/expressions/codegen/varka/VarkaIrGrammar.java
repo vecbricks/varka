@@ -173,6 +173,13 @@ public final class VarkaIrGrammar {
    */
   public static final long CAST_FUZZ_SEED = 20261031L;
 
+  /**
+   * The seed of {@link #drawNullingLaneShape}, the typed null at the lanes the nulling draw does
+   * not reach (VARKA-578): a sequence of its own for the reason {@link #NARROW_FUZZ_SEED} gives.
+   * {@code VarkaIrFuzzSuite} runs it against the reference evaluator; nothing pins its bytes.
+   */
+  public static final long NULLING_LANE_FUZZ_SEED = 20261108L;
+
   // The generator's magnitude bounds saturate rather than wrap, in *every* arm that combines
   // two of them - `boundsOf` and the generator alike. Four nested multiplies of a column's own
   // bound pass 2^63, and a bound that came back negative would let `fitsUnderChrono` admit an
@@ -742,6 +749,42 @@ public final class VarkaIrGrammar {
         yield new CondValue(new BoolColumn(CAST_BOOL_COLUMN, lane), lane);
       }
     };
+  }
+
+  /**
+   * The lanes of {@link #drawNullingLaneShape}, each with the {@link #CAST_COLUMNS} ordinal whose
+   * values it reads: a narrow lane its own column, and a floating lane the column of its width,
+   * whose values are its bits ({@code VarkaReference}), so that the ends of the int and long
+   * ranges reach a NaN with a payload and minus zero.
+   */
+  public static final List<LaneType> NULLING_LANES = List.of(LaneType.BYTE, LaneType.SHORT,
+      LaneType.FLOAT, LaneType.DOUBLE);
+
+  /** The {@link #CAST_COLUMNS} ordinal a {@link #NULLING_LANES} column reads. */
+  public static int nullingLaneColumn(LaneType lane) {
+    return switch (lane) {
+      case BYTE -> 0;
+      case SHORT -> 1;
+      case INT, FLOAT -> 2;
+      case LONG, DOUBLE -> 3;
+    };
+  }
+
+  /**
+   * One choice with the lane's null ({@link #nullChoice}, at each of its positions) over one
+   * column of a {@link #NULLING_LANES} lane, the conditions comparisons of the column with the
+   * zero of literal slot 0: {@code nullifzero} and a {@code CASE WHEN} without an {@code ELSE}
+   * at the narrow and floating lanes, whose null the general draws never reach, since their
+   * grammar draws neither lane (VARKA-578). One root a draw, over the cast draw's columns, so the
+   * cast draw's harness runs it.
+   */
+  public static VarkaVectorIR drawNullingLaneShape(Random rnd) {
+    LaneType lane = NULLING_LANES.get(rnd.nextInt(NULLING_LANES.size()));
+    var col = new ColumnRef(nullingLaneColumn(lane), lane);
+    var zero = new LiteralSlot(0, lane);
+    CompareOp[] ops = CompareOp.values();
+    Supplier<Cond> cond = () -> new Compare(ops[rnd.nextInt(ops.length)], col, zero);
+    return nullChoice(rnd, cond.get(), new Gen(col, Long.MAX_VALUE), lane, cond).node();
   }
 
   /**

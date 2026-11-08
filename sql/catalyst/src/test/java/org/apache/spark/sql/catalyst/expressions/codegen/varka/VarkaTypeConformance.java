@@ -278,14 +278,19 @@ public abstract class VarkaTypeConformance {
   }
 
   @Test
-  @DisplayName("choice: CASE WHEN, IF and coalesce over the type, unknown taking ELSE")
+  @DisplayName("choice: CASE WHEN, IF, coalesce and the typed null over the type, unknown taking "
+      + "ELSE")
   void choice() {
+    // `nullif` and a CASE without an ELSE hold the type's null as a value, in the then and the
+    // else position: the lane's broadcast zero with its validity clear (VARKA-578), held here to
+    // Spark over every type's special values, the narrow and floating lanes' included.
     if (type().isBoolean()) {
       run(List.of(condition("IF(x, y, NOT y)", "if"), condition("CASE WHEN x THEN y END", "when"),
-          condition("coalesce(x, y)", "coalesce")));
+          condition("coalesce(x, y)", "coalesce"), condition("nullif(x, y)", "nullif")));
     } else {
       run(List.of(value("CASE WHEN x > y THEN x ELSE y END", "when"),
-          value("if(x < y, x, y)", "if"), value("coalesce(x, y)", "coalesce")));
+          value("if(x < y, x, y)", "if"), value("coalesce(x, y)", "coalesce"),
+          value("nullif(x, y)", "nullif"), value("CASE WHEN x < y THEN x END", "when")));
     }
   }
 
