@@ -672,7 +672,7 @@ change; and the node is a row in every exhaustive switch part 2 touched, past th
     `dev/varka_new_lane.py` drops the census entry it held owed to this row.
 
 **Tests.** `VarkaDecimalPairSuite` (`ownJvm`, at 1, 2, 4 and 8 long lanes): the word edges of
-section 3 item 2 through the real compiler, every ordered pair of seventeen edge values and the
+section 3 item 2 through the real compiler, every ordered pair of up to seventeen edge values and the
 null patterns, at 19, 20 and 38 digits, a 64-bit and a 19-digit side widened into a 38-digit pair
 both ways round, wide and narrow-scale literals, the null tests, and the two declines at two
 scales, each answer held to Spark's own expression three-valued. Lowering `ULT` as `LT`, run by
@@ -681,7 +681,9 @@ classes follow: the precision-38 comparison and, at 38 and 20 digits, `<=>`, `IS
 projected `x < y` are `WHOLE`; `-x < y` and `abs(x) < y` are `NULL_TESTS`, the null tests Spark
 infers fused below the row path's condition; `IN`, under which Spark infers none, stays `NONE`.
 The catalyst Varka suites at the defaults (`dev/varka_matrix.sh --module catalyst`) pass, 1290
-tests, and the sql ones, 2972, once those classes were set.
+tests; the sql ones, the golden suite's Varka arm and the literal-lift suite among them, gave
+2968 passed and 4 failed, all four the baseline's classes, whose suite then passes alone, 9 of
+9, as do the coverage differential and harness suites, 2216 tests, after the last row change.
 
 **Predictions** (11.7), scored here where this part can:
 
