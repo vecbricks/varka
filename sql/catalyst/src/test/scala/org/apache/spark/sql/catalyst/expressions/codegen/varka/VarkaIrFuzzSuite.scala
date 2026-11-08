@@ -97,6 +97,9 @@ import org.apache.spark.sql.catalyst.util.DateTimeUtils
  * reproducible and a nightly can vary it). The iterations and the seed apply to both lanes.
  * `-Dvarka.fuzz.variantsEvery=n` takes the variants of every n-th draw (default 1, every draw;
  * 0 none), which is how the nightly's forty thousand draws a lane stay inside the test's cap.
+ * `-Dvarka.fuzz.edges=n` puts a type's edge value in one cell in n of the int, long and mixed
+ * draws (default 0, none: `VarkaFuzzTypes.ValueSource`); a failure under it names it, and its
+ * replay needs it too.
  *
  * Under another JVM (VARKA-272, `dev/varka_platform.sh`): `-Dvarka.fuzz.tier=interpreter|c1|c2|
  * xcomp` names the tier the JVM's flags must show and the compiled test's rules follow,
@@ -114,6 +117,24 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
   private val longLiteralBound = VarkaIrGrammar.LONG_LITERAL_BOUND
   private val fuzzSeed = VarkaIrGrammar.FUZZ_SEED
   private val longFuzzSeed = VarkaIrGrammar.LONG_FUZZ_SEED
+
+  // Every column cell is drawn by its type's value source (`VarkaFuzzTypes`): the int corpus's
+  // day columns by `DATE`'s and its month count by `YM_INTERVAL`'s, the mixed draw's int columns
+  // by `INT`'s, the long lane's by `LONG`'s. A source draws the uniform cell from the case's own
+  // stream, exactly as the grammar's `within` does, and replaces one cell in
+  // `-Dvarka.fuzz.edges` by an edge value of the type, the coin and the edge drawn from a stream
+  // of the case's own (`valueStream`). The default is no edges, so every cell is the uniform
+  // draw it always was; a hunt turns them on.
+  private val intValues = VarkaFuzzTypes.values(VarkaTypeId.INT)
+  private val dateValues = VarkaFuzzTypes.values(VarkaTypeId.DATE)
+  private val monthValues = VarkaFuzzTypes.values(VarkaTypeId.YM_INTERVAL)
+  private val longValues = VarkaFuzzTypes.values(VarkaTypeId.LONG)
+  private val edgeOneIn = sys.props.get("varka.fuzz.edges").map(_.toInt)
+    .getOrElse(VarkaFuzzTypes.ValueSource.NO_EDGES)
+  // In a failure's label and replay only when set, so the committed draws' labels, which the
+  // answers log keys its digests by, stay as they were.
+  private val edgesLabel = if (edgeOneIn > 0) s" edges=$edgeOneIn" else ""
+  private val edgesReplay = if (edgeOneIn > 0) s" -Dvarka.fuzz.edges=$edgeOneIn" else ""
 
   // `-Dvarka.fuzz.seed` moves the fuzz trees only. A test that asserts a draw reaches a form (or
   // that the committed draws hold none) states a property of the grammar, so it draws at the
@@ -180,6 +201,10 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
   private def ownStream(drawSeed: Long, iteration: Int, name: String): Random =
     new Random(new java.util.SplittableRandom(
       (drawSeed * 1000003L + iteration) ^ (name.hashCode * 0x9E3779B97F4A7C15L)).nextLong())
+
+  /** The stream the edge arm of a case's value sources draws from. */
+  private def valueStream(drawSeed: Long, iteration: Int): Random =
+    ownStream(drawSeed, iteration, "values")
 
   /**
    * The options only a decimal output's store reads (VARKA-157), in table order: `decimalStore`.
@@ -375,6 +400,7 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
     // every one at length 1) before it found anything about the kernel.
     val forceMasked = length > 1 && rnd.nextInt(4) == 0
     val options = randomOptions(rnd, base, drawSeed, iteration)
+    val values = valueStream(drawSeed, iteration)
     val data = Array.tabulate(numInputs, length) { (c, _) =>
       if (c == levelOrdinal) {
         // Exactly the codes TruncLevelLeaf produces; a value outside them is a lane the
@@ -382,9 +408,13 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
         DateTimeUtils.TRUNC_TO_WEEK + rnd.nextInt(
           DateTimeUtils.TRUNC_TO_YEAR - DateTimeUtils.TRUNC_TO_WEEK + 1)
       } else {
-        // Uniform over the column's bound, the draw `VarkaIrGrammar.within` documents.
-        VarkaIrGrammar.intWithin(rnd,
-          if (c == smallOrdinal) VarkaChrono.MONTH_ARITH_MAX_MONTHS else intColumnBound)
+        // Uniform over the column's bound, the draw `VarkaIrGrammar.within` documents; the
+        // sources differ only in their edges.
+        if (c == smallOrdinal) {
+          monthValues.draw(rnd, values, VarkaChrono.MONTH_ARITH_MAX_MONTHS, edgeOneIn).toInt
+        } else {
+          dateValues.draw(rnd, values, intColumnBound, edgeOneIn).toInt
+        }
       }
     }
 
@@ -392,7 +422,7 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
       s"roots=${roots.asScala.map(r => VarkaVectorIR.canonical(r)).mkString("[", ", ", "]")} " +
       s"options=${if (options.isDefault) "(defaults)" else options.canonical()} " +
       s"length=$length patterns=${patternIds.map(patternNames).mkString(",")} " +
-      s"literals=${lits.mkString(",")} forceMasked=$forceMasked"
+      s"literals=${lits.mkString(",")} forceMasked=$forceMasked$edgesLabel"
 
     new VarkaFuzzCase(LaneType.INT, roots, numInputs, lits.map(_.toLong), length,
       Array.tabulate(numInputs, length)((c, i) => patterns(c)(i)), data.map(_.map(_.toLong)),
@@ -425,14 +455,15 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
     val forceMasked = length > 1 && rnd.nextInt(4) == 0
     val drawnOptions = randomOptions(rnd, base, drawSeed, iteration)
     val options = if (!decimal) drawnOptions else drawOptions(rnd, drawnOptions, decimalOptions)
-    val data =
-      Array.tabulate(numInputs, length)((_, _) => VarkaIrGrammar.within(rnd, longColumnBound))
+    val values = valueStream(drawSeed, iteration)
+    val data = Array.tabulate(numInputs, length)(
+      (_, _) => longValues.draw(rnd, values, longColumnBound, edgeOneIn))
 
     val context = s"lane=long seed=$drawSeed iteration=$iteration " +
       s"roots=${roots.asScala.map(r => VarkaVectorIR.canonical(r)).mkString("[", ", ", "]")} " +
       s"options=${if (options.isDefault) "(defaults)" else options.canonical()} " +
       s"length=$length patterns=${patternIds.map(patternNames).mkString(",")} " +
-      s"literals=${lits.mkString(",")} forceMasked=$forceMasked"
+      s"literals=${lits.mkString(",")} forceMasked=$forceMasked$edgesLabel"
 
     new VarkaFuzzCase(LaneType.LONG, roots, numInputs, lits, length,
       Array.tabulate(numInputs, length)((c, i) => patterns(c)(i)), data, forceMasked, options,
@@ -536,16 +567,17 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
     val patterns = patternIds.map(pattern(rnd, _, length))
     val forceMasked = length > 1 && rnd.nextInt(4) == 0
     val options = randomOptions(rnd, VarkaMatrix.base, mixedSeed, iteration)
+    val values = valueStream(mixedSeed, iteration)
     val data = Array.tabulate(numInputs, length) { (c, _) =>
-      if (c < drawn.intInputs) VarkaIrGrammar.intWithin(rnd, intColumnBound).toLong
-      else VarkaIrGrammar.within(rnd, longColumnBound)
+      if (c < drawn.intInputs) intValues.draw(rnd, values, intColumnBound, edgeOneIn)
+      else longValues.draw(rnd, values, longColumnBound, edgeOneIn)
     }
     val label = s"lane=mixed seed=$mixedSeed iteration=$iteration " +
       s"roots=${roots.asScala.map(r => VarkaVectorIR.canonical(r)).mkString("[", ", ", "]")} " +
       s"options=${if (options.isDefault) "(defaults)" else options.canonical()} " +
       s"length=$length patterns=${patternIds.map(patternNames).mkString(",")} " +
       s"intLiterals=${intLits.mkString(",")} longLiterals=${longLits.mkString(",")} " +
-      s"forceMasked=$forceMasked"
+      s"forceMasked=$forceMasked$edgesLabel"
     val className = "org.apache.spark.sql.varka.execution.VarkaFusedFuzzMixed" +
       classCounter.addAndGet(1)
     val numLiterals = drawn.numLiterals
@@ -895,7 +927,7 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
       for ((draw, drawSeed) <- draws; k <- only.map(Seq(_)).getOrElse(range)) {
         val drawn = draw(k, VarkaMatrix.base)
         val c = if (compiledBaseOptions) drawn.withOptions(VarkaMatrix.base) else drawn
-        val replay = s"-Dvarka.fuzz.seed=$drawSeed -Dvarka.fuzz.only=$k"
+        val replay = s"-Dvarka.fuzz.seed=$drawSeed -Dvarka.fuzz.only=$k$edgesReplay"
         // Under a configuration, a draw whose options are the ones the defaults run drew for it
         // is the defaults run's case, already compared over all eight histories (VARKA-507).
         if (!compiledBaseOptions && VarkaMatrixRuns.CONFIG.nonEmpty &&
