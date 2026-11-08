@@ -503,7 +503,7 @@ class VarkaLaneTypeSuite extends SparkFunSuite with VarkaTestWatchdog {
     val atInt = buildable.filter(_._1 == LaneType.INT).map(_._2).toSet
     assert(atInt + "MathUnary" === types.map(_.getSimpleName).toSet - "DecimalColumn" -
       "DecimalWord",
-      "every integral node type but the decimal column is emittable at INT")
+      "every integral node type is emittable at INT but the decimal column and the decimal word")
     val sqrt = new MathUnary(MathFn.SQRT, new ColumnRef(0, LaneType.DOUBLE))
     val sqrtBytes = VarkaLoopEmitter.emit("VarkaReachMathUnaryDOUBLE",
       java.util.List.of[VarkaVectorIR](sqrt), 1, 0, null, null, VarkaMatrix.base)
