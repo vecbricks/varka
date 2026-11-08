@@ -34,9 +34,9 @@
 ; The specification is the rounding in unbounded integers: |x| divided by d, raised by
 ; one past the half (HALF_UP at it too, HALF_EVEN at it for an odd quotient), the sign
 ; put back, times d; intValue() is its low 32 bits, jint.wrap. It is pinned to BigDecimal
-; at sample values. The division by each 10^k is the multiply-high form of
-; int_mulhi_divide.smt2, proven here for these divisors the same way; the conversion
-; form, the option's reference arm, is exact for every int whatever the divisor.
+; at sample values. The division by each 10^k, Java's x / d here, is proven exact for
+; the multiply-high form in int_mulhi_divide.smt2; the conversion form, the option's
+; reference arm, is exact for every int whatever the divisor.
 ;
 ; Under ANSI the kernel guards the operand to the window VarkaRoundingCompiler.window
 ; bisects over BigDecimal: inside it the rounding fits the type, one past either end it
@@ -51,9 +51,6 @@
 ; rewrites it. Run by dev/varka_prove.sh, which inserts java.smt2 after the set-logic line.
 
 (set-logic ALL)
-
-(define-fun mulhi.divide ((n Int) (mu Int) (shift Int)) Int
-  (jint.add (l2i (jlong.shr (jlong.mul (i2l n) mu) shift)) (jint.ushr n 31)))
 
 (define-fun rnd.half.up ((x Int) (d Int)) Int
   (let ((m (+ (div (abs x) d) (ite (>= (* 2 (mod (abs x) d)) d) 1 0))))
@@ -83,16 +80,6 @@
     (let ((r (jint.sub x (jint.mul q0 d))))
       (jint.mul (jint.sub (jint.add q0 (ite (> r h) 1 0)) (ite (< r (- h)) 1 0)) d))))
 
-; k = 1, d = 10: signedMagic(10) = (1717986919, 34)
-
-(echo "k = 1: the multiply-high form is x / 10 for every int: expect unsat")
-(push 1)
-(declare-const x Int)
-(assert (jint.in x))
-(assert (not (= (mulhi.divide x 1717986919 34) (jint.div x 10))))
-(check-sat)
-(pop 1)
-
 (echo "k = 1: round's steps are the rounding wrapped, for every int: expect unsat")
 (push 1)
 (declare-const x Int)
@@ -114,16 +101,6 @@
 (declare-const x Int)
 (assert (jint.in x))
 (assert (not (= (form.down x 10 5) (jint.wrap (rnd.down x 10)))))
-(check-sat)
-(pop 1)
-
-; k = 2, d = 100: signedMagic(100) = (1374389535, 37)
-
-(echo "k = 2: the multiply-high form is x / 100 for every int: expect unsat")
-(push 1)
-(declare-const x Int)
-(assert (jint.in x))
-(assert (not (= (mulhi.divide x 1374389535 37) (jint.div x 100))))
 (check-sat)
 (pop 1)
 
@@ -151,16 +128,6 @@
 (check-sat)
 (pop 1)
 
-; k = 3, d = 1000: signedMagic(1000) = (274877907, 38)
-
-(echo "k = 3: the multiply-high form is x / 1000 for every int: expect unsat")
-(push 1)
-(declare-const x Int)
-(assert (jint.in x))
-(assert (not (= (mulhi.divide x 274877907 38) (jint.div x 1000))))
-(check-sat)
-(pop 1)
-
 (echo "k = 3: round's steps are the rounding wrapped, for every int: expect unsat")
 (push 1)
 (declare-const x Int)
@@ -182,16 +149,6 @@
 (declare-const x Int)
 (assert (jint.in x))
 (assert (not (= (form.down x 1000 500) (jint.wrap (rnd.down x 1000)))))
-(check-sat)
-(pop 1)
-
-; k = 4, d = 10000: signedMagic(10000) = (1759218605, 44)
-
-(echo "k = 4: the multiply-high form is x / 10000 for every int: expect unsat")
-(push 1)
-(declare-const x Int)
-(assert (jint.in x))
-(assert (not (= (mulhi.divide x 1759218605 44) (jint.div x 10000))))
 (check-sat)
 (pop 1)
 
@@ -219,16 +176,6 @@
 (check-sat)
 (pop 1)
 
-; k = 5, d = 100000: signedMagic(100000) = (351843721, 45)
-
-(echo "k = 5: the multiply-high form is x / 100000 for every int: expect unsat")
-(push 1)
-(declare-const x Int)
-(assert (jint.in x))
-(assert (not (= (mulhi.divide x 351843721 45) (jint.div x 100000))))
-(check-sat)
-(pop 1)
-
 (echo "k = 5: round's steps are the rounding wrapped, for every int: expect unsat")
 (push 1)
 (declare-const x Int)
@@ -250,16 +197,6 @@
 (declare-const x Int)
 (assert (jint.in x))
 (assert (not (= (form.down x 100000 50000) (jint.wrap (rnd.down x 100000)))))
-(check-sat)
-(pop 1)
-
-; k = 6, d = 1000000: signedMagic(1000000) = (1125899907, 50)
-
-(echo "k = 6: the multiply-high form is x / 1000000 for every int: expect unsat")
-(push 1)
-(declare-const x Int)
-(assert (jint.in x))
-(assert (not (= (mulhi.divide x 1125899907 50) (jint.div x 1000000))))
 (check-sat)
 (pop 1)
 
@@ -287,16 +224,6 @@
 (check-sat)
 (pop 1)
 
-; k = 7, d = 10000000: signedMagic(10000000) = (1801439851, 54)
-
-(echo "k = 7: the multiply-high form is x / 10000000 for every int: expect unsat")
-(push 1)
-(declare-const x Int)
-(assert (jint.in x))
-(assert (not (= (mulhi.divide x 1801439851 54) (jint.div x 10000000))))
-(check-sat)
-(pop 1)
-
 (echo "k = 7: round's steps are the rounding wrapped, for every int: expect unsat")
 (push 1)
 (declare-const x Int)
@@ -321,16 +248,6 @@
 (check-sat)
 (pop 1)
 
-; k = 8, d = 100000000: signedMagic(100000000) = (1441151881, 57)
-
-(echo "k = 8: the multiply-high form is x / 100000000 for every int: expect unsat")
-(push 1)
-(declare-const x Int)
-(assert (jint.in x))
-(assert (not (= (mulhi.divide x 1441151881 57) (jint.div x 100000000))))
-(check-sat)
-(pop 1)
-
 (echo "k = 8: round's steps are the rounding wrapped, for every int: expect unsat")
 (push 1)
 (declare-const x Int)
@@ -352,16 +269,6 @@
 (declare-const x Int)
 (assert (jint.in x))
 (assert (not (= (form.down x 100000000 50000000) (jint.wrap (rnd.down x 100000000)))))
-(check-sat)
-(pop 1)
-
-; k = 9, d = 1000000000: signedMagic(1000000000) = (1152921505, 60)
-
-(echo "k = 9: the multiply-high form is x / 1000000000 for every int: expect unsat")
-(push 1)
-(declare-const x Int)
-(assert (jint.in x))
-(assert (not (= (mulhi.divide x 1152921505 60) (jint.div x 1000000000))))
 (check-sat)
 (pop 1)
 
