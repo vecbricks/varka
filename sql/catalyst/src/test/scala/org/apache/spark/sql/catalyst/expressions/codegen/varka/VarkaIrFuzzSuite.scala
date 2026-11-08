@@ -486,8 +486,14 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
       case Some(b) => b
       case None => return false
     }
-    // The case's own null flags and roots, handed to the Java checks as they are.
-    if (long) {
+    // The case's own null flags and roots, handed to the Java checks as they are; a narrow
+    // case's columns are stored at their own width (VARKA-329).
+    if (c.lane.isNarrow) {
+      VarkaKernelChecks.runAndCompareNarrow(c.label, className, bytes, c.roots, c.numInputs,
+        c.lits.map(_.toInt),
+        new VarkaKernelChecks.Batch(c.length, c.nulls, c.data.map(_.map(_.toInt)), c.forceMasked),
+        false, null)
+    } else if (long) {
       VarkaKernelChecks.runAndCompareLong(c.label, className, bytes, c.roots, c.numInputs,
         c.lits, new VarkaKernelChecks.LongBatch(c.length, c.nulls, c.data, c.forceMasked),
         false, null)
@@ -1540,6 +1546,153 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
     }
     reportReach(reach)
     reportSkipped()
+  }
+
+  // The narrow sequences (VARKA-352 2.2): `fuzz_byte` and `fuzz_short`, trees whose every value
+  // is a TINYINT or a SMALLINT, each a sequence of its own seed that the bytes oracle pins.
+  private val byteSeed =
+    sys.props.get("varka.fuzz.seed").map(_.toLong).getOrElse(VarkaIrGrammar.BYTE_FUZZ_SEED)
+  private val shortSeed =
+    sys.props.get("varka.fuzz.seed").map(_.toLong).getOrElse(VarkaIrGrammar.SHORT_FUZZ_SEED)
+
+  /**
+   * The edge share of a narrow draw's cells: one in four, the mix `VARKA-352.md` 2.1 gives a
+   * value source, unless `-Dvarka.fuzz.edges` sets it. The narrow sequences are new, so their
+   * cells need not be the uniform draws a committed corpus keeps.
+   */
+  private val narrowEdgeOneIn = if (edgeOneIn > 0) edgeOneIn else 4
+
+  private def laneName(lane: LaneType): String = lane.toString.toLowerCase(java.util.Locale.ROOT)
+
+  /** The narrow draws per lane and `narrowLanes` arm, refused and answered. */
+  private val narrowDrawn = scala.collection.mutable.Map.empty[(LaneType, Boolean), Int]
+  private val narrowAnswered = scala.collection.mutable.Map.empty[(LaneType, Boolean), Int]
+
+  /**
+   * One narrow draw: the shape from `drawNarrowLaneShape`, then a length, null patterns,
+   * masking and options as the long corpus draws them, and every cell from the type's value
+   * source over the lane's whole range, an edge one cell in `narrowEdgeOneIn`. The columns are
+   * stored at the lane's width and the kernel is compared with the reference, shrunk on failure
+   * as the int corpus is. A kernel the plan refuses for the drawn width (a lane count the
+   * options do not bake) is counted and skipped; any other refusal fails.
+   */
+  private def runOneNarrow(lane: LaneType, drawSeed: Long, iteration: Int): Unit = {
+    val rnd = VarkaIrGrammar.shapeRandom(drawSeed, iteration)
+    val drawn = VarkaIrGrammar.drawNarrowLaneShape(rnd, lane)
+    val roots = drawn.roots
+    val numInputs = drawn.numInputs
+    val lits = Array.fill(drawn.numLiterals)(
+      VarkaIrGrammar.within(rnd, VarkaIrGrammar.narrowLiteralBound(lane)))
+    val length = lengths(rnd.nextInt(lengths.length))
+    val patternIds = Seq.fill(numInputs)(rnd.nextInt(patternNames.length))
+    val patterns = patternIds.map(pattern(rnd, _, length))
+    val forceMasked = length > 1 && rnd.nextInt(4) == 0
+    val options = randomOptions(rnd, VarkaMatrix.base, drawSeed, iteration)
+    val source = VarkaFuzzTypes.values(
+      if (lane == LaneType.BYTE) VarkaTypeId.BYTE else VarkaTypeId.SHORT)
+    val values = valueStream(drawSeed, iteration)
+    val bound = VarkaIrGrammar.narrowColumnBound(lane)
+    // A cell of the bound, one past the lane's greatest value, is stored as its least.
+    val data = Array.tabulate(numInputs, length)(
+      (_, _) => source.draw(rnd, values, bound, narrowEdgeOneIn))
+    val label = s"lane=${laneName(lane)} seed=$drawSeed iteration=$iteration " +
+      s"roots=${roots.asScala.map(r => VarkaVectorIR.canonical(r)).mkString("[", ", ", "]")} " +
+      s"options=${if (options.isDefault) "(defaults)" else options.canonical()} " +
+      s"length=$length patterns=${patternIds.map(patternNames).mkString(",")} " +
+      s"literals=${lits.mkString(",")} forceMasked=$forceMasked edges=$narrowEdgeOneIn"
+    val arm = (lane, options.narrowLanes())
+    narrowDrawn(arm) = narrowDrawn.getOrElse(arm, 0) + 1
+    val refusal = VarkaKernelPlan.refusalOf(roots, options)
+    if (refusal.isPresent) {
+      assert(castWidthRefusal(refusal.get),
+        s"$label: refused for a reason other than its width: ${refusal.get}")
+      return
+    }
+    val c = new VarkaFuzzCase(lane, roots, numInputs, lits, length,
+      Array.tabulate(numInputs, length)((k, i) => patterns(k)(i)), data, forceMasked, options,
+      -1, -1, label)
+    if (runChecked(c)) narrowAnswered(arm) = narrowAnswered.getOrElse(arm, 0) + 1
+  }
+
+  /**
+   * The narrow sequence of `lane` over `iterations` draws, and both `narrowLanes` arms answered:
+   * the native arm computes in the narrow species and the widened one in the int lane
+   * (`VARKA-352.md` 3 item 6). The arm is the options draw's coin, so at the default count each
+   * arm takes about half the draws; at the lane counts the matrix's base bakes none, every draw
+   * is refused, by design, and the arms are not asked for.
+   */
+  private def runNarrowSequence(lane: LaneType, drawSeed: Long): Unit = {
+    narrowDrawn.clear()
+    narrowAnswered.clear()
+    val reach = VarkaEmitReach.attach(randomTrace, s"${laneName(lane)} draws")
+    try {
+      only.map(Seq(_)).getOrElse(0 until iterations).foreach(runOneNarrow(lane, drawSeed, _))
+    } finally {
+      VarkaEmitReach.detach(randomTrace)
+    }
+    val counts = narrowDrawn.keys.toSeq.sortBy(_._2).map { a =>
+      s"narrowLanes=${a._2} ${narrowAnswered.getOrElse(a, 0)}/${narrowDrawn(a)}"
+    }
+    logInfo(s"$lane draws answered per arm: ${counts.mkString(", ")}")
+    if (only.isEmpty && Lane.emitLanes(VarkaMatrix.base, Lane.INT) >= 4) {
+      for (native <- Seq(true, false)) {
+        assert(narrowAnswered.getOrElse((lane, native), 0) >= 1,
+          s"no $lane draw answered with narrowLanes=$native: ${counts.mkString(", ")}")
+      }
+    }
+    reportReach(reach)
+    reportSkipped()
+  }
+
+  test(s"random TINYINT IR trees match the reference evaluator at both narrow arms " +
+      s"(seed $byteSeed, $iterations iterations)") {
+    runNarrowSequence(LaneType.BYTE, byteSeed)
+  }
+
+  test(s"random SMALLINT IR trees match the reference evaluator at both narrow arms " +
+      s"(seed $shortSeed, $iterations iterations)") {
+    runNarrowSequence(LaneType.SHORT, shortSeed)
+  }
+
+  test("the narrow sequences hold narrow values alone and reach every node the narrow lane " +
+      "admits") {
+    // Over the committed seeds, as the other reach tests: every value of a draw is on its lane,
+    // and the nodes it builds are the lane-generic ones the long generator builds, less those
+    // the compiler never builds at a narrow lane (`LongShapes`): the constant division, the
+    // range guard, the popcount (an INT over the widened value) and the output narrowing. The
+    // rest are out of the long corpus for the reasons its reach test gives.
+    val (laneGeneric, _) = recordNodeTypes.partition(admitsLongLanes)
+    val wanted = laneGeneric.map(_.getSimpleName) -- Seq("ConstDivide", "GuardedRange",
+      "BitCount", "NarrowLane", "NullSafeEqual", "BoolColumn", "CondConst", "BoolCompare",
+      "CondIf", "BoolNullSafeEq", "CondValue", "BoolOutput", "WidenDecimal", "NullValue")
+    for ((lane, drawSeed) <- Seq(LaneType.BYTE -> VarkaIrGrammar.BYTE_FUZZ_SEED,
+        LaneType.SHORT -> VarkaIrGrammar.SHORT_FUZZ_SEED)) {
+      val seen = scala.collection.mutable.Set.empty[String]
+      val forms = scala.collection.mutable.Set.empty[String]
+      def walk(n: VarkaVectorIR): Unit = {
+        n match {
+          case a: IntArith => forms += s"${a.op} ${a.mode}"
+          case g: IntNeg => forms += s"${if (g.abs) "abs" else "negate"} ${g.mode}"
+          case _ =>
+        }
+        VarkaVectorIR.childrenOf(n).foreach(walk)
+      }
+      for (k <- 0 until 2000) {
+        VarkaIrGrammar.drawNarrowLaneShape(VarkaIrGrammar.shapeRandom(drawSeed, k), lane)
+          .roots.asScala.foreach { root =>
+            assert(VarkaVectorIR.lanesIn(root).asScala == Set(lane),
+              s"$lane draw $k holds another lane: ${VarkaVectorIR.canonical(root)}")
+            collectNodeTypes(root, seen)
+            walk(root)
+          }
+      }
+      val missing = wanted -- seen
+      assert(missing.isEmpty, s"the $lane sequence never built: ${missing.toSeq.sorted}")
+      val wantedForms = (for (op <- Seq("ADD", "SUB", "MUL"); m <- Seq("WRAP", "FAIL", "NULL"))
+        yield s"$op $m") ++ Seq("negate WRAP", "negate FAIL", "abs WRAP", "abs FAIL")
+      assert((wantedForms.toSet -- forms).isEmpty,
+        s"the $lane sequence never drew: ${(wantedForms.toSet -- forms).toSeq.sorted}")
+    }
   }
 
   // The integral casts (VARKA-332, `VARKA-332.md` 3.7): the five compositions over a column of

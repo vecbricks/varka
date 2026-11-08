@@ -1,6 +1,6 @@
 {
   "generated_by" : "VarkaEmittedBytesSuite; regenerate with VARKA_BYTES_REGEN=true build/sbt 'catalyst/testOnly *VarkaEmittedBytesSuite'",
-  "description" : "Hashes of every emitted method body, rendered symbolically, for every coverage row and for a fixed sequence of fuzz shapes at each lane and over both, at 128 and 512 bits (lanesOverride 4 and 16 at the int lane, 2 and 8 at the long one). A difference is a change in what an emitted method does. `option_arms` covers emissions beyond the defaults: one digest over every shape at each width per value of spark.sql.codegen.varka.emit.useAVX, the only emit option a configuration reaches, and per value of each option the defaults never reach, over the options under which it acts (validityOrFirst); and per reference form whose frames span the kernel (groupLocalSlots=false, methodByteBudget=0), which no session selects but where a per-body slot rule can move bytes unseen; and per value of the narrow-lane option (narrowLanes), which picks the lane a tree whose every value is narrow is emitted at (VARKA-329). The rest of VarkaEmitOptions is test-only.",
+  "description" : "Hashes of every emitted method body, rendered symbolically, for every coverage row and for a fixed sequence of fuzz shapes at the int and long lanes, over both and at each narrow lane, at 128 and 512 bits (lanesOverride 4 and 16 at the int lane, 2 and 8 at the long one). A difference is a change in what an emitted method does. `option_arms` covers emissions beyond the defaults: one digest over every coverage row and int, long and mixed shape at each width per value of spark.sql.codegen.varka.emit.useAVX, the only emit option a configuration reaches, and per value of each option the defaults never reach, over the options under which it acts (validityOrFirst); and per reference form whose frames span the kernel (groupLocalSlots=false, methodByteBudget=0), which no session selects but where a per-body slot rule can move bytes unseen; and per value of the narrow-lane option (narrowLanes), which picks the lane a tree whose every value is narrow is emitted at (VARKA-329). The rest of VarkaEmitOptions is test-only.",
   "coverage_rows_skipped" : [ ],
   "lanes" : {
     "4" : {
@@ -6630,6 +6630,18 @@
         "shapes" : 10000,
         "block_size" : 100,
         "blocks" : [ "853ac3b85c8fdd02", "20bda2ffad6ada44", "1a0175c2125975ad", "3582891893283548", "a9deba7a34d7320c", "e72178b89a13c687", "6d84e15d0427b6e1", "386a89591c30ae19", "a0459c94731bb29c", "d0e42d7d52cb4b95", "b6390039a5083737", "65e9d90f8d7cf094", "05275dc87e005ae6", "29a48256117dad71", "1cdad55ca90ae5d0", "6acbec12bbfb1b34", "9c6ca3f4a405dd4a", "4b775d3c0c64b473", "ef49994cd35c99e1", "765e5301595fe0cf", "b56bfc23bf50483e", "e30e04255beb358e", "51eb3ffeaf775bc8", "a82d6ab0311749ee", "63decb945f2cdb5f", "9a7575eb359f371e", "534fc4ca2efba1ab", "238eb01f967097f0", "2eef80b9b766ade3", "ee1b206d440079a3", "5f5aac4856a9f5d1", "0bd184b50b1ecd4d", "d55e7e469a4cb01c", "2034677113f84301", "b606c3ca493c0fcb", "9542d27873ecf6b8", "edc2a01dd33cb7a6", "5cdca5d4f6e9c0af", "1c301582b0e08138", "c051fb8ce999414f", "18f0aebe043f7754", "aa07d0228869abfe", "bcb915f69d603c3e", "42f9a6de85f1695b", "c34dcbb16ab44fd0", "363f04d0eaf3e301", "1c6b67cb59b8e8e7", "cd1003891aaf35ea", "1cdf12828f9cb8c8", "6a2c0f4810bcb136", "dcfd28af725228ed", "d2d2ea75c09d1ab8", "2f5e50022634dbbd", "73377fe21820814c", "98bb82af875eb40a", "1683f2b1f7dd7362", "38e46a7ed9eec9ee", "e10d750e8c7f427c", "903888c0fd9b108b", "64a6566541e46d5a", "90331977f6d7193e", "9d1959353b68e93f", "33ec5c7d50184518", "9f23094e83b410bd", "381cbc5da01de08d", "affc44380a8432f2", "353427891f174721", "3d4f4bc419c6782d", "fb52061c493e26b3", "eadeaa1d1df6c176", "e345835fb5dbce2b", "2235317aced70d0f", "f601326fcce85a30", "aee6aef70226200d", "d5262b060da562ad", "429a20c926c04178", "69e12334a1a6e960", "757c033237d846b2", "2217f763e47cd4a8", "191e613bed6042ea", "a43556c5eba41e15", "52b23eff66ca05ad", "a519a721ef0cc647", "5ce6464aedf02996", "84c8f9f0441fe81a", "ab948311c601fee9", "87f6dc6cbc5d56db", "f9cecf1110f8f421", "27352218672513ba", "66c5bad6356c6195", "c70d0995bc0a855f", "5f7940f6c169dbe3", "addf9ae171dcc312", "c593f181881de1fc", "d290d5135be276dd", "cf0e300ddc69d714", "de329d92b3cd4846", "e92b447caaa5ae73", "9592eabf0a160365", "0f0521dbbb81fa9f" ]
+      },
+      "fuzz_byte" : {
+        "seed" : 20261109,
+        "shapes" : 2000,
+        "block_size" : 100,
+        "blocks" : [ "9c28c7a1654b0d6e", "946700cf433d1cbf", "4396e86bf2bdff4d", "0d1d197b86cfcad4", "04f8692c9cb20e9f", "31900d40bd7ad554", "b3487bff1a5ebde3", "7976d572ff7d2d59", "f96a6b5622b964be", "8ee8500916f293ba", "2dad78af869fbc4f", "3719694daa209fb3", "071a0b1c85cd4c8a", "8134dd0c9b1dd207", "1fb4f52ec2894292", "c59a739ba1226559", "aa09585d14372e0e", "546d41497f336ee7", "446c75ca90df46ec", "f4462425c60834cd" ]
+      },
+      "fuzz_short" : {
+        "seed" : 20261110,
+        "shapes" : 2000,
+        "block_size" : 100,
+        "blocks" : [ "e2df6cdfbe541c0b", "93b3eaca03807d28", "de16db3a2023ee94", "0b718bc7fe068032", "90f3ce817abf9b7f", "58b64727bdaf4c07", "f760b3bd308d03bc", "d7f96cd0cf803dc6", "7785ec1ee87bfbd0", "e7b40d816c934971", "f3acf38aa9c1d4a9", "6ee99754bd235ff8", "497d21cdb8a3acd1", "41e473e5ee63e094", "0c506742f8959033", "827c8097710e1dbc", "41f92d794454410a", "e1b9e02897e2c921", "3b15106c67877785", "351ffdcd91bfd834" ]
       }
     },
     "16" : {
@@ -13259,6 +13271,18 @@
         "shapes" : 10000,
         "block_size" : 100,
         "blocks" : [ "151994070b1c1f9d", "b31f8a3c19b8b2b4", "f942a55256a262f9", "d545c2a49d37dfd9", "e846a6435f9822b9", "5d1f5468d12afae7", "ec4652fa4a2ee0ef", "3b7e2974ebd3b83a", "fbf699ea02617a03", "118cf2d441728651", "284a767772fe7ad4", "827d6e24d5161463", "9824656eb69aed76", "486e96c45772aca3", "49b07908feca238e", "33f9ab2225ec3023", "a73cbecd581265ad", "4e8f43d755979f0d", "e62dc57881257dd0", "55dbf5d718a26939", "a12b760e8280d920", "6f9f0867f3d5a1bf", "86de53bd5c308a97", "ec45524c5e45f4f3", "c4f2190d1b5c6899", "326b038af8b9591d", "6e0ad43be8a594bc", "d8b7c3b89a7c184d", "a9f18bbeccd6269f", "c02378d135dedf32", "46d19a474427b14b", "39846f7e02131893", "9f5af9690aaaa278", "41be65ddc0b7ade3", "8052fa1b3dc2c2f6", "3cd16f37f270c30e", "88b27618740075ab", "ca8aa6b2a4046594", "520ff5f1990672ca", "cbd21a985f39695a", "dc1ada0e85a96cb2", "b2082faeb904791a", "b49e6398ba8bbde6", "73db913af8090219", "cd4269e1435c255c", "6e56f41af3694fbb", "abb929f34f811290", "3670e32ec350c42e", "6dc09a3530d350a7", "441d413311dd551a", "012b2327385e0df9", "246495517e60bce8", "fa3957cc99ef1046", "cb8c33a80a123734", "06565091890c8059", "34d9005199e25822", "94919b669300bd0e", "2e33c875980137f1", "cb67b86e6048d22b", "6b36dad522a5f9e3", "1e2fd9b657530a40", "0c10a948acf02ef9", "1e50d9bfab38da3e", "8f7140a40f9f4875", "7ef1a380b572f76d", "aa7d154e448ef553", "8d90a03b1b8b757d", "422fe4a5ca879511", "288ab9f5929767a0", "e5ad2d9a547d43a1", "d2615ea76f42e5b7", "f7508871a35ef80f", "6b3549cdad7677c1", "f12bd60d7ab7d723", "25f5d04ee2a09064", "cbca6a37a3498017", "1e12f46dffa274b7", "bebb5311ace3c854", "4825bd0f63d37bf1", "6e968c6b4376a405", "1d2fe9eef903cf7a", "233964e807798c1b", "dd8ca31a4db58964", "87c582767c5836da", "9bb0a20571a4671d", "66339fa55b6035c9", "d46e50f7d4691dc5", "600e785239213362", "b6865deb8838d6f2", "2acc4097ebb04cff", "33610c333bff7b3c", "b2d5e944b81835a8", "d6d5c4cd73b3adf7", "d847d3433f965065", "ed9e4da4b37f93d4", "d3169eabff044b1b", "7994c5cae662995b", "5ef9dc761a0c265f", "9e83aae92583dad5", "2773e8569e92d5ec" ]
+      },
+      "fuzz_byte" : {
+        "seed" : 20261109,
+        "shapes" : 2000,
+        "block_size" : 100,
+        "blocks" : [ "991d7891030cf15c", "b646ecb202768a7f", "f24ace74b18cbc7e", "c6cae41ad2f7f917", "87404c90cda9e63c", "5939934b431d8e22", "78725da789f49a46", "58379ab41b96c19a", "d6b97116c1b56b56", "9a9b11340bb9e159", "292a2e170d2ec45d", "2b7da8b27daaef93", "5b387cda81699ed6", "afb79c01f7eccb34", "976c59c2b80d6139", "a3b378a22a6f5b06", "0ae00c371635b277", "f404744238eae96a", "d11dcefc79eff3f0", "805483a3b9b38dc1" ]
+      },
+      "fuzz_short" : {
+        "seed" : 20261110,
+        "shapes" : 2000,
+        "block_size" : 100,
+        "blocks" : [ "dd97b233b96b3dbb", "989cc55791ad1127", "4a3941168ff7768f", "df398591effbe7c7", "d3cedd446a1bfadc", "4fbcaf5869ede42b", "686150c1a9fac82f", "4ec8009d07d582e2", "ecff9491bbf83b0d", "3ebb0bd18375d1f8", "d2582e3ab8c74bcc", "ba8e1f6651886253", "5b081b5cfa13e19d", "60ed614028682184", "5755c55e0237d524", "c52cf2929cb3259f", "183ee65cc18217d9", "5d6601eb1cc8a44f", "bd77f90e0c14b872", "bd2f8db373357b8c" ]
       }
     }
   },

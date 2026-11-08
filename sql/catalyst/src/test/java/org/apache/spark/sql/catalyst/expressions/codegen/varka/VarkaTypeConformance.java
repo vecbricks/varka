@@ -193,13 +193,15 @@ public abstract class VarkaTypeConformance {
   }
 
   /**
-   * An integral type between {@code min} and {@code max}, its literals spelled with
-   * {@code suffix}: the integral values, 1 and -1 as the picks, and {@code x + y} as the pair.
+   * The integral type {@code id}, its literals spelled with {@code suffix}: the values of its
+   * fuzz descriptor ({@link VarkaFuzzTypes}, the {@link #integralValues} of its range), 1 and -1
+   * as the picks, and {@code x + y} as the pair.
    */
   protected static ConformanceType integral(String census, DataType spark, String sql,
-      String suffix, long min, long max) {
-    return new ConformanceType(census, spark, sql, v -> v + suffix, integralValues(min, max),
-        new long[] {1, -1}, new PairForm("x + y", "+"));
+      String suffix, VarkaTypeId id) {
+    return new ConformanceType(census, spark, sql, v -> v + suffix,
+        VarkaFuzzTypes.values(id).edges().clone(), new long[] {1, -1},
+        new PairForm("x + y", "+"));
   }
 
   /** The integral values a fixture draws: the extremes, their neighbours, zero and one each way. */
