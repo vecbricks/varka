@@ -375,15 +375,16 @@ Predictions:
 Found: `minute(ntz)` and `second(ntz)` fit the emitter's byte budget alone, but not beside the
 three conjuncts the optimizer adds to the ANSI form's "right side of a false AND" position
 (`isnotnull` of both columns and `rid < 0`), so that position declines the conjunct and Spark
-answers it. They are on `VarkaAnsiForm`'s declined list with that reason; `hour(ntz)` fits.
+answers it. They are on `VarkaAnsiForm`'s declined list with that reason; `hour(ntz)` fits. *Superseded in review:* dividing the microsecond of the day, one multiply
+fewer, they fit there too, and the declined entries are gone.
 
 Found: a calendar node over a guarded narrowed long is not in the IR fuzzer's mixed draw (row 578).
 `verify_double_division.py` ran with every row at its expected verdict, the four `TIME(p)`
 truncation rows and three rows for the NTZ time fields among them.
 
 Changed in review: the date of a calendar field compiles through `CAST(ntz AS DATE)`'s own arm,
-and the time fields' microsecond of the day runs under `inFamily`, so both forms of the day's
-division are under the int arithmetic family's switch as the bare cast is. `hour`, `minute` and
+so its division is under the int arithmetic family's switch as the bare cast's is; the time
+fields hold no cast and stay under the time family's switch alone, which covers its own nodes. `hour`, `minute` and
 `second` divide the microsecond of the day by the micros in each unit, not its nanosecond by the
 nanos. `add_months(ntz, i)` and `CAST(ntz AS DATE) + INTERVAL n MONTH` decline as 339's month
 forms (7); `trunc(ntz, f)` by a format column fuses inside the guard, tested in

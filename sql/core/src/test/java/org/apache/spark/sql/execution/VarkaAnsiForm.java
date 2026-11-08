@@ -287,15 +287,6 @@ public final class VarkaAnsiForm {
         "try_cast(l AS TINYINT)", "try_cast(l AS SMALLINT)")) {
       out.put(sql + "\t" + COALESCE_TAIL, narrowChoice);
     }
-    // The minute and the second of a TIMESTAMP_NTZ run the day's division, the remainder and a
-    // second division and remainder (VARKA-340); fused beside the three conjuncts the optimizer
-    // adds to this position, the filter passes the emitter's per-method byte budget, so the
-    // conjunct stays with Spark, which answers it alone and in every other position.
-    String ntzBudget = "the conjunct fits the emitter's byte budget alone but not beside the "
-        + "three others of this position (VARKA-340)";
-    for (String sql : List.of("minute(ntz)", "second(ntz)")) {
-      out.put(sql + "\t" + FALSE_AND, ntzBudget);
-    }
     // A TIME function's decimal fuses only as an output root; in a CASE arm or a comparison it
     // is an operand, which row 348 consumes (VARKA-157.md 2.1). The COALESCE form fuses: the
     // optimizer drops the typed null standing in for its first argument.

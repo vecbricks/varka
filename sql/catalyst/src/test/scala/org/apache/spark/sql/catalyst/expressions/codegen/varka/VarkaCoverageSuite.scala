@@ -1025,7 +1025,7 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
       Row("extract(DAYOFWEEK_ISO FROM ntz)"),
       Row("next_day(ntz, 'MONDAY')"),
       Row("trunc(ntz, 'WEEK')"),
-      Row("hour(ntz)", "the nanosecond of the day divided; never guarded"),
+      Row("hour(ntz)", "the microsecond of the day divided; never guarded"),
       Row("minute(ntz)"),
       Row("second(ntz)", "the whole second, an int; the fraction of `extract(SECOND ...)` is a " +
         "decimal"),
