@@ -13863,6 +13863,14 @@
       "4" : "6efa9f624b7e616c",
       "16" : "b7f9ae7bca7cf1df"
     },
+    "wideConversionForm=SPLIT over useAVX=2" : {
+      "4" : "f41d507519a62acb",
+      "16" : "a6d40f8c06dbc3e6"
+    },
+    "wideConversionForm=MAGIC over useAVX=2" : {
+      "4" : "f41d507519a62acb",
+      "16" : "a6d40f8c06dbc3e6"
+    },
     "narrowLanes=true" : {
       "4" : "5c76e0b4dd90a056",
       "16" : "25de8f2a917c6ea3"
