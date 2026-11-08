@@ -863,36 +863,36 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 
 | Expression | Switches | Domain | Notes | 128-bit lanes |
 |---|---|---|---|---|
-| `year(ntz)` | `calendar` | `unix_date(CAST(ntz AS DATE)) BETWEEN -5394207 AND 11382643` | the date of the count, held to the calendar lowering's range | per-lane: mask logic, mask broadcast, mask test, load or store |
-| `month(ntz)` | `calendar` | `unix_date(CAST(ntz AS DATE)) BETWEEN -5394207 AND 11382643` |  | per-lane: mask logic, mask broadcast, mask test, load or store |
-| `day(ntz)` | `calendar` | `unix_date(CAST(ntz AS DATE)) BETWEEN -5394207 AND 11382643` |  | per-lane: mask logic, mask broadcast, mask test, load or store |
-| `quarter(ntz)` | `calendar` | `unix_date(CAST(ntz AS DATE)) BETWEEN -5394207 AND 11382643` |  | per-lane: mask logic, mask broadcast, mask test, load or store |
-| `dayofyear(ntz)` | `calendar` | `unix_date(CAST(ntz AS DATE)) BETWEEN -5394207 AND 11382643` |  | per-lane: mask logic, mask broadcast, mask test, load or store |
-| `weekofyear(ntz)` | `calendar` | `unix_date(CAST(ntz AS DATE)) BETWEEN -5394207 AND 11382643` | the Thursday shift needs the guard's floor to leave room | per-lane: mask logic, mask broadcast, mask test, load or store |
-| `extract(YEAROFWEEK FROM ntz)` | `calendar` | `unix_date(CAST(ntz AS DATE)) BETWEEN -5394207 AND 11382643` |  | per-lane: mask logic, mask broadcast, mask test, load or store |
-| `last_day(ntz)` | `calendar` | `unix_date(CAST(ntz AS DATE)) BETWEEN -5394207 AND 11382643` |  | per-lane: mask logic, mask broadcast, mask test, load or store |
-| `trunc(ntz, 'YEAR')` | `calendar` | `unix_date(CAST(ntz AS DATE)) BETWEEN -5394207 AND 11382643` | a year back is the room the guard's floor leaves | per-lane: mask logic, mask broadcast, mask test, load or store |
-| `trunc(ntz, 'MONTH')` | `calendar` | `unix_date(CAST(ntz AS DATE)) BETWEEN -5394207 AND 11382643` |  | per-lane: mask logic, mask broadcast, mask test, load or store |
-| `trunc(ntz, 'QUARTER')` | `calendar` | `unix_date(CAST(ntz AS DATE)) BETWEEN -5394207 AND 11382643` |  | per-lane: mask logic, mask broadcast, mask test, load or store |
+| `year(ntz)` | `calendar`, `intArithmetic` | `unix_date(CAST(ntz AS DATE)) BETWEEN -5394207 AND 11382643` | the date of the count, held to the calendar lowering's range | per-lane: mask logic, mask broadcast, mask test, load or store |
+| `month(ntz)` | `calendar`, `intArithmetic` | `unix_date(CAST(ntz AS DATE)) BETWEEN -5394207 AND 11382643` |  | per-lane: mask logic, mask broadcast, mask test, load or store |
+| `day(ntz)` | `calendar`, `intArithmetic` | `unix_date(CAST(ntz AS DATE)) BETWEEN -5394207 AND 11382643` |  | per-lane: mask logic, mask broadcast, mask test, load or store |
+| `quarter(ntz)` | `calendar`, `intArithmetic` | `unix_date(CAST(ntz AS DATE)) BETWEEN -5394207 AND 11382643` |  | per-lane: mask logic, mask broadcast, mask test, load or store |
+| `dayofyear(ntz)` | `calendar`, `intArithmetic` | `unix_date(CAST(ntz AS DATE)) BETWEEN -5394207 AND 11382643` |  | per-lane: mask logic, mask broadcast, mask test, load or store |
+| `weekofyear(ntz)` | `calendar`, `intArithmetic` | `unix_date(CAST(ntz AS DATE)) BETWEEN -5394207 AND 11382643` | the Thursday shift needs the guard's floor to leave room | per-lane: mask logic, mask broadcast, mask test, load or store |
+| `extract(YEAROFWEEK FROM ntz)` | `calendar`, `intArithmetic` | `unix_date(CAST(ntz AS DATE)) BETWEEN -5394207 AND 11382643` |  | per-lane: mask logic, mask broadcast, mask test, load or store |
+| `last_day(ntz)` | `calendar`, `intArithmetic` | `unix_date(CAST(ntz AS DATE)) BETWEEN -5394207 AND 11382643` |  | per-lane: mask logic, mask broadcast, mask test, load or store |
+| `trunc(ntz, 'YEAR')` | `calendar`, `intArithmetic` | `unix_date(CAST(ntz AS DATE)) BETWEEN -5394207 AND 11382643` | a year back is the room the guard's floor leaves | per-lane: mask logic, mask broadcast, mask test, load or store |
+| `trunc(ntz, 'MONTH')` | `calendar`, `intArithmetic` | `unix_date(CAST(ntz AS DATE)) BETWEEN -5394207 AND 11382643` |  | per-lane: mask logic, mask broadcast, mask test, load or store |
+| `trunc(ntz, 'QUARTER')` | `calendar`, `intArithmetic` | `unix_date(CAST(ntz AS DATE)) BETWEEN -5394207 AND 11382643` |  | per-lane: mask logic, mask broadcast, mask test, load or store |
 | `dayofweek(ntz)` | `calendar`, `intArithmetic` |  | exact over every day, so no guard | per-lane: mask broadcast, load or store |
 | `weekday(ntz)` | `calendar`, `intArithmetic` |  |  | per-lane: mask broadcast, load or store |
 | `extract(DAYOFWEEK_ISO FROM ntz)` | `calendar`, `intArithmetic` |  |  | per-lane: mask broadcast, load or store |
 | `next_day(ntz, 'MONDAY')` | `calendar`, `intArithmetic` |  |  | per-lane: mask broadcast, load or store |
 | `trunc(ntz, 'WEEK')` | `calendar`, `intArithmetic` |  |  | per-lane: mask broadcast, load or store |
-| `hour(ntz)` | `time` |  | the nanosecond of the day divided; never guarded | vector |
-| `minute(ntz)` | `time` |  |  | vector |
-| `second(ntz)` | `time` |  | the whole second, an int; the fraction of `extract(SECOND ...)` is a decimal | vector |
-| `CAST(ntz AS TIME(6))` | `time` |  | the nanosecond of the day, a multiple of a thousand | vector |
-| `CAST(ntz AS TIME(3))` | `time` |  | truncated to milliseconds: a quotient and a product | vector |
-| `CAST(ntz AS TIME(0))` | `time` |  |  | vector |
+| `hour(ntz)` | `time`, `intArithmetic` |  | the nanosecond of the day divided; never guarded | vector |
+| `minute(ntz)` | `time`, `intArithmetic` |  |  | vector |
+| `second(ntz)` | `time`, `intArithmetic` |  | the whole second, an int; the fraction of `extract(SECOND ...)` is a decimal | vector |
+| `CAST(ntz AS TIME(6))` | `time`, `intArithmetic` |  | the nanosecond of the day, a multiple of a thousand | vector |
+| `CAST(ntz AS TIME(3))` | `time`, `intArithmetic` |  | truncated to milliseconds: a quotient and a product | vector |
+| `CAST(ntz AS TIME(0))` | `time`, `intArithmetic` |  |  | vector |
 
 #### TIMESTAMP_NTZ fields in a condition
 
 | Predicate | Switches | Domain | Notes | 128-bit lanes |
 |---|---|---|---|---|
-| `hour(ntz) > 12` | `time`, `predicate` |  | the time of day needs no guard | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL up to 18 digits), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
-| `CAST(ntz AS TIME(3)) < TIME'12:00:00'` | `time`, `predicate` |  |  | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL up to 18 digits), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
-| `year(ntz) = 2021` | `calendar`, `predicate` | `unix_date(CAST(ntz AS DATE)) BETWEEN -5394207 AND 11382643` |  | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL up to 18 digits), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
+| `hour(ntz) > 12` | `time`, `predicate`, `intArithmetic` |  | the time of day needs no guard | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL up to 18 digits), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
+| `CAST(ntz AS TIME(3)) < TIME'12:00:00'` | `time`, `predicate`, `intArithmetic` |  |  | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL up to 18 digits), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
+| `year(ntz) = 2021` | `calendar`, `predicate`, `intArithmetic` | `unix_date(CAST(ntz AS DATE)) BETWEEN -5394207 AND 11382643` |  | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL up to 18 digits), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
 | `dayofweek(ntz) = 2` | `calendar`, `predicate`, `intArithmetic` |  |  | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL up to 18 digits), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
 
 #### DOUBLE columns
