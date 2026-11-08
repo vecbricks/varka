@@ -5817,7 +5817,7 @@
     "switches" : [ "spark.sql.codegen.varka.family.rounding.enabled" ],
     "domain" : "",
     "note" : "the nearest integer, a tie to the even one, the sign kept on a zero",
-    "verified" : "differential"
+    "verified" : "proof: fp_round.smt2"
   }, {
     "sql" : "floor(l)",
     "executable" : "floor(l)",

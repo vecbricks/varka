@@ -29,6 +29,9 @@
 ; from their neighbours: C a binade lower, or no sign restored (rint(-0.3) = -0.0 is the
 ; witness), is not rint.
 ;
+; At binary64 C is the lowering's own constant, VarkaRoundingLowering.TWO_52, rendered
+; from its bits; binary32's 2^23 is the format's, since no lowering runs at that width.
+;
 ; The logic is ALL and each check runs after a (reset), as round_to_odd.smt2 runs its
 ; own: nothing here uses java.smt2.
 ;
@@ -75,7 +78,7 @@
 (reset)
 (set-logic ALL)
 (declare-const x (_ FloatingPoint 11 53))
-(define-fun C () (_ FloatingPoint 11 53) ((_ to_fp 11 53) RNE 4503599627370496.0))
+(define-fun C () (_ FloatingPoint 11 53) ((_ to_fp 11 53) #x4330000000000000))
 (define-fun a () (_ FloatingPoint 11 53) (fp.abs x))
 (define-fun r () (_ FloatingPoint 11 53) (fp.sub RNE (fp.add RNE a C) C))
 (define-fun out () (_ FloatingPoint 11 53) (ite (fp.lt a C) (ite (fp.isNegative x) (fp.neg r) r) x))
@@ -86,7 +89,7 @@
 (reset)
 (set-logic ALL)
 (declare-const x (_ FloatingPoint 11 53))
-(define-fun C () (_ FloatingPoint 11 53) ((_ to_fp 11 53) RNE 2251799813685248.0))
+(define-fun C () (_ FloatingPoint 11 53) ((_ to_fp 11 53) #x4320000000000000))
 (define-fun a () (_ FloatingPoint 11 53) (fp.abs x))
 (define-fun r () (_ FloatingPoint 11 53) (fp.sub RNE (fp.add RNE a C) C))
 (define-fun out () (_ FloatingPoint 11 53) (ite (fp.lt a C) (ite (fp.isNegative x) (fp.neg r) r) x))
@@ -97,7 +100,7 @@
 (reset)
 (set-logic ALL)
 (declare-const x (_ FloatingPoint 11 53))
-(define-fun C () (_ FloatingPoint 11 53) ((_ to_fp 11 53) RNE 4503599627370496.0))
+(define-fun C () (_ FloatingPoint 11 53) ((_ to_fp 11 53) #x4330000000000000))
 (define-fun a () (_ FloatingPoint 11 53) (fp.abs x))
 (define-fun r () (_ FloatingPoint 11 53) (fp.sub RNE (fp.add RNE a C) C))
 (define-fun out () (_ FloatingPoint 11 53) (ite (fp.lt a C) r x))
