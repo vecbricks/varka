@@ -779,6 +779,9 @@ public final class VarkaIrGrammar {
    * cast draw's harness runs it.
    */
   public static VarkaVectorIR drawNullingLaneShape(Random rnd) {
+    // A bound of four reads the high bits of a first draw that consecutive seeds vary only in
+    // the low ones (drawCastShape's reason), which drew the narrow lanes alone: one is discarded.
+    rnd.nextLong();
     LaneType lane = NULLING_LANES.get(rnd.nextInt(NULLING_LANES.size()));
     var col = new ColumnRef(nullingLaneColumn(lane), lane);
     var zero = new LiteralSlot(0, lane);
