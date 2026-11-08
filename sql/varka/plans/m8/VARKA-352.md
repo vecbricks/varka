@@ -589,9 +589,11 @@ boolean conformance suites read their values from the descriptor.
 
 - **A pinned sequence follows the committed draws' discipline** (2.2 rule 1, the 3 November note):
   a checked mode of `IntArith` or `IntNeg` only where the tracked bounds rule overflow out, no
-  nulling guard. A column's bound is the lane's whole range, so the checked modes land on small
-  subtrees (literals, `bit_count`) and wrapping arithmetic meets the lane's ends in every draw; the
-  checked arithmetic that overflows is 2.5's side sequence, as at the other lanes.
+  nulling guard. The first column's bound is the lane's whole range, so wrapping arithmetic over
+  it meets the lane's ends; every other column is drawn within half the lane's greatest value
+  (`narrowColumnBound`), so the checked modes land on subtrees that read a column as well as on
+  literals, and the reach test asserts both lanes draw a failing and a nulling mode over a
+  column; the checked arithmetic that overflows is 2.5's side sequence, as at the other lanes.
 - **What the narrow lane does not draw**, each because the compiler never builds it there: the
   constant division (Spark's `/` over a `TINYINT` is a `DOUBLE`, `div` a `BIGINT`), the range
   guard (a cast guards its wider source, the cast sequence's), the shifts and `bit_count` (Spark
@@ -599,7 +601,7 @@ boolean conformance suites read their values from the descriptor.
   widened to the int lane), the unsigned compares and the output narrowing to `INT`. The first
   run drew `BitCount` at the narrow lanes and found the emitter adds the int lane's 32 sign bits
   to a negative byte's or short's popcount where Spark adds 56 or 48: a node the IR constructs
-  and the emitter lowers wrongly, though no compiled expression builds it (proposed as a row). The negation
+  and the emitter lowers wrongly, though no compiled expression builds it (row 580). The negation
   draws `abs` beside it at the narrow lanes, which the long lane's never does.
 - **The edge arm is on in the new sequences**, one cell in four (2.1's mix), from the value stream
   (2.2 rule 5); the committed sequences keep it off.

@@ -98,8 +98,8 @@ import org.apache.spark.sql.catalyst.util.DateTimeUtils
  * `-Dvarka.fuzz.variantsEvery=n` takes the variants of every n-th draw (default 1, every draw;
  * 0 none), which is how the nightly's forty thousand draws a lane stay inside the test's cap.
  * `-Dvarka.fuzz.edges=n` puts a type's edge value in one cell in n of the int, long and mixed
- * draws (default 0, none: `VarkaFuzzTypes.ValueSource`); a failure under it names it, and its
- * replay needs it too.
+ * draws (default 0, none: `VarkaFuzzTypes.ValueSource`) and of the narrow ones (default 4, and
+ * 0 for none); a failure under it names it, and its replay needs it too.
  *
  * Under another JVM (VARKA-272, `dev/varka_platform.sh`): `-Dvarka.fuzz.tier=interpreter|c1|c2|
  * xcomp` names the tier the JVM's flags must show and the compiled test's rules follow,
@@ -160,7 +160,7 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
   private val reachReports = scala.collection.mutable.ArrayBuffer.empty[VarkaEmitReach]
   // The draws the option matrix's reach filter took as the defaults run's (VARKA-507).
   private val matrixReach = new VarkaReach.Tally
-  private val lengths = Seq(1, 3, 7, 15, 16, 17, 33, 64, 65, 100, 257, 1000)
+  private val lengths = VarkaLaneFuzz.LENGTHS.asScala.map(_.intValue).toSeq
 
   /**
    * The options `randomOptions` draws: all but the fault injectors, the miscompiled forms and
@@ -276,16 +276,11 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
     opts
   }
 
-  private val patternNames = Seq("null-free", "every-5th", "alternating", "all-null", "random")
+  private val patternNames = VarkaLaneFuzz.PATTERN_NAMES.asScala.toSeq
 
-  private def pattern(rnd: Random, which: Int, length: Int): Int => Boolean = which match {
-    case 0 => _ => false
-    case 1 => i => i % 5 == 0
-    case 2 => i => i % 2 == 1
-    case 3 => _ => true
-    case _ =>
-      val bits = Array.fill(length)(rnd.nextInt(3) == 0)
-      i => bits(i)
+  private def pattern(rnd: Random, which: Int, length: Int): Int => Boolean = {
+    val p = VarkaLaneFuzz.pattern(rnd, which, length)
+    i => p.test(i)
   }
 
   /**
@@ -435,7 +430,8 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
    * oracle. Null lanes are poisoned with the lane's own extremes, for the reason `runOne`
    * gives: every drawn value is inside the guards and the checked modes by construction, so
    * only a poisoned null lane can reach a condemning comparison, and a kernel that reads one
-   * has to be caught reading it.
+   * has to be caught reading it. The case around the shape is `VarkaLaneFuzz.drawCase`'s, which
+   * the narrow sequences share.
    */
   private def drawLong(iteration: Int, drawSeed: Long = longSeed,
       base: VarkaEmitOptions = VarkaMatrix.base, nulling: Boolean = false,
@@ -446,28 +442,11 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
       else if (nulling) VarkaIrGrammar.drawNullingLongShape(rnd)
       else if (unsigned) VarkaIrGrammar.drawUnsignedLongShape(rnd)
       else VarkaIrGrammar.drawLongShape(rnd)
-    val roots = drawn.roots
-    val (numInputs, numLiterals) = (drawn.numInputs, drawn.numLiterals)
-    val lits = Array.fill(numLiterals)(VarkaIrGrammar.within(rnd, longLiteralBound))
-    val length = lengths(rnd.nextInt(lengths.length))
-    val patternIds = Seq.fill(numInputs)(rnd.nextInt(patternNames.length))
-    val patterns = patternIds.map(pattern(rnd, _, length))
-    val forceMasked = length > 1 && rnd.nextInt(4) == 0
-    val drawnOptions = randomOptions(rnd, base, drawSeed, iteration)
-    val options = if (!decimal) drawnOptions else drawOptions(rnd, drawnOptions, decimalOptions)
-    val values = valueStream(drawSeed, iteration)
-    val data = Array.tabulate(numInputs, length)(
-      (_, _) => longValues.draw(rnd, values, longColumnBound, edgeOneIn))
-
-    val context = s"lane=long seed=$drawSeed iteration=$iteration " +
-      s"roots=${roots.asScala.map(r => VarkaVectorIR.canonical(r)).mkString("[", ", ", "]")} " +
-      s"options=${if (options.isDefault) "(defaults)" else options.canonical()} " +
-      s"length=$length patterns=${patternIds.map(patternNames).mkString(",")} " +
-      s"literals=${lits.mkString(",")} forceMasked=$forceMasked$edgesLabel"
-
-    new VarkaFuzzCase(LaneType.LONG, roots, numInputs, lits, length,
-      Array.tabulate(numInputs, length)((c, i) => patterns(c)(i)), data, forceMasked, options,
-      -1, -1, context)
+    VarkaLaneFuzz.drawCase(drawSeed, iteration, rnd, drawn,
+      VarkaLaneFuzz.LaneSource.longLane(edgeOneIn), valueStream(drawSeed, iteration), { r =>
+        val drawnOptions = randomOptions(r, base, drawSeed, iteration)
+        if (!decimal) drawnOptions else drawOptions(r, drawnOptions, decimalOptions)
+      })
   }
 
   /**
@@ -1101,6 +1080,11 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
     val replay = (e: VarkaKnownFailures.Entry) => e.lane match {
       case "int" => outcomeOf(drawInt(e.iteration, e.seed))
       case "long" => outcomeOf(drawLong(e.iteration, e.seed))
+      // A narrow draw the plan refuses for its width is not run, so it has no outcome.
+      case "byte" | "short" =>
+        val c = drawNarrow(LaneType.valueOf(e.lane.toUpperCase(java.util.Locale.ROOT)),
+          e.seed, e.iteration)
+        if (VarkaKernelPlan.refusalOf(c.roots, c.options).isPresent) None else outcomeOf(c)
       // A composition fuzzer's entry (VARKA-294) is replayed by its own suite.
       case _ => Some(e.signature)
     }
@@ -1110,25 +1094,12 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
       s"${VarkaKnownFailures.PATH}: ${stale.mkString(", ")}")
   }
 
-  /** The record node types of the sealed IR, by simple name. */
-  private def recordNodeTypes: Set[Class[_]] = {
-    def walk(c: Class[_]): Set[Class[_]] = {
-      val subs = Option(c.getPermittedSubclasses).map(_.toSet).getOrElse(Set.empty[Class[_]])
-      if (subs.isEmpty) Set(c) else subs.flatMap(walk)
-    }
-    walk(classOf[VarkaVectorIR]).filter(_.isRecord)
-  }
+  /** The record node types of the sealed IR. */
+  private def recordNodeTypes: Set[Class[_]] = VarkaLaneFuzz.recordNodeTypes().asScala.toSet
 
   /** Every node type reachable from `node`, by simple name, added to `seen`. */
-  private def collectNodeTypes(node: AnyRef, seen: scala.collection.mutable.Set[String]): Unit = {
-    seen += node.getClass.getSimpleName
-    node.getClass.getRecordComponents.foreach { rc =>
-      val v = rc.getAccessor.invoke(node)
-      if (v != null && classOf[VarkaVectorIR].isInstance(v)) {
-        collectNodeTypes(v.asInstanceOf[AnyRef], seen)
-      }
-    }
-  }
+  private def collectNodeTypes(node: AnyRef, seen: scala.collection.mutable.Set[String]): Unit =
+    VarkaLaneFuzz.collectNodeTypes(node, seen.asJava)
 
   /**
    * Whether a node type admits 64-bit lanes, asked of the type itself: its canonical
@@ -1137,32 +1108,8 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
    * than written as a list, so a node type added to the IR is classified by what it does and
    * the long-lane reach test below sees it without anyone editing this file.
    */
-  private def admitsLongLanes(cls: Class[_]): Boolean = {
-    val longCol = new ColumnRef(0, LaneType.LONG)
-    val longCond = new Compare(CompareOp.LT, longCol, longCol)
-    val components = cls.getRecordComponents
-    val args: Array[AnyRef] = components.map { rc =>
-      val t = rc.getType
-      if (t == classOf[Cond]) longCond
-      else if (classOf[VarkaVectorIR].isAssignableFrom(t)) longCol
-      else if (t == java.lang.Long.TYPE) java.lang.Long.valueOf(1L)
-      else if (t == java.lang.Integer.TYPE) Integer.valueOf(1)
-      else if (t == java.lang.Boolean.TYPE) java.lang.Boolean.FALSE
-      else if (t.isEnum) t.getEnumConstants.head.asInstanceOf[AnyRef]
-      else if (t == classOf[java.util.List[_]]) {
-        java.util.List.of(Integer.valueOf(1), Integer.valueOf(2))
-      }
-      else fail(s"${cls.getSimpleName}.${rc.getName} has a component type this probe cannot " +
-        s"build: ${t.getName}")
-    }
-    try {
-      cls.getDeclaredConstructor(components.map(_.getType): _*).newInstance(args: _*)
-      true
-    } catch {
-      case e: java.lang.reflect.InvocationTargetException
-          if e.getCause.isInstanceOf[IllegalArgumentException] => false
-    }
-  }
+  private def admitsLongLanes(cls: Class[_]): Boolean =
+    VarkaLaneFuzz.admitsLane(cls, LaneType.LONG)
 
   test("the generator reaches every IR node type") {
     // A green fuzz run says nothing about a node type the generator cannot build: the shapes
@@ -1224,6 +1171,19 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
         "state here why the node type is deliberately out of the fuzzer's reach")
   }
 
+  /**
+   * The lane-generic node types no `LongShapes` sequence draws, the long lane's or the narrow
+   * ones'. The null-safe equality is out for the reason the int corpus gives above, and so are
+   * the boolean-column nodes, the condition as a value and the boolean output; the decimal
+   * output for the reason given there: its draw is a sequence of its own. The null leaf is drawn
+   * by the nulling draw only (see the int corpus above). It counts as lane-generic because the
+   * narrow lanes admit it (VARKA-329): the probe builds it with the first lane of the enum, which
+   * is the byte one.
+   */
+  private val outOfTheLongCorpora = Set("NullSafeEqual", "BoolColumn", "CondConst",
+    "BoolCompare", "CondIf", "BoolNullSafeEq", "CondValue", "BoolOutput", "WidenDecimal",
+    "NullValue")
+
   test("the long-lane generator reaches every node type that admits 64-bit lanes") {
     // The same assertion for the second corpus, against the set the IR itself defines: a node
     // type is in the long lane's reach exactly when its constructor accepts long leaves. So a
@@ -1243,14 +1203,7 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
       VarkaIrGrammar.drawLongShape(VarkaIrGrammar.shapeRandom(longFuzzSeed, k)).roots.asScala
         .foreach(collectNodeTypes(_, seen))
     }
-    // The null-safe equality is out of this corpus for the reason the int one gives above, and
-    // the decimal output for the reason given there: its draw is a sequence of its own.
-    // The null leaf is drawn by the nulling draw only (see the int corpus above). It counts as
-    // lane-generic here because the narrow lanes admit it (VARKA-329): the probe builds it with
-    // the first lane of the enum, which is the byte one.
-    val missing = laneGeneric.map(_.getSimpleName) -- seen - "NullSafeEqual" - "BoolColumn" -
-      "CondConst" - "BoolCompare" - "CondIf" - "BoolNullSafeEq" - "CondValue" - "BoolOutput" -
-      "WidenDecimal" - "NullValue"
+    val missing = laneGeneric.map(_.getSimpleName) -- seen -- outOfTheLongCorpora
     assert(missing.isEmpty,
       s"the long-lane generator never built: ${missing.toSeq.sorted.mkString(", ")} - add an " +
         "arm to LongShapes, or state here why the node type is deliberately out of its reach")
@@ -1557,88 +1510,65 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
 
   /**
    * The edge share of a narrow draw's cells: one in four, the mix `VARKA-352.md` 2.1 gives a
-   * value source, unless `-Dvarka.fuzz.edges` sets it. The narrow sequences are new, so their
-   * cells need not be the uniform draws a committed corpus keeps.
+   * value source, unless `-Dvarka.fuzz.edges` sets it, 0 for none. The narrow sequences are new,
+   * so their cells need not be the uniform draws a committed corpus keeps.
    */
-  private val narrowEdgeOneIn = if (edgeOneIn > 0) edgeOneIn else 4
-
-  private def laneName(lane: LaneType): String = lane.toString.toLowerCase(java.util.Locale.ROOT)
-
-  /** The narrow draws per lane and `narrowLanes` arm, refused and answered. */
-  private val narrowDrawn = scala.collection.mutable.Map.empty[(LaneType, Boolean), Int]
-  private val narrowAnswered = scala.collection.mutable.Map.empty[(LaneType, Boolean), Int]
+  private val narrowEdgeOneIn = sys.props.get("varka.fuzz.edges").map(_.toInt).getOrElse(4)
 
   /**
-   * One narrow draw: the shape from `drawNarrowLaneShape`, then a length, null patterns,
-   * masking and options as the long corpus draws them, and every cell from the type's value
-   * source over the lane's whole range, an edge one cell in `narrowEdgeOneIn`. The columns are
-   * stored at the lane's width and the kernel is compared with the reference, shrunk on failure
-   * as the int corpus is. A kernel the plan refuses for the drawn width (a lane count the
-   * options do not bake) is counted and skipped; any other refusal fails.
+   * Case `iteration` of the narrow sequence of `lane`: the shape from `drawNarrowLaneShape`,
+   * and the case around it as the long lane's draw makes it (`VarkaLaneFuzz.drawCase`), every
+   * cell from the type's value source within its column's bound.
    */
-  private def runOneNarrow(lane: LaneType, drawSeed: Long, iteration: Int): Unit = {
+  private def drawNarrow(lane: LaneType, drawSeed: Long, iteration: Int): VarkaFuzzCase = {
     val rnd = VarkaIrGrammar.shapeRandom(drawSeed, iteration)
     val drawn = VarkaIrGrammar.drawNarrowLaneShape(rnd, lane)
-    val roots = drawn.roots
-    val numInputs = drawn.numInputs
-    val lits = Array.fill(drawn.numLiterals)(
-      VarkaIrGrammar.within(rnd, VarkaIrGrammar.narrowLiteralBound(lane)))
-    val length = lengths(rnd.nextInt(lengths.length))
-    val patternIds = Seq.fill(numInputs)(rnd.nextInt(patternNames.length))
-    val patterns = patternIds.map(pattern(rnd, _, length))
-    val forceMasked = length > 1 && rnd.nextInt(4) == 0
-    val options = randomOptions(rnd, VarkaMatrix.base, drawSeed, iteration)
-    val source = VarkaFuzzTypes.values(
-      if (lane == LaneType.BYTE) VarkaTypeId.BYTE else VarkaTypeId.SHORT)
-    val values = valueStream(drawSeed, iteration)
-    val bound = VarkaIrGrammar.narrowColumnBound(lane)
-    // A cell of the bound, one past the lane's greatest value, is stored as its least.
-    val data = Array.tabulate(numInputs, length)(
-      (_, _) => source.draw(rnd, values, bound, narrowEdgeOneIn))
-    val label = s"lane=${laneName(lane)} seed=$drawSeed iteration=$iteration " +
-      s"roots=${roots.asScala.map(r => VarkaVectorIR.canonical(r)).mkString("[", ", ", "]")} " +
-      s"options=${if (options.isDefault) "(defaults)" else options.canonical()} " +
-      s"length=$length patterns=${patternIds.map(patternNames).mkString(",")} " +
-      s"literals=${lits.mkString(",")} forceMasked=$forceMasked edges=$narrowEdgeOneIn"
-    val arm = (lane, options.narrowLanes())
-    narrowDrawn(arm) = narrowDrawn.getOrElse(arm, 0) + 1
-    val refusal = VarkaKernelPlan.refusalOf(roots, options)
-    if (refusal.isPresent) {
-      assert(castWidthRefusal(refusal.get),
-        s"$label: refused for a reason other than its width: ${refusal.get}")
-      return
-    }
-    val c = new VarkaFuzzCase(lane, roots, numInputs, lits, length,
-      Array.tabulate(numInputs, length)((k, i) => patterns(k)(i)), data, forceMasked, options,
-      -1, -1, label)
-    if (runChecked(c)) narrowAnswered(arm) = narrowAnswered.getOrElse(arm, 0) + 1
+    VarkaLaneFuzz.drawCase(drawSeed, iteration, rnd, drawn,
+      VarkaLaneFuzz.LaneSource.narrow(lane, narrowEdgeOneIn), valueStream(drawSeed, iteration),
+      r => randomOptions(r, VarkaMatrix.base, drawSeed, iteration))
   }
 
   /**
-   * The narrow sequence of `lane` over `iterations` draws, and both `narrowLanes` arms answered:
-   * the native arm computes in the narrow species and the widened one in the int lane
-   * (`VARKA-352.md` 3 item 6). The arm is the options draw's coin, so at the default count each
-   * arm takes about half the draws; at the lane counts the matrix's base bakes none, every draw
-   * is refused, by design, and the arms are not asked for.
+   * One narrow draw, compared with the reference through the narrow harness, its columns stored
+   * at the lane's width, and shrunk on failure as the int corpus is. A kernel the plan refuses
+   * for the drawn width (a lane count the options do not bake) is counted and skipped; any other
+   * refusal fails.
+   */
+  private def runOneNarrow(lane: LaneType, drawSeed: Long, iteration: Int,
+      arms: VarkaLaneFuzz.ArmTally): Unit = {
+    val c = drawNarrow(lane, drawSeed, iteration)
+    val nativeArm = c.options.narrowLanes()
+    arms.drawn(nativeArm)
+    val refusal = VarkaKernelPlan.refusalOf(c.roots, c.options)
+    if (refusal.isPresent) {
+      assert(castWidthRefusal(refusal.get),
+        s"${c.label}: refused for a reason other than its width: ${refusal.get}")
+    } else if (runChecked(c)) {
+      arms.answered(nativeArm)
+    }
+  }
+
+  /**
+   * The narrow sequence of `lane` over `iterations` draws, and both `narrowLanes` arms answered.
+   * The arm is the options draw's coin, so at the default count each arm takes about half the
+   * draws; an arm of fewer than 20 is not asked for, as the cast test asks only of a class of 20
+   * or more, and at the lane counts the matrix's base bakes none every draw is refused, by
+   * design, and the arms are not asked for at all.
    */
   private def runNarrowSequence(lane: LaneType, drawSeed: Long): Unit = {
-    narrowDrawn.clear()
-    narrowAnswered.clear()
-    val reach = VarkaEmitReach.attach(randomTrace, s"${laneName(lane)} draws")
+    val arms = new VarkaLaneFuzz.ArmTally
+    val name = lane.toString.toLowerCase(java.util.Locale.ROOT)
+    val reach = VarkaEmitReach.attach(randomTrace, s"$name draws")
     try {
-      only.map(Seq(_)).getOrElse(0 until iterations).foreach(runOneNarrow(lane, drawSeed, _))
+      only.map(Seq(_)).getOrElse(0 until iterations).foreach(runOneNarrow(lane, drawSeed, _, arms))
     } finally {
       VarkaEmitReach.detach(randomTrace)
     }
-    val counts = narrowDrawn.keys.toSeq.sortBy(_._2).map { a =>
-      s"narrowLanes=${a._2} ${narrowAnswered.getOrElse(a, 0)}/${narrowDrawn(a)}"
-    }
-    logInfo(s"$lane draws answered per arm: ${counts.mkString(", ")}")
+    logInfo(s"$lane draws answered per arm: ${arms.summary}")
     if (only.isEmpty && Lane.emitLanes(VarkaMatrix.base, Lane.INT) >= 4) {
-      for (native <- Seq(true, false)) {
-        assert(narrowAnswered.getOrElse((lane, native), 0) >= 1,
-          s"no $lane draw answered with narrowLanes=$native: ${counts.mkString(", ")}")
-      }
+      val unanswered = arms.unanswered(20).asScala
+      assert(unanswered.isEmpty, s"no $lane draw answered with narrowLanes=" +
+        s"${unanswered.mkString(" or ")}: ${arms.summary}")
     }
     reportReach(reach)
     reportSkipped()
@@ -1657,41 +1587,28 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
   test("the narrow sequences hold narrow values alone and reach every node the narrow lane " +
       "admits") {
     // Over the committed seeds, as the other reach tests: every value of a draw is on its lane,
-    // and the nodes it builds are the lane-generic ones the long generator builds, less those
-    // the compiler never builds at a narrow lane (`LongShapes`): the constant division, the
-    // range guard, the popcount (an INT over the widened value) and the output narrowing. The
-    // rest are out of the long corpus for the reasons its reach test gives.
-    val (laneGeneric, _) = recordNodeTypes.partition(admitsLongLanes)
-    val wanted = laneGeneric.map(_.getSimpleName) -- Seq("ConstDivide", "GuardedRange",
-      "BitCount", "NarrowLane", "NullSafeEqual", "BoolColumn", "CondConst", "BoolCompare",
-      "CondIf", "BoolNullSafeEq", "CondValue", "BoolOutput", "WidenDecimal", "NullValue")
+    // and the nodes it builds are those whose constructor accepts the lane's leaves
+    // (`VarkaLaneFuzz.admitsLane`), less the long corpora's exclusions and those the compiler
+    // never builds at a narrow lane (`LongShapes`): the constant division, the range guard and
+    // the popcount, an INT over the widened value (whose narrow lowering is wrong besides, row
+    // 580 of `m8/PLAN.md`); and the narrowing, which the probe builds from SHORT to BYTE, a
+    // conversion out of the lane that a tree of one lane does not hold (the cast sequence's).
+    val notAtANarrowLane = Set("ConstDivide", "GuardedRange", "BitCount", "NarrowLane")
     for ((lane, drawSeed) <- Seq(LaneType.BYTE -> VarkaIrGrammar.BYTE_FUZZ_SEED,
         LaneType.SHORT -> VarkaIrGrammar.SHORT_FUZZ_SEED)) {
-      val seen = scala.collection.mutable.Set.empty[String]
-      val forms = scala.collection.mutable.Set.empty[String]
-      def walk(n: VarkaVectorIR): Unit = {
-        n match {
-          case a: IntArith => forms += s"${a.op} ${a.mode}"
-          case g: IntNeg => forms += s"${if (g.abs) "abs" else "negate"} ${g.mode}"
-          case _ =>
-        }
-        VarkaVectorIR.childrenOf(n).foreach(walk)
-      }
-      for (k <- 0 until 2000) {
-        VarkaIrGrammar.drawNarrowLaneShape(VarkaIrGrammar.shapeRandom(drawSeed, k), lane)
-          .roots.asScala.foreach { root =>
-            assert(VarkaVectorIR.lanesIn(root).asScala == Set(lane),
-              s"$lane draw $k holds another lane: ${VarkaVectorIR.canonical(root)}")
-            collectNodeTypes(root, seen)
-            walk(root)
-          }
-      }
-      val missing = wanted -- seen
+      val wanted = recordNodeTypes.filter(VarkaLaneFuzz.admitsLane(_, lane))
+        .map(_.getSimpleName) -- outOfTheLongCorpora -- notAtANarrowLane
+      val reach = VarkaLaneFuzz.narrowReach(lane, drawSeed, 2000)
+      assert(reach.foreignRoots.isEmpty, s"$lane draws hold another lane: ${reach.foreignRoots}")
+      val missing = wanted -- reach.nodeTypes.asScala
       assert(missing.isEmpty, s"the $lane sequence never built: ${missing.toSeq.sorted}")
+      // Each operation in each mode, and a checked mode over a subtree that reads a column,
+      // which the half-range columns (`VarkaIrGrammar.narrowColumnBound`) make room for.
       val wantedForms = (for (op <- Seq("ADD", "SUB", "MUL"); m <- Seq("WRAP", "FAIL", "NULL"))
-        yield s"$op $m") ++ Seq("negate WRAP", "negate FAIL", "abs WRAP", "abs FAIL")
-      assert((wantedForms.toSet -- forms).isEmpty,
-        s"the $lane sequence never drew: ${(wantedForms.toSet -- forms).toSeq.sorted}")
+        yield s"$op $m") ++ Seq("negate WRAP", "negate FAIL", "abs WRAP", "abs FAIL",
+        "FAIL over a column", "NULL over a column")
+      val unseen = wantedForms.toSet -- reach.forms.asScala
+      assert(unseen.isEmpty, s"the $lane sequence never drew: ${unseen.toSeq.sorted}")
     }
   }
 

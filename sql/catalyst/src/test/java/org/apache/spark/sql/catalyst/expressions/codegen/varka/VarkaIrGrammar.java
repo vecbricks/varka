@@ -1428,11 +1428,17 @@ public final class VarkaIrGrammar {
   public static final long LONG_LITERAL_BOUND = 1L << 20;
 
   /**
-   * The bound of a narrow sequence's column: the magnitude of the lane's least value, so a value
-   * drawn within it reaches both ends of the lane (one past the greatest stores as the least).
+   * The bound of column {@code ordinal} of a narrow sequence. Column 0 is drawn over the lane's
+   * whole range, the bound the magnitude of its least value (one past the greatest stores as the
+   * least), so that wrapping arithmetic meets both ends of the lane; a checked mode over it is
+   * never drawn, since its bound rules no overflow out. Every other column is drawn within half
+   * the lane's greatest value, 63 and 16383, so that a checked sum or difference of two of them,
+   * a negation and an {@code abs} cannot overflow, and the checked modes reach subtrees that read
+   * a column, as they do at the long lane, whose columns are bounded the same way.
    */
-  public static long narrowColumnBound(LaneType lane) {
-    return -VarkaTypes.integralRange(lane).min();
+  public static long narrowColumnBound(LaneType lane, int ordinal) {
+    var range = VarkaTypes.integralRange(lane);
+    return ordinal == 0 ? -range.min() : range.max() / 2;
   }
 
   /**
@@ -1561,14 +1567,17 @@ public final class VarkaIrGrammar {
    * no spelling for that; the guards' firing is asserted in the emitter suite).
    *
    * <p>At a narrow lane ({@link #drawNarrowLaneShape}) it draws the same tree over leaves of that
-   * lane, a column's bound the lane's whole range and a literal's one whose square fits, and
+   * lane, a column's bound the one {@link #narrowColumnBound} gives it (the lane's whole range for
+   * the first column, half of it for the others) and a literal's one whose square fits, and
    * leaves out what the compiler never builds there: the constant division (Spark's {@code /}
    * over a {@code TINYINT} is a {@code DOUBLE}), the range guard (a cast guards its wider
    * source), the shifts and {@code bit_count} (Spark widens a narrow operand of either to
-   * {@code INT}), the output narrowing and, as every narrow draw, the nulling guards and the
+   * {@code INT}; the emitter's narrow {@code BitCount} is wrong besides, row 580), the output
+   * narrowing and, as every narrow draw, the nulling guards and the
    * unsigned compares. A checked mode is drawn where the bounds rule out an overflow of the
-   * lane, the multiply's too, and the negation is an {@code abs} half the time. The long lane
-   * draws what it drew: every narrow choice is made without a draw at the long lane.
+   * lane, the multiply's too, the negation is an {@code abs} half the time, and a condition may
+   * be a range set ({@code IN}), which the long lane's never is. The long lane draws what it
+   * drew: every narrow choice is made without a draw at the long lane.
    */
   public static final class LongShapes {
     /**
@@ -1589,7 +1598,6 @@ public final class VarkaIrGrammar {
     private final boolean nullingGuards;
     private final boolean unsignedCompares;
     private final LaneType lane;
-    private final long columnBound;
     private final long literalBound;
     private int budget = 20;
 
@@ -1620,7 +1628,6 @@ public final class VarkaIrGrammar {
       this.nullingGuards = nullingGuards;
       this.unsignedCompares = unsignedCompares;
       this.lane = lane;
-      this.columnBound = lane == LaneType.LONG ? LONG_COLUMN_BOUND : narrowColumnBound(lane);
       this.literalBound = lane == LaneType.LONG ? LONG_LITERAL_BOUND : narrowLiteralBound(lane);
     }
 
@@ -1643,7 +1650,9 @@ public final class VarkaIrGrammar {
     }
 
     private Gen column() {
-      return new Gen(new ColumnRef(rnd.nextInt(numInputs), lane), columnBound);
+      int ordinal = rnd.nextInt(numInputs);
+      return new Gen(new ColumnRef(ordinal, lane),
+          lane == LaneType.LONG ? LONG_COLUMN_BOUND : narrowColumnBound(lane, ordinal));
     }
 
     private Gen leaf() {
@@ -1734,11 +1743,15 @@ public final class VarkaIrGrammar {
           Gen b = rnd.nextBoolean() ? leaf() : value(depth - 1);
           BitOpKind[] ops = lane.isNarrow() ? NARROW_BIT_OPS : BitOpKind.values();
           return new Gen(new BitOp(ops[rnd.nextInt(ops.length)], a.node(), b.node()),
-              lane.isNarrow() ? columnBound : Long.MAX_VALUE);
+              lane.isNarrow() ? narrowColumnBound(lane, 0) : Long.MAX_VALUE);
         }
         case 10:
           // Spark's `bit_count` of a narrow value is an INT, which the compiler builds over the
-          // value widened to the int lane: no narrow tree holds the node.
+          // value widened to the int lane: no compiled narrow tree holds the node. The IR accepts
+          // a narrow child all the same, and the emitter lowers it at the int lane's width, so a
+          // negative byte or short counts 32 sign bits where Spark's `Long.bitCount` of the
+          // sign-extended value counts 56 or 48. Row 580 of `m8/PLAN.md` owns that; this skip
+          // goes when the node refuses a narrow child or lowers at the lane's own width.
           if (lane.isNarrow()) {
             return value(depth - 1);
           }
@@ -1764,7 +1777,9 @@ public final class VarkaIrGrammar {
         VarkaVectorIR left = value(depth).node();
         return new Compare(op, left, value(depth).node());
       }
-      return switch (rnd.nextInt(4)) {
+      // A narrow lane has a fifth arm, the range set; the long lane draws from its four as it
+      // always did.
+      return switch (rnd.nextInt(lane.isNarrow() ? 5 : 4)) {
         case 0 -> {
           Cond left = cond(depth - 1);
           yield new And(left, cond(depth - 1));
@@ -1774,10 +1789,32 @@ public final class VarkaIrGrammar {
           yield new Or(left, cond(depth - 1));
         }
         case 2 -> new Not(cond(depth - 1));
-        default -> rnd.nextBoolean()
+        case 3 -> rnd.nextBoolean()
             ? new IsNotNull(new ColumnRef(rnd.nextInt(numInputs), lane))
             : new IsNotNull(cond(depth - 1));
+        default -> narrowRangeSet(depth - 1);
       };
+    }
+
+    /**
+     * A range set over a narrow value, what {@code IN} over a {@code TINYINT} or a
+     * {@code SMALLINT} compiles to: one to four sorted, disjoint ranges inside the value's bound
+     * and the lane (the node refuses a bound the lane cannot hold), so that lanes land inside
+     * ranges, between them and outside all of them.
+     */
+    private InRanges narrowRangeSet(int depth) {
+      Gen v = value(depth);
+      long span = Math.min(v.bound(), VarkaTypes.integralRange(lane).max());
+      var bounds = new ArrayList<Integer>();
+      long at = -span + rnd.nextInt((int) span + 1);
+      int ranges = 1 + rnd.nextInt(4);
+      for (int r = 0; r < ranges && at <= span; r++) {
+        long hi = Math.min(span, at + rnd.nextInt((int) (span / 4) + 1));
+        bounds.add((int) at);
+        bounds.add((int) hi);
+        at = hi + 2 + rnd.nextInt((int) (span / 4) + 1);
+      }
+      return new InRanges(v.node(), bounds);
     }
 
     /**

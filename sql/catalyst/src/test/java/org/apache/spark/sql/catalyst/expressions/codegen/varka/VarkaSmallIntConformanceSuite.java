@@ -29,6 +29,6 @@ public final class VarkaSmallIntConformanceSuite extends VarkaTypeConformance {
 
   @Override
   protected ConformanceType type() {
-    return integral("short", DataTypes.ShortType, "SMALLINT", "S", VarkaTypeId.SHORT);
+    return integral("short", DataTypes.ShortType, "SMALLINT", "S");
   }
 }

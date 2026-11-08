@@ -31,6 +31,6 @@ public final class VarkaBigIntConformanceSuite extends VarkaTypeConformance {
 
   @Override
   protected ConformanceType type() {
-    return integral("bigint", DataTypes.LongType, "BIGINT", "L", VarkaTypeId.LONG);
+    return integral("bigint", DataTypes.LongType, "BIGINT", "L");
   }
 }
