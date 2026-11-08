@@ -38,6 +38,7 @@ import org.apache.spark.sql.catalyst.expressions.Greatest;
 import org.apache.spark.sql.catalyst.expressions.If;
 import org.apache.spark.sql.catalyst.expressions.Least;
 import org.apache.spark.sql.catalyst.expressions.NaNvl;
+import org.apache.spark.sql.catalyst.expressions.Rint;
 import org.apache.spark.sql.catalyst.expressions.Subtract;
 import org.apache.spark.sql.types.DataType;
 import org.apache.spark.sql.types.DateType;
@@ -143,6 +144,12 @@ public final class VarkaSameAnswer {
 
     /** Any other node: it may return any floating child's value. */
     record Other<N>(List<N> children) implements Step<N> {}
+
+    /**
+     * A node whose NaN is the implementation's: {@code rint} of a NaN, whose sign and quieting
+     * depend on the tier that runs it ({@code VARKA-344.md} 0.10), so any NaN of the node is open.
+     */
+    record Computed<N>() implements Step<N> {}
   }
 
   /** One tree's view of a node on one row, all the rule reads. */
@@ -188,6 +195,7 @@ public final class VarkaSameAnswer {
         }
         yield l != null ? open(a.left(), front) : r != null && open(a.right(), front);
       }
+      case Step.Computed<N> _ -> true;
       case Step.Pass<N> p -> open(p.child(), front);
       case Step.Pick<N> p ->
           p.taken() != null && front.nanBits(p.taken()) != null && open(p.taken(), front);
@@ -249,6 +257,7 @@ public final class VarkaSameAnswer {
         return switch (n) {
           case VarkaVectorIR.IntArith a -> new Step.Arith<>(a.left(), a.right(),
               a.op() == VarkaVectorIR.IntOp.ADD || a.op() == VarkaVectorIR.IntOp.MUL);
+          case VarkaVectorIR.RoundToIntegral _ -> new Step.Computed<>();
           case VarkaVectorIR.IfElse i ->
               new Step.Pick<>(row.holds(i.cond()) ? i.thenNode() : i.elseNode());
           case VarkaVectorIR.Greatest g -> new Step.FirstNaN<>(List.of(g.left(), g.right()));
@@ -264,7 +273,6 @@ public final class VarkaSameAnswer {
               VarkaVectorIR.Chrono _, VarkaVectorIR.AddMonths _, VarkaVectorIR.MakeDate _,
               VarkaVectorIR.IntNeg _, VarkaVectorIR.ConstDivide _, VarkaVectorIR.BoundedDivide _,
               VarkaVectorIR.BitOp _, VarkaVectorIR.BitCount _, VarkaVectorIR.MathUnary _,
-              VarkaVectorIR.RoundToIntegral _,
               VarkaVectorIR.Cond _, VarkaVectorIR.GuardedDay _, VarkaVectorIR.GuardedRange _,
               VarkaVectorIR.WidenLane _, VarkaVectorIR.ConvertLane _, VarkaVectorIR.NarrowLane _,
               VarkaVectorIR.WidenDecimal _ -> byValueChildren(n);
@@ -318,6 +326,9 @@ public final class VarkaSameAnswer {
         if (n instanceof BinaryArithmetic a) {
           return new Step.Arith<>(a.left(), a.right(),
               !(a instanceof Subtract || a instanceof Divide));
+        }
+        if (n instanceof Rint) {
+          return new Step.Computed<>();
         }
         if (children.size() == 1) {
           return new Step.Pass<>(children.get(0));

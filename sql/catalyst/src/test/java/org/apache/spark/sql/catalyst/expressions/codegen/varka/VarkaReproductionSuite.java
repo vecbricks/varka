@@ -116,6 +116,9 @@ public final class VarkaReproductionSuite {
         // A floating lane's square root over its IEEE division, whose zero divisor nulls a lane.
         new MathUnary(MathFn.SQRT, new IntArith(IntOp.DIV, Overflow.NULL,
             new ColumnRef(0, LaneType.DOUBLE), new LiteralSlot(0, LaneType.DOUBLE))),
+        // The rint construction's node over a double column (VARKA-344).
+        new VarkaVectorIR.RoundToIntegral(VarkaVectorIR.RoundMode.RINT,
+            new ColumnRef(0, LaneType.DOUBLE)),
         // A double comparison crossed to the long lane of the choice's values (VARKA-343).
         new IfElse(new CrossLane(new Compare(CompareOp.GT, new ColumnRef(2, LaneType.DOUBLE),
             new LiteralSlot(1, LaneType.DOUBLE)), LaneType.LONG), x,
