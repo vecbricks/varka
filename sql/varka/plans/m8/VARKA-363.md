@@ -230,9 +230,10 @@ same network. The emitter takes the constant for the shape's own bound, from the
 column headroom, `VARKA-362.md` 2.1); only the words from bit `L` up are kept, and the low columns
 are still summed for their carries, no truncated product being proven (`READING_M8_PAPERS.md` 2).
 
-*7 November 2026, 363a0:* the constants are not derived for each shape's own bound but for nine
+*7 November 2026, 363a0:* the constants are not derived for each shape's own bound but for ten
 rungs, `2^64 - 1`, `2^96 - 1`, `10^38 - 1`, `2 * 10^38 - 2`, `2^128 - 1`, `2^160 - 1`, `2^192 - 1`,
-`(10^38 - 1)^2` and `2^256 - 1`, and a shape takes the least rung at or above its bound, so the
+`2^224 - 1`, `(10^38 - 1)^2` and `2^256 - 1` (the 224-bit rung added in review on 8 November, so
+a product bound in `(2^192, 2^224]` takes seven dividend limbs, not eight), and a shape takes the least rung at or above its bound, so the
 proof file states a finite table and still covers every shape; a shape just under a rung's bound
 may carry a limb more than its own bound would need.
 
@@ -355,6 +356,11 @@ held by `VarkaWarmupReachSuite`.
    `widerDecimalType` over every `(p1, s1, p2, s2)` under both settings hold the compiler's caller,
    `k`, bound and check to 2.5's table and to `results/VARKA-363-shapes.txt`'s counts, the
    coercion's exemption included. A pure function, under a second.
+
+   *363a0, 8 November 2026:* scored loosely: the sweep was not timed alone, and the whole of
+   `VarkaDecimalScaleSuite` (the sweep, the table against the magic file, the shift and first
+   failure of every entry, and the rescale over the table against `BigDecimal`) runs in 1.3 to
+   1.4 s on the laptop, so the sweep is at most that, a ratio of at most about 1.4.
 5. **One kernel where it should be**: a dead-check row has one shape hash under LEGACY, ANSI and
    TRY, a live one two (LEGACY and TRY, ANSI).
 6. **The SMT proofs**, `sql/varka/proofs/decimal_scale.smt2`, its own file under Z3 and cvc5
@@ -380,6 +386,13 @@ held by `VarkaWarmupReachSuite`.
    compose, and `VarkaDecimalScaleSuite` holds the composition to `BigDecimal` at every
    `(k, rung)`. The carry network of `N * c`, the check at full width and the planted carry
    stay with 363a.
+
+   *363a0 review, 8 November 2026:* the claim over `[0, Nmax]` is dropped, since the claim to
+   `first failure - 1` covers it (the renderer refuses an entry whose first failure is not past
+   `Nmax`, and the label still names `Nmax`), and the `2^224 - 1` rung is added: ten rungs, 390
+   entries, **3935 checks**, linear in substance though declared `QF_NIA` like the other integer
+   files, **Z3 1.3 to 1.5 s and cvc5 3.8 to 5.5 s** at load 10 to 11, against 1.3 s and 3.4 s
+   for 4208 checks above.
 7. **Coverage rows**, a "DECIMAL rescale down" family: `d19s8 * d19s8b` (128-bit dividend),
    `d38s10 * d38s10b` (256-bit, live check), `d38s38 * d38s38b` (`k = 39`), `d38s10 + d38s10b`,
    `d38 + d38s38` (class C at unequal scales), `try_multiply(d38s10, d38s10b)`, as filters now and
@@ -457,14 +470,16 @@ Predictions, registered before the spike and the build:
 | benchmark | the baseline sections, the spike loops, their results files |
 | generated | `coverage.json`, `docs/sql-varka.md`, `emitted_bytes.json`, `census.tsv` |
 
-**Size: large, in six pull requests after the baseline**: the spike loops about a day, 363a0 about
-two days, 363a about three, 363b three, 363c three, 363d one. Test time: the rescale table at 39 `k`
-and two bounds is pure kernels of the slot table's size, seconds; the type sweep and the rest of 363a0's
-suite 1.2 s in all; the SPARK-45786
+**Size: large, in five pull requests after the baseline**: the spike loops about a day, 363a about
+four days, 363b three, 363c three, 363d one. Test time: the rescale table at 39 `k` and two bounds
+is pure kernels of the slot table's size, seconds; the type sweep under a second; the SPARK-45786
 port a thousand rows; the proof file has a constant per `(k, bound)` the compiler can meet and
 the lemma's cases, priced from its
 spiked form at VARKA-245's observed ratio in the calibration table, its time stated before it
 joins the gate. It rests on 347 to 349, 359, 360b and 360c, 361, 362, 481 and 503.
+
+*7-8 November 2026, 363a0:* splitting 363a0 off 363a makes it six pull requests: 363a0 about two days
+out of 363a's four, leaving 363a about three. The type sweep's time is scored with 3 item 4.
 
 ## 6. What it unlocks in the census
 
