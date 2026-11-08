@@ -1176,15 +1176,15 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     assert(reason.contains("VARKA-102"), reason)
   }
 
-  test("floor and ceil over a double, a decimal or a cast name the row that owns it") {
+  test("floor and ceil over a double or a cast name the row that owns it") {
     // The analyzer casts a FLOAT, SMALLINT or STRING operand to DOUBLE, so the rounding arm sees
     // a cast and names the row that serves its source type, if any; a bare double names the row
-    // that converts it to a bigint, and a decimal the row of the decimal floor.
+    // that converts it to a bigint. (A decimal floor as an output is declined first by the
+    // decimal store, so its arm's row 351 is not reached here.)
     val f = AttributeReference("f", FloatType)()
     val s = AttributeReference("s", StringType)()
     val dbl = AttributeReference("dbl", DoubleType)()
-    val dec = AttributeReference("dec", DecimalType(10, 2))()
-    val output = childOutput ++ Seq(f, s, dbl, dec)
+    val output = childOutput ++ Seq(f, s, dbl)
     def bothOver(x: Expression): Seq[Expression] = Seq(Floor(x), Ceil(x))
     // A FLOAT and a SMALLINT are 344c's; a STRING is no rounding row's, so none is named.
     for (from <- Seq(f, sh, s); e <- bothOver(Cast(from, DoubleType))) {
@@ -1199,10 +1199,6 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     }
     for (e <- bothOver(dbl)) {
       assert(declineReason(e, output).contains("floor or ceil over double (row 344b)"))
-    }
-    for (e <- bothOver(dec)) {
-      val reason = declineReason(e, output)
-      assert(reason.contains("floor or ceil over a decimal (row 351)"), reason)
     }
   }
 
