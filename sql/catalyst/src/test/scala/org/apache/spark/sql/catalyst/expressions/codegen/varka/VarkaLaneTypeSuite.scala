@@ -17,6 +17,7 @@
 
 package org.apache.spark.sql.catalyst.expressions.codegen.varka
 
+import java.lang.classfile.{ClassBuilder, ClassFile, CodeBuilder, TypeKind}
 import java.lang.constant.{ClassDesc, ConstantDescs, MethodTypeDesc}
 import java.util.Locale
 
@@ -337,6 +338,38 @@ class VarkaLaneTypeSuite extends SparkFunSuite with VarkaTestWatchdog {
     assert(Lane.DOUBLE.byteStride === 8L && Lane.FLOAT.byteStride === 4L)
     assert(Lane.DOUBLE.speciesField(8) === "SPECIES_512")
     assert(Lane.FLOAT.speciesField(16) === "SPECIES_512")
+  }
+
+  test("a lane's zero is its scalar type's zero, and a floating lane's is positive") {
+    // The broadcast of a typed null pushes it (VARKA-578): an integral lane's is the constant
+    // pushScalar writes, so no integral kernel's bytes move, and a floating lane's is +0.0 of its
+    // own type, since pushScalar is integral by contract. Each is returned from a method of the
+    // lane's scalar type: the verifier checks the type, and the boxed equality the bits.
+    val expected = Map[Lane, AnyRef](Lane.BYTE -> java.lang.Byte.valueOf(0.toByte),
+      Lane.SHORT -> java.lang.Short.valueOf(0.toShort), Lane.INT -> Integer.valueOf(0),
+      Lane.LONG -> java.lang.Long.valueOf(0L), Lane.FLOAT -> java.lang.Float.valueOf(0.0f),
+      Lane.DOUBLE -> java.lang.Double.valueOf(0.0d))
+    assert(expected.keySet === Lane.values().toSet)
+    val loader = new VarkaGeneratedClassLoader(getClass.getClassLoader)
+    try {
+      for (lane <- Lane.values()) {
+        val name = s"org.apache.spark.sql.varka.execution.VarkaLaneZero$lane"
+        val bytes = ClassFile.of().build(ClassDesc.of(name), (clb: ClassBuilder) => {
+          clb.withMethodBody("zero", MethodTypeDesc.of(lane.scalar),
+            ClassFile.ACC_PUBLIC | ClassFile.ACC_STATIC, (cb: CodeBuilder) => {
+              lane.pushZero(cb)
+              cb.return_(TypeKind.from(lane.scalar))
+              ()
+            })
+          ()
+        })
+        loader.defineGeneratedClass(name, bytes)
+        val zero = loader.loadClass(name).getMethod("zero").invoke(null)
+        assert(zero.equals(expected(lane)), s"$lane pushes $zero")
+      }
+    } finally {
+      loader.release()
+    }
   }
 
   test("every descriptor the lane derives is the one the Vector API declares") {

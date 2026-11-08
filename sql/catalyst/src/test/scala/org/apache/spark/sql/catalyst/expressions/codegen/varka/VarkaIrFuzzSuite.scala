@@ -1198,7 +1198,9 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
     // `VarkaDecimalLoadSuite`'s, and its fuzz sequence is the decimal draw below, on a seed of its
     // own so that no shape here moves (VARKA-348).
     // The null leaf (VARKA-333) is drawn by the nulling draw only, on its own seed, so that no
-    // shape here moves; the test of the nulling draw's reach below holds it to both lanes.
+    // shape here moves; the test of the nulling draw's reach below holds it to both lanes. The
+    // grammar draws no narrow or floating lane, so their null (VARKA-578) has a draw of its own,
+    // the null-lane draw below; an NTZ's null is the long lane's.
     // The decimal output (VARKA-157) has its own draw, on its own seed, so that no shape here
     // moves: the decimal-store test above runs it.
     // The floating math function (VARKA-342) is out with the floating lanes: the grammar draws no
@@ -1552,24 +1554,26 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
    * is counted and skipped; a failing range guard may decline the batch, which the reference has
    * no value for, so such a draw allows it. Not shrunk on failure, as the mixed corpus is not.
    */
-  private def runOneCast(iteration: Int): Unit = {
-    val rnd = VarkaIrGrammar.shapeRandom(castSeed, iteration)
-    val root = VarkaIrGrammar.drawCastShape(rnd)
+  private def runOneCast(iteration: Int, seed: Long = castSeed, name: String = "cast",
+      draw: Random => VarkaVectorIR = VarkaIrGrammar.drawCastShape,
+      categoryOf: VarkaVectorIR => String = castCategory): Unit = {
+    val rnd = VarkaIrGrammar.shapeRandom(seed, iteration)
+    val root = draw(rnd)
     val roots = java.util.List.of(root)
     val numInputs = VarkaIrGrammar.CAST_BOOL_COLUMN + 1
     val length = lengths(rnd.nextInt(lengths.length))
     val patternIds = Seq.fill(numInputs)(rnd.nextInt(patternNames.length))
     val patterns = patternIds.map(pattern(rnd, _, length))
     val forceMasked = length > 1 && rnd.nextInt(4) == 0
-    val options = randomOptions(rnd, VarkaMatrix.base, castSeed, iteration)
+    val options = randomOptions(rnd, VarkaMatrix.base, seed, iteration)
     val data = Array.tabulate(numInputs, length)((c, _) => VarkaIrGrammar.castValue(rnd, c))
     val nulls = Array.tabulate(numInputs, length)((c, i) => patterns(c)(i))
-    val label = s"lane=cast seed=$castSeed iteration=$iteration " +
+    val label = s"lane=$name seed=$seed iteration=$iteration " +
       s"root=${VarkaVectorIR.canonical(root)} " +
       s"options=${if (options.isDefault) "(defaults)" else options.canonical()} " +
       s"length=$length patterns=${patternIds.map(patternNames).mkString(",")} " +
       s"forceMasked=$forceMasked"
-    val category = castCategory(root)
+    val category = categoryOf(root)
     val refusal = VarkaKernelPlan.refusalOf(roots, options)
     if (refusal.isPresent) {
       castDrawn(category) = castDrawn.getOrElse(category, 0) + 1
@@ -1634,11 +1638,14 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
     reason.contains("has no load at") || reason.contains("has no widening load at") ||
       reason.contains("needs a baked")
 
-  /** One compiled cast draw through the harness of its drive lane. */
+  /**
+   * One compiled cast draw through the harness of its drive lane: the long one for a 64-bit
+   * drive, a DOUBLE's bits included (the null-lane draw's), and the narrow one otherwise.
+   */
   private def runCast(label: String, className: String, bytes: Array[Byte],
       roots: java.util.List[VarkaVectorIR], numInputs: Int, batch: VarkaKernelChecks.LongBatch,
       options: VarkaEmitOptions, declineAllowed: Boolean): Unit = {
-    if (VarkaKernelPlan.driveOf(roots, options).get() == LaneType.LONG) {
+    if (VarkaKernelPlan.driveOf(roots, options).get().bits() == java.lang.Long.SIZE) {
       VarkaKernelChecks.runAndCompareMixed(label, className, bytes, roots, numInputs,
         Array(0), Array(0L), batch, declineAllowed, null)
     } else {
@@ -1672,7 +1679,7 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
     try {
       only match {
         case Some(k) => runOneCast(k)
-        case None => (0 until iterations).foreach(runOneCast)
+        case None => (0 until iterations).foreach(k => runOneCast(k))
       }
     } finally {
       VarkaEmitReach.detach(randomTrace)
@@ -1718,6 +1725,57 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
       Seq("SHORT", "INT", "LONG").map(t => s"narrowing read by a widening to $t") ++
       (for (n <- Seq("Compare", "NullSafeEqual", "Not", "And", "Or"); l <- Seq("BYTE", "SHORT"))
         yield s"narrowing read by $n at $l")
+    assert((wanted.toSet -- seen).isEmpty, s"never drawn: ${(wanted.toSet -- seen).toSeq.sorted}")
+  }
+
+  // The typed null at the narrow and floating lanes (VARKA-578), which no other draw reaches: its
+  // own draw over the cast draw's columns, through the cast draw's harness.
+  private val nullingLaneSeed = sys.props.get("varka.fuzz.seed").map(_.toLong)
+    .getOrElse(VarkaIrGrammar.NULLING_LANE_FUZZ_SEED)
+
+  /** A null-lane draw's class: its lane. */
+  private def nullingLaneCategory(root: VarkaVectorIR): String = s"null at ${root.laneType()}"
+
+  test(s"random typed nulls at the narrow and floating lanes match the reference evaluator " +
+      s"(seed $nullingLaneSeed, $iterations iterations)") {
+    castDrawn.clear()
+    castFused.clear()
+    val reach = VarkaEmitReach.attach(randomTrace, "null-lane draws")
+    try {
+      val ks = only.map(Seq(_)).getOrElse(0 until iterations)
+      ks.foreach(k => runOneCast(k, nullingLaneSeed, "null-lane",
+        VarkaIrGrammar.drawNullingLaneShape, nullingLaneCategory))
+    } finally {
+      VarkaEmitReach.detach(randomTrace)
+    }
+    val counts = castDrawn.keys.toSeq.sorted.map { c =>
+      s"$c ${castFused.getOrElse(c, 0)}/${castDrawn(c)}"
+    }
+    logInfo(s"null-lane draws fused per lane: ${counts.mkString(", ")}")
+    if (only.isEmpty && castArmLongLanes >= 4) {
+      for ((c, drawn) <- castDrawn if drawn >= 20) {
+        assert(castFused.getOrElse(c, 0) >= 1,
+          s"none of $drawn $c draws fused; counts: ${counts.mkString(", ")}")
+      }
+    }
+    reportReach(reach)
+    reportSkipped()
+  }
+
+  test("the null-lane draw reaches every lane at each of the null's positions") {
+    def position(n: VarkaVectorIR): String = n match {
+      case x: IfElse if x.elseNode().isInstanceOf[IfElse] => "twice"
+      case x: IfElse if x.elseNode().isInstanceOf[VarkaVectorIR.NullValue] => "else"
+      case _: IfElse => "then"
+      case _ => "pick"
+    }
+    val seen = (0 until 400).map { k =>
+      val root = VarkaIrGrammar.drawNullingLaneShape(
+        VarkaIrGrammar.shapeRandom(VarkaIrGrammar.NULLING_LANE_FUZZ_SEED, k))
+      s"${position(root)} at ${root.laneType()}"
+    }.toSet
+    val wanted = for (l <- VarkaIrGrammar.NULLING_LANES.asScala;
+      p <- Seq("else", "then", "pick", "twice")) yield s"$p at $l"
     assert((wanted.toSet -- seen).isEmpty, s"never drawn: ${(wanted.toSet -- seen).toSeq.sorted}")
   }
 
