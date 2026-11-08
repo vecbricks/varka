@@ -96,21 +96,21 @@ final class VarkaDecimalScale {
 
     Entry {
       if (k < MIN_K || k > MAX_K) {
-        throw new IllegalArgumentException("k = " + k + " is outside " + MIN_K + ".." + MAX_K);
+        throw VarkaErrors.illegalArgument("k = " + k + " is outside " + MIN_K + ".." + MAX_K);
       }
       if (bound.signum() <= 0 || shift <= 0 || multiplier.signum() <= 0) {
-        throw new IllegalArgumentException("a bound, shift and multiplier must be positive");
+        throw VarkaErrors.illegalArgument("a bound, shift and multiplier must be positive");
       }
       // From the parameters: the accessors read the fields, unassigned until this body ends.
       BigInteger fives = BigInteger.valueOf(5).pow(k);
       BigInteger power = BigInteger.ONE.shiftLeft(shift);
       if (!multiplier.equals(power.add(fives).subtract(BigInteger.ONE).divide(fives))) {
-        throw new IllegalArgumentException("the multiplier is not ceil(2^" + shift + " / 5^" + k
+        throw VarkaErrors.illegalArgument("the multiplier is not ceil(2^" + shift + " / 5^" + k
             + ")");
       }
       BigInteger error = multiplier.multiply(fives).subtract(power);
       if (error.multiply(bound.shiftRight(k - 1)).compareTo(power) >= 0) {
-        throw new IllegalArgumentException("e * Nmax reaches 2^" + shift + " at k = " + k);
+        throw VarkaErrors.illegalArgument("e * Nmax reaches 2^" + shift + " at k = " + k);
       }
     }
 
@@ -181,14 +181,14 @@ final class VarkaDecimalScale {
    */
   static Entry of(int k, BigInteger bound) {
     if (k < MIN_K || k > MAX_K) {
-      throw new IllegalArgumentException("k = " + k + " is outside " + MIN_K + ".." + MAX_K);
+      throw VarkaErrors.illegalArgument("k = " + k + " is outside " + MIN_K + ".." + MAX_K);
     }
     for (BigInteger rung : BOUNDS) {
       if (bound.compareTo(rung) <= 0) {
         return TABLE.get(BOUNDS.indexOf(rung) * (MAX_K - MIN_K + 1) + (k - MIN_K));
       }
     }
-    throw new IllegalArgumentException("no constant for a bound of " + bound.bitLength() + " bits");
+    throw VarkaErrors.illegalArgument("no constant for a bound of " + bound.bitLength() + " bits");
   }
 
   /**
@@ -261,7 +261,7 @@ final class VarkaDecimalScale {
 
   private static void requireMagnitude(Entry entry, BigInteger n) {
     if (n.signum() < 0 || n.compareTo(entry.bound()) > 0) {
-      throw new IllegalArgumentException(n + " is outside [0, " + entry.bound() + "]");
+      throw VarkaErrors.illegalArgument(n + " is outside [0, " + entry.bound() + "]");
     }
   }
 
