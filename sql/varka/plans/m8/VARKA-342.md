@@ -527,6 +527,11 @@ the ones that do:
 - **The decline names its wait.** `floatingDecline` gives the four interval classes their own
   reason, the conversions to an integral lane (row 342 after part 343b2), in place of "floating
   arithmetic (row 342)".
+- **The width audit under AVX2.** The 13 new shapes are in `width_audit.json`'s census, taken on
+  the laptop at `UseAVX` 3. Rerun at the preferred width under `JDK_JAVA_OPTIONS=-XX:UseAVX=2`
+  (9 November 2026), the audit's invariant held: every shape is emitted, and C2 refused no Vector
+  API call in any of them beyond the 64-bit converts without AVX512DQ, which the audit admits by
+  design.
 
 **Open for the owner: where the proof runs.** `dev/varka_prove.sh --lint`, the linters' job's
 step, which its workflow comment keeps "inside its minute", took 142 s on the laptop with the
