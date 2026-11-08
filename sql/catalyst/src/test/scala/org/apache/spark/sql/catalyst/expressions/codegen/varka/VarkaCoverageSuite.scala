@@ -135,6 +135,13 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
   // DECIMAL(8, 2) (VARKA-349), so that a product with d9 is DECIMAL(18, 4), within the long
   // lane, where d9 * d9b is DECIMAL(19, 4).
   private val d8 = AttributeReference("d8", DecimalType(8, 2))()
+  // The 128-bit lane pair's columns (VARKA-359): each value two long words, the low and the
+  // high. d19 is the narrowest precision of the pair, d38 and d38b its widest at scale 2, and
+  // d3810 the baseline benchmark's DECIMAL(38, 10).
+  private val d19 = AttributeReference("d19", DecimalType(19, 2))()
+  private val d38 = AttributeReference("d38", DecimalType(38, 2))()
+  private val d38b = AttributeReference("d38b", DecimalType(38, 2))()
+  private val d3810 = AttributeReference("d3810", DecimalType(38, 10))()
 
   // The InSet row's eleven elements at d18's scale: three the differential fixtures hold, a
   // negative one among them, and eight more.
@@ -143,7 +150,7 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
 
   private val columns: Seq[Attribute] = Seq(d, d2, i, ymm, ymy, ym, l, l2, t, t2, dt, dt2, b, b2,
     y1, y2, s1, s2, ntz, ntz2, x, x2, f, f2, d9, d9b, d18, d18b,
-    d9s4, d16s9, d8)
+    d9s4, d16s9, d8, d19, d38, d38b, d3810)
 
   /**
    * One documented expression. `sql` is both what the table prints and what the check
@@ -1217,6 +1224,29 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
         Some(InSet(d18, decimalSet.map(v => Decimal(v).asInstanceOf[Any]).toSet)),
         Some(decimalSet.mkString("d18 IN (", ", ", ")"))))),
 
+    // DECIMAL of precision 19 to 38 (VARKA-359): each value is the two words of its unscaled
+    // value, v = hi * 2^64 + lo, read from Arrow's sixteen-byte slot by two word leaves that
+    // share one load and one 10^p check. Two values of one scale compare by their high words,
+    // signed, and where those are equal by their low words, unsigned; a value within 18 digits
+    // joins as its long and that long's sign extension. Each kernel declines a batch holding a
+    // valid slot outside the precision, where Spark raises, so the rows name no domain.
+    Family("DECIMAL lane pair", predicates = true, Seq(
+      Row("d38 < d38b", "LT(hi) | (EQ(hi) & ULT(lo)): five lane calls over the two pairs"),
+      Row("d38 <= d38b"),
+      Row("d38 > d38b", "d38b < d38, the operands swapped"),
+      Row("d38 >= d38b"),
+      Row("d38 = d38b", "both words equal"),
+      Row("d38 <> d38b", "the NOT of the equality"),
+      Row("d38 <=> d38b", "each word's null-safe equality, ANDed: the words share a validity"),
+      Row("d19 < d38", "coercion casts d19 to DECIMAL(38, 2), which keeps both words"),
+      Row("d18b < d38", "across the 64-bit boundary: d18b's long and its sign extension"),
+      Row("d38 = 12345678901234567890123", "a literal wider than a long, cast to the column's "
+        + "scale at compile time, its two words in two slots of the long table"),
+      Row("d3810 > 1.5", "at DECIMAL(38, 10), the baseline's type"),
+      Row("d38 IS NULL", "the low word's validity, its slots checked as Spark's reader does"),
+      Row("d38 IS NOT NULL"),
+      Row("d19 IS NULL"))),
+
     // Decimal +, - and * whose result stays within 18 digits (VARKA-349), under a comparison:
     // a sum or difference is one long add or subtract of the operands rescaled to the result's
     // scale, a product one long multiply. Within 18 digits the exact result always fits Spark's
@@ -1780,7 +1810,9 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
     "Boolean columns" -> Exhausted("VarkaEmitterBoolSuite",
       "boolean comparisons, null-safe equality, choice and constants over every leaf state"),
     // The value picks over a date or a long column are not swept: only the condition is.
-    "Boolean columns choosing values" -> Differential)
+    "Boolean columns choosing values" -> Differential,
+    // The pair's comparisons and the sign extension, in both of the file's layers (VARKA-359).
+    "DECIMAL lane pair" -> Proved("decimal128.smt2"))
 
   // VarkaEmitterNarrowSuite's byte square sweeps every TINYINT pair through the comparisons and
   // the picks, but over values only, with no null row, and its IN is a range set where the rows
