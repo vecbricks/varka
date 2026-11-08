@@ -26,7 +26,6 @@ import java.util.OptionalLong;
 import java.util.TreeSet;
 import java.util.function.BiFunction;
 import java.util.function.BinaryOperator;
-import java.util.function.Function;
 import java.util.regex.Pattern;
 
 import scala.Tuple2;
@@ -198,7 +197,7 @@ final class VarkaDecimalCompiler {
     }
     // One width check for every form, a new one included, so that no arm builds a Scaled its
     // record refuses. A column keeps the registry's reason, which names its own row.
-    if (isWide(e) && !(e instanceof BoundReference)) {
+    if (type.precision() > MAX_PRECISION && !(e instanceof BoundReference)) {
       return sink.decline(wideReason(e, type), e);
     }
     if (e.foldable()) {
@@ -294,10 +293,9 @@ final class VarkaDecimalCompiler {
     boolean named = false; // whether a row besides the wide value's own 359 is named
     for (Expression child : CollectionConverters.asJava(e.children())) {
       Expression at = child instanceof RuntimeReplaceable r ? r.replacement() : child;
-      if (isWide(at)) {
+      if (at.dataType() instanceof DecimalType t && t.precision() > MAX_PRECISION) {
         Optional<String> below = at instanceof Add || at instanceof Subtract
-            || at instanceof Multiply ? Optional.of(wideReason(at, (DecimalType) at.dataType()))
-            : wideArithmeticBelow(at);
+            || at instanceof Multiply ? Optional.of(wideReason(at, t)) : wideArithmeticBelow(at);
         named |= below.isPresent();
         reasons.add(below.orElse("row 359's"));
       }
@@ -307,7 +305,8 @@ final class VarkaDecimalCompiler {
       reasons.addAll(named ? List.of("row 350's") : List.of("row 350's", "row 359's"));
       // A wide value's rescale down rounds HALF_UP by a 128-bit division, row 363's: the cast
       // coercion puts over the larger scale where the common type is capped at 38 digits.
-      if (isWide(c.child()) && from.scale() > ((DecimalType) c.dataType()).scale()) {
+      if (from.precision() > MAX_PRECISION
+          && from.scale() > ((DecimalType) c.dataType()).scale()) {
         reasons.add("row 363's");
       }
       named = true;
@@ -442,12 +441,14 @@ final class VarkaDecimalCompiler {
 
   /** {@link #lowersOverRescale} of {@code e} where it is a decimal wider than 18 digits. */
   private static boolean wideLowersOverRescale(Expression e) {
-    return isWide(e) && lowersOverRescale(e);
+    return e.dataType() instanceof DecimalType t && t.precision() > MAX_PRECISION
+        && lowersOverRescale(e);
   }
 
   /** Whether {@code e} is a decimal wider than 18 digits that {@link #rescalesUp} into. */
   private static boolean rescalesIntoWide(Expression e) {
-    return isWide(e) && rescalesUp(e, (DecimalType) e.dataType());
+    return e.dataType() instanceof DecimalType t && t.precision() > MAX_PRECISION
+        && rescalesUp(e, t);
   }
 
   /**
@@ -499,42 +500,31 @@ final class VarkaDecimalCompiler {
     sink.enterDecimal();
     try {
       if (!isWide(left) && !isWide(right)) {
-        return operands(whole, left, right, e -> value(e, inputs, literals, sink), Scaled::type,
-            sink).map(both -> longs.apply(both.get(0).unscaled(), both.get(1).unscaled()));
+        return compiledOperands(whole, left, right, inputs, literals, sink)
+            .map(both -> longs.apply(both.get(0), both.get(1)));
       }
-      return operands(whole, left, right, e -> pair(e, inputs, literals, sink), Pair::type, sink)
-          .map(both -> words.apply(both.get(0), both.get(1)));
+      // A rescale into the wide common type is row 360's, read before either side declines on
+      // its own, as compiledOperands reads it; a constant's folds at compile time.
+      for (Expression side : List.of(left, right)) {
+        if (!side.foldable() && rescalesIntoWide(side)) {
+          return sink.decline(wideReason(side, (DecimalType) side.dataType()), side);
+        }
+      }
+      Optional<Pair> l = pair(left, inputs, literals, sink);
+      if (l.isEmpty()) {
+        return Optional.empty();
+      }
+      Optional<Pair> r = pair(right, inputs, literals, sink);
+      if (r.isEmpty()) {
+        return Optional.empty();
+      }
+      if (l.get().type().scale() != r.get().type().scale()) {
+        return sink.decline("a comparison of decimals of two scales with no cast to one", whole);
+      }
+      return Optional.of(words.apply(l.get(), r.get()));
     } finally {
       sink.exitDecimal();
     }
-  }
-
-  /**
-   * The two operands of a comparison, each compiled by {@code side}, of one scale, or empty with
-   * the reason noted. A rescale into a wide common type names rows 359 and 360 whichever side
-   * carries it, so both sides are read for it before either declines on its own; a constant
-   * folds at compile time, and a rescale that fits a long ({@link #rescalesWithinLong}) is built.
-   */
-  private static <T> Optional<List<T>> operands(Expression whole, Expression left,
-      Expression right, Function<Expression, Optional<T>> side, Function<T, DecimalType> type,
-      DeclineSink sink) {
-    for (Expression e : List.of(left, right)) {
-      if (!e.foldable() && rescalesIntoWide(e) && !rescalesWithinLong(e)) {
-        return sink.decline(wideReason(e, (DecimalType) e.dataType()), e);
-      }
-    }
-    Optional<T> l = side.apply(left);
-    if (l.isEmpty()) {
-      return Optional.empty();
-    }
-    Optional<T> r = side.apply(right);
-    if (r.isEmpty()) {
-      return Optional.empty();
-    }
-    if (type.apply(l.get()).scale() != type.apply(r.get()).scale()) {
-      return sink.decline("a comparison of decimals of two scales with no cast to one", whole);
-    }
-    return Optional.of(List.of(l.get(), r.get()));
   }
 
   /** Whether {@code e} is a decimal wider than 18 digits, which a {@link Pair} holds. */
@@ -548,10 +538,7 @@ final class VarkaDecimalCompiler {
    * of a long's value read as 128 bits. A wider one is a constant's two slots, a column's two
    * word leaves, or a cast that keeps the scale and only widens the precision, which keeps the
    * unscaled value, over one of these or over a value within 18 digits: the cast coercion puts
-   * over the narrower side of {@code d18 < d38}. A cast that raises the scale of a value within
-   * 18 digits is its {@link #rescale} on the long lane and that value's sign extension, where
-   * the rescaled value still fits 18 digits ({@link #rescalesWithinLong}). Every other wide form
-   * declines naming its row.
+   * over the narrower side of {@code d18 < d38}. Every other wide form declines naming its row.
    */
   private static Optional<Pair> pair(Expression e, VarkaSlotTable inputs,
       VarkaSlotTable literals, DeclineSink sink) {
@@ -564,7 +551,8 @@ final class VarkaDecimalCompiler {
           + "plan's 2.8)", e);
     }
     if (!isWide(e)) {
-      return value(e, inputs, literals, sink).map(x -> signExtended(x, x.type(), sink));
+      return value(e, inputs, literals, sink).map(x -> new Pair(x.unscaled(),
+          new BitOp(BitOpKind.SHR, x.unscaled(), sink.longSlot(Long.SIZE - 1)), x.type()));
     }
     if (e.foldable()) {
       return widePairLiteral(e, type, sink);
@@ -574,30 +562,8 @@ final class VarkaDecimalCompiler {
       case Cast c when c.child().dataType() instanceof DecimalType from
           && from.scale() == type.scale() && keepsDigits(from, type) ->
           pair(c.child(), inputs, literals, sink).map(p -> new Pair(p.lo(), p.hi(), type));
-      case Cast c when rescalesWithinLong(c) -> value(c.child(), inputs, literals, sink)
-          .map(x -> signExtended(rescale(x, type.scale() - x.type().scale(), sink), type, sink));
       default -> sink.decline(wideReason(e, type), e);
     };
-  }
-
-  /** {@code x} as the words of {@code type}: its long and the sign extension {@code u >> 63}. */
-  private static Pair signExtended(Scaled x, DecimalType type, DeclineSink sink) {
-    return new Pair(x.unscaled(),
-        new BitOp(BitOpKind.SHR, x.unscaled(), sink.longSlot(Long.SIZE - 1)), type);
-  }
-
-  /**
-   * Whether {@code e} is a cast that raises the scale of a value within 18 digits into a wide
-   * type and keeps every digit, its rescaled value still within 18 digits
-   * ({@code p + k <= 18}): coercion's cast of {@code d9s4} to {@code DECIMAL(38, 10)} in
-   * {@code d9s4 < d3810}, of 15 digits. One long multiply rescales it and cannot wrap
-   * ({@link #rescale}), so it needs no wide rescale, row 360's.
-   */
-  private static boolean rescalesWithinLong(Expression e) {
-    return e instanceof Cast c && isWide(c) && c.dataType() instanceof DecimalType to
-        && c.child().dataType() instanceof DecimalType from
-        && from.precision() <= MAX_PRECISION && keepsDigits(from, to)
-        && from.precision() + to.scale() - from.scale() <= MAX_PRECISION;
   }
 
   /**
@@ -614,24 +580,62 @@ final class VarkaDecimalCompiler {
       return sink.decline(VarkaTypes.declineReason(type)
           .orElse("a decimal column the registry does not read as two long words"), br);
     }
-    return Optional.of(new Pair(wordLeaf(br, Word.LOW, inputs), wordLeaf(br, Word.HIGH, inputs),
-        type));
-  }
-
-  /** The leaf of one word of a decimal column wider than 18 digits, its precision the column's. */
-  private static DecimalWord wordLeaf(BoundReference br, Word word, VarkaSlotTable inputs) {
-    return new DecimalWord(inputs.intern(br.ordinal()), word,
-        ((DecimalType) br.dataType()).precision());
+    int ordinal = inputs.intern(br.ordinal());
+    return Optional.of(new Pair(new DecimalWord(ordinal, Word.LOW, type.precision()),
+        new DecimalWord(ordinal, Word.HIGH, type.precision()), type));
   }
 
   /**
    * A constant wider than 18 digits as two slots of the long table, the words of its unscaled
-   * value at its type's scale, folded by {@link #folded} as {@link #literal} folds one.
+   * value at its type's scale, folded as {@link #literal} folds one and declining as it does.
    */
   private static Optional<Pair> widePairLiteral(Expression e, DecimalType type,
       DeclineSink sink) {
-    return folded(e, type, sink).map(DecimalWords::of)
-        .map(w -> new Pair(sink.longSlot(w.lo()), sink.longSlot(w.hi()), type));
+    Object value;
+    try {
+      value = e.eval(null);
+    } catch (RuntimeException failed) {
+      return sink.decline("a decimal constant whose evaluation fails", e);
+    }
+    if (!(value instanceof Decimal d)) {
+      return sink.decline("a null decimal literal needs a decimal null value, rows 348 and 359's",
+          e);
+    }
+    BigInteger unscaled;
+    try {
+      unscaled = d.toJavaBigDecimal().setScale(type.scale()).unscaledValue();
+    } catch (ArithmeticException notExact) {
+      return sink.decline("a decimal literal with no exact value at the scale", e);
+    }
+    if (unscaled.abs().compareTo(BigInteger.TEN.pow(type.precision())) >= 0) {
+      return sink.decline("a decimal literal outside its type's precision", e);
+    }
+    DecimalWords w = DecimalWords.of(unscaled);
+    return Optional.of(new Pair(sink.longSlot(w.lo()), sink.longSlot(w.hi()), type));
+  }
+
+  private static Optional<List<VarkaVectorIR>> compiledOperands(Expression whole,
+      Expression left, Expression right, VarkaSlotTable inputs, VarkaSlotTable literals,
+      DeclineSink sink) {
+    // A rescale into a wide common type names rows 359 and 360 whichever side carries it, so
+    // both sides are read before either declines on its own.
+    for (Expression side : List.of(left, right)) {
+      if (rescalesIntoWide(side)) {
+        return sink.decline(wideReason(side, (DecimalType) side.dataType()), side);
+      }
+    }
+    Optional<Scaled> l = value(left, inputs, literals, sink);
+    if (l.isEmpty()) {
+      return Optional.empty();
+    }
+    Optional<Scaled> r = value(right, inputs, literals, sink);
+    if (r.isEmpty()) {
+      return Optional.empty();
+    }
+    if (l.get().type().scale() != r.get().type().scale()) {
+      return sink.decline("a comparison of decimals of two scales with no cast to one", whole);
+    }
+    return Optional.of(List.of(l.get().unscaled(), r.get().unscaled()));
   }
 
   /**
@@ -715,11 +719,10 @@ final class VarkaDecimalCompiler {
    * {@code CASE}'s taken branch, and there a decline hands the batch to the row engine, which
    * answers as Spark does.
    *
-   * <p>The value is compiled as a probe, for its declines alone, by {@link #wideProbe} where it
-   * is wider than 18 digits, a wide column's validity being its low word's: a choice's condition
-   * is not compiled in it, and what it appended to the tables - its leaves, and its own long
-   * literals, such as a rescale's factor, which the test does not read - is rolled back, so the
-   * test holds
+   * <p>The value is compiled as a probe, for its declines alone, by {@link #wideProbe} where it is
+   * wider than 18 digits, whose validity is its low word's: a choice's condition is not
+   * compiled in it, and what it appended to the tables - its leaves, and its own long literals,
+   * such as a rescale's factor, which the test does not read - is rolled back, so the test holds
    * {@link #valid}'s leaves and literals in {@link #valid}'s order. Each condition is then
    * compiled once, by {@link #valid}, and a null test nested in a condition costs its own size
    * rather than doubling at every level. The families the probe notes are kept: a family's switch
@@ -757,16 +760,12 @@ final class VarkaDecimalCompiler {
   }
 
   /**
-   * {@link #nullTested}'s probe of a value wider than 18 digits, for its declines alone: the forms
-   * that cannot null or fail on a row whose leaves are valid, in any mode, so that their validity
-   * is {@link #valid}'s, though no {@link Pair} holds their value yet. A column, a constant and a
-   * value within 18 digits are read as {@link #pair} reads them; a cast that keeps every digit
-   * is read through; a choice or a pick reads every value it can take, under its family's switch
-   * as {@link #value} reads one. A sum, a difference, a product and a cast that lowers can
-   * overflow, and decline naming their rows. So can a negation and {@code abs}, which within 18
-   * digits cannot: Spark negates a wide value through Scala's {@code BigDecimal}, whose default
-   * context rounds it to 34 digits, so near the bound of 38 digits the result leaves the type and
-   * raises ({@code Decimal.unary_-}); they decline naming row 359, whose value half owes them.
+   * {@link #nullTested}'s probe of a value wider than 18 digits: the forms that cannot null or
+   * fail where their leaves are valid, so their validity is {@link #valid}'s though no
+   * {@link Pair} holds them - {@link #pair}'s forms, a cast that keeps every digit, a choice and
+   * a pick, under its family's switch. Everything else declines naming its row: a sum, a product
+   * or a lowering cast can overflow, and Spark negates a wide value through Scala's
+   * {@code BigDecimal}, rounding it to 34 digits, so {@code -x} and {@code abs} can raise.
    */
   private static Optional<DecimalType> wideProbe(Expression e, VarkaSlotTable inputs,
       VarkaSlotTable literals, DeclineSink sink) {
@@ -825,8 +824,9 @@ final class VarkaDecimalCompiler {
     }
     return switch (e) {
       // A wide column's validity is its low word's, the test visiting the leaf for the check.
-      case BoundReference br when isWide(br) ->
-          Optional.of(new VarkaVectorIR.IsNotNull(wordLeaf(br, Word.LOW, inputs)));
+      case BoundReference br when isWide(br) -> Optional.of(new VarkaVectorIR.IsNotNull(
+          new DecimalWord(inputs.intern(br.ordinal()), Word.LOW,
+              ((DecimalType) br.dataType()).precision())));
       case BoundReference br -> Optional.of(new VarkaVectorIR.IsNotNull(leaf(br, inputs)));
       case Cast c -> valid(c.child(), inputs, literals, sink);
       case UnaryMinus m -> valid(m.child(), inputs, literals, sink);
@@ -1248,14 +1248,6 @@ final class VarkaDecimalCompiler {
    * does not fit 18 digits, declines too, and leaves the row engine to raise or answer.
    */
   private static Optional<Scaled> literal(Expression e, DecimalType type, DeclineSink sink) {
-    return folded(e, type, sink).map(u -> new Scaled(sink.longSlot(u.longValueExact()), type));
-  }
-
-  /**
-   * The constant {@code e}'s unscaled value at {@code type}'s scale, within its precision, or
-   * empty with the reason noted, as {@link #literal} describes the fold.
-   */
-  private static Optional<BigInteger> folded(Expression e, DecimalType type, DeclineSink sink) {
     Object value;
     try {
       value = e.eval(null);
@@ -1266,16 +1258,14 @@ final class VarkaDecimalCompiler {
       return sink.decline("a null decimal literal needs a decimal null value, rows 348 and 359's",
           e);
     }
-    BigInteger unscaled;
-    try {
-      unscaled = d.toJavaBigDecimal().setScale(type.scale()).unscaledValue();
-    } catch (ArithmeticException notExact) {
-      return sink.decline("a decimal literal with no exact value at the scale", e);
+    OptionalLong unscaled = exactUnscaled(d, type.scale());
+    if (unscaled.isEmpty()) {
+      return sink.decline("a decimal literal with no exact long at the scale", e);
     }
-    if (unscaled.abs().compareTo(BigInteger.TEN.pow(type.precision())) >= 0) {
+    if (!withinPrecision(unscaled.getAsLong(), type)) {
       return sink.decline("a decimal literal outside its type's precision", e);
     }
-    return Optional.of(unscaled);
+    return Optional.of(new Scaled(sink.longSlot(unscaled.getAsLong()), type));
   }
 
   /**

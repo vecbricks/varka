@@ -7563,18 +7563,6 @@
     "note" : "across the 64-bit boundary: d18b's long and its sign extension",
     "verified" : "proof: decimal128.smt2"
   }, {
-    "sql" : "d9s4 < d3810",
-    "executable" : "d9s4 < d3810",
-    "family" : "DECIMAL lane pair",
-    "form" : "predicate",
-    "catalyst" : [ "Cast", "LessThan" ],
-    "casts" : [ "dec>dec:ansi" ],
-    "operands" : [ "Cast:dec", "LessThan:dec" ],
-    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
-    "domain" : "",
-    "note" : "d9s4 cast up six digits of scale, to 15 digits: one long multiply, then its sign extension",
-    "verified" : "proof: decimal128.smt2"
-  }, {
     "sql" : "d38 = 12345678901234567890123",
     "executable" : "d38 = 12345678901234567890123",
     "family" : "DECIMAL lane pair",

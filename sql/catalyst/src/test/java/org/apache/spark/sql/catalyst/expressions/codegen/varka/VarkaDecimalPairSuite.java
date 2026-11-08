@@ -266,23 +266,6 @@ public final class VarkaDecimalPairSuite {
   }
 
   @Test
-  @DisplayName("a narrower side whose rescale up still fits 18 digits is rescaled by one long "
-      + "multiply and widened by its sign extension")
-  void sidesRescaledWithinALong() {
-    record Case(DecimalType narrow, DecimalType wide) { }
-    for (Case c : List.of(new Case(new DecimalType(9, 4), new DecimalType(38, 10)),
-        new Case(new DecimalType(16, 9), new DecimalType(38, 10)),
-        new Case(new DecimalType(10, 2), new DecimalType(20, 4)))) {
-      for (String op : OPS) {
-        check("a " + op + " b", c.narrow(), c.wide());
-        check("b " + op + " a", c.narrow(), c.wide());
-      }
-    }
-    // At 17 digits rescaled by 2, 19 digits, the rescale is the wide one, row 360's.
-    assertTrue(decline("a < b", new DecimalType(17, 2), new DecimalType(20, 4)).contains("360"));
-  }
-
-  @Test
   @DisplayName("the null tests of a wide column, of a widening cast, a choice or a pick over one "
       + "read its validity, and a wide negation, abs, sum or lowering cast declines")
   void nullTests() {

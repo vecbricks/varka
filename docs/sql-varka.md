@@ -1165,7 +1165,6 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `d38 <=> d38b` | `predicate` |  | each word's null-safe equality, ANDed: the words share a validity | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
 | `d19 < d38` | `predicate` |  | coercion casts d19 to DECIMAL(38, 2), which keeps both words | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
 | `d18b < d38` | `predicate` |  | across the 64-bit boundary: d18b's long and its sign extension | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
-| `d9s4 < d3810` | `predicate` |  | d9s4 cast up six digits of scale, to 15 digits: one long multiply, then its sign extension | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
 | `d38 = 12345678901234567890123` | `predicate` |  | a literal wider than a long, cast to the column's scale at compile time, its two words in two slots of the long table | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
 | `d3810 > 1.5` | `predicate` |  | at DECIMAL(38, 10), the baseline's type | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
 | `d38 IS NULL` | `predicate` |  | the low word's validity, its slots checked as Spark's reader does | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
@@ -1236,7 +1235,7 @@ operands (a row counts once for each type it reads):
 | `bool` | 38 | 0 | 0 | 13 | 0 | 25 |
 | `byte` | 51 | 0 | 0 | 0 | 8 | 43 |
 | `date` | 124 | 17 | 0 | 1 | 0 | 106 |
-| `dec` | 61 | 25 | 11 | 0 | 0 | 25 |
+| `dec` | 60 | 25 | 10 | 0 | 0 | 25 |
 | `double` | 64 | 0 | 0 | 0 | 0 | 64 |
 | `dt` | 27 | 2 | 1 | 0 | 0 | 24 |
 | `float` | 52 | 0 | 0 | 0 | 0 | 52 |

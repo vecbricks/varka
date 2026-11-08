@@ -705,36 +705,26 @@ tests; the sql ones, the golden suite's Varka arm and the literal-lift suite amo
 
 **The review's fixes (8 November 2026).**
 
-- *A rescale that fits a long.* A narrower side cast up in scale into the wide type, whose
-  rescaled value still has 18 digits or fewer (`p + k <= 18`), is rescaled by one long multiply
-  and widened by its sign extension, so `d9s4 < d3810` and `DECIMAL(10, 2) < DECIMAL(20, 4)`
-  fuse; at `p + k = 19` the rescale is still row 360's.
-- *Null tests over a wide value read its validity alone.* `nullTested`'s probe of a wide value
-  no longer needs its words: a column, a constant, a cast that keeps every digit, a choice and
-  a pick pass it, and the validity is `valid`'s, so `IF(p, d38, d38b) IS NULL`,
-  `coalesce(d38, d19) IS NULL` and `greatest(d38, d38b) IS NOT NULL` fuse. A sum, a difference,
-  a product and a lowering cast still decline, since each can null a row whose leaves are valid
-  or raise. So do a negation and `abs`: Spark negates a wide value through Scala's `BigDecimal`,
-  whose default context rounds it to 34 digits (`Decimal.unary_-`), so `-x` of a 38-digit value
-  near the bound raises `NUMERIC_VALUE_OUT_OF_RANGE`, seen running `VarkaDecimalPairSuite`.
-  **Owed to 359b:** 2.5's exact `-x` and `abs(x)` differ from Spark on every value of 35 or more
-  significant digits, which Spark rounds; 359b must match that rounding or decline there. The
-  census keeps `isnull` and `isnotnull` done over the column, its widening casts, the choices
-  and the picks, its note naming the negation as 359b's and the arithmetic as 360 to 363's.
-- *Verification.* `decimal128.smt2` models the words' values, not their validity, so the
-  family's `<=>` and null-test rows are marked differential (`pairNulls`), the others staying on
-  the proof.
-- *Reasons.* A cast down from a wide value to 18 digits or fewer names the rows the same cast
-  to 38 digits names, `CAST(d38s10 AS DECIMAL(18, 2))` rows 350, 359 and 363, as
-  `CAST(d38s10 AS DECIMAL(38, 2))` does. The time compiler's reason for a wide decimal column as
-  a value names its own rows: 359 for a negation, `abs`, a choice and the two-word store, 360 to
-  363 for `+`, `-` and `*`.
-- *Shared code.* The comparison's two sides are read by one `operands`, whatever compiles a
-  side; a constant is folded by one `folded` for its long and for its two words; `wordLeaf`
-  builds a word leaf; `isWide` replaces the other width checks.
-- *Not changed:* the `Pair` constructor's lane check cannot fire from `pair`, whose narrow words
-  come from `Scaled`, which refuses a word off the long lane itself, and whose wide words are
-  `DecimalWord` leaves and long-table slots.
+- *Null tests read a wide value's validity alone*: a probe that needs no words passes a column,
+  a constant, a cast that keeps every digit, a choice and a pick, so `IF(p, d38, d38b) IS NULL`,
+  `coalesce(d38, d19) IS NULL` and `greatest(d38, d38b) IS NOT NULL` fuse. A sum, a product and
+  a lowering cast still decline (each can null or raise on valid leaves), and so do `-x` and
+  `abs(x)`: Spark negates a wide value through Scala's `BigDecimal`, which rounds it to 34
+  digits (`Decimal.unary_-`), and near the bound raises `NUMERIC_VALUE_OUT_OF_RANGE`, as
+  `VarkaDecimalPairSuite` showed. **Owed to 359b:** 2.5's exact `-x` and `abs(x)` differ from
+  Spark on every value of 35 or more significant digits; 359b matches the rounding or declines.
+  The census note says which forms over a wide value stay owed.
+- *Verification*: `decimal128.smt2` models values, not validity, so the family's `<=>` and null
+  tests are marked differential.
+- *Reasons*: `CAST(d38s10 AS DECIMAL(18, 2))` names rows 350, 359 and 363, as the same cast to
+  38 digits does; the time compiler's reason for a wide column as a value names rows 359 and 360
+  to 363, not the 64-bit ones.
+- *Not changed*: `Pair`'s lane check cannot fire from `pair`, whose narrow words come from
+  `Scaled`, which refuses a word off the long lane itself.
+- *Deferred under the cap*, to the next part: a narrower side whose rescale up still fits 18
+  digits (`p + k <= 18`, `d9s4 < d3810`) rescaled by one long multiply and sign-extended, where
+  it now declines naming row 360; and four refactors (one reader of a comparison's sides for both
+  arms, one constant fold, a word-leaf builder, `isWide` at the older width checks).
 
 **Not in this part**, owed: the conformance suite (11.5 item 5), the planted faults for row 504 as
 committed test flags, the op-count test, the measurement on the EPYC and Arm runners (11.8 point

@@ -1288,8 +1288,6 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
       Row("d38 <=> d38b", "each word's null-safe equality, ANDed: the words share a validity"),
       Row("d19 < d38", "coercion casts d19 to DECIMAL(38, 2), which keeps both words"),
       Row("d18b < d38", "across the 64-bit boundary: d18b's long and its sign extension"),
-      Row("d9s4 < d3810", "d9s4 cast up six digits of scale, to 15 digits: one long multiply, "
-        + "then its sign extension"),
       Row("d38 = 12345678901234567890123", "a literal wider than a long, cast to the column's "
         + "scale at compile time, its two words in two slots of the long table"),
       Row("d3810 > 1.5", "at DECIMAL(38, 10), the baseline's type"),
