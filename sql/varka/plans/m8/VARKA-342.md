@@ -473,6 +473,61 @@ Where the code departs from 2.1 to 2.5, and what is still owed:
   for its pair to score). It changes speed only, so it lands as an option arm with its pair
   benchmark, never as a replacement on a reading of the op counts.
 
+### 5.2 Step 4 as built, its first piece (8 November 2026)
+
+Step 4 was to follow 343's conversions, and only half of them have landed. `I2D`, `F2D` and the
+narrow loads are on master (343a3, 343a5), `L2D` only where the emit level assures AVX512DQ
+(343a4), and nothing converts a floating lane to an integral one: `VarkaKernelPlan.
+conversionRefusal` refuses every such `ConvertLane` and names part 343b2, which also owns the
+floating `GuardedRange` bounds (`VARKA-343.md` 4). 2.4's `t = toIntegral(g)` is that conversion
+and `g` that guard, so the four interval products and quotients cannot be built in this row
+without building 343's code here, which 8 rules out. By 8's rule of landing what is ready, the
+step lands in two pieces, cut between the forms that need no conversion to an integral lane and
+the ones that do:
+
+- **The cast forms fuse as they are.** `dev/varka_emit.sh` on master: `i / y1`, `s1 / i`,
+  `x / i`, `f / f2`, `try_divide(i, y1)`, `sqrt(i)`, `signum(i)`, `degrees(i)`, `sqrt(f)`,
+  `signum(f)` and `radians(s1)` each compile to one fused output, the division and the
+  functions over 343's exact conversions with no code of this step. The coverage table gains
+  the family "Floating arithmetic over other types" with the eleven, the divisions under a
+  domain that keeps the divisor non-zero, as `x / x2`'s. A `BIGINT` operand (`l / l2`,
+  `sqrt(l)`) is not a row: the coverage suite compiles at the defaults' unknown emit level, where
+  `L2D` declines. Each row is verified differentially (`differential` in `coverage.json`): the
+  conversions are exhausted by 343a5's sweeps and the double forms by this row's step 3, but no
+  test sweeps the two composed.
+- **`signum` over an interval** is built here, since it needs no conversion to an integral lane.
+  2.4's `IfElse` over the interval lane's compares answers `0.0` for a null count, as 2.3's form
+  did (5.1): a null's conditions are unknown and take the last arm, a valid literal. The built
+  form is `(double) ((m > 0) - (m < 0))`: each compare a `CondValue` on the count's own lane, null
+  where the compare is unknown, their difference there, narrowed from the long lane to the int
+  one for a day-time interval, then `I2D`. So a null count answers null, a zero `+0.0`, and no
+  `L2D` is needed: the day-time form fuses on AVX2 hosts too, where 2.4 expected the crossing.
+  Spark's generated code calls `Math.signum(float)` on the int or long count (the overload Java
+  picks) and its interpreted path `Math.signum(double)`; both give `-1`, `+0.0` or `1`, and
+  `VarkaFloatingLaneSuite` holds the kernel and both paths to the same bits at each type's ends,
+  zero, one, minus one and nulls. Two coverage rows, `signum(ym)` and `signum(dt)`.
+- **The rounding's proof is built ahead of its lowering** (3.7), as 343b1 built its proofs ahead
+  of `VarkaConversionLowering`: `sql/varka/proofs/fp_half_up.smt2`, rendered by
+  `VarkaProofFiles.fpHalfUp` from the plan's bounds, which it holds until the lowering exists.
+  It states 2.4 against Guava 33.6.0's code read from its sources jar: for each of the int and
+  the long, the inclusive guard holds exactly the doubles `roundToInt` or `roundToLong` answers
+  (so a NaN, an infinity and every double past the type decline), inside it `t + bump` is
+  Guava's answer, and `f = 0` at every `|p| >= 2^52`; each guard one double wider at either end
+  and the tie taken by `f > 0.5` are refuted. 2.4 holds as written: Guava tests the rounded `z`,
+  and the plan's exclusive `(-2^31 - 0.5, 2^31 - 0.5)` and `[-2^63, 2^63)` on `p` are the same
+  test. The pinned cells are the ties of 3.7 and row 103's products (PLAN.md's 30 October note,
+  `results/VARKA-103-admission.txt` item 7), each against the answer Spark gave there.
+- **The decline names its wait.** `floatingDecline` gives the four interval classes their own
+  reason, the conversions to an integral lane (row 342 after part 343b2), in place of "floating
+  arithmetic (row 342)".
+
+**Still owed by step 4**, after 343b2: `ym * x`, `ym / x`, `dt * x` and `dt / x` by 2.4's
+construction over `D2I` and `D2L` and the floating guard, with 3.7's pinned cells through the
+kernel, the division's `FAIL` unconditional; the `2^51` decline on AVX2 if 343b1's `D2L` is the
+bounded magic there (`VARKA-343.md` 8 makes the whole-range arms the default, so it may not
+arise); the proof's bounds read from the lowering's constants; the coverage rows of the four;
+and the baselines' fuse lists for `ym * x` and `dt / x`.
+
 ## 6. Out of this row
 
 `%`, `pmod` and `try_mod` (346); `try_divide` and `try_multiply` over an interval, which are
