@@ -20,12 +20,22 @@ package org.apache.spark.sql.catalyst.expressions.codegen.varka;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.fail;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
+import java.lang.foreign.Arena;
+import java.lang.foreign.MemorySegment;
+import java.lang.foreign.ValueLayout;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.IntPredicate;
+import java.util.function.IntToLongFunction;
+import java.util.stream.LongStream;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.apache.spark.sql.catalyst.expressions.codegen.VarkaGeneratedClassLoader;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.And;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BoolOutput;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ColumnRef;
@@ -505,8 +515,8 @@ public final class VarkaEmitterFloatingCastSuite {
   }
 
   @Test
-  @DisplayName("a narrow column converted to DOUBLE in a double kernel; its null test alone "
-      + "declines there and fuses as a FLOAT")
+  @DisplayName("a narrow column converted to DOUBLE in a double kernel, and its null test beside "
+      + "it or alone; any other narrow node declines there")
   void narrowUnderDouble() {
     // CAST(y AS DOUBLE): the column loaded as a long kernel loads it, widened into the low half
     // of the int species (VARKA-332), then I2D. The load needs a baked lane count: without one
@@ -523,21 +533,27 @@ public final class VarkaEmitterFloatingCastSuite {
       assertEquals(Optional.of(VarkaKernelPlan.NO_BAKED_LONG_LANES),
           VarkaKernelPlan.refusalOf(List.of(value), VarkaMatrixRuns.BASE));
     }
-    // CAST(y IS NOT NULL AS DOUBLE), the test's one or zero converted: only the long drive marks
-    // a narrow column as read for its word alone, so the double plan declines it rather than
-    // the emitter throwing; the FLOAT twin drives at the int lane, which serves it.
+    // CAST(y IS NOT NULL AS DOUBLE), the test's one or zero converted: the test reads the
+    // column's validity word alone, a bit per row at every lane, so it fuses under the double
+    // drive as it does under the long one (VARKA-343.md 10, 343a5), and so does its FLOAT twin.
     var known = new CondValue(new VarkaVectorIR.IsNotNull(widened), LaneType.INT);
-    Optional<String> refusal = VarkaKernelPlan.refusalOf(List.of(convert(known,
-        LaneType.DOUBLE)), VarkaMatrixRuns.BASE);
-    assertTrue(refusal.isPresent() && refusal.get().contains("DOUBLE kernel"),
-        refusal.toString());
+    if (VarkaMatrixRuns.BASE.validityByWidth()) {
+      check("cast(y IS NOT NULL AS double)", List.of(convert(known, LaneType.DOUBLE)), 1,
+          new int[0], new long[0], cells(shorts));
+      // The filter the optimizer builds for CAST(y AS DOUBLE) = x: the null test it infers on y
+      // beside the comparison, the test crossed to the comparison's lane.
+      var test = cross(new VarkaVectorIR.IsNotNull(widened), LaneType.DOUBLE);
+      check("y IS NOT NULL AND cast(y AS double) = x", List.of(new And(test,
+          new Compare(CompareOp.EQ, convert(widened, LaneType.DOUBLE), x))), 2, new int[0],
+          new long[0], cells(shorts, DOUBLES));
+    }
     assertEquals(LaneType.INT,
         VarkaKernelPlan.driveOf(List.of(convert(known, LaneType.FLOAT)), VarkaMatrixRuns.BASE)
             .orElseThrow());
     // A narrow node other than a column - here a narrowing - has no lowering at the double lane.
     var narrowed = convert(new WidenLane(new NarrowLane(I, LaneType.SHORT), LaneType.INT),
         LaneType.DOUBLE);
-    refusal = VarkaKernelPlan.refusalOf(List.of(narrowed), VarkaMatrixRuns.BASE);
+    Optional<String> refusal = VarkaKernelPlan.refusalOf(List.of(narrowed), VarkaMatrixRuns.BASE);
     assertTrue(refusal.isPresent() && refusal.get().contains("DOUBLE kernel"),
         refusal.toString());
   }
@@ -727,6 +743,118 @@ public final class VarkaEmitterFloatingCastSuite {
       check(VarkaVectorIR.canonical(root), List.of(root), 4, new int[] {1 << 30, floatBits(1.5f)},
           new long[] {doubleBits(1.5), 1L << 40}, cells(INTS, FLOATS, DOUBLES, LONGS));
     }
+  }
+
+  // ---------------------------------------------------------------------------------------------
+  // The sweeps of 3.1: every 32-bit source
+  // ---------------------------------------------------------------------------------------------
+
+  private static final int CHUNK = 1 << 16;
+
+  /**
+   * Every {@code k}-th chunk of the 2^32 values of a 32-bit column through {@code root}, a kernel
+   * over that one column, each row held to {@code want}, Java's cast, bit for bit. A 64-bit
+   * result runs through the long entry point and is read eight bytes a row; a 32-bit one through
+   * the int entry point, four.
+   */
+  private static void sweep(String ctx, VarkaVectorIR root, int every, IntToLongFunction want) {
+    sweep(ctx, root, new int[0], every, want);
+  }
+
+  /** {@link #sweep(String, VarkaVectorIR, int, IntToLongFunction)} over a root reading literals. */
+  private static void sweep(String ctx, VarkaVectorIR root, int[] literals, int every,
+      IntToLongFunction want) {
+    boolean wide = root.laneType().bits() == Long.SIZE;
+    var emitted = VarkaEmitterFixtures.emit(List.of(root), 1, literals.length,
+        VarkaMatrixRuns.BASE);
+    var loaders = new ConcurrentLinkedQueue<VarkaGeneratedClassLoader>();
+    ThreadLocal<VarkaFusedKernel> kernels = ThreadLocal.withInitial(() -> {
+      var loaded = VarkaEmitterFixtures.load(emitted);
+      loaders.add(loaded.loader());
+      return loaded.kernel();
+    });
+    var failure = new AtomicReference<String>();
+    long chunks = (1L << 32) / CHUNK;
+    try {
+      LongStream.range(0, chunks).filter(k -> k % every == 0).parallel().forEach(k -> {
+        if (failure.get() != null) {
+          return;
+        }
+        long first = k * CHUNK;
+        VarkaFusedKernel kernel = kernels.get();
+        try (Arena arena = Arena.ofConfined()) {
+          MemorySegment in = VarkaEmitterFixtures.alloc(arena, CHUNK * 4L);
+          for (int i = 0; i < CHUNK; i++) {
+            in.set(ValueLayout.JAVA_INT, i * 4L, (int) (first + i));
+          }
+          var out = wide ? VarkaEmitterFixtures.makeLongOutput(arena, CHUNK)
+              : VarkaEmitterFixtures.makeOutput(arena, CHUNK, -1L);
+          long[] src = {in.address()};
+          long[] dst = {out.data().address()};
+          long[] validity = {out.validity().address()};
+          long scratch = VarkaEmitterTestSupport.scratch(kernel, CHUNK);
+          int status = wide
+              ? kernel.run(src, new long[] {0L}, new int[] {0}, dst, validity, new int[0],
+                  new long[0], CHUNK, scratch)
+              : kernel.run(src, new long[] {0L}, new int[] {0}, dst, validity, literals, CHUNK,
+                  scratch);
+          if (status != 0) {
+            failure.compareAndSet(null, ctx + ": status " + status + " at " + first);
+          }
+          for (int i = 0; i < CHUNK && failure.get() == null; i++) {
+            int value = (int) (first + i);
+            long got = wide ? out.data().get(ValueLayout.JAVA_LONG, i * 8L)
+                : out.data().get(ValueLayout.JAVA_INT, i * 4L);
+            long expected = want.applyAsLong(value);
+            if (got != expected) {
+              failure.compareAndSet(null, String.format(
+                  "%s: over %08x the kernel gave %x and Java's cast %x", ctx, value, got,
+                  expected));
+            }
+          }
+        }
+      });
+    } finally {
+      for (VarkaGeneratedClassLoader loader : loaders) {
+        loader.release();
+      }
+    }
+    if (failure.get() != null) {
+      fail(failure.get());
+    }
+  }
+
+  /** The four sweeps of a 32-bit source, every {@code every}-th chunk of each. */
+  private static void sweeps(int every) {
+    sweep("cast(i AS float)", convert(I, LaneType.FLOAT), every,
+        v -> Float.floatToRawIntBits((float) v));
+    sweep("cast(i AS double)", convert(I, LaneType.DOUBLE), every,
+        v -> Double.doubleToRawLongBits((double) v));
+    // F2D keeps every NaN's payload, so its bits are compared too.
+    sweep("cast(f AS double)", convert(F, LaneType.DOUBLE), every,
+        v -> Double.doubleToRawLongBits((double) Float.intBitsToFloat(v)));
+    // CAST(f AS BOOLEAN) is NOT (f = 0.0F): true for every NaN, false for both zeros. It is swept
+    // as the condition's one or zero, the int lane's value of the same condition, crossed to it.
+    var isZero = new Compare(CompareOp.EQ, F, new LiteralSlot(0, LaneType.FLOAT));
+    var nonZero = new CondValue(cross(new VarkaVectorIR.Not(isZero), LaneType.INT), LaneType.INT);
+    sweep("cast(f AS boolean)", nonZero, new int[] {0}, every,
+        v -> Float.intBitsToFloat(v) != 0.0f ? 1 : 0);
+  }
+
+  @Test
+  @DisplayName("every 256th chunk of the INT values to FLOAT and DOUBLE, and of the FLOAT "
+      + "patterns to DOUBLE and BOOLEAN, is Java's cast")
+  void sweepSlices() {
+    sweeps(256);
+  }
+
+  @Test
+  @DisplayName("every INT value to FLOAT and DOUBLE, and every FLOAT pattern to DOUBLE and "
+      + "BOOLEAN, is Java's cast (opt-in: -Dvarka.sweep=true)")
+  void sweepsWhole() {
+    assumeTrue("true".equals(System.getProperty("varka.sweep")),
+        "set -Dvarka.sweep=true to sweep the emitted kernels");
+    sweeps(1);
   }
 
   // ---------------------------------------------------------------------------------------------

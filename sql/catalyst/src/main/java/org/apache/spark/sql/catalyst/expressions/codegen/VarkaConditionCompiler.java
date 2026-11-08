@@ -1020,7 +1020,7 @@ final class VarkaConditionCompiler {
           inElements(whole, id).map(v -> NOT_CONSTANT.equals(v) ? OptionalLong.empty()
               : info.laneBits(v)).iterator(),
           () -> operand(value, inputs, literals, sink), info, whole, literals, sink);
-      case VarkaTypes.Admission.UpToPrecision upTo -> value.dataType() instanceof DecimalType t
+      case VarkaTypes.Admission.ByPrecision by -> value.dataType() instanceof DecimalType t
           ? () -> compileDecimalIn(value, t, info, whole, inputs, literals, sink) : null;
       case VarkaTypes.Admission.AsCondition condition -> null;
       case VarkaTypes.Admission.Owed owed -> null;

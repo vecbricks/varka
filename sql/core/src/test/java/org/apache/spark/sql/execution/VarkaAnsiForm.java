@@ -80,7 +80,8 @@ public final class VarkaAnsiForm {
    * and the expression it guards share a kernel.
    */
   static String guardOf(DataType t) {
-    Optional<LaneType> lane = VarkaTypes.lane(t);
+    Optional<LaneType> lane = VarkaTypes.read(t)
+        .map(r -> r instanceof VarkaTypes.Read.Lanes l ? l.lane() : null);
     if (lane.isEmpty()) {
       return "rid";
     }
@@ -270,14 +271,6 @@ public final class VarkaAnsiForm {
         "CAST(i + 1 AS TINYINT)", "CAST(CAST(l AS INT) AS FLOAT)", "CAST(i AS INTERVAL YEAR)",
         "CAST(dt AS BIGINT)")) {
       out.put(sql + "\t" + FALSE_AND, unqualified);
-    }
-    // CAST(y1 AS DOUBLE) beside the null test the optimizer infers on y1: a narrow column's null
-    // test has no lowering under a double kernel, which reads a narrow column only as a value
-    // (VARKA-343.md 2.2.1), so the conjunct declines.
-    String narrowTest = "the null test the optimizer infers on the narrow source is a narrow "
-        + "node under a double kernel, which has no lowering for it (VARKA-343.md 2.2.1)";
-    for (String sql : List.of("CAST(y1 AS DOUBLE)", "CAST(s1 AS DOUBLE)")) {
-      out.put(sql + "\t" + FALSE_AND, narrowTest);
     }
     // A bigint narrowed to a narrow type as a COALESCE argument beside a narrow column: a narrow
     // choice in a long kernel, which has no lowering there (VARKA-332.md 10.1).

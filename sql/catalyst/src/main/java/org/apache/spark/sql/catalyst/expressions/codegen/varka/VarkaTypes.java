@@ -34,6 +34,7 @@ import org.apache.spark.sql.types.DataTypes;
 import org.apache.spark.sql.types.DayTimeIntervalType;
 import org.apache.spark.sql.types.DayTimeIntervalType$;
 import org.apache.spark.sql.types.DecimalType;
+import org.apache.spark.sql.types.DecimalType$;
 import org.apache.spark.sql.types.TimeType;
 import org.apache.spark.sql.types.YearMonthIntervalType;
 import org.apache.spark.sql.types.YearMonthIntervalType$;
@@ -70,34 +71,82 @@ public final class VarkaTypes {
     }
 
     /**
-     * Read as values on {@code lane} up to precision {@code maxPrecision}, a decimal's
-     * (VARKA-347): the lane a column takes depends on its type's precision, so the admission reads
-     * the {@code DecimalType} and not only the id. A wider precision is {@code widerRow}'s, and a
-     * negative scale is declined everywhere (the milestone plan's 2.8).
+     * Read as values on {@code lane} in bands of precision, a decimal's (VARKA-347, VARKA-359):
+     * how many words of the lane a row takes depends on its type's precision, so the admission
+     * reads the {@code DecimalType} and not only the id. A precision past the last band does not
+     * exist, and a negative scale is declined everywhere (the milestone plan's 2.8).
      *
-     * <p>{@code readerRow} names the row that builds the first operator over such a column, while
-     * none is built, and is empty once one is. The lane exists before that - the leaf that loads
-     * the column, its Arrow vector and the evaluator's field check are built and tested - but no
-     * kernel reads the column from a query, so {@link VarkaTypes#lane(DataType)} answers empty
-     * until then, and every consumer that asks it sees the type as unread. Landing the reader is
-     * emptying this one component.
+     * <p>Each band names the row that builds its reader. A band whose reader is not built yet is
+     * owed: its words exist in the plan but no kernel reads such a column, so
+     * {@link VarkaTypes#read(DataType)} answers empty for it and the decline names the row.
      */
-    record UpToPrecision(LaneType lane, int maxPrecision, String widerRow,
-        Optional<String> readerRow) implements Admission {
-      public UpToPrecision {
+    record ByPrecision(LaneType lane, List<Band> bands) implements Admission {
+      public ByPrecision {
         Objects.requireNonNull(lane, "lane");
-        Objects.requireNonNull(widerRow, "widerRow");
-        Objects.requireNonNull(readerRow, "readerRow");
+        bands = List.copyOf(bands);
+        if (bands.isEmpty()) {
+          throw VarkaErrors.illegalArgument("a precision admission has at least one band");
+        }
+        for (int i = 1; i < bands.size(); i++) {
+          if (bands.get(i).maxPrecision() <= bands.get(i - 1).maxPrecision()) {
+            throw VarkaErrors.illegalArgument("precision bands ascend: " + bands);
+          }
+        }
       }
 
-      /** Whether a column of {@code type} has {@link #lane}: its precision and scale fit it. */
-      public boolean admits(DecimalType type) {
-        return type.precision() <= maxPrecision && type.scale() >= 0;
+      /** The band holding {@code type}'s precision, or empty for a negative scale. */
+      public Optional<Band> band(DecimalType type) {
+        if (type.scale() < 0) {
+          return Optional.empty();
+        }
+        for (Band b : bands) {
+          if (type.precision() <= b.maxPrecision()) {
+            return Optional.of(b);
+          }
+        }
+        return Optional.empty();
       }
 
-      /** Whether a kernel reads a column of {@code type} today: it has the lane and a reader. */
+      /** Whether a kernel reads a column of {@code type} today: its band's reader is built. */
       public boolean reads(DecimalType type) {
-        return admits(type) && readerRow.isEmpty();
+        return band(type).filter(Admission.Band::read).isPresent();
+      }
+
+      /** The widest precision a column takes one word at: the last one-word band's. */
+      public int oneWordPrecision() {
+        int widest = 0;
+        for (Band b : bands) {
+          if (b.words() == 1) {
+            widest = b.maxPrecision();
+          }
+        }
+        return widest;
+      }
+
+      /** The widest precision a kernel reads today, or 0 when no band's reader is built. */
+      public int maxReadPrecision() {
+        int widest = 0;
+        for (Band b : bands) {
+          if (!b.read()) {
+            break;
+          }
+          widest = b.maxPrecision();
+        }
+        return widest;
+      }
+    }
+
+    /**
+     * Precisions up to {@code maxPrecision} (above the previous band's) take {@code words} words of
+     * the admission's lane a row; {@code row} builds their reader, and {@code read} says whether it
+     * is built.
+     */
+    record Band(int maxPrecision, int words, String row, boolean read) {
+      public Band {
+        Objects.requireNonNull(row, "row");
+        if (words < 1) {
+          throw VarkaErrors.illegalArgument("a band has at least one word, not " + words);
+        }
       }
     }
 
@@ -150,23 +199,79 @@ public final class VarkaTypes {
   }
 
   /**
+   * How a row of a type is laid out in its Arrow vector, apart from the lane it computes on: a
+   * consumer that sees a long lane must not take it to mean an eight-byte long (the owner's note
+   * of 27 October 2026, `m8/VARKA-359.md` 2.3).
+   */
+  public sealed interface Storage {
+
+    /** A value in its own width, {@code bits} a row: eight to 64. */
+    record Plain(int bits) implements Storage {
+      public Plain {
+        if (bits < 8 || bits > 64 || Integer.bitCount(bits) != 1) {
+          throw VarkaErrors.illegalArgument("a plain value is 8, 16, 32 or 64 bits, not " + bits);
+        }
+      }
+    }
+
+    /** One bit a row, a {@code BitVector}'s. */
+    record Bitmap() implements Storage {
+    }
+
+    /**
+     * Sixteen bytes a row, Arrow's decimal slot: the unscaled value's low word, then its high
+     * word, little-endian.
+     */
+    record DecimalSlot() implements Storage {
+    }
+
+    /** The bits a row occupies. */
+    default int bits() {
+      return switch (this) {
+        case Plain p -> p.bits();
+        case Bitmap b -> 1;
+        case DecimalSlot d -> 128;
+      };
+    }
+  }
+
+  /**
+   * How a kernel reads a column of one {@code DataType}: the lane it computes on, the words of
+   * that lane a row takes, and the storage those words come from.
+   */
+  public sealed interface Read {
+
+    /** {@code words} words of {@code lane} a row, loaded from {@code storage}. */
+    record Lanes(LaneType lane, int words, Storage storage) implements Read {
+      public Lanes {
+        Objects.requireNonNull(lane, "lane");
+        Objects.requireNonNull(storage, "storage");
+        if (words < 1) {
+          throw VarkaErrors.illegalArgument("a read takes at least one word, not " + words);
+        }
+      }
+    }
+  }
+
+  /**
    * The facts about one type.
    *
    * @param census its name in the census and the cast matrix ({@code dev/varka_census.py}), or
    *     null for a type outside them
    * @param sql its SQL spelling as a cast target
-   * @param storageBits the bits a row its Arrow vector holds: one for a bitmap, then eight to 128
+   * @param storage how a row is laid out in its Arrow vector
    * @param forms the Spark types of the id the tests probe: each decimal, time precision and
    *     interval field range they read
    * @param lanes the lanes a kernel of the type computes or loads in, which the template
    *     warm-up must reach
    */
   public record Info(VarkaTypeId id, @Nullable String census, String sql, Admission admission,
-      int storageBits, List<DataType> forms, List<LaneType> lanes, Conformance conformance) {
+      Storage storage, List<DataType> forms, List<LaneType> lanes, Conformance conformance) {
     public Info {
       Objects.requireNonNull(id, "id");
       Objects.requireNonNull(sql, "sql");
       Objects.requireNonNull(admission, "admission");
+      Objects.requireNonNull(storage, "storage");
       Objects.requireNonNull(conformance, "conformance");
       forms = List.copyOf(forms);
       lanes = List.copyOf(lanes);
@@ -175,15 +280,21 @@ public final class VarkaTypes {
       }
     }
 
+    /** The bits a row its Arrow vector holds: one for a bitmap, then eight to 128. */
+    public int storageBits() {
+      return storage.bits();
+    }
+
     /**
-     * The lane a column of the type is read on, if it is read as values: for a decimal, the lane
-     * of the precisions it admits, since a type id carries no precision; {@link
-     * VarkaTypes#lane(DataType)} answers for one {@code DecimalType}.
+     * The lane a column of the type computes on, if it is read as values, whatever its storage:
+     * for a decimal, the lane of every band, since a type id carries no precision. A consumer
+     * that loads values asks {@link VarkaTypes#read(DataType)}, which says how many words and
+     * from what storage.
      */
     public Optional<LaneType> lane() {
       return switch (admission) {
         case Admission.OnLane(LaneType lane) -> Optional.of(lane);
-        case Admission.UpToPrecision up -> Optional.of(up.lane());
+        case Admission.ByPrecision by -> Optional.of(by.lane());
         case Admission.AsCondition c -> Optional.empty();
         case Admission.Owed o -> Optional.empty();
         case Admission.Declined d -> Optional.empty();
@@ -201,7 +312,7 @@ public final class VarkaTypes {
       if (admission instanceof Admission.AsCondition) {
         return bits != 0L;
       }
-      if (admission instanceof Admission.UpToPrecision) {
+      if (admission instanceof Admission.ByPrecision) {
         throw unscaled();
       }
       return switch (lane().orElseThrow(() -> noLane())) {
@@ -220,7 +331,7 @@ public final class VarkaTypes {
      * NaN's payload and a zero's sign survive the round trip.
      */
     public long bits(@Nullable Object sparkValue) {
-      if (admission instanceof Admission.UpToPrecision) {
+      if (admission instanceof Admission.ByPrecision) {
         throw unscaled();
       }
       OptionalLong bits = laneBits(sparkValue);
@@ -238,7 +349,7 @@ public final class VarkaTypes {
      * it, so a list the lane cannot hold declines where {@link #bits} would throw.
      */
     public OptionalLong laneBits(@Nullable Object sparkValue) {
-      if (sparkValue == null || admission instanceof Admission.UpToPrecision) {
+      if (sparkValue == null || admission instanceof Admission.ByPrecision) {
         return OptionalLong.empty();
       }
       LaneType lane = lane().orElse(null);
@@ -345,21 +456,40 @@ public final class VarkaTypes {
   }
 
   /**
-   * The lane a kernel reads a column of {@code dataType} on today, or empty for a type no kernel
-   * reads as values: the question the compiler's leaves, the evaluator and the test harness ask,
-   * and the one they all ask. It differs from {@link Info#lane()}, the lane the type has, in two
-   * ways, both an {@link Admission.UpToPrecision}'s: a decimal whose precision or scale does not
-   * fit the lane is unread, and so is every decimal while the admission still names the row that
-   * owes its reader.
+   * The lane a kernel reads a column of {@code dataType} on today, one value a lane in its own
+   * width, or empty: the question the compiler's plain leaves, the evaluator and the test harness
+   * ask. It answers only for {@link Storage.Plain} storage, so a consumer that takes a long lane
+   * for an eight-byte long cannot see a decimal, whose sixteen-byte slots only its own leaf reads;
+   * {@link #read(DataType)} is the question for every storage.
    */
   public static Optional<LaneType> lane(DataType dataType) {
+    return read(dataType).flatMap(r -> switch (r) {
+      case Read.Lanes(LaneType lane, int words, Storage storage)
+          when storage instanceof Storage.Plain && words == 1 -> Optional.of(lane);
+      case Read.Lanes l -> Optional.<LaneType>empty();
+    });
+  }
+
+  /**
+   * How a kernel reads a column of {@code dataType} today, or empty for a type no kernel reads as
+   * values: one word of the type's lane over its plain storage for every type but the decimal,
+   * and for a decimal the words of its precision's band over the sixteen-byte slot, where that
+   * band's reader is built and the scale is not negative.
+   */
+  public static Optional<Read> read(DataType dataType) {
     return of(dataType).flatMap(id -> {
       Info info = info(id);
-      if (info.admission() instanceof Admission.UpToPrecision up
-          && !(dataType instanceof DecimalType d && up.reads(d))) {
-        return Optional.empty();
-      }
-      return info.lane();
+      return switch (info.admission()) {
+        case Admission.OnLane(LaneType lane) ->
+            Optional.of(new Read.Lanes(lane, 1, info.storage()));
+        case Admission.ByPrecision by -> dataType instanceof DecimalType d
+            ? by.band(d).filter(Admission.Band::read)
+                .map(b -> (Read) new Read.Lanes(by.lane(), b.words(), info.storage()))
+            : Optional.empty();
+        case Admission.AsCondition c -> Optional.empty();
+        case Admission.Owed o -> Optional.empty();
+        case Admission.Declined d -> Optional.empty();
+      };
     });
   }
 
@@ -408,11 +538,20 @@ public final class VarkaTypes {
       String column = "a " + dataType.simpleString() + " column";
       return switch (info(id).admission()) {
         case Admission.OnLane on -> Optional.empty();
-        case Admission.UpToPrecision up -> {
+        case Admission.ByPrecision by -> {
           DecimalType d = (DecimalType) dataType;
-          Optional<String> unfit = unfitReason(up, d, column, "is row " + up.widerRow() + "'s");
-          yield unfit.isPresent() ? unfit : up.readerRow().map(row -> column
-              + ": no operator over a decimal is built yet, row " + row + "'s");
+          if (d.scale() < 0) {
+            yield Optional.of(negativeScale(column));
+          }
+          Optional<Admission.Band> band = by.band(d).filter(b -> !b.read());
+          if (band.isEmpty()) {
+            yield Optional.empty();
+          }
+          int widest = by.maxReadPrecision();
+          yield Optional.of(widest == 0
+              ? column + ": no operator over a decimal is built yet, row " + band.get().row()
+                  + "'s"
+              : column + ": precision above " + widest + " is row " + band.get().row() + "'s");
         }
         case Admission.AsCondition c -> Optional.of(column + " read as a value, which row "
             + c.valuesRow() + " builds; it is read as a condition");
@@ -428,41 +567,30 @@ public final class VarkaTypes {
    * it: the plan-time admission of a {@code WidenDecimal} root against its output's type,
    * which the compiler asks where it wraps a decimal-valued root
    * ({@code VarkaDecimalCompiler.outputRoot}), so a shape the store would write wrongly never
-   * fuses. The store writes a long
-   * and its sign extension into each slot, so it takes the precisions a long holds, the
-   * admission's {@link Admission.UpToPrecision#admits}, and refuses the others through the rules
-   * a column of the type is refused by ({@link #unfitReason}): a negative scale is declined
-   * everywhere, in a column's words, and a wider precision in the store's own, since the value
-   * does not fit the long a slot's low word holds and the two-word store is the row the table
-   * names ({@code widerRow}, 359).
+   * fuses. The store writes a long and its sign extension into each slot, so it takes the
+   * precisions of a one-word band. A negative scale is declined everywhere, in a column's words,
+   * and a wider precision in the store's own, since the value does not fit the long a slot's low
+   * word holds and the two-word store is the row the wider band names.
    * The reader's row does not matter here: the store needs no operator over a decimal column.
    * The evaluator's allocator asks it again, as an assertion that no such output got through.
    */
   public static Optional<String> decimalOutputDeclineReason(DecimalType type) {
-    if (!(info(VarkaTypeId.DECIMAL).admission() instanceof Admission.UpToPrecision up)) {
+    if (!(info(VarkaTypeId.DECIMAL).admission() instanceof Admission.ByPrecision by)) {
       throw VarkaErrors.illegalState("DECIMAL's admission is not by precision");
     }
-    return unfitReason(up, type, "a " + type.simpleString() + " output", "does not fit the long "
-        + "a slot's low word holds, and its two-word store is row " + up.widerRow() + "'s");
+    String noun = "a " + type.simpleString() + " output";
+    if (type.scale() < 0) {
+      return Optional.of(negativeScale(noun));
+    }
+    Admission.Band band = by.band(type).orElseThrow();
+    return band.words() == 1 ? Optional.empty()
+        : Optional.of(noun + ": precision above " + by.oneWordPrecision() + " does not fit the "
+            + "long a slot's low word holds, and its two-word store is row " + band.row() + "'s");
   }
 
-  /**
-   * Why a value of {@code type} has not {@code up}'s lane, naming it as {@code noun} ("a
-   * decimal(30,4) column", "... output"), or empty where it fits: a negative scale, declined
-   * everywhere, or a precision above the lane's, followed by the caller's {@code wider} reason.
-   * The rules of both a column ({@link #declineReason}) and an output
-   * ({@link #decimalOutputDeclineReason}), each giving its own reason for a wider precision.
-   */
-  private static Optional<String> unfitReason(Admission.UpToPrecision up, DecimalType type,
-      String noun, String wider) {
-    if (type.scale() < 0) {
-      return Optional.of(noun + ": a negative scale is declined everywhere (the milestone plan's "
-          + "2.8)");
-    }
-    if (!up.admits(type)) {
-      return Optional.of(noun + ": precision above " + up.maxPrecision() + " " + wider);
-    }
-    return Optional.empty();
+  /** The decline of a decimal of negative scale, which no lane takes. */
+  private static String negativeScale(String noun) {
+    return noun + ": a negative scale is declined everywhere (the milestone plan's 2.8)";
   }
 
   private static final Map<VarkaTypeId, Info> TABLE = table();
@@ -480,29 +608,37 @@ public final class VarkaTypes {
     return switch (id) {
       // A boolean expression is written as an output (a BitVector, VARKA-27); reading one as a
       // value, the cast to a number, is VARKA-332's.
-      case BOOLEAN -> new Info(id, "bool", "BOOLEAN", new Admission.AsCondition("332"), 1,
+      case BOOLEAN -> new Info(id, "bool", "BOOLEAN", new Admission.AsCondition("332"),
+          new Storage.Bitmap(),
           List.of(DataTypes.BooleanType), List.of(), new Conformance.Suite("Boolean"));
-      case BYTE -> new Info(id, "byte", "TINYINT", new Admission.OnLane(LaneType.BYTE), 8,
+      case BYTE -> new Info(id, "byte", "TINYINT", new Admission.OnLane(LaneType.BYTE),
+          plain(8),
           List.of(DataTypes.ByteType), List.of(LaneType.BYTE, LaneType.INT),
           new Conformance.Suite("TinyInt"));
-      case SHORT -> new Info(id, "short", "SMALLINT", new Admission.OnLane(LaneType.SHORT), 16,
+      case SHORT -> new Info(id, "short", "SMALLINT", new Admission.OnLane(LaneType.SHORT),
+          plain(16),
           List.of(DataTypes.ShortType), List.of(LaneType.SHORT, LaneType.INT),
           new Conformance.Suite("SmallInt"));
-      case INT -> new Info(id, "int", "INT", new Admission.OnLane(LaneType.INT), 32,
+      case INT -> new Info(id, "int", "INT", new Admission.OnLane(LaneType.INT),
+          plain(32),
           List.of(DataTypes.IntegerType), List.of(LaneType.INT),
           new Conformance.Suite("Int"));
-      case LONG -> new Info(id, "bigint", "BIGINT", new Admission.OnLane(LaneType.LONG), 64,
+      case LONG -> new Info(id, "bigint", "BIGINT", new Admission.OnLane(LaneType.LONG),
+          plain(64),
           List.of(DataTypes.LongType), List.of(LaneType.LONG),
           new Conformance.Suite("BigInt"));
-      case FLOAT -> new Info(id, "float", "FLOAT", new Admission.OnLane(LaneType.FLOAT), 32,
+      case FLOAT -> new Info(id, "float", "FLOAT", new Admission.OnLane(LaneType.FLOAT),
+          plain(32),
           List.of(DataTypes.FloatType), List.of(LaneType.FLOAT),
           new Conformance.Suite("Float"));
-      case DOUBLE -> new Info(id, "double", "DOUBLE", new Admission.OnLane(LaneType.DOUBLE), 64,
+      case DOUBLE -> new Info(id, "double", "DOUBLE", new Admission.OnLane(LaneType.DOUBLE),
+          plain(64),
           List.of(DataTypes.DoubleType), List.of(LaneType.DOUBLE),
           new Conformance.Suite("Double"));
       // Every precision is sixteen bytes a row in Arrow (`ArrowUtils.toArrowType`); the tests
       // probe one form on each side of the 64-bit boundary at precision 18. Up to it a value is
-      // an unscaled long on the long lane (VARKA-347); the pair above it is row 359's. The int
+      // an unscaled long, one word of the long lane (VARKA-347); above it the value is two words,
+      // the low and the high, whose reader is row 359's. The int
       // lane, an emission choice for precision up to 9, joins the lanes when step 4 of the row
       // builds that arm: until then a decimal leaf refuses it, so no kernel loads one there.
       // The first operators over the leaf, its comparisons and null tests, are row 348's, which
@@ -510,28 +646,35 @@ public final class VarkaTypes {
       // owes it.
       // The contract's ordering, choice and cast checks have no form before row 348.
       case DECIMAL -> new Info(id, "dec", "DECIMAL(10, 2)",
-          new Admission.UpToPrecision(LaneType.LONG, VarkaVectorIR.DecimalColumn.MAX_LONG_PRECISION,
-              "359", Optional.empty()),
-          128, List.of(DataTypes.createDecimalType(10, 2), DataTypes.createDecimalType(30, 4)),
+          new Admission.ByPrecision(LaneType.LONG, List.of(
+              new Admission.Band(VarkaVectorIR.DecimalColumn.MAX_LONG_PRECISION, 1, "347", true),
+              new Admission.Band(DecimalType$.MODULE$.MAX_PRECISION(), 2, "359", false))),
+          new Storage.DecimalSlot(),
+          List.of(DataTypes.createDecimalType(10, 2), DataTypes.createDecimalType(30, 4)),
           // The decimal conformance suite is row 359's, over both representations, by its
           // answered question 4 (a) (VARKA-348.md 7).
           List.of(LaneType.LONG), new Conformance.Owed("Decimal", "359"));
-      case DATE -> new Info(id, "date", "DATE", new Admission.OnLane(LaneType.INT), 32,
+      case DATE -> new Info(id, "date", "DATE", new Admission.OnLane(LaneType.INT),
+          plain(32),
           List.of(DataTypes.DateType), List.of(LaneType.INT),
           new Conformance.Suite("Date"));
-      case TIME -> new Info(id, "time", "TIME", new Admission.OnLane(LaneType.LONG), 64,
+      case TIME -> new Info(id, "time", "TIME", new Admission.OnLane(LaneType.LONG),
+          plain(64),
           List.of(new TimeType(0), new TimeType(3), new TimeType(6)), List.of(LaneType.LONG),
           new Conformance.Suite("Time"));
       case TIMESTAMP_NTZ -> new Info(id, "ntz", "TIMESTAMP_NTZ",
-          new Admission.OnLane(LaneType.LONG), 64, List.of(DataTypes.TimestampNTZType),
+          new Admission.OnLane(LaneType.LONG),
+          plain(64), List.of(DataTypes.TimestampNTZType),
           List.of(LaneType.LONG), new Conformance.Suite("TimestampNtz"));
       case YM_INTERVAL -> new Info(id, "ym", "INTERVAL MONTH",
-          new Admission.OnLane(LaneType.INT), 32,
+          new Admission.OnLane(LaneType.INT),
+          plain(32),
           fields(YearMonthIntervalType$.MODULE$.YEAR(), YearMonthIntervalType$.MODULE$.MONTH(),
               YearMonthIntervalType::new),
           List.of(LaneType.INT), new Conformance.Suite("YearMonthInterval"));
       case DT_INTERVAL -> new Info(id, "dt", "INTERVAL DAY",
-          new Admission.OnLane(LaneType.LONG), 64,
+          new Admission.OnLane(LaneType.LONG),
+          plain(64),
           fields(DayTimeIntervalType$.MODULE$.DAY(), DayTimeIntervalType$.MODULE$.SECOND(),
               DayTimeIntervalType::new),
           List.of(LaneType.LONG), new Conformance.Suite("DayTimeInterval"));
@@ -541,8 +684,12 @@ public final class VarkaTypes {
       case TIMESTAMP -> new Info(id, null, "TIMESTAMP",
           new Admission.Declined("its arithmetic is in the session time zone, which is not lane "
               + "arithmetic"),
-          64, List.of(DataTypes.TimestampType), List.of(), new Conformance.NotLanded());
+          plain(64), List.of(DataTypes.TimestampType), List.of(), new Conformance.NotLanded());
     };
+  }
+
+  private static Storage plain(int bits) {
+    return new Storage.Plain(bits);
   }
 
   /** An interval type in every field range from {@code first} to {@code last}. */

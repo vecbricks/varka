@@ -530,6 +530,45 @@ The reading also shows the arithmetic travelling as section 2.1 expects: P's pro
 lead S at 512 and 256 bits on the laptop as on the EPYC (2.2 against 5.3 and 2.2 against 7.9 ns a
 row in L3 at 512), and S leads everything at 128 bits.
 
+### 10.2 359a, part 1: the layout-free base (6 November 2026)
+
+*Branch `varka-359a-pair2`, from master at `511bb552070`; local commits only. The first local
+attempt (`varka-359a-pair`, 1 and 2 November) built all of 359a in one 6000-line branch against a
+master that has since moved (row 503's two-lane decline, row 157's store, row 348's rescales); this
+re-lands it in parts under the 1000-line cap, ported by hand where master moved. The verdict of
+10.1 stands: P is built.*
+
+Part 1 is 11.5 items 1 to 3, which hold whatever layout carries the words and move no emitted
+byte:
+
+1. **The registry** (11.5 item 1). `Info.storageBits` is now `Storage` (`Plain`, `Bitmap`,
+   `DecimalSlot`); `VarkaTypes.read(DataType)` answers a `Read.Lanes(lane, words, storage)`; the
+   decimal's admission is `ByPrecision` over two `Band`s, 18 digits and one word (row 347, read)
+   and 38 digits and two words (row 359, owed). `lane(DataType)` answers only for plain storage,
+   so `VarkaTimeCompiler`'s long-column arm cannot take a decimal for eight-byte longs. The
+   decimal compiler's column test asks `read`. Row 157's output decline keeps its messages, now
+   read off the bands (`ByPrecision.oneWordPrecision`). `types.tsv` gains `storage` and `words`.
+2. **The unsigned compares** (item 2). `CompareOp` gains `ULT`, `ULE`, `UGT` and `UGE`; a `Compare`
+   refuses one over a floating lane and a `BoolCompare` refuses them all. The walk already emits
+   a compare by its operator's name and the budget weighs them as any integral compare. The
+   reference orders them by `Long.compareUnsigned`. The committed corpora draw
+   `CompareOp.signed()`, so nothing they draw moves; the unsigned ones have a long-lane draw of
+   their own (`UNSIGNED_FUZZ_SEED`), and their cost features are on row 352's refit list.
+3. **The ring layer** (item 3), `proofs/decimal128.smt2` from `VarkaProofFiles` over
+   `DecimalWords`: the word lowerings of `<`, `<=`, `=`, `>`, `>=` and `<=>` equal to the value
+   comparisons, the signed low compare refuted, and for each precision 19 to 38 the check over the
+   constant pairs of `DecimalWords.bound` exact, with a bound one off either way refuted. 67
+   checks, holding under Z3 0.03 s and cvc5 0.07 s on the laptop.
+
+**Departures.** `Info.lane()` is kept: it says the lane a type computes on, whatever its storage.
+`types.tsv` keeps `storage_bits` beside the new columns. A band carries its row and whether its
+reader is built. The unsigned draw runs a third of the corpora's iterations: at the full count it
+took about three and a half minutes on the laptop, which the Build would pay on every run.
+
+**Not in this part**, owed in the following ones: the compiler's pair (11.5 item 4), the word
+leaf, its shared load and check, the lowerings, the carry layer, the slot table and word edges,
+the coverage rows and the conformance suite (11.5 item 5, 11.6).
+
 ## 11. 359a, the build plan (1 November 2026)
 
 Written from master at `239995f4fe4` before the laptop's reading of the spike, so that 359a can
