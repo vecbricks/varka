@@ -2920,6 +2920,9 @@ final class VarkaProofFiles {
         ; from their neighbours: C a binade lower, or no sign restored (rint(-0.3) = -0.0 is the
         ; witness), is not rint.
         ;
+        ; At binary64 C is the lowering's own constant, VarkaRoundingLowering.TWO_52, rendered
+        ; from its bits; binary32's 2^23 is the format's, since no lowering runs at that width.
+        ;
         ; The logic is ALL and each check runs after a (reset), as round_to_odd.smt2 runs its
         ; own: nothing here uses java.smt2.
         """);
@@ -2936,7 +2939,8 @@ final class VarkaProofFiles {
 
   /**
    * One check of {@link #fpRound}: the claim negated, at exponent and significand widths
-   * {@code f}, with C = 2^(p - lower) and the sign restored or not.
+   * {@code f}, with C = 2^(p - lower) and the sign restored or not. At binary64 C is
+   * {@code VarkaRoundingLowering.TWO_52} (halved for a binade lower), read as its bits.
    */
   private static void fpRoundCheck(StringBuilder out, String what, String expect, int[] f,
       int lower, boolean sign) {
@@ -2944,8 +2948,11 @@ final class VarkaProofFiles {
     out.append("\n(echo \"").append(what).append(": expect ").append(expect).append("\")\n");
     out.append("(reset)\n(set-logic ALL)\n");
     out.append("(declare-const x ").append(sort).append(")\n");
+    String c = f[1] == 53
+        ? bv64(Double.doubleToRawLongBits(VarkaRoundingLowering.TWO_52 / (1 << (lower - 1))))
+        : "RNE " + BigInteger.TWO.pow(f[1] - lower) + ".0";
     out.append("(define-fun C () ").append(sort).append(" ((_ to_fp ").append(f[0]).append(' ')
-        .append(f[1]).append(") RNE ").append(BigInteger.TWO.pow(f[1] - lower)).append(".0))\n");
+        .append(f[1]).append(") ").append(c).append("))\n");
     out.append("(define-fun a () ").append(sort).append(" (fp.abs x))\n");
     out.append("(define-fun r () ").append(sort).append(" (fp.sub RNE (fp.add RNE a C) C))\n");
     out.append("(define-fun out () ").append(sort).append(" (ite (fp.lt a C) ")

@@ -1786,6 +1786,9 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
     "year(d) + i" -> Refined("year(d), month(d), day(d)", "a + b"),
     "bitmap_bucket_number(l)" -> Proved("bitmap.smt2"),
     "bitmap_bit_position(l)" -> Proved("bitmap.smt2"),
+    // rint's 2^52 construction equals fp.roundToIntegral RNE for every double, both zeros, both
+    // infinities and NaN included (VARKA-344); floor and ceil over l and i stay differential.
+    "rint(x)" -> Proved("fp_round.smt2"),
     // The casts with TIMESTAMP_NTZ (VARKA-338): the floor division proven over every long, and
     // the multiply's guard and factor, read from the compiled tree, held to multiplyExact over
     // every int day (the kernel itself runs at the guard's edges).
