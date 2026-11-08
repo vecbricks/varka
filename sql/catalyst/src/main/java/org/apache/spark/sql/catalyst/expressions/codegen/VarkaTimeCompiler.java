@@ -55,7 +55,6 @@ import org.apache.spark.sql.catalyst.expressions.TimeTrunc;
 import org.apache.spark.sql.catalyst.expressions.TimestampAddInterval;
 import org.apache.spark.sql.catalyst.expressions.UnaryMinus;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaErrors;
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaFamily;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTypes;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ConstDivide;
@@ -293,12 +292,15 @@ final class VarkaTimeCompiler {
       // The time of day of a TIMESTAMP_NTZ (VARKA-340): the count read at UTC, so the fields are
       // the TIME lowerings over the microsecond of the day. The analyzer fills in the session
       // zone these expressions carry, and an NTZ value does not read it.
-      case Hour h when VarkaTypes.isNtz(h.child().dataType()) -> () -> ntzMicros(h, h.child(),
-          inputs, literals, sink).map(v -> hourOf(v, MICROS_PER_SECOND, ONE_DAY_MICROS));
-      case Minute m when VarkaTypes.isNtz(m.child().dataType()) -> () -> ntzMicros(m, m.child(),
-          inputs, literals, sink).map(v -> minuteOf(v, MICROS_PER_SECOND, ONE_DAY_MICROS, sink));
-      case Second s when VarkaTypes.isNtz(s.child().dataType()) -> () -> ntzMicros(s, s.child(),
-          inputs, literals, sink).map(v -> secondOf(v, MICROS_PER_SECOND, ONE_DAY_MICROS, sink));
+      case Hour h when VarkaTypes.isNtz(h.child().dataType()) ->
+          () -> ntzMicros(h.child(), inputs, literals, sink)
+              .map(v -> hourOf(v, MICROS_PER_SECOND, ONE_DAY_MICROS));
+      case Minute m when VarkaTypes.isNtz(m.child().dataType()) ->
+          () -> ntzMicros(m.child(), inputs, literals, sink)
+              .map(v -> minuteOf(v, MICROS_PER_SECOND, ONE_DAY_MICROS, sink));
+      case Second s when VarkaTypes.isNtz(s.child().dataType()) ->
+          () -> ntzMicros(s.child(), inputs, literals, sink)
+              .map(v -> secondOf(v, MICROS_PER_SECOND, ONE_DAY_MICROS, sink));
       case Cast c when c.dataType() instanceof TimeType to
           && VarkaTypes.isNtz(c.child().dataType()) ->
           () -> ntzToTime(c, to, inputs, literals, sink);
@@ -330,20 +332,18 @@ final class VarkaTimeCompiler {
   }
 
   /**
-   * The microsecond of the day of the NTZ operand {@code ntz} of {@code whole}. It runs the floor
-   * division by a day that {@code CAST(ntz AS DATE)} runs, so it is under the int arithmetic
-   * family's switch as that cast is, and {@code whole} is the node a switched-off family
-   * declines.
+   * The microsecond of the day of the NTZ operand {@code ntz}. It runs the floor division by a
+   * day that {@code CAST(ntz AS DATE)} runs, but as a part of this family's own node: a switch
+   * covers the nodes its family claims (VARKA-318), and {@code hour(ntz)} holds no cast for the
+   * int arithmetic family to claim, as {@code year(ntz)} does.
    */
   private static Optional<VarkaVectorIR> ntzMicros(
-      Expression whole,
       Expression ntz,
       VarkaSlotTable inputs,
       VarkaSlotTable literals,
       DeclineSink sink) {
-    return longOperand(ntz, inputs, literals, sink).flatMap(t -> VarkaNodeCompiler.inFamily(
-        VarkaFamily.INT_ARITHMETIC, () -> Optional.of(VarkaNodeCompiler.microsOfDay(t, sink)),
-        whole, sink));
+    return longOperand(ntz, inputs, literals, sink)
+        .map(t -> VarkaNodeCompiler.microsOfDay(t, sink));
   }
 
   /**
@@ -359,7 +359,7 @@ final class VarkaTimeCompiler {
       VarkaSlotTable literals,
       DeclineSink sink) {
     // The nanosecond of the day, under 2^47, so under the bound every TIME divisor is proven for.
-    Optional<VarkaVectorIR> n = ntzMicros(c, c.child(), inputs, literals, sink).map(v ->
+    Optional<VarkaVectorIR> n = ntzMicros(c.child(), inputs, literals, sink).map(v ->
         new IntArith(IntOp.MUL, Overflow.WRAP, v,
             sink.longSlot(DateTimeConstants.NANOS_PER_MICROS)));
     if (n.isEmpty() || to.precision() >= TimeType.MICROS_PRECISION()) {
