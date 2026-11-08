@@ -182,8 +182,14 @@ Medium: two pull requests.
    (a) Unroll as #1291 does. (b) Decline them on AVX2 hosts. **Recommended (a)**: the row says
    unrolled, a decline loses fusion for a cost nobody measured, and PR 1's audit shows the number of
    shapes at stake before PR 2 is written.
+
+   *8 November 2026, by the owner's word:* (a). Narrow-driven kernels unroll, under the emitted-size
+   budget.
 2. **Is 550 before 551's PR 3 still the order, with 551's PR 1 allowed ahead?** **Recommended yes**: the
    record needs nothing from 550; the pair needs 550.
+
+   *8 November 2026, by the owner's word:* yes. Row 550 lands before 551's PR 3; 551's PR 1 and PR 2
+   may land before it.
 
 ## 9. Done when
 
