@@ -148,10 +148,7 @@ public final class VarkaFuzzTypes {
       return numeric() ? Math.max(-bound, Math.min(bound, edge)) : edge;
     }
 
-    /**
-     * The uniform arm: an integer within the bound, a finite float or double within it as its
-     * bits, or a 0 or a 1 read off the high bit (a {@code Random}'s low bits are its weakest).
-     */
+    /** The uniform arm; a boolean is the high bit, a {@code Random}'s low bits being weakest. */
     private long uniform(Random main, long bound) {
       return switch (kind) {
         case INTEGRAL -> VarkaIrGrammar.within(main, bound);
@@ -194,11 +191,8 @@ public final class VarkaFuzzTypes {
   // The entries
   // -------------------------------------------------------------------------------------------
 
-  // The int corpus, which VarkaEmittedBytesSuite pins: its columns hold days, and the last one
-  // of two or more the month count `add_months` reads, so a column is filled by DATE's source
-  // and the month count by YM_INTERVAL's (VarkaIrFuzzSuite.drawInt). The INT type is read by
-  // the integer arithmetic over a column, a date by a calendar field or a day addition over one,
-  // a year-month interval as the month count.
+  // The int corpus, which VarkaEmittedBytesSuite pins: its columns hold days, and the last of
+  // two or more the month count `add_months` reads (VarkaIrFuzzSuite.drawInt).
   private static final String INT_CELLS = "values:DATE,YM_INTERVAL";
 
   private static IrLeaf intCorpus(String form, Predicate<VarkaVectorIR> reads) {

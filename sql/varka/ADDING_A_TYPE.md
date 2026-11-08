@@ -119,12 +119,10 @@ Check: `build/sbt 'catalyst/testOnly *VarkaIrFuzzSuite'`.
 
 **9. Let the fuzzers draw it.** The type's entry in `VarkaFuzzTypes` (a switch over `VarkaTypeId`,
 so the compiler asks for it) says per fuzzer whether the type is drawn: its IR site turns from
-`Owed` to `Present` with the seeded sequence its trees come from (`VarkaIrGrammar`) and the node
-that reads a column as the type, which the suite requires a draw to hold, its Spark site with the
-fixture view's columns, which `VarkaSparkFuzzSuite` holds to the view's schema, and its
-`ValueSource` holds the values a column of it is filled with. A type draws in a sequence of its
-own seed, so that no committed corpus moves; `VarkaFuzzTypesSuite` fails until
-`sql/varka/fuzz/types.tsv` is regenerated
+`Owed` to `Present` with the leaf and the seeded sequence its trees come from (`VarkaIrGrammar`),
+its Spark site with the fixture's columns, and its `ValueSource` holds the values a column of it
+is filled with. A type draws in a sequence of its own seed, so that no committed corpus moves;
+`VarkaFuzzTypesSuite` fails until `sql/varka/fuzz/types.tsv` is regenerated
 (`VARKA_FUZZ_TYPES_REGEN=true build/sbt 'catalyst/testOnly *VarkaFuzzTypesSuite'`).
 Check: `build/sbt 'catalyst/testOnly *VarkaFuzzTypesSuite *VarkaIrFuzzSuite'`,
 `build/sbt 'sql/testOnly *VarkaSparkFuzzSuite'` and
