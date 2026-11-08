@@ -162,7 +162,9 @@ spike's loops stay committed as the reference arm; whether S is also emitted is 
 runs are the laptop at 512, 256 and 128 bits (`MaxVectorSize`), whose datapath is 256 bits wide
 so its 512-bit numbers are double-pumped and labelled so, and `benchmark.yml` on the EPYC 7763 at
 256 and 128; `benchmark.yml` has no Arm runner, so the Neoverse N2 reading is the census's cells
-only.
+only. *Corrected 8 November 2026:* it has one now, its `runner` input taking `ubuntu-24.04-arm`, a
+Neoverse N2 (row 575), and a run of `VarkaDecimalPairSpikeBenchmark` there committed its results as
+`2095329e157` on the fork branch `varka-359-arm-results`.
 
 ### 2.2 The IR: words, not pairs
 
@@ -562,9 +564,10 @@ byte:
 
 **Departures.** `Info.lane()` is kept: it says the lane a type computes on, whatever its storage.
 `types.tsv` keeps `storage_bits` beside the new columns. A band carries its row and whether its
-reader is built. The unsigned draw runs a third of the corpora's iterations: the first attempt
-recorded about three and a half minutes at the full count on the laptop, which the Build would
-pay on every run (not re-measured here).
+reader is built. The unsigned draw runs a third of the corpora's iterations: at the full count it
+took about three and a half minutes on the laptop, which the Build would pay on every run.
+*Corrected 8 November 2026:* the three and a half minutes is the first attempt's reading at the
+full count, carried over; this part did not measure it again.
 
 **Not in this part**, owed in the following ones: the compiler's pair (11.5 item 4), the word
 leaf, its shared load and check, the lowerings, the carry layer, the slot table and word edges,
