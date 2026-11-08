@@ -156,6 +156,11 @@ NTZ_ROWS = [
         (1 << 50) + 1,
         "CAST(ntz AS DATE) step 2: /10546875 over the shifted, floor-corrected micros",
     ),
+    # hour, minute and second of an NTZ value divide its microsecond of the day, floorMod(t, D)
+    # in [0, D), by the micros in each unit (VARKA-340); the /60 steps are the TIME rows'.
+    ("ntz/hour", 3_600_000_000, 0, 86_400_000_000, "hour(ntz): /3.6e9 over micros of day"),
+    ("ntz/minute", 60_000_000, 0, 86_400_000_000, "minute(ntz) step 1: /6e7"),
+    ("ntz/second", 1_000_000, 0, 86_400_000_000, "second(ntz) step 1: /1e6"),
 ]
 
 # The verdict each row must have, as (recip_ok, div_ok). The emitter's table is transcribed
@@ -188,6 +193,9 @@ EXPECTED = {
     "time/cast_p1": (True, True),
     "dt/days": (True, True),
     "ntz/date": (True, True),
+    "ntz/hour": (True, True),
+    "ntz/minute": (True, True),
+    "ntz/second": (True, True),
 }
 
 

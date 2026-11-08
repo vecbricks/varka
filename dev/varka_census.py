@@ -389,9 +389,9 @@ VIA = {
     "dateadd": "DateAdd",
     "day": "DayOfMonth",
     "dayofmonth": "DayOfMonth",
-    "hour": "HoursOfTime",
-    "minute": "MinutesOfTime",
-    "second": "SecondsOfTime",
+    "hour": ("HoursOfTime", "Hour"),
+    "minute": ("MinutesOfTime", "Minute"),
+    "second": ("SecondsOfTime", "Second"),
     "==": "EqualTo",
     "extract": "Extract",
     "date_part": "Extract",
@@ -401,12 +401,14 @@ VIA = {
 }
 
 
-# The classes a timestamp's field is, beside the TIME class VIA names: `hour(ntz)` is `Hour`.
-VIA_NTZ = {"hour": "Hour", "minute": "Minute", "second": "Second"}
-
-
 def check_cls_of(name, cls):
-    return VIA.get(name, cls)
+    """The classes an entry's claim is checked against: VIA's, a tuple, or the entry's own.
+
+    A name may be several classes: `hour` is `HoursOfTime` over a TIME and `Hour` over a
+    TIMESTAMP_NTZ (VARKA-340), so its value in VIA is a tuple of both.
+    """
+    via = VIA.get(name, cls)
+    return via if isinstance(via, tuple) else (via,)
 
 
 def build():
@@ -472,17 +474,20 @@ def row(section, name, cls, types, result, fused, need, rows, note, cov, errors)
     if derived:
         quoted = re.findall(r"`([^`]+)`", note)
         if not any(
-            q in cov.get("#sql", {}) and check_cls_of(name, cls) in cov["#sql"][q] for q in quoted
+            q in cov.get("#sql", {}) and c in cov["#sql"][q]
+            for q in quoted
+            for c in check_cls_of(name, cls)
         ):
             errors.append(f"{name}: a ~ claim must quote a coverage row naming its class")
-    check_cls = check_cls_of(name, cls)
+    check_classes = check_cls_of(name, cls)
     for x in f:
         if x not in t:
             errors.append(f"{name}: fused type {x} is not among its types")
         if x in derived:
             continue
-        if x not in cov.get(check_cls, set()) | cov.get(VIA_NTZ.get(name, ""), set()):
-            errors.append(f"{name}: no coverage row has a {check_cls} node over a {x} operand")
+        if not any(x in cov.get(c, set()) for c in check_classes):
+            classes = " or ".join(check_classes)
+            errors.append(f"{name}: no coverage row has a {classes} node over a {x} operand")
     if need not in NEEDS:
         errors.append(f"{name}: unknown need {need!r}")
     if (need == "done") != (set(f) == set(t)):

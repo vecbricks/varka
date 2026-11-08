@@ -300,7 +300,8 @@ This row can start before 339 lands; both touch `VarkaNodeCompiler.java` beside 
 
 A batch with a live day outside `ntzDay`'s range; a date-field cast under a day shift; a field over
 `trunc(ntz, 'WEEK')` (`year(trunc(ntz, 'WEEK'))`), whose plain cast is an unknown producer; literal
-shifts stacked past the year of room (`weekofyear(trunc(ntz, 'YEAR'))`, down to -368 days); an
+shifts stacked past the year of room (`weekofyear(trunc(ntz, 'YEAR'))`, down to -368 days); a
+month shift of the date (`add_months(ntz, i)`, `CAST(ntz AS DATE) + INTERVAL n MONTH`), 339's; an
 unrewritten `TIME` to NTZ cast; a literal date outside `+-106,751,991` days; a batch with a date
 column outside it.
 
@@ -360,7 +361,7 @@ Section 0 against master at `0b682025e09`:
 - The census checks a claim against the class a coverage row's operand list names; a date field of
   NTZ is `Year(Cast(ntz AS DATE))`, so those entries are `~` claims quoting their rows, and
   `hour`, `minute` and `second` are checked against `Hour`, `Minute` and `Second` too
-  (`dev/varka_census.py`, `VIA_NTZ`).
+  (`dev/varka_census.py`, whose `VIA` maps each of those names to both classes).
 
 Predictions:
 
@@ -377,5 +378,13 @@ three conjuncts the optimizer adds to the ANSI form's "right side of a false AND
 answers it. They are on `VarkaAnsiForm`'s declined list with that reason; `hour(ntz)` fits.
 
 Found: a calendar node over a guarded narrowed long is not in the IR fuzzer's mixed draw (row 578).
-`verify_double_division.py` needs numpy, which this machine lacks: the new rows were not run
-locally, only the constants' function.
+`verify_double_division.py` ran with every row at its expected verdict, the four `TIME(p)`
+truncation rows and three rows for the NTZ time fields among them.
+
+Changed in review: the date of a calendar field compiles through `CAST(ntz AS DATE)`'s own arm,
+and the time fields' microsecond of the day runs under `inFamily`, so both forms of the day's
+division are under the int arithmetic family's switch as the bare cast is. `hour`, `minute` and
+`second` divide the microsecond of the day by the micros in each unit, not its nanosecond by the
+nanos. `add_months(ntz, i)` and `CAST(ntz AS DATE) + INTERVAL n MONTH` decline as 339's month
+forms (7); `trunc(ntz, f)` by a format column fuses inside the guard, tested in
+`VarkaTimestampNtzSuite`, since the coverage table has no format column.
