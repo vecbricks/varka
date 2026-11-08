@@ -362,9 +362,11 @@ enum Lane {
   }
 
   /**
-   * Pushes this lane's zero scalar, for the broadcast of a null value, whose vector data no
-   * consumer reads: the integral lanes' zero as {@link #pushScalar} writes it, and the floating
-   * lanes' positive zero.
+   * Pushes this lane's zero as its scalar type, for the broadcast of a null value
+   * ({@link VarkaVectorIR.NullValue}), whose vector data no consumer reads under its clear
+   * validity word. Every lane has one: an integral lane's is {@link #pushScalar}'s, so its bytes
+   * are the ones that call wrote before this method existed, and a floating lane's, which
+   * {@link #pushScalar} refuses, is the positive zero of its own type.
    */
   void pushZero(CodeBuilder cb) {
     switch (laneType) {
