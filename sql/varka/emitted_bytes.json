@@ -14019,6 +14019,14 @@
       "4" : "1643de99a98aeaa3",
       "16" : "6e415dd1c19add41"
     },
+    "wideConversionForm=SPLIT over useAVX=2" : {
+      "4" : "4f02b3652262b16b",
+      "16" : "df07f428b64a85ba"
+    },
+    "wideConversionForm=MAGIC over useAVX=2" : {
+      "4" : "4f02b3652262b16b",
+      "16" : "df07f428b64a85ba"
+    },
     "narrowLanes=true" : {
       "4" : "5eabfb90f2e1ebde",
       "16" : "aea2188a7325bd5c"

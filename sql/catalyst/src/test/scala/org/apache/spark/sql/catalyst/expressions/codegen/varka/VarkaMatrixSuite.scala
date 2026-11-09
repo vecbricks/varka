@@ -64,8 +64,9 @@ class VarkaMatrixSuite extends SparkFunSuite with VarkaTestWatchdog {
     // Catches: the four useAVX levels run as four configurations when they are three classes,
     // one of them the defaults' (VarkaEmittedBytesSuite holds the bytes to that); and level 3
     // left out though it admits the BIGINT conversions the defaults' unknown level declines.
+    // useAVX=2 runs again under the bounded L2D, the one level where wideConversionForm is read.
     val levels = VarkaMatrix.configurations.filter(_.startsWith("useAVX="))
-    assert(levels === Seq("useAVX=2", "useAVX=3"))
+    assert(levels === Seq("useAVX=2", "useAVX=3", "useAVX=2,wideConversionForm=MAGIC"))
     val configs = VarkaMatrix.configurations
     assert(configs.distinct === configs)
     assert(configs.map(VarkaMatrix.parse).map(VarkaMatrixRuns.emissionKey).distinct.size ===
@@ -75,8 +76,9 @@ class VarkaMatrixSuite extends SparkFunSuite with VarkaTestWatchdog {
 
   test("level 3 runs as its own configuration because it admits what the defaults decline") {
     // The key's third class is not idle: a BIGINT cast to a floating type declines at the
-    // defaults' unknown level and compiles at level 3, so the matrix's useAVX=3 is the only
-    // configuration whose answer tests reach that kernel.
+    // defaults' unknown level and compiles at level 3, as one instruction, so the matrix's
+    // useAVX=3 is the only configuration whose answer tests reach that kernel; useAVX=2 reaches
+    // its AVX2 form.
     val l = AttributeReference("l", LongType)()
     def declined(to: DataType, options: VarkaEmitOptions): Boolean =
       VarkaExpressionCompiler.declines(Seq(Alias(Cast(l, to), "c")()), Seq(l), options)
@@ -85,6 +87,7 @@ class VarkaMatrixSuite extends SparkFunSuite with VarkaTestWatchdog {
     for (to <- Seq(DoubleType, FloatType)) {
       assert(declined(to, VarkaEmitOptions.DEFAULTS), to)
       assert(!declined(to, level3), to)
+      assert(!declined(to, VarkaMatrix.parse("useAVX=2")), to)
     }
     assert(VarkaMatrixRuns.emissionKey(level3) !==
       VarkaMatrixRuns.emissionKey(VarkaEmitOptions.DEFAULTS))

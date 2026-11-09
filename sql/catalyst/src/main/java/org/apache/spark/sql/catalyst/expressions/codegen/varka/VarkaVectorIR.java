@@ -907,9 +907,10 @@ public sealed interface VarkaVectorIR
    * <p>The node has one meaning on every host; the emitter lowers it as one
    * {@code convertShape}, part 0, into the target's species of the kernel's width: a widening
    * reads the low half of a 32-bit source, as {@code I2L} does, and a narrowing writes the low
-   * half of the 32-bit target, as {@code L2I} does. The kernel plan refuses {@code L2F} and
-   * {@code L2D}, which a host without AVX512DQ runs as the Vector API's Java loop, and the
-   * conversions from a floating lane to an integral one, until row 343's later parts.
+   * half of the 32-bit target, as {@code L2I} does. {@code L2F} and {@code L2D}, which a host
+   * without AVX512DQ runs as the Vector API's Java loop, take their AVX2 forms below emit level 3
+   * ({@code VarkaConversionLowering}), and the kernel plan refuses them at the unknown level and
+   * the conversions from a floating lane to an integral one until row 343's later parts.
    */
   record ConvertLane(VarkaVectorIR child, LaneType target, int hash) implements VarkaVectorIR {
     public ConvertLane {

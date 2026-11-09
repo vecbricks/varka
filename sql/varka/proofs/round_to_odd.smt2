@@ -23,11 +23,18 @@
 ;                 d = dh + dl
 ;   L2D, magic    bitsToDouble(v + MB) - M, under a guard of |v| <= 2^51
 ;   L2F           s = v >> 63, m = (v ^ s) - s read unsigned (2^63 at Long.MIN_VALUE)
-;                 big = m >>> 52 != 0
-;                 t = big ? (m >>> 12) | ((m & 0xFFF) != 0 ? 1 : 0) : m
-;                 d0 = bitsToDouble(t | bits(0x1p52)) - 0x1p52
-;                 d = big ? d0 * 0x1p12 : d0
-;                 f = (float) d, negated where s is set
+;                 sel = -(((m >>> 52) + Long.MAX_VALUE) >>> 63), all ones where
+;                   m >>> 52 != 0 (big)
+;                 t12 = (m >>> 12) | (((m & 0xFFF) + 0xFFF) >>> 12)
+;                 t = m ^ ((m ^ t12) & sel), t12 where big and m elsewhere
+;                 p = (bits(0x1p52) | (v & Long.MIN_VALUE)) + (sel & (12 << 52))
+;                 d = bitsToDouble(t | p) - bitsToDouble(p), f = (float) d
+;
+; These are the operations VarkaConversionLowering emits, from its constants; the L2F form
+; has no mask, since C2 on x86 lowers none at two 64-bit lanes. p is 2^52 below 2^52, where
+; d is m exactly, and 2^64 on the big arm, whose ulp 2^12 scales t as it converts, so that
+; d is t * 2^12 exactly; p's sign bit is v's, which negates both operands of the
+; subtraction.
 ;
 ; The claims: the split is (double) v and the magic is (double) v inside its window, and
 ; the L2F form is (float) v, for every long.
@@ -54,9 +61,14 @@
 ; For m in [2^j, 2^(j+1)), j from 52 to 63, t << 12 is m rounded to odd at j - 11 bits
 ; (truncated, the sticky bit or-ed into the last kept bit), and p = 24, so k = j - 35 >=
 ; 17. Since k moves with the binade, the instance is checked per binade, beside the form
-; itself per binade, and the sign by the symmetry of rounding to nearest. That k >= 2 is
-; the theorem's bound, and not slack in it, is shown on the top binade: rounding to odd at
-; 26 bits then to nearest at 24 is one rounding, at 25 bits it is not.
+; itself per binade, over the magnitude, with its sticky bit shown to be the theorem's
+; rounding to odd. The sign: m is |v| read unsigned and (float) v is m's rounding negated
+; where v < 0; v & Long.MIN_VALUE is set exactly there; with the sign bit set in both
+; operands each arm's subtraction is the negated magnitude, for every t from 1 (t = 0
+; would give +0.0 either way, and t >= 1 where v < 0); and D2F of a negated double is the
+; negated float, all by the symmetry of rounding to nearest. That k >= 2 is the theorem's
+; bound, and not slack in it, is shown on the top binade: rounding to odd at 26 bits then
+; to nearest at 24 is one rounding, at 25 bits it is not.
 ;
 ; The sat checks: the domain admits Long.MIN_VALUE; the split with MB or the low word's
 ; magic one higher, or a shift of 31, is wrong; the magic is wrong one past its window at
@@ -216,6 +228,65 @@
 (assert (not (= ((_ to_fp 8 24) RNE v) (ite (= (bvashr v #x000000000000003f) #x0000000000000000) ((_ to_fp_unsigned 8 24) RNE (bvxor v (bvashr v #x000000000000003f))) (fp.neg ((_ to_fp_unsigned 8 24) RNE (bvxor v (bvashr v #x000000000000003f))))))))
 (check-sat)
 
+(echo "l2f: v & Long.MIN_VALUE is set exactly where v >> 63 is, for every long: expect unsat")
+(reset)
+(set-logic ALL)
+(define-fun rto.M () Float64 ((_ to_fp 11 53) #x4338000000000000))
+(define-fun rto.P52 () Float64 ((_ to_fp 11 53) #x4330000000000000))
+(define-fun rto.P32 () Float64 ((_ to_fp 11 53) #x41f0000000000000))
+(define-fun rto.bitsToDouble ((x (_ BitVec 64))) Float64 ((_ to_fp 11 53) x))
+(declare-const v (_ BitVec 64))
+(assert (not (= (= (bvand v #x8000000000000000) #x8000000000000000) (not (= (bvashr v #x000000000000003f) #x0000000000000000)))))
+(check-sat)
+
+(echo "l2f: with v's sign bit the magic of 2^52 gives the negated double, for every t in [1, 2^52): expect unsat")
+(reset)
+(set-logic ALL)
+(define-fun rto.M () Float64 ((_ to_fp 11 53) #x4338000000000000))
+(define-fun rto.P52 () Float64 ((_ to_fp 11 53) #x4330000000000000))
+(define-fun rto.P32 () Float64 ((_ to_fp 11 53) #x41f0000000000000))
+(define-fun rto.bitsToDouble ((x (_ BitVec 64))) Float64 ((_ to_fp 11 53) x))
+(declare-const t (_ BitVec 64))
+(assert (= ((_ extract 63 52) t) #b000000000000))
+(assert (not (= t #x0000000000000000)))
+(assert (not (= (fp.sub RNE (rto.bitsToDouble (bvor t (bvor #x4330000000000000 #x8000000000000000))) (rto.bitsToDouble (bvor #x4330000000000000 #x8000000000000000))) (fp.neg (fp.sub RNE (rto.bitsToDouble (bvor t #x4330000000000000)) (rto.bitsToDouble #x4330000000000000))))))
+(check-sat)
+
+(echo "l2f: with v's sign bit the magic of 2^64 gives the negated double, for every t in [1, 2^52): expect unsat")
+(reset)
+(set-logic ALL)
+(define-fun rto.M () Float64 ((_ to_fp 11 53) #x4338000000000000))
+(define-fun rto.P52 () Float64 ((_ to_fp 11 53) #x4330000000000000))
+(define-fun rto.P32 () Float64 ((_ to_fp 11 53) #x41f0000000000000))
+(define-fun rto.bitsToDouble ((x (_ BitVec 64))) Float64 ((_ to_fp 11 53) x))
+(declare-const t (_ BitVec 64))
+(assert (= ((_ extract 63 52) t) #b000000000000))
+(assert (not (= t #x0000000000000000)))
+(assert (not (= (fp.sub RNE (rto.bitsToDouble (bvor t (bvor #x43f0000000000000 #x8000000000000000))) (rto.bitsToDouble (bvor #x43f0000000000000 #x8000000000000000))) (fp.neg (fp.sub RNE (rto.bitsToDouble (bvor t #x43f0000000000000)) (rto.bitsToDouble #x43f0000000000000))))))
+(check-sat)
+
+(echo "l2f: D2F of a negated double is the negated float: expect unsat")
+(reset)
+(set-logic ALL)
+(define-fun rto.M () Float64 ((_ to_fp 11 53) #x4338000000000000))
+(define-fun rto.P52 () Float64 ((_ to_fp 11 53) #x4330000000000000))
+(define-fun rto.P32 () Float64 ((_ to_fp 11 53) #x41f0000000000000))
+(define-fun rto.bitsToDouble ((x (_ BitVec 64))) Float64 ((_ to_fp 11 53) x))
+(declare-const x Float64)
+(assert (not (= ((_ to_fp 8 24) RNE (fp.neg x)) (fp.neg ((_ to_fp 8 24) RNE x)))))
+(check-sat)
+
+(echo "l2f: the sticky bit (((m & 0xFFF) + 0xFFF) >>> 12) is m rounded to odd at 2^12, for every m: expect unsat")
+(reset)
+(set-logic ALL)
+(define-fun rto.M () Float64 ((_ to_fp 11 53) #x4338000000000000))
+(define-fun rto.P52 () Float64 ((_ to_fp 11 53) #x4330000000000000))
+(define-fun rto.P32 () Float64 ((_ to_fp 11 53) #x41f0000000000000))
+(define-fun rto.bitsToDouble ((x (_ BitVec 64))) Float64 ((_ to_fp 11 53) x))
+(declare-const m (_ BitVec 64))
+(assert (not (= (bvor (bvlshr m #x000000000000000c) (bvlshr (bvadd (bvand m #x0000000000000fff) #x0000000000000fff) #x000000000000000c)) (bvor (bvlshr m #x000000000000000c) (ite (= ((_ extract 11 0) m) #b000000000000) #x0000000000000000 #x0000000000000001)))))
+(check-sat)
+
 (echo "l2f: below 2^52 the form is the rounding of m: expect unsat")
 (reset)
 (set-logic ALL)
@@ -225,7 +296,7 @@
 (define-fun rto.bitsToDouble ((x (_ BitVec 64))) Float64 ((_ to_fp 11 53) x))
 (declare-const m (_ BitVec 64))
 (assert (= ((_ extract 63 52) m) #b000000000000))
-(assert (not (= ((_ to_fp 8 24) RNE (ite (not (= ((_ extract 63 52) m) #b000000000000)) (fp.mul RNE (fp.sub RNE (rto.bitsToDouble (bvor (ite (not (= ((_ extract 63 52) m) #b000000000000)) (bvor (bvlshr m #x000000000000000c) (ite (= ((_ extract 11 0) m) #b000000000000) #x0000000000000000 #x0000000000000001)) m) #x4330000000000000)) rto.P52) ((_ to_fp 11 53) #x40b0000000000000)) (fp.sub RNE (rto.bitsToDouble (bvor (ite (not (= ((_ extract 63 52) m) #b000000000000)) (bvor (bvlshr m #x000000000000000c) (ite (= ((_ extract 11 0) m) #b000000000000) #x0000000000000000 #x0000000000000001)) m) #x4330000000000000)) rto.P52))) ((_ to_fp_unsigned 8 24) RNE m))))
+(assert (not (= ((_ to_fp 8 24) RNE (fp.sub RNE (rto.bitsToDouble (bvor (bvxor m (bvand (bvxor m (bvor (bvlshr m #x000000000000000c) (bvlshr (bvadd (bvand m #x0000000000000fff) #x0000000000000fff) #x000000000000000c))) (bvneg (bvlshr (bvadd (bvlshr m #x0000000000000034) #x7fffffffffffffff) #x000000000000003f)))) (bvadd #x4330000000000000 (bvand (bvneg (bvlshr (bvadd (bvlshr m #x0000000000000034) #x7fffffffffffffff) #x000000000000003f)) #x00c0000000000000)))) (rto.bitsToDouble (bvadd #x4330000000000000 (bvand (bvneg (bvlshr (bvadd (bvlshr m #x0000000000000034) #x7fffffffffffffff) #x000000000000003f)) #x00c0000000000000))))) ((_ to_fp_unsigned 8 24) RNE m))))
 (check-sat)
 
 (echo "l2f: for m in [2^52, 2^53) the form is the rounding of m: expect unsat")
@@ -237,7 +308,7 @@
 (define-fun rto.bitsToDouble ((x (_ BitVec 64))) Float64 ((_ to_fp 11 53) x))
 (declare-const m (_ BitVec 64))
 (assert (= ((_ extract 63 52) m) #b000000000001))
-(assert (not (= ((_ to_fp 8 24) RNE (ite (not (= ((_ extract 63 52) m) #b000000000000)) (fp.mul RNE (fp.sub RNE (rto.bitsToDouble (bvor (ite (not (= ((_ extract 63 52) m) #b000000000000)) (bvor (bvlshr m #x000000000000000c) (ite (= ((_ extract 11 0) m) #b000000000000) #x0000000000000000 #x0000000000000001)) m) #x4330000000000000)) rto.P52) ((_ to_fp 11 53) #x40b0000000000000)) (fp.sub RNE (rto.bitsToDouble (bvor (ite (not (= ((_ extract 63 52) m) #b000000000000)) (bvor (bvlshr m #x000000000000000c) (ite (= ((_ extract 11 0) m) #b000000000000) #x0000000000000000 #x0000000000000001)) m) #x4330000000000000)) rto.P52))) ((_ to_fp_unsigned 8 24) RNE m))))
+(assert (not (= ((_ to_fp 8 24) RNE (fp.sub RNE (rto.bitsToDouble (bvor (bvxor m (bvand (bvxor m (bvor (bvlshr m #x000000000000000c) (bvlshr (bvadd (bvand m #x0000000000000fff) #x0000000000000fff) #x000000000000000c))) (bvneg (bvlshr (bvadd (bvlshr m #x0000000000000034) #x7fffffffffffffff) #x000000000000003f)))) (bvadd #x4330000000000000 (bvand (bvneg (bvlshr (bvadd (bvlshr m #x0000000000000034) #x7fffffffffffffff) #x000000000000003f)) #x00c0000000000000)))) (rto.bitsToDouble (bvadd #x4330000000000000 (bvand (bvneg (bvlshr (bvadd (bvlshr m #x0000000000000034) #x7fffffffffffffff) #x000000000000003f)) #x00c0000000000000))))) ((_ to_fp_unsigned 8 24) RNE m))))
 (check-sat)
 
 (echo "l2f: for m in [2^53, 2^54) the form is the rounding of m: expect unsat")
@@ -249,7 +320,7 @@
 (define-fun rto.bitsToDouble ((x (_ BitVec 64))) Float64 ((_ to_fp 11 53) x))
 (declare-const m (_ BitVec 64))
 (assert (= ((_ extract 63 53) m) #b00000000001))
-(assert (not (= ((_ to_fp 8 24) RNE (ite (not (= ((_ extract 63 52) m) #b000000000000)) (fp.mul RNE (fp.sub RNE (rto.bitsToDouble (bvor (ite (not (= ((_ extract 63 52) m) #b000000000000)) (bvor (bvlshr m #x000000000000000c) (ite (= ((_ extract 11 0) m) #b000000000000) #x0000000000000000 #x0000000000000001)) m) #x4330000000000000)) rto.P52) ((_ to_fp 11 53) #x40b0000000000000)) (fp.sub RNE (rto.bitsToDouble (bvor (ite (not (= ((_ extract 63 52) m) #b000000000000)) (bvor (bvlshr m #x000000000000000c) (ite (= ((_ extract 11 0) m) #b000000000000) #x0000000000000000 #x0000000000000001)) m) #x4330000000000000)) rto.P52))) ((_ to_fp_unsigned 8 24) RNE m))))
+(assert (not (= ((_ to_fp 8 24) RNE (fp.sub RNE (rto.bitsToDouble (bvor (bvxor m (bvand (bvxor m (bvor (bvlshr m #x000000000000000c) (bvlshr (bvadd (bvand m #x0000000000000fff) #x0000000000000fff) #x000000000000000c))) (bvneg (bvlshr (bvadd (bvlshr m #x0000000000000034) #x7fffffffffffffff) #x000000000000003f)))) (bvadd #x4330000000000000 (bvand (bvneg (bvlshr (bvadd (bvlshr m #x0000000000000034) #x7fffffffffffffff) #x000000000000003f)) #x00c0000000000000)))) (rto.bitsToDouble (bvadd #x4330000000000000 (bvand (bvneg (bvlshr (bvadd (bvlshr m #x0000000000000034) #x7fffffffffffffff) #x000000000000003f)) #x00c0000000000000))))) ((_ to_fp_unsigned 8 24) RNE m))))
 (check-sat)
 
 (echo "l2f: for m in [2^54, 2^55) the form is the rounding of m: expect unsat")
@@ -261,7 +332,7 @@
 (define-fun rto.bitsToDouble ((x (_ BitVec 64))) Float64 ((_ to_fp 11 53) x))
 (declare-const m (_ BitVec 64))
 (assert (= ((_ extract 63 54) m) #b0000000001))
-(assert (not (= ((_ to_fp 8 24) RNE (ite (not (= ((_ extract 63 52) m) #b000000000000)) (fp.mul RNE (fp.sub RNE (rto.bitsToDouble (bvor (ite (not (= ((_ extract 63 52) m) #b000000000000)) (bvor (bvlshr m #x000000000000000c) (ite (= ((_ extract 11 0) m) #b000000000000) #x0000000000000000 #x0000000000000001)) m) #x4330000000000000)) rto.P52) ((_ to_fp 11 53) #x40b0000000000000)) (fp.sub RNE (rto.bitsToDouble (bvor (ite (not (= ((_ extract 63 52) m) #b000000000000)) (bvor (bvlshr m #x000000000000000c) (ite (= ((_ extract 11 0) m) #b000000000000) #x0000000000000000 #x0000000000000001)) m) #x4330000000000000)) rto.P52))) ((_ to_fp_unsigned 8 24) RNE m))))
+(assert (not (= ((_ to_fp 8 24) RNE (fp.sub RNE (rto.bitsToDouble (bvor (bvxor m (bvand (bvxor m (bvor (bvlshr m #x000000000000000c) (bvlshr (bvadd (bvand m #x0000000000000fff) #x0000000000000fff) #x000000000000000c))) (bvneg (bvlshr (bvadd (bvlshr m #x0000000000000034) #x7fffffffffffffff) #x000000000000003f)))) (bvadd #x4330000000000000 (bvand (bvneg (bvlshr (bvadd (bvlshr m #x0000000000000034) #x7fffffffffffffff) #x000000000000003f)) #x00c0000000000000)))) (rto.bitsToDouble (bvadd #x4330000000000000 (bvand (bvneg (bvlshr (bvadd (bvlshr m #x0000000000000034) #x7fffffffffffffff) #x000000000000003f)) #x00c0000000000000))))) ((_ to_fp_unsigned 8 24) RNE m))))
 (check-sat)
 
 (echo "l2f: for m in [2^55, 2^56) the form is the rounding of m: expect unsat")
@@ -273,7 +344,7 @@
 (define-fun rto.bitsToDouble ((x (_ BitVec 64))) Float64 ((_ to_fp 11 53) x))
 (declare-const m (_ BitVec 64))
 (assert (= ((_ extract 63 55) m) #b000000001))
-(assert (not (= ((_ to_fp 8 24) RNE (ite (not (= ((_ extract 63 52) m) #b000000000000)) (fp.mul RNE (fp.sub RNE (rto.bitsToDouble (bvor (ite (not (= ((_ extract 63 52) m) #b000000000000)) (bvor (bvlshr m #x000000000000000c) (ite (= ((_ extract 11 0) m) #b000000000000) #x0000000000000000 #x0000000000000001)) m) #x4330000000000000)) rto.P52) ((_ to_fp 11 53) #x40b0000000000000)) (fp.sub RNE (rto.bitsToDouble (bvor (ite (not (= ((_ extract 63 52) m) #b000000000000)) (bvor (bvlshr m #x000000000000000c) (ite (= ((_ extract 11 0) m) #b000000000000) #x0000000000000000 #x0000000000000001)) m) #x4330000000000000)) rto.P52))) ((_ to_fp_unsigned 8 24) RNE m))))
+(assert (not (= ((_ to_fp 8 24) RNE (fp.sub RNE (rto.bitsToDouble (bvor (bvxor m (bvand (bvxor m (bvor (bvlshr m #x000000000000000c) (bvlshr (bvadd (bvand m #x0000000000000fff) #x0000000000000fff) #x000000000000000c))) (bvneg (bvlshr (bvadd (bvlshr m #x0000000000000034) #x7fffffffffffffff) #x000000000000003f)))) (bvadd #x4330000000000000 (bvand (bvneg (bvlshr (bvadd (bvlshr m #x0000000000000034) #x7fffffffffffffff) #x000000000000003f)) #x00c0000000000000)))) (rto.bitsToDouble (bvadd #x4330000000000000 (bvand (bvneg (bvlshr (bvadd (bvlshr m #x0000000000000034) #x7fffffffffffffff) #x000000000000003f)) #x00c0000000000000))))) ((_ to_fp_unsigned 8 24) RNE m))))
 (check-sat)
 
 (echo "l2f: for m in [2^56, 2^57) the form is the rounding of m: expect unsat")
@@ -285,7 +356,7 @@
 (define-fun rto.bitsToDouble ((x (_ BitVec 64))) Float64 ((_ to_fp 11 53) x))
 (declare-const m (_ BitVec 64))
 (assert (= ((_ extract 63 56) m) #b00000001))
-(assert (not (= ((_ to_fp 8 24) RNE (ite (not (= ((_ extract 63 52) m) #b000000000000)) (fp.mul RNE (fp.sub RNE (rto.bitsToDouble (bvor (ite (not (= ((_ extract 63 52) m) #b000000000000)) (bvor (bvlshr m #x000000000000000c) (ite (= ((_ extract 11 0) m) #b000000000000) #x0000000000000000 #x0000000000000001)) m) #x4330000000000000)) rto.P52) ((_ to_fp 11 53) #x40b0000000000000)) (fp.sub RNE (rto.bitsToDouble (bvor (ite (not (= ((_ extract 63 52) m) #b000000000000)) (bvor (bvlshr m #x000000000000000c) (ite (= ((_ extract 11 0) m) #b000000000000) #x0000000000000000 #x0000000000000001)) m) #x4330000000000000)) rto.P52))) ((_ to_fp_unsigned 8 24) RNE m))))
+(assert (not (= ((_ to_fp 8 24) RNE (fp.sub RNE (rto.bitsToDouble (bvor (bvxor m (bvand (bvxor m (bvor (bvlshr m #x000000000000000c) (bvlshr (bvadd (bvand m #x0000000000000fff) #x0000000000000fff) #x000000000000000c))) (bvneg (bvlshr (bvadd (bvlshr m #x0000000000000034) #x7fffffffffffffff) #x000000000000003f)))) (bvadd #x4330000000000000 (bvand (bvneg (bvlshr (bvadd (bvlshr m #x0000000000000034) #x7fffffffffffffff) #x000000000000003f)) #x00c0000000000000)))) (rto.bitsToDouble (bvadd #x4330000000000000 (bvand (bvneg (bvlshr (bvadd (bvlshr m #x0000000000000034) #x7fffffffffffffff) #x000000000000003f)) #x00c0000000000000))))) ((_ to_fp_unsigned 8 24) RNE m))))
 (check-sat)
 
 (echo "l2f: for m in [2^57, 2^58) the form is the rounding of m: expect unsat")
@@ -297,7 +368,7 @@
 (define-fun rto.bitsToDouble ((x (_ BitVec 64))) Float64 ((_ to_fp 11 53) x))
 (declare-const m (_ BitVec 64))
 (assert (= ((_ extract 63 57) m) #b0000001))
-(assert (not (= ((_ to_fp 8 24) RNE (ite (not (= ((_ extract 63 52) m) #b000000000000)) (fp.mul RNE (fp.sub RNE (rto.bitsToDouble (bvor (ite (not (= ((_ extract 63 52) m) #b000000000000)) (bvor (bvlshr m #x000000000000000c) (ite (= ((_ extract 11 0) m) #b000000000000) #x0000000000000000 #x0000000000000001)) m) #x4330000000000000)) rto.P52) ((_ to_fp 11 53) #x40b0000000000000)) (fp.sub RNE (rto.bitsToDouble (bvor (ite (not (= ((_ extract 63 52) m) #b000000000000)) (bvor (bvlshr m #x000000000000000c) (ite (= ((_ extract 11 0) m) #b000000000000) #x0000000000000000 #x0000000000000001)) m) #x4330000000000000)) rto.P52))) ((_ to_fp_unsigned 8 24) RNE m))))
+(assert (not (= ((_ to_fp 8 24) RNE (fp.sub RNE (rto.bitsToDouble (bvor (bvxor m (bvand (bvxor m (bvor (bvlshr m #x000000000000000c) (bvlshr (bvadd (bvand m #x0000000000000fff) #x0000000000000fff) #x000000000000000c))) (bvneg (bvlshr (bvadd (bvlshr m #x0000000000000034) #x7fffffffffffffff) #x000000000000003f)))) (bvadd #x4330000000000000 (bvand (bvneg (bvlshr (bvadd (bvlshr m #x0000000000000034) #x7fffffffffffffff) #x000000000000003f)) #x00c0000000000000)))) (rto.bitsToDouble (bvadd #x4330000000000000 (bvand (bvneg (bvlshr (bvadd (bvlshr m #x0000000000000034) #x7fffffffffffffff) #x000000000000003f)) #x00c0000000000000))))) ((_ to_fp_unsigned 8 24) RNE m))))
 (check-sat)
 
 (echo "l2f: for m in [2^58, 2^59) the form is the rounding of m: expect unsat")
@@ -309,7 +380,7 @@
 (define-fun rto.bitsToDouble ((x (_ BitVec 64))) Float64 ((_ to_fp 11 53) x))
 (declare-const m (_ BitVec 64))
 (assert (= ((_ extract 63 58) m) #b000001))
-(assert (not (= ((_ to_fp 8 24) RNE (ite (not (= ((_ extract 63 52) m) #b000000000000)) (fp.mul RNE (fp.sub RNE (rto.bitsToDouble (bvor (ite (not (= ((_ extract 63 52) m) #b000000000000)) (bvor (bvlshr m #x000000000000000c) (ite (= ((_ extract 11 0) m) #b000000000000) #x0000000000000000 #x0000000000000001)) m) #x4330000000000000)) rto.P52) ((_ to_fp 11 53) #x40b0000000000000)) (fp.sub RNE (rto.bitsToDouble (bvor (ite (not (= ((_ extract 63 52) m) #b000000000000)) (bvor (bvlshr m #x000000000000000c) (ite (= ((_ extract 11 0) m) #b000000000000) #x0000000000000000 #x0000000000000001)) m) #x4330000000000000)) rto.P52))) ((_ to_fp_unsigned 8 24) RNE m))))
+(assert (not (= ((_ to_fp 8 24) RNE (fp.sub RNE (rto.bitsToDouble (bvor (bvxor m (bvand (bvxor m (bvor (bvlshr m #x000000000000000c) (bvlshr (bvadd (bvand m #x0000000000000fff) #x0000000000000fff) #x000000000000000c))) (bvneg (bvlshr (bvadd (bvlshr m #x0000000000000034) #x7fffffffffffffff) #x000000000000003f)))) (bvadd #x4330000000000000 (bvand (bvneg (bvlshr (bvadd (bvlshr m #x0000000000000034) #x7fffffffffffffff) #x000000000000003f)) #x00c0000000000000)))) (rto.bitsToDouble (bvadd #x4330000000000000 (bvand (bvneg (bvlshr (bvadd (bvlshr m #x0000000000000034) #x7fffffffffffffff) #x000000000000003f)) #x00c0000000000000))))) ((_ to_fp_unsigned 8 24) RNE m))))
 (check-sat)
 
 (echo "l2f: for m in [2^59, 2^60) the form is the rounding of m: expect unsat")
@@ -321,7 +392,7 @@
 (define-fun rto.bitsToDouble ((x (_ BitVec 64))) Float64 ((_ to_fp 11 53) x))
 (declare-const m (_ BitVec 64))
 (assert (= ((_ extract 63 59) m) #b00001))
-(assert (not (= ((_ to_fp 8 24) RNE (ite (not (= ((_ extract 63 52) m) #b000000000000)) (fp.mul RNE (fp.sub RNE (rto.bitsToDouble (bvor (ite (not (= ((_ extract 63 52) m) #b000000000000)) (bvor (bvlshr m #x000000000000000c) (ite (= ((_ extract 11 0) m) #b000000000000) #x0000000000000000 #x0000000000000001)) m) #x4330000000000000)) rto.P52) ((_ to_fp 11 53) #x40b0000000000000)) (fp.sub RNE (rto.bitsToDouble (bvor (ite (not (= ((_ extract 63 52) m) #b000000000000)) (bvor (bvlshr m #x000000000000000c) (ite (= ((_ extract 11 0) m) #b000000000000) #x0000000000000000 #x0000000000000001)) m) #x4330000000000000)) rto.P52))) ((_ to_fp_unsigned 8 24) RNE m))))
+(assert (not (= ((_ to_fp 8 24) RNE (fp.sub RNE (rto.bitsToDouble (bvor (bvxor m (bvand (bvxor m (bvor (bvlshr m #x000000000000000c) (bvlshr (bvadd (bvand m #x0000000000000fff) #x0000000000000fff) #x000000000000000c))) (bvneg (bvlshr (bvadd (bvlshr m #x0000000000000034) #x7fffffffffffffff) #x000000000000003f)))) (bvadd #x4330000000000000 (bvand (bvneg (bvlshr (bvadd (bvlshr m #x0000000000000034) #x7fffffffffffffff) #x000000000000003f)) #x00c0000000000000)))) (rto.bitsToDouble (bvadd #x4330000000000000 (bvand (bvneg (bvlshr (bvadd (bvlshr m #x0000000000000034) #x7fffffffffffffff) #x000000000000003f)) #x00c0000000000000))))) ((_ to_fp_unsigned 8 24) RNE m))))
 (check-sat)
 
 (echo "l2f: for m in [2^60, 2^61) the form is the rounding of m: expect unsat")
@@ -333,7 +404,7 @@
 (define-fun rto.bitsToDouble ((x (_ BitVec 64))) Float64 ((_ to_fp 11 53) x))
 (declare-const m (_ BitVec 64))
 (assert (= ((_ extract 63 60) m) #b0001))
-(assert (not (= ((_ to_fp 8 24) RNE (ite (not (= ((_ extract 63 52) m) #b000000000000)) (fp.mul RNE (fp.sub RNE (rto.bitsToDouble (bvor (ite (not (= ((_ extract 63 52) m) #b000000000000)) (bvor (bvlshr m #x000000000000000c) (ite (= ((_ extract 11 0) m) #b000000000000) #x0000000000000000 #x0000000000000001)) m) #x4330000000000000)) rto.P52) ((_ to_fp 11 53) #x40b0000000000000)) (fp.sub RNE (rto.bitsToDouble (bvor (ite (not (= ((_ extract 63 52) m) #b000000000000)) (bvor (bvlshr m #x000000000000000c) (ite (= ((_ extract 11 0) m) #b000000000000) #x0000000000000000 #x0000000000000001)) m) #x4330000000000000)) rto.P52))) ((_ to_fp_unsigned 8 24) RNE m))))
+(assert (not (= ((_ to_fp 8 24) RNE (fp.sub RNE (rto.bitsToDouble (bvor (bvxor m (bvand (bvxor m (bvor (bvlshr m #x000000000000000c) (bvlshr (bvadd (bvand m #x0000000000000fff) #x0000000000000fff) #x000000000000000c))) (bvneg (bvlshr (bvadd (bvlshr m #x0000000000000034) #x7fffffffffffffff) #x000000000000003f)))) (bvadd #x4330000000000000 (bvand (bvneg (bvlshr (bvadd (bvlshr m #x0000000000000034) #x7fffffffffffffff) #x000000000000003f)) #x00c0000000000000)))) (rto.bitsToDouble (bvadd #x4330000000000000 (bvand (bvneg (bvlshr (bvadd (bvlshr m #x0000000000000034) #x7fffffffffffffff) #x000000000000003f)) #x00c0000000000000))))) ((_ to_fp_unsigned 8 24) RNE m))))
 (check-sat)
 
 (echo "l2f: for m in [2^61, 2^62) the form is the rounding of m: expect unsat")
@@ -345,7 +416,7 @@
 (define-fun rto.bitsToDouble ((x (_ BitVec 64))) Float64 ((_ to_fp 11 53) x))
 (declare-const m (_ BitVec 64))
 (assert (= ((_ extract 63 61) m) #b001))
-(assert (not (= ((_ to_fp 8 24) RNE (ite (not (= ((_ extract 63 52) m) #b000000000000)) (fp.mul RNE (fp.sub RNE (rto.bitsToDouble (bvor (ite (not (= ((_ extract 63 52) m) #b000000000000)) (bvor (bvlshr m #x000000000000000c) (ite (= ((_ extract 11 0) m) #b000000000000) #x0000000000000000 #x0000000000000001)) m) #x4330000000000000)) rto.P52) ((_ to_fp 11 53) #x40b0000000000000)) (fp.sub RNE (rto.bitsToDouble (bvor (ite (not (= ((_ extract 63 52) m) #b000000000000)) (bvor (bvlshr m #x000000000000000c) (ite (= ((_ extract 11 0) m) #b000000000000) #x0000000000000000 #x0000000000000001)) m) #x4330000000000000)) rto.P52))) ((_ to_fp_unsigned 8 24) RNE m))))
+(assert (not (= ((_ to_fp 8 24) RNE (fp.sub RNE (rto.bitsToDouble (bvor (bvxor m (bvand (bvxor m (bvor (bvlshr m #x000000000000000c) (bvlshr (bvadd (bvand m #x0000000000000fff) #x0000000000000fff) #x000000000000000c))) (bvneg (bvlshr (bvadd (bvlshr m #x0000000000000034) #x7fffffffffffffff) #x000000000000003f)))) (bvadd #x4330000000000000 (bvand (bvneg (bvlshr (bvadd (bvlshr m #x0000000000000034) #x7fffffffffffffff) #x000000000000003f)) #x00c0000000000000)))) (rto.bitsToDouble (bvadd #x4330000000000000 (bvand (bvneg (bvlshr (bvadd (bvlshr m #x0000000000000034) #x7fffffffffffffff) #x000000000000003f)) #x00c0000000000000))))) ((_ to_fp_unsigned 8 24) RNE m))))
 (check-sat)
 
 (echo "l2f: for m in [2^62, 2^63) the form is the rounding of m: expect unsat")
@@ -357,7 +428,7 @@
 (define-fun rto.bitsToDouble ((x (_ BitVec 64))) Float64 ((_ to_fp 11 53) x))
 (declare-const m (_ BitVec 64))
 (assert (= ((_ extract 63 62) m) #b01))
-(assert (not (= ((_ to_fp 8 24) RNE (ite (not (= ((_ extract 63 52) m) #b000000000000)) (fp.mul RNE (fp.sub RNE (rto.bitsToDouble (bvor (ite (not (= ((_ extract 63 52) m) #b000000000000)) (bvor (bvlshr m #x000000000000000c) (ite (= ((_ extract 11 0) m) #b000000000000) #x0000000000000000 #x0000000000000001)) m) #x4330000000000000)) rto.P52) ((_ to_fp 11 53) #x40b0000000000000)) (fp.sub RNE (rto.bitsToDouble (bvor (ite (not (= ((_ extract 63 52) m) #b000000000000)) (bvor (bvlshr m #x000000000000000c) (ite (= ((_ extract 11 0) m) #b000000000000) #x0000000000000000 #x0000000000000001)) m) #x4330000000000000)) rto.P52))) ((_ to_fp_unsigned 8 24) RNE m))))
+(assert (not (= ((_ to_fp 8 24) RNE (fp.sub RNE (rto.bitsToDouble (bvor (bvxor m (bvand (bvxor m (bvor (bvlshr m #x000000000000000c) (bvlshr (bvadd (bvand m #x0000000000000fff) #x0000000000000fff) #x000000000000000c))) (bvneg (bvlshr (bvadd (bvlshr m #x0000000000000034) #x7fffffffffffffff) #x000000000000003f)))) (bvadd #x4330000000000000 (bvand (bvneg (bvlshr (bvadd (bvlshr m #x0000000000000034) #x7fffffffffffffff) #x000000000000003f)) #x00c0000000000000)))) (rto.bitsToDouble (bvadd #x4330000000000000 (bvand (bvneg (bvlshr (bvadd (bvlshr m #x0000000000000034) #x7fffffffffffffff) #x000000000000003f)) #x00c0000000000000))))) ((_ to_fp_unsigned 8 24) RNE m))))
 (check-sat)
 
 (echo "l2f: for m in [2^63, 2^64) the form is the rounding of m: expect unsat")
@@ -369,7 +440,7 @@
 (define-fun rto.bitsToDouble ((x (_ BitVec 64))) Float64 ((_ to_fp 11 53) x))
 (declare-const m (_ BitVec 64))
 (assert (= ((_ extract 63 63) m) #b1))
-(assert (not (= ((_ to_fp 8 24) RNE (ite (not (= ((_ extract 63 52) m) #b000000000000)) (fp.mul RNE (fp.sub RNE (rto.bitsToDouble (bvor (ite (not (= ((_ extract 63 52) m) #b000000000000)) (bvor (bvlshr m #x000000000000000c) (ite (= ((_ extract 11 0) m) #b000000000000) #x0000000000000000 #x0000000000000001)) m) #x4330000000000000)) rto.P52) ((_ to_fp 11 53) #x40b0000000000000)) (fp.sub RNE (rto.bitsToDouble (bvor (ite (not (= ((_ extract 63 52) m) #b000000000000)) (bvor (bvlshr m #x000000000000000c) (ite (= ((_ extract 11 0) m) #b000000000000) #x0000000000000000 #x0000000000000001)) m) #x4330000000000000)) rto.P52))) ((_ to_fp_unsigned 8 24) RNE m))))
+(assert (not (= ((_ to_fp 8 24) RNE (fp.sub RNE (rto.bitsToDouble (bvor (bvxor m (bvand (bvxor m (bvor (bvlshr m #x000000000000000c) (bvlshr (bvadd (bvand m #x0000000000000fff) #x0000000000000fff) #x000000000000000c))) (bvneg (bvlshr (bvadd (bvlshr m #x0000000000000034) #x7fffffffffffffff) #x000000000000003f)))) (bvadd #x4330000000000000 (bvand (bvneg (bvlshr (bvadd (bvlshr m #x0000000000000034) #x7fffffffffffffff) #x000000000000003f)) #x00c0000000000000)))) (rto.bitsToDouble (bvadd #x4330000000000000 (bvand (bvneg (bvlshr (bvadd (bvlshr m #x0000000000000034) #x7fffffffffffffff) #x000000000000003f)) #x00c0000000000000))))) ((_ to_fp_unsigned 8 24) RNE m))))
 (check-sat)
 
 (echo "l2f: Theorem 3 at k = 17: for m in [2^52, 2^53) rounding t << 12 to 24 bits is rounding m: expect unsat")
@@ -561,7 +632,7 @@
 (define-fun rto.bitsToDouble ((x (_ BitVec 64))) Float64 ((_ to_fp 11 53) x))
 (declare-const m (_ BitVec 64))
 (assert (= ((_ extract 63 63) m) #b1))
-(assert (not (= ((_ to_fp 8 24) RNE (ite (not (= ((_ extract 63 52) m) #b000000000000)) (fp.mul RNE (fp.sub RNE (rto.bitsToDouble (bvor (ite (not (= ((_ extract 63 52) m) #b000000000000)) (bvor (bvlshr m #x000000000000000c) #x0000000000000000) m) #x4330000000000000)) rto.P52) ((_ to_fp 11 53) #x40b0000000000000)) (fp.sub RNE (rto.bitsToDouble (bvor (ite (not (= ((_ extract 63 52) m) #b000000000000)) (bvor (bvlshr m #x000000000000000c) #x0000000000000000) m) #x4330000000000000)) rto.P52))) ((_ to_fp_unsigned 8 24) RNE m))))
+(assert (not (= ((_ to_fp 8 24) RNE (fp.sub RNE (rto.bitsToDouble (bvor (bvxor m (bvand (bvxor m (bvlshr m #x000000000000000c)) (bvneg (bvlshr (bvadd (bvlshr m #x0000000000000034) #x7fffffffffffffff) #x000000000000003f)))) (bvadd #x4330000000000000 (bvand (bvneg (bvlshr (bvadd (bvlshr m #x0000000000000034) #x7fffffffffffffff) #x000000000000003f)) #x00c0000000000000)))) (rto.bitsToDouble (bvadd #x4330000000000000 (bvand (bvneg (bvlshr (bvadd (bvlshr m #x0000000000000034) #x7fffffffffffffff) #x000000000000003f)) #x00c0000000000000))))) ((_ to_fp_unsigned 8 24) RNE m))))
 (check-sat)
 
 (echo "l2f: two roundings to nearest, to a double then to a float, are not the rounding of m: expect sat")
@@ -585,7 +656,7 @@
 (define-fun rto.bitsToDouble ((x (_ BitVec 64))) Float64 ((_ to_fp 11 53) x))
 (declare-const m (_ BitVec 64))
 (assert (= ((_ extract 63 63) m) #b1))
-(assert (not (= ((_ to_fp 8 24) RNE (ite (not (= ((_ extract 63 52) m) #b000000000000)) (fp.mul RNE (fp.sub RNE (rto.bitsToDouble (bvor (ite (not (= ((_ extract 63 52) m) #b000000000000)) (bvor (bvlshr m #x000000000000000b) (ite (= ((_ extract 10 0) m) #b00000000000) #x0000000000000000 #x0000000000000001)) m) #x4330000000000000)) rto.P52) ((_ to_fp 11 53) #x40a0000000000000)) (fp.sub RNE (rto.bitsToDouble (bvor (ite (not (= ((_ extract 63 52) m) #b000000000000)) (bvor (bvlshr m #x000000000000000b) (ite (= ((_ extract 10 0) m) #b00000000000) #x0000000000000000 #x0000000000000001)) m) #x4330000000000000)) rto.P52))) ((_ to_fp_unsigned 8 24) RNE m))))
+(assert (not (= ((_ to_fp 8 24) RNE (fp.sub RNE (rto.bitsToDouble (bvor (bvxor m (bvand (bvxor m (bvor (bvlshr m #x000000000000000b) (bvlshr (bvadd (bvand m #x00000000000007ff) #x00000000000007ff) #x000000000000000b))) (bvneg (bvlshr (bvadd (bvlshr m #x0000000000000034) #x7fffffffffffffff) #x000000000000003f)))) (bvadd #x4330000000000000 (bvand (bvneg (bvlshr (bvadd (bvlshr m #x0000000000000034) #x7fffffffffffffff) #x000000000000003f)) #x00b0000000000000)))) (rto.bitsToDouble (bvadd #x4330000000000000 (bvand (bvneg (bvlshr (bvadd (bvlshr m #x0000000000000034) #x7fffffffffffffff) #x000000000000003f)) #x00b0000000000000))))) ((_ to_fp_unsigned 8 24) RNE m))))
 (check-sat)
 
 (echo "l2f: with the small arm up to 2^53 the form is wrong there: expect sat")
@@ -597,7 +668,7 @@
 (define-fun rto.bitsToDouble ((x (_ BitVec 64))) Float64 ((_ to_fp 11 53) x))
 (declare-const m (_ BitVec 64))
 (assert (= ((_ extract 63 53) m) #b00000000000))
-(assert (not (= ((_ to_fp 8 24) RNE (ite (not (= ((_ extract 63 53) m) #b00000000000)) (fp.mul RNE (fp.sub RNE (rto.bitsToDouble (bvor (ite (not (= ((_ extract 63 53) m) #b00000000000)) (bvor (bvlshr m #x000000000000000c) (ite (= ((_ extract 11 0) m) #b000000000000) #x0000000000000000 #x0000000000000001)) m) #x4330000000000000)) rto.P52) ((_ to_fp 11 53) #x40b0000000000000)) (fp.sub RNE (rto.bitsToDouble (bvor (ite (not (= ((_ extract 63 53) m) #b00000000000)) (bvor (bvlshr m #x000000000000000c) (ite (= ((_ extract 11 0) m) #b000000000000) #x0000000000000000 #x0000000000000001)) m) #x4330000000000000)) rto.P52))) ((_ to_fp_unsigned 8 24) RNE m))))
+(assert (not (= ((_ to_fp 8 24) RNE (fp.sub RNE (rto.bitsToDouble (bvor (bvxor m (bvand (bvxor m (bvor (bvlshr m #x000000000000000c) (bvlshr (bvadd (bvand m #x0000000000000fff) #x0000000000000fff) #x000000000000000c))) (bvneg (bvlshr (bvadd (bvlshr m #x0000000000000035) #x7fffffffffffffff) #x000000000000003f)))) (bvadd #x4330000000000000 (bvand (bvneg (bvlshr (bvadd (bvlshr m #x0000000000000035) #x7fffffffffffffff) #x000000000000003f)) #x00c0000000000000)))) (rto.bitsToDouble (bvadd #x4330000000000000 (bvand (bvneg (bvlshr (bvadd (bvlshr m #x0000000000000035) #x7fffffffffffffff) #x000000000000003f)) #x00c0000000000000))))) ((_ to_fp_unsigned 8 24) RNE m))))
 (check-sat)
 
 (echo "l2f: the theorem's slack: with a shift of 13 the form is still right on [2^52, 2^53): expect unsat")
@@ -609,5 +680,5 @@
 (define-fun rto.bitsToDouble ((x (_ BitVec 64))) Float64 ((_ to_fp 11 53) x))
 (declare-const m (_ BitVec 64))
 (assert (= ((_ extract 63 52) m) #b000000000001))
-(assert (not (= ((_ to_fp 8 24) RNE (ite (not (= ((_ extract 63 52) m) #b000000000000)) (fp.mul RNE (fp.sub RNE (rto.bitsToDouble (bvor (ite (not (= ((_ extract 63 52) m) #b000000000000)) (bvor (bvlshr m #x000000000000000d) (ite (= ((_ extract 12 0) m) #b0000000000000) #x0000000000000000 #x0000000000000001)) m) #x4330000000000000)) rto.P52) ((_ to_fp 11 53) #x40c0000000000000)) (fp.sub RNE (rto.bitsToDouble (bvor (ite (not (= ((_ extract 63 52) m) #b000000000000)) (bvor (bvlshr m #x000000000000000d) (ite (= ((_ extract 12 0) m) #b0000000000000) #x0000000000000000 #x0000000000000001)) m) #x4330000000000000)) rto.P52))) ((_ to_fp_unsigned 8 24) RNE m))))
+(assert (not (= ((_ to_fp 8 24) RNE (fp.sub RNE (rto.bitsToDouble (bvor (bvxor m (bvand (bvxor m (bvor (bvlshr m #x000000000000000d) (bvlshr (bvadd (bvand m #x0000000000001fff) #x0000000000001fff) #x000000000000000d))) (bvneg (bvlshr (bvadd (bvlshr m #x0000000000000034) #x7fffffffffffffff) #x000000000000003f)))) (bvadd #x4330000000000000 (bvand (bvneg (bvlshr (bvadd (bvlshr m #x0000000000000034) #x7fffffffffffffff) #x000000000000003f)) #x00d0000000000000)))) (rto.bitsToDouble (bvadd #x4330000000000000 (bvand (bvneg (bvlshr (bvadd (bvlshr m #x0000000000000034) #x7fffffffffffffff) #x000000000000003f)) #x00d0000000000000))))) ((_ to_fp_unsigned 8 24) RNE m))))
 (check-sat)
