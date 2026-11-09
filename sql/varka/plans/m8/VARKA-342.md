@@ -539,7 +539,15 @@ only, `dev/varka_prove.sh`'s `NIGHTLY_ONLY` list keeping it out of `--lint`, so 
 stays short. `dev/varka_prove.sh --lint`, the linters' job's step, which its workflow comment
 keeps "inside its minute", took 142 s on the laptop with the file and about 49 s without it:
 `fp_half_up.smt2` took Z3 62 to 115 s over four runs, each of its 129 checks within the 10 s
-limit, its slowest 3.7 s on an idle laptop core and one past the limit on a loaded one. Fixing the sign or grouping binades made no check cheaper.
+limit, its slowest 3.7 s on an idle laptop core and one past the limit on a loaded one. Fixing
+the sign or grouping binades made no check cheaper.
+
+Correction, from the review of 9 November 2026: the 10 s limit holds Z3's checks, not cvc5's.
+cvc5 took 137 to 208 s over the file with one or two other solver runs beside it; at a 4 s
+per-check limit six of the `dt` HALF_UP checks answered unknown, at 6 s seven and at 8 s
+one, so its slowest check is past 8 s on a shared laptop core, too near the default limit for a
+runner. `dev/varka_prove.sh` therefore runs a `NIGHTLY_ONLY` file at 30 s a check and 600 s a
+run where the environment sets no limit, which the nightly job's 30 minutes fit twice over.
 
 **Still owed by step 4**, after 343b2: `ym * x`, `ym / x`, `dt * x` and `dt / x` by 2.4's
 construction over `D2I` and `D2L` and the floating guard, with 3.7's pinned cells through the

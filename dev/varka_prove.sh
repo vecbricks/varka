@@ -47,7 +47,8 @@
 # shared directory every worktree of a machine can read ($VARKA_SOLVERS_DIR, by default
 # ~/.cache/varka-solvers/, laid out as target/varka-solvers/ is), else from PATH.
 # VARKA_PROVE_LIMIT_MS bounds each check (default 10000) and VARKA_PROVE_RUN_LIMIT each
-# file's run under one solver, in seconds (default 300). Exit status 0 when every proof holds.
+# file's run under one solver, in seconds (default 300); a NIGHTLY_ONLY file's defaults are 30000
+# and 600. Exit status 0 when every proof holds.
 set -uo pipefail
 # Usage text is found rather than numbered (see dev/varka_nightly.sh): from the line after the
 # license to the first line that is not a comment.
@@ -72,6 +73,11 @@ CVC5_IN_LINT=(long_divide.smt2)
 NIGHTLY_ONLY=(fp_half_up.smt2)
 limit_ms="${VARKA_PROVE_LIMIT_MS:-10000}"
 run_limit="${VARKA_PROVE_RUN_LIMIT:-300}"
+# A NIGHTLY_ONLY file's limits where the environment sets none: cvc5 left one check of
+# fp_half_up.smt2 unknown at an 8 s limit and took 137 to 208 s on the laptop (VARKA-342.md 5.2),
+# too near the defaults for a runner. Two runs at the run limit fit the nightly job's 30 minutes.
+nightly_limit_ms="${VARKA_PROVE_LIMIT_MS:-30000}"
+nightly_run_limit="${VARKA_PROVE_RUN_LIMIT:-600}"
 
 # ---------------------------------------------------------------------------------------------
 # The solvers.
@@ -271,6 +277,13 @@ run_file() {
     $((ms / 1000)) $((ms % 1000 / 10)) "$([ "$rc" -eq 0 ] && echo holds || echo FAILED)"
   printf '%s\n' "$report" | sed '$d'
   return "$rc"
+}
+
+# Whether FILE is one NIGHTLY_ONLY names.
+is_nightly_only() {
+  local c
+  for c in "${NIGHTLY_ONLY[@]}"; do [ "$(basename "$1")" = "$c" ] && return 0; done
+  return 1
 }
 
 # ---------------------------------------------------------------------------------------------
@@ -501,9 +514,7 @@ failed=0
 if [ "$mode" = lint ]; then
   for f in "${files[@]}"; do
     [ -f "$f" ] || f="$proofs/$f"
-    skip=
-    for c in "${NIGHTLY_ONLY[@]}"; do [ "$(basename "$f")" = "$c" ] && skip=1; done
-    if [ -n "$skip" ]; then
+    if is_nightly_only "$f"; then
       printf '%-5s %-28s skipped: proven in the nightly\n' - "$(basename "$f")"
       continue
     fi
@@ -515,7 +526,12 @@ else
   for name in "${names[@]}"; do
     for f in "${files[@]}"; do
       [ -f "$f" ] || f="$proofs/$f"
-      run_file "$name" "${paths[$name]}" "$f" || failed=$((failed + 1))
+      if is_nightly_only "$f"; then
+        limit_ms="$nightly_limit_ms" run_limit="$nightly_run_limit" \
+          run_file "$name" "${paths[$name]}" "$f" || failed=$((failed + 1))
+      else
+        run_file "$name" "${paths[$name]}" "$f" || failed=$((failed + 1))
+      fi
     done
   done
 fi
