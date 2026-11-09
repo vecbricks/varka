@@ -39,7 +39,12 @@ i > 0` supports a date claim for Year and no int one; VARKA-328), and a cast pai
 fuses that no row casts, or one a row casts that it does not fuse. Which casts fuse is not
 curated: VarkaCastMatrixSuite asks the compiler and writes m8/casts_fused.tsv, from which
 casts.tsv's fused_today is derived (VARKA-486). A type marked `~` is fused only
-over a derived operand, and its note must quote the coverage row that shows it. The cast aliases'
+over a derived operand, and its note must quote the coverage row that shows it. A type marked
+`^` is fused in part: one band or one form of it fuses (DECIMAL at one scale, say, while two
+scales wait for a rescale), which a coverage row must show, but it is not counted as fused. It
+goes to census.tsv's fused_in_part column and never to fused_today, so the done-when counts and
+the need rule read it as unfused; the conformance harness lets such a form fuse without calling
+it drift (VARKA-359.md 10.5). The cast aliases'
 source types are not curated: they are the sources `legal()` allows.
 So the census is regenerated, not edited, and a registry change upstream shows up here.
 """
@@ -436,7 +441,7 @@ def build():
             _, types, result, fused, need, rows, note = curated[name]
             out.append(row(section, name, cls, types, result, fused, need, rows, note, cov, errors))
         elif reason:
-            out.append([name, cls, section, "out", reason, "", "", "", "", "", "", ""])
+            out.append([name, cls, section, "out", reason, "", "", "", "", "", "", "", ""])
         else:
             errors.append(f"{name} ({section}, {cls}): neither curated nor excluded")
     for name in curated:
@@ -453,7 +458,9 @@ def build():
             errors.append(f"{name}: class {cls} is not defined in the sources")
         if name in {r[0] for r in implicit}:
             errors.append(f"{name}: both an implicit entry and excluded ({reason})")
-        out.append([name, cls, "implicit: " + family, "out", reason, "", "", "", "", "", "", ""])
+        out.append(
+            [name, cls, "implicit: " + family, "out", reason, "", "", "", "", "", "", "", ""]
+        )
     return out, errors
 
 
@@ -469,7 +476,9 @@ def row(section, name, cls, types, result, fused, need, rows, note, cov, errors)
     declined = expand(",".join(p[:-1] for p in types.split(",") if p.endswith("!")))
     t = expand(",".join(p for p in types.split(",") if p and not p.endswith("!")))
     res = t if result == "same" else expand(result)
-    f = expand(fused)
+    # A type marked `^` is fused in part, and kept apart from the counted ones.
+    partial = expand(",".join(p[:-1] for p in fused.split(",") if p.endswith("^")))
+    f = expand(",".join(p for p in fused.split(",") if p and not p.endswith("^")))
     # A type marked `~` is fused in a coverage row whose operand of that type is derived (a
     # literal, or another expression's result) rather than a column; the note must quote that
     # row's SQL, and the row must name the class.
@@ -491,6 +500,14 @@ def row(section, name, cls, types, result, fused, need, rows, note, cov, errors)
         if not any(x in cov.get(c, set()) for c in check_classes):
             classes = " or ".join(check_classes)
             errors.append(f"{name}: no coverage row has a {classes} node over a {x} operand")
+    for x in partial:
+        if x not in t:
+            errors.append(f"{name}: type {x} fused in part is not among its types")
+        if x in f:
+            errors.append(f"{name}: type {x} is both fused and fused in part")
+        if not any(x in cov.get(c, set()) for c in check_classes):
+            classes = " or ".join(check_classes)
+            errors.append(f"{name}: no coverage row has a {classes} node over a {x} operand")
     if need not in NEEDS:
         errors.append(f"{name}: unknown need {need!r}")
     if (need == "done") != (set(f) == set(t)):
@@ -509,6 +526,7 @@ def row(section, name, cls, types, result, fused, need, rows, note, cov, errors)
         need,
         rows,
         note,
+        ",".join(partial),
     ]
 
 
@@ -525,6 +543,7 @@ HEADER = [
     "need",
     "rows",
     "note",
+    "fused_in_part",
 ]
 
 

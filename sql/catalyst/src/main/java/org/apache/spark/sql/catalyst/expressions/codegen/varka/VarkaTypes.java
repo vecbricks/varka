@@ -644,16 +644,19 @@ public final class VarkaTypes {
       // The first operators over the leaf, its comparisons and null tests, are row 348's, which
       // step 5 of VARKA-347 carries (VarkaDecimalCompiler), so the reader is built and no row
       // owes it.
-      // The contract's ordering, choice and cast checks have no form before row 348.
+      // VarkaDecimalConformanceSuite holds the pair (DECIMAL(30, 4)) to the contract: the
+      // comparisons, fused in part (one scale), are checked; the choices, IN and greatest wait
+      // for 359b, the casts for 364, the arithmetic for 360 to 363.
       case DECIMAL -> new Info(id, "dec", "DECIMAL(10, 2)",
           new Admission.ByPrecision(LaneType.LONG, List.of(
               new Admission.Band(VarkaVectorIR.DecimalColumn.MAX_LONG_PRECISION, 1, "347", true),
               new Admission.Band(DecimalWords.MAX_PRECISION, 2, "359", true))),
           new Storage.DecimalSlot(),
           List.of(DataTypes.createDecimalType(10, 2), DataTypes.createDecimalType(30, 4)),
-          // The decimal conformance suite is row 359's, over both representations, by its
-          // answered question 4 (a) (VARKA-348.md 7).
-          List.of(LaneType.LONG), new Conformance.Owed("Decimal", "359"));
+          // VarkaDecimalConformanceSuite holds both representations to the contract: the
+          // long to 18 digits and the pair above. The forms the census marks fused in part (one
+          // scale) are checked; the rest wait for their rows (VARKA-359.md 10.5).
+          List.of(LaneType.LONG), new Conformance.Suite("Decimal"));
       case DATE -> new Info(id, "date", "DATE", new Admission.OnLane(LaneType.INT),
           plain(32),
           List.of(DataTypes.DateType), List.of(LaneType.INT),

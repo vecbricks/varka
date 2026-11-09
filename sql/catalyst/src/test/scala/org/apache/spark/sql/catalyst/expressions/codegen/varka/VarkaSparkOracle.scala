@@ -78,9 +78,17 @@ class VarkaSparkOracle(outputs: Seq[Expression], inputs: Seq[Attribute]) {
     VarkaSameAnswer.openNaN(bound(o), new GenericInternalRow(values(row).toArray[Any]))
 
   /** Spark's answer for output `o` on a row of lane values, `None` for a null input. */
-  def answer(o: Int, row: Seq[Option[Long]]): VarkaSparkOracle.Answer = {
+  def answer(o: Int, row: Seq[Option[Long]]): VarkaSparkOracle.Answer =
+    answerInternal(o, values(row))
+
+  /**
+   * Spark's answer for output `o` on a row of Catalyst's internal values, `null` for a null
+   * input: for an input no lane value carries whole, such as a 128-bit decimal's `Decimal`,
+   * which a harness builds from the slot's two words.
+   */
+  def answerInternal(o: Int, values: Seq[Any]): VarkaSparkOracle.Answer = {
     try {
-      bound(o).eval(new GenericInternalRow(values(row).toArray[Any])) match {
+      bound(o).eval(new GenericInternalRow(values.toArray[Any])) match {
         case null => VarkaSparkOracle.Null
         case b: Boolean => VarkaSparkOracle.Value(if (b) 1L else 0L)
         case b: Byte => VarkaSparkOracle.Value(b.toLong)
