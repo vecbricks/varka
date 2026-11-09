@@ -35,11 +35,14 @@ import java.util.function.IntUnaryOperator;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import org.apache.spark.sql.catalyst.expressions.BitwiseCount;
+import org.apache.spark.sql.catalyst.expressions.Literal$;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitterFixtures.Emitted;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitterFixtures.Loaded;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitterFixtures.Output;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaKernelChecks.Batch;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaKernelChecks.ValidityFill;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BitCount;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ColumnRef;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Compare;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.CompareOp;
@@ -516,6 +519,44 @@ public final class VarkaEmitterNarrowSuite {
           new int[][] {tabulate(length, row -> data.applyAsInt(0, row)),
             tabulate(length, row -> data.applyAsInt(1, row))},
           row -> false, false, arm.options());
+    }
+  }
+
+  /** Spark's {@code bit_count} of a {@code TINYINT} or {@code SMALLINT} value, as it evaluates. */
+  private static int sparkBitCount(LaneType lane, int v) {
+    Object value = lane == LaneType.BYTE ? (Object) Byte.valueOf((byte) v)
+        : Short.valueOf((short) v);
+    return (Integer) new BitwiseCount(Literal$.MODULE$.apply(value)).eval(null);
+  }
+
+  @Test
+  @DisplayName("bit_count of every byte and short counts the sign bits of its widening to 64 bits")
+  public void bitCountOfANarrowValueCountsItsWideningsSignBits() {
+    // Spark's `bit_count` is `Long.bitCount` of the value sign-extended to 64 bits, so a negative
+    // byte counts 56 sign bits and a negative short 48 beyond its own. The compiler builds the
+    // node over the value widened to the int lane, but the IR takes a narrow child, and the
+    // native arm then counts at the narrow lane's own width (row 580 of `m8/PLAN.md`).
+    assertEquals(64, sparkBitCount(LaneType.BYTE, -1));
+    assertEquals(57, sparkBitCount(LaneType.BYTE, Byte.MIN_VALUE));
+    assertEquals(64, sparkBitCount(LaneType.SHORT, -1));
+    assertEquals(49, sparkBitCount(LaneType.SHORT, Short.MIN_VALUE));
+    for (LaneType lane : List.of(LaneType.BYTE, LaneType.SHORT)) {
+      int span = lane == LaneType.BYTE ? 256 : 65536;
+      int[] values = tabulate(span, i -> i - span / 2);
+      VarkaVectorIR root = new BitCount(new ColumnRef(0, lane));
+      // The reference is the oracle the kernels are compared with; it is held to Spark first.
+      for (int v : values) {
+        assertEquals(OptionalInt.of(sparkBitCount(lane, v)),
+            VarkaReference.value(root, new int[] {v}, new boolean[1], new int[0]),
+            "the reference's bit_count of " + lane + " " + v);
+      }
+      for (Arm arm : ARMS) {
+        for (boolean masked : new boolean[] {false, true}) {
+          checkValues("bit_count of every " + lane + " value " + arm.name()
+              + (masked ? " masked" : ""), List.of(root), 1, new int[0], span,
+              new int[][] {values}, row -> false, masked, arm.options());
+        }
+      }
     }
   }
 

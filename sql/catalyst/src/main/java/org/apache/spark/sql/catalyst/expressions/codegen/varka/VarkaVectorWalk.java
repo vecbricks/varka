@@ -1335,9 +1335,11 @@ final class VarkaVectorWalk {
 
   /**
    * {@code BitCount}: the popcount of the value widened to 64 bits. The long lane's is the
-   * popcount itself. The int lane adds the 32 one bits a negative value gains in the widening:
-   * {@code bitCount(x) + ((x >> 31) & 32)}, the operand's second copy riding the stack under the
-   * popcount. The word is the operand's, since nothing here nulls a lane.
+   * popcount itself. A lane of {@code w} bits adds the {@code 64 - w} one bits a negative value
+   * gains in the widening: {@code bitCount(x) + ((x >> (w - 1)) & (64 - w))}, the operand's
+   * second copy riding the stack under the popcount. That is 32 at the int lane, and 48 and 56
+   * at the short and byte lanes, whose popcount counts their own 16 and 8 bits. The word is the
+   * operand's, since nothing here nulls a lane.
    */
   private static void emitBitCount(CodeBuilder cb, BitCount n, boolean dense, Analysis analysis,
       Slots s, Set<VarkaVectorIR> computed) {
@@ -1352,14 +1354,14 @@ final class VarkaVectorWalk {
     }
     cb.dup();                                                       // [x, x]
     cb.getstatic(VECTOR_OPERATORS, "BIT_COUNT", VO_UNARY);
-    cb.invokevirtual(lane.vector, "lanewise", lane.integral().lanewiseUnary());  // [x, pop32(x)]
-    cb.swap();                                                      // [pop32(x), x]
+    cb.invokevirtual(lane.vector, "lanewise", lane.integral().lanewiseUnary());  // [x, pop(x)]
+    cb.swap();                                                      // [pop(x), x]
     cb.getstatic(VECTOR_OPERATORS, "ASHR", VO_BINARY);
-    cb.loadConstant(Integer.SIZE - 1);
-    // [pop32(x), x >> 31]
+    lane.pushScalar(cb, lane.bits - 1);
+    // [pop(x), x >> (w - 1)]: all ones exactly where x is negative
     cb.invokevirtual(lane.vector, "lanewise", lane.integral().lanewiseBinaryI());
-    cb.loadConstant(Integer.SIZE);
-    cb.invokevirtual(lane.vector, "and", lane.lanewiseVI);          // [pop32(x), high]
+    lane.pushScalar(cb, Long.SIZE - lane.bits);
+    cb.invokevirtual(lane.vector, "and", lane.lanewiseVI);          // [pop(x), high]
     cb.invokevirtual(lane.vector, "add", lane.lanewiseVV);
   }
 
