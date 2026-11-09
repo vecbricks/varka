@@ -643,3 +643,116 @@ against risk 5; no emitted byte moved; and the PR build passes.
 
 ## 10. Outcome
 
+### 10.1 506a: the printer's terms, its word form and the IR's meanings (8 November 2026)
+
+*Branches `varka-506a0-prelude`, from master at `99675606f2b`, and `varka-506a-printer` on it;
+local commits only. Built on master
+alone: 359a's word leaf and unsigned compares are there (#1392, #1400); #1413's `DecimalWords`
+comparisons add no IR record, so they render through the templates below when they land.*
+
+**Cut under the size cap, at the seam between printing and meaning.** 5 item 1 came to about
+1700 counted lines, so 506a lands in three pull requests, each built and validated:
+
+- **506a0, branch `varka-506a0-prelude`:** `dev/varka_prove.sh`'s second-prelude rule and its
+  self-test cases (item 4 below), which nothing else in 506a reads; split off when the review
+  round took 506a1 past the cap.
+- **506a1, branch `varka-506a-printer`, on 506a0:** the term tree and the word form
+  (`VarkaSmtTerm`), the two prelude definitions with their `java_check.smt2` rows, the word
+  form's laws (`smt_print_check.smt2`), and `VarkaSmtTermSuite`.
+- **506a2, local branch `varka-506a2-words`:** `VarkaSmtNodes` over the primitives, 359's word
+  leaf and unsigned compares, its samples and `VarkaSmtNodesSuite` with 3 item 3's validation,
+  and the per-tree checks of the printed text against `VarkaReference` under both solvers. It
+  lands on 506a1; 506b waits for both.
+
+**What 506a0 and 506a1 build.**
+
+1. **The term tree**: constants, variables of four sorts (an exact integer, an int or long lane
+   value, a truth value), applications of SMT-LIB's and the prelude's operators, and a named
+   quotient `floor(v / k)`, which renders as a constant pinned by `0 <= v - k q < k` and
+   evaluates as the floor. Each operator's evaluation over `BigInteger` is written from the JLS,
+   apart from `java.smt2`'s definition of the same name, so the suite and `java_check.smt2` hold
+   the two to the JVM separately.
+2. **The word form** (2.3): a long rendered by its unsigned reading with an interval; an add,
+   subtract, negation, shift left or multiply by a constant exact where the interval stays in
+   `[0, 2^64)`, with that claim an obligation, and reduced by a quotient by `2^64` where it does
+   not; a logical shift and a low mask one shared quotient by `2^k` and its remainder; `>> 63`
+   the sign word, any other arithmetic shift the floor of the signed reading; a signed compare
+   over the signed readings and an unsigned one over the readings.
+3. **The prelude**: `jlong.ult`, `jlong.ule`, `jlong.ugt`, `jlong.uge`, the compares of the two
+   readings modulo `2^64`, and `jlong.and.sign`, `m & y` for a sign word, its range an
+   obligation where the word form uses it; `java_check.smt2` gains a check of each against
+   `Long.compareUnsigned` and Java's `&` over the boundary longs (34 checks, from 32).
+4. **The second-prelude rule** (2.5, 506a0): `; prelude: <name>.smt2` before `set-logic`
+   inserts that file after `java.smt2`; the file is then a prelude, left out of the run list and
+   refused when named to run, and the name must be a plain file name beside `java.smt2`. The
+   self-test holds each case under both solvers; 506b's `decimal_spec.smt2` is the first user.
+5. **The term tree's invariants, enforced where a term is built**: a quotient's divisor is a
+   positive constant (its pin has no solution otherwise, which would make every check over it
+   hold vacuously), a low mask is a `2^k` in the word form as in the evaluation, and a quotient
+   is named `q.<n>`, a prefix no variable may take. `div` and `mod` evaluate as SMT-LIB's,
+   Euclidean, so a negative divisor renders and evaluates alike.
+
+**Settled from the plan's own rules, not the owner's.**
+
+- **The int lane prints the prelude's operators, the long lane the word form.** 3 item 3
+  compares the int kernels term by term with `refinement.smt2`'s `(jint.add a b)`, which a word
+  form would not match, and 2.3 states the word form for longs only.
+- **An operator the word form has no rule for is read as `(mod t 2^64)` of its prelude form**,
+  which is exact, so the word form changes no meaning and refuses nothing; it only keeps that
+  wrap for the solver. The plan names the rules and is silent on the rest.
+- **`smt_print_check.smt2` declares `ALL`**: under `QF_NIA` cvc5 left the law for a mask plus a
+  shift, `(jlong.add (jlong.and.low x 2^32) (jlong.ushr y 32))`, unknown at the 10 s limit, and
+  under `ALL` both solvers decide the file; the README's step 4 gives that remedy first.
+
+**Validation.** `smt_print_check.smt2`, 49 checks: for each long operator the word form has a
+rule for, at the shift counts (0, 1, 32, 62, 63, 64, 65) and constants its rules branch on, and
+nested where one rule feeds another (a mask under a shift, an add, a subtract and a multiply, a
+sign word under an AND), so each branch of the intervals is taken (exact, reduced, and a shift
+right of a word below `2^63`), the word form's reading equal to `(mod t 2^64)` of the prelude
+form for every pair of longs, a compare's word form equal to the compare, every obligation for
+every input, and `div` and `mod` equal to the term tree's evaluation on 110 operand pairs with
+negative divisors and operands past the long range. Laptop times, whole file: Z3 0.42 s, cvc5
+0.20 s; each check alone holds under both, the slowest Z3's 0.24 s for the subtract of a mask
+and a shift; `java_check.smt2` Z3 0.03 s, cvc5 0.15 s. `VarkaSmtTermSuite` evaluates every
+operator against Java's over 13 boundary longs and shift counts past the mask, the range tests
+and the wrap also past the long range, `div` and `mod` against the Euclidean identity, the
+invariants above as refusals, and every law term's word form against its prelude form on the
+169 pairs of boundary words and random longs, 16,800 rows, obligations included.
+
+**Not vacuous, by planted faults run and reverted:** the word form's unsigned compare printed
+over the signed readings fails `VarkaSmtTermSuite` (486 rows, the first `(jlong.ult (jlong.add x
+y) y)` at `x = -1, y = 0`) and five `smt_print_check.smt2` checks under each solver (`sat` where
+`unsat` was expected, the first "the word form of `(jlong.ult (jlong.add x y) y)` is its prelude
+form"); after those `sat` answers both solvers also left the subtract of a mask and a shift
+`unknown` at the limit, a check that holds alone in a quarter of a second. `jlong.ult` defined
+as the signed `<` fails `java_check.smt2`'s compare check and two `smt_print_check.smt2` checks
+(the unsigned compare's law and the `ite` over it) under each solver.
+
+**506a2, as built on its branch.** `VarkaSmtNodes` states `(decline, valid, data)` for the columns,
+`DecimalColumn` with its load's decline, `DecimalWord` over a free 128-bit `u` (the low word
+`jlong.wrap u`, the high `floor(u / 2^64)`, declining past `10^p - 1`; tying `u` to the
+specification is 506b's), literals as the table's constants, `IntArith` and `IntNeg` in their three
+modes, the shifts, `AND` with a low mask or a sign word, the nine compares, `IfElse`, the Kleene
+`And`, `Or` and `Not`, `IsNotNull`, `<=>`, `Greatest`, `Least`, `GuardedRange`, `CondValue`,
+`CondIf`, the constants, `WidenLane` and `NarrowLane` between int and long, and `WidenDecimal`. It
+refuses, with the reason, the calendar nodes, the divisions (2.5's lemma-backed operators, 506b's),
+a product of two unknowns (506c's free products), `OR` and `XOR`, the floating and narrow lanes and
+the condition forms no decimal shape builds. Held to `VarkaReference` on 493 trees, the hand set and
+the fuzzer's unsigned and decimal sequences, at 5916 rows, and every record class of the IR rendered
+or refused; `smt_nodes_check.smt2` holds the printed text to the same answers in 95 checks, Z3 0.07
+s and cvc5 0.21 s; the template planted as a signed compare for `ULT` fails its suite (24 rows) and
+its per-tree check under both solvers.
+
+**Findings.**
+
+1. **`year(d) * 2` under ANSI is not the kernel its proof states.** The compiler builds
+   `MUL:WRAP` under ANSI, the year's range bounding the product, while `refinement.smt2`'s
+   `a * 2` row, which `VarkaCoverageSuite` names as the row's verification, refines the `FAIL`
+   kernel. Both answer alike over that range, but the proof is of a kernel the code does not
+   build: the transcription gap this row exists for. 506a2's validation states it rather than
+   hiding it; the printer cannot close it, the `Year` below being a refused calendar node.
+2. **The decline rule is a premise of the templates, not a result.** A guard under an `IfElse`
+   arm declines only where the arm is taken, and the samples' oracle states the same rule, so
+   the suite cannot see the emitter differ: `Analysis` unqualifies a guard past
+   `MAX_ARM_CHAINS` arm chains and on a cycle, declining more. That is the safe direction, and
+   506b's check 5 is where it matters.
