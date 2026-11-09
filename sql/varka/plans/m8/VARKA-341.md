@@ -330,4 +330,38 @@ refusals are recorded in `width_audit.json`; and the PR build and the option mat
 
 ## 10. Outcome
 
-(Written when the work lands.)
+*9 November 2026, the remainder after 5.1: the literal-specialised compares and the fuzz
+grammar's floating sequence, in one pull request after a baseline one.*
+
+- **The baseline came first.** `VarkaFloatingBaselineBenchmark` gains a comparison with a literal
+  of the type (`x < 1.5D`, `f < 1.5F`) at both null densities, in a pull request of its own on the
+  unchanged code, where the Varka arm is the general form; its results come from a runner
+  dispatch on that branch. The literal compare's speed-up is read against them once this
+  row's change merges, by a second dispatch.
+- **The literal-specialised compares** (2.5's last bullet set, 5.1's "no literal-specialised
+  compares yet"): `CompareOp` gains three members, `IEEE_EQ`, `IEEE_LT` and `IEEE_LE`, the bare
+  IEEE compares, which a floating lane alone admits (the constructor refuses them at an integral
+  one, as it refuses an unsigned member at a floating one). No new node: the specialisation is an
+  operator of `Compare`, so every suite that lists node types is unchanged, and the plan's "no
+  new comparison node" holds. `VarkaConditionCompiler.constantCompare` builds them where a
+  floating comparison has a literal on either side: against a value that is not NaN, `=`, `<`
+  and `<=` are the IEEE compares and `>` and `>=` the negations of `<=` and `<`, one vector
+  compare where Spark's general order takes four or five calls; against NaN, `= NaN` and
+  `>= NaN` are `NOT (x <= Infinity)` and `< NaN` is `x <= Infinity`, since that compare is false
+  for NaN alone, in place of the plan's NaN tests, which a node of their own would have needed;
+  `<= NaN` and `> NaN`, the same on every valid row, keep the general form. The same function
+  builds each element of a floating `IN` and the test under `isnan` and `nanvl`, so a NaN in an
+  `IN` list slots the infinity instead of the NaN. The emit budget weighs an IEEE compare as one
+  call; the cost model's floating lanes stay unpriced.
+- **Not specialised:** `<=>` against a literal, `CAST(x AS BOOLEAN)` (343's) and `signum`'s
+  compares (342's) keep the general form; each is a one-line change through the same function
+  when a measurement asks for it.
+- **The floating sequences** (3.4): `fuzz_float` and `fuzz_double`, seeds `20261111` and
+  `20261112`, trees of the leaves, the picks, the choice and every condition at the lane, the IEEE
+  compares among them; cells and literals from the types' value sources, an edge one time in
+  four, so NaNs of several payloads and both signs, both zeros, the infinities and the smallest
+  subnormal meet every comparison. `VarkaIrFuzzSuite` runs 300 draws of each against the
+  reference evaluator, which orders Spark's members by `compareDoubles` and `compareFloats` and
+  the IEEE ones by Java's operators, and `VarkaEmittedBytesSuite` pins their first two thousand
+  shapes. The fuzz descriptor marks both types present, and `dev/varka_new_lane.py` owes only
+  the benchmark at the floating lanes.

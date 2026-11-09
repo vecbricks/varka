@@ -647,8 +647,10 @@ final class VarkaEmitBudget {
           : n.laneType().isNarrow()
               || (n.abs() && n.laneType() == VarkaVectorIR.LaneType.LONG) ? 3 : 1;
       // At a floating lane a compare is Spark's order built from IEEE compares and NaN tests,
-      // and a pick is that compare and its blend: about five lane calls each.
-      case Compare n when n.left().laneType().isFloating() -> FLOATING_ORDER_WEIGHT;
+      // and a pick is that compare and its blend: about five lane calls each. An IEEE compare
+      // is the one call, as at an integral lane.
+      case Compare n when n.left().laneType().isFloating() && !n.op().isIeee() ->
+          FLOATING_ORDER_WEIGHT;
       case NullSafeEqual n when n.left().laneType().isFloating() -> FLOATING_ORDER_WEIGHT;
       case Greatest n when n.laneType().isFloating() -> FLOATING_ORDER_WEIGHT;
       case Least n when n.laneType().isFloating() -> FLOATING_ORDER_WEIGHT;

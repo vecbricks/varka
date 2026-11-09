@@ -1622,6 +1622,101 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
     }
   }
 
+  // The floating sequences (VARKA-341 3.4): `fuzz_float` and `fuzz_double`, trees whose every
+  // value is at a floating lane, each a sequence of its own seed that the bytes oracle pins.
+  private val floatSeed =
+    sys.props.get("varka.fuzz.seed").map(_.toLong).getOrElse(VarkaIrGrammar.FLOAT_FUZZ_SEED)
+  private val doubleSeed =
+    sys.props.get("varka.fuzz.seed").map(_.toLong).getOrElse(VarkaIrGrammar.DOUBLE_FUZZ_SEED)
+  private val floatingIterations =
+    sys.props.get("varka.fuzz.floatingIterations").map(_.toInt).getOrElse(300)
+
+  /**
+   * One draw of the floating sequence of `lane`, compared with the reference through the int
+   * harness at FLOAT and the long one at DOUBLE, its rows and literals the values' raw bits,
+   * and shrunk on failure as the int corpus is. The cells and literals are the type's value
+   * source's, an edge one time in four as in the narrow sequences, so NaNs of several payloads
+   * and both zeros meet every comparison. A kernel the plan refuses for the drawn width (two
+   * double lanes at 128 bits, row 503) is counted and skipped; any other refusal fails.
+   */
+  private def runOneFloating(lane: LaneType, drawSeed: Long, iteration: Int): Boolean = {
+    val rnd = VarkaIrGrammar.shapeRandom(drawSeed, iteration)
+    val drawn = VarkaIrGrammar.drawFloatingLaneShape(rnd, lane)
+    val c = VarkaLaneFuzz.drawCase(drawSeed, iteration, rnd, drawn,
+      VarkaLaneFuzz.LaneSource.floating(lane, narrowEdgeOneIn), valueStream(drawSeed, iteration),
+      r => randomOptions(r, VarkaMatrix.base, drawSeed, iteration))
+    val refusal = VarkaKernelPlan.refusalOf(c.roots, c.options)
+    if (refusal.isPresent) {
+      assert(castWidthRefusal(refusal.get),
+        s"${c.label}: refused for a reason other than its width: ${refusal.get}")
+      false
+    } else {
+      runChecked(c)
+    }
+  }
+
+  private def runFloatingSequence(lane: LaneType, drawSeed: Long): Unit = {
+    val name = lane.toString.toLowerCase(java.util.Locale.ROOT)
+    val reach = VarkaEmitReach.attach(randomTrace, s"$name draws")
+    val answered = try {
+      only.map(Seq(_)).getOrElse(0 until floatingIterations)
+        .count(runOneFloating(lane, drawSeed, _))
+    } finally {
+      VarkaEmitReach.detach(randomTrace)
+    }
+    logInfo(s"$lane draws answered: $answered of $floatingIterations")
+    if (only.isEmpty && Lane.emitLanes(VarkaMatrix.base, Lane.of(lane)) >= 4) {
+      assert(answered > floatingIterations / 2, s"only $answered $lane draws were answered")
+    }
+    reportReach(reach)
+    reportSkipped()
+  }
+
+  test(s"random FLOAT IR trees match the reference evaluator " +
+      s"(seed $floatSeed, $floatingIterations iterations)") {
+    runFloatingSequence(LaneType.FLOAT, floatSeed)
+  }
+
+  test(s"random DOUBLE IR trees match the reference evaluator " +
+      s"(seed $doubleSeed, $floatingIterations iterations)") {
+    runFloatingSequence(LaneType.DOUBLE, doubleSeed)
+  }
+
+  test("the floating sequences hold floating values alone and draw every form they own") {
+    // Over the committed seeds: every value of a draw is on its lane, and the draws build each
+    // node type and each comparison the grammar holds, the IEEE ones among them.
+    val wanted = Set("ColumnRef", "LiteralSlot", "Greatest", "Least", "IfElse", "Compare",
+      "NullSafeEqual", "IsNotNull", "And", "Or", "Not")
+    for ((lane, drawSeed) <- Seq(LaneType.FLOAT -> VarkaIrGrammar.FLOAT_FUZZ_SEED,
+        LaneType.DOUBLE -> VarkaIrGrammar.DOUBLE_FUZZ_SEED)) {
+      val nodeTypes = scala.collection.mutable.Set[String]()
+      val ops = scala.collection.mutable.Set[CompareOp]()
+      def collectOps(n: VarkaVectorIR): Unit = {
+        n match {
+          case c: Compare => ops += c.op
+          case _ =>
+        }
+        VarkaVectorIR.childrenOf(n).foreach(collectOps)
+      }
+      for (k <- 0 until 2000) {
+        val drawn = VarkaIrGrammar.drawFloatingLaneShape(VarkaIrGrammar.shapeRandom(drawSeed, k),
+          lane)
+        for (root <- drawn.roots.asScala) {
+          assert(VarkaVectorIR.lanesIn(root).asScala === Set(lane),
+            s"$lane draw $k holds another lane: ${VarkaVectorIR.canonical(root)}")
+          val seen = new java.util.HashSet[String]()
+          VarkaLaneFuzz.collectNodeTypes(root, seen)
+          nodeTypes ++= seen.asScala
+          collectOps(root)
+        }
+      }
+      assert((wanted -- nodeTypes).isEmpty, s"the $lane sequence never built: " +
+        s"${(wanted -- nodeTypes).toSeq.sorted}")
+      val unseen = VarkaIrGrammar.FloatingShapes.OPS.asScala.toSet -- ops
+      assert(unseen.isEmpty, s"the $lane sequence never compared with: ${unseen.toSeq}")
+    }
+  }
+
   // The integral casts (VARKA-332, `VARKA-332.md` 3.7): the five compositions over a column of
   // each integral type and a BOOLEAN one, each guard mode, a sequence of its own seed.
   private val castSeed =

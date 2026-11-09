@@ -836,6 +836,64 @@ public final class VarkaDifferentialHarnessSuite {
             shape("x - l AS v", SERVED),
             shape("CAST(l AS DOUBLE) + 1.5D AS v", SERVED),
             shape("CAST(l AS DOUBLE) AS a, CAST(l AS FLOAT) AS b, x AS c", SERVED)))));
+    out.addAll(literalCompares());
+    return out;
+  }
+
+  /**
+   * The literal-specialised compares (VARKA-341), one case a floating type: against a literal
+   * that is not NaN each operator is the bare IEEE compare or its negation, and against NaN the
+   * test {@code x <= Infinity} or its negation, so each of the six operators meets every special
+   * value as a literal, on either side, over a column of every special value, NaNs of three
+   * payloads and both signs among them, and a null: as a three-valued choice, which shows
+   * unknown apart from false, and as a filter.
+   */
+  private static List<Case> literalCompares() {
+    var out = new ArrayList<Case>();
+    for (String kind : List.of("DOUBLE", "FLOAT")) {
+      boolean dbl = kind.equals("DOUBLE");
+      double min = dbl ? Double.MIN_VALUE : Float.MIN_VALUE;
+      double max = dbl ? Double.MAX_VALUE : Float.MAX_VALUE;
+      List<Double> values = List.of(Double.NaN, -0.0, 0.0, Double.POSITIVE_INFINITY,
+          Double.NEGATIVE_INFINITY, 1.5, -2.5, min, max, -max);
+      var rows = new ArrayList<Object[]>();
+      for (double v : values) {
+        rows.add(new Object[] {rows.size(), dbl ? (Object) v : (Object) (float) v});
+      }
+      // NaNs with a payload and with the sign bit set, which no SQL literal spells, and a null.
+      Object payload = dbl ? (Object) Double.longBitsToDouble(0x7ff8000000000001L)
+          : (Object) Float.intBitsToFloat(0x7fc00001);
+      Object negative = dbl ? (Object) Double.longBitsToDouble(0xfff8000000000000L)
+          : (Object) Float.intBitsToFloat(0xffc00000);
+      rows.add(new Object[] {rows.size(), payload});
+      rows.add(new Object[] {rows.size(), negative});
+      rows.add(new Object[] {rows.size(), null});
+      Source column = VarkaHarnessCases.source(
+          "SELECT * FROM VALUES (0, CAST(NULL AS " + kind + ")) AS v(rid, x)", rows);
+      var literals = new ArrayList<String>();
+      for (String v : List.of("NaN", "-0.0", "0.0", "Infinity", "-Infinity", "1.5", "-2.5")) {
+        literals.add("CAST('" + v + "' AS " + kind + ")");
+      }
+      for (double v : values.subList(7, 10)) {
+        literals.add("CAST('" + (dbl ? Double.toString(v) : Float.toString((float) v)) + "' AS "
+            + kind + ")");
+      }
+      var shapes = new ArrayList<Shape>();
+      for (String op : List.of("<", "<=", ">", ">=", "=", "<>")) {
+        var choices = new ArrayList<String>();
+        for (String l : literals) {
+          for (String c : List.of("x " + op + " " + l, l + " " + op + " x")) {
+            choices.add("CASE WHEN " + c + " THEN CAST(1.5 AS " + kind + ") WHEN NOT (" + c
+                + ") THEN CAST(0.0 AS " + kind + ") ELSE CAST(-2.5 AS " + kind + ") END AS c"
+                + choices.size());
+          }
+          shapes.add(where("x " + op + " " + l, SERVED));
+        }
+        shapes.add(shape(String.join(", ", choices), SERVED));
+      }
+      out.add(new Case(kind + ": each comparison with a literal of every special value, on "
+          + "either side, matches the row engine as a choice and as a filter", column, shapes));
+    }
     return out;
   }
 

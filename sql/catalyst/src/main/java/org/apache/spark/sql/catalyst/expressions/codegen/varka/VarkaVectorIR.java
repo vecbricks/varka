@@ -465,23 +465,47 @@ public sealed interface VarkaVectorIR
    * {@code VectorOperators} of the same names and {@code Long.compareUnsigned}. No SQL
    * expression maps to an unsigned member: they are the words' compares of a 128-bit decimal
    * (a pair's low words, VARKA-359) and an add's carry (VARKA-360).
+   *
+   * <p>The three IEEE members exist at a floating lane only: the bare IEEE compare, NaN
+   * unordered, so that each is false wherever an operand is NaN, and {@code -0.0} equal to
+   * {@code 0.0}, the {@code VectorOperators} {@code EQ}, {@code LT} and {@code LE} and Java's
+   * {@code ==}, {@code <} and {@code <=}. They are the literal-specialised compares
+   * (VARKA-341): against a constant {@code c} that is not NaN, Spark's {@code x = c},
+   * {@code x < c} and {@code x <= c} are exactly these, and {@code x > c} and {@code x >= c}
+   * the negations of {@code x <= c} and {@code x < c}, so the compiler builds them where it sees
+   * the constant, and the NaN tests of Spark's general order fall away.
    */
   enum CompareOp {
-    LT, LE, GT, GE, EQ, ULT, ULE, UGT, UGE;
+    LT, LE, GT, GE, EQ, ULT, ULE, UGT, UGE, IEEE_EQ, IEEE_LT, IEEE_LE;
 
     private static final List<CompareOp> SIGNED = List.of(LT, LE, GT, GE, EQ);
+    private static final List<CompareOp> INTEGRAL =
+        List.of(LT, LE, GT, GE, EQ, ULT, ULE, UGT, UGE);
 
     /** Whether the comparison reads the lanes' bits as unsigned numbers. */
     public boolean isUnsigned() {
       return switch (this) {
-        case LT, LE, GT, GE, EQ -> false;
+        case LT, LE, GT, GE, EQ, IEEE_EQ, IEEE_LT, IEEE_LE -> false;
         case ULT, ULE, UGT, UGE -> true;
+      };
+    }
+
+    /** Whether the comparison is the bare IEEE one, which a floating lane alone has. */
+    public boolean isIeee() {
+      return switch (this) {
+        case LT, LE, GT, GE, EQ, ULT, ULE, UGT, UGE -> false;
+        case IEEE_EQ, IEEE_LT, IEEE_LE -> true;
       };
     }
 
     /** The five members every lane has, in declaration order, which a boolean compare takes. */
     public static List<CompareOp> signed() {
       return SIGNED;
+    }
+
+    /** The nine members an integral lane has, signed then unsigned, in declaration order. */
+    public static List<CompareOp> integral() {
+      return INTEGRAL;
     }
   }
 
@@ -1456,6 +1480,10 @@ public sealed interface VarkaVectorIR
         throw VarkaErrors.illegalArgument("an unsigned comparison " + op + " takes an integral "
             + "lane, not " + left.laneType());
       }
+      if (op.isIeee() && !left.laneType().isFloating()) {
+        throw VarkaErrors.illegalArgument("an IEEE comparison " + op + " takes a floating "
+            + "lane, not " + left.laneType());
+      }
       hash = hashOf(op, left, right);
     }
 
@@ -1546,8 +1574,9 @@ public sealed interface VarkaVectorIR
   record BoolCompare(CompareOp op, Cond left, Cond right, int hash) implements Cond {
     public BoolCompare {
       requireSameLane("a boolean comparison", left, right);
-      if (op.isUnsigned()) {
-        throw VarkaErrors.illegalArgument("a boolean comparison has no unsigned form: " + op);
+      if (op.isUnsigned() || op.isIeee()) {
+        throw VarkaErrors.illegalArgument("a boolean comparison has no unsigned or IEEE form: "
+            + op);
       }
       hash = hashOf(op, left, right);
     }

@@ -1876,11 +1876,13 @@ final class Slots {
   }
 
   /**
-   * Whether {@code node} compares at a floating lane, whose lowering reads each operand twice
-   * ({@code VarkaVectorWalk.emitFloatingCompare}) and so parks both in a pair of locals.
+   * Whether {@code node} compares at a floating lane in Spark's order, whose lowering reads each
+   * operand twice ({@code VarkaVectorWalk.emitFloatingCompare}) and so parks both in a pair of
+   * locals. An IEEE compare reads each once, as an integral one does.
    */
   private static boolean isFloatingCompare(VarkaVectorIR node) {
-    return (node instanceof VarkaVectorIR.Compare || node instanceof VarkaVectorIR.NullSafeEqual)
+    return (node instanceof VarkaVectorIR.Compare c && !c.op().isIeee()
+        || node instanceof VarkaVectorIR.NullSafeEqual)
         && node.laneType().isFloating();
   }
 }
