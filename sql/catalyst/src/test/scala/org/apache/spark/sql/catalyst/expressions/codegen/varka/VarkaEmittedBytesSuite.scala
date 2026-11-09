@@ -572,7 +572,7 @@ class VarkaEmittedBytesSuite extends SparkFunSuite with VarkaTestWatchdog {
         "(lanesOverride 4 and 16 at the int lane, 2 and 8 at the long one). A difference is a " +
         "change in what an emitted method does. `option_arms` covers emissions beyond the " +
         "defaults: one digest over every coverage row and int, long and mixed shape at each " +
-        "width per value of spark.sql.codegen.varka.emit.useAVX, the only emit option a " +
+        "width per value of spark.sql.codegen.varka.emit.useAVX, an emit option a " +
         "configuration reaches, and per value of each option the defaults never reach, over " +
         "the options under which it acts (validityOrFirst); and per reference form whose " +
         "frames span the kernel (groupLocalSlots=false, methodByteBudget=0), which no session " +

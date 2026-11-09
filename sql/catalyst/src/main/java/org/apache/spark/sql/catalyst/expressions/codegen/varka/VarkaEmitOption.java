@@ -97,8 +97,9 @@ public sealed interface VarkaEmitOption
     MISCOMPILED,
     /**
      * A sanctioned departure from the row engine's answers that a session opts into: on, a value
-     * may differ from Spark's within a contracted bound, and the oracles compare it within that
-     * bound rather than bit for bit. Off, the default, every answer is Spark's.
+     * may differ from Spark's within a contracted bound. Off, the default, every answer is
+     * Spark's. The fuzzer and the option matrix do not draw one, since their oracles compare
+     * every answer bit for bit.
      */
     CONTRACT;
 
@@ -107,7 +108,7 @@ public sealed interface VarkaEmitOption
      * {@link VarkaEmitOption#drawnInGeneral} asks this and whether the option is shape-specific.
      */
     public boolean drawn() {
-      return this != FAULT_INJECTOR && this != MISCOMPILED;
+      return this != FAULT_INJECTOR && this != MISCOMPILED && this != CONTRACT;
     }
   }
 

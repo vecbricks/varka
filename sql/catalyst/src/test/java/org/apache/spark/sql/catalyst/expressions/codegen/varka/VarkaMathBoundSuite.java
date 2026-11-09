@@ -41,8 +41,11 @@ public final class VarkaMathBoundSuite {
     var random = new SplittableRandom(345);
     for (int i = 0; i < 10_000; i++) {
       // A finite reference of either sign and a lane k steps further from zero, both of one sign.
-      double r = Double.longBitsToDouble(random.nextLong() & 0x7fefffffffffffffL)
-          * (random.nextBoolean() ? 1 : -1);
+      long magnitude = random.nextLong() & 0x7fffffffffffffffL;
+      if (magnitude >= 0x7ff0000000000000L) {
+        continue;
+      }
+      double r = Double.longBitsToDouble(magnitude) * (random.nextBoolean() ? 1 : -1);
       int k = random.nextInt(8);
       double sign = Math.copySign(1.0, r);
       long bits = Double.doubleToRawLongBits(Math.abs(r));

@@ -891,8 +891,9 @@ stacked at the seam between the mode's switch and the mode's evidence: **345a1**
 **345a1, as built.** `SQLConf.VARKA_MATH_ULP_CONTRACT`
 (`spark.sql.codegen.varka.math.ulpContract.enabled`, internal, `NOT_APPLICABLE`); its emit option
 `mathUlpContract` in `VarkaEmitOptions`, default false, its tag `|ulpContract` so the defaults
-render as before, with the new `VarkaEmitOption.Reason.CONTRACT`, drawn; `VarkaSessionEmit`
-laying the setting over the base options as it lays `exactRefusalStatus`; `VarkaFamily.MATH`
+render as before, with the new `VarkaEmitOption.Reason.CONTRACT`, not drawn (item 4 below);
+`VarkaSessionEmit` laying the setting over the base options as it lays `exactRefusalStatus`;
+`VarkaFamily.MATH`
 (`spark.sql.codegen.varka.family.math.enabled`) and its arm `VarkaMathCompiler`, which claims the
 26 classes of the 27 functions over `DOUBLE` operands and declines each by its row ("sin is row
 356's: no math function fuses yet"), `floatingDecline` letting exactly those through;
@@ -923,11 +924,12 @@ an option no node reads can go: the tag in `canonical()` (`VarkaEmitOptionSuite`
 3. *A family that fuses nothing.* `VarkaFamilySwitchSuite` needs a coverage row of every family.
    Read: an `UNBUILT` map, the math family checked on `sin(x)` instead, failing once a coverage
    row holds the family.
-4. *An option no node reads.* `mathUlpContract` cannot name the node it is read by
-   (`readOnlyBy`) before 345b's `MathUnary` form exists, so it is drawn in general: the fuzzer
-   draws it from a stream of its own, moving no committed seed, and the option matrix gains the
-   configuration, which reruns the catalyst suites and no SQL test (`VarkaTestReach` records
-   nothing it moves). 345b decides whether it becomes a node's own option.
+4. *Whether the fuzzer and the matrix draw the option.* 2.6 says they do. Drawn now, the option
+   would join the steering's option list, shifting every steered fuzz sequence, and give the
+   matrix a configuration that emits the defaults' bytes; and once 345b's `LIBRARY` form reads it,
+   the fuzzer's and the matrix's bit-for-bit oracles would fail on its library lanes before 2.8's
+   within-bound oracles exist. Read: `Reason.CONTRACT` is not drawn (`Reason.drawn`), and 345b
+   draws it with the oracles that compare within the bound (the review of 345a1).
 5. *What of 3.1 and 3.5 is 345a's.* The `LIBRARY` form, the hook and `--asm` are 345b's, so 3.1's
    "the IR has no `LIBRARY` node" holds trivially and is not claimed; 3.5's planted kernel lane
    through the coverage differential needs a math row and moves to 345b with 3.3.

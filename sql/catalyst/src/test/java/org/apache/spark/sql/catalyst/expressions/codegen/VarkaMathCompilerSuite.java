@@ -20,6 +20,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -77,7 +78,7 @@ public final class VarkaMathCompilerSuite {
     m.put("hypot(x, y)", "hypot is row 358's");
     // An int operand reaches the function through its cast to double, which the family claims.
     m.put("exp(i)", "exp is row 358's");
-    return Map.copyOf(m);
+    return Collections.unmodifiableMap(m);
   }
 
   private static String reason(String sql, Set<VarkaFamily> off, VarkaEmitOptions options) {

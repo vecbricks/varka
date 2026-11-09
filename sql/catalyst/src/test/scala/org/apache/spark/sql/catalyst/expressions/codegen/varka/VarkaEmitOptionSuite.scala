@@ -122,15 +122,15 @@ class VarkaEmitOptionSuite extends SparkFunSuite with VarkaTestWatchdog {
         "heavyGroupOutputs"))
     assert(table.filter(_.reason == Reason.DIAGNOSTIC).map(_.name) === Seq("exactRefusalStatus"))
     assert(table.filter(_.reason == Reason.MISCOMPILED).map(_.name) === Seq("fromLongMasks"))
-    // The one sanctioned departure from Spark's answers, off by default and drawn, so that the
-    // fuzzer and the option matrix reach the opt-in mode (VARKA-345.md 2.6).
+    // The one sanctioned departure from Spark's answers, off by default and not drawn: the
+    // fuzzer's and the matrix's oracles compare bit for bit (VARKA-345.md 2.6, 10.1).
     assert(table.filter(_.reason == Reason.CONTRACT).map(_.name) === Seq("mathUlpContract"))
-    assert(VarkaEmitOption.drawnInGeneral(VarkaEmitOption.named("mathUlpContract")))
+    assert(!VarkaEmitOption.drawnInGeneral(VarkaEmitOption.named("mathUlpContract")))
     assert(!VarkaEmitOptions.DEFAULTS.mathUlpContract())
     assert(VarkaEmitOptions.DEFAULTS.withMathUlpContract(true).canonical()
       .endsWith("|ulpContract)"))
     assert(Reason.values.filterNot(_.drawn).toSet ===
-      Set(Reason.FAULT_INJECTOR, Reason.MISCOMPILED))
+      Set(Reason.FAULT_INJECTOR, Reason.MISCOMPILED, Reason.CONTRACT))
     // Two options change only a shape holding one node kind, so the general draws, the steering
     // and the option matrix leave them out whatever their reason (VARKA-157, VARKA-348).
     assert(table.filter(o => VarkaEmitOption.readOnlyBy(o).isPresent)

@@ -19,9 +19,10 @@ package org.apache.spark.sql.catalyst.expressions.codegen.varka;
 /**
  * The step count between two doubles, the measure of the math family's opt-in bound
  * ({@code VARKA-345.md} 2.5): how many representable doubles a kernel's lane {@code a} lies from
- * the row engine's answer {@code r}. Every oracle that compares a value computed under
- * {@code spark.sql.codegen.varka.math.ulpContract.enabled} calls {@link #within}, and the probe
- * that measures the library against the row engine (row 367) measures with {@link #steps}.
+ * the row engine's answer {@code r}. {@link #within} is the comparison {@code VARKA-345.md} 2.8
+ * gives the oracles of a value computed under
+ * {@code spark.sql.codegen.varka.math.ulpContract.enabled}, and {@link #steps} the distance the
+ * probe that measures the library against the row engine (row 367) records.
  *
  * <p>The rules, in order: two NaNs are 0 steps apart, whatever their payloads, and a NaN against
  * a number is never within any bound; an infinity is 0 steps from the same infinity and never
