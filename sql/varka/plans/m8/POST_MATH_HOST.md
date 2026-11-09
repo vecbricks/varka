@@ -4,9 +4,10 @@ You move a Spark job to Arm instances, or upgrade the cluster to JDK 25. The job
 counts match, and then the output diff lights up: a column computed with `cos` disagrees in the
 last digit. Nothing in your code changed. Both answers are correct.
 
-Here is the smallest case we have. On one laptop, with nothing changed but the JDK, Spark's
-`SELECT cbrt(0.22)` returns `0.6036810736797685` on JDK 21 and `0.6036810736797686` on JDK 25.
-And `SELECT cos(0.1)` on x86 returns `0.9950041652780258`, where Java's reference math library
+Here is the smallest case we have. On a laptop with an AMD Ryzen AI 9 HX PRO 370 (Zen 5, AVX-512)
+and Ubuntu's OpenJDK builds, with nothing changed but the JDK, Spark's `SELECT cbrt(0.22)`
+returns `0.6036810736797685` on JDK 21 and `0.6036810736797686` on JDK 25. And
+`SELECT cos(0.1)` on x86 returns `0.9950041652780258`, where Java's reference math library
 says `0.9950041652780257`. On an Arm server Spark gives **[owed: Arm runner]**.
 
 > **In short**
@@ -44,13 +45,21 @@ from fdlibm just as often, never reach a query, while the ones for the trigonome
 ![Spark's math functions by the Java class they call](figures/svg/fig62-two-libraries-behind-one-function-list.svg)
 
 *Figure 2. Spark's math functions by the class they call, with the count of inputs, of 1,048,576,
-where `Math` and `StrictMath` differ on our x86 laptop at JDK 25. Left, what Spark computes with
-`Math` (`sin`, `cos`, `tan`, `sec`, `csc`, `cot`, `tanh`, `cbrt`); right, with `StrictMath`.*
+where `Math` and `StrictMath` differ on the Ryzen laptop (x86) at JDK 25. Left, what Spark
+computes with `Math` (`sin`, `cos`, `tan`, `sec`, `csc`, `cot`, `tanh`, `cbrt`); right, with
+`StrictMath`.*
 
 **One query can carry two answers.** Spark folds a constant expression while it plans the query,
 so `cos(0.1)` is computed once, on the driver. `cos(x)` over a column is computed on the
 executors. Put an x86 driver in front of Arm executors and the same expression has one answer in
 the filter Spark folded and another in the rows it computed.
+
+![One query, two answers](figures/svg/fig66-one-query-two-answers.svg)
+
+*Figure 3. `SELECT x FROM t WHERE cos(x) = cos(0.1)` with an x86 driver and Arm executors. The
+driver folds `cos(0.1)` to 0.9950041652780258 (the Ryzen laptop, JDK 25); the executors compute
+`cos(x)` with Arm's own routine (owed: the Neoverse N2 GitHub Arm runner). fdlibm says
+0.9950041652780257. A drawing of the mechanism: we did not run a mixed cluster.*
 
 ## What does not change the answer
 
@@ -58,8 +67,8 @@ You might suspect the JIT: a method starts in the interpreter and is compiled la
 the answer moves as the query warms up. It does not. HotSpot calls the same routine from the
 interpreter, C1 and C2, precisely so that a function stays consistent while its caller is
 compiled. Whole-stage codegen, Spark's generated projections and its interpreted expressions gave
-the same bits on every row we ran. And the x86 chip does not matter: a Zen 5 laptop with
-AVX-512 and an EPYC 7763 cloud runner with AVX2 differ from fdlibm on the same inputs, function
+the same bits on every row we ran. And the x86 chip does not matter: the Ryzen laptop (Zen 5,
+AVX-512) and an EPYC 7763 GitHub runner (AVX2) differ from fdlibm on the same inputs, function
 by function. **[owed: EPYC 7763 runner, the answers compared input by input]**
 
 What does move it is the architecture and the JDK. Arm replaces only `sin` and `cos`, so on
@@ -67,6 +76,15 @@ What does move it is the architecture and the JDK. Arm replaces only `sin` and `
 has its own. **[owed: Arm runner, the count input by input]** On x86, the `tanh` routine arrived
 in JDK 24 and the `cbrt` one in JDK 25: upgrading from 21 changes `tanh` on about one input in
 eight and `cbrt` on about one in twelve.
+
+![Which routine answers](figures/svg/fig67-which-routine-answers.svg)
+
+*Figure 4. The routine behind `Math.sin`, `cos`, `tan`, `tanh` and `cbrt` on JDK 25 on the Ryzen
+laptop, an EPYC 7763 GitHub runner and a Neoverse N2 GitHub Arm runner, with the count of 262,144
+positive inputs (an earlier probe's control pass, a different input set from Figure 6's) where
+`Math` differs from fdlibm. The two x86 chips: 8,707 (`sin`) to 21,962 (`cbrt`), the same count
+for every function. Arm: 19,081 for `sin`, 17,697 for `cos`, none for the other three. Below, the
+Ryzen laptop against the Arm runner input by input, owed.*
 
 ## Where it bites
 
@@ -82,6 +100,12 @@ It also shows in text. Java prints a double as the shortest decimal that tells i
 neighbours, so the two answers to `cos(0.1)` print with different last digits, and a CSV export
 diffs.
 
+![Where it bites](figures/svg/fig68-where-it-bites.svg)
+
+*Figure 5. A two-row CSV export, diffed. Left, the Ryzen laptop on JDK 21 and on JDK 25: `cos(0.1)`
+prints 0.9950041652780258 on both, `cbrt(0.22)` 0.6036810736797685 and then 0.6036810736797686.
+Right, the Ryzen laptop against the Neoverse N2 Arm runner, owed.*
+
 How often depends on the function. About 2% of inputs for `sin`, `cos` and `tan`, about 8% for
 `cbrt`, about 12% for `tanh`. Almost always by one ulp; `tanh` reaches two on about one
 difference in a hundred, and so do Spark's `sec`, `csc` and `cot`, which divide one by a cosine,
@@ -89,9 +113,16 @@ sine or tangent that was already one ulp off.
 
 ![How often, how far](figures/svg/fig64-how-often-how-far.svg)
 
-*Figure 3. The share of 1,048,576 inputs where `Math` differs from fdlibm, by one ulp and by two,
-on our x86 laptop at JDK 25 and 21 and on an Arm runner (owed). In Spark's own query over 262,144
-rows, the eight functions differed in 4,166 (`csc`) to 32,396 (`tanh`) rows.*
+*Figure 6. The share of 1,048,576 inputs where `Math` differs from fdlibm, by one ulp and by two,
+on the Ryzen laptop at JDK 25 and 21 and on the Neoverse N2 Arm runner (owed).*
+
+![Spark's own query](figures/svg/fig69-sparks-own-query.svg)
+
+*Figure 7. Spark's own query over 262,144 rows read from Parquet: the rows where each function
+differs from the same function over `StrictMath`, on the Ryzen laptop at JDK 25. From 4,166
+(`csc`) to 32,396 (`tanh`), by up to 2 ulps for `sec`, `csc`, `cot` and `tanh`; none for `asin`,
+`atan2`, `exp`, `ln`, `log10` and `pow`. Whole-stage codegen, the generated projection and the
+interpreted path gave one digest per column. The EPYC 7763 and Neoverse N2 runs are owed.*
 
 ## What to do
 
@@ -113,12 +144,13 @@ so it calls the same `Math` methods and inherits the same dependence.
 
 ## How these were measured
 
-On HotSpot JDK 25.0.4.1, 21 and 17, on an AMD Zen 5 laptop: a probe compares `Math` and
+On a laptop with an AMD Ryzen AI 9 HX PRO 370 (Zen 5, AVX-512) running Linux, with Ubuntu's
+OpenJDK builds 25.0.4.1, 21.0.12.1 and 17.0.20.1 (HotSpot): a probe compares `Math` and
 `StrictMath` over 1,048,576 inputs per function, cold and hot and in each JIT tier, and a Spark
 query over a 262,144-row Parquet table runs the same functions with and without codegen. The
 x86-chip and Arm comparisons come from the control pass of an earlier probe on GitHub's EPYC 7763
 and Neoverse N2 runners; the HotSpot facts are from the JDK 25 source.
 **[owed: the probe and the Spark query on the Neoverse N2 and EPYC 7763 runners]**
 The record is [`VARKA-587.md`](https://github.com/vecbricks/varka/blob/master/sql/varka/plans/m8/VARKA-587.md),
-with the laptop's output in
+with the Ryzen laptop's output in
 [`VARKA-587-math-host-laptop.txt`](https://github.com/vecbricks/varka/blob/master/sql/varka/plans/m8/results/VARKA-587-math-host-laptop.txt).

@@ -21,7 +21,7 @@ by 1 ulp and by 2, on the laptop at JDK 25 and 21 (parts A and B of
 results/VARKA-587-math-host-laptop.txt) and on the Arm runner (results/VARKA-587-math-host-arm.txt,
 drawn as owed until it lands)."""
 
-from mathhost import ARM, LAPTOP, inputs, part, probe
+from mathhost import ARM, LAPTOP, cpu, inputs, lane_cpu, part, probe
 from rough import Rough, finish
 
 GREY = "#5c5f66"
@@ -29,9 +29,9 @@ ONE, TWO = "#e03131", "#7048e8"
 FIVE = ["sin", "cos", "tan", "tanh", "cbrt"]
 
 hosts = [
-    ("x86, JDK 25", part(LAPTOP, "A")),
-    ("x86, JDK 21", part(LAPTOP, "B")),
-    ("Arm, JDK 25", part(ARM, "A")),
+    ("%s, JDK 25" % " ".join(cpu(part(LAPTOP, "A")).split()[:3]), part(LAPTOP, "A")),
+    ("%s, JDK 21" % " ".join(cpu(part(LAPTOP, "B")).split()[:3]), part(LAPTOP, "B")),
+    ("%s, JDK 25" % lane_cpu("mathlane-aarch64-neoverse-n2.txt"), part(ARM, "A")),
 ]
 data = [(name, probe(lines), inputs(lines) if lines else None) for name, lines in hosts]
 

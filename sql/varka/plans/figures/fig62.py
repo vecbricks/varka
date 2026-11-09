@@ -20,7 +20,7 @@ they call, java.lang.Math or StrictMath, each marked by whether Math differs fro
 the laptop at JDK 25. Read from part A of results/VARKA-587-math-host-laptop.txt, whose lines name
 Spark's class and SQL functions beside each JDK method's count."""
 
-from mathhost import LAPTOP, inputs, part, probe
+from mathhost import LAPTOP, cpu, inputs, part, probe
 from rough import Rough, finish
 
 GREY = "#5c5f66"
@@ -40,7 +40,7 @@ r.text(
     size=18,
     color=GREY,
 )
-r.text(40, 104, "replaces it on this x86 laptop (JDK 25)", size=18, color=GREY)
+r.text(40, 104, "replaces it on the %s laptop (x86, JDK 25)" % cpu(lines), size=18, color=GREY)
 
 
 def box(x, y, w, h, color, label, size=19):

@@ -17,7 +17,8 @@
 
 """The readers figures 62 to 65 share: VARKA-587's results files, as MathHostProbe,
 SparkMathHostBenchmark and MathLaneProbe print them. A runner's file that has not landed yet
-reads as None, and the figure draws its panel as owed."""
+reads as None, and the figure draws its panel as owed. Also the two shapes the figures share: a
+box with its text inside, and a dashed slot for a number still owed."""
 
 import os
 import re
@@ -27,6 +28,8 @@ RESULTS = os.path.join(HERE, "..", "m8", "results")
 CANARY = os.path.join(HERE, "..", "..", "..", "..", "dev", "varka_canary")
 LAPTOP = os.path.join(RESULTS, "VARKA-587-math-host-laptop.txt")
 ARM = os.path.join(RESULTS, "VARKA-587-math-host-arm.txt")
+SPARK_ARM = os.path.join(RESULTS, "VARKA-587-spark-arm.txt")
+SPARK_EPYC = os.path.join(RESULTS, "VARKA-587-spark-epyc7763.txt")
 
 
 def part(path, letter):
@@ -41,6 +44,16 @@ def part(path, letter):
     start = [i for i in heads if lines[i].startswith("==== %s." % letter)][0]
     end = min([i for i in heads if i > start] + [len(lines)])
     return lines[start + 1 : end]
+
+
+def cpu(lines):
+    """The short name of the machine a part ran on, from its "cpu:" line: "AMD Ryzen AI 9 HX PRO
+    370 w/ Radeon 890M" reads as "Ryzen AI 9 HX PRO 370"."""
+    for ln in lines:
+        m = re.match(r"^cpu: (?:AMD |Intel\S* )?(.+?)(?: w/ .*)?$", ln)
+        if m:
+            return m.group(1)
+    raise ValueError("no cpu line")
 
 
 def probe(lines):
@@ -76,9 +89,9 @@ def children(lines):
 
 def spark(lines):
     """SparkMathHostBenchmark's comparison: {mode: {sql: (differ, maxUlp, digest)}} and the
-    literal lines {sql: (answer, strict)}."""
+    literal lines {sql: (answer, strict)}; both empty for a runner's file that has not landed."""
     modes, literals, mode = {}, {}, None
-    for ln in lines:
+    for ln in lines or []:
         m = re.match(r"^(whole-stage|generated|interpreted):$", ln)
         if m:
             mode = m.group(1)
@@ -116,3 +129,36 @@ def mathlane_control(name):
         if ln.startswith("overflow band"):
             break
     return out, n
+
+
+def lane_cpu(name):
+    """The CPU a committed MathLaneProbe file names in its header: "EPYC 7763", "Neoverse N2"."""
+    for ln in open(os.path.join(CANARY, name)):
+        m = re.match(r"^# model name\s*: (?:AMD )?(.+?)(?: \d+-Core Processor| w/ .*)?$", ln)
+        if m:
+            return m.group(1).strip()
+        m = re.search(r"is Arm's (Neoverse \w+)", ln)
+        if m:
+            return m.group(1)
+    raise ValueError("no CPU named in " + name)
+
+
+GREY = "#5c5f66"
+
+
+def box(r, x, y, w, h, color, label, size=17):
+    """An outline box in `color` with its text centred inside, in the same colour."""
+    r.rect(x, y, w, h, color=color)
+    r.text(x + w / 2, y + h / 2, label, size=size, anchor="middle", color=color)
+
+
+def owed(r, x, y, w, h, label, size=15):
+    """A dashed grey box: the slot a runner's number fills when its results file lands."""
+    for x1, y1, x2, y2 in (
+        (x, y, x + w, y),
+        (x + w, y, x + w, y + h),
+        (x, y + h, x + w, y + h),
+        (x, y, x, y + h),
+    ):
+        r.line(x1, y1, x2, y2, color=GREY, width=1.2, dash="6 6")
+    r.text(x + w / 2, y + h / 2, label, size=size, anchor="middle", color=GREY)

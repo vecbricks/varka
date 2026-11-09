@@ -163,14 +163,33 @@ Each script reads the committed results, and a panel that needs an owed file dra
    laptop at JDK 25 and 21, split by ulps, with the Arm column owed.
 4. `fig65.py`, *One ulp*: `cos(0.1)` on the double number line, the two neighbouring doubles and
    their decimal text, from part E.
+5. `fig66.py`, *One query, two answers*: an x86 driver folding `cos(0.1)` and Arm executors
+   computing `cos(x)` under one filter; the driver's value and fdlibm's from part E, the
+   executors' from `results/VARKA-587-spark-arm.txt` (owed). A drawing of the mechanism of
+   section 9's mixed cluster, which is not run.
+6. `fig67.py`, *Which routine answers*: `sin`, `cos`, `tan`, `tanh`, `cbrt` against the Ryzen
+   laptop, the EPYC 7763 and the Neoverse N2, each cell the routine (Intel's stub, Arm's FMA
+   port, fdlibm) and its count from the `mathlane-*.txt` control passes (item 4); below, the
+   laptop against Arm per input from the Arm file's section 6 (owed).
+7. `fig68.py`, *Where it bites*: a two-row CSV export diffed, JDK 21 against 25 on the laptop
+   (parts B and E) and the laptop against Arm (`-spark-arm.txt`, owed), the changed digit
+   circled.
+8. `fig69.py`, *Spark's own query*: part E's rows differing per function as bars, with the
+   largest ulp; the script asserts one digest per column across the three paths. The EPYC 7763
+   and Neoverse N2 bars from `-spark-epyc7763.txt` and `-spark-arm.txt` (one owed slot until
+   they land).
+
+Every figure names the machine from its results file (`mathhost.cpu`, `mathhost.lane_cpu`): the
+laptop is the AMD Ryzen AI 9 HX PRO 370. In the post: fig65 is Figure 1, fig62 2, fig66 3, fig67
+4, fig68 5, fig64 6, fig69 7.
 
 ## 5. The outline
 
-Hook (`SELECT cos(0.1)`, and `cbrt(0.22)` across a JDK upgrade), In short, "Two libraries behind
-one function list" (fig 62), "What changes the answer" (fig 63), "How often, how far" (fig 64,
-fig 65), "What to do" (compare with a tolerance; `reflect` into `StrictMath`; the intrinsic flag;
-pin architecture and JDK where bits matter), "How these were measured". Draft:
-`m8/POST_MATH_HOST.md`.
+Hook (`SELECT cos(0.1)`, and `cbrt(0.22)` across a JDK upgrade), In short (fig 65), "Two
+libraries behind one function list" (fig 62, fig 66), "What does not change the answer" (fig 67),
+"Where it bites" (fig 68, fig 64, fig 69), "What to do" (compare with a tolerance; `reflect`
+into `StrictMath`; the intrinsic flag; pin architecture and JDK where bits matter), "How these
+were measured". Draft: `m8/POST_MATH_HOST.md`.
 
 ## 6. The experiment owed
 
@@ -253,4 +272,4 @@ marks replaced, and the owner has reviewed it.
   measured; not a row.
 - **A mixed-architecture cluster** folds a literal's `sin` on the driver and computes a column's on
   the executors, so the same expression can take each host's answer. True from item 2, not
-  measured; one clause in the post at most.
+  measured; a paragraph and a drawing of the mechanism in the post (fig 66), marked as not run.

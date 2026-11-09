@@ -24,7 +24,7 @@ nearer."""
 import math
 from decimal import Decimal, getcontext
 
-from mathhost import LAPTOP, part, spark
+from mathhost import LAPTOP, cpu, part, spark
 from rough import Rough, finish
 
 GREY = "#5c5f66"
@@ -54,7 +54,7 @@ X0, X1, Y = 200, 800, 250
 r.arrow(80, Y, 920, Y)
 for xx, val, who, color, up in (
     (X0, strict, "fdlibm (StrictMath)", GREEN, True),
-    (X1, answer, "Spark on this x86 laptop, JDK 25", RED, False),
+    (X1, answer, "Spark on the %s (x86), JDK 25" % cpu(part(LAPTOP, "A")), RED, False),
 ):
     r.line(xx, Y - 14, xx, Y + 14, color=color, width=2.4)
     dy = -1 if up else 1
