@@ -70,10 +70,7 @@ BENCHMARKS = [
 ]
 
 # (site, lane) -> the row that owns the gap.
-OWED = {
-    ("benchmark", "FLOAT"): "row 341 (the floating lanes, after their split)",
-    ("benchmark", "DOUBLE"): "row 341 (the floating lanes, after their split)",
-}
+OWED = {}
 
 
 def read(path):
