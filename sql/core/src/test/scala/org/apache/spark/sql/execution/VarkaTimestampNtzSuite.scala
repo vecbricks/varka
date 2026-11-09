@@ -17,7 +17,7 @@
 
 package org.apache.spark.sql.execution
 
-import java.time.{Duration, LocalDate, LocalDateTime, ZoneOffset}
+import java.time.{Duration, LocalDate, LocalDateTime, Period, ZoneOffset}
 
 import org.apache.spark.sql.{Row, SparkSession}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaChrono, VarkaRangeAnalysis,
@@ -25,8 +25,8 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaChrono, Var
 import org.apache.spark.sql.catalyst.util.{DateTimeConstants, IntervalUtils}
 import org.apache.spark.sql.execution.VarkaMaybeThrows.{Answered, Raised}
 import org.apache.spark.sql.internal.SQLConf
-import org.apache.spark.sql.types.{DateType, DayTimeIntervalType, IntegerType, StringType,
-  StructField, StructType, TimestampNTZType}
+import org.apache.spark.sql.types.{DateType, DayTimeIntervalType, IntegerType, LongType,
+  StringType, StructField, StructType, TimestampNTZType, YearMonthIntervalType}
 
 /**
  * The casts between `DATE` and `TIMESTAMP_NTZ` (VARKA-338) through a query, against the row
@@ -46,6 +46,11 @@ import org.apache.spark.sql.types.{DateType, DayTimeIntervalType, IntegerType, S
  * 1 March -12799 to 15 August 33134, and a batch holding a live count outside it, the long range's
  * ends among them, goes to the row engine alone; the weekday forms, `hour`, `minute`, `second` and
  * the cast to `TIME` answer every long on the kernel.
+ *
+ * And `timestampadd` and the month forms (VARKA-339): each unit's quantity at its guard's ends
+ * runs on the kernel, and one past either end goes to the row engine with its batch alone, which
+ * answers or raises `DATETIME_OVERFLOW` as Spark does; the month forms read the date under the
+ * fields' guard, and the least month count negated raises.
  */
 class VarkaTimestampNtzSuite extends VarkaMaybeThrows with VarkaTestWatchdog {
 
@@ -141,6 +146,50 @@ class VarkaTimestampNtzSuite extends VarkaMaybeThrows with VarkaTestWatchdog {
     Seq((1L, 2L, 3L), (4L, 5L, 6L), past, (7L, 8L, 9L), (10L, 11L, 12L), (13L, 14L, 15L))
       .zipWithIndex.map { case ((t, t2, dt), i) => arithRow(i, t, t2, dt) }
 
+  private val addSchema = StructType(Seq(StructField("i", IntegerType),
+    StructField("t", TimestampNTZType), StructField("q", LongType),
+    StructField("ym", YearMonthIntervalType())))
+
+  /** The leap day at noon: a month shift from it meets the day-of-month clamp. */
+  private val leapNoon = LocalDate.of(2024, 2, 29).toEpochDay * DateTimeConstants.MICROS_PER_DAY +
+    DateTimeConstants.MICROS_PER_DAY / 2
+
+  /**
+   * Each `timestampadd` unit with the quantities at its guard's ends, which fuse from the epoch
+   * (and for the month units from the leap day), and the quantities one past each end, with the
+   * count each meets.
+   */
+  private val addEdges: Seq[(String, Seq[Long], Seq[(Long, Long)])] = Seq(
+    ("MICROSECOND", Seq(Long.MaxValue, Long.MinValue),
+      Seq((1L, Long.MaxValue), (-1L, Long.MinValue))),
+    ("HOUR", Seq(2562047788L, -2562047788L), Seq((0L, 2562047789L), (0L, -2562047789L))),
+    ("DAY", Seq(106751991L, -106751991L), Seq((0L, 106751992L), (0L, -106751992L),
+      // Past the guard, and still a value: the row engine answers it.
+      (-DateTimeConstants.MICROS_PER_DAY, 106751992L))),
+    ("WEEK", Seq(15250284L, -15250284L), Seq((0L, 15250285L), (0L, -15250285L))),
+    ("MONTH", Seq(24564L, -24576L), Seq((0L, 24565L), (0L, -24577L), (0L, Int.MaxValue + 1L))),
+    ("QUARTER", Seq(8188L, -8192L), Seq((0L, 8189L), (0L, -8193L))),
+    ("YEAR", Seq(2047L, -2048L), Seq((0L, 2048L), (0L, -2049L), (0L, 178956971L))))
+
+  private val monthUnits = Set("MONTH", "QUARTER", "YEAR")
+
+  /**
+   * The inside quantities at the epoch, and at the leap day for a month unit, the leap day moved
+   * by one, and a null of each operand.
+   */
+  private def addInsideRows(unit: String, qs: Seq[Long]): Seq[Row] = {
+    val fromLeap = if (monthUnits(unit)) qs.map((leapNoon, _)) else Nil
+    (qs.map((0L, _)) ++ fromLeap :+ ((leapNoon, 1L))).zipWithIndex.map {
+      case ((t, q), i) => Row(i, micros(t), q, Period.ofMonths(13))
+    } ++ Seq(Row(100, null, qs.head, null), Row(101, micros(0L), null, null))
+  }
+
+  /** Three batches of two; the second holds `past`, the others small quantities. */
+  private def addPastRows(past: (Long, Long)): Seq[Row] =
+    Seq((0L, 1L), (0L, 2L), past, (0L, 3L), (0L, 4L), (0L, 5L)).zipWithIndex.map {
+      case ((t, q), i) => Row(i, micros(t), q, Period.ofMonths(i))
+    }
+
   /** Two rows a cached batch, so that one day's batch is one of several. */
   private val batchKey = SQLConf.ARROW_EXECUTION_MAX_RECORDS_PER_BATCH.key
 
@@ -157,7 +206,17 @@ class VarkaTimestampNtzSuite extends VarkaMaybeThrows with VarkaTestWatchdog {
       ("varka_ntz_trunc_below", truncSchema, truncAt(Seq(0L, 1L, guardLow - 1, 2L, 3L, 4L))),
       ("varka_ntz_below", ntzSchema, pastGuardRows(guardLow - 1)),
       ("varka_ntz_above", ntzSchema, pastGuardRows(guardHigh + 1)),
-      ("varka_ntz_arith_inside", arithSchema, arithInsideRows)) ++
+      ("varka_ntz_arith_inside", arithSchema, arithInsideRows),
+      // The month count no negation holds, beside two that fit.
+      ("varka_ntz_ym_least", addSchema, Seq(Int.MinValue, 1, 2).zipWithIndex.map {
+        case (m, i) => Row(i, micros(0L), 0L, Period.ofMonths(m))
+      })) ++
+      addEdges.flatMap { case (unit, inside, past) =>
+        (s"varka_ntz_add_${unit}_inside", addSchema, addInsideRows(unit, inside)) +:
+          past.zipWithIndex.map { case (p, k) =>
+            (s"varka_ntz_add_${unit}_past$k", addSchema, addPastRows(p))
+          }
+      } ++
       arithPast.map { case (_, name, past) =>
         (s"varka_ntz_arith_$name", arithSchema, arithPastRows(past))
       }
@@ -357,6 +416,63 @@ class VarkaTimestampNtzSuite extends VarkaMaybeThrows with VarkaTestWatchdog {
       .filter(!_.isNullAt(1)).map(r => r.getInt(0) -> r.getInt(1)).toMap
     for (Row(i: Int, t: LocalDateTime) <- ntzRows) {
       assert(years(i) === t.getYear, s"row $i: $t")
+    }
+  }
+  // varka-session-lint: allow a path: each unit's guard through the plan, in both modes, with
+  // the batch past it declined
+  test("timestampadd at each unit's guard runs on the kernel, and a quantity one past goes to " +
+    "the row engine with its batch alone, in every mode") {
+    for (ansi <- Seq(false, true); (unit, _, past) <- addEdges) withAnsi(ansi) {
+      checkServed(s"SELECT i, timestampadd($unit, q, t) AS v FROM varka_ntz_add_${unit}_inside")
+      for (k <- past.indices) {
+        val query = s"SELECT i, timestampadd($unit, q, t) AS v FROM varka_ntz_add_${unit}_past$k"
+        val actual = varkaSpark.sql(query)
+        val plan = actual.queryExecution.executedPlan
+        assertFused(plan)
+        checkSparkAnswerMaybeThrows(query) match {
+          case Answered(_) =>
+            actual.collect()
+            assert(varkaNode(plan).metrics("numFallbackBatchesDeclined").value === 1L, query)
+          case r: Raised =>
+            assert(r.condition === "DATETIME_OVERFLOW", s"$query: $r")
+        }
+      }
+    }
+  }
+
+  /** The month forms over `t`, the date held to the fields' guard. */
+  private val monthForms = Seq("t + INTERVAL '1' MONTH", "t - INTERVAL '13' MONTH",
+    "timestampadd(MONTH, -24576, t)", "timestampadd(YEAR, 2047, t)",
+    "timestampadd(QUARTER, -8192, t)", "add_months(t, 1)")
+
+  // varka-session-lint: allow a path: the month forms at the date guard's ends, and a batch past
+  // it declined
+  test("the month forms of a TIMESTAMP_NTZ at the date guard's ends run on the kernel, and a " +
+    "count past it goes to the row engine with its batch alone") {
+    for (ansi <- Seq(false, true)) withAnsi(ansi) {
+      for (form <- monthForms) {
+        checkServed(s"SELECT i, $form AS v FROM varka_ntz_guard")
+        for (table <- Seq("varka_ntz_below", "varka_ntz_above")) {
+          val query = s"SELECT i, $form AS v FROM $table"
+          val actual = varkaSpark.sql(query)
+          val plan = actual.queryExecution.executedPlan
+          assertFused(plan)
+          checkSparkAnswerMaybeThrows(query)
+          actual.collect()
+          assert(varkaNode(plan).metrics("numFallbackBatchesDeclined").value === 1L, query)
+        }
+      }
+      for (form <- Seq("t + ym", "t - ym")) {
+        checkServed(s"SELECT i, $form AS v FROM varka_ntz_add_YEAR_inside")
+      }
+    }
+  }
+
+  test("the least month count negated raises under LEGACY and ANSI, from the row engine") {
+    for (ansi <- Seq(false, true)) withAnsi(ansi) {
+      val query = "SELECT i, t - ym AS v FROM varka_ntz_ym_least"
+      assertFused(varkaSpark.sql(query).queryExecution.executedPlan)
+      assert(checkSparkAnswerMaybeThrows(query).isInstanceOf[Raised], query)
     }
   }
 }

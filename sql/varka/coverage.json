@@ -5015,6 +5015,210 @@
     "note" : "a literal interval takes a slot in the long lane's table",
     "verified" : "differential"
   }, {
+    "sql" : "timestampadd(MICROSECOND, i, ntz)",
+    "executable" : "timestampadd(MICROSECOND, i, ntz)",
+    "family" : "TIMESTAMP_NTZ arithmetic",
+    "form" : "projection",
+    "catalyst" : [ "Cast", "TimestampAdd" ],
+    "casts" : [ "int>bigint:ansi" ],
+    "operands" : [ "Cast:int", "TimestampAdd:bigint", "TimestampAdd:ntz" ],
+    "switches" : [ "spark.sql.codegen.varka.family.time.enabled", "spark.sql.codegen.varka.family.intArithmetic.enabled" ],
+    "domain" : "if(ntz IS NULL OR i IS NULL, NULL, try_add(ntz, try_multiply(INTERVAL '0.000001' SECOND, i)) IS NOT NULL)",
+    "note" : "",
+    "verified" : "differential"
+  }, {
+    "sql" : "timestampadd(MICROSECOND, l, ntz)",
+    "executable" : "timestampadd(MICROSECOND, l, ntz)",
+    "family" : "TIMESTAMP_NTZ arithmetic",
+    "form" : "projection",
+    "catalyst" : [ "TimestampAdd" ],
+    "casts" : [ ],
+    "operands" : [ "TimestampAdd:bigint", "TimestampAdd:ntz" ],
+    "switches" : [ "spark.sql.codegen.varka.family.time.enabled" ],
+    "domain" : "if(ntz IS NULL OR l IS NULL, NULL, try_add(ntz, try_multiply(INTERVAL '0.000001' SECOND, l)) IS NOT NULL)",
+    "note" : "",
+    "verified" : "differential"
+  }, {
+    "sql" : "timestampadd(HOUR, i, ntz)",
+    "executable" : "timestampadd(HOUR, i, ntz)",
+    "family" : "TIMESTAMP_NTZ arithmetic",
+    "form" : "projection",
+    "catalyst" : [ "Cast", "TimestampAdd" ],
+    "casts" : [ "int>bigint:ansi" ],
+    "operands" : [ "Cast:int", "TimestampAdd:bigint", "TimestampAdd:ntz" ],
+    "switches" : [ "spark.sql.codegen.varka.family.time.enabled", "spark.sql.codegen.varka.family.intArithmetic.enabled" ],
+    "domain" : "if(ntz IS NULL OR i IS NULL, NULL, try_add(ntz, try_multiply(INTERVAL '1' HOUR, i)) IS NOT NULL)",
+    "note" : "",
+    "verified" : "differential"
+  }, {
+    "sql" : "timestampadd(HOUR, l, ntz)",
+    "executable" : "timestampadd(HOUR, l, ntz)",
+    "family" : "TIMESTAMP_NTZ arithmetic",
+    "form" : "projection",
+    "catalyst" : [ "TimestampAdd" ],
+    "casts" : [ ],
+    "operands" : [ "TimestampAdd:bigint", "TimestampAdd:ntz" ],
+    "switches" : [ "spark.sql.codegen.varka.family.time.enabled" ],
+    "domain" : "l BETWEEN -2562047788 AND 2562047788 AND if(ntz IS NULL OR l IS NULL, NULL, try_add(ntz, try_multiply(INTERVAL '1' HOUR, l)) IS NOT NULL)",
+    "note" : "",
+    "verified" : "differential"
+  }, {
+    "sql" : "timestampadd(DAY, i, ntz)",
+    "executable" : "timestampadd(DAY, i, ntz)",
+    "family" : "TIMESTAMP_NTZ arithmetic",
+    "form" : "projection",
+    "catalyst" : [ "Cast", "TimestampAdd" ],
+    "casts" : [ "int>bigint:ansi" ],
+    "operands" : [ "Cast:int", "TimestampAdd:bigint", "TimestampAdd:ntz" ],
+    "switches" : [ "spark.sql.codegen.varka.family.time.enabled", "spark.sql.codegen.varka.family.intArithmetic.enabled" ],
+    "domain" : "i BETWEEN -106751991 AND 106751991 AND if(ntz IS NULL OR i IS NULL, NULL, try_add(ntz, try_multiply(INTERVAL '1' DAY, i)) IS NOT NULL)",
+    "note" : "",
+    "verified" : "differential"
+  }, {
+    "sql" : "timestampadd(DAY, l, ntz)",
+    "executable" : "timestampadd(DAY, l, ntz)",
+    "family" : "TIMESTAMP_NTZ arithmetic",
+    "form" : "projection",
+    "catalyst" : [ "TimestampAdd" ],
+    "casts" : [ ],
+    "operands" : [ "TimestampAdd:bigint", "TimestampAdd:ntz" ],
+    "switches" : [ "spark.sql.codegen.varka.family.time.enabled" ],
+    "domain" : "l BETWEEN -106751991 AND 106751991 AND if(ntz IS NULL OR l IS NULL, NULL, try_add(ntz, try_multiply(INTERVAL '1' DAY, l)) IS NOT NULL)",
+    "note" : "",
+    "verified" : "differential"
+  }, {
+    "sql" : "timestampadd(WEEK, i, ntz)",
+    "executable" : "timestampadd(WEEK, i, ntz)",
+    "family" : "TIMESTAMP_NTZ arithmetic",
+    "form" : "projection",
+    "catalyst" : [ "Cast", "TimestampAdd" ],
+    "casts" : [ "int>bigint:ansi" ],
+    "operands" : [ "Cast:int", "TimestampAdd:bigint", "TimestampAdd:ntz" ],
+    "switches" : [ "spark.sql.codegen.varka.family.time.enabled", "spark.sql.codegen.varka.family.intArithmetic.enabled" ],
+    "domain" : "i BETWEEN -15250284 AND 15250284 AND if(ntz IS NULL OR i IS NULL, NULL, try_add(ntz, try_multiply(INTERVAL '7' DAY, i)) IS NOT NULL)",
+    "note" : "",
+    "verified" : "differential"
+  }, {
+    "sql" : "timestampadd(WEEK, l, ntz)",
+    "executable" : "timestampadd(WEEK, l, ntz)",
+    "family" : "TIMESTAMP_NTZ arithmetic",
+    "form" : "projection",
+    "catalyst" : [ "TimestampAdd" ],
+    "casts" : [ ],
+    "operands" : [ "TimestampAdd:bigint", "TimestampAdd:ntz" ],
+    "switches" : [ "spark.sql.codegen.varka.family.time.enabled" ],
+    "domain" : "l BETWEEN -15250284 AND 15250284 AND if(ntz IS NULL OR l IS NULL, NULL, try_add(ntz, try_multiply(INTERVAL '7' DAY, l)) IS NOT NULL)",
+    "note" : "",
+    "verified" : "differential"
+  }, {
+    "sql" : "ntz + ym",
+    "executable" : "ntz + ym",
+    "family" : "TIMESTAMP_NTZ arithmetic",
+    "form" : "projection",
+    "catalyst" : [ "TimestampAddYMInterval" ],
+    "casts" : [ ],
+    "operands" : [ "TimestampAddYMInterval:ntz", "TimestampAddYMInterval:ym" ],
+    "switches" : [ "spark.sql.codegen.varka.family.calendar.enabled" ],
+    "domain" : "unix_date(CAST(ntz AS DATE)) BETWEEN -5394207 AND 11382643 AND ym BETWEEN INTERVAL '-2048-0' YEAR TO MONTH AND INTERVAL '2047-0' YEAR TO MONTH",
+    "note" : "the date moved by add_months and the time of day kept",
+    "verified" : "differential"
+  }, {
+    "sql" : "ntz - ym",
+    "executable" : "ntz - ym",
+    "family" : "TIMESTAMP_NTZ arithmetic",
+    "form" : "projection",
+    "catalyst" : [ "DatetimeSub", "TimestampAddYMInterval", "UnaryMinus" ],
+    "casts" : [ ],
+    "operands" : [ "DatetimeSub:ntz", "DatetimeSub:ym", "TimestampAddYMInterval:ntz", "TimestampAddYMInterval:ym", "UnaryMinus:ym" ],
+    "switches" : [ "spark.sql.codegen.varka.family.calendar.enabled", "spark.sql.codegen.varka.family.interval.enabled" ],
+    "domain" : "unix_date(CAST(ntz AS DATE)) BETWEEN -5394207 AND 11382643 AND ym BETWEEN INTERVAL '-2047-0' YEAR TO MONTH AND INTERVAL '2048-0' YEAR TO MONTH",
+    "note" : "the negated count under the range, so the bounds change sides",
+    "verified" : "differential"
+  }, {
+    "sql" : "ntz + INTERVAL '1' MONTH",
+    "executable" : "ntz + INTERVAL '1' MONTH",
+    "family" : "TIMESTAMP_NTZ arithmetic",
+    "form" : "projection",
+    "catalyst" : [ "TimestampAddYMInterval" ],
+    "casts" : [ ],
+    "operands" : [ "TimestampAddYMInterval:ntz", "TimestampAddYMInterval:ym" ],
+    "switches" : [ "spark.sql.codegen.varka.family.calendar.enabled" ],
+    "domain" : "unix_date(CAST(ntz AS DATE)) BETWEEN -5394207 AND 11382643",
+    "note" : "",
+    "verified" : "differential"
+  }, {
+    "sql" : "timestampadd(MONTH, i, ntz)",
+    "executable" : "timestampadd(MONTH, i, ntz)",
+    "family" : "TIMESTAMP_NTZ arithmetic",
+    "form" : "projection",
+    "catalyst" : [ "Cast", "TimestampAdd" ],
+    "casts" : [ "int>bigint:ansi" ],
+    "operands" : [ "Cast:int", "TimestampAdd:bigint", "TimestampAdd:ntz" ],
+    "switches" : [ "spark.sql.codegen.varka.family.calendar.enabled" ],
+    "domain" : "unix_date(CAST(ntz AS DATE)) BETWEEN -5394207 AND 11382643 AND i BETWEEN -24576 AND 24564",
+    "note" : "",
+    "verified" : "differential"
+  }, {
+    "sql" : "timestampadd(MONTH, l, ntz)",
+    "executable" : "timestampadd(MONTH, l, ntz)",
+    "family" : "TIMESTAMP_NTZ arithmetic",
+    "form" : "projection",
+    "catalyst" : [ "TimestampAdd" ],
+    "casts" : [ ],
+    "operands" : [ "TimestampAdd:bigint", "TimestampAdd:ntz" ],
+    "switches" : [ "spark.sql.codegen.varka.family.calendar.enabled" ],
+    "domain" : "unix_date(CAST(ntz AS DATE)) BETWEEN -5394207 AND 11382643 AND l BETWEEN -24576 AND 24564",
+    "note" : "",
+    "verified" : "differential"
+  }, {
+    "sql" : "timestampadd(QUARTER, i, ntz)",
+    "executable" : "timestampadd(QUARTER, i, ntz)",
+    "family" : "TIMESTAMP_NTZ arithmetic",
+    "form" : "projection",
+    "catalyst" : [ "Cast", "TimestampAdd" ],
+    "casts" : [ "int>bigint:ansi" ],
+    "operands" : [ "Cast:int", "TimestampAdd:bigint", "TimestampAdd:ntz" ],
+    "switches" : [ "spark.sql.codegen.varka.family.calendar.enabled" ],
+    "domain" : "unix_date(CAST(ntz AS DATE)) BETWEEN -5394207 AND 11382643 AND i BETWEEN -8192 AND 8188",
+    "note" : "",
+    "verified" : "differential"
+  }, {
+    "sql" : "timestampadd(QUARTER, l, ntz)",
+    "executable" : "timestampadd(QUARTER, l, ntz)",
+    "family" : "TIMESTAMP_NTZ arithmetic",
+    "form" : "projection",
+    "catalyst" : [ "TimestampAdd" ],
+    "casts" : [ ],
+    "operands" : [ "TimestampAdd:bigint", "TimestampAdd:ntz" ],
+    "switches" : [ "spark.sql.codegen.varka.family.calendar.enabled" ],
+    "domain" : "unix_date(CAST(ntz AS DATE)) BETWEEN -5394207 AND 11382643 AND l BETWEEN -8192 AND 8188",
+    "note" : "",
+    "verified" : "differential"
+  }, {
+    "sql" : "timestampadd(YEAR, i, ntz)",
+    "executable" : "timestampadd(YEAR, i, ntz)",
+    "family" : "TIMESTAMP_NTZ arithmetic",
+    "form" : "projection",
+    "catalyst" : [ "Cast", "TimestampAdd" ],
+    "casts" : [ "int>bigint:ansi" ],
+    "operands" : [ "Cast:int", "TimestampAdd:bigint", "TimestampAdd:ntz" ],
+    "switches" : [ "spark.sql.codegen.varka.family.calendar.enabled" ],
+    "domain" : "unix_date(CAST(ntz AS DATE)) BETWEEN -5394207 AND 11382643 AND i BETWEEN -2048 AND 2047",
+    "note" : "",
+    "verified" : "differential"
+  }, {
+    "sql" : "timestampadd(YEAR, l, ntz)",
+    "executable" : "timestampadd(YEAR, l, ntz)",
+    "family" : "TIMESTAMP_NTZ arithmetic",
+    "form" : "projection",
+    "catalyst" : [ "TimestampAdd" ],
+    "casts" : [ ],
+    "operands" : [ "TimestampAdd:bigint", "TimestampAdd:ntz" ],
+    "switches" : [ "spark.sql.codegen.varka.family.calendar.enabled" ],
+    "domain" : "unix_date(CAST(ntz AS DATE)) BETWEEN -5394207 AND 11382643 AND l BETWEEN -2048 AND 2047",
+    "note" : "",
+    "verified" : "differential"
+  }, {
     "sql" : "year(ntz)",
     "executable" : "year(ntz)",
     "family" : "TIMESTAMP_NTZ fields",
@@ -5205,6 +5409,18 @@
     "switches" : [ "spark.sql.codegen.varka.family.calendar.enabled", "spark.sql.codegen.varka.family.intArithmetic.enabled" ],
     "domain" : "",
     "note" : "",
+    "verified" : "differential"
+  }, {
+    "sql" : "add_months(ntz, i)",
+    "executable" : "add_months(ntz, i)",
+    "family" : "TIMESTAMP_NTZ fields",
+    "form" : "projection",
+    "catalyst" : [ "AddMonths", "Cast" ],
+    "casts" : [ "ntz>date:ansi" ],
+    "operands" : [ "AddMonths:date", "AddMonths:int", "Cast:ntz" ],
+    "switches" : [ "spark.sql.codegen.varka.family.calendar.enabled", "spark.sql.codegen.varka.family.intArithmetic.enabled" ],
+    "domain" : "unix_date(CAST(ntz AS DATE)) BETWEEN -5394207 AND 11382643 AND i BETWEEN -24576 AND 24564",
+    "note" : "the guarded date moved by a column month count",
     "verified" : "differential"
   }, {
     "sql" : "hour(ntz)",
@@ -7835,5 +8051,5 @@
     "note" : "a DECIMAL(8, 6), s * 10^6 + (n % 10^9) / 1000; Spark rounds a Double back to six digits, which lands on the same value for every (s, g)",
     "verified" : "exhaustive: VarkaTimeFractionSuite, the fraction agrees with Spark's double round trip on every (s, g) of TIME(0) "
   } ],
-  "catalyst_classes_admitted" : [ "Abs", "Add", "AddMonths", "And", "BitwiseAnd", "BitwiseCount", "BitwiseNot", "BitwiseOr", "BitwiseXor", "CaseWhen", "Cast", "Ceil", "Coalesce", "DateAdd", "DateAddYMInterval", "DateDiff", "DateFromUnixDate", "DateSub", "DayOfMonth", "DayOfWeek", "DayOfYear", "Divide", "DivideYMInterval", "EqualNullSafe", "EqualTo", "ExtractANSIIntervalDays", "ExtractANSIIntervalMonths", "ExtractANSIIntervalYears", "Floor", "GreaterThan", "GreaterThanOrEqual", "Greatest", "Hour", "If", "In", "InSet", "IsNaN", "IsNotNull", "IsNull", "LastDay", "Least", "LessThan", "LessThanOrEqual", "MakeDate", "MakeYMInterval", "Minute", "Month", "Multiply", "MultiplyYMInterval", "NaNvl", "NextDay", "Not", "Or", "Quarter", "Rint", "Second", "ShiftLeft", "ShiftRight", "ShiftRightUnsigned", "Signum", "Sqrt", "Subtract", "SubtractDates", "SubtractTimestamps", "TimestampAddInterval", "ToDegrees", "ToRadians", "TruncDate", "UnaryMinus", "UnixDate", "WeekDay", "WeekOfYear", "Year", "YearOfWeek" ]
+  "catalyst_classes_admitted" : [ "Abs", "Add", "AddMonths", "And", "BitwiseAnd", "BitwiseCount", "BitwiseNot", "BitwiseOr", "BitwiseXor", "CaseWhen", "Cast", "Ceil", "Coalesce", "DateAdd", "DateAddYMInterval", "DateDiff", "DateFromUnixDate", "DateSub", "DayOfMonth", "DayOfWeek", "DayOfYear", "Divide", "DivideYMInterval", "EqualNullSafe", "EqualTo", "ExtractANSIIntervalDays", "ExtractANSIIntervalMonths", "ExtractANSIIntervalYears", "Floor", "GreaterThan", "GreaterThanOrEqual", "Greatest", "Hour", "If", "In", "InSet", "IsNaN", "IsNotNull", "IsNull", "LastDay", "Least", "LessThan", "LessThanOrEqual", "MakeDate", "MakeYMInterval", "Minute", "Month", "Multiply", "MultiplyYMInterval", "NaNvl", "NextDay", "Not", "Or", "Quarter", "Rint", "Second", "ShiftLeft", "ShiftRight", "ShiftRightUnsigned", "Signum", "Sqrt", "Subtract", "SubtractDates", "SubtractTimestamps", "TimestampAdd", "TimestampAddInterval", "TimestampAddYMInterval", "ToDegrees", "ToRadians", "TruncDate", "UnaryMinus", "UnixDate", "WeekDay", "WeekOfYear", "Year", "YearOfWeek" ]
 }

@@ -260,6 +260,14 @@ public final class VarkaCatalystGrammar {
     // TIMESTAMP_NTZ: plus and minus a day-time interval of any fields (VARKA-339), and choice.
     out.add(new Production(n, "($0 + $1)", List.of(n, x), 3));
     out.add(new Production(n, "($0 - $1)", List.of(n, x), 3));
+    // timestampadd up to a week and by months, and the year-month sums (VARKA-339): a hostile
+    // quantity raises DATETIME_OVERFLOW, a hostile interval Math's bare long overflow.
+    out.add(new Production(n, "timestampadd(HOUR, $0, $1)", List.of(i, n), 1));
+    out.add(new Production(n, "timestampadd(DAY, $0, $1)", List.of(l, n), 1));
+    out.add(new Production(n, "timestampadd(MONTH, $0, $1)", List.of(i, n), 1));
+    out.add(new Production(n, "($0 + $1)", List.of(n, y), 1));
+    out.add(new Production(n, "($0 - $1)", List.of(n, y), 1));
+    out.add(new Production(n, "($0 + INTERVAL '1' MONTH)", List.of(n), 1));
     choices(out, n, n, 1);
     // BOOLEAN: comparisons of one type, of an INT with a BIGINT, and of a DATE with a date
     // string; null tests; IN lists that widen; and the connectives.

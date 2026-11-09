@@ -18,6 +18,8 @@
 package org.apache.spark.sql.catalyst.expressions.codegen;
 
 import java.util.ArrayList;
+import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 
 import scala.jdk.javaapi.OptionConverters;
@@ -48,6 +50,8 @@ import org.apache.spark.sql.catalyst.expressions.NextDay;
 import org.apache.spark.sql.catalyst.expressions.Quarter;
 import org.apache.spark.sql.catalyst.expressions.Subtract;
 import org.apache.spark.sql.catalyst.expressions.SubtractDates;
+import org.apache.spark.sql.catalyst.expressions.TimestampAdd;
+import org.apache.spark.sql.catalyst.expressions.TimestampAddYMInterval;
 import org.apache.spark.sql.catalyst.expressions.TruncDate;
 import org.apache.spark.sql.catalyst.expressions.UnaryMinus;
 import org.apache.spark.sql.catalyst.expressions.UnixDate;
@@ -272,6 +276,16 @@ final class VarkaChronoCompiler {
           () -> addMonths(n, n.startDate(), n.numMonths(), inputs, literals, sink);
       case DateAddYMInterval n ->
           () -> addMonths(n, n.date(), n.interval(), inputs, literals, sink);
+      // The month forms of a TIMESTAMP_NTZ (VARKA-339): its date moved by the month count, its
+      // time of day kept. `ntz - ym` holds the negated interval, as `d - ym` does, so its count
+      // is compileMonths' too. `timestampadd` by the other units is the time family's.
+      case TimestampAddYMInterval n when VarkaTypes.isNtz(n.timestamp().dataType()) ->
+          () -> VarkaNodeCompiler.compileNode(n.timestamp(), inputs, literals, sink)
+              .flatMap(t -> compileMonths(n.interval(), inputs, literals, sink)
+                  .flatMap(m -> ntzMonthShift(n, t, m, literals, sink)));
+      case TimestampAdd n when VarkaTypes.isNtz(n.timestamp().dataType())
+          && MONTHS_PER_TIMESTAMPADD_UNIT.containsKey(n.unit().toUpperCase(Locale.ROOT)) ->
+          () -> ntzTimestampAddMonths(n, inputs, literals, sink);
       default -> null;
     };
   }
@@ -323,18 +337,105 @@ final class VarkaChronoCompiler {
       VarkaSlotTable inputs,
       VarkaSlotTable literals,
       DeclineSink sink) {
-    if (isNtzDate(date)) {
-      // A month shift of a TIMESTAMP_NTZ's date is a month form of row 339, which guards and
-      // tests it with the timestamp's own month arithmetic; until then it stays with Spark.
-      return sink.decline("a month shift of a timestamp_ntz's date, which is row 339's "
-          + "(VARKA-339)", whole);
-    }
     Optional<VarkaVectorIR> node = calendarInput(date, whole, inputs, literals, sink);
     if (node.isEmpty()) {
       return node;
     }
     Optional<VarkaVectorIR> count = compileMonths(months, inputs, literals, sink);
     return count.map(v -> new VarkaVectorIR.AddMonths(node.get(), v));
+  }
+
+  /** The months in each {@code timestampadd} unit this family lowers, as Spark spells them. */
+  private static final Map<String, Integer> MONTHS_PER_TIMESTAMPADD_UNIT =
+      Map.of("MONTH", 1, "QUARTER", 3, "YEAR", DateTimeConstants.MONTHS_PER_YEAR);
+
+  /**
+   * {@code t} moved by {@code months} on its date, the time of day kept: Spark's
+   * {@code timestampAddMonths} at UTC, a {@code LocalDateTime.plusMonths}, which is the date's
+   * {@code plusMonths} with its day-of-month clamp ({@code VARKA-339.md} 2.3). The date is the
+   * count's floor division by a day under {@link VarkaNodeCompiler#ntzDay}'s guard, which a
+   * batch holding a live count outside it fails to the row engine; the result is {@code t} plus
+   * the change of day times a day. Both sums are exact: the day is inside the calendar's range and
+   * the count inside {@code MONTH_ARITH_*}, so the change is under a million days and {@code |t|}
+   * stays far below a long's end, where Spark would raise.
+   */
+  private static Optional<VarkaVectorIR> ntzMonthShift(
+      Expression whole,
+      VarkaVectorIR t,
+      VarkaVectorIR months,
+      VarkaSlotTable literals,
+      DeclineSink sink) {
+    if (t.laneType() != LaneType.LONG) {
+      return sink.decline("a timestamp_ntz operand that is not on the long lane", whole);
+    }
+    VarkaVectorIR date = VarkaNodeCompiler.ntzDay(new VarkaVectorIR.NarrowLane(
+        VarkaNodeCompiler.floorDivLong(t, DateTimeConstants.MICROS_PER_DAY, sink)));
+    return admitCalendar(date, whole, literals, sink).map(day -> {
+      var moved = new VarkaVectorIR.AddMonths(day, months);
+      var days = new VarkaVectorIR.WidenLane(
+          new VarkaVectorIR.IntArith(IntOp.SUB, Overflow.WRAP, moved, day));
+      return new VarkaVectorIR.IntArith(IntOp.ADD, Overflow.WRAP, t, new VarkaVectorIR.IntArith(
+          IntOp.MUL, Overflow.WRAP, days, sink.longSlot(DateTimeConstants.MICROS_PER_DAY)));
+    });
+  }
+
+  /**
+   * {@code timestampadd(unit, q, t)} by MONTH, QUARTER or YEAR over an NTZ value: Spark's
+   * {@code timestampAdd}, which narrows {@code q} with {@code toIntExact}, multiplies it by the
+   * unit's {@code k} months with an int {@code multiplyExact}, and moves {@code t} by that many
+   * months, raising {@code DATETIME_OVERFLOW} where either fails, in every mode. The count is
+   * {@code q} guarded to {@code MONTH_ARITH_*} over {@code k}, so the int multiply is exact and
+   * every {@code q} Spark raises on is past the guard, whose batch goes to the row engine. A
+   * literal folds; an int column is read as itself, bare at a month, where {@code AddMonths}'
+   * own guard bounds it; a bigint is narrowed under the guard.
+   */
+  private static Optional<VarkaVectorIR> ntzTimestampAddMonths(
+      TimestampAdd n,
+      VarkaSlotTable inputs,
+      VarkaSlotTable literals,
+      DeclineSink sink) {
+    int k = MONTHS_PER_TIMESTAMPADD_UNIT.get(n.unit().toUpperCase(Locale.ROOT));
+    long lo = Math.ceilDiv(VarkaChrono.MONTH_ARITH_MIN_MONTHS, k);
+    long hi = Math.floorDiv(VarkaChrono.MONTH_ARITH_MAX_MONTHS, k);
+    Expression q = n.quantity();
+    Optional<VarkaVectorIR> count;
+    if (q.foldable()) {
+      Optional<Long> folded = VarkaTimeCompiler.foldedQuantity(q);
+      if (folded.isEmpty()) {
+        return sink.decline("timestampadd's quantity folds to null or raises", n);
+      }
+      long v = folded.get();
+      count = v < lo || v > hi
+          ? sink.decline("month count outside the range the emitter's magic multiply covers", n)
+          : Optional.of(VarkaNodeCompiler.intSlot((int) (v * k), literals));
+    } else if (q instanceof Cast c && DataTypes.IntegerType.equals(c.child().dataType())) {
+      // A bare int column is read by its leaf here, as compileMonths reads one: the chain's
+      // column arm takes no int column outside the positions that name it.
+      Optional<VarkaVectorIR> quantity = c.child() instanceof BoundReference br
+          ? Optional.of(VarkaNodeCompiler.columnRef(br, inputs, LaneType.INT))
+          : VarkaNodeCompiler.compileNode(c.child(), inputs, literals, sink);
+      count = quantity.map(i -> k == 1
+          ? i
+          : new VarkaVectorIR.IntArith(IntOp.MUL, Overflow.WRAP,
+              new VarkaVectorIR.GuardedRange(i, lo, hi), VarkaNodeCompiler.intSlot(k, literals)));
+    } else {
+      count = VarkaNodeCompiler.compileNode(q, inputs, literals, sink)
+          .filter(v -> v.laneType() == LaneType.LONG)
+          .map(v -> {
+            VarkaVectorIR narrowed =
+                new VarkaVectorIR.NarrowLane(new VarkaVectorIR.GuardedRange(v, lo, hi));
+            return k == 1 ? narrowed : new VarkaVectorIR.IntArith(IntOp.MUL, Overflow.WRAP,
+                narrowed, VarkaNodeCompiler.intSlot(k, literals));
+          });
+    }
+    Optional<VarkaVectorIR> admitted = count.flatMap(v -> VarkaNodeCompiler.admitted(
+        VarkaOperandPosition.MONTH_COUNT, v, q,
+        "month count that lowers to a node the month-count position does not take", sink));
+    if (admitted.isEmpty()) {
+      return admitted;
+    }
+    return VarkaNodeCompiler.compileNode(n.timestamp(), inputs, literals, sink)
+        .flatMap(t -> ntzMonthShift(n, t, admitted.get(), literals, sink));
   }
 
   /**

@@ -49,8 +49,9 @@ public enum VarkaFamily {
   /** {@code VarkaChronoCompiler}. */
   CALENDAR("calendar", "calendar", "day arithmetic (date_add, date_sub, datediff, unix_date,"
       + " date_from_unix_date), the calendar fields (year to weekofyear), make_date, last_day,"
-      + " next_day, trunc, add_months and a date plus a year-month interval, and the same fields"
-      + " of a TIMESTAMP_NTZ through its date"),
+      + " next_day, trunc, add_months and a date plus a year-month interval, the same fields and"
+      + " month shifts of a TIMESTAMP_NTZ through its date, and a TIMESTAMP_NTZ plus or minus a"
+      + " year-month interval or timestampadd of months, quarters or years"),
   /** {@code VarkaIntervalCompiler}. */
   INTERVAL("interval", "interval", "year-month interval arithmetic, negation and abs,"
       + " make_ym_interval, the year and month extractions, the multiply by an int and the"
@@ -59,8 +60,8 @@ public enum VarkaFamily {
   TIME("time", "time", "the TIME functions (hour, minute, second, time_trunc, time_diff, the"
       + " conversions to and from micros and millis, a time plus a day-time interval), the"
       + " casts to TIME and to a day-time interval, hour, minute and second of a TIMESTAMP_NTZ,"
-      + " and TIMESTAMP_NTZ minus TIMESTAMP_NTZ and a TIMESTAMP_NTZ plus or minus a day-time"
-      + " interval"),
+      + " TIMESTAMP_NTZ minus TIMESTAMP_NTZ, a TIMESTAMP_NTZ plus or minus a day-time interval,"
+      + " and timestampadd of a TIMESTAMP_NTZ by a unit from a microsecond to a week"),
   /** {@code VarkaConditionCompiler.compileCond}, reached outside the chain. */
   PREDICATE("predicate", "predicate", "the comparisons, IN over dates and year-month intervals,"
       + " IS NULL and IS NOT NULL, AND, OR and NOT, wherever they sit: a filter's predicates, so"
