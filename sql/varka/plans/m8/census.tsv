@@ -48,8 +48,8 @@ atanh	Atanh	mathExpressions	in		double	double		double	ulp	367,357	Spark's formul
 bin	Bin	mathExpressions	out	STRING input or output: owner's decision, 14 October 2026							
 bround	BRound	mathExpressions	in		byte,short,int,bigint,float,double,dec	byte,short,int,bigint,float,double,dec		byte,short,float,double,dec	semantics	344,346,351,363	HALF_EVEN; integral and decimal are semantics, double as round (346)
 cbrt	Cbrt	mathExpressions	in		double	double		double	ulp	367,358	Math
-ceil	CeilExpressionBuilder	mathExpressions	in		byte,short,int,bigint,float,double,dec	bigint,dec		byte,short,float,double,dec	semantics	344,351,363	double and integral give bigint, decimal a decimal of scale 0
-ceiling	CeilExpressionBuilder	mathExpressions	in		byte,short,int,bigint,float,double,dec	bigint,dec		byte,short,float,double,dec	semantics	344,351,363	alias of ceil
+ceil	CeilExpressionBuilder	mathExpressions	in		byte,short,int,bigint,float,double,dec	bigint,dec	int,bigint	byte,short,float,double,dec	semantics	344,351,363	double and integral give bigint, decimal a decimal of scale 0; fused for int in `ceil(i)`, the int under a cast to double
+ceiling	CeilExpressionBuilder	mathExpressions	in		byte,short,int,bigint,float,double,dec	bigint,dec	bigint	byte,short,float,double,dec	semantics	344,351,363	alias of ceil
 cos	Cos	mathExpressions	in		double	double		double	ulp	367,356	Math
 sec	Sec	mathExpressions	in		double	double		double	ulp	367,356	1 / Math.cos
 cosh	Cosh	mathExpressions	in		double	double		double	ulp	367,357	Math
@@ -58,7 +58,7 @@ degrees	ToDegrees	mathExpressions	in		double	double	double	double	done	342	Math.
 e	EulerNumber	mathExpressions	out	a constant per query: folded to a literal before Varka sees it							
 exp	Exp	mathExpressions	in		double	double		double	ulp	367,358	StrictMath
 expm1	Expm1	mathExpressions	in		double	double		double	ulp	367,358	StrictMath
-floor	FloorExpressionBuilder	mathExpressions	in		byte,short,int,bigint,float,double,dec	bigint,dec		byte,short,float,double,dec	semantics	344,351,363	double and integral give bigint, decimal a decimal of scale 0
+floor	FloorExpressionBuilder	mathExpressions	in		byte,short,int,bigint,float,double,dec	bigint,dec	int,bigint	byte,short,float,double,dec	semantics	344,351,363	double and integral give bigint, decimal a decimal of scale 0; fused for int in `floor(i)`, the int under a cast to double
 factorial	Factorial	mathExpressions	in		int	bigint			semantics	344	a table of 21 entries, null outside it
 hex	Hex	mathExpressions	out	STRING input or output: owner's decision, 14 October 2026							
 hypot	Hypot	mathExpressions	in		double	double		double	ulp	367,358	Math
@@ -75,7 +75,7 @@ positive	UnaryPositive	mathExpressions	in		byte,short,int,bigint,float,double,de
 pow	Pow	mathExpressions	in		double	double		double	ulp	367,358	StrictMath; fused behind the guard on fdlibm's weak branch, its exact exponents as exact nodes (358)
 power	Pow	mathExpressions	in		double	double		double	ulp	367,358	alias of pow
 radians	ToRadians	mathExpressions	in		double	double	double	double	done	342	Math.toRadians is one multiply, bit-exact
-rint	Rint	mathExpressions	in		double	double		double	semantics	344	round half even to an integer, the 2^52 construction
+rint	Rint	mathExpressions	in		double	double	double	double	done	344	round half even to an integer, the 2^52 construction
 round	Round	mathExpressions	in		byte,short,int,bigint,float,double,dec	byte,short,int,bigint,float,double,dec		byte,short,float,double,dec	semantics	344,346,351,363	HALF_UP; integral and decimal are semantics, double by the tie test over the shortest decimal for scales 0 to 22, a band declined (346)
 truncate	Truncate	mathExpressions	in		byte,short,int,bigint,float,double,dec	byte,short,int,bigint,float,double,dec		byte,short,float,double,dec	semantics	344,346,351,363	ROUND_DOWN to a scale; integral and decimal are semantics, double as round (346)
 sign	Signum	mathExpressions	in		double,ym,dt	double		double	plumbing	342	exact: a compare and a blend

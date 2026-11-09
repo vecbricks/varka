@@ -31,7 +31,6 @@ public final class VarkaIntConformanceSuite extends VarkaTypeConformance {
 
   @Override
   protected ConformanceType type() {
-    return integral("int", DataTypes.IntegerType, "INT", "", Integer.MIN_VALUE,
-        Integer.MAX_VALUE);
+    return integral("int", DataTypes.IntegerType, "INT", "");
   }
 }
