@@ -49,7 +49,11 @@ A worktree without its own `target/varka-solvers/` takes the solvers from the ma
 directory, `$VARKA_SOLVERS_DIR` or by default `~/.cache/varka-solvers/`, so one
 `dev/varka_prove.sh --install-shared both` serves every worktree; CI keeps installing per run.
 
-By hand, the prelude goes after the file's `set-logic` line:
+A file whose header has a line `; prelude: <name>.smt2` before its `set-logic` gets that file of
+this directory inserted after `java.smt2` (VARKA-506 2.5). A file named so is a prelude, which the
+script does not run on its own and refuses when named to run; the name is a plain file name of
+this directory, not a path and not `java.smt2`. By hand, the prelude goes after the file's
+`set-logic` line:
 `sed '/^(set-logic/r sql/varka/proofs/java.smt2' sql/varka/proofs/int_mulhi_divide.smt2 | z3 -in`.
 A solver's line numbers count the inserted prelude.
 
