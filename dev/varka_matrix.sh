@@ -177,6 +177,7 @@ EXCLUDED=(
   "VarkaEmitOptionSuite:checks the defaults themselves"
   "VarkaMatrixSuite:checks the matrix's own machinery, not an answer"
   "VarkaSuiteHarnessSuite:checks the JUnit face of the matrix's machinery, not an answer"
+  "VarkaChildProcessSuite:checks the probe launcher on plain programs, not an answer"
   "VarkaHarnessParitySuite:checks that the answer harness plans as a session does, not an answer"
   "VarkaReachSuite:checks the matrix's reach filter, not an answer"
   "VarkaTestReachSuite:checks the matrix's record of which tests a configuration moves"

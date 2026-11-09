@@ -17,10 +17,8 @@
 
 package org.apache.spark.sql.catalyst.expressions.codegen.varka
 
-import java.io.{BufferedReader, File, InputStreamReader}
-import java.nio.charset.StandardCharsets
+import java.io.File
 import java.nio.file.{Files, Paths}
-import java.util.concurrent.TimeUnit
 
 import scala.collection.mutable.ArrayBuffer
 import scala.jdk.CollectionConverters._
@@ -172,8 +170,8 @@ class VarkaAssemblySuite extends SparkFunSuite with VarkaTestWatchdog {
 
   // --- Running the child --------------------------------------------------------------------
 
-  /** Everything a case needs from one child run. */
-  private case class ProbeRun(output: String, exitCode: Int) {
+  /** Everything a case needs from one child run: how it ended and its whole output. */
+  private case class ProbeRun(child: VarkaChildProcess.Run, output: String) {
 
     /** The child's own `IntVector.SPECIES_PREFERRED` width - the flags in force decide it. */
     def preferredBits: Int = {
@@ -201,42 +199,32 @@ class VarkaAssemblySuite extends SparkFunSuite with VarkaTestWatchdog {
    *  suite rather than fail it. */
   private val maxOutputChars = 8 * 1024 * 1024
 
-  private val childTimeoutSeconds = 300L
+  /**
+   * The most children one test starts, one after another: "every shape is still packed at
+   * 128-bit lanes" starts three, and a fourth for `narrowSpeciesRefusal` when it is the first
+   * test to read it. So each child's budget is a quarter of the test's cap less a minute: at
+   * `VarkaTestWatchdog`'s ten minutes, four budgets of 135 s, 540 s, are the most a test waits.
+   */
+  private val childrenPerTest = 4
 
-  private def testClasspath: String =
-    Option(System.getenv("SPARK_DIST_CLASSPATH"))
-      .filter(_.nonEmpty)
-      .getOrElse(System.getProperty("java.class.path"))
+  private def childBudgetSeconds: Long =
+    VarkaChildProcess.budgetSeconds(watchdogMinutes, childrenPerTest)
 
   private def runProbe(
       caseName: String, printPattern: String, extraFlags: Seq[String] = Seq.empty): ProbeRun = {
-    val javaBin = new File(new File(System.getProperty("java.home"), "bin"), "java")
-    val command = new java.util.ArrayList[String]()
-    command.add(javaBin.getAbsolutePath)
-    command.add("--add-modules")
-    command.add("jdk.incubator.vector")
-    // The kernels and the emitted loops read off-heap memory through MemorySegment.reinterpret,
-    // which is a restricted method: without this the child prints a warning per call site.
-    command.add("--enable-native-access=ALL-UNNAMED")
-    command.add("-XX:+UnlockDiagnosticVMOptions")
+    val flags = new java.util.ArrayList[String]()
+    flags.add("-XX:+UnlockDiagnosticVMOptions")
     // The probe warms a method by calling it a fixed number of times, and that count buys a
     // compile request, not a compile: with background compilation the calls can run out before
     // the compiler thread gets a core, and the parent then reads a C1 body, or a C2 body compiled
     // early enough to be the Vector API's scalar fallback. That is what the gate's failures on
     // contended runners were (VARKA-150), and pinning sbt to two busy cores reproduces them. With
     // -Xbatch the crossing call returns with the nmethod installed, on any machine.
-    command.add("-Xbatch")
-    command.add(s"-XX:CompileCommand=print,$printPattern")
-    extraFlags.foreach(command.add)
-    command.add("-cp")
-    command.add(testClasspath)
-    command.add(classOf[VarkaAssemblyProbe].getName)
-    command.add(caseName)
-
-    // The child JVM's code runs where the class-use record cannot see it (VarkaTestUse).
-    VarkaTestUse.childJvm()
-    val builder = new ProcessBuilder(command)
-    builder.redirectErrorStream(true)
+    flags.add("-Xbatch")
+    flags.add(s"-XX:CompileCommand=print,$printPattern")
+    extraFlags.foreach(flags.add)
+    val builder = new ProcessBuilder(VarkaChildProcess.javaCommand(flags,
+      classOf[VarkaAssemblyProbe].getName, java.util.List.of(caseName)))
     hsdis match {
       case OnLibraryPath(dir) =>
         val existing = Option(System.getenv("LD_LIBRARY_PATH")).getOrElse("")
@@ -246,32 +234,17 @@ class VarkaAssemblySuite extends SparkFunSuite with VarkaTestWatchdog {
         builder.environment().put("LD_LIBRARY_PATH", value)
       case _ =>
     }
-
-    val process = builder.start()
+    val what = s"$suiteName's probe for case '$caseName'" +
+      (if (extraFlags.isEmpty) "" else " under " + extraFlags.mkString(" "))
     val captured = new StringBuilder
-    val reader = new BufferedReader(
-      new InputStreamReader(process.getInputStream, StandardCharsets.UTF_8))
-    try {
-      var line = reader.readLine()
-      var overflowed = false
-      while (line != null && !overflowed) {
-        captured.append(line).append('\n')
-        if (captured.length > maxOutputChars) { overflowed = true }
-        line = reader.readLine()
-      }
-      if (overflowed) {
-        process.destroyForcibly()
-        fail(s"the probe printed more than $maxOutputChars characters for pattern " +
+    val child = VarkaChildProcess.run(what, builder, childBudgetSeconds, { line =>
+      captured.append(line).append('\n')
+      if (captured.length > maxOutputChars) {
+        fail(s"$what printed more than $maxOutputChars characters for pattern " +
           s"'$printPattern' - the CompileCommand pattern is probably matching every method")
       }
-    } finally {
-      reader.close()
-    }
-    if (!process.waitFor(childTimeoutSeconds, TimeUnit.SECONDS)) {
-      process.destroyForcibly()
-      fail(s"the probe did not finish within $childTimeoutSeconds s for case '$caseName'")
-    }
-    ProbeRun(captured.toString, process.exitValue())
+    })
+    ProbeRun(child, captured.toString)
   }
 
   // --- Reading the disassembly ----------------------------------------------------------------
@@ -468,9 +441,7 @@ class VarkaAssemblySuite extends SparkFunSuite with VarkaTestWatchdog {
    * mis-reported.
    */
   private def requireHealthyChild(run: ProbeRun): Unit = {
-    assert(run.exitCode == 0,
-      s"the probe exited with ${run.exitCode}; output:\n${tail(run.output)}")
-    assert(run.ranToCompletion, s"the probe did not finish:\n${tail(run.output)}")
+    run.child.requireSuccess(run.ranToCompletion)
   }
 
   /**
