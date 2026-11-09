@@ -214,9 +214,9 @@ public final class VarkaKernelPlan {
 
   /** The reason a filter's condition records where {@link #hostRefusal} refuses it. */
   public static final String TWO_LANE_CONDITION_REASON = "a filter's condition in a kernel driven "
-      + "at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL up to "
-      + "18 digits), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no "
-      + "mask there, and the selection would run the Vector API's Java fallback";
+      + "at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL), on "
+      + "an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and "
+      + "the selection would run the Vector API's Java fallback";
 
   /**
    * Whether {@code host}, read on this JVM, runs every mask of a 64-bit species as the Vector
@@ -579,11 +579,11 @@ public final class VarkaKernelPlan {
    * Why a conversion of these roots has no kernel yet. The emitter lowers the four conversions
    * that are one {@code convertShape} on every x86 host, {@code I2F}, {@code I2D}, {@code F2D}
    * and {@code D2F}, in a kernel of one lane count or of two (`VARKA-343.md` 2.2). A
-   * {@code BIGINT} source, {@code L2F} or {@code L2D}, is admitted where
-   * {@link VarkaEmitOptions#convertsMayFallBack()} is false: x86 has no rule for either without
-   * AVX512DQ, so below level 3 and at the unknown level, the defaults' and an unset session's,
-   * which may be such a host, the conversion would run as the Vector API's Java loop and the
-   * entry declines. Its AVX2 forms are row 343's second part. A floating source converted to an
+   * {@code BIGINT} source, {@code L2F} or {@code L2D}, takes the AVX2 forms of
+   * {@code VarkaConversionLowering} below level 3, where x86 has no rule for either without
+   * AVX512DQ; at the unknown level ({@link VarkaEmitOptions#levelUnknown()}), the defaults' and an
+   * unset session's, which may be such a host, {@code convertShape} would run as the Vector API's
+   * Java loop and the entry declines. A floating source converted to an
    * integral lane waits for part 343b2, at every level. A boolean whose condition compares longs
    * is not a conversion from a long: the compiler narrows its one or zero to the int lane first.
    *
@@ -607,10 +607,9 @@ public final class VarkaKernelPlan {
           return Optional.of(new Refusal(Kind.CONVERSION, "a conversion from "
               + c.child().laneType() + " to " + c.target() + " is not built yet (row 343)"));
         }
-        if (c.child().laneType() == LaneType.LONG && options.convertsMayFallBack()) {
+        if (c.child().laneType() == LaneType.LONG && options.levelUnknown()) {
           return Optional.of(new Refusal(Kind.CONVERSION, "a BIGINT conversion to " + c.target()
-              + " at an emit level that does not assure AVX512DQ, without which it is not"
-              + " intrinsic (row 343)"));
+              + " at an unknown emit level, which may be a host's without AVX512DQ (row 343)"));
         }
       }
       for (VarkaVectorIR child : VarkaVectorIR.childrenOf(node)) {

@@ -1475,13 +1475,13 @@ final class VarkaConditionCompiler {
           .flatMap(both -> meetAll(cmp, sink, both))
           .map(both -> new VarkaVectorIR.BoolCompare(op, both.get(0), both.get(1)));
     }
-    // Two decimals compare as their unscaled longs at the common scale coercion gave them
-    // (VARKA-347, VARKA-348), read by the decimal compiler rather than by compileNode, which
-    // declines a decimal in a value position.
+    // Two decimals compare as their unscaled values at the common scale coercion gave them,
+    // longs within 18 digits (VARKA-347, VARKA-348) and two words each above (VARKA-359), read by
+    // the decimal compiler rather than by compileNode, which declines a decimal in a value
+    // position.
     if (VarkaDecimalCompiler.isDecimal(cmp.left())) {
-      return VarkaDecimalCompiler.operands(cmp, cmp.left(), cmp.right(), inputs, literals,
-          sink)
-          .map(both -> new Compare(op, both.get(0), both.get(1)));
+      return VarkaDecimalCompiler.comparison(op, cmp, cmp.left(), cmp.right(), inputs, literals,
+          sink);
     }
     Optional<VarkaVectorIR> left = operand(cmp.left(), inputs, literals, sink);
     if (left.isEmpty()) {
@@ -1537,10 +1537,10 @@ final class VarkaConditionCompiler {
       Cond known = expected ? p.get() : new VarkaVectorIR.Not(p.get());
       return Optional.of(new VarkaVectorIR.And(known, new VarkaVectorIR.IsNotNull(known)));
     }
-    // Two decimals at their common scale, as compare takes them (VARKA-347, VARKA-348).
+    // Two decimals at their common scale, as compare takes them (VARKA-347, VARKA-348,
+    // VARKA-359).
     if (VarkaDecimalCompiler.isDecimal(n.left())) {
-      return VarkaDecimalCompiler.operands(n, n.left(), n.right(), inputs, literals, sink)
-          .map(both -> new VarkaVectorIR.NullSafeEqual(both.get(0), both.get(1)));
+      return VarkaDecimalCompiler.nullSafeEqual(n, n.left(), n.right(), inputs, literals, sink);
     }
     Optional<VarkaVectorIR> left = operand(n.left(), inputs, literals, sink);
     if (left.isEmpty()) {
