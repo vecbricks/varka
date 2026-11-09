@@ -395,6 +395,10 @@ class MissingJepProbe {
             result = subprocess.run(
                 [
                     str(Path(java_home) / "bin" / "java"),
+                    # Netty 4.2 disables Unsafe by default on Java 25+ unless this is set,
+                    # and Arrow's pooled allocator then fails with a ClassCastException.
+                    "-XX:+IgnoreUnrecognizedVMOptions",
+                    "--sun-misc-unsafe-memory-access=allow",
                     "--add-opens=java.base/java.nio=ALL-UNNAMED",
                     "--add-opens=java.base/sun.nio.ch=ALL-UNNAMED",
                     "-Dio.netty.tryReflectionSetAccessible=true",
@@ -524,6 +528,10 @@ class BootstrapProbe {
             result = subprocess.run(
                 [
                     str(Path(java_home) / "bin" / "java"),
+                    # Netty 4.2 disables Unsafe by default on Java 25+ unless this is set,
+                    # and Arrow's pooled allocator then fails with a ClassCastException.
+                    "-XX:+IgnoreUnrecognizedVMOptions",
+                    "--sun-misc-unsafe-memory-access=allow",
                     "--add-opens=java.base/java.nio=ALL-UNNAMED",
                     "--add-opens=java.base/sun.nio.ch=ALL-UNNAMED",
                     "-Dio.netty.tryReflectionSetAccessible=true",
