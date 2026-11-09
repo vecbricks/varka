@@ -767,9 +767,8 @@ final class VarkaConditionCompiler {
     if (x.isEmpty()) {
       return Optional.empty();
     }
-    long nan = x.get().laneType() == LaneType.FLOAT ? Float.floatToRawIntBits(Float.NaN)
-        : Double.doubleToRawLongBits(Double.NaN);
-    Cond equal = constantCompare(CompareOp.EQ, x.get(), nan, literals, sink);
+    Cond equal = constantCompare(CompareOp.EQ, x.get(), floatingBits(x.get().laneType(),
+        Double.NaN), literals, sink);
     return Optional.of(new VarkaVectorIR.And(new VarkaVectorIR.IsNotNull(equal), equal));
   }
 
@@ -1565,8 +1564,8 @@ final class VarkaConditionCompiler {
    * </ul>
    * Each is one node a null {@code x} leaves unknown, as Spark's comparison is null there.
    */
-  static Cond constantCompare(CompareOp op, VarkaVectorIR x, long bits, VarkaSlotTable literals,
-      DeclineSink sink) {
+  private static Cond constantCompare(CompareOp op, VarkaVectorIR x, long bits,
+      VarkaSlotTable literals, DeclineSink sink) {
     LaneType lane = x.laneType();
     boolean nan = switch (lane) {
       case FLOAT -> Float.isNaN(Float.intBitsToFloat((int) bits));
@@ -1597,11 +1596,18 @@ final class VarkaConditionCompiler {
 
   /** {@code x <= +Infinity}, the IEEE compare false where {@code x} is NaN and nowhere else. */
   private static Cond notNaN(VarkaVectorIR x, VarkaSlotTable literals, DeclineSink sink) {
-    long infinity = x.laneType() == LaneType.FLOAT
-        ? Float.floatToRawIntBits(Float.POSITIVE_INFINITY)
-        : Double.doubleToRawLongBits(Double.POSITIVE_INFINITY);
-    return new Compare(CompareOp.IEEE_LE, x,
-        VarkaNodeCompiler.bitsSlot(infinity, x.laneType(), literals, sink));
+    return new Compare(CompareOp.IEEE_LE, x, VarkaNodeCompiler.bitsSlot(
+        floatingBits(x.laneType(), Double.POSITIVE_INFINITY), x.laneType(), literals, sink));
+  }
+
+  /** The raw bits of {@code v} as a value of the floating lane {@code lane}. */
+  private static long floatingBits(LaneType lane, double v) {
+    return switch (lane) {
+      case FLOAT -> Float.floatToRawIntBits((float) v);
+      case DOUBLE -> Double.doubleToRawLongBits(v);
+      case BYTE, SHORT, INT, LONG ->
+          throw VarkaErrors.illegalArgument("not a floating lane: " + lane);
+    };
   }
 
   /**

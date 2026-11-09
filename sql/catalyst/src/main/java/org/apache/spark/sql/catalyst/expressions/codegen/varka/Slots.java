@@ -1881,7 +1881,7 @@ final class Slots {
    * locals. An IEEE compare reads each once, as an integral one does.
    */
   private static boolean isFloatingCompare(VarkaVectorIR node) {
-    return (node instanceof VarkaVectorIR.Compare c && !c.op().isIeee()
+    return ((node instanceof VarkaVectorIR.Compare c && !c.op().isIeee())
         || node instanceof VarkaVectorIR.NullSafeEqual)
         && node.laneType().isFloating();
   }

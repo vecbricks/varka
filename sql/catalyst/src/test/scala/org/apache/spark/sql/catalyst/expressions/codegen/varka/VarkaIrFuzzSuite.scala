@@ -1636,23 +1636,16 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
    * harness at FLOAT and the long one at DOUBLE, its rows and literals the values' raw bits,
    * and shrunk on failure as the int corpus is. The cells and literals are the type's value
    * source's, an edge one time in four as in the narrow sequences, so NaNs of several payloads
-   * and both zeros meet every comparison. A kernel the plan refuses for the drawn width (two
-   * double lanes at 128 bits, row 503) is counted and skipped; any other refusal fails.
+   * and both zeros meet every comparison. A tree of one floating lane needs no conversion, so
+   * the plan refuses none; the host's refusal of a two-lane condition (row 503) is the
+   * session's, not the plan's, and the harness runs such a kernel as emitted.
    */
   private def runOneFloating(lane: LaneType, drawSeed: Long, iteration: Int): Boolean = {
     val rnd = VarkaIrGrammar.shapeRandom(drawSeed, iteration)
     val drawn = VarkaIrGrammar.drawFloatingLaneShape(rnd, lane)
-    val c = VarkaLaneFuzz.drawCase(drawSeed, iteration, rnd, drawn,
+    runChecked(VarkaLaneFuzz.drawCase(drawSeed, iteration, rnd, drawn,
       VarkaLaneFuzz.LaneSource.floating(lane, narrowEdgeOneIn), valueStream(drawSeed, iteration),
-      r => randomOptions(r, VarkaMatrix.base, drawSeed, iteration))
-    val refusal = VarkaKernelPlan.refusalOf(c.roots, c.options)
-    if (refusal.isPresent) {
-      assert(castWidthRefusal(refusal.get),
-        s"${c.label}: refused for a reason other than its width: ${refusal.get}")
-      false
-    } else {
-      runChecked(c)
-    }
+      r => randomOptions(r, VarkaMatrix.base, drawSeed, iteration)))
   }
 
   private def runFloatingSequence(lane: LaneType, drawSeed: Long): Unit = {

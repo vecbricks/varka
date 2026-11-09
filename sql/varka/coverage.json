@@ -5948,7 +5948,7 @@
     "operands" : [ "EqualTo:double" ],
     "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
     "domain" : "",
-    "note" : "true where the IEEE a <= Infinity is false, so NaN alone; no NaN test",
+    "note" : "true where the IEEE x <= Infinity is false, so NaN alone; no NaN test",
     "verified" : "differential"
   }, {
     "sql" : "x < CAST('NaN' AS DOUBLE)",
@@ -5960,7 +5960,7 @@
     "operands" : [ "LessThan:double" ],
     "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
     "domain" : "",
-    "note" : "the IEEE a <= Infinity: every value but NaN",
+    "note" : "the IEEE x <= Infinity: every value but NaN",
     "verified" : "differential"
   }, {
     "sql" : "x IN (1.5D, -2.5D, 0.0D, CAST('NaN' AS DOUBLE))",
@@ -6272,7 +6272,7 @@
     "operands" : [ "EqualTo:float" ],
     "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
     "domain" : "",
-    "note" : "true where the IEEE a <= Infinity is false, so NaN alone; no NaN test",
+    "note" : "true where the IEEE f <= Infinity is false, so NaN alone; no NaN test",
     "verified" : "differential"
   }, {
     "sql" : "f < CAST('NaN' AS FLOAT)",
@@ -6284,7 +6284,7 @@
     "operands" : [ "LessThan:float" ],
     "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
     "domain" : "",
-    "note" : "the IEEE a <= Infinity: every value but NaN",
+    "note" : "the IEEE f <= Infinity: every value but NaN",
     "verified" : "differential"
   }, {
     "sql" : "f IN (1.5F, -2.5F, 0.0F, CAST('NaN' AS FLOAT))",
