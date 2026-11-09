@@ -14372,12 +14372,12 @@
       "16" : "cbdeb14db1d8760f"
     },
     "wideConversionForm=SPLIT over useAVX=2" : {
-      "4" : "4f02b3652262b16b",
-      "16" : "df07f428b64a85ba"
+      "4" : "18f0f14ad05ea7fe",
+      "16" : "0d9803b85cdd54bc"
     },
     "wideConversionForm=MAGIC over useAVX=2" : {
-      "4" : "4f02b3652262b16b",
-      "16" : "df07f428b64a85ba"
+      "4" : "18f0f14ad05ea7fe",
+      "16" : "0d9803b85cdd54bc"
     },
     "narrowLanes=true" : {
       "4" : "12f1315ff273e677",
