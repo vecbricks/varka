@@ -401,6 +401,7 @@ VIA = {
     "datepart": "Extract",
     "time_from_millis": "TimeFromMillis",
     "time_from_micros": "TimeFromMicros",
+    "make_timestamp_ntz": "MakeTimestampNTZ",
 }
 
 

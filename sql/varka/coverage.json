@@ -5279,6 +5279,42 @@
     "note" : "",
     "verified" : "proof: long_divide.smt2"
   }, {
+    "sql" : "make_timestamp_ntz(d, t)",
+    "executable" : "make_timestamp_ntz(d, t)",
+    "family" : "TIMESTAMP_NTZ fields",
+    "form" : "projection",
+    "catalyst" : [ "MakeTimestampNTZ" ],
+    "casts" : [ ],
+    "operands" : [ "MakeTimestampNTZ:date", "MakeTimestampNTZ:time" ],
+    "switches" : [ "spark.sql.codegen.varka.family.time.enabled" ],
+    "domain" : "unix_date(d) BETWEEN -106751991 AND 106751991 AND if(d IS NULL OR t IS NULL, NULL, try_make_timestamp_ntz(d, t) IS NOT NULL)",
+    "note" : "the date guarded to the days whose midnight is a long, as the cast of a date is",
+    "verified" : "differential"
+  }, {
+    "sql" : "make_timestamp_ntz(DATE'2021-06-01', t)",
+    "executable" : "make_timestamp_ntz(DATE'2021-06-01', t)",
+    "family" : "TIMESTAMP_NTZ fields",
+    "form" : "projection",
+    "catalyst" : [ "MakeTimestampNTZ" ],
+    "casts" : [ ],
+    "operands" : [ "MakeTimestampNTZ:date", "MakeTimestampNTZ:time" ],
+    "switches" : [ "spark.sql.codegen.varka.family.time.enabled" ],
+    "domain" : "if(t IS NULL, NULL, try_make_timestamp_ntz(DATE'2021-06-01', t) IS NOT NULL)",
+    "note" : "a literal date is checked when the kernel is compiled and takes a slot, so every date shares one kernel",
+    "verified" : "differential"
+  }, {
+    "sql" : "CAST(t AS TIMESTAMP_NTZ)",
+    "executable" : "CAST(t AS TIMESTAMP_NTZ)",
+    "family" : "TIMESTAMP_NTZ fields",
+    "form" : "projection",
+    "catalyst" : [ "StaticInvoke" ],
+    "casts" : [ "time>ntz:ansi" ],
+    "operands" : [ "StaticInvoke:date", "StaticInvoke:time" ],
+    "switches" : [ "spark.sql.codegen.varka.family.time.enabled" ],
+    "domain" : "if(t IS NULL, NULL, try_make_timestamp_ntz(current_date(), t) IS NOT NULL)",
+    "note" : "the query's current date at the time of day: the optimizer rewrites the cast to make_timestamp_ntz of the date literal",
+    "verified" : "differential"
+  }, {
     "sql" : "hour(ntz) > 12",
     "executable" : "hour(ntz) > 12",
     "family" : "TIMESTAMP_NTZ fields in a condition",

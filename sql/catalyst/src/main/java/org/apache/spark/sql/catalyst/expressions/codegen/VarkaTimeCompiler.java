@@ -35,6 +35,7 @@ import org.apache.spark.sql.catalyst.expressions.Hour;
 import org.apache.spark.sql.catalyst.expressions.HoursOfTime;
 import org.apache.spark.sql.catalyst.expressions.Literal;
 import org.apache.spark.sql.catalyst.expressions.MakeTime;
+import org.apache.spark.sql.catalyst.expressions.MakeTimestampNTZ;
 import org.apache.spark.sql.catalyst.expressions.Minute;
 import org.apache.spark.sql.catalyst.expressions.MinutesOfTime;
 import org.apache.spark.sql.catalyst.expressions.RuntimeReplaceable;
@@ -64,6 +65,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Int
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LaneType;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.NarrowLane;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Overflow;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WidenLane;
 import org.apache.spark.sql.catalyst.expressions.objects.StaticInvoke;
 import org.apache.spark.sql.catalyst.util.DateTimeConstants;
 import org.apache.spark.sql.types.DataType;
@@ -133,10 +135,11 @@ final class VarkaTimeCompiler {
    * Every {@code TIME} expression Spark has, keyed by the {@code StaticInvoke} it actually
    * arrives as.
    *
-   * <p>None of them reaches this compiler under its own class name. All fifteen are
-   * {@code RuntimeReplaceable} and rewrite themselves into a {@code StaticInvoke} on
-   * {@code DateTimeUtils} before physical planning, so an arm matching {@code HoursOfTime} would
-   * never fire in a real query - the optimizer's {@code ReplaceExpressions} has long since run.
+   * <p>None of them reaches this compiler under its own class name. All fifteen, and
+   * {@code make_timestamp_ntz(date, time)} beside them, are {@code RuntimeReplaceable} and rewrite
+   * themselves into a {@code StaticInvoke} on {@code DateTimeUtils} before physical planning,
+   * so an arm matching {@code HoursOfTime} would never fire in a real query - the optimizer's
+   * {@code ReplaceExpressions} has long since run.
    *
    * <p>The key is not written down. Each expression is constructed once here and asked for its
    * own {@code replacement}, and the owner and function name are read off that. Both sides
@@ -304,6 +307,14 @@ final class VarkaTimeCompiler {
       case Cast c when c.dataType() instanceof TimeType to
           && VarkaTypes.isNtz(c.child().dataType()) ->
           () -> ntzToTime(c, to, inputs, literals, sink);
+      // CAST(time AS TIMESTAMP_NTZ) takes its date from CURRENT_DATE. The optimizer's
+      // ComputeCurrentTime rewrites it to `make_timestamp_ntz(<the query's date>, time)` before
+      // a plan reaches Varka, which the StaticInvoke arm above lowers; a cast left unrewritten
+      // reads the clock on every evaluation, which no kernel does (VARKA-340).
+      case Cast c when c.child().dataType() instanceof TimeType
+          && VarkaTypes.isNtz(c.dataType()) ->
+          () -> sink.decline("CAST(time AS TIMESTAMP_NTZ) not rewritten by ComputeCurrentTime "
+              + "reads the current date on every evaluation", c);
       default -> null;
     };
   }
@@ -454,6 +465,10 @@ final class VarkaTimeCompiler {
     expressions.put(new TimeFromSeconds(l), "time_from_seconds");
     expressions.put(new TimeFromMillis(l), "time_from_millis");
     expressions.put(new TimeFromMicros(l), "time_from_micros");
+    // A date and a time of day to a TIMESTAMP_NTZ, which a cast of a TIME to TIMESTAMP_NTZ
+    // also becomes (VARKA-340).
+    expressions.put(new MakeTimestampNTZ(Literal.create(0, DataTypes.DateType), t),
+        "make_timestamp_ntz");
     Map<TimeTarget, String> targets = new HashMap<>();
     for (Map.Entry<Expression, String> entry : expressions.entrySet()) {
       String label = entry.getValue();
@@ -705,6 +720,11 @@ final class VarkaTimeCompiler {
               args.get(0), DateTimeConstants.NANOS_PER_MICROS, inputs, literals, sink);
         }
       }
+      case "makeTimestampNTZ" -> {
+        if (args.size() == 2) {
+          return makeTimestampNtz(si, label, args.get(0), args.get(1), inputs, literals, sink);
+        }
+      }
       case "getSecondsOfTimeWithFraction", "timeToSeconds" ->
           { return sink.decline(decimalOperandNotYet(label), si); }
       default -> { }
@@ -769,6 +789,48 @@ final class VarkaTimeCompiler {
     return Optional.of(new GuardedRange(
         new IntArith(IntOp.ADD, Overflow.WRAP, t.get(), nanos.get()), 0L,
         DateTimeConstants.NANOS_PER_DAY - 1));
+  }
+
+  /**
+   * {@code make_timestamp_ntz(date, time)}: Spark's {@code makeTimestampNTZ}, which is
+   * {@code instantToMicros} of the date at the time of day read at UTC. That is
+   * {@code day * 86.4e9 + nanos / 1000} exactly, the nanoseconds truncated, raising an
+   * {@code ArithmeticException} in every mode where the sum leaves the long ({@code VARKA-340.md}
+   * 0, item 4). The product is exact for a day whose midnight is a long, and the checked add
+   * raises where Spark does, on the last such day after 04:00:54.775807; on the first, the add of
+   * a non-negative count cannot leave the long. The day before it, whose evening is a long, is
+   * declined whole.
+   *
+   * <p>A date column is guarded to those days, and a batch holding a live day outside goes to the
+   * row engine. A date literal, the one a rewritten cast carries, is checked here instead: it is
+   * a slot, so its value is not part of the kernel's shape, and one kernel serves every date.
+   */
+  private static Optional<VarkaVectorIR> makeTimestampNtz(
+      StaticInvoke si,
+      String label,
+      Expression date,
+      Expression time,
+      VarkaSlotTable inputs,
+      VarkaSlotTable literals,
+      DeclineSink sink) {
+    if (date instanceof Literal l && l.value() instanceof Integer day
+        && !VarkaNodeCompiler.hasNtzMidnight(day)) {
+      return sink.decline(label + ": the date's midnight is not a long count of microseconds, so "
+          + "the row engine answers it, raising where Spark does", si);
+    }
+    Optional<VarkaVectorIR> d = VarkaNodeCompiler.compileNode(date, inputs, literals, sink);
+    if (d.isEmpty()) {
+      return d;
+    }
+    if (d.get().laneType() != LaneType.INT) {
+      return sink.decline("a date operand that is not on the int lane", si);
+    }
+    VarkaVectorIR day = date instanceof Literal
+        ? new WidenLane(d.get()) : VarkaNodeCompiler.ntzMidnightDay(d.get());
+    VarkaVectorIR midnight = VarkaNodeCompiler.midnightOf(day, sink);
+    return longOperand(time, inputs, literals, sink).map(n -> new IntArith(IntOp.ADD,
+        Overflow.FAIL, midnight,
+        new ConstDivide(n, DateTimeConstants.NANOS_PER_MICROS, DAY_OF_NANOS)));
   }
 
   /**

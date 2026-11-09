@@ -257,6 +257,11 @@ public final class VarkaCatalystGrammar {
     out.add(new Production(d, "trunc($0, 'WEEK')", List.of(n), 1));
     out.add(new Production(t, "CAST($0 AS TIME)", List.of(n), 1));
     out.add(new Production(t, "CAST($0 AS TIME(3))", List.of(n), 1));
+    // A TIME to TIMESTAMP_NTZ (VARKA-340): the cast, at the query's date, and make_timestamp_ntz
+    // over a date literal. Not over a date column: past the long it raises a bare
+    // ArithmeticException, which the expected-errors list cannot hold (see `<ym> * k`).
+    out.add(new Production(n, "CAST($0 AS TIMESTAMP_NTZ)", List.of(t), 1));
+    out.add(new Production(n, "make_timestamp_ntz(DATE'2021-06-01', $0)", List.of(t), 1));
     // TIMESTAMP_NTZ: plus and minus a day-time interval of any fields (VARKA-339), and choice.
     out.add(new Production(n, "($0 + $1)", List.of(n, x), 3));
     out.add(new Production(n, "($0 - $1)", List.of(n, x), 3));

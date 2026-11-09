@@ -1055,7 +1055,18 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
         "decimal"),
       Row("CAST(ntz AS TIME(6))", "the nanosecond of the day, a multiple of a thousand"),
       Row("CAST(ntz AS TIME(3))", "truncated to milliseconds: a quotient and a product"),
-      Row("CAST(ntz AS TIME(0))"))),
+      Row("CAST(ntz AS TIME(0))"),
+      // A date and a time of day to an NTZ value: the day's midnight plus the time's whole
+      // microseconds, the add checked, since Spark raises past the long in every mode.
+      Row("make_timestamp_ntz(d, t)", "the date guarded to the days whose midnight is a long, " +
+        "as the cast of a date is", domain = Some(s"$ntzDayBound AND " +
+          ntzDomain("try_make_timestamp_ntz(d, t)", "d", "t"))),
+      Row("make_timestamp_ntz(DATE'2021-06-01', t)", "a literal date is checked when the kernel " +
+        "is compiled and takes a slot, so every date shares one kernel",
+        domain = Some(ntzDomain("try_make_timestamp_ntz(DATE'2021-06-01', t)", "t"))),
+      Row("CAST(t AS TIMESTAMP_NTZ)", "the query's current date at the time of day: the " +
+        "optimizer rewrites the cast to make_timestamp_ntz of the date literal",
+        domain = Some(ntzDomain("try_make_timestamp_ntz(current_date(), t)", "t"))))),
 
     // The same fields as a filter's condition, where a batch the guard declines is the filter's
     // kernel declining it (VARKA-340).
@@ -2271,13 +2282,18 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
    * The casts a row performs, as `from>to:mode` in the census's type names: what the census holds
    * each pair `m8/casts.tsv` marks fused to (VARKA-328), since a cast's pair and mode are visible
    * only in the resolved expression, not in the class list. The mode is ANSI's for every row this
-   * suite resolves, Spark's default.
+   * suite resolves, Spark's default. They are read before the current-time rewrite, which turns
+   * `CAST(t AS TIMESTAMP_NTZ)` into the `make_timestamp_ntz` it compiles as (VARKA-340).
    */
-  private def castsOf(row: Row): Seq[String] = expressionOf(row).collect {
-    case c: Cast => (censusType(c.child.dataType), censusType(c.dataType), c.evalMode)
-  }.collect { case (Some(from), Some(to), mode) =>
-    s"$from>$to:${mode.toString.toLowerCase(java.util.Locale.ROOT)}"
-  }.distinct.sorted
+  private def castsOf(row: Row): Seq[String] = {
+    val written = row.built.getOrElse(VarkaSqlResolve.resolveAsWritten(
+      org.apache.spark.sql.catalyst.parser.CatalystSqlParser.parseExpression(row.sql), columns))
+    written.collect {
+      case c: Cast => (censusType(c.child.dataType), censusType(c.dataType), c.evalMode)
+    }.collect { case (Some(from), Some(to), mode) =>
+      s"$from>$to:${mode.toString.toLowerCase(java.util.Locale.ROOT)}"
+    }.distinct.sorted
+  }
 
   private def between(text: String, marks: (String, String)): String = {
     val (beginMark, endMark) = marks

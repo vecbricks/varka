@@ -17,16 +17,16 @@
 
 package org.apache.spark.sql.execution
 
-import java.time.{Duration, LocalDate, LocalDateTime, ZoneOffset}
+import java.time.{Duration, LocalDate, LocalDateTime, LocalTime, ZoneId, ZoneOffset}
 
 import org.apache.spark.sql.{Row, SparkSession}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaChrono, VarkaRangeAnalysis,
-  VarkaTestWatchdog}
+  VarkaShapeCache, VarkaTestWatchdog}
 import org.apache.spark.sql.catalyst.util.{DateTimeConstants, IntervalUtils}
 import org.apache.spark.sql.execution.VarkaMaybeThrows.{Answered, Raised}
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types.{DateType, DayTimeIntervalType, IntegerType, StringType,
-  StructField, StructType, TimestampNTZType}
+  StructField, StructType, TimestampNTZType, TimeType}
 
 /**
  * The casts between `DATE` and `TIMESTAMP_NTZ` (VARKA-338) through a query, against the row
@@ -46,6 +46,11 @@ import org.apache.spark.sql.types.{DateType, DayTimeIntervalType, IntegerType, S
  * 1 March -12799 to 15 August 33134, and a batch holding a live count outside it, the long range's
  * ends among them, goes to the row engine alone; the weekday forms, `hour`, `minute`, `second` and
  * the cast to `TIME` answer every long on the kernel.
+ *
+ * And `make_timestamp_ntz(d, tm)` with the cast of a `TIME` it serves (VARKA-340): the date's
+ * midnight plus the time's microseconds, raising past the long in every mode, so the last day
+ * after 04:00:54.775807 raises from the row engine its batch goes to; and the cast's date is one
+ * literal a query, the session zone's current date, which a cached kernel reads as a slot.
  */
 class VarkaTimestampNtzSuite extends VarkaMaybeThrows with VarkaTestWatchdog {
 
@@ -102,6 +107,32 @@ class VarkaTimestampNtzSuite extends VarkaMaybeThrows with VarkaTestWatchdog {
 
   private def interval(v: Long): Duration = IntervalUtils.microsToDuration(v)
 
+  private val makeSchema = StructType(Seq(StructField("i", IntegerType),
+    StructField("d", DateType), StructField("tm", TimeType())))
+
+  /** The last time of day whose count is a long on the last day, 04:00:54.775807. */
+  private val lastTime = LocalTime.ofNanoOfDay(14454775807000L)
+
+  /** The last microsecond of a day, the last value of a `TIME(6)`. */
+  private val lastMicro = LocalTime.of(23, 59, 59, 999999000)
+
+  /** `(day, time)` pairs, two a batch, and a row of nulls. */
+  private def makeAt(rows: Seq[(Long, LocalTime)]): Seq[Row] =
+    rows.zipWithIndex.map { case ((n, t), i) => Row(i, day(n), t) } :+ Row(rows.size, null, null)
+
+  /** Three batches of two; the second holds `past`. */
+  private def makePastRows(past: (Long, LocalTime)): Seq[Row] = makeAt(Seq((0L, LocalTime.NOON),
+    (1L, LocalTime.MIN), past, (2L, lastMicro), (3L, lastTime), (4L, LocalTime.NOON)))
+
+  /**
+   * Four batches of two: `t` inside the date guard in the first and the third, past it in the
+   * second and the fourth, and `tm` a different time on every row.
+   */
+  private def pinRows: Seq[Row] = Seq(0L, 1L, guardHigh + 1, guardLow - 1, 2L, 3L, guardHigh + 2,
+    guardLow - 2).zipWithIndex.map { case (v, i) =>
+      Row(i, micros(v), LocalTime.of(i, i, i, i * 1000))
+    }
+
   private val arithSchema = StructType(Seq(StructField("i", IntegerType),
     StructField("t", TimestampNTZType), StructField("t2", TimestampNTZType),
     StructField("dt", DayTimeIntervalType())))
@@ -157,7 +188,12 @@ class VarkaTimestampNtzSuite extends VarkaMaybeThrows with VarkaTestWatchdog {
       ("varka_ntz_trunc_below", truncSchema, truncAt(Seq(0L, 1L, guardLow - 1, 2L, 3L, 4L))),
       ("varka_ntz_below", ntzSchema, pastGuardRows(guardLow - 1)),
       ("varka_ntz_above", ntzSchema, pastGuardRows(guardHigh + 1)),
-      ("varka_ntz_arith_inside", arithSchema, arithInsideRows)) ++
+      ("varka_ntz_arith_inside", arithSchema, arithInsideRows),
+      ("varka_ntz_make", makeSchema, makeAt(Seq((lastDay, lastTime), (-lastDay, LocalTime.MIN),
+        (-lastDay, lastMicro), (0L, lastMicro), (-1L, LocalTime.NOON)))),
+      ("varka_ntz_make_raises", makeSchema, makePastRows((lastDay, lastTime.plusNanos(1000)))),
+      ("varka_ntz_make_below", makeSchema, makePastRows((-lastDay - 1, lastMicro))),
+      ("varka_ntz_pin", StructType(ntzSchema.fields :+ StructField("tm", TimeType())), pinRows)) ++
       arithPast.map { case (_, name, past) =>
         (s"varka_ntz_arith_$name", arithSchema, arithPastRows(past))
       }
@@ -357,6 +393,77 @@ class VarkaTimestampNtzSuite extends VarkaMaybeThrows with VarkaTestWatchdog {
       .filter(!_.isNullAt(1)).map(r => r.getInt(0) -> r.getInt(1)).toMap
     for (Row(i: Int, t: LocalDateTime) <- ntzRows) {
       assert(years(i) === t.getYear, s"row $i: $t")
+    }
+  }
+
+  test("make_timestamp_ntz answers every day whose midnight is a long on the kernel, in every " +
+    "mode") {
+    for (ansi <- Seq(false, true)) withAnsi(ansi) {
+      checkServed("SELECT i, make_timestamp_ntz(d, tm) AS v FROM varka_ntz_make")
+    }
+  }
+
+  // varka-session-lint: allow a path: the batch the date guard or the checked add sends to the
+  // row engine, as the plan's metrics count it
+  test("make_timestamp_ntz past the long raises from the row engine, and the day before the " +
+    "first is answered there, its batch alone leaving the kernel") {
+    for (ansi <- Seq(false, true)) withAnsi(ansi) {
+      val raises = "SELECT i, make_timestamp_ntz(d, tm) AS v FROM varka_ntz_make_raises"
+      assertFused(varkaSpark.sql(raises).queryExecution.executedPlan)
+      assert(checkSparkAnswerMaybeThrows(raises).isInstanceOf[Raised],
+        s"ansi=$ansi: $raises: answered where Spark raises")
+      val below = "SELECT i, make_timestamp_ntz(d, tm) AS v FROM varka_ntz_make_below"
+      val actual = varkaSpark.sql(below)
+      val plan = actual.queryExecution.executedPlan
+      assertFused(plan)
+      assert(checkSparkAnswerMaybeThrows(below).isInstanceOf[Answered], below)
+      actual.collect()
+      val node = varkaNode(plan)
+      assert(node.metrics("numFallbackBatchesDeclined").value === 1L, below)
+      assert(node.metrics("numVarkaBatches").value === 3L, below)
+    }
+  }
+
+  // varka-session-lint: allow a path: the date a rewritten cast carries, on the kernel and on
+  // the row engine within one query, and the cached kernel class two zones share
+  test("CAST(time AS TIMESTAMP_NTZ) carries one date a query, on the kernel and on the batches " +
+    "a date field declines, and two zones share its kernel and answer their own dates") {
+    val query = "SELECT i, CAST(tm AS TIMESTAMP_NTZ) AS c, year(t) AS y FROM varka_ntz_pin"
+    val expected = pinRows.map { case Row(i: Int, t: LocalDateTime, tm: LocalTime) =>
+      (i, tm, t.getYear)
+    }
+    // The answer under one session zone: the date every row carries, which must be that zone's
+    // current date when the query ran, the time each row's own, and the year java.time's.
+    def run(zone: String): LocalDate = {
+      varkaSpark.conf.set(SQLConf.SESSION_LOCAL_TIMEZONE.key, zone)
+      val before = LocalDate.now(ZoneId.of(zone))
+      val actual = varkaSpark.sql(query)
+      val plan = actual.queryExecution.executedPlan
+      assertFused(plan)
+      val rows = actual.collect().map(r => (r.getInt(0), r.getAs[LocalDateTime](1), r.getInt(2)))
+        .sortBy(_._1)
+      val after = LocalDate.now(ZoneId.of(zone))
+      val dates = rows.map(_._2.toLocalDate).distinct
+      assert(dates.length === 1, s"$zone: more than one date in a query: ${dates.toSeq}")
+      assert(dates.head == before || dates.head == after, s"$zone: ${dates.head}, not today")
+      assert(rows.map { case (i, c, y) => (i, c.toLocalTime, y) }.toSeq === expected, zone)
+      val node = varkaNode(plan)
+      assert(node.metrics("numFallbackBatchesDeclined").value === 2L, s"$zone: $query")
+      assert(node.metrics("numVarkaBatches").value === 2L, s"$zone: $query")
+      dates.head
+    }
+    val zoneBefore = varkaSpark.conf.getOption(SQLConf.SESSION_LOCAL_TIMEZONE.key)
+    try {
+      val east = run("Etc/GMT-14")
+      val misses = VarkaShapeCache.missCount
+      val west = run("Etc/GMT+12")
+      assert(VarkaShapeCache.missCount === misses, "the second zone emitted another kernel")
+      assert(east != west, s"two zones 26 hours apart answered one date, $east")
+    } finally {
+      zoneBefore match {
+        case Some(v) => varkaSpark.conf.set(SQLConf.SESSION_LOCAL_TIMEZONE.key, v)
+        case None => varkaSpark.conf.unset(SQLConf.SESSION_LOCAL_TIMEZONE.key)
+      }
     }
   }
 }

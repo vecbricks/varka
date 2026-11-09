@@ -390,3 +390,43 @@ and `second` divide the microsecond of the day by the micros in each unit, not i
 nanos. `add_months(ntz, i)` and `CAST(ntz AS DATE) + INTERVAL n MONTH` decline as 339's month forms
 (7); `trunc(ntz, f)` by a format column fuses inside the guard, tested in `VarkaTimestampNtzSuite`,
 since the coverage table has no format column.
+
+### 10.2 Part 2: step 5 (branch `varka-340-step5`, 9 November 2026)
+
+Built as 2.4 has it: one arm on the `makeTimestampNTZ` `StaticInvoke`, keyed in `TIME_TARGETS` as
+`make_timestamp_ntz`, computing `IntArith(ADD, FAIL, midnight, ConstDivide(nanos, 1000,
+NANOS_PER_DAY))`. The midnight is 338's form for a date column, the guarded day times the
+microseconds of a day; `ntzOfDate`'s body is now two helpers beside it, `ntzMidnightDay` and
+`midnightOf`, with `hasNtzMidnight` the same bound for a date literal, which is checked when the
+kernel compiles and is then a widened slot with no guard. An unrewritten `CAST(time AS
+TIMESTAMP_NTZ)` declines by name. No new IR node, lowering or proof: the division by 1000 of a
+`TIME` is `time_to_micros`'s, already in the proof file's divisor list.
+
+The test resolver, `VarkaSqlResolve.resolve`, applies `ComputeCurrentTime.applyForExpression` as a
+session's optimizer does, so `VarkaCastMatrixSuite` and `VarkaTypeConformance` see the cast as a
+query compiles it (3.3) through the resolver they already share, not through a rewrite each; the
+coverage table reads a row's cast pairs from `resolveAsWritten`, before the rewrite, so the
+`TIME` to NTZ pair keeps the row that casts it, which the census requires of a fused pair.
+
+Tests: in `VarkaTimestampNtzCastSuite`, the column form at the default, two and eight long lanes
+in LEGACY and ANSI, inside the bound (day 106,751,991 at 04:00:54.775807, day -106,751,991 at both
+ends of the day, a `TIME(9)` ending in .999999999) and a batch declined at each place past it (the
+next microsecond on the last day, day -106,751,992 at both ends of the day, the int range's ends);
+a date literal at both ends of the bound, declining past them, and two literal dates emitting one
+kernel's bytes; the rewritten cast at every width and the unrewritten one's reason. In
+`VarkaTimestampNtzSuite`, the column form on the kernel at the bound, the add's overflow raising
+from the row engine with its batch fused around it, day -106,751,992 answered there with that
+batch alone declined, and the date pinning of 3.6. Coverage rows: `make_timestamp_ntz(d, t)`, over
+a date literal, and `CAST(t AS TIMESTAMP_NTZ)`, each with its domain, the add being checked. The
+Catalyst grammar gains the cast and the literal form; the column form stays out of it, since past
+the long it raises a bare `ArithmeticException`, the class the fuzzer's expected errors cannot
+hold.
+
+Section 0 against master at `d20b73fd45d`: item 4 holds. `ComputeCurrentTime` rewrites a cast of a
+`TIME` to `MakeTimestampNTZ(dateLit, t).replacement` (`optimizer/finishAnalysis.scala:182-191`),
+and to `MakeTimestampNTZNanos` for the nanosecond target, which stays out (6). It rewrites the cast
+in every evaluation mode, `try_cast` included, and a current date is never past the bound, so the
+TRY cell fuses as the other two do.
+
+Left: step 6, the measurement, which the runners owe: the after-run of
+`VarkaTimestampNtzFieldsBaselineBenchmark`, all fourteen of whose sections are listed as fusing now.
