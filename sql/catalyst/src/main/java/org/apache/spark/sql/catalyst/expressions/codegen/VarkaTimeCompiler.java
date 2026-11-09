@@ -118,12 +118,20 @@ final class VarkaTimeCompiler {
    * {@code DateTimeUtils.getNanosPerTimeUnit} and {@code parseTimeTruncLevel} spell them - the
    * same five names, and nothing coarser than an hour, because a {@code TIME} has no day.
    */
+  static final Map<String, Long> NANOS_PER_TIME_UNIT = Map.of(
+      "MICROSECOND", DateTimeConstants.NANOS_PER_MICROS,
+      "MILLISECOND", DateTimeConstants.NANOS_PER_MILLIS,
+      "SECOND", DateTimeConstants.NANOS_PER_SECOND,
+      "MINUTE", DateTimeConstants.NANOS_PER_SECOND * DateTimeConstants.SECONDS_PER_MINUTE,
+      "HOUR", DateTimeConstants.NANOS_PER_SECOND * DateTimeConstants.SECONDS_PER_MINUTE
+          * DateTimeConstants.MINUTES_PER_HOUR);
+
   /**
    * The microseconds in each {@code timestampadd} unit this family lowers, the units Spark's
    * {@code DateTimeUtils.timestampAdd} adds as a day-time amount, spelled as it matches them after
    * upper-casing. The month units are the calendar family's ({@code VarkaChronoCompiler}).
    */
-  static final Map<String, Long> MICROS_PER_TIMESTAMPADD_UNIT = Map.of(
+  private static final Map<String, Long> MICROS_PER_TIMESTAMPADD_UNIT = Map.of(
       "MICROSECOND", 1L,
       "MILLISECOND", DateTimeConstants.MICROS_PER_MILLIS,
       "SECOND", DateTimeConstants.MICROS_PER_SECOND,
@@ -132,14 +140,6 @@ final class VarkaTimeCompiler {
       "DAY", DateTimeConstants.MICROS_PER_DAY,
       "DAYOFYEAR", DateTimeConstants.MICROS_PER_DAY,
       "WEEK", DateTimeConstants.MICROS_PER_DAY * DateTimeConstants.DAYS_PER_WEEK);
-
-  static final Map<String, Long> NANOS_PER_TIME_UNIT = Map.of(
-      "MICROSECOND", DateTimeConstants.NANOS_PER_MICROS,
-      "MILLISECOND", DateTimeConstants.NANOS_PER_MILLIS,
-      "SECOND", DateTimeConstants.NANOS_PER_SECOND,
-      "MINUTE", DateTimeConstants.NANOS_PER_SECOND * DateTimeConstants.SECONDS_PER_MINUTE,
-      "HOUR", DateTimeConstants.NANOS_PER_SECOND * DateTimeConstants.SECONDS_PER_MINUTE
-          * DateTimeConstants.MINUTES_PER_HOUR);
 
   /** The class a {@code TIME} function's replacement invokes, and the method it calls. */
   private record TimeTarget(Class<?> owner, String function) {
@@ -306,9 +306,10 @@ final class VarkaTimeCompiler {
           && a.interval().dataType() instanceof DayTimeIntervalType ->
           () -> ntzPlusInterval(a, inputs, literals, sink);
       // `timestampadd` up to a week over an NTZ value: the quantity times the unit, added. The
-      // month units are the calendar family's arm, which comes first in the chain and claims
-      // only them; every other unit, NANOSECOND and an unknown one among them, is this arm's.
-      case TimestampAdd n when VarkaTypes.isNtz(n.timestamp().dataType()) ->
+      // month units are the calendar family's arm; every other unit, NANOSECOND and an unknown
+      // one among them, is this arm's.
+      case TimestampAdd n when VarkaTypes.isNtz(n.timestamp().dataType())
+          && !VarkaChronoCompiler.isMonthUnit(n.unit()) ->
           () -> ntzTimestampAdd(n, inputs, literals, sink);
       // The time of day of a TIMESTAMP_NTZ (VARKA-340): the count read at UTC, so the fields are
       // the TIME lowerings over the microsecond of the day. The analyzer fills in the session

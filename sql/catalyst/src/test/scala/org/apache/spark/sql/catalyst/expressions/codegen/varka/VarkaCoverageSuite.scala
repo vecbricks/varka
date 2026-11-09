@@ -1041,9 +1041,10 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
       Row("ntz + INTERVAL '1' DAY", "a literal interval takes a slot in the long lane's table",
         domain = Some(ntzDomain("try_add(ntz, INTERVAL '1' DAY)", "ntz"))),
       // timestampadd up to a week: the quantity times the unit, guarded to the products a long
-      // holds, then the checked add; an int quantity needs no guard up to an hour.
-      timestampAddDomain("MICROSECOND", "INTERVAL '0.000001' SECOND", "i", None),
+      // holds, then the checked add; an int quantity needs no guard up to an hour. An int of
+      // microseconds is no row: under 36 minutes, it overflows no NTZ value the fixtures hold.
       timestampAddDomain("MICROSECOND", "INTERVAL '0.000001' SECOND", "l", None),
+      timestampAddDomain("SECOND", "INTERVAL '1' SECOND", "i", None),
       timestampAddDomain("HOUR", "INTERVAL '1' HOUR", "i", None),
       timestampAddDomain("HOUR", "INTERVAL '1' HOUR", "l",
         Some(Long.MaxValue / MICROS_PER_HOUR)),

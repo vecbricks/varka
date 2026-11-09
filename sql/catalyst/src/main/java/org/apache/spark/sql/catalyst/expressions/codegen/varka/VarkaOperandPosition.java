@@ -91,9 +91,11 @@ public enum VarkaOperandPosition {
       case WidenLane w -> this == DAY_OFFSET && w.target() == LaneType.INT
           && w.child() instanceof ColumnRef c && c.laneType().isNarrow();
       // A bigint month count narrowed to the int lane (VARKA-339): `timestampadd(MONTH, l, ntz)`
-      // narrows its quantity under a guard that keeps it an int. Safe here for the reason a
-      // derived count is: AddMonths guards the count's own value at run time.
-      case NarrowLane n -> this == MONTH_COUNT && n.target() == LaneType.INT;
+      // narrows its quantity under a guard inside the int range, so the narrowing truncates
+      // nothing, and AddMonths guards the count's own value at run time, as for a derived count.
+      case NarrowLane n -> this == MONTH_COUNT && n.target() == LaneType.INT
+          && n.child() instanceof GuardedRange g
+          && g.lo() >= Integer.MIN_VALUE && g.hi() <= Integer.MAX_VALUE;
       case IntArith _, IntNeg _ -> switch (this) {
         case DAY_OFFSET, MONTH_COUNT -> true;
         case WEEKDAY, TRUNC_LEVEL -> false;

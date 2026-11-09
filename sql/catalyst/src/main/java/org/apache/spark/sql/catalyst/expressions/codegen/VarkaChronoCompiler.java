@@ -110,6 +110,15 @@ final class VarkaChronoCompiler {
   private VarkaChronoCompiler() {
   }
 
+  /** The months in each {@code timestampadd} unit this family lowers, as Spark spells them. */
+  private static final Map<String, Integer> MONTHS_PER_TIMESTAMPADD_UNIT =
+      Map.of("MONTH", 1, "QUARTER", 3, "YEAR", DateTimeConstants.MONTHS_PER_YEAR);
+
+  /** Whether {@code timestampadd}'s {@code unit} is one of months, this family's. */
+  static boolean isMonthUnit(String unit) {
+    return MONTHS_PER_TIMESTAMPADD_UNIT.containsKey(unit.toUpperCase(Locale.ROOT));
+  }
+
   /**
    * The arm that claims {@code e}, or {@code null}: the calendar arms of {@code compileNode}, in
    * their original order.
@@ -284,7 +293,7 @@ final class VarkaChronoCompiler {
               .flatMap(t -> compileMonths(n.interval(), inputs, literals, sink)
                   .flatMap(m -> ntzMonthShift(n, t, m, literals, sink)));
       case TimestampAdd n when VarkaTypes.isNtz(n.timestamp().dataType())
-          && MONTHS_PER_TIMESTAMPADD_UNIT.containsKey(n.unit().toUpperCase(Locale.ROOT)) ->
+          && isMonthUnit(n.unit()) ->
           () -> ntzTimestampAddMonths(n, inputs, literals, sink);
       default -> null;
     };
@@ -344,10 +353,6 @@ final class VarkaChronoCompiler {
     Optional<VarkaVectorIR> count = compileMonths(months, inputs, literals, sink);
     return count.map(v -> new VarkaVectorIR.AddMonths(node.get(), v));
   }
-
-  /** The months in each {@code timestampadd} unit this family lowers, as Spark spells them. */
-  private static final Map<String, Integer> MONTHS_PER_TIMESTAMPADD_UNIT =
-      Map.of("MONTH", 1, "QUARTER", 3, "YEAR", DateTimeConstants.MONTHS_PER_YEAR);
 
   /**
    * {@code t} moved by {@code months} on its date, the time of day kept: Spark's
@@ -419,8 +424,9 @@ final class VarkaChronoCompiler {
           : new VarkaVectorIR.IntArith(IntOp.MUL, Overflow.WRAP,
               new VarkaVectorIR.GuardedRange(i, lo, hi), VarkaNodeCompiler.intSlot(k, literals)));
     } else {
-      count = VarkaNodeCompiler.compileNode(q, inputs, literals, sink)
-          .filter(v -> v.laneType() == LaneType.LONG)
+      count = VarkaNodeCompiler.compileNode(q, inputs, literals, sink).flatMap(v ->
+          v.laneType() == LaneType.LONG ? Optional.of(v)
+              : sink.decline("a timestampadd quantity that is not on the long lane", q))
           .map(v -> {
             VarkaVectorIR narrowed =
                 new VarkaVectorIR.NarrowLane(new VarkaVectorIR.GuardedRange(v, lo, hi));

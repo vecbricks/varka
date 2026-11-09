@@ -5015,18 +5015,6 @@
     "note" : "a literal interval takes a slot in the long lane's table",
     "verified" : "differential"
   }, {
-    "sql" : "timestampadd(MICROSECOND, i, ntz)",
-    "executable" : "timestampadd(MICROSECOND, i, ntz)",
-    "family" : "TIMESTAMP_NTZ arithmetic",
-    "form" : "projection",
-    "catalyst" : [ "Cast", "TimestampAdd" ],
-    "casts" : [ "int>bigint:ansi" ],
-    "operands" : [ "Cast:int", "TimestampAdd:bigint", "TimestampAdd:ntz" ],
-    "switches" : [ "spark.sql.codegen.varka.family.time.enabled", "spark.sql.codegen.varka.family.intArithmetic.enabled" ],
-    "domain" : "if(ntz IS NULL OR i IS NULL, NULL, try_add(ntz, try_multiply(INTERVAL '0.000001' SECOND, i)) IS NOT NULL)",
-    "note" : "",
-    "verified" : "differential"
-  }, {
     "sql" : "timestampadd(MICROSECOND, l, ntz)",
     "executable" : "timestampadd(MICROSECOND, l, ntz)",
     "family" : "TIMESTAMP_NTZ arithmetic",
@@ -5036,6 +5024,18 @@
     "operands" : [ "TimestampAdd:bigint", "TimestampAdd:ntz" ],
     "switches" : [ "spark.sql.codegen.varka.family.time.enabled" ],
     "domain" : "if(ntz IS NULL OR l IS NULL, NULL, try_add(ntz, try_multiply(INTERVAL '0.000001' SECOND, l)) IS NOT NULL)",
+    "note" : "",
+    "verified" : "differential"
+  }, {
+    "sql" : "timestampadd(SECOND, i, ntz)",
+    "executable" : "timestampadd(SECOND, i, ntz)",
+    "family" : "TIMESTAMP_NTZ arithmetic",
+    "form" : "projection",
+    "catalyst" : [ "Cast", "TimestampAdd" ],
+    "casts" : [ "int>bigint:ansi" ],
+    "operands" : [ "Cast:int", "TimestampAdd:bigint", "TimestampAdd:ntz" ],
+    "switches" : [ "spark.sql.codegen.varka.family.time.enabled", "spark.sql.codegen.varka.family.intArithmetic.enabled" ],
+    "domain" : "if(ntz IS NULL OR i IS NULL, NULL, try_add(ntz, try_multiply(INTERVAL '1' SECOND, i)) IS NOT NULL)",
     "note" : "",
     "verified" : "differential"
   }, {

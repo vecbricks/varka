@@ -475,17 +475,25 @@ Built 9 November 2026 on `varka-339-step3`, from master at `264512efbd5`.
    `timestampAddMonths` and `LocalDateTime.plusMonths` for the twelve counts of
    `VarkaRangeRulesSuite`, and runs the emitted kernel for the same counts against `plusMonths`,
    declining a batch one microsecond past either end of the date guard. At pull-request time the
-   scalar form walks a day in 7 and the kernel a day in 211, beside every day within 400 of the
+   scalar form walks a day in 7 and the kernel a day in 2003, beside every day within 400 of the
    guard's ends; `-Dvarka.sweep=true` walks every day the guard admits at its first and last
-   microsecond and a drawn time, both forms.
+   microsecond and a drawn time, both forms. Predicted (4.4) under 10 s for the sweep: held at 6.0 s
+   for the suite in a matrix JVM, the scalar walk 1.0 s and the kernel walk 4.4 s, after the kernel
+   walk took 23.8 s at a day in 211 and moved to a day in 2003. The whole-range opt-in, at about
+   12 us a row through the reference evaluator, would take hours, and is not run here.
 5. **The mixed-lane risk (3.1)** gains its new operand kind: `AddMonths` over a narrowed long day
    by a narrowed, guarded bigint count, at both widths and every null pattern.
 6. **Coverage (3.3).** Seventeen rows in the "TIMESTAMP_NTZ arithmetic" family (`timestampadd` at
-   MICROSECOND, HOUR, DAY, WEEK, MONTH, QUARTER and YEAR over `i` and `l`, `ntz + ym`, `ntz - ym`,
-   `ntz + INTERVAL '1' MONTH`) and `add_months(ntz, i)` in the fields family, each with its domain:
-   for the units up to a week Spark's `try_add` of `try_multiply` of the unit's interval, behind the
-   kernel's guard on the quantity where it has one; for the month forms the fields' date guard and
-   the count's range.
+   MICROSECOND over `l`, SECOND over `i`, and HOUR, DAY, WEEK, MONTH, QUARTER and YEAR over both,
+   `ntz + ym`, `ntz - ym`, `ntz + INTERVAL '1' MONTH`) and `add_months(ntz, i)` in the fields
+   family, each with its domain: for the units up to a week Spark's `try_add` of `try_multiply` of
+   the unit's interval, behind the kernel's guard on the quantity where it has one; for the month
+   forms the fields' date guard and the count's range. An int of microseconds, under 36 minutes,
+   overflows no NTZ value a fixture holds (they stop about four hours below the long's top), so
+   that row is SECOND's. The edges fixture gains the last microsecond of the day before the last
+   convertible one beside the int's and the long's top, where the sums leave the long. The ANSI
+   form lists `DATETIME_OVERFLOW` by its first row, and the guarded rows at the right side of a
+   false AND beside `add_months(d, i)` and `ntz + dt`, for the reason they are listed.
 7. **The edges (3.4)**, in `VarkaTimestampNtzSuite`, LEGACY and ANSI: every unit's quantity at its
    guard's ends on the kernel, from the epoch and, for the month units, from 29 February 2024; one
    past each end in a batch of its own, which the row engine answers (DAY 106,751,992 from a day
@@ -500,7 +508,12 @@ Built 9 November 2026 on `varka-339-step3`, from master at `264512efbd5`.
    `DATETIME_OVERFLOW` for the family.
 9. **The baseline.** `TIMESTAMP_NTZ plus INTERVAL '1' MONTH` and `timestampadd(HOUR, q, ntz)` are
    `WHOLE` at both densities, so `VarkaTimestampNtzArithmeticBaselineQueriesSuite` holds them fused.
-10. **No proof file.** No lowering here is exact only over a bound of its own: the guards are the
+10. **The option matrix.** Under `checkIntOverflow=false` the checked add wraps where Spark
+    raises, so the tests that hold `timestampadd` by MICROSECOND, SECOND and HOUR to declining or
+    raising take the skip line `ntz + dt`'s carry; the guarded units still decline there.
+    `lanesOverride=16` and `validityByWidth=false` pass the coverage, differential, harness and NTZ
+    suites with no line.
+11. **No proof file.** No lowering here is exact only over a bound of its own: the guards are the
     exact domains of `multiplyExact` and of the month arithmetic, and the floor division is
     `long_divide.smt2`'s. The calendar claim is the sweep's, as 3.5 says.
 
@@ -513,3 +526,8 @@ What differed from the plan:
   `ntz +/- ym` goes through it.
 - Row 579 (a calendar node over a guarded narrowed long is not in the IR fuzzer's mixed draw)
   is exactly the month forms' shape, and stays that row's.
+
+Changed in review: the time family's `timestampadd` arm claimed the month units too, which only
+the chain's order kept from the calendar arm, so it now leaves them to it and each node has one
+claimant; `MONTH_COUNT` takes a `NarrowLane` only over a `GuardedRange` inside the int range, so a
+narrowing that truncates is refused; a bigint quantity off the long lane declines with a reason.

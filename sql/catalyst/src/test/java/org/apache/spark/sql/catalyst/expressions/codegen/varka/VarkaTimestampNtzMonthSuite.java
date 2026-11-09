@@ -53,7 +53,7 @@ import org.apache.spark.sql.types.DataTypes;
  * {@code LocalDateTime.plusMonths} over the days the guard admits, for the twelve counts
  * {@code VarkaRangeRulesSuite} sweeps {@code add_months} with; the second runs the emitted kernel
  * over the same days and counts. At pull-request time both walk a sample of the days, a day in
- * seven for the scalar form and in 211 for the kernel, beside every day within 400 of the guard's
+ * seven for the scalar form and in 2003 for the kernel, beside every day within 400 of the guard's
  * ends; {@code -Dvarka.sweep=true} walks every day at three times of day.
  *
  * <p>In its own JVM: the kernels hold both lanes, whose int species is the long species' width.
@@ -187,7 +187,7 @@ public final class VarkaTimestampNtzMonthSuite {
   @DisplayName("the emitted month shift answers the guard's days as java.time's plusMonths does, "
       + "for the twelve counts, and declines a batch with a count one past the guard")
   void emittedSweep() {
-    long[] counts = walk(211);
+    long[] counts = walk(2003);
     long below = (long) FIRST * DAY - 1;
     long above = ((long) LAST + 1) * DAY;
     for (int m : COUNTS) {
