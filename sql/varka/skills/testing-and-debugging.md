@@ -618,6 +618,17 @@ Java method that indexes a list it was given copies it first (`List.copyOf`, fre
 is already immutable), and a probe that disagrees with its benchmark about the same code is
 measuring its own harness until shown otherwise.
 
+## A probe JVM is started through `VarkaChildProcess`
+
+A suite that forks a probe JVM and reads its output starts it with `VarkaChildProcess` (VARKA-582),
+not a `ProcessBuilder` of its own. Reading the output to its end on the test thread and only
+then calling `waitFor(budget)` cannot time out, since the output ends when the child exits, and
+a read blocked on a pipe ignores `VarkaTestWatchdog`'s interrupt: the test then fails at the cap
+with a bare `InterruptedException` naming no child, or the JVM halts. `run` reads on a thread of
+its own while the test thread waits out the budget, destroys a child past it or interrupted, and
+names it with its last lines; `budgetSeconds(cap, children)` shares a test's cap among the most
+children one test starts.
+
 ## A probe's marker can share a line with a compiler thread's output
 
 A suite that forks a JVM under `-XX:+PrintCompilation` or `PrintInlining` and reads the child's
