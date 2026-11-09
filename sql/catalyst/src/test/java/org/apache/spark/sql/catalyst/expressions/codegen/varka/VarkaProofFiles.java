@@ -98,6 +98,7 @@ final class VarkaProofFiles {
     files.put("casts.smt2", casts());
     files.put("round_to_odd.smt2", roundToOdd());
     files.put("decimal128.smt2", decimal128());
+    files.put("fp_round.smt2", fpRound());
     files.put("refinement.smt2", VarkaRefinementFile.render());
     return files;
   }
@@ -2905,6 +2906,75 @@ final class VarkaProofFiles {
       + "(define-fun rto.P32 () Float64 ((_ to_fp 11 53) "
       + bv64(Double.doubleToRawLongBits(RTO_P32)) + "))\n"
       + "(define-fun rto.bitsToDouble ((x (_ BitVec 64))) Float64 ((_ to_fp 11 53) x))";
+
+  /**
+   * {@code fp_round.smt2}: the construction of {@code RoundToIntegral} with mode {@code RINT}
+   * ({@code VarkaRoundingLowering}) is {@code Math.rint} for every double, over SMT-LIB's
+   * floating-point theory, which both solvers decide completely: {@code fp.roundToIntegral RNE}
+   * is IEEE 754's round to an integral value, nearest with a tie to even, and SMT-LIB's {@code =}
+   * separates the two zeros and equates every NaN, so the signed zero is checked and a NaN is
+   * checked by being one. The claim is stated at binary64, the lowering's, and at binary32, the
+   * same construction at {@code float}'s precision, which a test also exhausts; cvc5 admits no
+   * other precision in its default mode.
+   */
+  static String fpRound() {
+    var out = new StringBuilder(LICENSE);
+    out.append("""
+        ; RoundToIntegral(RINT), the 2^(p-1) construction of VarkaRoundingLowering, over the
+        ; floating-point theory. With C = 2^(p-1) (2^52 for a double), a = |x| and the operations
+        ; correctly rounded to nearest, ties to even:
+        ;
+        ;   r   = (a + C) - C
+        ;   out = a < C ? (x is negative ? -r : r) : x
+        ;
+        ; The claim: out = fp.roundToIntegral RNE x for every x, NaN and both infinities and both
+        ; zeros included. The sign is restored by the negation of r, which for r = +0.0 gives
+        ; -0.0, as the lowering's OR of the sign bit does, and the lowering's NaN keeps the
+        ; operand's bits (SMT-LIB has one NaN, so its payload is a test's, not this file's).
+        ;
+        ; The sat checks show the statement tells the real constant and the real sign handling
+        ; from their neighbours: C a binade lower, or no sign restored (rint(-0.3) = -0.0 is the
+        ; witness), is not rint.
+        ;
+        ; At binary64 C is the lowering's own constant, VarkaRoundingLowering.TWO_52, rendered
+        ; from its bits; binary32's 2^23 is the format's, since no lowering runs at that width.
+        ;
+        ; The logic is ALL and each check runs after a (reset), as round_to_odd.smt2 runs its
+        ; own: nothing here uses java.smt2.
+        """);
+    out.append(rendered("ALL"));
+    for (int[] f : new int[][] {{8, 24}, {11, 53}}) {
+      String format = f[1] == 24 ? "binary32" : "binary64";
+      fpRoundCheck(out, format + ": the construction is rint for every x", "unsat", f, 1, true);
+      fpRoundCheck(out, format + ": with C a binade lower it is not rint", "sat", f, 2, true);
+      fpRoundCheck(out, format + ": without the sign restored it is not rint", "sat", f, 1,
+          false);
+    }
+    return out.toString();
+  }
+
+  /**
+   * One check of {@link #fpRound}: the claim negated, at exponent and significand widths
+   * {@code f}, with C = 2^(p - lower) and the sign restored or not. At binary64 C is
+   * {@code VarkaRoundingLowering.TWO_52} (halved for a binade lower), read as its bits.
+   */
+  private static void fpRoundCheck(StringBuilder out, String what, String expect, int[] f,
+      int lower, boolean sign) {
+    String sort = "(_ FloatingPoint " + f[0] + " " + f[1] + ")";
+    out.append("\n(echo \"").append(what).append(": expect ").append(expect).append("\")\n");
+    out.append("(reset)\n(set-logic ALL)\n");
+    out.append("(declare-const x ").append(sort).append(")\n");
+    String c = f[1] == 53
+        ? bv64(Double.doubleToRawLongBits(VarkaRoundingLowering.TWO_52 / (1 << (lower - 1))))
+        : "RNE " + BigInteger.TWO.pow(f[1] - lower) + ".0";
+    out.append("(define-fun C () ").append(sort).append(" ((_ to_fp ").append(f[0]).append(' ')
+        .append(f[1]).append(") ").append(c).append("))\n");
+    out.append("(define-fun a () ").append(sort).append(" (fp.abs x))\n");
+    out.append("(define-fun r () ").append(sort).append(" (fp.sub RNE (fp.add RNE a C) C))\n");
+    out.append("(define-fun out () ").append(sort).append(" (ite (fp.lt a C) ")
+        .append(sign ? "(ite (fp.isNegative x) (fp.neg r) r)" : "r").append(" x))\n");
+    out.append("(assert (not (= out (fp.roundToIntegral RNE x))))\n(check-sat)\n");
+  }
 
   /**
    * {@code round_to_odd.smt2}: the AVX2 forms of {@code L2D} and {@code L2F}

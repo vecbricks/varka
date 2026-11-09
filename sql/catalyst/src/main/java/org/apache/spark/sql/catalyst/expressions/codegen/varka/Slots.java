@@ -77,6 +77,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Las
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Least;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LiteralSlot;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.MathUnary;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.RoundToIntegral;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.MakeDate;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Month;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.NarrowLane;
@@ -201,6 +202,9 @@ final class Slots {
   final Map<VarkaVectorIR, int[]> constDivideTmp = new HashMap<>();
   /** The locals of a conversion's AVX2 form ({@link VarkaConversionLowering#scratch}). */
   final Map<VarkaVectorIR, int[]> convertTmp = new HashMap<>();
+
+  /** The scratch local of a {@link RoundToIntegral}: its operand, read three times. */
+  final Map<VarkaVectorIR, int[]> roundTmp = new HashMap<>();
   /** Per DayOfWeek/WeekDay/NextDay: {@code emitFloorMod7}'s own original-value and fold
    * temporaries. NextDay needs no third slot for the date it reuses after the mod - its
    * emitValue arm keeps that copy on the operand stack instead (dup/swap). */
@@ -972,6 +976,9 @@ final class Slots {
               && VarkaDivisionLowering.takesMagicDivide(analysis, n)) {
             s.constDivideTmp.put(node, new int[] {slot++, slot++, slot++, slot++});
           }
+          if (node instanceof RoundToIntegral) {
+            s.roundTmp.put(node, new int[] {slot++});
+          }
           // The multiply-high form reads its dividend three times - two halves and the sign
           // bit - so it parks the vector in one slot rather than juggling the stack.
           if (node instanceof ConstDivide n
@@ -1154,6 +1161,7 @@ final class Slots {
       case BitOp n -> andRef(s.wordRef.get(n.left()), s.wordRef.get(n.right()));
       case BitCount n -> s.wordRef.get(n.child());
       case MathUnary n -> s.wordRef.get(n.child());
+      case RoundToIntegral n -> s.wordRef.get(n.child());
       // Greatest/Least (OR) and IfElse (blend) always compute their own word.
       default -> Integer.MIN_VALUE;
     };
@@ -1672,6 +1680,7 @@ final class Slots {
         case BitOp x -> { }
         case BitCount x -> { }
         case MathUnary x -> { }
+        case RoundToIntegral x -> { }
         case IfElse x -> { }
         // Its word is the condition's two known words ORed, and the condition demands its
         // operands' words in its own arms; its own word is demanded like any value node's.
@@ -1756,6 +1765,7 @@ final class Slots {
           demand(analysis.wordOwner.get(x.right())); }
         case BitCount x -> { }
         case MathUnary x -> { }
+        case RoundToIntegral x -> { }
         case Compare x -> { }
         case NullSafeEqual x -> { }
         case BoolColumn x -> { }

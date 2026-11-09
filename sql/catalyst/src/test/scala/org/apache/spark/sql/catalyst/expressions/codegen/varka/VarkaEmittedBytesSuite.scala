@@ -70,6 +70,8 @@ class VarkaEmittedBytesSuite extends SparkFunSuite with VarkaTestWatchdog {
 
   private val seed = FUZZ_SEED
   private val shapes = 10000
+  // A narrow sequence pins fewer shapes than a committed corpus (VARKA-352 2.2 item 4).
+  private val narrowShapes = 2000
   private val blockSize = 100
   private val widths = Seq(4, 16)
 
@@ -319,10 +321,25 @@ class VarkaEmittedBytesSuite extends SparkFunSuite with VarkaTestWatchdog {
     FuzzShape(drawn.roots.asScala.toSeq, drawn.numInputs, drawn.numLiterals)
   }
 
-  /** The digest of one block of a sequence at one width. */
-  private def blockDigest(shapeAt: Int => FuzzShape, block: Int, lanes: Int): String = {
+  /**
+   * Shape `k` of a narrow sequence (VARKA-352), `fuzz_byte` or `fuzz_short`: `VarkaIrGrammar`'s
+   * narrow draw from the lane's seed, which `VarkaIrFuzzSuite` runs against the reference. The
+   * option arms' digests leave them out: adding them would move every committed arm's digest.
+   */
+  private def narrowSequence(seed: Long, lane: VarkaVectorIR.LaneType): IndexedSeq[FuzzShape] =
+    (0 until narrowShapes).map { k =>
+      val drawn = drawNarrowLaneShape(shapeRandom(seed, k), lane)
+      FuzzShape(drawn.roots.asScala.toSeq, drawn.numInputs, drawn.numLiterals)
+    }
+
+  private lazy val byteShapes = narrowSequence(BYTE_FUZZ_SEED, VarkaVectorIR.LaneType.BYTE)
+  private lazy val shortShapes = narrowSequence(SHORT_FUZZ_SEED, VarkaVectorIR.LaneType.SHORT)
+
+  /** The digest of one block of a sequence of `count` shapes at one width. */
+  private def blockDigest(shapeAt: Int => FuzzShape, block: Int, lanes: Int,
+      count: Int = shapes): String = {
     val sb = new StringBuilder
-    for (k <- block * blockSize until math.min((block + 1) * blockSize, shapes)) {
+    for (k <- block * blockSize until math.min((block + 1) * blockSize, count)) {
       val s = shapeAt(k)
       sb.append(k).append(':')
       methodHashes(s.roots, s.numInputs, s.numLiterals, lanes).foreach { case (m, h) =>
@@ -508,6 +525,9 @@ class VarkaEmittedBytesSuite extends SparkFunSuite with VarkaTestWatchdog {
       val blocks = inOrder(blockCount)(blockDigest(fuzzShape, _, lanes))
       val longBlocks = inOrder(blockCount)(blockDigest(longFuzzShape, _, lanes))
       val mixedBlocks = inOrder(blockCount)(blockDigest(mixedFuzzShape, _, lanes))
+      val narrowBlockCount = (narrowShapes + blockSize - 1) / blockSize
+      def narrowBlocks(sequence: IndexedSeq[FuzzShape]) =
+        inOrder(narrowBlockCount)(blockDigest(sequence, _, lanes, narrowShapes)).asJava
       lanes.toString -> ordered(
         "coverage" -> coverageHashes,
         "fuzz" -> ordered(
@@ -518,7 +538,13 @@ class VarkaEmittedBytesSuite extends SparkFunSuite with VarkaTestWatchdog {
           "blocks" -> longBlocks.asJava),
         "fuzz_mixed" -> ordered(
           "seed" -> MIXED_FUZZ_SEED, "shapes" -> shapes, "block_size" -> blockSize,
-          "blocks" -> mixedBlocks.asJava))
+          "blocks" -> mixedBlocks.asJava),
+        "fuzz_byte" -> ordered(
+          "seed" -> BYTE_FUZZ_SEED, "shapes" -> narrowShapes, "block_size" -> blockSize,
+          "blocks" -> narrowBlocks(byteShapes)),
+        "fuzz_short" -> ordered(
+          "seed" -> SHORT_FUZZ_SEED, "shapes" -> narrowShapes, "block_size" -> blockSize,
+          "blocks" -> narrowBlocks(shortShapes)))
     }
     val armHashes = ordered(pinnedArms.map { case (name, arm) =>
       name -> ordered(widths.map(w => w.toString -> armDigest(arm, w)): _*)
@@ -527,12 +553,12 @@ class VarkaEmittedBytesSuite extends SparkFunSuite with VarkaTestWatchdog {
       "generated_by" -> ("VarkaEmittedBytesSuite; regenerate with VARKA_BYTES_REGEN=true " +
         "build/sbt 'catalyst/testOnly *VarkaEmittedBytesSuite'"),
       "description" -> ("Hashes of every emitted method body, rendered symbolically, for every " +
-        "coverage row and for a fixed sequence of fuzz shapes at each lane and over both, at " +
-        "128 and 512 bits " +
+        "coverage row and for a fixed sequence of fuzz shapes at the int and long lanes, over " +
+        "both and at each narrow lane, at 128 and 512 bits " +
         "(lanesOverride 4 and 16 at the int lane, 2 and 8 at the long one). A difference is a " +
         "change in what an emitted method does. `option_arms` covers emissions beyond the " +
-        "defaults: one digest over every shape at each width " +
-        "per value of spark.sql.codegen.varka.emit.useAVX, the only emit option a " +
+        "defaults: one digest over every coverage row and int, long and mixed shape at each " +
+        "width per value of spark.sql.codegen.varka.emit.useAVX, the only emit option a " +
         "configuration reaches, and per value of each option the defaults never reach, over " +
         "the options under which it acts (validityOrFirst); and per reference form whose " +
         "frames span the kernel (groupLocalSlots=false, methodByteBudget=0), which no session " +
@@ -650,7 +676,8 @@ class VarkaEmittedBytesSuite extends SparkFunSuite with VarkaTestWatchdog {
                 if (hashOf(was, m) != hashOf(now, m)) moved += s"lanes $lanes: $row method $m"
               }
             }
-            Seq("fuzz", "fuzz_long", "fuzz_mixed").foreach { sequence =>
+            val sequences = Seq("fuzz", "fuzz_long", "fuzz_mixed", "fuzz_byte", "fuzz_short")
+            sequences.foreach { sequence =>
               val bb = Option(b.get(sequence)).map(_.get("blocks")).orNull
               val ab = a.get(sequence).get("blocks")
               ab.elements().asScala.zipWithIndex.foreach { case (n, k) =>

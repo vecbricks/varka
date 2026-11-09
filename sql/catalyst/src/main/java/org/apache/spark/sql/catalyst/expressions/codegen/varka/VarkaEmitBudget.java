@@ -719,6 +719,10 @@ final class VarkaEmitBudget {
       case BitCount n -> n.laneType() == VarkaVectorIR.LaneType.LONG ? 1 : 4;
       // The lanewise square root: one call.
       case VarkaVectorIR.MathUnary _ -> 1;
+      // The rint construction: the absolute value, the add and subtract of 2^52, the sign's AND
+      // and OR, the compare against 2^52 and the blend, and three reinterpretations, which the
+      // budget counts as calls though they emit no instruction.
+      case VarkaVectorIR.RoundToIntegral _ -> 10;
     };
   }
 

@@ -1,6 +1,6 @@
 {
   "generated_by" : "VarkaEmittedBytesSuite; regenerate with VARKA_BYTES_REGEN=true build/sbt 'catalyst/testOnly *VarkaEmittedBytesSuite'",
-  "description" : "Hashes of every emitted method body, rendered symbolically, for every coverage row and for a fixed sequence of fuzz shapes at each lane and over both, at 128 and 512 bits (lanesOverride 4 and 16 at the int lane, 2 and 8 at the long one). A difference is a change in what an emitted method does. `option_arms` covers emissions beyond the defaults: one digest over every shape at each width per value of spark.sql.codegen.varka.emit.useAVX, the only emit option a configuration reaches, and per value of each option the defaults never reach, over the options under which it acts (validityOrFirst); and per reference form whose frames span the kernel (groupLocalSlots=false, methodByteBudget=0), which no session selects but where a per-body slot rule can move bytes unseen; and per value of the narrow-lane option (narrowLanes), which picks the lane a tree whose every value is narrow is emitted at (VARKA-329). The rest of VarkaEmitOptions is test-only.",
+  "description" : "Hashes of every emitted method body, rendered symbolically, for every coverage row and for a fixed sequence of fuzz shapes at the int and long lanes, over both and at each narrow lane, at 128 and 512 bits (lanesOverride 4 and 16 at the int lane, 2 and 8 at the long one). A difference is a change in what an emitted method does. `option_arms` covers emissions beyond the defaults: one digest over every coverage row and int, long and mixed shape at each width per value of spark.sql.codegen.varka.emit.useAVX, the only emit option a configuration reaches, and per value of each option the defaults never reach, over the options under which it acts (validityOrFirst); and per reference form whose frames span the kernel (groupLocalSlots=false, methodByteBudget=0), which no session selects but where a per-body slot rule can move bytes unseen; and per value of the narrow-lane option (narrowLanes), which picks the lane a tree whose every value is narrow is emitted at (VARKA-329). The rest of VarkaEmitOptions is test-only.",
   "coverage_rows_skipped" : [ ],
   "lanes" : {
     "4" : {
@@ -5806,6 +5806,72 @@
           "loopMasked0([J[J[I[J[J[II)I" : "91706e774fd983f0",
           "epilogueMasked0([J[J[I[J[J[II)I" : "8b791c996f5135cd"
         },
+        "rint(x)" : {
+          "<class>" : "1a6be0d5ae87cd3c",
+          "<init>()V" : "e2c903051ec05d17",
+          "run([J[J[I[J[J[I[JI)I" : "d5145bab352f2868",
+          "runDense([J[J[I[J[J[I[JI)I" : "7b15a2415c2410d7",
+          "loopDense0([J[J[I[J[J[I[JI)I" : "9ce0e39e48525b7f",
+          "epilogueDense0([J[J[I[J[J[I[JI)I" : "09164e167c93f4d4",
+          "runMasked([J[J[I[J[J[I[JI)I" : "a037dfc254629f23",
+          "loopMasked0([J[J[I[J[J[I[JI)I" : "9ce0e39e48525b7f",
+          "epilogueMasked0([J[J[I[J[J[I[JI)I" : "09164e167c93f4d4"
+        },
+        "floor(l)" : {
+          "<class>" : "1a6be0d5ae87cd3c",
+          "<init>()V" : "e2c903051ec05d17",
+          "run([J[J[I[J[J[I[JI)I" : "d5145bab352f2868",
+          "runDense([J[J[I[J[J[I[JI)I" : "7b15a2415c2410d7",
+          "loopDense0([J[J[I[J[J[I[JI)I" : "8272c20c751398f1",
+          "epilogueDense0([J[J[I[J[J[I[JI)I" : "c16937fa88ad8490",
+          "runMasked([J[J[I[J[J[I[JI)I" : "a037dfc254629f23",
+          "loopMasked0([J[J[I[J[J[I[JI)I" : "8272c20c751398f1",
+          "epilogueMasked0([J[J[I[J[J[I[JI)I" : "c16937fa88ad8490"
+        },
+        "ceil(l)" : {
+          "<class>" : "1a6be0d5ae87cd3c",
+          "<init>()V" : "e2c903051ec05d17",
+          "run([J[J[I[J[J[I[JI)I" : "d5145bab352f2868",
+          "runDense([J[J[I[J[J[I[JI)I" : "7b15a2415c2410d7",
+          "loopDense0([J[J[I[J[J[I[JI)I" : "8272c20c751398f1",
+          "epilogueDense0([J[J[I[J[J[I[JI)I" : "c16937fa88ad8490",
+          "runMasked([J[J[I[J[J[I[JI)I" : "a037dfc254629f23",
+          "loopMasked0([J[J[I[J[J[I[JI)I" : "8272c20c751398f1",
+          "epilogueMasked0([J[J[I[J[J[I[JI)I" : "c16937fa88ad8490"
+        },
+        "ceiling(l)" : {
+          "<class>" : "1a6be0d5ae87cd3c",
+          "<init>()V" : "e2c903051ec05d17",
+          "run([J[J[I[J[J[I[JI)I" : "d5145bab352f2868",
+          "runDense([J[J[I[J[J[I[JI)I" : "7b15a2415c2410d7",
+          "loopDense0([J[J[I[J[J[I[JI)I" : "8272c20c751398f1",
+          "epilogueDense0([J[J[I[J[J[I[JI)I" : "c16937fa88ad8490",
+          "runMasked([J[J[I[J[J[I[JI)I" : "a037dfc254629f23",
+          "loopMasked0([J[J[I[J[J[I[JI)I" : "8272c20c751398f1",
+          "epilogueMasked0([J[J[I[J[J[I[JI)I" : "c16937fa88ad8490"
+        },
+        "floor(i)" : {
+          "<class>" : "1a6be0d5ae87cd3c",
+          "<init>()V" : "e2c903051ec05d17",
+          "run([J[J[I[J[J[I[JI)I" : "d5145bab352f2868",
+          "runDense([J[J[I[J[J[I[JI)I" : "511ca0be92af6f25",
+          "loopDense0([J[J[I[J[J[I[JI)I" : "4813ebe4cf484f36",
+          "epilogueDense0([J[J[I[J[J[I[JI)I" : "2edca612559b2eca",
+          "runMasked([J[J[I[J[J[I[JI)I" : "8686b1f6b3cbebe4",
+          "loopMasked0([J[J[I[J[J[I[JI)I" : "4813ebe4cf484f36",
+          "epilogueMasked0([J[J[I[J[J[I[JI)I" : "2edca612559b2eca"
+        },
+        "ceil(i)" : {
+          "<class>" : "1a6be0d5ae87cd3c",
+          "<init>()V" : "e2c903051ec05d17",
+          "run([J[J[I[J[J[I[JI)I" : "d5145bab352f2868",
+          "runDense([J[J[I[J[J[I[JI)I" : "511ca0be92af6f25",
+          "loopDense0([J[J[I[J[J[I[JI)I" : "4813ebe4cf484f36",
+          "epilogueDense0([J[J[I[J[J[I[JI)I" : "2edca612559b2eca",
+          "runMasked([J[J[I[J[J[I[JI)I" : "8686b1f6b3cbebe4",
+          "loopMasked0([J[J[I[J[J[I[JI)I" : "4813ebe4cf484f36",
+          "epilogueMasked0([J[J[I[J[J[I[JI)I" : "2edca612559b2eca"
+        },
         "CAST(x AS BOOLEAN)" : {
           "<class>" : "1a6be0d5ae87cd3c",
           "<init>()V" : "e2c903051ec05d17",
@@ -6916,6 +6982,18 @@
         "shapes" : 10000,
         "block_size" : 100,
         "blocks" : [ "853ac3b85c8fdd02", "20bda2ffad6ada44", "1a0175c2125975ad", "3582891893283548", "a9deba7a34d7320c", "e72178b89a13c687", "6d84e15d0427b6e1", "386a89591c30ae19", "a0459c94731bb29c", "d0e42d7d52cb4b95", "b6390039a5083737", "65e9d90f8d7cf094", "05275dc87e005ae6", "29a48256117dad71", "1cdad55ca90ae5d0", "6acbec12bbfb1b34", "9c6ca3f4a405dd4a", "4b775d3c0c64b473", "ef49994cd35c99e1", "765e5301595fe0cf", "b56bfc23bf50483e", "e30e04255beb358e", "51eb3ffeaf775bc8", "a82d6ab0311749ee", "63decb945f2cdb5f", "9a7575eb359f371e", "534fc4ca2efba1ab", "238eb01f967097f0", "2eef80b9b766ade3", "ee1b206d440079a3", "5f5aac4856a9f5d1", "0bd184b50b1ecd4d", "d55e7e469a4cb01c", "2034677113f84301", "b606c3ca493c0fcb", "9542d27873ecf6b8", "edc2a01dd33cb7a6", "5cdca5d4f6e9c0af", "1c301582b0e08138", "c051fb8ce999414f", "18f0aebe043f7754", "aa07d0228869abfe", "bcb915f69d603c3e", "42f9a6de85f1695b", "c34dcbb16ab44fd0", "363f04d0eaf3e301", "1c6b67cb59b8e8e7", "cd1003891aaf35ea", "1cdf12828f9cb8c8", "6a2c0f4810bcb136", "dcfd28af725228ed", "d2d2ea75c09d1ab8", "2f5e50022634dbbd", "73377fe21820814c", "98bb82af875eb40a", "1683f2b1f7dd7362", "38e46a7ed9eec9ee", "e10d750e8c7f427c", "903888c0fd9b108b", "64a6566541e46d5a", "90331977f6d7193e", "9d1959353b68e93f", "33ec5c7d50184518", "9f23094e83b410bd", "381cbc5da01de08d", "affc44380a8432f2", "353427891f174721", "3d4f4bc419c6782d", "fb52061c493e26b3", "eadeaa1d1df6c176", "e345835fb5dbce2b", "2235317aced70d0f", "f601326fcce85a30", "aee6aef70226200d", "d5262b060da562ad", "429a20c926c04178", "69e12334a1a6e960", "757c033237d846b2", "2217f763e47cd4a8", "191e613bed6042ea", "a43556c5eba41e15", "52b23eff66ca05ad", "a519a721ef0cc647", "5ce6464aedf02996", "84c8f9f0441fe81a", "ab948311c601fee9", "87f6dc6cbc5d56db", "f9cecf1110f8f421", "27352218672513ba", "66c5bad6356c6195", "c70d0995bc0a855f", "5f7940f6c169dbe3", "addf9ae171dcc312", "c593f181881de1fc", "d290d5135be276dd", "cf0e300ddc69d714", "de329d92b3cd4846", "e92b447caaa5ae73", "9592eabf0a160365", "0f0521dbbb81fa9f" ]
+      },
+      "fuzz_byte" : {
+        "seed" : 20261109,
+        "shapes" : 2000,
+        "block_size" : 100,
+        "blocks" : [ "05e906c16166605b", "35c51f2bfcd317b0", "4248e64068c72903", "7cebca46134bbadc", "b9406c4231c343dc", "6bd2b1a566a02f37", "3c39051cc78001b5", "32d61f5ba6a42af3", "eb55f043c54a3e52", "8a8aeb805e4134af", "8b31aa91de38c2ff", "f36d81b6ece693f5", "e97661613af30b71", "bc3ebeacc77e3a6c", "b0445a61d6ec2760", "307d3dae1ca3b014", "8cf6408b4070ee39", "bc58def9d1b438fc", "22b9f77bd2b7b00f", "cace9e21aa57739b" ]
+      },
+      "fuzz_short" : {
+        "seed" : 20261110,
+        "shapes" : 2000,
+        "block_size" : 100,
+        "blocks" : [ "f8b9032e5c0eebd4", "8b0d9444ada6ed6b", "81ace0d8b10320c4", "034f4de00124ca59", "cd3882f800eb2347", "710b0d454f843d97", "58914914f5b2595b", "f3ccd187dd6cc6c0", "f00ab499c4507b4e", "1f1b9fbce5056634", "b44edea8add00dd4", "6bacd0119ab6be89", "77303de317eb341a", "e6d052a2b626f0a9", "b538649cb36d986a", "d33639f41f0c738b", "e8df2a11bd167d6a", "0b3c3d1ad00bcb25", "104a17705c3ee55d", "dd323f07061355b6" ]
       }
     },
     "16" : {
@@ -12721,6 +12799,72 @@
           "loopMasked0([J[J[I[J[J[II)I" : "17b97f8be82a1318",
           "epilogueMasked0([J[J[I[J[J[II)I" : "5e4acc4ea231089c"
         },
+        "rint(x)" : {
+          "<class>" : "1a6be0d5ae87cd3c",
+          "<init>()V" : "e2c903051ec05d17",
+          "run([J[J[I[J[J[I[JI)I" : "d5145bab352f2868",
+          "runDense([J[J[I[J[J[I[JI)I" : "7b15a2415c2410d7",
+          "loopDense0([J[J[I[J[J[I[JI)I" : "1b6d7bce09661a01",
+          "epilogueDense0([J[J[I[J[J[I[JI)I" : "ea9fa81bbf8924ff",
+          "runMasked([J[J[I[J[J[I[JI)I" : "a037dfc254629f23",
+          "loopMasked0([J[J[I[J[J[I[JI)I" : "1b6d7bce09661a01",
+          "epilogueMasked0([J[J[I[J[J[I[JI)I" : "ea9fa81bbf8924ff"
+        },
+        "floor(l)" : {
+          "<class>" : "1a6be0d5ae87cd3c",
+          "<init>()V" : "e2c903051ec05d17",
+          "run([J[J[I[J[J[I[JI)I" : "d5145bab352f2868",
+          "runDense([J[J[I[J[J[I[JI)I" : "7b15a2415c2410d7",
+          "loopDense0([J[J[I[J[J[I[JI)I" : "19d174080971dac8",
+          "epilogueDense0([J[J[I[J[J[I[JI)I" : "11500f21d9d231be",
+          "runMasked([J[J[I[J[J[I[JI)I" : "a037dfc254629f23",
+          "loopMasked0([J[J[I[J[J[I[JI)I" : "19d174080971dac8",
+          "epilogueMasked0([J[J[I[J[J[I[JI)I" : "11500f21d9d231be"
+        },
+        "ceil(l)" : {
+          "<class>" : "1a6be0d5ae87cd3c",
+          "<init>()V" : "e2c903051ec05d17",
+          "run([J[J[I[J[J[I[JI)I" : "d5145bab352f2868",
+          "runDense([J[J[I[J[J[I[JI)I" : "7b15a2415c2410d7",
+          "loopDense0([J[J[I[J[J[I[JI)I" : "19d174080971dac8",
+          "epilogueDense0([J[J[I[J[J[I[JI)I" : "11500f21d9d231be",
+          "runMasked([J[J[I[J[J[I[JI)I" : "a037dfc254629f23",
+          "loopMasked0([J[J[I[J[J[I[JI)I" : "19d174080971dac8",
+          "epilogueMasked0([J[J[I[J[J[I[JI)I" : "11500f21d9d231be"
+        },
+        "ceiling(l)" : {
+          "<class>" : "1a6be0d5ae87cd3c",
+          "<init>()V" : "e2c903051ec05d17",
+          "run([J[J[I[J[J[I[JI)I" : "d5145bab352f2868",
+          "runDense([J[J[I[J[J[I[JI)I" : "7b15a2415c2410d7",
+          "loopDense0([J[J[I[J[J[I[JI)I" : "19d174080971dac8",
+          "epilogueDense0([J[J[I[J[J[I[JI)I" : "11500f21d9d231be",
+          "runMasked([J[J[I[J[J[I[JI)I" : "a037dfc254629f23",
+          "loopMasked0([J[J[I[J[J[I[JI)I" : "19d174080971dac8",
+          "epilogueMasked0([J[J[I[J[J[I[JI)I" : "11500f21d9d231be"
+        },
+        "floor(i)" : {
+          "<class>" : "1a6be0d5ae87cd3c",
+          "<init>()V" : "e2c903051ec05d17",
+          "run([J[J[I[J[J[I[JI)I" : "d5145bab352f2868",
+          "runDense([J[J[I[J[J[I[JI)I" : "511ca0be92af6f25",
+          "loopDense0([J[J[I[J[J[I[JI)I" : "fec4d56ca50d3048",
+          "epilogueDense0([J[J[I[J[J[I[JI)I" : "bd6002e5847fe6d3",
+          "runMasked([J[J[I[J[J[I[JI)I" : "8686b1f6b3cbebe4",
+          "loopMasked0([J[J[I[J[J[I[JI)I" : "fec4d56ca50d3048",
+          "epilogueMasked0([J[J[I[J[J[I[JI)I" : "bd6002e5847fe6d3"
+        },
+        "ceil(i)" : {
+          "<class>" : "1a6be0d5ae87cd3c",
+          "<init>()V" : "e2c903051ec05d17",
+          "run([J[J[I[J[J[I[JI)I" : "d5145bab352f2868",
+          "runDense([J[J[I[J[J[I[JI)I" : "511ca0be92af6f25",
+          "loopDense0([J[J[I[J[J[I[JI)I" : "fec4d56ca50d3048",
+          "epilogueDense0([J[J[I[J[J[I[JI)I" : "bd6002e5847fe6d3",
+          "runMasked([J[J[I[J[J[I[JI)I" : "8686b1f6b3cbebe4",
+          "loopMasked0([J[J[I[J[J[I[JI)I" : "fec4d56ca50d3048",
+          "epilogueMasked0([J[J[I[J[J[I[JI)I" : "bd6002e5847fe6d3"
+        },
         "CAST(x AS BOOLEAN)" : {
           "<class>" : "1a6be0d5ae87cd3c",
           "<init>()V" : "e2c903051ec05d17",
@@ -13831,61 +13975,73 @@
         "shapes" : 10000,
         "block_size" : 100,
         "blocks" : [ "151994070b1c1f9d", "b31f8a3c19b8b2b4", "f942a55256a262f9", "d545c2a49d37dfd9", "e846a6435f9822b9", "5d1f5468d12afae7", "ec4652fa4a2ee0ef", "3b7e2974ebd3b83a", "fbf699ea02617a03", "118cf2d441728651", "284a767772fe7ad4", "827d6e24d5161463", "9824656eb69aed76", "486e96c45772aca3", "49b07908feca238e", "33f9ab2225ec3023", "a73cbecd581265ad", "4e8f43d755979f0d", "e62dc57881257dd0", "55dbf5d718a26939", "a12b760e8280d920", "6f9f0867f3d5a1bf", "86de53bd5c308a97", "ec45524c5e45f4f3", "c4f2190d1b5c6899", "326b038af8b9591d", "6e0ad43be8a594bc", "d8b7c3b89a7c184d", "a9f18bbeccd6269f", "c02378d135dedf32", "46d19a474427b14b", "39846f7e02131893", "9f5af9690aaaa278", "41be65ddc0b7ade3", "8052fa1b3dc2c2f6", "3cd16f37f270c30e", "88b27618740075ab", "ca8aa6b2a4046594", "520ff5f1990672ca", "cbd21a985f39695a", "dc1ada0e85a96cb2", "b2082faeb904791a", "b49e6398ba8bbde6", "73db913af8090219", "cd4269e1435c255c", "6e56f41af3694fbb", "abb929f34f811290", "3670e32ec350c42e", "6dc09a3530d350a7", "441d413311dd551a", "012b2327385e0df9", "246495517e60bce8", "fa3957cc99ef1046", "cb8c33a80a123734", "06565091890c8059", "34d9005199e25822", "94919b669300bd0e", "2e33c875980137f1", "cb67b86e6048d22b", "6b36dad522a5f9e3", "1e2fd9b657530a40", "0c10a948acf02ef9", "1e50d9bfab38da3e", "8f7140a40f9f4875", "7ef1a380b572f76d", "aa7d154e448ef553", "8d90a03b1b8b757d", "422fe4a5ca879511", "288ab9f5929767a0", "e5ad2d9a547d43a1", "d2615ea76f42e5b7", "f7508871a35ef80f", "6b3549cdad7677c1", "f12bd60d7ab7d723", "25f5d04ee2a09064", "cbca6a37a3498017", "1e12f46dffa274b7", "bebb5311ace3c854", "4825bd0f63d37bf1", "6e968c6b4376a405", "1d2fe9eef903cf7a", "233964e807798c1b", "dd8ca31a4db58964", "87c582767c5836da", "9bb0a20571a4671d", "66339fa55b6035c9", "d46e50f7d4691dc5", "600e785239213362", "b6865deb8838d6f2", "2acc4097ebb04cff", "33610c333bff7b3c", "b2d5e944b81835a8", "d6d5c4cd73b3adf7", "d847d3433f965065", "ed9e4da4b37f93d4", "d3169eabff044b1b", "7994c5cae662995b", "5ef9dc761a0c265f", "9e83aae92583dad5", "2773e8569e92d5ec" ]
+      },
+      "fuzz_byte" : {
+        "seed" : 20261109,
+        "shapes" : 2000,
+        "block_size" : 100,
+        "blocks" : [ "e59892cdbb3fa262", "055b64d87d7702e6", "4b9a381366eef24f", "3d5d333531dec2ea", "473b9216edf9b6e2", "cd75b44218c6a67a", "6c12e8cca8a621dc", "7785058235746c76", "0b646dd4d71afabf", "8dd74e4b4aa8dcf5", "71fd8143bbe27b83", "5abef8a1bbae7223", "9831d1ef766ba7d0", "5e2247083c036318", "bd07ddb781b6fdb0", "3b866baa9f97fd17", "4b2c352e4e857125", "cf89a89fd2228b48", "b585ca1d3c7f98a8", "c279a13eeea3b018" ]
+      },
+      "fuzz_short" : {
+        "seed" : 20261110,
+        "shapes" : 2000,
+        "block_size" : 100,
+        "blocks" : [ "ad58194a90fbdd80", "fcd20a0802ecb944", "3192c278c9046b36", "105db0d1a7868896", "8e20a35ab8aa0a43", "31ec35088ec03f15", "f48307bf310df978", "75f235449f3fa085", "787330ca43f9fcde", "79ada7234a71905b", "3f9040c7bb03258c", "66e2e22bdb7e0fb9", "dc70b15763c64b4e", "aa404fa8ff64cb55", "a4d1e325dc755e26", "2cb81a3797ecabff", "56c5f6b77da88fef", "a5cc0d1a5cf690c1", "9bfee27f7fd3cf78", "065ccfb47fa1956b" ]
       }
     }
   },
   "option_arms" : {
     "useAVX=-1" : {
-      "4" : "5c76e0b4dd90a056",
-      "16" : "25de8f2a917c6ea3"
+      "4" : "5eabfb90f2e1ebde",
+      "16" : "aea2188a7325bd5c"
     },
     "useAVX=0" : {
-      "4" : "f41d507519a62acb",
-      "16" : "a6d40f8c06dbc3e6"
+      "4" : "4f02b3652262b16b",
+      "16" : "df07f428b64a85ba"
     },
     "useAVX=1" : {
-      "4" : "f41d507519a62acb",
-      "16" : "a6d40f8c06dbc3e6"
+      "4" : "4f02b3652262b16b",
+      "16" : "df07f428b64a85ba"
     },
     "useAVX=2" : {
-      "4" : "f41d507519a62acb",
-      "16" : "a6d40f8c06dbc3e6"
+      "4" : "4f02b3652262b16b",
+      "16" : "df07f428b64a85ba"
     },
     "useAVX=3" : {
-      "4" : "5c76e0b4dd90a056",
-      "16" : "25de8f2a917c6ea3"
+      "4" : "5eabfb90f2e1ebde",
+      "16" : "aea2188a7325bd5c"
     },
     "validityOrFirst=true over denseValidityOnce=false,validityByBitmap=false" : {
-      "4" : "96284836ddb559a4",
-      "16" : "dfad198f5ced7c2a"
+      "4" : "7895dc79d803f67f",
+      "16" : "ba7e7c276f8c5ae1"
     },
     "validityOrFirst=false over denseValidityOnce=false,validityByBitmap=false" : {
-      "4" : "6efa9f624b7e616c",
-      "16" : "b7f9ae7bca7cf1df"
+      "4" : "1643de99a98aeaa3",
+      "16" : "6e415dd1c19add41"
     },
     "wideConversionForm=SPLIT over useAVX=2" : {
-      "4" : "f41d507519a62acb",
-      "16" : "a6d40f8c06dbc3e6"
+      "4" : "4f02b3652262b16b",
+      "16" : "df07f428b64a85ba"
     },
     "wideConversionForm=MAGIC over useAVX=2" : {
-      "4" : "f41d507519a62acb",
-      "16" : "a6d40f8c06dbc3e6"
+      "4" : "4f02b3652262b16b",
+      "16" : "df07f428b64a85ba"
     },
     "narrowLanes=true" : {
-      "4" : "5c76e0b4dd90a056",
-      "16" : "25de8f2a917c6ea3"
+      "4" : "5eabfb90f2e1ebde",
+      "16" : "aea2188a7325bd5c"
     },
     "narrowLanes=false" : {
-      "4" : "e3195227836c7f85",
-      "16" : "bf2bb9a4f02ccdc0"
+      "4" : "eaa9ba89876c09c9",
+      "16" : "c72ea41563498c83"
     },
     "groupLocalSlots=false" : {
-      "4" : "305f15e07cee14e3",
-      "16" : "580083b443d20ac4"
+      "4" : "2f9e3da7f5f7308b",
+      "16" : "794c3bbe94352f6f"
     },
     "methodByteBudget=0" : {
-      "4" : "aa93ba48e5a67fb5",
-      "16" : "876b6832eecd2317"
+      "4" : "c2f9a33da62c81bf",
+      "16" : "95fc345388e2b224"
     }
   }
 }
