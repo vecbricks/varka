@@ -3112,7 +3112,8 @@ object SQLConf {
     .doc("The -XX:UseAVX level the Varka emitter lowers for, where a lowering depends on it:" +
       " 3 or above takes the conversions through double lanes for a 64-bit division, 2 the" +
       " magic-number form, because the converts do not become instructions without AVX512DQ." +
-      " A BIGINT cast to FLOAT or DOUBLE fuses only at 3 or above. -2 resolves it from the" +
+      " A BIGINT cast to FLOAT or DOUBLE fuses at a named level, as one instruction at 3 or" +
+      " above and by exact forms of 64-bit integer arithmetic below. -2 resolves it from the" +
       " driver's JVM: level 2 where HotSpot's feature list lacks" +
       " AVX512DQ and the preferred LongVector species, which -XX:MaxVectorSize caps, is at" +
       " least 256 bits wide (at 128 bits the magic-number form measured slower than the" +
