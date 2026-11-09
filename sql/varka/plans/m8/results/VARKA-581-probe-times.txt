@@ -1,0 +1,48 @@
+# The width audit's probe times and heap, on GitHub runners and on the laptop (VARKA-581)
+#
+# A probe is one child JVM of VarkaWidthAuditSuite running every audited shape at one width.
+
+## Runners: run 42513839586 (MaxGekk/spark, head 7ae137f313a), catalyst 1 of 3
+#
+# The suite before VARKA-581, probes in test bodies one after another. Seconds are the JUnit
+# report's (artifact varka-scoped-junit-catalyst-1of3 of each attempt).
+#
+# attempt  job           test                                              seconds  probes
+# 1        128832915302  at the host's preferred width ...                 252.245  1
+# 1        128832915302  two censuses of one width agree ...               192.674  1
+# 1        128832915302  a forced 128-bit census declines ... (failed)     607.401  3, cut
+# 2        128839514109  at the host's preferred width ...                 102.892  1
+# 2        128839514109  two censuses of one width agree ...                97.805  1
+# 2        128839514109  a forced 128-bit census declines ...              318.791  3
+
+## Laptop: AMD Ryzen AI 9 HX PRO 370, 24 threads, JDK 25.0.4.1, 9 November 2026
+#
+# The sequential design: the five probes one after another in beforeAll (preferred, preferred
+# again, forced 16, 32 and 64 bytes), each -Xmx1g. build/sbt 'catalyst/testOnly
+# *VarkaWidthAuditSuite', other agents' JVMs running beside it. Probe seconds are the suite's log
+# lines; "probes" is the first probe's start to the last one's end. The 24-core run started under
+# a load of 24.6 from other agents' work and its sbt wall includes compiling the suite, so it is
+# not the faster of the two for want of cores.
+#
+# run              per probe (s)          probes   sbt wall  load before/after
+# 24 cores         121 113 125 123 88     572 s    619 s     24.59 / 1.84
+# taskset -c 0-3   106 92 115 103 95      514 s    542 s     1.32 / 1.14
+#
+## Laptop, an earlier design not merged: the probes at once (8 November 2026)
+#
+# VARKA-581's third commit ran the probe at the preferred width and one per forced width the
+# host runs, on max(1, min(probes, cores - 1)) threads. Kept as the measure a follow-up that runs
+# the probes concurrently would start from.
+#
+# run                                   probes  threads  per probe (s)     wait (s)  together  sbt wall  load before/after
+# 24 cores                              4       4        138 139 152 165   0         165 s     193 s     5.67 / 5.94
+# taskset -c 0-3                        4       3        158 170 184 125   0 0 0 158 284 s     322 s     5.74 / 4.98
+# taskset -c 0-3, UseAVX=2 (AVX2 shape) 3       3        165 166 180       0         180 s     214 s     3.72 / 5.90
+#
+# Heap, the concurrent design's 24-core run under JDK_JAVA_OPTIONS=-Xlog:gc, per probe:
+#
+# probe             collections  largest before a collection  largest after  full collections
+# preferred         360          297 MB                       159 MB         0
+# forced 16 bytes   1031         349 MB                       191 MB         0
+# forced 32 bytes   542          268 MB                       162 MB         0
+# forced 64 bytes   506          265 MB                       168 MB         0
