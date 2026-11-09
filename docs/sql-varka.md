@@ -1236,19 +1236,19 @@ operands (a row counts once for each type it reads):
 <!-- BEGIN generated verification counts -->
 | Type | Rows | refinement | proof | exhaustive | owed | differential |
 | :--- | ---: | ---: | ---: | ---: | ---: | ---: |
-| `bigint` | 75 | 0 | 2 | 0 | 2 | 71 |
+| `bigint` | 78 | 0 | 2 | 0 | 2 | 74 |
 | `bool` | 38 | 0 | 0 | 13 | 0 | 25 |
-| `byte` | 51 | 0 | 0 | 0 | 8 | 43 |
+| `byte` | 54 | 0 | 0 | 0 | 8 | 46 |
 | `date` | 124 | 17 | 0 | 1 | 0 | 106 |
 | `dec` | 43 | 25 | 0 | 0 | 0 | 18 |
-| `double` | 57 | 0 | 1 | 0 | 0 | 56 |
-| `dt` | 26 | 2 | 1 | 0 | 0 | 23 |
-| `float` | 44 | 0 | 0 | 0 | 0 | 44 |
-| `int` | 149 | 14 | 2 | 1 | 1 | 131 |
-| `ntz` | 24 | 0 | 1 | 0 | 0 | 23 |
-| `short` | 51 | 0 | 0 | 0 | 8 | 43 |
-| `time` | 43 | 6 | 1 | 1 | 2 | 33 |
-| `ym` | 35 | 7 | 2 | 0 | 2 | 24 |
+| `double` | 67 | 0 | 1 | 0 | 0 | 66 |
+| `dt` | 27 | 2 | 1 | 0 | 0 | 24 |
+| `float` | 52 | 0 | 0 | 0 | 0 | 52 |
+| `int` | 156 | 14 | 2 | 1 | 1 | 138 |
+| `ntz` | 57 | 0 | 7 | 0 | 0 | 50 |
+| `short` | 52 | 0 | 0 | 0 | 8 | 44 |
+| `time` | 45 | 6 | 1 | 1 | 2 | 35 |
+| `ym` | 36 | 7 | 2 | 0 | 2 | 25 |
 <!-- END generated verification counts -->
 
 ## Glossary
