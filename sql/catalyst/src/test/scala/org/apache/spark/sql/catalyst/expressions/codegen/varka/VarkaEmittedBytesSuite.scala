@@ -120,9 +120,14 @@ class VarkaEmittedBytesSuite extends SparkFunSuite with VarkaTestWatchdog {
   private val d9s4 = AttributeReference("d9s4", DecimalType(9, 4))()
   private val d16s9 = AttributeReference("d16s9", DecimalType(16, 9))()
   private val d8 = AttributeReference("d8", DecimalType(8, 2))()
+  // The 128-bit pair's columns (VARKA-359), as `VarkaCoverageSuite` declares them.
+  private val d19 = AttributeReference("d19", DecimalType(19, 2))()
+  private val d38 = AttributeReference("d38", DecimalType(38, 2))()
+  private val d38b = AttributeReference("d38b", DecimalType(38, 2))()
+  private val d3810 = AttributeReference("d3810", DecimalType(38, 10))()
   private val columns: Seq[Attribute] = Seq(d, d2, i, ymm, ymy, ym, l, l2, t, t2, dt, dt2, b, b2,
     y1, y2, s1, s2, ntz, ntz2, x, x2, f, f2, d9, d9b, d18, d18b,
-    d9s4, d16s9, d8)
+    d9s4, d16s9, d8, d19, d38, d38b, d3810)
 
   private val className = "org.apache.spark.sql.varka.execution.VarkaEmittedBytesOracle"
 
@@ -476,12 +481,9 @@ class VarkaEmittedBytesSuite extends SparkFunSuite with VarkaTestWatchdog {
   private case class AuditArm(name: String, arm: VarkaEmitOptions => VarkaEmitOptions,
       subject: Option[VarkaEmitOption.Subject])
 
-  /** A flag's subject, unless it is the defaults. */
-  private def subjectOf(option: VarkaEmitOption): Option[VarkaEmitOption.Subject] = option match {
-    case f: VarkaEmitOption.Flag if f.subject() != VarkaEmitOption.Subject.DEFAULTS =>
-      Some(f.subject())
-    case _ => None
-  }
+  /** A flag's or a choice's subject, unless it is the defaults. */
+  private def subjectOf(option: VarkaEmitOption): Option[VarkaEmitOption.Subject] =
+    Some(VarkaEmitOption.subject(option)).filter(_ != VarkaEmitOption.Subject.DEFAULTS)
 
   /** `a` over `subject`: the subject's options first, then the arm's own change. */
   private def over(a: VarkaEmitOption.Arm,

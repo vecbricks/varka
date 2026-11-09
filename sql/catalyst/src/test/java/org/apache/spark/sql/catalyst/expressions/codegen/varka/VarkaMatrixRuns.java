@@ -222,7 +222,7 @@ public final class VarkaMatrixRuns {
    * joins with its entry. Then the batch-size axis, which changes the sessions' cached batches
    * rather than an option.
    *
-   * <p>A flag whose {@code VarkaEmitOption.Subject} is not the defaults runs its other value over
+   * <p>A flag or choice whose {@code VarkaEmitOption.Subject} is not the defaults runs over
    * that subject, {@code denseValidityOnce=false,validityByBitmap=false,validityOrFirst=false}:
    * at the defaults the value emits the defaults' bytes, and the configuration would test nothing
    * (VARKA-247).
@@ -242,9 +242,8 @@ public final class VarkaMatrixRuns {
           .toList();
       if (option.name().equals("lanesOverride")) {
         LANE_COUNTS.forEach(n -> out.add("lanesOverride=" + n));
-      } else if (option instanceof VarkaEmitOption.Flag f
-          && !f.subject().equals(VarkaEmitOption.Subject.DEFAULTS)) {
-        arms.forEach(arm -> out.add(f.subject().label() + "," + arm));
+      } else if (!VarkaEmitOption.subject(option).equals(VarkaEmitOption.Subject.DEFAULTS)) {
+        arms.forEach(arm -> out.add(VarkaEmitOption.subject(option).label() + "," + arm));
       } else {
         out.addAll(arms);
       }
@@ -258,10 +257,11 @@ public final class VarkaMatrixRuns {
    * general draws leave such an option out ({@link VarkaEmitOption#readOnlyBy}): a coverage row
    * holds the node, so a configuration of its option reruns suites that emit it. A
    * {@code WidenDecimal} is every decimal output's root since the TIME producers (VARKA-157), so
-   * {@code decimalStore=SELECT_FROM} runs.
+   * {@code decimalStore=SELECT_FROM} runs; a {@code ConvertLane} is every floating cast's, so
+   * {@code wideConversionForm=MAGIC} runs, over {@code useAVX=2}, where the form is read.
    */
   static final Set<Class<? extends VarkaVectorIR>> COMPILED_NODE_KINDS =
-      Set.of(VarkaVectorIR.WidenDecimal.class);
+      Set.of(VarkaVectorIR.WidenDecimal.class, VarkaVectorIR.ConvertLane.class);
 
   /**
    * Whether {@code option} is one of a node kind's own (it is not {@code drawnInGeneral}) whose
@@ -278,12 +278,12 @@ public final class VarkaMatrixRuns {
   /**
    * {@code options} as the compiler and the emitter can tell them apart. {@code useAVX} reaches
    * them through two predicates of the level: {@link VarkaEmitOptions#convertsFallBack}, which
-   * picks the 64-bit constant division's form and so moves the bytes, and
-   * {@link VarkaEmitOptions#convertsMayFallBack}, which decides whether the kernel plan admits a
-   * {@code BIGINT} conversion to {@code FLOAT} or {@code DOUBLE} and so moves which shapes have a
-   * kernel at all. Together they make three classes: every level below AVX-512 emits as
+   * picks the 64-bit constant division's form and a {@code BIGINT} conversion's AVX2 form and so
+   * moves the bytes, and {@link VarkaEmitOptions#levelUnknown}, at which the kernel plan declines
+   * a {@code BIGINT} conversion to {@code FLOAT} or {@code DOUBLE} and so moves which shapes have
+   * a kernel at all. Together they make three classes: every level below AVX-512 emits as
    * {@link #FALLBACK_USE_AVX} does; the unknown level, the defaults', divides as AVX-512 does but
-   * declines the conversions; and level 3 and above admit them, and key as
+   * declines the conversions; and level 3 and above convert in one instruction, and key as
    * {@link VarkaEmitOptions#AVX512_LEVEL}. Level 3 emits the defaults' bytes for every shape both
    * admit, so the oracle's digests cannot separate it from the unknown level; the shapes that do
    * are the ones the unknown level declines. {@code VarkaEmittedBytesSuite} holds each arm the key
@@ -294,7 +294,7 @@ public final class VarkaMatrixRuns {
     int level;
     if (options.convertsFallBack()) {
       level = FALLBACK_USE_AVX;
-    } else if (options.convertsMayFallBack()) {
+    } else if (options.levelUnknown()) {
       level = VarkaEmitOptions.USE_AVX_UNKNOWN;
     } else {
       level = VarkaEmitOptions.AVX512_LEVEL;
@@ -307,7 +307,7 @@ public final class VarkaMatrixRuns {
    * defaults' is left out, and of arms that share a key one runs, the one whose options are the
    * key itself where there is one, else the first. So {@code useAVX=0}, {@code 1} and {@code 2}
    * run once, as {@code useAVX=2}, and {@code useAVX=3} runs as the one level that admits the
-   * {@code BIGINT} conversions.
+   * {@code BIGINT} conversions as one instruction.
    */
   static List<VarkaEmitOption.Arm> distinctArms(List<VarkaEmitOption.Arm> arms,
       VarkaEmitOptions defaults) {

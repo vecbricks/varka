@@ -100,6 +100,7 @@ final class VarkaProofFiles {
     files.put("decimal128.smt2", decimal128());
     files.put("fp_round.smt2", fpRound());
     files.put("refinement.smt2", VarkaRefinementFile.render());
+    files.put("smt_print_check.smt2", smtPrintCheck());
     return files;
   }
 
@@ -2232,6 +2233,28 @@ final class VarkaProofFiles {
     }
     equations(out, "jlong.neg, jlong.not and l2i are Java's long -, long ~ and (int)", longUnary);
     doubles(out);
+    // VARKA-506: the unsigned compares, and & with a sign word.
+    var unsigned = new ArrayList<String>();
+    for (long a : LONGS) {
+      for (long b : LONGS) {
+        int c = Long.compareUnsigned(a, b);
+        String args = lit(a) + " " + lit(b);
+        for (String[] op : new String[][] {{"jlong.ult", c < 0 ? "true" : "false"},
+            {"jlong.ule", c <= 0 ? "true" : "false"}, {"jlong.ugt", c > 0 ? "true" : "false"},
+            {"jlong.uge", c >= 0 ? "true" : "false"}}) {
+          unsigned.add(eq(op[0], args, op[1]));
+        }
+      }
+    }
+    equations(out, "jlong.ult, jlong.ule, jlong.ugt and jlong.uge are Long.compareUnsigned's "
+        + "order", unsigned);
+    var sign = new ArrayList<String>();
+    for (long m : new long[] {0, -1}) {
+      for (long y : LONGS) {
+        sign.add(eq("jlong.and.sign", lit(m) + " " + lit(y), lit(m & y)));
+      }
+    }
+    equations(out, "jlong.and.sign is Java's & with a sign word, 0 or -1", sign);
     return out.toString();
   }
 
@@ -2888,20 +2911,16 @@ final class VarkaProofFiles {
   // The AVX2 conversions from a long to a double and a float (VARKA-343).
   // -----------------------------------------------------------------------------------------
 
-  /**
-   * The constants of {@code VARKA-343.md} 2.3's AVX2 forms. They are the plan's, not read from
-   * code: {@code VarkaConversionLowering}, which is to hold them, is not built yet, and the plan's
-   * section 10 lists reading them from it as owed.
-   */
-  private static final double RTO_MAGIC = 0x1.8p52;
-  private static final double RTO_P52 = 0x1p52;
-  private static final double RTO_P32 = 0x1p32;
+  /** The constants of {@code VARKA-343.md} 2.3's AVX2 forms, as the emitter reads them. */
+  private static final double RTO_MAGIC = VarkaConversionLowering.MAGIC;
+  private static final double RTO_P52 = VarkaConversionLowering.TWO_52;
+  private static final double RTO_P32 = VarkaConversionLowering.TWO_32;
   /** The bits {@code L2F} drops into its sticky bit above {@code 2^52}. */
-  private static final int RTO_SHIFT = 12;
+  private static final int RTO_SHIFT = VarkaConversionLowering.ODD_SHIFT;
   /** {@code L2F} rounds to odd where {@code m >>> RTO_SMALL_BITS != 0}. */
-  private static final int RTO_SMALL_BITS = 52;
+  private static final int RTO_SMALL_BITS = VarkaConversionLowering.SMALL_BITS;
   /** The bounded magic's window, {@code |v| <= 2^51}. */
-  private static final long RTO_MAGIC_WINDOW = 1L << 51;
+  private static final long RTO_MAGIC_WINDOW = VarkaConversionLowering.MAGIC_WINDOW;
   /** The forms' double constants and the reinterpretation, restated after each reset. */
   private static final String RTO_DEFS = "(define-fun rto.M () Float64 ((_ to_fp 11 53) "
       + bv64(Double.doubleToRawLongBits(RTO_MAGIC)) + "))\n"
@@ -3003,11 +3022,18 @@ final class VarkaProofFiles {
         ;                 d = dh + dl
         ;   L2D, magic    bitsToDouble(v + MB) - M, under a guard of |v| <= 2^51
         ;   L2F           s = v >> 63, m = (v ^ s) - s read unsigned (2^63 at Long.MIN_VALUE)
-        ;                 big = m >>> 52 != 0
-        ;                 t = big ? (m >>> 12) | ((m & 0xFFF) != 0 ? 1 : 0) : m
-        ;                 d0 = bitsToDouble(t | bits(0x1p52)) - 0x1p52
-        ;                 d = big ? d0 * 0x1p12 : d0
-        ;                 f = (float) d, negated where s is set
+        ;                 sel = -(((m >>> 52) + Long.MAX_VALUE) >>> 63), all ones where
+        ;                   m >>> 52 != 0 (big)
+        ;                 t12 = (m >>> 12) | (((m & 0xFFF) + 0xFFF) >>> 12)
+        ;                 t = m ^ ((m ^ t12) & sel), t12 where big and m elsewhere
+        ;                 p = (bits(0x1p52) | (v & Long.MIN_VALUE)) + (sel & (12 << 52))
+        ;                 d = bitsToDouble(t | p) - bitsToDouble(p), f = (float) d
+        ;
+        ; These are the operations VarkaConversionLowering emits, from its constants; the L2F form
+        ; has no mask, since C2 on x86 lowers none at two 64-bit lanes. p is 2^52 below 2^52, where
+        ; d is m exactly, and 2^64 on the big arm, whose ulp 2^12 scales t as it converts, so that
+        ; d is t * 2^12 exactly; p's sign bit is v's, which negates both operands of the
+        ; subtraction.
         ;
         ; The claims: the split is (double) v and the magic is (double) v inside its window, and
         ; the L2F form is (float) v, for every long.
@@ -3034,9 +3060,14 @@ final class VarkaProofFiles {
         ; For m in [2^j, 2^(j+1)), j from 52 to 63, t << 12 is m rounded to odd at j - 11 bits
         ; (truncated, the sticky bit or-ed into the last kept bit), and p = 24, so k = j - 35 >=
         ; 17. Since k moves with the binade, the instance is checked per binade, beside the form
-        ; itself per binade, and the sign by the symmetry of rounding to nearest. That k >= 2 is
-        ; the theorem's bound, and not slack in it, is shown on the top binade: rounding to odd at
-        ; 26 bits then to nearest at 24 is one rounding, at 25 bits it is not.
+        ; itself per binade, over the magnitude, with its sticky bit shown to be the theorem's
+        ; rounding to odd. The sign: m is |v| read unsigned and (float) v is m's rounding negated
+        ; where v < 0; v & Long.MIN_VALUE is set exactly there; with the sign bit set in both
+        ; operands each arm's subtraction is the negated magnitude, for every t from 1 (t = 0
+        ; would give +0.0 either way, and t >= 1 where v < 0); and D2F of a negated double is the
+        ; negated float, all by the symmetry of rounding to nearest. That k >= 2 is the theorem's
+        ; bound, and not slack in it, is shown on the top binade: rounding to odd at 26 bits then
+        ; to nearest at 24 is one rounding, at 25 bits it is not.
         ;
         ; The sat checks: the domain admits Long.MIN_VALUE; the split with MB or the low word's
         ; magic one higher, or a shift of 31, is wrong; the magic is wrong one past its window at
@@ -3104,7 +3135,32 @@ final class VarkaProofFiles {
     fresh(out, "l2f: with m = v ^ s, without the - s, it is not (float) v", "sat",
         List.of(v, "(assert (not (= ((_ to_fp 8 24) RNE v) (ite (= " + s + " " + bv64(0) + ") "
             + onesRounded + " (fp.neg " + onesRounded + ")))))"));
+    String minBits = bv64(Long.MIN_VALUE);
+    fresh(out, "l2f: v & Long.MIN_VALUE is set exactly where v >> 63 is, for every long", "unsat",
+        List.of(v, "(assert (not (= (= (bvand v " + minBits + ") " + minBits + ") (not (= " + s
+            + " " + bv64(0) + ")))))"));
+    // The sign: each arm's magic with v's sign bit set gives the negated difference, for every
+    // t of the arm from 1 up; where v < 0, m and so t are at least 1.
+    String tDecl = "(declare-const t (_ BitVec 64))";
+    for (int shift : new int[] {0, RTO_SHIFT}) {
+      String p0 = bv64(p52 + ((long) shift << 52));
+      String magnitude = "(fp.sub RNE (rto.bitsToDouble (bvor t " + p0 + ")) (rto.bitsToDouble "
+          + p0 + "))";
+      String signed = "(fp.sub RNE (rto.bitsToDouble (bvor t (bvor " + p0 + " " + minBits
+          + "))) (rto.bitsToDouble (bvor " + p0 + " " + minBits + ")))";
+      fresh(out, "l2f: with v's sign bit the magic of 2^" + (52 + shift) + " gives the negated "
+          + "double, for every t in [1, 2^52)", "unsat", List.of(tDecl,
+              "(assert (= " + highBits("t", 52) + " " + zeros(12) + "))",
+              "(assert (not (= t " + bv64(0) + ")))",
+              "(assert (not (= " + signed + " (fp.neg " + magnitude + "))))"));
+    }
+    fresh(out, "l2f: D2F of a negated double is the negated float", "unsat",
+        List.of("(declare-const x Float64)", "(assert (not (= ((_ to_fp 8 24) RNE (fp.neg x)) "
+            + "(fp.neg ((_ to_fp 8 24) RNE x)))))"));
     String mDecl = "(declare-const m (_ BitVec 64))";
+    fresh(out, "l2f: the sticky bit (((m & 0xFFF) + 0xFFF) >>> 12) is m rounded to odd at 2^12, "
+        + "for every m", "unsat", List.of(mDecl, "(assert (not (= " + emittedToOdd(RTO_SHIFT)
+            + " " + toOdd("m", RTO_SHIFT, true) + ")))"));
     String formIsRounding = "(assert (not (= " + l2fForm(RTO_SHIFT, RTO_SMALL_BITS, true, p52)
         + " ((_ to_fp_unsigned 8 24) RNE m))))";
     fresh(out, "l2f: below 2^" + RTO_SMALL_BITS + " the form is the rounding of m", "unsat",
@@ -3206,18 +3262,27 @@ final class VarkaProofFiles {
     return "(bvor (bvlshr " + m + " " + bv64(shift) + ") " + bit + ")";
   }
 
+  /** The emitted {@code (m >>> k) | (((m & low) + low) >>> k)}, {@code low} the bits cut. */
+  private static String emittedToOdd(int k) {
+    String low = bv64((1L << k) - 1);
+    return "(bvor (bvlshr m " + bv64(k) + ") (bvlshr (bvadd (bvand m " + low + ") " + low
+        + ") " + bv64(k) + "))";
+  }
+
   /**
-   * The {@code L2F} form's float of the magnitude {@code m}: rounded to odd at {@code 2^shift}
-   * where {@code m >>> small != 0}, converted exactly by the magic, scaled, then {@code D2F}.
+   * The {@code L2F} form's float of the magnitude {@code m}, as the emitter computes it
+   * ({@code VarkaConversionLowering}): {@code sel} all ones where {@code m >>> small != 0}, there
+   * {@code m} rounded to odd at {@code 2^shift} (truncated alone without {@code sticky}), and the
+   * magic number whose ulp is {@code 2^shift} there and 1 elsewhere, then {@code D2F}.
    */
   private static String l2fForm(int shift, int small, boolean sticky, long p52) {
-    String big = "(not (= " + highBits("m", small) + " " + zeros(64 - small) + "))";
-    String t = "(ite " + big + " " + toOdd("m", shift, sticky) + " m)";
-    String d0 = "(fp.sub RNE (rto.bitsToDouble (bvor " + t + " " + bv64(p52) + ")) rto.P52)";
-    String scale = "((_ to_fp 11 53) " + bv64(Double.doubleToRawLongBits(Math.scalb(1.0, shift)))
-        + ")";
-    return "((_ to_fp 8 24) RNE (ite " + big + " (fp.mul RNE " + d0 + " " + scale + ") " + d0
-        + "))";
+    String sel = "(bvneg (bvlshr (bvadd (bvlshr m " + bv64(small) + ") " + bv64(Long.MAX_VALUE)
+        + ") " + bv64(63) + "))";
+    String odd = sticky ? emittedToOdd(shift) : "(bvlshr m " + bv64(shift) + ")";
+    String t = "(bvxor m (bvand (bvxor m " + odd + ") " + sel + "))";
+    String p = "(bvadd " + bv64(p52) + " (bvand " + sel + " " + bv64((long) shift << 52) + "))";
+    return "((_ to_fp 8 24) RNE (fp.sub RNE (rto.bitsToDouble (bvor " + t + " " + p + ")) "
+        + "(rto.bitsToDouble " + p + ")))";
   }
 
   // -----------------------------------------------------------------------------------------
@@ -3482,8 +3547,9 @@ final class VarkaProofFiles {
    * for each precision of the pair, the load's check over the constant pairs of
    * {@link DecimalWords#bound}, two {@code gt128} compares, holds exactly where
    * {@code |v| > 10^p - 1}, and with a bound one off it does not. Value semantics only: the
-   * words as integers, so it holds whatever layout carries them; the carry layer, the words as
-   * Java's wrapping longs, joins it with the emitted forms.
+   * words as integers, so it holds whatever layout carries them; the carry layer
+   * ({@link #decimal128Carry}), the words as Java's wrapping longs, joins it with the emitted
+   * forms.
    */
   static String decimal128() {
     var out = new StringBuilder(LICENSE);
@@ -3500,7 +3566,9 @@ final class VarkaProofFiles {
         ; and > and >= the first two with the operands swapped. The load's check declines a valid
         ; slot where gt128(u, B) | gt128(-B, u), gt128(u, c) = GT(u.hi, c.hi) | (EQ(u.hi, c.hi) &
         ; UGT(u.lo, c.lo)), with B = 10^p - 1 as its constant pair. Each is proven equal to the
-        ; integer statement; a bound one off is refuted at every precision.
+        ; integer statement; a bound one off is refuted at every precision. The carry layer, last,
+        ; proves the comparisons over the words as the kernel holds them, Java longs, and the
+        ; sign extension that widens a value within 18 digits to its words.
         """);
     out.append(RENDERED);
     String two63 = BigInteger.ONE.shiftLeft(63).toString();
@@ -3576,7 +3644,53 @@ final class VarkaProofFiles {
         check(out, what, off == 0 ? "unsat" : "sat", body);
       }
     }
+    decimal128Carry(out, two64);
     return out.toString();
+  }
+
+  /**
+   * {@code decimal128.smt2}'s carry layer for the comparisons: the words as the kernel holds
+   * them, Java longs in {@code [-2^63, 2^63)}, the low word's value being the long read
+   * {@code mod 2^64}. An unsigned compare is {@code Long.compareUnsigned}'s, the signed compare
+   * with both sign bits flipped, which is {@code jlong.add x jlong.MIN}; each lowering over the
+   * longs then equals the comparison of the values. A value within 18 digits joins a pair as its
+   * long and the sign extension {@code x >> 63}, and those words hold {@code x}.
+   */
+  private static void decimal128Carry(StringBuilder out, String two64) {
+    out.append("""
+
+        ; The carry layer: each word a Java long, the low one's value the long mod 2^64, and
+        ; ULT(a, b) the signed compare of a and b with their sign bits flipped.
+        (define-fun c.lo ((l Int)) Int (mod l %1$s))
+        (define-fun c.flip ((l Int)) Int (jlong.add l jlong.MIN))
+        """.formatted(two64));
+    List<String> longs = List.of("(declare-const xh Int)", "(declare-const xl Int)",
+        "(declare-const yh Int)", "(declare-const yl Int)",
+        "(assert (and (jlong.in xh) (jlong.in xl) (jlong.in yh) (jlong.in yl)))");
+    String vx = "(w.val xh (c.lo xl))";
+    String vy = "(w.val yh (c.lo yl))";
+    String ult = "(< (c.flip %s) (c.flip %s))";
+    String ule = "(<= (c.flip %s) (c.flip %s))";
+    String[][] forms = {
+        {"<", "(or (< xh yh) (and (= xh yh) " + ult.formatted("xl", "yl") + "))",
+            "(< " + vx + " " + vy + ")"},
+        {"<=", "(or (< xh yh) (and (= xh yh) " + ule.formatted("xl", "yl") + "))",
+            "(<= " + vx + " " + vy + ")"},
+        {"=", "(and (= xh yh) (= xl yl))", "(= " + vx + " " + vy + ")"},
+        {">", "(or (< yh xh) (and (= yh xh) " + ult.formatted("yl", "xl") + "))",
+            "(> " + vx + " " + vy + ")"},
+        {">=", "(or (< yh xh) (and (= yh xh) " + ule.formatted("yl", "xl") + "))",
+            "(>= " + vx + " " + vy + ")"},
+    };
+    for (String[] f : forms) {
+      var body = new ArrayList<>(longs);
+      body.add("(assert (not (= " + f[1] + " " + f[2] + ")))");
+      check(out, "x " + f[0] + " y over the words as Java longs is the comparison of the values",
+          "unsat", body);
+    }
+    check(out, "a long and its sign extension x >> 63 are the words of the long's value",
+        "unsat", List.of("(declare-const x Int)", "(assert (jlong.in x))",
+            "(assert (not (= (w.val (jlong.shr x 63) (c.lo x)) x)))"));
   }
 
   // -----------------------------------------------------------------------------------------
@@ -3734,6 +3848,146 @@ final class VarkaProofFiles {
   /** A long as a 64-bit SMT-LIB bit-vector literal. */
   private static String bv64(long v) {
     return String.format("#x%016x", v);
+  }
+
+  // -----------------------------------------------------------------------------------------
+  // The proof printer's word form against the prelude (VARKA-506).
+  // -----------------------------------------------------------------------------------------
+
+  /**
+   * {@code smt_print_check.smt2}: the text row 506's proof printer prints for a long, held to the
+   * prelude under the solvers, as {@code java_check.smt2} holds the prelude to the JVM. For each
+   * long operator the word form has a rule for, at the constants its rules branch on, the word
+   * form's unsigned reading equal to {@code (mod t 2^64)} of the prelude form for every pair of
+   * longs (a compare's word form equal to the compare), and each obligation the rule makes
+   * proven for every input.
+   */
+  static String smtPrintCheck() {
+    var out = new StringBuilder(LICENSE);
+    out.append("""
+        ; The proof printer's word form (VARKA-506 2.3) against the prelude. The printer renders a
+        ; long by its unsigned reading in [0, 2^64), with an interval computed from its operands':
+        ; a step that cannot wrap is exact and its no-wrap claim an obligation, one that can wrap
+        ; keeps one reduction by a named quotient, and a shift right or a low mask is a quotient
+        ; by 2^k pinned by its remainder's range (VarkaSmtTerm.WordForm). Each check below is a
+        ; law of that form: an operator's word form is the unsigned reading of its java.smt2
+        ; form, (mod t 2^64), and a compare's the compare, for every pair of longs, at each shift
+        ; count and constant the rules branch on (unsat), and each obligation a rule makes holds
+        ; for every input (unsat). VarkaSmtTermSuite holds the same terms to the JVM's answers
+        ; over BigInteger. The logic is ALL: under QF_NIA cvc5
+        ; leaves the exact sum of a mask and a shift unknown at the limit, where under ALL both
+        ; solvers decide the file in a fraction of a second.
+        """);
+    out.append(rendered("ALL"));
+    var x = new VarkaSmtTerm.Var("x", VarkaSmtTerm.Sort.LONG);
+    var y = new VarkaSmtTerm.Var("y", VarkaSmtTerm.Sort.LONG);
+    Map<String, VarkaSmtTerm> facts = Map.of("x", VarkaSmtTerm.app(VarkaSmtTerm.Op.JLONG_IN, x),
+        "y", VarkaSmtTerm.app(VarkaSmtTerm.Op.JLONG_IN, y));
+    for (VarkaSmtTerm t : wordLaws(x, y)) {
+      var words = new VarkaSmtTerm.WordForm();
+      VarkaSmtTerm law = t.sort() == VarkaSmtTerm.Sort.BOOL
+          ? VarkaSmtTerm.app(VarkaSmtTerm.Op.EQ, words.term(t), t)
+          : VarkaSmtTerm.app(VarkaSmtTerm.Op.EQ, words.word(t).u(),
+              VarkaSmtTerm.app(VarkaSmtTerm.Op.MOD, t, VarkaSmtTerm.num(VarkaSmtTerm.WORD)));
+      check(out, "the word form of " + t.render() + " is its prelude form", "unsat",
+          declared(facts, "(assert (not " + law.render() + "))", law));
+      for (var ob : words.obligations) {
+        check(out, "the word form of " + t.render() + ": " + ob.what(), "unsat",
+            declared(facts, "(assert (not " + ob.claim().render() + "))", ob.claim()));
+      }
+    }
+    // The term tree's div and mod are evaluated as SMT-LIB's, Euclidean, negative divisors too.
+    var divisions = new ArrayList<String>();
+    for (BigInteger a : divisionOperands(false)) {
+      for (BigInteger b : divisionOperands(true)) {
+        for (VarkaSmtTerm.Op op : List.of(VarkaSmtTerm.Op.DIV, VarkaSmtTerm.Op.MOD)) {
+          VarkaSmtTerm t = VarkaSmtTerm.app(op, VarkaSmtTerm.num(a), VarkaSmtTerm.num(b));
+          divisions.add("(= " + t.render() + " "
+              + VarkaSmtTerm.num((BigInteger) t.eval(Map.of())).render() + ")");
+        }
+      }
+    }
+    equations(out, "div and mod are the term tree's evaluation of them", divisions);
+    return out.toString();
+  }
+
+  /** Dividends, or divisors without 0, on both sides of 0 and past the long range. */
+  static List<BigInteger> divisionOperands(boolean divisors) {
+    var out = new ArrayList<BigInteger>();
+    for (long v : new long[] {0, 1, 2, 7, 1L << 32}) {
+      if (v != 0 || !divisors) {
+        out.add(BigInteger.valueOf(v));
+        out.add(BigInteger.valueOf(-v));
+      }
+    }
+    out.add(VarkaSmtTerm.WORD.add(BigInteger.valueOf(3)));
+    out.add(VarkaSmtTerm.WORD.negate());
+    return out.stream().distinct().toList();
+  }
+
+  /**
+   * The terms the word form's laws are stated at, over two longs: each long operator it has a
+   * rule for at the shift counts and constants the rules branch on, nested where one rule feeds
+   * another (a sign word into a masked AND, a mask into a shift, a subtract and a multiply), so
+   * each branch of the intervals is taken, and the four unsigned compares with a signed one
+   * beside them.
+   */
+  static List<VarkaSmtTerm> wordLaws(VarkaSmtTerm x, VarkaSmtTerm y) {
+    var laws = new ArrayList<VarkaSmtTerm>();
+    laws.add(VarkaSmtTerm.app(VarkaSmtTerm.Op.JLONG_SUB, x, y));
+    for (VarkaSmtTerm.Op op : List.of(VarkaSmtTerm.Op.JLONG_ADD, VarkaSmtTerm.Op.JLONG_ULT,
+        VarkaSmtTerm.Op.JLONG_ULE, VarkaSmtTerm.Op.JLONG_UGT, VarkaSmtTerm.Op.JLONG_UGE,
+        VarkaSmtTerm.Op.LT, VarkaSmtTerm.Op.EQ)) {
+      laws.add(VarkaSmtTerm.app(op, VarkaSmtTerm.app(VarkaSmtTerm.Op.JLONG_ADD, x, y), y));
+    }
+    VarkaSmtTerm low = VarkaSmtTerm.app(VarkaSmtTerm.Op.JLONG_AND_LOW, x,
+        VarkaSmtTerm.num(1L << 32));
+    laws.addAll(List.of(VarkaSmtTerm.app(VarkaSmtTerm.Op.JLONG_NEG, x), low,
+        VarkaSmtTerm.app(VarkaSmtTerm.Op.JLONG_AND_LOW, x, VarkaSmtTerm.num(2)),
+        VarkaSmtTerm.app(VarkaSmtTerm.Op.JLONG_AND_SIGN, VarkaSmtTerm.app(
+            VarkaSmtTerm.Op.JLONG_SHR, x, VarkaSmtTerm.num(63)), y),
+        VarkaSmtTerm.app(VarkaSmtTerm.Op.JLONG_ADD, low, VarkaSmtTerm.app(
+            VarkaSmtTerm.Op.JLONG_USHR, y, VarkaSmtTerm.num(32))),
+        VarkaSmtTerm.app(VarkaSmtTerm.Op.JLONG_SHL, low, VarkaSmtTerm.num(32)),
+        VarkaSmtTerm.ite(VarkaSmtTerm.app(VarkaSmtTerm.Op.JLONG_ULT, x, y), x, y)));
+    // A shift right of a word below 2^63, a quotient with no sign to read; a subtract whose
+    // interval goes below 0, reduced; and a multiply whose interval stays in range, exact.
+    laws.addAll(List.of(VarkaSmtTerm.app(VarkaSmtTerm.Op.JLONG_SHR, low, VarkaSmtTerm.num(1)),
+        VarkaSmtTerm.app(VarkaSmtTerm.Op.JLONG_SUB, low, VarkaSmtTerm.app(
+            VarkaSmtTerm.Op.JLONG_USHR, y, VarkaSmtTerm.num(32))),
+        VarkaSmtTerm.app(VarkaSmtTerm.Op.JLONG_MUL, low, VarkaSmtTerm.num(1L << 31))));
+    for (long c : new long[] {1_000_000_000L, 1L << 32, -1}) {
+      laws.add(VarkaSmtTerm.app(VarkaSmtTerm.Op.JLONG_MUL, x, VarkaSmtTerm.num(c)));
+    }
+    for (long n : new long[] {0, 1, 32, 62, 63, 64, 65}) {
+      for (VarkaSmtTerm.Op op : List.of(VarkaSmtTerm.Op.JLONG_SHL, VarkaSmtTerm.Op.JLONG_SHR,
+          VarkaSmtTerm.Op.JLONG_USHR)) {
+        laws.add(VarkaSmtTerm.app(op, x, VarkaSmtTerm.num(n)));
+      }
+    }
+    return laws;
+  }
+
+  /** {@code claim}'s variables declared with their facts and its quotients pinned, then it. */
+  private static List<String> declared(Map<String, VarkaSmtTerm> facts, String claim,
+      VarkaSmtTerm term) {
+    var vars = new LinkedHashMap<String, VarkaSmtTerm.Var>();
+    var quots = new LinkedHashMap<String, VarkaSmtTerm.Quot>();
+    VarkaSmtTerm.collect(term, vars, quots);
+    var lines = new ArrayList<String>();
+    for (var v : vars.values()) {
+      lines.add("(declare-const " + v.name() + " " + (v.sort() == VarkaSmtTerm.Sort.BOOL
+          ? "Bool" : "Int") + ")");
+      if (facts.containsKey(v.name())) {
+        lines.add("(assert " + facts.get(v.name()).render() + ")");
+      }
+    }
+    for (var q : quots.values()) {
+      lines.add("(declare-const " + q.name() + " Int)");
+      lines.add(VarkaSmtTerm.pin(q));
+    }
+    lines.add(claim);
+    return lines;
   }
 
   // -----------------------------------------------------------------------------------------

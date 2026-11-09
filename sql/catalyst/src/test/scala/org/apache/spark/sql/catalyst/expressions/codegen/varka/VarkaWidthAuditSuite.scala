@@ -17,17 +17,15 @@
 
 package org.apache.spark.sql.catalyst.expressions.codegen.varka
 
-import java.io.{BufferedReader, File, InputStreamReader}
+import java.io.File
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
-import java.util.concurrent.TimeUnit
 
 import scala.collection.mutable
 import scala.jdk.CollectionConverters._
 import scala.util.{Failure, Success, Try}
 
 import com.fasterxml.jackson.databind.ObjectMapper
-import org.scalatest.exceptions.TestFailedException
 
 import org.apache.spark.SparkFunSuite
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaWidthAuditProbe._
@@ -105,95 +103,29 @@ class VarkaWidthAuditSuite extends SparkFunSuite with VarkaTestWatchdog {
     }
   }
 
-  private def testClasspath: String =
-    Option(System.getenv("SPARK_DIST_CLASSPATH")).filter(_.nonEmpty)
-      .getOrElse(System.getProperty("java.class.path"))
-
   private lazy val coverageJson: File =
     getWorkspaceFilePath("sql", "varka", "coverage.json").toFile
 
   /** One audit probe: `name` says which, with its width, `None` for the host's own. */
   private case class Probe(name: String, maxVectorSizeBytes: Option[Int])
 
-  /** What one child JVM did: its PID, its exit, and whether its budget ended it. */
-  private case class ChildRun(pid: Long, exitValue: Int, timedOut: Boolean)
-
-  /** The child JVM running now, if any, so `afterAll` can end one an aborted set-up left. */
-  @volatile private var runningChild: Option[Process] = None
-
-  /**
-   * Runs `command` as a child with its errors merged into its output, hands that output to
-   * `read` on a reader thread, and waits up to `budgetSeconds` for the child to exit; a child
-   * still running then is destroyed and reported as timed out. `what` names the child in the
-   * log, with its PID.
-   */
-  private def runChild(what: String, command: Seq[String], budgetSeconds: Long)(
-      read: BufferedReader => Unit): ChildRun = {
-    val builder = new ProcessBuilder(command.asJava)
-    builder.redirectErrorStream(true)
-    val process = builder.start()
-    runningChild = Some(process)
-    logInfo(s"$what started as pid ${process.pid()}")
-    var readFailure: Option[Throwable] = None
-    val reader = new Thread(() => {
-      val in = new BufferedReader(
-        new InputStreamReader(process.getInputStream, StandardCharsets.UTF_8))
-      try read(in) catch {
-        case t: Throwable => readFailure = Some(t)
-      } finally {
-        in.close()
-      }
-    }, "varka-width-audit-reader")
-    reader.setDaemon(true)
-    reader.start()
-    try {
-      val timedOut = !process.waitFor(budgetSeconds, TimeUnit.SECONDS)
-      if (timedOut) process.destroyForcibly()
-      process.waitFor()
-      // The child's output ends once it has exited, so the reader ends too, and what `read`
-      // wrote is visible here once it is joined.
-      reader.join()
-      readFailure.foreach(t => throw t)
-      ChildRun(process.pid(), process.exitValue(), timedOut)
-    } finally {
-      // A wait that throws, an interrupt among them, must not leave the child running.
-      if (process.isAlive) process.destroyForcibly()
-      runningChild = None
-    }
-  }
-
-  /** Fails, with the child's last lines, when its budget ended it. */
-  private def failIfTimedOut(
-      what: String, run: ChildRun, budgetSeconds: Long, tail: Seq[String]): Unit = {
-    if (run.timedOut) {
-      fail(s"$what did not finish within $budgetSeconds s and was destroyed; its last lines:\n" +
-        tail.mkString("\n"))
-    }
-  }
-
   /** Fork `probe` at its width - or at the host's own, for `None` - and read its answers. */
   private def audit(probe: Probe): Census = {
-    val javaBin = new File(new File(System.getProperty("java.home"), "bin"), "java")
-    val command = new java.util.ArrayList[String]()
-    command.add(javaBin.getAbsolutePath)
-    command.add("--add-modules")
-    command.add("jdk.incubator.vector")
-    command.add("--enable-native-access=ALL-UNNAMED")
+    val flags = new java.util.ArrayList[String]()
     // VarkaHostIsa's feature query, which keys the converts the invariant expects (VARKA-538).
-    command.add("--add-exports=java.base/jdk.internal.vm.vector=ALL-UNNAMED")
-    command.add("-XX:+UnlockDiagnosticVMOptions")
-    command.add("-Xbatch")
+    flags.add("--add-exports=java.base/jdk.internal.vm.vector=ALL-UNNAMED")
+    flags.add("-XX:+UnlockDiagnosticVMOptions")
+    flags.add("-Xbatch")
     // A fixed heap rather than the JVM's default of a quarter of the machine's memory, since the
     // shard runs other JVMs beside it. Under -Xlog:gc a probe's heap reached 349 MB before a
     // collection and kept 191 MB after one (`plans/m8/results/VARKA-581-probe-times.txt`).
-    command.add("-Xmx1g")
-    command.add("-XX:CompileCommand=quiet")
-    command.add(s"-XX:CompileCommand=PrintIntrinsics,$CLASS_PREFIX*::*")
-    probe.maxVectorSizeBytes.foreach(b => command.add(s"-XX:MaxVectorSize=$b"))
-    command.add("-cp")
-    command.add(testClasspath)
-    command.add(VarkaWidthAuditProbe.getClass.getName.stripSuffix("$"))
-    command.add(coverageJson.getAbsolutePath)
+    flags.add("-Xmx1g")
+    flags.add("-XX:CompileCommand=quiet")
+    flags.add(s"-XX:CompileCommand=PrintIntrinsics,$CLASS_PREFIX*::*")
+    probe.maxVectorSizeBytes.foreach(b => flags.add(s"-XX:MaxVectorSize=$b"))
+    val command = VarkaChildProcess.javaCommand(flags,
+      VarkaWidthAuditProbe.getClass.getName.stripSuffix("$"),
+      java.util.List.of(coverageJson.getAbsolutePath))
     val refusals = mutable.LinkedHashMap.empty[String, mutable.LinkedHashSet[String]]
     val unattributed = mutable.LinkedHashSet.empty[String]
     val declined = mutable.LinkedHashMap.empty[String, String]
@@ -203,12 +135,9 @@ class VarkaWidthAuditSuite extends SparkFunSuite with VarkaTestWatchdog {
     var fallsBack: Option[Boolean] = None
     var featuresFailure: Option[Option[String]] = None
     var done = false
-    val tail = mutable.Queue.empty[String]
-    val run = runChild(probe.name, command.asScala.toSeq, childTimeoutSeconds) { reader =>
-      var line = reader.readLine()
-      while (line != null) {
-        tail.enqueue(line)
-        if (tail.size > 40) tail.dequeue()
+    val child = s"${probe.name} ($suiteName)"
+    val run = VarkaChildProcess.run(child, new ProcessBuilder(command), childTimeoutSeconds, {
+      line =>
         // Markers are found anywhere in a line: a compiler thread's record can share the line
         // (`VarkaProbeOutput`).
         val trimmed = line.trim
@@ -245,12 +174,8 @@ class VarkaWidthAuditSuite extends SparkFunSuite with VarkaTestWatchdog {
             case None => unattributed += what
           }
         }
-        line = reader.readLine()
-      }
-    }
-    failIfTimedOut(probe.name, run, childTimeoutSeconds, tail.toSeq)
-    assert(run.exitValue == 0 && done,
-      s"${probe.name} failed (exit ${run.exitValue}); its last lines:\n" + tail.mkString("\n"))
+    })
+    run.requireSuccess(done)
     assert(bits > 0, s"${probe.name} never reported its preferred vector width")
     assert(fallsBack.isDefined, s"${probe.name} never reported whether its converts fall back")
     assert(featuresFailure.isDefined, s"${probe.name} never reported its feature read")
@@ -282,9 +207,6 @@ class VarkaWidthAuditSuite extends SparkFunSuite with VarkaTestWatchdog {
    */
   override def beforeAll(): Unit = {
     super.beforeAll()
-    // The child JVMs' code runs where the class-use record cannot see it (VarkaTestUse); run in
-    // the suite's set-up, the record takes it as every test's.
-    VarkaTestUse.childJvm()
     val probes = Seq(preferredProbe, preferredAgainProbe) ++ widthsBytes.map(forcedProbes)
     results = probes.map { probe =>
       val begun = System.nanoTime()
@@ -292,14 +214,6 @@ class VarkaWidthAuditSuite extends SparkFunSuite with VarkaTestWatchdog {
       logInfo(s"${probe.name} took ${(System.nanoTime() - begun) / 1000000000L} s")
       probe -> result
     }.toMap
-  }
-
-  override def afterAll(): Unit = {
-    try {
-      runningChild.foreach(_.destroyForcibly())
-    } finally {
-      super.afterAll()
-    }
   }
 
   /** The census of `probe`, or a failure of the calling test that names the probe. */
@@ -571,22 +485,6 @@ class VarkaWidthAuditSuite extends SparkFunSuite with VarkaTestWatchdog {
         }
       }
     }
-  }
-
-  test("a child past its budget is destroyed and its probe fails saying so") {
-    // The same start, read and wait the probes run under, on a child that outlives a 1 s
-    // budget: the wait must end it, and the failure must say why.
-    val sleep = new File("/bin/sleep")
-    assume(sleep.canExecute, "no /bin/sleep to stand in for a hung probe")
-    val start = System.nanoTime()
-    val run = runChild("a sleeping child", Seq(sleep.getPath, "30"), 1L)(_.readLine())
-    assert(run.timedOut)
-    assert((System.nanoTime() - start) / 1000000000L < 20L, "the budget did not end the child")
-    assert(!ProcessHandle.of(run.pid).map[Boolean](_.isAlive).orElse(false),
-      s"the timed-out child, pid ${run.pid}, is still running")
-    val e = intercept[TestFailedException](failIfTimedOut("the audit probe", run, 1L, Seq.empty))
-    assert(e.getMessage.startsWith(
-      "the audit probe did not finish within 1 s and was destroyed; its last lines:"))
   }
 
   test("a decline is admitted only where the census records it, with its reason") {
