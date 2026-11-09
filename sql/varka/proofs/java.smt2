@@ -214,3 +214,19 @@
 
 ; The int counterpart, for floorMod7's folds (VARKA-242): x & (2^k - 1) for any int x, k2 = 2^k.
 (define-fun jint.and.low ((x Int) (k2 Int)) Int (mod x k2))
+
+; The unsigned compares of two longs (VARKA-359's ULT, ULE, UGT and UGE, Long.compareUnsigned's
+; order): the compare of the two readings modulo 2^64, as VectorOperators.ULT orders a lane's bits.
+(define-fun jlong.ult ((x Int) (y Int)) Bool
+  (< (mod x 18446744073709551616) (mod y 18446744073709551616)))
+(define-fun jlong.ule ((x Int) (y Int)) Bool
+  (<= (mod x 18446744073709551616) (mod y 18446744073709551616)))
+(define-fun jlong.ugt ((x Int) (y Int)) Bool
+  (> (mod x 18446744073709551616) (mod y 18446744073709551616)))
+(define-fun jlong.uge ((x Int) (y Int)) Bool
+  (>= (mod x 18446744073709551616) (mod y 18446744073709551616)))
+
+; m & y for a sign word m, 0 or -1, as x >> 63 makes one (VARKA-506 2.3, 361's y & sign(x)): y
+; where m is -1 and 0 where it is 0. Elsewhere it is not Java's &, so a proof that uses it shows
+; m is a sign word, as an obligation.
+(define-fun jlong.and.sign ((m Int) (y Int)) Int (ite (= m (- 1)) y 0))
