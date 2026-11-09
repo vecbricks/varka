@@ -14394,12 +14394,24 @@
       "16" : "34695809cab1d810"
     },
     "wideConversionForm=SPLIT over useAVX=2" : {
-      "4" : "4f02b3652262b16b",
-      "16" : "df07f428b64a85ba"
+      "4" : "78d02f788bb6a2fe",
+      "16" : "a0b6c66d8781a471"
     },
     "wideConversionForm=MAGIC over useAVX=2" : {
-      "4" : "4f02b3652262b16b",
-      "16" : "df07f428b64a85ba"
+      "4" : "78d02f788bb6a2fe",
+      "16" : "a0b6c66d8781a471"
+    },
+    "wideConversionForm=XOR_SPLIT over useAVX=2" : {
+      "4" : "78d02f788bb6a2fe",
+      "16" : "a0b6c66d8781a471"
+    },
+    "roundToOddByShifts=true over useAVX=2" : {
+      "4" : "78d02f788bb6a2fe",
+      "16" : "a0b6c66d8781a471"
+    },
+    "roundToOddByShifts=false over useAVX=2" : {
+      "4" : "78d02f788bb6a2fe",
+      "16" : "a0b6c66d8781a471"
     },
     "narrowLanes=true" : {
       "4" : "7b62a5ff462b2314",
