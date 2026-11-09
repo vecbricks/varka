@@ -218,12 +218,18 @@ final class VarkaTimeCompiler {
       // eight-byte longs: with the registry's reason where it has one (a precision or scale off
       // the lane), and otherwise as a value outside a
       // condition - an output, row 348's (348b), or the operand of a cast to an integral
-      // or a floating type, rows 350 and 366.
+      // or a floating type, rows 350 and 366. Above 18 digits the value is two words
+      // (VARKA-359), whose operators beyond the comparisons and null tests are later rows'.
       case BoundReference br when br.dataType() instanceof DecimalType d ->
           () -> sink.decline(VarkaTypes.declineReason(d).orElse("a " + d.simpleString()
-              + " column as a value: its comparisons, null tests and the values they read fuse, "
-              + "+, - and * among them; a decimal output is row 348's, its casts to other types "
-              + "rows 350 and 366"), br);
+              + " column as a value: "
+              + (d.precision() > VarkaVectorIR.DecimalColumn.MAX_LONG_PRECISION
+                  ? "its comparisons and null tests fuse; its negation, abs and choices are row "
+                      + "359's, its +, - and * rows 360 to 363, a decimal output its two-word "
+                      + "store, row 359's"
+                  : "its comparisons, null tests and the values they read fuse, +, - and * "
+                      + "among them; a decimal output is row 348's")
+              + ", its casts to other types rows 350 and 366"), br);
       case BoundReference br
           when VarkaTypes.lane(br.dataType()).orElse(null) == LaneType.LONG ->
           () -> Optional.of(VarkaNodeCompiler.columnRef(br, inputs, LaneType.LONG));

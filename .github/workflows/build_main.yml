@@ -33,12 +33,35 @@ jobs:
     name: Run
     # Skip pushes to `master` on forks: the "Sync fork" button mirrors
     # apache/spark and would otherwise re-run the full build on every sync.
-    if: >-
-      github.repository == 'apache/spark'
-      || github.ref != 'refs/heads/master'
+    # Post-merge sampling on apache/spark master and branch-4.x is applied by
+    # dev/merge_spark_pr.py through GitHub's workflow-skip commit trailer.
+    if: github.repository == 'apache/spark' || github.ref != 'refs/heads/master'
     uses: ./.github/workflows/build_and_test.yml
     with:
       # The root pom sets java.version=25, which drives both maven.compiler.release
       # and the enforcer's requireJavaVersion rule, so Spark no longer builds on the
-      # workflow's default JDK of 17. The Varka engine targets release 25 as well.
+      # workflow's default JDK of 21. The Varka engine targets release 25 as well.
       java: 25
+      # Sampled upstream pushes run the full job matrix.
+      # Fork pushes keep the reusable workflow's change-based selection.
+      jobs: >-
+        ${{ github.repository == 'apache/spark' && '{
+          "build": "true",
+          "build-core-utils": "true",
+          "pyspark": "true",
+          "pyspark-pandas": "true",
+          "pyspark-periodic": "true",
+          "pyspark-connect-old-client": "true",
+          "sparkr": "true",
+          "tpcds-1g": "true",
+          "docker-integration-tests": "true",
+          "lint": "true",
+          "java25": "true",
+          "docs": "true",
+          "yarn": "true",
+          "k8s-integration-tests": "true",
+          "oidc-e2e": "true",
+          "buf": "true",
+          "ui": "true",
+          "transpile": "true"
+        }' || '' }}
