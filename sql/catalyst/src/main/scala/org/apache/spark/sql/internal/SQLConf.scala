@@ -3161,7 +3161,7 @@ object SQLConf {
       .internal()
       .doc("Whether the Varka compiler leaves a filter's condition to the row engine when its" +
         " kernel would be driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time" +
-        " interval, DECIMAL up to 18 digits), on an x86 host whose 64-bit vector species have" +
+        " interval, DECIMAL), on an x86 host whose 64-bit vector species have" +
         " two lanes or fewer, where the JIT lowers no vector mask and the kernel runs slower" +
         " than the row engine. Unset, the host's answer: true on such a host, false" +
         " everywhere else, aarch64 included. Every conjunct that reads a 64-bit column is" +

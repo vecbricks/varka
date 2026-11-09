@@ -53,11 +53,12 @@ object VarkaCoverageRows {
    */
   def readsNarrow(executable: String): Boolean = narrowColumn.findFirstIn(executable).isDefined
 
-  private val decimalColumn = "\\b(d9|d9b|d18|d18b|d9s4|d16s9|d8)\\b".r
+  private val decimalColumn = "\\b(d9|d9b|d18|d18b|d9s4|d16s9|d8|d19|d38|d38b|d3810)\\b".r
 
   /**
    * Whether an executable row reads one of the table's DECIMAL columns, `d9`, `d9b`, `d18`,
-   * `d18b`, `d9s4`, `d16s9` (VARKA-347, VARKA-348) or `d8` (VARKA-349). The fuzzers that draw
+   * `d18b`, `d9s4`, `d16s9` (VARKA-347, VARKA-348), `d8` (VARKA-349) or the 128-bit pair's
+   * `d19`, `d38`, `d38b` and `d3810` (VARKA-359). The fuzzers that draw
    * int and long columns leave these rows out for {@link #readsNarrow}'s reason: a decimal
    * column is Arrow's sixteen-byte slot a row, which their batches and oracles do not build.
    * Drawing the decimal type is VARKA-352's.

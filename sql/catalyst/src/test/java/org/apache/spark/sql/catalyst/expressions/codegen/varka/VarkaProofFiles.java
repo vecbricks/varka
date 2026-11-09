@@ -3524,8 +3524,9 @@ final class VarkaProofFiles {
    * for each precision of the pair, the load's check over the constant pairs of
    * {@link DecimalWords#bound}, two {@code gt128} compares, holds exactly where
    * {@code |v| > 10^p - 1}, and with a bound one off it does not. Value semantics only: the
-   * words as integers, so it holds whatever layout carries them; the carry layer, the words as
-   * Java's wrapping longs, joins it with the emitted forms.
+   * words as integers, so it holds whatever layout carries them; the carry layer
+   * ({@link #decimal128Carry}), the words as Java's wrapping longs, joins it with the emitted
+   * forms.
    */
   static String decimal128() {
     var out = new StringBuilder(LICENSE);
@@ -3542,7 +3543,9 @@ final class VarkaProofFiles {
         ; and > and >= the first two with the operands swapped. The load's check declines a valid
         ; slot where gt128(u, B) | gt128(-B, u), gt128(u, c) = GT(u.hi, c.hi) | (EQ(u.hi, c.hi) &
         ; UGT(u.lo, c.lo)), with B = 10^p - 1 as its constant pair. Each is proven equal to the
-        ; integer statement; a bound one off is refuted at every precision.
+        ; integer statement; a bound one off is refuted at every precision. The carry layer, last,
+        ; proves the comparisons over the words as the kernel holds them, Java longs, and the
+        ; sign extension that widens a value within 18 digits to its words.
         """);
     out.append(RENDERED);
     String two63 = BigInteger.ONE.shiftLeft(63).toString();
@@ -3618,7 +3621,53 @@ final class VarkaProofFiles {
         check(out, what, off == 0 ? "unsat" : "sat", body);
       }
     }
+    decimal128Carry(out, two64);
     return out.toString();
+  }
+
+  /**
+   * {@code decimal128.smt2}'s carry layer for the comparisons: the words as the kernel holds
+   * them, Java longs in {@code [-2^63, 2^63)}, the low word's value being the long read
+   * {@code mod 2^64}. An unsigned compare is {@code Long.compareUnsigned}'s, the signed compare
+   * with both sign bits flipped, which is {@code jlong.add x jlong.MIN}; each lowering over the
+   * longs then equals the comparison of the values. A value within 18 digits joins a pair as its
+   * long and the sign extension {@code x >> 63}, and those words hold {@code x}.
+   */
+  private static void decimal128Carry(StringBuilder out, String two64) {
+    out.append("""
+
+        ; The carry layer: each word a Java long, the low one's value the long mod 2^64, and
+        ; ULT(a, b) the signed compare of a and b with their sign bits flipped.
+        (define-fun c.lo ((l Int)) Int (mod l %1$s))
+        (define-fun c.flip ((l Int)) Int (jlong.add l jlong.MIN))
+        """.formatted(two64));
+    List<String> longs = List.of("(declare-const xh Int)", "(declare-const xl Int)",
+        "(declare-const yh Int)", "(declare-const yl Int)",
+        "(assert (and (jlong.in xh) (jlong.in xl) (jlong.in yh) (jlong.in yl)))");
+    String vx = "(w.val xh (c.lo xl))";
+    String vy = "(w.val yh (c.lo yl))";
+    String ult = "(< (c.flip %s) (c.flip %s))";
+    String ule = "(<= (c.flip %s) (c.flip %s))";
+    String[][] forms = {
+        {"<", "(or (< xh yh) (and (= xh yh) " + ult.formatted("xl", "yl") + "))",
+            "(< " + vx + " " + vy + ")"},
+        {"<=", "(or (< xh yh) (and (= xh yh) " + ule.formatted("xl", "yl") + "))",
+            "(<= " + vx + " " + vy + ")"},
+        {"=", "(and (= xh yh) (= xl yl))", "(= " + vx + " " + vy + ")"},
+        {">", "(or (< yh xh) (and (= yh xh) " + ult.formatted("yl", "xl") + "))",
+            "(> " + vx + " " + vy + ")"},
+        {">=", "(or (< yh xh) (and (= yh xh) " + ule.formatted("yl", "xl") + "))",
+            "(>= " + vx + " " + vy + ")"},
+    };
+    for (String[] f : forms) {
+      var body = new ArrayList<>(longs);
+      body.add("(assert (not (= " + f[1] + " " + f[2] + ")))");
+      check(out, "x " + f[0] + " y over the words as Java longs is the comparison of the values",
+          "unsat", body);
+    }
+    check(out, "a long and its sign extension x >> 63 are the words of the long's value",
+        "unsat", List.of("(declare-const x Int)", "(assert (jlong.in x))",
+            "(assert (not (= (w.val (jlong.shr x 63) (c.lo x)) x)))"));
   }
 
   // -----------------------------------------------------------------------------------------

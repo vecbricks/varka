@@ -582,6 +582,10 @@ private object VarkaCoverageDifferentialSuite {
    * equal to `d9`'s rescaled where `l` is short, and times 50 on an odd one, between `d9`
    * times 10 and times 100, so a wrong rescale factor flips the answer. It is null where `i`
    * or both bigints are, which leaves rows where only `d9`, only `d9s4` or only `d16s9` is.
+   * The 128-bit pair's columns (VARKA-359) are derived from both bigints, so their two words
+   * both carry bits: `d38` and `d3810` from `l` and `l2`, `d38b` the other way round, null where
+   * their first bigint is; `d19` is `l` plus a thirteenth of it, so that near the bigint's
+   * extremes its low word has the sign bit set under a high word of 0.
    */
   def fixtureView(values: Seq[String], where: String = ""): String = {
     val withIds = values.zipWithIndex.map { case (v, rid) => s"($rid, ${v.stripPrefix("(")}" }
@@ -596,6 +600,17 @@ private object VarkaCoverageDifferentialSuite {
       s"CAST(CAST($long % ${BigInt(10).pow(precision)} AS DECIMAL(${precision + 1}, 0)) * " +
         s"${BigDecimal(1).bigDecimal.movePointLeft(scale).toPlainString} " +
         s"AS DECIMAL($precision, $scale))"
+    // A DECIMAL(p, s) of the 128-bit pair (VARKA-359): the unscaled value is `hi * 10^k` plus
+    // the last k digits of `lo`, over 10^s, so both words carry bits and the sign of `hi`
+    // leads; `k` keeps it within `digits`, and `digits + s + 1 <= 38` keeps the product with
+    // 10^-s exact at its own type. Null where `hi` is.
+    def pair(hi: String, lo: String, k: Int, digits: Int, precision: Int, scale: Int): String = {
+      val p = BigInt(10).pow(k)
+      s"CAST(CAST(CAST($hi AS DECIMAL(19, 0)) * $p + coalesce($lo, 7) % $p " +
+        s"AS DECIMAL($digits, 0)) * " +
+        s"${BigDecimal(1).bigDecimal.movePointLeft(scale).toPlainString} " +
+        s"AS DECIMAL($precision, $scale))"
+    }
     // Within nine digits: seven digits times 100 at most.
     val d9s4Unscaled =
       "CASE WHEN i IS NOT NULL THEN coalesce(l, l2) % 10000000 * (100 - rid % 2 * 50) END"
@@ -616,7 +631,12 @@ private object VarkaCoverageDifferentialSuite {
        |       ${decimal("l2", 18)} AS d18b,
        |       ${decimal(d9s4Unscaled, 9, 4)} AS d9s4,
        |       ${decimal("l2", 16, 9)} AS d16s9,
-       |       ${decimal("l2", 8)} AS d8
+       |       ${decimal("l2", 8)} AS d8,
+       |       CAST(CAST(CAST(l AS DECIMAL(20, 0)) + l DIV 13 AS DECIMAL(19, 0)) * 0.01
+       |         AS DECIMAL(19, 2)) AS d19,
+       |       ${pair("l", "l2", 16, 35, 38, 2)} AS d38,
+       |       ${pair("l2", "l", 16, 35, 38, 2)} AS d38b,
+       |       ${pair("l", "l2", 8, 27, 38, 10)} AS d3810
        |FROM VALUES ${withIds.mkString(",\n  ")}
        |AS v(rid, d, d2, i, m, y, mm, l, l2, t, t2, dt, dt2, y1, y2, s1, s2)$where""".stripMargin
   }
