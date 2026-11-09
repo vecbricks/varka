@@ -24,6 +24,7 @@ import scala.jdk.CollectionConverters._
 import org.apache.spark.sql.QueryTest
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaMatrix.PinsDefaults
 import org.apache.spark.sql.execution.VarkaSharedSessions
+import org.apache.spark.sql.internal.SQLConf
 
 /**
  * The floating baseline's sections, run at a small scale on both sessions in every build, so a
@@ -48,7 +49,7 @@ class VarkaFloatingBaselineQueriesSuite extends QueryTest with VarkaSharedSessio
 
   test("every section of the floating baseline runs, and both sessions answer it alike") {
     withTable(2000) {
-      val sections = VarkaFloatingBaselineBenchmark.sections().asScala
+      val sections = VarkaFloatingBaselineBenchmark.sections(false).asScala
       assert(sections.size === 20)
       for (s <- sections) {
         withClue(s.title) {
@@ -63,14 +64,28 @@ class VarkaFloatingBaselineQueriesSuite extends QueryTest with VarkaSharedSessio
     // pull request rather than the runner dispatch that times it. The benchmark plans under the
     // emitter's default options, so the classes pin the defaults, and an option matrix
     // configuration, under which a section may fuse differently, cancels the test; so does the
-    // run that lifts the benchmark's check.
+    // run that lifts the benchmark's check. The benchmark lists its classes at the two-lane
+    // refusal the host resolves (VARKA-503), which the shared sessions leave off, so both lists
+    // are checked here by setting the refusal each way.
     assume(VarkaSqlBenchmarkBase.fuseCheck(),
       s"-D${VarkaSqlBenchmarkBase.FUSE_CHECK_PROPERTY}=false times the sections fused")
+    val key = SQLConf.VARKA_DECLINE_TWO_LANE_CONDITIONS.key
+    val before = varkaSpark.conf.getOption(key)
     withTable(100) {
-      for (s <- VarkaFloatingBaselineBenchmark.sections().asScala) {
-        withClue(s.title) {
-          val plan = varkaSpark.sql(s.query).queryExecution.executedPlan
-          assert(VarkaSqlBenchmarkBase.fusion(plan) === Optional.of(s.fusion))
+      try {
+        for (declines <- Seq(false, true)) {
+          varkaSpark.conf.set(key, declines.toString)
+          for (s <- VarkaFloatingBaselineBenchmark.sections(declines).asScala) {
+            withClue(s"${s.title}, refusal $declines") {
+              val plan = varkaSpark.sql(s.query).queryExecution.executedPlan
+              assert(VarkaSqlBenchmarkBase.fusion(plan) === Optional.of(s.fusion))
+            }
+          }
+        }
+      } finally {
+        before match {
+          case Some(v) => varkaSpark.conf.set(key, v)
+          case None => varkaSpark.conf.unset(key)
         }
       }
     }
