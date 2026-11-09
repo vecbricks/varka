@@ -43,14 +43,8 @@ import org.junit.jupiter.api.Test;
 import scala.jdk.javaapi.CollectionConverters;
 
 import org.apache.spark.sql.catalyst.expressions.Attribute;
-import org.apache.spark.sql.catalyst.expressions.BRound;
-import org.apache.spark.sql.catalyst.expressions.BoundReference;
 import org.apache.spark.sql.catalyst.expressions.Expression;
 import org.apache.spark.sql.catalyst.expressions.GenericInternalRow;
-import org.apache.spark.sql.catalyst.expressions.Literal$;
-import org.apache.spark.sql.catalyst.expressions.NamedExpression;
-import org.apache.spark.sql.catalyst.expressions.Round;
-import org.apache.spark.sql.catalyst.expressions.Truncate;
 import org.apache.spark.sql.catalyst.expressions.codegen.CompiledVarkaProjection;
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaExpressionCompiler;
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaGeneratedClassLoader;
@@ -257,34 +251,23 @@ public final class VarkaEmitterRoundingSuite {
     return r < EDGES.length ? EDGES[(int) r] : (int) (r * 0x9E3779B1L);
   }
 
-  private static Expression spark(String fn, int scale, boolean ansi, DataType type) {
-    var child = new BoundReference(0, type, false);
-    Expression s = Literal$.MODULE$.apply(scale);
-    return switch (fn) {
-      case "round" -> new Round(child, s, ansi);
-      case "bround" -> new BRound(child, s, ansi);
-      case "truncate" -> new Truncate(child, s, ansi);
-      default -> throw new IllegalArgumentException(fn);
-    };
-  }
+  /** A rounding's plan, and the same resolved expression bound for Spark to evaluate. */
+  private record Compiled(CompiledVarkaProjection plan, Expression spark) {}
 
-  private static CompiledVarkaProjection compile(String sql, boolean ansi, String col,
-      DataType type) {
-    List<Attribute> columns = List.of(VarkaSqlResolve.column(col, type));
+  private static Compiled compile(String sql, boolean ansi, String col, DataType type) {
+    var cols = CollectionConverters.asScala(List.<Attribute>of(VarkaSqlResolve.column(col, type)))
+        .toSeq();
     SQLConf conf = SQLConf.get().clone();
     conf.setConfString(SQLConf.ANSI_ENABLED().key(), Boolean.toString(ansi));
-    Expression e = SQLConf$.MODULE$.withExistingConf(conf,
-        () -> VarkaSqlResolve.parse(sql, CollectionConverters.asScala(columns).toSeq()));
-    scala.collection.immutable.Seq<NamedExpression> entry =
-        CollectionConverters.asScala(List.of(VarkaSqlResolve.named(e, "c"))).toSeq();
-    var cols = CollectionConverters.asScala(columns).toSeq();
+    Expression e = SQLConf$.MODULE$.withExistingConf(conf, () -> VarkaSqlResolve.parse(sql, cols));
+    var entry = CollectionConverters.asScala(List.of(VarkaSqlResolve.named(e, "c"))).toSeq();
     Optional<CompiledVarkaProjection> plan =
         VarkaExpressionCompiler.compile(entry, cols, VarkaMatrixRuns.BASE);
     if (plan.isEmpty()) {
       fail(sql + " declines: " + VarkaExpressionCompiler.declines(entry, cols,
           VarkaMatrixRuns.BASE));
     }
-    return plan.get();
+    return new Compiled(plan.get(), VarkaSqlResolve.bind(e, cols));
   }
 
   /** The column, its type and the store's width in bytes, for an operand type. */
@@ -328,8 +311,9 @@ public final class VarkaEmitterRoundingSuite {
       LongToIntFunction input) {
     String sql = fn + "(" + op.col() + ", " + scale + ")";
     String ctx = sql + (ansi ? " under ANSI" : " under LEGACY");
-    CompiledVarkaProjection plan = compile(sql, ansi, op.col(), op.type());
-    Expression expr = spark(fn, scale, ansi, op.type());
+    Compiled compiled = compile(sql, ansi, op.col(), op.type());
+    CompiledVarkaProjection plan = compiled.plan();
+    Expression expr = compiled.spark();
     VarkaEmitterFixtures.Emitted emitted = VarkaEmitterFixtures.emit(plan.outputs(),
         plan.inputOrdinals().size(), plan.numLiterals(), VarkaMatrixRuns.BASE);
     int[] lits = plan.literals().stream().mapToInt(Integer::intValue).toArray();

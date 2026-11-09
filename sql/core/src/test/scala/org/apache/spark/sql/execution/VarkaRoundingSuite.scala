@@ -20,7 +20,7 @@ import scala.util.Try
 
 import org.apache.spark.SparkThrowable
 import org.apache.spark.sql.{QueryTest, Row, SparkSession}
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTestWatchdog
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaMatrix, VarkaTestWatchdog}
 import org.apache.spark.sql.types.{ByteType, IntegerType, LongType, ShortType, StructField,
   StructType}
 
@@ -82,12 +82,14 @@ class VarkaRoundingSuite extends QueryTest with VarkaSharedSessions with VarkaTe
     cacheTable(varkaSpark)
   }
 
+  // Without a baked int lane count (validityByWidth off) a narrow column declines (VARKA-329).
   private val forms = Seq(
     "round(i, 0)", "round(i, -1)", "bround(i, -1)", "truncate(i, -1)", "round(i, -2)",
     "bround(i, -2)", "truncate(i, -2)", "round(i, -9)", "bround(i, -9)", "round(i, -10)",
     "round(y, -1)", "bround(y, -1)", "truncate(y, -1)", "round(y, -2)", "round(y, -3)",
     "round(s, -1)", "round(s, -2)", "bround(s, -2)", "truncate(s, -3)", "round(s, -4)",
     "round(s, -5)", "round(l, 0)", "bround(l, 3)", "truncate(y, 2)")
+    .filter(f => VarkaMatrix.base.validityByWidth() || f.matches(".*\\([il],.*"))
 
   /** The forms ANSI raises on for some cell, each run cell by cell. */
   private val raising = Set("round(i, -1)", "bround(i, -1)", "round(y, -1)", "bround(y, -1)",
