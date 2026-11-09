@@ -17,16 +17,13 @@
 
 package org.apache.spark.sql.execution
 
-import java.io.{BufferedReader, File, InputStreamReader}
-import java.nio.charset.StandardCharsets
-import java.util.concurrent.TimeUnit
-
 import scala.collection.mutable
+import scala.jdk.CollectionConverters._
 
 import org.apache.spark.SparkFunSuite
 import org.apache.spark.launcher.JavaModuleOptions
 import org.apache.spark.sql.catalyst.expressions.codegen.CodeGenerator
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaProbeOutput, VarkaTestUse, VarkaTestWatchdog}
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaChildProcess, VarkaProbeOutput, VarkaTestWatchdog}
 import org.apache.spark.sql.execution.VarkaSizeLadderJitProbe._
 
 /**
@@ -50,7 +47,8 @@ import org.apache.spark.sql.execution.VarkaSizeLadderJitProbe._
  */
 class VarkaSizeLadderJitSuite extends SparkFunSuite with VarkaTestWatchdog {
 
-  private val childTimeoutSeconds = 600L
+  /** One child per test, so a test's child at its budget ends before the test's cap. */
+  private def childBudgetSeconds: Long = VarkaChildProcess.budgetSeconds(watchdogMinutes, 1)
 
   // The `$` is part of the name Spark generates; a pattern without it matched nothing at all
   // and read, below the limit, exactly like the method it is meant to find missing above it.
@@ -58,67 +56,40 @@ class VarkaSizeLadderJitSuite extends SparkFunSuite with VarkaTestWatchdog {
 
   private case class Run(bytes: Int, tiers: Seq[Int], tail: String)
 
-  private def testClasspath: String =
-    Option(System.getenv("SPARK_DIST_CLASSPATH"))
-      .filter(_.nonEmpty)
-      .getOrElse(System.getProperty("java.class.path"))
-
   private def runProbe(entries: Int): Run = {
-    val javaBin = new File(new File(System.getProperty("java.home"), "bin"), "java")
-    val command = new java.util.ArrayList[String]()
-    command.add(javaBin.getAbsolutePath)
     // The module options Spark's launcher gives every Spark JVM: a session needs them opened.
-    JavaModuleOptions.defaultModuleOptionArray().foreach(command.add)
-    Seq("--add-modules", "jdk.incubator.vector", "--enable-native-access=ALL-UNNAMED",
-      "-Xmx1g", "-Xbatch", "-XX:+PrintCompilation", "-cp", testClasspath,
-      VarkaSizeLadderJitProbe.getClass.getName.stripSuffix("$"), entries.toString)
-      .foreach(command.add)
-    // The child JVM's code runs where the class-use record cannot see it (VarkaTestUse).
-    VarkaTestUse.childJvm()
-    val builder = new ProcessBuilder(command)
-    builder.redirectErrorStream(true)
-    val process = builder.start()
-    val reader = new BufferedReader(
-      new InputStreamReader(process.getInputStream, StandardCharsets.UTF_8))
+    val command = VarkaChildProcess.javaCommand(
+      (JavaModuleOptions.defaultModuleOptionArray().toSeq ++
+        Seq("-Xmx1g", "-Xbatch", "-XX:+PrintCompilation")).asJava,
+      VarkaSizeLadderJitProbe.getClass.getName.stripSuffix("$"),
+      java.util.List.of(entries.toString))
     val tiers = mutable.ArrayBuffer.empty[Int]
     var bytes = -1
     var done = false
-    val tail = mutable.Queue.empty[String]
-    try {
-      var line = reader.readLine()
-      while (line != null) {
-        tail.enqueue(line)
-        if (tail.size > 40) tail.dequeue()
-        // A marker can share a line with a compile record a compiler thread wrote, on either
-        // side, so each is looked for anywhere in the line, and the line is read for a compile
-        // record as well (`VarkaProbeOutput`).
-        VarkaProbeOutput.longAfter(line, BYTES_PREFIX).foreach(b => bytes = b.toInt)
-        if (VarkaProbeOutput.has(line, DONE)) {
-          done = true
-        }
-        val trimmed = line.trim
-        if (trimmed.contains(method)) {
-          // `PrintCompilation`: timestamp, compile id, attribute flags (`%` for an on-stack
-          // replacement), the tier, then `class::method`. The tier is the token before the
-          // method, whatever the flags in front of it.
-          val tokens = trimmed.split("\\s+")
-          val at = tokens.indexWhere(_.contains(method))
-          if (at > 0 && tokens(at - 1).forall(_.isDigit)) {
-            tiers += tokens(at - 1).toInt
-          }
-        }
-        line = reader.readLine()
+    val what = s"$suiteName's probe of a $entries-entry rung"
+    val builder = new ProcessBuilder(command)
+    val child = VarkaChildProcess.run(what, builder, childBudgetSeconds, { line =>
+      // A marker can share a line with a compile record a compiler thread wrote, on either
+      // side, so each is looked for anywhere in the line, and the line is read for a compile
+      // record as well (`VarkaProbeOutput`).
+      VarkaProbeOutput.longAfter(line, BYTES_PREFIX).foreach(b => bytes = b.toInt)
+      if (VarkaProbeOutput.has(line, DONE)) {
+        done = true
       }
-    } finally {
-      reader.close()
-    }
-    if (!process.waitFor(childTimeoutSeconds, TimeUnit.SECONDS)) {
-      process.destroyForcibly()
-      fail(s"the probe did not finish within $childTimeoutSeconds s")
-    }
-    assert(process.exitValue() == 0 && done && bytes > 0,
-      s"the probe failed (exit ${process.exitValue()}); its last lines:\n" + tail.mkString("\n"))
-    Run(bytes, tiers.toSeq, tail.mkString("\n"))
+      val trimmed = line.trim
+      if (trimmed.contains(method)) {
+        // `PrintCompilation`: timestamp, compile id, attribute flags (`%` for an on-stack
+        // replacement), the tier, then `class::method`. The tier is the token before the
+        // method, whatever the flags in front of it.
+        val tokens = trimmed.split("\\s+")
+        val at = tokens.indexWhere(_.contains(method))
+        if (at > 0 && tokens(at - 1).forall(_.isDigit)) {
+          tiers += tokens(at - 1).toInt
+        }
+      }
+    })
+    child.requireSuccess(done && bytes > 0)
+    Run(bytes, tiers.toSeq, child.lastLines())
   }
 
   private val limit = CodeGenerator.DEFAULT_JVM_HUGE_METHOD_LIMIT

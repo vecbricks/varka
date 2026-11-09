@@ -29,9 +29,11 @@ import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 
 /**
- * Starts a probe JVM for a JIT suite and holds it to a time budget (VARKA-582): the one launcher
- * of {@code VarkaHugeMethodSuite}, {@code VarkaSplitInliningSuite}, {@code VarkaAssemblySuite}
- * and {@code VarkaWidthAuditSuite}.
+ * Starts a probe JVM for a JIT suite and holds it to a time budget: the launcher of
+ * {@code VarkaHugeMethodSuite}, {@code VarkaSplitInliningSuite}, {@code VarkaAssemblySuite} and
+ * {@code VarkaWidthAuditSuite} (VARKA-582), and of {@code VarkaOperatorCensusSuite},
+ * {@code VarkaInliningCliffSuite}, the two warm-up suites and sql/core's
+ * {@code VarkaSizeLadderJitSuite} (VARKA-585).
  *
  * <p>The child's output ends only when the child exits, so a launcher that reads it to its end on
  * the calling thread and waits afterwards never sees a timeout, and a read blocked on a pipe does
