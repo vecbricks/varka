@@ -211,12 +211,11 @@ public final class VarkaTypesSuite {
 
   @Test
   @DisplayName("a decimal is one long word up to precision 18 and two above, over its "
-      + "sixteen-byte slot, read where its band's reader is built, declining naming row 359 "
-      + "above 18 and the decision for a negative scale")
+      + "sixteen-byte slot, read at every precision, declining only for a negative scale")
   void decimalReadFollowsThePrecisionBand() {
     var by = (Admission.ByPrecision) VarkaTypes.info(VarkaTypeId.DECIMAL).admission();
     assertEquals(List.of(new Admission.Band(18, 1, "347", true),
-        new Admission.Band(38, 2, "359", false)), by.bands());
+        new Admission.Band(38, 2, "359", true)), by.bands());
     assertEquals(new Storage.DecimalSlot(), VarkaTypes.info(VarkaTypeId.DECIMAL).storage());
     for (int p = 1; p <= 18; p++) {
       for (int s : new int[] {0, p / 2, p}) {
@@ -232,17 +231,18 @@ public final class VarkaTypesSuite {
     for (int p : new int[] {19, 20, 30, 38}) {
       DecimalType d = DataTypes.createDecimalType(p, 2);
       assertEquals(2, by.band(d).orElseThrow().words(), d.sql());
-      assertFalse(by.reads(d), d.sql());
-      assertTrue(VarkaTypes.read(d).isEmpty(), d.sql());
+      assertTrue(by.reads(d), d.sql());
+      assertEquals(new Read.Lanes(LaneType.LONG, 2, new Storage.DecimalSlot()),
+          VarkaTypes.read(d).orElse(null), d.sql());
       assertTrue(VarkaTypes.lane(d).isEmpty(), d.sql());
-      assertEquals("a " + d.simpleString() + " column: precision above 18 is row 359's",
-          VarkaTypes.declineReason(d).orElseThrow(), d.sql());
+      assertTrue(VarkaTypes.declineReason(d).isEmpty(), d.sql());
     }
-    // The same admission with the pair's reader built: the one component its band flips.
-    var landed = new Admission.ByPrecision(LaneType.LONG, List.of(by.bands().get(0),
-        new Admission.Band(38, 2, "359", true)));
-    assertTrue(landed.reads(DataTypes.createDecimalType(38, 10)));
-    assertEquals(38, landed.maxReadPrecision());
+    assertEquals(38, by.maxReadPrecision());
+    // The same admission with the pair's reader not built names its row above 18.
+    var owed = new Admission.ByPrecision(LaneType.LONG, List.of(by.bands().get(0),
+        new Admission.Band(38, 2, "359", false)));
+    assertFalse(owed.reads(DataTypes.createDecimalType(38, 10)));
+    assertEquals(18, owed.maxReadPrecision());
     // A negative scale exists only under Spark's legacy flag, which the type's constructor reads.
     SQLConf conf = SQLConf.get();
     String legacy = SQLConf.LEGACY_ALLOW_NEGATIVE_SCALE_OF_DECIMAL_ENABLED().key();
@@ -254,7 +254,7 @@ public final class VarkaTypesSuite {
       conf.unsetConf(legacy);
     }
     assertTrue(VarkaTypes.read(negative).isEmpty());
-    assertFalse(landed.reads(negative));
+    assertFalse(by.reads(negative));
     assertEquals("a decimal(10,-2) column: a negative scale is declined everywhere (the "
         + "milestone plan's 2.8)", VarkaTypes.declineReason(negative).orElseThrow());
     // An output shares a column's rules, the precision's reason its store's own.

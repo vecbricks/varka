@@ -135,6 +135,13 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
   // DECIMAL(8, 2) (VARKA-349), so that a product with d9 is DECIMAL(18, 4), within the long
   // lane, where d9 * d9b is DECIMAL(19, 4).
   private val d8 = AttributeReference("d8", DecimalType(8, 2))()
+  // The 128-bit lane pair's columns (VARKA-359): each value two long words, the low and the
+  // high. d19 is the narrowest precision of the pair, d38 and d38b its widest at scale 2, and
+  // d3810 the baseline benchmark's DECIMAL(38, 10).
+  private val d19 = AttributeReference("d19", DecimalType(19, 2))()
+  private val d38 = AttributeReference("d38", DecimalType(38, 2))()
+  private val d38b = AttributeReference("d38b", DecimalType(38, 2))()
+  private val d3810 = AttributeReference("d3810", DecimalType(38, 10))()
 
   // The InSet row's eleven elements at d18's scale: three the differential fixtures hold, a
   // negative one among them, and eight more.
@@ -143,7 +150,7 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
 
   private val columns: Seq[Attribute] = Seq(d, d2, i, ymm, ymy, ym, l, l2, t, t2, dt, dt2, b, b2,
     y1, y2, s1, s2, ntz, ntz2, x, x2, f, f2, d9, d9b, d18, d18b,
-    d9s4, d16s9, d8)
+    d9s4, d16s9, d8, d19, d38, d38b, d3810)
 
   /**
    * One documented expression. `sql` is both what the table prints and what the check
@@ -1160,8 +1167,8 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
       Row("CAST(f AS BOOLEAN) OR f > 1.5F", "the float's test in a disjunction at its lane"))),
     // The casts to a floating type (VARKA-343): Java's primitive cast, which never raises, so
     // TRY's answer is LEGACY's. A 32-bit value beside a 64-bit one fills the low half of its
-    // species, and a narrow one is widened at its load. A BIGINT's cast is not listed: L2F and
-    // L2D are the Vector API's Java loop without AVX512DQ, and the plan declines them.
+    // species, and a narrow one is widened at its load. A BIGINT's cast is not listed: the rows
+    // compile at the defaults' unknown emit level, where the plan declines L2F and L2D.
     Family("Floating casts", predicates = false, Seq(
       Row("CAST(i AS FLOAT)", "rounded once to nearest, ties to even, as the JVM converts"),
       Row("try_cast(i AS FLOAT)", "the same rounding: a cast to a floating type never fails"),
@@ -1275,6 +1282,33 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
           + "the column's scale",
         Some(InSet(d18, decimalSet.map(v => Decimal(v).asInstanceOf[Any]).toSet)),
         Some(decimalSet.mkString("d18 IN (", ", ", ")"))))),
+
+    // DECIMAL of precision 19 to 38 (VARKA-359): each value is the two words of its unscaled
+    // value, v = hi * 2^64 + lo, read from Arrow's sixteen-byte slot by two word leaves that
+    // share one load and one 10^p check. Two values of one scale compare by their high words,
+    // signed, and where those are equal by their low words, unsigned; a value within 18 digits
+    // joins as its long and that long's sign extension. Each kernel declines a batch holding a
+    // valid slot outside the precision, where Spark raises, so the rows name no domain.
+    Family("DECIMAL lane pair", predicates = true, Seq(
+      Row("d38 < d38b", "LT(hi) | (EQ(hi) & ULT(lo)): five lane calls over the two pairs"),
+      Row("d38 <= d38b"),
+      Row("d38 > d38b", "d38b < d38, the operands swapped"),
+      Row("d38 >= d38b"),
+      Row("d38 = d38b", "both words equal"),
+      Row("d38 <> d38b", "the NOT of the equality"),
+      Row("d38 <=> d38b", "each word's null-safe equality, ANDed: the words share a validity"),
+      Row("d19 < d38", "coercion casts d19 to DECIMAL(38, 2), which keeps both words"),
+      Row("d18b < d38", "across the 64-bit boundary: d18b's long and its sign extension"),
+      Row("d38 = 12345678901234567890123", "a literal wider than a long, cast to the column's "
+        + "scale at compile time, its two words in two slots of the long table"),
+      Row("d3810 > 1.5", "at DECIMAL(38, 10), the baseline's type"),
+      Row("d38 IS NULL", "the low word's validity, its slots checked as Spark's reader does"),
+      Row("d38 IS NOT NULL"),
+      Row("d19 IS NULL"),
+      Row("IF(d18 > 0.00, d38, d38b) IS NULL", "a choice or a pick of wide values is null only "
+        + "where its leaves are, so the test reads no word of the value"),
+      Row("coalesce(d38, d19) IS NULL"),
+      Row("greatest(d38, d38b) IS NOT NULL"))),
 
     // Decimal +, - and * whose result stays within 18 digits (VARKA-349), under a comparison:
     // a sum or difference is one long add or subtract of the operands rescaled to the result's
@@ -1839,7 +1873,15 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
     "Boolean columns" -> Exhausted("VarkaEmitterBoolSuite",
       "boolean comparisons, null-safe equality, choice and constants over every leaf state"),
     // The value picks over a date or a long column are not swept: only the condition is.
-    "Boolean columns choosing values" -> Differential)
+    "Boolean columns choosing values" -> Differential,
+    // The pair's comparisons and the sign extension, in both of the file's layers (VARKA-359).
+    "DECIMAL lane pair" -> Proved("decimal128.smt2"))
+
+  // The pair's null tests and its null-safe equality: decimal128.smt2 models the words' values,
+  // not their validity, so these rows are checked by the differential suites alone.
+  private val pairNulls = Seq("d38 <=> d38b", "d38 IS NULL", "d38 IS NOT NULL", "d19 IS NULL",
+    "IF(d18 > 0.00, d38, d38b) IS NULL", "coalesce(d38, d19) IS NULL",
+    "greatest(d38, d38b) IS NOT NULL")
 
   // VarkaEmitterNarrowSuite's byte square sweeps every TINYINT pair through the comparisons and
   // the picks, but over values only, with no null row, and its IN is a range set where the rows
@@ -1970,7 +2012,8 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
     "try_multiply(d8, d9) IS NULL" -> Refined("try_multiply(d8, d9) IS NULL"),
     "d9 IN (0.42, 0.00, -1.25)" -> Refined("d9 IN (0.42, 0.00, -1.25)"),
     "d9 IN (0.425, 1.5)" -> Refined("d9 IN (0.425, 1.5)"),
-    "d18 IN (11 to 16 decimal literals)" -> Refined("d18 IN (11 to 16 decimal literals)"))
+    "d18 IN (11 to 16 decimal literals)" -> Refined("d18 IN (11 to 16 decimal literals)")) ++
+    pairNulls.map(_ -> Differential)
 
   private def verifiedOf(family: Family, row: Row): Verified =
     rowVerified.getOrElse(row.sql, familyVerified.getOrElse(family.title, Differential))
