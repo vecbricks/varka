@@ -171,13 +171,43 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
    * table rather than leaving it stale. Where the two modes differ it is ANSI's, the mode this
    * suite resolves the rows under (Spark's default): the checked int arithmetic and `make_date`'s
    * date check exist only there, and the legacy mode wraps or nulls as Spark does with no guard.
+   *
+   * `math` is a math-family row's form (VARKA-345.md 2.10), which every row whose kernel holds the
+   * math family names and no other row does.
    */
   private case class Row(
       sql: String,
       note: String = "",
       built: Option[Expression] = None,
       executable: Option[String] = None,
-      domain: Option[String] = None)
+      domain: Option[String] = None,
+      math: Option[MathCell] = None)
+
+  /**
+   * A math row's form column: its default form, one of `exactForms`, whether its fdlibm port is
+   * built as an option arm, and the library operator whose contract entries the opt-in part
+   * renders, for a row that is one call (a composition such as `sec(x)` has none).
+   */
+  private case class MathCell(
+      form: String,
+      portArm: Boolean = false,
+      operator: Option[VarkaMathBinding.Operator] = None) {
+    /** The cell as the docs and `coverage.json` print it. */
+    def render: String = {
+      val optIn = operator.toSeq.flatMap { op =>
+        VarkaMathContract.ENTRIES.asScala.filter(_.function == op).map { e =>
+          s"opt-in: within ${e.steps} steps on ${e.symbol}, JDK ${e.jdkBuild}" +
+            e.statedTier.toScala.map(t => s" (SLEEF $t)").getOrElse("")
+        }
+      }
+      ((form +: (if (portArm) Seq("port arm: fdlibm emitted as IR") else Nil)) ++ optIn)
+        .mkString("; ")
+    }
+  }
+
+  /** The default forms a math row may name: each is exact, and none states a bound. */
+  private val exactForms = Seq("exact: per-lane StrictMath call",
+    "exact: fdlibm port emitted as IR", "exact: per-lane Math call")
 
   private case class Family(title: String, predicates: Boolean, rows: Seq[Row])
 
@@ -1792,6 +1822,34 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
     assert(findings.size == 3, findings)
   }
 
+  /**
+   * What is wrong with the math column of `rows`, each with whether its kernel holds the math
+   * family: a math row with no form, a form on a row that is not one, and a form that is not one
+   * of the exact ones - a default that states a bound, which only the opt-in part may.
+   */
+  private def mathFindings(rows: Seq[(Row, Boolean)]): Seq[String] = rows.flatMap {
+    case (row, true) if row.math.isEmpty => Some(s"${row.sql}: a math row names no form")
+    case (row, false) if row.math.isDefined => Some(s"${row.sql}: names a form, not a math row")
+    case (row, _) => row.math.filterNot(c => exactForms.contains(c.form))
+      .map(c => s"${row.sql}: the default form `${c.form}` is not an exact one")
+  }
+
+  test("every math row names its exact form, and no other row names one") {
+    val all = families.flatMap(f => f.rows.map(r => r -> switchesOf(f, r).contains(
+      VarkaFamily.MATH)))
+    val findings = mathFindings(all)
+    assert(findings.isEmpty, "the math column disagrees with the rows:\n  " +
+      findings.mkString("\n  "))
+    // Planted: a math row without a form, a form on another row, and a default with a bound.
+    val planted = mathFindings(Seq(Row("sin(x)") -> true,
+      Row("i + 1", math = Some(MathCell(exactForms.head))) -> false,
+      Row("exp(x)", math = Some(MathCell("within 1 step"))) -> true,
+      Row("cos(x)", math = Some(MathCell(exactForms(2)))) -> true))
+    assert(planted.map(_.takeWhile(_ != ':')) === Seq("sin(x)", "i + 1", "exp(x)"), planted)
+    assert(MathCell(exactForms(1), portArm = true, Some(VarkaMathBinding.Operator.EXP)).render ===
+      "exact: fdlibm port emitted as IR; port arm: fdlibm emitted as IR")
+  }
+
   test("every operand the compiler builds in a restricted position is one the position admits") {
     // VARKA-86. The emitter refuses an operand its position does not take, and a refusal at emit
     // time is a per-batch fallback while EXPLAIN claims fusion. So over every documented
@@ -2433,9 +2491,11 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
       "switch declines.\n\n")
     families.foreach { family =>
       sb.append(s"#### ${family.title}\n\n")
-      sb.append(if (family.predicates) "| Predicate | Switches | Domain | Notes | 128-bit lanes |\n"
-        else "| Expression | Switches | Domain | Notes | 128-bit lanes |\n")
-      sb.append("|---|---|---|---|---|\n")
+      // A family with a math row has the form column (VARKA-345.md 2.10); no other does.
+      val math = family.rows.exists(_.math.isDefined)
+      sb.append((if (family.predicates) "| Predicate" else "| Expression") +
+        " | Switches | Domain | Notes | " + (if (math) "Form | " else "") + "128-bit lanes |\n")
+      sb.append("|---|---|---|---|" + (if (math) "---|" else "") + "---|\n")
       // A cell's own `|`, as in `i | 4096`, is escaped, or the table reads it as a column break;
       // GitHub's tables take `\|` as a literal bar inside a code span as well.
       def cell(text: String): String = text.replace("|", "\\|")
@@ -2445,7 +2505,8 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
           case Seq() => "none"
           case held => held.map(f => s"`${f.key}`").mkString(", ")
         }
-        sb.append(s"| `${cell(r.sql)}` | $switches | $domain | ${cell(r.note)} | " +
+        val form = if (math) cell(r.math.map(_.render).getOrElse("")) + " | " else ""
+        sb.append(s"| `${cell(r.sql)}` | $switches | $domain | ${cell(r.note)} | $form" +
           s"${narrowVerdict(r.sql)} |\n")
       }
       sb.append("\n")
@@ -2488,7 +2549,7 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
           .collect { case e: Expression => e.getClass.getSimpleName }
           .filterNot(infrastructure.contains)
           .filterNot(_ == "AttributeReference")
-        ordered(
+        val fields = ordered(
           "sql" -> row.sql,
           "executable" -> row.executable.getOrElse(row.sql),
           "family" -> family.title,
@@ -2500,6 +2561,9 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
           "domain" -> row.domain.getOrElse(""),
           "note" -> row.note,
           "verified" -> verifiedOf(family, row).render)
+        // A math row's form (VARKA-345.md 2.10), on that row alone.
+        row.math.foreach(c => fields.put("math_form", c.render))
+        fields
       }
     }
     val doc = ordered(

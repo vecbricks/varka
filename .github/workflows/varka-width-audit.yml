@@ -17,7 +17,8 @@
 
 
 # Take the width audit's census (VarkaWidthAuditSuite, VARKA-153) and the operator census
-# (VarkaOperatorCensusSuite, VARKA-376) on each runner
+# (VarkaOperatorCensusSuite, VARKA-376), and check the math library binding
+# (VarkaMathBindingSuite, VARKA-345), on each runner
 # architecture the pool offers, and publish it as an artifact and a summary. The
 # census says, per vector width a host can run, which Vector API calls C2 refuses to
 # lower in Varka's kernels; the committed sql/varka/width_audit.json is one x86
@@ -40,6 +41,8 @@ on:
       - '.github/workflows/varka-width-audit.yml'
       - 'sql/catalyst/src/test/scala/org/apache/spark/sql/catalyst/expressions/codegen/varka/VarkaWidthAudit*.scala'
       - 'sql/catalyst/src/test/java/org/apache/spark/sql/catalyst/expressions/codegen/varka/VarkaOperatorCensus*.java'
+      - 'sql/catalyst/src/test/java/org/apache/spark/sql/catalyst/expressions/codegen/varka/VarkaMathBinding*.java'
+      - 'sql/catalyst/src/main/java/org/apache/spark/sql/catalyst/expressions/codegen/varka/VarkaMathBinding.java'
   workflow_dispatch:
 
 jobs:
@@ -159,3 +162,11 @@ jobs:
       with:
         name: operator-census-${{ matrix.arch }}
         path: sql/varka/operator_census.json
+    - name: Check the math library binding
+      # The math family's binding check (VarkaMathBindingSuite, VARKA-345.md 2.5): a JVM run
+      # with the vector DEBUG property names the symbol the JDK binds each math operator to at
+      # each species, and the suite holds them to VarkaMathBinding's resolver. The pull request's
+      # build runs it on x86; this step is its run on the Arm runner, and a failure is a finding.
+      run: |
+        set -o pipefail
+        ./build/sbt "catalyst/testOnly *VarkaMathBindingSuite" 2>&1 | tail -40
