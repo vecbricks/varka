@@ -652,7 +652,7 @@ class VarkaEmitterBudgetSuite extends VarkaEmitterTestBase with VarkaOwnJvm {
       Seq(new ConvertLane(new ColumnRef(0, LaneType.LONG), target)), 1, 0, options)._2)
     def form(target: LaneType, options: VarkaEmitOptions): Int =
       ops(target, options) - ops(target, VarkaMatrix.base.withUseAVX(3)) + 1
-    val avx2 = VarkaMatrix.base.withUseAVX(2)
+    val avx2 = VarkaMatrix.base.withUseAVX(2).withRoundToOddByShifts(false)
     for ((target, options) <- Seq(LaneType.DOUBLE -> avx2.withWideConversionForm(SPLIT),
         LaneType.FLOAT -> avx2, LaneType.FLOAT -> avx2.withRoundToOddByShifts(true))) {
       val weight = VarkaEmitBudget.weightOf(new ConvertLane(new ColumnRef(0, LaneType.LONG),

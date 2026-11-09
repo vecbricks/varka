@@ -48,9 +48,9 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Lan
  *   <li>a scalar loop of Java's own cast over the same rows, the arithmetic a row engine does
  *     without its row format.</li>
  * </ul>
- * The forms have no branch, so the values do not change their cost; they spread over every bit
- * length up to {@code 2^51}, inside the bounded magic's window, so that no arm declines. Every
- * kernel's first answer is checked against Java's cast on every row.
+ * The forms have no data-dependent branch, so the values do not change their cost; they spread
+ * over every bit length up to {@code 2^51}, inside the bounded magic's window, so that no arm
+ * declines. Every kernel's first answer is checked against Java's cast on every row.
  *
  * <p>On a host with AVX-512 the forms run as written only under {@code -XX:UseAVX=2}; the EPYC
  * 7763 runners have no AVX-512, so they need no flag:
