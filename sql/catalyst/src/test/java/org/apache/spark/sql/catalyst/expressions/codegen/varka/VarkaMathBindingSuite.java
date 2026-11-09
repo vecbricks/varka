@@ -55,13 +55,15 @@ public final class VarkaMathBindingSuite {
   private static final long CHILD_TIMEOUT_SECONDS = 120L;
 
   private static final Pattern HOST =
-      Pattern.compile("^HOST arch=(\\S+) avx=(\\d+) max=(\\d+) property=(\\S+)$");
+      Pattern.compile("^HOST arch=(\\S+) os=(\\S+) avx=(\\d+) max=(\\d+) property=(\\S+)$");
   private static final Pattern TOUCH = Pattern.compile("^TOUCH (\\w+) (\\d+)$");
   private static final Pattern BOUND =
       Pattern.compile("^DEBUG: VectorMathLibrary: (\\w+) (\\S+) => 0x[0-9a-f]+$");
 
+  private static final String LINUX = "Linux";
+
   private static Optional<String> svml(Operator op, int bits, int avx) {
-    return VarkaMathBinding.symbol(op, bits, new Host("amd64", null, avx, 512));
+    return VarkaMathBinding.symbol(op, bits, new Host("amd64", LINUX, null, avx, 512));
   }
 
   @Test
@@ -78,11 +80,11 @@ public final class VarkaMathBindingSuite {
     assertEquals(Optional.of("__jsvml_pow8_ha_z0"), svml(Operator.POW, 512, 3));
     assertEquals(Optional.empty(), svml(Operator.POW, 256, 3));
     assertEquals(Optional.empty(), svml(Operator.SIN, 64, 3));
-    var avx2 = new Host("amd64", null, 2, 256);
+    var avx2 = new Host("amd64", LINUX, null, 2, 256);
     assertEquals(Optional.empty(), VarkaMathBinding.symbol(Operator.SIN, 512, avx2));
-    var neon = new Host("aarch64", null, 0, 128);
-    var sve = new Host("aarch64", null, 0, 512);
-    var rvv = new Host("riscv64", null, 0, 256);
+    var neon = new Host("aarch64", LINUX, null, 0, 128);
+    var sve = new Host("aarch64", LINUX, null, 0, 512);
+    var rvv = new Host("riscv64", LINUX, null, 0, 256);
     assertEquals(Optional.of("sind2_u10advsimd"), VarkaMathBinding.symbol(Operator.SIN, 128, neon));
     assertEquals(Optional.of("hypotd2_u05advsimd"),
         VarkaMathBinding.symbol(Operator.HYPOT, 128, neon));
@@ -94,12 +96,21 @@ public final class VarkaMathBindingSuite {
     assertEquals(Optional.empty(), VarkaMathBinding.statedTier("__jsvml_sin8_ha_z0"));
     // The property chooses, and a library the host cannot load, or "java", binds nothing.
     for (String property : List.of("java", "sleef", "unknown")) {
-      var host = new Host("amd64", property, 3, 512);
+      var host = new Host("amd64", LINUX, property, 3, 512);
       assertEquals(VarkaMathBinding.Library.NONE, host.library(), property);
     }
-    assertEquals(VarkaMathBinding.Library.SVML, new Host("x86_64", "svml", 2, 256).library());
-    assertEquals(VarkaMathBinding.Library.NONE, new Host("aarch64", "svml", 0, 128).library());
-    assertEquals(VarkaMathBinding.Library.NONE, new Host("s390x", null, 0, 128).library());
+    assertEquals(VarkaMathBinding.Library.SVML,
+        new Host("x86_64", "Windows 11", "svml", 2, 256).library());
+    assertEquals(VarkaMathBinding.Library.NONE,
+        new Host("aarch64", LINUX, "svml", 0, 128).library());
+    assertEquals(VarkaMathBinding.Library.NONE, new Host("s390x", LINUX, null, 0, 128).library());
+    // The JDK ships SVML on Linux and Windows only, and SLEEF on Linux and macOS only.
+    assertEquals(VarkaMathBinding.Library.NONE,
+        new Host("x86_64", "Mac OS X", null, 2, 256).library());
+    assertEquals(VarkaMathBinding.Library.SLEEF,
+        new Host("aarch64", "Mac OS X", null, 0, 128).library());
+    assertEquals(VarkaMathBinding.Library.NONE,
+        new Host("aarch64", "Windows 11", null, 0, 128).library());
   }
 
   @Test
@@ -137,8 +148,9 @@ public final class VarkaMathBindingSuite {
       Matcher t = TOUCH.matcher(line);
       Matcher b = BOUND.matcher(line);
       if (h.matches()) {
-        host = new Host(h.group(1), "-".equals(h.group(4)) ? null : h.group(4),
-            Integer.parseInt(h.group(2)), Integer.parseInt(h.group(3)));
+        host = new Host(h.group(1), h.group(2).replace('_', ' '),
+            "-".equals(h.group(5)) ? null : h.group(5), Integer.parseInt(h.group(3)),
+            Integer.parseInt(h.group(4)));
       } else if (t.matches()) {
         touch = t.group(1) + " " + t.group(2);
         touched.add(touch);

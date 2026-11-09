@@ -100,7 +100,9 @@ for a in "$@"; do
   esac
 done
 # The JDK's own lines about its math library's bindings, printed under the DEBUG property.
-bindings() { sed -E 's/^\[info\] ?//' "$1" | grep -E '^DEBUG: VectorMathLibrary: [A-Z0-9]+ ' || true; }
+bindings() {
+  sed -E 's/^\[info\] ?//' "$1" | grep -E '^DEBUG: VectorMathLibrary: [A-Z0-9]+ \S+ => 0x' || true
+}
 [ "${#pass[@]}" -gt 0 ] || { usage; }
 # sbt splits runMain's argument string on spaces; keep each expression one token.
 quoted=""
@@ -122,7 +124,8 @@ if [ "$asm" -eq 0 ]; then
   # `|| true` again: grep exits 1 when it filters everything out, which under `set -e` would
   # abort here - the same silence, one line further down.
   report="$(sed -E 's/^\[(info|error)\] ?//' "$log" \
-    | sed -n '/^entry \|^| expression/,$p' | grep -v -E '^\[(success|warn)\]|^WARNING: ' || true)"
+    | sed -n '/^entry \|^| expression/,$p' | grep -v -E '^\[(success|warn)\]|^WARNING: |^DEBUG: ' \
+    || true)"
   if [ -z "$report" ]; then
     echo "the dump produced no report; the run's own output follows" >&2
     sed -E 's/^\[(info|error)\] ?//' "$log" | grep -E 'Exception|Error|error:' | head -5 >&2

@@ -1846,7 +1846,8 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
       Row("exp(x)", math = Some(MathCell("within 1 step"))) -> true,
       Row("cos(x)", math = Some(MathCell(exactForms(2)))) -> true))
     assert(planted.map(_.takeWhile(_ != ':')) === Seq("sin(x)", "i + 1", "exp(x)"), planted)
-    assert(MathCell(exactForms(1), portArm = true, Some(VarkaMathBinding.Operator.EXP)).render ===
+    // No operator, so no contract entry a later row commits can change the rendering.
+    assert(MathCell(exactForms(1), portArm = true).render ===
       "exact: fdlibm port emitted as IR; port arm: fdlibm emitted as IR")
   }
 

@@ -39,9 +39,12 @@ public final class VarkaMathBindingProbe {
   }
 
   public static void main(String[] args) throws ReflectiveOperationException {
-    int max = DoubleVector.SPECIES_MAX.vectorBitSize();
+    // The widest DOUBLE shape, which SPECIES_MAX is not: its shape is the byte lane's widest,
+    // narrower than the double's at UseAVX=1 or without AVX-512BW.
+    int max = VectorShape.largestShapeFor(double.class).vectorBitSize();
     String property = System.getProperty(VarkaMathBinding.LIBRARY_PROPERTY);
-    System.out.println("HOST arch=" + System.getProperty("os.arch") + " avx="
+    System.out.println("HOST arch=" + System.getProperty("os.arch") + " os="
+        + System.getProperty("os.name").replace(' ', '_') + " avx="
         + Math.max(0, VarkaEmitOptions.HOST_USE_AVX) + " max=" + max + " property="
         + (property == null ? "-" : property));
     for (int bits = 64; bits <= max; bits *= 2) {

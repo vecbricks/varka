@@ -17,6 +17,7 @@
 package org.apache.spark.sql.catalyst.expressions.codegen.varka;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -86,11 +87,12 @@ public final class VarkaMathContract {
   /**
    * One line of a host's measured TSV, its columns in this order: the function
    * ({@link Operator#symbolName}), the library ({@code SVML} or {@code SLEEF}), the symbol, the
-   * species bits, the JDK build, the CPU, the inputs probed, the lanes that differed from the row
-   * engine's, the largest {@link VarkaMathBound#steps} among them ({@link VarkaMathBound#REFUSED}
-   * for a pair no bound admits), and the witness of that largest: the input bits ({@code x} or
-   * {@code x,y}), the library's bits and the row engine's, each a {@code 0x} hex word, or
-   * {@code -} each when no lane differed.
+   * species bits, the JDK build, the CPU, the inputs probed, the lanes whose raw bits differed
+   * from the row engine's, the largest {@link VarkaMathBound#steps} among them
+   * ({@link VarkaMathBound#REFUSED} for a pair no bound admits; 0 where only NaN payloads
+   * differed), and the witness of that largest: the input bits ({@code x}, or {@code x,y} for a
+   * binary function), the library's bits and the row engine's, each a {@code 0x} hex word, or
+   * {@code -} each when no lane differed. The library is the one the symbol names.
    */
   public record MeasuredLine(String host, Operator function, VarkaMathBinding.Library library,
       String symbol, int bits, String jdkBuild, String cpu, long inputs, long differing,
@@ -107,8 +109,11 @@ public final class VarkaMathContract {
         throw VarkaErrors.illegalArgument("not a measured line: " + library + " at " + bits
             + " bits, " + differing + " of " + inputs + " lanes, " + largestSteps + " steps");
       }
+      if (symbol.startsWith("__jsvml_") != (library == VarkaMathBinding.Library.SVML)) {
+        throw VarkaErrors.illegalArgument("the symbol " + symbol + " is not " + library + "'s");
+      }
       boolean none = differing == 0;
-      if (none != (largestSteps == 0) || !witness(witnessInput, none, 2)
+      if ((none && largestSteps != 0) || !witness(witnessInput, none, function.binary() ? 2 : 1)
           || !witness(witnessLibrary, none, 1) || !witness(witnessRowEngine, none, 1)) {
         throw VarkaErrors.illegalArgument("a measured line's witness is a 0x word per value"
             + " where a lane differed and - where none did: " + witnessInput + " "
@@ -116,15 +121,15 @@ public final class VarkaMathContract {
       }
     }
 
-    private static boolean witness(String text, boolean none, int most) {
+    private static boolean witness(String text, boolean none, int words) {
       if (none) {
         return "-".equals(text);
       }
-      String[] words = text.split(",", -1);
-      if (words.length > most) {
+      String[] split = text.split(",", -1);
+      if (split.length != words) {
         return false;
       }
-      for (String w : words) {
+      for (String w : split) {
         if (!w.matches("0x[0-9a-f]{16}")) {
           return false;
         }
@@ -156,15 +161,19 @@ public final class VarkaMathContract {
 
   /**
    * What is wrong between {@code entries} and the committed {@code lines}: a line above the value
-   * of the entry for its function, symbol and JDK build, an entry citing no line, and a citation
-   * no committed line of that key answers. Empty when the contract holds.
+   * of the entry for its function, symbol and JDK build, two entries of one key, an entry citing
+   * no line, and a citation no committed line of that key answers. Empty when the contract holds.
    */
   public static List<String> findings(List<Entry> entries, List<MeasuredLine> lines) {
     var found = new ArrayList<String>();
+    var keys = new HashSet<String>();
     for (Entry e : entries) {
       List<MeasuredLine> keyed = lines.stream().filter(l -> l.function() == e.function()
           && l.symbol().equals(e.symbol()) && l.jdkBuild().equals(e.jdkBuild())).toList();
       String key = e.function() + " on " + e.symbol() + ", JDK " + e.jdkBuild();
+      if (!keys.add(key)) {
+        found.add(key + ": entered twice");
+      }
       for (MeasuredLine l : keyed) {
         if (l.largestSteps() > e.steps()) {
           found.add(key + ": " + l.host() + " (" + l.cpu() + ") measured " + l.largestSteps()

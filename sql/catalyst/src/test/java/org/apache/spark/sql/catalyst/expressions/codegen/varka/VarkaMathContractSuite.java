@@ -151,5 +151,26 @@ public final class VarkaMathContractSuite {
     assertEquals(Operator.POW, MeasuredLine.parse("laptop", pow).function());
     assertThrows(IllegalArgumentException.class, () -> MeasuredLine.parse("laptop",
         pow.replace("\t0x3ff0000000000000\t", "\t0x3ff0000000000000,0x0\t")));
+    assertThrows(IllegalArgumentException.class, () -> MeasuredLine.parse("laptop",
+        pow.replace("0x3ff0000000000000,0x4000000000000000", "0x3ff0000000000000")));
+    assertThrows(IllegalArgumentException.class, () -> MeasuredLine.parse("epyc",
+        good.replace("0x3ff0000000000000\t0x3ff0000000000001",
+            "0x3ff0000000000000,0x3ff0000000000000\t0x3ff0000000000001")));
+    // A SLEEF symbol under SVML, or the reverse, is refused.
+    assertThrows(IllegalArgumentException.class, () -> MeasuredLine.parse("epyc",
+        good.replace("__jsvml_sin4_ha_l9", "sind2_u10advsimd")));
+    // Lanes that differ only in a NaN's payload are 0 steps apart: a line may count them.
+    String payloads = String.join("\t", "sin", "SLEEF", "sind2_u10advsimd", "128", JDK, CPU,
+        "16777216", "2", "0", "0x7ff0000000000000", "0xfff8000000000000", "0x7ff8000000000000");
+    assertEquals(0, MeasuredLine.parse("arm", payloads).largestSteps());
+  }
+
+  @Test
+  @DisplayName("two entries of one function, symbol and JDK build fail")
+  void entryKeysAreUnique() {
+    var cited = new Citation("epyc", CPU);
+    List<String> found = VarkaMathContract.findings(List.of(entry(1, cited), entry(4, cited)),
+        List.of(line("epyc", 1)));
+    assertEquals(List.of("SIN on __jsvml_sin4_ha_l9, JDK " + JDK + ": entered twice"), found);
   }
 }

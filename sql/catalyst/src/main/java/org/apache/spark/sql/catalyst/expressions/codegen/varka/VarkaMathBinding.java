@@ -31,15 +31,17 @@ import javax.annotation.Nullable;
  *
  * <p>The library is SVML on x86, SLEEF on aarch64 and riscv64 and none elsewhere, or the one the
  * property {@code jdk.incubator.vector.VectorMathLibrary} names; a library the host cannot load
- * leaves none. A 64-bit species, and a species wider than the host's widest, is never bound.
- * SVML names {@code __jsvml_<op><lanes>_ha_<level>}, the level {@code z0} at a 512-bit species and
- * otherwise {@code l9} with AVX2, {@code e9} with AVX and {@code ex} below; at 512 bits
- * {@code LOG}, {@code LOG10} and {@code POW} need AVX512DQ, which no reading outside the JDK sees,
- * so it is taken as present at level 3, and below 512 bits {@code POW} is unbound. SLEEF names
- * {@code <op>d<lanes>_<tier><suffix>}, the tier {@code u05} for {@code HYPOT} and {@code u10}
- * otherwise, the lanes {@code x} and the suffix {@code sve} for an aarch64 species wider than 128
- * bits, {@code advsimd} at 128 and {@code rvv} with {@code x} on riscv64; {@code TANH} is never
- * bound there.
+ * leaves none, and the JDK ships SVML on Linux and Windows only and SLEEF on Linux and macOS only
+ * (JDK 25's {@code make/modules/jdk.incubator.vector/Lib.gmk}). A 64-bit species, and a species
+ * wider than the host's widest, is never bound. SVML names {@code __jsvml_<op><lanes>_ha_<level>},
+ * the level {@code z0} at a 512-bit species and otherwise {@code l9} with AVX2, {@code e9} with AVX
+ * and {@code ex} below; at 512 bits {@code LOG}, {@code LOG10} and {@code POW} need AVX512DQ,
+ * which the emitter's AVX level does not say, so it is taken as present at level 3 and the binding
+ * check is what fails on a host with AVX-512F and no DQ; below 512 bits {@code POW} is unbound.
+ * SLEEF names {@code <op>d<lanes>_<tier><suffix>}, the tier {@code u05} for {@code HYPOT} and
+ * {@code u10} otherwise, the lanes {@code x} and the suffix {@code sve} for an aarch64 species
+ * wider than 128 bits, {@code advsimd} at 128 and {@code rvv} with {@code x} on riscv64;
+ * {@code TANH} is never bound there.
  */
 public final class VarkaMathBinding {
 
@@ -69,11 +71,11 @@ public final class VarkaMathBinding {
   public enum Library { SVML, SLEEF, NONE }
 
   /**
-   * What decides a binding on a host: {@code os.arch}, the library property ({@code null} for
-   * none), the {@code -XX:UseAVX} level (0 on a host that is not x86, where it is not read) and
-   * the widest {@code DOUBLE} species in bits.
+   * What decides a binding on a host: {@code os.arch}, {@code os.name}, the library property
+   * ({@code null} for none), the {@code -XX:UseAVX} level (0 on a host that is not x86, where it
+   * is not read) and the widest {@code DOUBLE} species in bits.
    */
-  public record Host(String arch, @Nullable String libraryProperty, int avxLevel,
+  public record Host(String arch, String os, @Nullable String libraryProperty, int avxLevel,
       int maxDoubleBits) {
     public Host {
       if (avxLevel < 0 || maxDoubleBits < 64 || Integer.bitCount(maxDoubleBits) != 1) {
@@ -84,13 +86,17 @@ public final class VarkaMathBinding {
 
     /** The library this host binds. */
     public Library library() {
+      String system = os.toLowerCase(Locale.ROOT);
+      boolean linux = system.startsWith("linux");
       boolean x86 = VarkaHostIsa.isX86(arch);
       boolean sleefArch = "aarch64".equals(arch) || "riscv64".equals(arch);
       String name = libraryProperty != null ? libraryProperty : x86 ? "svml"
           : sleefArch ? "sleef" : "java";
       return switch (name) {
-        case "svml" -> x86 ? Library.SVML : Library.NONE;
-        case "sleef" -> sleefArch ? Library.SLEEF : Library.NONE;
+        case "svml" -> x86 && (linux || system.startsWith("windows"))
+            ? Library.SVML : Library.NONE;
+        case "sleef" -> sleefArch && (linux || system.startsWith("mac"))
+            ? Library.SLEEF : Library.NONE;
         default -> Library.NONE;
       };
     }

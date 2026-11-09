@@ -186,6 +186,7 @@ EXCLUDED=(
   "VarkaTierWitnessSuite:asserts which JIT tier ran a call, which a loaded machine moves"
   "VarkaWidthAuditSuite:audits the C2 code of a probe JVM it starts without the configuration"
   "VarkaOperatorCensusSuite:counts the C2 code of probe JVMs it starts without the configuration"
+  "VarkaMathBindingSuite:reads the math bindings of probe JVMs it starts without the configuration"
 )
 
 # The gate runs every suite; the matrix leaves out the ones above.
