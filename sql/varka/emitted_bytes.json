@@ -14416,12 +14416,12 @@
       "16" : "21f9f7ed3cc9491e"
     },
     "wideConversionForm=SPLIT over useAVX=2" : {
-      "4" : "4f02b3652262b16b",
-      "16" : "df07f428b64a85ba"
+      "4" : "53ca23ec435f9f7d",
+      "16" : "cd00b7c20f6bef3c"
     },
     "wideConversionForm=MAGIC over useAVX=2" : {
-      "4" : "4f02b3652262b16b",
-      "16" : "df07f428b64a85ba"
+      "4" : "53ca23ec435f9f7d",
+      "16" : "cd00b7c20f6bef3c"
     },
     "narrowLanes=true" : {
       "4" : "dbc4d9f1abeed0a2",
