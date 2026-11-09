@@ -559,6 +559,20 @@ case class ApplyColumnarRulesAndInsertTransitions(
   extends Rule[SparkPlan] {
 
   /**
+   * Whether a columnar rule may replace the transitions to rows. [[VarkaColumnarRule]] is in the
+   * columnar rules of every session and changes no plan unless Varka is enabled, so it counts
+   * only then: with Varka off, the rules are those of the extensions alone. A rule may arrive
+   * wrapped by `SnapshotUnionPreparationConf.after`, which changes nothing it decides.
+   */
+  private def hasActiveColumnarRules: Boolean = columnarRules.exists(mayReplaceTransitions)
+
+  private def mayReplaceTransitions(rule: ColumnarRule): Boolean = rule match {
+    case RecordUnionPreparationConf(inner, _) => mayReplaceTransitions(inner)
+    case VarkaColumnarRule => conf.varkaEnabled
+    case _ => true
+  }
+
+  /**
    * Ensures columnar output on the input query plan. Transitions will be inserted
    * on demand.
    */
@@ -601,7 +615,7 @@ case class ApplyColumnarRulesAndInsertTransitions(
         // supports columnar output, unless an extension has columnar rules: they may replace the
         // transitions to rows with their own, which may be the only way to read their batches, so
         // the write then gets rows through such a transition, as other writes do.
-        case write: V2TableWriteExec if write.writesColumnar && columnarRules.isEmpty => true
+        case write: V2TableWriteExec if write.writesColumnar && !hasActiveColumnarRules => true
         // If it is not required to output columnar (`outputsColumnar` is false), and the plan
         // supports row-based and columnar, we don't need to output row-based data on its children
         // nodes. So we set `outputsColumnar` to true.
