@@ -1,4 +1,4 @@
-# Your sin() depends on your CPU
+# Your `sin()` depends on your JDK and your instruction set
 
 Run `SELECT cos(0.1)` in Spark on our x86 laptop with JDK 25 and you get `0.9950041652780258`.
 fdlibm, the math library Java ships as `StrictMath`, says `0.9950041652780257`. On an Arm server

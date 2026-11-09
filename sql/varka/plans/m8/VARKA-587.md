@@ -231,13 +231,10 @@ both are slower without a number, or the row measures them if the owner asks (qu
 
 ## 7. Questions for the owner
 
-1. **The title.** The answer depends on the architecture and the JDK, not on the CPU model: two
-   x86 CPUs agree (item 4). Keep "Your sin() depends on your CPU", with the first paragraph
-   saying it precisely, or "Your sin() depends on your machine". Recommended: keep it; "CPU"
-   reads as x86 against Arm to this audience.
-2. **The two dispatches of 6.2**, or the Arm one only: the EPYC run adds a pinned x86 machine
-   beside the laptop and the canary's pool CPU. Recommended: both; the post can then say "three
-   x86 CPUs" from Spark itself.
+1. **The title.** *Settled by the owner, 9 November 2026:* "Your `sin()` depends on your JDK and
+   your instruction set", which says what item 4 measured: two x86 CPUs agree.
+2. **The dispatches of 6.2.** *Settled by the owner, 9 November 2026:* all three, the canary
+   probe on both architectures and the Spark query on the Arm and the EPYC 7763 runners.
 3. **The remedies' cost**: measure `reflect` and `-XX:DisableIntrinsic` against the stub in a
    benchmark (a row of its own), or leave the post saying "slower" with no number. Recommended:
    no number in this post.
