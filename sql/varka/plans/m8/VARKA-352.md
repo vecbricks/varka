@@ -596,14 +596,13 @@ boolean conformance suites read their values from the descriptor.
   column; the checked arithmetic that overflows is 2.5's side sequence, as at the other lanes.
 - **What the narrow lane does not draw**, each because the compiler never builds it there: the
   constant division (Spark's `/` over a `TINYINT` is a `DOUBLE`, `div` a `BIGINT`), the range
-  guard (a cast guards its wider source, the cast sequence's), the shifts and `bit_count` (Spark
-  widens a narrow operand of either to `INT`, and the compiler builds `BitCount` over the value
-  widened to the int lane), the unsigned compares and the output narrowing to `INT`. The first
-  run drew `BitCount` at the narrow lanes and found the emitter adds the int lane's 32 sign bits
-  to a negative byte's or short's popcount where Spark adds 56 or 48: a node the IR constructs
-  and the emitter lowered wrongly, though no compiled expression builds it. Fixed by row 580,
-  9 November 2026: the emitter adds the `64 - w` sign bits of a `w`-bit lane, so the narrow
-  sequences draw `BitCount` again, though the compiler still builds it at the int lane. The negation
+  guard (a cast guards its wider source, the cast sequence's), the shifts (Spark widens a narrow
+  operand to `INT`), the unsigned compares and the output narrowing to `INT`. `bit_count` is
+  drawn though the compiler builds `BitCount` over the value widened to the int lane: the first
+  run drew it at the narrow lanes and found the emitter adds the int lane's 32 sign bits to a
+  negative byte's or short's popcount where Spark adds 56 or 48, a node the IR constructs and
+  the emitter lowered wrongly. Fixed by row 580, 9 November 2026: the emitter adds the `64 - w`
+  sign bits of a `w`-bit lane, and the narrow sequences draw `BitCount` again. The negation
   draws `abs` beside it at the narrow lanes, which the long lane's never does, and a condition
   may be a range set (`InRanges`, what `IN` over a narrow column compiles to), which it never is.
 - **Owed to the Spark-level part:** the variants of a passing narrow draw (`VarkaVariantChecks`

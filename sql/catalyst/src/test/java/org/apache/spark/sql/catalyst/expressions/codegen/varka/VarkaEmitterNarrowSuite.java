@@ -550,12 +550,21 @@ public final class VarkaEmitterNarrowSuite {
             VarkaReference.value(root, new int[] {v}, new boolean[1], new int[0]),
             "the reference's bit_count of " + lane + " " + v);
       }
+      // Beside an int root the kernel computes at the int lane on both arms, so the node is
+      // counted there over the sign-extended load; the odd length leaves a tail.
+      int mixedLength = span + 3;
+      int[][] mixed = {tabulate(mixedLength, i -> values[i % span]),
+        tabulate(mixedLength, i -> i * 7919)};
+      List<VarkaVectorIR> mixedRoots = List.of(root, new ColumnRef(1, LaneType.INT));
       for (Arm arm : ARMS) {
         for (boolean masked : new boolean[] {false, true}) {
           checkValues("bit_count of every " + lane + " value " + arm.name()
               + (masked ? " masked" : ""), List.of(root), 1, new int[0], span,
               new int[][] {values}, row -> false, masked, arm.options());
         }
+        checkValues("bit_count of every " + lane + " value beside an int root " + arm.name(),
+            mixedRoots, 2, new int[0], mixedLength, mixed, row -> row % 5 == 2, false,
+            arm.options());
       }
     }
   }
