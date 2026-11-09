@@ -27,9 +27,11 @@ import java.util.SplittableRandom;
 import java.util.function.DoubleBinaryOperator;
 
 import org.apache.spark.network.util.JavaUtils;
+import org.apache.spark.sql.Dataset;
 import org.apache.spark.sql.Row;
 import org.apache.spark.sql.RowFactory;
 import org.apache.spark.sql.SparkSession;
+import org.apache.spark.sql.execution.WholeStageCodegenExec;
 import org.apache.spark.sql.internal.SQLConf;
 import org.apache.spark.sql.types.DataTypes;
 import org.apache.spark.sql.types.StructType;
@@ -64,6 +66,28 @@ public class SparkMathHostBenchmark extends VarkaSqlBenchmarkBase {
   static final int PER_DRAW = 1 << 16;
   static final int ROWS = 4 * PER_DRAW;
   static final long SEED = 587;
+
+  /**
+   * The three ways Spark evaluates the query, by the label its results print and the two confs
+   * that select it: whole-stage code generation on, and the factory mode of the projections that
+   * run without it ({@code CODEGEN_ONLY} fails rather than fall back to the interpreter on a
+   * compile error, {@code NO_CODEGEN} makes them interpreted).
+   */
+  enum Mode {
+    WHOLE_STAGE("whole-stage", true, "FALLBACK"),
+    GENERATED("generated", false, "CODEGEN_ONLY"),
+    INTERPRETED("interpreted", false, "NO_CODEGEN");
+
+    final String label;
+    final boolean wholeStage;
+    final String factoryMode;
+
+    Mode(String label, boolean wholeStage, String factoryMode) {
+      this.label = label;
+      this.wholeStage = wholeStage;
+      this.factoryMode = factoryMode;
+    }
+  }
 
   /** A Spark function as the query writes it, and the same composition over StrictMath. */
   record Fn(String sql, DoubleBinaryOperator strict) {}
@@ -104,16 +128,16 @@ public class SparkMathHostBenchmark extends VarkaSqlBenchmarkBase {
   @Override
   public void runBenchmarkSuite(String[] mainArgs) {
     SparkSession spark = spark();
-    double[] xs = new double[ROWS];
-    double[] ys = new double[ROWS];
-    SplittableRandom r = new SplittableRandom(SEED);
-    List<Row> rows = new ArrayList<>(ROWS);
+    var xs = new double[ROWS];
+    var ys = new double[ROWS];
+    var r = new SplittableRandom(SEED);
+    var rows = new ArrayList<Row>(ROWS);
     for (int i = 0; i < ROWS; i++) {
       xs[i] = draw(i / PER_DRAW, r);
       ys[i] = draw(i / PER_DRAW, r);
       rows.add(RowFactory.create(i, xs[i], ys[i]));
     }
-    StructType schema = new StructType()
+    var schema = new StructType()
         .add("id", DataTypes.IntegerType, false)
         .add("x", DataTypes.DoubleType, false)
         .add("y", DataTypes.DoubleType, false);
@@ -132,7 +156,7 @@ public class SparkMathHostBenchmark extends VarkaSqlBenchmarkBase {
             + System.getProperty("java.runtime.version") + " spark=" + spark.version());
         note("rows: " + ROWS + ", " + PER_DRAW + " a draw (bit patterns, [-750,750], [-2,2],"
             + " near zero), seed " + SEED + "; a null answer counts as NaN");
-        for (String mode : new String[] {"whole-stage", "generated", "interpreted"}) {
+        for (Mode mode : Mode.values()) {
           compare(spark, mode, xs, ys);
         }
       });
@@ -194,19 +218,31 @@ public class SparkMathHostBenchmark extends VarkaSqlBenchmarkBase {
     };
   }
 
-  private void compare(SparkSession spark, String mode, double[] xs, double[] ys) {
+  private void compare(SparkSession spark, Mode mode, double[] xs, double[] ys) {
     String wholeStage = SQLConf.WHOLESTAGE_CODEGEN_ENABLED().key();
     String factory = SQLConf.CODEGEN_FACTORY_MODE().key();
-    spark.conf().set(wholeStage, mode.equals("whole-stage") ? "true" : "false");
-    spark.conf().set(factory, mode.equals("interpreted") ? "NO_CODEGEN" : "FALLBACK");
-    StringBuilder select = new StringBuilder("SELECT id");
+    var select = new StringBuilder("SELECT id");
     for (Fn f : FNS) {
       select.append(", ").append(f.sql());
     }
-    List<Row> answers = spark.sql(select + " FROM t").collectAsList();
-    spark.conf().unset(wholeStage);
-    spark.conf().unset(factory);
-    long[][] bits = new long[FNS.size()][ROWS];
+    List<Row> answers;
+    spark.conf().set(wholeStage, Boolean.toString(mode.wholeStage));
+    spark.conf().set(factory, mode.factoryMode);
+    try {
+      Dataset<Row> query = spark.sql(select + " FROM t");
+      // The plan proves the first conf took: its root is a whole-stage stage exactly when asked.
+      // The factory mode acts later, in each task's projection, and shows in no plan.
+      boolean staged = query.queryExecution().executedPlan() instanceof WholeStageCodegenExec;
+      if (staged != mode.wholeStage) {
+        throw new IllegalStateException(mode.label + ": the plan is "
+            + (staged ? "" : "not ") + "whole-stage:\n" + query.queryExecution().executedPlan());
+      }
+      answers = query.collectAsList();
+    } finally {
+      spark.conf().unset(wholeStage);
+      spark.conf().unset(factory);
+    }
+    var bits = new long[FNS.size()][ROWS];
     for (Row row : answers) {
       int id = row.getInt(0);
       for (int k = 0; k < FNS.size(); k++) {
@@ -215,7 +251,7 @@ public class SparkMathHostBenchmark extends VarkaSqlBenchmarkBase {
       }
     }
     note("");
-    note(mode + ":");
+    note(mode.label + ":");
     for (int k = 0; k < FNS.size(); k++) {
       Fn f = FNS.get(k);
       long differ = 0;
@@ -228,11 +264,16 @@ public class SparkMathHostBenchmark extends VarkaSqlBenchmarkBase {
           continue;
         }
         // nan-compare: ok, a NaN of another payload is counted apart from a value difference
-        if (Double.isNaN(Double.longBitsToDouble(a)) && Double.isNaN(Double.longBitsToDouble(s))) {
+        boolean nanA = Double.isNaN(Double.longBitsToDouble(a));
+        boolean nanS = Double.isNaN(Double.longBitsToDouble(s));
+        if (nanA && nanS) {
           nans++;
         } else {
           differ++;
-          maxUlp = Math.max(maxUlp, Math.abs(ordered(a) - ordered(s)));
+          // A NaN against a value has no distance in ULPs; it counts as a differing row only.
+          if (!nanA && !nanS) {
+            maxUlp = Math.max(maxUlp, Math.abs(ordered(a) - ordered(s)));
+          }
         }
       }
       note(String.format("  %-12s rows differing from StrictMath=%d maxUlp=%d nanPayload=%d"

@@ -88,18 +88,23 @@ public class MathHostProbe {
       Map.entry("log", "StrictMath: ln, log2, log"), Map.entry("log10", "StrictMath: log10"),
       Map.entry("log1p", "StrictMath: log1p, atanh"), Map.entry("pow", "StrictMath: pow"));
   /**
-   * The flags of each child JVM, and what its Math digests are expected to equal. A JVM refuses
-   * an intrinsic name it does not know, and {@code _dtanh} came in JDK 24, {@code _dcbrt} in 25.
+   * A child JVM: its name in the report, its JVM flags, and whether its Math digests are expected
+   * to equal this JVM's Math ({@code true}) or StrictMath ({@code false}).
    */
-  static final String[][] CHILDREN = {
-    {"interpreter only", "math", "-Xint"},
-    {"C1 only", "math", "-XX:TieredStopAtLevel=1"},
-    {"C2 only", "math", "-XX:-TieredCompilation"},
-    {"intrinsics disabled", "strict", "-XX:+UnlockDiagnosticVMOptions",
-      "-XX:DisableIntrinsic=_dsin,_dcos,_dtan,_dexp,_dlog,_dlog10,_dpow"
-        + (Runtime.version().feature() >= 24 ? ",_dtanh" : "")
-        + (Runtime.version().feature() >= 25 ? ",_dcbrt" : "")},
-  };
+  record Child(String name, boolean expectsMath, List<String> flags) {}
+
+  /**
+   * The child JVMs. A JVM refuses an intrinsic name it does not know, and {@code _dtanh} came in
+   * JDK 24, {@code _dcbrt} in 25.
+   */
+  static final List<Child> CHILDREN = List.of(
+      new Child("interpreter only", true, List.of("-Xint")),
+      new Child("C1 only", true, List.of("-XX:TieredStopAtLevel=1")),
+      new Child("C2 only", true, List.of("-XX:-TieredCompilation")),
+      new Child("intrinsics disabled", false, List.of("-XX:+UnlockDiagnosticVMOptions",
+          "-XX:DisableIntrinsic=_dsin,_dcos,_dtan,_dexp,_dlog,_dlog10,_dpow"
+              + (Runtime.version().feature() >= 24 ? ",_dtanh" : "")
+              + (Runtime.version().feature() >= 25 ? ",_dcbrt" : ""))));
   static final String[] LITERAL_FNS = {"sin", "cos", "tan", "tanh", "cbrt"};
 
   static boolean binary(String f) {
@@ -107,78 +112,81 @@ public class MathHostProbe {
   }
 
   static double math(String f, double x, double y) {
-    switch (f) {
-      case "sin": return Math.sin(x);
-      case "cos": return Math.cos(x);
-      case "tan": return Math.tan(x);
-      case "tanh": return Math.tanh(x);
-      case "cbrt": return Math.cbrt(x);
-      case "asin": return Math.asin(x);
-      case "acos": return Math.acos(x);
-      case "atan": return Math.atan(x);
-      case "sinh": return Math.sinh(x);
-      case "cosh": return Math.cosh(x);
-      case "atan2": return Math.atan2(x, y);
-      case "hypot": return Math.hypot(x, y);
-      case "exp": return Math.exp(x);
-      case "expm1": return Math.expm1(x);
-      case "log": return Math.log(x);
-      case "log10": return Math.log10(x);
-      case "log1p": return Math.log1p(x);
-      case "pow": return Math.pow(x, y);
-      default: throw new IllegalArgumentException(f);
-    }
+    return switch (f) {
+      case "sin" -> Math.sin(x);
+      case "cos" -> Math.cos(x);
+      case "tan" -> Math.tan(x);
+      case "tanh" -> Math.tanh(x);
+      case "cbrt" -> Math.cbrt(x);
+      case "asin" -> Math.asin(x);
+      case "acos" -> Math.acos(x);
+      case "atan" -> Math.atan(x);
+      case "sinh" -> Math.sinh(x);
+      case "cosh" -> Math.cosh(x);
+      case "atan2" -> Math.atan2(x, y);
+      case "hypot" -> Math.hypot(x, y);
+      case "exp" -> Math.exp(x);
+      case "expm1" -> Math.expm1(x);
+      case "log" -> Math.log(x);
+      case "log10" -> Math.log10(x);
+      case "log1p" -> Math.log1p(x);
+      case "pow" -> Math.pow(x, y);
+      default -> throw new IllegalArgumentException(f);
+    };
   }
 
   static double strict(String f, double x, double y) {
-    switch (f) {
-      case "sin": return StrictMath.sin(x);
-      case "cos": return StrictMath.cos(x);
-      case "tan": return StrictMath.tan(x);
-      case "tanh": return StrictMath.tanh(x);
-      case "cbrt": return StrictMath.cbrt(x);
-      case "asin": return StrictMath.asin(x);
-      case "acos": return StrictMath.acos(x);
-      case "atan": return StrictMath.atan(x);
-      case "sinh": return StrictMath.sinh(x);
-      case "cosh": return StrictMath.cosh(x);
-      case "atan2": return StrictMath.atan2(x, y);
-      case "hypot": return StrictMath.hypot(x, y);
-      case "exp": return StrictMath.exp(x);
-      case "expm1": return StrictMath.expm1(x);
-      case "log": return StrictMath.log(x);
-      case "log10": return StrictMath.log10(x);
-      case "log1p": return StrictMath.log1p(x);
-      case "pow": return StrictMath.pow(x, y);
-      default: throw new IllegalArgumentException(f);
-    }
+    return switch (f) {
+      case "sin" -> StrictMath.sin(x);
+      case "cos" -> StrictMath.cos(x);
+      case "tan" -> StrictMath.tan(x);
+      case "tanh" -> StrictMath.tanh(x);
+      case "cbrt" -> StrictMath.cbrt(x);
+      case "asin" -> StrictMath.asin(x);
+      case "acos" -> StrictMath.acos(x);
+      case "atan" -> StrictMath.atan(x);
+      case "sinh" -> StrictMath.sinh(x);
+      case "cosh" -> StrictMath.cosh(x);
+      case "atan2" -> StrictMath.atan2(x, y);
+      case "hypot" -> StrictMath.hypot(x, y);
+      case "exp" -> StrictMath.exp(x);
+      case "expm1" -> StrictMath.expm1(x);
+      case "log" -> StrictMath.log(x);
+      case "log10" -> StrictMath.log10(x);
+      case "log1p" -> StrictMath.log1p(x);
+      case "pow" -> StrictMath.pow(x, y);
+      default -> throw new IllegalArgumentException(f);
+    };
   }
 
+  /** The first and second arguments of every function, input by input. */
+  record Inputs(double[] xs, double[] ys) {}
+
   /** The inputs: draw d fills [d * PER_DRAW, (d + 1) * PER_DRAW) of both arrays. */
-  static double[][] inputs() {
-    double[] xs = new double[N];
-    double[] ys = new double[N];
-    SplittableRandom r = new SplittableRandom(SEED);
+  static Inputs inputs() {
+    var xs = new double[N];
+    var ys = new double[N];
+    var r = new SplittableRandom(SEED);
     for (int d = 0; d < 4; d++) {
       for (int i = d * PER_DRAW; i < (d + 1) * PER_DRAW; i++) {
         xs[i] = draw(d, r);
         ys[i] = draw(d, r);
       }
     }
-    return new double[][] {xs, ys};
+    return new Inputs(xs, ys);
   }
 
   static double draw(int d, SplittableRandom r) {
-    switch (d) {
-      case 0: return Double.longBitsToDouble(r.nextLong());
-      case 1: return (r.nextDouble() * 2 - 1) * 750;
-      case 2: return (r.nextDouble() * 2 - 1) * 2;
-      default: return (r.nextDouble() - 0.5) * Math.scalb(1.0, -r.nextInt(60));
-    }
+    return switch (d) {
+      case 0 -> Double.longBitsToDouble(r.nextLong());
+      case 1 -> (r.nextDouble() * 2 - 1) * 750;
+      case 2 -> (r.nextDouble() * 2 - 1) * 2;
+      default -> (r.nextDouble() - 0.5) * Math.scalb(1.0, -r.nextInt(60));
+    };
   }
 
   static long[] evaluate(String f, boolean useMath, double[] xs, double[] ys) {
-    long[] out = new long[N];
+    var out = new long[N];
     for (int i = 0; i < N; i++) {
       double v = useMath ? math(f, xs[i], ys[i]) : strict(f, xs[i], ys[i]);
       out[i] = Double.doubleToRawLongBits(v);
@@ -198,7 +206,12 @@ public class MathHostProbe {
     return String.format("%016x", h);
   }
 
-  /** The bits mapped to a long that orders as the doubles do, so a difference counts ULPs. */
+  /**
+   * The bits mapped to a long that orders as the doubles do, so a difference counts ULPs. The
+   * map is its own inverse. It keeps -0.0 (to -1) apart from 0.0 (to 0), so the two zeros are 1
+   * ULP apart, and a difference across the sign of two large values overflows; neither happens
+   * between Math and StrictMath on any measured host (no maxUlp above 2).
+   */
   static long ordered(long bits) {
     return bits ^ ((bits >> 63) & Long.MAX_VALUE);
   }
@@ -218,7 +231,7 @@ public class MathHostProbe {
     int firstValue = -1;
 
     static Diff of(long[] a, long[] b) {
-      Diff d = new Diff();
+      var d = new Diff();
       for (int i = 0; i < N; i++) {
         if (a[i] == b[i]) {
           continue;
@@ -277,9 +290,9 @@ public class MathHostProbe {
       dump = Path.of(runnerTemp, "canary-out");
     }
     host(System.out);
-    double[][] in = inputs();
-    double[] xs = in[0];
-    double[] ys = in[1];
+    var in = inputs();
+    double[] xs = in.xs();
+    double[] ys = in.ys();
     System.out.printf("inputs: %d per function, %d per draw, seed %d, draws %s%n", N, PER_DRAW,
         SEED, String.join(" ", DRAWS));
     System.out.println();
@@ -319,7 +332,7 @@ public class MathHostProbe {
     }
     System.out.println();
     System.out.println("4. The same inputs in child JVMs: Math digests against this JVM's");
-    for (String[] c : CHILDREN) {
+    for (Child c : CHILDREN) {
       child(c, mathDigest, strictDigest);
     }
     System.out.println();
@@ -376,28 +389,26 @@ public class MathHostProbe {
 
   /** In a child: every function's Math digest over the same inputs, one line each. */
   static void child() {
-    double[][] in = inputs();
+    var in = inputs();
     for (String f : FNS) {
-      System.out.println("digest " + f + " " + digest(evaluate(f, true, in[0], in[1])));
+      System.out.println("digest " + f + " " + digest(evaluate(f, true, in.xs(), in.ys())));
     }
   }
 
-  static void child(String[] c, Map<String, String> mathDigest,
+  static void child(Child c, Map<String, String> mathDigest,
       Map<String, String> strictDigest) throws IOException, InterruptedException {
     List<String> cmd = new ArrayList<>();
     cmd.add(ProcessHandle.current().info().command().orElse("java"));
-    for (int i = 2; i < c.length; i++) {
-      cmd.add(c[i]);
-    }
+    cmd.addAll(c.flags());
     cmd.add("-XX:ErrorFile=" + System.getProperty("java.io.tmpdir") + "/mathhost_hs_err_%p.log");
     cmd.add(sourceFile());
     cmd.add("--child");
-    cmd.add(c[1]);
+    cmd.add(c.expectsMath() ? "math" : "strict");
     long start = System.nanoTime();
-    Process p = new ProcessBuilder(cmd).redirectErrorStream(true).start();
+    var p = new ProcessBuilder(cmd).redirectErrorStream(true).start();
     Map<String, String> got = new HashMap<>();
     List<String> other = new ArrayList<>();
-    try (BufferedReader r = new BufferedReader(
+    try (var r = new BufferedReader(
         new InputStreamReader(p.getInputStream(), StandardCharsets.UTF_8))) {
       String line;
       while ((line = r.readLine()) != null) {
@@ -411,7 +422,7 @@ public class MathHostProbe {
     }
     int status = p.waitFor();
     double seconds = (System.nanoTime() - start) / 1e9;
-    Map<String, String> want = c[1].equals("math") ? mathDigest : strictDigest;
+    Map<String, String> want = c.expectsMath() ? mathDigest : strictDigest;
     List<String> agree = new ArrayList<>();
     List<String> disagree = new ArrayList<>();
     for (String f : FNS) {
@@ -422,9 +433,9 @@ public class MathHostProbe {
             : mathDigest.get(f).equals(got.get(f)) ? "(=this JVM's Math)" : ""));
       }
     }
-    System.out.printf("%-20s %s: exit %d in %.0f s; equal to %s for %d of %d%s%n", c[0],
-        String.join(" ", List.of(c).subList(2, c.length)), status, seconds,
-        c[1].equals("math") ? "this JVM's Math" : "StrictMath", agree.size(), FNS.length,
+    System.out.printf("%-20s %s: exit %d in %.0f s; equal to %s for %d of %d%s%n", c.name(),
+        String.join(" ", c.flags()), status, seconds,
+        c.expectsMath() ? "this JVM's Math" : "StrictMath", agree.size(), FNS.length,
         disagree.isEmpty() ? "" : "; differs: " + String.join(" ", disagree));
     if (status != 0 || got.size() != FNS.length) {
       for (String line : other.subList(0, Math.min(other.size(), 8))) {
@@ -453,7 +464,7 @@ public class MathHostProbe {
     System.out.println("5. The literals 0.01 to 10.00 (k / 100 for k = 1..1000): where Math and"
         + " StrictMath differ, as k:ULPs (Math above StrictMath is positive)");
     for (String f : LITERAL_FNS) {
-      StringBuilder sb = new StringBuilder();
+      var sb = new StringBuilder();
       int n = 0;
       String first = null;
       for (int k = 1; k <= 1000; k++) {
@@ -484,12 +495,12 @@ public class MathHostProbe {
       Map<String, String> strictDigest) throws IOException {
     Files.createDirectories(dir);
     Path file = dir.resolve("mathhost-dump.txt");
-    try (PrintStream out = new PrintStream(Files.newOutputStream(file), false, "UTF-8")) {
+    try (var out = new PrintStream(Files.newOutputStream(file), false, StandardCharsets.UTF_8)) {
       host(out);
       for (String f : FNS) {
         long[] m = mathBits.get(f);
         long[] s = strictBits.get(f);
-        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        var bytes = new ByteArrayOutputStream();
         int prev = 0;
         int n = 0;
         for (int i = 0; i < N; i++) {
@@ -545,28 +556,31 @@ public class MathHostProbe {
       int pos = 0;
       int index = 0;
       while (pos < data.length) {
-        long[] r = readVarint(data, pos);
-        index += (int) r[0];
-        r = readVarint(data, (int) r[1]);
-        long z = r[0];
+        Varint gap = readVarint(data, pos);
+        index += (int) gap.value();
+        Varint zigzag = readVarint(data, gap.next());
+        long z = zigzag.value();
         long delta = (z >>> 1) ^ -(z & 1);
         long o = ordered(strictBits.get(f)[index]) + delta;
         other[index] = ordered(o);
-        pos = (int) r[1];
+        pos = zigzag.next();
       }
       Diff d = Diff.of(mathBits.get(f), other);
       System.out.printf("%-6s %s%n", f, d.fields());
     }
   }
 
-  static long[] readVarint(byte[] data, int pos) {
+  /** A varint read from a dump: its value and the position of the byte after it. */
+  record Varint(long value, int next) {}
+
+  static Varint readVarint(byte[] data, int pos) {
     long v = 0;
     int shift = 0;
     while (true) {
       byte b = data[pos++];
       v |= (long) (b & 0x7f) << shift;
       if ((b & 0x80) == 0) {
-        return new long[] {v, pos};
+        return new Varint(v, pos);
       }
       shift += 7;
     }
