@@ -132,3 +132,7 @@ null, appended after the existing 88 so the committed results keep their places.
 rescales; the queries suite also checks that no divisor is zero at the benchmark's 2,000,000
 rows, since one would raise under ANSI. The runner results at 256 and 128 bits are to be spliced
 into the committed `-runner-epyc7763` files, the new sections only, with their provenance.
+
+The benchmark's classes now follow the two-lane refusal #1262 added (VARKA-503): at 128 bits its
+30 filters over a 64-bit decimal are `NONE`, and the first 128-bit run failed on that before
+(MaxGekk/spark run 42574807845); the fuse test checks the classes with the refusal off and on.
