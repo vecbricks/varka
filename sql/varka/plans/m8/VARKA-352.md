@@ -567,3 +567,57 @@ merged per row id like `types.tsv`; the driver keys its rules by file name but f
 which it keys by its path (`PATH_NAMES`), so the two names do not collide.
 `varka_regen_generated.sh` rewrites it when owed and on `--all`, and the push check runs
 `VarkaFuzzTypesSuite` with the other generating suites.
+
+### 10.2 Step 2 of 352a, the landed types: its first part, the narrow sequence (8 November 2026)
+
+*Where it is cut.* Step 2 is two pull requests at the seam between the fuzzers, 5 item 2 not
+fitting the 1000-line cap in one: this one is the IR fuzzer's narrow sequence; the next is the
+Spark-level half (the `BOOLEAN`, `TINYINT` and `SMALLINT` fixture columns and their pools, the
+coverage-row filters gone at the Spark level and in the composition fuzzer, the catalyst grammar's
+new types and the TLP shapes for them), whose fixture columns take a stream of their own (2.2 rule
+5), since `drawData`'s hostile spots are drawn over the twelve columns' indices.
+
+*What this part builds.* `BYTE_FUZZ_SEED` and `SHORT_FUZZ_SEED`, the sequences `fuzz_byte` and
+`fuzz_short`, drawn by `LongShapes`, the lane-generic generator, parameterised by the lane (2.2
+item 2); `VarkaIrFuzzSuite` runs each against the reference through the narrow harness and asserts
+that both `narrowLanes` arms answered, and a reach test holds each to the node types the narrow
+lane admits; `VarkaEmittedBytesSuite` pins two thousand shapes of each as twenty blocks at both
+widths (2.2 item 4); `BYTE`'s and `SHORT`'s IR sites name the new sequences; and the integral and
+boolean conformance suites read their values from the descriptor.
+
+*How the plan's open points are settled, by its own rules.*
+
+- **A pinned sequence follows the committed draws' discipline** (2.2 rule 1, the 3 November note):
+  a checked mode of `IntArith` or `IntNeg` only where the tracked bounds rule overflow out, no
+  nulling guard. The first column's bound is the lane's whole range, so wrapping arithmetic over
+  it meets the lane's ends; every other column is drawn within half the lane's greatest value
+  (`narrowColumnBound`), so the checked modes land on subtrees that read a column as well as on
+  literals, and the reach test asserts both lanes draw a failing and a nulling mode over a
+  column; the checked arithmetic that overflows is 2.5's side sequence, as at the other lanes.
+- **What the narrow lane does not draw**, each because the compiler never builds it there: the
+  constant division (Spark's `/` over a `TINYINT` is a `DOUBLE`, `div` a `BIGINT`), the range
+  guard (a cast guards its wider source, the cast sequence's), the shifts and `bit_count` (Spark
+  widens a narrow operand of either to `INT`, and the compiler builds `BitCount` over the value
+  widened to the int lane), the unsigned compares and the output narrowing to `INT`. The first
+  run drew `BitCount` at the narrow lanes and found the emitter adds the int lane's 32 sign bits
+  to a negative byte's or short's popcount where Spark adds 56 or 48: a node the IR constructs
+  and the emitter lowers wrongly, though no compiled expression builds it (row 580). The negation
+  draws `abs` beside it at the narrow lanes, which the long lane's never does, and a condition
+  may be a range set (`InRanges`, what `IN` over a narrow column compiles to), which it never is.
+- **Owed to the Spark-level part:** the variants of a passing narrow draw (`VarkaVariantChecks`
+  runs a case through the int or long harness only), and a nightly volume. The narrow tests take
+  `varka.fuzz.narrowIterations`, the gate's 300, which the nightly's 40000 does not scale: the
+  step budget's one nightly sample predates the suite's growth, so it shows no room to rely on.
+- **The edge arm is on in the new sequences**, one cell in four (2.1's mix), from the value stream
+  (2.2 rule 5); the committed sequences keep it off.
+- **`option_arms` is not extended.** Its digest is over every shape of the three committed
+  sequences, and adding the narrow ones would move an existing digest; the `narrowLanes=false` arm
+  over the narrow sequences is held by the fuzz test's two-arm assertion, not pinned.
+- **The value lists.** `TINYINT`, `SMALLINT`, `INT`, `BIGINT` and `BOOLEAN` conformance suites read
+  the descriptor's edges, the lists being equal. The others stay the suites' own: `DATE`'s is the
+  contract's range, narrower than the descriptor's Spark days, and `TIME`'s, the intervals' and
+  `TIMESTAMP_NTZ`'s differ by values each type's row chooses, so their union is each type's share
+  (5), not this part's.
+- **No descriptor site moves from `Owed` to `Present` here**: `BYTE`'s and `SHORT`'s IR sites were
+  `Present` through the cast sequence and now name their own; the `BOOLEAN`, `BYTE` and `SHORT`
+  Spark sites stay owed to this row for the next part.

@@ -6567,6 +6567,78 @@
     "note" : "",
     "verified" : "differential"
   }, {
+    "sql" : "rint(x)",
+    "executable" : "rint(x)",
+    "family" : "Rounding",
+    "form" : "projection",
+    "catalyst" : [ "Rint" ],
+    "casts" : [ ],
+    "operands" : [ "Rint:double" ],
+    "switches" : [ "spark.sql.codegen.varka.family.rounding.enabled" ],
+    "domain" : "",
+    "note" : "the nearest integer, a tie to the even one, the sign kept on a zero",
+    "verified" : "proof: fp_round.smt2"
+  }, {
+    "sql" : "floor(l)",
+    "executable" : "floor(l)",
+    "family" : "Rounding",
+    "form" : "projection",
+    "catalyst" : [ "Floor" ],
+    "casts" : [ ],
+    "operands" : [ "Floor:bigint" ],
+    "switches" : [ "spark.sql.codegen.varka.family.rounding.enabled" ],
+    "domain" : "",
+    "note" : "the identity over a bigint, in every mode",
+    "verified" : "differential"
+  }, {
+    "sql" : "ceil(l)",
+    "executable" : "ceil(l)",
+    "family" : "Rounding",
+    "form" : "projection",
+    "catalyst" : [ "Ceil" ],
+    "casts" : [ ],
+    "operands" : [ "Ceil:bigint" ],
+    "switches" : [ "spark.sql.codegen.varka.family.rounding.enabled" ],
+    "domain" : "",
+    "note" : "",
+    "verified" : "differential"
+  }, {
+    "sql" : "ceiling(l)",
+    "executable" : "ceiling(l)",
+    "family" : "Rounding",
+    "form" : "projection",
+    "catalyst" : [ "Ceil" ],
+    "casts" : [ ],
+    "operands" : [ "Ceil:bigint" ],
+    "switches" : [ "spark.sql.codegen.varka.family.rounding.enabled" ],
+    "domain" : "",
+    "note" : "ceil by another name",
+    "verified" : "differential"
+  }, {
+    "sql" : "floor(i)",
+    "executable" : "floor(i)",
+    "family" : "Rounding",
+    "form" : "projection",
+    "catalyst" : [ "Cast", "Floor" ],
+    "casts" : [ "int>double:ansi" ],
+    "operands" : [ "Cast:int", "Floor:double" ],
+    "switches" : [ "spark.sql.codegen.varka.family.rounding.enabled" ],
+    "domain" : "",
+    "note" : "FLOOR(CAST(i AS DOUBLE)): the int widened to a bigint, exact in every mode, with no conversion to a double",
+    "verified" : "differential"
+  }, {
+    "sql" : "ceil(i)",
+    "executable" : "ceil(i)",
+    "family" : "Rounding",
+    "form" : "projection",
+    "catalyst" : [ "Cast", "Ceil" ],
+    "casts" : [ "int>double:ansi" ],
+    "operands" : [ "Cast:int", "Ceil:double" ],
+    "switches" : [ "spark.sql.codegen.varka.family.rounding.enabled" ],
+    "domain" : "",
+    "note" : "",
+    "verified" : "differential"
+  }, {
     "sql" : "CAST(x AS BOOLEAN)",
     "executable" : "CAST(x AS BOOLEAN)",
     "family" : "Floating casts to BOOLEAN",
@@ -7971,5 +8043,5 @@
     "note" : "a DECIMAL(8, 6), s * 10^6 + (n % 10^9) / 1000; Spark rounds a Double back to six digits, which lands on the same value for every (s, g)",
     "verified" : "exhaustive: VarkaTimeFractionSuite, the fraction agrees with Spark's double round trip on every (s, g) of TIME(0) "
   } ],
-  "catalyst_classes_admitted" : [ "Abs", "Add", "AddMonths", "And", "BitwiseAnd", "BitwiseCount", "BitwiseNot", "BitwiseOr", "BitwiseXor", "CaseWhen", "Cast", "Coalesce", "DateAdd", "DateAddYMInterval", "DateDiff", "DateFromUnixDate", "DateSub", "DayOfMonth", "DayOfWeek", "DayOfYear", "Divide", "DivideYMInterval", "EqualNullSafe", "EqualTo", "ExtractANSIIntervalDays", "ExtractANSIIntervalMonths", "ExtractANSIIntervalYears", "GreaterThan", "GreaterThanOrEqual", "Greatest", "Hour", "If", "In", "InSet", "IsNaN", "IsNotNull", "IsNull", "LastDay", "Least", "LessThan", "LessThanOrEqual", "MakeDate", "MakeYMInterval", "Minute", "Month", "Multiply", "MultiplyYMInterval", "NaNvl", "NextDay", "Not", "Or", "Quarter", "Second", "ShiftLeft", "ShiftRight", "ShiftRightUnsigned", "Signum", "Sqrt", "Subtract", "SubtractDates", "SubtractTimestamps", "TimestampAddInterval", "ToDegrees", "ToRadians", "TruncDate", "UnaryMinus", "UnixDate", "WeekDay", "WeekOfYear", "Year", "YearOfWeek" ]
+  "catalyst_classes_admitted" : [ "Abs", "Add", "AddMonths", "And", "BitwiseAnd", "BitwiseCount", "BitwiseNot", "BitwiseOr", "BitwiseXor", "CaseWhen", "Cast", "Ceil", "Coalesce", "DateAdd", "DateAddYMInterval", "DateDiff", "DateFromUnixDate", "DateSub", "DayOfMonth", "DayOfWeek", "DayOfYear", "Divide", "DivideYMInterval", "EqualNullSafe", "EqualTo", "ExtractANSIIntervalDays", "ExtractANSIIntervalMonths", "ExtractANSIIntervalYears", "Floor", "GreaterThan", "GreaterThanOrEqual", "Greatest", "Hour", "If", "In", "InSet", "IsNaN", "IsNotNull", "IsNull", "LastDay", "Least", "LessThan", "LessThanOrEqual", "MakeDate", "MakeYMInterval", "Minute", "Month", "Multiply", "MultiplyYMInterval", "NaNvl", "NextDay", "Not", "Or", "Quarter", "Rint", "Second", "ShiftLeft", "ShiftRight", "ShiftRightUnsigned", "Signum", "Sqrt", "Subtract", "SubtractDates", "SubtractTimestamps", "TimestampAddInterval", "ToDegrees", "ToRadians", "TruncDate", "UnaryMinus", "UnixDate", "WeekDay", "WeekOfYear", "Year", "YearOfWeek" ]
 }

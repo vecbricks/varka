@@ -1146,6 +1146,17 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
       Row("f * 2.5F"),
       Row("-f"),
       Row("abs(f)"))),
+    // The rounding functions (VARKA-344): rint is the 2^52 construction, exact in every mode;
+    // floor and ceil of a bigint are the operand and of an int its widening to a bigint, exact
+    // in every mode.
+    Family("Rounding", predicates = false, Seq(
+      Row("rint(x)", "the nearest integer, a tie to the even one, the sign kept on a zero"),
+      Row("floor(l)", "the identity over a bigint, in every mode"),
+      Row("ceil(l)"),
+      Row("ceiling(l)", "ceil by another name"),
+      Row("floor(i)", "FLOOR(CAST(i AS DOUBLE)): the int widened to a bigint, exact in every "
+        + "mode, with no conversion to a double"),
+      Row("ceil(i)"))),
     // A floating value as a boolean (VARKA-343 2.5): Spark's x != 0 in every mode, the negation
     // of the lane's EQ against zero, so a NaN is true and both zeros false; never an error.
     Family("Floating casts to BOOLEAN", predicates = false, Seq(
@@ -1922,6 +1933,9 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
     "year(d) + i" -> Refined("year(d), month(d), day(d)", "a + b"),
     "bitmap_bucket_number(l)" -> Proved("bitmap.smt2"),
     "bitmap_bit_position(l)" -> Proved("bitmap.smt2"),
+    // rint's 2^52 construction equals fp.roundToIntegral RNE for every double, both zeros, both
+    // infinities and NaN included (VARKA-344); floor and ceil over l and i stay differential.
+    "rint(x)" -> Proved("fp_round.smt2"),
     // The casts with TIMESTAMP_NTZ (VARKA-338): the floor division proven over every long, and
     // the multiply's guard and factor, read from the compiled tree, held to multiplyExact over
     // every int day (the kernel itself runs at the guard's edges).

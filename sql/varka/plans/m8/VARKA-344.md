@@ -567,6 +567,14 @@ committed files:
 3. **344a, after 341 only**: `RoundToIntegral` with `RINT`, its lowering, the reference, the
    family; the integral rounding of 2.5 and `floor` and `ceil` over `BIGINT` and `INT` (2.4);
    tests 3.1 to 3.3 and 3.5 to 3.11 for these forms; the SMT spike first, then the file.
+   *7 November 2026, by the owner's word, 344a is itself two pull requests, since the node's
+   plumbing and the integral rounding together pass the 1000-line cap:* **344a1** is
+   `RoundToIntegral` with `RINT` and its lowering, the reference, the family, `rint(x)`, `floor`
+   and `ceil` over `BIGINT` and `INT`, with 3.1 to 3.3, 3.8's check and 3.9's rows for them and
+   `fp_round.smt2` (3.2) for `RINT`; **344a2** is the integral `round`, `bround` and `truncate`
+   with the pre-shift (350 is not merged, so this row builds it) and 3.5, 3.6. An earlier
+   attempt at the integral half, on the unmerged branch `varka-344a-rounding` (2 November 2026),
+   is the reading for 344a2 and merges nowhere.
 4. **344b, after 343b**: `FLOOR` and `CEIL` to `LONG` on the three host forms, the ANSI guard,
    the `MAGIC` arm under 343's option, 3.4's sweep; `factorial`'s two arms on 343b's `NULL`
    disposal.
@@ -687,4 +695,73 @@ predictions scored.
 
 ## 10. Outcome
 
-(Written when the work lands.)
+### 344a1, built 7 November 2026
+
+*Built.* `RoundToIntegral(RoundMode.RINT, child)` over the `DOUBLE` lane (`VarkaVectorIR.java`),
+lowered by `VarkaRoundingLowering` as 2.3's `RINT` construction with one change from the text: the
+magnitude and the sign come from the lanewise `ABS` and a reinterpreted `AND` and `OR` of the sign
+bit, so the lowering is one `abs`, duplicated for the compare and the rounding, an add and a
+subtract of `2^52` (`emitRoundToNearest`, which `VarkaDivisionLowering`'s magic form now calls for
+its own rounding, with the one constant `TWO_52`, its bytes unchanged), the sign or-ed back and one
+blend under the compare `|x| < 2^52`, whose false lanes (every integer, every infinity, NaN) keep
+`x`; no mask crosses between the kinds. The node is one scratch local (`Slots.roundTmp`) and one
+blend; `VarkaReference` evaluates it by `StrictMath.rint`. A family `ROUNDING`
+(`VarkaRoundingCompiler`, the switch `spark.sql.codegen.varka.family.rounding.enabled`) claims
+`Rint`, and `Floor` and `Ceil` over a `BIGINT` (the operand) and over `CAST(i AS DOUBLE)` for an
+`INT` `i` (`WidenLane`, the cast not compiled); a `DOUBLE` operand names 344b, a cast from `FLOAT`,
+`SMALLINT` or `TINYINT` names 344c, a `DECIMAL` operand names 351 (`VARKA-351.md` 0, item 3), and a
+cast from any other type names no row. `floatingDecline` admits the three classes by name.
+`fp_round.smt2` proves the construction equal to `fp.roundToIntegral RNE` at binary32 and binary64
+and refutes it with `C` a binade lower or without the sign. The warm-up's double block gains the
+compare against a scalar and the reinterpret chain.
+
+*Differs from the text.* The binary16 claim of 3.2 is not stated: cvc5 admits only binary32 and
+binary64 in its default mode. The IR fuzz sequence does not draw `RoundToIntegral`, as it draws no
+floating node yet (3.10, owed to the row that builds the floating sequence).
+
+*Tested, 8 November 2026, on the laptop (AVX-512).* `VarkaEmitterRoundingSuite`: the kernel against
+`Math.rint` bit for bit over the cells, each on a valid lane, every exponent from -1074 to 1023 in
+both signs and a seeded draw, about 25,100 values, nulls staying null among the rest; the binary32
+twin of the construction against `StrictMath.rint` over all 2^32 patterns (`-Dvarka.sweep=true`, in
+the one sbt call that took 12 seconds in all, so the sweep itself took seconds; the opt-in row is in
+`sweeps.tsv`). `fp_round.smt2`: 6 checks, holding under Z3 (1.81 s) and cvc5 (3.09 s). The catalyst
+matrix at the defaults, `--split 4 -j 4`: 1254 passed, 0 failed, 86 canceled (the opt-in ones), 661
+s; the sql matrix with `-Phive`: 2777 passed, 0 failed, 7 canceled, 479 s. `emitted_bytes.json`: 108
+entries added for the new coverage shapes, 22 `option_arms` digests moved with them, no existing
+shape's bytes changed (prediction 4.1 holds). The census marks 4 more entries as fused in part:
+`rint` (all of it), `ceil` and `floor` for `INT` and `BIGINT`, `ceiling` for `BIGINT`. The first
+full matrix found what the first tests had not: the row level of `VarkaSameAnswer` took `rint` of a
+NaN to pass its operand's payload, where by 0.10 (derived from the source, the probe of 3.7 not yet
+run) a signalling NaN is quieted and a negative one loses its sign on the interpreter and C1 but not
+on C2, so a `RoundToIntegral` (and Spark's `Rint`) now leaves a NaN answer open, compared by being a
+NaN (0.10, 2.9); and the budget register needed the node's weight, 10 lane calls, three of them
+reinterpretations that emit nothing.
+
+*Reviewed, 8 November 2026.* The author's review found eight points, all fixed here: the null
+pattern had hidden five cells and the exponent loop clamped the subnormals and stepped by 7 (both as
+the text above now has them); `fp_round.smt2` computed its constant, and now renders binary64's `C`
+from the bits of `VarkaRoundingLowering.TWO_52`; the casts' declines named 344b and 344c for forms
+those rows do not own; the coverage ledger lacked `rint(x)` as proved by `fp_round.smt2`;
+`VarkaSameAnswer`'s rule for `rint` was undocumented and had no contract case; and the second `abs`
+and the copied `2^52` step are gone. A decimal operand's arm (row 351) is not reached from a
+projection, whose `DECIMAL(9, 0)` output the decimal store declines first. After the fixes:
+`fp_round.smt2` holds under Z3 (4.98 s) and cvc5 (7.43 s, both beside a loaded laptop); only
+`rint(x)`'s bytes moved in `emitted_bytes.json`, with the `option_arms` digests over it; the
+catalyst matrix at the defaults, `--split 4 -j 4`: 1258 passed, 2 failed, 87 canceled, 1138 s, the
+two failures master's own (`VarkaIrFuzzSuite`'s floating-cast generator draws the unsigned compares,
+fixed apart from this row).
+
+*Measured and decided, 8 November 2026.* The probe of 3.7 ran on the laptop (Zen 5, openjdk
+25.0.4.1; `results/VARKA-344-rint-nan-tiers.txt`): the interpreter and C1 return a NaN of `rint`
+quiet and positive (`fff8...` to `7ff8...`, `fff0...01` to `7ff8...01`), and C2, whose `Math::rint`
+is an intrinsic, returns it quiet with its sign (`fff8...` to `fff8...`); every tier keeps the
+payload and quiets a signalling NaN. So 0.10's derivation holds, and Spark's own answer to `rint` of
+a negative NaN depends on the tier its row path runs at. The kernel returns a NaN input unchanged
+(the blend's keep arm), which is C2's answer for a quiet NaN and one bit away from every tier's for
+a signalling one. The owner chose on 8 November 2026 to keep the rule as built: a NaN answer of
+`rint` is open, NaN against NaN only, and the kernel is not made to quiet it. The runners' probe
+stays owed below.
+
+*Left.* 344a2 (the integral rounding), 344b, 344c as section 5 has them. Owed with 344a1: 3.7's
+`rint(-NaN)` probe on the two runners, and the measurement against the baseline (section 5,
+item 6), both of which need the EPYC 7763 and Neoverse N2 runners.

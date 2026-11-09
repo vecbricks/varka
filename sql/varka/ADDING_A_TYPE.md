@@ -121,7 +121,9 @@ Check: `build/sbt 'catalyst/testOnly *VarkaIrFuzzSuite'`.
 so the compiler asks for it) says per fuzzer whether the type is drawn: its IR site turns from
 `Owed` to `Present` with the leaf and the seeded sequence its trees come from (`VarkaIrGrammar`),
 its Spark site with the fixture's columns, and its `ValueSource` holds the values a column of it
-is filled with. A type draws in a sequence of its own seed, so that no committed corpus moves;
+is filled with. A type draws in a sequence of its own seed, so that no committed corpus moves,
+and a new lane's sequence is pinned in `emitted_bytes.json` under a key of its own, two thousand
+shapes as twenty blocks, as `fuzz_byte` and `fuzz_short` are (`VarkaEmittedBytesSuite`);
 `VarkaFuzzTypesSuite` fails until `sql/varka/fuzz/types.tsv` is regenerated
 (`VARKA_FUZZ_TYPES_REGEN=true build/sbt 'catalyst/testOnly *VarkaFuzzTypesSuite'`).
 Check: `build/sbt 'catalyst/testOnly *VarkaFuzzTypesSuite *VarkaIrFuzzSuite'`,
