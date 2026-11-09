@@ -24,8 +24,10 @@ import java.util.concurrent.TimeUnit
 
 import scala.collection.mutable
 import scala.jdk.CollectionConverters._
+import scala.util.{Failure, Success, Try}
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import org.scalatest.exceptions.TestFailedException
 
 import org.apache.spark.SparkFunSuite
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaWidthAuditProbe._
@@ -46,7 +48,8 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaWidthAuditPr
  * So this suite asks the question for every shape, at every width the host can be asked for.
  * It forks [[VarkaWidthAuditProbe]] once per width under `-XX:MaxVectorSize=<bytes> -Xbatch`
  * and a `PrintIntrinsics` directive scoped to the emitted classes, and reads the refusals
- * between the probe's per-shape markers. Two things are then done with them:
+ * between the probe's per-shape markers. Every probe runs in `beforeAll`, so no test body waits
+ * on a child JVM. Two things are then done with them:
  *
  *  - **an invariant, on every host:** at the host's own preferred width, no coverage row and
  *    no construction other than the opt-in magic form meets a `not supported` refusal, save
@@ -66,7 +69,19 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaWidthAuditPr
  */
 class VarkaWidthAuditSuite extends SparkFunSuite with VarkaTestWatchdog {
 
-  private val childTimeoutSeconds = 600L
+  /**
+   * How long one child JVM may run before it is destroyed and its probe fails by name: 600 s, or
+   * `-Dvarka.widthAudit.childTimeoutSeconds`. The slowest probe the runners' JUnit reports show
+   * took 252 s (`plans/m8/results/VARKA-581-probe-times.txt`), and `beforeAll` runs five probes
+   * one after another, so it takes at most five budgets.
+   */
+  private val childTimeoutSeconds: Long = {
+    val key = "varka.widthAudit.childTimeoutSeconds"
+    sys.props.get(key).map { v =>
+      v.trim.toLongOption.filter(_ > 0).getOrElse(throw new IllegalArgumentException(
+        s"-D$key=$v is not a whole number of seconds above zero, such as -D$key=600"))
+    }.getOrElse(600L)
+  }
 
   /** The widths asked for, in bytes as the JVM names them; a host caps what it cannot do. */
   private val widthsBytes = Seq(16, 32, 64)
@@ -97,8 +112,67 @@ class VarkaWidthAuditSuite extends SparkFunSuite with VarkaTestWatchdog {
   private lazy val coverageJson: File =
     getWorkspaceFilePath("sql", "varka", "coverage.json").toFile
 
-  /** Fork the probe at one width - or at the host's own, for `None` - and read its answers. */
-  private def audit(maxVectorSizeBytes: Option[Int]): Census = {
+  /** One audit probe: `name` says which, with its width, `None` for the host's own. */
+  private case class Probe(name: String, maxVectorSizeBytes: Option[Int])
+
+  /** What one child JVM did: its PID, its exit, and whether its budget ended it. */
+  private case class ChildRun(pid: Long, exitValue: Int, timedOut: Boolean)
+
+  /** The child JVM running now, if any, so `afterAll` can end one an aborted set-up left. */
+  @volatile private var runningChild: Option[Process] = None
+
+  /**
+   * Runs `command` as a child with its errors merged into its output, hands that output to
+   * `read` on a reader thread, and waits up to `budgetSeconds` for the child to exit; a child
+   * still running then is destroyed and reported as timed out. `what` names the child in the
+   * log, with its PID.
+   */
+  private def runChild(what: String, command: Seq[String], budgetSeconds: Long)(
+      read: BufferedReader => Unit): ChildRun = {
+    val builder = new ProcessBuilder(command.asJava)
+    builder.redirectErrorStream(true)
+    val process = builder.start()
+    runningChild = Some(process)
+    logInfo(s"$what started as pid ${process.pid()}")
+    var readFailure: Option[Throwable] = None
+    val reader = new Thread(() => {
+      val in = new BufferedReader(
+        new InputStreamReader(process.getInputStream, StandardCharsets.UTF_8))
+      try read(in) catch {
+        case t: Throwable => readFailure = Some(t)
+      } finally {
+        in.close()
+      }
+    }, "varka-width-audit-reader")
+    reader.setDaemon(true)
+    reader.start()
+    try {
+      val timedOut = !process.waitFor(budgetSeconds, TimeUnit.SECONDS)
+      if (timedOut) process.destroyForcibly()
+      process.waitFor()
+      // The child's output ends once it has exited, so the reader ends too, and what `read`
+      // wrote is visible here once it is joined.
+      reader.join()
+      readFailure.foreach(t => throw t)
+      ChildRun(process.pid(), process.exitValue(), timedOut)
+    } finally {
+      // A wait that throws, an interrupt among them, must not leave the child running.
+      if (process.isAlive) process.destroyForcibly()
+      runningChild = None
+    }
+  }
+
+  /** Fails, with the child's last lines, when its budget ended it. */
+  private def failIfTimedOut(
+      what: String, run: ChildRun, budgetSeconds: Long, tail: Seq[String]): Unit = {
+    if (run.timedOut) {
+      fail(s"$what did not finish within $budgetSeconds s and was destroyed; its last lines:\n" +
+        tail.mkString("\n"))
+    }
+  }
+
+  /** Fork `probe` at its width - or at the host's own, for `None` - and read its answers. */
+  private def audit(probe: Probe): Census = {
     val javaBin = new File(new File(System.getProperty("java.home"), "bin"), "java")
     val command = new java.util.ArrayList[String]()
     command.add(javaBin.getAbsolutePath)
@@ -109,20 +183,17 @@ class VarkaWidthAuditSuite extends SparkFunSuite with VarkaTestWatchdog {
     command.add("--add-exports=java.base/jdk.internal.vm.vector=ALL-UNNAMED")
     command.add("-XX:+UnlockDiagnosticVMOptions")
     command.add("-Xbatch")
+    // A fixed heap rather than the JVM's default of a quarter of the machine's memory, since the
+    // shard runs other JVMs beside it. Under -Xlog:gc a probe's heap reached 349 MB before a
+    // collection and kept 191 MB after one (`plans/m8/results/VARKA-581-probe-times.txt`).
+    command.add("-Xmx1g")
     command.add("-XX:CompileCommand=quiet")
     command.add(s"-XX:CompileCommand=PrintIntrinsics,$CLASS_PREFIX*::*")
-    maxVectorSizeBytes.foreach(b => command.add(s"-XX:MaxVectorSize=$b"))
+    probe.maxVectorSizeBytes.foreach(b => command.add(s"-XX:MaxVectorSize=$b"))
     command.add("-cp")
     command.add(testClasspath)
     command.add(VarkaWidthAuditProbe.getClass.getName.stripSuffix("$"))
     command.add(coverageJson.getAbsolutePath)
-    // The child JVM's code runs where the class-use record cannot see it (VarkaTestUse).
-    VarkaTestUse.childJvm()
-    val builder = new ProcessBuilder(command)
-    builder.redirectErrorStream(true)
-    val process = builder.start()
-    val reader = new BufferedReader(
-      new InputStreamReader(process.getInputStream, StandardCharsets.UTF_8))
     val refusals = mutable.LinkedHashMap.empty[String, mutable.LinkedHashSet[String]]
     val unattributed = mutable.LinkedHashSet.empty[String]
     val declined = mutable.LinkedHashMap.empty[String, String]
@@ -133,7 +204,7 @@ class VarkaWidthAuditSuite extends SparkFunSuite with VarkaTestWatchdog {
     var featuresFailure: Option[Option[String]] = None
     var done = false
     val tail = mutable.Queue.empty[String]
-    try {
+    val run = runChild(probe.name, command.asScala.toSeq, childTimeoutSeconds) { reader =>
       var line = reader.readLine()
       while (line != null) {
         tail.enqueue(line)
@@ -176,30 +247,75 @@ class VarkaWidthAuditSuite extends SparkFunSuite with VarkaTestWatchdog {
         }
         line = reader.readLine()
       }
-    } finally {
-      reader.close()
     }
-    if (!process.waitFor(childTimeoutSeconds, TimeUnit.SECONDS)) {
-      process.destroyForcibly()
-      fail(s"the audit probe did not finish within $childTimeoutSeconds s")
-    }
-    assert(process.exitValue() == 0 && done,
-      s"the audit probe failed (exit ${process.exitValue()}); its last lines:\n" +
-        tail.mkString("\n"))
-    assert(bits > 0, "the audit probe never reported its preferred vector width")
-    assert(fallsBack.isDefined, "the audit probe never reported whether its converts fall back")
-    assert(featuresFailure.isDefined, "the audit probe never reported its feature read")
+    failIfTimedOut(probe.name, run, childTimeoutSeconds, tail.toSeq)
+    assert(run.exitValue == 0 && done,
+      s"${probe.name} failed (exit ${run.exitValue}); its last lines:\n" + tail.mkString("\n"))
+    assert(bits > 0, s"${probe.name} never reported its preferred vector width")
+    assert(fallsBack.isDefined, s"${probe.name} never reported whether its converts fall back")
+    assert(featuresFailure.isDefined, s"${probe.name} never reported its feature read")
     Census(bits, useAVX, fallsBack.get, featuresFailure.get,
       refusals.map { case (k, v) => k -> v.toSeq }.toMap, declined.toMap, unattributed.toSeq)
   }
 
-  private lazy val atPreferred: Census = audit(None)
+  private val preferredProbe = Probe("the audit probe at the host's preferred width", None)
+
+  /** A second probe at the host's preferred width, for the test that two runs agree. */
+  private val preferredAgainProbe =
+    Probe("the second audit probe at the host's preferred width", None)
+
+  /** One probe per width in `widthsBytes`, keyed by the bytes it asks for. */
+  private val forcedProbes: Map[Int, Probe] = widthsBytes.map { bytes =>
+    bytes -> Probe(s"the audit probe asked for -XX:MaxVectorSize=$bytes (${bytes * 8} bits)",
+      Some(bytes))
+  }.toMap
+
+  /** Each probe's census or its failure; filled by `beforeAll`. */
+  @volatile private var results: Map[Probe, Try[Census]] = Map.empty
+
+  /**
+   * Runs the five probes one after another, before any test, so no test body waits on a child
+   * JVM: `beforeAll` is under neither `VarkaTestWatchdog`'s cap nor `spark.test.timeout`, which
+   * both wrap a test body, and `childTimeoutSeconds` bounds each probe. A probe that fails is kept
+   * as its failure, so each test that reads it fails naming it, and the tests that read none
+   * still run.
+   */
+  override def beforeAll(): Unit = {
+    super.beforeAll()
+    // The child JVMs' code runs where the class-use record cannot see it (VarkaTestUse); run in
+    // the suite's set-up, the record takes it as every test's.
+    VarkaTestUse.childJvm()
+    val probes = Seq(preferredProbe, preferredAgainProbe) ++ widthsBytes.map(forcedProbes)
+    results = probes.map { probe =>
+      val begun = System.nanoTime()
+      val result = Try(audit(probe))
+      logInfo(s"${probe.name} took ${(System.nanoTime() - begun) / 1000000000L} s")
+      probe -> result
+    }.toMap
+  }
+
+  override def afterAll(): Unit = {
+    try {
+      runningChild.foreach(_.destroyForcibly())
+    } finally {
+      super.afterAll()
+    }
+  }
+
+  /** The census of `probe`, or a failure of the calling test that names the probe. */
+  private def census(probe: Probe): Census = results.get(probe) match {
+    case Some(Success(c)) => c
+    case Some(Failure(e)) => fail(s"${probe.name} failed: $e", e)
+    case None => fail(s"${probe.name} never ran")
+  }
+
+  private def atPreferred: Census = census(preferredProbe)
 
   /** One census per distinct width the host can actually run; a capped request is dropped. */
-  private lazy val byWidth: Seq[(Int, Census)] = {
+  private def byWidth: Seq[(Int, Census)] = {
     val seen = mutable.LinkedHashMap.empty[Int, Census]
     widthsBytes.foreach { bytes =>
-      val c = audit(Some(bytes))
+      val c = census(forcedProbes(bytes))
       if (!seen.contains(c.preferredBits)) seen(c.preferredBits) = c
     }
     seen.toSeq
@@ -403,7 +519,7 @@ class VarkaWidthAuditSuite extends SparkFunSuite with VarkaTestWatchdog {
     // every run, where the other two kinds are timing and may not. A second probe at the
     // preferred width has to give the same verdict lines per shape as the first; the raw
     // line sets are allowed to differ, which is exactly why the file does not carry them.
-    val again = audit(None)
+    val again = census(preferredAgainProbe)
     assert(again.preferredBits === atPreferred.preferredBits)
     assert(verdicts(again) === verdicts(atPreferred),
       "the verdict lines of two probes at one width differ, so the census is not a property " +
@@ -457,6 +573,22 @@ class VarkaWidthAuditSuite extends SparkFunSuite with VarkaTestWatchdog {
     }
   }
 
+  test("a child past its budget is destroyed and its probe fails saying so") {
+    // The same start, read and wait the probes run under, on a child that outlives a 1 s
+    // budget: the wait must end it, and the failure must say why.
+    val sleep = new File("/bin/sleep")
+    assume(sleep.canExecute, "no /bin/sleep to stand in for a hung probe")
+    val start = System.nanoTime()
+    val run = runChild("a sleeping child", Seq(sleep.getPath, "30"), 1L)(_.readLine())
+    assert(run.timedOut)
+    assert((System.nanoTime() - start) / 1000000000L < 20L, "the budget did not end the child")
+    assert(!ProcessHandle.of(run.pid).map[Boolean](_.isAlive).orElse(false),
+      s"the timed-out child, pid ${run.pid}, is still running")
+    val e = intercept[TestFailedException](failIfTimedOut("the audit probe", run, 1L, Seq.empty))
+    assert(e.getMessage.startsWith(
+      "the audit probe did not finish within 1 s and was destroyed; its last lines:"))
+  }
+
   test("a decline is admitted only where the census records it, with its reason") {
     // The preferred-width test's allowance, proved in both directions without needing a
     // 128-bit host: a recorded decline passes, and a new shape, a different reason or an empty
@@ -484,8 +616,11 @@ class VarkaWidthAuditSuite extends SparkFunSuite with VarkaTestWatchdog {
     // byte species and converts it in two parts at four int lanes, so every audited shape
     // emits there (VARKA-329). Both maps being empty, the shape names carry the test: the probe
     // must have named every shape the column records, or an empty census would agree with it.
-    val census = byWidth.toMap.getOrElse(128, cancel(
-      "this host cannot be asked for 128-bit vectors, so its 128-bit declines are not measured"))
+    val census = this.census(forcedProbes(16))
+    if (census.preferredBits != 128) {
+      cancel("this host cannot be asked for 128-bit vectors, so its 128-bit declines are not " +
+        s"measured; asked for 16 bytes, it ran ${census.preferredBits} bits")
+    }
     val recordedNames = recordedShapes(128)
     val liveNames = census.refusals.keySet ++ census.declined.keySet
     assert(recordedNames.nonEmpty && recordedNames.subsetOf(liveNames),
