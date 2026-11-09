@@ -913,7 +913,7 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `nullif(f, f2)` | `predicate`, `condition` |  | rewritten to if(f = f2, NULL, f): NaN equals NaN and -0.0 equals 0.0, and the null is the lane's zero with its validity clear, so the kernel is masked-only | vector |
 | `CASE WHEN f < f2 THEN f END` | `predicate`, `condition` |  | the missing ELSE is the null of the floating lane | vector |
 | `if(f IS NULL, f2, NULL)` | `predicate`, `condition` |  |  | vector |
-| `nullifzero(f)` | `predicate`, `condition` |  | rewritten to if(f = 0, NULL, f), whose CAST(f AS DOUBLE) = 0.0D the optimizer unwraps to f = 0.0F, exact since the widening is: -0.0 is zero, NaN is not | vector |
+| `nullifzero(f)` | `predicate`, `condition` |  | rewritten to if(f = 0, NULL, f), whose CAST(f AS DOUBLE) = 0.0D the optimizer unwraps to f = 0.0F, exact since the widening is: -0.0 is zero, NaN is not; the differential runs that unwrapped form | vector |
 
 #### Null family predicates on floating columns
 

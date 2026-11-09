@@ -61,7 +61,7 @@ though the condition equals `f = 0.0F` for every FLOAT. A rewrite of that compar
 own lane, or a conversion arm in `coalesce` beside the narrow-column widening arm, would close
 both; it is not on `VARKA-343.md` 7's list of declines that stay, so it deserves a row of its own.
 
-*9 November 2026, correcting section 3:* `nullifzero(f)` was not refused in a session. The
+*9 November 2026, correcting sections 2 and 3:* `nullifzero(f)` was not refused in a session. The
 pinned tree was the analyzed one; the optimizer's `UnwrapCastInBinaryComparison` moves a widening
 compared with a literal to the literal's side wherever the cast is an up-cast, and FLOAT to
 DOUBLE is one, so a session hands Varka `IF(f = 0.0F, NULL, f)`, on the float lane. Only
@@ -82,7 +82,9 @@ reading taken: build what needs no decision of another row, and pin the rest.
   `nvl`, `ifnull`, `nvl2`, `nullif`, `between` and `equal_null` the wider decimal type, whose
   rescales, choices, comparisons and null tests row 348 built. The int zero of `nullifzero` is
   `DECIMAL(1, 0)` (`literalPickMinimumPrecision`, on by default), so its compare stays within the
-  column's type at every scale; that of `zeroifnull` widens as `DECIMAL(10, 0)`.
+  column's type wherever the column has an integral digit (a `DECIMAL(p, p)` compares at
+  `DECIMAL(p + 1, p)`, which a session's `UnwrapCastInBinaryComparison` moves back to the
+  column's type); that of `zeroifnull` widens as `DECIMAL(10, 0)`, so it fuses to scale 8.
 * **Coverage rows.** `nullifzero(f)`, from the tree the optimizer hands on (the row's built tree
   is `VarkaSqlResolve.optimizeIn` over the resolved call, and the other suites run its SQL,
   `if(f = 0.0F, NULL, f)`); and 17 rows in a family of their own over the decimal columns,
@@ -100,7 +102,7 @@ reading taken: build what needs no decision of another row, and pin the rest.
 
 * **`zeroifnull(f)`**: `coalesce(CAST(f AS DOUBLE), 0.0D)`, a `DOUBLE` choice whose first operand
   is a conversion. Its null test would be the float column's, crossed to the double lane, which
-  is a crossing of one kind; `VARKA-343.md` 2.2 leaves those out by decision ("one kind, so not
+  is a crossing of one kind; `VARKA-343.md` 2.2.1 leaves those out by decision ("one kind, so not
   crossed"), and changing that is row 343's call, not this row's. Section 3's conversion arm is
   the way, and it stays a finding for a row of its own.
 * **A decimal past 18 digits**, as a column or as the wider type coercion gives two columns (or a

@@ -257,7 +257,7 @@ public final class VarkaDecimalValueSuite {
   @DisplayName("the null family over a decimal past 18 digits, or one whose common type passes "
       + "18, declines naming row 359")
   void wideNullFamilyDeclines() {
-    // c and d are DECIMAL(20, 2), row 359's pair; nullif(a, e) compares at DECIMAL(20, 4), and
+    // c and d are DECIMAL(20, 2), row 359's pair; nullif(a, e) compares at DECIMAL(25, 9), and
     // zeroifnull(e) coalesces e with the int zero's DECIMAL(10, 0) at DECIMAL(19, 9).
     List<Attribute> columns = List.of(VarkaSqlResolve.column("a", new DecimalType(18, 2)),
         VarkaSqlResolve.column("c", new DecimalType(20, 2)),

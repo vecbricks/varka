@@ -5504,7 +5504,7 @@
     "operands" : [ "EqualTo:float", "If:float", "NullIfZero:float" ],
     "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled", "spark.sql.codegen.varka.family.condition.enabled" ],
     "domain" : "",
-    "note" : "rewritten to if(f = 0, NULL, f), whose CAST(f AS DOUBLE) = 0.0D the optimizer unwraps to f = 0.0F, exact since the widening is: -0.0 is zero, NaN is not",
+    "note" : "rewritten to if(f = 0, NULL, f), whose CAST(f AS DOUBLE) = 0.0D the optimizer unwraps to f = 0.0F, exact since the widening is: -0.0 is zero, NaN is not; the differential runs that unwrapped form",
     "verified" : "differential"
   }, {
     "sql" : "x BETWEEN x2 AND 5.5D",

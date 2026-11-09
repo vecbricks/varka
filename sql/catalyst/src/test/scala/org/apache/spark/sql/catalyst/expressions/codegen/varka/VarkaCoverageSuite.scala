@@ -1081,7 +1081,7 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
         // and the row's built tree do; the other suites run that tree's SQL (VARKA-578).
         Row("nullifzero(f)", "rewritten to if(f = 0, NULL, f), whose CAST(f AS DOUBLE) = 0.0D "
           + "the optimizer unwraps to f = 0.0F, exact since the widening is: -0.0 is zero, NaN "
-          + "is not", Some(optimized("nullifzero(f)")),
+          + "is not; the differential runs that unwrapped form", Some(optimized("nullifzero(f)")),
           executable = Some("if(f = 0.0F, NULL, f)")))),
     Family("Null family predicates on floating columns", predicates = true,
       floatingNullPredicates("x", "x2", "D") ++ floatingNullPredicates("f", "f2", "F")),

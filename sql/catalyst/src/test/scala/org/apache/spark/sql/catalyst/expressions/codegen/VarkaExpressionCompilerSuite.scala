@@ -1999,7 +1999,7 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     assert(VarkaExpressionCompiler.compile(Seq(out(unwrapped)), inOutput).isPresent)
     // zeroifnull's widening is a coalesce operand, which no rule strips: the operand before the
     // last is a conversion, not a bare column, so its null test would be a FLOAT condition in a
-    // DOUBLE choice, a crossing of one kind the floating conversions leave out (VARKA-578.md 2).
+    // DOUBLE choice, a crossing of one kind the floating conversions leave out (VARKA-578.md 4).
     val zeroifnull = Coalesce(Seq(Cast(inFloat, DoubleType), zero))
     assert(declineReason(zeroifnull, inOutput) ===
       "coalesce operand before the last is not a bare column")

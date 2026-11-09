@@ -724,10 +724,10 @@ final class VarkaDecimalCompiler {
   }
 
   /**
-   * {@code IF} and {@code CASE WHEN} with an {@code ELSE}: the right fold of
-   * {@code IfElse(cond, value, rest)} over the branches. After coercion every branch has the
-   * node's type, a branch that was cast carrying its rescale inside, so the branches are of one
-   * scale and pick as their unscaled values (see {@link #branch}).
+   * {@code IF} and {@code CASE WHEN}, a missing {@code ELSE} the null ({@link #caseWhen}): the
+   * right fold of {@code IfElse(cond, value, rest)} over the branches. After coercion every
+   * branch has the node's type, a branch that was cast carrying its rescale inside, so the
+   * branches are of one scale and pick as their unscaled values (see {@link #branch}).
    */
   private static Optional<Scaled> choice(Expression whole, List<Expression> predicates,
       List<Expression> values, Expression otherwise, DecimalType type, VarkaSlotTable inputs,
