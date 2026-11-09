@@ -88,7 +88,8 @@ class VarkaSizeLadderJitSuite extends SparkFunSuite with VarkaTestWatchdog {
         }
       }
     })
-    child.requireSuccess(done && bytes > 0)
+    child.requireSuccess(done)
+    assert(bytes > 0, s"$what printed no method size; its last lines:\n${child.lastLines()}")
     Run(bytes, tiers.toSeq, child.lastLines())
   }
 

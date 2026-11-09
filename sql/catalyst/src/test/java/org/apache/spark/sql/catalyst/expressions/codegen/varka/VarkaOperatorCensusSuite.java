@@ -87,15 +87,18 @@ public final class VarkaOperatorCensusSuite {
    * every child the test starts takes what is left of, so they end before the test's cap however
    * many there are. The census forks one JVM per cell and width, up to 405, four at a time on the
    * laptop and one at a time on a four-core runner, so no fixed share of the cap would fit them.
+   * With the watchdog off (a cap of 0) the children have no budget either.
    */
   private static volatile long deadlineNanos;
+
+  private static volatile long budgetSeconds;
 
   @BeforeEach
   void startTheBudget() {
     long cap = VarkaSuiteExtension.capMinutes(
         VarkaOperatorCensusSuite.class.getAnnotation(VarkaSuite.class));
-    deadlineNanos = System.nanoTime()
-        + TimeUnit.SECONDS.toNanos(VarkaChildProcess.budgetSeconds(cap, 1));
+    budgetSeconds = cap == 0 ? 0 : VarkaChildProcess.budgetSeconds(cap, 1);
+    deadlineNanos = System.nanoTime() + TimeUnit.SECONDS.toNanos(budgetSeconds);
   }
 
   private static final String PROBE = VarkaOperatorCensusProbe.class.getName();
@@ -305,10 +308,15 @@ public final class VarkaOperatorCensusSuite {
    * directly, and on the census's pool through the {@code shutdownNow} that ends its wait.
    */
   private static List<String> run(String what, List<String> command) throws IOException {
-    long left = TimeUnit.NANOSECONDS.toSeconds(deadlineNanos - System.nanoTime());
+    long leftNanos = budgetSeconds == 0 ? Long.MAX_VALUE : deadlineNanos - System.nanoTime();
+    String named = "VarkaOperatorCensusSuite's " + what;
+    if (leftNanos <= 0) {
+      throw new VarkaChildProcess.ChildFailure(named + " was not started: the test's children "
+          + "have spent their budget of " + budgetSeconds + " s");
+    }
     var output = new ArrayList<String>();
-    var child = VarkaChildProcess.run("VarkaOperatorCensusSuite's " + what,
-        new ProcessBuilder(command), Math.max(1L, left), output::add);
+    long left = Math.max(1L, TimeUnit.NANOSECONDS.toSeconds(leftNanos));
+    var child = VarkaChildProcess.run(named, new ProcessBuilder(command), left, output::add);
     child.requireSuccess(true);
     return List.copyOf(output);
   }
