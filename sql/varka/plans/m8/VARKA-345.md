@@ -654,8 +654,9 @@ slow lane. `log(x)`, `log10(x)` and `pow(x, y)` read `p`: both logarithms are nu
 and `pow` of a negative base and a fractional exponent is NaN, so over `x` they would time a
 null or a NaN exit, not the function; `log` with one argument is `Logarithm` over e, so
 `StrictMath.log` (item 0.2). No section depends on the SQL mode, so all run in the session's
-default. The results files at both widths come from the EPYC runners, committed before merge and
-not yet run.
+default. The results files at both widths come from the EPYC runners, committed before merge:
+benchmark runs 42527097690 (256 bits) and 42537748319 (128 bits, `-XX:MaxVectorSize=16`), both
+on an AMD EPYC 7763 at `a461e673eb3`.
 
 Predictions, registered before the build:
 
