@@ -156,7 +156,7 @@ Each script reads the committed results, and a panel that needs an owed file dra
 
 1. `fig62.py`, *Two libraries behind one function list*: Spark's functions in two columns,
    `Math` and `StrictMath`, each box marked by whether the laptop measured a difference (part A).
-2. `fig63.py`, *What changes the answer*: the five candidate causes (tier, Spark's code path, x86
+2. *(Dropped from the post on 9 November 2026, which now states the eliminations in one paragraph; the script stays for the record.)* `fig63.py`, *What changes the answer*: the five candidate causes (tier, Spark's code path, x86
    CPU model, JDK version, architecture) against yes/no, each cell citing its count (parts A, B,
    D, E and the `mathlane` controls); the architecture cell from the Arm file when it lands.
 3. `fig64.py`, *How often, how far*: per function, the share of the 2^20 inputs that differ on the
