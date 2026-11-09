@@ -14300,12 +14300,12 @@
       "16" : "6b4cba012f8f962b"
     },
     "wideConversionForm=SPLIT over useAVX=2" : {
-      "4" : "4f02b3652262b16b",
-      "16" : "df07f428b64a85ba"
+      "4" : "e0d40371748c53f6",
+      "16" : "2e0320e2a8babfd0"
     },
     "wideConversionForm=MAGIC over useAVX=2" : {
-      "4" : "4f02b3652262b16b",
-      "16" : "df07f428b64a85ba"
+      "4" : "e0d40371748c53f6",
+      "16" : "2e0320e2a8babfd0"
     },
     "narrowLanes=true" : {
       "4" : "5e91474f4777084d",
