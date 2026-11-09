@@ -223,6 +223,60 @@ public final class VarkaDecimalValueSuite {
     }
   }
 
+  @Test
+  @DisplayName("the null family over decimals of two scales answers as Spark's eval, the null of "
+      + "nullif, nullifzero and a CASE without an ELSE the long lane's")
+  void nullFamilyAnswersAsSpark() {
+    DecimalType ta = new DecimalType(9, 2);
+    DecimalType tb = new DecimalType(9, 4);
+    List<Attribute> columns =
+        List.of(VarkaSqlResolve.column("a", ta), VarkaSqlResolve.column("b", tb));
+    long top = 999_999_999L;
+    // Equal after the rescale (0.10 and 0.1000), one unit apart, zeros, the bounds and nulls.
+    var rows = List.of(new Pair(10L, 1000L), new Pair(10L, 1001L), new Pair(0L, 0L),
+        new Pair(0L, 1L), new Pair(top, top), new Pair(-top, -top), new Pair(top, 0L),
+        new Pair(null, 0L), new Pair(0L, null), new Pair(null, null), new Pair(-10L, -1000L));
+    for (String sql : List.of("nullif(a, b) IS NULL", "nullif(a, b) <=> a", "nullif(b, a) < 0.05",
+        "nullifzero(a) IS NOT NULL", "nullifzero(b) <=> b", "CASE WHEN a < b THEN a END <=> b",
+        "CASE WHEN a < b THEN b WHEN a > b THEN a END IS NULL", "if(a IS NULL, b, NULL) = b",
+        "zeroifnull(a) = 0.00", "nvl(a, b) <=> b", "nvl2(a, b, a) > 0.0", "a BETWEEN b AND 1.00",
+        "equal_null(a, b)", "greatest(a, NULL, b) <=> b")) {
+      long[] got = answers(compile(sql, columns), rows, ta, tb);
+      Expression bound = VarkaSqlResolve.bind(
+          VarkaSqlResolve.replaced(VarkaSqlResolve.parse(sql, seq(columns))), seq(columns));
+      for (int i = 0; i < rows.size(); i++) {
+        Pair r = rows.get(i);
+        var row = new GenericInternalRow(new Object[] {decimal(r.a(), ta), decimal(r.b(), tb)});
+        long want = Boolean.TRUE.equals(bound.eval(row)) ? 1L : 0L;
+        assertEquals(want, got[i], () -> sql + ", row " + r);
+      }
+    }
+  }
+
+  @Test
+  @DisplayName("the null family over a decimal past 18 digits, or one whose common type passes "
+      + "18, declines naming row 359")
+  void wideNullFamilyDeclines() {
+    // c and d are DECIMAL(20, 2), row 359's pair; nullif(a, e) compares at DECIMAL(20, 4), and
+    // zeroifnull(e) coalesces e with the int zero's DECIMAL(10, 0) at DECIMAL(19, 9).
+    List<Attribute> columns = List.of(VarkaSqlResolve.column("a", new DecimalType(18, 2)),
+        VarkaSqlResolve.column("c", new DecimalType(20, 2)),
+        VarkaSqlResolve.column("d", new DecimalType(20, 2)),
+        VarkaSqlResolve.column("e", new DecimalType(16, 9)));
+    for (String sql : List.of("nullif(c, d) IS NULL", "nvl(c, d) > 0.00",
+        "CASE WHEN c < d THEN c END IS NULL", "nullifzero(c) IS NULL", "zeroifnull(c) = d",
+        "equal_null(c, d)", "c BETWEEN d AND 1.00", "nullif(a, e) IS NULL",
+        "zeroifnull(e) IS NULL")) {
+      Expression e = VarkaSqlResolve.parse(sql, seq(columns));
+      List<VarkaConjunctSpec> specs =
+          VarkaExpressionCompiler.explainPredicate(e, seq(columns), VarkaMatrixRuns.BASE,
+              VarkaAdmission.NO_HOST_REFUSAL);
+      String reason = specs.stream().flatMap(s -> s.decline().stream()).map(d -> d.reason())
+          .findFirst().orElse("fused");
+      assertTrue(reason.contains("359"), () -> sql + " declined: " + reason);
+    }
+  }
+
   static Decimal decimal(Long unscaled, DecimalType type) {
     return unscaled == null ? null : Decimal.apply(unscaled, type.precision(), type.scale());
   }

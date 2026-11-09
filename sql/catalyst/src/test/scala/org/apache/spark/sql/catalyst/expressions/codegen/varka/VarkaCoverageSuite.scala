@@ -300,6 +300,14 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
       + "above every bound"),
     Row(s"equal_null($a, $b)", "rewritten to the null-safe equality, under the lane's equality"))
 
+  /**
+   * `sql` resolved and then folded and unwrapped as the optimizer does before Varka sees it
+   * (`VarkaSqlResolve.optimizeIn`'s rules), for a row whose analyzed tree holds a cast that no
+   * plan holds: a cast of a constant, or a widening compared with a literal.
+   */
+  private def optimized(sql: String): Expression =
+    VarkaSqlResolve.optimizeIn(VarkaSqlResolve.parse(sql, columns), columns)
+
   private val families: Seq[Family] = Seq(
     Family("Day arithmetic", predicates = false, Seq(
       Row("date_add(d, 3)"),
@@ -1067,7 +1075,14 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
 
     Family("Null family on floating columns", predicates = false,
       floatingNullFamily("x", "x2", zeroRows = true) ++
-        floatingNullFamily("f", "f2", zeroRows = false)),
+        floatingNullFamily("f", "f2", zeroRows = false) ++ Seq(
+        // Under ANSI coercion compares the float with the int 0 in DOUBLE, and the optimizer's
+        // UnwrapCastInBinaryComparison moves the widening to the literal, as a session's plan
+        // and the row's built tree do; the other suites run that tree's SQL (VARKA-578).
+        Row("nullifzero(f)", "rewritten to if(f = 0, NULL, f), whose CAST(f AS DOUBLE) = 0.0D "
+          + "the optimizer unwraps to f = 0.0F, exact since the widening is: -0.0 is zero, NaN "
+          + "is not", Some(optimized("nullifzero(f)")),
+          executable = Some("if(f = 0.0F, NULL, f)")))),
     Family("Null family predicates on floating columns", predicates = true,
       floatingNullPredicates("x", "x2", "D") ++ floatingNullPredicates("f", "f2", "F")),
 
@@ -1097,6 +1112,41 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
       Row("nullif(b, b2)", "rewritten to if(b = b2, NULL, b): a boolean choice with a null arm"),
       Row("b BETWEEN b2 AND b", "false before true: two orderings and an AND"),
       Row("equal_null(b, b2)"))),
+    // The null family over DECIMAL columns within 18 digits (VARKA-578), under a comparison or a
+    // null test, since a decimal value is no output yet (row 348's part 348b). Coercion gives
+    // every operand of a function one type, widerDecimalType's, so a column of the smaller scale
+    // carries its rescale. The null of nullif, nullifzero and a CASE without an ELSE is the long
+    // lane's NullValue, and its null test is false. The int zero's cast is a constant, which the
+    // optimizer folds as the built trees do, so no row records an INT to DECIMAL cast.
+    Family("Null family on DECIMAL columns", predicates = true, Seq(
+      Row("nvl(d9, d9s4) > d9b", "rewritten to coalesce at DECIMAL(11, 4), d9 times 10^2, "
+        + "against d9b rescaled the same way"),
+      Row("ifnull(d9, d9b) IS NULL", "null where both operands are"),
+      Row("nvl2(d9, d9b, d9s4) < d9", "rewritten to if(d9 IS NOT NULL, d9b, d9s4) at "
+        + "DECIMAL(11, 4)"),
+      Row("nullif(d9, d9b) IS NULL", "rewritten to if(d9 = d9b, NULL, d9): the null branch's "
+        + "validity is false, so the test is true where the two are equal or d9 is null"),
+      Row("nullif(d9, d9s4) > 0.00", "the equality at DECIMAL(11, 4), the choice and its null "
+        + "at d9's DECIMAL(9, 2); a kernel holding the null takes the masked body"),
+      Row("nullif(d18, d18b) <=> d18", "the null-safe equality reads the null branch as null"),
+      Row("nullifzero(d9) IS NOT NULL", "rewritten to if(d9 = 0, NULL, d9): the int zero is "
+        + "DECIMAL(1, 0) as the literal needs, cast to the column's type and folded",
+        Some(optimized("nullifzero(d9) IS NOT NULL"))),
+      Row("nullifzero(d16s9) < d9s4", "compared at DECIMAL(16, 9): d9s4 times 10^5",
+        Some(optimized("nullifzero(d16s9) < d9s4"))),
+      Row("zeroifnull(d9) = 0.00", "rewritten to coalesce(d9, 0) at DECIMAL(12, 2), where the int "
+        + "zero widens as DECIMAL(10, 0)", Some(optimized("zeroifnull(d9) = 0.00"))),
+      Row("zeroifnull(d18) >= d18b", "DECIMAL(18, 2): sixteen integral digits hold the zero's "
+        + "ten", Some(optimized("zeroifnull(d18) >= d18b"))),
+      Row("CASE WHEN d9 < d9b THEN d9 END IS NULL", "the missing ELSE is the decimal null"),
+      Row("CASE WHEN d9 < d9b THEN d9s4 END > d9", "the choice at DECIMAL(9, 4), compared at "
+        + "DECIMAL(11, 4)"),
+      Row("if(d9 IS NULL, d9b, NULL) = d9b"),
+      Row("d9 BETWEEN d9b AND d9s4", "two comparisons and an AND, the upper one at "
+        + "DECIMAL(11, 4)"),
+      Row("d18 BETWEEN 0.00 AND d18b"),
+      Row("equal_null(d9, d9s4)", "rewritten to d9 <=> d9s4 at DECIMAL(11, 4)"),
+      Row("equal_null(d18, d18b)"))),
 
     // DOUBLE and FLOAT on their own lanes (VARKA-341), in Spark's order: NaN equals NaN and is
     // above every other value, and -0.0 equals 0.0. A comparison is the IEEE compare corrected
