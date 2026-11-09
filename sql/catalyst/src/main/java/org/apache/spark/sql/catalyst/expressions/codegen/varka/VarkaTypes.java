@@ -653,9 +653,10 @@ public final class VarkaTypes {
               new Admission.Band(DecimalWords.MAX_PRECISION, 2, "359", true))),
           new Storage.DecimalSlot(),
           List.of(DataTypes.createDecimalType(10, 2), DataTypes.createDecimalType(30, 4)),
-          // VarkaDecimalConformanceSuite holds both representations to the contract: the
-          // long to 18 digits and the pair above. The forms the census marks fused in part (one
-          // scale) are checked; the rest wait for their rows (VARKA-359.md 10.5).
+          // The contract holds both representations: VarkaDecimalConformanceSuite the pair
+          // above 18 digits and VarkaDecimalLongConformanceSuite the long. The forms the census
+          // marks fused in part (one scale) are checked; the rest wait for their rows
+          // (VARKA-359.md 10.5).
           List.of(LaneType.LONG), new Conformance.Suite("Decimal"));
       case DATE -> new Info(id, "date", "DATE", new Admission.OnLane(LaneType.INT),
           plain(32),

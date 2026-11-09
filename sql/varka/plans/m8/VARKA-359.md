@@ -752,6 +752,79 @@ tests; the sql ones, the golden suite's Varka arm and the literal-lift suite amo
 committed test flags, the op-count test, the measurement on the EPYC and Arm runners (11.8 point
 5), the pair-load node, and 359b.
 
+### 10.5 359a, part 4: the conformance suite over both representations (9 November 2026)
+
+*Branch `varka-359a-part4`, from master at `ba2093c636e`, which holds parts 1 to 3. Local commits
+only.* 11.5 item 5's oracle half and 11.8 point 6, ported from the first attempt's branch
+(`varka-359a-pair`, `08cec925bf9` and `58f155d7861`) onto the harness as master has it. The
+remainder of 359a is three pieces of very different size, so it is cut in three: this part, the
+pair-load node (10.3's owed node, a row in every exhaustive switch over the IR, its own pull
+request, proven by `emitted_bytes.json` byte-identical), and the measurement, which is a runner
+dispatch and needs no code (below).
+
+**Built.**
+
+1. **The census's fused-in-part marker.** The suite hit a census gap first: at one scale the
+   comparisons and `IN` fuse for `dec`, while the census counts `dec` fused for them only once rows
+   360 and 363 bring the rescale across two scales, and the harness calls a form that fuses
+   against the register drift. The lead's answer of 2 November 2026 to the first attempt (a census
+   marker, not a harness allowance) stands: a type marked `^` in `census_curated.txt` is *fused in
+   part*. It goes to `census.tsv`'s new last column, `fused_in_part`, never to `fused_today`, so
+   the counts and the need rule read it as unfused (the first twelve columns are byte-identical),
+   and a coverage row must still show it. The seven comparisons (`<`, `<=`, `>`, `>=`, `=`, `==`,
+   `<=>`) and `in` carry `dec^`; `in` is new against the first attempt, since the long
+   representation's `IN` fuses at every scale through row 497's arm.
+2. **The harness's sixteen-byte path.** `VarkaKernelChecks.runLoadedDecimal` runs a kernel whose
+   columns are decimal slots (`DecimalSlotLane`): a drawn value is an index into the suite's table
+   of unscaled values, each slot is written as the value's two words, a null slot holds `2^127 - 1`
+   or `-2^127`, and the reference reads each word leaf as a column of a row twice as wide (a 64-bit
+   `DecimalColumn` reads the low word, its value). `VarkaSparkOracle.answerInternal` takes
+   Catalyst's values, so the harness hands Spark the `Decimal` an index names; `answer` is that
+   over the lane values, unchanged for every other suite.
+3. **Both representations**, which the first attempt left as an open point:
+   `VarkaDecimalConformanceSuite` at the registry's `DECIMAL(30, 4)` (the pair) over eleven values,
+   the bounds and their neighbours, `2^63`, `-2^63 - 1`, `-2^64`, `2^64 + 5`, and zero and one each
+   way; and `VarkaDecimalLongConformanceSuite` at `DECIMAL(10, 2)` (the long) over seven, the bounds
+   and their neighbours and zero and one each way. One fixture form serves both
+   (`VarkaDecimalConformanceSuite.slotType`). The registry's entry is `Suite("Decimal")`; the
+   census's check of a landed type's suite reads that name, and the second class is the same
+   contract at the other band.
+
+**What it answers.** The pair: null handling passes whole (`x < y` as the pair form, `=` and
+`<=>` as conditions and values, `IS NULL`); load runs `x < y`, `x = 2^64 + 5` (a literal pair)
+and `IS NOT NULL` and is cancelled on `IN` alone; ordering runs the six comparisons as conditions
+and values and is cancelled on `greatest` and `least` alone. The long: null handling and load pass
+whole, `IN` included; ordering is cancelled on `greatest` and `least` alone. For both, choice and
+round trip are cancelled on the choices as outputs (359b above 18 digits, the decimal store's
+admission naming row 348 below), the cast row on the casts (350, 364 to 366) and overflow on the
+arithmetic (349, 360 to 363), each message naming every owed form. With `LT` planted for the
+pair's low-word `ULT` (by hand, reverted), load, null handling and ordering fail on the first
+row whose low words straddle `2^63`: the reference evaluates the faulty lowering and disagrees
+with Spark.
+
+**Cost**, against 11.7's "of the size of 347's, seconds": the pair suite took 5.3 s of test time in
+its own JVM and the long one 4.0 s, the fork's start aside. Holds.
+
+**The measurement (11.8 point 5), prepared, not dispatched.** The Arm half is done (10.1's
+correction). The EPYC half needs no code: part 3 set the baseline class's fusion classes, so
+the run is `VarkaDecimalBaselineBenchmark` as it stands on any head holding part 3, at 256 and
+128 bits, its fourteen 359a sections spliced into the class's two runner files
+(`dev/varka_bench_sections.py splice`), as #1245 did:
+
+    gh workflow run benchmark.yml -R MaxGekk/spark --ref varka-359a-part4 \
+      -f class=VarkaDecimalBaselineBenchmark -f jdk=25 -f generate-tpcds=false \
+      -f expected-cpu="AMD EPYC 7763"
+    gh workflow run benchmark.yml -R MaxGekk/spark --ref varka-359a-part4 \
+      -f class=VarkaDecimalBaselineBenchmark -f jdk=25 -f generate-tpcds=false \
+      -f expected-cpu="AMD EPYC 7763" -f extra-java-options=-XX:MaxVectorSize=16
+
+The sections, `|`-separated for `--sections`: `DECIMAL(38, 10) comparison`, and at `(38, 10)` and
+`(20, 2)` the `<=> filter`, `IS NULL filter` and `x < y as a value`, each at `no nulls` and `one
+row in ten null`. 11.7's predictions 3 to 5 are scored from them when they land.
+
+**Not in this part**, owed: the pair-load node (the next part), the measurement's run, the
+planted faults for row 504 as committed test flags, the op-count test, and 359b.
+
 ## 11. 359a, the build plan (1 November 2026)
 
 Written from master at `239995f4fe4` before the laptop's reading of the spike, so that 359a can

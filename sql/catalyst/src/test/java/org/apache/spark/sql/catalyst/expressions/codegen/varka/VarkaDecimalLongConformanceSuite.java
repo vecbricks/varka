@@ -32,8 +32,9 @@ import org.apache.spark.sql.types.DecimalType;
  * extension, and Spark is handed the {@code Decimal} the index names.
  *
  * <p>The values are the precision's bounds and their neighbours and zero and one each way. The
- * census marks the comparisons fused in part for {@code dec}, which this representation fuses
- * at every scale (row 348) and the pair at one; every other form the census owes must decline.
+ * census marks the comparisons and {@code IN} fused in part for {@code dec}: this representation
+ * fuses them at every scale (rows 348 and 497), the pair at one, so both are checked here; every
+ * other form the census owes must decline.
  *
  * <p>In its own JVM, as the long-lane suites are ({@link VarkaSpeciesGuard}).
  */

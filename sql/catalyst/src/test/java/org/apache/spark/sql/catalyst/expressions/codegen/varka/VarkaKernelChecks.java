@@ -1106,8 +1106,9 @@ public final class VarkaKernelChecks {
       d.set(ValueLayout.JAVA_LONG, i * 8L, v);
     }
 
+    /** Never written: {@link #putColumn} fills a null row's slot with its own two words. */
     @Override public long poison(int nullOrdinal) {
-      return nullOrdinal;
+      return 0L;
     }
 
     @Override public long sentinel() {
