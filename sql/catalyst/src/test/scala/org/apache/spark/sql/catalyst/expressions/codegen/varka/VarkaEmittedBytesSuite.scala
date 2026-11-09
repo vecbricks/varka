@@ -476,12 +476,9 @@ class VarkaEmittedBytesSuite extends SparkFunSuite with VarkaTestWatchdog {
   private case class AuditArm(name: String, arm: VarkaEmitOptions => VarkaEmitOptions,
       subject: Option[VarkaEmitOption.Subject])
 
-  /** A flag's subject, unless it is the defaults. */
-  private def subjectOf(option: VarkaEmitOption): Option[VarkaEmitOption.Subject] = option match {
-    case f: VarkaEmitOption.Flag if f.subject() != VarkaEmitOption.Subject.DEFAULTS =>
-      Some(f.subject())
-    case _ => None
-  }
+  /** A flag's or a choice's subject, unless it is the defaults. */
+  private def subjectOf(option: VarkaEmitOption): Option[VarkaEmitOption.Subject] =
+    Some(VarkaEmitOption.subject(option)).filter(_ != VarkaEmitOption.Subject.DEFAULTS)
 
   /** `a` over `subject`: the subject's options first, then the arm's own change. */
   private def over(a: VarkaEmitOption.Arm,

@@ -605,8 +605,10 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
    * One draw of the floating conversions' corpus (VARKA-343): the conversions to a floating lane
    * and between the two, over an int, a bigint, a float and a double column, compared with
    * `VarkaReference.mixedValue` through `VarkaKernelChecks.runAndCompareMixed`. A draw whose kernel
-   * the plan refuses under the drawn options - a bigint conversion below `useAVX=3` - is counted
-   * and skipped, as the compiler declines it.
+   * the plan refuses under the drawn options - a bigint conversion at the unknown emit level - is
+   * counted and skipped, as the compiler declines it. Below `useAVX=3` a bigint converts by its
+   * AVX2 form; under the bounded `wideConversionForm=MAGIC`, which only the option matrix's base
+   * sets here, a batch with a bigint past `2^51` may decline, and the reference has no decline.
    */
   private def runOneFloatingCast(iteration: Int): Boolean = {
     val rnd = VarkaIrGrammar.shapeRandom(floatingCastSeed, iteration)
@@ -622,9 +624,9 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
     val patternIds = Seq.fill(numInputs)(rnd.nextInt(patternNames.length))
     val patterns = patternIds.map(pattern(rnd, _, length))
     val forceMasked = length > 1 && rnd.nextInt(4) == 0
-    // The bigint conversions are admitted at emit level 3 alone, which the options draw only now
-    // and then, so half the draws are held at it; the rest keep the drawn level, and the plan
-    // refuses a bigint conversion there as the compiler does.
+    // The bigint conversions are one instruction at emit level 3, which the options draw only now
+    // and then, so half the draws are held at it; the rest keep the drawn level, which lowers
+    // them by the AVX2 forms below 3 and refuses them at the unknown level.
     val drawn = randomOptions(rnd, VarkaMatrix.base, floatingCastSeed, iteration)
     val options = if (rnd.nextBoolean()) drawn.withUseAVX(VarkaEmitOptions.AVX512_LEVEL) else drawn
     val data = Array.tabulate(numInputs, length)((c, _) => floatingCastValue(rnd, lanes(c)))
@@ -647,10 +649,12 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
     def emitWith(o: VarkaEmitOptions): Array[Byte] = VarkaLoopEmitter.emitTraced(
       className, roots, numInputs, numLiterals, o, randomTrace)
     emitOrSkip(label, options)(emitWith).foreach { bytes =>
+      val bounded = options.convertsFallBack() &&
+        options.wideConversionForm() == VarkaEmitOptions.WideConversionForm.MAGIC
       VarkaKernelChecks.runAndCompareMixed(label, className, bytes, roots, numInputs, intLits,
         longLits, new VarkaKernelChecks.LongBatch(length,
           Array.tabulate(numInputs, length)((c, i) => patterns(c)(i)), data, forceMasked),
-        false, null)
+        bounded, null)
     }
     true
   }
@@ -1599,11 +1603,12 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
     // Over the committed seeds, as the other reach tests: every value of a draw is on its lane,
     // and the nodes it builds are those whose constructor accepts the lane's leaves
     // (`VarkaLaneFuzz.admitsLane`), less the long corpora's exclusions and those the compiler
-    // never builds at a narrow lane (`LongShapes`): the constant division, the range guard and
-    // the popcount, an INT over the widened value (whose narrow lowering is wrong besides, row
-    // 580 of `m8/PLAN.md`); and the narrowing, which the probe builds from SHORT to BYTE, a
-    // conversion out of the lane that a tree of one lane does not hold (the cast sequence's).
-    val notAtANarrowLane = Set("ConstDivide", "GuardedRange", "BitCount", "NarrowLane")
+    // never builds at a narrow lane (`LongShapes`): the constant division and the range guard;
+    // and the narrowing, which the probe builds from SHORT to BYTE, a conversion out of the
+    // lane that a tree of one lane does not hold (the cast sequence's). The popcount, which the
+    // compiler builds over the widened value, is drawn all the same, the IR accepting a narrow
+    // child and the emitter counting it at the lane's width (row 580 of `m8/PLAN.md`).
+    val notAtANarrowLane = Set("ConstDivide", "GuardedRange", "NarrowLane")
     for ((lane, drawSeed) <- Seq(LaneType.BYTE -> VarkaIrGrammar.BYTE_FUZZ_SEED,
         LaneType.SHORT -> VarkaIrGrammar.SHORT_FUZZ_SEED)) {
       val wanted = recordNodeTypes.filter(VarkaLaneFuzz.admitsLane(_, lane))
@@ -2174,7 +2179,7 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
       case Some(k) => Seq(runOneFloatingCast(k))
       case None => (0 until iterations).map(runOneFloatingCast)
     }
-    // The plan refuses only a bigint conversion below emit level 3: most draws run.
+    // The plan refuses only a bigint conversion at the unknown emit level: most draws run.
     assert(only.isDefined || ran.count(identity) > iterations / 2,
       s"only ${ran.count(identity)} of $iterations floating cast draws were emitted")
   }
