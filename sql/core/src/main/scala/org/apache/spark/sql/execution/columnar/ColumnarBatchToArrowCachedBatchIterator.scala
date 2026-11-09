@@ -19,11 +19,11 @@ package org.apache.spark.sql.execution.columnar
 
 import scala.jdk.CollectionConverters._
 
-import org.apache.arrow.vector.{VectorSchemaRoot, VectorUnloader}
+import org.apache.arrow.vector.VectorSchemaRoot
 
 import org.apache.spark.{TaskContext}
 import org.apache.spark.sql.catalyst.expressions.Attribute
-import org.apache.spark.sql.execution.arrow.ArrowWriter
+import org.apache.spark.sql.execution.arrow.{ArrowCompressionUtils, ArrowWriter}
 import org.apache.spark.sql.types._
 import org.apache.spark.sql.util.ArrowUtils
 import org.apache.spark.sql.vectorized.{ArrowColumnVector, ColumnarBatch, ColumnVector}
@@ -40,7 +40,7 @@ private class ColumnarBatchToArrowCachedBatchIterator(
     compressionCodecName: String,
     compressionLevel: Int) extends Iterator[ArrowCachedBatch] {
 
-  private val compressionCodec = ArrowCachedBatchSerializer.createCompressionCodec(
+  private val compressionCodec = ArrowCompressionUtils.createCompressionCodec(
     compressionCodecName,
     compressionLevel)
 
@@ -125,7 +125,7 @@ private class ColumnarBatchToArrowCachedBatchIterator(
 
     Utils.tryWithSafeFinally {
       // Use VectorUnloader to create compressed RecordBatch
-      val unloader = new VectorUnloader(root, true, compressionCodec, true)
+      val unloader = ArrowCompressionUtils.createVectorUnloader(root, compressionCodec)
       val recordBatch = unloader.getRecordBatch()
 
       Utils.tryWithSafeFinally {
@@ -152,7 +152,7 @@ private class ColumnarBatchToArrowCachedBatchIterator(
     // Convert columnar batch to rows, then to Arrow
     val root = VectorSchemaRoot.create(arrowSchema, allocator)
     val arrowWriter = ArrowWriter.create(root)
-    val unloader = new VectorUnloader(root, true, compressionCodec, true)
+    val unloader = ArrowCompressionUtils.createVectorUnloader(root, compressionCodec)
 
     Utils.tryWithSafeFinally {
       val rowIterator = batch.rowIterator().asScala

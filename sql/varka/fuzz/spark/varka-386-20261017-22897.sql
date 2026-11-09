@@ -1,6 +1,6 @@
 -- VARKA-262 reproducer
--- status: known 386
--- note: seed 20261017 iteration 22897
+-- status: regression
+-- note: seed 20261017 iteration 22897, fixed upstream by SPARK-60315 (apache/spark#59573): whole-stage codegen evaluates the conjuncts after a NULL one, so Spark's default raises as Varka does
 -- ansi: false
 -- kind: only Varka throws: INTERVAL_ARITHMETIC_OVERFLOW.WITH_SUGGESTION
 -- select: t + INTERVAL '0 00:00:00' DAY TO SECOND AS c0
