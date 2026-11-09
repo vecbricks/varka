@@ -49,7 +49,7 @@ class VarkaFloatingBaselineQueriesSuite extends QueryTest with VarkaSharedSessio
   test("every section of the floating baseline runs, and both sessions answer it alike") {
     withTable(2000) {
       val sections = VarkaFloatingBaselineBenchmark.sections().asScala
-      assert(sections.size === 16)
+      assert(sections.size === 20)
       for (s <- sections) {
         withClue(s.title) {
           checkAnswer(varkaSpark.sql(s.query), spark.sql(s.query))

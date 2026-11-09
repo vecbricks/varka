@@ -29,8 +29,10 @@ import org.apache.spark.sql.VarkaBenchmark;
  *
  * <p>The sections are a comparison ({@code x < y} as a filter), an arithmetic chain of three nodes
  * ({@code (x + y) * z - x}), a cast to the type's widest neighbour ({@code DOUBLE} to
- * {@code BIGINT}, {@code FLOAT} to {@code DOUBLE}) and a choice
- * ({@code CASE WHEN x < y THEN x ELSE y END}), each with no nulls and with one row in ten null.
+ * {@code BIGINT}, {@code FLOAT} to {@code DOUBLE}), a choice
+ * ({@code CASE WHEN x < y THEN x ELSE y END}) and a comparison with a literal of the type
+ * ({@code x < 1.5D}, {@code f < 1.5F}, as a filter), each with no nulls and with one row in ten
+ * null.
  * Each has two arms, named so the labels survive the lanes landing:
  * {@code spark row path (varka off)}, a session without the Varka rule, and {@code varka on}, a
  * session with it. Today both are the
@@ -40,7 +42,7 @@ import org.apache.spark.sql.VarkaBenchmark;
  * each section's plan on the Varka session against the section's {@link Fusion} class, the
  * record of how much of it a row has fused, and fails when the plan's class differs
  * ({@link VarkaSqlBenchmarkBase#requireBaseline(SparkSession, String, String, Fusion)}). The
- * comparison and choice sections are {@code WHOLE}, since the floating lanes order their values,
+ * comparisons and the choice are {@code WHOLE}, since the floating lanes order their values,
  * and so is the chain, since the floating arithmetic fuses (VARKA-342); the results file notes
  * each of them as fusing. The FLOAT to DOUBLE cast is {@code WHOLE}, since the conversions to a
  * floating type fuse (VARKA-343), and the DOUBLE to BIGINT cast {@code NONE}, still the row path
@@ -99,7 +101,8 @@ public class VarkaFloatingBaselineBenchmark extends VarkaSqlBenchmarkBase {
   /** Every section, in the order they run: each type, then each null density, then each shape. */
   static List<Section> sections() {
     List<Section> out = new ArrayList<>();
-    String[][] types = {{"DOUBLE", "x", "y", "z", "BIGINT"}, {"FLOAT", "f", "g", "h", "DOUBLE"}};
+    String[][] types = {{"DOUBLE", "x", "y", "z", "BIGINT", "1.5D"},
+        {"FLOAT", "f", "g", "h", "DOUBLE", "1.5F"}};
     for (String[] t : types) {
       for (String nulls : new String[] {"", "n"}) {
         String x = t[1] + nulls;
@@ -120,6 +123,10 @@ public class VarkaFloatingBaselineBenchmark extends VarkaSqlBenchmarkBase {
         out.add(new Section(type + " choice, " + density,
             "SELECT CASE WHEN " + x + " < " + y + " THEN " + x + " ELSE " + y
                 + " END AS a FROM varka_floating", Fusion.WHOLE));
+        // The compare against a constant, the form a literal-specialised lowering changes
+        // (VARKA-341): against a literal that is not NaN, Spark's order needs no NaN test.
+        out.add(new Section(type + " comparison with a literal, " + density,
+            "SELECT " + x + " FROM varka_floating WHERE " + x + " < " + t[5], Fusion.WHOLE));
       }
     }
     return out;
