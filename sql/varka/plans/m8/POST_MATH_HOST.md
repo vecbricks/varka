@@ -32,8 +32,8 @@ from fdlibm's.*
 Spark's documentation says `sin` returns the sine "as if computed by `java.lang.Math.sin`", and it
 means it: both the generated code and the interpreted path call `Math.sin`. Java has two math
 classes. `StrictMath` is fdlibm, defined to the bit, the same on every machine. `Math` only has to
-be within one ulp (a unit in the last place) of the exact result, and the JVM may do better than
-fdlibm if it can.
+be within one ulp (a unit in the last place) of the exact result, and the JVM may use a different
+routine if it has one.
 
 HotSpot does. On x86 it replaces `Math.sin`, `cos`, `tan`, `tanh`, `cbrt`, `exp`, `log`, `log10`
 and `pow` with routines Intel contributed, hand-written machine code that is faster than fdlibm
@@ -55,8 +55,8 @@ where `Math` and `StrictMath` differ on our x86 laptop at JDK 25. Left, what Spa
 Five things could plausibly change the bits. We tested each.
 
 - **The JIT tier: no.** The interpreter, C1 and C2 all call the same routine. HotSpot insists on
-  it, so that a function stays monotonic while a method moves from the interpreter to compiled
-  code. A query does not change its answer as it warms up.
+  it, so that a function's answers stay consistent while a method moves from the interpreter to
+  compiled code. A query does not change its answer as it warms up.
 - **Spark's code path: no.** Whole-stage codegen, generated projections without it and interpreted
   expressions gave the same bits in every row.
 - **The x86 CPU model: no.** The x86 routines have no branch that changes a value with the CPU's
@@ -110,8 +110,7 @@ so the two answers to `cos(0.1)` print with different last digits.
 - **Changing the JVM instead**: the diagnostic option
   `-XX:+UnlockDiagnosticVMOptions -XX:DisableIntrinsic=_dsin,_dcos,_dtan,_dtanh,_dcbrt`, in
   `spark.driver.extraJavaOptions` and `spark.executor.extraJavaOptions`, makes `Math` return
-  fdlibm's bits in every tier. It slows every `Math.sin` in the JVM, not only Spark's, and JDK 21
-  refuses to start with `_dtanh` or `_dcbrt` in the list, which it does not know.
+  fdlibm's bits in every tier. It slows every `Math.sin` in the JVM, not only Spark's.
 - **Or keep the machine fixed** where bits matter: the same architecture and the same JDK for the
   runs you compare.
 
