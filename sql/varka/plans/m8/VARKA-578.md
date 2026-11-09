@@ -100,8 +100,10 @@ reading taken: build what needs no decision of another row, and pin the rest.
 
 **Declines that stay.**
 
-* **`zeroifnull(f)`**: `coalesce(CAST(f AS DOUBLE), 0.0D)`, a `DOUBLE` choice whose first operand
-  is a conversion. Its null test would be the float column's, crossed to the double lane, which
+* **`zeroifnull(f)` under ANSI**: `coalesce(CAST(f AS DOUBLE), 0.0D)`, a `DOUBLE` choice whose
+  first operand is a conversion (`AnsiTypeCoercion` takes `DOUBLE` for a float beside an int; the
+  legacy coercion keeps `FLOAT`, so there the call is `coalesce(f, 0.0F)`, the shape of the other
+  floating rows). Its null test would be the float column's, crossed to the double lane, which
   is a crossing of one kind; `VARKA-343.md` 2.2.1 leaves those out by decision ("one kind, so not
   crossed"), and changing that is row 343's call, not this row's. Section 3's conversion arm is
   the way, and it stays a finding for a row of its own.
