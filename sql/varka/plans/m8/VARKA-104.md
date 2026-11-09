@@ -14,6 +14,55 @@ compiler; the lattice's long refusal is unchanged; division is no longer this ta
 option B's AVX2 caveat is now a source-read fact (10.1 item 4); and option C is the limb
 construction row 361 also needs.*
 
+## 0. Admission check, 9 November 2026
+
+Read against `origin/master` at `b90e6799220`. What has merged since 16 October and what it changes
+here; file and line are at that commit, under `sql/catalyst/.../expressions/codegen/`.
+
+1. **A baseline comes first.** Section 8 starts with the compiler, but the repository's rule since
+   this plan was written is that a speedup first merges a row-path baseline of the unchanged code
+   as its own pull request (as rows 103, 332, 342 and 343 did). No committed file times `BIGINT`
+   arithmetic on the row path: `VarkaTwoLaneLongBenchmark` has `l + l2` only as a laptop-run
+   control. So step 1b below is `VarkaBigintArithmeticBaselineBenchmark`.
+2. **`bi + 1` keeps its check, and 3.2 and test 2 of section 5 are wrong to say otherwise.** A
+   `bigint` column is unbounded, and `Long.MAX_VALUE + 1` overflows, so no lattice can take the
+   check off a sum with a column leaf. What the long half proves is a tree whose every long leaf
+   is bounded: a long literal, a widened int (`CAST(i AS BIGINT) * 1000`, below `2^41`), a
+   long-lane `GuardedRange`. Test 2 becomes `CAST(i AS BIGINT) + 1` with no check and `l + 1`
+   with one. The refusal is still one early return, `VarkaRangeAnalysis.java:247`; lifting it for
+   the long lane makes the `LiteralSlot` arm read a long slot index through the int table's
+   accessor, risk 2 as a concrete wrong bound, so the long table needs its own accessor
+   (`DeclineSink.longLiterals`), dispatched on the slot's lane.
+3. **The saturation rule is lane-dependent in one place.** `boundedByIntMax`
+   (`VarkaNodeCompiler.java:1121`) serves the int arms, the int negation (605) and the interval
+   arms (`VarkaIntervalCompiler.java:277`, 326). At the long lane the question is whether the range
+   is bounded at all, which the `*Exact` saturation of `VarkaValueRange` already answers; at the
+   int lane it stays `<= Integer.MAX_VALUE`, so the int and interval bytes do not move. The narrow
+   lanes stay unranged (`VarkaRangeAnalysis.java:237`, row 329's rule in `arithOver`).
+4. **Checked long `+` and `-` already run in production**: the `TIMESTAMP_NTZ` arms of row 339
+   build `IntArith` with `FAIL` on the long lane (`VarkaTimeCompiler.java:395`, 423, 426). Section
+   2.1's emitter claim is now tested by shipped shapes, not only by `VarkaLaneTypeSuite`.
+5. **ANSI `abs` needs one emitter change.** `emitIntNeg` refuses a long `abs` in any mode but
+   `WRAP` (`varka/VarkaVectorWalk.java:1283`), since only a decimal reached it; the negation's
+   `Long.MIN_VALUE` compare above it is already the check. LEGACY `abs` takes the existing blend.
+   `INT` `abs` is not fused either (census `abs` line), and is not this row's.
+6. **Option B on AVX2 (#1424).** `L2D` now has exact AVX2 forms (`wideConversionForm`, `SPLIT` by
+   default, `varka/VarkaEmitOption.java:596`), but only where the session names an emit level;
+   the default, unknown level still declines the conversion (`VarkaEmitOptions.levelUnknown`,
+   681). So B is buildable on the runners at the split's cost and is measured there rather than
+   ruled out, but cannot be the default; A ships first and C stays the exact candidate.
+7. **The two-lane hosts (row 503).** A long kernel that checks overflow builds a mask, which C2 on
+   x86 does not lower at two 64-bit lanes (`VarkaTwoLaneLongBenchmark`'s javadoc); 503 refuses
+   only filter conditions there. So the checked arms are measured at 128 bits before they are
+   admitted at two lanes, and the baseline's 128-bit companion is the file that says.
+8. **The mixed-lane rule (rows 28 and 343)**: `i + l` arrives as `CAST(i AS BIGINT) + l`, a
+   `WidenLane` (`VarkaNodeCompiler.java:577`), so both operands are on the long lane, and
+   `arithOver` declines a pair of lanes (1245) as it should. Row 344's `floor` and `ceil` over
+   `BIGINT` (#1404) and row 481's `NULL` guard change nothing here: `TRY` is `Overflow.NULL` on
+   the lane-generic check.
+9. **The census** still names 104 on `div`, `%`, `mod`, `pmod` and `try_mod`; row 30's plan
+   branch does not touch it, so the compiler step's pull request moves those to 30, as 3.4 says.
+
 ## 1. Where this came from, and what it owes
 
 VARKA-30 was narrowed on 4 September 2026 to the int32 forms and shipped them in
@@ -299,6 +348,17 @@ without a fix (`m8/PLAN.md` 10.3 item 4).
 ## 8. Sequencing
 
 1. **This PR:** the plan. No code.
+   1b. *Added 9 November 2026 (0 item 1):* the row path's baseline,
+   `VarkaBigintArithmeticBaselineBenchmark` and its queries suite, its own pull request. Its
+   sections, each without and with one row in ten null: `l + 1`, `l + l2` and `l - l2` under
+   ANSI, `l + l2` under LEGACY, `try_add` and `try_subtract`, `l * 3` and `l * m` under ANSI,
+   `l * m` under LEGACY, `try_multiply`, `-l` under ANSI, `abs(l)` under LEGACY and ANSI, the
+   filter `l + l2 > 0` and the control `l ^ l2`, which fuses today. The data never overflows,
+   so ANSI times arithmetic and not errors: `l` and `l2` below `2^49`, the factor `m` in
+   `[-3000, 3000]`. Every projection is `NONE` but the control, `WHOLE` and checked for its
+   kernel; the filter `NULL_TESTS`, or `NONE` where the session refuses a 64-bit filter condition
+   (VARKA-503). The results at both widths come from the EPYC runners and are committed before
+   it merges.
 2. The lattice's long half, with its own tests and no compiler change - the
    check-removal machinery before anything that uses it.
 3. The compiler's `+`, `-` and negate arms in all three modes, which need no
