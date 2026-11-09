@@ -3112,7 +3112,8 @@ object SQLConf {
     .doc("The -XX:UseAVX level the Varka emitter lowers for, where a lowering depends on it:" +
       " 3 or above takes the conversions through double lanes for a 64-bit division, 2 the" +
       " magic-number form, because the converts do not become instructions without AVX512DQ." +
-      " A BIGINT cast to FLOAT or DOUBLE fuses only at 3 or above. -2 resolves it from the" +
+      " A BIGINT cast to FLOAT or DOUBLE fuses at a named level, as one instruction at 3 or" +
+      " above and by exact forms of 64-bit integer arithmetic below. -2 resolves it from the" +
       " driver's JVM: level 2 where HotSpot's feature list lacks" +
       " AVX512DQ and the preferred LongVector species, which -XX:MaxVectorSize caps, is at" +
       " least 256 bits wide (at 128 bits the magic-number form measured slower than the" +
@@ -3160,7 +3161,7 @@ object SQLConf {
       .internal()
       .doc("Whether the Varka compiler leaves a filter's condition to the row engine when its" +
         " kernel would be driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time" +
-        " interval, DECIMAL up to 18 digits), on an x86 host whose 64-bit vector species have" +
+        " interval, DECIMAL), on an x86 host whose 64-bit vector species have" +
         " two lanes or fewer, where the JIT lowers no vector mask and the kernel runs slower" +
         " than the row engine. Unset, the host's answer: true on such a host, false" +
         " everywhere else, aarch64 included. Every conjunct that reads a 64-bit column is" +

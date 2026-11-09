@@ -426,8 +426,8 @@ class VarkaFloatingLaneSuite extends QueryTest with VarkaSharedSessions with Var
     Option(declines.get(0)).map(_.toString)
   }
 
-  test("on a planted host without AVX512DQ a bigint cast to DOUBLE declines, and a bigint " +
-      "condition as a DOUBLE or FLOAT fuses through the int lane") {
+  test("on a planted host without AVX512DQ a bigint cast to DOUBLE fuses by its AVX2 form, and " +
+      "a bigint condition as a DOUBLE or FLOAT fuses through the int lane") {
     // An AVX-512 host without DQ, which no AMD host makes the JVM report, beside one with it.
     val knights = new VarkaHostIsa.Reading("amd64",
       "avx, avx2, avx512f, avx512cd, avx512er, avx512pf", null, 512)
@@ -436,18 +436,16 @@ class VarkaFloatingLaneSuite extends QueryTest with VarkaSharedSessions with Var
     conf.setConf(SQLConf.VARKA_EMIT_USE_AVX, VarkaSessionEmit.USE_AVX_FROM_HOST)
     def options(host: VarkaHostIsa.Reading): VarkaEmitOptions =
       VarkaColumnarToRowExec.emitOptions(VarkaSessionEmit.of(conf, host))
-    assert(options(knights).convertsMayFallBack())
-    assert(!options(withDq).convertsMayFallBack())
+    assert(options(knights).convertsFallBack())
     val positive = GreaterThan(l, Literal(0L))
-    val refused = castDecline(l, DoubleType, options(knights))
-    assert(refused.exists(_.contains("AVX512DQ")), refused)
     for (to <- Seq(DoubleType, FloatType)) {
+      assert(castDecline(l, to, options(knights)).isEmpty, to)
       assert(castDecline(positive, to, options(knights)).isEmpty, to)
       assert(castDecline(l, to, options(withDq)).isEmpty, to)
-      // The default level names no host, so it declines the cast too: an AVX2 host there would
-      // run L2D and L2F as the Vector API's Java loop.
+      // The default level names no host, so it declines the cast: an AVX2 host there would run
+      // L2D and L2F as the Vector API's Java loop, and the AVX2 form would slow every other.
       val unknown = castDecline(l, to, VarkaEmitOptions.DEFAULTS)
-      assert(unknown.exists(_.contains("AVX512DQ")), unknown)
+      assert(unknown.exists(_.contains("unknown emit level")), unknown)
     }
     // Beside a double literal, which goes to the long table: the projection checks its kernel
     // drives at 64 bits under the defaults' plan, which declines the conversion, and must not
