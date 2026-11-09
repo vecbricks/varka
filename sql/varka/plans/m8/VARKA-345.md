@@ -642,6 +642,22 @@ The coverage rows say which form served them, and `docs/sql-varka.md` says it pe
 at 256 and 128 bits through `benchmark.yml`; its fuse check behind a property, as 342's is. The
 function rows measure against it.
 
+*8 November 2026, as built:* `VarkaMathBaselineBenchmark` over the twelve forms, each with no
+nulls and with one row in ten null, 24 sections, under the shared fuse check
+(`VarkaSqlBenchmarkBase.requireBaseline`, lifted by `-Dvarka.baseline.fuseCheck=false`), every
+section `NONE` (item 0.12), and `VarkaMathBaselineQueriesSuite` over the table's first 2,000 rows,
+which also makes the fuse check against a fusing control. The table's columns are hashes of the
+id: `x` and `y` in `[-10, 10)`, independent, so `atan2` sees all four quadrants and the
+trigonometric functions mostly reduce past `pi / 4`; `p` is `10^u` for `u` in `[-6, 6)`, so in
+`[1e-6, 1e6)`. No value is NaN, infinite or huge, which item 0.9 measured as a library call's
+slow lane. `log(x)`, `log10(x)` and `pow(x, y)` read `p`: both logarithms are null at `x <= 0`
+and `pow` of a negative base and a fractional exponent is NaN, so over `x` they would time a
+null or a NaN exit, not the function; `log` with one argument is `Logarithm` over e, so
+`StrictMath.log` (item 0.2). No section depends on the SQL mode, so all run in the session's
+default. The results files at both widths come from the EPYC runners, committed before merge:
+benchmark runs 42527097690 (256 bits) and 42537748319 (128 bits, `-XX:MaxVectorSize=16`), both
+on an AMD EPYC 7763 at `a461e673eb3`.
+
 Predictions, registered before the build:
 
 1. **No existing shape's bytes move**; `option_arms` gains the `mathUlpContract` and `mathPort`
@@ -703,7 +719,7 @@ Predictions, registered before the build:
 | `dev/varka_emit.sh` | `--jvm-arg` |
 | tests | 3.1 to 3.9, `VarkaReference`, the library reference |
 | `sql/varka/math/` | the vector file format and its reader |
-| benchmark | the baseline class and its results files |
+| benchmark | the baseline class, its results files at both widths from the EPYC runners |
 | generated | `coverage.json`, `docs/sql-varka.md`, `emitted_bytes.json` |
 | plans | `PLAN.md` 2.7.1 (owner's decision recorded), `SCOPE_STANDARD_MODE.md` 3.4, `SCOPE_FUNCTIONS.md` 3, `m9/SCOPE.md` item 36 |
 

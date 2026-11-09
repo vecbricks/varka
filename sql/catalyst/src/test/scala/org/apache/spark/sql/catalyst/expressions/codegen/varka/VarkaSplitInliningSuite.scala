@@ -17,10 +17,6 @@
 
 package org.apache.spark.sql.catalyst.expressions.codegen.varka
 
-import java.io.{BufferedReader, File, InputStreamReader}
-import java.nio.charset.StandardCharsets
-import java.util.concurrent.TimeUnit
-
 import scala.collection.mutable
 
 import org.apache.spark.SparkFunSuite
@@ -42,7 +38,8 @@ import org.apache.spark.SparkFunSuite
  */
 class VarkaSplitInliningSuite extends SparkFunSuite with VarkaTestWatchdog {
 
-  private val childTimeoutSeconds = 300L
+  /** One child per test, so a test's child at its budget ends before the test's cap. */
+  private def childBudgetSeconds: Long = VarkaChildProcess.budgetSeconds(watchdogMinutes, 1)
 
   /** A C2 compile of a method of the generated projection, and its split callees' decisions. */
   private case class Compile(method: String, callees: Seq[(String, String)])
@@ -58,10 +55,6 @@ class VarkaSplitInliningSuite extends SparkFunSuite with VarkaTestWatchdog {
     def compiledAlone: Set[String] = compiles.map(_.method).toSet
   }
 
-  private def testClasspath: String =
-    Option(System.getenv("SPARK_DIST_CLASSPATH")).filter(_.nonEmpty)
-      .getOrElse(System.getProperty("java.class.path"))
-
   // `PrintCompilation`: timestamp, compile id, attribute flags, the tier, `class::method` and
   // the size. A line saying a compile was discarded ("made not entrant") has the same shape.
   private val header = """\d+\s+\d+\s+[%sbn!\s]*?([0-4])\s+(\S+)::(\S+) \(\d+ bytes\)""".r
@@ -70,33 +63,23 @@ class VarkaSplitInliningSuite extends SparkFunSuite with VarkaTestWatchdog {
   private val callee = """@ \d+\s+(\S+)::(caseWhen_\d+_\d+\$) \(\d+ bytes\)\s+(.*)$""".r
 
   private def runProbe(branches: Int): Run = {
-    val javaBin = new File(new File(System.getProperty("java.home"), "bin"), "java")
     val pattern = VarkaSplitInliningProbe.PROJECTION_CLASS + "::*"
-    val command = new java.util.ArrayList[String]()
-    Seq(javaBin.getAbsolutePath, "--add-modules", "jdk.incubator.vector",
-      "--enable-native-access=ALL-UNNAMED", "-Xmx1g", "-Xbatch", "-XX:+PrintCompilation",
-      "-XX:+UnlockDiagnosticVMOptions", "-XX:CompileCommand=quiet",
-      s"-XX:CompileCommand=PrintInlining,$pattern", "-cp", testClasspath,
-      VarkaSplitInliningProbe.getClass.getName.stripSuffix("$"), branches.toString)
-      .foreach(command.add)
-    // The child JVM's code runs where the class-use record cannot see it (VarkaTestUse).
-    VarkaTestUse.childJvm()
-    val process = new ProcessBuilder(command).redirectErrorStream(true).start()
-    val reader = new BufferedReader(
-      new InputStreamReader(process.getInputStream, StandardCharsets.UTF_8))
+    val command = VarkaChildProcess.javaCommand(
+      java.util.List.of("-Xmx1g", "-Xbatch", "-XX:+PrintCompilation",
+        "-XX:+UnlockDiagnosticVMOptions", "-XX:CompileCommand=quiet",
+        s"-XX:CompileCommand=PrintInlining,$pattern"),
+      VarkaSplitInliningProbe.getClass.getName.stripSuffix("$"),
+      java.util.List.of(branches.toString))
     val compiles = mutable.ArrayBuffer.empty[Compile]
     var current: Option[(String, mutable.ArrayBuffer[(String, String)])] = None
     def close(): Unit = {
       current.foreach { case (m, cs) => compiles += Compile(m, cs.toSeq) }
       current = None
     }
-    val tail = mutable.Queue.empty[String]
     var done = false
-    try {
-      var line = reader.readLine()
-      while (line != null) {
-        tail.enqueue(line)
-        if (tail.size > 40) tail.dequeue()
+    val what = s"$suiteName's probe of a $branches-branch CASE WHEN"
+    val run = VarkaChildProcess.run(what, new ProcessBuilder(command), childBudgetSeconds, {
+      line =>
         // The marker may share a line with a compile record (`VarkaProbeOutput`).
         if (VarkaProbeOutput.has(line, VarkaSplitInliningProbe.DONE)) {
           done = true
@@ -117,19 +100,10 @@ class VarkaSplitInliningSuite extends SparkFunSuite with VarkaTestWatchdog {
               }
           }
         }
-        line = reader.readLine()
-      }
-      close()
-    } finally {
-      reader.close()
-    }
-    if (!process.waitFor(childTimeoutSeconds, TimeUnit.SECONDS)) {
-      process.destroyForcibly()
-      fail(s"the probe did not finish within $childTimeoutSeconds s")
-    }
-    assert(process.exitValue() == 0 && done,
-      s"the probe failed (exit ${process.exitValue()}); its last lines:\n" + tail.mkString("\n"))
-    Run(compiles.toSeq, tail.mkString("\n"))
+    })
+    close()
+    run.requireSuccess(done)
+    Run(compiles.toSeq, run.lastLines())
   }
 
   private val overBudget = "size > DesiredMethodLimit"
