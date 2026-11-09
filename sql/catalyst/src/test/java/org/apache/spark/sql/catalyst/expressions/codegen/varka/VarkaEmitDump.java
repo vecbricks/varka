@@ -462,6 +462,11 @@ public final class VarkaEmitDump {
         if (t.startsWith("time(") && t.endsWith(")")) {
           yield new TimeType(Integer.parseInt(t.substring(5, t.length() - 1).trim()));
         }
+        // DECIMAL(p, s) spelled dec<p>s<s>, dec38s2, since the column list splits on commas.
+        if (t.matches("dec\\d+s\\d+")) {
+          String[] ps = t.substring(3).split("s");
+          yield DataTypes.createDecimalType(Integer.parseInt(ps[0]), Integer.parseInt(ps[1]));
+        }
         throw new IllegalArgumentException("unsupported column type " + t);
       }
     };

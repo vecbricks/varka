@@ -214,9 +214,9 @@ public final class VarkaKernelPlan {
 
   /** The reason a filter's condition records where {@link #hostRefusal} refuses it. */
   public static final String TWO_LANE_CONDITION_REASON = "a filter's condition in a kernel driven "
-      + "at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL up to "
-      + "18 digits), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no "
-      + "mask there, and the selection would run the Vector API's Java fallback";
+      + "at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL), on "
+      + "an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and "
+      + "the selection would run the Vector API's Java fallback";
 
   /**
    * Whether {@code host}, read on this JVM, runs every mask of a 64-bit species as the Vector
