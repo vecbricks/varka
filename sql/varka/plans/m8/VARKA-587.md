@@ -131,7 +131,8 @@ different last bits on x86 and on Arm, and `tanh` and `cbrt` also change on x86 
 25; the difference is 1 ulp (2 for `tanh`, `sec`, `csc`, `cot`), on 2 to 12% of inputs. Every
 other math function, `exp`, `ln`, `log2`, `log10`, `log1p`, `pow`, `sqrt`, `asin`, `acos`,
 `atan`, `atan2`, `sinh`, `cosh`, `asinh`, `acosh`, `atanh` and `hypot`, answers the same on every
-HotSpot host. On one host the answer does not change between the interpreter and the compilers,
+HotSpot host, in value; the `StrictMath` digests of the five that make a NaN from a domain
+error differ between x86 and Arm (6.4). On one host the answer does not change between the interpreter and the compilers,
 nor between whole-stage, generated and interpreted Spark. Scope: HotSpot JDK 25 (17 and 21 for
 the JDK step, on x86 only), x86_64 and aarch64 as GitHub's runners have them; not other JVMs
 (OpenJ9, GraalVM native), not SVE hosts, not Windows or macOS.
@@ -145,14 +146,18 @@ the JDK step, on x86 only), x86_64 and aarch64 as GitHub's runners have them; no
 | x86 Zen 5, JDK 25, 21, 17: counts, ulps, tiers, literals | `results/VARKA-587-math-host-laptop.txt` A to D | |
 | Spark query on x86 Zen 5, three paths | same file, E | |
 | Arm and two x86 CPUs, 262144 inputs, scalar | `dev/varka_canary/mathlane-*.txt` control passes | |
-| Arm, the probe's 2^20 inputs, and laptop against Arm per input | | canary run, 6.1 |
-| Spark query on Neoverse N2 | | `benchmark.yml`, 6.2 |
+| Arm, the probe's 2^20 inputs, and laptop against Arm per input | `results/VARKA-587-math-host-arm.txt` (6.1) | |
+| a third x86 CPU (Xeon Platinum 8573C), and laptop against it per input | `results/VARKA-587-math-host-x86-runner.txt` (6.1) | |
+| Spark query on Neoverse N2 | `results/VARKA-587-spark-arm.txt` (6.2) | |
 | Spark query on EPYC 7763 (pinned) | | `benchmark.yml`, 6.2 |
 
 ## 4. The figures
 
 Each script reads the committed results, and a panel that needs an owed file draws a dashed
-"owed" placeholder until `results/VARKA-587-math-host-arm.txt` or `-epyc7763.txt` lands.
+"owed" placeholder until `results/VARKA-587-math-host-arm.txt` or `-epyc7763.txt` lands. The
+Arm files landed on 9 November 2026 (6.4) and fill fig64, fig66, fig67, fig68 and fig69 (and
+fig63, which the post no longer shows); fig68's panels grew to fit four diff lines. Only fig69's
+EPYC 7763 bars stay owed.
 
 1. `fig62.py`, *Two libraries behind one function list*: Spark's functions in two columns,
    `Math` and `StrictMath`, each box marked by whether the laptop measured a difference (part A).
@@ -217,6 +222,13 @@ model. The laptop's `--compare` output against the Arm dump is the per-input cou
 hosts. Committed as `results/VARKA-587-math-host-arm.txt` (the Arm job's `library.txt` and
 `machine.txt`, and the compare) and `-x86-runner.txt`.
 
+*Ran 9 November 2026*: run 42612190576 on MaxGekk/spark, from `varka-587-probe-run` at
+`f720069e66b` (`aa06cec20ca` and the workflow's default; the probe is this branch's file), both
+legs green, Azul's Zulu 25.0.5.0.3 on each. The Arm leg drew a Neoverse N2 (CPU part 0xd49);
+the x86 leg drew an Intel Xeon Platinum 8573C (AVX-512), a third x86 model and not the EPYC
+7763. The compares ran on the laptop against the downloaded dumps with JDK 25.0.4.1, from the
+laptop's own dump of section 0 item 3.
+
 ### 6.2 The Spark query on the pinned runners
 
 `benchmark.yml` runs `SparkMathHostBenchmark` like any benchmark, pinned by `expected-cpu`; about
@@ -234,6 +246,12 @@ an hour of build each. After the owner's word and the branch on the fork:
 The artifact's `sql/core/benchmarks/SparkMathHostBenchmark-jdk25-results.txt` and its provenance
 sidecar go to `results/VARKA-587-spark-arm.txt` and `-spark-epyc7763.txt`.
 
+*Ran 9 November 2026*: the Neoverse N2 run is 42612241748 (from `varka-587-probe-run` at
+`f720069e66b`, the same benchmark file; CPU check "Runner CPU: Neoverse-N2"; Zulu
+25.38+109-CA), committed as `results/VARKA-587-spark-arm.txt`. The EPYC 7763 run, 42612245140,
+drew another CPU and is retried hourly; `-spark-epyc7763.txt` stays owed, and with it the
+post's two EPYC marks and fig69's EPYC bars.
+
 ### 6.3 Predictions, registered before the runs
 
 1. Neoverse N2, JDK 25: `Math` differs from `StrictMath` for `sin` and `cos` only, by at most 1
@@ -247,6 +265,37 @@ sidecar go to `results/VARKA-587-spark-arm.txt` and `-spark-epyc7763.txt`.
 
 Not measured and not claimed: the cost of `reflect` or of disabling the intrinsics. The post says
 both are slower without a number, or the row measures them if the owner asks (question 3).
+
+### 6.4 What the runs measured, against 6.3
+
+1. **Held, for values.** On the Neoverse N2 `Math` differs from `StrictMath` for `sin` in 54794
+   values and `cos` in 29538, by 1 ulp, and for `tan`, `tanh`, `cbrt`, `exp`, `pow` in none
+   (`results/VARKA-587-math-host-arm.txt` A). Not registered: `sin` and `cos` also differ in 125
+   NaN payloads each, and `log`, `log10` in 61 NaN payloads and no value. On the literals,
+   `sin` 70 and `cos` 70 of 1000, `cos(0.1)` not among them.
+2. **Held.** The laptop against Arm (same file, B): `tan` 22721, `tanh` 130493, `cbrt` 86791,
+   exactly the laptop's own counts; `sin` 66122 and `cos` 43725 (125 of each NaN payloads), above
+   the laptop's 21203 and 21016, by at most 1 ulp, under the 2 allowed.
+3. **Held for every function Spark calls through `Math`; `Math.pow` did not.** The Xeon Platinum
+   8573C equals the laptop input by input for 17 of 18 functions, and `Math.pow` differs in 3
+   inputs by 1 ulp (`results/VARKA-587-math-host-x86-runner.txt` B). The two hosts differ in
+   CPU and in JDK build (Ubuntu's 25.0.4.1, Zulu's 25.0.5), so the 3 are not attributed; Spark
+   calls `StrictMath.pow`. The EPYC 7763 itself stays owed (6.2).
+4. **Held on Arm.** Spark on the Neoverse N2 (`results/VARKA-587-spark-arm.txt`): `sin` 13569
+   rows, `cos` 7389, `sec` 4418, `csc` 7954 (both by up to 2 ulps), `tan`, `cot`, `tanh`,
+   `cbrt` and the six `StrictMath` functions 0; one digest per column across the three paths.
+   `SELECT cos(0.1)` folds to `0.9950041652780257`, fdlibm's, and `cbrt(0.22)` to
+   `0.6036810736797685`; `sin(0.48)` gives x86's `0.4617791755414829`. The EPYC 7763 half is owed.
+
+**Not registered: a NaN's bits differ by architecture even in `StrictMath`.** The probe's
+`StrictMath` digests of `asin`, `acos`, `log`, `log10` and `pow` differ between the Arm runner
+and the laptop (so its compare leaves those five out), and the other 13 agree; Spark's own
+`asin` and `pow` columns digest differently on the two hosts although each equals `StrictMath`
+on its host in every row, while `atan2`, `exp`, `ln` (null below zero) and `log10` agree. The
+five are the ones that make a NaN from a domain error, and on the laptop each returns
+`0xfff8000000000000` for one (`StrictMath.asin(2.0)` and the like, interpreted, JDK 25), x86's
+default NaN; Arm's bits were not printed. Java does not specify a NaN's bit pattern, so the
+post keeps to values and says so in one parenthesis; the row does not chase it further.
 
 ## 7. Questions for the owner
 

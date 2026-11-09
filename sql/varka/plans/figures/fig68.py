@@ -51,7 +51,7 @@ def width(s):
     return sum(hmtx[cmap[ord(c)]][0] for c in s) * SIZE / upm
 
 
-r = Rough(1000, 420, seed=6801)
+r = Rough(1000, 460, seed=6801)
 r.text(40, 44, "Where it bites", size=32)
 r.text(40, 80, "the same query exported to CSV twice, then diffed", size=18, color=GREY)
 
@@ -62,7 +62,7 @@ Y, W = 140, 445
 def panel(x, title, old_name, new_name, old, new):
     y = Y
     r.text(x, y, title, size=20)
-    r.rect(x, y + 22, W, 210, color=GREY)
+    r.rect(x, y + 22, W, 250, color=GREY)
     x += 24
     lines = [(" ", "fn,x,value", None)]
     for fn, xv in ROWS:
@@ -97,7 +97,7 @@ else:
         515,
         Y + 22,
         W,
-        210,
+        250,
         "owed: the Arm runner's answers\nto cos(0.1) and cbrt(0.22)",
         size=18,
     )
