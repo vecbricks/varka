@@ -164,6 +164,8 @@ public final class VarkaReference {
               : -Float.intBitsToFloat(v)));
       case MathUnary n -> map(n.child(), row, isNull, lits,
           v -> Float.floatToRawIntBits(mathFloat(n.fn(), Float.intBitsToFloat(v))));
+      case RoundToIntegral n -> throw VarkaErrors.illegalArgument(
+          "a rounding takes a double child, which is no int-lane value: " + n);
       case IntNeg n -> {
         var c = value(n.child(), row, isNull, lits);
         if (c.isEmpty()) {
@@ -501,6 +503,13 @@ public final class VarkaReference {
         var c = longValue(n.child(), row, isNull, lits);
         yield c.isEmpty() ? c : OptionalLong.of(Double.doubleToRawLongBits(
             mathDouble(n.fn(), Double.longBitsToDouble(c.getAsLong()))));
+      }
+      // StrictMath's rint, never the lowering's construction, so the reference stays independent
+      // of the code it checks.
+      case RoundToIntegral n -> {
+        var c = longValue(n.child(), row, isNull, lits);
+        yield c.isEmpty() ? c : OptionalLong.of(Double.doubleToRawLongBits(
+            StrictMath.rint(Double.longBitsToDouble(c.getAsLong()))));
       }
       case IntNeg n -> {
         var c = longValue(n.child(), row, isNull, lits);

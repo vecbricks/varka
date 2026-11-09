@@ -1,8 +1,8 @@
 # Written by VarkaFuzzTypesSuite from VarkaFuzzTypes (VARKA-352); regenerate with VARKA_FUZZ_TYPES_REGEN=true build/sbt 'catalyst/testOnly *VarkaFuzzTypesSuite'
 id	lane	ir	ir_seed	ir_form	ir_cells	spark	spark_columns	values
 BOOLEAN	-	present	20261031	bool	castValue	owed:352	-	present
-BYTE	BYTE	present	20261031	col:byte	castValue	owed:352	-	present
-SHORT	SHORT	present	20261031	col:short	castValue	owed:352	-	present
+BYTE	BYTE	present	20261109	intArith(col:byte)	values:BYTE	owed:352	-	present
+SHORT	SHORT	present	20261110	intArith(col:short)	values:SHORT	owed:352	-	present
 INT	INT	present	20260903	intArith(col)	values:DATE,YM_INTERVAL	present	i	present
 LONG	LONG	present	20260919	intArith(col:long)	values:LONG	present	l,l2	present
 FLOAT	FLOAT	owed:341	-	-	-	present	f,f2	present

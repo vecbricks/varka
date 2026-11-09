@@ -86,7 +86,7 @@ class VarkaEmitCostSuite extends VarkaEmitterTestBase with VarkaOwnJvm {
     // to an integral one (`VARKA-343.md` 2.2.1).
     val awaitingRefit = Set("NullSafeEqual", "BoolColumn", "CondConst", "BoolCompare", "CondIf",
       "BoolNullSafeEq", "CondValue", "BoolOutput", "DecimalColumn", "DecimalWord", "NullValue",
-      "WidenDecimal", "MathUnary", "ConvertLane", "CrossLane", "Compare/ULT",
+      "WidenDecimal", "MathUnary", "RoundToIntegral", "ConvertLane", "CrossLane", "Compare/ULT",
       "Compare/ULE", "Compare/UGT", "Compare/UGE")
     assert(awaitingRefit.forall(t => !expected.exists(f => f == t || f.startsWith(t + "/"))),
       s"${awaitingRefit.toSeq.sorted} is priced: take it off the list of nodes awaiting a refit")
