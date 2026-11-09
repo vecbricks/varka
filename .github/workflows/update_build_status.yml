@@ -154,8 +154,15 @@ jobs:
 
             // The fields a check would be patched to for a fork run, which a pass compares
             // with the check's own before patching (VARKA-255.md 3.2: patch only on change).
+            // PATCH /check-runs accepts only success | failure | neutral | cancelled | timed_out |
+            // action_required | skipped, but a workflow_run may also conclude startup_failure /
+            // stale, or report a null conclusion. Those all mean the run produced no test result,
+            // so they become failure.
+            const conclusions = ['success', 'failure', 'neutral', 'cancelled',
+              'timed_out', 'action_required', 'skipped']
             const wanted = (run) => run.status == 'completed'
-              ? {status: 'completed', conclusion: run.conclusion}
+              ? {status: 'completed',
+                 conclusion: conclusions.includes(run.conclusion) ? run.conclusion : 'failure'}
               // PATCH /check-runs accepts only queued | in_progress | completed,
               // but workflow_run may also report requested / waiting / pending.
               : {status: run.status == 'in_progress' ? 'in_progress' : 'queued', conclusion: null}
@@ -169,6 +176,13 @@ jobs:
             // wanted state differs from the last one sent; the memory is this run's, so the
             // next loop sends a still-standing state once more, which is the cost of a patch.
             const sent = new Map()
+
+            // Pull requests whose sync failed on the latest pass: listing their check runs,
+            // patching a Build check, or backfilling one. A failed call skips only that pull
+            // request until the next pass; if the loop's last pass still had any, the step
+            // fails, so an error that keeps recurring (a 422 for a value the endpoint rejects)
+            // stays visible instead of hiding in the log of a green run.
+            let failedPRs = new Set()
 
             // A completed run's steps against the budget, as markdown for the check's summary,
             // or '' when the tool fails; the summary is a disclosure, never worth a failed pass.
@@ -207,6 +221,7 @@ jobs:
             const syncPass = async () => {
             let inFlight = 0
             let patches = 0
+            failedPRs = new Set()
             // Iterate open PRs
             for await (const prs of github.paginate.iterator(endpoint,params)) {
               // Each page
@@ -214,7 +229,15 @@ jobs:
                 console.log('SHA: ' + pr.head.sha)
                 console.log('  Mergeable status: ' + pr.mergeable_state)
                 if (pr.mergeable_state == null || maybeReady.includes(pr.mergeable_state)) {
-                  const checkRuns = await listCheckRuns(pr.head.sha)
+                  let checkRuns
+                  try {
+                    checkRuns = await listCheckRuns(pr.head.sha)
+                  } catch (error) {
+                    console.error('  Listing check runs failed for this PR; will retry next pass')
+                    console.error(error)
+                    failedPRs.add(pr.number)
+                    continue
+                  }
 
                   // Does this SHA already carry an action_required Build check? notify (or an
                   // earlier pass of this updater) writes one when no fork run was found. It is
@@ -290,14 +313,14 @@ jobs:
                       // ending the loop, which every other pull request's sync rides on.
                       try {
                         if (run.data.status == 'completed') {
-                          console.log('    Run ' + cr.id + ': set status (' + run.data.status + ') and conclusion (' + run.data.conclusion + ')')
+                          console.log('    Run ' + cr.id + ': set status (' + run.data.status + ') and conclusion (' + run.data.conclusion + ' -> ' + want.conclusion + ')')
                           const response = await github.request('PATCH /repos/{owner}/{repo}/check-runs/{check_run_id}', {
                             owner: context.repo.owner,
                             repo: context.repo.repo,
                             check_run_id: cr.id,
                             output: withStepTimes(cr.output, params),
                             status: run.data.status,
-                            conclusion: run.data.conclusion,
+                            conclusion: want.conclusion,
                             details_url: run.data.details_url
                           })
                         } else {
@@ -315,6 +338,7 @@ jobs:
                       } catch (error) {
                         console.error('    Run ' + cr.id + ': patch failed; a later pass retries it')
                         console.error(error)
+                        failedPRs.add(pr.number)
                       }
                     }
                   }
@@ -495,6 +519,7 @@ jobs:
                     } catch (error) {
                       console.error('  Backfill failed for this PR; will retry next pass')
                       console.error(error)
+                      failedPRs.add(pr.number)
                       continue
                     }
                   }
@@ -502,7 +527,8 @@ jobs:
               }
             }
             console.log('Pass: ' + inFlight + ' fork run(s) in flight, ' + patches
-              + ' check(s) patched, ' + requests + ' requests so far')
+              + ' check(s) patched, ' + failedPRs.size + ' pull request(s) failed, ' + requests
+              + ' requests so far')
             return inFlight
             }
 
@@ -555,4 +581,8 @@ jobs:
                 break
               }
               await new Promise(resolve => setTimeout(resolve, pollMs))
+            }
+            if (failedPRs.size > 0) {
+              core.setFailed('Failed to sync ' + failedPRs.size + ' PR(s) on the last pass: #'
+                + [...failedPRs].join(', #'))
             }
