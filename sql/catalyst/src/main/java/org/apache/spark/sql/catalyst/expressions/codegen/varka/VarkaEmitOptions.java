@@ -646,7 +646,7 @@ public record VarkaEmitOptions(
 
   /**
    * The {@code UseAVX} level at which HotSpot enables its AVX-512 paths: the lowest level whose
-   * long-to-floating conversions are one instruction ({@link #convertsMayFallBack()}), and the
+   * long-to-floating conversions are one instruction (see {@link #convertsFallBack()}), and the
    * one a session asking for the host's resolves a CPU with AVX512DQ to.
    */
   public static final int AVX512_LEVEL = 3;
@@ -674,29 +674,9 @@ public record VarkaEmitOptions(
   }
 
   /**
-   * Whether this level gives no assurance that the long-to-floating conversions become
-   * instructions: a level below 3, as in {@link #convertsFallBack()}, and also an unknown one.
-   * The kernel plan declines a {@code BIGINT} conversion to {@code FLOAT} or {@code DOUBLE} where
-   * this holds at the unknown level ({@link #levelUnknown()}); below 3 it takes its AVX2 form.
-   *
-   * <p>It differs from {@link #convertsFallBack()} on the unknown level alone, and on purpose.
-   * That predicate picks a lowering, and its optimism costs nothing where it is wrong: both
-   * division forms are vector code. This one decides whether a kernel exists, and the two errors
-   * are not alike: a wrong decline costs the row engine's speed, while a wrong admission runs
-   * the Vector API's scalar Java loop inside a vector kernel. The unknown level is what
-   * {@link #DEFAULTS} carries, so it has to be the safe answer. It is still a function of the
-   * record alone - no CPU read reaches it - so a shape is admitted or declined alike on every
-   * machine, and its key never depends on the host. A session that wants the conversions fused
-   * names a level, or asks for the host's ({@code VarkaSessionEmit.resolve}).
-   */
-  public boolean convertsMayFallBack() {
-    return useAVX == USE_AVX_UNKNOWN || useAVX < AVX512_LEVEL;
-  }
-
-  /**
    * Whether this record names no {@code UseAVX} level: the defaults', an unset session's and an
    * aarch64 host's ({@code VarkaSessionEmit.resolve}), where the kernel plan declines a
-   * {@code BIGINT} conversion to {@code FLOAT} or {@code DOUBLE}.
+   * {@code BIGINT} conversion to {@code FLOAT} or {@code DOUBLE}, as an AVX2 host's Java loop.
    */
   public boolean levelUnknown() {
     return useAVX == USE_AVX_UNKNOWN;

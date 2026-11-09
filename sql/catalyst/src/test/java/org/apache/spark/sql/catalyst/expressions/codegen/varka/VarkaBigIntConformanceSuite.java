@@ -34,4 +34,13 @@ public final class VarkaBigIntConformanceSuite extends VarkaTypeConformance {
     return integral("bigint", DataTypes.LongType, "BIGINT", "L", Long.MIN_VALUE,
         Long.MAX_VALUE);
   }
+
+  /** Under the bounded {@code L2D} a cast to DOUBLE declines past its window, so runs inside it. */
+  @Override
+  protected long[] castValues(String to) {
+    long w = VarkaConversionLowering.MAGIC_WINDOW;
+    return to.equals("double") && VarkaMatrixRuns.BASE.convertsFallBack()
+        && VarkaMatrixRuns.BASE.wideConversionForm() == VarkaEmitOptions.WideConversionForm.MAGIC
+        ? integralValues(-w, w) : null;
+  }
 }

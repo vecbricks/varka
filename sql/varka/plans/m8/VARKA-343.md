@@ -795,37 +795,27 @@ Cut from #1303's final tree and rebuilt on 343a4 (#1385), whose files it leaves 
 ### 343b1 as built (8 November 2026, branch `varka-343b1-forms`)
 
 `BIGINT` to `DOUBLE` and `FLOAT` fuse at every named emit level: one `convertShape` at level 3,
-and below it, by `convertsFallBack()`, the AVX2 forms of 2.3 in `VarkaConversionLowering`. Not
-built: the reduced-width twins (3.2), since the SMT file proves the forms over every long.
+below it the AVX2 forms of 2.3 in `VarkaConversionLowering`. Not built: 3.2's twins.
 
 - **The level.** `conversionRefusal` declines a long source at the unknown level alone
-  (`levelUnknown()`), by 2.3's rule that the forms are read where `convertsFallBack()` holds,
-  which it does not there. So the defaults still decline, no coverage row can hold the casts (the
-  coverage suite compiles at the defaults), and an aarch64 session, at the unknown level,
-  declines them although 2.3's table says `convertShape` there.
+  (`levelUnknown()`), where `convertsFallBack()` does not hold. So the defaults still decline, no
+  coverage row can hold the casts, and aarch64, at the unknown level, declines them too.
 - **`L2D`**: the split as 2.3 states it; under `wideConversionForm=MAGIC` the bounded magic behind
-  a `VALUE_RANGE` refusal on the `ConvertLane`, over the proof's closed window `[-2^51, 2^51]`,
-  comparing the long child. No IR node: the compiler reads no option.
-- **`L2F` without a mask**, since C2 on x86 lowers none at two 64-bit lanes, which settles the
-  groundwork's open points 2 and 3: the sticky bit is `((m & 0xFFF) + 0xFFF) >>> 12`, the arm a
-  blend in logic by `sel = -(((m >>> 52) + Long.MAX_VALUE) >>> 63)`, the scale a magic number of
-  `2^64` (its ulp is `2^12`), the sign `v`'s sign bit set in it. `round_to_odd.smt2` is restated
-  over these operations from the class's constants (open point 1): 50 checks, 7.8 s under Z3
-  and 6.8 s under cvc5 on the laptop, the new ones that the sticky bit is Theorem 3's rounding
-  to odd, that each arm's signed magic negates the double for every `t` from 1, and that `D2F`
-  commutes with negation.
-- **The option** reads only a `ConvertLane` below level 3, so a `Choice` carries a `Subject` as a
-  `Flag` does, and the matrix runs `useAVX=2,wideConversionForm=MAGIC`.
-- **Tests.** `VarkaEmitterWideConversionSuite`: both forms and arms at three widths, the lengths
-  and null patterns, to Java's casts at the cells (`2^52` and its neighbours, the float ties
-  `2^52 + 2^28` and `2^62 + 2^38` and one sticky bit above, the double ties past `2^53`,
-  `2^53 + 2^29 + 1`, the extremes, every negation) and over 512 seeded values a binade of each
-  sign with their ties; the magic's decline past `2^51`, not under a null; 3.4's case, the
-  split-and-add form giving 4275361280 for 4275361147 and misrounding between 16% and 17% of
-  `[2^31, 2^32)`, the kernel 4275361024. `VarkaDifferentialHarnessSuite` holds level 2 in both
-  arms to Spark. The budget weighs the split at 10 lane calls and `L2F` at 24.
+  a `VALUE_RANGE` refusal on the `ConvertLane` over `[-2^51, 2^51]`, comparing the long child.
+- **`L2F` without a mask**, since C2 on x86 lowers none at two 64-bit lanes: the sticky bit is
+  `((m & 0xFFF) + 0xFFF) >>> 12`, the arm a blend by `sel = -(((m >>> 52) + Long.MAX_VALUE) >>>
+  63)`, the scale a magic number of `2^64`, the sign `v`'s sign bit set in it.
+  `round_to_odd.smt2` is restated over them from the class's constants (50 checks, 7.8 s under Z3,
+  6.8 s under cvc5), with the sticky bit, the signed magic and `D2F`'s sign proven too.
+- **The option** is read below level 3 alone, so a `Choice` carries a `Subject`: the matrix runs
+  `useAVX=2,wideConversionForm=MAGIC`.
+- **Tests.** `VarkaEmitterWideConversionSuite`: both forms and arms at three widths, lengths and
+  null patterns, to Java's casts at the cells (`2^52` and neighbours, the float and double ties,
+  one sticky bit above, `2^53 + 2^29 + 1`, the extremes, every negation) and over 512 seeded
+  values a binade of each sign; the magic's decline past `2^51`, not under a null; and 3.4's
+  case, the split-and-add form misrounding 4275361147 and 16-17% of `[2^31, 2^32)`. The harness
+  holds level 2 in both arms to Spark; the budget weighs the split at 10 lane calls, `L2F` at 24.
 - **C2 at `-XX:UseAVX=2`** (`dev/varka_emit.sh --asm`): both forms are 256-bit `ymm` code with no
-  call but the traps and no `vcvtqq2pd`; the split's arithmetic shift is `vpsrlq`, `vpxor` and
-  `vpsubq` over a sign-mask load, and `L2F` ends in `vcvtpd2ps`. The tool's timing, not a
-  benchmark: 322 ns a round of 1024 rows for the split, 218 for the magic, 542 for `L2F`, the
-  split past prediction 4.4's 1.3 times; step 8's measurement on the EPYC runners decides.
+  call but the traps and no `vcvtqq2pd`; `L2F` ends in `vcvtpd2ps`. The tool's timing, not a
+  benchmark: 322 ns a round of 1024 rows for the split, 218 for the magic, 542 for `L2F`; step
+  8's measurement on the EPYC runners decides.

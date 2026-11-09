@@ -26,7 +26,6 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Random;
 import java.util.function.IntPredicate;
-import java.util.stream.LongStream;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions.WideConversionForm;
@@ -47,24 +46,24 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Ove
 public final class VarkaEmitterWideConversionSuite {
 
   private static final ColumnRef L = new ColumnRef(0, LaneType.LONG);
-  private static final VarkaEmitOptions AVX2 = VarkaMatrixRuns.BASE.withUseAVX(2);
+  private static final VarkaEmitOptions AVX2 =
+      VarkaMatrixRuns.BASE.withUseAVX(2).withWideConversionForm(WideConversionForm.SPLIT);
   private static final int[] WIDE_LANES = {2, 4, 8};
   private static final int[] LENGTHS = {1, 2, 7, 8, 9, 17, 129};
   private static final List<IntPredicate> PATTERNS = List.of(
       i -> false, i -> i % 5 == 0, i -> i % 2 == 1, i -> true);
 
   /**
-   * The cells and their negations: the arms' boundary {@code 2^52}; the float ties
-   * {@code 2^52 + 2^28} and {@code 2^62 + 2^38} and one sticky bit above, which a form without
-   * the sticky bit rounds down; the double ties; {@code 2^53 + 2^29 + 1}, which two roundings
-   * miss; the extremes; and 3.4's named case.
+   * The cells and their negations: the arms' boundary {@code 2^52}; the float ties and one sticky
+   * bit above, which a form without the sticky bit rounds down; the double ties;
+   * {@code 2^53 + 2^29 + 1}, which two roundings miss; the extremes; and 3.4's named case.
    */
-  private static final long[] CELLS = withMinimum(withNegations(0, 1, 3, (1L << 24) + 1,
+  private static final long[] CELLS = withNegations(0, 1, 3, (1L << 24) + 1,
       (1L << 24) + 3, 1L << 31, (1L << 32) - 1, 1L << 32, (1L << 52) - 1, 1L << 52, (1L << 52) + 1,
       (1L << 52) + (1L << 28), (1L << 52) + (1L << 28) + 1, (1L << 52) + (3L << 28),
       (1L << 53) + 1, (1L << 53) + 3, (1L << 54) + 2, (1L << 53) + (1L << 29) + 1,
       (1L << 62) + (1L << 38), (1L << 62) + (1L << 38) + (1L << 11), (1L << 62) + (1L << 38) + 1,
-      Long.MAX_VALUE - (1L << 38), Long.MAX_VALUE, 4275361147L, 0x123456789ABCDEFL));
+      Long.MAX_VALUE - (1L << 38), Long.MAX_VALUE, Long.MIN_VALUE, 4275361147L, 0x123456789ABCDEFL);
 
   /** The bounded form's window, its edges, and cells well inside it. */
   private static final long[] WINDOW = withNegations(0, 1, (1L << 24) + 1, (1L << 32) - 1,
@@ -77,11 +76,6 @@ public final class VarkaEmitterWideConversionSuite {
       all[2 * k + 1] = -values[k];
     }
     return all;
-  }
-
-  /** {@code values} and {@code Long.MIN_VALUE}, whose magnitude is {@code 2^63} unsigned. */
-  private static long[] withMinimum(long[] values) {
-    return LongStream.concat(Arrays.stream(values), LongStream.of(Long.MIN_VALUE)).toArray();
   }
 
   private static ConvertLane convert(LaneType target) {
@@ -141,15 +135,15 @@ public final class VarkaEmitterWideConversionSuite {
   }
 
   @Test
-  @DisplayName("a bigint to DOUBLE by the bounded magic inside its window, beside a float root")
+  @DisplayName("a bigint to DOUBLE by the bounded magic inside its window, beside a float one")
   void magicCells() {
     var magic = AVX2.withWideConversionForm(WideConversionForm.MAGIC);
     checkCells("cast(l AS double)", convert(LaneType.DOUBLE), magic, WINDOW);
-    // Both conversions of one long in one kernel, under an arithmetic on the double.
+    // Both conversions of one long in one kernel: the double plus the float widened back.
     var sum = new IntArith(IntOp.ADD, Overflow.WRAP, convert(LaneType.DOUBLE),
-        convert(LaneType.DOUBLE));
-    checkCells("cast(l AS double) + cast(l AS double)", sum, magic, WINDOW);
-    checkCells("cast(l AS double) + cast(l AS double)", sum, AVX2, CELLS);
+        new ConvertLane(convert(LaneType.FLOAT), LaneType.DOUBLE));
+    checkCells("cast(l AS double) + cast(cast(l AS float) AS double)", sum, magic, WINDOW);
+    checkCells("cast(l AS double) + cast(cast(l AS float) AS double)", sum, AVX2, CELLS);
   }
 
   @Test
@@ -201,7 +195,8 @@ public final class VarkaEmitterWideConversionSuite {
         }
       }
     }
-    long[] all = withMinimum(withNegations(values.stream().mapToLong(x -> x).toArray()));
+    values.add(Long.MIN_VALUE);
+    long[] all = withNegations(values.stream().mapToLong(x -> x).toArray());
     long[] inWindow = Arrays.stream(all)
         .filter(v -> v != Long.MIN_VALUE && Math.abs(v) <= VarkaConversionLowering.MAGIC_WINDOW)
         .toArray();

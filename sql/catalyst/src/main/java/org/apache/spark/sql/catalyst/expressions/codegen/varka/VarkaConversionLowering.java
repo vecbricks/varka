@@ -57,8 +57,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Lan
  */
 final class VarkaConversionLowering {
 
-  private VarkaConversionLowering() {
-  }
+  private VarkaConversionLowering() {}
 
   /** {@code M}: the magic number whose ulp is 1 over the whole of {@code [2^52, 2^53)}. */
   static final double MAGIC = 0x1.8p52;

@@ -206,7 +206,7 @@ public record VarkaSessionEmit(
    *
    * <p>A host that is not x86 stays unknown: aarch64 has every conversion, but no level names
    * that, so a {@code BIGINT} cast to a floating type declines there unless the session names
-   * level 3. A feature list that could not be read leaves the emitter's default too, which is
+   * any level. A feature list that could not be read leaves the emitter's default too, which is
    * safe: the division keeps the conversion form, and the plan declines the conversions. On
    * x86, the one architecture where the answer could have changed the level, that says so once
    * in the driver's log, since nothing else would show that the host was never read.
@@ -219,8 +219,8 @@ public record VarkaSessionEmit(
           + "without AVX512DQ, and a BIGINT cast to FLOAT or DOUBLE declines. The likely cause "
           + "is a JVM started without "
           + "--add-exports=java.base/jdk.internal.vm.vector=ALL-UNNAMED, which Spark's launcher "
-          + "adds; an explicit level 2 selects the magic form, and 3 fuses those casts, without "
-          + "the read.");
+          + "adds. An explicit level fuses those casts without the read: 2 by their exact AVX2 "
+          + "forms, with the magic division, and 3 as one instruction on a CPU with AVX512DQ.");
     }
     if (host.conversionsFallBack()) {
       return host.longBits() >= MAGIC_MIN_LONG_BITS

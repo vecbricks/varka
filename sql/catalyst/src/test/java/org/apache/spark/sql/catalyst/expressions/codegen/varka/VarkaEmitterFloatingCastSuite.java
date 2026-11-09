@@ -158,9 +158,8 @@ public final class VarkaEmitterFloatingCastSuite {
 
   /**
    * The base options at level 3, where a {@code BIGINT} conversion to a floating type is one
-   * {@code convertShape}: the unknown level declines it ({@link VarkaEmitOptions#levelUnknown()})
-   * and a level below 3 takes its AVX2 form ({@code VarkaEmitterWideConversionSuite}), so a test
-   * of its lowering names the level.
+   * {@code convertShape}: the unknown level declines it, and a level below 3 takes its AVX2 form
+   * ({@code VarkaEmitterWideConversionSuite}), so a test of its lowering names the level.
    */
   private static final VarkaEmitOptions DQ =
       VarkaMatrixRuns.BASE.withUseAVX(VarkaEmitOptions.AVX512_LEVEL);
@@ -900,7 +899,6 @@ public final class VarkaEmitterFloatingCastSuite {
     // The division still takes the conversion form there, so no other shape's bytes move.
     var unknown = VarkaEmitOptions.DEFAULTS;
     assertEquals(VarkaEmitOptions.USE_AVX_UNKNOWN, unknown.useAVX());
-    assertTrue(unknown.convertsMayFallBack());
     assertTrue(!unknown.convertsFallBack());
     for (LaneType target : List.of(LaneType.FLOAT, LaneType.DOUBLE)) {
       Optional<VarkaKernelPlan.Refusal> refusal =

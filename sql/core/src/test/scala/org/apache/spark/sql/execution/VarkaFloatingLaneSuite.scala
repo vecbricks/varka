@@ -437,7 +437,6 @@ class VarkaFloatingLaneSuite extends QueryTest with VarkaSharedSessions with Var
     def options(host: VarkaHostIsa.Reading): VarkaEmitOptions =
       VarkaColumnarToRowExec.emitOptions(VarkaSessionEmit.of(conf, host))
     assert(options(knights).convertsFallBack())
-    assert(!options(withDq).convertsMayFallBack())
     val positive = GreaterThan(l, Literal(0L))
     for (to <- Seq(DoubleType, FloatType)) {
       assert(castDecline(l, to, options(knights)).isEmpty, to)
