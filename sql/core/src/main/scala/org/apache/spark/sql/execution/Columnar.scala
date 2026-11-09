@@ -597,6 +597,11 @@ case class ApplyColumnarRulesAndInsertTransitions(
         // output would have this rule wrap the write node in a to-row transition instead.
         case write: V2TableWriteExec if write.supportsColumnarWrite =>
           write.child.supportsColumnar
+        // A V2 write whose data writers take columnar batches writes those of a query that only
+        // supports columnar output, unless an extension has columnar rules: they may replace the
+        // transitions to rows with their own, which may be the only way to read their batches, so
+        // the write then gets rows through such a transition, as other writes do.
+        case write: V2TableWriteExec if write.writesColumnar && columnarRules.isEmpty => true
         // If it is not required to output columnar (`outputsColumnar` is false), and the plan
         // supports row-based and columnar, we don't need to output row-based data on its children
         // nodes. So we set `outputsColumnar` to true.

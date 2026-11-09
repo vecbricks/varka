@@ -17,12 +17,12 @@
 
 package org.apache.spark.sql.execution.columnar
 
-import org.apache.arrow.vector.{VectorSchemaRoot, VectorUnloader}
+import org.apache.arrow.vector.VectorSchemaRoot
 
 import org.apache.spark.{TaskContext}
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.Attribute
-import org.apache.spark.sql.execution.arrow.ArrowWriter
+import org.apache.spark.sql.execution.arrow.{ArrowCompressionUtils, ArrowWriter}
 import org.apache.spark.sql.types._
 import org.apache.spark.sql.util.ArrowUtils
 import org.apache.spark.util.Utils
@@ -40,7 +40,7 @@ private class InternalRowToArrowCachedBatchIterator(
     compressionCodecName: String,
     compressionLevel: Int) extends Iterator[ArrowCachedBatch] {
 
-  private val compressionCodec = ArrowCachedBatchSerializer.createCompressionCodec(
+  private val compressionCodec = ArrowCompressionUtils.createCompressionCodec(
     compressionCodecName,
     compressionLevel)
 
@@ -53,7 +53,7 @@ private class InternalRowToArrowCachedBatchIterator(
     sparkSchema, timeZoneId, false, false, losslessInternalTypes = true)
   private val root = VectorSchemaRoot.create(arrowSchema, allocator)
   private val arrowWriter = ArrowWriter.create(root)
-  private val unloader = new VectorUnloader(root, true, compressionCodec, true)
+  private val unloader = ArrowCompressionUtils.createVectorUnloader(root, compressionCodec)
 
   // Create statistics collectors for each column
   private val statsCollectors: Array[ColumnStats] = schema.map { attr =>
