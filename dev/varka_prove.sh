@@ -19,9 +19,10 @@
 #
 #   dev/varka_prove.sh                          # every proof under Z3
 #   dev/varka_prove.sh --lint                   # as the linters' job runs them: CVC5_IN_LINT's under
-#                                               # cvc5, every other under Z3
+#                                               # cvc5, NIGHTLY_ONLY's skipped, every other under Z3
 #   dev/varka_prove.sh --solver both            # under Z3 and cvc5, each held to every expectation
 #   dev/varka_prove.sh --solver cvc5 int_mulhi_divide.smt2
+#   dev/varka_prove.sh --nightly-only           # NIGHTLY_ONLY's under both, as the nightly does
 #   dev/varka_prove.sh --install z3|cvc5|both   # the pinned solvers, into target/varka-solvers/
 #   dev/varka_prove.sh --install-shared z3|cvc5|both  # the same, into the shared directory below
 #   dev/varka_prove.sh --self-test              # one planted failure of each kind, every one caught
@@ -59,6 +60,10 @@ CVC5_SHA256=2f8efe58fe27ba7bccbb504533f690b9312d69da14192712460e4a19231f02a1
 # The proofs the linters' job runs under cvc5 rather than Z3, to keep the step inside its minute:
 # long_divide.smt2 takes Z3 59 s on the runner and cvc5 a third of that (VARKA-241.md 9.5).
 CVC5_IN_LINT=(long_divide.smt2)
+# The proofs --lint skips, even when named, for the nightly's run under both solvers
+# (varka-fuzz.yml's proofs job, --nightly-only):
+# fp_half_up.smt2 takes Z3 62 to 115 s and cvc5 about 130 s on the laptop (VARKA-342.md 5.2).
+NIGHTLY_ONLY=(fp_half_up.smt2)
 limit_ms="${VARKA_PROVE_LIMIT_MS:-10000}"
 run_limit="${VARKA_PROVE_RUN_LIMIT:-300}"
 
@@ -358,6 +363,7 @@ while [ "$#" -gt 0 ]; do
     --install-shared) mode=install; solvers="$shared"; which="${2:-}"; shift 2 || usage ;;
     --self-test) mode=self-test; shift ;;
     --lint) mode=lint; which=both; shift ;;
+    --nightly-only) which=both; files+=("${NIGHTLY_ONLY[@]}"); shift ;;
     -*) usage ;;
     *) files+=("$1"); shift ;;
   esac
@@ -400,6 +406,12 @@ failed=0
 if [ "$mode" = lint ]; then
   for f in "${files[@]}"; do
     [ -f "$f" ] || f="$proofs/$f"
+    skip=
+    for c in "${NIGHTLY_ONLY[@]}"; do [ "$(basename "$f")" = "$c" ] && skip=1; done
+    if [ -n "$skip" ]; then
+      printf '%-5s %-28s skipped: proven in the nightly\n' - "$(basename "$f")"
+      continue
+    fi
     name=z3
     for c in "${CVC5_IN_LINT[@]}"; do [ "$(basename "$f")" = "$c" ] && name=cvc5; done
     run_file "$name" "${paths[$name]}" "$f" || failed=$((failed + 1))

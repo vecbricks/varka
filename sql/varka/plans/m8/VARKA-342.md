@@ -533,13 +533,13 @@ the ones that do:
   API call in any of them beyond the 64-bit converts without AVX512DQ, which the audit admits by
   design.
 
-**Open for the owner: where the proof runs.** `dev/varka_prove.sh --lint`, the linters' job's
-step, which its workflow comment keeps "inside its minute", took 142 s on the laptop with the
-file and about 49 s without it: `fp_half_up.smt2` took Z3 62 to 115 s over four runs, each of its
-129 checks within the 10 s limit, its slowest 3.7 s on an idle laptop core and one past the
-limit on a loaded one. Fixing the sign or grouping binades made no check cheaper. The choices:
-keep it in the step, run it in the nightly alone (a list in `dev/varka_prove.sh` beside
-`CVC5_IN_LINT`), or hold the file for the lowering's pull request.
+**Where the proof runs, decided by the owner on 9 November 2026: the nightly only.** It runs in
+the nightly CI workflow `varka-fuzz.yml` under both solvers; PR Builds render and drift-check it
+only, `dev/varka_prove.sh`'s `NIGHTLY_ONLY` list keeping it out of `--lint`, so that the PR Build
+stays short. `dev/varka_prove.sh --lint`, the linters' job's step, which its workflow comment
+keeps "inside its minute", took 142 s on the laptop with the file and about 49 s without it:
+`fp_half_up.smt2` took Z3 62 to 115 s over four runs, each of its 129 checks within the 10 s
+limit, its slowest 3.7 s on an idle laptop core and one past the limit on a loaded one. Fixing the sign or grouping binades made no check cheaper.
 
 **Still owed by step 4**, after 343b2: `ym * x`, `ym / x`, `dt * x` and `dt / x` by 2.4's
 construction over `D2I` and `D2L` and the floating guard, with 3.7's pinned cells through the
