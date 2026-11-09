@@ -38,6 +38,7 @@ import org.apache.spark.sql.catalyst.expressions.Greatest;
 import org.apache.spark.sql.catalyst.expressions.If;
 import org.apache.spark.sql.catalyst.expressions.Least;
 import org.apache.spark.sql.catalyst.expressions.NaNvl;
+import org.apache.spark.sql.catalyst.expressions.Rint;
 import org.apache.spark.sql.catalyst.expressions.Subtract;
 import org.apache.spark.sql.types.DataType;
 import org.apache.spark.sql.types.DateType;
@@ -67,7 +68,12 @@ import org.apache.spark.sql.types.YearMonthIntervalType;
  * before and after a compile can return different NaNs there and be equally right. Everywhere else
  * a NaN's payload is fixed - a subtraction or a division returns one payload on every tier (on x86
  * its left operand's), and a pick, a negation, an {@code abs} or an arithmetic over one NaN returns
- * a NaN whose bits follow from its inputs - and a different NaN is a wrong answer.
+ * a NaN whose bits follow from its inputs - and a different NaN is a wrong answer. The one node
+ * whose NaN this rule does not tie to its input is {@code rint} ({@code RoundToIntegral} in the
+ * IR): by {@code VARKA-344.md} 0.10, read from the JDK's source and not yet probed, the
+ * interpreter and C1 run {@code StrictMath.rint}, whose multiply answers a negative NaN with its
+ * sign cleared, where C2's {@code roundsd} returns the input NaN, so any NaN {@code rint} answers
+ * is open; a NaN against a number never agrees.
  */
 public final class VarkaSameAnswer {
 
@@ -143,6 +149,12 @@ public final class VarkaSameAnswer {
 
     /** Any other node: it may return any floating child's value. */
     record Other<N>(List<N> children) implements Step<N> {}
+
+    /**
+     * A node whose NaN is the implementation's: {@code rint} of a NaN, whose sign depends on the
+     * tier that runs it ({@code VARKA-344.md} 0.10), so any NaN of the node is open.
+     */
+    record Computed<N>() implements Step<N> {}
   }
 
   /** One tree's view of a node on one row, all the rule reads. */
@@ -165,8 +177,11 @@ public final class VarkaSameAnswer {
    * of no other: an {@code IF} or a {@code CASE} the branch its conditions take, a {@code coalesce}
    * its first non-null child, a {@code nanvl} its second where its first is a NaN, a {@code
    * greatest} or {@code least} its first child whose value is a NaN (Spark's fold keeps the first
-   * of equal values, and every NaN compares equal to every other). Any other node is open where a
-   * floating child whose value is a NaN is.
+   * of equal values, and every NaN compares equal to every other). A {@code rint}
+   * ({@code RoundToIntegral} over the IR, Spark's {@code Rint} over an expression) whose value is
+   * a NaN is open whatever its operand, since its sign is the tier's ({@code VARKA-344.md}
+   * 0.10). Any other node is open where a floating child whose value is a
+   * NaN is.
    *
    * <p>The rule reads no payload it decides is open. Which values are NaNs is the same on every
    * tier, and an arithmetic compares its operands' bits only once neither is open, when each is
@@ -188,6 +203,7 @@ public final class VarkaSameAnswer {
         }
         yield l != null ? open(a.left(), front) : r != null && open(a.right(), front);
       }
+      case Step.Computed<N> _ -> true;
       case Step.Pass<N> p -> open(p.child(), front);
       case Step.Pick<N> p ->
           p.taken() != null && front.nanBits(p.taken()) != null && open(p.taken(), front);
@@ -249,6 +265,7 @@ public final class VarkaSameAnswer {
         return switch (n) {
           case VarkaVectorIR.IntArith a -> new Step.Arith<>(a.left(), a.right(),
               a.op() == VarkaVectorIR.IntOp.ADD || a.op() == VarkaVectorIR.IntOp.MUL);
+          case VarkaVectorIR.RoundToIntegral _ -> new Step.Computed<>();
           case VarkaVectorIR.IfElse i ->
               new Step.Pick<>(row.holds(i.cond()) ? i.thenNode() : i.elseNode());
           case VarkaVectorIR.Greatest g -> new Step.FirstNaN<>(List.of(g.left(), g.right()));
@@ -318,6 +335,9 @@ public final class VarkaSameAnswer {
         if (n instanceof BinaryArithmetic a) {
           return new Step.Arith<>(a.left(), a.right(),
               !(a instanceof Subtract || a instanceof Divide));
+        }
+        if (n instanceof Rint) {
+          return new Step.Computed<>();
         }
         if (children.size() == 1) {
           return new Step.Pass<>(children.get(0));
