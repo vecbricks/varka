@@ -34,6 +34,8 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions.
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions.Division;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions.FloorMod7;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions.TruncDateForm;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions.WideConversionForm;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ConvertLane;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.DecimalColumn;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WidenDecimal;
 
@@ -185,6 +187,18 @@ public sealed interface VarkaEmitOption
   }
 
   /**
+   * The options under which {@code option}'s values differ ({@link Subject}): a flag's or a
+   * choice's own, and the defaults for a count.
+   */
+  static Subject subject(VarkaEmitOption option) {
+    return switch (option) {
+      case Flag flag -> flag.subject();
+      case Count _ -> Subject.DEFAULTS;
+      case Choice<?> choice -> choice.subject();
+    };
+  }
+
+  /**
    * Whether the fuzzer's general draws and the option matrix vary {@code option}, and the
    * steering for any case: its reason is drawn ({@link Reason#drawn()}) and it is not read by one
    * node kind alone ({@link #readOnlyBy}). A static method rather than a default one, so that
@@ -325,11 +339,13 @@ public sealed interface VarkaEmitOption
    * An enum option: one of {@code type}'s constants. The three that predate the tags render by
    * position; a later one renders as a {@link ChoiceTag}, so that adding it leaves every other
    * variant's rendering as it was. {@code readOnlyBy} names the node kind whose emission alone
-   * reads it, if one does ({@link VarkaEmitOption#readOnlyBy}).
+   * reads it, if one does ({@link VarkaEmitOption#readOnlyBy}), and {@code subject} the options
+   * under which its constants differ.
    */
   record Choice<E extends Enum<E>>(String name, Reason reason, Class<E> type, E defaultValue,
       Function<VarkaEmitOptions, E> get, BiConsumer<Builder, E> set, Rendering rendering,
-      Optional<Class<? extends VarkaVectorIR>> readOnlyBy) implements VarkaEmitOption {
+      Optional<Class<? extends VarkaVectorIR>> readOnlyBy, Subject subject)
+      implements VarkaEmitOption {
 
     public Choice {
       if (rendering instanceof FlagTag || rendering instanceof CountTag) {
@@ -337,6 +353,14 @@ public sealed interface VarkaEmitOption
             name + ": a choice renders by position or as a choice tag");
       }
       Objects.requireNonNull(readOnlyBy, "readOnlyBy");
+      Objects.requireNonNull(subject, "subject");
+    }
+
+    /** A choice whose constants differ at the defaults. */
+    public Choice(String name, Reason reason, Class<E> type, E defaultValue,
+        Function<VarkaEmitOptions, E> get, BiConsumer<Builder, E> set, Rendering rendering,
+        Optional<Class<? extends VarkaVectorIR>> readOnlyBy) {
+      this(name, reason, type, defaultValue, get, set, rendering, readOnlyBy, Subject.DEFAULTS);
     }
 
     /** A choice rendered by position, as the three that predate the tags are. */
@@ -566,7 +590,13 @@ public sealed interface VarkaEmitOption
       // default's rendering empty. Only a WidenDecimal root's store reads it.
       new Choice<>("decimalStore", Reason.MACHINE, DecimalStore.class, DecimalStore.REARRANGE,
           VarkaEmitOptions::decimalStore, Builder::decimalStore,
-          new ChoiceTag("decimalStore="), Optional.of(WidenDecimal.class)));
+          new ChoiceTag("decimalStore="), Optional.of(WidenDecimal.class)),
+      // A machine choice of L2D's AVX2 forms (`VARKA-343.md` 2.3), read by a long's ConvertLane
+      // below level 3 alone, so it runs over useAVX=2. Its tag keeps the default rendering empty.
+      new Choice<>("wideConversionForm", Reason.MACHINE, WideConversionForm.class,
+          WideConversionForm.SPLIT, VarkaEmitOptions::wideConversionForm,
+          Builder::wideConversionForm, new ChoiceTag("wideConversionForm="),
+          Optional.of(ConvertLane.class), new Subject(o -> o.withUseAVX(2))));
 
   /** The option with this name. */
   static VarkaEmitOption named(String name) {

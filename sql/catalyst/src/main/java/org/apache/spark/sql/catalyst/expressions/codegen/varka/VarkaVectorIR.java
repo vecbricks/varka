@@ -931,9 +931,10 @@ public sealed interface VarkaVectorIR
    * <p>The node has one meaning on every host; the emitter lowers it as one
    * {@code convertShape}, part 0, into the target's species of the kernel's width: a widening
    * reads the low half of a 32-bit source, as {@code I2L} does, and a narrowing writes the low
-   * half of the 32-bit target, as {@code L2I} does. The kernel plan refuses {@code L2F} and
-   * {@code L2D}, which a host without AVX512DQ runs as the Vector API's Java loop, and the
-   * conversions from a floating lane to an integral one, until row 343's later parts.
+   * half of the 32-bit target, as {@code L2I} does. {@code L2F} and {@code L2D}, which a host
+   * without AVX512DQ runs as the Vector API's Java loop, take their AVX2 forms below emit level 3
+   * ({@code VarkaConversionLowering}), and the kernel plan refuses them at the unknown level and
+   * the conversions from a floating lane to an integral one until row 343's later parts.
    */
   record ConvertLane(VarkaVectorIR child, LaneType target, int hash) implements VarkaVectorIR {
     public ConvertLane {
@@ -1410,9 +1411,13 @@ public sealed interface VarkaVectorIR
   /**
    * Spark's {@code bit_count}: the number of one bits of the value sign-extended to 64 bits,
    * {@code Long.bitCount} of the widened operand, which is what {@code BitwiseCount} computes for
-   * every integral type. At the long lane that is the popcount itself. At the int lane the 32
-   * high bits the widening adds are all ones exactly when the value is negative, so the count is
-   * {@code bitCount(x) + ((x >> 31) & 32)}. The result is at most 64 on both lanes, so a long-lane
+   * every integral type. At the long lane that is the popcount itself. At a lane of {@code w}
+   * bits the {@code 64 - w} high bits the widening adds are all ones exactly when the value is
+   * negative, so the count is {@code bitCount(x) + ((x >> (w - 1)) & (64 - w))}: 32 of them at
+   * the int lane, 48 at the short lane and 56 at the byte lane. The compiler builds the node at
+   * the int and long lanes only, over a narrow operand widened first, as Spark types the answer
+   * an {@code INT}; a narrow child is the IR's to accept all the same, and the emitter counts it
+   * at the lane the kernel computes it on. The result is at most 64 on every lane, so a long-lane
    * count is delivered as an int by a {@link NarrowLane} over it, at a root or under another node.
    */
   record BitCount(VarkaVectorIR child, int hash) implements VarkaVectorIR {

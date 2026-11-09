@@ -1673,9 +1673,9 @@ public final class VarkaIrGrammar {
    * the first column, half of it for the others) and a literal's one whose square fits, and
    * leaves out what the compiler never builds there: the constant division (Spark's {@code /}
    * over a {@code TINYINT} is a {@code DOUBLE}), the range guard (a cast guards its wider
-   * source), the shifts and {@code bit_count} (Spark widens a narrow operand of either to
-   * {@code INT}; the emitter's narrow {@code BitCount} is wrong besides, row 580), the output
-   * narrowing and, as every narrow draw, the nulling guards and the
+   * source), the shifts (Spark widens a narrow operand to {@code INT}; its {@code bit_count}
+   * too, but the IR takes a narrow popcount, which the emitter counts right, so that is drawn),
+   * the output narrowing and, as every narrow draw, the nulling guards and the
    * unsigned compares. A checked mode is drawn where the bounds rule out an overflow of the
    * lane, the multiply's too, the negation is an {@code abs} half the time, and a condition may
    * be a range set ({@code IN}), which the long lane's never is. A narrow choice draws no coin
@@ -1850,13 +1850,8 @@ public final class VarkaIrGrammar {
         case 10:
           // Spark's `bit_count` of a narrow value is an INT, which the compiler builds over the
           // value widened to the int lane: no compiled narrow tree holds the node. The IR accepts
-          // a narrow child all the same, and the emitter lowers it at the int lane's width, so a
-          // negative byte or short counts 32 sign bits where Spark's `Long.bitCount` of the
-          // sign-extended value counts 56 or 48. Row 580 of `m8/PLAN.md` owns that; this skip
-          // goes when the node refuses a narrow child or lowers at the lane's own width.
-          if (lane.isNarrow()) {
-            return value(depth - 1);
-          }
+          // a narrow child all the same, and the emitter counts the sign bits of its widening
+          // to 64 bits at the lane's own width (row 580 of `m8/PLAN.md`), so it is drawn here.
           return new Gen(new BitCount(value(depth - 1).node()), Long.SIZE);
         default: {
           Cond c = cond(depth - 1);

@@ -1168,8 +1168,8 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
       Row("CAST(f AS BOOLEAN) OR f > 1.5F", "the float's test in a disjunction at its lane"))),
     // The casts to a floating type (VARKA-343): Java's primitive cast, which never raises, so
     // TRY's answer is LEGACY's. A 32-bit value beside a 64-bit one fills the low half of its
-    // species, and a narrow one is widened at its load. A BIGINT's cast is not listed: L2F and
-    // L2D are the Vector API's Java loop without AVX512DQ, and the plan declines them.
+    // species, and a narrow one is widened at its load. A BIGINT's cast is not listed: the rows
+    // compile at the defaults' unknown emit level, where the plan declines L2F and L2D.
     Family("Floating casts", predicates = false, Seq(
       Row("CAST(i AS FLOAT)", "rounded once to nearest, ties to even, as the JVM converts"),
       Row("try_cast(i AS FLOAT)", "the same rounding: a cast to a floating type never fails"),
