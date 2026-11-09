@@ -714,8 +714,8 @@ final class VarkaEmitBudget {
       case BoundedDivide _ -> 2;
       // One lanewise op: the logical operation, or the shift by its count's vector.
       case BitOp _ -> 1;
-      // The popcount alone at the long lane; at the int lane the popcount, the sign shift, the
-      // mask and the add of the widening's 32 high bits.
+      // The popcount alone at the long lane; at a narrower lane the popcount, the sign shift,
+      // the mask and the add of the high bits the widening to 64 gains (32, 48 or 56).
       case BitCount n -> n.laneType() == VarkaVectorIR.LaneType.LONG ? 1 : 4;
       // The lanewise square root: one call.
       case VarkaVectorIR.MathUnary _ -> 1;

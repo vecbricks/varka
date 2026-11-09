@@ -1387,9 +1387,13 @@ public sealed interface VarkaVectorIR
   /**
    * Spark's {@code bit_count}: the number of one bits of the value sign-extended to 64 bits,
    * {@code Long.bitCount} of the widened operand, which is what {@code BitwiseCount} computes for
-   * every integral type. At the long lane that is the popcount itself. At the int lane the 32
-   * high bits the widening adds are all ones exactly when the value is negative, so the count is
-   * {@code bitCount(x) + ((x >> 31) & 32)}. The result is at most 64 on both lanes, so a long-lane
+   * every integral type. At the long lane that is the popcount itself. At a lane of {@code w}
+   * bits the {@code 64 - w} high bits the widening adds are all ones exactly when the value is
+   * negative, so the count is {@code bitCount(x) + ((x >> (w - 1)) & (64 - w))}: 32 of them at
+   * the int lane, 48 at the short lane and 56 at the byte lane. The compiler builds the node at
+   * the int and long lanes only, over a narrow operand widened first, as Spark types the answer
+   * an {@code INT}; a narrow child is the IR's to accept all the same, and the emitter counts it
+   * at the lane the kernel computes it on. The result is at most 64 on every lane, so a long-lane
    * count is delivered as an int by a {@link NarrowLane} over it, at a root or under another node.
    */
   record BitCount(VarkaVectorIR child, int hash) implements VarkaVectorIR {

@@ -1603,11 +1603,12 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
     // Over the committed seeds, as the other reach tests: every value of a draw is on its lane,
     // and the nodes it builds are those whose constructor accepts the lane's leaves
     // (`VarkaLaneFuzz.admitsLane`), less the long corpora's exclusions and those the compiler
-    // never builds at a narrow lane (`LongShapes`): the constant division, the range guard and
-    // the popcount, an INT over the widened value (whose narrow lowering is wrong besides, row
-    // 580 of `m8/PLAN.md`); and the narrowing, which the probe builds from SHORT to BYTE, a
-    // conversion out of the lane that a tree of one lane does not hold (the cast sequence's).
-    val notAtANarrowLane = Set("ConstDivide", "GuardedRange", "BitCount", "NarrowLane")
+    // never builds at a narrow lane (`LongShapes`): the constant division and the range guard;
+    // and the narrowing, which the probe builds from SHORT to BYTE, a conversion out of the
+    // lane that a tree of one lane does not hold (the cast sequence's). The popcount, which the
+    // compiler builds over the widened value, is drawn all the same, the IR accepting a narrow
+    // child and the emitter counting it at the lane's width (row 580 of `m8/PLAN.md`).
+    val notAtANarrowLane = Set("ConstDivide", "GuardedRange", "NarrowLane")
     for ((lane, drawSeed) <- Seq(LaneType.BYTE -> VarkaIrGrammar.BYTE_FUZZ_SEED,
         LaneType.SHORT -> VarkaIrGrammar.SHORT_FUZZ_SEED)) {
       val wanted = recordNodeTypes.filter(VarkaLaneFuzz.admitsLane(_, lane))
