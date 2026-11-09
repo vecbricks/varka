@@ -311,7 +311,6 @@ class VarkaEvaluatorComponentsSuite extends SparkFunSuite {
       .convertsFallBack())
     val dq = VarkaSessionEmit.of(conf, converts)
     assert(dq.useAVX === VarkaEmitOptions.AVX512_LEVEL)
-    assert(!dq.apply(VarkaEmitOptions.DEFAULTS).convertsMayFallBack())
     assert(!dq.apply(VarkaEmitOptions.DEFAULTS).convertsFallBack())
     for (host <- Seq(arm, unread)) {
       assert(VarkaSessionEmit.of(conf, host) === VarkaSessionEmit.DEFAULTS, host)

@@ -317,11 +317,16 @@ final class VarkaVectorWalk {
       case ConvertLane n -> {
         // Java's primitive cast as one conversion, part 0, into the target's species of the
         // kernel's width (`VARKA-343.md` 2.1): a 32-bit source is read from the low half of its
-        // species in a 64-bit kernel, and a 32-bit target fills the low half of its. The word is
-        // the child's.
+        // species in a 64-bit kernel, and a 32-bit target fills the low half of its. Below level
+        // 3 a long converts by its AVX2 form instead, which has the same answer. The word is the
+        // child's.
         emitValue(cb, n.child(), dense, analysis, s, computed);
         line(cb, analysis, node);
-        emitShapeConversion(cb, analysis.laneOf(n.child()), analysis.laneOf(node), analysis);
+        if (VarkaConversionLowering.takesWideForm(analysis, n)) {
+          VarkaConversionLowering.emit(cb, n, dense, analysis, s);
+        } else {
+          emitShapeConversion(cb, analysis.laneOf(n.child()), analysis.laneOf(node), analysis);
+        }
       }
       case NarrowLane n -> {
         // At a root nothing else reads, the value stays in the wider lane and narrows at the
@@ -818,8 +823,8 @@ final class VarkaVectorWalk {
    * its load and narrowed once at its store, so a conversion node over one names the lane it is
    * already emitted at and emits nothing, and any other pair is a lowering this emitter has not
    * built: the conversions from a floating lane to an integral one are row 343's second part.
-   * The kernel plan admits {@code L2F} and {@code L2D} only where the emit level assures
-   * AVX512DQ ({@code VarkaKernelPlan.conversionRefusal}).
+   * {@code L2F} and {@code L2D} come here at level 3 alone, where x86 has AVX512DQ; below it they
+   * take {@link VarkaConversionLowering}'s forms.
    * The one form of the conversion: a long kernel's narrowing store converts through it too
    * ({@code VarkaBodyEmitter.emitNarrowStore}), into the low half of the int species.
    */
@@ -1335,9 +1340,11 @@ final class VarkaVectorWalk {
 
   /**
    * {@code BitCount}: the popcount of the value widened to 64 bits. The long lane's is the
-   * popcount itself. The int lane adds the 32 one bits a negative value gains in the widening:
-   * {@code bitCount(x) + ((x >> 31) & 32)}, the operand's second copy riding the stack under the
-   * popcount. The word is the operand's, since nothing here nulls a lane.
+   * popcount itself. A lane of {@code w} bits adds the {@code 64 - w} one bits a negative value
+   * gains in the widening: {@code bitCount(x) + ((x >> (w - 1)) & (64 - w))}, the operand's
+   * second copy riding the stack under the popcount. That is 32 at the int lane, and 48 and 56
+   * at the short and byte lanes, whose popcount counts their own 16 and 8 bits. The word is the
+   * operand's, since nothing here nulls a lane.
    */
   private static void emitBitCount(CodeBuilder cb, BitCount n, boolean dense, Analysis analysis,
       Slots s, Set<VarkaVectorIR> computed) {
@@ -1352,14 +1359,14 @@ final class VarkaVectorWalk {
     }
     cb.dup();                                                       // [x, x]
     cb.getstatic(VECTOR_OPERATORS, "BIT_COUNT", VO_UNARY);
-    cb.invokevirtual(lane.vector, "lanewise", lane.integral().lanewiseUnary());  // [x, pop32(x)]
-    cb.swap();                                                      // [pop32(x), x]
+    cb.invokevirtual(lane.vector, "lanewise", lane.integral().lanewiseUnary());  // [x, pop(x)]
+    cb.swap();                                                      // [pop(x), x]
     cb.getstatic(VECTOR_OPERATORS, "ASHR", VO_BINARY);
-    cb.loadConstant(Integer.SIZE - 1);
-    // [pop32(x), x >> 31]
+    lane.pushScalar(cb, lane.bits - 1);
+    // [pop(x), x >> (w - 1)]: all ones exactly where x is negative
     cb.invokevirtual(lane.vector, "lanewise", lane.integral().lanewiseBinaryI());
-    cb.loadConstant(Integer.SIZE);
-    cb.invokevirtual(lane.vector, "and", lane.lanewiseVI);          // [pop32(x), high]
+    lane.pushScalar(cb, Long.SIZE - lane.bits);
+    cb.invokevirtual(lane.vector, "and", lane.lanewiseVI);          // [pop(x), high]
     cb.invokevirtual(lane.vector, "add", lane.lanewiseVV);
   }
 
@@ -1467,6 +1474,14 @@ final class VarkaVectorWalk {
   }
 
   /**
+   * The lane a guard on {@code node} compares at: the node's own, but a conversion's child's,
+   * the long the bounded {@code L2D} checks before it converts.
+   */
+  private static Lane guardLane(VarkaVectorIR node, Analysis analysis) {
+    return analysis.laneOf(node instanceof ConvertLane c ? c.child() : node);
+  }
+
+  /**
    * The runtime range guard on a column-driven producer's own result: lanes outside
    * {@code [lo, hi]} are ORed into {@link Slots#guardAcc}, and {@code emitStatusReturn} turns a
    * non-empty accumulator into the guard's refusal bit, which the evaluator answers by
@@ -1517,7 +1532,7 @@ final class VarkaVectorWalk {
    */
   private static void emitRangeMask(CodeBuilder cb, VarkaVectorIR node, int guardTmp,
       Analysis analysis, long lo, long hi) {
-    Lane lane = analysis.laneOf(node);
+    Lane lane = guardLane(node, analysis);
     cb.dup();
     cb.astore(guardTmp);
     cb.aload(guardTmp);
@@ -1572,8 +1587,8 @@ final class VarkaVectorWalk {
     // In a kernel that converts between lanes, an int-lane guard's mask has the int species'
     // lanes, the low half of them the group's rows; the accumulator, the words' masks, the arms'
     // and the epilogue's are the driving lane's. Its low lanes, through a word, are that mask.
-    if (analysis.laneOf(node) != analysis.lane) {
-      emitToDrivingLane(cb, analysis.laneOf(node), analysis, s);
+    if (guardLane(node, analysis) != analysis.lane) {
+      emitToDrivingLane(cb, guardLane(node, analysis), analysis, s);
     }
     // WORD_DEAD is deliberately not screened here beside the all-true constant. A guarded node
     // whose word the liveness pass killed is a bug in that pass, not a case to emit around: the AND

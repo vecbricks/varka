@@ -7163,13 +7163,13 @@
         "seed" : 20261109,
         "shapes" : 2000,
         "block_size" : 100,
-        "blocks" : [ "05e906c16166605b", "35c51f2bfcd317b0", "4248e64068c72903", "7cebca46134bbadc", "b9406c4231c343dc", "6bd2b1a566a02f37", "3c39051cc78001b5", "32d61f5ba6a42af3", "eb55f043c54a3e52", "8a8aeb805e4134af", "8b31aa91de38c2ff", "f36d81b6ece693f5", "e97661613af30b71", "bc3ebeacc77e3a6c", "b0445a61d6ec2760", "307d3dae1ca3b014", "8cf6408b4070ee39", "bc58def9d1b438fc", "22b9f77bd2b7b00f", "cace9e21aa57739b" ]
+        "blocks" : [ "23da758bca3a43c5", "6bd348fa35c97989", "fd1aa4391b8c58ab", "30ead5960f19d6ba", "79813c935ad05dca", "2bcadffcc2340e78", "3b77ca6e4f4f8cfb", "a62de8ec4f42b389", "0cdbadac908de9a7", "dc4c32cc38cc2ffe", "7553db06a70ea9bd", "16e2f88d5944d62e", "de88eb63083397a3", "b830fafa9182f75d", "756f3204c1e6a847", "35242b5a73135145", "ef43270a85aa6a28", "59daf558ceb14941", "c16f74180e1211d4", "175ae8b0884aaa3d" ]
       },
       "fuzz_short" : {
         "seed" : 20261110,
         "shapes" : 2000,
         "block_size" : 100,
-        "blocks" : [ "f8b9032e5c0eebd4", "8b0d9444ada6ed6b", "81ace0d8b10320c4", "034f4de00124ca59", "cd3882f800eb2347", "710b0d454f843d97", "58914914f5b2595b", "f3ccd187dd6cc6c0", "f00ab499c4507b4e", "1f1b9fbce5056634", "b44edea8add00dd4", "6bacd0119ab6be89", "77303de317eb341a", "e6d052a2b626f0a9", "b538649cb36d986a", "d33639f41f0c738b", "e8df2a11bd167d6a", "0b3c3d1ad00bcb25", "104a17705c3ee55d", "dd323f07061355b6" ]
+        "blocks" : [ "9184efe283504dbb", "b180f13b38e31e3d", "355aefd39c7b3dbb", "402edafdff7ab2b7", "7464b38fe69f7984", "aa50d29404f3b94b", "d2ab9b25655a883b", "fa6630e896e77c3a", "cbb68d876cf85ea5", "681f9fb9a660ce41", "e73b5e78e2b49d17", "a950e6c75550d063", "7b188b42aff68217", "3c981642cf6eb029", "c17efc6795ae9246", "04d69cf70af0e110", "24d74ab5543e592b", "dddecefd6bcdb5c6", "730104dd2cd10d5e", "ba7b2c08ae7e5116" ]
       }
     },
     "16" : {
@@ -14332,13 +14332,13 @@
         "seed" : 20261109,
         "shapes" : 2000,
         "block_size" : 100,
-        "blocks" : [ "e59892cdbb3fa262", "055b64d87d7702e6", "4b9a381366eef24f", "3d5d333531dec2ea", "473b9216edf9b6e2", "cd75b44218c6a67a", "6c12e8cca8a621dc", "7785058235746c76", "0b646dd4d71afabf", "8dd74e4b4aa8dcf5", "71fd8143bbe27b83", "5abef8a1bbae7223", "9831d1ef766ba7d0", "5e2247083c036318", "bd07ddb781b6fdb0", "3b866baa9f97fd17", "4b2c352e4e857125", "cf89a89fd2228b48", "b585ca1d3c7f98a8", "c279a13eeea3b018" ]
+        "blocks" : [ "193afaf45ad548a9", "1afb0d4f3d6bdb2e", "a98c5ffcc5858f4a", "37a878e573242a48", "e7b471e948bb1652", "fa4582fdc2cd2538", "c0b855746759f51e", "b4119e6a81e26e78", "893fd7d1a750815b", "72ecc87bb72284d8", "defa6f0d429005b2", "9833410735ed4569", "9bb0d3e6d72a4e66", "6e072fda6b2af425", "cd0b64477325aedf", "82047aebf4496615", "f8c90ee013c6a07f", "fa6ec995b47255dd", "f64ffd5645374114", "58a0e1e614e98668" ]
       },
       "fuzz_short" : {
         "seed" : 20261110,
         "shapes" : 2000,
         "block_size" : 100,
-        "blocks" : [ "ad58194a90fbdd80", "fcd20a0802ecb944", "3192c278c9046b36", "105db0d1a7868896", "8e20a35ab8aa0a43", "31ec35088ec03f15", "f48307bf310df978", "75f235449f3fa085", "787330ca43f9fcde", "79ada7234a71905b", "3f9040c7bb03258c", "66e2e22bdb7e0fb9", "dc70b15763c64b4e", "aa404fa8ff64cb55", "a4d1e325dc755e26", "2cb81a3797ecabff", "56c5f6b77da88fef", "a5cc0d1a5cf690c1", "9bfee27f7fd3cf78", "065ccfb47fa1956b" ]
+        "blocks" : [ "7a905ad235a6904e", "9bc3d2d9a5300757", "8a2cf415bb489165", "a8025f14095d17de", "675125a6fa7ce25e", "c90ff82d3a5190f4", "8073ec81649d99ee", "bb7a46bae894fa07", "afc75243e5c16d8d", "ea0f2560eab4d6bf", "4e42dd3eac88d659", "a24c148cebc895ca", "8dc50661966631b8", "8ce3cf47ce8f0dc8", "d703b801e9bd27a7", "b0f38b83593d96b2", "6c46a50c304a8216", "0ec7af44af05aec1", "5cddbfc7f26ad48a", "d631c44078681334" ]
       }
     }
   },
@@ -14370,6 +14370,14 @@
     "validityOrFirst=false over denseValidityOnce=false,validityByBitmap=false" : {
       "4" : "110876e413837e58",
       "16" : "cbdeb14db1d8760f"
+    },
+    "wideConversionForm=SPLIT over useAVX=2" : {
+      "4" : "4f02b3652262b16b",
+      "16" : "df07f428b64a85ba"
+    },
+    "wideConversionForm=MAGIC over useAVX=2" : {
+      "4" : "4f02b3652262b16b",
+      "16" : "df07f428b64a85ba"
     },
     "narrowLanes=true" : {
       "4" : "12f1315ff273e677",
