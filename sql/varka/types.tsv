@@ -7,7 +7,7 @@ INT	IntegerType	int	INT	on_lane	INT	-	32	plain	1	INT	Int	-
 LONG	LongType	bigint	BIGINT	on_lane	LONG	-	64	plain	1	LONG	BigInt	-
 FLOAT	FloatType	float	FLOAT	on_lane	FLOAT	-	32	plain	1	FLOAT	Float	-
 DOUBLE	DoubleType	double	DOUBLE	on_lane	DOUBLE	-	64	plain	1	DOUBLE	Double	-
-DECIMAL	DecimalType	dec	DECIMAL(10, 2)	by_precision	LONG	359	128	decimal_slot	p18:1,p38:2	LONG	Decimal	359
+DECIMAL	DecimalType	dec	DECIMAL(10, 2)	by_precision	LONG	-	128	decimal_slot	p18:1,p38:2	LONG	Decimal	359
 DATE	DateType	date	DATE	on_lane	INT	-	32	plain	1	INT	Date	-
 TIMESTAMP_NTZ	TimestampNTZType	ntz	TIMESTAMP_NTZ	on_lane	LONG	-	64	plain	1	LONG	TimestampNtz	-
 TIME	TimeType	time	TIME	on_lane	LONG	-	64	plain	1	LONG	Time	-

@@ -25,7 +25,9 @@
 ; and > and >= the first two with the operands swapped. The load's check declines a valid
 ; slot where gt128(u, B) | gt128(-B, u), gt128(u, c) = GT(u.hi, c.hi) | (EQ(u.hi, c.hi) &
 ; UGT(u.lo, c.lo)), with B = 10^p - 1 as its constant pair. Each is proven equal to the
-; integer statement; a bound one off is refuted at every precision.
+; integer statement; a bound one off is refuted at every precision. The carry layer, last,
+; proves the comparisons over the words as the kernel holds them, Java longs, and the
+; sign extension that widens a value within 18 digits to its words.
 ;
 ; Rendered by VarkaProofFiles. VarkaProofFilesSuite fails when this file differs from its
 ; rendering, and VARKA_PROOFS_REGEN=true build/sbt 'catalyst/testOnly *VarkaProofFilesSuite'
@@ -661,5 +663,73 @@
 (declare-const ul Int)
 (assert (and (w.hi uh) (w.lo ul)))
 (assert (not (= (or (w.gt128 uh ul 5421010862427522170 687399551400673278) (w.gt128 (- 5421010862427522171) 17759344522308878338 uh ul)) (or (> (w.val uh ul) 99999999999999999999999999999999999999) (< (w.val uh ul) (- 99999999999999999999999999999999999999))))))
+(check-sat)
+(pop 1)
+
+; The carry layer: each word a Java long, the low one's value the long mod 2^64, and
+; ULT(a, b) the signed compare of a and b with their sign bits flipped.
+(define-fun c.lo ((l Int)) Int (mod l 18446744073709551616))
+(define-fun c.flip ((l Int)) Int (jlong.add l jlong.MIN))
+
+(echo "x < y over the words as Java longs is the comparison of the values: expect unsat")
+(push 1)
+(declare-const xh Int)
+(declare-const xl Int)
+(declare-const yh Int)
+(declare-const yl Int)
+(assert (and (jlong.in xh) (jlong.in xl) (jlong.in yh) (jlong.in yl)))
+(assert (not (= (or (< xh yh) (and (= xh yh) (< (c.flip xl) (c.flip yl)))) (< (w.val xh (c.lo xl)) (w.val yh (c.lo yl))))))
+(check-sat)
+(pop 1)
+
+(echo "x <= y over the words as Java longs is the comparison of the values: expect unsat")
+(push 1)
+(declare-const xh Int)
+(declare-const xl Int)
+(declare-const yh Int)
+(declare-const yl Int)
+(assert (and (jlong.in xh) (jlong.in xl) (jlong.in yh) (jlong.in yl)))
+(assert (not (= (or (< xh yh) (and (= xh yh) (<= (c.flip xl) (c.flip yl)))) (<= (w.val xh (c.lo xl)) (w.val yh (c.lo yl))))))
+(check-sat)
+(pop 1)
+
+(echo "x = y over the words as Java longs is the comparison of the values: expect unsat")
+(push 1)
+(declare-const xh Int)
+(declare-const xl Int)
+(declare-const yh Int)
+(declare-const yl Int)
+(assert (and (jlong.in xh) (jlong.in xl) (jlong.in yh) (jlong.in yl)))
+(assert (not (= (and (= xh yh) (= xl yl)) (= (w.val xh (c.lo xl)) (w.val yh (c.lo yl))))))
+(check-sat)
+(pop 1)
+
+(echo "x > y over the words as Java longs is the comparison of the values: expect unsat")
+(push 1)
+(declare-const xh Int)
+(declare-const xl Int)
+(declare-const yh Int)
+(declare-const yl Int)
+(assert (and (jlong.in xh) (jlong.in xl) (jlong.in yh) (jlong.in yl)))
+(assert (not (= (or (< yh xh) (and (= yh xh) (< (c.flip yl) (c.flip xl)))) (> (w.val xh (c.lo xl)) (w.val yh (c.lo yl))))))
+(check-sat)
+(pop 1)
+
+(echo "x >= y over the words as Java longs is the comparison of the values: expect unsat")
+(push 1)
+(declare-const xh Int)
+(declare-const xl Int)
+(declare-const yh Int)
+(declare-const yl Int)
+(assert (and (jlong.in xh) (jlong.in xl) (jlong.in yh) (jlong.in yl)))
+(assert (not (= (or (< yh xh) (and (= yh xh) (<= (c.flip yl) (c.flip xl)))) (>= (w.val xh (c.lo xl)) (w.val yh (c.lo yl))))))
+(check-sat)
+(pop 1)
+
+(echo "a long and its sign extension x >> 63 are the words of the long's value: expect unsat")
+(push 1)
+(declare-const x Int)
+(assert (jlong.in x))
+(assert (not (= (w.val (jlong.shr x 63) (c.lo x)) x)))
 (check-sat)
 (pop 1)
