@@ -652,6 +652,12 @@ final class VarkaEmitBudget {
       case NullSafeEqual n when n.left().laneType().isFloating() -> FLOATING_ORDER_WEIGHT;
       case Greatest n when n.laneType().isFloating() -> FLOATING_ORDER_WEIGHT;
       case Least n when n.laneType().isFloating() -> FLOATING_ORDER_WEIGHT;
+      // A long converted to a floating lane: one convertShape at level 3, and below it the AVX2
+      // form, the larger, whose calls the weight counts as the long division's does: which one
+      // emits cannot be asked here.
+      case ConvertLane n when n.child().laneType() == VarkaVectorIR.LaneType.LONG ->
+          n.target() == VarkaVectorIR.LaneType.FLOAT
+              ? VarkaConversionLowering.ODD_CALLS : VarkaConversionLowering.SPLIT_CALLS;
       // One lanewise op each: the add or subtract, the min or max, the blend (its condition is a
       // node of its own), the narrowing conversion, the compare (an unsigned one too: it is the
       // lane's own compare operator, intrinsic at more than two long lanes, VARKA-376 9).
@@ -708,8 +714,8 @@ final class VarkaEmitBudget {
       case BoundedDivide _ -> 2;
       // One lanewise op: the logical operation, or the shift by its count's vector.
       case BitOp _ -> 1;
-      // The popcount alone at the long lane; at the int lane the popcount, the sign shift, the
-      // mask and the add of the widening's 32 high bits.
+      // The popcount alone at the long lane; at a narrower lane the popcount, the sign shift,
+      // the mask and the add of the high bits the widening to 64 gains (32, 48 or 56).
       case BitCount n -> n.laneType() == VarkaVectorIR.LaneType.LONG ? 1 : 4;
       // The lanewise square root: one call.
       case VarkaVectorIR.MathUnary _ -> 1;

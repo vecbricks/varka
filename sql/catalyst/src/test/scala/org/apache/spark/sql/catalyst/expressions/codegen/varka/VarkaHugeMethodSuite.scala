@@ -17,10 +17,6 @@
 
 package org.apache.spark.sql.catalyst.expressions.codegen.varka
 
-import java.io.{BufferedReader, File, InputStreamReader}
-import java.nio.charset.StandardCharsets
-import java.util.concurrent.TimeUnit
-
 import scala.collection.mutable
 import scala.jdk.CollectionConverters._
 
@@ -46,73 +42,40 @@ class VarkaHugeMethodSuite extends SparkFunSuite with VarkaTestWatchdog {
 
   private val outputs = 16
 
-  private val childTimeoutSeconds = 300L
+  /** One child per test, so a test's child at its budget ends before the test's cap. */
+  private def childBudgetSeconds: Long = VarkaChildProcess.budgetSeconds(watchdogMinutes, 1)
 
   /** Tier by method: the highest tier HotSpot printed a compilation of that method at. */
   private case class Compiled(tier: Map[String, Int], names: Seq[String])
 
-  private def testClasspath: String =
-    Option(System.getenv("SPARK_DIST_CLASSPATH"))
-      .filter(_.nonEmpty)
-      .getOrElse(System.getProperty("java.class.path"))
-
   private def runProbe(methodByteBudget: Int): Compiled = {
-    val javaBin = new File(new File(System.getProperty("java.home"), "bin"), "java")
-    val command = new java.util.ArrayList[String]()
-    command.add(javaBin.getAbsolutePath)
-    command.add("--add-modules")
-    command.add("jdk.incubator.vector")
-    command.add("--enable-native-access=ALL-UNNAMED")
-    command.add("-Xbatch")
-    command.add("-XX:+PrintCompilation")
-    command.add("-cp")
-    command.add(testClasspath)
-    command.add(VarkaHugeMethodProbe.getClass.getName.stripSuffix("$"))
-    command.add(outputs.toString)
-    command.add(methodByteBudget.toString)
-    // The child JVM's code runs where the class-use record cannot see it (VarkaTestUse).
-    VarkaTestUse.childJvm()
-    val builder = new ProcessBuilder(command)
-    builder.redirectErrorStream(true)
-    val process = builder.start()
-    val reader = new BufferedReader(
-      new InputStreamReader(process.getInputStream, StandardCharsets.UTF_8))
+    val command = VarkaChildProcess.javaCommand(
+      java.util.List.of("-Xbatch", "-XX:+PrintCompilation"),
+      VarkaHugeMethodProbe.getClass.getName.stripSuffix("$"),
+      java.util.List.of(outputs.toString, methodByteBudget.toString))
     val tiers = mutable.LinkedHashMap.empty[String, Int]
     var done = false
-    val tail = mutable.Queue.empty[String]
     val marker = CLASS_NAME + "::"
-    try {
-      var line = reader.readLine()
-      while (line != null) {
-        tail.enqueue(line)
-        if (tail.size > 40) tail.dequeue()
-        // The marker may share a line with a compile record (`VarkaProbeOutput`).
-        if (VarkaProbeOutput.has(line, DONE)) {
-          done = true
-        }
-        if (line.contains(marker)) {
-          // `PrintCompilation`: timestamp, compile id, attribute flags, the tier, then
-          // `class::method (N bytes)`; a later `made not entrant` line repeats the tier. The
-          // tier is the token before the method, whatever the flags in front of it were.
-          val tokens = line.trim.split("\\s+")
-          val at = tokens.indexWhere(_.startsWith(marker))
-          if (at > 0 && tokens(at - 1).forall(_.isDigit)) {
-            val method = tokens(at).stripPrefix(marker)
-            val tier = tokens(at - 1).toInt
-            tiers(method) = math.max(tiers.getOrElse(method, 0), tier)
-          }
-        }
-        line = reader.readLine()
+    val what = s"$suiteName's probe of a $outputs-output ladder at a method byte budget of " +
+      methodByteBudget
+    VarkaChildProcess.run(what, new ProcessBuilder(command), childBudgetSeconds, { line =>
+      // The marker may share a line with a compile record (`VarkaProbeOutput`).
+      if (VarkaProbeOutput.has(line, DONE)) {
+        done = true
       }
-    } finally {
-      reader.close()
-    }
-    if (!process.waitFor(childTimeoutSeconds, TimeUnit.SECONDS)) {
-      process.destroyForcibly()
-      fail(s"the probe did not finish within $childTimeoutSeconds s")
-    }
-    assert(process.exitValue() == 0 && done,
-      s"the probe failed (exit ${process.exitValue()}); its last lines:\n" + tail.mkString("\n"))
+      if (line.contains(marker)) {
+        // `PrintCompilation`: timestamp, compile id, attribute flags, the tier, then
+        // `class::method (N bytes)`; a later `made not entrant` line repeats the tier. The
+        // tier is the token before the method, whatever the flags in front of it were.
+        val tokens = line.trim.split("\\s+")
+        val at = tokens.indexWhere(_.startsWith(marker))
+        if (at > 0 && tokens(at - 1).forall(_.isDigit)) {
+          val method = tokens(at).stripPrefix(marker)
+          val tier = tokens(at - 1).toInt
+          tiers(method) = math.max(tiers.getOrElse(method, 0), tier)
+        }
+      }
+    }).requireSuccess(done)
     // The methods the class declares, emitted here under the same options, so the assertion
     // below is over the whole layout and not only over the methods HotSpot happened to name.
     val bytes = VarkaLoopEmitter.emit(CLASS_NAME, ladder(outputs).asJava, 1, outputs,

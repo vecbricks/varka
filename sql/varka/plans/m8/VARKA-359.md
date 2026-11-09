@@ -650,6 +650,108 @@ place. Not here: a new node is a row in every exhaustive switch this part alread
 this pull request's 1000-line cap, and it reopens 2.2's words-not-pairs choice, which the
 lowerings of the next part are planned on. The next part decides it before its lowerings land.
 
+### 10.4 359a, part 3: the comparisons and null tests over the words (8 November 2026)
+
+*Branch `varka-359a-part3`, from master at `d37d1053215`, which holds parts 1 and 2 (#1392,
+#1400). Local commits only.* 11.5 item 4 and 11.6 items 9 to 11, for 359a's forms alone: `=`,
+`<`, `<=`, `>`, `>=`, `<>`, `<=>`, `IS [NOT] NULL`, a literal operand and `d18 < d38` at one scale.
+`IN`, the choices, negation and `abs` are 359b's (section 5 item 4), so of the baseline's forms
+this part fuses `<=>`, `IS NULL` and `x < y` as a filter and as a value.
+
+**The decision 10.3 leaves to this part: no pair-load node yet.** The lowerings are built over
+the two word leaves, as 2.2 plans them, and the `DecimalPair` node stays owed to a later part of
+this row. From the plan's own rules: 2.5's forms are written over `x.hi` and `x.lo` as ordinary
+long-lane nodes and read the same whether those are leaves or projections of a pair node; the
+compiler builds a column's words in one method (`columnPair`), the one place such a node would
+change; and the node is a row in every exhaustive switch part 2 touched, past this part's cap.
+
+**Built.**
+
+9. **The registry and the compiler's pair.** The 38-digit band is read: `VarkaTypes.read` answers
+   `Lanes(LONG, 2, DecimalSlot)` above 18 digits, and `declineReason` only a negative scale.
+   `VarkaDecimalCompiler.Pair(lo, hi, type)` is a value's two words: a column's two
+   `DecimalWord` leaves, a constant's two long-table slots, a value within 18 digits and its sign
+   extension `BitOp(SHR, x, 63)`, or a cast that keeps the scale and widens the precision over any
+   of these. `DecimalWords.compare` and `nullSafeEqual` are 2.5's lines, `>` and `>=` the operands
+   swapped; `<>` is the `Not` over `=` the condition compiler already builds; a null test is
+   `IsNotNull` over the low word, which visits the leaf for the check. A comparison as a value is
+   row 27's boolean output over the same condition, with nothing of its own.
+10. **The declines.** Every other wide form keeps its reason (row 359 for negation, `abs`, the
+    choices and `IN`, rows 360 to 363 for arithmetic); a rescale up into a wide type names rows
+    359 and 360 as before; a cast that lowers a wide value's scale, which is the cast coercion puts
+    over the larger scale of `DECIMAL(38, 10) < DECIMAL(38, 2)` at the capped common type, now
+    names row 363 beside 350, by question 1's answer. Two pinned reasons of
+    `VarkaDecimalArithmeticSuite` gain the 363.
+11. **The carry layer** of `decimal128.smt2`: the five comparisons over the words as Java longs,
+    the unsigned compare as `Long.compareUnsigned`'s compare with both sign bits flipped, and the
+    sign extension's words holding the long. 73 checks, from 67; Z3 0.02 s and cvc5 0.07 s on the
+    laptop, against 0.03 and 0.07 before. With the flip planted as the identity the four ordering
+    claims turn `sat`.
+12. **Coverage rows**, the family "DECIMAL lane pair" over `d19`, `d38`, `d38b` and `d3810`, the
+    comparisons proven by `decimal128.smt2`; the differential fixtures build them from `l` and
+    `l2`, so both words carry bits and both signs. The census's `isnull` and `isnotnull` count
+    `dec` fused, and `dev/varka_new_lane.py` drops the census entry it held owed to this row.
+
+**Tests.** `VarkaDecimalPairSuite` (`ownJvm`, at 1, 2, 4 and 8 long lanes): the word edges of
+section 3 item 2 through the real compiler, every ordered pair of up to seventeen edge values and the
+null patterns, at 19, 20 and 38 digits, a 64-bit and a 19-digit side widened into a 38-digit pair
+both ways round, wide and narrow-scale literals, the null tests, and the two declines at two
+scales, each answer held to Spark's own expression three-valued. Lowering `ULT` as `LT`, run by
+hand, fails three of its five tests on the first sign-bit row. The baseline benchmark's fusion
+classes follow: the precision-38 comparison and, at 38 and 20 digits, `<=>`, `IS NULL` and the
+projected `x < y` are `WHOLE`; `-x < y` and `abs(x) < y` are `NULL_TESTS`, the null tests Spark
+infers fused below the row path's condition; `IN`, under which Spark infers none, stays `NONE`.
+The catalyst Varka suites at the defaults (`dev/varka_matrix.sh --module catalyst`) pass, 1290
+tests; the sql ones, the golden suite's Varka arm and the literal-lift suite among them, gave
+2968 passed and 4 failed, all four the baseline's classes, whose suite then passes alone, 9 of
+9, as do the coverage differential and harness suites, 2216 tests, after the last row change.
+
+**Predictions** (11.7), scored here where this part can:
+
+1. *Op counts*: held. `dev/varka_emit.sh --table` (which now spells a decimal column `dec38s2`)
+   gives the `LongVector` calls of a lane group over two `DECIMAL(38, 2)` columns: `a < b` 23,
+   `a = b` 22, `a <> b` 22, `a <=> b` 22, of which the two columns' loads and checks are 20, so the
+   operators add 3, 2, 2 and 2 compares, the mask calls of 2.5 (2, 1, 2, 1) on top; `a IS NULL`
+   is 10, the one column's load and check, as predicted.
+2. *No existing shape's bytes move*: held for every shape; `emitted_bytes.json` gains the new
+   rows. The `option_arms` digests moved, contrary to the prediction: each is one digest over
+   every coverage shape, so a new row moves it whatever the options do.
+6. *The census moves by 2*: held, `isnull` and `isnotnull`.
+7. *The width audit's 128-bit column*: held, one refusal per row of the family, all of them
+   filters, under 503's rule as merged; its reason's lane list now says `DECIMAL`, not
+   `DECIMAL up to 18 digits`. The projected comparison has no row of its own here: every
+   predicate row also compiles as a boolean output, which the coverage suite checks.
+
+3 to 5 wait for the measurement.
+
+**The review's fixes (8 November 2026).**
+
+- *Null tests read a wide value's validity alone*: a probe that needs no words passes a column,
+  a constant, a cast that keeps every digit, a choice and a pick, so `IF(p, d38, d38b) IS NULL`,
+  `coalesce(d38, d19) IS NULL` and `greatest(d38, d38b) IS NOT NULL` fuse. A sum, a product and
+  a lowering cast still decline (each can null or raise on valid leaves), and so do `-x` and
+  `abs(x)`: Spark negates a wide value through Scala's `BigDecimal`, which rounds it to 34
+  digits (`Decimal.unary_-`), and near the bound raises `NUMERIC_VALUE_OUT_OF_RANGE`, as
+  `VarkaDecimalPairSuite` showed; a 37-digit value's negation comes back rounded to 34 digits,
+  on upstream master's `Decimal` too. **Owed to 359b:** 2.5's exact `-x` and `abs(x)` differ from
+  Spark on every value of 35 or more significant digits; 359b matches the rounding or declines.
+  The census note says which forms over a wide value stay owed.
+- *Verification*: `decimal128.smt2` models values, not validity, so the family's `<=>` and null
+  tests are marked differential.
+- *Reasons*: `CAST(d38s10 AS DECIMAL(18, 2))` names rows 350, 359 and 363, as the same cast to
+  38 digits does; the time compiler's reason for a wide column as a value names rows 359 and 360
+  to 363, not the 64-bit ones.
+- *Not changed*: `Pair`'s lane check cannot fire from `pair`, whose narrow words come from
+  `Scaled`, which refuses a word off the long lane itself.
+- *Deferred under the cap*, to the next part: a narrower side whose rescale up still fits 18
+  digits (`p + k <= 18`, `d9s4 < d3810`) rescaled by one long multiply and sign-extended, where
+  it now declines naming row 360; and four refactors (one reader of a comparison's sides for both
+  arms, one constant fold, a word-leaf builder, `isWide` at the older width checks).
+
+**Not in this part**, owed: the conformance suite (11.5 item 5), the planted faults for row 504 as
+committed test flags, the op-count test, the measurement on the EPYC and Arm runners (11.8 point
+5), the pair-load node, and 359b.
+
 ## 11. 359a, the build plan (1 November 2026)
 
 Written from master at `239995f4fe4` before the laptop's reading of the spike, so that 359a can

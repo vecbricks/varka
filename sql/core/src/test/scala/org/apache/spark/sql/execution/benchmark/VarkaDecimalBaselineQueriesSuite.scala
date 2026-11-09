@@ -249,9 +249,9 @@ class VarkaDecimalBaselineQueriesSuite extends QueryTest with VarkaSharedSession
       // An aggregate or a sort above it evaluates over rows, so the plan fits no class.
       assert(fusion(s"SELECT count(*) AS c $fused") === Optional.empty())
       assert(fusion(s"SELECT x9 $fused ORDER BY x9") === Optional.empty())
-      // The 128-bit comparison is declined, so the Varka projection evaluates it per row beside
+      // The 128-bit negation is declined, so the Varka projection evaluates it per row beside
       // the 64-bit comparison its kernel computes.
-      assert(fusion("SELECT x9 < y9 AS a, x38 < y38 AS b FROM varka_decimal") ===
+      assert(fusion("SELECT x9 < y9 AS a, -x38 < y38 AS b FROM varka_decimal") ===
         Optional.of(VarkaSqlBenchmarkBase.Fusion.PARTIAL))
     }
   }
@@ -281,9 +281,9 @@ class VarkaDecimalBaselineQueriesSuite extends QueryTest with VarkaSharedSession
       PinsDefaults) {
     withTable(100) {
       def plan(query: String): SparkPlan = varkaSpark.sql(query).queryExecution.executedPlan
-      val partial = "SELECT x9 < y9 AS a, x38 < y38 AS b FROM varka_decimal"
+      val partial = "SELECT x9 < y9 AS a, -x38 < y38 AS b FROM varka_decimal"
       // With no row operator, a Varka filter of null tests only beside the projection that leaves
-      // its 128-bit comparison to rows reads as the projection does.
+      // its 128-bit negated comparison to rows reads as the projection does.
       val nullTested = plan(s"$partial WHERE x9n IS NOT NULL")
       assert(nullTested.exists(_.isInstanceOf[VarkaFilterExec]), nullTested.treeString)
       assert(VarkaSqlBenchmarkBase.fusion(nullTested) ===
@@ -316,10 +316,10 @@ class VarkaDecimalBaselineQueriesSuite extends QueryTest with VarkaSharedSession
       PinsDefaults) {
     withTable(100) {
       // The rule plans a Varka projection only when one of its entries compiles, so this node is
-      // built: the PARTIAL plan's projection keeping only the 128-bit comparison its kernel
+      // built: the PARTIAL plan's projection keeping only the 128-bit negated comparison its kernel
       // declines. The check cannot tell what such a node fuses, so the plan fits no class, not
       // PARTIAL, which a section could list.
-      val partial = varkaSpark.sql("SELECT x9 < y9 AS a, x38 < y38 AS b FROM varka_decimal")
+      val partial = varkaSpark.sql("SELECT x9 < y9 AS a, -x38 < y38 AS b FROM varka_decimal")
         .queryExecution.executedPlan
       val declined = partial.transform {
         case p: VarkaColumnarToRowExec => p.copy(projectList = p.projectList.filter(_.name == "b"))
