@@ -100,6 +100,7 @@ final class VarkaProofFiles {
     files.put("decimal128.smt2", decimal128());
     files.put("fp_round.smt2", fpRound());
     files.put("refinement.smt2", VarkaRefinementFile.render());
+    files.put("smt_print_check.smt2", smtPrintCheck());
     return files;
   }
 
@@ -2232,6 +2233,28 @@ final class VarkaProofFiles {
     }
     equations(out, "jlong.neg, jlong.not and l2i are Java's long -, long ~ and (int)", longUnary);
     doubles(out);
+    // VARKA-506: the unsigned compares, and & with a sign word.
+    var unsigned = new ArrayList<String>();
+    for (long a : LONGS) {
+      for (long b : LONGS) {
+        int c = Long.compareUnsigned(a, b);
+        String args = lit(a) + " " + lit(b);
+        for (String[] op : new String[][] {{"jlong.ult", c < 0 ? "true" : "false"},
+            {"jlong.ule", c <= 0 ? "true" : "false"}, {"jlong.ugt", c > 0 ? "true" : "false"},
+            {"jlong.uge", c >= 0 ? "true" : "false"}}) {
+          unsigned.add(eq(op[0], args, op[1]));
+        }
+      }
+    }
+    equations(out, "jlong.ult, jlong.ule, jlong.ugt and jlong.uge are Long.compareUnsigned's "
+        + "order", unsigned);
+    var sign = new ArrayList<String>();
+    for (long m : new long[] {0, -1}) {
+      for (long y : LONGS) {
+        sign.add(eq("jlong.and.sign", lit(m) + " " + lit(y), lit(m & y)));
+      }
+    }
+    equations(out, "jlong.and.sign is Java's & with a sign word, 0 or -1", sign);
     return out.toString();
   }
 
@@ -3825,6 +3848,146 @@ final class VarkaProofFiles {
   /** A long as a 64-bit SMT-LIB bit-vector literal. */
   private static String bv64(long v) {
     return String.format("#x%016x", v);
+  }
+
+  // -----------------------------------------------------------------------------------------
+  // The proof printer's word form against the prelude (VARKA-506).
+  // -----------------------------------------------------------------------------------------
+
+  /**
+   * {@code smt_print_check.smt2}: the text row 506's proof printer prints for a long, held to the
+   * prelude under the solvers, as {@code java_check.smt2} holds the prelude to the JVM. For each
+   * long operator the word form has a rule for, at the constants its rules branch on, the word
+   * form's unsigned reading equal to {@code (mod t 2^64)} of the prelude form for every pair of
+   * longs (a compare's word form equal to the compare), and each obligation the rule makes
+   * proven for every input.
+   */
+  static String smtPrintCheck() {
+    var out = new StringBuilder(LICENSE);
+    out.append("""
+        ; The proof printer's word form (VARKA-506 2.3) against the prelude. The printer renders a
+        ; long by its unsigned reading in [0, 2^64), with an interval computed from its operands':
+        ; a step that cannot wrap is exact and its no-wrap claim an obligation, one that can wrap
+        ; keeps one reduction by a named quotient, and a shift right or a low mask is a quotient
+        ; by 2^k pinned by its remainder's range (VarkaSmtTerm.WordForm). Each check below is a
+        ; law of that form: an operator's word form is the unsigned reading of its java.smt2
+        ; form, (mod t 2^64), and a compare's the compare, for every pair of longs, at each shift
+        ; count and constant the rules branch on (unsat), and each obligation a rule makes holds
+        ; for every input (unsat). VarkaSmtTermSuite holds the same terms to the JVM's answers
+        ; over BigInteger. The logic is ALL: under QF_NIA cvc5
+        ; leaves the exact sum of a mask and a shift unknown at the limit, where under ALL both
+        ; solvers decide the file in a fraction of a second.
+        """);
+    out.append(rendered("ALL"));
+    var x = new VarkaSmtTerm.Var("x", VarkaSmtTerm.Sort.LONG);
+    var y = new VarkaSmtTerm.Var("y", VarkaSmtTerm.Sort.LONG);
+    Map<String, VarkaSmtTerm> facts = Map.of("x", VarkaSmtTerm.app(VarkaSmtTerm.Op.JLONG_IN, x),
+        "y", VarkaSmtTerm.app(VarkaSmtTerm.Op.JLONG_IN, y));
+    for (VarkaSmtTerm t : wordLaws(x, y)) {
+      var words = new VarkaSmtTerm.WordForm();
+      VarkaSmtTerm law = t.sort() == VarkaSmtTerm.Sort.BOOL
+          ? VarkaSmtTerm.app(VarkaSmtTerm.Op.EQ, words.term(t), t)
+          : VarkaSmtTerm.app(VarkaSmtTerm.Op.EQ, words.word(t).u(),
+              VarkaSmtTerm.app(VarkaSmtTerm.Op.MOD, t, VarkaSmtTerm.num(VarkaSmtTerm.WORD)));
+      check(out, "the word form of " + t.render() + " is its prelude form", "unsat",
+          declared(facts, "(assert (not " + law.render() + "))", law));
+      for (var ob : words.obligations) {
+        check(out, "the word form of " + t.render() + ": " + ob.what(), "unsat",
+            declared(facts, "(assert (not " + ob.claim().render() + "))", ob.claim()));
+      }
+    }
+    // The term tree's div and mod are evaluated as SMT-LIB's, Euclidean, negative divisors too.
+    var divisions = new ArrayList<String>();
+    for (BigInteger a : divisionOperands(false)) {
+      for (BigInteger b : divisionOperands(true)) {
+        for (VarkaSmtTerm.Op op : List.of(VarkaSmtTerm.Op.DIV, VarkaSmtTerm.Op.MOD)) {
+          VarkaSmtTerm t = VarkaSmtTerm.app(op, VarkaSmtTerm.num(a), VarkaSmtTerm.num(b));
+          divisions.add("(= " + t.render() + " "
+              + VarkaSmtTerm.num((BigInteger) t.eval(Map.of())).render() + ")");
+        }
+      }
+    }
+    equations(out, "div and mod are the term tree's evaluation of them", divisions);
+    return out.toString();
+  }
+
+  /** Dividends, or divisors without 0, on both sides of 0 and past the long range. */
+  static List<BigInteger> divisionOperands(boolean divisors) {
+    var out = new ArrayList<BigInteger>();
+    for (long v : new long[] {0, 1, 2, 7, 1L << 32}) {
+      if (v != 0 || !divisors) {
+        out.add(BigInteger.valueOf(v));
+        out.add(BigInteger.valueOf(-v));
+      }
+    }
+    out.add(VarkaSmtTerm.WORD.add(BigInteger.valueOf(3)));
+    out.add(VarkaSmtTerm.WORD.negate());
+    return out.stream().distinct().toList();
+  }
+
+  /**
+   * The terms the word form's laws are stated at, over two longs: each long operator it has a
+   * rule for at the shift counts and constants the rules branch on, nested where one rule feeds
+   * another (a sign word into a masked AND, a mask into a shift, a subtract and a multiply), so
+   * each branch of the intervals is taken, and the four unsigned compares with a signed one
+   * beside them.
+   */
+  static List<VarkaSmtTerm> wordLaws(VarkaSmtTerm x, VarkaSmtTerm y) {
+    var laws = new ArrayList<VarkaSmtTerm>();
+    laws.add(VarkaSmtTerm.app(VarkaSmtTerm.Op.JLONG_SUB, x, y));
+    for (VarkaSmtTerm.Op op : List.of(VarkaSmtTerm.Op.JLONG_ADD, VarkaSmtTerm.Op.JLONG_ULT,
+        VarkaSmtTerm.Op.JLONG_ULE, VarkaSmtTerm.Op.JLONG_UGT, VarkaSmtTerm.Op.JLONG_UGE,
+        VarkaSmtTerm.Op.LT, VarkaSmtTerm.Op.EQ)) {
+      laws.add(VarkaSmtTerm.app(op, VarkaSmtTerm.app(VarkaSmtTerm.Op.JLONG_ADD, x, y), y));
+    }
+    VarkaSmtTerm low = VarkaSmtTerm.app(VarkaSmtTerm.Op.JLONG_AND_LOW, x,
+        VarkaSmtTerm.num(1L << 32));
+    laws.addAll(List.of(VarkaSmtTerm.app(VarkaSmtTerm.Op.JLONG_NEG, x), low,
+        VarkaSmtTerm.app(VarkaSmtTerm.Op.JLONG_AND_LOW, x, VarkaSmtTerm.num(2)),
+        VarkaSmtTerm.app(VarkaSmtTerm.Op.JLONG_AND_SIGN, VarkaSmtTerm.app(
+            VarkaSmtTerm.Op.JLONG_SHR, x, VarkaSmtTerm.num(63)), y),
+        VarkaSmtTerm.app(VarkaSmtTerm.Op.JLONG_ADD, low, VarkaSmtTerm.app(
+            VarkaSmtTerm.Op.JLONG_USHR, y, VarkaSmtTerm.num(32))),
+        VarkaSmtTerm.app(VarkaSmtTerm.Op.JLONG_SHL, low, VarkaSmtTerm.num(32)),
+        VarkaSmtTerm.ite(VarkaSmtTerm.app(VarkaSmtTerm.Op.JLONG_ULT, x, y), x, y)));
+    // A shift right of a word below 2^63, a quotient with no sign to read; a subtract whose
+    // interval goes below 0, reduced; and a multiply whose interval stays in range, exact.
+    laws.addAll(List.of(VarkaSmtTerm.app(VarkaSmtTerm.Op.JLONG_SHR, low, VarkaSmtTerm.num(1)),
+        VarkaSmtTerm.app(VarkaSmtTerm.Op.JLONG_SUB, low, VarkaSmtTerm.app(
+            VarkaSmtTerm.Op.JLONG_USHR, y, VarkaSmtTerm.num(32))),
+        VarkaSmtTerm.app(VarkaSmtTerm.Op.JLONG_MUL, low, VarkaSmtTerm.num(1L << 31))));
+    for (long c : new long[] {1_000_000_000L, 1L << 32, -1}) {
+      laws.add(VarkaSmtTerm.app(VarkaSmtTerm.Op.JLONG_MUL, x, VarkaSmtTerm.num(c)));
+    }
+    for (long n : new long[] {0, 1, 32, 62, 63, 64, 65}) {
+      for (VarkaSmtTerm.Op op : List.of(VarkaSmtTerm.Op.JLONG_SHL, VarkaSmtTerm.Op.JLONG_SHR,
+          VarkaSmtTerm.Op.JLONG_USHR)) {
+        laws.add(VarkaSmtTerm.app(op, x, VarkaSmtTerm.num(n)));
+      }
+    }
+    return laws;
+  }
+
+  /** {@code claim}'s variables declared with their facts and its quotients pinned, then it. */
+  private static List<String> declared(Map<String, VarkaSmtTerm> facts, String claim,
+      VarkaSmtTerm term) {
+    var vars = new LinkedHashMap<String, VarkaSmtTerm.Var>();
+    var quots = new LinkedHashMap<String, VarkaSmtTerm.Quot>();
+    VarkaSmtTerm.collect(term, vars, quots);
+    var lines = new ArrayList<String>();
+    for (var v : vars.values()) {
+      lines.add("(declare-const " + v.name() + " " + (v.sort() == VarkaSmtTerm.Sort.BOOL
+          ? "Bool" : "Int") + ")");
+      if (facts.containsKey(v.name())) {
+        lines.add("(assert " + facts.get(v.name()).render() + ")");
+      }
+    }
+    for (var q : quots.values()) {
+      lines.add("(declare-const " + q.name() + " Int)");
+      lines.add(VarkaSmtTerm.pin(q));
+    }
+    lines.add(claim);
+    return lines;
   }
 
   // -----------------------------------------------------------------------------------------
