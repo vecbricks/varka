@@ -772,7 +772,7 @@ dispatch and needs no code (below).
    part*. It goes to `census.tsv`'s new last column, `fused_in_part`, never to `fused_today`, so
    the counts and the need rule read it as unfused (the first twelve columns are byte-identical),
    and a coverage row must still show it. The seven comparisons (`<`, `<=`, `>`, `>=`, `=`, `==`,
-   `<=>`) and `in` carry `dec^`; `in` is new against the first attempt, since the long
+   `<=>`), `in` and `between` carry `dec^`; `in` is new against the first attempt, since the long
    representation's `IN` fuses at every scale through row 497's arm.
 2. **The harness's sixteen-byte path.** `VarkaKernelChecks.runLoadedDecimal` runs a kernel whose
    columns are decimal slots (`DecimalSlotLane`): a drawn value is an index into the suite's table
@@ -786,7 +786,7 @@ dispatch and needs no code (below).
    the bounds and their neighbours, `2^63`, `-2^63 - 1`, `-2^64`, `2^64 + 5`, and zero and one each
    way; and `VarkaDecimalLongConformanceSuite` at `DECIMAL(10, 2)` (the long) over seven, the bounds
    and their neighbours and zero and one each way. One fixture form serves both
-   (`VarkaDecimalConformanceSuite.slotType`). The registry's entry is `Suite("Decimal")`; the
+   (`VarkaTypeConformance.decimal`). The registry's entry is `Suite("Decimal")`; the
    census's check of a landed type's suite reads that name, and the second class is the same
    contract at the other band.
 
@@ -821,6 +821,26 @@ the run is `VarkaDecimalBaselineBenchmark` as it stands on any head holding part
 The sections, `|`-separated for `--sections`: `DECIMAL(38, 10) comparison`, and at `(38, 10)` and
 `(20, 2)` the `<=> filter`, `IS NULL filter` and `x < y as a value`, each at `no nulls` and `one
 row in ten null`. 11.7's predictions 3 to 5 are scored from them when they land.
+
+**The review's fixes (9 November 2026).** One `/code-review high` pass and one fix round:
+
+- *A fused-in-part form that regresses to a decline cancelled instead of failing.* A suite now
+  names the operators its fixture may see declined (`declinesInPart`, the pair's `in` alone);
+  any other fused-in-part form that declines is drift and fails.
+- *Spark was handed every decimal `BigDecimal`-backed.* Within 18 digits the harness builds the
+  `Decimal` from its unscaled long, as Spark's column readers do, so a later cast check reads
+  Spark's own rule for that representation.
+- *The null slots alternated by row parity*, so a column's nulls could all sit on one side of
+  the bound; they now alternate by null ordinal, as every other lane's poison does.
+- *Latent paths fail loudly*: the slot lane refuses a decimal store, a narrowing root and a
+  kernel of both lanes, which it does not lay out yet, and the oracle refuses a decimal output
+  above 18 digits rather than reporting its `longValueExact` failure as Spark raising.
+- *The fixture factory* is `VarkaTypeConformance.decimal`, beside the integral one; `between`,
+  rewritten to two comparisons, carries `dec^` too. `equal_null` does not: no coverage row holds
+  an `EqualNull` over a decimal, which the census requires of the marker.
+- *Not changed*: the reference reads the high words through a rewrite of the word leaves to
+  columns of a doubled row, not a reference overload; the per-row `BigInteger` work, which the
+  suites' seconds do not need saved.
 
 **Not in this part**, owed: the pair-load node (the next part), the measurement's run, the
 planted faults for row 504 as committed test flags, the op-count test, and 359b.

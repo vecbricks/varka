@@ -37,6 +37,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.LongFunction;
+import java.util.stream.LongStream;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -116,7 +117,8 @@ public abstract class VarkaTypeConformance {
    * forms name as literals ({@code picks}), and the null-intolerant form over two of its columns
    * the null handling check runs ({@code pair}). Every value is the type's internal one, as a
    * column of it stores it: days for a date, nanoseconds of the day for a time, months for a
-   * year-month interval, microseconds for a day-time interval.
+   * year-month interval, microseconds for a day-time interval. A decimal's values are indices
+   * into its suite's {@link #decimalSlots} instead, since a 128-bit value fits no long.
    *
    * <p>{@code pair} is null for {@code BOOLEAN} alone, whose null handling is its connectives.
    */
@@ -192,6 +194,16 @@ public abstract class VarkaTypeConformance {
   }
 
   /**
+   * The operators the census marks fused in part for this type ({@code fused_in_part}) whose
+   * forms this suite's fixture may see declined: there they are owed. Any other fused-in-part
+   * form must fuse here, so that a regression to a decline fails rather than cancels. None by
+   * default.
+   */
+  protected Set<String> declinesInPart() {
+    return Set.of();
+  }
+
+  /**
    * A form of the type's own arithmetic that the census's arithmetic operators do not name: its
    * SQL over {@code x} and {@code y}, and the census entry that says whether it fuses.
    */
@@ -243,6 +255,20 @@ public abstract class VarkaTypeConformance {
    */
   protected static long[] halfRange(long min, long max) {
     return integralValues(min / 2, max / 2);
+  }
+
+  /**
+   * A decimal {@code type} over the unscaled {@code slots}, which its suite's
+   * {@link #decimalSlots} returns too: the fixture's values are their indices. An index is spelled
+   * as its value's exact literal at the scale, which type coercion widens to the column's type at
+   * the same scale, so a comparison reads it as a constant of the column's representation. The
+   * pair form is {@code x < y}: null-intolerant, and fused over two columns of either
+   * representation, where {@code x + y} is row 360's.
+   */
+  protected static ConformanceType decimal(DecimalType type, BigInteger[] slots, long[] picks) {
+    return new ConformanceType("dec", type, type.sql(),
+        i -> new BigDecimal(slots[(int) i], type.scale()).toPlainString() + "BD",
+        LongStream.range(0, slots.length).toArray(), picks, new PairForm("x < y", "<"));
   }
 
   // -------------------------------------------------------------------------------------------
@@ -542,11 +568,18 @@ public abstract class VarkaTypeConformance {
       Optional<String> owner = owedTo(f, expr.dataType());
       Optional<Compiled> compiled = compile(f, expr);
       if (owner.isPresent()) {
-        if (compiled.isPresent() && fusedInPart(f)) {
-          // The census marks the type fused in part: this fixture's form is in the band that
-          // fuses, so it is held to the answers rather than called drift.
-          check(f, compiled.get());
-          continue;
+        if (fusedInPart(f)) {
+          // The census marks the type fused in part: a form in the band that fuses is held to
+          // the answers rather than called drift, and one the suite names as outside it is owed.
+          if (compiled.isPresent()) {
+            check(f, compiled.get());
+            continue;
+          }
+          if (!declinesInPart().contains(f.register())) {
+            drift.add(f + " declines, and the census marks the type fused in part for it, "
+                + "which this suite's fixture is inside" + declineReason(f, expr));
+            continue;
+          }
         }
         if (compiled.isPresent()) {
           drift.add(f + " fuses, and the register owes it to rows " + owner.get()
@@ -866,8 +899,11 @@ public abstract class VarkaTypeConformance {
       DecimalType t = (DecimalType) type().spark();
       var row = new ArrayList<Object>();
       for (int c = 0; c < values.length; c++) {
-        row.add(isNull[c] ? null : Decimal.apply(
-            new BigDecimal(slots[(int) values[c]], t.scale()), t.precision(), t.scale()));
+        // Within 18 digits Spark's column readers hand a Decimal its unscaled long, as here.
+        BigInteger v = slots[(int) values[c]];
+        row.add(isNull[c] ? null : t.precision() <= Decimal.MAX_LONG_DIGITS()
+            ? Decimal.apply(v.longValueExact(), t.precision(), t.scale())
+            : Decimal.apply(new BigDecimal(v, t.scale()), t.precision(), t.scale()));
       }
       return oracle.answerInternal(o, CollectionConverters.asScala(row).toList());
     }

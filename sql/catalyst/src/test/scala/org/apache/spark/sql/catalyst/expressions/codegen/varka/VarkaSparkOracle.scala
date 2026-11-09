@@ -99,6 +99,11 @@ class VarkaSparkOracle(outputs: Seq[Expression], inputs: Seq[Attribute]) {
         case d: Double => VarkaSparkOracle.Value(java.lang.Double.doubleToRawLongBits(d))
         // A decimal output of precision 18 or less, read as the store writes it: the unscaled
         // long at the output's scale (VARKA-157), which the producers build at that scale.
+        case d: Decimal if outputs(o).dataType.isInstanceOf[DecimalType] &&
+            outputs(o).dataType.asInstanceOf[DecimalType].precision > Decimal.MAX_LONG_DIGITS =>
+          // Not a raise: no kernel stores a value above 18 digits yet, so none is compared.
+          throw new IllegalArgumentException(
+            s"output $o is a ${outputs(o).dataType.sql}, whose two-word store is row 359's")
         case d: Decimal if outputs(o).dataType.isInstanceOf[DecimalType] =>
           val scale = outputs(o).dataType.asInstanceOf[DecimalType].scale
           VarkaSparkOracle.Value(d.toJavaBigDecimal.setScale(scale).unscaledValue.longValueExact)

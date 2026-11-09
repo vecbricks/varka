@@ -670,6 +670,13 @@ public final class VarkaKernelChecks {
   public static int runLoadedDecimal(String context, VarkaFusedKernel kernel,
       List<VarkaVectorIR> roots, int numInputs, long[] lits, int[] intLits, LongBatch batch,
       BigInteger[] values, boolean declineAllowed, SparkAnswers spark, CallHook hook) {
+    // The slot lane writes long outputs alone: a decimal store, a narrowing root and a kernel
+    // of both lanes need the long lane's handling of them, which it does not carry yet.
+    if (holdsBothLanes(roots) || roots.stream().anyMatch(r -> r instanceof WidenDecimal
+        || r instanceof NarrowLane)) {
+      throw new IllegalArgumentException(context + ": the decimal slot lane checks long and "
+          + "condition outputs only, not " + roots);
+    }
     return runLoaded(context, kernel, roots, numInputs,
         new DecimalSlotLane(batch, lits, intLits, values, numInputs, new IdentityHashMap<>()),
         declineAllowed, spark, ValidityFill.BOTH, hook);
@@ -1061,10 +1068,11 @@ public final class VarkaKernelChecks {
    * Columns of decimals in Arrow's sixteen-byte slots, at the long lane (VARKA-359): a drawn
    * value is an index into {@code values}, and a slot holds that value's two words, the low then
    * the high, so a 64-bit decimal's high word is its sign extension and a 128-bit one's carries
-   * bits of its own. A null row's slot holds a value outside every precision, {@code 2^127 - 1}
-   * or {@code -2^127} in turn, which the digit check must not condemn. The reference reads each
-   * root with its {@link DecimalWord}s as columns of a row twice as wide - the low words, then the
-   * high ones - and a 64-bit {@code DecimalColumn} reads the low word, its value.
+   * bits of its own. A column's nulls hold values outside every precision, {@code 2^127 - 1}
+   * and {@code -2^127} in turn by null ordinal, which the digit check must not condemn. The
+   * reference reads each root with its {@link DecimalWord}s as columns of a row twice as wide -
+   * the low words, then the high ones - and a 64-bit {@code DecimalColumn} reads the low word, its
+   * value.
    */
   private record DecimalSlotLane(LongBatch batch, long[] lits, int[] intLits,
       BigInteger[] values, int numInputs, Map<VarkaVectorIR, VarkaVectorIR> asColumns)
@@ -1090,8 +1098,9 @@ public final class VarkaKernelChecks {
     }
 
     @Override public void putColumn(int c, MemorySegment d, int i, long v) {
+      // Under a null, v is poison(nullOrdinal): which of the two out-of-range slots it takes.
       DecimalWords words = nulls()[c][i]
-          ? ((i & 1) == 0 ? new DecimalWords(-1L, Long.MAX_VALUE) : new DecimalWords(0L,
+          ? (v == 0 ? new DecimalWords(-1L, Long.MAX_VALUE) : new DecimalWords(0L,
               Long.MIN_VALUE))
           : DecimalWords.of(values[(int) v]);
       d.set(ValueLayout.JAVA_LONG, i * DECIMAL_SLOT, words.lo());
@@ -1106,9 +1115,9 @@ public final class VarkaKernelChecks {
       d.set(ValueLayout.JAVA_LONG, i * 8L, v);
     }
 
-    /** Never written: {@link #putColumn} fills a null row's slot with its own two words. */
+    /** Which out-of-range slot the null takes, {@link #putColumn} writing its two words. */
     @Override public long poison(int nullOrdinal) {
-      return 0L;
+      return nullOrdinal & 1;
     }
 
     @Override public long sentinel() {

@@ -15,7 +15,6 @@
  * limitations under the License.
  */
 
-
 package org.apache.spark.sql.catalyst.expressions.codegen.varka;
 
 import java.math.BigInteger;
@@ -27,9 +26,10 @@ import org.apache.spark.sql.types.DecimalType;
  * `DECIMAL` of 18 digits or fewer held to the conformance contract (`m8/VARKA-359.md` 11.8 point
  * 6), at the type registry's {@code DECIMAL(10, 2)}: two columns read as one long a row, the low
  * word of Arrow's sixteen-byte slot (row 347's leaf). The other representation, the 128-bit pair,
- * is {@link VarkaDecimalConformanceSuite}'s, whose fixture form this suite shares: a value is an
- * index into {@link #values}, a slot holds the indexed value's two words, the high one its sign
- * extension, and Spark is handed the {@code Decimal} the index names.
+ * is {@link VarkaDecimalConformanceSuite}'s, whose fixture form this suite shares
+ * ({@link VarkaTypeConformance#decimal}): a value is an index into {@code VALUES}, a slot holds
+ * the indexed value's two words, the high one its sign extension, and Spark is handed the
+ * {@code Decimal} the index names.
  *
  * <p>The values are the precision's bounds and their neighbours and zero and one each way. The
  * census marks the comparisons and {@code IN} fused in part for {@code dec}: this representation
@@ -54,7 +54,7 @@ public final class VarkaDecimalLongConformanceSuite extends VarkaTypeConformance
 
   @Override
   protected ConformanceType type() {
-    return VarkaDecimalConformanceSuite.slotType(TYPE, VALUES, PICKS);
+    return decimal(TYPE, VALUES, PICKS);
   }
 
   @Override

@@ -15,12 +15,10 @@
  * limitations under the License.
  */
 
-
 package org.apache.spark.sql.catalyst.expressions.codegen.varka;
 
-import java.math.BigDecimal;
 import java.math.BigInteger;
-import java.util.stream.LongStream;
+import java.util.Set;
 
 import org.apache.spark.sql.types.DataTypes;
 import org.apache.spark.sql.types.DecimalType;
@@ -31,7 +29,7 @@ import org.apache.spark.sql.types.DecimalType;
  * and a high word a row, from Arrow's sixteen-byte slots. {@link VarkaDecimalLongConformanceSuite}
  * holds the other representation, the long of 18 digits or fewer, to the same checks.
  *
- * <p>A fixture's value is an index into {@link #values}, the unscaled values of a column: the
+ * <p>A fixture's value is an index into {@code VALUES}, the unscaled values of a column: the
  * harness writes each slot as the indexed value's two words and hands Spark the {@code Decimal}
  * it names ({@link VarkaTypeConformance#decimalSlots}). The values are the precision's bounds and
  * their neighbours, a low word with its sign bit set under a high word of 0 ({@code 2^63}) and
@@ -43,7 +41,8 @@ import org.apache.spark.sql.types.DecimalType;
  * across two they wait for rows 360 and 363. So load, null handling and ordering hold every
  * comparison, {@code <=>} and the null tests to the reference and to Spark. The forms the census
  * owes ({@code IN}, the choices, {@code greatest} and {@code least}, 359b's; the casts, 364's; the
- * arithmetic, 360 to 363's) must decline, and cancel their checks naming the rows.
+ * arithmetic, 360 to 363's) must decline, and cancel their checks naming the rows. A comparison
+ * that declines fails: at one scale the census's fused-in-part marker means it fuses.
  *
  * <p>In its own JVM, as the long-lane suites are ({@link VarkaSpeciesGuard}).
  */
@@ -67,7 +66,7 @@ public final class VarkaDecimalConformanceSuite extends VarkaTypeConformance {
 
   @Override
   protected ConformanceType type() {
-    return slotType(TYPE, VALUES, PICKS);
+    return decimal(TYPE, VALUES, PICKS);
   }
 
   @Override
@@ -75,16 +74,9 @@ public final class VarkaDecimalConformanceSuite extends VarkaTypeConformance {
     return VALUES;
   }
 
-  /**
-   * A decimal {@code type} over the unscaled {@code values}, its fixture's values their indices.
-   * An index is spelled as its value's exact literal at the scale, which type coercion widens to
-   * the column's type at the same scale, so a comparison reads it as a constant of the column's
-   * representation. The pair form is {@code x < y}: null-intolerant, and fused over two columns of
-   * either representation, where {@code x + y} is row 360's.
-   */
-  static ConformanceType slotType(DecimalType type, BigInteger[] values, long[] picks) {
-    return new ConformanceType("dec", type, type.sql(),
-        i -> new BigDecimal(values[(int) i], type.scale()).toPlainString() + "BD",
-        LongStream.range(0, values.length).toArray(), picks, new PairForm("x < y", "<"));
+  /** {@code IN} over the pair is 359b's: its fixture declines where the long's fuses. */
+  @Override
+  protected Set<String> declinesInPart() {
+    return Set.of("in");
   }
 }
