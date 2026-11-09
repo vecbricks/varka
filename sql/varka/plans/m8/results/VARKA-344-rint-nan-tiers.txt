@@ -1,0 +1,50 @@
+VARKA-344 0.10 and 3.7: the NaN bits of Math.rint per JIT tier (the rint(-NaN) probe).
+Measured 8 November 2026 on the laptop (AMD Ryzen AI 9 HX PRO 370), openjdk 25.0.4.1.
+Each mode runs RintNaN below: 200000 rounds of Math.rint over seven NaN bit patterns, then
+prints input -> output as raw bits. C2 compiles Math::rint as an intrinsic (the
+PrintIntrinsics line below); the interpreter runs StrictMath.rint's Java, and so does C1, which
+has no rint intrinsic (VARKA-344.md 0.10, derived from the source, not shown by this file).
+
+== java -Xint RintNaN
+7ff8000000000000 -> 7ff8000000000000
+fff8000000000000 -> 7ff8000000000000
+7ff0000000000001 -> 7ff8000000000001
+fff0000000000001 -> 7ff8000000000001
+7ff4000000000000 -> 7ffc000000000000
+fff4000000000000 -> 7ffc000000000000
+7ff8000000000001 -> 7ff8000000000001
+== java -XX:TieredStopAtLevel=1 RintNaN
+7ff8000000000000 -> 7ff8000000000000
+fff8000000000000 -> 7ff8000000000000
+7ff0000000000001 -> 7ff8000000000001
+fff0000000000001 -> 7ff8000000000001
+7ff4000000000000 -> 7ffc000000000000
+fff4000000000000 -> 7ffc000000000000
+7ff8000000000001 -> 7ff8000000000001
+== java -XX:-TieredCompilation RintNaN
+7ff8000000000000 -> 7ff8000000000000
+fff8000000000000 -> fff8000000000000
+7ff0000000000001 -> 7ff8000000000001
+fff0000000000001 -> fff8000000000001
+7ff4000000000000 -> 7ffc000000000000
+fff4000000000000 -> fffc000000000000
+7ff8000000000001 -> 7ff8000000000001
+
+== C2's intrinsic, from -XX:-TieredCompilation -XX:+PrintIntrinsics:
+@ 1   java.lang.Math::rint (5 bytes)   (intrinsic)
+
+== RintNaN.java
+public class RintNaN {
+  static final long[] IN = {0x7FF8000000000000L, 0xFFF8000000000000L, 0x7FF0000000000001L,
+      0xFFF0000000000001L, 0x7FF4000000000000L, 0xFFF4000000000000L, 0x7FF8000000000001L};
+  static double rint(double x) { return Math.rint(x); }
+  public static void main(String[] a) {
+    double[] xs = new double[IN.length];
+    for (int i = 0; i < IN.length; i++) xs[i] = Double.longBitsToDouble(IN[i]);
+    long[] out = new long[IN.length];
+    for (int rep = 0; rep < 200_000; rep++)
+      for (int i = 0; i < xs.length; i++) out[i] = Double.doubleToRawLongBits(rint(xs[i]));
+    for (int i = 0; i < IN.length; i++)
+      System.out.printf("%016x -> %016x%n", IN[i], out[i]);
+  }
+}

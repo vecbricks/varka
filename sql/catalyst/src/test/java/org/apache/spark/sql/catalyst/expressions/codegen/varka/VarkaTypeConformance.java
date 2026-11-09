@@ -193,13 +193,26 @@ public abstract class VarkaTypeConformance {
   }
 
   /**
-   * An integral type between {@code min} and {@code max}, its literals spelled with
-   * {@code suffix}: the integral values, 1 and -1 as the picks, and {@code x + y} as the pair.
+   * The integral type {@code spark}, its literals spelled with {@code suffix}: the values of its
+   * fuzz descriptor ({@link VarkaFuzzTypes}, the {@link #integralValues} of its range), 1 and -1
+   * as the picks, and {@code x + y} as the pair. The descriptor is the one of the registry's id
+   * for {@code spark} ({@link VarkaTypes#idOf}), so the suite and the fuzzer cannot name two
+   * different types.
    */
   protected static ConformanceType integral(String census, DataType spark, String sql,
-      String suffix, long min, long max) {
-    return new ConformanceType(census, spark, sql, v -> v + suffix, integralValues(min, max),
-        new long[] {1, -1}, new PairForm("x + y", "+"));
+      String suffix) {
+    return new ConformanceType(census, spark, sql, v -> v + suffix,
+        VarkaFuzzTypes.values(registryId(spark)).edges().clone(), new long[] {1, -1},
+        new PairForm("x + y", "+"));
+  }
+
+  /** The registry's id of a Spark type a conformance suite holds; a type it has none of fails. */
+  protected static VarkaTypeId registryId(DataType spark) {
+    VarkaTypeId id = VarkaTypes.idOf(spark);
+    if (id == null) {
+      throw new IllegalArgumentException("not a type of the registry: " + spark);
+    }
+    return id;
   }
 
   /** The integral values a fixture draws: the extremes, their neighbours, zero and one each way. */

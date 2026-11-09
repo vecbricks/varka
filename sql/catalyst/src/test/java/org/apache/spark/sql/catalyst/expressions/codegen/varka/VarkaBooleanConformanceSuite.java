@@ -37,6 +37,8 @@ public final class VarkaBooleanConformanceSuite extends VarkaTypeConformance {
   @Override
   protected ConformanceType type() {
     return new ConformanceType("bool", DataTypes.BooleanType, "BOOLEAN",
-        v -> v != 0 ? "true" : "false", new long[] {0, 1}, new long[] {1, 0}, null);
+        v -> v != 0 ? "true" : "false",
+        VarkaFuzzTypes.values(registryId(DataTypes.BooleanType)).edges().clone(),
+        new long[] {1, 0}, null);
   }
 }
