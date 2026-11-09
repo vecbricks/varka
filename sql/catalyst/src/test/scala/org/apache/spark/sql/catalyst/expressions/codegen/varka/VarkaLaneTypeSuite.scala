@@ -509,7 +509,7 @@ class VarkaLaneTypeSuite extends SparkFunSuite with VarkaTestWatchdog {
         case "RoundToIntegral" => new RoundToIntegral(RoundMode.RINT, c)
         // An int converted to a floating lane (VARKA-343): a column to FLOAT in an int kernel,
         // and a bigint narrowed to INT, then to DOUBLE, in one driven at the long lane. A bigint's
-        // own conversion is refused by the plan, as L2D is intrinsic only with AVX512DQ.
+        // own conversion is refused by the plan at the unknown level these options carry.
         case "ConvertLane" => if (lane == LaneType.INT) new ConvertLane(c, LaneType.FLOAT)
           else new ConvertLane(new NarrowLane(c), LaneType.DOUBLE)
         case "CrossLane" => new CrossLane(new IsNotNull(c), LaneType.DOUBLE)
