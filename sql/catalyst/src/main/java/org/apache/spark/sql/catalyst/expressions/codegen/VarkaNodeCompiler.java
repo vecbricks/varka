@@ -227,7 +227,8 @@ final class VarkaNodeCompiler {
       new Family(VarkaFamily.FLOATING_ARITHMETIC, VarkaFloatingCompiler::arm),
       new Family(VarkaFamily.FLOATING_CAST, VarkaFloatingCastCompiler::arm),
       new Family(VarkaFamily.INTEGRAL_CAST, VarkaIntegralCastCompiler::arm),
-      new Family(VarkaFamily.ROUNDING, VarkaRoundingCompiler::arm));
+      new Family(VarkaFamily.ROUNDING, VarkaRoundingCompiler::arm),
+      new Family(VarkaFamily.MATH, VarkaMathCompiler::arm));
 
   /**
    * The predicate family, which is not a link of the chain: {@code compileNode} never claims a
@@ -384,6 +385,8 @@ final class VarkaNodeCompiler {
         // The rounding family's forms (VARKA-344): rint, and floor and ceil, whose arm builds
         // the int operand's widening and declines a double or any other cast by name.
         || e instanceof Rint || e instanceof Floor || e instanceof Ceil
+        // The math family's functions (VARKA-345), each declining in its arm by its row.
+        || VarkaMathCompiler.ownerOf(e).isPresent()
         // The floating casts family's pairs (VARKA-343), by pair for the same reason.
         || (e instanceof Cast c && (VarkaFloatingCastCompiler.admits(c)
             || DataTypes.BooleanType.equals(c.dataType())))) {

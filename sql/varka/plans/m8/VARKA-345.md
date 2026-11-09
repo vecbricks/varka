@@ -882,4 +882,52 @@ runners.
 
 ## 10. Outcome
 
-(Written when the work lands.)
+### 10.1 345a, in two stacked parts (9 November 2026)
+
+Section 5 item 2's list did not fit one pull request under the 1000-line cap, so it is two,
+stacked at the seam between the mode's switch and the mode's evidence: **345a1** (branch
+`varka-345a-config`) and **345a2** (`varka-345a-binding`, on top of it).
+
+**345a1, as built.** `SQLConf.VARKA_MATH_ULP_CONTRACT`
+(`spark.sql.codegen.varka.math.ulpContract.enabled`, internal, `NOT_APPLICABLE`); its emit option
+`mathUlpContract` in `VarkaEmitOptions`, default false, its tag `|ulpContract` so the defaults
+render as before, with the new `VarkaEmitOption.Reason.CONTRACT`, drawn; `VarkaSessionEmit`
+laying the setting over the base options as it lays `exactRefusalStatus`; `VarkaFamily.MATH`
+(`spark.sql.codegen.varka.family.math.enabled`) and its arm `VarkaMathCompiler`, which claims the
+26 classes of the 27 functions over `DOUBLE` operands and declines each by its row ("sin is row
+356's: no math function fuses yet"), `floatingDecline` letting exactly those through;
+`VarkaMathBound` (2.5's `steps` and `within`); the docs' configuration entry; the dated
+corrections of `SCOPE_FUNCTIONS.md` 3, `SCOPE_STANDARD_MODE.md` 3.4 and `m9/SCOPE.md` item 36;
+and this row's edit of 2.7.1 (the composition rule marked unsound, the configuration's missing
+default recorded). Tests: `VarkaMathCompilerSuite` (every function's reason, in both modes and
+with the family off), `VarkaMathBoundSuite` (3.5 at the comparator), and 3.1's IR half as far as
+an option no node reads can go: the tag in `canonical()` (`VarkaEmitOptionSuite`, and
+`VarkaShapeCacheSuite`'s component walk), the pinned arm `mathUlpContract=true` in
+`emitted_bytes.json`'s `option_arms`, with the defaults' digest, and the session binding
+(`VarkaEvaluatorComponentsSuite`). No existing shape's bytes move (prediction 1, scored: held).
+
+**Questions met, and the reading taken** (the most conservative, as the brief asked):
+
+1. *The configuration's default.* 2.6 writes `.createWithDefault(false)`; `VarkaSessionEmit`'s
+   rule is that a session that says nothing never undoes an option a suite sets, which a
+   defaulted entry laid over the options would do to the matrix's `mathUlpContract=true` arm. Read:
+   `createOptional`, as `emit.exactRefusalStatus` is, so unset is the emit options' false and an
+   explicit `false` still wins over a base set true. Off by default either way.
+2. *How `floatingDecline` admits the classes.* 2.7 says "by name"; written as 26 `instanceof`
+   tests in `VarkaNodeCompiler`, `VarkaCoverageSuite`'s source scan would count them as admitted
+   and `coverage.json` would list them under `catalyst_classes_admitted` while they decline. Read:
+   `floatingDecline` asks `VarkaMathCompiler.ownerOf`, as it asks `VarkaFloatingCastCompiler`,
+   and the scan does not read `VarkaMathCompiler`; the row that fuses the first function adds the
+   file to the scan, and `VarkaMathCompilerSuite` fails the day a function fuses, which is that
+   prompt.
+3. *A family that fuses nothing.* `VarkaFamilySwitchSuite` needs a coverage row of every family.
+   Read: an `UNBUILT` map, the math family checked on `sin(x)` instead, failing once a coverage
+   row holds the family.
+4. *An option no node reads.* `mathUlpContract` cannot name the node it is read by
+   (`readOnlyBy`) before 345b's `MathUnary` form exists, so it is drawn in general: the fuzzer
+   draws it from a stream of its own, moving no committed seed, and the option matrix gains the
+   configuration, which reruns the catalyst suites and no SQL test (`VarkaTestReach` records
+   nothing it moves). 345b decides whether it becomes a node's own option.
+5. *What of 3.1 and 3.5 is 345a's.* The `LIBRARY` form, the hook and `--asm` are 345b's, so 3.1's
+   "the IR has no `LIBRARY` node" holds trivially and is not claimed; 3.5's planted kernel lane
+   through the coverage differential needs a math row and moves to 345b with 3.3.

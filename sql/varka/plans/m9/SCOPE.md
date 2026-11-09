@@ -3181,6 +3181,11 @@ for bit, as a measured option arm, the default only where it measures faster; th
 than that call exists for the host-dependent five is open, the owner's, licence first
 (`m8/VARKA-345.md` 8 point 11).*
 
+*9 November 2026, as row 345's first part recorded it (`m8/VARKA-345.md` 2.10, 10): this item's
+emitted-fdlibm option is the `PORT` arm, emitted as IR and costed without FMA as above; item 98
+stays the route to one bit pattern for the opt-in library, not for the exact default. The
+configuration and its emit option exist; no math function fuses yet.*
+
 ### Item 37. A third AVX2 lowering for the 64-bit divide, from 32-bit converts
 
 *Opened 19 September 2026, from reading SLEEF for

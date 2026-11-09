@@ -182,6 +182,18 @@ arithmetic reproduces its bits - bit-exact, slower than SVML by a factor to be
 measured, and a kernel to maintain. Or a **decline** of the family, since no
 function in it is exact. `m9/SCOPE.md` item 36 holds the decision.
 
+*Corrected on 30 October 2026, by the owner's word (`m8/PLAN.md` 2.7.1, `m8/VARKA-345.md` 2.1):
+the family is exact by default, and the ULP contract is an opt-in mode, off by default. Two exact
+forms serve the default: a per-lane call inside the kernel of the method Spark's code calls -
+`StrictMath` for the thirteen functions whose row-engine bits are fdlibm's on every host, `Math`
+for the host-dependent `sin`, `cos`, `tan`, `tanh` and `cbrt` - and, for the thirteen, a lane-wise
+port of fdlibm 5.3 emitted as IR, held to `StrictMath` bit for bit and a measured option arm, the
+default only where it measures faster. So the emitted fdlibm above covers thirteen functions, not
+six, and is no alternative to the call but a second exact form beside it. The contract survives as
+the mode `spark.sql.codegen.varka.math.ulpContract.enabled` turns on, its bound a count of
+representable doubles (`VarkaMathBound`, built by 345a on 9 November 2026), never a multiple of
+`Math.ulp`.*
+
 ## 4. What is shared across the families
 
 The families are separate representations, but three needs recur and are worth

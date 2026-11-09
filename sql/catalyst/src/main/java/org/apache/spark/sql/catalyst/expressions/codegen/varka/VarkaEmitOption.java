@@ -94,7 +94,13 @@ public sealed interface VarkaEmitOption
      * replacement and for the checks that need it set. The fuzzer and the option matrix never
      * draw one, since they run on hosts where it computes wrong answers.
      */
-    MISCOMPILED;
+    MISCOMPILED,
+    /**
+     * A sanctioned departure from the row engine's answers that a session opts into: on, a value
+     * may differ from Spark's within a contracted bound, and the oracles compare it within that
+     * bound rather than bit for bit. Off, the default, every answer is Spark's.
+     */
+    CONTRACT;
 
     /**
      * Whether the fuzzer, its steering and the option matrix may vary an option of this reason;
@@ -566,7 +572,12 @@ public sealed interface VarkaEmitOption
       // default's rendering empty. Only a WidenDecimal root's store reads it.
       new Choice<>("decimalStore", Reason.MACHINE, DecimalStore.class, DecimalStore.REARRANGE,
           VarkaEmitOptions::decimalStore, Builder::decimalStore,
-          new ChoiceTag("decimalStore="), Optional.of(WidenDecimal.class)));
+          new ChoiceTag("decimalStore="), Optional.of(WidenDecimal.class)),
+      // The math family's opt-in mode (VARKA-345.md 2.6), a session setting laid over the base
+      // options as useAVX is. Its tag keeps the default's rendering empty.
+      new Flag("mathUlpContract", Reason.CONTRACT, false,
+          VarkaEmitOptions::mathUlpContract, Builder::mathUlpContract,
+          new FlagTag("ulpContract", true)));
 
   /** The option with this name. */
   static VarkaEmitOption named(String name) {

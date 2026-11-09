@@ -504,6 +504,12 @@ import com.sun.management.HotSpotDiagnosticMXBean;
  * @param decimalStore how a {@code WidenDecimal} root interleaves its words into Arrow's
  *        sixteen-byte decimal slots (VARKA-157 2.2): see {@link DecimalStore}. No other root reads
  *        it, so every shape without a decimal output emits the same bytes under either value.
+ * @param mathUlpContract whether a math function may take the Vector API's library operator,
+ *        within its contracted bound of Spark's answer, where its binding on this host has a
+ *        contract entry ({@code spark.sql.codegen.varka.math.ulpContract.enabled},
+ *        {@code VARKA-345.md} 2.5 and 2.6). False, the default, keeps every math function bit
+ *        for bit Spark's. Read by the compiler when it chooses a math node's form, never by a
+ *        kernel; no math node is built yet, so neither value moves a byte.
  */
 public record VarkaEmitOptions(
     int groupBudget,
@@ -556,7 +562,8 @@ public record VarkaEmitOptions(
     boolean fromLongMasks,
     boolean decimalAbsLanewise,
     boolean dropDecimalBound,
-    DecimalStore decimalStore) {
+    DecimalStore decimalStore,
+    boolean mathUlpContract) {
 
   /**
    * The three mod-7 lowerings. {@link #MAGIC} is what ships: two 15-bit digit-sum folds followed
@@ -714,7 +721,7 @@ public record VarkaEmitOptions(
           true, true, true, true,
           VarkaEmitBudget.CALL_SITE_BUDGET, VarkaEmitBudget.HEAVY_GROUP_OUTPUTS,
           true, true, true, true, true, true, true, 0, 0, 0, false, false, false, 0, false,
-          false, false, DecimalStore.REARRANGE);
+          false, false, DecimalStore.REARRANGE, false);
 
   public VarkaEmitOptions {
     if (groupBudget < 1) {
@@ -823,6 +830,7 @@ public record VarkaEmitOptions(
       b.decimalAbsLanewise = decimalAbsLanewise;
       b.dropDecimalBound = dropDecimalBound;
       b.decimalStore = decimalStore;
+      b.mathUlpContract = mathUlpContract;
     return b;
   }
 
@@ -879,6 +887,7 @@ public record VarkaEmitOptions(
     private boolean decimalAbsLanewise;
     private boolean dropDecimalBound;
     private DecimalStore decimalStore;
+    private boolean mathUlpContract;
 
     private Builder() {
     }
@@ -1138,6 +1147,11 @@ public record VarkaEmitOptions(
       return this;
     }
 
+    public Builder mathUlpContract(boolean contract) {
+      this.mathUlpContract = contract;
+      return this;
+    }
+
     public VarkaEmitOptions build() {
       return new VarkaEmitOptions(
           groupBudget, fusedCeiling, cse, shareChronoPrefix, denseValidityOnce,
@@ -1152,7 +1166,7 @@ public record VarkaEmitOptions(
           elideUnreadLocals, planSize, misdescribeDriverBytes, forceResidualAt,
           misdescribeRollback, exactRefusalStatus, groupBudgetUnderPrediction, dropStackMaps,
           misdescribeDataBytes, fromLongMasks, decimalAbsLanewise, dropDecimalBound,
-          decimalStore);
+          decimalStore, mathUlpContract);
     }
   }
 
@@ -1223,6 +1237,10 @@ public record VarkaEmitOptions(
 
   public VarkaEmitOptions withExactRefusalStatus(boolean exact) {
     return toBuilder().exactRefusalStatus(exact).build();
+  }
+
+  public VarkaEmitOptions withMathUlpContract(boolean contract) {
+    return toBuilder().mathUlpContract(contract).build();
   }
 
   public VarkaEmitOptions withDropStackMaps(boolean drop) {
