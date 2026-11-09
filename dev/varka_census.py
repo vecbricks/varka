@@ -377,6 +377,9 @@ def defined_classes():
 # Classes a fused claim is checked against when the registered class is not the one the
 # compiler sees: a RuntimeReplaceable rewritten before physical planning, or a builder.
 VIA = {
+    "ceil": "Ceil",
+    "ceiling": "Ceil",
+    "floor": "Floor",
     "ifnull": "Coalesce",
     "nvl": "Coalesce",
     "zeroifnull": "Coalesce",

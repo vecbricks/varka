@@ -79,7 +79,7 @@ public sealed interface VarkaVectorIR
             VarkaVectorIR.AddMonths, VarkaVectorIR.MakeDate,
             VarkaVectorIR.IntArith, VarkaVectorIR.IntNeg, VarkaVectorIR.ConstDivide,
             VarkaVectorIR.BoundedDivide, VarkaVectorIR.BitOp, VarkaVectorIR.BitCount,
-            VarkaVectorIR.MathUnary, VarkaVectorIR.Cond,
+            VarkaVectorIR.MathUnary, VarkaVectorIR.RoundToIntegral, VarkaVectorIR.Cond,
             VarkaVectorIR.GuardedDay, VarkaVectorIR.GuardedRange, VarkaVectorIR.WidenLane,
             VarkaVectorIR.ConvertLane,
             VarkaVectorIR.NarrowLane, VarkaVectorIR.WidenDecimal {
@@ -165,6 +165,7 @@ public sealed interface VarkaVectorIR
       case BitOp n -> n.left().laneType();
       case BitCount n -> n.child().laneType();
       case MathUnary n -> n.child().laneType();
+      case RoundToIntegral n -> n.child().laneType();
       case Greatest n -> n.left().laneType();
       case Least n -> n.left().laneType();
       case IfElse n -> n.thenNode().laneType();
@@ -229,7 +230,8 @@ public sealed interface VarkaVectorIR
       case DecimalWord c -> c.ordinal();
       case BoolColumn b -> b.ordinal();
       case LiteralSlot _, IntArith _, IntNeg _, ConstDivide _, BoundedDivide _, BitOp _,
-          BitCount _, MathUnary _, Greatest _, Least _, IfElse _, CondValue _, BoolOutput _,
+          BitCount _, MathUnary _, RoundToIntegral _, Greatest _, Least _, IfElse _, CondValue _,
+          BoolOutput _,
           Compare _, NullSafeEqual _, CondConst _, NullValue _,
           BoolCompare _, CondIf _, BoolNullSafeEq _, And _, Or _, Not _, CrossLane _, IsNotNull _,
           InRanges _, AddDays _, SubDays _, DateDiff _, GuardedDay _, GuardedRange _, WidenLane _,
@@ -316,8 +318,9 @@ public sealed interface VarkaVectorIR
           DateDiff _, Greatest _, Least _, IfElse _, CondValue _, BoolOutput _, DayOfWeek _,
           WeekDay _, DayOfWeekIso _, ThursdayOf _, Year _, Month _, DayOfMonth _, Quarter _,
           DayOfYear _, LastDay _, TruncDate _, WeekOfYear _, ConstDivide _, BoundedDivide _,
-          BitOp _, BitCount _, MathUnary _, Compare _, NullSafeEqual _, BoolCompare _, CondIf _,
-          BoolNullSafeEq _, And _, Or _, Not _, CrossLane _, InRanges _ -> {
+          BitOp _, BitCount _, MathUnary _, RoundToIntegral _, Compare _, NullSafeEqual _,
+          BoolCompare _, CondIf _, BoolNullSafeEq _, And _, Or _, Not _, CrossLane _,
+          InRanges _ -> {
         for (VarkaVectorIR child : childrenOf(node)) {
           narrowValuesIn(child, lanes, seen);
         }
@@ -362,8 +365,8 @@ public sealed interface VarkaVectorIR
           Least _, IfElse _, CondValue _, BoolOutput _, DayOfWeek _, WeekDay _, DayOfWeekIso _,
           ThursdayOf _, Year _,
           Month _, DayOfMonth _, Quarter _, DayOfYear _, LastDay _, TruncDate _, WeekOfYear _,
-          ConstDivide _, BoundedDivide _, BitOp _, BitCount _, MathUnary _, Compare _,
-          NullSafeEqual _, BoolCompare _, CondIf _, BoolNullSafeEq _, And _, Or _, Not _,
+          ConstDivide _, BoundedDivide _, BitOp _, BitCount _, MathUnary _, RoundToIntegral _,
+          Compare _, NullSafeEqual _, BoolCompare _, CondIf _, BoolNullSafeEq _, And _, Or _, Not _,
           CrossLane _, InRanges _ -> {
         boolean any = false;
         for (VarkaVectorIR child : childrenOf(node)) {
@@ -501,6 +504,13 @@ public sealed interface VarkaVectorIR
    * correctly rounded as {@code Math.sqrt} is, so the lanewise operator answers its bits.
    */
   enum MathFn { SQRT }
+
+  /**
+   * How a {@link RoundToIntegral} picks the integer: {@code RINT} is the nearest, a tie going to
+   * the even one, as {@code Math.rint} does. {@code FLOOR} and {@code CEIL} join it with the
+   * lowerings that read them.
+   */
+  enum RoundMode { RINT }
 
   /**
    * The lane-wise bitwise operation a {@link BitOp} performs: the three logical ones and Java's
@@ -1410,6 +1420,30 @@ public sealed interface VarkaVectorIR
   }
 
   /**
+   * {@code Math.rint(child)} over the double lane: the nearest integer-valued double, a tie
+   * going to the even one, with the operand's sign kept on a zero result ({@code rint(-0.3)} is
+   * {@code -0.0}), and NaN and the infinities returned as they are. The vector API has no
+   * rounding operator on any host, so the emitter builds it from IEEE additions (the 2^52
+   * construction of {@code VarkaRoundingLowering}), exact for every input. Null-intolerant: the
+   * validity is the child's. A discrete consumer of a contracted child (row 345's question 2)
+   * is a decline that row owns.
+   */
+  record RoundToIntegral(RoundMode mode, VarkaVectorIR child, int hash)
+      implements VarkaVectorIR {
+    public RoundToIntegral {
+      Objects.requireNonNull(mode, "mode");
+      if (child.laneType() != LaneType.DOUBLE) {
+        throw VarkaErrors.illegalArgument("a rounding takes a double child, not "
+            + child.laneType() + ", from a " + child.getClass().getSimpleName());
+      }
+      hash = hashOf(mode, child);
+    }
+
+    public RoundToIntegral(RoundMode mode, VarkaVectorIR child) { this(mode, child, 0); }
+    @Override public int hashCode() { return hash; }
+  }
+
+  /**
    * {@code left OP right} over two operands on one lane, which the constructor requires to
    * agree - dates at the int lane, and the mask this produces is of that lane's species.
    * Null-intolerant: the result is known (true or false) exactly where both operands are valid,
@@ -2196,6 +2230,7 @@ public sealed interface VarkaVectorIR
           + canonical(n.right()) + ")";
       case BitCount n -> "(bitCount " + canonical(n.child()) + ")";
       case MathUnary n -> "(math:" + n.fn().name() + " " + canonical(n.child()) + ")";
+      case RoundToIntegral n -> "(round:" + n.mode().name() + " " + canonical(n.child()) + ")";
     };
   }
 
@@ -2307,6 +2342,8 @@ public sealed interface VarkaVectorIR
           + lineOf.applyAsInt(n.right()) + ")";
       case BitCount n -> "(bitCount " + lineOf.applyAsInt(n.child()) + ")";
       case MathUnary n -> "(math:" + n.fn().name() + " " + lineOf.applyAsInt(n.child()) + ")";
+      case RoundToIntegral n ->
+          "(round:" + n.mode().name() + " " + lineOf.applyAsInt(n.child()) + ")";
     };
   }
 
@@ -2382,6 +2419,7 @@ public sealed interface VarkaVectorIR
       case BitOp n -> new VarkaVectorIR[] {n.left(), n.right()};
       case BitCount n -> new VarkaVectorIR[] {n.child()};
       case MathUnary n -> new VarkaVectorIR[] {n.child()};
+      case RoundToIntegral n -> new VarkaVectorIR[] {n.child()};
     };
   }
 
@@ -2461,6 +2499,7 @@ public sealed interface VarkaVectorIR
       case BitOp n -> new BitOp(n.op(), children[0], children[1]);
       case BitCount n -> new BitCount(children[0]);
       case MathUnary n -> new MathUnary(n.fn(), children[0]);
+      case RoundToIntegral n -> new RoundToIntegral(n.mode(), children[0]);
     };
   }
 

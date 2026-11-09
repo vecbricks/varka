@@ -368,7 +368,7 @@ final class VarkaDivisionLowering {
    * two bit patterns are package-private for {@code VarkaProofFiles}, which renders them into the
    * form's proof (VARKA-241).
    */
-  private static final double TWO_52 = 4503599627370496.0;
+  private static final double TWO_52 = VarkaRoundingLowering.TWO_52;
   static final long TWO_52_BITS = 0x4330000000000000L;
   static final long MANTISSA_52 = 0x000FFFFFFFFFFFFFL;
 
@@ -441,10 +441,7 @@ final class VarkaDivisionLowering {
     // and the mask is produced from the two values it then has to follow.
     cb.astore(quotient);                                        // []
     cb.aload(quotient);
-    cb.loadConstant(TWO_52);
-    cb.invokevirtual(DOUBLE_VECTOR, "add", LANEWISE_VD);
-    cb.loadConstant(TWO_52);
-    cb.invokevirtual(DOUBLE_VECTOR, "sub", LANEWISE_VD);        // [round(q)]
+    VarkaRoundingLowering.emitRoundToNearest(cb);               // [round(q)]
     cb.astore(rounded);                                         // []
     cb.aload(rounded);
     cb.getstatic(VECTOR_OPERATORS, "GT", VO_COMPARISON);
