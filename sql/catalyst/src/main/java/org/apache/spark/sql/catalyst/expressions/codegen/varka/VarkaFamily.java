@@ -49,9 +49,9 @@ public enum VarkaFamily {
   /** {@code VarkaChronoCompiler}. */
   CALENDAR("calendar", "calendar", "day arithmetic (date_add, date_sub, datediff, unix_date,"
       + " date_from_unix_date), the calendar fields (year to weekofyear), make_date, last_day,"
-      + " next_day, trunc, add_months and a date plus a year-month interval, the same fields and"
-      + " month shifts of a TIMESTAMP_NTZ through its date, and a TIMESTAMP_NTZ plus or minus a"
-      + " year-month interval or timestampadd of months, quarters or years"),
+      + " next_day, trunc, add_months and a date plus a year-month interval, and the same fields"
+      + " and month shifts of a TIMESTAMP_NTZ through its date, its sum with a year-month interval"
+      + " and timestampadd of months, quarters or years"),
   /** {@code VarkaIntervalCompiler}. */
   INTERVAL("interval", "interval", "year-month interval arithmetic, negation and abs,"
       + " make_ym_interval, the year and month extractions, the multiply by an int and the"
