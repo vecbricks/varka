@@ -73,9 +73,6 @@ BENCHMARKS = [
 OWED = {
     ("benchmark", "FLOAT"): "row 341 (the floating lanes, after their split)",
     ("benchmark", "DOUBLE"): "row 341 (the floating lanes, after their split)",
-    # A decimal pair counts fused only when it fuses at every precision up to 38 (m8/PLAN.md 2.8),
-    # so the comparisons and null tests row 347 fuses up to precision 18 are a note, not a claim.
-    ("census", "DecimalType"): "row 359 (a decimal pair fused at every precision, PLAN.md 2.8)",
 }
 
 
