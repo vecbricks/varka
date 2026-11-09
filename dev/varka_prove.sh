@@ -36,6 +36,12 @@
 # and is missing or not at its pinned version. Under --solver both every check must meet its
 # expectation under each solver, so the two agree.
 #
+# A header line "; prelude: <name>.smt2" before the set-logic line asks for a second prelude of
+# this directory, inserted after java.smt2 (VARKA-506 2.5); a file named so is a prelude, which is
+# not run on its own, and is refused when named to run, as java.smt2 is. The name is a plain file
+# name of the proof's own directory, not a path and not java.smt2; a run with no prelude (the
+# self-test's bit-vector files) inserts no second one either.
+#
 # A solver is taken from $VARKA_Z3 or $VARKA_CVC5, else from target/varka-solvers/, else from the
 # shared directory every worktree of a machine can read ($VARKA_SOLVERS_DIR, by default
 # ~/.cache/varka-solvers/, laid out as target/varka-solvers/ is), else from PATH.
@@ -187,16 +193,53 @@ read_verdicts() {
     }'
 }
 
+# The second preludes FILE... ask for, one per line, each as its "; prelude: <name>" line before
+# set-logic writes it; any such line counts, so a malformed one is refused, not skipped.
+asked_preludes() {
+  awk 'FNR == 1 { look = 1 } /^\(set-logic / { look = 0 }
+    look && /^; prelude:/ { sub(/^; prelude: */, ""); print ($0 == "" ? "(none)" : $0); look = 0 }
+  ' "$@"
+}
+
+# Whether FILE is a prelude: java.smt2, or a file a proof beside it names as its second.
+is_prelude() {
+  local base
+  base="$(basename "$1")"
+  [ "$base" = java.smt2 ] || asked_preludes "$(dirname "$1")"/*.smt2 | grep -qxF -- "$base"
+}
+
 # run_file SOLVER PATH FILE [PRELUDE]: runs FILE, with PRELUDE (java.smt2 unless given, none when
-# empty) inserted after its set-logic line, prints a line for it, and fails if anything failed.
+# empty) and the second prelude it asks for inserted after its set-logic line, prints a line for
+# it, and fails if anything failed.
 run_file() {
   local name="$1" solver="$2" file="$3" prelude="${4-$proofs/java.smt2}"
-  local input expected start out status report rc ms checks
+  local input expected start out status report rc ms checks second
+  if is_prelude "$file"; then
+    printf '%-5s %-28s refused: a prelude, which is not run on its own\n' \
+      "$name" "$(basename "$file")"
+    return 1
+  fi
+  second=""
+  [ -n "$prelude" ] && second="$(asked_preludes "$file")"
+  if [ -n "$second" ]; then
+    if [[ ! "$second" =~ ^[A-Za-z0-9_]+\.smt2$ ]] || [ "$second" = java.smt2 ]; then
+      printf '%-5s %-28s refused: asks for the prelude %s, not a file name beside java.smt2\n' \
+        "$name" "$(basename "$file")" "$second"
+      return 1
+    fi
+    if [ ! -f "$(dirname "$file")/$second" ]; then
+      printf '%-5s %-28s asks for the prelude %s, which is not beside it\n' \
+        "$name" "$(basename "$file")" "$second"
+      return 1
+    fi
+    second="$(dirname "$file")/$second"
+  fi
   input="$(mktemp --suffix=.smt2)"
-  if ! awk -v prelude="$prelude" '
+  if ! awk -v prelude="$prelude" -v second="$second" '
       { print }
       /^\(set-logic / && !done {
         if (prelude != "") { while ((getline l < prelude) > 0) print l }
+        if (second != "") { while ((getline l < second) > 0) print l }
         done = 1
       }
       END { exit !done }' "$file" > "$input"; then
@@ -297,6 +340,34 @@ EOF
 (set-logic QF_NIA)
 (echo "a check whose verdict never comes: expect sat")
 EOF
+  # A file asking for a second prelude, which defines what its check reads, and one asking for a
+  # prelude that is not there.
+  cat > "$dir/second.smt2" <<'EOF'
+(define-fun spec.twice ((x Int)) Int (* 2 x))
+EOF
+  cat > "$dir/asks.smt2" <<'EOF'
+; prelude: second.smt2
+(set-logic QF_NIA)
+(echo "the second prelude's definition is there, after java.smt2's: expect unsat")
+(push 1)
+(assert (not (= (spec.twice jint.MAX) (+ jint.MAX jint.MAX))))
+(check-sat)
+(pop 1)
+EOF
+  sed 's/second.smt2/absent.smt2/' "$dir/asks.smt2" > "$dir/asks_absent.smt2"
+  sed 's/second.smt2/java.smt2/' "$dir/asks.smt2" > "$dir/asks_java.smt2"
+  sed 's#second.smt2#../second.smt2#' "$dir/asks.smt2" > "$dir/asks_path.smt2"
+  # A check that reads only the second prelude, so it holds with the prelude and, run with none,
+  # fails only if the second is left out too.
+  cat > "$dir/bare.smt2" <<'EOF'
+; prelude: second.smt2
+(set-logic QF_NIA)
+(echo "the second prelude's definition is there: expect unsat")
+(push 1)
+(assert (not (= (spec.twice 3) 6)))
+(check-sat)
+(pop 1)
+EOF
   expect_run() {
     local what="$1" want="$2"
     shift 2
@@ -335,6 +406,29 @@ EOF
     past_limit_after_reset
   expect_run "an expectation with no verdict fails" fails \
     run_file "$name" "$solver" "$dir/missing.smt2"
+  expect_run "a file asking for a second prelude has its definitions" holds \
+    run_file "$name" "$solver" "$dir/asks.smt2"
+  expect_run "a file asking for a prelude that is not there fails" fails \
+    run_file "$name" "$solver" "$dir/asks_absent.smt2"
+  # Fails only when the run is refused, by the line that says so.
+  # shellcheck disable=SC2329
+  refused() {
+    run_file "$@" > "$dir/refused.out" 2>&1
+    cat "$dir/refused.out"
+    ! grep -q ' refused: ' "$dir/refused.out"
+  }
+  expect_run "a second prelude named to run is refused" fails \
+    refused "$name" "$solver" "$dir/second.smt2"
+  expect_run "java.smt2 named to run is refused" fails \
+    refused "$name" "$solver" "$proofs/java.smt2"
+  expect_run "a file asking for java.smt2 as its second prelude is refused" fails \
+    refused "$name" "$solver" "$dir/asks_java.smt2"
+  expect_run "a file asking for a prelude by a path is refused" fails \
+    refused "$name" "$solver" "$dir/asks_path.smt2"
+  expect_run "a file asking for a second prelude, run with the prelude, holds" holds \
+    run_file "$name" "$solver" "$dir/bare.smt2"
+  expect_run "a run with no prelude inserts no second prelude" fails \
+    run_file "$name" "$solver" "$dir/bare.smt2" ""
   expect_run "a missing solver fails" fails \
     env "VARKA_${name^^}=$dir/no-such-solver" "$root/dev/varka_prove.sh" --solver "$name" \
     "$dir/control.smt2"
@@ -392,8 +486,9 @@ if [ "$mode" = self-test ]; then
 fi
 
 if [ "${#files[@]}" -eq 0 ]; then
+  # Every proof but the preludes: java.smt2 and each file a proof names as its second.
   for f in "$proofs"/*.smt2; do
-    [ "$(basename "$f")" = java.smt2 ] || files+=("$f")
+    is_prelude "$f" || files+=("$f")
   done
 fi
 failed=0
