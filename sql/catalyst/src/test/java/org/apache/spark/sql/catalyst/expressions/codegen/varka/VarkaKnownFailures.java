@@ -29,22 +29,25 @@ import java.util.function.Function;
 
 /**
  * The fuzz failures that are known (VARKA-277), {@code sql/varka/fuzz/known_failures.tsv}: tab
- * separated lane ({@code int} or {@code long}, or {@code projection}, {@code predicate} or
- * {@code wide} for the composition fuzzer), seed, iteration, the signature's kind, its text, and
- * the reason, which names the plan row or ticket that owns the bug; {@code #} starts a comment
- * line. A fuzzer's failure with a listed signature is reported as known and does not fail the
- * run, and a listed entry that its (lane, seed, iteration) no longer reproduces is stale and
- * fails, so the list can only shrink once a bug is fixed - as {@code matrix/skips.tsv} does for
- * the option matrix.
+ * separated lane ({@code int}, {@code long}, {@code byte} or {@code short} for the IR fuzzer, or
+ * {@code projection}, {@code predicate} or {@code wide} for the composition fuzzer), seed,
+ * iteration, the signature's kind, its text, and the reason, which names the plan row or ticket
+ * that owns the bug; {@code #} starts a comment line. A fuzzer's failure with a listed signature is
+ * reported as known and does not fail the run, and a listed entry that its (lane, seed, iteration)
+ * no longer reproduces is stale and fails, so the list can only shrink once a bug is fixed - as
+ * {@code matrix/skips.tsv} does for the option matrix.
  */
 public final class VarkaKnownFailures {
 
   private VarkaKnownFailures() {
   }
 
-  /** The fuzzers a lane names: the IR fuzzer's two lanes and the composition fuzzer's four. */
+  /**
+   * The fuzzers a lane names: the IR fuzzer's int and long lanes and its narrow sequences
+   * (VARKA-352), and the composition fuzzer's four.
+   */
   public static final Set<String> LANES =
-      Set.of("int", "long", "projection", "predicate", "wide", "forced");
+      Set.of("int", "long", "byte", "short", "projection", "predicate", "wide", "forced");
 
   /** The committed list, relative to {@code spark.test.home}. */
   public static final String PATH = "sql/varka/fuzz/known_failures.tsv";

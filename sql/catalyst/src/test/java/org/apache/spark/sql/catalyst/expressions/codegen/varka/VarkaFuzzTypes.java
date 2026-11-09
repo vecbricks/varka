@@ -18,6 +18,7 @@
 package org.apache.spark.sql.catalyst.expressions.codegen.varka;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.Random;
 import java.util.function.Function;
 import java.util.function.Predicate;
@@ -50,7 +51,8 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Lan
  * <p>Nothing here draws by itself. The IR fuzzer's int, long and mixed column draws ask a
  * {@link ValueSource} for each cell, and a new sequence names its seed and draw function in an
  * {@link IrLeaf}; the cast and decimal sequences fill their columns with draws of their own,
- * which their {@link IrLeaf#cells} names.
+ * which their {@link IrLeaf#cells} names. The integral and boolean conformance suites read their
+ * values from here ({@code VarkaTypeConformance}), so a type's edges have one home.
  */
 public final class VarkaFuzzTypes {
 
@@ -229,6 +231,14 @@ public final class VarkaFuzzTypes {
   private static final IrLeaf LONG_COLUMN =
       longCorpus("col:long", false, n -> column(n, LaneType.LONG));
 
+  // The narrow sequences (VARKA-352 2.2), fuzz_byte and fuzz_short: the long lane's grammar over
+  // the narrow lane's leaves, every cell its type's value source's.
+  private static IrLeaf narrowSequence(LaneType lane, long seed) {
+    String name = lane.name().toLowerCase(Locale.ROOT);
+    return new IrLeaf("intArith(col:" + name + ")", true, n -> arithOver(n, lane), seed,
+        rnd -> VarkaIrGrammar.drawNarrowLaneShape(rnd, lane).roots(), "values:" + lane.name());
+  }
+
   // The cast sequence (VARKA-332): a TINYINT, SMALLINT, INT, BIGINT and BOOLEAN column, every cell
   // VarkaIrGrammar.castValue's, which draws the lanes' ends and the narrower lanes' around them.
   private static IrLeaf castSequence(String form, Predicate<VarkaVectorIR> reads) {
@@ -328,10 +338,10 @@ public final class VarkaFuzzTypes {
           new Present<>(castSequence("bool", n -> n instanceof BoolColumn)),
           new Owed<>("352"), new Present<>(BOOLEAN_VALUES));
       case BYTE -> entry(id,
-          new Present<>(castSequence("col:byte", n -> column(n, LaneType.BYTE))),
+          new Present<>(narrowSequence(LaneType.BYTE, VarkaIrGrammar.BYTE_FUZZ_SEED)),
           new Owed<>("352"), new Present<>(BYTE_VALUES));
       case SHORT -> entry(id,
-          new Present<>(castSequence("col:short", n -> column(n, LaneType.SHORT))),
+          new Present<>(narrowSequence(LaneType.SHORT, VarkaIrGrammar.SHORT_FUZZ_SEED)),
           new Owed<>("352"), new Present<>(SHORT_VALUES));
       case INT -> entry(id, new Present<>(INT_LANE), columns(col("i", "INT")),
           new Present<>(INT_VALUES));

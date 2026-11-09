@@ -65,6 +65,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Las
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Least;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LiteralSlot;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.MathUnary;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.RoundToIntegral;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.MakeDate;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Month;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.NarrowLane;
@@ -187,6 +188,16 @@ public final class VarkaIrGrammar {
    * reference evaluator; nothing pins its bytes.
    */
   public static final long UNSIGNED_FUZZ_SEED = 20261101L;
+
+  /**
+   * The seeds of the narrow sequences, {@code fuzz_byte} and {@code fuzz_short}
+   * ({@link #drawNarrowLaneShape}): trees whose every value is a {@code TINYINT} or a
+   * {@code SMALLINT}, sequences of their own so that no committed corpus moves (VARKA-352 2.2).
+   * {@code VarkaIrFuzzSuite} runs them against the reference evaluator and
+   * {@code VarkaEmittedBytesSuite} pins their first two thousand shapes.
+   */
+  public static final long BYTE_FUZZ_SEED = 20261109L;
+  public static final long SHORT_FUZZ_SEED = 20261110L;
 
   // The generator's magnitude bounds saturate rather than wrap, in *every* arm that combines
   // two of them - `boundsOf` and the generator alike. Four nested multiplies of a column's own
@@ -368,6 +379,7 @@ public final class VarkaIrGrammar {
       case BitCount n -> new Bounds(Long.SIZE, guard(n.child()));
       // The grammar draws no floating tree, whose values have no integer bound.
       case MathUnary n -> throw new IllegalArgumentException("a floating node: " + n);
+      case RoundToIntegral n -> throw new IllegalArgumentException("a floating node: " + n);
       // A condition as a value is 0 or 1; its condition's operands may hold producers.
       case CondValue n -> new Bounds(1L, guard(n.cond()));
       // Null everywhere, its vector zero, and no producer below it.
@@ -897,8 +909,9 @@ public final class VarkaIrGrammar {
    * A shape whose value roots carry target-carrying conversions into the narrow lanes: a
    * {@code NarrowLane} to BYTE or SHORT, alone or under a {@code WidenLane} back to the int
    * lane, and a {@code WidenLane} to INT. It exists for the withChildren and round-trip tests:
-   * the emitter fuzzer's committed sequences must not draw a narrow species, which not every
-   * host's width names, but rebuilding these needs no species at all - and a rebuild through
+   * the int corpus draws no narrow species, whose draw would move its pins (the narrow lanes have
+   * sequences of their own, {@link #drawNarrowLaneShape}), but rebuilding these needs no species
+   * at all - and a rebuild through
    * the one-argument constructor defaults a {@code NarrowLane} to INT, which is not the
    * conversion this node holds (VARKA-329).
    *
@@ -1416,6 +1429,28 @@ public final class VarkaIrGrammar {
 
   public static final long LONG_LITERAL_BOUND = 1L << 20;
 
+  /**
+   * The bound of column {@code ordinal} of a narrow sequence. Column 0 is drawn over the lane's
+   * whole range, the bound the magnitude of its least value (one past the greatest stores as the
+   * least), so that wrapping arithmetic meets both ends of the lane; a checked mode over it is
+   * never drawn, since its bound rules no overflow out. Every other column is drawn within half
+   * the lane's greatest value, 63 and 16383, so that a checked sum or difference of two of them,
+   * a negation and an {@code abs} cannot overflow, and the checked modes reach subtrees that read
+   * a column, as they do at the long lane, whose columns are bounded the same way.
+   */
+  public static long narrowColumnBound(LaneType lane, int ordinal) {
+    VarkaTypes.IntegralRange range = VarkaTypes.integralRange(lane);
+    return ordinal == 0 ? -range.min() : range.max() / 2;
+  }
+
+  /**
+   * The bound of a narrow sequence's literal: the largest value whose square is inside the lane,
+   * 11 and 181, so that two literals may be added or multiplied in a checked mode.
+   */
+  public static long narrowLiteralBound(LaneType lane) {
+    return (long) Math.sqrt(VarkaTypes.integralRange(lane).max());
+  }
+
   /** One drawn long-lane shape: the roots and the column and literal counts they read. */
   public record DrawnLong(List<VarkaVectorIR> roots, int numInputs, int numLiterals) {
     public DrawnLong {
@@ -1447,9 +1482,27 @@ public final class VarkaIrGrammar {
 
   private static DrawnLong drawLongShape(Random rnd, boolean nullingGuards,
       boolean unsignedCompares) {
+    return drawLaneShape(rnd, LaneType.LONG, nullingGuards, unsignedCompares);
+  }
+
+  /**
+   * Shape {@code k} of a narrow sequence, {@link #BYTE_FUZZ_SEED}'s at {@code BYTE} and
+   * {@link #SHORT_FUZZ_SEED}'s at {@code SHORT}: {@link #drawLongShape}'s draw with every leaf at
+   * the narrow lane, so that every value of the tree is narrow ({@link LongShapes}' narrow form).
+   */
+  public static DrawnLong drawNarrowLaneShape(Random rnd, LaneType lane) {
+    if (!lane.isNarrow()) {
+      throw new IllegalArgumentException("not a narrow lane: " + lane);
+    }
+    return drawLaneShape(rnd, lane, false, false);
+  }
+
+  private static DrawnLong drawLaneShape(Random rnd, LaneType lane, boolean nullingGuards,
+      boolean unsignedCompares) {
     int numInputs = 1 + rnd.nextInt(3);
     int numLiterals = rnd.nextInt(3);
-    var shapes = new LongShapes(rnd, numInputs, numLiterals, nullingGuards, unsignedCompares);
+    var shapes = new LongShapes(rnd, numInputs, numLiterals, nullingGuards, unsignedCompares,
+        lane);
     int depth = 1 + rnd.nextInt(4);
     List<VarkaVectorIR> roots;
     if (rnd.nextInt(5) == 0) {
@@ -1514,6 +1567,19 @@ public final class VarkaIrGrammar {
    * suite can assert a zero status), and what range a guard is given (one that contains the
    * child's bound, because a guard that fires declines the batch and the reference evaluator has
    * no spelling for that; the guards' firing is asserted in the emitter suite).
+   *
+   * <p>At a narrow lane ({@link #drawNarrowLaneShape}) it draws the same tree over leaves of that
+   * lane, a column's bound the one {@link #narrowColumnBound} gives it (the lane's whole range for
+   * the first column, half of it for the others) and a literal's one whose square fits, and
+   * leaves out what the compiler never builds there: the constant division (Spark's {@code /}
+   * over a {@code TINYINT} is a {@code DOUBLE}), the range guard (a cast guards its wider
+   * source), the shifts and {@code bit_count} (Spark widens a narrow operand of either to
+   * {@code INT}; the emitter's narrow {@code BitCount} is wrong besides, row 580), the output
+   * narrowing and, as every narrow draw, the nulling guards and the
+   * unsigned compares. A checked mode is drawn where the bounds rule out an overflow of the
+   * lane, the multiply's too, the negation is an {@code abs} half the time, and a condition may
+   * be a range set ({@code IN}), which the long lane's never is. A narrow choice draws no coin
+   * at the long lane, so the long lane's sequence is the same with or without the narrow arms.
    */
   public static final class LongShapes {
     /**
@@ -1524,11 +1590,17 @@ public final class VarkaIrGrammar {
     static final long[] LONG_DIVISORS = {2L, 3L, 7L, 60L, -60L, 1000L, 1000000L, 1000000000L,
         60000000000L, 3600000000000L, 86400000000L, -12L};
 
+    /** The bitwise operations a narrow lane computes: Spark has no narrow shift. */
+    private static final BitOpKind[] NARROW_BIT_OPS = {BitOpKind.AND, BitOpKind.OR,
+        BitOpKind.XOR};
+
     private final Random rnd;
     private final int numInputs;
     private final int numLiterals;
     private final boolean nullingGuards;
     private final boolean unsignedCompares;
+    private final LaneType lane;
+    private final long literalBound;
     private int budget = 20;
 
     public LongShapes(Random rnd, int numInputs, int numLiterals) {
@@ -1547,25 +1619,47 @@ public final class VarkaIrGrammar {
      */
     public LongShapes(Random rnd, int numInputs, int numLiterals, boolean nullingGuards,
         boolean unsignedCompares) {
+      this(rnd, numInputs, numLiterals, nullingGuards, unsignedCompares, LaneType.LONG);
+    }
+
+    private LongShapes(Random rnd, int numInputs, int numLiterals, boolean nullingGuards,
+        boolean unsignedCompares, LaneType lane) {
       this.rnd = rnd;
       this.numInputs = numInputs;
       this.numLiterals = numLiterals;
       this.nullingGuards = nullingGuards;
       this.unsignedCompares = unsignedCompares;
+      this.lane = lane;
+      this.literalBound = lane == LaneType.LONG ? LONG_LITERAL_BOUND : narrowLiteralBound(lane);
     }
 
     private static boolean saturated(long bound) {
       return bound == Long.MAX_VALUE;
     }
 
+    /** Whether a value of this bound may leave the lane: past the long lane, or a narrow one. */
+    private boolean overflows(long bound) {
+      return lane.isNarrow() ? bound > VarkaTypes.integralRange(lane).max() : saturated(bound);
+    }
+
+    /** A wrapping, failing or nulling mode, a third each. */
+    private Overflow anyMode() {
+      return switch (rnd.nextInt(3)) {
+        case 0 -> Overflow.WRAP;
+        case 1 -> Overflow.FAIL;
+        default -> Overflow.NULL;
+      };
+    }
+
     private Gen column() {
-      return new Gen(new ColumnRef(rnd.nextInt(numInputs), LaneType.LONG), LONG_COLUMN_BOUND);
+      int ordinal = rnd.nextInt(numInputs);
+      return new Gen(new ColumnRef(ordinal, lane),
+          lane == LaneType.LONG ? LONG_COLUMN_BOUND : narrowColumnBound(lane, ordinal));
     }
 
     private Gen leaf() {
       if (numLiterals > 0 && rnd.nextInt(4) == 0) {
-        return new Gen(new LiteralSlot(rnd.nextInt(numLiterals), LaneType.LONG),
-            LONG_LITERAL_BOUND);
+        return new Gen(new LiteralSlot(rnd.nextInt(numLiterals), lane), literalBound);
       }
       return column();
     }
@@ -1584,28 +1678,25 @@ public final class VarkaIrGrammar {
           Gen a = value(depth - 1);
           Gen b = rnd.nextBoolean() ? leaf() : value(depth - 1);
           long sumBound = satAdd(a.bound(), b.bound());
-          Overflow mode = saturated(sumBound)
-              ? Overflow.WRAP
-              : switch (rnd.nextInt(3)) {
-                case 0 -> Overflow.WRAP;
-                case 1 -> Overflow.FAIL;
-                default -> Overflow.NULL;
-              };
+          Overflow mode = overflows(sumBound) ? Overflow.WRAP : anyMode();
           IntOp op = rnd.nextBoolean() ? IntOp.ADD : IntOp.SUB;
           return new Gen(new IntArith(op, mode, a.node(), b.node()), sumBound);
         }
         case 2: {
-          // A checked multiply has no 64-bit overflow test, so WRAP is the only mode.
+          // A checked multiply has no 64-bit overflow test, so WRAP is the only mode at the long
+          // lane; a narrow lane checks it in the int lane (`VarkaKernelPlan`).
           Gen a = value(depth - 1);
           Gen b = value(depth - 1);
-          return new Gen(new IntArith(IntOp.MUL, Overflow.WRAP, a.node(), b.node()),
-              satMul(a.bound(), b.bound()));
+          long productBound = satMul(a.bound(), b.bound());
+          Overflow mode = lane.isNarrow() && !overflows(productBound) ? anyMode() : Overflow.WRAP;
+          return new Gen(new IntArith(IntOp.MUL, mode, a.node(), b.node()), productBound);
         }
         case 3: {
           // Negation overflows on Long.MIN_VALUE alone, which any unsaturated bound rules out.
           Gen a = value(depth - 1);
-          boolean checked = !saturated(a.bound()) && rnd.nextBoolean();
-          return new Gen(new IntNeg(checked ? Overflow.FAIL : Overflow.WRAP, a.node()),
+          boolean checked = !overflows(a.bound()) && rnd.nextBoolean();
+          boolean abs = lane.isNarrow() && rnd.nextBoolean();
+          return new Gen(new IntNeg(checked ? Overflow.FAIL : Overflow.WRAP, a.node(), abs),
               a.bound());
         }
         case 4: {
@@ -1613,7 +1704,7 @@ public final class VarkaIrGrammar {
           // the conversion form is off by one and the magic form reads the dividend modulo
           // 2^52, and neither is a bug this suite is asking about.
           Gen a = value(depth - 1);
-          if (a.bound() >= ConstDivide.EXACT_DIVIDEND_BOUND) {
+          if (lane.isNarrow() || a.bound() >= ConstDivide.EXACT_DIVIDEND_BOUND) {
             return a;
           }
           long d = LONG_DIVISORS[rnd.nextInt(LONG_DIVISORS.length)];
@@ -1625,6 +1716,9 @@ public final class VarkaIrGrammar {
         }
         case 5: {
           Gen a = value(depth - 1);
+          if (lane.isNarrow()) {
+            return a;
+          }
           if (saturated(a.bound())) {
             return new Gen(new GuardedRange(a.node(), Long.MIN_VALUE, Long.MAX_VALUE),
                 a.bound());
@@ -1649,11 +1743,20 @@ public final class VarkaIrGrammar {
           // The bitwise operations and shifts (VARKA-335), which can reach any long.
           Gen a = value(depth - 1);
           Gen b = rnd.nextBoolean() ? leaf() : value(depth - 1);
-          BitOpKind[] ops = BitOpKind.values();
+          BitOpKind[] ops = lane.isNarrow() ? NARROW_BIT_OPS : BitOpKind.values();
           return new Gen(new BitOp(ops[rnd.nextInt(ops.length)], a.node(), b.node()),
-              Long.MAX_VALUE);
+              lane.isNarrow() ? narrowColumnBound(lane, 0) : Long.MAX_VALUE);
         }
         case 10:
+          // Spark's `bit_count` of a narrow value is an INT, which the compiler builds over the
+          // value widened to the int lane: no compiled narrow tree holds the node. The IR accepts
+          // a narrow child all the same, and the emitter lowers it at the int lane's width, so a
+          // negative byte or short counts 32 sign bits where Spark's `Long.bitCount` of the
+          // sign-extended value counts 56 or 48. Row 580 of `m8/PLAN.md` owns that; this skip
+          // goes when the node refuses a narrow child or lowers at the lane's own width.
+          if (lane.isNarrow()) {
+            return value(depth - 1);
+          }
           return new Gen(new BitCount(value(depth - 1).node()), Long.SIZE);
         default: {
           Cond c = cond(depth - 1);
@@ -1676,7 +1779,8 @@ public final class VarkaIrGrammar {
         VarkaVectorIR left = value(depth).node();
         return new Compare(op, left, value(depth).node());
       }
-      return switch (rnd.nextInt(4)) {
+      // A narrow lane has a fifth arm, the range set; the long lane draws from its four alone.
+      return switch (rnd.nextInt(lane.isNarrow() ? 5 : 4)) {
         case 0 -> {
           Cond left = cond(depth - 1);
           yield new And(left, cond(depth - 1));
@@ -1686,10 +1790,32 @@ public final class VarkaIrGrammar {
           yield new Or(left, cond(depth - 1));
         }
         case 2 -> new Not(cond(depth - 1));
-        default -> rnd.nextBoolean()
-            ? new IsNotNull(new ColumnRef(rnd.nextInt(numInputs), LaneType.LONG))
+        case 3 -> rnd.nextBoolean()
+            ? new IsNotNull(new ColumnRef(rnd.nextInt(numInputs), lane))
             : new IsNotNull(cond(depth - 1));
+        default -> narrowRangeSet(depth - 1);
       };
+    }
+
+    /**
+     * A range set over a narrow value, what {@code IN} over a {@code TINYINT} or a
+     * {@code SMALLINT} compiles to: one to four sorted, disjoint ranges inside the value's bound
+     * and the lane (the node refuses a bound the lane cannot hold), so that lanes land inside
+     * ranges, between them and outside all of them.
+     */
+    private InRanges narrowRangeSet(int depth) {
+      Gen v = value(depth);
+      long span = Math.min(v.bound(), VarkaTypes.integralRange(lane).max());
+      var bounds = new ArrayList<Integer>();
+      long at = -span + rnd.nextInt((int) span + 1);
+      int ranges = 1 + rnd.nextInt(4);
+      for (int r = 0; r < ranges && at <= span; r++) {
+        long hi = Math.min(span, at + rnd.nextInt((int) (span / 4) + 1));
+        bounds.add((int) at);
+        bounds.add((int) hi);
+        at = hi + 2 + rnd.nextInt((int) (span / 4) + 1);
+      }
+      return new InRanges(v.node(), bounds);
     }
 
     /**
@@ -1702,7 +1828,7 @@ public final class VarkaIrGrammar {
      */
     public VarkaVectorIR root(int depth) {
       Gen v = value(depth);
-      if (v.bound() <= Integer.MAX_VALUE && rnd.nextInt(3) == 0) {
+      if (lane == LaneType.LONG && v.bound() <= Integer.MAX_VALUE && rnd.nextInt(3) == 0) {
         return new NarrowLane(v.node(), LaneType.INT);
       }
       return v.node();
