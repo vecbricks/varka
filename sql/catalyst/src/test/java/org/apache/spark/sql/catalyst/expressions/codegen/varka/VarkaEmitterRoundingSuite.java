@@ -452,9 +452,9 @@ public final class VarkaEmitterRoundingSuite {
   @DisplayName("bround of a tinyint at -1 under ANSI fuses inside a CASE, at the chain depth the "
       + "emitter allows")
   void narrowHalfEvenNests() {
-    // The narrow operand is widened, guarded, rounded at the int lane and narrowed back, 11
-    // deep; the comparison's widening and compare and the CASE bring it to 15, one below
-    // MAX_CHAIN_DEPTH, so the shape fuses with a node to spare.
+    // The narrow operand is widened, rounded at the int lane and narrowed back, 10 deep, the
+    // guard off the deepest path; the comparison's widening and compare and the CASE bring it
+    // to 14, two below MAX_CHAIN_DEPTH, so the shape fuses with nodes to spare.
     compile("CASE WHEN bround(y, -1) > 0 THEN bround(y, -1) ELSE 0Y END", true, "y",
         DataTypes.ByteType);
   }

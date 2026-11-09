@@ -220,10 +220,11 @@ public final class VarkaRoundingCompiler {
   private static VarkaVectorIR roundInt(VarkaVectorIR read, LaneType lane, int k,
       RoundingMode mode, boolean ansi, VarkaSlotTable literals) {
     VarkaVectorIR x = lane == LaneType.INT ? read : new WidenLane(read, LaneType.INT);
+    VarkaVectorIR guarded = null;
     if (ansi) {
       Optional<IntegralRange> w = window(lane, k, mode);
       if (w.isPresent()) {
-        x = new GuardedRange(x, w.get().min(), w.get().max(), Overflow.FAIL);
+        guarded = new GuardedRange(x, w.get().min(), w.get().max(), Overflow.FAIL);
       }
     }
     VarkaVectorIR out;
@@ -233,7 +234,7 @@ public final class VarkaRoundingCompiler {
       out = new IntArith(IntOp.MUL, Overflow.WRAP, x,
           VarkaNodeCompiler.slot(0, LaneType.INT, literals));
     } else {
-      out = remainderForm(x, BigInteger.TEN.pow(k).intValueExact(), mode, literals);
+      out = remainderForm(x, guarded, BigInteger.TEN.pow(k).intValueExact(), mode, literals);
     }
     return lane == LaneType.INT ? out : new NarrowLane(out, lane);
   }
@@ -246,8 +247,8 @@ public final class VarkaRoundingCompiler {
    * {@code DOWN}. Half away from zero and half to even are symmetric in the sign, which is why the
    * remainder's sign picks the direction. Every value is on the int lane and wraps.
    */
-  private static VarkaVectorIR remainderForm(VarkaVectorIR x, int d, RoundingMode mode,
-      VarkaSlotTable literals) {
+  private static VarkaVectorIR remainderForm(VarkaVectorIR x, @Nullable VarkaVectorIR guarded,
+      int d, RoundingMode mode, VarkaSlotTable literals) {
     VarkaVectorIR q0 = new ConstDivide(x, d);
     VarkaVectorIR dSlot = VarkaNodeCompiler.slot(d, LaneType.INT, literals);
     VarkaVectorIR q0d = new IntArith(IntOp.MUL, Overflow.WRAP, q0, dSlot);
@@ -275,13 +276,14 @@ public final class VarkaRoundingCompiler {
       down = new Compare(CompareOp.LT, new IntArith(IntOp.SUB, Overflow.WRAP, r, odd), negHalf);
     }
     // (q0 + [up] - [down]) * d, which wraps to q0 * d + [up] * d - [down] * d, so the steps are
-    // d or 0 added to and taken from the q0 * d already built for r, one multiply fewer. Each
-    // step's arms are constants: the ANSI guard sits below the conditions and q0 * d, never
-    // below an arm, so an enclosing CASE alone qualifies it. Where the operand is null the
-    // conditions are unknown and the steps 0, and q0 * d carries the null.
+    // d or 0 added to and taken from the q0 * d already built for r, one multiply fewer. The
+    // ANSI guard is read on the value path alone, as guarded - r = q0 * d: a guard reached from
+    // an IfElse's condition is never qualified by an enclosing CASE arm. Where the operand is
+    // null the conditions are unknown and the steps 0, and q0 * d carries the null.
     VarkaVectorIR zero = VarkaNodeCompiler.slot(0, LaneType.INT, literals);
+    VarkaVectorIR base = guarded == null ? q0d : new IntArith(IntOp.SUB, Overflow.WRAP, guarded, r);
     return new IntArith(IntOp.SUB, Overflow.WRAP,
-        new IntArith(IntOp.ADD, Overflow.WRAP, q0d, new IfElse(up, dSlot, zero)),
+        new IntArith(IntOp.ADD, Overflow.WRAP, base, new IfElse(up, dSlot, zero)),
         new IfElse(down, dSlot, zero));
   }
 
