@@ -50,6 +50,10 @@ object VarkaSqlResolve {
   def parse(text: String, columns: Seq[Attribute]): Expression =
     resolve(CatalystSqlParser.parseExpression(text), columns)
 
+  /** [[parse]] as [[resolveAsWritten]] resolves: before the current-time rewrite. */
+  def parseAsWritten(text: String, columns: Seq[Attribute]): Expression =
+    resolveAsWritten(CatalystSqlParser.parseExpression(text), columns)
+
   /** `e` as a projection entry named `name`, for the Java tools, as [[column]] is. */
   def named(e: Expression, name: String): NamedExpression = Alias(e, name)()
 

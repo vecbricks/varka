@@ -2286,8 +2286,7 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
    * `CAST(t AS TIMESTAMP_NTZ)` into the `make_timestamp_ntz` it compiles as (VARKA-340).
    */
   private def castsOf(row: Row): Seq[String] = {
-    val written = row.built.getOrElse(VarkaSqlResolve.resolveAsWritten(
-      org.apache.spark.sql.catalyst.parser.CatalystSqlParser.parseExpression(row.sql), columns))
+    val written = row.built.getOrElse(VarkaSqlResolve.parseAsWritten(row.sql, columns))
     written.collect {
       case c: Cast => (censusType(c.child.dataType), censusType(c.dataType), c.evalMode)
     }.collect { case (Some(from), Some(to), mode) =>

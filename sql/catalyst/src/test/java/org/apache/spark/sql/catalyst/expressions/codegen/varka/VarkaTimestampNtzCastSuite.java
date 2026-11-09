@@ -24,9 +24,9 @@ import static org.junit.jupiter.api.Assertions.fail;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
-import java.util.Arrays;
 import java.time.temporal.IsoFields;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -46,10 +46,10 @@ import org.apache.spark.sql.catalyst.expressions.Attribute;
 import org.apache.spark.sql.catalyst.expressions.Expression;
 import org.apache.spark.sql.catalyst.expressions.Literal;
 import org.apache.spark.sql.catalyst.expressions.MakeTimestampNTZ;
+import org.apache.spark.sql.catalyst.expressions.NamedExpression;
 import org.apache.spark.sql.catalyst.expressions.codegen.CompiledVarkaProjection;
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaDecline;
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaExpressionCompiler;
-import org.apache.spark.sql.catalyst.parser.CatalystSqlParser$;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaKernelChecks.LongBatch;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaKernelChecks.SparkAnswers;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.GuardedRange;
@@ -95,7 +95,7 @@ public final class VarkaTimestampNtzCastSuite {
   private final Attribute tm = VarkaSqlResolve.column("tm", new TimeType(9));
   private final List<Attribute> columns = List.of(d, ntz, tm);
 
-  /** {@code sql} resolved over the two columns, ANSI on or off. */
+  /** {@code sql} resolved over the columns, ANSI on or off. */
   private Expression resolve(String sql, boolean ansi) {
     SQLConf conf = SQLConf.get().clone();
     conf.setConfString(SQLConf.ANSI_ENABLED().key(), Boolean.toString(ansi));
@@ -445,8 +445,7 @@ public final class VarkaTimestampNtzCastSuite {
         assertTrue(answersPairs(e, lanes, times), e.sql() + " declined at " + lanes);
       }
     }
-    Expression written = VarkaSqlResolve.resolveAsWritten(
-        CatalystSqlParser$.MODULE$.parseExpression("CAST(tm AS TIMESTAMP_NTZ)"),
+    Expression written = VarkaSqlResolve.parseAsWritten("CAST(tm AS TIMESTAMP_NTZ)",
         CollectionConverters.asScala(columns).toSeq());
     String reason = declineReason(written);
     assertTrue(reason.contains("ComputeCurrentTime"), "declined with " + reason);
@@ -454,16 +453,24 @@ public final class VarkaTimestampNtzCastSuite {
 
   /** Why {@code e} declines, as the compiler reports it; empty if it fuses. */
   private String declineReason(Expression e) {
-    var entry = CollectionConverters.asScala(List.of(VarkaSqlResolve.named(e, "c"))).toSeq();
+    scala.collection.immutable.Seq<NamedExpression> entry =
+        CollectionConverters.asScala(List.of(VarkaSqlResolve.named(e, "c"))).toSeq();
     return VarkaExpressionCompiler.declines(entry, CollectionConverters.asScala(columns).toSeq(),
         VarkaMatrixRuns.BASE).values().stream().findFirst().map(VarkaDecline::reason).orElse("");
   }
 
   private byte[] emit(Expression e, int lanes) {
-    CompiledVarkaProjection plan = compile(e).orElseThrow(() ->
-        new AssertionError(e.sql() + " declines"));
-    return VarkaLoopEmitter.emit("org.apache.spark.sql.varka.execution.VarkaNtzMake",
-        plan.outputs(), plan.inputOrdinals().size(), plan.numLiterals(), null, null,
+    return emit(compiled(e), "org.apache.spark.sql.varka.execution.VarkaNtzMake", lanes);
+  }
+
+  private CompiledVarkaProjection compiled(Expression e) {
+    return compile(e).orElseThrow(() -> new AssertionError(e.sql() + " declines"));
+  }
+
+  /** {@code plan} emitted as {@code className} at {@code lanes} long lanes, or the default. */
+  private static byte[] emit(CompiledVarkaProjection plan, String className, int lanes) {
+    return VarkaLoopEmitter.emit(className, plan.outputs(), plan.inputOrdinals().size(),
+        plan.numLiterals(), null, null,
         lanes == 0 ? VarkaMatrixRuns.BASE : VarkaMatrixRuns.BASE.withLanesOverride(lanes));
   }
 
@@ -473,13 +480,10 @@ public final class VarkaTimestampNtzCastSuite {
    * declines the batch. A form over a date literal reads the time alone.
    */
   private boolean answersPairs(Expression e, int lanes, long[][] rows) {
-    CompiledVarkaProjection plan = compile(e).orElseThrow(() ->
-        new AssertionError(e.sql() + " declines"));
+    CompiledVarkaProjection plan = compiled(e);
     String className = "org.apache.spark.sql.varka.execution.VarkaNtzMake"
         + CLASS_COUNTER.incrementAndGet();
-    byte[] bytes = VarkaLoopEmitter.emit(className, plan.outputs(), plan.inputOrdinals().size(),
-        plan.numLiterals(), null, null,
-        lanes == 0 ? VarkaMatrixRuns.BASE : VarkaMatrixRuns.BASE.withLanesOverride(lanes));
+    byte[] bytes = emit(plan, className, lanes);
     var inputs = new ArrayList<Attribute>();
     for (int ordinal : plan.inputOrdinals()) {
       inputs.add(columns.get(ordinal));

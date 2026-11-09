@@ -120,7 +120,7 @@ class VarkaTimestampNtzSuite extends VarkaMaybeThrows with VarkaTestWatchdog {
   private def makeAt(rows: Seq[(Long, LocalTime)]): Seq[Row] =
     rows.zipWithIndex.map { case ((n, t), i) => Row(i, day(n), t) } :+ Row(rows.size, null, null)
 
-  /** Three batches of two; the second holds `past`. */
+  /** Three batches of two, the second holding `past`, and a fourth of the null row alone. */
   private def makePastRows(past: (Long, LocalTime)): Seq[Row] = makeAt(Seq((0L, LocalTime.NOON),
     (1L, LocalTime.MIN), past, (2L, lastMicro), (3L, lastTime), (4L, LocalTime.NOON)))
 

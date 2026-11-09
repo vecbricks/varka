@@ -418,9 +418,12 @@ kernel's bytes; the rewritten cast at every width and the unrewritten one's reas
 from the row engine with its batch fused around it, day -106,751,992 answered there with that
 batch alone declined, and the date pinning of 3.6. Coverage rows: `make_timestamp_ntz(d, t)`, over
 a date literal, and `CAST(t AS TIMESTAMP_NTZ)`, each with its domain, the add being checked. The
-Catalyst grammar gains the cast and the literal form; the column form stays out of it, since past
-the long it raises a bare `ArithmeticException`, the class the fuzzer's expected errors cannot
-hold.
+Catalyst grammar gains the literal form, which is what the cast compiles as. The cast stays out of
+it, since each of the fuzzer's two sessions reads its own current date and a comparison spanning
+midnight would differ by a day; so does the column form, which past the long raises a bare
+`ArithmeticException`, the class the fuzzer's expected errors cannot hold. The harness's domain
+check lists the literal row and the cast as total domains: only the last day whose midnight is a
+long can overflow the add, and neither date is that day.
 
 Section 0 against master at `d20b73fd45d`: item 4 holds. `ComputeCurrentTime` rewrites a cast of a
 `TIME` to `MakeTimestampNTZ(dateLit, t).replacement` (`optimizer/finishAnalysis.scala:182-191`),
