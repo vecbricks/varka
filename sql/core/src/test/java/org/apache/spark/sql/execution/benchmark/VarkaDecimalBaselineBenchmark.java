@@ -111,7 +111,10 @@ import org.apache.spark.sql.VarkaBenchmark;
  * arithmetic filters. Spark infers {@code IS NOT NULL} of each column such a filter reads, the
  * reader fuses those null tests as a filter of their own, and Spark's {@code Filter} applies the
  * decimal condition above it, so the varka on arm there times a null-test kernel under the row
- * path's condition, and the spark row path arm is the baseline.
+ * path's condition, and the spark row path arm is the baseline. The lane pair's reading half
+ * (VARKA-359) fuses whole the comparison at precision 38 and, at 38 and 20, {@code x <=> y},
+ * {@code x IS NULL} and the projected {@code x < y}; its {@code -x < y} and {@code abs(x) < y}
+ * filters are {@code NULL_TESTS}, the inferred null tests fused below them.
  * Every other section is {@code NONE}. A row that fuses more of a section sets its new class,
  * so that its fusion cannot turn a baseline section into a fused one unnoticed, and the results
  * file notes the class of each section that fuses.
@@ -392,7 +395,7 @@ public class VarkaDecimalBaselineBenchmark extends VarkaSqlBenchmarkBase {
         String type = p.type();
         out.add(new Section(type + " comparison, " + density,
             "SELECT " + x + " FROM varka_decimal WHERE " + x + " < " + y,
-            p.precision() <= 18 ? Fusion.WHOLE : Fusion.NONE));
+            Fusion.WHOLE));
         out.add(new Section(type + " arithmetic chain, " + density,
             "SELECT (" + x + " + " + y + ") * " + z + " - " + x + " AS a FROM varka_decimal",
             Fusion.NONE));
@@ -414,8 +417,18 @@ public class VarkaDecimalBaselineBenchmark extends VarkaSqlBenchmarkBase {
       out.add(new Section("extract(SECOND) over " + time + ", " + density,
           "SELECT extract(SECOND FROM " + t + ") AS a FROM varka_decimal", Fusion.WHOLE));
     }
+    // The lane pair's <=>, IS NULL and projected comparison fuse whole over the words
+    // (VARKA-359); its negation and abs are 359b's, under the null tests Spark infers, and so is
+    // its IN, under none, since Spark infers no null test from an IN.
+    Map<ComparisonShape, Fusion> pairFusion = Map.of(
+        ComparisonShape.IN, Fusion.NONE,
+        ComparisonShape.NULL_SAFE, Fusion.WHOLE,
+        ComparisonShape.IS_NULL, Fusion.WHOLE,
+        ComparisonShape.NEGATED, Fusion.NULL_TESTS,
+        ComparisonShape.ABS, Fusion.NULL_TESTS,
+        ComparisonShape.VALUE, Fusion.WHOLE);
     for (Precision p : PAIR_PRECISIONS) {
-      addComparisons(out, p, Optional.empty(), shape -> Fusion.NONE);
+      addComparisons(out, p, Optional.empty(), pairFusion::get);
     }
     // The rescaled comparison, IN, the negation, abs, <=> and the projected comparison fuse
     // whole (VARKA-348).

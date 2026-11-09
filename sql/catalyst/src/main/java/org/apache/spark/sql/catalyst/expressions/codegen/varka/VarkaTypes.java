@@ -637,7 +637,8 @@ public final class VarkaTypes {
       // Every precision is sixteen bytes a row in Arrow (`ArrowUtils.toArrowType`); the tests
       // probe one form on each side of the 64-bit boundary at precision 18. Up to it a value is
       // an unscaled long, one word of the long lane (VARKA-347); above it the value is two words,
-      // the low and the high, whose reader is row 359's. The int
+      // the low and the high, read by row 359's word leaves, whose comparisons and null tests
+      // are its first operators (VarkaDecimalCompiler's pair arm). The int
       // lane, an emission choice for precision up to 9, joins the lanes when step 4 of the row
       // builds that arm: until then a decimal leaf refuses it, so no kernel loads one there.
       // The first operators over the leaf, its comparisons and null tests, are row 348's, which
@@ -647,7 +648,7 @@ public final class VarkaTypes {
       case DECIMAL -> new Info(id, "dec", "DECIMAL(10, 2)",
           new Admission.ByPrecision(LaneType.LONG, List.of(
               new Admission.Band(VarkaVectorIR.DecimalColumn.MAX_LONG_PRECISION, 1, "347", true),
-              new Admission.Band(DecimalWords.MAX_PRECISION, 2, "359", false))),
+              new Admission.Band(DecimalWords.MAX_PRECISION, 2, "359", true))),
           new Storage.DecimalSlot(),
           List.of(DataTypes.createDecimalType(10, 2), DataTypes.createDecimalType(30, 4)),
           // The decimal conformance suite is row 359's, over both representations, by its
