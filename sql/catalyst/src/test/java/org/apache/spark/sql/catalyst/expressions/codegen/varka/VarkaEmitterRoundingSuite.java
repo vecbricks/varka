@@ -45,6 +45,7 @@ import scala.jdk.javaapi.CollectionConverters;
 import org.apache.spark.sql.catalyst.expressions.Attribute;
 import org.apache.spark.sql.catalyst.expressions.Expression;
 import org.apache.spark.sql.catalyst.expressions.GenericInternalRow;
+import org.apache.spark.sql.catalyst.expressions.RoundBase;
 import org.apache.spark.sql.catalyst.expressions.codegen.CompiledVarkaProjection;
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaExpressionCompiler;
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaGeneratedClassLoader;
@@ -314,6 +315,8 @@ public final class VarkaEmitterRoundingSuite {
     Compiled compiled = compile(sql, ansi, op.col(), op.type());
     CompiledVarkaProjection plan = compiled.plan();
     Expression expr = compiled.spark();
+    // Both sides read the parsed mode, so a parse that ignored the conf would agree with itself.
+    assertEquals(ansi, ((RoundBase) expr).ansiEnabled(), ctx + ": the parsed mode");
     VarkaEmitterFixtures.Emitted emitted = VarkaEmitterFixtures.emit(plan.outputs(),
         plan.inputOrdinals().size(), plan.numLiterals(), VarkaMatrixRuns.BASE);
     int[] lits = plan.literals().stream().mapToInt(Integer::intValue).toArray();
