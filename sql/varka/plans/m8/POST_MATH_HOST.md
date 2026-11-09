@@ -133,13 +133,14 @@ only in a NaN's bits is not counted.*
 ![Spark's own query](figures/svg/fig69-sparks-own-query.svg)
 
 *Figure 7. Spark's own query over 262,144 rows read from Parquet: the rows where each function
-differs from the same function over `StrictMath`, on the Ryzen laptop and on the Neoverse N2 Arm
-runner, both at JDK 25. On the laptop from 4,166 (`csc`) to 32,396 (`tanh`), by up to 2 ulps for
-`sec`, `csc`, `cot` and `tanh`; on Arm 13,569 for `sin`, 7,389 for `cos`, 4,418 for `sec` and
-7,954 for `csc`, by up to 2 ulps for `sec` and `csc`, and none for `tan`, `cot`, `tanh` and `cbrt`;
-on both, none for `asin`, `atan2`, `exp`, `ln`, `log10` and `pow`. Whole-stage codegen, the
-generated projection and the interpreted path gave one digest per column on each host. The EPYC
-7763 run is owed.*
+differs from the same function over `StrictMath`, on the Ryzen laptop, an EPYC 7763 GitHub runner
+and the Neoverse N2 Arm runner, all at JDK 25. On the laptop from 4,166 (`csc`) to 32,396
+(`tanh`), by up to 2 ulps for `sec`, `csc`, `cot` and `tanh`; on the EPYC 7763 the same count for
+every function and the same digest for every column, so the same bits in every row; on Arm
+13,569 for `sin`, 7,389 for `cos`, 4,418 for `sec` and 7,954 for `csc`, by up to 2 ulps for
+`sec` and `csc`, and none for `tan`, `cot`, `tanh` and `cbrt`; on all three, none for `asin`,
+`atan2`, `exp`, `ln`, `log10` and `pow`. Whole-stage codegen, the generated projection and the
+interpreted path gave one digest per column on each host.*
 
 ## What to do
 
@@ -166,12 +167,16 @@ OpenJDK builds 25.0.4.1, 21.0.12.1 and 17.0.20.1 (HotSpot): a probe compares `Ma
 `StrictMath` over 1,048,576 inputs per function, cold and hot and in each JIT tier, and a Spark
 query over a 262,144-row Parquet table runs the same functions with and without codegen. The
 same probe ran on a Neoverse N2 GitHub Arm runner and an Intel Xeon Platinum 8573C GitHub runner,
-and the Spark query on the Neoverse N2, all with Azul's Zulu 25.0.5 build. Figure 4's counts come
-from the control pass of an earlier probe on GitHub's EPYC 7763 and Neoverse N2 runners; the
-HotSpot facts are from the JDK 25 source. **[owed: the Spark query on the EPYC 7763 runner]**
+and the Spark query on the Neoverse N2 and on an EPYC 7763 GitHub runner, all with Azul's Zulu
+25.0.5 build. On the EPYC 7763 the Spark query gave the laptop's results: the same
+rows differing from fdlibm for every function, the same digest for every column. Figure 4's
+counts come from the control pass of an earlier probe on GitHub's EPYC 7763 and Neoverse N2
+runners; the HotSpot facts are from the JDK 25 source.
 The record is [`VARKA-587.md`](https://github.com/vecbricks/varka/blob/master/sql/varka/plans/m8/VARKA-587.md),
 with the Ryzen laptop's output in
 [`VARKA-587-math-host-laptop.txt`](https://github.com/vecbricks/varka/blob/master/sql/varka/plans/m8/results/VARKA-587-math-host-laptop.txt)
 and the Arm runner's in
 [`VARKA-587-math-host-arm.txt`](https://github.com/vecbricks/varka/blob/master/sql/varka/plans/m8/results/VARKA-587-math-host-arm.txt) and
-[`VARKA-587-spark-arm.txt`](https://github.com/vecbricks/varka/blob/master/sql/varka/plans/m8/results/VARKA-587-spark-arm.txt).
+[`VARKA-587-spark-arm.txt`](https://github.com/vecbricks/varka/blob/master/sql/varka/plans/m8/results/VARKA-587-spark-arm.txt),
+and the EPYC 7763 runner's Spark query in
+[`VARKA-587-spark-epyc7763.txt`](https://github.com/vecbricks/varka/blob/master/sql/varka/plans/m8/results/VARKA-587-spark-epyc7763.txt).

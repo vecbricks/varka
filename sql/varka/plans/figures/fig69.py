@@ -18,8 +18,9 @@
 """Figure 69: Spark's own query - of SparkMathHostBenchmark's 262,144 rows, how many differ from
 the same functions over StrictMath, per SQL function, with the largest difference in ulps: on the
 Ryzen laptop (part E of results/VARKA-587-math-host-laptop.txt) and on the EPYC 7763 and Neoverse
-N2 runners (results/VARKA-587-spark-epyc7763.txt and -spark-arm.txt, owed until they land). The
-script checks that whole-stage, generated and interpreted Spark give one digest per column."""
+N2 runners (results/VARKA-587-spark-epyc7763.txt and -spark-arm.txt; a runner's bars draw as
+owed until its file lands). The script checks that whole-stage, generated and interpreted Spark
+give one digest per column on every host."""
 
 import re
 
@@ -33,15 +34,18 @@ hosts = [
     ("%s (GitHub Arm runner)" % lane_cpu("mathlane-aarch64-neoverse-n2.txt"), part(SPARK_ARM, "E")),
 ]
 data = [(name, spark(lines)[0].get("whole-stage")) for name, lines in hosts]
+for _, lines in hosts:
+    modes = spark(lines)[0]
+    assert all(len({modes[m][c][2] for m in modes}) == 1 for c in modes.get("whole-stage", {}))
 lines = part(LAPTOP, "E")
-modes = spark(lines)[0]
-assert all(len({modes[m][c][2] for m in modes}) == 1 for c in modes["whole-stage"]), modes
 n = int(re.search(r"^rows: (\d+)", "\n".join(lines), re.M).group(1))
 ours = data[0][1]
 landed = [(name, wsc) for name, wsc in data if wsc]
 waiting = [name for name, wsc in data if not wsc]
 cols = [c for c, v in ours.items() if v[0]]
 zero = [c.split("(")[0] for c, v in ours.items() if not v[0]]
+# The zero line names every host only when each one that landed has those columns at 0.
+zero_everywhere = all(not wsc[c][0] for _, wsc in landed for c in ours if not ours[c][0])
 
 r = Rough(1000, 880, seed=6901)
 r.text(40, 44, "Spark's own query", size=32)
@@ -79,10 +83,13 @@ r.arrow(X0, y, X1 + 30, y)
 for v in range(0, int(TOP) + 1, 10000):
     r.line(px(v), y - 6, px(v), y + 6)
     r.text(px(v), y + 22, format(v, ","), size=16, anchor="middle", color=GREY)
+where = "the " + landed[0][0].split(" (")[0]
+if zero_everywhere and len(landed) > 1:
+    where = "every host"
 r.text(
     40,
     y + 60,
-    "%s: 0 rows on the %s" % (", ".join(zero), hosts[0][0].split(" (")[0]),
+    "%s: 0 rows on %s" % (", ".join(zero), where),
     size=17,
     color=GREY,
 )

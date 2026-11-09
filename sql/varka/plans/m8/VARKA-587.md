@@ -149,15 +149,17 @@ the JDK step, on x86 only), x86_64 and aarch64 as GitHub's runners have them; no
 | Arm, the probe's 2^20 inputs, and laptop against Arm per input | `results/VARKA-587-math-host-arm.txt` (6.1) | |
 | a third x86 CPU (Xeon Platinum 8573C), and laptop against it per input | `results/VARKA-587-math-host-x86-runner.txt` (6.1) | |
 | Spark query on Neoverse N2 | `results/VARKA-587-spark-arm.txt` (6.2) | |
-| Spark query on EPYC 7763 (pinned) | | `benchmark.yml`, 6.2 |
+| Spark query on EPYC 7763 (pinned) | `results/VARKA-587-spark-epyc7763.txt` (6.2) | |
+| EPYC 7763, the probe's 2^20 inputs, and laptop against it per input | | the post's mark, 6.4 |
 
 ## 4. The figures
 
 Each script reads the committed results, and a panel that needs an owed file draws a dashed
 "owed" placeholder until `results/VARKA-587-math-host-arm.txt` or `-epyc7763.txt` lands. The
 Arm files landed on 9 November 2026 (6.4) and fill fig64, fig66, fig67, fig68 and fig69 (and
-fig63, which the post no longer shows); fig68's panels grew to fit four diff lines. Only fig69's
-EPYC 7763 bars stay owed.
+fig63, which the post no longer shows); fig68's panels grew to fit four diff lines. The EPYC
+7763's Spark file landed the same day and fills fig69's last slot, so no figure has an owed
+panel.
 
 1. `fig62.py`, *Two libraries behind one function list*: Spark's functions in two columns,
    `Math` and `StrictMath`, each box marked by whether the laptop measured a difference (part A).
@@ -180,9 +182,8 @@ EPYC 7763 bars stay owed.
    (parts B and E) and the laptop against Arm (`-spark-arm.txt`, owed), the changed digit
    circled.
 8. `fig69.py`, *Spark's own query*: part E's rows differing per function as bars, with the
-   largest ulp; the script asserts one digest per column across the three paths. The EPYC 7763
-   and Neoverse N2 bars from `-spark-epyc7763.txt` and `-spark-arm.txt` (one owed slot until
-   they land).
+   largest ulp; the script asserts one digest per column across the three paths on every host.
+   The EPYC 7763 and Neoverse N2 bars from `-spark-epyc7763.txt` and `-spark-arm.txt`.
 
 Every figure names the machine from its results file (`mathhost.cpu`, `mathhost.lane_cpu`): the
 laptop is the AMD Ryzen AI 9 HX PRO 370. In the post: fig65 is Figure 1, fig62 2, fig66 3, fig67
@@ -248,9 +249,11 @@ sidecar go to `results/VARKA-587-spark-arm.txt` and `-spark-epyc7763.txt`.
 
 *Ran 9 November 2026*: the Neoverse N2 run is 42612241748 (from `varka-587-probe-run` at
 `f720069e66b`, the same benchmark file; CPU check "Runner CPU: Neoverse-N2"; Zulu
-25.38+109-CA), committed as `results/VARKA-587-spark-arm.txt`. The EPYC 7763 run, 42612245140,
-drew another CPU and is retried hourly; `-spark-epyc7763.txt` stays owed, and with it the
-post's two EPYC marks and fig69's EPYC bars.
+25.38+109-CA), committed as `results/VARKA-587-spark-arm.txt`. The EPYC 7763 run is 42612245140,
+attempt 3 (attempts 1 and 2 drew another CPU and stopped at the CPU check; retried hourly), job
+129309293284, 17:38 to 17:55 UTC, from the same commit; CPU check "Runner CPU: AMD EPYC 7763
+64-Core Processor"; Zulu 25.38+109-CA; committed as `results/VARKA-587-spark-epyc7763.txt`. It
+fills the post's two marks on the Spark query and fig69's EPYC bars.
 
 ### 6.3 Predictions, registered before the runs
 
@@ -280,12 +283,19 @@ both are slower without a number, or the row measures them if the owner asks (qu
    8573C equals the laptop input by input for 17 of 18 functions, and `Math.pow` differs in 3
    inputs by 1 ulp (`results/VARKA-587-math-host-x86-runner.txt` B). The two hosts differ in
    CPU and in JDK build (Ubuntu's 25.0.4.1, Zulu's 25.0.5), so the 3 are not attributed; Spark
-   calls `StrictMath.pow`. The EPYC 7763 itself stays owed (6.2).
+   calls `StrictMath.pow`. The probe never ran on an EPYC 7763: the canary's x86 leg takes the
+   CPU the pool assigns (6.1), so the post's mark "EPYC 7763 runner, the answers compared input
+   by input" stays owed. The Spark query of 6.2 on the EPYC 7763 does compare row by row, by
+   digest, over its own 262144 rows (item 4).
 4. **Held on Arm.** Spark on the Neoverse N2 (`results/VARKA-587-spark-arm.txt`): `sin` 13569
    rows, `cos` 7389, `sec` 4418, `csc` 7954 (both by up to 2 ulps), `tan`, `cot`, `tanh`,
    `cbrt` and the six `StrictMath` functions 0; one digest per column across the three paths.
    `SELECT cos(0.1)` folds to `0.9950041652780257`, fdlibm's, and `cbrt(0.22)` to
-   `0.6036810736797685`; `sin(0.48)` gives x86's `0.4617791755414829`. The EPYC 7763 half is owed.
+   `0.6036810736797685`; `sin(0.48)` gives x86's `0.4617791755414829`. **Held on the EPYC
+   7763.** Its part E (`results/VARKA-587-spark-epyc7763.txt`) equals the laptop's line for line
+   but the `host:` line's JDK build: every count, ulp and digest of the three paths, the folded
+   literals and the `reflect` rows, so the two x86 CPUs give the same bits in every row, `asin`
+   and `pow` included, whose digests differ on Arm only by a NaN's bits.
 
 **Not registered: a NaN's bits differ by architecture even in `StrictMath`.** The probe's
 `StrictMath` digests of `asin`, `acos`, `log`, `log10` and `pow` differ between the Arm runner
@@ -311,7 +321,9 @@ post keeps to values and says so in one parenthesis; the row does not chase it f
 
 The post is ready to publish with its figures, every number in it traced to a committed file by
 the quote check, the Arm and EPYC 7763 measurements of 6.1 and 6.2 committed with the post's owed
-marks replaced, and the owner has reviewed it.
+marks replaced, and the owner has reviewed it. Left on 9 November 2026: one mark, the probe's
+per-input compare on an EPYC 7763 (6.4 item 3), which no run of 6.1 or 6.2 provides; the owner
+decides whether to chase that CPU on the canary or to reword the sentence.
 
 ## 9. Read and not taken
 
