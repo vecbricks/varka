@@ -80,7 +80,8 @@
 #     CI's Python linter (dev/lint-python runs both; a hand-wrapped script that
 #     passes the first still fails the second). A missing ruff is itself a
 #     finding, because dev/lint-python skips ruff silently when it is not on PATH
-#     and CI does not.
+#     and CI does not. Both are whole-file checks, so of a merge they read only the files
+#     with a line that differs from both parents: the files the merge itself writes.
 #
 #   dev/varka_precommit.sh                 # the staged files
 #   dev/varka_precommit.sh --working-tree  # staged, unstaged and untracked
@@ -193,6 +194,40 @@ if [ "${1:-}" = "--selftest" ]; then
   printf '// Fused since VARKA-21.\n' >> "$repo/VarkaOld.java"
   scope_case "an added 'since VARKA-n'" yes "narrates history"
 
+  # The Python checks in the staged mode, merge or not: a merge is checked by the files with a
+  # line that differs from both parents, so an unformatted file the other side carries passes
+  # and one the resolution writes into does not, and a plain commit's own file is checked whole.
+  # Without ruff on PATH the finding is the missing ruff, which still says the file was read.
+  py_case() { # name expected(yes|no)
+    local out got=no
+    out="$(cd "$repo" && bare "$self" 2>&1)"
+    case "$out" in *"ruff format: "*|*"ruff not found"*) got=yes ;; esac
+    if [ "$got" != "$2" ]; then
+      echo "varka_precommit selftest: $1: expected $2, got $got"
+      fails=$((fails + 1))
+    fi
+  }
+  (
+    cd "$repo" || exit 1
+    bare git checkout -q -- VarkaOld.java
+    bare git checkout -q -b upstream
+    printf 'x=1\n' > Up.py
+    bare git add Up.py
+    bare git -c core.hooksPath=/dev/null commit -qm upstream
+    bare git checkout -q -
+    printf 'val own = 1\n' >> Old.scala
+    bare git -c core.hooksPath=/dev/null commit -qam own
+    bare git -c core.hooksPath=/dev/null merge -q --no-commit --no-ff upstream
+  ) > /dev/null 2>&1
+  py_case "a merge carrying an unformatted file of the other side" no
+  printf 'y=2\n' >> "$repo/Up.py"
+  bare git -C "$repo" add Up.py
+  py_case "a merge whose resolution writes into an unformatted file" yes
+  bare git -C "$repo" merge --abort
+  printf 'x=1\n' > "$repo/Own.py"
+  bare git -C "$repo" add Own.py
+  py_case "a commit adding an unformatted Python file" yes
+
   if [ "$outer_head" != "$(bare git -C "$root" rev-parse HEAD 2>/dev/null || echo none)" ]; then
     echo "varka_precommit selftest: the fixture moved this repository's HEAD"
     fails=$((fails + 1))
@@ -296,6 +331,14 @@ note() { findings=$((findings + 1)); echo "$1"; }
 # way past it is --no-verify, which switches every other check off too. So a line-anchored
 # finding is raised only for a line in the diff. Whole-file checks below are unaffected.
 declare -A written
+# The merge being committed, when there is one: in the staged mode with MERGE_HEAD set. Its own
+# files are those with a line that differs from both parents (`own_file`, filled below), the
+# file-level twin of the line rule; a file the merge only carries in from either side has none.
+merge_head=""
+if [ "$scoped" -eq 1 ] && [ "$diff_base" = "--cached" ]; then
+  merge_head="$(git rev-parse -q --verify MERGE_HEAD)" || merge_head=""
+fi
+declare -A own_file
 scope_file() {
   local f="$1" range start count
   if [ "$scoped" -eq 0 ]; then return; fi
@@ -311,7 +354,7 @@ scope_file() {
   done < <(git diff -U0 "$diff_base" -- "$f" | sed -n 's/^@@ -[^ ]* +\([0-9,]*\) @@.*/\1/p')
   # During a merge a line is the commit's only if the other side lacks it too: the lines the
   # merge brings in were checked on the side that wrote them.
-  if [ "$diff_base" = "--cached" ] && merge_head="$(git rev-parse -q --verify MERGE_HEAD)"; then
+  if [ -n "$merge_head" ]; then
     local -A theirs=()
     while IFS= read -r range; do
       start="${range%%,*}"; count="${range##*,}"
@@ -322,7 +365,11 @@ scope_file() {
     local key
     for key in "${!written[@]}"; do
       [[ "$key" == "$f:"* ]] || continue
-      [ -n "${theirs["${key#"$f:"}"]:-}" ] || unset 'written[$key]'
+      if [ -n "${theirs["${key#"$f:"}"]:-}" ]; then
+        own_file["$f"]=1
+      else
+        unset 'written[$key]'
+      fi
     done
   fi
 }
@@ -413,8 +460,17 @@ VarkaVectorSupport.ofAddress, so the memory sanitizer sees it (VARKA-263)"
   fi
 done
 
+# ruff answers for whole files, so a merge's Python is cut by file: the files with a line that
+# differs from both parents, which is what a merge writes (the lines VARKA-588 counts of a sync).
+# A merge of Varka's master otherwise hands ruff every upstream file an earlier apache/spark sync
+# carried, the generated *_pb2.py files and sql/gen-sql-functions-docs.py among them, which
+# apache/spark does not format and dev/lint-python, whose paths leave them out, never checks.
+# A resolution that only deletes lines writes none, and is not checked.
 py_files=()
-for f in "${files[@]}"; do [ -f "$f" ] && [[ "$f" =~ \.py$ ]] && py_files+=("$f"); done
+for f in "${files[@]}"; do
+  [ -f "$f" ] && [[ "$f" =~ \.py$ ]] || continue
+  if [ -z "$merge_head" ] || [ -n "${own_file["$f"]:-}" ]; then py_files+=("$f"); fi
+done
 if [ "${#py_files[@]}" -gt 0 ]; then
   if command -v ruff > /dev/null 2>&1; then
     while IFS= read -r hit; do
