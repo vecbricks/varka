@@ -284,8 +284,8 @@ exit 0
 AVX2_STEP = "Run this share under AVX2 at 128 bits"
 
 
-def run_avx2_step(part, suites):
-    """Runs the sweep workflow's AVX2 step for share `part` of catalyst over `suites` (fully
+def run_avx2_step(part, suites, module="catalyst"):
+    """Runs the sweep workflow's AVX2 step for share `part` of `module` over `suites` (fully
     qualified, `@own ` before one that runs alone); returns (exit status, the runner's
     arguments)."""
     doc = yaml.safe_load(SWEEPS.read_text(encoding="utf-8"))
@@ -302,7 +302,7 @@ def run_avx2_step(part, suites):
         stub.chmod(0o755)
         env = {
             "PATH": os.environ["PATH"],
-            "MODULE": "catalyst",
+            "MODULE": module,
             "PART": part,
             "STUB_SUITES": "\n".join(suites),
             "STUB_ARGS": str(tmp / "runner.args"),
@@ -342,6 +342,15 @@ class Avx2Step(unittest.TestCase):
         # Every suite once, but the one that measures the JIT.
         expected = sorted(s.rsplit(".", 1)[-1] for s in self.SUITES if "Assembly" not in s)
         self.assertEqual(sorted(ran), expected)
+
+    def test_the_sql_extra_suite_runs_in_one_share_only(self):
+        arrow = "org.apache.spark.sql.execution.columnar.ArrowCachedBatchSerializerSuite"
+        given = []
+        for part in ("0/3", "1/3", "2/3"):
+            status, args = run_avx2_step(part, self.SUITES + [arrow], module="sql")
+            self.assertEqual(status, 0, args)
+            given.append(has_run(args, "--extra-suite", f"sql:{arrow}"))
+        self.assertEqual(given.count(True), 1, given)
 
     def test_a_failing_share_fails_the_step(self):
         statuses = [

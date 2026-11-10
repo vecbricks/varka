@@ -268,7 +268,7 @@ jobs:
       # alone, without the sanitizer and with retries (dev/varka_scoped_suites.sh), since beside
       # another JVM on four cores their first compiles land late, a failure that says nothing
       # about the lowering this job checks. The sql run adds ArrowCachedBatchSerializerSuite, as
-      # the Build's does.
+      # the Build's does, in the one share that holds it.
       run: |
         set -o pipefail
         extra=()
@@ -283,9 +283,12 @@ jobs:
           "${all[@]}" | paste -sd, -) || { echo "::error::share $PART did not split"; exit 1; }
         [ -n "$mine" ] || { echo "::error::share $PART of $MODULE is empty"; exit 1; }
         echo "== share $PART of $MODULE: $mine"
+        # The runner lists an extra suite whatever --suites says, so only its share passes it.
+        mine_extra=()
+        [[ ",$mine," == *",ArrowCachedBatchSerializerSuite,"* ]] && mine_extra=("${extra[@]}")
         status=0
         ./dev/varka_matrix.sh --defaults --skip-build --build-dir target/varka-sweeps \
-          --out target/varka-avx2-128 --module "$MODULE" --suites "$mine" "${extra[@]}" \
+          --out target/varka-avx2-128 --module "$MODULE" --suites "$mine" "${mine_extra[@]}" \
           --split 2 -j 2 --split-weights sql/varka/ci/suite-times.tsv \
           --jvm-arg -XX:UseAVX=2 --jvm-arg -XX:MaxVectorSize=16 || status=$?
         {
