@@ -90,8 +90,19 @@ echo "distinct core max frequencies: $(lscpu --extended=MAXMHZ 2>/dev/null | tai
 echo "distinct core types: $(lscpu --extended=CORE,MAXMHZ 2>/dev/null | tail -n +2 | awk '{print $2}' | sort -u | wc -l)"
 java -XX:+PrintFlagsFinal -version 2>/dev/null | grep -E ' (MaxVectorSize|UseAVX|UseSVE) ' || true
 
+# With --github the CPU check also goes into the job's summary with the run's attempt number, so a
+# run that .github/workflows/varka-bench-cpu-retry.yml reruns shows each attempt's CPU there.
+summary() {
+  if [ "$github" = 1 ] && [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+    echo "$*" >> "$GITHUB_STEP_SUMMARY"
+  fi
+}
+attempt="${GITHUB_RUN_ATTEMPT:-1}"
 if [ -n "$expected_cpu" ] && ! echo "$cpu_model" | grep -qF "$expected_cpu"; then
+  summary "CPU check, attempt $attempt: expected '$expected_cpu', got '$cpu_model': failed"
   fail "CPU mismatch! Expected '$expected_cpu' but got '$cpu_model'"
+elif [ -n "$expected_cpu" ] && [ "$attempt" != 1 ]; then
+  summary "CPU check, attempt $attempt: got the expected '$expected_cpu' ($cpu_model)"
 fi
 
 # An Arm core runs the Vector API at 128 bits whatever MaxVectorSize says, so the probe, which
