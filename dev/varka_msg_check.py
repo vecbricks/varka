@@ -780,13 +780,17 @@ def size_selftest():
                 pass
         not_counted = size_findings("no-such-rev", "HEAD", cwd=tmp)
         not_counted = [] if "could not count" in "".join(not_counted) else [not_counted]
-    # #1427's first merge, the shape row 588 was written from, where this repository has it:
-    # 1335 lines by --remerge-diff, 52 that differ from both parents.
+    # #1427's first merge, the shape row 588 was written from: 1335 lines by --remerge-diff,
+    # 52 that differ from both parents. #1427 was squashed, so the merge is in a clone that
+    # fetched its branch, varka-sync-apache-1109, and not in CI's; elsewhere the case passes.
     pin = "8149ab82419d6224c57298d8f2630ef8b9c97535"
     pinned = []
-    if git(ROOT, "cat-file", "-e", f"{pin}^{{commit}}").returncode == 0:
-        pinned = sum(c for c, _, _, _ in own_rows(pin, ROOT)[0])
-        pinned = [] if pinned == 52 else [pinned]
+    if git(ROOT, "merge-base", f"{pin}^1", f"{pin}^2").returncode == 0:
+        try:
+            pinned = sum(c for c, _, _, _ in own_rows(pin, ROOT)[0])
+            pinned = [] if pinned == 52 else [pinned]
+        except ValueError as e:
+            pinned = [str(e)]
     merge_want = {
         "A.java": 1,
         "K.java": 0,
