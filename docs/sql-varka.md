@@ -1274,7 +1274,7 @@ operands (a row counts once for each type it reads):
 <!-- BEGIN generated verification counts -->
 | Type | Rows | refinement | proof | exhaustive | owed | differential |
 | :--- | ---: | ---: | ---: | ---: | ---: | ---: |
-| `bigint` | 78 | 0 | 2 | 0 | 2 | 74 |
+| `bigint` | 86 | 0 | 2 | 0 | 2 | 82 |
 | `bool` | 38 | 0 | 0 | 13 | 0 | 25 |
 | `byte` | 54 | 0 | 0 | 0 | 8 | 46 |
 | `date` | 127 | 17 | 0 | 1 | 0 | 109 |
@@ -1282,7 +1282,7 @@ operands (a row counts once for each type it reads):
 | `double` | 67 | 0 | 1 | 0 | 0 | 66 |
 | `dt` | 27 | 2 | 1 | 0 | 0 | 24 |
 | `float` | 52 | 0 | 0 | 0 | 0 | 52 |
-| `int` | 142 | 14 | 2 | 1 | 1 | 124 |
+| `int` | 158 | 14 | 2 | 1 | 1 | 140 |
 | `ntz` | 57 | 0 | 7 | 0 | 0 | 50 |
 | `short` | 52 | 0 | 0 | 0 | 8 | 44 |
 | `time` | 48 | 6 | 1 | 1 | 2 | 38 |
