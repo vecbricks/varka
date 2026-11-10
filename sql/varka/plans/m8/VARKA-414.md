@@ -145,6 +145,92 @@ The cause is recorded in section 9 with both messages and the stack; and either 
 with errors identical to Spark's in `VarkaYmDivideSuite` and the coverage differential, or it stays
 declined with the reason in its decline string and in this file.
 
-## 9. Outcome
+## 9. Outcome (9 November 2026)
 
-(Step 1's messages and stack, then the fix.)
+Step 1 ran on the laptop, as 2.1 planned, on master `b90e6799220` (which carries SPARK-60746 from
+the sync in #1427) with the arm rebuilt. The cause is read, it is none of H1 to H3 as stated, and
+`-1` stays declined (2.2's H4 branch), with the reason in its decline string.
+
+**SPARK-60746 first.** On this master the two paths of `DivideYMInterval` reach one function:
+`IntervalDivide.doGenCode` passes `errCtx = origin.context` to `IntervalMathUtils.divide`
+(`intervalExpressions.scala:739`, `:748`), and the interpreted `evalFunc` calls the same overload
+with `origin.context` (`:766`); `IntervalMathUtils.divide(Int, Long, QueryContext)` raises
+`INTERVAL_ARITHMETIC_OVERFLOW.WITH_SUGGESTION` with `try_divide` and the context on
+`Int.MinValue / -1` (`util/IntervalMathUtils.scala:55-59`). So H3 was moot before the run: one
+condition, with the context, in both paths.
+
+**The arm rebuilt** (in `divide`, after the operand, in place of the `d == -1` decline):
+
+```java
+if (d == -1) {
+  return Optional.of(new IntNeg(negationMode(months, literals, sink), months));
+}
+```
+
+**What both engines raised** for `SELECT ym / -1 AS a FROM varka_ymd_min` (`Int.MinValue` months),
+under ANSI:
+
+| | Spark | Varka with the arm |
+|---|---|---|
+| condition, state | `INTERVAL_ARITHMETIC_OVERFLOW.WITH_SUGGESTION`, `22015` | the same |
+| parameters | `functionName` = `` `try_divide` `` | the same |
+| query context | `SQLQueryContext(line 1, position 7, 7..13, the SQL text)` | `SQLQueryContext` with every field `None` |
+| message | the first line, then `== SQL (line 1, position 8) ==` and the caret under `ym / -1` | the first line alone |
+| top frames | `IntervalMathUtils.divide` (`:59`) in `GeneratedIteratorForCodegenStage1.processNext` | `IntervalMathUtils.divide` (`:59`) in `SpecificUnsafeProjection.apply`, from `VarkaColumnarToRowEvaluator.fallback` (`VarkaColumnarToRowExec.scala:385`) |
+
+So the kernel declined the batch as designed (not H1), and the fallback evaluated Spark's own
+`DivideYMInterval`, not the lowering (0 item 4 held). That is H2's stack, but not H2's cause: the
+rule hands the projection list through unchanged, and no Varka rewrite copies the node.
+
+**The cause: the origin does not survive serialization.** `TreeNode` is not `Serializable` (its
+`javap` signature lists `Product`, `TreePatternBits` and `WithOrigin`), so Java serialization
+skips its fields and, on the way back, runs its constructor, which reads `origin` from
+`CurrentOrigin` again: empty on an executor. A second run (arm reverted) showed it directly: a
+`DivideYMInterval` built under `Origin(line 1, position 7)` comes back from
+`Utils.serialize`/`deserialize` with every field of its origin `None`. Spark's whole-stage code
+keeps the context because it is generated on the driver, where `errCtx` is put into the
+references array, and a `QueryContext` serializes. Varka's fallback and merge projections are
+`UnsafeProjection.create` calls inside the evaluator, on the executor, over the deserialized
+projection list (`VarkaColumnarToRowExec.scala:315`, `:338-355`), so a `DivideYMInterval` there
+reads an empty origin. The expressions that carry their context in a `SupportQueryContext` field
+(`Add`, `Cast`, `MakeYMInterval` and most others) keep it, since that field is the concrete
+class's and serializes; `DivideYMInterval` and `DivideDTInterval` read `origin.context` when they
+evaluate or generate code, so they are the ones that lose it.
+
+**What the same run showed beyond the arm.**
+
+* *Spark alone loses it too.* With `spark.sql.codegen.wholeStage=false` the row engine raises
+  the same error with no `== SQL ==` block: `ProjectExec.doExecute` builds its projection on the
+  executor as Varka's fallback does. The defect is upstream, in the two divisions that read
+  `origin.context` instead of carrying `SupportQueryContext`.
+* *The decline does not protect every query.* On today's master, with `-1` declined,
+  `SELECT ym / 2 AS a, ym / -1 AS b FROM varka_ymd_min` fuses `ym / 2`, leaves `ym / -1` to the
+  merge projection, and raises without the block where Spark raises with it. The decline keeps
+  the block only for a projection with nothing else to fuse, which then stays Spark's
+  whole-stage code. By the same mechanism, though not run, any residual `DivideYMInterval` or
+  `DivideDTInterval` that raises (`ym / 0`, a column divisor that is zero) loses it too.
+* *0 item 6 was never evidence about the context.* The declined `(ym + ym2) / 7` raises from
+  `IntervalMathUtils.addExact`, which passes a `null` context in both engines, so the two agreed
+  without either carrying a block.
+
+**Why `-1` stays declined.** Fusing it would move the solo `ym / -1` from Spark's whole-stage
+code, whose error is right, to the fallback, whose error is not; the arm gains one divisor and
+loses the context for the query that has it today. The fix is not in the arm, and neither route
+to it is this row's (1, non-goal): see question 2. The decline string now names the reason and
+this file: "interval divided by -1 raises at Int.MinValue, and a declined batch's fallback would
+raise it without its SQL context (VARKA-414)".
+
+**Predictions (4).** 1: wrong as registered. The stack was H2's, as predicted, but the cause was
+neither the kernel nor a rewrite. 2: wrong; `-1` does not fuse, and `emitted_bytes.json` gains no
+row. 3: not scored; no test was added.
+
+## 10. Questions the outcome adds for the owner
+
+2. **Where the error context is restored.** (a) Upstream: `DivideYMInterval` and
+   `DivideDTInterval` mix in `SupportQueryContext` as `MakeYMInterval` does, which also fixes
+   Spark's own non-whole-stage path, and reaches Varka through a sync as SPARK-60746 did; then
+   `-1` fuses with no Varka change beyond the arm above. (b) Varka: the evaluator's fallback and
+   merge projections are generated on the driver, as whole-stage code is, and shipped as code and
+   references; this fixes every residual raise of such an expression, the mixed query above
+   included, and is a row of its own. *Recommended: (a)*, with (b) a candidate row only if
+   upstream declines (a), since (a) fixes the mixed query too once it syncs.

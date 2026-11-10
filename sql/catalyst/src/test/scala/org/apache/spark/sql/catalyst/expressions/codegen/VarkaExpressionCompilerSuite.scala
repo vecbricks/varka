@@ -1453,7 +1453,8 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     assert(declineReason(DivideYMInterval(ymm, Literal(0)), withIntervals) ===
       "interval divided by a literal zero raises")
     assert(declineReason(DivideYMInterval(ymm, Literal(-1)), withIntervals) ===
-      "interval divided by -1 overflows at Int.MinValue, which the row engine raises on")
+      "interval divided by -1 raises at Int.MinValue, and a declined batch's fallback would " +
+        "raise it without its SQL context (VARKA-414)")
     assert(declineReason(DivideYMInterval(ymm, Literal(2L)), withIntervals) ===
       "interval divisor of type bigint takes LongMath.divide, which the int lane does not " +
         "lower")
