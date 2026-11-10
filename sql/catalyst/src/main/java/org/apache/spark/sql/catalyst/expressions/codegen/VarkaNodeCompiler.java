@@ -83,6 +83,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaDerivedKind;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaErrors;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaFamily;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaRangeAnalysis;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaValueRange;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaOperandPosition;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTypes;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR;
@@ -555,6 +556,16 @@ final class VarkaNodeCompiler {
           () -> intArith(IntOp.SUB, a.evalMode(), a.left(), a.right(), a, inputs, literals, sink);
       case Multiply a when isInt(a) ->
           () -> intArith(IntOp.MUL, a.evalMode(), a.left(), a.right(), a, inputs, literals, sink);
+      // BIGINT arithmetic (VARKA-104): the int arms' nodes on the long lane, with the overflow
+      // test at 64 bits. A checked sum or difference keeps its test unless the long lattice
+      // bounds every leaf (`CAST(i AS BIGINT) + 1`); a bare bigint column is unbounded, so
+      // `l + 1` keeps it. A checked multiply fuses only where the bound rules out overflow.
+      case Add a when isLong(a) ->
+          () -> intArith(IntOp.ADD, a.evalMode(), a.left(), a.right(), a, inputs, literals, sink);
+      case Subtract a when isLong(a) ->
+          () -> intArith(IntOp.SUB, a.evalMode(), a.left(), a.right(), a, inputs, literals, sink);
+      case Multiply a when isLong(a) ->
+          () -> intArith(IntOp.MUL, a.evalMode(), a.left(), a.right(), a, inputs, literals, sink);
       // The narrow lanes' arithmetic (VARKA-330): a `TINYINT` or `SMALLINT` operation wraps at
       // its own width, and its three modes are Spark's there rather than at 32 bits. The result
       // type is the left operand's, so both operands are of the node's narrow type after
@@ -605,6 +616,16 @@ final class VarkaNodeCompiler {
             boolean checked = n.failOnError() && !boundedByIntMax(x, literals, sink);
             return (VarkaVectorIR) new IntNeg(checked ? Overflow.FAIL : Overflow.WRAP, x);
           });
+      // The long negation and `abs` (VARKA-104): the one overflowing input is `Long.MinValue`,
+      // checked under ANSI unless the long lattice rules it out. Spark has no try_negative or
+      // try_abs, so the mode is WRAP or FAIL; `abs` is `x < 0 ? negateExact(x) : x` under ANSI
+      // and `Math.abs` otherwise, whose `abs(Long.MinValue)` is `Long.MinValue`.
+      case UnaryMinus n when isLong(n) -> () -> longOperand(n.child(), inputs, literals, sink)
+          .map(x -> (VarkaVectorIR) new IntNeg(
+              longNegationMode(n.failOnError(), x, literals, sink), x));
+      case Abs a when isLong(a) -> () -> longOperand(a.child(), inputs, literals, sink)
+          .map(x -> (VarkaVectorIR) new IntNeg(
+              longNegationMode(a.failOnError(), x, literals, sink), x, true));
       // A narrow negation is the same node at its own width (VARKA-330): `-(-128Y)` is the byte
       // that the negation cannot represent, so the check is on the lane's minimum. Spark has no
       // try_negative here either, so the mode is WRAP or FAIL; ANSI always keeps the check,
@@ -1120,12 +1141,56 @@ final class VarkaNodeCompiler {
    */
   static boolean boundedByIntMax(VarkaVectorIR node, VarkaSlotTable literals, DeclineSink sink) {
     var columns = new ArrayList<Integer>();
-    OptionalLong m = VarkaRangeAnalysis.magnitude(node, literalAt(literals), columns::add);
+    OptionalLong m = VarkaRangeAnalysis.range(node, VarkaRangeAnalysis.Kind.INT,
+        VarkaRangeAnalysis.GuardPolicy.NONE, rangeLiterals(literals, sink), columns::add)
+        .magnitude();
     boolean bounded = m.isPresent() && m.getAsLong() <= Integer.MAX_VALUE;
     if (bounded) {
       columns.forEach(sink::dayColumnBound);
     }
     return bounded;
+  }
+
+  /**
+   * Both literal tables as {@link VarkaRangeAnalysis} reads them: the int table through
+   * {@link #literalAt}, the long one through {@code sink}, which holds it.
+   */
+  static VarkaRangeAnalysis.Literals rangeLiterals(VarkaSlotTable literals, DeclineSink sink) {
+    return new VarkaRangeAnalysis.Literals(literalAt(literals), sink::longLiteralAt);
+  }
+
+  /**
+   * Whether {@code candidate}, a checked operation's node built only to ask, cannot overflow its
+   * lane. On the int lane that is {@link #boundedByIntMax}. On the long lane it is whether the
+   * candidate's range is bounded at all: the lattice saturates an interval that would leave the
+   * {@code long} to unknown, so a bounded long range is one no lane wraps to reach
+   * ({@code VARKA-104.md} 3.2, risk 1). On a narrow lane the range is unknown, so a narrow node
+   * keeps its check.
+   */
+  static boolean cannotOverflow(VarkaVectorIR candidate, VarkaSlotTable literals,
+      DeclineSink sink) {
+    if (candidate.laneType() != LaneType.LONG) {
+      return boundedByIntMax(candidate, literals, sink);
+    }
+    var columns = new ArrayList<Integer>();
+    boolean bounded = VarkaRangeAnalysis.range(candidate, VarkaRangeAnalysis.Kind.INT,
+        VarkaRangeAnalysis.GuardPolicy.NONE, rangeLiterals(literals, sink), columns::add)
+        instanceof VarkaValueRange.Bounded;
+    if (bounded) {
+      columns.forEach(sink::dayColumnBound);
+    }
+    return bounded;
+  }
+
+  /**
+   * The mode of a long negation or {@code abs} whose Spark expression raises on overflow when
+   * {@code failOnError} is set: {@code FAIL} unless the lattice rules out {@code Long.MinValue},
+   * which it does exactly where the negation's own range is bounded.
+   */
+  private static Overflow longNegationMode(boolean failOnError, VarkaVectorIR x,
+      VarkaSlotTable literals, DeclineSink sink) {
+    return failOnError && !cannotOverflow(new IntNeg(Overflow.WRAP, x), literals, sink)
+        ? Overflow.FAIL : Overflow.WRAP;
   }
 
   /**
@@ -1139,15 +1204,16 @@ final class VarkaNodeCompiler {
    */
   static boolean cannotOverflow(
       IntOp op, VarkaVectorIR l, VarkaVectorIR r, VarkaSlotTable literals, DeclineSink sink) {
-    return boundedByIntMax(new IntArith(op, Overflow.WRAP, l, r), literals, sink);
+    return cannotOverflow(new IntArith(op, Overflow.WRAP, l, r), literals, sink);
   }
 
   /**
-   * The shared body of the three binary arithmetic arms. A checked multiply declines unless the
-   * operands' bounds prove it cannot overflow: the overflow test for {@code *} needs the 64-bit
-   * product or a lane division, and the emitter has neither in int lanes, so an unprovable
-   * {@code ANSI} or {@code TRY} multiply stays on the row engine until milestone 5's long lanes
-   * arrive ({@code VARKA-63.md} 3.4).
+   * The shared body of the three binary arithmetic arms, on the int lane and, for a
+   * {@code BIGINT} node, on the long one. A checked multiply declines unless the operands' bounds
+   * prove it cannot overflow: the overflow test for {@code *} needs the product at twice the
+   * lane's width or a lane division, and the emitter has neither, so an unprovable {@code ANSI} or
+   * {@code TRY} multiply stays on the row engine ({@code VARKA-63.md} 3.4, {@code VARKA-104.md}
+   * 3.3).
    */
   private static Optional<VarkaVectorIR> intArith(
       IntOp op,
@@ -1159,11 +1225,13 @@ final class VarkaNodeCompiler {
       VarkaSlotTable literals,
       DeclineSink sink) {
     int mark = literals.size();
-    Optional<VarkaVectorIR> x = intOperand(l, inputs, literals, sink);
+    Optional<VarkaVectorIR> x = isLong(whole) ? longOperand(l, inputs, literals, sink)
+        : intOperand(l, inputs, literals, sink);
     if (x.isEmpty()) {
       return x;
     }
-    Optional<VarkaVectorIR> y = intOperand(r, inputs, literals, sink);
+    Optional<VarkaVectorIR> y = isLong(whole) ? longOperand(r, inputs, literals, sink)
+        : intOperand(r, inputs, literals, sink);
     if (y.isEmpty()) {
       return y;
     }
@@ -1253,7 +1321,10 @@ final class VarkaNodeCompiler {
         : declared;
     if (op == IntOp.MUL && overflow != Overflow.WRAP && !narrow) {
       literals.truncate(mark);
-      return sink.decline("checked int multiply whose operands do not rule out overflow", whole);
+      return sink.decline(x.laneType() == LaneType.LONG
+          ? "checked bigint multiply whose operands do not rule out overflow (row 104's 128-bit "
+              + "product, VARKA-104.md 3.3)"
+          : "checked int multiply whose operands do not rule out overflow", whole);
     }
     return Optional.of(new IntArith(op, overflow, x, y));
   }

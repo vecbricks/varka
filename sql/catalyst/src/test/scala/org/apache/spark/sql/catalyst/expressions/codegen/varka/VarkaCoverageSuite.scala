@@ -443,6 +443,26 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
       Row("try_subtract(s1, s2)", "an overflowing lane is null"),
       Row("try_multiply(s1, s2)", "an overflowing lane is null"))),
 
+    // BIGINT arithmetic (VARKA-104): the int arms' nodes on the long lane, checked at 64 bits.
+    // A checked multiply over a bigint column declines, as an int one does; only a product the
+    // long lattice bounds fuses under ANSI.
+    Family("Bigint arithmetic", predicates = false, Seq(
+      Row("l + l2", "checked under ANSI at 64 bits; the legacy mode wraps as Spark does",
+        domain = Some(s"l BETWEEN ${Long.MinValue / 2} AND ${Long.MaxValue / 2} " +
+          s"AND l2 BETWEEN ${Long.MinValue / 2} AND ${Long.MaxValue / 2}")),
+      Row("l - l2", "checked subtraction at 64 bits",
+        domain = Some(s"l BETWEEN ${Long.MinValue / 2} AND ${Long.MaxValue / 2} " +
+          s"AND l2 BETWEEN ${Long.MinValue / 2} AND ${Long.MaxValue / 2}")),
+      Row("l + 1", "a literal does not bound a bigint column, so the check stays",
+        domain = Some(s"l < ${Long.MaxValue}")),
+      Row("CAST(i AS BIGINT) * 1000L", "a widened int times a literal cannot leave the long, "
+        + "so the multiply fuses with no check; `l * 3` over a bigint column declines"),
+      Row("-l", "negation raises on Long.MinValue only", domain = Some(s"l > ${Long.MinValue}")),
+      Row("abs(l)", "`abs(Long.MinValue)` is out of range, and wraps back to itself in the legacy "
+        + "mode", domain = Some(s"l > ${Long.MinValue}")),
+      Row("try_add(l, l2)", "an overflowing lane is null, so the kernel declines nothing"),
+      Row("try_subtract(l, l2)", "an overflowing lane is null"))),
+
     Family("Bitwise and shifts", predicates = false, Seq(
       Row("i & 255"),
       Row("i | 4096"),
@@ -593,9 +613,9 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
       Row("ym IS NULL"),
       Row("ym IS NOT NULL"))),
 
-    // The long lane (VARKA-29): three types, their comparisons and IN. Arithmetic over them is
-    // VARKA-104 (`bigint`), VARKA-102 (`TIME`) and VARKA-103 (intervals), and stays out of this
-    // table until then. The short IN lists hold values the differential fixtures hold.
+    // The long lane (VARKA-29): three types, their comparisons and IN. Arithmetic over a bigint
+    // is the family above (VARKA-104); over `TIME` and intervals it is VARKA-102's and
+    // VARKA-103's. The short IN lists hold values the differential fixtures hold.
     Family("Long-lane predicates", predicates = true, Seq(
       Row("l > l2"),
       Row("l = l2"),

@@ -3102,11 +3102,62 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     assert(orMix.exists(_.fused.lane(VarkaEmitOptions.DEFAULTS) == LaneType.LONG))
   }
 
-  test("long arithmetic stays declined: it is VARKA-104's") {
-    val add = VarkaExpressionCompiler.compilePartial(
-      Seq(out(DateAdd(d, Literal(1))), out(Add(l, Literal(1L)))), withLong).get
-    assert(add.specs.asScala.toSeq === Seq(new FusedOutput(0), VarkaOutputSpec.RESIDUAL))
-    assert(add.declines.asScala(1).reason === "unsupported expression")
+  /** The fused outputs of `es` compiled over the long-lane columns. */
+  private def longOutputs(es: Expression*): Seq[VarkaVectorIR] =
+    VarkaExpressionCompiler.compile(es.map(out), withLong).get.outputs.asScala.toSeq
+
+  test("bigint +, - and * take Spark's three modes on the long lane (VARKA-104)") {
+    val modes = Seq(EvalMode.LEGACY -> Overflow.WRAP, EvalMode.ANSI -> Overflow.FAIL,
+      EvalMode.TRY -> Overflow.NULL)
+    for ((mode, overflow) <- modes) {
+      withClue(mode) {
+        assert(longOutputs(Add(l, l2, mode), Subtract(l, l2, mode)) === Seq(
+          new IntArith(IntOp.ADD, overflow, longCol, longCol2),
+          new IntArith(IntOp.SUB, overflow, longCol, longCol2)))
+      }
+    }
+    // A bare bigint column is unbounded, so a literal operand leaves the check where it is:
+    // `Long.MaxValue + 1` overflows.
+    assert(longOutputs(Add(l, Literal(1L), EvalMode.ANSI)) === Seq(
+      new IntArith(IntOp.ADD, Overflow.FAIL, longCol, longSlot(0))))
+    assert(longOutputs(Multiply(l, l2, EvalMode.LEGACY)) === Seq(
+      new IntArith(IntOp.MUL, Overflow.WRAP, longCol, longCol2)))
+  }
+
+  test("the long lattice takes a check off only where every leaf is bounded") {
+    // A widened int is within the int range, so a sum with a literal and a product with one
+    // below 2^32 cannot leave the long: both emit wrapping. The same sum over a bigint column
+    // keeps its check (above), and so does a product whose factor can reach 2^63.
+    val widened = new WidenLane(new ColumnRef(0))
+    assert(longOutputs(Add(Cast(i, LongType), Literal(1L), EvalMode.ANSI)) === Seq(
+      new IntArith(IntOp.ADD, Overflow.WRAP, widened, longSlot(0))))
+    assert(longOutputs(Multiply(Cast(i, LongType), Literal(1000L), EvalMode.ANSI)) === Seq(
+      new IntArith(IntOp.MUL, Overflow.WRAP, widened, longSlot(0))))
+    assert(longOutputs(Multiply(Cast(i, LongType), Cast(i, LongType), EvalMode.TRY)) === Seq(
+      new IntArith(IntOp.MUL, Overflow.WRAP, widened, widened)))
+    assert(declineReason(Multiply(Cast(i, LongType), Literal(1L << 33), EvalMode.ANSI),
+      withLong) === "checked bigint multiply whose operands do not rule out overflow (row " +
+      "104's 128-bit product, VARKA-104.md 3.3)")
+    for (mode <- Seq(EvalMode.ANSI, EvalMode.TRY)) {
+      assert(declineReason(Multiply(l, Literal(3L), mode), withLong).startsWith(
+        "checked bigint multiply"), mode)
+    }
+    // A long literal is read from the long table, not through the int one at the same index:
+    // `i + 1` takes int slot 0 for its 1, and `l2`'s product with 5000000000 is unbounded.
+    val mixed = VarkaExpressionCompiler.compilePartial(Seq(
+      out(Cast(Add(i, Literal(1), EvalMode.LEGACY), LongType)),
+      out(Multiply(Cast(i, LongType), Literal(5000000000L), EvalMode.ANSI))), withLong).get
+    assert(mixed.declines.asScala(1).reason.startsWith("checked bigint multiply"))
+  }
+
+  test("bigint negation and abs check Long.MinValue under ANSI and wrap under LEGACY") {
+    assert(longOutputs(UnaryMinus(l, failOnError = true), Abs(l, failOnError = true)) === Seq(
+      new IntNeg(Overflow.FAIL, longCol), new IntNeg(Overflow.FAIL, longCol, true)))
+    assert(longOutputs(UnaryMinus(l, failOnError = false), Abs(l, failOnError = false)) === Seq(
+      new IntNeg(Overflow.WRAP, longCol), new IntNeg(Overflow.WRAP, longCol, true)))
+    // A widened int never reaches Long.MinValue.
+    assert(longOutputs(UnaryMinus(Cast(i, LongType), failOnError = true)) === Seq(
+      new IntNeg(Overflow.WRAP, new WidenLane(new ColumnRef(0)))))
   }
 
   test("a bigint IN beside a date comparison fuses both conjuncts at the long lane") {

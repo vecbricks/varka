@@ -22,6 +22,7 @@ import java.util.IdentityHashMap;
 import java.util.OptionalLong;
 import java.util.Set;
 import java.util.function.IntConsumer;
+import java.util.function.IntFunction;
 import java.util.function.IntUnaryOperator;
 
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaValueRange.Range;
@@ -84,15 +85,24 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Yea
  * <p><b>Kind.</b> The IR says which lane a node is on and nothing else about its type: a
  * {@link ColumnRef} is an ordinal and a lane width, and
  * {@link Greatest}, {@link Least} and {@link IfElse} are the same node whether they hold epoch
- * days or ints. So the query says what it is asking about. Under {@link Kind#DAY} a column is
+ * days or ints. So the query says what it is asking about, and {@link Kind#INT} asks for a
+ * node's integer value on its own lane, the int lane's or the long lane's. Under
+ * {@link Kind#DAY} a column is
  * the column bound, {@code [CONTRACT_MIN_DAYS, CONTRACT_MAX_DAYS]} - checked per batch wherever
  * an answer rests on it, see {@link #CONTRACT} - and a hull node
  * is the hull of its branches; under {@link Kind#INT} a column is unknown and so is a hull. The
  * parent decides the child's kind: both {@link DateDiff} operands and every {@code days()} child
  * are days, both {@link IntArith} operands and {@link IntNeg}'s child are ints, and a hull node
  * passes its own kind down. A node asked for the kind it does not produce answers
- * {@link VarkaValueRange#UNKNOWN}, as does any node on a lane wider than int32, whose values
- * this analysis has neither a contract nor a literal table for.
+ * {@link VarkaValueRange#UNKNOWN}, as does a node on any lane but the int and the long ones.
+ *
+ * <p><b>The long lane</b> (VARKA-104) is answered for {@code INT} only and has no contract: a
+ * {@code bigint} column is unknown, so a checked operation over one keeps its check. What it
+ * bounds is a tree whose every leaf is bounded - a long literal, read from the long table of
+ * {@link Literals}, a widened int, at most the int range, and a {@link GuardedRange}'s own bounds.
+ * Its saturation is the lattice's own: an interval operation that would leave the {@code long}
+ * answers unknown, so a bounded long range is a set of values no lane wrapped to reach, and an
+ * operation whose candidate range is bounded cannot overflow the long lane.
  *
  * <p><b>Policy.</b> A column-driven day offset ({@code date_add(d, i)} with a column {@code i})
  * is bounded only by the runtime guard a calendar consumer above it arms, which declines a batch
@@ -114,15 +124,29 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Yea
  *
  * <p>The switch over the sealed IR is exhaustive, so a node type without a transfer function
  * does not compile - which is the protection the two traversals this replaces did not have. The
- * literal table crosses in as a function from slot index to value and is read at call time,
- * never snapshotted: the compiler's table grows as compilation proceeds and is truncated on
- * every decline.
+ * literal tables cross in as functions from slot index to value ({@link Literals}) and are read
+ * at call time, never snapshotted: the compiler's tables grow as compilation proceeds and are
+ * truncated on every decline.
  */
 public final class VarkaRangeAnalysis {
 
   private VarkaRangeAnalysis() {}
 
-  /** What a query asks about: epoch days or int32 values. */
+  /**
+   * The compiler's two literal tables as the analysis reads them: a slot of a lane of 32 bits or
+   * fewer indexes {@code ints}, a long-lane slot {@code longs}, which answers empty where the
+   * caller has no long table. Two accessors rather than one widened, so that a long slot index
+   * can never be read through the int table, whose slot of the same index holds another value.
+   */
+  public record Literals(IntUnaryOperator ints, IntFunction<OptionalLong> longs) {
+
+    /** The int table alone: every long slot reads as unknown. */
+    public static Literals intsOnly(IntUnaryOperator ints) {
+      return new Literals(ints, slot -> OptionalLong.empty());
+    }
+  }
+
+  /** What a query asks about: epoch days or integer values. */
   public enum Kind { DAY, INT }
 
   /** Whether a calendar consumer above the queried node has armed the producer guards. */
@@ -143,6 +167,9 @@ public final class VarkaRangeAnalysis {
 
   /** What a caller that does not act on the columns an answer rests on passes for them. */
   public static final IntConsumer NO_COLUMNS = slot -> { };
+
+  /** Every value an int lane holds: what a widened int is on the long lane. */
+  static final Range INT_RANGE = VarkaValueRange.of(Integer.MIN_VALUE, Integer.MAX_VALUE);
 
   /** The range a guarded day producer's own result is held to, and {@link GuardedDay}'s. */
   public static final Range NARROW =
@@ -229,6 +256,13 @@ public final class VarkaRangeAnalysis {
    */
   public static Range range(VarkaVectorIR node, Kind kind, GuardPolicy policy,
       IntUnaryOperator literals, IntConsumer columns) {
+    return range(node, kind, policy, Literals.intsOnly(literals), columns);
+  }
+
+  /** {@link #range(VarkaVectorIR, Kind, GuardPolicy, IntUnaryOperator, IntConsumer)} over both
+   * literal tables, the form that ranges the long lane's literals. */
+  public static Range range(VarkaVectorIR node, Kind kind, GuardPolicy policy,
+      Literals literals, IntConsumer columns) {
     // A narrow column holds its type's values by representation, null rows included, so its
     // range is the type's and rests on no per-batch check: what a cast of it to INT carries into
     // the int lane, where it rules out the overflow of `CAST(y AS INT) * CAST(y2 AS INT)` for both
@@ -239,12 +273,13 @@ public final class VarkaRangeAnalysis {
           ? VarkaValueRange.of(Byte.MIN_VALUE, Byte.MAX_VALUE)
           : VarkaValueRange.of(Short.MIN_VALUE, Short.MAX_VALUE);
     }
-    // A leaf on a wider lane has neither of the two things this analysis reads: the epoch-day
-    // contract is an int32 statement, and `literals` hands back an int, which cannot carry a
-    // 64-bit constant. Answering UNKNOWN is the safe direction - it keeps every guard the
-    // caller would otherwise elide - and it is what a wider lane gets until the analysis has a
-    // contract and a literal table of its own.
-    if (node.laneType() != VarkaVectorIR.LaneType.INT) {
+    // Another lane has neither of the two things this analysis reads: the epoch-day contract is
+    // an int32 statement, and its values have no table here. Answering UNKNOWN is the safe
+    // direction - it keeps every guard the caller would otherwise elide. The long lane is asked
+    // for its integer value only, with no contract: its column is unknown below, as an int
+    // column is, and its literals are read from their own table.
+    if (node.laneType() != VarkaVectorIR.LaneType.INT
+        && (node.laneType() != VarkaVectorIR.LaneType.LONG || kind != Kind.INT)) {
       return VarkaValueRange.UNKNOWN;
     }
     return switch (node) {
@@ -262,8 +297,14 @@ public final class VarkaRangeAnalysis {
         columns.accept(c.ordinal());
         yield CONTRACT;
       }
+      // A long literal is its point: the long lane's arithmetic is interval arithmetic, with no
+      // magnitude rule to reproduce.
+      case LiteralSlot s when s.lane() == VarkaVectorIR.LaneType.LONG -> {
+        OptionalLong v = literals.longs().apply(s.index());
+        yield v.isPresent() ? VarkaValueRange.point(v.getAsLong()) : VarkaValueRange.UNKNOWN;
+      }
       case LiteralSlot s -> {
-        long v = literals.applyAsInt(s.index());
+        long v = literals.ints().applyAsInt(s.index());
         yield kind == Kind.DAY ? VarkaValueRange.point(v) : VarkaValueRange.symmetric(Math.abs(v));
       }
       case AddDays n -> kind != Kind.DAY ? VarkaValueRange.UNKNOWN
@@ -291,9 +332,8 @@ public final class VarkaRangeAnalysis {
       case GuardedDay n -> kind != Kind.DAY ? VarkaValueRange.UNKNOWN : NARROW;
       // A range guard's own bounds are what leaves it, whatever the child was - the same
       // promise the day guard makes, with the bounds the node names - asked as days (a date
-      // column guarded by the column bound, VARKA-379) or as ints. The long lane is UNKNOWN
-      // throughout, above, and its callers prove their bounds structurally (VARKA-102) or
-      // through a guard like this one; the popcount's bound below is the int lane's alone.
+      // column guarded by the column bound, VARKA-379) or as ints, on the int lane and the long
+      // one alike; the popcount's bound below is the int lane's alone.
       // Under a NULL guard the bounds hold on live lanes only: a lane outside them is null and
       // keeps its value, which a consumer's validity hides and a guard's word AND excludes.
       case GuardedRange n -> VarkaValueRange.of(n.lo(), n.hi());
@@ -302,6 +342,14 @@ public final class VarkaRangeAnalysis {
       // dividend.
       // A conversion with a floating side: the lattice tracks no floating value (VARKA-343).
       case ConvertLane _ -> VarkaValueRange.UNKNOWN;
+      // An int widened to the long lane is in the int range whatever its child is, and in the
+      // child's own range where that fits the int lane: an int interval past it may hold a
+      // value the int lane wrapped, which the widening carries over as it is.
+      case WidenLane n when n.laneType() == VarkaVectorIR.LaneType.LONG
+          && n.child().laneType() == VarkaVectorIR.LaneType.INT -> {
+        Range child = range(n.child(), Kind.INT, policy, literals, columns);
+        yield child.fitsInt() ? child : INT_RANGE;
+      }
       case WidenLane n -> kind != Kind.INT ? VarkaValueRange.UNKNOWN
           : range(n.child(), Kind.INT, policy, literals, columns);
       // A 32-bit value computed in the long lane, whose ranges this lattice does not track, bar
@@ -351,8 +399,8 @@ public final class VarkaRangeAnalysis {
       // A condition as a value is 0 or 1 where it is known; an unknown row is null, whose value
       // no consumer reads.
       case CondValue n -> kind != Kind.INT ? VarkaValueRange.UNKNOWN : VarkaValueRange.of(0, 1);
-      // Null on every lane, and its vector zero: the zero is what a consumer computes over. The
-      // int lane's only: a null of any other lane is answered UNKNOWN above, a floating one too.
+      // Null on every lane, and its vector zero: the zero is what a consumer computes over, on
+      // the int and the long lane; a null of any other lane is answered UNKNOWN above.
       case VarkaVectorIR.NullValue n -> VarkaValueRange.point(0);
       // A condition has no value of its own, and a boolean output's bits are no lane value.
       case BoolOutput b -> VarkaValueRange.UNKNOWN;
@@ -366,7 +414,7 @@ public final class VarkaRangeAnalysis {
    */
   public static Range range(VarkaVectorIR node, Kind kind, GuardPolicy policy,
       IntUnaryOperator literals) {
-    return range(node, kind, policy, literals, NO_COLUMNS);
+    return range(node, kind, policy, Literals.intsOnly(literals), NO_COLUMNS);
   }
 
   /**
@@ -375,7 +423,8 @@ public final class VarkaRangeAnalysis {
    */
   public static OptionalLong magnitude(VarkaVectorIR node, IntUnaryOperator literals,
       IntConsumer columns) {
-    return range(node, Kind.INT, GuardPolicy.NONE, literals, columns).magnitude();
+    return range(node, Kind.INT, GuardPolicy.NONE, Literals.intsOnly(literals), columns)
+        .magnitude();
   }
 
   /** {@link #magnitude(VarkaVectorIR, IntUnaryOperator, IntConsumer)}, reporting nothing. */
@@ -480,7 +529,7 @@ public final class VarkaRangeAnalysis {
   }
 
   private static Range hull(VarkaVectorIR a, VarkaVectorIR b, Kind kind, GuardPolicy policy,
-      IntUnaryOperator literals, IntConsumer columns) {
+      Literals literals, IntConsumer columns) {
     if (kind != Kind.DAY) {
       return VarkaValueRange.UNKNOWN;
     }
@@ -497,9 +546,9 @@ public final class VarkaRangeAnalysis {
    * known interval and the calendar admission tests the widened one.
    */
   private static Range dayShift(VarkaVectorIR days, VarkaVectorIR offset, int sign,
-      GuardPolicy policy, IntUnaryOperator literals, IntConsumer columns) {
+      GuardPolicy policy, Literals literals, IntConsumer columns) {
     if (offset instanceof LiteralSlot slot) {
-      long v = sign * (long) literals.applyAsInt(slot.index());
+      long v = sign * (long) literals.ints().applyAsInt(slot.index());
       return range(days, Kind.DAY, policy, literals, columns).shift(v, v);
     }
     if (policy == GuardPolicy.NONE) {
@@ -519,10 +568,10 @@ public final class VarkaRangeAnalysis {
    * longest-month over-approximation at the guard's extremes. Either way the node is a calendar
    * consumer and its child is asked under {@code ARMED}.
    */
-  private static Range addMonths(AddMonths n, IntUnaryOperator literals, IntConsumer columns) {
+  private static Range addMonths(AddMonths n, Literals literals, IntConsumer columns) {
     Range child = range(n.days(), Kind.DAY, GuardPolicy.ARMED, literals, columns);
     if (n.months() instanceof LiteralSlot slot) {
-      long m = literals.applyAsInt(slot.index());
+      long m = literals.ints().applyAsInt(slot.index());
       return child.shift(
           Math.min(MONTH_DAYS_MIN * m, MONTH_DAYS_MAX * m),
           Math.max(MONTH_DAYS_MIN * m, MONTH_DAYS_MAX * m));
@@ -538,7 +587,7 @@ public final class VarkaRangeAnalysis {
    * inside an operand still does. An operand interval that leaves int32 is refused, because a
    * lane that produced it wrapped on the way in.
    */
-  private static Range dateDiff(DateDiff n, IntUnaryOperator literals, IntConsumer columns) {
+  private static Range dateDiff(DateDiff n, Literals literals, IntConsumer columns) {
     Range end = range(n.end(), Kind.DAY, GuardPolicy.NONE, literals, columns);
     Range start = range(n.start(), Kind.DAY, GuardPolicy.NONE, literals, columns);
     if (end instanceof VarkaValueRange.Bounded e && start instanceof VarkaValueRange.Bounded s
@@ -556,7 +605,7 @@ public final class VarkaRangeAnalysis {
    * {@link GuardedRange}'s bounds - the sum misses the negative differences, so {@code SUB}
    * takes the true difference (VARKA-281).
    */
-  private static Range arith(IntArith n, GuardPolicy policy, IntUnaryOperator literals,
+  private static Range arith(IntArith n, GuardPolicy policy, Literals literals,
       IntConsumer columns) {
     Range l = range(n.left(), Kind.INT, policy, literals, columns);
     Range r = range(n.right(), Kind.INT, policy, literals, columns);

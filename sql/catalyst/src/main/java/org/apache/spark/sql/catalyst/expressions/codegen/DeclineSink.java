@@ -24,6 +24,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.OptionalInt;
+import java.util.OptionalLong;
 import java.util.Set;
 
 import scala.collection.immutable.Seq;
@@ -213,6 +214,20 @@ final class DeclineSink {
       longLiterals.put(bits, slot);
     }
     return new LiteralSlot(slot, lane);
+  }
+
+  /**
+   * The value in the long lane's table at {@code slot}, or empty past its end: the long half of
+   * the literal tables the range analysis reads ({@code VarkaRangeAnalysis.Literals}). A walk of
+   * the table, which holds a compile's few distinct long literals in slot order.
+   */
+  OptionalLong longLiteralAt(int slot) {
+    for (var e : longLiterals.entrySet()) {
+      if (e.getValue() == slot) {
+        return OptionalLong.of(e.getKey());
+      }
+    }
+    return OptionalLong.empty();
   }
 
   int longMark() {

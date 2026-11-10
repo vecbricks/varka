@@ -1509,9 +1509,72 @@ final class VarkaProofFiles {
               "(assert (and (<= 0 x) (< x bound) (<= 2 bound) (jint.in bound)))"),
           "(jint.div x " + d + ")", "0", "(ra.boundeddiv.hi bound " + d + ")");
     }
+    longLane(out);
     out.append("\n; The stated rules against VarkaRangeAnalysis.range, on sample trees.\n");
     equations(out, "each rule as stated is the analysis's own answer", analysisPins());
     return out.toString();
+  }
+
+  /**
+   * The long lane's half of the analysis (VARKA-104), in the form the compiler reads it: a long
+   * node's interval is bounded only where the lattice's exact arithmetic kept it within the long,
+   * so every child's lane value is its witness, and the node's lane value is then the exact
+   * value, inside its interval. The cases past the long show the bound is what makes it so: a
+   * check comes off a checked long operation only where its candidate's interval is bounded.
+   */
+  private static void longLane(StringBuilder out) {
+    out.append("\n; The long lane (VARKA-104): with every child's interval and the node's own\n"
+        + "; within the long, the lane value is the exact value, in the interval. A literal is\n"
+        + "; its point, and an int widened to the long lane is in the int range.\n");
+    String two = "(declare-const a Int) (declare-const b Int) (declare-const x Int)\n"
+        + "(declare-const c Int) (declare-const d Int) (declare-const y Int)\n"
+        + "(assert (and (<= a x) (<= x b) (<= c y) (<= y d)))\n"
+        + "(assert (and (jlong.in a) (jlong.in b) (jlong.in c) (jlong.in d)))";
+    rule(out, "Long IntArith ADD: within the long, the lane's x + y is the exact sum, in "
+        + "[a + c, b + d]", List.of(two,
+            "(assert (and (jlong.in (ra.add.lo a b c d)) (jlong.in (ra.add.hi a b c d))))"),
+        "(jlong.add x y)", "(ra.add.lo a b c d)", "(ra.add.hi a b c d)",
+        " (= (jlong.add x y) (+ x y))");
+    check(out, "Long IntArith ADD: past the long the lane's sum wraps out of the interval", "sat",
+        List.of(two, "(assert (not (and (<= (ra.add.lo a b c d) (jlong.add x y)) "
+            + "(<= (jlong.add x y) (ra.add.hi a b c d)))))"));
+    rule(out, "Long IntArith SUB: within the long, the lane's x - y is the exact difference, in "
+        + "[a - d, b - c]", List.of(two,
+            "(assert (and (jlong.in (ra.sub.lo a b c d)) (jlong.in (ra.sub.hi a b c d))))"),
+        "(jlong.sub x y)", "(ra.sub.lo a b c d)", "(ra.sub.hi a b c d)",
+        " (= (jlong.sub x y) (- x y))");
+    // The product's corners are proven over the reals above; what is left is linear: an exact
+    // product inside corners within the long is its own wrap.
+    check(out, "Long IntArith MUL: an exact product P in [lo, hi] within the long is the lane's "
+        + "product", "unsat",
+        List.of("(declare-const P Int) (declare-const lo Int) (declare-const hi Int)",
+            "(assert (and (<= lo P) (<= P hi) (jlong.in lo) (jlong.in hi)))",
+            "(assert (not (= (jlong.wrap P) P)))"));
+    check(out, "Long IntArith MUL: with the high corner one past the long it need not be", "sat",
+        List.of("(declare-const P Int) (declare-const lo Int) (declare-const hi Int)",
+            "(assert (and (<= lo P) (<= P hi) (jlong.in lo) (= hi (+ jlong.MAX 1))))",
+            "(assert (not (= (jlong.wrap P) P)))"));
+    String one = "(declare-const a Int) (declare-const b Int) (declare-const x Int)\n"
+        + "(assert (and (<= a x) (<= x b) (jlong.in a) (jlong.in b)))";
+    rule(out, "Long IntNeg: with -a within the long, the lane's -x is the exact negation, in "
+        + "[-b, -a]", List.of(one, "(assert (jlong.in (ra.neg.hi a b)))"), "(jlong.neg x)",
+        "(ra.neg.lo a b)", "(ra.neg.hi a b)", " (= (jlong.neg x) (- x))");
+    check(out, "Long IntNeg: with Long.MIN_VALUE in the interval, -a leaves the long and the "
+        + "negation wraps", "sat",
+        List.of(one, "(assert (= a jlong.MIN))",
+            "(assert (not (= (jlong.neg x) (- x))))"));
+    check(out, "WidenLane to the long lane: a widened int lane value is in the int range, and in "
+        + "its child's interval where that lies within int32", "unsat",
+        List.of("(declare-const lo Int) (declare-const hi Int) (declare-const m Int)",
+            "(assert (and (<= lo m) (<= m hi) (jint.in lo) (jint.in hi)))",
+            "(define-fun v () Int (i2l (jint.wrap m)))",
+            "(assert (not (and (jint.in v) (<= lo v) (<= v hi))))"));
+    check(out, "WidenLane to the long lane: a child interval past int32 need not hold the lane "
+        + "value, which is why the analysis answers the int range there", "sat",
+        List.of("(declare-const lo Int) (declare-const hi Int) (declare-const m Int)",
+            "(assert (and (<= lo m) (<= m hi) (= hi (+ jint.MAX 1))))",
+            "(define-fun v () Int (i2l (jint.wrap m)))",
+            "(assert (not (and (<= lo v) (<= v hi))))"));
   }
 
   /** The analysis's answers on sample trees, as equations over the stated rules. */
