@@ -47,14 +47,15 @@ import org.apache.spark.sql.internal.SQLConf;
  * <p>A baseline is only one while nothing fuses: before any section is timed, the run checks
  * each section's plan on the Varka session against the section's {@link Fusion} class, and fails
  * when the plan's class differs
- * ({@link VarkaSqlBenchmarkBase#requireBaseline(SparkSession, String, String, Fusion)}). Every
- * projection but the control is {@code NONE}: the compiler's arithmetic arms take an
- * {@code INT} or a narrower type and nothing on the long lane. The filter is {@code NULL_TESTS},
- * since the {@code IS NOT NULL} of each column the optimizer infers fuses on its own as a
- * long-lane null test under Spark's {@code Filter} while the sum declines; where the session
- * refuses a filter's condition in a 64-bit kernel (VARKA-503), as the 128-bit companion's host
- * does by default, it is {@code NONE}. The control is {@code WHOLE}, and the run also checks that
- * it runs every batch as a kernel ({@link VarkaSizeLadder#varkaFused}). A row that fuses more of
+ * ({@link VarkaSqlBenchmarkBase#requireBaseline(SparkSession, String, String, Fusion)}). Since
+ * VARKA-104 fused the arithmetic, the sums, differences, negation and {@code abs} are
+ * {@code WHOLE}, as are the LEGACY product and the filter; a checked product over a column
+ * ({@code l * 3} and {@code l * m} under ANSI, {@code try_multiply}) declines and is
+ * {@code NONE}. Where the session refuses a 64-bit kernel's masks at two lanes (VARKA-503), as
+ * the 128-bit companion's host does by default, the filter and every checked form are
+ * {@code NONE} and the wrapping forms stay {@code WHOLE}. The control is {@code WHOLE}. A
+ * {@code WHOLE} section must also run every batch as a kernel ({@link VarkaSizeLadder#varkaFused}).
+ * A row that fuses more of
  * a section sets its new class, so that its fusion cannot turn a baseline section into a fused
  * one unnoticed.
  *
@@ -124,45 +125,48 @@ public class VarkaBigintArithmeticBaselineBenchmark extends VarkaSqlBenchmarkBas
    * Every section, in the order they run: each null density, then each operation. The filter is
    * a condition in a kernel driven at 64 bits, which a session that refuses those
    * ({@code declinesLongConditions}, VARKA-503) leaves to the row path whole: the 128-bit
-   * companion's host by default.
+   * companion's host by default. The same session leaves the checked forms there too.
    */
   static List<Section> sections(boolean declinesLongConditions) {
     List<Section> out = new ArrayList<>();
     Map<String, String> legacy = Map.of(SQLConf.ANSI_ENABLED().key(), "false");
     Map<String, String> ansi = Map.of(SQLConf.ANSI_ENABLED().key(), "true");
+    // A checked form - one that raises or nulls on overflow - declines where the filter does,
+    // for the same long-lane mask (VARKA-104); a wrapping one fuses on every host.
+    Fusion checked = declinesLongConditions ? Fusion.NONE : Fusion.WHOLE;
     for (String nulls : new String[] {"", "_n"}) {
       String l = "l" + nulls;
       String density = ", " + (nulls.isEmpty() ? "no nulls" : "one row in ten null");
       String from = " AS a FROM " + VIEW;
       out.add(new Section("l + 1, ANSI" + density,
-          "SELECT " + l + " + 1" + from, ansi, Fusion.NONE));
+          "SELECT " + l + " + 1" + from, ansi, checked));
       out.add(new Section("l + l2, LEGACY" + density,
-          "SELECT " + l + " + l2" + from, legacy, Fusion.NONE));
+          "SELECT " + l + " + l2" + from, legacy, Fusion.WHOLE));
       out.add(new Section("l + l2, ANSI" + density,
-          "SELECT " + l + " + l2" + from, ansi, Fusion.NONE));
+          "SELECT " + l + " + l2" + from, ansi, checked));
       out.add(new Section("try_add(l, l2)" + density,
-          "SELECT try_add(" + l + ", l2)" + from, Map.of(), Fusion.NONE));
+          "SELECT try_add(" + l + ", l2)" + from, Map.of(), checked));
       out.add(new Section("l - l2, ANSI" + density,
-          "SELECT " + l + " - l2" + from, ansi, Fusion.NONE));
+          "SELECT " + l + " - l2" + from, ansi, checked));
       out.add(new Section("try_subtract(l, l2)" + density,
-          "SELECT try_subtract(" + l + ", l2)" + from, Map.of(), Fusion.NONE));
+          "SELECT try_subtract(" + l + ", l2)" + from, Map.of(), checked));
       out.add(new Section("l * 3, ANSI" + density,
           "SELECT " + l + " * 3" + from, ansi, Fusion.NONE));
       out.add(new Section("l * m, LEGACY" + density,
-          "SELECT " + l + " * m" + from, legacy, Fusion.NONE));
+          "SELECT " + l + " * m" + from, legacy, Fusion.WHOLE));
       out.add(new Section("l * m, ANSI" + density,
           "SELECT " + l + " * m" + from, ansi, Fusion.NONE));
       out.add(new Section("try_multiply(l, m)" + density,
           "SELECT try_multiply(" + l + ", m)" + from, Map.of(), Fusion.NONE));
       out.add(new Section("-l, ANSI" + density,
-          "SELECT -" + l + from, ansi, Fusion.NONE));
+          "SELECT -" + l + from, ansi, checked));
       out.add(new Section("abs(l), LEGACY" + density,
-          "SELECT abs(" + l + ")" + from, legacy, Fusion.NONE));
+          "SELECT abs(" + l + ")" + from, legacy, Fusion.WHOLE));
       out.add(new Section("abs(l), ANSI" + density,
-          "SELECT abs(" + l + ")" + from, ansi, Fusion.NONE));
+          "SELECT abs(" + l + ")" + from, ansi, checked));
       out.add(new Section("filter l + l2 > 0, ANSI" + density,
           "SELECT " + l + from + " WHERE " + l + " + l2 > 0", ansi,
-          declinesLongConditions ? Fusion.NONE : Fusion.NULL_TESTS));
+          declinesLongConditions ? Fusion.NONE : Fusion.WHOLE));
       out.add(new Section("l ^ l2, control, fuses today" + density,
           "SELECT " + l + " ^ l2" + from, Map.of(), Fusion.WHOLE));
     }

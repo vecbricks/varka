@@ -283,10 +283,10 @@ public final class VarkaRangeAnalysis {
       return VarkaValueRange.UNKNOWN;
     }
     return switch (node) {
-      // A long-lane leaf, answered UNKNOWN above; listed so that the switch stays exhaustive.
+      // A decimal's unscaled words are long-lane values this analysis has no table or contract
+      // for, so they are unknown.
       case DecimalColumn c -> VarkaValueRange.UNKNOWN;
       case VarkaVectorIR.DecimalWord c -> VarkaValueRange.UNKNOWN;
-      // A long-lane root, answered UNKNOWN above for the same reason.
       case WidenDecimal n -> VarkaValueRange.UNKNOWN;
       // A day column is the column bound, which the answer rests on: the caller that relies on
       // the answer has the kernel check it per batch (`columns` names the column to it).
@@ -337,14 +337,13 @@ public final class VarkaRangeAnalysis {
       // Under a NULL guard the bounds hold on live lanes only: a lane outside them is null and
       // keeps its value, which a consumer's validity hides and a guard's word AND excludes.
       case GuardedRange n -> VarkaValueRange.of(n.lo(), n.hi());
-      // A sign extension keeps every value, so an int's range is its widening's, asked as an
-      // int: what a long-lane consumer such as a division by a constant needs to know of its
-      // dividend.
       // A conversion with a floating side: the lattice tracks no floating value (VARKA-343).
       case ConvertLane _ -> VarkaValueRange.UNKNOWN;
-      // An int widened to the long lane is in the int range whatever its child is, and in the
-      // child's own range where that fits the int lane: an int interval past it may hold a
-      // value the int lane wrapped, which the widening carries over as it is.
+      // A sign extension keeps every value, so an int widened to the long lane is in the int
+      // range whatever its child is, and in the child's own range where that fits the int lane:
+      // an int interval past it may hold a value the int lane wrapped, which the widening
+      // carries over as it is. What a long-lane consumer such as a checked sum or a division by
+      // a constant needs to know of its operand.
       case WidenLane n when n.laneType() == VarkaVectorIR.LaneType.LONG
           && n.child().laneType() == VarkaVectorIR.LaneType.INT -> {
         Range child = range(n.child(), Kind.INT, policy, literals, columns);
@@ -379,7 +378,9 @@ public final class VarkaRangeAnalysis {
           : range(n.child(), Kind.INT, policy, literals, columns).neg();
       // A constant division only ever shrinks a range, so a bounded child stays bounded and an
       // unbounded one is no worse off - which is the point of the node: it needs no bound to be
-      // correct, and it hands one on where it had one.
+      // correct, and it hands one on where it had one. The node truncates, as divideBy's `/`
+      // does; on the long lane it is exact under the dividend bound its caller proved, so its
+      // lane values are the truncated quotients of values in the child's interval.
       case ConstDivide n -> kind != Kind.INT ? VarkaValueRange.UNKNOWN
           : range(n.child(), Kind.INT, policy, literals, columns).divideBy(n.divisor());
       // The bound is the node's contract, so the quotient's range follows from it alone.
@@ -389,8 +390,8 @@ public final class VarkaRangeAnalysis {
       // lane, so a node over one keeps whatever overflow check it has.
       case BitOp n -> VarkaValueRange.UNKNOWN;
       // A count of the 64 bits of the widened value, whatever the operand; answered at the int
-      // lane only, as the long lane's nodes are unknown throughout. The long lane's count is
-      // answered where it is narrowed, by the NarrowLane arm above.
+      // lane only. The long lane's count is answered where it is narrowed, by the NarrowLane arm
+      // above.
       case BitCount n -> kind != Kind.INT || n.laneType() != VarkaVectorIR.LaneType.INT
           ? VarkaValueRange.UNKNOWN : VarkaValueRange.of(0, Long.SIZE);
       // A floating value has no integer range.

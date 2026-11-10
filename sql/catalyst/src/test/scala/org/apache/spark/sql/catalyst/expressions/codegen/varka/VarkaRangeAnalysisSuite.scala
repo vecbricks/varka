@@ -19,7 +19,7 @@ package org.apache.spark.sql.catalyst.expressions.codegen.varka
 
 import java.time.LocalDate
 import java.util.Random
-import java.util.function.IntUnaryOperator
+import java.util.function.{IntConsumer, IntUnaryOperator}
 
 import scala.collection.mutable
 
@@ -367,7 +367,7 @@ class VarkaRangeAnalysisSuite extends SparkFunSuite with VarkaTestWatchdog {
     def rests(node: VarkaVectorIR, kind: Kind, policy: GuardPolicy,
         literals: IntUnaryOperator = noLits): Set[Int] = {
       val seen = mutable.Set[Int]()
-      VarkaRangeAnalysis.range(node, kind, policy, literals, i => seen += i)
+      VarkaRangeAnalysis.range(node, kind, policy, literals, (i => seen += i): IntConsumer)
       seen.toSet
     }
     val l = lits(1)

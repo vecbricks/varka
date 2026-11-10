@@ -621,11 +621,11 @@ final class VarkaNodeCompiler {
       // try_abs, so the mode is WRAP or FAIL; `abs` is `x < 0 ? negateExact(x) : x` under ANSI
       // and `Math.abs` otherwise, whose `abs(Long.MinValue)` is `Long.MinValue`.
       case UnaryMinus n when isLong(n) -> () -> longOperand(n.child(), inputs, literals, sink)
-          .map(x -> (VarkaVectorIR) new IntNeg(
-              longNegationMode(n.failOnError(), x, literals, sink), x));
+          .flatMap(x -> twoLaneChecked(new IntNeg(
+              longNegationMode(n.failOnError(), x, literals, sink), x), n, sink));
       case Abs a when isLong(a) -> () -> longOperand(a.child(), inputs, literals, sink)
-          .map(x -> (VarkaVectorIR) new IntNeg(
-              longNegationMode(a.failOnError(), x, literals, sink), x, true));
+          .flatMap(x -> twoLaneChecked(new IntNeg(
+              longNegationMode(a.failOnError(), x, literals, sink), x, true), a, sink));
       // A narrow negation is the same node at its own width (VARKA-330): `-(-128Y)` is the byte
       // that the negation cannot represent, so the check is on the lane's minimum. Spark has no
       // try_negative here either, so the mode is WRAP or FAIL; ANSI always keeps the check,
@@ -1225,6 +1225,7 @@ final class VarkaNodeCompiler {
       VarkaSlotTable literals,
       DeclineSink sink) {
     int mark = literals.size();
+    int longMark = sink.longMark();
     Optional<VarkaVectorIR> x = isLong(whole) ? longOperand(l, inputs, literals, sink)
         : intOperand(l, inputs, literals, sink);
     if (x.isEmpty()) {
@@ -1235,7 +1236,42 @@ final class VarkaNodeCompiler {
     if (y.isEmpty()) {
       return y;
     }
-    return arithOver(op, overflowOf(mode), x.get(), y.get(), whole, literals, mark, sink);
+    Optional<VarkaVectorIR> built =
+        arithOver(op, overflowOf(mode), x.get(), y.get(), whole, literals, mark, sink);
+    if (built.isPresent() && isLong(whole)) {
+      built = twoLaneChecked(built.get(), whole, sink);
+    }
+    // arithOver rolls back the int table on a decline; a bigint operand's literal is in the
+    // sink's long table, so a declined bigint operation leaves no long slot behind either.
+    if (built.isEmpty()) {
+      literals.truncate(mark);
+      sink.truncateLong(longMark);
+    }
+    return built;
+  }
+
+  /** Why a checked bigint operation declines on a two-lane host ({@link #twoLaneChecked}). */
+  static final String TWO_LANE_CHECK_REASON = "a checked bigint operation on an x86 host whose "
+      + "64-bit species have two lanes or fewer: its overflow test is a long-lane mask, which C2 "
+      + "does not lower there, so the kernel would run the Vector API's Java fallback";
+
+  /**
+   * {@code node}, a {@code BIGINT} operation in its final mode, or empty with
+   * {@link #TWO_LANE_CHECK_REASON} where the mode still raises or nulls on overflow and the
+   * session refuses those ({@link DeclineSink#declinesTwoLaneChecks}). A check the lattice took
+   * off is {@code WRAP} by now, so it stays fused, as does every LEGACY form.
+   */
+  private static Optional<VarkaVectorIR> twoLaneChecked(VarkaVectorIR node, Expression whole,
+      DeclineSink sink) {
+    Overflow mode = switch (node) {
+      case IntArith a -> a.mode();
+      case IntNeg n -> n.mode();
+      default -> Overflow.WRAP;
+    };
+    if (mode != Overflow.WRAP && sink.declinesTwoLaneChecks()) {
+      return sink.decline(TWO_LANE_CHECK_REASON, whole);
+    }
+    return Optional.of(node);
   }
 
   /**

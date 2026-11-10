@@ -19,13 +19,14 @@ package org.apache.spark.sql.catalyst.expressions.codegen.varka;
 import java.util.Set;
 
 /**
- * The session settings that decide which conjuncts the predicate compiler admits, as one value
- * every predicate entry point takes: the families switched off (VARKA-318) and whether a filter's
+ * The session settings that decide which conjuncts the predicate compiler admits and which
+ * entries a projection's compile admits, as one value every production entry point takes: the
+ * families switched off (VARKA-318) and whether a filter's
  * condition in a kernel driven at a 64-bit lane, a column of any type read on the long or the
  * {@code DOUBLE} lane, is refused on an x86 host whose 64-bit species have two lanes or fewer
  * (VARKA-503, {@link VarkaKernelPlan#admit}). Neither
  * is an emit option - neither changes a kernel's bytes -
- * and the compile at planning, EXPLAIN and the filter evaluator's compile in a task must admit
+ * and the compile at planning, EXPLAIN and the evaluator's compile in a task must admit
  * alike, so both travel with the plan in sql/core's session record, whose
  * {@code VarkaSessionEmit.admission()} every production caller passes. There is no entry point
  * that defaults it: a caller says which settings it compiles under, and a compile with no session
@@ -33,7 +34,9 @@ import java.util.Set;
  *
  * @param familiesOff the expression families switched off
  * @param declineTwoLaneConditions whether a filter's 64-bit-lane condition is left to the row
- *        engine
+ *        engine on such a host, and with it a projection's checked {@code BIGINT} operation,
+ *        whose overflow test is a long-lane mask that host does not lower either (VARKA-104);
+ *        the projection compile reads it through {@code DeclineSink.declinesTwoLaneChecks}
  */
 public record VarkaAdmission(Set<VarkaFamily> familiesOff, boolean declineTwoLaneConditions) {
 

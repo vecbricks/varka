@@ -24,8 +24,9 @@ import scala.jdk.OptionConverters._
 
 import com.fasterxml.jackson.databind.ObjectMapper
 
-import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, AttributeReference, Expression, In, InSet, Literal}
+import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, AttributeReference, Expression, In, InSet, Literal, NamedExpression}
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaExpressionCompiler
+import org.apache.spark.sql.catalyst.expressions.codegen.VarkaOutputSpec.FusedOutput
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR._
 import org.apache.spark.sql.catalyst.parser.CatalystSqlParser
 import org.apache.spark.sql.types.{BooleanType, ByteType, DateType, DayTimeIntervalType, DecimalType, DoubleType, FloatType, IntegerType, LongType, ShortType, TimestampNTZType, TimeType, YearMonthIntervalType}
@@ -149,14 +150,24 @@ object VarkaWidthAuditShapes {
       if (form == "predicate") {
         predicateRow(sql, resolved)
       } else {
-        VarkaExpressionCompiler.compile(Seq(Alias(resolved, "c")()), columns).toScala match {
+        // On the host's own terms, as a predicate row is: a two-lane x86 host refuses a checked
+        // BIGINT operation (VARKA-104) for the mask a filter's condition is refused for.
+        val entry = Seq[NamedExpression](Alias(resolved, "c")())
+        VarkaExpressionCompiler.compilePartial(entry, columns, VarkaEmitOptions.DEFAULTS,
+          hostAdmission).toScala.filter(_.specs.asScala.forall(_.isInstanceOf[FusedOutput]))
+          .map(_.fused) match {
           case Some(c) => Shape(sql, c.outputs.asScala.toSeq, c.inputOrdinals.size, c.numLiterals)
-          case None => Declined(sql, VarkaExpressionCompiler.declines(
-            Seq(Alias(resolved, "c")()), columns).asScala.values.map(_.reason).mkString("; "))
+          case None => Declined(sql, VarkaExpressionCompiler.declines(entry, columns,
+            VarkaEmitOptions.DEFAULTS, hostAdmission).asScala.values.map(_.reason).mkString("; "))
         }
       }
     }
   }
+
+  /** Every family on, and the two-lane refusals as this host answers them. */
+  private def hostAdmission: VarkaAdmission =
+    new VarkaAdmission(java.util.Set.of(),
+      VarkaKernelPlan.twoLaneMasksFallBack(VarkaHostIsa.host()))
 
   /**
    * A predicate row on the host's own terms: an x86 host at two 64-bit lanes or fewer refuses a
@@ -170,9 +181,7 @@ object VarkaWidthAuditShapes {
    */
   private def predicateRow(sql: String, resolved: Expression): Entry = {
     val explained = VarkaExpressionCompiler.explainAndCompilePredicate(resolved, columns,
-      VarkaEmitOptions.DEFAULTS,
-      new VarkaAdmission(java.util.Set.of(),
-        VarkaKernelPlan.twoLaneMasksFallBack(VarkaHostIsa.host())))
+      VarkaEmitOptions.DEFAULTS, hostAdmission)
     val specs = explained.specs.asScala.toSeq
     val refused = specs.filterNot(_.fused)
     // The spec carries the reason and not the refusal's kind; the reason is the kind's alone.

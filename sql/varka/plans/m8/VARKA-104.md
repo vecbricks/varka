@@ -372,3 +372,37 @@ without a fix (`m8/PLAN.md` 10.3 item 4).
 
 *To be written when the work lands, section by section as the plan's own rule
 asks. Nothing above is to be rewritten to look prescient.*
+
+### 9.1 Steps 2 and 3, and option A of step 4, 10 November 2026
+
+Built in one pull request, stacked on step 1b's baseline; not yet measured.
+
+* **The lattice's long half** (`VarkaRangeAnalysis`): the long lane is answered for `INT` with no
+  contract. A long literal is its point, read from the compiler's long table through
+  `Literals.longs`, a separate accessor from the int one (risk 2); a widened int is its child's
+  interval where that fits int32 and the int range otherwise; a long `GuardedRange` is its bounds.
+  A bigint column, a decimal word and a hull stay unknown. The saturation rule is the lattice's
+  own: an interval operation that leaves the `long` answers unknown, so at the long lane a check
+  comes off exactly where the candidate's range is bounded (`VarkaNodeCompiler.cannotOverflow`),
+  and at the int lane it is still `<= Integer.MAX_VALUE` (risk 1). The rules are proven in
+  `range_analysis.smt2`, each with the case past the long that shows the bound is needed (5.7).
+* **The arms**: `+`, `-` and `*` over `BIGINT` take the int arms' `intArith` on the long lane,
+  negation and `abs` an `IntNeg` whose mode is `FAIL` under ANSI unless the lattice rules out
+  `Long.MIN_VALUE`. `l + 1` keeps its check, `CAST(i AS BIGINT) + 1` and
+  `CAST(i AS BIGINT) * 1000` lose it (5.2, corrected by 0 item 2). The checked multiply is option A:
+  it fuses where the bound clears it and declines otherwise, so `l * 3` under ANSI stays on the
+  row path; B and C are step 4's remaining work. ANSI `abs` needed the one emitter change 0 item 5
+  predicted, at `VarkaVectorWalk.emitIntNeg`.
+* **The two-lane hosts (0 item 7)**: the width audit at 128 bits records every checked arm's
+  overflow mask (the long compare, the mask `or`/`and`, the mask test and broadcast) as not
+  supported by C2 at two long lanes, the Java fallback, while the control `l ^ l2` records
+  nothing. So under the setting row 503 keys its filter refusal on, a checked `BIGINT` operation
+  in a projection declines, and the wrapping forms stay fused; the projection compile now takes
+  `VarkaAdmission`, as the predicate compile did. The refusal is keyed on the `BIGINT` arms, not
+  on the IR, so row 339's checked `TIMESTAMP_NTZ` difference and sum, which make the same mask,
+  still fuse at two lanes unmeasured; that is a finding for a row of its own. Whether the checked
+  forms beat the row path there anyway, as 503's blends did, is for the baseline's 128-bit
+  companion and the after-run to say.
+* **The census**: `BIGINT` joins `+`, `-`, `*` (bounded only), `negative`, `abs`, `try_add` and
+  `try_subtract`; 104 is off the division lines (`div`, `%`, `mod`, `pmod`, `try_mod`), which are
+  row 30's (0 item 9).

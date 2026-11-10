@@ -112,6 +112,9 @@ class VarkaEmitterLongLaneSuite extends VarkaEmitterTestBase with VarkaOwnJvm {
       // the checked form refuses.
       checkLongMatrix(Seq[VarkaVectorIR](new IntNeg(Overflow.WRAP, a)), 1, noLits, lengths,
         combos(1), extremeLong, "neg WRAP over the long extremes", Some(lanes))
+      // A bigint's `abs` (VARKA-104): `abs(Long.MinValue)` is itself in the legacy mode.
+      checkLongMatrix(Seq[VarkaVectorIR](new IntNeg(Overflow.WRAP, a, true)), 1, noLits,
+        lengths, combos(1), extremeLong, "abs WRAP over the long extremes", Some(lanes))
       // FAIL condemns the batch instead of answering it, so its matrix arm runs over operands
       // no add or subtract can push out of range; the status assertion inside the matrix is
       // then the claim that it did not condemn one anyway.
@@ -121,6 +124,8 @@ class VarkaEmitterLongLaneSuite extends VarkaEmitterTestBase with VarkaOwnJvm {
       }
       checkLongMatrix(Seq[VarkaVectorIR](new IntNeg(Overflow.FAIL, a)), 1, noLits, lengths,
         combos(1), smallLong, "neg FAIL inside the long range", Some(lanes))
+      checkLongMatrix(Seq[VarkaVectorIR](new IntNeg(Overflow.FAIL, a, true)), 1, noLits,
+        lengths, combos(1), smallLong, "abs FAIL inside the long range", Some(lanes))
     }
     // The two refusals the int lane pins, re-pinned at this one: a checked multiply has no
     // correct emission at either lane - the 128-bit product VARKA-104 needs is missing at both
@@ -186,6 +191,40 @@ class VarkaEmitterLongLaneSuite extends VarkaEmitterTestBase with VarkaOwnJvm {
     } finally {
       loader.release()
       loaderOff.release()
+    }
+  }
+
+  test("a checked long negation and abs condemn the batch on Long.MinValue alone, not under a " +
+      "null (VARKA-104)") {
+    val col = new ColumnRef(0, LaneType.LONG)
+    for (abs <- Seq(false, true)) {
+      val (kernel, loader) = load(emitMulti(Seq[VarkaVectorIR](
+        new IntNeg(Overflow.FAIL, col, abs)), 1, 0))
+      try {
+        val arena = Arena.ofConfined()
+        try {
+          // Long.MinValue + 1 negates to Long.MaxValue, the last value that does not overflow.
+          def status(length: Int, at: Int, value: Long, nulled: Int => Boolean): Int = {
+            val in = makeLongInput(arena, length, nulled,
+              i => if (i == at) value else i % 7 - 3, poisonNulls = false)
+            val out = makeLongOutput(arena, length)
+            kernel.run(Array(in.data.address()), Array(in.validityAddress(length)),
+              Array(in.nullCount), Array(out._1.address()), Array(out._2.address()),
+              Array.empty[Int], Array.empty[Long], length)
+          }
+          val none = (_: Int) => false
+          withClue(s"abs=$abs") {
+            assert(status(64, 3, Long.MinValue + 1, none) === 0)
+            assert(status(64, 3, Long.MinValue, none) === VarkaFusedKernel.STATUS_INT_OVERFLOW)
+            assert(status(17, 16, Long.MinValue, none) === VarkaFusedKernel.STATUS_INT_OVERFLOW)
+            assert(status(64, 3, Long.MinValue, _ == 3) === 0)
+          }
+        } finally {
+          arena.close()
+        }
+      } finally {
+        loader.release()
+      }
     }
   }
 

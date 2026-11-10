@@ -26,7 +26,7 @@ import org.apache.spark.{SparkArithmeticException, SparkFunSuite}
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.BinaryArithmeticWithDatetimeResolver
 import org.apache.spark.sql.catalyst.analysis.FunctionRegistry
-import org.apache.spark.sql.catalyst.expressions.{Abs, Add, AddMonths, Alias, And, Attribute, AttributeReference, BoundReference, CaseWhen, Cast, Ceil, Coalesce, Concat, CurrentTime, DateAdd, DateAddYMInterval, DateDiff, DateFromUnixDate, DateSub, DayOfMonth, DayOfWeek, DayOfYear, Divide, DivideYMInterval, EqualNullSafe, EqualTo, EvalMode, Expression, Extract, ExtractANSIIntervalDays, ExtractANSIIntervalMonths, ExtractANSIIntervalYears, Floor, GreaterThan, Greatest, HoursOfTime, If, In, InheritAnalysisRules, InSet, IsNotNull, IsNull, LastDay, LeafExpression, Least, LessThan, LessThanOrEqual, Literal, MakeDate, MakeTime, MakeYMInterval, MinutesOfTime, Month, Multiply, MultiplyYMInterval, NamedExpression, NextDay, Not, NumericEvalContext, Nvl, Nvl2, Or, Quarter, Rand, Remainder, Rint, RuntimeReplaceable, SecondsOfTime, SecondsOfTimeWithFraction, Subtract, SubtractDates, SubtractTimes, TimeAddInterval, TimeDiff, TimeExpression, TimeFromMicros, TimeFromMillis, TimeFromSeconds, TimestampAddInterval, TimeToMicros, TimeToMillis, TimeToSeconds, TimeTrunc, ToTime, TruncDate, UnaryMinus, UnixDate, Upper, WeekDay, WeekOfYear, Year, YearOfWeek}
+import org.apache.spark.sql.catalyst.expressions.{Abs, Add, AddMonths, Alias, And, Attribute, AttributeReference, BoundReference, CaseWhen, Cast, Ceil, Coalesce, Concat, CurrentTime, DateAdd, DateAddYMInterval, DateDiff, DateFromUnixDate, DateSub, DayOfMonth, DayOfWeek, DayOfYear, Divide, DivideYMInterval, EqualNullSafe, EqualTo, EvalMode, Expression, Extract, ExtractANSIIntervalDays, ExtractANSIIntervalMonths, ExtractANSIIntervalYears, Floor, GreaterThan, Greatest, HoursOfTime, If, In, InheritAnalysisRules, InSet, IsNotNull, IsNull, LastDay, LeafExpression, Least, LessThan, LessThanOrEqual, Literal, MakeDate, MakeTime, MakeYMInterval, MinutesOfTime, Month, Multiply, MultiplyYMInterval, NamedExpression, NextDay, Not, NumericEvalContext, Nvl, Nvl2, Or, Quarter, Rand, Remainder, Rint, RuntimeReplaceable, SecondsOfTime, SecondsOfTimeWithFraction, Subtract, SubtractDates, SubtractTimes, SubtractTimestamps, TimeAddInterval, TimeDiff, TimeExpression, TimeFromMicros, TimeFromMillis, TimeFromSeconds, TimestampAddInterval, TimeToMicros, TimeToMillis, TimeToSeconds, TimeTrunc, ToTime, TruncDate, UnaryMinus, UnixDate, Upper, WeekDay, WeekOfYear, Year, YearOfWeek}
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaOutputSpec.{ForwardedOutput, FusedOutput, KernelOutput}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaChrono, VarkaDerivedKind, VarkaEmitOptions, VarkaEmitterTestSupport, VarkaLoopEmitter, VarkaMatrix, VarkaShapeCache, VarkaVectorIR}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaAdmission, VarkaKernelPlan, VarkaKernelWarmup, VarkaShapeKey}
@@ -3158,6 +3158,30 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     // A widened int never reaches Long.MinValue.
     assert(longOutputs(UnaryMinus(Cast(i, LongType), failOnError = true)) === Seq(
       new IntNeg(Overflow.WRAP, new WidenLane(new ColumnRef(0)))))
+  }
+
+  test("a checked bigint operation declines on a two-lane host, its wrapping forms fuse there") {
+    // The overflow test is a long-lane mask, which C2 does not lower at two 64-bit lanes, so on
+    // such a host (the setting row 503 keys its filter refusal on) the checked forms stay on the
+    // row path. What the lattice demoted to WRAP and every LEGACY form make no such mask.
+    val twoLane = new VarkaAdmission(java.util.Set.of(), true)
+    def reasons(e: Expression, admission: VarkaAdmission): Seq[String] =
+      VarkaExpressionCompiler.declines(Seq(out(e)), withLong, VarkaEmitOptions.DEFAULTS,
+        admission).asScala.values.map(_.reason).toSeq
+    val checked = Seq(Add(l, l2, EvalMode.ANSI), Add(l, l2, EvalMode.TRY),
+      Subtract(l, l2, EvalMode.ANSI), UnaryMinus(l, failOnError = true),
+      Abs(l, failOnError = true))
+    for (e <- checked) {
+      assert(reasons(e, twoLane) === Seq(VarkaNodeCompiler.TWO_LANE_CHECK_REASON), e)
+      assert(reasons(e, VarkaAdmission.NO_HOST_REFUSAL).isEmpty, e)
+    }
+    val wrapping = Seq(Add(l, l2, EvalMode.LEGACY), Abs(l, failOnError = false),
+      Add(Cast(i, LongType), Literal(1L), EvalMode.ANSI))
+    for (e <- wrapping) {
+      assert(reasons(e, twoLane).isEmpty, e)
+    }
+    // The scope is the BIGINT arms: TIMESTAMP_NTZ's checked difference (row 339) is untouched.
+    assert(reasons(SubtractTimestamps(ntz, ntz), twoLane).isEmpty)
   }
 
   test("a bigint IN beside a date comparison fuses both conjuncts at the long lane") {

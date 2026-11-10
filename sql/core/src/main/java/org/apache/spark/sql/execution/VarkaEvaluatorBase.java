@@ -294,17 +294,10 @@ public abstract class VarkaEvaluatorBase {
   }
 
   /**
-   * The families the session switched off (VARKA-318), which this evaluator's compiler call
-   * passes beside {@link #emitOptions()} so that it declines what the plan's compile declined.
-   */
-  protected Set<VarkaFamily> familiesOff() {
-    return sessionEmit.familiesOff();
-  }
-
-  /**
-   * The session's settings for which conjuncts a predicate admits - the families off and the
-   * two-lane refusal (VARKA-503) - which a filter evaluator's compiler call passes so that it
-   * declines what the plan's compile declined.
+   * The session's admission settings - the families off (VARKA-318) and the two-lane refusals of
+   * a filter's 64-bit condition (VARKA-503) and of a checked {@code BIGINT} operation
+   * (VARKA-104) - which this evaluator's compiler call passes beside {@link #emitOptions()} so
+   * that it declines what the plan's compile declined.
    */
   protected VarkaAdmission admission() {
     return sessionEmit.admission();

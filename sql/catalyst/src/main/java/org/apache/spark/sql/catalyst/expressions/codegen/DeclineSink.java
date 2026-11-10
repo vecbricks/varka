@@ -33,6 +33,7 @@ import scala.runtime.AbstractPartialFunction;
 import org.apache.spark.sql.catalyst.expressions.Attribute;
 import org.apache.spark.sql.catalyst.expressions.BoundReference;
 import org.apache.spark.sql.catalyst.expressions.Expression;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaAdmission;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaChrono;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaFamily;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaRangeAnalysis;
@@ -88,6 +89,7 @@ final class DeclineSink {
   private final Seq<Attribute> childOutput;
   private final boolean rangeSets;
   private final Set<VarkaFamily> familiesOff;
+  private final boolean declinesTwoLaneChecks;
   private final List<VarkaFamily> used = new ArrayList<>();
   private final List<Bound> bounds = new ArrayList<>();
   private final LinkedHashMap<Long, Integer> longLiterals = new LinkedHashMap<>();
@@ -103,13 +105,34 @@ final class DeclineSink {
   }
 
   DeclineSink(Seq<Attribute> childOutput, boolean rangeSets, Set<VarkaFamily> familiesOff) {
+    this(childOutput, rangeSets, new VarkaAdmission(familiesOff, false));
+  }
+
+  /**
+   * A projection's sink under the session's admission settings: its families off, and whether a
+   * checked {@code BIGINT} operation declines on a host whose 64-bit species have two lanes
+   * ({@link #declinesTwoLaneChecks}).
+   */
+  DeclineSink(Seq<Attribute> childOutput, boolean rangeSets, VarkaAdmission admission) {
     this.childOutput = childOutput;
     this.rangeSets = rangeSets;
-    this.familiesOff = Set.copyOf(familiesOff);
+    this.familiesOff = Set.copyOf(admission.familiesOff());
+    this.declinesTwoLaneChecks = admission.declineTwoLaneConditions();
   }
 
   boolean rangeSets() {
     return rangeSets;
+  }
+
+  /**
+   * Whether a checked {@code BIGINT} operation - one that raises or nulls on overflow - declines,
+   * on an x86 host whose 64-bit species have two lanes or fewer (VARKA-104, the setting row 503
+   * keys its filter refusal on). Its overflow test is a long-lane mask, which C2 does not lower
+   * there, so the kernel would run the Vector API's Java fallback; a wrapping operation, a check
+   * the range lattice took off and the bit operations make no such mask and stay fused.
+   */
+  boolean declinesTwoLaneChecks() {
+    return declinesTwoLaneChecks;
   }
 
   /** Whether the session has switched {@code family} off. */

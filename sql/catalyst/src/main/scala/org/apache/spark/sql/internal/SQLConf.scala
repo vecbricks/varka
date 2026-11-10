@@ -3353,8 +3353,10 @@ object SQLConf {
         " refused, the IS NOT NULL Spark infers for a nullable one among them, so a filter over" +
         " such columns alone stays a plain row filter, with no Varka node and so no reason in" +
         " EXPLAIN; VarkaFusionReport.predicateLines gives the reason under the session's" +
-        " settings. Where another conjunct fuses, the Varka node's EXPLAIN gives it. A test" +
-        " that checks two-lane kernels' answers sets it false.")
+        " settings. Where another conjunct fuses, the Varka node's EXPLAIN gives it. On the" +
+        " same hosts a projection's checked BIGINT +, -, *, negation or abs, one that raises or" +
+        " nulls on overflow, declines too, its overflow test being such a mask; the LEGACY" +
+        " forms stay fused. A test that checks two-lane kernels' answers sets it false.")
       .version("5.0.0")
       // A planning choice of which conjuncts fuse: it never changes an answer or what a view
       // body resolves to.

@@ -1693,9 +1693,10 @@ public final class VarkaIrGrammar {
         }
         case 3: {
           // Negation overflows on Long.MIN_VALUE alone, which any unsaturated bound rules out.
+          // `abs` shares the check, at a narrow lane and at the long one, a bigint's (VARKA-104).
           Gen a = value(depth - 1);
           boolean checked = !overflows(a.bound()) && rnd.nextBoolean();
-          boolean abs = lane.isNarrow() && rnd.nextBoolean();
+          boolean abs = (lane.isNarrow() || lane == LaneType.LONG) && rnd.nextBoolean();
           return new Gen(new IntNeg(checked ? Overflow.FAIL : Overflow.WRAP, a.node(), abs),
               a.bound());
         }

@@ -150,19 +150,33 @@ public final class VarkaExpressionCompiler {
 
   /**
    * {@link #compilePartial(Seq, Seq, VarkaEmitOptions)} with the families the session has
-   * switched off (VARKA-318), which every caller has to pass alike for the reason it passes the
-   * options alike: a node of a family that is off declines with the reason naming its switch.
+   * switched off (VARKA-318) and no host refusal: a compile with no session, such as a catalyst
+   * suite's or a committed oracle's.
    */
   public static Optional<PartialVarkaProjection> compilePartial(
       Seq<NamedExpression> projectList, Seq<Attribute> childOutput, VarkaEmitOptions options,
       Set<VarkaFamily> familiesOff) {
+    return compilePartial(
+        projectList, childOutput, options, new VarkaAdmission(familiesOff, false));
+  }
+
+  /**
+   * {@link #compilePartial(Seq, Seq, VarkaEmitOptions)} under the session's admission settings,
+   * which every production caller has to pass alike for the reason it passes the options alike:
+   * a node of a family that is off declines with the reason naming its switch, and on a host
+   * whose 64-bit species have two lanes a checked {@code BIGINT} operation declines
+   * ({@link VarkaAdmission}).
+   */
+  public static Optional<PartialVarkaProjection> compilePartial(
+      Seq<NamedExpression> projectList, Seq<Attribute> childOutput, VarkaEmitOptions options,
+      VarkaAdmission admission) {
     Optional<PartialVarkaProjection> compiled =
-        compilePartialUnobserved(projectList, childOutput, options, familiesOff);
+        compilePartialUnobserved(projectList, childOutput, options, admission);
     // The option matrix's recording run hears each compile with a way to repeat it under
     // another configuration (VarkaCompileObserver); no one is listening otherwise.
     if (VarkaCompileObserver.watching()) {
-      VarkaCompileObserver.compiled(List.of(projectList, childOutput, familiesOff), options,
-          compiled, o -> compilePartialUnobserved(projectList, childOutput, o, familiesOff));
+      VarkaCompileObserver.compiled(List.of(projectList, childOutput, admission), options,
+          compiled, o -> compilePartialUnobserved(projectList, childOutput, o, admission));
     }
     return compiled;
   }
@@ -170,9 +184,9 @@ public final class VarkaExpressionCompiler {
   /** {@link #compilePartial} itself, which the recording run repeats under its configurations. */
   private static Optional<PartialVarkaProjection> compilePartialUnobserved(
       Seq<NamedExpression> projectList, Seq<Attribute> childOutput, VarkaEmitOptions options,
-      Set<VarkaFamily> familiesOff) {
+      VarkaAdmission admission) {
     return planning(
-        () -> classifyKernels(entries(projectList), childOutput, options, familiesOff).partial(),
+        () -> classifyKernels(entries(projectList), childOutput, options, admission).partial(),
         () -> projectionIdentity(projectList, childOutput), options);
   }
 
@@ -196,13 +210,20 @@ public final class VarkaExpressionCompiler {
   public static SortedMap<Integer, VarkaDecline> declines(
       Seq<NamedExpression> projectList, Seq<Attribute> childOutput, VarkaEmitOptions options,
       Set<VarkaFamily> familiesOff) {
+    return declines(projectList, childOutput, options, new VarkaAdmission(familiesOff, false));
+  }
+
+  /** {@link #declines(Seq, Seq, VarkaEmitOptions)} under the session's admission settings. */
+  public static SortedMap<Integer, VarkaDecline> declines(
+      Seq<NamedExpression> projectList, Seq<Attribute> childOutput, VarkaEmitOptions options,
+      VarkaAdmission admission) {
     SortedMap<Integer, VarkaDecline> declines =
-        declinesUnobserved(projectList, childOutput, options, familiesOff);
+        declinesUnobserved(projectList, childOutput, options, admission);
     // The option matrix's recording run hears each compile with a way to repeat it under
     // another configuration (VarkaCompileObserver); no one is listening otherwise.
     if (VarkaCompileObserver.watching()) {
-      VarkaCompileObserver.compiled(List.of("declines", projectList, childOutput, familiesOff),
-          options, declines, o -> declinesUnobserved(projectList, childOutput, o, familiesOff));
+      VarkaCompileObserver.compiled(List.of("declines", projectList, childOutput, admission),
+          options, declines, o -> declinesUnobserved(projectList, childOutput, o, admission));
     }
     return declines;
   }
@@ -210,9 +231,9 @@ public final class VarkaExpressionCompiler {
   /** {@link #declines} itself, which the recording run repeats. */
   private static SortedMap<Integer, VarkaDecline> declinesUnobserved(
       Seq<NamedExpression> projectList, Seq<Attribute> childOutput, VarkaEmitOptions options,
-      Set<VarkaFamily> familiesOff) {
+      VarkaAdmission admission) {
     return planning(() -> Collections.unmodifiableSortedMap(
-        classifyKernels(entries(projectList), childOutput, options, familiesOff).declines()),
+        classifyKernels(entries(projectList), childOutput, options, admission).declines()),
         () -> projectionIdentity(projectList, childOutput), options);
   }
 
@@ -366,7 +387,7 @@ public final class VarkaExpressionCompiler {
    */
   private static Classified classifyKernels(
       List<NamedExpression> entries, Seq<Attribute> childOutput, VarkaEmitOptions options,
-      Set<VarkaFamily> off) {
+      VarkaAdmission off) {
     Classified first = classify(entries, childOutput, options, off, Map.of());
     if (!options.severalKernels() || first.partial().isEmpty()) {
       return first;
@@ -443,7 +464,7 @@ public final class VarkaExpressionCompiler {
       List<NamedExpression> entries,
       Seq<Attribute> childOutput,
       VarkaEmitOptions options,
-      Set<VarkaFamily> off,
+      VarkaAdmission off,
       Map<Integer, String> initial) {
     // A nondeterministic entry declines the whole projection, as a nondeterministic conjunct
     // declines a predicate. A Varka node evaluates its residual entries row by row, on its row
@@ -533,7 +554,7 @@ public final class VarkaExpressionCompiler {
       Seq<Attribute> childOutput,
       Map<Integer, String> demoted,
       VarkaEmitOptions options,
-      Set<VarkaFamily> off) {
+      VarkaAdmission off) {
     Classified once = classifyOnce(entries, childOutput, demoted, options, off);
     return new Asked(once,
         once.partial().flatMap(partial -> VarkaSizeAdmission.admit(partial.fused(), options)));
@@ -559,7 +580,7 @@ public final class VarkaExpressionCompiler {
       Seq<Attribute> childOutput,
       Map<Integer, String> demoted,
       VarkaEmitOptions options,
-      Set<VarkaFamily> off) {
+      VarkaAdmission off) {
     return new EntryPass(childOutput, demoted, options, off).run(entries);
   }
 
@@ -572,7 +593,7 @@ public final class VarkaExpressionCompiler {
     private final Seq<Attribute> childOutput;
     private final Map<Integer, String> demoted;
     private final VarkaEmitOptions options;
-    private final Set<VarkaFamily> off;
+    private final VarkaAdmission off;
     private final VarkaSlotTable inputs = new VarkaSlotTable();
     private final VarkaSlotTable literals = new VarkaSlotTable();
     private final List<VarkaVectorIR> outputs = new ArrayList<>();
@@ -585,7 +606,7 @@ public final class VarkaExpressionCompiler {
     private final Set<Integer> alone = new HashSet<>();
 
     EntryPass(Seq<Attribute> childOutput, Map<Integer, String> demoted,
-        VarkaEmitOptions options, Set<VarkaFamily> off) {
+        VarkaEmitOptions options, VarkaAdmission off) {
       this.childOutput = childOutput;
       this.demoted = demoted;
       this.options = options;
