@@ -100,6 +100,12 @@ of `m9/SCOPE.md`.
     2.7 and `SCOPE_STANDARD_MODE.md` 3.5 give this row. `floor` and `ceil` return `a` itself for
     NaN in the Java (`StrictMath.java:458-462`), so only `rint` has the dependence, and only in a
     NaN's sign, which the `BIGINT` results of `floor` and `ceil` never show.
+    *Correction, 10 November 2026 (row 593):* the item is the JDK's answer and still holds of
+    `Math.rint`, but no longer of Spark's `rint`. SPARK-61175 (apache/spark#60220, merged
+    upstream on 9 November 2026 as 8aac2b7d3e3) makes `Rint` call `MathUtils.rint`, which answers
+    the canonical NaN, `0x7ff8000000000000`, for every NaN, whatever its sign or payload, on every
+    tier and in `eval` and codegen alike. `VarkaRoundingLowering` blends the canonical NaN into a
+    `rint`'s NaN lanes to match, and `VarkaSameAnswer` compares a `rint`'s NaN bit for bit.
 11. **The census lacks most of the cells the constructions call.** `operator_census.json` and the
     two runners' files (`results/VARKA-376-census-epyc-7763.json`,
     `results/VARKA-376-census-neoverse-n2.json`) have no double `ADD`, `SUB`, `GT` or `GE`, no
@@ -767,6 +773,14 @@ a negative NaN depends on the tier its row path runs at. The kernel returns a Na
 a signalling one. The owner chose on 8 November 2026 to keep the rule as built: a NaN answer of
 `rint` is open, NaN against NaN only, and the kernel is not made to quiet it. The runners' probe
 stays owed below.
+
+*Superseded, 10 November 2026 (row 593).* Spark's `rint` now answers the canonical NaN,
+`0x7ff8000000000000`, for every NaN (SPARK-61175, 0.10's correction), so the decision above is
+replaced: the kernel blends the canonical NaN into a `rint`'s NaN lanes, one `x != x` compare and
+one blend after the construction, wherever the operand can be a NaN other than the canonical one,
+and `VarkaSameAnswer` holds a `rint`'s NaN fixed, compared bit for bit. The weight is 12 lane calls
+with the blend and 10 without it. The runners' probe below no longer decides any answer of Spark's
+or Varka's; it stays a record of `Math.rint` only.
 
 *Left.* 344a2 (the integral rounding), 344b, 344c as section 5 has them. Owed with 344a1: 3.7's
 `rint(-NaN)` probe on the two runners, and the measurement against the baseline (section 5,

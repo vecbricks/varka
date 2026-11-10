@@ -721,8 +721,10 @@ final class VarkaEmitBudget {
       case VarkaVectorIR.MathUnary _ -> 1;
       // The rint construction: the absolute value, the add and subtract of 2^52, the sign's AND
       // and OR, the compare against 2^52 and the blend, and three reinterpretations, which the
-      // budget counts as calls though they emit no instruction.
-      case VarkaVectorIR.RoundToIntegral _ -> 10;
+      // budget counts as calls though they emit no instruction; then the NaN's compare and
+      // blend, where the operand can hold a NaN other than the canonical one.
+      case VarkaVectorIR.RoundToIntegral n ->
+          VarkaRoundingLowering.mayHoldOtherNaN(n) ? 12 : 10;
     };
   }
 

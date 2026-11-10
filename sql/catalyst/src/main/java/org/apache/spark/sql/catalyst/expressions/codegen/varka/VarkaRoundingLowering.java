@@ -20,6 +20,7 @@ import static org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaDescr
 import static org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorWalk.*;
 
 import java.lang.classfile.CodeBuilder;
+import java.lang.constant.ConstantDescs;
 import java.lang.constant.MethodTypeDesc;
 import java.util.Objects;
 import java.util.Set;
@@ -43,6 +44,13 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Rou
  * The bitwise operators refuse a floating lane, so the sign handling reinterprets the lanes as
  * longs; a reinterpretation changes no bits and emits no instruction. {@code fp_round.smt2}
  * proves the construction against {@code fp.roundToIntegral RNE} at the formats it decides.
+ *
+ * <p><b>The NaN.</b> Spark's {@code Rint} answers {@code MathUtils.rint}, which returns the
+ * canonical {@code Double.NaN} ({@code 0x7ff8000000000000}) for every NaN, whatever its sign or
+ * payload (SPARK-61175). The construction keeps a NaN's bits, so one compare, {@code x != x}
+ * (true exactly on the NaN lanes, an unordered {@code vcmppd} on x86), and one blend of the
+ * canonical NaN into those lanes follow it, wherever the operand can be a NaN of other bits
+ * ({@link #mayHoldOtherNaN}).
  */
 final class VarkaRoundingLowering {
 
@@ -53,14 +61,38 @@ final class VarkaRoundingLowering {
    */
   static final double TWO_52 = 0x1.0p52;
 
+  /** {@code DoubleVector.blend(double, VectorMask)}: a scalar into the mask's lanes. */
+  private static final MethodTypeDesc BLEND_SCALAR =
+      MethodTypeDesc.of(DOUBLE_VECTOR, ConstantDescs.CD_double, VECTOR_MASK);
+
   private VarkaRoundingLowering() {
   }
 
   /**
-   * {@code Math.rint(child)} per lane. The operand is parked in the node's scratch local, since
-   * the construction reads it three times: as the blend's receiver, whose lanes the false lanes
-   * of {@code |x| < 2^52} keep, for the magnitude and for the sign. The magnitude is taken once
-   * and duplicated, for the compare and for the rounding. The validity is the child's.
+   * Whether {@code n}'s operand can be a NaN other than the canonical one, which is where
+   * {@link #emitRint} blends the canonical NaN in. A pure function of the node's shape, so that
+   * the budget's weight ({@code VarkaEmitBudget}) and the emitted code agree and a cached kernel
+   * holds for every batch: the range lattice tracks no floating value, so the shape is the one
+   * fact there is. Two operands cannot: a conversion from an integral lane, which is never a NaN,
+   * and another {@code rint}, whose NaN is already the canonical one, which the construction
+   * keeps. Any other operand, a node added to the IR among them, takes the blend, which is
+   * never wrong, only one compare and one blend more than needed.
+   */
+  static boolean mayHoldOtherNaN(RoundToIntegral n) {
+    VarkaVectorIR child = n.child();
+    if (child instanceof VarkaVectorIR.ConvertLane c) {
+      return c.child().laneType().isFloating();
+    }
+    return !(child instanceof RoundToIntegral);
+  }
+
+  /**
+   * Spark's {@code rint(child)} per lane: {@code Math.rint}'s bits, and the canonical NaN for a
+   * NaN. The operand is parked in the node's scratch local, since the construction reads it
+   * three times: as the blend's receiver, whose lanes the false lanes of {@code |x| < 2^52}
+   * keep, for the magnitude and for the sign, and the NaN compare reads it twice more. The
+   * magnitude is taken once and duplicated, for the compare and for the rounding. The validity
+   * is the child's.
    */
   static void emitRint(CodeBuilder cb, RoundToIntegral n, boolean dense, Analysis analysis,
       Slots s, Set<VarkaVectorIR> computed) {
@@ -85,8 +117,17 @@ final class VarkaRoundingLowering {
     cb.invokevirtual(LONG_VECTOR, "or", Lane.LONG.lanewiseVV);
     cb.invokevirtual(VECTOR, "reinterpretAsDoubles", REINTERPRET_D); // [x, a<C, rint(x)]
     cb.swap();                                                  // [x, rint(x), a<C]
-    cb.invokevirtual(DOUBLE_VECTOR, "blend", Lane.DOUBLE.blend);
+    cb.invokevirtual(DOUBLE_VECTOR, "blend", Lane.DOUBLE.blend); // [r]
+    if (mayHoldOtherNaN(n)) {
+      cb.loadConstant(Double.NaN);
+      cb.aload(x);
+      cb.getstatic(VECTOR_OPERATORS, "NE", VO_COMPARISON);
+      cb.aload(x);
+      cb.invokevirtual(DOUBLE_VECTOR, "compare", Lane.DOUBLE.compareVV); // [r, NaN, x != x]
+      cb.invokevirtual(DOUBLE_VECTOR, "blend", BLEND_SCALAR);   // [r, a NaN canonical]
+    }
   }
+
 
   /**
    * {@code [v] -> [(v + 2^52) - 2^52]}: for {@code 0 <= v < 2^52}, {@code v} rounded to the

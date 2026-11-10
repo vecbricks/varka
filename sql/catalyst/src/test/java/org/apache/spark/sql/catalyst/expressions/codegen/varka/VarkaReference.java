@@ -505,11 +505,15 @@ public final class VarkaReference {
             mathDouble(n.fn(), Double.longBitsToDouble(c.getAsLong()))));
       }
       // StrictMath's rint, never the lowering's construction, so the reference stays independent
-      // of the code it checks.
+      // of the code it checks, and the canonical NaN for a NaN, as Spark's MathUtils.rint.
       case RoundToIntegral n -> {
         var c = longValue(n.child(), row, isNull, lits);
-        yield c.isEmpty() ? c : OptionalLong.of(Double.doubleToRawLongBits(
-            StrictMath.rint(Double.longBitsToDouble(c.getAsLong()))));
+        if (c.isEmpty()) {
+          yield c;
+        }
+        double v = Double.longBitsToDouble(c.getAsLong());
+        yield OptionalLong.of(Double.doubleToRawLongBits(
+            Double.isNaN(v) ? Double.NaN : StrictMath.rint(v)));
       }
       case IntNeg n -> {
         var c = longValue(n.child(), row, isNull, lits);
