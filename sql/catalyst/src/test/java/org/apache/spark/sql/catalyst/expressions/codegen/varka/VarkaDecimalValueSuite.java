@@ -255,7 +255,7 @@ public final class VarkaDecimalValueSuite {
 
   @Test
   @DisplayName("the null family over a decimal past 18 digits, or one whose common type passes "
-      + "18, declines naming row 359")
+      + "18, declines naming row 359 or 360, except the forms the 128-bit pair already fuses")
   void wideNullFamilyDeclines() {
     // c and d are DECIMAL(20, 2), row 359's pair; nullif(a, e) compares at DECIMAL(25, 9), and
     // zeroifnull(e) coalesces e with the int zero's DECIMAL(10, 0) at DECIMAL(19, 9).
@@ -263,6 +263,11 @@ public final class VarkaDecimalValueSuite {
         VarkaSqlResolve.column("c", new DecimalType(20, 2)),
         VarkaSqlResolve.column("d", new DecimalType(20, 2)),
         VarkaSqlResolve.column("e", new DecimalType(16, 9)));
+    // Row 359's lane pair compares and null-tests the 128-bit words, so <=> and BETWEEN over c
+    // and d fuse, and so does the null test of zeroifnull(e), whose DECIMAL(19, 9) coalesce is
+    // read as a pair; the rest still wait on a decimal null value, a 128-bit output or a rescale.
+    Set<String> fusedByThePair =
+        Set.of("equal_null(c, d)", "c BETWEEN d AND 1.00", "zeroifnull(e) IS NULL");
     for (String sql : List.of("nullif(c, d) IS NULL", "nvl(c, d) > 0.00",
         "CASE WHEN c < d THEN c END IS NULL", "nullifzero(c) IS NULL", "zeroifnull(c) = d",
         "equal_null(c, d)", "c BETWEEN d AND 1.00", "nullif(a, e) IS NULL",
@@ -273,7 +278,11 @@ public final class VarkaDecimalValueSuite {
               VarkaAdmission.NO_HOST_REFUSAL);
       String reason = specs.stream().flatMap(s -> s.decline().stream()).map(d -> d.reason())
           .findFirst().orElse("fused");
-      assertTrue(reason.contains("359"), () -> sql + " declined: " + reason);
+      if (fusedByThePair.contains(sql)) {
+        assertEquals("fused", reason, () -> sql + " declined: " + reason);
+      } else {
+        assertTrue(reason.contains("359"), () -> sql + " declined: " + reason);
+      }
     }
   }
 
