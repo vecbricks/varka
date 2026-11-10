@@ -66,7 +66,8 @@ files, added plus removed, `git diff --numstat -M` from the merge base to the he
   `apache/spark`) counts only its own commits, each against its parent, and each merge by its own
   changes, `git show --remerge-diff` (the conflict resolutions and any edit made in the merge),
   under the same exemptions, each file cut to the lines that differ from both parents (row 588:
-  `git show --cc`'s `++` and `--` lines, so a conflict kept whole on one side counts nothing).
+  `git show --cc`'s `++` and `--` lines, so a file whose every hunk equals one parent counts
+  nothing, and so does a deletion of lines only one parent has).
   The name without such a merge is counted as any branch.
 - The `lint` job's size step continues on error and the job's last step fails the job when it
   failed (row 588), so the other lint steps still run on a change over the cap.

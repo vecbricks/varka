@@ -1245,7 +1245,7 @@ jobs:
     - name: The change was over the pull request size cap
       if: ${{ !cancelled() && steps.size-cap.outcome == 'failure' }}
       run: |
-        echo "::error::the size cap step failed; its log names the largest files"
+        echo "::error::the size cap step failed; its log says why"
         exit 1
 
   java25:

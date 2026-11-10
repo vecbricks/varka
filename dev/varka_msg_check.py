@@ -56,6 +56,7 @@ Pull requests also:
 Exit status is the number of findings.
 """
 
+import codecs
 import importlib
 import json
 import os
@@ -455,59 +456,46 @@ def own_rows(commit, cwd):
 
 def both_parents_rows(merge, cwd, rows):
     """`rows`, a merge's `--remerge-diff` counts, each cut to the lines of the merge that
-    differ from both parents (VARKA-588): a conflict resolved by keeping one side whole
-    counts nothing, though `--remerge-diff` counts the other side and the markers, while a
-    line written by hand matches neither parent and counts in full. The combined diff
-    (`--cc`) shows those lines as `++` and `--`; a file it leaves out is equal to one parent,
-    which is checked rather than assumed, and a file it cannot read keeps its count."""
-    paths = [r[1] for r in rows if r[0] is not None]
-    if not paths:
-        return rows
+    differ from both parents (VARKA-588): a conflict resolved by keeping one side, hunk by
+    hunk, counts nothing, though `--remerge-diff` counts the other side and the markers,
+    while a line written by hand matches neither parent and counts in full. The combined
+    diff (`--cc`) shows those lines as `++` and `--`, and leaves out a file in which every
+    hunk equals one parent or the other, which so counts nothing. A binary row keeps its
+    None. The rule cannot tell a side kept from work dropped: a merge that deletes lines or a
+    file only one parent has counts them as nothing, as it would count a conflict kept whole."""
     out = attr_git(
-        cwd,
-        f"{merge}^1",
-        "-c",
-        "core.quotePath=false",
-        "show",
-        "--cc",
-        "-U0",
-        "--format=",
-        merge,
-        "--",
-        *paths,
+        cwd, f"{merge}^1", "show", "--cc", "-U0", "--no-color", "--no-ext-diff", "--format=", merge
     )
     if out.returncode:
         raise ValueError(f"git show --cc failed: {out.stderr.strip()}")
     both, path, in_hunk = {}, None, False
     for line in out.stdout.split("\n"):
         if line.startswith("diff --cc "):
-            path, in_hunk = line[len("diff --cc ") :], False
+            path, in_hunk = unquote(line[len("diff --cc ") :]), False
             both[path] = [0, 0]
         elif line.startswith("@@@ "):
             in_hunk = True
-        elif in_hunk and path is not None:
+        elif in_hunk:
             if line.startswith("++"):
                 both[path][0] += 1
             elif line.startswith("--"):
                 both[path][1] += 1
-
-    def blob(rev, p):
-        got = git(cwd, "rev-parse", "-q", "--verify", f"{rev}:{p}")
-        return got.stdout.strip() if got.returncode == 0 else None
-
     cut = []
     for n, path, old in rows:
-        mine = both.get(path)
-        if n is not None and mine is None:
-            # Left out of the combined diff: equal to a parent (absent from both, when the
-            # merge deletes it) counts nothing; anything else keeps --remerge-diff's count.
-            head = blob(merge, path)
-            if head in (blob(f"{merge}^1", old), blob(f"{merge}^2", path)):
-                mine = [0, 0]
-        if n is not None and mine is not None and sum(mine) < sum(n):
-            n = tuple(mine)
+        if n is not None:
+            mine = both.get(path, [0, 0])
+            n = tuple(mine) if sum(mine) < sum(n) else n
         cut.append((n, path, old))
     return cut
+
+
+def unquote(path):
+    """A path as git prints it in a patch header: as is, or C-quoted in double quotes when it
+    holds a quote, a backslash or a control character (`core.quotePath` also quotes any byte
+    past ASCII, as an octal escape)."""
+    if not (len(path) > 1 and path[0] == path[-1] == '"'):
+        return path
+    return codecs.escape_decode(path[1:-1].encode("utf-8"))[0].decode("utf-8", "replace")
 
 
 def pr_size(base, head="HEAD", cwd=ROOT, branch=None):
@@ -700,18 +688,20 @@ def size_selftest():
         # A sync: a commit of its own, Apache Spark's master merged with a conflict in A.java
         # and one in a generated file, then one more commit of its own.
         seconds, a_java = "sql/varka/matrix/seconds.tsv", lines(10).replace("x 5", "{} 5")
-        # Four more conflicts, in files Apache Spark's master had before the sync began.
+        # Five more conflicts, in files Apache Spark's master had before the sync began.
         k_java = lines(10).replace("x 3", "{} 3")
         h_java = lines(10).replace("x 7", "{} 7")
         run("git", "checkout", "-q", "-b", "apache", base)
-        for name in ("K.java", "H.java", "Both.java"):
+        quoted = 'q"x.java'  # a name git C-quotes in a patch header
+        for name in ("K.java", "H.java", "Both.java", quoted):
             write(name, lines(10))
         write("Gone.java", lines(8, "g"))  # unlike Both.java, so no rename pairs them
         upstream_had = commit()
         write("Up.java", lines(2000))
         write("A.java", a_java.format("a"))
         write(seconds, lines(3, "a"))
-        write("K.java", k_java.format("a"))
+        write("K.java", k_java.format("a").replace("x 9", "a 9"))  # 9 merges cleanly
+        write(quoted, a_java.format("a"))
         write("H.java", h_java.format("a"))
         os.remove(os.path.join(tmp, "Gone.java"))
         write("Both.java", lines(10).replace("x 0", "a 0"))
@@ -720,19 +710,22 @@ def size_selftest():
         write("A.java", a_java.format("s"))  # 2 lines
         write(seconds, lines(3, "s"))
         write("K.java", k_java.format("s"))  # 2 lines each
+        write(quoted, a_java.format("s"))
         write("H.java", h_java.format("s"))
         write("Both.java", lines(10).replace("x 9", "s 9"))
         commit()
         git(tmp, "-c", "user.name=t", "-c", "user.email=t@t", "merge", "-q", "apache")
         # The resolutions: A.java's one line written by hand (--remerge-diff, which counts
         # the conflict's markers and both sides, gives 6) and the generated file's none;
-        # K.java keeps the sync's side whole and Gone.java, which Apache Spark deleted, is
-        # restored as the sync had it, both nothing; H.java's conflict is rewritten as four
-        # lines of hand, counted in full; Both.java, which both parents have, the merge
-        # deletes: the 8 lines the parents share.
+        # K.java keeps the sync's side of its conflict and Apache Spark's clean hunk, so it
+        # equals neither parent but each hunk equals one, and Gone.java, which Apache Spark
+        # deleted, is restored as the sync had it, both nothing; H.java's conflict is
+        # rewritten as four lines of hand, counted in full; Both.java, which both parents
+        # have, the merge deletes: the 8 lines the parents share; q"x.java, as A.java, 1.
         write("A.java", a_java.format("r"))
         write(seconds, lines(3, "r"))
-        write("K.java", k_java.format("s"))
+        write("K.java", k_java.format("s").replace("x 9", "a 9"))
+        write(quoted, a_java.format("r"))
         write("H.java", h_java.replace("{} 7\n", lines(4, "h")))
         write("Gone.java", lines(8, "g"))
         os.remove(os.path.join(tmp, "Both.java"))
@@ -800,6 +793,7 @@ def size_selftest():
         "H.java": 4,
         "Gone.java": 0,
         "Both.java": 8,
+        'q"x.java': 1,
         "sql/varka/matrix/seconds.tsv": 0,
     }
     wrong = {p: (got.get(p), c) for p, c in expect.items() if got.get(p) != c}
@@ -813,7 +807,7 @@ def size_selftest():
         ("a sync read from GITHUB_REF_NAME", sync, 0),
         (
             "a sync counts its own commits",
-            [] if "24 counted lines" in sync_line else [sync_line],
+            [] if "27 counted lines" in sync_line else [sync_line],
             0,
         ),
         ("... its merge's among them", [] if "3 commit(s)" in sync_line else [sync_line], 0),
@@ -825,7 +819,7 @@ def size_selftest():
         ),
         (
             "... where --remerge-diff counts more",
-            [] if remerged["K.java"] and remerged["Gone.java"] else [remerged],
+            [] if remerged.get("K.java") and remerged.get("Gone.java") else [remerged],
             0,
         ),
         ("exemptions the head adds", [] if added == ["Hand.java", hand_tsv, moved] else added, 0),
