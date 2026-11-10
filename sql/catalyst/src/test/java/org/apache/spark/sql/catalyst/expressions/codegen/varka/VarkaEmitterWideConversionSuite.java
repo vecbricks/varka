@@ -151,6 +151,7 @@ public final class VarkaEmitterWideConversionSuite {
         new ConvertLane(convert(LaneType.FLOAT), LaneType.DOUBLE));
     checkCells("cast(l AS double) + cast(cast(l AS float) AS double)", sum, magic, WINDOW);
     checkCells("cast(l AS double) + cast(cast(l AS float) AS double)", sum, AVX2, CELLS);
+    checkCells("cast(l AS double) + cast(cast(l AS float) AS double)", sum, SHIFTS, CELLS);
   }
 
   @Test

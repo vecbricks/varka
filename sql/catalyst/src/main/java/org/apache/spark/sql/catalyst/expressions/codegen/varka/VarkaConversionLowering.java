@@ -125,19 +125,22 @@ final class VarkaConversionLowering {
   static void emit(CodeBuilder cb, ConvertLane n, boolean dense, Analysis analysis, Slots s) {
     if (n.target() == LaneType.FLOAT) {
       emitRoundToOdd(cb, s.convertTmp.get(n), analysis);
-    } else if (takesMagic(analysis, n)) {
-      Integer guardTmp = s.guardTmp.get(n);
-      if (guardTmp == null) {
-        // Refused by name: without its scratch the window's check would be dropped silently.
-        throw VarkaErrors.illegalState("a bounded L2D with no guard scratch planned: " + n);
+      return;
+    }
+    // Reached only where takesWideForm holds, so MAGIC here is takesMagic.
+    switch (analysis.options.wideConversionForm()) {
+      case MAGIC -> {
+        Integer guardTmp = s.guardTmp.get(n);
+        if (guardTmp == null) {
+          // Refused by name: without its scratch the window's check would be dropped silently.
+          throw VarkaErrors.illegalState("a bounded L2D with no guard scratch planned: " + n);
+        }
+        VarkaVectorWalk.emitRangeGuard(cb, n, dense ? null : s.wordRef.get(n.child()), guardTmp,
+            dense, analysis, s, -MAGIC_WINDOW, MAGIC_WINDOW);
+        emitMagic(cb, "add", MAGIC_BITS, MAGIC);
       }
-      VarkaVectorWalk.emitRangeGuard(cb, n, dense ? null : s.wordRef.get(n.child()), guardTmp,
-          dense, analysis, s, -MAGIC_WINDOW, MAGIC_WINDOW);
-      emitMagic(cb, "add", MAGIC_BITS, MAGIC);
-    } else if (analysis.options.wideConversionForm() == WideConversionForm.SPLIT) {
-      emitSplit(cb);
-    } else {
-      emitXorSplit(cb);
+      case SPLIT -> emitSplit(cb);
+      case XOR_SPLIT -> emitXorSplit(cb);
     }
   }
 

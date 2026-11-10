@@ -41,7 +41,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Lan
  * <p>The arms, each its own kernel class over the same column:
  * <ul>
  *   <li>{@code DOUBLE}: the XOR split (the default), part 343b1's split, which differs by an
- *     arithmetic shift and a multiply, and the bounded magic, three operations and a range
+ *     arithmetic shift and a multiply, and the bounded magic, five lane calls and a range
  *     guard;</li>
  *   <li>{@code FLOAT}: the round-to-odd form with the default sign and arm selection, and with
  *     part 343b1's ({@code roundToOddByShifts});</li>
@@ -50,7 +50,9 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Lan
  * </ul>
  * The forms have no data-dependent branch, so the values do not change their cost; they spread
  * over every bit length up to {@code 2^51}, inside the bounded magic's window, so that no arm
- * declines. Every kernel's first answer is checked against Java's cast on every row.
+ * declines. Every kernel's first answer is checked against Java's cast on every row; the rows
+ * stay below {@code 2^52}, so {@code FLOAT}'s large arm is checked by
+ * {@code VarkaEmitterWideConversionSuite}'s cells and binades, not here.
  *
  * <p>On a host with AVX-512 the forms run as written only under {@code -XX:UseAVX=2}; the EPYC
  * 7763 runners have no AVX-512, so they need no flag:
