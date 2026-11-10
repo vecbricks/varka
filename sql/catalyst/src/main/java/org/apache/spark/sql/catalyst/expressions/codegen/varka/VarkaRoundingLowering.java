@@ -128,7 +128,6 @@ final class VarkaRoundingLowering {
     }
   }
 
-
   /**
    * {@code [v] -> [(v + 2^52) - 2^52]}: for {@code 0 <= v < 2^52}, {@code v} rounded to the
    * nearest integer with a tie to the even one, exactly (the class doc says why).
