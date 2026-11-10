@@ -26,7 +26,7 @@ import org.apache.spark.{SparkArithmeticException, SparkFunSuite}
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.BinaryArithmeticWithDatetimeResolver
 import org.apache.spark.sql.catalyst.analysis.FunctionRegistry
-import org.apache.spark.sql.catalyst.expressions.{Abs, Add, AddMonths, Alias, And, Attribute, AttributeReference, BoundReference, CaseWhen, Cast, Ceil, Coalesce, Concat, CurrentTime, DateAdd, DateAddYMInterval, DateDiff, DateFromUnixDate, DateSub, DayOfMonth, DayOfWeek, DayOfYear, Divide, DivideYMInterval, EqualNullSafe, EqualTo, EvalMode, Expression, Extract, ExtractANSIIntervalDays, ExtractANSIIntervalMonths, ExtractANSIIntervalYears, Floor, GreaterThan, Greatest, HoursOfTime, If, In, InheritAnalysisRules, InSet, IsNotNull, IsNull, LastDay, LeafExpression, Least, LessThan, LessThanOrEqual, Literal, MakeDate, MakeTime, MakeYMInterval, MinutesOfTime, Month, Multiply, MultiplyYMInterval, NamedExpression, NextDay, Not, NumericEvalContext, Nvl, Nvl2, Or, Quarter, Rand, Remainder, Rint, RuntimeReplaceable, SecondsOfTime, SecondsOfTimeWithFraction, Subtract, SubtractDates, SubtractTimes, SubtractTimestamps, TimeAddInterval, TimeDiff, TimeExpression, TimeFromMicros, TimeFromMillis, TimeFromSeconds, TimestampAddInterval, TimeToMicros, TimeToMillis, TimeToSeconds, TimeTrunc, ToTime, TruncDate, UnaryMinus, UnixDate, Upper, WeekDay, WeekOfYear, Year, YearOfWeek}
+import org.apache.spark.sql.catalyst.expressions.{Abs, Add, AddMonths, Alias, And, Attribute, AttributeReference, BoundReference, BRound, CaseWhen, Cast, Ceil, Coalesce, Concat, CurrentTime, DateAdd, DateAddYMInterval, DateDiff, DateFromUnixDate, DateSub, DayOfMonth, DayOfWeek, DayOfYear, Divide, DivideYMInterval, EqualNullSafe, EqualTo, EvalMode, Expression, Extract, ExtractANSIIntervalDays, ExtractANSIIntervalMonths, ExtractANSIIntervalYears, Floor, GreaterThan, Greatest, HoursOfTime, If, In, InheritAnalysisRules, InSet, IsNotNull, IsNull, LastDay, LeafExpression, Least, LessThan, LessThanOrEqual, Literal, MakeDate, MakeTime, MakeTimestampNTZ, MakeYMInterval, MinutesOfTime, Month, Multiply, MultiplyYMInterval, NamedExpression, NextDay, Not, NumericEvalContext, Nvl, Nvl2, Or, Quarter, Rand, Remainder, Rint, Round, RuntimeReplaceable, SecondsOfTime, SecondsOfTimeWithFraction, Subtract, SubtractDates, SubtractTimes, SubtractTimestamps, TimeAddInterval, TimeDiff, TimeExpression, TimeFromMicros, TimeFromMillis, TimeFromSeconds, TimestampAddInterval, TimeToMicros, TimeToMillis, TimeToSeconds, TimeTrunc, ToTime, Truncate, TruncDate, UnaryMinus, UnixDate, Upper, WeekDay, WeekOfYear, Year, YearOfWeek}
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaOutputSpec.{ForwardedOutput, FusedOutput, KernelOutput}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaChrono, VarkaDerivedKind, VarkaEmitOptions, VarkaEmitterTestSupport, VarkaLoopEmitter, VarkaMatrix, VarkaShapeCache, VarkaVectorIR}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaAdmission, VarkaKernelPlan, VarkaKernelWarmup, VarkaShapeKey}
@@ -773,7 +773,8 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
       TimeToMicros(t) -> "time_to_micros",
       TimeFromSeconds(l) -> "time_from_seconds",
       TimeFromMillis(l) -> "time_from_millis",
-      TimeFromMicros(l) -> "time_from_micros")
+      TimeFromMicros(l) -> "time_from_micros",
+      MakeTimestampNTZ(Literal.create(0, DateType), t) -> "make_timestamp_ntz")
   }
 
   /**
@@ -1202,6 +1203,42 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     }
   }
 
+  test("round, bround and truncate over a decimal decline by the type, at every scale") {
+    // A DECIMAL of precision 18 or less is read on the long lane as its unscaled value, so a
+    // lane lookup alone would hand the integer rounding the unscaled long and ignore the scale
+    // and the result's type; at a non-negative scale the identity would be as wrong. Each is
+    // compared with a decimal literal of its own type, so the decline is the operator's, by
+    // the decimal lane or the family, rather than the decimal output store's.
+    val dec = AttributeReference("dec", DecimalType(10, 2))()
+    for (e <- Seq(Round(dec, Literal(-1), false), Round(dec, Literal(1), true),
+        BRound(dec, Literal(-2), false), BRound(dec, Literal(0), true),
+        Truncate(dec, Literal(-1), false), Truncate(dec, Literal(1), false))) {
+      val reason = declineReason(GreaterThan(e, Literal.create(Decimal(0), e.dataType)),
+        childOutput :+ dec)
+      assert(reason.contains("decimal"), reason)
+      assert(reason.contains("351"), reason)
+    }
+  }
+
+  test("round, bround and truncate name the row that owns a form not built") {
+    val l = AttributeReference("l", LongType)()
+    val dbl = AttributeReference("dbl", DoubleType)()
+    val i = AttributeReference("i", IntegerType)()
+    val output = childOutput ++ Seq(l, dbl, i)
+    for (e <- Seq(Round(l, Literal(-1), false), BRound(l, Literal(-19), true),
+        Truncate(l, Literal(-3), false))) {
+      val reason = declineReason(e, output)
+      assert(reason.contains("bigint at a negative scale"), reason)
+      assert(reason.contains("344a3"), reason)
+    }
+    for (e <- Seq(Round(dbl, Literal(-1), false), BRound(dbl, Literal(0), true))) {
+      assert(declineReason(e, output).contains("over a floating value (row 346)"))
+    }
+    assert(declineReason(Round(i, Literal(-101), false), output).contains("below -100"))
+    assert(declineReason(Round(i, Literal(null, IntegerType), false), output)
+      .contains("a null scale"))
+  }
+
   test("rint over a double column is one rounding node, in a kernel of its own") {
     val dbl = AttributeReference("dbl", DoubleType)()
     val compiled = VarkaExpressionCompiler.compile(Seq(out(Rint(dbl))), Seq(dbl)).get
@@ -1452,8 +1489,12 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
       "divisors") {
     assert(declineReason(DivideYMInterval(ymm, Literal(0)), withIntervals) ===
       "interval divided by a literal zero raises")
-    assert(declineReason(DivideYMInterval(ymm, Literal(-1)), withIntervals) ===
-      "interval divided by -1 overflows at Int.MinValue, which the row engine raises on")
+    // Minus one declines at every width of the int family, not only as an INT literal.
+    Seq(Literal(-1), Literal(-1.toShort), Literal(-1.toByte)).foreach { minusOne =>
+      assert(declineReason(DivideYMInterval(ymm, minusOne), withIntervals) ===
+        "interval divided by -1 raises at Int.MinValue, and a declined batch's fallback " +
+          "would raise it without its SQL context (VARKA-414)", minusOne.dataType)
+    }
     assert(declineReason(DivideYMInterval(ymm, Literal(2L)), withIntervals) ===
       "interval divisor of type bigint takes LongMath.divide, which the int lane does not " +
         "lower")

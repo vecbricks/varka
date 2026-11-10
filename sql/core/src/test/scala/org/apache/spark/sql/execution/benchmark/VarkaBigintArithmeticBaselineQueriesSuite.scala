@@ -32,17 +32,19 @@ import org.apache.spark.sql.types._
  * sessions answer differently fails a pull request rather than the runner dispatch that times it
  * (VARKA-104). Each section runs under its own SQL settings, its mode where it has one. It also
  * makes the benchmark's own fuse check, that each section's plan on the Varka session has the
- * section's fusion class under the section's settings, and its kernel check on the control, so a
- * row that changes how a section fuses sets the section's new class in the same pull request.
+ * section's fusion class under the section's settings, and its kernel check on each `WHOLE`
+ * projection, so a row that changes how a section fuses sets the section's new class in the same
+ * pull request.
  *
  * The fixture is the benchmark's table over its first 2000 ids. Its columns are hashes of the
  * id, so these rows already reach the regions the benchmark's javadoc states, which the suite
  * checks before it runs the sections: `l` and `l2` of both signs, past the int range and below
- * it, and below `2^49` in magnitude; `m` of both signs inside `[-3000, 3000]`. A section over the
- * columns with no null must answer no null, so an overflow into a `try_` null fails here rather
- * than going into the timed run as a cheap null; a section over the column with one row in ten
- * null must answer exactly those nulls. The filter answers no null, keeping the rows whose sum is
- * positive, from the null column the same rows but its nulls.
+ * it, and below `2^49` in magnitude; `m` of both signs inside `[-3000, 3000]`; the `INT` `i` of
+ * both signs, and `i_n` null on exactly the rows `l_n` is. A section over the columns with no
+ * null must answer no null, so an overflow into a `try_` null fails here rather than going into
+ * the timed run as a cheap null; a section over a column with one row in ten null must answer
+ * exactly those nulls. The filter answers no null, keeping the rows whose sum is positive, from
+ * the null column the same rows but its nulls.
  */
 class VarkaBigintArithmeticBaselineQueriesSuite extends QueryTest with VarkaSharedSessions {
 
@@ -90,7 +92,9 @@ class VarkaBigintArithmeticBaselineQueriesSuite extends QueryTest with VarkaShar
            |       count_if(m < 0), count_if(m > 0),
            |       max(abs(l)), max(abs(l2)), min(m), max(m),
            |       count_if(l + l2 > 0), count_if(l_n is null),
-           |       count_if(l_n is null and l + l2 > 0)
+           |       count_if(l_n is null and l + l2 > 0),
+           |       count_if(i < 0), count_if(i > 0), count_if(i_n is null),
+           |       count_if((i_n is null) = (l_n is null))
            |from $view""".stripMargin).head()
       for (column <- 0 until 10) {
         assert(r.getLong(column) > 0, s"column $column")
@@ -101,8 +105,22 @@ class VarkaBigintArithmeticBaselineQueriesSuite extends QueryTest with VarkaShar
       assert(kept > 0 && kept < rows)
       assert(r.getLong(15) === rows / 10)
       val keptNull = r.getLong(16)
+      assert(r.getLong(17) > 0 && r.getLong(18) > 0)
+      assert(r.getLong(19) === rows / 10 && r.getLong(20) === rows)
 
       val sections = VarkaBigintArithmeticBaselineBenchmark.sections(false).asScala.toSeq
+      // 25 sections at each of the two null densities, every one fused whole but a checked
+      // product over a column (VARKA-104): a row that fuses one of these changes this list.
+      assert(sections.size === 2 * 25)
+      assert(sections.map(_.fusion.toString).toSet === Set("WHOLE", "NONE"))
+      val unfused = sections.filter(_.fusion == VarkaSqlBenchmarkBase.Fusion.NONE)
+      assert(unfused.map(_.title) === Seq(
+        "l * 3, ANSI, no nulls",
+        "l * m, ANSI, no nulls",
+        "try_multiply(l, m), no nulls",
+        "l * 3, ANSI, one row in ten null",
+        "l * m, ANSI, one row in ten null",
+        "try_multiply(l, m), one row in ten null"))
       for (s <- sections) {
         withClue(s.title) {
           withSettings(s) {

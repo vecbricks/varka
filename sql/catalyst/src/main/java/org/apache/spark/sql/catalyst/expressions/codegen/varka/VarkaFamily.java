@@ -59,7 +59,8 @@ public enum VarkaFamily {
   TIME("time", "time", "the TIME functions (hour, minute, second, time_trunc, time_diff, the"
       + " conversions to and from micros and millis, a time plus a day-time interval), the"
       + " casts to TIME and to a day-time interval, hour, minute and second of a TIMESTAMP_NTZ,"
-      + " and TIMESTAMP_NTZ minus TIMESTAMP_NTZ and a TIMESTAMP_NTZ plus or minus a day-time"
+      + " make_timestamp_ntz(date, time) and the cast of a TIME to TIMESTAMP_NTZ, and"
+      + " TIMESTAMP_NTZ minus TIMESTAMP_NTZ and a TIMESTAMP_NTZ plus or minus a day-time"
       + " interval"),
   /** {@code VarkaConditionCompiler.compileCond}, reached outside the chain. */
   PREDICATE("predicate", "predicate", "the comparisons, IN over dates and year-month intervals,"
@@ -93,8 +94,9 @@ public enum VarkaFamily {
       + " tinyint and smallint (wrapping, or checked under ANSI), a tinyint or smallint widened"
       + " to smallint or bigint, a number cast to boolean and a boolean cast to a number"),
   /** {@code VarkaRoundingCompiler}. */
-  ROUNDING("rounding", "rounding", "rint over a double, and floor, ceil and ceiling over bigint"
-      + " and int operands");
+  ROUNDING("rounding", "rounding", "rint over a double; floor, ceil and ceiling over bigint"
+      + " and int operands; and round, bround and truncate over tinyint, smallint and int at a"
+      + " constant scale, and over bigint at a scale of zero or more");
 
   /** The prefix every family's switch shares. */
   public static final String SWITCH_PREFIX = "spark.sql.codegen.varka.family.";

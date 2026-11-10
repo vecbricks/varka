@@ -48,8 +48,8 @@ class VarkaFloatingBaselineQueriesSuite extends QueryTest with VarkaSharedSessio
 
   test("every section of the floating baseline runs, and both sessions answer it alike") {
     withTable(2000) {
-      val sections = VarkaFloatingBaselineBenchmark.sections().asScala
-      assert(sections.size === 16)
+      val sections = VarkaFloatingBaselineBenchmark.sections(false).asScala
+      assert(sections.size === 20)
       for (s <- sections) {
         withClue(s.title) {
           checkAnswer(varkaSpark.sql(s.query), spark.sql(s.query))
@@ -63,14 +63,18 @@ class VarkaFloatingBaselineQueriesSuite extends QueryTest with VarkaSharedSessio
     // pull request rather than the runner dispatch that times it. The benchmark plans under the
     // emitter's default options, so the classes pin the defaults, and an option matrix
     // configuration, under which a section may fuse differently, cancels the test; so does the
-    // run that lifts the benchmark's check.
+    // run that lifts the benchmark's check. The benchmark lists its classes at the two-lane
+    // refusal the host resolves (VARKA-503), which the shared sessions leave off, so both lists
+    // are checked here by setting the refusal each way.
     assume(VarkaSqlBenchmarkBase.fuseCheck(),
       s"-D${VarkaSqlBenchmarkBase.FUSE_CHECK_PROPERTY}=false times the sections fused")
     withTable(100) {
-      for (s <- VarkaFloatingBaselineBenchmark.sections().asScala) {
-        withClue(s.title) {
-          val plan = varkaSpark.sql(s.query).queryExecution.executedPlan
-          assert(VarkaSqlBenchmarkBase.fusion(plan) === Optional.of(s.fusion))
+      forEachTwoLaneRefusal { declines =>
+        for (s <- VarkaFloatingBaselineBenchmark.sections(declines).asScala) {
+          withClue(s"${s.title}, refusal $declines") {
+            val plan = varkaSpark.sql(s.query).queryExecution.executedPlan
+            assert(VarkaSqlBenchmarkBase.fusion(plan) === Optional.of(s.fusion))
+          }
         }
       }
     }
