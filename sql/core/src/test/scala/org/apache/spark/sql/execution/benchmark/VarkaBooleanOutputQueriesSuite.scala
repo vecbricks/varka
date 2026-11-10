@@ -21,7 +21,6 @@ import scala.jdk.CollectionConverters._
 
 import org.apache.spark.sql.QueryTest
 import org.apache.spark.sql.execution.VarkaSharedSessions
-import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types.{BooleanType, ByteType, DataType, DateType, LongType}
 
 /**
@@ -102,14 +101,11 @@ class VarkaBooleanOutputQueriesSuite extends QueryTest with VarkaSharedSessions 
     // The benchmark runs with the refusal at the host's default, so on the 128-bit companion's
     // host its long controls decline (VARKA-503); this checks both expectations on any host by
     // setting the refusal, which the shared sessions leave off, each way.
-    val key = SQLConf.VARKA_DECLINE_TWO_LANE_CONDITIONS.key
     varkaSpark.sql(VarkaBooleanOutputBenchmark.tableSql(2000))
       .createOrReplaceTempView("varka_boolean")
     varkaSpark.catalog.cacheTable("varka_boolean")
-    val before = varkaSpark.conf.getOption(key)
     try {
-      for (declines <- Seq(true, false)) {
-        varkaSpark.conf.set(key, declines.toString)
+      forEachTwoLaneRefusal { declines =>
         for (s <- VarkaBooleanOutputBenchmark.sections(declines).asScala if s.control) {
           val plan = varkaSpark.sql(s.query).queryExecution.executedPlan
           assert(VarkaBooleanOutputBenchmark.matches(plan, s.expect),
@@ -117,10 +113,6 @@ class VarkaBooleanOutputQueriesSuite extends QueryTest with VarkaSharedSessions 
         }
       }
     } finally {
-      before match {
-        case Some(v) => varkaSpark.conf.set(key, v)
-        case None => varkaSpark.conf.unset(key)
-      }
       varkaSpark.catalog.uncacheTable("varka_boolean")
     }
   }

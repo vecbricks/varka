@@ -1877,6 +1877,7 @@ jobs:
         python3 dev/varka_matrix_shards.py --selftest
         dev/varka_precommit.sh --selftest
         python3 dev/varka_bin_units_test.py --selftest
+        python3 dev/varka_matrix_bins.py --selftest
         dev/varka_prepush.sh --selftest
     - name: The branch's commit messages and its pull request follow the house rules
       env:
