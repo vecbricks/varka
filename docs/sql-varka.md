@@ -1281,7 +1281,7 @@ operands (a row counts once for each type it reads):
 | :--- | ---: | ---: | ---: | ---: | ---: | ---: |
 | `bigint` | 78 | 0 | 2 | 0 | 2 | 74 |
 | `bool` | 38 | 0 | 0 | 13 | 0 | 25 |
-| `byte` | 54 | 0 | 0 | 0 | 8 | 46 |
+| `byte` | 56 | 0 | 0 | 0 | 8 | 48 |
 | `date` | 127 | 17 | 0 | 1 | 0 | 109 |
 | `dec` | 60 | 25 | 10 | 0 | 0 | 25 |
 | `double` | 78 | 0 | 1 | 0 | 0 | 77 |
@@ -1289,9 +1289,9 @@ operands (a row counts once for each type it reads):
 | `float` | 55 | 0 | 0 | 0 | 0 | 55 |
 | `int` | 163 | 14 | 2 | 1 | 1 | 145 |
 | `ntz` | 57 | 0 | 7 | 0 | 0 | 50 |
-| `short` | 52 | 0 | 0 | 0 | 8 | 44 |
+| `short` | 54 | 0 | 0 | 0 | 8 | 46 |
 | `time` | 48 | 6 | 1 | 1 | 2 | 38 |
-| `ym` | 36 | 7 | 2 | 0 | 2 | 25 |
+| `ym` | 37 | 7 | 2 | 0 | 2 | 26 |
 <!-- END generated verification counts -->
 
 ## Glossary
