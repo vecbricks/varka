@@ -14,8 +14,9 @@ needed four tries over about five hours from a detached laptop script.
    `gh run view --log-failed` for `CPU mismatch`, sleeps an hour and reruns the failed jobs, at most
    six attempts. It stops when the laptop sleeps or reboots.
 3. **The rate.** On 10 November 2026, on vecbricks/varka, 4 of 5 attempts drew an EPYC 9V45 or
-   9V74 (runs 42751533252, 42794013318). At a miss rate of 4 in 5, six attempts reach a 7763
-   with probability 1 - 0.8^6 = 0.74, and ten with 0.89.
+   9V74: run 42794013318's three attempts, and run 42794019027's first (its second passed). At a
+   miss rate of 4 in 5, six attempts reach a 7763 with probability 1 - 0.8^6 = 0.74, and ten
+   with 0.89.
 4. **The records.** For a run, the jobs API (`/actions/runs/<id>/attempts/<n>/jobs`) gives each
    job's conclusion and each step's, and the check-run annotations API
    (`/check-runs/<job id>/annotations`) gives the `::error::` lines as messages: run
