@@ -888,6 +888,30 @@ class VarkaCoverageCompositionFuzzSuite
     (rowKernels.size, oneTable)
   }
 
+  /**
+   * `compiledRowKernels` at the compiled tests' options, the matrix base without a lanes override,
+   * compiled once for both tests.
+   */
+  private lazy val compiledRows = compiledRowKernels(VarkaMatrix.base.withLanesOverride(0))
+
+  /**
+   * Coverage row `sql`'s kernel `plan` through the compiled check at `settings`, its batch drawn
+   * from the row's own stream (`compiledCase`); a history's failure fails the test with the line
+   * that replays it.
+   */
+  private def runCompiled(sql: String, plan: CompiledVarkaProjection, opts: VarkaEmitOptions,
+      settings: VarkaCompiledCheck.Settings): VarkaCompiledCheck.Result = {
+    val c = compiledCase(sql, plan, opts, new Random(seed ^ 274L ^ sql.hashCode))
+    val emit: java.util.function.Function[String, Array[Byte]] = name =>
+      VarkaLoopEmitter.emit(name, plan.outputs, plan.inputOrdinals.size, plan.numLiterals,
+        null, null, opts)
+    val replay = s"-Dvarka.fuzz.seed=$seed -Dvarka.fuzz.coverageRow=" + "\"" + sql + "\""
+    try VarkaCompiledCheck.run(c, emit, settings, replay)
+    catch {
+      case f: VarkaCompiledCheck.HistoryFailure => fail(f.getMessage, f)
+    }
+  }
+
   // ---------------------------------------------------------------------------------------------
   // Failures, shrunk (VARKA-294).
   // ---------------------------------------------------------------------------------------------
@@ -975,7 +999,7 @@ class VarkaCoverageCompositionFuzzSuite
       props.releasedRows, props.witnessed, compiledHistories)
     val tally = new VarkaCompiledCheck.Tally
     try {
-      val (rowCount, oneTable) = compiledRowKernels(opts)
+      val (rowCount, oneTable) = compiledRows
       val kernels = coverageRow match {
         case Some(sql) =>
           oneTable.filter(_._1 == sql).ensuring(_.nonEmpty, s"no coverage row is $sql")
@@ -988,15 +1012,7 @@ class VarkaCoverageCompositionFuzzSuite
           }
       }
       for ((sql, plan) <- kernels) {
-        val c = compiledCase(sql, plan, opts, new Random(seed ^ 274L ^ sql.hashCode))
-        val emit: java.util.function.Function[String, Array[Byte]] = name =>
-          VarkaLoopEmitter.emit(name, plan.outputs, plan.inputOrdinals.size, plan.numLiterals,
-            null, null, opts)
-        val replay = s"-Dvarka.fuzz.seed=$seed -Dvarka.fuzz.coverageRow=" + "\"" + sql + "\""
-        try tally.add(VarkaCompiledCheck.run(c, emit, settings, replay))
-        catch {
-          case f: VarkaCompiledCheck.HistoryFailure => fail(f.getMessage, f)
-        }
+        tally.add(runCompiled(sql, plan, opts, settings))
       }
       info(s"${kernels.size} of $rowCount coverage rows' kernels")
       if (settings.witnessed) VarkaTierWitness.get().settle()
@@ -1030,23 +1046,16 @@ class VarkaCoverageCompositionFuzzSuite
     val opts = VarkaMatrix.base.withLanesOverride(0)
     val settings = new VarkaCompiledCheck.Settings(0L, 1, 64, false,
       java.util.Set.of(VarkaCompiledCheck.History.WARM_SAME))
-    val decimal = compiledRowKernels(opts)._2.filter { case (_, p) =>
+    val decimal = compiledRows._2.filter { case (_, p) =>
       VarkaKernelChecks.decimalColumns(p.outputs) != 0L ||
         p.outputs.asScala.exists(_.isInstanceOf[VarkaVectorIR.WidenDecimal])
     }
-    assert(decimal.exists(_._1 == "time_to_seconds(t)"),
-      s"time_to_seconds(t) is not among the decimal rows ${decimal.map(_._1)}")
+    // A decimal output is the slot the warm-up once wrote past (time_to_seconds(t)'s).
+    assert(decimal.exists(_._2.outputs.asScala.exists(_.isInstanceOf[VarkaVectorIR.WidenDecimal])),
+      s"no coverage row writes a decimal output among ${decimal.map(_._1)}")
     try {
       for ((sql, plan) <- decimal) {
-        val c = compiledCase(sql, plan, opts, new Random(seed ^ 274L ^ sql.hashCode))
-        val emit: java.util.function.Function[String, Array[Byte]] = name =>
-          VarkaLoopEmitter.emit(name, plan.outputs, plan.inputOrdinals.size, plan.numLiterals,
-            null, null, opts)
-        val replay = s"-Dvarka.fuzz.seed=$seed -Dvarka.fuzz.coverageRow=" + "\"" + sql + "\""
-        val result = try VarkaCompiledCheck.run(c, emit, settings, replay)
-        catch {
-          case f: VarkaCompiledCheck.HistoryFailure => fail(f.getMessage, f)
-        }
+        val result = runCompiled(sql, plan, opts, settings)
         assert(result.runs().asScala.forall(r => r.warmed() && r.skipped() == null),
           s"$sql: the warm-up did not run: ${result.runs()}")
       }
