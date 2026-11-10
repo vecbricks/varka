@@ -1159,7 +1159,9 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
       Row("abs(f)"))),
     // The rounding functions (VARKA-344): rint is the 2^52 construction, exact in every mode;
     // floor and ceil of a bigint are the operand and of an int its widening to a bigint, exact
-    // in every mode.
+    // in every mode; round, bround and truncate at a negative scale over the int lane are the
+    // signed remainder of a truncating division by 10^k, wrapped as Spark's
+    // BigDecimal.intValue() is, ANSI's two overflowing tails declined by a guard.
     Family("Rounding", predicates = false, Seq(
       Row("rint(x)", "the nearest integer, a tie to the even one, the sign kept on a zero"),
       Row("floor(l)", "the identity over a bigint, in every mode"),
@@ -1167,7 +1169,28 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
       Row("ceiling(l)", "ceil by another name"),
       Row("floor(i)", "FLOOR(CAST(i AS DOUBLE)): the int widened to a bigint, exact in every "
         + "mode, with no conversion to a double"),
-      Row("ceil(i)"))),
+      Row("ceil(i)"),
+      Row("round(i, 0)", "a scale of 0 or more is the identity"),
+      Row("round(l, 0)"),
+      Row("bround(l, 0)"),
+      Row("truncate(l, 0)"),
+      Row("round(i, -1)", "HALF_UP to a multiple of ten; under ANSI a value whose rounding "
+        + "leaves the int raises, so its batch declines",
+        domain = Some("i BETWEEN -2147483644 AND 2147483644")),
+      Row("round(i, -2)", "no int overflows at this scale, so ANSI has no guard"),
+      Row("bround(i, -1)", "HALF_EVEN: a tie goes to the even multiple",
+        domain = Some("i BETWEEN -2147483645 AND 2147483645")),
+      Row("bround(i, -2)"),
+      Row("truncate(i, -2)", "DOWN never overflows"),
+      Row("round(i, -10)", "every int rounds to 0"),
+      Row("round(y1, -1)", "computed at the int lane and wrapped to the byte",
+        domain = Some("y1 BETWEEN -124 AND 124")),
+      Row("bround(y1, -1)", "", domain = Some("y1 BETWEEN -125 AND 125")),
+      Row("truncate(y1, -1)"),
+      Row("round(s1, -1)", "computed at the int lane and wrapped to the short",
+        domain = Some("s1 BETWEEN -32764 AND 32764")),
+      Row("bround(s1, -2)", "", domain = Some("s1 BETWEEN -32749 AND 32749")),
+      Row("truncate(s1, -2)"))),
     // A floating value as a boolean (VARKA-343 2.5): Spark's x != 0 in every mode, the negation
     // of the lane's EQ against zero, so a NaN is true and both zeros false; never an error.
     Family("Floating casts to BOOLEAN", predicates = false, Seq(
