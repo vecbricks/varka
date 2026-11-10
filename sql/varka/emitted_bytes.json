@@ -14460,12 +14460,12 @@
       "16" : "06a242a30a16974d"
     },
     "wideConversionForm=SPLIT over useAVX=2" : {
-      "4" : "4f02b3652262b16b",
-      "16" : "df07f428b64a85ba"
+      "4" : "78d02f788bb6a2fe",
+      "16" : "a0b6c66d8781a471"
     },
     "wideConversionForm=MAGIC over useAVX=2" : {
-      "4" : "4f02b3652262b16b",
-      "16" : "df07f428b64a85ba"
+      "4" : "78d02f788bb6a2fe",
+      "16" : "a0b6c66d8781a471"
     },
     "narrowLanes=true" : {
       "4" : "787b1ac813e8c25d",
