@@ -20,8 +20,8 @@ package org.apache.spark.sql.catalyst.expressions.codegen.varka
 import org.apache.spark.sql.catalyst.analysis.{SimpleAnalyzer, UnresolvedAttribute}
 import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, AttributeReference,
   BindReferences, Cast, Expression, Literal, NamedExpression}
-import org.apache.spark.sql.catalyst.optimizer.{ConstantFolding, OptimizeIn, RewriteWithExpression,
-  UnwrapCastInBinaryComparison}
+import org.apache.spark.sql.catalyst.optimizer.{ComputeCurrentTime, ConstantFolding, OptimizeIn,
+  RewriteWithExpression, UnwrapCastInBinaryComparison}
 import org.apache.spark.sql.catalyst.parser.CatalystSqlParser
 import org.apache.spark.sql.catalyst.plans.logical.{Filter, LocalRelation, LogicalPlan, Project}
 import org.apache.spark.sql.types.{DataType, DoubleType, FloatType, StringType}
@@ -49,6 +49,10 @@ object VarkaSqlResolve {
   /** `text` parsed by Catalyst's parser and resolved against `columns`, as [[resolve]] does. */
   def parse(text: String, columns: Seq[Attribute]): Expression =
     resolve(CatalystSqlParser.parseExpression(text), columns)
+
+  /** [[parse]] as [[resolveAsWritten]] resolves: before the current-time rewrite. */
+  def parseAsWritten(text: String, columns: Seq[Attribute]): Expression =
+    resolveAsWritten(CatalystSqlParser.parseExpression(text), columns)
 
   /** `e` as a projection entry named `name`, for the Java tools, as [[column]] is. */
   def named(e: Expression, name: String): NamedExpression = Alias(e, name)()
@@ -98,8 +102,16 @@ object VarkaSqlResolve {
    * a column the common expression is inlined (`nullif(i, 3)` is `If(i = 3, NULL, i)`), and
    * over a computed one it moves to a projection of its own below, a plan of two projections,
    * so there the `With` is kept as the analyzer left it (`VARKA-333.md` 2.1).
+   *
+   * And the current date and time are the query's, as the optimizer's `ComputeCurrentTime` makes
+   * them: `CAST(t AS TIMESTAMP_NTZ)` reaches Varka as `make_timestamp_ntz` of today's date
+   * literal and `t` (VARKA-340). [[resolveAsWritten]] leaves them as written.
    */
-  def resolve(e: Expression, columns: Seq[Attribute]): Expression = {
+  def resolve(e: Expression, columns: Seq[Attribute]): Expression =
+    ComputeCurrentTime.applyForExpression(resolveAsWritten(e, columns))
+
+  /** [[resolve]] without the current-time rewrite: the casts a query writes, before it. */
+  def resolveAsWritten(e: Expression, columns: Seq[Attribute]): Expression = {
     val byName = columns.map(a => a.name -> a).toMap
     val bound = e.transformUp {
       case UnresolvedAttribute(Seq(name)) =>

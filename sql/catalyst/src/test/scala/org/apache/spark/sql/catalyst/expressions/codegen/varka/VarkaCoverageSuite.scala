@@ -1062,7 +1062,18 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
         "decimal"),
       Row("CAST(ntz AS TIME(6))", "the nanosecond of the day, a multiple of a thousand"),
       Row("CAST(ntz AS TIME(3))", "truncated to milliseconds: a quotient and a product"),
-      Row("CAST(ntz AS TIME(0))"))),
+      Row("CAST(ntz AS TIME(0))"),
+      // A date and a time of day to an NTZ value: the day's midnight plus the time's whole
+      // microseconds, the add checked, since Spark raises past the long in every mode.
+      Row("make_timestamp_ntz(d, t)", "the date guarded to the days whose midnight is a long, " +
+        "as the cast of a date is", domain = Some(s"$ntzDayBound AND " +
+          ntzDomain("try_make_timestamp_ntz(d, t)", "d", "t"))),
+      Row("make_timestamp_ntz(DATE'2021-06-01', t)", "a literal date is checked when the kernel " +
+        "is compiled and takes a slot, so every date shares one kernel",
+        domain = Some(ntzDomain("try_make_timestamp_ntz(DATE'2021-06-01', t)", "t"))),
+      Row("CAST(t AS TIMESTAMP_NTZ)", "the query's current date at the time of day: the " +
+        "optimizer rewrites the cast to make_timestamp_ntz of the date literal",
+        domain = Some(ntzDomain("try_make_timestamp_ntz(current_date(), t)", "t"))))),
 
     // The same fields as a filter's condition, where a batch the guard declines is the filter's
     // kernel declining it (VARKA-340).
@@ -1148,7 +1159,9 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
       Row("abs(f)"))),
     // The rounding functions (VARKA-344): rint is the 2^52 construction, exact in every mode;
     // floor and ceil of a bigint are the operand and of an int its widening to a bigint, exact
-    // in every mode.
+    // in every mode; round, bround and truncate at a negative scale over the int lane are the
+    // signed remainder of a truncating division by 10^k, wrapped as Spark's
+    // BigDecimal.intValue() is, ANSI's two overflowing tails declined by a guard.
     Family("Rounding", predicates = false, Seq(
       Row("rint(x)", "the nearest integer, a tie to the even one, the sign kept on a zero"),
       Row("floor(l)", "the identity over a bigint, in every mode"),
@@ -1156,7 +1169,28 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
       Row("ceiling(l)", "ceil by another name"),
       Row("floor(i)", "FLOOR(CAST(i AS DOUBLE)): the int widened to a bigint, exact in every "
         + "mode, with no conversion to a double"),
-      Row("ceil(i)"))),
+      Row("ceil(i)"),
+      Row("round(i, 0)", "a scale of 0 or more is the identity"),
+      Row("round(l, 0)"),
+      Row("bround(l, 0)"),
+      Row("truncate(l, 0)"),
+      Row("round(i, -1)", "HALF_UP to a multiple of ten; under ANSI a value whose rounding "
+        + "leaves the int raises, so its batch declines",
+        domain = Some("i BETWEEN -2147483644 AND 2147483644")),
+      Row("round(i, -2)", "no int overflows at this scale, so ANSI has no guard"),
+      Row("bround(i, -1)", "HALF_EVEN: a tie goes to the even multiple",
+        domain = Some("i BETWEEN -2147483645 AND 2147483645")),
+      Row("bround(i, -2)"),
+      Row("truncate(i, -2)", "DOWN never overflows"),
+      Row("round(i, -10)", "every int rounds to 0"),
+      Row("round(y1, -1)", "computed at the int lane and wrapped to the byte",
+        domain = Some("y1 BETWEEN -124 AND 124")),
+      Row("bround(y1, -1)", "", domain = Some("y1 BETWEEN -125 AND 125")),
+      Row("truncate(y1, -1)"),
+      Row("round(s1, -1)", "computed at the int lane and wrapped to the short",
+        domain = Some("s1 BETWEEN -32764 AND 32764")),
+      Row("bround(s1, -2)", "", domain = Some("s1 BETWEEN -32749 AND 32749")),
+      Row("truncate(s1, -2)"))),
     // A floating value as a boolean (VARKA-343 2.5): Spark's x != 0 in every mode, the negation
     // of the lane's EQ against zero, so a NaN is true and both zeros false; never an error.
     Family("Floating casts to BOOLEAN", predicates = false, Seq(
@@ -2314,13 +2348,17 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
    * The casts a row performs, as `from>to:mode` in the census's type names: what the census holds
    * each pair `m8/casts.tsv` marks fused to (VARKA-328), since a cast's pair and mode are visible
    * only in the resolved expression, not in the class list. The mode is ANSI's for every row this
-   * suite resolves, Spark's default.
+   * suite resolves, Spark's default. They are read before the current-time rewrite, which turns
+   * `CAST(t AS TIMESTAMP_NTZ)` into the `make_timestamp_ntz` it compiles as (VARKA-340).
    */
-  private def castsOf(row: Row): Seq[String] = expressionOf(row).collect {
-    case c: Cast => (censusType(c.child.dataType), censusType(c.dataType), c.evalMode)
-  }.collect { case (Some(from), Some(to), mode) =>
-    s"$from>$to:${mode.toString.toLowerCase(java.util.Locale.ROOT)}"
-  }.distinct.sorted
+  private def castsOf(row: Row): Seq[String] = {
+    val written = row.built.getOrElse(VarkaSqlResolve.parseAsWritten(row.sql, columns))
+    written.collect {
+      case c: Cast => (censusType(c.child.dataType), censusType(c.dataType), c.evalMode)
+    }.collect { case (Some(from), Some(to), mode) =>
+      s"$from>$to:${mode.toString.toLowerCase(java.util.Locale.ROOT)}"
+    }.distinct.sorted
+  }
 
   private def between(text: String, marks: (String, String)): String = {
     val (beginMark, endMark) = marks

@@ -21,6 +21,7 @@ import java.util.List;
 
 import org.apache.spark.sql.SparkSession;
 import org.apache.spark.sql.VarkaBenchmark;
+import org.apache.spark.sql.execution.VarkaSessionEmit;
 
 /**
  * The baseline for {@code DOUBLE} and {@code FLOAT} before Varka has a lane for them (VARKA-377):
@@ -29,8 +30,10 @@ import org.apache.spark.sql.VarkaBenchmark;
  *
  * <p>The sections are a comparison ({@code x < y} as a filter), an arithmetic chain of three nodes
  * ({@code (x + y) * z - x}), a cast to the type's widest neighbour ({@code DOUBLE} to
- * {@code BIGINT}, {@code FLOAT} to {@code DOUBLE}) and a choice
- * ({@code CASE WHEN x < y THEN x ELSE y END}), each with no nulls and with one row in ten null.
+ * {@code BIGINT}, {@code FLOAT} to {@code DOUBLE}), a choice
+ * ({@code CASE WHEN x < y THEN x ELSE y END}) and a comparison with a literal of the type
+ * ({@code x < 1.5D}, {@code f < 1.5F}, as a filter), each with no nulls and with one row in ten
+ * null.
  * Each has two arms, named so the labels survive the lanes landing:
  * {@code spark row path (varka off)}, a session without the Varka rule, and {@code varka on}, a
  * session with it. Today both are the
@@ -40,12 +43,15 @@ import org.apache.spark.sql.VarkaBenchmark;
  * each section's plan on the Varka session against the section's {@link Fusion} class, the
  * record of how much of it a row has fused, and fails when the plan's class differs
  * ({@link VarkaSqlBenchmarkBase#requireBaseline(SparkSession, String, String, Fusion)}). The
- * comparison and choice sections are {@code WHOLE}, since the floating lanes order their values,
+ * comparisons and the choice are {@code WHOLE}, since the floating lanes order their values,
  * and so is the chain, since the floating arithmetic fuses (VARKA-342); the results file notes
  * each of them as fusing. The FLOAT to DOUBLE cast is {@code WHOLE}, since the conversions to a
  * floating type fuse (VARKA-343), and the DOUBLE to BIGINT cast {@code NONE}, still the row path
- * in both arms. A row that fuses more of a section sets its new class, so that its fusion cannot
- * turn a baseline section into a fused one unnoticed.
+ * in both arms. A session that refuses a filter's condition in a kernel driven at 64 bits
+ * ({@code declinesLongConditions}, VARKA-503), the 128-bit companion's host by default, leaves the
+ * four DOUBLE filter sections to the row path, so they are {@code NONE} there; the FLOAT ones, at
+ * 32 bits, stay {@code WHOLE}. A row that fuses more of a section sets its new class, so that its
+ * fusion cannot turn a baseline section into a fused one unnoticed.
  *
  * <p>To run this benchmark, on a GitHub runner (the results come back as an artifact):
  * <pre>
@@ -96,10 +102,15 @@ public class VarkaFloatingBaselineBenchmark extends VarkaSqlBenchmarkBase {
               from range(0, %d))""".formatted(rows);
   }
 
-  /** Every section, in the order they run: each type, then each null density, then each shape. */
-  static List<Section> sections() {
+  /**
+   * Every section, in the order they run: each type, then each null density, then each shape. The
+   * DOUBLE filters are {@code NONE} when the session refuses their condition
+   * ({@code declinesLongConditions}).
+   */
+  static List<Section> sections(boolean declinesLongConditions) {
     List<Section> out = new ArrayList<>();
-    String[][] types = {{"DOUBLE", "x", "y", "z", "BIGINT"}, {"FLOAT", "f", "g", "h", "DOUBLE"}};
+    String[][] types = {{"DOUBLE", "x", "y", "z", "BIGINT", "1.5D"},
+        {"FLOAT", "f", "g", "h", "DOUBLE", "1.5F"}};
     for (String[] t : types) {
       for (String nulls : new String[] {"", "n"}) {
         String x = t[1] + nulls;
@@ -107,9 +118,10 @@ public class VarkaFloatingBaselineBenchmark extends VarkaSqlBenchmarkBase {
         String z = t[3] + nulls;
         String density = nulls.isEmpty() ? "no nulls" : "one row in ten null";
         String type = t[0];
+        Fusion filter =
+            declinesLongConditions && "DOUBLE".equals(type) ? Fusion.NONE : Fusion.WHOLE;
         out.add(new Section(type + " comparison, " + density,
-            "SELECT " + x + " FROM varka_floating WHERE " + x + " < " + y,
-            Fusion.WHOLE));
+            "SELECT " + x + " FROM varka_floating WHERE " + x + " < " + y, filter));
         out.add(new Section(type + " arithmetic chain, " + density,
             "SELECT (" + x + " + " + y + ") * " + z + " - " + x + " AS a FROM varka_floating",
             Fusion.WHOLE));
@@ -120,6 +132,10 @@ public class VarkaFloatingBaselineBenchmark extends VarkaSqlBenchmarkBase {
         out.add(new Section(type + " choice, " + density,
             "SELECT CASE WHEN " + x + " < " + y + " THEN " + x + " ELSE " + y
                 + " END AS a FROM varka_floating", Fusion.WHOLE));
+        // The compare against a constant, the form a literal-specialised lowering changes
+        // (VARKA-341): against a literal that is not NaN, Spark's order needs no NaN test.
+        out.add(new Section(type + " comparison with a literal, " + density,
+            "SELECT " + x + " FROM varka_floating WHERE " + x + " < " + t[5], filter));
       }
     }
     return out;
@@ -139,10 +155,13 @@ public class VarkaFloatingBaselineBenchmark extends VarkaSqlBenchmarkBase {
         session.sql(tableSql(NUM_ROWS)).createOrReplaceTempView("varka_floating");
         VarkaArrowSessions.cache(session, "varka_floating");
       }
-      for (Section s : sections()) {
+      // The two-lane refusal as the Varka session resolves it.
+      List<Section> sections = sections(
+          VarkaSessionEmit.of(varka.sessionState().conf()).declineTwoLaneConditions());
+      for (Section s : sections) {
         requireBaseline(varka, s.title(), s.query(), s.fusion());
       }
-      for (Section s : sections()) {
+      for (Section s : sections) {
         section(s.title(), () -> {
           VarkaBenchmark benchmark = benchmark(
               s.title() + " over " + NUM_ROWS + " Arrow-cached rows", NUM_ROWS).timed().build();

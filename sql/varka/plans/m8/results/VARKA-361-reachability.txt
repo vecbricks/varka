@@ -1,0 +1,115 @@
+VARKA-361 step 1, the reachability reading (VARKA-361.md 0 item 6, 5 step 1), 9 November 2026,
+laptop, on the varka-361-baseline branch (4aafa76d24d, #1422's head, plus this row's baseline
+columns) with one throwaway test suite added and deleted after; the reading is written up in
+VARKA-361.md 10.1.
+Question: where does Spark evaluate TPC-H q6's product, sum(l_extendedprice * l_discount), and
+does a DECIMAL(15, 2) * DECIMAL(15, 2) product reach a ProjectExec or FilterExec, the only nodes
+VarkaColumnarRule replaces?
+
+Command (JDK 25, sbt; the suite's source follows):
+  flock <heavy lock> env SPARK_LOCAL_IP=127.0.0.1 build/sbt \
+    'sql/testOnly org.apache.spark.sql.execution.benchmark.Varka361ReachabilitySuite'
+
+Session: VarkaArrowSessions.createSession("varka-361-reachability", true, false, "local[1]")
+(Arrow cache, VarkaColumnarRule, one shuffle partition, AQE off) over the decimal baseline's
+table at 1000 rows (VarkaDecimalBaselineBenchmark.tableSql), Arrow-cached as the view t; x15,
+y15 and z15 are its DECIMAL(15, 2) columns, the TPC-H price and discount type, and l its BIGINT.
+"evaluated by" lists each node whose expressions hold the product, and each Varka node.
+
+Reading: in Q1, Q2 and Q5 (the sums) the product is inside HashAggregateExec's aggregate
+function, sum((x15 * y15)), so no Varka node sees it; with a WHERE (Q2) the filter's own
+condition fuses as a VarkaFilterColumnarToRow below the aggregate, and the product stays in
+the aggregate. As a projection (Q3, Q6) the product is a ProjectExec's expression, and as a
+filter (Q4) a FilterExec's condition above the fused inferred null tests, the two places a
+fused product would run. Q6 shows coercion's cast of the BIGINT to DECIMAL(20, 0) under the
+product (VARKA-361.md 0 item 5).
+
+Each tree is printed down to the cached relation; its own child, the table's projection over
+Range, is the same in every tree and is cut here.
+
+---- suite source (deleted after the run) ----
+package org.apache.spark.sql.execution.benchmark
+
+import org.apache.spark.SparkFunSuite
+import org.apache.spark.sql.SparkSession
+import org.apache.spark.sql.execution.{FilterExec, ProjectExec, SparkPlan, VarkaFilterExec,
+  VarkaProjectExec}
+import org.apache.spark.sql.execution.aggregate.BaseAggregateExec
+
+class Varka361ReachabilitySuite extends SparkFunSuite {
+  test("where q6's product runs") {
+    val spark: SparkSession =
+      VarkaArrowSessions.createSession("varka-361-reachability", true, false, "local[1]")
+    try {
+      spark.sql(VarkaDecimalBaselineBenchmark.tableSql(1000)).createOrReplaceTempView("t")
+      VarkaArrowSessions.cache(spark, "t")
+      val queries = Seq(
+        "Q1 sum(x15 * y15)" -> "SELECT sum(x15 * y15) AS s FROM t",
+        "Q2 sum(x15 * y15) WHERE z15 > 0" -> "SELECT sum(x15 * y15) AS s FROM t WHERE z15 > 0",
+        "Q3 x15 * y15 as a value" -> "SELECT x15 * y15 AS a FROM t",
+        "Q4 x15 * y15 < z15 as a filter" -> "SELECT x15 FROM t WHERE x15 * y15 < z15",
+        "Q5 sum(x15 * (1 - y15))" -> "SELECT sum(x15 * (1 - y15)) AS s FROM t",
+        "Q6 l * x18 as a value" -> "SELECT l * x18 AS a FROM t")
+      for ((name, q) <- queries) {
+        val plan = spark.sql(q).queryExecution.executedPlan
+        // scalastyle:off println
+        println(s"==== $name: $q")
+        println(plan.treeString)
+        def holders(p: SparkPlan): Seq[String] = p.collect {
+          case a: BaseAggregateExec if a.aggregateExpressions.exists(_.toString.contains("*")) =>
+            "aggregate " + a.nodeName + ": " + a.aggregateExpressions.mkString(", ")
+          case f: FilterExec if f.condition.toString.contains("*") =>
+            "FilterExec: " + f.condition
+          case pr: ProjectExec if pr.projectList.exists(_.toString.contains("*")) =>
+            "ProjectExec: " + pr.projectList.mkString(", ")
+          case v: VarkaProjectExec => "VarkaProjectExec"
+          case v: VarkaFilterExec => "VarkaFilterExec"
+        }
+        println("evaluated by: " + holders(plan).mkString(" | "))
+        // scalastyle:on println
+      }
+    } finally {
+      spark.stop()
+    }
+  }
+}
+
+---- output ----
+==== Q1 sum(x15 * y15): SELECT sum(x15 * y15) AS s FROM t
+*(1) HashAggregate(keys=[], functions=[sum((x15#554575 * y15#554576))], output=[s#556684])
++- Scan In-memory table t [x15#554575, y15#554576]
+      +- InMemoryRelation [x9#554560, x9n#554583, y9#554561, y9n#554584, z9#554562, z9n ... (the table's 46 columns)
+evaluated by: aggregate HashAggregate: sum((x15#554575 * y15#554576))
+
+==== Q2 sum(x15 * y15) WHERE z15 > 0: SELECT sum(x15 * y15) AS s FROM t WHERE z15 > 0
+*(1) HashAggregate(keys=[], functions=[sum((x15#554575 * y15#554576))], output=[s#557610])
++- VarkaFilterColumnarToRow (isnotnull(z15#554577) AND (z15#554577 > 0.00)), List(x15#554575, y15#554576)
+   +- Scan In-memory table t [x15#554575, y15#554576, z15#554577], [isnotnull(z15#554577), (z15#554577 > 0.00)]
+         +- InMemoryRelation [x9#554560, x9n#554583, y9#554561, y9n#554584, z9#554562, z9n ... (the table's 46 columns)
+evaluated by: aggregate HashAggregate: sum((x15#554575 * y15#554576))
+
+==== Q3 x15 * y15 as a value: SELECT x15 * y15 AS a FROM t
+*(1) Project [(x15#554575 * y15#554576) AS a#558536]
++- Scan In-memory table t [x15#554575, y15#554576]
+      +- InMemoryRelation [x9#554560, x9n#554583, y9#554561, y9n#554584, z9#554562, z9n ... (the table's 46 columns)
+evaluated by: ProjectExec: (x15#554575 * y15#554576) AS a#558536
+
+==== Q4 x15 * y15 < z15 as a filter: SELECT x15 FROM t WHERE x15 * y15 < z15
+*(1) Project [x15#554575]
++- *(1) Filter ((x15#554575 * y15#554576) < cast(z15#554577 as decimal(31,4)))
+   +- VarkaFilterColumnarToRow ((isnotnull(x15#554575) AND isnotnull(y15#554576)) AND isnotnull(z15#554577)), (((isnotnull(x15#554575) AND isnotnull(y15#554576)) AND isnotnull(z15#554577)) AND ((x15#554575 * y15#554576) < cast(z15#554577 as decimal(31,4))))
+      +- Scan In-memory table t [x15#554575, y15#554576, z15#554577], [isnotnull(x15#554575), isnotnull(y15#554576), isnotnull(z15#554577), ((x15#554575 * y15#554576) < cast(z15#554577 as decimal(31,4)))]
+            +- InMemoryRelation [x9#554560, x9n#554583, y9#554561, y9n#554584, z9#554562, z9n ... (the table's 46 columns)
+evaluated by: FilterExec: ((x15#554575 * y15#554576) < cast(z15#554577 as decimal(31,4)))
+
+==== Q5 sum(x15 * (1 - y15)): SELECT sum(x15 * (1 - y15)) AS s FROM t
+*(1) HashAggregate(keys=[], functions=[sum((x15#554575 * (1 - y15#554576)))], output=[s#559917])
++- Scan In-memory table t [x15#554575, y15#554576]
+      +- InMemoryRelation [x9#554560, x9n#554583, y9#554561, y9n#554584, z9#554562, z9n ... (the table's 46 columns)
+evaluated by: aggregate HashAggregate: sum((x15#554575 * (1 - y15#554576)))
+
+==== Q6 l * x18 as a value: SELECT l * x18 AS a FROM t
+*(1) Project [(cast(l#554582L as decimal(20,0)) * x18#554563) AS a#560843]
++- Scan In-memory table t [l#554582L, x18#554563]
+      +- InMemoryRelation [x9#554560, x9n#554583, y9#554561, y9n#554584, z9#554562, z9n ... (the table's 46 columns)
+evaluated by: ProjectExec: (cast(l#554582L as decimal(20,0)) * x18#554563) AS a#560843

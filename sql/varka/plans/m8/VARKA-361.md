@@ -373,4 +373,39 @@ build and the option matrix pass.
 
 ## 10. Outcome
 
-(Written when the work lands.)
+### 10.1 Step 1: the reachability reading, on the laptop
+
+Printed on 9 November 2026 in a Varka session built as the benchmarks build it
+(`VarkaArrowSessions.createSession(name, true, false, "local[1]")`), over the decimal baseline's
+table with this row's columns, Arrow-cached; the trees, the suite and the command are in
+`results/VARKA-361-reachability.txt`. Item 0.6 holds:
+
+- **q6's form, `sum(x15 * y15)`**, with and without a `WHERE`, and q1's `sum(x15 * (1 - y15))`:
+  the product is inside `HashAggregateExec`'s aggregate function, so no Varka node sees it. A
+  `WHERE` beside it fuses its own condition as a `VarkaFilterColumnarToRow` below the aggregate,
+  and the product stays above, in the aggregate.
+- **As a projection**, `x15 * y15 AS a`, the product is a `ProjectExec`'s expression, and **as a
+  filter**, `x15 * y15 < z15`, a `FilterExec`'s condition above the inferred null tests, which
+  fuse: the two places this row's product fuses.
+- **`l * x18`** shows coercion's `CAST(l AS DECIMAL(20, 0))` under the product in a
+  `ProjectExec`, item 0.5's 64-bit value under a cast.
+
+### 10.2 Step 2: the baseline addition, with row 360's
+
+Built 9 November 2026 on #1422 (row 577's remainders, which first keyed the class's filter
+sections on the two-lane refusal, `sections(boolean)`; merged into master since):
+`VarkaDecimalBaselineBenchmark` gains 22 sections, eleven shapes at each null density. Row 360's: `x20 + y20`, `x20 - y20s4` (a
+`DECIMAL(20, 4)`), `x38s2 + y38s2` (two `DECIMAL(38, 2)`, the sum capped at 38) and `l + x9`,
+`l + x18` as projections, and `x20 + y20 < z20` as a filter. This row's: `x15 * y15` (q6's
+types, `DECIMAL(31, 4)`), `x15 * (1 - y15)` (q1's form), `l * x9` (`DECIMAL(30, 2)`) and
+`l * x18` (`DECIMAL(38, 4)`, precision 39 capped with the scale kept) as projections, and
+`x15 * y15 < z15` as a filter. The columns `x15`, `y15`, `z15`, `z20`, `y20s4`, `x38s2`,
+`y38s2` and the `BIGINT` `l` come after every earlier column, so the earlier sections' values
+are unchanged; `l` is a hash shifted right by a hashed count, every bit length to the full
+range. The projections are `NONE`; the two filters are `NULL_TESTS`, the inferred null tests
+fused below the row path's sum or product, and `NONE` where the session refuses a 64-bit
+condition, the 128-bit companion's host. `VarkaDecimalBaselineQueriesSuite` pins the new
+columns' types, every result type, the two filters' comparison types and their operands' no
+null, and the classes with the refusal off and on. Left: the EPYC 7763 runner results at 256
+and 128 bits, committed in the class's two results files; then step 3, the spike loops, and
+361a, which rests on row 360's 360b for the `WideMul` node (5, step 4).

@@ -33,7 +33,7 @@ import org.apache.spark.sql.execution.{CoalesceExec, CollectLimitExec, GlobalLim
 import org.apache.spark.sql.execution.adaptive.AdaptiveSparkPlanExec
 import org.apache.spark.sql.execution.exchange.{ReusedExchangeExec, ShuffleExchangeExec}
 import org.apache.spark.sql.internal.SQLConf
-import org.apache.spark.sql.types.{BooleanType, DataType, DecimalType, TimeType}
+import org.apache.spark.sql.types.{BooleanType, DataType, DecimalType, LongType, TimeType}
 
 /**
  * The decimal baseline's sections, run at a small scale on both sessions in every build, so a
@@ -76,19 +76,31 @@ class VarkaDecimalBaselineQueriesSuite extends QueryTest with VarkaSharedSession
         Seq("x20", "x20n", "y20", "y20n").map(_ -> DecimalType(20, 2)) ++
         Seq("w9", "w9n").map(_ -> DecimalType(9, 4)) ++
         Seq("w18", "w18n").map(_ -> DecimalType(10, 2)) ++
-        Seq("x8", "x8n").map(_ -> DecimalType(8, 2))
+        Seq("x8", "x8n").map(_ -> DecimalType(8, 2)) ++
+        // The widening sections' columns of rows 360 and 361, and the BIGINT last.
+        Seq("x15", "x15n", "y15", "y15n", "z15", "z15n").map(_ -> DecimalType(15, 2)) ++
+        Seq("z20", "z20n").map(_ -> DecimalType(20, 2)) ++
+        Seq("y20s4", "y20s4n").map(_ -> DecimalType(20, 4)) ++
+        Seq("x38s2", "x38s2n", "y38s2", "y38s2n").map(_ -> DecimalType(38, 2)) ++
+        Seq("l", "ln").map(_ -> LongType)
       val schema = spark.table("varka_decimal").schema
       assert(schema.map(f => f.name -> f.dataType) === expected)
 
-      val sections = VarkaDecimalBaselineBenchmark.sections().asScala
-      assert(sections.size === 88)
+      val sections = VarkaDecimalBaselineBenchmark.sections(false).asScala
+      assert(sections.size === 126)
       // The result type of each shape, as Spark's decimal rules give it: the chain widens at each
       // node and is capped at 38, and the cast is the one the precision names. The time sections
       // are time_to_seconds, DECIMAL(14, 6), and the seconds with their fraction, DECIMAL(8, 6).
       // The lane pair's five filters return the column, and its projected comparison a boolean;
       // so do the 64-bit comparisons' six shapes. The 64-bit arithmetic's three filters return
       // x9, and its projections are x9 + y9, DECIMAL(10, 2), x9 - w9, DECIMAL(12, 4), and
-      // x8 * y9, DECIMAL(18, 4).
+      // x8 * y9, DECIMAL(18, 4). A remainder of two operands of one type has that type. The
+      // widening sums are x20 + y20, DECIMAL(21, 2), x20 - y20s4, DECIMAL(23, 4), x38s2 + y38s2
+      // capped at DECIMAL(38, 2), and l + x9 and l + x18 over l cast to DECIMAL(20, 0),
+      // DECIMAL(23, 2) and DECIMAL(25, 4); the products are x15 * y15, DECIMAL(31, 4),
+      // x15 * (1 - y15), DECIMAL(32, 4), l * x9, DECIMAL(30, 2), and l * x18, whose precision 39
+      // Spark caps at 38 keeping the scale (VARKA-361.md 0 item 5), DECIMAL(38, 4). Their two
+      // filters return x20 and x15.
       val chain = Map(9 -> DecimalType(21, 4), 18 -> DecimalType(38, 7), 38 -> DecimalType(38, 6))
       val resultTypes = VarkaDecimalBaselineBenchmark.PRECISIONS.asScala.flatMap { p =>
         val own = DecimalType(p.precision, p.scale)
@@ -105,7 +117,12 @@ class VarkaDecimalBaselineQueriesSuite extends QueryTest with VarkaSharedSession
           Seq.fill(2)(Seq.fill(5)(own) :+ BooleanType).flatten
         } ++
         Seq.fill(2)(Seq.fill(3)(DecimalType(9, 2)) ++
-          Seq(DecimalType(10, 2), DecimalType(12, 4), DecimalType(18, 4))).flatten
+          Seq(DecimalType(10, 2), DecimalType(12, 4), DecimalType(18, 4))).flatten ++
+        Seq(DecimalType(9, 2), DecimalType(18, 4), DecimalType(38, 10), DecimalType(20, 2))
+          .flatMap(t => Seq.fill(4)(t)) ++
+        Seq.fill(2)(Seq(DecimalType(21, 2), DecimalType(23, 4), DecimalType(38, 2),
+          DecimalType(23, 2), DecimalType(25, 4), DecimalType(20, 2), DecimalType(31, 4),
+          DecimalType(32, 4), DecimalType(30, 2), DecimalType(38, 4), DecimalType(15, 2))).flatten
       assert(sections.map(s => spark.sql(s.query).schema.head.dataType) === resultTypes)
       def condition(query: String): Expression = spark.sql(query).queryExecution.analyzed
         .collectFirst { case f: Filter => f.condition }.get
@@ -131,11 +148,15 @@ class VarkaDecimalBaselineQueriesSuite extends QueryTest with VarkaSharedSession
       assert(rescaled === Seq.fill(2)((DecimalType(11, 4), "cast", "cast")) ++
         Seq.fill(2)((DecimalType(18, 4), "column", "cast")))
       // So do the three arithmetic filters of 349: x9 + y9 < z9 compares at DECIMAL(10, 2),
-      // x9 - w9 > 0 at DECIMAL(12, 4) and x8 * y9 < z9 at DECIMAL(18, 4).
+      // x9 - w9 > 0 at DECIMAL(12, 4) and x8 * y9 < z9 at DECIMAL(18, 4). The widening filters
+      // of 360 and 361 do not: x20 + y20 < z20 compares at DECIMAL(21, 2) and x15 * y15 < z15
+      // at DECIMAL(31, 4).
       val arithmetic = sections.filter(s => Seq(" x + y < z filter", " x - w > 0 filter",
-        " x8 * y < z filter").exists(s.title.contains)).map(s => comparison(s.query).left.dataType)
+        " x8 * y < z filter", " x * y < z filter").exists(s.title.contains))
+        .map(s => comparison(s.query).left.dataType)
       assert(arithmetic === Seq.fill(2)(
-        Seq(DecimalType(10, 2), DecimalType(12, 4), DecimalType(18, 4))).flatten)
+        Seq(DecimalType(10, 2), DecimalType(12, 4), DecimalType(18, 4))).flatten ++
+        Seq.fill(2)(Seq(DecimalType(21, 2), DecimalType(31, 4))).flatten)
       // No IN casts its column, its literals being of the column's scale: the eight IN filters,
       // the lane pair's at precisions 38 and 20 and the 64-bit ones at 9 and 18, each at both
       // densities.
@@ -149,14 +170,15 @@ class VarkaDecimalBaselineQueriesSuite extends QueryTest with VarkaSharedSession
       // A filter over the columns with no null returns its column, which says nothing of the
       // condition, so each arithmetic operand of its condition is run as a value instead and
       // must return no null: the negation and abs of the lane pair's and the 64-bit filters
-      // (eight) and the three arithmetic filters' sums, difference and product.
+      // (eight), the three arithmetic filters' sums, difference and product, and the widening
+      // filters' sum and product.
       val operands = for {
         s <- sections if s.title.endsWith("no nulls") && s.query.contains(" WHERE ")
         e <- condition(s.query).collect {
           case e @ (_: BinaryArithmetic | _: UnaryMinus | _: Abs) => e
         }
       } yield s.title -> e.sql
-      assert(operands.size === 11)
+      assert(operands.size === 13)
       // Each operand is projected and its values collected, one per row, rather than filtered
       // on IS NULL: the optimizer folds that filter to false for an operand it takes as never
       // null, and the check would then pass without evaluating the operand at all.
@@ -179,19 +201,42 @@ class VarkaDecimalBaselineQueriesSuite extends QueryTest with VarkaSharedSession
     }
   }
 
+  test("no divisor of a remainder section is zero at the benchmark's row count") {
+    // A zero divisor raises under ANSI, which would stop the timed run, so the full table is
+    // generated here, uncached, and its divisor columns are counted.
+    val divisors = VarkaDecimalBaselineBenchmark.REMAINDER_PRECISIONS.asScala.map("y" + _.suffix)
+    val zeros = spark.sql(VarkaDecimalBaselineBenchmark.tableSql(
+      VarkaDecimalBaselineBenchmark.NUM_ROWS)).where(divisors.map(_ + " = 0").mkString(" OR "))
+    assert(zeros.count() === 0)
+  }
+
   test("each section of the decimal baseline fuses as its class lists it", PinsDefaults) {
     // The benchmark's own check, made here too, so a change to how a section fuses fails a pull
     // request rather than the runner dispatch that times it. The benchmark plans under the
     // emitter's default options, so the classes pin the defaults, and an option matrix
     // configuration, under which a section may fuse differently, cancels the test; so does the
-    // run that lifts the benchmark's check.
+    // run that lifts the benchmark's check. The benchmark lists its classes at the two-lane
+    // refusal the host resolves (VARKA-503), which the shared sessions leave off, so both lists
+    // are checked here by setting the refusal each way.
     assume(VarkaSqlBenchmarkBase.fuseCheck(),
       s"-D${VarkaSqlBenchmarkBase.FUSE_CHECK_PROPERTY}=false times the sections fused")
+    val key = SQLConf.VARKA_DECLINE_TWO_LANE_CONDITIONS.key
+    val before = varkaSpark.conf.getOption(key)
     withTable(100) {
-      for (s <- VarkaDecimalBaselineBenchmark.sections().asScala) {
-        withClue(s.title) {
-          val plan = varkaSpark.sql(s.query).queryExecution.executedPlan
-          assert(VarkaSqlBenchmarkBase.fusion(plan) === Optional.of(s.fusion))
+      try {
+        for (declines <- Seq(false, true)) {
+          varkaSpark.conf.set(key, declines.toString)
+          for (s <- VarkaDecimalBaselineBenchmark.sections(declines).asScala) {
+            withClue(s"${s.title}, refusal $declines") {
+              val plan = varkaSpark.sql(s.query).queryExecution.executedPlan
+              assert(VarkaSqlBenchmarkBase.fusion(plan) === Optional.of(s.fusion))
+            }
+          }
+        }
+      } finally {
+        before match {
+          case Some(v) => varkaSpark.conf.set(key, v)
+          case None => varkaSpark.conf.unset(key)
         }
       }
     }

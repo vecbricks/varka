@@ -103,6 +103,9 @@ decimal (section 7).
 2. **The 64-bit decimals.** Part 577a could land on the long lane before the pair exists. Should
    it be a separate pull request ahead of 359, or wait for the whole row?
 
+3. **Form (c).** *Settled by the owner, 9 November 2026:* (c) is the `BigInteger` call a row; a
+   scalar remainder in `long`s is added only if (c) comes close to the winner (10.2, item 3).
+
 ## 8. Done when
 
 - the four names fuse, or decline with a measured reason, for every decimal shape the type sweep
@@ -118,3 +121,63 @@ decimal (section 7).
    names (this change corrects `VARKA-363.md` and the census).
 
 ## 10. Outcome
+
+### 10.1 The baseline addition (5.1): built, its reading pending the runners
+
+*8 November 2026, on master `99675606f2b`. Nothing here is timed yet: the reading is the runners'
+(the dispatches are in the pull request).*
+
+`VarkaDecimalBaselineBenchmark` gains sixteen sections, `x % y` and `pmod(x, y)` as values at
+`DECIMAL(9, 2)`, `(18, 4)`, `(38, 10)` and `(20, 2)`, each with no nulls and with one row in ten
+null, appended after the existing 88 so the committed results keep their places. All are
+`Fusion.NONE`, and `VarkaDecimalBaselineQueriesSuite`'s fuse test passes with that class, so item
+0.1 holds on the plan as well as in the census. Both operands share a type, so no section
+rescales; the queries suite also checks that no divisor is zero at the benchmark's 2,000,000
+rows, since one would raise under ANSI. The runner results at 256 and 128 bits are to be spliced
+into the committed `-runner-epyc7763` files, the new sections only, with their provenance.
+
+The benchmark's classes now follow the two-lane refusal #1262 added (VARKA-503): at 128 bits its
+30 filters over a 64-bit decimal are `NONE`, and the first 128-bit run failed on that before
+(MaxGekk/spark run 42574807845); the fuse test checks the classes with the refusal off and on.
+
+### 10.2 The spike (2.3): built and checked, the reading pending the runners
+
+*8 November 2026, on master `99675606f2b`. Nothing here is timed yet: the reading is the runners',
+and the verdict is open until it lands.*
+
+**The spike.** `VarkaDecimalRemainderSpikeBenchmark` (catalyst, test side, no emitter), over two
+`DECIMAL(38, s)` slot columns at one scale, in VARKA-359's de-interleaved layout, on the magnitudes
+with the dividend's sign put back; a zero divisor sets the row's bit and stores 0, and `pmod` adds
+`y` to a negative remainder where `y > 0`, which is Spark's `r < 0 ? (r + y) % y : r`. Its forms are
+E for (a), D for (b) and B for (c). Three things differ from 2.3's words:
+
+1. **(a) is three rounds, not one correction.** One double carries 53 bits of a quotient that can
+   reach 126. The argument that three rounds and two subtractions are exact is at
+   `bodyE`: each estimate is shrunk by `1 - 2^-49` so it never exceeds `r / b` (the
+   remainder stays non-negative) and is within a relative `2^-48` below it, so a round leaves `r <
+   2^-48 r + b`; after three, `r < 2b` for `b >= 2` and `r <= 2` for `b = 1`. It is a hand
+   argument over the rounding errors, not an SMT proof, which 3.1 still owes for 577b. E converts
+   by the `0x4330` identity and reads the estimate's exponent and mantissa from its bits, never
+   `L2D` or `D2L`, which C2 refuses at four long lanes on AVX2 (`skills/the-jit.md`).
+2. **(b) is Knuth's long division at base 2, not over 64-bit words.** Algorithm D's digit step
+   divides two words by one, which no vector instruction set here has; over 32-bit digits its
+   estimate would be E's at smaller digits with more rounds. Base 2 is the one long division
+   with no divider.
+3. **(c) is `BigInteger`, a per-lane call to an allocating routine,** so E's lead over B
+   overstates its lead over a scalar 128-by-128 remainder in `long`s, which is not built; that
+   arm is owed before 577b fixes its form, unless the owner takes (c) as read (7, question 3).
+   *9 November 2026:* the owner took (c) as read (7, question 3), so that arm is built only if
+   B comes close to the winner.
+
+**Checks, before any timing.** `VarkaDecimalRemainderSpikeSuite` checks all six arms against
+`BigInteger` in every build, over 3.2's edges (zero, 1, `10^k`, `2^k` and `2^k +- 1` divisors, the
+dividend and its negation, the extremes, exact multiples, remainders of `|y| - 1`, every sign pair)
+and quotients past 106 bits. No form was found wrong. The forms land first, with their check and
+no timing; the harness that times them by the house method lands on top of them.
+
+**Two findings for 577b.** (1) `pmod` can overflow its own result type: the type is
+`min(p1 - s1, p2 - s2) + max(s1, s2)`, but `r + y` is bounded by `y` alone, so with `p1 - s1 <
+p2 - s2`, `pmod(-1, 10^9)` over `DECIMAL(3, 0)` and `DECIMAL(10, 0)` is `999999999` in a
+`DECIMAL(3, 0)`, null under LEGACY and an error under ANSI (`Pmod`'s `toPrecision`, read from
+`arithmetic.scala`, **[I]**: not run). `%` cannot, since `|r| <= |x|`. (2) The 64-bit case (2.2)
+is not priced here: it is row 30's long-lane remainder, and 5.1 scopes the spike to 2.3.

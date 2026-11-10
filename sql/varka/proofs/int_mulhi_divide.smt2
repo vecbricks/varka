@@ -271,3 +271,163 @@
 (assert (not (= (mulhi.divide n 2147483649 63 true) (jint.div n (- 2147483648)))))
 (check-sat)
 (pop 1)
+
+; d = 10: signedMagic(10) = (1717986919, 34)
+
+(echo "d = 10: the form is n / d for every int n: expect unsat")
+(push 1)
+(assert (not (= (mulhi.divide n 1717986919 34 false) (jint.div n 10))))
+(check-sat)
+(pop 1)
+
+(echo "d = 10: with the multiplier lowered by one it is not: expect sat")
+(push 1)
+(assert (not (= (mulhi.divide n 1717986918 34 false) (jint.div n 10))))
+(check-sat)
+(pop 1)
+
+(echo "d = 10: with the shift raised by one it is not: expect sat")
+(push 1)
+(assert (not (= (mulhi.divide n 1717986919 35 false) (jint.div n 10))))
+(check-sat)
+(pop 1)
+
+; d = 1000: signedMagic(1000) = (274877907, 38)
+
+(echo "d = 1000: the form is n / d for every int n: expect unsat")
+(push 1)
+(assert (not (= (mulhi.divide n 274877907 38 false) (jint.div n 1000))))
+(check-sat)
+(pop 1)
+
+(echo "d = 1000: with the multiplier lowered by one it is not: expect sat")
+(push 1)
+(assert (not (= (mulhi.divide n 274877906 38 false) (jint.div n 1000))))
+(check-sat)
+(pop 1)
+
+(echo "d = 1000: with the shift raised by one it is not: expect sat")
+(push 1)
+(assert (not (= (mulhi.divide n 274877907 39 false) (jint.div n 1000))))
+(check-sat)
+(pop 1)
+
+; d = 10000: signedMagic(10000) = (1759218605, 44)
+
+(echo "d = 10000: the form is n / d for every int n: expect unsat")
+(push 1)
+(assert (not (= (mulhi.divide n 1759218605 44 false) (jint.div n 10000))))
+(check-sat)
+(pop 1)
+
+(echo "d = 10000: with the multiplier lowered by one it is not: expect sat")
+(push 1)
+(assert (not (= (mulhi.divide n 1759218604 44 false) (jint.div n 10000))))
+(check-sat)
+(pop 1)
+
+(echo "d = 10000: with the shift raised by one it is not: expect sat")
+(push 1)
+(assert (not (= (mulhi.divide n 1759218605 45 false) (jint.div n 10000))))
+(check-sat)
+(pop 1)
+
+; d = 100000: signedMagic(100000) = (351843721, 45)
+
+(echo "d = 100000: the form is n / d for every int n: expect unsat")
+(push 1)
+(assert (not (= (mulhi.divide n 351843721 45 false) (jint.div n 100000))))
+(check-sat)
+(pop 1)
+
+(echo "d = 100000: with the multiplier lowered by one it is not: expect sat")
+(push 1)
+(assert (not (= (mulhi.divide n 351843720 45 false) (jint.div n 100000))))
+(check-sat)
+(pop 1)
+
+(echo "d = 100000: with the shift raised by one it is not: expect sat")
+(push 1)
+(assert (not (= (mulhi.divide n 351843721 46 false) (jint.div n 100000))))
+(check-sat)
+(pop 1)
+
+; d = 1000000: signedMagic(1000000) = (1125899907, 50)
+
+(echo "d = 1000000: the form is n / d for every int n: expect unsat")
+(push 1)
+(assert (not (= (mulhi.divide n 1125899907 50 false) (jint.div n 1000000))))
+(check-sat)
+(pop 1)
+
+(echo "d = 1000000: with the multiplier lowered by one it is not: expect sat")
+(push 1)
+(assert (not (= (mulhi.divide n 1125899906 50 false) (jint.div n 1000000))))
+(check-sat)
+(pop 1)
+
+(echo "d = 1000000: with the shift raised by one it is not: expect sat")
+(push 1)
+(assert (not (= (mulhi.divide n 1125899907 51 false) (jint.div n 1000000))))
+(check-sat)
+(pop 1)
+
+; d = 10000000: signedMagic(10000000) = (1801439851, 54)
+
+(echo "d = 10000000: the form is n / d for every int n: expect unsat")
+(push 1)
+(assert (not (= (mulhi.divide n 1801439851 54 false) (jint.div n 10000000))))
+(check-sat)
+(pop 1)
+
+(echo "d = 10000000: with the multiplier lowered by one it is not: expect sat")
+(push 1)
+(assert (not (= (mulhi.divide n 1801439850 54 false) (jint.div n 10000000))))
+(check-sat)
+(pop 1)
+
+(echo "d = 10000000: with the shift raised by one it is not: expect sat")
+(push 1)
+(assert (not (= (mulhi.divide n 1801439851 55 false) (jint.div n 10000000))))
+(check-sat)
+(pop 1)
+
+; d = 100000000: signedMagic(100000000) = (1441151881, 57)
+
+(echo "d = 100000000: the form is n / d for every int n: expect unsat")
+(push 1)
+(assert (not (= (mulhi.divide n 1441151881 57 false) (jint.div n 100000000))))
+(check-sat)
+(pop 1)
+
+(echo "d = 100000000: with the multiplier lowered by one it is not: expect sat")
+(push 1)
+(assert (not (= (mulhi.divide n 1441151880 57 false) (jint.div n 100000000))))
+(check-sat)
+(pop 1)
+
+(echo "d = 100000000: with the shift raised by one it is not: expect sat")
+(push 1)
+(assert (not (= (mulhi.divide n 1441151881 58 false) (jint.div n 100000000))))
+(check-sat)
+(pop 1)
+
+; d = 1000000000: signedMagic(1000000000) = (1152921505, 60)
+
+(echo "d = 1000000000: the form is n / d for every int n: expect unsat")
+(push 1)
+(assert (not (= (mulhi.divide n 1152921505 60 false) (jint.div n 1000000000))))
+(check-sat)
+(pop 1)
+
+(echo "d = 1000000000: with the multiplier lowered by one it is not: expect sat")
+(push 1)
+(assert (not (= (mulhi.divide n 1152921504 60 false) (jint.div n 1000000000))))
+(check-sat)
+(pop 1)
+
+(echo "d = 1000000000: with the shift raised by one it is not: expect sat")
+(push 1)
+(assert (not (= (mulhi.divide n 1152921505 61 false) (jint.div n 1000000000))))
+(check-sat)
+(pop 1)
