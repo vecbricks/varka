@@ -1,0 +1,78 @@
+#
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+#
+
+# The push signal for the check sync (VARKA-255.md 3.2). Each push to a pull request runs this
+# job, and its completion starts update_build_status.yml on `workflow_run`, which creates and
+# syncs the pull request's Build check from the default branch with this repository's write
+# token. This job runs on `pull_request`, so for a pull request from a fork it gets a read-only
+# token and no secrets; it checks nothing out and writes nothing. update_build_status.yml names
+# this workflow by its `name` below, so the two change together.
+name: On pull request update
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+
+permissions: {}
+
+jobs:
+  wait:
+    name: Wait for the fork's Build run
+    runs-on: ubuntu-slim
+    timeout-minutes: 5
+    steps:
+      # The fork's build_main.yml run starts on the same push but may take a while to register,
+      # and the sync's first pass writes an action_required check when it finds no run for the
+      # head commit. Waiting here, up to three minutes, for that run to be listed lets the first
+      # pass find it. The read is of a public repository; whatever it finds or fails on, the job
+      # succeeds, because only its completion matters.
+      - name: Wait for the fork's Build run
+        uses: actions/github-script@v9
+        with:
+          script: |
+            const pr = context.payload.pull_request
+            if (!pr.head.repo) {
+              console.log('The head repository is gone; nothing to wait for')
+              return
+            }
+            const params = {
+              owner: pr.head.repo.owner.login,
+              repo: pr.head.repo.name,
+              id: 'build_main.yml',
+              branch: pr.head.ref
+            }
+            const deadline = Date.now() + 180 * 1000
+            for (;;) {
+              try {
+                const runs = await github.request(
+                  'GET /repos/{owner}/{repo}/actions/workflows/{id}/runs', params)
+                const run = runs.data.workflow_runs.find(r => r.head_sha == pr.head.sha)
+                if (run) {
+                  console.log('Fork run ' + run.html_url + ' is ' + run.status)
+                  return
+                }
+              } catch (error) {
+                console.log('Listing the fork runs failed: ' + error.message)
+                return
+              }
+              if (Date.now() + 10 * 1000 > deadline) {
+                console.log('No fork run for ' + pr.head.sha + ' after three minutes')
+                return
+              }
+              await new Promise(resolve => setTimeout(resolve, 10 * 1000))
+            }
