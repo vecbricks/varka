@@ -29,7 +29,8 @@ unit line must pass.
 The same is done for the sweep workflow's `Run the sweep` step (VARKA-573): its JVM options and
 runner arguments come from `dev/varka_sweeps.py`, and it must pass a failing sweep's status on.
 And for its `Run this share under AVX2 at 128 bits` step (VARKA-564): the three shares of a module
-must run every suite once, under both flags, and a failing share must fail its job.
+must run every suite once but the JIT-measuring ones, under both flags, and a failing share must
+fail its job.
 
   dev/varka_bin_units_test.py --selftest
 """
@@ -271,7 +272,7 @@ class SweepStep(unittest.TestCase):
 # The runner for the AVX2 step: `--list-suites` prints $STUB_SUITES, one a line; a run records its
 # arguments, one a line, in $STUB_ARGS and exits 3 when its suites hold FAIL.
 AVX2_STUB = r"""#!/bin/bash
-for a in "$@"; do [ "$a" = --list-suites ] && { printf '%s\n' $STUB_SUITES; exit 0; }; done
+for a in "$@"; do [ "$a" = --list-suites ] && { printf '%s\n' "$STUB_SUITES"; exit 0; }; done
 printf '%s\n' "$@" > "$STUB_ARGS"
 suites=""
 args=("$@")
@@ -303,12 +304,10 @@ def run_avx2_step(part, suites):
             "PATH": os.environ["PATH"],
             "MODULE": "catalyst",
             "PART": part,
-            "STUB_SUITES": " ".join(s.replace("@own ", "@own_") for s in suites),
+            "STUB_SUITES": "\n".join(suites),
             "STUB_ARGS": str(tmp / "runner.args"),
             "GITHUB_STEP_SUMMARY": str(tmp / "summary.md"),
         }
-        # The stub's word splitting would break "@own p.X" in two; it prints it whole.
-        script = script.replace("sed 's/^@own //'", "sed 's/^@own_//'")
         done = subprocess.run(
             ["bash", "-e", "-c", script],
             cwd=tmp,
@@ -323,7 +322,7 @@ def run_avx2_step(part, suites):
 
 
 class Avx2Step(unittest.TestCase):
-    SUITES = ["p.VarkaIrFuzzSuite", "@own p.VarkaAvx2SelectSuite"] + [
+    SUITES = ["p.VarkaIrFuzzSuite", "@own p.VarkaAvx2SelectSuite", "@own p.VarkaAssemblySuite"] + [
         f"p.VarkaS{i}Suite" for i in range(7)
     ]
 
@@ -340,7 +339,8 @@ class Avx2Step(unittest.TestCase):
             ):
                 self.assertTrue(has_run(args, *sequence), (sequence, args))
             ran.extend(args[args.index("--suites") + 1].split(","))
-        expected = sorted(s.replace("@own ", "").rsplit(".", 1)[-1] for s in self.SUITES)
+        # Every suite once, but the one that measures the JIT.
+        expected = sorted(s.rsplit(".", 1)[-1] for s in self.SUITES if "Assembly" not in s)
         self.assertEqual(sorted(ran), expected)
 
     def test_a_failing_share_fails_the_step(self):
