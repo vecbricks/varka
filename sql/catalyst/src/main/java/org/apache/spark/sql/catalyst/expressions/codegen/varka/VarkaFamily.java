@@ -85,8 +85,8 @@ public enum VarkaFamily {
       + " between float and double; bigint to either at the default emit level, and the casts from"
       + " a floating type to an integral one, are left to the row engine: a session naming a level"
       + " fuses the bigint ones (level 3 in one instruction, below it by exact AVX2 forms), as does"
-      + " one asking for the host's on an x86 CPU whose features are read and that has AVX512DQ or"
-      + " a long species of 256 bits or more"),
+      + " one asking for the host's on an aarch64 host, or on an x86 CPU whose features are read"
+      + " and that has AVX512DQ or a long species of 256 bits or more"),
   /** {@code VarkaIntegralCastCompiler}, its condition arm reached from {@code compileCond}. */
   INTEGRAL_CAST("integral cast", "integralCast", "the casts among tinyint, smallint, int,"
       + " bigint and boolean that the int arithmetic family does not hold: the narrowings to"

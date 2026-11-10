@@ -591,7 +591,11 @@ public final class VarkaKernelPlan {
    * the shape key, and a plan that read the host would key one shape two ways. The feature
    * reaches it through the level: a session that asks for the host's level resolves a CPU whose
    * HotSpot feature list holds AVX512DQ to level 3 and one that lacks it, an AVX-512 one without
-   * DQ included, to level 2 ({@code VarkaSessionEmit.resolve}).
+   * DQ included, to level 2 ({@code VarkaSessionEmit.resolve}). An aarch64 host resolves to
+   * level 3 as well, whatever its features: its matcher lowers {@code L2D} to one vector
+   * {@code scvtf} and {@code L2F} lane by lane to the scalar {@code scvtf} on NEON or SVE's
+   * {@code scvtf} from D to S, each a single rounding as Java's cast, so neither AVX2 form is
+   * needed there ({@code VarkaHostIsa.Reading.conversionsAreInstructions}).
    */
   private static Optional<Refusal> conversionRefusal(List<VarkaVectorIR> roots,
       VarkaEmitOptions options) {

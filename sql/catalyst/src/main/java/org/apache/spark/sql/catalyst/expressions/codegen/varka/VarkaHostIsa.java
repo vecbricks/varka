@@ -59,6 +59,9 @@ public final class VarkaHostIsa {
   /** The architectures whose HotSpot has the x86 matcher, as {@code os.arch} names them. */
   private static final List<String> X86 = List.of("amd64", "x86_64");
 
+  /** The {@code os.arch} of a 64-bit Arm HotSpot, on Linux and on macOS alike. */
+  static final String AARCH64 = "aarch64";
+
   private VarkaHostIsa() { }
 
   /**
@@ -102,6 +105,23 @@ public final class VarkaHostIsa {
     public boolean conversionsFallBack() {
       return x86() && readable() && !features.isEmpty()
           && !hasFeature(features, DQ_FEATURE);
+    }
+
+    /**
+     * Whether this JVM is known to lower {@code L2D} and {@code L2F} to vector instructions: an
+     * x86 HotSpot whose feature list was read and holds AVX512DQ, or any aarch64 HotSpot. The
+     * aarch64 matcher has a rule for both with no feature predicate, NEON being part of every
+     * ARMv8 core: {@code L2D} is one vector {@code scvtf}, and {@code L2F} converts each lane
+     * with the scalar {@code scvtf} from X to S on NEON, or with SVE's {@code scvtf} from D to
+     * S, a single rounding either way, as Java's {@code (float) l} rounds
+     * ({@code vcvtLtoF_neon}, {@code vcvtLtoF_sve} and {@code vcvtLtoD} in
+     * {@code cpu/aarch64/aarch64_vector.ad}). So the answer there needs no feature list, and an
+     * unread one does not change it. The Neoverse N2 runner's census reads both as intrinsic at
+     * its 128 bits ({@code sql/varka/plans/m8/results/VARKA-376-census-neoverse-n2.json}).
+     */
+    public boolean conversionsAreInstructions() {
+      return AARCH64.equals(arch)
+          || (x86() && readable() && hasFeature(features, DQ_FEATURE));
     }
   }
 
