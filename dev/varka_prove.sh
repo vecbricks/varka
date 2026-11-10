@@ -25,6 +25,8 @@
 #   dev/varka_prove.sh --install z3|cvc5|both   # the pinned solvers, into target/varka-solvers/
 #   dev/varka_prove.sh --install-shared z3|cvc5|both  # the same, into the shared directory below
 #   dev/varka_prove.sh --self-test              # one planted failure of each kind, every one caught
+#   dev/varka_prove.sh --self-test-fetch        # the download's cache, checksum and retries, checked
+#   dev/varka_prove.sh --cache-key              # the pins in one line, CI's key for the archives
 #
 # A proof opens with its (set-logic ...) line, and java.smt2, Java's operators, is inserted after
 # it, since SMT-LIB has no include. Each check is an (echo "<what it shows>: expect sat|unsat")
@@ -47,6 +49,11 @@
 # ~/.cache/varka-solvers/, laid out as target/varka-solvers/ is), else from PATH.
 # VARKA_PROVE_LIMIT_MS bounds each check (default 10000) and VARKA_PROVE_RUN_LIMIT each
 # file's run under one solver, in seconds (default 300). Exit status 0 when every proof holds.
+#
+# An install keeps the archives it downloads in <solvers>/downloads/, which the linters' job
+# caches under the --cache-key line; an archive already there is used when its SHA-256 matches
+# the pin, and is downloaded again otherwise. A download is tried four times, ten, thirty and
+# sixty seconds apart, and what fails its checksum counts as a failed try and is not kept.
 set -uo pipefail
 # Usage text is found rather than numbered (see dev/varka_nightly.sh): from the line after the
 # license to the first line that is not a comment.
@@ -62,6 +69,14 @@ Z3_VERSION=5.1.0
 CVC5_VERSION=1.4.1
 CVC5_ZIP=cvc5-Linux-x86_64-static.zip
 CVC5_SHA256=2f8efe58fe27ba7bccbb504533f690b9312d69da14192712460e4a19231f02a1
+# The Linux x86_64 wheel of Z3, the platform the linters' job runs on, by its PyPI file URL; any
+# other platform installs from the index by version, unchecked.
+Z3_WHEEL=z3_solver-$Z3_VERSION.0-py3-none-manylinux_2_27_x86_64.whl
+Z3_WHEEL_URL=https://files.pythonhosted.org/packages/34/de/\
+30329041d9a2dda11308576a80b5db17060e4b03a7ba7f550437fb38dd6b/$Z3_WHEEL
+Z3_WHEEL_SHA256=dfad9e309d7010b1ff6bdb33f21570a1603ef4727373221c7117a74448f0cfef
+# The seconds between a failed download and the next try; the self-test sets them to zero.
+fetch_delays=(10 30 60)
 # The proofs the linters' job runs under cvc5 rather than Z3, to keep the step inside its minute:
 # long_divide.smt2 takes Z3 59 s on the runner and cvc5 a third of that (VARKA-241.md 9.5).
 CVC5_IN_LINT=(long_divide.smt2)
@@ -114,11 +129,46 @@ require_solver() {
   echo "$path"
 }
 
+# Puts the file at $1 into $2, unless $2 is there already with the SHA-256 $3: four tries, a
+# download that fails its checksum among the failed ones, and only a checked file is kept.
+fetch() {
+  local url="$1" dest="$2" sha="$3" part="$2.part" delay
+  if [ -f "$dest" ]; then
+    echo "$sha  $dest" | sha256sum -c --quiet > /dev/null 2>&1 && return 0
+    echo "varka_prove: $dest does not match its SHA-256; downloading it again" >&2
+    rm -f "$dest"
+  fi
+  mkdir -p "$(dirname "$dest")" || return 1
+  for delay in first "${fetch_delays[@]}"; do
+    if [ "$delay" != first ]; then
+      echo "varka_prove: retrying $url in $delay s" >&2
+      sleep "$delay"
+    fi
+    rm -f "$part"
+    if curl -sSfL --connect-timeout 30 --max-time 600 -o "$part" "$url" \
+        && echo "$sha  $part" | sha256sum -c --quiet >&2; then
+      mv "$part" "$dest"
+      return 0
+    fi
+  done
+  rm -f "$part"
+  echo "varka_prove: $url failed $((${#fetch_delays[@]} + 1)) times" >&2
+  return 1
+}
+
 install_z3() {
-  local dir="$solvers/z3-$Z3_VERSION"
+  local dir="$solvers/z3-$Z3_VERSION" wheel="$solvers/downloads/$Z3_WHEEL"
   [ -x "$dir/bin/z3" ] && return 0
-  python3 -m venv "$dir" \
-    && "$dir/bin/pip" install --quiet --disable-pip-version-check "z3-solver==$Z3_VERSION.0"
+  if [ "$(uname -s)-$(uname -m)" != Linux-x86_64 ]; then
+    python3 -m venv "$dir" \
+      && "$dir/bin/pip" install --quiet --disable-pip-version-check --retries 10 \
+        "z3-solver==$Z3_VERSION.0"
+    return
+  fi
+  # The wheel has no dependencies on the Pythons the venv can be, so nothing else is fetched.
+  fetch "$Z3_WHEEL_URL" "$wheel" "$Z3_WHEEL_SHA256" \
+    && python3 -m venv "$dir" \
+    && "$dir/bin/pip" install --quiet --disable-pip-version-check --no-index --no-deps "$wheel"
 }
 
 install_cvc5() {
@@ -129,11 +179,10 @@ install_cvc5() {
       "and point VARKA_CVC5 at it" >&2
     return 1
   fi
+  fetch "https://github.com/cvc5/cvc5/releases/download/cvc5-$CVC5_VERSION/$CVC5_ZIP" \
+    "$solvers/downloads/$CVC5_ZIP" "$CVC5_SHA256" || return 1
   tmp="$(mktemp -d)"
-  curl -sSfL -o "$tmp/$CVC5_ZIP" \
-      "https://github.com/cvc5/cvc5/releases/download/cvc5-$CVC5_VERSION/$CVC5_ZIP" \
-    && echo "$CVC5_SHA256  $tmp/$CVC5_ZIP" | sha256sum -c --quiet \
-    && unzip -q "$tmp/$CVC5_ZIP" -d "$tmp" \
+  unzip -q "$solvers/downloads/$CVC5_ZIP" -d "$tmp" \
     && mkdir -p "$dir/bin" && mv "$tmp/${CVC5_ZIP%.zip}/bin/cvc5" "$dir/bin/cvc5"
   status=$?
   rm -rf "$tmp"
@@ -436,6 +485,37 @@ EOF
   return "$bad"
 }
 
+# The download, checked against file:// URLs with no waits between tries: an archive that matches
+# is used with no download, one that does not is fetched again, and a source that fails, or
+# serves a file that fails its checksum, is tried four times and leaves nothing behind.
+self_test_fetch() {
+  local dir good sha bad=0 tries
+  dir="$(mktemp -d)"
+  fetch_delays=(0 0 0)
+  printf 'pinned\n' > "$dir/good"
+  sha="$(sha256sum "$dir/good" | cut -d' ' -f1)"
+  printf 'pinned\n' > "$dir/cached"
+  if ! fetch "file://$dir/missing" "$dir/cached" "$sha" 2> /dev/null; then
+    echo "varka_prove: an archive that matches its pin was downloaded again" >&2; bad=1
+  fi
+  printf 'corrupt\n' > "$dir/cached"
+  if ! fetch "file://$dir/good" "$dir/cached" "$sha" 2> /dev/null \
+      || ! cmp -s "$dir/good" "$dir/cached"; then
+    echo "varka_prove: an archive that fails its pin was not replaced" >&2; bad=1
+  fi
+  printf 'other\n' > "$dir/other"
+  for src in missing other; do
+    tries="$(fetch "file://$dir/$src" "$dir/out-$src" "$sha" 2>&1 >/dev/null | grep -c retrying)"
+    if [ -e "$dir/out-$src" ] || [ -e "$dir/out-$src.part" ] || [ "$tries" != 3 ]; then
+      echo "varka_prove: a failing download ($src) made $tries retries, not 3, or kept a file" >&2
+      bad=1
+    fi
+  done
+  rm -rf "$dir"
+  [ "$bad" -eq 0 ] && echo "varka_prove: the download's cache, checksum and retries hold"
+  return "$bad"
+}
+
 # ---------------------------------------------------------------------------------------------
 # The command line.
 # ---------------------------------------------------------------------------------------------
@@ -451,6 +531,10 @@ while [ "$#" -gt 0 ]; do
       shift 2 || usage ;;
     --install-shared) mode=install; solvers="$shared"; which="${2:-}"; shift 2 || usage ;;
     --self-test) mode=self-test; shift ;;
+    --self-test-fetch) self_test_fetch; exit ;;
+    --cache-key)
+      echo "z3-$Z3_VERSION-${Z3_WHEEL_SHA256:0:16}-cvc5-$CVC5_VERSION-${CVC5_SHA256:0:16}"
+      exit 0 ;;
     --lint) mode=lint; which=both; shift ;;
     -*) usage ;;
     *) files+=("$1"); shift ;;

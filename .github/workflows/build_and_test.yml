@@ -1192,6 +1192,34 @@ jobs:
     - name: Java linter
       if: fromJson(needs.precondition.outputs.required).lint-code != 'false'
       run: ./dev/lint-java
+    # The pinned solvers' archives come from the Actions cache, keyed on their versions and
+    # SHA-256s; the install checks each archive against its pin, cached or not, and downloads
+    # one that is missing with retries (VARKA-592). The cache is saved as soon as the install
+    # succeeds, so a later failure of the job does not lose it.
+    - name: The pinned solvers' cache key
+      id: solvers-key
+      if: fromJson(needs.precondition.outputs.required).lint-code != 'false'
+      run: echo "key=varka-solvers-$(./dev/varka_prove.sh --cache-key)" >> "$GITHUB_OUTPUT"
+    - name: Restore the pinned solvers' archives
+      id: solvers-cache
+      if: fromJson(needs.precondition.outputs.required).lint-code != 'false'
+      uses: actions/cache/restore@v5
+      with:
+        path: target/varka-solvers/downloads
+        key: ${{ steps.solvers-key.outputs.key }}
+    - name: Install the pinned solvers
+      if: fromJson(needs.precondition.outputs.required).lint-code != 'false'
+      run: |
+        ./dev/varka_prove.sh --self-test-fetch
+        ./dev/varka_prove.sh --install both
+    - name: Save the pinned solvers' archives
+      if: >-
+        fromJson(needs.precondition.outputs.required).lint-code != 'false' &&
+        steps.solvers-cache.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v5
+      with:
+        path: target/varka-solvers/downloads
+        key: ${{ steps.solvers-key.outputs.key }}
     # The SMT proofs of Varka's arithmetic lowerings under the pinned solvers (VARKA-240): the
     # self-test first, so that a checker of verdicts that stopped failing cannot pass the proofs.
     # --lint runs each file under Z3 but those the script lists for cvc5, which keeps the step
@@ -1199,7 +1227,6 @@ jobs:
     - name: Varka proofs
       if: fromJson(needs.precondition.outputs.required).lint-code != 'false'
       run: |
-        ./dev/varka_prove.sh --install both
         ./dev/varka_prove.sh --self-test --solver both
         ./dev/varka_prove.sh --lint
     # Error Prone and NullAway over Varka's Java under -Werror (VARKA-266, here since VARKA-382):
