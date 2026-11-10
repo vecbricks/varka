@@ -754,8 +754,8 @@ committed test flags, the op-count test, the measurement on the EPYC and Arm run
 
 ### 10.5 359a, part 4: the conformance suite over both representations (9 November 2026)
 
-*Branch `varka-359a-part4`, from master at `ba2093c636e`, which holds parts 1 to 3. Local commits
-only.* 11.5 item 5's oracle half and 11.8 point 6, ported from the first attempt's branch
+*Branch `varka-359a-part4`, from master at `ba2093c636e`, which holds parts 1 to 3, merged with
+master at `b90e6799220` before its suites ran again. Local commits only.* 11.5 item 5's oracle half and 11.8 point 6, ported from the first attempt's branch
 (`varka-359a-pair`, `08cec925bf9` and `58f155d7861`) onto the harness as master has it. The
 remainder of 359a is three pieces of very different size, so it is cut in three: this part, the
 pair-load node (10.3's owed node, a row in every exhaustive switch over the IR, its own pull
@@ -803,7 +803,8 @@ row whose low words straddle `2^63`: the reference evaluates the faulty lowering
 with Spark.
 
 **Cost**, against 11.7's "of the size of 347's, seconds": the pair suite took 5.3 s of test time in
-its own JVM and the long one 4.0 s, the fork's start aside. Holds.
+its own JVM and the long one 4.0 s, the fork's start aside, and about 6 s each after the review's
+fixes. Holds.
 
 **The measurement (11.8 point 5), prepared, not dispatched.** The Arm half is done (10.1's
 correction). The EPYC half needs no code: part 3 set the baseline class's fusion classes, so
