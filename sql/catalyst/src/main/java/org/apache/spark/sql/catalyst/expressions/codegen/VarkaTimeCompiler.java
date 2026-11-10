@@ -459,7 +459,8 @@ final class VarkaTimeCompiler {
    * Spark also narrows {@code q} to an int, and for WEEK multiplies by seven in int, but every
    * {@code q} those raise on is past the guard, whose batch goes to the row engine, which answers
    * or raises. An int quantity, widened, is inside every bound from an hour down, so it takes no
-   * guard; a literal one folds to its product, or declines when it is past the bound.
+   * guard; a literal one folds to its product, or declines when it is past the bound. MICROSECOND
+   * forms no product, so its quantity is the amount itself, any long, a literal as a column.
    */
   private static Optional<VarkaVectorIR> ntzTimestampAdd(
       TimestampAdd n,
@@ -479,14 +480,14 @@ final class VarkaTimeCompiler {
         return sink.decline("timestampadd's quantity folds to null or raises", n);
       }
       long q = folded.get();
-      amount = q < -bound || q > bound
+      amount = f != 1 && (q < -bound || q > bound)
           ? sink.decline("timestampadd's literal quantity is past the range whose product by "
               + "the unit is a long", n)
           : Optional.of(sink.longSlot(q * f));
     } else {
       boolean widenedInt = n.quantity() instanceof Cast c
           && DataTypes.IntegerType.equals(c.child().dataType());
-      amount = longOperand(n.quantity(), inputs, literals, sink).map(q -> {
+      amount = VarkaNodeCompiler.longOperand(n.quantity(), inputs, literals, sink).map(q -> {
         if (f == 1) {
           return q;
         }
@@ -498,7 +499,7 @@ final class VarkaTimeCompiler {
     if (amount.isEmpty()) {
       return amount;
     }
-    return longOperand(n.timestamp(), inputs, literals, sink)
+    return VarkaNodeCompiler.longOperand(n.timestamp(), inputs, literals, sink)
         .map(t -> new IntArith(IntOp.ADD, Overflow.FAIL, t, amount.get()));
   }
 

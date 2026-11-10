@@ -190,6 +190,12 @@ class VarkaTimestampNtzSuite extends VarkaMaybeThrows with VarkaTestWatchdog {
       case ((t, q), i) => Row(i, micros(t), q, Period.ofMonths(i))
     }
 
+  /** Bigint quantities cast to INT, two a batch: inside the int range, then two past it, `2^32 + 1`
+   * and `-2^32 - 2`, whose low bits are small counts, each beside one inside. */
+  private val castRows: Seq[Row] = Seq((0L, 5L), (leapNoon, -7L), (0L, (1L << 32) + 1),
+    (leapNoon, 3L), (leapNoon, -(1L << 32) - 2), (0L, 2L))
+    .zipWithIndex.map { case ((t, q), i) => Row(i, micros(t), q, null) }
+
   /** Two rows a cached batch, so that one day's batch is one of several. */
   private val batchKey = SQLConf.ARROW_EXECUTION_MAX_RECORDS_PER_BATCH.key
 
@@ -208,6 +214,11 @@ class VarkaTimestampNtzSuite extends VarkaMaybeThrows with VarkaTestWatchdog {
       ("varka_ntz_above", ntzSchema, pastGuardRows(guardHigh + 1)),
       ("varka_ntz_arith_inside", arithSchema, arithInsideRows),
       // The month count no negation holds, beside two that fit.
+      ("varka_ntz_add_cast", addSchema, castRows),
+      ("varka_ntz_add_cast_inside", addSchema, castRows.take(2)),
+      // `Int.MaxValue + 1`, whose low bits are `Int.MinValue`: a count every month unit raises on.
+      ("varka_ntz_add_cast_least", addSchema, castRows.take(2) :+
+        Row(2, micros(0L), Int.MaxValue + 1L, null)),
       ("varka_ntz_ym_least", addSchema, Seq(Int.MinValue, 1, 2).zipWithIndex.map {
         case (m, i) => Row(i, micros(0L), 0L, Period.ofMonths(m))
       })) ++
@@ -448,7 +459,7 @@ class VarkaTimestampNtzSuite extends VarkaMaybeThrows with VarkaTestWatchdog {
   // varka-session-lint: allow a path: the month forms at the date guard's ends, and a batch past
   // it declined
   test("the month forms of a TIMESTAMP_NTZ at the date guard's ends run on the kernel, and a " +
-    "count past it goes to the row engine with its batch alone") {
+    "timestamp whose date is past it goes to the row engine with its batch alone") {
     for (ansi <- Seq(false, true)) withAnsi(ansi) {
       for (form <- monthForms) {
         checkServed(s"SELECT i, $form AS v FROM varka_ntz_guard")
@@ -465,6 +476,38 @@ class VarkaTimestampNtzSuite extends VarkaMaybeThrows with VarkaTestWatchdog {
       for (form <- Seq("t + ym", "t - ym")) {
         checkServed(s"SELECT i, $form AS v FROM varka_ntz_add_YEAR_inside")
       }
+    }
+  }
+
+  // varka-session-lint: allow a path: a cast count in each mode through the plan, and the fused
+  // ones on the kernel
+  test("timestampadd by a month unit over a bigint cast to INT answers as Spark does under " +
+    "LEGACY, ANSI and TRY, past the int range too; MONTH declines and QUARTER and YEAR fuse") {
+    for (ansi <- Seq(false, true); cast <- Seq("CAST", "try_cast");
+         unit <- Seq("MONTH", "QUARTER", "YEAR")) withAnsi(ansi) {
+      val form = s"timestampadd($unit, $cast(q AS INT), t)"
+      val fused = unit != "MONTH"
+      // ANSI's cast raises on a quantity past the int range and TRY's nulls it. LEGACY's keeps
+      // the low bits: a small count answers, and Int.MinValue is past every month unit's range.
+      val raises = Map(
+        "varka_ntz_add_cast" -> (if (ansi && cast == "CAST") Some("CAST_OVERFLOW") else None),
+        "varka_ntz_add_cast_least" -> (if (cast == "try_cast") None
+          else if (ansi) Some("CAST_OVERFLOW") else Some("DATETIME_OVERFLOW")))
+      for ((table, raised) <- raises) {
+        val query = s"SELECT i, $form AS v FROM $table"
+        withClue(s"ansi=$ansi: $query") {
+          val actual = varkaSpark.sql(query)
+          val plan = actual.queryExecution.executedPlan
+          if (fused) assertFused(plan) else assertNotFused(plan)
+          checkSparkAnswerMaybeThrows(query) match {
+            case r: Raised => assert(raised === Some(r.condition), r)
+            case Answered(_) =>
+              assert(raised === None)
+              if (fused) { actual.collect(); assertKernelsRan(plan) }
+          }
+        }
+      }
+      if (fused) checkServed(s"SELECT i, $form AS v FROM varka_ntz_add_cast_inside")
     }
   }
 

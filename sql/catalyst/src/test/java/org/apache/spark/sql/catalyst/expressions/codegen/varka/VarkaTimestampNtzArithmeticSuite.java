@@ -18,6 +18,7 @@
 package org.apache.spark.sql.catalyst.expressions.codegen.varka;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
@@ -30,13 +31,17 @@ import java.util.function.LongBinaryOperator;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import scala.Enumeration;
 import scala.Option;
 import scala.jdk.javaapi.CollectionConverters;
 
 import org.apache.spark.sql.catalyst.expressions.Attribute;
+import org.apache.spark.sql.catalyst.expressions.Cast;
+import org.apache.spark.sql.catalyst.expressions.EvalMode;
 import org.apache.spark.sql.catalyst.expressions.Expression;
 import org.apache.spark.sql.catalyst.expressions.Literal;
 import org.apache.spark.sql.catalyst.expressions.SubtractTimestamps;
+import org.apache.spark.sql.catalyst.expressions.TimestampAdd;
 import org.apache.spark.sql.catalyst.expressions.TimestampAddInterval;
 import org.apache.spark.sql.catalyst.expressions.codegen.CompiledVarkaProjection;
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaDecline;
@@ -47,6 +52,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Int
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IntOp;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LaneType;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LiteralSlot;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.NarrowLane;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Overflow;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WidenLane;
 import org.apache.spark.sql.catalyst.util.DateTimeConstants;
@@ -232,6 +238,9 @@ public final class VarkaTimestampNtzArithmeticSuite {
         root("timestampadd(DAY, i, ntz)"));
     assertEquals(new IntArith(IntOp.ADD, Overflow.FAIL, FIRST, new LiteralSlot(0, LaneType.LONG)),
         root("timestampadd(WEEK, 3, ntz)"));
+    // MICROSECOND forms no product, so the least long is an amount, as it is in a column.
+    assertEquals(new IntArith(IntOp.ADD, Overflow.FAIL, FIRST, new LiteralSlot(0, LaneType.LONG)),
+        root("timestampadd(MICROSECOND, -9223372036854775808L, ntz)"));
     for (String month : List.of("timestampadd(MONTH, i, ntz)", "timestampadd(YEAR, i, ntz)",
         "timestampadd(QUARTER, l, ntz)")) {
       assertTrue(root(month).laneType() == LaneType.LONG, month);
@@ -240,6 +249,40 @@ public final class VarkaTimestampNtzArithmeticSuite {
         "timestampadd(NANOSECOND, l, ntz)", "timestampadd(HOUR, l, ltz)")) {
       Expression e = VarkaSqlResolve.parse(declined, columns());
       assertTrue(compile(e).isEmpty(), declined + " fused");
+    }
+  }
+
+  // `timestampadd(unit, CAST(CAST(l AS INT) AS BIGINT), ntz)`, the inner cast in `mode`.
+  private Expression castCount(String unit, Enumeration.Value mode) {
+    Expression narrowed = new Cast(l, DataTypes.IntegerType, Option.empty(), mode);
+    return new TimestampAdd(unit, new Cast(narrowed, DataTypes.LongType, Option.empty(),
+        EvalMode.LEGACY()), ntz, Option.apply("UTC"));
+  }
+
+  @Test
+  @DisplayName("timestampadd by MONTH over a bigint cast to INT declines in every mode, and "
+      + "QUARTER and YEAR guard the cast count; the month count takes a narrowing only under "
+      + "the month range's failing guard")
+  void monthUnitOverACastCount() {
+    for (Enumeration.Value mode : List.of(EvalMode.LEGACY(), EvalMode.ANSI(), EvalMode.TRY())) {
+      Expression month = castCount("MONTH", mode);
+      assertTrue(compile(month).isEmpty(), () -> mode + ": " + month + " fused");
+      assertEquals("month count that lowers to a node the month-count position does not take",
+          declineOf(month), mode.toString());
+      for (String unit : List.of("QUARTER", "YEAR")) {
+        Expression e = castCount(unit, mode);
+        assertTrue(compile(e).isPresent(), () -> mode + ": " + e + " declined: " + declineOf(e));
+      }
+    }
+    ColumnRef bigint = new ColumnRef(0, LaneType.LONG);
+    int lo = VarkaChrono.MONTH_ARITH_MIN_MONTHS;
+    int hi = VarkaChrono.MONTH_ARITH_MAX_MONTHS;
+    var position = VarkaOperandPosition.MONTH_COUNT;
+    assertTrue(position.admits(new NarrowLane(new GuardedRange(bigint, lo, hi))));
+    // A nulling guard, ANSI's over the int range, and LEGACY's bare narrowing.
+    for (VarkaVectorIR c : List.of(new GuardedRange(bigint, lo, hi, Overflow.NULL),
+        new GuardedRange(bigint, Integer.MIN_VALUE, Integer.MAX_VALUE), bigint)) {
+      assertFalse(position.admits(new NarrowLane(c)), c.toString());
     }
   }
 
