@@ -167,6 +167,17 @@ class VarkaFloatingCastBaselineQueriesSuite extends QueryTest with VarkaSharedSe
           }
         }
       }
+      // The shared sessions' unnamed level declines the BIGINT casts, so the loop above compares
+      // the row engine with itself there. At the named levels the benchmark's hosts resolve they
+      // fuse, by the exact AVX2 forms at 2 and as one conversion at 3, and their answers over
+      // the fixture's values past 2^51 and 2^53, where the forms round, are checked here.
+      for (level <- Seq(2, 3); s <- sections if s.title.startsWith("BIGINT")) {
+        withClue(s"${s.title}, level $level") {
+          withBothConf(SQLConf.VARKA_EMIT_USE_AVX.key, level.toString) {
+            checkAnswer(varkaSpark.sql(s.query), spark.sql(s.query))
+          }
+        }
+      }
     }
   }
 
@@ -183,7 +194,9 @@ class VarkaFloatingCastBaselineQueriesSuite extends QueryTest with VarkaSharedSe
     // resolve, 2 on the AVX2 runners at 256 bits and 3 on an AVX-512 host. The BIGINT casts fuse
     // at a named level and decline at the unnamed one, a fact this test states rather than
     // reads from the kernel plan as the benchmark does, so a level that stops fusing them fails
-    // here, and so does a benchmark that reads the level wrong.
+    // here, and so does a reading of the kernel plan that disagrees with it. The level the
+    // benchmark's session resolves from its host, -2, is not checked here, since it depends on
+    // the machine; the benchmark's dry runs on an AVX2 and an AVX-512 host check that.
     assume(VarkaSqlBenchmarkBase.fuseCheck(),
       s"-D${VarkaSqlBenchmarkBase.FUSE_CHECK_PROPERTY}=false times the sections fused")
     withTable {

@@ -199,7 +199,7 @@ public class VarkaFloatingCastBaselineBenchmark extends VarkaSqlBenchmarkBase {
    * is a condition in a kernel driven at 64 bits, which a session that refuses those
    * ({@code declinesLongConditions}, VARKA-503) leaves to the row path whole: the 128-bit
    * companion's host by default. The {@code BIGINT} casts fuse whole where the session's emit
-   * level admits them ({@code fusesLongCasts}, {@link #fusesLongCasts}).
+   * level admits them ({@code fusesLongCasts}, as {@link #fusesLongCasts} answers it).
    */
   static List<Section> sections(boolean declinesLongConditions, boolean fusesLongCasts) {
     List<Section> out = new ArrayList<>();
