@@ -297,6 +297,10 @@ Where the code departs from 2.4 to 2.7, and what is still owed:
   does the epilogue's bounds mask. Roots of the two kinds still take a kernel each, and a
   filter's floating conjunct beside an integral one still declines: that root-level half is
   part 343a3b's (`VARKA-343.md` 4).
+  *9 November 2026:* the floating baseline, which gains the comparisons with a literal as this
+  row's benchmark baseline, also keys its classes on the two-lane refusal (row 503), row 565's
+  part for that class: at 128 bits on x86 the four DOUBLE filter sections are `NONE` and the
+  FLOAT ones stay `WHOLE`, and the queries suite's fuse test checks both lists.
 - **Not floating gaps:** a `BOOLEAN` output and a `CASE` with no `ELSE` fuse on no lane yet (the
   latter is row 333), so the suite shows a condition's three values through a `CASE` with an
   `ELSE`.
