@@ -222,7 +222,7 @@ next_day	NextDay	datetimeExpressions	in		date,ntz	date	date,ntz	ntz	done	340	ntz
 now	NowExpressionBuilder	datetimeExpressions	out	TIMESTAMP with local time zone: owner's decision, 14 October 2026							
 quarter	Quarter	datetimeExpressions	in		date,ntz	int	date,ntz	ntz	done	340	ntz through its date, the cast to DATE under the node: `quarter(ntz)`
 second	SecondExpressionBuilder	datetimeExpressions	in		ntz,time	int,dec	ntz,time	dec,ntz	done	340,351	whole seconds of ntz fuse (VARKA-340); the fractional form is a decimal (row 157), ntz's is row 351's
-to_timestamp	ParseToTimestamp	datetimeExpressions	out	STRING input or output: owner's decision, 14 October 2026							
+to_timestamp	ParseToTimestampExpressionBuilder	datetimeExpressions	out	STRING input or output: owner's decision, 14 October 2026							
 to_date	ParseToDate	datetimeExpressions	out	STRING input or output: owner's decision, 14 October 2026							
 time_diff	TimeDiff	datetimeExpressions	in		time	bigint	time		done		
 to_time	ToTime	datetimeExpressions	out	STRING input or output: owner's decision, 14 October 2026							
@@ -465,6 +465,7 @@ json_value	JsonValueExpressionBuilder	routedSqlJsonFunctionEntries	out	parses or
 json_query	JsonQueryExpressionBuilder	routedSqlJsonFunctionEntries	out	parses or produces STRING: owner's decision, 14 October 2026							
 json_exists	JsonExistsExpressionBuilder	routedSqlJsonFunctionEntries	out	parses or produces STRING: owner's decision, 14 October 2026							
 json_array	JsonArrayExpressionBuilder	routedSqlJsonFunctionEntries	out	parses or produces STRING: owner's decision, 14 October 2026							
+json_object	JsonObjectExpressionBuilder	routedSqlJsonFunctionEntries	out	parses or produces STRING: owner's decision, 14 October 2026							
 get_json_object	GetJsonObject	jsonExpressions	out	parses or produces STRING: owner's decision, 14 October 2026							
 json_tuple	JsonTuple	jsonExpressions	out	parses or produces STRING: owner's decision, 14 October 2026							
 to_json	StructsToJson	jsonExpressions	out	parses or produces STRING: owner's decision, 14 October 2026							

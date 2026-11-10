@@ -17,11 +17,8 @@
 
 package org.apache.spark.sql.catalyst.expressions.codegen.varka
 
-import java.io.{BufferedReader, File, InputStreamReader}
 import java.lang.foreign.Arena
 import java.lang.management.ManagementFactory
-import java.nio.charset.StandardCharsets
-import java.util.concurrent.TimeUnit
 
 import scala.collection.mutable
 import scala.jdk.CollectionConverters._
@@ -45,43 +42,26 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaSanitizedWar
  */
 class VarkaSanitizedWarmupSuite extends SparkFunSuite with VarkaTestWatchdog {
 
-  private val probeBudgetSeconds = 420L
+  /**
+   * One child per test, so a test's child at its budget, 540 s at the watchdog's ten minutes,
+   * ends before the test's cap.
+   */
+  private def childBudgetSeconds: Long = VarkaChildProcess.budgetSeconds(watchdogMinutes, 1)
 
   /** The probe's output lines. */
   private def runProbe(): Seq[String] = {
-    val javaBin = new File(new File(System.getProperty("java.home"), "bin"), "java")
     val vectorFlags = ManagementFactory.getRuntimeMXBean.getInputArguments.asScala.toSeq
       .filter(a => Seq("-XX:MaxVectorSize=", "-XX:UseAVX=", "-XX:UseSVE=").exists(a.startsWith))
     val config = VarkaMatrix.config
     val matrixConfig = if (config.isEmpty) Nil else Seq(s"-D${VarkaMatrix.PROPERTY}=$config")
-    val classpath = Option(System.getenv("SPARK_DIST_CLASSPATH")).filter(_.nonEmpty)
-      .getOrElse(System.getProperty("java.class.path"))
-    val command = Seq(javaBin.getAbsolutePath, "--add-modules", "jdk.incubator.vector",
-      "--enable-native-access=ALL-UNNAMED", "-Xmx1g", "-Dvarka.warmup.deadlineSeconds=120",
-      s"-D${VarkaMemorySanitizer.PROPERTY}=true", "-Xlog:deoptimization=debug") ++ vectorFlags ++
-      matrixConfig ++ Seq("-cp", classpath, classOf[VarkaSanitizedWarmupProbe].getName)
-    // The child JVM's code runs where the class-use record cannot see it (VarkaTestUse).
-    VarkaTestUse.childJvm()
-    val process = new ProcessBuilder(command.asJava).redirectErrorStream(true).start()
-    val reader = new BufferedReader(
-      new InputStreamReader(process.getInputStream, StandardCharsets.UTF_8))
+    val command = VarkaChildProcess.javaCommand(
+      (Seq("-Xmx1g", "-Dvarka.warmup.deadlineSeconds=120",
+        s"-D${VarkaMemorySanitizer.PROPERTY}=true", "-Xlog:deoptimization=debug") ++
+        vectorFlags ++ matrixConfig).asJava,
+      classOf[VarkaSanitizedWarmupProbe].getName, java.util.List.of())
     val lines = mutable.ArrayBuffer.empty[String]
-    val killer = new Thread(() => {
-      if (!process.waitFor(probeBudgetSeconds, TimeUnit.SECONDS)) process.destroyForcibly()
-    })
-    killer.setDaemon(true)
-    killer.start()
-    try {
-      var line = reader.readLine()
-      while (line != null) {
-        lines += line
-        line = reader.readLine()
-      }
-    } finally {
-      reader.close()
-    }
-    assert(process.waitFor(probeBudgetSeconds, TimeUnit.SECONDS), "the probe did not finish")
-    assert(process.exitValue() == 0, s"the probe failed:\n${lines.takeRight(40).mkString("\n")}")
+    VarkaChildProcess.run(s"$suiteName's sanitized warm-up probe", new ProcessBuilder(command),
+      childBudgetSeconds, lines += _).requireSuccess(true)
     lines.toSeq
   }
 

@@ -29,9 +29,9 @@ import org.apache.spark.sql.catalyst.plans.logical.{AppendData, LogicalPlan, Ove
 import org.apache.spark.sql.catalyst.transactions.TransactionUtils
 import org.apache.spark.sql.catalyst.util.{removeInternalMetadata, CharVarcharUtils, ReplaceDataProjections, WriteDeltaProjections}
 import org.apache.spark.sql.catalyst.util.RowDeltaUtils.{COPY_OPERATION, DELETE_OPERATION, INSERT_OPERATION, REINSERT_OPERATION, UPDATE_OPERATION}
-import org.apache.spark.sql.connector.catalog.{CatalogV2Util, Column, Identifier, StagedTable, StagingTableCatalog, Table, TableCatalog, TableInfo, TableWritePrivilege}
+import org.apache.spark.sql.connector.catalog.{CatalogV2Util, Column, Identifier, StagedTable, StagingTableCatalog, Table, TableCatalog, TableInfo, TableWritePrivilege, WriteDistributionMode}
 import org.apache.spark.sql.connector.catalog.transactions.Transaction
-import org.apache.spark.sql.connector.expressions.Transform
+import org.apache.spark.sql.connector.expressions.{SortOrder => V2SortOrder, Transform}
 import org.apache.spark.sql.connector.metric.CustomMetric
 import org.apache.spark.sql.connector.write.{BatchWrite, DataWriter, DataWriterFactory, DeleteSummaryImpl, DeltaWrite, DeltaWriter, InsertSummaryImpl, MergeSummaryImpl, PhysicalWriteInfoImpl, RowLevelOperation, RowLevelOperationTable, UpdateSummaryImpl, Write, WriterCommitMessage, WriteSummary}
 import org.apache.spark.sql.connector.write.RowLevelOperation.Command._
@@ -39,6 +39,8 @@ import org.apache.spark.sql.errors.{QueryCompilationErrors, QueryExecutionErrors
 import org.apache.spark.sql.execution.{EmptyRDDWithPartitions, QueryExecution, SparkPlan, SQLExecution, UnaryExecNode}
 import org.apache.spark.sql.execution.adaptive.AdaptiveSparkPlanHelper
 import org.apache.spark.sql.execution.metric.{CustomMetrics, SQLLastAttemptMetric, SQLLastAttemptMetrics, SQLMetric, SQLMetrics}
+import org.apache.spark.sql.execution.streaming.sources.MicroBatchWrite
+import org.apache.spark.sql.internal.connector.{ColumnarInputDataWriter, SupportsColumnarInput}
 import org.apache.spark.sql.types.StructType
 import org.apache.spark.sql.util.CaseInsensitiveStringMap
 import org.apache.spark.sql.util.SchemaValidationMode.PROHIBIT_CHANGES
@@ -79,6 +81,8 @@ case class CreateTableAsSelectExec(
     tableSpec: TableSpec,
     writeOptions: Map[String, String],
     ifNotExists: Boolean,
+    writeDistributionMode: WriteDistributionMode,
+    writeOrdering: Seq[V2SortOrder],
     transaction: Option[Transaction] = None)
   extends V2CreateTableAsSelectBaseExec with TransactionalExec {
 
@@ -98,6 +102,8 @@ case class CreateTableAsSelectExec(
       .withColumns(getV2Columns(query.schema, catalog.useNullableQuerySchema))
       .withPartitions(partitioning.toArray)
       .withProperties(properties.asJava)
+      .withWriteDistributionMode(writeDistributionMode)
+      .withWriteOrdering(writeOrdering.toArray)
       .build()
     val table = Option(catalog.createTable(ident, tableInfo))
       .getOrElse(loadTableForInsert(catalog, ident, writeOptions))
@@ -123,7 +129,9 @@ case class AtomicCreateTableAsSelectExec(
     query: LogicalPlan,
     tableSpec: TableSpec,
     writeOptions: Map[String, String],
-    ifNotExists: Boolean)
+    ifNotExists: Boolean,
+    writeDistributionMode: WriteDistributionMode,
+    writeOrdering: Seq[V2SortOrder])
   extends V2CreateTableAsSelectBaseExec {
 
   val properties = CatalogV2Util.convertTableProperties(tableSpec)
@@ -142,6 +150,8 @@ case class AtomicCreateTableAsSelectExec(
       .withColumns(getV2Columns(query.schema, catalog.useNullableQuerySchema))
       .withPartitions(partitioning.toArray)
       .withProperties(properties.asJava)
+      .withWriteDistributionMode(writeDistributionMode)
+      .withWriteOrdering(writeOrdering.toArray)
       .build()
     val stagedTable = Option(catalog.stageCreate(ident, tableInfo)
     ).getOrElse(loadTableForInsert(catalog, ident, writeOptions))
@@ -168,6 +178,8 @@ case class ReplaceTableAsSelectExec(
     writeOptions: Map[String, String],
     orCreate: Boolean,
     invalidateCache: (TableCatalog, Identifier) => Unit,
+    writeDistributionMode: WriteDistributionMode,
+    writeOrdering: Seq[V2SortOrder],
     transaction: Option[Transaction] = None)
   extends V2CreateTableAsSelectBaseExec with TransactionalExec {
 
@@ -205,6 +217,8 @@ case class ReplaceTableAsSelectExec(
       .withColumns(getV2Columns(refreshedQuery.schema, catalog.useNullableQuerySchema))
       .withPartitions(partitioning.toArray)
       .withProperties(properties.asJava)
+      .withWriteDistributionMode(writeDistributionMode)
+      .withWriteOrdering(writeOrdering.toArray)
       .build()
     val table = Option(catalog.createTable(ident, tableInfo))
       .getOrElse(loadTableForInsert(catalog, ident, writeOptions))
@@ -236,7 +250,9 @@ case class AtomicReplaceTableAsSelectExec(
     tableSpec: TableSpec,
     writeOptions: Map[String, String],
     orCreate: Boolean,
-    invalidateCache: (TableCatalog, Identifier) => Unit)
+    invalidateCache: (TableCatalog, Identifier) => Unit,
+    writeDistributionMode: WriteDistributionMode,
+    writeOrdering: Seq[V2SortOrder])
   extends V2CreateTableAsSelectBaseExec {
 
   val properties = CatalogV2Util.convertTableProperties(tableSpec)
@@ -254,6 +270,8 @@ case class AtomicReplaceTableAsSelectExec(
         .withColumns(columns)
         .withPartitions(partitioning.toArray)
         .withProperties(properties.asJava)
+        .withWriteDistributionMode(writeDistributionMode)
+        .withWriteOrdering(writeOrdering.toArray)
         .build()
       catalog.stageCreateOrReplace(ident, tableInfo)
     } else if (catalog.tableExists(ident)) {
@@ -262,6 +280,8 @@ case class AtomicReplaceTableAsSelectExec(
           .withColumns(columns)
           .withPartitions(partitioning.toArray)
           .withProperties(properties.asJava)
+          .withWriteDistributionMode(writeDistributionMode)
+          .withWriteOrdering(writeOrdering.toArray)
           .build()
         catalog.stageReplace(ident, tableInfo)
       } catch {
@@ -459,6 +479,12 @@ case class WriteToDataSourceV2Exec(
   override lazy val customMetrics: Map[String, SQLMetric] =
     createCustomMetrics(writeMetrics.toArray)
 
+  override def supportsColumnarInput: Boolean = batchWrite match {
+    case microBatchWrite: MicroBatchWrite =>
+      microBatchWrite.writeSupport.isInstanceOf[SupportsColumnarInput]
+    case _ => false
+  }
+
   override protected def run(): Seq[InternalRow] = {
     val writtenRows = writeWithV2(batchWrite)
     transaction.foreach(TransactionUtils.commit)
@@ -493,6 +519,8 @@ trait V2ExistingTableWriteExec extends V2TableWriteExec with TransactionalExec {
   override lazy val customMetrics: Map[String, SQLMetric] =
     createCustomMetrics(write.supportedCustomMetrics())
 
+  override def supportsColumnarInput: Boolean = write.isInstanceOf[SupportsColumnarInput]
+
   override protected def run(): Seq[InternalRow] = {
     val writtenRows = try {
       writeWithV2(write.toBatch)
@@ -515,6 +543,9 @@ trait RowLevelWriteExec extends V2ExistingTableWriteExec {
   // below read with `row.getInt(0)`. That protocol is row-shaped, so these writes stay on the
   // row path even against a connector whose `Write` declares columnar support.
   override def supportsColumnarWrite: Boolean = false
+
+  // Its task writes projections of the rows of the query.
+  override def supportsColumnarInput: Boolean = false
 
   override protected lazy val sparkMetrics: Map[String, SQLMetric] = super.sparkMetrics ++ (
     rowLevelCommand match {
@@ -607,6 +638,24 @@ trait V2TableWriteExec
    */
   def supportsColumnarWrite: Boolean = false
 
+  /**
+   * Whether the data writers take the columnar batches of the query, see
+   * [[SupportsColumnarInput]].
+   */
+  def supportsColumnarInput: Boolean = false
+
+  /**
+   * Whether the write takes the columnar batches of the query: when the data writers take them,
+   * and the query only supports columnar output. A query that supports rows too, such as a scan
+   * of a cached DataFrame, is written as rows. When the write takes the batches, the query gets no
+   * transition to rows (see `ApplyColumnarRulesAndInsertTransitions`), and its batches are written
+   * with `WritingSparkTask.runColumnar` of `writingTask`. With columnar rules of extensions, which
+   * may replace the transitions to rows with their own, the query gets a transition, so the write
+   * then takes rows.
+   */
+  def writesColumnar: Boolean =
+    supportsColumnarInput && query.supportsColumnar && !query.supportsRowBased
+
   var commitProgress: Option[StreamWriterCommitProgress] = None
 
   override def child: SparkPlan = query
@@ -624,16 +673,18 @@ trait V2TableWriteExec
     if (supportsColumnarWrite && query.supportsColumnar) {
       val rdd = query.executeColumnar()
       if (rdd.partitions.nonEmpty) {
-        runWriteJob(batchWrite, rdd, ColumnarDataWritingSparkTask)
+        runWriteJob(batchWrite, rdd, ColumnarDataWritingSparkTask, columnarInput = false)
       } else {
         // SPARK-23271 A zero-partition write still needs one task, to write the metadata. That
         // task writes no records at all, so it goes through the row writer and a connector does
         // not have to produce a columnar writer just for the empty case.
-        runWriteJob(batchWrite, new EmptyRDDWithPartitions(sparkContext, 1), DataWritingSparkTask)
+        runWriteJob(batchWrite, new EmptyRDDWithPartitions(sparkContext, 1), DataWritingSparkTask,
+          columnarInput = false)
       }
     } else {
-      val rdd: RDD[InternalRow] = {
-        val tempRdd = query.execute()
+      val columnar = writesColumnar
+      val rdd: RDD[_] = {
+        val tempRdd = if (columnar) query.executeColumnar() else query.execute()
         // SPARK-23271 If we are attempting to write a zero partition rdd, create a dummy single
         // partition rdd to make sure we at least set up one write task to write the metadata.
         if (tempRdd.partitions.length == 0) {
@@ -642,19 +693,22 @@ trait V2TableWriteExec
           tempRdd
         }
       }
-      runWriteJob(batchWrite, rdd, writingTask)
+      runWriteJob(batchWrite, rdd, writingTask, columnarInput = columnar)
     }
   }
 
   /**
    * Runs the write job over `rdd`, whose records are whatever `writingTask` consumes - rows on
-   * the row path, `ColumnarBatch`es on the columnar one. Everything below this point is common
-   * to both: the record type reaches the executors only through the task.
+   * the row path, `ColumnarBatch`es on the columnar one. With `columnarInput` the records are
+   * instead the `ColumnarBatch`es of a query that `WritingSparkTask.runColumnar` of the row task
+   * writes (see `writesColumnar`). Everything below this point is common to all of them: the
+   * record type reaches the executors only through the task.
    */
   private def runWriteJob[T](
       batchWrite: BatchWrite,
-      rdd: RDD[T],
-      writingTask: WritingSparkTask[T, _]): Seq[InternalRow] = {
+      rdd: RDD[_],
+      writingTask: WritingSparkTask[T, _],
+      columnarInput: Boolean): Seq[InternalRow] = {
     // introduce a local var to avoid serializing the whole class
     val task = writingTask
     val writerFactory = batchWrite.createBatchWriterFactory(
@@ -672,8 +726,13 @@ trait V2TableWriteExec
     try {
       sparkContext.runJob(
         rdd,
-        (context: TaskContext, iter: Iterator[T]) =>
-          task.run(writerFactory, context, iter, useCommitCoordinator, writeMetrics),
+        (context: TaskContext, iter: Iterator[Any]) => if (columnarInput) {
+          task.runColumnar(writerFactory, context,
+            iter.asInstanceOf[Iterator[ColumnarBatch]], useCommitCoordinator, writeMetrics)
+        } else {
+          task.run(writerFactory, context, iter.asInstanceOf[Iterator[T]],
+            useCommitCoordinator, writeMetrics)
+        },
         rdd.partitions.indices,
         (index, result: DataWritingSparkTaskResult) => {
           val commitMessage = result.writerCommitMessage
@@ -723,7 +782,7 @@ trait V2TableWriteExec
  *
  * `T` is the record type the connector's writer consumes - [[InternalRow]] for a row write,
  * [[ColumnarBatch]] for a columnar one. Everything that differs between the two is behind the
- * three members below; the commit, abort and metrics handling in `run` is shared.
+ * three members below; the commit, abort and metrics handling in `writeAndCommit` is shared.
  */
 trait WritingSparkTask[T, W <: DataWriter[T]] extends Logging with Serializable {
 
@@ -746,18 +805,49 @@ trait WritingSparkTask[T, W <: DataWriter[T]] extends Logging with Serializable 
       iter: Iterator[T],
       useCommitCoordinator: Boolean,
       customMetrics: Map[String, SQLMetric]): DataWritingSparkTaskResult = {
+    val dataWriter = createDataWriter(
+      writerFactory, context.partitionId(), context.taskAttemptId()).asInstanceOf[W]
+
+    val iterWithMetrics = IteratorWithMetrics(iter, dataWriter, customMetrics)
+
+    writeAndCommit(dataWriter, context, useCommitCoordinator, customMetrics) {
+      write(dataWriter, iterWithMetrics)
+      iterWithMetrics.count
+    }
+  }
+
+  /**
+   * Writes the columnar batches of a query, for a write whose data writers take them (see
+   * [[SupportsColumnarInput]]). Only `DataWritingSparkTask` implements it.
+   */
+  def runColumnar(
+      writerFactory: DataWriterFactory,
+      context: TaskContext,
+      iter: Iterator[ColumnarBatch],
+      useCommitCoordinator: Boolean,
+      customMetrics: Map[String, SQLMetric]): DataWritingSparkTaskResult = {
+    throw SparkException.internalError(s"${getClass.getName} does not write columnar batches.")
+  }
+
+  /**
+   * Writes the data of the task with `writeData`, which returns the number of rows that it wrote,
+   * and commits the data writer, once the output commit coordinator authorizes it if
+   * `useCommitCoordinator` is true. Aborts the data writer if either fails, and closes it.
+   */
+  protected def writeAndCommit(
+      dataWriter: DataWriter[_],
+      context: TaskContext,
+      useCommitCoordinator: Boolean,
+      customMetrics: Map[String, SQLMetric])(writeData: => Long): DataWritingSparkTaskResult = {
     val stageId = context.stageId()
     val stageAttempt = context.stageAttemptNumber()
     val partId = context.partitionId()
     val taskId = context.taskAttemptId()
     val attemptId = context.attemptNumber()
-    val dataWriter = createDataWriter(writerFactory, partId, taskId).asInstanceOf[W]
-
-    val iterWithMetrics = IteratorWithMetrics(iter, dataWriter, customMetrics)
 
     // write the data and commit this writer.
     Utils.tryWithSafeFinallyAndFailureCallbacks(block = {
-      write(dataWriter, iterWithMetrics)
+      val numRows = writeData
 
       CustomMetrics.updateMetrics(
         dataWriter.currentMetricsValues.toImmutableArraySeq, customMetrics)
@@ -793,7 +883,7 @@ trait WritingSparkTask[T, W <: DataWriter[T]] extends Logging with Serializable 
         log"stage ${MDC(LogKeys.STAGE_ID, stageId)}." +
         log"${MDC(LogKeys.STAGE_ATTEMPT_ID, stageAttempt)})")
 
-      DataWritingSparkTaskResult(iterWithMetrics.count, msg)
+      DataWritingSparkTaskResult(numRows, msg)
 
     })(catchBlock = {
       // If there is an error, abort this writer
@@ -941,6 +1031,34 @@ object DataWritingSparkTask extends RowWritingSparkTask[DataWriter[InternalRow]]
   override protected def write(
       writer: DataWriter[InternalRow], iter: java.util.Iterator[InternalRow]): Unit = {
     writer.writeAll(iter)
+  }
+
+  override def runColumnar(
+      writerFactory: DataWriterFactory,
+      context: TaskContext,
+      iter: Iterator[ColumnarBatch],
+      useCommitCoordinator: Boolean,
+      customMetrics: Map[String, SQLMetric]): DataWritingSparkTaskResult = {
+    val dataWriter = writerFactory.createWriter(context.partitionId(), context.taskAttemptId())
+    writeAndCommit(dataWriter, context, useCommitCoordinator, customMetrics) {
+      val columnarWriter = dataWriter match {
+        case writer: ColumnarInputDataWriter => writer
+        case writer => throw SparkException.internalError(
+          s"Expected a data writer of columnar batches, but got ${writer.getClass.getName}.")
+      }
+      var numRows = 0L
+      iter.foreach { batch =>
+        // Releases the batch once it is written, as ColumnarToRowExec does once it returned its
+        // rows: a producer of new column vectors for each batch leaves them to the consumer.
+        Utils.tryWithSafeFinally {
+          columnarWriter.writeBatch(batch)
+          numRows += batch.numRows()
+        }(batch.closeIfFreeable())
+        CustomMetrics.updateMetrics(
+          columnarWriter.currentMetricsValues.toImmutableArraySeq, customMetrics)
+      }
+      numRows
+    }
   }
 }
 
