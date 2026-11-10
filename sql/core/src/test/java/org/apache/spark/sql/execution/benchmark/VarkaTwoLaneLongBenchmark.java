@@ -43,8 +43,9 @@ import org.apache.spark.sql.internal.SQLConf;
  *   <li>{@code l < l2} and {@code x < x2} as projections, a {@code BOOLEAN} output column
  *     (VARKA-27): the same compare to a mask as the filters', written as a bitmap rather than
  *     a selection, with no row work behind it to offset the fallback;
- *   <li>{@code l + l2} as a projection, under ANSI and under legacy arithmetic, which Varka does
- *     not fuse at all, as a control: both arms are the row path;
+ *   <li>{@code l + l2} as a projection, under ANSI and under legacy arithmetic: the legacy sum
+ *     is lanewise and fuses at every width, while the ANSI sum's overflow test is a long mask, so
+ *     a session that declines two-lane conditions leaves it to the row path (VARKA-104);
  *   <li>{@code l ^ l2} as a projection, lanewise with no mask in the loop;
  *   <li>{@code CASE WHEN l < l2 THEN l ELSE l2 END}, {@code greatest(l, l2)} and
  *     {@code if(l IS NULL, l2, l)}, the blends.

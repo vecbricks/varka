@@ -203,11 +203,12 @@ class VarkaDifferentialSuite extends QueryTest with VarkaMaybeThrows with VarkaT
 
   test("a residual conjunct that can raise sees every row Spark evaluates it on, so Varka " +
       "raises where Spark raises and fuses only the conjuncts Spark evaluates before it") {
-    // VARKA-380, the mirror of the test above. BIGINT arithmetic does not fuse, so `(l * 3) > 0`
-    // stays in the row filter above the Varka node; under ANSI it raises on the row whose `l` is
-    // the largest BIGINT, and a fused date conjunct that rejects that row must not run first.
-    // Under LEGACY the sum wraps and raises nothing, so the date conjuncts fuse as before; a
-    // year-month sum overflows in both modes. One partition, so one error is raised first.
+    // VARKA-380, the mirror of the test above. Under ANSI a checked BIGINT product over a column
+    // does not fuse (VARKA-104), so `(l * 3) > 0` stays in the row filter above the Varka node;
+    // it raises on the row whose `l` is the largest BIGINT, and a fused date conjunct that
+    // rejects that row must not run first. Under LEGACY the product wraps, raises nothing and
+    // fuses with the date conjuncts; a year-month sum overflows in both modes. One partition, so
+    // one error is raised first.
     Seq(spark, varkaSpark).foreach { session =>
       session.sql(
         """SELECT * FROM VALUES

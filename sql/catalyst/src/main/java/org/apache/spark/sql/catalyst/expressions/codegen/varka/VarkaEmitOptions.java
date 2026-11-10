@@ -488,8 +488,9 @@ import com.sun.management.HotSpotDiagnosticMXBean;
  *        folds away where it is off, is right on every host and JDK; true is the losing arm, an
  *        AND a site cheaper on x86 below AVX-512, kept for the A/B and for the JDKs that fix the
  *        rule ({@code m9/SCOPE.md} item 114).
- * @param decimalAbsLanewise whether a long-lane {@code abs}, which only a decimal's unscaled value
- *        reaches (VARKA-348 2.6), is the lanewise {@code ABS}, one {@code evpabsq} where x86 has
+ * @param decimalAbsLanewise whether a long-lane {@code abs}, a decimal's unscaled value's
+ *        (VARKA-348 2.6) and a {@code BIGINT}'s alike (VARKA-104), so that the arm moves both, is
+ *        the lanewise {@code ABS}, one {@code evpabsq} where x86 has
  *        AVX-512 and the Vector API's allocating Java fallback below it, rather than a compare
  *        with zero, a negation and a blend, which every host makes intrinsic at 256 and 512
  *        bits. False, the blend, is the default; true is the arm, kept to be measured against
