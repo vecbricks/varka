@@ -181,9 +181,9 @@ time	dec	TIME(3)	DECIMAL(10,2)	declined	declined	declined
 time	dec	TIME(3)	DECIMAL(30,4)	declined	declined	declined
 time	dec	TIME(6)	DECIMAL(10,2)	declined	declined	declined
 time	dec	TIME(6)	DECIMAL(30,4)	declined	declined	declined
-time	ntz	TIME(0)	TIMESTAMP_NTZ	declined	declined	declined
-time	ntz	TIME(3)	TIMESTAMP_NTZ	declined	declined	declined
-time	ntz	TIME(6)	TIMESTAMP_NTZ	declined	declined	declined
+time	ntz	TIME(0)	TIMESTAMP_NTZ	fused	fused	fused
+time	ntz	TIME(3)	TIMESTAMP_NTZ	fused	fused	fused
+time	ntz	TIME(6)	TIMESTAMP_NTZ	fused	fused	fused
 time	time	TIME(0)	TIME(3)	fused	fused	fused
 time	time	TIME(0)	TIME(6)	fused	fused	fused
 time	time	TIME(3)	TIME(0)	declined	declined	declined

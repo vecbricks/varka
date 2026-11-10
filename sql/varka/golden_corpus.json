@@ -6322,15 +6322,15 @@
       } ]
     },
     "datetime-parsing.sql" : {
-      "statements" : 32,
-      "selects" : 32,
-      "rewritten" : 0,
+      "statements" : 37,
+      "selects" : 37,
+      "rewritten" : 4,
       "projection_fused" : 0,
       "projection_partial" : 0,
-      "projection_plain" : 32,
+      "projection_plain" : 36,
       "filter_fused" : 0,
-      "filter_partial" : 0,
-      "errors" : 0,
+      "filter_partial" : 1,
+      "errors" : 1,
       "not_run" : 0,
       "entries" : [ {
         "statement" : "select to_timestamp('1', 'y')",
@@ -6566,6 +6566,51 @@
         "projection_outcome" : "agree",
         "filter" : "-",
         "filter_outcome" : "-"
+      }, {
+        "statement" : "select to_timestamp(20201231, 'yyyyMMdd')",
+        "kind" : "rewritten",
+        "rewritten" : "SELECT to_timestamp(c0, 'yyyyMMdd')",
+        "columns" : [ "int" ],
+        "projection" : "PLAIN",
+        "projection_outcome" : "agree",
+        "filter" : "PLAIN",
+        "filter_outcome" : "agree"
+      }, {
+        "statement" : "select to_timestamp(20260924073325, 'yyyyMMddHHmmss')",
+        "kind" : "rewritten",
+        "rewritten" : "SELECT to_timestamp(c0, 'yyyyMMddHHmmss')",
+        "columns" : [ "bigint" ],
+        "projection" : "PLAIN",
+        "projection_outcome" : "agree",
+        "filter" : "PLAIN",
+        "filter_outcome" : "agree"
+      }, {
+        "statement" : "select to_timestamp(1.5BD, 'yyyy')",
+        "kind" : "nothing to rewrite",
+        "rewritten" : "",
+        "columns" : [ ],
+        "projection" : "-",
+        "projection_outcome" : "error",
+        "filter" : "-",
+        "filter_outcome" : "-"
+      }, {
+        "statement" : "select try_to_timestamp(20201231, 'yyyyMMdd')",
+        "kind" : "rewritten",
+        "rewritten" : "SELECT try_to_timestamp(c0, 'yyyyMMdd')",
+        "columns" : [ "int" ],
+        "projection" : "PLAIN",
+        "projection_outcome" : "agree",
+        "filter" : "PLAIN",
+        "filter_outcome" : "agree"
+      }, {
+        "statement" : "select to_timestamp(1)",
+        "kind" : "rewritten",
+        "rewritten" : "SELECT to_timestamp(c0)",
+        "columns" : [ "int" ],
+        "projection" : "PLAIN",
+        "projection_outcome" : "agree",
+        "filter" : "PARTIAL",
+        "filter_outcome" : "agree"
       }, {
         "statement" : "select to_time('00:00:00')",
         "kind" : "nothing to rewrite",

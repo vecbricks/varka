@@ -245,7 +245,12 @@ public final class VarkaDomains {
           "a day's milliseconds, under 86400000, always fit an int"),
       Map.entry("CAST(time_to_millis(t) AS INT) > i",
           "a day's milliseconds, under 86400000, always fit an int"),
-      Map.entry("hour(t) + 1", "an hour is at most 23, so the checked add cannot overflow"));
+      Map.entry("hour(t) + 1", "an hour is at most 23, so the checked add cannot overflow"),
+      Map.entry("make_timestamp_ntz(DATE'2021-06-01', t)",
+          "only the last day whose midnight is a long can pass the long with a time of day"),
+      Map.entry("CAST(t AS TIMESTAMP_NTZ)",
+          "the current date is not the last day whose midnight is a long, the one the add can "
+              + "overflow on"));
 
   // ---------------------------------------------------------------------------------------------
   // The check
