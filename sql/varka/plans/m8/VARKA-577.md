@@ -78,8 +78,14 @@ The row's first step is a spike, not a build: which division form wins is not kn
 
 ## 4. Predictions and costs, registered before the build
 
-None yet. Section 10 gets the spike's figures, and the predictions are registered from them
-before 577a is built.
+Registered on 8 November 2026, before any runner reading of the spike (10.2), and scored there:
+
+1. **E leads B.** On the EPYC 7763 at 256 bits, E's rate is at least 1.3 times B's at every rung,
+   for `x % y` and for `pmod`. B is a `BigInteger` call a row, so this lead, if it holds,
+   overstates E's lead over a scalar remainder in `long`s (10.2, item 3).
+2. **E leads D.** On the same runner and width, E's rate is at least 1.3 times D's at every rung.
+
+The predictions for 577a and 577b are registered from the spike's figures before either is built.
 
 ## 5. Order, files and size
 
@@ -142,8 +148,8 @@ The benchmark's classes now follow the two-lane refusal #1262 added (VARKA-503):
 
 ### 10.2 The spike (2.3): built and checked, the reading pending the runners
 
-*8 November 2026, on master `99675606f2b`. Nothing here is timed yet: the reading is the runners',
-and the verdict is open until it lands.*
+*8 November 2026, on master `99675606f2b`. Nothing here is timed yet: the reading is the runners'
+(the dispatches are in the pull request), and the verdict is open until it lands.*
 
 **The spike.** `VarkaDecimalRemainderSpikeBenchmark` (catalyst, test side, no emitter), over two
 `DECIMAL(38, s)` slot columns at one scale, in VARKA-359's de-interleaved layout, on the magnitudes
@@ -169,11 +175,48 @@ E for (a), D for (b) and B for (c). Three things differ from 2.3's words:
    *9 November 2026:* the owner took (c) as read (7, question 3), so that arm is built only if
    B comes close to the winner.
 
-**Checks, before any timing.** `VarkaDecimalRemainderSpikeSuite` checks all six arms against
-`BigInteger` in every build, over 3.2's edges (zero, 1, `10^k`, `2^k` and `2^k +- 1` divisors, the
-dividend and its negation, the extremes, exact multiples, remainders of `|y| - 1`, every sign pair)
-and quotients past 106 bits. No form was found wrong. The forms land first, with their check and
-no timing; the harness that times them by the house method lands on top of them.
+**Checks, before any timing.** Each loop is checked against `BigInteger` before it is timed and
+again in compiled code after its drive, at every rung, and `VarkaDecimalRemainderSpikeSuite`
+checks all six arms in every build, over 3.2's edges (zero, 1, `10^k`, `2^k` and `2^k +- 1`
+divisors, the dividend and its negation, the extremes, exact multiples, remainders of `|y| - 1`,
+every sign pair) and quotients past 106 bits. No form was found wrong. Laptop smoke runs drove
+every arm to level-4 code at every rung and passed the compiled-code check; they ran beside other
+builds, so their times are not a reading, are not quoted, and no `-laptop-*` file is committed.
+
+**Level 4 is not vector code: the intrinsic check.** A Vector API call C2 does not intrinsify
+stays a call to the Java fallback, which boxes its vectors, at level 4 too. An earlier smoke run
+under `UseAVX=2` and `PrintInlining` showed four `binaryOp` and two `compare` calls in E's loop
+failing with no later success. With `-Xbatch -XX:+PrintCompilation` beside the tree (E's loop
+alone, 64 rows, `MaxVectorSize=32`) all six are in the on-stack replacement at the round loop,
+whose vectors arrive boxed from the interpreter (`PrintIntrinsics`: `unbox failed`); the method's
+own level-4 compiles, which later calls run, leave none of their 277 `VectorSupport` sites a call.
+It is the same at `UseAVX=3`, and no `not supported` is printed at either, so it is not AVX2's:
+`x86.ad` lowers a 64-bit lane `MulVL` on AVX2 through `vpmuludq` (`vmulL`; AVX-512DQ is needed
+only masked) and an unsigned compare through `vcmpu`, which flips the sign bits. E needs no other
+form to stay vector on AVX2.
+
+So the benchmark compiles each loop once more in a child JVM with the run's flags under `-Xbatch`,
+`PrintCompilation` and `PrintInlining`, and reads the tree of the loop's last level-4 compile that
+is not an on-stack replacement: a `VectorSupport` site whose last message is not `(intrinsic)` or
+`late inline succeeded` is a fallback. Such an arm is still timed, as the code that host runs, but
+labelled `[Java fallback]`, with the calls listed in the results file; a refusal would kill the
+128-bit and AVX2 dispatches, where a fallback is the finding. On the laptop the check passes all
+six loops at 256 bits, at `UseAVX=3` and at `UseAVX=2`, and at `UseAVX=2 -XX:MaxVectorSize=16` it
+finds 72 calls left in Java in E's `x % y` loop, the two-lane rearranges and masks `VARKA-359.md`
+0, item 9 records.
+
+*10 November 2026, the self-review before the pull request:* the check as first written had four
+faults, each fixed. It gave the child `java.class.path`, which under the benchmark workflow's
+`spark-submit` lacks the test jars, so every runner dispatch would have failed; the child's class
+path now adds the context class loaders' jars. It read only `VectorSupport` sites, so a Vector API
+method C2 failed to inline, a call with its vectors boxed and no site under it, passed; such a
+line now counts. A `COMPILE SKIPPED` record replaced the last good compile; it is now passed over.
+And a check that could not answer (no level-4 compile, or the body not inlined) labelled the arm a
+fallback; it now stops the run, since the label would name a fallback nobody saw.
+After the fixes, the check run over all six loops on the laptop finds no fallback at 256 bits under
+`UseAVX=3` or `UseAVX=2`; at `UseAVX=2 -XX:MaxVectorSize=16` it finds 72 calls in E's `x % y` loop,
+80 in E's `pmod`, 62 and 70 in D's, all `VectorSupport` sites, and none in B's. So the AVX2 128-bit
+run will label four arms, not one (read on the laptop, **[I]** for the runner until it runs).
 
 **Two findings for 577b.** (1) `pmod` can overflow its own result type: the type is
 `min(p1 - s1, p2 - s2) + max(s1, s2)`, but `r + y` is bounded by `y` alone, so with `p1 - s1 <
@@ -181,3 +224,9 @@ p2 - s2`, `pmod(-1, 10^9)` over `DECIMAL(3, 0)` and `DECIMAL(10, 0)` is `9999999
 `DECIMAL(3, 0)`, null under LEGACY and an error under ANSI (`Pmod`'s `toPrecision`, read from
 `arithmetic.scala`, **[I]**: not run). `%` cannot, since `|r| <= |x|`. (2) The 64-bit case (2.2)
 is not priced here: it is row 30's long-lane remainder, and 5.1 scopes the spike to 2.3.
+
+**The reading, to fill from the runners:** ns a row by form, rung and width, from
+`VarkaDecimalRemainderSpikeBenchmark-jdk25-runner-epyc7763-results.txt` and its `-128bit`
+companion (and the Arm runner's file if it is dispatched), read on `Rate(M/s)` by minimums with
+AGENTS.md's 1.3x threshold, and the laptop's three widths (2.3), pinned on an idle machine, still
+owed. **Verdict: provisional** until then.
