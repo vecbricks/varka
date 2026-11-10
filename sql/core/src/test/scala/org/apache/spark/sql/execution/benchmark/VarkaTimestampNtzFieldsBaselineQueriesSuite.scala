@@ -170,6 +170,10 @@ class VarkaTimestampNtzFieldsBaselineQueriesSuite extends QueryTest with VarkaSh
       assert(VarkaSqlBenchmarkBase.fusedPlan(varkaSpark,
         s"SELECT CAST(ntz AS DATE) AS v FROM $VIEW").isPresent)
       forEachTwoLaneRefusal { declines =>
+        // A filter comparing two NTZ columns is driven at the long lane, so it fuses only with
+        // the refusal off: the setting took effect, or the sections were not checked under it.
+        assert(VarkaSqlBenchmarkBase.fusedPlan(varkaSpark,
+          s"SELECT ntz FROM $VIEW WHERE ntz < ntzn").isPresent === !declines)
         for (s <- sections().asScala) {
           withClue(s"${s.title}, refusal $declines") {
             assert(VarkaSqlBenchmarkBase.fusedPlan(varkaSpark, s.query).isPresent === s.fuses)

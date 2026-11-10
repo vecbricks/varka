@@ -45,7 +45,8 @@ import org.apache.spark.sql.types._
  * left its type into a null fails here rather than going into the timed run as a cheap null; a
  * section over the columns with one row in ten null must answer exactly those nulls. The filters
  * answer no null, the extract keeping the rows whose hour is at least twelve, and the control
- * the rows where `dt` is the larger.
+ * the rows where `dt` is the larger. The blend control answers no null either: where `dt_n` is
+ * null its condition is too, and the blend takes `dt2`, which has none.
  */
 class VarkaDayTimeIntervalBaselineQueriesSuite extends QueryTest with VarkaSharedSessions {
 
@@ -53,14 +54,17 @@ class VarkaDayTimeIntervalBaselineQueriesSuite extends QueryTest with VarkaShare
 
   private val dayTime = DayTimeIntervalType(DayTimeIntervalType.DAY, DayTimeIntervalType.SECOND)
 
-  /** The result columns' types of each section, in the order `sections()` lists one density. */
+  /**
+   * The result columns' types of each section, in the order `sections(boolean)` lists one
+   * density, the same order for both values.
+   */
   private val resultTypes = Seq(
     Seq(dayTime), Seq(dayTime), Seq(dayTime), Seq(dayTime), Seq(dayTime),
     Seq(IntegerType), Seq(ByteType),
     Seq(IntegerType, ByteType, ByteType, DecimalType(8, 6)),
     Seq(dayTime), Seq(dayTime),
     Seq(DayTimeIntervalType(DayTimeIntervalType.HOUR)),
-    Seq(dayTime), Seq(dayTime))
+    Seq(dayTime), Seq(dayTime), Seq(dayTime))
 
   /** Runs `body` under every one of a section's settings on both sessions, as the benchmark. */
   private def withSettings(s: VarkaDayTimeIntervalBaselineBenchmark.Section)(
@@ -136,12 +140,23 @@ class VarkaDayTimeIntervalBaselineQueriesSuite extends QueryTest with VarkaShare
       // is the list with the two-lane refusal off, the shared sessions' setting.
       val sections = VarkaDayTimeIntervalBaselineBenchmark.sections(false).asScala.toSeq
       assert(sections.size === 2 * resultTypes.size)
-      val fused = sections.filter(_.fusion != VarkaSqlBenchmarkBase.Fusion.NONE)
-      assert(fused.map(s => (s.title, s.fusion.toString)) === Seq(
+      def fused(list: Seq[VarkaDayTimeIntervalBaselineBenchmark.Section]) =
+        list.filter(_.fusion != VarkaSqlBenchmarkBase.Fusion.NONE)
+          .map(s => (s.title, s.fusion.toString))
+      val blend = "CASE WHEN dt > dt2 THEN dt ELSE dt2 END, control, fuses at both widths"
+      assert(fused(sections) === Seq(
         ("filter extract(HOUR FROM dt) >= 12, no nulls", "NULL_TESTS"),
         ("filter dt > dt2, control, fuses today, no nulls", "WHOLE"),
+        (s"$blend, no nulls", "WHOLE"),
         ("filter extract(HOUR FROM dt) >= 12, one row in ten null", "NULL_TESTS"),
-        ("filter dt > dt2, control, fuses today, one row in ten null", "WHOLE")))
+        ("filter dt > dt2, control, fuses today, one row in ten null", "WHOLE"),
+        (s"$blend, one row in ten null", "WHOLE")))
+      // Under the refusal only the blend control fuses, so the 128-bit run still has a WHOLE
+      // control; the list's titles and queries are the same either way.
+      val refused = VarkaDayTimeIntervalBaselineBenchmark.sections(true).asScala.toSeq
+      assert(refused.map(s => (s.title, s.query)) === sections.map(s => (s.title, s.query)))
+      assert(fused(refused) === Seq(
+        (s"$blend, no nulls", "WHOLE"), (s"$blend, one row in ten null", "WHOLE")))
       for ((s, index) <- sections.zipWithIndex) {
         withClue(s.title) {
           withSettings(s) {
@@ -160,6 +175,8 @@ class VarkaDayTimeIntervalBaselineQueriesSuite extends QueryTest with VarkaShare
                 hourKept - (if (noNulls) 0 else k.getLong(0))
               }
               assert(collected.size === kept)
+              0L
+            } else if (s.query.contains("CASE WHEN")) {
               0L
             } else {
               if (noNulls) 0L else rows / 10L

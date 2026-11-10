@@ -193,7 +193,13 @@ class VarkaIntegralCastBaselineQueriesSuite extends QueryTest with VarkaSharedSe
     assume(VarkaSqlBenchmarkBase.fuseCheck(),
       s"-D${VarkaSqlBenchmarkBase.FUSE_CHECK_PROPERTY}=false times the sections fused")
     withTable {
+      val view = VarkaIntegralCastBaselineBenchmark.VIEW
       forEachTwoLaneRefusal { declines =>
+        // A filter comparing two BIGINT columns is driven at the long lane, so it fuses only
+        // with the refusal off: the setting took effect, or the sections were not checked
+        // under it.
+        assert(VarkaSqlBenchmarkBase.fusedPlan(varkaSpark, s"SELECT l FROM $view WHERE l < l_n")
+          .isPresent === !declines)
         for (s <- VarkaIntegralCastBaselineBenchmark.sections().asScala) {
           withClue(s"${s.title}, refusal $declines") {
             withSettings(s) {

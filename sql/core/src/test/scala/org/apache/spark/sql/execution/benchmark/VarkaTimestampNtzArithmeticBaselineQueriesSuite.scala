@@ -97,11 +97,13 @@ class VarkaTimestampNtzArithmeticBaselineQueriesSuite extends QueryTest with Var
     assume(VarkaSqlBenchmarkBase.fuseCheck(),
       s"-D${VarkaSqlBenchmarkBase.FUSE_CHECK_PROPERTY}=false times the sections fused")
     withTable(100) {
-      // A filter comparing two NTZ columns fuses, so a check that found no Varka node anywhere,
-      // over a plan it could not see into, fails here rather than passing every section.
-      assert(VarkaSqlBenchmarkBase.fusedPlan(varkaSpark,
-        "SELECT ntz FROM varka_ntz_arith WHERE ntz < ntz2").isPresent)
       forEachTwoLaneRefusal { declines =>
+        // A filter comparing two NTZ columns fuses with the refusal off, so a check that found
+        // no Varka node anywhere, over a plan it could not see into, fails here rather than
+        // passing every section. The filter is driven at the long lane, which the refusal
+        // declines, so the same filter with it on proves the setting took effect.
+        assert(VarkaSqlBenchmarkBase.fusedPlan(varkaSpark,
+          "SELECT ntz FROM varka_ntz_arith WHERE ntz < ntz2").isPresent === !declines)
         for (s <- sections().asScala) {
           withClue(s"${s.title}, refusal $declines") {
             val plan = varkaSpark.sql(s.query).queryExecution.executedPlan
