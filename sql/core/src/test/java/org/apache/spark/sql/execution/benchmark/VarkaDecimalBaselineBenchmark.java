@@ -91,6 +91,11 @@ import org.apache.spark.sql.execution.VarkaSessionEmit;
  * projections. The columns {@code w9}, {@code w18} and {@code x8} come last in the table, with
  * integer parts at half their types' ranges.
  *
+ * <p>Sixteen more sections time the decimal remainders by a column (VARKA-577), {@code x % y}
+ * and {@code pmod(x, y)} as projections at {@code DECIMAL(9, 2)}, {@code DECIMAL(18, 4)},
+ * {@code DECIMAL(38, 10)} and {@code DECIMAL(20, 2)}, each with no nulls and with one row in ten
+ * null. Spark computes them through {@code BigDecimal.remainder} per row at every precision.
+ *
  * <p>Each section has two arms, named so the labels survive the lanes landing:
  * {@code spark row path (varka off)}, a session without the Varka rule, and {@code varka on}, a
  * session with it. Where nothing fuses both are the row path, so they should tie.
@@ -107,24 +112,18 @@ import org.apache.spark.sql.execution.VarkaSessionEmit;
  * sections are {@code WHOLE} and time a kernel on the varka on arm. Row 348 fuses the rescaled
  * comparison, {@code -x < y} and {@code abs(x) < y} at both precisions, twelve more
  * {@code WHOLE} sections. The two TIME producers fuse through the decimal store (VARKA-157), so
- * their sections, one of each in every density, are {@code WHOLE} too. Six of the 64-bit
- * sections are {@code NULL_TESTS}: the three
- * arithmetic filters. Spark infers {@code IS NOT NULL} of each column such a filter reads, the
- * reader fuses those null tests as a filter of their own, and Spark's {@code Filter} applies the
- * decimal condition above it, so the varka on arm there times a null-test kernel under the row
- * path's condition, and the spark row path arm is the baseline. The lane pair's reading half
- * (VARKA-359) fuses whole the comparison at precision 38 and, at 38 and 20, {@code x <=> y},
+ * their sections, one of each in every density, are {@code WHOLE} too, and so are the three
+ * arithmetic filters at both densities (VARKA-349). The lane pair's reading half (VARKA-359)
+ * fuses whole the comparison at precision 38 and, at 38 and 20, {@code x <=> y},
  * {@code x IS NULL} and the projected {@code x < y}; its {@code -x < y} and {@code abs(x) < y}
- * filters are {@code NULL_TESTS}, the inferred null tests fused below them.
- * Every other section is {@code NONE}. Those are the classes where a filter's condition in a
- * kernel driven at a 64-bit lane is admitted. A session that refuses such a condition
- * (VARKA-503, {@code VarkaSessionEmit.declineTwoLaneConditions}), as an x86 host whose long
- * species has two lanes (the 128-bit companion's) does by default, leaves every filter section
- * to the row path, {@code NONE}, since each reads a decimal on the long lane; the projections
- * keep their classes. The sessions keep the refusal at its default, since the benchmark measures
- * what ships, and the check reads the refusal the session resolved. A row that fuses more of a
- * section sets its new class, so that its fusion cannot turn a baseline section into a fused one
- * unnoticed, and the results
+ * filters are {@code NULL_TESTS}, the inferred null tests fused below them. A session that
+ * refuses a filter's condition in a kernel driven at 64 bits ({@code declinesLongConditions},
+ * VARKA-503), the 128-bit companion's host by default, leaves every one of those filters to the
+ * row path, the lane pair's among them, since its words are on the long lane, so they are
+ * {@code NONE} there; the projected {@code x < y} sections and the time producers stay
+ * {@code WHOLE}.
+ * Every other section is {@code NONE}. A row that fuses more of a section sets its new class,
+ * so that its fusion cannot turn a baseline section into a fused one unnoticed, and the results
  * file notes the class of each section that fuses.
  *
  * <p>To run this benchmark, on a GitHub runner (the results come back as an artifact):
@@ -219,6 +218,16 @@ public class VarkaDecimalBaselineBenchmark extends VarkaSqlBenchmarkBase {
   static final List<Precision> PAIR_PRECISIONS = List.of(
       precision(38),
       new Precision(20, 2, "20", 500_000_000_000_000_000L));
+
+  /**
+   * The precisions of the remainder sections, {@code x % y} and {@code pmod(x, y)} as values:
+   * the two 64-bit ones, then the lane pair's two. Both operands share a type, so the result has
+   * it too ({@code min(p - s, p - s) + s = p}) and no operand is rescaled. A zero divisor would
+   * raise under ANSI and stop the run; the queries suite checks that no {@code y} is zero at
+   * {@link #NUM_ROWS} rows.
+   */
+  static final List<Precision> REMAINDER_PRECISIONS = List.of(
+      precision(9), precision(18), precision(38), PAIR_PRECISIONS.get(1));
 
   /** The columns of the 64-bit sections, in the order the table adds them. */
   static final List<OperandColumn> OPERAND_COLUMNS = List.of(W9, W18, X8);
@@ -390,13 +399,15 @@ public class VarkaDecimalBaselineBenchmark extends VarkaSqlBenchmarkBase {
    * Every section, in the order they run: each precision, then each null density, then each
    * shape; then the two time producers at each null density; then the lane pair's six shapes,
    * each precision, then each null density, then each shape; then the 64-bit comparisons' six
-   * shapes in the same order; then the 64-bit arithmetic's six at each null density. Each
-   * filter's class is the one a session plans that refuses a filter's condition in a kernel
-   * driven at a 64-bit lane (VARKA-503) where {@code declinesLongConditions}, and one that admits
-   * it otherwise ({@link #filtered}).
+   * shapes in the same order; then the 64-bit arithmetic's six at each null density; then the
+   * two remainders, each remainder precision, then each null density. Every filter that fuses
+   * is {@code NONE} when the session refuses its condition ({@code declinesLongConditions}),
+   * since every decimal lane, the lane pair's words among them, is a 64-bit one.
    */
   static List<Section> sections(boolean declinesLongConditions) {
-    Function<Fusion, Fusion> filter = f -> filtered(f, declinesLongConditions);
+    // A filter that fuses whole, or not at all where the session refuses its condition.
+    Fusion fusedFilter = declinesLongConditions ? Fusion.NONE : Fusion.WHOLE;
+    Fusion fusedNullTests = declinesLongConditions ? Fusion.NONE : Fusion.NULL_TESTS;
     List<Section> out = new ArrayList<>();
     for (Precision p : PRECISIONS) {
       for (Density d : Density.values()) {
@@ -407,7 +418,7 @@ public class VarkaDecimalBaselineBenchmark extends VarkaSqlBenchmarkBase {
         String type = p.type();
         out.add(new Section(type + " comparison, " + density,
             "SELECT " + x + " FROM varka_decimal WHERE " + x + " < " + y,
-            filter.apply(Fusion.WHOLE)));
+            fusedFilter));
         out.add(new Section(type + " arithmetic chain, " + density,
             "SELECT (" + x + " + " + y + ") * " + z + " - " + x + " AS a FROM varka_decimal",
             Fusion.NONE));
@@ -431,29 +442,29 @@ public class VarkaDecimalBaselineBenchmark extends VarkaSqlBenchmarkBase {
     }
     // The lane pair's <=>, IS NULL and projected comparison fuse whole over the words
     // (VARKA-359); its negation and abs are 359b's, under the null tests Spark infers, and so is
-    // its IN, under none, since Spark infers no null test from an IN.
+    // its IN, under none, since Spark infers no null test from an IN. The filters decline where
+    // the session refuses a 64-bit condition, the null tests too.
     Map<ComparisonShape, Fusion> pairFusion = Map.of(
         ComparisonShape.IN, Fusion.NONE,
-        ComparisonShape.NULL_SAFE, Fusion.WHOLE,
-        ComparisonShape.IS_NULL, Fusion.WHOLE,
-        ComparisonShape.NEGATED, Fusion.NULL_TESTS,
-        ComparisonShape.ABS, Fusion.NULL_TESTS,
+        ComparisonShape.NULL_SAFE, fusedFilter,
+        ComparisonShape.IS_NULL, fusedFilter,
+        ComparisonShape.NEGATED, fusedNullTests,
+        ComparisonShape.ABS, fusedNullTests,
         ComparisonShape.VALUE, Fusion.WHOLE);
     for (Precision p : PAIR_PRECISIONS) {
-      addComparisons(out, p, Optional.empty(), pairFusion::get, declinesLongConditions);
+      addComparisons(out, p, Optional.empty(), pairFusion::get);
     }
     // The rescaled comparison, IN, the negation, abs, <=> and the projected comparison fuse
-    // whole (VARKA-348).
+    // whole (VARKA-348), the filters only where the session takes a 64-bit condition.
     Map<ComparisonShape, Fusion> longFusion = Map.of(
-        ComparisonShape.RESCALED, Fusion.WHOLE,
-        ComparisonShape.IN, Fusion.WHOLE,
-        ComparisonShape.NULL_SAFE, Fusion.WHOLE,
-        ComparisonShape.NEGATED, Fusion.WHOLE,
-        ComparisonShape.ABS, Fusion.WHOLE,
+        ComparisonShape.RESCALED, fusedFilter,
+        ComparisonShape.IN, fusedFilter,
+        ComparisonShape.NULL_SAFE, fusedFilter,
+        ComparisonShape.NEGATED, fusedFilter,
+        ComparisonShape.ABS, fusedFilter,
         ComparisonShape.VALUE, Fusion.WHOLE);
     for (Precision p : List.of(precision(9), precision(18))) {
-      addComparisons(out, p, Optional.of(rescaledPartner(p)), longFusion::get,
-          declinesLongConditions);
+      addComparisons(out, p, Optional.of(rescaledPartner(p)), longFusion::get);
     }
     Precision p9 = precision(9);
     String w9 = rescaledPartner(p9).name();
@@ -469,13 +480,11 @@ public class VarkaDecimalBaselineBenchmark extends VarkaSqlBenchmarkBase {
       // The three filters fuse whole, the arithmetic under the comparison (VARKA-349); the
       // projections run on the row path, since no lowering writes a decimal output yet.
       out.add(new Section(type + " x + y < z filter, " + density,
-          "SELECT " + x + from + x + " + " + y + " < " + z,
-          filter.apply(Fusion.WHOLE)));
+          "SELECT " + x + from + x + " + " + y + " < " + z, fusedFilter));
       out.add(new Section(type + " x - w > 0 filter, w at another scale, " + density,
-          "SELECT " + x + from + x + " - " + w + " > 0", filter.apply(Fusion.WHOLE)));
+          "SELECT " + x + from + x + " - " + w + " > 0", fusedFilter));
       out.add(new Section(type + " x8 * y < z filter, x8 a DECIMAL(8, 2), " + density,
-          "SELECT " + x + from + x8 + " * " + y + " < " + z,
-          filter.apply(Fusion.WHOLE)));
+          "SELECT " + x + from + x8 + " * " + y + " < " + z, fusedFilter));
       out.add(new Section(type + " x + y as a value, " + density,
           "SELECT " + x + " + " + y + " AS a FROM varka_decimal", Fusion.NONE));
       out.add(new Section(type + " x - w as a value, w at another scale, " + density,
@@ -483,21 +492,19 @@ public class VarkaDecimalBaselineBenchmark extends VarkaSqlBenchmarkBase {
       out.add(new Section(type + " x8 * y as a value, x8 a DECIMAL(8, 2), " + density,
           "SELECT " + x8 + " * " + y + " AS a FROM varka_decimal", Fusion.NONE));
     }
+    // The remainders by a column (VARKA-577): no decimal remainder fuses at any precision.
+    for (Precision p : REMAINDER_PRECISIONS) {
+      for (Density d : Density.values()) {
+        String x = d.column("x" + p.suffix());
+        String y = d.column("y" + p.suffix());
+        String tail = " as a value, " + d.words();
+        out.add(new Section(p.type() + " x % y" + tail,
+            "SELECT " + x + " % " + y + " AS a FROM varka_decimal", Fusion.NONE));
+        out.add(new Section(p.type() + " pmod(x, y)" + tail,
+            "SELECT pmod(" + x + ", " + y + ") AS a FROM varka_decimal", Fusion.NONE));
+      }
+    }
     return out;
-  }
-
-  /**
-   * The class of a filter section that fuses as {@code fusion} on a host that admits a filter's
-   * 64-bit-lane condition, on a session that refuses them where {@code declinesLongConditions}
-   * (VARKA-503, {@code VarkaSessionEmit.declineTwoLaneConditions}), as an x86 host whose long
-   * species has two lanes (the 128-bit companion's) does by default. Every filter here reads a
-   * decimal on the long lane, one word at precision 18 or less and the lane pair's two words
-   * above it, so every kernel of its condition is driven at 64 bits, and the refusal declines
-   * each conjunct, Spark's inferred {@code IS NOT NULL} among them: the filter is the row path's
-   * whole, {@code NONE}. The projections are not refused, so their classes do not depend on it.
-   */
-  static Fusion filtered(Fusion fusion, boolean declinesLongConditions) {
-    return declinesLongConditions ? Fusion.NONE : fusion;
   }
 
   /** The column at another scale {@code p}'s {@code x} is compared with, which it must have. */
@@ -511,13 +518,10 @@ public class VarkaDecimalBaselineBenchmark extends VarkaSqlBenchmarkBase {
    * c2, c3)}, {@code x <=> y}, {@code -x < y} and {@code abs(x) < y} as filters, and {@code x <
    * y} as a value, with one more shape. Given {@code rescaled}, the column at another scale, the
    * first section is {@code x < w} over it as a filter; without it, the third is {@code x IS
-   * NULL} as a filter, the lane pair's order. {@code fusion} gives each shape's class on a host
-   * that admits a filter's 64-bit-lane condition, and {@link #filtered} each filter's where
-   * {@code declinesLongConditions}.
+   * NULL} as a filter, the lane pair's order. {@code fusion} gives each shape's class.
    */
   private static void addComparisons(List<Section> out, Precision p,
-      Optional<OperandColumn> rescaled, Function<ComparisonShape, Fusion> fusion,
-      boolean declinesLongConditions) {
+      Optional<OperandColumn> rescaled, Function<ComparisonShape, Fusion> fusion) {
     List<ComparisonShape> shapes = rescaled.isPresent()
         ? List.of(ComparisonShape.RESCALED, ComparisonShape.IN, ComparisonShape.NULL_SAFE,
             ComparisonShape.NEGATED, ComparisonShape.ABS, ComparisonShape.VALUE)
@@ -531,10 +535,8 @@ public class VarkaDecimalBaselineBenchmark extends VarkaSqlBenchmarkBase {
       String tail = ", " + d.words();
       String filter = "SELECT " + x + " FROM varka_decimal WHERE ";
       for (ComparisonShape shape : shapes) {
-        Fusion admitted = Objects.requireNonNull(fusion.apply(shape),
+        Fusion expected = Objects.requireNonNull(fusion.apply(shape),
             () -> p.type() + " has no fusion class for " + shape);
-        Fusion expected = shape == ComparisonShape.VALUE ? admitted
-            : filtered(admitted, declinesLongConditions);
         out.add(switch (shape) {
           case RESCALED -> {
             String w = d.column(rescaled.orElseThrow().name());
@@ -573,7 +575,7 @@ public class VarkaDecimalBaselineBenchmark extends VarkaSqlBenchmarkBase {
         session.sql(tableSql(NUM_ROWS)).createOrReplaceTempView("varka_decimal");
         VarkaArrowSessions.cache(session, "varka_decimal");
       }
-      // The refusal as the Varka session resolves it, as VarkaBooleanOutputBenchmark reads it.
+      // The two-lane refusal as the Varka session resolves it.
       List<Section> sections = sections(
           VarkaSessionEmit.of(varka.sessionState().conf()).declineTwoLaneConditions());
       for (Section s : sections) {
