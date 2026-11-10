@@ -23,7 +23,7 @@ import scala.jdk.CollectionConverters._
 
 import org.apache.spark.sql.QueryTest
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaMatrix.PinsDefaults
-import org.apache.spark.sql.execution.VarkaSharedSessions
+import org.apache.spark.sql.execution.{VarkaSessionEmit, VarkaSharedSessions}
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types._
 
@@ -144,7 +144,7 @@ class VarkaFloatingCastBaselineQueriesSuite extends QueryTest with VarkaSharedSe
         assert(legacy.getLong(5) > rows / 4 && legacy.getLong(6) === legacy.getLong(5))
       }
 
-      val sections = VarkaFloatingCastBaselineBenchmark.sections(false).asScala.toSeq
+      val sections = VarkaFloatingCastBaselineBenchmark.sections(false, false).asScala.toSeq
       assert(sections.size === 2 * resultTypes.size)
       for ((s, index) <- sections.zipWithIndex) {
         withClue(s.title) {
@@ -176,18 +176,31 @@ class VarkaFloatingCastBaselineQueriesSuite extends QueryTest with VarkaSharedSe
     // its own settings, as the benchmark plans it. The benchmark plans under the emitter's
     // default options, so the classes pin the defaults, and an option matrix configuration,
     // under which a section may fuse differently, cancels the test; so does the run that lifts
-    // the benchmark's check. The benchmark lists its classes at the two-lane refusal the host
-    // resolves (VARKA-503), which the shared sessions leave off, so both lists are checked here
-    // by setting the refusal each way.
+    // the benchmark's check. The benchmark lists its classes at the two-lane refusal (VARKA-503)
+    // and the emit level its session resolves from the host, and the shared sessions pin both:
+    // the refusal off and the unnamed level, -1. So the classes are checked here with the
+    // refusal each way, at the unnamed level and at the named levels the benchmark's hosts
+    // resolve, 2 on the AVX2 runners at 256 bits and 3 on an AVX-512 host. The BIGINT casts fuse
+    // at a named level and decline at the unnamed one, a fact this test states rather than
+    // reads from the kernel plan as the benchmark does, so a level that stops fusing them fails
+    // here, and so does a benchmark that reads the level wrong.
     assume(VarkaSqlBenchmarkBase.fuseCheck(),
       s"-D${VarkaSqlBenchmarkBase.FUSE_CHECK_PROPERTY}=false times the sections fused")
     withTable {
-      forEachTwoLaneRefusal { declines =>
-        for (s <- VarkaFloatingCastBaselineBenchmark.sections(declines).asScala) {
-          withClue(s"${s.title}, refusal $declines") {
-            withSettings(s) {
-              val plan = varkaSpark.sql(s.query).queryExecution.executedPlan
-              assert(VarkaSqlBenchmarkBase.fusion(plan) === Optional.of(s.fusion))
+      for (level <- Seq(-1, 2, 3)) {
+        withBothConf(SQLConf.VARKA_EMIT_USE_AVX.key, level.toString) {
+          val fuses = level != -1
+          val emit = VarkaSessionEmit.of(varkaSpark.sessionState.conf)
+          assert(VarkaFloatingCastBaselineBenchmark.fusesLongCasts(emit) === fuses,
+            s"level $level")
+          forEachTwoLaneRefusal { declines =>
+            for (s <- VarkaFloatingCastBaselineBenchmark.sections(declines, fuses).asScala) {
+              withClue(s"${s.title}, level $level, refusal $declines") {
+                withSettings(s) {
+                  val plan = varkaSpark.sql(s.query).queryExecution.executedPlan
+                  assert(VarkaSqlBenchmarkBase.fusion(plan) === Optional.of(s.fusion))
+                }
+              }
             }
           }
         }
