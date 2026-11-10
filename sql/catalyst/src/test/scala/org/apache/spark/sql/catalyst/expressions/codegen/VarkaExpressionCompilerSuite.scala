@@ -2149,6 +2149,23 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     }
   }
 
+  test("a floating compare against a literal of another type declines rather than specialise") {
+    // Only a hand-built tree compares a floating column with a literal of another type; the
+    // literal's bits are no value at the column's lane (an int 5 read as a double is a
+    // denormal), so the compare keeps the lane check that declines a mix of two lanes.
+    def mixes(a: String, b: String): String =
+      s"one kernel holds one lane, and this mixes the $a and $b lanes"
+    for ((e, reason) <- Seq[(Expression, String)](
+        GreaterThan(inDouble, Literal(5)) -> mixes("DOUBLE", "INT"),
+        GreaterThan(inDouble, Literal(5.0f)) -> mixes("DOUBLE", "FLOAT"),
+        GreaterThan(inFloat, Literal(5.0)) -> mixes("FLOAT", "DOUBLE"),
+        GreaterThan(Literal(5), inDouble) -> mixes("INT", "DOUBLE"),
+        GreaterThan(Literal(5.0f), inDouble) -> mixes("DOUBLE", "FLOAT"),
+        GreaterThan(Literal(5.0), inFloat) -> mixes("FLOAT", "DOUBLE"))) {
+      assert(declineReason(If(e, d, d2), inOutput) === reason, s"$e")
+    }
+  }
+
   test("an empty IN list declines with its own reason") {
     assert(declineReason(If(In(d, Nil), d, d2)) === "IN list is empty")
     assert(declineReason(If(InSet(d, Set.empty[Any]), d, d2)) === "IN list is empty")

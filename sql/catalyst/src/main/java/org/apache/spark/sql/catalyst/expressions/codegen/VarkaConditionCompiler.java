@@ -1485,11 +1485,14 @@ final class VarkaConditionCompiler {
           sink);
     }
     // A floating value against a literal of its type (VARKA-341): the constant's bits choose
-    // the lowering, so the literal is read here and only the other operand compiled.
+    // the lowering, so the literal is read here and only the other operand compiled. A literal
+    // of another type, which only a hand-built tree holds, is left to the general form below,
+    // whose lane check declines it: its bits are not a value at this lane.
     Optional<LaneType> floating = VarkaFloatingCompiler.floatingLane(cmp.left().dataType());
     if (floating.isPresent()) {
-      OptionalLong right = floatingConstant(cmp.right());
-      OptionalLong left = right.isPresent() ? OptionalLong.empty() : floatingConstant(cmp.left());
+      OptionalLong right = floatingConstant(cmp.right(), floating.get());
+      OptionalLong left = right.isPresent() ? OptionalLong.empty()
+          : floatingConstant(cmp.left(), floating.get());
       if (right.isPresent() || left.isPresent()) {
         Optional<VarkaVectorIR> x = operand(right.isPresent() ? cmp.left() : cmp.right(),
             inputs, literals, sink);
@@ -1523,9 +1526,13 @@ final class VarkaConditionCompiler {
     return Optional.of(new Compare(op, left.get(), right.get()));
   }
 
-  /** The lane bits of {@code e} when it is a non-null literal of a floating type, else empty. */
-  private static OptionalLong floatingConstant(Expression e) {
-    if (!(e instanceof Literal l) || l.value() == null) {
+  /**
+   * The lane bits of {@code e} when it is a non-null literal whose type is on the floating
+   * {@code lane}, else empty.
+   */
+  private static OptionalLong floatingConstant(Expression e, LaneType lane) {
+    if (!(e instanceof Literal l) || l.value() == null
+        || !VarkaFloatingCompiler.floatingLane(l.dataType()).equals(Optional.of(lane))) {
       return OptionalLong.empty();
     }
     VarkaTypeId id = VarkaTypes.idOf(l.dataType());

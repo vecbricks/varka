@@ -911,6 +911,7 @@ public final class VarkaDifferentialHarnessSuite {
                 + choices.size());
           }
           shapes.add(where("x " + op + " " + l, SERVED));
+          shapes.add(where(l + " " + op + " x", SERVED));
         }
         shapes.add(shape(String.join(", ", choices), SERVED));
       }
