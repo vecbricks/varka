@@ -50,6 +50,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.CompiledVarkaProjection
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaExpressionCompiler;
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaGeneratedClassLoader;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitterFixtures.Output;
+import org.apache.spark.sql.catalyst.util.MathUtils;
 import org.apache.spark.sql.internal.SQLConf;
 import org.apache.spark.sql.internal.SQLConf$;
 import org.apache.spark.sql.types.DataType;
@@ -136,15 +137,10 @@ public final class VarkaEmitterRoundingSuite {
     return i >= CELLS && i % 7 == 3;
   }
 
-  /** Spark's {@code rint}: {@code Math.rint}, and the canonical NaN for a NaN. */
-  private static double sparkRint(double v) {
-    return Double.isNaN(v) ? Double.NaN : Math.rint(v);
-  }
-
   @Test
   @DisplayName("rint is Spark's rint for the cells, every exponent and a draw, nulls staying "
       + "null")
-  void rintMatchesMathRint() {
+  void rintMatchesSparkRint() {
     double[] values = data();
     int n = values.length;
     var loaded = VarkaEmitterFixtures.load(
@@ -162,7 +158,7 @@ public final class VarkaEmitterRoundingSuite {
         boolean valid = (out.validity().get(ValueLayout.JAVA_BYTE, i / 8L) & (1 << (i % 8))) != 0;
         assertEquals(!nullAt(i), valid, "validity of row " + i);
         if (valid) {
-          long want = Double.doubleToRawLongBits(sparkRint(values[i]));
+          long want = Double.doubleToRawLongBits(MathUtils.rint(values[i]));
           long got = out.data().get(ValueLayout.JAVA_LONG, i * 8L);
           assertEquals(want, got, "rint of 0x" + Long.toHexString(
               Double.doubleToRawLongBits(values[i])) + ": want 0x" + Long.toHexString(want)
@@ -188,7 +184,7 @@ public final class VarkaEmitterRoundingSuite {
   @DisplayName("every rounding the compiler lowers through rint answers the canonical NaN for "
       + "payload, signalling and negative NaNs, on the kernel and on Spark's expression")
   void roundingsAnswerTheCanonicalNaN() {
-    // Rows: each NaN in x beside each NaN and 0.0 in y, so x + y, x - y and sqrt(x - 3.0) see
+    // Rows: each NaN in x beside each NaN and 0.0 in y, so x + y, x - y and sqrt(x - y) see
     // NaNs of both operands and the x86 default NaN; then numbers, so the rows are not all NaN.
     int n = NANS.length * (NANS.length + 1) + 64;
     long[] xs = new long[n];
