@@ -21,11 +21,8 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
-import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
-import java.io.InputStreamReader;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -45,6 +42,7 @@ import java.util.regex.Pattern;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -83,7 +81,25 @@ public final class VarkaOperatorCensusSuite {
   /** At most this many bytes a row is no allocation; a box is five or more. */
   private static final double MAX_BYTES_PER_ROW = 1.0;
 
-  private static final long CHILD_TIMEOUT_SECONDS = 300L;
+  /**
+   * When the running test's children must have ended: one budget of
+   * {@code VarkaChildProcess.budgetSeconds(cap, 1)}, 540 s at the watchdog's ten minutes, that
+   * every child the test starts takes what is left of, so they end before the test's cap however
+   * many there are. The census forks one JVM per cell and width, up to 405, four at a time on the
+   * laptop and one at a time on a four-core runner, so no fixed share of the cap would fit them.
+   * With the watchdog off (a cap of 0) the children have no budget either.
+   */
+  private static volatile long deadlineNanos;
+
+  private static volatile long budgetSeconds;
+
+  @BeforeEach
+  void startTheBudget() {
+    long cap = VarkaSuiteExtension.capMinutes(
+        VarkaOperatorCensusSuite.class.getAnnotation(VarkaSuite.class));
+    budgetSeconds = cap == 0 ? 0 : VarkaChildProcess.budgetSeconds(cap, 1);
+    deadlineNanos = System.nanoTime() + TimeUnit.SECONDS.toNanos(budgetSeconds);
+  }
 
   private static final String PROBE = VarkaOperatorCensusProbe.class.getName();
 
@@ -282,62 +298,42 @@ public final class VarkaOperatorCensusSuite {
     return List.of();
   }
 
-  private static String classpath() {
-    String dist = System.getenv("SPARK_DIST_CLASSPATH");
-    return dist != null && !dist.isEmpty() ? dist : System.getProperty("java.class.path");
-  }
-
   private static String javaBin() {
     return new File(new File(System.getProperty("java.home"), "bin"), "java").getAbsolutePath();
   }
 
-  private static List<String> run(List<String> command) throws IOException, InterruptedException {
-    // The child JVM's code runs where the class-use record cannot see it (VarkaTestUse).
-    VarkaTestUse.childJvm();
-    var process = new ProcessBuilder(command).redirectErrorStream(true).start();
+  /**
+   * Runs {@code command}, named by {@code what}, within what is left of the test's budget, and
+   * returns its output. A child the watchdog's interrupt reaches is destroyed: on the test thread
+   * directly, and on the census's pool through the {@code shutdownNow} that ends its wait.
+   */
+  private static List<String> run(String what, List<String> command) throws IOException {
+    long leftNanos = budgetSeconds == 0 ? Long.MAX_VALUE : deadlineNanos - System.nanoTime();
+    String named = "VarkaOperatorCensusSuite's " + what;
+    if (leftNanos <= 0) {
+      throw new VarkaChildProcess.ChildFailure(named + " was not started: the test's children "
+          + "have spent their budget of " + budgetSeconds + " s");
+    }
     var output = new ArrayList<String>();
-    // The output is drained on a thread so that the timeout can fire on a fork that hangs.
-    var reader = new Thread(() -> {
-      try (var in = new BufferedReader(
-          new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
-        String line;
-        while ((line = in.readLine()) != null) {
-          synchronized (output) {
-            output.add(line);
-          }
-        }
-      } catch (IOException e) {
-        // The process ended under the reader; what was read stands.
-      }
-    }, "census-fork-output");
-    reader.start();
-    if (!process.waitFor(CHILD_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
-      process.destroyForcibly();
-      throw new IllegalStateException("a census fork did not finish within "
-          + CHILD_TIMEOUT_SECONDS + " s: " + command);
-    }
-    reader.join();
-    synchronized (output) {
-      assertEquals(0, process.exitValue(), () -> "a census fork failed:\n" + String.join("\n",
-          output.subList(Math.max(0, output.size() - 40), output.size())));
-      return List.copyOf(output);
-    }
+    long left = Math.max(1L, TimeUnit.NANOSECONDS.toSeconds(leftNanos));
+    var child = VarkaChildProcess.run(named, new ProcessBuilder(command), left, output::add);
+    child.requireSuccess(true);
+    return List.copyOf(output);
   }
 
   /** The vector size in bytes the JVM settles on when asked for {@code requested}. */
-  private static int effectiveBytes(int requested) throws IOException, InterruptedException {
+  private static int effectiveBytes(int requested) throws IOException {
     return effectiveBytes(List.of("-XX:MaxVectorSize=" + requested));
   }
 
   /** The same, for a JVM started with {@code flags}, which name the vector size asked for. */
-  private static int effectiveBytes(List<String> flags)
-      throws IOException, InterruptedException {
+  private static int effectiveBytes(List<String> flags) throws IOException {
     var command = new ArrayList<String>();
     command.add(javaBin());
     command.addAll(flags);
     command.add("-XX:+PrintFlagsFinal");
     command.add("-version");
-    List<String> output = run(command);
+    List<String> output = run("MaxVectorSize query under " + flags, command);
     for (String line : output) {
       Matcher m = Pattern.compile("\\s*\\S+\\s+MaxVectorSize\\s+=\\s+(\\d+)").matcher(line);
       if (m.find()) {
@@ -348,13 +344,8 @@ public final class VarkaOperatorCensusSuite {
   }
 
   /** Forks the probe for one entry at one vector size, with any extra JVM flags. */
-  static Reading fork(String entry, int bytes, String... flags)
-      throws IOException, InterruptedException {
+  static Reading fork(String entry, int bytes, String... flags) throws IOException {
     var command = new ArrayList<String>();
-    command.add(javaBin());
-    command.add("--add-modules");
-    command.add("jdk.incubator.vector");
-    command.add("--enable-native-access=ALL-UNNAMED");
     // VarkaHostIsa's feature query, which the host-fact test reads in the fork (VARKA-538).
     command.add("--add-exports=java.base/jdk.internal.vm.vector=ALL-UNNAMED");
     command.add("-XX:+UnlockDiagnosticVMOptions");
@@ -366,11 +357,9 @@ public final class VarkaOperatorCensusSuite {
         + VarkaOperatorCensusProbe.LOOP_PREFIX + "*");
     command.add("-XX:MaxVectorSize=" + bytes);
     command.addAll(List.of(flags));
-    command.add("-cp");
-    command.add(classpath());
-    command.add(PROBE);
-    command.add(entry);
-    return withLibraryStub(VarkaOperatorCensusCatalog.named(entry), read(run(command)));
+    String what = "fork of " + entry + " at " + bytes * 8 + " bits under " + List.of(flags);
+    return withLibraryStub(VarkaOperatorCensusCatalog.named(entry),
+        read(run(what, VarkaChildProcess.javaCommand(command, PROBE, List.of(entry)))));
   }
 
   /**
@@ -438,7 +427,7 @@ public final class VarkaOperatorCensusSuite {
         .filter(e -> !e.name().startsWith("planted.")).toList();
   }
 
-  private static int hostBytes() throws IOException, InterruptedException {
+  private static int hostBytes() throws IOException {
     return effectiveBytes(WIDTHS_BYTES[WIDTHS_BYTES.length - 1]);
   }
 
@@ -529,8 +518,7 @@ public final class VarkaOperatorCensusSuite {
   private static final Map<List<String>, HostFact> HOST_FACTS = new HashMap<>();
 
   /** The host fact of a JVM under {@code flags}, forked on the first ask for that flag set. */
-  static synchronized HostFact hostFact(String... flags)
-      throws IOException, InterruptedException {
+  static synchronized HostFact hostFact(String... flags) throws IOException {
     List<String> key = List.of(flags);
     HostFact known = HOST_FACTS.get(key);
     if (known == null) {
@@ -540,21 +528,16 @@ public final class VarkaOperatorCensusSuite {
     return known;
   }
 
-  private static HostFact forkHostFact(String... flags) throws IOException, InterruptedException {
+  private static HostFact forkHostFact(String... flags) throws IOException {
     var command = new ArrayList<String>();
-    command.add(javaBin());
-    command.add("--add-modules");
-    command.add("jdk.incubator.vector");
     command.add("--add-exports=java.base/jdk.internal.vm.vector=ALL-UNNAMED");
     command.addAll(List.of(flags));
-    command.add("-cp");
-    command.add(classpath());
-    command.add(PROBE);
-    command.add(VarkaOperatorCensusProbe.HOST_ENTRY);
     Boolean fallsBack = null;
     int useAVX = VarkaEmitOptions.USE_AVX_UNKNOWN;
     String features = null;
-    for (String line : run(command)) {
+    for (String line : run("host fact under " + List.of(flags),
+        VarkaChildProcess.javaCommand(command, PROBE,
+            List.of(VarkaOperatorCensusProbe.HOST_ENTRY)))) {
       String f = after(line, VarkaOperatorCensusProbe.FALLS_BACK_PREFIX);
       String u = after(line, VarkaOperatorCensusProbe.USE_AVX_PREFIX);
       String l = after(line, VarkaOperatorCensusProbe.FEATURES_PREFIX);
@@ -608,7 +591,7 @@ public final class VarkaOperatorCensusSuite {
    * {@link #census()} resolves it.
    */
   private static Map<Integer, Map<String, Reading>> conversionCells(String... flags)
-      throws IOException, InterruptedException {
+      throws IOException {
     var widths = new TreeSet<Integer>();
     for (int requested : WIDTHS_BYTES) {
       List<String> withSize = new ArrayList<>(List.of(flags));
