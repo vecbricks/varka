@@ -566,7 +566,7 @@ while [ "$#" -gt 0 ]; do
     --cache-key)
       echo "z3-$Z3_VERSION-${Z3_WHEEL_SHA256:0:16}-cvc5-$CVC5_VERSION-${CVC5_SHA256:0:16}"
       exit 0 ;;
-    --prune-downloads) prune_downloads "$solvers/downloads"; exit 0 ;;
+    --prune-downloads) prune_downloads "$root/target/varka-solvers/downloads"; exit 0 ;;
     --lint) mode=lint; which=both; shift ;;
     -*) usage ;;
     *) files+=("$1"); shift ;;
