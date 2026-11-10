@@ -88,8 +88,8 @@ import org.apache.spark.sql.execution.VarkaSessionEmit;
  * 2)} only, the arithmetic whose result stays within 18 digits: {@code x + y < z}, {@code x - w >
  * 0} and {@code x8 * y < z} as filters, {@code x8} a {@code DECIMAL(8, 2)} whose product with
  * {@code y} is a {@code DECIMAL(18, 4)}, and {@code x + y}, {@code x - w} and {@code x8 * y} as
- * projections. The columns {@code w9}, {@code w18} and {@code x8} come last in the table, with
- * integer parts at half their types' ranges.
+ * projections. The columns {@code w9}, {@code w18} and {@code x8} come after {@code x20} and
+ * {@code y20} in the table, with integer parts at half their types' ranges.
  *
  * <p>Sixteen more sections time the decimal remainders by a column (VARKA-577), {@code x % y}
  * and {@code pmod(x, y)} as projections at {@code DECIMAL(9, 2)}, {@code DECIMAL(18, 4)},
@@ -103,12 +103,12 @@ import org.apache.spark.sql.execution.VarkaSessionEmit;
  * caps at precision 38, and {@code l + x9} and {@code l + x18}, {@code l} a {@code BIGINT} that
  * type coercion casts to {@code DECIMAL(20, 0)}, as projections, and {@code x + y < z} at
  * {@code DECIMAL(20, 2)} as a filter. Row 361's products: {@code x * y} and {@code x * (1 - y)}
- * at {@code DECIMAL(15, 2)}, TPC-H's price and discount type, whose product is a {@code
- * DECIMAL(31, 4)}, the second being TPC-H q1's form, and {@code l * x9} and {@code l * x18}, a
- * {@code DECIMAL(30, 2)} and a {@code DECIMAL(38, 4)}, as projections, and {@code x * y < z} at
- * {@code DECIMAL(15, 2)} as a filter. Their columns ({@link #WIDE_COLUMNS} and {@code l}) come
- * after all the others, so the values of the earlier sections stay as their results files have
- * them.
+ * at {@code DECIMAL(15, 2)}, TPC-H's price and discount type, a {@code DECIMAL(31, 4)} and,
+ * {@code 1 - y} being a {@code DECIMAL(16, 2)}, a {@code DECIMAL(32, 4)}, the second being TPC-H
+ * q1's form, and {@code l * x9} and {@code l * x18}, a {@code DECIMAL(30, 2)} and a {@code
+ * DECIMAL(38, 4)}, as projections, and {@code x * y < z} at {@code DECIMAL(15, 2)} as a filter.
+ * Their columns ({@link #WIDE_COLUMNS} and {@code l}) come after all the others, so the values
+ * of the earlier sections stay as their results files have them.
  *
  * <p>Each section has two arms, named so the labels survive the lanes landing:
  * {@code spark row path (varka off)}, a session without the Varka rule, and {@code varka on}, a
@@ -248,6 +248,14 @@ public class VarkaDecimalBaselineBenchmark extends VarkaSqlBenchmarkBase {
   static final List<OperandColumn> OPERAND_COLUMNS = List.of(W9, W18, X8);
 
   /**
+   * The row of ten each column of {@link #OPERAND_COLUMNS} is null at in its nullable copy: none
+   * of the rows of {@code x}, {@code y} and {@code z} (1, 4 and 7), so that a section over a
+   * nullable {@code x} and {@code w} has two rows in ten null, as one over {@code x} and
+   * {@code y} has.
+   */
+  static final int OPERAND_NULL_ROW = 5;
+
+  /**
    * A column the widening sections of rows 360 and 361 add: its name, its type, and the row of
    * ten its nullable copy is null at, chosen so that two columns a section reads together are
    * null at different rows.
@@ -290,14 +298,6 @@ public class VarkaDecimalBaselineBenchmark extends VarkaSqlBenchmarkBase {
 
   /** The row of ten the {@code BIGINT} column's nullable copy is null at. */
   static final int BIGINT_NULL_ROW = 5;
-
-  /**
-   * The row of ten each column of {@link #OPERAND_COLUMNS} is null at in its nullable copy: none
-   * of the rows of {@code x}, {@code y} and {@code z} (1, 4 and 7), so that a section over a
-   * nullable {@code x} and {@code w} has two rows in ten null, as one over {@code x} and
-   * {@code y} has.
-   */
-  static final int OPERAND_NULL_ROW = 5;
 
   /**
    * The two null densities every section is timed at: the suffix of the columns a section reads,

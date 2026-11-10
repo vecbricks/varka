@@ -392,9 +392,9 @@ table with this row's columns, Arrow-cached; the trees, the suite and the comman
 
 ### 10.2 Step 2: the baseline addition, with row 360's
 
-Built 9 November 2026, stacked on #1422 (row 577's remainders, which first keyed the class's
-filter sections on the two-lane refusal, `sections(boolean)`): `VarkaDecimalBaselineBenchmark`
-gains 22 sections, each at both null densities. Row 360's: `x20 + y20`, `x20 - y20s4` (a
+Built 9 November 2026 on #1422 (row 577's remainders, which first keyed the class's filter
+sections on the two-lane refusal, `sections(boolean)`; merged into master since):
+`VarkaDecimalBaselineBenchmark` gains 22 sections, eleven shapes at each null density. Row 360's: `x20 + y20`, `x20 - y20s4` (a
 `DECIMAL(20, 4)`), `x38s2 + y38s2` (two `DECIMAL(38, 2)`, the sum capped at 38) and `l + x9`,
 `l + x18` as projections, and `x20 + y20 < z20` as a filter. This row's: `x15 * y15` (q6's
 types, `DECIMAL(31, 4)`), `x15 * (1 - y15)` (q1's form), `l * x9` (`DECIMAL(30, 2)`) and
