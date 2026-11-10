@@ -25,8 +25,9 @@
 #   dev/varka_prove.sh --install z3|cvc5|both   # the pinned solvers, into target/varka-solvers/
 #   dev/varka_prove.sh --install-shared z3|cvc5|both  # the same, into the shared directory below
 #   dev/varka_prove.sh --self-test              # one planted failure of each kind, every one caught
-#   dev/varka_prove.sh --self-test-fetch        # the download's cache, checksum and retries, checked
+#   dev/varka_prove.sh --self-test-fetch        # the download's cache, checksum, retries, prune
 #   dev/varka_prove.sh --cache-key              # the pins in one line, CI's key for the archives
+#   dev/varka_prove.sh --prune-downloads        # drop the archives no pin names, before CI saves
 #
 # A proof opens with its (set-logic ...) line, and java.smt2, Java's operators, is inserted after
 # it, since SMT-LIB has no include. Each check is an (echo "<what it shows>: expect sat|unsat")
@@ -162,6 +163,15 @@ fetch() {
   rm -f "$part"
   echo "varka_prove: could not download $url to $dest" >&2
   return 1
+}
+
+# Deletes every file in the folder $1 but the pinned archives. CI restores an older key's entry
+# when the pins change and saves the folder whole, so this keeps a superseded archive out of the
+# new entry. Run on the worktree's folder only, never the shared one, where another worktree's
+# install may be writing an archive of other pins.
+prune_downloads() {
+  [ -d "$1" ] || return 0
+  find "$1" -maxdepth 1 -type f ! -name "$Z3_WHEEL" ! -name "$CVC5_ZIP" -print -delete
 }
 
 install_z3() {
@@ -526,8 +536,14 @@ self_test_fetch() {
       bad=1
     fi
   done
+  mkdir "$dir/downloads"
+  touch "$dir/downloads/$Z3_WHEEL" "$dir/downloads/$CVC5_ZIP" "$dir/downloads/z3_solver-old.whl"
+  prune_downloads "$dir/downloads" > /dev/null
+  if [ "$(ls "$dir/downloads" | sort | tr '\n' ' ')" != "$CVC5_ZIP $Z3_WHEEL " ]; then
+    echo "varka_prove: the prune did not keep exactly the pinned archives" >&2; bad=1
+  fi
   rm -rf "$dir"
-  [ "$bad" -eq 0 ] && echo "varka_prove: the download's cache, checksum and retries hold"
+  [ "$bad" -eq 0 ] && echo "varka_prove: the download's cache, checksum, retries and prune hold"
   return "$bad"
 }
 
@@ -550,6 +566,7 @@ while [ "$#" -gt 0 ]; do
     --cache-key)
       echo "z3-$Z3_VERSION-${Z3_WHEEL_SHA256:0:16}-cvc5-$CVC5_VERSION-${CVC5_SHA256:0:16}"
       exit 0 ;;
+    --prune-downloads) prune_downloads "$solvers/downloads"; exit 0 ;;
     --lint) mode=lint; which=both; shift ;;
     -*) usage ;;
     *) files+=("$1"); shift ;;

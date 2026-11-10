@@ -52,7 +52,8 @@ directory, `$VARKA_SOLVERS_DIR` or by default `~/.cache/varka-solvers/`, so one
 `dev/varka_prove.sh --install-shared both` serves every worktree. An install keeps the archives
 it downloads in `downloads/` beside the solvers, checks each against its pinned SHA-256 before use,
 and tries a failed download four times; the linters' job restores that folder from the Actions
-cache under `dev/varka_prove.sh --cache-key`, so a run whose cache hit needs no network.
+cache under `dev/varka_prove.sh --cache-key`, so a run whose cache hit needs no network. Only
+master's runs save that cache, and every branch restores master's entry.
 
 A file whose header has a line `; prelude: <name>.smt2` before its `set-logic` gets that file of
 this directory inserted after `java.smt2` (VARKA-506 2.5). A file named so is a prelude, which the

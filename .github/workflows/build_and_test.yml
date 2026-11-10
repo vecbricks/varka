@@ -1145,6 +1145,44 @@ jobs:
         free-disk-space: container
     - name: Install the Varka engine
       uses: ./.github/actions/install-varka-engine
+    # The pinned solvers' archives come from the Actions cache, keyed on their versions and
+    # SHA-256s; the install checks each archive against its pin, cached or not, and downloads
+    # one that is missing with retries (VARKA-592). Only master saves: a branch's run restores
+    # its default branch's entry, so one entry serves every branch, and a branch saving its own
+    # 77 MB copy would evict others from the fork's 10 GB. The fork's master runs this job after
+    # each merge to seed the entry (varka-master.yml). The prefix restores an older key's entry
+    # after a pin changes, so the unchanged archive is not downloaded again, and the prune keeps
+    # the superseded one out of master's new entry. Here, before the linters, so that a
+    # linter's failure on master does not stop the save; a failed save fails nothing.
+    - name: The pinned solvers' cache key
+      id: solvers-key
+      if: fromJson(needs.precondition.outputs.required).lint-code != 'false'
+      run: |
+        key="$(./dev/varka_prove.sh --cache-key)"
+        echo "key=varka-solvers-$key" >> "$GITHUB_OUTPUT"
+    - name: Restore the pinned solvers' archives
+      id: solvers-cache
+      if: fromJson(needs.precondition.outputs.required).lint-code != 'false'
+      uses: actions/cache/restore@v5
+      with:
+        path: target/varka-solvers/downloads
+        key: ${{ steps.solvers-key.outputs.key }}
+        restore-keys: varka-solvers-
+    - name: Install the pinned solvers
+      if: fromJson(needs.precondition.outputs.required).lint-code != 'false'
+      run: |
+        ./dev/varka_prove.sh --self-test-fetch
+        ./dev/varka_prove.sh --install both
+        ./dev/varka_prove.sh --prune-downloads
+    - name: Save the pinned solvers' archives
+      if: >-
+        fromJson(needs.precondition.outputs.required).lint-code != 'false' &&
+        github.ref == 'refs/heads/master' && steps.solvers-cache.outputs.cache-hit != 'true'
+      continue-on-error: true
+      uses: actions/cache/save@v5
+      with:
+        path: target/varka-solvers/downloads
+        key: ${{ steps.solvers-key.outputs.key }}
     - name: License test
       run: ./dev/check-license
     # Which steps run for a change confined to Varka is decided in the precondition (row 225).
@@ -1192,39 +1230,6 @@ jobs:
     - name: Java linter
       if: fromJson(needs.precondition.outputs.required).lint-code != 'false'
       run: ./dev/lint-java
-    # The pinned solvers' archives come from the Actions cache, keyed on their versions and
-    # SHA-256s; the install checks each archive against its pin, cached or not, and downloads
-    # one that is missing with retries (VARKA-592). The cache is saved as soon as the install
-    # succeeds, so a later failure of the job does not lose it, and a failed save fails nothing.
-    # Caches are per branch, and the fork's master runs no lint job, so a branch's first Build
-    # still downloads.
-    - name: The pinned solvers' cache key
-      id: solvers-key
-      if: fromJson(needs.precondition.outputs.required).lint-code != 'false'
-      run: |
-        key="$(./dev/varka_prove.sh --cache-key)"
-        echo "key=varka-solvers-$key" >> "$GITHUB_OUTPUT"
-    - name: Restore the pinned solvers' archives
-      id: solvers-cache
-      if: fromJson(needs.precondition.outputs.required).lint-code != 'false'
-      uses: actions/cache/restore@v5
-      with:
-        path: target/varka-solvers/downloads
-        key: ${{ steps.solvers-key.outputs.key }}
-    - name: Install the pinned solvers
-      if: fromJson(needs.precondition.outputs.required).lint-code != 'false'
-      run: |
-        ./dev/varka_prove.sh --self-test-fetch
-        ./dev/varka_prove.sh --install both
-    - name: Save the pinned solvers' archives
-      if: >-
-        fromJson(needs.precondition.outputs.required).lint-code != 'false' &&
-        steps.solvers-cache.outputs.cache-hit != 'true'
-      continue-on-error: true
-      uses: actions/cache/save@v5
-      with:
-        path: target/varka-solvers/downloads
-        key: ${{ steps.solvers-key.outputs.key }}
     # The SMT proofs of Varka's arithmetic lowerings under the pinned solvers (VARKA-240): the
     # self-test first, so that a checker of verdicts that stopped failing cannot pass the proofs.
     # --lint runs each file under Z3 but those the script lists for cvc5, which keeps the step
