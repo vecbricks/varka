@@ -21,7 +21,7 @@ import java.time.{Duration, LocalDate, LocalDateTime, LocalTime, ZoneId, ZoneOff
 
 import org.apache.spark.sql.{Row, SparkSession}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaChrono, VarkaRangeAnalysis,
-  VarkaShapeCache, VarkaTestWatchdog}
+  VarkaShapeCache, VarkaShapeKey, VarkaTestWatchdog}
 import org.apache.spark.sql.catalyst.util.{DateTimeConstants, IntervalUtils}
 import org.apache.spark.sql.execution.VarkaMaybeThrows.{Answered, Raised}
 import org.apache.spark.sql.internal.SQLConf
@@ -432,9 +432,23 @@ class VarkaTimestampNtzSuite extends VarkaMaybeThrows with VarkaTestWatchdog {
     val expected = pinRows.map { case Row(i: Int, t: LocalDateTime, tm: LocalTime) =>
       (i, tm, t.getYear)
     }
+    // The kernel class a plan's fused node resolves to: the hash of the shape cache's key, built
+    // from the node's own compilation and emit options. Comparing it across the two zones, rather
+    // than counting the JVM-wide cache misses, is blind to any other emission in the JVM meanwhile.
+    def shapeHash(plan: SparkPlan): String = {
+      val (partial, session) = varkaNode(plan) match {
+        case v: VarkaColumnarToRowExec => (v.classification, v.sessionEmit)
+        case v: VarkaProjectExec => (v.classification, v.sessionEmit)
+        case other => fail(s"not a fused projection: $other")
+      }
+      val fused = partial.orElseThrow().fused
+      VarkaShapeCache.shapeHash(new VarkaShapeKey(fused.outputs, fused.inputOrdinals.size,
+        fused.numLiterals, VarkaColumnarToRowExec.emitOptions(session)))
+    }
     // The answer under one session zone: the date every row carries, which must be that zone's
-    // current date when the query ran, the time each row's own, and the year java.time's.
-    def run(zone: String): LocalDate = {
+    // current date when the query ran, the time each row's own, and the year java.time's; and
+    // the shape of the kernel that answered it.
+    def run(zone: String): (LocalDate, String) = {
       varkaSpark.conf.set(SQLConf.SESSION_LOCAL_TIMEZONE.key, zone)
       val before = LocalDate.now(ZoneId.of(zone))
       val actual = varkaSpark.sql(query)
@@ -450,14 +464,13 @@ class VarkaTimestampNtzSuite extends VarkaMaybeThrows with VarkaTestWatchdog {
       val node = varkaNode(plan)
       assert(node.metrics("numFallbackBatchesDeclined").value === 2L, s"$zone: $query")
       assert(node.metrics("numVarkaBatches").value === 2L, s"$zone: $query")
-      dates.head
+      (dates.head, shapeHash(plan))
     }
     val zoneBefore = varkaSpark.conf.getOption(SQLConf.SESSION_LOCAL_TIMEZONE.key)
     try {
-      val east = run("Etc/GMT-14")
-      val misses = VarkaShapeCache.missCount
-      val west = run("Etc/GMT+12")
-      assert(VarkaShapeCache.missCount === misses, "the second zone emitted another kernel")
+      val (east, eastShape) = run("Etc/GMT-14")
+      val (west, westShape) = run("Etc/GMT+12")
+      assert(westShape === eastShape, "the second zone's kernel is another shape")
       assert(east != west, s"two zones 26 hours apart answered one date, $east")
     } finally {
       zoneBefore match {
