@@ -1,0 +1,137 @@
+VARKA-587: does Spark's math answer depend on the host? The x86 canary runner's probe, 9 November
+2026.
+
+Machine: whatever x86 CPU GitHub's ubuntu-latest pool assigned, here an Intel Xeon Platinum 8573C
+(x86_64, AVX-512, UseAVX=3, UseFMA=true, 4 vCPUs), Azul's Zulu build of OpenJDK 25.0.5.0.3+1-LTS.
+A third x86 model beside the laptop's Zen 5 and the EPYC 7763; not the pinned EPYC 7763 run of
+VARKA-587.md 6.2, which is still owed. Run: varka-canary.yml run 42612190576 on MaxGekk/spark, job
+"MathHostProbe on x86_64" (129143131070), 9 November 2026 12:22 to 12:23 UTC, artifact
+canary-MathHostProbe-x86_64. Commit: f720069e66b, as in VARKA-587-math-host-arm.txt. Not a timing.
+
+Part A is the job's library.txt and machine.txt, verbatim. Part B is the probe's section 6 run on
+the laptop (AMD Ryzen AI 9 HX PRO 370, Ubuntu's OpenJDK 25.0.4.1) against this runner's dump,
+under the session's heavy slot, as in VARKA-587-math-host-arm.txt. The two hosts differ in CPU
+and in JDK build (Ubuntu's 25.0.4.1 against Zulu's 25.0.5), so part B's three pow inputs are not
+attributed to either; Spark calls StrictMath.pow, not Math.pow. The dump (1.1 MB) is not
+committed.
+
+==== A. MathHostProbe, JDK 25 ====
+WARNING: Using incubator modules: jdk.incubator.vector
+host: os.arch=amd64 java.runtime.version=25.0.5.0.3+1-LTS java.vm.name=OpenJDK 64-Bit Server VM
+cpu: INTEL(R) XEON(R) PLATINUM 8573C
+flags: UseAVX=3 UseFMA=true UseSVE=n/a MaxVectorSize=64
+jvm arguments: [--add-modules=jdk.incubator.vector, -Djdk.incubator.vector.DEBUG=true, --add-modules=ALL-DEFAULT]
+inputs: 1048576 per function, 262144 per draw, seed 587, draws bits [-750,750] [-2,2] near0
+
+1. Math against StrictMath by raw bits; pass 1 is cold, pass 2 hot, on the same inputs
+sin    spark=Math: sin, csc             differ=21203 values=21203 maxUlp=1 ulp1=21203 ulp2=0 ulp3+=0 nanPayload=0 nanVsValue=0 byDraw=4311/8815/7885/192 cold=hot
+cos    spark=Math: cos, sec             differ=21016 values=21016 maxUlp=1 ulp1=21016 ulp2=0 ulp3+=0 nanPayload=0 nanVsValue=0 byDraw=4485/8807/7601/123 cold=hot
+tan    spark=Math: tan, cot             differ=22721 values=22721 maxUlp=1 ulp1=22721 ulp2=0 ulp3+=0 nanPayload=0 nanVsValue=0 byDraw=4811/9293/8321/296 cold=hot
+tanh   spark=Math: tanh                 differ=130493 values=130493 maxUlp=2 ulp1=128930 ulp2=1563 ulp3+=0 nanPayload=0 nanVsValue=0 byDraw=1857/180/70644/57812 cold=hot
+cbrt   spark=Math: cbrt                 differ=86791 values=86727 maxUlp=1 ulp1=86727 ulp2=0 ulp3+=0 nanPayload=64 nanVsValue=0 byDraw=21558/21680/21973/21580 cold=hot
+asin   spark=Math: asin                 differ=0 values=0 maxUlp=0 ulp1=0 ulp2=0 ulp3+=0 nanPayload=0 nanVsValue=0 byDraw=0/0/0/0 cold=hot
+acos   spark=Math: acos                 differ=0 values=0 maxUlp=0 ulp1=0 ulp2=0 ulp3+=0 nanPayload=0 nanVsValue=0 byDraw=0/0/0/0 cold=hot
+atan   spark=Math: atan                 differ=0 values=0 maxUlp=0 ulp1=0 ulp2=0 ulp3+=0 nanPayload=0 nanVsValue=0 byDraw=0/0/0/0 cold=hot
+sinh   spark=Math: sinh                 differ=0 values=0 maxUlp=0 ulp1=0 ulp2=0 ulp3+=0 nanPayload=0 nanVsValue=0 byDraw=0/0/0/0 cold=hot
+cosh   spark=Math: cosh                 differ=0 values=0 maxUlp=0 ulp1=0 ulp2=0 ulp3+=0 nanPayload=0 nanVsValue=0 byDraw=0/0/0/0 cold=hot
+atan2  spark=Math: atan2                differ=0 values=0 maxUlp=0 ulp1=0 ulp2=0 ulp3+=0 nanPayload=0 nanVsValue=0 byDraw=0/0/0/0 cold=hot
+hypot  spark=Math: hypot                differ=0 values=0 maxUlp=0 ulp1=0 ulp2=0 ulp3+=0 nanPayload=0 nanVsValue=0 byDraw=0/0/0/0 cold=hot
+exp    spark=StrictMath: exp            differ=51502 values=51502 maxUlp=1 ulp1=51502 ulp2=0 ulp3+=0 nanPayload=0 nanVsValue=0 byDraw=166/24266/25878/1192 cold=hot
+expm1  spark=StrictMath: expm1          differ=0 values=0 maxUlp=0 ulp1=0 ulp2=0 ulp3+=0 nanPayload=0 nanVsValue=0 byDraw=0/0/0/0 cold=hot
+log    spark=StrictMath: ln, log2, log  differ=14001 values=14001 maxUlp=1 ulp1=14001 ulp2=0 ulp3+=0 nanPayload=0 nanVsValue=0 byDraw=128/2775/9951/1147 cold=hot
+log10  spark=StrictMath: log10          differ=40041 values=40041 maxUlp=2 ulp1=39840 ulp2=201 ulp3+=0 nanPayload=0 nanVsValue=0 byDraw=279/4728/33014/2020 cold=hot
+log1p  spark=StrictMath: log1p, atanh   differ=0 values=0 maxUlp=0 ulp1=0 ulp2=0 ulp3+=0 nanPayload=0 nanVsValue=0 byDraw=0/0/0/0 cold=hot
+pow    spark=StrictMath: pow            differ=15778 values=15778 maxUlp=1 ulp1=15778 ulp2=0 ulp3+=0 nanPayload=0 nanVsValue=0 byDraw=101/2316/11946/1415 cold=hot
+
+2. Digests of the result bits (FNV-1a), to compare hosts
+sin    math=7a270e48ef1d5cbb strict=a794bbd34e8be004
+cos    math=901cff9e2d787c63 strict=26a2aa03a9334d4e
+tan    math=c86d1126f6875775 strict=cdaf8a64c1f35495
+tanh   math=8b724e9b21e3b520 strict=0d97ec8f8b990324
+cbrt   math=a0d37a11b3248431 strict=45b6e46cc81cb236
+asin   math=6cb76438cd5512ad strict=6cb76438cd5512ad
+acos   math=0221bb9e4350a574 strict=0221bb9e4350a574
+atan   math=546712f99c5fa452 strict=546712f99c5fa452
+sinh   math=72132becc9e789fc strict=72132becc9e789fc
+cosh   math=ecdcc6dc09289736 strict=ecdcc6dc09289736
+atan2  math=16cc7d36a6447cea strict=16cc7d36a6447cea
+hypot  math=9480aa4aabb6b44d strict=9480aa4aabb6b44d
+exp    math=0fb4391f8ff4441c strict=d31bec60c81b48ae
+expm1  math=387cad2f82783e8b strict=387cad2f82783e8b
+log    math=4e4a1a6c65e5af28 strict=993f478cfb93a286
+log10  math=3c812adb616eb7f5 strict=3319fda6b1f6d53e
+log1p  math=0556324da361f671 strict=0556324da361f671
+pow    math=826b6ccc71cacc40 strict=ff46e2c2962758c8
+
+3. Examples: the first input of each function where the values differ
+sin    x=1.3170605031617907E84 Math=0.7363046088662583 (3fe78fceaedf3057) StrictMath=0.7363046088662581 (3fe78fceaedf3056)
+cos    x=1.2140742919164527E68 Math=-0.7204869359030807 (bfe70e3a9e5cc471) StrictMath=-0.7204869359030805 (bfe70e3a9e5cc470)
+tan    x=1.4801558052256027E265 Math=-0.9363059174853051 (bfedf637d3d4d235) StrictMath=-0.9363059174853052 (bfedf637d3d4d236)
+tanh   x=2.7928699135005155E-14 Math=2.7928699135005155E-14 (3d1f71e642d239d9) StrictMath=2.7928699135005158E-14 (3d1f71e642d239da)
+cbrt   x=-2.9588920604811163E242 Math=-6.66361209045366E80 (d0b67acec6bb19c8) StrictMath=-6.663612090453659E80 (d0b67acec6bb19c7)
+exp    x=-131.08864596320186 Math=1.171991381499892E-57 (341d6d4528ce639f) StrictMath=1.1719913814998918E-57 (341d6d4528ce639e)
+log    x=1.6947157851795573E-47 Math=-107.69398432230746 (c05aec6a3d380fd3) StrictMath=-107.69398432230747 (c05aec6a3d380fd4)
+log10  x=934430.6024403253 Math=5.970547053070265 (4017e1d71630a9f3) StrictMath=5.9705470530702645 (4017e1d71630a9f2)
+pow    x=4.1673862411038657E-156 y=0.004664572108989057 Math=0.1884595501693576 (3fc81f714a4c5251) StrictMath=0.18845955016935756 (3fc81f714a4c5250)
+
+4. The same inputs in child JVMs: Math digests against this JVM's
+interpreter only     -Xint: exit 0 in 11 s; equal to this JVM's Math for 18 of 18
+C1 only              -XX:TieredStopAtLevel=1: exit 0 in 1 s; equal to this JVM's Math for 18 of 18
+C2 only              -XX:-TieredCompilation: exit 0 in 2 s; equal to this JVM's Math for 18 of 18
+intrinsics disabled  -XX:+UnlockDiagnosticVMOptions -XX:DisableIntrinsic=_dsin,_dcos,_dtan,_dexp,_dlog,_dlog10,_dpow,_dtanh,_dcbrt: exit 0 in 2 s; equal to StrictMath for 18 of 18
+
+5. The literals 0.01 to 10.00 (k / 100 for k = 1..1000): where Math and StrictMath differ, as k:ULPs (Math above StrictMath is positive)
+sin   39 of 1000; first: sin(0.48) = 0.4617791755414829 against StrictMath's 0.46177917554148284
+     48:1 51:-1 139:1 217:-1 218:1 229:-1 234:1 241:1 244:-1 247:1 304:-1 365:1 398:-1 399:-1 409:-1 440:1 499:1 511:1 528:-1 536:1 541:-1 547:-1 551:1 645:-1 648:-1 690:-1 719:1 720:-1 732:-1 757:-1 830:-1 840:-1 855:1 860:-1 868:1 873:1 897:-1 980:-1 990:1
+cos   38 of 1000; first: cos(0.1) = 0.9950041652780258 against StrictMath's 0.9950041652780257
+     10:1 44:-1 46:-1 77:-1 95:1 131:1 163:1 219:-1 228:1 230:-1 234:-1 235:-1 239:1 259:-1 333:-1 385:1 391:-1 392:1 393:1 395:-1 396:1 397:-1 446:-1 482:-1 559:1 561:-1 600:-1 673:-1 689:-1 691:-1 698:1 707:1 754:1 827:1 830:1 892:-1 998:1 999:-1
+tan   42 of 1000; first: tan(0.08) = 0.08017110470807255 against StrictMath's 0.08017110470807257
+     8:-1 23:1 53:-1 61:1 88:-1 94:1 209:1 218:-1 220:1 244:-1 273:-1 278:1 336:-1 383:1 384:1 400:-1 402:1 404:1 406:1 497:1 518:-1 535:-1 536:1 562:-1 576:-1 637:-1 663:-1 681:-1 691:-1 700:1 716:1 725:-1 817:1 825:1 832:1 852:1 853:-1 857:1 867:1 868:1 902:1 999:1
+tanh  51 of 1000; first: tanh(0.02) = 0.019997333759930933 against StrictMath's 0.01999733375993093
+     2:1 6:-1 7:-1 17:1 18:1 22:-1 27:1 29:-1 31:-1 36:-1 41:1 43:1 44:-1 45:1 46:1 48:-1 51:2 52:1 53:1 59:1 61:1 63:1 65:-1 66:-1 67:-1 70:-1 71:-1 74:-1 79:-1 80:-1 81:1 84:-1 85:1 87:-1 88:-1 89:1 92:-1 96:1 97:1 98:1 99:1 111:1 112:-1 118:-1 119:-1 129:1 163:-1 171:-1 184:-1 223:-1 276:1
+cbrt  87 of 1000; first: cbrt(0.22) = 0.6036810736797686 against StrictMath's 0.6036810736797685
+     22:1 36:1 41:-1 61:1 63:-1 73:1 74:-1 91:-1 122:1 124:-1 126:-1 135:1 173:-1 176:1 180:-1 205:1 226:1 230:-1 249:-1 250:1 254:1 261:-1 265:1 282:1 288:1 318:-1 319:-1 326:-1 328:-1 331:1 335:1 342:1 348:1 370:-1 372:-1 373:1 375:1 381:1 382:1 398:1 426:1 437:1 439:-1 445:-1 457:-1 488:1 490:1 491:-1 504:-1 511:-1 516:1 535:-1 537:-1 553:-1 584:1 587:-1 592:-1 593:-1 596:-1 609:-1 625:1 637:-1 639:1 647:1 651:-1 678:1 699:-1 717:1 726:-1 728:-1 753:-1 756:-1 771:1 775:-1 788:1 811:1 830:-1 844:-1 853:-1 869:-1 877:1 929:-1 942:1 953:-1 965:-1 976:1 992:-1
+
+dump written: /home/runner/work/_temp/canary-out/mathhost-dump.txt
+
+machine.txt:
+```
+model name	: INTEL(R) XEON(R) PLATINUM 8573C
+flags		: fpu vme de pse tsc msr pae mce cx8 apic sep mtrr pge mca cmov pat pse36 clflush mmx fxsr sse sse2 ss ht syscall nx pdpe1gb rdtscp lm constant_tsc rep_good nopl xtopology tsc_reliable nonstop_tsc cpuid aperfmperf tsc_known_freq pni pclmulqdq vmx ssse3 fma cx16 pcid sse4_1 sse4_2 x2apic movbe popcnt tsc_deadline_timer aes xsave avx f16c rdrand hypervisor lahf_lm abm 3dnowprefetch tpr_shadow ept vpid fsgsbase tsc_adjust bmi1 hle avx2 smep bmi2 erms invpcid rtm avx512f avx512dq rdseed adx smap avx512ifma clflushopt clwb avx512cd sha_ni avx512bw avx512vl xsaveopt xsavec xgetbv1 xsaves vnmi avx512vbmi umip avx512_vbmi2 gfni vaes vpclmulqdq avx512_vnni avx512_bitalg avx512_vpopcntdq la57 rdpid fsrm arch_capabilities
+[0.002s][info][os,cpu] CPU: total 4 (initial active 4) (2 cores per cpu, 2 threads per core) family 6 model 207 stepping 2 microcode 0xffffffff, cx8, cmov, fxsr, ht, mmx, 3dnowpref, sse, sse2, sse3, ssse3, sse4.1, sse4.2, popcnt, lzcnt, tsc, tscinvbit, avx, avx2, aes, erms, clmul, bmi1, bmi2, rtm, adx, avx512f, avx512dq, avx512cd, avx512bw, avx512vl, sha, fma, vzeroupper, avx512_vpopcntdq, avx512_vpclmulqdq, avx512_vaes, avx512_vnni, clflush, clflushopt, clwb, avx512_vbmi2, avx512_vbmi, hv, rdtscp, rdpid, fsrm, gfni, avx512_bitalg, f16c, avx512_ifma
+[0.002s][info][os,cpu] CPU Model and flags from /proc/cpuinfo:
+[0.002s][info][os,cpu] model name	: INTEL(R) XEON(R) PLATINUM 8573C
+[0.002s][info][os,cpu] flags		: fpu vme de pse tsc msr pae mce cx8 apic sep mtrr pge mca cmov pat pse36 clflush mmx fxsr sse sse2 ss ht syscall nx pdpe1gb rdtscp lm constant_tsc rep_good nopl xtopology tsc_reliable nonstop_tsc cpuid aperfmperf tsc_known_freq pni pclmulqdq vmx ssse3 fma cx16 pcid sse4_1 sse4_2 x2apic movbe popcnt tsc_deadline_timer aes xsave avx f16c rdrand hypervisor lahf_lm abm 3dnowprefetch tpr_shadow ept vpid fsgsbase tsc_adjust bmi1 hle avx2 smep bmi2 erms invpcid rtm avx512f avx512dq rdseed adx smap avx512ifma clflushopt clwb avx512cd sha_ni avx512bw avx512vl xsaveopt xsavec xgetbv1 xsaves vnmi avx512vbmi umip avx512_vbmi2 gfni vaes vpclmulqdq avx512_vnni avx512_bitalg avx512_vpopcntdq la57 rdpid fsrm arch_capabilities
+[0.002s][info][os,cpu] 
+[0.002s][info][os,cpu] Online cpus: 0-3
+[0.002s][info][os,cpu] Offline cpus: 
+[0.002s][info][os,cpu] BIOS frequency limitation: <Not Available>
+[0.002s][info][os,cpu] Frequency switch latency (ns): 20000
+[0.002s][info][os,cpu] Available cpu frequencies: <Not Available>
+[0.002s][info][os,cpu] Current governor: schedutil
+[0.002s][info][os,cpu] Core performance/turbo boost: <Not Available>
+openjdk version "25.0.5.0.3" 2026-10-24 LTS
+```
+
+==== B. The Ryzen laptop's Math against the x86 runner's, JDK 25 ====
+6. This host's Math against the Math of the host in mathhost-dump.txt
+   other host: os.arch=amd64 java.runtime.version=25.0.5.0.3+1-LTS java.vm.name=OpenJDK 64-Bit Server VM
+   other cpu: INTEL(R) XEON(R) PLATINUM 8573C
+sin    differ=0 values=0 maxUlp=0 ulp1=0 ulp2=0 ulp3+=0 nanPayload=0 nanVsValue=0 byDraw=0/0/0/0
+cos    differ=0 values=0 maxUlp=0 ulp1=0 ulp2=0 ulp3+=0 nanPayload=0 nanVsValue=0 byDraw=0/0/0/0
+tan    differ=0 values=0 maxUlp=0 ulp1=0 ulp2=0 ulp3+=0 nanPayload=0 nanVsValue=0 byDraw=0/0/0/0
+tanh   differ=0 values=0 maxUlp=0 ulp1=0 ulp2=0 ulp3+=0 nanPayload=0 nanVsValue=0 byDraw=0/0/0/0
+cbrt   differ=0 values=0 maxUlp=0 ulp1=0 ulp2=0 ulp3+=0 nanPayload=0 nanVsValue=0 byDraw=0/0/0/0
+asin   differ=0 values=0 maxUlp=0 ulp1=0 ulp2=0 ulp3+=0 nanPayload=0 nanVsValue=0 byDraw=0/0/0/0
+acos   differ=0 values=0 maxUlp=0 ulp1=0 ulp2=0 ulp3+=0 nanPayload=0 nanVsValue=0 byDraw=0/0/0/0
+atan   differ=0 values=0 maxUlp=0 ulp1=0 ulp2=0 ulp3+=0 nanPayload=0 nanVsValue=0 byDraw=0/0/0/0
+sinh   differ=0 values=0 maxUlp=0 ulp1=0 ulp2=0 ulp3+=0 nanPayload=0 nanVsValue=0 byDraw=0/0/0/0
+cosh   differ=0 values=0 maxUlp=0 ulp1=0 ulp2=0 ulp3+=0 nanPayload=0 nanVsValue=0 byDraw=0/0/0/0
+atan2  differ=0 values=0 maxUlp=0 ulp1=0 ulp2=0 ulp3+=0 nanPayload=0 nanVsValue=0 byDraw=0/0/0/0
+hypot  differ=0 values=0 maxUlp=0 ulp1=0 ulp2=0 ulp3+=0 nanPayload=0 nanVsValue=0 byDraw=0/0/0/0
+exp    differ=0 values=0 maxUlp=0 ulp1=0 ulp2=0 ulp3+=0 nanPayload=0 nanVsValue=0 byDraw=0/0/0/0
+expm1  differ=0 values=0 maxUlp=0 ulp1=0 ulp2=0 ulp3+=0 nanPayload=0 nanVsValue=0 byDraw=0/0/0/0
+log    differ=0 values=0 maxUlp=0 ulp1=0 ulp2=0 ulp3+=0 nanPayload=0 nanVsValue=0 byDraw=0/0/0/0
+log10  differ=0 values=0 maxUlp=0 ulp1=0 ulp2=0 ulp3+=0 nanPayload=0 nanVsValue=0 byDraw=0/0/0/0
+log1p  differ=0 values=0 maxUlp=0 ulp1=0 ulp2=0 ulp3+=0 nanPayload=0 nanVsValue=0 byDraw=0/0/0/0
+pow    differ=3 values=3 maxUlp=1 ulp1=3 ulp2=0 ulp3+=0 nanPayload=0 nanVsValue=0 byDraw=0/2/0/1
