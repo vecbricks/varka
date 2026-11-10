@@ -21,6 +21,7 @@ import scala.jdk.CollectionConverters._
 
 import org.apache.spark.sql.{QueryTest, Row}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaChrono
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaMatrix.PinsDefaults
 import org.apache.spark.sql.execution.VarkaSharedSessions
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types.{DateType, TimestampNTZType, TimeType}
@@ -159,7 +160,8 @@ class VarkaTimestampNtzFieldsBaselineQueriesSuite extends QueryTest with VarkaSh
     }
   }
 
-  test("a section of the TIMESTAMP_NTZ fields baseline fuses only when it is listed") {
+  test("a section of the TIMESTAMP_NTZ fields baseline fuses only when it is listed",
+      PinsDefaults) {
     // The listing holds with the two-lane condition refusal (VARKA-503) off, as the shared
     // sessions leave it, and on, as the benchmark's 128-bit companion runs, so both are checked.
     assume(VarkaSqlBenchmarkBase.fuseCheck(),
