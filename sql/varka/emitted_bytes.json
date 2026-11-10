@@ -14791,11 +14791,11 @@
     },
     "wideConversionForm=SPLIT over useAVX=2" : {
       "4" : "53ca23ec435f9f7d",
-      "16" : "cd00b7c20f6bef3c"
+      "16" : "a0b6c66d8781a471"
     },
     "wideConversionForm=MAGIC over useAVX=2" : {
       "4" : "53ca23ec435f9f7d",
-      "16" : "cd00b7c20f6bef3c"
+      "16" : "a0b6c66d8781a471"
     },
     "narrowLanes=true" : {
       "4" : "7b62a5ff462b2314",
