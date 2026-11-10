@@ -713,7 +713,10 @@ public class VarkaDecimalRemainderSpikeBenchmark extends VarkaBenchmarkBase {
 
   /**
    * The highest tier of {@code method}'s code in use by {@code Compiler.codelist}, 0 if none, -1
-   * if the list cannot be read; the drive's steady times show a shared loop's rung settled.
+   * if the list cannot be read; the drive's steady times show a shared loop's rung settled. The
+   * list does not mark an on-stack-replacement version, so a level-4 OSR compile, whose boxed
+   * vectors {@link #fallbacks} passes over, also reads as 4: at the rungs past L2 a drive is four
+   * calls or one, and a loop whose method code was made not entrant there may be timed in it.
    */
   private static int levelInUse(String method) {
     try {
