@@ -223,10 +223,10 @@ normalise them: a row carries raw bits, `abs` is a bit operation and negation fl
 Spark's own `rint` is the one function that does normalise: it answers the canonical NaN,
 `0x7ff8000000000000`, for every NaN (SPARK-61175, apache/spark#60220, 9 November 2026), where
 `Math.rint` before it answered a NaN whose sign depended on the JIT tier that ran it (`m8/PLAN.md`
-row 344 ran the probe, row 593 follows the fix). So Varka's oracles compare NaN lanes **bit for bit in a
-pass-through shape** (a column or a literal delivered unchanged) and **by NaN-ness in a computed
-one** (the result of an operation whose NaN the standard leaves to the implementation), the
-fuzzers draw payload, negative and signalling NaNs, and the emitter never commutes a floating `+`
+row 344 ran the probe, row 593 follows the fix). So Varka's oracles compare NaN lanes **bit for
+bit in a pass-through shape** (a column or a literal delivered unchanged) and **by NaN-ness in a
+computed one** (the result of an operation whose NaN the standard leaves to the implementation),
+except `rint`'s, which is computed but fixed and so compared bit for bit, the fuzzers draw payload, negative and signalling NaNs, and the emitter never commutes a floating `+`
 or `*`, which are not commutative at the bit level when both operands are NaN. The rule is stated
 here so that a future reader does not mistake a payload difference in a computed NaN for a wrong
 answer, or a bit difference in a pass-through one for an acceptable one.
