@@ -193,8 +193,8 @@ references array, and a `QueryContext` serializes. Varka's fallback and merge pr
 `UnsafeProjection.create` calls inside the evaluator, on the executor, over the deserialized
 projection list (`VarkaColumnarToRowExec.scala:315`, `:338-355`), so a `DivideYMInterval` there
 reads an empty origin. The expressions that carry their context in a `SupportQueryContext` field
-(`Add`, `Cast`, `MakeYMInterval` and most others) keep it, since that field is the concrete
-class's and serializes; `DivideYMInterval` and `DivideDTInterval` read `origin.context` when they
+(`Add`, `Cast`, `MakeYMInterval` in its generated code, and most others) keep it, since that
+field is the concrete class's and serializes; `DivideYMInterval` and `DivideDTInterval` read `origin.context` when they
 evaluate or generate code, so they are the ones that lose it.
 
 **What the same run showed beyond the arm.**
