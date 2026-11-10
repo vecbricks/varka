@@ -627,7 +627,9 @@ a read blocked on a pipe ignores `VarkaTestWatchdog`'s interrupt: the test then 
 with a bare `InterruptedException` naming no child, or the JVM halts. `run` reads on a thread of
 its own while the test thread waits out the budget, destroys a child past it or interrupted, and
 names it with its last lines; `budgetSeconds(cap, children)` shares a test's cap among the most
-children one test starts.
+children one test starts. A test whose children are too many to count a share each, as the
+operator census's hundreds of forks on a four-core runner are, sets one `budgetSeconds(cap, 1)`
+deadline per test and gives each child what is left of it (`VarkaOperatorCensusSuite`, VARKA-585).
 
 ## A probe's marker can share a line with a compiler thread's output
 

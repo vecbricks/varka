@@ -575,6 +575,11 @@ committed files:
    with the pre-shift (350 is not merged, so this row builds it) and 3.5, 3.6. An earlier
    attempt at the integral half, on the unmerged branch `varka-344a-rounding` (2 November 2026),
    is the reading for 344a2 and merges nowhere.
+   *8 November 2026, as built, by the cap:* 344a2 is the int lane alone, `TINYINT`, `SMALLINT`
+   and `INT` at every scale and `BIGINT` at a scale `>= 0`, with 3.5 and the int lane's proof;
+   **344a3** is `BIGINT` at a negative scale, the pre-shift and 3.6. The int lane measured 928
+   counted lines before its plan edits, and the long lane's half on the old branch was about 270
+   lines of compiler and its proof renderer about 250 more.
 4. **344b, after 343b**: `FLOOR` and `CEIL` to `LONG` on the three host forms, the ANSI guard,
    the `MAGIC` arm under 343's option, 3.4's sweep; `factorial`'s two arms on 343b's `NULL`
    disposal.
@@ -620,8 +625,8 @@ measurement against it (open point 1).
 `census.tsv` names 344 for nine entries. When each fuses, by type:
 
 - **`rint`** (`double`), all of it, in 344a.
-- **`round`, `bround`, `truncate`**: `byte`, `short`, `int`, `bigint` in 344a; `float` and
-  `double` are 346's, `dec` 351's and 363's.
+- **`round`, `bround`, `truncate`**: `byte`, `short`, `int` in 344a2, `bigint` in 344a3;
+  `float` and `double` are 346's, `dec` 351's and 363's.
 - **`floor`, `ceil`, `ceiling`**: `int`, `bigint` in 344a, `double` in 344b, `byte`, `short`
   and `float` in 344c after 332 and 343a; `dec` is 351's and 363's.
 - **`factorial`** (`int`) in 344b; **`width_bucket`**: `double` in 344c, `time`, `ym` and `dt`
@@ -647,7 +652,8 @@ measurement exists, and this row keeps the option's one default until then.
 
 Declines that stay: a batch with a live lane Spark raises on (ANSI's `floor` and `ceil` past the
 long, an integral rounding past its type); on the `MAGIC` arm, a lane with `|x| >= 2^51`;
-a `BIGINT` rounding at `k <= 11` with a lane at or past `2^(52 + k)`; at the forced 128-bit
+a `BIGINT` rounding at `k <= 11` with a lane at or past `2^(52 + k)`, and until 344a3 every
+`BIGINT` rounding at a negative scale; at the forced 128-bit
 species on x86, the floating forms' recorded refusals; until 343a, `floor(f)`, and `rint(i)` or
 `rint(f)`, which arrive under a cast to double; until 332's narrow load in a `BIGINT` kernel,
 `floor` and `ceil` over `SMALLINT` and `TINYINT`; until 343b, `floor` and `ceil` over a double
@@ -765,3 +771,34 @@ stays owed below.
 *Left.* 344a2 (the integral rounding), 344b, 344c as section 5 has them. Owed with 344a1: 3.7's
 `rint(-NaN)` probe on the two runners, and the measurement against the baseline (section 5,
 item 6), both of which need the EPYC 7763 and Neoverse N2 runners.
+
+### 344a2, built 8 November 2026
+
+*Built.* `round`, `bround` and `truncate` over `TINYINT`, `SMALLINT` and `INT` at a constant
+scale, and over `BIGINT` at a scale `>= 0`, in the rounding family (`VarkaRoundingCompiler`), from
+existing nodes only, as 2.5 has it: a scale `>= 0` is the operand; a scale `-k` is the signed
+remainder of `ConstDivide`'s truncating quotient by `10^k` on the int lane, a narrow operand
+widened to it and the answer narrowed back, every step wrapping. Two changes from the text: the
+`HALF_EVEN` tie test is one compare per side, `r + (q0 & 1) > h` and its mirror, a node shallower
+than an `Or` of an `And`, so `bround` of a `TINYINT` under ANSI still nests in a `CASE` within the
+emitter's depth; and the steps are `d` or 0, an `IfElse` over constant arms, added to the `q0 * d`
+built for `r`, a multiply fewer than `q * d`, the ANSI guard below no arm. ANSI's windows are
+bisected at compile time over `BigDecimal.setScale` (`VarkaRoundingCompiler.window`), a
+`GuardedRange` declining a batch outside them; past the type's digits every value is 0. A decimal
+operand declines by its type (rows 351, 363), a scale below -100 and a `BIGINT` at a negative scale
+decline, the last naming 344a3. `int_round.smt2` proves the form equal to Spark's rounding wrapped
+for every int and `k` from 1 to 9, and every window of the three types, with two refutations of
+`bround`; 124 checks. The multiply-high quotient by each `10^k` is `int_mulhi_divide.smt2`'s, the
+powers being in `VarkaProofFiles.INT_DIVISORS`.
+
+*Differs from the text.* The proof file is stated under `(set-logic ALL)`: every product is by a
+constant, and under `QF_NIA` cvc5 answered unknown on six of `bround`'s checks at its 10-second
+limit, while under `ALL` it decides the file in half a second.
+
+*Tested, 8 November 2026, on the laptop (AVX-512).* See the pull request; the full 2^32 sweep of
+3.5 (60 sweeps over every `INT`) is opt-in and was not run; the narrow types are swept whole on
+every build, and the int lane over a 2^20-value slice holding the ties, the windows' ends and the
+extremes.
+
+*Left.* 344a3 (the `BIGINT` rounding with the pre-shift and 3.6), 344b, 344c; the 3.5 sweep in the
+gate's sweep step; with 344a1, the `rint(-NaN)` probe and the measurement.
