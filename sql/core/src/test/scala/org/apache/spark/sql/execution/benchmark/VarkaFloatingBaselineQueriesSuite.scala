@@ -24,7 +24,6 @@ import scala.jdk.CollectionConverters._
 import org.apache.spark.sql.QueryTest
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaMatrix.PinsDefaults
 import org.apache.spark.sql.execution.VarkaSharedSessions
-import org.apache.spark.sql.internal.SQLConf
 
 /**
  * The floating baseline's sections, run at a small scale on both sessions in every build, so a
@@ -69,23 +68,13 @@ class VarkaFloatingBaselineQueriesSuite extends QueryTest with VarkaSharedSessio
     // are checked here by setting the refusal each way.
     assume(VarkaSqlBenchmarkBase.fuseCheck(),
       s"-D${VarkaSqlBenchmarkBase.FUSE_CHECK_PROPERTY}=false times the sections fused")
-    val key = SQLConf.VARKA_DECLINE_TWO_LANE_CONDITIONS.key
-    val before = varkaSpark.conf.getOption(key)
     withTable(100) {
-      try {
-        for (declines <- Seq(false, true)) {
-          varkaSpark.conf.set(key, declines.toString)
-          for (s <- VarkaFloatingBaselineBenchmark.sections(declines).asScala) {
-            withClue(s"${s.title}, refusal $declines") {
-              val plan = varkaSpark.sql(s.query).queryExecution.executedPlan
-              assert(VarkaSqlBenchmarkBase.fusion(plan) === Optional.of(s.fusion))
-            }
+      forEachTwoLaneRefusal { declines =>
+        for (s <- VarkaFloatingBaselineBenchmark.sections(declines).asScala) {
+          withClue(s"${s.title}, refusal $declines") {
+            val plan = varkaSpark.sql(s.query).queryExecution.executedPlan
+            assert(VarkaSqlBenchmarkBase.fusion(plan) === Optional.of(s.fusion))
           }
-        }
-      } finally {
-        before match {
-          case Some(v) => varkaSpark.conf.set(key, v)
-          case None => varkaSpark.conf.unset(key)
         }
       }
     }
