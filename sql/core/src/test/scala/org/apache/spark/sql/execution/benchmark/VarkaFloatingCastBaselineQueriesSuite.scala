@@ -23,7 +23,7 @@ import scala.jdk.CollectionConverters._
 
 import org.apache.spark.sql.QueryTest
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaMatrix.PinsDefaults
-import org.apache.spark.sql.execution.{VarkaSessionEmit, VarkaSharedSessions}
+import org.apache.spark.sql.execution.VarkaSharedSessions
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types._
 
@@ -176,17 +176,19 @@ class VarkaFloatingCastBaselineQueriesSuite extends QueryTest with VarkaSharedSe
     // its own settings, as the benchmark plans it. The benchmark plans under the emitter's
     // default options, so the classes pin the defaults, and an option matrix configuration,
     // under which a section may fuse differently, cancels the test; so does the run that lifts
-    // the benchmark's check.
+    // the benchmark's check. The benchmark lists its classes at the two-lane refusal the host
+    // resolves (VARKA-503), which the shared sessions leave off, so both lists are checked here
+    // by setting the refusal each way.
     assume(VarkaSqlBenchmarkBase.fuseCheck(),
       s"-D${VarkaSqlBenchmarkBase.FUSE_CHECK_PROPERTY}=false times the sections fused")
     withTable {
-      val declines =
-        VarkaSessionEmit.of(varkaSpark.sessionState.conf).declineTwoLaneConditions()
-      for (s <- VarkaFloatingCastBaselineBenchmark.sections(declines).asScala) {
-        withClue(s.title) {
-          withSettings(s) {
-            val plan = varkaSpark.sql(s.query).queryExecution.executedPlan
-            assert(VarkaSqlBenchmarkBase.fusion(plan) === Optional.of(s.fusion))
+      forEachTwoLaneRefusal { declines =>
+        for (s <- VarkaFloatingCastBaselineBenchmark.sections(declines).asScala) {
+          withClue(s"${s.title}, refusal $declines") {
+            withSettings(s) {
+              val plan = varkaSpark.sql(s.query).queryExecution.executedPlan
+              assert(VarkaSqlBenchmarkBase.fusion(plan) === Optional.of(s.fusion))
+            }
           }
         }
       }
