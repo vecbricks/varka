@@ -1,0 +1,9 @@
+# The reach record's format, held by both its readers and writers: VarkaTestReachSuite and
+# dev/varka_matrix_bins.py --selftest each write these lines and read them to the same values.
+# Lines that start with a hash and a space are this note, which neither test compares.
+#	format	2
+#	covers	cse=false;useAVX=2;useAVX=2,wideConversionForm=MAGIC
+S	both	useAVX=2;useAVX=2,wideConversionForm=MAGIC
+S	over	useAVX=2,wideConversionForm=MAGIC
+S	none	-
+S	cancelled	*

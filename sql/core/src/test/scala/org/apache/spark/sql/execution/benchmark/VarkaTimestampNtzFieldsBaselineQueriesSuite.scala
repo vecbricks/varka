@@ -21,6 +21,7 @@ import scala.jdk.CollectionConverters._
 
 import org.apache.spark.sql.{QueryTest, Row}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaChrono
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaMatrix.PinsDefaults
 import org.apache.spark.sql.execution.VarkaSharedSessions
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types.{DateType, TimestampNTZType, TimeType}
@@ -159,7 +160,10 @@ class VarkaTimestampNtzFieldsBaselineQueriesSuite extends QueryTest with VarkaSh
     }
   }
 
-  test("a section of the TIMESTAMP_NTZ fields baseline fuses only when it is listed") {
+  test("a section of the TIMESTAMP_NTZ fields baseline fuses only when it is listed",
+      PinsDefaults) {
+    // The listing holds with the two-lane condition refusal (VARKA-503) off, as the shared
+    // sessions leave it, and on, as the benchmark's 128-bit companion runs, so both are checked.
     assume(VarkaSqlBenchmarkBase.fuseCheck(),
       s"-D${VarkaSqlBenchmarkBase.FUSE_CHECK_PROPERTY}=false times the sections fused")
     withView(tableSql(100)) {
@@ -167,9 +171,15 @@ class VarkaTimestampNtzFieldsBaselineQueriesSuite extends QueryTest with VarkaSh
       // could not see into, fails here rather than passing every section.
       assert(VarkaSqlBenchmarkBase.fusedPlan(varkaSpark,
         s"SELECT CAST(ntz AS DATE) AS v FROM $VIEW").isPresent)
-      for (s <- sections().asScala) {
-        withClue(s.title) {
-          assert(VarkaSqlBenchmarkBase.fusedPlan(varkaSpark, s.query).isPresent === s.fuses)
+      forEachTwoLaneRefusal { declines =>
+        // A filter comparing two NTZ columns is driven at the long lane, so it fuses only with
+        // the refusal off: the setting took effect, or the sections were not checked under it.
+        assert(VarkaSqlBenchmarkBase.fusedPlan(varkaSpark,
+          s"SELECT ntz FROM $VIEW WHERE ntz < ntzn").isPresent === !declines)
+        for (s <- sections().asScala) {
+          withClue(s"${s.title}, refusal $declines") {
+            assert(VarkaSqlBenchmarkBase.fusedPlan(varkaSpark, s.query).isPresent === s.fuses)
+          }
         }
       }
     }

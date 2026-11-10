@@ -61,9 +61,9 @@ import org.apache.spark.sql.catalyst.expressions.codegen.VarkaExpressionCompiler
  * other way round, or different bytes, moves it. A kernel looked up whose IR an earlier compile
  * produced, in a suite's set-up or an earlier test, moves where that compile moved. Each test's
  * line names the configurations that moved anything it did. With
- * {@code -Dvarka.matrix.reachFile=<file>}, a configuration's run skips a test whose line does not
- * name it: the test passes without running and records no fused count, so the declining check
- * leaves it alone, and the JVM prints how many it skipped.
+ * {@code -Dvarka.matrix.reachFile=<file>}, the run of a configuration the record covers skips a
+ * test whose line does not name it: the test passes without running and records no fused
+ * count, so the declining check leaves it alone, and the JVM prints how many it skipped.
  *
  * <p>Some configurations run every test, each for the reason {@link #FULL} gives, and so does a
  * test the file has no line for and a test the skip list names under the configuration, whose
@@ -141,9 +141,10 @@ public final class VarkaTestReach {
       Recorder r = new Recorder(configs);
       recorder = r;
       VarkaCompileObserver.set(new Guarded(r));
-      // The configurations the record covers, which the planner reads (dev/varka_matrix_bins.py):
-      // one not named here runs every test.
-      append("#\tcovers\t" + String.join(",", configs));
+      // The record's format, without which a reader takes the record as broken, then the
+      // configurations it covers, which both readers take: one not named here runs every test.
+      append(formatLine());
+      append(coversLine(configs));
       // What the JVM compiled outside every suite, which every test may have read.
       Runtime.getRuntime().addShutdownHook(new Thread(() -> {
         append("*\t*\t" + names(r.outside));
@@ -225,8 +226,39 @@ public final class VarkaTestReach {
   /** The line's word for a test every configuration runs. */
   static final String EVERY = "*";
 
-  private static String names(Set<String> moved) {
-    return moved == null || moved.isEmpty() ? "-" : String.join(",", new TreeSet<>(moved));
+  /**
+   * Separates the configurations a line names. Not a comma: a configuration that sets several
+   * options joins its settings with commas ({@code useAVX=2,wideConversionForm=MAGIC}, as
+   * {@code dev/varka_matrix.sh --config} takes them), so a comma would split one name in two.
+   * Not a space either, since {@link VarkaMatrixRuns#parseOver} trims the settings and so admits
+   * one after a comma. A name is option names, {@code =} and values - flags, enum constants and
+   * counts - and none of them holds a semicolon; {@code VarkaTestReachSuite} checks every
+   * configuration the matrix runs. {@code dev/varka_matrix_bins.py} reads and writes the same.
+   */
+  static final String SEPARATOR = ";";
+
+  /** The line's field for the configurations that moved: {@code -} for none. */
+  static String names(Set<String> moved) {
+    return moved == null || moved.isEmpty() ? "-" : String.join(SEPARATOR, new TreeSet<>(moved));
+  }
+
+  /**
+   * The record's format, on a {@code #<TAB>format<TAB>} line each recording JVM writes first. The
+   * record before it, which had no such line, joined names with commas; a reader that met one
+   * would read each comma-joined list as one name that no configuration has, and skip nearly
+   * every test. So a record without a line of this format, or with a line of another, is broken
+   * to both readers ({@link #read}, {@code read_reach} in {@code dev/varka_matrix_bins.py}), and
+   * every test runs. A change to how a line is written or read moves it.
+   */
+  static final String FORMAT = "2";
+
+  static String formatLine() {
+    return "#\tformat\t" + FORMAT;
+  }
+
+  /** The line naming the configurations the record covers, which a reader holds a run to. */
+  static String coversLine(List<String> configs) {
+    return "#\tcovers\t" + String.join(SEPARATOR, configs);
   }
 
   private static synchronized void append(String line) {
@@ -526,11 +558,40 @@ public final class VarkaTestReach {
   // ---------------------------------------------------------------------------------------------
 
   /**
-   * A record as a configuration's run reads it: each test's line, each suite's set-up line and
-   * the JVM-wide line, the last two joining every test they cover.
+   * A configuration's name as the record holds it: each setting's option and value trimmed, as
+   * {@link VarkaMatrixRuns#parseOver} reads them, the settings in their order. Both readers
+   * compare names in this form ({@code canonical} in {@code dev/varka_matrix_bins.py}), so
+   * {@code useAVX=2, wideConversionForm=MAGIC} given to {@code --config} is the configuration the
+   * matrix names without the space.
    */
-  record Record(Map<String, Set<String>> tests, Map<String, Set<String>> suites,
-      Set<String> everywhere) {
+  static String canonical(String config) {
+    var settings = new ArrayList<String>();
+    for (String setting : config.split(",", -1)) {
+      String[] kv = setting.split("=", 2);
+      settings.add(kv.length == 2 ? kv[0].trim() + "=" + kv[1].trim() : setting.trim());
+    }
+    return String.join(",", settings);
+  }
+
+  /** The configurations a line's field names, in {@link #canonical} form: none for {@code -}. */
+  static Set<String> parseNames(String field) {
+    var out = new TreeSet<String>();
+    if (!field.equals("-")) {
+      for (String name : field.split(SEPARATOR)) {
+        if (!name.isEmpty()) {
+          out.add(canonical(name));
+        }
+      }
+    }
+    return out;
+  }
+
+  /**
+   * A record as a configuration's run reads it: the configurations it covers, each test's line,
+   * each suite's set-up line and the JVM-wide line, the last two joining every test they cover.
+   */
+  record Record(Set<String> covered, Map<String, Set<String>> tests,
+      Map<String, Set<String>> suites, Set<String> everywhere) {
     /** The configurations that move the test, or null for a test the record has no line for. */
     Set<String> moving(String suite, String test) {
       Set<String> own = tests.get(suite + "\t" + test);
@@ -551,6 +612,13 @@ public final class VarkaTestReach {
   private static final AtomicLong RAN = new AtomicLong();
 
   static {
+    // A configuration that runs every test is left out of covers by design, and says nothing.
+    if (REACH.isPresent() && !VarkaMatrixRuns.CONFIG.isEmpty()
+        && !runsEveryTest(canonical(VarkaMatrixRuns.CONFIG))
+        && !REACH.get().covered().contains(canonical(VarkaMatrixRuns.CONFIG))) {
+      System.out.println("VARKA_REACH_UNCOVERED\t" + VarkaMatrixRuns.CONFIG
+          + "\tthe reach record does not cover this configuration, so every test runs");
+    }
     if (REACH.isPresent() && !VarkaMatrixRuns.CONFIG.isEmpty()) {
       Runtime.getRuntime().addShutdownHook(new Thread(() -> System.out.println(
           "VARKA_REACH_TESTS\t" + VarkaMatrixRuns.CONFIG + "\tskipped " + SKIPPED.get()
@@ -559,24 +627,43 @@ public final class VarkaTestReach {
   }
 
   /**
-   * {@code suite<TAB>test<TAB>configs} lines, a test's last line winning, {@code #} ones aside;
-   * empty for a record its recording marked broken.
+   * {@code suite<TAB>test<TAB>configs} lines, the configurations joined by {@link #SEPARATOR}, a
+   * test's last line winning, and the {@code #<TAB>covers} lines, other {@code #} ones aside;
+   * empty, with a line saying why, for a record its recording marked broken or one not of this
+   * {@link #FORMAT}.
    */
   static Optional<Record> read(Path file) {
+    var covered = new TreeSet<String>();
     var tests = new HashMap<String, Set<String>>();
     var suites = new HashMap<String, Set<String>>();
     var everywhere = new TreeSet<String>();
+    boolean current = false;
+    String other = null;
     try {
       for (String line : Files.readAllLines(file, StandardCharsets.UTF_8)) {
         if (line.startsWith("#\tbroken")) {
-          return Optional.empty();
+          return broken(file, "its recording marked it broken: " + line.substring(1).trim());
         }
-        int last = line.lastIndexOf('\t');
-        if (last <= 0 || line.startsWith("#")) {
+        if (line.startsWith("#")) {
+          String[] parts = line.split("\t", -1);
+          if (parts.length == 3 && parts[1].equals("format")) {
+            if (parts[2].equals(FORMAT)) {
+              current = true;
+            } else {
+              other = parts[2];
+            }
+          } else if (parts.length == 3 && parts[1].equals("covers")) {
+            covered.addAll(parseNames(parts[2]));
+          }
           continue;
         }
-        String names = line.substring(last + 1);
-        Set<String> moved = names.equals("-") ? Set.of() : Set.of(names.split(","));
+        int last = line.lastIndexOf('\t');
+        if (last <= 0) {
+          continue;
+        }
+        // A set that takes a name twice, as Set.of does not, and drops an empty one, as the
+        // planner does: a line is read as written.
+        Set<String> moved = parseNames(line.substring(last + 1));
         String key = line.substring(0, last);
         if (key.equals("*\t*")) {
           everywhere.addAll(moved);
@@ -589,14 +676,23 @@ public final class VarkaTestReach {
     } catch (IOException e) {
       throw new UncheckedIOException(e);
     }
-    return Optional.of(new Record(tests, suites, everywhere));
+    if (other != null || !current) {
+      return broken(file, other != null ? "it has a line of format " + other + ", not " + FORMAT
+          : "it has no line of format " + FORMAT + ", so an older recording wrote it");
+    }
+    return Optional.of(new Record(covered, tests, suites, everywhere));
+  }
+
+  private static Optional<Record> broken(Path file, String why) {
+    System.out.println("VARKA_REACH_BROKEN\t" + file + "\t" + why + "; every test runs");
+    return Optional.empty();
   }
 
   /**
-   * Whether a run of {@code config} skips the test: the recorded file has a line for it that,
-   * with its suite's and the JVM's, does not name the configuration or {@code *}, the
-   * configuration does not run every test, and the skip list does not name the test under it
-   * ({@code listed}).
+   * Whether a run of {@code config} skips the test: the recorded file covers the configuration
+   * and has a line for the test that, with its suite's and the JVM's, does not name the
+   * configuration or {@code *}, the configuration does not run every test, and the skip list
+   * does not name the test under it ({@code listed}).
    */
   static boolean skips(String config, String suite, String test, boolean listed) {
     return skips(REACH, config, suite, test, listed, true);
@@ -608,8 +704,14 @@ public final class VarkaTestReach {
     if (reach.isEmpty() || config.isEmpty() || runsEveryTest(config) || listed) {
       return false;
     }
+    // A configuration the record does not cover was not recorded, so no line can let it skip,
+    // as the planner's reach_share runs every test of it.
+    String name = canonical(config);
+    if (!reach.get().covered().contains(name)) {
+      return false;
+    }
     Set<String> moved = reach.get().moving(suite, test);
-    boolean skip = moved != null && !moved.contains(config) && !moved.contains(EVERY);
+    boolean skip = moved != null && !moved.contains(name) && !moved.contains(EVERY);
     if (count) {
       (skip ? SKIPPED : RAN).incrementAndGet();
     }
