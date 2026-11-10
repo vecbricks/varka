@@ -26,6 +26,7 @@ import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.time.temporal.IsoFields;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -43,7 +44,11 @@ import scala.jdk.javaapi.CollectionConverters;
 
 import org.apache.spark.sql.catalyst.expressions.Attribute;
 import org.apache.spark.sql.catalyst.expressions.Expression;
+import org.apache.spark.sql.catalyst.expressions.Literal;
+import org.apache.spark.sql.catalyst.expressions.MakeTimestampNTZ;
+import org.apache.spark.sql.catalyst.expressions.NamedExpression;
 import org.apache.spark.sql.catalyst.expressions.codegen.CompiledVarkaProjection;
+import org.apache.spark.sql.catalyst.expressions.codegen.VarkaDecline;
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaExpressionCompiler;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaKernelChecks.LongBatch;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaKernelChecks.SparkAnswers;
@@ -57,6 +62,7 @@ import org.apache.spark.sql.catalyst.util.DateTimeConstants;
 import org.apache.spark.sql.internal.SQLConf;
 import org.apache.spark.sql.internal.SQLConf$;
 import org.apache.spark.sql.types.DataTypes;
+import org.apache.spark.sql.types.TimeType;
 
 /**
  * The casts between {@code DATE} and {@code TIMESTAMP_NTZ} at their edges (VARKA-338,
@@ -67,7 +73,9 @@ import org.apache.spark.sql.types.DataTypes;
  * of {@code long_divide.smt2}, run here at the long range's extremes and at the day's boundaries,
  * against Spark and against {@code java.time}. The fields of an NTZ value (VARKA-340) are tested
  * here too, at the same widths: the calendar fields over the guarded date, the weekday forms and
- * the time of day over every long.
+ * the time of day over every long. And {@code make_timestamp_ntz(date, time)} with the cast of a
+ * {@code TIME} to {@code TIMESTAMP_NTZ} it serves, at the ends of the days whose midnight is a
+ * long.
  *
  * <p>In its own JVM: each cast runs a kernel of both lanes, whose int species is the long species'
  * width beside the int lane's own.
@@ -84,9 +92,10 @@ public final class VarkaTimestampNtzCastSuite {
 
   private final Attribute d = VarkaSqlResolve.column("d", DataTypes.DateType);
   private final Attribute ntz = VarkaSqlResolve.column("ntz", DataTypes.TimestampNTZType);
-  private final List<Attribute> columns = List.of(d, ntz);
+  private final Attribute tm = VarkaSqlResolve.column("tm", new TimeType(9));
+  private final List<Attribute> columns = List.of(d, ntz, tm);
 
-  /** {@code sql} resolved over the two columns, ANSI on or off. */
+  /** {@code sql} resolved over the columns, ANSI on or off. */
   private Expression resolve(String sql, boolean ansi) {
     SQLConf conf = SQLConf.get().clone();
     conf.setConfString(SQLConf.ANSI_ENABLED().key(), Boolean.toString(ansi));
@@ -363,6 +372,139 @@ public final class VarkaTimestampNtzCastSuite {
       Kernel k = kernel(resolve(sql, true), 0);
       assertTrue(k.answersJavaTime(values, field), sql + " differs from java.time");
     });
+  }
+
+  // -------------------------------------------------------------------------------------------
+  // make_timestamp_ntz(date, time) and CAST(time AS TIMESTAMP_NTZ) (VARKA-340)
+  // -------------------------------------------------------------------------------------------
+
+  /** 04:00:54.775807 in nanoseconds: the last time of day whose count is a long on LAST_DAY. */
+  private static final long LAST_TIME = 14_454_775_807_000L;
+
+  /** The last nanosecond of a day, a {@code TIME(9)} value the kernel truncates to micros. */
+  private static final long LAST_NANO = DateTimeConstants.NANOS_PER_DAY - 1;
+
+  @Test
+  @DisplayName("make_timestamp_ntz of a date and a time answers every day whose midnight is a "
+      + "long as Spark does, and declines a batch past those days or past the long")
+  void makeTimestampNtzAtTheEdges() {
+    long[][] inside = {{LAST_DAY, LAST_TIME}, {-LAST_DAY, 0}, {-LAST_DAY, LAST_NANO},
+        {0, LAST_NANO}, {-1, 1}, {0, 999}, {19_000, 45_296_789_012_345L}, {LAST_DAY, 0}};
+    // The last day after its last whole microsecond, which Spark raises on; the day before the
+    // first, whose evening Spark answers and the kernel declines whole; days no long reaches.
+    long[][] past = {{LAST_DAY, LAST_TIME + 1000}, {-LAST_DAY - 1, LAST_NANO},
+        {-LAST_DAY - 1, 0}, {LAST_DAY + 1, 0}, {Integer.MIN_VALUE, 0}, {Integer.MAX_VALUE, 0}};
+    for (boolean ansi : new boolean[] {false, true}) {
+      Expression e = resolve("make_timestamp_ntz(d, tm)", ansi);
+      for (int lanes : LANES) {
+        String where = e.sql() + " at " + lanes + " long lanes, ansi " + ansi;
+        assertTrue(answersPairs(e, lanes, inside), where + " declined a day inside the guard");
+        for (long[] row : past) {
+          assertTrue(!answersPairs(e, lanes, new long[][] {{0, 0}, row, {1, 1}}),
+              where + " answered day " + row[0] + " at " + row[1]);
+        }
+      }
+    }
+  }
+
+  @Test
+  @DisplayName("a date literal is checked when make_timestamp_ntz compiles, and every date in "
+      + "range shares one kernel")
+  void makeTimestampNtzOverALiteral() {
+    for (long day : new long[] {-LAST_DAY, LAST_DAY}) {
+      Expression e = new MakeTimestampNTZ(Literal.create((int) day, DataTypes.DateType), tm);
+      // On the last day, nothing past LAST_TIME is a long.
+      long[][] times = day == LAST_DAY ? new long[][] {{0, 0}, {0, 1}, {0, LAST_TIME}}
+          : new long[][] {{0, 0}, {0, LAST_TIME}, {0, LAST_NANO}};
+      for (int lanes : LANES) {
+        assertTrue(answersPairs(e, lanes, times), e.sql() + " declined at " + lanes);
+      }
+      if (day == LAST_DAY) {
+        assertTrue(!answersPairs(e, 0, new long[][] {{0, 0}, {0, LAST_TIME + 1000}}),
+            e.sql() + " answered past the long, where Spark raises");
+      }
+    }
+    for (long day : new long[] {-LAST_DAY - 1, LAST_DAY + 1}) {
+      Expression e = new MakeTimestampNTZ(Literal.create((int) day, DataTypes.DateType), tm);
+      String reason = declineReason(e);
+      assertTrue(reason.contains("midnight is not a long"), e.sql() + " declined with " + reason);
+    }
+    byte[] first = emit(new MakeTimestampNTZ(Literal.create(0, DataTypes.DateType), tm), 0);
+    byte[] other = emit(new MakeTimestampNTZ(Literal.create(20_000, DataTypes.DateType), tm), 0);
+    assertTrue(Arrays.equals(first, other), "two date literals emitted two kernels");
+  }
+
+  @Test
+  @DisplayName("CAST(time AS TIMESTAMP_NTZ) fuses as the query's date at the time of day, the "
+      + "nanoseconds truncated, and the unrewritten cast declines by name")
+  void timeToNtz() {
+    long[][] times = {{0, 0}, {0, 1}, {0, 999}, {0, LAST_NANO}, {0, 45_296_789_012_345L}};
+    for (boolean ansi : new boolean[] {false, true}) {
+      Expression e = resolve("CAST(tm AS TIMESTAMP_NTZ)", ansi);
+      for (int lanes : LANES) {
+        assertTrue(answersPairs(e, lanes, times), e.sql() + " declined at " + lanes);
+      }
+    }
+    Expression written = VarkaSqlResolve.parseAsWritten("CAST(tm AS TIMESTAMP_NTZ)",
+        CollectionConverters.asScala(columns).toSeq());
+    String reason = declineReason(written);
+    assertTrue(reason.contains("ComputeCurrentTime"), "declined with " + reason);
+  }
+
+  /** Why {@code e} declines, as the compiler reports it; empty if it fuses. */
+  private String declineReason(Expression e) {
+    scala.collection.immutable.Seq<NamedExpression> entry =
+        CollectionConverters.asScala(List.of(VarkaSqlResolve.named(e, "c"))).toSeq();
+    return VarkaExpressionCompiler.declines(entry, CollectionConverters.asScala(columns).toSeq(),
+        VarkaMatrixRuns.BASE).values().stream().findFirst().map(VarkaDecline::reason).orElse("");
+  }
+
+  private byte[] emit(Expression e, int lanes) {
+    return emit(compiled(e), "org.apache.spark.sql.varka.execution.VarkaNtzMake", lanes);
+  }
+
+  private CompiledVarkaProjection compiled(Expression e) {
+    return compile(e).orElseThrow(() -> new AssertionError(e.sql() + " declines"));
+  }
+
+  /** {@code plan} emitted as {@code className} at {@code lanes} long lanes, or the default. */
+  private static byte[] emit(CompiledVarkaProjection plan, String className, int lanes) {
+    return VarkaLoopEmitter.emit(className, plan.outputs(), plan.inputOrdinals().size(),
+        plan.numLiterals(), null, null,
+        lanes == 0 ? VarkaMatrixRuns.BASE : VarkaMatrixRuns.BASE.withLanesOverride(lanes));
+  }
+
+  /**
+   * Whether the kernel of {@code e} answers a batch of {@code rows}, each a day and a time of day
+   * in nanoseconds, every row compared with Spark, and a row of nulls after them; false when it
+   * declines the batch. A form over a date literal reads the time alone.
+   */
+  private boolean answersPairs(Expression e, int lanes, long[][] rows) {
+    CompiledVarkaProjection plan = compiled(e);
+    String className = "org.apache.spark.sql.varka.execution.VarkaNtzMake"
+        + CLASS_COUNTER.incrementAndGet();
+    byte[] bytes = emit(plan, className, lanes);
+    var inputs = new ArrayList<Attribute>();
+    for (int ordinal : plan.inputOrdinals()) {
+      inputs.add(columns.get(ordinal));
+    }
+    int n = rows.length + 1;
+    var data = new long[inputs.size()][n];
+    var nulls = new boolean[inputs.size()][n];
+    for (int c = 0; c < inputs.size(); c++) {
+      int field = inputs.get(c) == d ? 0 : 1;
+      for (int r = 0; r < rows.length; r++) {
+        data[c][r] = rows[r][field];
+      }
+      nulls[c][n - 1] = true;
+    }
+    var oracle = new VarkaSparkOracle(CollectionConverters.asScala(List.of(e)).toSeq(),
+        CollectionConverters.asScala(inputs).toSeq());
+    return VarkaKernelChecks.runAndCompareLong(className + " " + e.sql(), className, bytes,
+        plan.outputs(), inputs.size(),
+        plan.longLiterals().stream().mapToLong(Long::longValue).toArray(),
+        plan.literals().stream().mapToInt(Integer::intValue).toArray(),
+        new LongBatch(n, nulls, data, false), true, sparkAnswers(oracle));
   }
 
   // -------------------------------------------------------------------------------------------
