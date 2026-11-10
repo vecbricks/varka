@@ -491,7 +491,8 @@ if [ "${#py_files[@]}" -gt 0 ]; then
       | grep -E '^[^ ]+:[0-9]+:[0-9]+:')
     while IFS= read -r hit; do
       note "ruff format: $hit would be reformatted; run ruff format on it"
-    done < <(ruff format --check --force-exclude "${py_files[@]}" 2>&1 | sed -n 's/^Would reformat: //p')
+    done < <(ruff format --check --force-exclude "${py_files[@]}" 2>&1 \
+      | sed -n 's/^Would reformat: //p')
   else
     # The pin of dev/requirements.txt, which the lint job of build_and_test.yml installs too;
     # read here so that the message cannot drift from it.
