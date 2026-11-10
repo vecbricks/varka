@@ -408,21 +408,24 @@ flight; with four in flight, about 400 an hour against the base's 1,000. The syn
 depends on anything dispatching it after a push, so `dev/varka_ci_queue.sh`'s dispatch goes with
 the script (3.7).
 
-*Corrected 10 November 2026 (VARKA-589): the trigger above, and 2.4's and 3.8's notes on
-`notify_test_workflow.yml`, no longer hold. apache/spark deleted that workflow (SPARK-60578)
-because the ASF is turning `pull_request_target` off and GitHub changes its default on 2 December
-2026, and upstream's updater now creates a missing `Build` check itself on its cron (the backfill,
-SPARK-58660). Here the cron runs hours late (2.1), so the push signal stays: notify is deleted,
-and `varka-pr-update.yml`, under notify's workflow name "On pull request update", runs on
-`pull_request`, which for a fork's pull request gets a read-only token and no secrets. It checks
-nothing out, writes nothing, and waits up to three minutes for the fork's `build_main.yml` run of
-the head commit to be listed, so the updater's first pass finds the run instead of writing an
-`action_required` check. Its completion starts this workflow on `workflow_run`, which runs the
-default branch's file with the base's write token and reads nothing from the triggering run, so
-the sync starts after a push as before; the difference is that the updater's backfill now
-creates the `Build` check, and its summary links the fork's Actions run rather than its
-`Run / Check changes` check. A pull request whose merge with the base conflicts gets no
-`pull_request` run, and the updater skips it anyway (`dirty` is not in its ready states).*
+*Corrected 10 November 2026 (VARKA-589): the trigger above, and what 2.4, 3.8, section 4's
+`update_build_status.yml` row and risk 7.4 say of `notify_test_workflow.yml`, no longer hold.
+apache/spark deleted that workflow (SPARK-60578) because the ASF is turning `pull_request_target`
+off and GitHub changes its default on 2 December 2026, and upstream's updater now creates a missing
+`Build` check itself on its cron (the backfill, SPARK-58660). Here the cron runs hours late (2.1),
+so the push signal stays: notify is deleted, and `varka-pr-update.yml`, under notify's workflow name
+"On pull request update", runs on `pull_request`, which for a fork's pull request gets a read-only
+token and no secrets. It checks nothing out, writes nothing, and waits up to three minutes for the
+fork's `build_main.yml` run of the head commit to be listed, so the updater's first pass finds the
+run instead of writing an `action_required` check. Its completion starts this workflow on
+`workflow_run`, which runs the default branch's file with the base's write token and reads nothing
+from the triggering run, so the sync starts after a push as before; the difference is that the
+updater's backfill now creates the `Build` check, and its summary links the fork's Actions run
+rather than its `Run / Check changes` check. A pull request whose merge with the base conflicts gets
+no `pull_request` run, and the updater skips it anyway (`dirty` is not in its ready states). A
+first-time contributor's `pull_request` run waits for a maintainer's approval (the repository's
+fork-run policy is `first_time_contributors`), which `pull_request_target` did not; the cron covers
+that case.*
 
 ### 3.3 Master's head after each merge, on the base
 

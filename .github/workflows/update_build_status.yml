@@ -36,7 +36,8 @@ name: Update build status workflow
 # first pass, and keeps passing over every open pull request every 120 seconds while any of their
 # fork runs is not completed. GitHub's cron runs hours late here (VARKA-255.md 2.1), so it is only
 # the backstop. Nothing here checks out or runs a pull request's code or reads the triggering
-# run's payload: it reads the API and writes checks with this repository's own token.
+# run's payload: it reads the API and writes checks with this repository's own token. The
+# header above is upstream's, whose updater runs on its cron alone; here the cron is the backstop.
 on:
   schedule:
   - cron: "*/15 * * * *"
@@ -487,6 +488,12 @@ jobs:
                           },
                           details_url: actions_url
                         })
+                        // A completed run's check is created queued, and only the next pass
+                        // writes the verdict, so the loop must not end on this pass. Counted
+                        // after the create, so a create that keeps failing cannot hold the loop.
+                        if (matched_run.status == 'completed') {
+                          inFlight++
+                        }
                       } else {
                         // No run for this head commit after re-polling (empty result, permanent
                         // lookup failure, or build_main.yml missing): Actions is disabled, the

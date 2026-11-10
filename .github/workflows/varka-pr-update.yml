@@ -22,13 +22,20 @@
 # syncs the pull request's Build check from the default branch with this repository's write
 # token. This job runs on `pull_request`, so for a pull request from a fork it gets a read-only
 # token and no secrets; it checks nothing out and writes nothing. update_build_status.yml names
-# this workflow by its `name` below, so the two change together.
+# this workflow by its `name` below, and a pull request runs its own copy of this file but the
+# default branch's updater, so a rename lands in the updater's `workflows:` list first.
 name: On pull request update
 on:
   pull_request:
     types: [opened, reopened, synchronize]
 
 permissions: {}
+
+# A newer push cancels the wait for an older head; a cancelled run still completes, and its
+# completion starts the updater like any other.
+concurrency:
+  group: pr-update-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
 
 jobs:
   wait:
@@ -39,8 +46,8 @@ jobs:
       # The fork's build_main.yml run starts on the same push but may take a while to register,
       # and the sync's first pass writes an action_required check when it finds no run for the
       # head commit. Waiting here, up to three minutes, for that run to be listed lets the first
-      # pass find it. The read is of a public repository; whatever it finds or fails on, the job
-      # succeeds, because only its completion matters.
+      # pass find it. The read is of a public repository; a failed read is retried until the
+      # deadline, and whatever the job finds, it succeeds, because only its completion matters.
       - name: Wait for the fork's Build run
         uses: actions/github-script@v9
         with:
@@ -68,7 +75,6 @@ jobs:
                 }
               } catch (error) {
                 console.log('Listing the fork runs failed: ' + error.message)
-                return
               }
               if (Date.now() + 10 * 1000 > deadline) {
                 console.log('No fork run for ' + pr.head.sha + ' after three minutes')
