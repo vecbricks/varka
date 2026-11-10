@@ -65,7 +65,11 @@ files, added plus removed, `git diff --numstat -M` from the merge base to the he
   master (`refs/apache/master`, which the step fetches for such a branch, or a remote of
   `apache/spark`) counts only its own commits, each against its parent, and each merge by its own
   changes, `git show --remerge-diff` (the conflict resolutions and any edit made in the merge),
-  under the same exemptions. The name without such a merge is counted as any branch.
+  under the same exemptions, each file cut to the lines that differ from both parents (row 588:
+  `git show --cc`'s `++` and `--` lines, so a conflict kept whole on one side counts nothing).
+  The name without such a merge is counted as any branch.
+- The `lint` job's size step continues on error and the job's last step fails the job when it
+  failed (row 588), so the other lint steps still run on a change over the cap.
 - At 1000 or more counted lines the check fails, naming the count, the total and the five
   largest counted files; below, it prints counted against total.
 
