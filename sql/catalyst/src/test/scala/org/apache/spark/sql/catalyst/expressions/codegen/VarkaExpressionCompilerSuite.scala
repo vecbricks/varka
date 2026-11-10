@@ -2687,12 +2687,12 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
       Seq(out(DateAdd(d, Multiply(i, Literal(7), EvalMode.LEGACY)))), childOutput).isPresent)
   }
 
-  test("declines a long add, a divide, a modulo and a mixed operand") {
-    // All four reach the same reason, and that is the point: the arithmetic arms are guarded on
-    // the int and narrow types, so anything else never enters them and declines as the
-    // unsupported expression it is, rather than through an arithmetic-specific message.
+  test("declines a divide, a modulo and a mixed operand") {
+    // All three reach the same reason, and that is the point: the arithmetic arms are guarded on
+    // the integral types, so anything else never enters them and declines as the unsupported
+    // expression it is, rather than through an arithmetic-specific message. A bigint add fuses
+    // (VARKA-104).
     for (e <- Seq(
-        Add(Cast(i, LongType), Literal(1L), EvalMode.LEGACY),
         Divide(i, Literal(2), EvalMode.LEGACY),
         Remainder(i, Literal(7)),
         // An operand of the wrong type inside an arm the compiler does take. `intOperand` has
@@ -3407,12 +3407,13 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
   test("under severalKernels a projection over more columns than a kernel reads is served by " +
       "two kernels, and an entry no kernel serves keeps its own reason") {
     // MAX_INPUTS bounds a kernel's column set, a bitset in a long; past it an entry fits alone but
-    // not beside the others, which is another kernel's entry. A lane mismatch is not a size, so it
-    // stays residual whatever the option.
+    // not beside the others, which is another kernel's entry. A checked bigint product over a
+    // column is not a size, so it stays residual whatever the option.
     val columns = (0 until 70).map(c => AttributeReference(s"c$c", DateType)())
     val longCol = AttributeReference("l", LongType)()
     val output = columns :+ longCol
-    val list = columns.map(c => out(DateAdd(c, Literal(1)))) :+ out(Add(longCol, Literal(1L)))
+    val list = columns.map(c => out(DateAdd(c, Literal(1)))) :+
+      out(Multiply(longCol, Literal(3L), EvalMode.ANSI))
     val one = VarkaExpressionCompiler.compilePartial(list, output,
       VarkaMatrix.base.withSeveralKernels(false)).get
     assert(one.specs.asScala.count(_.isInstanceOf[FusedOutput]) ===

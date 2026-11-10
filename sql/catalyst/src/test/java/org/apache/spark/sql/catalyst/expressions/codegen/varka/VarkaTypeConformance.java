@@ -475,7 +475,9 @@ public abstract class VarkaTypeConformance {
    * the forms that now fuse.
    */
   private static final Map<String, String> CHECKED_GAPS = Map.of(
-      "int *", "95 (a checked int multiply has no int-lane overflow test)");
+      "int *", "95 (a checked int multiply has no int-lane overflow test)",
+      "bigint *", "104 (a checked bigint multiply fuses only where its operands' bounds rule out "
+          + "overflow, VARKA-104.md 3.3)");
 
   // -------------------------------------------------------------------------------------------
   // Running a check

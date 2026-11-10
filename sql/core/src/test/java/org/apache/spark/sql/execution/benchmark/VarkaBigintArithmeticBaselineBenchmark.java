@@ -54,7 +54,8 @@ import org.apache.spark.sql.internal.SQLConf;
  * {@code NONE}. Where the session refuses a 64-bit kernel's masks at two lanes (VARKA-503), as
  * the 128-bit companion's host does by default, the filter and every checked form are
  * {@code NONE} and the wrapping forms stay {@code WHOLE}. The control is {@code WHOLE}. A
- * {@code WHOLE} section must also run every batch as a kernel ({@link VarkaSizeLadder#varkaFused}).
+ * {@code WHOLE} projection must also run every batch as a kernel
+ * ({@link VarkaSizeLadder#varkaFused}); the filter's node is no projection.
  * A row that fuses more of
  * a section sets its new class, so that its fusion cannot turn a baseline section into a fused
  * one unnoticed.
@@ -89,7 +90,16 @@ public class VarkaBigintArithmeticBaselineBenchmark extends VarkaSqlBenchmarkBas
    * session fuses today, the {@link VarkaSqlBenchmarkBase.Fusion} class the run checks its plan
    * against before it times anything.
    */
-  record Section(String title, String query, Map<String, String> conf, Fusion fusion) {}
+  record Section(String title, String query, Map<String, String> conf, Fusion fusion) {
+
+    /**
+     * Whether the run checks every batch ran as a kernel: a {@code WHOLE} projection's, which
+     * {@link VarkaSizeLadder#varkaFused} reads; the filter's node is no projection.
+     */
+    boolean checksKernels() {
+      return fusion == Fusion.WHOLE && !query.contains(" WHERE ");
+    }
+  }
 
   /**
    * The table: {@code l}, {@code l2} and {@code m} {@code BIGINT}s with no null, and {@code l_n}
@@ -195,7 +205,7 @@ public class VarkaBigintArithmeticBaselineBenchmark extends VarkaSqlBenchmarkBas
       for (Section s : sections) {
         withConf(varka, s.conf(), () -> {
           requireBaseline(varka, s.title(), s.query(), s.fusion());
-          if (s.fusion() == Fusion.WHOLE) {
+          if (s.checksKernels()) {
             VarkaSizeLadder.varkaFused(varka, s.query());
           }
         });

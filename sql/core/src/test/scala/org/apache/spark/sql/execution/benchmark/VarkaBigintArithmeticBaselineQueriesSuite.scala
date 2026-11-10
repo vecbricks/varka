@@ -142,8 +142,8 @@ class VarkaBigintArithmeticBaselineQueriesSuite extends QueryTest with VarkaShar
           withSettings(s) {
             val plan = varkaSpark.sql(s.query).queryExecution.executedPlan
             assert(VarkaSqlBenchmarkBase.fusion(plan) === Optional.of(s.fusion))
-            // The benchmark's kernel check too: the WHOLE control hands no batch to the row path.
-            if (s.fusion == VarkaSqlBenchmarkBase.Fusion.WHOLE) {
+            // The benchmark's kernel check too: a WHOLE projection hands no batch to the row path.
+            if (s.checksKernels) {
               VarkaSizeLadder.varkaFused(varkaSpark, s.query)
             }
           }
