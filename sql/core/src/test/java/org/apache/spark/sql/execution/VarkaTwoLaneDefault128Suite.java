@@ -25,6 +25,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 
+import scala.Option;
+import scala.collection.immutable.Seq;
 import scala.jdk.javaapi.CollectionConverters;
 
 import org.junit.jupiter.api.AfterAll;
@@ -38,6 +40,7 @@ import org.apache.spark.sql.SparkSession;
 import org.apache.spark.sql.catalyst.expressions.And;
 import org.apache.spark.sql.catalyst.expressions.Attribute;
 import org.apache.spark.sql.catalyst.expressions.Expression;
+import org.apache.spark.sql.catalyst.expressions.NamedExpression;
 import org.apache.spark.sql.catalyst.expressions.codegen.PartialVarkaProjection;
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaDecline;
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaOutputSpec;
@@ -195,7 +198,16 @@ public final class VarkaTwoLaneDefault128Suite {
         assertEquals(VarkaKernelPlan.TWO_LANE_DECIMAL_VALUE_REASON, d.reason(), clue);
       }
       assertTrue(partial.specs().get(2) instanceof VarkaOutputSpec.FusedOutput, clue);
-      // The tasks' compile, under the settings the plan carried, fused the same entry.
+      // A task's compile, under the settings the plan carried: the evaluator the node builds in
+      // a task declines the same entries, and the kernels served the batches.
+      VarkaSessionEmit emit = node instanceof VarkaProjectExec p ? p.sessionEmit()
+          : ((VarkaColumnarToRowExec) node).sessionEmit();
+      Seq<NamedExpression> list = node instanceof VarkaProjectExec p ? p.projectList()
+          : ((VarkaColumnarToRowExec) node).projectList();
+      var task = new VarkaKernelEvaluator(list, node.children().head().output(), false,
+          "two-lane-default", Option.empty(), VarkaExecMetrics.NONE, emit, false, false);
+      assertEquals(partial.declines().keySet(),
+          task.partialPlan().orElseThrow().declines().keySet(), clue);
       SQLMetric batches = node.metrics().get("numVarkaBatches").get();
       assertTrue(batches.value() > 0, "the kernels served no batch: " + clue);
     }

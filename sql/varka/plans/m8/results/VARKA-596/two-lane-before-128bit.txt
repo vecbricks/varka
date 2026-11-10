@@ -3,7 +3,7 @@ VarkaTwoLaneLongBenchmark at two 64-bit lanes, the before side of VARKA-596 (10 
            (load about 31 at the start, falling to about 5 by the decimal sections); the ratios
            are directions, the EPYC 7763 runner's decimal baseline is the measurement
   jdk:     OpenJDK Runtime Environment (build 25.0.5.0.3+1-1-26.04.1-Ubuntu)
-  tree:    this branch before the refusal: master 1ab398dad18 and the class's five new
+  tree:    this branch before the refusal: master 1ab398dad18 and the class's six new
            decimal sections; the projections fuse, the 64-bit filters decline (VARKA-503)
   command: taskset -c 0-3,12-15 build/sbt -batch "project sql" 'set Test/javaOptions ++= Seq("-XX:MaxVectorSize=16", "-XX:UseAVX=2")' "Test/runMain org.apache.spark.sql.execution.benchmark.VarkaTwoLaneLongBenchmark"
   (x86 at two 64-bit lanes, the EPYC 7763 runner's AVX2 at 128 bits, emulated)

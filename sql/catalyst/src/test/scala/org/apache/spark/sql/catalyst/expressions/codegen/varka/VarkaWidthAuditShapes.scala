@@ -149,8 +149,8 @@ object VarkaWidthAuditShapes {
       if (form == "predicate") {
         predicateRow(sql, resolved)
       } else {
-        // On the host's terms too: a BOOLEAN row in a kernel driven at a 64-bit lane is refused
-        // at two such lanes on x86 (VARKA-596), as a predicate row's condition is.
+        // On the host's terms too: a BOOLEAN row over a decimal column is refused at two 64-bit
+        // lanes on x86 (VARKA-596), as a predicate row's 64-bit condition is.
         val list = Seq[NamedExpression](Alias(resolved, "c")())
         VarkaExpressionCompiler.compilePartial(list, columns, VarkaEmitOptions.DEFAULTS,
             hostAdmission).toScala

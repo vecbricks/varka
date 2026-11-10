@@ -31,8 +31,7 @@ import java.util.Set;
  * alike, so both travel with the plan in sql/core's session record, whose
  * {@code VarkaSessionEmit.admission()} every production caller passes. No predicate entry point
  * defaults it: a caller says which settings it compiles under, and a compile with no session
- * says {@link #NO_HOST_REFUSAL}. The projection's overloads that take the families alone, which
- * the catalyst suites and tools call, compile with no host refusal.
+ * says {@link #NO_HOST_REFUSAL}, as the projection's overloads without an admission do.
  *
  * @param familiesOff the expression families switched off
  * @param declineTwoLaneConditions whether a filter's 64-bit-lane condition, and a boolean output

@@ -140,8 +140,8 @@ public record VarkaSessionEmit(
   }
 
   /**
-   * The settings that decide which conjuncts a predicate admits, as every predicate compile of
-   * this session's plan - at planning, in EXPLAIN and in a task - passes them.
+   * The settings that decide which conjuncts a predicate and which entries a projection admit, as
+   * every compile of this session's plan - at planning, in EXPLAIN and in a task - passes them.
    */
   public VarkaAdmission admission() {
     return new VarkaAdmission(familiesOff, declineTwoLaneConditions);

@@ -209,7 +209,8 @@ public final class VarkaFamilySwitchSuite {
     Seq<NamedExpression> entries = CollectionConverters.asScala(
         List.of(VarkaSqlResolve.named(row.expr(), "o"))).toSeq();
     Optional<CompiledVarkaProjection> fused =
-        VarkaExpressionCompiler.compilePartial(entries, columns, OPTIONS, off)
+        VarkaExpressionCompiler.compilePartial(entries, columns, OPTIONS,
+            new VarkaAdmission(off, false))
             .filter(p -> p.specs().get(0) instanceof VarkaOutputSpec.FusedOutput)
             .map(PartialVarkaProjection::fused);
     if (fused.isPresent()) {
@@ -217,7 +218,8 @@ public final class VarkaFamilySwitchSuite {
           Optional.empty());
     }
     return new Outcome(Optional.empty(), List.of(), Optional.ofNullable(
-        VarkaExpressionCompiler.declines(entries, columns, OPTIONS, off).get(0))
+        VarkaExpressionCompiler.declines(entries, columns, OPTIONS,
+            new VarkaAdmission(off, false)).get(0))
         .map(VarkaDecline::reason));
   }
 

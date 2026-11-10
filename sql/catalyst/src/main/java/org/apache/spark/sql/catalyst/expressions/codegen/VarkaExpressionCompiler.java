@@ -145,27 +145,17 @@ public final class VarkaExpressionCompiler {
    */
   public static Optional<PartialVarkaProjection> compilePartial(
       Seq<NamedExpression> projectList, Seq<Attribute> childOutput, VarkaEmitOptions options) {
-    return compilePartial(projectList, childOutput, options, Set.of());
-  }
-
-  /**
-   * {@link #compilePartial(Seq, Seq, VarkaEmitOptions)} with the families the session has
-   * switched off (VARKA-318), which every caller has to pass alike for the reason it passes the
-   * options alike: a node of a family that is off declines with the reason naming its switch.
-   */
-  public static Optional<PartialVarkaProjection> compilePartial(
-      Seq<NamedExpression> projectList, Seq<Attribute> childOutput, VarkaEmitOptions options,
-      Set<VarkaFamily> familiesOff) {
-    return compilePartial(projectList, childOutput, options,
-        new VarkaAdmission(familiesOff, false));
+    return compilePartial(projectList, childOutput, options, VarkaAdmission.NO_HOST_REFUSAL);
   }
 
   /**
    * {@link #compilePartial(Seq, Seq, VarkaEmitOptions)} under the session's {@code admission}
-   * ({@code VarkaSessionEmit.admission()}), which every production caller passes alike: the
-   * families switched off, and whether a {@code BOOLEAN} entry over a decimal column is left to
-   * the row engine on a host whose 64-bit masks fall back ({@link VarkaKernelPlan#admit},
-   * VARKA-596), as the predicate leaves a filter's condition there.
+   * ({@code VarkaSessionEmit.admission()}), which every production caller passes alike for the
+   * reason it passes the options alike: the families switched off (VARKA-318), a node of which
+   * declines with the reason naming its switch, and whether a {@code BOOLEAN} entry over a
+   * decimal column is left to the row engine on a host whose 64-bit masks fall back
+   * ({@link VarkaKernelPlan#admit}, VARKA-596), as the predicate leaves a filter's condition
+   * there.
    */
   public static Optional<PartialVarkaProjection> compilePartial(
       Seq<NamedExpression> projectList, Seq<Attribute> childOutput, VarkaEmitOptions options,
@@ -203,14 +193,7 @@ public final class VarkaExpressionCompiler {
    */
   public static SortedMap<Integer, VarkaDecline> declines(
       Seq<NamedExpression> projectList, Seq<Attribute> childOutput, VarkaEmitOptions options) {
-    return declines(projectList, childOutput, options, Set.of());
-  }
-
-  /** {@link #declines(Seq, Seq, VarkaEmitOptions)} with the families switched off. */
-  public static SortedMap<Integer, VarkaDecline> declines(
-      Seq<NamedExpression> projectList, Seq<Attribute> childOutput, VarkaEmitOptions options,
-      Set<VarkaFamily> familiesOff) {
-    return declines(projectList, childOutput, options, new VarkaAdmission(familiesOff, false));
+    return declines(projectList, childOutput, options, VarkaAdmission.NO_HOST_REFUSAL);
   }
 
   /** {@link #declines(Seq, Seq, VarkaEmitOptions)} under {@code admission}, as compilePartial. */
