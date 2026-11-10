@@ -244,8 +244,8 @@ final class VarkaSmtSamples {
       case IntNeg a when a.mode() == Overflow.FAIL -> operands && value(s, node, row) == null;
       case GuardedRange g when g.mode() == Overflow.FAIL -> operands
           && (value(s, g.child(), row) < g.lo() || value(s, g.child(), row) > g.hi());
-      case DecimalColumn c -> !row.nulls()[c.ordinal()]
-          && Math.abs(row.values()[c.ordinal()]) > c.bound();
+      case DecimalColumn c -> !row.nulls()[c.ordinal()] && BigInteger.valueOf(
+          row.values()[c.ordinal()]).abs().compareTo(BigInteger.valueOf(c.bound())) > 0;
       case DecimalWord w -> !row.nulls()[w.ordinal()]
           && BigInteger.valueOf(row.values()[w.ordinal()]).abs().compareTo(w.bound().value()) > 0;
       default -> false;

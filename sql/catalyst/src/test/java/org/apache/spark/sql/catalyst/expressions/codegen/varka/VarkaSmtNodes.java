@@ -203,9 +203,10 @@ final class VarkaSmtNodes {
       // The decimal store writes its child's long unchanged (VarkaReference's rule).
       case WidenDecimal n -> child.apply(n.child());
       case AddDays _, SubDays _, DateDiff _, DayOfWeek _, WeekDay _, DayOfWeekIso _, NextDay _,
-          ThursdayOf _, Chrono _, AddMonths _, MakeDate _, GuardedDay _, ConstDivide _,
-          BoundedDivide _, BitCount _, MathUnary _, RoundToIntegral _, ConvertLane _, CrossLane _,
-          InRanges _, BoolCompare _, BoolNullSafeEq _ -> throw refused(node);
+          ThursdayOf _, Year _, Month _, DayOfMonth _, Quarter _, DayOfYear _, LastDay _,
+          TruncDate _, TruncDateDynamic _, WeekOfYear _, AddMonths _, MakeDate _, GuardedDay _,
+          ConstDivide _, BoundedDivide _, BitCount _, MathUnary _, RoundToIntegral _, ConvertLane _,
+          CrossLane _, InRanges _, BoolCompare _, BoolNullSafeEq _ -> throw refused(node);
     };
   }
 
