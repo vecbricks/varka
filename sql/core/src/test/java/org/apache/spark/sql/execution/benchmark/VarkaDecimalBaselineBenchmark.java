@@ -119,9 +119,9 @@ import org.apache.spark.sql.execution.VarkaSessionEmit;
  * filters are {@code NULL_TESTS}, the inferred null tests fused below them. A session that
  * refuses a filter's condition in a kernel driven at 64 bits ({@code declinesLongConditions},
  * VARKA-503), the 128-bit companion's host by default, leaves every one of those filters to the
- * row path, the lane pair's among them, since its words are on the long lane, so they are
- * {@code NONE} there; the projected {@code x < y} sections and the time producers stay
- * {@code WHOLE}.
+ * row path, the lane pair's among them, since its words are on the long lane, and the projected
+ * {@code x < y} sections too, a boolean output over a decimal column (VARKA-596), so they are
+ * {@code NONE} there; the time producers stay {@code WHOLE}.
  * Every other section is {@code NONE}. A row that fuses more of a section sets its new class,
  * so that its fusion cannot turn a baseline section into a fused one unnoticed, and the results
  * file notes the class of each section that fuses.
@@ -402,10 +402,12 @@ public class VarkaDecimalBaselineBenchmark extends VarkaSqlBenchmarkBase {
    * shapes in the same order; then the 64-bit arithmetic's six at each null density; then the
    * two remainders, each remainder precision, then each null density. Every filter that fuses
    * is {@code NONE} when the session refuses its condition ({@code declinesLongConditions}),
-   * since every decimal lane, the lane pair's words among them, is a 64-bit one.
+   * since every decimal lane, the lane pair's words among them, is a 64-bit one, and so is every
+   * comparison as a value, a boolean output over a decimal column.
    */
   static List<Section> sections(boolean declinesLongConditions) {
-    // A filter that fuses whole, or not at all where the session refuses its condition.
+    // A filter, or a comparison as a value, that fuses whole, or not at all where the session
+    // refuses its condition.
     Fusion fusedFilter = declinesLongConditions ? Fusion.NONE : Fusion.WHOLE;
     Fusion fusedNullTests = declinesLongConditions ? Fusion.NONE : Fusion.NULL_TESTS;
     List<Section> out = new ArrayList<>();
@@ -443,26 +445,28 @@ public class VarkaDecimalBaselineBenchmark extends VarkaSqlBenchmarkBase {
     // The lane pair's <=>, IS NULL and projected comparison fuse whole over the words
     // (VARKA-359); its negation and abs are 359b's, under the null tests Spark infers, and so is
     // its IN, under none, since Spark infers no null test from an IN. The filters decline where
-    // the session refuses a 64-bit condition, the null tests too.
+    // the session refuses a 64-bit condition, the null tests too, and so does the projected
+    // comparison, a boolean output over a decimal column (VARKA-596).
     Map<ComparisonShape, Fusion> pairFusion = Map.of(
         ComparisonShape.IN, Fusion.NONE,
         ComparisonShape.NULL_SAFE, fusedFilter,
         ComparisonShape.IS_NULL, fusedFilter,
         ComparisonShape.NEGATED, fusedNullTests,
         ComparisonShape.ABS, fusedNullTests,
-        ComparisonShape.VALUE, Fusion.WHOLE);
+        ComparisonShape.VALUE, fusedFilter);
     for (Precision p : PAIR_PRECISIONS) {
       addComparisons(out, p, Optional.empty(), pairFusion::get);
     }
     // The rescaled comparison, IN, the negation, abs, <=> and the projected comparison fuse
-    // whole (VARKA-348), the filters only where the session takes a 64-bit condition.
+    // whole (VARKA-348), each only where the session takes a 64-bit condition, the projected
+    // comparison as a boolean output over a decimal column (VARKA-596).
     Map<ComparisonShape, Fusion> longFusion = Map.of(
         ComparisonShape.RESCALED, fusedFilter,
         ComparisonShape.IN, fusedFilter,
         ComparisonShape.NULL_SAFE, fusedFilter,
         ComparisonShape.NEGATED, fusedFilter,
         ComparisonShape.ABS, fusedFilter,
-        ComparisonShape.VALUE, Fusion.WHOLE);
+        ComparisonShape.VALUE, fusedFilter);
     for (Precision p : List.of(precision(9), precision(18))) {
       addComparisons(out, p, Optional.of(rescaledPartner(p)), longFusion::get);
     }

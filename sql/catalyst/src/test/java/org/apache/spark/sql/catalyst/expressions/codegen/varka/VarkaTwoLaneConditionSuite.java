@@ -29,19 +29,24 @@ import org.junit.jupiter.api.Test;
 
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaKernelPlan.Kind;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaKernelPlan.Refusal;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BoolOutput;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ColumnRef;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Compare;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.CompareOp;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.DecimalColumn;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.DecimalWord;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Greatest;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IfElse;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IsNotNull;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LaneType;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.NarrowLane;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WidenLane;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Word;
 
 /**
  * The compiler's refusal of a condition in a kernel driven at a 64-bit lane, long or
- * {@code DOUBLE}, on an x86 host whose 64-bit species have two lanes (VARKA-503). The host is
+ * {@code DOUBLE}, and of a boolean output over a decimal column (VARKA-596), on an x86 host
+ * whose 64-bit species have two lanes (VARKA-503). The host is
  * one fact, passed in here, so both answers are checked on any
  * machine. What this JVM's fact is, under flags that make it the two-lane host and a four-lane
  * one, is checked in JVMs of their own by sql/core's {@code VarkaTwoLaneHost128Suite} and
@@ -128,6 +133,32 @@ public final class VarkaTwoLaneConditionSuite {
     // The blends make long masks too, and still beat the row path at two lanes.
     assertTrue(admit(new IfElse(new Compare(CompareOp.LT, L, L2), L, L2), true).isEmpty());
     assertTrue(admit(new Greatest(L, L2), true).isEmpty());
+  }
+
+  @Test
+  @DisplayName("a boolean output over a decimal column is refused on the two-lane host and "
+      + "admitted elsewhere, one over BIGINT or DOUBLE columns admitted on both")
+  void decimalBooleanOutput() {
+    // `d9 < d9b` on the long lane and `d38 < d38b` over the lane pair's words, as values.
+    var d9 = new DecimalColumn(0, LaneType.LONG, 9);
+    var d9b = new DecimalColumn(1, LaneType.LONG, 9);
+    var d38 = new DecimalWord(2, Word.LOW, 38);
+    var d38b = new DecimalWord(3, Word.LOW, 38);
+    var pair = DecimalWords.compare(CompareOp.LT, d38, new DecimalWord(2, Word.HIGH, 38), d38b,
+        new DecimalWord(3, Word.HIGH, 38));
+    for (VarkaVectorIR value : List.of(new BoolOutput(new Compare(CompareOp.LT, d9, d9b)),
+        new BoolOutput(pair))) {
+      Optional<Refusal> refused = admit(value, true);
+      assertTrue(refused.isPresent(), value.toString());
+      assertEquals(Kind.TWO_LANE_CONDITION, refused.get().kind());
+      assertEquals(VarkaKernelPlan.TWO_LANE_DECIMAL_VALUE_REASON, refused.get().reason());
+      assertTrue(admit(value, false).isEmpty(), value.toString());
+    }
+    // Their loads are one plain vector, and they ran at or above the row path at two lanes.
+    assertTrue(admit(new BoolOutput(new Compare(CompareOp.LT, L, L2)), true).isEmpty());
+    assertTrue(admit(new BoolOutput(new Compare(CompareOp.LT, X, X2)), true).isEmpty());
+    // A decimal value that is not a condition is not this refusal's.
+    assertTrue(admit(new Greatest(d9, d9b), true).isEmpty());
   }
 
   @Test

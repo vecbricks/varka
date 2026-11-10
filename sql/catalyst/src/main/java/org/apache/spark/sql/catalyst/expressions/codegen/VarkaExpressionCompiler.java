@@ -156,13 +156,27 @@ public final class VarkaExpressionCompiler {
   public static Optional<PartialVarkaProjection> compilePartial(
       Seq<NamedExpression> projectList, Seq<Attribute> childOutput, VarkaEmitOptions options,
       Set<VarkaFamily> familiesOff) {
+    return compilePartial(projectList, childOutput, options,
+        new VarkaAdmission(familiesOff, false));
+  }
+
+  /**
+   * {@link #compilePartial(Seq, Seq, VarkaEmitOptions)} under the session's {@code admission}
+   * ({@code VarkaSessionEmit.admission()}), which every production caller passes alike: the
+   * families switched off, and whether a {@code BOOLEAN} entry over a decimal column is left to
+   * the row engine on a host whose 64-bit masks fall back ({@link VarkaKernelPlan#admit},
+   * VARKA-596), as the predicate leaves a filter's condition there.
+   */
+  public static Optional<PartialVarkaProjection> compilePartial(
+      Seq<NamedExpression> projectList, Seq<Attribute> childOutput, VarkaEmitOptions options,
+      VarkaAdmission admission) {
     Optional<PartialVarkaProjection> compiled =
-        compilePartialUnobserved(projectList, childOutput, options, familiesOff);
+        compilePartialUnobserved(projectList, childOutput, options, admission);
     // The option matrix's recording run hears each compile with a way to repeat it under
     // another configuration (VarkaCompileObserver); no one is listening otherwise.
     if (VarkaCompileObserver.watching()) {
-      VarkaCompileObserver.compiled(List.of(projectList, childOutput, familiesOff), options,
-          compiled, o -> compilePartialUnobserved(projectList, childOutput, o, familiesOff));
+      VarkaCompileObserver.compiled(List.of(projectList, childOutput, admission), options,
+          compiled, o -> compilePartialUnobserved(projectList, childOutput, o, admission));
     }
     return compiled;
   }
@@ -170,9 +184,9 @@ public final class VarkaExpressionCompiler {
   /** {@link #compilePartial} itself, which the recording run repeats under its configurations. */
   private static Optional<PartialVarkaProjection> compilePartialUnobserved(
       Seq<NamedExpression> projectList, Seq<Attribute> childOutput, VarkaEmitOptions options,
-      Set<VarkaFamily> familiesOff) {
+      VarkaAdmission admission) {
     return planning(
-        () -> classifyKernels(entries(projectList), childOutput, options, familiesOff).partial(),
+        () -> classifyKernels(entries(projectList), childOutput, options, admission).partial(),
         () -> projectionIdentity(projectList, childOutput), options);
   }
 
@@ -196,13 +210,20 @@ public final class VarkaExpressionCompiler {
   public static SortedMap<Integer, VarkaDecline> declines(
       Seq<NamedExpression> projectList, Seq<Attribute> childOutput, VarkaEmitOptions options,
       Set<VarkaFamily> familiesOff) {
+    return declines(projectList, childOutput, options, new VarkaAdmission(familiesOff, false));
+  }
+
+  /** {@link #declines(Seq, Seq, VarkaEmitOptions)} under {@code admission}, as compilePartial. */
+  public static SortedMap<Integer, VarkaDecline> declines(
+      Seq<NamedExpression> projectList, Seq<Attribute> childOutput, VarkaEmitOptions options,
+      VarkaAdmission admission) {
     SortedMap<Integer, VarkaDecline> declines =
-        declinesUnobserved(projectList, childOutput, options, familiesOff);
+        declinesUnobserved(projectList, childOutput, options, admission);
     // The option matrix's recording run hears each compile with a way to repeat it under
     // another configuration (VarkaCompileObserver); no one is listening otherwise.
     if (VarkaCompileObserver.watching()) {
-      VarkaCompileObserver.compiled(List.of("declines", projectList, childOutput, familiesOff),
-          options, declines, o -> declinesUnobserved(projectList, childOutput, o, familiesOff));
+      VarkaCompileObserver.compiled(List.of("declines", projectList, childOutput, admission),
+          options, declines, o -> declinesUnobserved(projectList, childOutput, o, admission));
     }
     return declines;
   }
@@ -210,9 +231,9 @@ public final class VarkaExpressionCompiler {
   /** {@link #declines} itself, which the recording run repeats. */
   private static SortedMap<Integer, VarkaDecline> declinesUnobserved(
       Seq<NamedExpression> projectList, Seq<Attribute> childOutput, VarkaEmitOptions options,
-      Set<VarkaFamily> familiesOff) {
+      VarkaAdmission admission) {
     return planning(() -> Collections.unmodifiableSortedMap(
-        classifyKernels(entries(projectList), childOutput, options, familiesOff).declines()),
+        classifyKernels(entries(projectList), childOutput, options, admission).declines()),
         () -> projectionIdentity(projectList, childOutput), options);
   }
 
@@ -366,8 +387,8 @@ public final class VarkaExpressionCompiler {
    */
   private static Classified classifyKernels(
       List<NamedExpression> entries, Seq<Attribute> childOutput, VarkaEmitOptions options,
-      Set<VarkaFamily> off) {
-    Classified first = classify(entries, childOutput, options, off, Map.of());
+      VarkaAdmission admission) {
+    Classified first = classify(entries, childOutput, options, admission, Map.of());
     if (!options.severalKernels() || first.partial().isEmpty()) {
       return first;
     }
@@ -384,7 +405,7 @@ public final class VarkaExpressionCompiler {
           others.put(at, OTHER_KERNEL);
         }
       }
-      Classified next = classify(entries, childOutput, options, off, others);
+      Classified next = classify(entries, childOutput, options, admission, others);
       // The entries this round fused, by projection position, to their index in its kernel.
       Map<Integer, Integer> fused = new LinkedHashMap<>();
       next.partial().ifPresent(p -> {
@@ -443,7 +464,7 @@ public final class VarkaExpressionCompiler {
       List<NamedExpression> entries,
       Seq<Attribute> childOutput,
       VarkaEmitOptions options,
-      Set<VarkaFamily> off,
+      VarkaAdmission admission,
       Map<Integer, String> initial) {
     // A nondeterministic entry declines the whole projection, as a nondeterministic conjunct
     // declines a predicate. A Varka node evaluates its residual entries row by row, on its row
@@ -470,7 +491,7 @@ public final class VarkaExpressionCompiler {
     // two the bisection has the last word (VARKA-236.md 3.4).
     int plannedCuts = 0;
     while (true) {
-      Asked asked = ask(entries, childOutput, demoted, options, off);
+      Asked asked = ask(entries, childOutput, demoted, options, admission);
       if (asked.decline().isEmpty()) {
         Classified once = asked.once();
         Set<Integer> aside = new HashSet<>(bisected);
@@ -507,7 +528,7 @@ public final class VarkaExpressionCompiler {
             probe.put(position, reasonAtHi);
           }
           Optional<VarkaSizeAdmission.Decline> answer =
-              ask(entries, childOutput, probe, options, off).decline();
+              ask(entries, childOutput, probe, options, admission).decline();
           if (answer.isPresent() && answer.get().outputs().isEmpty()) {
             hi = mid;
             reasonAtHi = answer.get().reason();
@@ -533,8 +554,8 @@ public final class VarkaExpressionCompiler {
       Seq<Attribute> childOutput,
       Map<Integer, String> demoted,
       VarkaEmitOptions options,
-      Set<VarkaFamily> off) {
-    Classified once = classifyOnce(entries, childOutput, demoted, options, off);
+      VarkaAdmission admission) {
+    Classified once = classifyOnce(entries, childOutput, demoted, options, admission);
     return new Asked(once,
         once.partial().flatMap(partial -> VarkaSizeAdmission.admit(partial.fused(), options)));
   }
@@ -559,8 +580,8 @@ public final class VarkaExpressionCompiler {
       Seq<Attribute> childOutput,
       Map<Integer, String> demoted,
       VarkaEmitOptions options,
-      Set<VarkaFamily> off) {
-    return new EntryPass(childOutput, demoted, options, off).run(entries);
+      VarkaAdmission admission) {
+    return new EntryPass(childOutput, demoted, options, admission).run(entries);
   }
 
   /**
@@ -573,6 +594,9 @@ public final class VarkaExpressionCompiler {
     private final Map<Integer, String> demoted;
     private final VarkaEmitOptions options;
     private final Set<VarkaFamily> off;
+    // Whether the session refuses a boolean output over a decimal column at two 64-bit lanes
+    // (VarkaKernelPlan.admit), as the predicate's admission refuses a condition there.
+    private final boolean twoLaneHost;
     private final VarkaSlotTable inputs = new VarkaSlotTable();
     private final VarkaSlotTable literals = new VarkaSlotTable();
     private final List<VarkaVectorIR> outputs = new ArrayList<>();
@@ -585,11 +609,12 @@ public final class VarkaExpressionCompiler {
     private final Set<Integer> alone = new HashSet<>();
 
     EntryPass(Seq<Attribute> childOutput, Map<Integer, String> demoted,
-        VarkaEmitOptions options, Set<VarkaFamily> off) {
+        VarkaEmitOptions options, VarkaAdmission admission) {
       this.childOutput = childOutput;
       this.demoted = demoted;
       this.options = options;
-      this.off = off;
+      this.off = admission.familiesOff();
+      this.twoLaneHost = admission.declineTwoLaneConditions();
       this.sink = new DeclineSink(childOutput, options.rangeSets(), off);
       this.bind = binder(childOutput);
     }
@@ -661,7 +686,7 @@ public final class VarkaExpressionCompiler {
         // and its reason says why, though it may hold no narrow value itself.
         List<VarkaVectorIR> with = new ArrayList<>(outputs);
         with.add(ir);
-        Optional<Admission> refused = admission(ir, with, options);
+        Optional<Admission> refused = admission(ir, with, options, twoLaneHost);
         if (refused.isPresent()) {
           marks.restore(inputs, literals, sink);
           sink.take();
@@ -1310,12 +1335,15 @@ public final class VarkaExpressionCompiler {
   /**
    * Why {@code entry} cannot join the kernel {@code with} holds it in, or empty when it can: the
    * plan of the entry alone, then the plan of the kernel with it, whose narrow refusal says the
-   * joining is what moved the kernel to the int lane.
+   * joining is what moved the kernel to the int lane. Where {@code twoLaneHost}, the entry's plan
+   * is also asked the host's refusal of a boolean output over a decimal column
+   * ({@link VarkaKernelPlan#admit}), which no kernel of its own escapes, since the refusal reads
+   * the entry's own tree.
    */
   private static Optional<Admission> admission(VarkaVectorIR entry, List<VarkaVectorIR> with,
-      VarkaEmitOptions options) {
+      VarkaEmitOptions options, boolean twoLaneHost) {
     Optional<VarkaKernelPlan.Refusal> alone =
-        VarkaKernelPlan.of(List.of(entry), options).refusal();
+        VarkaKernelPlan.admit(List.of(entry), options, twoLaneHost);
     if (alone.isPresent()) {
       return Optional.of(new Admission(alone.get().reason(), false));
     }
