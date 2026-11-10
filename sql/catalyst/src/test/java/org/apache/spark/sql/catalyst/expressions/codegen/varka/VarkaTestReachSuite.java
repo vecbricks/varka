@@ -26,6 +26,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -160,7 +161,7 @@ public final class VarkaTestReachSuite {
   @Test
   @DisplayName("a run skips a recorded test its configuration does not move, and nothing else")
   void skipsOnlyWhatTheRecordAllows() throws IOException {
-    var reach = record("#\tcovers\t" + PLANTED + "," + INERT,
+    var reach = record("#\tcovers\t" + PLANTED + VarkaTestReach.SEPARATOR + INERT,
         "S\tmoved\t" + PLANTED, "S\tstill\t-", "S\tcancelled\t*");
     assertTrue(VarkaTestReach.skips(reach, INERT, "S", "moved", false, false));
     assertFalse(VarkaTestReach.skips(reach, PLANTED, "S", "moved", false, false));
@@ -188,6 +189,48 @@ public final class VarkaTestReachSuite {
     assertTrue(VarkaTestReach.skips(suite, PLANTED, "T", "still", false, false));
     var jvm = record("S\tstill\t-", "T\tstill\t-", "*\t*\t" + INERT);
     assertFalse(VarkaTestReach.skips(jvm, INERT, "T", "still", false, false));
+  }
+
+  // An option run over an instruction set is named by the set's configuration and the option's
+  // arm joined by a comma (VarkaMatrixRuns.configurations), and both run in the matrix.
+  private static final String SUBJECT = "useAVX=2";
+  private static final String OVER_SUBJECT = SUBJECT + ",wideConversionForm=MAGIC";
+
+  /** A record of {@code test} lines in suite S as the recorder writes them, then read back. */
+  private static Optional<VarkaTestReach.Record> recorded(Map<String, Set<String>> tests)
+      throws IOException {
+    var lines = new ArrayList<String>();
+    tests.forEach((test, moved) -> lines.add("S\t" + test + "\t" + VarkaTestReach.names(moved)));
+    return record(lines.toArray(String[]::new));
+  }
+
+  @Test
+  @DisplayName("a test a configuration and the one over it both move reads back under each")
+  void bothNamesOnOneLineReadBack() throws IOException {
+    var reach = recorded(Map.of("both", Set.of(SUBJECT, OVER_SUBJECT)));
+    assertTrue(reach.isPresent());
+    assertFalse(VarkaTestReach.skips(reach, SUBJECT, "S", "both", false, false));
+    assertFalse(VarkaTestReach.skips(reach, OVER_SUBJECT, "S", "both", false, false));
+    assertTrue(VarkaTestReach.skips(reach, INERT, "S", "both", false, false));
+  }
+
+  @Test
+  @DisplayName("a test only the configuration over a subject moves runs under it, not the subject")
+  void configurationWithACommaIsOneName() throws IOException {
+    var reach = recorded(Map.of("over", Set.of(OVER_SUBJECT)));
+    assertFalse(VarkaTestReach.skips(reach, OVER_SUBJECT, "S", "over", false, false),
+        "the configuration moves the test, so its run must not skip it");
+    assertTrue(VarkaTestReach.skips(reach, SUBJECT, "S", "over", false, false));
+  }
+
+  @Test
+  @DisplayName("no configuration the matrix runs holds the record's separator")
+  void noConfigurationHoldsTheSeparator() {
+    assertTrue(VarkaMatrixRuns.configurations().stream().anyMatch(c -> c.contains(",")),
+        "the matrix runs a configuration of several settings, which a comma would split");
+    for (String config : VarkaMatrixRuns.configurations()) {
+      assertFalse(config.contains(VarkaTestReach.SEPARATOR), config);
+    }
   }
 
   @Test

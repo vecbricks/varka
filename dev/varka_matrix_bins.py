@@ -164,6 +164,17 @@ def suite_weight(suite_seconds, suite_times):
     return weight
 
 
+# Separates the configurations a reach record's line names, as `VarkaTestReach.SEPARATOR` does: a
+# configuration name joins its settings with commas (`useAVX=2,wideConversionForm=MAGIC`), so a
+# comma cannot separate names, and no option, arm or value holds a semicolon.
+REACH_SEPARATOR = ";"
+
+
+def reach_names(field):
+    """The configurations a reach record's field names: none for `-`."""
+    return set() if field == "-" else {c for c in field.split(REACH_SEPARATOR) if c}
+
+
 def read_reach(path):
     """`VarkaTestReach`'s record: the configurations it covers, from its `#<TAB>covers<TAB>`
     lines, and for each suite the configurations that move each of its tests, with the suite's
@@ -176,11 +187,11 @@ def read_reach(path):
             if len(parts) >= 2 and parts[1] == "broken":
                 return None
             if len(parts) == 3 and parts[1] == "covers":
-                covered |= {c for c in parts[2].split(",") if c}
+                covered |= reach_names(parts[2])
             continue
         if len(parts) < 3:
             continue
-        moved = set() if parts[-1] == "-" else set(parts[-1].split(","))
+        moved = reach_names(parts[-1])
         suite, test = parts[0], "\t".join(parts[1:-1])
         if suite == "*":
             everywhere |= moved
@@ -332,6 +343,9 @@ def whole_runs(junit_dirs, reach=None):
     suite's, and the planner applies that share to the weight itself (`units`), so counting it
     here too would shrink the weight twice (VARKA-508). The directories are one run's: a suite's
     seconds under a configuration add up over them."""
+    # A run directory names a combined configuration with `_` for its commas (`run_dir`), and the
+    # record names it whole: the record's own names are mapped to their directories to match.
+    named = {run_dir(c): c for c in reach[0]} if reach is not None else {}
     per_config = {}
     for d in junit_dirs:
         for xml in Path(d).glob("**/*/*/junit/TEST-*.xml"):
@@ -349,7 +363,7 @@ def whole_runs(junit_dirs, reach=None):
     return {
         (config, suite): seconds
         for (suite, config), seconds in per_config.items()
-        if reach_share(reach, config, suite) == 1.0
+        if reach_share(reach, named.get(config, config), suite) == 1.0
     }
 
 
@@ -796,7 +810,7 @@ class SelfTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as root:
             f = Path(root, "reach.tsv")
             f.write_text(
-                "#\tcovers\tx=1,y=2,w=4\nA\tone\tx=1\nA\ttwo\t-\nB\tone\t-\nB\t*\tw=4\n",
+                "#\tcovers\tx=1;y=2;w=4\nA\tone\tx=1\nA\ttwo\t-\nB\tone\t-\nB\t*\tw=4\n",
                 encoding="utf-8",
             )
             reach = read_reach(f)
@@ -813,6 +827,49 @@ class SelfTest(unittest.TestCase):
         # B's set-up moved under w=4, so all of B runs there.
         got = units(["w=4"], suites, lambda s: 100.0, {}, 480.0, reach)
         self.assertIn(("w=4", "B"), {(u[0], u[2][0]) for u in got})
+
+    def test_a_configuration_with_a_comma_is_one_name_in_the_record(self):
+        # A configuration over its subject holds a comma, and a test both it and the subject
+        # alone move names both on one line.
+        over = "useAVX=2,wideConversionForm=MAGIC"
+        with tempfile.TemporaryDirectory() as root:
+            f = Path(root, "reach.tsv")
+            f.write_text(
+                f"#\tcovers\tuseAVX=2;{over}\nA\tboth\tuseAVX=2;{over}\nA\tover\t{over}\n"
+                f"A\tneither\t-\n",
+                encoding="utf-8",
+            )
+            reach = read_reach(f)
+        self.assertEqual(reach[0], {"useAVX=2", over})
+        self.assertEqual(reach[1]["A"], [{"useAVX=2", over}, {over}, set()])
+        self.assertAlmostEqual(reach_share(reach, over, "A"), 2 / 3)
+        self.assertAlmostEqual(reach_share(reach, "useAVX=2", "A"), 1 / 3)
+
+    def test_the_selection_record_keeps_a_configuration_with_a_comma_whole(self):
+        over = "useAVX=2,wideConversionForm=MAGIC"
+        pr = {"digests": {("S", "t"): {"defaults": "d", over: "e", "x=1": "f"}}}
+        with tempfile.TemporaryDirectory() as root:
+            reach = Path(root, "reach.tsv")
+            reach.write_text(f"S\tt\t{over};x=1\n", encoding="utf-8")
+            out = Path(root, "selected.tsv")
+            lines = reach_record(
+                {(over, "S", "t"): "digest", ("x=1", "S", "t"): "digest"}, pr, reach
+            )
+            out.write_text("\n".join(lines) + "\n", encoding="utf-8")
+            covered, tests = read_reach(out)
+        self.assertEqual(covered, {over, "x=1"})
+        self.assertEqual(tests["S"], [{over, "x=1"}])
+
+    def test_a_combined_configurations_run_directory_finds_its_record(self):
+        over = "useAVX=2,wideConversionForm=MAGIC"
+        with tempfile.TemporaryDirectory() as root:
+            junit = Path(root, "runs", run_dir(over), "sql-0", "junit")
+            junit.mkdir(parents=True)
+            Path(junit, "TEST-p.A.xml").write_text('<testsuite name="p.A" time="10.0">')
+            f = Path(root, "reach.tsv")
+            f.write_text(f"#\tcovers\t{over}\nA\tone\t{over}\nA\ttwo\t-\n", encoding="utf-8")
+            got = whole_runs([Path(root, "runs")], read_reach(f))
+        self.assertEqual(got, {}, "the configuration ran half of A, so its time is no whole run")
 
     def test_a_broken_record_is_none(self):
         with tempfile.TemporaryDirectory() as root:
@@ -991,10 +1048,10 @@ def reach_record(selected, pr, reach=None):
                 return ["#\tbroken\tthe pull request's reach record is broken"]
             if line.startswith("#") or len(parts) < 3:
                 continue
-            got = set() if parts[-1] == "-" else set(parts[-1].split(","))
+            got = reach_names(parts[-1])
             key = (parts[0], "\t".join(parts[1:-1]))
             moving.setdefault(key, set()).update(got)
-    lines = ["#\tcovers\t" + ",".join(covered)]
+    lines = ["#\tcovers\t" + REACH_SEPARATOR.join(covered)]
     tests = sorted({(s, t) for s, t in pr["digests"] if s != "*" and t != "*"})
     for suite, test in tests:
         rerun = {c for (c, s, t) in selected if (s, t) == (suite, test) and c != DEFAULTS}
@@ -1003,7 +1060,7 @@ def reach_record(selected, pr, reach=None):
             moved |= moving.get(("*", "*"), set())
             if "*" not in moved:
                 rerun &= moved
-        lines.append(f"{suite}\t{test}\t{','.join(sorted(rerun)) or '-'}")
+        lines.append(f"{suite}\t{test}\t{REACH_SEPARATOR.join(sorted(rerun)) or '-'}")
     return lines
 
 

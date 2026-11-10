@@ -143,7 +143,7 @@ public final class VarkaTestReach {
       VarkaCompileObserver.set(new Guarded(r));
       // The configurations the record covers, which the planner reads (dev/varka_matrix_bins.py):
       // one not named here runs every test.
-      append("#\tcovers\t" + String.join(",", configs));
+      append("#\tcovers\t" + String.join(SEPARATOR, configs));
       // What the JVM compiled outside every suite, which every test may have read.
       Runtime.getRuntime().addShutdownHook(new Thread(() -> {
         append("*\t*\t" + names(r.outside));
@@ -225,8 +225,20 @@ public final class VarkaTestReach {
   /** The line's word for a test every configuration runs. */
   static final String EVERY = "*";
 
-  private static String names(Set<String> moved) {
-    return moved == null || moved.isEmpty() ? "-" : String.join(",", new TreeSet<>(moved));
+  /**
+   * Separates the configurations a line names. Not a comma: a configuration that sets several
+   * options joins its settings with commas ({@code useAVX=2,wideConversionForm=MAGIC}, as
+   * {@code dev/varka_matrix.sh --config} takes them), so a comma would split one name in two.
+   * Not a space either, since {@link VarkaMatrixRuns#parseOver} trims the settings and so admits
+   * one after a comma. A name is option names, {@code =} and values - flags, enum constants and
+   * counts - and none of them holds a semicolon; {@code VarkaTestReachSuite} checks every
+   * configuration the matrix runs. {@code dev/varka_matrix_bins.py} reads and writes the same.
+   */
+  static final String SEPARATOR = ";";
+
+  /** The line's field for the configurations that moved: {@code -} for none. */
+  static String names(Set<String> moved) {
+    return moved == null || moved.isEmpty() ? "-" : String.join(SEPARATOR, new TreeSet<>(moved));
   }
 
   private static synchronized void append(String line) {
@@ -559,7 +571,8 @@ public final class VarkaTestReach {
   }
 
   /**
-   * {@code suite<TAB>test<TAB>configs} lines, a test's last line winning, {@code #} ones aside;
+   * {@code suite<TAB>test<TAB>configs} lines, the configurations joined by {@link #SEPARATOR}, a
+   * test's last line winning, {@code #} ones aside;
    * empty for a record its recording marked broken.
    */
   static Optional<Record> read(Path file) {
@@ -576,7 +589,16 @@ public final class VarkaTestReach {
           continue;
         }
         String names = line.substring(last + 1);
-        Set<String> moved = names.equals("-") ? Set.of() : Set.of(names.split(","));
+        // A set that takes a name twice, as Set.of does not, and drops an empty one, as the
+        // planner does: a line is read as written.
+        var moved = new TreeSet<String>();
+        if (!names.equals("-")) {
+          for (String name : names.split(Pattern.quote(SEPARATOR))) {
+            if (!name.isEmpty()) {
+              moved.add(name);
+            }
+          }
+        }
         String key = line.substring(0, last);
         if (key.equals("*\t*")) {
           everywhere.addAll(moved);
