@@ -80,7 +80,8 @@ class VarkaDecimalBaselineQueriesSuite extends QueryTest with VarkaSharedSession
       val schema = spark.table("varka_decimal").schema
       assert(schema.map(f => f.name -> f.dataType) === expected)
 
-      val sections = VarkaDecimalBaselineBenchmark.sections().asScala
+      // The answers do not depend on the class a section is held to, so either refusal does.
+      val sections = VarkaDecimalBaselineBenchmark.sections(false).asScala
       assert(sections.size === 88)
       // The result type of each shape, as Spark's decimal rules give it: the chain widens at each
       // node and is capped at 38, and the cast is the one the precision names. The time sections
@@ -179,19 +180,29 @@ class VarkaDecimalBaselineQueriesSuite extends QueryTest with VarkaSharedSession
     }
   }
 
-  test("each section of the decimal baseline fuses as its class lists it", PinsDefaults) {
+  test("each section of the decimal baseline fuses as its class lists it, with and without the " +
+      "two-lane refusal", PinsDefaults) {
     // The benchmark's own check, made here too, so a change to how a section fuses fails a pull
     // request rather than the runner dispatch that times it. The benchmark plans under the
     // emitter's default options, so the classes pin the defaults, and an option matrix
     // configuration, under which a section may fuse differently, cancels the test; so does the
-    // run that lifts the benchmark's check.
+    // run that lifts the benchmark's check. The benchmark runs with the refusal of a filter's
+    // 64-bit-lane condition at the host's default, so on the 128-bit companion's host its
+    // filters decline (VARKA-503); this checks both lists on any host by setting the refusal,
+    // which the shared sessions leave off, each way.
     assume(VarkaSqlBenchmarkBase.fuseCheck(),
       s"-D${VarkaSqlBenchmarkBase.FUSE_CHECK_PROPERTY}=false times the sections fused")
     withTable(100) {
-      for (s <- VarkaDecimalBaselineBenchmark.sections().asScala) {
-        withClue(s.title) {
-          val plan = varkaSpark.sql(s.query).queryExecution.executedPlan
-          assert(VarkaSqlBenchmarkBase.fusion(plan) === Optional.of(s.fusion))
+      for (declines <- Seq(true, false)) {
+        withBothConf(SQLConf.VARKA_DECLINE_TWO_LANE_CONDITIONS.key, declines.toString) {
+          // Every section that plans otherwise, so a failure names them all at once.
+          val wrong = for {
+            s <- VarkaDecimalBaselineBenchmark.sections(declines).asScala
+            planned = VarkaSqlBenchmarkBase.fusion(
+              varkaSpark.sql(s.query).queryExecution.executedPlan)
+            if planned != Optional.of(s.fusion)
+          } yield s"${s.title}: listed ${s.fusion}, plans $planned"
+          assert(wrong.isEmpty, s"refusal $declines:\n${wrong.mkString("\n")}")
         }
       }
     }
