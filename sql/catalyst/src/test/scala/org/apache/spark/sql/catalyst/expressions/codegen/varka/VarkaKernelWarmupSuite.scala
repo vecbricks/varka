@@ -17,11 +17,8 @@
 
 package org.apache.spark.sql.catalyst.expressions.codegen.varka
 
-import java.io.{BufferedReader, File, InputStreamReader}
 import java.lang.foreign.{Arena, ValueLayout}
 import java.lang.management.ManagementFactory
-import java.nio.charset.StandardCharsets
-import java.util.concurrent.TimeUnit
 import javax.management.ObjectName
 
 import scala.collection.mutable
@@ -77,10 +74,6 @@ class VarkaKernelWarmupSuite extends SparkFunSuite with VarkaTestWatchdog {
     }.toMap
   }
 
-  private def testClasspath: String =
-    Option(System.getenv("SPARK_DIST_CLASSPATH")).filter(_.nonEmpty)
-      .getOrElse(System.getProperty("java.class.path"))
-
   /**
    * What one warm-up claimed by a batch with `claimed` nulls came to, in a JVM of its own: the
    * probe's support line and outcome line as fields, the allocation of the calls it measured
@@ -91,47 +84,30 @@ class VarkaKernelWarmupSuite extends SparkFunSuite with VarkaTestWatchdog {
       allocated: Map[String, Long], ownRun: Map[String, Long], jit: String,
       later: Map[String, (Long, Long)] = Map.empty, laterJit: String = "no later state printed")
 
-  /** The probe's budget: its warm-up deadline (120 s), its wait for the verdict, and slack. */
-  private val probeBudgetSeconds = 240L
+  /**
+   * One child per test, so a test's child at its budget, 540 s at the watchdog's ten minutes,
+   * ends before the test's cap; the probe's own warm-up deadline is 120 s.
+   */
+  private def childBudgetSeconds: Long = VarkaChildProcess.budgetSeconds(watchdogMinutes, 1)
 
   private def warmUpInFork(claimed: Nulls, wide: Boolean = false,
       others: Boolean = false): Forked = {
-    val javaBin = new File(new File(System.getProperty("java.home"), "bin"), "java")
     val vectorFlags = ManagementFactory.getRuntimeMXBean.getInputArguments.asScala.toSeq
       .filter(a => Seq("-XX:MaxVectorSize=", "-XX:UseAVX=", "-XX:UseSVE=").exists(a.startsWith))
     val config = VarkaMatrix.config
     val matrixConfig = if (config.isEmpty) Nil else Seq(s"-D${VarkaMatrix.PROPERTY}=$config")
-    val command = Seq(javaBin.getAbsolutePath, "--add-modules", "jdk.incubator.vector",
-      "--enable-native-access=ALL-UNNAMED", "-Xmx1g", "-Dvarka.warmup.deadlineSeconds=120") ++
-      vectorFlags ++ matrixConfig ++ Seq("-cp", testClasspath,
-      classOf[VarkaKernelWarmupProbe].getName, claimed.word) ++ (if (wide) Seq("wide") else Nil) ++
-      (if (others) Seq("others") else Nil)
-    // The child JVM's code runs where the class-use record cannot see it (VarkaTestUse).
-    VarkaTestUse.childJvm()
-    val process = new ProcessBuilder(command.asJava).redirectErrorStream(true).start()
-    val reader = new BufferedReader(
-      new InputStreamReader(process.getInputStream, StandardCharsets.UTF_8))
+    val command = VarkaChildProcess.javaCommand(
+      (Seq("-Xmx1g", "-Dvarka.warmup.deadlineSeconds=120") ++ vectorFlags ++ matrixConfig).asJava,
+      classOf[VarkaKernelWarmupProbe].getName,
+      (Seq(claimed.word) ++ (if (wide) Seq("wide") else Nil) ++
+        (if (others) Seq("others") else Nil)).asJava)
+    val what = s"$suiteName's warm-up probe of a batch with $claimed" +
+      (if (wide) ", wide" else "") + (if (others) ", after other kernels" else "")
     val lines = mutable.ArrayBuffer.empty[String]
-    // The read below ends only when the child exits, so a hung probe is ended from here: a daemon
-    // thread destroys it after the budget (the child's own deadline is 120 s).
-    val killer = new Thread(() => {
-      if (!process.waitFor(probeBudgetSeconds, TimeUnit.SECONDS)) process.destroyForcibly()
-    })
-    killer.setDaemon(true)
-    killer.start()
-    try {
-      var line = reader.readLine()
-      while (line != null) {
-        lines += line
-        line = reader.readLine()
-      }
-    } finally {
-      reader.close()
-    }
-    assert(process.waitFor(probeBudgetSeconds, TimeUnit.SECONDS),
-      s"the warm-up probe did not finish in $probeBudgetSeconds seconds")
-    val tail = lines.takeRight(40).mkString("\n")
-    assert(process.exitValue() == 0, s"the probe failed (exit ${process.exitValue()}):\n$tail")
+    val child =
+      VarkaChildProcess.run(what, new ProcessBuilder(command), childBudgetSeconds, lines += _)
+    child.requireSuccess(true)
+    val tail = child.lastLines()
     assert(marked(lines.toSeq, DONE_PREFIX) == Seq("status=0"), tail)
     val support = marked(lines.toSeq, SUPPORT_PREFIX)
     assert(support.size == 1, tail)
