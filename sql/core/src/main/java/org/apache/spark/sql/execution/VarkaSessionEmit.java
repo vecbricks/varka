@@ -197,7 +197,7 @@ public record VarkaSessionEmit(
    * {@link #MAGIC_MIN_LONG_BITS} wide, {@link VarkaEmitOptions#AVX512_LEVEL} on a host whose
    * {@code L2D} and {@code L2F} are vector instructions
    * ({@link VarkaHostIsa.Reading#conversionsAreInstructions()}: an x86 host whose feature list
-   * was read and holds AVX512DQ, and every aarch64 host), and
+   * was read and holds AVX512DQ, and an aarch64 host whose list was read), and
    * {@link VarkaEmitOptions#USE_AVX_UNKNOWN} otherwise: a narrower species, or one whose width
    * could not be read, keeps the conversion form.
    *
@@ -215,10 +215,11 @@ public record VarkaSessionEmit(
    *
    * <p>Any other architecture stays unknown, and so a {@code BIGINT} cast to a floating type
    * declines there unless the session names a level. A feature list that could not be read
-   * leaves an x86 host at the emitter's default too, which is safe: the division keeps the
-   * conversion form, and the plan declines the conversions. On x86, the one architecture where
-   * the list could have changed the level, that says so once in the driver's log, since nothing
-   * else would show that the host was never read. An aarch64 host needs no list.
+   * leaves the emitter's default too, which is safe: the division keeps the conversion form,
+   * and the plan declines the conversions. On aarch64 the read is the one sign that the JVM is
+   * HotSpot with its vector intrinsics, which the level vouches for. On x86, where the list
+   * decides between levels, an unread one says so once in the driver's log, since nothing else
+   * would show that the host was never read.
    */
   static int resolve(VarkaHostIsa.Reading host) {
     if (!host.readable() && host.x86() && UNREADABLE_LOGGED.compareAndSet(false, true)) {

@@ -222,8 +222,9 @@ class VarkaTimeArithmeticSuite extends QueryTest with VarkaMaybeThrows with Vark
   test("a session at the default level plans what the JVM's features say") {
     // VARKA-538 test 3.6, nothing planted: the default level -2, the real export, the
     // reflective read and of(conf) on whatever CPU runs the suite - the magic form on an AVX2
-    // runner whose long species is 256 bits or more, level 3 on an AVX512DQ one, the unknown level
-    // under -XX:MaxVectorSize=16 - and the answers are the row engine's either way. The suite's
+    // runner whose long species is 256 bits or more, level 3 on an AVX512DQ one and on aarch64
+    // (VARKA-584), the unknown level under -XX:MaxVectorSize=16 - and the answers are the row
+    // engine's either way. The suite's
     // session pins -1, so the default is set back for the test.
     assert(SQLConf.VARKA_EMIT_USE_AVX.defaultValue.contains(VarkaSessionEmit.USE_AVX_FROM_HOST))
     resolvingFromHost {
@@ -238,7 +239,7 @@ class VarkaTimeArithmeticSuite extends QueryTest with VarkaMaybeThrows with Vark
         // (an AVX2 host under -XX:MaxVectorSize=16 has a 128-bit species).
         if (host.longBits() >= VarkaSessionEmit.MAGIC_MIN_LONG_BITS) 2
         else VarkaEmitOptions.USE_AVX_UNKNOWN
-      } else if (host.x86() && host.readable() && !host.features().isEmpty) {
+      } else if (host.conversionsAreInstructions()) {
         VarkaEmitOptions.AVX512_LEVEL
       } else {
         VarkaEmitOptions.USE_AVX_UNKNOWN
