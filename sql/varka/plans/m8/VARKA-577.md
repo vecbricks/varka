@@ -112,11 +112,12 @@ decimal (section 7).
 3. **Form (c).** *Settled by the owner, 9 November 2026:* (c) is the `BigInteger` call a row; a
    scalar remainder in `long`s is added only if (c) comes close to the winner (10.2, item 3).
 4. **The 128-bit column on x86** (added 10 November 2026, from 10.3). At two long lanes, E and D
-   run the Java fallback and B is the fastest form, 3 to 4 times faster than E. E's fallback is
-   no faster than the row path's whole query (indicative only). Two answers are open. One: the
-   remainder declines at 128 bits on x86 under `VARKA-359.md` 2.6. Two: it fuses there with B,
-   or with a scalar remainder in `long`s. 7.3's rule adds a scalar arm only if B comes close to
-   the winner; it did not foresee a width at which B *is* the winner.
+   run the Java fallback and B is the fastest form, 3 to 4 times faster than E. E's fallback
+   does not beat the row path's whole query by AGENTS.md's 1.3 times (indicative only). Two
+   answers are open. One: the remainder declines at 128 bits on x86 under `VARKA-359.md` 2.6.
+   Two: it fuses there with B, or with a scalar remainder in `long`s. 7.3's rule adds a scalar
+   arm only if B comes close to the winner; it did not foresee a width at which B *is* the
+   winner.
 
 ## 8. Done when
 
@@ -129,8 +130,10 @@ decimal (section 7).
 ## 9. Open points for the lead
 
 1. The division form (2.3) is open until the spike.
-   *10 November 2026:* on the runner, E at 256 bits (10.3). The laptop's 512-bit column is still
-   owed, and the 128-bit column on x86 is question 7.4.
+   *10 November 2026:* on the runner, E at 256 bits (10.3). Still owed: a 512-bit reading on a
+   host with a 512-bit datapath (the laptop's is double-pumped), the laptop's three widths as 2.3
+   asks, the aarch64 column at two long lanes, where the pair runs natively (`VARKA-359.md` 2.6),
+   and the 128-bit column on x86, which is question 7.4.
 2. Whether `VARKA-359.md` 6 and row 349's plan carry the dated note that this row owns the four
    names (this change corrects `VARKA-363.md` and the census).
 
@@ -157,7 +160,9 @@ The benchmark's classes now follow the two-lane refusal #1262 added (VARKA-503):
 *10 November 2026:* the reading landed in #1475 (vecbricks/varka runs 42846426514 at 256 bits and
 42846449693 at 128), spliced into both `-runner-epyc7763` files of
 `VarkaDecimalBaselineBenchmark` with a `spliced:` entry in each provenance file. As 0.1 says, none
-of the sixteen fuses, so the two arms tie. At `DECIMAL(38, 10)` without nulls the row path costs
+of the sixteen fuses, so the two arms mostly tie; #1475 lists the exceptions, among
+them `DECIMAL(38, 10) pmod` at one row in ten null at 256 bits, where the Varka arm is slower by
+more than 3%. At `DECIMAL(38, 10)` without nulls the row path costs
 791.2 ns a row for `x % y` and 988.0 for `pmod` at 256 bits, and 771.3 and 973.4 at 128 bits.
 
 ### 10.2 The spike (2.3): built and checked, the reading pending the runners
@@ -245,6 +250,8 @@ companion (and the Arm runner's file if it is dispatched), read on `Rate(M/s)` b
 AGENTS.md's 1.3x threshold, and the laptop's three widths (2.3), pinned on an idle machine, still
 owed. **Verdict: provisional** until then.
 
+*10 November 2026:* the runner's reading is in 10.3.
+
 ### 10.3 The spike's reading on the EPYC runners
 
 *10 November 2026. Two runs of `benchmark.yml` on vecbricks/varka on the EPYC 7763: run
@@ -291,8 +298,10 @@ the 64-bit case (2.2), which the spike does not price.
 **Against the row path** (10.1, `DECIMAL(38, 10)`, no nulls). This comparison is indicative only.
 The spike is a hand loop over slot columns, and the baseline is a whole query over Arrow-cached
 rows. At 256 bits, E's 21.2 to 22.3 ns a row is a small fraction of the row path's 791.2 (`%`)
-and 988.0 (`pmod`). At 128 bits, E's fallback is not faster than the row path: 915.2 to 916.4
-against 771.3 for `%`, and 975.2 to 978.7 against 973.4 for `pmod`.
+and 988.0 (`pmod`). At 128 bits, E's fallback is no faster than the row path: 915.2 to 916.4
+against 771.3 for `%`, and 975.2 to 978.7 against 973.4 for `pmod`. Both gaps are under 1.3
+times, and the `pmod` pair is level, so this says only that E shows no win there, not that it
+loses; a fused build would measure it.
 
 **Verdict, on the runner:**
 - **At 256 bits, E.** It is the fastest form by a wide margin. B is 11 to 13 times slower, which
@@ -301,15 +310,21 @@ against 771.3 for `%`, and 975.2 to 978.7 against 973.4 for `pmod`.
 - **At 128 bits on x86, no vector form.** E and D are the allocating fallback there, and B is
   fastest, 3 to 4 times faster than E.
 
-The laptop's 512-bit column is still owed before 577b fixes its form there. Nothing here
-suggests it would overturn E, but it is not read.
+A 512-bit reading is still owed before 577b fixes its form there. It must come from a host
+with a 512-bit datapath, since the laptop double-pumps 512-bit operations on 256-bit units.
+Nothing here suggests it would overturn E, but it is not read. The aarch64 column at two long
+lanes, where the pair runs natively (`VARKA-359.md` 2.6), is not read either.
 
 **For the next step of row 577.**
-- 577b builds E for the 128-bit dividend at 256 bits, and at 512 unless the laptop overturns
-  it, after 359a, 360 and 481, with the exactness argument (10.2 item 1) proved in SMT as 3.1
-  asks.
+- 577b builds E for the 128-bit dividend at 256 bits, and at 512 unless a 512-bit host
+  overturns it, after 359a, 360 and 481, with the exactness argument (10.2 item 1) proved in
+  SMT as 3.1 asks.
 - At two long lanes on x86, the remainder is a projection, so `VARKA-359.md` 2.6 lets it fuse
-  and measure it against the row path. Built as E, it would not beat the row path (indicative
+  and measure it against the row path. Built as E, it shows no win over the row path (indicative
   only). So 577b either declines it there with this measurement, or fuses it with B or a scalar
   remainder in `long`s. That choice is the owner's (7.4).
+- At two long lanes on aarch64 no form is read; 577b runs the spike on the Arm runner before
+  it picks one there.
+- Section 4's predictions for 577a and 577b are registered from these figures before either is
+  built.
 - 577a, the long-lane case, is unaffected and still waits on row 30.
