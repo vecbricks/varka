@@ -209,9 +209,9 @@ public class VarkaTimestampNtzFieldsBaselineBenchmark extends VarkaSqlBenchmarkB
       out.add(new Section("TIMESTAMP_NTZ CAST(ntz AS TIME(3))" + density,
           "SELECT CAST(" + ntz + " AS TIME(3))" + from, new TimeType(3), one, false, true));
       out.add(new Section("TIMESTAMP_NTZ CAST(tm AS TIMESTAMP_NTZ)" + density,
-          "SELECT CAST(" + tm + " AS TIMESTAMP_NTZ)" + from, ntzType, one, true, false));
+          "SELECT CAST(" + tm + " AS TIMESTAMP_NTZ)" + from, ntzType, one, true, true));
       out.add(new Section("TIMESTAMP_NTZ make_timestamp_ntz(d, tm)" + density,
-          "SELECT make_timestamp_ntz(" + d + ", " + tm + ")" + from, ntzType, two, false, false));
+          "SELECT make_timestamp_ntz(" + d + ", " + tm + ")" + from, ntzType, two, false, true));
     }
     return out;
   }

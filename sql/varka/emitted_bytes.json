@@ -4662,6 +4662,39 @@
           "loopMasked0([J[J[I[J[J[I[JI)I" : "450f8b2e857bde87",
           "epilogueMasked0([J[J[I[J[J[I[JI)I" : "78a5e92f95bc6e0c"
         },
+        "make_timestamp_ntz(d, t)" : {
+          "<class>" : "1a6be0d5ae87cd3c",
+          "<init>()V" : "e2c903051ec05d17",
+          "run([J[J[I[J[J[I[JI)I" : "eeab5c3226f60d53",
+          "runDense([J[J[I[J[J[I[JI)I" : "511ca0be92af6f25",
+          "loopDense0([J[J[I[J[J[I[JI)I" : "6cd9915f402d17a6",
+          "epilogueDense0([J[J[I[J[J[I[JI)I" : "b32ee4126748d7d9",
+          "runMasked([J[J[I[J[J[I[JI)I" : "c9f8fedc1b6b0932",
+          "loopMasked0([J[J[I[J[J[I[JI)I" : "4c3551858cc245b7",
+          "epilogueMasked0([J[J[I[J[J[I[JI)I" : "d1e504c47747064c"
+        },
+        "make_timestamp_ntz(DATE'2021-06-01', t)" : {
+          "<class>" : "1a6be0d5ae87cd3c",
+          "<init>()V" : "e2c903051ec05d17",
+          "run([J[J[I[J[J[I[JI)I" : "d5145bab352f2868",
+          "runDense([J[J[I[J[J[I[JI)I" : "511ca0be92af6f25",
+          "loopDense0([J[J[I[J[J[I[JI)I" : "79cdb6d5a6fad436",
+          "epilogueDense0([J[J[I[J[J[I[JI)I" : "be5dc8a796291134",
+          "runMasked([J[J[I[J[J[I[JI)I" : "8686b1f6b3cbebe4",
+          "loopMasked0([J[J[I[J[J[I[JI)I" : "a2200fb49e47a96c",
+          "epilogueMasked0([J[J[I[J[J[I[JI)I" : "fff9b2f4fd2a49be"
+        },
+        "CAST(t AS TIMESTAMP_NTZ)" : {
+          "<class>" : "1a6be0d5ae87cd3c",
+          "<init>()V" : "e2c903051ec05d17",
+          "run([J[J[I[J[J[I[JI)I" : "d5145bab352f2868",
+          "runDense([J[J[I[J[J[I[JI)I" : "511ca0be92af6f25",
+          "loopDense0([J[J[I[J[J[I[JI)I" : "79cdb6d5a6fad436",
+          "epilogueDense0([J[J[I[J[J[I[JI)I" : "be5dc8a796291134",
+          "runMasked([J[J[I[J[J[I[JI)I" : "8686b1f6b3cbebe4",
+          "loopMasked0([J[J[I[J[J[I[JI)I" : "a2200fb49e47a96c",
+          "epilogueMasked0([J[J[I[J[J[I[JI)I" : "fff9b2f4fd2a49be"
+        },
         "hour(ntz) > 12" : {
           "<class>" : "1a6be0d5ae87cd3c",
           "<init>()V" : "e2c903051ec05d17",
@@ -12158,6 +12191,39 @@
           "loopMasked0([J[J[I[J[J[I[JI)I" : "cef195e7f24a1170",
           "epilogueMasked0([J[J[I[J[J[I[JI)I" : "487f86ecfc4c8789"
         },
+        "make_timestamp_ntz(d, t)" : {
+          "<class>" : "1a6be0d5ae87cd3c",
+          "<init>()V" : "e2c903051ec05d17",
+          "run([J[J[I[J[J[I[JI)I" : "eeab5c3226f60d53",
+          "runDense([J[J[I[J[J[I[JI)I" : "511ca0be92af6f25",
+          "loopDense0([J[J[I[J[J[I[JI)I" : "f519d721b56be9cd",
+          "epilogueDense0([J[J[I[J[J[I[JI)I" : "721beadc4e701cd4",
+          "runMasked([J[J[I[J[J[I[JI)I" : "c9f8fedc1b6b0932",
+          "loopMasked0([J[J[I[J[J[I[JI)I" : "3070ff47edaae290",
+          "epilogueMasked0([J[J[I[J[J[I[JI)I" : "32348c8034f33547"
+        },
+        "make_timestamp_ntz(DATE'2021-06-01', t)" : {
+          "<class>" : "1a6be0d5ae87cd3c",
+          "<init>()V" : "e2c903051ec05d17",
+          "run([J[J[I[J[J[I[JI)I" : "d5145bab352f2868",
+          "runDense([J[J[I[J[J[I[JI)I" : "511ca0be92af6f25",
+          "loopDense0([J[J[I[J[J[I[JI)I" : "5efd1ccb4c688211",
+          "epilogueDense0([J[J[I[J[J[I[JI)I" : "6ec1b2db789a14e1",
+          "runMasked([J[J[I[J[J[I[JI)I" : "8686b1f6b3cbebe4",
+          "loopMasked0([J[J[I[J[J[I[JI)I" : "7b209a408dc72de7",
+          "epilogueMasked0([J[J[I[J[J[I[JI)I" : "ba716a7434abb309"
+        },
+        "CAST(t AS TIMESTAMP_NTZ)" : {
+          "<class>" : "1a6be0d5ae87cd3c",
+          "<init>()V" : "e2c903051ec05d17",
+          "run([J[J[I[J[J[I[JI)I" : "d5145bab352f2868",
+          "runDense([J[J[I[J[J[I[JI)I" : "511ca0be92af6f25",
+          "loopDense0([J[J[I[J[J[I[JI)I" : "5efd1ccb4c688211",
+          "epilogueDense0([J[J[I[J[J[I[JI)I" : "6ec1b2db789a14e1",
+          "runMasked([J[J[I[J[J[I[JI)I" : "8686b1f6b3cbebe4",
+          "loopMasked0([J[J[I[J[J[I[JI)I" : "7b209a408dc72de7",
+          "epilogueMasked0([J[J[I[J[J[I[JI)I" : "ba716a7434abb309"
+        },
         "hour(ntz) > 12" : {
           "<class>" : "1a6be0d5ae87cd3c",
           "<init>()V" : "e2c903051ec05d17",
@@ -14999,50 +15065,50 @@
   "option_arms" : {
     "useAVX=-1" : {
       "4" : "861deae02f26d376",
-      "16" : "172dd4a64a28bbef"
+      "16" : "105e3385e07fd3a3"
     },
     "useAVX=0" : {
-      "4" : "b682b91fe1d790d2",
-      "16" : "ae90b035f7ed5912"
+      "4" : "8968ccd9d341fec6",
+      "16" : "a95c689d5b52c849"
     },
     "useAVX=1" : {
-      "4" : "b682b91fe1d790d2",
-      "16" : "ae90b035f7ed5912"
+      "4" : "8968ccd9d341fec6",
+      "16" : "a95c689d5b52c849"
     },
     "useAVX=2" : {
-      "4" : "b682b91fe1d790d2",
-      "16" : "ae90b035f7ed5912"
+      "4" : "8968ccd9d341fec6",
+      "16" : "a95c689d5b52c849"
     },
     "useAVX=3" : {
       "4" : "861deae02f26d376",
-      "16" : "172dd4a64a28bbef"
+      "16" : "105e3385e07fd3a3"
     },
     "validityOrFirst=true over denseValidityOnce=false,validityByBitmap=false" : {
-      "4" : "f3466b8c2ad43d2b",
-      "16" : "4ec8e1b0fe36fb5f"
+      "4" : "c0128fafbd1f2070",
+      "16" : "377010a998175e53"
     },
     "validityOrFirst=false over denseValidityOnce=false,validityByBitmap=false" : {
-      "4" : "5b6a19e67d316463",
-      "16" : "a606db9db56f16e0"
+      "4" : "19c1df4cfcf8076a",
+      "16" : "770058b3691f9be3"
     },
     "wideConversionForm=SPLIT over useAVX=2" : {
-      "4" : "b682b91fe1d790d2",
-      "16" : "ae90b035f7ed5912"
+      "4" : "8968ccd9d341fec6",
+      "16" : "a95c689d5b52c849"
     },
     "wideConversionForm=MAGIC over useAVX=2" : {
-      "4" : "b682b91fe1d790d2",
-      "16" : "ae90b035f7ed5912"
+      "4" : "8968ccd9d341fec6",
+      "16" : "a95c689d5b52c849"
     },
     "narrowLanes=true" : {
       "4" : "861deae02f26d376",
-      "16" : "172dd4a64a28bbef"
+      "16" : "105e3385e07fd3a3"
     },
     "narrowLanes=false" : {
-      "4" : "588d9a91b2569f0c",
-      "16" : "aa7df60529e1d036"
+      "4" : "0e12d4cfb1b13915",
+      "16" : "a8bc7413bbd87c8f"
     },
     "groupLocalSlots=false" : {
-      "4" : "cccc7fde3dc1ffdc",
+      "4" : "137044630cbfa439",
       "16" : "3aeeb5c99bc5650d"
     },
     "methodByteBudget=0" : {

@@ -59,7 +59,8 @@ public enum VarkaFamily {
   TIME("time", "time", "the TIME functions (hour, minute, second, time_trunc, time_diff, the"
       + " conversions to and from micros and millis, a time plus a day-time interval), the"
       + " casts to TIME and to a day-time interval, hour, minute and second of a TIMESTAMP_NTZ,"
-      + " and TIMESTAMP_NTZ minus TIMESTAMP_NTZ and a TIMESTAMP_NTZ plus or minus a day-time"
+      + " make_timestamp_ntz(date, time) and the cast of a TIME to TIMESTAMP_NTZ, and"
+      + " TIMESTAMP_NTZ minus TIMESTAMP_NTZ and a TIMESTAMP_NTZ plus or minus a day-time"
       + " interval"),
   /** {@code VarkaConditionCompiler.compileCond}, reached outside the chain. */
   PREDICATE("predicate", "predicate", "the comparisons, IN over dates and year-month intervals,"
