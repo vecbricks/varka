@@ -274,7 +274,8 @@ public final class VarkaAnsiForm {
         "timestampadd(WEEK, l, ntz)", "ntz + ym", "ntz - ym", "timestampadd(MONTH, i, ntz)",
         "timestampadd(MONTH, l, ntz)", "timestampadd(QUARTER, i, ntz)",
         "timestampadd(QUARTER, l, ntz)", "timestampadd(YEAR, i, ntz)",
-        "timestampadd(YEAR, l, ntz)", "add_months(ntz, i)")) {
+        "timestampadd(YEAR, l, ntz)", "add_months(ntz, i)", "round(i, -1)", "bround(i, -1)",
+        "round(y1, -1)", "bround(y1, -1)", "round(s1, -1)", "bround(s1, -2)")) {
       out.put(sql + "\t" + FALSE_AND, unqualified);
     }
     // A bigint narrowed to a narrow type as a COALESCE argument beside a narrow column: a narrow
