@@ -80,15 +80,15 @@ class VarkaDecimalBaselineQueriesSuite extends QueryTest with VarkaSharedSession
       val schema = spark.table("varka_decimal").schema
       assert(schema.map(f => f.name -> f.dataType) === expected)
 
-      val sections = VarkaDecimalBaselineBenchmark.sections().asScala
-      assert(sections.size === 88)
+      val sections = VarkaDecimalBaselineBenchmark.sections(false).asScala
+      assert(sections.size === 104)
       // The result type of each shape, as Spark's decimal rules give it: the chain widens at each
       // node and is capped at 38, and the cast is the one the precision names. The time sections
       // are time_to_seconds, DECIMAL(14, 6), and the seconds with their fraction, DECIMAL(8, 6).
       // The lane pair's five filters return the column, and its projected comparison a boolean;
       // so do the 64-bit comparisons' six shapes. The 64-bit arithmetic's three filters return
       // x9, and its projections are x9 + y9, DECIMAL(10, 2), x9 - w9, DECIMAL(12, 4), and
-      // x8 * y9, DECIMAL(18, 4).
+      // x8 * y9, DECIMAL(18, 4). A remainder of two operands of one type has that type.
       val chain = Map(9 -> DecimalType(21, 4), 18 -> DecimalType(38, 7), 38 -> DecimalType(38, 6))
       val resultTypes = VarkaDecimalBaselineBenchmark.PRECISIONS.asScala.flatMap { p =>
         val own = DecimalType(p.precision, p.scale)
@@ -105,7 +105,9 @@ class VarkaDecimalBaselineQueriesSuite extends QueryTest with VarkaSharedSession
           Seq.fill(2)(Seq.fill(5)(own) :+ BooleanType).flatten
         } ++
         Seq.fill(2)(Seq.fill(3)(DecimalType(9, 2)) ++
-          Seq(DecimalType(10, 2), DecimalType(12, 4), DecimalType(18, 4))).flatten
+          Seq(DecimalType(10, 2), DecimalType(12, 4), DecimalType(18, 4))).flatten ++
+        Seq(DecimalType(9, 2), DecimalType(18, 4), DecimalType(38, 10), DecimalType(20, 2))
+          .flatMap(t => Seq.fill(4)(t))
       assert(sections.map(s => spark.sql(s.query).schema.head.dataType) === resultTypes)
       def condition(query: String): Expression = spark.sql(query).queryExecution.analyzed
         .collectFirst { case f: Filter => f.condition }.get
@@ -179,19 +181,42 @@ class VarkaDecimalBaselineQueriesSuite extends QueryTest with VarkaSharedSession
     }
   }
 
+  test("no divisor of a remainder section is zero at the benchmark's row count") {
+    // A zero divisor raises under ANSI, which would stop the timed run, so the full table is
+    // generated here, uncached, and its divisor columns are counted.
+    val divisors = VarkaDecimalBaselineBenchmark.REMAINDER_PRECISIONS.asScala.map("y" + _.suffix)
+    val zeros = spark.sql(VarkaDecimalBaselineBenchmark.tableSql(
+      VarkaDecimalBaselineBenchmark.NUM_ROWS)).where(divisors.map(_ + " = 0").mkString(" OR "))
+    assert(zeros.count() === 0)
+  }
+
   test("each section of the decimal baseline fuses as its class lists it", PinsDefaults) {
     // The benchmark's own check, made here too, so a change to how a section fuses fails a pull
     // request rather than the runner dispatch that times it. The benchmark plans under the
     // emitter's default options, so the classes pin the defaults, and an option matrix
     // configuration, under which a section may fuse differently, cancels the test; so does the
-    // run that lifts the benchmark's check.
+    // run that lifts the benchmark's check. The benchmark lists its classes at the two-lane
+    // refusal the host resolves (VARKA-503), which the shared sessions leave off, so both lists
+    // are checked here by setting the refusal each way.
     assume(VarkaSqlBenchmarkBase.fuseCheck(),
       s"-D${VarkaSqlBenchmarkBase.FUSE_CHECK_PROPERTY}=false times the sections fused")
+    val key = SQLConf.VARKA_DECLINE_TWO_LANE_CONDITIONS.key
+    val before = varkaSpark.conf.getOption(key)
     withTable(100) {
-      for (s <- VarkaDecimalBaselineBenchmark.sections().asScala) {
-        withClue(s.title) {
-          val plan = varkaSpark.sql(s.query).queryExecution.executedPlan
-          assert(VarkaSqlBenchmarkBase.fusion(plan) === Optional.of(s.fusion))
+      try {
+        for (declines <- Seq(false, true)) {
+          varkaSpark.conf.set(key, declines.toString)
+          for (s <- VarkaDecimalBaselineBenchmark.sections(declines).asScala) {
+            withClue(s"${s.title}, refusal $declines") {
+              val plan = varkaSpark.sql(s.query).queryExecution.executedPlan
+              assert(VarkaSqlBenchmarkBase.fusion(plan) === Optional.of(s.fusion))
+            }
+          }
+        }
+      } finally {
+        before match {
+          case Some(v) => varkaSpark.conf.set(key, v)
+          case None => varkaSpark.conf.unset(key)
         }
       }
     }
