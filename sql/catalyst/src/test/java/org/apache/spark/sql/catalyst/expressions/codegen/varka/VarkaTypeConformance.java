@@ -197,7 +197,10 @@ public abstract class VarkaTypeConformance {
    * The operators the census marks fused in part for this type ({@code fused_in_part}) whose
    * forms this suite's fixture may see declined: there they are owed. Any other fused-in-part
    * form must fuse here, so that a regression to a decline fails rather than cancels. None by
-   * default.
+   * default. Each entry is held to the census and to this suite ({@link #checkDeclinesInPart}):
+   * it must name an operator the census marks fused in part for the type, and a check that runs
+   * its forms must see one of them decline, so that an entry whose forms start fusing is
+   * dropped rather than left to excuse a later regression.
    */
   protected Set<String> declinesInPart() {
     return Set.of();
@@ -516,6 +519,24 @@ public abstract class VarkaTypeConformance {
   }
 
   /**
+   * Fails unless every {@link #declinesInPart} entry names an operator the census marks fused in
+   * part for the type: an entry that is not would be ignored, since only a fused-in-part form
+   * reads the set.
+   */
+  private void checkDeclinesInPart() {
+    var wrong = new ArrayList<String>();
+    for (String register : declinesInPart()) {
+      if (register.startsWith("cast:")
+          || !Registers.census(register).partial().contains(type().census())) {
+        wrong.add(register);
+      }
+    }
+    assertTrue(wrong.isEmpty(), "declinesInPart names " + wrong + ", which the census does not "
+        + "mark fused in part for " + type().census() + ": drop them, or mark the type fused in "
+        + "part for them in census.tsv");
+  }
+
+  /**
    * The gaps the census cannot state, by type and operator, with the row that owns each: its
    * claims are not per mode, and these operators fuse over two columns in LEGACY while the
    * compiler declines their checked form under ANSI.
@@ -560,9 +581,12 @@ public abstract class VarkaTypeConformance {
         forms.add(f.asValue());
       }
     }
+    checkDeclinesInPart();
     var owed = new ArrayList<String>();
     var drift = new ArrayList<String>();
     var unbaked = new ArrayList<String>();
+    // Each declinesInPart() entry this check runs a form of, and whether one of them declined.
+    var listedDeclined = new HashMap<String, Boolean>();
     for (Form f : forms) {
       Expression expr = resolve(f);
       Optional<String> owner = owedTo(f, expr.dataType());
@@ -571,11 +595,15 @@ public abstract class VarkaTypeConformance {
         if (fusedInPart(f)) {
           // The census marks the type fused in part: a form in the band that fuses is held to
           // the answers rather than called drift, and one the suite names as outside it is owed.
+          boolean listed = declinesInPart().contains(f.register());
+          if (listed) {
+            listedDeclined.merge(f.register(), compiled.isEmpty(), Boolean::logicalOr);
+          }
           if (compiled.isPresent()) {
             check(f, compiled.get());
             continue;
           }
-          if (!declinesInPart().contains(f.register())) {
+          if (!listed) {
             drift.add(f + " declines, and the census marks the type fused in part for it, "
                 + "which this suite's fixture is inside" + declineReason(f, expr));
             continue;
@@ -601,6 +629,12 @@ public abstract class VarkaTypeConformance {
       }
       check(f, compiled.get());
     }
+    listedDeclined.forEach((register, declined) -> {
+      if (!declined) {
+        drift.add("every form of " + register + " fuses, and declinesInPart names it as owed: "
+            + "drop it from declinesInPart");
+      }
+    });
     // Every form of the check is tried before a drift fails it, so that one run names them all.
     if (!drift.isEmpty()) {
       fail("the registers have drifted from the compiler: " + String.join("; ", drift));

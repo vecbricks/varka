@@ -1184,8 +1184,8 @@ public final class VarkaKernelChecks {
 
     @Override public long got(MemorySegment out, int i, VarkaVectorIR root,
         VarkaVectorIR.LaneType rootLane) {
-      return root instanceof NarrowLane ? out.get(ValueLayout.JAVA_INT, i * 4L)
-          : out.get(ValueLayout.JAVA_LONG, i * 8L);
+      // runLoadedDecimal refuses a narrowing root, so every output is a long a row.
+      return out.get(ValueLayout.JAVA_LONG, i * 8L);
     }
   }
 

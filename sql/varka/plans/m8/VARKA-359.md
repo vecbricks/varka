@@ -823,6 +823,40 @@ The sections, `|`-separated for `--sections`: `DECIMAL(38, 10) comparison`, and 
 `(20, 2)` the `<=> filter`, `IS NULL filter` and `x < y as a value`, each at `no nulls` and `one
 row in ten null`. 11.7's predictions 3 to 5 are scored from them when they land.
 
+*Correction (10 November 2026), to the paragraph above:* the measurement does need code, and not
+every head holding part 3 can run it. At `-XX:MaxVectorSize=16` the x86 long species has two
+lanes, so the session refuses a filter's condition in a kernel driven at a 64-bit lane (VARKA-503,
+`spark.sql.codegen.varka.declineTwoLaneConditions` unset). Part 3's classes listed the filters as
+fused, so the 128-bit run failed its plan check before timing anything. It runs only on a head
+holding this part's `[VARKA-359] Hold the decimal baseline's filters to the two-lane refusal`
+commit, which makes every filter section `NONE` under the refusal. The 128-bit run therefore
+times 359a's filter sections (the `(38, 10)` comparison, the `<=> filter` and the `IS NULL
+filter`) on the row path, not on the lane pair. Which run scores which prediction:
+
+- *Predictions 3 and 4* (the comparison, `<=>` and `x < y` as a value at 256 bits; `IS NULL`
+  without nulls) are scored from the 256-bit run alone. At 256 bits the long species has four
+  lanes, the refusal is off, and the filters fuse.
+- *Prediction 5* is scored from the default 128-bit run, as the dispatch above stands. It predicts
+  what that run measures: the filters decline and tie the row path, and `x < y` as a value,
+  which the refusal leaves alone, fuses.
+- *The lane pair's filters at two lanes* are not timed by either run, and no prediction covers
+  them. If they are wanted, a third run forces the refusal off. `benchmark.yml` passes
+  `extra-java-options` to `spark-submit` as `--driver-java-options`, the `-D` lands in the driver
+  JVM's system properties, `SparkConf` reads every `spark.*` system property, and
+  `VarkaArrowSessions.createSession` sets nothing for this conf, so the session resolves it from
+  the property. The class then reads the refusal as off and checks each filter as fused before
+  it times anything. This route is prepared, not run. Its sbt counterpart is the command at the
+  head of `results/VARKA-503/two-lane-refusal-off-128bit.txt`, whose benchmark builds its sessions
+  through the same `createSession`:
+
+      gh workflow run benchmark.yml -R MaxGekk/spark --ref varka-359a-part4 \
+        -f class=VarkaDecimalBaselineBenchmark -f jdk=25 -f generate-tpcds=false \
+        -f expected-cpu="AMD EPYC 7763" \
+        -f extra-java-options="-XX:MaxVectorSize=16 -Dspark.sql.codegen.varka.declineTwoLaneConditions=false"
+
+  The class measures what ships, so that run is a side record under `results/VARKA-359/`, as
+  503's forced-off runs are, and is not spliced into the runner files.
+
 **The review's fixes (9 November 2026).** One `/code-review high` pass and one fix round:
 
 - *A fused-in-part form that regresses to a decline cancelled instead of failing.* A suite now
@@ -842,6 +876,19 @@ row in ten null`. 11.7's predictions 3 to 5 are scored from them when they land.
 - *Not changed*: the reference reads the high words through a rewrite of the word leaves to
   columns of a doubled row, not a reference overload; the per-row `BigInteger` work, which the
   suites' seconds do not need saved.
+
+**The second review's fixes (10 November 2026).** One more pass, one fix round:
+
+- *`declinesInPart` was not checked.* An entry that named no fused-in-part operator was ignored,
+  and an entry whose forms began to fuse stayed and would have excused a later regression. Every
+  check now fails unless each entry names an operator the census marks fused in part for the
+  type, and a check that runs the forms of an entry fails if none of them declines, telling the
+  author to drop the entry. Both were planted by hand and then reverted: `in` on the long suite,
+  where it fuses, failed `load` with the drop message, and `isnull`, fused whole, on the pair
+  suite failed every check. An entry no check runs a form of is not checked.
+- *The measurement paragraph* is corrected above.
+- *Dead code*: the slot lane's read of a narrowing root, which `runLoadedDecimal` refuses.
+- *Not changed*: the efficiency, duplication and lambda findings.
 
 **Not in this part**, owed: the pair-load node (the next part), the measurement's run, the
 planted faults for row 504 as committed test flags, the op-count test, and 359b.
