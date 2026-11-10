@@ -445,6 +445,36 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
         VarkaAdmission.NO_HOST_REFUSAL).isEmpty)
   }
 
+  test("IS NOT NULL tests that would fuse alone beside a residual conjunct decline with it") {
+    // VARKA-598. The int comparison of a short column mixes two lanes and declines, so of
+    // `isnotnull(i) AND sh > 5` only the null test would fuse, under a row filter holding the
+    // rest; the filter declines whole instead, at the unnamed emit level and the named ones.
+    val residual = GreaterThan(sh, Literal(5))
+    for (level <- Seq(VarkaEmitOptions.USE_AVX_UNKNOWN, 2, 3)) {
+      val options = VarkaMatrix.base.withUseAVX(level)
+      def fused(condition: Expression): Seq[Boolean] =
+        VarkaExpressionCompiler.explainPredicate(condition, childOutput, options,
+          VarkaAdmission.NO_HOST_REFUSAL).asScala.toSeq.map(_.fused)
+      withClue(s"useAVX $level") {
+        val alone = VarkaExpressionCompiler.explainAndCompilePredicate(And(IsNotNull(i), residual),
+          childOutput, options, VarkaAdmission.NO_HOST_REFUSAL)
+        assert(alone.compiled.isEmpty)
+        assert(alone.specs.asScala.toSeq.map(_.fused) === Seq(false, false))
+        val why = "only IS NOT NULL tests would fuse while another conjunct stays on the row path"
+        assert(alone.specs.get(0).decline.get.reason.startsWith(why))
+        // The residual keeps its own reason.
+        assert(!alone.specs.get(1).decline.get.reason.startsWith(why))
+        // A conjunct that reads a value keeps the split, the null test fused beside it; a null
+        // test with nothing left over is the whole filter and fuses; and IS NULL, which usually
+        // passes few rows, fuses beside the residual.
+        assert(fused(And(And(IsNotNull(i), GreaterThan(i, Literal(0))), residual)) ===
+          Seq(true, true, false))
+        assert(fused(And(IsNotNull(i), IsNotNull(d))) === Seq(true, true))
+        assert(fused(And(IsNull(i), residual)) === Seq(true, false))
+      }
+    }
+  }
+
   test("a comparison over a column the lane does not hold still declines") {
     // A narrow column compiles as a narrow leaf (VARKA-329), but the rule admits one lane per
     // comparison: an int literal beside it is the other lane, which no conversion reaches here
