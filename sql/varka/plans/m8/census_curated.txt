@@ -163,7 +163,7 @@ time_from_micros|INTEGRAL|time|bigint~|plumbing|329|fused for bigint in `time_fr
 time_to_seconds|time|dec|time|done|157|a DECIMAL(14,6) result, through the decimal store
 time_to_millis|time|bigint|time|done||
 time_to_micros|time|bigint|time|done||
-make_timestamp_ntz|date,time,int,dec|ntz||semantics|340,351|the date and time form first; the six-field form takes decimal seconds
+make_timestamp_ntz|date,time,int,dec|ntz|date,time|semantics|340,351|the date and time form fuses (VARKA-340); the six-field form takes decimal seconds
 try_make_timestamp_ntz|int,dec|ntz||semantics|351|null instead of an error
 make_dt_interval|int,bigint,dec|dt||semantics|351,103|seconds arrive as DECIMAL(18,6)
 make_ym_interval|int|ym|int~|done||fused in `make_ym_interval(year(d), month(d))`

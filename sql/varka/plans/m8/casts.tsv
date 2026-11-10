@@ -91,7 +91,7 @@ time	short	yes	yes	yes	floor division	floorDiv by nanos per second; narrower tar
 time	int	yes	yes	yes	floor division	floorDiv by nanos per second; narrower targets range-check	SMT (dev/varka_prove.sh) for the integer rule, sampled regions and the fuzzer		unclaimed	
 time	bigint	yes	yes	yes	floor division	floorDiv by nanos per second; narrower targets range-check	SMT (dev/varka_prove.sh) for the integer rule, sampled regions and the fuzzer		unclaimed	
 time	dec	yes	yes	yes	rescale	nanos as DECIMAL(14, 9), HALF_UP to the target scale	SMT (dev/varka_prove.sh) for the integer rule, sampled regions and the fuzzer		350,364	
-time	ntz	yes	yes	yes	session date	the date comes from CURRENT_DATE, a literal after ComputeCurrentTime	SMT (dev/varka_prove.sh) for the integer rule, sampled regions and the fuzzer		340	
+time	ntz	yes	yes	yes	session date	the date comes from CURRENT_DATE, a literal after ComputeCurrentTime	SMT (dev/varka_prove.sh) for the integer rule, sampled regions and the fuzzer	LEGACY,ANSI,TRY	340	all
 time	time	yes	yes	yes	relabel or truncation	wider precision keeps the nanos; narrower floors	SMT (dev/varka_prove.sh) for the integer rule, sampled regions and the fuzzer	LEGACY,ANSI,TRY	unclaimed	3 of 6
 ym	byte	yes	yes	yes	unit division	truncating division by the end field's unit; narrower targets check	exhaustion		103,332	
 ym	short	yes	yes	yes	unit division	truncating division by the end field's unit; narrower targets check	exhaustion		103,332	
