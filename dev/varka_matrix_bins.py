@@ -169,10 +169,59 @@ def suite_weight(suite_seconds, suite_times):
 # comma cannot separate names, and no option, arm or value holds a semicolon.
 REACH_SEPARATOR = ";"
 
+# The record's format, on the `#<TAB>format<TAB>` line each writer puts first, as
+# `VarkaTestReach.FORMAT`: a record without one of this format, which an older recording wrote with
+# commas between names, or with one of another, is broken to both readers, and every test runs.
+REACH_FORMAT = "2"
+
+# Where the record's format is written down for both languages' tests to hold to.
+REACH_FIXTURE = Path(__file__).resolve().parent.parent / "sql/varka/matrix/reach-format.tsv"
+
+
+def canonical(config):
+    """A configuration's name as the record holds it, as `VarkaTestReach.canonical`: each setting's
+    option and value trimmed, the settings in their order."""
+    out = []
+    for setting in config.split(","):
+        name, eq, value = setting.partition("=")
+        out.append(f"{name.strip()}={value.strip()}" if eq else setting.strip())
+    return ",".join(out)
+
 
 def reach_names(field):
-    """The configurations a reach record's field names: none for `-`."""
-    return set() if field == "-" else {c for c in field.split(REACH_SEPARATOR) if c}
+    """The configurations a reach record's field names, in `canonical` form: none for `-`."""
+    return set() if field == "-" else {canonical(c) for c in field.split(REACH_SEPARATOR) if c}
+
+
+def reach_field(names):
+    """The field a record's line names `names` in: `-` for none."""
+    return REACH_SEPARATOR.join(sorted(names)) or "-"
+
+
+def reach_head(covered):
+    """A record's first lines: its format and the configurations it covers."""
+    return ["#\tformat\t" + REACH_FORMAT, "#\tcovers\t" + REACH_SEPARATOR.join(covered)]
+
+
+def reach_broken(lines):
+    """Why a record's lines are no record, or None: a `#<TAB>broken` line, or no format line of
+    `REACH_FORMAT` (a record joined from several recordings has one from each) or one of another
+    format."""
+    formats = set()
+    for line in lines:
+        parts = line.split("\t")
+        if line.startswith("#") and len(parts) >= 2 and parts[1] == "broken":
+            return "its recording marked it broken"
+        if line.startswith("#") and len(parts) == 3 and parts[1] == "format":
+            formats.add(parts[2])
+    if formats != {REACH_FORMAT}:
+        other = sorted(formats - {REACH_FORMAT})
+        return (
+            f"it has a line of format {other[0]}, not {REACH_FORMAT}"
+            if other
+            else f"it has no line of format {REACH_FORMAT}, so an older recording wrote it"
+        )
+    return None
 
 
 def read_reach(path):
@@ -181,11 +230,15 @@ def read_reach(path):
     set-up line (`suite<TAB>*`) and the JVM's (`*<TAB>*`) joined to every test they cover. None
     for a record its recording marked broken."""
     covered, tests, setup, everywhere = set(), {}, {}, set()
-    for line in Path(path).read_text(encoding="utf-8").splitlines():
+    lines = Path(path).read_text(encoding="utf-8").splitlines()
+    why = reach_broken(lines)
+    if why is not None:
+        # To stderr: `plan`'s and `times`' output is data.
+        print(f"VARKA_REACH_BROKEN\t{path}\t{why}; every test runs", file=sys.stderr)
+        return None
+    for line in lines:
         parts = line.split("\t")
         if line.startswith("#"):
-            if len(parts) >= 2 and parts[1] == "broken":
-                return None
             if len(parts) == 3 and parts[1] == "covers":
                 covered |= reach_names(parts[2])
             continue
@@ -212,6 +265,7 @@ def reach_share(reach, config, suite):
     runs under every configuration."""
     if reach is None or config == DEFAULTS:
         return 1.0
+    config = canonical(config)
     covered, tests = reach
     if config not in covered or suite not in tests:
         return 1.0
@@ -614,6 +668,10 @@ def write_config_seconds(path, seconds, runs=None, header=None):
     Path(path).write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
+# A record's format line, which every record a test writes by hand starts with.
+FORMAT_LINE = "#\tformat\t" + REACH_FORMAT + "\n"
+
+
 class SelfTest(unittest.TestCase):
     def test_every_unit_lands_once_and_no_lane_passes_the_target(self):
         suites = [
@@ -732,7 +790,7 @@ class SelfTest(unittest.TestCase):
             # x=1 is covered and runs one of A's two tests; w=4 is not covered, so runs A whole;
             # B has no record, so every configuration ran it whole.
             f = Path(root, "reach.tsv")
-            f.write_text("#\tcovers\tx=1\nA\tone\tx=1\nA\ttwo\t-\n")
+            f.write_text(FORMAT_LINE + "#\tcovers\tx=1\nA\tone\tx=1\nA\ttwo\t-\n")
             got = times([Path(root, "runs")], read_reach(f))
             self.assertEqual(got, {"A": 110.0, "B": 20.0})
             self.assertEqual(times([Path(root, "runs")]), {"A": 100.0, "B": 20.0})
@@ -751,7 +809,7 @@ class SelfTest(unittest.TestCase):
                     f'<testsuite name="p.{suite}" time="{secs}" tests="2"/>'
                 )
             f = Path(root, "reach.tsv")
-            f.write_text("#\tcovers\tx=1\nA\tone\tx=1\nA\ttwo\t-\n")
+            f.write_text(FORMAT_LINE + "#\tcovers\tx=1\nA\tone\tx=1\nA\ttwo\t-\n")
             got = whole_runs([Path(root, "runs")], read_reach(f))
             # x=1 ran one of A's two tests, so it has no whole run of A to record.
             self.assertEqual(
@@ -788,7 +846,7 @@ class SelfTest(unittest.TestCase):
     def test_a_measured_configuration_still_runs_only_its_share(self):
         with tempfile.TemporaryDirectory() as root:
             f = Path(root, "reach.tsv")
-            f.write_text("#\tcovers\tx=1\nA\tone\tx=1\nA\ttwo\t-\n", encoding="utf-8")
+            f.write_text(FORMAT_LINE + "#\tcovers\tx=1\nA\tone\tx=1\nA\ttwo\t-\n", encoding="utf-8")
             reach = read_reach(f)
         suites = [("sql", [("A", True)])]
         got = units(["x=1"], suites, lambda s: 100.0, {}, 480.0, reach, {("x=1", "A"): 400.0})
@@ -810,7 +868,8 @@ class SelfTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as root:
             f = Path(root, "reach.tsv")
             f.write_text(
-                "#\tcovers\tx=1;y=2;w=4\nA\tone\tx=1\nA\ttwo\t-\nB\tone\t-\nB\t*\tw=4\n",
+                FORMAT_LINE
+                + "#\tcovers\tx=1;y=2;w=4\nA\tone\tx=1\nA\ttwo\t-\nB\tone\t-\nB\t*\tw=4\n",
                 encoding="utf-8",
             )
             reach = read_reach(f)
@@ -835,7 +894,8 @@ class SelfTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as root:
             f = Path(root, "reach.tsv")
             f.write_text(
-                f"#\tcovers\tuseAVX=2;{over}\nA\tboth\tuseAVX=2;{over}\nA\tover\t{over}\n"
+                FORMAT_LINE
+                + f"#\tcovers\tuseAVX=2;{over}\nA\tboth\tuseAVX=2;{over}\nA\tover\t{over}\n"
                 f"A\tneither\t-\n",
                 encoding="utf-8",
             )
@@ -850,7 +910,7 @@ class SelfTest(unittest.TestCase):
         pr = {"digests": {("S", "t"): {"defaults": "d", over: "e", "x=1": "f"}}}
         with tempfile.TemporaryDirectory() as root:
             reach = Path(root, "reach.tsv")
-            reach.write_text(f"S\tt\t{over};x=1\n", encoding="utf-8")
+            reach.write_text(FORMAT_LINE + f"S\tt\t{over};x=1\n", encoding="utf-8")
             out = Path(root, "selected.tsv")
             lines = reach_record(
                 {(over, "S", "t"): "digest", ("x=1", "S", "t"): "digest"}, pr, reach
@@ -862,20 +922,83 @@ class SelfTest(unittest.TestCase):
 
     def test_a_combined_configurations_run_directory_finds_its_record(self):
         over = "useAVX=2,wideConversionForm=MAGIC"
+        # A sibling pair the record does not cover, and the defaults, both run A whole.
+        uncovered = "useAVX=2,cse=false"
         with tempfile.TemporaryDirectory() as root:
-            junit = Path(root, "runs", run_dir(over), "sql-0", "junit")
-            junit.mkdir(parents=True)
-            Path(junit, "TEST-p.A.xml").write_text('<testsuite name="p.A" time="10.0">')
+            for config in [over, uncovered, DEFAULTS]:
+                junit = Path(root, "runs", run_dir(config), "sql-0", "junit")
+                junit.mkdir(parents=True)
+                Path(junit, "TEST-p.A.xml").write_text('<testsuite name="p.A" time="10.0">')
             f = Path(root, "reach.tsv")
-            f.write_text(f"#\tcovers\t{over}\nA\tone\t{over}\nA\ttwo\t-\n", encoding="utf-8")
+            f.write_text(
+                FORMAT_LINE + f"#\tcovers\t{over}\nA\tone\t{over}\nA\ttwo\t-\n", encoding="utf-8"
+            )
             got = whole_runs([Path(root, "runs")], read_reach(f))
-        self.assertEqual(got, {}, "the configuration ran half of A, so its time is no whole run")
+        self.assertEqual(
+            got,
+            {(DEFAULTS, "A"): 10.0, (run_dir(uncovered), "A"): 10.0},
+            "the covered pair ran half of A, so its time is no whole run; the others' are",
+        )
 
     def test_a_broken_record_is_none(self):
         with tempfile.TemporaryDirectory() as root:
             f = Path(root, "reach.tsv")
-            f.write_text("A\tone\t-\n#\tbroken\tboom\n", encoding="utf-8")
+            f.write_text(FORMAT_LINE + "A\tone\t-\n#\tbroken\tboom\n", encoding="utf-8")
             self.assertIsNone(read_reach(f))
+
+    def test_a_record_without_this_format_or_of_another_is_none(self):
+        with tempfile.TemporaryDirectory() as root:
+            f = Path(root, "reach.tsv")
+            # The record before the format line, its names joined by commas: read as this format,
+            # the pair would be one name no configuration has, and x=1 would skip `one`.
+            f.write_text("#\tcovers\tx=1,y=2\nA\tone\tx=1,y=2\nA\ttwo\t-\n", encoding="utf-8")
+            self.assertIsNone(read_reach(f))
+            f.write_text(FORMAT_LINE + "#\tformat\t3\nA\tone\t-\n", encoding="utf-8")
+            self.assertIsNone(read_reach(f), "joined from recordings of two formats")
+            f.write_text(FORMAT_LINE + "A\tone\t-\n" + FORMAT_LINE, encoding="utf-8")
+            self.assertIsNotNone(read_reach(f), "joined from two recordings of this format")
+            # The selection's record reruns everything over a pull request's record of no format.
+            f.write_text("#\tcovers\tx=1\nS\tt\t-\n", encoding="utf-8")
+            pr = {"digests": {("S", "t"): {"defaults": "d", "x=1": "e"}}}
+            out = Path(root, "selected.tsv")
+            out.write_text("\n".join(reach_record({}, pr, f)) + "\n", encoding="utf-8")
+            self.assertIsNone(read_reach(out))
+
+    def test_a_configuration_the_record_does_not_cover_or_spells_with_spaces(self):
+        over = "useAVX=2,wideConversionForm=MAGIC"
+        with tempfile.TemporaryDirectory() as root:
+            f = Path(root, "reach.tsv")
+            f.write_text(
+                FORMAT_LINE + f"#\tcovers\t{over}\nA\tone\t{over}\nA\ttwo\t-\n", encoding="utf-8"
+            )
+            reach = read_reach(f)
+        self.assertEqual(canonical("useAVX=2, wideConversionForm = MAGIC"), over)
+        self.assertEqual(reach_share(reach, "useAVX=2, wideConversionForm=MAGIC", "A"), 0.5)
+        self.assertEqual(reach_share(reach, "useAVX=2,cse=false", "A"), 1.0)
+
+    def test_the_reach_format_fixture(self):
+        # VarkaTestReachSuite holds the JVM's writer and reader to the same file and values.
+        lines = [
+            line
+            for line in REACH_FIXTURE.read_text(encoding="utf-8").splitlines()
+            if not line.startswith("# ")
+        ]
+        over = "useAVX=2,wideConversionForm=MAGIC"
+        covered = ["cse=false", "useAVX=2", over]
+        self.assertEqual(
+            lines,
+            reach_head(covered)
+            + [
+                f"S\tboth\t{reach_field({over, 'useAVX=2'})}",
+                f"S\tover\t{reach_field({over})}",
+                f"S\tnone\t{reach_field(set())}",
+                f"S\tcancelled\t{reach_field({'*'})}",
+            ],
+        )
+        self.assertEqual(
+            read_reach(REACH_FIXTURE),
+            (set(covered), {"S": [{"useAVX=2", over}, {over}, set(), {"*"}]}),
+        )
 
     def test_a_suite_no_file_lists_weighs_the_median(self):
         w = suite_weight({}, {"A": 10.0, "B": 30.0, "C": 50.0})
@@ -1006,7 +1129,9 @@ class SelfTest(unittest.TestCase):
             base, pr = self._records(root, pr_digest="d2")
             got = select(base, pr, [], ["x=1"])
             reach = Path(root, "reach.tsv")
-            reach.write_text("#\tcovers\tx=1\nS\tuses kernels\tx=1\nS\tuses helpers\t-\n")
+            reach.write_text(
+                FORMAT_LINE + "#\tcovers\tx=1\nS\tuses kernels\tx=1\nS\tuses helpers\t-\n"
+            )
             out = Path(root, "selected.tsv")
             out.write_text("\n".join(reach_record(got, pr, reach)) + "\n")
             covered, tests = read_reach(out)
@@ -1042,16 +1167,18 @@ def reach_record(selected, pr, reach=None):
     moving = None
     if reach is not None:
         moving = {}
-        for line in Path(reach).read_text(encoding="utf-8").splitlines():
+        lines = Path(reach).read_text(encoding="utf-8").splitlines()
+        why = reach_broken(lines)
+        if why is not None:
+            return [f"#\tbroken\tthe pull request's reach record is broken: {why}"]
+        for line in lines:
             parts = line.split("\t")
-            if line.startswith("#\tbroken"):
-                return ["#\tbroken\tthe pull request's reach record is broken"]
             if line.startswith("#") or len(parts) < 3:
                 continue
             got = reach_names(parts[-1])
             key = (parts[0], "\t".join(parts[1:-1]))
             moving.setdefault(key, set()).update(got)
-    lines = ["#\tcovers\t" + REACH_SEPARATOR.join(covered)]
+    lines = reach_head(covered)
     tests = sorted({(s, t) for s, t in pr["digests"] if s != "*" and t != "*"})
     for suite, test in tests:
         rerun = {c for (c, s, t) in selected if (s, t) == (suite, test) and c != DEFAULTS}
@@ -1060,7 +1187,7 @@ def reach_record(selected, pr, reach=None):
             moved |= moving.get(("*", "*"), set())
             if "*" not in moved:
                 rerun &= moved
-        lines.append(f"{suite}\t{test}\t{REACH_SEPARATOR.join(sorted(rerun)) or '-'}")
+        lines.append(f"{suite}\t{test}\t{reach_field(rerun)}")
     return lines
 
 

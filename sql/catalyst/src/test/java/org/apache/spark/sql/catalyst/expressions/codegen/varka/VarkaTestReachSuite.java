@@ -148,7 +148,25 @@ public final class VarkaTestReachSuite {
     assertEquals(Set.of(), r.current, "the test pins what the configuration sets");
   }
 
+  // An option run over an instruction set is named by the set's configuration and the option's
+  // arm joined by a comma (VarkaMatrixRuns.configurations), and both run in the matrix.
+  private static final String SUBJECT = "useAVX=2";
+  private static final String OVER_SUBJECT = SUBJECT + ",wideConversionForm=MAGIC";
+
+  /**
+   * A record of {@code lines} under the format line and a covers line of the configurations
+   * these tests name, as the recorder writes its head, then read back.
+   */
   private static Optional<VarkaTestReach.Record> record(String... lines) throws IOException {
+    var all = new ArrayList<String>();
+    all.add(VarkaTestReach.formatLine());
+    all.add(VarkaTestReach.coversLine(List.of(PLANTED, INERT, SUBJECT, OVER_SUBJECT)));
+    all.addAll(List.of(lines));
+    return raw(all.toArray(String[]::new));
+  }
+
+  /** A record of exactly {@code lines}, read back. */
+  private static Optional<VarkaTestReach.Record> raw(String... lines) throws IOException {
     Path f = Files.createTempFile("varka-reach", ".tsv");
     try {
       Files.write(f, List.of(lines), StandardCharsets.UTF_8);
@@ -191,11 +209,6 @@ public final class VarkaTestReachSuite {
     assertFalse(VarkaTestReach.skips(jvm, INERT, "T", "still", false, false));
   }
 
-  // An option run over an instruction set is named by the set's configuration and the option's
-  // arm joined by a comma (VarkaMatrixRuns.configurations), and both run in the matrix.
-  private static final String SUBJECT = "useAVX=2";
-  private static final String OVER_SUBJECT = SUBJECT + ",wideConversionForm=MAGIC";
-
   /** A record of {@code test} lines in suite S as the recorder writes them, then read back. */
   private static Optional<VarkaTestReach.Record> recorded(Map<String, Set<String>> tests)
       throws IOException {
@@ -221,6 +234,76 @@ public final class VarkaTestReachSuite {
     assertFalse(VarkaTestReach.skips(reach, OVER_SUBJECT, "S", "over", false, false),
         "the configuration moves the test, so its run must not skip it");
     assertTrue(VarkaTestReach.skips(reach, SUBJECT, "S", "over", false, false));
+  }
+
+  @Test
+  @DisplayName("a configuration the record does not cover runs every test, as the planner has it")
+  void uncoveredConfigurationRunsEverything() throws IOException {
+    var reach = record("S\tstill\t-");
+    assertTrue(VarkaTestReach.skips(reach, INERT, "S", "still", false, false),
+        "a covered configuration skips the test no configuration moves");
+    assertFalse(VarkaTestReach.skips(reach, "useAVX=2,cse=false", "S", "still", false, false),
+        "a pair the record was not made for has no line that could let it skip");
+    var bare = raw(VarkaTestReach.formatLine(), "S\tstill\t-");
+    assertTrue(bare.isPresent());
+    assertFalse(VarkaTestReach.skips(bare, INERT, "S", "still", false, false),
+        "a record that covers nothing lets nothing skip");
+  }
+
+  @Test
+  @DisplayName("a configuration given with spaces after its commas is the one the record names")
+  void spacedConfigurationIsItsCanonicalName() throws IOException {
+    String spaced = "useAVX=2, wideConversionForm = MAGIC";
+    assertEquals(OVER_SUBJECT, VarkaTestReach.canonical(spaced));
+    var reach = record("S\tover\t" + OVER_SUBJECT, "S\tstill\t-");
+    assertFalse(VarkaTestReach.skips(reach, spaced, "S", "over", false, false),
+        "the configuration moves the test under its own name");
+    assertTrue(VarkaTestReach.skips(reach, spaced, "S", "still", false, false),
+        "the record covers the configuration, so a test it does not move skips");
+  }
+
+  @Test
+  @DisplayName("a record without this format's line, or of another format, is no record")
+  void recordOfAnotherFormatIsNone() throws IOException {
+    // The record before the format line, its names joined by commas: read as this format, the
+    // pair would be one name no configuration has, and the planted arm's run would skip `moved`.
+    assertTrue(raw("#\tcovers\t" + PLANTED + "," + INERT, "S\tmoved\t" + PLANTED + "," + INERT)
+        .isEmpty());
+    assertTrue(raw("#\tformat\t1", "#\tcovers\t" + PLANTED, "S\tstill\t-").isEmpty());
+    assertTrue(raw(VarkaTestReach.formatLine(), "#\tformat\t3", "S\tstill\t-").isEmpty(),
+        "a record joined from two recordings of different formats");
+    assertTrue(raw(VarkaTestReach.formatLine(), "S\tstill\t-", VarkaTestReach.formatLine())
+        .isPresent(), "a record joined from several recordings has a format line from each");
+  }
+
+  /** The fixture both readers hold to: dev/varka_matrix_bins.py's self-test reads it too. */
+  private static Path fixture() {
+    String home = System.getProperty("spark.test.home", System.getenv("SPARK_HOME"));
+    assertTrue(home != null, "spark.test.home or SPARK_HOME is not set.");
+    return Path.of(home, "sql", "varka", "matrix", "reach-format.tsv");
+  }
+
+  @Test
+  @DisplayName("the format fixture is what this writer writes, and reads as the planner reads it")
+  void formatFixtureMatchesThePlanner() throws IOException {
+    List<String> lines = Files.readAllLines(fixture(), StandardCharsets.UTF_8).stream()
+        .filter(l -> !l.startsWith("# "))
+        .toList();
+    List<String> covered = List.of(INERT, SUBJECT, OVER_SUBJECT);
+    assertEquals(List.of(
+        VarkaTestReach.formatLine(),
+        VarkaTestReach.coversLine(covered),
+        "S\tboth\t" + VarkaTestReach.names(Set.of(OVER_SUBJECT, SUBJECT)),
+        "S\tover\t" + VarkaTestReach.names(Set.of(OVER_SUBJECT)),
+        "S\tnone\t" + VarkaTestReach.names(Set.of()),
+        "S\tcancelled\t" + VarkaTestReach.EVERY), lines);
+    // The same values test_the_reach_format_fixture asserts of read_reach.
+    var reach = VarkaTestReach.read(fixture()).orElseThrow();
+    assertEquals(Set.copyOf(covered), reach.covered());
+    assertEquals(Set.of(SUBJECT, OVER_SUBJECT), reach.moving("S", "both"));
+    assertEquals(Set.of(OVER_SUBJECT), reach.moving("S", "over"));
+    assertEquals(Set.of(), reach.moving("S", "none"));
+    assertEquals(Set.of(VarkaTestReach.EVERY), reach.moving("S", "cancelled"));
   }
 
   @Test
