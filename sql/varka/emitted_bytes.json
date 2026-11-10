@@ -14674,11 +14674,11 @@
       "16" : "34695809cab1d810"
     },
     "wideConversionForm=SPLIT over useAVX=2" : {
-      "4" : "e0d40371748c53f6",
+      "4" : "78d02f788bb6a2fe",
       "16" : "2e0320e2a8babfd0"
     },
     "wideConversionForm=MAGIC over useAVX=2" : {
-      "4" : "e0d40371748c53f6",
+      "4" : "78d02f788bb6a2fe",
       "16" : "2e0320e2a8babfd0"
     },
     "narrowLanes=true" : {
