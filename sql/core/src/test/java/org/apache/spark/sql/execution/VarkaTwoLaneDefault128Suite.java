@@ -151,8 +151,10 @@ public final class VarkaTwoLaneDefault128Suite {
     for (String n : List.of("", "n")) {
       check("SELECT i" + n + " FROM two_lane_default WHERE i" + n + " < i2" + n, true);
       // `i < l` compares on the long lane and is the row filter's; the `isnotnull(i)` Spark
-      // infers beside it is an int kernel of its own (m8/VARKA-503.md 9).
-      check("SELECT l" + n + " FROM two_lane_default WHERE i" + n + " < l" + n, true);
+      // infers beside it would be an int kernel of its own (m8/VARKA-503.md 9), but an
+      // IS NOT NULL alone beside a residual is not worth one, so the filter stays whole on the
+      // row path (VARKA-598).
+      check("SELECT l" + n + " FROM two_lane_default WHERE i" + n + " < l" + n, false);
       check("SELECT d" + n + " FROM two_lane_default WHERE d" + n + " < d2" + n + " AND l" + n
           + " < l2" + n, true);
       check("SELECT d" + n + " FROM two_lane_default WHERE d" + n + " < d2" + n + " AND x" + n

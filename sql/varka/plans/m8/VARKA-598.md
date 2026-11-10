@@ -134,6 +134,19 @@ files.
 
 ## 9. Outcome
 
+The review (`/code-review high`) found two suites the change moves, both fixed: the 128-bit
+default suite (`VarkaTwoLaneDefault128Suite`) expected `WHERE i < l` to keep the `isnotnull(i)`
+kernel row 503 left beside the refused long comparison, which is exactly this shape and now stays
+whole; and the golden corpus records filters of the form `(expr) IS NOT NULL` whose inferred
+column tests fused under a row filter, regenerated. It also asked for the new queries test's
+`PinsDefaults` tag and the `NULL_TESTS` class's doc, both done. Kept as trade-offs: the rule
+reads syntax, so a user's selective `IS NOT NULL` over a mostly null column beside a residual
+declines too (section 7); the decline sits in the compiler rather than the rule, so that
+EXPLAIN, the fusion report and the task's compile give the same answer and reason, as the size
+and order demotions do; and a declined filter is compiled once before it is demoted, a planning
+cost only.
+
+
 Built 10 November 2026. The pull request's dry runs and suite runs are listed in its description.
 The BIGINT baseline (#1455) is not on master: its `filter l + l2 > 0, ANSI` sections are listed
 `NULL_TESTS` there and become `NONE` with this change, a line owed by whichever of the two merges

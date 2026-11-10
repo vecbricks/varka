@@ -243,7 +243,7 @@ class VarkaDecimalBaselineQueriesSuite extends QueryTest with VarkaSharedSession
   }
 
   test("a filter of which only the inferred IS NOT NULL tests would fuse stays whole on the " +
-      "row path at every emit level") {
+      "row path at every emit level", PinsDefaults) {
     // VARKA-598. No lowering computes the DECIMAL(15, 2) product, so of `x * y < z` only the
     // IS NOT NULL tests Spark infers would fuse, under a row filter holding the comparison; the
     // filter declines whole, at the unnamed emit level and the named ones the runners and the
