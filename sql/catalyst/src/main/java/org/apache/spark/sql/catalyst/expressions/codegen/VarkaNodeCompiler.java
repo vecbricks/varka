@@ -35,6 +35,7 @@ import org.apache.spark.sql.catalyst.expressions.BitwiseNot;
 import org.apache.spark.sql.catalyst.expressions.BitwiseOr;
 import org.apache.spark.sql.catalyst.expressions.BitwiseXor;
 import org.apache.spark.sql.catalyst.expressions.BoundReference;
+import org.apache.spark.sql.catalyst.expressions.BRound;
 import org.apache.spark.sql.catalyst.expressions.CaseWhen;
 import org.apache.spark.sql.catalyst.expressions.Cast;
 import org.apache.spark.sql.catalyst.expressions.Ceil;
@@ -67,6 +68,7 @@ import org.apache.spark.sql.catalyst.expressions.NaNvl;
 import org.apache.spark.sql.catalyst.expressions.Pmod;
 import org.apache.spark.sql.catalyst.expressions.Remainder;
 import org.apache.spark.sql.catalyst.expressions.Rint;
+import org.apache.spark.sql.catalyst.expressions.Round;
 import org.apache.spark.sql.catalyst.expressions.RuntimeReplaceable;
 import org.apache.spark.sql.catalyst.expressions.ShiftLeft;
 import org.apache.spark.sql.catalyst.expressions.ShiftRight;
@@ -76,6 +78,7 @@ import org.apache.spark.sql.catalyst.expressions.Sqrt;
 import org.apache.spark.sql.catalyst.expressions.Subtract;
 import org.apache.spark.sql.catalyst.expressions.ToDegrees;
 import org.apache.spark.sql.catalyst.expressions.ToRadians;
+import org.apache.spark.sql.catalyst.expressions.Truncate;
 import org.apache.spark.sql.catalyst.expressions.UnaryMinus;
 import org.apache.spark.sql.catalyst.expressions.objects.StaticInvoke;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaChrono;
@@ -405,6 +408,8 @@ final class VarkaNodeCompiler {
           + "343a4)";
       case Cast _ -> "a cast to or from a floating type that no floating lowering serves";
       case Remainder _, Pmod _ -> "a floating remainder (row 346)";
+      case Round _, BRound _, Truncate _ -> "round, bround or truncate over a floating value "
+          + "(row 346)";
       // The interval products and quotients by a floating factor, and signum over an interval,
       // are row 342's step after row 343's conversions. UnaryPositive is RuntimeReplaceable, so
       // it never reaches this switch: it passes above and is asked again as its child.

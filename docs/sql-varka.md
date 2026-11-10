@@ -1063,6 +1063,22 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `ceiling(l)` | `rounding` |  | ceil by another name | vector |
 | `floor(i)` | `rounding` |  | FLOOR(CAST(i AS DOUBLE)): the int widened to a bigint, exact in every mode, with no conversion to a double | per-lane: mask broadcast, mask test |
 | `ceil(i)` | `rounding` |  |  | per-lane: mask broadcast, mask test |
+| `round(i, 0)` | `rounding` |  | a scale of 0 or more is the identity | vector |
+| `round(l, 0)` | `rounding` |  |  | vector |
+| `bround(l, 0)` | `rounding` |  |  | vector |
+| `truncate(l, 0)` | `rounding` |  |  | vector |
+| `round(i, -1)` | `rounding` | `i BETWEEN -2147483644 AND 2147483644` | HALF_UP to a multiple of ten; under ANSI a value whose rounding leaves the int raises, so its batch declines | vector |
+| `round(i, -2)` | `rounding` |  | no int overflows at this scale, so ANSI has no guard | vector |
+| `bround(i, -1)` | `rounding` | `i BETWEEN -2147483645 AND 2147483645` | HALF_EVEN: a tie goes to the even multiple | vector |
+| `bround(i, -2)` | `rounding` |  |  | vector |
+| `truncate(i, -2)` | `rounding` |  | DOWN never overflows | vector |
+| `round(i, -10)` | `rounding` |  | every int rounds to 0 | vector |
+| `round(y1, -1)` | `rounding` | `y1 BETWEEN -124 AND 124` | computed at the int lane and wrapped to the byte | vector |
+| `bround(y1, -1)` | `rounding` | `y1 BETWEEN -125 AND 125` |  | vector |
+| `truncate(y1, -1)` | `rounding` |  |  | vector |
+| `round(s1, -1)` | `rounding` | `s1 BETWEEN -32764 AND 32764` | computed at the int lane and wrapped to the short | vector |
+| `bround(s1, -2)` | `rounding` | `s1 BETWEEN -32749 AND 32749` |  | vector |
+| `truncate(s1, -2)` | `rounding` |  |  | vector |
 
 #### Floating casts to BOOLEAN
 
@@ -1242,17 +1258,17 @@ operands (a row counts once for each type it reads):
 <!-- BEGIN generated verification counts -->
 | Type | Rows | refinement | proof | exhaustive | owed | differential |
 | :--- | ---: | ---: | ---: | ---: | ---: | ---: |
-| `bigint` | 75 | 0 | 2 | 0 | 2 | 71 |
+| `bigint` | 78 | 0 | 2 | 0 | 2 | 74 |
 | `bool` | 38 | 0 | 0 | 13 | 0 | 25 |
-| `byte` | 51 | 0 | 0 | 0 | 8 | 43 |
+| `byte` | 54 | 0 | 0 | 0 | 8 | 46 |
 | `date` | 124 | 17 | 0 | 1 | 0 | 106 |
 | `dec` | 60 | 25 | 10 | 0 | 0 | 25 |
 | `double` | 67 | 0 | 1 | 0 | 0 | 66 |
 | `dt` | 27 | 2 | 1 | 0 | 0 | 24 |
 | `float` | 52 | 0 | 0 | 0 | 0 | 52 |
-| `int` | 140 | 14 | 2 | 1 | 1 | 122 |
+| `int` | 156 | 14 | 2 | 1 | 1 | 138 |
 | `ntz` | 57 | 0 | 7 | 0 | 0 | 50 |
-| `short` | 49 | 0 | 0 | 0 | 8 | 41 |
+| `short` | 52 | 0 | 0 | 0 | 8 | 44 |
 | `time` | 45 | 6 | 1 | 1 | 2 | 35 |
 | `ym` | 36 | 7 | 2 | 0 | 2 | 25 |
 <!-- END generated verification counts -->

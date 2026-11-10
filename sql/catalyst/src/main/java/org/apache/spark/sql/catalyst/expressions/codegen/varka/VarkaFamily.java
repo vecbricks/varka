@@ -98,8 +98,9 @@ public enum VarkaFamily {
       + " spark.sql.codegen.varka.math.ulpContract.enabled is set; none fuses yet, and each"
       + " declines naming the row of the plan that fuses it"),
   /** {@code VarkaRoundingCompiler}. */
-  ROUNDING("rounding", "rounding", "rint over a double, and floor, ceil and ceiling over bigint"
-      + " and int operands");
+  ROUNDING("rounding", "rounding", "rint over a double; floor, ceil and ceiling over bigint"
+      + " and int operands; and round, bround and truncate over tinyint, smallint and int at a"
+      + " constant scale, and over bigint at a scale of zero or more");
 
   /** The prefix every family's switch shares. */
   public static final String SWITCH_PREFIX = "spark.sql.codegen.varka.family.";

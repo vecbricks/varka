@@ -383,7 +383,9 @@ each row (section 5) and carry no default answer.
    (`0.0`, `-0.0`, `-1.0` and `1.0` for the log family, `atanh` and `acosh`; `2^-28`, `2.0` and
    `2^28` for `asinh` and `acosh`; the zero and sign cells of item 0.2 for `atan2`, `csc`, `cot`);
    NaN payloads of both signs, quiet and signalling, through every function, since Spark's answer
-   carries them; and each fdlibm threshold of the function's C source. For `exp` that is
+   carries them (a NaN a function creates from an out-of-range input, `asin(2)` or `log(-1)`, can
+   carry host-dependent bits even from `StrictMath`, `VARKA-587.md` 6.4, so such a created NaN is
+   compared as any NaN while a payload passed through from the input stays compared bit for bit); and each fdlibm threshold of the function's C source. For `exp` that is
    `o_threshold`, `u_threshold`, `+-fromHi(H)` and `+-fromHi(H + 1)` for each of the five words of
    item 0.5, and the subnormal edge `-708.0498449419841`; the other functions' thresholds come
    with their C files (open point 3).
