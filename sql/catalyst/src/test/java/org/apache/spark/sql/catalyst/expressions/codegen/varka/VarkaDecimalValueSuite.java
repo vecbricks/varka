@@ -225,7 +225,7 @@ public final class VarkaDecimalValueSuite {
 
   @Test
   @DisplayName("the null family over decimals of two scales answers as Spark's eval, the null of "
-      + "nullif, nullifzero and a CASE without an ELSE the long lane's")
+      + "nullif, nullifzero and a missing ELSE the long lane's")
   void nullFamilyAnswersAsSpark() {
     DecimalType ta = new DecimalType(9, 2);
     DecimalType tb = new DecimalType(9, 4);
@@ -254,35 +254,47 @@ public final class VarkaDecimalValueSuite {
   }
 
   @Test
-  @DisplayName("the null family over a decimal past 18 digits, or one whose common type passes "
-      + "18, declines naming row 359 or 360, except the forms the 128-bit pair already fuses")
-  void wideNullFamilyDeclines() {
+  @DisplayName("the null family over a decimal past 18 digits fuses under a null test, the null "
+      + "holding no words, and as a compared value declines naming row 359, or 360 for a rescale")
+  void wideNullFamilyFusesOrDeclines() {
     // c and d are DECIMAL(20, 2), row 359's pair; nullif(a, e) compares at DECIMAL(25, 9), and
     // zeroifnull(e) coalesces e with the int zero's DECIMAL(10, 0) at DECIMAL(19, 9).
     List<Attribute> columns = List.of(VarkaSqlResolve.column("a", new DecimalType(18, 2)),
         VarkaSqlResolve.column("c", new DecimalType(20, 2)),
         VarkaSqlResolve.column("d", new DecimalType(20, 2)),
         VarkaSqlResolve.column("e", new DecimalType(16, 9)));
-    // Row 359's lane pair compares and null-tests the 128-bit words, so <=> and BETWEEN over c
-    // and d fuse, and so does the null test of zeroifnull(e), whose DECIMAL(19, 9) coalesce is
-    // read as a pair; the rest still wait on a decimal null value, a 128-bit output or a rescale.
-    Set<String> fusedByThePair =
-        Set.of("equal_null(c, d)", "c BETWEEN d AND 1.00", "zeroifnull(e) IS NULL");
-    for (String sql : List.of("nullif(c, d) IS NULL", "nvl(c, d) > 0.00",
-        "CASE WHEN c < d THEN c END IS NULL", "nullifzero(c) IS NULL", "zeroifnull(c) = d",
-        "equal_null(c, d)", "c BETWEEN d AND 1.00", "nullif(a, e) IS NULL",
-        "zeroifnull(e) IS NULL")) {
+    // A null test reads a wide choice's validity alone, where the NULL of nullif and nullifzero
+    // and a missing ELSE are never valid, so those fuse beside the comparisons and <=> of row
+    // 359's pair (VarkaDecimalPairSuite holds their answers to Spark's). A wide choice or null
+    // as a compared value is the pair's value half, row 359's part 359b, and a rescale into the
+    // wide type is row 360's.
+    String fused = "fused";
+    String wideValue = "a decimal wider than 18 digits is row 359's";
+    record Want(String sql, String reason) { }
+    for (Want w : List.of(
+        new Want("nullif(c, d) IS NULL", fused),
+        new Want("CASE WHEN c < d THEN c END IS NULL", fused),
+        new Want("nullifzero(c) IS NULL", fused),
+        new Want("equal_null(c, d)", fused),
+        new Want("c BETWEEN d AND 1.00", fused),
+        new Want("zeroifnull(e) IS NULL", fused),
+        new Want("nvl(c, d) > 0.00", wideValue),
+        new Want("zeroifnull(c) = d", wideValue),
+        new Want("nullif(c, d) <=> c", wideValue),
+        new Want("nullif(c, d) IN (c, d)", wideValue),
+        new Want("c < CAST(NULL AS DECIMAL(20, 2))",
+            "a null decimal constant wider than 18 digits as a value is row 359's"),
+        new Want("nullif(a, e) IS NULL", "rows 359 and 360's"))) {
+      String sql = w.sql();
+      String want = w.reason();
       Expression e = VarkaSqlResolve.parse(sql, seq(columns));
       List<VarkaConjunctSpec> specs =
           VarkaExpressionCompiler.explainPredicate(e, seq(columns), VarkaMatrixRuns.BASE,
               VarkaAdmission.NO_HOST_REFUSAL);
       String reason = specs.stream().flatMap(s -> s.decline().stream()).map(d -> d.reason())
-          .findFirst().orElse("fused");
-      if (fusedByThePair.contains(sql)) {
-        assertEquals("fused", reason, () -> sql + " declined: " + reason);
-      } else {
-        assertTrue(reason.contains("359"), () -> sql + " declined: " + reason);
-      }
+          .findFirst().orElse(fused);
+      assertTrue(want.equals(fused) ? reason.equals(fused) : reason.contains(want),
+          () -> sql + ": want " + want + ", got " + reason);
     }
   }
 

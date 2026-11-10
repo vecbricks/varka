@@ -2163,13 +2163,16 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     val (p0, p1) = (new ColumnRef(0), new ColumnRef(1))
     assert(picks.outputs.asScala.toSeq === Seq(new IRGreatest(p0, nullInt),
       new IRLeast(new IRLeast(nullInt, p1), nullInt)))
-    // A decimal choice past 18 digits has no null value on the long lane and declines naming the
-    // wide row (VARKA-578), and an int is still no date: a date choice over a cast of an int
-    // column declines rather than reading it.
+    // A decimal choice past 18 digits has no null value as a value, and declines naming the
+    // wide row's value half; its null test fuses, the missing ELSE never valid (VARKA-578). An
+    // int is still no date: a date choice over a cast of an int column declines rather than
+    // reading it.
+    val wideCase = CaseWhen(Seq((lt, Literal.create(Decimal(1), DecimalType(20, 6)))), None)
     val partial = VarkaExpressionCompiler.compilePartial(
-      Seq(out(IsNull(CaseWhen(Seq((lt, Literal.create(Decimal(1), DecimalType(20, 6)))), None))),
-        out(If(lt, Cast(i, DateType), d)), out(DateAdd(d, Literal(1)))), childOutput).get
+      Seq(out(wideCase), out(If(lt, Cast(i, DateType), d)), out(DateAdd(d, Literal(1))),
+        out(IsNull(wideCase))), childOutput).get
     assert(partial.declines.asScala(0).reason.contains("row 359's"))
+    assert(!partial.declines.containsKey(3))
     // The narrow lanes have their own null (VARKA-329): a byte CASE WHEN with no ELSE is a
     // choice with the byte lane's null, stored at the byte's width.
     val narrowNull = VarkaExpressionCompiler.compile(
