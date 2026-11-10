@@ -1195,11 +1195,15 @@ jobs:
     # The pinned solvers' archives come from the Actions cache, keyed on their versions and
     # SHA-256s; the install checks each archive against its pin, cached or not, and downloads
     # one that is missing with retries (VARKA-592). The cache is saved as soon as the install
-    # succeeds, so a later failure of the job does not lose it.
+    # succeeds, so a later failure of the job does not lose it, and a failed save fails nothing.
+    # Caches are per branch, and the fork's master runs no lint job, so a branch's first Build
+    # still downloads.
     - name: The pinned solvers' cache key
       id: solvers-key
       if: fromJson(needs.precondition.outputs.required).lint-code != 'false'
-      run: echo "key=varka-solvers-$(./dev/varka_prove.sh --cache-key)" >> "$GITHUB_OUTPUT"
+      run: |
+        key="$(./dev/varka_prove.sh --cache-key)"
+        echo "key=varka-solvers-$key" >> "$GITHUB_OUTPUT"
     - name: Restore the pinned solvers' archives
       id: solvers-cache
       if: fromJson(needs.precondition.outputs.required).lint-code != 'false'
@@ -1216,6 +1220,7 @@ jobs:
       if: >-
         fromJson(needs.precondition.outputs.required).lint-code != 'false' &&
         steps.solvers-cache.outputs.cache-hit != 'true'
+      continue-on-error: true
       uses: actions/cache/save@v5
       with:
         path: target/varka-solvers/downloads

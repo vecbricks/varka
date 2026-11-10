@@ -52,8 +52,8 @@
 #
 # An install keeps the archives it downloads in <solvers>/downloads/, which the linters' job
 # caches under the --cache-key line; an archive already there is used when its SHA-256 matches
-# the pin, and is downloaded again otherwise. A download is tried four times, ten, thirty and
-# sixty seconds apart, and what fails its checksum counts as a failed try and is not kept.
+# the pin, and is downloaded again otherwise. A failed transfer is tried four times, ten, thirty
+# and sixty seconds apart; a download that fails its checksum fails at once and is not kept.
 set -uo pipefail
 # Usage text is found rather than numbered (see dev/varka_nightly.sh): from the line after the
 # license to the first line that is not a comment.
@@ -129,30 +129,38 @@ require_solver() {
   echo "$path"
 }
 
-# Puts the file at $1 into $2, unless $2 is there already with the SHA-256 $3: four tries, a
-# download that fails its checksum among the failed ones, and only a checked file is kept.
+# Waits $1 seconds before a retry of a download; the self-test replaces it.
+fetch_wait() { sleep "$1"; }
+
+# Puts the file at $1 into $2, unless $2 is there already with the SHA-256 $3. A failed transfer
+# is tried again, four tries in all; a whole transfer of other bytes fails at once, since a retry
+# would not change them. Each download goes to a file of its own beside $2, so installs running
+# at once into the shared directory do not write into each other's, and only a checked file is
+# renamed to $2.
 fetch() {
-  local url="$1" dest="$2" sha="$3" part="$2.part" delay
+  local url="$1" dest="$2" sha="$3" part delay
   if [ -f "$dest" ]; then
     echo "$sha  $dest" | sha256sum -c --quiet > /dev/null 2>&1 && return 0
     echo "varka_prove: $dest does not match its SHA-256; downloading it again" >&2
     rm -f "$dest"
   fi
-  mkdir -p "$(dirname "$dest")" || return 1
+  mkdir -p "$(dirname "$dest")" && part="$(mktemp "$dest.XXXXXX")" || return 1
   for delay in first "${fetch_delays[@]}"; do
     if [ "$delay" != first ]; then
       echo "varka_prove: retrying $url in $delay s" >&2
-      sleep "$delay"
+      fetch_wait "$delay"
     fi
-    rm -f "$part"
-    if curl -sSfL --connect-timeout 30 --max-time 600 -o "$part" "$url" \
-        && echo "$sha  $part" | sha256sum -c --quiet >&2; then
-      mv "$part" "$dest"
-      return 0
+    curl -sSfL --connect-timeout 30 --max-time 300 --speed-limit 10240 --speed-time 60 \
+      -o "$part" "$url" || continue
+    if ! echo "$sha  $part" | sha256sum -c --quiet >&2; then
+      echo "varka_prove: $url does not match its pinned SHA-256" >&2
+      break
     fi
+    mv "$part" "$dest" && return 0
+    break
   done
   rm -f "$part"
-  echo "varka_prove: $url failed $((${#fetch_delays[@]} + 1)) times" >&2
+  echo "varka_prove: could not download $url to $dest" >&2
   return 1
 }
 
@@ -165,7 +173,7 @@ install_z3() {
         "z3-solver==$Z3_VERSION.0"
     return
   fi
-  # The wheel has no dependencies on the Pythons the venv can be, so nothing else is fetched.
+  # The wheel's one dependency is for Pythons before 3.9, which the proofs do not run under.
   fetch "$Z3_WHEEL_URL" "$wheel" "$Z3_WHEEL_SHA256" \
     && python3 -m venv "$dir" \
     && "$dir/bin/pip" install --quiet --disable-pip-version-check --no-index --no-deps "$wheel"
@@ -486,10 +494,11 @@ EOF
 }
 
 # The download, checked against file:// URLs with no waits between tries: an archive that matches
-# is used with no download, one that does not is fetched again, and a source that fails, or
-# serves a file that fails its checksum, is tried four times and leaves nothing behind.
+# is used with no download, one that does not is fetched again, a source that fails is tried four
+# times, one that fails once is kept on its second try, and one that serves other bytes fails at
+# once; nothing but a checked file is left behind.
 self_test_fetch() {
-  local dir good sha bad=0 tries
+  local dir sha bad=0 src tries want
   dir="$(mktemp -d)"
   fetch_delays=(0 0 0)
   printf 'pinned\n' > "$dir/good"
@@ -504,10 +513,16 @@ self_test_fetch() {
     echo "varka_prove: an archive that fails its pin was not replaced" >&2; bad=1
   fi
   printf 'other\n' > "$dir/other"
-  for src in missing other; do
+  # The flaky source appears during the wait after its first failed try.
+  fetch_wait() { cp "$dir/good" "$dir/flaky"; }
+  for src in missing other flaky; do
+    rm -f "$dir/flaky"
     tries="$(fetch "file://$dir/$src" "$dir/out-$src" "$sha" 2>&1 >/dev/null | grep -c retrying)"
-    if [ -e "$dir/out-$src" ] || [ -e "$dir/out-$src.part" ] || [ "$tries" != 3 ]; then
-      echo "varka_prove: a failing download ($src) made $tries retries, not 3, or kept a file" >&2
+    case "$src" in missing) want=3 ;; other) want=0 ;; flaky) want=1 ;; esac
+    if [ "$tries" != "$want" ] || ls "$dir/out-$src".?* > /dev/null 2>&1 \
+        || { [ "$src" = flaky ] && ! cmp -s "$dir/good" "$dir/out-$src"; } \
+        || { [ "$src" != flaky ] && [ -e "$dir/out-$src" ]; }; then
+      echo "varka_prove: the $src source made $tries retries, not $want, or left a wrong file" >&2
       bad=1
     fi
   done
