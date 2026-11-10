@@ -31,6 +31,14 @@
 # a runner no more than 3.7 times slower than the laptop's 24 threads on any sweep timed, the
 # narrow-integer shards 1.0 to 1.4 times, so the longest job takes under about an hour and every row
 # of the manifest names this workflow in its `job` column.
+#
+# Beside the sweeps, every Saturday by the owner's word of 10 November 2026 (VARKA-564): the Varka
+# suites at the defaults under -XX:UseAVX=2 -XX:MaxVectorSize=16, the EPYC 7763 benchmark runners'
+# width, from the same classpath, in six jobs (each module in three shares by the committed
+# weights, as the Build splits them). On 4 November 2026 that run failed 19 tests on master that
+# no other run saw, because the option matrix's 128-bit platform forces only MaxVectorSize=16 and
+# so meets AVX2's lowering only on the runs that draw an AVX2 host. On an AVX-512 runner the flags
+# make the JVM emulate AVX2; on an AVX2 one they are its own; either checks the same lowering.
 name: Varka sweeps
 
 on:
@@ -51,6 +59,10 @@ on:
         description: 'all: every row of the manifest; scheduled: only the rows whose job names this workflow'
         required: false
         default: 'all'
+      avx2_128:
+        description: 'The suites under -XX:UseAVX=2 -XX:MaxVectorSize=16: no, also (beside the sweeps) or only. A scheduled run always runs them beside the sweeps.'
+        required: false
+        default: 'no'
 
 jobs:
   build:
@@ -101,7 +113,12 @@ jobs:
         SUITE: ${{ inputs.suite }}
         RUNNERS: ${{ inputs.runners }}
         ROWS: ${{ inputs.rows }}
+        AVX2_128: ${{ inputs.avx2_128 }}
       run: |
+        case "${AVX2_128:-no}" in
+          no|also|only) ;;
+          *) echo "::error::avx2_128 is no, also or only"; exit 1 ;;
+        esac
         python3 dev/varka_sweeps.py --check
         # A scheduled run takes the rows that name this workflow; a dispatch takes every row
         # unless it asks for the scheduled ones.
@@ -137,6 +154,7 @@ jobs:
   sweep:
     name: "Sweep: ${{ matrix.sweep.label }} on ${{ matrix.runner }}"
     needs: build
+    if: inputs.avx2_128 != 'only'
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 350
     strategy:
@@ -204,11 +222,87 @@ jobs:
         if-no-files-found: ignore
         retention-days: 30
 
+  # The Varka suites at the defaults under AVX2 at 128 bits (VARKA-564), the run of
+  # `dev/varka_matrix.sh --defaults --jvm-arg -XX:UseAVX=2 --jvm-arg -XX:MaxVectorSize=16` that
+  # passed on master 1ab398dad18, split into each module's three shares by the committed weights
+  # (dev/varka_suite_shards.py --job), each share over two JVMs on the runner's four cores.
+  avx2-128:
+    name: "AVX2 at 128 bits: ${{ matrix.module }} ${{ matrix.part }}"
+    needs: build
+    if: >-
+      github.event_name == 'schedule' || inputs.avx2_128 == 'also'
+      || inputs.avx2_128 == 'only'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        module: [catalyst, sql]
+        part: [0/3, 1/3, 2/3]
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v6
+    - name: Install Java 25
+      uses: actions/setup-java@v5
+      with:
+        distribution: zulu
+        java-version: '25'
+    # The host's own UseAVX and vector width, which the summary's reader needs: on an AVX2 host
+    # the flags change nothing, on an AVX-512 one they emulate AVX2.
+    - name: Record the CPU and the vector width
+      uses: ./.github/actions/record-runner-platform
+      with:
+        dir: target/varka-avx2-128/platform
+    - name: Download the classpath
+      uses: actions/download-artifact@v4
+      with:
+        name: varka-sweeps-build
+        path: target
+    - name: Unpack the classpath
+      run: |
+        ./dev/varka_matrix_archive.sh unpack target/varka-sweeps.tar target/varka-sweeps
+        rm target/varka-sweeps.tar
+    - name: Run this share under AVX2 at 128 bits
+      env:
+        MODULE: ${{ matrix.module }}
+        PART: ${{ matrix.part }}
+      run: |
+        set -o pipefail
+        mapfile -t all < <(./dev/varka_matrix.sh --defaults --list-suites --module "$MODULE" \
+          | sed 's/^@own //')
+        [ ${#all[@]} -gt 0 ] || { echo "::error::no suite of $MODULE"; exit 1; }
+        mine=$(python3 dev/varka_suite_shards.py --job "$PART" sql/varka/ci/suite-times.tsv \
+          "${all[@]}" | sed 's/.*\.//' | paste -sd, -)
+        [ -n "$mine" ] || { echo "::error::share $PART of $MODULE is empty"; exit 1; }
+        echo "== share $PART of $MODULE: $mine"
+        status=0
+        ./dev/varka_matrix.sh --defaults --skip-build --build-dir target/varka-sweeps \
+          --out target/varka-avx2-128 --module "$MODULE" --suites "$mine" --split 2 -j 2 \
+          --split-weights sql/varka/ci/suite-times.tsv \
+          --jvm-arg -XX:UseAVX=2 --jvm-arg -XX:MaxVectorSize=16 || status=$?
+        {
+          echo "## AVX2 at 128 bits: $MODULE $PART, exit $status"
+          grep -h '^CPU\|^JVM' target/varka-avx2-128/platform/platform.txt || true
+        } >> "$GITHUB_STEP_SUMMARY"
+        exit "$status"
+    - name: Upload the reports
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: varka-avx2-128-${{ strategy.job-index }}
+        path: |
+          target/varka-avx2-128/platform/platform.txt
+          target/varka-avx2-128/runs/*/*/run.log
+          target/varka-avx2-128/runs/*/*/exit
+          target/varka-avx2-128/runs/*/*/junit/*.xml
+        if-no-files-found: ignore
+        retention-days: 30
+
   report-failure:
     name: Report a failed run
     # Only a scheduled run, since a person who dispatches one sees its result; only on the
     # project's own repository, where issues are on; and when a job failed or was cancelled.
-    needs: [build, sweep]
+    needs: [build, sweep, avx2-128]
     if: >-
       always() && github.event_name == 'schedule' && github.repository == 'vecbricks/varka'
       && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled'))
