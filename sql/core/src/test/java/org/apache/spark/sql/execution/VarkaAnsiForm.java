@@ -269,7 +269,8 @@ public final class VarkaAnsiForm {
         "abs(s1)", "x / x2", "f / f2", "ntz + dt", "CAST(s1 AS TINYINT)", "CAST(i AS TINYINT)",
         "CAST(i AS SMALLINT)", "CAST(l AS TINYINT)", "CAST(l AS SMALLINT)",
         "CAST(i + 1 AS TINYINT)", "CAST(CAST(l AS INT) AS FLOAT)", "CAST(i AS INTERVAL YEAR)",
-        "CAST(dt AS BIGINT)")) {
+        "CAST(dt AS BIGINT)", "round(i, -1)", "bround(i, -1)", "round(y1, -1)",
+        "bround(y1, -1)", "round(s1, -1)", "bround(s1, -2)")) {
       out.put(sql + "\t" + FALSE_AND, unqualified);
     }
     // A bigint narrowed to a narrow type as a COALESCE argument beside a narrow column: a narrow

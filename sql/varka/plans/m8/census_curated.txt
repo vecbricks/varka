@@ -67,7 +67,7 @@ asinh|double|double||ulp|367,357|Spark's log-and-sqrt formula over StrictMath.lo
 atan|double|double||ulp|367,356|Math
 atan2|double|double||ulp|367,356|Math
 atanh|double|double||ulp|367,357|Spark's formula over StrictMath.log
-bround|NUM|same||semantics|344,346,351,363|HALF_EVEN; integral and decimal are semantics, double as round (346)
+bround|NUM|same|byte,short,int,bigint|semantics|344,346,351,363|HALF_EVEN; integral and decimal are semantics, double as round (346); bigint fused at a scale of 0 or more only, a negative scale is 344a3
 cbrt|double|double||ulp|367,358|Math
 ceil|NUM|bigint,dec|int~,bigint|semantics|344,351,363|double and integral give bigint, decimal a decimal of scale 0; fused for int in `ceil(i)`, the int under a cast to double
 ceiling|NUM|bigint,dec|bigint|semantics|344,351,363|alias of ceil
@@ -93,8 +93,8 @@ pow|double|double||ulp|367,358|StrictMath; fused behind the guard on fdlibm's we
 power|double|double||ulp|367,358|alias of pow
 radians|double|double|double|done|342|Math.toRadians is one multiply, bit-exact
 rint|double|double|double|done|344|round half even to an integer, the 2^52 construction
-round|NUM|same||semantics|344,346,351,363|HALF_UP; integral and decimal are semantics, double by the tie test over the shortest decimal for scales 0 to 22, a band declined (346)
-truncate|NUM|same||semantics|344,346,351,363|ROUND_DOWN to a scale; integral and decimal are semantics, double as round (346)
+round|NUM|same|byte,short,int,bigint|semantics|344,346,351,363|HALF_UP; integral and decimal are semantics, double by the tie test over the shortest decimal for scales 0 to 22, a band declined (346); bigint fused at a scale of 0 or more only, a negative scale is 344a3
+truncate|NUM|same|byte,short,int,bigint|semantics|344,346,351,363|ROUND_DOWN to a scale; integral and decimal are semantics, double as round (346); bigint fused at a scale of 0 or more only, a negative scale is 344a3
 sign|double,IVL|double||plumbing|342|exact: a compare and a blend
 signum|double,IVL|double|double,ym,dt|done|342|alias of sign
 sin|double|double||ulp|367,356|Math
