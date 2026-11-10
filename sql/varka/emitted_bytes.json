@@ -14812,24 +14812,24 @@
       "16" : "770058b3691f9be3"
     },
     "wideConversionForm=SPLIT over useAVX=2" : {
-      "4" : "78d02f788bb6a2fe",
-      "16" : "a0b6c66d8781a471"
+      "4" : "8968ccd9d341fec6",
+      "16" : "a95c689d5b52c849"
     },
     "wideConversionForm=MAGIC over useAVX=2" : {
-      "4" : "78d02f788bb6a2fe",
-      "16" : "a0b6c66d8781a471"
+      "4" : "8968ccd9d341fec6",
+      "16" : "a95c689d5b52c849"
     },
     "wideConversionForm=XOR_SPLIT over useAVX=2" : {
-      "4" : "78d02f788bb6a2fe",
-      "16" : "a0b6c66d8781a471"
+      "4" : "8968ccd9d341fec6",
+      "16" : "a95c689d5b52c849"
     },
     "roundToOddByShifts=true over useAVX=2" : {
-      "4" : "78d02f788bb6a2fe",
-      "16" : "a0b6c66d8781a471"
+      "4" : "8968ccd9d341fec6",
+      "16" : "a95c689d5b52c849"
     },
     "roundToOddByShifts=false over useAVX=2" : {
-      "4" : "78d02f788bb6a2fe",
-      "16" : "a0b6c66d8781a471"
+      "4" : "8968ccd9d341fec6",
+      "16" : "a95c689d5b52c849"
     },
     "narrowLanes=true" : {
       "4" : "f55bc30fb1c394f6",
