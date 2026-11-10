@@ -50,10 +50,14 @@ on:
 
 permissions: {}
 
-# One job per benchmark run at a time: a workflow_run event and a dispatch for the same attempt
-# run one after the other, and the second finds the run moved on.
+# One job per attempt of a benchmark run: a workflow_run event and a dispatch for the same attempt
+# run one after the other, and the second finds the run moved on. GitHub keeps one pending job
+# per group and cancels an older one, so the group names the attempt: a watcher of the next
+# attempt never shares a group with a job still pending for this one.
 concurrency:
-  group: varka-bench-cpu-retry-${{ github.event.workflow_run.id || inputs.run-id }}
+  group: >-
+    varka-bench-cpu-retry-${{ github.event.workflow_run.id || inputs.run-id
+    }}-${{ github.event.workflow_run.run_attempt || inputs.attempt }}
   cancel-in-progress: false
 
 jobs:

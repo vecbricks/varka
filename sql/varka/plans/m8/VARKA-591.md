@@ -35,8 +35,12 @@ needed four tries over about five hours from a detached laptop script.
   new runs, except `workflow_dispatch` and `repository_dispatch`. Whether the completion of a rerun
   requested with that token fires `workflow_run` is not stated. So after each rerun the job
   dispatches its own workflow for the next attempt, which waits for that attempt and decides
-  again. If `workflow_run` does fire too, the workflow's concurrency group, one per benchmark run,
-  serialises the two, and the second finds the run at another attempt and stops.
+  again. If `workflow_run` does fire too, the workflow's concurrency group, one per run and
+  attempt, serialises the two, and the second finds the run at another attempt and stops. The
+  group names the attempt because GitHub keeps one pending job per group and cancels an older
+  one: a group per run would let a late `workflow_run` job cancel the pending watcher of the next
+  attempt. A watcher whose attempt is still running at its deadline (240 minutes at the default
+  wait) fails its job and names the dispatch that resumes the chain.
 * **What counts as a CPU-only failure** (`dev/varka_bench_cpu_retry.py`, `decide`): the run is a
   run of `benchmark.yml` and concluded `failure`; every job that neither succeeded nor skipped
   concluded `failure` (a cancelled, timed-out or startup-failed job stops the chain), its first
@@ -56,7 +60,23 @@ needed four tries over about five hours from a detached laptop script.
   ...: failed" to the benchmark job's summary, and on a later attempt that passes, the CPU it got;
   each retry job's own summary lists the mismatches it read and what it did.
 
-## 2. Verification
+* **Not covered.** `varka-surface-benchmark.yml` runs the same CPU check, but its runs are not
+  rerun; the row names `benchmark.yml`.
+
+## 2. Review
+
+`/code-review high` on the branch found ten points. Fixed: the per-run concurrency group (above);
+a watcher dispatched ahead of its attempt stopped instead of polling; the deadline ended the chain
+with a green job; a failed dispatch after a rerun was not retried (it is now, as reads are, over
+429, 5xx and network failures only); the dry run waited out the hour; a rerun's carried-over jobs
+could end the watch before its rerun jobs were listed (the watch now waits until every job the
+previous attempt failed is listed); a run of another workflow was rejected only after the watch;
+the summary comment in `varka_datapath.sh` claimed the surface benchmark's reruns. Left: a
+scheduled sweep instead of the chain, since GitHub's cron here runs hours late
+(`update_build_status.yml`'s note), which would turn the hour's wait into several; and a shared
+API client with `varka_ci_admit.py`, since the job checks out only this one file.
+
+## 3. Verification
 
 Before the merge: `dev/varka_bench_cpu_retry.py --selftest` (decisions over the recorded shapes
 of runs 42794013318 and 41977272181, the cap over a misconfigured `expected-cpu`, and the names

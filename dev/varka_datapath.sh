@@ -91,7 +91,8 @@ echo "distinct core types: $(lscpu --extended=CORE,MAXMHZ 2>/dev/null | tail -n 
 java -XX:+PrintFlagsFinal -version 2>/dev/null | grep -E ' (MaxVectorSize|UseAVX|UseSVE) ' || true
 
 # With --github the CPU check also goes into the job's summary with the run's attempt number, so a
-# run that .github/workflows/varka-bench-cpu-retry.yml reruns shows each attempt's CPU there.
+# rerun shows each attempt's CPU there. .github/workflows/varka-bench-cpu-retry.yml reruns
+# benchmark.yml's runs; varka-surface-benchmark.yml's are not rerun.
 summary() {
   if [ "$github" = 1 ] && [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
     echo "$*" >> "$GITHUB_STEP_SUMMARY"

@@ -27,9 +27,11 @@ fails a job when `expected-cpu` is set and the pool hands it another CPU (`dev/v
 prints `CPU mismatch! Expected '...' but got '...'` as an error annotation). This tool watches
 attempt N of one run of `benchmark.yml`:
 
-1. It waits until attempt N completes. It stops early, with nothing to do, once another attempt
-   has started or once every benchmark job of attempt N has passed its CPU check, since such a
-   run can no longer fail on the CPU.
+1. It waits until attempt N completes, polling while the run is still at an earlier attempt. It
+   stops early, with nothing to do, when the run is not of benchmark.yml, once a later attempt
+   has started, or once every benchmark job of attempt N has passed its CPU check, since such a
+   run can no longer fail on the CPU. An attempt still running at the deadline fails the job,
+   naming the dispatch that resumes the chain.
 2. It decides. A rerun is due only when the run failed, the attempt is below the cap, and every
    job that did not succeed or skip failed, its first failed step is the CPU check step and its
    check run carries the mismatch annotation. A cancelled or timed-out job, a failure in any
@@ -39,8 +41,8 @@ attempt N of one run of `benchmark.yml`:
 4. It dispatches its own workflow for attempt N + 1, which repeats this from step 1. A rerun
    requested with the job's GITHUB_TOKEN is not known to fire `workflow_run` when it completes,
    so the chain is carried by `workflow_dispatch`, which that token may start. If `workflow_run`
-   does fire as well, both jobs watch the same attempt, the workflow's concurrency group runs
-   them one after the other, and the second finds the run moved on and stops.
+   does fire as well, both jobs watch the same attempt, the workflow's concurrency group (one per
+   run and attempt) runs them one after the other, and the second finds the run moved on.
 
 The cap is on the run's `run_attempt`, so a misconfigured `expected-cpu`, which mismatches on
 every runner, ends after `--max-attempts` attempts in all. Each decision is written to the job's
@@ -51,12 +53,15 @@ rerun and the dispatch) and `checks: read` (the annotations).
 
 import argparse
 import datetime
+import http.client
+import io
 import json
 import os
 import pathlib
 import sys
 import time
 import unittest
+import urllib.error
 import urllib.request
 
 API = "https://api.github.com"
@@ -71,6 +76,16 @@ MISMATCH = "CPU mismatch! "
 BENCH_JOB_PREFIXES = ("Run benchmarks: ", "Benchmark pair: ")
 OK_CONCLUSIONS = ("success", "skipped", "neutral")
 POLL_SECONDS = 120
+READ_RETRIES = 3
+READ_RETRY_SECONDS = 30
+# What a failed read raises: URLError and HTTPError (both OSError), a socket timeout, a response
+# cut short and a body that is not JSON.
+READ_ERRORS = (OSError, http.client.HTTPException, ValueError)
+
+
+def transient(e):
+    """A failure worth retrying: anything but an HTTP answer other than 429 or a 5xx."""
+    return not isinstance(e, urllib.error.HTTPError) or e.code == 429 or e.code >= 500
 
 
 class Api:
@@ -86,9 +101,19 @@ class Api:
         req.add_header("X-GitHub-Api-Version", "2022-11-28")
         if self.token:
             req.add_header("Authorization", "Bearer " + self.token)
-        with urllib.request.urlopen(req, timeout=60) as resp:
-            raw = resp.read()
-        return json.loads(raw) if raw else None
+        # A read, and the dispatch, are retried over a transient failure, so one dropped request
+        # does not end a chain; a second watcher of one attempt stops at once (Retry.watch). The
+        # rerun is not, since a rerun the server took but did not answer would start another.
+        retries = READ_RETRIES if method == "GET" or "/dispatches" in url else 0
+        for tries_left in range(retries, -1, -1):
+            try:
+                with urllib.request.urlopen(req, timeout=60) as resp:
+                    raw = resp.read()
+                return json.loads(raw) if raw else None
+            except READ_ERRORS as e:
+                if tries_left == 0 or not transient(e):
+                    raise
+                time.sleep(READ_RETRY_SECONDS)
 
     def run(self, run_id):
         return self.request("GET", f"actions/runs/{run_id}")
@@ -133,14 +158,16 @@ def mismatch_of(annotations):
     return None
 
 
-def checks_all_passed(jobs):
+def checks_all_passed(jobs, rerun_names=()):
     """True once every benchmark job of an attempt in flight has passed its CPU check.
 
-    A job still queued has no steps yet and keeps the answer False.
+    A job still queued has no steps yet and keeps the answer False. `rerun_names` are the jobs
+    the previous attempt failed: a rerun lists the jobs it carried over as passed, and until each
+    rerun job is listed too, the attempt has jobs this cannot see.
     """
     bench = [j for j in jobs if j["name"].startswith(BENCH_JOB_PREFIXES)]
     bench = [j for j in bench if j.get("conclusion") != "skipped"]
-    if not bench:
+    if not bench or not set(rerun_names) <= {j["name"] for j in bench}:
         return False
     for j in bench:
         probe = [s for s in j.get("steps", []) if s["name"] == PROBE_STEP]
@@ -187,6 +214,10 @@ def parse_time(s):
     return datetime.datetime.strptime(s, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=datetime.timezone.utc)
 
 
+class Deadline(Exception):
+    pass
+
+
 class Retry:
     def __init__(self, api, run_id, attempt, wait_minutes, max_attempts, dry_run, ref, clock=None):
         self.api = api
@@ -207,21 +238,47 @@ class Retry:
         self.lines.append(line)
 
     def watch(self, deadline):
-        """Wait for attempt N to complete; the run, or None when nothing can be due."""
+        """Wait for attempt N to complete; the run, or None when nothing can be due.
+
+        Raises Deadline when the attempt is still running at the deadline, so the job fails and
+        shows where the chain stopped.
+        """
+        rerun_names = None
         while True:
             run = self.api.run(self.run_id)
-            if run["run_attempt"] != self.attempt:
+            if run.get("path") != WORKFLOW_PATH:
+                self.log(f"run is of {run.get('path')}, not {WORKFLOW_PATH}: stop")
+                return None
+            if run["run_attempt"] > self.attempt:
                 self.log(f"the run is at attempt {run['run_attempt']}, not {self.attempt}: stop")
                 return None
-            if run["status"] == "completed":
-                return run
-            if checks_all_passed(self.api.jobs(self.run_id, self.attempt)):
-                self.log(f"attempt {self.attempt} passed the CPU check on every job: stop")
-                return None
+            if run["run_attempt"] == self.attempt:
+                if run["status"] == "completed":
+                    return run
+                if rerun_names is None:
+                    rerun_names = self.failed_before()
+                if checks_all_passed(self.api.jobs(self.run_id, self.attempt), rerun_names):
+                    self.log(f"attempt {self.attempt} passed the CPU check on every job: stop")
+                    return None
             if self.now() >= deadline:
-                self.log(f"attempt {self.attempt} did not complete by the deadline: stop")
-                return None
+                self.log(
+                    f"attempt {self.attempt} did not complete by the deadline; dispatch this "
+                    f"workflow again with run-id {self.run_id} and attempt {self.attempt}"
+                )
+                raise Deadline()
             self.sleep(POLL_SECONDS)
+
+    def failed_before(self):
+        """The names of the benchmark jobs attempt N - 1 failed, which attempt N reruns."""
+        if self.attempt == 1:
+            return []
+        jobs = self.api.jobs(self.run_id, self.attempt - 1)
+        return [
+            j["name"]
+            for j in jobs
+            if j["name"].startswith(BENCH_JOB_PREFIXES)
+            and j.get("conclusion") not in OK_CONCLUSIONS
+        ]
 
     def go(self, deadline):
         run = self.watch(deadline)
@@ -235,6 +292,9 @@ class Retry:
         self.log(f"attempt {self.attempt}: {reason}")
         if verdict != "rerun":
             return "stop"
+        if self.dry_run:
+            self.log("dry run: no wait and no rerun")
+            return "dry-run"
         due = parse_time(run["updated_at"]) + self.wait
         left = (due - self.now()).total_seconds()
         if left > 0:
@@ -244,9 +304,6 @@ class Retry:
         if again["run_attempt"] != self.attempt or again["status"] != "completed":
             self.log(f"the run moved on (attempt {again['run_attempt']}, {again['status']}): stop")
             return "stop"
-        if self.dry_run:
-            self.log("dry run: no rerun")
-            return "dry-run"
         self.api.rerun_failed(self.run_id)
         self.log(f"reran the failed jobs: attempt {self.attempt + 1} of {self.max_attempts}")
         self.api.dispatch(
@@ -302,11 +359,19 @@ def main(argv):
     )
     # The watch gives up early enough that the wait after it still ends inside the budget.
     deadline = retry.now() + datetime.timedelta(minutes=args.deadline_minutes - args.wait_minutes)
-    retry.go(deadline)
-    path = os.environ.get("GITHUB_STEP_SUMMARY")
-    if path:
-        with open(path, "a") as f:
-            f.write(summary(args.repo, args.run_id, args.attempt, retry.lines))
+    # The summary is written even when a request fails, so a broken chain says where it broke.
+    try:
+        retry.go(deadline)
+    except Deadline:
+        return 1
+    except Exception as e:
+        retry.log(f"error: {type(e).__name__}: {e}")
+        raise
+    finally:
+        path = os.environ.get("GITHUB_STEP_SUMMARY")
+        if path:
+            with open(path, "a") as f:
+                f.write(summary(args.repo, args.run_id, args.attempt, retry.lines))
     return 0
 
 
@@ -558,11 +623,64 @@ class RetryTest(unittest.TestCase):
         self.assertEqual(clock.slept, [POLL_SECONDS])
         self.assertIn("attempt 1 passed the CPU check on every job: stop", r.lines)
 
-    def test_dry_run_neither_reruns_nor_dispatches(self):
+    def test_dry_run_neither_waits_nor_reruns_nor_dispatches(self):
         api = FakeApi({1: ("completed", "failure", [cpu_failed()])})
-        r, _ = retry(api, dry_run=True)
+        r, clock = retry(api, dry_run=True)
         self.assertEqual(r.go(FAR), "dry-run")
-        self.assertEqual((api.reruns, api.dispatches), (0, []))
+        self.assertEqual((api.reruns, api.dispatches, clock.slept), (0, [], []))
+
+    def test_a_watcher_ahead_of_the_run_waits_for_the_rerun(self):
+        # Dispatched for attempt 2 before the rerun's attempt shows: it polls until it does.
+        api = FakeApi(
+            {
+                1: ("completed", "failure", [cpu_failed()]),
+                2: ("completed", "failure", [cpu_failed()]),
+            }
+        )
+        r, clock = retry(api, attempt=2)
+        reads = iter([1, 2, 2])
+        api.run = lambda run_id: run_record(next(reads))
+        self.assertEqual(r.go(FAR), "rerun")
+        self.assertEqual(clock.slept[0], POLL_SECONDS)
+
+    def test_carried_over_jobs_do_not_end_the_watch_before_the_rerun_job_is_listed(self):
+        passed = job(7, BENCH + " 2", "success", [probe("success")])
+        rerun_leg = job(8, BENCH, None, [probe("success")])
+        api = FakeApi(
+            {
+                1: ("completed", "failure", [cpu_failed(), passed]),
+                2: ("in_progress", None, [passed]),
+            }
+        )
+        api.attempt = 2
+        r, clock = retry(api, attempt=2)
+        script = iter([[passed], [passed, rerun_leg]])
+        api.jobs = lambda run_id, attempt: (next(script) if attempt == 2 else api.attempts[1][2])
+        self.assertEqual(r.go(FAR), "stop")
+        self.assertEqual(clock.slept, [POLL_SECONDS])
+
+    def test_an_attempt_running_past_the_deadline_fails_the_job(self):
+        api = FakeApi({1: ("in_progress", None, [job(1, BENCH, None)])})
+        r, _ = retry(api)
+        with self.assertRaises(Deadline):
+            r.go(parse_time("2026-11-10T14:00:00Z"))
+        self.assertIn("dispatch this workflow again", r.lines[-1])
+
+    def test_a_run_of_another_workflow_is_refused_without_waiting(self):
+        api = FakeApi({1: ("in_progress", None, [])})
+        api.run = lambda run_id: run_record(
+            path=".github/workflows/build_main.yml", status="in_progress"
+        )
+        r, clock = retry(api)
+        self.assertEqual(r.go(FAR), "stop")
+        self.assertEqual(clock.slept, [])
+
+    def test_only_transient_failures_are_retried(self):
+        self.assertTrue(transient(urllib.error.URLError("reset")))
+        for code, want in ((502, True), (429, True), (404, False), (403, False)):
+            e = urllib.error.HTTPError("u", code, "m", {}, io.BytesIO())
+            with e:
+                self.assertEqual(transient(e), want, code)
 
 
 class CouplingTest(unittest.TestCase):
