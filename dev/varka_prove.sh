@@ -470,11 +470,18 @@ while [ "$#" -gt 0 ]; do
     --install-shared) mode=install; solvers="$shared"; which="${2:-}"; shift 2 || usage ;;
     --self-test) mode=self-test; shift ;;
     --lint) mode=lint; which=both; shift ;;
-    --nightly-only) which=both; files+=("${NIGHTLY_ONLY[@]}"); shift ;;
+    --nightly-only) which=both; nightly=1; files+=("${NIGHTLY_ONLY[@]}"); shift ;;
     -*) usage ;;
     *) files+=("$1"); shift ;;
   esac
 done
+# --lint skips every file --nightly-only names, so the two together prove nothing and would
+# still report success.
+if [ "$mode" = lint ] && [ "${nightly:-0}" = 1 ]; then
+  echo "varka_prove: --lint skips the NIGHTLY_ONLY files --nightly-only names;" \
+    "use one or the other" >&2
+  exit 2
+fi
 case "$which" in
   z3|cvc5) names=("$which") ;;
   both) names=(z3 cvc5) ;;
