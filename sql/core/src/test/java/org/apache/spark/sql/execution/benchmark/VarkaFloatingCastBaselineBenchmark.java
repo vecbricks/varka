@@ -22,6 +22,13 @@ import java.util.Map;
 
 import org.apache.spark.sql.SparkSession;
 import org.apache.spark.sql.VarkaBenchmark;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaKernelPlan;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ColumnRef;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ConvertLane;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LaneType;
+import org.apache.spark.sql.execution.VarkaColumnarToRowExec$;
 import org.apache.spark.sql.execution.VarkaSessionEmit;
 import org.apache.spark.sql.internal.SQLConf;
 
@@ -54,10 +61,12 @@ import org.apache.spark.sql.internal.SQLConf;
  * to {@code FLOAT} are {@code WHOLE}, since part 343a3 fuses them, and so is the boolean filter,
  * whose {@code coalesce} meets its {@code false} on the cast's lane since part 343a3b
  * ({@code VARKA-343.md} 2.2.1), but where the session refuses a filter's condition in a 64-bit
- * kernel (VARKA-503), as the 128-bit companion's host does by default; every other section is
- * {@code NONE}, the {@code BIGINT} casts (part 343a4) among them. The filter's condition is the
- * cast under {@code coalesce}
- * rather than the bare cast: from a bare {@code WHERE CAST(x AS BOOLEAN)} the optimizer infers
+ * kernel (VARKA-503), as the 128-bit companion's host does by default. The {@code BIGINT} casts
+ * are {@code WHOLE} where the session's emit level fuses them and {@code NONE} where it does not
+ * ({@link #fusesLongCasts}): a named level fuses them, as the 256-bit runners and the laptop
+ * resolve, and the unnamed one declines them, as the 128-bit runners resolve. Every other section
+ * is {@code NONE}. The filter's condition is the cast under {@code coalesce} rather than the bare
+ * cast: from a bare {@code WHERE CAST(x AS BOOLEAN)} the optimizer infers
  * {@code x IS NOT NULL}, since the cast is null-intolerant, and that conjunct alone fuses into a
  * {@code VarkaFilterColumnarToRow} under Spark's {@code Filter}, which would put a Varka node in
  * the plan while the cast declines, so the check could not see the row start fusing the cast
@@ -109,7 +118,8 @@ public class VarkaFloatingCastBaselineBenchmark extends VarkaSqlBenchmarkBase {
    *       spread evenly over every bit length of the long: about five in eight are past
    *       {@code 2^24}, where a cast to {@code FLOAT} rounds, about one in six past {@code 2^53},
    *       where one to {@code DOUBLE} does, and about one in five past {@code 2^51}, where the
-   *       bounded AVX2 conversion of row 343 declines.</li>
+   *       bounded form of row 343's AVX2 conversion, the {@code wideConversionForm=MAGIC} arm,
+   *       declines the batch.</li>
    *   <li>{@code i} is {@code hash(id)}, over the whole int range; every value is exact as a
    *       double.</li>
    *   <li>{@code x} is {@code hash(id, 1) / 7.0}, within {@code +-2^31 / 7}, so no value leaves
@@ -164,16 +174,40 @@ public class VarkaFloatingCastBaselineBenchmark extends VarkaSqlBenchmarkBase {
   }
 
   /**
+   * Whether a session with these emit settings fuses a {@code BIGINT} cast to {@code FLOAT} and
+   * to {@code DOUBLE}. The answer depends on the emit level the session resolves from its host
+   * ({@code spark.sql.codegen.varka.emit.useAVX}), so it is asked of the kernel plan itself: the
+   * conversion of a {@code BIGINT} column alone to each floating lane, planned under the options
+   * the session's exec nodes emit with. A level or a host a later change teaches to fuse the
+   * casts is then read here too, with no list of levels in this class to keep in step.
+   */
+  static boolean fusesLongCasts(VarkaSessionEmit emit) {
+    VarkaEmitOptions options = VarkaColumnarToRowExec$.MODULE$.emitOptions(emit);
+    for (LaneType target : LaneType.values()) {
+      if (!target.isFloating()) {
+        continue;
+      }
+      List<VarkaVectorIR> roots = List.of(new ConvertLane(new ColumnRef(0, LaneType.LONG), target));
+      if (VarkaKernelPlan.of(roots, options).refusal().isPresent()) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /**
    * Every section, in the order they run: each null density, then each cast. The boolean filter
    * is a condition in a kernel driven at 64 bits, which a session that refuses those
    * ({@code declinesLongConditions}, VARKA-503) leaves to the row path whole: the 128-bit
-   * companion's host by default.
+   * companion's host by default. The {@code BIGINT} casts fuse whole where the session's emit
+   * level admits them ({@code fusesLongCasts}, as {@link #fusesLongCasts} answers it).
    */
-  static List<Section> sections(boolean declinesLongConditions) {
+  static List<Section> sections(boolean declinesLongConditions, boolean fusesLongCasts) {
     List<Section> out = new ArrayList<>();
     Map<String, String> legacy = Map.of(SQLConf.ANSI_ENABLED().key(), "false");
     Map<String, String> ansi = Map.of(SQLConf.ANSI_ENABLED().key(), "true");
     Map<String, String> time = Map.of(SQLConf.TIME_TYPE_ENABLED().key(), "true");
+    Fusion longCasts = fusesLongCasts ? Fusion.WHOLE : Fusion.NONE;
     for (String nulls : new String[] {"", "_n"}) {
       String l = "l" + nulls;
       String i = "i" + nulls;
@@ -183,9 +217,9 @@ public class VarkaFloatingCastBaselineBenchmark extends VarkaSqlBenchmarkBase {
       String density = ", " + (nulls.isEmpty() ? "no nulls" : "one row in ten null");
       String from = " AS a FROM " + VIEW;
       out.add(new Section("BIGINT CAST(l AS FLOAT)" + density,
-          "SELECT CAST(" + l + " AS FLOAT)" + from, Map.of(), Fusion.NONE));
+          "SELECT CAST(" + l + " AS FLOAT)" + from, Map.of(), longCasts));
       out.add(new Section("BIGINT CAST(l AS DOUBLE)" + density,
-          "SELECT CAST(" + l + " AS DOUBLE)" + from, Map.of(), Fusion.NONE));
+          "SELECT CAST(" + l + " AS DOUBLE)" + from, Map.of(), longCasts));
       out.add(new Section("INT CAST(i AS DOUBLE)" + density,
           "SELECT CAST(" + i + " AS DOUBLE)" + from, Map.of(), Fusion.WHOLE));
       out.add(new Section("DOUBLE CAST(w AS INT), LEGACY" + density,
@@ -219,9 +253,9 @@ public class VarkaFloatingCastBaselineBenchmark extends VarkaSqlBenchmarkBase {
         session.sql(tableSql(NUM_ROWS)).createOrReplaceTempView(VIEW);
         VarkaArrowSessions.cache(session, VIEW);
       }
-      // The refusal as the Varka session resolves it, as VarkaBooleanOutputBenchmark reads it.
-      List<Section> sections = sections(
-          VarkaSessionEmit.of(varka.sessionState().conf()).declineTwoLaneConditions());
+      // The refusal and the emit level as the Varka session resolves them from the host.
+      VarkaSessionEmit emit = VarkaSessionEmit.of(varka.sessionState().conf());
+      List<Section> sections = sections(emit.declineTwoLaneConditions(), fusesLongCasts(emit));
       for (Section s : sections) {
         withConf(varka, s.conf(), () -> requireBaseline(varka, s.title(), s.query(), s.fusion()));
       }

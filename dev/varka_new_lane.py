@@ -153,12 +153,17 @@ def census_fused():
 
 
 def benchmark_sources():
-    """Every Varka*Benchmark.java under a module's test sources, at any depth."""
+    """Every Varka*Benchmark.java under a module's test sources, at any depth, but the spikes.
+
+    A spike (`Varka*SpikeBenchmark.java`) times hand-written loops that price a design before
+    the emitter is touched; a vector class it reads for its own arithmetic (577's spike divides
+    in `DoubleVector`) says nothing of a lane's kernels being benchmarked, so it wires no site."""
     out = []
     for d in BENCHMARKS:
         for dirpath, _, files in os.walk(os.path.join(ROOT, d)):
             for f in sorted(files):
-                if f.startswith("Varka") and f.endswith("Benchmark.java"):
+                spike = f.endswith("SpikeBenchmark.java")
+                if f.startswith("Varka") and f.endswith("Benchmark.java") and not spike:
                     path = os.path.relpath(os.path.join(dirpath, f), ROOT)
                     out.append((path, read(path)))
     return out
