@@ -31,9 +31,10 @@ import org.apache.spark.sql.types._
  * build, so a section that no longer parses, raises, changes its result type or that the two
  * sessions answer differently fails a pull request rather than the runner dispatch that times it
  * (VARKA-103 4). It also makes the benchmark's own fuse check, that each section's plan on the
- * Varka session has the section's fusion class under all of the section's settings, and its
- * kernel check, that a `WHOLE` section hands no batch to the row path, so a row that changes how
- * a section fuses sets the section's new class in the same pull request.
+ * Varka session has the section's fusion class under all of the section's settings, with the
+ * two-lane condition refusal off and on, and its kernel check, that a `WHOLE` section hands no
+ * batch to the row path, so a row that changes how a section fuses sets the section's new class
+ * in the same pull request.
  *
  * The fixture is the benchmark's table over its first 2000 ids. Its columns are hashes of the
  * id, so these rows already reach the regions the benchmark's javadoc states, which the suite
@@ -131,7 +132,9 @@ class VarkaDayTimeIntervalBaselineQueriesSuite extends QueryTest with VarkaShare
            |       count_if(dt_n is null and dt > dt2)
            |from $view""".stripMargin).head()
 
-      val sections = VarkaDayTimeIntervalBaselineBenchmark.sections().asScala.toSeq
+      // The answers do not depend on the plan a section is held to, so either list does; this
+      // is the list with the two-lane refusal off, the shared sessions' setting.
+      val sections = VarkaDayTimeIntervalBaselineBenchmark.sections(false).asScala.toSeq
       assert(sections.size === 2 * resultTypes.size)
       val fused = sections.filter(_.fusion != VarkaSqlBenchmarkBase.Fusion.NONE)
       assert(fused.map(s => (s.title, s.fusion.toString)) === Seq(
@@ -173,18 +176,23 @@ class VarkaDayTimeIntervalBaselineQueriesSuite extends QueryTest with VarkaShare
     // The benchmark's own fuse check, made here too, so a change to how a section fuses fails a
     // pull request rather than the runner dispatch that times it. Each section is planned under
     // its own settings, as the benchmark plans it, and under the emitter's default options, so
-    // the classes pin the defaults; the run that lifts the benchmark's check cancels it.
+    // the classes pin the defaults; the run that lifts the benchmark's check cancels it. The
+    // benchmark lists its classes at the two-lane refusal the host resolves (VARKA-503), which
+    // the shared sessions leave off, so both lists are checked here by setting the refusal each
+    // way.
     assume(VarkaSqlBenchmarkBase.fuseCheck(),
       s"-D${VarkaSqlBenchmarkBase.FUSE_CHECK_PROPERTY}=false times the sections fused")
     withTable {
-      for (s <- VarkaDayTimeIntervalBaselineBenchmark.sections().asScala) {
-        withClue(s.title) {
-          withSettings(s) {
-            val plan = varkaSpark.sql(s.query).queryExecution.executedPlan
-            assert(VarkaSqlBenchmarkBase.fusion(plan) === Optional.of(s.fusion))
-            // The benchmark's kernel check too: a WHOLE section hands no batch to the row path.
-            if (s.fusion == VarkaSqlBenchmarkBase.Fusion.WHOLE) {
-              VarkaDayTimeIntervalBaselineBenchmark.requireKernel(varkaSpark, s)
+      forEachTwoLaneRefusal { declines =>
+        for (s <- VarkaDayTimeIntervalBaselineBenchmark.sections(declines).asScala) {
+          withClue(s"${s.title}, refusal $declines") {
+            withSettings(s) {
+              val plan = varkaSpark.sql(s.query).queryExecution.executedPlan
+              assert(VarkaSqlBenchmarkBase.fusion(plan) === Optional.of(s.fusion))
+              // The benchmark's kernel check too: a WHOLE section hands no batch to the row path.
+              if (s.fusion == VarkaSqlBenchmarkBase.Fusion.WHOLE) {
+                VarkaDayTimeIntervalBaselineBenchmark.requireKernel(varkaSpark, s)
+              }
             }
           }
         }

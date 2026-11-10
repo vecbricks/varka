@@ -25,6 +25,7 @@ import org.apache.spark.sql.Row;
 import org.apache.spark.sql.SparkSession;
 import org.apache.spark.sql.VarkaBenchmark;
 import org.apache.spark.sql.execution.SparkPlan;
+import org.apache.spark.sql.execution.VarkaSessionEmit;
 
 /**
  * The baseline for the day-time interval expressions before Varka fuses them (VARKA-103):
@@ -64,8 +65,12 @@ import org.apache.spark.sql.execution.SparkPlan;
  * kernel under the row path's condition and the spark row path arm is the baseline. The control
  * is {@code WHOLE}, and the run also checks that it runs every batch as a kernel
  * ({@link #requireKernel}), so that a batch handed back to the row path fails the run rather
- * than time the row path as the control. Each section's class is the one a probe of its plan on
- * master found.
+ * than time the row path as the control. A session that refuses a filter's condition in a kernel
+ * driven at 64 bits ({@code declinesLongConditions}, VARKA-503), the 128-bit companion's host by
+ * default, leaves both filters to the row path, the null test with the rest, so both are
+ * {@code NONE} there and both arms of each time the row path; the kernel check is then not made,
+ * and the control's title still says it fuses, as it does on every other host. Each section's
+ * class is the one a probe of its plan on master found.
  *
  * <p>To run this benchmark, on a GitHub runner (the results come back as an artifact):
  * <pre>
@@ -154,8 +159,12 @@ public class VarkaDayTimeIntervalBaselineBenchmark extends VarkaSqlBenchmarkBase
               from range(0, %d))""".formatted(rows);
   }
 
-  /** Every section, in the order they run: each null density, then each expression. */
-  static List<Section> sections() {
+  /**
+   * Every section, in the order they run: each null density, then each expression, with the
+   * classes a session plans them at when it does or does not refuse a filter's condition in a
+   * kernel driven at 64 bits, which both filters' conditions over the long lane are.
+   */
+  static List<Section> sections(boolean declinesLongConditions) {
     List<Section> out = new ArrayList<>();
     for (String nulls : new String[] {"", "_n"}) {
       String dt = "dt" + nulls;
@@ -189,10 +198,10 @@ public class VarkaDayTimeIntervalBaselineBenchmark extends VarkaSqlBenchmarkBase
           "SELECT CAST(" + dt + " AS INTERVAL HOUR) AS a" + from, Map.of(), Fusion.NONE));
       out.add(new Section("filter extract(HOUR FROM dt) >= 12" + density,
           "SELECT " + dt + " AS a" + from + " WHERE extract(HOUR FROM " + dt + ") >= 12",
-          Map.of(), Fusion.NULL_TESTS));
+          Map.of(), declinesLongConditions ? Fusion.NONE : Fusion.NULL_TESTS));
       out.add(new Section("filter dt > dt2, control, fuses today" + density,
           "SELECT " + dt + " AS a" + from + " WHERE " + dt + " > dt2", Map.of(),
-          Fusion.WHOLE));
+          declinesLongConditions ? Fusion.NONE : Fusion.WHOLE));
     }
     return out;
   }
@@ -241,8 +250,11 @@ public class VarkaDayTimeIntervalBaselineBenchmark extends VarkaSqlBenchmarkBase
         session.sql(tableSql(NUM_ROWS)).createOrReplaceTempView(VIEW);
         VarkaArrowSessions.cache(session, VIEW);
       }
-      // Each section fuses as its class lists it, and a WHOLE one runs every batch as a kernel.
-      for (Section s : sections()) {
+      // Each section fuses as its class lists it at the refusal the Varka session resolves, as
+      // VarkaBooleanOutputBenchmark reads it, and a WHOLE one runs every batch as a kernel.
+      List<Section> sections = sections(
+          VarkaSessionEmit.of(varka.sessionState().conf()).declineTwoLaneConditions());
+      for (Section s : sections) {
         withConf(varka, s.conf(), () -> {
           requireBaseline(varka, s.title(), s.query(), s.fusion());
           if (s.fusion() == Fusion.WHOLE) {
@@ -250,7 +262,7 @@ public class VarkaDayTimeIntervalBaselineBenchmark extends VarkaSqlBenchmarkBase
           }
         });
       }
-      for (Section s : sections()) {
+      for (Section s : sections) {
         section(s.title(), () -> withConf(baseline, s.conf(), () -> withConf(varka, s.conf(),
             () -> {
               VarkaBenchmark benchmark = benchmark(

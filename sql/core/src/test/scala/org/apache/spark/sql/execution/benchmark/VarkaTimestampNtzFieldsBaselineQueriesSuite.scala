@@ -160,6 +160,8 @@ class VarkaTimestampNtzFieldsBaselineQueriesSuite extends QueryTest with VarkaSh
   }
 
   test("a section of the TIMESTAMP_NTZ fields baseline fuses only when it is listed") {
+    // The listing holds with the two-lane condition refusal (VARKA-503) off, as the shared
+    // sessions leave it, and on, as the benchmark's 128-bit companion runs, so both are checked.
     assume(VarkaSqlBenchmarkBase.fuseCheck(),
       s"-D${VarkaSqlBenchmarkBase.FUSE_CHECK_PROPERTY}=false times the sections fused")
     withView(tableSql(100)) {
@@ -167,9 +169,11 @@ class VarkaTimestampNtzFieldsBaselineQueriesSuite extends QueryTest with VarkaSh
       // could not see into, fails here rather than passing every section.
       assert(VarkaSqlBenchmarkBase.fusedPlan(varkaSpark,
         s"SELECT CAST(ntz AS DATE) AS v FROM $VIEW").isPresent)
-      for (s <- sections().asScala) {
-        withClue(s.title) {
-          assert(VarkaSqlBenchmarkBase.fusedPlan(varkaSpark, s.query).isPresent === s.fuses)
+      forEachTwoLaneRefusal { declines =>
+        for (s <- sections().asScala) {
+          withClue(s"${s.title}, refusal $declines") {
+            assert(VarkaSqlBenchmarkBase.fusedPlan(varkaSpark, s.query).isPresent === s.fuses)
+          }
         }
       }
     }

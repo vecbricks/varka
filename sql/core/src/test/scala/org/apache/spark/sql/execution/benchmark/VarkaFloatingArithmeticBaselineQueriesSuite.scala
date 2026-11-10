@@ -124,6 +124,8 @@ class VarkaFloatingArithmeticBaselineQueriesSuite extends QueryTest with VarkaSh
     // default options, so the classes pin the defaults, and an option matrix configuration,
     // under which a section may fuse differently, cancels the test; so does the run that lifts
     // the benchmark's check.
+    // The classes hold with the two-lane condition refusal (VARKA-503) off, as the shared
+    // sessions leave it, and on, as the benchmark's 128-bit companion runs, so both are checked.
     assume(VarkaSqlBenchmarkBase.fuseCheck(),
       s"-D${VarkaSqlBenchmarkBase.FUSE_CHECK_PROPERTY}=false times the sections fused")
     withTable {
@@ -132,11 +134,13 @@ class VarkaFloatingArithmeticBaselineQueriesSuite extends QueryTest with VarkaSh
       val view = VarkaFloatingArithmeticBaselineBenchmark.VIEW
       assert(VarkaSqlBenchmarkBase.fusedPlan(varkaSpark, s"SELECT x FROM $view WHERE x < y")
         .isPresent)
-      for (s <- VarkaFloatingArithmeticBaselineBenchmark.sections().asScala) {
-        withClue(s.title) {
-          withSettings(s) {
-            val plan = varkaSpark.sql(s.query).queryExecution.executedPlan
-            assert(VarkaSqlBenchmarkBase.fusion(plan) === Optional.of(s.fusion))
+      forEachTwoLaneRefusal { declines =>
+        for (s <- VarkaFloatingArithmeticBaselineBenchmark.sections().asScala) {
+          withClue(s"${s.title}, refusal $declines") {
+            withSettings(s) {
+              val plan = varkaSpark.sql(s.query).queryExecution.executedPlan
+              assert(VarkaSqlBenchmarkBase.fusion(plan) === Optional.of(s.fusion))
+            }
           }
         }
       }

@@ -92,6 +92,8 @@ class VarkaTimestampNtzArithmeticBaselineQueriesSuite extends QueryTest with Var
     // The benchmark plans under the emitter's default options, so the classes pin the defaults,
     // and an option matrix configuration, under which a section may fuse differently, cancels
     // the test.
+    // The classes hold with the two-lane condition refusal (VARKA-503) off, as the shared
+    // sessions leave it, and on, as the benchmark's 128-bit companion runs, so both are checked.
     assume(VarkaSqlBenchmarkBase.fuseCheck(),
       s"-D${VarkaSqlBenchmarkBase.FUSE_CHECK_PROPERTY}=false times the sections fused")
     withTable(100) {
@@ -99,10 +101,12 @@ class VarkaTimestampNtzArithmeticBaselineQueriesSuite extends QueryTest with Var
       // over a plan it could not see into, fails here rather than passing every section.
       assert(VarkaSqlBenchmarkBase.fusedPlan(varkaSpark,
         "SELECT ntz FROM varka_ntz_arith WHERE ntz < ntz2").isPresent)
-      for (s <- sections().asScala) {
-        withClue(s.title) {
-          val plan = varkaSpark.sql(s.query).queryExecution.executedPlan
-          assert(VarkaSqlBenchmarkBase.fusion(plan) === Optional.of(s.fusion))
+      forEachTwoLaneRefusal { declines =>
+        for (s <- sections().asScala) {
+          withClue(s"${s.title}, refusal $declines") {
+            val plan = varkaSpark.sql(s.query).queryExecution.executedPlan
+            assert(VarkaSqlBenchmarkBase.fusion(plan) === Optional.of(s.fusion))
+          }
         }
       }
     }
