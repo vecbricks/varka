@@ -6576,7 +6576,7 @@
     "operands" : [ "Rint:double" ],
     "switches" : [ "spark.sql.codegen.varka.family.rounding.enabled" ],
     "domain" : "",
-    "note" : "the nearest integer, a tie to the even one, the sign kept on a zero",
+    "note" : "the nearest integer, a tie to the even one, the sign kept on a zero, the canonical NaN for every NaN",
     "verified" : "proof: fp_round.smt2"
   }, {
     "sql" : "floor(l)",
