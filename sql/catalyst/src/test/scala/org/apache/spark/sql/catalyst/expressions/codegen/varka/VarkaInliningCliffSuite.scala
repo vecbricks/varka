@@ -17,12 +17,11 @@
 
 package org.apache.spark.sql.catalyst.expressions.codegen.varka
 
-import java.io.{BufferedReader, File, InputStreamReader}
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
-import java.util.concurrent.TimeUnit
 
 import scala.collection.mutable
+import scala.jdk.CollectionConverters._
 
 import org.apache.spark.SparkFunSuite
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaMatrix.PinsDefaults
@@ -41,43 +40,29 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaMatrix.PinsD
  */
 class VarkaInliningCliffSuite extends SparkFunSuite with VarkaTestWatchdog {
 
-  private def testClasspath: String =
-    Option(System.getenv("SPARK_DIST_CLASSPATH")).filter(_.nonEmpty)
-      .getOrElse(System.getProperty("java.class.path"))
+  /**
+   * Two children per test - a probe and the reader of its log, or two probes - so a test's
+   * children at their budgets, 270 s each at the watchdog's ten minutes, end before its cap.
+   */
+  private def childBudgetSeconds: Long = VarkaChildProcess.budgetSeconds(watchdogMinutes, 2)
 
   /** One fork of the probe; `budget` is the emitter's call-site budget, the default when
    *  absent, which reaches the probe as its last positional argument behind the others. */
   private def fork(outputs: Int, ceiling: Int, seconds: Int,
       budget: Option[Int] = None): Seq[String] = {
-    val javaBin = new File(new File(System.getProperty("java.home"), "bin"), "java")
     val pattern = s"${VarkaInliningCliffProbe.CLASS_PREFIX}*::*"
-    val command = new java.util.ArrayList[String]()
-    (Seq(javaBin.getAbsolutePath, "--add-modules", "jdk.incubator.vector",
-      "--enable-native-access=ALL-UNNAMED", "-Xmx1g", "-XX:+UnlockDiagnosticVMOptions",
-      "-XX:CompileCommand=quiet", s"-XX:CompileCommand=PrintInlining,$pattern",
-      s"-XX:CompileCommand=PrintIntrinsics,$pattern", "-cp", testClasspath,
+    val command = VarkaChildProcess.javaCommand(
+      java.util.List.of("-Xmx1g", "-XX:+UnlockDiagnosticVMOptions", "-XX:CompileCommand=quiet",
+        s"-XX:CompileCommand=PrintInlining,$pattern",
+        s"-XX:CompileCommand=PrintIntrinsics,$pattern"),
       classOf[VarkaInliningCliffProbe].getName,
-      outputs.toString, ceiling.toString, seconds.toString) ++
-      budget.toSeq.flatMap(b => Seq("1024", "c1on", "cheap", "none", b.toString)))
-      .foreach(command.add)
-    // The child JVM's code runs where the class-use record cannot see it (VarkaTestUse).
-    VarkaTestUse.childJvm()
-    val process = new ProcessBuilder(command).redirectErrorStream(true).start()
-    val reader = new BufferedReader(
-      new InputStreamReader(process.getInputStream, StandardCharsets.UTF_8))
+      (Seq(outputs.toString, ceiling.toString, seconds.toString) ++
+        budget.toSeq.flatMap(b => Seq("1024", "c1on", "cheap", "none", b.toString))).asJava)
+    val what = s"$suiteName's probe of $outputs outputs at ceiling $ceiling" +
+      budget.map(b => s" and call-site budget $b").getOrElse("")
     val lines = mutable.ArrayBuffer.empty[String]
-    try {
-      var line = reader.readLine()
-      while (line != null) {
-        lines += line
-        line = reader.readLine()
-      }
-    } finally {
-      reader.close()
-    }
-    assert(process.waitFor(120, TimeUnit.SECONDS), "the probe did not finish")
-    assert(process.exitValue() == 0, s"the probe failed (exit ${process.exitValue()}):\n" +
-      lines.takeRight(40).mkString("\n"))
+    VarkaChildProcess.run(what, new ProcessBuilder(command), childBudgetSeconds, lines += _)
+      .requireSuccess(true)
     lines.toSeq
   }
 
@@ -106,10 +91,11 @@ class VarkaInliningCliffSuite extends SparkFunSuite with VarkaTestWatchdog {
     try {
       Files.write(log, lines.mkString("\n").getBytes(StandardCharsets.UTF_8))
       val reader = getWorkspaceFilePath("dev", "varka_inlining_cliff.py")
-      val process = new ProcessBuilder("python3", reader.toString, log.toString)
-        .redirectErrorStream(true).start()
-      val output = new String(process.getInputStream.readAllBytes(), StandardCharsets.UTF_8)
-      assert(process.waitFor(60, TimeUnit.SECONDS) && process.exitValue() == 0, output)
+      val read = mutable.ArrayBuffer.empty[String]
+      VarkaChildProcess.run(s"$suiteName's varka_inlining_cliff.py over the probe's log",
+        new ProcessBuilder("python3", reader.toString, log.toString), childBudgetSeconds,
+        read += _).requireSuccess(true)
+      val output = read.mkString("\n")
       assert(output.contains("16 outputs, ceiling 400, c1 on, xbatch off"), output)
       assert(output.contains("loopDense0=") && !output.contains("unfinished  "), output)
     } finally {
