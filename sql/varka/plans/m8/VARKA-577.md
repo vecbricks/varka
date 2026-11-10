@@ -146,9 +146,9 @@ The benchmark's classes now follow the two-lane refusal #1262 added (VARKA-503):
 and the verdict is open until it lands.*
 
 **The spike.** `VarkaDecimalRemainderSpikeBenchmark` (catalyst, test side, no emitter), over two
-`DECIMAL(38, s)` slot columns at one scale, in 359's de-interleaved layout, on the magnitudes with
-the dividend's sign put back; a zero divisor sets the row's bit and stores 0, and `pmod` adds `y`
-to a negative remainder where `y > 0`, which is Spark's `r < 0 ? (r + y) % y : r`. Its forms are
+`DECIMAL(38, s)` slot columns at one scale, in VARKA-359's de-interleaved layout, on the magnitudes
+with the dividend's sign put back; a zero divisor sets the row's bit and stores 0, and `pmod` adds
+`y` to a negative remainder where `y > 0`, which is Spark's `r < 0 ? (r + y) % y : r`. Its forms are
 E for (a), D for (b) and B for (c). Three things differ from 2.3's words:
 
 1. **(a) is three rounds, not one correction.** One double carries 53 bits of a quotient that can

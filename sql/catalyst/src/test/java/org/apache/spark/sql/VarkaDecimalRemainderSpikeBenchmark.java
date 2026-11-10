@@ -27,6 +27,7 @@ import java.lang.foreign.ValueLayout;
 import java.lang.invoke.SerializedLambda;
 import java.math.BigInteger;
 import java.nio.ByteOrder;
+import java.util.Arrays;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
@@ -456,6 +457,12 @@ public class VarkaDecimalRemainderSpikeBenchmark {
   private static final BigInteger MAX38 = TEN38.subtract(BigInteger.ONE);
 
   /**
+   * The byte an output is filled with before a checked run: 16 of them are {@code 0x7F7F...7F},
+   * above {@code 10^38}, so a slot a loop left unwritten matches no answer.
+   */
+  static final byte UNWRITTEN = (byte) 0x7F;
+
+  /**
    * The columns of one rung, in native memory as a kernel finds them, and each operation's
    * answers, computed as the rows are drawn so that no row's values outlive it.
    */
@@ -608,10 +615,12 @@ public class VarkaDecimalRemainderSpikeBenchmark {
         try (Expected e = d.expected().get(op)) {
           for (Arm arm : arms()) {
             if (arm.op() == op) {
-              // Cleared first: a loop that wrote nothing would otherwise pass on the previous
-              // arm's bytes.
-              out.fill((byte) 0);
+              // Filled first with what no row answers: a loop that left a slot or a word
+              // unwritten would otherwise pass on the previous arm's bytes, or on a zero that is
+              // the right answer for a zero divisor or an exact multiple.
+              out.fill(UNWRITTEN);
               long[] words = new long[n / 64];
+              Arrays.fill(words, -1L);
               arm.loop().apply(d.x(), d.y(), out, words, n);
               requireAgrees(arm, e, out, words, n, "at " + n + " rows");
             }
