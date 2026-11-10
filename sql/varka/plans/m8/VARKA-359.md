@@ -890,8 +890,20 @@ filter`) on the row path, not on the lane pair. Which run scores which predictio
 - *Dead code*: the slot lane's read of a narrowing root, which `runLoadedDecimal` refuses.
 - *Not changed*: the efficiency, duplication and lambda findings.
 
-**Not in this part**, owed: the pair-load node (the next part), the measurement's run, the
-planted faults for row 504 as committed test flags, the op-count test, and 359b.
+**Not in this part**, owed: the pair-load node (the next part), the planted faults for row 504
+as committed test flags, the op-count test, and 359b.
+
+**The measurement, spliced (10 November 2026).** Both runs passed on an EPYC 7763 at this branch's
+head `092c60d53a6` (MaxGekk/spark runs 42773199798 at 256 bits and 42773203967 at 128 bits), and
+their fourteen sections are spliced into the class's two runner files, each provenance naming its
+run. At 256 bits, the Varka arm against the row path by best time: the `(38, 10)` comparison 9.7x
+and 9.8x; the `<=>` filter 24.9x to 30.3x; `x < y` as a value 20.1x to 28.0x; the `IS NULL` filter
+1.0x and 1.1x without nulls (no null to find, both arms read the validity alone) and 14.5x and
+14.7x at one row in ten null. At 128 bits every filter section ties the row path (0.96x to 1.08x),
+as prediction 5 says, since the refusal sends them there; `x < y` as a value fuses but is slower
+than the row path, 0.90x and 0.94x without nulls and 0.75x and 0.79x at one row in ten null. That
+last is a finding the predictions did not make: the pair's comparison as a value at two long
+lanes costs more than Spark's row. The third, refusal-off run stays unrun.
 
 ## 11. 359a, the build plan (1 November 2026)
 
