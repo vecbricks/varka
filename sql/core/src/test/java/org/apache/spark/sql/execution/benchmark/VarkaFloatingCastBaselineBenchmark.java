@@ -118,7 +118,8 @@ public class VarkaFloatingCastBaselineBenchmark extends VarkaSqlBenchmarkBase {
    *       spread evenly over every bit length of the long: about five in eight are past
    *       {@code 2^24}, where a cast to {@code FLOAT} rounds, about one in six past {@code 2^53},
    *       where one to {@code DOUBLE} does, and about one in five past {@code 2^51}, where the
-   *       bounded AVX2 conversion of row 343 declines.</li>
+   *       bounded form of row 343's AVX2 conversion, the {@code wideConversionForm=MAGIC} arm,
+   *       declines the batch.</li>
    *   <li>{@code i} is {@code hash(id)}, over the whole int range; every value is exact as a
    *       double.</li>
    *   <li>{@code x} is {@code hash(id, 1) / 7.0}, within {@code +-2^31 / 7}, so no value leaves
