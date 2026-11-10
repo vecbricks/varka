@@ -1276,17 +1276,17 @@ operands (a row counts once for each type it reads):
 <!-- BEGIN generated verification counts -->
 | Type | Rows | refinement | proof | exhaustive | owed | differential |
 | :--- | ---: | ---: | ---: | ---: | ---: | ---: |
-| `bigint` | 78 | 0 | 2 | 0 | 2 | 74 |
+| `bigint` | 92 | 0 | 2 | 0 | 2 | 88 |
 | `bool` | 38 | 0 | 0 | 13 | 0 | 25 |
 | `byte` | 54 | 0 | 0 | 0 | 8 | 46 |
-| `date` | 124 | 17 | 0 | 1 | 0 | 106 |
+| `date` | 125 | 17 | 0 | 1 | 0 | 107 |
 | `dec` | 60 | 25 | 10 | 0 | 0 | 25 |
 | `double` | 67 | 0 | 1 | 0 | 0 | 66 |
 | `dt` | 27 | 2 | 1 | 0 | 0 | 24 |
 | `float` | 52 | 0 | 0 | 0 | 0 | 52 |
-| `int` | 148 | 14 | 2 | 1 | 1 | 130 |
+| `int` | 164 | 14 | 2 | 1 | 1 | 146 |
 | `ntz` | 75 | 0 | 7 | 0 | 0 | 68 |
-| `short` | 49 | 0 | 0 | 0 | 8 | 41 |
+| `short` | 52 | 0 | 0 | 0 | 8 | 44 |
 | `time` | 45 | 6 | 1 | 1 | 2 | 35 |
 | `ym` | 39 | 7 | 2 | 0 | 2 | 28 |
 <!-- END generated verification counts -->
