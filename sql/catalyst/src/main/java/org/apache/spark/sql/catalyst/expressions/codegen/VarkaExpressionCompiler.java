@@ -856,12 +856,13 @@ public final class VarkaExpressionCompiler {
    * pass nearly every row, so the kernel removes little of the row filter's work, and the split
    * costs a pass of its own: every selected row is copied, each column the residual reads, into
    * an {@code UnsafeRow} for the row filter, where Spark's whole-stage filter reads the batch in
-   * place. Measured on the laptop at 256 bits, the copy is the whole of the loss and the row
-   * filter above costs what Spark's whole filter does ({@code VARKA-598.md} 2). Declined, the
-   * filter stays whole in Spark's plan.
+   * place. Measured on the laptop at 256 bits, the kernel's pass with that copy accounts for about
+   * the whole loss, the row filter above costing about what Spark's whole filter does
+   * ({@code VARKA-598.md} 2). Declined, the filter stays whole in Spark's plan.
    *
    * <p>{@code IS NULL} is not declined: written by a user it usually passes few rows, and the
-   * kernel then spares the row filter most of them, which measured faster than the row path.
+   * kernel then spares the row filter most of them, which measured no slower than the row path,
+   * and faster at one row in ten passing.
    * {@code IS NOT NULL} with nothing left over still fuses too: there the kernel is the whole
    * filter and the row conversion one the plan needs anyway.
    */

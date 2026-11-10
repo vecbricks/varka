@@ -48,7 +48,9 @@ What the probe found, run 2 (best times, ms, row path then varka on):
   conversion are not slow in themselves; what loses is a second pass in front of a row filter
   that must convert and read every row anyway.
 * A selective null test is different: `y IS NULL` beside a conjunct that does not fuse passes no
-  row, or one in ten, and there the kernel spares the row filter most of its rows, 1.2x and 1.7x.
+  row, or one in ten, and there the kernel spares the row filter most of its rows. With no row
+  passing it ties, 1.1x to 1.2x over the runs, under the 1.3x a claim needs; at one in ten it wins,
+  1.4x to 1.7x.
   So the rule cannot be "null tests alone": it is the inferred `IS NOT NULL`, which passes nearly
   every row.
 
@@ -66,8 +68,9 @@ split at all.
 (`nullTestsAlone`). The check runs in the demotion loop beside the order rule (VARKA-380), so it
 is asked again after every demotion, and a size demotion that leaves only those tests fused
 declines the rest too. Nothing then fuses, `compilePredicate` is empty, and the rule leaves the
-filter whole in Spark's plan, the plan the row path arm runs. EXPLAIN and the task's compile see
-the same decline, since it is the compiler's; each demoted test carries the reason.
+filter whole in Spark's plan, the plan the row path arm runs. The task's compile sees the same
+decline, since it is the compiler's, and `explainPredicate` gives each demoted test the reason;
+no Varka node is planned, so EXPLAIN shows Spark's own filter.
 
 It is not host-dependent: the loss is a row-path cost that no lane width changes, so the rule
 holds at every emit level and width, and no `VarkaAdmission` component or configuration is
@@ -141,9 +144,9 @@ whole; and the golden corpus records filters of the form `(expr) IS NOT NULL` wh
 column tests fused under a row filter, regenerated. It also asked for the new queries test's
 `PinsDefaults` tag and the `NULL_TESTS` class's doc, both done. Kept as trade-offs: the rule
 reads syntax, so a user's selective `IS NOT NULL` over a mostly null column beside a residual
-declines too (section 7); the decline sits in the compiler rather than the rule, so that
-EXPLAIN, the fusion report and the task's compile give the same answer and reason, as the size
-and order demotions do; and a declined filter is compiled once before it is demoted, a planning
+declines too (section 7); the decline sits in the compiler rather than the rule, so that the
+planning compile, `explainPredicate` and the task's compile give the same answer and reason, as
+the size and order demotions do; and a declined filter is compiled once before it is demoted, a planning
 cost only.
 
 
