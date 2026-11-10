@@ -88,13 +88,27 @@ import org.apache.spark.sql.execution.VarkaSessionEmit;
  * 2)} only, the arithmetic whose result stays within 18 digits: {@code x + y < z}, {@code x - w >
  * 0} and {@code x8 * y < z} as filters, {@code x8} a {@code DECIMAL(8, 2)} whose product with
  * {@code y} is a {@code DECIMAL(18, 4)}, and {@code x + y}, {@code x - w} and {@code x8 * y} as
- * projections. The columns {@code w9}, {@code w18} and {@code x8} come last in the table, with
- * integer parts at half their types' ranges.
+ * projections. The columns {@code w9}, {@code w18} and {@code x8} come after {@code x20} and
+ * {@code y20} in the table, with integer parts at half their types' ranges.
  *
  * <p>Sixteen more sections time the decimal remainders by a column (VARKA-577), {@code x % y}
  * and {@code pmod(x, y)} as projections at {@code DECIMAL(9, 2)}, {@code DECIMAL(18, 4)},
  * {@code DECIMAL(38, 10)} and {@code DECIMAL(20, 2)}, each with no nulls and with one row in ten
  * null. Spark computes them through {@code BigDecimal.remainder} per row at every precision.
+ *
+ * <p>Twenty-two more sections time the decimal arithmetic whose result is past a long while its
+ * operands are not, or are just past one (VARKA-360, VARKA-361), each with no nulls and with one
+ * row in ten null. Row 360's sums: {@code x + y} and {@code x - w} at {@code DECIMAL(20, 2)},
+ * {@code w} a {@code DECIMAL(20, 4)}, {@code x + y} at {@code DECIMAL(38, 2)}, whose sum Spark
+ * caps at precision 38, and {@code l + x9} and {@code l + x18}, {@code l} a {@code BIGINT} that
+ * type coercion casts to {@code DECIMAL(20, 0)}, as projections, and {@code x + y < z} at
+ * {@code DECIMAL(20, 2)} as a filter. Row 361's products: {@code x * y} and {@code x * (1 - y)}
+ * at {@code DECIMAL(15, 2)}, TPC-H's price and discount type, a {@code DECIMAL(31, 4)} and,
+ * {@code 1 - y} being a {@code DECIMAL(16, 2)}, a {@code DECIMAL(32, 4)}, the second being TPC-H
+ * q1's form, and {@code l * x9} and {@code l * x18}, a {@code DECIMAL(30, 2)} and a {@code
+ * DECIMAL(38, 4)}, as projections, and {@code x * y < z} at {@code DECIMAL(15, 2)} as a filter.
+ * Their columns ({@link #WIDE_COLUMNS} and {@code l}) come after all the others, so the values
+ * of the earlier sections stay as their results files have them.
  *
  * <p>Each section has two arms, named so the labels survive the lanes landing:
  * {@code spark row path (varka off)}, a session without the Varka rule, and {@code varka on}, a
@@ -116,7 +130,8 @@ import org.apache.spark.sql.execution.VarkaSessionEmit;
  * arithmetic filters at both densities (VARKA-349). The lane pair's reading half (VARKA-359)
  * fuses whole the comparison at precision 38 and, at 38 and 20, {@code x <=> y},
  * {@code x IS NULL} and the projected {@code x < y}; its {@code -x < y} and {@code abs(x) < y}
- * filters are {@code NULL_TESTS}, the inferred null tests fused below them. A session that
+ * filters are {@code NULL_TESTS}, the inferred null tests fused below them, and so are the
+ * two filters of rows 360 and 361, whose sum and product no lowering computes yet. A session that
  * refuses a filter's condition in a kernel driven at 64 bits ({@code declinesLongConditions},
  * VARKA-503), the 128-bit companion's host by default, leaves every one of those filters to the
  * row path, the lane pair's among them, since its words are on the long lane, and the projected
@@ -241,6 +256,50 @@ public class VarkaDecimalBaselineBenchmark extends VarkaSqlBenchmarkBase {
   static final int OPERAND_NULL_ROW = 5;
 
   /**
+   * A column the widening sections of rows 360 and 361 add: its name, its type, and the row of
+   * ten its nullable copy is null at, chosen so that two columns a section reads together are
+   * null at different rows.
+   */
+  record WideColumn(String name, Precision type, int nullRow) {}
+
+  /**
+   * {@code DECIMAL(15, 2)}, TPC-H's price and discount type, with integer parts at half its
+   * thirteen digits' range, so that {@code x15 * y15} is below {@code 2.6 * 10^25}, inside the
+   * 27 integer digits of its {@code DECIMAL(31, 4)}.
+   */
+  static final Precision D15 = new Precision(15, 2, "", 5_000_000_000_000L);
+
+  /** {@code DECIMAL(20, 2)}, at the integer parts of {@code x20} and {@code y20}. */
+  static final Precision D20 = new Precision(20, 2, "", 500_000_000_000_000_000L);
+
+  /**
+   * The widening sections' columns, in the order the table adds them after
+   * {@link #OPERAND_COLUMNS}: {@code x15}, {@code y15} and {@code z15} at {@link #D15}; {@code
+   * z20}, compared with {@code x20 + y20}; {@code y20s4}, a {@code DECIMAL(20, 4)} with integer
+   * parts at half its sixteen digits' range, subtracted from {@code x20}; and {@code x38s2} and
+   * {@code y38s2}, {@code DECIMAL(38, 2)} with {@code x20}'s integer parts, so that most unscaled
+   * values are past a long and the capped sum, at most {@code 10^18} in magnitude, stays far
+   * inside its 36 integer digits.
+   */
+  static final List<WideColumn> WIDE_COLUMNS = List.of(
+      new WideColumn("x15", D15, 1),
+      new WideColumn("y15", D15, 4),
+      new WideColumn("z15", D15, 7),
+      new WideColumn("z20", D20, 7),
+      new WideColumn("y20s4", new Precision(20, 4, "", 5_000_000_000_000_000L), 5),
+      new WideColumn("x38s2", new Precision(38, 2, "", 500_000_000_000_000_000L), 1),
+      new WideColumn("y38s2", new Precision(38, 2, "", 500_000_000_000_000_000L), 4));
+
+  /**
+   * The {@code BIGINT} column of the widening sections, the last of the table. Its nullable copy
+   * is null at row 5 of ten, where neither {@code x9} nor {@code x18} is.
+   */
+  static final String BIGINT_COLUMN = "l";
+
+  /** The row of ten the {@code BIGINT} column's nullable copy is null at. */
+  static final int BIGINT_NULL_ROW = 5;
+
+  /**
    * The two null densities every section is timed at: the suffix of the columns a section reads,
    * empty for those with no null and {@code n} for their copies with one row in ten null, and
    * the end of its title.
@@ -322,6 +381,18 @@ public class VarkaDecimalBaselineBenchmark extends VarkaSqlBenchmarkBase {
   }
 
   /**
+   * The {@code BIGINT} column's value: a hash of the row id shifted right by a second hash's
+   * count, from 0 to 63, so the magnitudes spread over every bit length, as the floating cast
+   * baseline's {@code l} does, and the full range is reached. Every section over it stays in
+   * range: {@code |l| <= 2^63}, so {@code l * x18} is below {@code 4.7 * 10^31}, inside the 34
+   * integer digits of its {@code DECIMAL(38, 4)}.
+   */
+  static String bigintSql(int seed) {
+    return "shiftright(xxhash64(id, " + seed + "), cast(pmod(xxhash64(id, " + (seed + 100)
+        + "), 64) as int))";
+  }
+
+  /**
    * The {@code TIME(6)} column's value: microseconds of the day from a hash of the row id, so the
    * values cover the whole day and every digit of the fraction.
    */
@@ -335,7 +406,8 @@ public class VarkaDecimalBaselineBenchmark extends VarkaSqlBenchmarkBase {
    * null ({@code x9n}, ...), at a different row in each column; then {@code t}, a
    * {@code TIME(6)}, and {@code tn}, the same values with one row in ten null; then {@code x20}
    * and {@code y20}, the {@code DECIMAL(20, 2)} pair, each with its nullable copy; then the
-   * columns of {@link #OPERAND_COLUMNS}, each with its nullable copy.
+   * columns of {@link #OPERAND_COLUMNS}, then those of {@link #WIDE_COLUMNS}, then the
+   * {@code BIGINT} column {@code l}, each with its nullable copy.
    */
   static String tableSql(int rows) {
     List<String> values = new ArrayList<>();
@@ -354,6 +426,10 @@ public class VarkaDecimalBaselineBenchmark extends VarkaSqlBenchmarkBase {
     for (OperandColumn c : OPERAND_COLUMNS) {
       addColumn(c.name(), c.type(), seed++, OPERAND_NULL_ROW, values, columns);
     }
+    for (WideColumn c : WIDE_COLUMNS) {
+      addColumn(c.name(), c.type(), seed++, c.nullRow(), values, columns);
+    }
+    addColumn(BIGINT_COLUMN, bigintSql(seed), BIGINT_NULL_ROW, values, columns);
     return "select " + String.join(", ", columns) + " from (select id, "
         + String.join(", ", values) + " from range(0, " + rows + "))";
   }
@@ -380,7 +456,16 @@ public class VarkaDecimalBaselineBenchmark extends VarkaSqlBenchmarkBase {
    */
   private static void addColumn(String name, Precision p, int seed, int nullRow,
       List<String> values, List<String> columns) {
-    values.add(valueSql(p, seed) + " as " + name);
+    addColumn(name, valueSql(p, seed), nullRow, values, columns);
+  }
+
+  /**
+   * Adds the column {@code name} whose value is {@code valueSql}, and its copy null at row
+   * {@code nullRow} of every ten.
+   */
+  private static void addColumn(String name, String valueSql, int nullRow, List<String> values,
+      List<String> columns) {
+    values.add(valueSql + " as " + name);
     columns.add(name);
     columns.add("case when id % 10 = " + nullRow + " then null else " + name + " end as "
         + name + "n");
@@ -400,7 +485,8 @@ public class VarkaDecimalBaselineBenchmark extends VarkaSqlBenchmarkBase {
    * shape; then the two time producers at each null density; then the lane pair's six shapes,
    * each precision, then each null density, then each shape; then the 64-bit comparisons' six
    * shapes in the same order; then the 64-bit arithmetic's six at each null density; then the
-   * two remainders, each remainder precision, then each null density. Every filter that fuses
+   * two remainders, each remainder precision, then each null density; then the widening
+   * arithmetic's eleven at each null density. Every filter that fuses
    * is {@code NONE} when the session refuses its condition ({@code declinesLongConditions}),
    * since every decimal lane, the lane pair's words among them, is a 64-bit one, and so is every
    * comparison as a value, a boolean output over a decimal column.
@@ -508,7 +594,58 @@ public class VarkaDecimalBaselineBenchmark extends VarkaSqlBenchmarkBase {
             "SELECT pmod(" + x + ", " + y + ") AS a FROM varka_decimal", Fusion.NONE));
       }
     }
+    for (Density d : Density.values()) {
+      addWidening(out, d, fusedNullTests);
+    }
     return out;
+  }
+
+  /**
+   * Adds the widening arithmetic's sections at density {@code d}: row 360's five sums and its
+   * filter, then row 361's four products and its filter. No lowering computes a sum or a product
+   * past a long yet, so the projections are {@code NONE} and the filters fuse only the null tests
+   * Spark infers below them, {@code nullTests}.
+   */
+  private static void addWidening(List<Section> out, Density d, Fusion nullTests) {
+    String x9 = d.column("x9");
+    String x18 = d.column("x18");
+    String x20 = d.column("x20");
+    String y20 = d.column("y20");
+    String z20 = d.column("z20");
+    String y20s4 = d.column("y20s4");
+    String x38s2 = d.column("x38s2");
+    String y38s2 = d.column("y38s2");
+    String x15 = d.column("x15");
+    String y15 = d.column("y15");
+    String z15 = d.column("z15");
+    String l = d.column(BIGINT_COLUMN);
+    String tail = ", " + d.words();
+    String value = " AS a FROM varka_decimal";
+    String filter = " FROM varka_decimal WHERE ";
+    String d20 = "DECIMAL(20, 2) ";
+    String d15 = "DECIMAL(15, 2) ";
+    out.add(new Section(d20 + "x + y as a value" + tail,
+        "SELECT " + x20 + " + " + y20 + value, Fusion.NONE));
+    out.add(new Section(d20 + "x - w as a value, w a DECIMAL(20, 4)" + tail,
+        "SELECT " + x20 + " - " + y20s4 + value, Fusion.NONE));
+    out.add(new Section("DECIMAL(38, 2) x + y as a value" + tail,
+        "SELECT " + x38s2 + " + " + y38s2 + value, Fusion.NONE));
+    out.add(new Section("BIGINT l + x as a value, x a DECIMAL(9, 2)" + tail,
+        "SELECT " + l + " + " + x9 + value, Fusion.NONE));
+    out.add(new Section("BIGINT l + x as a value, x a DECIMAL(18, 4)" + tail,
+        "SELECT " + l + " + " + x18 + value, Fusion.NONE));
+    out.add(new Section(d20 + "x + y < z filter" + tail,
+        "SELECT " + x20 + filter + x20 + " + " + y20 + " < " + z20, nullTests));
+    out.add(new Section(d15 + "x * y as a value" + tail,
+        "SELECT " + x15 + " * " + y15 + value, Fusion.NONE));
+    out.add(new Section(d15 + "x * (1 - y) as a value" + tail,
+        "SELECT " + x15 + " * (1 - " + y15 + ")" + value, Fusion.NONE));
+    out.add(new Section("BIGINT l * x as a value, x a DECIMAL(9, 2)" + tail,
+        "SELECT " + l + " * " + x9 + value, Fusion.NONE));
+    out.add(new Section("BIGINT l * x as a value, x a DECIMAL(18, 4)" + tail,
+        "SELECT " + l + " * " + x18 + value, Fusion.NONE));
+    out.add(new Section(d15 + "x * y < z filter" + tail,
+        "SELECT " + x15 + filter + x15 + " * " + y15 + " < " + z15, nullTests));
   }
 
   /** The column at another scale {@code p}'s {@code x} is compared with, which it must have. */
