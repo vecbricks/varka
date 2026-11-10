@@ -154,7 +154,7 @@ public final class VarkaTwoLaneConditionSuite {
       assertEquals(VarkaKernelPlan.TWO_LANE_DECIMAL_VALUE_REASON, refused.get().reason());
       assertTrue(admit(value, false).isEmpty(), value.toString());
     }
-    // Their loads are one plain vector, and they ran at or above the row path at two lanes.
+    // Their loads are one plain vector: at two lanes BIGINT beat the row path and DOUBLE tied.
     assertTrue(admit(new BoolOutput(new Compare(CompareOp.LT, L, L2)), true).isEmpty());
     assertTrue(admit(new BoolOutput(new Compare(CompareOp.LT, X, X2)), true).isEmpty());
     // A decimal value that is not a condition is not this refusal's.
