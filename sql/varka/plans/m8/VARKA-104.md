@@ -393,16 +393,20 @@ Built in one pull request, stacked on step 1b's baseline; not yet measured.
   it fuses where the bound clears it and declines otherwise, so `l * 3` under ANSI stays on the
   row path; B and C are step 4's remaining work. ANSI `abs` needed the one emitter change 0 item 5
   predicted, at `VarkaVectorWalk.emitIntNeg`.
-* **The two-lane hosts (0 item 7)**: the width audit at 128 bits records every checked arm's
-  overflow mask (the long compare, the mask `or`/`and`, the mask test and broadcast) as not
-  supported by C2 at two long lanes, the Java fallback, while the control `l ^ l2` records
-  nothing. So under the setting row 503 keys its filter refusal on, a checked `BIGINT` operation
+* **The two-lane hosts (0 item 7)**: the width audit's construction rows at 128 bits record the
+  checked long add, `try_add` and the checked negation's overflow mask (the long compare, the mask
+  `or`/`and`, the mask test and broadcast) as not supported by C2 at two long lanes, the Java
+  fallback, while the wrapping long add and the checked int add record nothing. So under the setting row 503 keys its filter refusal on, a checked `BIGINT` operation
   in a projection declines, and the wrapping forms stay fused; the projection compile now takes
   `VarkaAdmission`, as the predicate compile did. The refusal is keyed on the `BIGINT` arms, not
   on the IR, so row 339's checked `TIMESTAMP_NTZ` difference and sum, which make the same mask,
   still fuse at two lanes unmeasured; that is a finding for a row of its own. Whether the checked
-  forms beat the row path there anyway, as 503's blends did, is for the baseline's 128-bit
-  companion and the after-run to say.
+  forms beat the row path there anyway, as 503's blends did, takes a 128-bit run of the baseline
+  benchmark with `spark.sql.codegen.varka.declineTwoLaneConditions=false`: with the refusal on,
+  every checked section is the row path on both arms.
 * **The census**: `BIGINT` joins `+`, `-`, `*` (bounded only), `negative`, `abs`, `try_add` and
   `try_subtract`; 104 is off the division lines (`div`, `%`, `mod`, `pmod`, `try_mod`), which are
   row 30's (0 item 9).
+* **The fuzzer** draws no long-lane `abs`: the draw reshuffles the long fuzz stream, which the
+  emit cost model's committed tables are fitted on, so `VarkaEmitterLongLaneSuite` tests long `abs`
+  over the extremes instead.
