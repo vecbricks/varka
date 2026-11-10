@@ -856,10 +856,26 @@ final class VarkaNodeCompiler {
       if (d.laneType() != LaneType.INT) {
         return sink.decline("a date operand that is not on the int lane", c);
       }
-      VarkaVectorIR day = new GuardedRange(new WidenLane(d), -LAST_NTZ_DAY, LAST_NTZ_DAY);
-      return Optional.of((VarkaVectorIR) new IntArith(IntOp.MUL, Overflow.WRAP, day,
-          sink.longSlot(MICROS_PER_DAY)));
+      return Optional.of(midnightOf(ntzMidnightDay(d), sink));
     });
+  }
+
+  /** Whether the midnight of {@code day} is a long count of microseconds, as an NTZ value. */
+  static boolean hasNtzMidnight(long day) {
+    return -LAST_NTZ_DAY <= day && day <= LAST_NTZ_DAY;
+  }
+
+  /**
+   * The midnight of a day on the long lane as an NTZ count: {@code day * 86.4e9}, wrapping. It is
+   * exact for a day {@link #hasNtzMidnight} admits, which the caller guards or checks.
+   */
+  static VarkaVectorIR midnightOf(VarkaVectorIR day, DeclineSink sink) {
+    return new IntArith(IntOp.MUL, Overflow.WRAP, day, sink.longSlot(MICROS_PER_DAY));
+  }
+
+  /** {@code day} widened to the long lane and held to the days {@link #hasNtzMidnight} admits. */
+  static VarkaVectorIR ntzMidnightDay(VarkaVectorIR day) {
+    return new GuardedRange(new WidenLane(day), -LAST_NTZ_DAY, LAST_NTZ_DAY);
   }
 
   /**
