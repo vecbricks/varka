@@ -145,6 +145,7 @@ final class VarkaSmtSamples {
         new CondConst(VarkaVectorIR.Truth.FALSE, LaneType.INT)));
     out.add(new WidenDecimal(new IntNeg(Overflow.WRAP, dec, true)));
     out.add(new Compare(CompareOp.LT, dec, new LiteralSlot(3, l)));
+    out.add(new IfElse(new Compare(CompareOp.GT, x, y), dec, new NullValue(l)));
     return out;
   }
 
@@ -228,10 +229,12 @@ final class VarkaSmtSamples {
   static boolean declines(Sample s, VarkaVectorIR node, Row row) {
     VarkaVectorIR[] kids = VarkaVectorIR.childrenOf(node);
     if (node instanceof IfElse(var c, var t, var e, _)) {
-      return declines(s, c, row) || declines(s, truth(s, c, row) == Truth.TRUE ? t : e, row);
+      return declines(s, c, row) || declines(s, truth(s, c, row) == Truth.TRUE ? t : e, row)
+          || loads(t, row) || loads(e, row);
     }
     if (node instanceof CondIf(var c, var t, var e, _)) {
-      return declines(s, c, row) || declines(s, truth(s, c, row) == Truth.TRUE ? t : e, row);
+      return declines(s, c, row) || declines(s, truth(s, c, row) == Truth.TRUE ? t : e, row)
+          || loads(t, row) || loads(e, row);
     }
     boolean below = false;
     boolean operands = true;
@@ -244,12 +247,26 @@ final class VarkaSmtSamples {
       case IntNeg a when a.mode() == Overflow.FAIL -> operands && value(s, node, row) == null;
       case GuardedRange g when g.mode() == Overflow.FAIL -> operands
           && (value(s, g.child(), row) < g.lo() || value(s, g.child(), row) > g.hi());
-      case DecimalColumn c -> !row.nulls()[c.ordinal()] && BigInteger.valueOf(
-          row.values()[c.ordinal()]).abs().compareTo(BigInteger.valueOf(c.bound())) > 0;
-      case DecimalWord w -> !row.nulls()[w.ordinal()]
-          && BigInteger.valueOf(row.values()[w.ordinal()]).abs().compareTo(w.bound().value()) > 0;
+      case DecimalColumn _, DecimalWord _ -> loads(node, row);
       default -> false;
     };
+  }
+
+  /** Whether a decimal leaf under {@code node} fails its slot check, whichever arm is taken. */
+  private static boolean loads(VarkaVectorIR node, Row row) {
+    boolean any = switch (node) {
+      case DecimalColumn c -> outside(row, c.ordinal(), BigInteger.valueOf(c.bound()));
+      case DecimalWord w -> outside(row, w.ordinal(), w.bound().value());
+      default -> false;
+    };
+    for (VarkaVectorIR k : VarkaVectorIR.childrenOf(node)) {
+      any |= loads(k, row);
+    }
+    return any;
+  }
+
+  private static boolean outside(Row row, int c, BigInteger bound) {
+    return !row.nulls()[c] && BigInteger.valueOf(row.values()[c]).abs().compareTo(bound) > 0;
   }
 
   // -------------------------------------------------------------------------------------------
