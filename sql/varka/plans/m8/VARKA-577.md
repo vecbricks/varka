@@ -305,10 +305,11 @@ The laptop's 512-bit column is still owed before 577b fixes its form there. Noth
 suggests it would overturn E, but it is not read.
 
 **For the next step of row 577.**
-- 577b builds E for the 128-bit dividend at four or more long lanes (256 and 512 bits), after
-  359a, 360 and 481, with the exactness argument (10.2 item 1) proved in SMT as 3.1 asks.
+- 577b builds E for the 128-bit dividend at 256 bits, and at 512 unless the laptop overturns
+  it, after 359a, 360 and 481, with the exactness argument (10.2 item 1) proved in SMT as 3.1
+  asks.
 - At two long lanes on x86, the remainder is a projection, so `VARKA-359.md` 2.6 lets it fuse
-  and measure it against the row path. Built as E, it would lose to the row path (indicative only).
-  So 577b either declines it there with this measurement, or fuses it with B or a scalar
+  and measure it against the row path. Built as E, it would not beat the row path (indicative
+  only). So 577b either declines it there with this measurement, or fuses it with B or a scalar
   remainder in `long`s. That choice is the owner's (7.4).
 - 577a, the long-lane case, is unaffected and still waits on row 30.
