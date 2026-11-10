@@ -118,3 +118,21 @@ decimal (section 7).
    names (this change corrects `VARKA-363.md` and the census).
 
 ## 10. Outcome
+
+### 10.1 The baseline addition (5.1): built, its reading pending the runners
+
+*8 November 2026, on master `99675606f2b`. Nothing here is timed yet: the reading is the runners'
+(the dispatches are in the pull request).*
+
+`VarkaDecimalBaselineBenchmark` gains sixteen sections, `x % y` and `pmod(x, y)` as values at
+`DECIMAL(9, 2)`, `(18, 4)`, `(38, 10)` and `(20, 2)`, each with no nulls and with one row in ten
+null, appended after the existing 88 so the committed results keep their places. All are
+`Fusion.NONE`, and `VarkaDecimalBaselineQueriesSuite`'s fuse test passes with that class, so item
+0.1 holds on the plan as well as in the census. Both operands share a type, so no section
+rescales; the queries suite also checks that no divisor is zero at the benchmark's 2,000,000
+rows, since one would raise under ANSI. The runner results at 256 and 128 bits are to be spliced
+into the committed `-runner-epyc7763` files, the new sections only, with their provenance.
+
+The benchmark's classes now follow the two-lane refusal #1262 added (VARKA-503): at 128 bits its
+30 filters over a 64-bit decimal are `NONE`, and the first 128-bit run failed on that before
+(MaxGekk/spark run 42574807845); the fuse test checks the classes with the refusal off and on.
