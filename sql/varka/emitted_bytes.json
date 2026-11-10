@@ -14998,56 +14998,56 @@
   },
   "option_arms" : {
     "useAVX=-1" : {
-      "4" : "6d5b60274098abcc",
-      "16" : "0585c2fcced75c49"
+      "4" : "861deae02f26d376",
+      "16" : "172dd4a64a28bbef"
     },
     "useAVX=0" : {
-      "4" : "03e13b5302659f42",
-      "16" : "2fb90c580150bc2a"
+      "4" : "b682b91fe1d790d2",
+      "16" : "ae90b035f7ed5912"
     },
     "useAVX=1" : {
-      "4" : "03e13b5302659f42",
-      "16" : "2fb90c580150bc2a"
+      "4" : "b682b91fe1d790d2",
+      "16" : "ae90b035f7ed5912"
     },
     "useAVX=2" : {
-      "4" : "03e13b5302659f42",
-      "16" : "2fb90c580150bc2a"
+      "4" : "b682b91fe1d790d2",
+      "16" : "ae90b035f7ed5912"
     },
     "useAVX=3" : {
-      "4" : "6d5b60274098abcc",
-      "16" : "0585c2fcced75c49"
+      "4" : "861deae02f26d376",
+      "16" : "172dd4a64a28bbef"
     },
     "validityOrFirst=true over denseValidityOnce=false,validityByBitmap=false" : {
-      "4" : "97ac95c5da776dca",
-      "16" : "916c4de30f28e2c5"
+      "4" : "f3466b8c2ad43d2b",
+      "16" : "4ec8e1b0fe36fb5f"
     },
     "validityOrFirst=false over denseValidityOnce=false,validityByBitmap=false" : {
-      "4" : "0daa3ba45ebeb869",
-      "16" : "20fe9f72b4720964"
+      "4" : "5b6a19e67d316463",
+      "16" : "a606db9db56f16e0"
     },
     "wideConversionForm=SPLIT over useAVX=2" : {
-      "4" : "03e13b5302659f42",
-      "16" : "2fb90c580150bc2a"
+      "4" : "b682b91fe1d790d2",
+      "16" : "ae90b035f7ed5912"
     },
     "wideConversionForm=MAGIC over useAVX=2" : {
-      "4" : "03e13b5302659f42",
-      "16" : "2fb90c580150bc2a"
+      "4" : "b682b91fe1d790d2",
+      "16" : "ae90b035f7ed5912"
     },
     "narrowLanes=true" : {
-      "4" : "6d5b60274098abcc",
-      "16" : "0585c2fcced75c49"
+      "4" : "861deae02f26d376",
+      "16" : "172dd4a64a28bbef"
     },
     "narrowLanes=false" : {
-      "4" : "8d533564c07ad0a6",
-      "16" : "d7e68154eba1f5cb"
+      "4" : "588d9a91b2569f0c",
+      "16" : "aa7df60529e1d036"
     },
     "groupLocalSlots=false" : {
-      "4" : "3e308c8aa0393219",
-      "16" : "5b4214cf616ce229"
+      "4" : "cccc7fde3dc1ffdc",
+      "16" : "3aeeb5c99bc5650d"
     },
     "methodByteBudget=0" : {
-      "4" : "00c7388a0aa12028",
-      "16" : "64dbf52fcb2b571d"
+      "4" : "3054cfb5ea2cc047",
+      "16" : "0a968082452c80cb"
     }
   }
 }
