@@ -16,6 +16,7 @@
  */
 package org.apache.spark.sql.catalyst.expressions.codegen.varka
 
+import scala.collection.mutable
 import scala.jdk.CollectionConverters._
 
 import org.scalatest.BeforeAndAfterEach
@@ -158,6 +159,13 @@ class VarkaVectorTemplateWarmupSuite extends SparkFunSuite with BeforeAndAfterEa
     assert(awaitC2Queue(5000, () => -1) < 1000L, "no reading of the queue means no wait")
   }
 
+  /**
+   * Two children per test at most - the CICompilerCount test asks a JVM at two processors and
+   * one at three - so a test's children at their budgets, 270 s each at the watchdog's ten
+   * minutes, end before its cap.
+   */
+  private def childBudgetSeconds: Long = VarkaChildProcess.budgetSeconds(watchdogMinutes, 2)
+
   test("C2's threads are counted as HotSpot splits CICompilerCount") {
     // CompilationPolicy::initialize: C1 gets max(count / 3, 1), C2 the rest, at least one.
     assert(c2Threads(1) === 1)
@@ -173,11 +181,10 @@ class VarkaVectorTemplateWarmupSuite extends SparkFunSuite with BeforeAndAfterEa
       // Options from the environment could set the count or the compilers themselves.
       Seq("JAVA_TOOL_OPTIONS", "JDK_JAVA_OPTIONS", "_JAVA_OPTIONS")
         .foreach(builder.environment().remove(_))
-      val process = builder.start()
-      val flags = new String(process.getInputStream.readAllBytes(), "UTF-8")
-      assert(process.waitFor(60, java.util.concurrent.TimeUnit.SECONDS), "the JVM must exit")
-      assert(process.exitValue() === 0)
-      val count = flags.linesIterator.map(_.trim.split("\\s+"))
+      val flags = mutable.ArrayBuffer.empty[String]
+      VarkaChildProcess.run(s"$suiteName's CICompilerCount query at $processors processors",
+        builder, childBudgetSeconds, flags += _).requireSuccess(true)
+      val count = flags.iterator.map(_.trim.split("\\s+"))
         .collectFirst { case f if f.length > 3 && f(1) == "CICompilerCount" => f(3).toInt }
       assert(count === Some(2), s"CICompilerCount at $processors processors")
       assert(c2Threads(count.get) === 1, s"one C2 thread at $processors processors")

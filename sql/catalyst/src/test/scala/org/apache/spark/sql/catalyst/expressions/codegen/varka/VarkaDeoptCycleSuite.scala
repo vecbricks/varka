@@ -19,7 +19,8 @@ package org.apache.spark.sql.catalyst.expressions.codegen.varka
 
 import java.nio.charset.StandardCharsets
 import java.nio.file.{Files, Path}
-import java.util.concurrent.TimeUnit
+
+import scala.collection.mutable
 
 import org.apache.spark.SparkFunSuite
 
@@ -48,19 +49,30 @@ class VarkaDeoptCycleSuite extends SparkFunSuite with VarkaTestWatchdog {
     getWorkspaceFilePath("sql", "catalyst", "src", "test", "resources", "varka", "deopt-cycle",
       name)
 
-  /** The parser's exit status and output on `logs`, run as the nightly runs it. */
+  /**
+   * Two children per test at most - the cycle test parses its log with and without the guard's
+   * flag - so a test's children at their budgets, 270 s each at the watchdog's ten minutes, end
+   * before its cap.
+   */
+  private def childBudgetSeconds: Long = VarkaChildProcess.budgetSeconds(watchdogMinutes, 2)
+
+  /**
+   * The parser's exit status and output on `logs`, run as the nightly runs it. A non-zero status
+   * is the guard's verdict, not a failure of the parser, so the tests read it and do not fail on
+   * it.
+   */
   private def parse(logs: Seq[Path], failOnCycle: Boolean = true): (Int, String) = {
     val command = new java.util.ArrayList[String]()
     command.add("python3")
     command.add(script.toString)
     if (failOnCycle) command.add("--fail-on-cycle")
     logs.foreach(l => command.add(l.toString))
-    // The child JVM's code runs where the class-use record cannot see it (VarkaTestUse).
-    VarkaTestUse.childJvm()
-    val process = new ProcessBuilder(command).redirectErrorStream(true).start()
-    val output = new String(process.getInputStream.readAllBytes(), StandardCharsets.UTF_8)
-    assert(process.waitFor(60, TimeUnit.SECONDS), "the parser did not finish")
-    (process.exitValue(), output)
+    val what = s"$suiteName's varka_deopt_cycle.py over ${logs.map(_.getFileName).mkString(", ")}" +
+      (if (failOnCycle) "" else " without --fail-on-cycle")
+    val lines = mutable.ArrayBuffer.empty[String]
+    val child =
+      VarkaChildProcess.run(what, new ProcessBuilder(command), childBudgetSeconds, lines += _)
+    (child.exitValue, lines.mkString("\n"))
   }
 
   private def verdict(output: String): String =
