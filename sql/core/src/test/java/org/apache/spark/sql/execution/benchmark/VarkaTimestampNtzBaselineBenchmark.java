@@ -21,6 +21,7 @@ import java.util.List;
 
 import org.apache.spark.sql.SparkSession;
 import org.apache.spark.sql.VarkaBenchmark;
+import org.apache.spark.sql.execution.VarkaSessionEmit;
 
 /**
  * The baseline for {@code TIMESTAMP_NTZ} before Varka has a lane for it (VARKA-377): Spark's row
@@ -42,8 +43,11 @@ import org.apache.spark.sql.VarkaBenchmark;
  * comparison, the cast and the choice are {@code WHOLE}, since the {@code TIMESTAMP_NTZ} lane
  * fuses them (VARKA-338), and the results file notes each of them as fusing; the arithmetic
  * chain is {@code WHOLE} too, as VARKA-339 fuses the difference and the interval sums, though the
- * committed results time it on the row path in both arms. A row that fuses more of a section
- * sets its new class, so that its fusion cannot turn a baseline section into a fused one
+ * committed results time it on the row path in both arms. A session that refuses a filter's
+ * condition in a kernel driven at 64 bits ({@code declinesLongConditions}, VARKA-503), the 128-bit
+ * companion's host by default, leaves the comparison to the row path, so it is {@code NONE}
+ * there; the projections are never refused and stay {@code WHOLE}. A row that fuses more of a
+ * section sets its new class, so that its fusion cannot turn a baseline section into a fused one
  * unnoticed.
  *
  * <p>To run this benchmark, on a GitHub runner (the results come back as an artifact):
@@ -87,8 +91,13 @@ public class VarkaTimestampNtzBaselineBenchmark extends VarkaSqlBenchmarkBase {
               from range(0, %d))""".formatted(rows);
   }
 
-  /** Every section, in the order they run: each null density, then each shape. */
-  static List<Section> sections() {
+  /**
+   * Every section, in the order they run: each null density, then each shape, with the classes
+   * a session plans them at when it does or does not refuse a filter's condition in a kernel
+   * driven at 64 bits, which the comparison's condition over the long lane is.
+   */
+  static List<Section> sections(boolean declinesLongConditions) {
+    Fusion filter = declinesLongConditions ? Fusion.NONE : Fusion.WHOLE;
     List<Section> out = new ArrayList<>();
     for (String nulls : new String[] {"", "n"}) {
       String a = "ntz" + nulls;
@@ -96,7 +105,7 @@ public class VarkaTimestampNtzBaselineBenchmark extends VarkaSqlBenchmarkBase {
       String c = "ntz3" + nulls;
       String density = nulls.isEmpty() ? "no nulls" : "one row in ten null";
       out.add(new Section("TIMESTAMP_NTZ comparison, " + density,
-          "SELECT " + a + " FROM varka_ntz WHERE " + a + " < " + b, Fusion.WHOLE));
+          "SELECT " + a + " FROM varka_ntz WHERE " + a + " < " + b, filter));
       out.add(new Section("TIMESTAMP_NTZ arithmetic chain, " + density,
           "SELECT " + a + " + (" + b + " - " + c + ") - INTERVAL '1' HOUR AS v FROM varka_ntz",
           Fusion.WHOLE));
@@ -123,10 +132,13 @@ public class VarkaTimestampNtzBaselineBenchmark extends VarkaSqlBenchmarkBase {
         session.sql(tableSql(NUM_ROWS)).createOrReplaceTempView("varka_ntz");
         VarkaArrowSessions.cache(session, "varka_ntz");
       }
-      for (Section s : sections()) {
+      // The refusal as the Varka session resolves it, as VarkaBooleanOutputBenchmark reads it.
+      List<Section> sections = sections(
+          VarkaSessionEmit.of(varka.sessionState().conf()).declineTwoLaneConditions());
+      for (Section s : sections) {
         requireBaseline(varka, s.title(), s.query(), s.fusion());
       }
-      for (Section s : sections()) {
+      for (Section s : sections) {
         section(s.title(), () -> {
           VarkaBenchmark benchmark = benchmark(
               s.title() + " over " + NUM_ROWS + " Arrow-cached rows", NUM_ROWS).timed().build();
