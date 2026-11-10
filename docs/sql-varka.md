@@ -903,6 +903,9 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `CAST(ntz AS TIME(6))` | `time` |  | the nanosecond of the day, a multiple of a thousand | vector |
 | `CAST(ntz AS TIME(3))` | `time` |  | truncated to milliseconds: a quotient and a product | vector |
 | `CAST(ntz AS TIME(0))` | `time` |  |  | vector |
+| `make_timestamp_ntz(d, t)` | `time` | `unix_date(d) BETWEEN -106751991 AND 106751991 AND if(d IS NULL OR t IS NULL, NULL, try_make_timestamp_ntz(d, t) IS NOT NULL)` | the date guarded to the days whose midnight is a long, as the cast of a date is | per-lane: compare to mask, mask logic, mask broadcast, mask test, load or store |
+| `make_timestamp_ntz(DATE'2021-06-01', t)` | `time` | `if(t IS NULL, NULL, try_make_timestamp_ntz(DATE'2021-06-01', t) IS NOT NULL)` | a literal date is checked when the kernel is compiled and takes a slot, so every date shares one kernel | per-lane: compare to mask, mask logic, mask broadcast, mask test, load or store |
+| `CAST(t AS TIMESTAMP_NTZ)` | `time` | `if(t IS NULL, NULL, try_make_timestamp_ntz(current_date(), t) IS NOT NULL)` | the query's current date at the time of day: the optimizer rewrites the cast to make_timestamp_ntz of the date literal | per-lane: compare to mask, mask logic, mask broadcast, mask test, load or store |
 
 #### TIMESTAMP_NTZ fields in a condition
 

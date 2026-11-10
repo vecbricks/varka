@@ -60,6 +60,7 @@ public enum VarkaFamily {
   TIME("time", "time", "the TIME functions (hour, minute, second, time_trunc, time_diff, the"
       + " conversions to and from micros and millis, a time plus a day-time interval), the"
       + " casts to TIME and to a day-time interval, hour, minute and second of a TIMESTAMP_NTZ,"
+      + " make_timestamp_ntz(date, time) and the cast of a TIME to TIMESTAMP_NTZ,"
       + " TIMESTAMP_NTZ minus TIMESTAMP_NTZ, a TIMESTAMP_NTZ plus or minus a day-time interval,"
       + " and timestampadd of a TIMESTAMP_NTZ by a unit from a microsecond to a week"),
   /** {@code VarkaConditionCompiler.compileCond}, reached outside the chain. */
