@@ -29,8 +29,9 @@ import org.apache.spark.sql.execution.VarkaSharedSessions
  * The TIMESTAMP_NTZ baseline's sections, run at a small scale on both sessions in every build, so a
  * section that no longer parses or that the two sessions answer differently fails a pull request
  * rather than the runner dispatch that times it (VARKA-377 5). It also makes the benchmark's own
- * fuse check, that each section's plan on the Varka session has the section's fusion class, so a
- * row that changes how a section fuses sets the section's new class in the same pull request.
+ * fuse check, that each section's plan on the Varka session has the section's fusion class, with
+ * the two-lane condition refusal off and on, so a row that changes how a section fuses sets the
+ * section's new class in the same pull request.
  */
 class VarkaTimestampNtzBaselineQueriesSuite extends QueryTest with VarkaSharedSessions {
 
@@ -48,7 +49,8 @@ class VarkaTimestampNtzBaselineQueriesSuite extends QueryTest with VarkaSharedSe
 
   test("every section of the TIMESTAMP_NTZ baseline runs, and both sessions answer it alike") {
     withTable(2000) {
-      val sections = VarkaTimestampNtzBaselineBenchmark.sections().asScala
+      // The answers do not depend on the plan a section is held to, so either list does.
+      val sections = VarkaTimestampNtzBaselineBenchmark.sections(false).asScala
       assert(sections.size === 8)
       for (s <- sections) {
         withClue(s.title) {
@@ -63,14 +65,18 @@ class VarkaTimestampNtzBaselineQueriesSuite extends QueryTest with VarkaSharedSe
     // pull request rather than the runner dispatch that times it. The benchmark plans under the
     // emitter's default options, so the classes pin the defaults, and an option matrix
     // configuration, under which a section may fuse differently, cancels the test; so does the
-    // run that lifts the benchmark's check.
+    // run that lifts the benchmark's check. The benchmark lists its classes at the two-lane
+    // refusal the host resolves (VARKA-503), which the shared sessions leave off, so both lists
+    // are checked here by setting the refusal each way.
     assume(VarkaSqlBenchmarkBase.fuseCheck(),
       s"-D${VarkaSqlBenchmarkBase.FUSE_CHECK_PROPERTY}=false times the sections fused")
     withTable(100) {
-      for (s <- VarkaTimestampNtzBaselineBenchmark.sections().asScala) {
-        withClue(s.title) {
-          val plan = varkaSpark.sql(s.query).queryExecution.executedPlan
-          assert(VarkaSqlBenchmarkBase.fusion(plan) === Optional.of(s.fusion))
+      forEachTwoLaneRefusal { declines =>
+        for (s <- VarkaTimestampNtzBaselineBenchmark.sections(declines).asScala) {
+          withClue(s"${s.title}, refusal $declines") {
+            val plan = varkaSpark.sql(s.query).queryExecution.executedPlan
+            assert(VarkaSqlBenchmarkBase.fusion(plan) === Optional.of(s.fusion))
+          }
         }
       }
     }
