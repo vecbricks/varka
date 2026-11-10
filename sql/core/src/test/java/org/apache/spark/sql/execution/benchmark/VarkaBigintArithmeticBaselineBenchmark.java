@@ -27,17 +27,23 @@ import org.apache.spark.sql.internal.SQLConf;
 
 /**
  * The baseline for {@code BIGINT} arithmetic before Varka fuses it (VARKA-104): Spark's row path
- * over an Arrow-cached table of {@code BIGINT} columns, one section per operation, mode and null
- * density, so that the row reports what it changes against a committed file.
+ * over an Arrow-cached table of {@code BIGINT} columns and one {@code INT}, one section per
+ * operation, mode and null density, so that the row reports what it changes against a committed
+ * file.
  *
- * <p>The operations are {@code +}, {@code -} and {@code *} between two columns and with a
- * literal, the negation and {@code abs}, each under the modes whose answers differ from each
- * other's on overflow: LEGACY wraps, ANSI raises, and {@code try_add}, {@code try_subtract} and
- * {@code try_multiply} answer null. The data never overflows, so every section answers on every
- * row and an ANSI section times arithmetic rather than an error; what the modes cost is the check
- * each one makes on the way. One filter, {@code l + l2 > 0}, times the arithmetic as a condition;
- * and a control, {@code l ^ l2}, fuses today, so that a run whose Varka session is off fails the
- * fuse check below.
+ * <p>The modes are the ones whose answers differ from each other's on overflow: LEGACY wraps,
+ * ANSI raises, and {@code try_add}, {@code try_subtract} and {@code try_multiply} answer null.
+ * The operations over a {@code BIGINT} column are {@code l + 1}, {@code l + l2},
+ * {@code l - l2}, {@code l * 3}, {@code l * m}, {@code -l} and {@code abs(l)}, each under LEGACY
+ * and ANSI, and the three between two columns also as their {@code try_} form; the negation and
+ * {@code abs} have none. Over a bounded long leaf, the widened int, {@code CAST(i AS BIGINT) + 1}
+ * and {@code CAST(i AS BIGINT) * 1000} run in all three modes: the only shape whose check the
+ * lattice's long half takes off (VARKA-104.md 8 step 2), timed beside its LEGACY twin, the
+ * unchecked reference. The data never overflows, so every section answers on every row and an
+ * ANSI section times arithmetic rather than an error; what the modes cost is the check each one
+ * makes on the way. One filter, {@code l + l2 > 0}, times the arithmetic as a condition; and a
+ * control, {@code l ^ l2}, fuses today, so that a run whose Varka session is off fails the fuse
+ * check below.
  *
  * <p>Each section has two arms, named so the labels survive the row landing:
  * {@code spark row path (varka off)}, a session without the Varka rule, and {@code varka on}, a
@@ -48,10 +54,11 @@ import org.apache.spark.sql.internal.SQLConf;
  * each section's plan on the Varka session against the section's {@link Fusion} class, and fails
  * when the plan's class differs
  * ({@link VarkaSqlBenchmarkBase#requireBaseline(SparkSession, String, String, Fusion)}). Every
- * projection but the control is {@code NONE}: the compiler's arithmetic arms take an
- * {@code INT} or a narrower type and nothing on the long lane. The filter is {@code NULL_TESTS},
- * since the {@code IS NOT NULL} of each column the optimizer infers fuses on its own as a
- * long-lane null test under Spark's {@code Filter} while the sum declines; where the session
+ * projection but the control is {@code NONE}, at both widths: the compiler's arithmetic arms
+ * take an {@code INT} or a narrower type and nothing on the long lane, and a widened int under a
+ * long operation declines with it. The filter is {@code NULL_TESTS}, since the
+ * {@code IS NOT NULL} of each column the optimizer infers fuses on its own as a long-lane null
+ * test under Spark's {@code Filter} while the sum declines; where the session
  * refuses a filter's condition in a 64-bit kernel (VARKA-503), as the 128-bit companion's host
  * does by default, it is {@code NONE}. The control is {@code WHOLE}, and the run also checks that
  * it runs every batch as a kernel ({@link VarkaSizeLadder#varkaFused}). A row that fuses more of
@@ -86,13 +93,15 @@ public class VarkaBigintArithmeticBaselineBenchmark extends VarkaSqlBenchmarkBas
    * A section: its title, its query, the SQL settings it runs under on both sessions, empty for
    * a {@code try_} form, whose answer does not depend on them, and how much of it the Varka
    * session fuses today, the {@link VarkaSqlBenchmarkBase.Fusion} class the run checks its plan
-   * against before it times anything.
+   * against before it times anything. The control {@code l ^ l2} cannot overflow either, but is
+   * pinned to ANSI all the same, so that its plan does not follow the session's default.
    */
   record Section(String title, String query, Map<String, String> conf, Fusion fusion) {}
 
   /**
-   * The table: {@code l}, {@code l2} and {@code m} {@code BIGINT}s with no null, and {@code l_n}
-   * the values of {@code l} with one row in ten null. Each column is a hash of the row's id, so
+   * The table: {@code l}, {@code l2} and {@code m} {@code BIGINT}s with no null, {@code l_n}
+   * the values of {@code l} with one row in ten null, and the {@code INT}s {@code i} and
+   * {@code i_n}. Each column is a hash of the row's id, so
    * any few thousand rows reach every region below, as the queries suite checks.
    *
    * <ul>
@@ -105,6 +114,11 @@ public class VarkaBigintArithmeticBaselineBenchmark extends VarkaSqlBenchmarkBas
    *       long's edges.</li>
    *   <li>{@code m} is inside {@code [-3000, 3000]}, a factor whose product with {@code l} is
    *       below {@code 2^61} in magnitude, as is {@code l * 3}.</li>
+   *   <li>{@code i} is an {@code INT}, {@code hash(id, 3)}, over the whole int range, and
+   *       {@code i_n} its values with the same rows null as {@code l_n}. Widened to a
+   *       {@code BIGINT} it is a bounded long leaf: {@code CAST(i AS BIGINT) + 1} and
+   *       {@code CAST(i AS BIGINT) * 1000}, below {@code 2^41}, cannot overflow whatever the
+   *       data.</li>
    * </ul>
    * So no section overflows in any mode: ANSI raises nowhere and the {@code try_} forms answer
    * null only where an operand is null.
@@ -112,11 +126,14 @@ public class VarkaBigintArithmeticBaselineBenchmark extends VarkaSqlBenchmarkBas
   static String tableSql(int rows) {
     return """
         select l, l2, m,
-               case when id %% 10 = 1 then null else l end as l_n
+               case when id %% 10 = 1 then null else l end as l_n,
+               i,
+               case when id %% 10 = 1 then null else i end as i_n
         from (select id,
                      shiftright(xxhash64(id), cast(14 + id %% 50 as int)) as l,
                      shiftright(xxhash64(id, 1), cast(14 + id %% 47 as int)) as l2,
-                     cast(pmod(hash(id, 2), 6001) - 3000 as bigint) as m
+                     cast(pmod(hash(id, 2), 6001) - 3000 as bigint) as m,
+                     hash(id, 3) as i
               from range(0, %d))""".formatted(rows);
   }
 
@@ -132,8 +149,11 @@ public class VarkaBigintArithmeticBaselineBenchmark extends VarkaSqlBenchmarkBas
     Map<String, String> ansi = Map.of(SQLConf.ANSI_ENABLED().key(), "true");
     for (String nulls : new String[] {"", "_n"}) {
       String l = "l" + nulls;
+      String wide = "CAST(i" + nulls + " AS BIGINT)";
       String density = ", " + (nulls.isEmpty() ? "no nulls" : "one row in ten null");
       String from = " AS a FROM " + VIEW;
+      out.add(new Section("l + 1, LEGACY" + density,
+          "SELECT " + l + " + 1" + from, legacy, Fusion.NONE));
       out.add(new Section("l + 1, ANSI" + density,
           "SELECT " + l + " + 1" + from, ansi, Fusion.NONE));
       out.add(new Section("l + l2, LEGACY" + density,
@@ -142,10 +162,14 @@ public class VarkaBigintArithmeticBaselineBenchmark extends VarkaSqlBenchmarkBas
           "SELECT " + l + " + l2" + from, ansi, Fusion.NONE));
       out.add(new Section("try_add(l, l2)" + density,
           "SELECT try_add(" + l + ", l2)" + from, Map.of(), Fusion.NONE));
+      out.add(new Section("l - l2, LEGACY" + density,
+          "SELECT " + l + " - l2" + from, legacy, Fusion.NONE));
       out.add(new Section("l - l2, ANSI" + density,
           "SELECT " + l + " - l2" + from, ansi, Fusion.NONE));
       out.add(new Section("try_subtract(l, l2)" + density,
           "SELECT try_subtract(" + l + ", l2)" + from, Map.of(), Fusion.NONE));
+      out.add(new Section("l * 3, LEGACY" + density,
+          "SELECT " + l + " * 3" + from, legacy, Fusion.NONE));
       out.add(new Section("l * 3, ANSI" + density,
           "SELECT " + l + " * 3" + from, ansi, Fusion.NONE));
       out.add(new Section("l * m, LEGACY" + density,
@@ -154,17 +178,33 @@ public class VarkaBigintArithmeticBaselineBenchmark extends VarkaSqlBenchmarkBas
           "SELECT " + l + " * m" + from, ansi, Fusion.NONE));
       out.add(new Section("try_multiply(l, m)" + density,
           "SELECT try_multiply(" + l + ", m)" + from, Map.of(), Fusion.NONE));
+      out.add(new Section("-l, LEGACY" + density,
+          "SELECT -" + l + from, legacy, Fusion.NONE));
       out.add(new Section("-l, ANSI" + density,
           "SELECT -" + l + from, ansi, Fusion.NONE));
       out.add(new Section("abs(l), LEGACY" + density,
           "SELECT abs(" + l + ")" + from, legacy, Fusion.NONE));
       out.add(new Section("abs(l), ANSI" + density,
           "SELECT abs(" + l + ")" + from, ansi, Fusion.NONE));
+      // A bounded long leaf, the widened int: the one shape whose check the lattice's long half
+      // (VARKA-104.md 8 step 2) can remove, with its LEGACY twin as the unchecked reference.
+      out.add(new Section("CAST(i AS BIGINT) + 1, LEGACY" + density,
+          "SELECT " + wide + " + 1" + from, legacy, Fusion.NONE));
+      out.add(new Section("CAST(i AS BIGINT) + 1, ANSI" + density,
+          "SELECT " + wide + " + 1" + from, ansi, Fusion.NONE));
+      out.add(new Section("try_add(CAST(i AS BIGINT), 1)" + density,
+          "SELECT try_add(" + wide + ", 1)" + from, Map.of(), Fusion.NONE));
+      out.add(new Section("CAST(i AS BIGINT) * 1000, LEGACY" + density,
+          "SELECT " + wide + " * 1000" + from, legacy, Fusion.NONE));
+      out.add(new Section("CAST(i AS BIGINT) * 1000, ANSI" + density,
+          "SELECT " + wide + " * 1000" + from, ansi, Fusion.NONE));
+      out.add(new Section("try_multiply(CAST(i AS BIGINT), 1000)" + density,
+          "SELECT try_multiply(" + wide + ", 1000)" + from, Map.of(), Fusion.NONE));
       out.add(new Section("filter l + l2 > 0, ANSI" + density,
           "SELECT " + l + from + " WHERE " + l + " + l2 > 0", ansi,
           declinesLongConditions ? Fusion.NONE : Fusion.NULL_TESTS));
       out.add(new Section("l ^ l2, control, fuses today" + density,
-          "SELECT " + l + " ^ l2" + from, Map.of(), Fusion.WHOLE));
+          "SELECT " + l + " ^ l2" + from, ansi, Fusion.WHOLE));
     }
     return out;
   }

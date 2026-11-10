@@ -38,11 +38,12 @@ import org.apache.spark.sql.types._
  * The fixture is the benchmark's table over its first 2000 ids. Its columns are hashes of the
  * id, so these rows already reach the regions the benchmark's javadoc states, which the suite
  * checks before it runs the sections: `l` and `l2` of both signs, past the int range and below
- * it, and below `2^49` in magnitude; `m` of both signs inside `[-3000, 3000]`. A section over the
- * columns with no null must answer no null, so an overflow into a `try_` null fails here rather
- * than going into the timed run as a cheap null; a section over the column with one row in ten
- * null must answer exactly those nulls. The filter answers no null, keeping the rows whose sum is
- * positive, from the null column the same rows but its nulls.
+ * it, and below `2^49` in magnitude; `m` of both signs inside `[-3000, 3000]`; the `INT` `i` of
+ * both signs, and `i_n` null on exactly the rows `l_n` is. A section over the columns with no
+ * null must answer no null, so an overflow into a `try_` null fails here rather than going into
+ * the timed run as a cheap null; a section over a column with one row in ten null must answer
+ * exactly those nulls. The filter answers no null, keeping the rows whose sum is positive, from
+ * the null column the same rows but its nulls.
  */
 class VarkaBigintArithmeticBaselineQueriesSuite extends QueryTest with VarkaSharedSessions {
 
@@ -90,7 +91,9 @@ class VarkaBigintArithmeticBaselineQueriesSuite extends QueryTest with VarkaShar
            |       count_if(m < 0), count_if(m > 0),
            |       max(abs(l)), max(abs(l2)), min(m), max(m),
            |       count_if(l + l2 > 0), count_if(l_n is null),
-           |       count_if(l_n is null and l + l2 > 0)
+           |       count_if(l_n is null and l + l2 > 0),
+           |       count_if(i < 0), count_if(i > 0), count_if(i_n is null),
+           |       count_if((i_n is null) = (l_n is null))
            |from $view""".stripMargin).head()
       for (column <- 0 until 10) {
         assert(r.getLong(column) > 0, s"column $column")
@@ -101,8 +104,19 @@ class VarkaBigintArithmeticBaselineQueriesSuite extends QueryTest with VarkaShar
       assert(kept > 0 && kept < rows)
       assert(r.getLong(15) === rows / 10)
       val keptNull = r.getLong(16)
+      assert(r.getLong(17) > 0 && r.getLong(18) > 0)
+      assert(r.getLong(19) === rows / 10 && r.getLong(20) === rows)
 
       val sections = VarkaBigintArithmeticBaselineBenchmark.sections(false).asScala.toSeq
+      // 25 sections at each of the two null densities, and only the filter and the control fuse
+      // anything today: a row that fuses a section changes this list with the section's class.
+      assert(sections.size === 2 * 25)
+      val fused = sections.filter(_.fusion != VarkaSqlBenchmarkBase.Fusion.NONE)
+      assert(fused.map(s => (s.title, s.fusion.toString)) === Seq(
+        ("filter l + l2 > 0, ANSI, no nulls", "NULL_TESTS"),
+        ("l ^ l2, control, fuses today, no nulls", "WHOLE"),
+        ("filter l + l2 > 0, ANSI, one row in ten null", "NULL_TESTS"),
+        ("l ^ l2, control, fuses today, one row in ten null", "WHOLE")))
       for (s <- sections) {
         withClue(s.title) {
           withSettings(s) {
