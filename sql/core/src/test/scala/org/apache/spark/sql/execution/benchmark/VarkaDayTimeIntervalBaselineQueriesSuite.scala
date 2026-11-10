@@ -140,7 +140,7 @@ class VarkaDayTimeIntervalBaselineQueriesSuite extends QueryTest with VarkaShare
       // is the list with the two-lane refusal off, the shared sessions' setting.
       val sections = VarkaDayTimeIntervalBaselineBenchmark.sections(false).asScala.toSeq
       assert(sections.size === 2 * resultTypes.size)
-      def fused(list: Seq[VarkaDayTimeIntervalBaselineBenchmark.Section]) =
+      def fused(list: Seq[VarkaDayTimeIntervalBaselineBenchmark.Section]): Seq[(String, String)] =
         list.filter(_.fusion != VarkaSqlBenchmarkBase.Fusion.NONE)
           .map(s => (s.title, s.fusion.toString))
       val blend = "CASE WHEN dt > dt2 THEN dt ELSE dt2 END, control, fuses at both widths"
