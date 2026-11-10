@@ -191,18 +191,24 @@ skips its fields and, on the way back, runs its constructor, which reads `origin
 keeps the context because it is generated on the driver, where `errCtx` is put into the
 references array, and a `QueryContext` serializes. Varka's fallback and merge projections are
 `UnsafeProjection.create` calls inside the evaluator, on the executor, over the deserialized
-projection list (`VarkaColumnarToRowExec.scala:315`, `:338-355`), so a `DivideYMInterval` there
-reads an empty origin. The expressions that carry their context in a `SupportQueryContext` field
-(`Add`, `Cast`, `MakeYMInterval` in its generated code, and most others) keep it, since that
-field is the concrete class's and serializes; `DivideYMInterval` and `DivideDTInterval` read `origin.context` when they
-evaluate or generate code, so they are the ones that lose it.
+projection list (`VarkaColumnarToRowExec.scala`: `fallbackProjection` at `:318`, and
+`mergeProjection`, declared at `:336`, at `:357`), so a `DivideYMInterval` there reads an empty
+origin. The expressions that carry their context in a `SupportQueryContext` field (`Add`, `Cast`,
+`MakeYMInterval` in its generated code, and most others) keep it, since that field is the
+concrete class's and serializes. `DivideYMInterval` and `DivideDTInterval` read `origin.context`
+when they evaluate or generate code, so they lose it. So does the interpreted `nullSafeEval` of
+`MakeYMInterval` and `MakeDTInterval`, which reads `origin.context` although the class carries
+the field (`intervalExpressions.scala:550`, `:609`). The run did not reach that path, since
+Varka's fallback is a generated projection; the case is read from the upstream fix (section
+10), whose `IntervalExpressionsSuite` test evaluates a deserialized copy of each expression.
 
 **What the same run showed beyond the arm.**
 
 * *Spark alone loses it too.* With `spark.sql.codegen.wholeStage=false` the row engine raises
   the same error with no `== SQL ==` block: `ProjectExec.doExecute` builds its projection on the
-  executor as Varka's fallback does. The defect is upstream, in the two divisions that read
-  `origin.context` instead of carrying `SupportQueryContext`.
+  executor as Varka's fallback does. The defect is upstream: in the two divisions, which read
+  `origin.context` instead of carrying `SupportQueryContext`, and in the interpreted path of
+  `MakeYMInterval` and `MakeDTInterval`, which carry the field but do not read it there.
 * *The decline does not protect every query.* On today's master, with `-1` declined,
   `SELECT ym / 2 AS a, ym / -1 AS b FROM varka_ymd_min` fuses `ym / 2`, leaves `ym / -1` to the
   merge projection, and raises without the block where Spark raises with it. The decline keeps
@@ -226,11 +232,24 @@ row. 3: not scored; no test was added.
 
 ## 10. Questions the outcome adds for the owner
 
-2. **Where the error context is restored.** (a) Upstream: `DivideYMInterval` and
-   `DivideDTInterval` mix in `SupportQueryContext` as `MakeYMInterval` does, which also fixes
-   Spark's own non-whole-stage path, and reaches Varka through a sync as SPARK-60746 did; then
-   `-1` fuses with no Varka change beyond the arm above. (b) Varka: the evaluator's fallback and
-   merge projections are generated on the driver, as whole-stage code is, and shipped as code and
-   references; this fixes every residual raise of such an expression, the mixed query above
-   included, and is a row of its own. *Recommended: (a)*, with (b) a candidate row only if
-   upstream declines (a), since (a) fixes the mixed query too once it syncs.
+2. **Where the error context is restored.** *Decided by the owner, 10 November 2026: upstream.*
+   The fix is SPARK-61352, apache/spark#60285 ("Keep an expression's own query context through
+   serialization and rewrites", open on 10 November 2026). Mixing in `SupportQueryContext` alone
+   would not do, since `MakeYMInterval` already has it and its interpreted path still loses the
+   context: the paths that raise must read the stored context. The PR makes three changes:
+   * `IntervalDivide`, the trait of `DivideYMInterval` and `DivideDTInterval`, extends
+     `SupportQueryContext` with `initQueryContext = Some(origin.context)`;
+   * the two divisions' `doGenCode` passes `getContextOrNullCode(ctx)` as `errCtx`, and both
+     interpreted `evalFunc`s and the `nullSafeEval` of `MakeYMInterval` and `MakeDTInterval`
+     pass `getContextOrNull()` in place of `origin.context`;
+   * `SupportQueryContext.copyTagsFrom` copies the other node's context only when the expression
+     has no valid one of its own, so a rule that replaces a node with its child, as
+     `SimplifyCasts` does with a cast to the same type, keeps the child's context.
+
+   It also fixes Spark's own non-whole-stage path and every residual raise in Varka's fallback
+   and merge projections, the mixed query in 9 included, since a `SupportQueryContext` field
+   serializes. It reaches Varka through a sync, as SPARK-60746 did. Once that sync lands,
+   `ym / -1` fuses by rebuilding the arm in 9, and `dt / -1` by its day-time counterpart; that
+   is all row 414 has left. Option (b),
+   Varka compiling its fallback and merge projections on the driver, is not taken. Until the
+   sync, the defect is in the debt register (`PLAN.md` 11).
