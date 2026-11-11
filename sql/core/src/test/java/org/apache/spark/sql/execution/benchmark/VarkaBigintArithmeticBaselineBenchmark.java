@@ -56,14 +56,12 @@ import org.apache.spark.sql.internal.SQLConf;
  * ({@link VarkaSqlBenchmarkBase#requireBaseline(SparkSession, String, String, Fusion)}). Every
  * projection but the control is {@code NONE}, at both widths: the compiler's arithmetic arms
  * take an {@code INT} or a narrower type and nothing on the long lane, and a widened int under a
- * long operation declines with it. The filter is {@code NULL_TESTS}, since the
- * {@code IS NOT NULL} of each column the optimizer infers fuses on its own as a long-lane null
- * test under Spark's {@code Filter} while the sum declines; where the session
- * refuses a filter's condition in a 64-bit kernel (VARKA-503), as the 128-bit companion's host
- * does by default, it is {@code NONE}. The control is {@code WHOLE}, and the run also checks that
- * it runs every batch as a kernel ({@link VarkaSizeLadder#varkaFused}). A row that fuses more of
- * a section sets its new class, so that its fusion cannot turn a baseline section into a fused
- * one unnoticed.
+ * long operation declines with it. So is the filter: the sum declines, so of it only the
+ * {@code IS NOT NULL} of each column the optimizer infers would fuse, and a filter fusing
+ * nothing else stays whole on the row path (VARKA-598), at both widths. The control is
+ * {@code WHOLE}, and the run also checks that it runs every batch as a kernel
+ * ({@link VarkaSizeLadder#varkaFused}). A row that fuses more of a section sets its new class, so
+ * that its fusion cannot turn a baseline section into a fused one unnoticed.
  *
  * <p>To run this benchmark, on a GitHub runner (the results come back as an artifact):
  * <pre>
@@ -141,7 +139,9 @@ public class VarkaBigintArithmeticBaselineBenchmark extends VarkaSqlBenchmarkBas
    * Every section, in the order they run: each null density, then each operation. The filter is
    * a condition in a kernel driven at 64 bits, which a session that refuses those
    * ({@code declinesLongConditions}, VARKA-503) leaves to the row path whole: the 128-bit
-   * companion's host by default.
+   * companion's host by default. No section's class depends on it today, since the filter stays
+   * whole on the row path at both widths (VARKA-598); a row that fuses the filter sets its class
+   * from it.
    */
   static List<Section> sections(boolean declinesLongConditions) {
     List<Section> out = new ArrayList<>();
@@ -201,8 +201,7 @@ public class VarkaBigintArithmeticBaselineBenchmark extends VarkaSqlBenchmarkBas
       out.add(new Section("try_multiply(CAST(i AS BIGINT), 1000)" + density,
           "SELECT try_multiply(" + wide + ", 1000)" + from, Map.of(), Fusion.NONE));
       out.add(new Section("filter l + l2 > 0, ANSI" + density,
-          "SELECT " + l + from + " WHERE " + l + " + l2 > 0", ansi,
-          declinesLongConditions ? Fusion.NONE : Fusion.NULL_TESTS));
+          "SELECT " + l + from + " WHERE " + l + " + l2 > 0", ansi, Fusion.NONE));
       out.add(new Section("l ^ l2, control, fuses today" + density,
           "SELECT " + l + " ^ l2" + from, ansi, Fusion.WHOLE));
     }

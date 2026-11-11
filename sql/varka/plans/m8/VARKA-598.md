@@ -151,6 +151,7 @@ cost only.
 
 
 Built 10 November 2026. The pull request's dry runs and suite runs are listed in its description.
-The BIGINT baseline (#1455) is not on master: its `filter l + l2 > 0, ANSI` sections are listed
-`NULL_TESTS` there and become `NONE` with this change, a line owed by whichever of the two merges
-second.
+The BIGINT baseline (#1455) merged first, so this branch, after merging master on 11 November
+2026, moves its two `filter l + l2 > 0, ANSI` sections from `NULL_TESTS` to `NONE`, at both null
+densities and both widths. Row 104's #1484, still open, makes those two sections fuse whole at
+256 bits; whichever of #1484 and this change merges second takes #1484's classes for them.
