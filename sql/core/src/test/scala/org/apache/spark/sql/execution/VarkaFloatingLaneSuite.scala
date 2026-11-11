@@ -468,7 +468,7 @@ class VarkaFloatingLaneSuite extends QueryTest with VarkaSharedSessions with Var
     // The two-lane refusal is resolved from the same reading; set off, it reads no JVM lanes.
     conf.setConfString(SQLConf.VARKA_DECLINE_TWO_LANE_CONDITIONS.key, "false")
     conf.setConf(SQLConf.VARKA_EMIT_USE_AVX, VarkaSessionEmit.USE_AVX_FROM_HOST)
-    def reading(arch: String, features: String, failure: String, bits: Int) =
+    def reading(arch: String, features: String, failure: String, bits: Int): VarkaHostIsa.Reading =
       new VarkaHostIsa.Reading(arch, features, failure, bits)
     val three = VarkaEmitOptions.AVX512_LEVEL
     val unknown = VarkaEmitOptions.USE_AVX_UNKNOWN
