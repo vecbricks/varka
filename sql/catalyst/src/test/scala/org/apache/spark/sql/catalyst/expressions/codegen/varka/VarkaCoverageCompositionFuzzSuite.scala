@@ -860,6 +860,58 @@ class VarkaCoverageCompositionFuzzSuite
     runs.asJava
   }
 
+  /**
+   * Every coverage row's kernel at `opts`, by its executable SQL, as the compiled test compiles
+   * them (VARKA-274): their count, and those the compiled check's case can run. The case carries
+   * one literal table: `VarkaFuzzCase.lits`, which the check passes as the lane's table and,
+   * truncated to int, as the other lane's. A kernel that reads both tables is left out, and so is
+   * a long-lane kernel that reads an int slot (the count of `shiftright(l, i ^ 5)` is an int-lane
+   * literal under a widening), whichever table is empty: the int table it would index is the
+   * truncated copy of the long one, too short for the slot. `VarkaEmitterMixedLaneSuite` and the
+   * IR fuzzer's mixed corpus run such kernels instead. A FLOAT kernel's literals are its bits in
+   * the int table, as an int kernel's are.
+   */
+  private def compiledRowKernels(
+      opts: VarkaEmitOptions): (Int, Seq[(String, CompiledVarkaProjection)]) = {
+    val rowKernels = projections.map { row =>
+      row.executable -> VarkaExpressionCompiler.compile(Seq(Alias(resolve(row.executable),
+        "c")()), columns, opts).toScala.getOrElse(fail(s"${row.executable} did not fuse alone"))
+    } ++ predicates.map { row =>
+      row.executable -> VarkaExpressionCompiler.compilePredicate(resolve(row.executable),
+        columns, opts, VarkaAdmission.NO_HOST_REFUSAL).toScala
+        .getOrElse(fail(s"${row.executable} did not fuse alone")).fused
+    }
+    val oneTable = rowKernels.filter { case (_, p) =>
+      p.literals.isEmpty ||
+        (p.longLiterals.isEmpty && p.lane(opts).bits() == java.lang.Integer.SIZE)
+    }
+    (rowKernels.size, oneTable)
+  }
+
+  /**
+   * `compiledRowKernels` at the compiled tests' options, the matrix base without a lanes override,
+   * compiled once for both tests.
+   */
+  private lazy val compiledRows = compiledRowKernels(VarkaMatrix.base.withLanesOverride(0))
+
+  /**
+   * Coverage row `sql`'s kernel `plan` through the compiled check at `settings`, its batch drawn
+   * from the row's own stream (`compiledCase`); a history's failure fails the test with the line
+   * that replays it.
+   */
+  private def runCompiled(sql: String, plan: CompiledVarkaProjection, opts: VarkaEmitOptions,
+      settings: VarkaCompiledCheck.Settings): VarkaCompiledCheck.Result = {
+    val c = compiledCase(sql, plan, opts, new Random(seed ^ 274L ^ sql.hashCode))
+    val emit: java.util.function.Function[String, Array[Byte]] = name =>
+      VarkaLoopEmitter.emit(name, plan.outputs, plan.inputOrdinals.size, plan.numLiterals,
+        null, null, opts)
+    val replay = s"-Dvarka.fuzz.seed=$seed -Dvarka.fuzz.coverageRow=" + "\"" + sql + "\""
+    try VarkaCompiledCheck.run(c, emit, settings, replay)
+    catch {
+      case f: VarkaCompiledCheck.HistoryFailure => fail(f.getMessage, f)
+    }
+  }
+
   // ---------------------------------------------------------------------------------------------
   // Failures, shrunk (VARKA-294).
   // ---------------------------------------------------------------------------------------------
@@ -947,25 +999,7 @@ class VarkaCoverageCompositionFuzzSuite
       props.releasedRows, props.witnessed, compiledHistories)
     val tally = new VarkaCompiledCheck.Tally
     try {
-      val rowKernels = projections.map { row =>
-        row.executable -> VarkaExpressionCompiler.compile(Seq(Alias(resolve(row.executable),
-          "c")()), columns, opts).toScala.getOrElse(fail(s"${row.executable} did not fuse alone"))
-      } ++ predicates.map { row =>
-        row.executable -> VarkaExpressionCompiler.compilePredicate(resolve(row.executable),
-          columns, opts, VarkaAdmission.NO_HOST_REFUSAL).toScala
-          .getOrElse(fail(s"${row.executable} did not fuse alone")).fused
-      }
-      // The compiled check's case carries one literal table: `VarkaFuzzCase.lits`, which the check
-      // passes as the lane's table and, truncated to int, as the other lane's. A kernel that reads
-      // both tables is left out, and so is a long-lane kernel that reads an int slot (the count of
-      // `shiftright(l, i ^ 5)` is an int-lane literal under a widening), whichever table is empty:
-      // the int table it would index is the truncated copy of the long one, too short for the slot.
-      // `VarkaEmitterMixedLaneSuite` and the IR fuzzer's mixed corpus run such kernels instead.
-      // A FLOAT kernel's literals are its bits in the int table, as an int kernel's are.
-      val oneTable = rowKernels.filter { case (_, p) =>
-        p.literals.isEmpty ||
-          (p.longLiterals.isEmpty && p.lane(opts).bits() == java.lang.Integer.SIZE)
-      }
+      val (rowCount, oneTable) = compiledRows
       val kernels = coverageRow match {
         case Some(sql) =>
           oneTable.filter(_._1 == sql).ensuring(_.nonEmpty, s"no coverage row is $sql")
@@ -978,17 +1012,9 @@ class VarkaCoverageCompositionFuzzSuite
           }
       }
       for ((sql, plan) <- kernels) {
-        val c = compiledCase(sql, plan, opts, new Random(seed ^ 274L ^ sql.hashCode))
-        val emit: java.util.function.Function[String, Array[Byte]] = name =>
-          VarkaLoopEmitter.emit(name, plan.outputs, plan.inputOrdinals.size, plan.numLiterals,
-            null, null, opts)
-        val replay = s"-Dvarka.fuzz.seed=$seed -Dvarka.fuzz.coverageRow=" + "\"" + sql + "\""
-        try tally.add(VarkaCompiledCheck.run(c, emit, settings, replay))
-        catch {
-          case f: VarkaCompiledCheck.HistoryFailure => fail(f.getMessage, f)
-        }
+        tally.add(runCompiled(sql, plan, opts, settings))
       }
-      info(s"${kernels.size} of ${rowKernels.size} coverage rows' kernels")
+      info(s"${kernels.size} of $rowCount coverage rows' kernels")
       if (settings.witnessed) VarkaTierWitness.get().settle()
       tally.report(settings.witnessed).asScala.foreach(info(_))
       if (settings.witnessed) {
@@ -999,6 +1025,41 @@ class VarkaCoverageCompositionFuzzSuite
         notReached.foreach(why => if (require) fail(why) else info(why))
       }
       assert(tally.results().size == kernels.size)
+    } finally {
+      VarkaTierWitness.close()
+    }
+  }
+
+  /**
+   * Each coverage row whose kernel writes or reads a decimal slot, sixteen bytes a row, through
+   * the compiled check's warm-up and its one compared batch (`warm-same`, the settling cut
+   * short). The warm-up builds its buffers as a compared call does, so under the memory
+   * sanitizer a call that maps a slot past a buffer of eight bytes a row fails here. Its own
+   * test, since the sample the test above draws by the seed may miss every such row: it did
+   * until a row added elsewhere moved the draw onto `time_to_seconds(t)`, whose warm-up wrote
+   * its DECIMAL(14, 6) into eight bytes a row and, with the sanitizer off, corrupted the native
+   * heap. Registered beside the test above and at its options, for the same reason.
+   */
+  test("a coverage row's decimal slots are as wide in the compiled check's warm-up as in its " +
+      "compared calls", VarkaMatrix.C2Code) {
+    assume(VarkaKernelCompileDirective.readyForWarmup(), "this JVM cannot warm a kernel to C2")
+    val opts = VarkaMatrix.base.withLanesOverride(0)
+    val settings = new VarkaCompiledCheck.Settings(0L, 1, 64, false,
+      java.util.Set.of(VarkaCompiledCheck.History.WARM_SAME))
+    val decimal = compiledRows._2.filter { case (_, p) =>
+      VarkaKernelChecks.decimalColumns(p.outputs) != 0L ||
+        p.outputs.asScala.exists(_.isInstanceOf[VarkaVectorIR.WidenDecimal])
+    }
+    // A decimal output is the slot the warm-up once wrote past (time_to_seconds(t)'s).
+    assert(decimal.exists(_._2.outputs.asScala.exists(_.isInstanceOf[VarkaVectorIR.WidenDecimal])),
+      s"no coverage row writes a decimal output among ${decimal.map(_._1)}")
+    try {
+      for ((sql, plan) <- decimal) {
+        val result = runCompiled(sql, plan, opts, settings)
+        assert(result.runs().asScala.forall(r => r.warmed() && r.skipped() == null),
+          s"$sql: the warm-up did not run: ${result.runs()}")
+      }
+      info(s"${decimal.size} coverage rows' kernels with a decimal slot")
     } finally {
       VarkaTierWitness.close()
     }
