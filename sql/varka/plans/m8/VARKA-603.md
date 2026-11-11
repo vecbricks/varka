@@ -276,6 +276,8 @@ Size: small, as the row says, for 603a, 603b and 603d. 603c is the owner's choic
 
 ## 7. Questions for the owner
 
+*Answered by the owner on 11 November 2026: 1, (c), this row builds the whole store for every int-lane kernel whose narrow store is masked today, and row 479 keeps load-once and the pricing; 2, both forms are built; 3, the EPYC 7763 at 128 bits decides the default, with the 256-bit run as the control; 4, (c), a follow-up row after row 481 and 603d.*
+
 1. **How row 603 relates to row 479.** They share one branch of `emitNarrowTypeStore`, so no store
    fix can cover h and i without also covering WIDENED's e, f and g and the mixed kernels.
    "Separate for h and i" can only mean separate ownership and evidence. The options:
