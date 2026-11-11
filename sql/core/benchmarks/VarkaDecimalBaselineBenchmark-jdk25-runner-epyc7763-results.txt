@@ -228,8 +228,8 @@ OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1017-azure
 AMD EPYC 7763 64-Core Processor
 DECIMAL(38, 10) comparison, no nulls over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ---------------------------------------------------------------------------------------------------------------------------------------------------
-spark row path (varka off)                                                     731            752          13          2.7         365.5       1.0X
-varka on                                                                       732            775          43          2.7         366.0       1.0X
+spark row path (varka off)                                                     807            821           8          2.5         403.3       1.0X
+varka on                                                                        75             85          16         26.8          37.3      10.8X
 
 
 ================================================================================================
@@ -276,8 +276,8 @@ OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1017-azure
 AMD EPYC 7763 64-Core Processor
 DECIMAL(38, 10) comparison, one row in ten null over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 --------------------------------------------------------------------------------------------------------------------------------------------------------------
-spark row path (varka off)                                                                652            667          11          3.1         325.9       1.0X
-varka on                                                                                  650            667          11          3.1         325.0       1.0X
+spark row path (varka off)                                                                698            725          17          2.9         349.2       1.0X
+varka on                                                                                   68             74           9         29.3          34.1      10.2X
 
 
 ================================================================================================
@@ -384,8 +384,8 @@ OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1017-azure
 AMD EPYC 7763 64-Core Processor
 DECIMAL(38, 10) <=> filter, no nulls over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ---------------------------------------------------------------------------------------------------------------------------------------------------
-spark row path (varka off)                                                     717            742          26          2.8         358.5       1.0X
-varka on                                                                       687            708          16          2.9         343.7       1.0X
+spark row path (varka off)                                                     714            749          34          2.8         357.0       1.0X
+varka on                                                                        24             27           3         82.4          12.1      29.4X
 
 
 ================================================================================================
@@ -396,8 +396,8 @@ OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1017-azure
 AMD EPYC 7763 64-Core Processor
 DECIMAL(38, 10) IS NULL filter, no nulls over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 -------------------------------------------------------------------------------------------------------------------------------------------------------
-spark row path (varka off)                                                          13             15           2        150.2           6.7       1.0X
-varka on                                                                            13             15           2        154.0           6.5       1.0X
+spark row path (varka off)                                                          10             12           2        202.8           4.9       1.0X
+varka on                                                                            10             12           3        205.6           4.9       1.0X
 
 
 ================================================================================================
@@ -432,8 +432,8 @@ OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1017-azure
 AMD EPYC 7763 64-Core Processor
 DECIMAL(38, 10) x < y as a value, no nulls over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ---------------------------------------------------------------------------------------------------------------------------------------------------------
-spark row path (varka off)                                                           717            746          34          2.8         358.3       1.0X
-varka on                                                                             709            729          17          2.8         354.3       1.0X
+spark row path (varka off)                                                           736            757          18          2.7         368.1       1.0X
+varka on                                                                              23             27           3         85.9          11.6      31.6X
 
 
 ================================================================================================
@@ -456,8 +456,8 @@ OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1017-azure
 AMD EPYC 7763 64-Core Processor
 DECIMAL(38, 10) <=> filter, one row in ten null over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 --------------------------------------------------------------------------------------------------------------------------------------------------------------
-spark row path (varka off)                                                                628            639          12          3.2         314.2       1.0X
-varka on                                                                                  632            647          19          3.2         315.9       1.0X
+spark row path (varka off)                                                                664            672           7          3.0         332.0       1.0X
+varka on                                                                                   24             27           3         84.2          11.9      28.0X
 
 
 ================================================================================================
@@ -468,8 +468,8 @@ OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1017-azure
 AMD EPYC 7763 64-Core Processor
 DECIMAL(38, 10) IS NULL filter, one row in ten null over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------
-spark row path (varka off)                                                                    356            360           5          5.6         178.2       1.0X
-varka on                                                                                      329            336           9          6.1         164.7       1.1X
+spark row path (varka off)                                                                    335            347          14          6.0         167.6       1.0X
+varka on                                                                                       22             24           3         90.6          11.0      15.2X
 
 
 ================================================================================================
@@ -504,8 +504,8 @@ OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1017-azure
 AMD EPYC 7763 64-Core Processor
 DECIMAL(38, 10) x < y as a value, one row in ten null over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------
-spark row path (varka off)                                                                      650            668          17          3.1         325.2       1.0X
-varka on                                                                                        651            670          15          3.1         325.6       1.0X
+spark row path (varka off)                                                                      668            684          12          3.0         333.9       1.0X
+varka on                                                                                         31             34           3         63.8          15.7      21.3X
 
 
 ================================================================================================
@@ -528,8 +528,8 @@ OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1017-azure
 AMD EPYC 7763 64-Core Processor
 DECIMAL(20, 2) <=> filter, no nulls over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 --------------------------------------------------------------------------------------------------------------------------------------------------
-spark row path (varka off)                                                    742            759          13          2.7         370.9       1.0X
-varka on                                                                      739            758          15          2.7         369.7       1.0X
+spark row path (varka off)                                                    766            788          18          2.6         383.2       1.0X
+varka on                                                                       22             26           4         92.6          10.8      35.5X
 
 
 ================================================================================================
@@ -540,8 +540,8 @@ OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1017-azure
 AMD EPYC 7763 64-Core Processor
 DECIMAL(20, 2) IS NULL filter, no nulls over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------------------------------------
-spark row path (varka off)                                                         12             14           2        161.7           6.2       1.0X
-varka on                                                                           12             13           1        162.1           6.2       1.0X
+spark row path (varka off)                                                          9             11           5        227.2           4.4       1.0X
+varka on                                                                            9             10           2        226.8           4.4       1.0X
 
 
 ================================================================================================
@@ -576,8 +576,8 @@ OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1017-azure
 AMD EPYC 7763 64-Core Processor
 DECIMAL(20, 2) x < y as a value, no nulls over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 --------------------------------------------------------------------------------------------------------------------------------------------------------
-spark row path (varka off)                                                          823            828           4          2.4         411.3       1.0X
-varka on                                                                            781            804          18          2.6         390.7       1.1X
+spark row path (varka off)                                                          854            873          15          2.3         427.0       1.0X
+varka on                                                                             29             33           5         68.8          14.5      29.4X
 
 
 ================================================================================================
@@ -600,8 +600,8 @@ OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1017-azure
 AMD EPYC 7763 64-Core Processor
 DECIMAL(20, 2) <=> filter, one row in ten null over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 -------------------------------------------------------------------------------------------------------------------------------------------------------------
-spark row path (varka off)                                                               721            727           4          2.8         360.6       1.0X
-varka on                                                                                 712            721           5          2.8         356.1       1.0X
+spark row path (varka off)                                                               706            721          16          2.8         352.8       1.0X
+varka on                                                                                  23             25           5         88.2          11.3      31.1X
 
 
 ================================================================================================
@@ -612,8 +612,8 @@ OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1017-azure
 AMD EPYC 7763 64-Core Processor
 DECIMAL(20, 2) IS NULL filter, one row in ten null over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------
-spark row path (varka off)                                                                   366            375           4          5.5         183.1       1.0X
-varka on                                                                                     328            338          14          6.1         164.0       1.1X
+spark row path (varka off)                                                                   344            353          15          5.8         171.8       1.0X
+varka on                                                                                      21             24           5         93.4          10.7      16.0X
 
 
 ================================================================================================
@@ -648,8 +648,8 @@ OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1017-azure
 AMD EPYC 7763 64-Core Processor
 DECIMAL(20, 2) x < y as a value, one row in ten null over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------
-spark row path (varka off)                                                                     704            723          15          2.8         351.9       1.0X
-varka on                                                                                       715            734          15          2.8         357.7       1.0X
+spark row path (varka off)                                                                     754            766          10          2.7         377.2       1.0X
+varka on                                                                                        32             34           5         62.5          16.0      23.6X
 
 
 ================================================================================================
