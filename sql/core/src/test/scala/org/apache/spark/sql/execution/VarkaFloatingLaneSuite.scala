@@ -429,8 +429,10 @@ class VarkaFloatingLaneSuite extends QueryTest with VarkaSharedSessions with Var
   }
 
   test("an interval product or quotient by a floating factor plans no Varka node") {
-    // The row engine answers them; the compiler suite pins the reason each declines with.
-    for (e <- Seq("ym * x", "dt * x", "ym / 4.0D", "dt / x")) {
+    // Planned only, not run: the fixture's ends overflow the quotients, which the row engine
+    // raises on. The compiler suite pins the reason each declines with; a literal factor
+    // declines as a column does.
+    for (e <- Seq("ym * x", "ym / x", "dt * x", "dt / x", "ym / 4.0D")) {
       val q = s"SELECT $e AS v FROM $intervals"
       withClue(q) {
         assertNotFused(varkaSpark.sql(q).queryExecution.executedPlan)

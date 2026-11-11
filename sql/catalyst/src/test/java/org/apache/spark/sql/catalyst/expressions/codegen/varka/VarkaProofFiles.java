@@ -3420,6 +3420,13 @@ final class VarkaProofFiles {
   }
 
   /**
+   * A pinned cell of the long: Spark's answer to the micros {@code m} times {@code x}, or null
+   * where Spark raises.
+   */
+  private record LongCell(long m, double x, Long answer) {
+  }
+
+  /**
    * {@code fp_half_up.smt2}: the HALF_UP rounding of {@code VARKA-342.md} 2.4, by which
    * {@code ym * x}, {@code ym / x}, {@code dt * x} and {@code dt / x} round the double product or
    * quotient {@code p} to the interval's int or long, is Guava's {@code roundToInt} and
@@ -3481,20 +3488,23 @@ final class VarkaProofFiles {
     long max = Long.MAX_VALUE;
     long min = Long.MIN_VALUE;
     long p53 = 1L << 53;
-    Object[][] longCells = {{p53 + 1, 0.5, p53 >> 1}, {p53 - 1, 0.5, p53 >> 1},
-        {-(p53 - 1), 0.5, -(p53 >> 1)}, {p53 + 1, 1.0, p53}, {5L, 0.5, 3L}, {-5L, 0.5, -3L},
-        {min, 1.0, min}, {max, -1.0, min}, {max - 512, 1.0, max - 1023}, {min, 0.5, min / 2},
-        {max, 1.0, null}, {min, -1.0, null}, {max - 511, 1.0, null}};
-    for (Object[] c : longCells) {
-      long m = (Long) c[0];
-      double x = (Double) c[1];
-      String product = "(fp.mul RNE ((_ to_fp 11 53) RNE " + bv64(m) + ") " + f64(x) + ")";
-      String claim = c[2] == null
-          ? "(assert " + inGuard("p", longLo, longHi) + ")"
-          : "(assert (not (and " + inGuard("p", longLo, longHi)
-              + " (= (hu.form p false) " + bv64((Long) c[2]) + "))))";
-      fresh(out, "dt: " + m + " * " + x + (c[2] == null ? " is outside the guard, where Spark "
-          + "raises" : " answers " + c[2]), "unsat", defs,
+    var longCells = List.of(new LongCell(p53 + 1, 0.5, p53 >> 1),
+        new LongCell(p53 - 1, 0.5, p53 >> 1), new LongCell(-(p53 - 1), 0.5, -(p53 >> 1)),
+        new LongCell(p53 + 1, 1.0, p53), new LongCell(5L, 0.5, 3L), new LongCell(-5L, 0.5, -3L),
+        new LongCell(min, 1.0, min), new LongCell(max, -1.0, min),
+        new LongCell(max - 512, 1.0, max - 1023), new LongCell(min, 0.5, min / 2),
+        new LongCell(max, 1.0, null), new LongCell(min, -1.0, null),
+        new LongCell(max - 511, 1.0, null));
+    String guarded = inGuard("p", longLo, longHi);
+    for (LongCell c : longCells) {
+      String product = "(fp.mul RNE ((_ to_fp 11 53) RNE " + bv64(c.m()) + ") " + f64(c.x())
+          + ")";
+      String claim = c.answer() == null
+          ? "(assert " + guarded + ")"
+          : "(assert (not (and " + guarded + " (= (hu.form p false) " + bv64(c.answer())
+              + "))))";
+      fresh(out, "dt: " + c.m() + " * " + c.x() + (c.answer() == null ? " is outside the "
+          + "guard, where Spark raises" : " answers " + c.answer()), "unsat", defs,
           List.of(p, "(assert (= p " + product + "))", claim));
     }
     return out.toString();
@@ -3510,7 +3520,8 @@ final class VarkaProofFiles {
         + "answers rather than raises on", "unsat", defs,
         List.of(p, "(assert (not (= " + inGuard("p", lo, hi) + " " + guavaAnswers + ")))"));
     // Stated whole, the claim is past the per-check limit under both solvers, and so is the
-    // range past 2^52 in one check under cvc5; per binade of |p| each check takes a second or two.
+    // range past 2^52 in one check under cvc5; per binade of |p| Z3's checks take seconds, and
+    // cvc5's slowest the nightly's longer limit (VARKA-342.md 5.2).
     String same = "(assert (not (= (hu.form p false) (hu.answer p))))";
     String guarded = "(assert " + inGuard("p", lo, hi) + ")";
     fresh(out, type + ": inside the guard t + bump is Guava's HALF_UP where |p| < 0.5", "unsat",
@@ -3524,7 +3535,7 @@ final class VarkaProofFiles {
     // The int's guard ends below 2^52, where the check would hold vacuously.
     if (Math.getExponent(Math.max(-lo, hi)) >= 52) {
       fresh(out, type + ": inside the guard f is zero wherever |p| >= 2^52", "unsat", defs,
-          List.of(p, "(assert " + inGuard("p", lo, hi) + ")",
+          List.of(p, guarded,
               "(assert (fp.geq (fp.abs p) " + f64(0x1p52) + "))",
               "(assert (not (fp.isZero (hu.f p))))"));
     }

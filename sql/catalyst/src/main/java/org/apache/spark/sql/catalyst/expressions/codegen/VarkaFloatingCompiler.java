@@ -59,9 +59,11 @@ import org.apache.spark.sql.types.DataType;
  * negation and {@code abs} over {@code DOUBLE} and {@code FLOAT}, and {@code /}, {@code sqrt},
  * {@code signum}, {@code degrees} and {@code radians} over {@code DOUBLE}, the only type Spark
  * gives the division and the math functions; another operand reaches them under a cast to
- * double, which the floating casts family lowers (VARKA-343), a {@code BIGINT} one only where the
- * emit level assures AVX512DQ. {@code signum} also takes either interval type and answers a
- * double.
+ * double, which the floating casts family lowers (VARKA-343). A {@code BIGINT} one is left to the
+ * row engine at the default emit level and fuses where a session names a level (level 3 in one
+ * instruction, below it by exact AVX2 forms) or asks for the host's on one with AVX512DQ or a
+ * long species of 256 bits or more, as that family's switch says. {@code signum} also takes
+ * either interval type and answers a double.
  *
  * <p>Every form has one answer, the IEEE operation {@code java.lang.Math} or Java's operator
  * computes, so each is a lanewise operation on the operand's own lane, with the operands in
