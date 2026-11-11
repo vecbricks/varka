@@ -127,13 +127,9 @@ final class VarkaSmtNodes {
    * {@code root}'s outcome as the kernel the emitter builds declines it: {@link #outcome}'s
    * validity and data, and the OR, over every node the emitter guards ({@code guards}, from
    * {@code VarkaLoopEmitter.guardsForTest}), of that node's own check on the lanes some arm chain
-   * of its {@code Analysis.armChainsOf} selects, or on every lane where it has none. The arm rule
-   * is the emitter's own, read and not restated: a decimal slot check is never qualified, and nor
-   * is a guard with {@code guardUnderArm} off, past {@code MAX_ARM_CHAINS} chains, on an arm cycle
-   * or over stored values with several chains, and a stored-value guard checks null rows too. A
-   * node whose template declines and that the
-   * emitter does not guard is refused, as the kernel would not check it, and so is the converse.
-   * Each node is visited
+   * the emitter reports for it selects, or on every lane where it reports none: the arm rule is
+   * {@code Analysis.armChainsOf}'s, read and not restated. A node whose template declines and
+   * that the emitter does not guard is refused, and so is the converse. Each node is visited
    * once, so a shared subtree costs once.
    */
   Outcome kernel(VarkaVectorIR root, Map<VarkaVectorIR, VarkaLoopEmitter.GuardForTest> guards) {

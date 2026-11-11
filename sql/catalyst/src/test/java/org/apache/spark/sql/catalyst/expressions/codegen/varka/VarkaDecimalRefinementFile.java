@@ -18,6 +18,7 @@
 package org.apache.spark.sql.catalyst.expressions.codegen.varka;
 
 import java.math.BigDecimal;
+import java.math.BigInteger;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -89,6 +90,14 @@ final class VarkaDecimalRefinementFile {
     }
   }
 
+  /** An unscaled value as a long, refused past one. */
+  private static long word(BigInteger u) {
+    if (u.bitLength() > 63) {
+      throw new Refused("a literal past a long: " + u);
+    }
+    return u.longValue();
+  }
+
   static String render() {
     var body = new StringBuilder();
     var refused = new LinkedHashMap<String, String>();
@@ -97,8 +106,6 @@ final class VarkaDecimalRefinementFile {
         shape(body, sql);
       } catch (Refused | VarkaSmtNodes.Refused r) {
         refused.put(sql, r.getMessage());
-      } catch (ArithmeticException r) {
-        refused.put(sql, "a literal past a long: " + r.getMessage());
       }
     }
     var out = new StringBuilder(VarkaProofFiles.LICENSE);
@@ -206,12 +213,11 @@ final class VarkaDecimalRefinementFile {
   private static CompiledVarkaProjection kernelOf(String sql, Expression e) {
     CompiledVarkaPredicate p = VarkaExpressionCompiler.compilePredicate(e,
         CollectionConverters.asScala(COLUMNS).toSeq(), VarkaEmitOptions.DEFAULTS,
-        VarkaAdmission.NO_HOST_REFUSAL).orElseThrow(() -> new IllegalStateException(sql
-            + " does not compile"));
+        VarkaAdmission.NO_HOST_REFUSAL).orElseThrow(() -> new Refused("it does not compile"));
     CompiledVarkaProjection k = p.fused();
     if (!p.specs().stream().allMatch(VarkaConjunctSpec::fused) || p.clauses().size() != 1
         || k.outputs().size() != 1) {
-      throw new IllegalStateException(sql + " is not one fused root");
+      throw new Refused("not one fused root");
     }
     if (!k.inputBounds().isEmpty() || !k.derivedInputs().isEmpty()) {
       throw new Refused("an input bound or a derived input, which the printer does not read");
@@ -299,8 +305,8 @@ final class VarkaDecimalRefinementFile {
         if (l.value() == null) {
           return new Value("false", "false", "0", t.precision(), t.scale());
         }
-        return new Value("false", "true", VarkaProofFiles.lit(((Decimal) l.value())
-            .toJavaBigDecimal().setScale(t.scale()).unscaledValue().longValueExact()),
+        return new Value("false", "true", VarkaProofFiles.lit(word(((Decimal) l.value())
+            .toJavaBigDecimal().setScale(t.scale()).unscaledValue())),
             t.precision(), t.scale());
       }
       if (e instanceof Cast c && c.dataType() instanceof DecimalType t) {
@@ -317,8 +323,8 @@ final class VarkaDecimalRefinementFile {
         boolean mul = b instanceof Multiply;
         int exact = mul ? l.scale() + r.scale() : Math.max(l.scale(), r.scale());
         if (t.scale() != exact || !(mul || b instanceof Add || b instanceof Subtract)) {
-          throw new Refused("a " + b.prettyName() + " at " + t.sql() + ", cut below its exact "
-              + "scale " + exact + " (506c's)");
+          throw new Refused(t.scale() != exact ? "a " + b.prettyName() + " at " + t.sql()
+              + ", cut below its exact scale " + exact + " (506c's)" : "a " + b.prettyName());
         }
         String u = mul ? "(spec.dec.mul " + l.value() + " " + r.value() + ")"
             : "(spec.dec." + (b instanceof Add ? "add " : "sub ") + l.value() + " " + l.scale()
@@ -397,14 +403,15 @@ final class VarkaDecimalRefinementFile {
         // Spark reads no item of a null value, and none past the first match.
         String raise = "false";
         String known = "true";
+        String none = "true";
         for (Expression item : CollectionConverters.asJava(in.list())) {
           Value y = decimal(item);
-          raise = or(raise, and(hits.isEmpty() ? "true" : "(not (or false " + String.join(" ",
-              hits) + "))", y.raise()));
+          raise = or(raise, and(none, y.raise()));
           known = and(known, y.valid());
           hits.add("(and " + y.valid() + " (= " + cmp(x, y) + " 0))");
+          none = and(none, "(not " + hits.getLast() + ")");
         }
-        String hit = "(or " + String.join(" ", hits) + ")";
+        String hit = hits.size() == 1 ? hits.get(0) : "(or " + String.join(" ", hits) + ")";
         return cond(or(x.raise(), and(x.valid(), raise)), "(and " + x.valid() + " (or " + hit
             + " " + known + "))", hit);
       }
@@ -416,8 +423,8 @@ final class VarkaDecimalRefinementFile {
             throw new Refused("an InSet holding a null");
           }
           BigDecimal d = ((Decimal) v).toJavaBigDecimal();
-          var y = new Value("false", "true", VarkaProofFiles.lit(d.unscaledValue()
-              .longValueExact()), d.precision(), d.scale());
+          var y = new Value("false", "true", VarkaProofFiles.lit(word(d.unscaledValue())),
+              d.precision(), d.scale());
           hits.add("(= " + cmp(x, y) + " 0)");
         }
         return cond(x.raise(), x.valid(), "(or " + String.join(" ", hits.stream().sorted()
