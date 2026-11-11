@@ -621,4 +621,7 @@ form):
 
 The EPYC 7763 is AVX2 only, so the 512-bit reading needs another host, as above. The results
 replace the two committed `-runner-epyc7763` files, whose arm set is the old six.
+*11 November 2026:* dispatched for this pull request. The 256-bit run 42980360382 is quoted
+above (the owner's decision under "The test of 7.4"); its numbers are not yet spliced into the
+committed files.
 
