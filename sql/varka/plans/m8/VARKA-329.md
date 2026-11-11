@@ -1495,7 +1495,9 @@ and 9 November 2026. They are untimed, and their times are row 573's.
   AVX2 host at 128 bits, the default arm's checked byte multiply runs 140 to 300 times slower
   than its other byte stores. That is consistent with row 479's account, a boxed out-of-line
   `storeMasked` per four rows on x86 without AVX-512BW. Neither row 479 nor row 481 (the checked
-  narrow multiply) records these numbers, and they are not profiled here.
+  narrow multiply) records these numbers, and they are not profiled here. Row 603, added with
+  this record, owns them: the diagnosis from HotSpot's output at 128 bits, then a fix or a
+  decline.
 * **The 128-bit bimodality.** 9.2 and 9.6 record the bimodality of the widened loops at 128 bits.
   It is unexplained, and no row owns it.
 * **The packed boolean output.** Its verdict rests on the hand loops (9.2) and on the selection
