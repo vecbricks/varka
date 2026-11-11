@@ -1021,7 +1021,7 @@ public class VarkaDecimalRemainderSpikeBenchmark extends VarkaBenchmarkBase {
       Map<Op, Expected> expected) implements AutoCloseable {
 
     /** {@code x} as {@code arm}'s loop reads it. */
-    MemorySegment x(Arm arm) {
+    MemorySegment operandX(Arm arm) {
       return switch (arm.form().layout) {
         case SLOTS -> x;
         case HEAP -> heapX;
@@ -1030,7 +1030,7 @@ public class VarkaDecimalRemainderSpikeBenchmark extends VarkaBenchmarkBase {
     }
 
     /** {@code y} as {@code arm}'s loop reads it. */
-    MemorySegment y(Arm arm) {
+    MemorySegment operandY(Arm arm) {
       return switch (arm.form().layout) {
         case SLOTS -> y;
         case HEAP -> heapY;
@@ -1170,7 +1170,7 @@ public class VarkaDecimalRemainderSpikeBenchmark extends VarkaBenchmarkBase {
 
   /** Runs {@code arm}'s loop once over {@code d}'s columns as it reads them. */
   static void apply(Arm arm, Data d, MemorySegment out, long[] words) {
-    arm.loop().apply(d.x(arm), d.y(arm), out, words, d.numRows());
+    arm.loop().apply(d.operandX(arm), d.operandY(arm), out, words, d.numRows());
   }
 
   /**
