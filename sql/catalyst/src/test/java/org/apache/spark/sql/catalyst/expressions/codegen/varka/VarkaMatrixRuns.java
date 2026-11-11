@@ -258,7 +258,8 @@ public final class VarkaMatrixRuns {
    * holds the node, so a configuration of its option reruns suites that emit it. A
    * {@code WidenDecimal} is every decimal output's root since the TIME producers (VARKA-157), so
    * {@code decimalStore=SELECT_FROM} runs; a {@code ConvertLane} is every floating cast's, so
-   * {@code wideConversionForm=MAGIC} runs, over {@code useAVX=2}, where the form is read.
+   * {@code wideConversionForm}'s two other arms and {@code roundToOddByShifts} run, over
+   * {@code useAVX=2}, where the forms are read.
    */
   static final Set<Class<? extends VarkaVectorIR>> COMPILED_NODE_KINDS =
       Set.of(VarkaVectorIR.WidenDecimal.class, VarkaVectorIR.ConvertLane.class);
