@@ -482,13 +482,13 @@ def row(section, name, cls, types, result, fused, need, rows, note, cov, errors,
         types = ",".join(t)
     if (name in CAST_ENTRY_MODES) != (fused == "matrix"):
         errors.append(f"{name}: a cast entry, and only one, takes its fused types from the matrix")
-    if fused == "matrix":
-        fused = matrix_fused(name, expand(types), probe, cov)
     # A type marked `!` is declined by the owner's decision: it leaves the types the entry admits
     # (and so the done-when denominator) and is recorded in the reason column instead.
     declined = expand(",".join(p[:-1] for p in types.split(",") if p.endswith("!")))
     t = expand(",".join(p for p in types.split(",") if p and not p.endswith("!")))
     res = t if result == "same" else expand(result)
+    if fused == "matrix":
+        fused = matrix_fused(name, t, probe, cov)
     # A type marked `^` is fused in part, and kept apart from the counted ones.
     partial = expand(",".join(p[:-1] for p in fused.split(",") if p.endswith("^")))
     f = expand(",".join(p for p in fused.split(",") if p and not p.endswith("^")))
@@ -931,8 +931,8 @@ def pair_credit(probe, cov, src, dst, modes):
     """How far the cast src -> dst fuses under the given modes: None where it is legal in none of
     them, "all" where every form legal in each mode that admits it fuses there and a coverage row
     casts it, "part" where some form fuses in some such mode and a coverage row casts it, else "".
-    A pair that fuses only inside another operator (CONTEXT_CASTS) and an identity, which the
-    analyzer removes and the probe never emits, are "".
+    A pair that fuses only inside another operator (CONTEXT_CASTS) and an identity (cast_kind's,
+    which the analyzer removes before a cast exists, so the probe never compiles it) are "".
 
     >>> probe = {("ym", "int"): ({"legacy": 3, "ansi": 3, "try": 3},
     ...                          {"legacy": 2, "ansi": 2, "try": 2}),
@@ -953,7 +953,7 @@ def pair_credit(probe, cov, src, dst, modes):
     if not admitted:
         return None
     shown = any((src, dst) == (s, d) for s, d, _ in cov["#casts"])
-    if (src, dst) in CONTEXT_CASTS or not shown:
+    if (src, dst) in CONTEXT_CASTS or cast_kind(src, dst)[0] == "identity" or not shown:
         return ""
     legal_forms, fused = probe.get((src, dst), ({}, {}))
     if all(0 < fused.get(m, 0) == legal_forms.get(m) for m in admitted):
@@ -969,7 +969,7 @@ def matrix_fused(name, sources, probe, cov):
     (CAST_ENTRY_MODES), and fused in part (`^`) when it is not but some such pair fuses at least
     in part. An alias runs one pair from each source, to its target; `cast` and `try_cast` run
     every legal pair from it. An identity never fuses here, so `cast` and `try_cast` credit no
-    source until row 332 settles what an identity the analyzer removes counts as.
+    source as fused, only some in part, until row 332 settles what an identity counts as.
 
     >>> matrix_fused("tinyint", ["bool", "short", "int", "bigint", "float"], {
     ...     ("bool", "byte"): ({"legacy": 1, "ansi": 1}, {"legacy": 1, "ansi": 1}),
@@ -978,9 +978,9 @@ def matrix_fused(name, sources, probe, cov):
     'bool,short^'
     """
     modes = CAST_ENTRY_MODES[name]
+    dsts = [CAST_ALIASES[name]] if name in CAST_ALIASES else ORDER
     out = []
     for src in sources:
-        dsts = [CAST_ALIASES[name]] if name in CAST_ALIASES else ORDER
         credits = [pair_credit(probe, cov, src, dst, modes) for dst in dsts]
         credits = [c for c in credits if c is not None]
         if credits and all(c == "all" for c in credits):
