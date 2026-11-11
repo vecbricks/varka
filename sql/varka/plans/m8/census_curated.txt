@@ -185,7 +185,7 @@ bigint|legal|bigint|matrix|semantics|332,343,350,28,364|cast alias
 float|legal|float|matrix|semantics|343,364,366|cast alias
 double|legal|double|matrix|semantics|343,364,366|cast alias
 decimal|legal|dec|matrix|semantics|350,364,366|cast alias; DECIMAL(10,0) by default
-date|legal|date|matrix|plumbing|340|cast alias; the other sources are their rows'
+date|legal|date|matrix|done|340|cast alias
 time|legal|time|matrix|plumbing|340|cast alias; TIME widening fuses, a narrowing does not yet (VARKA-340)
 bitmap_bucket_number|bigint|bigint|bigint|done||a shift and an offset over a blend, proven by SMT (bitmap.smt2)
 bitmap_bit_position|bigint|bigint|bigint|done||a mask over a blend, proven by SMT (bitmap.smt2)
