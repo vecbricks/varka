@@ -1,0 +1,59 @@
+================================================================================================
+decimal remainder hand loops at 128 bits
+================================================================================================
+
+intrinsic check, loopRemainderE: 72 Vector API call(s) left in Java, by method: {VectorSupport::binaryOp=9, VectorSupport::blend=22, VectorSupport::compare=21, VectorSupport::convert=6, VectorSupport::fromBitsCoerced=1, VectorSupport::maskReductionCoerced=1, VectorSupport::rearrangeOp=12}
+intrinsic check, loopRemainderD: 62 Vector API call(s) left in Java, by method: {VectorSupport::binaryOp=8, VectorSupport::blend=17, VectorSupport::compare=17, VectorSupport::convert=6, VectorSupport::fromBitsCoerced=1, VectorSupport::maskReductionCoerced=1, VectorSupport::rearrangeOp=12}
+intrinsic check, loopRemainderB: every Vector API call intrinsified
+intrinsic check, loopPmodE: 80 Vector API call(s) left in Java, by method: {VectorSupport::binaryOp=12, VectorSupport::blend=24, VectorSupport::compare=23, VectorSupport::convert=6, VectorSupport::fromBitsCoerced=2, VectorSupport::maskReductionCoerced=1, VectorSupport::rearrangeOp=12}
+intrinsic check, loopPmodD: 70 Vector API call(s) left in Java, by method: {VectorSupport::binaryOp=11, VectorSupport::blend=19, VectorSupport::compare=19, VectorSupport::convert=6, VectorSupport::fromBitsCoerced=2, VectorSupport::maskReductionCoerced=1, VectorSupport::rearrangeOp=12}
+intrinsic check, loopPmodB: every Vector API call intrinsified
+OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1019-azure
+AMD EPYC 7763 64-Core Processor
+4096 rows - in L2, x % y:                 Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------
+x % y, E [Java fallback]                            960            965           4          1.1         915.2       1.0X
+x % y, D [Java fallback]                          10476          10505          26          0.1        9990.6       0.1X
+x % y, B                                            271            273           4          3.9         258.9       3.5X
+
+OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1019-azure
+AMD EPYC 7763 64-Core Processor
+4096 rows - in L2, pmod(x, y):            Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------
+pmod(x, y), E [Java fallback]                      1023           1029           4          1.0         975.2       1.0X
+pmod(x, y), D [Java fallback]                     10415          10437          15          0.1        9932.9       0.1X
+pmod(x, y), B                                       297            298           1          3.5         283.6       3.4X
+
+OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1019-azure
+AMD EPYC 7763 64-Core Processor
+262144 rows - in L3, x % y:               Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------
+x % y, E [Java fallback]                            960            964           2          1.1         915.8       1.0X
+x % y, D [Java fallback]                          10409          10452          26          0.1        9926.9       0.1X
+x % y, B                                            257            261           8          4.1         245.6       3.7X
+
+OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1019-azure
+AMD EPYC 7763 64-Core Processor
+262144 rows - in L3, pmod(x, y):          Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------
+pmod(x, y), E [Java fallback]                      1026           1030           3          1.0         978.7       1.0X
+pmod(x, y), D [Java fallback]                     10478          10512          33          0.1        9992.9       0.1X
+pmod(x, y), B                                       301            304           5          3.5         287.2       3.4X
+
+OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1019-azure
+AMD EPYC 7763 64-Core Processor
+4194304 rows - past L3, x % y:            Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------
+x % y, E [Java fallback]                           3844           3871          23          1.1         916.4       1.0X
+x % y, D [Java fallback]                          41456          41602         113          0.1        9883.9       0.1X
+x % y, B                                           1037           1041           4          4.0         247.2       3.7X
+
+OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1019-azure
+AMD EPYC 7763 64-Core Processor
+4194304 rows - past L3, pmod(x, y):       Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------
+pmod(x, y), E [Java fallback]                      4094           4108          14          1.0         976.2       1.0X
+pmod(x, y), D [Java fallback]                     41557          41603          34          0.1        9908.0       0.1X
+pmod(x, y), B                                      1209           1234          42          3.5         288.1       3.4X
+
+

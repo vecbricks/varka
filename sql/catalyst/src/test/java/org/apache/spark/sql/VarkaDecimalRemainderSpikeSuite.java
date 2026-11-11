@@ -18,12 +18,16 @@
 package org.apache.spark.sql;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.lang.foreign.Arena;
 import java.math.BigInteger;
+import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.HashSet;
+import java.util.List;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -35,9 +39,10 @@ import org.apache.spark.sql.VarkaDecimalRemainderSpikeBenchmark.Op;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaSuite;
 
 /**
- * The decimal remainder spike's loops against {@code BigInteger}, in every build (VARKA-577), at
- * a small row count and in whatever code the JVM runs the loops in, so that a wrong loop fails a
- * pull request. Which form is faster is not this suite's question.
+ * The decimal remainder spike's loops against {@code BigInteger}, in every build (VARKA-577): the
+ * check the benchmark makes before it times an arm, at a small row count and in whatever code the
+ * JVM runs the loops in, so a wrong loop fails a pull request rather than the runner dispatch
+ * that times it. Which form is faster is the benchmark's question, not this suite's.
  */
 @VarkaSuite
 public final class VarkaDecimalRemainderSpikeSuite {
@@ -115,5 +120,71 @@ public final class VarkaDecimalRemainderSpikeSuite {
       // case of the exactness argument, so these count only divisors of at least 2.
       assertTrue(bigQuotient >= ROWS / 64, bigQuotient + " quotients past 106 bits by |y| >= 2");
     }
+  }
+
+  @Test
+  @DisplayName("the intrinsic check reads the last level-4 compile that is not an OSR")
+  void intrinsicCheckReadsTheMethodCompile() {
+    String loop = VarkaDecimalRemainderSpikeBenchmark.class.getName() + "::loopPmodE (12 bytes)";
+    String body = "  @ 7   " + VarkaDecimalRemainderSpikeBenchmark.class.getName()
+        + "::bodyE (2037 bytes)   force inline by CompileCommand";
+    String vs = "    @ 155   jdk.internal.vm.vector.VectorSupport::binaryOp (38 bytes)   ";
+    String failed = vs + "failed to inline: failed to inline (intrinsic)   failed to inline:"
+        + " static call node changed: trying again";
+    var log = List.of("  3184 3065 %  b  4       " + loop.replace(" (", " @ 4 ("), body, failed,
+        "  3339 3066    b  4       " + loop, body, vs + "(intrinsic)",
+        vs + "failed to inline (intrinsic)   (intrinsic)   late inline succeeded",
+        "  3340 3066       4       " + loop + "   made not entrant: not used");
+    assertEquals(List.of(), VarkaDecimalRemainderSpikeBenchmark.fallbacks(log, "loopPmodE"));
+    var later = new ArrayList<>(log);
+    later.addAll(List.of("  3932 3074    b  4       " + loop, body, failed));
+    assertEquals(List.of(failed.strip().replaceAll("\\s+", " ")),
+        VarkaDecimalRemainderSpikeBenchmark.fallbacks(later, "loopPmodE"));
+    // A skipped compile hands the answer back to the compile before it.
+    var skipped = new ArrayList<>(log);
+    skipped.addAll(List.of("  3932 3074    b  4       " + loop, body, failed,
+        "  3932 3074    b  4       " + loop + "   COMPILE SKIPPED: out of nodes (retry at"
+            + " different tier)"));
+    assertEquals(List.of(), VarkaDecimalRemainderSpikeBenchmark.fallbacks(skipped, "loopPmodE"));
+    // A Vector API method C2 did not inline is a call, though no VectorSupport site is under it.
+    String wrapper = "    @ 90   jdk.incubator.vector.Long256Vector::lanewise (6 bytes)   ";
+    var refused = new ArrayList<>(log);
+    refused.addAll(List.of("  3932 3074    b  4       " + loop, body,
+        wrapper + "force inline by annotation", wrapper + "failed to inline: inlining too deep"));
+    assertEquals(List.of((wrapper + "failed to inline: inlining too deep").strip()
+        .replaceAll("\\s+", " ")),
+        VarkaDecimalRemainderSpikeBenchmark.fallbacks(refused, "loopPmodE"));
+    // No compile of the loop, or one without the body inlined, proves nothing and throws.
+    assertThrows(RuntimeException.class,
+        () -> VarkaDecimalRemainderSpikeBenchmark.fallbacks(log, "loopPmodD"));
+    assertThrows(RuntimeException.class, () -> VarkaDecimalRemainderSpikeBenchmark.fallbacks(
+        List.of("  3339 3066    b  4       " + loop, vs + "(intrinsic)"), "loopPmodE"));
+  }
+
+  @Test
+  @DisplayName("the harness accepts only the compile commands that name this class's methods")
+  void harnessNamesTheLoops() {
+    String name = VarkaDecimalRemainderSpikeBenchmark.class.getName();
+    String slashed = name.replace('.', '/');
+    assertTrue(VarkaDecimalRemainderSpikeBenchmark.keepsTheLoopsOutOfLine(
+        VarkaDecimalRemainderSpikeBenchmark.DONTINLINE_LOOPS));
+    assertTrue(VarkaDecimalRemainderSpikeBenchmark.keepsTheLoopsOutOfLine(
+        "-XX:CompileCommand=dontinline," + slashed + ".loop*"));
+    assertFalse(VarkaDecimalRemainderSpikeBenchmark.keepsTheLoopsOutOfLine(
+        "-XX:CompileCommand=dontinline,java.lang.String::indexOf"));
+    assertFalse(VarkaDecimalRemainderSpikeBenchmark.keepsTheLoopsOutOfLine(
+        "-XX:CompileCommand=dontinline," + name + "::loopRemainderE"));
+    assertFalse(VarkaDecimalRemainderSpikeBenchmark.keepsTheLoopsOutOfLine(
+        "-XX:CompileCommand=print," + name + "::loop*"));
+    assertFalse(VarkaDecimalRemainderSpikeBenchmark.keepsTheLoopsOutOfLine(
+        VarkaDecimalRemainderSpikeBenchmark.INLINE_BODIES));
+    assertTrue(VarkaDecimalRemainderSpikeBenchmark.inlinesTheBodies(
+        VarkaDecimalRemainderSpikeBenchmark.INLINE_BODIES));
+    assertTrue(VarkaDecimalRemainderSpikeBenchmark.inlinesTheBodies(
+        "-XX:CompileCommand=inline," + slashed + ".body*"));
+    assertFalse(VarkaDecimalRemainderSpikeBenchmark.inlinesTheBodies(
+        "-XX:CompileCommand=dontinline," + name + "::body*"));
+    assertFalse(VarkaDecimalRemainderSpikeBenchmark.inlinesTheBodies(
+        "-XX:CompileCommand=inline," + name + "::loop*"));
   }
 }
