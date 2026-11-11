@@ -582,7 +582,7 @@
 
 ; d9 = 0.42 (c0 d9): (cmp:EQ dec:0:long:p9 lit:0:long)
 
-(echo "d9 = 0.42, Spark mode, a ANSI session: 1. the precondition admits a valid lane the specification defines and the kernel answers: expect sat")
+(echo "d9 = 0.42, Spark mode, an ANSI session: 1. the precondition admits a valid lane the specification defines and the kernel answers: expect sat")
 (push 1)
 (declare-const c0 Int)
 (assert (jlong.in c0))
@@ -595,7 +595,7 @@
 (check-sat)
 (pop 1)
 
-(echo "d9 = 0.42, Spark mode, a ANSI session: 2. a decline wherever the specification raises: expect unsat")
+(echo "d9 = 0.42, Spark mode, an ANSI session: 2. a decline wherever the specification raises: expect unsat")
 (push 1)
 (declare-const c0 Int)
 (assert (jlong.in c0))
@@ -606,7 +606,7 @@
 (check-sat)
 (pop 1)
 
-(echo "d9 = 0.42, Spark mode, a ANSI session: 3. the validity equal where neither raises nor declines: expect unsat")
+(echo "d9 = 0.42, Spark mode, an ANSI session: 3. the validity equal where neither raises nor declines: expect unsat")
 (push 1)
 (declare-const c0 Int)
 (assert (jlong.in c0))
@@ -618,7 +618,7 @@
 (check-sat)
 (pop 1)
 
-(echo "d9 = 0.42, Spark mode, a ANSI session: 4. the values equal on valid lanes: expect unsat")
+(echo "d9 = 0.42, Spark mode, an ANSI session: 4. the values equal on valid lanes: expect unsat")
 (push 1)
 (declare-const c0 Int)
 (assert (jlong.in c0))
@@ -631,7 +631,7 @@
 (check-sat)
 (pop 1)
 
-(echo "d9 = 0.42, Spark mode, a ANSI session: 5. a decline only where the specification raises or the input leaves the bound: expect unsat")
+(echo "d9 = 0.42, Spark mode, an ANSI session: 5. a decline only where the specification raises or the input leaves the bound: expect unsat")
 (push 1)
 (declare-const c0 Int)
 (assert (jlong.in c0))
@@ -708,7 +708,7 @@
 
 ; d9 < d18 (c0 d9, c1 d18): (cmp:LT dec:0:long:p9 dec:1:long:p18)
 
-(echo "d9 < d18, Spark mode, a ANSI session: 1. the precondition admits a valid lane the specification defines and the kernel answers: expect sat")
+(echo "d9 < d18, Spark mode, an ANSI session: 1. the precondition admits a valid lane the specification defines and the kernel answers: expect sat")
 (push 1)
 (declare-const c0 Int)
 (assert (jlong.in c0))
@@ -724,7 +724,7 @@
 (check-sat)
 (pop 1)
 
-(echo "d9 < d18, Spark mode, a ANSI session: 2. a decline wherever the specification raises: expect unsat")
+(echo "d9 < d18, Spark mode, an ANSI session: 2. a decline wherever the specification raises: expect unsat")
 (push 1)
 (declare-const c0 Int)
 (assert (jlong.in c0))
@@ -738,7 +738,7 @@
 (check-sat)
 (pop 1)
 
-(echo "d9 < d18, Spark mode, a ANSI session: 3. the validity equal where neither raises nor declines: expect unsat")
+(echo "d9 < d18, Spark mode, an ANSI session: 3. the validity equal where neither raises nor declines: expect unsat")
 (push 1)
 (declare-const c0 Int)
 (assert (jlong.in c0))
@@ -753,7 +753,7 @@
 (check-sat)
 (pop 1)
 
-(echo "d9 < d18, Spark mode, a ANSI session: 4. the values equal on valid lanes: expect unsat")
+(echo "d9 < d18, Spark mode, an ANSI session: 4. the values equal on valid lanes: expect unsat")
 (push 1)
 (declare-const c0 Int)
 (assert (jlong.in c0))
@@ -769,7 +769,7 @@
 (check-sat)
 (pop 1)
 
-(echo "d9 < d18, Spark mode, a ANSI session: 5. a decline only where the specification raises or the input leaves the bound: expect unsat")
+(echo "d9 < d18, Spark mode, an ANSI session: 5. a decline only where the specification raises or the input leaves the bound: expect unsat")
 (push 1)
 (declare-const c0 Int)
 (assert (jlong.in c0))
@@ -1098,7 +1098,7 @@
 
 ; d18 >= 123456789012.34 (c0 d18): (cmp:GE dec:0:long:p18 lit:0:long)
 
-(echo "d18 >= 123456789012.34, Spark mode, a ANSI session: 1. the precondition admits a valid lane the specification defines and the kernel answers: expect sat")
+(echo "d18 >= 123456789012.34, Spark mode, an ANSI session: 1. the precondition admits a valid lane the specification defines and the kernel answers: expect sat")
 (push 1)
 (declare-const c0 Int)
 (assert (jlong.in c0))
@@ -1111,7 +1111,7 @@
 (check-sat)
 (pop 1)
 
-(echo "d18 >= 123456789012.34, Spark mode, a ANSI session: 2. a decline wherever the specification raises: expect unsat")
+(echo "d18 >= 123456789012.34, Spark mode, an ANSI session: 2. a decline wherever the specification raises: expect unsat")
 (push 1)
 (declare-const c0 Int)
 (assert (jlong.in c0))
@@ -1122,7 +1122,7 @@
 (check-sat)
 (pop 1)
 
-(echo "d18 >= 123456789012.34, Spark mode, a ANSI session: 3. the validity equal where neither raises nor declines: expect unsat")
+(echo "d18 >= 123456789012.34, Spark mode, an ANSI session: 3. the validity equal where neither raises nor declines: expect unsat")
 (push 1)
 (declare-const c0 Int)
 (assert (jlong.in c0))
@@ -1134,7 +1134,7 @@
 (check-sat)
 (pop 1)
 
-(echo "d18 >= 123456789012.34, Spark mode, a ANSI session: 4. the values equal on valid lanes: expect unsat")
+(echo "d18 >= 123456789012.34, Spark mode, an ANSI session: 4. the values equal on valid lanes: expect unsat")
 (push 1)
 (declare-const c0 Int)
 (assert (jlong.in c0))
@@ -1147,7 +1147,7 @@
 (check-sat)
 (pop 1)
 
-(echo "d18 >= 123456789012.34, Spark mode, a ANSI session: 5. a decline only where the specification raises or the input leaves the bound: expect unsat")
+(echo "d18 >= 123456789012.34, Spark mode, an ANSI session: 5. a decline only where the specification raises or the input leaves the bound: expect unsat")
 (push 1)
 (declare-const c0 Int)
 (assert (jlong.in c0))
@@ -1476,7 +1476,7 @@
 
 ; d9 < d9s4 (c0 d9, c1 d9s4): (cmp:LT (int:MUL:WRAP dec:0:long:p9 lit:0:long) dec:1:long:p9)
 
-(echo "d9 < d9s4, Spark mode, a ANSI session: 1. the precondition admits a valid lane the specification defines and the kernel answers: expect sat")
+(echo "d9 < d9s4, Spark mode, an ANSI session: 1. the precondition admits a valid lane the specification defines and the kernel answers: expect sat")
 (push 1)
 (declare-const c0 Int)
 (assert (jlong.in c0))
@@ -1494,7 +1494,7 @@
 (check-sat)
 (pop 1)
 
-(echo "d9 < d9s4, Spark mode, a ANSI session: 2. a decline wherever the specification raises: expect unsat")
+(echo "d9 < d9s4, Spark mode, an ANSI session: 2. a decline wherever the specification raises: expect unsat")
 (push 1)
 (declare-const c0 Int)
 (assert (jlong.in c0))
@@ -1510,7 +1510,7 @@
 (check-sat)
 (pop 1)
 
-(echo "d9 < d9s4, Spark mode, a ANSI session: 3. the validity equal where neither raises nor declines: expect unsat")
+(echo "d9 < d9s4, Spark mode, an ANSI session: 3. the validity equal where neither raises nor declines: expect unsat")
 (push 1)
 (declare-const c0 Int)
 (assert (jlong.in c0))
@@ -1527,7 +1527,7 @@
 (check-sat)
 (pop 1)
 
-(echo "d9 < d9s4, Spark mode, a ANSI session: 4. the values equal on valid lanes: expect unsat")
+(echo "d9 < d9s4, Spark mode, an ANSI session: 4. the values equal on valid lanes: expect unsat")
 (push 1)
 (declare-const c0 Int)
 (assert (jlong.in c0))
@@ -1545,7 +1545,7 @@
 (check-sat)
 (pop 1)
 
-(echo "d9 < d9s4, Spark mode, a ANSI session: 5. a decline only where the specification raises or the input leaves the bound: expect unsat")
+(echo "d9 < d9s4, Spark mode, an ANSI session: 5. a decline only where the specification raises or the input leaves the bound: expect unsat")
 (push 1)
 (declare-const c0 Int)
 (assert (jlong.in c0))
@@ -1652,7 +1652,7 @@
 
 ; d9 = d9s4 (c0 d9, c1 d9s4): (cmp:EQ (int:MUL:WRAP dec:0:long:p9 lit:0:long) dec:1:long:p9)
 
-(echo "d9 = d9s4, Spark mode, a ANSI session: 1. the precondition admits a valid lane the specification defines and the kernel answers: expect sat")
+(echo "d9 = d9s4, Spark mode, an ANSI session: 1. the precondition admits a valid lane the specification defines and the kernel answers: expect sat")
 (push 1)
 (declare-const c0 Int)
 (assert (jlong.in c0))
@@ -1670,7 +1670,7 @@
 (check-sat)
 (pop 1)
 
-(echo "d9 = d9s4, Spark mode, a ANSI session: 2. a decline wherever the specification raises: expect unsat")
+(echo "d9 = d9s4, Spark mode, an ANSI session: 2. a decline wherever the specification raises: expect unsat")
 (push 1)
 (declare-const c0 Int)
 (assert (jlong.in c0))
@@ -1686,7 +1686,7 @@
 (check-sat)
 (pop 1)
 
-(echo "d9 = d9s4, Spark mode, a ANSI session: 3. the validity equal where neither raises nor declines: expect unsat")
+(echo "d9 = d9s4, Spark mode, an ANSI session: 3. the validity equal where neither raises nor declines: expect unsat")
 (push 1)
 (declare-const c0 Int)
 (assert (jlong.in c0))
@@ -1703,7 +1703,7 @@
 (check-sat)
 (pop 1)
 
-(echo "d9 = d9s4, Spark mode, a ANSI session: 4. the values equal on valid lanes: expect unsat")
+(echo "d9 = d9s4, Spark mode, an ANSI session: 4. the values equal on valid lanes: expect unsat")
 (push 1)
 (declare-const c0 Int)
 (assert (jlong.in c0))
@@ -1721,7 +1721,7 @@
 (check-sat)
 (pop 1)
 
-(echo "d9 = d9s4, Spark mode, a ANSI session: 5. a decline only where the specification raises or the input leaves the bound: expect unsat")
+(echo "d9 = d9s4, Spark mode, an ANSI session: 5. a decline only where the specification raises or the input leaves the bound: expect unsat")
 (push 1)
 (declare-const c0 Int)
 (assert (jlong.in c0))
@@ -1828,7 +1828,7 @@
 
 ; d9 <=> d9s4 (c0 d9, c1 d9s4): (nullSafeEq (int:MUL:WRAP dec:0:long:p9 lit:0:long) dec:1:long:p9)
 
-(echo "d9 <=> d9s4, Spark mode, a ANSI session: 1. the precondition admits a valid lane the specification defines and the kernel answers: expect sat")
+(echo "d9 <=> d9s4, Spark mode, an ANSI session: 1. the precondition admits a valid lane the specification defines and the kernel answers: expect sat")
 (push 1)
 (declare-const c0 Int)
 (assert (jlong.in c0))
@@ -1846,7 +1846,7 @@
 (check-sat)
 (pop 1)
 
-(echo "d9 <=> d9s4, Spark mode, a ANSI session: 2. a decline wherever the specification raises: expect unsat")
+(echo "d9 <=> d9s4, Spark mode, an ANSI session: 2. a decline wherever the specification raises: expect unsat")
 (push 1)
 (declare-const c0 Int)
 (assert (jlong.in c0))
@@ -1862,7 +1862,7 @@
 (check-sat)
 (pop 1)
 
-(echo "d9 <=> d9s4, Spark mode, a ANSI session: 3. the validity equal where neither raises nor declines: expect unsat")
+(echo "d9 <=> d9s4, Spark mode, an ANSI session: 3. the validity equal where neither raises nor declines: expect unsat")
 (push 1)
 (declare-const c0 Int)
 (assert (jlong.in c0))
@@ -1879,7 +1879,7 @@
 (check-sat)
 (pop 1)
 
-(echo "d9 <=> d9s4, Spark mode, a ANSI session: 4. the values equal on valid lanes: expect unsat")
+(echo "d9 <=> d9s4, Spark mode, an ANSI session: 4. the values equal on valid lanes: expect unsat")
 (push 1)
 (declare-const c0 Int)
 (assert (jlong.in c0))
@@ -1897,7 +1897,7 @@
 (check-sat)
 (pop 1)
 
-(echo "d9 <=> d9s4, Spark mode, a ANSI session: 5. a decline only where the specification raises or the input leaves the bound: expect unsat")
+(echo "d9 <=> d9s4, Spark mode, an ANSI session: 5. a decline only where the specification raises or the input leaves the bound: expect unsat")
 (push 1)
 (declare-const c0 Int)
 (assert (jlong.in c0))
@@ -2004,7 +2004,7 @@
 
 ; d16s9 >= d9s4 (c0 d16s9, c1 d9s4): (cmp:GE dec:0:long:p16 (int:MUL:WRAP dec:1:long:p9 lit:0:long))
 
-(echo "d16s9 >= d9s4, Spark mode, a ANSI session: 1. the precondition admits a valid lane the specification defines and the kernel answers: expect sat")
+(echo "d16s9 >= d9s4, Spark mode, an ANSI session: 1. the precondition admits a valid lane the specification defines and the kernel answers: expect sat")
 (push 1)
 (declare-const c0 Int)
 (assert (jlong.in c0))
@@ -2022,7 +2022,7 @@
 (check-sat)
 (pop 1)
 
-(echo "d16s9 >= d9s4, Spark mode, a ANSI session: 2. a decline wherever the specification raises: expect unsat")
+(echo "d16s9 >= d9s4, Spark mode, an ANSI session: 2. a decline wherever the specification raises: expect unsat")
 (push 1)
 (declare-const c0 Int)
 (assert (jlong.in c0))
@@ -2038,7 +2038,7 @@
 (check-sat)
 (pop 1)
 
-(echo "d16s9 >= d9s4, Spark mode, a ANSI session: 3. the validity equal where neither raises nor declines: expect unsat")
+(echo "d16s9 >= d9s4, Spark mode, an ANSI session: 3. the validity equal where neither raises nor declines: expect unsat")
 (push 1)
 (declare-const c0 Int)
 (assert (jlong.in c0))
@@ -2055,7 +2055,7 @@
 (check-sat)
 (pop 1)
 
-(echo "d16s9 >= d9s4, Spark mode, a ANSI session: 4. the values equal on valid lanes: expect unsat")
+(echo "d16s9 >= d9s4, Spark mode, an ANSI session: 4. the values equal on valid lanes: expect unsat")
 (push 1)
 (declare-const c0 Int)
 (assert (jlong.in c0))
@@ -2073,7 +2073,7 @@
 (check-sat)
 (pop 1)
 
-(echo "d16s9 >= d9s4, Spark mode, a ANSI session: 5. a decline only where the specification raises or the input leaves the bound: expect unsat")
+(echo "d16s9 >= d9s4, Spark mode, an ANSI session: 5. a decline only where the specification raises or the input leaves the bound: expect unsat")
 (push 1)
 (declare-const c0 Int)
 (assert (jlong.in c0))
@@ -2180,7 +2180,7 @@
 
 ; d18 > 1.5 (c0 d18): (cmp:GT dec:0:long:p18 lit:0:long)
 
-(echo "d18 > 1.5, Spark mode, a ANSI session: 1. the precondition admits a valid lane the specification defines and the kernel answers: expect sat")
+(echo "d18 > 1.5, Spark mode, an ANSI session: 1. the precondition admits a valid lane the specification defines and the kernel answers: expect sat")
 (push 1)
 (declare-const c0 Int)
 (assert (jlong.in c0))
@@ -2193,7 +2193,7 @@
 (check-sat)
 (pop 1)
 
-(echo "d18 > 1.5, Spark mode, a ANSI session: 2. a decline wherever the specification raises: expect unsat")
+(echo "d18 > 1.5, Spark mode, an ANSI session: 2. a decline wherever the specification raises: expect unsat")
 (push 1)
 (declare-const c0 Int)
 (assert (jlong.in c0))
@@ -2204,7 +2204,7 @@
 (check-sat)
 (pop 1)
 
-(echo "d18 > 1.5, Spark mode, a ANSI session: 3. the validity equal where neither raises nor declines: expect unsat")
+(echo "d18 > 1.5, Spark mode, an ANSI session: 3. the validity equal where neither raises nor declines: expect unsat")
 (push 1)
 (declare-const c0 Int)
 (assert (jlong.in c0))
@@ -2216,7 +2216,7 @@
 (check-sat)
 (pop 1)
 
-(echo "d18 > 1.5, Spark mode, a ANSI session: 4. the values equal on valid lanes: expect unsat")
+(echo "d18 > 1.5, Spark mode, an ANSI session: 4. the values equal on valid lanes: expect unsat")
 (push 1)
 (declare-const c0 Int)
 (assert (jlong.in c0))
@@ -2229,7 +2229,7 @@
 (check-sat)
 (pop 1)
 
-(echo "d18 > 1.5, Spark mode, a ANSI session: 5. a decline only where the specification raises or the input leaves the bound: expect unsat")
+(echo "d18 > 1.5, Spark mode, an ANSI session: 5. a decline only where the specification raises or the input leaves the bound: expect unsat")
 (push 1)
 (declare-const c0 Int)
 (assert (jlong.in c0))
@@ -2306,7 +2306,7 @@
 
 ; d9 < 0.425 (c0 d9): (cmp:LT (int:MUL:WRAP dec:0:long:p9 lit:0:long) lit:1:long)
 
-(echo "d9 < 0.425, Spark mode, a ANSI session: 1. the precondition admits a valid lane the specification defines and the kernel answers: expect sat")
+(echo "d9 < 0.425, Spark mode, an ANSI session: 1. the precondition admits a valid lane the specification defines and the kernel answers: expect sat")
 (push 1)
 (declare-const c0 Int)
 (assert (jlong.in c0))
@@ -2321,7 +2321,7 @@
 (check-sat)
 (pop 1)
 
-(echo "d9 < 0.425, Spark mode, a ANSI session: 2. a decline wherever the specification raises: expect unsat")
+(echo "d9 < 0.425, Spark mode, an ANSI session: 2. a decline wherever the specification raises: expect unsat")
 (push 1)
 (declare-const c0 Int)
 (assert (jlong.in c0))
@@ -2334,7 +2334,7 @@
 (check-sat)
 (pop 1)
 
-(echo "d9 < 0.425, Spark mode, a ANSI session: 3. the validity equal where neither raises nor declines: expect unsat")
+(echo "d9 < 0.425, Spark mode, an ANSI session: 3. the validity equal where neither raises nor declines: expect unsat")
 (push 1)
 (declare-const c0 Int)
 (assert (jlong.in c0))
@@ -2348,7 +2348,7 @@
 (check-sat)
 (pop 1)
 
-(echo "d9 < 0.425, Spark mode, a ANSI session: 4. the values equal on valid lanes: expect unsat")
+(echo "d9 < 0.425, Spark mode, an ANSI session: 4. the values equal on valid lanes: expect unsat")
 (push 1)
 (declare-const c0 Int)
 (assert (jlong.in c0))
@@ -2363,7 +2363,7 @@
 (check-sat)
 (pop 1)
 
-(echo "d9 < 0.425, Spark mode, a ANSI session: 5. a decline only where the specification raises or the input leaves the bound: expect unsat")
+(echo "d9 < 0.425, Spark mode, an ANSI session: 5. a decline only where the specification raises or the input leaves the bound: expect unsat")
 (push 1)
 (declare-const c0 Int)
 (assert (jlong.in c0))
@@ -2452,7 +2452,7 @@
 
 ; d9 < 10000000.0125 (c0 d9): (cmp:LT (int:MUL:WRAP dec:0:long:p9 lit:0:long) lit:1:long)
 
-(echo "d9 < 10000000.0125, Spark mode, a ANSI session: 1. the precondition admits a valid lane the specification defines and the kernel answers: expect sat")
+(echo "d9 < 10000000.0125, Spark mode, an ANSI session: 1. the precondition admits a valid lane the specification defines and the kernel answers: expect sat")
 (push 1)
 (declare-const c0 Int)
 (assert (jlong.in c0))
@@ -2467,7 +2467,7 @@
 (check-sat)
 (pop 1)
 
-(echo "d9 < 10000000.0125, Spark mode, a ANSI session: 2. a decline wherever the specification raises: expect unsat")
+(echo "d9 < 10000000.0125, Spark mode, an ANSI session: 2. a decline wherever the specification raises: expect unsat")
 (push 1)
 (declare-const c0 Int)
 (assert (jlong.in c0))
@@ -2480,7 +2480,7 @@
 (check-sat)
 (pop 1)
 
-(echo "d9 < 10000000.0125, Spark mode, a ANSI session: 3. the validity equal where neither raises nor declines: expect unsat")
+(echo "d9 < 10000000.0125, Spark mode, an ANSI session: 3. the validity equal where neither raises nor declines: expect unsat")
 (push 1)
 (declare-const c0 Int)
 (assert (jlong.in c0))
@@ -2494,7 +2494,7 @@
 (check-sat)
 (pop 1)
 
-(echo "d9 < 10000000.0125, Spark mode, a ANSI session: 4. the values equal on valid lanes: expect unsat")
+(echo "d9 < 10000000.0125, Spark mode, an ANSI session: 4. the values equal on valid lanes: expect unsat")
 (push 1)
 (declare-const c0 Int)
 (assert (jlong.in c0))
@@ -2509,7 +2509,7 @@
 (check-sat)
 (pop 1)
 
-(echo "d9 < 10000000.0125, Spark mode, a ANSI session: 5. a decline only where the specification raises or the input leaves the bound: expect unsat")
+(echo "d9 < 10000000.0125, Spark mode, an ANSI session: 5. a decline only where the specification raises or the input leaves the bound: expect unsat")
 (push 1)
 (declare-const c0 Int)
 (assert (jlong.in c0))
@@ -2774,7 +2774,7 @@
 
 ; greatest(d9, d9s4) > d9b (c0 d9, c1 d9s4, c2 d9b): (cmp:GT (greatest (int:MUL:WRAP dec:0:long:p9 lit:0:long) dec:1:long:p9) (int:MUL:WRAP dec:2:long:p9 lit:0:long))
 
-(echo "greatest(d9, d9s4) > d9b, Spark mode, a ANSI session: 1. the precondition admits a valid lane the specification defines and the kernel answers: expect sat")
+(echo "greatest(d9, d9s4) > d9b, Spark mode, an ANSI session: 1. the precondition admits a valid lane the specification defines and the kernel answers: expect sat")
 (push 1)
 (declare-const c0 Int)
 (assert (jlong.in c0))
@@ -2797,7 +2797,7 @@
 (check-sat)
 (pop 1)
 
-(echo "greatest(d9, d9s4) > d9b, Spark mode, a ANSI session: 2. a decline wherever the specification raises: expect unsat")
+(echo "greatest(d9, d9s4) > d9b, Spark mode, an ANSI session: 2. a decline wherever the specification raises: expect unsat")
 (push 1)
 (declare-const c0 Int)
 (assert (jlong.in c0))
@@ -2818,7 +2818,7 @@
 (check-sat)
 (pop 1)
 
-(echo "greatest(d9, d9s4) > d9b, Spark mode, a ANSI session: 3. the validity equal where neither raises nor declines: expect unsat")
+(echo "greatest(d9, d9s4) > d9b, Spark mode, an ANSI session: 3. the validity equal where neither raises nor declines: expect unsat")
 (push 1)
 (declare-const c0 Int)
 (assert (jlong.in c0))
@@ -2840,7 +2840,7 @@
 (check-sat)
 (pop 1)
 
-(echo "greatest(d9, d9s4) > d9b, Spark mode, a ANSI session: 4. the values equal on valid lanes: expect unsat")
+(echo "greatest(d9, d9s4) > d9b, Spark mode, an ANSI session: 4. the values equal on valid lanes: expect unsat")
 (push 1)
 (declare-const c0 Int)
 (assert (jlong.in c0))
@@ -2863,7 +2863,7 @@
 (check-sat)
 (pop 1)
 
-(echo "greatest(d9, d9s4) > d9b, Spark mode, a ANSI session: 5. a decline only where the specification raises or the input leaves the bound: expect unsat")
+(echo "greatest(d9, d9s4) > d9b, Spark mode, an ANSI session: 5. a decline only where the specification raises or the input leaves the bound: expect unsat")
 (push 1)
 (declare-const c0 Int)
 (assert (jlong.in c0))
@@ -3141,7 +3141,7 @@
 
 ; CASE WHEN d9 < d9b THEN d9 ELSE d9s4 END > 0.0 (c0 d9, c1 d9b, c2 d9s4): (cmp:GT (if (cmp:LT dec:0:long:p9 dec:1:long:p9) (int:MUL:WRAP dec:0:long:p9 lit:0:long) dec:2:long:p9) lit:1:long)
 
-(echo "CASE WHEN d9 < d9b THEN d9 ELSE d9s4 END > 0.0, Spark mode, a ANSI session: 1. the precondition admits a valid lane the specification defines and the kernel answers: expect sat")
+(echo "CASE WHEN d9 < d9b THEN d9 ELSE d9s4 END > 0.0, Spark mode, an ANSI session: 1. the precondition admits a valid lane the specification defines and the kernel answers: expect sat")
 (push 1)
 (declare-const c0 Int)
 (assert (jlong.in c0))
@@ -3162,7 +3162,7 @@
 (check-sat)
 (pop 1)
 
-(echo "CASE WHEN d9 < d9b THEN d9 ELSE d9s4 END > 0.0, Spark mode, a ANSI session: 2. a decline wherever the specification raises: expect unsat")
+(echo "CASE WHEN d9 < d9b THEN d9 ELSE d9s4 END > 0.0, Spark mode, an ANSI session: 2. a decline wherever the specification raises: expect unsat")
 (push 1)
 (declare-const c0 Int)
 (assert (jlong.in c0))
@@ -3181,7 +3181,7 @@
 (check-sat)
 (pop 1)
 
-(echo "CASE WHEN d9 < d9b THEN d9 ELSE d9s4 END > 0.0, Spark mode, a ANSI session: 3. the validity equal where neither raises nor declines: expect unsat")
+(echo "CASE WHEN d9 < d9b THEN d9 ELSE d9s4 END > 0.0, Spark mode, an ANSI session: 3. the validity equal where neither raises nor declines: expect unsat")
 (push 1)
 (declare-const c0 Int)
 (assert (jlong.in c0))
@@ -3201,7 +3201,7 @@
 (check-sat)
 (pop 1)
 
-(echo "CASE WHEN d9 < d9b THEN d9 ELSE d9s4 END > 0.0, Spark mode, a ANSI session: 4. the values equal on valid lanes: expect unsat")
+(echo "CASE WHEN d9 < d9b THEN d9 ELSE d9s4 END > 0.0, Spark mode, an ANSI session: 4. the values equal on valid lanes: expect unsat")
 (push 1)
 (declare-const c0 Int)
 (assert (jlong.in c0))
@@ -3222,7 +3222,7 @@
 (check-sat)
 (pop 1)
 
-(echo "CASE WHEN d9 < d9b THEN d9 ELSE d9s4 END > 0.0, Spark mode, a ANSI session: 5. a decline only where the specification raises or the input leaves the bound: expect unsat")
+(echo "CASE WHEN d9 < d9b THEN d9 ELSE d9s4 END > 0.0, Spark mode, an ANSI session: 5. a decline only where the specification raises or the input leaves the bound: expect unsat")
 (push 1)
 (declare-const c0 Int)
 (assert (jlong.in c0))
@@ -3347,7 +3347,7 @@
 
 ; d9 IN (0.42, 0.00, -1.25) (c0 d9): (or (or (cmp:EQ dec:0:long:p9 lit:0:long) (cmp:EQ dec:0:long:p9 lit:1:long)) (cmp:EQ dec:0:long:p9 lit:2:long))
 
-(echo "d9 IN (0.42, 0.00, -1.25), Spark mode, a ANSI session: 1. the precondition admits a valid lane the specification defines and the kernel answers: expect sat")
+(echo "d9 IN (0.42, 0.00, -1.25), Spark mode, an ANSI session: 1. the precondition admits a valid lane the specification defines and the kernel answers: expect sat")
 (push 1)
 (declare-const c0 Int)
 (assert (jlong.in c0))
@@ -3355,48 +3355,48 @@
 (assert true)
 (assert true)
 (assert (and v0 (or (or (and true (= (spec.dec.cmp c0 2 (spec.dec.rescale 42 0) 2) 0)) (and true (= (spec.dec.cmp c0 2 (spec.dec.rescale 0 0) 2) 0)) (and true (= (spec.dec.cmp c0 2 (spec.dec.rescale (- 125) 0) 2) 0))) true)))
-(assert (not (or (or (or (and true (not (spec.dec.fits (spec.dec.rescale 42 0) 9))) (and true (not (spec.dec.fits (spec.dec.rescale 0 0) 9)))) (and true (not (spec.dec.fits (spec.dec.rescale (- 125) 0) 9)))) (and v0 (not (spec.dec.fits c0 9))))))
+(assert (not (or (and v0 (or (or (and true (not (spec.dec.fits (spec.dec.rescale 42 0) 9))) (and (not (or false (and true (= (spec.dec.cmp c0 2 (spec.dec.rescale 42 0) 2) 0)))) (and true (not (spec.dec.fits (spec.dec.rescale 0 0) 9))))) (and (not (or false (and true (= (spec.dec.cmp c0 2 (spec.dec.rescale 42 0) 2) 0)) (and true (= (spec.dec.cmp c0 2 (spec.dec.rescale 0 0) 2) 0)))) (and true (not (spec.dec.fits (spec.dec.rescale (- 125) 0) 9)))))) (and v0 (not (spec.dec.fits c0 9))))))
 (assert (not (and v0 (or (> c0 999999999) (< c0 (- 999999999))))))
 (check-sat)
 (pop 1)
 
-(echo "d9 IN (0.42, 0.00, -1.25), Spark mode, a ANSI session: 2. a decline wherever the specification raises: expect unsat")
+(echo "d9 IN (0.42, 0.00, -1.25), Spark mode, an ANSI session: 2. a decline wherever the specification raises: expect unsat")
 (push 1)
 (declare-const c0 Int)
 (assert (jlong.in c0))
 (declare-const v0 Bool)
 (assert true)
-(assert (or (or (or (and true (not (spec.dec.fits (spec.dec.rescale 42 0) 9))) (and true (not (spec.dec.fits (spec.dec.rescale 0 0) 9)))) (and true (not (spec.dec.fits (spec.dec.rescale (- 125) 0) 9)))) (and v0 (not (spec.dec.fits c0 9)))))
+(assert (or (and v0 (or (or (and true (not (spec.dec.fits (spec.dec.rescale 42 0) 9))) (and (not (or false (and true (= (spec.dec.cmp c0 2 (spec.dec.rescale 42 0) 2) 0)))) (and true (not (spec.dec.fits (spec.dec.rescale 0 0) 9))))) (and (not (or false (and true (= (spec.dec.cmp c0 2 (spec.dec.rescale 42 0) 2) 0)) (and true (= (spec.dec.cmp c0 2 (spec.dec.rescale 0 0) 2) 0)))) (and true (not (spec.dec.fits (spec.dec.rescale (- 125) 0) 9)))))) (and v0 (not (spec.dec.fits c0 9)))))
 (assert (not (and v0 (or (> c0 999999999) (< c0 (- 999999999))))))
 (check-sat)
 (pop 1)
 
-(echo "d9 IN (0.42, 0.00, -1.25), Spark mode, a ANSI session: 3. the validity equal where neither raises nor declines: expect unsat")
+(echo "d9 IN (0.42, 0.00, -1.25), Spark mode, an ANSI session: 3. the validity equal where neither raises nor declines: expect unsat")
 (push 1)
 (declare-const c0 Int)
 (assert (jlong.in c0))
 (declare-const v0 Bool)
 (assert true)
-(assert (not (or (or (or (and true (not (spec.dec.fits (spec.dec.rescale 42 0) 9))) (and true (not (spec.dec.fits (spec.dec.rescale 0 0) 9)))) (and true (not (spec.dec.fits (spec.dec.rescale (- 125) 0) 9)))) (and v0 (not (spec.dec.fits c0 9))))))
+(assert (not (or (and v0 (or (or (and true (not (spec.dec.fits (spec.dec.rescale 42 0) 9))) (and (not (or false (and true (= (spec.dec.cmp c0 2 (spec.dec.rescale 42 0) 2) 0)))) (and true (not (spec.dec.fits (spec.dec.rescale 0 0) 9))))) (and (not (or false (and true (= (spec.dec.cmp c0 2 (spec.dec.rescale 42 0) 2) 0)) (and true (= (spec.dec.cmp c0 2 (spec.dec.rescale 0 0) 2) 0)))) (and true (not (spec.dec.fits (spec.dec.rescale (- 125) 0) 9)))))) (and v0 (not (spec.dec.fits c0 9))))))
 (assert (not (and v0 (or (> c0 999999999) (< c0 (- 999999999))))))
 (assert (not (= (or (and (or (and v0 v0) (or (and v0 (= c0 (- 125))) (and v0 (= c0 0)))) v0) (or (and (or (and v0 v0) (or (and v0 (= c0 (- 125))) (and v0 (= c0 0)))) (or (= c0 (- 125)) (= c0 0))) (and v0 (= c0 42)))) (and v0 (or (or (and true (= (spec.dec.cmp c0 2 (spec.dec.rescale 42 0) 2) 0)) (and true (= (spec.dec.cmp c0 2 (spec.dec.rescale 0 0) 2) 0)) (and true (= (spec.dec.cmp c0 2 (spec.dec.rescale (- 125) 0) 2) 0))) true)))))
 (check-sat)
 (pop 1)
 
-(echo "d9 IN (0.42, 0.00, -1.25), Spark mode, a ANSI session: 4. the values equal on valid lanes: expect unsat")
+(echo "d9 IN (0.42, 0.00, -1.25), Spark mode, an ANSI session: 4. the values equal on valid lanes: expect unsat")
 (push 1)
 (declare-const c0 Int)
 (assert (jlong.in c0))
 (declare-const v0 Bool)
 (assert true)
-(assert (not (or (or (or (and true (not (spec.dec.fits (spec.dec.rescale 42 0) 9))) (and true (not (spec.dec.fits (spec.dec.rescale 0 0) 9)))) (and true (not (spec.dec.fits (spec.dec.rescale (- 125) 0) 9)))) (and v0 (not (spec.dec.fits c0 9))))))
+(assert (not (or (and v0 (or (or (and true (not (spec.dec.fits (spec.dec.rescale 42 0) 9))) (and (not (or false (and true (= (spec.dec.cmp c0 2 (spec.dec.rescale 42 0) 2) 0)))) (and true (not (spec.dec.fits (spec.dec.rescale 0 0) 9))))) (and (not (or false (and true (= (spec.dec.cmp c0 2 (spec.dec.rescale 42 0) 2) 0)) (and true (= (spec.dec.cmp c0 2 (spec.dec.rescale 0 0) 2) 0)))) (and true (not (spec.dec.fits (spec.dec.rescale (- 125) 0) 9)))))) (and v0 (not (spec.dec.fits c0 9))))))
 (assert (not (and v0 (or (> c0 999999999) (< c0 (- 999999999))))))
 (assert (and v0 (or (or (and true (= (spec.dec.cmp c0 2 (spec.dec.rescale 42 0) 2) 0)) (and true (= (spec.dec.cmp c0 2 (spec.dec.rescale 0 0) 2) 0)) (and true (= (spec.dec.cmp c0 2 (spec.dec.rescale (- 125) 0) 2) 0))) true)))
 (assert (not (= (or (or (= c0 (- 125)) (= c0 0)) (= c0 42)) (or (and true (= (spec.dec.cmp c0 2 (spec.dec.rescale 42 0) 2) 0)) (and true (= (spec.dec.cmp c0 2 (spec.dec.rescale 0 0) 2) 0)) (and true (= (spec.dec.cmp c0 2 (spec.dec.rescale (- 125) 0) 2) 0))))))
 (check-sat)
 (pop 1)
 
-(echo "d9 IN (0.42, 0.00, -1.25), Spark mode, a ANSI session: 5. a decline only where the specification raises or the input leaves the bound: expect unsat")
+(echo "d9 IN (0.42, 0.00, -1.25), Spark mode, an ANSI session: 5. a decline only where the specification raises or the input leaves the bound: expect unsat")
 (push 1)
 (declare-const c0 Int)
 (assert (jlong.in c0))
@@ -3404,7 +3404,7 @@
 (assert true)
 (assert true)
 (assert (and v0 (or (> c0 999999999) (< c0 (- 999999999)))))
-(assert (not (or (or (or (and true (not (spec.dec.fits (spec.dec.rescale 42 0) 9))) (and true (not (spec.dec.fits (spec.dec.rescale 0 0) 9)))) (and true (not (spec.dec.fits (spec.dec.rescale (- 125) 0) 9)))) (and v0 (not (spec.dec.fits c0 9))))))
+(assert (not (or (and v0 (or (or (and true (not (spec.dec.fits (spec.dec.rescale 42 0) 9))) (and (not (or false (and true (= (spec.dec.cmp c0 2 (spec.dec.rescale 42 0) 2) 0)))) (and true (not (spec.dec.fits (spec.dec.rescale 0 0) 9))))) (and (not (or false (and true (= (spec.dec.cmp c0 2 (spec.dec.rescale 42 0) 2) 0)) (and true (= (spec.dec.cmp c0 2 (spec.dec.rescale 0 0) 2) 0)))) (and true (not (spec.dec.fits (spec.dec.rescale (- 125) 0) 9)))))) (and v0 (not (spec.dec.fits c0 9))))))
 (check-sat)
 (pop 1)
 
@@ -3473,7 +3473,7 @@
 
 ; d9 IN (0.425, 1.5) (c0 d9): (or (cmp:EQ (int:MUL:WRAP dec:0:long:p9 lit:0:long) lit:1:long) (cmp:EQ (int:MUL:WRAP dec:0:long:p9 lit:0:long) lit:2:long))
 
-(echo "d9 IN (0.425, 1.5), Spark mode, a ANSI session: 1. the precondition admits a valid lane the specification defines and the kernel answers: expect sat")
+(echo "d9 IN (0.425, 1.5), Spark mode, an ANSI session: 1. the precondition admits a valid lane the specification defines and the kernel answers: expect sat")
 (push 1)
 (declare-const c0 Int)
 (assert (jlong.in c0))
@@ -3483,12 +3483,12 @@
 (assert true)
 (assert true)
 (assert (and v0 (or (or (and true (= (spec.dec.cmp (spec.dec.rescale c0 1) 3 (spec.dec.rescale 425 0) 3) 0)) (and true (= (spec.dec.cmp (spec.dec.rescale c0 1) 3 (spec.dec.rescale 15 2) 3) 0))) true)))
-(assert (not (or (or (or (and v0 (not (spec.dec.fits (spec.dec.rescale c0 1) 10))) (and true (not (spec.dec.fits (spec.dec.rescale 425 0) 10)))) (and true (not (spec.dec.fits (spec.dec.rescale 15 2) 10)))) (and v0 (not (spec.dec.fits c0 9))))))
+(assert (not (or (or (and v0 (not (spec.dec.fits (spec.dec.rescale c0 1) 10))) (and v0 (or (and true (not (spec.dec.fits (spec.dec.rescale 425 0) 10))) (and (not (or false (and true (= (spec.dec.cmp (spec.dec.rescale c0 1) 3 (spec.dec.rescale 425 0) 3) 0)))) (and true (not (spec.dec.fits (spec.dec.rescale 15 2) 10))))))) (and v0 (not (spec.dec.fits c0 9))))))
 (assert (not (and v0 (or (> c0 999999999) (< c0 (- 999999999))))))
 (check-sat)
 (pop 1)
 
-(echo "d9 IN (0.425, 1.5), Spark mode, a ANSI session: 2. a decline wherever the specification raises: expect unsat")
+(echo "d9 IN (0.425, 1.5), Spark mode, an ANSI session: 2. a decline wherever the specification raises: expect unsat")
 (push 1)
 (declare-const c0 Int)
 (assert (jlong.in c0))
@@ -3496,12 +3496,12 @@
 (declare-const q.0 Int)
 (assert (and (<= 0 (- (* (mod c0 18446744073709551616) 10) (* 18446744073709551616 q.0))) (< (- (* (mod c0 18446744073709551616) 10) (* 18446744073709551616 q.0)) 18446744073709551616)))
 (assert true)
-(assert (or (or (or (and v0 (not (spec.dec.fits (spec.dec.rescale c0 1) 10))) (and true (not (spec.dec.fits (spec.dec.rescale 425 0) 10)))) (and true (not (spec.dec.fits (spec.dec.rescale 15 2) 10)))) (and v0 (not (spec.dec.fits c0 9)))))
+(assert (or (or (and v0 (not (spec.dec.fits (spec.dec.rescale c0 1) 10))) (and v0 (or (and true (not (spec.dec.fits (spec.dec.rescale 425 0) 10))) (and (not (or false (and true (= (spec.dec.cmp (spec.dec.rescale c0 1) 3 (spec.dec.rescale 425 0) 3) 0)))) (and true (not (spec.dec.fits (spec.dec.rescale 15 2) 10))))))) (and v0 (not (spec.dec.fits c0 9)))))
 (assert (not (and v0 (or (> c0 999999999) (< c0 (- 999999999))))))
 (check-sat)
 (pop 1)
 
-(echo "d9 IN (0.425, 1.5), Spark mode, a ANSI session: 3. the validity equal where neither raises nor declines: expect unsat")
+(echo "d9 IN (0.425, 1.5), Spark mode, an ANSI session: 3. the validity equal where neither raises nor declines: expect unsat")
 (push 1)
 (declare-const c0 Int)
 (assert (jlong.in c0))
@@ -3509,13 +3509,13 @@
 (declare-const q.0 Int)
 (assert (and (<= 0 (- (* (mod c0 18446744073709551616) 10) (* 18446744073709551616 q.0))) (< (- (* (mod c0 18446744073709551616) 10) (* 18446744073709551616 q.0)) 18446744073709551616)))
 (assert true)
-(assert (not (or (or (or (and v0 (not (spec.dec.fits (spec.dec.rescale c0 1) 10))) (and true (not (spec.dec.fits (spec.dec.rescale 425 0) 10)))) (and true (not (spec.dec.fits (spec.dec.rescale 15 2) 10)))) (and v0 (not (spec.dec.fits c0 9))))))
+(assert (not (or (or (and v0 (not (spec.dec.fits (spec.dec.rescale c0 1) 10))) (and v0 (or (and true (not (spec.dec.fits (spec.dec.rescale 425 0) 10))) (and (not (or false (and true (= (spec.dec.cmp (spec.dec.rescale c0 1) 3 (spec.dec.rescale 425 0) 3) 0)))) (and true (not (spec.dec.fits (spec.dec.rescale 15 2) 10))))))) (and v0 (not (spec.dec.fits c0 9))))))
 (assert (not (and v0 (or (> c0 999999999) (< c0 (- 999999999))))))
 (assert (not (= (or (and v0 v0) (or (and v0 (= (ite (>= (- (* (mod c0 18446744073709551616) 10) (* 18446744073709551616 q.0)) 9223372036854775808) (- (- (* (mod c0 18446744073709551616) 10) (* 18446744073709551616 q.0)) 18446744073709551616) (- (* (mod c0 18446744073709551616) 10) (* 18446744073709551616 q.0))) 425)) (and v0 (= (ite (>= (- (* (mod c0 18446744073709551616) 10) (* 18446744073709551616 q.0)) 9223372036854775808) (- (- (* (mod c0 18446744073709551616) 10) (* 18446744073709551616 q.0)) 18446744073709551616) (- (* (mod c0 18446744073709551616) 10) (* 18446744073709551616 q.0))) 1500)))) (and v0 (or (or (and true (= (spec.dec.cmp (spec.dec.rescale c0 1) 3 (spec.dec.rescale 425 0) 3) 0)) (and true (= (spec.dec.cmp (spec.dec.rescale c0 1) 3 (spec.dec.rescale 15 2) 3) 0))) true)))))
 (check-sat)
 (pop 1)
 
-(echo "d9 IN (0.425, 1.5), Spark mode, a ANSI session: 4. the values equal on valid lanes: expect unsat")
+(echo "d9 IN (0.425, 1.5), Spark mode, an ANSI session: 4. the values equal on valid lanes: expect unsat")
 (push 1)
 (declare-const c0 Int)
 (assert (jlong.in c0))
@@ -3523,14 +3523,14 @@
 (declare-const q.0 Int)
 (assert (and (<= 0 (- (* (mod c0 18446744073709551616) 10) (* 18446744073709551616 q.0))) (< (- (* (mod c0 18446744073709551616) 10) (* 18446744073709551616 q.0)) 18446744073709551616)))
 (assert true)
-(assert (not (or (or (or (and v0 (not (spec.dec.fits (spec.dec.rescale c0 1) 10))) (and true (not (spec.dec.fits (spec.dec.rescale 425 0) 10)))) (and true (not (spec.dec.fits (spec.dec.rescale 15 2) 10)))) (and v0 (not (spec.dec.fits c0 9))))))
+(assert (not (or (or (and v0 (not (spec.dec.fits (spec.dec.rescale c0 1) 10))) (and v0 (or (and true (not (spec.dec.fits (spec.dec.rescale 425 0) 10))) (and (not (or false (and true (= (spec.dec.cmp (spec.dec.rescale c0 1) 3 (spec.dec.rescale 425 0) 3) 0)))) (and true (not (spec.dec.fits (spec.dec.rescale 15 2) 10))))))) (and v0 (not (spec.dec.fits c0 9))))))
 (assert (not (and v0 (or (> c0 999999999) (< c0 (- 999999999))))))
 (assert (and v0 (or (or (and true (= (spec.dec.cmp (spec.dec.rescale c0 1) 3 (spec.dec.rescale 425 0) 3) 0)) (and true (= (spec.dec.cmp (spec.dec.rescale c0 1) 3 (spec.dec.rescale 15 2) 3) 0))) true)))
 (assert (not (= (or (= (ite (>= (- (* (mod c0 18446744073709551616) 10) (* 18446744073709551616 q.0)) 9223372036854775808) (- (- (* (mod c0 18446744073709551616) 10) (* 18446744073709551616 q.0)) 18446744073709551616) (- (* (mod c0 18446744073709551616) 10) (* 18446744073709551616 q.0))) 425) (= (ite (>= (- (* (mod c0 18446744073709551616) 10) (* 18446744073709551616 q.0)) 9223372036854775808) (- (- (* (mod c0 18446744073709551616) 10) (* 18446744073709551616 q.0)) 18446744073709551616) (- (* (mod c0 18446744073709551616) 10) (* 18446744073709551616 q.0))) 1500)) (or (and true (= (spec.dec.cmp (spec.dec.rescale c0 1) 3 (spec.dec.rescale 425 0) 3) 0)) (and true (= (spec.dec.cmp (spec.dec.rescale c0 1) 3 (spec.dec.rescale 15 2) 3) 0))))))
 (check-sat)
 (pop 1)
 
-(echo "d9 IN (0.425, 1.5), Spark mode, a ANSI session: 5. a decline only where the specification raises or the input leaves the bound: expect unsat")
+(echo "d9 IN (0.425, 1.5), Spark mode, an ANSI session: 5. a decline only where the specification raises or the input leaves the bound: expect unsat")
 (push 1)
 (declare-const c0 Int)
 (assert (jlong.in c0))
@@ -3540,7 +3540,7 @@
 (assert true)
 (assert true)
 (assert (and v0 (or (> c0 999999999) (< c0 (- 999999999)))))
-(assert (not (or (or (or (and v0 (not (spec.dec.fits (spec.dec.rescale c0 1) 10))) (and true (not (spec.dec.fits (spec.dec.rescale 425 0) 10)))) (and true (not (spec.dec.fits (spec.dec.rescale 15 2) 10)))) (and v0 (not (spec.dec.fits c0 9))))))
+(assert (not (or (or (and v0 (not (spec.dec.fits (spec.dec.rescale c0 1) 10))) (and v0 (or (and true (not (spec.dec.fits (spec.dec.rescale 425 0) 10))) (and (not (or false (and true (= (spec.dec.cmp (spec.dec.rescale c0 1) 3 (spec.dec.rescale 425 0) 3) 0)))) (and true (not (spec.dec.fits (spec.dec.rescale 15 2) 10))))))) (and v0 (not (spec.dec.fits c0 9))))))
 (check-sat)
 (pop 1)
 
@@ -3682,7 +3682,7 @@
 
 ; d9 + d9b < d18 (c0 d9, c1 d9b, c2 d18): (cmp:LT (int:ADD:WRAP dec:0:long:p9 dec:1:long:p9) dec:2:long:p18)
 
-(echo "d9 + d9b < d18, Spark mode, a ANSI session: 1. the precondition admits a valid lane the specification defines and the kernel answers: expect sat")
+(echo "d9 + d9b < d18, Spark mode, an ANSI session: 1. the precondition admits a valid lane the specification defines and the kernel answers: expect sat")
 (push 1)
 (declare-const c0 Int)
 (assert (jlong.in c0))
@@ -3703,7 +3703,7 @@
 (check-sat)
 (pop 1)
 
-(echo "d9 + d9b < d18, Spark mode, a ANSI session: 2. a decline wherever the specification raises: expect unsat")
+(echo "d9 + d9b < d18, Spark mode, an ANSI session: 2. a decline wherever the specification raises: expect unsat")
 (push 1)
 (declare-const c0 Int)
 (assert (jlong.in c0))
@@ -3722,7 +3722,7 @@
 (check-sat)
 (pop 1)
 
-(echo "d9 + d9b < d18, Spark mode, a ANSI session: 3. the validity equal where neither raises nor declines: expect unsat")
+(echo "d9 + d9b < d18, Spark mode, an ANSI session: 3. the validity equal where neither raises nor declines: expect unsat")
 (push 1)
 (declare-const c0 Int)
 (assert (jlong.in c0))
@@ -3742,7 +3742,7 @@
 (check-sat)
 (pop 1)
 
-(echo "d9 + d9b < d18, Spark mode, a ANSI session: 4. the values equal on valid lanes: expect unsat")
+(echo "d9 + d9b < d18, Spark mode, an ANSI session: 4. the values equal on valid lanes: expect unsat")
 (push 1)
 (declare-const c0 Int)
 (assert (jlong.in c0))
@@ -3763,7 +3763,7 @@
 (check-sat)
 (pop 1)
 
-(echo "d9 + d9b < d18, Spark mode, a ANSI session: 5. a decline only where the specification raises or the input leaves the bound: expect unsat")
+(echo "d9 + d9b < d18, Spark mode, an ANSI session: 5. a decline only where the specification raises or the input leaves the bound: expect unsat")
 (push 1)
 (declare-const c0 Int)
 (assert (jlong.in c0))
@@ -3888,7 +3888,7 @@
 
 ; d9 - d8 >= d9b (c0 d9, c1 d8, c2 d9b): (cmp:GE (int:SUB:WRAP dec:0:long:p9 dec:1:long:p8) dec:2:long:p9)
 
-(echo "d9 - d8 >= d9b, Spark mode, a ANSI session: 1. the precondition admits a valid lane the specification defines and the kernel answers: expect sat")
+(echo "d9 - d8 >= d9b, Spark mode, an ANSI session: 1. the precondition admits a valid lane the specification defines and the kernel answers: expect sat")
 (push 1)
 (declare-const c0 Int)
 (assert (jlong.in c0))
@@ -3909,7 +3909,7 @@
 (check-sat)
 (pop 1)
 
-(echo "d9 - d8 >= d9b, Spark mode, a ANSI session: 2. a decline wherever the specification raises: expect unsat")
+(echo "d9 - d8 >= d9b, Spark mode, an ANSI session: 2. a decline wherever the specification raises: expect unsat")
 (push 1)
 (declare-const c0 Int)
 (assert (jlong.in c0))
@@ -3928,7 +3928,7 @@
 (check-sat)
 (pop 1)
 
-(echo "d9 - d8 >= d9b, Spark mode, a ANSI session: 3. the validity equal where neither raises nor declines: expect unsat")
+(echo "d9 - d8 >= d9b, Spark mode, an ANSI session: 3. the validity equal where neither raises nor declines: expect unsat")
 (push 1)
 (declare-const c0 Int)
 (assert (jlong.in c0))
@@ -3948,7 +3948,7 @@
 (check-sat)
 (pop 1)
 
-(echo "d9 - d8 >= d9b, Spark mode, a ANSI session: 4. the values equal on valid lanes: expect unsat")
+(echo "d9 - d8 >= d9b, Spark mode, an ANSI session: 4. the values equal on valid lanes: expect unsat")
 (push 1)
 (declare-const c0 Int)
 (assert (jlong.in c0))
@@ -3969,7 +3969,7 @@
 (check-sat)
 (pop 1)
 
-(echo "d9 - d8 >= d9b, Spark mode, a ANSI session: 5. a decline only where the specification raises or the input leaves the bound: expect unsat")
+(echo "d9 - d8 >= d9b, Spark mode, an ANSI session: 5. a decline only where the specification raises or the input leaves the bound: expect unsat")
 (push 1)
 (declare-const c0 Int)
 (assert (jlong.in c0))
@@ -4094,7 +4094,7 @@
 
 ; try_add(d9, d9b) > d18 (c0 d9, c1 d9b, c2 d18): (cmp:GT (int:ADD:WRAP dec:0:long:p9 dec:1:long:p9) dec:2:long:p18)
 
-(echo "try_add(d9, d9b) > d18, Spark mode, a ANSI session: 1. the precondition admits a valid lane the specification defines and the kernel answers: expect sat")
+(echo "try_add(d9, d9b) > d18, Spark mode, an ANSI session: 1. the precondition admits a valid lane the specification defines and the kernel answers: expect sat")
 (push 1)
 (declare-const c0 Int)
 (assert (jlong.in c0))
@@ -4115,7 +4115,7 @@
 (check-sat)
 (pop 1)
 
-(echo "try_add(d9, d9b) > d18, Spark mode, a ANSI session: 2. a decline wherever the specification raises: expect unsat")
+(echo "try_add(d9, d9b) > d18, Spark mode, an ANSI session: 2. a decline wherever the specification raises: expect unsat")
 (push 1)
 (declare-const c0 Int)
 (assert (jlong.in c0))
@@ -4134,7 +4134,7 @@
 (check-sat)
 (pop 1)
 
-(echo "try_add(d9, d9b) > d18, Spark mode, a ANSI session: 3. the validity equal where neither raises nor declines: expect unsat")
+(echo "try_add(d9, d9b) > d18, Spark mode, an ANSI session: 3. the validity equal where neither raises nor declines: expect unsat")
 (push 1)
 (declare-const c0 Int)
 (assert (jlong.in c0))
@@ -4154,7 +4154,7 @@
 (check-sat)
 (pop 1)
 
-(echo "try_add(d9, d9b) > d18, Spark mode, a ANSI session: 4. the values equal on valid lanes: expect unsat")
+(echo "try_add(d9, d9b) > d18, Spark mode, an ANSI session: 4. the values equal on valid lanes: expect unsat")
 (push 1)
 (declare-const c0 Int)
 (assert (jlong.in c0))
@@ -4175,7 +4175,7 @@
 (check-sat)
 (pop 1)
 
-(echo "try_add(d9, d9b) > d18, Spark mode, a ANSI session: 5. a decline only where the specification raises or the input leaves the bound: expect unsat")
+(echo "try_add(d9, d9b) > d18, Spark mode, an ANSI session: 5. a decline only where the specification raises or the input leaves the bound: expect unsat")
 (push 1)
 (declare-const c0 Int)
 (assert (jlong.in c0))
@@ -4300,7 +4300,7 @@
 
 ; d9 * 0.5 > d9b (c0 d9, c1 d9b): (cmp:GT (int:MUL:WRAP dec:0:long:p9 lit:0:long) (int:MUL:WRAP dec:1:long:p9 lit:1:long))
 
-(echo "d9 * 0.5 > d9b, Spark mode, a ANSI session: 1. the precondition admits a valid lane the specification defines and the kernel answers: expect sat")
+(echo "d9 * 0.5 > d9b, Spark mode, an ANSI session: 1. the precondition admits a valid lane the specification defines and the kernel answers: expect sat")
 (push 1)
 (declare-const c0 Int)
 (assert (jlong.in c0))
@@ -4320,7 +4320,7 @@
 (check-sat)
 (pop 1)
 
-(echo "d9 * 0.5 > d9b, Spark mode, a ANSI session: 2. a decline wherever the specification raises: expect unsat")
+(echo "d9 * 0.5 > d9b, Spark mode, an ANSI session: 2. a decline wherever the specification raises: expect unsat")
 (push 1)
 (declare-const c0 Int)
 (assert (jlong.in c0))
@@ -4338,7 +4338,7 @@
 (check-sat)
 (pop 1)
 
-(echo "d9 * 0.5 > d9b, Spark mode, a ANSI session: 3. the validity equal where neither raises nor declines: expect unsat")
+(echo "d9 * 0.5 > d9b, Spark mode, an ANSI session: 3. the validity equal where neither raises nor declines: expect unsat")
 (push 1)
 (declare-const c0 Int)
 (assert (jlong.in c0))
@@ -4357,7 +4357,7 @@
 (check-sat)
 (pop 1)
 
-(echo "d9 * 0.5 > d9b, Spark mode, a ANSI session: 4. the values equal on valid lanes: expect unsat")
+(echo "d9 * 0.5 > d9b, Spark mode, an ANSI session: 4. the values equal on valid lanes: expect unsat")
 (push 1)
 (declare-const c0 Int)
 (assert (jlong.in c0))
@@ -4377,7 +4377,7 @@
 (check-sat)
 (pop 1)
 
-(echo "d9 * 0.5 > d9b, Spark mode, a ANSI session: 5. a decline only where the specification raises or the input leaves the bound: expect unsat")
+(echo "d9 * 0.5 > d9b, Spark mode, an ANSI session: 5. a decline only where the specification raises or the input leaves the bound: expect unsat")
 (push 1)
 (declare-const c0 Int)
 (assert (jlong.in c0))
@@ -4496,7 +4496,7 @@
 
 ; d9 + 1.5 < d9b (c0 d9, c1 d9b): (cmp:LT (int:ADD:WRAP dec:0:long:p9 lit:0:long) dec:1:long:p9)
 
-(echo "d9 + 1.5 < d9b, Spark mode, a ANSI session: 1. the precondition admits a valid lane the specification defines and the kernel answers: expect sat")
+(echo "d9 + 1.5 < d9b, Spark mode, an ANSI session: 1. the precondition admits a valid lane the specification defines and the kernel answers: expect sat")
 (push 1)
 (declare-const c0 Int)
 (assert (jlong.in c0))
@@ -4514,7 +4514,7 @@
 (check-sat)
 (pop 1)
 
-(echo "d9 + 1.5 < d9b, Spark mode, a ANSI session: 2. a decline wherever the specification raises: expect unsat")
+(echo "d9 + 1.5 < d9b, Spark mode, an ANSI session: 2. a decline wherever the specification raises: expect unsat")
 (push 1)
 (declare-const c0 Int)
 (assert (jlong.in c0))
@@ -4530,7 +4530,7 @@
 (check-sat)
 (pop 1)
 
-(echo "d9 + 1.5 < d9b, Spark mode, a ANSI session: 3. the validity equal where neither raises nor declines: expect unsat")
+(echo "d9 + 1.5 < d9b, Spark mode, an ANSI session: 3. the validity equal where neither raises nor declines: expect unsat")
 (push 1)
 (declare-const c0 Int)
 (assert (jlong.in c0))
@@ -4547,7 +4547,7 @@
 (check-sat)
 (pop 1)
 
-(echo "d9 + 1.5 < d9b, Spark mode, a ANSI session: 4. the values equal on valid lanes: expect unsat")
+(echo "d9 + 1.5 < d9b, Spark mode, an ANSI session: 4. the values equal on valid lanes: expect unsat")
 (push 1)
 (declare-const c0 Int)
 (assert (jlong.in c0))
@@ -4565,7 +4565,7 @@
 (check-sat)
 (pop 1)
 
-(echo "d9 + 1.5 < d9b, Spark mode, a ANSI session: 5. a decline only where the specification raises or the input leaves the bound: expect unsat")
+(echo "d9 + 1.5 < d9b, Spark mode, an ANSI session: 5. a decline only where the specification raises or the input leaves the bound: expect unsat")
 (push 1)
 (declare-const c0 Int)
 (assert (jlong.in c0))
@@ -4672,7 +4672,7 @@
 
 ; d9 - d9s4 > 0.00 (c0 d9, c1 d9s4): (cmp:GT (int:SUB:WRAP (int:MUL:WRAP dec:0:long:p9 lit:0:long) dec:1:long:p9) lit:1:long)
 
-(echo "d9 - d9s4 > 0.00, Spark mode, a ANSI session: 1. the precondition admits a valid lane the specification defines and the kernel answers: expect sat")
+(echo "d9 - d9s4 > 0.00, Spark mode, an ANSI session: 1. the precondition admits a valid lane the specification defines and the kernel answers: expect sat")
 (push 1)
 (declare-const c0 Int)
 (assert (jlong.in c0))
@@ -4692,7 +4692,7 @@
 (check-sat)
 (pop 1)
 
-(echo "d9 - d9s4 > 0.00, Spark mode, a ANSI session: 2. a decline wherever the specification raises: expect unsat")
+(echo "d9 - d9s4 > 0.00, Spark mode, an ANSI session: 2. a decline wherever the specification raises: expect unsat")
 (push 1)
 (declare-const c0 Int)
 (assert (jlong.in c0))
@@ -4710,7 +4710,7 @@
 (check-sat)
 (pop 1)
 
-(echo "d9 - d9s4 > 0.00, Spark mode, a ANSI session: 3. the validity equal where neither raises nor declines: expect unsat")
+(echo "d9 - d9s4 > 0.00, Spark mode, an ANSI session: 3. the validity equal where neither raises nor declines: expect unsat")
 (push 1)
 (declare-const c0 Int)
 (assert (jlong.in c0))
@@ -4729,7 +4729,7 @@
 (check-sat)
 (pop 1)
 
-(echo "d9 - d9s4 > 0.00, Spark mode, a ANSI session: 4. the values equal on valid lanes: expect unsat")
+(echo "d9 - d9s4 > 0.00, Spark mode, an ANSI session: 4. the values equal on valid lanes: expect unsat")
 (push 1)
 (declare-const c0 Int)
 (assert (jlong.in c0))
@@ -4749,7 +4749,7 @@
 (check-sat)
 (pop 1)
 
-(echo "d9 - d9s4 > 0.00, Spark mode, a ANSI session: 5. a decline only where the specification raises or the input leaves the bound: expect unsat")
+(echo "d9 - d9s4 > 0.00, Spark mode, an ANSI session: 5. a decline only where the specification raises or the input leaves the bound: expect unsat")
 (push 1)
 (declare-const c0 Int)
 (assert (jlong.in c0))
@@ -4868,7 +4868,7 @@
 
 ; d9 + d16s9 > d9s4 (c0 d9, c1 d16s9, c2 d9s4): (cmp:GT (int:ADD:WRAP (int:MUL:WRAP dec:0:long:p9 lit:0:long) dec:1:long:p16) (int:MUL:WRAP dec:2:long:p9 lit:1:long))
 
-(echo "d9 + d16s9 > d9s4, Spark mode, a ANSI session: 1. the precondition admits a valid lane the specification defines and the kernel answers: expect sat")
+(echo "d9 + d16s9 > d9s4, Spark mode, an ANSI session: 1. the precondition admits a valid lane the specification defines and the kernel answers: expect sat")
 (push 1)
 (declare-const c0 Int)
 (assert (jlong.in c0))
@@ -4893,7 +4893,7 @@
 (check-sat)
 (pop 1)
 
-(echo "d9 + d16s9 > d9s4, Spark mode, a ANSI session: 2. a decline wherever the specification raises: expect unsat")
+(echo "d9 + d16s9 > d9s4, Spark mode, an ANSI session: 2. a decline wherever the specification raises: expect unsat")
 (push 1)
 (declare-const c0 Int)
 (assert (jlong.in c0))
@@ -4916,7 +4916,7 @@
 (check-sat)
 (pop 1)
 
-(echo "d9 + d16s9 > d9s4, Spark mode, a ANSI session: 3. the validity equal where neither raises nor declines: expect unsat")
+(echo "d9 + d16s9 > d9s4, Spark mode, an ANSI session: 3. the validity equal where neither raises nor declines: expect unsat")
 (push 1)
 (declare-const c0 Int)
 (assert (jlong.in c0))
@@ -4940,7 +4940,7 @@
 (check-sat)
 (pop 1)
 
-(echo "d9 + d16s9 > d9s4, Spark mode, a ANSI session: 4. the values equal on valid lanes: expect unsat")
+(echo "d9 + d16s9 > d9s4, Spark mode, an ANSI session: 4. the values equal on valid lanes: expect unsat")
 (push 1)
 (declare-const c0 Int)
 (assert (jlong.in c0))
@@ -4965,7 +4965,7 @@
 (check-sat)
 (pop 1)
 
-(echo "d9 + d16s9 > d9s4, Spark mode, a ANSI session: 5. a decline only where the specification raises or the input leaves the bound: expect unsat")
+(echo "d9 + d16s9 > d9s4, Spark mode, an ANSI session: 5. a decline only where the specification raises or the input leaves the bound: expect unsat")
 (push 1)
 (declare-const c0 Int)
 (assert (jlong.in c0))
@@ -5114,7 +5114,7 @@
 
 ; -(d9 + d9b) = d9s4 (c0 d9, c1 d9b, c2 d9s4): (cmp:EQ (int:MUL:WRAP (neg:WRAP (int:ADD:WRAP dec:0:long:p9 dec:1:long:p9)) lit:0:long) dec:2:long:p9)
 
-(echo "-(d9 + d9b) = d9s4, Spark mode, a ANSI session: 1. the precondition admits a valid lane the specification defines and the kernel answers: expect sat")
+(echo "-(d9 + d9b) = d9s4, Spark mode, an ANSI session: 1. the precondition admits a valid lane the specification defines and the kernel answers: expect sat")
 (push 1)
 (declare-const c0 Int)
 (assert (jlong.in c0))
@@ -5139,7 +5139,7 @@
 (check-sat)
 (pop 1)
 
-(echo "-(d9 + d9b) = d9s4, Spark mode, a ANSI session: 2. a decline wherever the specification raises: expect unsat")
+(echo "-(d9 + d9b) = d9s4, Spark mode, an ANSI session: 2. a decline wherever the specification raises: expect unsat")
 (push 1)
 (declare-const c0 Int)
 (assert (jlong.in c0))
@@ -5162,7 +5162,7 @@
 (check-sat)
 (pop 1)
 
-(echo "-(d9 + d9b) = d9s4, Spark mode, a ANSI session: 3. the validity equal where neither raises nor declines: expect unsat")
+(echo "-(d9 + d9b) = d9s4, Spark mode, an ANSI session: 3. the validity equal where neither raises nor declines: expect unsat")
 (push 1)
 (declare-const c0 Int)
 (assert (jlong.in c0))
@@ -5186,7 +5186,7 @@
 (check-sat)
 (pop 1)
 
-(echo "-(d9 + d9b) = d9s4, Spark mode, a ANSI session: 4. the values equal on valid lanes: expect unsat")
+(echo "-(d9 + d9b) = d9s4, Spark mode, an ANSI session: 4. the values equal on valid lanes: expect unsat")
 (push 1)
 (declare-const c0 Int)
 (assert (jlong.in c0))
@@ -5211,7 +5211,7 @@
 (check-sat)
 (pop 1)
 
-(echo "-(d9 + d9b) = d9s4, Spark mode, a ANSI session: 5. a decline only where the specification raises or the input leaves the bound: expect unsat")
+(echo "-(d9 + d9b) = d9s4, Spark mode, an ANSI session: 5. a decline only where the specification raises or the input leaves the bound: expect unsat")
 (push 1)
 (declare-const c0 Int)
 (assert (jlong.in c0))

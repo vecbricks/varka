@@ -891,45 +891,37 @@ derived from the emitter's, and the walk's sharing.
    Catalyst node into `spec.dec.*` (a column raising on a valid slot past its precision wherever
    it is read, a cast rescaled up or cut `HALF_UP`, `+`, `-` and `*` exact, each fitted to its
    type, raising under ANSI and null otherwise; the comparisons, `<=>`, null tests, `greatest`,
-   `coalesce`, `CASE`, `IN` and `InSet`, a later `coalesce` operand and an untaken arm raising
-   only where Spark evaluates them); any other node is refused. 42 rows render, 20 alike in both
+   `coalesce`, `CASE`, `IN` and `InSet`, each raising only where Spark evaluates it); any other
+   node is refused. 42 rows render, 20 alike in both
    sessions and 22 once per session: 320 checks, no word-form obligation arising. The header lists
    the one refused row.
 2. **The coverage rows name it**: `rendered: decimal_refinement.smt2`, a new kind with its own
    column in the documentation's counts, failing a row of either family the file does not echo.
    347's equal-scale rows, differential until now, are refined for the first time.
-3. **The arm rule read from the emitter (10.2 finding 3, fixed).** `VarkaSmtNodes.kernel` takes
-   `VarkaLoopEmitter.guardsForTest`'s guards with their `Analysis.armChainsOf` chains and declines
-   on each guarded node's own check where some chain selects the lane, or everywhere where it has
-   none; a template that declines where the emitter makes no check is refused. Every case the
-   review listed is then the emitter's answer, and a stored-value guard (VARKA-379) reads null
-   rows, which the template did not. `armChainsIn`'s materialized date is per body and only under
-   a calendar node, which the printer refuses. The samples' oracle reads the same guards through
-   `VarkaReference`, and the hand set gains the date contract guard. A node's template is back to
-   its own rule, an untaken arm's decline left out.
-4. **The slot-check walk is gone (10.2 finding 4, fixed)**: with the decline read from the
-   guards, `loads` is removed, and `kernel` visits each node once.
+3. **The arm rule read from the emitter (10.2 finding 3, fixed).** `VarkaSmtNodes.kernel`
+   declines on each node `VarkaLoopEmitter.guardsForTest` reports, its own check on the lanes
+   some `Analysis.armChainsOf` chain selects, or everywhere where it has none, and refuses a
+   template check the emitter does not make; a stored-value guard (VARKA-379) reads null rows.
+   `armChainsIn`'s materialized date sits only under calendar nodes, which are refused. The
+   samples' oracle reads the same guards, and a template is back to its own rule.
+4. **The slot-check walk is gone (10.2 finding 4, fixed)**: `loads` is removed, and `kernel`
+   visits each node once.
 
 **The diff of 3 item 5.** A scratch file paired each of the 31 retired hand rows (348's 15,
-349's seven in both modes, `try_add` and `try_multiply`) with its rendered row, the columns
-mapped by name, and asked Z3 whether the specification's raise, the kernel's decline, the
-kernel's validity and data, and the specification's value and validity differ, each where it is
-read: all 155 queries `unsat`. Outside the claims, the hand rows' LEGACY validity of five
-arithmetic rows ignores the comparison's casts fitting, which differs only on a slot past its
-precision, where both raise. Not committed: it read the text it retires.
+349's seven in both modes, `try_add`, `try_multiply`) with its rendered row and asked Z3 whether
+any claim differs where it is read: all 155 queries `unsat`, so the hand rows were right. Not
+committed: it read the text it retires.
 
-**What stays hand-written**: `d8 * d9 <= d9b`, both modes, with `decimal64.smt2`'s ring bound; it
-multiplies two column values, which 2.4 refuses (506c's). `try_multiply(d8, d9) IS NULL` renders,
-against 10.2's finding 2: its kernel reads only the operands' validity.
+**Hand-written still**: `d8 * d9 <= d9b`, a product of two columns (2.4, 506c's);
+`try_multiply(d8, d9) IS NULL` renders, its kernel reading only validity (against 10.2 finding 2).
 
-**Validation.** Laptop, whole file: `decimal_refinement.smt2` Z3 0.47 s, cvc5 0.55 s;
-`refinement.smt2` from 381 checks to 226, Z3 2.96 s to 2.94 s, cvc5 4.22 s to 4.13 s;
-`smt_nodes_check.smt2` 97 checks, Z3 0.03 s, cvc5 0.07 s. Every proof holds under both solvers,
-`--lint` takes 45 s, and `VarkaProofFilesSuite`, `VarkaSmtNodesSuite`, `VarkaSmtTermSuite` and
-`VarkaCoverageSuite` pass. Not vacuous, by planted faults on the rendered text, each failing its
-own check under both solvers: `d9 < d9s4`'s rescale factor 10 for 100 (check 4), the slot check
-of `d9 + d9b < d18`'s first column dropped (check 2), and the specification's rescale of a column
-by one digit for two (check 4).
+**Validation.** Laptop: `decimal_refinement.smt2` Z3 0.47 s, cvc5 0.55 s; `refinement.smt2` 381
+checks to 226, Z3 2.96 s to 2.94 s, cvc5 4.22 s to 4.13 s; every proof holds under both, `--lint`
+45 s; the four catalyst suites pass. Planted on the rendered text, each failing its own check under
+both: `d9 < d9s4`'s factor 10 for 100 (check 4), a slot check of `d9 + d9b < d18` dropped (check
+2), the specification's rescale one digit short (check 4).
 
-**Finding.** The hand rows were right: no claim differed. What the rendering adds is that a
-change to the compiler's kernel or to Spark's rules now moves the proof with it.
+**The review** (`/code-review high`, one triaged round): fixed `IN`'s raise to the items Spark
+reads, refusals in place of aborts, the converse refusal in `kernel`, sorts from the terms, the
+docs and row 506; left the copied fixtures (the coverage suite's are private Scala), a widening
+cast's ANSI fit printing 22 rows twice, and the last hand row's dead `try_` branch.

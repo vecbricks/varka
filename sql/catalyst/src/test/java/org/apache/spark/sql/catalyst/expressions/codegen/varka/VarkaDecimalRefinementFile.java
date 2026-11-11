@@ -97,6 +97,8 @@ final class VarkaDecimalRefinementFile {
         shape(body, sql);
       } catch (Refused | VarkaSmtNodes.Refused r) {
         refused.put(sql, r.getMessage());
+      } catch (ArithmeticException r) {
+        refused.put(sql, "a literal past a long: " + r.getMessage());
       }
     }
     var out = new StringBuilder(VarkaProofFiles.LICENSE);
@@ -228,18 +230,19 @@ final class VarkaDecimalRefinementFile {
     for (var ob : obligations) {
       VarkaSmtTerm.collect(ob.claim(), vars, quots);
     }
-    var names = new LinkedHashSet<String>();
+    // The specification's columns, which a kernel that reads only validity may not name.
+    var names = new LinkedHashMap<String, Boolean>();
     for (int c : ordinals) {
-      names.add("c" + c);
-      names.add("v" + c);
+      names.put("c" + c, false);
+      names.put("v" + c, true);
     }
-    names.addAll(vars.keySet());
+    vars.forEach((n, v) -> names.put(n, v.sort() == VarkaSmtTerm.Sort.BOOL));
     var lines = new ArrayList<String>();
-    for (String n : names) {
-      lines.add("(declare-const " + n + " " + (n.startsWith("v") || n.startsWith("b") ? "Bool"
-          : "Int") + ")");
+    for (var e : names.entrySet()) {
+      String n = e.getKey();
+      lines.add("(declare-const " + n + " " + (e.getValue() ? "Bool" : "Int") + ")");
       String fact = facts.containsKey(n) ? facts.get(n).render()
-          : n.startsWith("c") ? "(jlong.in " + n + ")" : null;
+          : e.getValue() ? null : "(jlong.in " + n + ")";
       if (fact != null) {
         lines.add("(assert " + fact + ")");
       }
@@ -391,21 +394,27 @@ final class VarkaDecimalRefinementFile {
       if (e instanceof In in) {
         Value x = decimal(in.value());
         var hits = new ArrayList<String>();
-        String raise = x.raise();
+        // Spark reads no item of a null value, and none past the first match.
+        String raise = "false";
         String known = "true";
         for (Expression item : CollectionConverters.asJava(in.list())) {
           Value y = decimal(item);
-          raise = or(raise, y.raise());
+          raise = or(raise, and(hits.isEmpty() ? "true" : "(not (or false " + String.join(" ",
+              hits) + "))", y.raise()));
           known = and(known, y.valid());
           hits.add("(and " + y.valid() + " (= " + cmp(x, y) + " 0))");
         }
         String hit = "(or " + String.join(" ", hits) + ")";
-        return cond(raise, "(and " + x.valid() + " (or " + hit + " " + known + "))", hit);
+        return cond(or(x.raise(), and(x.valid(), raise)), "(and " + x.valid() + " (or " + hit
+            + " " + known + "))", hit);
       }
       if (e instanceof InSet in) {
         Value x = decimal(in.child());
         var hits = new ArrayList<String>();
         for (Object v : CollectionConverters.asJava(in.hset())) {
+          if (v == null) {
+            throw new Refused("an InSet holding a null");
+          }
           BigDecimal d = ((Decimal) v).toJavaBigDecimal();
           var y = new Value("false", "true", VarkaProofFiles.lit(d.unscaledValue()
               .longValueExact()), d.precision(), d.scale());

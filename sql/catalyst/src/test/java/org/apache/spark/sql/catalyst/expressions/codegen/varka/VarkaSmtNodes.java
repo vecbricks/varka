@@ -132,7 +132,8 @@ final class VarkaSmtNodes {
    * is a guard with {@code guardUnderArm} off, past {@code MAX_ARM_CHAINS} chains, on an arm cycle
    * or over stored values with several chains, and a stored-value guard checks null rows too. A
    * node whose template declines and that the
-   * emitter does not guard is refused, as the kernel would not check it. Each node is visited
+   * emitter does not guard is refused, as the kernel would not check it, and so is the converse.
+   * Each node is visited
    * once, so a shared subtree costs once.
    */
   Outcome kernel(VarkaVectorIR root, Map<VarkaVectorIR, VarkaLoopEmitter.GuardForTest> guards) {
@@ -151,8 +152,9 @@ final class VarkaSmtNodes {
       VarkaSmtTerm own = template(n, k -> new Outcome(new Flag(false),
           stored ? new Flag(true) : outcome(k).valid(), outcome(k).data())).decline();
       VarkaLoopEmitter.GuardForTest guard = guards.get(n);
-      if (guard == null && !own.equals(new Flag(false))) {
-        throw new Refused(n, "its template declines where the emitter makes no check");
+      if ((guard == null) != own.equals(new Flag(false))) {
+        throw new Refused(n, guard == null ? "its template declines where the emitter makes no "
+            + "check" : "the emitter guards it where its template states no check");
       }
       if (guard != null) {
         decline = or(decline, and(own, selects(guard.arms())));
