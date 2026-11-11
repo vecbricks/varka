@@ -82,7 +82,7 @@ Which masked stores C2 intrinsifies at UseAVX=2, MaxVectorSize=16 (MaskedStores6
     byte64  (vlen 8)  fallback, "not supported: op=storeMasked vlen=8 etype=byte", 40960 B/call
     short64 (vlen 4)  fallback, 40960 B/call
     int128  (vlen 4)  intrinsic, 0 B/call
-    long128 (vlen 2)  fallback, 110424 B/call (reason not read; VARKA-603.md 7)
+    long128 (vlen 2)  fallback, 110424 B/call (reason not read; VARKA-603.md 10.1)
 
 Store forms in the JDK-only model (Repro603, UseAVX=2, 128 bits; M rows/s, two quiet runs)
 -----------------------------------------------------------------------------------------
@@ -94,9 +94,10 @@ Store forms in the JDK-only model (Repro603, UseAVX=2, 128 bits; M rows/s, two q
              loop stopping one int group early               957 - 1845    0 B/row
     native   ByteVector.SPECIES_128 load, neg, store       27676 - 28544    0 B/row
 
-The forms are unranked: the two runs order whole and over differently. An earlier looped
-variant of whole allocated 13 B/row from a loop-carried vector phi; the form above, whose
-groups are straight-line as the emitter's are, allocates nothing.
+Against masked in the same runs, whole and over are 17.5 to 33.9 times faster
+(957 / 54.6 to 1845 / 54.5). The forms are unranked: the two runs order whole and over
+differently. An earlier looped variant of whole allocated 13 B/row from a loop-carried vector
+phi; the form above, whose groups are straight-line as the emitter's are, allocates nothing.
 
 HotSpot source (jdk-25-ga)
 --------------------------
@@ -115,7 +116,7 @@ HotSpot source (jdk-25-ga)
 
 The JVM run is 25.0.5 and the line numbers are from the jdk-25-ga source.
 
-Side readings (not this row's; VARKA-603.md 7)
+Side readings (not this row's; VARKA-603.md 10.1)
 ---------------------------------------------
 
 - The OSR compiles of i (7N and 7W) also print "** unbox failed v2=Phi" and

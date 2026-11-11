@@ -34,10 +34,11 @@ EPYC 7763 runner (section 4). Nothing was dispatched for this plan.
 3. **It allocates.** Under `-Xlog:gc`, h and i took 235 and 218 young pauses over three rungs,
    against 3 to 19 for every other shape, while running about 1/200 of f's rows. The JDK-only
    model (`Repro603 masked`) allocates 20 bytes a row at `UseAVX=2` and none at the laptop's own
-   AVX-512. On a production executor, 20 bytes a row is twenty times the allocation sampler's
-   per-row allowance (`VarkaAllocationSampler.BYTES_PER_ROW_ALLOWANCE`, 1 byte). So an AVX2 host
-   at 128 bits would warn on these kernels (**[I]**: inferred from the constant; no evaluator was
-   run).
+   AVX-512. The emitted kernels' bytes a row were not measured; the pause counts are their only
+   allocation record. If they match the model, that is twenty times the allocation sampler's
+   per-row allowance (`VarkaAllocationSampler.BYTES_PER_ROW_ALLOWANCE`, 1 byte), and an AVX2 host
+   at 128 bits would warn on these kernels (**[I]**: inferred from the model and the constant; no
+   evaluator was run).
 4. **Where the emitter writes it.** `VarkaBodyEmitter.emitNarrowTypeStore` (`:1211`) stores a
    narrow root at `analysis.widenLanes(stored)` lanes (`:1229`). At four int lanes a byte has no
    32-bit species, so that is `ByteVector.SPECIES_64`, eight lanes. The condition at `:1249` masks
@@ -58,13 +59,17 @@ EPYC 7763 runner (section 4). Nothing was dispatched for this plan.
      early so that the last upper half stays inside the segment (the long lane's form,
      `wholeNarrowStoreAtLong`).
 
-   Both read 0 bytes a row and run at 0.96 to 1.8 G rows/s, against 55 to 168 M rows/s for the
-   masked form. The two quiet runs order them differently, so they are unranked. Three limits
-   apply. The model is the laptop's, a JDK-only class, and runs in a JVM with no other vector
-   code. An earlier looped variant of *combined* allocated 13 bytes a row from a loop-carried
+   Both read 0 bytes a row and run at 0.96 to 1.8 G rows/s, against 54.5 to 54.6 M rows/s for the
+   masked form in the same two quiet runs (`results/VARKA-603-diagnosis.txt`: 17.5 to 33.9 times).
+   The two runs order them differently, so they are unranked. Four limits apply. The model is the
+   laptop's, a JDK-only class, and runs in a JVM with no other vector code. It loads the byte
+   inputs once an iteration, where the emitter reloads them in every group (`emitNarrowLoad`, row
+   479's load-once), so the kernel 603b builds has more loads and live vectors per group than the
+   model had. An earlier looped variant of *combined* allocated 13 bytes a row from a loop-carried
    vector phi; the straight-line form above, the emitter's own shape, allocated nothing.
-   `VARKA-577.md` 10.4 records forms that were clean in an isolated JVM and boxed beside other
-   vector code. So the model admits both forms for building, and the emitted kernels decide.
+   `VARKA-577.md`'s outcome for two long lanes records forms that were clean in an isolated JVM
+   and boxed beside other vector code. So the model admits both forms for building, and the
+   emitted kernels decide.
 7. **The epilogue is masked too, and the two forms treat it differently.** `emitEpilogue` returns
    at once when the batch divides evenly, as 4096 does. Otherwise the epilogue runs one group a
    pass (`emitMixedEpilogue`, up to `narrowGroups()` passes) with a masked narrow load
@@ -86,11 +91,20 @@ EPYC 7763 runner (section 4). Nothing was dispatched for this plan.
    asks for a rerun under `JDK_JAVA_OPTIONS=-XX:UseAVX=2` before an emitter change is pushed,
    and that rerun at 128 bits should list the `storeMasked` refusal for `try_multiply(y1, y2)`
    (**[I]**: not run for this plan).
-10. **Who else is in this code.** #1484 (row 104, open) changes `VarkaNodeCompiler`,
-    `DeclineSink`, `VarkaEmitOptions`, `VarkaVectorWalk` (at `emitIntNeg`), `emitted_bytes.json`,
+10. **The same masked store without a narrow input.** `narrowGroups()` counts only the narrow
+    values a kernel reads (`VarkaKernelPlan.narrowGroups`, through `VarkaVectorIR.narrowValuesIn`),
+    but the mask at `:1249` follows the species stored. A narrowing cast of an int value,
+    `CAST(i AS TINYINT)`, `CAST(i + 1 AS TINYINT)` or `try_cast(i AS TINYINT)` (all in
+    `emitted_bytes.json`), has one group at four int lanes and still stores `SPECIES_64` under a
+    mask in every group of its loop. By the same `x86.ad` rule it falls back on AVX2 at 128 bits
+    (**[I]**: not run; found by this plan's review). So the fix must be sized by the stored
+    species, not by `narrowGroups()` (2.2).
+11. **Who else is in this code.** #1484 (row 104, open) changes `VarkaNodeCompiler`, `DeclineSink`,
+    `VarkaEmitOptions`, `VarkaVectorWalk` (at `emitIntNeg`), `emitted_bytes.json`,
     `width_audit.json` and `PLAN.md`, but not `VarkaBodyEmitter` or `VarkaKernelPlan`. A store fix
-    does not touch its code. It does share `VarkaEmitOptions`, the regenerated files and
-    `PLAN.md`. A decline by name would go through `VarkaNodeCompiler` and `DeclineSink`, which
+    does not touch the code #1484 changes, but it shares files with it: `VarkaEmitOptions` (603b),
+    `VarkaVectorWalk` (603c's per-row epilogue, at `narrowRowsInEpilogue`), the regenerated files
+    and `PLAN.md`. A decline by name would go through `VarkaNodeCompiler` and `DeclineSink`, which
     #1484 changes (its `TWO_LANE_CHECK_REASON` is the precedent). Row 481 (Started) restructures
     the checked multiply through `GuardedRange` and still drives it at the int lane, so it moves
     h's and i's bytes but not their store.
@@ -115,8 +129,12 @@ NEON, **[I]** for NEON), the main loop of a kernel driven at the int lane whose 
 species spans more than one int group stores each narrow root whole and unmasked. Shapes h and i
 of `VarkaNarrowEmitBenchmark` then stop running 31 to 36 times slower than at 256 bits.
 
+Kernels with a narrowing cast of an int value (0, item 10) are in the goal too, since they take
+the same branch.
+
 **Non-goal.** No change at eight or more int lanes, so no default byte moves on a 256-bit or
-512-bit host. No change to the multiply, its range check or `narrowArith`. No load-once and no
+512-bit host. No change to the multiply, its range check or `narrowArith` (a short-lane drive of
+the byte multiply is question 7.4). No load-once and no
 group pricing, which stay row 479's. No decline: the shapes keep fusing.
 
 ## 2. Design
@@ -131,24 +149,36 @@ A catalog entry, a probe loop and its switch case, in the files the census alrea
 
 `op_store_i2b64_masked` converts an `IntVector` at the census's int species with
 `convertShape(I2B, ByteVector.SPECIES_64, 0)` and stores it with `intoMemorySegment` under
-`SPECIES_64.indexInRange(0, lanes)`, with `lanes` not a constant. A control cell,
-`int.I2S_store64` (four short lanes, whole), is the twin that must read `I`. Expected verdicts:
-`I` on the laptop at its own flags, `F` under `-XX:UseAVX=2`, `F` on the EPYC 7763 at 128 bits.
+`SPECIES_64.indexInRange(0, lanes)`, with `lanes` not a constant. Its control is the fix's own
+operation, `int.I2B_store64_combined`, bounded the same way (`0, 128`): parts 0 and -1 of
+`I2B` into `ByteVector.SPECIES_64`, OR-ed and stored whole. It must read `I`. Expected verdicts:
+`I` on the laptop at its own flags, `F` on the EPYC 7763 at 128 bits. The laptop's census file is
+one per host and is regenerated at its own flags only. The cell's reading under `-XX:UseAVX=2`
+is taken by a one-off fork of the probe, as `hostFactUnderAvx2` does for its cells, and is
+recorded in a results text, not in `operator_census.json`.
 The cell records what the operation costs on a host, not what the emitter emits. It stays `F` on
 the EPYC after the fix, and the fix's evidence is that the kernels stop calling it (3.1).
 
 ### 2.2 The store form, behind an option
 
-A new `VarkaEmitOptions` component, `narrowGroupStore`, with three values. It applies only where
-`narrowGroups() > 1` and the store species is wider than the int group. Elsewhere the store is
-already whole, and nothing changes.
+A new `VarkaEmitOptions` component, `narrowGroupStore`, with three values. It applies to every
+narrow root of a kernel driven at the int lane whose store species is wider than the int group:
+`parts = widenLanes(stored) / lanes` for that root. Since that count comes from the stored type, it
+can differ from `narrowGroups()`, which comes from the narrow inputs (0, item 10). The plan
+therefore sizes the iteration by the larger of the two: under `COMBINED` and `OVERLAP`,
+`narrowGroups` counts stored narrow roots too (under `MASKED` it stays as now), so a cast like
+`CAST(i AS TINYINT)` gets two groups at four int lanes. Each root then stores once every `parts`
+groups, at the first row of those groups. Where the store species is no wider than the group the
+store is already whole, and nothing changes.
 
 - `MASKED`: today's form, kept as the live reference.
 - `COMBINED`: each group's `I2B` (or `I2S`) result goes to a per-root local, converted at part
-  `-g` for group `g`, OR-ed into the accumulator. After the last group the accumulator is stored
-  whole at the iteration's first row. The loop bound is unchanged (whole iterations, as now), so
-  the epilogue keeps its masked one-group passes and stays cold on even batches. The parts run
-  0 to -(groups - 1): two at four int lanes, four at two for bytes, two at two for shorts.
+  `-(g mod parts)` for group `g`, OR-ed into the accumulator. After every `parts`-th group the
+  accumulator is stored whole at the first row of those groups and cleared. The loop bound stays
+  a whole iteration, so the epilogue keeps its masked one-group passes and stays cold on even
+  batches. The parts run 0 to -(parts - 1): for bytes two at four int lanes and four at two, for
+  shorts one at four (no change) and two at two. A byte input with a short root at two lanes has
+  four groups and a two-part store, so that root stores twice an iteration.
 - `OVERLAP`: each group stores its whole `widenLanes` vector, and the next group writes over the
   upper lanes. The loop stops `speciesLanes - lanes` rows early, rounded down to whole iterations,
   so the last whole store stays inside the segment. That is the `wholeNarrowStoreAtLong`
@@ -165,7 +195,7 @@ choosing by argument. `COMBINED` comes first, since it needs no epilogue change.
 
 The epilogue under `MASKED` and `COMBINED`, cold on even batches and at most `narrowGroups()`
 masked passes on a ragged one. The narrow load issued once per group (row 479). The grouping
-weights (row 479). The byte-driven arm's own epilogue (7, item 3).
+weights (row 479). The byte-driven arm's own epilogue (10.1, item 3).
 
 ## 3. Tests and proofs
 
@@ -174,7 +204,8 @@ weights (row 479). The byte-driven arm's own epilogue (7, item 3).
    `loopMasked0`) hold no masked `intoMemorySegment`, and one whole store per narrow root per
    iteration (`COMBINED`) or per group (`OVERLAP`). Under `MASKED` they hold today's count. The
    numbers come from `dev/varka_emit.sh --table --variant narrowGroupStore=...`, not from reading
-   the emitter. The same test for a WIDENED store shape (`-y1`), since it is the same branch.
+   the emitter. The same test for a WIDENED store shape (`-y1`) and for `CAST(i AS TINYINT)` on the
+   default arm (0, item 10), since they take the same branch.
 2. **Answers.** `VarkaEmitterNarrowSuite` and `VarkaEmitterNarrowArithSuite` under every
    `narrowGroupStore` value at `lanesOverride=4` and `2`, against the reference, with batch lengths
    leaving 0, 1, `lanes - 1`, `lanes` and `groups * lanes - 1` rows past the loop (and, for
@@ -189,9 +220,9 @@ weights (row 479). The byte-driven arm's own epilogue (7, item 3).
 5. **The warm-up.** `COMBINED` adds `convertShape` at a negative part and a byte `or` that the
    template warm-up may not make. `VarkaWarmupReachSuite` must pass, and it gains the calls if
    it fails (as `VARKA-479.md` 6 foresaw).
-6. **`emitted_bytes.json`.** Steps 2 and 3 move only the option-arm digests. Step 4's flip moves
-   the 128-bit and `lanesOverride` arms of shapes with a narrow root in a part-form kernel, read
-   shape by shape. The 256-bit and 512-bit default columns do not move.
+6. **`emitted_bytes.json`.** Steps 2 and 3 move only the option-arm digests. Step 4's flip moves the
+   128-bit and `lanesOverride` arms of shapes with a masked narrow store today (a part-form kernel
+   or a narrowing cast), read shape by shape. The 256-bit and 512-bit default columns do not move.
 
 ## 4. Predictions, registered before the build
 
@@ -203,9 +234,11 @@ its 256-bit twin, and compared by `dev/varka_bench_diff.py`. The benchmark gains
 change what a label means.
 
 - P1: at 128 bits, h and i under `COMBINED` and under `OVERLAP` are at least 10 times faster than
-  under `MASKED` (131 to 139 M rows/s now), on both `narrowLanes` arms. The model's ratio is 6 to
-  34 (**[I]**: a laptop model, not the kernel).
-- P2: WIDENED's e, f and g at 128 bits move the same way (150 to 156 M rows/s now).
+  under `MASKED` (131 to 139 M rows/s now), on both `narrowLanes` arms. The model's ratio is
+  17.5 to 33.9 (`results/VARKA-603-diagnosis.txt`; **[I]**: a laptop model, not the kernel).
+- P2: WIDENED's e, f and g at 128 bits move the same way (150 to 156 M rows/s now), and so does
+  a `CAST(i AS TINYINT)` store case, which 603b adds to the benchmark (no committed number yet;
+  its `MASKED` arm is the baseline in the same run).
 - P3: at 256 bits nothing moves beyond the band, since no kernel there has more than one group.
   This is the control.
 - P4: the SMALLINT shapes j and k do not move at either width (one group at four int lanes).
@@ -220,9 +253,9 @@ is on the owner's word.
 
 | step | what | counted lines (estimate) | depends on | owes |
 |---|---|--:|---|---|
-| 603a | census cell and its control (2.1); laptop `operator_census.json` regenerated (`VARKA_CENSUS_REGEN=true`, at its own flags and under `-XX:UseAVX=2`); the EPYC column from `varka-width-audit.yml`'s x86 artifact, which a push touching `VarkaOperatorCensus*.java` triggers | ~100 | nothing | one width-audit run on an EPYC 7763 runner |
-| 603b | `narrowGroupStore` with `MASKED` and `COMBINED` (2.2), its table entry, the benchmark arms, tests 3.1 to 3.5 for `COMBINED`, the width audit under AVX2 | ~400 | #1484 merged (shared `VarkaEmitOptions`, regenerated files, `PLAN.md`); question 7.1 answered | the laptop width audit at 128 bits under `UseAVX=2` |
-| 603c | `OVERLAP`: the int lane's early loop stop in the plan, the per-row int-lane epilogue, its tests | ~350 | 603b | none of its own |
+| 603a | census cell and its control (2.1); laptop `operator_census.json` regenerated at its own flags (`VARKA_CENSUS_REGEN=true`), the cell's `-XX:UseAVX=2` reading by a one-off fork into a results text; the EPYC column from `varka-width-audit.yml`'s x86 artifact, which a push touching `VarkaOperatorCensus*.java` triggers | ~100 | nothing | one width-audit run on an EPYC 7763 runner |
+| 603b | `narrowGroupStore` with `MASKED` and `COMBINED` (2.2), `narrowGroups` counting stored narrow roots under the new forms, its table entry, the benchmark arms and a `CAST(i AS TINYINT)` case, tests 3.1 to 3.5 for `COMBINED`, the width audit under AVX2 | ~450 | #1484 merged (shared `VarkaEmitOptions`, regenerated files, `PLAN.md`); question 7.1 answered | the laptop width audit at 128 bits under `UseAVX=2` |
+| 603c | `OVERLAP`: the int lane's early loop stop in the plan, the per-row int-lane epilogue, its tests | ~350 | 603b; #1484 merged (`VarkaVectorWalk`) | none of its own |
 | 603d | the EPYC 7763 runs at 128 and 256 bits with every arm, the default chosen by P5, the runner files regenerated, the bytes oracle and width audit regenerated, section 10 | ~80 plus generated files | 603b, and 603c unless the owner drops `OVERLAP` (7.2) | one dispatch at each width (two runs) |
 
 Files: `VarkaOperatorCensusCatalog.java`, `VarkaOperatorCensusProbe.java` and the census files
@@ -239,7 +272,7 @@ Size: small, as the row says, for 603a, 603b and 603d. 603c is the owner's choic
 
 - Load-once and the pricing of `narrowGroups`: row 479 (7.1).
 - A decline by name at 128 bits: not planned unless the owner picks 7.1 (e).
-- The side readings in 7.
+- The side readings in 10.1.
 
 ## 7. Questions for the owner
 
@@ -251,10 +284,11 @@ Size: small, as the row says, for 603a, 603b and 603d. 603c is the owner's choic
      word). Its premises (0.1, the NATIVE non-goal) do not cover h and i, and its predictions do
      not name them, so it needs amending anyway. The default arm's 138- to 308-fold loss waits on
      load-once and pricing that it does not need.
-   - (b) *603 folds into 479 as its x86 128-bit step.* 603 closes as superseded, and 479 gains h
-     and i, the census cell and the AVX2 evidence. For: one row and one plan. Against: the same
-     wait as (a), a medium row grown larger, and 603's done-when lives on inside another row's.
-   - (c) *603 builds the whole store (2.2) for every part-form kernel and closes on h's and i's
+   - (b) *603 folds into 479 as its x86 128-bit step.* 603 closes as superseded, and 479 gains h and
+     i, the census cell and the AVX2 evidence. For: one row and one plan. Against: the same wait as
+     (a), a medium row grown larger, and 603's done-when lives on inside another row's.
+   - (c) *603 builds the whole store (2.2) for every int-lane kernel whose narrow store is masked
+     today (the part-form kernels and the narrowing casts of 0, item 10) and closes on h's and i's
      EPYC rerun; 479 keeps load-once and pricing, and its store half (2.2, step 3) points here.*
      For: the default arm of a new type is fixed first and on its own, small, which serves
      milestone 8's goal. The code is written once. The census cell and the evidence stay with the
@@ -282,11 +316,28 @@ Size: small, as the row says, for 603a, 603b and 603d. 603c is the owner's choic
    bin is cheap, an `ubuntu-24.04-arm` reading at 128 bits is recorded but does not decide. That
    runner is Neoverse N2 with SVE2, whose predicated store may make `MASKED` cheap there
    (**[I]**).
+4. **A short-lane drive for the checked byte multiply** (raised by this plan's review). A byte
+   product fits a short exactly (128 * 128 = 16384), so the checked `TINYINT` multiply could run
+   at the short lane. That is eight lanes at 128 bits, with a whole `SPECIES_64` byte store and
+   no parts. The `SMALLINT` twin `s1 * s2` already reads about 4.5 G rows/s at 128 bits on whole
+   stores. The options:
+   - (a) *Not in this row.* The whole store (2.2) fixes h and i, WIDENED's e, f and g and the
+     casts. A short drive fixes h and i only, and it changes the multiply, which row 481
+     (Started) is restructuring through `GuardedRange`.
+   - (b) *Here, as a fourth arm of h and i.* For: it may be faster than any whole store at the int
+     lane, since it has no parts and no conversions back to bytes per group. Against: it moves
+     `narrowArith` and the range check, which this row's non-goal keeps out. It overlaps row 481,
+     and it leaves the other shapes to 2.2 anyway.
+   - (c) *A follow-up row after row 481 and this row's 603d.* It would be measured against
+     whichever store form 603d picks.
+
+   **Recommended: (c).** 603d's numbers show how much is left. If h and i stay well below the
+   `SMALLINT` twin after the fix, the follow-up is admitted with that gap as its reason.
 
 ## 8. Done when
 
-- The operator-census cell `int.I2B_store64_masked` and its control `int.I2S_store64` are in
-  `operator_census.json` (laptop, at its own flags) and in an EPYC 7763 census file, each with
+- The operator-census cell `int.I2B_store64_masked` and its control `int.I2B_store64_combined` are
+  in `operator_census.json` (laptop, at its own flags) and in an EPYC 7763 census file, each with
   the verdict its host reads (expected, 2.1: the masked cell `F` on the EPYC at 128 bits, the
   control `I`). The masked cell's verdict is the host's and is not changed by the fix.
 - The cause is recorded from HotSpot's output under `-XX:UseAVX=2 -XX:MaxVectorSize=16`, with the
