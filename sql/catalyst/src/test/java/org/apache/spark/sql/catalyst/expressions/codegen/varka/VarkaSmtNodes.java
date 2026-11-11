@@ -50,7 +50,9 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.*;
  * <p>A condition's outcome is three-valued: {@code valid} is that its truth is known and
  * {@code data} that truth, read only where it is known. {@code decline} is a lane the kernel
  * refuses the batch at: a checked operation's overflow and a leaf's load check, propagated from
- * every child except an {@code IfElse} arm the lane does not take. Leaves are free variables: a
+ * every child except an {@code IfElse} arm the lane does not take, whose decimal slot checks still
+ * count: the emitter never puts one under an arm ({@code Analysis.armChainsOf}). Leaves are free
+ * variables: a
  * column {@code c<n>} with validity {@code v<n>}, and a runtime literal the table's constant, or
  * {@code l<i>} (int) and {@code m<i>} (long) when no table is given. {@link #facts} holds the
  * range each variable ranges over.
@@ -172,9 +174,9 @@ final class VarkaSmtNodes {
       case And n -> kleene(child.apply(n.left()), child.apply(n.right()), true);
       case Or n -> kleene(child.apply(n.left()), child.apply(n.right()), false);
       case IfElse n -> choose(child.apply(n.cond()), child.apply(n.thenNode()),
-          child.apply(n.elseNode()));
+          child.apply(n.elseNode()), or(loads(n.thenNode(), child), loads(n.elseNode(), child)));
       case CondIf n -> choose(child.apply(n.cond()), child.apply(n.thenCond()),
-          child.apply(n.elseCond()));
+          child.apply(n.elseCond()), or(loads(n.thenCond(), child), loads(n.elseCond(), child)));
       case CondValue n -> {
         Outcome c = child.apply(n.cond());
         sortOf(n, n.lane());
@@ -364,11 +366,21 @@ final class VarkaSmtNodes {
         isAnd ? and(l.data(), r.data()) : or(l.data(), r.data()));
   }
 
-  /** The THEN arm where the condition is known true, else the ELSE arm; each arm's declines too. */
-  private static Outcome choose(Outcome c, Outcome t, Outcome e) {
+  /** The THEN arm where the condition is known true, else the ELSE arm; both arms' loads. */
+  private static Outcome choose(Outcome c, Outcome t, Outcome e, VarkaSmtTerm loads) {
     VarkaSmtTerm takes = and(c.valid(), c.data());
-    return new Outcome(or(c.decline(), ite(takes, t.decline(), e.decline())),
+    return new Outcome(or(or(c.decline(), ite(takes, t.decline(), e.decline())), loads),
         ite(takes, t.valid(), e.valid()), ite(takes, t.data(), e.data()));
+  }
+
+  /** The slot checks of the decimal leaves under {@code n}, ORed. */
+  private static VarkaSmtTerm loads(VarkaVectorIR n, Function<VarkaVectorIR, Outcome> child) {
+    VarkaSmtTerm out = n instanceof DecimalColumn || n instanceof DecimalWord
+        ? child.apply(n).decline() : new Flag(false);
+    for (VarkaVectorIR k : VarkaVectorIR.childrenOf(n)) {
+      out = or(out, loads(k, child));
+    }
+    return out;
   }
 
   private static Outcome pick(VarkaVectorIR n, Outcome l, Outcome r, Op keepsLeft) {

@@ -108,6 +108,7 @@ final class VarkaProofFiles {
     files.put("refinement.smt2", VarkaRefinementFile.render());
     files.put("smt_print_check.smt2", smtPrintCheck());
     files.put("smt_nodes_check.smt2", smtNodesCheck());
+    files.put("decimal_spec_check.smt2", VarkaDecimalSpecFile.render());
     return files;
   }
 
@@ -2987,6 +2988,9 @@ final class VarkaProofFiles {
   private static final double RTO_P32 = VarkaConversionLowering.TWO_32;
   /** The bits {@code L2F} drops into its sticky bit above {@code 2^52}. */
   private static final int RTO_SHIFT = VarkaConversionLowering.ODD_SHIFT;
+  /** The xor split's high word's magic, as bits, and what it subtracts (VARKA-583). */
+  private static final long RTO_HI_MAGIC = VarkaConversionLowering.HI_MAGIC_BITS;
+  private static final double RTO_XOR_BIAS = VarkaConversionLowering.XOR_SPLIT_BIAS;
   /** {@code L2F} rounds to odd where {@code m >>> RTO_SMALL_BITS != 0}. */
   private static final int RTO_SMALL_BITS = VarkaConversionLowering.SMALL_BITS;
   /** The bounded magic's window, {@code |v| <= 2^51}. */
@@ -3090,10 +3094,17 @@ final class VarkaProofFiles {
         ;                 dh = (bitsToDouble(hi + MB) - M) * 0x1p32
         ;                 dl = bitsToDouble(lo | bits(0x1p52)) - 0x1p52
         ;                 d = dh + dl
+        ;   L2D, xor      dh = bitsToDouble((v >>> 32) ^ bits(0x1p84 + 0x1p63))
+        ;     split            - (0x1p84 + 0x1p63 + 0x1p52), which is hi * 2^32 - 2^52
+        ;                 dl = bitsToDouble((v & 0xFFFFFFFF) | bits(0x1p52)), which is 2^52 + lo
+        ;                 d = dh + dl (VARKA-583, the default)
         ;   L2D, magic    bitsToDouble(v + MB) - M, under a guard of |v| <= 2^51
         ;   L2F           s = v >> 63, m = (v ^ s) - s read unsigned (2^63 at Long.MIN_VALUE)
         ;                 sel = -(((m >>> 52) + Long.MAX_VALUE) >>> 63), all ones where
         ;                   m >>> 52 != 0 (big)
+        ;                 by default (VARKA-583) s = -(v >>> 63) and
+        ;                   sel = ((m - 2^52) >>> 63) - 1, each shown equal to the above,
+        ;                   sel for every m up to 2^63, which every m is
         ;                 t12 = (m >>> 12) | (((m & 0xFFF) + 0xFFF) >>> 12)
         ;                 t = m ^ ((m ^ t12) & sel), t12 where big and m elsewhere
         ;                 p = (bits(0x1p52) | (v & Long.MIN_VALUE)) + (sel & (12 << 52))
@@ -3105,8 +3116,9 @@ final class VarkaProofFiles {
         ; d is t * 2^12 exactly; p's sign bit is v's, which negates both operands of the
         ; subtraction.
         ;
-        ; The claims: the split is (double) v and the magic is (double) v inside its window, and
-        ; the L2F form is (float) v, for every long.
+        ; The claims: both splits are (double) v and the magic is (double) v inside its window, and
+        ; the L2F form is (float) v, for every long. The xor split is proven as the split is: its
+        ; two parts exact, by the same pair of directed conversions, and their exact sum v.
         ;
         ; The split is proven in three lemmas, since stated whole it is past the per-check limit
         ; (Z3 past 30 s, cvc5 about 17 s): dh and dl are exact, the doubles of hi * 2^32 and of lo,
@@ -3183,6 +3195,36 @@ final class VarkaProofFiles {
     fresh(out, "l2d split: with a shift of 31 the parts do not sum to v", "sat",
         List.of(v, "(assert (not (= ((_ sign_extend 2) v) " + splitSum(31) + ")))"));
 
+    String hiWord = "((_ zero_extend 32) hi)";
+    String hiPart = "(fp.sub RNE (rto.bitsToDouble (bvxor " + hiWord + " " + bv64(RTO_HI_MAGIC)
+        + ")) " + toFp(RTO_XOR_BIAS) + ")";
+    // hi * 2^32 - 2^52 over 66 bits, which reaches below -2^63 at hi = -2^31.
+    String hiExact = "(bvsub (concat ((_ sign_extend 2) hi) #x00000000) ((_ zero_extend 2) "
+        + bv64(p52Int()) + "))";
+    fresh(out, "l2d xor split: the high part is exact, the double of hi * 2^32 - 2^52, for "
+        + "every int hi", "unsat", List.of(hiDecl, "(assert (not (and (= " + hiPart
+            + " ((_ to_fp 11 53) RTN " + hiExact + ")) (= " + hiPart + " ((_ to_fp 11 53) RTP "
+            + hiExact + ")))))"));
+    String loPart = "(rto.bitsToDouble (bvor " + lo64 + " " + bv64(p52) + "))";
+    String loExact = "(bvadd " + lo64 + " " + bv64(p52Int()) + ")";
+    fresh(out, "l2d xor split: the low part is exact, the double of 2^52 + lo, for every "
+        + "unsigned int lo", "unsat", List.of(loDecl, "(assert (not (and (= " + loPart
+            + " ((_ to_fp_unsigned 11 53) RTZ " + loExact + ")) (= " + loPart
+            + " ((_ to_fp_unsigned 11 53) RTP " + loExact + ")))))"));
+    String high = "((_ extract 63 32) v)";
+    fresh(out, "l2d xor split: v >>> 32 is v's high word and the parts' exact values sum to v, "
+        + "for every long, over 66 bits", "unsat", List.of(v, "(assert (not (and (= (bvlshr v "
+            + bv64(32) + ") ((_ zero_extend 32) " + high + ")) (= ((_ sign_extend 2) v) (bvadd "
+            + "(bvsub (concat ((_ sign_extend 2) " + high + ") #x00000000) ((_ zero_extend 2) "
+            + bv64(p52Int()) + ")) ((_ zero_extend 2) (bvadd (bvand v " + bv64(0xFFFFFFFFL)
+            + ") " + bv64(p52Int()) + ")))))))"));
+    fresh(out, "l2d xor split: without 2^63 in the high word's magic it is not (double) v",
+        "sat", List.of(v, "(assert (not (= " + xorSplit(RTO_HI_MAGIC ^ (1L << 31),
+            RTO_XOR_BIAS) + " " + toDouble + ")))"));
+    fresh(out, "l2d xor split: without 2^52 in the bias it is not (double) v", "sat",
+        List.of(v, "(assert (not (= " + xorSplit(RTO_HI_MAGIC, RTO_XOR_BIAS - RTO_P52) + " "
+            + toDouble + ")))"));
+
     String magic = "(fp.sub RNE (rto.bitsToDouble (bvadd v " + bv64(mb) + ")) rto.M)";
     fresh(out, "l2d magic: bitsToDouble(v + MB) - M is (double) v for every |v| <= 2^51",
         "unsat", List.of(v, "(assert (bvsle v " + bv64(RTO_MAGIC_WINDOW) + "))",
@@ -3206,6 +3248,17 @@ final class VarkaProofFiles {
         List.of(v, "(assert (not (= ((_ to_fp 8 24) RNE v) (ite (= " + s + " " + bv64(0) + ") "
             + onesRounded + " (fp.neg " + onesRounded + ")))))"));
     String minBits = bv64(Long.MIN_VALUE);
+    fresh(out, "l2f: the default's sign -(v >>> 63) is v >> 63, for every long", "unsat",
+        List.of(v, "(assert (not (= (bvneg (bvlshr v " + bv64(63) + ")) " + s + ")))"));
+    fresh(out, "l2f: m is at most 2^63 read unsigned, for every long", "unsat",
+        List.of(v, "(assert (not (bvule " + mOfV + " " + minBits + ")))"));
+    String mDecl0 = "(declare-const m (_ BitVec 64))";
+    fresh(out, "l2f: the default's sel ((m - 2^52) >>> 63) - 1 is the shifts' sel, for every m up"
+        + " to 2^63", "unsat", List.of(mDecl0, "(assert (bvule m " + minBits + "))",
+            "(assert (not (= " + subSel("m") + " " + shiftsSel("m", RTO_SMALL_BITS) + ")))"));
+    fresh(out, "l2f: and it is not at m = 2^63 + 2^52, past every m", "sat", List.of(mDecl0,
+        "(assert (= m " + bv64(Long.MIN_VALUE + p52Int()) + "))",
+        "(assert (not (= " + subSel("m") + " " + shiftsSel("m", RTO_SMALL_BITS) + ")))"));
     fresh(out, "l2f: v & Long.MIN_VALUE is set exactly where v >> 63 is, for every long", "unsat",
         List.of(v, "(assert (not (= (= (bvand v " + minBits + ") " + minBits + ") (not (= " + s
             + " " + bv64(0) + ")))))"));
@@ -3297,6 +3350,35 @@ final class VarkaProofFiles {
     out.append("(check-sat)\n");
   }
 
+  /** A double constant as an SMT-LIB {@code Float64}, from its bits. */
+  private static String toFp(double x) {
+    return "((_ to_fp 11 53) " + bv64(Double.doubleToRawLongBits(x)) + ")";
+  }
+
+  /** {@code 2^52} as an integer, the small arm's bound and the low part's offset. */
+  private static long p52Int() {
+    return 1L << RTO_SMALL_BITS;
+  }
+
+  /** The xor split's {@code d} over {@code v}, with its high word's magic bits and its bias. */
+  private static String xorSplit(long hiMagicBits, double bias) {
+    return "(fp.add RNE (fp.sub RNE (rto.bitsToDouble (bvxor (bvlshr v " + bv64(32) + ") "
+        + bv64(hiMagicBits) + ")) " + toFp(bias) + ") (rto.bitsToDouble (bvor (bvand v "
+        + bv64(0xFFFFFFFFL) + ") " + bv64(Double.doubleToRawLongBits(RTO_P52)) + ")))";
+  }
+
+  /** Part 343b1's {@code sel}: all ones where {@code m >>> small != 0}, for every {@code m}. */
+  private static String shiftsSel(String m, int small) {
+    return "(bvneg (bvlshr (bvadd (bvlshr " + m + " " + bv64(small) + ") "
+        + bv64(Long.MAX_VALUE) + ") " + bv64(63) + "))";
+  }
+
+  /** The default {@code sel}, {@code ((m - 2^52) >>> 63) - 1}. */
+  private static String subSel(String m) {
+    return "(bvsub (bvlshr (bvsub " + m + " " + bv64(p52Int()) + ") " + bv64(63) + ") "
+        + bv64(1) + ")";
+  }
+
   /** The split's {@code d = dh + dl} over {@code v}, with its two magic constants' bits. */
   private static String split(long mb, long loMagic) {
     return "(fp.add RNE (fp.mul RNE (fp.sub RNE (rto.bitsToDouble (bvadd (bvashr v " + bv64(32)
@@ -3346,8 +3428,7 @@ final class VarkaProofFiles {
    * magic number whose ulp is {@code 2^shift} there and 1 elsewhere, then {@code D2F}.
    */
   private static String l2fForm(int shift, int small, boolean sticky, long p52) {
-    String sel = "(bvneg (bvlshr (bvadd (bvlshr m " + bv64(small) + ") " + bv64(Long.MAX_VALUE)
-        + ") " + bv64(63) + "))";
+    String sel = shiftsSel("m", small);
     String odd = sticky ? emittedToOdd(shift) : "(bvlshr m " + bv64(shift) + ")";
     String t = "(bvxor m (bvand (bvxor m " + odd + ") " + sel + "))";
     String p = "(bvadd " + bv64(p52) + " (bvand " + sel + " " + bv64((long) shift << 52) + "))";

@@ -507,6 +507,12 @@ import com.sun.management.HotSpotDiagnosticMXBean;
  *        it, so every shape without a decimal output emits the same bytes under either value.
  * @param wideConversionForm the form of {@code L2D} where {@link #convertsFallBack()} holds:
  *        see {@link WideConversionForm}. No other shape reads it.
+ * @param roundToOddByShifts how {@code L2F}'s form where {@link #convertsFallBack()} holds takes
+ *        its sign and picks its arm ({@code VarkaConversionLowering}, VARKA-583). False, the
+ *        default, by a logical shift and a negation for the sign and a subtraction, a shift and
+ *        a decrement for the arm; true, the arm kept to be measured against it, by part 343b1's
+ *        arithmetic shift, which AVX2 has no 64-bit instruction for, and its four steps. Both
+ *        give {@code (float) v} ({@code round_to_odd.smt2}). No other shape reads it.
  */
 public record VarkaEmitOptions(
     int groupBudget,
@@ -560,7 +566,8 @@ public record VarkaEmitOptions(
     boolean decimalAbsLanewise,
     boolean dropDecimalBound,
     DecimalStore decimalStore,
-    WideConversionForm wideConversionForm) {
+    WideConversionForm wideConversionForm,
+    boolean roundToOddByShifts) {
 
   /**
    * The three mod-7 lowerings. {@link #MAGIC} is what ships: two 15-bit digit-sum folds followed
@@ -605,11 +612,15 @@ public record VarkaEmitOptions(
   public enum DecimalStore { REARRANGE, SELECT_FROM }
 
   /**
-   * The AVX2 forms of {@code L2D} ({@code VarkaConversionLowering}): {@link #SPLIT}, exact over
-   * every long, the default, and {@link #MAGIC}, exact for {@code |v| <= 2^51} under a guard
-   * that declines a batch past it, the reference arm kept to be measured against it.
+   * The AVX2 forms of {@code L2D} ({@code VarkaConversionLowering}). {@link #XOR_SPLIT}, the
+   * default (VARKA-583), and {@link #SPLIT}, part 343b1's, are exact over every long: both
+   * convert the high and the low word apart and add them, the first by a logical shift and an
+   * XOR into a magic number whose ulp is {@code 2^32}, the second by an arithmetic shift, which
+   * AVX2 has no 64-bit instruction for, and a multiply. {@link #MAGIC} is exact for
+   * {@code |v| <= 2^51} under a guard that declines a batch past it. The two the default does
+   * not take are arms kept to be measured against it.
    */
-  public enum WideConversionForm { SPLIT, MAGIC }
+  public enum WideConversionForm { SPLIT, MAGIC, XOR_SPLIT }
 
   /*
    * A note this enum cannot express, kept beside it rather than inside its javadoc, which
@@ -715,7 +726,7 @@ public record VarkaEmitOptions(
           true, true, true, true,
           VarkaEmitBudget.CALL_SITE_BUDGET, VarkaEmitBudget.HEAVY_GROUP_OUTPUTS,
           true, true, true, true, true, true, true, 0, 0, 0, false, false, false, 0, false,
-          false, false, DecimalStore.REARRANGE, WideConversionForm.SPLIT);
+          false, false, DecimalStore.REARRANGE, WideConversionForm.XOR_SPLIT, false);
 
   public VarkaEmitOptions {
     if (groupBudget < 1) {
@@ -828,6 +839,7 @@ public record VarkaEmitOptions(
       b.dropDecimalBound = dropDecimalBound;
       b.decimalStore = decimalStore;
       b.wideConversionForm = wideConversionForm;
+      b.roundToOddByShifts = roundToOddByShifts;
     return b;
   }
 
@@ -885,6 +897,7 @@ public record VarkaEmitOptions(
     private boolean dropDecimalBound;
     private DecimalStore decimalStore;
     private WideConversionForm wideConversionForm;
+    private boolean roundToOddByShifts;
 
     private Builder() {
     }
@@ -1149,6 +1162,11 @@ public record VarkaEmitOptions(
       return this;
     }
 
+    public Builder roundToOddByShifts(boolean byShifts) {
+      this.roundToOddByShifts = byShifts;
+      return this;
+    }
+
     public VarkaEmitOptions build() {
       return new VarkaEmitOptions(
           groupBudget, fusedCeiling, cse, shareChronoPrefix, denseValidityOnce,
@@ -1163,7 +1181,7 @@ public record VarkaEmitOptions(
           elideUnreadLocals, planSize, misdescribeDriverBytes, forceResidualAt,
           misdescribeRollback, exactRefusalStatus, groupBudgetUnderPrediction, dropStackMaps,
           misdescribeDataBytes, fromLongMasks, decimalAbsLanewise, dropDecimalBound,
-          decimalStore, wideConversionForm);
+          decimalStore, wideConversionForm, roundToOddByShifts);
     }
   }
 
@@ -1363,6 +1381,10 @@ public record VarkaEmitOptions(
 
   public VarkaEmitOptions withWideConversionForm(WideConversionForm form) {
     return toBuilder().wideConversionForm(form).build();
+  }
+
+  public VarkaEmitOptions withRoundToOddByShifts(boolean byShifts) {
+    return toBuilder().roundToOddByShifts(byShifts).build();
   }
 
   /**

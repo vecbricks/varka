@@ -1942,25 +1942,38 @@ final class VarkaVectorWalk {
    * operands and leaves on the stack the lane's {@code VectorMask} of {@code left op right}. The
    * one place a lane's equality mask is made, so that a change to it reaches every equality.
    */
-  private static void emitLaneCompare(CodeBuilder cb, String op, VarkaVectorIR left,
+  private static void emitLaneCompare(CodeBuilder cb, CompareOp op, VarkaVectorIR left,
       VarkaVectorIR right, Cond node, boolean dense, Analysis analysis, Slots s,
       Set<VarkaVectorIR> computed) {
     Lane lane = analysis.laneOf(node);
-    if (lane.laneType.isFloating()) {
+    if (lane.laneType.isFloating() && !op.isIeee()) {
       int[] tmp = s.pairTmp.get(node);
       emitValue(cb, left, dense, analysis, s, computed);
       cb.astore(tmp[0]);
       emitValue(cb, right, dense, analysis, s, computed);
       cb.astore(tmp[1]);
       line(cb, analysis, node);
-      emitFloatingCompare(cb, lane, op, tmp[0], tmp[1]);
+      emitFloatingCompare(cb, lane, op.name(), tmp[0], tmp[1]);
       return;
     }
     emitValue(cb, left, dense, analysis, s, computed);
-    cb.getstatic(VECTOR_OPERATORS, op, VO_COMPARISON);
+    cb.getstatic(VECTOR_OPERATORS, vectorOperator(op), VO_COMPARISON);
     emitValue(cb, right, dense, analysis, s, computed);
     line(cb, analysis, node);
     cb.invokevirtual(lane.vector, "compare", lane.compareVV);
+  }
+
+  /**
+   * The {@code VectorOperators} comparison {@code op} lowers to: its own name, and for an IEEE
+   * member the IEEE operator it names, which is what the floating species' compare already is.
+   */
+  private static String vectorOperator(CompareOp op) {
+    return switch (op) {
+      case LT, LE, GT, GE, EQ, ULT, ULE, UGT, UGE -> op.name();
+      case IEEE_EQ -> "EQ";
+      case IEEE_LT -> "LT";
+      case IEEE_LE -> "LE";
+    };
   }
 
   /**
@@ -2140,9 +2153,9 @@ final class VarkaVectorWalk {
         cb.invokevirtual(VECTOR_MASK, "not", MASK_UNARY);
         cb.invokevirtual(VECTOR_MASK, "or", MASK_BINARY);
       }
-      case ULT, ULE, UGT, UGE ->
-          throw VarkaErrors.illegalState("an unsigned ordering reaches a boolean comparison: "
-              + op);
+      case ULT, ULE, UGT, UGE, IEEE_EQ, IEEE_LT, IEEE_LE ->
+          throw VarkaErrors.illegalState("an unsigned or IEEE ordering reaches a boolean "
+              + "comparison: " + op);
     }
   }
 
@@ -2184,9 +2197,9 @@ final class VarkaVectorWalk {
         cb.land();
       }
       case EQ -> throw VarkaErrors.illegalState("EQ is emitted above");
-      case ULT, ULE, UGT, UGE ->
-          throw VarkaErrors.illegalState("an unsigned ordering reaches a boolean comparison: "
-              + n.op());
+      case ULT, ULE, UGT, UGE, IEEE_EQ, IEEE_LT, IEEE_LE ->
+          throw VarkaErrors.illegalState("an unsigned or IEEE ordering reaches a boolean "
+              + "comparison: " + n.op());
     }
     cb.lstore(kt);
     cb.lload(s.cmpTmp);
@@ -2208,7 +2221,7 @@ final class VarkaVectorWalk {
     computed.add(node);
     switch (node) {
       case Compare n -> {
-        emitLaneCompare(cb, n.op().name(), n.left(), n.right(), node, dense, analysis, s,
+        emitLaneCompare(cb, n.op(), n.left(), n.right(), node, dense, analysis, s,
             computed);
         if (dense) {
           cb.astore(s.condMask.get(node));
@@ -2234,7 +2247,8 @@ final class VarkaVectorWalk {
       }
       case NullSafeEqual n -> {
         // The lane's equality mask, as Compare's EQ; the dense body (no null lane) is that mask.
-        emitLaneCompare(cb, "EQ", n.left(), n.right(), node, dense, analysis, s, computed);
+        emitLaneCompare(cb, CompareOp.EQ, n.left(), n.right(), node, dense, analysis, s,
+            computed);
         if (dense) {
           cb.astore(s.condMask.get(node));
         } else {

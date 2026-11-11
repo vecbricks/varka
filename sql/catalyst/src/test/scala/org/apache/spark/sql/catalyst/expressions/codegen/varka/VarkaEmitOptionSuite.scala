@@ -124,15 +124,17 @@ class VarkaEmitOptionSuite extends SparkFunSuite with VarkaTestWatchdog {
     assert(table.filter(_.reason == Reason.MISCOMPILED).map(_.name) === Seq("fromLongMasks"))
     assert(Reason.values.filterNot(_.drawn).toSet ===
       Set(Reason.FAULT_INJECTOR, Reason.MISCOMPILED))
-    // Three options change only a shape holding one node kind, so the general draws and the
+    // Four options change only a shape holding one node kind, so the general draws and the
     // steering leave them out whatever their reason (VARKA-157, VARKA-348, VARKA-343); the
     // option matrix runs those whose node the compiler builds (VarkaMatrixRuns).
     assert(table.filter(o => VarkaEmitOption.readOnlyBy(o).isPresent)
       .map(o => o.name -> VarkaEmitOption.readOnlyBy(o).get) ===
       Seq("decimalAbsLanewise" -> classOf[VarkaVectorIR.DecimalColumn],
         "decimalStore" -> classOf[VarkaVectorIR.WidenDecimal],
-        "wideConversionForm" -> classOf[VarkaVectorIR.ConvertLane]))
-    for (name <- Seq("decimalAbsLanewise", "decimalStore", "wideConversionForm")) {
+        "wideConversionForm" -> classOf[VarkaVectorIR.ConvertLane],
+        "roundToOddByShifts" -> classOf[VarkaVectorIR.ConvertLane]))
+    for (name <- Seq("decimalAbsLanewise", "decimalStore", "wideConversionForm",
+        "roundToOddByShifts")) {
       assert(reasonOf(name) === Reason.MACHINE, name)
       assert(!VarkaEmitOption.drawnInGeneral(VarkaEmitOption.named(name)), name)
     }

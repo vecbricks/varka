@@ -591,12 +591,19 @@ public sealed interface VarkaEmitOption
       new Choice<>("decimalStore", Reason.MACHINE, DecimalStore.class, DecimalStore.REARRANGE,
           VarkaEmitOptions::decimalStore, Builder::decimalStore,
           new ChoiceTag("decimalStore="), Optional.of(WidenDecimal.class)),
-      // A machine choice of L2D's AVX2 forms (`VARKA-343.md` 2.3), read by a long's ConvertLane
-      // below level 3 alone, so it runs over useAVX=2. Its tag keeps the default rendering empty.
+      // A machine choice of L2D's AVX2 forms (`VARKA-343.md` 2.3, VARKA-583), read by a long's
+      // ConvertLane below level 3 alone, so it runs over useAVX=2. Its tag keeps the default
+      // rendering empty.
       new Choice<>("wideConversionForm", Reason.MACHINE, WideConversionForm.class,
-          WideConversionForm.SPLIT, VarkaEmitOptions::wideConversionForm,
+          WideConversionForm.XOR_SPLIT, VarkaEmitOptions::wideConversionForm,
           Builder::wideConversionForm, new ChoiceTag("wideConversionForm="),
-          Optional.of(ConvertLane.class), new Subject(o -> o.withUseAVX(2))));
+          Optional.of(ConvertLane.class), new Subject(o -> o.withUseAVX(2))),
+      // The same for L2F's form (VARKA-583): its sign and its arm by part 343b1's shifts, the
+      // arm kept to be measured against the cheaper default where AVX2 has no 64-bit ASHR.
+      new Flag("roundToOddByShifts", Reason.MACHINE, false,
+          VarkaEmitOptions::roundToOddByShifts, Builder::roundToOddByShifts,
+          new FlagTag("roundToOddByShifts", true), new Subject(o -> o.withUseAVX(2)),
+          Optional.of(ConvertLane.class)));
 
   /** The option with this name. */
   static VarkaEmitOption named(String name) {

@@ -6000,7 +6000,7 @@
     "operands" : [ "LessThan:double" ],
     "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
     "domain" : "",
-    "note" : "the literal is its bits in the table of the lane's width",
+    "note" : "the literal is its bits in the table of the lane's width; a literal that is not NaN needs no NaN test, so this is the bare IEEE compare",
     "verified" : "differential"
   }, {
     "sql" : "x = 1.5D",
@@ -6013,6 +6013,90 @@
     "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
     "domain" : "",
     "note" : "",
+    "verified" : "differential"
+  }, {
+    "sql" : "x <= 1.5D",
+    "executable" : "x <= 1.5D",
+    "family" : "DOUBLE columns",
+    "form" : "predicate",
+    "catalyst" : [ "LessThanOrEqual" ],
+    "casts" : [ ],
+    "operands" : [ "LessThanOrEqual:double" ],
+    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
+    "domain" : "",
+    "note" : "",
+    "verified" : "differential"
+  }, {
+    "sql" : "x > 1.5D",
+    "executable" : "x > 1.5D",
+    "family" : "DOUBLE columns",
+    "form" : "predicate",
+    "catalyst" : [ "GreaterThan" ],
+    "casts" : [ ],
+    "operands" : [ "GreaterThan:double" ],
+    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
+    "domain" : "",
+    "note" : "the IEEE <= negated, so a NaN is above the literal",
+    "verified" : "differential"
+  }, {
+    "sql" : "x >= 0.0D",
+    "executable" : "x >= 0.0D",
+    "family" : "DOUBLE columns",
+    "form" : "predicate",
+    "catalyst" : [ "GreaterThanOrEqual" ],
+    "casts" : [ ],
+    "operands" : [ "GreaterThanOrEqual:double" ],
+    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
+    "domain" : "",
+    "note" : "the IEEE < negated; -0.0 and 0.0 are one value",
+    "verified" : "differential"
+  }, {
+    "sql" : "x <> 0.0D",
+    "executable" : "x <> 0.0D",
+    "family" : "DOUBLE columns",
+    "form" : "predicate",
+    "catalyst" : [ "EqualTo", "Not" ],
+    "casts" : [ ],
+    "operands" : [ "EqualTo:double" ],
+    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
+    "domain" : "",
+    "note" : "the IEEE = negated",
+    "verified" : "differential"
+  }, {
+    "sql" : "1.5D < x",
+    "executable" : "1.5D < x",
+    "family" : "DOUBLE columns",
+    "form" : "predicate",
+    "catalyst" : [ "LessThan" ],
+    "casts" : [ ],
+    "operands" : [ "LessThan:double" ],
+    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
+    "domain" : "",
+    "note" : "a literal on the left is the swapped compare",
+    "verified" : "differential"
+  }, {
+    "sql" : "x = CAST('NaN' AS DOUBLE)",
+    "executable" : "x = CAST('NaN' AS DOUBLE)",
+    "family" : "DOUBLE columns",
+    "form" : "predicate",
+    "catalyst" : [ "EqualTo" ],
+    "casts" : [ ],
+    "operands" : [ "EqualTo:double" ],
+    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
+    "domain" : "",
+    "note" : "true where the IEEE x <= Infinity is false, so NaN alone; no NaN test",
+    "verified" : "differential"
+  }, {
+    "sql" : "x < CAST('NaN' AS DOUBLE)",
+    "executable" : "x < CAST('NaN' AS DOUBLE)",
+    "family" : "DOUBLE columns",
+    "form" : "predicate",
+    "catalyst" : [ "LessThan" ],
+    "casts" : [ ],
+    "operands" : [ "LessThan:double" ],
+    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
+    "domain" : "",
+    "note" : "the IEEE x <= Infinity: every value but NaN",
     "verified" : "differential"
   }, {
     "sql" : "x IN (1.5D, -2.5D, 0.0D, CAST('NaN' AS DOUBLE))",
@@ -6240,7 +6324,7 @@
     "operands" : [ "LessThan:float" ],
     "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
     "domain" : "",
-    "note" : "the literal is its bits in the table of the lane's width",
+    "note" : "the literal is its bits in the table of the lane's width; a literal that is not NaN needs no NaN test, so this is the bare IEEE compare",
     "verified" : "differential"
   }, {
     "sql" : "f = 1.5F",
@@ -6253,6 +6337,90 @@
     "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
     "domain" : "",
     "note" : "",
+    "verified" : "differential"
+  }, {
+    "sql" : "f <= 1.5F",
+    "executable" : "f <= 1.5F",
+    "family" : "FLOAT columns",
+    "form" : "predicate",
+    "catalyst" : [ "LessThanOrEqual" ],
+    "casts" : [ ],
+    "operands" : [ "LessThanOrEqual:float" ],
+    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
+    "domain" : "",
+    "note" : "",
+    "verified" : "differential"
+  }, {
+    "sql" : "f > 1.5F",
+    "executable" : "f > 1.5F",
+    "family" : "FLOAT columns",
+    "form" : "predicate",
+    "catalyst" : [ "GreaterThan" ],
+    "casts" : [ ],
+    "operands" : [ "GreaterThan:float" ],
+    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
+    "domain" : "",
+    "note" : "the IEEE <= negated, so a NaN is above the literal",
+    "verified" : "differential"
+  }, {
+    "sql" : "f >= 0.0F",
+    "executable" : "f >= 0.0F",
+    "family" : "FLOAT columns",
+    "form" : "predicate",
+    "catalyst" : [ "GreaterThanOrEqual" ],
+    "casts" : [ ],
+    "operands" : [ "GreaterThanOrEqual:float" ],
+    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
+    "domain" : "",
+    "note" : "the IEEE < negated; -0.0 and 0.0 are one value",
+    "verified" : "differential"
+  }, {
+    "sql" : "f <> 0.0F",
+    "executable" : "f <> 0.0F",
+    "family" : "FLOAT columns",
+    "form" : "predicate",
+    "catalyst" : [ "EqualTo", "Not" ],
+    "casts" : [ ],
+    "operands" : [ "EqualTo:float" ],
+    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
+    "domain" : "",
+    "note" : "the IEEE = negated",
+    "verified" : "differential"
+  }, {
+    "sql" : "1.5F < f",
+    "executable" : "1.5F < f",
+    "family" : "FLOAT columns",
+    "form" : "predicate",
+    "catalyst" : [ "LessThan" ],
+    "casts" : [ ],
+    "operands" : [ "LessThan:float" ],
+    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
+    "domain" : "",
+    "note" : "a literal on the left is the swapped compare",
+    "verified" : "differential"
+  }, {
+    "sql" : "f = CAST('NaN' AS FLOAT)",
+    "executable" : "f = CAST('NaN' AS FLOAT)",
+    "family" : "FLOAT columns",
+    "form" : "predicate",
+    "catalyst" : [ "EqualTo" ],
+    "casts" : [ ],
+    "operands" : [ "EqualTo:float" ],
+    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
+    "domain" : "",
+    "note" : "true where the IEEE f <= Infinity is false, so NaN alone; no NaN test",
+    "verified" : "differential"
+  }, {
+    "sql" : "f < CAST('NaN' AS FLOAT)",
+    "executable" : "f < CAST('NaN' AS FLOAT)",
+    "family" : "FLOAT columns",
+    "form" : "predicate",
+    "catalyst" : [ "LessThan" ],
+    "casts" : [ ],
+    "operands" : [ "LessThan:float" ],
+    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
+    "domain" : "",
+    "note" : "the IEEE f <= Infinity: every value but NaN",
     "verified" : "differential"
   }, {
     "sql" : "f IN (1.5F, -2.5F, 0.0F, CAST('NaN' AS FLOAT))",
