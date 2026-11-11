@@ -1897,6 +1897,15 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
     def render: String = s"exhaustive: $suite, $test"
   }
 
+  /**
+   * The rendered refinement of `decimal_refinement.smt2`, which echoes the row by its SQL: its
+   * kernel printed from the IR the compiler builds, its specification read from Spark's
+   * analyzed expression (VARKA-506).
+   */
+  private case object Rendered extends Verified {
+    def render: String = "rendered: decimal_refinement.smt2"
+  }
+
   private case object Differential extends Verified {
     def render: String = "differential"
   }
@@ -1917,7 +1926,10 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
     // The value picks over a date or a long column are not swept: only the condition is.
     "Boolean columns choosing values" -> Differential,
     // The pair's comparisons and the sign extension, in both of the file's layers (VARKA-359).
-    "DECIMAL lane pair" -> Proved("decimal128.smt2"))
+    "DECIMAL lane pair" -> Proved("decimal128.smt2"),
+    // The 64-bit decimal rows, each refined whole from the IR the compiler builds (VARKA-506).
+    "DECIMAL columns" -> Rendered,
+    "DECIMAL arithmetic" -> Rendered)
 
   // The pair's null tests and its null-safe equality: decimal128.smt2 models the words' values,
   // not their validity, so these rows are checked by the differential suites alone.
@@ -2024,37 +2036,9 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
       "the fraction agrees with Spark's double round trip on every (s, g) of TIME(0) "),
     // `time_from_micros(time_to_micros(t))`: time_to_micros has no refinement.
     "t + INTERVAL '0 00:00:00' DAY TO SECOND" -> Refined("t + dt"),
-    // The 64-bit decimal's rows of two scales, negation, abs, choices and the coalesce's null test
-    // (VARKA-348), each refined whole; the equal-scale rows of VARKA-347 stay differential, and so
-    // does `(-d18) IS NOT NULL`, whose kernel validity is its operand's word, the same formula as
-    // Spark's, so a refinement of it could not fail.
-    "d9 < d9s4" -> Refined("d9 < d9s4"),
-    "d9 = d9s4" -> Refined("d9 = d9s4"),
-    "d9 <=> d9s4" -> Refined("d9 <=> d9s4"),
-    "d16s9 >= d9s4" -> Refined("d16s9 >= d9s4"),
-    "d18 > 1.5" -> Refined("d18 > 1.5"),
-    "d9 < 0.425" -> Refined("d9 < 0.425"),
-    "d9 < 10000000.0125" -> Refined("d9 < 10000000.0125"),
-    "-d9 < d9b" -> Refined("-d9 < d9b"),
-    "abs(d9) >= d9b" -> Refined("abs(d9) >= d9b"),
-    "greatest(d9, d9s4) > d9b" -> Refined("greatest(d9, d9s4) > d9b"),
-    "coalesce(d9, d9b) IS NULL" -> Refined("coalesce(d9, d9b) IS NULL"),
-    "CASE WHEN d9 < d9b THEN d9 ELSE d9s4 END > 0.0" ->
-      Refined("CASE WHEN d9 < d9b THEN d9 ELSE d9s4 END > 0.0"),
-    // The 64-bit decimal arithmetic (VARKA-349), each row refined whole in its modes.
-    "d9 + d9b < d18" -> Refined("d9 + d9b < d18"),
-    "try_add(d9, d9b) > d18" -> Refined("try_add(d9, d9b) > d18"),
-    "d9 - d8 >= d9b" -> Refined("d9 - d8 >= d9b"),
-    "d9 + 1.5 < d9b" -> Refined("d9 + 1.5 < d9b"),
-    "d9 - d9s4 > 0.00" -> Refined("d9 - d9s4 > 0.00"),
-    "d9 + d16s9 > d9s4" -> Refined("d9 + d16s9 > d9s4"),
-    "-(d9 + d9b) = d9s4" -> Refined("-(d9 + d9b) = d9s4"),
-    "d9 * 0.5 > d9b" -> Refined("d9 * 0.5 > d9b"),
-    "d8 * d9 <= d9b" -> Refined("d8 * d9 <= d9b"),
-    "try_multiply(d8, d9) IS NULL" -> Refined("try_multiply(d8, d9) IS NULL"),
-    "d9 IN (0.42, 0.00, -1.25)" -> Refined("d9 IN (0.42, 0.00, -1.25)"),
-    "d9 IN (0.425, 1.5)" -> Refined("d9 IN (0.425, 1.5)"),
-    "d18 IN (11 to 16 decimal literals)" -> Refined("d18 IN (11 to 16 decimal literals)")) ++
+    // The product of two columns, which the printer refuses (VARKA-506.md 2.4), keeps its
+    // hand-written refinement.
+    "d8 * d9 <= d9b" -> Refined("d8 * d9 <= d9b")) ++
     pairNulls.map(_ -> Differential)
 
   private def verifiedOf(family: Family, row: Row): Verified =
@@ -2069,6 +2053,8 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
       s"rowVerified names no row: ${(rowVerified.keySet -- sqls).toSeq.sorted}")
     val refinement = Files.readString(getWorkspaceFilePath("sql", "varka", "proofs",
       "refinement.smt2"))
+    val rendered = Files.readString(getWorkspaceFilePath("sql", "varka", "proofs",
+      "decimal_refinement.smt2"))
     val plan = Files.readString(getWorkspaceFilePath("sql", "varka", "plans", "m8", "PLAN.md"))
     val testRoots = Seq(getWorkspaceFilePath("sql", "catalyst", "src", "test"))
     def suiteSource(name: String): Option[String] = testRoots.iterator.flatMap { root =>
@@ -2083,6 +2069,8 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
           case Refined(names @ _*) if names.exists(n => !echoes(refinement, n)) =>
             Some("refinement.smt2 echoes no refinement named " +
               names.filterNot(echoes(refinement, _)).map(n => s"`$n`").mkString(", "))
+          case Rendered if !echoes(rendered, row.sql) =>
+            Some("decimal_refinement.smt2 echoes no refinement of the row")
           case Proved(file) if !Files.exists(getWorkspaceFilePath("sql", "varka", "proofs",
               file)) =>
             Some(s"sql/varka/proofs/$file does not exist")
@@ -2138,7 +2126,7 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
    * each type among its operands.
    */
   private def verificationCounts(): String = {
-    val kinds = Seq("refinement", "proof", "exhaustive", "owed", "differential")
+    val kinds = Seq("refinement", "rendered", "proof", "exhaustive", "owed", "differential")
     def kind(v: Verified): String = v.render.takeWhile(_ != ':')
     val counts = families.flatMap { family =>
       family.rows.flatMap { row =>

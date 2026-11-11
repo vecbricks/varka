@@ -1266,28 +1266,30 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 Every row above runs in the differential suites, which compare the fused kernel with Spark's
 row engine on generated data. Beyond that, each row names how it is verified, in
 `sql/varka/coverage.json`'s `verified` field: a refinement in `sql/varka/proofs/refinement.smt2`
-(the kernel proved equal to the SQL specification, with Spark's departures named), a lowering
+(the kernel proved equal to the SQL specification, with Spark's departures named), a rendered
+refinement in `sql/varka/proofs/decimal_refinement.smt2` (the same proof, its kernel printed from
+the IR the compiler builds and its specification read from Spark's expression), a lowering
 proof under `sql/varka/proofs/`, a test that sweeps the row's whole input domain, a planned row
 that owes it, or `differential`, the differential suites alone. `VarkaCoverageSuite` fails a row
 whose entry names something that does not exist. The counts, per column type of the row's
 operands (a row counts once for each type it reads):
 
 <!-- BEGIN generated verification counts -->
-| Type | Rows | refinement | proof | exhaustive | owed | differential |
-| :--- | ---: | ---: | ---: | ---: | ---: | ---: |
-| `bigint` | 78 | 0 | 2 | 0 | 2 | 74 |
-| `bool` | 38 | 0 | 0 | 13 | 0 | 25 |
-| `byte` | 54 | 0 | 0 | 0 | 8 | 46 |
-| `date` | 127 | 17 | 0 | 1 | 0 | 109 |
-| `dec` | 60 | 25 | 10 | 0 | 0 | 25 |
-| `double` | 74 | 0 | 1 | 0 | 0 | 73 |
-| `dt` | 27 | 2 | 1 | 0 | 0 | 24 |
-| `float` | 59 | 0 | 0 | 0 | 0 | 59 |
-| `int` | 156 | 14 | 2 | 1 | 1 | 138 |
-| `ntz` | 57 | 0 | 7 | 0 | 0 | 50 |
-| `short` | 52 | 0 | 0 | 0 | 8 | 44 |
-| `time` | 48 | 6 | 1 | 1 | 2 | 38 |
-| `ym` | 36 | 7 | 2 | 0 | 2 | 25 |
+| Type | Rows | refinement | rendered | proof | exhaustive | owed | differential |
+| :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `bigint` | 78 | 0 | 0 | 2 | 0 | 2 | 74 |
+| `bool` | 38 | 0 | 0 | 0 | 13 | 0 | 25 |
+| `byte` | 54 | 0 | 0 | 0 | 0 | 8 | 46 |
+| `date` | 127 | 17 | 0 | 0 | 1 | 0 | 109 |
+| `dec` | 60 | 1 | 42 | 10 | 0 | 0 | 7 |
+| `double` | 74 | 0 | 0 | 1 | 0 | 0 | 73 |
+| `dt` | 27 | 2 | 0 | 1 | 0 | 0 | 24 |
+| `float` | 59 | 0 | 0 | 0 | 0 | 0 | 59 |
+| `int` | 156 | 14 | 0 | 2 | 1 | 1 | 138 |
+| `ntz` | 57 | 0 | 0 | 7 | 0 | 0 | 50 |
+| `short` | 52 | 0 | 0 | 0 | 0 | 8 | 44 |
+| `time` | 48 | 6 | 0 | 1 | 1 | 2 | 38 |
+| `ym` | 36 | 7 | 0 | 2 | 0 | 2 | 25 |
 <!-- END generated verification counts -->
 
 ## Glossary

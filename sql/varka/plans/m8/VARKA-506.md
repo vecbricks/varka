@@ -876,3 +876,48 @@ definition moves the result `HALF_UP` to its scale before the fit and its table 
 "outside the fragment", the README lists the two files, and the samples' slot test is a pattern
 test rather than a switch with a `default`. Left, as findings 3 and 4 above: the decline rule
 derived from the emitter's, and the walk's sharing.
+
+### 10.3 506b2: the 64-bit shapes rendered, their hand rows retired (11 November 2026)
+
+*Branch `varka-506b2`, cut from 506b1's `varka-506b`, which merged as #1493 on 11 November 2026; master merged into it since.*
+
+**What 506b2 builds.**
+
+1. **`decimal_refinement.smt2`**, rendered by `VarkaDecimalRefinementFile`: the 43 rows of the
+   families "DECIMAL columns" (347, 348) and "DECIMAL arithmetic" (349), each compiled as
+   `VarkaCoverageSuite` compiles a predicate, under ANSI and LEGACY, with `refinement.smt2`'s five
+   checks. The kernel is `VarkaSmtNodes`' outcome of the fused root in the word form; the
+   specification is Spark's analyzed expression read one Catalyst node at a time into
+   `spec.dec.*`, each raising only where Spark evaluates it; any other node is refused. 42 rows
+   render, 20 alike in both sessions and 22 once per session: 320 checks. The header lists the
+   one refused row.
+2. **The coverage rows name it**: `rendered: decimal_refinement.smt2`, a new kind with its own
+   column in the documentation's counts, failing a row of either family the file does not echo.
+   347's equal-scale rows, differential until now, are refined for the first time.
+3. **The arm rule read from the emitter (10.2 finding 3, fixed).** `VarkaSmtNodes.kernel`
+   declines on each node `VarkaLoopEmitter.guardsForTest` reports, on the lanes its arm chains
+   select, or everywhere where it has none, and refuses a template check the emitter does not
+   make; a stored-value guard (VARKA-379) reads null rows. The samples' oracle reads the same
+   guards, and a template is back to its own rule.
+4. **The slot-check walk is gone (10.2 finding 4)**: `kernel` visits each node once.
+
+**The diff of 3 item 5.** A scratch file paired each of the 31 retired hand rows (348's 15,
+349's seven in both modes, `try_add`, `try_multiply`) with its rendered row and asked Z3 whether
+any claim differs where it is read: all 155 queries `unsat`, so the hand rows were right. Not
+committed: it read the text it retires.
+
+**Hand-written still**: `d8 * d9 <= d9b`, a product of two columns (2.4, 506c's);
+`try_multiply(d8, d9) IS NULL` renders, its kernel reading only validity (against 10.2 finding 2).
+
+**Validation.** Laptop: `decimal_refinement.smt2` Z3 0.47 s, cvc5 0.55 s; `refinement.smt2` 381
+checks to 226, Z3 2.96 s to 2.94 s, cvc5 4.22 s to 4.13 s; every proof holds under both, `--lint`
+45 s; the four catalyst suites pass. Planted on the rendered text, each failing its own check under
+both: `d9 < d9s4`'s factor 10 for 100 (check 4), a slot check of `d9 + d9b < d18` dropped (check
+2), the specification's rescale one digit short (check 4).
+
+**The review** (`/code-review high`, one triaged round): fixed `IN`'s raise to the items Spark
+reads, refusals in place of aborts, the converse refusal in `kernel`, sorts from the terms, the
+docs and row 506; left the copied fixtures (the coverage suite's are private Scala), a widening
+cast's ANSI fit printing 22 rows twice, and the last hand row's dead `try_` branch. After #1493 merged, a
+second review: a row that stops compiling, and a literal past a long, are refused, not aborts;
+a one-item `IN` prints no one-argument `or`, its raise term linear; the IEEE compares refused.

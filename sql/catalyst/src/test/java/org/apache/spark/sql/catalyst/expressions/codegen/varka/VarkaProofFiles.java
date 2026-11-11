@@ -109,6 +109,7 @@ final class VarkaProofFiles {
     files.put("smt_print_check.smt2", smtPrintCheck());
     files.put("smt_nodes_check.smt2", smtNodesCheck());
     files.put("decimal_spec_check.smt2", VarkaDecimalSpecFile.render());
+    files.put("decimal_refinement.smt2", VarkaDecimalRefinementFile.render());
     return files;
   }
 
