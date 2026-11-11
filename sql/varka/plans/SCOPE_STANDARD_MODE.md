@@ -225,8 +225,9 @@ Spark's own `rint` is the one function that does normalise: it answers the canon
 `Math.rint` before it answered a NaN whose sign depended on the JIT tier that ran it (`m8/PLAN.md`
 row 344 ran the probe, row 593 follows the fix). So Varka's oracles compare NaN lanes **bit for
 bit in a pass-through shape** (a column or a literal delivered unchanged) and **by NaN-ness in a
-computed one** (the result of an operation whose NaN the standard leaves to the implementation),
-except `rint`'s, which is computed but fixed and so compared bit for bit, the fuzzers draw payload, negative and signalling NaNs, and the emitter never commutes a floating `+`
+computed one** (the result of an operation whose NaN the standard leaves to the implementation).
+`rint`'s NaN is computed but fixed, the canonical one, so it is compared bit for bit. The
+fuzzers draw payload, negative and signalling NaNs, and the emitter never commutes a floating `+`
 or `*`, which are not commutative at the bit level when both operands are NaN. The rule is stated
 here so that a future reader does not mistake a payload difference in a computed NaN for a wrong
 answer, or a bit difference in a pass-through one for an acceptable one.

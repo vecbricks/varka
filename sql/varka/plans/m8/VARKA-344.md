@@ -388,9 +388,10 @@ assembly is whole and the `MAGIC` arm declines only for `n >= 2^51` and for a Na
 
 `rint`, `floor` and `ceil` are exact (2.3), the integral forms are integer arithmetic, and
 `width_bucket` is Spark's IEEE operations in Spark's order, so every form is compared bit for bit,
-a computed NaN by NaN-ness (`SCOPE_STANDARD_MODE.md` 3.5): `rint`'s NaN is computed, since its
-sign is the implementation's (item 0.10). None of them is under the contract of 2.7.1, and the
-configuration `spark.sql.codegen.varka.math.ulpContract.enabled` does not gate them.
+a computed NaN by NaN-ness (`SCOPE_STANDARD_MODE.md` 3.5), except `rint`'s: since SPARK-61175
+(row 593) Spark's `rint` answers the canonical NaN, `0x7ff8000000000000`, for every NaN, so its
+NaN is fixed and compared bit for bit as well (item 0.10's correction). None of them is under
+the contract of 2.7.1, and the configuration `spark.sql.codegen.varka.math.ulpContract.enabled` does not gate them.
 
 *30 October 2026, by the owner's word:* that configuration is an opt-in mode, off by default, since
 every math function is now bit-exact to Spark by default (`VARKA-345.md` 2.1, 2.6); it does not gate
@@ -463,9 +464,10 @@ declines exactly when Spark raises on one of its live rows.
 7. **The `rint(-NaN)` probe**: Spark's `Rint` over `-NaN` and a payload NaN, through `eval` and
    the generated code, under `-Xint`, `-XX:TieredStopAtLevel=1` and C2 after a warm-up, on the
    laptop, the EPYC 7763 and the Neoverse N2 (the census workflow's runners), recording the bits
-   per tier in `results/VARKA-344-rint-nan-probe.txt`. It asserts NaN-ness only, as 3.5 has it.
-   Prediction, from item 0.10: `+NaN` under the interpreter and C1, `-NaN` under C2, on both
-   architectures.
+   per tier in `results/VARKA-344-rint-nan-probe.txt`. Since SPARK-61175 (row 593) Spark's
+   `Rint` answers the canonical NaN, `0x7ff8000000000000`, in every tier, so the probe is a
+   record of `Math.rint` only, and its prediction, from item 0.10 (`+NaN` under the interpreter
+   and C1, `-NaN` under C2, on both architectures), is `Math.rint`'s and decides no answer.
 8. **No folding**: `dev/varka_emit.sh --asm` over `rint(x)` shows the add and the subtract of `C`
    in the loop (Java's floating point forbids the fold; this shows C2 kept it), and no `vfmadd`.
 9. **Coverage rows**, a family "rounding": `rint(x)`, `floor(x)` and `ceil(x)` as values and in a

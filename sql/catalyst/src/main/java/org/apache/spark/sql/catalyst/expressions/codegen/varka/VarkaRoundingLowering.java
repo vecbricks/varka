@@ -75,15 +75,16 @@ final class VarkaRoundingLowering {
    * holds for every batch: the range lattice tracks no floating value, so the shape is the one
    * fact there is. Two operands cannot: a conversion from an integral lane, which is never a NaN,
    * and another {@code rint}, whose NaN is already the canonical one, which the construction
-   * keeps. Any other operand, a node added to the IR among them, takes the blend, which is
-   * never wrong, only one compare and one blend more than needed.
+   * keeps. The mode is checked, so a later mode whose NaN is not canonical takes the blend.
+   * Any other operand, a node added to the IR among them, takes the blend, which is never
+   * wrong, only one compare and one blend more than needed.
    */
   static boolean mayHoldOtherNaN(RoundToIntegral n) {
     VarkaVectorIR child = n.child();
     if (child instanceof VarkaVectorIR.ConvertLane c) {
       return c.child().laneType().isFloating();
     }
-    return !(child instanceof RoundToIntegral);
+    return !(child instanceof RoundToIntegral r && r.mode() == VarkaVectorIR.RoundMode.RINT);
   }
 
   /**

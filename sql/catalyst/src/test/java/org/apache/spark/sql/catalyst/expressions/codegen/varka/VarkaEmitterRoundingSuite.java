@@ -63,8 +63,9 @@ import org.apache.spark.sql.types.DataTypes;
  * -1074 to 1023 in both signs and a seeded draw. Every cell is on a valid lane and the nulls fall
  * among the rest, where a null lane's output is null; the construction's binary32 twin is
  * exhausted over all 2^32 patterns behind {@code -Dvarka.sweep=true}. Payload, signalling and
- * negative NaNs go through every rounding function the compiler lowers through the node, on the
- * kernel and on Spark's own expression, each answering the canonical NaN.
+ * negative NaNs, doubles and widened floats, go through {@code rint}, the one function the
+ * compiler lowers through the node, on the kernel and on Spark's own expression, each answering
+ * the canonical NaN.
  *
  * <p>The integral rounding on the int lane through its emitted kernels against Spark's own
  * {@code Round}, {@code BRound} and {@code Truncate}: every {@code INT} through each function at
@@ -181,8 +182,8 @@ public final class VarkaEmitterRoundingSuite {
   private static final long CANONICAL_NAN = Double.doubleToRawLongBits(Double.NaN);
 
   @Test
-  @DisplayName("every rounding the compiler lowers through rint answers the canonical NaN for "
-      + "payload, signalling and negative NaNs, on the kernel and on Spark's expression")
+  @DisplayName("rint answers the canonical NaN for payload, signalling and negative NaNs, on "
+      + "the kernel and on Spark's expression")
   void roundingsAnswerTheCanonicalNaN() {
     // Rows: each NaN in x beside each NaN and 0.0 in y, so x + y, x - y and sqrt(x - y) see
     // NaNs of both operands and the x86 default NaN; then numbers, so the rows are not all NaN.
@@ -197,22 +198,18 @@ public final class VarkaEmitterRoundingSuite {
     }
     var x = VarkaSqlResolve.column("x", DataTypes.DoubleType);
     var y = VarkaSqlResolve.column("y", DataTypes.DoubleType);
-    var lowered = new java.util.ArrayList<String>();
-    // floor, ceil and round of a double are listed so that a lowering through the node, once one
-    // admits them, is held here too; until then they decline and are skipped.
+    // rint is the only function that lowers through the node today. floor, ceil, round and
+    // bround of a double decline; the part that lowers one through it adds it here, with a
+    // harness for its BIGINT result or its literal scale, which this one does not read.
     for (String sql : List.of("rint(x)", "rint(x + y)", "rint(x - y)", "rint(sqrt(x - y))",
-        "-rint(x)", "rint(rint(x))", "floor(x)", "ceil(x)", "round(x)", "bround(x)",
-        "round(x, 0)")) {
+        "-rint(x)", "rint(rint(x))")) {
       var cols = CollectionConverters.asScala(List.<Attribute>of(x, y)).toSeq();
       Expression e = VarkaSqlResolve.parse(sql, cols);
       var entry = CollectionConverters.asScala(List.of(VarkaSqlResolve.named(e, "c"))).toSeq();
       Optional<CompiledVarkaProjection> plan =
           VarkaExpressionCompiler.compile(entry, cols, VarkaMatrixRuns.BASE);
-      if (plan.isEmpty() || plan.get().outputs().stream().noneMatch(
-          VarkaEmitterRoundingSuite::holdsRint)) {
-        continue;
-      }
-      lowered.add(sql);
+      assertTrue(plan.isPresent() && plan.get().outputs().stream().anyMatch(
+          VarkaEmitterRoundingSuite::holdsRint), sql + " does not lower through the node");
       Expression spark = VarkaSqlResolve.bind(e, cols);
       List<Integer> ordinals = plan.get().inputOrdinals();
       VarkaEmitterFixtures.Emitted emitted = VarkaEmitterFixtures.emit(plan.get().outputs(),
@@ -251,21 +248,84 @@ public final class VarkaEmitterRoundingSuite {
         loaded.loader().release();
       }
     }
-    assertTrue(lowered.containsAll(List.of("rint(x)", "rint(x + y)", "rint(x - y)",
-        "rint(sqrt(x - y))", "-rint(x)", "rint(rint(x))")), "lowered: " + lowered);
   }
 
   /** Whether {@code node} is or holds a {@code RoundToIntegral}. */
   private static boolean holdsRint(VarkaVectorIR node) {
-    if (node instanceof VarkaVectorIR.RoundToIntegral) {
-      return true;
+    return findRint(node) != null;
+  }
+
+  /** The first {@code RoundToIntegral} at or under {@code node}, or null. */
+  private static VarkaVectorIR.RoundToIntegral findRint(VarkaVectorIR node) {
+    if (node instanceof VarkaVectorIR.RoundToIntegral r) {
+      return r;
     }
     for (VarkaVectorIR child : VarkaVectorIR.childrenOf(node)) {
-      if (holdsRint(child)) {
-        return true;
+      VarkaVectorIR.RoundToIntegral r = findRint(child);
+      if (r != null) {
+        return r;
       }
     }
-    return false;
+    return null;
+  }
+
+  /** NaN floats with a payload, a signalling one and both signs, then the ends of the type. */
+  private static final int[] FLOAT_CELLS = {0x7fc00000, 0xffc00000, 0x7fc00001, 0xffc00001,
+      0x7f800001, 0xff800001, 0x7fffffff, 0xffffffff, Float.floatToRawIntBits(-0.3f),
+      Float.floatToRawIntBits(2.5f), Float.floatToRawIntBits(Float.MAX_VALUE), 0x80000000};
+
+  @Test
+  @DisplayName("rint of a widened float answers the canonical NaN for payload, signalling and "
+      + "negative NaN floats, and rint of a widened int skips the NaN blend")
+  void rintOfAConvertedLane() {
+    // The widening keeps a NaN float's sign and payload, so rint(cast(f AS DOUBLE)) must take
+    // the blend; an int widens to no NaN, so rint(cast(i AS DOUBLE)) skips it.
+    int n = 64;
+    int[] floats = new int[n];
+    int[] ints = new int[n];
+    for (int i = 0; i < n; i++) {
+      floats[i] = i < FLOAT_CELLS.length ? FLOAT_CELLS[i] : Float.floatToRawIntBits(i * -0.75f);
+      ints[i] = i % 3 == 0 ? Integer.MIN_VALUE + i : i % 3 == 1 ? Integer.MAX_VALUE - i : -i;
+    }
+    for (boolean isFloat : new boolean[] {true, false}) {
+      String sql = isFloat ? "rint(cast(f AS DOUBLE))" : "rint(cast(i AS DOUBLE))";
+      int[] bits = isFloat ? floats : ints;
+      var cols = CollectionConverters.asScala(List.<Attribute>of(VarkaSqlResolve.column(
+          isFloat ? "f" : "i", isFloat ? DataTypes.FloatType : DataTypes.IntegerType))).toSeq();
+      Expression e = VarkaSqlResolve.parse(sql, cols);
+      var entry = CollectionConverters.asScala(List.of(VarkaSqlResolve.named(e, "c"))).toSeq();
+      CompiledVarkaProjection plan =
+          VarkaExpressionCompiler.compile(entry, cols, VarkaMatrixRuns.BASE).orElseThrow();
+      VarkaVectorIR.RoundToIntegral node = findRint(plan.outputs().get(0));
+      assertTrue(node != null && node.child() instanceof VarkaVectorIR.ConvertLane,
+          sql + ": the rint's operand is not a conversion: " + plan.outputs());
+      assertEquals(isFloat, VarkaRoundingLowering.mayHoldOtherNaN(node), sql + ": the blend");
+      Expression spark = VarkaSqlResolve.bind(e, cols);
+      var loaded = VarkaEmitterFixtures.load(VarkaEmitterFixtures.emit(plan.outputs(), 1,
+          plan.numLiterals(), VarkaMatrixRuns.BASE));
+      try (Arena arena = Arena.ofConfined()) {
+        var col = VarkaEmitterFixtures.makeInputData(arena, n, i -> false, i -> bits[i], true);
+        var out = VarkaEmitterFixtures.makeLongOutput(arena, n);
+        int status = loaded.kernel().run(new long[] {col.data().address()}, new long[1],
+            new int[1], new long[] {out.data().address()}, new long[] {out.validity().address()},
+            new int[0], new long[0], n, VarkaEmitterTestSupport.scratch(loaded.kernel(), n));
+        assertEquals(0, status, sql + ": the kernel declined a batch it computes");
+        var row = new GenericInternalRow(new Object[1]);
+        for (int i = 0; i < n; i++) {
+          row.update(0, isFloat ? (Object) Float.intBitsToFloat(bits[i]) : (Object) bits[i]);
+          long want = Double.doubleToRawLongBits((Double) spark.eval(row));
+          long got = out.data().get(ValueLayout.JAVA_LONG, i * 8L);
+          String ctx = sql + " over 0x" + Integer.toHexString(bits[i]);
+          if (Double.isNaN(Double.longBitsToDouble(want))) {
+            assertEquals(Long.toHexString(CANONICAL_NAN), Long.toHexString(want),
+                ctx + ": Spark's NaN");
+          }
+          assertEquals(Long.toHexString(want), Long.toHexString(got), ctx + ": the kernel");
+        }
+      } finally {
+        loaded.loader().release();
+      }
+    }
   }
 
   @Test
