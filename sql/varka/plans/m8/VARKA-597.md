@@ -387,6 +387,8 @@ measurement is two dispatches for 597a and one for 597b, each on the owner's wor
 
 ## 7. Questions for the owner
 
+*Answered by the owner on 11 November 2026: 1, the decline lives in the decimal compiler's readers; 2 yes, every decimal-reading value declines by default at two long lanes and a form is lifted only on a measured win and the owner's word; 3 yes, the scalar-loop form is a scope item beside `m9/SCOPE.md` item 101; 4 yes, the done-when covers the forms that fuse when 597b merges.*
+
 1. **The mechanism.** (a) D2: decline in the decimal compiler's readers through the session flag on
    `DeclineSink`, after #1478 and #1484, removing 596's `BoolOutput` arm. (b) D1: widen #1478's IR
    key to every root, with an unsigned-compare marker for the leaf-free pair. *Recommended: (a)*.
