@@ -1493,7 +1493,7 @@ and 9 November 2026. They are untimed, and their times are row 573's.
   stores read 131 to 139 M rows/s on both arms, NATIVE included, because that multiply is driven
   at the int lane on either arm (`y1 * y2` under ANSI and `try_multiply(y1, y2)`, shapes h and i
   of the `-128bit` file), against 19 to 40 G rows/s for NATIVE's other `TINYINT` stores. So on an
-  AVX2 host at 128 bits, the default arm's checked byte multiply runs 138 to 307 times slower
+  AVX2 host at 128 bits, the default arm's checked byte multiply runs 138 to 308 times slower
   than its other byte stores. That is consistent with row 479's account, a boxed out-of-line
   `storeMasked` per four rows on x86 without AVX-512BW. Neither row 479 nor row 481 (the checked
   narrow multiply) records these numbers, and they are not profiled here. Row 603, added with
