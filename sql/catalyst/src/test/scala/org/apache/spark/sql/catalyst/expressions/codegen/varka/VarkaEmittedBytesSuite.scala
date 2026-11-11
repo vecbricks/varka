@@ -441,7 +441,9 @@ class VarkaEmittedBytesSuite extends SparkFunSuite with VarkaTestWatchdog {
    *
    * And the math family's opt-in mode, `mathUlpContract=true`, which a session reaches through
    * `spark.sql.codegen.varka.math.ulpContract.enabled` (VARKA-345.md 3.1). No node reads it yet,
-   * so its digest is the defaults'; the pin is what moves when a math form does.
+   * so its digest is the defaults', and today the pin holds only that: the flag leaves every
+   * emission alone. It covers a contracted form once the row that fuses a math function adds
+   * coverage rows for it; the fuzz shapes hold no math node.
    */
   private def pinnedArms: Seq[(String, VarkaEmitOptions => VarkaEmitOptions)] =
     Seq(VarkaEmitOptions.USE_AVX_UNKNOWN, 0, 1, 2, 3).map { level =>

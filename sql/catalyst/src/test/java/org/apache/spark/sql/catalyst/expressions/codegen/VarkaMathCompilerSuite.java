@@ -76,7 +76,8 @@ public final class VarkaMathCompilerSuite {
     m.put("log(2.0D, x)", "log is row 358's");
     m.put("pow(x, y)", "pow is row 358's");
     m.put("hypot(x, y)", "hypot is row 358's");
-    // An int operand reaches the function through its cast to double, which the family claims.
+    // An int operand reaches the function through its cast to double, which the floating casts
+    // family claims; the math family claims the function over it.
     m.put("exp(i)", "exp is row 358's");
     return Collections.unmodifiableMap(m);
   }

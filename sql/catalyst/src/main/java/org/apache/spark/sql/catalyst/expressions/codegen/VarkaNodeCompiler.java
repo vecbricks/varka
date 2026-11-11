@@ -216,7 +216,8 @@ final class VarkaNodeCompiler {
   /**
    * The chain, in order: the date leaves, the four families, then the int arithmetic and the
    * picks, then the floating arithmetic, which claims only floating-valued nodes, then the
-   * integral casts row 28's arms do not hold. The int arithmetic comes after the calendar family
+   * floating casts, the integral casts row 28's arms do not hold, the rounding functions and
+   * last the math functions. The int arithmetic comes after the calendar family
    * so that the {@code Add(WeekDay, 1)} shape keeps its dedicated node, and its guard says so as
    * well.
    */

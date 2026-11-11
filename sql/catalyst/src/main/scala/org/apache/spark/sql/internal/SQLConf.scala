@@ -3350,8 +3350,9 @@ object SQLConf {
         " doubles of Spark's answer rather than equal to it. A value computed so and then" +
         " grouped, joined on, sorted or written as a partition key above the kernel may fall on" +
         " the other side of a threshold than Spark's answer. Unset or false, every math" +
-        " function Varka fuses returns Spark's answer bit for bit. The setting is part of the" +
-        " shape hash, so a session that sets it emits and caches its own classes.")
+        " function Varka fuses returns Spark's answer bit for bit. No math function fuses yet," +
+        " so the setting changes no plan today. Set to true, it is part of the shape hash, so" +
+        " such a session emits and caches its own classes; false keeps the default's.")
       .version("5.0.0")
       // Read by the Varka rule after analysis, choosing how a kernel computes a value; nothing a
       // view body resolves to.

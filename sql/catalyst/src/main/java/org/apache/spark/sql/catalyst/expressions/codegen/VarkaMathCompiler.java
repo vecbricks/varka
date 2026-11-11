@@ -20,7 +20,6 @@ import java.util.Optional;
 
 import javax.annotation.Nullable;
 
-import scala.jdk.javaapi.CollectionConverters;
 
 import org.apache.spark.sql.catalyst.expressions.Acos;
 import org.apache.spark.sql.catalyst.expressions.Acosh;
@@ -49,7 +48,6 @@ import org.apache.spark.sql.catalyst.expressions.Sin;
 import org.apache.spark.sql.catalyst.expressions.Sinh;
 import org.apache.spark.sql.catalyst.expressions.Tan;
 import org.apache.spark.sql.catalyst.expressions.Tanh;
-import org.apache.spark.sql.types.DataTypes;
 
 /**
  * The math family (VARKA-345): Spark's 27 math functions over {@code DOUBLE} operands, the 26
@@ -80,7 +78,9 @@ final class VarkaMathCompiler {
 
   /**
    * The function {@code e} computes and its row, or empty for a node that is not one of the 26
-   * classes over {@code DOUBLE} operands. {@code floatingDecline} lets through exactly these.
+   * classes. {@code floatingDecline} lets through exactly these. Every operand is a
+   * {@code DOUBLE}: each class takes {@code DOUBLE} inputs by {@code ImplicitCastInputTypes}, so
+   * the analyzer has cast any other operand before a plan reaches the compiler.
    */
   static Optional<Owner> ownerOf(Expression e) {
     Owner owner = switch (e) {
@@ -112,15 +112,7 @@ final class VarkaMathCompiler {
       case Cbrt _ -> new Owner("cbrt", 358);
       default -> null;
     };
-    if (owner == null) {
-      return Optional.empty();
-    }
-    for (Expression child : CollectionConverters.asJava(e.children())) {
-      if (!DataTypes.DoubleType.equals(child.dataType())) {
-        return Optional.empty();
-      }
-    }
-    return Optional.of(owner);
+    return Optional.ofNullable(owner);
   }
 
   /** The family's claim, or null. */

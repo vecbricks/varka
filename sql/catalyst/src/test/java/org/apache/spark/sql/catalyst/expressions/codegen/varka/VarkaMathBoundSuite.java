@@ -51,7 +51,8 @@ public final class VarkaMathBoundSuite {
       long bits = Double.doubleToRawLongBits(Math.abs(r));
       for (int out = 0; out <= k + 2; out++) {
         double lane = sign * Double.longBitsToDouble(bits + out);
-        if (Double.isInfinite(lane)) {
+        // Past MAX_VALUE the walk reaches infinity and then NaN bit patterns.
+        if (!Double.isFinite(lane)) {
           continue;
         }
         assertEquals(out, VarkaMathBound.steps(lane, r));

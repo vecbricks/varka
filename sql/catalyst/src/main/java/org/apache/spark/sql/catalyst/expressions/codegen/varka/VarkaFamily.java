@@ -92,16 +92,16 @@ public enum VarkaFamily {
       + " bigint and boolean that the int arithmetic family does not hold: the narrowings to"
       + " tinyint and smallint (wrapping, or checked under ANSI), a tinyint or smallint widened"
       + " to smallint or bigint, a number cast to boolean and a boolean cast to a number"),
-  /** {@code VarkaMathCompiler}. */
-  MATH("math", "math", "the math functions over double operands - sin, cos, tan, asin, acos,"
-      + " atan, atan2, sec, csc, cot, sinh, cosh, tanh, asinh, acosh, atanh, exp, expm1, ln,"
-      + " log, log10, log1p, log2, pow, hypot and cbrt - each bit for bit Spark's unless"
-      + " spark.sql.codegen.varka.math.ulpContract.enabled is set; none fuses yet, and each"
-      + " declines naming the row of the plan that fuses it"),
   /** {@code VarkaRoundingCompiler}. */
   ROUNDING("rounding", "rounding", "rint over a double; floor, ceil and ceiling over bigint"
       + " and int operands; and round, bround and truncate over tinyint, smallint and int at a"
-      + " constant scale, and over bigint at a scale of zero or more");
+      + " constant scale, and over bigint at a scale of zero or more"),
+  /** {@code VarkaMathCompiler}. */
+  MATH("math", "math", "the math functions over double operands (sin, cos, tan, asin, acos,"
+      + " atan, atan2, sec, csc, cot, sinh, cosh, tanh, asinh, acosh, atanh, exp, expm1, ln,"
+      + " log, log10, log1p, log2, pow, hypot and cbrt), each bit for bit Spark's unless"
+      + " spark.sql.codegen.varka.math.ulpContract.enabled is true; none fuses yet, and each"
+      + " declines naming the row of the plan that fuses it");
 
   /** The prefix every family's switch shares. */
   public static final String SWITCH_PREFIX = "spark.sql.codegen.varka.family.";
