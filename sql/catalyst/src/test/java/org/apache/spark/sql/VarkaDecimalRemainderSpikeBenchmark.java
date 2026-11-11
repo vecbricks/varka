@@ -1632,8 +1632,25 @@ public class VarkaDecimalRemainderSpikeBenchmark extends VarkaBenchmarkBase {
             });
           }
           runCases(benchmark);
+          // What each compiled loop allocates, read after its timing: the intrinsic check
+          // compiles a loop alone, and a loop it passed can still box here, beside every other
+          // arm's compiles and profiles (VARKA-577.md 10.4).
+          for (Arm arm : opArms) {
+            note("allocated, " + arm.label() + " at " + n + " rows: "
+                + allocatedPerRow(arm, d, out, reps) + " bytes a row");
+          }
         }
       }
     }
+  }
+
+  /** The bytes this thread allocates a row over one drive of {@code arm}, to one decimal. */
+  private static String allocatedPerRow(Arm arm, Data d, MemorySegment out, int reps) {
+    var threads = (com.sun.management.ThreadMXBean) ManagementFactory.getThreadMXBean();
+    long[] words = new long[d.numRows() / 64];
+    long before = threads.getCurrentThreadAllocatedBytes();
+    drive(arm, d, out, words, reps);
+    long bytes = threads.getCurrentThreadAllocatedBytes() - before;
+    return String.format(java.util.Locale.ROOT, "%.1f", bytes / ((double) d.numRows() * reps));
   }
 }
