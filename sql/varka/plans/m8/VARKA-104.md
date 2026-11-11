@@ -428,3 +428,32 @@ Built in one pull request, stacked on step 1b's baseline; not yet measured.
 * **The fuzzer** draws no long-lane `abs`: the draw reshuffles the long fuzz stream, which the
   emit cost model's committed tables are fitted on, so `VarkaEmitterLongLaneSuite` tests long `abs`
   over the extremes instead.
+
+### 9.2 The runner measurement, 11 November 2026
+
+`VarkaBigintArithmeticBaselineBenchmark` ran on the pull request's head (`814a8346416`) on the
+EPYC 7763 runners three times: at 256 bits (vecbricks/varka run 42930745045), at 128 bits with
+`-XX:MaxVectorSize=16` (run 42930757311), and at 128 bits with
+`spark.sql.codegen.varka.declineTwoLaneConditions=false` as well (run 42930769718). The first two
+replace the runner results files whole, since every section's fusion class changed; the third is
+recorded here only. The ratios are the Varka arm's rate over the row path's, from one run each, so
+a gap of 10 to 15% between runs is noise: the wrapping forms, the same code in the two 128-bit
+runs, differ by that much.
+
+* **256 bits.** Every projection that fuses whole is 4.2x to 9.4x the row path. The filter
+  `l + l2 > 0` under ANSI, now a whole-kernel filter, is the weakest at 1.56x without nulls and
+  1.65x at one row in ten null, against the baseline's 0.74x and 0.80x with only its null tests
+  fused. The three checked products over a column (`l * 3` and `l * m` under ANSI,
+  `try_multiply(l, m)`) decline and tie at 1.00x.
+* **128 bits, as shipped.** The wrapping forms and the widened int's six fuse at 3.8x to 8.7x;
+  every form that keeps its check declines and ties (0.98x to 1.04x). One wrapping form is the
+  exception: `abs(l)` under LEGACY fuses whole but reaches only 1.32x without nulls and 1.43x with
+  them, against 7.2x and 8.4x at 256 bits. Why is not established. No section is slower than the
+  row path.
+* **128 bits, refusal off.** The checked forms fuse and the result is mixed. `try_add(l, l2)` and
+  `try_subtract(l, l2)` reach 2.4x to 2.6x at both null densities; ANSI `l + l2` and `l - l2` 2.1x
+  and 2.2x without nulls but 1.16x and 1.17x with them; ANSI `l + 1` 1.62x and 0.96x; ANSI `-l`
+  1.43x and 0.77x; ANSI `abs(l)` 0.94x and 0.64x; and the filter 0.44x and 0.53x. So the refusal is
+  right for the filter and for ANSI negation and `abs`, and leaves a win unclaimed on the `try_`
+  sums and on null-free ANSI `+` and `-`. A refusal finer than the `BIGINT` arms' is a finding for
+  a row of its own, not this one's.
