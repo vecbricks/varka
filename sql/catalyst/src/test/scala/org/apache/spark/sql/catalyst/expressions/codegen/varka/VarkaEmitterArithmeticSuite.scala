@@ -329,7 +329,7 @@ class VarkaEmitterArithmeticSuite extends VarkaEmitterTestBase {
   }
 
   test("IfElse over every comparison matches the reference across per-column null patterns") {
-    for (op <- CompareOp.values.toSeq) {
+    for (op <- CompareOp.integral.asScala.toSeq) {
       val root = new IfElse(new Compare(op, new ColumnRef(0), new ColumnRef(1)),
         new AddDays(new ColumnRef(0), new LiteralSlot(0)),
         new SubDays(new ColumnRef(1), new LiteralSlot(1)))
