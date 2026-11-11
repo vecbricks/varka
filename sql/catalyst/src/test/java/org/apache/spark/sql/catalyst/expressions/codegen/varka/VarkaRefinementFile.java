@@ -600,14 +600,24 @@ final class VarkaRefinementFile {
   private static final String INT_AB = "(declare-const a Int) (declare-const va Bool) "
       + "(declare-const b Int) (declare-const vb Bool)\n(assert (and (jint.in a) (jint.in b)))";
 
+  /**
+   * An int kernel of the arithmetic rows, written by hand: its exact result, its Java form, its
+   * validity and an overflowing input. {@code VarkaSmtNodesSuite} holds row 506's printer to
+   * these strings at the coverage rows' trees (VARKA-506 3 item 3).
+   */
+  record IntKernel(String name, String exact, String java, String valid, String example) { }
+
+  static final List<IntKernel> INT_KERNELS = List.of(
+      new IntKernel("a + b", "(+ a b)", "(jint.add a b)", "(and va vb)",
+          "(and (= a jint.MAX) (= b 1))"),
+      new IntKernel("a - b", "(- a b)", "(jint.sub a b)", "(and va vb)",
+          "(and (= a jint.MIN) (= b 1))"),
+      new IntKernel("a * 2", "(* a 2)", "(jint.mul a 2)", "va", "(= a jint.MAX)"),
+      new IntKernel("-a", "(- a)", "(jint.neg a)", "va", "(= a jint.MIN)"));
+
   private static void integerArithmetic(StringBuilder out) {
     section(out, "STANDARD.md 4.1, 4.17, 4.18: integer and interval + - * and negation");
-    record Op(String name, String exact, String java, String valid, String example) { }
-    for (Op op : List.of(
-        new Op("a + b", "(+ a b)", "(jint.add a b)", "(and va vb)", "(and (= a jint.MAX) (= b 1))"),
-        new Op("a - b", "(- a b)", "(jint.sub a b)", "(and va vb)", "(and (= a jint.MIN) (= b 1))"),
-        new Op("a * 2", "(* a 2)", "(jint.mul a 2)", "va", "(= a jint.MAX)"),
-        new Op("-a", "(- a)", "(jint.neg a)", "va", "(= a jint.MIN)"))) {
+    for (IntKernel op : INT_KERNELS) {
       String overflow = "(and " + op.valid() + " (not (jint.in " + op.exact() + ")))";
       var wrapped = new ArrayList<String>(List.of(INT_AB, "(declare-const sv Int)",
           "(assert (spec.wraps sv " + op.exact() + "))"));

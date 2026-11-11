@@ -39,15 +39,19 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Ove
 /**
  * The AVX2 forms of {@code BIGINT} to {@code DOUBLE} and {@code FLOAT} ({@link
  * VarkaConversionLowering}) emitted at {@code useAVX=2} and held bit for bit to Java's casts
- * through the reference: plain vector arithmetic, so any x86 host runs them. Both arms of
- * {@code wideConversionForm}, the bounded one's decline, and 3.4's named failing case.
+ * through the reference: plain vector arithmetic, so any x86 host runs them. Every arm of
+ * {@code wideConversionForm} and {@code roundToOddByShifts}, the bounded one's decline, and
+ * 3.4's named failing case.
  */
 @VarkaSuite(ownJvm = true)
 public final class VarkaEmitterWideConversionSuite {
 
   private static final ColumnRef L = new ColumnRef(0, LaneType.LONG);
-  private static final VarkaEmitOptions AVX2 =
-      VarkaMatrixRuns.BASE.withUseAVX(2).withWideConversionForm(WideConversionForm.SPLIT);
+  private static final VarkaEmitOptions AVX2 = VarkaMatrixRuns.BASE.withUseAVX(2)
+      .withWideConversionForm(WideConversionForm.XOR_SPLIT).withRoundToOddByShifts(false);
+  /** Part 343b1's forms of both conversions, the arms VARKA-583 keeps. */
+  private static final VarkaEmitOptions SHIFTS =
+      AVX2.withWideConversionForm(WideConversionForm.SPLIT).withRoundToOddByShifts(true);
   private static final int[] WIDE_LANES = {2, 4, 8};
   private static final int[] LENGTHS = {1, 2, 7, 8, 9, 17, 129};
   private static final List<IntPredicate> PATTERNS = List.of(
@@ -121,15 +125,18 @@ public final class VarkaEmitterWideConversionSuite {
   }
 
   @Test
-  @DisplayName("a bigint to DOUBLE by the exact split, at its cells, every width and both bodies")
+  @DisplayName("a bigint to DOUBLE by both exact splits, at its cells, every width and both "
+      + "bodies")
   void splitCells() {
     checkCells("cast(l AS double)", convert(LaneType.DOUBLE), AVX2, CELLS);
+    checkCells("cast(l AS double)", convert(LaneType.DOUBLE), SHIFTS, CELLS);
   }
 
   @Test
   @DisplayName("a bigint to FLOAT by rounding to odd, at its cells, every width and both bodies")
   void roundToOddCells() {
     checkCells("cast(l AS float)", convert(LaneType.FLOAT), AVX2, CELLS);
+    checkCells("cast(l AS float)", convert(LaneType.FLOAT), SHIFTS, CELLS);
     checkCells("cast(l AS float)", convert(LaneType.FLOAT),
         AVX2.withWideConversionForm(WideConversionForm.MAGIC), CELLS);
   }
@@ -144,6 +151,7 @@ public final class VarkaEmitterWideConversionSuite {
         new ConvertLane(convert(LaneType.FLOAT), LaneType.DOUBLE));
     checkCells("cast(l AS double) + cast(cast(l AS float) AS double)", sum, magic, WINDOW);
     checkCells("cast(l AS double) + cast(cast(l AS float) AS double)", sum, AVX2, CELLS);
+    checkCells("cast(l AS double) + cast(cast(l AS float) AS double)", sum, SHIFTS, CELLS);
   }
 
   @Test
@@ -205,8 +213,10 @@ public final class VarkaEmitterWideConversionSuite {
     for (int lanes : new int[] {4, 8}) {
       for (int offset = 0; offset < all.length; offset += rows) {
         var data = batch(rows, 0, all, offset);
-        check("cast(l AS double)", convert(LaneType.DOUBLE), AVX2, lanes, data);
-        check("cast(l AS float)", convert(LaneType.FLOAT), AVX2, lanes, data);
+        for (VarkaEmitOptions forms : List.of(AVX2, SHIFTS)) {
+          check("cast(l AS double)", convert(LaneType.DOUBLE), forms, lanes, data);
+          check("cast(l AS float)", convert(LaneType.FLOAT), forms, lanes, data);
+        }
       }
       for (int offset = 0; offset < inWindow.length; offset += rows) {
         check("cast(l AS double)", convert(LaneType.DOUBLE), magic, lanes,

@@ -14819,6 +14819,18 @@
       "4" : "8968ccd9d341fec6",
       "16" : "a95c689d5b52c849"
     },
+    "wideConversionForm=XOR_SPLIT over useAVX=2" : {
+      "4" : "8968ccd9d341fec6",
+      "16" : "a95c689d5b52c849"
+    },
+    "roundToOddByShifts=true over useAVX=2" : {
+      "4" : "8968ccd9d341fec6",
+      "16" : "a95c689d5b52c849"
+    },
+    "roundToOddByShifts=false over useAVX=2" : {
+      "4" : "8968ccd9d341fec6",
+      "16" : "a95c689d5b52c849"
+    },
     "narrowLanes=true" : {
       "4" : "f55bc30fb1c394f6",
       "16" : "105e3385e07fd3a3"
