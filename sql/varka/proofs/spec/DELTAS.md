@@ -27,7 +27,7 @@ make agree, so standard mode cannot buy it.
 | name | patches | modes | in short |
 | :--- | :--- | :--- | :--- |
 | `overflow_wraps` | 4.1 | non-ANSI | integer arithmetic wraps where the standard raises 22003 |
-| `overflow_yields_null` | outside the fragment | non-ANSI | division by zero, and Spark's `make_date`, return null |
+| `overflow_yields_null` | 4.1 over `DECIMAL` | non-ANSI | division by zero, Spark's `make_date`, and a decimal past its precision return null |
 | `clamp_to_month_end` | 4.13 | both | a month added to a day the target month lacks gives its last day |
 | `proleptic_range` | C1, 4.10, 4.13, 4.14 | both | a date is any int32 day count, not 0001 to 9999 |
 | `day_count_wraps` | 4.14 | both | a day added past the int32 day count wraps |
@@ -58,7 +58,8 @@ arm is already the standard.
 
 ### 1.2 `overflow_yields_null`
 
-**Patches** no definition of the fragment. Item 59 named it beside `overflow_wraps`; the check of
+**Patches** 4.1 over `DECIMAL` (the correction below; written first as patching no definition of
+the fragment). Item 59 named it beside `overflow_wraps`; the check of
 VARKA-244 (its plan, 2.2) found that no operation `STANDARD.md` defines returns null where the
 standard raises, so it is kept under item 59's name for the two places it is true:
 
@@ -69,14 +70,25 @@ standard raises, so it is kept under item 59's name for the two places it is tru
   `DATETIME_FIELD_OUT_OF_BOUNDS`, 22023, under ANSI. The standard has no `make_date`; its nearest
   operation, a date literal, is constrained "by the natural rules for dates" (5.3 SR 22).
 
+*Corrected by VARKA-506, 11 November 2026:* the check above predates the decimal rows. Since
+VARKA-348 and VARKA-349 put `DECIMAL` in 4.1, a third place is in the fragment:
+
+* **A decimal result past its type's precision** (4.1, SQL-92 6.12 GR 5(a)'s 22003): non-ANSI
+  Spark returns null, through `checkDecimalOverflow`'s `toPrecision(p, s, ROUND_HALF_UP,
+  nullOnOverflow = true)` in `arithmetic.scala`; ANSI raises `NUMERIC_VALUE_OUT_OF_RANGE`, 22003,
+  the standard's. `try_add`, `try_subtract` and `try_multiply` return null in both modes.
+
 **Modes:** non-ANSI only.
 
-**Patched definition.** Over exactly those two: `x / 0` and `x % 0` are null, and `make_date(y,
-m, dd)` is null where `(y, m, dd)` names no day. Nothing else: the other data exceptions of the
-fragment wrap (1.1) or still raise in non-ANSI mode (1.5, 1.7, 1.8).
+**Patched definition.** Over exactly those three: `x / 0` and `x % 0` are null, `make_date(y, m,
+dd)` is null where `(y, m, dd)` names no day, and a decimal `+`, `-` or `*` whose exact result
+(the product's after `Decimal.*`'s 39 digits, `STANDARD.md` 4.1) does not fit its result type is
+null. Nothing else: the other data exceptions of the fragment wrap (1.1) or still raise in
+non-ANSI mode (1.5, 1.7, 1.8).
 
-**Test:** "overflow_yields_null: non-ANSI division by zero and a non-existent make_date are null",
-with `make_date(2021, i, 1)` fused, and its ANSI arm.
+**Test:** "overflow_yields_null: non-ANSI division by zero, a non-existent make_date and a decimal
+past its precision are null", with `make_date(2021, i, 1)` fused, a `DECIMAL(38, 0)` product of
+`10^38` on the row engine, and its ANSI arm.
 
 **Standard mode:** a result; and a row that adds division to the coverage table finds the name
 defined here.

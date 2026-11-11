@@ -219,16 +219,22 @@ class VarkaStandardDeltasSuite extends QueryTest with VarkaSharedSessions
     }
   }
 
-  test("overflow_yields_null: non-ANSI division by zero and a non-existent make_date are null") {
+  test("overflow_yields_null: non-ANSI division by zero, a non-existent make_date and a " +
+    "decimal past its precision are null") {
     // Outside the fragment: SQL-92 6.12 GR 4 raises 22012 on a zero divisor, and no coverage row
     // divides. make_date is Spark's own (EXTENSIONS.md), and the one coverage row this reaches.
+    // A decimal product of 10^38 at its type, DECIMAL(38, 0), is one digit past it, where 4.1
+    // raises 22003.
+    val past = "CAST(10 AS DECIMAL(38, 0)) * CAST(1" + "0" * 37 + " AS DECIMAL(38, 0))"
     withAnsi(enabled = false) {
       sparkAnswers("SELECT 1 / 0, 7 % 0, make_date(2024, 2, 30)", Seq(Row(null, null, null)))
+      sparkAnswers(s"SELECT $past", Seq(Row(null)))
       bothAnswer("SELECT make_date(2021, i, 1) FROM varka_deltas_ints",
         Seq(Row(null), Row(null), Row(d(2021, 5, 1)), Row(null)), kernels = true)
     }
     withAnsi(enabled = true) {
       raises("SELECT 1 / 0", "DIVIDE_BY_ZERO", "22012")
+      raises(s"SELECT $past", "NUMERIC_VALUE_OUT_OF_RANGE.WITH_SUGGESTION", "22003")
       raises("SELECT make_date(2024, 2, 30)",
         "DATETIME_FIELD_OUT_OF_BOUNDS.WITHOUT_SUGGESTION", "22023")
     }
