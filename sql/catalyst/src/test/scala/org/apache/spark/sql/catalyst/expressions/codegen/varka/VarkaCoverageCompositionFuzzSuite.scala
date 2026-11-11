@@ -22,7 +22,7 @@ import scala.jdk.OptionConverters._
 import scala.util.Random
 
 import org.apache.spark.SparkFunSuite
-import org.apache.spark.sql.catalyst.expressions.{Alias, And, Attribute, AttributeReference, Expression, NamedExpression}
+import org.apache.spark.sql.catalyst.expressions.{Alias, And, Attribute, AttributeReference, DateAdd, Expression, NamedExpression}
 import org.apache.spark.sql.catalyst.expressions.codegen.{CompiledVarkaProjection, PartialVarkaProjection, VarkaConjunctOrder, VarkaExpressionCompiler}
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaOutputSpec.{FusedOutput, KernelOutput}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaCompositionCase.Entry
@@ -1387,7 +1387,11 @@ class VarkaCoverageCompositionFuzzSuite
   /** A planted-bug wide case's failure and its shrink: the first of ten draws that fails. */
   private def shrunkPlanted(name: String): (VarkaCompositionCase, VarkaFailureSignature,
       VarkaCompositionShrinker.Shrunk) = {
-    val found = (0 until 10).iterator.map(k => planted(drawWide(seed, k), name))
+    // Start at a date_add: one kernel holds its first entry's lane (severalKernels=false).
+    val found = (0 until 10).iterator.map(k => drawWide(seed, k)).map { c =>
+      val at = math.max(0, c.entries.indexWhere(_.expr.isInstanceOf[DateAdd]))
+      planted(c.copy(entries = c.entries.drop(at) ++ c.entries.take(at)), name)
+    }
       .map(c => (c, outcomeOf(checkWide)(c))).collectFirst { case (c, Some(sig)) => (c, sig) }
     val (c, sig) = found.getOrElse(fail(s"$name: no failing wide case in 10 draws"))
     (c, sig, VarkaCompositionShrinker.shrink(c, sig, outcomeOf(checkWide)))
