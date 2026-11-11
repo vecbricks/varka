@@ -3,8 +3,8 @@
 ## 1. Where this came from
 
 Milestone 8's row 598, added 10 November 2026 on the owner's word from two runner results on the
-EPYC 7763 at 256 bits. `VarkaBigintArithmeticBaselineBenchmark` (#1455, on its branch
-`varka-104-baseline`) times `filter l + l2 > 0, ANSI` on the varka on arm at 0.74x of the row path
+EPYC 7763 at 256 bits. `VarkaBigintArithmeticBaselineBenchmark` (#1455, then on its
+branch `varka-104-baseline`, since merged) times `filter l + l2 > 0, ANSI` on the varka on arm at 0.74x of the row path
 without nulls and 0.82x at one row in ten null, and `VarkaDecimalBaselineBenchmark` (#1475, on
 master) times `DECIMAL(15, 2) x * y < z filter` at 0.77x and 0.87x. Both sections are
 `NULL_TESTS`: no lowering computes the value-reading conjunct, so the only conjuncts that fuse are
@@ -95,8 +95,8 @@ None: no kernel's bytes change.
 |---|---|
 | `VarkaExpressionCompiler.java` | the decline |
 | `VarkaExpressionCompilerSuite.scala` | the rule at the unnamed and named emit levels |
-| `VarkaDecimalBaselineBenchmark.java`, `VarkaDayTimeIntervalBaselineBenchmark.java` | the `NULL_TESTS` sections listed `NONE` |
-| `VarkaDecimalBaselineQueriesSuite.scala`, `VarkaDayTimeIntervalBaselineQueriesSuite.scala` | the classes, and the rule over the baseline's table |
+| `VarkaDecimalBaselineBenchmark.java`, `VarkaDayTimeIntervalBaselineBenchmark.java`, `VarkaBigintArithmeticBaselineBenchmark.java` | the `NULL_TESTS` sections listed `NONE` |
+| `VarkaDecimalBaselineQueriesSuite.scala`, `VarkaDayTimeIntervalBaselineQueriesSuite.scala`, `VarkaBigintArithmeticBaselineQueriesSuite.scala` | the classes, and the rule over the baseline's table |
 | `VarkaNullTestFilterProbe.java`, `results/VARKA-598-probe.txt` | the diagnosis |
 
 ## 5. Tests, and what each is for
@@ -109,7 +109,10 @@ None: no kernel's bytes change.
   fuse stays whole on the row path at every emit level": over the baseline's table at both
   densities and the three levels, the section's plan has no Varka filter and both sessions answer
   alike; the existing class check holds every section's new class at both refusal settings.
-* `VarkaDayTimeIntervalBaselineQueriesSuite`: the filter's class is `NONE`.
+* `VarkaDayTimeIntervalBaselineQueriesSuite` and `VarkaBigintArithmeticBaselineQueriesSuite`: the
+  filters' classes are `NONE`.
+* The BIGINT, decimal and day-time baselines' plan-only dry runs at 256 and 128 bits, after the
+  merge of master that brought the BIGINT baseline.
 
 ## 6. The measurement
 

@@ -58,7 +58,9 @@ import org.apache.spark.sql.internal.SQLConf;
  * take an {@code INT} or a narrower type and nothing on the long lane, and a widened int under a
  * long operation declines with it. So is the filter: the sum declines, so of it only the
  * {@code IS NOT NULL} of each column the optimizer infers would fuse, and a filter fusing
- * nothing else stays whole on the row path (VARKA-598), at both widths. The control is
+ * nothing else stays whole on the row path (VARKA-598); where the session refuses a filter's
+ * condition in a 64-bit kernel (VARKA-503), as the 128-bit companion's host does by default, the
+ * null tests decline with the rest anyway. The control is
  * {@code WHOLE}, and the run also checks that it runs every batch as a kernel
  * ({@link VarkaSizeLadder#varkaFused}). A row that fuses more of a section sets its new class, so
  * that its fusion cannot turn a baseline section into a fused one unnoticed.
@@ -136,12 +138,11 @@ public class VarkaBigintArithmeticBaselineBenchmark extends VarkaSqlBenchmarkBas
   }
 
   /**
-   * Every section, in the order they run: each null density, then each operation. The filter is
-   * a condition in a kernel driven at 64 bits, which a session that refuses those
-   * ({@code declinesLongConditions}, VARKA-503) leaves to the row path whole: the 128-bit
-   * companion's host by default. No section's class depends on it today, since the filter stays
-   * whole on the row path at both widths (VARKA-598); a row that fuses the filter sets its class
-   * from it.
+   * Every section, in the order they run: each null density, then each operation. The filter
+   * plans no Varka node today at either width, so no section's class reads
+   * {@code declinesLongConditions} (a session that refuses a condition in a kernel driven at 64
+   * bits, VARKA-503: the 128-bit companion's host by default). It is kept for the row that fuses
+   * the filter, whose condition would be such a kernel and so would decline under the refusal.
    */
   static List<Section> sections(boolean declinesLongConditions) {
     List<Section> out = new ArrayList<>();
