@@ -1384,17 +1384,30 @@ class VarkaCoverageCompositionFuzzSuite
   // The shrinker on this fuzzer's cases (VARKA-294).
   // ---------------------------------------------------------------------------------------------
 
-  /** A planted-bug wide case's failure and its shrink: the first of ten draws that fails. */
+  /**
+   * A planted-bug wide case's failure and its shrink: the first of ten draws that fails, each
+   * draw first passed through [[startAtDateAdd]].
+   */
   private def shrunkPlanted(name: String): (VarkaCompositionCase, VarkaFailureSignature,
       VarkaCompositionShrinker.Shrunk) = {
-    // Start at a date_add: one kernel holds its first entry's lane (severalKernels=false).
-    val found = (0 until 10).iterator.map(k => drawWide(seed, k)).map { c =>
-      val at = math.max(0, c.entries.indexWhere(_.expr.isInstanceOf[DateAdd]))
-      planted(c.copy(entries = c.entries.drop(at) ++ c.entries.take(at)), name)
-    }
+    val found = (0 until 10).iterator.map(k => planted(startAtDateAdd(drawWide(seed, k)), name))
       .map(c => (c, outcomeOf(checkWide)(c))).collectFirst { case (c, Some(sig)) => (c, sig) }
     val (c, sig) = found.getOrElse(fail(s"$name: no failing wide case in 10 draws"))
     (c, sig, VarkaCompositionShrinker.shrink(c, sig, outcomeOf(checkWide)))
+  }
+
+  /**
+   * Under `severalKernels=false`, `c` rotated to start at its first entry whose root is a
+   * date_add; `c` itself under the defaults or when no root is one. With several kernels off a
+   * kernel holds one lane, the first entry's, so a draw that starts on the long lane leaves
+   * every AddDays out of the kernel and the planted `misdescribeAdd` cannot fail it. The label
+   * says the case was rotated, since `drawWide` alone gives the drawn order.
+   */
+  private def startAtDateAdd(c: VarkaCompositionCase): VarkaCompositionCase = {
+    val at = c.entries.indexWhere(_.expr.isInstanceOf[DateAdd])
+    if (c.options.severalKernels() || at <= 0) c
+    else c.copy(entries = c.entries.drop(at) ++ c.entries.take(at),
+      label = s"${c.label}\n  (rotated to start at entry $at)")
   }
 
   test("a planted bug in a wide projection shrinks from hundreds of entries to a few") {
