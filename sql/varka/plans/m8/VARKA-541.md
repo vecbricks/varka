@@ -253,6 +253,8 @@ Size: **small**, about a day.
 
 *Answered by the owner on 11 November 2026: 1 (a), one copy in `GeneratePredicateHelper`; 2 yes, 2.1 is kept if step 1 confirms item 5; 3 yes, an upstream ticket is filed for item 5.*
 
+*11 November 2026: filed as SPARK-61459 (https://issues.apache.org/jira/browse/SPARK-61459), after a reproduction on Apache Spark master `183ccbe75d4` with no Varka code: with whole-stage codegen off, `(s = 'x' OR arr[5] > 0) AND b < 0 AND arr[5] < 10` under ANSI raises `INVALID_ARRAY_INDEX`, and with it on Spark answers. A non-cheap shared extract (`arr[b + 6]`) raises in both modes, which is SPARK-60774; the ticket names that overlap. Item 5 now has a measured reproduction upstream; step 1 still reads it through Varka's fallback.*
+
 1. **One copy of Spark's gate or two.** (a) Move the test into `GeneratePredicateHelper`, called
    by `FilterExec` and Varka: one copy, a few more lines in a Spark file Varka already edits. (b)
    A copy beside `VarkaFilterExec`, held to `FilterExec`'s branch by test 2. *Recommended: (a)*,
