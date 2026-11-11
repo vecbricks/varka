@@ -338,7 +338,7 @@ public final class VarkaAnsiForm {
    * overflow of {@code java.lang.Math}'s exact arithmetic (TIMESTAMP_NTZ arithmetic's and an
    * interval product's), is
    * named by its class, as {@code VarkaMaybeThrows.raised} names an error with no condition for
-   * the end-to-end suite ({@link #isExactLongOverflow}); any other error is the harness's own
+   * the end-to-end suite ({@link #isExactOverflow}); any other error is the harness's own
    * and is thrown.
    */
   static Optional<String> condition(Supplier<List<InternalRow>> values) {
@@ -349,7 +349,7 @@ public final class VarkaAnsiForm {
       if (e instanceof SparkThrowable t && t.getCondition() != null) {
         return Optional.of(t.getCondition());
       }
-      if (e instanceof ArithmeticException a && isExactLongOverflow(a)) {
+      if (e instanceof ArithmeticException a && isExactOverflow(a)) {
         return Optional.of(e.getClass().getName());
       }
       throw e;
@@ -357,15 +357,15 @@ public final class VarkaAnsiForm {
   }
 
   /** The methods of {@code java.lang.Math} whose overflow Spark raises with no condition. */
-  private static final Set<String> EXACT_LONG_METHODS =
-      Set.of("addExact", "subtractExact", "multiplyExact", "negateExact");
+  private static final Set<String> EXACT_METHODS =
+      Set.of("addExact", "subtractExact", "multiplyExact", "negateExact", "toIntExact");
 
   /**
    * Whether {@code e} is the overflow of {@code Math}'s exact arithmetic: the message
-   * {@code long overflow} thrown from one of {@link #EXACT_LONG_METHODS}, or
+   * {@code long overflow} thrown from one of {@link #EXACT_METHODS}, or
    * {@code integer overflow} thrown from one of them called by a Catalyst expression,
-   * {@code ym * k}'s int product (an int overflow the harness's own arithmetic throws is called
-   * from elsewhere). Or the JVM's
+   * {@code ym * k}'s int product or its {@code BIGINT} factor's {@code toIntExact} (an int
+   * overflow the harness's own arithmetic throws is called from elsewhere). Or the JVM's
    * preallocated {@code ArithmeticException}, with no message and no stack trace: once such a
    * site has trapped often enough, C2 throws that shared instance in place of the overflow
    * ({@code inline_math_mathExact}, under the default {@code OmitStackTraceInFastThrow}), as
@@ -373,13 +373,13 @@ public final class VarkaAnsiForm {
    * division by zero throws, so it cannot be told apart; a {@code / by zero} with its message,
    * or an overflow thrown anywhere but {@code Math} is the harness's own.
    */
-  static boolean isExactLongOverflow(ArithmeticException e) {
+  static boolean isExactOverflow(ArithmeticException e) {
     StackTraceElement[] trace = e.getStackTrace();
     if (e.getMessage() == null) {
       return trace.length == 0;
     }
     boolean fromMath = trace.length > 0 && trace[0].getClassName().equals("java.lang.Math")
-        && EXACT_LONG_METHODS.contains(trace[0].getMethodName());
+        && EXACT_METHODS.contains(trace[0].getMethodName());
     return switch (e.getMessage()) {
       case "long overflow" -> fromMath;
       case "integer overflow" -> fromMath && trace.length > 1

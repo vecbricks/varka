@@ -55,6 +55,7 @@ import org.apache.spark.sql.catalyst.util.DateTimeConstants;
 import org.apache.spark.sql.types.DataType;
 import org.apache.spark.sql.types.DataTypes;
 import org.apache.spark.sql.types.DayTimeIntervalType;
+import org.apache.spark.sql.types.IntegralType;
 import org.apache.spark.sql.types.YearMonthIntervalType;
 
 /**
@@ -223,11 +224,9 @@ public final class VarkaIntervalCompiler {
                   new Compare(CompareOp.LT, x, sink.longSlot(0L)),
                   new IntNeg(Overflow.FAIL, x), x));
       case MultiplyDTInterval m -> () -> dayTimeMultiply(m, inputs, literals, sink);
-      // `extract(DAY FROM dt)` is `IntervalUtils.getDays`, `(int) (micros / MICROS_PER_DAY)`:
-      // Java's truncating `/` over a count nothing bounds, which `truncDivLong` is over every
-      // long (`long_divide.smt2`). The quotient is at most 106,751,991 in magnitude, so the
-      // narrowing to the int result is exact (VARKA-103 2.3). Inside `date_add` the date arm
-      // reads the extract as its day offset itself, so that one never reaches this arm.
+      // `extract(DAY FROM dt)` is `IntervalUtils.getDays`, `(int) (micros / MICROS_PER_DAY)`,
+      // which `truncDivLong` is over every long; the quotient's magnitude is at most 106,751,991,
+      // so the narrowing is exact (VARKA-103 2.3). `date_add`'s own offset arm reads it first.
       case ExtractANSIIntervalDays x ->
           () -> dayTimeOperand(x.child(), "the interval", inputs, literals, sink)
               .map(micros -> (VarkaVectorIR) new NarrowLane(days(micros, sink)));
@@ -401,20 +400,19 @@ public final class VarkaIntervalCompiler {
   }
 
   /**
-   * {@code Math.multiplyExact(months, num)}. An integral literal {@code num} of any width is
-   * {@link #yearMonthTimesLiteral}. An int column needs both operands bounded before the check
-   * comes off, and a stored interval column never is, so {@code ym * i} declines while
-   * {@code make_ym_interval(year(d), month(d)) * i} could fuse. A {@code Long} column, a
-   * {@code Decimal} and a {@code Double} are not int32 lanes and decline by type rather than
-   * reaching {@code intOperand}, which would report them as "not an int column or literal" and
-   * hide which of the two is wrong.
+   * {@code Math.multiplyExact(months, num)} for the int-family arms. Both operands have to be
+   * bounded before the check comes off, and a stored interval column never is, so an int column
+   * multiplier declines; an integral literal is {@link #yearMonthTimesLiteral}. The
+   * {@code Long}, {@code Decimal} and {@code Double} arms are not int32 lanes and decline by type
+   * rather than reaching {@code intOperand}, which would report them as "not an int column or
+   * literal" and hide which of the two is wrong.
    */
   private static Optional<VarkaVectorIR> multiply(
       MultiplyYMInterval m,
       VarkaSlotTable inputs,
       VarkaSlotTable literals,
       DeclineSink sink) {
-    if (m.num() instanceof Literal l && isIntegral(l.dataType())) {
+    if (m.num() instanceof Literal l && l.dataType() instanceof IntegralType) {
       return yearMonthTimesLiteral(m, l, inputs, literals, sink);
     }
     if (!m.num().dataType().equals(DataTypes.IntegerType)) {
@@ -566,7 +564,8 @@ public final class VarkaIntervalCompiler {
    * {@code subtractExact}, which raise in every evaluation mode, so the declared mode is
    * {@code FAIL} and {@code arithOver}'s bound is the only thing that takes the check off. Two
    * units meet through type coercion's cast to the wider type, which the time family compiles to
-   * the child where the target's end field is at least as fine as the source's.
+   * the child for a SECOND end field only: a coarser one truncates, and a stored count need not
+   * be a whole number of its own unit ({@code CAST(1.0001 AS INTERVAL HOUR)} is not).
    */
   private static Optional<VarkaVectorIR> dayTimeArith(
       IntOp op,
@@ -608,8 +607,7 @@ public final class VarkaIntervalCompiler {
       VarkaSlotTable literals,
       DeclineSink sink) {
     DataType type = m.num().dataType();
-    if (!type.equals(DataTypes.LongType) && !type.equals(DataTypes.IntegerType)
-        && !type.equals(DataTypes.ShortType) && !type.equals(DataTypes.ByteType)) {
+    if (!(type instanceof IntegralType)) {
       return sink.decline("day-time interval factor of type " + type.simpleString()
           + " is not an integral literal", m);
     }
@@ -621,10 +619,11 @@ public final class VarkaIntervalCompiler {
       return sink.decline("day-time interval factor is a NULL literal", m);
     }
     long k = n.longValue();
+    int mark = literals.size();
     Optional<VarkaVectorIR> x =
         dayTimeOperand(m.interval(), "the multiplied interval", inputs, literals, sink);
     if (x.isEmpty() || k == 1) {
-      return x;
+      return rolledBack(x, literals, mark);
     }
     VarkaVectorIR operand = x.get();
     if (k != 0) {
@@ -681,14 +680,10 @@ public final class VarkaIntervalCompiler {
 
   /**
    * {@code ym * k} for an integral literal {@code k} (VARKA-103 2.2): Spark's
-   * {@code Math.multiplyExact(months, k)} on the int, or for a {@code BIGINT} {@code k}
-   * {@code toIntExact(multiplyExact(months, k))} on the long, both raising exactly where the
-   * true product leaves the int. A bounded operand whose product provably fits keeps the
-   * unchecked multiply it always had; any other is range-guarded to
-   * {@link #yearMonthProductBounds} and multiplied with wrapping, which is exact under the guard
-   * whatever {@code k}'s width, since the wrapped product agrees with the true one modulo
-   * {@code 2^32} and the true one fits. {@code k = 1} is the operand and {@code k = 0} a wrapping
-   * multiply that keeps the operand's nulls.
+   * {@code multiplyExact(months, k)}, or {@code toIntExact} of the long product for a
+   * {@code BIGINT} {@code k}, raising exactly where the true product leaves the int. Unless the
+   * bounds prove it fits, the count is guarded to {@link #yearMonthProductBounds}; the wrapping
+   * multiply by {@code (int) k} is then exact, agreeing with the true product modulo {@code 2^32}.
    */
   private static Optional<VarkaVectorIR> yearMonthTimesLiteral(
       MultiplyYMInterval m,
@@ -708,12 +703,8 @@ public final class VarkaIntervalCompiler {
     }
     VarkaVectorIR months = x.get();
     LiteralSlot factor = VarkaNodeCompiler.intSlot((int) k, literals);
-    if (k == (int) k && VarkaNodeCompiler.cannotOverflow(IntOp.MUL, months, factor, literals,
-        sink)) {
-      return rolledBack(VarkaNodeCompiler.arithOver(
-          IntOp.MUL, Overflow.FAIL, months, factor, m, literals, mark, sink), literals, mark);
-    }
-    if (k != 0) {
+    if (k != 0 && (k != (int) k
+        || !VarkaNodeCompiler.cannotOverflow(IntOp.MUL, months, factor, literals, sink))) {
       long[] bounds = yearMonthProductBounds(k);
       months = new GuardedRange(months, bounds[0], bounds[1]);
     }
@@ -721,10 +712,8 @@ public final class VarkaIntervalCompiler {
   }
 
   /**
-   * The micros of a day-time interval as whole days, Java's {@code micros / MICROS_PER_DAY}:
-   * {@code truncDivLong}, exact over every long. Under the planted
-   * {@link VarkaIntervalFault#DAY_BY_MAGNITUDE} it is the floor of the magnitude with the sign
-   * put back, the magnitude by an arithmetic shift, which wraps at {@code Long.MIN_VALUE}.
+   * Java's {@code micros / MICROS_PER_DAY}, exact over every long; under the planted
+   * {@link VarkaIntervalFault#DAY_BY_MAGNITUDE}, the fault's form.
    */
   private static VarkaVectorIR days(VarkaVectorIR micros, DeclineSink sink) {
     long day = DateTimeConstants.MICROS_PER_DAY;
@@ -736,11 +725,6 @@ public final class VarkaIntervalCompiler {
       return new IntArith(IntOp.SUB, Overflow.WRAP, new BitOp(BitOpKind.XOR, q, sign), sign);
     }
     return VarkaNodeCompiler.truncDivLong(micros, day, sink);
-  }
-
-  private static boolean isIntegral(DataType t) {
-    return t.equals(DataTypes.LongType) || t.equals(DataTypes.IntegerType)
-        || t.equals(DataTypes.ShortType) || t.equals(DataTypes.ByteType);
   }
 
   /** Whether {@code c} casts to a year-month interval whose end field is {@code endField}. */

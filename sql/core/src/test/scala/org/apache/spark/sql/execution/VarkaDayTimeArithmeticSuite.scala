@@ -17,12 +17,12 @@
 
 package org.apache.spark.sql.execution
 
-import java.time.Duration
+import java.time.{Duration, LocalDate}
 
 import org.apache.spark.sql.{QueryTest, Row, SparkSession}
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaIntervalCompiler
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTestWatchdog
-import org.apache.spark.sql.types.{DayTimeIntervalType, StructField, StructType}
+import org.apache.spark.sql.types.{DateType, DayTimeIntervalType, StructField, StructType}
 
 /**
  * The day-time interval sum, difference, negation and `abs` against the row engine (VARKA-103
@@ -92,6 +92,16 @@ class VarkaDayTimeArithmeticSuite extends QueryTest with VarkaMaybeThrows with V
         schema).createOrReplaceTempView(productTable(k, x))
       session.catalog.cacheTable(productTable(k, x))
     }
+    // A date beside a stored INTERVAL DAY, for the day count as a date offset.
+    val dates = (-300 until 300).map { i =>
+      Row(LocalDate.of(2021, 6, 1).plusDays(i * 7L), Duration.ofDays(i * 13L - 1000))
+    } ++ Seq(Row(null, Duration.ofDays(2)), Row(LocalDate.of(2021, 6, 1), null)) ++
+      // The day count's ends, 106,751,991 days either way.
+      Seq(106751991L, -106751991L).map(n => Row(LocalDate.of(2021, 6, 1), Duration.ofDays(n)))
+    session.createDataFrame(session.sparkContext.parallelize(dates, 1), StructType(Seq(
+      StructField("d", DateType), StructField("dd", DayTimeIntervalType(0: Byte, 0: Byte)))))
+      .createOrReplaceTempView("varka_dta_dates")
+    session.catalog.cacheTable("varka_dta_dates")
     for ((name, data) <- tables) {
       session.createDataFrame(session.sparkContext.parallelize(data, 1), schema)
         .createOrReplaceTempView(name)
@@ -147,6 +157,20 @@ class VarkaDayTimeArithmeticSuite extends QueryTest with VarkaMaybeThrows with V
       "INTERVAL_ARITHMETIC_OVERFLOW.WITHOUT_SUGGESTION")
     assert(condition(checkCell("SELECT abs(dt) AS a FROM TABLE", "varka_dta_min",
       raises = true)) === "ARITHMETIC_OVERFLOW")
+  }
+
+  test("the day count of a stored INTERVAL DAY as a date offset answers as the row engine does") {
+    // `d - dd` is DateAdd(d, -extract(DAY FROM dd)), whose negated count reaches the date arm's
+    // offset arithmetic as `-i` does and fuses under its day guard; `d + dd` and the product
+    // decline, the bare extract and a product of it not being offsets the arm admits.
+    for ((q, fuses) <- Seq("d - dd" -> true, "d + dd" -> false,
+        "date_add(d, extract(DAY FROM dd) * 2)" -> false)) {
+      val sql = s"SELECT $q AS a FROM varka_dta_dates"
+      val (onVarka, plan) = runOutcome(varkaSpark, sql)
+      VarkaMaybeThrows.difference(expectedOutcome(sql, plan), onVarka).foreach(d =>
+        fail(s"$sql\n$d"))
+      assert(find(plan.get)(isVarkaNode).isDefined === fuses, sql)
+    }
   }
 
   test("dt * k answers at the guard's ends and raises one past each, as multiplyExact does") {

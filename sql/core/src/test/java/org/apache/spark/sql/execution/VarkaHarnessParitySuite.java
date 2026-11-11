@@ -282,13 +282,16 @@ public final class VarkaHarnessParitySuite {
       Math.negateExact(Long.MIN_VALUE);
       return List.of();
     }));
-    // ym * k's int product, raised by the expression's own evaluation.
-    assertEquals(Optional.of(name), VarkaAnsiForm.condition(() -> {
-      new MultiplyYMInterval(Literal.create(Integer.MAX_VALUE, new YearMonthIntervalType(
-          YearMonthIntervalType.YEAR(), YearMonthIntervalType.MONTH())), Literal.create(2,
-          DataTypes.IntegerType)).eval(null);
-      return List.of();
-    }));
+    // ym * k's int product, and a bigint k's toIntExact, raised by the expression's own
+    // evaluation.
+    var ym = new YearMonthIntervalType(YearMonthIntervalType.YEAR(), YearMonthIntervalType.MONTH());
+    for (Literal k : List.of(Literal.create(2, DataTypes.IntegerType),
+        Literal.create(3_000_000_000L, DataTypes.LongType))) {
+      assertEquals(Optional.of(name), VarkaAnsiForm.condition(() -> {
+        new MultiplyYMInterval(Literal.create(Integer.MAX_VALUE, ym), k).eval(null);
+        return List.of();
+      }));
+    }
     // C2's preallocated instance, which stands in for a hot site's overflow.
     var preallocated = new ArithmeticException();
     preallocated.setStackTrace(new StackTraceElement[0]);

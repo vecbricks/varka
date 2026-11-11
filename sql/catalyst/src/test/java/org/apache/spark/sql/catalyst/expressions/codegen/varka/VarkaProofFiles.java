@@ -2167,6 +2167,15 @@ final class VarkaProofFiles {
     return out.toString();
   }
 
+  private static String ymLowered(int d, int lo, int up, int dn) {
+    return "(ym.lowered m " + lit(d) + " " + lit(lo) + " " + lit(up) + " " + lit(dn) + ")";
+  }
+
+  // -----------------------------------------------------------------------------------------
+  // The interval products by an integral literal, a range guard and a wrapping multiply
+  // (VARKA-103).
+  // -----------------------------------------------------------------------------------------
+
   /**
    * The literal factors {@code dt_arith.smt2} proves the day-time product's guard for: those the
    * coverage rows and the tests use, both signs, the int's and the long's ends.
@@ -2308,11 +2317,6 @@ final class VarkaProofFiles {
     }
     throw new IllegalStateException("multiplyExact(" + x + ", " + k + ") does not raise, "
         + "outside the guard [" + lo + ", " + hi + "]");
-  }
-
-
-  private static String ymLowered(int d, int lo, int up, int dn) {
-    return "(ym.lowered m " + lit(d) + " " + lit(lo) + " " + lit(up) + " " + lit(dn) + ")";
   }
 
   // -----------------------------------------------------------------------------------------

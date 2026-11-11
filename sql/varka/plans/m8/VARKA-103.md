@@ -557,28 +557,22 @@ Predictions, registered before the build:
    `ym * k`. Left of 103a: `ym * k` (2.2's int-lane half), `extract(DAY)` with `truncDivLong`,
    2.4's day split and the decimal literal forms, the rest of 3.1's proofs, their cells and rows,
    and the first planted fault.
-   *11 November 2026, 103a split in two by the size cap, and 103a1 built* (branch
-   `varka-103a-dt-arith`, opening after #1425). The two commits above, unpushed when their
-   session ended on 2 November, are replayed onto master at `c62f492fc89`. Corrections: master's
-   baselines hold a `Fusion` class, not a `fuses` flag, so "lists as fusing" is `WHOLE` at both
-   widths; `truncDivLong` and its `long_divide.smt2` claim are row 332's, on master, so 103a
-   builds no bias helper. 103a would pass the 1000-line cap, so: **103a1**, 2.1, 2.2 with
-   `ym * k`, `extract(DAY)` and the first planted fault; **103a2**, after it, 2.4's day split
-   for `dt / k` and the decimal literal factor and divisor, which share the `HALF_UP` step.
-   As built in 103a1: `ym * k` for an integral literal of any width keeps its unchecked multiply
-   where the bounds prove the product fits (`make_ym_interval(year(d), month(d)) * 2`, bytes
-   unmoved), else guards the count to `yearMonthProductBounds(k)` and multiplies with wrapping
-   by `(int) k`, exact under the guard modulo `2^32`. `extract(DAY FROM dt)` is
-   `NarrowLane(truncDivLong(x, D))`; inside `date_add` the date arm still reads it, and `d + dt`
-   over a stored `INTERVAL DAY` column still declines. The fault,
-   `VarkaIntervalFault.DAY_BY_MAGNITUDE`, is stated in `long_divide.smt2`, `sat` over every long
-   and `unsat` with `Long.MIN_VALUE` excluded (0.14 s under Z3 alone), and fails
-   `VarkaEmitterIntervalCastSuite`'s `MIN` cell. `dt_arith.smt2` proves the int lane's guard per
-   factor of `YM_FACTORS`. Rows `ym * 3` and `extract(DAY FROM dt)` (both proof); the baseline's
-   day extract is `WHOLE`, its four extracts together `PARTIAL`. `ym * k` overflows with `Math`'s
-   `integer overflow`, which the harness's ANSI form now takes for Spark's when an expression
-   called `Math`. No TRY form is built: every `try_` spelling over an interval is `TryEval`
-   (item 12).
+   *11 November 2026, 103a split by the size cap; 103a1 built* (`varka-103a-dt-arith`, opening
+   after #1425): the two commits above, replayed onto `c62f492fc89`, then `ym * k`,
+   `extract(DAY)` and the first planted fault; **103a2** is 2.4's day split for `dt / k` and the
+   decimal literal forms. Corrections: baselines hold a `Fusion` class, so "lists as fusing" is
+   `WHOLE`; `truncDivLong` is row 332's, on master; the finer-end relabel and 2.1's "a cast to an
+   end field at least as fine is the identity" are withdrawn, since Spark truncates to the
+   target's unit and a stored count need not be whole units (`CAST(1.0001 AS INTERVAL HOUR)`),
+   so `dt dt` stays 36 of 90; the first bare `ArithmeticException` row is `ym * 3`. As built:
+   `ym * k` guards the count to `yearMonthProductBounds(k)` and wraps by `(int) k` unless the
+   bounds prove the product fits (those bytes unmoved); `extract(DAY FROM dt)` is
+   `NarrowLane(truncDivLong(x, D))`, and through it `d - dt` over a stored `INTERVAL DAY` fuses as
+   an int offset, `d + dt` still declining; `VarkaIntervalFault.DAY_BY_MAGNITUDE` is `sat` in
+   `long_divide.smt2`, `unsat` with `Long.MIN_VALUE` excluded (0.14 s under Z3), and fails the
+   emitter suite's `MIN` cell; `dt_arith.smt2` proves `YM_FACTORS` at the int lane; rows `ym * 3`
+   and `extract(DAY FROM dt)`; the harness's ANSI form takes `Math`'s `integer overflow` from an
+   expression for Spark's. No TRY form: a `try_` over an interval is `TryEval` (item 12).
 3. **103b, after 332b and 157 and 347**: `HOUR`, `MINUTE`, `SECOND`, `make_dt_interval` (the
    seconds of both, section 8, point 3), the third planted fault, and the measurement against the
    baseline at both widths.

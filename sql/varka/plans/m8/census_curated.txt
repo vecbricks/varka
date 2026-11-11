@@ -207,7 +207,7 @@ ym_div_num|DivideYMInterval|interval|ym,NUM|ym||semantics|89,342,363|HALF_UP div
 dt_div_num|DivideDTInterval|interval|dt,NUM|dt||semantics|103,342,361,363|HALF_UP division; an integral or decimal literal and an integral column are row 103's; a floating factor is 342's lowering
 extract_ym_years|ExtractANSIIntervalYears|interval|ym|int|ym|done||
 extract_ym_months|ExtractANSIIntervalMonths|interval|ym|byte||plumbing|329|matched today only to decline: its result is a byte
-extract_dt_days|ExtractANSIIntervalDays|interval|dt|int|dt|done|103|fused in `extract(DAY FROM dt)`, the truncating division by a day over every long; inside `d + dt` over a stored `INTERVAL DAY` column it declines (`m9/SCOPE.md` item 126)
+extract_dt_days|ExtractANSIIntervalDays|interval|dt|int|dt|done|103|fused in `extract(DAY FROM dt)`, the truncating division by a day over every long; inside `d + dt` over a stored `INTERVAL DAY` column it declines (`m9/SCOPE.md` item 126), inside `d - dt` it fuses as an int offset
 extract_dt_hours|ExtractANSIIntervalHours|interval|dt|byte||plumbing|103|division by a constant
 extract_dt_minutes|ExtractANSIIntervalMinutes|interval|dt|byte||plumbing|103|division by a constant
 extract_dt_seconds|ExtractANSIIntervalSeconds|interval|dt|dec||plumbing|103,157|a DECIMAL(8,6) result

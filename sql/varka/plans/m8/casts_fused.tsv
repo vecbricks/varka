@@ -274,31 +274,31 @@ dt	dec	INTERVAL MINUTE TO SECOND	DECIMAL(10,2)	declined	declined	declined
 dt	dec	INTERVAL MINUTE TO SECOND	DECIMAL(30,4)	declined	declined	declined
 dt	dec	INTERVAL SECOND	DECIMAL(10,2)	declined	declined	declined
 dt	dec	INTERVAL SECOND	DECIMAL(30,4)	declined	declined	declined
-dt	dt	INTERVAL DAY	INTERVAL DAY TO HOUR	fused	fused	fused
-dt	dt	INTERVAL DAY	INTERVAL DAY TO MINUTE	fused	fused	fused
+dt	dt	INTERVAL DAY	INTERVAL DAY TO HOUR	declined	declined	declined
+dt	dt	INTERVAL DAY	INTERVAL DAY TO MINUTE	declined	declined	declined
 dt	dt	INTERVAL DAY	INTERVAL DAY TO SECOND	fused	fused	fused
-dt	dt	INTERVAL DAY	INTERVAL HOUR	fused	fused	fused
-dt	dt	INTERVAL DAY	INTERVAL HOUR TO MINUTE	fused	fused	fused
+dt	dt	INTERVAL DAY	INTERVAL HOUR	declined	declined	declined
+dt	dt	INTERVAL DAY	INTERVAL HOUR TO MINUTE	declined	declined	declined
 dt	dt	INTERVAL DAY	INTERVAL HOUR TO SECOND	fused	fused	fused
-dt	dt	INTERVAL DAY	INTERVAL MINUTE	fused	fused	fused
+dt	dt	INTERVAL DAY	INTERVAL MINUTE	declined	declined	declined
 dt	dt	INTERVAL DAY	INTERVAL MINUTE TO SECOND	fused	fused	fused
 dt	dt	INTERVAL DAY	INTERVAL SECOND	fused	fused	fused
 dt	dt	INTERVAL DAY TO HOUR	INTERVAL DAY	declined	declined	declined
-dt	dt	INTERVAL DAY TO HOUR	INTERVAL DAY TO MINUTE	fused	fused	fused
+dt	dt	INTERVAL DAY TO HOUR	INTERVAL DAY TO MINUTE	declined	declined	declined
 dt	dt	INTERVAL DAY TO HOUR	INTERVAL DAY TO SECOND	fused	fused	fused
-dt	dt	INTERVAL DAY TO HOUR	INTERVAL HOUR	fused	fused	fused
-dt	dt	INTERVAL DAY TO HOUR	INTERVAL HOUR TO MINUTE	fused	fused	fused
+dt	dt	INTERVAL DAY TO HOUR	INTERVAL HOUR	declined	declined	declined
+dt	dt	INTERVAL DAY TO HOUR	INTERVAL HOUR TO MINUTE	declined	declined	declined
 dt	dt	INTERVAL DAY TO HOUR	INTERVAL HOUR TO SECOND	fused	fused	fused
-dt	dt	INTERVAL DAY TO HOUR	INTERVAL MINUTE	fused	fused	fused
+dt	dt	INTERVAL DAY TO HOUR	INTERVAL MINUTE	declined	declined	declined
 dt	dt	INTERVAL DAY TO HOUR	INTERVAL MINUTE TO SECOND	fused	fused	fused
 dt	dt	INTERVAL DAY TO HOUR	INTERVAL SECOND	fused	fused	fused
 dt	dt	INTERVAL DAY TO MINUTE	INTERVAL DAY	declined	declined	declined
 dt	dt	INTERVAL DAY TO MINUTE	INTERVAL DAY TO HOUR	declined	declined	declined
 dt	dt	INTERVAL DAY TO MINUTE	INTERVAL DAY TO SECOND	fused	fused	fused
 dt	dt	INTERVAL DAY TO MINUTE	INTERVAL HOUR	declined	declined	declined
-dt	dt	INTERVAL DAY TO MINUTE	INTERVAL HOUR TO MINUTE	fused	fused	fused
+dt	dt	INTERVAL DAY TO MINUTE	INTERVAL HOUR TO MINUTE	declined	declined	declined
 dt	dt	INTERVAL DAY TO MINUTE	INTERVAL HOUR TO SECOND	fused	fused	fused
-dt	dt	INTERVAL DAY TO MINUTE	INTERVAL MINUTE	fused	fused	fused
+dt	dt	INTERVAL DAY TO MINUTE	INTERVAL MINUTE	declined	declined	declined
 dt	dt	INTERVAL DAY TO MINUTE	INTERVAL MINUTE TO SECOND	fused	fused	fused
 dt	dt	INTERVAL DAY TO MINUTE	INTERVAL SECOND	fused	fused	fused
 dt	dt	INTERVAL DAY TO SECOND	INTERVAL DAY	declined	declined	declined
@@ -311,21 +311,21 @@ dt	dt	INTERVAL DAY TO SECOND	INTERVAL MINUTE	declined	declined	declined
 dt	dt	INTERVAL DAY TO SECOND	INTERVAL MINUTE TO SECOND	fused	fused	fused
 dt	dt	INTERVAL DAY TO SECOND	INTERVAL SECOND	fused	fused	fused
 dt	dt	INTERVAL HOUR	INTERVAL DAY	declined	declined	declined
-dt	dt	INTERVAL HOUR	INTERVAL DAY TO HOUR	fused	fused	fused
-dt	dt	INTERVAL HOUR	INTERVAL DAY TO MINUTE	fused	fused	fused
+dt	dt	INTERVAL HOUR	INTERVAL DAY TO HOUR	declined	declined	declined
+dt	dt	INTERVAL HOUR	INTERVAL DAY TO MINUTE	declined	declined	declined
 dt	dt	INTERVAL HOUR	INTERVAL DAY TO SECOND	fused	fused	fused
-dt	dt	INTERVAL HOUR	INTERVAL HOUR TO MINUTE	fused	fused	fused
+dt	dt	INTERVAL HOUR	INTERVAL HOUR TO MINUTE	declined	declined	declined
 dt	dt	INTERVAL HOUR	INTERVAL HOUR TO SECOND	fused	fused	fused
-dt	dt	INTERVAL HOUR	INTERVAL MINUTE	fused	fused	fused
+dt	dt	INTERVAL HOUR	INTERVAL MINUTE	declined	declined	declined
 dt	dt	INTERVAL HOUR	INTERVAL MINUTE TO SECOND	fused	fused	fused
 dt	dt	INTERVAL HOUR	INTERVAL SECOND	fused	fused	fused
 dt	dt	INTERVAL HOUR TO MINUTE	INTERVAL DAY	declined	declined	declined
 dt	dt	INTERVAL HOUR TO MINUTE	INTERVAL DAY TO HOUR	declined	declined	declined
-dt	dt	INTERVAL HOUR TO MINUTE	INTERVAL DAY TO MINUTE	fused	fused	fused
+dt	dt	INTERVAL HOUR TO MINUTE	INTERVAL DAY TO MINUTE	declined	declined	declined
 dt	dt	INTERVAL HOUR TO MINUTE	INTERVAL DAY TO SECOND	fused	fused	fused
 dt	dt	INTERVAL HOUR TO MINUTE	INTERVAL HOUR	declined	declined	declined
 dt	dt	INTERVAL HOUR TO MINUTE	INTERVAL HOUR TO SECOND	fused	fused	fused
-dt	dt	INTERVAL HOUR TO MINUTE	INTERVAL MINUTE	fused	fused	fused
+dt	dt	INTERVAL HOUR TO MINUTE	INTERVAL MINUTE	declined	declined	declined
 dt	dt	INTERVAL HOUR TO MINUTE	INTERVAL MINUTE TO SECOND	fused	fused	fused
 dt	dt	INTERVAL HOUR TO MINUTE	INTERVAL SECOND	fused	fused	fused
 dt	dt	INTERVAL HOUR TO SECOND	INTERVAL DAY	declined	declined	declined
@@ -339,10 +339,10 @@ dt	dt	INTERVAL HOUR TO SECOND	INTERVAL MINUTE TO SECOND	fused	fused	fused
 dt	dt	INTERVAL HOUR TO SECOND	INTERVAL SECOND	fused	fused	fused
 dt	dt	INTERVAL MINUTE	INTERVAL DAY	declined	declined	declined
 dt	dt	INTERVAL MINUTE	INTERVAL DAY TO HOUR	declined	declined	declined
-dt	dt	INTERVAL MINUTE	INTERVAL DAY TO MINUTE	fused	fused	fused
+dt	dt	INTERVAL MINUTE	INTERVAL DAY TO MINUTE	declined	declined	declined
 dt	dt	INTERVAL MINUTE	INTERVAL DAY TO SECOND	fused	fused	fused
 dt	dt	INTERVAL MINUTE	INTERVAL HOUR	declined	declined	declined
-dt	dt	INTERVAL MINUTE	INTERVAL HOUR TO MINUTE	fused	fused	fused
+dt	dt	INTERVAL MINUTE	INTERVAL HOUR TO MINUTE	declined	declined	declined
 dt	dt	INTERVAL MINUTE	INTERVAL HOUR TO SECOND	fused	fused	fused
 dt	dt	INTERVAL MINUTE	INTERVAL MINUTE TO SECOND	fused	fused	fused
 dt	dt	INTERVAL MINUTE	INTERVAL SECOND	fused	fused	fused
