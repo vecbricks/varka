@@ -128,6 +128,12 @@ decimal (section 7).
    warm-up's allocation allowance (1 byte a row). 7.4 is back to its two answers: decline at
    two lanes, or B behind an option. A two-lane vector form returns only with a defence against
    C2's trap budget in a shared JVM, which is VARKA-295's problem and not this row's.
+   *Settled by the owner, 11 November 2026:* neither of those two. By default 577b declines the
+   remainder at two long lanes on x86 under `VARKA-359.md` 2.6. A follow-up, row 604, adds an
+   opt-in arm behind an option: split F fed by a transpose in a method of its own, the form
+   "The test of 7.4" (10.4) measured at about 34 ns a row with a 16-byte-a-row residual in a
+   shared JVM (12 of 12 JVMs), against B's 123 ns and 855 bytes a row. B behind an option is
+   not built.
 
 ## 8. Done when
 
@@ -336,6 +342,8 @@ lanes, where the pair runs natively (`VARKA-359.md` 2.6), is not read either.
   and measure it against the row path. Built as E, it shows no win over the row path (indicative
   only). So 577b either declines it there with this measurement, or fuses it with B or a scalar
   remainder in `long`s. That choice is the owner's (7.4).
+  *11 November 2026:* the owner's answer (7.4): 577b declines there by default, and row 604
+  adds split F with its own transpose behind an option.
 - At two long lanes on aarch64 no form is read; 577b runs the spike on the Arm runner before
   it picks one there.
 - Section 4's predictions for 577a and 577b are registered from these figures before either is
@@ -511,6 +519,8 @@ in the Vector API methods F inlines many times (10.4, item 2). A fused kernel sh
 its JVM, so "fuse at two lanes as inserted F" needs a defence against C2's trap budget before
 577b takes it, and the owner decides whether that is owed or the answer falls.
 *11 November 2026:* tested below; the answer falls, and 7.4 is back to decline or B.
+*11 November 2026:* the owner chose neither: decline by default, and split F with its own
+transpose behind an option (row 604; 7.4).
 
 **The test of 7.4** (*11 November 2026*, `results/VARKA-577-twolane-shared-jvm-laptop.txt`, last
 section; the laptop at load 0.3 to 2.2, one JVM at a time). The diagnosis above left one form
@@ -556,6 +566,16 @@ same residual, and the block size does not change it, so the slot access is not 
 is left points at the shared templates' traps, as for inserted F, at a smaller dose. 7.4 is back to
 decline at two lanes, or B behind an option. F stays as measured, for the case where a defence
 against the shared-template traps lands.
+*11 November 2026, the owner's decision (7.4):* 577b declines the two-lane remainder on x86 by
+default, and row 604 builds split F with this transpose as an opt-in arm behind an option. The
+shared-JVM finding binds 577b too: inserted and transposed F boxed at 1 to 10 KB a row beside
+unrelated vector code, and E at 256 bits kept 12 bytes a row after the `add` loops, from trap
+totals in the shared templates (`VARKA-295.md` 9.6). The runner shows it for E itself: in
+benchmark run 42980360382 (vecbricks/varka, EPYC 7763, 256 bits, every arm in one JVM), the
+`pmod` of inserted E allocated 298 bytes a row and of transposed E 262 to 263, while plain E,
+split E and the F forms allocated nothing. So 577b's E form must pass the warm-up's
+allocation allowance in a shared JVM, read after other vector code has run, not only in a JVM
+of its own.
 
 **Can emitted kernels reach this size?** Yes, and they already have. Split F's `x % y` body has
 199 Vector API call sites by `VarkaEmittedClass.vectorCallSites`' count: 189 in the arithmetic,
