@@ -11,7 +11,8 @@
 #
 # Types are bool byte short int bigint float double dec date ntz time ym dt, or a group:
 # (dec is DECIMAL up to precision 38: an unscaled long to 18, a 128-bit lane pair above)
-# ("legal" for a cast alias: the sources Cast allows, computed by the script)
+# ("legal" for a cast alias: the sources Cast allows, computed by the script; "matrix" as the
+# fused types of a cast alias, cast and try_cast: derived from m8/casts_fused.tsv, VARKA-606)
 # INTEGRAL, FLOAT, NUM (integral, floating and decimal), IVL (ym, dt), ALL. "same" as a result
 # maps each type to itself. A type marked ! is declined by the owner's decision (decimal division,
 # 14 October 2026): it leaves the entry's types and is recorded in the census's reason column.
@@ -175,22 +176,22 @@ unix_date|date|int|date|done||
 time_bucket|IVL,ntz|ntz||semantics|339|a floor division of the micros by the bucket
 hash|ALL|int||semantics|337,359,368|Murmur3 over each column's bytes, NaN and -0.0 canonicalised first; precision above 18 declined at first (its hash is a variable-length byte array)
 xxhash64|ALL|bigint||semantics|337,359,368|XxHash64 over each column's bytes, NaN and -0.0 canonicalised first; precision above 18 declined at first
-cast|ALL|ALL||semantics|332,343,350,338,28,364,365,366,368|the matrix in m8/PLAN.md 2.2
-boolean|legal|bool||semantics|332,343,350,364|cast alias
-tinyint|legal|byte||semantics|332,343,350,364,365|cast alias
-smallint|legal|short||semantics|332,343,350,364,365|cast alias
-int|legal|int|bigint|semantics|332,343,350,364,365|cast alias
-bigint|legal|bigint|int|semantics|332,343,350,28,364|cast alias
-float|legal|float||semantics|343,364,366|cast alias
-double|legal|double||semantics|343,364,366|cast alias
-decimal|legal|dec||semantics|350,364,366|cast alias; DECIMAL(10,0) by default
-date|legal|date|ntz|plumbing|340|cast alias; ntz is fused (VARKA-338), the other sources are their rows'
-time|legal|time|ntz|plumbing|340|cast alias; TIME widening is fused today, and ntz to TIME (VARKA-340)
+cast|ALL|ALL|matrix|semantics|332,343,350,338,28,364,365,366,368|the matrix in m8/PLAN.md 2.2
+boolean|legal|bool|matrix|semantics|332,343,350,364|cast alias
+tinyint|legal|byte|matrix|semantics|332,343,350,364,365|cast alias
+smallint|legal|short|matrix|semantics|332,343,350,364,365|cast alias
+int|legal|int|matrix|semantics|332,343,350,364,365|cast alias
+bigint|legal|bigint|matrix|semantics|332,343,350,28,364|cast alias
+float|legal|float|matrix|semantics|343,364,366|cast alias
+double|legal|double|matrix|semantics|343,364,366|cast alias
+decimal|legal|dec|matrix|semantics|350,364,366|cast alias; DECIMAL(10,0) by default
+date|legal|date|matrix|plumbing|340|cast alias; the other sources are their rows'
+time|legal|time|matrix|plumbing|340|cast alias; TIME widening fuses, a narrowing does not yet (VARKA-340)
 bitmap_bucket_number|bigint|bigint|bigint|done||a shift and an offset over a blend, proven by SMT (bitmap.smt2)
 bitmap_bit_position|bigint|bigint|bigint|done||a mask over a blend, proven by SMT (bitmap.smt2)
 
 [implicit]
-try_cast|Cast|conversion|ALL|ALL||semantics|332,343,350,364,365,366,368|the parser's TRY mode: null instead of an error
+try_cast|Cast|conversion|ALL|ALL|matrix|semantics|332,343,350,364,365,366,368|the parser's TRY mode: null instead of an error
 in_set|InSet|predicate|ALL|bool|date,ym,byte,short,int,bigint,time,dt,ntz,float,double|plumbing|341,348,359,329,497|IN over many literals; dec to precision 18 fuses at every scale through row 497's single IN arm (348a4) and counts fused with 359, 360 and 363 (2.8)
 date_minus_date|SubtractDates|datetime|date|dt||semantics|39|row 39: days times micros per day, exact
 ntz_minus_ntz|SubtractTimestamps|datetime|ntz|dt|ntz|done|339|plain long arithmetic in UTC, exact or raise

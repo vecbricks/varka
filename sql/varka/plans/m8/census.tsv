@@ -444,18 +444,18 @@ inline_outer	InlineExpressionBuilder	generatorExpressions	out	generator: Varka f
 posexplode	PosExplodeExpressionBuilder	generatorExpressions	out	generator: Varka fuses scalar projections and filters								
 posexplode_outer	PosExplodeExpressionBuilder	generatorExpressions	out	generator: Varka fuses scalar projections and filters								
 stack	Stack	generatorExpressions	out	generator: Varka fuses scalar projections and filters								
-cast	Cast	conversionExpressions	in		bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt		bool,byte,short,float,double,dec,ntz	semantics	332,343,350,338,28,364,365,366,368	the matrix in m8/PLAN.md 2.2	
-boolean	Cast	conversionExpressions	in		bool,byte,short,int,bigint,float,double,dec,date	bool		bool,byte,short,float,double,dec	semantics	332,343,350,364	cast alias	
-tinyint	Cast	conversionExpressions	in		bool,byte,short,int,bigint,float,double,dec,date,time,ym,dt	byte		bool,byte,short,float,double,dec	semantics	332,343,350,364,365	cast alias	
-smallint	Cast	conversionExpressions	in		bool,byte,short,int,bigint,float,double,dec,date,time,ym,dt	short		bool,byte,short,float,double,dec	semantics	332,343,350,364,365	cast alias	
-int	Cast	conversionExpressions	in		bool,byte,short,int,bigint,float,double,dec,date,time,ym,dt	int	bigint	bool,byte,short,float,double,dec	semantics	332,343,350,364,365	cast alias	
-bigint	Cast	conversionExpressions	in		bool,byte,short,int,bigint,float,double,dec,date,time,ym,dt	bigint	int	bool,byte,short,float,double,dec	semantics	332,343,350,28,364	cast alias	
-float	Cast	conversionExpressions	in		bool,byte,short,int,bigint,float,double,dec,date	float		bool,byte,short,float,double,dec	semantics	343,364,366	cast alias	
-double	Cast	conversionExpressions	in		bool,byte,short,int,bigint,float,double,dec,date	double		bool,byte,short,float,double,dec	semantics	343,364,366	cast alias	
+cast	Cast	conversionExpressions	in		bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt		bool,byte,short,float,double,dec,ntz	semantics	332,343,350,338,28,364,365,366,368	the matrix in m8/PLAN.md 2.2	bool,byte,short,int,bigint,float,double,date,ntz,time,ym,dt
+boolean	Cast	conversionExpressions	in		bool,byte,short,int,bigint,float,double,dec,date	bool	byte,short,int,bigint,float,double	bool,byte,short,float,double,dec	semantics	332,343,350,364	cast alias	
+tinyint	Cast	conversionExpressions	in		bool,byte,short,int,bigint,float,double,dec,date,time,ym,dt	byte	bool,short,int,bigint	bool,byte,short,float,double,dec	semantics	332,343,350,364,365	cast alias	
+smallint	Cast	conversionExpressions	in		bool,byte,short,int,bigint,float,double,dec,date,time,ym,dt	short	bool,byte,int,bigint	bool,byte,short,float,double,dec	semantics	332,343,350,364,365	cast alias	
+int	Cast	conversionExpressions	in		bool,byte,short,int,bigint,float,double,dec,date,time,ym,dt	int	bool,byte,short,bigint	bool,byte,short,float,double,dec	semantics	332,343,350,364,365	cast alias	ym
+bigint	Cast	conversionExpressions	in		bool,byte,short,int,bigint,float,double,dec,date,time,ym,dt	bigint	bool,byte,short,int,dt	bool,byte,short,float,double,dec	semantics	332,343,350,28,364	cast alias	
+float	Cast	conversionExpressions	in		bool,byte,short,int,bigint,float,double,dec,date	float	bool,byte,short,int,double	bool,byte,short,float,double,dec	semantics	343,364,366	cast alias	
+double	Cast	conversionExpressions	in		bool,byte,short,int,bigint,float,double,dec,date	double	bool,byte,short,int,float	bool,byte,short,float,double,dec	semantics	343,364,366	cast alias	
 decimal	Cast	conversionExpressions	in		bool,byte,short,int,bigint,float,double,dec,date,time,ym,dt	dec		bool,byte,short,float,double,dec	semantics	350,364,366	cast alias; DECIMAL(10,0) by default	
-date	Cast	conversionExpressions	in		date,ntz	date	ntz	ntz	plumbing	340	cast alias; ntz is fused (VARKA-338), the other sources are their rows'	
+date	Cast	conversionExpressions	in		date,ntz	date	ntz	ntz	plumbing	340	cast alias; the other sources are their rows'	
 timestamp	Cast	conversionExpressions	out	TIMESTAMP with local time zone: owner's decision, 14 October 2026								
-time	Cast	conversionExpressions	in		ntz,time	time	ntz	ntz	plumbing	340	cast alias; TIME widening is fused today, and ntz to TIME (VARKA-340)	
+time	Cast	conversionExpressions	in		ntz,time	time	ntz	ntz	plumbing	340	cast alias; TIME widening fuses, a narrowing does not yet (VARKA-340)	time
 binary	Cast	conversionExpressions	out	BINARY: outside the type set								
 string	Cast	conversionExpressions	out	STRING input or output: owner's decision, 14 October 2026								
 from_csv	CsvToStructs	csvExpressions	out	parses or produces STRING: owner's decision, 14 October 2026								
@@ -599,7 +599,7 @@ vector_norm	VectorNorm	vectorExpressions	out	arrays of floats: nested types, no 
 vector_normalize	VectorNormalize	vectorExpressions	out	arrays of floats: nested types, no representation								
 vector_avg	VectorAvg	vectorExpressions	out	arrays of floats: nested types, no representation								
 vector_sum	VectorSum	vectorExpressions	out	arrays of floats: nested types, no representation								
-try_cast	Cast	implicit: conversion	in		bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt		bool,byte,short,float,double,dec,ntz	semantics	332,343,350,364,365,366,368	the parser's TRY mode: null instead of an error	
+try_cast	Cast	implicit: conversion	in		bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt		bool,byte,short,float,double,dec,ntz	semantics	332,343,350,364,365,366,368	the parser's TRY mode: null instead of an error	bool,byte,short,int,bigint,float,double,date,ntz,time,ym,dt
 in_set	InSet	implicit: predicate	in		bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bool	byte,short,int,bigint,float,double,date,ntz,time,ym,dt	bool,byte,short,float,double,dec,ntz	plumbing	341,348,359,329,497	IN over many literals; dec to precision 18 fuses at every scale through row 497's single IN arm (348a4) and counts fused with 359, 360 and 363 (2.8)	
 date_minus_date	SubtractDates	implicit: datetime	in		date	dt			semantics	39	row 39: days times micros per day, exact	
 ntz_minus_ntz	SubtractTimestamps	implicit: datetime	in		ntz	dt	ntz	ntz	done	339	plain long arithmetic in UTC, exact or raise	
