@@ -153,6 +153,9 @@ decimal (section 7).
    *11 November 2026:* the 128-bit column on x86 is read on the laptop with two mask-free and
    shuffle-free variants (10.4); the runners' reading of it is owed, and its dispatches are in
    10.4.
+   *11 November 2026, later:* the runners read it (10.5): the EPYC 7763 at 128 and 256 bits, and
+   512 bits on an EPYC 9V45, a full-width datapath, where E holds. Still owed: the Xeon's 512-bit
+   reading, the laptop's three widths and the aarch64 column.
 2. Whether `VARKA-359.md` 6 and row 349's plan carry the dated note that this row owns the four
    names (this change corrects `VARKA-363.md` and the census).
 
@@ -280,6 +283,8 @@ are committed as `VarkaDecimalRemainderSpikeBenchmark-jdk25-runner-epyc7763-resu
 `-128bit-` companion, each with its provenance file, as the artifacts gave them. Both ran on
 `4c793f02383`, #1470's head. The benchmark and the suite there are identical to master's
 (`ebd4f7040c6`, #1470 merged): an empty diff over both files.*
+*11 November 2026:* the two files now hold the 24-loop runs of 10.5. The numbers below are in
+their history, as #1483 committed them (`749280d9e7d`).
 
 **The numbers**, in ns a row (`Per Row(ns)`), E / D / B:
 
@@ -624,4 +629,87 @@ replace the two committed `-runner-epyc7763` files, whose arm set is the old six
 *11 November 2026:* dispatched for this pull request. The 256-bit run 42980360382 is quoted
 above (the owner's decision under "The test of 7.4"); its numbers are not yet spliced into the
 committed files.
+*11 November 2026, later:* committed and read, 10.5.
+
+### 10.5 The runners' reading of 10.4
+
+*11 November 2026. Four runs of `benchmark.yml` on vecbricks/varka, each committed as the
+artifact gave it, with its provenance file, every arm in one JVM:*
+
+| Run | Host, width | File (`VarkaDecimalRemainderSpikeBenchmark-jdk25-`) |
+|---|---|---|
+| 42980360382 | EPYC 7763, 256 bits | `runner-epyc7763-results.txt` |
+| 42980373354 | EPYC 7763, 128 bits (`MaxVectorSize=16`) | `runner-epyc7763-128bit-results.txt` |
+| 42980398246 | EPYC 9V45, 512 bits | `runner-epyc9v45-results.txt` |
+| 42980423218 | EPYC 9V45, 512 bits | `runner-epyc9v45-2-results.txt` |
+
+*The first three ran on `ca9d2277033` and the last on `fcb543ac850`, both heads of #1492, as the
+CPU-retry chain reran them. The benchmark differs between the two only by a renamed accessor
+(`operandX`, `operandY`), and the suite not at all; `fcb543ac850` is the code #1492 merged. The
+9V45's datapath reads 512:256 = 2.02 and 2.00, so its 512 bits are full width, not
+double-pumped. Two dispatches did not run: the Xeon (run 42980385610) and a third 9V45 (run
+42980410660) drew the wrong CPU on all six attempts the retry chain allows. The Xeon's 512-bit
+reading is owed.*
+
+The intrinsic check matches the laptop's at every width: all 24 loops intrinsified at 256 and 512
+bits, and at 128 bits the same 16 loops left with Java calls, in the same counts (the table in
+10.4).
+
+**At 128 bits (EPYC 7763), in ns a row over the three rungs, `x % y` / `pmod(x, y)`:**
+
+| Form | ns a row | bytes a row |
+|---|---|---|
+| **split F** | **42.4 to 43.8 / 47.8 to 48.9** | **0.0** |
+| B | 276.1 to 280.9 / 310.5 to 313.2 | 853.1 to 973.9 |
+| inserted F | 373.3 to 375.4 / 369.4 to 371.9 | 2,192 |
+| transposed F | 369.0 to 372.0 / 372.3 to 375.0 | 2,192 |
+| gathered F [fallback] | 141.0 to 142.7 / 143.7 to 144.5 | 480 |
+| F [fallback] | 253.6 to 255.7 / 249.9 to 251.9 | 1,248 |
+| E [fallback] | 890.5 to 900.6 / 979.6 to 987.4 | 4,748 to 5,020 |
+
+- **Split F**, the only two-lane form that both compiles and allocates nothing in this JVM, runs
+  at 6.4 to 6.6 times B's rate, and, indicatively, 18 to 20 times faster than the row path's
+  771.3 and 973.4 ns a row (10.1).
+- **Inserted and transposed F boxed** here, at 2,192 bytes a row, as in the laptop's shared run
+  (2,096, 10.4 "How it was read" item 2). Their 369 to 375 ns is the boxing, not the form, so this
+  run cannot price them, nor the transpose's cost at two lanes.
+- **Against the laptop:** it agrees. Split F is the fastest form and E's fallback the slowest
+  but D, and the slot-reading F forms box in a shared JVM. Split F leads B by more here than in
+  the laptop's JVM of its own (37.4 / 38.3 against 156.8 / 173.0, 4.2 to 4.5 times).
+- Split F allocated nothing after the other 22 loops had run in its JVM. That is not the test of
+  7.4, which ran it after unrelated `add` loops, so it does not reopen 7.4. Row 604's own arm
+  is not timed here.
+
+**At 256 bits (EPYC 7763),** E reads 21.1 to 21.6 / 22.6 to 22.9 ns a row, as in 10.3, and B
+245.0 to 253.5 / 282.2 to 284.4, so E keeps its 11 to 13 times lead. F (23.6 to 23.8 / 26.1 to
+26.5) and split F (21.6 to 22.2 / 24.1 to 24.6) trail E by under 1.2 times, level as on the laptop.
+In `pmod` inserted E (66.7 to 67.7 ns, 298 bytes a row) and transposed E (50.7 to 52.0, 262 to
+263) boxed, as the owner's decision under "The test of 7.4" quotes.
+
+**At 512 bits (EPYC 9V45),** the two runs, `x % y` / `pmod(x, y)`:
+
+| Form | run 42980398246 | run 42980423218 |
+|---|---|---|
+| E | 8.3 / 8.3 to 8.7 | 7.7 to 7.9 / 8.0 to 8.1 |
+| split E | 7.5 to 8.0 / 7.7 to 8.1 | 7.4 to 7.5 / 7.5 to 7.6 |
+| F | 8.1 to 8.5 / 8.6 to 8.9 | 7.7 to 7.9 / 8.1 to 8.3 |
+| split F | 7.7 to 8.1 / 8.0 to 8.2 | 7.3 to 7.5 / 7.6 to 8.0 |
+| D | 73.7 to 74.3 / 71.9 to 76.1 | 70.0 to 70.3 / 69.9 to 70.7 |
+| B | 136.5 to 144.6 / 152.5 to 162.1 | 127.7 to 137.5 / 146.5 to 151.9 |
+
+- **E holds at 512 bits on a full-width host.** It leads B by 16 to 19 times and D by about 9
+  in both runs, so 10.3's "at 512 unless a 512-bit host overturns it" stands for AMD's AVX-512.
+- **E and F are level** (within 1.1 times either way), so the owner's expectation that E's native
+  masks beat the mask-free forms at 512 bits is not shown on full-width hardware either, nor
+  refuted: no ratio reaches 1.3.
+- **The slot-reading forms trail and box by run.** Gathered forms run at 11.4 to 15.5 ns a row in
+  both. Inserted and transposed F boxed in the first run (1,094 to 1,135 bytes a row, 73.9 to 93.1
+  ns) and not in the second (12.8 to 13.6 and 8.4 to 10.2 ns). Inserted and transposed E's
+  `pmod` boxed in both (195 bytes a row), and their `x % y` in the first. The same code on the
+  same CPU model boxed in one JVM and not in the next, as 10.4 "How it was read" item 2 found
+  on the laptop.
+
+**For 577b.** E at 256 and 512 bits, and the warm-up's allocation check in a shared JVM, are
+unchanged by this reading. At two lanes on x86 the decline stays the default (7.4). The Xeon's
+512-bit reading, the laptop's three widths and the aarch64 two-lane column are still owed.
 
