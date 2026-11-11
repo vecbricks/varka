@@ -517,6 +517,7 @@ bytes a row for the laptop.
 | widening and narrowing | int | `B2I_load64` (a 64-bit byte load, in one or two parts) | - | I | I | 329, 330 |
 | widening and narrowing | int | `B2I_load128` (a 128-bit byte load, in one to four parts) | I | I | I | 329, 330 |
 | widening and narrowing | int | `S2I_load` | I | I | I | 329, 330 |
+| widening and narrowing | int | `I2B_store64_masked` (an int group's `I2B` stored to a 64-bit byte vector under its lanes' mask; F under `-XX:UseAVX=2`, `m8/results/VARKA-603-census-avx2.txt`), `I2B_store64_combined` (two groups' parts 0 and -1 OR-ed, stored whole) | - | - | I | 329, 479, 603 |
 | floating compares | float | `EQ`, `LT`, `LE` | I | I | I | 341 |
 | floating compares | float | `IS_NAN` | I | I | I | 341 |
 | fused multiply-add | float | `FMA` | I | I | I | 30, 346, 366 |
