@@ -1288,21 +1288,21 @@ whose entry names something that does not exist. The counts, per column type of 
 operands (a row counts once for each type it reads):
 
 <!-- BEGIN generated verification counts -->
-| Type | Rows | refinement | proof | exhaustive | owed | differential |
-| :--- | ---: | ---: | ---: | ---: | ---: | ---: |
-| `bigint` | 86 | 0 | 2 | 0 | 2 | 82 |
-| `bool` | 38 | 0 | 0 | 13 | 0 | 25 |
-| `byte` | 54 | 0 | 0 | 0 | 8 | 46 |
-| `date` | 127 | 17 | 0 | 1 | 0 | 109 |
-| `dec` | 60 | 25 | 10 | 0 | 0 | 25 |
-| `double` | 74 | 0 | 1 | 0 | 0 | 73 |
-| `dt` | 27 | 2 | 1 | 0 | 0 | 24 |
-| `float` | 59 | 0 | 0 | 0 | 0 | 59 |
-| `int` | 158 | 14 | 2 | 1 | 1 | 140 |
-| `ntz` | 57 | 0 | 7 | 0 | 0 | 50 |
-| `short` | 52 | 0 | 0 | 0 | 8 | 44 |
-| `time` | 48 | 6 | 1 | 1 | 2 | 38 |
-| `ym` | 36 | 7 | 2 | 0 | 2 | 25 |
+| Type | Rows | refinement | rendered | proof | exhaustive | owed | differential |
+| :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `bigint` | 86 | 0 | 0 | 2 | 0 | 2 | 82 |
+| `bool` | 38 | 0 | 0 | 0 | 13 | 0 | 25 |
+| `byte` | 54 | 0 | 0 | 0 | 0 | 8 | 46 |
+| `date` | 127 | 17 | 0 | 0 | 1 | 0 | 109 |
+| `dec` | 60 | 1 | 42 | 10 | 0 | 0 | 7 |
+| `double` | 74 | 0 | 0 | 1 | 0 | 0 | 73 |
+| `dt` | 27 | 2 | 0 | 1 | 0 | 0 | 24 |
+| `float` | 59 | 0 | 0 | 0 | 0 | 0 | 59 |
+| `int` | 158 | 14 | 0 | 2 | 1 | 1 | 140 |
+| `ntz` | 57 | 0 | 0 | 7 | 0 | 0 | 50 |
+| `short` | 52 | 0 | 0 | 0 | 0 | 8 | 44 |
+| `time` | 48 | 6 | 0 | 1 | 1 | 2 | 38 |
+| `ym` | 36 | 7 | 0 | 2 | 0 | 2 | 25 |
 <!-- END generated verification counts -->
 
 ## Glossary
