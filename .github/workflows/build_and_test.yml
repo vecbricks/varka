@@ -1125,9 +1125,13 @@ jobs:
         set-safe-directory: 'true'
     # A Varka pull request stays under 1000 changed lines of hand-written source and docs
     # (VARKA-554), against the merge base the checkout found; a run of master counts nothing.
-    # Here because this job runs on every change, and first because it reads git alone.
+    # Here because this job runs on every change, and first because it reads git alone. It
+    # does not stop the job: the lint steps after it still run, and the job's last step fails
+    # it if this one failed, so an oversized change is still linted (VARKA-588).
     - name: The change stays under the pull request size cap
+      id: size-cap
       if: github.repository != 'apache/spark'
+      continue-on-error: true
       run: |
         if [ -z "${VARKA_DIFF_BASE:-}" ]; then
           echo "::error::no merge base with Varka's master; the size cap cannot be checked"
@@ -1238,6 +1242,11 @@ jobs:
     - name: R linter
       if: fromJson(needs.precondition.outputs.required).lint-spark != 'false'
       run: ./dev/lint-r
+    - name: The change was over the pull request size cap
+      if: ${{ !cancelled() && steps.size-cap.outcome == 'failure' }}
+      run: |
+        echo "::error::the size cap step failed; its log says why"
+        exit 1
 
   java25:
     needs: [precondition]
@@ -1875,6 +1884,7 @@ jobs:
         python3 dev/varka_sweeps.py --self-test
         python3 dev/varka_msg_check.py --selftest
         python3 dev/varka_matrix_shards.py --selftest
+        python3 dev/varka_bench_cpu_retry.py --selftest
         dev/varka_precommit.sh --selftest
         python3 dev/varka_bin_units_test.py --selftest
         python3 dev/varka_matrix_bins.py --selftest
