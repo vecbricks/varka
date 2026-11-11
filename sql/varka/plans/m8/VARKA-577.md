@@ -404,10 +404,37 @@ and each changes how a reading must be taken:
    (which compiles each loop alone) found intrinsified still allocate in their timed compile: at 128
    bits inserted F and transposed F allocated 2,096 bytes a row and ran 194 to 227 ns a row, against
    39 to 41 in a JVM of their own; at 256 bits the same two allocated 732 to 1,421 bytes a row, and
-   at 512 the `pmod` of inserted and transposed E 195. The cause is not read; all the forms share
-   two body methods and their profiles, which an emitted kernel class does not. Each section now
-   notes the bytes a row each arm allocates in compiled code, so a boxed arm shows itself, and the
-   readings below take an arm that allocated from a JVM of its own.
+   at 512 the `pmod` of inserted and transposed E 195. Each section now notes the bytes a row each
+   arm allocates in compiled code, so a boxed arm shows itself, and the readings below take an arm
+   that allocated from a JVM of its own.
+   *11 November 2026, one cause read (`results/VARKA-577-twolane-shared-jvm-laptop.txt`):* the
+   harness's shared body methods are not needed. What is needed is other vector code in the JVM,
+   working through C2's trap budget. Each time C2 inlines a method, it adds that method's
+   recorded traps to the compile's total for each reason (`parse1.cpp` 470-483). Past
+   `PerMethodTrapLimit` (100), `too_many_traps` (`compile.cpp` 4158-4169) stops speculating on
+   that reason for the rest of the compile. An untaken branch is then parsed rather than
+   trapped, and a type-profiled call becomes a real call, so the vectors that meet the merge or
+   the call are boxed. F inlines some Vector API methods about 200 times each, so a few traps
+   that other code left in one of them are enough. Two compiles were read:
+   - In the benchmark, the three boxed compiles read (256 bits, after inserted E) crossed the
+     `unstable_if` budget early. `VectorOperators$ImplCache.find`, inlined 190 times, carried 3
+     traps, against 2 in a clean compile. That gave 105 to 134 decisions without the trap,
+     against 32 to 40 in clean compiles. In the boxed compiles whose inlining was printed, 13
+     `binaryOp` intrinsics failed and stayed calls.
+   - After three plain `add` loops it was the `class_check` budget: 3,214 traps in all, from 4
+     each in `opKind`, `opCode`, `ImplCache.find` and `lanewiseTemplate`, which left 148
+     virtual calls.
+
+   Inserted F boxes at two lanes too. At 128 bits it boxed after the three `add` loops in 6 of 6
+   JVMs (9,712 to 10,440 bytes a row), and beside inserted E alone in 5 of 6 (1,080 or 2,192).
+   At 256 bits the figures are 16 of 17 and 7 of 12, and transposed F boxed after the `add`
+   loops in 3 of 3. In a JVM of its own, inserted F and transposed F never boxed (0 of 6 each,
+   at 256 bits). After the `add` loops, split F and E allocated only 12 bytes a row (3 of 3 and
+   2 of 3). Whether a shared run boxes varies from run to run. The trap limit is one path read,
+   not all: `-XX:PerMethodTrapLimit=0` gave a lone inserted F 248 bytes a row, and `=100000`
+   still left 5 of 6 boxing at about half the bytes. So **inserted and transposed F are not
+   safe in a shared JVM**. One arm per JVM would only hide the fault, so the harness is
+   unchanged.
 
 **The numbers**, in ns a row (`Per Row(ns)`, from each case's best time), `x % y` / `pmod(x, y)`.
 At 128 bits each arm ran in its own JVM; `pmod` ran twice there, and its column is each arm's
@@ -467,6 +494,10 @@ is owed before 577b takes it, and the width decides the access: inserted F at tw
 E (or F) with the rearranges at four lanes and up, where inserts cost more than the rearranges
 they replace. F's arithmetic is E's value for value, so E's exactness argument and the SMT proof
 3.1 owes cover both.
+*11 November 2026:* the answer holds only in a JVM where no other vector code has left traps
+in the Vector API methods F inlines many times (10.4, item 2). A fused kernel shares
+its JVM, so "fuse at two lanes as inserted F" needs a defence against C2's trap budget before
+577b takes it, and the owner decides whether that is owed or the answer falls.
 
 **For other two-lane pair forms** (row 596's comparison as a value, the choices, negation and
 `abs` of `VARKA-359.md` 2.6). Every pair operator that is a compare, a blend or a mask op has a

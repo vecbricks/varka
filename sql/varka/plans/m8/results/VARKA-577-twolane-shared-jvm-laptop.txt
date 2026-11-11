@@ -1,0 +1,76 @@
+VARKA-577 10.4 item 2: why the mask-free two-lane forms box in a shared JVM, 11 November 2026.
+code:      ca9d2277033 (VarkaDecimalRemainderSpikeBenchmark as committed), first rung only
+           (-Dvarka.remainder.rungs=1), its two compile commands (dontinline loop*, inline body*);
+           128 bits is -XX:UseAVX=2 -XX:MaxVectorSize=16, 256 bits -XX:UseAVX=2
+jdk:       OpenJDK 25.0.5.0.3; source read: jdk-25-ga hotspot/share/opto
+machine:   the laptop (Zen 5), shared with other agents' JVMs, loads 5 to 30, not pinned.
+           Only allocation counts are read here, not times.
+"discrim": a throw-away driver (not committed) that runs the named loops in turn in one JVM:
+           20,000 calls of 64 rows, 20 drives of 256 calls of 4,096 rows, then one drive measured
+           with ThreadMXBean.getCurrentThreadAllocatedBytes. add* are plain a + b loops over
+           MemorySegments: addL128 (LongVector.SPECIES_128), addL256 (SPECIES_256), addI128
+           (IntVector.SPECIES_128).
+====================================================================================================
+Bytes a row an arm allocates in compiled code: JVMs that allocated / JVMs run (the values)
+("only" is -Dvarka.bench.only; "adds" is addI128, addL128, addL256 in turn; FI is x % y
+inserted F, FT transposed F, FS split F)
+----------------------------------------------------------------------------------------------------
+128 bits, benchmark, every arm, FI (4 runs; 1 more x % y only)        0 / 5
+128 bits, benchmark, only "F", FI                                      0 / 3
+128 bits, benchmark, only "x % y, inserted" (inserted E, then FI)      5 / 6  (1080, 2192)
+128 bits, discrim: adds, then FI                                       6 / 6  (9712, 10440)
+128 bits, discrim: FI alone, after one add loop, after any one
+          other x % y arm, or after the other ten but D               0 / 1 each
+256 bits, benchmark, every arm, FI                                     5 / 10 (1408, 1444)
+256 bits, benchmark, only "x % y, inserted F" (its own JVM)           0 / 6
+256 bits, benchmark, only "x % y, transposed F" (its own JVM)         0 / 6
+256 bits, benchmark, only "x % y, inserted" (inserted E, then FI)      7 / 12 (732, 1444)
+256 bits, benchmark, only "F", FI                                      2 / 6  (24)
+256 bits, benchmark, only "inserted F" (x % y, then pmod), FI          0 / 6
+256 bits, discrim: addL256, then FI                                    1 / 6  (1408)
+256 bits, discrim: adds, then FI                                      16 / 17 (1280 to 6700)
+256 bits, discrim: adds, then FT                                       3 / 3  (6549, 6725)
+256 bits, discrim: adds, then FS                                       3 / 3  (12)
+256 bits, discrim: adds, then E                                        2 / 3  (12)
+256 bits, discrim: adds, then FI, -XX:PerMethodTrapLimit=100000        5 / 6  (1280 to 3524)
+128 bits, discrim: FI alone, -XX:PerMethodTrapLimit=0                  1 / 1  (248)
+Whether a shared run boxes varies from run to run; loads were 5 to 30.
+====================================================================================================
+The boxed compile against a clean one (LogCompilation, the level-4 compile of loopRemainderFI)
+----------------------------------------------------------------------------------------------------
+boxed (256 bits, discrim after the three add loops, 6,524 bytes a row): each inlining of a
+method adds its MDO's trap counts to the compile's (parse1.cpp 470-483), and the compile's
+class_check total reached 3,214:
+    248 inlines of VectorOperators::opKind            carrying 4 class_check traps each
+    198 inlines of VectorOperators::opCode            carrying 4 class_check traps each
+    198 inlines of VectorOperators$ImplCache::find    carrying 4 class_check traps each
+    141 inlines of LongVector::lanewiseTemplate       carrying 4 class_check traps each
+     16 inlines of LongVector::add                    carrying 4 class_check traps each
+  past PerMethodTrapLimit (100), too_many_traps(class_check) (compile.cpp 4158-4169) answered
+  yes 1,028 times ("observe trap='class_check' count='0' mcount='0' ccount=..."), so C2 kept the
+  type-profiled call sites as real virtual calls on their slow path, among them
+  LongVector::lanewise bci 21 -> lanewiseShift, bci 46 -> broadcast, bci 49 -> lanewise, and
+  LongVector::and/or/not/sub/mul bci 4-5 -> Long256Vector::lanewise.
+clean (the intrinsic check's child, 128 bits, inserted F alone): class_check total 0.
+
+The benchmark's own compiles (256 bits, only "x % y, inserted", LogCompilation, FI's compile in
+the parent JVM), per reason: the compile's trap total, and the decisions taken past the limit
+    boxed 1444  unstable_if 404 (105 decisions), class_check 24, speculate_class_check 114
+    boxed 1444  unstable_if 598 (134), class_check 48, speculate_class_check 96
+    boxed 1444  unstable_if 622 (134), class_check 48, speculate_class_check 60
+    clean 0     unstable_if 190 (32),  class_check 48, speculate_class_check 108
+    clean 0     unstable_if 402 (38),  speculate_class_check 92
+    clean 0     unstable_if 402 (40),  speculate_class_check 92
+  where unstable_if comes from VectorOperators$ImplCache::find, inlined 190 times, carrying 3
+  traps each in a boxed compile (the 100 crossed at its 102nd observation of 1,731) and 2 in a
+  clean one (crossed at the 128th of 522), plus 22 inlines of LongVector::lanewiseTemplate at 1
+  each, and in one boxed compile 6 of MemorySessionImpl::checkValidStateRaw at 1.
+
+The benchmark's boxed compiles (256 bits, PrintInlining, every arm in one JVM), read from the
+inlining tree. Up to bodyF bci 1382 (an `or` that C2 inlines late) the tree matches a
+clean run's. Past it, Long256Vector::lanewise is bound by type profile ("callee changed to
+LongVector::lanewise ... TypeProfile"). AbstractSpecies::checkFailed then appears ("too big",
+17 to 46 sites). Thirteen VectorSupport::binaryOp sites in the rounds' borrow and the
+corrections (bodyF bci 1879-2080, source lines 725-737) end "failed to inline (intrinsic) ...
+static call node changed: trying again" and stay calls, so the vectors passed to them are boxed.
+Clean runs: 0 such sites.
