@@ -223,8 +223,8 @@ class VarkaStandardDeltasSuite extends QueryTest with VarkaSharedSessions
     "decimal past its precision are null") {
     // Outside the fragment: SQL-92 6.12 GR 4 raises 22012 on a zero divisor, and no coverage row
     // divides. make_date is Spark's own (EXTENSIONS.md), and the one coverage row this reaches.
-    // A decimal product of 10^38 at its type, DECIMAL(38, 0), is one digit past it, where 4.1
-    // raises 22003.
+    // Inside the fragment, 4.1 over DECIMAL: a product of 10^38 at its type, DECIMAL(38, 0), is
+    // one digit past its precision, where 4.1 raises 22003.
     val past = "CAST(10 AS DECIMAL(38, 0)) * CAST(1" + "0" * 37 + " AS DECIMAL(38, 0))"
     withAnsi(enabled = false) {
       sparkAnswers("SELECT 1 / 0, 7 % 0, make_date(2024, 2, 30)", Seq(Row(null, null, null)))

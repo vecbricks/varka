@@ -799,7 +799,10 @@ as corrected.
 2. **`decimal_spec_check.smt2`**, rendered by `VarkaDecimalSpecFile`, which reads Spark's
    `Decimal` and `DecimalType` and nothing of Varka's: one check per definition over boundary
    operands (zero, the ties 5, 15 and 150 and their neighbours, the ends of 18 and 38 digits and
-   of a long, `2^64`, at scales 0, 2 and 18), `fits` against `Decimal.toPrecision`, the path
+   of a long, `2^64`, at scales 0, 2 and 18, each built compact over a long within 18 digits as
+   Spark's readers build it, so the long arms of `+`, `-`, `compare` and negation are the ones
+   checked, and over a `BigDecimal` past it; a result at another scale than the definition
+   states fails the render), `fits` against `Decimal.toPrecision`, the path
    `checkDecimalOverflow` takes, at every precision from 1 to 38, and `halfup` against
    `toPrecision` to a smaller scale.
 3. **The prose.** `STANDARD.md` 4.1 states Spark's choices over `DECIMAL` with their sources:
@@ -824,12 +827,13 @@ as corrected.
 - **The delta is a correction to 1.2**, whose name states it, rather than a new name: one more
   place where overflow yields null, recorded as a correction since 1.2 said nothing else did.
 
-**Validation.** `decimal_spec_check.smt2`, nine checks over 2546 operand sets: `pow10` at 40
-exponents, `fits` at 608 (every precision, both signs, at scales 0 and `p / 2`), `neg` and `abs`
-at 66 each, `add`, `sub` and `cmp` at 432 each, `mul` at 360 (the pairs below `10^39`) and
-`halfup` at 110. Laptop times, whole file: Z3 0.04 s, cvc5 0.17 s; the regenerated
-`smt_nodes_check.smt2` is unchanged by the cherry-pick onto merged 506a2 and holds, Z3 0.03 s and
-cvc5 0.09 s. Before the file was written, a scratch rendering of two shapes against the prelude
+**Validation.** `decimal_spec_check.smt2`, nine checks over 1874 distinct operand sets: `pow10`
+at 40 exponents, `fits` at 264 (every precision, both signs, at scales 0 and `p / 2`), `neg` and
+`abs` at 22 each, `add`, `sub` and `cmp` at 432 each, `mul` at 120 (the pairs below `10^39`) and
+`halfup` at 110. Laptop times, whole file: Z3 0.09 s, cvc5 0.42 s; the regenerated
+`smt_nodes_check.smt2` is unchanged by the cherry-pick onto merged 506a2 and holds, Z3 0.06 s and
+cvc5 0.24 s. Every proof holds under both solvers, `--lint` takes 56 s on the laptop, all files,
+and the self-test catches every planted failure. Before the file was written, a scratch rendering of two shapes against the prelude
 (`d9 < d9s4`, and `d9 + d9b < d18` under LEGACY, the five checks each) held under both solvers,
 and the first with its kernel's factor planted as 10 for 100 was refuted by check 4, so the
 definitions serve the five checks as 506b2 will state them.
@@ -850,3 +854,23 @@ wrapping as a long.
    refuses; so the printer lists those two shapes as refused, and their hand rows in
    `refinement.smt2` and the ring bound in `decimal64.smt2` stay, the conservative reading of 2.5's
    table against 2.4.
+3. **The decline rule the templates state is a hand copy of the emitter's** (the review's,
+   triaged for 506b2). `Analysis.armChainsOf` leaves a guard unqualified, declining under either
+   arm, not only for a decimal slot check but also with `guardUnderArm` off, past
+   `MAX_ARM_CHAINS`, on an arm cycle and for a stored-value guard with several chains; the
+   templates and the samples' oracle state only the slot case, so a printed decline can be
+   smaller than the emitted one. 506b2's check 5 reads it, so 506b2 derives the rule from the
+   emitter's own (`guardsForTest(...).arms()` empty) rather than restating it.
+4. **The templates' slot-check walk is unshared** (the review's): `loads` re-walks each choice's
+   subtree with no visited set, so a CASE chain of `N` arms prints `O(N^2)` terms. The hand and
+   fuzzed trees are small; 506b2's shapes are the first where it would show, and a set-based walk
+   is that pull request's if they do.
+
+**The review** (`/code-review high`, one triaged round) found ten points; fixed here: the check
+file now builds compact operands too and fails on a result at another scale than stated, repeated
+equations are dropped (the counts above are distinct), `decimal_spec.smt2` states the exponent
+range `halfup` is defined over (a capped product's cut by 39 is 506c's), `DELTAS.md` 1.2's
+definition moves the result `HALF_UP` to its scale before the fit and its table row keeps
+"outside the fragment", the README lists the two files, and the samples' slot test is a pattern
+test rather than a switch with a `default`. Left, as findings 3 and 4 above: the decline rule
+derived from the emitter's, and the walk's sharing.

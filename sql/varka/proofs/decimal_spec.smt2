@@ -29,7 +29,9 @@
 ; java.smt2 into a proof whose header asks for it with "; prelude: decimal_spec.smt2" before its
 ; set-logic line, and never runs it on its own.
 
-; 10^k for 0 <= k <= 38; 0 outside, where no definition below is applied.
+; 10^k for 0 <= k <= 38, and 0 outside. Every definition below is stated for exponents in that
+; range only: a precision or scale is at most 38, and spec.dec.halfup cuts at most 38 digits (a
+; capped product's cut by 39, DECIMAL(38, 38) * DECIMAL(38, 38) at scale 37, is not stated here).
 (define-fun spec.dec.pow10 ((k Int)) Int
   (ite (= k 0) 1
   (ite (= k 1) 10
@@ -106,7 +108,7 @@
         (r (spec.dec.rescale u2 (- (spec.dec.wider s1 s2) s2))))
     (ite (< l r) (- 1) (ite (= l r) 0 1))))
 
-; u / 10^s at scale s - k, k >= 0, rounded HALF_UP, a tie away from zero: Spark's changePrecision
+; u / 10^s at scale s - k, 0 <= k <= 38, rounded HALF_UP, a tie away from zero: Spark's changePrecision
 ; to a smaller scale, whose rounding mode is ROUND_HALF_UP unless its caller names another.
 (define-fun spec.dec.halfup ((u Int) (k Int)) Int
   (let ((h (* 5 (spec.dec.pow10 (- k 1)))))

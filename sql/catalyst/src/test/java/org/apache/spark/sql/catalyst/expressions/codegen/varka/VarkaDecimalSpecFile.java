@@ -20,6 +20,7 @@ package org.apache.spark.sql.catalyst.expressions.codegen.varka;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.function.BinaryOperator;
 import java.util.function.UnaryOperator;
@@ -230,21 +231,38 @@ final class VarkaDecimalSpecFile {
         eqs);
   }
 
-  /** Spark's decimal of the unscaled {@code u} at scale {@code s}. */
+  /** The largest unscaled value a compact decimal holds, 18 digits. */
+  private static final BigInteger COMPACT = nines(Decimal.MAX_LONG_DIGITS());
+
+  /**
+   * Spark's decimal of the unscaled {@code u} at scale {@code s}, in the form Spark's readers
+   * build: a compact one over a long within 18 digits ({@code Decimal.apply(long, p, s)}), whose
+   * {@code +}, {@code -}, {@code compare} and negation take the long arm, and a
+   * {@code BigDecimal} past it.
+   */
   private static Decimal spark(BigInteger u, int s) {
+    if (u.abs().compareTo(COMPACT) <= 0) {
+      return Decimal.apply(u.longValueExact(), Decimal.MAX_LONG_DIGITS(), s);
+    }
     return Decimal.apply(new BigDecimal(u, s));
   }
 
   /**
-   * The unscaled value of {@code d} at scale {@code s}, which must be exact: a result at another
-   * scale than the definition states is a disagreement, and fails the render.
+   * The unscaled value of {@code d}, which must be at scale {@code s}: a result at another scale
+   * than the definition states is a disagreement, and fails the render.
    */
   private static BigInteger unscaledAt(Decimal d, int s) {
-    return d.toJavaBigDecimal().setScale(s).unscaledValue();
+    if (d.scale() != s) {
+      throw new IllegalStateException("Spark's result " + d + " is at scale " + d.scale()
+          + ", not the " + s + " the definition states");
+    }
+    return d.toJavaBigDecimal().unscaledValue();
   }
 
   /** One check that every equation holds: unsat for the negation of their conjunction. */
-  private static void equations(StringBuilder out, String what, List<String> eqs) {
+  private static void equations(StringBuilder out, String what, List<String> all) {
+    // A definition that takes no scale is checked at each operand scale with one equation.
+    var eqs = new LinkedHashSet<String>(all);
     var lines = new ArrayList<String>();
     lines.add("(assert (not (and");
     for (String e : eqs) {

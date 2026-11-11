@@ -254,11 +254,10 @@ final class VarkaSmtSamples {
 
   /** Whether a decimal leaf under {@code node} fails its slot check, whichever arm is taken. */
   private static boolean loads(VarkaVectorIR node, Row row) {
-    boolean any = switch (node) {
-      case DecimalColumn c -> outside(row, c.ordinal(), BigInteger.valueOf(c.bound()));
-      case DecimalWord w -> outside(row, w.ordinal(), w.bound().value());
-      default -> false;
-    };
+    // Two leaves of the sealed set, tested by pattern: every other node checks no slot.
+    boolean any = node instanceof DecimalColumn c
+        ? outside(row, c.ordinal(), BigInteger.valueOf(c.bound()))
+        : node instanceof DecimalWord w && outside(row, w.ordinal(), w.bound().value());
     for (VarkaVectorIR k : VarkaVectorIR.childrenOf(node)) {
       any |= loads(k, row);
     }
