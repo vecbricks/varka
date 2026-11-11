@@ -148,8 +148,24 @@ result of two `INTEGER`s is `INTEGER`, so the range is int32's. Monadic minus is
 arithmetic operation under GR 5(a), its result type that of its operand (SR 3), so `-(-2147483648)`
 raises 22003 rather than wrapping.
 
+**Choices over `DECIMAL`, Spark's** (VARKA-506). The result type is Spark's analyzer's
+(`resultDecimalType` of `Add`, `Subtract` and `Multiply` in `arithmetic.scala`): a sum or a
+difference of `DECIMAL(p1, s1)` and `DECIMAL(p2, s2)` has scale `S = max(s1, s2)` and precision
+`max(p1 - s1, p2 - s2) + S + 1`, a product scale `s1 + s2` and precision `p1 + p2 + 1`. A
+precision past 38 is cut to 38: with `spark.sql.decimalOperations.allowPrecisionLoss`, the
+default, the scale gives up digits first, keeping at least `min(s, 6)`
+(`DecimalType.adjustPrecisionScale`), and without it both are capped at 38
+(`DecimalType.bounded`). Spark's `Decimal.*` rounds the exact product to 39 digits toward zero
+before any other step (`MathContext(39, DOWN)`, `Decimal.MATH_CONTEXT`), which changes no product
+below `10^39`. The result is then moved to its type by `Decimal.toPrecision` with `ROUND_HALF_UP`
+(`checkDecimalOverflow`): a value cut to a smaller scale rounds half away from zero, and a value
+that does not fit the precision is the overflow below. `decimal_spec.smt2` states these values
+over exact integers, `spec.dec.*`, and `decimal_spec_check.smt2` holds each to Spark's `Decimal`.
+
 **Spark.** Non-ANSI Spark wraps where this raises, `overflow_wraps` (`DELTAS.md` 1.1); ANSI Spark
-raises 22003, as defined here.
+raises 22003, as defined here. Over `DECIMAL` non-ANSI Spark does not wrap: a result past its
+type's precision is null, `overflow_yields_null` (`DELTAS.md` 1.2), and ANSI Spark raises
+`NUMERIC_VALUE_OUT_OF_RANGE`, 22003.
 
 ### 4.2 Comparison of exact numerics
 

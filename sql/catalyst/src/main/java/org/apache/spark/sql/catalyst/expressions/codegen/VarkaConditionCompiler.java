@@ -767,8 +767,8 @@ final class VarkaConditionCompiler {
     if (x.isEmpty()) {
       return Optional.empty();
     }
-    Cond equal = new Compare(CompareOp.EQ, x.get(),
-        VarkaNodeCompiler.nanSlot(x.get().laneType(), literals, sink));
+    Cond equal = constantCompare(CompareOp.EQ, x.get(), floatingBits(x.get().laneType(),
+        Double.NaN), literals, sink);
     return Optional.of(new VarkaVectorIR.And(new VarkaVectorIR.IsNotNull(equal), equal));
   }
 
@@ -1177,7 +1177,8 @@ final class VarkaConditionCompiler {
     }
     List<Cond> leaves = new ArrayList<>();
     for (long v : values) {
-      leaves.add(new Compare(CompareOp.EQ, compiledValue.get(),
+      leaves.add(at.isFloating() ? constantCompare(CompareOp.EQ, compiledValue.get(), v, literals,
+          sink) : new Compare(CompareOp.EQ, compiledValue.get(),
           VarkaNodeCompiler.bitsSlot(v, at, literals, sink)));
     }
     return Optional.of(balancedOr(leaves));
@@ -1483,6 +1484,30 @@ final class VarkaConditionCompiler {
       return VarkaDecimalCompiler.comparison(op, cmp, cmp.left(), cmp.right(), inputs, literals,
           sink);
     }
+    // A floating value against a literal of its type (VARKA-341): the constant's bits choose
+    // the lowering, so the literal is read here and only the other operand compiled. A literal
+    // of another type, which only a hand-built tree holds, is left to the general form below,
+    // whose lane check declines it: its bits are not a value at this lane.
+    Optional<LaneType> floating = VarkaFloatingCompiler.floatingLane(cmp.left().dataType());
+    if (floating.isPresent()) {
+      OptionalLong right = floatingConstant(cmp.right(), floating.get());
+      OptionalLong left = right.isPresent() ? OptionalLong.empty()
+          : floatingConstant(cmp.left(), floating.get());
+      if (right.isPresent() || left.isPresent()) {
+        Optional<VarkaVectorIR> x = operand(right.isPresent() ? cmp.left() : cmp.right(),
+            inputs, literals, sink);
+        if (x.isEmpty()) {
+          return Optional.empty();
+        }
+        if (x.get().laneType() != floating.get()) {
+          notMixed(cmp, sink, x.get().laneType(), floating.get());
+          return Optional.empty();
+        }
+        return Optional.of(right.isPresent()
+            ? constantCompare(op, x.get(), right.getAsLong(), literals, sink)
+            : constantCompare(swapped(op), x.get(), left.getAsLong(), literals, sink));
+      }
+    }
     Optional<VarkaVectorIR> left = operand(cmp.left(), inputs, literals, sink);
     if (left.isEmpty()) {
       return Optional.empty();
@@ -1499,6 +1524,97 @@ final class VarkaConditionCompiler {
       return Optional.empty();
     }
     return Optional.of(new Compare(op, left.get(), right.get()));
+  }
+
+  /**
+   * The lane bits of {@code e} when it is a non-null literal whose type is on the floating
+   * {@code lane}, else empty.
+   */
+  private static OptionalLong floatingConstant(Expression e, LaneType lane) {
+    if (!(e instanceof Literal l) || l.value() == null
+        || !VarkaFloatingCompiler.floatingLane(l.dataType()).equals(Optional.of(lane))) {
+      return OptionalLong.empty();
+    }
+    VarkaTypeId id = VarkaTypes.idOf(l.dataType());
+    return id == null ? OptionalLong.empty() : VarkaTypes.info(id).laneBits(l.value());
+  }
+
+  /** {@code op} with its operands swapped: {@code c < x} is {@code x > c}. */
+  private static CompareOp swapped(CompareOp op) {
+    return switch (op) {
+      case LT -> CompareOp.GT;
+      case LE -> CompareOp.GE;
+      case GT -> CompareOp.LT;
+      case GE -> CompareOp.LE;
+      case EQ -> CompareOp.EQ;
+      case ULT, ULE, UGT, UGE, IEEE_EQ, IEEE_LT, IEEE_LE ->
+          throw VarkaErrors.illegalArgument("no SQL comparison is " + op);
+    };
+  }
+
+  /**
+   * Spark's {@code x op c} at a floating lane, {@code c} a constant of the lane given by its
+   * bits: the literal-specialised compares (VARKA-341). Spark's order is IEEE's with NaN placed
+   * above every value, so the NaN tests of the general lowering
+   * ({@code VarkaVectorWalk.emitFloatingCompare}) are only needed where a NaN can meet one:
+   * <ul>
+   *   <li>against a {@code c} that is not NaN, {@code =}, {@code <} and {@code <=} are the bare
+   *       IEEE compares - a NaN {@code x} is equal to, less than and at most no such {@code c} -
+   *       and {@code >} and {@code >=} are the negations of {@code <=} and {@code <}, true for a
+   *       NaN {@code x} as Spark has it; IEEE's {@code ==} already takes {@code -0.0} as
+   *       {@code 0.0};
+   *   <li>against a NaN, {@code x = NaN} and {@code x >= NaN} hold exactly where {@code x} is
+   *       NaN, and {@code x < NaN} exactly where it is not. The one IEEE compare that is false
+   *       for NaN alone is {@code x <= +Infinity}, so those are its negation and itself, with no
+   *       NaN test; {@code x <= NaN} and {@code x > NaN} answer the same on every valid row and
+   *       keep the general form, Spark's optimizer leaving them as rare as they are.
+   * </ul>
+   * Each is one node a null {@code x} leaves unknown, as Spark's comparison is null there.
+   */
+  private static Cond constantCompare(CompareOp op, VarkaVectorIR x, long bits,
+      VarkaSlotTable literals, DeclineSink sink) {
+    LaneType lane = x.laneType();
+    boolean nan = switch (lane) {
+      case FLOAT -> Float.isNaN(Float.intBitsToFloat((int) bits));
+      case DOUBLE -> Double.isNaN(Double.longBitsToDouble(bits));
+      case BYTE, SHORT, INT, LONG ->
+          throw VarkaErrors.illegalArgument("not a floating lane: " + lane);
+    };
+    if (nan) {
+      return switch (op) {
+        case EQ, GE -> new VarkaVectorIR.Not(notNaN(x, literals, sink));
+        case LT -> notNaN(x, literals, sink);
+        case LE, GT -> new Compare(op, x, VarkaNodeCompiler.bitsSlot(bits, lane, literals, sink));
+        case ULT, ULE, UGT, UGE, IEEE_EQ, IEEE_LT, IEEE_LE ->
+            throw VarkaErrors.illegalArgument("no SQL comparison is " + op);
+      };
+    }
+    VarkaVectorIR c = VarkaNodeCompiler.bitsSlot(bits, lane, literals, sink);
+    return switch (op) {
+      case EQ -> new Compare(CompareOp.IEEE_EQ, x, c);
+      case LT -> new Compare(CompareOp.IEEE_LT, x, c);
+      case LE -> new Compare(CompareOp.IEEE_LE, x, c);
+      case GT -> new VarkaVectorIR.Not(new Compare(CompareOp.IEEE_LE, x, c));
+      case GE -> new VarkaVectorIR.Not(new Compare(CompareOp.IEEE_LT, x, c));
+      case ULT, ULE, UGT, UGE, IEEE_EQ, IEEE_LT, IEEE_LE ->
+          throw VarkaErrors.illegalArgument("no SQL comparison is " + op);
+    };
+  }
+
+  /** {@code x <= +Infinity}, the IEEE compare false where {@code x} is NaN and nowhere else. */
+  private static Cond notNaN(VarkaVectorIR x, VarkaSlotTable literals, DeclineSink sink) {
+    return new Compare(CompareOp.IEEE_LE, x, VarkaNodeCompiler.bitsSlot(
+        floatingBits(x.laneType(), Double.POSITIVE_INFINITY), x.laneType(), literals, sink));
+  }
+
+  /** The raw bits of {@code v} as a value of the floating lane {@code lane}. */
+  private static long floatingBits(LaneType lane, double v) {
+    return switch (lane) {
+      case FLOAT -> Float.floatToRawIntBits((float) v);
+      case DOUBLE -> Double.doubleToRawLongBits(v);
+      case BYTE, SHORT, INT, LONG ->
+          throw VarkaErrors.illegalArgument("not a floating lane: " + lane);
+    };
   }
 
   /**

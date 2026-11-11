@@ -267,6 +267,10 @@ fuzzed on the laptop under `useAVX=2` (question 1). At the forced 128-bit specie
 64-bit masks are fallbacks (`VARKA-376.md` 9), recorded in `width_audit.json` as 341 records its
 compares.
 
+Correction (VARKA-583): `L2D`'s default arm is now `XOR_SPLIT`, with the split above kept as
+`SPLIT`; `L2F`'s sign and arm mask default to `roundToOddByShifts=false`, with the steps above
+kept under `true`.
+
 ### 2.4 The modes and the boundary cells
 
 To a floating type, every mode is `ConvertLane`, TRY included (item 0.4). From one:
