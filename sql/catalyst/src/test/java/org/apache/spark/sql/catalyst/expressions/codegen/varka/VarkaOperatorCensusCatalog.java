@@ -146,7 +146,7 @@ public record VarkaOperatorCensusCatalog(String name, String family, String loop
       between("int", "I2B_store64_masked", WIDENING, "store.i2b64.masked", "storeMasked",
           "329, 479, 603", 0, 128),
       between("int", "I2B_store64_combined", WIDENING, "store.i2b64.combined", "store",
-          "479, 603", 0, 128),
+          "329, 479, 603", 128, 128),
       of("float", "EQ", FLOAT_COMPARES, "cmp.float", "compare", "341"),
       of("float", "LT", FLOAT_COMPARES, "cmp.float", "compare", "341"),
       of("float", "LE", FLOAT_COMPARES, "cmp.float", "compare", "341"),

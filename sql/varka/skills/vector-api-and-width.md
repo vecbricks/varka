@@ -558,7 +558,9 @@ the table reads as on the laptop):
 | Neoverse N2, 128 bits (native) | `TANH` alone; `POW` is intrinsic there |
 
 The full cells are in `plans/m8/results/VARKA-376-census-epyc-7763.json` and
-`VARKA-376-census-neoverse-n2.json`. Rows 30, 343 and 344 design their long-to-double conversions
+`VARKA-376-census-neoverse-n2.json`. The two `I2B_store64` cells postdate that run: the masked
+one is expected `F` on the EPYC 7763 at 128 bits, as it reads on the laptop under `-XX:UseAVX=2`
+(no predicated byte store without AVX-512BW), and the control `I`. Rows 30, 343 and 344 design their long-to-double conversions
 against the EPYC cells; row 358's `tanh` meets the Neoverse cell.
 
 **`I` says nothing of what a loop's prologue allocates.** The decimal store's cells build their
@@ -572,7 +574,8 @@ And the second-species tell skips a class of the fork's own width: `LongVector::
 virtual call, and C2's printer reports its devirtualization as "callee changed to" the preferred
 species' class.
 
-What it says on the laptop (AMD Ryzen AI 9 HX PRO 370, JDK 25.0.4.1):
+What it says on the laptop (AMD Ryzen AI 9 HX PRO 370, JDK 25.0.4.1; every verdict read the same
+at 25.0.5):
 
 * **Nothing allocates anywhere in a loop that is intrinsic**, and the five arrangements of the
   two-species case (a narrow and a full byte species in either order of first use, the widening

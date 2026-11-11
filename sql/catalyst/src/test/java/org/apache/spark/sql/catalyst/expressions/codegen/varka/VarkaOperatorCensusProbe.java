@@ -1027,6 +1027,16 @@ public final class VarkaOperatorCensusProbe {
     }
   }
 
+  static void op_load_s2i() {
+    for (int i = 0; i < ROWS; i += NarrowShort.SPECIES.length()) {
+      var v = ShortVector.fromArray(NarrowShort.SPECIES, SA, i);
+      for (int p = 0; p < NarrowShort.PARTS; p++) {
+        ((IntVector) v.convertShape(VectorOperators.S2I, IS, p))
+            .intoArray(IO, i + p * IS.length());
+      }
+    }
+  }
+
   /**
    * A byte column in native memory, as a kernel's output buffer is, with a 64-bit vector of
    * padding past the last row so that the last group's eight-lane store stays inside it. In a
@@ -1071,16 +1081,6 @@ public final class VarkaOperatorCensusProbe {
       var high = (ByteVector) IntVector.fromArray(IS, IA, i + IS.length())
           .convertShape(VectorOperators.I2B, Narrow64.SPECIES, -1);
       low.or(high).intoMemorySegment(out, i, ByteOrder.LITTLE_ENDIAN);
-    }
-  }
-
-  static void op_load_s2i() {
-    for (int i = 0; i < ROWS; i += NarrowShort.SPECIES.length()) {
-      var v = ShortVector.fromArray(NarrowShort.SPECIES, SA, i);
-      for (int p = 0; p < NarrowShort.PARTS; p++) {
-        ((IntVector) v.convertShape(VectorOperators.S2I, IS, p))
-            .intoArray(IO, i + p * IS.length());
-      }
     }
   }
 
@@ -1136,9 +1136,9 @@ public final class VarkaOperatorCensusProbe {
         case "conv.B2S" -> op_conv_B2S();
         case "load.b2i64" -> op_load_b2i64();
         case "load.b2i128" -> op_load_b2i128();
+        case "load.s2i" -> op_load_s2i();
         case "store.i2b64.masked" -> op_store_i2b64_masked();
         case "store.i2b64.combined" -> op_store_i2b64_combined();
-        case "load.s2i" -> op_load_s2i();
         case "two.fullshort" -> op_two_fullshort();
         case "bin.long" -> op_bin_long();
         case "un.long" -> op_un_long();
