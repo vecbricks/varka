@@ -127,3 +127,200 @@ A check that their tables hold every column of the map would be a cheap follow-u
 - `emitted_bytes.json` is unchanged.
 
 ## 8. Outcome
+
+## Build sheet (11 November 2026)
+
+Follow `BUILD_SHEETS.md` (same folder). Everything below was read at origin/master `c62f492fc89`.
+`<scala>` is `sql/catalyst/src/test/scala/org/apache/spark/sql/catalyst/expressions/codegen/varka`,
+`<core>` is `sql/core/src/test/scala/org/apache/spark/sql/execution`.
+
+**What is stale above.** The table now has **35** columns, not 28 (`d3810` is the last), in the
+same order in `coverage.json` and in both copies. Line numbers have moved; use the symbols below.
+`VarkaWarmupReach.coverageShapes` (Java) reads the columns from `coverage.json` already, through
+Jackson, in order: it is not a copy. And `dev/varka_new_lane.py` reads the width audit's copy as
+one of a type's sites, so removing that copy edits the script (B1 item 6).
+
+**Question 1 is answered yes** - "the plan's recommendation, taken by the lead on 11 November
+2026": the two sql/core fixtures assert their columns, in this row. The assertion differs per
+fixture (B1 item 5), because `VarkaSparkFuzz` builds only the columns its draws read, by design.
+
+### B0. Premise re-check
+
+| Command | Expected |
+|---|---|
+| `grep -c 'AttributeReference("' <scala>/VarkaEmittedBytesSuite.scala <scala>/VarkaWidthAuditShapes.scala` | `35` for each |
+| `grep -n 'extract\[Map\[String, String\]\]' <scala>/VarkaCoverageRows.scala` | one line, in `read` |
+| `grep -n 'private lazy val coverage: (Seq\[CoverageShape\], Seq\[String\])' <scala>/VarkaEmittedBytesSuite.scala` | one line |
+| `grep -n 'val (rows, _) = coverage\|val (rows, skipped) = coverage' <scala>/VarkaEmittedBytesSuite.scala` | two lines |
+| `grep -n '"coverage_rows_skipped" : \[ \]' sql/varka/emitted_bytes.json` | one line |
+| `grep -n 'WIDTH_AUDIT' dev/varka_new_lane.py` | three lines |
+| `grep -n 'needs one in five places' sql/varka/ADDING_A_TYPE.md` | one line, in step 11 |
+| `python3 -c "import json;print(len(json.load(open('sql/varka/coverage.json'))['columns']))"` | `35` |
+
+### B1. Scope
+
+1. **`<scala>/VarkaCoverageRows.scala`**: a new method, and `read` calls it for its columns:
+
+   ```scala
+   /**
+    * The table's columns, in the file's order, which is the order `VarkaCoverageSuite` declares
+    * them in and so the kernels' input ordinals: the object's fields are walked as written,
+    * whatever a `Map` would do with them.
+    */
+   def columns(path: Path): Seq[Attribute] =
+     parse(new String(Files.readAllBytes(path), "UTF-8")) \ "columns" match {
+       case JObject(fields) => fields.map {
+         case (name, JString(t)) => AttributeReference(name, CatalystSqlParser.parseDataType(t))()
+         case (name, other) => throw new IllegalArgumentException(
+           s"column $name of $path has no SQL type: $other")
+       }
+       case other => throw new IllegalArgumentException(s"$path has no columns object: $other")
+     }
+   ```
+   Import `JObject` beside `JString`. In `read`, `val columns = columns(path)` replaces the
+   `extract[Map[String, String]]` lines (the name shadows the method; name the local `cols` and
+   use it in `Table(cols, ...)`).
+2. **`<scala>/VarkaEmittedBytesSuite.scala`**:
+   - Delete the 35 `AttributeReference` vals, their comments and the `columns` list. In their
+     place: `private lazy val columns: Seq[Attribute] =
+     VarkaCoverageRows.columns(getWorkspaceFilePath("sql", "varka", "coverage.json"))` with the
+     comment "The coverage table's columns, from the file `VarkaCoverageSuite` writes them to."
+     Remove the imports the deletion leaves unused (the compiler's unused-import warnings name
+     them; `DecimalType` and the others the DECIMAL arithmetic test still uses stay).
+   - `coverage` becomes `private lazy val coverage: Seq[CoverageShape] =
+     coverageOf(getWorkspaceFilePath("sql", "varka", "coverage.json").toFile)`, and the body moves
+     to `private def coverageOf(file: File): Seq[CoverageShape]`, which reads its own columns,
+     `val cols = VarkaCoverageRows.columns(file.toPath)`, and uses `cols` for the resolve and the
+     compile. The
+     parse guard becomes:
+     `val resolved = try VarkaSqlResolve.resolve(CatalystSqlParser.parseExpression(executable),
+     cols) catch { case e: Exception => fail(s"coverage row `$sql` does not resolve against the
+     columns of ${file.getName}: ${e.getMessage}", e) }` (the resolver's message names the column:
+     "unknown column <name>"). `skipped` and its builder go; the decline `fail` stays. Update the
+     scaladoc: a row that does not parse or resolve now fails, naming the row and the column.
+   - `val (rows, _) = coverage` and `val (rows, skipped) = coverage` become `val rows = coverage`;
+     `"coverage_rows_skipped" -> skipped.asJava` becomes
+     `"coverage_rows_skipped" -> java.util.List.of[String]()`, so the file keeps its empty list and
+     is byte-identical. The regeneration's skip comparison stays.
+   - A new test after "sql/varka/emitted_bytes.json pins ...": "a coverage row over a column the
+     table lacks fails the oracle, naming the row and the column". In `withTempDir`, write
+     `cov.json` holding `{"columns": {"i": "int", "l": "bigint"}, "expressions": [{"sql": "i + 1",
+     "executable": "i + 1", "form": "projection", "catalyst": ["Add"]}, {"sql": "q + 1",
+     "executable": "q + 1", "form": "projection", "catalyst": ["Add"]}]}`; then
+     `val e = intercept[TestFailedException](coverageOf(file))` and assert `e.getMessage` contains
+     "`q + 1`" and "unknown column q".
+3. **`<scala>/VarkaWidthAuditShapes.scala`**: delete the 35 vals, their comments and the
+   `columns` list. `coverageRows(coverageJson)` starts with
+   `val columns = VarkaCoverageRows.columns(coverageJson.toPath)`, and `predicateRow` takes it as a
+   third parameter `columns: Seq[Attribute]` (its one caller passes it). Remove the imports left
+   unused.
+4. **`<scala>/VarkaCoverageSuite.scala`**: a new test, "coverage.json's columns read back in the
+   order and at the types this suite declares them": `assert(VarkaCoverageRows.columns(
+   getWorkspaceFilePath("sql", "varka", "coverage.json")).map(a => a.name -> a.dataType) ===
+   columns.map(a => a.name -> a.dataType))`, `columns` being the suite's own list.
+5. **The two sql/core fixtures** (question 1):
+   - `<core>/VarkaCoverageDifferentialSuite.scala`, a test after "the coverage table has rows to
+     run": "every fixture holds every column of coverage.json, at its type". For each name of
+     `fixtures.map(_._1) :+ extremes._1`, take `spark.table(name).schema` and assert, for every
+     attribute `a` of `VarkaCoverageRows.columns(getWorkspaceFilePath("sql", "varka",
+     "coverage.json"))`, `schema.find(_.name == a.name).map(_.dataType) === Some(a.dataType)`,
+     with the clue `s"$name.${a.name}"`.
+   - `<core>/VarkaSparkFuzzSuite.scala`, a test after "the fixture builds for every drawn case,
+     ...": "the fixture holds every column of coverage.json its draws read, at its type". The
+     wanted columns are those of `VarkaCoverageRows.columns(...)` whose name neither
+     `VarkaCoverageRows.readsBoolean`, `readsNarrow` nor `readsDecimal` matches (the rows the
+     fuzzer draws, `VarkaSparkFuzz.coverageRows`, are filtered by the same three); the schema is
+     `spark.sql(VarkaSparkFuzz.fixtureSql(VarkaSparkFuzz.drawData(new Random(495), 1, safe =
+     true))).schema`; the assertion is the one above. Eighteen columns are wanted
+     (`d d2 i ymm ymy ym l l2 t t2 dt dt2 ntz ntz2 x x2 f f2`); assert that count too.
+6. **`dev/varka_new_lane.py`**: delete the `WIDTH_AUDIT` constant, `audit = column_types(...)`
+   and the `"width audit"` entry of `type_sites`. The width audit reads its columns from
+   `coverage.json`, which the "coverage table" site already checks.
+7. **`sql/varka/ADDING_A_TYPE.md` step 11**: replace from "A type with no column in the table
+   yet needs one in five places:" up to "...as the `TIMESTAMP_NTZ` columns are derived from a date
+   and a time." with: "A type with no column in the table yet needs one in three places:
+   `VarkaCoverageSuite`'s `columns`, which `coverage.json`'s column map is written from and every
+   catalyst suite reads its columns from (`VarkaCoverageRows.columns`); and the fixtures of
+   `VarkaCoverageDifferentialSuite` and `VarkaSparkFuzz`, which may derive the column from
+   existing ones, as the `TIMESTAMP_NTZ` columns are derived from a date and a time. Each fixture's
+   suite fails on a column of the map it lacks, the fuzz fixture's only for a type its draws read."
+8. **`PLAN.md` row 495**: replace the row's opening `**Planned**` with `**Done**`. Fill section 8,
+   "Outcome", of this file.
+
+**Out of scope:** the coverage rows; `VarkaWarmupReach` (it already reads the file); the
+`asCatalystClaims` copies (row 567, and the width audit's, which 567 leaves to a new row); any
+generated file; `dev/varka_precommit.sh`'s `lane_inputs`, which may keep naming
+`VarkaWidthAuditShapes.scala`.
+
+### B2. Tests and their oracles
+
+| Test | Asserts | Oracle |
+|---|---|---|
+| `VarkaEmittedBytesSuite` (all) | the bytes are unchanged | the committed `emitted_bytes.json`; its ordinals follow the column order, so this is also the order check |
+| `VarkaWidthAuditSuite` (all) | the audit is unchanged | the committed `width_audit.json` (the laptop is its host) |
+| the new bytes-suite test | an unresolvable row fails, naming row and column | the fixture's map, which lacks `q` |
+| the new coverage-suite test | the file's columns read back in order and type | `VarkaCoverageSuite`'s own `columns` list, which wrote them |
+| the two fixture tests | each fixture has each wanted column at its type | `coverage.json`'s map |
+| `VarkaCoverageCompositionFuzzSuite`, `VarkaGroupingBoundSuite`, `VarkaDivisorProofSuite` | pass at their committed seeds | their own oracles (prediction P2 above) |
+
+### B3. Planted faults
+
+1. In `VarkaCoverageRows.columns`, return `fields.sortBy(_._1).map(...)`: the new coverage-suite
+   test fails, and `VarkaEmittedBytesSuite` fails on moved bytes.
+2. In `coverageOf`, catch the resolve's exception and skip the row instead of failing: the new
+   bytes-suite test fails.
+3. In the differential fixture's `fixtureView`, rename `AS d8` to `AS d8x`: the new differential
+   test fails naming `d8`. In the fuzz fixture, rename `AS ntz2` to `AS ntz3`: the new fuzz test
+   fails naming `ntz2`.
+Revert each before the next.
+
+### B4. Commands, in order
+
+```
+flock "$VARKA_HEAVY_LOCK" build/sbt 'catalyst/testOnly *VarkaCoverageSuite -- -z "read back in the order"'
+flock "$VARKA_HEAVY_LOCK" build/sbt 'catalyst/testOnly *VarkaEmittedBytesSuite *VarkaWidthAuditSuite'
+flock "$VARKA_HEAVY_LOCK" build/sbt 'catalyst/testOnly *VarkaCoverageCompositionFuzzSuite *VarkaGroupingBoundSuite *VarkaDivisorProofSuite'
+flock "$VARKA_HEAVY_LOCK" build/sbt 'sql/testOnly *VarkaCoverageDifferentialSuite *VarkaSparkFuzzSuite'
+git diff --exit-code -- sql/varka/emitted_bytes.json sql/varka/width_audit.json sql/varka/coverage.json
+./dev/varka_new_lane.py --check     # every line "no site is missing", a type's "(2 checked)"
+```
+
+All pass; the `git diff` exits 0. Then the planted faults, then `BUILD_SHEETS.md` section 6.
+
+### B5. Done when
+
+`grep -c 'AttributeReference("' <scala>/VarkaEmittedBytesSuite.scala
+<scala>/VarkaWidthAuditShapes.scala` prints `0` for each; `grep -c skipped
+<scala>/VarkaEmittedBytesSuite.scala` counts only the render and the regeneration's comparison;
+B4 passes; `python3 dev/varka_push_check.py` exits 0.
+
+### B6. Size
+
+About 250 counted lines, most of them the removed copies (about 95 lines each): the reader 15,
+the bytes suite 30 added, the audit 10, four tests 50, the script 8, the guide 10, the plan and
+outcome 25.
+
+### B7. Stop rules
+
+- `emitted_bytes.json` or `width_audit.json` differs after the change: the order or the columns
+  moved; stop, do not regenerate.
+- A coverage row fails the new resolve guard on the committed table.
+- A fixture test fails on the unchanged fixtures: report the fixture, the column and the two
+  types; do not change a fixture.
+- One of the three reader suites fails at its committed seed (P2 said the verdicts hold).
+- `VarkaWidthAuditSuite` reports another host: the run is not on the laptop; stop.
+
+### B8. Decisions already taken
+
+- Question 1, yes: "the plan's recommendation, taken by the lead on 11 November 2026".
+- The fuzz fixture's assertion covers only the columns its draws read, as B1 item 5 says.
+- Row 567 lands first and also edits `VarkaEmittedBytesSuite.coverage`: if it merged first, the
+  claim call in `coverageOf` is its `VarkaSqlResolve.inSetAsClaimed(resolved,
+  catalyst.contains("InSet"))`; keep that line as master has it.
+
+### B9. Afterwards (the lead)
+
+Review and push. Open pull requests on the same files: #1428 (`VarkaEmittedBytesSuite.scala`,
+the option arms), #1478 and #1484 (`VarkaWidthAuditShapes.scala`: `coverageRows` and
+`predicateRow`'s compile calls; on a conflict keep their compile calls with this row's local
+`columns`), and #1428, #1478, #1484 (`PLAN.md`): rebase if one merged first.
