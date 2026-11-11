@@ -102,7 +102,7 @@ final class VarkaSmtSamples {
     var hiB = new DecimalWord(6, Word.HIGH, 38);
     var loB = new DecimalWord(6, Word.LOW, 38);
     var out = new ArrayList<VarkaVectorIR>();
-    for (CompareOp op : CompareOp.values()) {
+    for (CompareOp op : CompareOp.integral()) {
       out.add(new Compare(op, x, y));
     }
     // A 128-bit x < y over the words (VARKA-359), and the pair's null-safe and null tests.

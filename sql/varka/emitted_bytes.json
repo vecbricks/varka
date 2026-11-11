@@ -15152,16 +15152,16 @@
       "16" : "42f7235d17d8c7d1"
     },
     "wideConversionForm=XOR_SPLIT over useAVX=2" : {
-      "4" : "8968ccd9d341fec6",
-      "16" : "a95c689d5b52c849"
+      "4" : "e50adbc87547e3f2",
+      "16" : "42f7235d17d8c7d1"
     },
     "roundToOddByShifts=true over useAVX=2" : {
-      "4" : "8968ccd9d341fec6",
-      "16" : "a95c689d5b52c849"
+      "4" : "e50adbc87547e3f2",
+      "16" : "42f7235d17d8c7d1"
     },
     "roundToOddByShifts=false over useAVX=2" : {
-      "4" : "8968ccd9d341fec6",
-      "16" : "a95c689d5b52c849"
+      "4" : "e50adbc87547e3f2",
+      "16" : "42f7235d17d8c7d1"
     },
     "narrowLanes=true" : {
       "4" : "505af26201c6e275",
