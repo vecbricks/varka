@@ -1,0 +1,122 @@
+VARKA-577 10.4 item 2: why the mask-free two-lane forms box in a shared JVM, 11 November 2026.
+code:      ca9d2277033 (VarkaDecimalRemainderSpikeBenchmark as committed), first rung only
+           (-Dvarka.remainder.rungs=1), its two compile commands (dontinline loop*, inline body*);
+           128 bits is -XX:UseAVX=2 -XX:MaxVectorSize=16, 256 bits -XX:UseAVX=2
+jdk:       OpenJDK 25.0.5.0.3; source read: jdk-25-ga hotspot/share/opto
+machine:   the laptop (Zen 5), shared with other agents' JVMs, loads 5 to 30, not pinned.
+           Only allocation counts are read here, not times.
+"discrim": a throw-away driver (not committed) that runs the named loops in turn in one JVM:
+           20,000 calls of 64 rows, 20 drives of 256 calls of 4,096 rows, then one drive measured
+           with ThreadMXBean.getCurrentThreadAllocatedBytes. add* are plain a + b loops over
+           MemorySegments: addL128 (LongVector.SPECIES_128), addL256 (SPECIES_256), addI128
+           (IntVector.SPECIES_128).
+====================================================================================================
+Bytes a row an arm allocates in compiled code: JVMs that allocated / JVMs run (the values)
+("only" is -Dvarka.bench.only; "adds" is addI128, addL128, addL256 in turn; FI is x % y
+inserted F, FT transposed F, FS split F)
+----------------------------------------------------------------------------------------------------
+128 bits, benchmark, every arm, FI (4 runs; 1 more x % y only)        0 / 5
+128 bits, benchmark, only "F", FI                                      0 / 3
+128 bits, benchmark, only "x % y, inserted" (inserted E, then FI)      5 / 6  (1080, 2192)
+128 bits, discrim: adds, then FI                                       6 / 6  (9712, 10440)
+128 bits, discrim: FI alone, after one add loop, after any one
+          other x % y arm, or after the other ten but D               0 / 1 each
+256 bits, benchmark, every arm, FI                                     5 / 10 (1408, 1444)
+256 bits, benchmark, only "x % y, inserted F" (its own JVM)           0 / 6
+256 bits, benchmark, only "x % y, transposed F" (its own JVM)         0 / 6
+256 bits, benchmark, only "x % y, inserted" (inserted E, then FI)      7 / 12 (732, 1444)
+256 bits, benchmark, only "F", FI                                      2 / 6  (24)
+256 bits, benchmark, only "inserted F" (x % y, then pmod), FI          0 / 6
+256 bits, discrim: addL256, then FI                                    1 / 6  (1408)
+256 bits, discrim: adds, then FI                                      16 / 17 (1280 to 6700)
+256 bits, discrim: adds, then FT                                       3 / 3  (6549, 6725)
+256 bits, discrim: adds, then FS                                       3 / 3  (12)
+256 bits, discrim: adds, then E                                        2 / 3  (12)
+256 bits, discrim: adds, then FI, -XX:PerMethodTrapLimit=100000        5 / 6  (1280 to 3524)
+128 bits, discrim: FI alone, -XX:PerMethodTrapLimit=0                  1 / 1  (248)
+Whether a shared run boxes varies from run to run; loads were 5 to 30.
+====================================================================================================
+The boxed compile against a clean one (LogCompilation, the level-4 compile of loopRemainderFI)
+----------------------------------------------------------------------------------------------------
+boxed (256 bits, discrim after the three add loops, 6,524 bytes a row): each inlining of a
+method adds its MDO's trap counts to the compile's (parse1.cpp 470-483), and the compile's
+class_check total reached 3,214:
+    248 inlines of VectorOperators::opKind            carrying 4 class_check traps each
+    198 inlines of VectorOperators::opCode            carrying 4 class_check traps each
+    198 inlines of VectorOperators$ImplCache::find    carrying 4 class_check traps each
+    141 inlines of LongVector::lanewiseTemplate       carrying 4 class_check traps each
+     16 inlines of LongVector::add                    carrying 4 class_check traps each
+  past PerMethodTrapLimit (100), too_many_traps(class_check) (compile.cpp 4158-4169) answered
+  yes 1,028 times ("observe trap='class_check' count='0' mcount='0' ccount=..."), so C2 kept the
+  type-profiled call sites as real virtual calls on their slow path, among them
+  LongVector::lanewise bci 21 -> lanewiseShift, bci 46 -> broadcast, bci 49 -> lanewise, and
+  LongVector::and/or/not/sub/mul bci 4-5 -> Long256Vector::lanewise.
+clean (the intrinsic check's child, 128 bits, inserted F alone): class_check total 0.
+
+The benchmark's own compiles (256 bits, only "x % y, inserted", LogCompilation, FI's compile in
+the parent JVM), per reason: the compile's trap total, and the decisions taken past the limit
+    boxed 1444  unstable_if 404 (105 decisions), class_check 24, speculate_class_check 114
+    boxed 1444  unstable_if 598 (134), class_check 48, speculate_class_check 96
+    boxed 1444  unstable_if 622 (134), class_check 48, speculate_class_check 60
+    clean 0     unstable_if 190 (32),  class_check 48, speculate_class_check 108
+    clean 0     unstable_if 402 (38),  speculate_class_check 92
+    clean 0     unstable_if 402 (40),  speculate_class_check 92
+  where unstable_if comes from VectorOperators$ImplCache::find, inlined 190 times, carrying 3
+  traps each in a boxed compile (the 100 crossed at its 102nd observation of 1,731) and 2 in a
+  clean one (crossed at the 128th of 522), plus 22 inlines of LongVector::lanewiseTemplate at 1
+  each, and in one boxed compile 6 of MemorySessionImpl::checkValidStateRaw at 1.
+
+The benchmark's boxed compiles (256 bits, PrintInlining, every arm in one JVM), read from the
+inlining tree. Up to bodyF bci 1382 (an `or` that C2 inlines late) the tree matches a
+clean run's. Past it, Long256Vector::lanewise is bound by type profile ("callee changed to
+LongVector::lanewise ... TypeProfile"). AbstractSpecies::checkFailed then appears ("too big",
+17 to 46 sites). Thirteen VectorSupport::binaryOp sites in the rounds' borrow and the
+corrections (bodyF bci 1879-2080, source lines 725-737) end "failed to inline (intrinsic) ...
+static call node changed: trying again" and stay calls, so the vectors passed to them are boxed.
+Clean runs: 0 such sites.
+====================================================================================================
+11 November 2026, the test of question 7.4: split F fed from the slots by a transpose out of line
+----------------------------------------------------------------------------------------------------
+code:      4d7714cbaaa (the spike before cebd3706486's rename, kernels unchanged), the same compile
+           commands, plus dontinline on the driver's add* and tp*; two JVMs of the decisive cell
+           (adds, then tpFS block 64) were run again on cebd3706486's classes at each width and
+           read the same (16 and 12 B/row, exact).
+machine:   the laptop, one JVM at a time, load average 0.3 to 2.2 (uptime before and after).
+"tpFS":    the discrim driver's loop over the 4,096-row slot columns, a block of b rows at a time:
+           tpIn (its own method, not inlined) copies the block's low and high words by scalar
+           moves into split blocks of b rows, loopRemainderFS (x % y, its own method) runs over
+           them, and tpOut (its own method) copies the split result back into the slots; the
+           block's zero-divisor words are copied into place. The split blocks are static
+           native segments. "tpOnly" is the same loop with no kernel call.
+read:      warm and final lines as before; a JVM is clean only at 0.0 B/row in both. Every
+           kernel cell was then run once more over fresh-filled output and checked against
+           BigInteger on every row ("exact"). At 128 bits addL256 itself allocates 96 B/row
+           (SPECIES_256 has no intrinsic there), as in the runs above.
+bits cell                       allocated  B/row          final ns/row  exact
+128  split F alone (loopRemainderFS)  0/6   0                  31.1 to  36.7  6/6
+128  adds, then split F              12/12  16                 32.3 to  33.5  12/12
+128  adds, then tpFS block 64        12/12  16                 34.0 to  38.0  12/12
+128  adds, then tpFS block 1024      12/12  16                 32.9 to  34.5  12/12
+128  adds, then inserted F (control)  3/3   10216, 2288, 9712 236.4 to 760.4  3/3
+128  B alone (loopRemainderB)         3/3   855.1             121.5 to 125.2  3/3
+128  tpOnly block 64 (no kernel)      0/3   0                   1.5 to   1.9  -
+128  tpOnly block 1024 (no kernel)    0/3   0                   1.4 to   1.4  -
+256  split F alone (loopRemainderFS)  0/6   0                  15.7 to  15.9  6/6
+256  adds, then split F              12/12  12                 15.8 to  19.2  12/12
+256  adds, then tpFS block 64        12/12  12                 17.5 to  27.2  12/12
+256  adds, then tpFS block 1024      12/12  12                 17.4 to  20.8  12/12
+256  adds, then inserted F (control)  3/3   1460, 6524, 6700  149.4 to 390.6  3/3
+256  B alone (loopRemainderB)         3/3   855.1             123.0 to 134.0  3/3
+256  tpOnly block 64 (no kernel)      0/3   0                   1.5 to   2.3  -
+256  tpOnly block 1024 (no kernel)    0/3   0                   1.4 to   1.4  -
+B's 855.1 B/row is its BigInteger calls, in every run.
+Medians, final ns/row: 128 bits split F alone 31.2, adds then split F 32.6, tpFS 64 34.2, tpFS
+1024 33.9; 256 bits 15.8, 16.2, 18.5 and 18.2.
+What the residual is: 16 B/row at two lanes is 32 bytes a 2-row lane group and 12 B/row at four
+lanes 48 bytes a 4-row group, exactly one long[L] (16-byte header and L longs) an iteration. A JFR
+recording (settings=profile) of one JVM at each width, adds then tpFS 64, has 244 of 307 (128
+bits) and 153 of 254 (256 bits) allocation samples under loopRemainderFS as long[] at
+LongVector.lanewiseTemplate line 756, the VectorSupport.binaryOp call (jdk-25-ga), in frames JFR
+marks JIT compiled; the bodyF source line of that lanewise was not read, nor the compile's log.
+It matches VARKA-295 9.6's signature, where a binaryOp whose input joins from a virtual call is
+refused and its result's backing array survives, but that cause was not confirmed here.

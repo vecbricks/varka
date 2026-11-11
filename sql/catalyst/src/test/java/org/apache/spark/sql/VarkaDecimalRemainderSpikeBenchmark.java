@@ -17,6 +17,11 @@
 
 package org.apache.spark.sql;
 
+import static jdk.incubator.vector.VectorOperators.ASHR;
+import static jdk.incubator.vector.VectorOperators.LSHL;
+import static jdk.incubator.vector.VectorOperators.LSHR;
+import static jdk.incubator.vector.VectorOperators.XOR;
+
 import java.io.File;
 import java.io.IOException;
 import java.io.Serializable;
@@ -83,6 +88,13 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitterTestS
  *       are made.</li>
  * </ul>
  *
+ * <p>At two long lanes on x86 C2 refuses every rearrange and every mask op (VARKA-359.md 0, item
+ * 9), so E and D run the Java fallback there. E's variants of VARKA-577.md 10.4 try the two ways
+ * around it, each alone and both together: F is E with every compare, blend and mask replaced by
+ * bit arithmetic on 0/1 lanes, and the {@link Access} other than {@code SHUFFLE} reads the low
+ * and the high words with no de-interleave, by a gather, by scalar loads inserted into lanes, from
+ * a column in the split layout, or from 64-row blocks transposed into it by scalar moves.
+ *
  * <p>Every loop is checked against {@code BigInteger} before it is timed and again in compiled
  * code after its drive (the edge rows are at {@link #row}), and each arm is driven to level-4
  * code first by VARKA-359's harness. Each form's body is one method that both of its operations'
@@ -122,6 +134,24 @@ public class VarkaDecimalRemainderSpikeBenchmark extends VarkaBenchmarkBase {
       new Rung(4096, "in L2"),
       new Rung(262144, "in L3"),
       new Rung(4194304, "past L3"));
+
+  /**
+   * {@code -Dvarka.remainder.rungs=k} times the ladder's first {@code k} rungs only, for a
+   * reading on a shared laptop, where D's 128-bit fallback past L3 would take most of an hour;
+   * such a run must not write the results file, which holds the whole ladder.
+   */
+  private static final String RUNGS_PROPERTY = "varka.remainder.rungs";
+
+  private static List<Rung> ladder() {
+    String value = System.getProperty(RUNGS_PROPERTY);
+    if (value == null) {
+      return LADDER;
+    }
+    // Parsed strictly: a value that read as unset would run the whole ladder it was set to skip.
+    require(value.strip().matches("[1-9]") && Integer.parseInt(value.strip()) <= LADDER.size(),
+        "-D" + RUNGS_PROPERTY + "=" + value + " is not 1 to " + LADDER.size());
+    return LADDER.subList(0, Integer.parseInt(value.strip()));
+  }
 
   /** The compile command that keeps every loop of this class a compile unit of its own. */
   static final String DONTINLINE_LOOPS = "-XX:CompileCommand=dontinline,"
@@ -171,6 +201,25 @@ public class VarkaDecimalRemainderSpikeBenchmark extends VarkaBenchmarkBase {
   private static final VectorShuffle<Long> ZIP2 =
       VectorShuffle.fromOp(LS, j -> (j & 1) == 0 ? L / 2 + j / 2 : L + L / 2 + j / 2);
 
+  /** Lane j's low word in a slot array, at 2j from a group's first, for the gathered loads. */
+  private static final int[] EVEN_INDEX = new int[L];
+
+  /** Lane j's index, by which a 0/1 lane is shifted into bit j of a word. */
+  private static final long[] IOTA = new long[L];
+
+  static {
+    for (int j = 0; j < L; j++) {
+      EVEN_INDEX[j] = 2 * j;
+      IOTA[j] = j;
+    }
+  }
+
+  /**
+   * A transposed block's longs: 64 rows' low words, then their high words, of {@code x}, of
+   * {@code y} and of the result.
+   */
+  private static final int BLOCK_LONGS = 6 * 64;
+
   private static final long MASK32 = 0xFFFF_FFFFL;
   private static final long MASK40 = (1L << 40) - 1;
   private static final long MASK52 = (1L << 52) - 1;
@@ -198,8 +247,11 @@ public class VarkaDecimalRemainderSpikeBenchmark extends VarkaBenchmarkBase {
   }
 
   // ---------------------------------------------------------------------------------------
-  // The loops. Each has the signature of Loop: the dividend and divisor slot columns, the output
-  // slots, a selection word a 64 rows of the zero divisors, and the row count (a multiple of 64).
+  // The loops. Each has the signature of Loop: the dividend and divisor columns, the output, a
+  // selection word a 64 rows of the zero divisors, and the row count (a multiple of 64). The
+  // columns and the output are Arrow's slots, in native memory or (GATHER) in a heap array, or
+  // the split layout (SPLIT), as the arm's form's Layout says; a split column's high words start
+  // at n * 8, so a SPLIT loop's n is its column's row count, never a prefix of it.
   // A loop calls its form's body with its operation's pmod as a constant, and INLINE_BODIES folds
   // the body in, at the start of the compile where no inlining cutoff is near. Past their loads
   // the vector bodies call no helper of this class, which C2 may refuse to inline in a long loop
@@ -214,12 +266,102 @@ public class VarkaDecimalRemainderSpikeBenchmark extends VarkaBenchmarkBase {
 
   static void loopRemainderE(MemorySegment x, MemorySegment y, MemorySegment out, long[] words,
       int n) {
-    bodyE(x, y, out, words, n, false);
+    bodyE(x, y, out, words, n, false, Access.SHUFFLE);
   }
 
   static void loopPmodE(MemorySegment x, MemorySegment y, MemorySegment out, long[] words,
       int n) {
-    bodyE(x, y, out, words, n, true);
+    bodyE(x, y, out, words, n, true, Access.SHUFFLE);
+  }
+
+  static void loopRemainderEG(MemorySegment x, MemorySegment y, MemorySegment out, long[] words,
+      int n) {
+    bodyE(x, y, out, words, n, false, Access.GATHER);
+  }
+
+  static void loopPmodEG(MemorySegment x, MemorySegment y, MemorySegment out, long[] words,
+      int n) {
+    bodyE(x, y, out, words, n, true, Access.GATHER);
+  }
+
+  static void loopRemainderEI(MemorySegment x, MemorySegment y, MemorySegment out, long[] words,
+      int n) {
+    bodyE(x, y, out, words, n, false, Access.INSERT);
+  }
+
+  static void loopPmodEI(MemorySegment x, MemorySegment y, MemorySegment out, long[] words,
+      int n) {
+    bodyE(x, y, out, words, n, true, Access.INSERT);
+  }
+
+  static void loopRemainderES(MemorySegment x, MemorySegment y, MemorySegment out, long[] words,
+      int n) {
+    bodyE(x, y, out, words, n, false, Access.SPLIT);
+  }
+
+  static void loopPmodES(MemorySegment x, MemorySegment y, MemorySegment out, long[] words,
+      int n) {
+    bodyE(x, y, out, words, n, true, Access.SPLIT);
+  }
+
+  static void loopRemainderET(MemorySegment x, MemorySegment y, MemorySegment out, long[] words,
+      int n) {
+    bodyE(x, y, out, words, n, false, Access.BLOCK);
+  }
+
+  static void loopPmodET(MemorySegment x, MemorySegment y, MemorySegment out, long[] words,
+      int n) {
+    bodyE(x, y, out, words, n, true, Access.BLOCK);
+  }
+
+  static void loopRemainderF(MemorySegment x, MemorySegment y, MemorySegment out, long[] words,
+      int n) {
+    bodyF(x, y, out, words, n, false, Access.SHUFFLE);
+  }
+
+  static void loopPmodF(MemorySegment x, MemorySegment y, MemorySegment out, long[] words,
+      int n) {
+    bodyF(x, y, out, words, n, true, Access.SHUFFLE);
+  }
+
+  static void loopRemainderFG(MemorySegment x, MemorySegment y, MemorySegment out, long[] words,
+      int n) {
+    bodyF(x, y, out, words, n, false, Access.GATHER);
+  }
+
+  static void loopPmodFG(MemorySegment x, MemorySegment y, MemorySegment out, long[] words,
+      int n) {
+    bodyF(x, y, out, words, n, true, Access.GATHER);
+  }
+
+  static void loopRemainderFI(MemorySegment x, MemorySegment y, MemorySegment out, long[] words,
+      int n) {
+    bodyF(x, y, out, words, n, false, Access.INSERT);
+  }
+
+  static void loopPmodFI(MemorySegment x, MemorySegment y, MemorySegment out, long[] words,
+      int n) {
+    bodyF(x, y, out, words, n, true, Access.INSERT);
+  }
+
+  static void loopRemainderFS(MemorySegment x, MemorySegment y, MemorySegment out, long[] words,
+      int n) {
+    bodyF(x, y, out, words, n, false, Access.SPLIT);
+  }
+
+  static void loopPmodFS(MemorySegment x, MemorySegment y, MemorySegment out, long[] words,
+      int n) {
+    bodyF(x, y, out, words, n, true, Access.SPLIT);
+  }
+
+  static void loopRemainderFT(MemorySegment x, MemorySegment y, MemorySegment out, long[] words,
+      int n) {
+    bodyF(x, y, out, words, n, false, Access.BLOCK);
+  }
+
+  static void loopPmodFT(MemorySegment x, MemorySegment y, MemorySegment out, long[] words,
+      int n) {
+    bodyF(x, y, out, words, n, true, Access.BLOCK);
   }
 
   static void loopRemainderD(MemorySegment x, MemorySegment y, MemorySegment out, long[] words,
@@ -244,7 +386,10 @@ public class VarkaDecimalRemainderSpikeBenchmark extends VarkaBenchmarkBase {
 
   /**
    * E: three rounds of {@code r -= q * b}, {@code q} the floor of a floating estimate of {@code r
-   * / b}, from {@code r = a}; then {@code r -= b} twice where {@code r >= b}.
+   * / b}, from {@code r = a}; then {@code r -= b} twice where {@code r >= b}. Its signs, its
+   * shift selects and its corrections are compares, masks and blends; {@code access} says how
+   * it reads its operands and writes its result (a constant in each loop, so C2 folds the other
+   * ways away).
    *
    * <p>Why that is exact. With {@code u = 2^-53}, the conversions of {@code r} and {@code b} to
    * doubles (three exact 52-bit chunks, two additions of non-negative terms) are each within a
@@ -261,20 +406,69 @@ public class VarkaDecimalRemainderSpikeBenchmark extends VarkaBenchmarkBase {
    * {@code s <= 74}, exact because {@code q b <= r < 2^127}.
    */
   static void bodyE(MemorySegment x, MemorySegment y, MemorySegment out, long[] words, int n,
-      boolean pmod) {
+      boolean pmod, Access access) {
     var one = DoubleVector.broadcast(DS, 1.0);
+    long[] xs = access == Access.GATHER ? (long[]) x.heapBase().orElseThrow() : null;
+    long[] ys = access == Access.GATHER ? (long[]) y.heapBase().orElseThrow() : null;
+    long[] block = access == Access.BLOCK ? new long[BLOCK_LONGS] : null;
     for (int i = 0, w = 0; i < n; i += 64, w++) {
       long word = 0;
+      if (access == Access.BLOCK) {
+        for (int k = 0; k < 64; k++) {
+          long a = (i + k) * 16L;
+          block[k] = x.get(WORD, a);
+          block[64 + k] = x.get(WORD, a + 8);
+          block[128 + k] = y.get(WORD, a);
+          block[192 + k] = y.get(WORD, a + 8);
+        }
+      }
       for (int g = 0; g < GROUPS; g++) {
+        // The group's rows start at slot byte at, split byte lo and block index b.
         long at = (i + g * L) * 16L;
-        var xa = LongVector.fromMemorySegment(LS, x, at, LE);
-        var xb = LongVector.fromMemorySegment(LS, x, at + VB, LE);
-        var ya = LongVector.fromMemorySegment(LS, y, at, LE);
-        var yb = LongVector.fromMemorySegment(LS, y, at + VB, LE);
-        var xl = xa.rearrange(EVEN, xb);
-        var xh = xa.rearrange(ODD, xb);
-        var yl = ya.rearrange(EVEN, yb);
-        var yh = ya.rearrange(ODD, yb);
+        long lo = (i + g * L) * 8L;
+        int b = g * L;
+        LongVector xl;
+        LongVector xh;
+        LongVector yl;
+        LongVector yh;
+        if (access == Access.SHUFFLE) {
+          var xa = LongVector.fromMemorySegment(LS, x, at, LE);
+          var xb = LongVector.fromMemorySegment(LS, x, at + VB, LE);
+          var ya = LongVector.fromMemorySegment(LS, y, at, LE);
+          var yb = LongVector.fromMemorySegment(LS, y, at + VB, LE);
+          xl = xa.rearrange(EVEN, xb);
+          xh = xa.rearrange(ODD, xb);
+          yl = ya.rearrange(EVEN, yb);
+          yh = ya.rearrange(ODD, yb);
+        } else if (access == Access.GATHER) {
+          int k = 2 * (i + g * L);
+          xl = LongVector.fromArray(LS, xs, k, EVEN_INDEX, 0);
+          xh = LongVector.fromArray(LS, xs, k + 1, EVEN_INDEX, 0);
+          yl = LongVector.fromArray(LS, ys, k, EVEN_INDEX, 0);
+          yh = LongVector.fromArray(LS, ys, k + 1, EVEN_INDEX, 0);
+        } else if (access == Access.INSERT) {
+          xl = LongVector.zero(LS);
+          xh = xl;
+          yl = xl;
+          yh = xl;
+          for (int j = 0; j < L; j++) {
+            long a = at + 16L * j;
+            xl = xl.withLane(j, x.get(WORD, a));
+            xh = xh.withLane(j, x.get(WORD, a + 8));
+            yl = yl.withLane(j, y.get(WORD, a));
+            yh = yh.withLane(j, y.get(WORD, a + 8));
+          }
+        } else if (access == Access.SPLIT) {
+          xl = LongVector.fromMemorySegment(LS, x, lo, LE);
+          xh = LongVector.fromMemorySegment(LS, x, n * 8L + lo, LE);
+          yl = LongVector.fromMemorySegment(LS, y, lo, LE);
+          yh = LongVector.fromMemorySegment(LS, y, n * 8L + lo, LE);
+        } else {
+          xl = LongVector.fromArray(LS, block, b);
+          xh = LongVector.fromArray(LS, block, 64 + b);
+          yl = LongVector.fromArray(LS, block, 128 + b);
+          yh = LongVector.fromArray(LS, block, 192 + b);
+        }
         // The magnitudes: -v is ~v + 1, its high word -hi less the borrow of a nonzero low word.
         var sx = xh.compare(VectorOperators.LT, 0L);
         var sy = yh.compare(VectorOperators.LT, 0L);
@@ -364,9 +558,220 @@ public class VarkaDecimalRemainderSpikeBenchmark extends VarkaBenchmarkBase {
           rh = rh.blend(rh.add(yh).add(1L, carry), add);
           rl = rl.blend(sl, add);
         }
-        rl.rearrange(ZIP1, rh).intoMemorySegment(out, at, LE);
-        rl.rearrange(ZIP2, rh).intoMemorySegment(out, at + VB, LE);
+        if (access == Access.SHUFFLE) {
+          rl.rearrange(ZIP1, rh).intoMemorySegment(out, at, LE);
+          rl.rearrange(ZIP2, rh).intoMemorySegment(out, at + VB, LE);
+        } else if (access == Access.GATHER || access == Access.INSERT) {
+          for (int j = 0; j < L; j++) {
+            out.set(WORD, at + 16L * j, rl.lane(j));
+            out.set(WORD, at + 16L * j + 8, rh.lane(j));
+          }
+        } else if (access == Access.SPLIT) {
+          rl.intoMemorySegment(out, lo, LE);
+          rh.intoMemorySegment(out, n * 8L + lo, LE);
+        } else {
+          rl.intoArray(block, 256 + b);
+          rh.intoArray(block, 320 + b);
+        }
         word |= zero.toLong() << (g * L);
+      }
+      if (access == Access.BLOCK) {
+        for (int k = 0; k < 64; k++) {
+          out.set(WORD, (i + k) * 16L, block[256 + k]);
+          out.set(WORD, (i + k) * 16L + 8, block[320 + k]);
+        }
+      }
+      words[w] = word;
+    }
+  }
+
+  /**
+   * F: E's arithmetic with no mask anywhere, so that no compare, blend or mask op is left for
+   * C2 to refuse at two long lanes on x86 (VARKA-359.md 0, item 9). A condition is a lane of 0
+   * or 1, {@code c}, or of 0 or -1, {@code -c}; a select of {@code y} over {@code x} where {@code
+   * c} is {@code x ^ ((x ^ y) & -c)}. The unsigned borrow of {@code x - y}, with {@code d} that
+   * difference less any borrow in, is the top bit of {@code (~x & y) | ((~x | y) & d)}, the carry
+   * of {@code x + y} into {@code s} that of {@code (x & y) | ((x | y) & ~s)} (Hacker's Delight
+   * 2-13), and {@code v == 0} the top bit of {@code ~(v | -v)}. The zero divisors' word is the
+   * 0/1 lanes shifted by their lane index and or-reduced. Every value is E's, in the same order,
+   * so E's exactness argument holds for F unchanged; {@code access} is as for E.
+   */
+  static void bodyF(MemorySegment x, MemorySegment y, MemorySegment out, long[] words, int n,
+      boolean pmod, Access access) {
+    var one = DoubleVector.broadcast(DS, 1.0);
+    var iota = LongVector.fromArray(LS, IOTA, 0);
+    long[] xs = access == Access.GATHER ? (long[]) x.heapBase().orElseThrow() : null;
+    long[] ys = access == Access.GATHER ? (long[]) y.heapBase().orElseThrow() : null;
+    long[] block = access == Access.BLOCK ? new long[BLOCK_LONGS] : null;
+    for (int i = 0, w = 0; i < n; i += 64, w++) {
+      long word = 0;
+      if (access == Access.BLOCK) {
+        for (int k = 0; k < 64; k++) {
+          long a = (i + k) * 16L;
+          block[k] = x.get(WORD, a);
+          block[64 + k] = x.get(WORD, a + 8);
+          block[128 + k] = y.get(WORD, a);
+          block[192 + k] = y.get(WORD, a + 8);
+        }
+      }
+      for (int g = 0; g < GROUPS; g++) {
+        long at = (i + g * L) * 16L;
+        long lo = (i + g * L) * 8L;
+        int b = g * L;
+        LongVector xl;
+        LongVector xh;
+        LongVector yl;
+        LongVector yh;
+        if (access == Access.SHUFFLE) {
+          var xa = LongVector.fromMemorySegment(LS, x, at, LE);
+          var xb = LongVector.fromMemorySegment(LS, x, at + VB, LE);
+          var ya = LongVector.fromMemorySegment(LS, y, at, LE);
+          var yb = LongVector.fromMemorySegment(LS, y, at + VB, LE);
+          xl = xa.rearrange(EVEN, xb);
+          xh = xa.rearrange(ODD, xb);
+          yl = ya.rearrange(EVEN, yb);
+          yh = ya.rearrange(ODD, yb);
+        } else if (access == Access.GATHER) {
+          int k = 2 * (i + g * L);
+          xl = LongVector.fromArray(LS, xs, k, EVEN_INDEX, 0);
+          xh = LongVector.fromArray(LS, xs, k + 1, EVEN_INDEX, 0);
+          yl = LongVector.fromArray(LS, ys, k, EVEN_INDEX, 0);
+          yh = LongVector.fromArray(LS, ys, k + 1, EVEN_INDEX, 0);
+        } else if (access == Access.INSERT) {
+          xl = LongVector.zero(LS);
+          xh = xl;
+          yl = xl;
+          yh = xl;
+          for (int j = 0; j < L; j++) {
+            long a = at + 16L * j;
+            xl = xl.withLane(j, x.get(WORD, a));
+            xh = xh.withLane(j, x.get(WORD, a + 8));
+            yl = yl.withLane(j, y.get(WORD, a));
+            yh = yh.withLane(j, y.get(WORD, a + 8));
+          }
+        } else if (access == Access.SPLIT) {
+          xl = LongVector.fromMemorySegment(LS, x, lo, LE);
+          xh = LongVector.fromMemorySegment(LS, x, n * 8L + lo, LE);
+          yl = LongVector.fromMemorySegment(LS, y, lo, LE);
+          yh = LongVector.fromMemorySegment(LS, y, n * 8L + lo, LE);
+        } else {
+          xl = LongVector.fromArray(LS, block, b);
+          xh = LongVector.fromArray(LS, block, 64 + b);
+          yl = LongVector.fromArray(LS, block, 128 + b);
+          yh = LongVector.fromArray(LS, block, 192 + b);
+        }
+        // The signs as 0/1 and as 0/-1, and a zero divisor as 0/1.
+        var sx = xh.lanewise(LSHR, 63);
+        var mx = sx.neg();
+        var sy = yh.lanewise(LSHR, 63);
+        var my = sy.neg();
+        var yo = yl.or(yh);
+        var z = yo.or(yo.neg()).not().lanewise(LSHR, 63);
+        // The magnitudes, (v ^ m) + s over two words: the low word carries out where it is 0
+        // and s is 1. A zero divisor's magnitude is 0, so or-ing z makes it 1.
+        var rl = xl.lanewise(XOR, mx).add(sx);
+        var rh = xh.lanewise(XOR, mx).add(sx.and(xl.or(xl.neg()).not().lanewise(LSHR, 63)));
+        var bl = yl.lanewise(XOR, my).add(sy).or(z);
+        var bh = yh.lanewise(XOR, my).add(sy.and(yl.or(yl.neg()).not().lanewise(LSHR, 63)));
+        var b0 = bl.and(MASK32);
+        var b1 = bl.lanewise(LSHR, 32);
+        var b2 = bh.and(MASK32);
+        var b3 = bh.lanewise(LSHR, 32);
+        var d0 = bl.and(MASK52).or(EXP52).reinterpretAsDoubles().sub(TWO52);
+        var d1 = bl.lanewise(LSHR, 52).or(bh.and(MASK40).lanewise(LSHL, 12))
+            .or(EXP52).reinterpretAsDoubles().sub(TWO52);
+        var d2 = bh.lanewise(LSHR, 40).or(EXP52).reinterpretAsDoubles().sub(TWO52);
+        var reciprocal = one.div(d2.mul(TWO104).add(d1.mul(TWO52)).add(d0)).mul(SHRINK);
+        for (int round = 0; round < ROUNDS; round++) {
+          var e0 = rl.and(MASK52).or(EXP52).reinterpretAsDoubles().sub(TWO52);
+          var e1 = rl.lanewise(LSHR, 52).or(rh.and(MASK40).lanewise(LSHL, 12))
+              .or(EXP52).reinterpretAsDoubles().sub(TWO52);
+          var e2 = rh.lanewise(LSHR, 40).or(EXP52).reinterpretAsDoubles().sub(TWO52);
+          var bits = e2.mul(TWO104).add(e1.mul(TWO52)).add(e0).mul(reciprocal)
+              .viewAsIntegralLanes();
+          // As in E: m << k for k >= 0, m >>> -k below, and 0 for a right shift past 63, whose
+          // count the lanes would otherwise take modulo 64.
+          var k = bits.lanewise(LSHR, 52).sub(1075L);
+          var below = k.lanewise(ASHR, 63);
+          var right = k.neg();
+          var far = LongVector.broadcast(LS, 63L).sub(right).lanewise(ASHR, 63);
+          var m = bits.and(MASK52).or(1L << 52);
+          var shifted = m.lanewise(LSHR, right).and(far.not());
+          m = m.lanewise(XOR, m.lanewise(XOR, shifted).and(below));
+          var s = k.and(below.not());
+          var m0 = m.and(MASK32);
+          var m1 = m.lanewise(LSHR, 32);
+          var p00 = m0.mul(b0);
+          var p01 = m0.mul(b1);
+          var p10 = m1.mul(b0);
+          var p02 = m0.mul(b2);
+          var p11 = m1.mul(b1);
+          var p03 = m0.mul(b3);
+          var p12 = m1.mul(b2);
+          var c1 = p00.lanewise(LSHR, 32).add(p01.and(MASK32)).add(p10.and(MASK32));
+          var c2 = p01.lanewise(LSHR, 32).add(p10.lanewise(LSHR, 32)).add(p02.and(MASK32))
+              .add(p11.and(MASK32)).add(c1.lanewise(LSHR, 32));
+          var c3 = p02.lanewise(LSHR, 32).add(p11.lanewise(LSHR, 32)).add(p03.and(MASK32))
+              .add(p12.and(MASK32)).add(c2.lanewise(LSHR, 32));
+          var pl = p00.and(MASK32).or(c1.lanewise(LSHL, 32));
+          var ph = c2.and(MASK32).or(c3.lanewise(LSHL, 32));
+          // s <= 74, so s >>> 6 is 1 exactly where s >= 64.
+          var wide = s.lanewise(LSHR, 6).neg();
+          var plS = pl.lanewise(LSHL, s);
+          var ql = plS.and(wide.not());
+          var qh = ph.lanewise(LSHL, s).or(pl.lanewise(LSHR, 1).lanewise(LSHR, s.neg().add(63L)));
+          qh = qh.lanewise(XOR, qh.lanewise(XOR, plS).and(wide));
+          var dl = rl.sub(ql);
+          var borrow = rl.not().and(ql).or(rl.not().or(ql).and(dl)).lanewise(LSHR, 63);
+          rl = dl;
+          rh = rh.sub(qh).sub(borrow);
+        }
+        for (int fix = 0; fix < 2; fix++) {
+          // r - b over two words; its borrow out is r < b, and r is replaced where it is not.
+          var dl = rl.sub(bl);
+          var borrow = rl.not().and(bl).or(rl.not().or(bl).and(dl)).lanewise(LSHR, 63);
+          var dh = rh.sub(bh).sub(borrow);
+          var lt = rh.not().and(bh).or(rh.not().or(bh).and(dh)).lanewise(LSHR, 63);
+          var ge = lt.sub(1L);
+          rl = rl.lanewise(XOR, rl.lanewise(XOR, dl).and(ge));
+          rh = rh.lanewise(XOR, rh.lanewise(XOR, dh).and(ge));
+        }
+        // The dividend's sign put back as the magnitudes were taken, then a zero divisor's 0.
+        var keep = z.sub(1L);
+        var nh = rh.lanewise(XOR, mx).add(sx.and(rl.or(rl.neg()).not().lanewise(LSHR, 63)));
+        rl = rl.lanewise(XOR, mx).add(sx).and(keep);
+        rh = nh.and(keep);
+        if (pmod) {
+          // y where r < 0 and y >= 0 (a zero y left r at 0), added with its carry.
+          var add = rh.and(yh.not()).lanewise(ASHR, 63);
+          var al = yl.and(add);
+          var sl = rl.add(al);
+          var carry = rl.and(al).or(rl.or(al).and(sl.not())).lanewise(LSHR, 63);
+          rh = rh.add(yh.and(add)).add(carry);
+          rl = sl;
+        }
+        if (access == Access.SHUFFLE) {
+          rl.rearrange(ZIP1, rh).intoMemorySegment(out, at, LE);
+          rl.rearrange(ZIP2, rh).intoMemorySegment(out, at + VB, LE);
+        } else if (access == Access.GATHER || access == Access.INSERT) {
+          for (int j = 0; j < L; j++) {
+            out.set(WORD, at + 16L * j, rl.lane(j));
+            out.set(WORD, at + 16L * j + 8, rh.lane(j));
+          }
+        } else if (access == Access.SPLIT) {
+          rl.intoMemorySegment(out, lo, LE);
+          rh.intoMemorySegment(out, n * 8L + lo, LE);
+        } else {
+          rl.intoArray(block, 256 + b);
+          rh.intoArray(block, 320 + b);
+        }
+        word |= z.lanewise(LSHL, iota).reduceLanes(VectorOperators.OR) << (g * L);
+      }
+      if (access == Access.BLOCK) {
+        for (int k = 0; k < 64; k++) {
+          out.set(WORD, (i + k) * 16L, block[256 + k]);
+          out.set(WORD, (i + k) * 16L + 8, block[320 + k]);
+        }
       }
       words[w] = word;
     }
@@ -489,8 +894,58 @@ public class VarkaDecimalRemainderSpikeBenchmark extends VarkaBenchmarkBase {
     }
   }
 
-  /** The three forms of section 2.3: (a), (b) and (c). */
-  enum Form { E, D, B }
+  /** Where an arm's columns and output are, which the harness prepares and reads back. */
+  enum Layout {
+    /** Arrow's 16-byte slots, the low word then the high word of a row, in native memory. */
+    SLOTS,
+    /** The slots in a heap {@code long[]}, which a gather needs; the output stays native slots. */
+    HEAP,
+    /** All the low words, then all the high words, in native memory, the output so too. */
+    SPLIT
+  }
+
+  /** How a vector body reads its operands and writes its result (VARKA-577.md 10.4). */
+  enum Access {
+    /** From the slots, two loads de-interleaved by a two-vector rearrange, zipped back. */
+    SHUFFLE,
+    /** From the slots in a heap array, each word gathered by an index map; stores a lane each. */
+    GATHER,
+    /** From the slots, each lane's word inserted from a scalar load; stores a lane each. */
+    INSERT,
+    /** From the split layout, by plain vector loads and stores. */
+    SPLIT,
+    /** From the slots, 64 rows at a time transposed by scalar moves into a split block. */
+    BLOCK
+  }
+
+  /**
+   * The three forms of section 2.3, (a) E, (b) D and (c) B, and E's variants of 10.4: E with
+   * each other access (idea 2), F, which is E with no mask (idea 1), and F with each access.
+   */
+  enum Form {
+    E("E", Layout.SLOTS),
+    D("D", Layout.SLOTS),
+    B("B", Layout.SLOTS),
+    // A variant's title leads with its access, so that no arm's label holds another's and
+    // -Dvarka.bench.only can pick any one arm.
+    EG("gathered E", Layout.HEAP),
+    EI("inserted E", Layout.SLOTS),
+    ES("split E", Layout.SPLIT),
+    ET("transposed E", Layout.SLOTS),
+    F("F", Layout.SLOTS),
+    FG("gathered F", Layout.HEAP),
+    FI("inserted F", Layout.SLOTS),
+    FS("split F", Layout.SPLIT),
+    FT("transposed F", Layout.SLOTS);
+
+    final String title;
+    final Layout layout;
+
+    Form(String title, Layout layout) {
+      this.title = title;
+      this.layout = layout;
+    }
+  }
 
   /** One arm: an operation in a form, the loop's method name (for the code list), the loop. */
   record Arm(Op op, Form form, String method, Loop loop) {
@@ -500,7 +955,7 @@ public class VarkaDecimalRemainderSpikeBenchmark extends VarkaBenchmarkBase {
     }
 
     String label() {
-      return op.title + ", " + form;
+      return op.title + ", " + form.title;
     }
   }
 
@@ -521,9 +976,27 @@ public class VarkaDecimalRemainderSpikeBenchmark extends VarkaBenchmarkBase {
         new Arm(Op.REMAINDER, Form.E, VarkaDecimalRemainderSpikeBenchmark::loopRemainderE),
         new Arm(Op.REMAINDER, Form.D, VarkaDecimalRemainderSpikeBenchmark::loopRemainderD),
         new Arm(Op.REMAINDER, Form.B, VarkaDecimalRemainderSpikeBenchmark::loopRemainderB),
+        new Arm(Op.REMAINDER, Form.EG, VarkaDecimalRemainderSpikeBenchmark::loopRemainderEG),
+        new Arm(Op.REMAINDER, Form.EI, VarkaDecimalRemainderSpikeBenchmark::loopRemainderEI),
+        new Arm(Op.REMAINDER, Form.ES, VarkaDecimalRemainderSpikeBenchmark::loopRemainderES),
+        new Arm(Op.REMAINDER, Form.ET, VarkaDecimalRemainderSpikeBenchmark::loopRemainderET),
+        new Arm(Op.REMAINDER, Form.F, VarkaDecimalRemainderSpikeBenchmark::loopRemainderF),
+        new Arm(Op.REMAINDER, Form.FG, VarkaDecimalRemainderSpikeBenchmark::loopRemainderFG),
+        new Arm(Op.REMAINDER, Form.FI, VarkaDecimalRemainderSpikeBenchmark::loopRemainderFI),
+        new Arm(Op.REMAINDER, Form.FS, VarkaDecimalRemainderSpikeBenchmark::loopRemainderFS),
+        new Arm(Op.REMAINDER, Form.FT, VarkaDecimalRemainderSpikeBenchmark::loopRemainderFT),
         new Arm(Op.PMOD, Form.E, VarkaDecimalRemainderSpikeBenchmark::loopPmodE),
         new Arm(Op.PMOD, Form.D, VarkaDecimalRemainderSpikeBenchmark::loopPmodD),
-        new Arm(Op.PMOD, Form.B, VarkaDecimalRemainderSpikeBenchmark::loopPmodB));
+        new Arm(Op.PMOD, Form.B, VarkaDecimalRemainderSpikeBenchmark::loopPmodB),
+        new Arm(Op.PMOD, Form.EG, VarkaDecimalRemainderSpikeBenchmark::loopPmodEG),
+        new Arm(Op.PMOD, Form.EI, VarkaDecimalRemainderSpikeBenchmark::loopPmodEI),
+        new Arm(Op.PMOD, Form.ES, VarkaDecimalRemainderSpikeBenchmark::loopPmodES),
+        new Arm(Op.PMOD, Form.ET, VarkaDecimalRemainderSpikeBenchmark::loopPmodET),
+        new Arm(Op.PMOD, Form.F, VarkaDecimalRemainderSpikeBenchmark::loopPmodF),
+        new Arm(Op.PMOD, Form.FG, VarkaDecimalRemainderSpikeBenchmark::loopPmodFG),
+        new Arm(Op.PMOD, Form.FI, VarkaDecimalRemainderSpikeBenchmark::loopPmodFI),
+        new Arm(Op.PMOD, Form.FS, VarkaDecimalRemainderSpikeBenchmark::loopPmodFS),
+        new Arm(Op.PMOD, Form.FT, VarkaDecimalRemainderSpikeBenchmark::loopPmodFT));
   }
 
   // ---------------------------------------------------------------------------------------
@@ -539,11 +1012,32 @@ public class VarkaDecimalRemainderSpikeBenchmark extends VarkaBenchmarkBase {
   static final byte UNWRITTEN = (byte) 0x7F;
 
   /**
-   * The columns of one rung, in native memory as a kernel finds them, and each operation's
-   * answers, computed as the rows are drawn so that no row's values outlive it.
+   * The columns of one rung, in native memory as a kernel finds them, with their copies in a
+   * heap array and in the split layout, and each operation's answers, computed as the rows are
+   * drawn so that no row's values outlive it.
    */
-  record Data(int numRows, MemorySegment x, MemorySegment y, Map<Op, Expected> expected)
-      implements AutoCloseable {
+  record Data(int numRows, MemorySegment x, MemorySegment y, MemorySegment heapX,
+      MemorySegment heapY, MemorySegment splitX, MemorySegment splitY,
+      Map<Op, Expected> expected) implements AutoCloseable {
+
+    /** {@code x} as {@code arm}'s loop reads it. */
+    MemorySegment operandX(Arm arm) {
+      return switch (arm.form().layout) {
+        case SLOTS -> x;
+        case HEAP -> heapX;
+        case SPLIT -> splitX;
+      };
+    }
+
+    /** {@code y} as {@code arm}'s loop reads it. */
+    MemorySegment operandY(Arm arm) {
+      return switch (arm.form().layout) {
+        case SLOTS -> y;
+        case HEAP -> heapY;
+        case SPLIT -> splitY;
+      };
+    }
+
     @Override
     public void close() {
       expected.values().forEach(Expected::close);
@@ -644,7 +1138,39 @@ public class VarkaDecimalRemainderSpikeBenchmark extends VarkaBenchmarkBase {
         answer(op, expected.get(op), i, pair[0], pair[1]);
       }
     }
-    return new Data(n, x, y, expected);
+    // Word by word, so that the array holds the values in the platform's order, as a gather
+    // reads them, whatever the slots' little-endian bytes.
+    var heapX = MemorySegment.ofArray(new long[2 * n]);
+    var heapY = MemorySegment.ofArray(new long[2 * n]);
+    for (int k = 0; k < 2 * n; k++) {
+      heapX.setAtIndex(ValueLayout.JAVA_LONG, k, x.get(WORD, k * 8L));
+      heapY.setAtIndex(ValueLayout.JAVA_LONG, k, y.get(WORD, k * 8L));
+    }
+    var splitX = arena.allocate(n * 16L, 64);
+    var splitY = arena.allocate(n * 16L, 64);
+    transpose(x, splitX, n, true);
+    transpose(y, splitY, n, true);
+    return new Data(n, x, y, heapX, heapY, splitX, splitY, expected);
+  }
+
+  /** Copies {@code n} rows of slots into the split layout, or ({@code !toSplit}) back. */
+  static void transpose(MemorySegment from, MemorySegment to, int n, boolean toSplit) {
+    for (int i = 0; i < n; i++) {
+      long slot = i * 16L;
+      long split = i * 8L;
+      if (toSplit) {
+        to.set(WORD, split, from.get(WORD, slot));
+        to.set(WORD, n * 8L + split, from.get(WORD, slot + 8));
+      } else {
+        to.set(WORD, slot, from.get(WORD, split));
+        to.set(WORD, slot + 8, from.get(WORD, n * 8L + split));
+      }
+    }
+  }
+
+  /** Runs {@code arm}'s loop once over {@code d}'s columns as it reads them. */
+  static void apply(Arm arm, Data d, MemorySegment out, long[] words) {
+    arm.loop().apply(d.operandX(arm), d.operandY(arm), out, words, d.numRows());
   }
 
   /**
@@ -662,9 +1188,25 @@ public class VarkaDecimalRemainderSpikeBenchmark extends VarkaBenchmarkBase {
     setSlot(e.out(), i, op.pmod && r.signum() < 0 ? r.add(y).remainder(y) : r);
   }
 
-  /** Whether {@code arm}'s last run left what {@code e} says; a wrong row is named. */
+  /**
+   * Whether {@code arm}'s last run left what {@code e} says; a wrong row is named. A split
+   * output is read back into slots first.
+   */
   static void requireAgrees(Arm arm, Expected e, MemorySegment out, long[] words, int n,
       String when) {
+    if (arm.form().layout == Layout.SPLIT) {
+      try (Arena own = Arena.ofConfined()) {
+        var slots = own.allocate(n * 16L, 64);
+        transpose(out, slots, n, false);
+        requireAgreesAsSlots(arm, e, slots, words, n, when);
+      }
+    } else {
+      requireAgreesAsSlots(arm, e, out, words, n, when);
+    }
+  }
+
+  private static void requireAgreesAsSlots(Arm arm, Expected e, MemorySegment out, long[] words,
+      int n, String when) {
     for (int w = 0; w < n / 64; w++) {
       if (words[w] != e.words()[w]) {
         int row = w * 64 + Long.numberOfTrailingZeros(words[w] ^ e.words()[w]);
@@ -698,7 +1240,7 @@ public class VarkaDecimalRemainderSpikeBenchmark extends VarkaBenchmarkBase {
               out.fill(UNWRITTEN);
               long[] words = new long[n / 64];
               Arrays.fill(words, -1L);
-              arm.loop().apply(d.x(), d.y(), out, words, n);
+              apply(arm, d, out, words);
               requireAgrees(arm, e, out, words, n, "at " + n + " rows");
             }
           }
@@ -779,13 +1321,26 @@ public class VarkaDecimalRemainderSpikeBenchmark extends VarkaBenchmarkBase {
 
   private static void drive(Arm arm, Data d, MemorySegment out, long[] words, int reps) {
     for (int r = 0; r < reps; r++) {
-      arm.loop().apply(d.x(), d.y(), out, words, d.numRows());
+      apply(arm, d, out, words);
     }
   }
 
-  /** Drives {@code arm} until its loop method is level-4 code and its drive time is steady. */
+  /**
+   * Drives {@code arm} until its loop method is level-4 code and its drive time is steady. It
+   * first calls the loop {@link #PROBE_CALLS} times over {@link #PROBE_ROWS} rows, as the
+   * intrinsic check does: C2 takes a loop method at its invocation count (some 5,000 calls), and
+   * an arm that runs the Java fallback in level-3 code may not make that many calls of the rung's
+   * rows in the wait, so it was timed in C1's code (VARKA-577.md 10.4).
+   */
   private static void driveToCompiledCode(Arm arm, Data d, MemorySegment out, long[] words,
       int reps) {
+    try (Arena arena = Arena.ofConfined(); Data small = data(arena, PROBE_ROWS)) {
+      var smallOut = arena.allocate(PROBE_ROWS * 16L, 64);
+      long[] smallWords = new long[PROBE_ROWS / 64];
+      for (int c = 0; c < PROBE_CALLS; c++) {
+        apply(arm, small, smallOut, smallWords);
+      }
+    }
     long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(WARM_WAIT_MILLIS);
     long previous = 0;
     int drives = 0;
@@ -993,7 +1548,7 @@ public class VarkaDecimalRemainderSpikeBenchmark extends VarkaBenchmarkBase {
         var out = arena.allocate(PROBE_ROWS * 16L, 64);
         long[] words = new long[PROBE_ROWS / 64];
         for (int c = 0; c < PROBE_CALLS; c++) {
-          arm.loop().apply(d.x(), d.y(), out, words, PROBE_ROWS);
+          apply(arm, d, out, words);
         }
       }
     }
@@ -1002,6 +1557,17 @@ public class VarkaDecimalRemainderSpikeBenchmark extends VarkaBenchmarkBase {
   // ---------------------------------------------------------------------------------------
   // The benchmark
   // ---------------------------------------------------------------------------------------
+
+  /** Refuses a run of part of the ladder that would write the results file, then runs it. */
+  @Override
+  public void main(String[] args) {
+    // Before the base's main, which opens the results file and so empties it.
+    require(ladder().size() == LADDER.size()
+        || !"1".equals(System.getenv("SPARK_GENERATE_BENCHMARK_FILES")),
+        "-D" + RUNGS_PROPERTY + " times part of the ladder, which must not be written to the"
+        + " results file");
+    super.main(args);
+  }
 
   @Override
   public void runBenchmarkSuite(String[] mainArgs) {
@@ -1022,7 +1588,7 @@ public class VarkaDecimalRemainderSpikeBenchmark extends VarkaBenchmarkBase {
         note("intrinsic check, " + arm.method() + ": " + (refusals.isEmpty()
             ? "every Vector API call intrinsified" : summary(refusals)));
       }
-      for (Rung rung : LADDER) {
+      for (Rung rung : ladder()) {
         runRung(rung, arms, labels);
       }
     });
@@ -1048,7 +1614,7 @@ public class VarkaDecimalRemainderSpikeBenchmark extends VarkaBenchmarkBase {
             long[] words = new long[n / 64];
             Arrays.fill(words, -1L);
             out.fill(UNWRITTEN);
-            arm.loop().apply(d.x(), d.y(), out, words, n);
+            apply(arm, d, out, words);
             requireAgrees(arm, e, out, words, n, "before it is timed");
             var settled = new AtomicBoolean();
             benchmark.addTimerCase(labels.get(arm), timer -> {
@@ -1066,8 +1632,25 @@ public class VarkaDecimalRemainderSpikeBenchmark extends VarkaBenchmarkBase {
             });
           }
           runCases(benchmark);
+          // What each compiled loop allocates, read after its timing: the intrinsic check
+          // compiles a loop alone, and a loop it passed can still box here, beside every other
+          // arm's compiles and profiles (VARKA-577.md 10.4).
+          for (Arm arm : opArms) {
+            note("allocated, " + arm.label() + " at " + n + " rows: "
+                + allocatedPerRow(arm, d, out, reps) + " bytes a row");
+          }
         }
       }
     }
+  }
+
+  /** The bytes this thread allocates a row over one drive of {@code arm}, to one decimal. */
+  private static String allocatedPerRow(Arm arm, Data d, MemorySegment out, int reps) {
+    var threads = (com.sun.management.ThreadMXBean) ManagementFactory.getThreadMXBean();
+    long[] words = new long[d.numRows() / 64];
+    long before = threads.getCurrentThreadAllocatedBytes();
+    drive(arm, d, out, words, reps);
+    long bytes = threads.getCurrentThreadAllocatedBytes() - before;
+    return String.format(java.util.Locale.ROOT, "%.1f", bytes / ((double) d.numRows() * reps));
   }
 }

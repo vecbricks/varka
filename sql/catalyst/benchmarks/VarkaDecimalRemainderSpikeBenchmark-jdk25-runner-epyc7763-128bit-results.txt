@@ -5,55 +5,199 @@ decimal remainder hand loops at 128 bits
 intrinsic check, loopRemainderE: 72 Vector API call(s) left in Java, by method: {VectorSupport::binaryOp=9, VectorSupport::blend=22, VectorSupport::compare=21, VectorSupport::convert=6, VectorSupport::fromBitsCoerced=1, VectorSupport::maskReductionCoerced=1, VectorSupport::rearrangeOp=12}
 intrinsic check, loopRemainderD: 62 Vector API call(s) left in Java, by method: {VectorSupport::binaryOp=8, VectorSupport::blend=17, VectorSupport::compare=17, VectorSupport::convert=6, VectorSupport::fromBitsCoerced=1, VectorSupport::maskReductionCoerced=1, VectorSupport::rearrangeOp=12}
 intrinsic check, loopRemainderB: every Vector API call intrinsified
+intrinsic check, loopRemainderEG: 62 Vector API call(s) left in Java, by method: {VectorSupport::binaryOp=13, VectorSupport::blend=16, VectorSupport::compare=23, VectorSupport::fromBitsCoerced=5, VectorSupport::maskReductionCoerced=1, VectorSupport::test=4}
+intrinsic check, loopRemainderEI: 42 Vector API call(s) left in Java, by method: {VectorSupport::binaryOp=9, VectorSupport::blend=16, VectorSupport::compare=15, VectorSupport::fromBitsCoerced=1, VectorSupport::maskReductionCoerced=1}
+intrinsic check, loopRemainderES: 42 Vector API call(s) left in Java, by method: {VectorSupport::binaryOp=9, VectorSupport::blend=16, VectorSupport::compare=15, VectorSupport::fromBitsCoerced=1, VectorSupport::maskReductionCoerced=1}
+intrinsic check, loopRemainderET: 42 Vector API call(s) left in Java, by method: {VectorSupport::binaryOp=9, VectorSupport::blend=16, VectorSupport::compare=15, VectorSupport::fromBitsCoerced=1, VectorSupport::maskReductionCoerced=1}
+intrinsic check, loopRemainderF: 30 Vector API call(s) left in Java, by method: {VectorSupport::blend=6, VectorSupport::compare=6, VectorSupport::convert=6, VectorSupport::rearrangeOp=12}
+intrinsic check, loopRemainderFG: 20 Vector API call(s) left in Java, by method: {VectorSupport::binaryOp=4, VectorSupport::compare=8, VectorSupport::fromBitsCoerced=4, VectorSupport::test=4}
+intrinsic check, loopRemainderFI: every Vector API call intrinsified
+intrinsic check, loopRemainderFS: every Vector API call intrinsified
+intrinsic check, loopRemainderFT: every Vector API call intrinsified
 intrinsic check, loopPmodE: 80 Vector API call(s) left in Java, by method: {VectorSupport::binaryOp=12, VectorSupport::blend=24, VectorSupport::compare=23, VectorSupport::convert=6, VectorSupport::fromBitsCoerced=2, VectorSupport::maskReductionCoerced=1, VectorSupport::rearrangeOp=12}
 intrinsic check, loopPmodD: 70 Vector API call(s) left in Java, by method: {VectorSupport::binaryOp=11, VectorSupport::blend=19, VectorSupport::compare=19, VectorSupport::convert=6, VectorSupport::fromBitsCoerced=2, VectorSupport::maskReductionCoerced=1, VectorSupport::rearrangeOp=12}
 intrinsic check, loopPmodB: every Vector API call intrinsified
+intrinsic check, loopPmodEG: 70 Vector API call(s) left in Java, by method: {VectorSupport::binaryOp=16, VectorSupport::blend=18, VectorSupport::compare=25, VectorSupport::fromBitsCoerced=6, VectorSupport::maskReductionCoerced=1, VectorSupport::test=4}
+intrinsic check, loopPmodEI: 50 Vector API call(s) left in Java, by method: {VectorSupport::binaryOp=12, VectorSupport::blend=18, VectorSupport::compare=17, VectorSupport::fromBitsCoerced=2, VectorSupport::maskReductionCoerced=1}
+intrinsic check, loopPmodES: 50 Vector API call(s) left in Java, by method: {VectorSupport::binaryOp=12, VectorSupport::blend=18, VectorSupport::compare=17, VectorSupport::fromBitsCoerced=2, VectorSupport::maskReductionCoerced=1}
+intrinsic check, loopPmodET: 50 Vector API call(s) left in Java, by method: {VectorSupport::binaryOp=12, VectorSupport::blend=18, VectorSupport::compare=17, VectorSupport::fromBitsCoerced=2, VectorSupport::maskReductionCoerced=1}
+intrinsic check, loopPmodF: 30 Vector API call(s) left in Java, by method: {VectorSupport::blend=6, VectorSupport::compare=6, VectorSupport::convert=6, VectorSupport::rearrangeOp=12}
+intrinsic check, loopPmodFG: 20 Vector API call(s) left in Java, by method: {VectorSupport::binaryOp=4, VectorSupport::compare=8, VectorSupport::fromBitsCoerced=4, VectorSupport::test=4}
+intrinsic check, loopPmodFI: every Vector API call intrinsified
+intrinsic check, loopPmodFS: every Vector API call intrinsified
+intrinsic check, loopPmodFT: every Vector API call intrinsified
 OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1019-azure
 AMD EPYC 7763 64-Core Processor
 4096 rows - in L2, x % y:                 Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------
-x % y, E [Java fallback]                            960            965           4          1.1         915.2       1.0X
-x % y, D [Java fallback]                          10476          10505          26          0.1        9990.6       0.1X
-x % y, B                                            271            273           4          3.9         258.9       3.5X
+x % y, E [Java fallback]                            944            949           3          1.1         900.6       1.0X
+x % y, D [Java fallback]                          10945          10960          13          0.1       10438.2       0.1X
+x % y, B                                            295            296           1          3.6         280.9       3.2X
+x % y, gathered E [Java fallback]                   879            890          16          1.2         838.7       1.1X
+x % y, inserted E [Java fallback]                   781            783           1          1.3         745.3       1.2X
+x % y, split E [Java fallback]                      740            741           1          1.4         705.3       1.3X
+x % y, transposed E [Java fallback]                 754            757           3          1.4         719.0       1.3X
+x % y, F [Java fallback]                            268            270           4          3.9         255.1       3.5X
+x % y, gathered F [Java fallback]                   148            149           1          7.1         141.0       6.4X
+x % y, inserted F                                   392            394           2          2.7         373.6       2.4X
+x % y, split F                                       44             45           0         23.6          42.4      21.3X
+x % y, transposed F                                 387            388           2          2.7         369.0       2.4X
 
+allocated, x % y, E at 4096 rows: 4788.5 bytes a row
+allocated, x % y, D at 4096 rows: 50666.4 bytes a row
+allocated, x % y, B at 4096 rows: 855.1 bytes a row
+allocated, x % y, gathered E at 4096 rows: 4124.0 bytes a row
+allocated, x % y, inserted E at 4096 rows: 3788.0 bytes a row
+allocated, x % y, split E at 4096 rows: 3644.0 bytes a row
+allocated, x % y, transposed E at 4096 rows: 3644.8 bytes a row
+allocated, x % y, F at 4096 rows: 1248.0 bytes a row
+allocated, x % y, gathered F at 4096 rows: 480.0 bytes a row
+allocated, x % y, inserted F at 4096 rows: 2192.0 bytes a row
+allocated, x % y, split F at 4096 rows: 0.0 bytes a row
+allocated, x % y, transposed F at 4096 rows: 2192.8 bytes a row
 OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1019-azure
 AMD EPYC 7763 64-Core Processor
 4096 rows - in L2, pmod(x, y):            Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------
-pmod(x, y), E [Java fallback]                      1023           1029           4          1.0         975.2       1.0X
-pmod(x, y), D [Java fallback]                     10415          10437          15          0.1        9932.9       0.1X
-pmod(x, y), B                                       297            298           1          3.5         283.6       3.4X
+pmod(x, y), E [Java fallback]                      1035           1037           2          1.0         986.7       1.0X
+pmod(x, y), D [Java fallback]                     10774          10795          31          0.1       10274.7       0.1X
+pmod(x, y), B                                       326            328           3          3.2         310.5       3.2X
+pmod(x, y), gathered E [Java fallback]              942            945           3          1.1         898.1       1.1X
+pmod(x, y), inserted E [Java fallback]              838            840           3          1.3         799.3       1.2X
+pmod(x, y), split E [Java fallback]                 813            817           3          1.3         775.1       1.3X
+pmod(x, y), transposed E [Java fallback]            830            837           6          1.3         791.9       1.2X
+pmod(x, y), F [Java fallback]                       263            266           4          4.0         250.6       3.9X
+pmod(x, y), gathered F [Java fallback]              151            152           2          7.0         143.7       6.9X
+pmod(x, y), inserted F                              389            390           2          2.7         370.5       2.7X
+pmod(x, y), split F                                  50             50           1         20.9          47.8      20.6X
+pmod(x, y), transposed F                            392            393           0          2.7         374.1       2.6X
 
+allocated, pmod(x, y), E at 4096 rows: 5020.0 bytes a row
+allocated, pmod(x, y), D at 4096 rows: 50744.0 bytes a row
+allocated, pmod(x, y), B at 4096 rows: 973.0 bytes a row
+allocated, pmod(x, y), gathered E at 4096 rows: 4396.0 bytes a row
+allocated, pmod(x, y), inserted E at 4096 rows: 4060.0 bytes a row
+allocated, pmod(x, y), split E at 4096 rows: 3916.0 bytes a row
+allocated, pmod(x, y), transposed E at 4096 rows: 3916.8 bytes a row
+allocated, pmod(x, y), F at 4096 rows: 1248.0 bytes a row
+allocated, pmod(x, y), gathered F at 4096 rows: 480.0 bytes a row
+allocated, pmod(x, y), inserted F at 4096 rows: 2192.0 bytes a row
+allocated, pmod(x, y), split F at 4096 rows: 0.0 bytes a row
+allocated, pmod(x, y), transposed F at 4096 rows: 2192.8 bytes a row
 OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1019-azure
 AMD EPYC 7763 64-Core Processor
 262144 rows - in L3, x % y:               Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------
-x % y, E [Java fallback]                            960            964           2          1.1         915.8       1.0X
-x % y, D [Java fallback]                          10409          10452          26          0.1        9926.9       0.1X
-x % y, B                                            257            261           8          4.1         245.6       3.7X
+x % y, E [Java fallback]                            937            945           8          1.1         894.0       1.0X
+x % y, D [Java fallback]                          10519          10567          36          0.1       10031.6       0.1X
+x % y, B                                            290            292           2          3.6         276.1       3.2X
+x % y, gathered E [Java fallback]                   878            881           2          1.2         837.4       1.1X
+x % y, inserted E [Java fallback]                   985            989           5          1.1         939.4       1.0X
+x % y, split E [Java fallback]                      739            741           3          1.4         705.2       1.3X
+x % y, transposed E [Java fallback]                 760            762           1          1.4         725.0       1.2X
+x % y, F [Java fallback]                            266            269           3          3.9         253.6       3.5X
+x % y, gathered F [Java fallback]                   150            154          11          7.0         142.7       6.3X
+x % y, inserted F                                   391            393           1          2.7         373.3       2.4X
+x % y, split F                                       45             45           0         23.5          42.5      21.0X
+x % y, transposed F                                 389            389           1          2.7         370.7       2.4X
 
+allocated, x % y, E at 262144 rows: 4748.0 bytes a row
+allocated, x % y, D at 262144 rows: 50472.0 bytes a row
+allocated, x % y, B at 262144 rows: 853.1 bytes a row
+allocated, x % y, gathered E at 262144 rows: 4124.0 bytes a row
+allocated, x % y, inserted E at 262144 rows: 3788.0 bytes a row
+allocated, x % y, split E at 262144 rows: 3644.0 bytes a row
+allocated, x % y, transposed E at 262144 rows: 3644.0 bytes a row
+allocated, x % y, F at 262144 rows: 1248.0 bytes a row
+allocated, x % y, gathered F at 262144 rows: 480.0 bytes a row
+allocated, x % y, inserted F at 262144 rows: 2192.0 bytes a row
+allocated, x % y, split F at 262144 rows: 0.0 bytes a row
+allocated, x % y, transposed F at 262144 rows: 2192.0 bytes a row
 OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1019-azure
 AMD EPYC 7763 64-Core Processor
 262144 rows - in L3, pmod(x, y):          Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------
-pmod(x, y), E [Java fallback]                      1026           1030           3          1.0         978.7       1.0X
-pmod(x, y), D [Java fallback]                     10478          10512          33          0.1        9992.9       0.1X
-pmod(x, y), B                                       301            304           5          3.5         287.2       3.4X
+pmod(x, y), E [Java fallback]                      1027           1032           5          1.0         979.6       1.0X
+pmod(x, y), D [Java fallback]                     10711          10744          22          0.1       10214.5       0.1X
+pmod(x, y), B                                       326            330           5          3.2         311.1       3.1X
+pmod(x, y), gathered E [Java fallback]              949            951           5          1.1         904.8       1.1X
+pmod(x, y), inserted E [Java fallback]              835            839           3          1.3         796.6       1.2X
+pmod(x, y), split E [Java fallback]                 812            815           3          1.3         774.3       1.3X
+pmod(x, y), transposed E [Java fallback]            817            821           6          1.3         779.2       1.3X
+pmod(x, y), F [Java fallback]                       262            264           3          4.0         249.9       3.9X
+pmod(x, y), gathered F [Java fallback]              151            153           2          6.9         144.2       6.8X
+pmod(x, y), inserted F                              387            388           1          2.7         369.4       2.7X
+pmod(x, y), split F                                  51             51           0         20.7          48.4      20.2X
+pmod(x, y), transposed F                            390            392           1          2.7         372.3       2.6X
 
+allocated, pmod(x, y), E at 262144 rows: 5020.0 bytes a row
+allocated, pmod(x, y), D at 262144 rows: 50744.0 bytes a row
+allocated, pmod(x, y), B at 262144 rows: 973.5 bytes a row
+allocated, pmod(x, y), gathered E at 262144 rows: 4396.0 bytes a row
+allocated, pmod(x, y), inserted E at 262144 rows: 4060.0 bytes a row
+allocated, pmod(x, y), split E at 262144 rows: 3916.0 bytes a row
+allocated, pmod(x, y), transposed E at 262144 rows: 3916.0 bytes a row
+allocated, pmod(x, y), F at 262144 rows: 1248.0 bytes a row
+allocated, pmod(x, y), gathered F at 262144 rows: 480.0 bytes a row
+allocated, pmod(x, y), inserted F at 262144 rows: 2192.0 bytes a row
+allocated, pmod(x, y), split F at 262144 rows: 0.0 bytes a row
+allocated, pmod(x, y), transposed F at 262144 rows: 2192.0 bytes a row
 OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1019-azure
 AMD EPYC 7763 64-Core Processor
 4194304 rows - past L3, x % y:            Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------
-x % y, E [Java fallback]                           3844           3871          23          1.1         916.4       1.0X
-x % y, D [Java fallback]                          41456          41602         113          0.1        9883.9       0.1X
-x % y, B                                           1037           1041           4          4.0         247.2       3.7X
+x % y, E [Java fallback]                           3735           3753          33          1.1         890.5       1.0X
+x % y, D [Java fallback]                          42025          42055          26          0.1       10019.5       0.1X
+x % y, B                                           1169           1179           9          3.6         278.6       3.2X
+x % y, gathered E [Java fallback]                  3526           3534           6          1.2         840.6       1.1X
+x % y, inserted E [Java fallback]                  3121           3139          16          1.3         744.1       1.2X
+x % y, split E [Java fallback]                     2967           2972           5          1.4         707.4       1.3X
+x % y, transposed E [Java fallback]                3015           3019           4          1.4         718.9       1.2X
+x % y, F [Java fallback]                           1072           1079           6          3.9         255.7       3.5X
+x % y, gathered F [Java fallback]                   598            599           2          7.0         142.5       6.2X
+x % y, inserted F                                  1574           1583          12          2.7         375.4       2.4X
+x % y, split F                                      184            185           2         22.8          43.8      20.3X
+x % y, transposed F                                1560           1567           6          2.7         372.0       2.4X
 
+allocated, x % y, E at 4194304 rows: 4748.0 bytes a row
+allocated, x % y, D at 4194304 rows: 50472.0 bytes a row
+allocated, x % y, B at 4194304 rows: 853.3 bytes a row
+allocated, x % y, gathered E at 4194304 rows: 4124.0 bytes a row
+allocated, x % y, inserted E at 4194304 rows: 3788.0 bytes a row
+allocated, x % y, split E at 4194304 rows: 3644.0 bytes a row
+allocated, x % y, transposed E at 4194304 rows: 3644.0 bytes a row
+allocated, x % y, F at 4194304 rows: 1248.0 bytes a row
+allocated, x % y, gathered F at 4194304 rows: 480.0 bytes a row
+allocated, x % y, inserted F at 4194304 rows: 2192.0 bytes a row
+allocated, x % y, split F at 4194304 rows: 0.0 bytes a row
+allocated, x % y, transposed F at 4194304 rows: 2192.0 bytes a row
 OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1019-azure
 AMD EPYC 7763 64-Core Processor
 4194304 rows - past L3, pmod(x, y):       Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------
-pmod(x, y), E [Java fallback]                      4094           4108          14          1.0         976.2       1.0X
-pmod(x, y), D [Java fallback]                     41557          41603          34          0.1        9908.0       0.1X
-pmod(x, y), B                                      1209           1234          42          3.5         288.1       3.4X
+pmod(x, y), E [Java fallback]                      4141           4151          11          1.0         987.4       1.0X
+pmod(x, y), D [Java fallback]                     43055          43127          45          0.1       10265.1       0.1X
+pmod(x, y), B                                      1314           1318           3          3.2         313.2       3.2X
+pmod(x, y), gathered E [Java fallback]             3804           3807           3          1.1         907.0       1.1X
+pmod(x, y), inserted E [Java fallback]             3357           3374          30          1.2         800.3       1.2X
+pmod(x, y), split E [Java fallback]                3263           3278          14          1.3         777.9       1.3X
+pmod(x, y), transposed E [Java fallback]           3299           3306           8          1.3         786.4       1.3X
+pmod(x, y), F [Java fallback]                      1057           1064           5          4.0         251.9       3.9X
+pmod(x, y), gathered F [Java fallback]              606            609           4          6.9         144.5       6.8X
+pmod(x, y), inserted F                             1560           1564           7          2.7         371.9       2.7X
+pmod(x, y), split F                                 205            206           1         20.5          48.9      20.2X
+pmod(x, y), transposed F                           1573           1586          13          2.7         375.0       2.6X
 
+allocated, pmod(x, y), E at 4194304 rows: 5020.0 bytes a row
+allocated, pmod(x, y), D at 4194304 rows: 50744.0 bytes a row
+allocated, pmod(x, y), B at 4194304 rows: 973.9 bytes a row
+allocated, pmod(x, y), gathered E at 4194304 rows: 4396.0 bytes a row
+allocated, pmod(x, y), inserted E at 4194304 rows: 4060.0 bytes a row
+allocated, pmod(x, y), split E at 4194304 rows: 3916.0 bytes a row
+allocated, pmod(x, y), transposed E at 4194304 rows: 3916.0 bytes a row
+allocated, pmod(x, y), F at 4194304 rows: 1248.0 bytes a row
+allocated, pmod(x, y), gathered F at 4194304 rows: 480.0 bytes a row
+allocated, pmod(x, y), inserted F at 4194304 rows: 2192.0 bytes a row
+allocated, pmod(x, y), split F at 4194304 rows: 0.0 bytes a row
+allocated, pmod(x, y), transposed F at 4194304 rows: 2192.0 bytes a row
 

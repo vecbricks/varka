@@ -1,0 +1,128 @@
+VARKA-603 diagnosis: the checked TINYINT multiply's store at 128 bits under AVX2
+====================================================================================
+
+Taken 11 November 2026 on the laptop (AMD Ryzen AI 9 HX PRO 370, which has AVX-512BW), JDK
+25.0.5 (Ubuntu build), master d241c12372d, no compiler edits, every JVM forced to
+-XX:UseAVX=2 -XX:MaxVectorSize=16. The rates below are diagnostic only: they come from the
+laptop under forced flags, beside an sbt build, and decide nothing. The row's evidence is the
+EPYC 7763 runner (VARKA-603.md 4).
+
+Commands
+--------
+
+    build/sbt catalyst/Test/compile
+    build/sbt "export catalyst/Test/fullClasspath" > cp.txt
+    # VarkaNarrowEmitBenchmark, NATIVE arm (or both arms), three rungs:
+    java -Xmx8g --add-modules jdk.incubator.vector --enable-native-access=ALL-UNNAMED \
+      --add-opens=java.base/java.nio=ALL-UNNAMED --add-opens=java.base/sun.nio.ch=ALL-UNNAMED \
+      --add-opens=java.base/java.lang=ALL-UNNAMED --add-opens=java.base/java.util=ALL-UNNAMED \
+      --add-opens=java.base/java.lang.invoke=ALL-UNNAMED \
+      -XX:UseAVX=2 -XX:MaxVectorSize=16 <extra flags> \
+      -Dvarka.narrow.emit.arms=native -cp "$(cat cp.txt)" \
+      org.apache.spark.sql.VarkaNarrowEmitBenchmark
+    # <extra flags> for the HotSpot reading:
+    #   -XX:+UnlockDiagnosticVMOptions -XX:+PrintCompilation -XX:+PrintIntrinsics
+    #   -XX:CompileCommand=quiet
+    #   '-XX:CompileCommand=dontinline,org.apache.spark.sql.varka.bench.NarrowEmit*::*'
+    #   '-XX:CompileCommand=PrintInlining,org.apache.spark.sql.varka.bench.NarrowEmit*::*'
+    # and, for a log with one C2 thread and no interleaving (both arms, rungs 1 and 2 only):
+    #   -XX:-TieredCompilation -XX:CICompilerCount=1 -XX:-BackgroundCompilation
+    # for the allocation reading: -Xlog:gc:stdout, young pauses counted per case
+    # The JDK-only models beside this file (VARKA-603/), no Spark on the class path:
+    javac --add-modules jdk.incubator.vector -d repro Repro603.java MaskedStores603.java
+    java --add-modules jdk.incubator.vector -XX:UseAVX=2 -XX:MaxVectorSize=16 -cp repro \
+      Repro603 <masked|whole|over|native>
+    java --add-modules jdk.incubator.vector -XX:UseAVX=2 -XX:MaxVectorSize=16 -Xbatch \
+      -XX:+UnlockDiagnosticVMOptions -XX:+PrintIntrinsics \
+      -XX:CompileCommand=PrintInlining,MaskedStores603::<t> -cp repro MaskedStores603 <t>
+
+The benchmark's kernel classes are NarrowEmit<shape index><arm initial>, the index being the
+position in shapes(): a0 b1 c2 e3 f4 g5 h6 i7 j8 k9 l10. Shape h (y1 * y2 under ANSI) is
+NarrowEmit6N and 6W, shape i (try_multiply(y1, y2)) NarrowEmit7N and 7W.
+
+Rates (NATIVE arm, M rows/s, three rungs: 16384, 262144 and 1000000 rows)
+------------------------------------------------------------------------
+
+    h  y1 * y2, ANSI, TINYINT store             196.7 - 210.2
+    i  try_multiply(y1, y2), TINYINT store      200.1 - 205.7
+    e  CASE WHEN ... TINYINT store              30854 - 44122
+    f  -y1, TINYINT store                       45983 - 85300
+    j  s1 * s2, ANSI, SMALLINT store             5213 - 5400
+    l  y1 * y2 < y3, selection                   1208 - 1280
+
+HotSpot's output
+----------------
+
+The standard (non-OSR) level-4 compiles of h's and i's loops, NarrowEmit6N::loopDense0 (442
+bytes) and NarrowEmit7N::loopMasked0 (706 bytes), and their WIDENED twins 6W and 7W, are each
+followed by
+
+    ** not supported: op=storeMasked vlen=8 etype=byte mismatched_ms=0
+
+and each inline tree has exactly two declined VectorSupport calls, one per int group of the
+iteration:
+
+    @ 33   jdk.internal.vm.vector.VectorSupport::storeMasked (40 bytes)
+           failed to inline: failed to inline (intrinsic)
+
+Every other VectorSupport call in those trees reads "(intrinsic)": load, convert (the B2I parts
+and the I2B), binaryOp, compare, fromBitsCoerced, test, and the store's mask,
+indexPartiallyInUpperRange (from ByteVector.SPECIES_64.indexInRange(0, lanes)). The mask is
+intrinsified; the predicated store is refused. "the arms' class bytes are identical" is printed
+for h, i, j, k and l: both arms emit the same kernel for them. The loops of f and j have no
+storeMasked call and no refusal.
+
+Allocation (-Xlog:gc young pauses per case, three rungs): h 235, i 218; a 3, b 7, c 5, e 9,
+f 14, g 16, j 4, k 4, l 19. The JDK-only model (Repro603 masked) reads 20 bytes a row at
+UseAVX=2 and 0 at the host's own AVX-512.
+
+Which masked stores C2 intrinsifies at UseAVX=2, MaxVectorSize=16 (MaskedStores603)
+---------------------------------------------------------------------------------
+
+    byte64  (vlen 8)  fallback, "not supported: op=storeMasked vlen=8 etype=byte", 40960 B/call
+    short64 (vlen 4)  fallback, 40960 B/call
+    int128  (vlen 4)  intrinsic, 0 B/call
+    long128 (vlen 2)  fallback, 110424 B/call (reason not read; VARKA-603.md 10.1)
+
+Store forms in the JDK-only model (Repro603, UseAVX=2, 128 bits; M rows/s, two quiet runs)
+-----------------------------------------------------------------------------------------
+
+    masked   what the emitter does now                      54.5 - 54.6   20 B/row
+    whole    both groups' I2B parts 0 and -1 OR-ed into
+             one Byte64Vector, one whole store a loop       1211 - 1334    0 B/row
+    over     each group's Byte64Vector stored whole, the
+             loop stopping one int group early               957 - 1845    0 B/row
+    native   ByteVector.SPECIES_128 load, neg, store       27676 - 28544    0 B/row
+
+Against masked in the same runs, whole and over are 17.5 to 33.9 times faster
+(957 / 54.6 to 1845 / 54.5). The forms are unranked: the two runs order whole and over
+differently. An earlier looped variant of whole allocated 13 B/row from a loop-carried vector
+phi; the form above, whose groups are straight-line as the emitter's are, allocates nothing.
+
+HotSpot source (jdk-25-ga)
+--------------------------
+
+    src/hotspot/share/opto/vectorIntrinsics.cpp:1041-1042  inline_vector_mem_masked_operation
+        asks arch_supports_vector(Op_StoreVectorMasked, num_elem, elem_bt, VecMaskUseLoad)
+    src/hotspot/share/opto/vectorIntrinsics.cpp:1046-1050  a masked store always needs the
+        predicate ("Masked vector store always uses the predicated store")
+    src/hotspot/share/opto/vectorIntrinsics.cpp:1065-1070  prints the "not supported" line
+        and returns false, so the call stays a call
+    src/hotspot/cpu/x86/x86.ad:1660-1665  Op_LoadVectorMasked and Op_StoreVectorMasked
+        return false when !supports_avx512bw() and the element type is a subword (byte,
+        short), at every vector size
+    Java fallback: ByteVector.java:3788-3803 -> 4037-4046 (the stLongOp lambda) ->
+        X-ScopedMemoryAccess.java.template:454-491 -> VectorSupport.java:534-541
+
+The JVM run is 25.0.5 and the line numbers are from the jdk-25-ga source.
+
+Side readings (not this row's; VARKA-603.md 10.1)
+---------------------------------------------
+
+- The OSR compiles of i (7N and 7W) also print "** unbox failed v2=Phi" and
+  "** not supported: arity=1 op=cast#513/4 vlen1=2 etype2=byte" for a
+  Long128Vector::bitsToShuffle convert. The standard compile that runs has neither.
+- "not supported: op=storeMasked vlen=16 etype=byte" is printed after standalone compiles of
+  jdk.incubator.vector.ByteVector::intoMemorySegment (99 bytes), not after a kernel's loop:
+  a 16-lane masked byte store. A byte-driven kernel's epilogue at 128 bits stores that way,
+  but the caller was not identified, so that attribution is inferred.
