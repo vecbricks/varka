@@ -10,7 +10,7 @@ From master at `d241c12372d`, by reading the compilers, the IR, the decimal base
 runner files, the census cells and the open pull requests #1478 (row 596) and #1484 (row 104),
 and the unpushed branch `varka-360-decimal-add` (row 360, at `44365202b7f`). Nothing was
 dispatched and no JVM was run for this plan. **[I]** marks a claim read from the code and not yet
-run; step 1's dry run checks each one.
+run; 597a's dry run (5 item 1) checks each one.
 
 1. **On master a decimal reaches a kernel only through a condition.** The decimal compiler's
    readers (`value`, `VarkaDecimalCompiler.java:188-238`, and the pair's) are reached from four
@@ -95,7 +95,9 @@ run; step 1's dry run checks each one.
      and 1.9X of the row path and `DECIMAL(9, 2)` at 0.2X. The EPYC record has no `BIGINT` value
      control at 128 bits on master. #1484's runs do (wrapping `BIGINT` arithmetic at 3.8x to 8.7x,
      vecbricks/varka run 42930757311, on that branch), and row 503's laptop blends ran at 1.3X to
-     5.6X (`m8/results/VARKA-503/`). Step 1 owes the control in the same class.
+     5.6X (`m8/results/VARKA-503/`). Both of the last two sources are on open branches or the laptop:
+     they are directions only, no decision below rests on them, and 597a owes the EPYC control in
+     the same class.
 9. **Two refusal mechanisms are in flight.** #1478 refuses on the IR, in `hostRefusal`, keyed on a
    root's leaves. #1484 refuses at compiler arms: `DeclineSink.declinesTwoLaneChecks`, read from the
    session's `VarkaAdmission`, declines a checked `BIGINT` operation as it is built
@@ -140,9 +142,10 @@ run; step 1's dry run checks each one.
 ## 1. Goal and non-goal
 
 **Goal.** At two long lanes on x86 no value that reads a decimal runs fused slower than Spark's
-row path. Each form that fuses today is measured on the EPYC 7763 at 128 bits. Each that loses
-declines there under row 503's setting, with its reason in `EXPLAIN`. Every later form that reads a
-decimal declines there by the same mechanism until its own measurement says otherwise.
+row path. Each form that fuses today is measured on the EPYC 7763 at 128 bits, and every value that
+reads a decimal declines there under row 503's setting, with its reason in `EXPLAIN`, unless a
+measured win and the owner's word exempt it (2.2). A later form declines by the same mechanism
+from the day it lands.
 
 **Non-goal.** A cheaper lowering at two lanes, S or any other: question 7.3. Filters (row 503,
 done). Any host other than x86 at two long lanes: aarch64 lowers two-lane masks, and
@@ -150,7 +153,7 @@ done). Any host other than x86 at two long lanes: aarch64 lowers two-lane masks,
 
 ## 2. Design
 
-### 2.1 The decline: keyed on the decimal operand, at the compiler's entry
+### 2.1 The decline: keyed on the decimal operand, in the compiler's readers
 
 Three candidates, with their costs:
 
@@ -160,21 +163,28 @@ Three candidates, with their costs:
   pair, "holds an unsigned long compare" (only `DecimalWords.compare` and 360's carry and borrow
   build `ULT` and `ULE`), catches its ordered compares and carries. It misses its `=`, `<>` and
   `<=>`, which are signed `EQ` compares, so a later pair form needs a new marker each time.
-- **(D2) Key on the operand, at the decimal compiler's entry.** Every call into
-  `VarkaDecimalCompiler` from outside opens with `sink.enterDecimal()`, at three sites: the
-  comparisons and `<=>` (`compared`, `VarkaDecimalCompiler.java:500`), the null test
-  (`nullTested`, `:737`) and `IN` (`compileDecimalIn`, `VarkaConditionCompiler.java:1051`). The
-  fourth entry is `output` (`:650`), for a decimal-valued root. Each declines with a reason of its
-  own where the session's admission says the host falls back, `output` only for a root that reads
-  a decimal (the `TIME` producers read none). This uses #1484's route, `DeclineSink` carrying the
-  session flag. Every decimal operand then declines by construction, whatever its root or later
-  row:
-  - a leaf, a rescale, 360's `bigintPair`, or a form 348b or 359b adds;
+- **(D2) Key on the operand, at the decimal compiler's readers.** The builders that make a
+  decimal operand out of something other than a constant decline, through one helper, where the
+  session's admission says the host falls back: the long-lane column (`column`,
+  `VarkaDecimalCompiler.java:1074`), the pair's column (`columnPair`, `:574`), and 360's
+  `bigintPair` when it lands. This uses #1484's route, `DeclineSink` carrying the session flag.
+  The check sits in the readers, not at the four call sites from outside (`compared` at `:500`,
+  `nullTested` at `:737`, `compileDecimalIn` at `VarkaConditionCompiler.java:1051` and `output`
+  at `:650`), so a later caller, such as the casts of rows 350, 364 and 366 from the cast
+  compilers, meets it with no edit of its own. `output` needs no test of its own either: a
+  `TIME` producer reaches no reader, and a 348b value that reads a column declines in the reader.
+  So every decimal operand declines by construction, whatever its root:
+  - a column on either representation, a rescale or choice over one, 360's `bigintPair`, or a
+    form 348b or 359b builds over them;
   - a decimal conjunct of a filter too, which 503 already sends to the row path, so the plan is the
-    same and only its reason changes.
+    same and only its reason changes (but see the cost below).
 
-  #1478's `readsDecimal` and its `BoolOutput` arm become redundant and are removed. About 40 lines
-  of source, plus the tests of 3.
+  A later row that adds a new reader (a builder of a decimal from a non-decimal column, as 350's
+  integral casts to a decimal will be) calls the same helper; 3 item 2's sweep holds the rows that
+  add coverage. #1478's `readsDecimal` and its `BoolOutput` arm become redundant and are removed.
+  About 40 lines of source, plus the tests of 3. Before it is built, 597b reads how a decline
+  inside `nullTested`'s probe (`:737-745`) is treated, since a probe that swallows a reader's
+  decline would admit a null test the reader refused.
 - **(D3) A cheaper form.** S at two long lanes, behind an option as row 604 does for the
   remainder. That is a new emission mode and a new row (item 12, question 7.3), not this one.
 
@@ -182,7 +192,13 @@ Three candidates, with their costs:
 11 without a marker per form. It follows #1484's precedent for the projection compile, and it
 leaves `hostRefusal` as 503 wrote it.
 
-**Cost.** D2 lands after both #1478 and #1484, since it uses #1478's plumbing of the admission
+**Cost.** The filter conjuncts' changed reason has two consumers, both moved in 597b:
+`sql/varka/width_audit.json` records 59 decimal rows at 128 bits declined with
+`TWO_LANE_CONDITION_REASON` (such as `(-d18) IS NOT NULL`), regenerated by
+`dev/varka_regen_generated.sh --all`; and `VarkaWidthAuditShapes.predicateRow` (`:180`) reads a
+host refusal by equality with that reason, so it must accept the decimal reason too, or a decimal
+conjunct declined beside a fused one would record the fused kernel's shape instead of the decline.
+D2 lands after both #1478 and #1484, since it uses #1478's plumbing of the admission
 into `compilePartial` and #1484's `DeclineSink` flag, and their overloads disagree (item 9). If
 #1484 has not merged when the step starts, D1 with the marker is the fallback under the same
 tests, and the leaf-free pair's equality is left to row 360's measurement.
@@ -199,9 +215,10 @@ default:
   `VARKA-359.md` 10.5 and #1484 prepared). It commits that run as a side record under
   `results/VARKA-<n>/`, not spliced, and asks the owner to exempt the form.
 - **No exemption mechanism is built until a measured win asks for one.** The candidates for such a
-  win are the heavy forms whose row path is `BigDecimal` work: at 128 bits the row path takes
-  1041 ms for `x + y` at `DECIMAL(20, 2)`, 2012 for `pmod` at `(20, 2)` and 2461 for the
-  `DECIMAL(38, 10)` chain, against 126 for `x < y` at `(9, 2)`. **[I]** that any of them wins:
+  win are the heavy forms whose row path is `BigDecimal` work: at 128 bits the row path arm takes
+  1019 ms for `x + y` at `DECIMAL(20, 2)`, 2006 for `pmod` at `(20, 2)` and 2448 for the
+  `DECIMAL(38, 10)` chain (the 128-bit file's lines 1359, 1311 and 243), against 126 for `x < y`
+  at `(9, 2)` (line 723). **[I]** that any of them wins:
   the kernel cost 435.4 ns a row where the spike's loop cost 168.7 (item 8), so the spike does not
   predict the kernel.
 
@@ -213,7 +230,7 @@ two long lanes, the cheaper form an opt-in row) and 503's "refused by the mechan
 
 - Row 503's filter refusal (`TWO_LANE_CONDITION_REASON`).
 - Row 104's checked `BIGINT` refusal.
-- The `BIGINT` and `DOUBLE` boolean outputs (596 leaves them fused, and the step 1 control keeps
+- The `BIGINT` and `DOUBLE` boolean outputs (596 leaves them fused, and 597a's controls keep
   measuring `BIGINT`).
 - The `TIME` producers, which read no decimal.
 - Every emitted byte: `emitted_bytes.json` does not move. The refusal decides admission, not
@@ -227,11 +244,13 @@ two long lanes, the cheaper form an opt-in row) and 503's "refused by the mechan
    `CAST(x < y AS DOUBLE)`, `IF(x < y, l, 0)` and `nvl2(x, l, 0)`.
    - Under the admission, each declines with the decimal reason.
    - With the refusal off, each is admitted.
-   - `BIGINT` controls of the same shapes are admitted under both.
+   - `BIGINT` controls of the same shapes (`CAST(l < l2 AS INT)`, `IF(l < l2, l, l2)`) are
+     admitted under both.
 
    After 360a, `CAST(l AS DECIMAL(20, 0)) < CAST(l2 AS DECIMAL(20, 0))` as a value joins, in the
-   later of the two pull requests. Planted by hand, then reverted: `pair`'s entry not checking the
-   flag fails the `(38, 10)` and leaf-free cases.
+   later of the two pull requests. Planted by hand, then reverted: `columnPair` not calling the
+   helper fails the `(38, 10)` cases and no `(9, 2)` one, and, after 360a, `bigintPair` not
+   calling it fails the leaf-free case alone.
 2. **The sweep that guards later rows** (catalyst, compile only). Each `coverage.json` expression
    whose columns include a decimal is compiled as a projection entry, cast to `INT` where it is a
    condition, under the two-lane admission, and must decline or be a forwarded column. A row
@@ -244,8 +263,10 @@ two long lanes, the cheaper form an opt-in row) and 503's "refused by the mechan
    - The task's evaluator, built from the node's settings, declines the same entries (596's check).
 4. **The baseline's classes** (`VarkaDecimalBaselineQueriesSuite`), with the refusal off and on, for
    every section of 4.
-5. **The width audit** at 128 bits: no construction moves. A `CAST(d9 < d9b AS INT)` construction
-   is added only if 597a's dry run shows it fusing (it records the same refused calls as 596's).
+5. **The width audit** at 128 bits: the 59 decimal rows' declined reason moves to the decimal one
+   (2.1, cost), and `predicateRow` reads both reasons as a host refusal; a decimal conjunct
+   declined beside a fused one records the decline. No construction is added: a
+   `CAST(d9 < d9b AS INT)` construction would record the calls 596's already records.
 
 No proof file moves. No IR node is added, so no registry suite moves.
 
@@ -255,18 +276,25 @@ No proof file moves. No IR node is added, so no registry suite moves.
 precisions the comparisons already use, `DECIMAL(9, 2)`, `(18, 4)`, `(38, 10)` and `(20, 2)`, at
 both null densities:
 
-- `CAST(x < y AS INT)`, the `CondValue` form;
+- `CAST(x < y AS INT)`, the `CondValue` form through the integral cast;
+- `CAST(x < y AS DOUBLE)`, the `CondValue` form through the floating cast, whose narrowing and
+  conversion differ;
 - `IF(x < y, l, 0)`, the `IfElse` form;
 - `nvl2(x, l, 0)`, a choice on a null test alone, where Spark's row path reads only the null bit.
 
-That is 24 sections. Two `BIGINT` controls at both densities, `CAST(l > 0 AS INT)` and
-`IF(l > 0, l, 0)`, add 4, for 28. `l` is the class's existing `BIGINT` column, so no column is
+That is 32 sections. Two `BIGINT` references at both densities, `CAST(l > 0 AS INT)` and
+`IF(l > 0, l, 0)`, add 4, for 36. They read one column against a literal, since the class has one
+`BIGINT` column, so they are not the decimal shapes' twins: they say what a long compare and a
+blend cost at two lanes without a slot load. The dry run of 5 item 1 also plans, untimed, the
+forms 0 item 5 reads but does not time: `CASE WHEN x < y THEN l ELSE 0 END`, `IF(x IS NULL, l, 0)`
+and `IF(x < y, i, 0)` with `INT` branches (expected to decline on its lanes), and a shape that
+plans unlike the code's reading corrects 0 before any section is timed. `l` is the class's existing `BIGINT` column, so no column is
 added and every earlier section's values stay as committed. The classes are `WHOLE` at both widths
 before 597b. After it, the decimal sections are `NONE` where the session refuses (the
 `fusedFilter` term 596 uses), and the controls stay `WHOLE`.
 
 **The runs.** `VarkaDecimalBaselineBenchmark` on the EPYC 7763 at 256 and 128 bits, the whole
-class: row 599 is open, so a `sections` run cannot write its numbers. The 28 sections are spliced
+class: row 599 is open, so a `sections` run cannot write its numbers. The 36 sections are spliced
 into the two runner files with `dev/varka_bench_sections.py splice`, each provenance naming its
 run. These are dispatched on vecbricks/varka on the owner's word only:
 
@@ -283,31 +311,36 @@ the row path, and splices them.
 **Predictions, registered before the runs** (EPYC 7763, best times, Varka arm against the row
 path):
 
-1. At 128 bits, at `(9, 2)` and `(18, 4)`, `CAST(x < y AS INT)` and `IF(x < y, l, 0)` run at 0.2X
+1. At 128 bits, at `(9, 2)` and `(18, 4)`, `CAST(x < y AS INT)`, `CAST(x < y AS DOUBLE)` and `IF(x < y, l, 0)` run at 0.2X
    to 0.4X. They pay the same load as `x < y` as a value (0.2X and 0.3X, item 7), and a narrowing
    or a blend adds little against it.
-2. At 128 bits, for the pair at `(38, 10)` and `(20, 2)`, those two run at 0.6X to 1.0X, as `x < y`
+2. At 128 bits, for the pair at `(38, 10)` and `(20, 2)`, those three run at 0.6X to 1.0X, as `x < y`
    as a value did (0.7X to 0.9X). The row path's `BigDecimal` compare hides part of the load.
 3. At 128 bits `nvl2(x, l, 0)` loses at every precision, at 0.1X to 0.5X, and the pair's loss is
    larger than the comparisons'. The kernel loads and checks the slots under the null test
    (`VARKA-359.md` 0 item 5), while the row path reads only the null bit.
-4. At 128 bits the `BIGINT` controls run at 1.3X or more, as 503's blends did on the laptop (1.3X
-   to 5.6X). This is the EPYC control item 8 lacks; a control below 1.0X would say the loss is not
-   the load alone, and 597b would stop for a replan.
+4. At 128 bits the `BIGINT` references run at 0.8X to 2X. Their compare and blend are the
+   fallback on the EPYC 7763 too (`long.LT` at 92 bytes a row, item 8), and the only evidence for a
+   win is the laptop's (503's blends at 1.3X to 5.6X). Either way they do not gate 597b, which
+   rests on the decimal sections' own readings: a reference below 1.0X says `BIGINT` value forms
+   lose at two lanes as well, a finding for a new row under 503's record, not a reason to fuse
+   the decimals.
 5. At 256 bits every decimal section runs at 3X or more (`x < y` as a value: 4.5X to 5.0X on the
    long lane, 21.3X to 31.6X for the pair).
 6. After 597b, at 128 bits, every decimal section ties the row path (0.9X to 1.1X), both arms
-   being the row path, and the controls do not move.
+   being the row path, and the `BIGINT` references do not move.
 
-**The decision rule.** A decimal section under 1.0X declines. Any ratio within 1.3x of 1.0 is
-re-run once and read by minimums before it is written down (`sql/varka/AGENTS.md`, "Measurements,
-not adjectives"). A decimal section at 1.3X or more by minimums in both runs goes to the owner as
-an exemption candidate (2.2) rather than declining silently. Under predictions 1 to 3 none does.
+**The decision rule.** Under 2.2 every decimal form declines at two long lanes. The readings
+decide only which forms go to the owner as exemption candidates: a decimal section at 1.3X or more
+by minimums in two runs. Any ratio within 1.3x of 1.0 is re-run once and read by minimums before
+it is written down (`sql/varka/AGENTS.md`, "Measurements, not adjectives"); a form between 1.0X and
+1.3X is a tie and declines with the rest, its reading recorded. Under predictions 1 to 3 no form is
+a candidate.
 
 ## 5. Order, files and size
 
-1. **597a, the baseline addition**, its own pull request, about 150 to 250 lines:
-   - the 28 sections of 4 with their class terms;
+1. **597a, the baseline addition**, its own pull request, about 200 to 300 lines:
+   - the 36 sections of 4 with their class terms;
    - the class doc;
    - the `VarkaDecimalBaselineQueriesSuite` lists;
    - the dry runs at the default, under `-XX:UseAVX=2`, and under
@@ -319,7 +352,8 @@ an exemption candidate (2.2) rather than declining silently. Under predictions 1
    edits to the same class and the same 128-bit file it would otherwise conflict with.
 2. **597b, the decline**, after 597a's reading, #1478 and #1484, about 300 to 450 lines. D2 (or
    the answer to question 7.1), the tests of 3, the classes following, the 128-bit rerun and its
-   splice, and prediction 6 scored. If 597a finds a winner, 2.2 applies to it before 597b is
+   splice, the width audit regenerated with `predicateRow` reading both reasons (2.1, cost),
+   and prediction 6 scored. If 597a finds a winner, 2.2 applies to it before 597b is
    built. `VarkaKernelPlan`'s javadoc, the session setting's doc and the
    `vector-api-and-width.md` lesson #1478 adds are updated to name the operand key.
 3. **Row 360's leaf-free pair.** No pull request of its own: whichever of 597b and 360a lands
@@ -330,7 +364,8 @@ an exemption candidate (2.2) rather than declining silently. Under predictions 1
 
 | file | what |
 |---|---|
-| `VarkaDecimalCompiler.java`, `VarkaConditionCompiler.java` | D2's check at the four entries, its reason |
+| `VarkaDecimalCompiler.java` | D2's helper, called by `column`, `columnPair` (and `bigintPair`), its reason |
+| `VarkaWidthAuditShapes.scala`, `width_audit.json` | the decimal reason read as a host refusal; the 59 rows regenerated |
 | `varka/VarkaKernelPlan.java` | #1478's `BoolOutput` arm and `readsDecimal` removed, javadoc |
 | `SQLConf.scala` | the setting's doc names the decimal operands |
 | `VarkaTwoLaneConditionSuite.java`, a sweep suite or a case in it | 3 items 1 and 2 |
@@ -351,7 +386,7 @@ measurement is two dispatches for 597a and one for 597b, each on the owner's wor
 
 ## 7. Questions for the owner
 
-1. **The mechanism.** (a) D2: decline at the decimal compiler's entry through the session flag on
+1. **The mechanism.** (a) D2: decline in the decimal compiler's readers through the session flag on
    `DeclineSink`, after #1478 and #1484, removing 596's `BoolOutput` arm. (b) D1: widen #1478's IR
    key to every root, with an unsigned-compare marker for the leaf-free pair. *Recommended: (a)*.
    It covers every decimal operand, row 360's `bigintPair` and every later row's form by
@@ -379,18 +414,21 @@ measurement is two dispatches for 597a and one for 597b, each on the owner's wor
 ## 8. Done when
 
 - **Measured.** Each decimal-reading value form that fuses on master when 597b merges has a section
-  in `VarkaDecimalBaselineBenchmark`, measured on the EPYC 7763 at 128 and 256 bits, with a `BIGINT`
-  control. These are 596's `BOOLEAN` output and 0 items 4 and 5 at the long lane and the pair, at
-  both null densities. The sections are spliced into both runner files with provenance naming the
+  in `VarkaDecimalBaselineBenchmark`, measured on the EPYC 7763 at 128 and 256 bits, beside the
+  `BIGINT` references. These are 596's `BOOLEAN` output, the two casts of 0 item 4 and the choices
+  of 0 item 5 that 597a's dry run finds fusing, at the long lane and the pair, at both null
+  densities. The sections are spliced into both runner files with provenance naming the
   runs.
-- **Declined.** Each form that loses declines at two long lanes on x86 under row 503's setting,
-  with its reason in `EXPLAIN`, and stays fused with the setting off.
+- **Declined.** Every decimal-reading value declines at two long lanes on x86 under row 503's
+  setting, with its reason in `EXPLAIN`, and stays fused with the setting off, except a form the
+  owner exempts on a measured win (2.2).
 - **By construction.** The decline covers every decimal operand, row 360's leaf-free pair among
   them once 360a lands, held by 3's admission test and sweep.
 - **Rerun.** After it, the 128-bit rerun has no decimal section below 1.0X by the decision rule of
-  4, and the `BIGINT` controls hold.
+  4, and the `BIGINT` references are read and recorded.
 - **Unchanged elsewhere.** Nothing moves at 256 or 512 bits or on aarch64, and
-  `emitted_bytes.json` does not move.
+  `emitted_bytes.json` does not move; the width audit's 128-bit decline reasons move as 3 item 5
+  says.
 - **Scored.** 4's predictions are scored in 10, and the answers to section 7 are recorded.
 
 Or, under question 4's answer (b), the same for every form of 0 item 11 as its row lands.
@@ -400,7 +438,7 @@ Or, under question 4's answer (b), the same for every form of 0 item 11 as its r
 1. **Merge order.** #1478, then #1484, then 597b. 597a needs only #1478. #1478's row-596 edit and
    this plan's row-597 edit are adjacent lines of `PLAN.md`, so the second to merge resolves a
    one-line conflict as master plus its own row.
-2. **Row 599.** If it lands before 597a's runs, the dispatches take `sections` with the 28
+2. **Row 599.** If it lands before 597a's runs, the dispatches take `sections` with the 36
    titles instead of running the whole class.
 
 ## 10. Outcome
