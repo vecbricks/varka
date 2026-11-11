@@ -239,6 +239,14 @@ public final class VarkaFuzzTypes {
         rnd -> VarkaIrGrammar.drawNarrowLaneShape(rnd, lane).roots(), "values:" + lane.name());
   }
 
+  // The floating sequences (VARKA-341 3.4), fuzz_float and fuzz_double: trees whose every value
+  // is at the floating lane, every cell and literal its type's value source's.
+  private static IrLeaf floatingSequence(LaneType lane, long seed) {
+    String name = lane.name().toLowerCase(Locale.ROOT);
+    return new IrLeaf("col:" + name, true, n -> column(n, lane), seed,
+        rnd -> VarkaIrGrammar.drawFloatingLaneShape(rnd, lane).roots(), "values:" + lane.name());
+  }
+
   // The cast sequence (VARKA-332): a TINYINT, SMALLINT, INT, BIGINT and BOOLEAN column, every cell
   // VarkaIrGrammar.castValue's, which draws the lanes' ends and the narrower lanes' around them.
   private static IrLeaf castSequence(String form, Predicate<VarkaVectorIR> reads) {
@@ -347,9 +355,11 @@ public final class VarkaFuzzTypes {
           new Present<>(INT_VALUES));
       case LONG -> entry(id, new Present<>(LONG_LANE),
           columns(col("l", "BIGINT"), col("l2", "BIGINT")), new Present<>(LONG_VALUES));
-      case FLOAT -> entry(id, new Owed<>("341"),
+      case FLOAT -> entry(id,
+          new Present<>(floatingSequence(LaneType.FLOAT, VarkaIrGrammar.FLOAT_FUZZ_SEED)),
           columns(derived("f", "FLOAT"), derived("f2", "FLOAT")), new Present<>(FLOAT_VALUES));
-      case DOUBLE -> entry(id, new Owed<>("341"),
+      case DOUBLE -> entry(id,
+          new Present<>(floatingSequence(LaneType.DOUBLE, VarkaIrGrammar.DOUBLE_FUZZ_SEED)),
           columns(derived("x", "DOUBLE"), derived("x2", "DOUBLE")),
           new Present<>(DOUBLE_VALUES));
       case DECIMAL -> entry(id, new Present<>(DECIMAL_LEAF), new Owed<>("347"),

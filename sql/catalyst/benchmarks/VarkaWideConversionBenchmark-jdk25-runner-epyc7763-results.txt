@@ -1,0 +1,41 @@
+================================================================================================
+a bigint cast to double and float by the AVX2 forms
+================================================================================================
+
+OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1019-azure
+AMD EPYC 7763 64-Core Processor
+16384 rows - every arm in L2:                     Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+--------------------------------------------------------------------------------------------------------------------------------
+cast(l AS double), the XOR split                              0              0           0       5175.0           0.2       1.0X
+cast(l AS double), 343b1's split                              0              0           0       2790.7           0.4       0.5X
+cast(l AS double), the bounded magic                          0              0           0       5470.5           0.2       1.1X
+cast(l AS float), round to odd                                0              0           0       1609.6           0.6       0.3X
+cast(l AS float), round to odd by 343b1's shifts              0              0           0       1328.5           0.8       0.3X
+cast(l AS double), a scalar loop                              0              0           0       2277.8           0.4       0.4X
+cast(l AS float), a scalar loop                               0              0           0       2280.6           0.4       0.4X
+
+OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1019-azure
+AMD EPYC 7763 64-Core Processor
+262144 rows - every arm in L3:                    Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+--------------------------------------------------------------------------------------------------------------------------------
+cast(l AS double), the XOR split                              0              0           0       3732.1           0.3       1.0X
+cast(l AS double), 343b1's split                              0              0           0       2582.2           0.4       0.7X
+cast(l AS double), the bounded magic                          0              0           0       3750.8           0.3       1.0X
+cast(l AS float), round to odd                                0              0           0       1619.9           0.6       0.4X
+cast(l AS float), round to odd by 343b1's shifts              0              0           0       1329.7           0.8       0.4X
+cast(l AS double), a scalar loop                              0              0           0       2091.4           0.5       0.6X
+cast(l AS float), a scalar loop                               0              0           0       2264.4           0.4       0.6X
+
+OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1019-azure
+AMD EPYC 7763 64-Core Processor
+8388608 rows - every arm past L3:                 Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+--------------------------------------------------------------------------------------------------------------------------------
+cast(l AS double), the XOR split                              5              6           0       1558.6           0.6       1.0X
+cast(l AS double), 343b1's split                              6              6           0       1479.0           0.7       0.9X
+cast(l AS double), the bounded magic                          5              6           0       1577.5           0.6       1.0X
+cast(l AS float), round to odd                                6              6           0       1447.6           0.7       0.9X
+cast(l AS float), round to odd by 343b1's shifts              7              7           0       1227.5           0.8       0.8X
+cast(l AS double), a scalar loop                              6              7           0       1332.6           0.8       0.9X
+cast(l AS float), a scalar loop                               5              5           0       1826.2           0.5       1.2X
+
+

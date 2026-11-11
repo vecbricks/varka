@@ -21,10 +21,17 @@
 ;                 dh = (bitsToDouble(hi + MB) - M) * 0x1p32
 ;                 dl = bitsToDouble(lo | bits(0x1p52)) - 0x1p52
 ;                 d = dh + dl
+;   L2D, xor      dh = bitsToDouble((v >>> 32) ^ bits(0x1p84 + 0x1p63))
+;     split            - (0x1p84 + 0x1p63 + 0x1p52), which is hi * 2^32 - 2^52
+;                 dl = bitsToDouble((v & 0xFFFFFFFF) | bits(0x1p52)), which is 2^52 + lo
+;                 d = dh + dl (VARKA-583, the default)
 ;   L2D, magic    bitsToDouble(v + MB) - M, under a guard of |v| <= 2^51
 ;   L2F           s = v >> 63, m = (v ^ s) - s read unsigned (2^63 at Long.MIN_VALUE)
 ;                 sel = -(((m >>> 52) + Long.MAX_VALUE) >>> 63), all ones where
 ;                   m >>> 52 != 0 (big)
+;                 by default (VARKA-583) s = -(v >>> 63) and
+;                   sel = ((m - 2^52) >>> 63) - 1, each shown equal to the above,
+;                   sel for every m up to 2^63, which every m is
 ;                 t12 = (m >>> 12) | (((m & 0xFFF) + 0xFFF) >>> 12)
 ;                 t = m ^ ((m ^ t12) & sel), t12 where big and m elsewhere
 ;                 p = (bits(0x1p52) | (v & Long.MIN_VALUE)) + (sel & (12 << 52))
@@ -36,8 +43,9 @@
 ; d is t * 2^12 exactly; p's sign bit is v's, which negates both operands of the
 ; subtraction.
 ;
-; The claims: the split is (double) v and the magic is (double) v inside its window, and
-; the L2F form is (float) v, for every long.
+; The claims: both splits are (double) v and the magic is (double) v inside its window, and
+; the L2F form is (float) v, for every long. The xor split is proven as the split is: its
+; two parts exact, by the same pair of directed conversions, and their exact sum v.
 ;
 ; The split is proven in three lemmas, since stated whole it is past the per-check limit
 ; (Z3 past 30 s, cvc5 about 17 s): dh and dl are exact, the doubles of hi * 2^32 and of lo,
@@ -169,6 +177,61 @@
 (assert (not (= ((_ sign_extend 2) v) (bvadd (bvshl ((_ sign_extend 2) (bvashr v #x000000000000001f)) (_ bv32 66)) ((_ zero_extend 2) (bvand v #x00000000ffffffff))))))
 (check-sat)
 
+(echo "l2d xor split: the high part is exact, the double of hi * 2^32 - 2^52, for every int hi: expect unsat")
+(reset)
+(set-logic ALL)
+(define-fun rto.M () Float64 ((_ to_fp 11 53) #x4338000000000000))
+(define-fun rto.P52 () Float64 ((_ to_fp 11 53) #x4330000000000000))
+(define-fun rto.P32 () Float64 ((_ to_fp 11 53) #x41f0000000000000))
+(define-fun rto.bitsToDouble ((x (_ BitVec 64))) Float64 ((_ to_fp 11 53) x))
+(declare-const hi (_ BitVec 32))
+(assert (not (and (= (fp.sub RNE (rto.bitsToDouble (bvxor ((_ zero_extend 32) hi) #x4530000080000000)) ((_ to_fp 11 53) #x4530000080100000)) ((_ to_fp 11 53) RTN (bvsub (concat ((_ sign_extend 2) hi) #x00000000) ((_ zero_extend 2) #x0010000000000000)))) (= (fp.sub RNE (rto.bitsToDouble (bvxor ((_ zero_extend 32) hi) #x4530000080000000)) ((_ to_fp 11 53) #x4530000080100000)) ((_ to_fp 11 53) RTP (bvsub (concat ((_ sign_extend 2) hi) #x00000000) ((_ zero_extend 2) #x0010000000000000)))))))
+(check-sat)
+
+(echo "l2d xor split: the low part is exact, the double of 2^52 + lo, for every unsigned int lo: expect unsat")
+(reset)
+(set-logic ALL)
+(define-fun rto.M () Float64 ((_ to_fp 11 53) #x4338000000000000))
+(define-fun rto.P52 () Float64 ((_ to_fp 11 53) #x4330000000000000))
+(define-fun rto.P32 () Float64 ((_ to_fp 11 53) #x41f0000000000000))
+(define-fun rto.bitsToDouble ((x (_ BitVec 64))) Float64 ((_ to_fp 11 53) x))
+(declare-const lo (_ BitVec 32))
+(assert (not (and (= (rto.bitsToDouble (bvor ((_ zero_extend 32) lo) #x4330000000000000)) ((_ to_fp_unsigned 11 53) RTZ (bvadd ((_ zero_extend 32) lo) #x0010000000000000))) (= (rto.bitsToDouble (bvor ((_ zero_extend 32) lo) #x4330000000000000)) ((_ to_fp_unsigned 11 53) RTP (bvadd ((_ zero_extend 32) lo) #x0010000000000000))))))
+(check-sat)
+
+(echo "l2d xor split: v >>> 32 is v's high word and the parts' exact values sum to v, for every long, over 66 bits: expect unsat")
+(reset)
+(set-logic ALL)
+(define-fun rto.M () Float64 ((_ to_fp 11 53) #x4338000000000000))
+(define-fun rto.P52 () Float64 ((_ to_fp 11 53) #x4330000000000000))
+(define-fun rto.P32 () Float64 ((_ to_fp 11 53) #x41f0000000000000))
+(define-fun rto.bitsToDouble ((x (_ BitVec 64))) Float64 ((_ to_fp 11 53) x))
+(declare-const v (_ BitVec 64))
+(assert (not (and (= (bvlshr v #x0000000000000020) ((_ zero_extend 32) ((_ extract 63 32) v))) (= ((_ sign_extend 2) v) (bvadd (bvsub (concat ((_ sign_extend 2) ((_ extract 63 32) v)) #x00000000) ((_ zero_extend 2) #x0010000000000000)) ((_ zero_extend 2) (bvadd (bvand v #x00000000ffffffff) #x0010000000000000)))))))
+(check-sat)
+
+(echo "l2d xor split: without 2^63 in the high word's magic it is not (double) v: expect sat")
+(reset)
+(set-logic ALL)
+(define-fun rto.M () Float64 ((_ to_fp 11 53) #x4338000000000000))
+(define-fun rto.P52 () Float64 ((_ to_fp 11 53) #x4330000000000000))
+(define-fun rto.P32 () Float64 ((_ to_fp 11 53) #x41f0000000000000))
+(define-fun rto.bitsToDouble ((x (_ BitVec 64))) Float64 ((_ to_fp 11 53) x))
+(declare-const v (_ BitVec 64))
+(assert (not (= (fp.add RNE (fp.sub RNE (rto.bitsToDouble (bvxor (bvlshr v #x0000000000000020) #x4530000000000000)) ((_ to_fp 11 53) #x4530000080100000)) (rto.bitsToDouble (bvor (bvand v #x00000000ffffffff) #x4330000000000000))) ((_ to_fp 11 53) RNE v))))
+(check-sat)
+
+(echo "l2d xor split: without 2^52 in the bias it is not (double) v: expect sat")
+(reset)
+(set-logic ALL)
+(define-fun rto.M () Float64 ((_ to_fp 11 53) #x4338000000000000))
+(define-fun rto.P52 () Float64 ((_ to_fp 11 53) #x4330000000000000))
+(define-fun rto.P32 () Float64 ((_ to_fp 11 53) #x41f0000000000000))
+(define-fun rto.bitsToDouble ((x (_ BitVec 64))) Float64 ((_ to_fp 11 53) x))
+(declare-const v (_ BitVec 64))
+(assert (not (= (fp.add RNE (fp.sub RNE (rto.bitsToDouble (bvxor (bvlshr v #x0000000000000020) #x4530000080000000)) ((_ to_fp 11 53) #x4530000080000000)) (rto.bitsToDouble (bvor (bvand v #x00000000ffffffff) #x4330000000000000))) ((_ to_fp 11 53) RNE v))))
+(check-sat)
+
 (echo "l2d magic: bitsToDouble(v + MB) - M is (double) v for every |v| <= 2^51: expect unsat")
 (reset)
 (set-logic ALL)
@@ -226,6 +289,52 @@
 (define-fun rto.bitsToDouble ((x (_ BitVec 64))) Float64 ((_ to_fp 11 53) x))
 (declare-const v (_ BitVec 64))
 (assert (not (= ((_ to_fp 8 24) RNE v) (ite (= (bvashr v #x000000000000003f) #x0000000000000000) ((_ to_fp_unsigned 8 24) RNE (bvxor v (bvashr v #x000000000000003f))) (fp.neg ((_ to_fp_unsigned 8 24) RNE (bvxor v (bvashr v #x000000000000003f))))))))
+(check-sat)
+
+(echo "l2f: the default's sign -(v >>> 63) is v >> 63, for every long: expect unsat")
+(reset)
+(set-logic ALL)
+(define-fun rto.M () Float64 ((_ to_fp 11 53) #x4338000000000000))
+(define-fun rto.P52 () Float64 ((_ to_fp 11 53) #x4330000000000000))
+(define-fun rto.P32 () Float64 ((_ to_fp 11 53) #x41f0000000000000))
+(define-fun rto.bitsToDouble ((x (_ BitVec 64))) Float64 ((_ to_fp 11 53) x))
+(declare-const v (_ BitVec 64))
+(assert (not (= (bvneg (bvlshr v #x000000000000003f)) (bvashr v #x000000000000003f))))
+(check-sat)
+
+(echo "l2f: m is at most 2^63 read unsigned, for every long: expect unsat")
+(reset)
+(set-logic ALL)
+(define-fun rto.M () Float64 ((_ to_fp 11 53) #x4338000000000000))
+(define-fun rto.P52 () Float64 ((_ to_fp 11 53) #x4330000000000000))
+(define-fun rto.P32 () Float64 ((_ to_fp 11 53) #x41f0000000000000))
+(define-fun rto.bitsToDouble ((x (_ BitVec 64))) Float64 ((_ to_fp 11 53) x))
+(declare-const v (_ BitVec 64))
+(assert (not (bvule (bvsub (bvxor v (bvashr v #x000000000000003f)) (bvashr v #x000000000000003f)) #x8000000000000000)))
+(check-sat)
+
+(echo "l2f: the default's sel ((m - 2^52) >>> 63) - 1 is the shifts' sel, for every m up to 2^63: expect unsat")
+(reset)
+(set-logic ALL)
+(define-fun rto.M () Float64 ((_ to_fp 11 53) #x4338000000000000))
+(define-fun rto.P52 () Float64 ((_ to_fp 11 53) #x4330000000000000))
+(define-fun rto.P32 () Float64 ((_ to_fp 11 53) #x41f0000000000000))
+(define-fun rto.bitsToDouble ((x (_ BitVec 64))) Float64 ((_ to_fp 11 53) x))
+(declare-const m (_ BitVec 64))
+(assert (bvule m #x8000000000000000))
+(assert (not (= (bvsub (bvlshr (bvsub m #x0010000000000000) #x000000000000003f) #x0000000000000001) (bvneg (bvlshr (bvadd (bvlshr m #x0000000000000034) #x7fffffffffffffff) #x000000000000003f)))))
+(check-sat)
+
+(echo "l2f: and it is not at m = 2^63 + 2^52, past every m: expect sat")
+(reset)
+(set-logic ALL)
+(define-fun rto.M () Float64 ((_ to_fp 11 53) #x4338000000000000))
+(define-fun rto.P52 () Float64 ((_ to_fp 11 53) #x4330000000000000))
+(define-fun rto.P32 () Float64 ((_ to_fp 11 53) #x41f0000000000000))
+(define-fun rto.bitsToDouble ((x (_ BitVec 64))) Float64 ((_ to_fp 11 53) x))
+(declare-const m (_ BitVec 64))
+(assert (= m #x8010000000000000))
+(assert (not (= (bvsub (bvlshr (bvsub m #x0010000000000000) #x000000000000003f) #x0000000000000001) (bvneg (bvlshr (bvadd (bvlshr m #x0000000000000034) #x7fffffffffffffff) #x000000000000003f)))))
 (check-sat)
 
 (echo "l2f: v & Long.MIN_VALUE is set exactly where v >> 63 is, for every long: expect unsat")

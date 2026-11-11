@@ -756,3 +756,123 @@ its per-tree check under both solvers.
    the suite cannot see the emitter differ: `Analysis` unqualifies a guard past
    `MAX_ARM_CHAINS` arm chains and on a cycle, declining more. That is the safe direction, and
    506b's check 5 is where it matters.
+
+### 10.2 506b1: the specification, held to Spark (11 November 2026)
+
+*Branch `varka-506b`, from master at `62e1ba84593`, after 506a2 merged as #1477; local commits
+only.*
+
+**Cut under the size cap and the order.** 5 item 3 with 5 item 2's `WordConst` is about four
+days and well past 1000 counted lines, so 506b lands in three pull requests, each built and
+validated, in the order their inputs exist:
+
+- **506b1, this branch:** the arm-loads fix below, the specification prelude
+  `decimal_spec.smt2` (hand), its check file `decimal_spec_check.smt2` (rendered from Spark's
+  `Decimal`), and the prose of 2.5 that the 64-bit shapes read. Test-side and prose only: no
+  emitted byte moves.
+- **506b2, left:** `decimal_refinement.smt2` for the 64-bit shapes of 347 to 349, rendered by the
+  printer from each coverage row's lowered graph against `spec.dec.*`, 3 item 5's diff against
+  `refinement.smt2`'s hand rows, and those rows removed. It needs no `WordConst`: the 64-bit
+  column's load check is `DecimalColumn`'s template (10.1).
+- **506b3, left:** `WordConst` with every site 5 item 2 lists, the 128-bit load check moved into
+  a lowering with the bytes oracle holding the move, and 359's shapes rendered, retiring
+  `decimal128.smt2`'s kernel sections.
+
+**The arm-loads fix, a correction to 506a2's templates and to 10.1's finding 2.** The emitter
+never qualifies a `DecimalColumn` or `DecimalWord` slot check by an arm (`Analysis.armChainsOf`):
+a bad slot under the arm a lane does not take still declines the batch. The `IfElse` and `CondIf`
+templates now OR both arms' slot checks into the decline, the samples' oracle states the same
+rule, and a hand tree puts a decimal column under an arm; with the arms' checks dropped the suite
+fails on it and on drawn decimal trees. Finding 2's "a guard under an arm declines only where the
+arm is taken" held for the range guards and not for a slot check; check 5 of 506b2 reads the rule
+as corrected.
+
+**What 506b1 builds.**
+
+1. **`decimal_spec.smt2`**, by hand, a prelude asked for by `; prelude: decimal_spec.smt2`
+   (506a0's rule): `spec.dec.pow10` for `0 <= k <= 38`; `spec.dec.fits u p`, `|u| <= 10^p - 1`;
+   `spec.dec.rescale`; `spec.dec.add` and `spec.dec.sub` at `max(s1, s2)`; `spec.dec.mul`, the
+   exact product at `s1 + s2`; `spec.dec.neg` and `spec.dec.abs`; `spec.dec.cmp`, the comparison
+   of the rationals as `-1, 0, 1`; and `spec.dec.halfup u k`, a cut by `k` digits rounding half
+   away from zero. Each takes the precisions and scales as integers, applied to the shape's
+   constants, so a refinement over them stays linear but for a product of two operands.
+2. **`decimal_spec_check.smt2`**, rendered by `VarkaDecimalSpecFile`, which reads Spark's
+   `Decimal` and `DecimalType` and nothing of Varka's: one check per definition over boundary
+   operands (zero, the ties 5, 15 and 150 and their neighbours, the ends of 18 and 38 digits and
+   of a long, `2^64`, at scales 0, 2 and 18, each built compact over a long within 18 digits as
+   Spark's readers build it, so the long arms of `+`, `-`, `compare` and negation are the ones
+   checked, and over a `BigDecimal` past it; a result at another scale than the definition
+   states fails the render), `fits` against `Decimal.toPrecision`, the path
+   `checkDecimalOverflow` takes, at every precision from 1 to 38, and `halfup` against
+   `toPrecision` to a smaller scale.
+3. **The prose.** `STANDARD.md` 4.1 states Spark's choices over `DECIMAL` with their sources:
+   the result types (`resultDecimalType`), the cut to 38 digits (`adjustPrecisionScale`,
+   `bounded`), the product's 39 digits toward zero (`Decimal.MATH_CONTEXT`) and `HALF_UP` at the
+   result type (`checkDecimalOverflow`). `DELTAS.md` 1.2 is corrected: VARKA-244's check
+   predates the decimal rows, and a decimal result past its type's precision is null outside
+   ANSI; `VarkaStandardDeltasSuite`'s test of the delta gains a `DECIMAL(38, 0)` product of
+   `10^38`, null and, under ANSI, `NUMERIC_VALUE_OUT_OF_RANGE`, 22003.
+
+**Settled from the plan's own rules, not the owner's.**
+
+- **No result type in the prelude.** 2.5 asks for the result-type rules in the prose; a shape's
+  types are Spark's analyzer's, read from its plan, so an SMT definition of them would state a
+  constant twice. The prose states the rule, and the rendered refinement takes the plan's types.
+- **The product is defined exactly, below `10^39`.** Spark's `*` rounds to 39 digits toward zero
+  first; every product of two operands of 19 digits or fewer is below `10^39`, so the exact
+  product is Spark's for every shape before the capped forms, and the check file leaves out the
+  pairs past it. The capped product's rule is 506c's, with 361 and 362.
+- **The casts' rules of 350 and 364 are left** to the pull requests that render those shapes
+  (506c, 364): no shape of 506b2 casts.
+- **The delta is a correction to 1.2**, whose name states it, rather than a new name: one more
+  place where overflow yields null, recorded as a correction since 1.2 said nothing else did.
+
+**Validation.** `decimal_spec_check.smt2`, nine checks over 1874 distinct operand sets: `pow10`
+at 40 exponents, `fits` at 264 (every precision, both signs, at scales 0 and `p / 2`), `neg` and
+`abs` at 22 each, `add`, `sub` and `cmp` at 432 each, `mul` at 120 (the pairs below `10^39`) and
+`halfup` at 110. Laptop times, whole file: Z3 0.09 s, cvc5 0.42 s; the regenerated
+`smt_nodes_check.smt2` is unchanged by the cherry-pick onto merged 506a2 and holds, Z3 0.06 s and
+cvc5 0.24 s. Each of the nine checks alone holds under both solvers, the slowest cvc5's 0.09 s
+for `fits`. Every proof holds under both solvers, `--lint` takes 56 s on the laptop, all files,
+and the self-test catches every planted failure. Before the file was written, a scratch rendering of two shapes against the prelude
+(`d9 < d9s4`, and `d9 + d9b < d18` under LEGACY, the five checks each) held under both solvers,
+and the first with its kernel's factor planted as 10 for 100 was refuted by check 4, so the
+definitions serve the five checks as 506b2 will state them.
+
+**Not vacuous, by planted faults run and reverted**, each failing its own check and only it
+under both solvers: `halfup` rounding a tie toward zero (`4` for `5` in the half), `fits`
+admitting `10^p`, `cmp` comparing the unscaled values with the scales ignored, and `abs`
+wrapping as a long.
+
+**Findings.**
+
+1. **`DELTAS.md` 1.2 was false from 349 on** (corrected above): it said no operation of the
+   fragment returns null where the standard raises, and 349's LEGACY rows in `refinement.smt2`
+   refine exactly that null. No suite caught it, since the deltas' tests check what each delta
+   says and not that the list is complete.
+2. **506b2 cannot retire every 349 hand row.** `d8 * d9 <= d9b` and `try_multiply(d8, d9) IS
+   NULL` multiply two column words, a product of two unknowns that are not limbs, which 2.4's rule
+   refuses; so the printer lists those two shapes as refused, and their hand rows in
+   `refinement.smt2` and the ring bound in `decimal64.smt2` stay, the conservative reading of 2.5's
+   table against 2.4.
+3. **The decline rule the templates state is a hand copy of the emitter's** (the review's,
+   triaged for 506b2). `Analysis.armChainsOf` leaves a guard unqualified, declining under either
+   arm, not only for a decimal slot check but also with `guardUnderArm` off, past
+   `MAX_ARM_CHAINS`, on an arm cycle (`unqualifyArmCycles`), for a stored-value guard with
+   several chains, and inside a materialized date (`armChainsIn`); the
+   templates and the samples' oracle state only the slot case, so a printed decline can be
+   smaller than the emitted one. 506b2's check 5 reads it, so 506b2 derives the rule from the
+   emitter's own `Analysis` rather than restating it.
+4. **The templates' slot-check walk is unshared** (the review's): `loads` re-walks each choice's
+   subtree with no visited set, so a CASE chain of `N` arms prints `O(N^2)` terms. The hand and
+   fuzzed trees are small; 506b2's shapes are the first where it would show, and a set-based walk
+   is that pull request's if they do.
+
+**The review** (`/code-review high`, one triaged round) found ten points; fixed here: the check
+file now builds compact operands too and fails on a result at another scale than stated, repeated
+equations are dropped (the counts above are distinct), `decimal_spec.smt2` states the exponent
+range `halfup` is defined over (a capped product's cut by 39 is 506c's), `DELTAS.md` 1.2's
+definition moves the result `HALF_UP` to its scale before the fit and its table row keeps
+"outside the fragment", the README lists the two files, and the samples' slot test is a pattern
+test rather than a switch with a `default`. Left, as findings 3 and 4 above: the decline rule
+derived from the emitter's, and the walk's sharing.

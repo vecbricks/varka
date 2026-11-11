@@ -5,8 +5,8 @@ BYTE	BYTE	present	20261109	intArith(col:byte)	values:BYTE	owed:352	-	present
 SHORT	SHORT	present	20261110	intArith(col:short)	values:SHORT	owed:352	-	present
 INT	INT	present	20260903	intArith(col)	values:DATE,YM_INTERVAL	present	i	present
 LONG	LONG	present	20260919	intArith(col:long)	values:LONG	present	l,l2	present
-FLOAT	FLOAT	owed:341	-	-	-	present	f,f2	present
-DOUBLE	DOUBLE	owed:341	-	-	-	present	x,x2	present
+FLOAT	FLOAT	present	20261111	col:float	values:FLOAT	present	f,f2	present
+DOUBLE	DOUBLE	present	20261112	col:double	values:DOUBLE	present	x,x2	present
 DECIMAL	LONG	present	20261101	dec	decimal draw	owed:347	-	owed:347
 DATE	INT	present	20260903	days(col)	values:DATE,YM_INTERVAL	present	d,d2	present
 TIMESTAMP_NTZ	LONG	present	20260919	col:long (untyped)	values:LONG	present	ntz,ntz2	present

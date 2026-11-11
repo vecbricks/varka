@@ -647,14 +647,16 @@ final class VarkaEmitBudget {
           : n.laneType().isNarrow()
               || (n.abs() && n.laneType() == VarkaVectorIR.LaneType.LONG) ? 3 : 1;
       // At a floating lane a compare is Spark's order built from IEEE compares and NaN tests,
-      // and a pick is that compare and its blend: about five lane calls each.
-      case Compare n when n.left().laneType().isFloating() -> FLOATING_ORDER_WEIGHT;
+      // and a pick is that compare and its blend: about five lane calls each. An IEEE compare
+      // is the one call, as at an integral lane.
+      case Compare n when n.left().laneType().isFloating() && !n.op().isIeee() ->
+          FLOATING_ORDER_WEIGHT;
       case NullSafeEqual n when n.left().laneType().isFloating() -> FLOATING_ORDER_WEIGHT;
       case Greatest n when n.laneType().isFloating() -> FLOATING_ORDER_WEIGHT;
       case Least n when n.laneType().isFloating() -> FLOATING_ORDER_WEIGHT;
       // A long converted to a floating lane: one convertShape at level 3, and below it the AVX2
       // form, the larger, whose calls the weight counts as the long division's does: which one
-      // emits cannot be asked here.
+      // emits cannot be asked here. For L2D that is the largest of its forms, 343b1's split.
       case ConvertLane n when n.child().laneType() == VarkaVectorIR.LaneType.LONG ->
           n.target() == VarkaVectorIR.LaneType.FLOAT
               ? VarkaConversionLowering.ODD_CALLS : VarkaConversionLowering.SPLIT_CALLS;
