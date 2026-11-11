@@ -538,7 +538,7 @@ What survives and what does not:
 
 - **Survives:** split F with its transpose out of line does not box at the 1 to 10 KB scale in
   any JVM. It is exact, at about 3.6 times B's rate at two lanes, and the transpose costs about
-  2 ns a row.
+  2 ns a row (a ratio under 1.3 on the laptop, so indicative only).
 - **Does not survive:** allocation-free. After the `add` loops every JVM, at either block size,
   keeps 16 bytes a row at two lanes and 12 at four. That is exactly one `long[L]` a lane-group
   iteration (32 bytes for 2 rows, 48 for 4). JFR puts most of those samples at
