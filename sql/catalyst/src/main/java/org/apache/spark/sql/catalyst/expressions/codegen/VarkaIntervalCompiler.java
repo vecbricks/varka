@@ -394,10 +394,14 @@ public final class VarkaIntervalCompiler {
   /**
    * {@code IntMath.divide(months, num, RoundingMode.HALF_UP)} for a literal {@code num} of the
    * int family. Spark raises before dividing, in every mode, on {@code num == 0} and on
-   * {@code months == Int.MinValue && num == -1}; the compiler refuses both literals (the row
-   * engine raises), because a negation that declined the batch on {@code Int.MinValue} raised
-   * an error without the SQL context Spark's carries. A column, a fractional or a decimal
-   * divisor, and a {@code Long} literal (which takes {@code LongMath.divide}), decline.
+   * {@code months == Int.MinValue && num == -1}; the compiler refuses both literals. {@code -1}
+   * would fuse as the checked negation {@code -ym} does, but the batch it declines falls back to
+   * a projection compiled on the executor, where {@code DivideYMInterval}'s origin is empty
+   * ({@code TreeNode} is not serializable, so a deserialized node's {@code origin} is read again
+   * from {@code CurrentOrigin}), and the raise loses Spark's {@code == SQL ==} block. Declined,
+   * a projection with nothing else to fuse stays Spark's whole-stage code, whose error keeps it
+   * (`VARKA-414.md` 9). A column, a fractional or a decimal divisor, and a {@code Long} literal
+   * (which takes {@code LongMath.divide}), decline.
    *
    * <p>HALF_UP stays on the int lane for {@code |d| >= 2}, with no widening and no guard. With
    * {@code q = m / d} truncated and {@code r = m - q * d} (so {@code |r| < |d|}, and {@code r}
@@ -434,8 +438,8 @@ public final class VarkaIntervalCompiler {
       return sink.decline("interval divided by a literal zero raises", m);
     }
     if (d == -1) {
-      return sink.decline("interval divided by -1 overflows at Int.MinValue, which the row "
-          + "engine raises on", m);
+      return sink.decline("interval divided by -1 raises at Int.MinValue, and a declined "
+          + "batch's fallback would raise it without its SQL context (VARKA-414)", m);
     }
     int mark = literals.size();
     Optional<VarkaVectorIR> x =

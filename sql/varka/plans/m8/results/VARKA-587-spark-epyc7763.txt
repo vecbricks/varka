@@ -1,0 +1,110 @@
+VARKA-587: does Spark's math answer depend on the host? SparkMathHostBenchmark on the EPYC 7763
+runner, 9 November 2026.
+
+Machine: a GitHub-hosted ubuntu-latest runner, AMD EPYC 7763 (Zen 3, x86_64, AVX2): the job's CPU
+check (dev/varka_datapath.sh --expected-cpu "AMD EPYC 7763") printed "Runner CPU: AMD EPYC 7763
+64-Core Processor", and the sidecar's "cpu:" line names the same. JDK: Azul's Zulu 25.38+109-CA,
+build 25.0.5.0.3+1-LTS. Run: benchmark.yml run 42612245140 on MaxGekk/spark, attempt 3 (attempts
+1 and 2 drew another CPU and stopped at the CPU check), job 129309293284, 9 November 2026 17:38 to
+17:55 UTC, class SparkMathHostBenchmark, jdk=25, extra-java-options "--add-modules
+jdk.incubator.vector", from branch varka-587-probe-run at f720069e66b (aa06cec20ca of
+varka-587-post-math-host plus a change to varka-canary.yml only, so the benchmark is the same
+file). Not a timing.
+
+Part E equals part E of VARKA-587-math-host-laptop.txt line for line, every count and digest,
+except the "host:" line's JDK build (Zulu's 25.0.5 here, Ubuntu's 25.0.4.1 there).
+
+The harness's provenance sidecar (sql/core/benchmarks/SparkMathHostBenchmark-jdk25-provenance.txt)
+follows, then the results file it wrote (SparkMathHostBenchmark-jdk25-results.txt) as part E, the
+name the laptop's file gives the same run.
+
+benchmark:   *.SparkMathHostBenchmark
+where:       a GitHub-hosted runner, through .github/workflows/benchmark.yml
+run:         https://github.com/MaxGekk/spark/actions/runs/42612245140
+commit:      f720069e66b (varka-587-probe-run of MaxGekk/spark)
+date:        2026-11-09T17:54:28Z
+inputs:      jdk=25 scala=2.13 num-splits=1 extra-java-options=--add-modules jdk.incubator.vector
+jdk:         OpenJDK Runtime Environment Zulu25.38+109-CA (build 25.0.5.0.3+1-LTS)
+kernel:      7.0.0-1017-azure
+cpu:         AMD EPYC 7763 64-Core Processor
+datapath:    45.0 / 90.1 / 90.1 lane-ops/ns at 128 / 256 / 512 bits; 256:128 = 2.00 (control), 512:256 = 1.00 (dev/varka_datapath.sh)
+pinned to:   none (the runner is not pinned)
+
+==== E. SparkMathHostBenchmark, JDK 25 ====
+================================================================================================
+Spark's math functions against StrictMath, by raw bits
+================================================================================================
+
+host: os.arch=amd64 java.runtime.version=25.0.5.0.3+1-LTS spark=5.0.0-SNAPSHOT
+rows: 262144, 65536 a draw (bit patterns, [-750,750], [-2,2], near zero), seed 587; a null answer counts as NaN
+
+whole-stage:
+  sin(x)       rows differing from StrictMath=5170 maxUlp=1 nanPayload=0 digest=2580424060811dee
+  cos(x)       rows differing from StrictMath=5344 maxUlp=1 nanPayload=0 digest=63559e6795565459
+  tan(x)       rows differing from StrictMath=5708 maxUlp=1 nanPayload=0 digest=788548d47b50fe52
+  sec(x)       rows differing from StrictMath=4296 maxUlp=2 nanPayload=0 digest=6e35e5aef50c5ac7
+  csc(x)       rows differing from StrictMath=4166 maxUlp=2 nanPayload=0 digest=e84a0a57a782d1cd
+  cot(x)       rows differing from StrictMath=4852 maxUlp=2 nanPayload=0 digest=4b48778aac5822aa
+  tanh(x)      rows differing from StrictMath=32396 maxUlp=2 nanPayload=0 digest=8e16096b016d8887
+  cbrt(x)      rows differing from StrictMath=21640 maxUlp=1 nanPayload=19 digest=651ff231260fd6d6
+  asin(x)      rows differing from StrictMath=0 maxUlp=0 nanPayload=0 digest=a97f5ccb807f6600
+  atan2(x, y)  rows differing from StrictMath=0 maxUlp=0 nanPayload=0 digest=41f6fabedf7a5d84
+  exp(x)       rows differing from StrictMath=0 maxUlp=0 nanPayload=0 digest=395fb682550e8d21
+  ln(x)        rows differing from StrictMath=0 maxUlp=0 nanPayload=0 digest=e762dcba5545cefe
+  log10(x)     rows differing from StrictMath=0 maxUlp=0 nanPayload=0 digest=a2195662fd2ff3d3
+  pow(x, y)    rows differing from StrictMath=0 maxUlp=0 nanPayload=0 digest=2a11afd6b894a76b
+
+generated:
+  sin(x)       rows differing from StrictMath=5170 maxUlp=1 nanPayload=0 digest=2580424060811dee
+  cos(x)       rows differing from StrictMath=5344 maxUlp=1 nanPayload=0 digest=63559e6795565459
+  tan(x)       rows differing from StrictMath=5708 maxUlp=1 nanPayload=0 digest=788548d47b50fe52
+  sec(x)       rows differing from StrictMath=4296 maxUlp=2 nanPayload=0 digest=6e35e5aef50c5ac7
+  csc(x)       rows differing from StrictMath=4166 maxUlp=2 nanPayload=0 digest=e84a0a57a782d1cd
+  cot(x)       rows differing from StrictMath=4852 maxUlp=2 nanPayload=0 digest=4b48778aac5822aa
+  tanh(x)      rows differing from StrictMath=32396 maxUlp=2 nanPayload=0 digest=8e16096b016d8887
+  cbrt(x)      rows differing from StrictMath=21640 maxUlp=1 nanPayload=19 digest=651ff231260fd6d6
+  asin(x)      rows differing from StrictMath=0 maxUlp=0 nanPayload=0 digest=a97f5ccb807f6600
+  atan2(x, y)  rows differing from StrictMath=0 maxUlp=0 nanPayload=0 digest=41f6fabedf7a5d84
+  exp(x)       rows differing from StrictMath=0 maxUlp=0 nanPayload=0 digest=395fb682550e8d21
+  ln(x)        rows differing from StrictMath=0 maxUlp=0 nanPayload=0 digest=e762dcba5545cefe
+  log10(x)     rows differing from StrictMath=0 maxUlp=0 nanPayload=0 digest=a2195662fd2ff3d3
+  pow(x, y)    rows differing from StrictMath=0 maxUlp=0 nanPayload=0 digest=2a11afd6b894a76b
+
+interpreted:
+  sin(x)       rows differing from StrictMath=5170 maxUlp=1 nanPayload=0 digest=2580424060811dee
+  cos(x)       rows differing from StrictMath=5344 maxUlp=1 nanPayload=0 digest=63559e6795565459
+  tan(x)       rows differing from StrictMath=5708 maxUlp=1 nanPayload=0 digest=788548d47b50fe52
+  sec(x)       rows differing from StrictMath=4296 maxUlp=2 nanPayload=0 digest=6e35e5aef50c5ac7
+  csc(x)       rows differing from StrictMath=4166 maxUlp=2 nanPayload=0 digest=e84a0a57a782d1cd
+  cot(x)       rows differing from StrictMath=4852 maxUlp=2 nanPayload=0 digest=4b48778aac5822aa
+  tanh(x)      rows differing from StrictMath=32396 maxUlp=2 nanPayload=0 digest=8e16096b016d8887
+  cbrt(x)      rows differing from StrictMath=21640 maxUlp=1 nanPayload=19 digest=651ff231260fd6d6
+  asin(x)      rows differing from StrictMath=0 maxUlp=0 nanPayload=0 digest=a97f5ccb807f6600
+  atan2(x, y)  rows differing from StrictMath=0 maxUlp=0 nanPayload=0 digest=41f6fabedf7a5d84
+  exp(x)       rows differing from StrictMath=0 maxUlp=0 nanPayload=0 digest=395fb682550e8d21
+  ln(x)        rows differing from StrictMath=0 maxUlp=0 nanPayload=0 digest=e762dcba5545cefe
+  log10(x)     rows differing from StrictMath=0 maxUlp=0 nanPayload=0 digest=a2195662fd2ff3d3
+  pow(x, y)    rows differing from StrictMath=0 maxUlp=0 nanPayload=0 digest=2a11afd6b894a76b
+
+================================================================================================
+SELECT f(literal), folded while the query is planned
+================================================================================================
+
+sin(0.48)    0.4617791755414829     StrictMath 0.46177917554148284    differs
+cos(0.1)     0.9950041652780258     StrictMath 0.9950041652780257     differs
+tan(0.08)    0.08017110470807255    StrictMath 0.08017110470807257    differs
+tanh(0.02)   0.019997333759930933   StrictMath 0.01999733375993093    differs
+cbrt(0.22)   0.6036810736797686     StrictMath 0.6036810736797685     differs
+exp(0.5)     1.6487212707001282     StrictMath 1.6487212707001282     same
+ln(0.5)      -0.6931471805599453    StrictMath -0.6931471805599453    same
+
+================================================================================================
+reflect into StrictMath, a way to the same answer on every host
+================================================================================================
+
+  CAST(reflect('java.lang.StrictMath', 'sin', x) AS DOUBLE) rows differing from StrictMath=0 nanPayload=29
+  CAST(reflect('java.lang.StrictMath', 'cos', x) AS DOUBLE) rows differing from StrictMath=0 nanPayload=29
+  CAST(reflect('java.lang.StrictMath', 'tan', x) AS DOUBLE) rows differing from StrictMath=0 nanPayload=29
+  CAST(reflect('java.lang.StrictMath', 'tanh', x) AS DOUBLE) rows differing from StrictMath=0 nanPayload=29
+  CAST(reflect('java.lang.StrictMath', 'cbrt', x) AS DOUBLE) rows differing from StrictMath=0 nanPayload=29
+

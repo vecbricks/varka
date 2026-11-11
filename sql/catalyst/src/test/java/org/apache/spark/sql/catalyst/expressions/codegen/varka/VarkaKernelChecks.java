@@ -21,11 +21,14 @@ import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.lang.reflect.InvocationTargetException;
+import java.math.BigInteger;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
+import java.util.IdentityHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.OptionalLong;
@@ -37,6 +40,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Boo
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BoolOutput;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ColumnRef;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Cond;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.DecimalWord;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.GuardedRange;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.NarrowLane;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WidenDecimal;
@@ -657,6 +661,29 @@ public final class VarkaKernelChecks {
   }
 
   /**
+   * {@link #runLoadedLong} with Spark's answers for a kernel whose every column is a decimal in
+   * Arrow's sixteen-byte slots (VARKA-359): a batch's drawn value is an index into
+   * {@code values}, the unscaled values its rows hold, and each slot is written as their low and
+   * high words, so a 128-bit column's two words both carry bits. The reference reads a
+   * {@link DecimalWord}'s word of the row, and {@code spark} is handed the indices, which its
+   * caller turns back into values.
+   */
+  public static int runLoadedDecimal(String context, VarkaFusedKernel kernel,
+      List<VarkaVectorIR> roots, int numInputs, long[] lits, int[] intLits, LongBatch batch,
+      BigInteger[] values, boolean declineAllowed, SparkAnswers spark, CallHook hook) {
+    // The slot lane writes long outputs alone: a decimal store, a narrowing root and a kernel
+    // of both lanes need the long lane's handling of them, which it does not carry yet.
+    if (holdsBothLanes(roots) || roots.stream().anyMatch(r -> r instanceof WidenDecimal
+        || r instanceof NarrowLane)) {
+      throw new IllegalArgumentException(context + ": the decimal slot lane checks long and "
+          + "condition outputs only, not " + roots);
+    }
+    return runLoaded(context, kernel, roots, numInputs,
+        new DecimalSlotLane(batch, lits, intLits, values, numInputs, new IdentityHashMap<>()),
+        declineAllowed, spark, ValidityFill.BOTH, hook);
+  }
+
+  /**
    * One batch's buffers, built once in {@code arena} as {@link #runLoaded} builds a compared
    * batch's, and a call of {@code kernel} over them that returns its status and compares nothing:
    * for {@link VarkaCompiledCheck}'s warm-up, which calls one set of buffers many times. Each
@@ -790,7 +817,8 @@ public final class VarkaKernelChecks {
    * sentinel an unwritten output keeps, the {@code run} overload, the reference's overload, and
    * how an output is read back. {@link #runOne} is the one harness both lanes go through.
    */
-  private sealed interface Lane permits IntLane, LongLane, MixedLane, StoredNarrowLane {
+  private sealed interface Lane
+      permits IntLane, LongLane, MixedLane, StoredNarrowLane, DecimalSlotLane {
     int length();
 
     boolean[][] nulls();
@@ -1061,6 +1089,131 @@ public final class VarkaKernelChecks {
       return root instanceof WidenDecimal ? slot(out, i)
           : root instanceof NarrowLane ? out.get(ValueLayout.JAVA_INT, i * 4L)
           : out.get(ValueLayout.JAVA_LONG, i * 8L);
+    }
+  }
+
+  /**
+   * Columns of decimals in Arrow's sixteen-byte slots, at the long lane (VARKA-359): a drawn
+   * value is an index into {@code values}, and a slot holds that value's two words, the low then
+   * the high, so a 64-bit decimal's high word is its sign extension and a 128-bit one's carries
+   * bits of its own. A column's nulls hold values outside every precision, {@code 2^127 - 1}
+   * and {@code -2^127} in turn by null ordinal, which the digit check must not condemn. The
+   * reference reads each root with its {@link DecimalWord}s as columns of a row twice as wide -
+   * the low words, then the high ones - and a 64-bit {@code DecimalColumn} reads the low word, its
+   * value.
+   */
+  private record DecimalSlotLane(LongBatch batch, long[] lits, int[] intLits,
+      BigInteger[] values, int numInputs, Map<VarkaVectorIR, VarkaVectorIR> asColumns)
+      implements Lane {
+    @Override public int length() {
+      return batch.length();
+    }
+
+    @Override public boolean[][] nulls() {
+      return batch.nulls();
+    }
+
+    @Override public boolean forceMasked() {
+      return batch.forceMasked();
+    }
+
+    @Override public long stride() {
+      return 8L;
+    }
+
+    @Override public long columnStride(int c) {
+      return DECIMAL_SLOT;
+    }
+
+    @Override public void putColumn(int c, MemorySegment d, int i, long v) {
+      // Under a null, v is poison(nullOrdinal): which of the two out-of-range slots it takes.
+      DecimalWords words = nulls()[c][i]
+          ? (v == 0 ? new DecimalWords(-1L, Long.MAX_VALUE) : new DecimalWords(0L,
+              Long.MIN_VALUE))
+          : DecimalWords.of(values[(int) v]);
+      d.set(ValueLayout.JAVA_LONG, i * DECIMAL_SLOT, words.lo());
+      d.set(ValueLayout.JAVA_LONG, i * DECIMAL_SLOT + 8, words.hi());
+    }
+
+    @Override public long value(int c, int i) {
+      return batch.data()[c][i];
+    }
+
+    @Override public void put(MemorySegment d, int i, long v) {
+      d.set(ValueLayout.JAVA_LONG, i * 8L, v);
+    }
+
+    /** Which out-of-range slot the null takes, {@link #putColumn} writing its two words. */
+    @Override public long poison(int nullOrdinal) {
+      return nullOrdinal & 1;
+    }
+
+    @Override public long sentinel() {
+      return 0xDEADBEEFCAFEBABEL;
+    }
+
+    @Override public int run(VarkaFusedKernel kernel, long[] srcData, long[] srcValidity,
+        int[] nullCounts, long[] outData, long[] outValidity, long scratch) {
+      return kernel.run(srcData, srcValidity, nullCounts, outData, outValidity, intLits, lits,
+          length(), scratch);
+    }
+
+    /** The row's low words, then its high words, for the indices {@code row} holds. */
+    private long[] words(long[] row) {
+      long[] out = new long[2 * numInputs];
+      for (int c = 0; c < numInputs; c++) {
+        DecimalWords w = DecimalWords.of(values[(int) row[c]]);
+        out[c] = w.lo();
+        out[numInputs + c] = w.hi();
+      }
+      return out;
+    }
+
+    private boolean[] twice(boolean[] isNull) {
+      boolean[] out = new boolean[2 * numInputs];
+      for (int c = 0; c < numInputs; c++) {
+        out[c] = isNull[c];
+        out[numInputs + c] = isNull[c];
+      }
+      return out;
+    }
+
+    /** {@code node} with each word leaf read as a long column of the doubled row. */
+    private VarkaVectorIR asColumns(VarkaVectorIR node) {
+      VarkaVectorIR known = asColumns.get(node);
+      if (known != null) {
+        return known;
+      }
+      VarkaVectorIR out;
+      if (node instanceof DecimalWord w) {
+        out = new ColumnRef(w.word() == VarkaVectorIR.Word.LOW ? w.ordinal()
+            : numInputs + w.ordinal(), VarkaVectorIR.LaneType.LONG);
+      } else {
+        VarkaVectorIR[] children = VarkaVectorIR.childrenOf(node);
+        var next = new VarkaVectorIR[children.length];
+        boolean changed = false;
+        for (int k = 0; k < children.length; k++) {
+          next[k] = asColumns(children[k]);
+          changed |= next[k] != children[k];
+        }
+        out = changed ? VarkaVectorIR.withChildren(node, next) : node;
+      }
+      asColumns.put(node, out);
+      return out;
+    }
+
+    @Override public OptionalLong reference(VarkaVectorIR root, long[] row, boolean[] isNull) {
+      return VarkaReference.longValue(asColumns(root), words(row), twice(isNull), lits);
+    }
+
+    @Override public VarkaReference.Truth reference(Cond cond, long[] row, boolean[] isNull) {
+      return VarkaReference.longCond((Cond) asColumns(cond), words(row), twice(isNull), lits);
+    }
+
+    @Override public long got(MemorySegment out, int i, VarkaVectorIR root,
+        VarkaVectorIR.LaneType rootLane) {
+      // runLoadedDecimal refuses a narrowing root, so every output is a long a row.
+      return out.get(ValueLayout.JAVA_LONG, i * 8L);
     }
   }
 

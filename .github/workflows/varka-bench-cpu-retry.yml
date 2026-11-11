@@ -1,0 +1,100 @@
+#
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+#
+
+name: Rerun a benchmark on the wrong CPU
+
+# benchmark.yml fails a job whose runner is not the `expected-cpu` (VARKA-591). When a run's only
+# failures are that check, this reruns its failed jobs an hour after it completed, up to six
+# attempts in all, and never reruns a run that failed anything else; dev/varka_bench_cpu_retry.py
+# holds the decision. A failed run starts it through workflow_run; each rerun it requests is then
+# watched by a dispatch of this workflow for the next attempt, since a rerun requested with
+# GITHUB_TOKEN is not known to fire workflow_run. A dispatch by hand, with a run id and its
+# attempt, starts or resumes the chain. Nothing here checks out or runs a benchmark's code.
+on:
+  workflow_run:
+    workflows: ["Run benchmarks"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      run-id:
+        description: 'The id of a run of benchmark.yml in this repository'
+        required: true
+      attempt:
+        description: 'Which attempt of that run to watch: the latest, or the one a rerun will start'
+        required: true
+      wait-minutes:
+        description: 'Minutes after the attempt completed before its rerun (0 to 240)'
+        required: false
+        default: '60'
+      dry-run:
+        type: boolean
+        description: 'Decide and report without rerunning or dispatching'
+        required: false
+        default: false
+
+permissions: {}
+
+# One job per attempt of a benchmark run: a workflow_run event and a dispatch for the same attempt
+# run one after the other, and the second finds the run moved on. GitHub keeps one pending job
+# per group and cancels an older one, so the group names the attempt: a watcher of the next
+# attempt never shares a group with a job still pending for this one.
+concurrency:
+  group: >-
+    varka-bench-cpu-retry-${{ github.event.workflow_run.id || inputs.run-id
+    }}-${{ github.event.workflow_run.run_attempt || inputs.attempt }}
+  cancel-in-progress: false
+
+jobs:
+  retry:
+    name: Rerun a benchmark on the wrong CPU
+    if: >-
+      github.event_name == 'workflow_dispatch'
+      || github.event.workflow_run.conclusion == 'failure'
+    # ubuntu-latest, not ubuntu-slim: a slim job is cut off at 15 minutes, and this one waits up
+    # to the hour before a rerun, and for the attempt it watches to complete.
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    permissions:
+      # write, to rerun the failed jobs and to dispatch this workflow for the next attempt.
+      actions: write
+      # read, for the check runs' annotations, where the CPU mismatch is reported.
+      checks: read
+      contents: read
+    steps:
+      # The tool only, from the commit this run is of: the default branch for workflow_run.
+      - name: Checkout the retry tool
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          sparse-checkout: dev/varka_bench_cpu_retry.py
+          sparse-checkout-cone-mode: false
+      - name: Rerun the run if only the CPU check failed
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.event.workflow_run.id || inputs.run-id }}
+          ATTEMPT: ${{ github.event.workflow_run.run_attempt || inputs.attempt }}
+          WAIT_MINUTES: ${{ inputs.wait-minutes || '60' }}
+          DRY_RUN: ${{ inputs.dry-run && '--dry-run' || '' }}
+          DISPATCH_REF: ${{ github.ref_name }}
+        # Unquoted DRY_RUN on purpose: empty, or the one flag.
+        run: |
+          # shellcheck disable=SC2086
+          python3 dev/varka_bench_cpu_retry.py --repo "$GITHUB_REPOSITORY" --run-id "$RUN_ID" \
+            --attempt "$ATTEMPT" --wait-minutes "$WAIT_MINUTES" --max-attempts 6 \
+            --deadline-minutes 300 --dispatch-ref "$DISPATCH_REF" $DRY_RUN

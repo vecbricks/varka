@@ -1,629 +1,629 @@
-name	class	section	scope	reason	types	result	fused_today	new_lanes	need	rows	note
-coalesce	Coalesce	conditionalExpressions	in		bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bool,byte,short,int,bigint,float,double,date,ntz,time,ym,dt	bool,byte,short,float,double,dec,ntz	plumbing	329,331,338,341,348,359	int operands by the choice's typed arm (333); dec to precision 18 fuses at every scale under a comparison or a null test (348), as an output with row 157, and counts fused with 359, 360 and 363 (2.8)
-if	If	conditionalExpressions	in		bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bool,byte,short,int,bigint,float,double,date,ntz,time,ym,dt	bool,byte,short,float,double,dec,ntz	plumbing	329,331,338,341,348,359	int branches by the choice's typed arm and a NULL branch by the null leaf (333); dec to precision 18 fuses at every scale under a comparison or a null test (348), as an output with row 157, and counts fused with 359, 360 and 363 (2.8)
-ifnull	Nvl	conditionalExpressions	in		bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bool,byte,short,int,bigint,float,double,date,ntz,time,ym,dt	bool,byte,short,float,double,dec,ntz	plumbing	359,348	rewritten to coalesce by the optimizer; the other types coalesce fuses are their rows' to claim; dec to precision 18 fuses at every scale under a comparison or a null test (348) beside a decimal argument, and beside an integral one only where the wider type stays within 18 digits (an int widens as DECIMAL(10, 0), so scale 8 or less), as an output with row 157, and counts fused with 359, 360 and 363 (2.8)
-nanvl	NaNvl	conditionalExpressions	in		float,double	float,double	float,double	float,double	done	341	NaN test and blend
-nullif	NullIf	conditionalExpressions	in		bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bool,byte,short,int,bigint,float,double,date,ntz,time,ym,dt	bool,byte,short,float,double,dec,ntz	plumbing	359	rewritten to if(a = b, null, a) over a column; over a computed operand the optimizer projects it below, a second kernel (333)
-nullifzero	NullIfZero	conditionalExpressions	in		byte,short,int,bigint,float,double,dec	byte,short,int,bigint,float,double,dec	byte,short,int,bigint,double	byte,short,float,double,dec	plumbing	359	rewritten to if(a = 0, null, a); float declines: the int zero widens the column to DOUBLE and the kernel would mix the two floating lanes (VARKA-343)
-nvl	Nvl	conditionalExpressions	in		bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bool,byte,short,int,bigint,float,double,date,ntz,time,ym,dt	bool,byte,short,float,double,dec,ntz	plumbing	359,348	rewritten to coalesce by the optimizer; the other types coalesce fuses are their rows' to claim; dec to precision 18 fuses at every scale under a comparison or a null test (348) beside a decimal argument, and beside an integral one only where the wider type stays within 18 digits (an int widens as DECIMAL(10, 0), so scale 8 or less), as an output with row 157, and counts fused with 359, 360 and 363 (2.8)
-nvl2	Nvl2	conditionalExpressions	in		bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bool,byte,short,int,bigint,float,double,date,ntz,time,ym,dt	bool,byte,short,float,double,dec,ntz	plumbing	359,348	rewritten to if(a IS NOT NULL, b, c); dec to precision 18 fuses at every scale under a comparison or a null test (348), as an output with row 157, and counts fused with 359, 360 and 363 (2.8)
-zeroifnull	ZeroIfNull	conditionalExpressions	in		byte,short,int,bigint,float,double,dec	byte,short,int,bigint,float,double,dec	byte,short,int,bigint,double	byte,short,float,double,dec	plumbing	359,348	rewritten to coalesce(a, 0), where the 0 widens as DECIMAL(10, 0), so dec to precision 18 fuses at scale 8 or less under a comparison or a null test (348) and declines at scale 9 and up, whose wider type passes 18 digits, as an output with row 157, and counts fused with 359, 360 and 363 (2.8); float declines: the int zero widens the column to DOUBLE and the kernel would mix the two floating lanes (VARKA-343)
-when	CaseWhen	conditionalExpressions	in		bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bool,byte,short,int,bigint,float,double,date,ntz,time,ym,dt	bool,byte,short,float,double,dec,ntz	plumbing	359,329,348	the CASE WHEN entry; the missing ELSE is the null leaf on every type but dec (333; byte and short 329, float, double and ntz 578); dec to precision 18 fuses at every scale under a comparison or a null test (348), as an output with row 157, and counts fused with 359, 360 and 363 (2.8)
-between	Between	conditionalExpressions	in		bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bool	bool,byte,short,int,bigint,float,double,date,ntz,time,ym,dt	bool,byte,short,float,double,dec,ntz	plumbing	359,348	rewritten to two comparisons and an AND over a column (333); dec to precision 18 fuses at every scale (347, 348) and counts fused with 359, 360 and 363 (2.8)
-isnan	IsNaN	predicateExpressions	in		float,double	bool	float,double	bool,float,double	done	341	
-isnull	IsNull	predicateExpressions	in		bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bool	bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bool,byte,short,float,double,dec,ntz	done	333,334,359,329,347,348	a validity read; item 93 over a predicate; dec fuses at every precision and scale, its long to 18 digits (347, 348) and its two words above (359) over a column, a widening cast, a choice or a pick; above 18 a negation or abs under it is 359b's, Spark rounding it to 34 digits, and +, - and * are 360 to 363's
-isnotnull	IsNotNull	predicateExpressions	in		bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bool	bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bool,byte,short,float,double,dec,ntz	done	333,334,359,329,347,348	a validity read; item 93 over a predicate; dec fuses at every precision and scale, its long to 18 digits (347, 348) and its two words above (359) over a column, a widening cast, a choice or a pick; above 18 a negation or abs under it is 359b's, Spark rounding it to 34 digits, and +, - and * are 360 to 363's
-like	Like	predicateExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-ilike	ILike	predicateExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-rlike	RLike	predicateExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-regexp_like	RLike	predicateExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-regexp	RLike	predicateExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-equal_null	EqualNull	predicateExpressions	in		bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bool	bool,byte,short,int,bigint,float,double,date,ntz,time,ym,dt	bool,byte,short,float,double,dec,ntz	semantics	336,331,329,341,338,359,348	null-tolerant: item 34; bool is 331's BoolNullSafeEq, byte/short 329, float/double 341, ntz 338, dec 359; dec to precision 18 fuses at every scale (347, 348) and counts fused with 359, 360 and 363 (2.8)
-and	And	predicateExpressions	in		bool	bool	bool	bool	done	331,27	fused as a condition, over a BOOLEAN column too (331); a BOOLEAN output is row 27
-in	In	predicateExpressions	in		bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bool	byte,short,int,bigint,float,double,date,ntz,time,ym,dt	bool,byte,short,float,double,dec,ntz	plumbing	341,348,359,329,497	NaN equals NaN in Spark's IN; dec to precision 18 fuses at every scale through row 497's single IN arm (348a4) and counts fused with 359, 360 and 363 (2.8)
-not	Not	predicateExpressions	in		bool	bool	bool	bool	done	331,27	fused as a condition, over a BOOLEAN column too (331); a BOOLEAN output is row 27
-or	Or	predicateExpressions	in		bool	bool	bool	bool	done	331,27	fused as a condition, over a BOOLEAN column too (331); a BOOLEAN output is row 27
-<=>	EqualNullSafe	predicateExpressions	in		bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bool	bool,byte,short,int,bigint,float,double,date,ntz,time,ym,dt	bool,byte,short,float,double,dec,ntz	semantics	336,331,329,341,338,359,347,348	null-tolerant: item 34; bool is 331's BoolNullSafeEq, byte/short 329, float/double 341, ntz 338, dec 359; dec to precision 18 fuses at every scale (347, 348) and counts fused with 359, 360 and 363 (2.8)
-=	EqualTo	predicateExpressions	in		bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bool	bool,byte,short,int,bigint,float,double,date,ntz,time,ym,dt	bool,byte,short,float,double,dec,ntz	semantics	341,348,359,329,347	Spark's NaN and -0.0 rules on floats; dec to precision 18 fuses at every scale (347, 348) and counts fused with 359, 360 and 363 (2.8)
-==	EqualTo	predicateExpressions	in		bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bool	bool,byte,short,int,bigint,float,double,date,ntz,time,ym,dt	bool,byte,short,float,double,dec,ntz	semantics	341,348,359,329,347	alias of =; dec to precision 18 fuses at every scale (347, 348) and counts fused with 359, 360 and 363 (2.8)
->	GreaterThan	predicateExpressions	in		bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bool	bool,byte,short,int,bigint,float,double,date,ntz,time,ym,dt	bool,byte,short,float,double,dec,ntz	semantics	341,348,359,329,347	Spark's NaN ordering on floats; dec to precision 18 fuses at every scale (347, 348) and counts fused with 359, 360 and 363 (2.8)
->=	GreaterThanOrEqual	predicateExpressions	in		bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bool	bool,byte,short,int,bigint,float,double,date,ntz,time,ym,dt	bool,byte,short,float,double,dec,ntz	semantics	341,348,359,329,347	Spark's NaN ordering on floats; dec to precision 18 fuses at every scale (347, 348) and counts fused with 359, 360 and 363 (2.8)
-<	LessThan	predicateExpressions	in		bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bool	bool,byte,short,int,bigint,float,double,date,ntz,time,ym,dt	bool,byte,short,float,double,dec,ntz	semantics	341,348,359,329,347	Spark's NaN ordering on floats; dec to precision 18 fuses at every scale (347, 348) and counts fused with 359, 360 and 363 (2.8)
-<=	LessThanOrEqual	predicateExpressions	in		bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bool	bool,byte,short,int,bigint,float,double,date,ntz,time,ym,dt	bool,byte,short,float,double,dec,ntz	semantics	341,348,359,329,347	Spark's NaN ordering on floats; dec to precision 18 fuses at every scale (347, 348) and counts fused with 359, 360 and 363 (2.8)
-!	Not	predicateExpressions	in		bool	bool		bool	plumbing	331,27	alias of not
-abs	Abs	mathExpressions	in		byte,short,int,bigint,float,double,dec,ym,dt	byte,short,int,bigint,float,double,dec,ym,dt	byte,short,float,double,ym	byte,short,float,double,dec	semantics	330,104,103,342,348,359	the minimum value overflows: wraps or throws; not for dec, whose unscaled value within 18 digits is never the minimum: dec to precision 18 fuses under a comparison or a null test (348), as an output with row 157, and counts fused with 359 (2.8)
-greatest	Greatest	mathExpressions	in		bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	byte,short,int,bigint,float,double,date,ntz,time,ym,dt	bool,byte,short,float,double,dec,ntz	semantics	341,348,359,329	NaN is the greatest float; dec to precision 18 fuses at every scale under a comparison or a null test (348), as an output with row 157, and counts fused with 359, 360 and 363 (2.8)
-least	Least	mathExpressions	in		bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	byte,short,int,bigint,float,double,date,ntz,time,ym,dt	bool,byte,short,float,double,dec,ntz	semantics	341,348,359,329	NaN is the greatest float; dec to precision 18 fuses at every scale under a comparison or a null test (348), as an output with row 157, and counts fused with 359, 360 and 363 (2.8)
-rand	Rand	mathExpressions	out	nondeterministic: seeded per partition, its answer depends on row order							
-random	Rand	mathExpressions	out	nondeterministic: seeded per partition, its answer depends on row order							
-randn	Randn	mathExpressions	out	nondeterministic: seeded per partition, its answer depends on row order							
-uniform	Uniform	mathExpressions	out	nondeterministic: seeded per partition, its answer depends on row order							
-acos	Acos	mathExpressions	in		double	double		double	ulp	367,356	Math
-acosh	Acosh	mathExpressions	in		double	double		double	ulp	367,357	Spark's log-and-sqrt formula over StrictMath.log
-asin	Asin	mathExpressions	in		double	double		double	ulp	367,356	Math
-asinh	Asinh	mathExpressions	in		double	double		double	ulp	367,357	Spark's log-and-sqrt formula over StrictMath.log
-atan	Atan	mathExpressions	in		double	double		double	ulp	367,356	Math
-atan2	Atan2	mathExpressions	in		double	double		double	ulp	367,356	Math
-atanh	Atanh	mathExpressions	in		double	double		double	ulp	367,357	Spark's formula over StrictMath.log
-bin	Bin	mathExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-bround	BRound	mathExpressions	in		byte,short,int,bigint,float,double,dec	byte,short,int,bigint,float,double,dec	byte,short,int,bigint	byte,short,float,double,dec	semantics	344,346,351,363	HALF_EVEN; integral and decimal are semantics, double as round (346); bigint fused at a scale of 0 or more only, a negative scale is 344a3
-cbrt	Cbrt	mathExpressions	in		double	double		double	ulp	367,358	Math
-ceil	CeilExpressionBuilder	mathExpressions	in		byte,short,int,bigint,float,double,dec	bigint,dec	int,bigint	byte,short,float,double,dec	semantics	344,351,363	double and integral give bigint, decimal a decimal of scale 0; fused for int in `ceil(i)`, the int under a cast to double
-ceiling	CeilExpressionBuilder	mathExpressions	in		byte,short,int,bigint,float,double,dec	bigint,dec	bigint	byte,short,float,double,dec	semantics	344,351,363	alias of ceil
-cos	Cos	mathExpressions	in		double	double		double	ulp	367,356	Math
-sec	Sec	mathExpressions	in		double	double		double	ulp	367,356	1 / Math.cos
-cosh	Cosh	mathExpressions	in		double	double		double	ulp	367,357	Math
-conv	Conv	mathExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-degrees	ToDegrees	mathExpressions	in		double	double	double	double	done	342	Math.toDegrees is one multiply, bit-exact
-e	EulerNumber	mathExpressions	out	a constant per query: folded to a literal before Varka sees it							
-exp	Exp	mathExpressions	in		double	double		double	ulp	367,358	StrictMath
-expm1	Expm1	mathExpressions	in		double	double		double	ulp	367,358	StrictMath
-floor	FloorExpressionBuilder	mathExpressions	in		byte,short,int,bigint,float,double,dec	bigint,dec	int,bigint	byte,short,float,double,dec	semantics	344,351,363	double and integral give bigint, decimal a decimal of scale 0; fused for int in `floor(i)`, the int under a cast to double
-factorial	Factorial	mathExpressions	in		int	bigint			semantics	344	a table of 21 entries, null outside it
-hex	Hex	mathExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-hypot	Hypot	mathExpressions	in		double	double		double	ulp	367,358	Math
-log	Logarithm	mathExpressions	in		double	double		double	ulp	367,358	StrictMath, one or two arguments
-log10	Log10	mathExpressions	in		double	double		double	ulp	367,358	StrictMath
-log1p	Log1p	mathExpressions	in		double	double		double	ulp	367,358	StrictMath
-log2	Log2	mathExpressions	in		double	double		double	ulp	367,358	StrictMath.log over a constant
-ln	Log	mathExpressions	in		double	double		double	ulp	367,358	StrictMath
-mod	Remainder	mathExpressions	in		byte,short,int,bigint,float,double,dec	byte,short,int,bigint,float,double,dec		byte,short,float,double,dec	semantics	30,95,104,346,577	integral is semantics (zero divisor); floating by the one-FMA remainder (346); decimal: a remainder by a variable divisor, which the long lane has no vector division for; row 577 (VARKA-577.md; the owner's word of 7 November 2026)
-negative	UnaryMinus	mathExpressions	in		byte,short,int,bigint,float,double,dec,ym,dt	byte,short,int,bigint,float,double,dec,ym,dt	byte,short,int,float,double,ym	byte,short,float,double,dec	semantics	330,104,103,342,348,359	the minimum value overflows; not for dec, whose unscaled value within 18 digits is never the minimum: dec to precision 18 fuses under a comparison or a null test (348), as an output with row 157, and counts fused with 359 (2.8)
-pi	Pi	mathExpressions	out	a constant per query: folded to a literal before Varka sees it							
-pmod	Pmod	mathExpressions	in		byte,short,int,bigint,float,double,dec	byte,short,int,bigint,float,double,dec		byte,short,float,double,dec	semantics	30,104,346,577	integral is semantics (item 33's sign rule; pmod(-1, Int.MinValue) is Int.MaxValue, SPARK-59934); floating by the one-FMA remainder (346); decimal: a remainder by a variable divisor, row 577
-positive	UnaryPositive	mathExpressions	in		byte,short,int,bigint,float,double,dec,ym,dt	byte,short,int,bigint,float,double,dec,ym,dt		byte,short,float,double,dec	plumbing	333	rewritten to its child
-pow	Pow	mathExpressions	in		double	double		double	ulp	367,358	StrictMath; fused behind the guard on fdlibm's weak branch, its exact exponents as exact nodes (358)
-power	Pow	mathExpressions	in		double	double		double	ulp	367,358	alias of pow
-radians	ToRadians	mathExpressions	in		double	double	double	double	done	342	Math.toRadians is one multiply, bit-exact
-rint	Rint	mathExpressions	in		double	double	double	double	done	344	round half even to an integer, the 2^52 construction
-round	Round	mathExpressions	in		byte,short,int,bigint,float,double,dec	byte,short,int,bigint,float,double,dec	byte,short,int,bigint	byte,short,float,double,dec	semantics	344,346,351,363	HALF_UP; integral and decimal are semantics, double by the tie test over the shortest decimal for scales 0 to 22, a band declined (346); bigint fused at a scale of 0 or more only, a negative scale is 344a3
-truncate	Truncate	mathExpressions	in		byte,short,int,bigint,float,double,dec	byte,short,int,bigint,float,double,dec	byte,short,int,bigint	byte,short,float,double,dec	semantics	344,346,351,363	ROUND_DOWN to a scale; integral and decimal are semantics, double as round (346); bigint fused at a scale of 0 or more only, a negative scale is 344a3
-sign	Signum	mathExpressions	in		double,ym,dt	double		double	plumbing	342	exact: a compare and a blend
-signum	Signum	mathExpressions	in		double,ym,dt	double	double,ym,dt	double	done	342	alias of sign
-sin	Sin	mathExpressions	in		double	double		double	ulp	367,356	Math
-csc	Csc	mathExpressions	in		double	double		double	ulp	367,356	1 / Math.sin
-sinh	Sinh	mathExpressions	in		double	double		double	ulp	367,357	Math
-sqrt	Sqrt	mathExpressions	in		double	double	double	double	done	342	IEEE 754 rounds sqrt correctly, so a lane is bit-exact
-tan	Tan	mathExpressions	in		double	double		double	ulp	367,356	Math
-cot	Cot	mathExpressions	in		double	double		double	ulp	367,356	1 / Math.tan
-tanh	Tanh	mathExpressions	in		double	double		double	ulp	367,357	Math
-width_bucket	WidthBucket	mathExpressions	in		double,time,ym,dt	bigint		double	semantics	344	bucket arithmetic over doubles
-+	Add	mathExpressions	in		byte,short,int,bigint,float,double,dec,ym,dt	byte,short,int,bigint,float,double,dec,ym,dt	byte,short,int,float,double,ym	byte,short,float,double,dec	semantics	330,104,103,342,349,360	integral overflow modes; decimal result scale; date and timestamp sums are other classes; decimal: fused where the result is within 18 digits (349a, a filter until 157); the pair counts with 360 at every precision to 38
--	Subtract	mathExpressions	in		byte,short,int,bigint,float,double,dec,ym,dt	byte,short,int,bigint,float,double,dec,ym,dt	byte,short,int,float,double,ym	byte,short,float,double,dec	semantics	330,104,103,342,349,360	date, timestamp and time differences are other classes; decimal: fused where the result is within 18 digits (349a, a filter until 157); the pair counts with 360 at every precision to 38
-*	Multiply	mathExpressions	in		byte,short,int,bigint,float,double,dec	byte,short,int,bigint,float,double,dec	byte,short,int,float,double	byte,short,float,double,dec	semantics	330,95,104,342,349,361,362	fused for int in `year(d) * 2`; interval products are other classes; decimal: fused where the result is within 18 digits (349a, a filter until 157); the pair counts with 361 and 362 at every precision to 38
-/	Divide	mathExpressions	in	declined dec: owner's decision, 14 October 2026	double	double	double	double	done	342	zero divisor null or error; decimal division is out of milestone 8
-div	IntegralDivide	mathExpressions	in	declined dec: owner's decision, 14 October 2026	byte,short,int,bigint,ym,dt	bigint		byte,short	semantics	30,104,103	zero divisor null or error; over INT a long-lane divide over two widening casts (corrects item 33); a decimal div divides decimals, out of milestone 8
-%	Remainder	mathExpressions	in		byte,short,int,bigint,float,double,dec	byte,short,int,bigint,float,double,dec		byte,short,float,double,dec	semantics	30,95,104,346,363	integral is semantics (zero divisor); floating by the one-FMA remainder (346); decimal: a remainder by a variable divisor, which the long lane has no vector division for; unclaimed, suggested home row 30 (VARKA-349.md 7)
-try_add	TryAdd	mathExpressions	in		byte,short,int,bigint,float,double,dec,ym,dt	byte,short,int,bigint,float,double,dec,ym,dt	byte,short,int,float,double	byte,short,float,double,dec	semantics	330,104,342,349,360	overflow gives null; over ym and dt it is `TryEval`, which no row builds (`m9/SCOPE.md` item 125); decimal: fused where the result is within 18 digits (349a, a filter until 157); the pair counts with 360 at every precision to 38
-try_divide	TryDivide	mathExpressions	in	declined dec: owner's decision, 14 October 2026	double	double	double	double	done	342	zero divisor gives null; decimal division is out of milestone 8
-try_mod	TryMod	mathExpressions	in		byte,short,int,bigint,float,double,dec	byte,short,int,bigint,float,double,dec		byte,short,float,double,dec	semantics	30,104,346,577	floating by the one-FMA remainder (346); decimal: a remainder by a variable divisor, row 577
-try_subtract	TrySubtract	mathExpressions	in		byte,short,int,bigint,float,double,dec,ym,dt	byte,short,int,bigint,float,double,dec,ym,dt	byte,short,int,float,double	byte,short,float,double,dec	semantics	330,104,342,349,360	overflow gives null; over ym and dt it is `TryEval`, which no row builds (`m9/SCOPE.md` item 125); decimal: fused where the result is within 18 digits (349a, a filter until 157); the pair counts with 360 at every precision to 38
-try_multiply	TryMultiply	mathExpressions	in		byte,short,int,bigint,float,double,dec	byte,short,int,bigint,float,double,dec	byte,short,float,double	byte,short,float,double,dec	semantics	330,104,342,349,361,362	overflow gives null; decimal: fused where the result is within 18 digits (349a, a filter until 157); the pair counts with 361 and 362 at every precision to 38
-unhex	Unhex	mathExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-randstr	RandStr	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-try_to_binary	TryToBinary	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-ascii	Ascii	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-char	Chr	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-chr	Chr	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-collate	CollateExpressionBuilder	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-collation	Collation	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-contains	ContainsExpressionBuilder	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-startswith	StartsWithExpressionBuilder	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-endswith	EndsWithExpressionBuilder	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-base64	Base64	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-to_base32	Base32	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-bit_length	BitLength	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-char_length	Length	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-character_length	Length	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-concat_ws	ConcatWs	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-decode	Decode	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-elt	Elt	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-encode	Encode	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-find_in_set	FindInSet	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-format_number	FormatNumber	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-format_string	FormatString	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-to_number	ToNumber	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-try_to_number	TryToNumber	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-to_char	ToCharacterBuilder	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-to_varchar	ToCharacterBuilder	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-initcap	InitCap	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-instr	StringInstrExpressionBuilder	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-lcase	Lower	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-length	Length	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-len	Length	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-levenshtein	Levenshtein	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-jaro_winkler_similarity	JaroWinkler	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-luhn_check	Luhncheck	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-lower	Lower	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-octet_length	OctetLength	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-locate	StringLocate	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-lpad	LPadExpressionBuilder	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-ltrim	StringTrimLeft	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-position	StringLocate	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-printf	FormatString	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-regexp_extract	RegExpExtract	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-regexp_extract_all	RegExpExtractAll	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-regexp_replace	RegExpReplace	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-repeat	StringRepeat	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-replace	StringReplace	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-overlay	Overlay	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-rpad	RPadExpressionBuilder	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-rtrim	StringTrimRight	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-sentences	Sentences	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-soundex	SoundEx	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-space	StringSpace	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-split	StringSplit	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-split_part	SplitPart	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-substr	Substring	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-substring	Substring	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-left	Left	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-right	Right	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-substring_index	SubstringIndex	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-translate	StringTranslate	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-trim	StringTrim	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-btrim	StringTrimBoth	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-ucase	Upper	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-unbase64	UnBase64	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-from_base32	UnBase32	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-upper	Upper	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-regexp_count	RegExpCount	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-regexp_substr	RegExpSubStr	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-regexp_instr	RegExpInStr	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-is_valid_utf8	IsValidUTF8	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-make_valid_utf8	MakeValidUTF8	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-validate_utf8	ValidateUTF8	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-try_validate_utf8	TryValidateUTF8	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-quote	Quote	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-normalize	Normalize	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-to_binary	ToBinary	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-mask	MaskExpressionBuilder	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-shiftleft	ShiftLeft	bitwiseExpressions	in		int,bigint	int,bigint	int,bigint		done		item 32; byte and short widen to int first; a bigint shifted by an int column fuses (335b, 20 October 2026), the count widened to the long lane
-shiftright	ShiftRight	bitwiseExpressions	in		int,bigint	int,bigint	int,bigint		done		item 32; a bigint shifted by an int column fuses (335b, 20 October 2026)
-shiftrightunsigned	ShiftRightUnsigned	bitwiseExpressions	in		int,bigint	int,bigint	int,bigint		done		item 32; a bigint shifted by an int column fuses (335b, 20 October 2026)
-&	BitwiseAnd	bitwiseExpressions	in		byte,short,int,bigint	byte,short,int,bigint	byte,short,int,bigint	byte,short	done	335,329	item 32; byte and short are one lanewise operation on the narrow lane, no reduction (VARKA-329)
-~	BitwiseNot	bitwiseExpressions	in		byte,short,int,bigint	byte,short,int,bigint	byte,short,int,bigint	byte,short	done	335,329	item 32; byte and short are one lanewise operation on the narrow lane, no reduction (VARKA-329)
-|	BitwiseOr	bitwiseExpressions	in		byte,short,int,bigint	byte,short,int,bigint	byte,short,int,bigint	byte,short	done	335,329	item 32; byte and short are one lanewise operation on the narrow lane, no reduction (VARKA-329)
-^	BitwiseXor	bitwiseExpressions	in		byte,short,int,bigint	byte,short,int,bigint	byte,short,int,bigint	byte,short	done	335,329	item 32; byte and short are one lanewise operation on the narrow lane, no reduction (VARKA-329)
-<<	ShiftLeft	bitwiseExpressions	in		int,bigint	int,bigint	int,bigint		done		alias of shiftleft
->>	ShiftRight	bitwiseExpressions	in		int,bigint	int,bigint	int,bigint		done		alias of shiftright
->>>	ShiftRightUnsigned	bitwiseExpressions	in		int,bigint	int,bigint	int,bigint		done		alias of shiftrightunsigned
-bit_count	BitwiseCount	bitwiseExpressions	in		bool,byte,short,int,bigint	int	byte,short,int,bigint	bool,byte,short	plumbing	335,329,331	item 32; a 64-bit popcount of the sign-extended value, so bit_count(-1Y) is 64; bigint narrows to int, anywhere in a tree since 335b (20 October 2026); byte and short are the int node over their sign extension (VARKA-329), bool is row 331's
-bit_get	BitwiseGet	bitwiseExpressions	in		byte,short,int,bigint	byte		byte,short	plumbing	335	item 32; the byte result was its blocker
-getbit	BitwiseGet	bitwiseExpressions	in		byte,short,int,bigint	byte		byte,short	plumbing	335	alias of bit_get
-try_to_timestamp	TryToTimestampExpressionBuilder	datetimeExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-try_to_date	TryToDateExpressionBuilder	datetimeExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-try_to_time	TryToTimeExpressionBuilder	datetimeExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-try_make_interval	TryMakeInterval	datetimeExpressions	out	CALENDAR INTERVAL result: outside the type set							
-add_months	AddMonths	datetimeExpressions	in		int,date	date	int,date		done		
-current_date	CurrentDate	datetimeExpressions	out	a constant per query: folded to a literal before Varka sees it							
-curdate	CurDateExpressionBuilder	datetimeExpressions	out	a constant per query: folded to a literal before Varka sees it							
-current_timestamp	CurrentTimestampExpressionBuilder	datetimeExpressions	out	TIMESTAMP with local time zone: owner's decision, 14 October 2026							
-current_time	CurrentTime	datetimeExpressions	out	a constant per query: folded to a literal before Varka sees it							
-localtime	CurrentTime	datetimeExpressions	out	a constant per query: folded to a literal before Varka sees it							
-current_timezone	CurrentTimeZone	datetimeExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-localtimestamp	LocalTimestampExpressionBuilder	datetimeExpressions	out	a constant per query: folded to a literal before Varka sees it							
-datediff	DateDiff	datetimeExpressions	in		date	int	date		done		
-date_diff	DateDiff	datetimeExpressions	in		date	int	date		done		alias of datediff
-date_add	DateAdd	datetimeExpressions	in		byte,short,int,bigint,date	date	byte,short,int,date	byte,short	plumbing	329	a byte or short offset column is read widened to the int lane (VARKA-329)
-dateadd	DateAdd	datetimeExpressions	in		byte,short,int,bigint,date	date	byte,short,int,date	byte,short	plumbing	329	alias of date_add
-date_format	DateFormatClass	datetimeExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-date_sub	DateSub	datetimeExpressions	in		byte,short,int,bigint,date	date	byte,short,int,date	byte,short	plumbing	329	a byte or short offset column is read widened to the int lane, as date_add's is (VARKA-329)
-day	DayOfMonth	datetimeExpressions	in		date,ntz	int	date,ntz	ntz	done	340	ntz through its date, the cast to DATE under the node: `day(ntz)`
-dayofyear	DayOfYear	datetimeExpressions	in		date,ntz	int	date,ntz	ntz	done	340	ntz through its date, the cast to DATE under the node: `dayofyear(ntz)`
-dayofmonth	DayOfMonth	datetimeExpressions	in		date,ntz	int	date,ntz	ntz	done	340	ntz through its date, the cast to DATE under the node: `day(ntz)`
-from_unixtime	FromUnixTime	datetimeExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-from_utc_timestamp	FromUTCTimestamp	datetimeExpressions	out	TIMESTAMP with local time zone: owner's decision, 14 October 2026							
-hour	HourExpressionBuilder	datetimeExpressions	in		ntz,time	int	ntz,time	ntz	done	340	ntz in UTC: the TIME lowering over the nanosecond of the day (VARKA-340)
-last_day	LastDay	datetimeExpressions	in		date,ntz	date	date,ntz	ntz	done	340	ntz through its date, the cast to DATE under the node: `last_day(ntz)`
-minute	MinuteExpressionBuilder	datetimeExpressions	in		ntz,time	int	ntz,time	ntz	done	340	ntz in UTC: the TIME lowering over the nanosecond of the day (VARKA-340)
-month	Month	datetimeExpressions	in		date,ntz	int	date,ntz	ntz	done	340	ntz through its date, the cast to DATE under the node: `month(ntz)`
-months_between	MonthsBetween	datetimeExpressions	out	TIMESTAMP with local time zone: owner's decision, 14 October 2026							
-next_day	NextDay	datetimeExpressions	in		date,ntz	date	date,ntz	ntz	done	340	ntz through its date, the cast to DATE under the node: `next_day(ntz, 'MONDAY')`
-now	NowExpressionBuilder	datetimeExpressions	out	TIMESTAMP with local time zone: owner's decision, 14 October 2026							
-quarter	Quarter	datetimeExpressions	in		date,ntz	int	date,ntz	ntz	done	340	ntz through its date, the cast to DATE under the node: `quarter(ntz)`
-second	SecondExpressionBuilder	datetimeExpressions	in		ntz,time	int,dec	ntz,time	dec,ntz	done	340,351	whole seconds of ntz fuse (VARKA-340); the fractional form is a decimal (row 157), ntz's is row 351's
-to_timestamp	ParseToTimestampExpressionBuilder	datetimeExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-to_date	ParseToDate	datetimeExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-time_diff	TimeDiff	datetimeExpressions	in		time	bigint	time		done		
-to_time	ToTime	datetimeExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-to_unix_timestamp	ToUnixTimestamp	datetimeExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-to_utc_timestamp	ToUTCTimestamp	datetimeExpressions	out	TIMESTAMP with local time zone: owner's decision, 14 October 2026							
-to_timestamp_ntz	ParseToTimestampNTZExpressionBuilder	datetimeExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-to_timestamp_ltz	ParseToTimestampLTZExpressionBuilder	datetimeExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-trunc	TruncDate	datetimeExpressions	in		date,ntz	date	date,ntz	ntz	done	340	ntz through its date, the cast to DATE under the node: `trunc(ntz, 'YEAR')`
-date_trunc	TruncTimestamp	datetimeExpressions	out	TIMESTAMP with local time zone: owner's decision, 14 October 2026							
-unix_timestamp	UnixTimestamp	datetimeExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-dayofweek	DayOfWeek	datetimeExpressions	in		date,ntz	int	date,ntz	ntz	done	340	ntz through its date, the cast to DATE under the node: `dayofweek(ntz)`
-weekday	WeekDay	datetimeExpressions	in		date,ntz	int	date,ntz	ntz	done	340	ntz through its date, the cast to DATE under the node: `weekday(ntz)`
-dayname	DayName	datetimeExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-weekofyear	WeekOfYear	datetimeExpressions	in		date,ntz	int	date,ntz	ntz	done	340	ntz through its date, the cast to DATE under the node: `weekofyear(ntz)`
-year	Year	datetimeExpressions	in		date,ntz	int	date,ntz	ntz	done	340	ntz through its date, the cast to DATE under the node: `year(ntz)`
-window	TimeWindow	datetimeExpressions	out	STRUCT result: nested types, no representation							
-session_window	SessionWindow	datetimeExpressions	out	STRUCT result: nested types, no representation							
-window_time	WindowTime	datetimeExpressions	out	STRUCT input: nested types, no representation							
-make_date	MakeDate	datetimeExpressions	in		int	date	int		done		
-make_time	MakeTime	datetimeExpressions	in		int,dec	time		dec	semantics	351	seconds arrive as DECIMAL(16,6)
-time_trunc	TimeTrunc	datetimeExpressions	in		time	time	time		done		
-time_from_seconds	TimeFromSeconds	datetimeExpressions	in		byte,short,int,bigint,float,double,dec	time		byte,short,float,double,dec	semantics	351,343	from a decimal or a double
-time_from_millis	TimeFromMillis	datetimeExpressions	in		byte,short,int,bigint	time	bigint	byte,short	plumbing	329	fused for bigint in `time_from_millis(time_to_millis(t2))`
-time_from_micros	TimeFromMicros	datetimeExpressions	in		byte,short,int,bigint	time	bigint	byte,short	plumbing	329	fused for bigint in `time_from_micros(time_to_micros(t))`
-time_to_seconds	TimeToSeconds	datetimeExpressions	in		time	dec	time	dec	done	157	a DECIMAL(14,6) result, through the decimal store
-time_to_millis	TimeToMillis	datetimeExpressions	in		time	bigint	time		done		
-time_to_micros	TimeToMicros	datetimeExpressions	in		time	bigint	time		done		
-make_timestamp	MakeTimestampExpressionBuilder	datetimeExpressions	out	TIMESTAMP with local time zone: owner's decision, 14 October 2026 (its NTZ form is make_timestamp_ntz)							
-try_make_timestamp	TryMakeTimestampExpressionBuilder	datetimeExpressions	out	TIMESTAMP with local time zone: owner's decision, 14 October 2026 (its NTZ form is try_make_timestamp_ntz)							
-monthname	MonthName	datetimeExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-make_timestamp_ntz	MakeTimestampNTZExpressionBuilder	datetimeExpressions	in		int,dec,date,time	ntz	date,time	dec,ntz	semantics	340,351	the date and time form fuses (VARKA-340); the six-field form takes decimal seconds
-make_timestamp_ltz	MakeTimestampLTZExpressionBuilder	datetimeExpressions	out	TIMESTAMP with local time zone: owner's decision, 14 October 2026							
-try_make_timestamp_ntz	TryMakeTimestampNTZExpressionBuilder	datetimeExpressions	in		int,dec	ntz		dec,ntz	semantics	351	null instead of an error
-try_make_timestamp_ltz	TryMakeTimestampLTZExpressionBuilder	datetimeExpressions	out	TIMESTAMP with local time zone: owner's decision, 14 October 2026							
-make_interval	MakeInterval	datetimeExpressions	out	CALENDAR INTERVAL result: outside the type set							
-make_dt_interval	MakeDTInterval	datetimeExpressions	in		int,bigint,dec	dt		dec	semantics	351,103	seconds arrive as DECIMAL(18,6)
-make_ym_interval	MakeYMInterval	datetimeExpressions	in		int	ym	int		done		fused in `make_ym_interval(year(d), month(d))`
-extract	Extract	datetimeExpressions	in		date,ntz,time,ym,dt	byte,int,dec	date,ntz,time,ym	byte,dec,ntz	semantics	340,103,351	every field of ntz but SECOND, which gives a decimal and is row 351's (VARKA-340); fields over dt are new; SECOND over time gives a decimal (row 157)
-date_part	DatePartExpressionBuilder	datetimeExpressions	in		date,ntz,time,ym,dt	byte,int,dec	date,ntz,ym	byte,dec,ntz	semantics	340,103,351	as extract
-datepart	DatePartExpressionBuilder	datetimeExpressions	in		date,ntz,time,ym,dt	byte,int,dec	date,ntz,ym	byte,dec,ntz	semantics	340,103,351	as extract
-date_from_unix_date	DateFromUnixDate	datetimeExpressions	in		int	date	int		done		fused in `date_from_unix_date(unix_date(d))`
-unix_date	UnixDate	datetimeExpressions	in		date	int	date		done		
-timestamp_seconds	SecondsToTimestamp	datetimeExpressions	out	TIMESTAMP with local time zone: owner's decision, 14 October 2026							
-timestamp_millis	MillisToTimestamp	datetimeExpressions	out	TIMESTAMP with local time zone: owner's decision, 14 October 2026							
-timestamp_micros	MicrosToTimestamp	datetimeExpressions	out	TIMESTAMP with local time zone: owner's decision, 14 October 2026							
-timestamp_nanos	NanosToTimestamp	datetimeExpressions	out	TIMESTAMP with local time zone: owner's decision, 14 October 2026							
-unix_seconds	UnixSeconds	datetimeExpressions	out	TIMESTAMP with local time zone: owner's decision, 14 October 2026							
-unix_millis	UnixMillis	datetimeExpressions	out	TIMESTAMP with local time zone: owner's decision, 14 October 2026							
-unix_micros	UnixMicros	datetimeExpressions	out	TIMESTAMP with local time zone: owner's decision, 14 October 2026							
-unix_nanos	UnixNanos	datetimeExpressions	out	TIMESTAMP with local time zone: owner's decision, 14 October 2026							
-convert_timezone	ConvertTimezone	datetimeExpressions	out	TIMESTAMP with local time zone: owner's decision, 14 October 2026							
-time_bucket	TimeBucketExpressionBuilder	datetimeExpressions	in		ntz,ym,dt	ntz		ntz	semantics	339	a floor division of the micros by the bucket
-crc32	Crc32	hashExpressions	out	BINARY input: outside the type set							
-md5	Md5	hashExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-hash	Murmur3Hash	hashExpressions	in		bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	int		bool,byte,short,float,double,dec,ntz	semantics	337,359,368	Murmur3 over each column's bytes, NaN and -0.0 canonicalised first; precision above 18 declined at first (its hash is a variable-length byte array)
-xxhash64	XxHash64	hashExpressions	in		bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bigint		bool,byte,short,float,double,dec,ntz	semantics	337,359,368	XxHash64 over each column's bytes, NaN and -0.0 canonicalised first; precision above 18 declined at first
-xxh3_64	Xxh364	hashExpressions	out	BINARY input: outside the type set							
-xxh3_128	Xxh3128	hashExpressions	out	BINARY input or output: outside the type set							
-sha	Sha1	hashExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-sha1	Sha1	hashExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-sha2	Sha2	hashExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-try_element_at	TryElementAt	collectionExpressions	out	nested types (array, map, struct): no representation							
-element_at	ElementAt	collectionExpressions	out	nested types (array, map, struct): no representation							
-size	Size	collectionExpressions	out	nested types (array, map, struct): no representation							
-cardinality	Size	collectionExpressions	out	nested types (array, map, struct): no representation							
-reverse	Reverse	collectionExpressions	out	nested types (array, map, struct): no representation							
-concat	Concat	collectionExpressions	out	nested types (array, map, struct): no representation							
-array_sort	ArraySort	lambdaExpressions	out	nested types (array, map, struct): no representation							
-transform	ArrayTransform	lambdaExpressions	out	nested types (array, map, struct): no representation							
-map_filter	MapFilter	lambdaExpressions	out	nested types (array, map, struct): no representation							
-filter	ArrayFilter	lambdaExpressions	out	nested types (array, map, struct): no representation							
-exists	ArrayExists	lambdaExpressions	out	nested types (array, map, struct): no representation							
-forall	ArrayForAll	lambdaExpressions	out	nested types (array, map, struct): no representation							
-aggregate	ArrayAggregate	lambdaExpressions	out	nested types (array, map, struct): no representation							
-reduce	ArrayAggregate	lambdaExpressions	out	nested types (array, map, struct): no representation							
-transform_values	TransformValues	lambdaExpressions	out	nested types (array, map, struct): no representation							
-transform_keys	TransformKeys	lambdaExpressions	out	nested types (array, map, struct): no representation							
-map_zip_with	MapZipWith	lambdaExpressions	out	nested types (array, map, struct): no representation							
-zip_with	ZipWith	lambdaExpressions	out	nested types (array, map, struct): no representation							
-array	CreateArray	arrayExpressions	out	nested types (array, map, struct): no representation							
-array_contains	ArrayContains	arrayExpressions	out	nested types (array, map, struct): no representation							
-arrays_overlap	ArraysOverlap	arrayExpressions	out	nested types (array, map, struct): no representation							
-array_insert	ArrayInsert	arrayExpressions	out	nested types (array, map, struct): no representation							
-array_intersect	ArrayIntersect	arrayExpressions	out	nested types (array, map, struct): no representation							
-array_join	ArrayJoin	arrayExpressions	out	nested types (array, map, struct): no representation							
-array_position	ArrayPosition	arrayExpressions	out	nested types (array, map, struct): no representation							
-array_size	ArraySize	arrayExpressions	out	nested types (array, map, struct): no representation							
-array_except	ArrayExcept	arrayExpressions	out	nested types (array, map, struct): no representation							
-array_union	ArrayUnion	arrayExpressions	out	nested types (array, map, struct): no representation							
-array_compact	ArrayCompact	arrayExpressions	out	nested types (array, map, struct): no representation							
-slice	Slice	arrayExpressions	out	nested types (array, map, struct): no representation							
-trim_array	TrimArray	arrayExpressions	out	nested types (array, map, struct): no representation							
-arrays_zip	ArraysZip	arrayExpressions	out	nested types (array, map, struct): no representation							
-sort_array	SortArray	arrayExpressions	out	nested types (array, map, struct): no representation							
-shuffle	Shuffle	arrayExpressions	out	nested types (array, map, struct): no representation							
-array_min	ArrayMin	arrayExpressions	out	nested types (array, map, struct): no representation							
-array_max	ArrayMax	arrayExpressions	out	nested types (array, map, struct): no representation							
-array_append	ArrayAppend	arrayExpressions	out	nested types (array, map, struct): no representation							
-flatten	Flatten	arrayExpressions	out	nested types (array, map, struct): no representation							
-sequence	Sequence	arrayExpressions	out	nested types (array, map, struct): no representation							
-array_repeat	ArrayRepeat	arrayExpressions	out	nested types (array, map, struct): no representation							
-array_remove	ArrayRemove	arrayExpressions	out	nested types (array, map, struct): no representation							
-array_prepend	ArrayPrepend	arrayExpressions	out	nested types (array, map, struct): no representation							
-array_distinct	ArrayDistinct	arrayExpressions	out	nested types (array, map, struct): no representation							
-get	Get	arrayExpressions	out	nested types (array, map, struct): no representation							
-named_struct	CreateNamedStruct	structExpressions	out	nested types (array, map, struct): no representation							
-struct	CreateStruct	structExpressions	out	nested types (array, map, struct): no representation							
-str_to_map	StringToMap	mapExpressions	out	nested types (array, map, struct): no representation							
-map	CreateMap	mapExpressions	out	nested types (array, map, struct): no representation							
-map_contains_key	MapContainsKey	mapExpressions	out	nested types (array, map, struct): no representation							
-map_from_arrays	MapFromArrays	mapExpressions	out	nested types (array, map, struct): no representation							
-map_keys	MapKeys	mapExpressions	out	nested types (array, map, struct): no representation							
-map_values	MapValues	mapExpressions	out	nested types (array, map, struct): no representation							
-map_entries	MapEntries	mapExpressions	out	nested types (array, map, struct): no representation							
-map_from_entries	MapFromEntries	mapExpressions	out	nested types (array, map, struct): no representation							
-map_concat	MapConcat	mapExpressions	out	nested types (array, map, struct): no representation							
-try_avg	TryAverageExpressionBuilder	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters							
-try_sum	TrySumExpressionBuilder	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters							
-approx_count_distinct	HyperLogLogPlusPlus	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters							
-avg	Average	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters							
-corr	Corr	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters							
-count	Count	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters							
-count_if	CountIf	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters							
-covar_pop	CovPopulation	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters							
-covar_samp	CovSample	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters							
-first	First	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters							
-first_value	First	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters							
-any_value	AnyValue	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters							
-kurtosis	Kurtosis	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters							
-last	Last	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters							
-last_value	Last	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters							
-max	Max	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters							
-max_by	MaxByBuilder	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters							
-mean	Average	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters							
-min	Min	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters							
-min_by	MinByBuilder	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters							
-percentile	Percentile	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters							
-percentile_cont	PercentileContBuilder	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters							
-percentile_disc	PercentileDiscBuilder	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters							
-median	Median	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters							
-skewness	Skewness	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters							
-percentile_approx	ApproximatePercentile	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters							
-approx_percentile	ApproximatePercentile	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters							
-histogram_numeric	HistogramNumeric	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters							
-std	StddevSamp	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters							
-stddev	StddevSamp	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters							
-stddev_pop	StddevPop	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters							
-stddev_samp	StddevSamp	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters							
-sum	Sum	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters							
-variance	VarianceSamp	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters							
-var_pop	VariancePop	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters							
-var_samp	VarianceSamp	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters							
-collect_list	CollectList	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters							
-array_agg	CollectList	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters							
-collect_set	CollectSet	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters							
-collect_union	CollectUnion	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters							
-listagg	ListAgg	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters							
-string_agg	ListAgg	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters							
-count_min_sketch	CountMinSketchAggExpressionBuilder	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters							
-every	BoolAnd	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters							
-bool_and	BoolAnd	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters							
-any	BoolOr	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters							
-some	BoolOr	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters							
-bool_or	BoolOr	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters							
-regr_count	RegrCount	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters							
-regr_avgx	RegrAvgX	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters							
-regr_avgy	RegrAvgY	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters							
-regr_r2	RegrR2	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters							
-regr_sxx	RegrSXX	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters							
-regr_sxy	RegrSXY	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters							
-regr_syy	RegrSYY	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters							
-regr_slope	RegrSlope	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters							
-regr_intercept	RegrIntercept	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters							
-mode	ModeBuilder	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters							
-hll_sketch_agg	HllSketchAgg	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters							
-hll_union_agg	HllUnionAgg	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters							
-approx_top_k	ApproxTopK	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters							
-theta_sketch_agg	ThetaSketchAgg	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters							
-theta_union_agg	ThetaUnionAgg	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters							
-theta_intersection_agg	ThetaIntersectionAgg	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters							
-approx_top_k_accumulate	ApproxTopKAccumulate	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters							
-approx_top_k_combine	ApproxTopKCombine	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters							
-kll_sketch_agg_bigint	KllSketchAggBigint	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters							
-kll_sketch_agg_float	KllSketchAggFloat	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters							
-kll_sketch_agg_double	KllSketchAggDouble	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters							
-kll_merge_agg_bigint	KllMergeAggBigint	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters							
-kll_merge_agg_float	KllMergeAggFloat	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters							
-kll_merge_agg_double	KllMergeAggDouble	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters							
-tuple_intersection_agg_double	TupleIntersectionAggDouble	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters							
-tuple_intersection_agg_integer	TupleIntersectionAggInteger	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters							
-tuple_sketch_agg_double	TupleSketchAggDoubleExpressionBuilder	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters							
-tuple_sketch_agg_integer	TupleSketchAggIntegerExpressionBuilder	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters							
-tuple_union_agg_double	TupleUnionAggDoubleExpressionBuilder	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters							
-tuple_union_agg_integer	TupleUnionAggIntegerExpressionBuilder	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters							
-measure	Measure	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters							
-grouping	Grouping	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters							
-grouping_id	GroupingID	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters							
-bit_and	BitAndAgg	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters							
-bit_or	BitOrAgg	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters							
-bit_xor	BitXorAgg	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters							
-bitmap_construct_agg	BitmapConstructAgg	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters							
-bitmap_or_agg	BitmapOrAgg	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters							
-bitmap_and_agg	BitmapAndAgg	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters							
-bitmap_xor_agg	BitmapXorAgg	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters							
-lead	Lead	windowExpressions	out	window function: Varka fuses scalar projections and filters							
-lag	Lag	windowExpressions	out	window function: Varka fuses scalar projections and filters							
-row_number	RowNumber	windowExpressions	out	window function: Varka fuses scalar projections and filters							
-cume_dist	CumeDist	windowExpressions	out	window function: Varka fuses scalar projections and filters							
-nth_value	NthValue	windowExpressions	out	window function: Varka fuses scalar projections and filters							
-ntile	NTile	windowExpressions	out	window function: Varka fuses scalar projections and filters							
-rank	Rank	windowExpressions	out	window function: Varka fuses scalar projections and filters							
-dense_rank	DenseRank	windowExpressions	out	window function: Varka fuses scalar projections and filters							
-percent_rank	PercentRank	windowExpressions	out	window function: Varka fuses scalar projections and filters							
-counter_diff	CounterDiffExpressionBuilder	windowExpressions	out	window function: Varka fuses scalar projections and filters							
-explode	ExplodeExpressionBuilder	generatorExpressions	out	generator: Varka fuses scalar projections and filters							
-explode_outer	ExplodeExpressionBuilder	generatorExpressions	out	generator: Varka fuses scalar projections and filters							
-inline	InlineExpressionBuilder	generatorExpressions	out	generator: Varka fuses scalar projections and filters							
-inline_outer	InlineExpressionBuilder	generatorExpressions	out	generator: Varka fuses scalar projections and filters							
-posexplode	PosExplodeExpressionBuilder	generatorExpressions	out	generator: Varka fuses scalar projections and filters							
-posexplode_outer	PosExplodeExpressionBuilder	generatorExpressions	out	generator: Varka fuses scalar projections and filters							
-stack	Stack	generatorExpressions	out	generator: Varka fuses scalar projections and filters							
-cast	Cast	conversionExpressions	in		bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt		bool,byte,short,float,double,dec,ntz	semantics	332,343,350,338,28,364,365,366,368	the matrix in m8/PLAN.md 2.2
-boolean	Cast	conversionExpressions	in		bool,byte,short,int,bigint,float,double,dec,date	bool		bool,byte,short,float,double,dec	semantics	332,343,350,364	cast alias
-tinyint	Cast	conversionExpressions	in		bool,byte,short,int,bigint,float,double,dec,date,time,ym,dt	byte		bool,byte,short,float,double,dec	semantics	332,343,350,364,365	cast alias
-smallint	Cast	conversionExpressions	in		bool,byte,short,int,bigint,float,double,dec,date,time,ym,dt	short		bool,byte,short,float,double,dec	semantics	332,343,350,364,365	cast alias
-int	Cast	conversionExpressions	in		bool,byte,short,int,bigint,float,double,dec,date,time,ym,dt	int	bigint	bool,byte,short,float,double,dec	semantics	332,343,350,364,365	cast alias
-bigint	Cast	conversionExpressions	in		bool,byte,short,int,bigint,float,double,dec,date,time,ym,dt	bigint	int	bool,byte,short,float,double,dec	semantics	332,343,350,28,364	cast alias
-float	Cast	conversionExpressions	in		bool,byte,short,int,bigint,float,double,dec,date	float		bool,byte,short,float,double,dec	semantics	343,364,366	cast alias
-double	Cast	conversionExpressions	in		bool,byte,short,int,bigint,float,double,dec,date	double		bool,byte,short,float,double,dec	semantics	343,364,366	cast alias
-decimal	Cast	conversionExpressions	in		bool,byte,short,int,bigint,float,double,dec,date,time,ym,dt	dec		bool,byte,short,float,double,dec	semantics	350,364,366	cast alias; DECIMAL(10,0) by default
-date	Cast	conversionExpressions	in		date,ntz	date	ntz	ntz	plumbing	340	cast alias; ntz is fused (VARKA-338), the other sources are their rows'
-timestamp	Cast	conversionExpressions	out	TIMESTAMP with local time zone: owner's decision, 14 October 2026							
-time	Cast	conversionExpressions	in		ntz,time	time	ntz	ntz	plumbing	340	cast alias; TIME widening is fused today, and ntz to TIME (VARKA-340)
-binary	Cast	conversionExpressions	out	BINARY: outside the type set							
-string	Cast	conversionExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-from_csv	CsvToStructs	csvExpressions	out	parses or produces STRING: owner's decision, 14 October 2026							
-schema_of_csv	SchemaOfCsv	csvExpressions	out	parses or produces STRING: owner's decision, 14 October 2026							
-to_csv	StructsToCsv	csvExpressions	out	parses or produces STRING: owner's decision, 14 October 2026							
-json_value	JsonValueExpressionBuilder	routedSqlJsonFunctionEntries	out	parses or produces STRING: owner's decision, 14 October 2026							
-json_query	JsonQueryExpressionBuilder	routedSqlJsonFunctionEntries	out	parses or produces STRING: owner's decision, 14 October 2026							
-json_exists	JsonExistsExpressionBuilder	routedSqlJsonFunctionEntries	out	parses or produces STRING: owner's decision, 14 October 2026							
-json_array	JsonArrayExpressionBuilder	routedSqlJsonFunctionEntries	out	parses or produces STRING: owner's decision, 14 October 2026							
-json_object	JsonObjectExpressionBuilder	routedSqlJsonFunctionEntries	out	parses or produces STRING: owner's decision, 14 October 2026							
-get_json_object	GetJsonObject	jsonExpressions	out	parses or produces STRING: owner's decision, 14 October 2026							
-json_tuple	JsonTuple	jsonExpressions	out	parses or produces STRING: owner's decision, 14 October 2026							
-to_json	StructsToJson	jsonExpressions	out	parses or produces STRING: owner's decision, 14 October 2026							
-from_json	JsonToStructs	jsonExpressions	out	parses or produces STRING: owner's decision, 14 October 2026							
-schema_of_json	SchemaOfJson	jsonExpressions	out	parses or produces STRING: owner's decision, 14 October 2026							
-json_array_length	LengthOfJsonArray	jsonExpressions	out	parses or produces STRING: owner's decision, 14 October 2026							
-json_object_keys	JsonObjectKeys	jsonExpressions	out	parses or produces STRING: owner's decision, 14 October 2026							
-json_typeof	JsonTypeof	jsonExpressions	out	parses or produces STRING: owner's decision, 14 October 2026							
-parse_json	ParseJsonExpressionBuilder	variantExpressions	out	VARIANT: outside the type set							
-try_parse_json	TryParseJsonExpressionBuilder	variantExpressions	out	VARIANT: outside the type set							
-is_variant_null	IsVariantNull	variantExpressions	out	VARIANT: outside the type set							
-variant_get	VariantGetExpressionBuilder	variantExpressions	out	VARIANT: outside the type set							
-try_variant_get	TryVariantGetExpressionBuilder	variantExpressions	out	VARIANT: outside the type set							
-schema_of_variant	SchemaOfVariant	variantExpressions	out	VARIANT: outside the type set							
-schema_of_variant_agg	SchemaOfVariantAgg	variantExpressions	out	VARIANT: outside the type set							
-to_variant_object	ToVariantObject	variantExpressions	out	VARIANT: outside the type set							
-variant_from_arrays	VariantFromArrays	variantExpressions	out	VARIANT: outside the type set							
-variant_from_entries	VariantFromEntries	variantExpressions	out	VARIANT: outside the type set							
-is_valid_variant	IsValidVariant	variantExpressions	out	VARIANT: outside the type set							
-variant_delete	VariantDelete	variantExpressions	out	VARIANT: outside the type set							
-variant_insert	VariantInsertExpressionBuilder	variantExpressions	out	VARIANT: outside the type set							
-try_variant_insert	TryVariantInsertExpressionBuilder	variantExpressions	out	VARIANT: outside the type set							
-variant_set	VariantSetExpressionBuilder	variantExpressions	out	VARIANT: outside the type set							
-try_variant_set	TryVariantSetExpressionBuilder	variantExpressions	out	VARIANT: outside the type set							
-variant_array_append	VariantArrayAppendExpressionBuilder	variantExpressions	out	VARIANT: outside the type set							
-try_variant_array_append	TryVariantArrayAppendExpressionBuilder	variantExpressions	out	VARIANT: outside the type set							
-variant_strip_nulls	VariantStripNullsExpressionBuilder	variantExpressions	out	VARIANT: outside the type set							
-variant_pick	VariantPick	variantExpressions	out	VARIANT: outside the type set							
-xpath	XPathList	xmlExpressions	out	parses or produces STRING: owner's decision, 14 October 2026							
-xpath_boolean	XPathBoolean	xmlExpressions	out	parses or produces STRING: owner's decision, 14 October 2026							
-xpath_double	XPathDouble	xmlExpressions	out	parses or produces STRING: owner's decision, 14 October 2026							
-xpath_number	XPathDouble	xmlExpressions	out	parses or produces STRING: owner's decision, 14 October 2026							
-xpath_float	XPathFloat	xmlExpressions	out	parses or produces STRING: owner's decision, 14 October 2026							
-xpath_int	XPathInt	xmlExpressions	out	parses or produces STRING: owner's decision, 14 October 2026							
-xpath_long	XPathLong	xmlExpressions	out	parses or produces STRING: owner's decision, 14 October 2026							
-xpath_short	XPathShort	xmlExpressions	out	parses or produces STRING: owner's decision, 14 October 2026							
-xpath_string	XPathString	xmlExpressions	out	parses or produces STRING: owner's decision, 14 October 2026							
-from_xml	XmlToStructs	xmlExpressions	out	parses or produces STRING: owner's decision, 14 October 2026							
-schema_of_xml	SchemaOfXml	xmlExpressions	out	parses or produces STRING: owner's decision, 14 October 2026							
-to_xml	StructsToXml	xmlExpressions	out	parses or produces STRING: owner's decision, 14 October 2026							
-try_url_decode	TryUrlDecode	urlExpressions	out	parses or produces STRING: owner's decision, 14 October 2026							
-url_encode	UrlEncode	urlExpressions	out	parses or produces STRING: owner's decision, 14 October 2026							
-url_decode	UrlDecode	urlExpressions	out	parses or produces STRING: owner's decision, 14 October 2026							
-parse_url	ParseUrl	urlExpressions	out	parses or produces STRING: owner's decision, 14 October 2026							
-try_parse_url	TryParseUrl	urlExpressions	out	parses or produces STRING: owner's decision, 14 October 2026							
-try_aes_decrypt	TryAesDecrypt	miscExpressions	out	BINARY: outside the type set							
-try_reflect	TryReflect	miscExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-assert_true	AssertTrue	miscExpressions	out	NULL-typed result: raises or returns null, nothing to compute							
-raise_error	RaiseErrorExpressionBuilder	miscExpressions	out	NULL-typed result: raises or returns null, nothing to compute							
-uuid	Uuid	miscExpressions	out	nondeterministic: seeded per partition, its answer depends on row order							
-aes_encrypt	AesEncrypt	miscExpressions	out	BINARY: outside the type set							
-aes_decrypt	AesDecrypt	miscExpressions	out	BINARY: outside the type set							
-hmac	Hmac	miscExpressions	out	BINARY: outside the type set							
-spark_partition_id	SparkPartitionID	miscExpressions	out	a per-task fact, not a function of the row							
-input_file_name	InputFileName	miscExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-input_file_block_start	InputFileBlockStart	miscExpressions	out	a per-file fact, not a function of the row							
-input_file_block_length	InputFileBlockLength	miscExpressions	out	a per-file fact, not a function of the row							
-monotonically_increasing_id	MonotonicallyIncreasingID	miscExpressions	out	a per-task counter, not a function of the row							
-current_database	CurrentDatabase	miscExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-current_schema	CurrentDatabase	miscExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-current_catalog	CurrentCatalog	miscExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-current_path	CurrentPath	miscExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-current_user	CurrentUser	miscExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-user	CurrentUser	miscExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-session_user	CurrentUser	miscExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-reflect	CallMethodViaReflection	miscExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-java_method	CallMethodViaReflection	miscExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-version	SparkVersion	miscExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-typeof	TypeOf	miscExpressions	out	STRING input or output: owner's decision, 14 October 2026							
-bitmap_bucket_number	BitmapBucketNumber	miscExpressions	in		bigint	bigint	bigint		done		a shift and an offset over a blend, proven by SMT (bitmap.smt2)
-bitmap_bit_position	BitmapBitPosition	miscExpressions	in		bigint	bigint	bigint		done		a mask over a blend, proven by SMT (bitmap.smt2)
-bitmap_count	BitmapCount	miscExpressions	out	BINARY input: outside the type set							
-bitmap_and	BitmapAnd	miscExpressions	out	BINARY: outside the type set							
-bitmap_or	BitmapOr	miscExpressions	out	BINARY: outside the type set							
-bitmap_andnot	BitmapAndNot	miscExpressions	out	BINARY: outside the type set							
-bitmap_xor	BitmapXor	miscExpressions	out	BINARY: outside the type set							
-hll_sketch_estimate	HllSketchEstimate	dataSketchExpressions	out	sketch state in BINARY: outside the type set							
-hll_union	HllUnion	dataSketchExpressions	out	sketch state in BINARY: outside the type set							
-theta_sketch_estimate	ThetaSketchEstimate	dataSketchExpressions	out	sketch state in BINARY: outside the type set							
-theta_union	ThetaUnion	dataSketchExpressions	out	sketch state in BINARY: outside the type set							
-theta_difference	ThetaDifference	dataSketchExpressions	out	sketch state in BINARY: outside the type set							
-theta_intersection	ThetaIntersection	dataSketchExpressions	out	sketch state in BINARY: outside the type set							
-approx_top_k_estimate	ApproxTopKEstimate	dataSketchExpressions	out	sketch state in BINARY: outside the type set							
-tuple_difference_double	TupleDifferenceDouble	dataSketchExpressions	out	sketch state in BINARY: outside the type set							
-tuple_difference_integer	TupleDifferenceInteger	dataSketchExpressions	out	sketch state in BINARY: outside the type set							
-tuple_difference_theta_double	TupleDifferenceThetaDouble	dataSketchExpressions	out	sketch state in BINARY: outside the type set							
-tuple_difference_theta_integer	TupleDifferenceThetaInteger	dataSketchExpressions	out	sketch state in BINARY: outside the type set							
-tuple_intersection_double	TupleIntersectionDouble	dataSketchExpressions	out	sketch state in BINARY: outside the type set							
-tuple_intersection_integer	TupleIntersectionInteger	dataSketchExpressions	out	sketch state in BINARY: outside the type set							
-tuple_intersection_theta_double	TupleIntersectionThetaDouble	dataSketchExpressions	out	sketch state in BINARY: outside the type set							
-tuple_intersection_theta_integer	TupleIntersectionThetaInteger	dataSketchExpressions	out	sketch state in BINARY: outside the type set							
-tuple_sketch_estimate_double	TupleSketchEstimateDouble	dataSketchExpressions	out	sketch state in BINARY: outside the type set							
-tuple_sketch_estimate_integer	TupleSketchEstimateInteger	dataSketchExpressions	out	sketch state in BINARY: outside the type set							
-tuple_sketch_summary_double	TupleSketchSummaryDouble	dataSketchExpressions	out	sketch state in BINARY: outside the type set							
-tuple_sketch_summary_integer	TupleSketchSummaryInteger	dataSketchExpressions	out	sketch state in BINARY: outside the type set							
-tuple_sketch_theta_double	TupleSketchThetaDouble	dataSketchExpressions	out	sketch state in BINARY: outside the type set							
-tuple_sketch_theta_integer	TupleSketchThetaInteger	dataSketchExpressions	out	sketch state in BINARY: outside the type set							
-tuple_union_double	TupleUnionDoubleExpressionBuilder	dataSketchExpressions	out	sketch state in BINARY: outside the type set							
-tuple_union_integer	TupleUnionIntegerExpressionBuilder	dataSketchExpressions	out	sketch state in BINARY: outside the type set							
-tuple_union_theta_double	TupleUnionThetaDoubleExpressionBuilder	dataSketchExpressions	out	sketch state in BINARY: outside the type set							
-tuple_union_theta_integer	TupleUnionThetaIntegerExpressionBuilder	dataSketchExpressions	out	sketch state in BINARY: outside the type set							
-kll_sketch_to_string_bigint	KllSketchToStringBigint	dataSketchExpressions	out	sketch state in BINARY: outside the type set							
-kll_sketch_to_string_float	KllSketchToStringFloat	dataSketchExpressions	out	sketch state in BINARY: outside the type set							
-kll_sketch_to_string_double	KllSketchToStringDouble	dataSketchExpressions	out	sketch state in BINARY: outside the type set							
-kll_sketch_get_n_bigint	KllSketchGetNBigint	dataSketchExpressions	out	sketch state in BINARY: outside the type set							
-kll_sketch_get_n_float	KllSketchGetNFloat	dataSketchExpressions	out	sketch state in BINARY: outside the type set							
-kll_sketch_get_n_double	KllSketchGetNDouble	dataSketchExpressions	out	sketch state in BINARY: outside the type set							
-kll_sketch_merge_bigint	KllSketchMergeBigint	dataSketchExpressions	out	sketch state in BINARY: outside the type set							
-kll_sketch_merge_float	KllSketchMergeFloat	dataSketchExpressions	out	sketch state in BINARY: outside the type set							
-kll_sketch_merge_double	KllSketchMergeDouble	dataSketchExpressions	out	sketch state in BINARY: outside the type set							
-kll_sketch_get_quantile_bigint	KllSketchGetQuantileBigint	dataSketchExpressions	out	sketch state in BINARY: outside the type set							
-kll_sketch_get_quantile_float	KllSketchGetQuantileFloat	dataSketchExpressions	out	sketch state in BINARY: outside the type set							
-kll_sketch_get_quantile_double	KllSketchGetQuantileDouble	dataSketchExpressions	out	sketch state in BINARY: outside the type set							
-kll_sketch_get_rank_bigint	KllSketchGetRankBigint	dataSketchExpressions	out	sketch state in BINARY: outside the type set							
-kll_sketch_get_rank_float	KllSketchGetRankFloat	dataSketchExpressions	out	sketch state in BINARY: outside the type set							
-kll_sketch_get_rank_double	KllSketchGetRankDouble	dataSketchExpressions	out	sketch state in BINARY: outside the type set							
-from_avro	FromAvro	avroExpressions	out	BINARY: outside the type set							
-to_avro	ToAvro	avroExpressions	out	BINARY: outside the type set							
-schema_of_avro	SchemaOfAvro	avroExpressions	out	BINARY: outside the type set							
-from_protobuf	FromProtobuf	protobufExpressions	out	BINARY: outside the type set							
-to_protobuf	ToProtobuf	protobufExpressions	out	BINARY: outside the type set							
-st_asbinary	ST_AsBinary	spatialExpressions	out	geospatial types: outside the type set							
-st_geogfromwkb	ST_GeogFromWKB	spatialExpressions	out	geospatial types: outside the type set							
-st_geomfromwkb	ST_GeomFromWKB	spatialExpressions	out	geospatial types: outside the type set							
-st_srid	ST_Srid	spatialExpressions	out	geospatial types: outside the type set							
-st_setsrid	ST_SetSrid	spatialExpressions	out	geospatial types: outside the type set							
-vector_cosine_similarity	VectorCosineSimilarity	vectorExpressions	out	arrays of floats: nested types, no representation							
-vector_inner_product	VectorInnerProduct	vectorExpressions	out	arrays of floats: nested types, no representation							
-vector_l2_distance	VectorL2Distance	vectorExpressions	out	arrays of floats: nested types, no representation							
-vector_norm	VectorNorm	vectorExpressions	out	arrays of floats: nested types, no representation							
-vector_normalize	VectorNormalize	vectorExpressions	out	arrays of floats: nested types, no representation							
-vector_avg	VectorAvg	vectorExpressions	out	arrays of floats: nested types, no representation							
-vector_sum	VectorSum	vectorExpressions	out	arrays of floats: nested types, no representation							
-try_cast	Cast	implicit: conversion	in		bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt		bool,byte,short,float,double,dec,ntz	semantics	332,343,350,364,365,366,368	the parser's TRY mode: null instead of an error
-in_set	InSet	implicit: predicate	in		bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bool	byte,short,int,bigint,float,double,date,ntz,time,ym,dt	bool,byte,short,float,double,dec,ntz	plumbing	341,348,359,329,497	IN over many literals; dec to precision 18 fuses at every scale through row 497's single IN arm (348a4) and counts fused with 359, 360 and 363 (2.8)
-date_minus_date	SubtractDates	implicit: datetime	in		date	dt			semantics	39	row 39: days times micros per day, exact
-ntz_minus_ntz	SubtractTimestamps	implicit: datetime	in		ntz	dt	ntz	ntz	done	339	plain long arithmetic in UTC, exact or raise
-time_minus_time	SubtractTimes	implicit: datetime	in		time	dt	time		done		
-time_plus_dt	TimeAddInterval	implicit: datetime	in		time,dt	time	time,dt		done		fused in `t + INTERVAL '0 00:00:00' DAY TO SECOND`
-date_plus_ym	DateAddYMInterval	implicit: datetime	in		date,ym	date	date,ym		done		
-datetime_sub	DatetimeSub	implicit: datetime	in		date,ntz,ym,dt	date,ntz	date,ntz,ym	ntz	plumbing	339	the wrapper over the subtraction forms; coverage fuses `ntz - dt` (DatetimeSub over dt), and dt stays out of the fused types until `ntz - ym`, which still declines, fuses in row 339's step 3
-ntz_plus_dt	TimestampAddInterval	implicit: datetime	in		ntz,dt	ntz	ntz,dt	ntz	done	339	UTC, so plain arithmetic; exact or raise
-ntz_plus_ym	TimestampAddYMInterval	implicit: datetime	in		ntz,ym	ntz		ntz	semantics	339	calendar months on the date part
-timestampadd	TimestampAdd	implicit: datetime	in		bigint,ntz	ntz		ntz	semantics	339	units up to a week are arithmetic, months and years calendar
-ym_times_num	MultiplyYMInterval	implicit: interval	in		byte,short,int,bigint,float,double,dec,ym	ym	int,ym	byte,short,float,double,dec	semantics	103,329,342	fused in `make_ym_interval(year(d), month(d)) * 2`; HALF_UP from fractions; an integral literal factor over a stored column is row 103's guard (103a); a decimal column factor is a product past 64 bits and a HALF_UP division by 10^s; unclaimed, suggested home rows 361 and 363 (VARKA-349.md 7)
-dt_times_num	MultiplyDTInterval	implicit: interval	in		byte,short,int,bigint,float,double,dec,dt	dt		byte,short,float,double,dec	semantics	103,342,361,363	checked multiply; HALF_UP from fractions; an integral or decimal literal and an integral column are row 103's; a floating factor is 342's lowering
-ym_div_num	DivideYMInterval	implicit: interval	in		byte,short,int,bigint,float,double,dec,ym	ym		byte,short,float,double,dec	semantics	89,342,363	HALF_UP division; a decimal divisor is a division by a variable, claimed by row 363 and declined until one is planned (VARKA-349.md 7)
-dt_div_num	DivideDTInterval	implicit: interval	in		byte,short,int,bigint,float,double,dec,dt	dt		byte,short,float,double,dec	semantics	103,342,361,363	HALF_UP division; an integral or decimal literal and an integral column are row 103's; a floating factor is 342's lowering
-extract_ym_years	ExtractANSIIntervalYears	implicit: interval	in		ym	int	ym		done		
-extract_ym_months	ExtractANSIIntervalMonths	implicit: interval	in		ym	byte		byte	plumbing	329	matched today only to decline: its result is a byte
-extract_dt_days	ExtractANSIIntervalDays	implicit: interval	in		dt	int			plumbing	103	fused today only inside date + CAST(i AS INTERVAL DAY); inside `d + dt` over a stored `INTERVAL DAY` column it declines (`m9/SCOPE.md` item 126)
-extract_dt_hours	ExtractANSIIntervalHours	implicit: interval	in		dt	byte		byte	plumbing	103	division by a constant
-extract_dt_minutes	ExtractANSIIntervalMinutes	implicit: interval	in		dt	byte		byte	plumbing	103	division by a constant
-extract_dt_seconds	ExtractANSIIntervalSeconds	implicit: interval	in		dt	dec		dec	plumbing	103,157	a DECIMAL(8,6) result
-known_not_null	KnownNotNull	implicit: internals	in		bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt		bool,byte,short,float,double,dec,ntz	plumbing	333	a relabel the optimizer adds
-known_fp_normalized	KnownFloatingPointNormalized	implicit: internals	in		float,double	float,double		float,double	plumbing	337	a relabel around NaN and -0.0 normalization; uncounted, by the owner's answer of 30 October 2026 (VARKA-337.md 8 point 5, option (a)): Spark inserts it only for join, window and aggregate keys, never in a Project or Filter, so no coverage row can hold it
-normalize_nan_and_zero	NormalizeNaNAndZero	implicit: internals	in		float,double	float,double		float,double	plumbing	337	the optimizer's canonical NaN and +0.0 before a key or a hash: one node, shared with the hash input (m8/PLAN.md 2.7); uncounted, by the owner's answer of 30 October 2026 (VARKA-337.md 8 point 5, option (a)): Spark inserts it only for join, window and aggregate keys, never in a Project or Filter, so no coverage row can hold it
-try_eval	TryEval	implicit: internals	in		bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt		bool,byte,short,float,double,dec,ntz	semantics	330,342	the try_ functions' wrapper: every error raised anywhere in its subtree becomes null; over a decimal subtree: no 64-bit decimal arithmetic raises, so it waits for the rows whose decimal nodes do; unclaimed, suggested home row 350 (VARKA-349.md 7)
-check_overflow	CheckOverflow	implicit: decimal internals	out	evaluated by an operator Varka does not fuse (HashAggregateExec, WindowExec, SerializeFromObjectExec)							
-make_decimal	MakeDecimal	implicit: decimal internals	out	evaluated by an operator Varka does not fuse (HashAggregateExec, WindowExec, SerializeFromObjectExec)							
-unscaled_value	UnscaledValue	implicit: decimal internals	out	evaluated by an operator Varka does not fuse (HashAggregateExec, WindowExec, SerializeFromObjectExec)							
+name	class	section	scope	reason	types	result	fused_today	new_lanes	need	rows	note	fused_in_part
+coalesce	Coalesce	conditionalExpressions	in		bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bool,byte,short,int,bigint,float,double,date,ntz,time,ym,dt	bool,byte,short,float,double,dec,ntz	plumbing	329,331,338,341,348,359	int operands by the choice's typed arm (333); dec to precision 18 fuses at every scale under a comparison or a null test (348), as an output with row 157, and counts fused with 359, 360 and 363 (2.8)	
+if	If	conditionalExpressions	in		bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bool,byte,short,int,bigint,float,double,date,ntz,time,ym,dt	bool,byte,short,float,double,dec,ntz	plumbing	329,331,338,341,348,359	int branches by the choice's typed arm and a NULL branch by the null leaf (333); dec to precision 18 fuses at every scale under a comparison or a null test (348), as an output with row 157, and counts fused with 359, 360 and 363 (2.8)	
+ifnull	Nvl	conditionalExpressions	in		bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bool,byte,short,int,bigint,float,double,date,ntz,time,ym,dt	bool,byte,short,float,double,dec,ntz	plumbing	359,348	rewritten to coalesce by the optimizer; the other types coalesce fuses are their rows' to claim; dec to precision 18 fuses at every scale under a comparison or a null test (348) beside a decimal argument, and beside an integral one only where the wider type stays within 18 digits (an int widens as DECIMAL(10, 0), so scale 8 or less), as an output with row 157, and counts fused with 359, 360 and 363 (2.8)	
+nanvl	NaNvl	conditionalExpressions	in		float,double	float,double	float,double	float,double	done	341	NaN test and blend	
+nullif	NullIf	conditionalExpressions	in		bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bool,byte,short,int,bigint,float,double,date,ntz,time,ym,dt	bool,byte,short,float,double,dec,ntz	plumbing	359	rewritten to if(a = b, null, a) over a column; over a computed operand the optimizer projects it below, a second kernel (333)	
+nullifzero	NullIfZero	conditionalExpressions	in		byte,short,int,bigint,float,double,dec	byte,short,int,bigint,float,double,dec	byte,short,int,bigint,double	byte,short,float,double,dec	plumbing	359	rewritten to if(a = 0, null, a); float declines: the int zero widens the column to DOUBLE and the kernel would mix the two floating lanes (VARKA-343)	
+nvl	Nvl	conditionalExpressions	in		bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bool,byte,short,int,bigint,float,double,date,ntz,time,ym,dt	bool,byte,short,float,double,dec,ntz	plumbing	359,348	rewritten to coalesce by the optimizer; the other types coalesce fuses are their rows' to claim; dec to precision 18 fuses at every scale under a comparison or a null test (348) beside a decimal argument, and beside an integral one only where the wider type stays within 18 digits (an int widens as DECIMAL(10, 0), so scale 8 or less), as an output with row 157, and counts fused with 359, 360 and 363 (2.8)	
+nvl2	Nvl2	conditionalExpressions	in		bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bool,byte,short,int,bigint,float,double,date,ntz,time,ym,dt	bool,byte,short,float,double,dec,ntz	plumbing	359,348	rewritten to if(a IS NOT NULL, b, c); dec to precision 18 fuses at every scale under a comparison or a null test (348), as an output with row 157, and counts fused with 359, 360 and 363 (2.8)	
+zeroifnull	ZeroIfNull	conditionalExpressions	in		byte,short,int,bigint,float,double,dec	byte,short,int,bigint,float,double,dec	byte,short,int,bigint,double	byte,short,float,double,dec	plumbing	359,348	rewritten to coalesce(a, 0), where the 0 widens as DECIMAL(10, 0), so dec to precision 18 fuses at scale 8 or less under a comparison or a null test (348) and declines at scale 9 and up, whose wider type passes 18 digits, as an output with row 157, and counts fused with 359, 360 and 363 (2.8); float declines: the int zero widens the column to DOUBLE and the kernel would mix the two floating lanes (VARKA-343)	
+when	CaseWhen	conditionalExpressions	in		bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bool,byte,short,int,bigint,float,double,date,ntz,time,ym,dt	bool,byte,short,float,double,dec,ntz	plumbing	359,329,348	the CASE WHEN entry; the missing ELSE is the null leaf on every type but dec (333; byte and short 329, float, double and ntz 578); dec to precision 18 fuses at every scale under a comparison or a null test (348), as an output with row 157, and counts fused with 359, 360 and 363 (2.8)	
+between	Between	conditionalExpressions	in		bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bool	bool,byte,short,int,bigint,float,double,date,ntz,time,ym,dt	bool,byte,short,float,double,dec,ntz	plumbing	359,348	rewritten to two comparisons and an AND over a column (333); dec to precision 18 fuses at every scale (347, 348) and counts fused with 359, 360 and 363 (2.8)	dec
+isnan	IsNaN	predicateExpressions	in		float,double	bool	float,double	bool,float,double	done	341		
+isnull	IsNull	predicateExpressions	in		bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bool	bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bool,byte,short,float,double,dec,ntz	done	333,334,359,329,347,348	a validity read; item 93 over a predicate; dec fuses at every precision and scale, its long to 18 digits (347, 348) and its two words above (359) over a column, a widening cast, a choice or a pick; above 18 a negation or abs under it is 359b's, Spark rounding it to 34 digits, and +, - and * are 360 to 363's	
+isnotnull	IsNotNull	predicateExpressions	in		bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bool	bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bool,byte,short,float,double,dec,ntz	done	333,334,359,329,347,348	a validity read; item 93 over a predicate; dec fuses at every precision and scale, its long to 18 digits (347, 348) and its two words above (359) over a column, a widening cast, a choice or a pick; above 18 a negation or abs under it is 359b's, Spark rounding it to 34 digits, and +, - and * are 360 to 363's	
+like	Like	predicateExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+ilike	ILike	predicateExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+rlike	RLike	predicateExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+regexp_like	RLike	predicateExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+regexp	RLike	predicateExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+equal_null	EqualNull	predicateExpressions	in		bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bool	bool,byte,short,int,bigint,float,double,date,ntz,time,ym,dt	bool,byte,short,float,double,dec,ntz	semantics	336,331,329,341,338,359,348	null-tolerant: item 34; bool is 331's BoolNullSafeEq, byte/short 329, float/double 341, ntz 338, dec 359; dec to precision 18 fuses at every scale (347, 348) and counts fused with 359, 360 and 363 (2.8)	
+and	And	predicateExpressions	in		bool	bool	bool	bool	done	331,27	fused as a condition, over a BOOLEAN column too (331); a BOOLEAN output is row 27	
+in	In	predicateExpressions	in		bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bool	byte,short,int,bigint,float,double,date,ntz,time,ym,dt	bool,byte,short,float,double,dec,ntz	plumbing	341,348,359,329,497	NaN equals NaN in Spark's IN; dec to precision 18 fuses at every scale through row 497's single IN arm (348a4) and counts fused with 359, 360 and 363 (2.8)	dec
+not	Not	predicateExpressions	in		bool	bool	bool	bool	done	331,27	fused as a condition, over a BOOLEAN column too (331); a BOOLEAN output is row 27	
+or	Or	predicateExpressions	in		bool	bool	bool	bool	done	331,27	fused as a condition, over a BOOLEAN column too (331); a BOOLEAN output is row 27	
+<=>	EqualNullSafe	predicateExpressions	in		bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bool	bool,byte,short,int,bigint,float,double,date,ntz,time,ym,dt	bool,byte,short,float,double,dec,ntz	semantics	336,331,329,341,338,359,347,348	null-tolerant: item 34; bool is 331's BoolNullSafeEq, byte/short 329, float/double 341, ntz 338, dec 359; dec to precision 18 fuses at every scale (347, 348) and counts fused with 359, 360 and 363 (2.8)	dec
+=	EqualTo	predicateExpressions	in		bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bool	bool,byte,short,int,bigint,float,double,date,ntz,time,ym,dt	bool,byte,short,float,double,dec,ntz	semantics	341,348,359,329,347	Spark's NaN and -0.0 rules on floats; dec to precision 18 fuses at every scale (347, 348) and counts fused with 359, 360 and 363 (2.8)	dec
+==	EqualTo	predicateExpressions	in		bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bool	bool,byte,short,int,bigint,float,double,date,ntz,time,ym,dt	bool,byte,short,float,double,dec,ntz	semantics	341,348,359,329,347	alias of =; dec to precision 18 fuses at every scale (347, 348) and counts fused with 359, 360 and 363 (2.8)	dec
+>	GreaterThan	predicateExpressions	in		bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bool	bool,byte,short,int,bigint,float,double,date,ntz,time,ym,dt	bool,byte,short,float,double,dec,ntz	semantics	341,348,359,329,347	Spark's NaN ordering on floats; dec to precision 18 fuses at every scale (347, 348) and counts fused with 359, 360 and 363 (2.8)	dec
+>=	GreaterThanOrEqual	predicateExpressions	in		bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bool	bool,byte,short,int,bigint,float,double,date,ntz,time,ym,dt	bool,byte,short,float,double,dec,ntz	semantics	341,348,359,329,347	Spark's NaN ordering on floats; dec to precision 18 fuses at every scale (347, 348) and counts fused with 359, 360 and 363 (2.8)	dec
+<	LessThan	predicateExpressions	in		bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bool	bool,byte,short,int,bigint,float,double,date,ntz,time,ym,dt	bool,byte,short,float,double,dec,ntz	semantics	341,348,359,329,347	Spark's NaN ordering on floats; dec to precision 18 fuses at every scale (347, 348) and counts fused with 359, 360 and 363 (2.8)	dec
+<=	LessThanOrEqual	predicateExpressions	in		bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bool	bool,byte,short,int,bigint,float,double,date,ntz,time,ym,dt	bool,byte,short,float,double,dec,ntz	semantics	341,348,359,329,347	Spark's NaN ordering on floats; dec to precision 18 fuses at every scale (347, 348) and counts fused with 359, 360 and 363 (2.8)	dec
+!	Not	predicateExpressions	in		bool	bool		bool	plumbing	331,27	alias of not	
+abs	Abs	mathExpressions	in		byte,short,int,bigint,float,double,dec,ym,dt	byte,short,int,bigint,float,double,dec,ym,dt	byte,short,float,double,ym	byte,short,float,double,dec	semantics	330,104,103,342,348,359	the minimum value overflows: wraps or throws; not for dec, whose unscaled value within 18 digits is never the minimum: dec to precision 18 fuses under a comparison or a null test (348), as an output with row 157, and counts fused with 359 (2.8)	
+greatest	Greatest	mathExpressions	in		bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	byte,short,int,bigint,float,double,date,ntz,time,ym,dt	bool,byte,short,float,double,dec,ntz	semantics	341,348,359,329	NaN is the greatest float; dec to precision 18 fuses at every scale under a comparison or a null test (348), as an output with row 157, and counts fused with 359, 360 and 363 (2.8)	
+least	Least	mathExpressions	in		bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	byte,short,int,bigint,float,double,date,ntz,time,ym,dt	bool,byte,short,float,double,dec,ntz	semantics	341,348,359,329	NaN is the greatest float; dec to precision 18 fuses at every scale under a comparison or a null test (348), as an output with row 157, and counts fused with 359, 360 and 363 (2.8)	
+rand	Rand	mathExpressions	out	nondeterministic: seeded per partition, its answer depends on row order								
+random	Rand	mathExpressions	out	nondeterministic: seeded per partition, its answer depends on row order								
+randn	Randn	mathExpressions	out	nondeterministic: seeded per partition, its answer depends on row order								
+uniform	Uniform	mathExpressions	out	nondeterministic: seeded per partition, its answer depends on row order								
+acos	Acos	mathExpressions	in		double	double		double	ulp	367,356	Math	
+acosh	Acosh	mathExpressions	in		double	double		double	ulp	367,357	Spark's log-and-sqrt formula over StrictMath.log	
+asin	Asin	mathExpressions	in		double	double		double	ulp	367,356	Math	
+asinh	Asinh	mathExpressions	in		double	double		double	ulp	367,357	Spark's log-and-sqrt formula over StrictMath.log	
+atan	Atan	mathExpressions	in		double	double		double	ulp	367,356	Math	
+atan2	Atan2	mathExpressions	in		double	double		double	ulp	367,356	Math	
+atanh	Atanh	mathExpressions	in		double	double		double	ulp	367,357	Spark's formula over StrictMath.log	
+bin	Bin	mathExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+bround	BRound	mathExpressions	in		byte,short,int,bigint,float,double,dec	byte,short,int,bigint,float,double,dec	byte,short,int,bigint	byte,short,float,double,dec	semantics	344,346,351,363	HALF_EVEN; integral and decimal are semantics, double as round (346); bigint fused at a scale of 0 or more only, a negative scale is 344a3	
+cbrt	Cbrt	mathExpressions	in		double	double		double	ulp	367,358	Math	
+ceil	CeilExpressionBuilder	mathExpressions	in		byte,short,int,bigint,float,double,dec	bigint,dec	int,bigint	byte,short,float,double,dec	semantics	344,351,363	double and integral give bigint, decimal a decimal of scale 0; fused for int in `ceil(i)`, the int under a cast to double	
+ceiling	CeilExpressionBuilder	mathExpressions	in		byte,short,int,bigint,float,double,dec	bigint,dec	bigint	byte,short,float,double,dec	semantics	344,351,363	alias of ceil	
+cos	Cos	mathExpressions	in		double	double		double	ulp	367,356	Math	
+sec	Sec	mathExpressions	in		double	double		double	ulp	367,356	1 / Math.cos	
+cosh	Cosh	mathExpressions	in		double	double		double	ulp	367,357	Math	
+conv	Conv	mathExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+degrees	ToDegrees	mathExpressions	in		double	double	double	double	done	342	Math.toDegrees is one multiply, bit-exact	
+e	EulerNumber	mathExpressions	out	a constant per query: folded to a literal before Varka sees it								
+exp	Exp	mathExpressions	in		double	double		double	ulp	367,358	StrictMath	
+expm1	Expm1	mathExpressions	in		double	double		double	ulp	367,358	StrictMath	
+floor	FloorExpressionBuilder	mathExpressions	in		byte,short,int,bigint,float,double,dec	bigint,dec	int,bigint	byte,short,float,double,dec	semantics	344,351,363	double and integral give bigint, decimal a decimal of scale 0; fused for int in `floor(i)`, the int under a cast to double	
+factorial	Factorial	mathExpressions	in		int	bigint			semantics	344	a table of 21 entries, null outside it	
+hex	Hex	mathExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+hypot	Hypot	mathExpressions	in		double	double		double	ulp	367,358	Math	
+log	Logarithm	mathExpressions	in		double	double		double	ulp	367,358	StrictMath, one or two arguments	
+log10	Log10	mathExpressions	in		double	double		double	ulp	367,358	StrictMath	
+log1p	Log1p	mathExpressions	in		double	double		double	ulp	367,358	StrictMath	
+log2	Log2	mathExpressions	in		double	double		double	ulp	367,358	StrictMath.log over a constant	
+ln	Log	mathExpressions	in		double	double		double	ulp	367,358	StrictMath	
+mod	Remainder	mathExpressions	in		byte,short,int,bigint,float,double,dec	byte,short,int,bigint,float,double,dec		byte,short,float,double,dec	semantics	30,95,104,346,577	integral is semantics (zero divisor); floating by the one-FMA remainder (346); decimal: a remainder by a variable divisor, which the long lane has no vector division for; row 577 (VARKA-577.md; the owner's word of 7 November 2026)	
+negative	UnaryMinus	mathExpressions	in		byte,short,int,bigint,float,double,dec,ym,dt	byte,short,int,bigint,float,double,dec,ym,dt	byte,short,int,float,double,ym	byte,short,float,double,dec	semantics	330,104,103,342,348,359	the minimum value overflows; not for dec, whose unscaled value within 18 digits is never the minimum: dec to precision 18 fuses under a comparison or a null test (348), as an output with row 157, and counts fused with 359 (2.8)	
+pi	Pi	mathExpressions	out	a constant per query: folded to a literal before Varka sees it								
+pmod	Pmod	mathExpressions	in		byte,short,int,bigint,float,double,dec	byte,short,int,bigint,float,double,dec		byte,short,float,double,dec	semantics	30,104,346,577	integral is semantics (item 33's sign rule; pmod(-1, Int.MinValue) is Int.MaxValue, SPARK-59934); floating by the one-FMA remainder (346); decimal: a remainder by a variable divisor, row 577	
+positive	UnaryPositive	mathExpressions	in		byte,short,int,bigint,float,double,dec,ym,dt	byte,short,int,bigint,float,double,dec,ym,dt		byte,short,float,double,dec	plumbing	333	rewritten to its child	
+pow	Pow	mathExpressions	in		double	double		double	ulp	367,358	StrictMath; fused behind the guard on fdlibm's weak branch, its exact exponents as exact nodes (358)	
+power	Pow	mathExpressions	in		double	double		double	ulp	367,358	alias of pow	
+radians	ToRadians	mathExpressions	in		double	double	double	double	done	342	Math.toRadians is one multiply, bit-exact	
+rint	Rint	mathExpressions	in		double	double	double	double	done	344	round half even to an integer, the 2^52 construction	
+round	Round	mathExpressions	in		byte,short,int,bigint,float,double,dec	byte,short,int,bigint,float,double,dec	byte,short,int,bigint	byte,short,float,double,dec	semantics	344,346,351,363	HALF_UP; integral and decimal are semantics, double by the tie test over the shortest decimal for scales 0 to 22, a band declined (346); bigint fused at a scale of 0 or more only, a negative scale is 344a3	
+truncate	Truncate	mathExpressions	in		byte,short,int,bigint,float,double,dec	byte,short,int,bigint,float,double,dec	byte,short,int,bigint	byte,short,float,double,dec	semantics	344,346,351,363	ROUND_DOWN to a scale; integral and decimal are semantics, double as round (346); bigint fused at a scale of 0 or more only, a negative scale is 344a3	
+sign	Signum	mathExpressions	in		double,ym,dt	double		double	plumbing	342	exact: a compare and a blend	
+signum	Signum	mathExpressions	in		double,ym,dt	double	double,ym,dt	double	done	342	alias of sign	
+sin	Sin	mathExpressions	in		double	double		double	ulp	367,356	Math	
+csc	Csc	mathExpressions	in		double	double		double	ulp	367,356	1 / Math.sin	
+sinh	Sinh	mathExpressions	in		double	double		double	ulp	367,357	Math	
+sqrt	Sqrt	mathExpressions	in		double	double	double	double	done	342	IEEE 754 rounds sqrt correctly, so a lane is bit-exact	
+tan	Tan	mathExpressions	in		double	double		double	ulp	367,356	Math	
+cot	Cot	mathExpressions	in		double	double		double	ulp	367,356	1 / Math.tan	
+tanh	Tanh	mathExpressions	in		double	double		double	ulp	367,357	Math	
+width_bucket	WidthBucket	mathExpressions	in		double,time,ym,dt	bigint		double	semantics	344	bucket arithmetic over doubles	
++	Add	mathExpressions	in		byte,short,int,bigint,float,double,dec,ym,dt	byte,short,int,bigint,float,double,dec,ym,dt	byte,short,int,float,double,ym	byte,short,float,double,dec	semantics	330,104,103,342,349,360	integral overflow modes; decimal result scale; date and timestamp sums are other classes; decimal: fused where the result is within 18 digits (349a, a filter until 157); the pair counts with 360 at every precision to 38	
+-	Subtract	mathExpressions	in		byte,short,int,bigint,float,double,dec,ym,dt	byte,short,int,bigint,float,double,dec,ym,dt	byte,short,int,float,double,ym	byte,short,float,double,dec	semantics	330,104,103,342,349,360	date, timestamp and time differences are other classes; decimal: fused where the result is within 18 digits (349a, a filter until 157); the pair counts with 360 at every precision to 38	
+*	Multiply	mathExpressions	in		byte,short,int,bigint,float,double,dec	byte,short,int,bigint,float,double,dec	byte,short,int,float,double	byte,short,float,double,dec	semantics	330,95,104,342,349,361,362	fused for int in `year(d) * 2`; interval products are other classes; decimal: fused where the result is within 18 digits (349a, a filter until 157); the pair counts with 361 and 362 at every precision to 38	
+/	Divide	mathExpressions	in	declined dec: owner's decision, 14 October 2026	double	double	double	double	done	342	zero divisor null or error; decimal division is out of milestone 8	
+div	IntegralDivide	mathExpressions	in	declined dec: owner's decision, 14 October 2026	byte,short,int,bigint,ym,dt	bigint		byte,short	semantics	30,104,103	zero divisor null or error; over INT a long-lane divide over two widening casts (corrects item 33); a decimal div divides decimals, out of milestone 8	
+%	Remainder	mathExpressions	in		byte,short,int,bigint,float,double,dec	byte,short,int,bigint,float,double,dec		byte,short,float,double,dec	semantics	30,95,104,346,363	integral is semantics (zero divisor); floating by the one-FMA remainder (346); decimal: a remainder by a variable divisor, which the long lane has no vector division for; unclaimed, suggested home row 30 (VARKA-349.md 7)	
+try_add	TryAdd	mathExpressions	in		byte,short,int,bigint,float,double,dec,ym,dt	byte,short,int,bigint,float,double,dec,ym,dt	byte,short,int,float,double	byte,short,float,double,dec	semantics	330,104,342,349,360	overflow gives null; over ym and dt it is `TryEval`, which no row builds (`m9/SCOPE.md` item 125); decimal: fused where the result is within 18 digits (349a, a filter until 157); the pair counts with 360 at every precision to 38	
+try_divide	TryDivide	mathExpressions	in	declined dec: owner's decision, 14 October 2026	double	double	double	double	done	342	zero divisor gives null; decimal division is out of milestone 8	
+try_mod	TryMod	mathExpressions	in		byte,short,int,bigint,float,double,dec	byte,short,int,bigint,float,double,dec		byte,short,float,double,dec	semantics	30,104,346,577	floating by the one-FMA remainder (346); decimal: a remainder by a variable divisor, row 577	
+try_subtract	TrySubtract	mathExpressions	in		byte,short,int,bigint,float,double,dec,ym,dt	byte,short,int,bigint,float,double,dec,ym,dt	byte,short,int,float,double	byte,short,float,double,dec	semantics	330,104,342,349,360	overflow gives null; over ym and dt it is `TryEval`, which no row builds (`m9/SCOPE.md` item 125); decimal: fused where the result is within 18 digits (349a, a filter until 157); the pair counts with 360 at every precision to 38	
+try_multiply	TryMultiply	mathExpressions	in		byte,short,int,bigint,float,double,dec	byte,short,int,bigint,float,double,dec	byte,short,float,double	byte,short,float,double,dec	semantics	330,104,342,349,361,362	overflow gives null; decimal: fused where the result is within 18 digits (349a, a filter until 157); the pair counts with 361 and 362 at every precision to 38	
+unhex	Unhex	mathExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+randstr	RandStr	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+try_to_binary	TryToBinary	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+ascii	Ascii	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+char	Chr	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+chr	Chr	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+collate	CollateExpressionBuilder	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+collation	Collation	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+contains	ContainsExpressionBuilder	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+startswith	StartsWithExpressionBuilder	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+endswith	EndsWithExpressionBuilder	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+base64	Base64	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+to_base32	Base32	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+bit_length	BitLength	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+char_length	Length	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+character_length	Length	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+concat_ws	ConcatWs	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+decode	Decode	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+elt	Elt	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+encode	Encode	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+find_in_set	FindInSet	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+format_number	FormatNumber	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+format_string	FormatString	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+to_number	ToNumber	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+try_to_number	TryToNumber	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+to_char	ToCharacterBuilder	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+to_varchar	ToCharacterBuilder	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+initcap	InitCap	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+instr	StringInstrExpressionBuilder	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+lcase	Lower	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+length	Length	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+len	Length	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+levenshtein	Levenshtein	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+jaro_winkler_similarity	JaroWinkler	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+luhn_check	Luhncheck	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+lower	Lower	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+octet_length	OctetLength	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+locate	StringLocate	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+lpad	LPadExpressionBuilder	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+ltrim	StringTrimLeft	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+position	StringLocate	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+printf	FormatString	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+regexp_extract	RegExpExtract	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+regexp_extract_all	RegExpExtractAll	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+regexp_replace	RegExpReplace	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+repeat	StringRepeat	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+replace	StringReplace	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+overlay	Overlay	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+rpad	RPadExpressionBuilder	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+rtrim	StringTrimRight	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+sentences	Sentences	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+soundex	SoundEx	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+space	StringSpace	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+split	StringSplit	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+split_part	SplitPart	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+substr	Substring	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+substring	Substring	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+left	Left	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+right	Right	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+substring_index	SubstringIndex	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+translate	StringTranslate	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+trim	StringTrim	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+btrim	StringTrimBoth	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+ucase	Upper	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+unbase64	UnBase64	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+from_base32	UnBase32	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+upper	Upper	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+regexp_count	RegExpCount	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+regexp_substr	RegExpSubStr	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+regexp_instr	RegExpInStr	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+is_valid_utf8	IsValidUTF8	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+make_valid_utf8	MakeValidUTF8	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+validate_utf8	ValidateUTF8	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+try_validate_utf8	TryValidateUTF8	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+quote	Quote	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+normalize	Normalize	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+to_binary	ToBinary	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+mask	MaskExpressionBuilder	stringExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+shiftleft	ShiftLeft	bitwiseExpressions	in		int,bigint	int,bigint	int,bigint		done		item 32; byte and short widen to int first; a bigint shifted by an int column fuses (335b, 20 October 2026), the count widened to the long lane	
+shiftright	ShiftRight	bitwiseExpressions	in		int,bigint	int,bigint	int,bigint		done		item 32; a bigint shifted by an int column fuses (335b, 20 October 2026)	
+shiftrightunsigned	ShiftRightUnsigned	bitwiseExpressions	in		int,bigint	int,bigint	int,bigint		done		item 32; a bigint shifted by an int column fuses (335b, 20 October 2026)	
+&	BitwiseAnd	bitwiseExpressions	in		byte,short,int,bigint	byte,short,int,bigint	byte,short,int,bigint	byte,short	done	335,329	item 32; byte and short are one lanewise operation on the narrow lane, no reduction (VARKA-329)	
+~	BitwiseNot	bitwiseExpressions	in		byte,short,int,bigint	byte,short,int,bigint	byte,short,int,bigint	byte,short	done	335,329	item 32; byte and short are one lanewise operation on the narrow lane, no reduction (VARKA-329)	
+|	BitwiseOr	bitwiseExpressions	in		byte,short,int,bigint	byte,short,int,bigint	byte,short,int,bigint	byte,short	done	335,329	item 32; byte and short are one lanewise operation on the narrow lane, no reduction (VARKA-329)	
+^	BitwiseXor	bitwiseExpressions	in		byte,short,int,bigint	byte,short,int,bigint	byte,short,int,bigint	byte,short	done	335,329	item 32; byte and short are one lanewise operation on the narrow lane, no reduction (VARKA-329)	
+<<	ShiftLeft	bitwiseExpressions	in		int,bigint	int,bigint	int,bigint		done		alias of shiftleft	
+>>	ShiftRight	bitwiseExpressions	in		int,bigint	int,bigint	int,bigint		done		alias of shiftright	
+>>>	ShiftRightUnsigned	bitwiseExpressions	in		int,bigint	int,bigint	int,bigint		done		alias of shiftrightunsigned	
+bit_count	BitwiseCount	bitwiseExpressions	in		bool,byte,short,int,bigint	int	byte,short,int,bigint	bool,byte,short	plumbing	335,329,331	item 32; a 64-bit popcount of the sign-extended value, so bit_count(-1Y) is 64; bigint narrows to int, anywhere in a tree since 335b (20 October 2026); byte and short are the int node over their sign extension (VARKA-329), bool is row 331's	
+bit_get	BitwiseGet	bitwiseExpressions	in		byte,short,int,bigint	byte		byte,short	plumbing	335	item 32; the byte result was its blocker	
+getbit	BitwiseGet	bitwiseExpressions	in		byte,short,int,bigint	byte		byte,short	plumbing	335	alias of bit_get	
+try_to_timestamp	TryToTimestampExpressionBuilder	datetimeExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+try_to_date	TryToDateExpressionBuilder	datetimeExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+try_to_time	TryToTimeExpressionBuilder	datetimeExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+try_make_interval	TryMakeInterval	datetimeExpressions	out	CALENDAR INTERVAL result: outside the type set								
+add_months	AddMonths	datetimeExpressions	in		int,date	date	int,date		done			
+current_date	CurrentDate	datetimeExpressions	out	a constant per query: folded to a literal before Varka sees it								
+curdate	CurDateExpressionBuilder	datetimeExpressions	out	a constant per query: folded to a literal before Varka sees it								
+current_timestamp	CurrentTimestampExpressionBuilder	datetimeExpressions	out	TIMESTAMP with local time zone: owner's decision, 14 October 2026								
+current_time	CurrentTime	datetimeExpressions	out	a constant per query: folded to a literal before Varka sees it								
+localtime	CurrentTime	datetimeExpressions	out	a constant per query: folded to a literal before Varka sees it								
+current_timezone	CurrentTimeZone	datetimeExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+localtimestamp	LocalTimestampExpressionBuilder	datetimeExpressions	out	a constant per query: folded to a literal before Varka sees it								
+datediff	DateDiff	datetimeExpressions	in		date	int	date		done			
+date_diff	DateDiff	datetimeExpressions	in		date	int	date		done		alias of datediff	
+date_add	DateAdd	datetimeExpressions	in		byte,short,int,bigint,date	date	byte,short,int,date	byte,short	plumbing	329	a byte or short offset column is read widened to the int lane (VARKA-329)	
+dateadd	DateAdd	datetimeExpressions	in		byte,short,int,bigint,date	date	byte,short,int,date	byte,short	plumbing	329	alias of date_add	
+date_format	DateFormatClass	datetimeExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+date_sub	DateSub	datetimeExpressions	in		byte,short,int,bigint,date	date	byte,short,int,date	byte,short	plumbing	329	a byte or short offset column is read widened to the int lane, as date_add's is (VARKA-329)	
+day	DayOfMonth	datetimeExpressions	in		date,ntz	int	date,ntz	ntz	done	340	ntz through its date, the cast to DATE under the node: `day(ntz)`	
+dayofyear	DayOfYear	datetimeExpressions	in		date,ntz	int	date,ntz	ntz	done	340	ntz through its date, the cast to DATE under the node: `dayofyear(ntz)`	
+dayofmonth	DayOfMonth	datetimeExpressions	in		date,ntz	int	date,ntz	ntz	done	340	ntz through its date, the cast to DATE under the node: `day(ntz)`	
+from_unixtime	FromUnixTime	datetimeExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+from_utc_timestamp	FromUTCTimestamp	datetimeExpressions	out	TIMESTAMP with local time zone: owner's decision, 14 October 2026								
+hour	HourExpressionBuilder	datetimeExpressions	in		ntz,time	int	ntz,time	ntz	done	340	ntz in UTC: the TIME lowering over the nanosecond of the day (VARKA-340)	
+last_day	LastDay	datetimeExpressions	in		date,ntz	date	date,ntz	ntz	done	340	ntz through its date, the cast to DATE under the node: `last_day(ntz)`	
+minute	MinuteExpressionBuilder	datetimeExpressions	in		ntz,time	int	ntz,time	ntz	done	340	ntz in UTC: the TIME lowering over the nanosecond of the day (VARKA-340)	
+month	Month	datetimeExpressions	in		date,ntz	int	date,ntz	ntz	done	340	ntz through its date, the cast to DATE under the node: `month(ntz)`	
+months_between	MonthsBetween	datetimeExpressions	out	TIMESTAMP with local time zone: owner's decision, 14 October 2026								
+next_day	NextDay	datetimeExpressions	in		date,ntz	date	date,ntz	ntz	done	340	ntz through its date, the cast to DATE under the node: `next_day(ntz, 'MONDAY')`	
+now	NowExpressionBuilder	datetimeExpressions	out	TIMESTAMP with local time zone: owner's decision, 14 October 2026								
+quarter	Quarter	datetimeExpressions	in		date,ntz	int	date,ntz	ntz	done	340	ntz through its date, the cast to DATE under the node: `quarter(ntz)`	
+second	SecondExpressionBuilder	datetimeExpressions	in		ntz,time	int,dec	ntz,time	dec,ntz	done	340,351	whole seconds of ntz fuse (VARKA-340); the fractional form is a decimal (row 157), ntz's is row 351's	
+to_timestamp	ParseToTimestampExpressionBuilder	datetimeExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+to_date	ParseToDate	datetimeExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+time_diff	TimeDiff	datetimeExpressions	in		time	bigint	time		done			
+to_time	ToTime	datetimeExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+to_unix_timestamp	ToUnixTimestamp	datetimeExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+to_utc_timestamp	ToUTCTimestamp	datetimeExpressions	out	TIMESTAMP with local time zone: owner's decision, 14 October 2026								
+to_timestamp_ntz	ParseToTimestampNTZExpressionBuilder	datetimeExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+to_timestamp_ltz	ParseToTimestampLTZExpressionBuilder	datetimeExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+trunc	TruncDate	datetimeExpressions	in		date,ntz	date	date,ntz	ntz	done	340	ntz through its date, the cast to DATE under the node: `trunc(ntz, 'YEAR')`	
+date_trunc	TruncTimestamp	datetimeExpressions	out	TIMESTAMP with local time zone: owner's decision, 14 October 2026								
+unix_timestamp	UnixTimestamp	datetimeExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+dayofweek	DayOfWeek	datetimeExpressions	in		date,ntz	int	date,ntz	ntz	done	340	ntz through its date, the cast to DATE under the node: `dayofweek(ntz)`	
+weekday	WeekDay	datetimeExpressions	in		date,ntz	int	date,ntz	ntz	done	340	ntz through its date, the cast to DATE under the node: `weekday(ntz)`	
+dayname	DayName	datetimeExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+weekofyear	WeekOfYear	datetimeExpressions	in		date,ntz	int	date,ntz	ntz	done	340	ntz through its date, the cast to DATE under the node: `weekofyear(ntz)`	
+year	Year	datetimeExpressions	in		date,ntz	int	date,ntz	ntz	done	340	ntz through its date, the cast to DATE under the node: `year(ntz)`	
+window	TimeWindow	datetimeExpressions	out	STRUCT result: nested types, no representation								
+session_window	SessionWindow	datetimeExpressions	out	STRUCT result: nested types, no representation								
+window_time	WindowTime	datetimeExpressions	out	STRUCT input: nested types, no representation								
+make_date	MakeDate	datetimeExpressions	in		int	date	int		done			
+make_time	MakeTime	datetimeExpressions	in		int,dec	time		dec	semantics	351	seconds arrive as DECIMAL(16,6)	
+time_trunc	TimeTrunc	datetimeExpressions	in		time	time	time		done			
+time_from_seconds	TimeFromSeconds	datetimeExpressions	in		byte,short,int,bigint,float,double,dec	time		byte,short,float,double,dec	semantics	351,343	from a decimal or a double	
+time_from_millis	TimeFromMillis	datetimeExpressions	in		byte,short,int,bigint	time	bigint	byte,short	plumbing	329	fused for bigint in `time_from_millis(time_to_millis(t2))`	
+time_from_micros	TimeFromMicros	datetimeExpressions	in		byte,short,int,bigint	time	bigint	byte,short	plumbing	329	fused for bigint in `time_from_micros(time_to_micros(t))`	
+time_to_seconds	TimeToSeconds	datetimeExpressions	in		time	dec	time	dec	done	157	a DECIMAL(14,6) result, through the decimal store	
+time_to_millis	TimeToMillis	datetimeExpressions	in		time	bigint	time		done			
+time_to_micros	TimeToMicros	datetimeExpressions	in		time	bigint	time		done			
+make_timestamp	MakeTimestampExpressionBuilder	datetimeExpressions	out	TIMESTAMP with local time zone: owner's decision, 14 October 2026 (its NTZ form is make_timestamp_ntz)								
+try_make_timestamp	TryMakeTimestampExpressionBuilder	datetimeExpressions	out	TIMESTAMP with local time zone: owner's decision, 14 October 2026 (its NTZ form is try_make_timestamp_ntz)								
+monthname	MonthName	datetimeExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+make_timestamp_ntz	MakeTimestampNTZExpressionBuilder	datetimeExpressions	in		int,dec,date,time	ntz	date,time	dec,ntz	semantics	340,351	the date and time form fuses (VARKA-340); the six-field form takes decimal seconds	
+make_timestamp_ltz	MakeTimestampLTZExpressionBuilder	datetimeExpressions	out	TIMESTAMP with local time zone: owner's decision, 14 October 2026								
+try_make_timestamp_ntz	TryMakeTimestampNTZExpressionBuilder	datetimeExpressions	in		int,dec	ntz		dec,ntz	semantics	351	null instead of an error	
+try_make_timestamp_ltz	TryMakeTimestampLTZExpressionBuilder	datetimeExpressions	out	TIMESTAMP with local time zone: owner's decision, 14 October 2026								
+make_interval	MakeInterval	datetimeExpressions	out	CALENDAR INTERVAL result: outside the type set								
+make_dt_interval	MakeDTInterval	datetimeExpressions	in		int,bigint,dec	dt		dec	semantics	351,103	seconds arrive as DECIMAL(18,6)	
+make_ym_interval	MakeYMInterval	datetimeExpressions	in		int	ym	int		done		fused in `make_ym_interval(year(d), month(d))`	
+extract	Extract	datetimeExpressions	in		date,ntz,time,ym,dt	byte,int,dec	date,ntz,time,ym	byte,dec,ntz	semantics	340,103,351	every field of ntz but SECOND, which gives a decimal and is row 351's (VARKA-340); fields over dt are new; SECOND over time gives a decimal (row 157)	
+date_part	DatePartExpressionBuilder	datetimeExpressions	in		date,ntz,time,ym,dt	byte,int,dec	date,ntz,ym	byte,dec,ntz	semantics	340,103,351	as extract	
+datepart	DatePartExpressionBuilder	datetimeExpressions	in		date,ntz,time,ym,dt	byte,int,dec	date,ntz,ym	byte,dec,ntz	semantics	340,103,351	as extract	
+date_from_unix_date	DateFromUnixDate	datetimeExpressions	in		int	date	int		done		fused in `date_from_unix_date(unix_date(d))`	
+unix_date	UnixDate	datetimeExpressions	in		date	int	date		done			
+timestamp_seconds	SecondsToTimestamp	datetimeExpressions	out	TIMESTAMP with local time zone: owner's decision, 14 October 2026								
+timestamp_millis	MillisToTimestamp	datetimeExpressions	out	TIMESTAMP with local time zone: owner's decision, 14 October 2026								
+timestamp_micros	MicrosToTimestamp	datetimeExpressions	out	TIMESTAMP with local time zone: owner's decision, 14 October 2026								
+timestamp_nanos	NanosToTimestamp	datetimeExpressions	out	TIMESTAMP with local time zone: owner's decision, 14 October 2026								
+unix_seconds	UnixSeconds	datetimeExpressions	out	TIMESTAMP with local time zone: owner's decision, 14 October 2026								
+unix_millis	UnixMillis	datetimeExpressions	out	TIMESTAMP with local time zone: owner's decision, 14 October 2026								
+unix_micros	UnixMicros	datetimeExpressions	out	TIMESTAMP with local time zone: owner's decision, 14 October 2026								
+unix_nanos	UnixNanos	datetimeExpressions	out	TIMESTAMP with local time zone: owner's decision, 14 October 2026								
+convert_timezone	ConvertTimezone	datetimeExpressions	out	TIMESTAMP with local time zone: owner's decision, 14 October 2026								
+time_bucket	TimeBucketExpressionBuilder	datetimeExpressions	in		ntz,ym,dt	ntz		ntz	semantics	339	a floor division of the micros by the bucket	
+crc32	Crc32	hashExpressions	out	BINARY input: outside the type set								
+md5	Md5	hashExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+hash	Murmur3Hash	hashExpressions	in		bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	int		bool,byte,short,float,double,dec,ntz	semantics	337,359,368	Murmur3 over each column's bytes, NaN and -0.0 canonicalised first; precision above 18 declined at first (its hash is a variable-length byte array)	
+xxhash64	XxHash64	hashExpressions	in		bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bigint		bool,byte,short,float,double,dec,ntz	semantics	337,359,368	XxHash64 over each column's bytes, NaN and -0.0 canonicalised first; precision above 18 declined at first	
+xxh3_64	Xxh364	hashExpressions	out	BINARY input: outside the type set								
+xxh3_128	Xxh3128	hashExpressions	out	BINARY input or output: outside the type set								
+sha	Sha1	hashExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+sha1	Sha1	hashExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+sha2	Sha2	hashExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+try_element_at	TryElementAt	collectionExpressions	out	nested types (array, map, struct): no representation								
+element_at	ElementAt	collectionExpressions	out	nested types (array, map, struct): no representation								
+size	Size	collectionExpressions	out	nested types (array, map, struct): no representation								
+cardinality	Size	collectionExpressions	out	nested types (array, map, struct): no representation								
+reverse	Reverse	collectionExpressions	out	nested types (array, map, struct): no representation								
+concat	Concat	collectionExpressions	out	nested types (array, map, struct): no representation								
+array_sort	ArraySort	lambdaExpressions	out	nested types (array, map, struct): no representation								
+transform	ArrayTransform	lambdaExpressions	out	nested types (array, map, struct): no representation								
+map_filter	MapFilter	lambdaExpressions	out	nested types (array, map, struct): no representation								
+filter	ArrayFilter	lambdaExpressions	out	nested types (array, map, struct): no representation								
+exists	ArrayExists	lambdaExpressions	out	nested types (array, map, struct): no representation								
+forall	ArrayForAll	lambdaExpressions	out	nested types (array, map, struct): no representation								
+aggregate	ArrayAggregate	lambdaExpressions	out	nested types (array, map, struct): no representation								
+reduce	ArrayAggregate	lambdaExpressions	out	nested types (array, map, struct): no representation								
+transform_values	TransformValues	lambdaExpressions	out	nested types (array, map, struct): no representation								
+transform_keys	TransformKeys	lambdaExpressions	out	nested types (array, map, struct): no representation								
+map_zip_with	MapZipWith	lambdaExpressions	out	nested types (array, map, struct): no representation								
+zip_with	ZipWith	lambdaExpressions	out	nested types (array, map, struct): no representation								
+array	CreateArray	arrayExpressions	out	nested types (array, map, struct): no representation								
+array_contains	ArrayContains	arrayExpressions	out	nested types (array, map, struct): no representation								
+arrays_overlap	ArraysOverlap	arrayExpressions	out	nested types (array, map, struct): no representation								
+array_insert	ArrayInsert	arrayExpressions	out	nested types (array, map, struct): no representation								
+array_intersect	ArrayIntersect	arrayExpressions	out	nested types (array, map, struct): no representation								
+array_join	ArrayJoin	arrayExpressions	out	nested types (array, map, struct): no representation								
+array_position	ArrayPosition	arrayExpressions	out	nested types (array, map, struct): no representation								
+array_size	ArraySize	arrayExpressions	out	nested types (array, map, struct): no representation								
+array_except	ArrayExcept	arrayExpressions	out	nested types (array, map, struct): no representation								
+array_union	ArrayUnion	arrayExpressions	out	nested types (array, map, struct): no representation								
+array_compact	ArrayCompact	arrayExpressions	out	nested types (array, map, struct): no representation								
+slice	Slice	arrayExpressions	out	nested types (array, map, struct): no representation								
+trim_array	TrimArray	arrayExpressions	out	nested types (array, map, struct): no representation								
+arrays_zip	ArraysZip	arrayExpressions	out	nested types (array, map, struct): no representation								
+sort_array	SortArray	arrayExpressions	out	nested types (array, map, struct): no representation								
+shuffle	Shuffle	arrayExpressions	out	nested types (array, map, struct): no representation								
+array_min	ArrayMin	arrayExpressions	out	nested types (array, map, struct): no representation								
+array_max	ArrayMax	arrayExpressions	out	nested types (array, map, struct): no representation								
+array_append	ArrayAppend	arrayExpressions	out	nested types (array, map, struct): no representation								
+flatten	Flatten	arrayExpressions	out	nested types (array, map, struct): no representation								
+sequence	Sequence	arrayExpressions	out	nested types (array, map, struct): no representation								
+array_repeat	ArrayRepeat	arrayExpressions	out	nested types (array, map, struct): no representation								
+array_remove	ArrayRemove	arrayExpressions	out	nested types (array, map, struct): no representation								
+array_prepend	ArrayPrepend	arrayExpressions	out	nested types (array, map, struct): no representation								
+array_distinct	ArrayDistinct	arrayExpressions	out	nested types (array, map, struct): no representation								
+get	Get	arrayExpressions	out	nested types (array, map, struct): no representation								
+named_struct	CreateNamedStruct	structExpressions	out	nested types (array, map, struct): no representation								
+struct	CreateStruct	structExpressions	out	nested types (array, map, struct): no representation								
+str_to_map	StringToMap	mapExpressions	out	nested types (array, map, struct): no representation								
+map	CreateMap	mapExpressions	out	nested types (array, map, struct): no representation								
+map_contains_key	MapContainsKey	mapExpressions	out	nested types (array, map, struct): no representation								
+map_from_arrays	MapFromArrays	mapExpressions	out	nested types (array, map, struct): no representation								
+map_keys	MapKeys	mapExpressions	out	nested types (array, map, struct): no representation								
+map_values	MapValues	mapExpressions	out	nested types (array, map, struct): no representation								
+map_entries	MapEntries	mapExpressions	out	nested types (array, map, struct): no representation								
+map_from_entries	MapFromEntries	mapExpressions	out	nested types (array, map, struct): no representation								
+map_concat	MapConcat	mapExpressions	out	nested types (array, map, struct): no representation								
+try_avg	TryAverageExpressionBuilder	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters								
+try_sum	TrySumExpressionBuilder	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters								
+approx_count_distinct	HyperLogLogPlusPlus	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters								
+avg	Average	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters								
+corr	Corr	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters								
+count	Count	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters								
+count_if	CountIf	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters								
+covar_pop	CovPopulation	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters								
+covar_samp	CovSample	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters								
+first	First	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters								
+first_value	First	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters								
+any_value	AnyValue	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters								
+kurtosis	Kurtosis	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters								
+last	Last	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters								
+last_value	Last	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters								
+max	Max	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters								
+max_by	MaxByBuilder	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters								
+mean	Average	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters								
+min	Min	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters								
+min_by	MinByBuilder	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters								
+percentile	Percentile	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters								
+percentile_cont	PercentileContBuilder	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters								
+percentile_disc	PercentileDiscBuilder	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters								
+median	Median	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters								
+skewness	Skewness	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters								
+percentile_approx	ApproximatePercentile	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters								
+approx_percentile	ApproximatePercentile	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters								
+histogram_numeric	HistogramNumeric	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters								
+std	StddevSamp	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters								
+stddev	StddevSamp	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters								
+stddev_pop	StddevPop	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters								
+stddev_samp	StddevSamp	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters								
+sum	Sum	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters								
+variance	VarianceSamp	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters								
+var_pop	VariancePop	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters								
+var_samp	VarianceSamp	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters								
+collect_list	CollectList	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters								
+array_agg	CollectList	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters								
+collect_set	CollectSet	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters								
+collect_union	CollectUnion	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters								
+listagg	ListAgg	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters								
+string_agg	ListAgg	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters								
+count_min_sketch	CountMinSketchAggExpressionBuilder	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters								
+every	BoolAnd	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters								
+bool_and	BoolAnd	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters								
+any	BoolOr	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters								
+some	BoolOr	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters								
+bool_or	BoolOr	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters								
+regr_count	RegrCount	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters								
+regr_avgx	RegrAvgX	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters								
+regr_avgy	RegrAvgY	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters								
+regr_r2	RegrR2	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters								
+regr_sxx	RegrSXX	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters								
+regr_sxy	RegrSXY	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters								
+regr_syy	RegrSYY	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters								
+regr_slope	RegrSlope	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters								
+regr_intercept	RegrIntercept	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters								
+mode	ModeBuilder	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters								
+hll_sketch_agg	HllSketchAgg	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters								
+hll_union_agg	HllUnionAgg	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters								
+approx_top_k	ApproxTopK	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters								
+theta_sketch_agg	ThetaSketchAgg	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters								
+theta_union_agg	ThetaUnionAgg	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters								
+theta_intersection_agg	ThetaIntersectionAgg	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters								
+approx_top_k_accumulate	ApproxTopKAccumulate	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters								
+approx_top_k_combine	ApproxTopKCombine	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters								
+kll_sketch_agg_bigint	KllSketchAggBigint	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters								
+kll_sketch_agg_float	KllSketchAggFloat	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters								
+kll_sketch_agg_double	KllSketchAggDouble	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters								
+kll_merge_agg_bigint	KllMergeAggBigint	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters								
+kll_merge_agg_float	KllMergeAggFloat	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters								
+kll_merge_agg_double	KllMergeAggDouble	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters								
+tuple_intersection_agg_double	TupleIntersectionAggDouble	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters								
+tuple_intersection_agg_integer	TupleIntersectionAggInteger	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters								
+tuple_sketch_agg_double	TupleSketchAggDoubleExpressionBuilder	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters								
+tuple_sketch_agg_integer	TupleSketchAggIntegerExpressionBuilder	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters								
+tuple_union_agg_double	TupleUnionAggDoubleExpressionBuilder	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters								
+tuple_union_agg_integer	TupleUnionAggIntegerExpressionBuilder	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters								
+measure	Measure	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters								
+grouping	Grouping	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters								
+grouping_id	GroupingID	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters								
+bit_and	BitAndAgg	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters								
+bit_or	BitOrAgg	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters								
+bit_xor	BitXorAgg	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters								
+bitmap_construct_agg	BitmapConstructAgg	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters								
+bitmap_or_agg	BitmapOrAgg	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters								
+bitmap_and_agg	BitmapAndAgg	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters								
+bitmap_xor_agg	BitmapXorAgg	aggregateExpressions	out	aggregate: Varka fuses scalar projections and filters								
+lead	Lead	windowExpressions	out	window function: Varka fuses scalar projections and filters								
+lag	Lag	windowExpressions	out	window function: Varka fuses scalar projections and filters								
+row_number	RowNumber	windowExpressions	out	window function: Varka fuses scalar projections and filters								
+cume_dist	CumeDist	windowExpressions	out	window function: Varka fuses scalar projections and filters								
+nth_value	NthValue	windowExpressions	out	window function: Varka fuses scalar projections and filters								
+ntile	NTile	windowExpressions	out	window function: Varka fuses scalar projections and filters								
+rank	Rank	windowExpressions	out	window function: Varka fuses scalar projections and filters								
+dense_rank	DenseRank	windowExpressions	out	window function: Varka fuses scalar projections and filters								
+percent_rank	PercentRank	windowExpressions	out	window function: Varka fuses scalar projections and filters								
+counter_diff	CounterDiffExpressionBuilder	windowExpressions	out	window function: Varka fuses scalar projections and filters								
+explode	ExplodeExpressionBuilder	generatorExpressions	out	generator: Varka fuses scalar projections and filters								
+explode_outer	ExplodeExpressionBuilder	generatorExpressions	out	generator: Varka fuses scalar projections and filters								
+inline	InlineExpressionBuilder	generatorExpressions	out	generator: Varka fuses scalar projections and filters								
+inline_outer	InlineExpressionBuilder	generatorExpressions	out	generator: Varka fuses scalar projections and filters								
+posexplode	PosExplodeExpressionBuilder	generatorExpressions	out	generator: Varka fuses scalar projections and filters								
+posexplode_outer	PosExplodeExpressionBuilder	generatorExpressions	out	generator: Varka fuses scalar projections and filters								
+stack	Stack	generatorExpressions	out	generator: Varka fuses scalar projections and filters								
+cast	Cast	conversionExpressions	in		bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt		bool,byte,short,float,double,dec,ntz	semantics	332,343,350,338,28,364,365,366,368	the matrix in m8/PLAN.md 2.2	
+boolean	Cast	conversionExpressions	in		bool,byte,short,int,bigint,float,double,dec,date	bool		bool,byte,short,float,double,dec	semantics	332,343,350,364	cast alias	
+tinyint	Cast	conversionExpressions	in		bool,byte,short,int,bigint,float,double,dec,date,time,ym,dt	byte		bool,byte,short,float,double,dec	semantics	332,343,350,364,365	cast alias	
+smallint	Cast	conversionExpressions	in		bool,byte,short,int,bigint,float,double,dec,date,time,ym,dt	short		bool,byte,short,float,double,dec	semantics	332,343,350,364,365	cast alias	
+int	Cast	conversionExpressions	in		bool,byte,short,int,bigint,float,double,dec,date,time,ym,dt	int	bigint	bool,byte,short,float,double,dec	semantics	332,343,350,364,365	cast alias	
+bigint	Cast	conversionExpressions	in		bool,byte,short,int,bigint,float,double,dec,date,time,ym,dt	bigint	int	bool,byte,short,float,double,dec	semantics	332,343,350,28,364	cast alias	
+float	Cast	conversionExpressions	in		bool,byte,short,int,bigint,float,double,dec,date	float		bool,byte,short,float,double,dec	semantics	343,364,366	cast alias	
+double	Cast	conversionExpressions	in		bool,byte,short,int,bigint,float,double,dec,date	double		bool,byte,short,float,double,dec	semantics	343,364,366	cast alias	
+decimal	Cast	conversionExpressions	in		bool,byte,short,int,bigint,float,double,dec,date,time,ym,dt	dec		bool,byte,short,float,double,dec	semantics	350,364,366	cast alias; DECIMAL(10,0) by default	
+date	Cast	conversionExpressions	in		date,ntz	date	ntz	ntz	plumbing	340	cast alias; ntz is fused (VARKA-338), the other sources are their rows'	
+timestamp	Cast	conversionExpressions	out	TIMESTAMP with local time zone: owner's decision, 14 October 2026								
+time	Cast	conversionExpressions	in		ntz,time	time	ntz	ntz	plumbing	340	cast alias; TIME widening is fused today, and ntz to TIME (VARKA-340)	
+binary	Cast	conversionExpressions	out	BINARY: outside the type set								
+string	Cast	conversionExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+from_csv	CsvToStructs	csvExpressions	out	parses or produces STRING: owner's decision, 14 October 2026								
+schema_of_csv	SchemaOfCsv	csvExpressions	out	parses or produces STRING: owner's decision, 14 October 2026								
+to_csv	StructsToCsv	csvExpressions	out	parses or produces STRING: owner's decision, 14 October 2026								
+json_value	JsonValueExpressionBuilder	routedSqlJsonFunctionEntries	out	parses or produces STRING: owner's decision, 14 October 2026								
+json_query	JsonQueryExpressionBuilder	routedSqlJsonFunctionEntries	out	parses or produces STRING: owner's decision, 14 October 2026								
+json_exists	JsonExistsExpressionBuilder	routedSqlJsonFunctionEntries	out	parses or produces STRING: owner's decision, 14 October 2026								
+json_array	JsonArrayExpressionBuilder	routedSqlJsonFunctionEntries	out	parses or produces STRING: owner's decision, 14 October 2026								
+json_object	JsonObjectExpressionBuilder	routedSqlJsonFunctionEntries	out	parses or produces STRING: owner's decision, 14 October 2026								
+get_json_object	GetJsonObject	jsonExpressions	out	parses or produces STRING: owner's decision, 14 October 2026								
+json_tuple	JsonTuple	jsonExpressions	out	parses or produces STRING: owner's decision, 14 October 2026								
+to_json	StructsToJson	jsonExpressions	out	parses or produces STRING: owner's decision, 14 October 2026								
+from_json	JsonToStructs	jsonExpressions	out	parses or produces STRING: owner's decision, 14 October 2026								
+schema_of_json	SchemaOfJson	jsonExpressions	out	parses or produces STRING: owner's decision, 14 October 2026								
+json_array_length	LengthOfJsonArray	jsonExpressions	out	parses or produces STRING: owner's decision, 14 October 2026								
+json_object_keys	JsonObjectKeys	jsonExpressions	out	parses or produces STRING: owner's decision, 14 October 2026								
+json_typeof	JsonTypeof	jsonExpressions	out	parses or produces STRING: owner's decision, 14 October 2026								
+parse_json	ParseJsonExpressionBuilder	variantExpressions	out	VARIANT: outside the type set								
+try_parse_json	TryParseJsonExpressionBuilder	variantExpressions	out	VARIANT: outside the type set								
+is_variant_null	IsVariantNull	variantExpressions	out	VARIANT: outside the type set								
+variant_get	VariantGetExpressionBuilder	variantExpressions	out	VARIANT: outside the type set								
+try_variant_get	TryVariantGetExpressionBuilder	variantExpressions	out	VARIANT: outside the type set								
+schema_of_variant	SchemaOfVariant	variantExpressions	out	VARIANT: outside the type set								
+schema_of_variant_agg	SchemaOfVariantAgg	variantExpressions	out	VARIANT: outside the type set								
+to_variant_object	ToVariantObject	variantExpressions	out	VARIANT: outside the type set								
+variant_from_arrays	VariantFromArrays	variantExpressions	out	VARIANT: outside the type set								
+variant_from_entries	VariantFromEntries	variantExpressions	out	VARIANT: outside the type set								
+is_valid_variant	IsValidVariant	variantExpressions	out	VARIANT: outside the type set								
+variant_delete	VariantDelete	variantExpressions	out	VARIANT: outside the type set								
+variant_insert	VariantInsertExpressionBuilder	variantExpressions	out	VARIANT: outside the type set								
+try_variant_insert	TryVariantInsertExpressionBuilder	variantExpressions	out	VARIANT: outside the type set								
+variant_set	VariantSetExpressionBuilder	variantExpressions	out	VARIANT: outside the type set								
+try_variant_set	TryVariantSetExpressionBuilder	variantExpressions	out	VARIANT: outside the type set								
+variant_array_append	VariantArrayAppendExpressionBuilder	variantExpressions	out	VARIANT: outside the type set								
+try_variant_array_append	TryVariantArrayAppendExpressionBuilder	variantExpressions	out	VARIANT: outside the type set								
+variant_strip_nulls	VariantStripNullsExpressionBuilder	variantExpressions	out	VARIANT: outside the type set								
+variant_pick	VariantPick	variantExpressions	out	VARIANT: outside the type set								
+xpath	XPathList	xmlExpressions	out	parses or produces STRING: owner's decision, 14 October 2026								
+xpath_boolean	XPathBoolean	xmlExpressions	out	parses or produces STRING: owner's decision, 14 October 2026								
+xpath_double	XPathDouble	xmlExpressions	out	parses or produces STRING: owner's decision, 14 October 2026								
+xpath_number	XPathDouble	xmlExpressions	out	parses or produces STRING: owner's decision, 14 October 2026								
+xpath_float	XPathFloat	xmlExpressions	out	parses or produces STRING: owner's decision, 14 October 2026								
+xpath_int	XPathInt	xmlExpressions	out	parses or produces STRING: owner's decision, 14 October 2026								
+xpath_long	XPathLong	xmlExpressions	out	parses or produces STRING: owner's decision, 14 October 2026								
+xpath_short	XPathShort	xmlExpressions	out	parses or produces STRING: owner's decision, 14 October 2026								
+xpath_string	XPathString	xmlExpressions	out	parses or produces STRING: owner's decision, 14 October 2026								
+from_xml	XmlToStructs	xmlExpressions	out	parses or produces STRING: owner's decision, 14 October 2026								
+schema_of_xml	SchemaOfXml	xmlExpressions	out	parses or produces STRING: owner's decision, 14 October 2026								
+to_xml	StructsToXml	xmlExpressions	out	parses or produces STRING: owner's decision, 14 October 2026								
+try_url_decode	TryUrlDecode	urlExpressions	out	parses or produces STRING: owner's decision, 14 October 2026								
+url_encode	UrlEncode	urlExpressions	out	parses or produces STRING: owner's decision, 14 October 2026								
+url_decode	UrlDecode	urlExpressions	out	parses or produces STRING: owner's decision, 14 October 2026								
+parse_url	ParseUrl	urlExpressions	out	parses or produces STRING: owner's decision, 14 October 2026								
+try_parse_url	TryParseUrl	urlExpressions	out	parses or produces STRING: owner's decision, 14 October 2026								
+try_aes_decrypt	TryAesDecrypt	miscExpressions	out	BINARY: outside the type set								
+try_reflect	TryReflect	miscExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+assert_true	AssertTrue	miscExpressions	out	NULL-typed result: raises or returns null, nothing to compute								
+raise_error	RaiseErrorExpressionBuilder	miscExpressions	out	NULL-typed result: raises or returns null, nothing to compute								
+uuid	Uuid	miscExpressions	out	nondeterministic: seeded per partition, its answer depends on row order								
+aes_encrypt	AesEncrypt	miscExpressions	out	BINARY: outside the type set								
+aes_decrypt	AesDecrypt	miscExpressions	out	BINARY: outside the type set								
+hmac	Hmac	miscExpressions	out	BINARY: outside the type set								
+spark_partition_id	SparkPartitionID	miscExpressions	out	a per-task fact, not a function of the row								
+input_file_name	InputFileName	miscExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+input_file_block_start	InputFileBlockStart	miscExpressions	out	a per-file fact, not a function of the row								
+input_file_block_length	InputFileBlockLength	miscExpressions	out	a per-file fact, not a function of the row								
+monotonically_increasing_id	MonotonicallyIncreasingID	miscExpressions	out	a per-task counter, not a function of the row								
+current_database	CurrentDatabase	miscExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+current_schema	CurrentDatabase	miscExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+current_catalog	CurrentCatalog	miscExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+current_path	CurrentPath	miscExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+current_user	CurrentUser	miscExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+user	CurrentUser	miscExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+session_user	CurrentUser	miscExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+reflect	CallMethodViaReflection	miscExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+java_method	CallMethodViaReflection	miscExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+version	SparkVersion	miscExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+typeof	TypeOf	miscExpressions	out	STRING input or output: owner's decision, 14 October 2026								
+bitmap_bucket_number	BitmapBucketNumber	miscExpressions	in		bigint	bigint	bigint		done		a shift and an offset over a blend, proven by SMT (bitmap.smt2)	
+bitmap_bit_position	BitmapBitPosition	miscExpressions	in		bigint	bigint	bigint		done		a mask over a blend, proven by SMT (bitmap.smt2)	
+bitmap_count	BitmapCount	miscExpressions	out	BINARY input: outside the type set								
+bitmap_and	BitmapAnd	miscExpressions	out	BINARY: outside the type set								
+bitmap_or	BitmapOr	miscExpressions	out	BINARY: outside the type set								
+bitmap_andnot	BitmapAndNot	miscExpressions	out	BINARY: outside the type set								
+bitmap_xor	BitmapXor	miscExpressions	out	BINARY: outside the type set								
+hll_sketch_estimate	HllSketchEstimate	dataSketchExpressions	out	sketch state in BINARY: outside the type set								
+hll_union	HllUnion	dataSketchExpressions	out	sketch state in BINARY: outside the type set								
+theta_sketch_estimate	ThetaSketchEstimate	dataSketchExpressions	out	sketch state in BINARY: outside the type set								
+theta_union	ThetaUnion	dataSketchExpressions	out	sketch state in BINARY: outside the type set								
+theta_difference	ThetaDifference	dataSketchExpressions	out	sketch state in BINARY: outside the type set								
+theta_intersection	ThetaIntersection	dataSketchExpressions	out	sketch state in BINARY: outside the type set								
+approx_top_k_estimate	ApproxTopKEstimate	dataSketchExpressions	out	sketch state in BINARY: outside the type set								
+tuple_difference_double	TupleDifferenceDouble	dataSketchExpressions	out	sketch state in BINARY: outside the type set								
+tuple_difference_integer	TupleDifferenceInteger	dataSketchExpressions	out	sketch state in BINARY: outside the type set								
+tuple_difference_theta_double	TupleDifferenceThetaDouble	dataSketchExpressions	out	sketch state in BINARY: outside the type set								
+tuple_difference_theta_integer	TupleDifferenceThetaInteger	dataSketchExpressions	out	sketch state in BINARY: outside the type set								
+tuple_intersection_double	TupleIntersectionDouble	dataSketchExpressions	out	sketch state in BINARY: outside the type set								
+tuple_intersection_integer	TupleIntersectionInteger	dataSketchExpressions	out	sketch state in BINARY: outside the type set								
+tuple_intersection_theta_double	TupleIntersectionThetaDouble	dataSketchExpressions	out	sketch state in BINARY: outside the type set								
+tuple_intersection_theta_integer	TupleIntersectionThetaInteger	dataSketchExpressions	out	sketch state in BINARY: outside the type set								
+tuple_sketch_estimate_double	TupleSketchEstimateDouble	dataSketchExpressions	out	sketch state in BINARY: outside the type set								
+tuple_sketch_estimate_integer	TupleSketchEstimateInteger	dataSketchExpressions	out	sketch state in BINARY: outside the type set								
+tuple_sketch_summary_double	TupleSketchSummaryDouble	dataSketchExpressions	out	sketch state in BINARY: outside the type set								
+tuple_sketch_summary_integer	TupleSketchSummaryInteger	dataSketchExpressions	out	sketch state in BINARY: outside the type set								
+tuple_sketch_theta_double	TupleSketchThetaDouble	dataSketchExpressions	out	sketch state in BINARY: outside the type set								
+tuple_sketch_theta_integer	TupleSketchThetaInteger	dataSketchExpressions	out	sketch state in BINARY: outside the type set								
+tuple_union_double	TupleUnionDoubleExpressionBuilder	dataSketchExpressions	out	sketch state in BINARY: outside the type set								
+tuple_union_integer	TupleUnionIntegerExpressionBuilder	dataSketchExpressions	out	sketch state in BINARY: outside the type set								
+tuple_union_theta_double	TupleUnionThetaDoubleExpressionBuilder	dataSketchExpressions	out	sketch state in BINARY: outside the type set								
+tuple_union_theta_integer	TupleUnionThetaIntegerExpressionBuilder	dataSketchExpressions	out	sketch state in BINARY: outside the type set								
+kll_sketch_to_string_bigint	KllSketchToStringBigint	dataSketchExpressions	out	sketch state in BINARY: outside the type set								
+kll_sketch_to_string_float	KllSketchToStringFloat	dataSketchExpressions	out	sketch state in BINARY: outside the type set								
+kll_sketch_to_string_double	KllSketchToStringDouble	dataSketchExpressions	out	sketch state in BINARY: outside the type set								
+kll_sketch_get_n_bigint	KllSketchGetNBigint	dataSketchExpressions	out	sketch state in BINARY: outside the type set								
+kll_sketch_get_n_float	KllSketchGetNFloat	dataSketchExpressions	out	sketch state in BINARY: outside the type set								
+kll_sketch_get_n_double	KllSketchGetNDouble	dataSketchExpressions	out	sketch state in BINARY: outside the type set								
+kll_sketch_merge_bigint	KllSketchMergeBigint	dataSketchExpressions	out	sketch state in BINARY: outside the type set								
+kll_sketch_merge_float	KllSketchMergeFloat	dataSketchExpressions	out	sketch state in BINARY: outside the type set								
+kll_sketch_merge_double	KllSketchMergeDouble	dataSketchExpressions	out	sketch state in BINARY: outside the type set								
+kll_sketch_get_quantile_bigint	KllSketchGetQuantileBigint	dataSketchExpressions	out	sketch state in BINARY: outside the type set								
+kll_sketch_get_quantile_float	KllSketchGetQuantileFloat	dataSketchExpressions	out	sketch state in BINARY: outside the type set								
+kll_sketch_get_quantile_double	KllSketchGetQuantileDouble	dataSketchExpressions	out	sketch state in BINARY: outside the type set								
+kll_sketch_get_rank_bigint	KllSketchGetRankBigint	dataSketchExpressions	out	sketch state in BINARY: outside the type set								
+kll_sketch_get_rank_float	KllSketchGetRankFloat	dataSketchExpressions	out	sketch state in BINARY: outside the type set								
+kll_sketch_get_rank_double	KllSketchGetRankDouble	dataSketchExpressions	out	sketch state in BINARY: outside the type set								
+from_avro	FromAvro	avroExpressions	out	BINARY: outside the type set								
+to_avro	ToAvro	avroExpressions	out	BINARY: outside the type set								
+schema_of_avro	SchemaOfAvro	avroExpressions	out	BINARY: outside the type set								
+from_protobuf	FromProtobuf	protobufExpressions	out	BINARY: outside the type set								
+to_protobuf	ToProtobuf	protobufExpressions	out	BINARY: outside the type set								
+st_asbinary	ST_AsBinary	spatialExpressions	out	geospatial types: outside the type set								
+st_geogfromwkb	ST_GeogFromWKB	spatialExpressions	out	geospatial types: outside the type set								
+st_geomfromwkb	ST_GeomFromWKB	spatialExpressions	out	geospatial types: outside the type set								
+st_srid	ST_Srid	spatialExpressions	out	geospatial types: outside the type set								
+st_setsrid	ST_SetSrid	spatialExpressions	out	geospatial types: outside the type set								
+vector_cosine_similarity	VectorCosineSimilarity	vectorExpressions	out	arrays of floats: nested types, no representation								
+vector_inner_product	VectorInnerProduct	vectorExpressions	out	arrays of floats: nested types, no representation								
+vector_l2_distance	VectorL2Distance	vectorExpressions	out	arrays of floats: nested types, no representation								
+vector_norm	VectorNorm	vectorExpressions	out	arrays of floats: nested types, no representation								
+vector_normalize	VectorNormalize	vectorExpressions	out	arrays of floats: nested types, no representation								
+vector_avg	VectorAvg	vectorExpressions	out	arrays of floats: nested types, no representation								
+vector_sum	VectorSum	vectorExpressions	out	arrays of floats: nested types, no representation								
+try_cast	Cast	implicit: conversion	in		bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt		bool,byte,short,float,double,dec,ntz	semantics	332,343,350,364,365,366,368	the parser's TRY mode: null instead of an error	
+in_set	InSet	implicit: predicate	in		bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bool	byte,short,int,bigint,float,double,date,ntz,time,ym,dt	bool,byte,short,float,double,dec,ntz	plumbing	341,348,359,329,497	IN over many literals; dec to precision 18 fuses at every scale through row 497's single IN arm (348a4) and counts fused with 359, 360 and 363 (2.8)	
+date_minus_date	SubtractDates	implicit: datetime	in		date	dt			semantics	39	row 39: days times micros per day, exact	
+ntz_minus_ntz	SubtractTimestamps	implicit: datetime	in		ntz	dt	ntz	ntz	done	339	plain long arithmetic in UTC, exact or raise	
+time_minus_time	SubtractTimes	implicit: datetime	in		time	dt	time		done			
+time_plus_dt	TimeAddInterval	implicit: datetime	in		time,dt	time	time,dt		done		fused in `t + INTERVAL '0 00:00:00' DAY TO SECOND`	
+date_plus_ym	DateAddYMInterval	implicit: datetime	in		date,ym	date	date,ym		done			
+datetime_sub	DatetimeSub	implicit: datetime	in		date,ntz,ym,dt	date,ntz	date,ntz,ym	ntz	plumbing	339	the wrapper over the subtraction forms; coverage fuses `ntz - dt` (DatetimeSub over dt), and dt stays out of the fused types until `ntz - ym`, which still declines, fuses in row 339's step 3	
+ntz_plus_dt	TimestampAddInterval	implicit: datetime	in		ntz,dt	ntz	ntz,dt	ntz	done	339	UTC, so plain arithmetic; exact or raise	
+ntz_plus_ym	TimestampAddYMInterval	implicit: datetime	in		ntz,ym	ntz		ntz	semantics	339	calendar months on the date part	
+timestampadd	TimestampAdd	implicit: datetime	in		bigint,ntz	ntz		ntz	semantics	339	units up to a week are arithmetic, months and years calendar	
+ym_times_num	MultiplyYMInterval	implicit: interval	in		byte,short,int,bigint,float,double,dec,ym	ym	int,ym	byte,short,float,double,dec	semantics	103,329,342	fused in `make_ym_interval(year(d), month(d)) * 2`; HALF_UP from fractions; an integral literal factor over a stored column is row 103's guard (103a); a decimal column factor is a product past 64 bits and a HALF_UP division by 10^s; unclaimed, suggested home rows 361 and 363 (VARKA-349.md 7)	
+dt_times_num	MultiplyDTInterval	implicit: interval	in		byte,short,int,bigint,float,double,dec,dt	dt		byte,short,float,double,dec	semantics	103,342,361,363	checked multiply; HALF_UP from fractions; an integral or decimal literal and an integral column are row 103's; a floating factor is 342's lowering	
+ym_div_num	DivideYMInterval	implicit: interval	in		byte,short,int,bigint,float,double,dec,ym	ym		byte,short,float,double,dec	semantics	89,342,363	HALF_UP division; a decimal divisor is a division by a variable, claimed by row 363 and declined until one is planned (VARKA-349.md 7)	
+dt_div_num	DivideDTInterval	implicit: interval	in		byte,short,int,bigint,float,double,dec,dt	dt		byte,short,float,double,dec	semantics	103,342,361,363	HALF_UP division; an integral or decimal literal and an integral column are row 103's; a floating factor is 342's lowering	
+extract_ym_years	ExtractANSIIntervalYears	implicit: interval	in		ym	int	ym		done			
+extract_ym_months	ExtractANSIIntervalMonths	implicit: interval	in		ym	byte		byte	plumbing	329	matched today only to decline: its result is a byte	
+extract_dt_days	ExtractANSIIntervalDays	implicit: interval	in		dt	int			plumbing	103	fused today only inside date + CAST(i AS INTERVAL DAY); inside `d + dt` over a stored `INTERVAL DAY` column it declines (`m9/SCOPE.md` item 126)	
+extract_dt_hours	ExtractANSIIntervalHours	implicit: interval	in		dt	byte		byte	plumbing	103	division by a constant	
+extract_dt_minutes	ExtractANSIIntervalMinutes	implicit: interval	in		dt	byte		byte	plumbing	103	division by a constant	
+extract_dt_seconds	ExtractANSIIntervalSeconds	implicit: interval	in		dt	dec		dec	plumbing	103,157	a DECIMAL(8,6) result	
+known_not_null	KnownNotNull	implicit: internals	in		bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt		bool,byte,short,float,double,dec,ntz	plumbing	333	a relabel the optimizer adds	
+known_fp_normalized	KnownFloatingPointNormalized	implicit: internals	in		float,double	float,double		float,double	plumbing	337	a relabel around NaN and -0.0 normalization; uncounted, by the owner's answer of 30 October 2026 (VARKA-337.md 8 point 5, option (a)): Spark inserts it only for join, window and aggregate keys, never in a Project or Filter, so no coverage row can hold it	
+normalize_nan_and_zero	NormalizeNaNAndZero	implicit: internals	in		float,double	float,double		float,double	plumbing	337	the optimizer's canonical NaN and +0.0 before a key or a hash: one node, shared with the hash input (m8/PLAN.md 2.7); uncounted, by the owner's answer of 30 October 2026 (VARKA-337.md 8 point 5, option (a)): Spark inserts it only for join, window and aggregate keys, never in a Project or Filter, so no coverage row can hold it	
+try_eval	TryEval	implicit: internals	in		bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt	bool,byte,short,int,bigint,float,double,dec,date,ntz,time,ym,dt		bool,byte,short,float,double,dec,ntz	semantics	330,342	the try_ functions' wrapper: every error raised anywhere in its subtree becomes null; over a decimal subtree: no 64-bit decimal arithmetic raises, so it waits for the rows whose decimal nodes do; unclaimed, suggested home row 350 (VARKA-349.md 7)	
+check_overflow	CheckOverflow	implicit: decimal internals	out	evaluated by an operator Varka does not fuse (HashAggregateExec, WindowExec, SerializeFromObjectExec)								
+make_decimal	MakeDecimal	implicit: decimal internals	out	evaluated by an operator Varka does not fuse (HashAggregateExec, WindowExec, SerializeFromObjectExec)								
+unscaled_value	UnscaledValue	implicit: decimal internals	out	evaluated by an operator Varka does not fuse (HashAggregateExec, WindowExec, SerializeFromObjectExec)								

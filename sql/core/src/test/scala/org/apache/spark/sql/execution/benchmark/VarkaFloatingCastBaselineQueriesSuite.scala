@@ -144,7 +144,7 @@ class VarkaFloatingCastBaselineQueriesSuite extends QueryTest with VarkaSharedSe
         assert(legacy.getLong(5) > rows / 4 && legacy.getLong(6) === legacy.getLong(5))
       }
 
-      val sections = VarkaFloatingCastBaselineBenchmark.sections(false).asScala.toSeq
+      val sections = VarkaFloatingCastBaselineBenchmark.sections(false, false).asScala.toSeq
       assert(sections.size === 2 * resultTypes.size)
       for ((s, index) <- sections.zipWithIndex) {
         withClue(s.title) {
@@ -167,6 +167,17 @@ class VarkaFloatingCastBaselineQueriesSuite extends QueryTest with VarkaSharedSe
           }
         }
       }
+      // The shared sessions' unnamed level declines the BIGINT casts, so the loop above compares
+      // the row engine with itself there. At the named levels the benchmark's hosts resolve they
+      // fuse, by the exact AVX2 forms at 2 and as one conversion at 3, and their answers over
+      // the fixture's values past 2^51 and 2^53, where the forms round, are checked here.
+      for (level <- Seq(2, 3); s <- sections if s.title.startsWith("BIGINT")) {
+        withClue(s"${s.title}, level $level") {
+          withBothConf(SQLConf.VARKA_EMIT_USE_AVX.key, level.toString) {
+            checkAnswer(varkaSpark.sql(s.query), spark.sql(s.query))
+          }
+        }
+      }
     }
   }
 
@@ -176,17 +187,34 @@ class VarkaFloatingCastBaselineQueriesSuite extends QueryTest with VarkaSharedSe
     // its own settings, as the benchmark plans it. The benchmark plans under the emitter's
     // default options, so the classes pin the defaults, and an option matrix configuration,
     // under which a section may fuse differently, cancels the test; so does the run that lifts
-    // the benchmark's check.
+    // the benchmark's check. The benchmark lists its classes at the two-lane refusal (VARKA-503)
+    // and the emit level its session resolves from the host, and the shared sessions pin both:
+    // the refusal off and the unnamed level, -1. So the classes are checked here with the
+    // refusal each way, at the unnamed level and at the named levels the benchmark's hosts
+    // resolve, 2 on the AVX2 runners at 256 bits and 3 on an AVX-512 host. The BIGINT casts fuse
+    // at a named level and decline at the unnamed one, a fact this test states rather than
+    // reads from the kernel plan as the benchmark does, so a level that stops fusing them fails
+    // here, and so does a reading of the kernel plan that disagrees with it. The level the
+    // benchmark's session resolves from its host, -2, is not checked here, since it depends on
+    // the machine; the benchmark's dry runs on an AVX2 and an AVX-512 host check that.
     assume(VarkaSqlBenchmarkBase.fuseCheck(),
       s"-D${VarkaSqlBenchmarkBase.FUSE_CHECK_PROPERTY}=false times the sections fused")
     withTable {
-      val declines =
-        VarkaSessionEmit.of(varkaSpark.sessionState.conf).declineTwoLaneConditions()
-      for (s <- VarkaFloatingCastBaselineBenchmark.sections(declines).asScala) {
-        withClue(s.title) {
-          withSettings(s) {
-            val plan = varkaSpark.sql(s.query).queryExecution.executedPlan
-            assert(VarkaSqlBenchmarkBase.fusion(plan) === Optional.of(s.fusion))
+      for (level <- Seq(-1, 2, 3)) {
+        withBothConf(SQLConf.VARKA_EMIT_USE_AVX.key, level.toString) {
+          val fuses = level != -1
+          val emit = VarkaSessionEmit.of(varkaSpark.sessionState.conf)
+          assert(VarkaFloatingCastBaselineBenchmark.fusesLongCasts(emit) === fuses,
+            s"level $level")
+          forEachTwoLaneRefusal { declines =>
+            for (s <- VarkaFloatingCastBaselineBenchmark.sections(declines, fuses).asScala) {
+              withClue(s"${s.title}, level $level, refusal $declines") {
+                withSettings(s) {
+                  val plan = varkaSpark.sql(s.query).queryExecution.executedPlan
+                  assert(VarkaSqlBenchmarkBase.fusion(plan) === Optional.of(s.fusion))
+                }
+              }
+            }
           }
         }
       }

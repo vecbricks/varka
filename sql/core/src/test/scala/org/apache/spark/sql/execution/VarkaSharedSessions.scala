@@ -194,6 +194,19 @@ trait VarkaSharedSessions extends SharedSparkSession with AdaptiveSparkPlanHelpe
     }
   }
 
+  /**
+   * Runs `body` twice, with the two-lane condition refusal (VARKA-503) off and then on in both
+   * sessions, passing it the setting. The shared sessions turn the refusal off, but a benchmark
+   * on an x86 host whose 64-bit species have two lanes runs with it on, so a baseline suite that
+   * checks its benchmark's fusion classes checks them under each setting.
+   */
+  protected def forEachTwoLaneRefusal(body: Boolean => Unit): Unit =
+    for (declines <- Seq(false, true)) {
+      withBothConf(SQLConf.VARKA_DECLINE_TWO_LANE_CONDITIONS.key, declines.toString) {
+        body(declines)
+      }
+    }
+
   protected def cacheDatePairs(session: SparkSession): Unit = {
     val dates = Seq(
       (date("2024-03-01"), date("2024-01-01")),

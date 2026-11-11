@@ -9,3 +9,14 @@ kernel:      7.0.0-1017-azure
 cpu:         AMD EPYC 7763 64-Core Processor
 datapath:    45.0 / 90.0 / 90.0 lane-ops/ns at 128 / 256 / 512 bits; 256:128 = 2.00 (control), 512:256 = 1.00 (dev/varka_datapath.sh)
 pinned to:   none (the runner is not pinned)
+spliced:     2026-11-10, 38 sections new to this file: row 361's widening sums and products (22)
+             and row 577's decimal remainders x % y and pmod(x, y) (16), from
+             https://github.com/vecbricks/varka/actions/runs/42846426514, commit 53e0ff52766
+             (refs/pull/1460/head, merged as #1460), AMD EPYC 7763, extra-java-options=<none>, by
+             dev/varka_bench_sections.py splice; every other section is the runs above
+spliced:     2026-11-10, row 359a's fourteen sections (VARKA-359.md 10.5: the DECIMAL(38, 10)
+             comparison, and at (38, 10) and (20, 2) the <=> filter, the IS NULL filter and
+             x < y as a value, at both null densities) from
+             https://github.com/MaxGekk/spark/actions/runs/42773199798, commit 092c60d53a6
+             (varka-359a-part4), AMD EPYC 7763, extra-java-options=<none>, by
+             dev/varka_bench_sections.py splice; every other section is the run above
