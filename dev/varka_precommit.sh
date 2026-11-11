@@ -23,7 +23,8 @@
 # rule existed - and reporting those asks for an edit the committer did not come
 # to make, whose only escape is --no-verify, which switches off every other check
 # too. Naming files on the command line turns the scoping off, since that is a
-# request to see everything in them. The whole-file checks below are unscoped.
+# request to see everything in them. The whole-file checks below are unscoped, but for ruff's
+# of a merge, which read only the files the merge writes.
 #
 #   * no non-ASCII byte in Scala, Java, Python or Markdown outside a string
 #     literal (CLAUDE.md: typographic quotes, dashes and ellipses creep into
@@ -80,14 +81,15 @@
 #     CI's Python linter (dev/lint-python runs both; a hand-wrapped script that
 #     passes the first still fails the second). A missing ruff is itself a
 #     finding, because dev/lint-python skips ruff silently when it is not on PATH
-#     and CI does not.
+#     and CI does not. Both are whole-file checks, so of a merge they read only the files
+#     whose content differs from both parents: the files the merge itself writes.
 #
 #   dev/varka_precommit.sh                 # the staged files
 #   dev/varka_precommit.sh --working-tree  # staged, unstaged and untracked
 #   dev/varka_precommit.sh FILE...         # these files
 #   dev/varka_precommit.sh --range A..B    # the files and lines a range of commits writes
 #   dev/varka_precommit.sh --install-hook  # install the pre-commit, commit-msg and pre-push hooks
-#   dev/varka_precommit.sh --selftest      # check the column and history rules' cases
+#   dev/varka_precommit.sh --selftest      # check the column, history and merge rules' cases
 #
 # Exit status is the number of findings.
 set -uo pipefail
@@ -193,6 +195,48 @@ if [ "${1:-}" = "--selftest" ]; then
   printf '// Fused since VARKA-21.\n' >> "$repo/VarkaOld.java"
   scope_case "an added 'since VARKA-n'" yes "narrates history"
 
+  # The Python checks in the staged mode, merge or not: a merge is checked by the files with a
+  # line that differs from both parents, so an unformatted file the other side carries passes
+  # and one the resolution writes into does not, and a plain commit's own file is checked whole.
+  # Without ruff on PATH the finding is the missing ruff, which still says the file was read.
+  py_case() { # name expected(yes|no)
+    local out got=no
+    out="$(cd "$repo" && bare "$self" 2>&1)"
+    case "$out" in *"ruff format: "*|*"ruff not found"*) got=yes ;; esac
+    if [ "$got" != "$2" ]; then
+      echo "varka_precommit selftest: $1: expected $2, got $got"
+      fails=$((fails + 1))
+    fi
+  }
+  (
+    cd "$repo" || exit 1
+    bare git checkout -q -- VarkaOld.java
+    bare git checkout -q -b upstream
+    printf 'x=1\n' > Up.py
+    bare git add Up.py
+    bare git -c core.hooksPath=/dev/null commit -qm upstream
+    bare git checkout -q -
+    printf 'val own = 1\n' >> Old.scala
+    bare git -c core.hooksPath=/dev/null commit -qam own
+    bare git -c core.hooksPath=/dev/null merge -q --no-commit --no-ff upstream
+  ) > /dev/null 2>&1
+  # Without the merge in progress the cases below would pass as plain commits.
+  if ! bare git -C "$repo" rev-parse -q --verify MERGE_HEAD > /dev/null; then
+    echo "varka_precommit selftest: the merge fixture did not start a merge"
+    fails=$((fails + 1))
+  fi
+  py_case "a merge carrying an unformatted file of the other side" no
+  printf 'y=2\n' >> "$repo/Up.py"
+  bare git -C "$repo" add Up.py
+  py_case "a merge whose resolution writes into an unformatted file" yes
+  bare git -C "$repo" merge --abort > /dev/null 2>&1 || {
+    echo "varka_precommit selftest: the merge fixture did not abort"
+    fails=$((fails + 1))
+  }
+  printf 'x=1\n' > "$repo/Own.py"
+  bare git -C "$repo" add Own.py
+  py_case "a commit adding an unformatted Python file" yes
+
   if [ "$outer_head" != "$(bare git -C "$root" rev-parse HEAD 2>/dev/null || echo none)" ]; then
     echo "varka_precommit selftest: the fixture moved this repository's HEAD"
     fails=$((fails + 1))
@@ -296,6 +340,20 @@ note() { findings=$((findings + 1)); echo "$1"; }
 # way past it is --no-verify, which switches every other check off too. So a line-anchored
 # finding is raised only for a line in the diff. Whole-file checks below are unaffected.
 declare -A written
+# The merge being committed, when there is one: in the staged mode with MERGE_HEAD set. Its own
+# files (`merge_file`) are those whose staged content differs from both parents, the file-level
+# twin of the line rule below, as dev/varka_lint.py cuts a merge's files; a file the merge only
+# carries in from the other side is not among them.
+merge_head=""
+declare -A merge_file
+if [ "$scoped" -eq 1 ] && [ "$diff_base" = "--cached" ] \
+    && merge_head="$(git rev-parse -q --verify MERGE_HEAD)"; then
+  while IFS= read -r -d '' f; do
+    merge_file["$f"]=1
+  done < <(git diff -z --cached --name-only --no-renames "$merge_head")
+else
+  merge_head=""
+fi
 scope_file() {
   local f="$1" range start count
   if [ "$scoped" -eq 0 ]; then return; fi
@@ -311,7 +369,7 @@ scope_file() {
   done < <(git diff -U0 "$diff_base" -- "$f" | sed -n 's/^@@ -[^ ]* +\([0-9,]*\) @@.*/\1/p')
   # During a merge a line is the commit's only if the other side lacks it too: the lines the
   # merge brings in were checked on the side that wrote them.
-  if [ "$diff_base" = "--cached" ] && merge_head="$(git rev-parse -q --verify MERGE_HEAD)"; then
+  if [ -n "$merge_head" ]; then
     local -A theirs=()
     while IFS= read -r range; do
       start="${range%%,*}"; count="${range##*,}"
@@ -413,17 +471,28 @@ VarkaVectorSupport.ofAddress, so the memory sanitizer sees it (VARKA-263)"
   fi
 done
 
+# ruff answers for whole files, so a merge's Python is cut by file: the files whose content
+# differs from both parents, which a resolution, an edit in the merge or two sides merged into
+# one file make, and which so were never checked whole. A merge of Varka's master otherwise
+# hands ruff every upstream file an earlier apache/spark sync carried, among them
+# sql/gen-sql-functions-docs.py, which apache/spark does not format and dev/lint-python, whose
+# paths leave it out, never checks. --force-exclude keeps pyproject.toml's exclusions (the
+# generated *_pb2.py files) for files named on the command line, as CI's directory runs do.
 py_files=()
-for f in "${files[@]}"; do [ -f "$f" ] && [[ "$f" =~ \.py$ ]] && py_files+=("$f"); done
+for f in "${files[@]}"; do
+  [ -f "$f" ] && [[ "$f" =~ \.py$ ]] || continue
+  if [ -z "$merge_head" ] || [ -n "${merge_file["$f"]:-}" ]; then py_files+=("$f"); fi
+done
 if [ "${#py_files[@]}" -gt 0 ]; then
   if command -v ruff > /dev/null 2>&1; then
     while IFS= read -r hit; do
       note "ruff check: $hit"
-    done < <(ruff check --output-format concise "${py_files[@]}" 2>&1 \
+    done < <(ruff check --force-exclude --output-format concise "${py_files[@]}" 2>&1 \
       | grep -E '^[^ ]+:[0-9]+:[0-9]+:')
     while IFS= read -r hit; do
       note "ruff format: $hit would be reformatted; run ruff format on it"
-    done < <(ruff format --check "${py_files[@]}" 2>&1 | sed -n 's/^Would reformat: //p')
+    done < <(ruff format --check --force-exclude "${py_files[@]}" 2>&1 \
+      | sed -n 's/^Would reformat: //p')
   else
     # The pin of dev/requirements.txt, which the lint job of build_and_test.yml installs too;
     # read here so that the message cannot drift from it.
