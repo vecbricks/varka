@@ -14,10 +14,10 @@ disagree, stop and report; do not pick one.
 1. Read the whole sheet, then `sql/varka/AGENTS.md` and the repository's `CLAUDE.md`. A sheet
    never asks you to read `/home/max/proj/runtime-master`: never open, read, search or list
    anything under it.
-2. Work in the worktree the lead names, or make one:
-   `git fetch -q origin master && git worktree add --no-track -b varka-<n> ../varka-<n> origin/master`.
-   Stop if `git branch --list 'varka-<n>*'` already prints a branch: someone has started the row,
-   or if `git show origin/master:sql/varka/plans/m8/BUILD_SHEETS.md` fails: the sheets have not
+2. Work in the worktree the lead names. If none is named, first stop if
+   `git branch --list 'varka-<n>'` (the exact name) prints a branch, since someone has started the
+   row; then `git fetch -q origin master && git worktree add --no-track -b varka-<n> ../varka-<n>
+   origin/master`. Do not run `dev/varka_task_new.sh`: the row's plan file exists. Stop if `git show origin/master:sql/varka/plans/m8/BUILD_SHEETS.md` fails: the sheets have not
    merged yet.
 3. Install the hooks once in the worktree: `dev/varka_precommit.sh --install-hook`.
 4. Run the sheet's step B0 (the premise re-check) before any edit. A grep that does not print
@@ -93,8 +93,8 @@ Run all of these on the final tree, in this order, and fix what they report:
    count and runs the suites the diff implies; it must exit 0.
 
 Source lines stay within 100 columns and ASCII outside string literals. A quick check over the
-changed files: `git diff --name-only origin/master | xargs grep -nP '[^\x00-\x7F]'` prints
-nothing.
+changed files: `git diff --name-only --diff-filter=ACM origin/master...HEAD | xargs grep -nP
+'[^\x00-\x7F]'` prints nothing.
 
 ## 7. The commit, and where you stop
 

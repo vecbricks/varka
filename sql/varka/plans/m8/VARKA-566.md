@@ -80,9 +80,9 @@ this row. A type with no registry id throws: no such type reaches an output, sin
      `kernel.dstWidth[o] = VarkaTypes.outputWidth(outputTypes[o]);` (add the import of
      `org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTypes`).
    - `kernelReady`: the loop body becomes
-     `outputBytes[o] = o < outputTypes.length ? VarkaTypes.outputWidth(outputTypes[o]) : Long.BYTES;`
-     with the comment "Each output's width (VarkaTypes.outputWidth), which the warm-up sizes its
-     destination by; a filter has no typed outputs, its one destination being the selection."
+     `outputBytes[o] =` and, on the next line, `o < outputTypes.length ?
+     VarkaTypes.outputWidth(outputTypes[o]) : Long.BYTES;` (one line is over 100 columns), with the
+     comment "Each output's width, the type registry's, which the warm-up sizes its destination by; a filter has no typed outputs, its one destination being the selection."
 3. **`<core>/varka/VarkaKernelRunner.java`**: delete `outputWidth(BaseFixedWidthVector)` and its
    javadoc. Keep `warmupWidth`, `bytesPerRow` and `floatingOutput`.
 4. **`<core>/varka/VarkaWarmupGate.java`**: the constructor's `@param outputBytes` becomes "each

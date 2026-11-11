@@ -156,6 +156,7 @@ fixture (B1 item 5), because `VarkaSparkFuzz` builds only the columns its draws 
 | `grep -n 'WIDTH_AUDIT' dev/varka_new_lane.py` | three lines |
 | `grep -n 'needs one in five places' sql/varka/ADDING_A_TYPE.md` | one line, in step 11 |
 | `python3 -c "import json;print(len(json.load(open('sql/varka/coverage.json'))['columns']))"` | `35` |
+| `grep -c inSetAsClaimed <scala>/VarkaEmittedBytesSuite.scala` | `0`; `2` means row 567 merged, and B8's last point applies |
 
 ### B1. Scope
 
@@ -238,7 +239,8 @@ fixture (B1 item 5), because `VarkaSparkFuzz` builds only the columns its draws 
      true))).schema`; the assertion is the one above. Eighteen columns are wanted
      (`d d2 i ymm ymy ym l l2 t t2 dt dt2 ntz ntz2 x x2 f f2`); assert that count too.
 6. **`dev/varka_new_lane.py`**: delete the `WIDTH_AUDIT` constant, `audit = column_types(...)`
-   and the `"width audit"` entry of `type_sites`. The width audit reads its columns from
+   and the `"width audit"` entry of `type_sites`; in the module docstring, "a coverage column, a
+   width-audit column and a census entry" becomes "a coverage column and a census entry". The width audit reads its columns from
    `coverage.json`, which the "coverage table" site already checks.
 7. **`sql/varka/ADDING_A_TYPE.md` step 11**: replace from "A type with no column in the table
    yet needs one in five places:" up to "...as the `TIMESTAMP_NTZ` columns are derived from a date

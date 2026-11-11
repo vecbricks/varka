@@ -276,7 +276,9 @@ moved; use the symbols below. #1236 has merged: the decimal end-to-end test is o
 list is done), and `everyCompareOpRoundTrips` exists. What is left is exactly: the five boolean
 parse arms, `NOT_PARSED_YET` gone, the variant sweep, record equality, `sameClass`, two catalyst
 replays and one end-to-end boolean test. `dev/varka_push_check.py` names `NOT_PARSED_YET` too, so
-this row is not test-only: it edits that script, and ruff applies.
+this row is not test-only: it edits that script, and ruff applies. Section 5's
+`emitter-and-ir.md` edit is dropped: that file has no round-trip text. Section 3.2's scratch
+`Probe` record would edit `VarkaVectorIR.java`; B3 fault 5 shows the same failure without it.
 
 ### B0. Premise re-check
 
@@ -285,7 +287,7 @@ Each command prints what follows it; anything else is a stop.
 | Command (from the worktree root) | Expected |
 |---|---|
 | `grep -c NOT_PARSED_YET <dir>/VarkaReproductionSuite.java` | `3` |
-| `grep -n 'byte for byte' <dir>/VarkaReplay.java` | one line, inside `of`, a `notes.add` |
+| `grep -n 'byte for byte' <dir>/VarkaReplay.java` | one line, in `of`: the note's text |
 | `grep -n 'private def assertReplays' sql/core/src/test/scala/org/apache/spark/sql/execution/VarkaReproductionEndToEndSuite.scala` | one line |
 | `grep -n NOT_PARSED_YET dev/varka_push_check.py` | two lines: `REGISTRY_PATTERN` and the `VarkaReproductionSuite` entry of `REGISTRIES` |
 
@@ -403,7 +405,7 @@ grep -nE '"\((condConst:|boolCmp:|condIf |boolNullSafeEq )|"bool:"' \
      `range(0, 1000).selectExpr("IF(id % 3 = 2, NULL, id % 2 = 0) AS b", "CAST(id AS INT) AS i")`;
      the query `SELECT i FROM varka_reproduction_bools WHERE CASE WHEN b THEN i > 400 END` (the
      coverage row `CASE WHEN b THEN i > 5 END`, which fuses as a predicate), under
-     `withMisdescribeDataBytes(-4)` and `withFailureDeclared`, as the filter test runs. Assert:
+     `withOptions(_.withMisdescribeDataBytes(-4))` and `withFailureDeclared`, as the filter test runs. Assert:
      the kind is `IndexOutOfBoundsException`; the joined `file.outputs()` contains `bool:` and
      `condIf`; `call.selectionBitmaps()`; some input has `width() == 1` and
      `data().length == (call.rows() + 7) / 8`; `file.classBytes() != null`; then
@@ -447,6 +449,8 @@ or by hand. None is committed.
    lane: `everyNodeTypeRoundTrips` fails on record equality (the render-back check alone passes).
 4. In `VarkaReplay.of` compute `same` as `Optional.of(true)` always: the boolean replay test fails
    on its `Optional.of(false)` assertion.
+5. Delete the two boolean trees from `theRest()`: `everyNodeTypeRoundTrips` fails with "node types
+   no round trip reaches", naming the five boolean records (no exemption list hides them).
 
 ### B4. Commands, in order
 
