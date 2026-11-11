@@ -17,21 +17,38 @@
 
 package org.apache.spark.sql;
 
-import static org.apache.spark.sql.VarkaBenchmarkBase.require;
-import static org.apache.spark.sql.VarkaBenchmarkBase.requirementFailed;
-
+import java.io.File;
+import java.io.IOException;
 import java.io.Serializable;
+import java.io.UncheckedIOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.lang.invoke.SerializedLambda;
+import java.lang.management.ManagementFactory;
 import java.math.BigInteger;
+import java.net.URISyntaxException;
+import java.net.URL;
+import java.net.URLClassLoader;
 import java.nio.ByteOrder;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.EnumMap;
+import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
+import java.util.TreeMap;
+import java.util.concurrent.TimeUnit;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import java.util.concurrent.atomic.AtomicBoolean;
+
+import javax.management.ObjectName;
 
 import jdk.incubator.vector.DoubleVector;
 import jdk.incubator.vector.LongVector;
@@ -39,10 +56,12 @@ import jdk.incubator.vector.VectorOperators;
 import jdk.incubator.vector.VectorShuffle;
 import jdk.incubator.vector.VectorSpecies;
 
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitterTestSupport;
+
 /**
- * The remainder of one 128-bit decimal by another in a Vector API loop under three division
- * forms, written by hand with no emitter (VARKA-577's spike, section 2.3 of its plan, which picks
- * the form on a measurement before the emitter is touched).
+ * What the remainder of one 128-bit decimal by another costs in a Vector API loop under three
+ * division forms, written by hand with no emitter (VARKA-577's spike, section 2.3 of its plan,
+ * which picks the form on a measurement before the emitter is touched).
  *
  * <p>The operands are two columns of {@code DECIMAL(38, s)} slots at one scale, so the remainder
  * is that of their unscaled values: {@code x % y} has the sign of {@code x} and {@code |x % y| <
@@ -64,12 +83,69 @@ import jdk.incubator.vector.VectorSpecies;
  *       are made.</li>
  * </ul>
  *
- * <p>Every loop is checked against {@code BigInteger} by {@link #checkAll} (the edge rows are at
- * {@link #row}). Each form's body is one method that both of its operations' loops call with a
- * constant {@code pmod}, so that a run which forces the bodies inline and keeps the loops out of
- * line compiles each loop as its own unit, with the other operation's code folded away.
+ * <p>Every loop is checked against {@code BigInteger} before it is timed and again in compiled
+ * code after its drive (the edge rows are at {@link #row}), and each arm is driven to level-4
+ * code first by VARKA-359's harness. Each form's body is one method that both of its operations'
+ * loops call with a constant {@code pmod}, and that is forced inline into each, so each loop is
+ * its own compile unit with the other operation's code folded away.
+ *
+ * <p>Level 4 is not proof that the vector code is timed: a Vector API call C2 does not intrinsify
+ * (no lowering on this machine, or a vector it cannot unbox) stays a call to the Java fallback,
+ * which allocates every vector, and the code list shows that at level 4 too. So before timing,
+ * {@link #intrinsicRefusals} compiles each loop once more in a child JVM with the run's flags and
+ * reads its inlining tree. An arm with a fallback is timed, as it is what such a host would run,
+ * but its label says so and the results file lists the calls beside the tables.
+ *
+ * <p>Run it with {@link #DONTINLINE_LOOPS} and {@link #INLINE_BODIES}, which the run requires,
+ * at {@code -XX:MaxVectorSize=64}, {@code 32} and {@code 16} for the three widths:
+ * <pre>
+ *   build/sbt 'project catalyst' 'set Test/javaOptions ++= Seq("-XX:MaxVectorSize=32",
+ *       "-XX:CompileCommand=dontinline," +
+ *       "org.apache.spark.sql.VarkaDecimalRemainderSpikeBenchmark::loop*",
+ *       "-XX:CompileCommand=inline," +
+ *       "org.apache.spark.sql.VarkaDecimalRemainderSpikeBenchmark::body*")' \
+ *     'Test/runMain org.apache.spark.sql.VarkaDecimalRemainderSpikeBenchmark'
+ * </pre>
+ * {@code -Dvarka.bench.only} narrows a run to the arms whose label holds a string.
  */
-public class VarkaDecimalRemainderSpikeBenchmark {
+public class VarkaDecimalRemainderSpikeBenchmark extends VarkaBenchmarkBase {
+
+  // ---------------------------------------------------------------------------------------
+  // The ladder and the harness's constants
+  // ---------------------------------------------------------------------------------------
+
+  /** A rung of the ladder: a row count and where its working set lies. */
+  private record Rung(int numRows, String level) {}
+
+  /** VARKA-359's rungs: 48 bytes a row an arm touches, in L2, in L3 and past it. */
+  private static final List<Rung> LADDER = List.of(
+      new Rung(4096, "in L2"),
+      new Rung(262144, "in L3"),
+      new Rung(4194304, "past L3"));
+
+  /** The compile command that keeps every loop of this class a compile unit of its own. */
+  static final String DONTINLINE_LOOPS = "-XX:CompileCommand=dontinline,"
+      + VarkaDecimalRemainderSpikeBenchmark.class.getName() + "::loop*";
+
+  /** The compile command that folds a form's body into each of its two loops. */
+  static final String INLINE_BODIES = "-XX:CompileCommand=inline,"
+      + VarkaDecimalRemainderSpikeBenchmark.class.getName() + "::body*";
+
+  /**
+   * Rows a timed iteration covers at the least, in whole passes over the rung: 2^20, which is
+   * 256 passes in L2 and four in L3, and one pass of the 2^22 rows past L3.
+   */
+  private static final long ROWS_PER_ITERATION = 1L << 20;
+
+  private static final int MIN_WARM_DRIVES = 8;
+  private static final double STEADY_FRACTION = 0.3;
+  private static final long WARM_WAIT_MILLIS = 30_000;
+  private static final long IDLE_WAIT_MILLIS = 10_000;
+
+  /** The child JVM of the intrinsic check: its rows a call, and its limits. */
+  private static final int PROBE_ROWS = 64;
+  private static final int PROBE_CALLS = 20_000;
+  private static final long PROBE_TIMEOUT_SECONDS = 300;
 
   // ---------------------------------------------------------------------------------------
   // The species, the shuffles and the constants
@@ -124,10 +200,10 @@ public class VarkaDecimalRemainderSpikeBenchmark {
   // ---------------------------------------------------------------------------------------
   // The loops. Each has the signature of Loop: the dividend and divisor slot columns, the output
   // slots, a selection word a 64 rows of the zero divisors, and the row count (a multiple of 64).
-  // A loop calls its form's body with its operation's pmod as a constant, and a run that forces
-  // the bodies inline folds it in, at the start of the compile where no inlining cutoff is near.
-  // Past their loads the vector bodies call no helper of this class, which C2 may refuse to
-  // inline in a long loop and so box every vector it passes (VARKA-359's note).
+  // A loop calls its form's body with its operation's pmod as a constant, and INLINE_BODIES folds
+  // the body in, at the start of the compile where no inlining cutoff is near. Past their loads
+  // the vector bodies call no helper of this class, which C2 may refuse to inline in a long loop
+  // and so box every vector it passes (VARKA-359's note).
   // ---------------------------------------------------------------------------------------
 
   /** A loop over {@code x} and {@code y} into {@code out} and {@code words}. */
@@ -416,7 +492,7 @@ public class VarkaDecimalRemainderSpikeBenchmark {
   /** The three forms of section 2.3: (a), (b) and (c). */
   enum Form { E, D, B }
 
-  /** One arm: an operation in a form, the loop's method name, the loop. */
+  /** One arm: an operation in a form, the loop's method name (for the code list), the loop. */
   record Arm(Op op, Form form, String method, Loop loop) {
 
     Arm(Op op, Form form, Loop loop) {
@@ -439,7 +515,7 @@ public class VarkaDecimalRemainderSpikeBenchmark {
     }
   }
 
-  /** Every arm, an operation's three forms in turn. */
+  /** Every arm, in the order they are timed. */
   static List<Arm> arms() {
     return List.of(
         new Arm(Op.REMAINDER, Form.E, VarkaDecimalRemainderSpikeBenchmark::loopRemainderE),
@@ -605,8 +681,9 @@ public class VarkaDecimalRemainderSpikeBenchmark {
   }
 
   /**
-   * Runs every arm once over {@code n} rows and checks it against {@code BigInteger}, what
-   * {@code VarkaDecimalRemainderSpikeSuite} asserts.
+   * Runs every arm once over {@code n} rows and checks it against {@code BigInteger}: the check
+   * the timed run makes before it times an arm, and what {@code VarkaDecimalRemainderSpikeSuite}
+   * asserts.
    */
   static void checkAll(int n) {
     try (Arena arena = Arena.ofConfined(); Data d = data(arena, n)) {
@@ -625,6 +702,370 @@ public class VarkaDecimalRemainderSpikeBenchmark {
               requireAgrees(arm, e, out, words, n, "at " + n + " rows");
             }
           }
+        }
+      }
+    }
+  }
+
+  // ---------------------------------------------------------------------------------------
+  // Driving an arm to compiled code (VARKA-359's harness)
+  // ---------------------------------------------------------------------------------------
+
+  /**
+   * The highest tier of {@code method}'s code in use by {@code Compiler.codelist}, 0 if none, -1
+   * if the list cannot be read; the drive's steady times show a shared loop's rung settled. The
+   * list does not mark an on-stack-replacement version, so a level-4 OSR compile, whose boxed
+   * vectors {@link #fallbacks} passes over, also reads as 4: at the rungs past L2 a drive is four
+   * calls or one, and a loop whose method code was made not entrant there may be timed in it.
+   */
+  private static int levelInUse(String method) {
+    try {
+      String prefix = VarkaDecimalRemainderSpikeBenchmark.class.getName() + "." + method + "(";
+      int level = 0;
+      for (String line : String.valueOf(codeList()).split("\\R")) {
+        // "<id> <tier> <state> <class>.<method><descriptor> [<addresses>]"; state 0 is in use.
+        String[] fields = line.strip().split(" ", 5);
+        if (fields.length >= 4 && fields[3].startsWith(prefix) && "0".equals(fields[2])) {
+          level = Math.max(level, Integer.parseInt(fields[1]));
+        }
+      }
+      return level;
+    } catch (Exception | LinkageError e) {
+      return -1;
+    }
+  }
+
+  private static Object codeList() throws Exception {
+    return ManagementFactory.getPlatformMBeanServer().invoke(
+        new ObjectName("com.sun.management:type=DiagnosticCommand"), "compilerCodelist",
+        new Object[] {null}, new String[] {String[].class.getName()});
+  }
+
+  /** Refuses a run that cannot read the code list, or that lacks either compile command. */
+  private static void requireHarness() {
+    try {
+      codeList();
+    } catch (Exception | LinkageError e) {
+      throw new IllegalStateException("Compiler.codelist cannot be read (" + e + "), so no loop"
+          + " can be shown compiled; run on a HotSpot JVM with the DiagnosticCommand MBean", e);
+    }
+    List<String> args = ManagementFactory.getRuntimeMXBean().getInputArguments();
+    require(args.stream().anyMatch(VarkaDecimalRemainderSpikeBenchmark::keepsTheLoopsOutOfLine),
+        "no " + DONTINLINE_LOOPS + " is set, so a loop may be inlined into the drive and show no"
+        + " code of its own in the code list");
+    require(args.stream().anyMatch(VarkaDecimalRemainderSpikeBenchmark::inlinesTheBodies),
+        "no " + INLINE_BODIES + " is set, so a form's body may be compiled once for both"
+        + " operations, its pmod a variable");
+  }
+
+  /** Whether {@code arg} is {@link #DONTINLINE_LOOPS}, the class dotted or slashed. */
+  static boolean keepsTheLoopsOutOfLine(String arg) {
+    return isCommand(arg, "dontinline", "loop*");
+  }
+
+  /** Whether {@code arg} is {@link #INLINE_BODIES}, the class dotted or slashed. */
+  static boolean inlinesTheBodies(String arg) {
+    return isCommand(arg, "inline", "body*");
+  }
+
+  private static boolean isCommand(String arg, String command, String methods) {
+    String prefix = "-XX:CompileCommand=" + command + ",";
+    if (!arg.startsWith(prefix)) {
+      return false;
+    }
+    String pattern = arg.substring(prefix.length()).strip().replace('/', '.').replace("::", ".");
+    return pattern.equals(VarkaDecimalRemainderSpikeBenchmark.class.getName() + "." + methods);
+  }
+
+  private static void drive(Arm arm, Data d, MemorySegment out, long[] words, int reps) {
+    for (int r = 0; r < reps; r++) {
+      arm.loop().apply(d.x(), d.y(), out, words, d.numRows());
+    }
+  }
+
+  /** Drives {@code arm} until its loop method is level-4 code and its drive time is steady. */
+  private static void driveToCompiledCode(Arm arm, Data d, MemorySegment out, long[] words,
+      int reps) {
+    long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(WARM_WAIT_MILLIS);
+    long previous = 0;
+    int drives = 0;
+    String name = "VarkaDecimalRemainderSpikeBenchmark: " + arm.label() + " at " + d.numRows()
+        + " rows";
+    while (true) {
+      long start = System.nanoTime();
+      drive(arm, d, out, words, reps);
+      long took = System.nanoTime() - start;
+      drives++;
+      boolean idle = VarkaEmitterTestSupport.awaitC2Idle(IDLE_WAIT_MILLIS);
+      int level = levelInUse(arm.method());
+      boolean steady = previous > 0 && Math.abs(took - previous) <= previous * STEADY_FRACTION;
+      if (drives >= MIN_WARM_DRIVES && idle && steady && level == 4) {
+        System.out.println(name + " settled after " + drives + " drives, level " + level);
+        return;
+      }
+      if (System.nanoTime() > deadline) {
+        System.out.println(name + " did not settle in " + WARM_WAIT_MILLIS + " ms (" + drives
+            + " drives, last " + TimeUnit.NANOSECONDS.toMicros(took) + " us after "
+            + TimeUnit.NANOSECONDS.toMicros(previous) + " us, level " + level + ", C2 "
+            + (idle ? "idle" : "busy") + "); it is timed as it is");
+        return;
+      }
+      previous = took;
+    }
+  }
+
+  // ---------------------------------------------------------------------------------------
+  // The intrinsic check: the Vector API calls C2 leaves in Java, read in a child JVM
+  // ---------------------------------------------------------------------------------------
+
+  /**
+   * The Vector API calls C2 left in Java in {@code arm}'s loop under this run's flags, empty
+   * where every one was intrinsified. A child JVM of {@link IntrinsicProbe} calls the loop alone,
+   * with this JVM's arguments (the width, any {@code UseAVX}, the compile commands) but its
+   * agents, plus {@code -Xbatch}, {@code PrintCompilation} and a {@code PrintInlining} command
+   * over the loops; {@link #fallbacks} reads the answer from what it prints.
+   */
+  static List<String> intrinsicRefusals(Arm arm) {
+    String name = VarkaDecimalRemainderSpikeBenchmark.class.getName();
+    var command = new ArrayList<String>();
+    command.add(Path.of(System.getProperty("java.home"), "bin", "java").toString());
+    for (String arg : ManagementFactory.getRuntimeMXBean().getInputArguments()) {
+      if (!arg.startsWith("-agentlib") && !arg.startsWith("-agentpath")
+          && !arg.startsWith("-javaagent") && !arg.startsWith("-Xrun")) {
+        command.add(arg);
+      }
+    }
+    command.addAll(List.of("-XX:+UnlockDiagnosticVMOptions", "-Xbatch", "-XX:+PrintCompilation",
+        "-XX:CompileCommand=quiet", "-XX:CompileCommand=PrintInlining," + name + "::loop*",
+        "-cp", childClassPath(), IntrinsicProbe.class.getName(),
+        arm.method()));
+    Path log = null;
+    try {
+      log = Files.createTempFile("varka-remainder-probe", ".log");
+      Process child = new ProcessBuilder(command).redirectErrorStream(true)
+          .redirectOutput(log.toFile()).start();
+      if (!child.waitFor(PROBE_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+        child.destroyForcibly();
+        throw requirementFailed("the intrinsic check of " + arm.method() + " did not finish in "
+            + PROBE_TIMEOUT_SECONDS + " s");
+      }
+      List<String> lines = Files.readAllLines(log, StandardCharsets.UTF_8);
+      require(child.exitValue() == 0, "the intrinsic check of " + arm.method() + " failed (exit "
+          + child.exitValue() + "); its last lines:\n"
+          + String.join("\n", lines.subList(Math.max(0, lines.size() - 20), lines.size())));
+      return fallbacks(lines, arm.method());
+    } catch (IOException e) {
+      throw new UncheckedIOException(e);
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+      throw new IllegalStateException(e);
+    } finally {
+      if (log != null) {
+        try {
+          Files.deleteIfExists(log);
+        } catch (IOException e) {
+          System.out.println("could not delete " + log + ": " + e);
+        }
+      }
+    }
+  }
+
+  /**
+   * The child's class path: this JVM's own, plus every local jar and directory its context class
+   * loaders were given. Under {@code spark-submit}, which is how the benchmark workflow runs a
+   * benchmark, the test jars that hold the probe come in through {@code --jars} and are only there.
+   */
+  private static String childClassPath() {
+    var entries = new LinkedHashSet<String>();
+    for (String entry : System.getProperty("java.class.path").split(File.pathSeparator)) {
+      if (!entry.isEmpty()) {
+        entries.add(entry);
+      }
+    }
+    for (ClassLoader loader = Thread.currentThread().getContextClassLoader(); loader != null;
+        loader = loader.getParent()) {
+      if (loader instanceof URLClassLoader urls) {
+        for (URL url : urls.getURLs()) {
+          if (url.getProtocol().equals("file")) {
+            try {
+              entries.add(new File(url.toURI()).getPath());
+            } catch (URISyntaxException e) {
+              throw new IllegalArgumentException("not a file URL: " + url, e);
+            }
+          }
+        }
+      }
+    }
+    return String.join(File.pathSeparator, entries);
+  }
+
+  /** A {@code PrintCompilation} record: its flags ({@code %} for an OSR), level and method. */
+  private static final Pattern COMPILE = Pattern.compile(
+      "^\\s*\\d+\\s+\\d+\\s+([%sbn! ]*)\\s+(\\d)\\s+(\\S+::\\S+)");
+
+  /**
+   * The fallbacks in {@code method}'s last level-4 compile that is not an on-stack replacement,
+   * the code later calls run, from a child's {@code PrintCompilation} and {@code PrintInlining}
+   * lines; under {@code -Xbatch} a compile's inlining tree follows its record. A {@code
+   * VectorSupport} call site whose last message is not {@code (intrinsic)} or {@code late inline
+   * succeeded} is a call to the Java fallback, which boxes its vectors. The on-stack replacement
+   * is passed over: it enters the loop with vectors the interpreter boxed, and C2 then fails to
+   * unbox some of them (VARKA-577.md 10.2), but no call after the method's own compile runs it.
+   * A Vector API method that failed to inline is a call too, with its vectors boxed, though no
+   * {@code VectorSupport} site sits under it. A compile C2 skipped is passed over. With no such
+   * compile, or one the body was not inlined into, whose tree would hold none of the body's
+   * sites, the check throws, since an empty answer would prove nothing.
+   */
+  static List<String> fallbacks(List<String> lines, String method) {
+    String name = VarkaDecimalRemainderSpikeBenchmark.class.getName();
+    List<String> last = null;
+    List<String> current = null;
+    boolean inlined = false;
+    // The compile before the one being read, which a skipped compile hands the answer back to.
+    List<String> kept = null;
+    boolean keptInlined = false;
+    for (String line : lines) {
+      Matcher m = COMPILE.matcher(line);
+      boolean record = m.find();
+      boolean ours = record && m.group(3).equals(name + "::" + method)
+          && m.group(2).equals("4") && !m.group(1).contains("%");
+      if (line.contains("made not entrant")) {
+        continue;
+      } else if (line.contains("COMPILE SKIPPED")) {
+        // Printed after the skipped compile's tree, with its record's fields.
+        if (ours && current == last) {
+          last = kept;
+          inlined = keptInlined;
+        }
+        current = null;
+      } else if (record) {
+        current = new ArrayList<>();
+        if (ours) {
+          kept = last;
+          keptInlined = inlined;
+          last = current;
+          inlined = false;
+        }
+      } else if (current != null && current == last
+          && line.strip().matches("@ \\d+\\s+" + Pattern.quote(name) + "::body\\w+ .*")) {
+        // The body's own call site; a later site's type profile may name the body too.
+        inlined |= line.contains("force inline by CompileCommand");
+      } else if (current != null && (line.contains("jdk.internal.vm.vector.VectorSupport::")
+          || line.contains("jdk.incubator.vector."))) {
+        // A site's messages are separated by runs of spaces, its verdict the last of them.
+        String[] said = line.strip().split("\\s{2,}");
+        String verdict = said[said.length - 1];
+        boolean fallback = line.contains("VectorSupport::")
+            ? !verdict.equals("(intrinsic)") && !verdict.equals("late inline succeeded")
+            : verdict.startsWith("failed to inline");
+        if (fallback) {
+          current.add(line.strip().replaceAll("\\s+", " "));
+        }
+      }
+    }
+    require(last != null, "the intrinsic check found no level-4 compile of " + method);
+    require(inlined, "the intrinsic check found the body not inlined into " + method
+        + "'s compile");
+    return last;
+  }
+
+  /** The fallbacks counted by the method each calls. */
+  private static String summary(List<String> refusals) {
+    var counts = new TreeMap<String, Integer>();
+    for (String r : refusals) {
+      // A site reads "@ <bci> <class>::<method> (<n> bytes) <verdicts>".
+      String site = r.split(" ")[2];
+      counts.merge(site.substring(site.lastIndexOf('.') + 1), 1, Integer::sum);
+    }
+    return refusals.size() + " Vector API call(s) left in Java, by method: " + counts;
+  }
+
+  /** The intrinsic check's child JVM: calls the loop it names until C2 has compiled it. */
+  static final class IntrinsicProbe {
+
+    private IntrinsicProbe() {
+    }
+
+    public static void main(String[] args) {
+      Arm arm = arms().stream().filter(a -> a.method().equals(args[0])).findFirst()
+          .orElseThrow(() -> requirementFailed("no arm's loop is " + args[0]));
+      try (Arena arena = Arena.ofConfined(); Data d = data(arena, PROBE_ROWS)) {
+        var out = arena.allocate(PROBE_ROWS * 16L, 64);
+        long[] words = new long[PROBE_ROWS / 64];
+        for (int c = 0; c < PROBE_CALLS; c++) {
+          arm.loop().apply(d.x(), d.y(), out, words, PROBE_ROWS);
+        }
+      }
+    }
+  }
+
+  // ---------------------------------------------------------------------------------------
+  // The benchmark
+  // ---------------------------------------------------------------------------------------
+
+  @Override
+  public void runBenchmarkSuite(String[] mainArgs) {
+    var arms = arms().stream().filter(a -> only().map(a.label()::contains).orElse(true))
+        .toList();
+    require(!arms.isEmpty(), "no arm's label holds \"" + only().orElse("") + "\"");
+    if (dryRun()) {
+      return;
+    }
+    requireHarness();
+    section("decimal remainder hand loops at " + LS.vectorBitSize() + " bits", () -> {
+      // An arm whose loop keeps a call to a Vector API fallback is timed as such a host runs
+      // it, but its label says so and the file lists the calls.
+      var labels = new HashMap<Arm, String>();
+      for (Arm arm : arms) {
+        List<String> refusals = intrinsicRefusals(arm);
+        labels.put(arm, arm.label() + (refusals.isEmpty() ? "" : " [Java fallback]"));
+        note("intrinsic check, " + arm.method() + ": " + (refusals.isEmpty()
+            ? "every Vector API call intrinsified" : summary(refusals)));
+      }
+      for (Rung rung : LADDER) {
+        runRung(rung, arms, labels);
+      }
+    });
+  }
+
+  private void runRung(Rung rung, List<Arm> arms, Map<Arm, String> labels) {
+    int n = rung.numRows();
+    int reps = (int) Math.max(1, ROWS_PER_ITERATION / n);
+    try (Arena arena = Arena.ofConfined(); Data d = data(arena, n)) {
+      // One output, which the arms take in turn; each fills it with no answer before the run it
+      // checks.
+      var out = arena.allocate(n * 16L, 64);
+      for (Op op : Op.values()) {
+        // A table an operation, so that its answers are freed once its arms are timed.
+        try (Expected e = d.expected().get(op)) {
+          var opArms = arms.stream().filter(a -> a.op() == op).toList();
+          if (opArms.isEmpty()) {
+            continue;
+          }
+          var benchmark = benchmark(n + " rows - " + rung.level() + ", " + op.title,
+              (long) n * reps).timed().build();
+          for (Arm arm : opArms) {
+            long[] words = new long[n / 64];
+            Arrays.fill(words, -1L);
+            out.fill(UNWRITTEN);
+            arm.loop().apply(d.x(), d.y(), out, words, n);
+            requireAgrees(arm, e, out, words, n, "before it is timed");
+            var settled = new AtomicBoolean();
+            benchmark.addTimerCase(labels.get(arm), timer -> {
+              if (settled.compareAndSet(false, true)) {
+                out.fill(UNWRITTEN);
+                Arrays.fill(words, -1L);
+                driveToCompiledCode(arm, d, out, words, reps);
+                // The compiled code's output, not the first call's, which ran in the
+                // interpreter.
+                requireAgrees(arm, e, out, words, n, "in compiled code");
+              }
+              timer.startTiming();
+              drive(arm, d, out, words, reps);
+              timer.stopTiming();
+            });
+          }
+          runCases(benchmark);
         }
       }
     }
