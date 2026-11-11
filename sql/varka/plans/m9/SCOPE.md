@@ -3436,17 +3436,17 @@ child's mode, fixed on the branch; #1478 (row 596, open) decides that a kernel r
 `VarkaConjunctOrder.errorFreeNode`, a list over Catalyst expressions outside which everything is
 assumed to raise. Row 489 (`m8/PLAN.md`) is the descriptor for the switches the passes already hold,
 built on 27 October 2026 on the unmerged branch `varka-489-descriptor`; that branch predates #1329's
-hash component on every record and the lane pair's nodes (rows 359 to 363), so finishing the row
-means rebuilding it over master, and the row's own order, before row 359, is already overtaken. The
-proposal: finish row 489, then derive such facts in the analysis from each node's descriptor and its
-children's facts, bottom-up as `dayRange` is - cannot produce a non-canonical NaN, may raise within
-a fused subtree, reads a decimal slot, needs a mask at two lanes - so a new node states its own
-entries and every consumer reads the derived fact. `errorFreeNode` itself stays a list over Catalyst
-expressions, since a residual conjunct never becomes an IR node; only the IR side of that fact is
-derived. Item 51's mapping type is one more field of the same record. **Done when** row 489 has
-merged, the NaN and decimal-reading tests that #1462 and #1478 bring to master (or their successors
-there) read derived facts with every decision and generated file unchanged, and a test plants a node
-whose descriptor flips each fact and sees its consumer follow.
+hash component on every node with a child and the lane pair's nodes (rows 359 to 363), so finishing
+the row means rebuilding it over master, and the row's own order, before row 359, is already
+overtaken. The proposal: finish row 489, then derive such facts in the analysis from each node's
+descriptor and its children's facts, bottom-up as `dayRange` is - cannot produce a non-canonical
+NaN, may raise within a fused subtree, reads a decimal slot, needs a mask at two lanes - so a new
+node states its own entries and every consumer reads the derived fact. `errorFreeNode` itself stays
+a list over Catalyst expressions, since a residual conjunct never becomes an IR node; only the IR
+side of that fact is derived. Item 51's mapping type is one more field of the same record. **Done
+when** row 489 has merged, the NaN and decimal-reading tests that #1462 and #1478 bring to master
+(or their successors there) read derived facts with every decision and generated file unchanged, and
+a test plants a node whose descriptor flips each fact and sees its consumer follow.
 
 ### Item 48. What `validityOrFirst` is for
 
@@ -5827,8 +5827,8 @@ generated file, and a stale file fails CI with its regeneration command.
 *Added 11 November 2026 by the owner's word; this part stays in milestone 9, outside row 546's
 done-when.* Row 546's merge driver (#1293) merges the generated files per key, and a merge of master
 into an open branch still pays for them: the driver leaves `option_arms`, the rows' places and the
-docs blocks to `dev/varka_regen_generated.sh --all`, so each such merge is a regeneration on the
-laptop and another Build. A digest can also go stale with no conflict at all: each of
+docs blocks to `dev/varka_regen_generated.sh`, so each such merge is a regeneration on the laptop
+and another Build. A digest can also go stale with no conflict at all: each of
 `emitted_bytes.json`'s option-arm digests is one hash over every coverage shape, and #1448's body
 records four of them stale on master after two merges that each added shapes. Row 546's plan
 excluded a CI job that commits the regenerated files, since the fork has no token for one. Two
@@ -5986,9 +5986,10 @@ form or refuses with a named reason, starting from `VarkaKernelPlan.Refusal`'s k
 rule then becomes a census cell and a measurement. It needs `kindOf` to name every lowering the
 emitter can choose, as it already does for `GuardedRange`'s NULL mode; once row 489 lands, the key
 is the descriptor's cost kind (item 47), so one place names it. The done-when gains two clauses:
-rows 596, 597 and 603's decisions come out of that step with their reasons, and a lowering is keyed
-by the descriptor's cost kind, so a new one without a key does not construct. The step is built
-after item 134's table, as that item says.
+rows 596, 597 and 603's decisions come out of that step with their reasons, and a node whose
+descriptor names no cost kind does not construct, while a second lowering of an existing node,
+#1462's case, is caught by a test that each lowering the emitter can choose has its own key. The
+step is built after item 134's table, as that item says.
 
 ### Item 132. A stock arm over the Arrow cache
 
@@ -6025,25 +6026,25 @@ a planted failure shrinks to the smaller form.
 and each vector width, whether C2 lowers each operator the plans rely on (I), lowers it and
 allocates (I+A), or leaves it to the Vector API's Java fallback (F); other hosts' files sit in
 `m8/results/` (`VARKA-329-census-epyc-7763.json`, `VARKA-376-census-neoverse-n2.json` and two more).
-No main source reads them, so the emitter has chosen forms the census had already put in the
-fallback: row 597's decimal readers fused at 128 bits on x86 while the EPYC 7763's cells put their
-slot load and its check in the fallback there (584 bytes a row), and a benchmark found the loss.
-Where the census has no cell the same loss goes unseen until a run: row 603's masked byte store at
-128 bits on AVX2 has none (its plan adds `int.I2B_store64_masked`), and row 479's boxed
-`storeMasked` on hosts without AVX-512BW and row 503's two-lane masks were each found by a
-benchmark. Row 551's host record answers named questions from HotSpot's feature list and `x86.ad`;
-the census measures what C2 did. The proposal: each lowering names the census cells it depends on,
-the census is committed per host class and width as a table keyed by them, and planning reads a cell
-that reads F on the target host as a predicted fallback cost, not as a refusal by itself: item 131's
-admission step weighs it against the measured costs and rejects or swaps the form only where the row
-path or another form is predicted faster, as #1262 kept the two-lane boolean projections whose cells
-read F but which measured 0.9X to 2.1X. Item 127 decides whose host that is. This item and item 131
-are one piece of work: the table here comes first, and item 131's step is its only reader, so
-neither builds an admission rule of its own. An EPYC run then confirms a choice rather than
-discovering it. **Done when** every lowering with a census dependency names its cells, a test fails
-one that names a cell the census lacks, and, with item 131's step, rows 597 and 603's cases are
-decided from the committed table with their measured outcomes. It needs row 551's record as the
-table's host key.
+No main source reads them, so nothing stops the emitter choosing a form the census puts in the
+fallback: row 597's decimal readers fuse at 128 bits on x86, the EPYC 7763's cells put their slot
+load and its check in the fallback there (584 bytes a row), and a benchmark found the loss. Where
+the census has no cell the same loss goes unseen until a run: row 603's masked byte store at 128
+bits on AVX2 has none (its plan adds `int.I2B_store64_masked`), and row 479's boxed `storeMasked` on
+hosts without AVX-512BW and row 503's two-lane masks were each found by a benchmark. Row 551's host
+record answers named questions from HotSpot's feature list and `x86.ad`; the census measures what C2
+did. The proposal: each lowering names the census cells it depends on, the census is committed per
+host class and width as a table keyed by them, and planning reads a cell that reads F on the target
+host as a predicted fallback cost, not as a refusal by itself: item 131's admission step weighs it
+against the measured costs and rejects or swaps the form only where the row path or another form is
+predicted faster, as #1262 kept the two-lane boolean projections, which measured 0.9X to 2.1X
+although the EPYC 7763's `long.LT` cell reads F at 128 bits. Item 127 decides whose host that is.
+This item and item 131 are one piece of work: the table here comes first, and item 131's step is its
+only reader, so neither builds an admission rule of its own. An EPYC run then confirms a choice
+rather than discovering it. **Done when** every lowering with a census dependency names its cells, a
+test fails one that names a cell the census lacks, and, with item 131's step, rows 597 and 603's
+cases are decided from the committed table with their measured outcomes. It needs row 551's record
+as the table's host key.
 
 ### Item 135. A hash-consed IR: one node per structure while planning
 
@@ -6061,12 +6062,13 @@ still needs an identity memo, and the spike gives them one shared per-compile me
 each, so its cost is counted, not assumed away. The share it can cut is Varka's compile and emit,
 11.7% of the coverage harness's samples (`m8/results/VARKA-510-planning-local.txt`); the 45.1%
 beside it is Spark's analyzer and optimizer, which rows 510 and 528 address and this item does not,
-and row 541's CSE mismatch is between two of Spark's code generators on the fallback path, outside
-the IR. jegg (item 85) works over hash-consed e-classes, so an interned IR is also its natural
-input. **Done when** a spike interns at construction, row 559's chains and row 561's draws plan with
-the lifts, through the shared memo, and `equals` linear in nodes, every answer, decline and emitted
-byte is unchanged, and the record says whether the identity rework VARKA-222 priced is smaller than
-priced. It waits for row 561.
+and row 541's CSE mismatch is between the gate of Spark's own filter and `GeneratePredicate`, which
+Varka's fallback builds, so it lies outside the IR and this item does not settle it. jegg (item 85)
+works over hash-consed e-classes, so an interned IR is also its natural input. **Done when** a spike
+interns at construction, row 559's chains and row 561's draws plan with the lifts, through the
+shared memo, and `equals` linear in nodes, every answer, decline and emitted byte is unchanged, and
+the record says whether the identity rework VARKA-222 priced is smaller than priced. It waits for
+row 561.
 
 ### Item 136. Tests that show they reached the code they name
 
