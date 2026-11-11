@@ -118,6 +118,22 @@ decimal (section 7).
    Two: it fuses there with B, or with a scalar remainder in `long`s. 7.3's rule adds a scalar
    arm only if B comes close to the winner; it did not foresee a width at which B *is* the
    winner.
+   *11 November 2026 (10.4):* a third answer is measured on the laptop, not yet on the runner: F,
+   E's arithmetic with no mask, reading the slots by lane inserts, has no fallback at two lanes
+   and runs at about 4 times B's rate there.
+   *11 November 2026, tested (10.4, "The test of 7.4"):* that third answer does not stand as one
+   577b can take. After other vector code in the JVM, inserted F boxes (1 to 10 KB a row), and
+   even the cleanest form, split F over a block transposed out of line, keeps one vector array a
+   lane group (12 to 16 bytes a row) in every JVM, 12 to 16 times the per-row term of the
+   warm-up's allocation allowance (1 byte a row). 7.4 is back to its two answers: decline at
+   two lanes, or B behind an option. A two-lane vector form returns only with a defence against
+   C2's trap budget in a shared JVM, which is VARKA-295's problem and not this row's.
+   *Settled by the owner, 11 November 2026:* neither of those two. By default 577b declines the
+   remainder at two long lanes on x86 under `VARKA-359.md` 2.6. A follow-up, row 604, adds an
+   opt-in arm behind an option: split F fed by a transpose in a method of its own, the form
+   "The test of 7.4" (10.4) measured at about 34 ns a row with a 16-byte-a-row residual in a
+   shared JVM (12 of 12 JVMs), against B's 123 ns and 855 bytes a row. B behind an option is
+   not built.
 
 ## 8. Done when
 
@@ -134,6 +150,9 @@ decimal (section 7).
    host with a 512-bit datapath (the laptop's is double-pumped), the laptop's three widths as 2.3
    asks, the aarch64 column at two long lanes, where the pair runs natively (`VARKA-359.md` 2.6),
    and the 128-bit column on x86, which is question 7.4.
+   *11 November 2026:* the 128-bit column on x86 is read on the laptop with two mask-free and
+   shuffle-free variants (10.4); the runners' reading of it is owed, and its dispatches are in
+   10.4.
 2. Whether `VARKA-359.md` 6 and row 349's plan carry the dated note that this row owns the four
    names (this change corrects `VARKA-363.md` and the census).
 
@@ -323,8 +342,286 @@ lanes, where the pair runs natively (`VARKA-359.md` 2.6), is not read either.
   and measure it against the row path. Built as E, it shows no win over the row path (indicative
   only). So 577b either declines it there with this measurement, or fuses it with B or a scalar
   remainder in `long`s. That choice is the owner's (7.4).
+  *11 November 2026:* the owner's answer (7.4): 577b declines there by default, and row 604
+  adds split F with its own transpose behind an option.
 - At two long lanes on aarch64 no form is read; 577b runs the spike on the Arm runner before
   it picks one there.
 - Section 4's predictions for 577a and 577b are registered from these figures before either is
   built.
 - 577a, the long-lane case, is unaffected and still waits on row 30.
+
+### 10.4 Two ideas for two long lanes on x86 (question 7.4)
+
+*11 November 2026, on master `749280d9e7d`. A laptop reading only: directional, see "How it was
+read". The runners' reading is owed, and the dispatches are at the end of this section.*
+
+**The cause, checked.** JDK 25's `x86.ad` refuses `VectorLoadShuffle` and `VectorRearrange` at
+two lanes (lines 1726-1733), and `VectorLoadMask`, `VectorMaskCast` and `VectorStoreMask` (lines
+1734-1744), so every rearrange, compare, blend and mask op of a two-lane `LongVector` is the
+Java fallback. Lane-wise arithmetic, logic, shifts by a vector count, the 64-bit `mul`, the
+double `div`, the bit reinterpretations, `withLane`, `lane` and an or-reduction all compile at
+two lanes (a probe, and the intrinsic check below). `L2D` and `D2L` are refused at every width
+without AVX-512DQ (lines 1757-1778), which E already avoids (10.2, item 1). A 128-bit gather of
+longs is allowed with AVX2 (`LoadVectorGather` is refused only at 64 bits, line 1816), but the
+Java side of the index-map `fromArray` checks the indices with two compares, an `or` of their
+masks and an `anyTrue` (`VectorIntrinsics.checkIndex`, lines 74-86), five fallbacks a gather.
+
+**What was built.** `VarkaDecimalRemainderSpikeBenchmark` gains eighteen loops, nine forms for
+each of `x % y` and `pmod(x, y)`, beside E, D and B. Each is checked against `BigInteger` on
+every row as before; the suite's table now also counts rows whose two low words have the sign
+bit set.
+
+- **Idea 1, mask-free: F.** E's arithmetic with every compare, blend and mask replaced by bit
+  arithmetic on 0/1 lanes: a select is `x ^ ((x ^ y) & -c)`, the borrow of `x - y` is the top
+  bit of `(~x & y) | ((~x | y) & d)` and the carry of `x + y` that of `(x & y) | ((x | y) & ~s)`
+  (Hacker's Delight 2-13), `v == 0` is the top bit of `~(v | -v)`, the estimate's shift clamp is
+  a sign mask of `63 - right`, and the zero divisors' word is the 0/1 lanes shifted by their
+  lane index and or-reduced. Every value is E's, so E's exactness argument holds unchanged.
+- **Idea 2, no de-interleave**, each with E's masks and with F: *gathered* (an index-map gather
+  from the slots in a heap `long[]`, since `fromMemorySegment` has no index map; stores a lane
+  at a time), *inserted* (each lane's word put in by `withLane` from a scalar load of the slot;
+  stores a lane at a time), *split* (plain loads and stores over a column already in the split
+  layout, all low words then all high words: the kernel alone, its transpose not timed), and
+  *transposed* (Arrow's slots transposed 64 rows at a time by scalar moves into a 3 KB split
+  block, the kernel over the block, and the result moved back into slots: kernel and transpose
+  together, the cost a kernel reading Arrow pays).
+
+**The intrinsic check, per loop** (the same counts for `x % y` and `pmod` unless two are given).
+At 256 bits (`UseAVX=2`) and at 512 (`UseAVX=3`) every one of the 24 loops is intrinsified. At
+128 bits (`UseAVX=2 -XX:MaxVectorSize=16`):
+
+| Form | Calls left in Java | What they are |
+|---|---|---|
+| E | 72 / 80 | rearranges, compares, blends, mask ops |
+| D | 62 / 70 | the same |
+| B | 0 | (scalar) |
+| gathered E | 62 / 70 | E's masks, and the gathers' index checks |
+| inserted E, split E, transposed E | 42 / 50 | E's masks |
+| F | 30 | the 12 rearranges, and the compares, blends and casts inside them |
+| gathered F | 20 | the four gathers' index checks, five calls each |
+| **inserted F, split F, transposed F** | **0** | |
+
+So neither idea alone removes the fallback, and the two together do, except with a gather.
+
+**How it was read.** The laptop (AMD Ryzen AI 9 HX PRO 370, Zen 5, a 256-bit datapath; OpenJDK
+25.0.5.0.3) was shared with other agents' JVMs, at a load average of 3 to 29 over the runs (each
+run's load is in the results file), and was not pinned, so every figure here is directional.
+Only the first rung (4,096 rows, in L2) was timed (`-Dvarka.remainder.rungs=1`): the runners'
+reading found each form's time flat from L2 to past L3. The tables are in
+`results/VARKA-577-twolane-laptop.txt`. Two faults of the harness were found and fixed on the way,
+and each changes how a reading must be taken:
+
+1. **Arms timed in C1's code.** A loop method reaches C2 at its invocation count, some 5,000
+   calls, and an arm running the fallback in level-3 code made too few calls of the rung's rows
+   in the 30-second wait: the first 128-bit run timed seven arms at level 3. Each drive now first
+   calls the loop 20,000 times over a 64-row table, as the intrinsic check does.
+2. **A shared JVM boxes loops the check passed.** With every arm in one JVM, some loops the check
+   (which compiles each loop alone) found intrinsified still allocate in their timed compile: at 128
+   bits inserted F and transposed F allocated 2,096 bytes a row and ran 194 to 227 ns a row, against
+   39 to 41 in a JVM of their own; at 256 bits the same two allocated 732 to 1,421 bytes a row, and
+   at 512 the `pmod` of inserted and transposed E 195. Each section now notes the bytes a row each
+   arm allocates in compiled code, so a boxed arm shows itself, and the readings below take an arm
+   that allocated from a JVM of its own.
+   *11 November 2026, one cause read (`results/VARKA-577-twolane-shared-jvm-laptop.txt`):* the
+   harness's shared body methods are not needed. What is needed is other vector code in the JVM,
+   working through C2's trap budget. Each time C2 inlines a method, it adds that method's
+   recorded traps to the compile's total for each reason (`parse1.cpp` 470-483). Past
+   `PerMethodTrapLimit` (100), `too_many_traps` (`compile.cpp` 4158-4169) stops speculating on
+   that reason for the rest of the compile. An untaken branch is then parsed rather than
+   trapped, and a type-profiled call becomes a real call, so the vectors that meet the merge or
+   the call are boxed. F inlines some Vector API methods about 200 times each, so a few traps
+   that other code left in one of them are enough. Two compiles were read:
+   - In the benchmark, the three boxed compiles read (256 bits, after inserted E) crossed the
+     `unstable_if` budget early. `VectorOperators$ImplCache.find`, inlined 190 times, carried 3
+     traps, against 2 in a clean compile. That gave 105 to 134 decisions without the trap,
+     against 32 to 40 in clean compiles. In the boxed compiles whose inlining was printed, 13
+     `binaryOp` intrinsics failed and stayed calls.
+   - After three plain `add` loops it was the `class_check` budget: 3,214 traps in all, from 4
+     each in `opKind`, `opCode`, `ImplCache.find` and `lanewiseTemplate`, which left 148
+     virtual calls.
+
+   Inserted F boxes at two lanes too. At 128 bits it boxed after the three `add` loops in 6 of 6
+   JVMs (9,712 to 10,440 bytes a row), and beside inserted E alone in 5 of 6 (1,080 or 2,192).
+   At 256 bits the figures are 16 of 17 and 7 of 12, and transposed F boxed after the `add`
+   loops in 3 of 3. In a JVM of its own, inserted F and transposed F never boxed (0 of 6 each,
+   at 256 bits). After the `add` loops, split F and E allocated only 12 bytes a row (3 of 3 and
+   2 of 3). Whether a shared run boxes varies from run to run. The trap limit is one path read,
+   not all: `-XX:PerMethodTrapLimit=0` gave a lone inserted F 248 bytes a row, and `=100000`
+   still left 5 of 6 boxing at about half the bytes. So **inserted and transposed F are not
+   safe in a shared JVM**. One arm per JVM would only hide the fault, so the harness is
+   unchanged.
+
+**The numbers**, in ns a row (`Per Row(ns)`, from each case's best time), `x % y` / `pmod(x, y)`.
+At 128 bits each arm ran in its own JVM; `pmod` ran twice there, and its column is each arm's
+lower figure (the allocating arms, the fallbacks and B, moved by up to 4.2 times between the
+two runs, the three intrinsified F arms by up to 1.7). At 256 and 512 bits the arms shared one
+JVM, and an arm marked * allocated there and is quoted from a JVM of its own:
+
+| Form | 128 bits | 256 bits | 512 bits (double-pumped) |
+|---|---|---|---|
+| E | 542.1 / 597.4 [fallback] | 18.6 / 20.1 | 10.4 / 9.4 |
+| D | 5223.7 / 6648.4 [fallback] | 141.9 / 140.7 | 84.4 / 79.2 |
+| B | 156.8 / 173.0 | 160.5 / 185.4 | 154.9 / 163.9 |
+| gathered E | 434.7 / 551.4 [fallback] | 21.2 / 22.5 | 14.2 / 14.3 |
+| inserted E | 388.5 / 476.6 [fallback] | 24.2 / 24.0 | 15.8 / 15.6 * |
+| split E | 393.4 / 396.4 [fallback] | 18.1 / 18.7 | 9.8 / 10.9 |
+| transposed E | 382.9 / 397.7 [fallback] | 19.0 / 20.3 | 11.1 / 10.1 * |
+| F | 161.0 / 157.1 [fallback] | 21.9 / 23.3 | 10.4 / 10.9 |
+| gathered F | 90.4 / 102.3 [fallback] | 24.9 / 24.8 | 14.2 / 14.0 |
+| **inserted F** | **40.9 / 39.0** | 24.9 / 27.6 * | 16.3 / 15.8 |
+| **split F** (kernel alone) | **37.4 / 38.3** | 19.7 / 19.5 | 10.1 / 9.2 |
+| **transposed F** (with its transpose) | **39.7 / 41.4** | 19.4 / 21.2 * | 10.5 / 12.4 |
+
+The two controls run in their own JVMs beside the starred arms read as the shared run did: at
+256 bits `x % y` E 17.4 and F 19.8, at 512 bits `pmod` E 9.2 and F 9.1.
+
+**What the numbers say.**
+
+1. **Neither idea alone removes the fallback; together they do.** F with the rearranges, and E
+   with any access, still leave 20 to 72 calls in Java. Inserted, split and transposed F leave
+   none, allocate nothing in a JVM of their own (the transposed arm's 0.8 bytes a row is its 3 KB
+   block a call; after other vector code see item 2 of "How it was read"), and run
+   at 37 to 41 ns a row at 128 bits, against 157 to 173 for B and 90 to 6,648 for every form
+   with a fallback: about 4 times B's rate and 13 to 16 times E's.
+2. **The transpose costs about 2 to 3 ns a row at 128 bits** (transposed F against split F: 39.7
+   against 37.4 for `x % y`, 41.4 against 38.3 for `pmod`), and at 256 and 512 bits it is within the
+   runs' noise except for the shared run's 512-bit `pmod` (12.4 against 9.2). Kernel and transpose
+   together cost under 1.1 times the kernel alone, so a split layout the engine would have to make
+   buys almost nothing over reading Arrow's slots, and inserted F, which reads the slots with no
+   transpose, is as fast as either at two lanes.
+   *11 November 2026:* in a JVM of its own only. After other vector code, inserted F and the
+   in-loop transposed F box, and split F with its transpose in methods of their own does not box
+   but keeps 12 to 16 bytes a row ("The test of 7.4" below). The transpose's cost holds: 1.4 to
+   2.3 ns a row.
+3. **The gather does not help.** Its Java-side index check is a mask op, so the gathered arms
+   keep a fallback at 128 bits, and at 256 and 512 bits they trail the rearranges by 1.1 to 1.5
+   times. A gather also needs the column in a heap array.
+4. **At 256 and 512 bits the forms are level on the laptop.** At 256 bits E and F differ by 1.1
+   to 1.2 times, E ahead; at 512, E and F are within 1.2 times either way (`x % y` 10.4 and 10.4,
+   `pmod` 9.4 and 10.9 shared, 9.2 and 9.1 alone). The owner's expectation, that at 512 bits
+   E's native masks, `vpermq` rearranges and AVX-512DQ conversions beat the mask-free forms, is
+   not shown here, and not refuted: no ratio reaches 1.3, and the laptop double-pumps 512-bit
+   operations on 256-bit units, so its 512-bit timings are directional only and cannot pick the
+   512-bit form. The deciding reading needs a full-width AVX-512 host (a Xeon 8573C or 6973P-C,
+   or an EPYC 9V45 when one is drawn). Inserted F and gathered forms trail at 512 bits (14 to 16
+   ns against 9 to 11): lane inserts and extracts scale with the lane count.
+
+**What it implies for 7.4.** A third answer is open beside the two 7.4 names: at two long lanes
+on x86 the remainder fuses as F, reading the slots by lane inserts (or the transposed block),
+with no fallback, about 4 times faster than B on the laptop and, indicatively, 19 to 25 times
+faster than the row path's 771 and 973 ns a row on the runner (10.1). The runners' reading below
+is owed before 577b takes it, and the width decides the access: inserted F at two lanes,
+E (or F) with the rearranges at four lanes and up, where inserts cost more than the rearranges
+they replace. F's arithmetic is E's value for value, so E's exactness argument and the SMT proof
+3.1 owes cover both.
+*11 November 2026:* the answer holds only in a JVM where no other vector code has left traps
+in the Vector API methods F inlines many times (10.4, item 2). A fused kernel shares
+its JVM, so "fuse at two lanes as inserted F" needs a defence against C2's trap budget before
+577b takes it, and the owner decides whether that is owed or the answer falls.
+*11 November 2026:* tested below; the answer falls, and 7.4 is back to decline or B.
+*11 November 2026:* the owner chose neither: decline by default, and split F with its own
+transpose behind an option (row 604; 7.4).
+
+**The test of 7.4** (*11 November 2026*, `results/VARKA-577-twolane-shared-jvm-laptop.txt`, last
+section; the laptop at load 0.3 to 2.2, one JVM at a time). The diagnosis above left one form
+unexplained. Split F allocated only 12 bytes a row after the `add` loops, where inserted and
+transposed F boxed. If the slot access was the fragile part, split F fed by a transpose in its
+own method might be the form that survives. A throw-away driver (not committed) ran it after the
+same three `add` loops. Its loop copies a block of slots into split low and high blocks by
+scalar moves in one non-inlined method, runs `loopRemainderFS` over them, and copies the result
+back in another. Each kernel cell was checked against `BigInteger` on every row after timing.
+JVMs that allocated, of those run:
+
+| Cell | 128 bits | 256 bits |
+|---|---|---|
+| split F alone | 0 / 6 | 0 / 6 |
+| `add` loops, then split F | 12 / 12 (16 bytes a row) | 12 / 12 (12) |
+| `add` loops, then split F with the transpose, blocks of 64 | 12 / 12 (16) | 12 / 12 (12) |
+| the same, blocks of 1,024 | 12 / 12 (16) | 12 / 12 (12) |
+| `add` loops, then inserted F (the control) | 3 / 3 (2,288 to 10,216) | 3 / 3 (1,460 to 6,700) |
+
+Every kernel cell was exact. The medians at 128 bits were 31.2 ns a row for split F alone, 32.6
+after the `add` loops, and 34.2 and 33.9 with the transpose, against 121.5 to 125.2 for B. At 256
+bits they were 15.8, 16.2, 18.5 and 18.2. The transpose alone cost 1.4 to 2.3 ns a row.
+
+What survives and what does not:
+
+- **Survives:** split F with its transpose out of line does not box at the 1 to 10 KB scale in
+  any JVM. It is exact, at about 3.6 times B's rate at two lanes, and the transpose costs about
+  2 ns a row (a ratio under 1.3 on the laptop, so indicative only).
+- **Does not survive:** allocation-free. After the `add` loops every JVM, at either block size,
+  keeps 16 bytes a row at two lanes and 12 at four. That is exactly one `long[L]` a lane-group
+  iteration (32 bytes for 2 rows, 48 for 4). JFR puts most of those samples at
+  `LongVector.lanewiseTemplate` line 756, the `VectorSupport.binaryOp` call, in compiled
+  `loopRemainderFS`. That matches the signature of `VARKA-295.md` 9.6, one `binaryOp` refused
+  after a class-check miss path became a real call, but the cause was not confirmed here from a
+  compile log.
+- **Falls:** inserted F and the in-loop transposed F (the control boxed 3 of 3 at both widths).
+
+So no two-lane form was found that the engine could fuse. A residual of one array an iteration
+is what the warm-up's verdict releases on (`VARKA-295.md` 9.5). Its allowance is 4,096 bytes
+plus 1 byte a row and a column term (`VarkaAllocationSampler`, `VarkaKernelWarmup`), and split
+F's 12 to 16 bytes a row is 12 to 16 times its per-row term. Split F with no transpose keeps the
+same residual, and the block size does not change it, so the slot access is not the cause. What
+is left points at the shared templates' traps, as for inserted F, at a smaller dose. 7.4 is back to
+decline at two lanes, or B behind an option. F stays as measured, for the case where a defence
+against the shared-template traps lands.
+*11 November 2026, the owner's decision (7.4):* 577b declines the two-lane remainder on x86 by
+default, and row 604 builds split F with this transpose as an opt-in arm behind an option. The
+shared-JVM finding binds 577b too: inserted and transposed F boxed at 1 to 10 KB a row beside
+unrelated vector code, and E at 256 bits kept 12 bytes a row after the `add` loops, from trap
+totals in the shared templates (`VARKA-295.md` 9.6). The runner shows it for E itself: in
+benchmark run 42980360382 (vecbricks/varka, EPYC 7763, 256 bits, every arm in one JVM), the
+`pmod` of inserted E allocated 298 bytes a row and of transposed E 262 to 263, while plain E,
+split E and the F forms allocated nothing. So 577b's E form must pass the warm-up's
+allocation allowance in a shared JVM, read after other vector code has run, not only in a JVM
+of its own.
+
+**Can emitted kernels reach this size?** Yes, and they already have. Split F's `x % y` body has
+199 Vector API call sites by `VarkaEmittedClass.vectorCallSites`' count: 189 in the arithmetic,
+4 loads, 2 stores, 2 for the zero-divisor word and 2 before the loop. `pmod` has 213. Its
+compile inlines `VectorOperators$ImplCache.find` about 200 times. The emitter's
+`CALL_SITE_BUDGET` is 93 sites a group method, but it bounds C1's register need, not C2's trap
+totals. It also splits only groups of more than `HEAVY_GROUP_OUTPUTS` (6) outputs, and a narrow
+group of heavy outputs stands over it, up to `FUSED_CEILING`'s 400 ops. More to the point,
+`VARKA-295.md` 9.6 found this fault in emitted loop methods, built with the call-site budget in
+force (VARKA-209, 29 September; that method's own count was not read). A released `loopDense0`
+passed the class-check limit with `VectorOperators.opKind` inlined 170 times,
+holding 4 to 5 traps from other kernels' compiles. Its one surviving array an iteration is the
+residual split F shows here. So the fragility does not appear at a size only F reaches. It
+appears in kernels the emitter already builds, once other vector code has trapped in the shared
+templates, and E at 256 bits shows the same 12 bytes a row after the `add` loops (2 of 3, item 2
+above). Row 295's bimodal steady state (9.8) is not this fault. It followed the core set in
+both arms, and no allocation was read there. Whether the 295 warm-up's template pre-warming
+(#827, the preferred species only) protects a two-lane kernel is untested.
+
+**For other two-lane pair forms** (row 596's comparison as a value, the choices, negation and
+`abs` of `VARKA-359.md` 2.6). Every pair operator that is a compare, a blend or a mask op has a
+mask-free form on 0/1 lanes built from the same three formulas (borrow, carry, select), and the
+pair's load and store have the insert and lane-store forms, both of which compile at two lanes.
+So the two-lane decline 2.6 accepts for the pair may be avoidable by an emitter that lowers the
+pair's compares and selects this way at two lanes. This spike shows it for the remainder only;
+for a comparison as a value, whose output is a 0/1 lane, it is **[I]**, untested.
+
+**The runners' reading, prepared and not run.** Once a pull request exists, on vecbricks/varka,
+256 and 128 bits on the EPYC 7763 (full ladder, every arm in one JVM as before; read each
+section's `allocated` notes first, since a boxed arm there is the shared-JVM fault, not the
+form):
+
+    C=org.apache.spark.sql.VarkaDecimalRemainderSpikeBenchmark
+    opts="-XX:CompileCommand=dontinline,$C::loop* -XX:CompileCommand=inline,$C::body*"
+    gh workflow run benchmark.yml --repo vecbricks/varka --ref master -f pr=N \
+      -f class='*.VarkaDecimalRemainderSpikeBenchmark' -f jdk=25 -f scala=2.13 \
+      -f num-splits=1 -f create-commit=false -f generate-tpcds=false \
+      -f expected-cpu="AMD EPYC 7763" -f extra-java-options="$opts"
+    gh workflow run benchmark.yml --repo vecbricks/varka --ref master -f pr=N \
+      -f class='*.VarkaDecimalRemainderSpikeBenchmark' -f jdk=25 -f scala=2.13 \
+      -f num-splits=1 -f create-commit=false -f generate-tpcds=false \
+      -f expected-cpu="AMD EPYC 7763" -f extra-java-options="-XX:MaxVectorSize=16 $opts"
+
+The EPYC 7763 is AVX2 only, so the 512-bit reading needs another host, as above. The results
+replace the two committed `-runner-epyc7763` files, whose arm set is the old six.
+*11 November 2026:* dispatched for this pull request. The 256-bit run 42980360382 is quoted
+above (the owner's decision under "The test of 7.4"); its numbers are not yet spliced into the
+committed files.
+
