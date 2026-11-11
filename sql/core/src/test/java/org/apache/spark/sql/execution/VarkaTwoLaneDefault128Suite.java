@@ -132,7 +132,7 @@ public final class VarkaTwoLaneDefault128Suite {
         default -> "pmod(" + h + ", 1000000000000)";
       };
       values.add(value + " as " + name);
-      columns.add("case when id % 10 = " + seed + " then null else " + name + " end as "
+      columns.add("case when id % 10 = " + seed % 10 + " then null else " + name + " end as "
           + name + "n");
     }
     return "select " + String.join(", ", columns) + " from (select id, "
