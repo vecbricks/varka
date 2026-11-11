@@ -23,6 +23,8 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.math.BigDecimal;
+import java.math.BigInteger;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -35,6 +37,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.LongFunction;
+import java.util.stream.LongStream;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -58,6 +61,8 @@ import org.apache.spark.sql.internal.SQLConf;
 import org.apache.spark.sql.internal.SQLConf$;
 import org.apache.spark.sql.types.DataType;
 import org.apache.spark.sql.types.DataTypes;
+import org.apache.spark.sql.types.Decimal;
+import org.apache.spark.sql.types.DecimalType;
 
 /**
  * The conformance contract a type is held to (VARKA-484, `VARKA-475.md` 3.1): seven checks -
@@ -79,8 +84,10 @@ import org.apache.spark.sql.types.DataTypes;
  * rows the register names. The one exception is the {@code BIGINT} casts to {@code FLOAT} and
  * {@code DOUBLE}, which the compiler admits by the options' {@code useAVX} level and which this
  * class takes from that level rather than the register ({@link CastPair#fusedIn}). A check whose
- * forms all hold passes; one with an owed form is
- * cancelled naming the owners, after its fused forms have run. A form that fuses where the
+ * forms all hold passes; one with an owed form is cancelled naming the owners, after its fused
+ * forms have run. A type the census marks fused in part for an operator (one band of it, as a
+ * decimal at one scale) may do either: the form is held to the answers where it fuses and owed
+ * where it declines. A form that fuses where the
  * register says it does not, or declines where it says it does, fails: the register has drifted
  * from the compiler.
  *
@@ -110,7 +117,8 @@ public abstract class VarkaTypeConformance {
    * forms name as literals ({@code picks}), and the null-intolerant form over two of its columns
    * the null handling check runs ({@code pair}). Every value is the type's internal one, as a
    * column of it stores it: days for a date, nanoseconds of the day for a time, months for a
-   * year-month interval, microseconds for a day-time interval.
+   * year-month interval, microseconds for a day-time interval. A decimal's values are indices
+   * into its suite's {@link #decimalSlots} instead, since a 128-bit value fits no long.
    *
    * <p>{@code pair} is null for {@code BOOLEAN} alone, whose null handling is its connectives.
    */
@@ -176,6 +184,29 @@ public abstract class VarkaTypeConformance {
   }
 
   /**
+   * For a decimal, stored in Arrow's sixteen-byte slots, the unscaled values its fixture's
+   * values index: each value of {@link #type} is then an index into this table, a column's slot
+   * holds the indexed value's two words, and Spark is handed the {@code Decimal} it names
+   * (VARKA-359). Null, the default, for a type whose values are its lane values.
+   */
+  protected BigInteger[] decimalSlots() {
+    return null;
+  }
+
+  /**
+   * The operators the census marks fused in part for this type ({@code fused_in_part}) whose
+   * forms this suite's fixture may see declined: there they are owed. Any other fused-in-part
+   * form must fuse here, so that a regression to a decline fails rather than cancels. None by
+   * default. Each entry is held to the census and to this suite ({@link #checkDeclinesInPart}):
+   * it must name an operator the census marks fused in part for the type, and a check that runs
+   * its forms must see one of them decline, so that an entry whose forms start fusing is
+   * dropped rather than left to excuse a later regression.
+   */
+  protected Set<String> declinesInPart() {
+    return Set.of();
+  }
+
+  /**
    * A form of the type's own arithmetic that the census's arithmetic operators do not name: its
    * SQL over {@code x} and {@code y}, and the census entry that says whether it fuses.
    */
@@ -227,6 +258,20 @@ public abstract class VarkaTypeConformance {
    */
   protected static long[] halfRange(long min, long max) {
     return integralValues(min / 2, max / 2);
+  }
+
+  /**
+   * A decimal {@code type} over the unscaled {@code slots}, which its suite's
+   * {@link #decimalSlots} returns too: the fixture's values are their indices. An index is spelled
+   * as its value's exact literal at the scale, which type coercion widens to the column's type at
+   * the same scale, so a comparison reads it as a constant of the column's representation. The
+   * pair form is {@code x < y}: null-intolerant, and fused over two columns of either
+   * representation, where {@code x + y} is row 360's.
+   */
+  protected static ConformanceType decimal(DecimalType type, BigInteger[] slots, long[] picks) {
+    return new ConformanceType("dec", type, type.sql(),
+        i -> new BigDecimal(slots[(int) i], type.scale()).toPlainString() + "BD",
+        LongStream.range(0, slots.length).toArray(), picks, new PairForm("x < y", "<"));
   }
 
   // -------------------------------------------------------------------------------------------
@@ -464,6 +509,34 @@ public abstract class VarkaTypeConformance {
   }
 
   /**
+   * Whether the census marks the type fused in part for {@code f}'s operator (its
+   * {@code fused_in_part} column): one band or form of the type fuses and the rest is owed, so
+   * the form may fuse or decline, and is checked where it fuses.
+   */
+  private boolean fusedInPart(Form f) {
+    return f.register() != null && !f.register().startsWith("cast:")
+        && Registers.census(f.register()).partial().contains(type().census());
+  }
+
+  /**
+   * Fails unless every {@link #declinesInPart} entry names an operator the census marks fused in
+   * part for the type: an entry that is not would be ignored, since only a fused-in-part form
+   * reads the set.
+   */
+  private void checkDeclinesInPart() {
+    var wrong = new ArrayList<String>();
+    for (String register : declinesInPart()) {
+      if (register.startsWith("cast:")
+          || !Registers.census(register).partial().contains(type().census())) {
+        wrong.add(register);
+      }
+    }
+    assertTrue(wrong.isEmpty(), "declinesInPart names " + wrong + ", which the census does not "
+        + "mark fused in part for " + type().census() + ": drop them, or mark the type fused in "
+        + "part for them in census.tsv");
+  }
+
+  /**
    * The gaps the census cannot state, by type and operator, with the row that owns each: its
    * claims are not per mode, and these operators fuse over two columns in LEGACY while the
    * compiler declines their checked form under ANSI.
@@ -510,14 +583,34 @@ public abstract class VarkaTypeConformance {
         forms.add(f.asValue());
       }
     }
+    checkDeclinesInPart();
     var owed = new ArrayList<String>();
     var drift = new ArrayList<String>();
     var unbaked = new ArrayList<String>();
+    // Each declinesInPart() entry this check runs a form of, and whether one of them declined.
+    var listedDeclined = new HashMap<String, Boolean>();
     for (Form f : forms) {
       Expression expr = resolve(f);
       Optional<String> owner = owedTo(f, expr.dataType());
       Optional<Compiled> compiled = compile(f, expr);
       if (owner.isPresent()) {
+        if (fusedInPart(f)) {
+          // The census marks the type fused in part: a form in the band that fuses is held to
+          // the answers rather than called drift, and one the suite names as outside it is owed.
+          boolean listed = declinesInPart().contains(f.register());
+          if (listed) {
+            listedDeclined.merge(f.register(), compiled.isEmpty(), Boolean::logicalOr);
+          }
+          if (compiled.isPresent()) {
+            check(f, compiled.get());
+            continue;
+          }
+          if (!listed) {
+            drift.add(f + " declines, and the census marks the type fused in part for it, "
+                + "which this suite's fixture is inside" + declineReason(f, expr));
+            continue;
+          }
+        }
         if (compiled.isPresent()) {
           drift.add(f + " fuses, and the register owes it to rows " + owner.get()
               + ": mark the type fused in the census or casts.tsv");
@@ -538,6 +631,12 @@ public abstract class VarkaTypeConformance {
       }
       check(f, compiled.get());
     }
+    listedDeclined.forEach((register, declined) -> {
+      if (!declined) {
+        drift.add("every form of " + register + " fuses, and declinesInPart names it as owed: "
+            + "drop it from declinesInPart");
+      }
+    });
     // Every form of the check is tried before a drift fails it, so that one run names them all.
     if (!drift.isEmpty()) {
       fail("the registers have drifted from the compiler: " + String.join("; ", drift));
@@ -738,7 +837,12 @@ public abstract class VarkaTypeConformance {
         String ctx = getClass().getSimpleName() + " " + f + " batch " + n++ + " length "
             + b.length();
         boolean raises = raises(oracle, c, b);
-        int status = c.longLane()
+        BigInteger[] slots = decimalSlots();
+        int status = slots != null
+            ? VarkaKernelChecks.runLoadedDecimal(ctx, loaded.kernel(), c.roots(),
+                c.inputs().size(), c.longLits(), c.lits(), b, slots, raises, answers(oracle),
+                CallHook.NONE)
+            : c.longLane()
             ? VarkaKernelChecks.runLoadedLong(ctx, loaded.kernel(), c.roots(), c.inputs().size(),
                 c.longLits(), c.lits(), b, raises, answers(oracle), CallHook.NONE)
             : VarkaKernelChecks.runLoadedNarrow(ctx, loaded.kernel(), c.roots(),
@@ -803,19 +907,47 @@ public abstract class VarkaTypeConformance {
   }
 
   /** Spark's answers over the rows of {@code b}, added to {@code seen} output by output. */
-  private static void see(Seen[] seen, VarkaSparkOracle oracle, Compiled c, LongBatch b) {
+  private void see(Seen[] seen, VarkaSparkOracle oracle, Compiled c, LongBatch b) {
+    int n = c.inputs().size();
     for (int i = 0; i < b.length(); i++) {
-      var row = new ArrayList<Option<Object>>();
+      long[] values = new long[n];
+      boolean[] isNull = new boolean[n];
       boolean bothValid = true;
-      for (int col = 0; col < c.inputs().size(); col++) {
-        bothValid &= !b.nulls()[col][i];
-        row.add(b.nulls()[col][i] ? Option.empty() : Option.apply((Object) b.data()[col][i]));
+      for (int col = 0; col < n; col++) {
+        isNull[col] = b.nulls()[col][i];
+        values[col] = b.data()[col][i];
+        bothValid &= !isNull[col];
       }
-      var seq = CollectionConverters.asScala(row).toList();
       for (int o = 0; o < seen.length; o++) {
-        seen[o].see(oracle.answer(o, seq), bothValid);
+        seen[o].see(spark(oracle, o, values, isNull), bothValid);
       }
     }
+  }
+
+  /**
+   * Spark's answer for output {@code o} on a row of the fixture's values: the lane values
+   * themselves, or for a decimal the {@code Decimal} each index names ({@link #decimalSlots}).
+   */
+  private VarkaSparkOracle.Answer spark(VarkaSparkOracle oracle, int o, long[] values,
+      boolean[] isNull) {
+    BigInteger[] slots = decimalSlots();
+    if (slots != null) {
+      DecimalType t = (DecimalType) type().spark();
+      var row = new ArrayList<Object>();
+      for (int c = 0; c < values.length; c++) {
+        // Within 18 digits Spark's column readers hand a Decimal its unscaled long, as here.
+        BigInteger v = slots[(int) values[c]];
+        row.add(isNull[c] ? null : t.precision() <= Decimal.MAX_LONG_DIGITS()
+            ? Decimal.apply(v.longValueExact(), t.precision(), t.scale())
+            : Decimal.apply(new BigDecimal(v, t.scale()), t.precision(), t.scale()));
+      }
+      return oracle.answerInternal(o, CollectionConverters.asScala(row).toList());
+    }
+    var row = new ArrayList<Option<Object>>();
+    for (int c = 0; c < values.length; c++) {
+      row.add(isNull[c] ? Option.empty() : Option.apply((Object) values[c]));
+    }
+    return oracle.answer(o, CollectionConverters.asScala(row).toList());
   }
 
   /**
@@ -853,7 +985,14 @@ public abstract class VarkaTypeConformance {
     for (int o = 0; o < c.outputs().size(); o++) {
       var s = new Seen();
       for (Row r : rows) {
-        s.see(oracle.answer(o, rowOf(r, c.inputs())), !r.xNull() && !r.yNull());
+        int n = c.inputs().size();
+        long[] values = new long[n];
+        boolean[] isNull = new boolean[n];
+        for (int k = 0; k < n; k++) {
+          values[k] = r.value(c.inputs().get(k));
+          isNull[k] = r.isNull(c.inputs().get(k));
+        }
+        s.see(spark(oracle, o, values, isNull), !r.xNull() && !r.yNull());
       }
       String at = f + " output " + o + " (" + oracle.sql(o) + ") over the fixture";
       requireDiscriminates(f, c, o, at, s);
@@ -876,25 +1015,18 @@ public abstract class VarkaTypeConformance {
     }
   }
 
-  private static scala.collection.immutable.Seq<Option<Object>> rowOf(Row r,
-      List<Integer> inputs) {
-    var row = new ArrayList<Option<Object>>();
-    for (int column : inputs) {
-      row.add(r.isNull(column) ? Option.empty() : Option.apply((Object) r.value(column)));
-    }
-    return CollectionConverters.asScala(row).toList();
-  }
-
   /** Whether Spark raises on some row of {@code b}: the batch an ANSI kernel must decline. */
-  private static boolean raises(VarkaSparkOracle oracle, Compiled c, LongBatch b) {
+  private boolean raises(VarkaSparkOracle oracle, Compiled c, LongBatch b) {
+    int n = c.inputs().size();
     for (int i = 0; i < b.length(); i++) {
-      var row = new ArrayList<Option<Object>>();
-      for (int col = 0; col < c.inputs().size(); col++) {
-        row.add(b.nulls()[col][i] ? Option.empty() : Option.apply((Object) b.data()[col][i]));
+      long[] values = new long[n];
+      boolean[] isNull = new boolean[n];
+      for (int col = 0; col < n; col++) {
+        isNull[col] = b.nulls()[col][i];
+        values[col] = b.data()[col][i];
       }
-      var seq = CollectionConverters.asScala(row).toList();
       for (int o = 0; o < c.outputs().size(); o++) {
-        if (oracle.answer(o, seq) instanceof VarkaSparkOracle.Raised) {
+        if (spark(oracle, o, values, isNull) instanceof VarkaSparkOracle.Raised) {
           return true;
         }
       }
@@ -903,16 +1035,11 @@ public abstract class VarkaTypeConformance {
   }
 
   /** Spark's answers for one batch, as {@link VarkaKernelChecks} reads them. */
-  private static SparkAnswers answers(VarkaSparkOracle oracle) {
+  private SparkAnswers answers(VarkaSparkOracle oracle) {
     return new SparkAnswers() {
       @Override
       public VarkaKernelChecks.Answer answer(int output, long[] values, boolean[] isNull) {
-        var row = new ArrayList<Option<Object>>();
-        for (int c = 0; c < values.length; c++) {
-          row.add(isNull[c] ? Option.empty() : Option.apply((Object) values[c]));
-        }
-        VarkaSparkOracle.Answer a = oracle.answer(output, CollectionConverters.asScala(row)
-            .toList());
+        VarkaSparkOracle.Answer a = spark(oracle, output, values, isNull);
         if (a instanceof VarkaSparkOracle.Value v) {
           return new VarkaKernelChecks.Answer.Value(v.v());
         } else if (a instanceof VarkaSparkOracle.Raised r) {
@@ -945,8 +1072,13 @@ public abstract class VarkaTypeConformance {
     return Map.copyOf(out);
   }
 
-  /** A census entry: the types it admits, those it fuses today, and the rows that own the rest. */
-  private record CensusEntry(Set<String> types, Set<String> fused, String rows) {}
+  /**
+   * A census entry: the types it admits, those it fuses today, those it fuses in part (one band
+   * or form, not counted as fused: a fixture inside the band may fuse), and the rows that own
+   * the rest.
+   */
+  private record CensusEntry(Set<String> types, Set<String> fused, Set<String> partial,
+      String rows) {}
 
   /**
    * A {@code casts.tsv} pair: the target and the rows that own its gaps. Whether a form of it
@@ -980,7 +1112,9 @@ public abstract class VarkaTypeConformance {
     static {
       for (String[] f : tsv("census.tsv")) {
         CENSUS.put(f[0], new CensusEntry(Set.of(f[5].split(",")),
-            Set.of(f[7].isEmpty() ? new String[0] : f[7].split(",")), f[10]));
+            Set.of(f[7].isEmpty() ? new String[0] : f[7].split(",")),
+            Set.of(f.length < 13 || f[12].isEmpty() ? new String[0] : f[12].split(",")),
+            f[10]));
       }
       CASTS.addAll(tsv("casts.tsv"));
       for (String[] f : tsv("casts_fused.tsv")) {

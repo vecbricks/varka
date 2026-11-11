@@ -32,7 +32,9 @@ Pull requests also:
     reader outside the project cannot follow;
   * under 1000 changed lines (VARKA-554): added plus removed against the merge base, counting
     hand-written source, text and data (.java .scala .py .sh .yml .yaml .xml .sql .properties
-    .md .txt .tsv), never a generated or results file, a transcribed paper or a READING note.
+    .md .txt .tsv), never a generated or results file, a transcribed paper or a READING note;
+    a sync of Apache Spark's master counts its own commits, and of its merge only the lines
+    that differ from both parents (VARKA-588).
 
   dev/varka_msg_check.py commit FILE         # a commit message (the commit-msg hook)
   dev/varka_msg_check.py range A..B [--not REF...]
@@ -54,6 +56,7 @@ Pull requests also:
 Exit status is the number of findings.
 """
 
+import codecs
 import importlib
 import json
 import os
@@ -448,7 +451,51 @@ def own_rows(commit, cwd):
     if parents < 2:
         return size_rows(f"{commit}^", commit, cwd)
     rows = numstat(cwd, f"{commit}^1", "show", "--remerge-diff", "--format=", commit)
-    return size_rows(f"{commit}^1", commit, cwd, rows)
+    return size_rows(f"{commit}^1", commit, cwd, both_parents_rows(commit, cwd, rows))
+
+
+def both_parents_rows(merge, cwd, rows):
+    """`rows`, a merge's `--remerge-diff` counts, each cut to the lines of the merge that
+    differ from both parents (VARKA-588): a conflict resolved by keeping one side, hunk by
+    hunk, counts nothing, though `--remerge-diff` counts the other side and the markers,
+    while a line written by hand matches neither parent and counts in full. The combined
+    diff (`--cc`) shows those lines as `++` and `--`, and leaves out a file in which every
+    hunk equals one parent or the other, which so counts nothing. A binary row keeps its
+    None. The rule cannot tell a side kept from work dropped: a merge that deletes lines or a
+    file only one parent has counts them as nothing, as it would count a conflict kept whole."""
+    out = attr_git(
+        cwd, f"{merge}^1", "show", "--cc", "-U0", "--no-color", "--no-ext-diff", "--format=", merge
+    )
+    if out.returncode:
+        raise ValueError(f"git show --cc failed: {out.stderr.strip()}")
+    both, path, in_hunk = {}, None, False
+    for line in out.stdout.split("\n"):
+        if line.startswith("diff --cc "):
+            path, in_hunk = unquote(line[len("diff --cc ") :]), False
+            both[path] = [0, 0]
+        elif line.startswith("@@@ "):
+            in_hunk = True
+        elif in_hunk:
+            if line.startswith("++"):
+                both[path][0] += 1
+            elif line.startswith("--"):
+                both[path][1] += 1
+    cut = []
+    for n, path, old in rows:
+        if n is not None:
+            mine = both.get(path, [0, 0])
+            n = tuple(mine) if sum(mine) < sum(n) else n
+        cut.append((n, path, old))
+    return cut
+
+
+def unquote(path):
+    """A path as git prints it in a patch header: as is, or C-quoted in double quotes when it
+    holds a quote, a backslash or a control character (`core.quotePath` also quotes any byte
+    past ASCII, as an octal escape)."""
+    if not (len(path) > 1 and path[0] == path[-1] == '"'):
+        return path
+    return codecs.escape_decode(path[1:-1].encode("utf-8"))[0].decode("utf-8", "replace")
 
 
 def pr_size(base, head="HEAD", cwd=ROOT, branch=None):
@@ -641,20 +688,53 @@ def size_selftest():
         # A sync: a commit of its own, Apache Spark's master merged with a conflict in A.java
         # and one in a generated file, then one more commit of its own.
         seconds, a_java = "sql/varka/matrix/seconds.tsv", lines(10).replace("x 5", "{} 5")
+        # Five more conflicts, in files Apache Spark's master had before the sync began.
+        k_java = lines(10).replace("x 3", "{} 3")
+        h_java = lines(10).replace("x 7", "{} 7")
         run("git", "checkout", "-q", "-b", "apache", base)
+        quoted = 'q"x.java'  # a name git C-quotes in a patch header
+        for name in ("K.java", "H.java", "Both.java", quoted):
+            write(name, lines(10))
+        write("Gone.java", lines(8, "g"))  # unlike Both.java, so no rename pairs them
+        upstream_had = commit()
         write("Up.java", lines(2000))
         write("A.java", a_java.format("a"))
         write(seconds, lines(3, "a"))
+        write("K.java", k_java.format("a").replace("x 9", "a 9"))  # 9 merges cleanly
+        write(quoted, a_java.format("a"))
+        write("H.java", h_java.format("a"))
+        os.remove(os.path.join(tmp, "Gone.java"))
+        write("Both.java", lines(10).replace("x 0", "a 0"))
         run("git", "update-ref", "refs/apache/master", commit())
-        run("git", "checkout", "-q", "-b", SYNC_BRANCH + "1", base)
+        run("git", "checkout", "-q", "-b", SYNC_BRANCH + "1", upstream_had)
         write("A.java", a_java.format("s"))  # 2 lines
         write(seconds, lines(3, "s"))
+        write("K.java", k_java.format("s"))  # 2 lines each
+        write(quoted, a_java.format("s"))
+        write("H.java", h_java.format("s"))
+        write("Both.java", lines(10).replace("x 9", "s 9"))
         commit()
         git(tmp, "-c", "user.name=t", "-c", "user.email=t@t", "merge", "-q", "apache")
-        # The resolution against the conflict's 5 lines: 6, and the generated file's none.
+        # The resolutions: A.java's one line written by hand (--remerge-diff, which counts
+        # the conflict's markers and both sides, gives 6) and the generated file's none;
+        # K.java keeps the sync's side of its conflict and Apache Spark's clean hunk, so it
+        # equals neither parent but each hunk equals one, and Gone.java, which Apache Spark
+        # deleted, is restored as the sync had it, both nothing; H.java's conflict is
+        # rewritten as four lines of hand, counted in full; Both.java, which both parents
+        # have, the merge deletes: the 8 lines the parents share; q"x.java, as A.java, 1.
         write("A.java", a_java.format("r"))
         write(seconds, lines(3, "r"))
-        commit()
+        write("K.java", k_java.format("s").replace("x 9", "a 9"))
+        write(quoted, a_java.format("r"))
+        write("H.java", h_java.replace("{} 7\n", lines(4, "h")))
+        write("Gone.java", lines(8, "g"))
+        os.remove(os.path.join(tmp, "Both.java"))
+        merge = commit()
+        merged = {p: c for c, _, p, _ in own_rows(merge, tmp)[0]}
+        remerged = {
+            r[1]: sum(r[0])
+            for r in numstat(tmp, None, "show", "--remerge-diff", "--format=", merge)
+        }
         write("Own.java", lines(3))
         sync_head = commit()
         saved = dict(os.environ)
@@ -700,6 +780,26 @@ def size_selftest():
                 pass
         not_counted = size_findings("no-such-rev", "HEAD", cwd=tmp)
         not_counted = [] if "could not count" in "".join(not_counted) else [not_counted]
+    # #1427's first merge, the shape row 588 was written from: 1335 lines by --remerge-diff,
+    # 52 that differ from both parents. #1427 was squashed, so the merge is in a clone that
+    # fetched its branch, varka-sync-apache-1109, and not in CI's; elsewhere the case passes.
+    pin = "8149ab82419d6224c57298d8f2630ef8b9c97535"
+    pinned = []
+    if git(ROOT, "merge-base", f"{pin}^1", f"{pin}^2").returncode == 0:
+        try:
+            pinned = sum(c for c, _, _, _ in own_rows(pin, ROOT)[0])
+            pinned = [] if pinned == 52 else [pinned]
+        except ValueError as e:
+            pinned = [str(e)]
+    merge_want = {
+        "A.java": 1,
+        "K.java": 0,
+        "H.java": 4,
+        "Gone.java": 0,
+        "Both.java": 8,
+        'q"x.java': 1,
+        "sql/varka/matrix/seconds.tsv": 0,
+    }
     wrong = {p: (got.get(p), c) for p, c in expect.items() if got.get(p) != c}
     return [
         ("each file's counted lines", [wrong] if wrong else [], 0),
@@ -711,10 +811,21 @@ def size_selftest():
         ("a sync read from GITHUB_REF_NAME", sync, 0),
         (
             "a sync counts its own commits",
-            [] if "11 counted lines" in sync_line else [sync_line],
+            [] if "27 counted lines" in sync_line else [sync_line],
             0,
         ),
         ("... its merge's among them", [] if "3 commit(s)" in sync_line else [sync_line], 0),
+        ("#1427's merge counts 52 lines", pinned, 0),
+        (
+            "a merge counts the lines that differ from both parents",
+            [] if merged == merge_want else [merged],
+            0,
+        ),
+        (
+            "... where --remerge-diff counts more",
+            [] if remerged.get("K.java") and remerged.get("Gone.java") else [remerged],
+            0,
+        ),
         ("exemptions the head adds", [] if added == ["Hand.java", hand_tsv, moved] else added, 0),
         (
             "a new file the head marks",
