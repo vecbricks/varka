@@ -45,8 +45,9 @@ JVM was run. Claims marked *[I]* are read from the code, not run; step 1 of sect
    sources calls `Predicate.create` or `GeneratePredicate`. A kernel batch that throws is routed
    to the same fallback (`VarkaFilterExec.scala:315-324`). Residual conjuncts are another
    matter: on a served batch they run in the row `FilterExec` the rule puts above the Varka node
-   (`VarkaColumnarRule.scala:286-300`), which is Spark's own filter; only a declined batch runs
-   them in the fallback, with the whole condition. *[I]: so 388's reproducer now answers in
+   (`VarkaColumnarRule.scala:286-300`), which is Spark's own filter, but one that decides Spark's
+   CSE gate from the residual alone (item 10); only a declined batch runs them in the fallback,
+   with the whole condition. *[I]: so 388's reproducer now answers in
    Varka as in Spark, codegen on and off: `s = 'x'` is the first conjunct, FALSE on the row, and
    `make_date` is first referenced by the second.*
 5. **Where the fallback still differs from Spark's compiled filter: the CSE gate.**
@@ -73,7 +74,8 @@ JVM was run. Claims marked *[I]* are read from the code, not run; step 1 of sect
    fuses is what puts a Varka node in the plan at all: without `i > 0`, nothing fuses and the
    query runs as plain `FilterExec`. On a row with `i` = 1, `s` = 'x', `b` = 1 and a two-element
    `arr`, *[I]*: Spark's `Or` stops at `s = 'x'`, `b < 0` drops the row, and the query answers;
-   Varka's served batch does the same, since the residuals run in Spark's filter; Varka's
+   Varka's served batch does the same, since the residuals run in Spark's filter and its gate is
+   false here too (item 10 is where the two gates part); Varka's
    declined batch runs the fallback, which calls `arr[5]` before the second conjunct and raises
    `INVALID_ARRAY_INDEX`. The same holds for any common subexpression with `filterExec.enabled`
    off. With the defaults, a non-cheap one takes Spark's CSE branch, which evaluates it before
@@ -89,10 +91,14 @@ JVM was run. Claims marked *[I]* are read from the code, not run; step 1 of sect
    `IF` condition that repeats the `AND`: in `s = 'x' AND make_date(2021, m, 1) < d AND IF(s =
    'x' AND make_date(2021, m, 1) < d, d0, d1) < d2`, `And(c1, c2)` is common, and *[I]* where it
    is also a node of the fallback's chain, `GeneratePredicate` calls `make_date` before `s = 'x'`
-   and raises on 388's row, where Spark's compiled filter answers. It is a node of the chain only
-   when it equals an exact prefix of `inCodegenOrder`'s left fold, null checks included; the
-   `IS NOT NULL` checks the optimizer infers for `s`, `m` and `d` come first in that fold, so
-   *[I]* the shape may be unreachable through a Varka filter over nullable columns. Step 1
+   and raises on 388's row, where Spark's compiled filter answers. `And` is a
+   `CommutativeExpression`: its canonical form flattens the chain and sorts the operands
+   (`predicates.scala:933-937`, `Expression.scala:1428-1446`), so the common `AND` matches a node
+   of the chain when a prefix of `inCodegenOrder`'s left fold has the same conjuncts, in any
+   order, null checks included, not only when it is written alike. The `IS NOT NULL` checks the
+   optimizer infers for `s`, `m` and `d` come first in that fold, so every prefix holding `c1`
+   and `c2` holds them too, and *[I]* the shape may be unreachable through a Varka filter over
+   nullable columns. Step 1
    checks whether any plan reaches it. It is the same mechanism as this row's finding, open
    upstream. (Not the `NOT (c1 AND c2) OR c3` form: `BooleanSimplification` folds `a AND (NOT a
    OR c)` to `a AND c` when `a` is not nullable, `expressions.scala:546`.) (b) With
@@ -110,7 +116,29 @@ JVM was run. Claims marked *[I]* are read from the code, not run; step 1 of sect
    method and either can land first.
 9. **The fuzzer still does not draw the shape.** `VarkaSparkFuzz.withNested`
    (`VarkaSparkFuzz.scala:310`) adds independently drawn trees, so two conjuncts share a subtree
-   only by chance.
+   only by chance. And it could not draw item 5's shape if it tried: `VarkaCatalystGrammar` has
+   no `ExtractValue` and the view no array or struct column, and a foldable tree is folded before
+   planning, so every reusable non-leaf subtree is one `CollapseProject.isCheap` rejects.
+10. **A served batch's residual filter decides Spark's gate from the residual alone.**
+   `rewriteFilter` builds `FilterExec(residual, varka)` (`VarkaColumnarRule.scala:299`), whose
+   CSE gate reads the residual conjuncts, where Spark's reads the whole condition. A common
+   subexpression of the residual is common in the whole condition too, so the residual's gate
+   implies the whole's, and the difference runs one way: the whole's true, the residual's false.
+   Spark's CSE branch then eliminates every common subexpression, cheap ones included
+   (`subexpressionEliminationForWholeStageCodegen` takes all of `getCommonSubexpressions`,
+   `CodeGenerator.scala:2201`), and calls each before its first conjunct; the residual filter
+   eliminates none. In
+
+   `year(d) > 2000 AND year(d) < 2030 AND (s = 'x' OR arr[5] > 0) AND b < 0 AND arr[5] < 10`
+
+   under ANSI, on item 5's row with `d` in 2021, *[I]*: `year(d)` is common and not cheap, so
+   Spark's compiled filter takes the CSE branch, calls `arr[5]` before the `OR` and raises
+   `INVALID_ARRAY_INDEX` (SPARK-60774's early evaluation); the two `year` conjuncts fuse, and the
+   served batch's residual filter, whose one common subexpression is the cheap `arr[5]`, takes
+   the non-CSE path and answers. The declined batch runs the whole condition and raises, today
+   and with 2.1; codegen off, all cells raise through `Predicate.create`. So the served codegen-on
+   cell answers where Spark raises, and after 2.1 a query's served and declined batches would
+   disagree with each other. Section 2.4 and question 4.
 
 ### What the 1 November plan held, and what each part became
 
@@ -137,8 +165,9 @@ The plan is kept unchanged in the appendix. Its parts:
 **Goal.** Where Spark would compile the filter, Varka's fallback evaluates a shared
 subexpression no earlier than Spark's whole-stage filter does, under each value of
 `subexpressionElimination.enabled` and `.filterExec.enabled`, so a row an earlier conjunct or
-operand drops answers in Varka as in Spark; 388's reproducer is committed as a regression; the
-fuzzer draws the shape.
+operand drops answers in Varka as in Spark, and a row Spark's CSE branch raises on is not
+answered by a served batch's residual filter (item 10, question 4); 388's reproducer is
+committed as a regression; the fuzzer draws the shape.
 
 **Non-goal.** No change to the uncompiled branch (item 7) or to the kernel, the emitter or the
 IR: no emitted byte moves. No Varka fix of SPARK-61197 (item 6 (a)), of SPARK-60774, or of item
@@ -149,22 +178,33 @@ Projections, as the 1 November plan's question 4 found: none known.
 
 ### 2.1 Spark's CSE gate, resolved on the driver
 
-Where `fallbackCondition` takes the compiled branch, the gate is resolved on the driver at the
-same point, in `doExecute` where `wholeCondition = Some(fallbackCondition)` is built
-(`VarkaFilterExec.scala:206` and `:459`), and handed to both evaluator factories beside it. So
-it needs no field on the nodes, and no rebuild of a node in `VarkaColumnarRule` can lose it. It
-is `FilterExec`'s test over the whole condition, `wholeCondition.getOrElse(condition)`, not the
-node's fused `condition`: subexpression elimination and `filterExec.enabled` on, non-null-test
-conjuncts present, and a common subexpression of them, each added to `EquivalentExpressions` on
-its own and bound as `FilterExec` binds them, that is not `CollapseProject.isCheap`. To keep one
-copy, the test moves out of `FilterExec.doConsume` into a method of `GeneratePredicateHelper`
-(which already holds `splitNotNullPreds`) that both call, in Varka's edit of
-`basicPhysicalOperators.scala`; that adds lines a sync can conflict on, against a second copy
-that can drift (question 1). The evaluators build the fallback through a small
-`CodeGeneratorWithInterpretedFallback` beside `VarkaFilterExec`, as `Predicate` is, whose
-generated object is `GeneratePredicate.generate(bound, gate)`. Gate true or the uncompiled
-branch: exactly today's `Predicate.create`. Gate false: no elimination, so each conjunct, and
-each operand inside it, short-circuits as Spark's `generatePredicateCode` does.
+Where `fallbackCondition` takes the compiled branch, the gate is resolved on the driver beside
+it, where each node builds its evaluator factory with `wholeCondition = Some(fallbackCondition)`:
+in `VarkaFilterExec.doExecuteColumnar` (`VarkaFilterExec.scala:195-206`), for
+`VarkaFilterEvaluatorFactory`, and in `VarkaFilterColumnarToRowExec.doExecute` (`:448-459`), for
+`VarkaFilterToRowEvaluatorFactory`; `VarkaFilterExec.doExecute` throws and is no path. Each
+factory takes the gate as an argument beside `wholeCondition`, so it needs no field on the
+nodes, and no rebuild of a node in `VarkaColumnarRule` can lose it. It is `FilterExec`'s test
+over the whole condition, `wholeCondition.getOrElse(condition)`, not the node's fused
+`condition`: subexpression elimination and `filterExec.enabled` on, non-null-test conjuncts
+present, and a common subexpression of them, each added to `EquivalentExpressions` on its own
+and bound as `FilterExec` binds them, that is not `CollapseProject.isCheap`.
+
+One copy (question 1's (a)): the test moves out of `FilterExec.doConsume` into a method of
+`GeneratePredicateHelper` (which already holds `splitNotNullPreds`) that takes the non-null-test
+conjuncts and their `EquivalentExpressions` as arguments. `FilterExec` passes its cached
+`otherPredsEquivalentExpressions` (`basicPhysicalOperators.scala:429`), which its CSE branch
+hands on to `subexpressionEliminationForWholeStageCodegen` as today, so no second analysis is
+built, and exposes the result as a `private[sql]` lazy value. Varka reads that value from a
+`FilterExec(whole, child)` built on the driver for the purpose and never executed, so the split,
+the binding against the tightened `output` and the analysis are `FilterExec`'s own, not a Varka
+copy. That is about 15 lines in Varka's edit of `basicPhysicalOperators.scala` (the method, its
+comment, the call and the value), lines a sync can conflict on, and about 10 in
+`VarkaFilterExec.scala` (the two call sites and the factories' argument). The evaluators build
+the fallback through a small `CodeGeneratorWithInterpretedFallback` beside `VarkaFilterExec`, as
+`Predicate` is, whose generated object is `GeneratePredicate.generate(bound, gate)`. Gate true or
+the uncompiled branch: exactly today's `Predicate.create`. Gate false: no elimination, so each
+conjunct, and each operand inside it, short-circuits as Spark's `generatePredicateCode` does.
 
 ### 2.2 The `IsNotNull` order against the CSE branch
 
@@ -178,33 +218,61 @@ by reading*).
 
 `withNested` gains one step after its existing draws, with its own salt, so every current seed's
 composition is unchanged up to the addition: on a filter with a nested conjunct, one time in
-four, a second conjunct reuses a non-leaf subtree of an existing conjunct, compared with a fresh
-operand; one time in two of those, the first conjunct becomes an `OR` with a fresh comparison
-first, which puts the shared subtree in a short-circuited operand. `VarkaSparkFuzzSuite` counts
-the shared-subtree compositions in its summary. The row's added line (from `READING_SQLANCER.md`
-and `READING_COMET.md`) asks the same of a grammar production that keeps a duplicated raising
-subexpression in a form Spark's optimizer does not fold; this step is that production. The
-same line's raising dead `CASE` arms are a second production of the step, the SPARK-60774 shape,
-where the census should find Varka agreeing with Spark's codegen. A disagreement of a committed
-known difference (item 6 (a), and item 5 under question 2's no) is
-matched by its reproducer's shape and reported under that name, not as a failure, the way row
-545 (planned) means to label a codegen-against-interpreter disagreement.
+four, a second conjunct shares a subtree with that conjunct, compared with a fresh operand. The
+shared subtree is, one time in two each:
+
+- a non-leaf subtree of the nested conjunct's own tree, which `isCheap` always rejects (item 9):
+  the SPARK-60774 shape, where Spark's gate is true;
+- a cheap extract `arr[k]`, `k` drawn from 0 to 3, which the step puts into both conjuncts:
+  item 5's shape, where the gate is false. It needs a column the view lacks, `arr`, built as
+  `array(i, i)` from the row's own values so that no seed's data draw moves, and only this step
+  draws it.
+
+One time in two, the step then wraps the conjunct the subtree came from, un-negated, in an `OR`
+with a fresh comparison first, and places it before the reusing conjunct, which puts the shared
+subtree in a short-circuited operand ahead of its second use (a negated `OR` is an `AND` and
+loses the shape). Only wrapped draws count toward the shape's reach: `VarkaSparkFuzzSuite`
+counts them in its summary, per production. *[I]: that a Varka filter is planned over a view
+with an array column; test 1's item 5 case needs the same, so step 1 checks it, and if it is
+not, the extract production is dropped and P3 counts the other alone.* The row's added line
+(from `READING_SQLANCER.md` and `READING_COMET.md`) asks the same of a grammar production that
+keeps a duplicated raising subexpression in a form Spark's optimizer does not fold; this step is
+that production. The same line's raising dead `CASE` arms are a third production of the step,
+the SPARK-60774 shape again, where the census should find Varka agreeing with Spark's codegen. A
+disagreement of a committed known difference (item 6 (a), and item 10 under question 4's (c))
+is matched by its reproducer's shape and reported under that name, not as a failure, the way
+row 545 (planned) means to label a codegen-against-interpreter disagreement.
+
+### 2.4 A served batch's residual filter (question 4)
+
+Item 10's difference is in the plan, not the fallback: the residual `FilterExec` is Spark's, and
+its gate reads what it is given. Recommended (question 4's (a)): `rewriteFilter` asks 2.1's gate
+at planning of `FilterExec(condition, child)` and of `FilterExec(residual, varka)`, and when the
+first is true, the second false, and a residual conjunct references a common subexpression of
+the whole condition, it leaves the filter to Spark (`None`, the path where no conjunct fuses).
+The plan is then Spark's own and answers as Spark does, at the cost of the fusion on that shape:
+a non-cheap shared subexpression beside a residual that shares one too. About 10 lines in
+`VarkaColumnarRule.scala`.
 
 ## 3. Tests
 
 Each Varka query runs in four cells: the kernel serving and declined
 (`setDeclineKernelForTesting`), codegen on and off; only the declined cells run residual
-conjuncts in the fallback (item 4).
+conjuncts in the fallback (item 4), and the served cells run them in a `FilterExec` with a gate
+of its own (item 10).
 
 1. `VarkaDifferentialSuite`: 388's reproducer, a leading fused conjunct ahead of it so a Varka
    node is planned; item 5's case, and the same with a non-cheap shared subexpression, each under
-   `filterExec.enabled` on and off; item 6 (a)'s case.
+   `filterExec.enabled` on and off; item 10's case, likewise; item 6 (a)'s case.
 2. A unit test of 2.1's gate on the cases of `WholeStageCodegenSuite`'s CSE tests: Varka's
-   driver answer equals the branch `FilterExec.doConsume` takes.
+   driver answer equals the branch `FilterExec.doConsume` takes; and of 2.4's check on item 10's
+   case and on item 5's, which it must leave fused.
 3. `VarkaConjunctOrderSuite`: 2.2.
 4. `VarkaSparkReproducerSuite`: 388's reproducer and item 5's case as `status: regression`;
-   item 6 (a)'s case, if step 1 reaches it, as a known difference naming SPARK-61197.
-5. The fuzzer step: a selftest that a seed's compositions before the step are unchanged.
+   item 10's case likewise under question 4's (a), as a known difference naming SPARK-60774
+   under (c); item 6 (a)'s case, if step 1 reaches it, as a known difference naming SPARK-61197.
+5. The fuzzer step: a selftest that a seed's compositions before the step are unchanged, and
+   that a wrapped draw puts the un-negated `OR` before the reusing conjunct.
 
 ## 4. Predictions, registered before the build
 
@@ -212,35 +280,47 @@ conjuncts in the fallback (item 4).
   agrees in the served cells and in both codegen-off cells (raising), and raises in Varka's
   declined codegen-on cell where Spark answers; item 6 (a)'s case, over nullable columns, is not
   reached (its `AND` is not a node of the fold) and agrees; over non-nullable ones it raises in
-  the declined codegen-on cell where Spark answers.
+  the declined codegen-on cell where Spark answers; item 10's case raises in Spark codegen on, in
+  Varka's declined cell and in all codegen-off cells, and answers in Varka's served codegen-on
+  cell.
 - P2: after 2.1, item 5's case agrees in all four cells, and a non-cheap shared subexpression in
-  the same place raises in both with the defaults; item 6 (a)'s case, where reached, still
+  the same place raises in both with the defaults; after 2.4 under question 4's (a), item 10's
+  case plans no Varka node and agrees in all four cells; item 6 (a)'s case, where reached, still
   differs.
-- P3: the nightly census with the new step finds at least one shared-subtree composition per 100
-  nested ones, and no disagreement but the named known differences.
-- P4: added test time under 30 s. The calibration table's sql/core differential rows run at
-  0.15 to 0.5 of their estimates (VARKA-315, VARKA-318, VARKA-379); 388's differential test took
-  about 6 to 21 s.
+- P3: the nightly census with the new step finds at least one wrapped shared-subtree
+  composition per 100 nested ones for each production it keeps, and no disagreement but the
+  named known differences.
+- P4: added test time 9 to 16 s, under 20 s. By count, test 1 is about 32 queries (388's four
+  cells; items 5 and 10 with their non-cheap twin under two `filterExec.enabled` values; item
+  6 (a)), at the 0.23 s a differential test took in VARKA-336 (76 in 17.8 s), about 8 s, and
+  tests 2 to 5 about 4 s more: 12 s. The calibration table's rows for tests added to the sql/core
+  differential, as `sql/varka/AGENTS.md` asks, are VARKA-334 (at least 1.3) and VARKA-336 (0.75
+  quiet, at most 1.25 beside another agent's JVMs), which put 12 s at 9 to 16 s. The rows the
+  1 November plan and the first draft cited (VARKA-315, VARKA-318, VARKA-379) priced new suites
+  and switch suites, not additions to the differential.
 - P5: no emitted byte moves.
 
 ## 5. Order, files and size
 
 1. A laptop debugging check by the build agent, before any code: test 1's queries at master in
-   the four cells, scoring P1. If item 5's declined cell agrees, 2.1 is dropped and the row is
-   tests and the fuzzer step; a served cell alone cannot score it.
-2. One pull request: 2.1, the tests, the fuzzer step; its PR Build and an option-matrix
+   the four cells, scoring P1, item 10's case among them, which also checks that a Varka filter
+   is planned over a view with an array column. If item 5's declined cell agrees at master,
+   2.1 is dropped: item 5's case is committed as a regression test alone, the row is 2.4, the
+   tests and the fuzzer step, and the outcome records why. A served cell alone cannot score it.
+2. One pull request: 2.1, 2.4, the tests, the fuzzer step; its PR Build and an option-matrix
    dispatch, on the owner's word.
 
 | file | what |
 |---|---|
-| `sql/core/.../execution/VarkaFilterExec.scala` | the gate in `doExecute`; both factories take it |
+| `sql/core/.../execution/VarkaFilterExec.scala` | the gate in `VarkaFilterExec.doExecuteColumnar` and `VarkaFilterColumnarToRowExec.doExecute`; both factories take it |
 | `sql/core/.../execution/basicPhysicalOperators.scala` | the gate's one copy (question 1) |
+| `sql/core/.../execution/VarkaColumnarRule.scala` | 2.4's check (question 4) |
 | `.../codegen/VarkaConjunctOrder.java` | the CSE branch's order, if it differs |
 | tests | section 3 |
-| `sql/core/.../execution/VarkaSparkFuzz.scala` | the shared-subtree step, the labels |
+| `sql/core/.../execution/VarkaSparkFuzz.scala` | the shared-subtree step, the `arr` column, the labels |
 | `sql/varka/fuzz/spark/` | the reproducers |
 
-Size: **small**, about a day.
+Size: **small**, about a day and a half.
 
 ## 6. Out of this row
 
@@ -251,9 +331,17 @@ Size: **small**, about a day.
 
 ## 7. Questions for the owner
 
-*Answered by the owner on 11 November 2026: 1 (a), one copy in `GeneratePredicateHelper`; 2 yes, 2.1 is kept if step 1 confirms item 5; 3 yes, an upstream ticket is filed for item 5.*
+*Answered by the owner on 11 November 2026: 1 (a), one copy in `GeneratePredicateHelper`; 2
+yes, 2.1 is kept if step 1 confirms item 5; 3 yes, an upstream ticket is filed for item 5.
+Question 4 was added after them and is open.*
 
-*11 November 2026: filed as SPARK-61459 (https://issues.apache.org/jira/browse/SPARK-61459), after a reproduction on Apache Spark master `183ccbe75d4` with no Varka code: with whole-stage codegen off, `(s = 'x' OR arr[5] > 0) AND b < 0 AND arr[5] < 10` under ANSI raises `INVALID_ARRAY_INDEX`, and with it on Spark answers. A non-cheap shared extract (`arr[b + 6]`) raises in both modes, which is SPARK-60774; the ticket names that overlap. Item 5 now has a measured reproduction upstream; step 1 still reads it through Varka's fallback.*
+*11 November 2026: filed as SPARK-61459
+(https://issues.apache.org/jira/browse/SPARK-61459), after a reproduction on Apache Spark
+master `183ccbe75d4` with no Varka code: with whole-stage codegen off, `(s = 'x' OR arr[5] > 0)
+AND b < 0 AND arr[5] < 10` under ANSI raises `INVALID_ARRAY_INDEX`, and with it on Spark
+answers. A non-cheap shared extract (`arr[b + 6]`) raises in both modes, which is SPARK-60774;
+the ticket names that overlap. Item 5 now has a measured reproduction upstream; step 1 still
+reads it through Varka's fallback.*
 
 1. **One copy of Spark's gate or two.** (a) Move the test into `GeneratePredicateHelper`, called
    by `FilterExec` and Varka: one copy, a few more lines in a Spark file Varka already edits. (b)
@@ -267,16 +355,28 @@ Size: **small**, about a day.
    JIRA, filed only on the owner's word, would let `GeneratePredicate` take the gate for filter
    conditions and fix both. *Recommended:* file it, and build 2.1 meanwhile; 2.1 is dropped when
    such a fix syncs.
+4. **A served batch's residual filter where Spark's gate is true and its own false (item 10).**
+   (a) 2.4: the rule leaves such a filter to Spark; exact, about 10 lines, and the shape loses
+   its fusion. (b) Give the residual `FilterExec` the whole condition's gate: a constructor field
+   on a Spark case class that every sync and every `FilterExec(c, child)` match meets, for a
+   shape (a) already makes exact. (c) Commit it as a known difference naming SPARK-60774, since
+   Spark's raise there is that ticket's early evaluation: no code, but after 2.1 a served and a
+   declined batch of one query disagree with each other, and Varka answers where Spark's default
+   raises. *Recommended: (a)*, since row answers follow vanilla Spark, and the shape (a non-cheap
+   shared subexpression beside a residual that shares one too) is rare enough that its fusion is
+   a small loss; if SPARK-60774's fix makes Spark answer there, (a)'s check is removed with it.
 
 ## 8. Done when
 
 388's reproducer, committed as a regression, answers as Spark's default does through Varka's
 fallback and kernel alike, in all four cells; item 5's case does too, under `filterExec.enabled`
-on and off (or, under question 2's no, is committed as a known difference with its reason);
-item 6 (a)'s case is committed as a known difference naming SPARK-61197 if step 1 reaches it,
-and recorded as unreachable with the plan that shows it otherwise; the fuzzer's census
-reports shared-subtree compositions reached with no disagreement but the named known
-differences; no emitted byte moves.
+on and off, through 2.1, or, if step 1 finds it agreeing at master, as a regression test with
+2.1 dropped and the reason in the outcome; item 10's case answers as Spark's default does in all
+four cells under question 4's (a), or is committed as a known difference naming SPARK-60774
+under (c); item 6 (a)'s case is committed as a known difference naming SPARK-61197 if step 1
+reaches it, and recorded as unreachable with the plan that shows it otherwise; the fuzzer's
+census reports wrapped shared-subtree compositions of each production it keeps reached with no
+disagreement but the named known differences; no emitted byte moves.
 
 ## 9. Outcome
 
