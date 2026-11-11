@@ -51,10 +51,11 @@
 # VARKA_PROVE_LIMIT_MS bounds each check (default 10000) and VARKA_PROVE_RUN_LIMIT each
 # file's run under one solver, in seconds (default 300). Exit status 0 when every proof holds.
 #
-# An install keeps the archives it downloads in <solvers>/downloads/, which the linters' job
-# caches under the --cache-key line; an archive already there is used when its SHA-256 matches
-# the pin, and is downloaded again otherwise. A failed transfer is tried four times, ten, thirty
-# and sixty seconds apart; a download that fails its checksum fails at once and is not kept.
+# An install downloads the archives into <solvers>/downloads/, which the linters' job caches
+# under the --cache-key line; an archive already there is used when its SHA-256 matches the pin,
+# and is downloaded again otherwise. A download that fails, or whose bytes fail the checksum, is
+# tried four times, ten, thirty and sixty seconds apart. CI ($GITHUB_ACTIONS) and the shared
+# directory keep the archives; a worktree's own install outside CI deletes them once installed.
 set -uo pipefail
 # Usage text is found rather than numbered (see dev/varka_nightly.sh): from the line after the
 # license to the first line that is not a comment.
@@ -70,14 +71,20 @@ Z3_VERSION=5.1.0
 CVC5_VERSION=1.4.1
 CVC5_ZIP=cvc5-Linux-x86_64-static.zip
 CVC5_SHA256=2f8efe58fe27ba7bccbb504533f690b9312d69da14192712460e4a19231f02a1
+# The name cvc5's archive is kept under, with its version, since the release's own name has none.
+CVC5_KEPT=cvc5-$CVC5_VERSION-Linux-x86_64-static.zip
 # The Linux x86_64 wheel of Z3, the platform the linters' job runs on, by its PyPI file URL; any
-# other platform installs from the index by version, unchecked.
+# other platform, and outside CI one where that wheel fails, installs from pip's index by version.
 Z3_WHEEL=z3_solver-$Z3_VERSION.0-py3-none-manylinux_2_27_x86_64.whl
 Z3_WHEEL_URL=https://files.pythonhosted.org/packages/34/de/\
 30329041d9a2dda11308576a80b5db17060e4b03a7ba7f550437fb38dd6b/$Z3_WHEEL
 Z3_WHEEL_SHA256=dfad9e309d7010b1ff6bdb33f21570a1603ef4727373221c7117a74448f0cfef
 # The seconds between a failed download and the next try; the self-test sets them to zero.
 fetch_delays=(10 30 60)
+# The platform both pinned archives are built for.
+linux_x86_64() { [ "$(uname -s)-$(uname -m)" = Linux-x86_64 ]; }
+# Whether this runs in GitHub Actions, which bounds a download's time and keeps its archives.
+in_ci() { [ -n "${GITHUB_ACTIONS:-}" ]; }
 # The proofs the linters' job runs under cvc5 rather than Z3, to keep the step inside its minute:
 # long_divide.smt2 takes Z3 59 s on the runner and cvc5 a third of that (VARKA-241.md 9.5).
 CVC5_IN_LINT=(long_divide.smt2)
@@ -133,13 +140,20 @@ require_solver() {
 # Waits $1 seconds before a retry of a download; the self-test replaces it.
 fetch_wait() { sleep "$1"; }
 
-# Puts the file at $1 into $2, unless $2 is there already with the SHA-256 $3. A failed transfer
-# is tried again, four tries in all; a whole transfer of other bytes fails at once, since a retry
-# would not change them. Each download goes to a file of its own beside $2, so installs running
-# at once into the shared directory do not write into each other's, and only a checked file is
-# renamed to $2.
+# Puts the file at $1 into $2, unless $2 is there already with the SHA-256 $3. A failed transfer,
+# or one whose bytes fail the checksum (a truncated or proxied response), is tried again, four
+# tries in all. In CI a transfer is cut off after five minutes or a minute under 10 KB/s, so a
+# stalled one is retried; elsewhere only a transfer stalled for two minutes is, so a slow link
+# still installs. Each download goes to a file of its own beside $2, so installs running at once
+# into the shared directory do not write into each other's, and only a checked file is renamed
+# to $2.
 fetch() {
-  local url="$1" dest="$2" sha="$3" part delay
+  local url="$1" dest="$2" sha="$3" part delay limits
+  if in_ci; then
+    limits=(--max-time 300 --speed-limit 10240 --speed-time 60)
+  else
+    limits=(--speed-limit 1 --speed-time 120)
+  fi
   if [ -f "$dest" ]; then
     echo "$sha  $dest" | sha256sum -c --quiet > /dev/null 2>&1 && return 0
     echo "varka_prove: $dest does not match its SHA-256; downloading it again" >&2
@@ -151,11 +165,10 @@ fetch() {
       echo "varka_prove: retrying $url in $delay s" >&2
       fetch_wait "$delay"
     fi
-    curl -sSfL --connect-timeout 30 --max-time 300 --speed-limit 10240 --speed-time 60 \
-      -o "$part" "$url" || continue
+    curl -sSfL --connect-timeout 30 "${limits[@]}" -o "$part" "$url" || continue
     if ! echo "$sha  $part" | sha256sum -c --quiet >&2; then
       echo "varka_prove: $url does not match its pinned SHA-256" >&2
-      break
+      continue
     fi
     mv "$part" "$dest" && return 0
     break
@@ -171,36 +184,41 @@ fetch() {
 # install may be writing an archive of other pins.
 prune_downloads() {
   [ -d "$1" ] || return 0
-  find "$1" -maxdepth 1 -type f ! -name "$Z3_WHEEL" ! -name "$CVC5_ZIP" -print -delete
+  find "$1" -maxdepth 1 -type f ! -name "$Z3_WHEEL" ! -name "$CVC5_KEPT" -print -delete
 }
 
 install_z3() {
   local dir="$solvers/z3-$Z3_VERSION" wheel="$solvers/downloads/$Z3_WHEEL"
   [ -x "$dir/bin/z3" ] && return 0
-  if [ "$(uname -s)-$(uname -m)" != Linux-x86_64 ]; then
-    python3 -m venv "$dir" \
-      && "$dir/bin/pip" install --quiet --disable-pip-version-check --retries 10 \
-        "z3-solver==$Z3_VERSION.0"
-    return
-  fi
   # The wheel's one dependency is for Pythons before 3.9, which the proofs do not run under.
-  fetch "$Z3_WHEEL_URL" "$wheel" "$Z3_WHEEL_SHA256" \
-    && python3 -m venv "$dir" \
-    && "$dir/bin/pip" install --quiet --disable-pip-version-check --no-index --no-deps "$wheel"
+  if linux_x86_64; then
+    fetch "$Z3_WHEEL_URL" "$wheel" "$Z3_WHEEL_SHA256" \
+      && python3 -m venv "$dir" \
+      && "$dir/bin/pip" install --quiet --disable-pip-version-check --no-index --no-deps "$wheel" \
+      && return 0
+    # CI holds to the pinned wheel. A machine that cannot reach its URL (a pip mirror only) or
+    # cannot run it (glibc before 2.27) gets pip's own choice of the version from its index.
+    in_ci && return 1
+    echo "varka_prove: the pinned Z3 wheel did not install; installing from pip's index" >&2
+    rm -rf "$dir"
+  fi
+  python3 -m venv "$dir" \
+    && "$dir/bin/pip" install --quiet --disable-pip-version-check --retries 10 \
+      "z3-solver==$Z3_VERSION.0"
 }
 
 install_cvc5() {
   local dir="$solvers/cvc5-$CVC5_VERSION" tmp status
   [ -x "$dir/bin/cvc5" ] && return 0
-  if [ "$(uname -s)-$(uname -m)" != Linux-x86_64 ]; then
+  if ! linux_x86_64; then
     echo "varka_prove: the pinned cvc5 build is Linux x86_64's; install cvc5 $CVC5_VERSION" \
       "and point VARKA_CVC5 at it" >&2
     return 1
   fi
   fetch "https://github.com/cvc5/cvc5/releases/download/cvc5-$CVC5_VERSION/$CVC5_ZIP" \
-    "$solvers/downloads/$CVC5_ZIP" "$CVC5_SHA256" || return 1
+    "$solvers/downloads/$CVC5_KEPT" "$CVC5_SHA256" || return 1
   tmp="$(mktemp -d)"
-  unzip -q "$solvers/downloads/$CVC5_ZIP" -d "$tmp" \
+  unzip -q "$solvers/downloads/$CVC5_KEPT" -d "$tmp" \
     && mkdir -p "$dir/bin" && mv "$tmp/${CVC5_ZIP%.zip}/bin/cvc5" "$dir/bin/cvc5"
   status=$?
   rm -rf "$tmp"
@@ -504,9 +522,9 @@ EOF
 }
 
 # The download, checked against file:// URLs with no waits between tries: an archive that matches
-# is used with no download, one that does not is fetched again, a source that fails is tried four
-# times, one that fails once is kept on its second try, and one that serves other bytes fails at
-# once; nothing but a checked file is left behind.
+# is used with no download, one that does not is fetched again, a source that fails or serves
+# other bytes is tried four times, one that fails once is kept on its second try; nothing but a
+# checked file is left behind.
 self_test_fetch() {
   local dir sha bad=0 src tries want
   dir="$(mktemp -d)"
@@ -528,7 +546,7 @@ self_test_fetch() {
   for src in missing other flaky; do
     rm -f "$dir/flaky"
     tries="$(fetch "file://$dir/$src" "$dir/out-$src" "$sha" 2>&1 >/dev/null | grep -c retrying)"
-    case "$src" in missing) want=3 ;; other) want=0 ;; flaky) want=1 ;; esac
+    case "$src" in missing) want=3 ;; other) want=3 ;; flaky) want=1 ;; esac
     if [ "$tries" != "$want" ] || ls "$dir/out-$src".?* > /dev/null 2>&1 \
         || { [ "$src" = flaky ] && ! cmp -s "$dir/good" "$dir/out-$src"; } \
         || { [ "$src" != flaky ] && [ -e "$dir/out-$src" ]; }; then
@@ -537,9 +555,9 @@ self_test_fetch() {
     fi
   done
   mkdir "$dir/downloads"
-  touch "$dir/downloads/$Z3_WHEEL" "$dir/downloads/$CVC5_ZIP" "$dir/downloads/z3_solver-old.whl"
+  touch "$dir/downloads/$Z3_WHEEL" "$dir/downloads/$CVC5_KEPT" "$dir/downloads/$CVC5_ZIP"
   prune_downloads "$dir/downloads" > /dev/null
-  if [ "$(ls "$dir/downloads" | sort | tr '\n' ' ')" != "$CVC5_ZIP $Z3_WHEEL " ]; then
+  if [ "$(ls "$dir/downloads" | sort | tr '\n' ' ')" != "$CVC5_KEPT $Z3_WHEEL " ]; then
     echo "varka_prove: the prune did not keep exactly the pinned archives" >&2; bad=1
   fi
   rm -rf "$dir"
@@ -584,6 +602,9 @@ if [ "$mode" = install ]; then
     path="$(require_solver "$name")" || exit 1
     echo "$name $("$path" --version | head -1 | tr -s ' ') at $path"
   done
+  # The cache needs the archives in CI, and the shared directory keeps them since another
+  # worktree's install of the same pins may be between its download and its unzip there.
+  in_ci || [ "$solvers" = "$shared" ] || rm -rf "$solvers/downloads"
   exit 0
 fi
 

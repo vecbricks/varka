@@ -50,11 +50,12 @@ VARKA-241 added the long lane's division forms, and VARKA-242 the calendar's div
 
 A worktree without its own `target/varka-solvers/` takes the solvers from the machine's shared
 directory, `$VARKA_SOLVERS_DIR` or by default `~/.cache/varka-solvers/`, so one
-`dev/varka_prove.sh --install-shared both` serves every worktree. An install keeps the archives
-it downloads in `downloads/` beside the solvers, checks each against its pinned SHA-256 before use,
-and tries a failed download four times; the linters' job restores that folder from the Actions
-cache under `dev/varka_prove.sh --cache-key`, so a run whose cache hit needs no network. Only
-master's runs save that cache, and every branch restores master's entry.
+`dev/varka_prove.sh --install-shared both` serves every worktree. An install downloads the
+archives into `downloads/` beside the solvers, checks each against its pinned SHA-256 before use,
+and tries a failed or mismatched download four times; the linters' job restores that folder from
+the Actions cache under `dev/varka_prove.sh --cache-key`, so a run whose cache hit needs no
+network. Only master's runs save that cache, and every branch restores master's entry. CI and the
+shared directory keep the archives; a worktree's own install elsewhere deletes them once done.
 
 A file whose header has a line `; prelude: <name>.smt2` before its `set-logic` gets that file of
 this directory inserted after `java.smt2` (VARKA-506 2.5). A file named so is a prelude, which the

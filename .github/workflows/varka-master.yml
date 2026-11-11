@@ -76,7 +76,7 @@ jobs:
       branch: master
       hadoop: hadoop3
       # Keys left out are off, except the lint job's step flags (lint-spark, lint-code,
-      # lint-python), which it reads as on.
+      # lint-python, lint-errorprone), which it reads as on.
       # The fork's set is Varka's suites and the linters' code steps; the folded lines below
       # are one expression.
       jobs: >-
