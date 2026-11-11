@@ -118,6 +118,9 @@ decimal (section 7).
    Two: it fuses there with B, or with a scalar remainder in `long`s. 7.3's rule adds a scalar
    arm only if B comes close to the winner; it did not foresee a width at which B *is* the
    winner.
+   *11 November 2026 (10.4):* a third answer is measured on the laptop, not yet on the runner: F,
+   E's arithmetic with no mask, reading the slots by lane inserts, has no fallback at two lanes
+   and runs at about 4 times B's rate there.
 
 ## 8. Done when
 
@@ -134,6 +137,9 @@ decimal (section 7).
    host with a 512-bit datapath (the laptop's is double-pumped), the laptop's three widths as 2.3
    asks, the aarch64 column at two long lanes, where the pair runs natively (`VARKA-359.md` 2.6),
    and the 128-bit column on x86, which is question 7.4.
+   *11 November 2026:* the 128-bit column on x86 is read on the laptop with two mask-free and
+   shuffle-free variants (10.4); the runners' reading of it is owed, and its dispatches are in
+   10.4.
 2. Whether `VARKA-359.md` 6 and row 349's plan carry the dated note that this row owns the four
    names (this change corrects `VARKA-363.md` and the census).
 
@@ -328,3 +334,164 @@ lanes, where the pair runs natively (`VARKA-359.md` 2.6), is not read either.
 - Section 4's predictions for 577a and 577b are registered from these figures before either is
   built.
 - 577a, the long-lane case, is unaffected and still waits on row 30.
+
+### 10.4 Two ideas for two long lanes on x86 (question 7.4)
+
+*11 November 2026, on master `749280d9e7d`. A laptop reading only: directional, see "How it was
+read". The runners' reading is owed, and the dispatches are at the end of this section.*
+
+**The cause, checked.** JDK 25's `x86.ad` refuses `VectorLoadShuffle` and `VectorRearrange` at
+two lanes (lines 1726-1733), and `VectorLoadMask`, `VectorMaskCast` and `VectorStoreMask` (lines
+1734-1744), so every rearrange, compare, blend and mask op of a two-lane `LongVector` is the
+Java fallback. Lane-wise arithmetic, logic, shifts by a vector count, the 64-bit `mul`, the
+double `div`, the bit reinterpretations, `withLane`, `lane` and an or-reduction all compile at
+two lanes (a probe, and the intrinsic check below). `L2D` and `D2L` are refused at every width
+without AVX-512DQ (lines 1757-1778), which E already avoids (10.2, item 1). A 128-bit gather of
+longs is allowed with AVX2 (`LoadVectorGather` is refused only at 64 bits, line 1816), but the
+Java side of the index-map `fromArray` checks the indices with two compares, an `or` of their
+masks and an `anyTrue` (`VectorIntrinsics.checkIndex`, lines 74-86), five fallbacks a gather.
+
+**What was built.** `VarkaDecimalRemainderSpikeBenchmark` gains eighteen loops, nine forms for
+each of `x % y` and `pmod(x, y)`, beside E, D and B. Each is checked against `BigInteger` on
+every row as before; the suite's table now also counts rows whose two low words have the sign
+bit set.
+
+- **Idea 1, mask-free: F.** E's arithmetic with every compare, blend and mask replaced by bit
+  arithmetic on 0/1 lanes: a select is `x ^ ((x ^ y) & -c)`, the borrow of `x - y` is the top
+  bit of `(~x & y) | ((~x | y) & d)` and the carry of `x + y` that of `(x & y) | ((x | y) & ~s)`
+  (Hacker's Delight 2-13), `v == 0` is the top bit of `~(v | -v)`, the estimate's shift clamp is
+  a sign mask of `63 - right`, and the zero divisors' word is the 0/1 lanes shifted by their
+  lane index and or-reduced. Every value is E's, so E's exactness argument holds unchanged.
+- **Idea 2, no de-interleave**, each with E's masks and with F: *gathered* (an index-map gather
+  from the slots in a heap `long[]`, since `fromMemorySegment` has no index map; stores a lane
+  at a time), *inserted* (each lane's word put in by `withLane` from a scalar load of the slot;
+  stores a lane at a time), *split* (plain loads and stores over a column already in the split
+  layout, all low words then all high words: the kernel alone, its transpose not timed), and
+  *transposed* (Arrow's slots transposed 64 rows at a time by scalar moves into a 3 KB split
+  block, the kernel over the block, and the result moved back into slots: kernel and transpose
+  together, the cost a kernel reading Arrow pays).
+
+**The intrinsic check, per loop** (the same counts for `x % y` and `pmod` unless two are given).
+At 256 bits (`UseAVX=2`) and at 512 (`UseAVX=3`) every one of the 24 loops is intrinsified. At
+128 bits (`UseAVX=2 -XX:MaxVectorSize=16`):
+
+| Form | Calls left in Java | What they are |
+|---|---|---|
+| E | 72 / 80 | rearranges, compares, blends, mask ops |
+| D | 62 / 70 | the same |
+| B | 0 | (scalar) |
+| gathered E | 62 / 70 | E's masks, and the gathers' index checks |
+| inserted E, split E, transposed E | 42 / 50 | E's masks |
+| F | 30 | the 12 rearranges, and the compares, blends and casts inside them |
+| gathered F | 20 | the four gathers' index checks, five calls each |
+| **inserted F, split F, transposed F** | **0** | |
+
+So neither idea alone removes the fallback, and the two together do, except with a gather.
+
+**How it was read.** The laptop (AMD Ryzen AI 9 HX PRO 370, Zen 5, a 256-bit datapath; OpenJDK
+25.0.5.0.3) was shared with other agents' JVMs, at a load average of 3 to 29 over the runs (each
+run's load is in the results file), and was not pinned, so every figure here is directional.
+Only the first rung (4,096 rows, in L2) was timed (`-Dvarka.remainder.rungs=1`): the runners'
+reading found each form's time flat from L2 to past L3. The tables are in
+`results/VARKA-577-twolane-laptop.txt`. Two faults of the harness were found and fixed on the way,
+and each changes how a reading must be taken:
+
+1. **Arms timed in C1's code.** A loop method reaches C2 at its invocation count, some 5,000
+   calls, and an arm running the fallback in level-3 code made too few calls of the rung's rows
+   in the 30-second wait: the first 128-bit run timed seven arms at level 3. Each drive now first
+   calls the loop 20,000 times over a 64-row table, as the intrinsic check does.
+2. **A shared JVM boxes loops the check passed.** With every arm in one JVM, some loops the check
+   (which compiles each loop alone) found intrinsified still allocate in their timed compile: at 128
+   bits inserted F and transposed F allocated 2,096 bytes a row and ran 194 to 227 ns a row, against
+   39 to 41 in a JVM of their own; at 256 bits the same two allocated 732 to 1,421 bytes a row, and
+   at 512 the `pmod` of inserted and transposed E 195. The cause is not read; all the forms share
+   two body methods and their profiles, which an emitted kernel class does not. Each section now
+   notes the bytes a row each arm allocates in compiled code, so a boxed arm shows itself, and the
+   readings below take an arm that allocated from a JVM of its own.
+
+**The numbers**, in ns a row (`Per Row(ns)`, from each case's best time), `x % y` / `pmod(x, y)`.
+At 128 bits each arm ran in its own JVM; `pmod` ran twice there, and its column is each arm's
+lower figure (the allocating arms, the fallbacks and B, moved by up to 4.2 times between the
+two runs, the three intrinsified F arms by up to 1.7). At 256 and 512 bits the arms shared one
+JVM, and an arm marked * allocated there and is quoted from a JVM of its own:
+
+| Form | 128 bits | 256 bits | 512 bits (double-pumped) |
+|---|---|---|---|
+| E | 542.1 / 597.4 [fallback] | 18.6 / 20.1 | 10.4 / 9.4 |
+| D | 5223.7 / 6648.4 [fallback] | 141.9 / 140.7 | 84.4 / 79.2 |
+| B | 156.8 / 173.0 | 160.5 / 185.4 | 154.9 / 163.9 |
+| gathered E | 434.7 / 551.4 [fallback] | 21.2 / 22.5 | 14.2 / 14.3 |
+| inserted E | 388.5 / 476.6 [fallback] | 24.2 / 24.0 | 15.8 / 15.6 * |
+| split E | 393.4 / 396.4 [fallback] | 18.1 / 18.7 | 9.8 / 10.9 |
+| transposed E | 382.9 / 397.7 [fallback] | 19.0 / 20.3 | 11.1 / 10.1 * |
+| F | 161.0 / 157.1 [fallback] | 21.9 / 23.3 | 10.4 / 10.9 |
+| gathered F | 90.4 / 102.3 [fallback] | 24.9 / 24.8 | 14.2 / 14.0 |
+| **inserted F** | **40.9 / 39.0** | 24.9 / 27.6 * | 16.3 / 15.8 |
+| **split F** (kernel alone) | **37.4 / 38.3** | 19.7 / 19.5 | 10.1 / 9.2 |
+| **transposed F** (with its transpose) | **39.7 / 41.4** | 19.4 / 21.2 * | 10.5 / 12.4 |
+
+The two controls run in their own JVMs beside the starred arms read as the shared run did: at
+256 bits `x % y` E 17.4 and F 19.8, at 512 bits `pmod` E 9.2 and F 9.1.
+
+**What the numbers say.**
+
+1. **Neither idea alone removes the fallback; together they do.** F with the rearranges, and E
+   with any access, still leave 20 to 72 calls in Java. Inserted, split and transposed F leave
+   none, allocate nothing (the transposed arm's 0.8 bytes a row is its 3 KB block a call), and run
+   at 37 to 41 ns a row at 128 bits, against 157 to 173 for B and 90 to 6,648 for every form
+   with a fallback: about 4 times B's rate and 13 to 16 times E's.
+2. **The transpose costs about 2 to 3 ns a row at 128 bits** (transposed F against split F: 39.7
+   against 37.4 for `x % y`, 41.4 against 38.3 for `pmod`), and at 256 and 512 bits it is within the
+   runs' noise except for the shared run's 512-bit `pmod` (12.4 against 9.2). Kernel and transpose
+   together cost under 1.1 times the kernel alone, so a split layout the engine would have to make
+   buys almost nothing over reading Arrow's slots, and inserted F, which reads the slots with no
+   transpose, is as fast as either at two lanes.
+3. **The gather does not help.** Its Java-side index check is a mask op, so the gathered arms
+   keep a fallback at 128 bits, and at 256 and 512 bits they trail the rearranges by 1.1 to 1.5
+   times. A gather also needs the column in a heap array.
+4. **At 256 and 512 bits the forms are level on the laptop.** At 256 bits E and F differ by 1.1
+   to 1.2 times, E ahead; at 512, E and F are within 1.2 times either way (`x % y` 10.4 and 10.4,
+   `pmod` 9.4 and 10.9 shared, 9.2 and 9.1 alone). The owner's expectation, that at 512 bits
+   E's native masks, `vpermq` rearranges and AVX-512DQ conversions beat the mask-free forms, is
+   not shown here, and not refuted: no ratio reaches 1.3, and the laptop double-pumps 512-bit
+   operations on 256-bit units, so its 512-bit timings are directional only and cannot pick the
+   512-bit form. The deciding reading needs a full-width AVX-512 host (a Xeon 8573C or 6973P-C,
+   or an EPYC 9V45 when one is drawn). Inserted F and gathered forms trail at 512 bits (14 to 16
+   ns against 9 to 11): lane inserts and extracts scale with the lane count.
+
+**What it implies for 7.4.** A third answer is open beside the two 7.4 names: at two long lanes
+on x86 the remainder fuses as F, reading the slots by lane inserts (or the transposed block),
+with no fallback, about 4 times faster than B on the laptop and, indicatively, 19 to 25 times
+faster than the row path's 771 and 973 ns a row on the runner (10.1). The runners' reading below
+is owed before 577b takes it, and the width decides the access: inserted F at two lanes,
+E (or F) with the rearranges at four lanes and up, where inserts cost more than the rearranges
+they replace. F's arithmetic is E's value for value, so E's exactness argument and the SMT proof
+3.1 owes cover both.
+
+**For other two-lane pair forms** (row 596's comparison as a value, the choices, negation and
+`abs` of `VARKA-359.md` 2.6). Every pair operator that is a compare, a blend or a mask op has a
+mask-free form on 0/1 lanes built from the same three formulas (borrow, carry, select), and the
+pair's load and store have the insert and lane-store forms, both of which compile at two lanes.
+So the two-lane decline 2.6 accepts for the pair may be avoidable by an emitter that lowers the
+pair's compares and selects this way at two lanes. This spike shows it for the remainder only;
+for a comparison as a value, whose output is a 0/1 lane, it is **[I]**, untested.
+
+**The runners' reading, prepared and not run.** Once a pull request exists, on vecbricks/varka,
+256 and 128 bits on the EPYC 7763 (full ladder, every arm in one JVM as before; read each
+section's `allocated` notes first, since a boxed arm there is the shared-JVM fault, not the
+form):
+
+    C=org.apache.spark.sql.VarkaDecimalRemainderSpikeBenchmark
+    opts="-XX:CompileCommand=dontinline,$C::loop* -XX:CompileCommand=inline,$C::body*"
+    gh workflow run benchmark.yml --repo vecbricks/varka --ref master -f pr=N \
+      -f class='*.VarkaDecimalRemainderSpikeBenchmark' -f jdk=25 -f scala=2.13 \
+      -f num-splits=1 -f create-commit=false -f generate-tpcds=false \
+      -f expected-cpu="AMD EPYC 7763" -f extra-java-options="$opts"
+    gh workflow run benchmark.yml --repo vecbricks/varka --ref master -f pr=N \
+      -f class='*.VarkaDecimalRemainderSpikeBenchmark' -f jdk=25 -f scala=2.13 \
+      -f num-splits=1 -f create-commit=false -f generate-tpcds=false \
+      -f expected-cpu="AMD EPYC 7763" -f extra-java-options="-XX:MaxVectorSize=16 $opts"
+
+The EPYC 7763 is AVX2 only, so the 512-bit reading needs another host, as above. The results
+replace the two committed `-runner-epyc7763` files, whose arm set is the old six.
+
