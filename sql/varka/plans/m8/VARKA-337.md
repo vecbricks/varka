@@ -625,3 +625,294 @@ byte lengths 1, 2, 8, 9, 15 and 16 are 337b's, after row 359a, and the row's don
 ## 10. Outcome
 
 (Written when the work lands.)
+
+## Build sheet (11 November 2026)
+
+The step this sheet builds is section 5's step 1, **the baseline class**, and nothing else: a
+benchmark of Spark's row path over `hash` and `xxhash64` on the unchanged code, with its queries
+suite, in its own pull request. Section 4 allows the spike in the same pull request; this sheet
+leaves it out (1.5). Follow `BUILD_SHEETS.md` (this directory) for the shared rules. Work in a fresh
+worktree off origin/master, branch `varka-337-baseline` in `../varka-337-baseline` (the existing
+`varka-337-plan` branch is not a stop for `BUILD_SHEETS.md` 1), holding nothing else, and stop at a
+local commit: no push, no pull request, no benchmark dispatch. Sections 0 to 9 here are
+`BUILD_SHEETS.md`'s steps B0 to B9. Every fact below was read at origin/master `c62f492fc89`.
+
+### 0. Premise re-check
+
+Run as `VARKA-30.md`'s build sheet 0 says: any count but the commented one is a stop (rule 7.1),
+except the last line's, which is only recorded in the report (1.3).
+
+```sh
+B=sql/core/src/test/java/org/apache/spark/sql/execution/benchmark
+git grep -c 'public enum Fusion { NONE, NULL_TESTS, PARTIAL, WHOLE }' \
+  -- $B/VarkaSqlBenchmarkBase.java  # 1
+git grep -c 'public class VarkaBigintArithmeticBaselineBenchmark extends VarkaSqlBenchmarkBase' \
+  -- $B/VarkaBigintArithmeticBaselineBenchmark.java  # 1: the class to copy
+git grep -c 'protected def forEachTwoLaneRefusal' \
+  -- sql/core/src/test/scala/org/apache/spark/sql/execution/VarkaSharedSessions.scala  # 1
+git grep -c 'public static int varkaFused(SparkSession varka, String query)' \
+  -- $B/VarkaSizeLadder.java  # 1
+git grep -c -E 'expression\[(Murmur3Hash|XxHash64)\]\("(hash|xxhash64)"\)' \
+  -- sql/catalyst/src/main/scala/org/apache/spark/sql/catalyst/analysis/FunctionRegistry.scala  # 2
+git ls-files 'sql/core/src/test/*VarkaHashBaseline*' 'sql/core/benchmarks/*VarkaHashBaseline*' \
+  | wc -l  # 0: nothing built yet
+awk -F'\t' '$1 ~ /^(hash|xxhash64)$/ && $8 == ""' sql/varka/plans/m8/census.tsv \
+  | wc -l  # 2: neither fuses any type (column 8, fused_today)
+grep -c '^| 337 | \*\*Planned\*\*' sql/varka/plans/m8/PLAN.md  # 1
+gh pr view 1486 --repo vecbricks/varka --json state --jq .state  # OPEN or MERGED: see 1.3
+```
+
+Open pull requests on these files: #1486 and #1484 (row 104) edit the classes this sheet
+copies, so copy them as `git show c62f492fc89:<path>` prints them; #1486 also changes classes
+(none here), #1484 none of these sections'. `PLAN.md` is edited by #1425, #1428, #1461,
+#1462, #1474, #1478, #1484, #1486, #1508, #1509 and #1510: `BUILD_SHEETS.md` 8 decides when one has merged. Copy from `c62f492fc89` even when origin/master has moved.
+
+### 1. Scope
+
+**1.1 Files.**
+
+| file | change |
+|---|---|
+| `sql/core/src/test/java/org/apache/spark/sql/execution/benchmark/VarkaHashBaselineBenchmark.java` | new: the benchmark |
+| `sql/core/src/test/scala/org/apache/spark/sql/execution/benchmark/VarkaHashBaselineQueriesSuite.scala` | new: its queries suite |
+| `sql/varka/plans/m8/PLAN.md` | row 337's cell: the state, 1.4 |
+| `sql/varka/plans/m8/VARKA-337.md` | section 10: the paragraph of 1.4 |
+
+**1.2 The benchmark class.** Copy `VarkaBigintArithmeticBaselineBenchmark.java` to
+`VarkaHashBaselineBenchmark.java` and change exactly these members; the `Section` record,
+`runBenchmarkSuite` (two sessions, the fuse check before any timing, the arms `spark row path
+(varka off)` and `varka on`, `VarkaSizeLadder.varkaFused` on the `WHOLE` control) stay as the
+copy has them.
+
+* Session names `varka-hash-baseline-off` and `varka-hash-baseline-on`; `NUM_ROWS =
+  2_000_000`; `VIEW = "varka_hash"`.
+* `tableSql(int rows)`, verbatim:
+
+```java
+  static String tableSql(int rows) {
+    return """
+        select i, l, x, c18, c38,
+               case when id %% 10 = 1 then null else i end as i_n,
+               case when id %% 10 = 1 then null else l end as l_n,
+               case when id %% 10 = 1 then null else x end as x_n,
+               case when id %% 10 = 1 then null else c18 end as c18_n,
+               case when id %% 10 = 1 then null else c38 end as c38_n
+        from (select id,
+                     hash(id, 1) as i,
+                     xxhash64(id, 2) as l,
+                     case when id %% 1000 = 7 then -0.0d
+                          when id %% 1000 = 8 then cast('NaN' as double)
+                          else cast(xxhash64(id, 3) as double) / 1048576 end as x,
+                     cast(cast(pmod(xxhash64(id, 4), 199999999999999) - 99999999999999
+                               as decimal(14, 0))
+                          + cast(pmod(xxhash64(id, 104), 10000) as decimal(4, 0)) * 0.0001
+                          as decimal(18, 4)) as c18,
+                     cast(cast(shiftright(xxhash64(id, 5),
+                                          cast(pmod(xxhash64(id, 105), 64) as int))
+                               as decimal(20, 0))
+                          + cast(pmod(xxhash64(id, 205), 10000000000) as decimal(10, 0))
+                            * 0.0000000001
+                          as decimal(38, 10)) as c38
+              from range(0, %d))""".formatted(rows);
+  }
+```
+
+  Its javadoc says each column's region: `i`, `l` hashes over their whole ranges; `x` both
+  signs, with `-0.0` and `NaN` each at one row in a thousand, the values Spark's hash
+  canonicalises (8 point 4); `c18`'s unscaled value a long; `c38`'s magnitude over every length,
+  its unscaled value past the long at about half the rows; the `_n` columns null at
+  the same row in ten. No part of a sum is wider than its type, so no cast loses digits or raises.
+* `sections(boolean declinesLongConditions)`, verbatim (the parameter is kept so that
+  `runBenchmarkSuite` stays the copy's; there is no filter here):
+
+```java
+  static List<Section> sections(boolean declinesLongConditions) {
+    List<Section> out = new ArrayList<>();
+    Map<String, String> ansi = Map.of(SQLConf.ANSI_ENABLED().key(), "true");
+    String[][] columns = {{"i", "INT"}, {"l", "BIGINT"}, {"x", "DOUBLE"},
+        {"c18", "DECIMAL(18, 4)"}, {"c38", "DECIMAL(38, 10)"}};
+    for (String nulls : new String[] {"", "_n"}) {
+      String density = ", " + (nulls.isEmpty() ? "no nulls" : "one row in ten null");
+      String from = " AS a FROM " + VIEW;
+      for (String[] c : columns) {
+        String col = c[0] + nulls;
+        out.add(new Section("hash(" + c[0] + "), " + c[1] + density,
+            "SELECT hash(" + col + ")" + from, Map.of(), Fusion.NONE));
+        out.add(new Section("xxhash64(" + c[0] + "), " + c[1] + density,
+            "SELECT xxhash64(" + col + ")" + from, Map.of(), Fusion.NONE));
+      }
+      String four = "i" + nulls + ", l" + nulls + ", x" + nulls + ", c18" + nulls;
+      out.add(new Section("hash(i, l, x, c18), four columns" + density,
+          "SELECT hash(" + four + ")" + from, Map.of(), Fusion.NONE));
+      out.add(new Section("xxhash64(i, l, x, c18), four columns" + density,
+          "SELECT xxhash64(" + four + ")" + from, Map.of(), Fusion.NONE));
+      out.add(new Section("i ^ 7, control, fuses today" + density,
+          "SELECT i" + nulls + " ^ 7" + from, ansi, Fusion.WHOLE));
+    }
+    return out;
+  }
+```
+
+  Thirteen sections at each null density, 26 in all. The hash sections take no settings: their
+  answers do not depend on the mode. The control cannot overflow but is pinned to ANSI, as the
+  copy's is, so its plan does not follow the session's default.
+* The class javadoc follows the copy's paragraphs for this class: what is timed and why the
+  columns are as they are, the two arms, the fuse check and the classes of 1.3, the `gh workflow
+  run benchmark.yml` blocks with `-f class=VarkaHashBaselineBenchmark`, and VARKA-337 as the row
+  it serves.
+
+**1.3 The classes, as the dry run planned them.** Obtained on origin/master `c62f492fc89` two ways: the
+benchmark's own dry run, this sheet's verbatim code compiled as a scratch class, at the laptop's
+default width, 256 and 128 bits (refusal off at the first two, on at 128), and a scratch suite
+planning each section on the shared sessions at 2000 rows with the refusal set each way:
+
+| sections | refusal off | refusal on |
+|---|---|---|
+| every `hash` and `xxhash64` section, both densities | `NONE` | `NONE` |
+| `i ^ 7, control, fuses today`, both densities | `WHOLE` | `WHOLE` |
+
+No section is a filter, so open PR #1486 (row 598), which changes only filters whose fused part
+is their inferred null tests, changes no class here; premise 9 is recorded in the report only.
+
+**1.4 The record.** In `PLAN.md`, row 337's cell starts `**Planned** (`; insert before it this text,
+as `VARKA-30.md`'s build sheet 1.5 says (one line, one space after it, `<date>` the commit's day as `11 November 2026`):
+
+```text
+**Started** (the baseline built <date>: `VarkaHashBaselineBenchmark` and its queries suite, 26
+sections, every hash `NONE`; its EPYC 7763 results at 256 and 128 bits owed by the owner's
+dispatch; left: the spike, 337a and 337b, `VARKA-337.md` 5).
+```
+
+In this file, under
+`## 10. Outcome`, below its placeholder line, add a paragraph `**The baseline** (<date>):` naming the
+two files, the section count, the classes the dry run gave at each width and that the runner
+results are the owner's.
+
+**1.5 Out of scope.** The spike of section 4 (the hand-written lanes, the scalar loop, the
+explicit multiply) and the census cells of section 5 step 2, both whole, though section 4 lets
+the spike share this pull request; every kernel, node and compiler change; the other types of
+2.3 (`BOOLEAN`, the narrow ints, `FLOAT`, the dates and times, the intervals); a filter section;
+results files; `suite-times.tsv`; any change to `VarkaSqlBenchmarkBase` or another baseline; any
+benchmark dispatch.
+
+**1.6 The queries suite.** Copy `VarkaBigintArithmeticBaselineQueriesSuite.scala` to
+`VarkaHashBaselineQueriesSuite.scala` (`withSettings`, `withTable` unchanged but for the class
+name) with two tests:
+
+1. `"every section of the hash baseline runs, and both sessions answer alike"`. One query over
+   the view on `spark`, then assert (the fixture's values at 2000 rows in brackets, for
+   orientation only): `min(i) < 0 < max(i)`, `min(l) < 0 < max(l)`; `count_if(isnan(x)) =
+   rows / 1000` (2); `count_if(cast(x as string) = '-0.0') = rows / 1000` (2); `count_if(x <
+   0) > 0` and `count_if(x > 0) > 0`; `min(c18) < 0 < max(c18)`; `min(c38) < 0 < max(c38)`;
+   `count_if(abs(c38) < 922337203.6854775807) > 0` and `count_if(abs(c38) >
+   922337203.6854775807) > 0` (unscaled values on both sides of the long, 1014 and 986);
+   `count_if(i_n is null) = rows / 10`, and `count_if((i_n is null) = (c38_n is null)) = rows`
+   and the same for `l_n`, `x_n`, `c18_n`. Then `sections(false)`: size `2 * 13`; the
+   non-`NONE` list is exactly the two controls, `("i ^ 7, control, fuses today, no nulls",
+   "WHOLE")` and `("i ^ 7, control, fuses today, one row in ten null", "WHOLE")`. Then each
+   section under `withClue(s.title)` and `withSettings(s)`: collect on `spark`; the schema is one
+   column named `a`, `IntegerType` for a `hash(` or the control, `LongType` for `xxhash64(`;
+   `checkAnswer` on `varkaSpark` against the collected rows; a hash section answers no null at
+   either density (Spark's hash skips a null child and answers its seed), and the control
+   answers no null over `i` and exactly `rows / 10` over `i_n`.
+2. `"each section of the hash baseline fuses as its class lists it"`, tagged `PinsDefaults`: the
+   copy of `VarkaDayTimeIntervalBaselineQueriesSuite`'s second test (its `requireKernel` call replaced by `VarkaSizeLadder.varkaFused(varkaSpark, s.query)`, its result unused,
+   as the bigint suite calls it: it throws when a batch falls back), with `forEachTwoLaneRefusal`
+   and, for the `WHOLE` control, `VarkaSizeLadder.varkaFused(varkaSpark, s.query)`.
+
+### 2. Tests
+
+| test | asserts | oracle |
+|---|---|---|
+| suite test 1, regions | the fixture reaches 1.6's regions, the planted `NaN` and `-0.0` included | SQL aggregates on Spark's row session |
+| suite test 1, sections | each section runs, has its type, both sessions agree, no hash is null | Spark's row path on `spark` (Varka off) |
+| suite test 2 | each section's class at both refusals; the control runs every batch as a kernel | `VarkaSqlBenchmarkBase.fusion` on master, untouched |
+
+### 3. Planted faults
+
+After the local commit of 4.6, as `VARKA-30.md`'s build sheet 3 says:
+
+1. In `tableSql`, delete the line `when id %% 1000 = 8 then cast('NaN' as double)`. Run 4.2: test
+   1 fails on `count_if(isnan(x)) = rows / 1000`.
+2. In `sections`, change the hash sections' `Fusion.NONE` to `Fusion.WHOLE` (the first
+   `out.add` in the column loop). Run 4.2: test 1 fails on its non-`NONE` list and test 2 under the
+   clue `hash(i), INT, no nulls, refusal false`.
+
+### 4. Commands, in order
+
+1. The premise block of 0.
+2. The queries suite, with `BUILD_SHEETS.md` 2's exports set:
+
+   ```sh
+   flock "$VARKA_HEAVY_LOCK" build/sbt -batch "project sql" \
+     "testOnly *VarkaHashBaselineQueriesSuite"
+   ```
+
+   Expected: `Tests: succeeded 2, failed 0`.
+3. The dry run at the laptop's default width, then at 256 and at 128 bits, in one sbt call
+   (each `set` adds a flag, the last `MaxVectorSize` wins; under the property
+   `VarkaBenchmarkBase.runCases` times nothing, while the fuse checks still run):
+
+   ```sh
+   flock "$VARKA_HEAVY_LOCK" build/sbt -batch "project sql" \
+     'set Test/javaOptions += "-Dvarka.bench.dryRun=true"' \
+     "Test/runMain org.apache.spark.sql.execution.benchmark.VarkaHashBaselineBenchmark" \
+     'set Test/javaOptions += "-XX:MaxVectorSize=32"' \
+     "Test/runMain org.apache.spark.sql.execution.benchmark.VarkaHashBaselineBenchmark" \
+     'set Test/javaOptions += "-XX:MaxVectorSize=16"' \
+     "Test/runMain org.apache.spark.sql.execution.benchmark.VarkaHashBaselineBenchmark" \
+     > target/dry-337.log 2>&1; echo $?
+   ```
+
+   Expected: `0`; in the log `grep -c 'is listed as'` is `0`, `'fuses whole on the varka on arm'`
+   `6` and `'fuses only its null tests'` `0`.
+4. No regeneration: no generated file reads these sources, and `BUILD_SHEETS.md` 5 asks for one
+   only after a merge or a rebase.
+5. `BUILD_SHEETS.md` 6, items 1 to 5 (pre-commit, Error Prone, the two linters, the plan lint).
+6. Commit locally: subject `[VARKA-337] Benchmark hash and xxhash64 on Spark's row path before
+   they fuse`, body and attribution as `BUILD_SHEETS.md` says.
+7. The planted faults of 3, each reverted.
+8. `BUILD_SHEETS.md` 6 item 6, `python3 dev/varka_push_check.py`, which reads the commits and so
+   runs once they hold the final tree. Expected: exit 0, its size line under 900.
+
+### 5. Done when
+
+`testOnly *VarkaHashBaselineQueriesSuite` reports `succeeded 2, failed 0`; 4.3 exits 0 at all
+three widths with no `is listed as` line; `dev/varka_push_check.py` exits 0; `git status
+--short` is empty and `git log -1 --format=%s` is 4.6's subject.
+
+### 6. Size
+
+About 220 lines of benchmark, 160 of suite, 8 of plans: about 390 counted, under the cap.
+
+### 7. Stop rules
+
+Stop and report, without working around it, when:
+
+1. a premise line of 0 differs from its expected result;
+2. the dry run or suite test 2 plans a section at a class other than 1.3's (a hash section
+   that is not `NONE` means a hash arm has landed: the baseline would no longer be one);
+3. a section raises, or the two sessions answer it differently;
+4. a region assertion of 1.6 fails on the verbatim `tableSql`;
+5. 4.4 changes a generated file, or the push check fails on a rule this change cannot reach.
+
+### 8. Decisions already taken
+
+* The lead, 11 November 2026: "337: the baseline only; the spike is OUT OF SCOPE even though the
+  plan allows it in the same PR."
+* The lead, 11 November 2026: "337's baseline is independent" of rows 30 and 95.
+* The lead, 11 November 2026, on the classes: determined by the laptop dry run against
+  origin/master, #1486's effect stated (none here), master's behaviour used at build time.
+* The lead, 11 November 2026: "EPYC 7763 runs at 256 and 128 bits are the owner's dispatches."
+* Section 4 of this plan: the five column types, the four mixed columns, one row in ten null.
+
+### 9. What the owner must do afterwards
+
+Review and push the branch and open its pull request; then dispatch on vecbricks/varka `gh
+workflow run benchmark.yml --repo vecbricks/varka --ref master -f pr=<PR> -f
+'class=*.VarkaHashBaselineBenchmark' -f jdk=25 -f scala=2.13 -f num-splits=1 -f
+create-commit=false -f expected-cpu="AMD EPYC 7763"` and the same with `-f
+extra-java-options=-XX:MaxVectorSize=16`, and commit the two artifacts as
+`VarkaHashBaselineBenchmark-jdk25-runner-epyc7763-results.txt` and
+`VarkaHashBaselineBenchmark-jdk25-runner-epyc7763-128bit-results.txt` with their provenance files
+under `sql/core/benchmarks/` before the pull request merges.
