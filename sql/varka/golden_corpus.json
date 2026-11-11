@@ -4694,15 +4694,15 @@
       } ]
     },
     "timestamp.sql" : {
-      "statements" : 142,
-      "selects" : 139,
-      "rewritten" : 56,
+      "statements" : 144,
+      "selects" : 141,
+      "rewritten" : 58,
       "projection_fused" : 0,
       "projection_partial" : 0,
-      "projection_plain" : 95,
+      "projection_plain" : 96,
       "filter_fused" : 0,
-      "filter_partial" : 31,
-      "errors" : 30,
+      "filter_partial" : 32,
+      "errors" : 31,
       "not_run" : 17,
       "entries" : [ {
         "statement" : "select timestamp '2019-01-01\\t'",
@@ -4857,6 +4857,24 @@
         "projection_outcome" : "error",
         "filter" : "-",
         "filter_outcome" : "error"
+      }, {
+        "statement" : "SELECT make_timestamp(1, 1, 1, 1, 1, 4324.967296)",
+        "kind" : "rewritten",
+        "rewritten" : "SELECT make_timestamp(c0, c1, c2, c3, c4, 4324.967296BD)",
+        "columns" : [ "int", "int", "int", "int", "int" ],
+        "projection" : "-",
+        "projection_outcome" : "error",
+        "filter" : "-",
+        "filter_outcome" : "error"
+      }, {
+        "statement" : "SELECT try_make_timestamp(1, 1, 1, 1, 1, 4324.967296)",
+        "kind" : "rewritten",
+        "rewritten" : "SELECT try_make_timestamp(c0, c1, c2, c3, c4, 4324.967296BD)",
+        "columns" : [ "int", "int", "int", "int", "int" ],
+        "projection" : "PLAIN",
+        "projection_outcome" : "agree",
+        "filter" : "PARTIAL",
+        "filter_outcome" : "agree"
       }, {
         "statement" : "SELECT make_timestamp(make_date(2021, 07, 11))",
         "kind" : "rewritten",

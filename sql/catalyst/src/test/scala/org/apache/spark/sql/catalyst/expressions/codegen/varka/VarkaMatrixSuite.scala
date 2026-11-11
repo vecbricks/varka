@@ -64,9 +64,11 @@ class VarkaMatrixSuite extends SparkFunSuite with VarkaTestWatchdog {
     // Catches: the four useAVX levels run as four configurations when they are three classes,
     // one of them the defaults' (VarkaEmittedBytesSuite holds the bytes to that); and level 3
     // left out though it admits the BIGINT conversions the defaults' unknown level declines.
-    // useAVX=2 runs again under the bounded L2D, the one level where wideConversionForm is read.
+    // useAVX=2 runs again under each kept arm of the AVX2 conversions, the one level where
+    // wideConversionForm and roundToOddByShifts are read.
     val levels = VarkaMatrix.configurations.filter(_.startsWith("useAVX="))
-    assert(levels === Seq("useAVX=2", "useAVX=3", "useAVX=2,wideConversionForm=MAGIC"))
+    assert(levels === Seq("useAVX=2", "useAVX=3", "useAVX=2,wideConversionForm=SPLIT",
+      "useAVX=2,wideConversionForm=MAGIC", "useAVX=2,roundToOddByShifts=true"))
     val configs = VarkaMatrix.configurations
     assert(configs.distinct === configs)
     assert(configs.map(VarkaMatrix.parse).map(VarkaMatrixRuns.emissionKey).distinct.size ===

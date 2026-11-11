@@ -6120,7 +6120,7 @@
     "operands" : [ "LessThan:double" ],
     "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
     "domain" : "",
-    "note" : "the literal is its bits in the table of the lane's width",
+    "note" : "the literal is its bits in the table of the lane's width; a literal that is not NaN needs no NaN test, so this is the bare IEEE compare",
     "verified" : "differential"
   }, {
     "sql" : "x = 1.5D",
@@ -6133,6 +6133,90 @@
     "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
     "domain" : "",
     "note" : "",
+    "verified" : "differential"
+  }, {
+    "sql" : "x <= 1.5D",
+    "executable" : "x <= 1.5D",
+    "family" : "DOUBLE columns",
+    "form" : "predicate",
+    "catalyst" : [ "LessThanOrEqual" ],
+    "casts" : [ ],
+    "operands" : [ "LessThanOrEqual:double" ],
+    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
+    "domain" : "",
+    "note" : "",
+    "verified" : "differential"
+  }, {
+    "sql" : "x > 1.5D",
+    "executable" : "x > 1.5D",
+    "family" : "DOUBLE columns",
+    "form" : "predicate",
+    "catalyst" : [ "GreaterThan" ],
+    "casts" : [ ],
+    "operands" : [ "GreaterThan:double" ],
+    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
+    "domain" : "",
+    "note" : "the IEEE <= negated, so a NaN is above the literal",
+    "verified" : "differential"
+  }, {
+    "sql" : "x >= 0.0D",
+    "executable" : "x >= 0.0D",
+    "family" : "DOUBLE columns",
+    "form" : "predicate",
+    "catalyst" : [ "GreaterThanOrEqual" ],
+    "casts" : [ ],
+    "operands" : [ "GreaterThanOrEqual:double" ],
+    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
+    "domain" : "",
+    "note" : "the IEEE < negated; -0.0 and 0.0 are one value",
+    "verified" : "differential"
+  }, {
+    "sql" : "x <> 0.0D",
+    "executable" : "x <> 0.0D",
+    "family" : "DOUBLE columns",
+    "form" : "predicate",
+    "catalyst" : [ "EqualTo", "Not" ],
+    "casts" : [ ],
+    "operands" : [ "EqualTo:double" ],
+    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
+    "domain" : "",
+    "note" : "the IEEE = negated",
+    "verified" : "differential"
+  }, {
+    "sql" : "1.5D < x",
+    "executable" : "1.5D < x",
+    "family" : "DOUBLE columns",
+    "form" : "predicate",
+    "catalyst" : [ "LessThan" ],
+    "casts" : [ ],
+    "operands" : [ "LessThan:double" ],
+    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
+    "domain" : "",
+    "note" : "a literal on the left is the swapped compare",
+    "verified" : "differential"
+  }, {
+    "sql" : "x = CAST('NaN' AS DOUBLE)",
+    "executable" : "x = CAST('NaN' AS DOUBLE)",
+    "family" : "DOUBLE columns",
+    "form" : "predicate",
+    "catalyst" : [ "EqualTo" ],
+    "casts" : [ ],
+    "operands" : [ "EqualTo:double" ],
+    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
+    "domain" : "",
+    "note" : "true where the IEEE x <= Infinity is false, so NaN alone; no NaN test",
+    "verified" : "differential"
+  }, {
+    "sql" : "x < CAST('NaN' AS DOUBLE)",
+    "executable" : "x < CAST('NaN' AS DOUBLE)",
+    "family" : "DOUBLE columns",
+    "form" : "predicate",
+    "catalyst" : [ "LessThan" ],
+    "casts" : [ ],
+    "operands" : [ "LessThan:double" ],
+    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
+    "domain" : "",
+    "note" : "the IEEE x <= Infinity: every value but NaN",
     "verified" : "differential"
   }, {
     "sql" : "x IN (1.5D, -2.5D, 0.0D, CAST('NaN' AS DOUBLE))",
@@ -6360,7 +6444,7 @@
     "operands" : [ "LessThan:float" ],
     "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
     "domain" : "",
-    "note" : "the literal is its bits in the table of the lane's width",
+    "note" : "the literal is its bits in the table of the lane's width; a literal that is not NaN needs no NaN test, so this is the bare IEEE compare",
     "verified" : "differential"
   }, {
     "sql" : "f = 1.5F",
@@ -6373,6 +6457,90 @@
     "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
     "domain" : "",
     "note" : "",
+    "verified" : "differential"
+  }, {
+    "sql" : "f <= 1.5F",
+    "executable" : "f <= 1.5F",
+    "family" : "FLOAT columns",
+    "form" : "predicate",
+    "catalyst" : [ "LessThanOrEqual" ],
+    "casts" : [ ],
+    "operands" : [ "LessThanOrEqual:float" ],
+    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
+    "domain" : "",
+    "note" : "",
+    "verified" : "differential"
+  }, {
+    "sql" : "f > 1.5F",
+    "executable" : "f > 1.5F",
+    "family" : "FLOAT columns",
+    "form" : "predicate",
+    "catalyst" : [ "GreaterThan" ],
+    "casts" : [ ],
+    "operands" : [ "GreaterThan:float" ],
+    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
+    "domain" : "",
+    "note" : "the IEEE <= negated, so a NaN is above the literal",
+    "verified" : "differential"
+  }, {
+    "sql" : "f >= 0.0F",
+    "executable" : "f >= 0.0F",
+    "family" : "FLOAT columns",
+    "form" : "predicate",
+    "catalyst" : [ "GreaterThanOrEqual" ],
+    "casts" : [ ],
+    "operands" : [ "GreaterThanOrEqual:float" ],
+    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
+    "domain" : "",
+    "note" : "the IEEE < negated; -0.0 and 0.0 are one value",
+    "verified" : "differential"
+  }, {
+    "sql" : "f <> 0.0F",
+    "executable" : "f <> 0.0F",
+    "family" : "FLOAT columns",
+    "form" : "predicate",
+    "catalyst" : [ "EqualTo", "Not" ],
+    "casts" : [ ],
+    "operands" : [ "EqualTo:float" ],
+    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
+    "domain" : "",
+    "note" : "the IEEE = negated",
+    "verified" : "differential"
+  }, {
+    "sql" : "1.5F < f",
+    "executable" : "1.5F < f",
+    "family" : "FLOAT columns",
+    "form" : "predicate",
+    "catalyst" : [ "LessThan" ],
+    "casts" : [ ],
+    "operands" : [ "LessThan:float" ],
+    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
+    "domain" : "",
+    "note" : "a literal on the left is the swapped compare",
+    "verified" : "differential"
+  }, {
+    "sql" : "f = CAST('NaN' AS FLOAT)",
+    "executable" : "f = CAST('NaN' AS FLOAT)",
+    "family" : "FLOAT columns",
+    "form" : "predicate",
+    "catalyst" : [ "EqualTo" ],
+    "casts" : [ ],
+    "operands" : [ "EqualTo:float" ],
+    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
+    "domain" : "",
+    "note" : "true where the IEEE f <= Infinity is false, so NaN alone; no NaN test",
+    "verified" : "differential"
+  }, {
+    "sql" : "f < CAST('NaN' AS FLOAT)",
+    "executable" : "f < CAST('NaN' AS FLOAT)",
+    "family" : "FLOAT columns",
+    "form" : "predicate",
+    "catalyst" : [ "LessThan" ],
+    "casts" : [ ],
+    "operands" : [ "LessThan:float" ],
+    "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
+    "domain" : "",
+    "note" : "the IEEE f <= Infinity: every value but NaN",
     "verified" : "differential"
   }, {
     "sql" : "f IN (1.5F, -2.5F, 0.0F, CAST('NaN' AS FLOAT))",
@@ -7585,7 +7753,7 @@
     "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
     "domain" : "",
     "note" : "two DECIMAL(9, 2) values compare as their unscaled longs",
-    "verified" : "differential"
+    "verified" : "rendered: decimal_refinement.smt2"
   }, {
     "sql" : "d9 <= d9b",
     "executable" : "d9 <= d9b",
@@ -7597,7 +7765,7 @@
     "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
     "domain" : "",
     "note" : "",
-    "verified" : "differential"
+    "verified" : "rendered: decimal_refinement.smt2"
   }, {
     "sql" : "d9 > d9b",
     "executable" : "d9 > d9b",
@@ -7609,7 +7777,7 @@
     "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
     "domain" : "",
     "note" : "",
-    "verified" : "differential"
+    "verified" : "rendered: decimal_refinement.smt2"
   }, {
     "sql" : "d9 >= d9b",
     "executable" : "d9 >= d9b",
@@ -7621,7 +7789,7 @@
     "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
     "domain" : "",
     "note" : "",
-    "verified" : "differential"
+    "verified" : "rendered: decimal_refinement.smt2"
   }, {
     "sql" : "d9 = d9b",
     "executable" : "d9 = d9b",
@@ -7633,7 +7801,7 @@
     "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
     "domain" : "",
     "note" : "",
-    "verified" : "differential"
+    "verified" : "rendered: decimal_refinement.smt2"
   }, {
     "sql" : "d9 <> d9b",
     "executable" : "d9 <> d9b",
@@ -7645,7 +7813,7 @@
     "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
     "domain" : "",
     "note" : "the NOT of the equality",
-    "verified" : "differential"
+    "verified" : "rendered: decimal_refinement.smt2"
   }, {
     "sql" : "d9 <=> d9b",
     "executable" : "d9 <=> d9b",
@@ -7657,7 +7825,7 @@
     "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
     "domain" : "",
     "note" : "null-safe equality at the long lane",
-    "verified" : "differential"
+    "verified" : "rendered: decimal_refinement.smt2"
   }, {
     "sql" : "d9 = 0.42",
     "executable" : "d9 = 0.42",
@@ -7669,7 +7837,7 @@
     "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
     "domain" : "",
     "note" : "the literal is cast to the column's DECIMAL(9, 2) and its unscaled long takes a slot in the long table",
-    "verified" : "differential"
+    "verified" : "rendered: decimal_refinement.smt2"
   }, {
     "sql" : "d9 < d18",
     "executable" : "d9 < d18",
@@ -7681,7 +7849,7 @@
     "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
     "domain" : "",
     "note" : "type coercion casts d9 to DECIMAL(18, 2), which keeps every unscaled value: the cast is the column",
-    "verified" : "differential"
+    "verified" : "rendered: decimal_refinement.smt2"
   }, {
     "sql" : "d18 < d18b",
     "executable" : "d18 < d18b",
@@ -7693,7 +7861,7 @@
     "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
     "domain" : "",
     "note" : "",
-    "verified" : "differential"
+    "verified" : "rendered: decimal_refinement.smt2"
   }, {
     "sql" : "d18 = d18b",
     "executable" : "d18 = d18b",
@@ -7705,7 +7873,7 @@
     "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
     "domain" : "",
     "note" : "",
-    "verified" : "differential"
+    "verified" : "rendered: decimal_refinement.smt2"
   }, {
     "sql" : "d18 <=> d18b",
     "executable" : "d18 <=> d18b",
@@ -7717,7 +7885,7 @@
     "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
     "domain" : "",
     "note" : "",
-    "verified" : "differential"
+    "verified" : "rendered: decimal_refinement.smt2"
   }, {
     "sql" : "d18 >= 123456789012.34",
     "executable" : "d18 >= 123456789012.34",
@@ -7729,7 +7897,7 @@
     "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
     "domain" : "",
     "note" : "a literal of fourteen digits",
-    "verified" : "differential"
+    "verified" : "rendered: decimal_refinement.smt2"
   }, {
     "sql" : "d9 IS NULL",
     "executable" : "d9 IS NULL",
@@ -7741,7 +7909,7 @@
     "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
     "domain" : "",
     "note" : "a validity read; the slots are checked too, since Spark's null test reads a valid row's value and raises on a slot outside the precision",
-    "verified" : "differential"
+    "verified" : "rendered: decimal_refinement.smt2"
   }, {
     "sql" : "d9 IS NOT NULL",
     "executable" : "d9 IS NOT NULL",
@@ -7753,7 +7921,7 @@
     "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
     "domain" : "",
     "note" : "",
-    "verified" : "differential"
+    "verified" : "rendered: decimal_refinement.smt2"
   }, {
     "sql" : "d18 IS NULL",
     "executable" : "d18 IS NULL",
@@ -7765,7 +7933,7 @@
     "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
     "domain" : "",
     "note" : "",
-    "verified" : "differential"
+    "verified" : "rendered: decimal_refinement.smt2"
   }, {
     "sql" : "d18 IS NOT NULL",
     "executable" : "d18 IS NOT NULL",
@@ -7777,7 +7945,7 @@
     "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
     "domain" : "",
     "note" : "",
-    "verified" : "differential"
+    "verified" : "rendered: decimal_refinement.smt2"
   }, {
     "sql" : "d9 < d9s4",
     "executable" : "d9 < d9s4",
@@ -7789,7 +7957,7 @@
     "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
     "domain" : "",
     "note" : "both sides at DECIMAL(11, 4): d9's unscaled value times 100, exact since nine digits times 10^2 stay within eleven (decimal64.smt2)",
-    "verified" : "refinement: d9 < d9s4"
+    "verified" : "rendered: decimal_refinement.smt2"
   }, {
     "sql" : "d9 = d9s4",
     "executable" : "d9 = d9s4",
@@ -7801,7 +7969,7 @@
     "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
     "domain" : "",
     "note" : "",
-    "verified" : "refinement: d9 = d9s4"
+    "verified" : "rendered: decimal_refinement.smt2"
   }, {
     "sql" : "d9 <=> d9s4",
     "executable" : "d9 <=> d9s4",
@@ -7813,7 +7981,7 @@
     "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
     "domain" : "",
     "note" : "",
-    "verified" : "refinement: d9 <=> d9s4"
+    "verified" : "rendered: decimal_refinement.smt2"
   }, {
     "sql" : "d16s9 >= d9s4",
     "executable" : "d16s9 >= d9s4",
@@ -7825,7 +7993,7 @@
     "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
     "domain" : "",
     "note" : "at DECIMAL(16, 9): d9s4 times 10^5",
-    "verified" : "refinement: d16s9 >= d9s4"
+    "verified" : "rendered: decimal_refinement.smt2"
   }, {
     "sql" : "d18 > 1.5",
     "executable" : "d18 > 1.5",
@@ -7837,7 +8005,7 @@
     "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
     "domain" : "",
     "note" : "the literal takes its slot at the column's scale, 150",
-    "verified" : "refinement: d18 > 1.5"
+    "verified" : "rendered: decimal_refinement.smt2"
   }, {
     "sql" : "d9 < 0.425",
     "executable" : "d9 < 0.425",
@@ -7849,7 +8017,7 @@
     "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
     "domain" : "",
     "note" : "in the analyzed form at DECIMAL(10, 3), the column times 10 against 425; the optimizer folds it to d9 < 0.43, of one scale",
-    "verified" : "refinement: d9 < 0.425"
+    "verified" : "rendered: decimal_refinement.smt2"
   }, {
     "sql" : "d9 < 10000000.0125",
     "executable" : "d9 < 10000000.0125",
@@ -7861,7 +8029,7 @@
     "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
     "domain" : "",
     "note" : "at DECIMAL(12, 4): the column times 100 against 100000000125, kept end to end since the literal does not fit d9's type",
-    "verified" : "refinement: d9 < 10000000.0125"
+    "verified" : "rendered: decimal_refinement.smt2"
   }, {
     "sql" : "-d9 < d9b",
     "executable" : "-d9 < d9b",
@@ -7873,7 +8041,7 @@
     "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
     "domain" : "",
     "note" : "a negation, which cannot overflow: an unscaled value within 18 digits is never the long lane's minimum",
-    "verified" : "refinement: -d9 < d9b"
+    "verified" : "rendered: decimal_refinement.smt2"
   }, {
     "sql" : "abs(d9) >= d9b",
     "executable" : "abs(d9) >= d9b",
@@ -7885,7 +8053,7 @@
     "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
     "domain" : "",
     "note" : "a compare with zero, a negation and a blend; the lanewise ABS is the decimalAbsLanewise option",
-    "verified" : "refinement: abs(d9) >= d9b"
+    "verified" : "rendered: decimal_refinement.smt2"
   }, {
     "sql" : "greatest(d9, d9s4) > d9b",
     "executable" : "greatest(d9, d9s4) > d9b",
@@ -7897,7 +8065,7 @@
     "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled", "spark.sql.codegen.varka.family.intArithmetic.enabled" ],
     "domain" : "",
     "note" : "the null-skipping pick at DECIMAL(11, 4), each branch carrying its rescale",
-    "verified" : "refinement: greatest(d9, d9s4) > d9b"
+    "verified" : "rendered: decimal_refinement.smt2"
   }, {
     "sql" : "coalesce(d9, d9b) IS NULL",
     "executable" : "coalesce(d9, d9b) IS NULL",
@@ -7909,7 +8077,7 @@
     "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled", "spark.sql.codegen.varka.family.condition.enabled" ],
     "domain" : "",
     "note" : "null where every operand is: the validity of each leaf, ORed, and every leaf's slots checked",
-    "verified" : "refinement: coalesce(d9, d9b) IS NULL"
+    "verified" : "rendered: decimal_refinement.smt2"
   }, {
     "sql" : "(-d18) IS NOT NULL",
     "executable" : "(-d18) IS NOT NULL",
@@ -7921,7 +8089,7 @@
     "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
     "domain" : "",
     "note" : "a negation is null where its operand is",
-    "verified" : "differential"
+    "verified" : "rendered: decimal_refinement.smt2"
   }, {
     "sql" : "CASE WHEN d9 < d9b THEN d9 ELSE d9s4 END > 0.0",
     "executable" : "CASE WHEN d9 < d9b THEN d9 ELSE d9s4 END > 0.0",
@@ -7933,7 +8101,7 @@
     "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled", "spark.sql.codegen.varka.family.condition.enabled" ],
     "domain" : "",
     "note" : "a choice at DECIMAL(11, 4) under a comparison; the branch of the smaller scale carries its rescale",
-    "verified" : "refinement: CASE WHEN d9 < d9b THEN d9 ELSE d9s4 END > 0.0"
+    "verified" : "rendered: decimal_refinement.smt2"
   }, {
     "sql" : "d9 IN (0.42, 0.00, -1.25)",
     "executable" : "d9 IN (0.42, 0.00, -1.25)",
@@ -7945,7 +8113,7 @@
     "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
     "domain" : "",
     "note" : "the equality chain of every lane's IN, each literal's unscaled long at the column's scale a slot in the long table",
-    "verified" : "refinement: d9 IN (0.42, 0.00, -1.25)"
+    "verified" : "rendered: decimal_refinement.smt2"
   }, {
     "sql" : "d9 IN (0.425, 1.5)",
     "executable" : "d9 IN (0.425, 1.5)",
@@ -7957,7 +8125,7 @@
     "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
     "domain" : "",
     "note" : "in the analyzed form at DECIMAL(10, 3), the column times 10 against 425 and 1500; the optimizer drops 0.425, which no value of d9 equals, and leaves d9 = 1.50",
-    "verified" : "refinement: d9 IN (0.425, 1.5)"
+    "verified" : "rendered: decimal_refinement.smt2"
   }, {
     "sql" : "d18 IN (11 to 16 decimal literals)",
     "executable" : "d18 IN (0.42, 50000000.00, -50000000.00, 1.01, 2.02, 3.03, 4.04, 5.05, 6.06, 7.07, 8.08)",
@@ -7969,7 +8137,7 @@
     "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
     "domain" : "",
     "note" : "an IN list this long arrives from the optimizer as an InSet of Decimals, each read at the column's scale",
-    "verified" : "refinement: d18 IN (11 to 16 decimal literals)"
+    "verified" : "rendered: decimal_refinement.smt2"
   }, {
     "sql" : "d38 < d38b",
     "executable" : "d38 < d38b",
@@ -8185,7 +8353,7 @@
     "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
     "domain" : "",
     "note" : "DECIMAL(10, 2), compared at DECIMAL(18, 2): the sum under the rescale-free cast coercion puts over it",
-    "verified" : "refinement: d9 + d9b < d18"
+    "verified" : "rendered: decimal_refinement.smt2"
   }, {
     "sql" : "d9 - d8 >= d9b",
     "executable" : "d9 - d8 >= d9b",
@@ -8197,7 +8365,7 @@
     "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
     "domain" : "",
     "note" : "DECIMAL(10, 2) against DECIMAL(9, 2)",
-    "verified" : "refinement: d9 - d8 >= d9b"
+    "verified" : "rendered: decimal_refinement.smt2"
   }, {
     "sql" : "d8 * d9 <= d9b",
     "executable" : "d8 * d9 <= d9b",
@@ -8221,7 +8389,7 @@
     "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
     "domain" : "",
     "note" : "the TRY form is the same kernel: no sum within 18 digits overflows",
-    "verified" : "refinement: try_add(d9, d9b) > d18"
+    "verified" : "rendered: decimal_refinement.smt2"
   }, {
     "sql" : "d9 * 0.5 > d9b",
     "executable" : "d9 * 0.5 > d9b",
@@ -8233,7 +8401,7 @@
     "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
     "domain" : "",
     "note" : "the literal is DECIMAL(1, 1), its unscaled 5 a slot; the product is DECIMAL(11, 3)",
-    "verified" : "refinement: d9 * 0.5 > d9b"
+    "verified" : "rendered: decimal_refinement.smt2"
   }, {
     "sql" : "d9 + 1.5 < d9b",
     "executable" : "d9 + 1.5 < d9b",
@@ -8245,7 +8413,7 @@
     "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
     "domain" : "",
     "note" : "the literal is rescaled to the sum's scale at compile time",
-    "verified" : "refinement: d9 + 1.5 < d9b"
+    "verified" : "rendered: decimal_refinement.smt2"
   }, {
     "sql" : "d9 - d9s4 > 0.00",
     "executable" : "d9 - d9s4 > 0.00",
@@ -8257,7 +8425,7 @@
     "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
     "domain" : "",
     "note" : "DECIMAL(12, 4): d9 is rescaled by 10^2 before the subtract",
-    "verified" : "refinement: d9 - d9s4 > 0.00"
+    "verified" : "rendered: decimal_refinement.smt2"
   }, {
     "sql" : "d9 + d16s9 > d9s4",
     "executable" : "d9 + d16s9 > d9s4",
@@ -8269,7 +8437,7 @@
     "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
     "domain" : "",
     "note" : "DECIMAL(17, 9): a rescale of 10^7 under the add",
-    "verified" : "refinement: d9 + d16s9 > d9s4"
+    "verified" : "rendered: decimal_refinement.smt2"
   }, {
     "sql" : "-(d9 + d9b) = d9s4",
     "executable" : "-(d9 + d9b) = d9s4",
@@ -8281,7 +8449,7 @@
     "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
     "domain" : "",
     "note" : "the negation of a sum, compared at DECIMAL(12, 4)",
-    "verified" : "refinement: -(d9 + d9b) = d9s4"
+    "verified" : "rendered: decimal_refinement.smt2"
   }, {
     "sql" : "try_multiply(d8, d9) IS NULL",
     "executable" : "try_multiply(d8, d9) IS NULL",
@@ -8293,7 +8461,7 @@
     "switches" : [ "spark.sql.codegen.varka.family.predicate.enabled" ],
     "domain" : "",
     "note" : "null only where an operand is: no product within 18 digits overflows, so TRY's null past the precision never fires",
-    "verified" : "refinement: try_multiply(d8, d9) IS NULL"
+    "verified" : "rendered: decimal_refinement.smt2"
   }, {
     "sql" : "t - t2",
     "executable" : "t - t2",

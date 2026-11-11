@@ -994,7 +994,11 @@ and a half minutes `m7/PLAN.md` 1 took for every int32 lowering's sweep together
 command, both printed lines and the arithmetic are in `results/VARKA-330-sweep.txt`, and the budget
 is in `PLAN.md` 10.3 item 5. The rate is the cheapest operator's in the cheapest mode, so the total
 is a floor, and 4.4's cut - one arm per operator and mode, the SMT having proved the formulas -
-remains the owner's if 5.5 hours for 330 alone is too much.
+remains the owner's if 5.5 hours for 330 alone is too much. *Corrected on 11 November 2026
+(9.11): the budget was not written into `PLAN.md` 10.3 item 5 at the time, as `VARKA-332.md` 0
+item 14 found; it is there now, totalled from the first scheduled CI run of the 18 sweeps rather
+than from this floor, and the 18 take 59 minutes of runner time on x86 and 73 on Arm, not 5.5
+hours.*
 
 **Coverage and census.** The 16 rows - `y1 + y2`, `y1 - y2`, `y1 * y2`, `-y1`, `abs(y1)` and the six
 `try_` forms, each with the short twin - are the coverage table's first `TINYINT` and `SMALLINT`
@@ -1422,3 +1426,84 @@ After this part the census reads `byte` and `short` 39 of 75 each (24 before) an
 (48 before; `date_sub`, which fuses for an int offset, was never claimed, and is now claimed for
 all three offsets). The two types are still behind `int` by the entries in the follow-up list
 above and by the entries `int` does not fuse either.
+
+### 9.11 The rows closed against their done-when (11 November 2026)
+
+Both rows checked against master `73cf1bcf845`, whose Build (`varka-master.yml`) passed on 11
+November 2026. Nothing here changes code or reruns a measurement. The evidence is the merged
+pull requests, the committed files and CI runs that already exist. Two kinds of file are new: the
+runner columns of the operator census, and `results/VARKA-330-sweep-ci.txt`, the per-sweep lines
+and step times of the sweep run below, copied from its logs. The option matrix is the one piece
+of evidence that is not master's: it comes from a pull request's dispatch, since the matrix no
+longer runs on master's schedule.
+
+**Row 329.** The conditions are `PLAN.md`'s row text plus 3.6, which is longer.
+
+| condition | holds | evidence |
+| :-- | :-- | :-- |
+| both arms load, compare, choose and store `TINYINT` and `SMALLINT`, with 3.1's coverage rows | yes | #987 (`a2fbcc74bb8`), 9.3. `coverage.json` holds every 3.1 item 4 shape on both types but the bare column: `y1 < y2`, `y1 = 5Y`, `IS NOT NULL`, both `IN` forms, `CASE WHEN y1 > y2`, `greatest`, and the `SMALLINT` twins. That one has no row, because a bare column fuses nothing for any type (9.3). 106 rows now read a narrow column. `VarkaEmitterNarrowSuite` runs both arms. |
+| every census cell the arms rest on reads `I` on each host, or the host's arm declines by name | yes | Laptop (`operator_census.json`): all 54 byte and short cells read `I` at 256 bits, and 52 at 512 and at 128, where two cells skip by design (9.2). Runners: `varka-width-audit.yml` run 42750857065 on vecbricks/varka, master `159d9b3026e`, 10 November 2026, now committed as `results/VARKA-329-census-epyc-7763.json` and `results/VARKA-329-census-ubuntu-24.04-arm.json`. Its artifacts name the Arm host only as `aarch64`; row 376 recorded that runner class as Neoverse N2. The EPYC 7763 reads all 54 cells `I` at 256 bits and 52 at 128. The Arm runner reads 52 at 128. On both, the two cells that are not `I` at 128 bits are `byte.widen_then_full` and `byte.full_then_widen`, which skip there as on the laptop. The 9.6 part-form load rests on `int.B2I_load64`, `byte.widen64_then_full` and `byte.full_then_widen64`, which read `I` at 128 bits on all three hosts. 9.2 left the `NOT` cell owed. No lowering needs it: `~x` is emitted as `x ^ -1` (9.10), so the `XOR` cells cover it. |
+| the benchmark of 3.4 is committed with its verdict per width and operator, and the predictions are scored in section 9 | yes on the laptop; on the EPYC 7763 for `TINYINT` only | The laptop at 512, 256 and 128 bits: `results/VARKA-329-spike.txt` (all seven predictions of 3.3 scored, 9.2), `-emit-arm.txt` (9.5), `-partload.txt` (9.6) and `-negabs.txt` (9.9). The EPYC 7763 at 256 bits: run 39915371624 (9.5). The EPYC 7763 at both widths: `sql/catalyst/benchmarks/VarkaNarrowEmitBenchmark-jdk25-runner-epyc7763-results.txt` and its `-128bit` twin, from MaxGekk/spark runs 41142934207 and 41165599291 at `23c26374efe`, committed by #1176 for row 481. They hold no `SMALLINT` compare, choice or store shape (their `SMALLINT` shapes are the checked multiplies) and no rung past 1000000 rows. 3.4's own class, `VarkaNarrowLaneBenchmark`, has no files under `sql/catalyst/benchmarks/`; its laptop numbers are the text records above. The verdict of the EPYC 7763 files: NATIVE over WIDENED is 3.4x to 3.8x on the compare and the chain at 256 bits, 3.2x to 8.2x on the choice, negation and `abs` stores, and 1.00 on the int-driven mix and every checked multiply. At 128 bits NATIVE is 6.9x to 16.6x on the compare and chain and 127x to 260x on the `TINYINT` stores. The default is NATIVE (row 478, 9.9). |
+| the losing arm stays in the option matrix | yes | WIDENED is `narrowLanes=false`, the flag tagged `widenedNarrow` (`VarkaEmitOption.java:508`). It is a configuration of the matrix (`matrix/seconds.tsv:35`), timed over the narrow suites (`matrix/config-suite-seconds.tsv:4034`, `:4035`, `:4078`, `:4088`). The option matrix is disabled on vecbricks/varka's schedule and is dispatched per pull request on the fork. Run 42912828189 (10 November 2026) is one such dispatch, for #1476's branch at `d6208553a03`, not master's history, and it passed all of its bins. The row text says "stays fuzzed in the option matrix". 3.6, corrected in 9.1, says "stays in the option matrix", because the fuzzers' narrow draws are row 352's. 3.6 is the reading checked here. |
+| the census's fused pairs rise and `dev/varka_census.py --check` passes | yes | `byte` and `short` are 39 of 75 each (9.10), up from none before row 329. `--check` exits 0 on `73cf1bcf845`. |
+| the last step common to 329 and 330: regenerate the oracles and run the four suites | yes | 9.3 and 9.4. In #989, `emitted_bytes.json` lost 22 lines, all of them the aggregate `option_arms` digests, which fold in every row; no row's hashes moved. The golden corpus did not change. The fixture gained `y1`, `y2`, `s1` and `s2`. |
+
+**Row 330.** The conditions are those of 4.6, which `PLAN.md`'s row text gives in short.
+
+| condition | holds | evidence |
+| :-- | :-- | :-- |
+| `+`, `-`, `*`, negation, `abs` and the `try_` forms fuse on both arms in the three modes | yes | #989 (`8ce3a2d3913`), 9.4. #995 then made NATIVE the default and gave negation and `abs` one lanewise op (9.9). There are 16 coverage rows, `y1 + y2` to `try_multiply(s1, s2)`. |
+| every `TINYINT` pair, 2^16 rows, on every build | yes, with a limit | `VarkaEmitterNarrowArithSuite` checks every pair in `LEGACY` and `TRY` against Spark row by row (the tests at `:639` and `:652`). In `ANSI` it checks per square: the overflowing square declines and an in-range square answers (`:665`). Spark raises per batch, so that is the whole answer a batch can give. Per-pair overflow detection is carried by `TRY`, because both modes read one mask: `VarkaVectorWalk.emitNarrowOverflowMask` builds it the same way for every mode, the range compares at the int lane and `add != sadd` or `sub != ssub` on the narrow lane, and `emitOverflowMask` then declines under `FAIL` or clears validity under `NULL`. The checked multiply builds its mask at the int lane on either arm. |
+| every `SMALLINT` pair, 2^32, nightly, with a 2^24 slice on every build | yes, weekly | The 18 sweeps run in `varka-sweeps.yml` every Saturday, by the owner's word of 6 November 2026 (`VARKA-573.md` 10.5), not nightly. In the first scheduled run, 42355859989 (7 November 2026, `0b682025e09`), every job passed. On both `ubuntu-latest` and `ubuntu-24.04-arm`, each operator shard ran its six sweeps over all 65536 batches, with 6 succeeded and none cancelled. `LEGACY` and `TRY` answer every batch and hold 16777216 rows to Spark. `ANSI` answers only the batches with no overflowing pair: 1 for `+` and `-`, 2 for `*`. The suite asserts that count exactly, and the `-` sweeps hold 0 rows to Spark, because their one answered operand, -1, is not a 256th batch. The 18 slices of 2^24 run on every build (`:1026` onward), kept always on by the owner's decision of 23 October 2026 (9.8, 989-10). |
+| the named cases pass | yes | They go through columns at lengths 1 to 129 under four null patterns on both arms (`:489` to `:575`), in every build. |
+| the SMT files for the 16-bit rules are committed and checked | yes | `proofs/narrow_wrap.smt2`, `narrow_overflow.smt2`, `narrow_range.smt2` and `narrow_deferred.smt2` are held to their text by `VarkaProofFilesSuite`. Every pull request runs them in the Build's "Varka proofs" step (`build_and_test.yml:1203`, `--lint`), and the nightly runs them under both solvers. |
+| the first 2^32 sweep is timed, and the budget of 18 is totalled in `PLAN.md` before the next sweep lands | timed yes; the 18 totalled now, late; the milestone's whole budget only in part | `results/VARKA-330-sweep.txt` timed the first sweep at 1106 s on 22 October 2026, and 9.4 extrapolated a floor of 5 h 32 min. That total never reached `PLAN.md`, despite 9.4's sentence (corrected there). Sweeps landed in the meantime: the float casts' (#1393, 8 November 2026) and the integer rounding's (#1404, #1418). This change writes the budget into `PLAN.md` 10.3 item 5, from run 42355859989 (below). The row text asks for the milestone's whole budget. This total covers the manifest as of 7 November. It does not cover `VarkaEmitterFloatingCastSuite` and `VarkaEmitterRoundingSuite`, which have landed but are untimed (row 573), or row 332's 38 planned sweeps. |
+| the coverage rows and the census count move | yes | The 16 rows of 9.4, and the census's eight new pairs per type at #989. |
+| the bytes oracle shows no change to an existing row | yes | As for row 329 above: only the aggregate digests moved. |
+
+**The sweep budget**, in seconds. The runner columns sum the lines run 42355859989 printed per sweep (`results/VARKA-330-sweep-ci.txt`); the laptop column is `VARKA-573.md`'s shard step times, which also hold JVM start and the suite's other tests, so it reads a little high against them:
+
+| shard | `ubuntu-latest` (x86) | `ubuntu-24.04-arm` | laptop, 5 November 2026 (`VARKA-573.md` 3) |
+| :-- | --: | --: | --: |
+| `+`: LEGACY, TRY, ANSI x 2 arms | 1171 | 1344 | 1111 |
+| `-` | 715 | 1452 | 1065 |
+| `*` | 1658 | 1560 | 1177 |
+| the 18 | **3544** (59 min) | **4356** (73 min) | 3353 (56 min) |
+
+The 18 are 3544 s of runner time on x86 and 4356 s on Arm. The comparison is with the 22 October
+floor, 19908 s (5 h 32 min), which is also a serial total. The wall clock is different. Each
+shard is a job of its own, so it is the longest shard, the x86 `*` job's sweep step at 1665 s,
+after the 633 s build-and-plan job every shard waits on: about 2300 s end to end. A `LEGACY` or `TRY` sweep takes 161 to 500 s and an `ANSI` one 9 to 22 s,
+since it answers one or two batches. The 22 October floor assumed 1106 s for every one of the
+18. The same sweep, `+` `LEGACY` on the widened arm, now reads 271 s on the x86 runner and 313 s
+on Arm. The record does not say why it is about four times faster than that first run, which was
+taken before #989's last merges and the native default, and that is not looked into here. The
+milestone's whole manifest took 10506 s of x86 runner time and 11264 s on Arm in that run, 61
+minutes of wall clock (the sums the results file records from the jobs API, without a per-job
+breakdown). That run did not include
+`VarkaEmitterFloatingCastSuite` and `VarkaEmitterRoundingSuite`, which joined the manifest on 8
+and 9 November 2026. They are untimed, and their times are row 573's.
+
+**Left open, none of it a done-when condition of either row:**
+
+* **The Neoverse N2 benchmark.** The runner benchmarks are EPYC 7763 only. The census reads the
+  Arm runner, but no benchmark has run there.
+* **The 128-bit narrow stores on the EPYC 7763, the default arm's checked multiply among them.**
+  The WIDENED `TINYINT` store shapes read 150 to 156 M rows/s. The checked `TINYINT` multiply
+  stores read 131 to 139 M rows/s on both arms, NATIVE included, because that multiply is driven
+  at the int lane on either arm (`y1 * y2` under ANSI and `try_multiply(y1, y2)`, shapes h and i
+  of the `-128bit` file), against 19 to 40 G rows/s for NATIVE's other `TINYINT` stores. So on an
+  AVX2 host at 128 bits, the default arm's checked byte multiply runs 138 to 308 times slower
+  than its other byte stores. That is consistent with row 479's account, a boxed out-of-line
+  `storeMasked` per four rows on x86 without AVX-512BW. Neither row 479 nor row 481 (the checked
+  narrow multiply) records these numbers, and they are not profiled here. Row 603, added with
+  this record, owns them: the diagnosis from HotSpot's output at 128 bits, then a fix or a
+  decline.
+* **The 128-bit bimodality.** 9.2 and 9.6 record the bimodality of the widened loops at 128 bits.
+  It is unexplained, and no row owns it.
+* **The packed boolean output.** Its verdict rests on the hand loops (9.2) and on the selection
+  word of every compare root (9.5). The emitted `BOOLEAN` column is row 27's (Started).
+* **Changes since the last sweep.** The scheduled sweep ran at `0b682025e09`, before #1389.
+  Eight commits have touched `VarkaVectorWalk`, `VarkaExpressionCompiler` or the suite since,
+  and the next Saturday run sweeps them.
+* **The `ANSI` sweeps.** As stated above, they check the decline per batch, not per pair.

@@ -1,0 +1,536 @@
+VARKA-577 10.4: the remainder spike's two-lane forms on the laptop, 11 November 2026.
+benchmark: org.apache.spark.sql.VarkaDecimalRemainderSpikeBenchmark, first rung only
+           (-Dvarka.remainder.rungs=1), with its two compile commands (dontinline loop*,
+           inline body*), through build/sbt 'Test/runMain', the width flags as each block says.
+commit:    ea068861123 on master 749280d9e7d (the spike as this branch has it)
+cpu:       AMD Ryzen AI 9 HX PRO 370 (Zen 5, 256-bit datapath; 512-bit ops double-pumped)
+jdk:       OpenJDK 25.0.5.0.3+1-1-26.04.1-Ubuntu, kernel 7.0.0-43-generic
+machine:   shared with other agents' JVMs, not pinned; each block's load is in its log lines.
+           Directional only. Per-arm blocks are one JVM per arm (a set + runMain pair each).
+====================================================================================================
+128 bits (-XX:UseAVX=2 -XX:MaxVectorSize=16), each arm in its own JVM: x % y
+log start: start 2026-11-11T07:44:18+01:00  07:44:18 up 1 day,  8:16,  1 user,  load average: 15.12, 12.40, 17.24
+log end:   exit 0 end 2026-11-11T07:57:38+01:00  07:57:38 up 1 day,  8:30,  1 user,  load average: 28.79, 23.13, 19.42
+====================================================================================================
+intrinsic check, loopRemainderE: 72 Vector API call(s) left in Java, by method: {VectorSupport::binaryOp=9, VectorSupport::blend=22, VectorSupport::compare=21, VectorSupport::convert=6, VectorSupport::fromBitsCoerced=1, VectorSupport::maskReductionCoerced=1, VectorSupport::rearrangeOp=12}
+VarkaDecimalRemainderSpikeBenchmark: x % y, E at 4096 rows settled after 8 drives, level 4
+OpenJDK 64-Bit Server VM 25.0.5.0.3+1-1-26.04.1-Ubuntu on Linux 7.0.0-43-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+4096 rows - in L2, x % y:                 Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+x % y, E [Java fallback]                            568            634          41          1.8         542.1       1.0X
+allocated, x % y, E at 4096 rows: 4352.0 bytes a row
+intrinsic check, loopRemainderD: 62 Vector API call(s) left in Java, by method: {VectorSupport::binaryOp=8, VectorSupport::blend=17, VectorSupport::compare=17, VectorSupport::convert=6, VectorSupport::fromBitsCoerced=1, VectorSupport::maskReductionCoerced=1, VectorSupport::rearrangeOp=12}
+VarkaDecimalRemainderSpikeBenchmark: x % y, D at 4096 rows did not settle in 30000 ms (5 drives, last 5877604 us after 7210460 us, level 4, C2 idle); it is timed as it is
+x % y, D [Java fallback]                           5477           5651         220          0.2        5223.7       1.0X
+allocated, x % y, D at 4096 rows: 44220.0 bytes a row
+intrinsic check, loopRemainderB: every Vector API call intrinsified
+VarkaDecimalRemainderSpikeBenchmark: x % y, B at 4096 rows settled after 8 drives, level 4
+x % y, B                                            164            172           8          6.4         156.8       1.0X
+allocated, x % y, B at 4096 rows: 855.1 bytes a row
+intrinsic check, loopRemainderEG: 62 Vector API call(s) left in Java, by method: {VectorSupport::binaryOp=13, VectorSupport::blend=16, VectorSupport::compare=23, VectorSupport::fromBitsCoerced=5, VectorSupport::maskReductionCoerced=1, VectorSupport::test=4}
+VarkaDecimalRemainderSpikeBenchmark: x % y, gathered E at 4096 rows settled after 8 drives, level 4
+x % y, gathered E [Java fallback]                   456            484          26          2.3         434.7       1.0X
+allocated, x % y, gathered E at 4096 rows: 3800.0 bytes a row
+intrinsic check, loopRemainderEI: 42 Vector API call(s) left in Java, by method: {VectorSupport::binaryOp=9, VectorSupport::blend=16, VectorSupport::compare=15, VectorSupport::fromBitsCoerced=1, VectorSupport::maskReductionCoerced=1}
+VarkaDecimalRemainderSpikeBenchmark: x % y, inserted E at 4096 rows settled after 8 drives, level 4
+x % y, inserted E [Java fallback]                   407            416           8          2.6         388.5       1.0X
+allocated, x % y, inserted E at 4096 rows: 3464.0 bytes a row
+intrinsic check, loopRemainderES: 42 Vector API call(s) left in Java, by method: {VectorSupport::binaryOp=9, VectorSupport::blend=16, VectorSupport::compare=15, VectorSupport::fromBitsCoerced=1, VectorSupport::maskReductionCoerced=1}
+VarkaDecimalRemainderSpikeBenchmark: x % y, split E at 4096 rows settled after 8 drives, level 4
+x % y, split E [Java fallback]                      413            432          14          2.5         393.4       1.0X
+allocated, x % y, split E at 4096 rows: 3320.0 bytes a row
+intrinsic check, loopRemainderET: 42 Vector API call(s) left in Java, by method: {VectorSupport::binaryOp=9, VectorSupport::blend=16, VectorSupport::compare=15, VectorSupport::fromBitsCoerced=1, VectorSupport::maskReductionCoerced=1}
+VarkaDecimalRemainderSpikeBenchmark: x % y, transposed E at 4096 rows settled after 8 drives, level 4
+x % y, transposed E [Java fallback]                 401            492          80          2.6         382.9       1.0X
+allocated, x % y, transposed E at 4096 rows: 3320.8 bytes a row
+intrinsic check, loopRemainderF: 30 Vector API call(s) left in Java, by method: {VectorSupport::blend=6, VectorSupport::compare=6, VectorSupport::convert=6, VectorSupport::rearrangeOp=12}
+VarkaDecimalRemainderSpikeBenchmark: x % y, F at 4096 rows settled after 8 drives, level 4
+x % y, F [Java fallback]                            169            181           7          6.2         161.0       1.0X
+allocated, x % y, F at 4096 rows: 1176.0 bytes a row
+intrinsic check, loopRemainderFG: 20 Vector API call(s) left in Java, by method: {VectorSupport::binaryOp=4, VectorSupport::compare=8, VectorSupport::fromBitsCoerced=4, VectorSupport::test=4}
+VarkaDecimalRemainderSpikeBenchmark: x % y, gathered F at 4096 rows settled after 8 drives, level 4
+x % y, gathered F [Java fallback]                    95             99           3         11.1          90.4       1.0X
+allocated, x % y, gathered F at 4096 rows: 480.0 bytes a row
+intrinsic check, loopRemainderFI: every Vector API call intrinsified
+VarkaDecimalRemainderSpikeBenchmark: x % y, inserted F at 4096 rows settled after 8 drives, level 4
+x % y, inserted F                                    43             47           2         24.5          40.9       1.0X
+allocated, x % y, inserted F at 4096 rows: 0.0 bytes a row
+intrinsic check, loopRemainderFS: every Vector API call intrinsified
+VarkaDecimalRemainderSpikeBenchmark: x % y, split F at 4096 rows settled after 8 drives, level 4
+x % y, split F                                       39             46           7         26.8          37.4       1.0X
+allocated, x % y, split F at 4096 rows: 0.0 bytes a row
+intrinsic check, loopRemainderFT: every Vector API call intrinsified
+VarkaDecimalRemainderSpikeBenchmark: x % y, transposed F at 4096 rows settled after 8 drives, level 4
+x % y, transposed F                                  42             44           3         25.2          39.7       1.0X
+allocated, x % y, transposed F at 4096 rows: 0.8 bytes a row
+intrinsic check, loopPmodE: 80 Vector API call(s) left in Java, by method: {VectorSupport::binaryOp=12, VectorSupport::blend=24, VectorSupport::compare=23, VectorSupport::convert=6, VectorSupport::fromBitsCoerced=2, VectorSupport::maskReductionCoerced=1, VectorSupport::rearrangeOp=12}
+VarkaDecimalRemainderSpikeBenchmark: pmod(x, y), E at 4096 rows settled after 8 drives, level 4
+4096 rows - in L2, pmod(x, y):            Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+allocated, pmod(x, y), E at 4096 rows: 4600.0 bytes a row
+intrinsic check, loopPmodD: 70 Vector API call(s) left in Java, by method: {VectorSupport::binaryOp=11, VectorSupport::blend=19, VectorSupport::compare=19, VectorSupport::convert=6, VectorSupport::fromBitsCoerced=2, VectorSupport::maskReductionCoerced=1, VectorSupport::rearrangeOp=12}
+VarkaDecimalRemainderSpikeBenchmark: pmod(x, y), D at 4096 rows did not settle in 30000 ms (2 drives, last 31940422 us after 19759584 us, level 4, C2 idle); it is timed as it is
+allocated, pmod(x, y), D at 4096 rows: 44468.0 bytes a row
+intrinsic check, loopPmodB: every Vector API call intrinsified
+VarkaDecimalRemainderSpikeBenchmark: pmod(x, y), B at 4096 rows settled after 8 drives, level 4
+allocated, pmod(x, y), B at 4096 rows: 973.0 bytes a row
+intrinsic check, loopPmodEG: 70 Vector API call(s) left in Java, by method: {VectorSupport::binaryOp=16, VectorSupport::blend=18, VectorSupport::compare=25, VectorSupport::fromBitsCoerced=6, VectorSupport::maskReductionCoerced=1, VectorSupport::test=4}
+VarkaDecimalRemainderSpikeBenchmark: pmod(x, y), gathered E at 4096 rows settled after 8 drives, level 4
+allocated, pmod(x, y), gathered E at 4096 rows: 4048.0 bytes a row
+intrinsic check, loopPmodEI: 50 Vector API call(s) left in Java, by method: {VectorSupport::binaryOp=12, VectorSupport::blend=18, VectorSupport::compare=17, VectorSupport::fromBitsCoerced=2, VectorSupport::maskReductionCoerced=1}
+VarkaDecimalRemainderSpikeBenchmark: pmod(x, y), inserted E at 4096 rows settled after 8 drives, level 4
+allocated, pmod(x, y), inserted E at 4096 rows: 3712.0 bytes a row
+intrinsic check, loopPmodES: 50 Vector API call(s) left in Java, by method: {VectorSupport::binaryOp=12, VectorSupport::blend=18, VectorSupport::compare=17, VectorSupport::fromBitsCoerced=2, VectorSupport::maskReductionCoerced=1}
+VarkaDecimalRemainderSpikeBenchmark: pmod(x, y), split E at 4096 rows settled after 9 drives, level 4
+allocated, pmod(x, y), split E at 4096 rows: 3568.0 bytes a row
+intrinsic check, loopPmodET: 50 Vector API call(s) left in Java, by method: {VectorSupport::binaryOp=12, VectorSupport::blend=18, VectorSupport::compare=17, VectorSupport::fromBitsCoerced=2, VectorSupport::maskReductionCoerced=1}
+VarkaDecimalRemainderSpikeBenchmark: pmod(x, y), transposed E at 4096 rows settled after 8 drives, level 4
+allocated, pmod(x, y), transposed E at 4096 rows: 3568.8 bytes a row
+intrinsic check, loopPmodF: 30 Vector API call(s) left in Java, by method: {VectorSupport::blend=6, VectorSupport::compare=6, VectorSupport::convert=6, VectorSupport::rearrangeOp=12}
+VarkaDecimalRemainderSpikeBenchmark: pmod(x, y), F at 4096 rows settled after 8 drives, level 4
+allocated, pmod(x, y), F at 4096 rows: 1176.0 bytes a row
+intrinsic check, loopPmodFG: 20 Vector API call(s) left in Java, by method: {VectorSupport::binaryOp=4, VectorSupport::compare=8, VectorSupport::fromBitsCoerced=4, VectorSupport::test=4}
+VarkaDecimalRemainderSpikeBenchmark: pmod(x, y), gathered F at 4096 rows settled after 8 drives, level 4
+allocated, pmod(x, y), gathered F at 4096 rows: 480.0 bytes a row
+intrinsic check, loopPmodFI: every Vector API call intrinsified
+VarkaDecimalRemainderSpikeBenchmark: pmod(x, y), inserted F at 4096 rows settled after 8 drives, level 4
+allocated, pmod(x, y), inserted F at 4096 rows: 0.0 bytes a row
+intrinsic check, loopPmodFS: every Vector API call intrinsified
+VarkaDecimalRemainderSpikeBenchmark: pmod(x, y), split F at 4096 rows settled after 8 drives, level 4
+allocated, pmod(x, y), split F at 4096 rows: 0.0 bytes a row
+intrinsic check, loopPmodFT: every Vector API call intrinsified
+VarkaDecimalRemainderSpikeBenchmark: pmod(x, y), transposed F at 4096 rows settled after 8 drives, level 4
+allocated, pmod(x, y), transposed F at 4096 rows: 0.8 bytes a row
+
+====================================================================================================
+128 bits (-XX:UseAVX=2 -XX:MaxVectorSize=16), each arm in its own JVM: pmod(x, y), re-run (the first pmod read ran at a load near 29)
+log start: start 2026-11-11T08:03:26+01:00  08:03:26 up 1 day,  8:35,  1 user,  load average: 8.24, 12.22, 15.57
+log end:   exit 0 end 2026-11-11T08:12:23+01:00  08:12:23 up 1 day,  8:44,  1 user,  load average: 11.95, 19.85, 19.23
+====================================================================================================
+intrinsic check, loopPmodE: 80 Vector API call(s) left in Java, by method: {VectorSupport::binaryOp=12, VectorSupport::blend=24, VectorSupport::compare=23, VectorSupport::convert=6, VectorSupport::fromBitsCoerced=2, VectorSupport::maskReductionCoerced=1, VectorSupport::rearrangeOp=12}
+VarkaDecimalRemainderSpikeBenchmark: pmod(x, y), E at 4096 rows settled after 8 drives, level 4
+OpenJDK 64-Bit Server VM 25.0.5.0.3+1-1-26.04.1-Ubuntu on Linux 7.0.0-43-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+4096 rows - in L2, pmod(x, y):            Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+pmod(x, y), E [Java fallback]                      2096           2309         196          0.5        1998.9       1.0X
+allocated, pmod(x, y), E at 4096 rows: 4600.0 bytes a row
+intrinsic check, loopPmodD: 70 Vector API call(s) left in Java, by method: {VectorSupport::binaryOp=11, VectorSupport::blend=19, VectorSupport::compare=19, VectorSupport::convert=6, VectorSupport::fromBitsCoerced=2, VectorSupport::maskReductionCoerced=1, VectorSupport::rearrangeOp=12}
+VarkaDecimalRemainderSpikeBenchmark: pmod(x, y), D at 4096 rows did not settle in 30000 ms (3 drives, last 6391637 us after 6475265 us, level 4, C2 idle); it is timed as it is
+pmod(x, y), D [Java fallback]                      6971           7441         462          0.2        6648.4       1.0X
+allocated, pmod(x, y), D at 4096 rows: 44468.0 bytes a row
+intrinsic check, loopPmodB: every Vector API call intrinsified
+VarkaDecimalRemainderSpikeBenchmark: pmod(x, y), B at 4096 rows settled after 8 drives, level 4
+pmod(x, y), B                                       406            474          59          2.6         387.1       1.0X
+allocated, pmod(x, y), B at 4096 rows: 973.0 bytes a row
+intrinsic check, loopPmodEG: 70 Vector API call(s) left in Java, by method: {VectorSupport::binaryOp=16, VectorSupport::blend=18, VectorSupport::compare=25, VectorSupport::fromBitsCoerced=6, VectorSupport::maskReductionCoerced=1, VectorSupport::test=4}
+VarkaDecimalRemainderSpikeBenchmark: pmod(x, y), gathered E at 4096 rows settled after 8 drives, level 4
+pmod(x, y), gathered E [Java fallback]             1423           1577         140          0.7        1357.2       1.0X
+allocated, pmod(x, y), gathered E at 4096 rows: 4048.0 bytes a row
+intrinsic check, loopPmodEI: 50 Vector API call(s) left in Java, by method: {VectorSupport::binaryOp=12, VectorSupport::blend=18, VectorSupport::compare=17, VectorSupport::fromBitsCoerced=2, VectorSupport::maskReductionCoerced=1}
+VarkaDecimalRemainderSpikeBenchmark: pmod(x, y), inserted E at 4096 rows settled after 8 drives, level 4
+pmod(x, y), inserted E [Java fallback]              500            623         103          2.1         476.6       1.0X
+allocated, pmod(x, y), inserted E at 4096 rows: 3712.0 bytes a row
+intrinsic check, loopPmodES: 50 Vector API call(s) left in Java, by method: {VectorSupport::binaryOp=12, VectorSupport::blend=18, VectorSupport::compare=17, VectorSupport::fromBitsCoerced=2, VectorSupport::maskReductionCoerced=1}
+VarkaDecimalRemainderSpikeBenchmark: pmod(x, y), split E at 4096 rows settled after 8 drives, level 4
+pmod(x, y), split E [Java fallback]                 416            444          23          2.5         396.4       1.0X
+allocated, pmod(x, y), split E at 4096 rows: 3568.0 bytes a row
+intrinsic check, loopPmodET: 50 Vector API call(s) left in Java, by method: {VectorSupport::binaryOp=12, VectorSupport::blend=18, VectorSupport::compare=17, VectorSupport::fromBitsCoerced=2, VectorSupport::maskReductionCoerced=1}
+VarkaDecimalRemainderSpikeBenchmark: pmod(x, y), transposed E at 4096 rows settled after 8 drives, level 4
+pmod(x, y), transposed E [Java fallback]            417            465          41          2.5         397.7       1.0X
+allocated, pmod(x, y), transposed E at 4096 rows: 3568.8 bytes a row
+intrinsic check, loopPmodF: 30 Vector API call(s) left in Java, by method: {VectorSupport::blend=6, VectorSupport::compare=6, VectorSupport::convert=6, VectorSupport::rearrangeOp=12}
+VarkaDecimalRemainderSpikeBenchmark: pmod(x, y), F at 4096 rows settled after 8 drives, level 4
+pmod(x, y), F [Java fallback]                       165            204          28          6.4         157.1       1.0X
+allocated, pmod(x, y), F at 4096 rows: 1176.0 bytes a row
+intrinsic check, loopPmodFG: 20 Vector API call(s) left in Java, by method: {VectorSupport::binaryOp=4, VectorSupport::compare=8, VectorSupport::fromBitsCoerced=4, VectorSupport::test=4}
+VarkaDecimalRemainderSpikeBenchmark: pmod(x, y), gathered F at 4096 rows settled after 8 drives, level 4
+pmod(x, y), gathered F [Java fallback]              107            134          11          9.8         102.3       1.0X
+allocated, pmod(x, y), gathered F at 4096 rows: 480.0 bytes a row
+intrinsic check, loopPmodFI: every Vector API call intrinsified
+VarkaDecimalRemainderSpikeBenchmark: pmod(x, y), inserted F at 4096 rows settled after 8 drives, level 4
+pmod(x, y), inserted F                               41             44           2         25.6          39.0       1.0X
+allocated, pmod(x, y), inserted F at 4096 rows: 0.0 bytes a row
+intrinsic check, loopPmodFS: every Vector API call intrinsified
+VarkaDecimalRemainderSpikeBenchmark: pmod(x, y), split F at 4096 rows settled after 8 drives, level 4
+pmod(x, y), split F                                  40             45           5         26.1          38.3       1.0X
+allocated, pmod(x, y), split F at 4096 rows: 0.0 bytes a row
+intrinsic check, loopPmodFT: every Vector API call intrinsified
+VarkaDecimalRemainderSpikeBenchmark: pmod(x, y), transposed F at 4096 rows settled after 8 drives, level 4
+pmod(x, y), transposed F                             43             50           5         24.1          41.4       1.0X
+allocated, pmod(x, y), transposed F at 4096 rows: 0.8 bytes a row
+
+====================================================================================================
+128 bits, every arm in one JVM (for the shared-JVM finding only)
+log start: start 2026-11-11T08:12:23+01:00  08:12:23 up 1 day,  8:44,  1 user,  load average: 11.95, 19.85, 19.23
+log end:   exit 0 end 2026-11-11T08:19:03+01:00  08:19:03 up 1 day,  8:51,  1 user,  load average: 6.49, 9.50, 14.50
+====================================================================================================
+intrinsic check, loopRemainderE: 72 Vector API call(s) left in Java, by method: {VectorSupport::binaryOp=9, VectorSupport::blend=22, VectorSupport::compare=21, VectorSupport::convert=6, VectorSupport::fromBitsCoerced=1, VectorSupport::maskReductionCoerced=1, VectorSupport::rearrangeOp=12}
+intrinsic check, loopRemainderD: 62 Vector API call(s) left in Java, by method: {VectorSupport::binaryOp=8, VectorSupport::blend=17, VectorSupport::compare=17, VectorSupport::convert=6, VectorSupport::fromBitsCoerced=1, VectorSupport::maskReductionCoerced=1, VectorSupport::rearrangeOp=12}
+intrinsic check, loopRemainderB: every Vector API call intrinsified
+intrinsic check, loopRemainderEG: 62 Vector API call(s) left in Java, by method: {VectorSupport::binaryOp=13, VectorSupport::blend=16, VectorSupport::compare=23, VectorSupport::fromBitsCoerced=5, VectorSupport::maskReductionCoerced=1, VectorSupport::test=4}
+intrinsic check, loopRemainderEI: 42 Vector API call(s) left in Java, by method: {VectorSupport::binaryOp=9, VectorSupport::blend=16, VectorSupport::compare=15, VectorSupport::fromBitsCoerced=1, VectorSupport::maskReductionCoerced=1}
+intrinsic check, loopRemainderES: 42 Vector API call(s) left in Java, by method: {VectorSupport::binaryOp=9, VectorSupport::blend=16, VectorSupport::compare=15, VectorSupport::fromBitsCoerced=1, VectorSupport::maskReductionCoerced=1}
+intrinsic check, loopRemainderET: 42 Vector API call(s) left in Java, by method: {VectorSupport::binaryOp=9, VectorSupport::blend=16, VectorSupport::compare=15, VectorSupport::fromBitsCoerced=1, VectorSupport::maskReductionCoerced=1}
+intrinsic check, loopRemainderF: 30 Vector API call(s) left in Java, by method: {VectorSupport::blend=6, VectorSupport::compare=6, VectorSupport::convert=6, VectorSupport::rearrangeOp=12}
+intrinsic check, loopRemainderFG: 20 Vector API call(s) left in Java, by method: {VectorSupport::binaryOp=4, VectorSupport::compare=8, VectorSupport::fromBitsCoerced=4, VectorSupport::test=4}
+intrinsic check, loopRemainderFI: every Vector API call intrinsified
+intrinsic check, loopRemainderFS: every Vector API call intrinsified
+intrinsic check, loopRemainderFT: every Vector API call intrinsified
+intrinsic check, loopPmodE: 80 Vector API call(s) left in Java, by method: {VectorSupport::binaryOp=12, VectorSupport::blend=24, VectorSupport::compare=23, VectorSupport::convert=6, VectorSupport::fromBitsCoerced=2, VectorSupport::maskReductionCoerced=1, VectorSupport::rearrangeOp=12}
+intrinsic check, loopPmodD: 70 Vector API call(s) left in Java, by method: {VectorSupport::binaryOp=11, VectorSupport::blend=19, VectorSupport::compare=19, VectorSupport::convert=6, VectorSupport::fromBitsCoerced=2, VectorSupport::maskReductionCoerced=1, VectorSupport::rearrangeOp=12}
+intrinsic check, loopPmodB: every Vector API call intrinsified
+intrinsic check, loopPmodEG: 70 Vector API call(s) left in Java, by method: {VectorSupport::binaryOp=16, VectorSupport::blend=18, VectorSupport::compare=25, VectorSupport::fromBitsCoerced=6, VectorSupport::maskReductionCoerced=1, VectorSupport::test=4}
+intrinsic check, loopPmodEI: 50 Vector API call(s) left in Java, by method: {VectorSupport::binaryOp=12, VectorSupport::blend=18, VectorSupport::compare=17, VectorSupport::fromBitsCoerced=2, VectorSupport::maskReductionCoerced=1}
+intrinsic check, loopPmodES: 50 Vector API call(s) left in Java, by method: {VectorSupport::binaryOp=12, VectorSupport::blend=18, VectorSupport::compare=17, VectorSupport::fromBitsCoerced=2, VectorSupport::maskReductionCoerced=1}
+intrinsic check, loopPmodET: 50 Vector API call(s) left in Java, by method: {VectorSupport::binaryOp=12, VectorSupport::blend=18, VectorSupport::compare=17, VectorSupport::fromBitsCoerced=2, VectorSupport::maskReductionCoerced=1}
+intrinsic check, loopPmodF: 30 Vector API call(s) left in Java, by method: {VectorSupport::blend=6, VectorSupport::compare=6, VectorSupport::convert=6, VectorSupport::rearrangeOp=12}
+intrinsic check, loopPmodFG: 20 Vector API call(s) left in Java, by method: {VectorSupport::binaryOp=4, VectorSupport::compare=8, VectorSupport::fromBitsCoerced=4, VectorSupport::test=4}
+intrinsic check, loopPmodFI: every Vector API call intrinsified
+intrinsic check, loopPmodFS: every Vector API call intrinsified
+intrinsic check, loopPmodFT: every Vector API call intrinsified
+VarkaDecimalRemainderSpikeBenchmark: x % y, E at 4096 rows settled after 8 drives, level 4
+VarkaDecimalRemainderSpikeBenchmark: x % y, D at 4096 rows did not settle in 30000 ms (6 drives, last 5546439 us after 5465519 us, level 4, C2 idle); it is timed as it is
+VarkaDecimalRemainderSpikeBenchmark: x % y, B at 4096 rows settled after 8 drives, level 4
+VarkaDecimalRemainderSpikeBenchmark: x % y, gathered E at 4096 rows settled after 8 drives, level 4
+VarkaDecimalRemainderSpikeBenchmark: x % y, inserted E at 4096 rows settled after 8 drives, level 4
+VarkaDecimalRemainderSpikeBenchmark: x % y, split E at 4096 rows settled after 8 drives, level 4
+VarkaDecimalRemainderSpikeBenchmark: x % y, transposed E at 4096 rows settled after 8 drives, level 4
+VarkaDecimalRemainderSpikeBenchmark: x % y, F at 4096 rows settled after 8 drives, level 4
+VarkaDecimalRemainderSpikeBenchmark: x % y, gathered F at 4096 rows settled after 8 drives, level 4
+VarkaDecimalRemainderSpikeBenchmark: x % y, inserted F at 4096 rows settled after 8 drives, level 4
+VarkaDecimalRemainderSpikeBenchmark: x % y, split F at 4096 rows settled after 8 drives, level 4
+VarkaDecimalRemainderSpikeBenchmark: x % y, transposed F at 4096 rows settled after 8 drives, level 4
+OpenJDK 64-Bit Server VM 25.0.5.0.3+1-1-26.04.1-Ubuntu on Linux 7.0.0-43-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+4096 rows - in L2, x % y:                 Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+x % y, E [Java fallback]                            478            484           8          2.2         455.8       1.0X
+x % y, D [Java fallback]                           5325           5453         168          0.2        5078.2       0.1X
+x % y, B                                            142            155          12          7.4         135.4       3.4X
+x % y, gathered E [Java fallback]                   442            479          26          2.4         421.9       1.1X
+x % y, inserted E [Java fallback]                   362            381          19          2.9         345.0       1.3X
+x % y, split E [Java fallback]                      359            385          15          2.9         342.5       1.3X
+x % y, transposed E [Java fallback]                 363            385          28          2.9         346.0       1.3X
+x % y, F [Java fallback]                            162            168           5          6.5         154.6       2.9X
+x % y, gathered F [Java fallback]                    95            103           8         11.0          90.9       5.0X
+x % y, inserted F                                   203            213           7          5.2         193.8       2.4X
+x % y, split F                                       37             40           2         28.0          35.8      12.7X
+x % y, transposed F                                 238            258          14          4.4         226.6       2.0X
+allocated, x % y, E at 4096 rows: 4352.0 bytes a row
+allocated, x % y, D at 4096 rows: 44220.0 bytes a row
+allocated, x % y, B at 4096 rows: 855.1 bytes a row
+allocated, x % y, gathered E at 4096 rows: 3800.0 bytes a row
+allocated, x % y, inserted E at 4096 rows: 3464.0 bytes a row
+allocated, x % y, split E at 4096 rows: 3320.0 bytes a row
+allocated, x % y, transposed E at 4096 rows: 3320.8 bytes a row
+allocated, x % y, F at 4096 rows: 1176.0 bytes a row
+allocated, x % y, gathered F at 4096 rows: 480.0 bytes a row
+allocated, x % y, inserted F at 4096 rows: 2096.0 bytes a row
+allocated, x % y, split F at 4096 rows: 0.0 bytes a row
+allocated, x % y, transposed F at 4096 rows: 2096.8 bytes a row
+VarkaDecimalRemainderSpikeBenchmark: pmod(x, y), E at 4096 rows settled after 8 drives, level 4
+VarkaDecimalRemainderSpikeBenchmark: pmod(x, y), D at 4096 rows did not settle in 30000 ms (6 drives, last 5657977 us after 5834294 us, level 4, C2 idle); it is timed as it is
+VarkaDecimalRemainderSpikeBenchmark: pmod(x, y), B at 4096 rows settled after 8 drives, level 4
+VarkaDecimalRemainderSpikeBenchmark: pmod(x, y), gathered E at 4096 rows settled after 8 drives, level 4
+VarkaDecimalRemainderSpikeBenchmark: pmod(x, y), inserted E at 4096 rows settled after 8 drives, level 4
+VarkaDecimalRemainderSpikeBenchmark: pmod(x, y), split E at 4096 rows settled after 8 drives, level 4
+VarkaDecimalRemainderSpikeBenchmark: pmod(x, y), transposed E at 4096 rows settled after 8 drives, level 4
+VarkaDecimalRemainderSpikeBenchmark: pmod(x, y), F at 4096 rows settled after 8 drives, level 4
+VarkaDecimalRemainderSpikeBenchmark: pmod(x, y), gathered F at 4096 rows settled after 8 drives, level 4
+VarkaDecimalRemainderSpikeBenchmark: pmod(x, y), inserted F at 4096 rows settled after 8 drives, level 4
+VarkaDecimalRemainderSpikeBenchmark: pmod(x, y), split F at 4096 rows settled after 8 drives, level 4
+VarkaDecimalRemainderSpikeBenchmark: pmod(x, y), transposed F at 4096 rows settled after 8 drives, level 4
+4096 rows - in L2, pmod(x, y):            Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+pmod(x, y), E [Java fallback]                       536            581          39          2.0         511.5       1.0X
+pmod(x, y), D [Java fallback]                      5476           5652         183          0.2        5222.5       0.1X
+pmod(x, y), B                                       176            190          18          6.0         167.4       3.1X
+pmod(x, y), gathered E [Java fallback]              492            560          48          2.1         469.6       1.1X
+pmod(x, y), inserted E [Java fallback]              419            431          17          2.5         399.5       1.3X
+pmod(x, y), split E [Java fallback]                 424            464          26          2.5         404.2       1.3X
+pmod(x, y), transposed E [Java fallback]            432            449          16          2.4         412.2       1.2X
+pmod(x, y), F [Java fallback]                       167            195          31          6.3         159.5       3.2X
+pmod(x, y), gathered F [Java fallback]              107            120           9          9.8         101.7       5.0X
+pmod(x, y), inserted F                              209            239          21          5.0         199.1       2.6X
+pmod(x, y), split F                                  41             44           2         25.6          39.1      13.1X
+pmod(x, y), transposed F                            212            237          22          4.9         202.6       2.5X
+allocated, pmod(x, y), E at 4096 rows: 4600.0 bytes a row
+allocated, pmod(x, y), D at 4096 rows: 44468.0 bytes a row
+allocated, pmod(x, y), B at 4096 rows: 973.0 bytes a row
+allocated, pmod(x, y), gathered E at 4096 rows: 4048.0 bytes a row
+allocated, pmod(x, y), inserted E at 4096 rows: 3712.0 bytes a row
+allocated, pmod(x, y), split E at 4096 rows: 3568.0 bytes a row
+allocated, pmod(x, y), transposed E at 4096 rows: 3568.8 bytes a row
+allocated, pmod(x, y), F at 4096 rows: 1176.0 bytes a row
+allocated, pmod(x, y), gathered F at 4096 rows: 480.0 bytes a row
+allocated, pmod(x, y), inserted F at 4096 rows: 2096.0 bytes a row
+allocated, pmod(x, y), split F at 4096 rows: 0.0 bytes a row
+allocated, pmod(x, y), transposed F at 4096 rows: 2096.8 bytes a row
+
+====================================================================================================
+256 bits (-XX:UseAVX=2), every arm in one JVM
+log start: start 2026-11-11T07:57:38+01:00  07:57:38 up 1 day,  8:30,  1 user,  load average: 28.79, 23.13, 19.42
+log end:   exit 0 end 2026-11-11T08:00:26+01:00  08:00:26 up 1 day,  8:32,  1 user,  load average: 7.09, 15.81, 17.22
+====================================================================================================
+intrinsic check, loopRemainderE: every Vector API call intrinsified
+intrinsic check, loopRemainderD: every Vector API call intrinsified
+intrinsic check, loopRemainderB: every Vector API call intrinsified
+intrinsic check, loopRemainderEG: every Vector API call intrinsified
+intrinsic check, loopRemainderEI: every Vector API call intrinsified
+intrinsic check, loopRemainderES: every Vector API call intrinsified
+intrinsic check, loopRemainderET: every Vector API call intrinsified
+intrinsic check, loopRemainderF: every Vector API call intrinsified
+intrinsic check, loopRemainderFG: every Vector API call intrinsified
+intrinsic check, loopRemainderFI: every Vector API call intrinsified
+intrinsic check, loopRemainderFS: every Vector API call intrinsified
+intrinsic check, loopRemainderFT: every Vector API call intrinsified
+intrinsic check, loopPmodE: every Vector API call intrinsified
+intrinsic check, loopPmodD: every Vector API call intrinsified
+intrinsic check, loopPmodB: every Vector API call intrinsified
+intrinsic check, loopPmodEG: every Vector API call intrinsified
+intrinsic check, loopPmodEI: every Vector API call intrinsified
+intrinsic check, loopPmodES: every Vector API call intrinsified
+intrinsic check, loopPmodET: every Vector API call intrinsified
+intrinsic check, loopPmodF: every Vector API call intrinsified
+intrinsic check, loopPmodFG: every Vector API call intrinsified
+intrinsic check, loopPmodFI: every Vector API call intrinsified
+intrinsic check, loopPmodFS: every Vector API call intrinsified
+intrinsic check, loopPmodFT: every Vector API call intrinsified
+VarkaDecimalRemainderSpikeBenchmark: x % y, E at 4096 rows settled after 8 drives, level 4
+VarkaDecimalRemainderSpikeBenchmark: x % y, D at 4096 rows settled after 8 drives, level 4
+VarkaDecimalRemainderSpikeBenchmark: x % y, B at 4096 rows settled after 8 drives, level 4
+VarkaDecimalRemainderSpikeBenchmark: x % y, gathered E at 4096 rows settled after 8 drives, level 4
+VarkaDecimalRemainderSpikeBenchmark: x % y, inserted E at 4096 rows settled after 8 drives, level 4
+VarkaDecimalRemainderSpikeBenchmark: x % y, split E at 4096 rows settled after 8 drives, level 4
+VarkaDecimalRemainderSpikeBenchmark: x % y, transposed E at 4096 rows settled after 8 drives, level 4
+VarkaDecimalRemainderSpikeBenchmark: x % y, F at 4096 rows settled after 8 drives, level 4
+VarkaDecimalRemainderSpikeBenchmark: x % y, gathered F at 4096 rows settled after 8 drives, level 4
+VarkaDecimalRemainderSpikeBenchmark: x % y, inserted F at 4096 rows settled after 8 drives, level 4
+VarkaDecimalRemainderSpikeBenchmark: x % y, split F at 4096 rows settled after 8 drives, level 4
+VarkaDecimalRemainderSpikeBenchmark: x % y, transposed F at 4096 rows settled after 8 drives, level 4
+OpenJDK 64-Bit Server VM 25.0.5.0.3+1-1-26.04.1-Ubuntu on Linux 7.0.0-43-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+4096 rows - in L2, x % y:                 Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+x % y, E                                             20             21           1         53.7          18.6       1.0X
+x % y, D                                            149            155           6          7.0         141.9       0.1X
+x % y, B                                            168            208          39          6.2         160.5       0.1X
+x % y, gathered E                                    22             27           4         47.2          21.2       0.9X
+x % y, inserted E                                    25             31           4         41.3          24.2       0.8X
+x % y, split E                                       19             21           2         55.2          18.1       1.0X
+x % y, transposed E                                  20             21           1         52.6          19.0       1.0X
+x % y, F                                             23             27           3         45.7          21.9       0.9X
+x % y, gathered F                                    26             31           4         40.2          24.9       0.7X
+x % y, inserted F                                   100            118          20         10.5          95.6       0.2X
+x % y, split F                                       21             22           1         50.7          19.7       0.9X
+x % y, transposed F                                 136            143           5          7.7         129.8       0.1X
+allocated, x % y, E at 4096 rows: 0.0 bytes a row
+allocated, x % y, D at 4096 rows: 0.0 bytes a row
+allocated, x % y, B at 4096 rows: 855.1 bytes a row
+allocated, x % y, gathered E at 4096 rows: 0.0 bytes a row
+allocated, x % y, inserted E at 4096 rows: 0.0 bytes a row
+allocated, x % y, split E at 4096 rows: 0.0 bytes a row
+allocated, x % y, transposed E at 4096 rows: 0.8 bytes a row
+allocated, x % y, F at 4096 rows: 0.0 bytes a row
+allocated, x % y, gathered F at 4096 rows: 0.0 bytes a row
+allocated, x % y, inserted F at 4096 rows: 732.0 bytes a row
+allocated, x % y, split F at 4096 rows: 0.0 bytes a row
+allocated, x % y, transposed F at 4096 rows: 1408.8 bytes a row
+VarkaDecimalRemainderSpikeBenchmark: pmod(x, y), E at 4096 rows settled after 8 drives, level 4
+VarkaDecimalRemainderSpikeBenchmark: pmod(x, y), D at 4096 rows settled after 8 drives, level 4
+VarkaDecimalRemainderSpikeBenchmark: pmod(x, y), B at 4096 rows settled after 8 drives, level 4
+VarkaDecimalRemainderSpikeBenchmark: pmod(x, y), gathered E at 4096 rows settled after 8 drives, level 4
+VarkaDecimalRemainderSpikeBenchmark: pmod(x, y), inserted E at 4096 rows settled after 8 drives, level 4
+VarkaDecimalRemainderSpikeBenchmark: pmod(x, y), split E at 4096 rows settled after 8 drives, level 4
+VarkaDecimalRemainderSpikeBenchmark: pmod(x, y), transposed E at 4096 rows settled after 8 drives, level 4
+VarkaDecimalRemainderSpikeBenchmark: pmod(x, y), F at 4096 rows settled after 8 drives, level 4
+VarkaDecimalRemainderSpikeBenchmark: pmod(x, y), gathered F at 4096 rows settled after 8 drives, level 4
+VarkaDecimalRemainderSpikeBenchmark: pmod(x, y), inserted F at 4096 rows settled after 8 drives, level 4
+VarkaDecimalRemainderSpikeBenchmark: pmod(x, y), split F at 4096 rows settled after 8 drives, level 4
+VarkaDecimalRemainderSpikeBenchmark: pmod(x, y), transposed F at 4096 rows settled after 8 drives, level 4
+4096 rows - in L2, pmod(x, y):            Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+pmod(x, y), E                                        21             23           2         49.9          20.1       1.0X
+pmod(x, y), D                                       148            155           9          7.1         140.7       0.1X
+pmod(x, y), B                                       194            220          23          5.4         185.4       0.1X
+pmod(x, y), gathered E                               24             29           3         44.5          22.5       0.9X
+pmod(x, y), inserted E                               25             27           2         41.7          24.0       0.8X
+pmod(x, y), split E                                  20             25           5         53.5          18.7       1.1X
+pmod(x, y), transposed E                             21             31           6         49.2          20.3       1.0X
+pmod(x, y), F                                        24             28           4         42.9          23.3       0.9X
+pmod(x, y), gathered F                               26             28           2         40.3          24.8       0.8X
+pmod(x, y), inserted F                              135            156          19          7.8         128.6       0.2X
+pmod(x, y), split F                                  20             22           2         51.3          19.5       1.0X
+pmod(x, y), transposed F                            130            135           3          8.1         123.7       0.2X
+allocated, pmod(x, y), E at 4096 rows: 0.0 bytes a row
+allocated, pmod(x, y), D at 4096 rows: 0.0 bytes a row
+allocated, pmod(x, y), B at 4096 rows: 973.0 bytes a row
+allocated, pmod(x, y), gathered E at 4096 rows: 0.0 bytes a row
+allocated, pmod(x, y), inserted E at 4096 rows: 0.0 bytes a row
+allocated, pmod(x, y), split E at 4096 rows: 0.0 bytes a row
+allocated, pmod(x, y), transposed E at 4096 rows: 0.8 bytes a row
+allocated, pmod(x, y), F at 4096 rows: 0.0 bytes a row
+allocated, pmod(x, y), gathered F at 4096 rows: 0.0 bytes a row
+allocated, pmod(x, y), inserted F at 4096 rows: 1408.0 bytes a row
+allocated, pmod(x, y), split F at 4096 rows: 0.0 bytes a row
+allocated, pmod(x, y), transposed F at 4096 rows: 1420.8 bytes a row
+
+====================================================================================================
+256 bits, the arms that allocated in one JVM and two controls, each in its own JVM
+log start: start 2026-11-11T08:19:04+01:00  08:19:04 up 1 day,  8:51,  1 user,  load average: 6.49, 9.50, 14.50
+log end:   exit 0 end 2026-11-11T08:20:32+01:00  08:20:32 up 1 day,  8:53,  1 user,  load average: 6.44, 8.92, 13.87
+====================================================================================================
+intrinsic check, loopRemainderFI: every Vector API call intrinsified
+VarkaDecimalRemainderSpikeBenchmark: x % y, inserted F at 4096 rows settled after 8 drives, level 4
+OpenJDK 64-Bit Server VM 25.0.5.0.3+1-1-26.04.1-Ubuntu on Linux 7.0.0-43-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+4096 rows - in L2, x % y:                 Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+x % y, inserted F                                    26             29           2         40.2          24.9       1.0X
+allocated, x % y, inserted F at 4096 rows: 0.0 bytes a row
+intrinsic check, loopRemainderFT: every Vector API call intrinsified
+VarkaDecimalRemainderSpikeBenchmark: x % y, transposed F at 4096 rows settled after 8 drives, level 4
+x % y, transposed F                                  20             21           1         51.6          19.4       1.0X
+allocated, x % y, transposed F at 4096 rows: 0.8 bytes a row
+intrinsic check, loopPmodFI: every Vector API call intrinsified
+VarkaDecimalRemainderSpikeBenchmark: pmod(x, y), inserted F at 4096 rows settled after 8 drives, level 4
+4096 rows - in L2, pmod(x, y):            Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+pmod(x, y), inserted F                               29             31           2         36.2          27.6       1.0X
+allocated, pmod(x, y), inserted F at 4096 rows: 0.0 bytes a row
+intrinsic check, loopPmodFT: every Vector API call intrinsified
+VarkaDecimalRemainderSpikeBenchmark: pmod(x, y), transposed F at 4096 rows settled after 8 drives, level 4
+pmod(x, y), transposed F                             22             25           3         47.2          21.2       1.0X
+allocated, pmod(x, y), transposed F at 4096 rows: 0.8 bytes a row
+intrinsic check, loopRemainderE: every Vector API call intrinsified
+VarkaDecimalRemainderSpikeBenchmark: x % y, E at 4096 rows settled after 8 drives, level 4
+x % y, E                                             18             20           2         57.6          17.4       1.0X
+allocated, x % y, E at 4096 rows: 0.0 bytes a row
+intrinsic check, loopRemainderF: every Vector API call intrinsified
+VarkaDecimalRemainderSpikeBenchmark: x % y, F at 4096 rows settled after 8 drives, level 4
+x % y, F                                             21             22           1         50.4          19.8       1.0X
+allocated, x % y, F at 4096 rows: 0.0 bytes a row
+
+====================================================================================================
+512 bits (-XX:UseAVX=3), every arm in one JVM
+log start: start 2026-11-11T08:00:26+01:00  08:00:26 up 1 day,  8:32,  1 user,  load average: 7.09, 15.81, 17.22
+log end:   exit 0 end 2026-11-11T08:03:17+01:00  08:03:17 up 1 day,  8:35,  1 user,  load average: 7.81, 12.28, 15.63
+====================================================================================================
+intrinsic check, loopRemainderE: every Vector API call intrinsified
+intrinsic check, loopRemainderD: every Vector API call intrinsified
+intrinsic check, loopRemainderB: every Vector API call intrinsified
+intrinsic check, loopRemainderEG: every Vector API call intrinsified
+intrinsic check, loopRemainderEI: every Vector API call intrinsified
+intrinsic check, loopRemainderES: every Vector API call intrinsified
+intrinsic check, loopRemainderET: every Vector API call intrinsified
+intrinsic check, loopRemainderF: every Vector API call intrinsified
+intrinsic check, loopRemainderFG: every Vector API call intrinsified
+intrinsic check, loopRemainderFI: every Vector API call intrinsified
+intrinsic check, loopRemainderFS: every Vector API call intrinsified
+intrinsic check, loopRemainderFT: every Vector API call intrinsified
+intrinsic check, loopPmodE: every Vector API call intrinsified
+intrinsic check, loopPmodD: every Vector API call intrinsified
+intrinsic check, loopPmodB: every Vector API call intrinsified
+intrinsic check, loopPmodEG: every Vector API call intrinsified
+intrinsic check, loopPmodEI: every Vector API call intrinsified
+intrinsic check, loopPmodES: every Vector API call intrinsified
+intrinsic check, loopPmodET: every Vector API call intrinsified
+intrinsic check, loopPmodF: every Vector API call intrinsified
+intrinsic check, loopPmodFG: every Vector API call intrinsified
+intrinsic check, loopPmodFI: every Vector API call intrinsified
+intrinsic check, loopPmodFS: every Vector API call intrinsified
+intrinsic check, loopPmodFT: every Vector API call intrinsified
+VarkaDecimalRemainderSpikeBenchmark: x % y, E at 4096 rows settled after 8 drives, level 4
+VarkaDecimalRemainderSpikeBenchmark: x % y, D at 4096 rows settled after 8 drives, level 4
+VarkaDecimalRemainderSpikeBenchmark: x % y, B at 4096 rows settled after 8 drives, level 4
+VarkaDecimalRemainderSpikeBenchmark: x % y, gathered E at 4096 rows settled after 8 drives, level 4
+VarkaDecimalRemainderSpikeBenchmark: x % y, inserted E at 4096 rows settled after 8 drives, level 4
+VarkaDecimalRemainderSpikeBenchmark: x % y, split E at 4096 rows settled after 8 drives, level 4
+VarkaDecimalRemainderSpikeBenchmark: x % y, transposed E at 4096 rows settled after 8 drives, level 4
+VarkaDecimalRemainderSpikeBenchmark: x % y, F at 4096 rows settled after 8 drives, level 4
+VarkaDecimalRemainderSpikeBenchmark: x % y, gathered F at 4096 rows settled after 8 drives, level 4
+VarkaDecimalRemainderSpikeBenchmark: x % y, inserted F at 4096 rows settled after 8 drives, level 4
+VarkaDecimalRemainderSpikeBenchmark: x % y, split F at 4096 rows settled after 8 drives, level 4
+VarkaDecimalRemainderSpikeBenchmark: x % y, transposed F at 4096 rows settled after 8 drives, level 4
+OpenJDK 64-Bit Server VM 25.0.5.0.3+1-1-26.04.1-Ubuntu on Linux 7.0.0-43-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+4096 rows - in L2, x % y:                 Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+x % y, E                                             11             12           1         96.4          10.4       1.0X
+x % y, D                                             89             94           6         11.8          84.4       0.1X
+x % y, B                                            162            176           9          6.5         154.9       0.1X
+x % y, gathered E                                    15             16           1         70.4          14.2       0.7X
+x % y, inserted E                                    17             18           1         63.2          15.8       0.7X
+x % y, split E                                       10             11           1        101.8           9.8       1.1X
+x % y, transposed E                                  12             12           1         90.1          11.1       0.9X
+x % y, F                                             11             12           1         96.0          10.4       1.0X
+x % y, gathered F                                    15             17           2         70.4          14.2       0.7X
+x % y, inserted F                                    17             19           1         61.5          16.3       0.6X
+x % y, split F                                       11             11           0         98.7          10.1       1.0X
+x % y, transposed F                                  11             12           1         95.3          10.5       1.0X
+allocated, x % y, E at 4096 rows: 0.0 bytes a row
+allocated, x % y, D at 4096 rows: 0.0 bytes a row
+allocated, x % y, B at 4096 rows: 855.1 bytes a row
+allocated, x % y, gathered E at 4096 rows: 0.0 bytes a row
+allocated, x % y, inserted E at 4096 rows: 0.0 bytes a row
+allocated, x % y, split E at 4096 rows: 0.0 bytes a row
+allocated, x % y, transposed E at 4096 rows: 0.8 bytes a row
+allocated, x % y, F at 4096 rows: 0.0 bytes a row
+allocated, x % y, gathered F at 4096 rows: 0.0 bytes a row
+allocated, x % y, inserted F at 4096 rows: 0.0 bytes a row
+allocated, x % y, split F at 4096 rows: 0.0 bytes a row
+allocated, x % y, transposed F at 4096 rows: 0.8 bytes a row
+VarkaDecimalRemainderSpikeBenchmark: pmod(x, y), E at 4096 rows settled after 8 drives, level 4
+VarkaDecimalRemainderSpikeBenchmark: pmod(x, y), D at 4096 rows settled after 8 drives, level 4
+VarkaDecimalRemainderSpikeBenchmark: pmod(x, y), B at 4096 rows settled after 8 drives, level 4
+VarkaDecimalRemainderSpikeBenchmark: pmod(x, y), gathered E at 4096 rows settled after 8 drives, level 4
+VarkaDecimalRemainderSpikeBenchmark: pmod(x, y), inserted E at 4096 rows settled after 8 drives, level 4
+VarkaDecimalRemainderSpikeBenchmark: pmod(x, y), split E at 4096 rows settled after 8 drives, level 4
+VarkaDecimalRemainderSpikeBenchmark: pmod(x, y), transposed E at 4096 rows settled after 8 drives, level 4
+VarkaDecimalRemainderSpikeBenchmark: pmod(x, y), F at 4096 rows settled after 8 drives, level 4
+VarkaDecimalRemainderSpikeBenchmark: pmod(x, y), gathered F at 4096 rows settled after 8 drives, level 4
+VarkaDecimalRemainderSpikeBenchmark: pmod(x, y), inserted F at 4096 rows settled after 8 drives, level 4
+VarkaDecimalRemainderSpikeBenchmark: pmod(x, y), split F at 4096 rows settled after 8 drives, level 4
+VarkaDecimalRemainderSpikeBenchmark: pmod(x, y), transposed F at 4096 rows settled after 8 drives, level 4
+4096 rows - in L2, pmod(x, y):            Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+pmod(x, y), E                                        10             11           1        106.0           9.4       1.0X
+pmod(x, y), D                                        83             89           5         12.6          79.2       0.1X
+pmod(x, y), B                                       172            178           6          6.1         163.9       0.1X
+pmod(x, y), gathered E                               15             19           2         70.1          14.3       0.7X
+pmod(x, y), inserted E                               27             42          18         39.1          25.6       0.4X
+pmod(x, y), split E                                  11             14           2         91.8          10.9       0.9X
+pmod(x, y), transposed E                             22             36          16         48.6          20.6       0.5X
+pmod(x, y), F                                        11             14           2         92.0          10.9       0.9X
+pmod(x, y), gathered F                               15             15           0         71.3          14.0       0.7X
+pmod(x, y), inserted F                               17             17           1         63.2          15.8       0.6X
+pmod(x, y), split F                                  10             15           3        108.3           9.2       1.0X
+pmod(x, y), transposed F                             13             17           3         80.4          12.4       0.8X
+allocated, pmod(x, y), E at 4096 rows: 0.0 bytes a row
+allocated, pmod(x, y), D at 4096 rows: 0.0 bytes a row
+allocated, pmod(x, y), B at 4096 rows: 973.0 bytes a row
+allocated, pmod(x, y), gathered E at 4096 rows: 0.0 bytes a row
+allocated, pmod(x, y), inserted E at 4096 rows: 195.0 bytes a row
+allocated, pmod(x, y), split E at 4096 rows: 0.0 bytes a row
+allocated, pmod(x, y), transposed E at 4096 rows: 195.8 bytes a row
+allocated, pmod(x, y), F at 4096 rows: 0.0 bytes a row
+allocated, pmod(x, y), gathered F at 4096 rows: 0.0 bytes a row
+allocated, pmod(x, y), inserted F at 4096 rows: 0.0 bytes a row
+allocated, pmod(x, y), split F at 4096 rows: 0.0 bytes a row
+allocated, pmod(x, y), transposed F at 4096 rows: 0.8 bytes a row
+
+====================================================================================================
+512 bits, the arms that allocated in one JVM and two controls, each in its own JVM
+log start: start 2026-11-11T08:20:32+01:00  08:20:32 up 1 day,  8:53,  1 user,  load average: 6.44, 8.92, 13.87
+log end:   exit 0 end 2026-11-11T08:21:42+01:00  08:21:42 up 1 day,  8:54,  1 user,  load average: 6.87, 8.53, 13.37
+====================================================================================================
+intrinsic check, loopPmodEI: every Vector API call intrinsified
+VarkaDecimalRemainderSpikeBenchmark: pmod(x, y), inserted E at 4096 rows settled after 8 drives, level 4
+OpenJDK 64-Bit Server VM 25.0.5.0.3+1-1-26.04.1-Ubuntu on Linux 7.0.0-43-generic
+AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M
+4096 rows - in L2, pmod(x, y):            Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+pmod(x, y), inserted E                               16             17           1         64.3          15.6       1.0X
+allocated, pmod(x, y), inserted E at 4096 rows: 0.0 bytes a row
+intrinsic check, loopPmodET: every Vector API call intrinsified
+VarkaDecimalRemainderSpikeBenchmark: pmod(x, y), transposed E at 4096 rows settled after 8 drives, level 4
+pmod(x, y), transposed E                             11             11           0         99.5          10.1       1.0X
+allocated, pmod(x, y), transposed E at 4096 rows: 0.8 bytes a row
+intrinsic check, loopPmodE: every Vector API call intrinsified
+VarkaDecimalRemainderSpikeBenchmark: pmod(x, y), E at 4096 rows settled after 8 drives, level 4
+pmod(x, y), E                                        10             17           6        109.3           9.2       1.0X
+allocated, pmod(x, y), E at 4096 rows: 0.0 bytes a row
+intrinsic check, loopPmodF: every Vector API call intrinsified
+VarkaDecimalRemainderSpikeBenchmark: pmod(x, y), F at 4096 rows settled after 8 drives, level 4
+pmod(x, y), F                                        10             10           1        110.2           9.1       1.0X
+allocated, pmod(x, y), F at 4096 rows: 0.0 bytes a row
