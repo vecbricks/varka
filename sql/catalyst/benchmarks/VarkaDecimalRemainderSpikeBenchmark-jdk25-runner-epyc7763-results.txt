@@ -1,0 +1,59 @@
+================================================================================================
+decimal remainder hand loops at 256 bits
+================================================================================================
+
+intrinsic check, loopRemainderE: every Vector API call intrinsified
+intrinsic check, loopRemainderD: every Vector API call intrinsified
+intrinsic check, loopRemainderB: every Vector API call intrinsified
+intrinsic check, loopPmodE: every Vector API call intrinsified
+intrinsic check, loopPmodD: every Vector API call intrinsified
+intrinsic check, loopPmodB: every Vector API call intrinsified
+OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1019-azure
+AMD EPYC 7763 64-Core Processor
+4096 rows - in L2, x % y:                 Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------
+x % y, E                                             22             22           0         47.1          21.2       1.0X
+x % y, D                                            114            115           0          9.2         109.0       0.2X
+x % y, B                                            283            286           3          3.7         270.1       0.1X
+
+OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1019-azure
+AMD EPYC 7763 64-Core Processor
+4096 rows - in L2, pmod(x, y):            Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------
+pmod(x, y), E                                        23             23           0         45.3          22.1       1.0X
+pmod(x, y), D                                       112            113           0          9.3         107.2       0.2X
+pmod(x, y), B                                       300            304           3          3.5         286.1       0.1X
+
+OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1019-azure
+AMD EPYC 7763 64-Core Processor
+262144 rows - in L3, x % y:               Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------
+x % y, E                                             22             23           0         46.9          21.3       1.0X
+x % y, D                                            114            115           0          9.2         109.1       0.2X
+x % y, B                                            260            264           3          4.0         248.3       0.1X
+
+OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1019-azure
+AMD EPYC 7763 64-Core Processor
+262144 rows - in L3, pmod(x, y):          Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------
+pmod(x, y), E                                        23             23           0         45.1          22.2       1.0X
+pmod(x, y), D                                       113            113           0          9.3         107.7       0.2X
+pmod(x, y), B                                       301            305           3          3.5         287.1       0.1X
+
+OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1019-azure
+AMD EPYC 7763 64-Core Processor
+4194304 rows - past L3, x % y:            Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------
+x % y, E                                             90             90           0         46.7          21.4       1.0X
+x % y, D                                            458            459           1          9.2         109.1       0.2X
+x % y, B                                           1059           1063           4          4.0         252.5       0.1X
+
+OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1019-azure
+AMD EPYC 7763 64-Core Processor
+4194304 rows - past L3, pmod(x, y):       Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------
+pmod(x, y), E                                        93             94           0         44.9          22.3       1.0X
+pmod(x, y), D                                       452            456           4          9.3         107.8       0.2X
+pmod(x, y), B                                      1218           1225           5          3.4         290.5       0.1X
+
+

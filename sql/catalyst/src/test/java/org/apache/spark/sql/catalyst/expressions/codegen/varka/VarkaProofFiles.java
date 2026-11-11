@@ -107,6 +107,7 @@ final class VarkaProofFiles {
     files.put("int_round.smt2", intRound());
     files.put("refinement.smt2", VarkaRefinementFile.render());
     files.put("smt_print_check.smt2", smtPrintCheck());
+    files.put("smt_nodes_check.smt2", smtNodesCheck());
     return files;
   }
 
@@ -4133,6 +4134,74 @@ final class VarkaProofFiles {
       }
     }
     return laws;
+  }
+
+  /**
+   * {@code smt_nodes_check.smt2}: the text row 506's printer prints for each sampled tree
+   * ({@link VarkaSmtSamples}), held to the reference evaluator under the solvers: the word form's
+   * obligations, proven for every input, and the printed outcome pinned at the sample's rows,
+   * where it must equal {@link VarkaReference}'s answer, computed while rendering.
+   */
+  static String smtNodesCheck() {
+    var out = new StringBuilder(LICENSE);
+    out.append("""
+        ; The proof printer's meanings (VARKA-506 2.2) against the reference evaluator.
+        ; VarkaSmtNodes states each IR node's lane outcome, (decline, valid, data), in java.smt2's
+        ; operators; the printer prints the int lane in them and every long in the word form,
+        ; whose laws smt_print_check.smt2 proves. Per tree of VarkaSmtSamples' hand set and the IR
+        ; fuzzer's unsigned and decimal sequences: the word form's obligations for every input
+        ; (unsat), and the printed outcome pinned at the sample's rows equal to VarkaReference's
+        ; answer, computed while rendering (unsat when every row agrees). VarkaSmtNodesSuite
+        ; holds the same terms to the same answers over BigInteger, on more rows.
+        """);
+    out.append(RENDERED);
+    int k = 0;
+    for (VarkaSmtSamples.Sample s : VarkaSmtSamples.samples(12, 6)) {
+      var printer = new VarkaSmtNodes(s.intLits(), s.longLits());
+      VarkaSmtNodes.Outcome o;
+      try {
+        o = printer.outcome(s.root());
+      } catch (VarkaSmtNodes.Refused r) {
+        continue;
+      }
+      var words = new VarkaSmtTerm.WordForm();
+      VarkaSmtNodes.Outcome p = VarkaSmtSamples.printed(o, s.root(), words);
+      String name = "tree " + k++ + " (" + s.family() + ")";
+      out.append("\n; tree ").append(k - 1).append(": ")
+          .append(VarkaVectorIR.canonical(s.root())).append('\n');
+      var seen = new LinkedHashSet<String>();
+      for (var ob : words.obligations) {
+        if (seen.add(ob.claim().render())) {
+          check(out, name + ": " + ob.what(), "unsat",
+              declared(printer.facts, "(assert (not " + ob.claim().render() + "))", ob.claim()));
+        }
+      }
+      var eqs = new ArrayList<VarkaSmtTerm>();
+      for (int r = 0; r < s.rows().size(); r++) {
+        VarkaSmtSamples.Row row = s.rows().get(r);
+        var by = new LinkedHashMap<String, VarkaSmtTerm>();
+        VarkaSmtSamples.env(row).forEach((v, x) -> by.put(v, x instanceof Boolean b
+            ? new VarkaSmtTerm.Flag(b) : VarkaSmtTerm.num((BigInteger) x)));
+        var a = VarkaSmtSamples.answer(s, s.root(), row);
+        String suffix = "_r" + r;
+        eqs.add(VarkaSmtTerm.app(VarkaSmtTerm.Op.EQ, p.decline().subst(by, suffix),
+            new VarkaSmtTerm.Flag(a.decline())));
+        if (!a.decline()) {
+          eqs.add(VarkaSmtTerm.app(VarkaSmtTerm.Op.EQ, p.valid().subst(by, suffix),
+              new VarkaSmtTerm.Flag(a.valid())));
+        }
+        if (!a.decline() && a.valid()) {
+          VarkaSmtTerm want = a.data() instanceof Boolean b ? new VarkaSmtTerm.Flag(b)
+              : VarkaSmtTerm.num(VarkaSmtSamples.readsWord(s.root())
+                  ? ((BigInteger) a.data()).mod(VarkaSmtTerm.WORD) : (BigInteger) a.data());
+          eqs.add(VarkaSmtTerm.app(VarkaSmtTerm.Op.EQ, p.data().subst(by, suffix), want));
+        }
+      }
+      var all = new VarkaSmtTerm.App(VarkaSmtTerm.Op.AND, eqs);
+      check(out, name + ": the printed outcome is VarkaReference's on " + s.rows().size()
+          + " rows", "unsat", declared(Map.of(), "(assert (not " + all.render() + "))", all));
+    }
+    return out.toString();
   }
 
   /** {@code claim}'s variables declared with their facts and its quotients pinned, then it. */
