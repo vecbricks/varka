@@ -848,11 +848,17 @@ public final class VarkaDifferentialHarnessSuite {
     out.add(new Case("at level 2 a bigint cast to DOUBLE or FLOAT fuses by its AVX2 form and "
         + "matches the row engine; the bounded form declines past 2^51",
         List.of(options(o -> o.withUseAVX(2)
-                .withWideConversionForm(VarkaEmitOptions.WideConversionForm.SPLIT), source,
+                .withWideConversionForm(VarkaEmitOptions.WideConversionForm.XOR_SPLIT)
+                .withRoundToOddByShifts(false), source,
             shape("CAST(l AS DOUBLE) AS v", SERVED),
             shape("CAST(l AS FLOAT) AS v", SERVED),
             shape("x - l AS v", SERVED),
             shape("CAST(l AS DOUBLE) AS a, CAST(l AS FLOAT) AS b, x AS c", SERVED)),
+          options(o -> o.withUseAVX(2)
+                .withWideConversionForm(VarkaEmitOptions.WideConversionForm.SPLIT)
+                .withRoundToOddByShifts(true), source,
+            shape("CAST(l AS DOUBLE) AS v", SERVED),
+            shape("CAST(l AS FLOAT) AS v", SERVED)),
           options(magic, source,
             shape("CAST(l AS DOUBLE) AS v", DECLINES),
             shape("CAST(l AS FLOAT) AS v", SERVED)),
