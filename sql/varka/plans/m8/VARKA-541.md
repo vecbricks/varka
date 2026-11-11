@@ -239,14 +239,14 @@ not, the extract production is dropped and P3 counts the other alone.* The row's
 keeps a duplicated raising subexpression in a form Spark's optimizer does not fold; this step is
 that production. The same line's raising dead `CASE` arms are a third production of the step,
 the SPARK-60774 shape again, where the census should find Varka agreeing with Spark's codegen. A
-disagreement of a committed known difference (item 6 (a), and item 10 under question 4's (c))
+disagreement of a committed known difference (item 6 (a))
 is matched by its reproducer's shape and reported under that name, not as a failure, the way
 row 545 (planned) means to label a codegen-against-interpreter disagreement.
 
 ### 2.4 A served batch's residual filter (question 4)
 
 Item 10's difference is in the plan, not the fallback: the residual `FilterExec` is Spark's, and
-its gate reads what it is given. Recommended (question 4's (a)): `rewriteFilter` asks 2.1's gate
+its gate reads what it is given. Chosen (question 4's (a)): `rewriteFilter` asks 2.1's gate
 at planning of `FilterExec(condition, child)` and of `FilterExec(residual, varka)`, and when the
 first is true, the second false, and a residual conjunct references a common subexpression of
 the whole condition, it leaves the filter to Spark (`None`, the path where no conjunct fuses).
@@ -269,8 +269,8 @@ of its own (item 10).
    case and on item 5's, which it must leave fused.
 3. `VarkaConjunctOrderSuite`: 2.2.
 4. `VarkaSparkReproducerSuite`: 388's reproducer and item 5's case as `status: regression`;
-   item 10's case likewise under question 4's (a), as a known difference naming SPARK-60774
-   under (c); item 6 (a)'s case, if step 1 reaches it, as a known difference naming SPARK-61197.
+   item 10's case likewise, under question 4's (a); item 6 (a)'s case, if step 1 reaches it,
+   as a known difference naming SPARK-61197.
 5. The fuzzer step: a selftest that a seed's compositions before the step are unchanged, and
    that a wrapped draw puts the un-negated `OR` before the reusing conjunct.
 
@@ -333,7 +333,8 @@ Size: **small**, about a day and a half.
 
 *Answered by the owner on 11 November 2026: 1 (a), one copy in `GeneratePredicateHelper`; 2
 yes, 2.1 is kept if step 1 confirms item 5; 3 yes, an upstream ticket is filed for item 5.
-Question 4 was added after them and is open.*
+4 (a), on 11 November 2026 after it was added: the rule leaves such a filter to Spark (2.4),
+and 2.4's check is removed if SPARK-60774's fix makes Spark answer there.*
 
 *11 November 2026: filed as SPARK-61459
 (https://issues.apache.org/jira/browse/SPARK-61459), after a reproduction on Apache Spark
@@ -372,8 +373,8 @@ reads it through Varka's fallback.*
 fallback and kernel alike, in all four cells; item 5's case does too, under `filterExec.enabled`
 on and off, through 2.1, or, if step 1 finds it agreeing at master, as a regression test with
 2.1 dropped and the reason in the outcome; item 10's case answers as Spark's default does in all
-four cells under question 4's (a), or is committed as a known difference naming SPARK-60774
-under (c); item 6 (a)'s case is committed as a known difference naming SPARK-61197 if step 1
+four cells under question 4's (a); item 6 (a)'s case is committed as a known difference naming
+SPARK-61197 if step 1
 reaches it, and recorded as unreachable with the plan that shows it otherwise; the fuzzer's
 census reports wrapped shared-subtree compositions of each production it keeps reached with no
 disagreement but the named known differences; no emitted byte moves.
