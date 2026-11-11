@@ -75,9 +75,10 @@ their output. A variable is checked by name, `echo "$VARKA_HEAVY_LOCK"`.
 - A sheet that says a generated file stays unchanged means `git diff --exit-code -- <file>`
   exits 0 after the sheet's last test run. Anything else is a stop.
 
-## 6. Linters and checks, before the commit
+## 6. Linters and checks
 
-Run all of these on the final tree, in this order, and fix what they report:
+Run steps 1 to 5 on the final tree before the commit, in this order, and fix what they report;
+step 6 runs after it:
 
 1. `dev/varka_precommit.sh` (it also runs as the pre-commit hook).
 2. `git fetch -q origin master` and then
@@ -89,8 +90,10 @@ Run all of these on the final tree, in this order, and fix what they report:
    not take the lock themselves, so they go under `flock`.
 4. `ruff check dev && ruff format --check dev` when the change touches Python.
 5. `python3 dev/varka_plan_lint.py --check --offline`.
-6. `python3 dev/varka_push_check.py` (bare, with the exports of section 2). It prints the size
-   count and runs the suites the diff implies; it must exit 0.
+6. After the commit (section 7), `python3 dev/varka_push_check.py` (bare, with the exports of
+   section 2): it reads the branch's commits, prints the size count and runs the suites the diff
+   implies, and must exit 0. If it makes you change a file, amend the unpushed commit
+   (`git commit --amend --no-edit`) and run it again.
 
 Source lines stay within 100 columns and ASCII outside string literals. A quick check over the
 changed files: `git diff --name-only --diff-filter=ACM origin/master...HEAD | xargs grep -nP
@@ -100,8 +103,9 @@ changed files: `git diff --name-only --diff-filter=ACM origin/master...HEAD | xa
 
 - One commit, or a few, on your branch. The subject is `[VARKA-<n>] <what the change achieves>`,
   at most 80 characters, then a blank line, then a body of a few lines, then a blank line and
-  exactly one attribution line naming the tool and model that wrote the change, in the form
-  `Generated-by: Claude Code (<model>)`. No `Co-Authored-By:`, no session link, no other trailer.
+  exactly one attribution line, `Generated-by: <tool name> (<model name>)`, the agent filling in
+  its own tool and model, for example `Generated-by: Claude Code (Haiku 5.5)`. Nothing else: no
+  `Co-Authored-By:`, no session link, no other trailer.
 - Before committing, edit the row's line in `sql/varka/plans/m8/PLAN.md` as the sheet says
   (usually: it opens with `**Started**` or `**Done**`), because the plan lint counts a
   `[VARKA-<n>]` commit as work on row n.
