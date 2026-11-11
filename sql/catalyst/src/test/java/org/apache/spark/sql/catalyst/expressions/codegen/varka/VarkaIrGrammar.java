@@ -199,6 +199,16 @@ public final class VarkaIrGrammar {
   public static final long BYTE_FUZZ_SEED = 20261109L;
   public static final long SHORT_FUZZ_SEED = 20261110L;
 
+  /**
+   * The seeds of the floating sequences, {@code fuzz_float} and {@code fuzz_double}
+   * ({@link #drawFloatingLaneShape}): trees whose every value is a {@code FLOAT} or a
+   * {@code DOUBLE}, sequences of their own so that no committed corpus moves (`VARKA-341.md` 3.4).
+   * {@code VarkaIrFuzzSuite} runs them against the reference evaluator and
+   * {@code VarkaEmittedBytesSuite} pins their first two thousand shapes.
+   */
+  public static final long FLOAT_FUZZ_SEED = 20261111L;
+  public static final long DOUBLE_FUZZ_SEED = 20261112L;
+
   // The generator's magnitude bounds saturate rather than wrap, in *every* arm that combines
   // two of them - `boundsOf` and the generator alike. Four nested multiplies of a column's own
   // bound pass 2^63, and a bound that came back negative would let `fitsUnderChrono` admit an
@@ -578,7 +588,7 @@ public final class VarkaIrGrammar {
       int pick = depth <= 0 ? rnd.nextInt(3) : rnd.nextInt(6);
       return switch (pick) {
         case 0 -> {
-          CompareOp[] ops = CompareOp.values();
+          CompareOp[] ops = CompareOp.integral().toArray(new CompareOp[0]);
           yield new Compare(ops[rnd.nextInt(ops.length)], value(depth - 1).node(),
               value(depth - 1).node());
         }
@@ -877,7 +887,7 @@ public final class VarkaIrGrammar {
     VarkaVectorIR left = narrowing(rnd, 2 + rnd.nextInt(2), to);
     VarkaVectorIR right = rnd.nextBoolean() ? new ColumnRef(target, to)
         : narrowing(rnd, 2 + rnd.nextInt(2), to);
-    CompareOp[] ops = CompareOp.values();
+    CompareOp[] ops = CompareOp.integral().toArray(new CompareOp[0]);
     int pick = rnd.nextInt(ops.length + 1);
     return pick == ops.length ? new NullSafeEqual(left, right)
         : new Compare(ops[pick], left, right);
@@ -1519,6 +1529,96 @@ public final class VarkaIrGrammar {
   }
 
   /**
+   * Shape {@code k} of a floating sequence, {@link #FLOAT_FUZZ_SEED}'s at {@code FLOAT} and
+   * {@link #DOUBLE_FUZZ_SEED}'s at {@code DOUBLE}: one to three value roots over
+   * {@link FloatingShapes}, or a condition root (a filter) one time in five.
+   */
+  public static DrawnLong drawFloatingLaneShape(Random rnd, LaneType lane) {
+    if (!lane.isFloating()) {
+      throw new IllegalArgumentException("not a floating lane: " + lane);
+    }
+    int numInputs = 1 + rnd.nextInt(3);
+    int numLiterals = rnd.nextInt(3);
+    var shapes = new FloatingShapes(rnd, lane, numInputs, numLiterals);
+    int depth = 1 + rnd.nextInt(4);
+    if (rnd.nextInt(5) == 0) {
+      return new DrawnLong(List.of(shapes.cond(depth)), numInputs, numLiterals);
+    }
+    int count = 1 + rnd.nextInt(3);
+    var drawn = new ArrayList<VarkaVectorIR>();
+    for (int i = 0; i < count; i++) {
+      drawn.add(shapes.value(depth));
+    }
+    return new DrawnLong(distinct(drawn), numInputs, numLiterals);
+  }
+
+  /**
+   * The generator at a floating lane, over the forms the floating lanes order and choose with
+   * (VARKA-341): the leaves, the choice, {@code greatest} and {@code least}, and the conditions -
+   * every comparison in Spark's order and the three IEEE ones a compare against a literal is
+   * specialised into, {@code <=>}, the null test and the connectives. The arithmetic, the casts
+   * and the rounding are rows 342 to 344's, and not drawn. Nothing here can overflow or checks a
+   * bound, so the grammar carries none: a cell or a literal is any value of the type, and the
+   * value source's edges put NaNs of several payloads and both signs, both zeros, the
+   * infinities, the extremes and the smallest subnormal among them.
+   */
+  public static final class FloatingShapes {
+    /** The comparisons a floating lane has: the five of Spark's order and the IEEE three. */
+    static final List<CompareOp> OPS = List.of(CompareOp.LT, CompareOp.LE, CompareOp.GT,
+        CompareOp.GE, CompareOp.EQ, CompareOp.IEEE_EQ, CompareOp.IEEE_LT, CompareOp.IEEE_LE);
+
+    private final Random rnd;
+    private final LaneType lane;
+    private final int numInputs;
+    private final int numLiterals;
+    private int budget = 20;
+
+    FloatingShapes(Random rnd, LaneType lane, int numInputs, int numLiterals) {
+      this.rnd = rnd;
+      this.lane = lane;
+      this.numInputs = numInputs;
+      this.numLiterals = numLiterals;
+    }
+
+    private VarkaVectorIR leaf() {
+      if (numLiterals > 0 && rnd.nextInt(4) == 0) {
+        return new LiteralSlot(rnd.nextInt(numLiterals), lane);
+      }
+      return new ColumnRef(rnd.nextInt(numInputs), lane);
+    }
+
+    VarkaVectorIR value(int depth) {
+      if (depth <= 0 || budget <= 1) {
+        return leaf();
+      }
+      budget -= 1;
+      return switch (rnd.nextInt(5)) {
+        case 0 -> new Greatest(value(depth - 1), value(depth - 1));
+        case 1 -> new Least(value(depth - 1), value(depth - 1));
+        case 2, 3 -> new IfElse(cond(depth - 1), value(depth - 1), value(depth - 1));
+        default -> leaf();
+      };
+    }
+
+    Cond cond(int depth) {
+      budget -= 1;
+      if (depth <= 0 || budget <= 1 || rnd.nextInt(3) == 0) {
+        CompareOp op = OPS.get(rnd.nextInt(OPS.size()));
+        VarkaVectorIR left = value(depth - 1);
+        return new Compare(op, left, value(depth - 1));
+      }
+      return switch (rnd.nextInt(5)) {
+        case 0 -> new NullSafeEqual(value(depth - 1), value(depth - 1));
+        // The null test reads a column's word: the emitter takes no computed value under it.
+        case 1 -> new IsNotNull(new ColumnRef(rnd.nextInt(numInputs), lane));
+        case 2 -> new And(cond(depth - 1), cond(depth - 1));
+        case 3 -> new Or(cond(depth - 1), cond(depth - 1));
+        default -> new Not(cond(depth - 1));
+      };
+    }
+  }
+
+  /**
    * A long-lane shape whose first root, and a random share of the others, is a decimal output: a
    * {@code WidenDecimal} over a long subtree within eighteen digits ({@link LongShapes#decimal}).
    * The other roots are {@link LongShapes#root}'s, so a decimal store shares its kernel with plain
@@ -1769,7 +1869,8 @@ public final class VarkaIrGrammar {
       budget -= 1;
       if (depth == 0 || budget <= 1 || rnd.nextInt(3) == 0) {
         CompareOp[] ops = unsignedCompares
-            ? CompareOp.values() : CompareOp.signed().toArray(new CompareOp[0]);
+            ? CompareOp.integral().toArray(new CompareOp[0])
+            : CompareOp.signed().toArray(new CompareOp[0]);
         CompareOp op = ops[rnd.nextInt(ops.length)];
         VarkaVectorIR left = value(depth).node();
         return new Compare(op, left, value(depth).node());

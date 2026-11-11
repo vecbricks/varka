@@ -111,8 +111,8 @@ public record DecimalWords(long lo, long hi) {
       case LE -> lessThan(CompareOp.ULE, xLo, xHi, yLo, yHi);
       case GT -> lessThan(CompareOp.ULT, yLo, yHi, xLo, xHi);
       case GE -> lessThan(CompareOp.ULE, yLo, yHi, xLo, xHi);
-      case ULT, ULE, UGT, UGE -> throw VarkaErrors.illegalArgument("two decimal values compare "
-          + "signed, not " + op);
+      case ULT, ULE, UGT, UGE, IEEE_EQ, IEEE_LT, IEEE_LE -> throw VarkaErrors.illegalArgument(
+          "two decimal values compare signed, not " + op);
     };
   }
 
