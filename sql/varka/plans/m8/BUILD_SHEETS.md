@@ -16,7 +16,9 @@ disagree, stop and report; do not pick one.
    anything under it.
 2. Work in the worktree the lead names, or make one:
    `git fetch -q origin master && git worktree add --no-track -b varka-<n> ../varka-<n> origin/master`.
-   Stop if `git branch --list 'varka-<n>*'` already prints a branch: someone has started the row.
+   Stop if `git branch --list 'varka-<n>*'` already prints a branch: someone has started the row,
+   or if `git show origin/master:sql/varka/plans/m8/BUILD_SHEETS.md` fails: the sheets have not
+   merged yet.
 3. Install the hooks once in the worktree: `dev/varka_precommit.sh --install-hook`.
 4. Run the sheet's step B0 (the premise re-check) before any edit. A grep that does not print
    what the sheet says it prints is a stop: report the command and its output.
@@ -106,8 +108,9 @@ nothing.
 - Fill the row's plan file's "Outcome" section (add one at the end if it has none): what was
   built, the tests and their results, each prediction the plan registered scored, and anything
   that went differently from the sheet.
-- A planted fault (step B3) is checked by rerunning the step B4 command that runs the test it
-  names, and reverted before the next. A new member goes where the sheet says; where it names
+- Commit the work before the first planted fault (step B3; amend the commit afterwards). A fault
+  is checked by rerunning the step B4 command that runs the test it names, and reverted with
+  `git checkout -- <file>` before the next. A new member goes where the sheet says; where it names
   only the file, directly after the member it is used with.
 - **No push, no pull request, no workflow dispatch, no comment on GitHub.** Stop at the local
   commit and report: the branch, the commit hash, the commands you ran with their results, the

@@ -91,12 +91,11 @@ this row. A type with no registry id throws: no such type reaches an output, sin
 5. **`<main>/VarkaKernelWarmup.java`**:
    - Delete the `start` overload that takes `int numOutputs` (the one with `eightBytes`), and the
      `java.util.Arrays` import if `grep -c 'Arrays\.'` then prints `0`.
-   - The remaining `start`'s javadoc: replace "As above, for outputs of the given bytes per row:
-     eight for a lane's value, sixteen for the slot a decimal output's store writes (VARKA-157),"
-     by "@param dstWidths each output's width, as `VarkaTypes.outputWidth` gives it; a destination
+   - The remaining `start`'s javadoc becomes the deleted overload's (its summary paragraph and its
+     `@param srcWidths`, `nullable` and `kernel`), followed by "@param dstWidths each output's width, as `VarkaTypes.outputWidth` gives it; a destination
      is allocated at least eight bytes a row, so a decimal's is sixteen (VARKA-157) and a bitmap's
-     or a narrow lane's is eight,"; move the first paragraph of the deleted overload's javadoc (the
-     method's summary and its other `@param`s) onto it.
+     or a narrow lane's is eight, and each is registered at the rows a call can reach". The old
+     "As above, ..." paragraph goes.
    - Directly after the remaining `start`, add `static long destinationBytes(int width) { return Math.max(width, Long.BYTES); }` with the
      javadoc "The bytes a row the warm-up allocates for an output of {@code width}: its width, and
      at least eight, a lane's value, which a bitmap's marker of -1 also takes." In `Job`, both
@@ -104,8 +103,9 @@ this row. A type with no registry id throws: no such type reaches an output, sin
 6. **The three callers of the deleted overload** pass widths explicitly, eight for each output
    (their outputs are lane values):
    - `<test>/VarkaKernelWarmupProbe.java` and `<test>/VarkaKernelHistoryProbe.java`: build
-     `int[] widths = new int[n]; Arrays.fill(widths, Long.BYTES);` with `n` the argument they
-     passed (`numOutputs`, `s.roots().size()`), pass `widths`, and import `java.util.Arrays`.
+     `int[] outWidths = new int[n]; Arrays.fill(outWidths, Long.BYTES);` (the history probe
+     already has an input `widths`) with `n` the argument they
+     passed (`numOutputs`, `s.roots().size()`), pass `outWidths` as `dstWidths`, and import `java.util.Arrays`.
    - `sql/catalyst/src/test/scala/.../VarkaSanitizedWarmupSuite.scala`: `1` becomes `Array(8)`.
 7. **`sql/core/src/test/java/org/apache/spark/sql/execution/VarkaSameAnswerCoreContractSuite.java`**:
    `VarkaKernelRunner.outputWidth(served)` becomes `VarkaTypes.outputWidth(p.type())`; import
@@ -133,7 +133,7 @@ this row. A type with no registry id throws: no such type reaches an output, sin
    varka_times_big", cache)` where `cache(session)` builds `numRows` rows
    `(if (i % 7 == 3) null else java.time.LocalTime.ofSecondOfDay(i % 86400).withNano(i % 1000 *
    1000000), i)` with `session.createDataFrame(rows).toDF("t", "i")`, makes the view
-   `varka_times_big`, caches it and counts it, as the boolean test's builder does. Then it
+   `varka_times_big`, caches it and counts it, as the boolean test's builder does, at the default batch size (four batches). Then it
    asserts `checked()` grew. Oracle: the row engine's answer (`checkWarmup` compares both runs
    with it) and the sanitizer, which fails a store past a destination's registered rows.
 
@@ -189,7 +189,7 @@ About 120 counted lines: the function 20, the evaluator and runner 15, the warm-
 
 ### B9. Afterwards (the lead)
 
-The agent's commit subject: `[VARKA-566] Size Varka outputs by one width function of the type`.
+For the agent: the commit subject is `[VARKA-566] Size Varka outputs by one width function of the type`.
 
 Review and push. Open pull requests on the same files: #1478 and #1484 (`VarkaEvaluatorBase.java`,
 the families' javadoc near `emitOptions`, another function) and #1428, #1478, #1484 (`PLAN.md`):

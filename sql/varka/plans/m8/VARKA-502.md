@@ -351,7 +351,8 @@ grep -nE '"\((condConst:|boolCmp:|condIf |boolNullSafeEq )|"bool:"' \
      - an `InvocationTargetException` whose `getCause()` is an `IllegalArgumentException`
        (`SparkIllegalArgumentException` is one) skips that value; any other exception fails the
        test (throw it, do not catch it).
-     The test method declares `throws ReflectiveOperationException`.
+     The test method declares `throws ReflectiveOperationException`. Put `normalised`, the
+     walk and `variants` directly after `assertRoundTrips`.
    - `malformedIrIsRefused`: add four `assertThrows(IllegalArgumentException.class, ...)` lines,
      with the comment "A boolean head over values, an unknown truth, and a boolean leaf or
      constant with a part too many.": `(boolCmp:LT col:0 lit:0)`, `(condConst:MAYBE)`,
@@ -366,7 +367,8 @@ grep -nE '"\((condConst:|boolCmp:|condIf |boolNullSafeEq )|"bool:"' \
        `new KernelCall(100, 0, <widths>, <inputs>, null, false)` and the file is built as
        `bitOutputReplays` builds `written` (the same signature, stage `KERNEL_FAILURE`, empty
        strings, `false` flags, rendered default options), with these counts, literals and class
-       bytes. Class bytes
+       bytes; `hash` is `VarkaShapeCacheImpl.shapeHash(new VarkaShapeKey(outputs, 3, 1,
+       VarkaEmitOptions.DEFAULTS))` and each output's text `VarkaVectorIR.canonical(o)`. Class bytes
        from `VarkaLoopEmitter.emit(VarkaShapeCacheImpl.classNameFor(hash), outputs, 3, 1,
        VarkaShapeCacheImpl.sourceFileFor(hash), "shape " + hash, VarkaEmitOptions.DEFAULTS)`, as
        `verifyFailureReplays` builds them. Read the file back through
@@ -454,7 +456,7 @@ flock "$VARKA_HEAVY_LOCK" build/sbt 'catalyst/testOnly *VarkaReproductionSuite'
 flock "$VARKA_HEAVY_LOCK" build/sbt 'set LocalProject("sql") / Test / javaOptions += "-Dvarka.sanitizeMemory=true"' 'sql/testOnly *VarkaReproductionEndToEndSuite'
 # expected: every test passes, none canceled (the sanitizer test runs)
 python3 dev/varka_push_check.py --self-test     # expected: OK
-ruff check dev/varka_push_check.py && ruff format --check dev/varka_push_check.py
+ruff check dev && ruff format --check dev
 ```
 
 Then the planted faults (B3), then section 6 of `BUILD_SHEETS.md`. `git status --short` after the
@@ -491,8 +493,8 @@ suite 40, the script 2, the skill 3, the plan and outcome 40.
 
 ### B9. Afterwards (the lead, not the agent)
 
-The agent's commit subject: `[VARKA-502] Replay every IR node from a reproduction file`. The
-outcome goes in section 10, scoring section 4's P1 to P4.
+For the agent: the commit subject is `[VARKA-502] Replay every IR node from a reproduction
+file`, and the outcome goes in section 10, scoring section 4's P1 to P4.
 
 Review and push. No benchmark, no EPYC dispatch. Open pull requests touching the same files:
 #1428, #1478 and #1484 edit `PLAN.md` only (rebase if one merged first; the conflict is in

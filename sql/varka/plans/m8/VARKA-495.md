@@ -177,9 +177,8 @@ fixture (B1 item 5), because `VarkaSparkFuzz` builds only the columns its draws 
        case other => throw new IllegalArgumentException(s"$path has no columns object: $other")
      }
    ```
-   Import `JObject` beside `JString`. In `read`, `val columns = columns(path)` replaces the
-   `extract[Map[String, String]]` lines (the name shadows the method; name the local `cols` and
-   use it in `Table(cols, ...)`).
+   Import `JObject` beside `JString`. In `read`, `val cols = columns(path)` replaces the
+   `extract[Map[String, String]]` lines, and the result is `Table(cols, projections, predicates)`.
 2. **`<scala>/VarkaEmittedBytesSuite.scala`**:
    - Delete the 35 `AttributeReference` vals, their comments and the `columns` list. In their
      place: `private lazy val columns: Seq[Attribute] =
@@ -196,9 +195,11 @@ fixture (B1 item 5), because `VarkaSparkFuzz` builds only the columns its draws 
      `val resolved = try VarkaSqlResolve.resolve(CatalystSqlParser.parseExpression(executable),
      cols) catch { case e: Exception => fail(s"coverage row `$sql` does not resolve against the
      columns of ${file.getName}: ${e.getMessage}", e) }` (the resolver's message names the column:
-     "unknown column <name>"). The claim line stays and takes the resolved row:
-     `parsed.map(asCatalystClaims(_, catalyst))` becomes `asCatalystClaims(resolved, catalyst)`.
-     `skipped` and its builder go; the decline `fail` stays. Update the
+     "unknown column <name>"). Then `val claimed = asCatalystClaims(resolved, catalyst)` (no `Option` is left), and
+     `val compiled = if (form == "predicate") VarkaExpressionCompiler.compilePredicate(claimed,
+     cols, VarkaEmitOptions.DEFAULTS, VarkaAdmission.NO_HOST_REFUSAL).toScala.map(_.fused) else
+     VarkaExpressionCompiler.compile(Seq(Alias(claimed, "c")()), cols).toScala`; its match keeps
+     `case Some(c)` and the decline `fail` as `case None`. `skipped` and its builder go. Update the
      scaladoc: a row that does not parse or resolve now fails, naming the row and the column.
    - All seven `val (rows, _) = coverage` and `val (rows, skipped) = coverage` become
      `val rows = coverage`;
@@ -230,8 +231,8 @@ fixture (B1 item 5), because `VarkaSparkFuzz` builds only the columns its draws 
      with the clue `s"$name.${a.name}"`.
    - `<core>/VarkaSparkFuzzSuite.scala`, a test after "the fixture builds for every drawn case,
      ...": "the fixture holds every column of coverage.json its draws read, at its type". The
-     wanted columns are those of `VarkaCoverageRows.columns(...)` whose name neither
-     `VarkaCoverageRows.readsBoolean`, `readsNarrow` nor `readsDecimal` matches (the rows the
+     wanted columns are those of `VarkaCoverageRows.columns(...)` whose name, passed as the
+     argument, neither `VarkaCoverageRows.readsBoolean`, `readsNarrow` nor `readsDecimal` matches (the rows the
      fuzzer draws, `VarkaSparkFuzz.coverageRows`, are filtered by the same three); the schema is
      `spark.sql(VarkaSparkFuzz.fixtureSql(VarkaSparkFuzz.drawData(new Random(495), 1, safe =
      true))).schema`; the assertion is the one above. Eighteen columns are wanted
@@ -270,8 +271,8 @@ generated file; `dev/varka_precommit.sh`'s `lane_inputs`, which may keep naming
 
 1. In `VarkaCoverageRows.columns`, return `fields.sortBy(_._1).map(...)`: the new coverage-suite
    test fails, and `VarkaEmittedBytesSuite` fails on moved bytes.
-2. In `coverageOf`, catch the resolve's exception and skip the row instead of failing: the new
-   bytes-suite test fails.
+2. In `coverageOf`'s resolve guard, replace the `fail(...)` message by `"x"`: the new bytes-suite
+   test fails on its message assertions.
 3. In the differential fixture's `fixtureView`, rename `AS d8` to `AS d8x`: the new differential
    test fails naming `d8`. In the fuzz fixture, rename `AS ntz2` to `AS ntz3`: the new fuzz test
    fails naming `ntz2`.
@@ -324,7 +325,7 @@ outcome 25.
 
 ### B9. Afterwards (the lead)
 
-The agent's commit subject: `[VARKA-495] Read the coverage table's columns from coverage.json`.
+For the agent: the commit subject is `[VARKA-495] Read the coverage table's columns from coverage.json`.
 Score section 4's P1 and P2 in section 8.
 
 Review and push. Open pull requests on the same files: #1428 (`VarkaEmittedBytesSuite.scala`,
