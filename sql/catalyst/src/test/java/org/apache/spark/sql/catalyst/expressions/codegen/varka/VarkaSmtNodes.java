@@ -353,6 +353,8 @@ final class VarkaSmtNodes {
       case ULE -> Op.JLONG_ULE;
       case UGT -> Op.JLONG_UGT;
       case UGE -> Op.JLONG_UGE;
+      // Unreachable while sortOf refuses the floating lanes, the only ones with these.
+      case IEEE_EQ, IEEE_LT, IEEE_LE -> throw new Refused(n, "an IEEE compare: a floating lane's");
     };
     return new Outcome(or(l.decline(), r.decline()), and(l.valid(), r.valid()),
         app(op, l.data(), r.data()));
