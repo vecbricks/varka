@@ -69,19 +69,22 @@ file. It stays as it is; the agent reports it, and the lead files it.
    instanceof In in) { ... }` block with `expr = VarkaSqlResolve.inSetAsClaimed(expr, inSet);`.
    Remove the imports of `In` and `InSet` (nothing else uses them); keep `HashSet`, which other
    methods use. The method's javadoc sentence about the `InSet` stays true.
-4. **`<java>/VarkaDecimalInSuite.java`**, two tests after `inSetPastTheThreshold`:
+4. **`<java>/VarkaDecimalInSuite.java`**, two tests after `inSetPastTheThreshold`. Each builds
+   its columns once, `var cols = seq(List.of(VarkaSqlResolve.column("i", DataTypes.IntegerType),
+   VarkaSqlResolve.column("d18", new DecimalType(18, 2))))` (the file's own `seq` helper), and
+   parses each string once with `VarkaSqlResolve.parse(text, cols)`; import `assertSame`,
+   `assertThrows` and `DataTypes`.
    - `@DisplayName("the coverage table's InSet rewrite is the optimizer's, for an int and a
-     decimal row")`: columns `i` (`IntegerType`) and `d18` (`new DecimalType(18, 2)`) from
-     `VarkaSqlResolve.column`; for each of two coverage rows' `executable` spellings, pasted as
+     decimal row")`: for each of two coverage rows' `executable` spellings, pasted as
      string literals - the rows whose `sql` is `i IN (11 to 16 int literals)` and
      `d18 IN (11 to 16 decimal literals)`, which
      `python3 -c "import json; [print(r['executable']) for r in json.load(open('sql/varka/coverage.json'))['expressions'] if r['sql'].startswith(('i IN (11', 'd18 IN (11'))]"`
      prints - parse with `VarkaSqlResolve.parse`, then assert
      `assertEquals(VarkaSqlResolve.optimizeIn(parsed, cols), VarkaSqlResolve.inSetAsClaimed(parsed,
      true))`, and `assertSame(parsed, VarkaSqlResolve.inSetAsClaimed(parsed, false))`.
-   - `@DisplayName("a row that claims an InSet and resolves to anything else is refused")`: over
-     the same columns, `inSetAsClaimed(parse("d18 > 0.42"), true)` and
-     `inSetAsClaimed(parse("i IN (1, i)"), true)` each throw `IllegalArgumentException`, the first
+   - `@DisplayName("a row that claims an InSet and resolves to anything else is refused")`:
+     `inSetAsClaimed(parse("d18 > 0.42"), true)` and
+     `inSetAsClaimed(parse("i IN (1, i)"), true)` each throw (`assertThrows(IllegalArgumentException.class, ...)`), the first
      message containing "resolved to GreaterThan", the second "resolved to In".
 5. **`PLAN.md` row 567**: replace the row's opening `**Planned**` with `**Done**`.
 6. **This file**: an "Outcome" section at the end, as `BUILD_SHEETS.md` section 7 says.
@@ -102,8 +105,8 @@ helper); any generated file; any main source.
 
 1. In `inSetAsClaimed` build `InSet(value, list.toSet)` (no `eval`): the first new test fails on
    the decimal row (and on the int row: the set holds expressions, not values).
-2. Delete the `case other if claimsInSet` arm: the second new test fails ("expected
-   IllegalArgumentException").
+2. Delete the `case other if claimsInSet` arm: the second new test fails ("Expected
+   java.lang.IllegalArgumentException to be thrown, but nothing was thrown").
 Revert each before the next.
 
 ### B4. Commands, in order
@@ -120,7 +123,7 @@ All pass, and the `git diff` exits 0. Then the planted faults, then `BUILD_SHEET
 
 `grep -c 'asCatalystClaims' <scala>/VarkaEmittedBytesSuite.scala` prints `0`;
 `grep -c 'inSetAsClaimed' <java>/VarkaWarmupReach.java <scala>/VarkaEmittedBytesSuite.scala`
-prints `1` for each; the commands of B4 pass; `python3 dev/varka_push_check.py` exits 0.
+prints `:1` and `:2` (the call, and the comment above `parsed`); the commands of B4 pass; `python3 dev/varka_push_check.py` exits 0.
 
 ### B6. Size
 
@@ -144,6 +147,8 @@ and outcome 20.
   to rebase onto it.
 
 ### B9. Afterwards (the lead)
+
+The agent's commit subject: `[VARKA-567] Rewrite a coverage row into an InSet in one place`.
 
 Review, push, and file the third copy (`VarkaWidthAuditShapes.asCatalystClaims`) as a row. Open
 pull requests on the same files: #1436 (`VarkaSqlResolve.scala`, a new `replaced` method near

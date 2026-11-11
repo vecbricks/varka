@@ -27,7 +27,7 @@ main), which both sql/core and catalyst can call, and it reads the registry's ow
 
 | Storage (`VarkaTypes.Info.storage()`) | Types | `outputWidth` returns |
 |---|---|---|
-| `Plain(bits)` | BYTE 1, SHORT 2, INT, DATE, YM_INTERVAL, FLOAT 4; LONG, DOUBLE, TIME, DT_INTERVAL, TIMESTAMP_NTZ 8 | `bits / 8` |
+| `Plain(bits)` | BYTE 1, SHORT 2, INT, DATE, YM_INTERVAL, FLOAT 4; LONG, DOUBLE, TIME, DT_INTERVAL, TIMESTAMP_NTZ, TIMESTAMP (declined, never an output) 8 | `bits / 8` |
 | `DecimalSlot` | DECIMAL, every precision | `16` |
 | `Bitmap` | BOOLEAN | `VarkaReproduction.KernelCall.BIT_OUTPUT` (`-1`) |
 
@@ -36,7 +36,8 @@ The evaluator's destinations take this width as the kernel's `dstWidth`, exactly
 `BitVector`). The warm-up takes the same widths and allocates `Math.max(width, Long.BYTES)` bytes a
 row for each destination, so its sizes do not change: sixteen for a decimal, eight for every other
 output and for a filter's selection, as today. Tightening the warm-up to exact widths is out of
-this row.
+this row. A type with no registry id throws: no such type reaches an output, since
+`VarkaLaneArrow.allocate` already returns no vector for it and the plan declines it.
 
 ### B0. Premise re-check
 
@@ -96,7 +97,7 @@ this row.
      is allocated at least eight bytes a row, so a decimal's is sixteen (VARKA-157) and a bitmap's
      or a narrow lane's is eight,"; move the first paragraph of the deleted overload's javadoc (the
      method's summary and its other `@param`s) onto it.
-   - Add `static long destinationBytes(int width) { return Math.max(width, Long.BYTES); }` with the
+   - Directly after the remaining `start`, add `static long destinationBytes(int width) { return Math.max(width, Long.BYTES); }` with the
      javadoc "The bytes a row the warm-up allocates for an output of {@code width}: its width, and
      at least eight, a lane's value, which a bitmap's marker of -1 also takes." In `Job`, both
      `allocRows(..., dstWidths[o])` become `allocRows(..., destinationBytes(dstWidths[o]))`.
@@ -107,7 +108,8 @@ this row.
      passed (`numOutputs`, `s.roots().size()`), pass `widths`, and import `java.util.Arrays`.
    - `sql/catalyst/src/test/scala/.../VarkaSanitizedWarmupSuite.scala`: `1` becomes `Array(8)`.
 7. **`sql/core/src/test/java/org/apache/spark/sql/execution/VarkaSameAnswerCoreContractSuite.java`**:
-   `VarkaKernelRunner.outputWidth(served)` becomes `VarkaTypes.outputWidth(p.type())`.
+   `VarkaKernelRunner.outputWidth(served)` becomes `VarkaTypes.outputWidth(p.type())`; import
+   `org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTypes`.
 8. **Tests** (B2): one assertion in `VarkaLaneArrowSuite`, one test in `VarkaWarmupEndToEndSuite`.
 9. **`PLAN.md` row 566**: the row opens `**Planned** (5 November 2026, ...`; replace
    `**Planned**` with `**Done**`. **This file**: an "Outcome" section at the end.
@@ -153,11 +155,14 @@ flock "$VARKA_HEAVY_LOCK" build/sbt 'sql/testOnly *VarkaSameAnswerCoreContractSu
 ```
 
 Every suite passes with no test canceled (the two `assume`-gated warm-up tests run). Then the
-planted faults, then `BUILD_SHEETS.md` section 6. No generated file moves.
+planted faults, then `BUILD_SHEETS.md` section 6. No generated file moves: `git diff
+--exit-code -- sql/varka/coverage.json sql/varka/emitted_bytes.json sql/varka/width_audit.json`
+exits 0.
 
 ### B5. Done when
 
-`grep -rn 'VarkaKernelRunner.outputWidth\|eightBytes\|instanceof DecimalType ? 16' sql` prints
+`grep -rn 'VarkaKernelRunner.outputWidth\|eightBytes\|instanceof DecimalType ? 16'
+sql/catalyst/src/main sql/core/src/main sql/catalyst/src/test/java sql/core/src/test/java` prints
 nothing; `grep -c 'VarkaTypes.outputWidth' <core>/VarkaEvaluatorBase.java` prints `2`; B4 passes;
 `python3 dev/varka_push_check.py` exits 0.
 
@@ -183,6 +188,8 @@ About 120 counted lines: the function 20, the evaluator and runner 15, the warm-
 - The selection note's "decimal above 18 digits 16, else 8" is wrong for master and is not used.
 
 ### B9. Afterwards (the lead)
+
+The agent's commit subject: `[VARKA-566] Size Varka outputs by one width function of the type`.
 
 Review and push. Open pull requests on the same files: #1478 and #1484 (`VarkaEvaluatorBase.java`,
 the families' javadoc near `emitOptions`, another function) and #1428, #1478, #1484 (`PLAN.md`):

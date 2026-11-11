@@ -285,13 +285,19 @@ Each command prints what follows it; anything else is a stop.
 | Command (from the worktree root) | Expected |
 |---|---|
 | `grep -c NOT_PARSED_YET <dir>/VarkaReproductionSuite.java` | `3` |
-| `grep -cE '"(bool\|condConst\|boolCmp\|condIf\|boolNullSafeEq)"' <dir>/VarkaCanonicalIr.java` | `0` |
 | `grep -n 'byte for byte' <dir>/VarkaReplay.java` | one line, inside `of`, a `notes.add` |
 | `grep -n 'private def assertReplays' sql/core/src/test/scala/org/apache/spark/sql/execution/VarkaReproductionEndToEndSuite.scala` | one line |
 | `grep -n NOT_PARSED_YET dev/varka_push_check.py` | two lines: `REGISTRY_PATTERN` and the `VarkaReproductionSuite` entry of `REGISTRIES` |
-| `grep -nE '"\((condConst:\|boolCmp:\|condIf \|boolNullSafeEq )\|"bool:"' sql/catalyst/src/main/java/org/apache/spark/sql/catalyst/expressions/codegen/varka/VarkaVectorIR.java` | ten lines, five in `canonical` and five in `canonicalShallow` |
 
-(`<dir>` is the directory named above. In the table `\|` is a plain `|` inside the regex.)
+(`<dir>` is the directory named above.) Two more, outside the table so their `|` stay plain:
+
+```
+grep -cE '"(bool|condConst|boolCmp|condIf|boolNullSafeEq)"' <dir>/VarkaCanonicalIr.java
+# 0
+grep -nE '"\((condConst:|boolCmp:|condIf |boolNullSafeEq )|"bool:"' \
+  sql/catalyst/src/main/java/org/apache/spark/sql/catalyst/expressions/codegen/varka/VarkaVectorIR.java
+# ten lines, five in canonical and five in canonicalShallow
+```
 
 ### B1. Scope
 
@@ -356,13 +362,18 @@ Each command prints what follows it; anything else is a stop.
        new ColumnRef(2), new LiteralSlot(0)), new BoolColumn(1))))`, 3 inputs, 1 literal, 100
        rows; inputs `Input(1, 16, 0, 0, false, <13 random bytes>, null)` twice and
        `Input(4, 400, 0, 0, false, <400 random bytes>, null)` (`new Random(502)`); output widths
-       `List.of(VarkaReproduction.KernelCall.BIT_OUTPUT)`; int literals `List.of(0)`; class bytes
+       `List.of(VarkaReproduction.KernelCall.BIT_OUTPUT)`; int literals `List.of(0)`. The call is
+       `new KernelCall(100, 0, <widths>, <inputs>, null, false)` and the file is built as
+       `bitOutputReplays` builds `written` (the same signature, stage `KERNEL_FAILURE`, empty
+       strings, `false` flags, rendered default options), with these counts, literals and class
+       bytes. Class bytes
        from `VarkaLoopEmitter.emit(VarkaShapeCacheImpl.classNameFor(hash), outputs, 3, 1,
        VarkaShapeCacheImpl.sourceFileFor(hash), "shape " + hash, VarkaEmitOptions.DEFAULTS)`, as
        `verifyFailureReplays` builds them. Read the file back through
        `VarkaReproduction.parse(written.render())`, replay it, and assert `actual()` is empty,
        `notes()` contains "the kernel returned", and `sameClass()` is `Optional.of(true)`. Then
-       replay a copy whose class bytes have byte 100 incremented and assert `sameClass()` is
+       replay a copy (the same constructor call, with a clone of the bytes) whose byte 100 is
+       incremented, and assert `sameClass()` is
        `Optional.of(false)`.
      - `@DisplayName("a decimal kernel's file replays to the class it carries, byte for byte")`:
        outputs `List.of(new DecimalColumn(0, LaneType.LONG, 9), new IntArith(IntOp.ADD,
@@ -370,14 +381,16 @@ Each command prints what follows it; anything else is a stop.
        1 input, 1 literal, 64 rows; input `Input(16, 1024, 0, 0, false, data, null)` where slot
        `r` holds the long `(r - 32) * 1001L` little-endian in bytes `16r .. 16r+7` and its sign
        extension (`0` or `-1` bytes) in `16r+8 .. 16r+15`; output widths `List.of(8, 8)`; long
-       literals `List.of(5L)`, int literals empty. Same three assertions as above.
+       literals `List.of(5L)`, int literals empty; the call and the file as above. The first three
+       assertions as above.
 3. **`VarkaReplay.java`.** Add a fourth record component `Optional<Boolean> sameClass` with the
    javadoc `@param sameClass whether the emitter rebuilt the class the file carries byte for byte;
-   empty when the file carries none, or the emitter threw`. In `of`, compute
-   `Optional<Boolean> same = file.classBytes() == null ? Optional.empty()
-   : Optional.of(Arrays.equals(bytes, file.classBytes()))` where the note is written (keep the
-   note), and pass it to `done` and `failed`, which gain the parameter. The emitter-threw path
-   passes `Optional.empty()`.
+   empty when the file carries none, or the emitter threw`. `done` and `failed` gain a last
+   parameter `Optional<Boolean> sameClass`. In `of`, the emitter-threw `failed` passes
+   `Optional.empty()`; directly after that try/catch declare `Optional<Boolean> same =
+   file.classBytes() == null ? Optional.empty() : Optional.of(Arrays.equals(bytes,
+   file.classBytes()));` (the note block below it stays as it is), and every later `done` and
+   `failed` call in `of` passes `same`.
 4. **`sql/core/.../execution/VarkaReproductionEndToEndSuite.scala`.**
    - `assertReplays`: after the `reproduced()` assertion, when `file.classBytes() != null`,
      `assert(replay.sameClass().isPresent && replay.sameClass().get().booleanValue(),
@@ -394,7 +407,8 @@ Each command prints what follows it; anything else is a stop.
      `data().length == (call.rows() + 7) / 8`; `file.classBytes() != null`; then
      `assertReplays(file)`.
 5. **`dev/varka_push_check.py`.** In `REGISTRY_PATTERN` drop `|NOT_PARSED_YET`. The
-   `VarkaReproductionSuite` entry of `REGISTRIES` becomes `("round trip", BUILT, ())`.
+   `VarkaReproductionSuite` entry of `REGISTRIES` becomes `("round trip", BUILT, ())`: the
+   `\b{n}\.class` alternative goes too, since no `.class` list is left in the suite.
 6. **`sql/varka/skills/testing-and-debugging.md`**, the bullet "The canonical IR is a complete
    serialization of a kernel": replace its last sentence ("A new node type fails that test until
    the parser has a case for it.") with "The round trip has no exemption list: a new record, or a
@@ -448,8 +462,8 @@ last run lists only the files of B1: no generated file moves.
 
 ### B5. Done when
 
-`grep -c NOT_PARSED_YET <dir>/VarkaReproductionSuite.java dev/varka_push_check.py` prints `0`
-twice; the two `testOnly` runs above pass with no canceled test; `python3 dev/varka_push_check.py`
+`grep -c NOT_PARSED_YET <dir>/VarkaReproductionSuite.java dev/varka_push_check.py` prints two
+`<path>:0` lines; the two `testOnly` runs above pass with no canceled test; `python3 dev/varka_push_check.py`
 exits 0.
 
 ### B6. Size
@@ -476,6 +490,9 @@ suite 40, the script 2, the skill 3, the plan and outcome 40.
 - The end-to-end query and the catalyst replays' shapes are fixed by this sheet.
 
 ### B9. Afterwards (the lead, not the agent)
+
+The agent's commit subject: `[VARKA-502] Replay every IR node from a reproduction file`. The
+outcome goes in section 10, scoring section 4's P1 to P4.
 
 Review and push. No benchmark, no EPYC dispatch. Open pull requests touching the same files:
 #1428, #1478 and #1484 edit `PLAN.md` only (rebase if one merged first; the conflict is in

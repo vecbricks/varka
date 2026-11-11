@@ -151,7 +151,7 @@ fixture (B1 item 5), because `VarkaSparkFuzz` builds only the columns its draws 
 | `grep -c 'AttributeReference("' <scala>/VarkaEmittedBytesSuite.scala <scala>/VarkaWidthAuditShapes.scala` | `35` for each |
 | `grep -n 'extract\[Map\[String, String\]\]' <scala>/VarkaCoverageRows.scala` | one line, in `read` |
 | `grep -n 'private lazy val coverage: (Seq\[CoverageShape\], Seq\[String\])' <scala>/VarkaEmittedBytesSuite.scala` | one line |
-| `grep -n 'val (rows, _) = coverage\|val (rows, skipped) = coverage' <scala>/VarkaEmittedBytesSuite.scala` | two lines |
+| `grep -n 'val (rows, _) = coverage\|val (rows, skipped) = coverage' <scala>/VarkaEmittedBytesSuite.scala` | seven lines, one `(rows, skipped)` |
 | `grep -n '"coverage_rows_skipped" : \[ \]' sql/varka/emitted_bytes.json` | one line |
 | `grep -n 'WIDTH_AUDIT' dev/varka_new_lane.py` | three lines |
 | `grep -n 'needs one in five places' sql/varka/ADDING_A_TYPE.md` | one line, in step 11 |
@@ -159,7 +159,7 @@ fixture (B1 item 5), because `VarkaSparkFuzz` builds only the columns its draws 
 
 ### B1. Scope
 
-1. **`<scala>/VarkaCoverageRows.scala`**: a new method, and `read` calls it for its columns:
+1. **`<scala>/VarkaCoverageRows.scala`**: a new method directly above `read`, which calls it:
 
    ```scala
    /**
@@ -196,9 +196,12 @@ fixture (B1 item 5), because `VarkaSparkFuzz` builds only the columns its draws 
      `val resolved = try VarkaSqlResolve.resolve(CatalystSqlParser.parseExpression(executable),
      cols) catch { case e: Exception => fail(s"coverage row `$sql` does not resolve against the
      columns of ${file.getName}: ${e.getMessage}", e) }` (the resolver's message names the column:
-     "unknown column <name>"). `skipped` and its builder go; the decline `fail` stays. Update the
+     "unknown column <name>"). The claim line stays and takes the resolved row:
+     `parsed.map(asCatalystClaims(_, catalyst))` becomes `asCatalystClaims(resolved, catalyst)`.
+     `skipped` and its builder go; the decline `fail` stays. Update the
      scaladoc: a row that does not parse or resolve now fails, naming the row and the column.
-   - `val (rows, _) = coverage` and `val (rows, skipped) = coverage` become `val rows = coverage`;
+   - All seven `val (rows, _) = coverage` and `val (rows, skipped) = coverage` become
+     `val rows = coverage`;
      `"coverage_rows_skipped" -> skipped.asJava` becomes
      `"coverage_rows_skipped" -> java.util.List.of[String]()`, so the file keeps its empty list and
      is byte-identical. The regeneration's skip comparison stays.
@@ -314,11 +317,15 @@ outcome 25.
 
 - Question 1, yes: "the plan's recommendation, taken by the lead on 11 November 2026".
 - The fuzz fixture's assertion covers only the columns its draws read, as B1 item 5 says.
-- Row 567 lands first and also edits `VarkaEmittedBytesSuite.coverage`: if it merged first, the
-  claim call in `coverageOf` is its `VarkaSqlResolve.inSetAsClaimed(resolved,
-  catalyst.contains("InSet"))`; keep that line as master has it.
+- Row 567 lands first and also edits `VarkaEmittedBytesSuite.coverage`. If it has merged when
+  you start, master's claim line reads `parsed.map(VarkaSqlResolve.inSetAsClaimed(_,
+  catalyst.contains("InSet")))` instead of `asCatalystClaims`: apply B1 item 2 to that line the
+  same way (`VarkaSqlResolve.inSetAsClaimed(resolved, catalyst.contains("InSet"))`).
 
 ### B9. Afterwards (the lead)
+
+The agent's commit subject: `[VARKA-495] Read the coverage table's columns from coverage.json`.
+Score section 4's P1 and P2 in section 8.
 
 Review and push. Open pull requests on the same files: #1428 (`VarkaEmittedBytesSuite.scala`,
 the option arms), #1478 and #1484 (`VarkaWidthAuditShapes.scala`: `coverageRows` and

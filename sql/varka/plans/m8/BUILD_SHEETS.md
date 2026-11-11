@@ -18,7 +18,7 @@ disagree, stop and report; do not pick one.
    `git fetch -q origin master && git worktree add --no-track -b varka-<n> ../varka-<n> origin/master`.
    Stop if `git branch --list 'varka-<n>*'` already prints a branch: someone has started the row.
 3. Install the hooks once in the worktree: `dev/varka_precommit.sh --install-hook`.
-4. Run the sheet's step 0 (the premise re-check) before any edit. A grep that does not print
+4. Run the sheet's step B0 (the premise re-check) before any edit. A grep that does not print
    what the sheet says it prints is a stop: report the command and its output.
 
 ## 2. The environment
@@ -103,8 +103,12 @@ nothing.
 - Before committing, edit the row's line in `sql/varka/plans/m8/PLAN.md` as the sheet says
   (usually: it opens with `**Started**` or `**Done**`), because the plan lint counts a
   `[VARKA-<n>]` commit as work on row n.
-- Add to the row's plan file a short "Outcome" section: what was built, the tests and their
-  results, each prediction scored, and anything that went differently from the sheet.
+- Fill the row's plan file's "Outcome" section (add one at the end if it has none): what was
+  built, the tests and their results, each prediction the plan registered scored, and anything
+  that went differently from the sheet.
+- A planted fault (step B3) is checked by rerunning the step B4 command that runs the test it
+  names, and reverted before the next. A new member goes where the sheet says; where it names
+  only the file, directly after the member it is used with.
 - **No push, no pull request, no workflow dispatch, no comment on GitHub.** Stop at the local
   commit and report: the branch, the commit hash, the commands you ran with their results, the
   size count `dev/varka_push_check.py` printed, and every stop rule you met.
