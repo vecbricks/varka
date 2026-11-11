@@ -84,7 +84,8 @@ reading taken: build what needs no decision of another row, and pin the rest.
   `DECIMAL(1, 0)` (`literalPickMinimumPrecision`, on by default), so its compare stays within the
   column's type wherever the column has an integral digit (a `DECIMAL(p, p)` compares at
   `DECIMAL(p + 1, p)`, which a session's `UnwrapCastInBinaryComparison` moves back to the
-  column's type); that of `zeroifnull` widens as `DECIMAL(10, 0)`, so it fuses to scale 8.
+  column's type); that of `zeroifnull` widens as `DECIMAL(10, 0)`, so its comparison fuses to
+  scale 8, and its null test at every scale, past 18 digits as the next item says.
 * **The null tests past 18 digits** (added after the review, 10 November 2026). A null test of a
   wide value reads its validity alone (`wideProbe`, then `valid`), and needs no words for the
   `NULL` of `nullif` and `nullifzero` or for a missing `ELSE`: the probe passes both and `valid`

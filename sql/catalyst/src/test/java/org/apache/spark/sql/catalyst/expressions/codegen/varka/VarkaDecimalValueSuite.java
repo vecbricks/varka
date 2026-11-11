@@ -31,6 +31,8 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 
+import scala.Option;
+import scala.Tuple2;
 import scala.jdk.javaapi.CollectionConverters;
 
 import org.apache.arrow.memory.BufferAllocator;
@@ -39,13 +41,17 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import org.apache.spark.sql.catalyst.expressions.Attribute;
+import org.apache.spark.sql.catalyst.expressions.CaseWhen;
 import org.apache.spark.sql.catalyst.expressions.Expression;
 import org.apache.spark.sql.catalyst.expressions.GenericInternalRow;
+import org.apache.spark.sql.catalyst.expressions.IsNull;
+import org.apache.spark.sql.catalyst.expressions.Literal;
 import org.apache.spark.sql.catalyst.expressions.codegen.CompiledVarkaPredicate;
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaConjunctSpec;
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaExpressionCompiler;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LaneType;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LiteralSlot;
+import org.apache.spark.sql.internal.SQLConf;
 import org.apache.spark.sql.types.Decimal;
 import org.apache.spark.sql.types.DecimalType;
 import org.apache.spark.sql.util.ArrowUtils;
@@ -258,7 +264,7 @@ public final class VarkaDecimalValueSuite {
       + "holding no words, and as a compared value declines naming row 359, or 360 for a rescale")
   void wideNullFamilyFusesOrDeclines() {
     // c and d are DECIMAL(20, 2), row 359's pair; nullif(a, e) compares at DECIMAL(25, 9), and
-    // zeroifnull(e) coalesces e with the int zero's DECIMAL(10, 0) at DECIMAL(19, 9).
+    // zeroifnull(e) and nvl(e, 0) coalesce e with the int zero's DECIMAL(10, 0) at DECIMAL(19, 9).
     List<Attribute> columns = List.of(VarkaSqlResolve.column("a", new DecimalType(18, 2)),
         VarkaSqlResolve.column("c", new DecimalType(20, 2)),
         VarkaSqlResolve.column("d", new DecimalType(20, 2)),
@@ -278,6 +284,7 @@ public final class VarkaDecimalValueSuite {
         new Want("equal_null(c, d)", fused),
         new Want("c BETWEEN d AND 1.00", fused),
         new Want("zeroifnull(e) IS NULL", fused),
+        new Want("nvl(e, 0) IS NULL", fused),
         new Want("nvl(c, d) > 0.00", wideValue),
         new Want("zeroifnull(c) = d", wideValue),
         new Want("nullif(c, d) <=> c", wideValue),
@@ -285,17 +292,40 @@ public final class VarkaDecimalValueSuite {
         new Want("c < CAST(NULL AS DECIMAL(20, 2))",
             "a null decimal constant wider than 18 digits as a value is row 359's"),
         new Want("nullif(a, e) IS NULL", "rows 359 and 360's"))) {
-      String sql = w.sql();
-      String want = w.reason();
-      Expression e = VarkaSqlResolve.parse(sql, seq(columns));
-      List<VarkaConjunctSpec> specs =
-          VarkaExpressionCompiler.explainPredicate(e, seq(columns), VarkaMatrixRuns.BASE,
-              VarkaAdmission.NO_HOST_REFUSAL);
-      String reason = specs.stream().flatMap(s -> s.decline().stream()).map(d -> d.reason())
-          .findFirst().orElse(fused);
-      assertTrue(want.equals(fused) ? reason.equals(fused) : reason.contains(want),
-          () -> sql + ": want " + want + ", got " + reason);
+      if (w.reason().equals(fused)) {
+        compile(w.sql(), columns);
+      } else {
+        assertDeclines(w.sql(), VarkaSqlResolve.parse(w.sql(), seq(columns)), w.reason(),
+            columns);
+      }
     }
+    // A negative scale, which only Spark's legacy flag allows and the parser never spells,
+    // declines as everywhere (2.8), the null constant's probe included, though it reads no pair.
+    SQLConf conf = SQLConf.get();
+    String legacy = SQLConf.LEGACY_ALLOW_NEGATIVE_SCALE_OF_DECIMAL_ENABLED().key();
+    conf.setConfString(legacy, "true");
+    try {
+      Expression negativeNull = Literal.create(null, new DecimalType(20, -2));
+      Expression lt = VarkaSqlResolve.parse("c < d", seq(columns));
+      var branches = CollectionConverters.asScala(
+          List.of(new Tuple2<Expression, Expression>(lt, negativeNull))).toSeq();
+      assertDeclines("CASE WHEN c < d THEN NULL END IS NULL at DECIMAL(20, -2)",
+          new IsNull(new CaseWhen(branches, Option.empty())),
+          "a decimal of negative scale is declined everywhere", columns);
+    } finally {
+      conf.unsetConf(legacy);
+    }
+  }
+
+  /** {@code e}, named {@code label}, over {@code columns} declines with a reason holding want. */
+  private static void assertDeclines(String label, Expression e, String want,
+      List<Attribute> columns) {
+    List<VarkaConjunctSpec> specs =
+        VarkaExpressionCompiler.explainPredicate(e, seq(columns), VarkaMatrixRuns.BASE,
+            VarkaAdmission.NO_HOST_REFUSAL);
+    String reason = specs.stream().flatMap(s -> s.decline().stream()).map(d -> d.reason())
+        .findFirst().orElse("fused");
+    assertTrue(reason.contains(want), () -> label + ": want " + want + ", got " + reason);
   }
 
   static Decimal decimal(Long unscaled, DecimalType type) {

@@ -2235,16 +2235,24 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     val (p0, p1) = (new ColumnRef(0), new ColumnRef(1))
     assert(picks.outputs.asScala.toSeq === Seq(new IRGreatest(p0, nullInt),
       new IRLeast(new IRLeast(nullInt, p1), nullInt)))
-    // A decimal choice past 18 digits has no null value as a value, and declines naming the
-    // wide row's value half; its null test fuses, the missing ELSE never valid (VARKA-578). An
-    // int is still no date: a date choice over a cast of an int column declines rather than
-    // reading it.
+    // A decimal choice past 18 digits has no null value as a compared value, and declines
+    // naming the wide row's value half; its null test fuses to the choice's validity, the
+    // branch's constant always valid and the missing ELSE never (VARKA-578). An int is still no
+    // date: a date choice over a cast of an int column declines rather than reading it.
     val wideCase = CaseWhen(Seq((lt, Literal.create(Decimal(1), DecimalType(20, 6)))), None)
+    val wideZero = Literal.create(Decimal(0), DecimalType(20, 6))
     val partial = VarkaExpressionCompiler.compilePartial(
-      Seq(out(wideCase), out(If(lt, Cast(i, DateType), d)), out(DateAdd(d, Literal(1))),
-        out(IsNull(wideCase))), childOutput).get
+      Seq(out(GreaterThan(wideCase, wideZero)), out(If(lt, Cast(i, DateType), d)),
+        out(DateAdd(d, Literal(1))), out(IsNull(wideCase))), childOutput).get
     assert(partial.declines.asScala(0).reason.contains("row 359's"))
     assert(!partial.declines.containsKey(3))
+    val wideNull = VarkaExpressionCompiler.compile(Seq(out(IsNull(wideCase))), childOutput).get
+    val wideLt = new Compare(CompareOp.LT, new WidenLane(c0), new WidenLane(c1))
+    def truth(t: VarkaVectorIR.Truth): VarkaVectorIR.Cond =
+      new VarkaVectorIR.CondConst(t, LaneType.LONG)
+    assert(wideNull.outputs.asScala.toSeq === Seq(new BoolOutput(new IRNot(
+      new VarkaVectorIR.CondIf(wideLt, truth(VarkaVectorIR.Truth.TRUE),
+        truth(VarkaVectorIR.Truth.FALSE))))))
     // The narrow lanes have their own null (VARKA-329): a byte CASE WHEN with no ELSE is a
     // choice with the byte lane's null, stored at the byte's width.
     val narrowNull = VarkaExpressionCompiler.compile(

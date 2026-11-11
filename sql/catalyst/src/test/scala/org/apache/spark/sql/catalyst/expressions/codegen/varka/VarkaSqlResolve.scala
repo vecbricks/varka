@@ -66,8 +66,9 @@ object VarkaSqlResolve {
 
   /**
    * `e` with each `RuntimeReplaceable` swapped for its replacement, as the optimizer's
-   * `ReplaceExpressions` does, so that Spark's interpreted `eval` can answer it for the Java
-   * tests: `nullif` and `nullifzero` have no `eval` of their own.
+   * `ReplaceExpressions` does, so that Spark's interpreted `eval` can answer it over a row for
+   * the Java tests: a `RuntimeReplaceable`'s `eval` answers only a constant, asserting it is
+   * given no row, so `nvl`, `nullif` and every other one fails over a row.
    */
   def replaced(e: Expression): Expression = {
     val next = e.transformDown { case r: RuntimeReplaceable => r.replacement }

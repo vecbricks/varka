@@ -30,6 +30,7 @@ import java.util.regex.Pattern;
 
 import scala.Tuple2;
 import scala.jdk.javaapi.CollectionConverters;
+import scala.util.control.NonFatal;
 
 import org.apache.spark.sql.catalyst.expressions.Abs;
 import org.apache.spark.sql.catalyst.expressions.Add;
@@ -777,6 +778,11 @@ final class VarkaDecimalCompiler {
    */
   private static Optional<DecimalType> wideProbe(Expression e, VarkaSlotTable inputs,
       VarkaSlotTable literals, DeclineSink sink) {
+    // Checked before any arm, the null constant's and a choice's included, which read no pair.
+    if (e.dataType() instanceof DecimalType t && t.scale() < 0) {
+      return sink.decline("a decimal of negative scale is declined everywhere (the milestone "
+          + "plan's 2.8)", e);
+    }
     if (isWide(e) && e.foldable()) {
       // The null constant needs no words, its validity being valid()'s false; any other is read
       // as its pair, which checks that its digits fit.
@@ -1305,7 +1311,9 @@ final class VarkaDecimalCompiler {
   /**
    * The constant {@code e} folded: a literal's own value, any other tree over literals evaluated
    * as Spark's constant folding evaluates it, or empty, with the reason noted, where that
-   * evaluation fails, which leaves the row engine to raise.
+   * evaluation fails, which leaves the row engine to raise. Any throw Spark's {@code NonFatal}
+   * admits declines, a checked one out of Scala code as well, as an {@code IN} element's
+   * ({@code VarkaConditionCompiler.constantValue}); a fatal one propagates.
    */
   private static Optional<Folded> folded(Expression e, DeclineSink sink) {
     if (e instanceof Literal l) {
@@ -1313,7 +1321,10 @@ final class VarkaDecimalCompiler {
     }
     try {
       return Optional.of(new Folded(e.eval(null)));
-    } catch (RuntimeException failed) {
+    } catch (Throwable failed) {
+      if (!NonFatal.apply(failed)) {
+        throw failed;
+      }
       return sink.decline("a decimal constant whose evaluation fails", e);
     }
   }
