@@ -654,7 +654,7 @@ final class VarkaEmitBudget {
       case Least n when n.laneType().isFloating() -> FLOATING_ORDER_WEIGHT;
       // A long converted to a floating lane: one convertShape at level 3, and below it the AVX2
       // form, the larger, whose calls the weight counts as the long division's does: which one
-      // emits cannot be asked here.
+      // emits cannot be asked here. For L2D that is the largest of its forms, 343b1's split.
       case ConvertLane n when n.child().laneType() == VarkaVectorIR.LaneType.LONG ->
           n.target() == VarkaVectorIR.LaneType.FLOAT
               ? VarkaConversionLowering.ODD_CALLS : VarkaConversionLowering.SPLIT_CALLS;
