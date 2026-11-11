@@ -283,8 +283,9 @@ are committed as `VarkaDecimalRemainderSpikeBenchmark-jdk25-runner-epyc7763-resu
 `-128bit-` companion, each with its provenance file, as the artifacts gave them. Both ran on
 `4c793f02383`, #1470's head. The benchmark and the suite there are identical to master's
 (`ebd4f7040c6`, #1470 merged): an empty diff over both files.*
-*11 November 2026:* the two files now hold the 24-loop runs of 10.5. The numbers below are in
-their history, as #1483 committed them (`749280d9e7d`).
+*11 November 2026:* the two files now hold the 24-loop runs of 10.5. The numbers below, and the
+B comparison "within 5%", are of the earlier runs, in the files' history as #1483 committed them
+(`749280d9e7d`); in the new runs B differs by 10 to 13% between the widths.
 
 **The numbers**, in ns a row (`Per Row(ns)`), E / D / B:
 
@@ -647,7 +648,7 @@ artifact gave it, with its provenance file, every arm in one JVM:*
 CPU-retry chain reran them. The benchmark differs between the two only by a renamed accessor
 (`operandX`, `operandY`), and the suite not at all; `fcb543ac850` is the code #1492 merged. The
 9V45's datapath reads 512:256 = 2.02 and 2.00, so its 512 bits are full width, not
-double-pumped. Two dispatches did not run: the Xeon (run 42980385610) and a third 9V45 (run
+double-pumped. Two dispatches did not run: the Xeon (run 42980385610) and another 9V45 (run
 42980410660) drew the wrong CPU on all six attempts the retry chain allows. The Xeon's 512-bit
 reading is owed.*
 
@@ -670,19 +671,23 @@ bits, and at 128 bits the same 16 loops left with Java calls, in the same counts
 - **Split F**, the only two-lane form that both compiles and allocates nothing in this JVM, runs
   at 6.4 to 6.6 times B's rate, and, indicatively, 18 to 20 times faster than the row path's
   771.3 and 973.4 ns a row (10.1).
+- **The control.** B, which does not depend on the width, is 10 to 13% slower here than in the
+  256-bit run, rung for rung, so this run's host was slower. Ratios within the run are not
+  affected; a comparison across runs (the row path's, the 256-bit file's) carries that drift.
 - **Inserted and transposed F boxed** here, at 2,192 bytes a row, as in the laptop's shared run
   (2,096, 10.4 "How it was read" item 2). Their 369 to 375 ns is the boxing, not the form, so this
   run cannot price them, nor the transpose's cost at two lanes.
-- **Against the laptop:** it agrees. Split F is the fastest form and E's fallback the slowest
-  but D, and the slot-reading F forms box in a shared JVM. Split F leads B by more here than in
-  the laptop's JVM of its own (37.4 / 38.3 against 156.8 / 173.0, 4.2 to 4.5 times).
-- Split F allocated nothing after the other 22 loops had run in its JVM. That is not the test of
-  7.4, which ran it after unrelated `add` loops, so it does not reopen 7.4. Row 604's own arm
-  is not timed here.
+- **Against the laptop:** it agrees. Split F is the fastest form, every E form is a fallback
+  slower than B, and the slot-reading F forms box in a shared JVM. Split F leads B by more here
+  than in the laptop's JVM of its own (37.4 / 38.3 against 156.8 / 173.0, 4.2 to 4.5 times).
+- Split F allocated nothing after the arms before it had run in its JVM (from the first `pmod`
+  section on, all 22 other loops). That is not the test of 7.4, which ran it after unrelated
+  `add` loops, so it does not reopen 7.4. Row 604's own arm is not timed here.
 
 **At 256 bits (EPYC 7763),** E reads 21.1 to 21.6 / 22.6 to 22.9 ns a row, as in 10.3, and B
 245.0 to 253.5 / 282.2 to 284.4, so E keeps its 11 to 13 times lead. F (23.6 to 23.8 / 26.1 to
-26.5) and split F (21.6 to 22.2 / 24.1 to 24.6) trail E by under 1.2 times, level as on the laptop.
+26.5) and split F (21.6 to 22.2 / 24.1 to 24.6) are within 1.2 times of E in this one run, under
+the 1.3 threshold, so no order between them is read: level, as on the laptop.
 In `pmod` inserted E (66.7 to 67.7 ns, 298 bytes a row) and transposed E (50.7 to 52.0, 262 to
 263) boxed, as the owner's decision under "The test of 7.4" quotes.
 
@@ -705,9 +710,10 @@ In `pmod` inserted E (66.7 to 67.7 ns, 298 bytes a row) and transposed E (50.7 t
 - **The slot-reading forms trail and box by run.** Gathered forms run at 11.4 to 15.5 ns a row in
   both. Inserted and transposed F boxed in the first run (1,094 to 1,135 bytes a row, 73.9 to 93.1
   ns) and not in the second (12.8 to 13.6 and 8.4 to 10.2 ns). Inserted and transposed E's
-  `pmod` boxed in both (195 bytes a row), and their `x % y` in the first. The same code on the
-  same CPU model boxed in one JVM and not in the next, as 10.4 "How it was read" item 2 found
-  on the laptop.
+  `pmod` boxed in both (195 bytes a row), and their `x % y` in the first. The two runs' commits
+  differ only by the accessor rename, which leaves the timed loops unchanged, so the same loops
+  on the same CPU model boxed in one JVM and not in the next, as 10.4 "How it was read" item 2
+  found on the laptop.
 
 **For 577b.** E at 256 and 512 bits, and the warm-up's allocation check in a shared JVM, are
 unchanged by this reading. At two lanes on x86 the decline stays the default (7.4). The Xeon's
