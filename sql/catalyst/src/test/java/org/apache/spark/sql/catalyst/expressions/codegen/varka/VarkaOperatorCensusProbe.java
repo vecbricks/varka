@@ -1027,6 +1027,53 @@ public final class VarkaOperatorCensusProbe {
     }
   }
 
+  /**
+   * A byte column in native memory, as a kernel's output buffer is, with a 64-bit vector of
+   * padding past the last row so that the last group's eight-lane store stays inside it. In a
+   * holder so that only the narrow stores allocate it.
+   */
+  private static final class ByteOut {
+    static final long BYTES = ROWS + 8L;
+    static final long ADDRESS = Arena.global().allocate(BYTES, 64).address();
+
+    static MemorySegment map() {
+      return VarkaSegments.map(ADDRESS, BYTES);
+    }
+  }
+
+  /**
+   * The group's lane count, as the kernel holds it in a local: set at run time, so that C2 cannot
+   * fold the store's {@code indexInRange} mask to a constant.
+   */
+  private static int groupLanes;
+
+  /**
+   * A byte root stored at four int lanes as the emitter stores it: each group's {@code I2B} fills
+   * the low half of a 64-bit byte vector, which is stored under the mask of the group's lanes.
+   */
+  static void op_store_i2b64_masked() {
+    var out = ByteOut.map();
+    int lanes = groupLanes;
+    for (int i = 0; i < ROWS; i += IS.length()) {
+      ((ByteVector) IntVector.fromArray(IS, IA, i)
+          .convertShape(VectorOperators.I2B, Narrow64.SPECIES, 0))
+          .intoMemorySegment(out, i, ByteOrder.LITTLE_ENDIAN,
+              Narrow64.SPECIES.indexInRange(0, lanes));
+    }
+  }
+
+  /** The same rows, two groups' {@code I2B} parts 0 and -1 OR-ed and stored whole. */
+  static void op_store_i2b64_combined() {
+    var out = ByteOut.map();
+    for (int i = 0; i < ROWS; i += 2 * IS.length()) {
+      var low = (ByteVector) IntVector.fromArray(IS, IA, i)
+          .convertShape(VectorOperators.I2B, Narrow64.SPECIES, 0);
+      var high = (ByteVector) IntVector.fromArray(IS, IA, i + IS.length())
+          .convertShape(VectorOperators.I2B, Narrow64.SPECIES, -1);
+      low.or(high).intoMemorySegment(out, i, ByteOrder.LITTLE_ENDIAN);
+    }
+  }
+
   static void op_load_s2i() {
     for (int i = 0; i < ROWS; i += NarrowShort.SPECIES.length()) {
       var v = ShortVector.fromArray(NarrowShort.SPECIES, SA, i);
@@ -1089,6 +1136,8 @@ public final class VarkaOperatorCensusProbe {
         case "conv.B2S" -> op_conv_B2S();
         case "load.b2i64" -> op_load_b2i64();
         case "load.b2i128" -> op_load_b2i128();
+        case "store.i2b64.masked" -> op_store_i2b64_masked();
+        case "store.i2b64.combined" -> op_store_i2b64_combined();
         case "load.s2i" -> op_load_s2i();
         case "two.fullshort" -> op_two_fullshort();
         case "bin.long" -> op_bin_long();
@@ -1178,6 +1227,7 @@ public final class VarkaOperatorCensusProbe {
       DC[i] = i * 0.1;
       WORDS[i] = 0x5555_5555_5555_5555L;
     }
+    groupLanes = IS.length();
     LB[0] = 1;
   }
 
