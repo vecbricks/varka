@@ -22,7 +22,8 @@
 #                                               # cvc5, NIGHTLY_ONLY's skipped, every other under Z3
 #   dev/varka_prove.sh --solver both            # under Z3 and cvc5, each held to every expectation
 #   dev/varka_prove.sh --solver cvc5 int_mulhi_divide.smt2
-#   dev/varka_prove.sh --nightly-only           # NIGHTLY_ONLY's under both, as the nightly does
+#   dev/varka_prove.sh --nightly-only           # NIGHTLY_ONLY's under both (or --solver's), as
+#                                               # the nightly does
 #   dev/varka_prove.sh --install z3|cvc5|both   # the pinned solvers, into target/varka-solvers/
 #   dev/varka_prove.sh --install-shared z3|cvc5|both  # the same, into the shared directory below
 #   dev/varka_prove.sh --self-test              # one planted failure of each kind, every one caught
@@ -67,15 +68,17 @@ CVC5_SHA256=2f8efe58fe27ba7bccbb504533f690b9312d69da14192712460e4a19231f02a1
 # The proofs the linters' job runs under cvc5 rather than Z3, to keep the step inside its minute:
 # long_divide.smt2 takes Z3 59 s on the runner and cvc5 a third of that (VARKA-241.md 9.5).
 CVC5_IN_LINT=(long_divide.smt2)
-# The proofs --lint skips, even when named, for the nightly's run under both solvers
+# The proofs --lint skips, and refuses when named, for the nightly's run under both solvers
 # (varka-fuzz.yml's proofs job, --nightly-only):
-# fp_half_up.smt2 takes Z3 62 to 115 s and cvc5 about 130 s on the laptop (VARKA-342.md 5.2).
+# fp_half_up.smt2 takes Z3 51 to 128 s and cvc5 88 to 208 s on the laptop, by its load
+# (VARKA-342.md 5.2).
 NIGHTLY_ONLY=(fp_half_up.smt2)
 limit_ms="${VARKA_PROVE_LIMIT_MS:-10000}"
 run_limit="${VARKA_PROVE_RUN_LIMIT:-300}"
 # A NIGHTLY_ONLY file's limits where the environment sets none: cvc5 left one check of
-# fp_half_up.smt2 unknown at an 8 s limit and took 137 to 208 s on the laptop (VARKA-342.md 5.2),
-# too near the defaults for a runner. Two runs at the run limit fit the nightly job's 30 minutes.
+# fp_half_up.smt2 unknown at an 8 s limit and Z3 one past 10 s on a loaded laptop
+# (VARKA-342.md 5.2), too near the defaults for a runner. Two runs at the run limit fit the
+# nightly job's 30 minutes.
 nightly_limit_ms="${VARKA_PROVE_LIMIT_MS:-30000}"
 nightly_run_limit="${VARKA_PROVE_RUN_LIMIT:-600}"
 
@@ -459,8 +462,9 @@ EOF
 # ---------------------------------------------------------------------------------------------
 
 mode=prove
-which=z3
+which=
 files=()
+named=()
 while [ "$#" -gt 0 ]; do
   case "$1" in
     -h|--help) usage 0 ;;
@@ -469,18 +473,35 @@ while [ "$#" -gt 0 ]; do
       shift 2 || usage ;;
     --install-shared) mode=install; solvers="$shared"; which="${2:-}"; shift 2 || usage ;;
     --self-test) mode=self-test; shift ;;
-    --lint) mode=lint; which=both; shift ;;
-    --nightly-only) which=both; nightly=1; files+=("${NIGHTLY_ONLY[@]}"); shift ;;
+    --lint) mode=lint; shift ;;
+    --nightly-only) nightly=1; files+=("${NIGHTLY_ONLY[@]}"); shift ;;
     -*) usage ;;
-    *) files+=("$1"); shift ;;
+    *) files+=("$1"); named+=("$1"); shift ;;
   esac
 done
+# --lint picks each file's solver itself; --nightly-only runs both unless --solver names one,
+# in either order.
+if [ "$mode" = lint ]; then
+  which=both
+elif [ -z "$which" ]; then
+  if [ "${nightly:-0}" = 1 ]; then which=both; else which=z3; fi
+fi
 # --lint skips every file --nightly-only names, so the two together prove nothing and would
 # still report success.
 if [ "$mode" = lint ] && [ "${nightly:-0}" = 1 ]; then
   echo "varka_prove: --lint skips the NIGHTLY_ONLY files --nightly-only names;" \
     "use one or the other" >&2
   exit 2
+fi
+# A NIGHTLY_ONLY file named to --lint would only be skipped, proving nothing.
+if [ "$mode" = lint ]; then
+  for f in "${named[@]}"; do
+    if is_nightly_only "$f"; then
+      echo "varka_prove: --lint skips $(basename "$f"), a NIGHTLY_ONLY file;" \
+        "run it without --lint" >&2
+      exit 2
+    fi
+  done
 fi
 case "$which" in
   z3|cvc5) names=("$which") ;;

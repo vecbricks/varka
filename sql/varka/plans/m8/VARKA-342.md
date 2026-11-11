@@ -549,6 +549,14 @@ one, so its slowest check is past 8 s on a shared laptop core, too near the defa
 runner. `dev/varka_prove.sh` therefore runs a `NIGHTLY_ONLY` file at 30 s a check and 600 s a
 run where the environment sets no limit, which the nightly job's 30 minutes fit twice over.
 
+Correction, from the review of 11 November 2026, to the times above and to 5.2's "each check
+within the limit", which held for Z3 only. Naming the file to `dev/varka_prove.sh` runs it at the
+nightly limits, so those runs did not test the 10 s limit. Over every run recorded here and in
+the pull request, the file took Z3 51 to 128 s and cvc5 88 to 208 s on the laptop, the spread
+being the laptop's load. Z3's slowest check took 3.7 s on an idle core and one ran past 10 s on a
+loaded one; cvc5's slowest ran past 8 s on a shared core. On a loaded laptop neither solver
+fits every check within 10 s, which is why the file runs in the nightly at 30 s a check.
+
 **Still owed by step 4**, after 343b2: `ym * x`, `ym / x`, `dt * x` and `dt / x` by 2.4's
 construction over `D2I` and `D2L` and the floating guard, with 3.7's pinned cells through the
 kernel, the division's `FAIL` unconditional; the `2^51` decline on AVX2 if 343b1's `D2L` is the
