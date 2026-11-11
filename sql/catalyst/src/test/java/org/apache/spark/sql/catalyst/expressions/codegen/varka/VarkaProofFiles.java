@@ -3495,13 +3495,13 @@ final class VarkaProofFiles {
         new LongCell(max - 512, 1.0, max - 1023), new LongCell(min, 0.5, min / 2),
         new LongCell(max, 1.0, null), new LongCell(min, -1.0, null),
         new LongCell(max - 511, 1.0, null));
-    String guarded = inGuard("p", longLo, longHi);
+    String inLongGuard = inGuard("p", longLo, longHi);
     for (LongCell c : longCells) {
       String product = "(fp.mul RNE ((_ to_fp 11 53) RNE " + bv64(c.m()) + ") " + f64(c.x())
           + ")";
       String claim = c.answer() == null
-          ? "(assert " + guarded + ")"
-          : "(assert (not (and " + guarded + " (= (hu.form p false) " + bv64(c.answer())
+          ? "(assert " + inLongGuard + ")"
+          : "(assert (not (and " + inLongGuard + " (= (hu.form p false) " + bv64(c.answer())
               + "))))";
       fresh(out, "dt: " + c.m() + " * " + c.x() + (c.answer() == null ? " is outside the "
           + "guard, where Spark raises" : " answers " + c.answer()), "unsat", defs,
