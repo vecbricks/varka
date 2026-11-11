@@ -76,6 +76,7 @@ public final class VarkaSmtNodesSuite {
   void templatesAgreeWithTheReference() {
     int rendered = 0;
     int compared = 0;
+    int kernels = 0;
     var refusals = new TreeMap<String, Integer>();
     var wrong = new ArrayList<String>();
     for (Sample s : VarkaSmtSamples.samples(200, 12)) {
@@ -91,6 +92,14 @@ public final class VarkaSmtNodesSuite {
       reached(s.root());
       var words = new WordForm();
       Outcome printed = VarkaSmtSamples.printed(o, s.root(), words);
+      var guards = guards(s);
+      Outcome kernel = null;
+      try {
+        kernel = guards == null ? null : printer.kernel(s.root(), guards);
+        kernels += guards == null ? 0 : 1;
+      } catch (Refused r) {
+        refusals.merge("kernel: " + r.getMessage(), 1, Integer::sum);
+      }
       for (Row row : s.rows()) {
         Answer want = VarkaSmtSamples.answer(s, s.root(), row);
         Map<String, Object> env = VarkaSmtSamples.env(row);
@@ -100,7 +109,9 @@ public final class VarkaSmtNodesSuite {
           }
         }
         String got = differs(o, want, env, false, "")
-            + differs(printed, want, env, VarkaSmtSamples.readsWord(s.root()), " (word form)");
+            + differs(printed, want, env, VarkaSmtSamples.readsWord(s.root()), " (word form)")
+            + (kernel == null ? "" : differs(kernel, VarkaSmtSamples.kernelAnswer(s, s.root(),
+                row, guards), env, false, " (the emitter's decline)"));
         if (!got.isEmpty()) {
           wrong.add(s.family() + " " + VarkaVectorIR.canonical(s.root()) + " at "
               + java.util.Arrays.toString(row.values()) + " "
@@ -114,6 +125,21 @@ public final class VarkaSmtNodesSuite {
     // The draws mostly render: a refused node in most of them would leave the meanings unheld.
     assertTrue(rendered >= 300, rendered + " trees rendered; refused: " + refusals);
     assertTrue(compared >= 3600, compared + " rows compared");
+    assertTrue(kernels >= 300, kernels + " trees held to the emitter's decline");
+  }
+
+  /** The guards the emitter makes over a sample's tree, or null where it would not emit it. */
+  private static Map<VarkaVectorIR, VarkaLoopEmitter.GuardForTest> guards(Sample s) {
+    int inputs = 0;
+    for (Row row : s.rows()) {
+      inputs = Math.max(inputs, row.values().length);
+    }
+    try {
+      return VarkaLoopEmitter.guardsForTest(List.of(s.root()), inputs,
+          Math.max(s.intLits().length, s.longLits().length), VarkaEmitOptions.DEFAULTS);
+    } catch (IllegalArgumentException | IllegalStateException e) {
+      return null;
+    }
   }
 
   /** What in {@code o} differs from {@code want}, empty when nothing does. */

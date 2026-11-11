@@ -35,7 +35,8 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.*;
  * the printer renders at the boundary words, each tree with its literal tables. The expected
  * answer of a row is {@link VarkaReference}'s; a decline, which the reference does not model, is
  * where a checked node's operands are present and its answer is not, or a guard's or a decimal
- * leaf's value is outside its bound, as the templates' arm rule propagates it.
+ * leaf's value is outside its bound: propagated as a node's template states it, and for the
+ * kernel by the arm rule the emitter's {@code Analysis} reports ({@link #kernelAnswer}).
  */
 final class VarkaSmtSamples {
 
@@ -131,6 +132,9 @@ final class VarkaSmtSamples {
     out.add(new IntNeg(Overflow.WRAP, x, true));
     out.add(new GuardedRange(x, -1000, 1000, Overflow.FAIL));
     out.add(new GuardedRange(x, -1000, 1000, Overflow.NULL));
+    // The date column's contract guard, which reads null rows' stored values too.
+    out.add(new GuardedRange(i, VarkaChrono.CONTRACT_MIN_DAYS, VarkaChrono.CONTRACT_MAX_DAYS,
+        Overflow.FAIL));
     out.add(new IfElse(new Compare(CompareOp.GT, x, y),
         new IntArith(IntOp.ADD, Overflow.FAIL, x, y), new NullValue(l)));
     out.add(new Greatest(x, y));
@@ -225,43 +229,68 @@ final class VarkaSmtSamples {
     return node instanceof Cond c ? truth(s, c, row) != Truth.UNKNOWN : value(s, node, row) != null;
   }
 
-  /** Whether the kernel declines the batch at this row, as the templates' rule states it. */
+  /** Whether a node's own template declines at this row: its children's, an untaken arm's not. */
   static boolean declines(Sample s, VarkaVectorIR node, Row row) {
-    VarkaVectorIR[] kids = VarkaVectorIR.childrenOf(node);
     if (node instanceof IfElse(var c, var t, var e, _)) {
-      return declines(s, c, row) || declines(s, truth(s, c, row) == Truth.TRUE ? t : e, row)
-          || loads(t, row) || loads(e, row);
+      return declines(s, c, row) || declines(s, truth(s, c, row) == Truth.TRUE ? t : e, row);
     }
     if (node instanceof CondIf(var c, var t, var e, _)) {
-      return declines(s, c, row) || declines(s, truth(s, c, row) == Truth.TRUE ? t : e, row)
-          || loads(t, row) || loads(e, row);
+      return declines(s, c, row) || declines(s, truth(s, c, row) == Truth.TRUE ? t : e, row);
     }
     boolean below = false;
-    boolean operands = true;
-    for (VarkaVectorIR k : kids) {
+    for (VarkaVectorIR k : VarkaVectorIR.childrenOf(node)) {
       below |= declines(s, k, row);
+    }
+    return below || fails(s, node, row);
+  }
+
+  /**
+   * The reference's answer for the kernel the emitter builds over {@code root}: {@link #answer}
+   * with the decline of every node {@code guards} names, from {@code Analysis}, where its own
+   * check fails on a lane some arm chain of it selects, or on any lane where it has none.
+   */
+  static Answer kernelAnswer(Sample s, VarkaVectorIR root, Row row,
+      Map<VarkaVectorIR, VarkaLoopEmitter.GuardForTest> guards) {
+    Answer a = answer(s, root, row);
+    boolean decline = false;
+    for (var e : guards.entrySet()) {
+      boolean selected = e.getValue().arms().isEmpty();
+      for (List<Analysis.ArmStep> chain : e.getValue().arms()) {
+        boolean all = true;
+        for (Analysis.ArmStep step : chain) {
+          all &= (truth(s, step.node().cond(), row) == Truth.TRUE) == step.thenBranch();
+        }
+        selected |= all;
+      }
+      VarkaVectorIR g = e.getKey();
+      // A guard over a column's stored values reads a null row's value too.
+      boolean fired = Analysis.guardsStoredValues(g)
+          ? outsideStored((GuardedRange) g, row) : fails(s, g, row);
+      decline |= selected && fired;
+    }
+    return new Answer(decline, a.valid(), a.data());
+  }
+
+  private static boolean outsideStored(GuardedRange g, Row row) {
+    long v = row.values()[((ColumnRef) g.child()).ordinal()];
+    return v < g.lo() || v > g.hi();
+  }
+
+  /** Whether {@code node}'s own check fails at this row, its operands present. */
+  private static boolean fails(Sample s, VarkaVectorIR node, Row row) {
+    boolean operands = true;
+    for (VarkaVectorIR k : VarkaVectorIR.childrenOf(node)) {
       operands &= present(s, k, row);
     }
-    return below || switch (node) {
+    return switch (node) {
       case IntArith a when a.mode() == Overflow.FAIL -> operands && value(s, node, row) == null;
       case IntNeg a when a.mode() == Overflow.FAIL -> operands && value(s, node, row) == null;
       case GuardedRange g when g.mode() == Overflow.FAIL -> operands
           && (value(s, g.child(), row) < g.lo() || value(s, g.child(), row) > g.hi());
-      case DecimalColumn _, DecimalWord _ -> loads(node, row);
+      case DecimalColumn c -> outside(row, c.ordinal(), BigInteger.valueOf(c.bound()));
+      case DecimalWord w -> outside(row, w.ordinal(), w.bound().value());
       default -> false;
     };
-  }
-
-  /** Whether a decimal leaf under {@code node} fails its slot check, whichever arm is taken. */
-  private static boolean loads(VarkaVectorIR node, Row row) {
-    // Two leaves of the sealed set, tested by pattern: every other node checks no slot.
-    boolean any = node instanceof DecimalColumn c
-        ? outside(row, c.ordinal(), BigInteger.valueOf(c.bound()))
-        : node instanceof DecimalWord w && outside(row, w.ordinal(), w.bound().value());
-    for (VarkaVectorIR k : VarkaVectorIR.childrenOf(node)) {
-      any |= loads(k, row);
-    }
-    return any;
   }
 
   private static boolean outside(Row row, int c, BigInteger bound) {

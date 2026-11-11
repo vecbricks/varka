@@ -102,7 +102,7 @@ new files committed), **history** (kept: it records what was measured, or names 
 | `plans/m4` to `plans/m7`: `VARKA-62.md`, `VARKA-194.md`, `VARKA-233.md`, `VARKA-258.md`, the `POST_*.md` files and others | the record of what was measured | history |
 | `plans/m8/VARKA-337.md:13-14`, `results/VARKA-337-admission.txt` | 4.2.0's hash classes as a correctness oracle, checked equal to master's but for the calendar interval's arm, which 4.3.0's migration note also records | keep |
 | `plans/m8/VARKA-511.md:40`, `:215`, `:259` | a Planned row: the compiles post's precedent on 4.2.0 (history), and the row's own arms against "the released `spark-sql_2.13` 4.2.0" (not yet run) | the arms follow step 4's rule when the row starts; one line in `VARKA-511.md` says so (7, decision 8) |
-| `plans/m8/VARKA-541.md:27` | a config's `version` 4.2.0, a fact | keep |
+| `plans/m8/VARKA-541.md:414` | a config's `version` 4.2.0, a fact | keep |
 | `plans/m9/SCOPE.md:3571` (item 56), `:4448`, `:4493` (item 80) | future work naming stock 4.2.0; item 56's `method_size_cliff-jdk27-output.txt` predates decision 6's release-named outputs | follow step 4's rule when started; item 56's file takes the form `method_size_cliff-spark-<release>-jdk27-output.txt` |
 | `plans/m9/SCOPE.md:4562` (item 83) | a measured move against stock 4.2.0 | history |
 

@@ -26,8 +26,11 @@ import static org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaSmtTe
 import static org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaSmtTerm.or;
 
 import java.math.BigInteger;
+import java.util.ArrayDeque;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
 
@@ -49,11 +52,11 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.*;
  *
  * <p>A condition's outcome is three-valued: {@code valid} is that its truth is known and
  * {@code data} that truth, read only where it is known. {@code decline} is a lane the kernel
- * refuses the batch at: a checked operation's overflow and a leaf's load check, propagated from
- * every child except an {@code IfElse} arm the lane does not take, whose decimal slot checks still
- * count: the emitter never puts one under an arm ({@code Analysis.armChainsOf}). Leaves are free
- * variables: a
- * column {@code c<n>} with validity {@code v<n>}, and a runtime literal the table's constant, or
+ * refuses the batch at: a checked operation's overflow and a leaf's load check. A node's own
+ * template propagates its children's declines, an arm the lane does not take left out; which arms
+ * the emitter actually qualifies a guard by is its {@code Analysis}'s to say, and {@link #kernel}
+ * reads that rule from it rather than restating it. Leaves are free variables: a column
+ * {@code c<n>} with validity {@code v<n>}, and a runtime literal the table's constant, or
  * {@code l<i>} (int) and {@code m<i>} (long) when no table is given. {@link #facts} holds the
  * range each variable ranges over.
  */
@@ -120,6 +123,60 @@ final class VarkaSmtNodes {
     return o;
   }
 
+  /**
+   * {@code root}'s outcome as the kernel the emitter builds declines it: {@link #outcome}'s
+   * validity and data, and the OR, over every node the emitter guards ({@code guards}, from
+   * {@code VarkaLoopEmitter.guardsForTest}), of that node's own check on the lanes some arm chain
+   * the emitter reports for it selects, or on every lane where it reports none: the arm rule is
+   * {@code Analysis.armChainsOf}'s, read and not restated. A node whose template declines and
+   * that the emitter does not guard is refused, and so is the converse. Each node is visited
+   * once, so a shared subtree costs once.
+   */
+  Outcome kernel(VarkaVectorIR root, Map<VarkaVectorIR, VarkaLoopEmitter.GuardForTest> guards) {
+    Outcome whole = outcome(root);
+    VarkaSmtTerm decline = new Flag(false);
+    var seen = new HashSet<VarkaVectorIR>();
+    var pending = new ArrayDeque<VarkaVectorIR>(List.of(root));
+    while (!pending.isEmpty()) {
+      VarkaVectorIR n = pending.pop();
+      if (!seen.add(n)) {
+        continue;
+      }
+      pending.addAll(List.of(VarkaVectorIR.childrenOf(n)));
+      // A guard over a column's stored values reads null rows too (Analysis.guardsStoredValues).
+      boolean stored = Analysis.guardsStoredValues(n);
+      VarkaSmtTerm own = template(n, k -> new Outcome(new Flag(false),
+          stored ? new Flag(true) : outcome(k).valid(), outcome(k).data())).decline();
+      VarkaLoopEmitter.GuardForTest guard = guards.get(n);
+      if ((guard == null) != own.equals(new Flag(false))) {
+        throw new Refused(n, guard == null ? "its template declines where the emitter makes no "
+            + "check" : "the emitter guards it where its template states no check");
+      }
+      if (guard != null) {
+        decline = or(decline, and(own, selects(guard.arms())));
+      }
+    }
+    return new Outcome(decline, whole.valid(), whole.data());
+  }
+
+  /** The lanes some chain selects, each step its arm's: the THEN arm where known true. */
+  private VarkaSmtTerm selects(List<List<Analysis.ArmStep>> chains) {
+    if (chains.isEmpty()) {
+      return new Flag(true);
+    }
+    VarkaSmtTerm any = new Flag(false);
+    for (List<Analysis.ArmStep> chain : chains) {
+      VarkaSmtTerm all = new Flag(true);
+      for (Analysis.ArmStep step : chain) {
+        Outcome c = outcome(step.node().cond());
+        VarkaSmtTerm takes = and(c.valid(), c.data());
+        all = and(all, step.thenBranch() ? takes : not(takes));
+      }
+      any = or(any, all);
+    }
+    return any;
+  }
+
   /** The outcome of {@code node} with its children's given by {@code child}. */
   Outcome template(VarkaVectorIR node, Function<VarkaVectorIR, Outcome> child) {
     return switch (node) {
@@ -174,9 +231,9 @@ final class VarkaSmtNodes {
       case And n -> kleene(child.apply(n.left()), child.apply(n.right()), true);
       case Or n -> kleene(child.apply(n.left()), child.apply(n.right()), false);
       case IfElse n -> choose(child.apply(n.cond()), child.apply(n.thenNode()),
-          child.apply(n.elseNode()), or(loads(n.thenNode(), child), loads(n.elseNode(), child)));
+          child.apply(n.elseNode()));
       case CondIf n -> choose(child.apply(n.cond()), child.apply(n.thenCond()),
-          child.apply(n.elseCond()), or(loads(n.thenCond(), child), loads(n.elseCond(), child)));
+          child.apply(n.elseCond()));
       case CondValue n -> {
         Outcome c = child.apply(n.cond());
         sortOf(n, n.lane());
@@ -367,21 +424,13 @@ final class VarkaSmtNodes {
         isAnd ? and(l.data(), r.data()) : or(l.data(), r.data()));
   }
 
-  /** The THEN arm where the condition is known true, else the ELSE arm; both arms' loads. */
-  private static Outcome choose(Outcome c, Outcome t, Outcome e, VarkaSmtTerm loads) {
+  /** The THEN arm where the condition is known true, else the ELSE arm. */
+  private static Outcome choose(Outcome c, Outcome t, Outcome e) {
     VarkaSmtTerm takes = and(c.valid(), c.data());
-    return new Outcome(or(or(c.decline(), ite(takes, t.decline(), e.decline())), loads),
-        ite(takes, t.valid(), e.valid()), ite(takes, t.data(), e.data()));
-  }
-
-  /** The slot checks of the decimal leaves under {@code n}, ORed. */
-  private static VarkaSmtTerm loads(VarkaVectorIR n, Function<VarkaVectorIR, Outcome> child) {
-    VarkaSmtTerm out = n instanceof DecimalColumn || n instanceof DecimalWord
-        ? child.apply(n).decline() : new Flag(false);
-    for (VarkaVectorIR k : VarkaVectorIR.childrenOf(n)) {
-      out = or(out, loads(k, child));
-    }
-    return out;
+    VarkaSmtTerm arms = t.decline().equals(e.decline()) ? t.decline()
+        : ite(takes, t.decline(), e.decline());
+    return new Outcome(or(c.decline(), arms), ite(takes, t.valid(), e.valid()),
+        ite(takes, t.data(), e.data()));
   }
 
   private static Outcome pick(VarkaVectorIR n, Outcome l, Outcome r, Op keepsLeft) {

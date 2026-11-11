@@ -15317,15 +15317,15 @@
     },
     "wideConversionForm=XOR_SPLIT over useAVX=2" : {
       "4" : "232b4593b6eb617d",
-      "16" : "bfc2675fbb4926aa"
+      "16" : "42f7235d17d8c7d1"
     },
     "roundToOddByShifts=true over useAVX=2" : {
       "4" : "232b4593b6eb617d",
-      "16" : "bfc2675fbb4926aa"
+      "16" : "42f7235d17d8c7d1"
     },
     "roundToOddByShifts=false over useAVX=2" : {
       "4" : "232b4593b6eb617d",
-      "16" : "bfc2675fbb4926aa"
+      "16" : "42f7235d17d8c7d1"
     },
     "narrowLanes=true" : {
       "4" : "6f88f5d9876e859d",

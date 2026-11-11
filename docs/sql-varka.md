@@ -1279,7 +1279,9 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 Every row above runs in the differential suites, which compare the fused kernel with Spark's
 row engine on generated data. Beyond that, each row names how it is verified, in
 `sql/varka/coverage.json`'s `verified` field: a refinement in `sql/varka/proofs/refinement.smt2`
-(the kernel proved equal to the SQL specification, with Spark's departures named), a lowering
+(the kernel proved equal to the SQL specification, with Spark's departures named), a rendered
+refinement in `sql/varka/proofs/decimal_refinement.smt2` (the same proof, its kernel printed from
+the IR the compiler builds and its specification read from Spark's expression), a lowering
 proof under `sql/varka/proofs/`, a test that sweeps the row's whole input domain, a planned row
 that owes it, or `differential`, the differential suites alone. `VarkaCoverageSuite` fails a row
 whose entry names something that does not exist. The counts, per column type of the row's
