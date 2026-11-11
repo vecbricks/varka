@@ -832,7 +832,8 @@ at 40 exponents, `fits` at 264 (every precision, both signs, at scales 0 and `p 
 `abs` at 22 each, `add`, `sub` and `cmp` at 432 each, `mul` at 120 (the pairs below `10^39`) and
 `halfup` at 110. Laptop times, whole file: Z3 0.09 s, cvc5 0.42 s; the regenerated
 `smt_nodes_check.smt2` is unchanged by the cherry-pick onto merged 506a2 and holds, Z3 0.06 s and
-cvc5 0.24 s. Every proof holds under both solvers, `--lint` takes 56 s on the laptop, all files,
+cvc5 0.24 s. Each of the nine checks alone holds under both solvers, the slowest cvc5's 0.09 s
+for `fits`. Every proof holds under both solvers, `--lint` takes 56 s on the laptop, all files,
 and the self-test catches every planted failure. Before the file was written, a scratch rendering of two shapes against the prelude
 (`d9 < d9s4`, and `d9 + d9b < d18` under LEGACY, the five checks each) held under both solvers,
 and the first with its kernel's factor planted as 10 for 100 was refuted by check 4, so the
@@ -857,10 +858,11 @@ wrapping as a long.
 3. **The decline rule the templates state is a hand copy of the emitter's** (the review's,
    triaged for 506b2). `Analysis.armChainsOf` leaves a guard unqualified, declining under either
    arm, not only for a decimal slot check but also with `guardUnderArm` off, past
-   `MAX_ARM_CHAINS`, on an arm cycle and for a stored-value guard with several chains; the
+   `MAX_ARM_CHAINS`, on an arm cycle (`unqualifyArmCycles`), for a stored-value guard with
+   several chains, and inside a materialized date (`armChainsIn`); the
    templates and the samples' oracle state only the slot case, so a printed decline can be
    smaller than the emitted one. 506b2's check 5 reads it, so 506b2 derives the rule from the
-   emitter's own (`guardsForTest(...).arms()` empty) rather than restating it.
+   emitter's own `Analysis` rather than restating it.
 4. **The templates' slot-check walk is unshared** (the review's): `loads` re-walks each choice's
    subtree with no visited set, so a CASE chain of `N` arms prints `O(N^2)` terms. The hand and
    fuzzed trees are small; 506b2's shapes are the first where it would show, and a set-based walk
