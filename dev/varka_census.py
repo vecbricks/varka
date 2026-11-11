@@ -487,7 +487,7 @@ def row(section, name, cls, types, result, fused, need, rows, note, cov, errors,
     declined = expand(",".join(p[:-1] for p in types.split(",") if p.endswith("!")))
     t = expand(",".join(p for p in types.split(",") if p and not p.endswith("!")))
     res = t if result == "same" else expand(result)
-    fused_by_matrix = fused == "matrix"
+    fused_by_matrix = fused == "matrix" and name in CAST_ENTRY_MODES
     if fused_by_matrix:
         fused = matrix_fused(name, t, probe, cov)
     # A type marked `^` is fused in part, and kept apart from the counted ones.
@@ -509,8 +509,9 @@ def row(section, name, cls, types, result, fused, need, rows, note, cov, errors,
     for x in f:
         if x not in t:
             errors.append(f"{name}: fused type {x} is not among its types")
-        # An alias's own type is its identity, which needs no coverage row (pair_credit).
-        if x in derived or (fused_by_matrix and CAST_ALIASES.get(name) == x):
+        # An identity needs no coverage row (pair_credit); TIME and DECIMAL to themselves are not.
+        target = CAST_ALIASES.get(name)
+        if x in derived or (fused_by_matrix and target == x and cast_kind(x, x)[0] == "identity"):
             continue
         if not any(x in cov.get(c, set()) for c in check_classes):
             classes = " or ".join(check_classes)
