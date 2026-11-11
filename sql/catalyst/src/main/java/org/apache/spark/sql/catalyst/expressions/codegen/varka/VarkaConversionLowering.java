@@ -38,7 +38,15 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Lan
  * for {@code |n| <= 2^51}.
  *
  * <ul>
- *   <li>{@code L2D}, {@link WideConversionForm#SPLIT}: {@code v >> 32} and
+ *   <li>{@code L2D}, {@link WideConversionForm#XOR_SPLIT}, the default (VARKA-583): the high
+ *   word {@code v >>> 32}, XOR-ed into the bits of {@code 2^84 + 2^63}, is the double
+ *   {@code 2^84 + (hi + 2^31) * 2^32}, where {@code hi = v >> 32}: the XOR flips the word's sign
+ *   bit, which adds {@code 2^31} to a signed word, and {@code 2^84}'s ulp is {@code 2^32}, so no
+ *   multiply follows. Subtracting {@code 2^84 + 2^63 + 2^52} leaves {@code hi * 2^32 - 2^52}
+ *   exactly, and the low word read under {@code 2^52}'s exponent is {@code 2^52 + lo}: their sum
+ *   is {@code v}, rounded once. No arithmetic shift, which AVX2 has no 64-bit instruction
+ *   for.</li>
+ *   <li>{@code L2D}, {@link WideConversionForm#SPLIT}, part 343b1's: {@code v >> 32} and
  *   {@code v & 0xFFFFFFFF} convert exactly, the first scaled by {@code 2^32}, and their sum is
  *   the one rounding of {@code v}.</li>
  *   <li>{@code L2D}, {@link WideConversionForm#MAGIC}: {@code bitsToDouble(v + bits(M)) - M}
@@ -50,7 +58,9 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Lan
  *   (Boldo and Melquiond 2008, Theorem 3), here {@code p = 24} and {@code k >= 17}. Through
  *   {@code (double) v} it would round twice: {@code 2^53 + 2^29 + 1} gives {@code 2^53}
  *   against {@code 2^53 + 2^30}. The form has no mask, since C2 on x86 lowers none at two
- *   64-bit lanes: {@code sel} is all ones where {@code m >= 2^52}, from shifts; the arm is
+ *   64-bit lanes: {@code sel} is all ones where {@code m >= 2^52}, from integer arithmetic; the
+ *   sign and {@code sel} take a logical shift where part 343b1's took an arithmetic one and
+ *   more steps, kept as {@code roundToOddByShifts} (VARKA-583); the arm is
  *   {@code m ^ ((m ^ t12) & sel)}; and the magic number, {@code 2^64} on the large arm, whose ulp
  *   {@code 2^12} scales {@code t} as it converts, takes {@code v}'s sign bit.</li>
  * </ul>
@@ -69,6 +79,15 @@ final class VarkaConversionLowering {
   static final double TWO_32 = 0x1p32;
   static final int SPLIT_SHIFT = 32;
   static final long LOW_WORD = 0xFFFFFFFFL;
+  /**
+   * {@link WideConversionForm#XOR_SPLIT}'s high word's magic, {@code 2^84 + 2^63}: its low 32
+   * bits are the sign bit of a 32-bit word alone, so an XOR with {@code v >>> 32} flips that bit
+   * and fills the rest, and its ulp is {@code 2^32}.
+   */
+  static final double HI_MAGIC = 0x1p84 + 0x1p63;
+  static final long HI_MAGIC_BITS = Double.doubleToRawLongBits(HI_MAGIC);
+  /** What the XOR split subtracts: the high word's magic and the low word's {@code 2^52}. */
+  static final double XOR_SPLIT_BIAS = 0x1p84 + 0x1p63 + 0x1p52;
   /** The magic form's window: exact for {@code |v| <= MAGIC_WINDOW}, and not one past it. */
   static final long MAGIC_WINDOW = 1L << 51;
   /** {@code L2F} rounds to odd at the bit {@code 2^ODD_SHIFT} ... */
@@ -77,9 +96,12 @@ final class VarkaConversionLowering {
   static final int SMALL_BITS = 52;
   /** What the large arm adds to the exponent of {@code 2^52}: {@code ODD_SHIFT}, in place. */
   static final long ODD_EXPONENT = (long) ODD_SHIFT << SMALL_BITS;
+  /** The small arm's bound {@code 2^52} as a long, which the default {@code sel} subtracts. */
+  static final long TWO_52_INT = 1L << SMALL_BITS;
 
   /** The lane calls of each form, which {@code VarkaEmitBudget.weightOf} weighs them by. */
   static final int SPLIT_CALLS = 10;
+  static final int XOR_SPLIT_CALLS = 8;
   static final int ODD_CALLS = 24;
 
   /** Whether {@code n} takes an AVX2 form: Slots, the refusals and the emission all ask. */
@@ -103,17 +125,22 @@ final class VarkaConversionLowering {
   static void emit(CodeBuilder cb, ConvertLane n, boolean dense, Analysis analysis, Slots s) {
     if (n.target() == LaneType.FLOAT) {
       emitRoundToOdd(cb, s.convertTmp.get(n), analysis);
-    } else if (takesMagic(analysis, n)) {
-      Integer guardTmp = s.guardTmp.get(n);
-      if (guardTmp == null) {
-        // Refused by name: without its scratch the window's check would be dropped silently.
-        throw VarkaErrors.illegalState("a bounded L2D with no guard scratch planned: " + n);
+      return;
+    }
+    // Reached only where takesWideForm holds, so MAGIC here is takesMagic.
+    switch (analysis.options.wideConversionForm()) {
+      case MAGIC -> {
+        Integer guardTmp = s.guardTmp.get(n);
+        if (guardTmp == null) {
+          // Refused by name: without its scratch the window's check would be dropped silently.
+          throw VarkaErrors.illegalState("a bounded L2D with no guard scratch planned: " + n);
+        }
+        VarkaVectorWalk.emitRangeGuard(cb, n, dense ? null : s.wordRef.get(n.child()), guardTmp,
+            dense, analysis, s, -MAGIC_WINDOW, MAGIC_WINDOW);
+        emitMagic(cb, "add", MAGIC_BITS, MAGIC);
       }
-      VarkaVectorWalk.emitRangeGuard(cb, n, dense ? null : s.wordRef.get(n.child()), guardTmp,
-          dense, analysis, s, -MAGIC_WINDOW, MAGIC_WINDOW);
-      emitMagic(cb, "add", MAGIC_BITS, MAGIC);
-    } else {
-      emitSplit(cb);
+      case SPLIT -> emitSplit(cb);
+      case XOR_SPLIT -> emitXorSplit(cb);
     }
   }
 
@@ -140,6 +167,23 @@ final class VarkaConversionLowering {
     cb.invokevirtual(DOUBLE_VECTOR, "add", Lane.DOUBLE.lanewiseVV);   // [dh + dl]
   }
 
+  private static void emitXorSplit(CodeBuilder cb) {
+    cb.dup();                                                   // [v, v]
+    emitShift(cb, "LSHR", SPLIT_SHIFT);
+    cb.getstatic(VECTOR_OPERATORS, "XOR", VO_ASSOCIATIVE);
+    cb.loadConstant(HI_MAGIC_BITS);
+    cb.invokevirtual(LONG_VECTOR, "lanewise", LONG_LANEWISE_BINARY);
+    cb.invokevirtual(VECTOR, "reinterpretAsDoubles", REINTERPRET_D);
+    cb.loadConstant(XOR_SPLIT_BIAS);
+    cb.invokevirtual(DOUBLE_VECTOR, "sub", LANEWISE_VD);        // [v, hi * 2^32 - 2^52]
+    cb.swap();
+    cb.loadConstant(LOW_WORD);
+    cb.invokevirtual(LONG_VECTOR, "and", Lane.LONG.lanewiseVI);
+    emitScalar(cb, "or", TWO_52_BITS);
+    cb.invokevirtual(VECTOR, "reinterpretAsDoubles", REINTERPRET_D);    // [.., 2^52 + lo]
+    cb.invokevirtual(DOUBLE_VECTOR, "add", Lane.DOUBLE.lanewiseVV);
+  }
+
   /** {@code [a] -> [a op b]} for a long vector {@code b} in a local. */
   private static void emitWith(CodeBuilder cb, String op, int b) {
     cb.getstatic(VECTOR_OPERATORS, op, VO_ASSOCIATIVE);
@@ -159,6 +203,12 @@ final class VarkaConversionLowering {
     cb.invokevirtual(LONG_VECTOR, op, Lane.LONG.lanewiseVI);
   }
 
+  /** {@code [a] -> [-a]}. */
+  private static void emitNeg(CodeBuilder cb) {
+    cb.getstatic(VECTOR_OPERATORS, "NEG", VO_UNARY);
+    cb.invokevirtual(LONG_VECTOR, "lanewise", Lane.LONG.integral().lanewiseUnary());
+  }
+
   private static void emitRoundToOdd(CodeBuilder cb, @Nullable int[] tmp, Analysis analysis) {
     if (tmp == null) {
       throw VarkaErrors.illegalState("an L2F form with no scratch planned");
@@ -167,23 +217,36 @@ final class VarkaConversionLowering {
     int a = tmp[1];
     int m = tmp[2];
     int sel = tmp[3];
+    boolean byShifts = analysis.options.roundToOddByShifts();
     cb.astore(v);
-    // m = (v ^ s) - s with s = v >> 63: |v|, and 2^63 read unsigned at Long.MIN_VALUE.
+    // m = (v ^ s) - s with s = v >> 63, all ones where v < 0, or -(v >>> 63), the same lanes
+    // without the arithmetic shift: |v|, and 2^63 read unsigned at Long.MIN_VALUE.
     cb.aload(v);
-    emitShift(cb, "ASHR", Long.SIZE - 1);
+    if (byShifts) {
+      emitShift(cb, "ASHR", Long.SIZE - 1);
+    } else {
+      emitShift(cb, "LSHR", Long.SIZE - 1);
+      emitNeg(cb);
+    }
     cb.astore(a);
     cb.aload(v);
     emitWith(cb, "XOR", a);
     cb.aload(a);
     cb.invokevirtual(LONG_VECTOR, "sub", Lane.LONG.lanewiseVV);
     cb.astore(m);
-    // sel = -(((m >>> 52) + Long.MAX_VALUE) >>> 63): all ones where m >= 2^52.
+    // sel, all ones where m >= 2^52: ((m - 2^52) >>> 63) - 1, the subtraction's sign being
+    // m's place against 2^52 for every m up to 2^63, or -(((m >>> 52) + Long.MAX_VALUE) >>> 63).
     cb.aload(m);
-    emitShift(cb, "LSHR", SMALL_BITS);
-    emitScalar(cb, "add", Long.MAX_VALUE);
-    emitShift(cb, "LSHR", Long.SIZE - 1);
-    cb.getstatic(VECTOR_OPERATORS, "NEG", VO_UNARY);
-    cb.invokevirtual(LONG_VECTOR, "lanewise", Lane.LONG.integral().lanewiseUnary());
+    if (byShifts) {
+      emitShift(cb, "LSHR", SMALL_BITS);
+      emitScalar(cb, "add", Long.MAX_VALUE);
+      emitShift(cb, "LSHR", Long.SIZE - 1);
+      emitNeg(cb);
+    } else {
+      emitScalar(cb, "sub", TWO_52_INT);
+      emitShift(cb, "LSHR", Long.SIZE - 1);
+      emitScalar(cb, "sub", 1L);
+    }
     cb.astore(sel);
     // t12 = (m >>> 12) | (((m & 0xFFF) + 0xFFF) >>> 12): m rounded to odd at the bit 2^12.
     cb.aload(m);

@@ -649,20 +649,26 @@ class VarkaEmitterBudgetSuite extends VarkaEmitterTestBase with VarkaOwnJvm {
   test("a bigint conversion to a floating lane weighs its AVX2 form, the larger of its forms",
       PinsDefaults) {
     // One convertShape at level 3, and below it VarkaConversionLowering's form, whose calls the
-    // weight counts; the bounded L2D, three calls and its guard's two compares, is the smaller.
+    // weight counts: L2D's largest, part 343b1's split, since the budget cannot ask which form
+    // emits; the XOR split and the bounded L2D, three calls and its guard's two compares, are
+    // smaller, and both L2F forms emit the same count.
+    import VarkaEmitOptions.WideConversionForm._
     def ops(target: LaneType, options: VarkaEmitOptions): Int = vectorOps(emitMulti(
       Seq(new ConvertLane(new ColumnRef(0, LaneType.LONG), target)), 1, 0, options)._2)
-    for (target <- Seq(LaneType.DOUBLE, LaneType.FLOAT)) {
-      val atDq = ops(target, VarkaMatrix.base.withUseAVX(3))
-      val form = ops(target, VarkaMatrix.base.withUseAVX(2)) - atDq + 1
+    def form(target: LaneType, options: VarkaEmitOptions): Int =
+      ops(target, options) - ops(target, VarkaMatrix.base.withUseAVX(3)) + 1
+    val avx2 = VarkaMatrix.base.withUseAVX(2).withRoundToOddByShifts(false)
+    for ((target, options) <- Seq(LaneType.DOUBLE -> avx2.withWideConversionForm(SPLIT),
+        LaneType.FLOAT -> avx2, LaneType.FLOAT -> avx2.withRoundToOddByShifts(true))) {
       val weight = VarkaEmitBudget.weightOf(new ConvertLane(new ColumnRef(0, LaneType.LONG),
         target))
-      assert(weight === form, s"$target weighs $weight and its AVX2 form emits $form lane ops")
+      val emits = form(target, options)
+      assert(weight === emits, s"$target weighs $weight and its AVX2 form emits $emits lane ops")
     }
-    val magic = ops(LaneType.DOUBLE, VarkaMatrix.base.withUseAVX(2)
-      .withWideConversionForm(VarkaEmitOptions.WideConversionForm.MAGIC)) -
-      ops(LaneType.DOUBLE, VarkaMatrix.base.withUseAVX(3)) + 1
-    assert(magic === 5 && magic < VarkaConversionLowering.SPLIT_CALLS, s"the magic emits $magic")
+    val xorSplit = form(LaneType.DOUBLE, avx2.withWideConversionForm(XOR_SPLIT))
+    assert(xorSplit === VarkaConversionLowering.XOR_SPLIT_CALLS, s"the XOR split emits $xorSplit")
+    val magic = form(LaneType.DOUBLE, avx2.withWideConversionForm(MAGIC))
+    assert(magic === 5 && magic < xorSplit, s"the magic emits $magic")
   }
 
   test("int-lane divisions over four columns take a loop method each, and a subtraction from " +
