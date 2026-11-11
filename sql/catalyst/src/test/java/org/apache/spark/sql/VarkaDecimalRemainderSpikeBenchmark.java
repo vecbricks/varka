@@ -143,10 +143,14 @@ public class VarkaDecimalRemainderSpikeBenchmark extends VarkaBenchmarkBase {
   private static final String RUNGS_PROPERTY = "varka.remainder.rungs";
 
   private static List<Rung> ladder() {
-    int k = Integer.getInteger(RUNGS_PROPERTY, LADDER.size());
-    require(k >= 1 && k <= LADDER.size(), "-D" + RUNGS_PROPERTY + "=" + k + " is not 1 to "
-        + LADDER.size());
-    return LADDER.subList(0, k);
+    String value = System.getProperty(RUNGS_PROPERTY);
+    if (value == null) {
+      return LADDER;
+    }
+    // Parsed strictly: a value that read as unset would run the whole ladder it was set to skip.
+    require(value.strip().matches("[1-9]") && Integer.parseInt(value.strip()) <= LADDER.size(),
+        "-D" + RUNGS_PROPERTY + "=" + value + " is not 1 to " + LADDER.size());
+    return LADDER.subList(0, Integer.parseInt(value.strip()));
   }
 
   /** The compile command that keeps every loop of this class a compile unit of its own. */
@@ -246,7 +250,8 @@ public class VarkaDecimalRemainderSpikeBenchmark extends VarkaBenchmarkBase {
   // The loops. Each has the signature of Loop: the dividend and divisor columns, the output, a
   // selection word a 64 rows of the zero divisors, and the row count (a multiple of 64). The
   // columns and the output are Arrow's slots, in native memory or (GATHER) in a heap array, or
-  // the split layout (SPLIT), as the arm's form's Layout says.
+  // the split layout (SPLIT), as the arm's form's Layout says; a split column's high words start
+  // at n * 8, so a SPLIT loop's n is its column's row count, never a prefix of it.
   // A loop calls its form's body with its operation's pmod as a constant, and INLINE_BODIES folds
   // the body in, at the start of the compile where no inlining cutoff is near. Past their loads
   // the vector bodies call no helper of this class, which C2 may refuse to inline in a long loop
@@ -297,6 +302,16 @@ public class VarkaDecimalRemainderSpikeBenchmark extends VarkaBenchmarkBase {
   static void loopPmodES(MemorySegment x, MemorySegment y, MemorySegment out, long[] words,
       int n) {
     bodyE(x, y, out, words, n, true, Access.SPLIT);
+  }
+
+  static void loopRemainderET(MemorySegment x, MemorySegment y, MemorySegment out, long[] words,
+      int n) {
+    bodyE(x, y, out, words, n, false, Access.BLOCK);
+  }
+
+  static void loopPmodET(MemorySegment x, MemorySegment y, MemorySegment out, long[] words,
+      int n) {
+    bodyE(x, y, out, words, n, true, Access.BLOCK);
   }
 
   static void loopRemainderF(MemorySegment x, MemorySegment y, MemorySegment out, long[] words,
@@ -911,14 +926,17 @@ public class VarkaDecimalRemainderSpikeBenchmark extends VarkaBenchmarkBase {
     E("E", Layout.SLOTS),
     D("D", Layout.SLOTS),
     B("B", Layout.SLOTS),
-    EG("E gathered", Layout.HEAP),
-    EI("E inserted", Layout.SLOTS),
-    ES("E split", Layout.SPLIT),
+    // A variant's title leads with its access, so that no arm's label holds another's and
+    // -Dvarka.bench.only can pick any one arm.
+    EG("gathered E", Layout.HEAP),
+    EI("inserted E", Layout.SLOTS),
+    ES("split E", Layout.SPLIT),
+    ET("transposed E", Layout.SLOTS),
     F("F", Layout.SLOTS),
-    FG("F gathered", Layout.HEAP),
-    FI("F inserted", Layout.SLOTS),
-    FS("F split", Layout.SPLIT),
-    FT("F transposed", Layout.SLOTS);
+    FG("gathered F", Layout.HEAP),
+    FI("inserted F", Layout.SLOTS),
+    FS("split F", Layout.SPLIT),
+    FT("transposed F", Layout.SLOTS);
 
     final String title;
     final Layout layout;
@@ -961,6 +979,7 @@ public class VarkaDecimalRemainderSpikeBenchmark extends VarkaBenchmarkBase {
         new Arm(Op.REMAINDER, Form.EG, VarkaDecimalRemainderSpikeBenchmark::loopRemainderEG),
         new Arm(Op.REMAINDER, Form.EI, VarkaDecimalRemainderSpikeBenchmark::loopRemainderEI),
         new Arm(Op.REMAINDER, Form.ES, VarkaDecimalRemainderSpikeBenchmark::loopRemainderES),
+        new Arm(Op.REMAINDER, Form.ET, VarkaDecimalRemainderSpikeBenchmark::loopRemainderET),
         new Arm(Op.REMAINDER, Form.F, VarkaDecimalRemainderSpikeBenchmark::loopRemainderF),
         new Arm(Op.REMAINDER, Form.FG, VarkaDecimalRemainderSpikeBenchmark::loopRemainderFG),
         new Arm(Op.REMAINDER, Form.FI, VarkaDecimalRemainderSpikeBenchmark::loopRemainderFI),
@@ -972,6 +991,7 @@ public class VarkaDecimalRemainderSpikeBenchmark extends VarkaBenchmarkBase {
         new Arm(Op.PMOD, Form.EG, VarkaDecimalRemainderSpikeBenchmark::loopPmodEG),
         new Arm(Op.PMOD, Form.EI, VarkaDecimalRemainderSpikeBenchmark::loopPmodEI),
         new Arm(Op.PMOD, Form.ES, VarkaDecimalRemainderSpikeBenchmark::loopPmodES),
+        new Arm(Op.PMOD, Form.ET, VarkaDecimalRemainderSpikeBenchmark::loopPmodET),
         new Arm(Op.PMOD, Form.F, VarkaDecimalRemainderSpikeBenchmark::loopPmodF),
         new Arm(Op.PMOD, Form.FG, VarkaDecimalRemainderSpikeBenchmark::loopPmodFG),
         new Arm(Op.PMOD, Form.FI, VarkaDecimalRemainderSpikeBenchmark::loopPmodFI),
@@ -1118,8 +1138,14 @@ public class VarkaDecimalRemainderSpikeBenchmark extends VarkaBenchmarkBase {
         answer(op, expected.get(op), i, pair[0], pair[1]);
       }
     }
-    var heapX = MemorySegment.ofArray(new long[2 * n]).copyFrom(x);
-    var heapY = MemorySegment.ofArray(new long[2 * n]).copyFrom(y);
+    // Word by word, so that the array holds the values in the platform's order, as a gather
+    // reads them, whatever the slots' little-endian bytes.
+    var heapX = MemorySegment.ofArray(new long[2 * n]);
+    var heapY = MemorySegment.ofArray(new long[2 * n]);
+    for (int k = 0; k < 2 * n; k++) {
+      heapX.setAtIndex(ValueLayout.JAVA_LONG, k, x.get(WORD, k * 8L));
+      heapY.setAtIndex(ValueLayout.JAVA_LONG, k, y.get(WORD, k * 8L));
+    }
     var splitX = arena.allocate(n * 16L, 64);
     var splitY = arena.allocate(n * 16L, 64);
     transpose(x, splitX, n, true);
@@ -1299,9 +1325,22 @@ public class VarkaDecimalRemainderSpikeBenchmark extends VarkaBenchmarkBase {
     }
   }
 
-  /** Drives {@code arm} until its loop method is level-4 code and its drive time is steady. */
+  /**
+   * Drives {@code arm} until its loop method is level-4 code and its drive time is steady. It
+   * first calls the loop {@link #PROBE_CALLS} times over {@link #PROBE_ROWS} rows, as the
+   * intrinsic check does: C2 takes a loop method at its invocation count (some 5,000 calls), and
+   * an arm that runs the Java fallback in level-3 code may not make that many calls of the rung's
+   * rows in the wait, so it was timed in C1's code (VARKA-577.md 10.4).
+   */
   private static void driveToCompiledCode(Arm arm, Data d, MemorySegment out, long[] words,
       int reps) {
+    try (Arena arena = Arena.ofConfined(); Data small = data(arena, PROBE_ROWS)) {
+      var smallOut = arena.allocate(PROBE_ROWS * 16L, 64);
+      long[] smallWords = new long[PROBE_ROWS / 64];
+      for (int c = 0; c < PROBE_CALLS; c++) {
+        apply(arm, small, smallOut, smallWords);
+      }
+    }
     long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(WARM_WAIT_MILLIS);
     long previous = 0;
     int drives = 0;
