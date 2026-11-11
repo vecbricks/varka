@@ -236,6 +236,9 @@ public final class VarkaCatalystGrammar {
     out.add(new Production(x, "($0 - $1)", List.of(x, x), 1));
     out.add(new Production(x, "(- $0)", List.of(x), 1));
     out.add(new Production(x, "abs($0)", List.of(x), 1));
+    // The day count of any interval: a DAY field only exists from DAY, so the operand widens first.
+    out.add(new Production(i, "extract(DAY FROM CAST($0 AS INTERVAL DAY TO SECOND))", List.of(x),
+        1));
     // The difference of two TIMESTAMP_NTZ values, and of one and a DATE, which the analyzer casts
     // to TIMESTAMP_NTZ (VARKA-339).
     out.add(new Production(x, "($0 - $1)", List.of(n, n), 2));

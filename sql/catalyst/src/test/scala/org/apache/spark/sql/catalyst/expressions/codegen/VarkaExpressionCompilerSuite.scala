@@ -1541,10 +1541,11 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
   }
 
   test("`ym * num` takes the int lane and names the types that are not one") {
-    // A literal multiplier is bounded and the check comes off; an int column is an unbounded
-    // checked multiply and declines as every other does. Long, Decimal and Double are not
-    // int32 lanes and decline by type, rather than reaching intOperand and being reported as
-    // "not an int column or literal", which would hide which of the two is wrong.
+    // A literal multiplier of any integral width fuses: over a bounded operand the check comes
+    // off, over a stored column a range guard stands in for it. An int column is an unbounded
+    // checked multiply and declines as every other does. A bigint column, Decimal and Double
+    // are not int32 lanes and decline by type, rather than reaching intOperand and being
+    // reported as "not an int column or literal", which would hide which of the two is wrong.
     val byLiteral = VarkaExpressionCompiler.compile(
       Seq(out(MultiplyYMInterval(Cast(Year(d), ymy.dataType), Literal(3)))), withIntervals).get
     // The result widens to YEAR TO MONTH whatever the operand's unit, which is Spark's own
@@ -1552,7 +1553,9 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     assert(byLiteral.outputTypes.asScala.toSeq === Seq(YearMonthIntervalType()))
     assert(declineReason(MultiplyYMInterval(ymm, i), withIntervals) ===
       "checked int multiply whose operands do not rule out overflow")
-    assert(declineReason(MultiplyYMInterval(ymm, Literal(3L)), withIntervals) ===
+    assert(fuses(MultiplyYMInterval(ymm, Literal(3L)), withIntervals))
+    assert(fuses(MultiplyYMInterval(ymm, Literal(3.toShort)), withIntervals))
+    assert(declineReason(MultiplyYMInterval(ymm, l), withIntervals :+ l) ===
       "interval multiplier of type bigint is not an int32 lane")
     // A floating factor is floating arithmetic, which every floating operand declines as.
     assert(declineReason(MultiplyYMInterval(ymm, Literal(2.5d)), withIntervals) ===

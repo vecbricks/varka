@@ -60,7 +60,9 @@ import org.apache.spark.sql.execution.VarkaSessionEmit;
  * is {@code NONE} when no Varka node plans it, {@code NULL_TESTS} when Varka nodes fuse only
  * {@code IS NOT NULL} and {@code IS NULL} tests while a row operator evaluates the rest, and
  * {@code WHOLE} when no row operator evaluates any of it. The projections row 103 fuses are
- * {@code WHOLE} at both widths, the other projections but the blend control {@code NONE}. The
+ * {@code WHOLE} at both widths, the four extracts together {@code PARTIAL} (the DAY field fuses,
+ * the other three are row 103's later step), the other projections but the blend control
+ * {@code NONE}. The
  * filter {@code extract(HOUR FROM dt) >= 12} is {@code NULL_TESTS} at both densities: Spark
  * infers {@code IS NOT NULL} of the column the null-intolerant condition reads, Varka fuses
  * that null test alone, on the long lane, into a {@code VarkaFilterColumnarToRowExec}, and
@@ -190,13 +192,13 @@ public class VarkaDayTimeIntervalBaselineBenchmark extends VarkaSqlBenchmarkBase
       out.add(new Section("dt / 24" + density,
           "SELECT " + dt + " / 24 AS a" + from, Map.of(), Fusion.NONE));
       out.add(new Section("extract(DAY FROM dt)" + density,
-          "SELECT extract(DAY FROM " + dt + ") AS a" + from, Map.of(), Fusion.NONE));
+          "SELECT extract(DAY FROM " + dt + ") AS a" + from, Map.of(), Fusion.WHOLE));
       out.add(new Section("extract(HOUR FROM dt)" + density,
           "SELECT extract(HOUR FROM " + dt + ") AS a" + from, Map.of(), Fusion.NONE));
       out.add(new Section("extract DAY, HOUR, MINUTE and SECOND together" + density,
           "SELECT extract(DAY FROM " + dt + ") AS a, extract(HOUR FROM " + dt + ") AS b, "
               + "extract(MINUTE FROM " + dt + ") AS c, extract(SECOND FROM " + dt + ") AS d"
-              + from, Map.of(), Fusion.NONE));
+              + from, Map.of(), Fusion.PARTIAL));
       out.add(new Section("make_dt_interval(i, i2, i3)" + density,
           "SELECT make_dt_interval(" + i + ", i2, i3) AS a" + from, Map.of(), Fusion.NONE));
       out.add(new Section("make_dt_interval(i, i2, i3, s), DECIMAL(18, 6) seconds" + density,

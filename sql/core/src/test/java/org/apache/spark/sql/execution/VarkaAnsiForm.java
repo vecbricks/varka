@@ -271,7 +271,7 @@ public final class VarkaAnsiForm {
         "CAST(i + 1 AS TINYINT)", "CAST(CAST(l AS INT) AS FLOAT)", "CAST(i AS INTERVAL YEAR)",
         "CAST(dt AS BIGINT)", "round(i, -1)", "bround(i, -1)", "round(y1, -1)",
         "bround(y1, -1)", "round(s1, -1)", "bround(s1, -2)", "dt - dt2",
-        "dt + INTERVAL '1' DAY", "dt * 3", "-2 * dt")) {
+        "dt + INTERVAL '1' DAY", "dt * 3", "-2 * dt", "ym * 3")) {
       out.put(sql + "\t" + FALSE_AND, unqualified);
     }
     // A bigint narrowed to a narrow type as a COALESCE argument beside a narrow column: a narrow
@@ -308,7 +308,7 @@ public final class VarkaAnsiForm {
       Map.entry("DATETIME_FIELD_OUT_OF_BOUNDS.WITHOUT_SUGGESTION", "make_date(2021, i, 1)"),
       Map.entry("DIVIDE_BY_ZERO", "x / x2"),
       Map.entry("INTERVAL_ARITHMETIC_OVERFLOW.WITH_SUGGESTION", "ym - ymm"),
-      Map.entry("java.lang.ArithmeticException", "dt * 3"));
+      Map.entry("java.lang.ArithmeticException", "ym * 3"));
 
   /**
    * The condition Spark's interpreter raises evaluating {@code expression} over the fixture's
@@ -335,7 +335,8 @@ public final class VarkaAnsiForm {
 
   /**
    * The condition {@code values} raises, or empty. Spark's one overflow with no condition, the
-   * TIMESTAMP_NTZ arithmetic's long overflow from {@code java.lang.Math}'s exact arithmetic, is
+   * overflow of {@code java.lang.Math}'s exact arithmetic (TIMESTAMP_NTZ arithmetic's and an
+   * interval product's), is
    * named by its class, as {@code VarkaMaybeThrows.raised} names an error with no condition for
    * the end-to-end suite ({@link #isExactLongOverflow}); any other error is the harness's own
    * and is thrown.
@@ -355,28 +356,36 @@ public final class VarkaAnsiForm {
     }
   }
 
-  /** The methods of {@code java.lang.Math} whose long overflow Spark raises with no condition. */
+  /** The methods of {@code java.lang.Math} whose overflow Spark raises with no condition. */
   private static final Set<String> EXACT_LONG_METHODS =
       Set.of("addExact", "subtractExact", "multiplyExact", "negateExact");
 
   /**
-   * Whether {@code e} is the overflow of {@code Math}'s exact long arithmetic: the message
-   * {@code long overflow}, thrown from one of {@link #EXACT_LONG_METHODS}. Or the JVM's
+   * Whether {@code e} is the overflow of {@code Math}'s exact arithmetic: the message
+   * {@code long overflow} thrown from one of {@link #EXACT_LONG_METHODS}, or
+   * {@code integer overflow} thrown from one of them called by a Catalyst expression,
+   * {@code ym * k}'s int product (an int overflow the harness's own arithmetic throws is called
+   * from elsewhere). Or the JVM's
    * preallocated {@code ArithmeticException}, with no message and no stack trace: once such a
    * site has trapped often enough, C2 throws that shared instance in place of the overflow
    * ({@code inline_math_mathExact}, under the default {@code OmitStackTraceInFastThrow}), as
    * {@code VarkaMaybeThrows.sameError} records. That instance is also what a hot implicit
    * division by zero throws, so it cannot be told apart; a {@code / by zero} with its message,
-   * an int overflow, or a long overflow thrown anywhere but {@code Math} is the harness's own.
+   * or an overflow thrown anywhere but {@code Math} is the harness's own.
    */
   static boolean isExactLongOverflow(ArithmeticException e) {
     StackTraceElement[] trace = e.getStackTrace();
     if (e.getMessage() == null) {
       return trace.length == 0;
     }
-    return e.getMessage().equals("long overflow") && trace.length > 0
-        && trace[0].getClassName().equals("java.lang.Math")
+    boolean fromMath = trace.length > 0 && trace[0].getClassName().equals("java.lang.Math")
         && EXACT_LONG_METHODS.contains(trace[0].getMethodName());
+    return switch (e.getMessage()) {
+      case "long overflow" -> fromMath;
+      case "integer overflow" -> fromMath && trace.length > 1
+          && trace[1].getClassName().startsWith("org.apache.spark.sql.catalyst.expressions.");
+      default -> false;
+    };
   }
 
   /**

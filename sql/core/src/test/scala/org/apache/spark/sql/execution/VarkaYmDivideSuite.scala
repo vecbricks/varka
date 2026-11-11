@@ -179,19 +179,23 @@ class VarkaYmDivideSuite extends QueryTest with VarkaMaybeThrows with VarkaTestW
       "raises as the row engine does") {
     val queries = Seq(
       "SELECT (ym + ym2) / 7 AS a, (ym + ym2) / -12 AS b FROM TABLE",
-      // The checked product of a stored column is unbounded, so it declines at compile time.
+      // The product of a stored column by a literal is range-guarded.
       "SELECT (ym * 2) / 7 AS a, (ym * 2) / 100 AS b FROM TABLE",
       "SELECT (ym + INTERVAL '1' MONTH) / 7 AS a FROM TABLE",
       "SELECT CAST(ym + ym2 AS INTERVAL YEAR) / 7 AS a FROM TABLE",
       "SELECT CAST(CAST(ym * 2 AS INTERVAL YEAR) / 12 AS INT) AS a FROM TABLE")
+    // The last casts a YEAR TO MONTH quotient to an int, which no arm fuses: only a
+    // single-field interval's cast to an int does.
+    val castOfQuotient = queries.last
     for (query <- queries) {
-      checkComposed(query, "varka_ymd_fits", raises = false, fuses = !query.contains("ym * 2"))
+      checkComposed(query, "varka_ymd_fits", raises = false, fuses = query != castOfQuotient)
     }
     for (query <- queries.take(1) ++ queries.slice(3, 4)) {
       checkComposed(query, "varka_ymd_sum_overflows", raises = true)
     }
     for (query <- queries.slice(1, 2) ++ queries.slice(4, 5)) {
-      checkComposed(query, "varka_ymd_double_overflows", raises = true, fuses = false)
+      checkComposed(query, "varka_ymd_double_overflows", raises = true,
+        fuses = query != castOfQuotient)
     }
     checkComposed("SELECT (ym + INTERVAL '2147483647' MONTH) / 7 AS a FROM TABLE",
       "varka_ymd_literal_overflows", raises = true)

@@ -357,6 +357,17 @@
           "loopMasked0([J[J[I[J[J[II)I" : "048cb8d9bdd8e7b4",
           "epilogueMasked0([J[J[I[J[J[II)I" : "9ca2a4fdacc708da"
         },
+        "ym * 3" : {
+          "<class>" : "2a53295ac2cde372",
+          "<init>()V" : "e2c903051ec05d17",
+          "run([J[J[I[J[J[II)I" : "f09c0a347f43e9ec",
+          "runDense([J[J[I[J[J[II)I" : "4d2af451952dc222",
+          "loopDense0([J[J[I[J[J[II)I" : "2fcfcb6259f2c7c8",
+          "epilogueDense0([J[J[I[J[J[II)I" : "f889d5b392b311f4",
+          "runMasked([J[J[I[J[J[II)I" : "93d2163235838083",
+          "loopMasked0([J[J[I[J[J[II)I" : "83f81f724cc760a7",
+          "epilogueMasked0([J[J[I[J[J[II)I" : "6ccc92360949c7cc"
+        },
         "abs(ym)" : {
           "<class>" : "2a53295ac2cde372",
           "<init>()V" : "e2c903051ec05d17",
@@ -576,6 +587,17 @@
           "runMasked([J[J[I[J[J[I[JI)I" : "a037dfc254629f23",
           "loopMasked0([J[J[I[J[J[I[JI)I" : "485a0c23e1ed3506",
           "epilogueMasked0([J[J[I[J[J[I[JI)I" : "b1c75de6f7db55ad"
+        },
+        "extract(DAY FROM dt)" : {
+          "<class>" : "1a6be0d5ae87cd3c",
+          "<init>()V" : "e2c903051ec05d17",
+          "run([J[J[I[J[J[I[JI)I" : "d5145bab352f2868",
+          "runDense([J[J[I[J[J[I[JI)I" : "7b15a2415c2410d7",
+          "loopDense0([J[J[I[J[J[I[JI)I" : "58f4c523c9dd7f93",
+          "epilogueDense0([J[J[I[J[J[I[JI)I" : "98fdcd2cd5c8f7d6",
+          "runMasked([J[J[I[J[J[I[JI)I" : "a037dfc254629f23",
+          "loopMasked0([J[J[I[J[J[I[JI)I" : "58f4c523c9dd7f93",
+          "epilogueMasked0([J[J[I[J[J[I[JI)I" : "98fdcd2cd5c8f7d6"
         },
         "i + 1" : {
           "<class>" : "2a53295ac2cde372",
@@ -7989,6 +8011,17 @@
           "loopMasked0([J[J[I[J[J[II)I" : "4c42096a61386994",
           "epilogueMasked0([J[J[I[J[J[II)I" : "4bd0b24f3b74e0c0"
         },
+        "ym * 3" : {
+          "<class>" : "2a53295ac2cde372",
+          "<init>()V" : "e2c903051ec05d17",
+          "run([J[J[I[J[J[II)I" : "f09c0a347f43e9ec",
+          "runDense([J[J[I[J[J[II)I" : "4d2af451952dc222",
+          "loopDense0([J[J[I[J[J[II)I" : "65ef4041e36a5ebe",
+          "epilogueDense0([J[J[I[J[J[II)I" : "eaa79e0b037f6ff1",
+          "runMasked([J[J[I[J[J[II)I" : "93d2163235838083",
+          "loopMasked0([J[J[I[J[J[II)I" : "1b3cf70b11c6c304",
+          "epilogueMasked0([J[J[I[J[J[II)I" : "47d7099f257f0b50"
+        },
         "abs(ym)" : {
           "<class>" : "2a53295ac2cde372",
           "<init>()V" : "e2c903051ec05d17",
@@ -8208,6 +8241,17 @@
           "runMasked([J[J[I[J[J[I[JI)I" : "a037dfc254629f23",
           "loopMasked0([J[J[I[J[J[I[JI)I" : "586448d9e90ef68d",
           "epilogueMasked0([J[J[I[J[J[I[JI)I" : "191c187c672b57a9"
+        },
+        "extract(DAY FROM dt)" : {
+          "<class>" : "1a6be0d5ae87cd3c",
+          "<init>()V" : "e2c903051ec05d17",
+          "run([J[J[I[J[J[I[JI)I" : "d5145bab352f2868",
+          "runDense([J[J[I[J[J[I[JI)I" : "7b15a2415c2410d7",
+          "loopDense0([J[J[I[J[J[I[JI)I" : "b540a7102c20770e",
+          "epilogueDense0([J[J[I[J[J[I[JI)I" : "3fde71fd40195fc8",
+          "runMasked([J[J[I[J[J[I[JI)I" : "a037dfc254629f23",
+          "loopMasked0([J[J[I[J[J[I[JI)I" : "b540a7102c20770e",
+          "epilogueMasked0([J[J[I[J[J[I[JI)I" : "3fde71fd40195fc8"
         },
         "i + 1" : {
           "<class>" : "2a53295ac2cde372",
@@ -15270,68 +15314,68 @@
   },
   "option_arms" : {
     "useAVX=-1" : {
-      "4" : "41d692e1453bb9dc",
-      "16" : "5683347f6ea516b2"
+      "4" : "91c71252bd7ac71e",
+      "16" : "86f6929ff676e9be"
     },
     "useAVX=0" : {
-      "4" : "7123e80bdeb37959",
-      "16" : "4f153b16435a02e1"
+      "4" : "b5586c172b3c161f",
+      "16" : "742ddc190b89d376"
     },
     "useAVX=1" : {
-      "4" : "7123e80bdeb37959",
-      "16" : "4f153b16435a02e1"
+      "4" : "b5586c172b3c161f",
+      "16" : "742ddc190b89d376"
     },
     "useAVX=2" : {
-      "4" : "7123e80bdeb37959",
-      "16" : "4f153b16435a02e1"
+      "4" : "b5586c172b3c161f",
+      "16" : "742ddc190b89d376"
     },
     "useAVX=3" : {
-      "4" : "41d692e1453bb9dc",
-      "16" : "5683347f6ea516b2"
+      "4" : "91c71252bd7ac71e",
+      "16" : "86f6929ff676e9be"
     },
     "validityOrFirst=true over denseValidityOnce=false,validityByBitmap=false" : {
-      "4" : "40ee1af9ae09a789",
-      "16" : "5cc8f918055a406a"
+      "4" : "81135a3133013b4e",
+      "16" : "44b7345fc3c68c14"
     },
     "validityOrFirst=false over denseValidityOnce=false,validityByBitmap=false" : {
-      "4" : "bccbb40166b9c442",
-      "16" : "3c5955f31d30188c"
+      "4" : "35bcb56c4b419cb4",
+      "16" : "c19363b87dfbcb5c"
     },
     "wideConversionForm=SPLIT over useAVX=2" : {
-      "4" : "e50adbc87547e3f2",
-      "16" : "42f7235d17d8c7d1"
+      "4" : "b5586c172b3c161f",
+      "16" : "742ddc190b89d376"
     },
     "wideConversionForm=MAGIC over useAVX=2" : {
-      "4" : "e50adbc87547e3f2",
-      "16" : "42f7235d17d8c7d1"
+      "4" : "b5586c172b3c161f",
+      "16" : "742ddc190b89d376"
     },
     "wideConversionForm=XOR_SPLIT over useAVX=2" : {
-      "4" : "e50adbc87547e3f2",
-      "16" : "42f7235d17d8c7d1"
+      "4" : "b5586c172b3c161f",
+      "16" : "742ddc190b89d376"
     },
     "roundToOddByShifts=true over useAVX=2" : {
-      "4" : "e50adbc87547e3f2",
-      "16" : "42f7235d17d8c7d1"
+      "4" : "b5586c172b3c161f",
+      "16" : "742ddc190b89d376"
     },
     "roundToOddByShifts=false over useAVX=2" : {
-      "4" : "e50adbc87547e3f2",
-      "16" : "42f7235d17d8c7d1"
+      "4" : "b5586c172b3c161f",
+      "16" : "742ddc190b89d376"
     },
     "narrowLanes=true" : {
-      "4" : "41d692e1453bb9dc",
-      "16" : "5683347f6ea516b2"
+      "4" : "91c71252bd7ac71e",
+      "16" : "86f6929ff676e9be"
     },
     "narrowLanes=false" : {
-      "4" : "090b707936e8dc5c",
-      "16" : "208177350e303abd"
+      "4" : "a17a987340aa2d1e",
+      "16" : "43597860d0470bc3"
     },
     "groupLocalSlots=false" : {
-      "4" : "025fc7746bca2f2d",
-      "16" : "2656a2db6e9d5108"
+      "4" : "54f903fb6d6d10f7",
+      "16" : "4acc6f9900a04ea9"
     },
     "methodByteBudget=0" : {
-      "4" : "2c5a5fa3929ab495",
-      "16" : "505bd235df394f25"
+      "4" : "07b0f1b111bac7bd",
+      "16" : "17e6179167dc24f1"
     }
   }
 }

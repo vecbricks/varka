@@ -520,31 +520,21 @@ Predictions, registered before the build:
    helper, if 332b has not built it), 2.4's day split and the decimal literal forms whose divisor
    divides `D`, the proof additions, the cells and coverage rows of those forms, the first planted
    fault.
-   *2 November 2026, 103a's first part built:* 2.1 alone. `VarkaIntervalCompiler` gains the
-   day-time arms `dt + dt2`, `dt - dt2` (`IntArith` `ADD` or `SUB` in `FAIL` at the long lane,
-   through `arithOver`), `-dt` (`IntNeg` `FAIL`) and `abs(dt)` (the compare, `IntNeg` `FAIL` and
-   blend of the year-month `absolute`), behind a `dayTimeOperand` type gate; `VarkaTimeCompiler`'s
-   unit relabel compiles any cast to an end field at least as fine as the source's to the child,
-   the SECOND end among them. No IR node, so no reference evaluator, cost model or proof change;
-   `+dt` is `RuntimeReplaceable` and never reaches the compiler. Tests: coverage family "Day-time
-   interval arithmetic" (five rows, each with its `try_` domain or the least interval's), the
-   named cells of 3.3 for these forms in `VarkaDayTimeArithmeticSuite` (sql/core: `MAX - 1 + 1`
-   and `MIN + 1 - 1` answered, `MAX + 1` and `MIN - 1` raising
-   `INTERVAL_ARITHMETIC_OVERFLOW.WITH_SUGGESTION`, `-dt` at `MIN` the `.WITHOUT_SUGGESTION` class,
-   `abs(dt)` at `MIN` `ARITHMETIC_OVERFLOW`, each against the row engine with the kernel in the
-   plan), and the Spark-level fuzz grammar's `dt - dt2`, `-dt` and `abs(dt)`. The harness's
-   domain-edges fixture gains an overridable `dt2` and the pairs at the long's ends whose sum and
-   difference overflow and the last that fit (`VarkaDomains`); `VarkaAnsiForm` lists `dt - dt2`
-   and `dt + INTERVAL '1' DAY` under the right side of a false AND, whose check condemns the batch
-   as for the other checked rows; `skips.tsv` gives the four tests that hold a kernel to declining
-   an overflow their `checkIntOverflow=false` lines, not run locally. The baseline lists
-   `dt + dt2 - dt` and `abs(dt)` as fusing at both densities. Prediction 1 held for these shapes:
-   `emitted_bytes.json` adds the five shapes and moves only the `option_arms` digests. The census
-   marks `dt` fused for `+`, `-`, `negative` and `abs`. The finer-end relabel moves
-   `casts_fused.tsv`: the day-time casts to an end at least as fine as the source's, between two
-   coarser-than-SECOND types (`INTERVAL DAY` to `INTERVAL HOUR`, say), now fuse, and `casts.tsv`'s
-   `dt dt` fused column with them, 36 to 55 of 90 forms; its rows column is the lead's (section 8,
-   point 5).
+   *2 November 2026, 103a's first part built:* 2.1 alone. `VarkaIntervalCompiler` gains, behind a
+   `dayTimeOperand` type gate, `dt + dt2` and `dt - dt2` (`IntArith` `ADD` or `SUB` in `FAIL`
+   through `arithOver`), `-dt` (`IntNeg` `FAIL`) and `abs(dt)` (the year-month `absolute`'s
+   compare, `IntNeg` `FAIL` and blend); `VarkaTimeCompiler`'s unit relabel compiles any cast to
+   an end field at least as fine as the source's to the child. No IR node; `+dt` is
+   `RuntimeReplaceable`. Tests: coverage family "Day-time interval arithmetic" (five rows with
+   their domains); the 3.3 cells in `VarkaDayTimeArithmeticSuite` against the row engine
+   (`MAX - 1 + 1` answered, `MAX + 1` raising `INTERVAL_ARITHMETIC_OVERFLOW.WITH_SUGGESTION`,
+   `-dt` at `MIN` the `.WITHOUT_SUGGESTION` class, `abs(dt)` at `MIN` `ARITHMETIC_OVERFLOW`); the
+   fuzz grammar's `dt - dt2`, `-dt` and `abs(dt)`; `VarkaDomains`' overridable `dt2` and its
+   overflowing pairs; `VarkaAnsiForm`'s false-AND rows; `skips.tsv`'s `checkIntOverflow=false`
+   lines. Prediction 1 held: `emitted_bytes.json` adds the shapes and moves only `option_arms`.
+   The census marks `dt` fused for `+`, `-`, `negative` and `abs`, and `casts.tsv`'s `dt dt`
+   fuses 55 of 90 forms, up from 36, by the finer-end relabel; its rows column is the lead's
+   (section 8, point 5).
    *The same day, 2.2's day-time half:* `dt * k` and `k * dt` for an integral literal `k`
    (`MultiplyDTInterval`), the operand under `GuardedRange(x, lo, hi)` with the bounds of
    `VarkaIntervalCompiler.dayTimeProductBounds` (`BigInteger`, clamped), then `IntArith(MUL,
@@ -561,11 +551,34 @@ Predictions, registered before the build:
    `dt * 3` as the first row raising the bare `ArithmeticException`, which `ntz + dt` was;
    `VarkaIntervalCompiler` is public so the renderer and the suite read the compiler's bounds.
    A probe of the baseline after the build found exactly its listed sections fusing. No fuzz
-   production: an overflowing product raises a bare
-   `ArithmeticException`, which the Spark-level fuzzer's expected-errors list cannot name, as for
+   production: an overflowing product raises a bare `ArithmeticException`, which reaches the
+   Spark-level fuzzer as the job's `SparkException` with no condition, a class its expected-errors
+   list cannot hold without excusing every task failure, as `VarkaCatalystGrammar` says of
    `ym * k`. Left of 103a: `ym * k` (2.2's int-lane half), `extract(DAY)` with `truncDivLong`,
    2.4's day split and the decimal literal forms, the rest of 3.1's proofs, their cells and rows,
    and the first planted fault.
+   *11 November 2026, 103a split in two by the size cap, and 103a1 built* (branch
+   `varka-103a-dt-arith`, opening after #1425). The two commits above, unpushed when their
+   session ended on 2 November, are replayed onto master at `c62f492fc89`. Corrections: master's
+   baselines hold a `Fusion` class, not a `fuses` flag, so "lists as fusing" is `WHOLE` at both
+   widths; `truncDivLong` and its `long_divide.smt2` claim are row 332's, on master, so 103a
+   builds no bias helper. 103a would pass the 1000-line cap, so: **103a1**, 2.1, 2.2 with
+   `ym * k`, `extract(DAY)` and the first planted fault; **103a2**, after it, 2.4's day split
+   for `dt / k` and the decimal literal factor and divisor, which share the `HALF_UP` step.
+   As built in 103a1: `ym * k` for an integral literal of any width keeps its unchecked multiply
+   where the bounds prove the product fits (`make_ym_interval(year(d), month(d)) * 2`, bytes
+   unmoved), else guards the count to `yearMonthProductBounds(k)` and multiplies with wrapping
+   by `(int) k`, exact under the guard modulo `2^32`. `extract(DAY FROM dt)` is
+   `NarrowLane(truncDivLong(x, D))`; inside `date_add` the date arm still reads it, and `d + dt`
+   over a stored `INTERVAL DAY` column still declines. The fault,
+   `VarkaIntervalFault.DAY_BY_MAGNITUDE`, is stated in `long_divide.smt2`, `sat` over every long
+   and `unsat` with `Long.MIN_VALUE` excluded (0.14 s under Z3 alone), and fails
+   `VarkaEmitterIntervalCastSuite`'s `MIN` cell. `dt_arith.smt2` proves the int lane's guard per
+   factor of `YM_FACTORS`. Rows `ym * 3` and `extract(DAY FROM dt)` (both proof); the baseline's
+   day extract is `WHOLE`, its four extracts together `PARTIAL`. `ym * k` overflows with `Math`'s
+   `integer overflow`, which the harness's ANSI form now takes for Spark's when an expression
+   called `Math`. No TRY form is built: every `try_` spelling over an interval is `TryEval`
+   (item 12).
 3. **103b, after 332b and 157 and 347**: `HOUR`, `MINUTE`, `SECOND`, `make_dt_interval` (the
    seconds of both, section 8, point 3), the third planted fault, and the measurement against the
    baseline at both widths.

@@ -420,8 +420,20 @@
     "operands" : [ "MakeYMInterval:int", "Month:date", "MultiplyYMInterval:int", "MultiplyYMInterval:ym", "Year:date" ],
     "switches" : [ "spark.sql.codegen.varka.family.calendar.enabled", "spark.sql.codegen.varka.family.interval.enabled" ],
     "domain" : "unix_date(d) BETWEEN -719162 AND 2932896",
-    "note" : "a checked multiply, so bounded operands again: `ym * 2` over a stored interval column declines",
+    "note" : "a checked multiply whose bounded operands take the check off",
     "verified" : "differential"
+  }, {
+    "sql" : "ym * 3",
+    "executable" : "ym * 3",
+    "family" : "Months and year-month intervals",
+    "form" : "projection",
+    "catalyst" : [ "MultiplyYMInterval" ],
+    "casts" : [ ],
+    "operands" : [ "MultiplyYMInterval:int", "MultiplyYMInterval:ym" ],
+    "switches" : [ "spark.sql.codegen.varka.family.interval.enabled" ],
+    "domain" : "ym BETWEEN INTERVAL '-59652323-6' YEAR TO MONTH AND INTERVAL '59652323-6' YEAR TO MONTH",
+    "note" : "a stored interval column times an integral literal: the count is guarded to the ints whose product fits, exactly, and the multiply wraps; a column factor declines",
+    "verified" : "proof: dt_arith.smt2"
   }, {
     "sql" : "abs(ym)",
     "executable" : "abs(ym)",
@@ -662,6 +674,18 @@
     "domain" : "if(dt IS NULL, NULL, try_multiply(-2, dt) IS NOT NULL)",
     "note" : "the factor on the left is the same node; a negative factor swaps the guard's ends, which are not symmetric",
     "verified" : "proof: dt_arith.smt2"
+  }, {
+    "sql" : "extract(DAY FROM dt)",
+    "executable" : "extract(DAY FROM dt)",
+    "family" : "Day-time interval arithmetic",
+    "form" : "projection",
+    "catalyst" : [ "Extract", "ExtractANSIIntervalDays" ],
+    "casts" : [ ],
+    "operands" : [ "Extract:dt", "ExtractANSIIntervalDays:dt" ],
+    "switches" : [ "spark.sql.codegen.varka.family.interval.enabled" ],
+    "domain" : "",
+    "note" : "Java's truncating division by a day, exact over every long and never raising; inside date_add the date arm reads it as the day offset",
+    "verified" : "proof: long_divide.smt2"
   }, {
     "sql" : "i + 1",
     "executable" : "i + 1",

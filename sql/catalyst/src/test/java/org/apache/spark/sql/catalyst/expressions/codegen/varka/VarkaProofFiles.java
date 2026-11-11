@@ -438,6 +438,19 @@ final class VarkaProofFiles {
     var wrong = new ArrayList<>(steps);
     wrong.add("(assert (not (= (jlong.floorDiv x " + day + ") (jlong.div x " + day + "))))");
     check(out, "without the bias the floor division is not the truncating one", "sat", wrong);
+    // The planted fault of VARKA-103 3.7 (VarkaIntervalFault.DAY_BY_MAGNITUDE): the floor of
+    // the magnitude (x ^ s) - s, s = x >> 63, with the sign put back the same way. The
+    // magnitude wraps at Long.MIN_VALUE, the one long where the form is wrong.
+    var magnitude = new ArrayList<>(steps);
+    magnitude.add("(define-fun s () Int (jlong.shr x 63))");
+    magnitude.add("(define-fun q () Int (jlong.floorDiv (jlong.sub (ite (= s 0) x (jlong.not x)) "
+        + "s) " + day + "))");
+    magnitude.add("(assert (not (= (jlong.sub (ite (= s 0) q (jlong.not q)) s) (jlong.div x "
+        + day + "))))");
+    check(out, "the magnitude form by an arithmetic shift is not the truncating one", "sat",
+        magnitude);
+    magnitude.add("(assert (not (= x " + lit(Long.MIN_VALUE) + ")))");
+    check(out, "and Long.MIN_VALUE is the only long where it differs", "unsat", magnitude);
   }
 
   /** The conversion form, for every {@code 0 < |v| < 2^53}: one check per quotient binade. */
@@ -2162,68 +2175,96 @@ final class VarkaProofFiles {
       (long) Integer.MIN_VALUE, (long) Integer.MAX_VALUE, Long.MIN_VALUE, Long.MAX_VALUE);
 
   /**
+   * The literal factors of {@code ym * k} it proves the month count's guard for, the int lane's
+   * twin: the coverage row's and the tests', a {@code BIGINT} one past the int among them.
+   */
+  static final List<Long> YM_FACTORS = List.of(2L, -2L, 3L, -1L, (long) Integer.MIN_VALUE,
+      (long) Integer.MAX_VALUE, 1L << 31, Long.MIN_VALUE);
+
+  /**
    * {@code dt_arith.smt2}: the range guard {@code VarkaIntervalCompiler.dayTimeMultiply} puts
    * ahead of the wrapping multiply in {@code dt * k} is exact - it admits a long {@code x}
    * exactly when {@code x * k} is a long, which is where {@code Math.multiplyExact} does not
-   * raise - and under it the wrapping product is the true one (VARKA-103 2.2, 3.1). The bounds
-   * are {@code VarkaIntervalCompiler.dayTimeProductBounds}'s own, pinned to
+   * raise - and under it the wrapping product is the true one (VARKA-103 2.2, 3.1); and the same
+   * of {@code ym * k}'s guard at the int lane, where the wrapping product multiplies by the
+   * factor's low 32 bits. The bounds are {@code VarkaIntervalCompiler}'s own, pinned to
    * {@code Math.multiplyExact} at both ends and one past each while rendering.
    */
   static String dtArith() {
     var out = new StringBuilder(LICENSE);
     out.append("""
-        ; The day-time interval product by an integral literal (VARKA-103 2.2). Spark computes
-        ; dt * k as Math.multiplyExact(micros, k) in every mode, and
-        ; VarkaIntervalCompiler.dayTimeMultiply emits, per lane,
+        ; The interval products by an integral literal (VARKA-103 2.2). Spark computes dt * k as
+        ; Math.multiplyExact(micros, k) and ym * k as Math.multiplyExact(months, k), or for a
+        ; bigint k toIntExact(multiplyExact(months, k)), in every mode, and VarkaIntervalCompiler
+        ; emits, per lane,
         ;
         ;   GuardedRange(x, lo, hi)        the batch declines where a lane leaves [lo, hi]
-        ;   x * k                          wrapping multiply
+        ;   x * k                          wrapping multiply, by (int) k at the int lane
         ;
         ; with [lo, hi] = [ceil(MIN / k), floor(MAX / k)] for k > 0, the two swapped for k < 0,
-        ; clamped to the long (dayTimeProductBounds). For each factor in
-        ; VarkaProofFiles.DT_FACTORS the solver shows that the guard admits x exactly when the
-        ; true product is a long, and that under the guard the wrapping product is the true one;
-        ; and, beside them, that a bound moved one further out admits a product past the long and
-        ; that the symmetric bound +-(MAX / |k|) refuses one inside it.
+        ; clamped to the lane (dayTimeProductBounds, yearMonthProductBounds). For each factor in
+        ; VarkaProofFiles.DT_FACTORS at the long lane and YM_FACTORS at the int lane the solver
+        ; shows that the guard admits x exactly when the true product is in the lane, and that
+        ; under the guard the wrapping product is the true one; and, beside them, that a bound
+        ; moved one further out admits a product past the lane and that the symmetric bound
+        ; +-(MAX / |k|) refuses one inside it.
         """);
     out.append(rendered("QF_NIA"));
     out.append("""
 
         (declare-const x Int)
-        (assert (jlong.in x))
         """);
+    out.append("(push 1)\n(assert (jlong.in x))\n");
     for (long k : DT_FACTORS) {
       long[] b = VarkaIntervalCompiler.dayTimeProductBounds(k);
-      long lo = b[0];
-      long hi = b[1];
-      pinProduct(k, lo, hi);
-      String guard = "(and (<= " + lit(lo) + " x) (<= x " + lit(hi) + "))";
-      String product = "(* x " + lit(k) + ")";
-      check(out, "k = " + k + ": the guard [" + lo + ", " + hi + "] admits x exactly where x * k "
-          + "is a long", "unsat",
-          List.of("(assert (not (= " + guard + " (jlong.in " + product + "))))"));
-      check(out, "k = " + k + ": under the guard the wrapping product is the true one", "unsat",
-          List.of("(assert " + guard + ")",
-              "(assert (not (= (jlong.mul x " + lit(k) + ") " + product + ")))"));
-      if (lo > Long.MIN_VALUE) {
-        check(out, "k = " + k + ": with the lower bound one lower it admits an overflow", "sat",
-            List.of("(assert (and (<= " + lit(lo - 1) + " x) (<= x " + lit(hi) + ")))",
-                "(assert (not (jlong.in " + product + ")))"));
-      }
-      if (hi < Long.MAX_VALUE) {
-        check(out, "k = " + k + ": with the upper bound one higher it admits an overflow", "sat",
-            List.of("(assert (and (<= " + lit(lo) + " x) (<= x " + lit(hi + 1) + ")))",
-                "(assert (not (jlong.in " + product + ")))"));
-      }
-      if (k == 2 || k == -2 || k == Integer.MIN_VALUE) {
-        long m = Long.MAX_VALUE / Math.abs(k);
-        check(out, "k = " + k + ": the symmetric bound +-" + m + " refuses a product inside the "
-            + "long", "sat",
-            List.of("(assert (not (and (<= " + lit(-m) + " x) (<= x " + lit(m) + "))))",
-                "(assert (jlong.in " + product + "))"));
-      }
+      pinProduct(k, b[0], b[1]);
+      productGuard(out, "jlong", Long.MIN_VALUE, Long.MAX_VALUE, k, lit(k), b);
     }
+    out.append("(pop 1)\n\n; ym * k at the int lane\n(push 1)\n(assert (jint.in x))\n");
+    for (long k : YM_FACTORS) {
+      long[] b = VarkaIntervalCompiler.yearMonthProductBounds(k);
+      pinYearMonthProduct(k, b[0], b[1]);
+      productGuard(out, "jint", Integer.MIN_VALUE, Integer.MAX_VALUE, k, lit((int) k), b);
+    }
+    out.append("(pop 1)\n");
     return out.toString();
+  }
+
+  /**
+   * The checks of one factor's guard at a lane: {@code lane} the prelude's prefix,
+   * {@code [least, greatest]} its range, {@code low} the factor's bits the wrapping multiply
+   * takes.
+   */
+  private static void productGuard(StringBuilder out, String lane, long least, long greatest,
+      long k, String low, long[] b) {
+    long lo = b[0];
+    long hi = b[1];
+    String guard = "(and (<= " + lit(lo) + " x) (<= x " + lit(hi) + "))";
+    String product = "(* x " + lit(k) + ")";
+    String in = "(" + lane + ".in " + product + ")";
+    check(out, lane + " k = " + k + ": the guard [" + lo + ", " + hi + "] admits x exactly "
+        + "where x * k is in the lane", "unsat",
+        List.of("(assert (not (= " + guard + " " + in + ")))"));
+    check(out, lane + " k = " + k + ": under the guard the wrapping product is the true one",
+        "unsat", List.of("(assert " + guard + ")",
+            "(assert (not (= (" + lane + ".mul x " + low + ") " + product + ")))"));
+    if (lo > least) {
+      check(out, lane + " k = " + k + ": with the lower bound one lower it admits an overflow",
+          "sat", List.of("(assert (and (<= " + lit(lo - 1) + " x) (<= x " + lit(hi) + ")))",
+              "(assert (not " + in + "))"));
+    }
+    if (hi < greatest) {
+      check(out, lane + " k = " + k + ": with the upper bound one higher it admits an overflow",
+          "sat", List.of("(assert (and (<= " + lit(lo) + " x) (<= x " + lit(hi + 1) + ")))",
+              "(assert (not " + in + "))"));
+    }
+    if (k == 2 || k == -2 || k == Integer.MIN_VALUE) {
+      long m = greatest / Math.abs(k);
+      check(out, lane + " k = " + k + ": the symmetric bound +-" + m + " refuses a product "
+          + "inside the lane", "sat",
+          List.of("(assert (not (and (<= " + lit(-m) + " x) (<= x " + lit(m) + "))))",
+              "(assert " + in + ")"));
+    }
   }
 
   /** Fails the rendering unless {@code Math.multiplyExact} admits {@code [lo, hi]} exactly. */
@@ -2235,6 +2276,27 @@ final class VarkaProofFiles {
     }
     if (hi < Long.MAX_VALUE) {
       requireRaises(hi + 1, k, lo, hi);
+    }
+  }
+
+  /** {@link #pinProduct} for the month count: Spark's int product, or its long one narrowed. */
+  private static void pinYearMonthProduct(long k, long lo, long hi) {
+    for (long x : new long[] {lo - 1, lo, hi, hi + 1}) {
+      boolean inside = lo <= x && x <= hi;
+      if (x < Integer.MIN_VALUE || x > Integer.MAX_VALUE) {
+        continue;
+      }
+      boolean raises;
+      try {
+        Math.toIntExact(Math.multiplyExact(x, k));
+        raises = false;
+      } catch (ArithmeticException e) {
+        raises = true;
+      }
+      if (raises == inside) {
+        throw new IllegalStateException("ym * " + k + " at " + x + (raises ? " raises inside"
+            : " does not raise outside") + " the guard [" + lo + ", " + hi + "]");
+      }
     }
   }
 

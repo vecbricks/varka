@@ -371,8 +371,11 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
         "the operands must be bounded - over a bare int column the checked multiply inside "
           + "it keeps its overflow test and declines", domain = Some(dayBound)),
       Row("make_ym_interval(year(d), month(d)) * 2",
-        "a checked multiply, so bounded operands again: `ym * 2` over a stored interval "
-          + "column declines", domain = Some(dayBound)),
+        "a checked multiply whose bounded operands take the check off", domain = Some(dayBound)),
+      Row("ym * 3", "a stored interval column times an integral literal: the count is guarded "
+        + "to the ints whose product fits, exactly, and the multiply wraps; a column factor "
+        + "declines", domain = Some(
+          s"ym BETWEEN ${ymLiteral(Int.MinValue / 3)} AND ${ymLiteral(Int.MaxValue / 3)}")),
       Row("abs(ym)", "interval arithmetic is exact in every mode: the one count whose negation "
         + "overflows declines", domain = Some(s"ym > ${ymLiteral(Int.MinValue)}")),
       Row("ym - ymm", "exact in every mode: a difference outside the month count's int declines",
@@ -434,7 +437,9 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
         domain = Some(ntzDomain("try_multiply(dt, 3)", "dt"))),
       Row("-2 * dt", "the factor on the left is the same node; a negative factor swaps the "
         + "guard's ends, which are not symmetric",
-        domain = Some(ntzDomain("try_multiply(-2, dt)", "dt"))))),
+        domain = Some(ntzDomain("try_multiply(-2, dt)", "dt"))),
+      Row("extract(DAY FROM dt)", "Java's truncating division by a day, exact over every long "
+        + "and never raising; inside date_add the date arm reads it as the day offset"))),
 
     Family("Integer arithmetic", predicates = false, Seq(
       Row("i + 1", "checked under ANSI; the legacy mode wraps as Spark does and declines nothing",
@@ -2003,6 +2008,8 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
     "CAST(dt AS BIGINT)" -> Proved("long_divide.smt2"),
     "dt * 3" -> Proved("dt_arith.smt2"),
     "-2 * dt" -> Proved("dt_arith.smt2"),
+    "ym * 3" -> Proved("dt_arith.smt2"),
+    "extract(DAY FROM dt)" -> Proved("long_divide.smt2"),
     "ym / 12" -> Proved("ym_divide.smt2"),
     "ym / -7" -> Proved("ym_divide.smt2"),
     "extract(YEAR FROM ym)" -> Refined("extract(YEAR FROM ym)"),
