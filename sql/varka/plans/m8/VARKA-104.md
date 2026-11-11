@@ -448,8 +448,10 @@ runs, differ by that much.
 * **128 bits, as shipped.** The wrapping forms and the widened int's six fuse at 3.8x to 8.7x;
   every form that keeps its check declines and ties (0.98x to 1.04x). One wrapping form is the
   exception: `abs(l)` under LEGACY fuses whole but reaches only 1.32x without nulls and 1.43x with
-  them, against 7.2x and 8.4x at 256 bits. Why is not established. No section is slower than the
-  row path.
+  them, against 7.2x and 8.4x at 256 bits. The likely reason, from the source and not yet confirmed
+  by a JIT reading: its default lowering is `x.blend(x.neg(), x.compare(LT, 0))`
+  (`VarkaVectorWalk.emitIntNeg`), a long-lane mask, the construction C2 does not lower at two
+  lanes. No section is slower than the row path.
 * **128 bits, refusal off.** The checked forms fuse and the result is mixed. `try_add(l, l2)` and
   `try_subtract(l, l2)` reach 2.4x to 2.6x at both null densities; ANSI `l + l2` and `l - l2` 2.1x
   and 2.2x without nulls but 1.16x and 1.17x with them; ANSI `l + 1` 1.62x and 0.96x; ANSI `-l`
