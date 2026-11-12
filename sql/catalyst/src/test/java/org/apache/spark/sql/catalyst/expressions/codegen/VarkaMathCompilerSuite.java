@@ -35,6 +35,7 @@ import scala.jdk.javaapi.CollectionConverters;
 import org.apache.spark.sql.catalyst.expressions.Attribute;
 import org.apache.spark.sql.catalyst.expressions.Expression;
 import org.apache.spark.sql.catalyst.expressions.NamedExpression;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaAdmission;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaFamily;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaMatrixRuns;
@@ -86,7 +87,8 @@ public final class VarkaMathCompilerSuite {
     Expression e = VarkaSqlResolve.parse(sql, COLUMNS);
     Seq<NamedExpression> entries =
         CollectionConverters.asScala(List.of(VarkaSqlResolve.named(e, "o"))).toSeq();
-    var declines = VarkaExpressionCompiler.declines(entries, COLUMNS, options, off);
+    var declines =
+        VarkaExpressionCompiler.declines(entries, COLUMNS, options, new VarkaAdmission(off, false));
     assertTrue(declines.containsKey(0), sql + " fused");
     return declines.get(0).reason();
   }
