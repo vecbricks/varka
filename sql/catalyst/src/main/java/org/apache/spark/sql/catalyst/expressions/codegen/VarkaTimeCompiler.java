@@ -53,6 +53,7 @@ import org.apache.spark.sql.catalyst.expressions.TimeToMicros;
 import org.apache.spark.sql.catalyst.expressions.TimeToMillis;
 import org.apache.spark.sql.catalyst.expressions.TimeToSeconds;
 import org.apache.spark.sql.catalyst.expressions.TimeTrunc;
+import org.apache.spark.sql.catalyst.expressions.TimestampAdd;
 import org.apache.spark.sql.catalyst.expressions.TimestampAddInterval;
 import org.apache.spark.sql.catalyst.expressions.UnaryMinus;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaErrors;
@@ -126,6 +127,21 @@ final class VarkaTimeCompiler {
       "MINUTE", DateTimeConstants.NANOS_PER_SECOND * DateTimeConstants.SECONDS_PER_MINUTE,
       "HOUR", DateTimeConstants.NANOS_PER_SECOND * DateTimeConstants.SECONDS_PER_MINUTE
           * DateTimeConstants.MINUTES_PER_HOUR);
+
+  /**
+   * The microseconds in each {@code timestampadd} unit this family lowers, the units Spark's
+   * {@code DateTimeUtils.timestampAdd} adds as a day-time amount, spelled as it matches them after
+   * upper-casing. The month units are the calendar family's ({@code VarkaChronoCompiler}).
+   */
+  private static final Map<String, Long> MICROS_PER_TIMESTAMPADD_UNIT = Map.of(
+      "MICROSECOND", 1L,
+      "MILLISECOND", DateTimeConstants.MICROS_PER_MILLIS,
+      "SECOND", DateTimeConstants.MICROS_PER_SECOND,
+      "MINUTE", DateTimeConstants.MICROS_PER_MINUTE,
+      "HOUR", DateTimeConstants.MICROS_PER_HOUR,
+      "DAY", DateTimeConstants.MICROS_PER_DAY,
+      "DAYOFYEAR", DateTimeConstants.MICROS_PER_DAY,
+      "WEEK", DateTimeConstants.MICROS_PER_DAY * DateTimeConstants.DAYS_PER_WEEK);
 
   /** The class a {@code TIME} function's replacement invokes, and the method it calls. */
   private record TimeTarget(Class<?> owner, String function) {
@@ -298,6 +314,12 @@ final class VarkaTimeCompiler {
       case TimestampAddInterval a when VarkaTypes.isNtz(a.start().dataType())
           && a.interval().dataType() instanceof DayTimeIntervalType ->
           () -> ntzPlusInterval(a, inputs, literals, sink);
+      // `timestampadd` up to a week over an NTZ value: the quantity times the unit, added. The
+      // month units are the calendar family's arm; every other unit, NANOSECOND and an unknown
+      // one among them, is this arm's.
+      case TimestampAdd n when VarkaTypes.isNtz(n.timestamp().dataType())
+          && !VarkaChronoCompiler.isMonthUnit(n.unit()) ->
+          () -> ntzTimestampAdd(n, inputs, literals, sink);
       // The time of day of a TIMESTAMP_NTZ (VARKA-340): the count read at UTC, so the fields are
       // the TIME lowerings over the microsecond of the day. The analyzer fills in the session
       // zone these expressions carry, and an NTZ value does not read it.
@@ -435,6 +457,73 @@ final class VarkaTimeCompiler {
     }
     return longOperand(a.interval(), inputs, literals, sink)
         .map(dt -> new IntArith(IntOp.ADD, Overflow.FAIL, t.get(), dt));
+  }
+
+  /**
+   * {@code timestampadd(unit, q, t)} over an NTZ value for a unit up to a week
+   * ({@code VARKA-339.md} 2.2): Spark's {@code DateTimeUtils.timestampAdd} at UTC, which adds
+   * {@code q} times the unit's {@code f} microseconds and raises {@code DATETIME_OVERFLOW} where
+   * the product or the sum leaves a long, in every mode. So it is {@code t + q * f}, the sum
+   * checked and the product exact under a guard on {@code q} of {@code +-floor(Long.MAX_VALUE /
+   * f)}. For MILLISECOND to HOUR the guard is {@code multiplyExact}'s domain exactly (no
+   * {@code f} is a power of two, so the domain is symmetric). For DAY and WEEK it is the product's:
+   * Spark also narrows {@code q} to an int, and for WEEK multiplies by seven in int, but every
+   * {@code q} those raise on is past the guard, whose batch goes to the row engine, which answers
+   * or raises. An int quantity, widened, is inside every bound from an hour down, so it takes no
+   * guard; a literal one folds to its product, or declines when it is past the bound. MICROSECOND
+   * forms no product, so its quantity is the amount itself, any long, a literal as a column.
+   */
+  private static Optional<VarkaVectorIR> ntzTimestampAdd(
+      TimestampAdd n,
+      VarkaSlotTable inputs,
+      VarkaSlotTable literals,
+      DeclineSink sink) {
+    Long f = MICROS_PER_TIMESTAMPADD_UNIT.get(n.unit().toUpperCase(Locale.ROOT));
+    if (f == null) {
+      return sink.decline("timestampadd by " + n.unit() + ", not a unit of a microsecond "
+          + "timestamp", n);
+    }
+    long bound = Long.MAX_VALUE / f;
+    Optional<VarkaVectorIR> amount;
+    if (n.quantity().foldable()) {
+      Optional<Long> folded = foldedQuantity(n.quantity());
+      if (folded.isEmpty()) {
+        return sink.decline("timestampadd's quantity folds to null or raises", n);
+      }
+      long q = folded.get();
+      amount = f != 1 && (q < -bound || q > bound)
+          ? sink.decline("timestampadd's literal quantity is past the range whose product by "
+              + "the unit is a long", n)
+          : Optional.of(sink.longSlot(q * f));
+    } else {
+      boolean widenedInt = n.quantity() instanceof Cast c
+          && DataTypes.IntegerType.equals(c.child().dataType());
+      amount = VarkaNodeCompiler.longOperand(n.quantity(), inputs, literals, sink).map(q -> {
+        if (f == 1) {
+          return q;
+        }
+        VarkaVectorIR guarded = widenedInt && bound >= -(long) Integer.MIN_VALUE ? q
+            : new GuardedRange(q, -bound, bound);
+        return new IntArith(IntOp.MUL, Overflow.WRAP, guarded, sink.longSlot(f));
+      });
+    }
+    if (amount.isEmpty()) {
+      return amount;
+    }
+    return VarkaNodeCompiler.longOperand(n.timestamp(), inputs, literals, sink)
+        .map(t -> new IntArith(IntOp.ADD, Overflow.FAIL, t, amount.get()));
+  }
+
+  /**
+   * A foldable {@code timestampadd} quantity's value, or empty where it is null or its
+   * evaluation raises, which the row engine then raises on every row.
+   */
+  static Optional<Long> foldedQuantity(Expression q) {
+    try {
+      return q.eval(null) instanceof Long v ? Optional.of(v) : Optional.empty();
+    } catch (RuntimeException e) {
+      return Optional.empty();
+    }
   }
 
   /** Whether {@code si} is the replacement of one of Spark's TIME expressions. */

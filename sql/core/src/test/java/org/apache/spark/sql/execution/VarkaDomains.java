@@ -199,6 +199,13 @@ public final class VarkaDomains {
     rows.add(row("d", day(-(lastNtzDay - 1)), "t", "TIME'00:00:00'",
         "dt", "INTERVAL '106751991 04:00:54.775807' DAY TO SECOND"));
     rows.add(row("dt", "INTERVAL '-106751991 04:00:54.775808' DAY TO SECOND"));
+    // The last microsecond of the day before the last convertible one, about four hours below
+    // the long's top, beside the int's and the long's top: `timestampadd` past the long.
+    for (String[] quantity : List.of(new String[] {"i", Integer.toString(Integer.MAX_VALUE)},
+        new String[] {"l", Long.toString(Long.MAX_VALUE)})) {
+      rows.add(row("d", day(lastNtzDay - 1), "t", "TIME'23:59:59.999999'", quantity[0],
+          quantity[1]));
+    }
     // Each guard on one operand alone beside a null in the other: the guard declines the batch
     // though the row's value is null, wherever the batch holds a valid value in that column. A
     // batch null on every row there, as each is at one row a batch, takes the all-null shortcut,

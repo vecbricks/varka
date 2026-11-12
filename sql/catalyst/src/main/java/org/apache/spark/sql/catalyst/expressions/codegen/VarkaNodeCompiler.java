@@ -721,7 +721,7 @@ final class VarkaNodeCompiler {
    * An operand on the long lane: a {@code bigint} column or literal, or a long-valued node. One
    * that compiles onto the int lane is a width conversion, which declines with its reason.
    */
-  private static Optional<VarkaVectorIR> longOperand(
+  static Optional<VarkaVectorIR> longOperand(
       Expression e, VarkaSlotTable inputs, VarkaSlotTable literals, DeclineSink sink) {
     Optional<VarkaVectorIR> compiled = compileNode(e, inputs, literals, sink);
     if (compiled.isPresent() && compiled.get().laneType() != LaneType.LONG) {
