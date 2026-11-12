@@ -57,7 +57,7 @@ public final class VarkaDecimalRemainderSpikeSuite {
   }
 
   @Test
-  @DisplayName("each operation is built in the three forms of section 2.3, a loop an arm")
+  @DisplayName("each operation is built in every form, section 2.3's and 10.4's, a loop an arm")
   void armsCoverThePlan() {
     // A loop of its own an arm, so that each operation times its own compiled code.
     var methods = new HashSet<String>();
@@ -87,9 +87,13 @@ public final class VarkaDecimalRemainderSpikeSuite {
       int unitDivisor = 0;
       int twoWordDivisor = 0;
       int bigQuotient = 0;
+      int signedLowWord = 0;
       for (int i = 0; i < ROWS; i++) {
         BigInteger x = VarkaDecimalRemainderSpikeBenchmark.slot(d.x(), i);
         BigInteger y = VarkaDecimalRemainderSpikeBenchmark.slot(d.y(), i);
+        // Both low words with the sign bit set (testBit reads two's complement, as the slot
+        // holds it), where a signed compare or carry of a low word would be wrong.
+        signedLowWord += x.testBit(63) && y.testBit(63) ? 1 : 0;
         if (y.signum() == 0) {
           zeroDivisor++;
           continue;
@@ -119,6 +123,7 @@ public final class VarkaDecimalRemainderSpikeSuite {
       // A quotient past 106 bits needs all three of E's rounds; a divisor of 1 or -1 is its own
       // case of the exactness argument, so these count only divisors of at least 2.
       assertTrue(bigQuotient >= ROWS / 64, bigQuotient + " quotients past 106 bits by |y| >= 2");
+      assertTrue(signedLowWord >= ROWS / 64, signedLowWord + " rows of signed low words");
     }
   }
 

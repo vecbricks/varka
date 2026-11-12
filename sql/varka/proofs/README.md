@@ -35,6 +35,9 @@ VARKA-241 added the long lane's division forms, and VARKA-242 the calendar's div
 | `int_round.smt2` | `round`, `bround` and `truncate` at scale `-k` on the int lane (`VarkaRoundingCompiler`): the signed remainder of the truncating quotient by `10^k`, wrapped, equal to `BigDecimal.setScale(-k, mode)`'s low 32 bits for every int and `k` from 1 to 9 (the quotient by each `10^k` proven in `int_mulhi_divide.smt2`), `bround` refuted with `round`'s steps or without its odd test, every value 0 past the type's digits, and each ANSI window of `TINYINT`, `SMALLINT` and `INT` exact, one past either end leaving the type (VARKA-344) | `VarkaProofFiles` |
 | `smt_print_check.smt2` | the word form row 506's proof printer renders a long in (`VarkaSmtTerm.WordForm`), against the prelude: each long operator's unsigned reading, its no-wrap steps exact and its wrapping ones reduced by a named quotient, equal to its `java.smt2` form for every pair of longs at the shift counts and constants its rules branch on, and each no-wrap obligation proven for every input (VARKA-506) | `VarkaProofFiles` |
 | `smt_nodes_check.smt2` | the text row 506's proof printer prints for an IR tree (`VarkaSmtNodes`) against the reference evaluator: per sampled tree, the hand set and the IR fuzzer's unsigned and decimal sequences, the word form's no-wrap obligations for every input and the printed `(decline, valid, data)` pinned at the sample's rows equal to `VarkaReference`'s answer (VARKA-506) | `VarkaProofFiles` |
+| `decimal_spec.smt2` | a second prelude, not run on its own: Spark's `DECIMAL` values over exact integers, `spec.dec.*` - the powers of ten, a precision's fit, rescale, `+` and `-` at the wider scale, `*` below `10^39`, negation, `abs`, the comparison and the `HALF_UP` cut - written from Spark's `Decimal` and never from Varka's IR, the specification side of a rendered decimal refinement; a proof asks for it with `; prelude: decimal_spec.smt2` (VARKA-506) | hand |
+| `decimal_spec_check.smt2` | `decimal_spec.smt2` against Spark's `Decimal`: each definition over boundary operands, compact and wide, the expected values computed by Spark's code, nothing of Varka's read (VARKA-506) | `VarkaDecimalSpecFile` |
+| `decimal_refinement.smt2` | the 64-bit decimal coverage rows refined against Spark: per row and session, the five queries of `refinement.smt2` with the kernel printed by `VarkaSmtNodes` from the IR the compiler builds, its decline the emitter's guards on the lanes `Analysis` qualifies them by, and the specification read from Spark's analyzed expression into `decimal_spec.smt2`; a row the printer refuses is listed in its header (VARKA-506) | `VarkaDecimalRefinementFile` |
 | `refinement.smt2` | the kernels as refinements of `spec/`: per coverage row and mode, five queries over (data, valid) pairs - a satisfiable precondition, a decline wherever the specification raises, validity equal, values equal on valid lanes, a decline only where it raises or the input leaves the bound - in Spark mode (`STANDARD.md` patched by `DELTAS.md`, or `EXTENSIONS.md`) and standard mode, each departure a `sat` witness with its delta named; the calendar's rules, its decomposition and inverse as lemmas, and every lowering site fed only dividends its proof covers (VARKA-245) | `VarkaRefinementFile` |
 | `spec/STANDARD.md` | not a proof: the SQL standard's definition of each operation the coverage table lowers that the standard fixes, what the proofs are to be restated against (VARKA-243); it holds no SMT-LIB, and `dev/varka_prove.sh` reads only this folder's own `.smt2` files | hand |
 | `spec/DELTAS.md` | not a proof: Spark's departures from `STANDARD.md` as named patches to its definitions, each with the test in `VarkaStandardDeltasSuite` that shows Spark doing it, so a Spark-mode proof is the definition plus its deltas (VARKA-244) | hand |
@@ -50,7 +53,12 @@ VARKA-241 added the long lane's division forms, and VARKA-242 the calendar's div
 
 A worktree without its own `target/varka-solvers/` takes the solvers from the machine's shared
 directory, `$VARKA_SOLVERS_DIR` or by default `~/.cache/varka-solvers/`, so one
-`dev/varka_prove.sh --install-shared both` serves every worktree; CI keeps installing per run.
+`dev/varka_prove.sh --install-shared both` serves every worktree. An install downloads the
+archives into `downloads/` beside the solvers, checks each against its pinned SHA-256 before use,
+and tries a failed or mismatched download four times; the linters' job restores that folder from
+the Actions cache under `dev/varka_prove.sh --cache-key`, so a run whose cache hit needs no
+network. Only master's runs save that cache, and every branch restores master's entry. CI and the
+shared directory keep the archives; a worktree's own install elsewhere deletes them once done.
 
 A file whose header has a line `; prelude: <name>.smt2` before its `set-logic` gets that file of
 this directory inserted after `java.smt2` (VARKA-506 2.5). A file named so is a prelude, which the
@@ -148,5 +156,6 @@ serves; before, it was assumed, and a cached far day was served wrong.
 ## The solvers
 
 Z3 5.1.0 (MIT) from PyPI's `z3-solver`, whose wheel ships the binary, and cvc5 1.4.1 (BSD-3-Clause)
-from its GitHub release archive, its SHA-256 checked. `dev/varka_prove.sh` pins both and refuses
+from its GitHub release archive, each SHA-256 checked (Z3's for the Linux x86_64 wheel; another
+platform installs Z3 from the index by version). `dev/varka_prove.sh` pins both and refuses
 other versions. They are development tools: nothing here is compiled, packaged or shipped.

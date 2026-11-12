@@ -469,3 +469,333 @@ request and row 95 builds no second copy.
 ## 10. Outcome
 
 (Written when the work lands.)
+
+## Build sheet (11 November 2026)
+
+The step this sheet builds is section 5's step 1, **the baseline**, and nothing else: Spark's row
+path over the checked int multiply, in a new class, and the `%` shapes of section 4 added to row
+30's baseline class, on the unchanged code, with their queries suites, in one pull request. Follow
+`BUILD_SHEETS.md` (this directory) for the shared rules. Work in a fresh worktree off origin/master,
+branch `varka-95-baseline` in `../varka-95-baseline` (the existing `varka-95-plan` branch is not a
+stop for `BUILD_SHEETS.md` 1), holding nothing else, and stop at a local commit: no push, no pull
+request, no benchmark dispatch. Sections 0 to 9 here are `BUILD_SHEETS.md`'s steps B0 to B9. Every
+fact below was read at origin/master `c62f492fc89`, except row 30's class, which this sheet needs
+merged first (premise 1).
+
+### 0. Premise re-check
+
+Run as `VARKA-30.md`'s build sheet 0 says: any count but the commented one is a stop (rule 7.1),
+except the last line's, which only selects a column of the classes table.
+
+```sh
+B=sql/core/src/test/java/org/apache/spark/sql/execution/benchmark
+Q=sql/core/src/test/scala/org/apache/spark/sql/execution/benchmark
+git ls-files $B/VarkaIntegralDivisionBaselineBenchmark.java \
+  $Q/VarkaIntegralDivisionBaselineQueriesSuite.scala | wc -l  # 2: row 30's baseline merged
+git grep -c '"INT i ^ j, control, fuses today"' -- $B/VarkaIntegralDivisionBaselineBenchmark.java \
+  # 1: its sections are as VARKA-30.md's build sheet wrote them
+git grep -c ' % 16' -- $B/VarkaIntegralDivisionBaselineBenchmark.java | wc -l  # 0
+git ls-files 'sql/core/src/test/*VarkaIntArithmeticBaseline*' | wc -l  # 0
+git grep -c 'public enum Fusion { NONE, NULL_TESTS, PARTIAL, WHOLE }' \
+  -- $B/VarkaSqlBenchmarkBase.java  # 1
+git grep -c 'public class VarkaBigintArithmeticBaselineBenchmark extends VarkaSqlBenchmarkBase' \
+  -- $B/VarkaBigintArithmeticBaselineBenchmark.java  # 1: the class to copy
+git grep -c 'protected def forEachTwoLaneRefusal' \
+  -- sql/core/src/test/scala/org/apache/spark/sql/execution/VarkaSharedSessions.scala  # 1
+git grep -c 'expression\[TryMultiply\]("try_multiply")' \
+  -- sql/catalyst/src/main/scala/org/apache/spark/sql/catalyst/analysis/FunctionRegistry.scala  # 1
+grep -c '^| 95 | \*\*Planned\*\*' sql/varka/plans/m8/PLAN.md  # 1
+gh pr view 1486 --repo vecbricks/varka --json state --jq .state  # OPEN or MERGED: which column of 1.4 applies
+```
+
+Open pull requests on these files: #1486 and #1484 (row 104) edit the classes this sheet
+copies, so copy them as `git show c62f492fc89:<path>` prints them; #1486 also changes classes
+(1.4's last column), #1484 none of these sections'. `PLAN.md` is edited by #1425, #1428, #1461,
+#1462, #1474, #1478, #1484, #1486, #1508, #1509 and #1510: `BUILD_SHEETS.md` 8 decides when one has merged. Copy from `c62f492fc89` even when origin/master has moved.
+
+### 1. Scope
+
+**1.1 Files.**
+
+| file | change |
+|---|---|
+| `sql/core/src/test/java/org/apache/spark/sql/execution/benchmark/VarkaIntArithmeticBaselineBenchmark.java` | new: the multiply baseline |
+| `sql/core/src/test/scala/org/apache/spark/sql/execution/benchmark/VarkaIntArithmeticBaselineQueriesSuite.scala` | new: its queries suite |
+| `sql/core/src/test/java/org/apache/spark/sql/execution/benchmark/VarkaIntegralDivisionBaselineBenchmark.java` | five sections a density, 1.3 |
+| `sql/core/src/test/scala/org/apache/spark/sql/execution/benchmark/VarkaIntegralDivisionBaselineQueriesSuite.scala` | its counts, 1.3 |
+| `sql/varka/plans/m8/PLAN.md` | row 95's cell: the state, 1.6 |
+| `sql/varka/plans/m8/VARKA-95.md` | section 10: the paragraph of 1.6 |
+
+**1.2 The multiply class.** Copy `VarkaBigintArithmeticBaselineBenchmark.java` to
+`VarkaIntArithmeticBaselineBenchmark.java` and change exactly these members; the `Section`
+record, `runBenchmarkSuite` (two sessions, the fuse check before any timing, the arms `spark row
+path (varka off)` and `varka on`, `VarkaSizeLadder.varkaFused` on the `WHOLE` control) stay as
+the copy has them.
+
+* Session names `varka-int-arithmetic-baseline-off` and `varka-int-arithmetic-baseline-on`;
+  `NUM_ROWS = 2_000_000`; `VIEW = "varka_int_arithmetic"`.
+* `tableSql(int rows)`, verbatim:
+
+```java
+  static String tableSql(int rows) {
+    return """
+        select i, j, d, d2,
+               case when id %% 10 = 1 then null else i end as i_n
+        from (select id,
+                     pmod(hash(id, 1), 80001) - 40000 as i,
+                     pmod(hash(id, 2), 80001) - 40000 as j,
+                     date_add(DATE'2000-01-01', pmod(hash(id, 3), 20000)) as d,
+                     date_add(DATE'2000-01-01', pmod(hash(id, 4), 20000)) as d2
+              from range(0, %d))""".formatted(rows);
+  }
+```
+
+  Its javadoc says each column's region: `i`, `j` inside `[-40000, 40000]`, so `|i * j| <=
+  1.6 * 10^9`; `datediff(d2, d)` inside `[-19999, 19999]`, so `|datediff(d2, d) * i| < 8 *
+  10^8`; `i_n` null at one row in ten. So no product overflows and ANSI raises nowhere.
+* `sections(boolean declinesLongConditions)`, verbatim (the parameter is kept so that
+  `runBenchmarkSuite` stays the copy's; no section here is on the long lane):
+
+```java
+  static List<Section> sections(boolean declinesLongConditions) {
+    List<Section> out = new ArrayList<>();
+    Map<String, String> legacy = Map.of(SQLConf.ANSI_ENABLED().key(), "false");
+    Map<String, String> ansi = Map.of(SQLConf.ANSI_ENABLED().key(), "true");
+    // The filter's inferred IS NOT NULL tests fuse on their own at the int lane under Spark's
+    // Filter, while the checked multiply declines.
+    Fusion nullTests = Fusion.NULL_TESTS;
+    for (String nulls : new String[] {"", "_n"}) {
+      String i = "i" + nulls;
+      String density = ", " + (nulls.isEmpty() ? "no nulls" : "one row in ten null");
+      String from = " AS a FROM " + VIEW;
+      out.add(new Section("i * j, ANSI" + density,
+          "SELECT " + i + " * j" + from, ansi, Fusion.NONE));
+      out.add(new Section("i * 3, ANSI" + density,
+          "SELECT " + i + " * 3" + from, ansi, Fusion.NONE));
+      out.add(new Section("try_multiply(i, j)" + density,
+          "SELECT try_multiply(" + i + ", j)" + from, Map.of(), Fusion.NONE));
+      out.add(new Section("datediff(d2, d) * i, ANSI" + density,
+          "SELECT datediff(d2, d) * " + i + from, ansi, Fusion.NONE));
+      out.add(new Section("filter i * j > 0, ANSI" + density,
+          "SELECT " + i + from + " WHERE " + i + " * j > 0", ansi, nullTests));
+      out.add(new Section("i * j, LEGACY, control, fuses today" + density,
+          "SELECT " + i + " * j" + from, legacy, Fusion.WHOLE));
+    }
+    return out;
+  }
+```
+
+  Six sections at each null density, twelve in all.
+* The class javadoc follows the copy's paragraphs for this class: the modes and why the data
+  never overflows, the two arms, the fuse check and the classes of 1.4, the `gh workflow run
+  benchmark.yml` blocks with `-f class=VarkaIntArithmeticBaselineBenchmark`, and VARKA-95 as
+  the row it serves.
+
+**1.3 Row 30's class gains the `%` shapes.** In `VarkaIntegralDivisionBaselineBenchmark.sections`,
+inside the null-density loop and directly after the `INT i ^ j, control, fuses today` section,
+add, verbatim (`intNullTests` is the variable row 30's sheet declares; keep master's value of it):
+
+```java
+      // Row 95's remainders by a literal (VARKA-95.md 4), beside the INT column's `% 7`.
+      String i = "i" + nulls;
+      out.add(new Section("INT i % 16, LEGACY" + density,
+          "SELECT " + i + " % 16" + from, legacy, Fusion.NONE));
+      out.add(new Section("INT i % 16, ANSI" + density,
+          "SELECT " + i + " % 16" + from, ansi, Fusion.NONE));
+      out.add(new Section("INT try_mod(i, 7)" + density,
+          "SELECT try_mod(" + i + ", 7)" + from, Map.of(), Fusion.NONE));
+      out.add(new Section("INT try_mod(i, 16)" + density,
+          "SELECT try_mod(" + i + ", 16)" + from, Map.of(), Fusion.NONE));
+      // Over the INT column with no null the optimizer's null test is absent and nothing fuses.
+      out.add(new Section("INT filter i % 16 = 0, ANSI" + density,
+          "SELECT " + i + from + " WHERE " + i + " % 16 = 0", ansi,
+          nulls.isEmpty() ? Fusion.NONE : intNullTests));
+```
+
+Row 30's verbatim `sections` declares no local `i` in that loop (premise 2 checks the class is
+that sheet's). Then: the
+class javadoc, where it states a section count, says 36 a density, 72 in all, and names the five added
+sections as row 95's; in `VarkaIntegralDivisionBaselineQueriesSuite`, the size assertion becomes
+`2 * 36` and its class counts become: `sections(false)` 18 `NULL_TESTS`, 2 `WHOLE`, 52 `NONE`;
+`sections(true)` 10, 2 and 60 (if `intNullTests` is `NONE`: 0, 2 and 70 for both); and the
+region assertions gain `count_if(i % 16 = 0) > 0` (134 of the 2000 rows). The
+suite's type rule already gives these `IntegerType`.
+
+**1.4 The classes, as the dry run planned them.** Obtained on origin/master `c62f492fc89` two ways: the
+benchmark's own dry run, this sheet's verbatim code compiled as a scratch class, at the laptop's
+default width, 256 and 128 bits (refusal off at the first two, on at 128), and a scratch suite
+planning each section on the shared sessions at 2000 rows with the refusal set each way:
+
+| sections | refusal off | refusal on | after #1486 merges |
+|---|---|---|---|
+| `i * j, ANSI`, `i * 3, ANSI`, `try_multiply(i, j)`, `datediff(d2, d) * i, ANSI` | `NONE` | `NONE` | `NONE` |
+| `filter i * j > 0, ANSI`, both densities | `NULL_TESTS` | `NULL_TESTS` | `NONE` |
+| `i * j, LEGACY, control, fuses today` | `WHOLE` | `WHOLE` | `WHOLE` |
+| 1.3's `% 16` and `try_mod` projections | `NONE` | `NONE` | `NONE` |
+| `INT filter i % 16 = 0, ANSI, no nulls` | `NONE` | `NONE` | `NONE` |
+| `INT filter i % 16 = 0, ANSI, one row in ten null` | `NULL_TESTS` | `NULL_TESTS` | `NONE` |
+
+Open PR #1486 (row 598) declines a filter whose only fused conjuncts are the optimizer's
+inferred `IS NOT NULL` tests. If premise 10 printed `MERGED`, it has merged: write `nullTests` in 1.2
+as `Fusion.NONE` and drop the comment above it; 1.3 then follows `intNullTests` by itself. Use
+master's behaviour as the dry run shows it either way.
+
+**1.5 The multiply suite.** Copy `VarkaBigintArithmeticBaselineQueriesSuite.scala` to
+`VarkaIntArithmeticBaselineQueriesSuite.scala` (`withSettings`, `withTable` unchanged but for
+the class name) with two tests:
+
+1. `"every section of the int arithmetic baseline runs, and both sessions answer alike"`. One
+   query over the view on `spark`, then assert (the fixture's values at 2000 rows in brackets,
+   for orientation only): `min(i) < 0 < max(i)` and `min(j) < 0 < max(j)`;
+   `min(i) >= -40000`, `max(i) <= 40000`, the same for `j`;
+   `max(abs(cast(i as bigint) * j)) < 2147483647` (1586883792);
+   `min(datediff(d2, d)) < 0 < max(datediff(d2, d))`;
+   `max(abs(cast(datediff(d2, d) as bigint) * i)) < 2147483647` (723612636);
+   `count_if(i * j > 0)` above 0 and below `rows` (993); `count_if(i_n is null) = rows / 10`.
+   Then `sections(false)`: size `2 * 6`; the non-`NONE` list is, in order,
+   `("filter i * j > 0, ANSI, no nulls", "NULL_TESTS")`,
+   `("i * j, LEGACY, control, fuses today, no nulls", "WHOLE")`,
+   `("filter i * j > 0, ANSI, one row in ten null", "NULL_TESTS")`,
+   `("i * j, LEGACY, control, fuses today, one row in ten null", "WHOLE")` (the two filters
+   dropped after #1486). Then each section under `withClue(s.title)` and `withSettings(s)`:
+   collect on `spark`; the schema is one column, named `a`, of `IntegerType`; `checkAnswer`
+   on `varkaSpark` against the collected rows; a projection over `i` answers no null, one over
+   `i_n` exactly `rows / 10`; the filter answers no null and keeps exactly the
+   `count_if(i * j > 0)` rows above at no nulls, and that count less the rows where `i_n` is
+   null and `i * j > 0` at one row in ten null, the region query's extra aggregate
+   `count_if(i_n is null and i * j > 0)`.
+2. `"each section of the int arithmetic baseline fuses as its class lists it"`, tagged
+   `PinsDefaults`: the copy of `VarkaDayTimeIntervalBaselineQueriesSuite`'s second test (its `requireKernel` call replaced by `VarkaSizeLadder.varkaFused(varkaSpark, s.query)`, its result unused,
+   as the bigint suite calls it: it throws when a batch falls back), with
+   `forEachTwoLaneRefusal` and, for the `WHOLE` control, `VarkaSizeLadder.varkaFused(varkaSpark,
+   s.query)`.
+
+**1.6 The record.** In `PLAN.md`, row 95's cell starts `**Planned** (`; insert before it this text,
+as `VARKA-30.md`'s build sheet 1.5 says (one line, one space after it, `<date>` the commit's day as `11 November 2026`):
+
+```text
+**Started** (the baseline built <date>: `VarkaIntArithmeticBaselineBenchmark` and its queries
+suite, and the `%` shapes in row 30's `VarkaIntegralDivisionBaselineBenchmark`, every projection
+but the controls `NONE`; their EPYC 7763 results at 256 and 128 bits owed by the owner's
+dispatch; left: 95a, 95b and 95c, `VARKA-95.md` 5).
+```
+
+In this file, under
+`## 10. Outcome`, below its placeholder line, add a paragraph `**The baseline** (<date>):`
+naming the files, the section counts, the classes the dry run gave at each width and that the
+runner results are the owner's.
+
+**1.7 Out of scope.** Section 4's kernel-benchmark paragraph, whole: the "checked multiply"
+section of `VarkaArithmeticBenchmark` names the arms `HALVES` and `LONG_TREE` and the option
+`checkedIntMultiply`, none of which exists on master (`git grep -l -E
+'checkedIntMultiply|LONG_TREE|HALVES' -- sql/catalyst/src | wc -l` is `0`), so it waits for 95b;
+of its other arms `WRAP` (`VarkaVectorIR.Overflow.WRAP`) and `checkIntOverflow`
+(`VarkaEmitOptions`) exist, but the section is not built in part. Also out: the remainder arms
+of `VarkaIntegralDivisionBenchmark`, `i % -16`, any overflowing product, a `BIGINT` or narrow
+multiply, results files, `suite-times.tsv`, any change to `VarkaSqlBenchmarkBase` or another
+baseline, and any benchmark dispatch.
+
+### 2. Tests
+
+| test | asserts | oracle |
+|---|---|---|
+| multiply suite test 1 | regions; each section runs, is `INT`, both sessions agree, nulls only where `i_n` is null, the filter keeps the rows the aggregate counts | Spark's row path on `spark` and SQL aggregates computed in `BIGINT` |
+| multiply suite test 2 | each section's class at both refusals; the control runs every batch as a kernel | `VarkaSqlBenchmarkBase.fusion` on master, untouched |
+| row 30's suite, both tests | the five new sections as above, and the new counts | as for row 30 |
+
+### 3. Planted faults
+
+After the local commit of 4.6, as `VARKA-30.md`'s build sheet 3 says:
+
+1. In `VarkaIntArithmeticBaselineBenchmark.tableSql`, change `80001) - 40000 as i` to
+   `90001) - 45000 as i` (products still inside the int). Run 4.2: multiply suite test 1 fails
+   on `min(i) >= -40000`.
+2. In 1.3's block, change `INT i % 16, ANSI`'s `Fusion.NONE` to `Fusion.WHOLE`. Run 4.2: row 30's
+   suite test 1 fails on its class counts and test 2 under the clue `INT i % 16, ANSI, no nulls,
+   refusal false`.
+
+### 4. Commands, in order
+
+1. The premise block of 0.
+2. The queries suites, with `BUILD_SHEETS.md` 2's exports set:
+
+   ```sh
+   flock "$VARKA_HEAVY_LOCK" build/sbt -batch "project sql" \
+     "testOnly *VarkaIntArithmeticBaselineQueriesSuite *VarkaIntegralDivisionBaselineQueriesSuite"
+   ```
+
+   Expected: `Tests: succeeded 4, failed 0`.
+3. The dry run at the laptop's default width, then at 256 and at 128 bits, in one sbt call
+   (each `set` adds a flag, the last `MaxVectorSize` wins; under the property
+   `VarkaBenchmarkBase.runCases` times nothing, while the fuse checks still run):
+
+   ```sh
+   flock "$VARKA_HEAVY_LOCK" build/sbt -batch "project sql" \
+     'set Test/javaOptions += "-Dvarka.bench.dryRun=true"' \
+     "Test/runMain org.apache.spark.sql.execution.benchmark.VarkaIntArithmeticBaselineBenchmark" \
+     "Test/runMain org.apache.spark.sql.execution.benchmark.VarkaIntegralDivisionBaselineBenchmark" \
+     'set Test/javaOptions += "-XX:MaxVectorSize=32"' \
+     "Test/runMain org.apache.spark.sql.execution.benchmark.VarkaIntArithmeticBaselineBenchmark" \
+     "Test/runMain org.apache.spark.sql.execution.benchmark.VarkaIntegralDivisionBaselineBenchmark" \
+     'set Test/javaOptions += "-XX:MaxVectorSize=16"' \
+     "Test/runMain org.apache.spark.sql.execution.benchmark.VarkaIntArithmeticBaselineBenchmark" \
+     "Test/runMain org.apache.spark.sql.execution.benchmark.VarkaIntegralDivisionBaselineBenchmark" \
+     > target/dry-95.log 2>&1; echo $?
+   ```
+
+   Expected: `0`; in the log `grep -c 'is listed as'` is `0`, `'fuses whole on the varka on arm'`
+   `12` and `'fuses only its null tests'` `52` (20, 20, 12 by width; 0 after #1486).
+4. No regeneration: no generated file reads these sources, and `BUILD_SHEETS.md` 5 asks for one
+   only after a merge or a rebase.
+5. `BUILD_SHEETS.md` 6, items 1 to 5 (pre-commit, Error Prone, the two linters, the plan lint).
+6. Commit locally: subject `[VARKA-95] Benchmark the checked int multiply and i % k on the row
+   path`, body and attribution as `BUILD_SHEETS.md` says.
+7. The planted faults of 3, each reverted.
+8. `BUILD_SHEETS.md` 6 item 6, `python3 dev/varka_push_check.py`, which reads the commits and so
+   runs once they hold the final tree. Expected: exit 0, its size line under 900.
+
+### 5. Done when
+
+`testOnly` of the two suites reports `succeeded 4, failed 0`; 4.3 exits 0 at all three widths
+with no `is listed as` line; `dev/varka_push_check.py` exits 0; `git status --short` is empty and
+`git log -1 --format=%s` is 4.6's subject.
+
+### 6. Size
+
+About 200 lines of new benchmark, 150 of its suite, 26 in row 30's two files, 8 of plans: about
+385 counted, under the cap.
+
+### 7. Stop rules
+
+Stop and report, without working around it, when:
+
+1. a premise line of 0 differs from its expected result (premise 1 at `0` means row 30's
+   baseline has not merged: the lead's order puts it first);
+2. the dry run or a suite's fuse test plans a section at a class that neither 1.4's column for
+   its refusal nor, after #1486, its last column gives;
+3. a section raises or the two sessions answer it differently;
+4. a region assertion of 1.5 fails on the verbatim `tableSql`;
+5. row 30's suite fails on a section this sheet did not add;
+6. 4.4 changes a generated file, or the push check fails on a rule this change cannot reach.
+
+### 8. Decisions already taken
+
+* The lead, 11 November 2026: "95's baseline after it [30's], adding its `%` shapes to 30's
+  class as VARKA-95.md 4 says, and VarkaIntArithmeticBaselineBenchmark for the multiply shapes."
+* The lead, 11 November 2026: "the kernel-benchmark paragraph (VarkaArithmeticBenchmark's
+  "checked multiply" arms) is OUT OF SCOPE for this sheet if any arm it names does not exist on
+  master"; `HALVES` and `LONG_TREE` do not (1.7).
+* The lead, 11 November 2026, on the classes: determined by the laptop dry run against
+  origin/master, with #1486's change stated and master's behaviour used at build time.
+* The lead, 11 November 2026: "EPYC 7763 runs at 256 and 128 bits are the owner's dispatches."
+* Section 8 of this plan, settlement 2: "`i % k` is row 30's", so its shapes go in row 30's
+  class.
+
+### 9. What the owner must do afterwards
+
+Push, open the pull request, and dispatch each of the two classes at both widths as
+`VARKA-30.md`'s build sheet 9 does. Commit `VarkaIntArithmeticBaselineBenchmark`'s two
+artifacts whole (`-jdk25-runner-epyc7763[-128bit]-results.txt` and provenance, under
+`sql/core/benchmarks/`), and replace the division class's two files and provenance whole: its
+row 30 sections are re-measured on the same unchanged code, and its notes stay complete. If #1486
+merges after this, it must list both classes' `NULL_TESTS` sections as `NONE` too.

@@ -203,7 +203,10 @@ final class Slots {
   /** The locals of a conversion's AVX2 form ({@link VarkaConversionLowering#scratch}). */
   final Map<VarkaVectorIR, int[]> convertTmp = new HashMap<>();
 
-  /** The scratch local of a {@link RoundToIntegral}: its operand, read three times. */
+  /**
+   * The scratch local of a {@link RoundToIntegral}: its operand, read three times by the 2^52
+   * construction and twice more by the NaN's compare where it is emitted.
+   */
   final Map<VarkaVectorIR, int[]> roundTmp = new HashMap<>();
   /** Per DayOfWeek/WeekDay/NextDay: {@code emitFloorMod7}'s own original-value and fold
    * temporaries. NextDay needs no third slot for the date it reuses after the mod - its
@@ -1887,11 +1890,13 @@ final class Slots {
   }
 
   /**
-   * Whether {@code node} compares at a floating lane, whose lowering reads each operand twice
-   * ({@code VarkaVectorWalk.emitFloatingCompare}) and so parks both in a pair of locals.
+   * Whether {@code node} compares at a floating lane in Spark's order, whose lowering reads each
+   * operand twice ({@code VarkaVectorWalk.emitFloatingCompare}) and so parks both in a pair of
+   * locals. An IEEE compare reads each once, as an integral one does.
    */
   private static boolean isFloatingCompare(VarkaVectorIR node) {
-    return (node instanceof VarkaVectorIR.Compare || node instanceof VarkaVectorIR.NullSafeEqual)
+    return ((node instanceof VarkaVectorIR.Compare c && !c.op().isIeee())
+        || node instanceof VarkaVectorIR.NullSafeEqual)
         && node.laneType().isFloating();
   }
 }

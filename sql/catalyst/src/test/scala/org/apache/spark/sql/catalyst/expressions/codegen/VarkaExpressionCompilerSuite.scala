@@ -26,7 +26,7 @@ import org.apache.spark.{SparkArithmeticException, SparkFunSuite}
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.BinaryArithmeticWithDatetimeResolver
 import org.apache.spark.sql.catalyst.analysis.FunctionRegistry
-import org.apache.spark.sql.catalyst.expressions.{Abs, Add, AddMonths, Alias, And, Attribute, AttributeReference, BoundReference, BRound, CaseWhen, Cast, Ceil, Coalesce, Concat, CurrentTime, DateAdd, DateAddYMInterval, DateDiff, DateFromUnixDate, DateSub, DayOfMonth, DayOfWeek, DayOfYear, Divide, DivideYMInterval, EqualNullSafe, EqualTo, EvalMode, Expression, Extract, ExtractANSIIntervalDays, ExtractANSIIntervalMonths, ExtractANSIIntervalYears, Floor, GreaterThan, Greatest, HoursOfTime, If, In, InheritAnalysisRules, InSet, IsNotNull, IsNull, LastDay, LeafExpression, Least, LessThan, LessThanOrEqual, Literal, MakeDate, MakeTime, MakeTimestampNTZ, MakeYMInterval, MinutesOfTime, Month, Multiply, MultiplyYMInterval, NamedExpression, NextDay, Not, NumericEvalContext, Nvl, Nvl2, Or, Quarter, Rand, Remainder, Rint, Round, RuntimeReplaceable, SecondsOfTime, SecondsOfTimeWithFraction, Subtract, SubtractDates, SubtractTimes, TimeAddInterval, TimeDiff, TimeExpression, TimeFromMicros, TimeFromMillis, TimeFromSeconds, TimestampAddInterval, TimeToMicros, TimeToMillis, TimeToSeconds, TimeTrunc, ToTime, Truncate, TruncDate, UnaryMinus, UnixDate, Upper, WeekDay, WeekOfYear, Year, YearOfWeek}
+import org.apache.spark.sql.catalyst.expressions.{Abs, Add, AddMonths, Alias, And, Attribute, AttributeReference, BoundReference, BRound, CaseWhen, Cast, Ceil, Coalesce, Concat, CurrentTime, DateAdd, DateAddYMInterval, DateDiff, DateFromUnixDate, DateSub, DayOfMonth, DayOfWeek, DayOfYear, Divide, DivideYMInterval, EqualNullSafe, EqualTo, EvalMode, Expression, Extract, ExtractANSIIntervalDays, ExtractANSIIntervalMonths, ExtractANSIIntervalYears, Floor, GreaterThan, GreaterThanOrEqual, Greatest, HoursOfTime, If, In, InheritAnalysisRules, InSet, IsNotNull, IsNull, LastDay, LeafExpression, Least, LessThan, LessThanOrEqual, Literal, MakeDate, MakeTime, MakeTimestampNTZ, MakeYMInterval, MinutesOfTime, Month, Multiply, MultiplyYMInterval, NamedExpression, NextDay, Not, NumericEvalContext, Nvl, Nvl2, Or, Quarter, Rand, Remainder, Rint, Round, RuntimeReplaceable, SecondsOfTime, SecondsOfTimeWithFraction, Subtract, SubtractDates, SubtractTimes, TimeAddInterval, TimeDiff, TimeExpression, TimeFromMicros, TimeFromMillis, TimeFromSeconds, TimestampAddInterval, TimeToMicros, TimeToMillis, TimeToSeconds, TimeTrunc, ToTime, Truncate, TruncDate, UnaryMinus, UnixDate, Upper, WeekDay, WeekOfYear, Year, YearOfWeek}
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaOutputSpec.{ForwardedOutput, FusedOutput, KernelOutput}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaChrono, VarkaDerivedKind, VarkaEmitOptions, VarkaEmitterTestSupport, VarkaLoopEmitter, VarkaMatrix, VarkaShapeCache, VarkaVectorIR}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaAdmission, VarkaKernelPlan, VarkaKernelWarmup, VarkaShapeKey}
@@ -35,8 +35,8 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaMethodNames.
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTestWatchdog
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.{AddDays, AddMonths => IRAddMonths, And => IRAnd, BoolCompare, BoolOutput, ColumnRef, Compare, CompareOp, ConstDivide, DateDiff => IRDateDiff, DayOfMonth => IRDayOfMonth, DayOfWeek => IRDayOfWeek, DayOfWeekIso, DayOfYear => IRDayOfYear, Greatest => IRGreatest, GuardedRange, IfElse, IntArith, IntNeg, IntOp, IsNotNull => IRIsNotNull, LaneType, LastDay => IRLastDay, Least => IRLeast, LiteralSlot, MakeDate => IRMakeDate, Month => IRMonth, NarrowLane, NextDay => IRNextDay, Not => IRNot, NullSafeEqual => IRNullSafeEqual, Or => IROr, Overflow, Quarter => IRQuarter, RoundMode, RoundToIntegral, SubDays, ThursdayOf, TruncDate => IRTruncDate, TruncDateDynamic => IRTruncDateDynamic, TruncLevel, WeekDay => IRWeekDay, WeekOfYear => IRWeekOfYear, WidenLane, Year => IRYear}
 import org.apache.spark.sql.catalyst.expressions.objects.StaticInvoke
-import org.apache.spark.sql.catalyst.optimizer.ReplaceExpressions
-import org.apache.spark.sql.catalyst.plans.logical.{OneRowRelation, Project}
+import org.apache.spark.sql.catalyst.optimizer.{ConstantFolding, ReplaceExpressions, UnwrapCastInBinaryComparison}
+import org.apache.spark.sql.catalyst.plans.logical.{LocalRelation, OneRowRelation, Project}
 import org.apache.spark.sql.catalyst.util.IntervalUtils
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types.{BooleanType, ByteType, DataType, DateType, DayTimeIntervalType, Decimal, DecimalType, DoubleType, FloatType, IntegerType, LongType, ShortType, StringType, TimestampNTZType, TimestampType, TimeType, YearMonthIntervalType}
@@ -2050,15 +2050,27 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     inTime -> Seq(43200000000000L, 0L, 21600000000000L),
     inDt -> Seq(86400000000L, -1L, 172800000000L))
 
-  test("nullifzero and zeroifnull over a FLOAT column decline: the int zero widens it to DOUBLE") {
-    // Type coercion compares or coalesces a float with the int 0 in DOUBLE, so the analyzed tree
-    // casts the column up and the condition's lane is not the value's. The mix of the two
-    // floating lanes in one kernel is the floating conversions' to fuse; until then the
-    // decline names it, and the same pair over a DOUBLE column fuses.
+  test("zeroifnull over a FLOAT column declines: the int zero widens it to DOUBLE, and " +
+      "nullifzero's widened compare is unwrapped by the optimizer") {
+    // Type coercion compares or coalesces a float with the int 0 in DOUBLE. In nullifzero the
+    // widening sits under a comparison with a literal, which the optimizer's
+    // UnwrapCastInBinaryComparison moves to the literal side, exactly since FLOAT to DOUBLE is
+    // injective and keeps Spark's order: the condition is f = 0.0F on the value's own lane. The
+    // analyzed tree before that rule mixes the two floating lanes; a session never hands it on.
     val zero = Cast(Literal(0), DoubleType)
     val nullifzero = If(EqualTo(Cast(inFloat, DoubleType), zero),
       Literal(null, FloatType), inFloat)
     assert(declineReason(nullifzero, inOutput).contains("mixes the DOUBLE and FLOAT lanes"))
+    val unwrapped = UnwrapCastInBinaryComparison(ConstantFolding(
+      Project(Seq(Alias(nullifzero, "c")()), LocalRelation(inOutput)))) match {
+      case Project(Seq(a: Alias), _) => a.child
+      case other => fail(s"not a projection: $other")
+    }
+    assert(unwrapped === If(EqualTo(inFloat, Literal(0.0f)), Literal(null, FloatType), inFloat))
+    assert(VarkaExpressionCompiler.compile(Seq(out(unwrapped)), inOutput).isPresent)
+    // zeroifnull's widening is a coalesce operand, which no rule strips: the operand before the
+    // last is a conversion, not a bare column, so its null test would be a FLOAT condition in a
+    // DOUBLE choice, a crossing of one kind the floating conversions leave out (VARKA-578.md 4).
     val zeroifnull = Coalesce(Seq(Cast(inFloat, DoubleType), zero))
     assert(declineReason(zeroifnull, inOutput) ===
       "coalesce operand before the last is not a bare column")
@@ -2068,12 +2080,14 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
 
   test("IN keeps each value once in ascending bit order, whatever order its list or set has") {
     // A value's lane bits, sign-extended: what orders the literal tables. A floating value is
-    // kept as Spark's IN tells values apart, both zeros as 0.0 and every NaN as the one NaN.
+    // kept as Spark's IN tells values apart, both zeros as 0.0 and every NaN as one, whose
+    // element is the test `x <= Infinity` negated and so slots the infinity, the greatest
+    // pattern below the NaNs (VarkaConditionCompiler.constantCompare).
     def bits(v: Any): Long = v match {
-      case f: Float if f.isNaN => java.lang.Float.floatToRawIntBits(Float.NaN).toLong
+      case f: Float if f.isNaN => java.lang.Float.floatToRawIntBits(Float.PositiveInfinity).toLong
       case f: Float if f == 0.0f => 0L
       case f: Float => java.lang.Float.floatToRawIntBits(f).toLong
-      case x: Double if x.isNaN => java.lang.Double.doubleToRawLongBits(Double.NaN)
+      case x: Double if x.isNaN => java.lang.Double.doubleToRawLongBits(Double.PositiveInfinity)
       case x: Double if x == 0.0 => 0L
       case x: Double => java.lang.Double.doubleToRawLongBits(x)
       case b: Byte => b.toLong
@@ -2131,7 +2145,72 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     assert(compiled.exists(_.specs.asScala.forall(_.fused)))
     assert(compiled.get.fused.longLiterals.asScala.map(_.longValue).toSeq ===
       ((1 to 14).map(v => java.lang.Double.doubleToRawLongBits(v.toDouble)) ++
-        Seq(0L, java.lang.Double.doubleToRawLongBits(Double.NaN))).sorted)
+        Seq(0L, java.lang.Double.doubleToRawLongBits(Double.PositiveInfinity))).sorted)
+  }
+
+  test("a floating compare against a literal takes its literal-specialised form") {
+    // Against a literal that is not NaN, Spark's order is the bare IEEE compare or its
+    // negation; against NaN, `x <= Infinity` or its negation; `x <= NaN` and `x > NaN`, the same
+    // on every valid row, keep the general form. A literal on the left is the swapped compare.
+    import CompareOp._
+    for ((column, lit) <- Seq[(Attribute, Double => Expression)](
+        (inDouble, v => Literal(v)), (inFloat, v => Literal(v.toFloat)))) {
+      val lane = if (column eq inDouble) LaneType.DOUBLE else LaneType.FLOAT
+      val x = new ColumnRef(0, lane)
+      val c = new LiteralSlot(0, lane)
+      def cond(e: Expression): VarkaVectorIR.Cond = {
+        val compiled = VarkaExpressionCompiler.compilePredicate(e, inOutput,
+          VarkaEmitOptions.DEFAULTS, VarkaAdmission.NO_HOST_REFUSAL).toScala
+        assert(compiled.exists(_.specs.asScala.forall(_.fused)), s"$e did not fuse")
+        compiled.get.fused.outputs.asScala.head.asInstanceOf[VarkaVectorIR.Cond]
+      }
+      def not(n: VarkaVectorIR.Cond): VarkaVectorIR.Cond = new IRNot(n)
+      val one = lit(1.5)
+      val nan = lit(Double.NaN)
+      for ((e, want) <- Seq[(Expression, VarkaVectorIR.Cond)](
+          EqualTo(column, one) -> new Compare(IEEE_EQ, x, c),
+          LessThan(column, one) -> new Compare(IEEE_LT, x, c),
+          LessThanOrEqual(column, one) -> new Compare(IEEE_LE, x, c),
+          GreaterThan(column, one) -> not(new Compare(IEEE_LE, x, c)),
+          GreaterThanOrEqual(column, one) -> not(new Compare(IEEE_LT, x, c)),
+          LessThan(one, column) -> not(new Compare(IEEE_LE, x, c)),
+          GreaterThanOrEqual(one, column) -> new Compare(IEEE_LE, x, c),
+          EqualTo(column, nan) -> not(new Compare(IEEE_LE, x, c)),
+          GreaterThanOrEqual(column, nan) -> not(new Compare(IEEE_LE, x, c)),
+          LessThan(column, nan) -> new Compare(IEEE_LE, x, c),
+          LessThanOrEqual(column, nan) -> new Compare(LE, x, c),
+          GreaterThan(column, nan) -> new Compare(GT, x, c))) {
+        assert(cond(e) === want, s"$e")
+      }
+      // The NaN forms slot the infinity in the NaN's place; the general ones the NaN itself.
+      val infBits = if (column eq inDouble) {
+        java.lang.Double.doubleToRawLongBits(Double.PositiveInfinity)
+      } else {
+        java.lang.Float.floatToRawIntBits(Float.PositiveInfinity).toLong
+      }
+      val compiled = VarkaExpressionCompiler.compilePredicate(EqualTo(column, nan), inOutput,
+        VarkaEmitOptions.DEFAULTS, VarkaAdmission.NO_HOST_REFUSAL).toScala.get.fused
+      val slotted = compiled.longLiterals.asScala.map(_.longValue).toSeq ++
+        compiled.literals.asScala.map(_.intValue.toLong).toSeq
+      assert(slotted === Seq(infBits), column.dataType)
+    }
+  }
+
+  test("a floating compare against a literal of another type declines rather than specialise") {
+    // Only a hand-built tree compares a floating column with a literal of another type; the
+    // literal's bits are no value at the column's lane (an int 5 read as a double is a
+    // denormal), so the compare keeps the lane check that declines a mix of two lanes.
+    def mixes(a: String, b: String): String =
+      s"one kernel holds one lane, and this mixes the $a and $b lanes"
+    for ((e, reason) <- Seq[(Expression, String)](
+        GreaterThan(inDouble, Literal(5)) -> mixes("DOUBLE", "INT"),
+        GreaterThan(inDouble, Literal(5.0f)) -> mixes("DOUBLE", "FLOAT"),
+        GreaterThan(inFloat, Literal(5.0)) -> mixes("FLOAT", "DOUBLE"),
+        GreaterThan(Literal(5), inDouble) -> mixes("INT", "DOUBLE"),
+        GreaterThan(Literal(5.0f), inDouble) -> mixes("DOUBLE", "FLOAT"),
+        GreaterThan(Literal(5.0), inFloat) -> mixes("FLOAT", "DOUBLE"))) {
+      assert(declineReason(If(e, d, d2), inOutput) === reason, s"$e")
+    }
   }
 
   test("an empty IN list declines with its own reason") {
@@ -2186,13 +2265,24 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     val (p0, p1) = (new ColumnRef(0), new ColumnRef(1))
     assert(picks.outputs.asScala.toSeq === Seq(new IRGreatest(p0, nullInt),
       new IRLeast(new IRLeast(nullInt, p1), nullInt)))
-    // A decimal choice has no null value yet and keeps a reason naming it, and an int is still
-    // no date: a date choice over a cast of an int column declines rather than reading it.
+    // A decimal choice past 18 digits has no null value as a compared value, and declines
+    // naming the wide row's value half; its null test fuses to the choice's validity, the
+    // branch's constant always valid and the missing ELSE never (VARKA-578). An int is still no
+    // date: a date choice over a cast of an int column declines rather than reading it.
+    val wideCase = CaseWhen(Seq((lt, Literal.create(Decimal(1), DecimalType(20, 6)))), None)
+    val wideZero = Literal.create(Decimal(0), DecimalType(20, 6))
     val partial = VarkaExpressionCompiler.compilePartial(
-      Seq(out(IsNull(CaseWhen(Seq((lt, Literal.create(Decimal(1), DecimalType(16, 6)))), None))),
-        out(If(lt, Cast(i, DateType), d)), out(DateAdd(d, Literal(1)))), childOutput).get
-    assert(partial.declines.asScala(0).reason ===
-      "a CASE without an ELSE needs a decimal null value, rows 348 and 359's")
+      Seq(out(GreaterThan(wideCase, wideZero)), out(If(lt, Cast(i, DateType), d)),
+        out(DateAdd(d, Literal(1))), out(IsNull(wideCase))), childOutput).get
+    assert(partial.declines.asScala(0).reason.contains("row 359's"))
+    assert(!partial.declines.containsKey(3))
+    val wideNull = VarkaExpressionCompiler.compile(Seq(out(IsNull(wideCase))), childOutput).get
+    val wideLt = new Compare(CompareOp.LT, new WidenLane(c0), new WidenLane(c1))
+    def truth(t: VarkaVectorIR.Truth): VarkaVectorIR.Cond =
+      new VarkaVectorIR.CondConst(t, LaneType.LONG)
+    assert(wideNull.outputs.asScala.toSeq === Seq(new BoolOutput(new IRNot(
+      new VarkaVectorIR.CondIf(wideLt, truth(VarkaVectorIR.Truth.TRUE),
+        truth(VarkaVectorIR.Truth.FALSE))))))
     // The narrow lanes have their own null (VARKA-329): a byte CASE WHEN with no ELSE is a
     // choice with the byte lane's null, stored at the byte's width.
     val narrowNull = VarkaExpressionCompiler.compile(

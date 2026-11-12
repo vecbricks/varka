@@ -100,6 +100,12 @@ of `m9/SCOPE.md`.
     2.7 and `SCOPE_STANDARD_MODE.md` 3.5 give this row. `floor` and `ceil` return `a` itself for
     NaN in the Java (`StrictMath.java:458-462`), so only `rint` has the dependence, and only in a
     NaN's sign, which the `BIGINT` results of `floor` and `ceil` never show.
+    *Correction, 10 November 2026 (row 593):* the item is the JDK's answer and still holds of
+    `Math.rint`, but no longer of Spark's `rint`. SPARK-61175 (apache/spark#60220, merged
+    upstream on 9 November 2026 as 8aac2b7d3e3) makes `Rint` call `MathUtils.rint`, which answers
+    the canonical NaN, `0x7ff8000000000000`, for every NaN, whatever its sign or payload, on every
+    tier and in `eval` and codegen alike. `VarkaRoundingLowering` blends the canonical NaN into a
+    `rint`'s NaN lanes to match, and `VarkaSameAnswer` compares a `rint`'s NaN bit for bit.
 11. **The census lacks most of the cells the constructions call.** `operator_census.json` and the
     two runners' files (`results/VARKA-376-census-epyc-7763.json`,
     `results/VARKA-376-census-neoverse-n2.json`) have no double `ADD`, `SUB`, `GT` or `GE`, no
@@ -382,9 +388,10 @@ assembly is whole and the `MAGIC` arm declines only for `n >= 2^51` and for a Na
 
 `rint`, `floor` and `ceil` are exact (2.3), the integral forms are integer arithmetic, and
 `width_bucket` is Spark's IEEE operations in Spark's order, so every form is compared bit for bit,
-a computed NaN by NaN-ness (`SCOPE_STANDARD_MODE.md` 3.5): `rint`'s NaN is computed, since its
-sign is the implementation's (item 0.10). None of them is under the contract of 2.7.1, and the
-configuration `spark.sql.codegen.varka.math.ulpContract.enabled` does not gate them.
+a computed NaN by NaN-ness (`SCOPE_STANDARD_MODE.md` 3.5), except `rint`'s: since SPARK-61175
+(row 593) Spark's `rint` answers the canonical NaN, `0x7ff8000000000000`, for every NaN, so its
+NaN is fixed and compared bit for bit as well (item 0.10's correction). None of them is under
+the contract of 2.7.1, and the configuration `spark.sql.codegen.varka.math.ulpContract.enabled` does not gate them.
 
 *30 October 2026, by the owner's word:* that configuration is an opt-in mode, off by default, since
 every math function is now bit-exact to Spark by default (`VARKA-345.md` 2.1, 2.6); it does not gate
@@ -457,9 +464,10 @@ declines exactly when Spark raises on one of its live rows.
 7. **The `rint(-NaN)` probe**: Spark's `Rint` over `-NaN` and a payload NaN, through `eval` and
    the generated code, under `-Xint`, `-XX:TieredStopAtLevel=1` and C2 after a warm-up, on the
    laptop, the EPYC 7763 and the Neoverse N2 (the census workflow's runners), recording the bits
-   per tier in `results/VARKA-344-rint-nan-probe.txt`. It asserts NaN-ness only, as 3.5 has it.
-   Prediction, from item 0.10: `+NaN` under the interpreter and C1, `-NaN` under C2, on both
-   architectures.
+   per tier in `results/VARKA-344-rint-nan-probe.txt`. Since SPARK-61175 (row 593) Spark's
+   `Rint` answers the canonical NaN, `0x7ff8000000000000`, in every tier, so the probe is a
+   record of `Math.rint` only, and its prediction, from item 0.10 (`+NaN` under the interpreter
+   and C1, `-NaN` under C2, on both architectures), is `Math.rint`'s and decides no answer.
 8. **No folding**: `dev/varka_emit.sh --asm` over `rint(x)` shows the add and the subtract of `C`
    in the loop (Java's floating point forbids the fold; this shows C2 kept it), and no `vfmadd`.
 9. **Coverage rows**, a family "rounding": `rint(x)`, `floor(x)` and `ceil(x)` as values and in a
@@ -767,6 +775,14 @@ a negative NaN depends on the tier its row path runs at. The kernel returns a Na
 a signalling one. The owner chose on 8 November 2026 to keep the rule as built: a NaN answer of
 `rint` is open, NaN against NaN only, and the kernel is not made to quiet it. The runners' probe
 stays owed below.
+
+*Superseded, 10 November 2026 (row 593).* Spark's `rint` now answers the canonical NaN,
+`0x7ff8000000000000`, for every NaN (SPARK-61175, 0.10's correction), so the decision above is
+replaced: the kernel blends the canonical NaN into a `rint`'s NaN lanes, one `x != x` compare and
+one blend after the construction, wherever the operand can be a NaN other than the canonical one,
+and `VarkaSameAnswer` holds a `rint`'s NaN fixed, compared bit for bit. The weight is 12 lane calls
+with the blend and 10 without it. The runners' probe below no longer decides any answer of Spark's
+or Varka's; it stays a record of `Math.rint` only.
 
 *Left.* 344a2 (the integral rounding), 344b, 344c as section 5 has them. Owed with 344a1: 3.7's
 `rint(-NaN)` probe on the two runners, and the measurement against the baseline (section 5,

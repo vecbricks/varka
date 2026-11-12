@@ -517,6 +517,7 @@ bytes a row for the laptop.
 | widening and narrowing | int | `B2I_load64` (a 64-bit byte load, in one or two parts) | - | I | I | 329, 330 |
 | widening and narrowing | int | `B2I_load128` (a 128-bit byte load, in one to four parts) | I | I | I | 329, 330 |
 | widening and narrowing | int | `S2I_load` | I | I | I | 329, 330 |
+| widening and narrowing | int | `I2B_store64_masked` (an int group's `I2B` stored to a 64-bit byte vector under its lanes' mask; F under `-XX:UseAVX=2`, `m8/results/VARKA-603-census-avx2.txt`), `I2B_store64_combined` (two groups' parts 0 and -1 OR-ed, stored whole) | - | - | I | 329, 479, 603 |
 | floating compares | float | `EQ`, `LT`, `LE` | I | I | I | 341 |
 | floating compares | float | `IS_NAN` | I | I | I | 341 |
 | fused multiply-add | float | `FMA` | I | I | I | 30, 346, 366 |
@@ -557,7 +558,9 @@ the table reads as on the laptop):
 | Neoverse N2, 128 bits (native) | `TANH` alone; `POW` is intrinsic there |
 
 The full cells are in `plans/m8/results/VARKA-376-census-epyc-7763.json` and
-`VARKA-376-census-neoverse-n2.json`. Rows 30, 343 and 344 design their long-to-double conversions
+`VARKA-376-census-neoverse-n2.json`. The two `I2B_store64` cells postdate that run: the masked
+one is expected `F` on the EPYC 7763 at 128 bits, as it reads on the laptop under `-XX:UseAVX=2`
+(no predicated byte store without AVX-512BW), and the control `I`. Rows 30, 343 and 344 design their long-to-double conversions
 against the EPYC cells; row 358's `tanh` meets the Neoverse cell.
 
 **`I` says nothing of what a loop's prologue allocates.** The decimal store's cells build their
@@ -571,7 +574,8 @@ And the second-species tell skips a class of the fork's own width: `LongVector::
 virtual call, and C2's printer reports its devirtualization as "callee changed to" the preferred
 species' class.
 
-What it says on the laptop (AMD Ryzen AI 9 HX PRO 370, JDK 25.0.4.1):
+What it says on the laptop (AMD Ryzen AI 9 HX PRO 370, JDK 25.0.4.1; every verdict read the same
+at 25.0.5):
 
 * **Nothing allocates anywhere in a loop that is intrinsic**, and the five arrangements of the
   two-species case (a narrow and a full byte species in either order of first use, the widening
@@ -610,8 +614,10 @@ What it says on the laptop (AMD Ryzen AI 9 HX PRO 370, JDK 25.0.4.1):
   `BLEND`, `B2S`, the short widening load, and both 128-bit byte forms, a 64-bit load converted in
   two parts (`B2I_load64`, skipped at 512, where it is not a whole group) and a 128-bit load
   converted in up to four (`B2I_load128`). So the widening byte load has an intrinsic form at 128
-  bits, and the two-species cells with no conversion run there too. The runner columns of these
-  cells come from the next `varka-width-audit.yml` dispatch.
+  bits, and the two-species cells with no conversion run there too. Their runner columns, from
+  `varka-width-audit.yml` run 42750857065 (10 November 2026), are committed as
+  `m8/results/VARKA-329-census-epyc-7763.json` and `-ubuntu-24.04-arm.json`: every byte and short
+  cell reads `I` on both runners, but for the two byte cells that skip at 128 bits by design.
 * **`L2D` and `D2L` are intrinsic here, and this CPU has AVX-512DQ**; `x86.ad` is expected to
   refuse the same cells on the AVX2 runner, and its column, when it is added, will say whether it
   does.
@@ -1255,3 +1261,18 @@ costs at least that accumulator's latency per lane group, whatever form it takes
 and two ORs into a mask, or a lane-wise min and max - because C2 does not reassociate the chain
 across its unrolled copies. A kernel of tens of ops a group hides it; a kernel of four does not.
 The min and the max are still the cheaper form: two ops a group against four, and no mask.
+
+## At two long lanes a decimal read loses before its compare does
+
+Measured for VARKA-596 (`m8/results/VARKA-596/two-lane-before-128bit.txt`, the laptop under
+`-XX:UseAVX=2 -XX:MaxVectorSize=16`, and the EPYC 7763's 128-bit decimal baseline). Written as a
+`BOOLEAN` output, `x < y` over `BIGINT` beat the row path at two long lanes and over `DOUBLE`
+tied it, though its compare and its mask's `toLong` are both the Java fallback there. Over
+`DECIMAL(9, 2)`, the same single long compare, it ran at about a fifth of the row path, and over
+the lane pair it lost too. The difference is the read. Arrow holds every decimal in a sixteen-byte
+slot, and both decimal leaves de-interleave two vectors of slots with two rearranges and then
+check each slot. At `vlen == 2` x86's C2 lowers neither the rearrange nor the masks. The width
+audit's constructions show it: `PrintIntrinsics` refuses two calls in `l < l2` as a boolean output
+and fourteen in `d9 < d9b`. So at two long lanes, judge a decimal kernel by its load before its
+operator. A shape that reads one decimal column pays the fallback's load whatever it computes,
+and only a heavier row-path cost, such as `BigDecimal` arithmetic, can hide it.

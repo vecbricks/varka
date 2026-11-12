@@ -154,10 +154,14 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
 
   /**
    * One documented expression. `sql` is both what the table prints and what the check
-   * compiles, except where `built` overrides it - the one case is `InSet`, which no SQL
-   * spelling produces directly because Spark's optimizer, not its parser, creates it. Such a
-   * row also gives `executable`, SQL that a query can run and that the optimizer turns into the
-   * same expression, so that `VarkaCoverageHarnessSuite` can run every row of the table.
+   * compiles, except where `built` overrides it with the tree the optimizer hands Varka: an
+   * `InSet`, which no SQL spelling produces directly because Spark's optimizer, not its parser,
+   * creates it, and a row whose analyzed tree holds a cast no plan holds, which `optimized`
+   * folds or unwraps. A row gives `executable` where `sql` is not the SQL to run, as the
+   * `nullifzero(f)` row, whose resolved `sql` keeps the cast to DOUBLE for the suites that apply
+   * no optimizer rule: SQL that a query can run and that the optimizer turns into the same
+   * expression, so that `VarkaCoverageHarnessSuite` can run every row of the table. A row
+   * without one runs `sql`.
    *
    * `domain` is the predicate inside which the row's kernel answers, for a row whose kernel can
    * decline a batch (VARKA-279 3.3): outside it the batch goes to the row engine, which answers
@@ -263,8 +267,16 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
       Row(s"$a = $b", "NaN equals NaN, and -0.0 equals 0.0"),
       Row(s"$a <> $b"),
       Row(s"$a <=> $b", "null-safe equality under the lane's own equality"),
-      Row(s"$a < 1.5$suffix", "the literal is its bits in the table of the lane's width"),
+      Row(s"$a < 1.5$suffix", "the literal is its bits in the table of the lane's width; a "
+        + "literal that is not NaN needs no NaN test, so this is the bare IEEE compare"),
       Row(s"$a = 1.5$suffix"),
+      Row(s"$a <= 1.5$suffix"),
+      Row(s"$a > 1.5$suffix", "the IEEE <= negated, so a NaN is above the literal"),
+      Row(s"$a >= 0.0$suffix", "the IEEE < negated; -0.0 and 0.0 are one value"),
+      Row(s"$a <> 0.0$suffix", "the IEEE = negated"),
+      Row(s"1.5$suffix < $a", "a literal on the left is the swapped compare"),
+      Row(s"$a = $nan", s"true where the IEEE $a <= Infinity is false, so NaN alone; no NaN test"),
+      Row(s"$a < $nan", s"the IEEE $a <= Infinity: every value but NaN"),
       Row(s"$a IN (1.5$suffix, -2.5$suffix, 0.0$suffix, $nan)",
         "an equality chain under the lane's equality"),
       Row(s"$a IN (11 literals)",
@@ -306,6 +318,14 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
     Row(s"$a BETWEEN $b AND 5.5$suffix", "two comparisons in Spark's order and an AND: a NaN is "
       + "above every bound"),
     Row(s"equal_null($a, $b)", "rewritten to the null-safe equality, under the lane's equality"))
+
+  /**
+   * `sql` resolved and then folded and unwrapped as the optimizer does before Varka sees it
+   * (`VarkaSqlResolve.optimizeIn`'s rules), for a row whose analyzed tree holds a cast that no
+   * plan holds: a cast of a constant, or a widening compared with a literal.
+   */
+  private def optimized(sql: String): Expression =
+    VarkaSqlResolve.optimizeIn(VarkaSqlResolve.parse(sql, columns), columns)
 
   private val families: Seq[Family] = Seq(
     Family("Day arithmetic", predicates = false, Seq(
@@ -1085,7 +1105,14 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
 
     Family("Null family on floating columns", predicates = false,
       floatingNullFamily("x", "x2", zeroRows = true) ++
-        floatingNullFamily("f", "f2", zeroRows = false)),
+        floatingNullFamily("f", "f2", zeroRows = false) ++ Seq(
+        // Under ANSI coercion compares the float with the int 0 in DOUBLE, and the optimizer's
+        // UnwrapCastInBinaryComparison moves the widening to the literal, as a session's plan
+        // and the row's built tree do; the other suites run that tree's SQL (VARKA-578).
+        Row("nullifzero(f)", "rewritten to if(f = 0, NULL, f), whose CAST(f AS DOUBLE) = 0.0D "
+          + "the optimizer unwraps to f = 0.0F, exact since the widening is: -0.0 is zero, NaN "
+          + "is not; the differential runs that unwrapped form", Some(optimized("nullifzero(f)")),
+          executable = Some("if(f = 0.0F, NULL, f)")))),
     Family("Null family predicates on floating columns", predicates = true,
       floatingNullPredicates("x", "x2", "D") ++ floatingNullPredicates("f", "f2", "F")),
 
@@ -1115,6 +1142,41 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
       Row("nullif(b, b2)", "rewritten to if(b = b2, NULL, b): a boolean choice with a null arm"),
       Row("b BETWEEN b2 AND b", "false before true: two orderings and an AND"),
       Row("equal_null(b, b2)"))),
+    // The null family over DECIMAL columns within 18 digits (VARKA-578), under a comparison or a
+    // null test, since a decimal value is no output yet (row 348's part 348b). Coercion gives
+    // every operand of a function one type, widerDecimalType's, so a column of the smaller scale
+    // carries its rescale. The null of nullif, nullifzero and a CASE without an ELSE is the long
+    // lane's NullValue, and its null test is false. The int zero's cast is a constant, which the
+    // optimizer folds as the built trees do, so no row records an INT to DECIMAL cast.
+    Family("Null family on DECIMAL columns", predicates = true, Seq(
+      Row("nvl(d9, d9s4) > d9b", "rewritten to coalesce at DECIMAL(11, 4), d9 times 10^2, "
+        + "against d9b rescaled the same way"),
+      Row("ifnull(d9, d9b) IS NULL", "null where both operands are"),
+      Row("nvl2(d9, d9b, d9s4) < d9", "rewritten to if(d9 IS NOT NULL, d9b, d9s4) at "
+        + "DECIMAL(11, 4)"),
+      Row("nullif(d9, d9b) IS NULL", "rewritten to if(d9 = d9b, NULL, d9): the null branch's "
+        + "validity is false, so the test is true where the two are equal or d9 is null"),
+      Row("nullif(d9, d9s4) > 0.00", "the equality at DECIMAL(11, 4), the choice and its null "
+        + "at d9's DECIMAL(9, 2); a kernel holding the null takes the masked body"),
+      Row("nullif(d18, d18b) <=> d18", "the null-safe equality reads the null branch as null"),
+      Row("nullifzero(d9) IS NOT NULL", "rewritten to if(d9 = 0, NULL, d9): the int zero is "
+        + "DECIMAL(1, 0) as the literal needs, cast to the column's type and folded",
+        Some(optimized("nullifzero(d9) IS NOT NULL"))),
+      Row("nullifzero(d16s9) < d9s4", "compared at DECIMAL(16, 9): d9s4 times 10^5",
+        Some(optimized("nullifzero(d16s9) < d9s4"))),
+      Row("zeroifnull(d9) = 0.00", "rewritten to coalesce(d9, 0) at DECIMAL(12, 2), where the int "
+        + "zero widens as DECIMAL(10, 0)", Some(optimized("zeroifnull(d9) = 0.00"))),
+      Row("zeroifnull(d18) >= d18b", "DECIMAL(18, 2): sixteen integral digits hold the zero's "
+        + "ten", Some(optimized("zeroifnull(d18) >= d18b"))),
+      Row("CASE WHEN d9 < d9b THEN d9 END IS NULL", "the missing ELSE is the decimal null"),
+      Row("CASE WHEN d9 < d9b THEN d9s4 END > d9", "the choice at DECIMAL(9, 4), compared at "
+        + "DECIMAL(11, 4)"),
+      Row("if(d9 IS NULL, d9b, NULL) = d9b"),
+      Row("d9 BETWEEN d9b AND d9s4", "two comparisons and an AND, the upper one at "
+        + "DECIMAL(11, 4)"),
+      Row("d18 BETWEEN 0.00 AND d18b"),
+      Row("equal_null(d9, d9s4)", "rewritten to d9 <=> d9s4 at DECIMAL(11, 4)"),
+      Row("equal_null(d18, d18b)"))),
 
     // DOUBLE and FLOAT on their own lanes (VARKA-341), in Spark's order: NaN equals NaN and is
     // above every other value, and -0.0 equals 0.0. A comparison is the IEEE compare corrected
@@ -1163,7 +1225,8 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
     // signed remainder of a truncating division by 10^k, wrapped as Spark's
     // BigDecimal.intValue() is, ANSI's two overflowing tails declined by a guard.
     Family("Rounding", predicates = false, Seq(
-      Row("rint(x)", "the nearest integer, a tie to the even one, the sign kept on a zero"),
+      Row("rint(x)", "the nearest integer, a tie to the even one, the sign kept on a zero, "
+        + "the canonical NaN for every NaN"),
       Row("floor(l)", "the identity over a bigint, in every mode"),
       Row("ceil(l)"),
       Row("ceiling(l)", "ceil by another name"),
@@ -1891,6 +1954,15 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
     def render: String = s"exhaustive: $suite, $test"
   }
 
+  /**
+   * The rendered refinement of `decimal_refinement.smt2`, which echoes the row by its SQL: its
+   * kernel printed from the IR the compiler builds, its specification read from Spark's
+   * analyzed expression (VARKA-506).
+   */
+  private case object Rendered extends Verified {
+    def render: String = "rendered: decimal_refinement.smt2"
+  }
+
   private case object Differential extends Verified {
     def render: String = "differential"
   }
@@ -1911,7 +1983,10 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
     // The value picks over a date or a long column are not swept: only the condition is.
     "Boolean columns choosing values" -> Differential,
     // The pair's comparisons and the sign extension, in both of the file's layers (VARKA-359).
-    "DECIMAL lane pair" -> Proved("decimal128.smt2"))
+    "DECIMAL lane pair" -> Proved("decimal128.smt2"),
+    // The 64-bit decimal rows, each refined whole from the IR the compiler builds (VARKA-506).
+    "DECIMAL columns" -> Rendered,
+    "DECIMAL arithmetic" -> Rendered)
 
   // The pair's null tests and its null-safe equality: decimal128.smt2 models the words' values,
   // not their validity, so these rows are checked by the differential suites alone.
@@ -2018,37 +2093,9 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
       "the fraction agrees with Spark's double round trip on every (s, g) of TIME(0) "),
     // `time_from_micros(time_to_micros(t))`: time_to_micros has no refinement.
     "t + INTERVAL '0 00:00:00' DAY TO SECOND" -> Refined("t + dt"),
-    // The 64-bit decimal's rows of two scales, negation, abs, choices and the coalesce's null test
-    // (VARKA-348), each refined whole; the equal-scale rows of VARKA-347 stay differential, and so
-    // does `(-d18) IS NOT NULL`, whose kernel validity is its operand's word, the same formula as
-    // Spark's, so a refinement of it could not fail.
-    "d9 < d9s4" -> Refined("d9 < d9s4"),
-    "d9 = d9s4" -> Refined("d9 = d9s4"),
-    "d9 <=> d9s4" -> Refined("d9 <=> d9s4"),
-    "d16s9 >= d9s4" -> Refined("d16s9 >= d9s4"),
-    "d18 > 1.5" -> Refined("d18 > 1.5"),
-    "d9 < 0.425" -> Refined("d9 < 0.425"),
-    "d9 < 10000000.0125" -> Refined("d9 < 10000000.0125"),
-    "-d9 < d9b" -> Refined("-d9 < d9b"),
-    "abs(d9) >= d9b" -> Refined("abs(d9) >= d9b"),
-    "greatest(d9, d9s4) > d9b" -> Refined("greatest(d9, d9s4) > d9b"),
-    "coalesce(d9, d9b) IS NULL" -> Refined("coalesce(d9, d9b) IS NULL"),
-    "CASE WHEN d9 < d9b THEN d9 ELSE d9s4 END > 0.0" ->
-      Refined("CASE WHEN d9 < d9b THEN d9 ELSE d9s4 END > 0.0"),
-    // The 64-bit decimal arithmetic (VARKA-349), each row refined whole in its modes.
-    "d9 + d9b < d18" -> Refined("d9 + d9b < d18"),
-    "try_add(d9, d9b) > d18" -> Refined("try_add(d9, d9b) > d18"),
-    "d9 - d8 >= d9b" -> Refined("d9 - d8 >= d9b"),
-    "d9 + 1.5 < d9b" -> Refined("d9 + 1.5 < d9b"),
-    "d9 - d9s4 > 0.00" -> Refined("d9 - d9s4 > 0.00"),
-    "d9 + d16s9 > d9s4" -> Refined("d9 + d16s9 > d9s4"),
-    "-(d9 + d9b) = d9s4" -> Refined("-(d9 + d9b) = d9s4"),
-    "d9 * 0.5 > d9b" -> Refined("d9 * 0.5 > d9b"),
-    "d8 * d9 <= d9b" -> Refined("d8 * d9 <= d9b"),
-    "try_multiply(d8, d9) IS NULL" -> Refined("try_multiply(d8, d9) IS NULL"),
-    "d9 IN (0.42, 0.00, -1.25)" -> Refined("d9 IN (0.42, 0.00, -1.25)"),
-    "d9 IN (0.425, 1.5)" -> Refined("d9 IN (0.425, 1.5)"),
-    "d18 IN (11 to 16 decimal literals)" -> Refined("d18 IN (11 to 16 decimal literals)")) ++
+    // The product of two columns, which the printer refuses (VARKA-506.md 2.4), keeps its
+    // hand-written refinement.
+    "d8 * d9 <= d9b" -> Refined("d8 * d9 <= d9b")) ++
     pairNulls.map(_ -> Differential)
 
   private def verifiedOf(family: Family, row: Row): Verified =
@@ -2063,6 +2110,8 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
       s"rowVerified names no row: ${(rowVerified.keySet -- sqls).toSeq.sorted}")
     val refinement = Files.readString(getWorkspaceFilePath("sql", "varka", "proofs",
       "refinement.smt2"))
+    val rendered = Files.readString(getWorkspaceFilePath("sql", "varka", "proofs",
+      "decimal_refinement.smt2"))
     val plan = Files.readString(getWorkspaceFilePath("sql", "varka", "plans", "m8", "PLAN.md"))
     val testRoots = Seq(getWorkspaceFilePath("sql", "catalyst", "src", "test"))
     def suiteSource(name: String): Option[String] = testRoots.iterator.flatMap { root =>
@@ -2077,6 +2126,8 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
           case Refined(names @ _*) if names.exists(n => !echoes(refinement, n)) =>
             Some("refinement.smt2 echoes no refinement named " +
               names.filterNot(echoes(refinement, _)).map(n => s"`$n`").mkString(", "))
+          case Rendered if !echoes(rendered, row.sql) =>
+            Some("decimal_refinement.smt2 echoes no refinement of the row")
           case Proved(file) if !Files.exists(getWorkspaceFilePath("sql", "varka", "proofs",
               file)) =>
             Some(s"sql/varka/proofs/$file does not exist")
@@ -2132,7 +2183,7 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
    * each type among its operands.
    */
   private def verificationCounts(): String = {
-    val kinds = Seq("refinement", "proof", "exhaustive", "owed", "differential")
+    val kinds = Seq("refinement", "rendered", "proof", "exhaustive", "owed", "differential")
     def kind(v: Verified): String = v.render.takeWhile(_ != ':')
     val counts = families.flatMap { family =>
       family.rows.flatMap { row =>

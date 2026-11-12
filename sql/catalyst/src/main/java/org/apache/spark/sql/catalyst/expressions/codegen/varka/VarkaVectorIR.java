@@ -465,23 +465,47 @@ public sealed interface VarkaVectorIR
    * {@code VectorOperators} of the same names and {@code Long.compareUnsigned}. No SQL
    * expression maps to an unsigned member: they are the words' compares of a 128-bit decimal
    * (a pair's low words, VARKA-359) and an add's carry (VARKA-360).
+   *
+   * <p>The three IEEE members exist at a floating lane only: the bare IEEE compare, NaN
+   * unordered, so that each is false wherever an operand is NaN, and {@code -0.0} equal to
+   * {@code 0.0}, the {@code VectorOperators} {@code EQ}, {@code LT} and {@code LE} and Java's
+   * {@code ==}, {@code <} and {@code <=}. They are the literal-specialised compares
+   * (VARKA-341): against a constant {@code c} that is not NaN, Spark's {@code x = c},
+   * {@code x < c} and {@code x <= c} are exactly these, and {@code x > c} and {@code x >= c}
+   * the negations of {@code x <= c} and {@code x < c}, so the compiler builds them where it sees
+   * the constant, and the NaN tests of Spark's general order fall away.
    */
   enum CompareOp {
-    LT, LE, GT, GE, EQ, ULT, ULE, UGT, UGE;
+    LT, LE, GT, GE, EQ, ULT, ULE, UGT, UGE, IEEE_EQ, IEEE_LT, IEEE_LE;
 
     private static final List<CompareOp> SIGNED = List.of(LT, LE, GT, GE, EQ);
+    private static final List<CompareOp> INTEGRAL =
+        List.of(LT, LE, GT, GE, EQ, ULT, ULE, UGT, UGE);
 
     /** Whether the comparison reads the lanes' bits as unsigned numbers. */
     public boolean isUnsigned() {
       return switch (this) {
-        case LT, LE, GT, GE, EQ -> false;
+        case LT, LE, GT, GE, EQ, IEEE_EQ, IEEE_LT, IEEE_LE -> false;
         case ULT, ULE, UGT, UGE -> true;
+      };
+    }
+
+    /** Whether the comparison is the bare IEEE one, which a floating lane alone has. */
+    public boolean isIeee() {
+      return switch (this) {
+        case LT, LE, GT, GE, EQ, ULT, ULE, UGT, UGE -> false;
+        case IEEE_EQ, IEEE_LT, IEEE_LE -> true;
       };
     }
 
     /** The five members every lane has, in declaration order, which a boolean compare takes. */
     public static List<CompareOp> signed() {
       return SIGNED;
+    }
+
+    /** The nine members an integral lane has, signed then unsigned, in declaration order. */
+    public static List<CompareOp> integral() {
+      return INTEGRAL;
     }
   }
 
@@ -507,7 +531,8 @@ public sealed interface VarkaVectorIR
 
   /**
    * How a {@link RoundToIntegral} picks the integer: {@code RINT} is the nearest, a tie going to
-   * the even one, as {@code Math.rint} does. {@code FLOOR} and {@code CEIL} join it with the
+   * the even one, as {@code Math.rint} does, and the canonical NaN for a NaN, as Spark's
+   * {@code MathUtils.rint} does. {@code FLOOR} and {@code CEIL} join it with the
    * lowerings that read them.
    */
   enum RoundMode { RINT }
@@ -1425,13 +1450,14 @@ public sealed interface VarkaVectorIR
   }
 
   /**
-   * {@code Math.rint(child)} over the double lane: the nearest integer-valued double, a tie
-   * going to the even one, with the operand's sign kept on a zero result ({@code rint(-0.3)} is
-   * {@code -0.0}), and NaN and the infinities returned as they are. The vector API has no
-   * rounding operator on any host, so the emitter builds it from IEEE additions (the 2^52
-   * construction of {@code VarkaRoundingLowering}), exact for every input. Null-intolerant: the
-   * validity is the child's. A discrete consumer of a contracted child (row 345's question 2)
-   * is a decline that row owns.
+   * Spark's {@code rint(child)} over the double lane ({@code MathUtils.rint}): the nearest
+   * integer-valued double, a tie going to the even one, with the operand's sign kept on a zero
+   * result ({@code rint(-0.3)} is {@code -0.0}), the infinities returned as they are, and every
+   * NaN answered as the canonical {@code Double.NaN}, whatever its sign or payload. The vector
+   * API has no rounding operator on any host, so the emitter builds it from IEEE additions (the
+   * 2^52 construction of {@code VarkaRoundingLowering}), exact for every input.
+   * Null-intolerant: the validity is the child's. A discrete consumer of a contracted child
+   * (row 345's question 2) is a decline that row owns.
    */
   record RoundToIntegral(RoundMode mode, VarkaVectorIR child, int hash)
       implements VarkaVectorIR {
@@ -1459,6 +1485,10 @@ public sealed interface VarkaVectorIR
       requireSameLane("a comparison", left, right);
       if (op.isUnsigned() && left.laneType().isFloating()) {
         throw VarkaErrors.illegalArgument("an unsigned comparison " + op + " takes an integral "
+            + "lane, not " + left.laneType());
+      }
+      if (op.isIeee() && !left.laneType().isFloating()) {
+        throw VarkaErrors.illegalArgument("an IEEE comparison " + op + " takes a floating "
             + "lane, not " + left.laneType());
       }
       hash = hashOf(op, left, right);
@@ -1551,8 +1581,9 @@ public sealed interface VarkaVectorIR
   record BoolCompare(CompareOp op, Cond left, Cond right, int hash) implements Cond {
     public BoolCompare {
       requireSameLane("a boolean comparison", left, right);
-      if (op.isUnsigned()) {
-        throw VarkaErrors.illegalArgument("a boolean comparison has no unsigned form: " + op);
+      if (op.isUnsigned() || op.isIeee()) {
+        throw VarkaErrors.illegalArgument("a boolean comparison has no unsigned or IEEE form: "
+            + op);
       }
       hash = hashOf(op, left, right);
     }

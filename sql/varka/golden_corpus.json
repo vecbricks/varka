@@ -9,7 +9,7 @@
       "projection_partial" : 0,
       "projection_plain" : 51,
       "filter_fused" : 1,
-      "filter_partial" : 0,
+      "filter_partial" : 31,
       "errors" : 20,
       "not_run" : 14,
       "entries" : [ {
@@ -46,7 +46,7 @@
         "columns" : [ "int", "int", "int", "int", "int", "int" ],
         "projection" : "FUSED",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "select make_date(2000, 13, 1)",
@@ -280,7 +280,7 @@
         "columns" : [ "date", "int" ],
         "projection" : "FUSED",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "select date_add('2011-11-11', 1)",
@@ -289,7 +289,7 @@
         "columns" : [ "int" ],
         "projection" : "FUSED",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "select date_add('2011-11-11', 1Y)",
@@ -379,7 +379,7 @@
         "columns" : [ "int" ],
         "projection" : "FUSED",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "select date_add(timestamp_ntz'2011-11-11 12:12:12', 1)",
@@ -388,7 +388,7 @@
         "columns" : [ "int" ],
         "projection" : "FUSED",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "select date_sub(date'2011-11-11', 1)",
@@ -397,7 +397,7 @@
         "columns" : [ "date", "int" ],
         "projection" : "FUSED",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "select date_sub('2011-11-11', 1)",
@@ -406,7 +406,7 @@
         "columns" : [ "int" ],
         "projection" : "FUSED",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "select date_sub('2011-11-11', 1Y)",
@@ -460,7 +460,7 @@
         "columns" : [ "date" ],
         "projection" : "FUSED",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "select date_sub(date'2011-11-11', '1.2')",
@@ -496,7 +496,7 @@
         "columns" : [ "int" ],
         "projection" : "FUSED",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "select date_sub(timestamp_ntz'2011-11-11 12:12:12', 1)",
@@ -505,7 +505,7 @@
         "columns" : [ "int" ],
         "projection" : "FUSED",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "select date_add('2011-11-11', int_str) from date_view",
@@ -559,7 +559,7 @@
         "columns" : [ "date" ],
         "projection" : "FUSED",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "select 7S + date '2001-09-28'",
@@ -568,7 +568,7 @@
         "columns" : [ "date" ],
         "projection" : "FUSED",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "select date '2001-10-01' - 7",
@@ -577,7 +577,7 @@
         "columns" : [ "date", "int" ],
         "projection" : "FUSED",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "select date '2001-10-01' - date '2001-09-28'",
@@ -586,7 +586,7 @@
         "columns" : [ "date", "date" ],
         "projection" : "FUSED",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "select date '2001-10-01' - '2001-09-28'",
@@ -595,7 +595,7 @@
         "columns" : [ "date" ],
         "projection" : "FUSED",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "select '2001-10-01' - date '2001-09-28'",
@@ -604,7 +604,7 @@
         "columns" : [ "date" ],
         "projection" : "FUSED",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "select date '2001-09-28' - null",
@@ -685,7 +685,7 @@
         "columns" : [ "date", "interval year to month", "date", "interval day", "date", "interval year to month", "date", "interval month", "interval year to month", "date", "interval day", "date" ],
         "projection" : "FUSED",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "select to_date('26/October/2015', 'dd/MMMMM/yyyy')",
@@ -721,7 +721,7 @@
         "columns" : [ "int" ],
         "projection" : "PLAIN",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "select date_add(MILLISECOND, -1, timestamp'2022-02-25 01:02:03.456')",
@@ -730,7 +730,7 @@
         "columns" : [ "int" ],
         "projection" : "PLAIN",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "select dateadd(SECOND, 58, timestamp'2022-02-25 01:02:03')",
@@ -739,7 +739,7 @@
         "columns" : [ "int" ],
         "projection" : "PLAIN",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "select date_add(MINUTE, -100, date'2022-02-25')",
@@ -748,7 +748,7 @@
         "columns" : [ "int", "date" ],
         "projection" : "PLAIN",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "select dateadd(HOUR, -1, timestamp'2022-02-25 01:02:03')",
@@ -757,7 +757,7 @@
         "columns" : [ "int" ],
         "projection" : "PLAIN",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "select date_add(DAY, 367, date'2022-02-25')",
@@ -766,7 +766,7 @@
         "columns" : [ "int", "date" ],
         "projection" : "PLAIN",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "select dateadd(WEEK, -4, timestamp'2022-02-25 01:02:03')",
@@ -775,7 +775,7 @@
         "columns" : [ "int" ],
         "projection" : "PLAIN",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "select date_add(MONTH, -1, timestamp'2022-02-25 01:02:03')",
@@ -784,7 +784,7 @@
         "columns" : [ "int" ],
         "projection" : "PLAIN",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "select dateadd(QUARTER, 5, date'2022-02-25')",
@@ -793,7 +793,7 @@
         "columns" : [ "int", "date" ],
         "projection" : "PLAIN",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "select date_add(YEAR, 1, date'2022-02-25')",
@@ -802,7 +802,7 @@
         "columns" : [ "int", "date" ],
         "projection" : "PLAIN",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "select dateadd('MICROSECOND', 1001, timestamp'2022-02-25 01:02:03.123')",
@@ -856,7 +856,7 @@
         "columns" : [ "date" ],
         "projection" : "PLAIN",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "select datediff(HOUR, timestamp'2022-02-25 01:02:03', timestamp'2022-02-25 00:02:03')",
@@ -874,7 +874,7 @@
         "columns" : [ "date" ],
         "projection" : "PLAIN",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "select datediff(WEEK, timestamp'2022-02-25 01:02:03', timestamp'2022-01-28 01:02:03')",
@@ -901,7 +901,7 @@
         "columns" : [ "date", "date" ],
         "projection" : "PLAIN",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "select date_diff(YEAR, date'2022-02-25', date'2023-02-25')",
@@ -910,7 +910,7 @@
         "columns" : [ "date", "date" ],
         "projection" : "PLAIN",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "select date_diff('MILLISECOND', timestamp'2022-02-25 01:02:03.456', timestamp'2022-02-25 01:02:03.455')",
@@ -940,7 +940,7 @@
       "projection_partial" : 0,
       "projection_plain" : 151,
       "filter_fused" : 84,
-      "filter_partial" : 0,
+      "filter_partial" : 52,
       "errors" : 67,
       "not_run" : 60,
       "entries" : [ {
@@ -950,7 +950,7 @@
         "columns" : [ "int", "date" ],
         "projection" : "PLAIN",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "select interval 4 month 2 weeks 3 microseconds * 1.5",
@@ -977,7 +977,7 @@
         "columns" : [ "interval day to second" ],
         "projection" : "PLAIN",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "select (timestamp'2019-10-15' - timestamp'2019-10-14') / 1.5",
@@ -1031,7 +1031,7 @@
         "columns" : [ "interval second" ],
         "projection" : "PLAIN",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "select interval 2 second / '2'",
@@ -1040,7 +1040,7 @@
         "columns" : [ "interval second" ],
         "projection" : "PLAIN",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "select interval 2 year * '2'",
@@ -1049,7 +1049,7 @@
         "columns" : [ "interval year" ],
         "projection" : "PLAIN",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "select interval 2 year / '2'",
@@ -1058,7 +1058,7 @@
         "columns" : [ "interval year" ],
         "projection" : "PLAIN",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "select interval 2 second * 'a'",
@@ -1103,7 +1103,7 @@
         "columns" : [ "interval second" ],
         "projection" : "PLAIN",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "select '2' * interval 2 year",
@@ -1112,7 +1112,7 @@
         "columns" : [ "interval year" ],
         "projection" : "PLAIN",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "select 'a' * interval 2 second",
@@ -1274,7 +1274,7 @@
         "columns" : [ "interval year to month" ],
         "projection" : "FUSED",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "select -interval '-1 day 1 hour -1 minute 1 second'",
@@ -1283,7 +1283,7 @@
         "columns" : [ "interval day to second" ],
         "projection" : "PLAIN",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "select -interval -1 month 1 day -1 second",
@@ -1301,7 +1301,7 @@
         "columns" : [ "interval year to month" ],
         "projection" : "FUSED",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "select -interval -1 day 1 hour -1 minute 1 second",
@@ -1310,7 +1310,7 @@
         "columns" : [ "interval day to second" ],
         "projection" : "PLAIN",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "select +interval '-1 month 1 day -1 second'",
@@ -1535,7 +1535,7 @@
         "columns" : [ "int" ],
         "projection" : "PLAIN",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "select make_interval(1, 2)",
@@ -1544,7 +1544,7 @@
         "columns" : [ "int", "int" ],
         "projection" : "PLAIN",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "select make_interval(1, 2, 3)",
@@ -1553,7 +1553,7 @@
         "columns" : [ "int", "int", "int" ],
         "projection" : "PLAIN",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "select make_interval(1, 2, 3, 4)",
@@ -1562,7 +1562,7 @@
         "columns" : [ "int", "int", "int", "int" ],
         "projection" : "PLAIN",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "select make_interval(1, 2, 3, 4, 5)",
@@ -1571,7 +1571,7 @@
         "columns" : [ "int", "int", "int", "int", "int" ],
         "projection" : "PLAIN",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "select make_interval(1, 2, 3, 4, 5, 6)",
@@ -1580,7 +1580,7 @@
         "columns" : [ "int", "int", "int", "int", "int", "int" ],
         "projection" : "PLAIN",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "select make_interval(1, 2, 3, 4, 5, 6, 7.008009)",
@@ -1589,7 +1589,7 @@
         "columns" : [ "int", "int", "int", "int", "int", "int" ],
         "projection" : "PLAIN",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "select make_interval(1, 2, 3, 4, 0, 0, 123456789012.123456)",
@@ -1598,7 +1598,7 @@
         "columns" : [ "int", "int", "int", "int", "int", "int" ],
         "projection" : "PLAIN",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "select make_interval(0, 0, 0, 0, 0, 0, 1234567890123456789)",
@@ -1616,7 +1616,7 @@
         "columns" : [ "int" ],
         "projection" : "PLAIN",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "select make_dt_interval(1, 2)",
@@ -1625,7 +1625,7 @@
         "columns" : [ "int", "int" ],
         "projection" : "PLAIN",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "select make_dt_interval(1, 2, 3)",
@@ -1634,7 +1634,7 @@
         "columns" : [ "int", "int", "int" ],
         "projection" : "PLAIN",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "select make_dt_interval(1, 2, 3, 4.005006)",
@@ -1643,7 +1643,7 @@
         "columns" : [ "int", "int", "int" ],
         "projection" : "PLAIN",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "select make_dt_interval(1, 0, 0, 123456789012.123456)",
@@ -1652,7 +1652,7 @@
         "columns" : [ "int", "int", "int" ],
         "projection" : "PLAIN",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "select make_dt_interval(2147483647)",
@@ -1670,7 +1670,7 @@
         "columns" : [ "int" ],
         "projection" : "PLAIN",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "select make_ym_interval(1, 2)",
@@ -1679,7 +1679,7 @@
         "columns" : [ "int", "int" ],
         "projection" : "PLAIN",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "select make_ym_interval(0, 1)",
@@ -1688,7 +1688,7 @@
         "columns" : [ "int", "int" ],
         "projection" : "PLAIN",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "select make_ym_interval(178956970, 7)",
@@ -1697,7 +1697,7 @@
         "columns" : [ "int", "int" ],
         "projection" : "PLAIN",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "select make_ym_interval(178956970, 8)",
@@ -1715,7 +1715,7 @@
         "columns" : [ "int", "int" ],
         "projection" : "PLAIN",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "select make_ym_interval(-178956970, -9)",
@@ -2318,7 +2318,7 @@
         "columns" : [ "interval year to month", "interval month", "interval year", "interval year to month", "interval day to second", "interval day to minute", "interval minute to second", "interval day" ],
         "projection" : "FUSED",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "select interval '2' year + '3-3 year to month', interval '2' year - '3 month', '3-2 year to month' + interval '2-2' year to month, '3 year' - interval '2-2' year to month, interval '99 11:22:33.123456789' day to second + '12:12 hour to second', interval '99 11:22:33.123456789' day to second - '12 hour', '4 day' + interval '10' day, '4 22 day to hour' - interval '10' day",
@@ -2777,7 +2777,7 @@
         "columns" : [ "interval year to month", "int" ],
         "projection" : "PLAIN",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "SELECT (INTERVAL '-178956970-8' YEAR TO MONTH) / 5",
@@ -2786,7 +2786,7 @@
         "columns" : [ "interval year to month", "int" ],
         "projection" : "PLAIN",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "SELECT (INTERVAL '-178956970-8' YEAR TO MONTH) / -1",
@@ -2831,7 +2831,7 @@
         "columns" : [ "interval day to second", "int" ],
         "projection" : "PLAIN",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "SELECT (INTERVAL '-106751991 04:00:54.775808' DAY TO SECOND) / 5",
@@ -2840,7 +2840,7 @@
         "columns" : [ "interval day to second", "int" ],
         "projection" : "PLAIN",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "SELECT (INTERVAL '-106751991 04:00:54.775808' DAY TO SECOND) / -1",
@@ -3155,7 +3155,7 @@
         "columns" : [ "interval day", "interval hour" ],
         "projection" : "PLAIN",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "SELECT INTERVAL '1 02' DAY TO HOUR = INTERVAL '02:10:55' HOUR TO SECOND",
@@ -3362,7 +3362,7 @@
         "columns" : [ "interval year" ],
         "projection" : "FUSED",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "SELECT abs(INTERVAL -'1 02:03:04.123' DAY TO SECOND)",
@@ -3371,7 +3371,7 @@
         "columns" : [ "interval day to second" ],
         "projection" : "PLAIN",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "SELECT div(INTERVAL '1-1' YEAR TO MONTH, INTERVAL '1' YEAR)",
@@ -3380,7 +3380,7 @@
         "columns" : [ "interval year to month", "interval year" ],
         "projection" : "PLAIN",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "SELECT div(INTERVAL '1-1' YEAR TO MONTH, INTERVAL '-1' MONTH)",
@@ -3389,7 +3389,7 @@
         "columns" : [ "interval year to month", "interval month" ],
         "projection" : "PLAIN",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "SELECT div(INTERVAL '1 06' DAY TO HOUR, INTERVAL '1' DAY)",
@@ -3398,7 +3398,7 @@
         "columns" : [ "interval day to hour", "interval day" ],
         "projection" : "PLAIN",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "SELECT div(INTERVAL '1 06' DAY TO HOUR, INTERVAL '-1' HOUR)",
@@ -3407,7 +3407,7 @@
         "columns" : [ "interval day to hour", "interval hour" ],
         "projection" : "PLAIN",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "SELECT div(INTERVAL '1' MONTH, INTERVAL '-1' DAY)",
@@ -3425,7 +3425,7 @@
         "columns" : [ "interval year" ],
         "projection" : "PLAIN",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "SELECT signum(INTERVAL '10' MONTH)",
@@ -3434,7 +3434,7 @@
         "columns" : [ "interval month" ],
         "projection" : "PLAIN",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "SELECT signum(INTERVAL '0-0' YEAR TO MONTH)",
@@ -3443,7 +3443,7 @@
         "columns" : [ "interval year to month" ],
         "projection" : "PLAIN",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "SELECT signum(INTERVAL '-10' DAY)",
@@ -3452,7 +3452,7 @@
         "columns" : [ "interval day" ],
         "projection" : "PLAIN",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "SELECT signum(INTERVAL '10' HOUR)",
@@ -3461,7 +3461,7 @@
         "columns" : [ "interval hour" ],
         "projection" : "PLAIN",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "SELECT signum(INTERVAL '0 0:0:0' DAY TO SECOND)",
@@ -3470,7 +3470,7 @@
         "columns" : [ "interval day to second" ],
         "projection" : "PLAIN",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "SELECT width_bucket(INTERVAL '0' YEAR, INTERVAL '0' YEAR, INTERVAL '10' YEAR, 10)",
@@ -3479,7 +3479,7 @@
         "columns" : [ "interval year", "interval year", "interval year", "int" ],
         "projection" : "PLAIN",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "SELECT width_bucket(INTERVAL '-1' YEAR, INTERVAL -'1-2' YEAR TO MONTH, INTERVAL '1-2' YEAR TO MONTH, 10)",
@@ -3488,7 +3488,7 @@
         "columns" : [ "interval year", "interval year to month", "interval year to month", "int" ],
         "projection" : "PLAIN",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "SELECT width_bucket(INTERVAL '0' DAY, INTERVAL '0' DAY, INTERVAL '10' DAY, 10)",
@@ -3497,7 +3497,7 @@
         "columns" : [ "interval day", "interval day", "interval day", "int" ],
         "projection" : "PLAIN",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "SELECT width_bucket(INTERVAL '-59' MINUTE, INTERVAL -'1 01' DAY TO HOUR, INTERVAL '1 2:3:4.001' DAY TO SECOND, 10)",
@@ -3506,7 +3506,7 @@
         "columns" : [ "interval minute", "interval day to hour", "interval day to second", "int" ],
         "projection" : "PLAIN",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "SELECT interval 106751991 day 4 hour 0 minute 54.776 second",
@@ -3527,7 +3527,7 @@
       "projection_partial" : 0,
       "projection_plain" : 18,
       "filter_fused" : 0,
-      "filter_partial" : 0,
+      "filter_partial" : 19,
       "errors" : 5,
       "not_run" : 103,
       "entries" : [ {
@@ -4455,7 +4455,7 @@
         "columns" : [ "interval year to month" ],
         "projection" : "FUSED",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "select date_part('YEAR', interval '2-1' YEAR TO MONTH)",
@@ -4464,7 +4464,7 @@
         "columns" : [ "interval year to month" ],
         "projection" : "FUSED",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "select extract(YEAR from -interval '2-1' YEAR TO MONTH)",
@@ -4473,7 +4473,7 @@
         "columns" : [ "interval year to month" ],
         "projection" : "FUSED",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "select extract(MONTH from interval '2-1' YEAR TO MONTH)",
@@ -4482,7 +4482,7 @@
         "columns" : [ "interval year to month" ],
         "projection" : "PLAIN",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "select date_part('MONTH', interval '2-1' YEAR TO MONTH)",
@@ -4491,7 +4491,7 @@
         "columns" : [ "interval year to month" ],
         "projection" : "PLAIN",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "select extract(MONTH from -interval '2-1' YEAR TO MONTH)",
@@ -4500,7 +4500,7 @@
         "columns" : [ "interval year to month" ],
         "projection" : "PLAIN",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "select date_part(NULL, interval '2-1' YEAR TO MONTH)",
@@ -4545,7 +4545,7 @@
         "columns" : [ "interval day to second" ],
         "projection" : "PLAIN",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "select date_part('DAY', interval '123 12:34:56.789123123' DAY TO SECOND)",
@@ -4554,7 +4554,7 @@
         "columns" : [ "interval day to second" ],
         "projection" : "PLAIN",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "select extract(DAY from -interval '123 12:34:56.789123123' DAY TO SECOND)",
@@ -4563,7 +4563,7 @@
         "columns" : [ "interval day to second" ],
         "projection" : "PLAIN",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "select extract(HOUR from interval '123 12:34:56.789123123' DAY TO SECOND)",
@@ -4572,7 +4572,7 @@
         "columns" : [ "interval day to second" ],
         "projection" : "PLAIN",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "select date_part('HOUR', interval '123 12:34:56.789123123' DAY TO SECOND)",
@@ -4581,7 +4581,7 @@
         "columns" : [ "interval day to second" ],
         "projection" : "PLAIN",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "select extract(HOUR from -interval '123 12:34:56.789123123' DAY TO SECOND)",
@@ -4590,7 +4590,7 @@
         "columns" : [ "interval day to second" ],
         "projection" : "PLAIN",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "select extract(MINUTE from interval '123 12:34:56.789123123' DAY TO SECOND)",
@@ -4599,7 +4599,7 @@
         "columns" : [ "interval day to second" ],
         "projection" : "PLAIN",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "select date_part('MINUTE', interval '123 12:34:56.789123123' DAY TO SECOND)",
@@ -4608,7 +4608,7 @@
         "columns" : [ "interval day to second" ],
         "projection" : "PLAIN",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "select extract(MINUTE from -interval '123 12:34:56.789123123' DAY TO SECOND)",
@@ -4617,7 +4617,7 @@
         "columns" : [ "interval day to second" ],
         "projection" : "PLAIN",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "select extract(SECOND from interval '123 12:34:56.789123123' DAY TO SECOND)",
@@ -4626,7 +4626,7 @@
         "columns" : [ "interval day to second" ],
         "projection" : "PLAIN",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "select date_part('SECOND', interval '123 12:34:56.789123123' DAY TO SECOND)",
@@ -4635,7 +4635,7 @@
         "columns" : [ "interval day to second" ],
         "projection" : "PLAIN",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "select extract(SECOND from -interval '123 12:34:56.789123123' DAY TO SECOND)",
@@ -4644,7 +4644,7 @@
         "columns" : [ "interval day to second" ],
         "projection" : "PLAIN",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "select date_part(NULL, interval '123 12:34:56.789123123' DAY TO SECOND)",
@@ -4689,20 +4689,20 @@
         "columns" : [ "interval day to second" ],
         "projection" : "PLAIN",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       } ]
     },
     "timestamp.sql" : {
-      "statements" : 142,
-      "selects" : 139,
-      "rewritten" : 56,
+      "statements" : 144,
+      "selects" : 141,
+      "rewritten" : 58,
       "projection_fused" : 0,
       "projection_partial" : 0,
-      "projection_plain" : 95,
+      "projection_plain" : 96,
       "filter_fused" : 0,
-      "filter_partial" : 0,
-      "errors" : 30,
+      "filter_partial" : 32,
+      "errors" : 31,
       "not_run" : 17,
       "entries" : [ {
         "statement" : "select timestamp '2019-01-01\\t'",
@@ -4774,7 +4774,7 @@
         "columns" : [ "int", "int", "int", "int", "int" ],
         "projection" : "PLAIN",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "SELECT make_timestamp(2021, 07, 11, 6, 30, 45.678, 'CET')",
@@ -4783,7 +4783,7 @@
         "columns" : [ "int", "int", "int", "int", "int" ],
         "projection" : "PLAIN",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "SELECT make_timestamp(2021, 07, 11, 6, 30, 60.007)",
@@ -4801,7 +4801,7 @@
         "columns" : [ "int", "int", "int", "int", "int", "int" ],
         "projection" : "PLAIN",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "SELECT make_timestamp(1, 1, 1, 1, 1, 60)",
@@ -4810,7 +4810,7 @@
         "columns" : [ "int", "int", "int", "int", "int", "int" ],
         "projection" : "PLAIN",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "SELECT make_timestamp(1, 1, 1, 1, 1, 61)",
@@ -4837,7 +4837,7 @@
         "columns" : [ "int", "int", "int", "int", "int" ],
         "projection" : "PLAIN",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "SELECT make_timestamp(1, 1, 1, 1, 1, 99.999999)",
@@ -4858,13 +4858,31 @@
         "filter" : "-",
         "filter_outcome" : "error"
       }, {
+        "statement" : "SELECT make_timestamp(1, 1, 1, 1, 1, 4324.967296)",
+        "kind" : "rewritten",
+        "rewritten" : "SELECT make_timestamp(c0, c1, c2, c3, c4, 4324.967296BD)",
+        "columns" : [ "int", "int", "int", "int", "int" ],
+        "projection" : "-",
+        "projection_outcome" : "error",
+        "filter" : "-",
+        "filter_outcome" : "error"
+      }, {
+        "statement" : "SELECT try_make_timestamp(1, 1, 1, 1, 1, 4324.967296)",
+        "kind" : "rewritten",
+        "rewritten" : "SELECT try_make_timestamp(c0, c1, c2, c3, c4, 4324.967296BD)",
+        "columns" : [ "int", "int", "int", "int", "int" ],
+        "projection" : "PLAIN",
+        "projection_outcome" : "agree",
+        "filter" : "PARTIAL",
+        "filter_outcome" : "agree"
+      }, {
         "statement" : "SELECT make_timestamp(make_date(2021, 07, 11))",
         "kind" : "rewritten",
         "rewritten" : "SELECT make_timestamp(make_date(c0, c1, c2))",
         "columns" : [ "int", "int", "int" ],
         "projection" : "PLAIN",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "SELECT make_timestamp(DATE'1970-01-01')",
@@ -4873,7 +4891,7 @@
         "columns" : [ "date" ],
         "projection" : "PLAIN",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "SELECT make_timestamp(NULL)",
@@ -4891,7 +4909,7 @@
         "columns" : [ "int", "int", "int", "int", "int" ],
         "projection" : "PLAIN",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "SELECT make_timestamp(DATE'1970-01-01', TIME'00:00:00')",
@@ -4900,7 +4918,7 @@
         "columns" : [ "date", "time(6)" ],
         "projection" : "PLAIN",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "SELECT make_timestamp(NULL, TIME'00:00:00')",
@@ -4936,7 +4954,7 @@
         "columns" : [ "int", "int", "int", "int", "int" ],
         "projection" : "PLAIN",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "SELECT make_timestamp(make_date(2021, 07, 11), make_time(6, 30, 45.678), 'PST')",
@@ -4945,7 +4963,7 @@
         "columns" : [ "int", "int", "int", "int", "int" ],
         "projection" : "PLAIN",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "SELECT make_timestamp(make_date(2021, 07, 11), make_time(6, 30, 45.678), 'UTC')",
@@ -4954,7 +4972,7 @@
         "columns" : [ "int", "int", "int", "int", "int" ],
         "projection" : "PLAIN",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "SELECT make_timestamp(make_date(2021, 07, 11), make_time(6, 30, 45.678), 'CET')",
@@ -4963,7 +4981,7 @@
         "columns" : [ "int", "int", "int", "int", "int" ],
         "projection" : "PLAIN",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "SELECT make_timestamp(make_date(2021, 07, 11), make_time(6, 30, 45.678), 'JST')",
@@ -4972,7 +4990,7 @@
         "columns" : [ "int", "int", "int", "int", "int" ],
         "projection" : "PLAIN",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "SELECT make_timestamp(DATE'1970-01-01', TIME'00:00:00', 'UTC')",
@@ -4981,7 +4999,7 @@
         "columns" : [ "date", "time(6)" ],
         "projection" : "PLAIN",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "SELECT make_timestamp(NULL, TIME'00:00:00', 'UTC')",
@@ -5089,7 +5107,7 @@
         "columns" : [ "int", "int", "int" ],
         "projection" : "PLAIN",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "SELECT try_make_timestamp(make_date(2021, 07, 11), make_time(6, 30, 45.678))",
@@ -5098,7 +5116,7 @@
         "columns" : [ "int", "int", "int", "int", "int" ],
         "projection" : "PLAIN",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "SELECT try_make_timestamp(make_date(2021, 07, 11), make_time(6, 30, 45.678), 'CET')",
@@ -5107,7 +5125,7 @@
         "columns" : [ "int", "int", "int", "int", "int" ],
         "projection" : "PLAIN",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "SELECT try_make_timestamp(NULL)",
@@ -5332,7 +5350,7 @@
         "columns" : [ "int" ],
         "projection" : "PLAIN",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "select to_timestamp('2019-10-06 10:11:12.', 'yyyy-MM-dd HH:mm:ss.SSSSSS[zzz]')",
@@ -5629,7 +5647,7 @@
         "columns" : [ "date" ],
         "projection" : "PLAIN",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "select timestamp'2019-10-06 10:11:12.345678' - date'2020-01-01'",
@@ -5638,7 +5656,7 @@
         "columns" : [ "date" ],
         "projection" : "PLAIN",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "select timestamp'2011-11-11 11:11:11' - '2011-11-11 11:11:10'",
@@ -5746,7 +5764,7 @@
         "columns" : [ "interval day", "interval year to month", "interval second", "interval hour to second", "interval year", "interval day to hour" ],
         "projection" : "PLAIN",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "select date '2012-01-01' - interval 3 hours, date '2012-01-01' + interval '12:12:12' hour to second, interval '2' minute + date '2012-01-01'",
@@ -5755,7 +5773,7 @@
         "columns" : [ "date", "interval hour", "date", "interval hour to second", "interval minute", "date" ],
         "projection" : "PLAIN",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "select to_timestamp('2019-10-06 A', 'yyyy-MM-dd GGGGG')",
@@ -5818,7 +5836,7 @@
         "columns" : [ "int" ],
         "projection" : "PLAIN",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "select timestampadd(MINUTE, 58, timestamp'2022-02-14 01:02:03')",
@@ -5827,7 +5845,7 @@
         "columns" : [ "int" ],
         "projection" : "PLAIN",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "select timestampadd(YEAR, 1, date'2022-02-15')",
@@ -5836,7 +5854,7 @@
         "columns" : [ "int", "date" ],
         "projection" : "PLAIN",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "select timestampadd(SECOND, -1, date'2022-02-15')",
@@ -5845,7 +5863,7 @@
         "columns" : [ "int", "date" ],
         "projection" : "PLAIN",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "select timestampadd('MONTH', -1, timestamp'2022-02-14 01:02:03')",
@@ -5890,7 +5908,7 @@
         "columns" : [ "date", "date" ],
         "projection" : "PLAIN",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "select timestampdiff(SECOND, date'2022-02-15', timestamp'2022-02-14 23:59:59')",
@@ -5899,7 +5917,7 @@
         "columns" : [ "date" ],
         "projection" : "PLAIN",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "select timestampdiff('MINUTE', timestamp'2022-02-14 01:02:03', timestamp'2022-02-14 02:00:03')",
@@ -5953,7 +5971,7 @@
         "columns" : [ "date", "date" ],
         "projection" : "PLAIN",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "select timediff(SECOND, date'2022-02-15', timestamp'2022-02-14 23:59:59')",
@@ -5962,7 +5980,7 @@
         "columns" : [ "date" ],
         "projection" : "PLAIN",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "select timediff('MINUTE', timestamp'2023-02-14 01:02:03', timestamp'2023-02-14 02:00:03')",
@@ -5992,7 +6010,7 @@
       "projection_partial" : 0,
       "projection_plain" : 5,
       "filter_fused" : 0,
-      "filter_partial" : 0,
+      "filter_partial" : 3,
       "errors" : 0,
       "not_run" : 31,
       "entries" : [ {
@@ -6281,7 +6299,7 @@
         "columns" : [ "date", "date", "date" ],
         "projection" : "PLAIN",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "select date_format(timestamp_ltz'2023-08-18 09:13:14.123456Z', 'yyyy-MM-dd HH:mm:ss.SSSSSSZ'), to_char(timestamp_ltz'2023-08-18 09:13:14.123456Z', 'yyyy-MM-dd HH:mm:ss.SSSSSSZ'), to_varchar(timestamp_ltz'2023-08-18 09:13:14.123456Z', 'yyyy-MM-dd HH:mm:ss.SSSSSSZ')",
@@ -6308,7 +6326,7 @@
         "columns" : [ "time(6)", "time(6)" ],
         "projection" : "PLAIN",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "select to_char(TIME'23:59:59.123456', 'HH:mm:ss.SSSSSS'), to_varchar(TIME'23:59:59.123456', 'HH:mm:ss.SSSSSS')",
@@ -6317,7 +6335,7 @@
         "columns" : [ "time(6)", "time(6)" ],
         "projection" : "PLAIN",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       } ]
     },
@@ -6329,7 +6347,7 @@
       "projection_partial" : 0,
       "projection_plain" : 36,
       "filter_fused" : 0,
-      "filter_partial" : 0,
+      "filter_partial" : 1,
       "errors" : 1,
       "not_run" : 0,
       "entries" : [ {
@@ -6609,7 +6627,7 @@
         "columns" : [ "int" ],
         "projection" : "PLAIN",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "select to_time('00:00:00')",
@@ -6675,7 +6693,7 @@
       "projection_partial" : 0,
       "projection_plain" : 3,
       "filter_fused" : 1,
-      "filter_partial" : 0,
+      "filter_partial" : 2,
       "errors" : 0,
       "not_run" : 0,
       "entries" : [ {
@@ -6694,7 +6712,7 @@
         "columns" : [ "int", "int", "int", "int", "int", "int" ],
         "projection" : "FUSED",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       }, {
         "statement" : "select timestamp'-1969-12-31 16:00:00', timestamp'-0015-03-18 16:00:00', timestamp'-000001', timestamp'99999-03-18T12:03:17'",
@@ -6712,7 +6730,7 @@
         "columns" : [ "int", "int", "int", "int", "int", "int", "int", "int", "int", "int", "int", "int", "int", "int", "int" ],
         "projection" : "PLAIN",
         "projection_outcome" : "agree",
-        "filter" : "PLAIN",
+        "filter" : "PARTIAL",
         "filter_outcome" : "agree"
       } ]
     }

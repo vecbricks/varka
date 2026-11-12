@@ -5,55 +5,199 @@ decimal remainder hand loops at 256 bits
 intrinsic check, loopRemainderE: every Vector API call intrinsified
 intrinsic check, loopRemainderD: every Vector API call intrinsified
 intrinsic check, loopRemainderB: every Vector API call intrinsified
+intrinsic check, loopRemainderEG: every Vector API call intrinsified
+intrinsic check, loopRemainderEI: every Vector API call intrinsified
+intrinsic check, loopRemainderES: every Vector API call intrinsified
+intrinsic check, loopRemainderET: every Vector API call intrinsified
+intrinsic check, loopRemainderF: every Vector API call intrinsified
+intrinsic check, loopRemainderFG: every Vector API call intrinsified
+intrinsic check, loopRemainderFI: every Vector API call intrinsified
+intrinsic check, loopRemainderFS: every Vector API call intrinsified
+intrinsic check, loopRemainderFT: every Vector API call intrinsified
 intrinsic check, loopPmodE: every Vector API call intrinsified
 intrinsic check, loopPmodD: every Vector API call intrinsified
 intrinsic check, loopPmodB: every Vector API call intrinsified
+intrinsic check, loopPmodEG: every Vector API call intrinsified
+intrinsic check, loopPmodEI: every Vector API call intrinsified
+intrinsic check, loopPmodES: every Vector API call intrinsified
+intrinsic check, loopPmodET: every Vector API call intrinsified
+intrinsic check, loopPmodF: every Vector API call intrinsified
+intrinsic check, loopPmodFG: every Vector API call intrinsified
+intrinsic check, loopPmodFI: every Vector API call intrinsified
+intrinsic check, loopPmodFS: every Vector API call intrinsified
+intrinsic check, loopPmodFT: every Vector API call intrinsified
 OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1019-azure
 AMD EPYC 7763 64-Core Processor
 4096 rows - in L2, x % y:                 Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------
-x % y, E                                             22             22           0         47.1          21.2       1.0X
-x % y, D                                            114            115           0          9.2         109.0       0.2X
-x % y, B                                            283            286           3          3.7         270.1       0.1X
+x % y, E                                             22             22           0         47.5          21.1       1.0X
+x % y, D                                            115            115           0          9.1         109.3       0.2X
+x % y, B                                            266            268           4          3.9         253.5       0.1X
+x % y, gathered E                                    27             27           1         39.2          25.5       0.8X
+x % y, inserted E                                    30             30           0         34.9          28.7       0.7X
+x % y, split E                                       21             22           0         49.0          20.4       1.0X
+x % y, transposed E                                  23             23           0         46.0          21.7       1.0X
+x % y, F                                             25             25           1         42.5          23.6       0.9X
+x % y, gathered F                                    29             29           0         35.9          27.9       0.8X
+x % y, inserted F                                    29             29           0         35.9          27.9       0.8X
+x % y, split F                                       23             23           0         46.3          21.6       1.0X
+x % y, transposed F                                  24             24           0         43.9          22.8       0.9X
 
+allocated, x % y, E at 4096 rows: 0.0 bytes a row
+allocated, x % y, D at 4096 rows: 0.0 bytes a row
+allocated, x % y, B at 4096 rows: 855.1 bytes a row
+allocated, x % y, gathered E at 4096 rows: 0.0 bytes a row
+allocated, x % y, inserted E at 4096 rows: 0.0 bytes a row
+allocated, x % y, split E at 4096 rows: 0.0 bytes a row
+allocated, x % y, transposed E at 4096 rows: 0.8 bytes a row
+allocated, x % y, F at 4096 rows: 0.0 bytes a row
+allocated, x % y, gathered F at 4096 rows: 0.0 bytes a row
+allocated, x % y, inserted F at 4096 rows: 0.0 bytes a row
+allocated, x % y, split F at 4096 rows: 0.0 bytes a row
+allocated, x % y, transposed F at 4096 rows: 0.8 bytes a row
 OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1019-azure
 AMD EPYC 7763 64-Core Processor
 4096 rows - in L2, pmod(x, y):            Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------
-pmod(x, y), E                                        23             23           0         45.3          22.1       1.0X
-pmod(x, y), D                                       112            113           0          9.3         107.2       0.2X
-pmod(x, y), B                                       300            304           3          3.5         286.1       0.1X
+pmod(x, y), E                                        24             24           0         44.2          22.6       1.0X
+pmod(x, y), D                                       113            113           1          9.3         107.8       0.2X
+pmod(x, y), B                                       296            298           2          3.5         282.7       0.1X
+pmod(x, y), gathered E                               26             26           0         40.9          24.4       0.9X
+pmod(x, y), inserted E                               70             71           1         14.9          67.1       0.3X
+pmod(x, y), split E                                  23             23           0         45.8          21.8       1.0X
+pmod(x, y), transposed E                             54             56           7         19.4          51.6       0.4X
+pmod(x, y), F                                        27             28           0         38.3          26.1       0.9X
+pmod(x, y), gathered F                               28             28           0         38.1          26.3       0.9X
+pmod(x, y), inserted F                               33             33           0         31.7          31.5       0.7X
+pmod(x, y), split F                                  25             25           0         41.5          24.1       0.9X
+pmod(x, y), transposed F                             26             26           0         40.0          25.0       0.9X
 
+allocated, pmod(x, y), E at 4096 rows: 0.0 bytes a row
+allocated, pmod(x, y), D at 4096 rows: 0.0 bytes a row
+allocated, pmod(x, y), B at 4096 rows: 973.0 bytes a row
+allocated, pmod(x, y), gathered E at 4096 rows: 0.0 bytes a row
+allocated, pmod(x, y), inserted E at 4096 rows: 298.0 bytes a row
+allocated, pmod(x, y), split E at 4096 rows: 0.0 bytes a row
+allocated, pmod(x, y), transposed E at 4096 rows: 262.8 bytes a row
+allocated, pmod(x, y), F at 4096 rows: 0.0 bytes a row
+allocated, pmod(x, y), gathered F at 4096 rows: 0.0 bytes a row
+allocated, pmod(x, y), inserted F at 4096 rows: 0.0 bytes a row
+allocated, pmod(x, y), split F at 4096 rows: 0.0 bytes a row
+allocated, pmod(x, y), transposed F at 4096 rows: 0.8 bytes a row
 OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1019-azure
 AMD EPYC 7763 64-Core Processor
 262144 rows - in L3, x % y:               Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------
-x % y, E                                             22             23           0         46.9          21.3       1.0X
-x % y, D                                            114            115           0          9.2         109.1       0.2X
-x % y, B                                            260            264           3          4.0         248.3       0.1X
+x % y, E                                             22             22           0         47.0          21.3       1.0X
+x % y, D                                            118            119           0          8.9         112.9       0.2X
+x % y, B                                            257            258           1          4.1         245.0       0.1X
+x % y, gathered E                                    27             27           0         39.1          25.6       0.8X
+x % y, inserted E                                    31             31           0         34.3          29.2       0.7X
+x % y, split E                                       21             21           0         49.1          20.4       1.0X
+x % y, transposed E                                  23             23           0         46.1          21.7       1.0X
+x % y, F                                             25             25           0         42.4          23.6       0.9X
+x % y, gathered F                                    29             30           1         35.7          28.0       0.8X
+x % y, inserted F                                    29             29           0         35.7          28.0       0.8X
+x % y, split F                                       23             23           0         46.2          21.6       1.0X
+x % y, transposed F                                  24             24           0         44.0          22.7       0.9X
 
+allocated, x % y, E at 262144 rows: 0.0 bytes a row
+allocated, x % y, D at 262144 rows: 0.0 bytes a row
+allocated, x % y, B at 262144 rows: 853.1 bytes a row
+allocated, x % y, gathered E at 262144 rows: 0.0 bytes a row
+allocated, x % y, inserted E at 262144 rows: 0.0 bytes a row
+allocated, x % y, split E at 262144 rows: 0.0 bytes a row
+allocated, x % y, transposed E at 262144 rows: 0.0 bytes a row
+allocated, x % y, F at 262144 rows: 0.0 bytes a row
+allocated, x % y, gathered F at 262144 rows: 0.0 bytes a row
+allocated, x % y, inserted F at 262144 rows: 0.0 bytes a row
+allocated, x % y, split F at 262144 rows: 0.0 bytes a row
+allocated, x % y, transposed F at 262144 rows: 0.0 bytes a row
 OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1019-azure
 AMD EPYC 7763 64-Core Processor
 262144 rows - in L3, pmod(x, y):          Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------
-pmod(x, y), E                                        23             23           0         45.1          22.2       1.0X
-pmod(x, y), D                                       113            113           0          9.3         107.7       0.2X
-pmod(x, y), B                                       301            305           3          3.5         287.1       0.1X
+pmod(x, y), E                                        24             24           0         44.0          22.7       1.0X
+pmod(x, y), D                                       113            113           0          9.3         107.9       0.2X
+pmod(x, y), B                                       296            298           2          3.5         282.2       0.1X
+pmod(x, y), gathered E                               26             26           0         40.9          24.4       0.9X
+pmod(x, y), inserted E                               70             72           1         15.0          66.7       0.3X
+pmod(x, y), split E                                  23             23           0         45.6          21.9       1.0X
+pmod(x, y), transposed E                             53             55           1         19.7          50.7       0.4X
+pmod(x, y), F                                        28             28           0         37.9          26.4       0.9X
+pmod(x, y), gathered F                               28             28           0         38.1          26.3       0.9X
+pmod(x, y), inserted F                               33             33           0         31.6          31.7       0.7X
+pmod(x, y), split F                                  25             25           0         41.4          24.1       0.9X
+pmod(x, y), transposed F                             26             26           0         40.1          24.9       0.9X
 
+allocated, pmod(x, y), E at 262144 rows: 0.0 bytes a row
+allocated, pmod(x, y), D at 262144 rows: 0.0 bytes a row
+allocated, pmod(x, y), B at 262144 rows: 973.5 bytes a row
+allocated, pmod(x, y), gathered E at 262144 rows: 0.0 bytes a row
+allocated, pmod(x, y), inserted E at 262144 rows: 298.0 bytes a row
+allocated, pmod(x, y), split E at 262144 rows: 0.0 bytes a row
+allocated, pmod(x, y), transposed E at 262144 rows: 262.0 bytes a row
+allocated, pmod(x, y), F at 262144 rows: 0.0 bytes a row
+allocated, pmod(x, y), gathered F at 262144 rows: 0.0 bytes a row
+allocated, pmod(x, y), inserted F at 262144 rows: 0.0 bytes a row
+allocated, pmod(x, y), split F at 262144 rows: 0.0 bytes a row
+allocated, pmod(x, y), transposed F at 262144 rows: 0.0 bytes a row
 OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1019-azure
 AMD EPYC 7763 64-Core Processor
 4194304 rows - past L3, x % y:            Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------
-x % y, E                                             90             90           0         46.7          21.4       1.0X
-x % y, D                                            458            459           1          9.2         109.1       0.2X
-x % y, B                                           1059           1063           4          4.0         252.5       0.1X
+x % y, E                                             91             91           0         46.3          21.6       1.0X
+x % y, D                                            475            475           1          8.8         113.2       0.2X
+x % y, B                                           1055           1062           6          4.0         251.4       0.1X
+x % y, gathered E                                   110            110           0         38.2          26.2       0.8X
+x % y, inserted E                                   123            123           1         34.2          29.3       0.7X
+x % y, split E                                       87             88           1         48.0          20.8       1.0X
+x % y, transposed E                                  92             92           1         45.7          21.9       1.0X
+x % y, F                                            100            100           1         42.0          23.8       0.9X
+x % y, gathered F                                   120            121           3         34.9          28.7       0.8X
+x % y, inserted F                                   118            118           1         35.7          28.0       0.8X
+x % y, split F                                       93             93           0         45.1          22.2       1.0X
+x % y, transposed F                                  96             97           0         43.5          23.0       0.9X
 
+allocated, x % y, E at 4194304 rows: 0.0 bytes a row
+allocated, x % y, D at 4194304 rows: 0.0 bytes a row
+allocated, x % y, B at 4194304 rows: 853.3 bytes a row
+allocated, x % y, gathered E at 4194304 rows: 0.0 bytes a row
+allocated, x % y, inserted E at 4194304 rows: 0.0 bytes a row
+allocated, x % y, split E at 4194304 rows: 0.0 bytes a row
+allocated, x % y, transposed E at 4194304 rows: 0.0 bytes a row
+allocated, x % y, F at 4194304 rows: 0.0 bytes a row
+allocated, x % y, gathered F at 4194304 rows: 0.0 bytes a row
+allocated, x % y, inserted F at 4194304 rows: 0.0 bytes a row
+allocated, x % y, split F at 4194304 rows: 0.0 bytes a row
+allocated, x % y, transposed F at 4194304 rows: 0.0 bytes a row
 OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1019-azure
 AMD EPYC 7763 64-Core Processor
 4194304 rows - past L3, pmod(x, y):       Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------
-pmod(x, y), E                                        93             94           0         44.9          22.3       1.0X
-pmod(x, y), D                                       452            456           4          9.3         107.8       0.2X
-pmod(x, y), B                                      1218           1225           5          3.4         290.5       0.1X
+pmod(x, y), E                                        96             96           1         43.7          22.9       1.0X
+pmod(x, y), D                                       453            454           0          9.3         108.1       0.2X
+pmod(x, y), B                                      1193           1232          43          3.5         284.4       0.1X
+pmod(x, y), gathered E                              105            106           1         39.8          25.1       0.9X
+pmod(x, y), inserted E                              284            285           1         14.8          67.7       0.3X
+pmod(x, y), split E                                  94             95           0         44.5          22.5       1.0X
+pmod(x, y), transposed E                            218            220           2         19.2          52.0       0.4X
+pmod(x, y), F                                       111            111           0         37.8          26.5       0.9X
+pmod(x, y), gathered F                              113            113           1         37.1          27.0       0.8X
+pmod(x, y), inserted F                              133            133           0         31.6          31.7       0.7X
+pmod(x, y), split F                                 103            103           0         40.6          24.6       0.9X
+pmod(x, y), transposed F                            105            106           1         39.9          25.1       0.9X
 
+allocated, pmod(x, y), E at 4194304 rows: 0.0 bytes a row
+allocated, pmod(x, y), D at 4194304 rows: 0.0 bytes a row
+allocated, pmod(x, y), B at 4194304 rows: 973.9 bytes a row
+allocated, pmod(x, y), gathered E at 4194304 rows: 0.0 bytes a row
+allocated, pmod(x, y), inserted E at 4194304 rows: 298.0 bytes a row
+allocated, pmod(x, y), split E at 4194304 rows: 0.0 bytes a row
+allocated, pmod(x, y), transposed E at 4194304 rows: 262.0 bytes a row
+allocated, pmod(x, y), F at 4194304 rows: 0.0 bytes a row
+allocated, pmod(x, y), gathered F at 4194304 rows: 0.0 bytes a row
+allocated, pmod(x, y), inserted F at 4194304 rows: 0.0 bytes a row
+allocated, pmod(x, y), split F at 4194304 rows: 0.0 bytes a row
+allocated, pmod(x, y), transposed F at 4194304 rows: 0.0 bytes a row
 

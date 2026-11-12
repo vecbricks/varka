@@ -120,7 +120,26 @@ public final class VarkaLaneFuzz {
       return new LaneSource(lane, VarkaIrGrammar.narrowLiteralBound(lane),
           VarkaFuzzTypes.values(id), k -> VarkaIrGrammar.narrowColumnBound(lane, k), edgeOneIn);
     }
+
+    /**
+     * A floating sequence, {@code fuzz_float} or {@code fuzz_double}: the type's value source,
+     * its uniform arm within plus or minus {@link #FLOATING_BOUND}, for the cells and the
+     * literals alike, since no node of the sequence checks a bound.
+     */
+    public static LaneSource floating(LaneType lane, int edgeOneIn) {
+      VarkaTypeId id = switch (lane) {
+        case FLOAT -> VarkaTypeId.FLOAT;
+        case DOUBLE -> VarkaTypeId.DOUBLE;
+        case BYTE, SHORT, INT, LONG ->
+            throw new IllegalArgumentException("not a floating lane: " + lane);
+      };
+      return new LaneSource(lane, FLOATING_BOUND, VarkaFuzzTypes.values(id),
+          k -> FLOATING_BOUND, edgeOneIn);
+    }
   }
+
+  /** The magnitude a floating sequence's uniform draws stay within. */
+  public static final long FLOATING_BOUND = 1000;
 
   /**
    * Case {@code iteration} of the sequence of {@code seed}: {@code drawn}, the shape the grammar
@@ -136,7 +155,11 @@ public final class VarkaLaneFuzz {
     int numInputs = drawn.numInputs();
     long[] lits = new long[drawn.numLiterals()];
     for (int k = 0; k < lits.length; k++) {
-      lits[k] = VarkaIrGrammar.within(rnd, source.literalBound());
+      // A floating literal is drawn as a cell is, so a NaN or a zero of either sign is one;
+      // the integral sequences draw theirs as they always have.
+      lits[k] = source.lane().isFloating()
+          ? source.values().draw(rnd, values, source.literalBound(), source.edgeOneIn())
+          : VarkaIrGrammar.within(rnd, source.literalBound());
     }
     int length = LENGTHS.get(rnd.nextInt(LENGTHS.size()));
     int[] patternIds = new int[numInputs];
@@ -174,7 +197,7 @@ public final class VarkaLaneFuzz {
         + " options=" + (drawnOptions.isDefault() ? "(defaults)" : drawnOptions.canonical())
         + " length=" + length + " patterns=" + patterns + " literals=" + literals
         + " forceMasked=" + forceMasked
-        + (source.edgeOneIn() > 0 || source.lane().isNarrow()
+        + (source.edgeOneIn() > 0 || source.lane().isNarrow() || source.lane().isFloating()
             ? " edges=" + source.edgeOneIn() : "");
     return new VarkaFuzzCase(source.lane(), drawn.roots(), numInputs, lits, length, nulls, data,
         forceMasked, drawnOptions, -1, -1, label);

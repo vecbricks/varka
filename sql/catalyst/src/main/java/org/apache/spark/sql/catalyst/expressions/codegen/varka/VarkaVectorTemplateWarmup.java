@@ -584,10 +584,11 @@ final class VarkaVectorTemplateWarmup {
 
     /**
      * The IEEE compares a floating lane's comparisons and picks are lowered to (VARKA-341): Spark's
-     * order is built from these three and the NaN test, never from LT, GT or NE directly.
+     * order is built from EQ, LE and GE and the NaN test, and a compare against a constant that
+     * is not NaN is the bare EQ, LT or LE; never GT or NE.
      */
     private static final List<Comparison> FLOATING_COMPARISONS = List.of(VectorOperators.EQ,
-        VectorOperators.LE, VectorOperators.GE);
+        VectorOperators.LT, VectorOperators.LE, VectorOperators.GE);
 
     /** Where the floating lanes' blocks store and load: past the integral blocks' offsets. */
     private static final long DOUBLE_OFFSET = 2048;
@@ -773,7 +774,9 @@ final class VarkaVectorTemplateWarmup {
         acc += (long) (a.add(b).lane(0) + a.sub(b).lane(0) + a.mul(b).lane(0) + a.div(b).lane(0)
             + a.add(2.0).lane(0) + a.sub(2.0).lane(0) + a.mul(2.0).lane(0) + a.div(2.0).lane(0)
             + a.lanewise(VectorOperators.NEG).lane(0) + a.lanewise(VectorOperators.MAX, b).lane(0)
-            + a.lanewise(VectorOperators.ADD, 2.0, m).lane(0) + a.blend(b, m).lane(0));
+            + a.lanewise(VectorOperators.ADD, 2.0, m).lane(0) + a.blend(b, m).lane(0)
+            // rint's canonical NaN, blended in with the scalar form.
+            + a.blend(Double.NaN, m).lane(0));
         for (Comparison op : DOUBLE_COMPARISONS) {
           acc += a.compare(op, b).toLong();
         }

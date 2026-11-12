@@ -19,7 +19,7 @@ package org.apache.spark.sql.catalyst.expressions.codegen.varka
 
 import org.apache.spark.sql.catalyst.analysis.{SimpleAnalyzer, UnresolvedAttribute}
 import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, AttributeReference,
-  BindReferences, Cast, Expression, Literal, NamedExpression}
+  BindReferences, Cast, Expression, Literal, NamedExpression, RuntimeReplaceable}
 import org.apache.spark.sql.catalyst.optimizer.{ComputeCurrentTime, ConstantFolding, OptimizeIn,
   RewriteWithExpression, UnwrapCastInBinaryComparison}
 import org.apache.spark.sql.catalyst.parser.CatalystSqlParser
@@ -63,6 +63,17 @@ object VarkaSqlResolve {
    */
   def bind(e: Expression, columns: Seq[Attribute]): Expression =
     BindReferences.bindReference(e, columns)
+
+  /**
+   * `e` with each `RuntimeReplaceable` swapped for its replacement, as the optimizer's
+   * `ReplaceExpressions` does, so that Spark's interpreted `eval` can answer it over a row for
+   * the Java tests: a `RuntimeReplaceable`'s `eval` answers only a constant, asserting it is
+   * given no row, so `nvl`, `nullif` and every other one fails over a row.
+   */
+  def replaced(e: Expression): Expression = {
+    val next = e.transformDown { case r: RuntimeReplaceable => r.replacement }
+    if (next.fastEquals(e)) e else replaced(next)
+  }
 
   /**
    * The filter condition `e` after the optimizer rules that rewrite an `IN`, in their batch's
