@@ -240,7 +240,8 @@ def classify(text):
 
 def title_of(text):
     """The row's title: its text up to the first status marker or note, else its first sentence;
-    a leading italic note such as "*Research, optional.*" becomes the title's prefix.
+    a leading italic note such as "*Research, optional.*" becomes the title's prefix. A row that
+    opens on its status (see `skip_status`) is titled from the text after it.
 
     >>> title_of("The epilogue is the one method no budget bounds. **Done** (`VARKA-87.md`)")
     'The epilogue is the one method no budget bounds'
@@ -255,8 +256,19 @@ def title_of(text):
     >>> title_of("Whether the ladder is fair to stock Spark's input path, and to its codegen: "
     ...          "stock Spark 4.2.0 crosses 8000 bytes between 48 and 52 entries, the fork later")
     "Whether the ladder is fair to stock Spark's input path, and to its codegen"
+    >>> title_of("**Started** (step 1, #12 (merged)). Interval division. **Done when** it fuses")
+    'Interval division'
+    >>> title_of("**Started** (step 1, #1261). **Planned** (`VARKA-340.md`; a baseline first). "
+    ...          "*25 October 2026 (`VARKA-338.md` 0):* 338 builds the floor division, and this "
+    ...          "row reuses it. `TIMESTAMP_NTZ` decomposition. **Done when** the fields fuse")
+    '`TIMESTAMP_NTZ` decomposition'
+    >>> title_of("**Started** (built). **Negation as `NEG` on the int lanes.** (started) Found by")
+    'Negation as `NEG` on the int lanes'
+    >>> title_of("**Planned** (5 November 2026, from #1348: a width is set twice; done when one)")
+    'A width is set twice'
     """
-    body = text.strip()
+    body = skip_status(text.strip())
+    skipped = body != text.strip()
     prefix = ""
     m = re.match(r"\*([^*]+)\.\*\s+", body)
     if m:
@@ -268,14 +280,124 @@ def title_of(text):
             i = body.find(stop)
             if i != -1:
                 cut = min(cut, i + 1)
-    if cut == len(body):
+    if cut == len(body) or skipped:
         i = first_sentence_end(body)
         if i != -1:
-            cut = i + 1
+            cut = min(cut, i + 1)
     title = body[:cut].rstrip(" .")
     if len(title) > 100 and ": " in title:
         title = title[: title.index(": ")]
     return prefix + title
+
+
+# The bold words a row's status opens with: "Done", "Started", "Planned", "Built",
+# "Moved to milestone 7", "Step 1 done", "From milestone 7" and the like, but not "Done when",
+# which opens the row's done-when clause. Any other bold at the row's start is its own title.
+STATUS_WORD = re.compile(
+    r"(?i)(?!done when\b)(done|started|planned|built|scoped|moved|withdrawn|step|from milestone)\b"
+)
+
+# An italic label ending in a colon, such as "*Earlier:*" before a row's earlier text, or a
+# dated note such as "*25 October 2026 (`VARKA-338.md` 0):*", which opens a sentence recording
+# what a later reading changed; that sentence belongs to the note, not to the title.
+LABEL = re.compile(r"\*([^*]+):\*\s*")
+DATED = re.compile(r"\d{1,2} [A-Z][a-z]+ \d{4}\b")
+
+
+def skip_status(body):
+    """The row's text after the status it opens with, which is where its task is named.
+
+    A row that is updated as its work goes on often opens on its state rather than its task:
+    one or more status markers, each with its parenthetical (which can run for a paragraph)
+    and an outcome after a colon, then dated italic notes. All of that is skipped. A bold
+    sentence that is not a status is the row's title and is returned unbolded. When nothing
+    but status is left (the row is one marker and its parenthetical, or the text after it is
+    the done-when), the title falls back on the first parenthetical's own words, after a
+    short "<date>, from <source>:" lead-in.
+
+    >>> skip_status("**Done** (`VARKA-28.md` 9): both lanes fit. A kernel per lane")
+    'A kernel per lane'
+    >>> skip_status("A row that opens on its task. **Done**")
+    'A row that opens on its task. **Done**'
+    >>> skip_status("**Node properties as a descriptor**: one record per node")
+    'Node properties as a descriptor'
+    >>> skip_status("**Done** (x): a registry. *Earlier:* **Planned** (y). One registry. More")
+    'One registry. More'
+    """
+    first_paren = None
+    while True:
+        m = re.match(r"\*\*([^*]+)\*\*\s*", body)
+        if m and STATUS_WORD.match(m.group(1).strip()):
+            body = body[m.end() :]
+            if body.startswith("("):
+                end = paren_end(body)
+                if first_paren is None:
+                    first_paren = body[1:end]
+                body = body[end + 1 :].lstrip()
+            if body.startswith(":"):
+                i = first_sentence_end(body)
+                body = body[i + 1 :] if i != -1 else ""
+            body = body.lstrip(" .")
+            continue
+        if m:
+            if m.group(1).strip().lower().startswith("done when"):
+                break
+            return m.group(1).strip()
+        m = LABEL.match(body)
+        if m:
+            body = body[m.end() :]
+            if DATED.match(m.group(1)):
+                i = first_sentence_end(body)
+                body = body[i + 1 :].lstrip() if i != -1 else ""
+            continue
+        if body:
+            return body
+        break
+    if first_paren is None:
+        return body
+    lead = re.match(r"[^:;]{1,80}?: ", first_paren)
+    words = first_paren[lead.end() :] if lead else first_paren
+    words = cut_outside_code(words, "; ")
+    return words[:1].upper() + words[1:]
+
+
+def paren_end(body):
+    """The index of the parenthesis closing the one `body` opens with, skipping parentheses
+    inside backticks; the end of `body` when it is never closed.
+
+    >>> paren_end("(a (b) `c)`) d")
+    11
+    >>> paren_end("(never closed")
+    13
+    """
+    depth, in_code = 0, False
+    for i, ch in enumerate(body):
+        if ch == "`":
+            in_code = not in_code
+        elif in_code:
+            continue
+        elif ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+            if depth == 0:
+                return i
+    return len(body)
+
+
+def cut_outside_code(body, stop):
+    """`body` up to the first `stop` outside backticks.
+
+    >>> cut_outside_code("a `b; c`; d", "; ")
+    'a `b; c`'
+    """
+    in_code = False
+    for i, ch in enumerate(body):
+        if ch == "`":
+            in_code = not in_code
+        elif not in_code and body.startswith(stop, i):
+            return body[:i]
+    return body
 
 
 def first_sentence_end(body):
@@ -305,8 +427,24 @@ def outcome_of(text):
     return text[m.start() :].strip() if m else text.strip()
 
 
+# GitHub refuses an issue title longer than this many characters.
+MAX_TITLE = 256
+
+
 def issue_title(row):
-    return f"[VARKA-{row.number}] {title_of(row.text)}"
+    """The issue's title, "[VARKA-<n>] <the row's title>", cut at a word to GitHub's limit.
+
+    >>> t = issue_title(Row(340, "Long " + "word " * 100, "o", "s", "P.md", 8))
+    >>> len(t) <= MAX_TITLE, t[:20], t[-12:]
+    (True, '[VARKA-340] Long wor', 'word word...')
+    """
+    head = f"[VARKA-{row.number}] "
+    title = title_of(row.text)
+    room = MAX_TITLE - len(head)
+    if len(title) > room:
+        cut = title.rfind(" ", 0, room - 2)
+        title = title[: cut if cut > 0 else room - 3].rstrip(" ,;:.") + "..."
+    return head + title
 
 
 def issue_body(row, state):
