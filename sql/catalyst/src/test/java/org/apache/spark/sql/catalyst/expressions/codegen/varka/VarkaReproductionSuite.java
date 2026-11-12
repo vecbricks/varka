@@ -202,12 +202,17 @@ public final class VarkaReproductionSuite {
   }
 
   @Test
-  @DisplayName("every comparison reads back, the four unsigned ones over the long lane among them")
+  @DisplayName("every comparison reads back, the four unsigned ones over the long lane among "
+      + "them and the three IEEE ones over the double lane")
   void everyCompareOpRoundTrips() {
     var a = new ColumnRef(0, LaneType.LONG);
     var b = new LiteralSlot(0, LaneType.LONG);
+    var x = new ColumnRef(0, LaneType.DOUBLE);
+    var y = new LiteralSlot(0, LaneType.DOUBLE);
     for (CompareOp op : CompareOp.values()) {
-      assertRoundTrips(new CondValue(new Compare(op, a, b), LaneType.LONG));
+      // A condition value is integral, so a double compare reads back under a pick.
+      assertRoundTrips(op.isIeee() ? new IfElse(new Compare(op, x, y), x, y)
+          : new CondValue(new Compare(op, a, b), LaneType.LONG));
     }
   }
 

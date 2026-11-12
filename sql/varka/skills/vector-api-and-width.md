@@ -610,8 +610,10 @@ What it says on the laptop (AMD Ryzen AI 9 HX PRO 370, JDK 25.0.4.1):
   `BLEND`, `B2S`, the short widening load, and both 128-bit byte forms, a 64-bit load converted in
   two parts (`B2I_load64`, skipped at 512, where it is not a whole group) and a 128-bit load
   converted in up to four (`B2I_load128`). So the widening byte load has an intrinsic form at 128
-  bits, and the two-species cells with no conversion run there too. The runner columns of these
-  cells come from the next `varka-width-audit.yml` dispatch.
+  bits, and the two-species cells with no conversion run there too. Their runner columns, from
+  `varka-width-audit.yml` run 42750857065 (10 November 2026), are committed as
+  `m8/results/VARKA-329-census-epyc-7763.json` and `-ubuntu-24.04-arm.json`: every byte and short
+  cell reads `I` on both runners, but for the two byte cells that skip at 128 bits by design.
 * **`L2D` and `D2L` are intrinsic here, and this CPU has AVX-512DQ**; `x86.ad` is expected to
   refuse the same cells on the AVX2 runner, and its column, when it is added, will say whether it
   does.

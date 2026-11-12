@@ -411,9 +411,10 @@ public final class VarkaReference {
         if (r.isEmpty()) {
           yield Truth.UNKNOWN;
         }
-        yield Truth.of(left.laneType() == LaneType.FLOAT
-            ? ordered(op, compareFloatBits(l.getAsInt(), r.getAsInt()))
-            : compare(op, l.getAsInt(), r.getAsInt()));
+        yield Truth.of(left.laneType() != LaneType.FLOAT ? compare(op, l.getAsInt(), r.getAsInt())
+            : op.isIeee() ? ieee(op, Float.intBitsToFloat(l.getAsInt()),
+                Float.intBitsToFloat(r.getAsInt()))
+            : ordered(op, compareFloatBits(l.getAsInt(), r.getAsInt())));
       }
       // Written from the meaning of `<=>`, not from the emitted formula: two nulls are equal, a
       // null and a value are not, two values are equal when they are. Never unknown.
@@ -763,9 +764,11 @@ public final class VarkaReference {
         if (r.isEmpty()) {
           yield Truth.UNKNOWN;
         }
-        yield Truth.of(left.laneType() == LaneType.DOUBLE
-            ? ordered(op, compareDoubleBits(l.getAsLong(), r.getAsLong()))
-            : compare(op, l.getAsLong(), r.getAsLong()));
+        yield Truth.of(left.laneType() != LaneType.DOUBLE
+            ? compare(op, l.getAsLong(), r.getAsLong())
+            : op.isIeee() ? ieee(op, Double.longBitsToDouble(l.getAsLong()),
+                Double.longBitsToDouble(r.getAsLong()))
+            : ordered(op, compareDoubleBits(l.getAsLong(), r.getAsLong())));
       }
       case NullSafeEqual(var left, var right, _) -> {
         var l = longValue(left, row, isNull, lits);
@@ -1052,6 +1055,22 @@ public final class VarkaReference {
       case ULE -> Long.compareUnsigned(l, r) <= 0;
       case UGT -> Long.compareUnsigned(l, r) > 0;
       case UGE -> Long.compareUnsigned(l, r) >= 0;
+      case IEEE_EQ, IEEE_LT, IEEE_LE -> throw new IllegalArgumentException("an integral lane "
+          + "has no IEEE comparison: " + op);
+    };
+  }
+
+  /**
+   * The bare IEEE compare {@code l op r}, Java's operator: false wherever an operand is NaN, and
+   * {@code -0.0 == 0.0}. A float widens to a double exactly, so one form serves both lanes.
+   */
+  private static boolean ieee(CompareOp op, double l, double r) {
+    return switch (op) {
+      case IEEE_EQ -> l == r;
+      case IEEE_LT -> l < r;
+      case IEEE_LE -> l <= r;
+      case LT, LE, GT, GE, EQ, ULT, ULE, UGT, UGE -> throw new IllegalArgumentException(
+          "not an IEEE comparison: " + op);
     };
   }
 
@@ -1063,8 +1082,8 @@ public final class VarkaReference {
       case GT -> c > 0;
       case GE -> c >= 0;
       case EQ -> c == 0;
-      case ULT, ULE, UGT, UGE -> throw new IllegalArgumentException("an ordering's answer has "
-          + "no unsigned form: " + op);
+      case ULT, ULE, UGT, UGE, IEEE_EQ, IEEE_LT, IEEE_LE -> throw new IllegalArgumentException(
+          "an ordering's answer has no unsigned or IEEE form: " + op);
     };
   }
 

@@ -33,6 +33,7 @@ import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.OptionalLong;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.IntSupplier;
 
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaGeneratedClassLoader;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.BoolColumn;
@@ -680,6 +681,33 @@ public final class VarkaKernelChecks {
     return runLoaded(context, kernel, roots, numInputs,
         new DecimalSlotLane(batch, lits, intLits, values, numInputs, new IdentityHashMap<>()),
         declineAllowed, spark, ValidityFill.BOTH, hook);
+  }
+
+  /**
+   * One batch's buffers, built once in {@code arena} as {@link #runLoaded} builds a compared
+   * batch's, and a call of {@code kernel} over them that returns its status and compares nothing:
+   * for {@link VarkaCompiledCheck}'s warm-up, which calls one set of buffers many times. Each
+   * column and output takes the width its compared call gives it - a decimal root's or decimal
+   * column's sixteen-byte slot, an int column of a kernel holding both lanes four bytes - so the
+   * warm-up writes and reads only what the sanitizer's window registers, as a compared call does.
+   */
+  static IntSupplier prepared(Arena arena, VarkaFusedKernel kernel, List<VarkaVectorIR> roots,
+      int numInputs, int[] lits, Batch batch) {
+    return prepared(arena, kernel, roots, numInputs, new IntLane(batch, lits));
+  }
+
+  /** {@link #prepared} at the long lane, the lane {@link #runLoadedLong} picks for the roots. */
+  static IntSupplier preparedLong(Arena arena, VarkaFusedKernel kernel,
+      List<VarkaVectorIR> roots, int numInputs, long[] lits, LongBatch batch) {
+    return prepared(arena, kernel, roots, numInputs, longLane(batch, lits, NO_INT_LITS, roots));
+  }
+
+  private static IntSupplier prepared(Arena arena, VarkaFusedKernel kernel,
+      List<VarkaVectorIR> rootList, int numInputs, Lane lane) {
+    var roots = rootList.toArray(new VarkaVectorIR[0]);
+    var in = inputs(arena, lane, numInputs, rootList);
+    var out = outputs(arena, lane, roots, ValidityFill.ZERO);
+    return () -> run(kernel, lane, roots, in, out);
   }
 
   /**

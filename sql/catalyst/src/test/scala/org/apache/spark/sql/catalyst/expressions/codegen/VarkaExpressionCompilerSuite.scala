@@ -26,7 +26,7 @@ import org.apache.spark.{SparkArithmeticException, SparkFunSuite}
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.BinaryArithmeticWithDatetimeResolver
 import org.apache.spark.sql.catalyst.analysis.FunctionRegistry
-import org.apache.spark.sql.catalyst.expressions.{Abs, Add, AddMonths, Alias, And, Attribute, AttributeReference, BoundReference, BRound, CaseWhen, Cast, Ceil, Coalesce, Concat, CurrentTime, DateAdd, DateAddYMInterval, DateDiff, DateFromUnixDate, DateSub, DayOfMonth, DayOfWeek, DayOfYear, Divide, DivideYMInterval, EqualNullSafe, EqualTo, EvalMode, Expression, Extract, ExtractANSIIntervalDays, ExtractANSIIntervalMonths, ExtractANSIIntervalYears, Floor, GreaterThan, Greatest, HoursOfTime, If, In, InheritAnalysisRules, InSet, IsNotNull, IsNull, LastDay, LeafExpression, Least, LessThan, LessThanOrEqual, Literal, MakeDate, MakeTime, MakeTimestampNTZ, MakeYMInterval, MinutesOfTime, Month, Multiply, MultiplyYMInterval, NamedExpression, NextDay, Not, NumericEvalContext, Nvl, Nvl2, Or, Quarter, Rand, Remainder, Rint, Round, RuntimeReplaceable, SecondsOfTime, SecondsOfTimeWithFraction, Subtract, SubtractDates, SubtractTimes, TimeAddInterval, TimeDiff, TimeExpression, TimeFromMicros, TimeFromMillis, TimeFromSeconds, TimestampAddInterval, TimeToMicros, TimeToMillis, TimeToSeconds, TimeTrunc, ToTime, Truncate, TruncDate, UnaryMinus, UnixDate, Upper, WeekDay, WeekOfYear, Year, YearOfWeek}
+import org.apache.spark.sql.catalyst.expressions.{Abs, Add, AddMonths, Alias, And, Attribute, AttributeReference, BoundReference, BRound, CaseWhen, Cast, Ceil, Coalesce, Concat, CurrentTime, DateAdd, DateAddYMInterval, DateDiff, DateFromUnixDate, DateSub, DayOfMonth, DayOfWeek, DayOfYear, Divide, DivideYMInterval, EqualNullSafe, EqualTo, EvalMode, Expression, Extract, ExtractANSIIntervalDays, ExtractANSIIntervalMonths, ExtractANSIIntervalYears, Floor, GreaterThan, GreaterThanOrEqual, Greatest, HoursOfTime, If, In, InheritAnalysisRules, InSet, IsNotNull, IsNull, LastDay, LeafExpression, Least, LessThan, LessThanOrEqual, Literal, MakeDate, MakeTime, MakeTimestampNTZ, MakeYMInterval, MinutesOfTime, Month, Multiply, MultiplyYMInterval, NamedExpression, NextDay, Not, NumericEvalContext, Nvl, Nvl2, Or, Quarter, Rand, Remainder, Rint, Round, RuntimeReplaceable, SecondsOfTime, SecondsOfTimeWithFraction, Subtract, SubtractDates, SubtractTimes, TimeAddInterval, TimeDiff, TimeExpression, TimeFromMicros, TimeFromMillis, TimeFromSeconds, TimestampAddInterval, TimeToMicros, TimeToMillis, TimeToSeconds, TimeTrunc, ToTime, Truncate, TruncDate, UnaryMinus, UnixDate, Upper, WeekDay, WeekOfYear, Year, YearOfWeek}
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaOutputSpec.{ForwardedOutput, FusedOutput, KernelOutput}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaChrono, VarkaDerivedKind, VarkaEmitOptions, VarkaEmitterTestSupport, VarkaLoopEmitter, VarkaMatrix, VarkaShapeCache, VarkaVectorIR}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaAdmission, VarkaKernelPlan, VarkaKernelWarmup, VarkaShapeKey}
@@ -2038,12 +2038,14 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
 
   test("IN keeps each value once in ascending bit order, whatever order its list or set has") {
     // A value's lane bits, sign-extended: what orders the literal tables. A floating value is
-    // kept as Spark's IN tells values apart, both zeros as 0.0 and every NaN as the one NaN.
+    // kept as Spark's IN tells values apart, both zeros as 0.0 and every NaN as one, whose
+    // element is the test `x <= Infinity` negated and so slots the infinity, the greatest
+    // pattern below the NaNs (VarkaConditionCompiler.constantCompare).
     def bits(v: Any): Long = v match {
-      case f: Float if f.isNaN => java.lang.Float.floatToRawIntBits(Float.NaN).toLong
+      case f: Float if f.isNaN => java.lang.Float.floatToRawIntBits(Float.PositiveInfinity).toLong
       case f: Float if f == 0.0f => 0L
       case f: Float => java.lang.Float.floatToRawIntBits(f).toLong
-      case x: Double if x.isNaN => java.lang.Double.doubleToRawLongBits(Double.NaN)
+      case x: Double if x.isNaN => java.lang.Double.doubleToRawLongBits(Double.PositiveInfinity)
       case x: Double if x == 0.0 => 0L
       case x: Double => java.lang.Double.doubleToRawLongBits(x)
       case b: Byte => b.toLong
@@ -2101,7 +2103,72 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     assert(compiled.exists(_.specs.asScala.forall(_.fused)))
     assert(compiled.get.fused.longLiterals.asScala.map(_.longValue).toSeq ===
       ((1 to 14).map(v => java.lang.Double.doubleToRawLongBits(v.toDouble)) ++
-        Seq(0L, java.lang.Double.doubleToRawLongBits(Double.NaN))).sorted)
+        Seq(0L, java.lang.Double.doubleToRawLongBits(Double.PositiveInfinity))).sorted)
+  }
+
+  test("a floating compare against a literal takes its literal-specialised form") {
+    // Against a literal that is not NaN, Spark's order is the bare IEEE compare or its
+    // negation; against NaN, `x <= Infinity` or its negation; `x <= NaN` and `x > NaN`, the same
+    // on every valid row, keep the general form. A literal on the left is the swapped compare.
+    import CompareOp._
+    for ((column, lit) <- Seq[(Attribute, Double => Expression)](
+        (inDouble, v => Literal(v)), (inFloat, v => Literal(v.toFloat)))) {
+      val lane = if (column eq inDouble) LaneType.DOUBLE else LaneType.FLOAT
+      val x = new ColumnRef(0, lane)
+      val c = new LiteralSlot(0, lane)
+      def cond(e: Expression): VarkaVectorIR.Cond = {
+        val compiled = VarkaExpressionCompiler.compilePredicate(e, inOutput,
+          VarkaEmitOptions.DEFAULTS, VarkaAdmission.NO_HOST_REFUSAL).toScala
+        assert(compiled.exists(_.specs.asScala.forall(_.fused)), s"$e did not fuse")
+        compiled.get.fused.outputs.asScala.head.asInstanceOf[VarkaVectorIR.Cond]
+      }
+      def not(n: VarkaVectorIR.Cond): VarkaVectorIR.Cond = new IRNot(n)
+      val one = lit(1.5)
+      val nan = lit(Double.NaN)
+      for ((e, want) <- Seq[(Expression, VarkaVectorIR.Cond)](
+          EqualTo(column, one) -> new Compare(IEEE_EQ, x, c),
+          LessThan(column, one) -> new Compare(IEEE_LT, x, c),
+          LessThanOrEqual(column, one) -> new Compare(IEEE_LE, x, c),
+          GreaterThan(column, one) -> not(new Compare(IEEE_LE, x, c)),
+          GreaterThanOrEqual(column, one) -> not(new Compare(IEEE_LT, x, c)),
+          LessThan(one, column) -> not(new Compare(IEEE_LE, x, c)),
+          GreaterThanOrEqual(one, column) -> new Compare(IEEE_LE, x, c),
+          EqualTo(column, nan) -> not(new Compare(IEEE_LE, x, c)),
+          GreaterThanOrEqual(column, nan) -> not(new Compare(IEEE_LE, x, c)),
+          LessThan(column, nan) -> new Compare(IEEE_LE, x, c),
+          LessThanOrEqual(column, nan) -> new Compare(LE, x, c),
+          GreaterThan(column, nan) -> new Compare(GT, x, c))) {
+        assert(cond(e) === want, s"$e")
+      }
+      // The NaN forms slot the infinity in the NaN's place; the general ones the NaN itself.
+      val infBits = if (column eq inDouble) {
+        java.lang.Double.doubleToRawLongBits(Double.PositiveInfinity)
+      } else {
+        java.lang.Float.floatToRawIntBits(Float.PositiveInfinity).toLong
+      }
+      val compiled = VarkaExpressionCompiler.compilePredicate(EqualTo(column, nan), inOutput,
+        VarkaEmitOptions.DEFAULTS, VarkaAdmission.NO_HOST_REFUSAL).toScala.get.fused
+      val slotted = compiled.longLiterals.asScala.map(_.longValue).toSeq ++
+        compiled.literals.asScala.map(_.intValue.toLong).toSeq
+      assert(slotted === Seq(infBits), column.dataType)
+    }
+  }
+
+  test("a floating compare against a literal of another type declines rather than specialise") {
+    // Only a hand-built tree compares a floating column with a literal of another type; the
+    // literal's bits are no value at the column's lane (an int 5 read as a double is a
+    // denormal), so the compare keeps the lane check that declines a mix of two lanes.
+    def mixes(a: String, b: String): String =
+      s"one kernel holds one lane, and this mixes the $a and $b lanes"
+    for ((e, reason) <- Seq[(Expression, String)](
+        GreaterThan(inDouble, Literal(5)) -> mixes("DOUBLE", "INT"),
+        GreaterThan(inDouble, Literal(5.0f)) -> mixes("DOUBLE", "FLOAT"),
+        GreaterThan(inFloat, Literal(5.0)) -> mixes("FLOAT", "DOUBLE"),
+        GreaterThan(Literal(5), inDouble) -> mixes("INT", "DOUBLE"),
+        GreaterThan(Literal(5.0f), inDouble) -> mixes("DOUBLE", "FLOAT"),
+        GreaterThan(Literal(5.0), inFloat) -> mixes("FLOAT", "DOUBLE"))) {
+      assert(declineReason(If(e, d, d2), inOutput) === reason, s"$e")
+    }
   }
 
   test("an empty IN list declines with its own reason") {
