@@ -15872,68 +15872,68 @@
   },
   "option_arms" : {
     "useAVX=-1" : {
-      "4" : "b2c75a4d5e5bcd77",
-      "16" : "1e16a9a68602e483"
+      "4" : "d5a15f4f3b25c5fd",
+      "16" : "3589f3291b9979cb"
     },
     "useAVX=0" : {
-      "4" : "16e3d31a04df2894",
-      "16" : "040402f88257cc67"
+      "4" : "2b3fffd235dd0857",
+      "16" : "c55b60525380ae79"
     },
     "useAVX=1" : {
-      "4" : "16e3d31a04df2894",
-      "16" : "040402f88257cc67"
+      "4" : "2b3fffd235dd0857",
+      "16" : "c55b60525380ae79"
     },
     "useAVX=2" : {
-      "4" : "16e3d31a04df2894",
-      "16" : "040402f88257cc67"
+      "4" : "2b3fffd235dd0857",
+      "16" : "c55b60525380ae79"
     },
     "useAVX=3" : {
-      "4" : "b2c75a4d5e5bcd77",
-      "16" : "1e16a9a68602e483"
+      "4" : "d5a15f4f3b25c5fd",
+      "16" : "3589f3291b9979cb"
     },
     "validityOrFirst=true over denseValidityOnce=false,validityByBitmap=false" : {
-      "4" : "049889387c3054e7",
-      "16" : "31649a943375a621"
+      "4" : "f80713cd549f4aa8",
+      "16" : "6f4fcbbbaf744f5f"
     },
     "validityOrFirst=false over denseValidityOnce=false,validityByBitmap=false" : {
-      "4" : "093b34e91254f761",
-      "16" : "3a5dca8f973577a1"
+      "4" : "3d476298c6c6f704",
+      "16" : "a74613d6055c6c7b"
     },
     "wideConversionForm=SPLIT over useAVX=2" : {
-      "4" : "16e3d31a04df2894",
-      "16" : "040402f88257cc67"
+      "4" : "2b3fffd235dd0857",
+      "16" : "c55b60525380ae79"
     },
     "wideConversionForm=MAGIC over useAVX=2" : {
-      "4" : "16e3d31a04df2894",
-      "16" : "040402f88257cc67"
+      "4" : "2b3fffd235dd0857",
+      "16" : "c55b60525380ae79"
     },
     "wideConversionForm=XOR_SPLIT over useAVX=2" : {
-      "4" : "16e3d31a04df2894",
-      "16" : "040402f88257cc67"
+      "4" : "2b3fffd235dd0857",
+      "16" : "c55b60525380ae79"
     },
     "roundToOddByShifts=true over useAVX=2" : {
-      "4" : "16e3d31a04df2894",
-      "16" : "040402f88257cc67"
+      "4" : "2b3fffd235dd0857",
+      "16" : "c55b60525380ae79"
     },
     "roundToOddByShifts=false over useAVX=2" : {
-      "4" : "16e3d31a04df2894",
-      "16" : "040402f88257cc67"
+      "4" : "2b3fffd235dd0857",
+      "16" : "c55b60525380ae79"
     },
     "narrowLanes=true" : {
-      "4" : "b2c75a4d5e5bcd77",
-      "16" : "1e16a9a68602e483"
+      "4" : "d5a15f4f3b25c5fd",
+      "16" : "3589f3291b9979cb"
     },
     "narrowLanes=false" : {
-      "4" : "2b8ba56f91a4848d",
-      "16" : "2a91bc8052af1757"
+      "4" : "07d9a0ebcfd94264",
+      "16" : "587e5900732ae3b8"
     },
     "groupLocalSlots=false" : {
-      "4" : "447462432b415d63",
-      "16" : "5aedca66bc8b2762"
+      "4" : "f8d7ae48a301672f",
+      "16" : "ccb210d936dfffdf"
     },
     "methodByteBudget=0" : {
-      "4" : "cb4e8b241e19a4ee",
-      "16" : "0c992b808097f0ba"
+      "4" : "dfbe628115693161",
+      "16" : "0f8a79e93bb5fd7f"
     }
   }
 }
