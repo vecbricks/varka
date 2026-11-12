@@ -295,8 +295,9 @@ class VarkaEvaluatorComponentsSuite extends SparkFunSuite {
   test("a session asking for the host's level resolves it once, from the host's features") {
     // VARKA-538 test 3.2. Catches: a fallback host left at the conversion form, an AVX512DQ
     // host not resolved to level 3 (where the plan admits a BIGINT conversion to a floating
-    // type, VARKA-343), an unknown host moved off the emitter's default, an explicit level the
-    // host overrides, and an unreadable feature list that throws or logs on every query.
+    // type, VARKA-343), an aarch64 host left unknown (VARKA-584), an unreadable x86 host moved
+    // off the emitter's default, an explicit level the host overrides, and an unreadable
+    // feature list that throws or logs on every query.
     val fallsBack = new VarkaHostIsa.Reading("amd64", "avx, avx2, fma", null, 256)
     val converts = new VarkaHostIsa.Reading("amd64", "avx2, avx512f, avx512dq", null, 512)
     val arm = new VarkaHostIsa.Reading("aarch64", "fp, asimd, sve", null, 128)
@@ -312,9 +313,9 @@ class VarkaEvaluatorComponentsSuite extends SparkFunSuite {
     val dq = VarkaSessionEmit.of(conf, converts)
     assert(dq.useAVX === VarkaEmitOptions.AVX512_LEVEL)
     assert(!dq.apply(VarkaEmitOptions.DEFAULTS).convertsFallBack())
-    for (host <- Seq(arm, unread)) {
-      assert(VarkaSessionEmit.of(conf, host) === VarkaSessionEmit.DEFAULTS, host)
-    }
+    // aarch64 lowers both 64-bit conversions to instructions (VARKA-584), so it names level 3.
+    assert(VarkaSessionEmit.of(conf, arm).useAVX === VarkaEmitOptions.AVX512_LEVEL)
+    assert(VarkaSessionEmit.of(conf, unread) === VarkaSessionEmit.DEFAULTS)
     for (level <- Seq(VarkaEmitOptions.USE_AVX_UNKNOWN, 2, 3)) {
       conf.setConf(SQLConf.VARKA_EMIT_USE_AVX, level)
       assert(VarkaSessionEmit.of(conf, fallsBack).useAVX === level, s"level $level")

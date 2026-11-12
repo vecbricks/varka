@@ -60,11 +60,14 @@ import org.apache.spark.sql.internal.SQLConf;
  * {@code abs}, and the widened int's six, whose checks the range lattice takes off. Where the
  * session refuses a 64-bit kernel's masks at two lanes (VARKA-503), as the 128-bit companion's
  * host does by default, the filter and every form that keeps its overflow check are {@code NONE};
- * the wrapping forms and the widened int's, which have no check left, stay {@code WHOLE}. A
- * {@code WHOLE} projection must also run every batch as a kernel
- * ({@link VarkaSizeLadder#varkaFused}); the filter's node is no projection. A row that fuses
- * more of a section sets its new class, so that its fusion cannot turn a baseline section into a
- * fused one unnoticed.
+ * the wrapping forms and the widened int's, which have no check left, stay {@code WHOLE}. The
+ * rule that leaves a filter to Spark when only its inferred {@code IS NOT NULL} tests would fuse
+ * (VARKA-598) does not move the filter: where its sum fuses, nothing is left on the row path and
+ * it is {@code WHOLE}; where the refusal declines the sum, the null tests decline with it and it
+ * is {@code NONE}, as before that rule. A {@code WHOLE} projection must also run every batch as
+ * a kernel ({@link VarkaSizeLadder#varkaFused}); the filter's node is no projection. A row that
+ * fuses more of a section sets its new class, so that its fusion cannot turn a baseline section
+ * into a fused one unnoticed.
  *
  * <p>To run this benchmark, on a GitHub runner (the results come back as an artifact):
  * <pre>

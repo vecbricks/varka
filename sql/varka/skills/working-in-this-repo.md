@@ -340,3 +340,11 @@ into the Build. Each is a fact of the platform, checked against a run or its doc
   only "Re-run all jobs" queues again.
 * **A branch name goes to a shell step through `env`, not a `${{ }}` expression**, and two SHAs
   are compared by git, not as strings, since an abbreviated one defeats the string.
+
+## `varka_regen_generated.sh --all` does not regenerate the golden corpus
+
+VARKA-598. A change to what fuses can move `sql/varka/golden_corpus.json`'s per-file verdicts (a
+filter's `PARTIAL` becoming `PLAIN`), and `dev/varka_regen_generated.sh --all` leaves that file
+alone: it has its own switch, `VARKA_GOLDEN_REGEN=true build/sbt -batch "sql/testOnly
+*VarkaGoldenCorpusSuite"`. Run it whenever a change alters which conjuncts or entries fuse, then
+read the diff.

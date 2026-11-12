@@ -89,8 +89,9 @@ public record VarkaSessionEmit(
    * The conf's value asking for the level to be resolved from the driver's JVM
    * ({@link VarkaHostIsa}): {@link #FALLBACK_LEVEL} where its 64-bit floating conversions fall
    * back to Java and its long species is at least {@link #MAGIC_MIN_LONG_BITS} wide,
-   * {@link VarkaEmitOptions#AVX512_LEVEL} on an x86 host whose feature list holds AVX512DQ, the
-   * base options' level otherwise.
+   * {@link VarkaEmitOptions#AVX512_LEVEL} on a host whose 64-bit conversions are instructions,
+   * an x86 one whose feature list holds AVX512DQ or an aarch64 one, the base options' level
+   * otherwise.
    */
   public static final int USE_AVX_FROM_HOST = -2;
 
@@ -193,23 +194,32 @@ public record VarkaSessionEmit(
   /**
    * The level a session that asks for the host's gets: {@link #FALLBACK_LEVEL} where the host's
    * conversions fall back and its preferred long species is at least
-   * {@link #MAGIC_MIN_LONG_BITS} wide, {@link VarkaEmitOptions#AVX512_LEVEL} on an x86 host
-   * whose feature list was read and holds AVX512DQ, and {@link VarkaEmitOptions#USE_AVX_UNKNOWN}
-   * otherwise: a narrower species, or one whose width could not be read, keeps the conversion
-   * form.
+   * {@link #MAGIC_MIN_LONG_BITS} wide, {@link VarkaEmitOptions#AVX512_LEVEL} on a host whose
+   * {@code L2D} and {@code L2F} are vector instructions
+   * ({@link VarkaHostIsa.Reading#conversionsAreInstructions()}: an x86 host whose feature list
+   * was read and holds AVX512DQ, and an aarch64 host whose list was read), and
+   * {@link VarkaEmitOptions#USE_AVX_UNKNOWN} otherwise: a narrower species, or one whose width
+   * could not be read, keeps the conversion form.
    *
-   * <p>The DQ host resolves to a level rather than to the emitter's default because the default
+   * <p>Such a host resolves to a level rather than to the emitter's default because the default
    * level is unknown, at which the kernel plan declines a {@code BIGINT} conversion to
    * {@code FLOAT} or {@code DOUBLE} ({@link VarkaEmitOptions#levelUnknown()}); level 3
-   * admits it, and lowers every other node as the unknown level does. Its key renders the level,
-   * so such a session caches its classes apart from the default's, with the same bytes.
+   * admits it, lowering both as one {@code convertShape}, and lowers every other node as the
+   * unknown level does, since the emitter reads the level only through
+   * {@link VarkaEmitOptions#convertsFallBack()}, which is false at both. Its key renders the
+   * level, so such a session caches its classes apart from the default's, with the same bytes.
+   * On aarch64 the level is not a {@code -XX:UseAVX} value, which that JVM has no flag for: it
+   * names the one fact the emitter asks of it, that the conversions are instructions there.
+   * Like the DQ host's, it holds at any species width, a one-lane species included, where no
+   * long vector operation is an instruction and the cast is no slower than the rest.
    *
-   * <p>A host that is not x86 stays unknown: aarch64 has every conversion, but no level names
-   * that, so a {@code BIGINT} cast to a floating type declines there unless the session names
-   * any level. A feature list that could not be read leaves the emitter's default too, which is
-   * safe: the division keeps the conversion form, and the plan declines the conversions. On
-   * x86, the one architecture where the answer could have changed the level, that says so once
-   * in the driver's log, since nothing else would show that the host was never read.
+   * <p>Any other architecture stays unknown, and so a {@code BIGINT} cast to a floating type
+   * declines there unless the session names a level. A feature list that could not be read
+   * leaves the emitter's default too, which is safe: the division keeps the conversion form,
+   * and the plan declines the conversions. On aarch64 the read is the one sign that the JVM is
+   * HotSpot with its vector intrinsics, which the level vouches for. On x86, where the list
+   * decides between levels, an unread one says so once in the driver's log, since nothing else
+   * would show that the host was never read.
    */
   static int resolve(VarkaHostIsa.Reading host) {
     if (!host.readable() && host.x86() && UNREADABLE_LOGGED.compareAndSet(false, true)) {
@@ -226,7 +236,7 @@ public record VarkaSessionEmit(
       return host.longBits() >= MAGIC_MIN_LONG_BITS
           ? FALLBACK_LEVEL : VarkaEmitOptions.USE_AVX_UNKNOWN;
     }
-    return host.x86() && host.readable() && !host.features().isEmpty()
+    return host.conversionsAreInstructions()
         ? VarkaEmitOptions.AVX512_LEVEL : VarkaEmitOptions.USE_AVX_UNKNOWN;
   }
 
