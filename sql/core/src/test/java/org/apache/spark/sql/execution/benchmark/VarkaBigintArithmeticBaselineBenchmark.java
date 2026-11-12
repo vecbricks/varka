@@ -54,20 +54,21 @@ import org.apache.spark.sql.internal.SQLConf;
  * each section's plan on the Varka session against the section's {@link Fusion} class, and fails
  * when the plan's class differs
  * ({@link VarkaSqlBenchmarkBase#requireBaseline(SparkSession, String, String, Fusion)}). With
- * the arithmetic fused (VARKA-104), every section is {@code WHOLE} but a checked product over a
- * column ({@code l * 3} and {@code l * m} under ANSI, {@code try_multiply(l, m)}), which declines
- * and is {@code NONE}: the filter, every LEGACY form, the checked sums, differences, negation and
- * {@code abs}, and the widened int's six, whose checks the range lattice takes off. Where the
- * session refuses a 64-bit kernel's masks at two lanes (VARKA-503), as the 128-bit companion's
- * host does by default, the filter and every form that keeps its overflow check are {@code NONE};
- * the wrapping forms and the widened int's, which have no check left, stay {@code WHOLE}. The
- * rule that leaves a filter to Spark when only its inferred {@code IS NOT NULL} tests would fuse
- * (VARKA-598) does not move the filter: where its sum fuses, nothing is left on the row path and
- * it is {@code WHOLE}; where the refusal declines the sum, the null tests decline with it and it
- * is {@code NONE}, as before that rule. A {@code WHOLE} projection must also run every batch as
- * a kernel ({@link VarkaSizeLadder#varkaFused}); the filter's node is no projection. A row that
- * fuses more of a section sets its new class, so that its fusion cannot turn a baseline section
- * into a fused one unnoticed.
+ * the arithmetic fused (VARKA-104), a checked product over a column ({@code l * 3} and
+ * {@code l * m} under ANSI, {@code try_multiply(l, m)}) declines and is {@code NONE}; every other
+ * section is {@code WHOLE}: the filter, every LEGACY form, the checked sums, differences,
+ * negation and {@code abs}, and the widened int's six, whose checks the range lattice takes off.
+ * Where the session refuses a 64-bit kernel's masks at two lanes (VARKA-503), as the 128-bit
+ * companion's host does by default, the filter and every form that keeps its overflow check are
+ * {@code NONE}; the wrapping forms and the widened int's, which have no check left, stay
+ * {@code WHOLE}. The rule that leaves a filter to Spark when only {@code IS NOT NULL} tests of
+ * columns would fuse beside a conjunct left on the row path (VARKA-598) does not move the
+ * filter: where its sum fuses, nothing is left on the row path and it is {@code WHOLE}; where
+ * the refusal applies, it declines every conjunct over a long column, the inferred null tests
+ * among them, and the filter is {@code NONE}, as before that rule. A {@code WHOLE} projection
+ * must also run every batch as a kernel ({@link VarkaSizeLadder#varkaFused}); the filter's node
+ * is no projection. A row that fuses more of a section sets its new class, so that its fusion
+ * cannot turn a baseline section into a fused one unnoticed.
  *
  * <p>To run this benchmark, on a GitHub runner (the results come back as an artifact):
  * <pre>
@@ -219,8 +220,7 @@ public class VarkaBigintArithmeticBaselineBenchmark extends VarkaSqlBenchmarkBas
       out.add(new Section("try_multiply(CAST(i AS BIGINT), 1000)" + density,
           "SELECT try_multiply(" + wide + ", 1000)" + from, Map.of(), Fusion.WHOLE));
       out.add(new Section("filter l + l2 > 0, ANSI" + density,
-          "SELECT " + l + from + " WHERE " + l + " + l2 > 0", ansi,
-          declinesLongConditions ? Fusion.NONE : Fusion.WHOLE));
+          "SELECT " + l + from + " WHERE " + l + " + l2 > 0", ansi, checked));
       out.add(new Section("l ^ l2, control, fuses today" + density,
           "SELECT " + l + " ^ l2" + from, ansi, Fusion.WHOLE));
     }
