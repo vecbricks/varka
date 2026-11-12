@@ -63,18 +63,18 @@ import org.apache.spark.sql.internal.SQLConf;
  *        emit option - it changes which entries the compiler admits, never a kernel's bytes - so
  *        it is not laid over the options; it travels here because the compile at planning and the
  *        evaluator's compile in a task must decline alike, and every caller of the compiler passes
- *        it beside {@code VarkaColumnarToRowExec.emitOptions}, a predicate's compile inside
- *        {@link #admission()}.
+ *        it inside {@link #admission()} beside {@code VarkaColumnarToRowExec.emitOptions}.
  * @param declineTwoLaneConditions whether a filter's condition in a kernel driven at a 64-bit
  *        lane, as one over a column of any type read on the long or the {@code DOUBLE} lane
- *        is, is left to the row engine, as an x86 host whose 64-bit species have two lanes or
+ *        is, and a projection's {@code BOOLEAN} output over a decimal column (VARKA-596), are
+ *        left to the row engine, as an x86 host whose 64-bit species have two lanes or
  *        fewer needs
  *        ({@code spark.sql.codegen.varka.declineTwoLaneConditions}, VARKA-503; unset, the host's
  *        answer, {@link VarkaKernelPlan#twoLaneMasksFallBack(VarkaHostIsa.Reading)} of the same
  *        reading {@link #USE_AVX_FROM_HOST} resolves from, so a planted host moves both). Not an
- *        emit option, for the reason the families off are not: it decides which conjuncts the
- *        predicate compiler admits, never a kernel's bytes, and it travels with the plan so that
- *        the compile at planning and the filter evaluator's on an executor decline alike.
+ *        emit option, for the reason the families off are not: it decides which conjuncts and
+ *        entries the compiler admits, never a kernel's bytes, and it travels with the plan so
+ *        that the compile at planning and the evaluator's on an executor decline alike.
  * @param mathUlpContract whether a math function may take the vector math library within its
  *        contracted bound ({@code spark.sql.codegen.varka.math.ulpContract.enabled},
  *        {@code VARKA-345.md} 2.6), null to leave the base options' setting, which is off. An
@@ -150,8 +150,8 @@ public record VarkaSessionEmit(
   }
 
   /**
-   * The settings that decide which conjuncts a predicate admits, as every predicate compile of
-   * this session's plan - at planning, in EXPLAIN and in a task - passes them.
+   * The settings that decide which conjuncts a predicate and which entries a projection admit, as
+   * every compile of this session's plan - at planning, in EXPLAIN and in a task - passes them.
    */
   public VarkaAdmission admission() {
     return new VarkaAdmission(familiesOff, declineTwoLaneConditions);

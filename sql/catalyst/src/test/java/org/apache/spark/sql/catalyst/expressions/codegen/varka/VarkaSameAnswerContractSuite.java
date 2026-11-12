@@ -207,13 +207,15 @@ public final class VarkaSameAnswerContractSuite {
             EvalMode.LEGACY()),
         new ConvertLane(new IfElse(new Not(new VarkaVectorIR.IsNotNull(F_IR)), F_IR, fsum),
             LaneType.DOUBLE), true));
-    // Open: rint's NaN, whose sign a tier decides (VARKA-344.md 0.10), whatever its
-    // operand's bits.
+    // Fixed: rint answers the canonical NaN for every NaN (SPARK-61175), whatever its operand's
+    // bits, an open sum's among them.
     Expression rint = new Rint(x);
     VarkaVectorIR rintIr = new RoundToIntegral(RoundMode.RINT, X_IR);
-    t.add(otherNaN("rint(x)", rint, rintIr, true));
+    t.add(otherNaN("rint(x)", rint, rintIr, false));
     t.add(otherNaN("-rint(x), a negation passing rint's NaN on", new UnaryMinus(rint, false),
-        new IntNeg(Overflow.WRAP, rintIr, false), true));
+        new IntNeg(Overflow.WRAP, rintIr, false), false));
+    t.add(otherNaN("rint(x + x2), rint fixing an open sum's NaN", new Rint(add(x, x2)),
+        new RoundToIntegral(RoundMode.RINT, sum), false));
     // Fixed: a subtraction or a division returns its left operand's payload on every tier.
     t.add(otherNaN("x - x2", new Subtract(x, x2, ctx()), arith(IntOp.SUB, X_IR, X2_IR), false));
     // Fixed: a pick or a one-operand operation returns a NaN whose bits follow from its input.
@@ -266,7 +268,7 @@ public final class VarkaSameAnswerContractSuite {
     t.add(explicit("a NaN against a number", open, openIr, nan, 1.0d, false, false, false));
     t.add(explicit("a number against a NaN", open, openIr, 1.0d, nan, false, false, false));
     t.add(explicit("+0.0 against -0.0", open, openIr, 0.0d, -0.0d, false, false, false));
-    // rint's open NaN excuses another NaN only: never a number, nor a zero's other sign.
+    // rint: a NaN against a number, or a zero's other sign, never agrees.
     t.add(explicit("rint(x): a NaN against a number", rint, rintIr, nan, 1.0d, false, false,
         false));
     t.add(explicit("rint(x): a number against a NaN", rint, rintIr, 1.0d, nan, false, false,

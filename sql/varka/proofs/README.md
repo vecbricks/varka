@@ -53,7 +53,12 @@ VARKA-241 added the long lane's division forms, and VARKA-242 the calendar's div
 
 A worktree without its own `target/varka-solvers/` takes the solvers from the machine's shared
 directory, `$VARKA_SOLVERS_DIR` or by default `~/.cache/varka-solvers/`, so one
-`dev/varka_prove.sh --install-shared both` serves every worktree; CI keeps installing per run.
+`dev/varka_prove.sh --install-shared both` serves every worktree. An install downloads the
+archives into `downloads/` beside the solvers, checks each against its pinned SHA-256 before use,
+and tries a failed or mismatched download four times; the linters' job restores that folder from
+the Actions cache under `dev/varka_prove.sh --cache-key`, so a run whose cache hit needs no
+network. Only master's runs save that cache, and every branch restores master's entry. CI and the
+shared directory keep the archives; a worktree's own install elsewhere deletes them once done.
 
 A file whose header has a line `; prelude: <name>.smt2` before its `set-logic` gets that file of
 this directory inserted after `java.smt2` (VARKA-506 2.5). A file named so is a prelude, which the
@@ -151,5 +156,6 @@ serves; before, it was assumed, and a cached far day was served wrong.
 ## The solvers
 
 Z3 5.1.0 (MIT) from PyPI's `z3-solver`, whose wheel ships the binary, and cvc5 1.4.1 (BSD-3-Clause)
-from its GitHub release archive, its SHA-256 checked. `dev/varka_prove.sh` pins both and refuses
+from its GitHub release archive, each SHA-256 checked (Z3's for the Linux x86_64 wheel; another
+platform installs Z3 from the index by version). `dev/varka_prove.sh` pins both and refuses
 other versions. They are development tools: nothing here is compiled, packaged or shipped.

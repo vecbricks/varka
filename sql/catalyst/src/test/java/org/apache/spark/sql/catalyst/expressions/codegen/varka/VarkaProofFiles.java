@@ -2944,7 +2944,7 @@ final class VarkaProofFiles {
 
   /**
    * {@code fp_round.smt2}: the construction of {@code RoundToIntegral} with mode {@code RINT}
-   * ({@code VarkaRoundingLowering}) is {@code Math.rint} for every double, over SMT-LIB's
+   * ({@code VarkaRoundingLowering}) rounds every double as {@code Math.rint} does, over SMT-LIB's
    * floating-point theory, which both solvers decide completely: {@code fp.roundToIntegral RNE}
    * is IEEE 754's round to an integral value, nearest with a tie to even, and SMT-LIB's {@code =}
    * separates the two zeros and equates every NaN, so the signed zero is checked and a NaN is
@@ -2964,8 +2964,9 @@ final class VarkaProofFiles {
         ;
         ; The claim: out = fp.roundToIntegral RNE x for every x, NaN and both infinities and both
         ; zeros included. The sign is restored by the negation of r, which for r = +0.0 gives
-        ; -0.0, as the lowering's OR of the sign bit does, and the lowering's NaN keeps the
-        ; operand's bits (SMT-LIB has one NaN, so its payload is a test's, not this file's).
+        ; -0.0, as the lowering's OR of the sign bit does. SMT-LIB has one NaN, so the blend
+        ; that follows the construction, the canonical NaN into every NaN lane, is a test's
+        ; (VarkaEmitterRoundingSuite), not this file's.
         ;
         ; The sat checks show the statement tells the real constant and the real sign handling
         ; from their neighbours: C a binade lower, or no sign restored (rint(-0.3) = -0.0 is the

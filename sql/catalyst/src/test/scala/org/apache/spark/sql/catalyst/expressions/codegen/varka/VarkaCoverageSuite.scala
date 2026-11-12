@@ -1225,7 +1225,8 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
     // signed remainder of a truncating division by 10^k, wrapped as Spark's
     // BigDecimal.intValue() is, ANSI's two overflowing tails declined by a guard.
     Family("Rounding", predicates = false, Seq(
-      Row("rint(x)", "the nearest integer, a tie to the even one, the sign kept on a zero"),
+      Row("rint(x)", "the nearest integer, a tie to the even one, the sign kept on a zero, "
+        + "the canonical NaN for every NaN"),
       Row("floor(l)", "the identity over a bigint, in every mode"),
       Row("ceil(l)"),
       Row("ceiling(l)", "ceil by another name"),
