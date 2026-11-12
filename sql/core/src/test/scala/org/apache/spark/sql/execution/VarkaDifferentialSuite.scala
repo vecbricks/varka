@@ -972,10 +972,9 @@ class VarkaDifferentialSuite extends QueryTest with VarkaMaybeThrows with VarkaT
             val node = collectFirst(varkaSpark.sql(q).queryExecution.executedPlan) {
               case f: VarkaFilterExecBase => f
             }.getOrElse(fail(s"no Varka filter for $q"))
-            // Read under Varka's session conf, as the node reads it when its plan runs.
-            val varkaGate = SQLConf.withExistingConf(varkaSpark.sessionState.conf) {
-              node.fallbackEliminatesSubexpressions
-            }
+            // Read with Varka's session active, as the node reads it when its plan runs: the
+            // `FilterExec` it asks takes its conf from the session active when it is built.
+            val varkaGate = varkaSpark.withActive(node.fallbackEliminatesSubexpressions)
             assert(varkaGate == sparkBranch,
               s"filterExec=$filterExecCse, Spark's branch $sparkBranch: $q")
           }

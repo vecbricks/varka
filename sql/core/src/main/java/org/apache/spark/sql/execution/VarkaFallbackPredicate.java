@@ -35,8 +35,10 @@ import org.apache.spark.sql.catalyst.expressions.codegen.GeneratePredicate$;
  * evaluate a cheap shared {@code arr[5]} before an {@code OR} whose first operand is TRUE, and
  * raise under ANSI on a row Spark answers (VARKA-541).
  *
- * <p>As in {@code Predicate}, a code generation that fails falls back to the interpreted
- * predicate, which reads the session's setting itself; that path is taken only when Janino fails.
+ * <p>As in {@code Predicate}, a code generation that fails, or the test-only
+ * {@code spark.sql.codegen.factoryMode=NO_CODEGEN}, gives the interpreted predicate, which reads
+ * the session's setting itself. Its elimination evaluates a subexpression lazily, at its first
+ * use, so it never evaluates one earlier than the conjuncts do, with or without the argument.
  */
 final class VarkaFallbackPredicate {
 

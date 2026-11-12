@@ -292,7 +292,8 @@ object VarkaColumnarRule extends ColumnarRule with Logging {
   private def rewriteFilter(
       condition: Expression,
       child: SparkPlan,
-      mkVarka: (Expression, SparkPlan, Option[Expression]) => SparkPlan): Option[SparkPlan] = {
+      mkVarka: (Expression, SparkPlan, Option[Expression]) => VarkaFilterExecBase)
+      : Option[SparkPlan] = {
     val session = VarkaSessionEmit.of(SQLConf.get)
     val compiled = VarkaExpressionCompiler.compilePredicate(condition, child.output,
       VarkaColumnarToRowExec.emitOptions(session), session.admission)
@@ -303,10 +304,20 @@ object VarkaColumnarRule extends ColumnarRule with Logging {
       // the whole condition, in Spark's order (see VarkaFilterExecBase).
       val varka = mkVarka(predicate.fusedConjuncts.asScala.reduceLeft(And(_, _)), child,
         residual.map(_ => condition))
-      val node = varka.asInstanceOf[VarkaFilterExecBase]
-      val leftToSpark = node.fallbackHoistsIntoAnAnd || (residual.isDefined &&
-        node.compiledBySpark && residualMissesElimination(condition, child, residuals, varka))
-      Option.unless(leftToSpark)(residual.map(FilterExec(_, varka)).getOrElse(varka))
+      val hoists = varka.fallbackHoistsIntoAnAnd
+      val missesElimination = residual.exists { r =>
+        varka.compiledBySpark && residualMissesElimination(condition, child, residuals, r, varka)
+      }
+      if (hoists || missesElimination) {
+        logDebug(s"Varka leaves the filter $condition to Spark: " + (if (hoists) {
+          "its fallback would evaluate a common AND's subexpressions before its first operand"
+        } else {
+          "its residual filter would skip Spark's subexpression elimination"
+        }))
+        None
+      } else {
+        Some(residual.map(FilterExec(_, varka)).getOrElse(varka))
+      }
     }
   }
 
@@ -327,10 +338,10 @@ object VarkaColumnarRule extends ColumnarRule with Logging {
       condition: Expression,
       child: SparkPlan,
       residuals: Seq[Expression],
+      residual: Expression,
       varka: SparkPlan): Boolean = {
     val whole = FilterExec(condition, child)
-    val residualFilter = FilterExec(residuals.reduceLeft(And(_, _)), varka)
-    whole.eliminatesSubexpressions && !residualFilter.eliminatesSubexpressions && {
+    whole.eliminatesSubexpressions && !FilterExec(residual, varka).eliminatesSubexpressions && {
       // Bound as the whole filter binds its common subexpressions, against its own output.
       val shared = whole.commonSubexpressions
       residuals.exists { conjunct =>

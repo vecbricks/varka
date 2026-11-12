@@ -445,6 +445,18 @@ failed the third in its served codegen-on cell (only Varka raises
 case, which P2 expected to still differ, agrees through the check. P5 holds by construction: no
 kernel, emitter or IR file is touched.
 
+The four tests took 1.3, 0.9, 0.8 and 0.3 s on the laptop (3.3 s, against P4's 9 to 16 s for
+the whole of section 3; P4 is scored when the rest lands). One review pass: its fixes typed the
+rule's node argument, logged a declined filter at DEBUG, set the factories' default to the
+session's `subexpressionElimination.enabled`, ran the gate test with Varka's session active
+(the `FilterExec` the gate asks takes its conf from the session active when it is built) and
+corrected `VarkaFallbackPredicate`'s comment on the interpreted path. Left by it: the planning
+checks and the node's gate read the conf at different times (planning and execution), as
+`fallbackCondition` already does; the checks decline conservatively, a raising subexpression
+in an `AND`'s first operand included; and a finding outside this row, that with codegen off and
+no residual conjunct the fallback evaluates the fused conjuncts' left fold, not Spark's tree,
+so a common `AND` of the optimizer's tree that the fold lacks hoists in Spark alone.
+
 Left of the row: 2.2's `IsNotNull`-order test, 2.3's fuzzer step and the census P3 reads, test
 4's reproducer files, and P4's time, which is scored with them. The item 6 (a) check is
 removed when an upstream fix of SPARK-61197 syncs, and 2.4's when SPARK-60774's fix makes Spark

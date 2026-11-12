@@ -284,7 +284,7 @@ private[sql] class VarkaFilterEvaluatorFactory(
     warmupEnabled: Boolean = false,
     wholeCondition: Option[Expression] = None,
     readsArrowCache: Boolean = false,
-    fallbackEliminates: Boolean = true)
+    fallbackEliminates: Boolean = SQLConf.get.subexpressionEliminationEnabled)
     extends PartitionEvaluatorFactory[ColumnarBatch, ColumnarBatch] with Logging {
 
   override def createEvaluator(): PartitionEvaluator[ColumnarBatch, ColumnarBatch] = {
@@ -541,7 +541,7 @@ private[sql] class VarkaFilterToRowEvaluatorFactory(
     warmupEnabled: Boolean = false,
     wholeCondition: Option[Expression] = None,
     readsArrowCache: Boolean = false,
-    fallbackEliminates: Boolean = true)
+    fallbackEliminates: Boolean = SQLConf.get.subexpressionEliminationEnabled)
     extends PartitionEvaluatorFactory[ColumnarBatch, InternalRow] with Logging {
 
   override def createEvaluator(): PartitionEvaluator[ColumnarBatch, InternalRow] = {
