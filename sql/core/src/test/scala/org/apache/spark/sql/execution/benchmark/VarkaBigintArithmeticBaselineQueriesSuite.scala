@@ -108,14 +108,12 @@ class VarkaBigintArithmeticBaselineQueriesSuite extends QueryTest with VarkaShar
       assert(r.getLong(19) === rows / 10 && r.getLong(20) === rows)
 
       val sections = VarkaBigintArithmeticBaselineBenchmark.sections(false).asScala.toSeq
-      // 25 sections at each of the two null densities, and only the filter and the control fuse
-      // anything today: a row that fuses a section changes this list with the section's class.
+      // 25 sections at each of the two null densities, and only the control fuses anything
+      // today: a row that fuses a section changes this list with the section's class.
       assert(sections.size === 2 * 25)
       val fused = sections.filter(_.fusion != VarkaSqlBenchmarkBase.Fusion.NONE)
       assert(fused.map(s => (s.title, s.fusion.toString)) === Seq(
-        ("filter l + l2 > 0, ANSI, no nulls", "NULL_TESTS"),
         ("l ^ l2, control, fuses today, no nulls", "WHOLE"),
-        ("filter l + l2 > 0, ANSI, one row in ten null", "NULL_TESTS"),
         ("l ^ l2, control, fuses today, one row in ten null", "WHOLE")))
       for (s <- sections) {
         withClue(s.title) {
