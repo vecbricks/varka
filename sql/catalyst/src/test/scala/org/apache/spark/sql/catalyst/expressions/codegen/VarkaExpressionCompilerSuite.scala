@@ -3169,17 +3169,15 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     assert(ntzProjection.fused.lane(VarkaEmitOptions.DEFAULTS) === LaneType.LONG)
   }
 
-  test("a month shift of a TIMESTAMP_NTZ's date declines as row 339's, though its fields fuse") {
-    // VARKA-340 guards the date of an NTZ value under a calendar field; the month forms over it
-    // are row 339's, which tests them with its guard, so they keep declining with that reason.
+  test("a month shift of a TIMESTAMP_NTZ's date fuses beside its fields, over the guarded date") {
+    // The date of an NTZ value under a calendar node is held to `ntzDay`'s range (VARKA-340), and
+    // a month shift reads it as a field does (VARKA-339): both outputs fuse.
     val date = Cast(ntz, DateType)
     for (shift <- Seq(AddMonths(date, i),
         DateAddYMInterval(date, Literal.create(2, YearMonthIntervalType())))) {
       val mixed = VarkaExpressionCompiler.compilePartial(
         Seq(out(Year(date)), out(shift)), withLong).get
-      assert(mixed.specs.asScala.toSeq === Seq(new FusedOutput(0), VarkaOutputSpec.RESIDUAL))
-      assert(mixed.declines.asScala(1).reason ===
-        "a month shift of a timestamp_ntz's date, which is row 339's (VARKA-339)")
+      assert(mixed.specs.asScala.toSeq === Seq(new FusedOutput(0), new FusedOutput(1)), shift)
     }
   }
 

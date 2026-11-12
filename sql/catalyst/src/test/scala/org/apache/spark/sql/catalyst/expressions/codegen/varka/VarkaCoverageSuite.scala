@@ -33,7 +33,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.{CompiledVarkaPredicate
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaOutputSpec.{ForwardedOutput,
   FusedOutput, KernelOutput, ResidualOutput}
 import org.apache.spark.sql.catalyst.parser.CatalystSqlParser
-import org.apache.spark.sql.catalyst.util.DateTimeConstants.{MICROS_PER_DAY, NANOS_PER_DAY, NANOS_PER_MICROS, NANOS_PER_MILLIS}
+import org.apache.spark.sql.catalyst.util.DateTimeConstants.{MICROS_PER_DAY, MICROS_PER_HOUR, NANOS_PER_DAY, NANOS_PER_MICROS, NANOS_PER_MILLIS}
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types.{BooleanType, ByteType, DataType, DateType, DayTimeIntervalType, Decimal, DecimalType, DoubleType, FloatType, IntegerType, LongType, ShortType, TimestampNTZType, TimeType, YearMonthIntervalType}
 import org.apache.spark.util.Utils
@@ -228,6 +228,23 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
    */
   private def ntzDomain(tried: String, operands: String*): String =
     s"if(${operands.map(_ + " IS NULL").mkString(" OR ")}, NULL, $tried IS NOT NULL)"
+
+  /**
+   * The domain of `timestampadd(unit, q, ntz)` up to a week (VARKA-339): Spark's sum with `q`
+   * times the unit's interval, both tried, which is null exactly where `timestampadd` raises for
+   * a quantity inside `guard`, the bound the kernel puts on `q` alone when it has one.
+   */
+  private def timestampAddDomain(unit: String, interval: String, q: String,
+      guard: Option[Long]): Row = {
+    val tried = ntzDomain(s"try_add(ntz, try_multiply($interval, $q))", "ntz", q)
+    Row(s"timestampadd($unit, $q, ntz)", domain = Some(guard.fold(tried)(b =>
+      s"$q BETWEEN -$b AND $b AND $tried")))
+  }
+
+  /** `timestampadd` by months, quarters or years: the date guard and the count's own. */
+  private def timestampAddMonths(unit: String, k: Int, q: String): Row =
+    Row(s"timestampadd($unit, $q, ntz)", domain = Some(s"$ntzFieldDays AND $q BETWEEN " +
+      s"${Math.ceilDiv(minMonths, k)} AND ${Math.floorDiv(maxMonths, k)}"))
 
   /** The least day-time interval, the one `negateExact` refuses. */
   private val leastInterval = "INTERVAL '-106751991 04:00:54.775808' DAY TO SECOND"
@@ -1049,7 +1066,34 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
         "guarded", domain = Some(s"dt <> $leastInterval AND " +
           ntzDomain("try_subtract(ntz, dt)", "ntz", "dt"))),
       Row("ntz + INTERVAL '1' DAY", "a literal interval takes a slot in the long lane's table",
-        domain = Some(ntzDomain("try_add(ntz, INTERVAL '1' DAY)", "ntz"))))),
+        domain = Some(ntzDomain("try_add(ntz, INTERVAL '1' DAY)", "ntz"))),
+      // timestampadd up to a week: the quantity times the unit, guarded to the products a long
+      // holds, then the checked add; an int quantity needs no guard up to an hour. An int of
+      // microseconds is no row: under 36 minutes, it overflows no NTZ value the fixtures hold.
+      timestampAddDomain("MICROSECOND", "INTERVAL '0.000001' SECOND", "l", None),
+      timestampAddDomain("SECOND", "INTERVAL '1' SECOND", "i", None),
+      timestampAddDomain("HOUR", "INTERVAL '1' HOUR", "i", None),
+      timestampAddDomain("HOUR", "INTERVAL '1' HOUR", "l",
+        Some(Long.MaxValue / MICROS_PER_HOUR)),
+      timestampAddDomain("DAY", "INTERVAL '1' DAY", "i", Some(maxDateDiffDays)),
+      timestampAddDomain("DAY", "INTERVAL '1' DAY", "l", Some(maxDateDiffDays)),
+      timestampAddDomain("WEEK", "INTERVAL '7' DAY", "i", Some(maxDateDiffDays / 7)),
+      timestampAddDomain("WEEK", "INTERVAL '7' DAY", "l", Some(maxDateDiffDays / 7)),
+      // The month forms: the date, under the fields' guard, moved by add_months, the time of
+      // day kept; the count is held to the range the month arithmetic is exact over.
+      Row("ntz + ym", "the date moved by add_months and the time of day kept",
+        domain = Some(s"$ntzFieldDays AND ym BETWEEN ${ymLiteral(minMonths)} AND " +
+          ymLiteral(maxMonths))),
+      Row("ntz - ym", "the negated count under the range, so the bounds change sides",
+        domain = Some(s"$ntzFieldDays AND ym BETWEEN ${ymLiteral(-maxMonths)} AND " +
+          ymLiteral(-minMonths))),
+      Row("ntz + INTERVAL '1' MONTH", domain = Some(ntzFieldDays)),
+      timestampAddMonths("MONTH", 1, "i"),
+      timestampAddMonths("MONTH", 1, "l"),
+      timestampAddMonths("QUARTER", 3, "i"),
+      timestampAddMonths("QUARTER", 3, "l"),
+      timestampAddMonths("YEAR", 12, "i"),
+      timestampAddMonths("YEAR", 12, "l"))),
 
     // The decomposition of a TIMESTAMP_NTZ (VARKA-340): the count is read at UTC, so its date is
     // an exact floor division by a day and its time of day the remainder. The calendar fields
@@ -1076,6 +1120,8 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
       Row("extract(DAYOFWEEK_ISO FROM ntz)"),
       Row("next_day(ntz, 'MONDAY')"),
       Row("trunc(ntz, 'WEEK')"),
+      Row("add_months(ntz, i)", "the guarded date moved by a column month count",
+        domain = Some(s"$ntzFieldDays AND i BETWEEN $minMonths AND $maxMonths")),
       Row("hour(ntz)", "the microsecond of the day divided; never guarded"),
       Row("minute(ntz)"),
       Row("second(ntz)", "the whole second, an int; the fraction of `extract(SECOND ...)` is a " +

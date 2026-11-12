@@ -387,6 +387,16 @@ class VarkaSparkFuzzSuite extends VarkaSparkDifferential {
     assert(keys.isEmpty, s"entries that overlap in condition and mode: ${keys.mkString(", ")}")
   }
 
+  test("an NTZ value moved past the long in a task is named by Math's overflow, not the job's") {
+    // A hostile year-month interval (VARKA-339): Spark raises the bare long overflow, which
+    // reaches the driver inside the job's failure; a range keeps the sum out of the optimizer.
+    val query = "SELECT timestamp_ntz'2021-01-01 00:00:00' + " +
+      "make_ym_interval(CAST(id AS INT) + 178956970, 0) AS v FROM range(1)"
+    for (session <- Seq(spark, varkaSpark)) {
+      assert(outcome(session, query) === Left("java.lang.ArithmeticException"), query)
+    }
+  }
+
   test("a raise is expected only from the side and under the mode its entry lists") {
     val list = listOf(
       "X\trow\tANSI\tfixture\ta reason",

@@ -399,7 +399,13 @@ object VarkaSparkFuzz {
 
   // ---- the comparison ---------------------------------------------------------------------
 
-  /** A query's outcome: its rows sorted as strings, or the class of what it raised. */
+  /**
+   * A query's outcome: its rows sorted as strings, or the class of what it raised. An error is the
+   * first condition on its cause chain; with none, the long overflow of `Math`'s exact arithmetic
+   * that Spark raises bare (a TIMESTAMP_NTZ moved past the long, VARKA-339) is named by its class,
+   * as the coverage harness names it (`VarkaAnsiForm.isExactLongOverflow`), and anything else by
+   * the class of the job's failure.
+   */
   type Outcome = Either[String, Seq[String]]
 
   def outcome(session: SparkSession, sql: String): Outcome = outcomeOf(session.sql(sql))
@@ -409,6 +415,10 @@ object VarkaSparkFuzz {
     Try(df.collect().map(_.toString).sorted.toSeq).toEither.left.map { e =>
       val chain = Iterator.iterate[Throwable](e)(_.getCause).takeWhile(_ != null).toSeq
       chain.collectFirst { case t: SparkThrowable if t.getCondition != null => t.getCondition }
+        .orElse(chain.collectFirst {
+          case a: ArithmeticException if VarkaAnsiForm.isExactLongOverflow(a) =>
+            a.getClass.getName
+        })
         .getOrElse(e.getClass.getName)
     }
 
