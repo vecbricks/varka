@@ -355,7 +355,8 @@ jobs:
   proofs:
     name: Nightly-only proofs
     # The SMT proofs too slow for the pull request's linters' job, whose --lint skips them:
-    # dev/varka_prove.sh's NIGHTLY_ONLY under Z3 and cvc5, installed as that job installs them.
+    # dev/varka_prove.sh's NIGHTLY_ONLY under Z3 and cvc5, the same pinned and checked solvers
+    # that job installs, downloaded here without its Actions cache of the archives.
     # The self-test first, so a checker of verdicts that stopped failing cannot pass them. The
     # script runs these at its NIGHTLY_ONLY limits, two of whose runs fit the timeout.
     # As the fuzz job: the schedule on vecbricks/varka only, a dispatch on either repository.

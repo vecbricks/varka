@@ -591,16 +591,21 @@ self_test_fetch() {
 # ---------------------------------------------------------------------------------------------
 
 mode=prove
+# The solver set, and whether --solver or --install gave one: a given empty value goes to usage
+# below rather than taking the default.
 which=
+which_given=0
+nightly=0
 files=()
 named=()
 while [ "$#" -gt 0 ]; do
   case "$1" in
     -h|--help) usage 0 ;;
-    --solver) which="${2:-}"; shift 2 || usage ;;
-    --install) mode=install; which="${2:-}"; solvers="$root/target/varka-solvers"
+    --solver) which="${2:-}"; which_given=1; shift 2 || usage ;;
+    --install) mode=install; which="${2:-}"; which_given=1; solvers="$root/target/varka-solvers"
       shift 2 || usage ;;
-    --install-shared) mode=install; solvers="$shared"; which="${2:-}"; shift 2 || usage ;;
+    --install-shared) mode=install; solvers="$shared"; which="${2:-}"; which_given=1
+      shift 2 || usage ;;
     --self-test) mode=self-test; shift ;;
     --self-test-fetch) self_test_fetch; exit ;;
     --cache-key)
@@ -617,12 +622,12 @@ done
 # in either order.
 if [ "$mode" = lint ]; then
   which=both
-elif [ -z "$which" ]; then
-  if [ "${nightly:-0}" = 1 ]; then which=both; else which=z3; fi
+elif [ "$which_given" = 0 ]; then
+  if [ "$nightly" = 1 ]; then which=both; else which=z3; fi
 fi
 # --lint skips every file --nightly-only names, so the two together prove nothing and would
 # still report success.
-if [ "$mode" = lint ] && [ "${nightly:-0}" = 1 ]; then
+if [ "$mode" = lint ] && [ "$nightly" = 1 ]; then
   echo "varka_prove: --lint skips the NIGHTLY_ONLY files --nightly-only names;" \
     "use one or the other" >&2
   exit 2
