@@ -483,14 +483,21 @@ class VarkaFloatingLaneSuite extends QueryTest with VarkaSharedSessions with Var
       reading("amd64", "avx, avx2, fma", null, 128) -> unknown,
       reading("amd64", "avx, avx2, fma", null, 256) -> 2,
       reading("amd64", "avx2, avx512f, avx512dq", null, 512) -> three)
+    // A session at the unknown level keeps the base options' level, and the option matrix's
+    // useAVX configurations put a level there, so the cast is checked twice: over the defaults,
+    // where the session's level alone decides, and over the base, at the level it composes to.
     def checkCasts(session: VarkaSessionEmit, clue: String): Unit = {
+      val base = VarkaColumnarToRowExec.currentEmitOptions
       val options = VarkaColumnarToRowExec.emitOptions(session)
-      for (to <- Seq(DoubleType, FloatType)) {
-        val decline = castDecline(l, to, options)
-        if (session.useAVX == unknown) {
+      val expected = if (session.useAVX == unknown) base.useAVX else session.useAVX
+      assert(options.useAVX === expected, clue)
+      val overDefaults = session.apply(VarkaEmitOptions.DEFAULTS)
+      for (to <- Seq(DoubleType, FloatType); opts <- Seq(overDefaults, options)) {
+        val decline = castDecline(l, to, opts)
+        if (opts.useAVX == unknown) {
           assert(decline.exists(_.contains("unknown emit level")), s"$clue to $to: $decline")
         } else {
-          assert(decline.isEmpty, s"$clue to $to")
+          assert(decline.isEmpty, s"$clue to $to at level ${opts.useAVX}")
         }
       }
     }
