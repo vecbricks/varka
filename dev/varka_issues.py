@@ -269,6 +269,8 @@ def title_of(text):
     """
     body = skip_status(text.strip())
     skipped = body != text.strip()
+    if not body:
+        return classify(text).marker
     prefix = ""
     m = re.match(r"\*([^*]+)\.\*\s+", body)
     if m:
@@ -294,8 +296,9 @@ def title_of(text):
 # "Moved to milestone 7", "Step 1 done", "From milestone 7" and the like, but not "Done when",
 # which opens the row's done-when clause. Any other bold at the row's start is its own title.
 STATUS_WORD = re.compile(
-    r"(?i)(?!done when\b)(done|started|planned|built|scoped|moved|withdrawn|step|from milestone)\b"
+    r"(?i)(done|started|planned|built|scoped|moved|withdrawn|step|from milestone)(?=$|[\s,;:.])"
 )
+DONE_WHEN = re.compile(r"(?i)done when\b")
 
 # An italic label ending in a colon, such as "*Earlier:*" before a row's earlier text, or a
 # dated note such as "*25 October 2026 (`VARKA-338.md` 0):*", which opens a sentence recording
@@ -323,12 +326,21 @@ def skip_status(body):
     'Node properties as a descriptor'
     >>> skip_status("**Done** (x): a registry. *Earlier:* **Planned** (y). One registry. More")
     'One registry. More'
+    >>> skip_status("**Built-in functions over decimals**: one kernel each")
+    'Built-in functions over decimals'
+    >>> skip_status("**Started** (x); left: y. The real task")
+    'left: y. The real task'
+    >>> skip_status("**Started**. **Done when** it fuses"), title_of("**Started**")
+    ('', 'Started')
     """
     first_paren = None
     while True:
-        m = re.match(r"\*\*([^*]+)\*\*\s*", body)
-        if m and STATUS_WORD.match(m.group(1).strip()):
-            body = body[m.end() :]
+        m = BOLD.match(body)
+        marker = m.group(1).strip() if m else ""
+        if m and DONE_WHEN.match(marker):
+            break
+        if m and STATUS_WORD.match(marker):
+            body = body[m.end() :].lstrip()
             if body.startswith("("):
                 end = paren_end(body)
                 if first_paren is None:
@@ -337,12 +349,10 @@ def skip_status(body):
             if body.startswith(":"):
                 i = first_sentence_end(body)
                 body = body[i + 1 :] if i != -1 else ""
-            body = body.lstrip(" .")
+            body = body.lstrip(" .;,")
             continue
         if m:
-            if m.group(1).strip().lower().startswith("done when"):
-                break
-            return m.group(1).strip()
+            return marker
         m = LABEL.match(body)
         if m:
             body = body[m.end() :]
@@ -353,8 +363,8 @@ def skip_status(body):
         if body:
             return body
         break
-    if first_paren is None:
-        return body
+    if not first_paren:
+        return ""
     lead = re.match(r"[^:;]{1,80}?: ", first_paren)
     words = first_paren[lead.end() :] if lead else first_paren
     words = cut_outside_code(words, "; ")
@@ -431,15 +441,39 @@ def outcome_of(text):
 MAX_TITLE = 256
 
 
+def task_plan_title(number, plans_dir=PLANS_DIR):
+    """The title in the first line of the task's own plan, "# VARKA-<n>: <title>", or None.
+
+    >>> import tempfile
+    >>> d = tempfile.mkdtemp(); os.mkdir(os.path.join(d, "m8"))
+    >>> with open(os.path.join(d, "m8", "VARKA-383.md"), "w") as f:
+    ...     _ = f.write("# VARKA-383: long-lane kernels released after a history")
+    >>> task_plan_title(383, d), task_plan_title(384, d)
+    ('Long-lane kernels released after a history', None)
+    """
+    for path in sorted(glob.glob(os.path.join(plans_dir, "m*", f"VARKA-{number}.md"))):
+        with open(path, encoding="utf-8") as handle:
+            m = re.match(rf"# VARKA-{number}: (.+)", handle.readline().strip())
+        if m:
+            title = m.group(1).strip()
+            return title[:1].upper() + title[1:]
+    return None
+
+
 def issue_title(row):
     """The issue's title, "[VARKA-<n>] <the row's title>", cut at a word to GitHub's limit.
+    A row that opens on its status names its task far from its start, if at all, so its title
+    is the one in the task's own plan file when that file has one.
 
-    >>> t = issue_title(Row(340, "Long " + "word " * 100, "o", "s", "P.md", 8))
+    >>> t = issue_title(Row(99999, "Long " + "word " * 100, "o", "s", "P.md", 8))
     >>> len(t) <= MAX_TITLE, t[:20], t[-12:]
-    (True, '[VARKA-340] Long wor', 'word word...')
+    (True, '[VARKA-99999] Long w', 'word word...')
     """
     head = f"[VARKA-{row.number}] "
-    title = title_of(row.text)
+    title = None
+    if skip_status(row.text.strip()) != row.text.strip():
+        title = task_plan_title(row.number)
+    title = title or title_of(row.text)
     room = MAX_TITLE - len(head)
     if len(title) > room:
         cut = title.rfind(" ", 0, room - 2)
