@@ -1126,3 +1126,17 @@ had to learn, because every one of these asked "is this node a column?" and mean
 * **A weight test that charges one lane load per input** counts a boolean leaf as -1: it loads no
   vector. The register subtracts boolean inputs from the loads; the leaf weighs 0 and the
   comparison, choice and `<=>` nodes weigh the connectives' floor 1.
+
+## A filter split whose kernel holds only the inferred IS NOT NULL tests loses to Spark
+
+VARKA-598. Spark infers `IS NOT NULL` for each column a null-intolerant condition reads, so a
+filter whose value conjunct does not fuse planned as a null-test kernel under a row `Filter`.
+That lost on every runner baseline section of the shape (0.74x to 0.87x at 256 bits). On the
+laptop the kernel's pass, with every selected row copied into an `UnsafeRow` for the row filter,
+accounted for about the whole loss, and the row filter above cost about what Spark's whole filter
+did: the inferred tests pass nearly every row, so the kernel saves the row filter nothing, while
+whole-stage codegen reads the batch in place (`results/VARKA-598-probe.txt`). The predicate
+compiler now declines such a filter whole. Two shapes measured the other way and still fuse:
+`IS NOT NULL` with nothing left over (2.2x to 3.1x, the kernel is the whole filter) and a selective
+`IS NULL` beside a residual (a tie with no row passing, 1.4x to 1.7x at one in ten). Unmeasured:
+a split whose fused part reads a value pays the same copy, but only for the rows it keeps.
