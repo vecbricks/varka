@@ -13,3 +13,4 @@ VarkaEmitterNarrowArithSuite	java	varka.sweep	shard	pair for * in	varka-sweeps	S
 VarkaEmitterNarrowArithSuite	java	varka.sweep	shard	oracle's share	varka-sweeps	times the oracle's share of a sweep batch; a few seconds
 VarkaTimeFractionSuite	java	varka.sweep.long	class	-	varka-sweeps	every nanosecond of a minute at TIME(8) and TIME(9); 991 s
 VarkaEmitterRoundingSuite	java	varka.sweep	class	-	varka-sweeps	the binary32 twin of the rint construction over all 2^32 patterns; seconds on the laptop; every INT through round, bround and truncate at scales -1 to -10, LEGACY and ANSI, 60 sweeps; not yet timed
+VarkaTimestampNtzMonthSuite	java	varka.sweep	class	-	varka-sweeps	the NTZ month shift, scalar and emitted, over every day the date guard admits at three times of day; not yet run: the emitted half's pull-request rate, about 12 us a row, puts it at hours
