@@ -1,0 +1,81 @@
+VARKA-330: the 18 SMALLINT 2^32 sweeps on CI, for the sweep budget (PLAN.md 10.3 item 5, VARKA-329.md 9.11).
+Run: vecbricks/varka varka-sweeps.yml run 42355859989, event schedule, 7 November 2026,
+head 0b682025e09, https://github.com/vecbricks/varka/actions/runs/42355859989
+Runners: ubuntu-latest (x86_64) and ubuntu-24.04-arm (aarch64), GitHub-hosted.
+Copied on 11 November 2026 from the jobs' logs (gh api .../actions/jobs/<id>/logs), the lines
+VarkaEmitterNarrowArithSuite prints per sweep and the ScalaTest summary, unchanged but for the
+timestamp prefix; and each job's 'Run the sweep' step time from the jobs API.
+
+== job 128355933378, x86, shard 'pair for + in'
+SMALLINT + TRY the widened arm: 65536 batches (65536 answered) in 300 s, 16777216 rows held to Spark
+SMALLINT + ANSI the widened arm: 65536 batches (1 answered) in 18 s, 65536 rows held to Spark
+SMALLINT + LEGACY the native arm: 65536 batches (65536 answered) in 267 s, 16777216 rows held to Spark
+SMALLINT + TRY the native arm: 65536 batches (65536 answered) in 298 s, 16777216 rows held to Spark
+SMALLINT + LEGACY the widened arm: 65536 batches (65536 answered) in 271 s, 16777216 rows held to Spark
+SMALLINT + ANSI the native arm: 65536 batches (1 answered) in 17 s, 65536 rows held to Spark
+Total number of tests run: 6
+Tests: succeeded 6, failed 0, canceled 0, ignored 0, pending 0
+step Run the sweep: 2026-11-07T08:42:48Z to 2026-11-07T09:02:25Z, 1177 s
+
+== job 128355933352, x86, shard 'pair for - in'
+SMALLINT - TRY the widened arm: 65536 batches (65536 answered) in 185 s, 16777216 rows held to Spark
+SMALLINT - LEGACY the widened arm: 65536 batches (65536 answered) in 162 s, 16777216 rows held to Spark
+SMALLINT - LEGACY the native arm: 65536 batches (65536 answered) in 161 s, 16777216 rows held to Spark
+SMALLINT - ANSI the widened arm: 65536 batches (1 answered) in 10 s, 0 rows held to Spark
+SMALLINT - ANSI the native arm: 65536 batches (1 answered) in 9 s, 0 rows held to Spark
+SMALLINT - TRY the native arm: 65536 batches (65536 answered) in 188 s, 16777216 rows held to Spark
+Total number of tests run: 6
+Tests: succeeded 6, failed 0, canceled 0, ignored 0, pending 0
+step Run the sweep: 2026-11-07T08:42:45Z to 2026-11-07T08:54:45Z, 720 s
+
+== job 128355933427, x86, shard 'pair for * in'
+SMALLINT * LEGACY the widened arm: 65536 batches (65536 answered) in 318 s, 16777216 rows held to Spark
+SMALLINT * TRY the widened arm: 65536 batches (65536 answered) in 500 s, 16777216 rows held to Spark
+SMALLINT * ANSI the widened arm: 65536 batches (2 answered) in 22 s, 65536 rows held to Spark
+SMALLINT * ANSI the native arm: 65536 batches (2 answered) in 22 s, 65536 rows held to Spark
+SMALLINT * LEGACY the native arm: 65536 batches (65536 answered) in 319 s, 16777216 rows held to Spark
+SMALLINT * TRY the native arm: 65536 batches (65536 answered) in 477 s, 16777216 rows held to Spark
+Total number of tests run: 6
+Tests: succeeded 6, failed 0, canceled 0, ignored 0, pending 0
+step Run the sweep: 2026-11-07T08:42:45Z to 2026-11-07T09:10:30Z, 1665 s
+
+== job 128355933358, arm, shard 'pair for + in'
+SMALLINT + TRY the widened arm: 65536 batches (65536 answered) in 346 s, 16777216 rows held to Spark
+SMALLINT + ANSI the widened arm: 65536 batches (1 answered) in 15 s, 65536 rows held to Spark
+SMALLINT + LEGACY the native arm: 65536 batches (65536 answered) in 312 s, 16777216 rows held to Spark
+SMALLINT + TRY the native arm: 65536 batches (65536 answered) in 344 s, 16777216 rows held to Spark
+SMALLINT + LEGACY the widened arm: 65536 batches (65536 answered) in 313 s, 16777216 rows held to Spark
+SMALLINT + ANSI the native arm: 65536 batches (1 answered) in 14 s, 65536 rows held to Spark
+Total number of tests run: 6
+Tests: succeeded 6, failed 0, canceled 0, ignored 0, pending 0
+step Run the sweep: 2026-11-07T08:42:47Z to 2026-11-07T09:05:17Z, 1350 s
+
+== job 128355933408, arm, shard 'pair for - in'
+SMALLINT - TRY the widened arm: 65536 batches (65536 answered) in 357 s, 16777216 rows held to Spark
+SMALLINT - LEGACY the widened arm: 65536 batches (65536 answered) in 320 s, 16777216 rows held to Spark
+SMALLINT - LEGACY the native arm: 65536 batches (65536 answered) in 318 s, 16777216 rows held to Spark
+SMALLINT - ANSI the widened arm: 65536 batches (1 answered) in 15 s, 0 rows held to Spark
+SMALLINT - ANSI the native arm: 65536 batches (1 answered) in 13 s, 0 rows held to Spark
+SMALLINT - TRY the native arm: 65536 batches (65536 answered) in 429 s, 16777216 rows held to Spark
+Total number of tests run: 6
+Tests: succeeded 6, failed 0, canceled 0, ignored 0, pending 0
+step Run the sweep: 2026-11-07T08:45:28Z to 2026-11-07T09:09:46Z, 1458 s
+
+== job 128355933446, arm, shard 'pair for * in'
+SMALLINT * LEGACY the widened arm: 65536 batches (65536 answered) in 299 s, 16777216 rows held to Spark
+SMALLINT * TRY the widened arm: 65536 batches (65536 answered) in 461 s, 16777216 rows held to Spark
+SMALLINT * ANSI the widened arm: 65536 batches (2 answered) in 16 s, 65536 rows held to Spark
+SMALLINT * ANSI the native arm: 65536 batches (2 answered) in 15 s, 65536 rows held to Spark
+SMALLINT * LEGACY the native arm: 65536 batches (65536 answered) in 305 s, 16777216 rows held to Spark
+SMALLINT * TRY the native arm: 65536 batches (65536 answered) in 464 s, 16777216 rows held to Spark
+Total number of tests run: 6
+Tests: succeeded 6, failed 0, canceled 0, ignored 0, pending 0
+step Run the sweep: 2026-11-07T08:44:11Z to 2026-11-07T09:10:17Z, 1566 s
+
+== totals of the printed per-sweep seconds
+  x86: + 1171, - 715, * 1658; the 18: 3544 s (59 min)
+  arm: + 1344, - 1452, * 1560; the 18: 4356 s (73 min)
+  against the 22 October serial floor of 19908 s (5 h 32 min, results/VARKA-330-sweep.txt)
+  the build-and-plan job every shard waits on: 08:31:42 to 08:42:15, 633 s
+== the whole manifest, sum of every Sweep job's 'Run the sweep' step
+  x86 10506 s, arm 11264 s; the run 08:31:40 to 09:32:44 UTC, 61 min

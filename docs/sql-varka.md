@@ -976,8 +976,15 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `x = x2` | `predicate` |  | NaN equals NaN, and -0.0 equals 0.0 | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
 | `x <> x2` | `predicate` |  |  | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
 | `x <=> x2` | `predicate` |  | null-safe equality under the lane's own equality | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
-| `x < 1.5D` | `predicate` |  | the literal is its bits in the table of the lane's width | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
+| `x < 1.5D` | `predicate` |  | the literal is its bits in the table of the lane's width; a literal that is not NaN needs no NaN test, so this is the bare IEEE compare | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
 | `x = 1.5D` | `predicate` |  |  | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
+| `x <= 1.5D` | `predicate` |  |  | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
+| `x > 1.5D` | `predicate` |  | the IEEE <= negated, so a NaN is above the literal | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
+| `x >= 0.0D` | `predicate` |  | the IEEE < negated; -0.0 and 0.0 are one value | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
+| `x <> 0.0D` | `predicate` |  | the IEEE = negated | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
+| `1.5D < x` | `predicate` |  | a literal on the left is the swapped compare | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
+| `x = CAST('NaN' AS DOUBLE)` | `predicate` |  | true where the IEEE x <= Infinity is false, so NaN alone; no NaN test | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
+| `x < CAST('NaN' AS DOUBLE)` | `predicate` |  | the IEEE x <= Infinity: every value but NaN | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
 | `x IN (1.5D, -2.5D, 0.0D, CAST('NaN' AS DOUBLE))` | `predicate` |  | an equality chain under the lane's equality | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
 | `x IN (11 literals)` | `predicate` |  | an IN list this long arrives from the optimizer as an InSet and fuses the same way | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
 | `isnan(x)` | `predicate` |  | never null: false on a null row | not emitted: a filter's condition in a kernel driven at a 64-bit lane (BIGINT, DOUBLE, TIMESTAMP_NTZ, TIME, day-time interval, DECIMAL), on an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and the selection would run the Vector API's Java fallback |
@@ -990,7 +997,7 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 |---|---|---|---|---|
 | `greatest(x, x2)` | `intArithmetic` |  | Spark's order, the first of two equal operands kept | per-lane: compare to mask, mask cast, mask logic, mask broadcast, blend |
 | `least(x, x2)` | `intArithmetic` |  |  | per-lane: compare to mask, mask cast, mask logic, mask broadcast, blend |
-| `nanvl(x, x2)` | `condition` |  | an IF over isnan, null where the first operand is | per-lane: compare to mask, mask cast, mask logic, blend, mask broadcast |
+| `nanvl(x, x2)` | `condition` |  | an IF over isnan, null where the first operand is | per-lane: compare to mask, mask broadcast, mask logic, blend, mask cast |
 | `CASE WHEN x < x2 THEN x ELSE x2 END` | `predicate`, `condition` |  |  | per-lane: compare to mask, mask cast, mask logic, mask broadcast, blend |
 | `if(x IS NULL, x2, x)` | `predicate`, `condition` |  |  | per-lane: mask broadcast, mask logic, blend |
 | `coalesce(x, x2)` | `condition` |  |  | per-lane: blend, mask broadcast |
@@ -1006,8 +1013,15 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `f = f2` | `predicate` |  | NaN equals NaN, and -0.0 equals 0.0 | vector |
 | `f <> f2` | `predicate` |  |  | vector |
 | `f <=> f2` | `predicate` |  | null-safe equality under the lane's own equality | vector |
-| `f < 1.5F` | `predicate` |  | the literal is its bits in the table of the lane's width | vector |
+| `f < 1.5F` | `predicate` |  | the literal is its bits in the table of the lane's width; a literal that is not NaN needs no NaN test, so this is the bare IEEE compare | vector |
 | `f = 1.5F` | `predicate` |  |  | vector |
+| `f <= 1.5F` | `predicate` |  |  | vector |
+| `f > 1.5F` | `predicate` |  | the IEEE <= negated, so a NaN is above the literal | vector |
+| `f >= 0.0F` | `predicate` |  | the IEEE < negated; -0.0 and 0.0 are one value | vector |
+| `f <> 0.0F` | `predicate` |  | the IEEE = negated | vector |
+| `1.5F < f` | `predicate` |  | a literal on the left is the swapped compare | vector |
+| `f = CAST('NaN' AS FLOAT)` | `predicate` |  | true where the IEEE f <= Infinity is false, so NaN alone; no NaN test | vector |
+| `f < CAST('NaN' AS FLOAT)` | `predicate` |  | the IEEE f <= Infinity: every value but NaN | vector |
 | `f IN (1.5F, -2.5F, 0.0F, CAST('NaN' AS FLOAT))` | `predicate` |  | an equality chain under the lane's equality | vector |
 | `f IN (11 literals)` | `predicate` |  | an IN list this long arrives from the optimizer as an InSet and fuses the same way | vector |
 | `isnan(f)` | `predicate` |  | never null: false on a null row | vector |
@@ -1123,11 +1137,11 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `CAST(CAST(l AS INT) AS FLOAT)` | `intArithmetic`, `floatingCast` | `l BETWEEN -2147483648 AND 2147483647` | the bigint narrowed to INT, checked under ANSI, then I2F, a float value in a long kernel | per-lane: compare to mask, mask logic, mask broadcast, mask test, load or store |
 | `CASE WHEN f > 1.5F THEN i END` | `predicate`, `condition` |  | the float condition crossed to the int values' lane | vector |
 | `IF(i > 3, x, x2)` | `predicate`, `condition` |  | the int condition crossed up to the double values by its word | per-lane: blend, mask broadcast, load or store, mask test |
-| `CASE WHEN x > 1.5D THEN i END` | `predicate`, `condition` |  | a 64-bit mask's word read by the int species | per-lane: compare to mask, mask cast, mask logic, mask broadcast, load or store |
+| `CASE WHEN x > 1.5D THEN i END` | `predicate`, `condition` |  | a 64-bit mask's word read by the int species | per-lane: compare to mask, mask cast, mask broadcast, load or store |
 | `IF(l > 5, f, f2)` | `predicate`, `condition`, `intArithmetic` |  | the long condition crossed down to the float values by its word | per-lane: compare to mask, mask cast, mask broadcast, load or store |
 | `IF(b, x, x2)` | `condition` |  | the boolean column relabelled to the double values' lane | per-lane: blend, mask broadcast |
 | `CASE WHEN b THEN f ELSE f2 END` | `condition` |  | the float twin | vector |
-| `IF(NOT (x > 1.5D OR f > 1.5F), i, 7)` | `predicate`, `condition` |  | NOT and OR at the double lane, then down | per-lane: compare to mask, mask cast, mask logic, mask broadcast, load or store |
+| `IF(NOT (x > 1.5D OR f > 1.5F), i, 7)` | `predicate`, `condition` |  | NOT and OR at the double lane, then down | per-lane: compare to mask, mask broadcast, mask logic, mask cast, load or store |
 | `CASE WHEN f > 1.5F AND i > 3 THEN i END` | `predicate`, `condition` |  | a mixed AND at the int lane, as a guard | vector |
 | `CAST((f > 1.5F AND i > 3) AS INT)` | `predicate`, `integralCast` |  | the mixed AND as its one or zero | vector |
 
@@ -1252,28 +1266,30 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 Every row above runs in the differential suites, which compare the fused kernel with Spark's
 row engine on generated data. Beyond that, each row names how it is verified, in
 `sql/varka/coverage.json`'s `verified` field: a refinement in `sql/varka/proofs/refinement.smt2`
-(the kernel proved equal to the SQL specification, with Spark's departures named), a lowering
+(the kernel proved equal to the SQL specification, with Spark's departures named), a rendered
+refinement in `sql/varka/proofs/decimal_refinement.smt2` (the same proof, its kernel printed from
+the IR the compiler builds and its specification read from Spark's expression), a lowering
 proof under `sql/varka/proofs/`, a test that sweeps the row's whole input domain, a planned row
 that owes it, or `differential`, the differential suites alone. `VarkaCoverageSuite` fails a row
 whose entry names something that does not exist. The counts, per column type of the row's
 operands (a row counts once for each type it reads):
 
 <!-- BEGIN generated verification counts -->
-| Type | Rows | refinement | proof | exhaustive | owed | differential |
-| :--- | ---: | ---: | ---: | ---: | ---: | ---: |
-| `bigint` | 78 | 0 | 2 | 0 | 2 | 74 |
-| `bool` | 38 | 0 | 0 | 13 | 0 | 25 |
-| `byte` | 54 | 0 | 0 | 0 | 8 | 46 |
-| `date` | 127 | 17 | 0 | 1 | 0 | 109 |
-| `dec` | 60 | 25 | 10 | 0 | 0 | 25 |
-| `double` | 67 | 0 | 1 | 0 | 0 | 66 |
-| `dt` | 27 | 2 | 1 | 0 | 0 | 24 |
-| `float` | 52 | 0 | 0 | 0 | 0 | 52 |
-| `int` | 156 | 14 | 2 | 1 | 1 | 138 |
-| `ntz` | 57 | 0 | 7 | 0 | 0 | 50 |
-| `short` | 52 | 0 | 0 | 0 | 8 | 44 |
-| `time` | 48 | 6 | 1 | 1 | 2 | 38 |
-| `ym` | 36 | 7 | 2 | 0 | 2 | 25 |
+| Type | Rows | refinement | rendered | proof | exhaustive | owed | differential |
+| :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `bigint` | 78 | 0 | 0 | 2 | 0 | 2 | 74 |
+| `bool` | 38 | 0 | 0 | 0 | 13 | 0 | 25 |
+| `byte` | 54 | 0 | 0 | 0 | 0 | 8 | 46 |
+| `date` | 127 | 17 | 0 | 0 | 1 | 0 | 109 |
+| `dec` | 60 | 1 | 42 | 10 | 0 | 0 | 7 |
+| `double` | 74 | 0 | 0 | 1 | 0 | 0 | 73 |
+| `dt` | 27 | 2 | 0 | 1 | 0 | 0 | 24 |
+| `float` | 59 | 0 | 0 | 0 | 0 | 0 | 59 |
+| `int` | 156 | 14 | 0 | 2 | 1 | 1 | 138 |
+| `ntz` | 57 | 0 | 0 | 7 | 0 | 0 | 50 |
+| `short` | 52 | 0 | 0 | 0 | 0 | 8 | 44 |
+| `time` | 48 | 6 | 0 | 1 | 1 | 2 | 38 |
+| `ym` | 36 | 7 | 0 | 2 | 0 | 2 | 25 |
 <!-- END generated verification counts -->
 
 ## Glossary
