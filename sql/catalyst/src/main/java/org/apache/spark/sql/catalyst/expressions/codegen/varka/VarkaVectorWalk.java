@@ -823,8 +823,9 @@ final class VarkaVectorWalk {
    * its load and narrowed once at its store, so a conversion node over one names the lane it is
    * already emitted at and emits nothing, and any other pair is a lowering this emitter has not
    * built: the conversions from a floating lane to an integral one are row 343's second part.
-   * {@code L2F} and {@code L2D} come here at level 3 alone, where x86 has AVX512DQ; below it they
-   * take {@link VarkaConversionLowering}'s forms.
+   * {@code L2F} and {@code L2D} come here at level 3 alone, where x86 has AVX512DQ, the level an
+   * aarch64 host resolves to as well; below it they take {@link VarkaConversionLowering}'s
+   * forms.
    * The one form of the conversion: a long kernel's narrowing store converts through it too
    * ({@code VarkaBodyEmitter.emitNarrowStore}), into the low half of the int species.
    */
