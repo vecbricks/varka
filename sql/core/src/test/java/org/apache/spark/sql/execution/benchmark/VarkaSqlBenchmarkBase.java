@@ -288,9 +288,11 @@ public abstract class VarkaSqlBenchmarkBase extends VarkaBenchmarkBase {
    * <ul>
    *   <li>{@code NONE}: the plan holds no Varka node, so both arms run the row path.</li>
    *   <li>{@code NULL_TESTS}: every Varka node is a filter whose conjuncts are only {@code IS NOT
-   *       NULL} and {@code IS NULL} tests, such as those the optimizer infers from a condition
-   *       that is null-intolerant, and a row operator ({@link #computesOnRows}) still evaluates
-   *       the rest of the section. The varka on arm then times a null-test kernel under the row
+   *       NULL} and {@code IS NULL} tests, and a row operator ({@link #computesOnRows}) still
+   *       evaluates the rest of the section. The {@code IS NOT NULL} tests the optimizer infers
+   *       from a null-intolerant condition do not give this class alone: where nothing else
+   *       of the filter fuses, it stays whole on the row path (VARKA-598), and the section is
+   *       {@code NONE}. The varka on arm then times a null-test kernel under the row
    *       path's expression, and the spark row path arm is the baseline.</li>
    *   <li>{@code PARTIAL}: no row operator evaluates any of the section, but a Varka projection
    *       leaves an entry to its own per-row fallback ({@link #residue}): the entry

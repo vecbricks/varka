@@ -242,6 +242,42 @@ class VarkaDecimalBaselineQueriesSuite extends QueryTest with VarkaSharedSession
     }
   }
 
+  test("a filter of which only the inferred IS NOT NULL tests would fuse stays whole on the " +
+      "row path at every emit level", PinsDefaults) {
+    // VARKA-598. No lowering computes the DECIMAL(15, 2) product, so of `x * y < z` only the
+    // IS NOT NULL tests Spark infers would fuse, under a row filter holding the comparison; the
+    // filter declines whole, at the unnamed emit level and the named ones the runners and the
+    // laptop resolve. A null test with nothing left over still fuses, and so does an IS NULL
+    // beside a conjunct that does not, and both sessions answer every query alike.
+    withTable(200) {
+      for (level <- Seq(-1, 2, 3); n <- Seq("", "n")) {
+        withClue(s"useAVX $level, columns '$n'") {
+          withBothConf(SQLConf.VARKA_EMIT_USE_AVX.key, level.toString) {
+            def plan(query: String): SparkPlan =
+              varkaSpark.sql(query).queryExecution.executedPlan
+            def varkaFilters(p: SparkPlan): Int = p.collect {
+              case f: VarkaFilterExec => f
+              case f: VarkaFilterColumnarToRowExec => f
+            }.size
+            val from = "FROM varka_decimal WHERE "
+            val product = s"SELECT x15$n $from x15$n * y15$n < z15$n"
+            val tested = s"SELECT x15$n $from x15$n IS NOT NULL"
+            val isNull = s"SELECT x15$n $from y15$n IS NULL AND (x15$n * y15$n) IS NULL"
+            assert(varkaFilters(plan(product)) === 0, plan(product).treeString)
+            assert(VarkaSqlBenchmarkBase.fusion(plan(product)) ===
+              Optional.of(VarkaSqlBenchmarkBase.Fusion.NONE))
+            assert(VarkaSqlBenchmarkBase.fusion(plan(tested)) ===
+              Optional.of(VarkaSqlBenchmarkBase.Fusion.WHOLE))
+            assert(varkaFilters(plan(isNull)) === 1, plan(isNull).treeString)
+            for (query <- Seq(product, tested, isNull)) {
+              checkAnswer(varkaSpark.sql(query), spark.sql(query).collect().toSeq)
+            }
+          }
+        }
+      }
+    }
+  }
+
   test("the fusion classes tell a row operator and a declined entry from a fused section",
       PinsDefaults) {
     withTable(100) {

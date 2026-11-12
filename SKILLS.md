@@ -107,6 +107,7 @@ the pre-commit hook also checks. Groups below are in file order.
 * [An edge the emission skips must be skipped by every plan that walks the tree](sql/varka/skills/emitter-and-ir.md#an-edge-the-emission-skips-must-be-skipped-by-every-plan-that-walks-the-tree)
 * [The one comparison that is not null-intolerant is total, and needs three things a comparison does not](sql/varka/skills/emitter-and-ir.md#the-one-comparison-that-is-not-null-intolerant-is-total-and-needs-three-things-a-comparison-does-not)
 * [A BOOLEAN column is a condition leaf that reads two bitmaps, and "is it a column?" has four answers](sql/varka/skills/emitter-and-ir.md#a-boolean-column-is-a-condition-leaf-that-reads-two-bitmaps-and-is-it-a-column-has-four-answers)
+* [A filter split whose kernel holds only the inferred IS NOT NULL tests loses to Spark](sql/varka/skills/emitter-and-ir.md#a-filter-split-whose-kernel-holds-only-the-inferred-is-not-null-tests-loses-to-spark)
 
 #### [Testing and debugging](sql/varka/skills/testing-and-debugging.md)
 * [Buffer-Reuse Aliasing (UnsafeProjection)](sql/varka/skills/testing-and-debugging.md#buffer-reuse-aliasing-unsafeprojection)
@@ -242,5 +243,6 @@ the pre-commit hook also checks. Groups below are in file order.
 * [A day of merges was a day of Builds; the laptop queue kept a verdict across docs-only pushes](sql/varka/skills/working-in-this-repo.md#a-day-of-merges-was-a-day-of-builds-the-laptop-queue-kept-a-verdict-across-docs-only-pushes)
 * [The fork's CI queue is a job inside the Build, and the check sync rides the push](sql/varka/skills/working-in-this-repo.md#the-forks-ci-queue-is-a-job-inside-the-build-and-the-check-sync-rides-the-push)
 * [GitHub Actions facts the CI queue cost a run each to learn](sql/varka/skills/working-in-this-repo.md#github-actions-facts-the-ci-queue-cost-a-run-each-to-learn)
+* [`varka_regen_generated.sh --all` does not regenerate the golden corpus](sql/varka/skills/working-in-this-repo.md#varka_regen_generatedsh---all-does-not-regenerate-the-golden-corpus)
 
 <!-- END generated contents -->
