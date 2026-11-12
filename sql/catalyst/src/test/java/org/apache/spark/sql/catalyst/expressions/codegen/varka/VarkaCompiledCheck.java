@@ -18,7 +18,6 @@
 package org.apache.spark.sql.catalyst.expressions.codegen.varka;
 
 import java.lang.foreign.Arena;
-import java.lang.foreign.ValueLayout;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -31,9 +30,9 @@ import java.util.Set;
 import java.util.TreeSet;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
+import java.util.function.IntSupplier;
 
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaGeneratedClassLoader;
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Cond;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LaneType;
 import org.apache.spark.sql.catalyst.util.DateTimeUtils$;
 
@@ -636,8 +635,8 @@ public final class VarkaCompiledCheck {
      * {@code required} as C2 code in use, or the deadline passes. Each slice is called once
      * through the dense driver, with no nulls, and once through the masked one, with
      * {@code maskedNulls}' flags; null lanes hold the harness's poison. The buffers are built once,
-     * and each call runs in the memory sanitizer's window, as a compared call does
-     * ({@code Args.call}). Nothing is compared: what the warm-up computes is thrown away.
+     * as a compared call's are, and each call runs in the memory sanitizer's window, as a compared
+     * call does ({@link #call}). Nothing is compared: what the warm-up computes is thrown away.
      */
     private void warm(Cols snapshot, boolean[][] maskedNulls, int rows, TreeSet<String> required) {
       everWarmed = true;
@@ -645,17 +644,17 @@ public final class VarkaCompiledCheck {
       long start = System.nanoTime();
       long deadline = start + s.settleMillis() * 1_000_000L;
       try (var arena = Arena.ofConfined()) {
-        var sets = new ArrayList<Args>();
+        var sets = new ArrayList<IntSupplier>();
         for (int from = 0; from + rows <= snapshot.length(); from += rows) {
-          sets.add(args(arena, snapshot, noNulls(numInputs, snapshot.length()), from, rows,
+          sets.add(call(arena, snapshot, noNulls(numInputs, snapshot.length()), from, rows,
               false));
           if (numInputs > 0) {
-            sets.add(args(arena, snapshot, maskedNulls, from, rows, true));
+            sets.add(call(arena, snapshot, maskedNulls, from, rows, true));
           }
         }
         VarkaTierWitness.Decision last = null;
         for (long k = 0; last == null || !last.c2() && System.nanoTime() <= deadline; k++) {
-          sets.get((int) (k % sets.size())).call();
+          sets.get((int) (k % sets.size())).getAsInt();
           if (k % CALLS_PER_LOOK == CALLS_PER_LOOK - 1) {
             last = VarkaTierWitness.get().decideNow(className, required);
           }
@@ -671,81 +670,40 @@ public final class VarkaCompiledCheck {
     }
 
     /**
-     * One warm-up call's arguments over rows {@code from} to {@code from + rows} of
-     * {@code snapshot}, with {@code nulls}' flags. For a {@code masked} call a column with no null
-     * in the slice gets a forced null count over a full bitmap, as the harness forces the masked
-     * body, so the masked driver runs whatever the flags.
+     * One warm-up call over rows {@code from} to {@code from + rows} of {@code snapshot}, with
+     * {@code nulls}' flags, its buffers built as a compared call's are
+     * ({@link VarkaKernelChecks#prepared}): each column and output at the width the compared call
+     * gives it, null lanes at the harness's poison. A {@code masked} call forces the masked body,
+     * a column with no null in the slice taking a null count of one over a full bitmap, as the
+     * harness forces it, so the masked driver runs whatever the flags.
+     *
+     * <p>Each call runs in the memory sanitizer's window, as a compared call does. A warm-up
+     * outside any window would teach C2 that the sanitizer's check never finds one, and the first
+     * compared call, which opens one, would trap out of the warmed code at that check
+     * ({@code speculate_null_assert} in {@code VarkaMemorySanitizer.check}): no warmed history
+     * would be served by C2 under the sanitizer. The window also checks the warm-up's own
+     * mappings, against the widths the compared call registers. With the sanitizer off nothing is
+     * registered.
      */
-    private Args args(Arena arena, Cols snapshot, boolean[][] nulls, int from, int rows,
+    private IntSupplier call(Arena arena, Cols snapshot, boolean[][] nulls, int from, int rows,
         boolean masked) {
-      long stride = isLong ? 8L : 4L;
-      long words = ((rows + 63) / 64) * 8L;
-      var srcData = new long[numInputs];
-      var srcValidity = new long[numInputs];
-      var nullCounts = new int[numInputs];
-      long boundColumns = isLong ? 0L : VarkaKernelChecks.columnBoundColumns(c.roots());
+      var d = new long[numInputs][];
+      var z = new boolean[numInputs][];
       for (int col = 0; col < numInputs; col++) {
-        var d = VarkaEmitterFixtures.alloc(arena, rows * stride);
-        var v = VarkaEmitterFixtures.alloc(arena, words);
-        v.fill((byte) 0);
-        int count = 0;
-        for (int i = 0; i < rows; i++) {
-          boolean z = nulls[col][from + i];
-          long value = z ? poison((boundColumns >>> col & 1L) != 0, count)
-              : snapshot.data()[col][from + i];
-          if (isLong) {
-            d.set(ValueLayout.JAVA_LONG, i * 8L, value);
-          } else {
-            d.set(ValueLayout.JAVA_INT, i * 4L, (int) value);
-          }
-          if (z) {
-            count++;
-          } else {
-            long off = i / 8L;
-            v.set(ValueLayout.JAVA_BYTE, off,
-                (byte) (v.get(ValueLayout.JAVA_BYTE, off) | (1 << (i % 8))));
-          }
-        }
-        srcData[col] = d.address();
-        nullCounts[col] = count;
-        srcValidity[col] = count == 0 || count == rows ? 0L : v.address();
+        d[col] = Arrays.copyOfRange(snapshot.data()[col], from, from + rows);
+        z[col] = Arrays.copyOfRange(nulls[col], from, from + rows);
       }
-      if (masked) {
-        for (int col = 0; col < numInputs; col++) {
-          if (nullCounts[col] == 0) {
-            var v = VarkaEmitterFixtures.alloc(arena, words);
-            v.fill((byte) 0xFF);
-            nullCounts[col] = 1;
-            srcValidity[col] = v.address();
-          }
-        }
-      }
-      int n = c.roots().size();
-      var outData = new long[n];
-      var outValidity = new long[n];
-      for (int o = 0; o < n; o++) {
-        outData[o] = c.roots().get(o) instanceof Cond ? 0L
-            : VarkaEmitterFixtures.alloc(arena, rows * stride).address();
-        outValidity[o] = VarkaEmitterFixtures.alloc(arena, words).address();
+      var slice = new Cols(rows, d, z, masked);
+      if (isLong) {
+        return VarkaKernelChecks.preparedLong(arena, kernel, c.roots(), numInputs, c.lits(),
+            slice.longs());
       }
       int[] intLits = new int[c.lits().length];
       for (int k = 0; k < intLits.length; k++) {
         intLits[k] = (int) c.lits()[k];
       }
-      return new Args(kernel, isLong, srcData, srcValidity, nullCounts, outData, outValidity,
-          intLits, c.lits(), rows);
-    }
-
-    /**
-     * The harness's poison for the {@code k}-th null of a column, at the case's lane: the column
-     * bound's ends for a column the kernel reads through it ({@code bounded}), as
-     * {@code VarkaKernelChecks.storedUnderNull} says why.
-     */
-    private long poison(boolean bounded, int k) {
-      if (isLong) {
-        return (k & 1) == 0 ? Long.MIN_VALUE : Long.MAX_VALUE;
-      }
-      return bounded ? VarkaKernelChecks.storedUnderNull(k) : VarkaEmitterFixtures.poison(k);
+      return VarkaKernelChecks.prepared(arena, kernel, c.roots(), numInputs, intLits,
+          slice.ints());
     }
 
     // -------------------------------------------------------------------------------------------
@@ -1394,43 +1352,5 @@ public final class VarkaCompiledCheck {
 
   private static boolean c1Levels(Map<String, Integer> levels) {
     return levels.values().stream().allMatch(l -> l >= 1 && l <= 3);
-  }
-
-  /**
-   * One warm-up call's arguments, built once with the kernel and its lane: the kernel's
-   * {@code run} takes them as they are, the int lane's literals in {@code intLits}, the long
-   * lane's in {@code longLits}. It is the {@link VarkaKernelChecks.Run} that {@link #call} hands
-   * the sanitizer's window.
-   */
-  private record Args(VarkaFusedKernel kernel, boolean isLong, long[] srcData,
-      long[] srcValidity, int[] nullCounts, long[] outData, long[] outValidity, int[] intLits,
-      long[] longLits, int rows) implements VarkaKernelChecks.Run {
-
-    /**
-     * The kernel over these buffers, in the memory sanitizer's window as a compared call is. A
-     * warm-up outside any window would teach C2 that the sanitizer's check never finds one, and
-     * the first compared call, which opens one, would trap out of the warmed code at that check
-     * ({@code speculate_null_assert} in {@code VarkaMemorySanitizer.check}): no warmed history
-     * would be served by C2 under the sanitizer. The window also checks the warm-up's own
-     * mappings. With the sanitizer off nothing is registered.
-     */
-    void call() {
-      long stride = isLong ? 8L : 4L;
-      long[] inStride = new long[srcData.length];
-      long[] outStride = new long[outData.length];
-      Arrays.fill(inStride, stride);
-      Arrays.fill(outStride, stride);
-      VarkaKernelChecks.sanitized(kernel, rows, inStride, outStride, srcData, srcValidity,
-          outData, outValidity, this);
-    }
-
-    @Override
-    public int apply(long scratch) {
-      return isLong
-          ? kernel.run(srcData, srcValidity, nullCounts, outData, outValidity, new int[0],
-              longLits, rows, scratch)
-          : kernel.run(srcData, srcValidity, nullCounts, outData, outValidity, intLits, rows,
-              scratch);
-    }
   }
 }
