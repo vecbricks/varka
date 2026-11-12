@@ -338,6 +338,11 @@ class VarkaEmitterBudgetSuite extends VarkaEmitterTestBase with VarkaOwnJvm {
       (new BitCount(lc), 1, 0, VarkaMatrix.base),
       (new MathUnary(MathFn.SQRT, dc), 1, 0, VarkaMatrix.base),
       (new RoundToIntegral(RoundMode.RINT, dc), 1, 0, VarkaMatrix.base),
+      // An operand that is never a NaN, or already the canonical one, takes no NaN blend.
+      (new RoundToIntegral(RoundMode.RINT, new ConvertLane(c, LaneType.DOUBLE)), 1, 0,
+        VarkaMatrix.base),
+      (new RoundToIntegral(RoundMode.RINT, new RoundToIntegral(RoundMode.RINT, dc)), 1, 0,
+        VarkaMatrix.base),
       (new IntArith(IntOp.DIV, Overflow.WRAP, dc, dc1), 2, 0, VarkaMatrix.base),
       (new IntArith(IntOp.DIV, Overflow.NULL, dc, dc1), 2, 0, VarkaMatrix.base),
       (new IntArith(IntOp.DIV, Overflow.FAIL, dc, dc1), 2, 0, VarkaMatrix.base),

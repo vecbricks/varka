@@ -568,7 +568,7 @@
       "quarter(d)" : [ ],
       "quarter(ntz)" : [ "not supported: arity=2 opc=435 vlen=2 etype=long ismask=1 is_masked_op=0", "not supported: arity=0 op=broadcast vlen=2 etype=long ismask=1 bcast_mode=0", "not supported: arity=2 op=test/4 vlen=2 etype=long ismask=1", "not supported: arity=0 op=broadcast vlen=2 etype=long ismask=1 bcast_mode=1", "not supported: arity=2 opc=433 vlen=2 etype=long ismask=1 is_masked_op=0", "not supported: op=loadMasked vlen=2 etype=long mismatched_ms=0" ],
       "radians(x)" : [ ],
-      "rint(x)" : [ "not supported: arity=2 op=comp/3 vlen=2 etype=double ismask=usestore", "not supported: arity=2 op=blend vlen=2 etype=double ismask=useload" ],
+      "rint(x)" : [ "not supported: arity=2 op=comp/3 vlen=2 etype=double ismask=usestore", "not supported: arity=2 op=blend vlen=2 etype=double ismask=useload", "not supported: arity=2 op=comp/4 vlen=2 etype=double ismask=usestore" ],
       "round(i, -1)" : [ ],
       "round(i, -10)" : [ ],
       "round(i, -2)" : [ ],

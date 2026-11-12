@@ -1097,7 +1097,7 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 
 | Expression | Switches | Domain | Notes | 128-bit lanes |
 |---|---|---|---|---|
-| `rint(x)` | `rounding` |  | the nearest integer, a tie to the even one, the sign kept on a zero | per-lane: compare to mask, blend |
+| `rint(x)` | `rounding` |  | the nearest integer, a tie to the even one, the sign kept on a zero, the canonical NaN for every NaN | per-lane: compare to mask, blend |
 | `floor(l)` | `rounding` |  | the identity over a bigint, in every mode | vector |
 | `ceil(l)` | `rounding` |  |  | vector |
 | `ceiling(l)` | `rounding` |  | ceil by another name | vector |
