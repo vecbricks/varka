@@ -22,8 +22,9 @@
 ;
 ; The claim: out = fp.roundToIntegral RNE x for every x, NaN and both infinities and both
 ; zeros included. The sign is restored by the negation of r, which for r = +0.0 gives
-; -0.0, as the lowering's OR of the sign bit does, and the lowering's NaN keeps the
-; operand's bits (SMT-LIB has one NaN, so its payload is a test's, not this file's).
+; -0.0, as the lowering's OR of the sign bit does. SMT-LIB has one NaN, so the blend
+; that follows the construction, the canonical NaN into every NaN lane, is a test's
+; (VarkaEmitterRoundingSuite), not this file's.
 ;
 ; The sat checks show the statement tells the real constant and the real sign handling
 ; from their neighbours: C a binade lower, or no sign restored (rint(-0.3) = -0.0 is the

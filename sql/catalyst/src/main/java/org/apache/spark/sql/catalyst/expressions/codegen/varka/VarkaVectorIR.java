@@ -531,7 +531,8 @@ public sealed interface VarkaVectorIR
 
   /**
    * How a {@link RoundToIntegral} picks the integer: {@code RINT} is the nearest, a tie going to
-   * the even one, as {@code Math.rint} does. {@code FLOOR} and {@code CEIL} join it with the
+   * the even one, as {@code Math.rint} does, and the canonical NaN for a NaN, as Spark's
+   * {@code MathUtils.rint} does. {@code FLOOR} and {@code CEIL} join it with the
    * lowerings that read them.
    */
   enum RoundMode { RINT }
@@ -1450,13 +1451,14 @@ public sealed interface VarkaVectorIR
   }
 
   /**
-   * {@code Math.rint(child)} over the double lane: the nearest integer-valued double, a tie
-   * going to the even one, with the operand's sign kept on a zero result ({@code rint(-0.3)} is
-   * {@code -0.0}), and NaN and the infinities returned as they are. The vector API has no
-   * rounding operator on any host, so the emitter builds it from IEEE additions (the 2^52
-   * construction of {@code VarkaRoundingLowering}), exact for every input. Null-intolerant: the
-   * validity is the child's. A discrete consumer of a contracted child (row 345's question 2)
-   * is a decline that row owns.
+   * Spark's {@code rint(child)} over the double lane ({@code MathUtils.rint}): the nearest
+   * integer-valued double, a tie going to the even one, with the operand's sign kept on a zero
+   * result ({@code rint(-0.3)} is {@code -0.0}), the infinities returned as they are, and every
+   * NaN answered as the canonical {@code Double.NaN}, whatever its sign or payload. The vector
+   * API has no rounding operator on any host, so the emitter builds it from IEEE additions (the
+   * 2^52 construction of {@code VarkaRoundingLowering}), exact for every input.
+   * Null-intolerant: the validity is the child's. A discrete consumer of a contracted child
+   * (row 345's question 2) is a decline that row owns.
    */
   record RoundToIntegral(RoundMode mode, VarkaVectorIR child, int hash)
       implements VarkaVectorIR {

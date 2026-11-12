@@ -3353,7 +3353,9 @@ object SQLConf {
         " refused, the IS NOT NULL Spark infers for a nullable one among them, so a filter over" +
         " such columns alone stays a plain row filter, with no Varka node and so no reason in" +
         " EXPLAIN; VarkaFusionReport.predicateLines gives the reason under the session's" +
-        " settings. Where another conjunct fuses, the Varka node's EXPLAIN gives it. On the" +
+        " settings. Where another conjunct fuses, the Varka node's EXPLAIN gives it. A" +
+        " projection's BOOLEAN entry over a DECIMAL column, such as x < y AS c, is refused" +
+        " there too, its decimal load being slower than the row engine at two lanes. On the" +
         " same hosts a projection's checked BIGINT +, -, *, negation or abs, one that raises or" +
         " nulls on overflow, declines too, its overflow test being such a mask; the LEGACY" +
         " forms stay fused. A test that checks two-lane kernels' answers sets it false.")

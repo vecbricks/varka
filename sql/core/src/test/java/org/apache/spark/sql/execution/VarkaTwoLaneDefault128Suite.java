@@ -25,6 +25,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 
+import scala.Option;
+import scala.collection.immutable.Seq;
 import scala.jdk.javaapi.CollectionConverters;
 
 import org.junit.jupiter.api.AfterAll;
@@ -38,6 +40,11 @@ import org.apache.spark.sql.SparkSession;
 import org.apache.spark.sql.catalyst.expressions.And;
 import org.apache.spark.sql.catalyst.expressions.Attribute;
 import org.apache.spark.sql.catalyst.expressions.Expression;
+import org.apache.spark.sql.catalyst.expressions.NamedExpression;
+import org.apache.spark.sql.catalyst.expressions.codegen.PartialVarkaProjection;
+import org.apache.spark.sql.catalyst.expressions.codegen.VarkaDecline;
+import org.apache.spark.sql.catalyst.expressions.codegen.VarkaOutputSpec;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaKernelPlan;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaChildJvm;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaSuite;
 import org.apache.spark.sql.execution.benchmark.VarkaArrowSessions;
@@ -103,11 +110,14 @@ public final class VarkaTwoLaneDefault128Suite {
   }
 
   /**
-   * Dates, longs, ints and doubles from {@code xxhash64} of the row id with a seed per column,
-   * then each column again with {@code n} appended, null one row in ten.
+   * Dates, longs, ints, doubles, {@code DECIMAL(9, 2)} ({@code p}) and {@code DECIMAL(38, 10)}
+   * ({@code w}, whose high words are not the low words' sign) from {@code xxhash64} of the row
+   * id with a seed per column, then each column again with {@code n} appended, null one row in
+   * ten.
    */
   private static String tableSql() {
-    List<String> names = List.of("d", "d2", "l", "l2", "i", "i2", "x", "x2");
+    List<String> names = List.of("d", "d2", "l", "l2", "i", "i2", "x", "x2", "p", "p2", "w",
+        "w2");
     List<String> values = new ArrayList<>();
     List<String> columns = new ArrayList<>(names);
     for (int seed = 0; seed < names.size(); seed++) {
@@ -117,10 +127,12 @@ public final class VarkaTwoLaneDefault128Suite {
         case 'd' -> "date_add(date '2000-01-01', cast(pmod(" + h + ", 20000) as int))";
         case 'i' -> "cast(pmod(" + h + ", 2000000000) as int)";
         case 'x' -> "cast(pmod(" + h + ", 3000000) as double) / 1000000D";
+        case 'p' -> "cast(pmod(" + h + ", 1000000000) / 100 as decimal(9, 2))";
+        case 'w' -> "cast(cast(" + h + " as decimal(20, 0)) * 1000000 as decimal(38, 10))";
         default -> "pmod(" + h + ", 1000000000000)";
       };
       values.add(value + " as " + name);
-      columns.add("case when id % 10 = " + seed + " then null else " + name + " end as "
+      columns.add("case when id % 10 = " + seed % 10 + " then null else " + name + " end as "
           + name + "n");
     }
     return "select " + String.join(", ", columns) + " from (select id, "
@@ -157,6 +169,56 @@ public final class VarkaTwoLaneDefault128Suite {
           + " < l2" + n, true);
       check("SELECT d" + n + " FROM two_lane_default WHERE d" + n + " < d2" + n + " AND x" + n
           + " > 1.5D", true);
+    }
+  }
+
+  @Test
+  @DisplayName("a decimal comparison as a value is the row path's at the default, a long one "
+      + "fused beside it, and the tasks agree")
+  void decimalValuesDecline() {
+    assumeTrue(varka != null, "not x86: the refusal does not apply");
+    for (String n : List.of("", "n")) {
+      String query = "SELECT p" + n + " < p2" + n + " AS a, w" + n + " < w2" + n + " AS b, l" + n
+          + " < l2" + n + " AS c FROM two_lane_default";
+      Dataset<Row> actual = varka.sql(query);
+      List<String> got = sorted(actual.collectAsList());
+      SparkPlan plan = actual.queryExecution().executedPlan();
+      String clue = query + "\n" + plan.treeString();
+      assertEquals(sorted(off.sql(query).collectAsList()), got, clue);
+      List<SparkPlan> projections = new ArrayList<>();
+      collectProjections(plan, projections);
+      assertEquals(1, projections.size(), clue);
+      SparkPlan node = projections.get(0);
+      PartialVarkaProjection partial = (node instanceof VarkaProjectExec p
+          ? p.classification() : ((VarkaColumnarToRowExec) node).classification())
+          .orElseThrow(() -> new AssertionError("no classification: " + clue));
+      // The two decimal entries are the row path's, with the reason; the long one is fused.
+      assertEquals(Set.of(0, 1), partial.declines().keySet(), clue);
+      for (VarkaDecline d : partial.declines().values()) {
+        assertEquals(VarkaKernelPlan.TWO_LANE_DECIMAL_VALUE_REASON, d.reason(), clue);
+      }
+      assertTrue(partial.specs().get(2) instanceof VarkaOutputSpec.FusedOutput, clue);
+      // A task's compile, under the settings the plan carried: the evaluator the node builds in
+      // a task declines the same entries, and the kernels served the batches.
+      VarkaSessionEmit emit = node instanceof VarkaProjectExec p ? p.sessionEmit()
+          : ((VarkaColumnarToRowExec) node).sessionEmit();
+      Seq<NamedExpression> list = node instanceof VarkaProjectExec p ? p.projectList()
+          : ((VarkaColumnarToRowExec) node).projectList();
+      var task = new VarkaKernelEvaluator(list, node.children().head().output(), false,
+          "two-lane-default", Option.empty(), VarkaExecMetrics.NONE, emit, false, false);
+      assertEquals(partial.declines().keySet(),
+          task.partialPlan().orElseThrow().declines().keySet(), clue);
+      SQLMetric batches = node.metrics().get("numVarkaBatches").get();
+      assertTrue(batches.value() > 0, "the kernels served no batch: " + clue);
+    }
+  }
+
+  private static void collectProjections(SparkPlan plan, List<SparkPlan> out) {
+    if (plan instanceof VarkaProjectExec || plan instanceof VarkaColumnarToRowExec) {
+      out.add(plan);
+    }
+    for (SparkPlan child : CollectionConverters.asJava(plan.children())) {
+      collectProjections(child, out);
     }
   }
 
