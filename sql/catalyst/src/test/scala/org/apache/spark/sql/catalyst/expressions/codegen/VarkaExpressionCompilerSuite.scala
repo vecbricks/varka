@@ -3315,6 +3315,28 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     assert(reasons(SubtractTimestamps(ntz, ntz), twoLane).isEmpty)
   }
 
+  test("a two-lane admission refuses a checked bigint and a decimal boolean in one projection") {
+    // The two refusals share the session's one setting but reach the projection compile by two
+    // roads: the checked operation through the entry pass's decline sink (VARKA-104), the
+    // decimal comparison as a value through the kernel plan's admission (VARKA-596). A LEGACY
+    // sum beside them makes neither mask and stays fused.
+    val p = AttributeReference("p", DecimalType(10, 2))()
+    val p2 = AttributeReference("p2", DecimalType(10, 2))()
+    val columns = withLong ++ Seq(p, p2)
+    val list = Seq(out(LessThan(p, p2)), out(Add(l, l2, EvalMode.ANSI)),
+      out(Add(l, l2, EvalMode.LEGACY)))
+    val twoLane = VarkaExpressionCompiler.declines(list, columns, VarkaEmitOptions.DEFAULTS,
+      new VarkaAdmission(java.util.Set.of(), true)).asScala.map { case (k, d) =>
+        k.intValue -> d.reason }.toMap
+    assert(twoLane === Map(0 -> VarkaKernelPlan.TWO_LANE_DECIMAL_VALUE_REASON,
+      1 -> VarkaNodeCompiler.TWO_LANE_CHECK_REASON))
+    val partial = VarkaExpressionCompiler.compilePartial(list, columns,
+      VarkaEmitOptions.DEFAULTS, new VarkaAdmission(java.util.Set.of(), true)).get
+    assert(partial.specs.get(2).isInstanceOf[FusedOutput])
+    assert(VarkaExpressionCompiler.declines(list, columns, VarkaEmitOptions.DEFAULTS,
+      VarkaAdmission.NO_HOST_REFUSAL).isEmpty)
+  }
+
   test("a bigint IN beside a date comparison fuses both conjuncts at the long lane") {
     val in = VarkaExpressionCompiler.compilePredicate(
       And(GreaterThan(d, d2), In(l, Seq(Literal(1L), Literal(2L)))), withLong,

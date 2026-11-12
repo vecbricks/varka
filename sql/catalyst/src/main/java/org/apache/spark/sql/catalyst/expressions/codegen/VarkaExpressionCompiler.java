@@ -155,8 +155,8 @@ public final class VarkaExpressionCompiler {
    * declines with the reason naming its switch, and whether a {@code BOOLEAN} entry over a
    * decimal column is left to the row engine on a host whose 64-bit masks fall back
    * ({@link VarkaKernelPlan#admit}, VARKA-596), as the predicate leaves a filter's condition
-   * there, and with it a checked {@code BIGINT} operation, whose overflow test is such a mask
-   * (VARKA-104, {@code DeclineSink.declinesTwoLaneChecks}).
+   * there, and with it a checked {@code BIGINT} operation, whose overflow test is a 64-bit
+   * vector mask (VARKA-104, {@code DeclineSink.declinesTwoLaneChecks}).
    */
   public static Optional<PartialVarkaProjection> compilePartial(
       Seq<NamedExpression> projectList, Seq<Attribute> childOutput, VarkaEmitOptions options,
@@ -578,11 +578,10 @@ public final class VarkaExpressionCompiler {
     private final Map<Integer, String> demoted;
     private final VarkaEmitOptions options;
     // The session's admission settings, which every sink of the pass is built under: its
-    // families off, and the two-lane refusal a checked BIGINT operation reads there (VARKA-104).
+    // families off, and the one two-lane setting, which refuses a checked BIGINT operation
+    // there through the sink (VARKA-104) and a boolean output over a decimal column through
+    // VarkaKernelPlan.admit (VARKA-596), as the predicate's admission refuses a condition.
     private final VarkaAdmission admission;
-    // Whether the session refuses a boolean output over a decimal column at two 64-bit lanes
-    // (VarkaKernelPlan.admit), as the predicate's admission refuses a condition there.
-    private final boolean twoLaneHost;
     private final VarkaSlotTable inputs = new VarkaSlotTable();
     private final VarkaSlotTable literals = new VarkaSlotTable();
     private final List<VarkaVectorIR> outputs = new ArrayList<>();
@@ -600,7 +599,6 @@ public final class VarkaExpressionCompiler {
       this.demoted = demoted;
       this.options = options;
       this.admission = admission;
-      this.twoLaneHost = admission.declineTwoLaneConditions();
       this.sink = new DeclineSink(childOutput, options.rangeSets(), admission);
       this.bind = binder(childOutput);
     }
@@ -672,7 +670,8 @@ public final class VarkaExpressionCompiler {
         // and its reason says why, though it may hold no narrow value itself.
         List<VarkaVectorIR> with = new ArrayList<>(outputs);
         with.add(ir);
-        Optional<Admission> refused = admission(ir, with, options, twoLaneHost);
+        Optional<Admission> refused =
+            admission(ir, with, options, admission.declineTwoLaneConditions());
         if (refused.isPresent()) {
           marks.restore(inputs, literals, sink);
           sink.take();
