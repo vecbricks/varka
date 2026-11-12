@@ -1,0 +1,41 @@
+# The 64-bit TINYINT store's two census cells under -XX:UseAVX=2 (VARKA-603 2.1), on the laptop
+# (AMD Ryzen AI 9 HX PRO 370, AVX-512BW), JDK 25.0.5.0.3+1-1-26.04.1-Ubuntu, 11 November 2026.
+# The laptop's operator_census.json holds the same cells at its own flags; this file holds the
+# reading HotSpot gives with AVX-512 switched off, which no committed census file records.
+
+Command: one fork of VarkaOperatorCensusProbe per cell, with the flags
+VarkaOperatorCensusSuite.fork builds, at 128 bits, at the host's flags and under UseAVX=2:
+
+  java --add-modules jdk.incubator.vector --enable-native-access=ALL-UNNAMED \
+    --add-exports=java.base/jdk.internal.vm.vector=ALL-UNNAMED -XX:+UnlockDiagnosticVMOptions \
+    -Xbatch -XX:CompileCommand=quiet \
+    '-XX:CompileCommand=PrintInlining,<probe>::op_*' '-XX:CompileCommand=dontinline,<probe>::op_*' \
+    -XX:MaxVectorSize=16 [-XX:UseAVX=2] -cp <catalyst test classpath> <probe> <cell>
+
+where <probe> is org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaOperatorCensusProbe.
+The verdict is read as the suite reads it: the VectorSupport decisions of the loop's last C2
+compile, and the bytes a row over a thousand steady-state calls.
+
+cell                       flags            verdict  bytes/row  the store's decision
+int.I2B_store64_masked     host (UseAVX=3)  I         0.04      storeMasked (intrinsic)
+int.I2B_store64_masked     -XX:UseAVX=2     F        20.04      storeMasked failed to inline (intrinsic)
+int.I2B_store64_combined   host (UseAVX=3)  I         0.04      store (intrinsic)
+int.I2B_store64_combined   -XX:UseAVX=2     I         0.04      store (intrinsic)
+
+The masked cell's last C2 tree under UseAVX=2, its store and its mask:
+
+  @ 15   jdk.internal.vm.vector.VectorSupport::indexPartiallyInUpperRange (35 bytes)   (intrinsic)   late inline succeeded
+  @ 33   jdk.internal.vm.vector.VectorSupport::storeMasked (40 bytes)   failed to inline: failed to inline (intrinsic)   failed to inline: static call node change
+
+Every other VectorSupport decision in that tree (load, convert, fromBitsCoerced, binaryOp,
+test) is (intrinsic). So the mask from SPECIES_64.indexInRange(0, lanes), with lanes not a
+constant, compiles; only the predicated eight-lane byte store is refused. HotSpot answers no to
+StoreVectorMasked for a subword element type without AVX-512BW (x86.ad, at every vector size),
+and the Vector API's Java implementation then runs, boxing the vector and the mask: the 20
+bytes a row. The combined control, two groups' I2B parts 0 and -1 OR-ed into one 64-bit byte
+vector and stored whole, is intrinsic and allocation-free under both flag sets. The 0.04 bytes
+a row is the output segment each call maps (about 40 bytes a call over 1024 rows), as a
+kernel maps its output once a batch.
+
+The EPYC 7763 column (expected: the masked cell F, the control I) comes from the width audit
+workflow's x86 census artifact, which a push touching VarkaOperatorCensus*.java runs.
