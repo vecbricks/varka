@@ -310,7 +310,7 @@ final class VarkaConditionCompiler {
       case DOUBLE -> Optional.of(LaneType.DOUBLE);
       // An NTZ rides the long lane as its microseconds.
       case TIMESTAMP_NTZ -> Optional.of(LaneType.LONG);
-      // A decimal to precision 18 rides the long lane, but its own row adds its choices' null.
+      // A decimal's choices are VarkaDecimalCompiler's, which builds their null itself.
       case DECIMAL -> Optional.empty();
       // No lane reads it as values.
       case TIMESTAMP -> Optional.empty();
