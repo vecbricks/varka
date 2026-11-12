@@ -1,0 +1,181 @@
+VARKA-541 step 1: test 1's queries at master in the four cells (section 5 item 1)
+
+Run on 11 November 2026 on the laptop, master c62f492fc89 (worktree detached at origin/master),
+by a scratch suite, VarkaFallbackCseCheckSuite in sql/core's test tree, not committed: section
+3's tests go into the suites the plan names, and the tables and queries below rebuild it. One
+test, two runs; the second, 9.2 s, made 132 query runs (44 configurations x Spark, Varka served
+and Varka declined). No compiler code was changed.
+
+  build/sbt 'sql/testOnly org.apache.spark.sql.execution.VarkaFallbackCseCheckSuite'
+  (SPARK_LOCAL_IP=127.0.0.1; VARKA_541_OUT=<file> writes the raw report; without it, stdout)
+
+Cells. `spark` is the shared session (varka.enabled=false); Varka is `varkaSpark`
+(VarkaSharedSessions: Arrow cache serializer, warm-up off). ANSI on throughout. Codegen is
+spark.sql.codegen.wholeStage on/off on both sessions; "declined" is
+VarkaColumnarToRowExec.setDeclineKernelForTesting(true), reset in a finally. Items 5 and 10 run
+under spark.sql.subexpressionElimination.filterExec.enabled true and false; the others at the
+default (true). Each table is one partition, cached in both sessions, two rows: the plan's row
+(i = 1) and a benign row (i = 2) that passes, so ANSWER [2] is the Spark-correct answer.
+
+Tables (all columns nullable unless said):
+  v388 (i int, s string, m int, d date, d0 date):
+       (1, 'y', 13, 2021-06-01, 2020-01-01), (2, 'x', 1, 2021-06-01, 2020-01-01)
+  v5   (i int, s string, b int, d date, arr array<int> containsNull=false):
+       (1, 'x', 1, 2021-03-01, [1,2]), (2, 'x', -1, 2021-03-01, [1,2,3,4,5,6])
+  v6n  (i, s, m, d, d0, d1, d2), nullable; v6nn the same, every column non-nullable:
+       (1, 'y', 13, 2021-06-01, 2020-01-01, 2020-01-01, 2022-01-01),
+       (2, 'x', 1, 2021-06-01, 2020-01-01, 2023-01-01, 2022-01-01)
+
+Queries (SELECT i FROM <table> WHERE ...):
+  388-bare  v388  s = 'x' AND make_date(2021, m, 1) < d AND make_date(2021, m, 1) > d0
+  388       v388  i > 0 AND <388-bare>
+  5-cheap   v5    i > 0 AND (s = 'x' OR arr[5] > 0) AND b < 0 AND arr[5] < 10
+  5-noncheap v5   i > 0 AND (s = 'x' OR arr[5] + 1 > 0) AND b < 0 AND arr[5] + 1 < 10
+  10-cheap  v5    year(d) > 2000 AND year(d) < 2030 AND (s = 'x' OR arr[5] > 0) AND b < 0
+                  AND arr[5] < 10
+  10-noncheap v5  as 10-cheap with arr[5] + 1 for arr[5]
+  6a-*      v6n / v6nn, with and without a leading `i > 0 AND`:
+                  s = 'x' AND make_date(2021, m, 1) < d
+                  AND IF(s = 'x' AND make_date(2021, m, 1) < d, d0, d1) < d2
+  The 6b to 6d variants are this check's, not the plan's. They put a further make_date where
+  EquivalentExpressions counts it (see the [I] claims):
+  6b-*      v6n / v6nn: as 6a with make_date(2021, m, 1) for d1, in the IF's else branch
+  6c-*      v6n / v6nn: as 6a with make_date(2021, m, 1) for d2, the comparison's right side
+  6d-*      v6n / v6nn: 6a AND make_date(2021, m, 1) > d0 (388's third conjunct)
+  388-benign v388ok (v388's row i = 2 alone): 388-bare's condition
+  5-cheap-benign v5ok (v5's row i = 2 alone): 5-cheap's condition
+
+== Results ==  (S = Spark; V-srv / V-dec = Varka served / declined; ANS = ANSWER [2];
+               IAI = INVALID_ARRAY_INDEX; * = Varka differs from Spark in that cell)
+
+query          filterExec  codegen  S       V-srv   V-dec
+388-bare       default     on       ANS     ANS(a)  ANS
+388-bare       default     off      ANS     ANS(a)  ANS
+388            default     on       ANS     ANS(a)  ANS
+388            default     off      ANS     ANS(a)  ANS
+5-cheap        true        on       ANS     ANS     IAI *
+5-cheap        true        off      IAI     IAI     IAI
+5-cheap        false       on       ANS     ANS     IAI *
+5-cheap        false       off      IAI     IAI     IAI
+5-noncheap     true        on       IAI     IAI     IAI
+5-noncheap     true        off      IAI     IAI     IAI
+5-noncheap     false       on       ANS     ANS     IAI *
+5-noncheap     false       off      IAI     IAI     IAI
+10-cheap       true        on       IAI     ANS *   IAI
+10-cheap       true        off      IAI     IAI     IAI
+10-cheap       false       on       ANS     ANS     IAI *
+10-cheap       false       off      IAI     IAI     IAI
+10-noncheap    true        on       IAI     IAI     IAI
+10-noncheap    true        off      IAI     IAI     IAI
+10-noncheap    false       on       ANS     ANS     IAI *
+10-noncheap    false       off      IAI     IAI     IAI
+6a-nullable    default     on/off   ANS     ANS(a)  ANS
+6a-nullable-lead default   on/off   ANS     ANS(a)  ANS
+6a-nonnull     default     on/off   ANS     ANS(a)  ANS
+6a-nonnull-lead default    on/off   ANS     ANS(a)  ANS
+6b-nullable    default     on/off   ANS     ANS(a)  ANS
+6b-nonnull     default     on/off   ANS     ANS(a)  ANS
+6c-nullable    default     on/off   ANS     ANS(a)  ANS
+6c-nonnull     default     on       ANS     DTF *(a) DTF *
+6c-nonnull     default     off      DTF     DTF(a)  DTF
+6d-nullable    default     on/off   ANS     ANS(a)  ANS
+6d-nonnull     default     on       ANS     DTF *(a) DTF *
+6d-nonnull     default     off      DTF     DTF(a)  DTF
+388-benign     default     on/off   ANS     ANS     ANS
+5-cheap-benign default     on/off   ANS     ANS     ANS
+  (DTF = DATETIME_FIELD_OUT_OF_BOUNDS.WITHOUT_SUGGESTION)
+
+(a) The kernel declines the batch itself (numFallbackBatchesDeclined=1, numVarkaBatches=0 in the
+    served cell, no hook set), so the served cell runs the same fallback as the declined one.
+    The row with m = 13 is the cause: over v388ok, the benign row alone, the same plan's served
+    cell shows numVarkaBatches=1 and its declined cell numFallbackBatchesDeclined=1. So a batch
+    holding 388's row never reaches a served kernel. In the 6c/6d cells that raise, no metric
+    shows (a failed job merges no task accumulators); their decline is inferred from the 6a/6b
+    non-null served cells, the same table and fused conjunct, which show
+    numFallbackBatchesDeclined=1. So 6c/6d differ with no hook set, in the suites' session
+    (warm-up off).
+
+Evidence per cell (summarised from the suite's raw report):
+- Spark's filter sits inside WholeStageCodegenExec in every codegen-on cell and outside it in
+  every codegen-off cell; the Spark session plans no Varka node.
+- Every Varka plan holds a VarkaFilterColumnarToRow node with a residual FilterExec above it:
+  388:  fused  IsNotNull(i, m, d, d0), i > 0 (388 only), both make_date conjuncts;
+        residual s IS NOT NULL AND s = 'x'. 388-bare plans a Varka node too: make_date fuses.
+  5:    fused  i IS NOT NULL AND i > 0; residual b/arr IS NOT NULL, the OR, b < 0, arr[5] < 10.
+  10:   fused  d IS NOT NULL, year(d) > 2000, year(d) < 2030; residual as item 5.
+  6a-d: fused  make_date(2021, m, 1) < d, behind the IsNotNull checks of its columns (and
+        of d2, d0 where the query reads them) on nullable columns, alone on non-null ones;
+        residual s = 'x' (with s IS NOT NULL when nullable), the IF conjunct, and 6d's
+        make_date > d0.
+- Item 5/10 served codegen-on cells that answer show numVarkaBatches=1, numVarkaRows=2: the
+  kernel served. Cells that raise show no metrics (a failed job's task accumulators are not
+  merged), so a raising declined cell is labelled by the hook; in codegen-on cells the raise
+  cannot come from the residual FilterExec, which answers on the served run of the same plan.
+- Fallback fold (VarkaConjunctOrder.inCodegenOrder of the whole condition), codegen on:
+  388:  s IS NOT NULL, s = 'x', d IS NOT NULL, m IS NOT NULL, make_date < d, d0 IS NOT NULL,
+        m IS NOT NULL, make_date > d0: s = 'x' first, as item 4 reads.
+  6a/6b/6c/6d-nonnull: (s = 'x' AND make_date < d) AND ...: the chain's inner AND is the
+        canonical twin of the IF's condition (spine check true). Every nullable and every
+        `i > 0`-led variant: no spine AND is common (s IS NOT NULL, or i > 0, sits in the prefix).
+
+== P1 ==
+- 388 agrees in all four cells: TRUE (served = fallback, note (a)).
+- Item 5 agrees in the served cells and both codegen-off cells (raising), raises in the declined
+  codegen-on cell where Spark answers: TRUE, under filterExec true and false. Its non-cheap twin
+  agrees in every cell with filterExec on (all raise, SPARK-60774) and differs like the cheap one
+  with it off.
+- Item 6 (a) over nullable columns not reached and agrees: TRUE (6a to 6d). Over non-nullable
+  ones raises in the declined codegen-on cell where Spark answers: FALSE for the plan's query,
+  which reaches the AND but answers in every cell; TRUE for 6c and 6d, which raise
+  DATETIME_FIELD_OUT_OF_BOUNDS there, and in the served codegen-on cell too (note (a)).
+- Item 10 raises in Spark codegen on, Varka declined and all codegen-off cells, answers in the
+  served codegen-on cell: TRUE (filterExec true). With filterExec false Spark answers and only
+  the declined codegen-on cell differs, as item 5.
+Score: three of four parts true. The item 6 (a) non-nullable part is false for the plan's query
+and true for the shape once make_date is common on its own (6c, 6d).
+
+== [I] claims ==
+- 0.4 (388 now answers in Varka as in Spark, codegen on and off; s = 'x' first, make_date first
+  referenced by the second): TRUE.
+- 0.5 (the kernel fuses no array read, arr[5] < 10 residual): TRUE; b < 0 is residual too.
+- 0.5 (Spark's OR stops at s = 'x', b < 0 drops the row, the query answers; the served batch the
+  same; the declined batch raises INVALID_ARRAY_INDEX): TRUE.
+- 0.6 (a) (where the AND is a node of the chain, GeneratePredicate calls make_date before
+  s = 'x' and raises on 388's row): FALSE as written; reaching the node is not enough. With only
+  the AND repeated, make_date is not common: updateExprTree does not recurse into a repeat's
+  children (EquivalentExpressions.scala:260-272), so the IF's copy adds nothing below its AND,
+  and the AND's own function short-circuits, s = 'x' first. A make_date in an IF branch does not
+  count either: an IF contributes only its predicate (ConditionalExpression, :168), so 6b also
+  answers. A make_date in an always-evaluated place (6c: the comparison's right side; 6d: a
+  further conjunct) is common, and generateConjunctsWithSubexprCodes calls it, as a dependency
+  of the common AND, before the AND conjunct, so before s = 'x' (CodeGenerator.scala:2445-2480):
+  TRUE for 6c and 6d.
+- 0.6 (a) (the shape may be unreachable over nullable columns): TRUE for every query tried
+  (with and without `i > 0`); over non-nullable columns it is reached, but only without a
+  leading `i > 0`: the fold puts s = 'x' before i > 0, so the prefix no longer matches.
+- 0.10 (year(d) common and not cheap, Spark's compiled filter raises, the served residual filter
+  answers, declined raises, codegen off all raise): TRUE.
+- 2.2 (no IsNotNull order difference found by reading): UNREACHABLE in step 1; it is test 3's
+  unit check against WholeStageCodegenSuite's cases, not a test 1 query.
+- 2.3 (a Varka filter is planned over a view with an array column): TRUE. v5 caches through the
+  Arrow serializer with arr array<int>, a VarkaFilterColumnarToRow node is planned and the kernel
+  serves (numVarkaBatches=1); the extract production stays.
+
+== 2.1 ==
+Stays. Item 5's declined codegen-on cell raises INVALID_ARRAY_INDEX where Spark's compiled
+filter answers, under filterExec true (cheap arr[5]) and false (cheap and non-cheap).
+
+== Draft note for the outcome section (section 9) ==
+Step 1 (laptop, 11 November 2026, results/VARKA-541-step1.txt) ran test 1's queries at master.
+388's reproducer agrees in all four cells, and needs no leading conjunct: its make_date
+conjuncts fuse, and the kernel declines the batch holding m = 13, so its served cell is the
+fallback too. Item 5's declined codegen-on cell raises where Spark answers, so 2.1 stays. Item
+10's served codegen-on cell answers where Spark raises, as item 10 reads, so 2.4 stays. A Varka
+filter is planned over a view with an array column, so the fuzzer's extract production stays.
+Item 6 (a) is reached over non-nullable columns, but not by the plan's query: make_date must
+also be common on its own, as in 6d (388's reproducer with the IF conjunct added), which raises
+in Varka's codegen-on cells, served and declined, where Spark answers. The served cell needs no
+hook, since the kernel declines the batch holding m = 13. Proposed for step 2: 6d is the query
+committed as the known difference naming SPARK-61197. 2.1 does not change it: FilterExec's gate
+over 6d's conjuncts is true (make_date is common across the second, third and fourth, and not
+cheap; read, not run), so 2.1 keeps today's Predicate.create there.

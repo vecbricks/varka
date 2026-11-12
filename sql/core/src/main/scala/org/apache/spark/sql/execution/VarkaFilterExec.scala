@@ -24,8 +24,8 @@ import org.apache.spark.{PartitionEvaluator, PartitionEvaluatorFactory, SparkExc
 import org.apache.spark.internal.Logging
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.expressions.{Attribute, BasePredicate, Expression, IsNotNull, LeafExpression, NamedExpression, Predicate, PredicateHelper, SortOrder, UnsafeProjection}
-import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenFallback, VarkaConjunctOrder, VarkaExpressionCompiler}
+import org.apache.spark.sql.catalyst.expressions.{And, Attribute, AttributeSeq, BasePredicate, BindReferences, EquivalentExpressions, Expression, ExprUtils, IsNotNull, LeafExpression, NamedExpression, PredicateHelper, SortOrder, UnsafeProjection}
+import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenFallback, ExpressionCanonicalizer, VarkaConjunctOrder, VarkaExpressionCompiler}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaSelectionBitmap
 import org.apache.spark.sql.catalyst.plans.physical.Partitioning
 import org.apache.spark.sql.catalyst.types.DataTypeUtils
@@ -79,14 +79,69 @@ private[sql] trait VarkaFilterExecBase extends UnaryExecNode with PredicateHelpe
    */
   protected def fallbackCondition: Expression = {
     val whole = wholeCondition.getOrElse(condition)
-    val fallsBack = whole.exists {
+    if (compiledBySpark) VarkaConjunctOrder.inCodegenOrder(whole) else whole
+  }
+
+  // Whether Spark would compile this filter, the test `fallbackCondition`'s comment describes.
+  private[sql] def compiledBySpark: Boolean = {
+    val fallsBack = wholeCondition.getOrElse(condition).exists {
       case _: LeafExpression => false
       case _: CodegenFallback => true
       case _ => false
     }
-    val compiled = conf.wholeStageEnabled && !fallsBack &&
+    conf.wholeStageEnabled && !fallsBack &&
       !WholeStageCodegenExec.isTooManyFields(conf, child.schema)
-    if (compiled) VarkaConjunctOrder.inCodegenOrder(whole) else whole
+  }
+
+  /**
+   * Whether the per-row fallback eliminates common subexpressions, as Spark's filter would here
+   * (VARKA-541). Where Spark does not compile the filter, its predicate is `Predicate.create`'s,
+   * which follows `subexpressionElimination.enabled`. Where it does, the whole-stage code
+   * eliminates them only on `FilterExec.eliminatesSubexpressions`, asked of a `FilterExec` of the
+   * whole condition over this node's child, so that the split into `IsNotNull` checks and the
+   * other conjuncts, and the test over the latter, are Spark's own. Without elimination a
+   * conjunct short-circuits inside itself: `s = 'x' OR arr[5] > 0` never reads `arr[5]` on a row
+   * whose `s` is 'x', even where a later conjunct shares `arr[5]`.
+   */
+  private[sql] def fallbackEliminatesSubexpressions: Boolean =
+    if (compiledBySpark) {
+      FilterExec(wholeCondition.getOrElse(condition), child).eliminatesSubexpressions
+    } else {
+      conf.subexpressionEliminationEnabled
+    }
+
+  /**
+   * Whether the fallback would evaluate a subexpression that can raise ahead of conjuncts Spark's
+   * compiled filter evaluates first, which [[VarkaColumnarRule]] then leaves to Spark. With
+   * elimination on, `GeneratePredicate` keeps an AND of the condition's conjunct chain that is
+   * itself a common subexpression as one conjunct, and evaluates every eliminated subexpression
+   * inside it before that AND's first operand (SPARK-61197); the whole-stage filter splits every
+   * conjunct and does not. In `s = 'x' AND make_date(2021, m, 1) < d AND IF(s = 'x' AND
+   * make_date(2021, m, 1) < d, d0, d1) < d2 AND make_date(2021, m, 1) > d0` over non-nullable
+   * columns, the first two conjuncts are both a prefix of the fallback's chain and the IF's
+   * condition, so `make_date` runs before `s = 'x'` and raises on a row whose `s` is 'y'. The
+   * analysis is the one `generateConjunctsWithSubexprCodes` makes, over the predicate
+   * `VarkaFallbackPredicate` generates.
+   */
+  private[sql] def fallbackHoistsIntoAnAnd: Boolean = compiledBySpark &&
+      fallbackEliminatesSubexpressions && {
+    val predicate = ExpressionCanonicalizer.execute(
+      BindReferences.bindReference(fallbackCondition, AttributeSeq(child.output)))
+    val equivalence = new EquivalentExpressions
+    equivalence.addExprTree(predicate)
+    val common = equivalence.getCommonSubexpressions
+    def isCommon(e: Expression): Boolean = common.exists(_.semanticEquals(e))
+    def conjuncts(e: Expression): Seq[Expression] = e match {
+      case And(left, right) if !isCommon(e) => conjuncts(left) ++ conjuncts(right)
+      case other => Seq(other)
+    }
+    conjuncts(predicate).exists {
+      case and: And => common.exists { sub =>
+        !sub.semanticEquals(and) && !ExprUtils.canEvaluateUnconditionally(sub) &&
+          and.children.exists(_.exists(_.semanticEquals(sub)))
+      }
+      case _ => false
+    }
   }
 
   // The settings are an implementation detail of the node, not an argument a plan reader needs.
@@ -204,7 +259,8 @@ case class VarkaFilterExec(
       sessionEmit = sessionEmit,
       warmupEnabled = conf.varkaWarmupEnabled,
       wholeCondition = Some(fallbackCondition),
-      readsArrowCache = VarkaColumnarRule.readsArrowCache(child))
+      readsArrowCache = VarkaColumnarRule.readsArrowCache(child),
+      fallbackEliminates = fallbackEliminatesSubexpressions)
     if (conf.usePartitionEvaluator) {
       child.executeColumnar().mapPartitionsWithEvaluator(evaluatorFactory)
     } else {
@@ -227,7 +283,8 @@ private[sql] class VarkaFilterEvaluatorFactory(
     sessionEmit: VarkaSessionEmit = VarkaSessionEmit.DEFAULTS,
     warmupEnabled: Boolean = false,
     wholeCondition: Option[Expression] = None,
-    readsArrowCache: Boolean = false)
+    readsArrowCache: Boolean = false,
+    fallbackEliminates: Boolean = true)
     extends PartitionEvaluatorFactory[ColumnarBatch, ColumnarBatch] with Logging {
 
   override def createEvaluator(): PartitionEvaluator[ColumnarBatch, ColumnarBatch] = {
@@ -241,10 +298,12 @@ private[sql] class VarkaFilterEvaluatorFactory(
       condition, childOutput, offHeapColumnVectorEnabled, "Filter",
       classDumpDirectory, varkaMetrics, sessionEmit, warmupEnabled, readsArrowCache)
 
-    // The per-row predicate and converter behind the fallback. Lazy: a task the
-    // kernel serves end to end never pays the Janino compile.
+    // The per-row predicate and converter behind the fallback, eliminating common
+    // subexpressions as the driver resolved (`fallbackEliminatesSubexpressions`). Lazy: a task
+    // the kernel serves end to end never pays the Janino compile.
     private lazy val fallbackPredicate: BasePredicate = {
-      val predicate = Predicate.create(wholeCondition.getOrElse(condition), childOutput)
+      val predicate = VarkaFallbackPredicate.create(BindReferences.bindReference(
+        wholeCondition.getOrElse(condition), AttributeSeq(childOutput)), fallbackEliminates)
       predicate.initialize(partitionIdx)
       predicate
     }
@@ -457,7 +516,8 @@ case class VarkaFilterColumnarToRowExec(
       sessionEmit = sessionEmit,
       warmupEnabled = conf.varkaWarmupEnabled,
       wholeCondition = Some(fallbackCondition),
-      readsArrowCache = VarkaColumnarRule.readsArrowCache(child))
+      readsArrowCache = VarkaColumnarRule.readsArrowCache(child),
+      fallbackEliminates = fallbackEliminatesSubexpressions)
     if (conf.usePartitionEvaluator) {
       child.executeColumnar().mapPartitionsWithEvaluator(evaluatorFactory)
     } else {
@@ -480,7 +540,8 @@ private[sql] class VarkaFilterToRowEvaluatorFactory(
     sessionEmit: VarkaSessionEmit = VarkaSessionEmit.DEFAULTS,
     warmupEnabled: Boolean = false,
     wholeCondition: Option[Expression] = None,
-    readsArrowCache: Boolean = false)
+    readsArrowCache: Boolean = false,
+    fallbackEliminates: Boolean = true)
     extends PartitionEvaluatorFactory[ColumnarBatch, InternalRow] with Logging {
 
   override def createEvaluator(): PartitionEvaluator[ColumnarBatch, InternalRow] = {
@@ -505,7 +566,8 @@ private[sql] class VarkaFilterToRowEvaluatorFactory(
     private lazy val toUnsafe =
       UnsafeProjection.create(narrowing.getOrElse(childOutput), childOutput)
     private lazy val fallbackPredicate: BasePredicate = {
-      val predicate = Predicate.create(wholeCondition.getOrElse(condition), childOutput)
+      val predicate = VarkaFallbackPredicate.create(BindReferences.bindReference(
+        wholeCondition.getOrElse(condition), AttributeSeq(childOutput)), fallbackEliminates)
       predicate.initialize(partitionIdx)
       predicate
     }

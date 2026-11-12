@@ -21,7 +21,7 @@ import scala.jdk.CollectionConverters._
 import scala.jdk.OptionConverters._
 
 import org.apache.spark.internal.Logging
-import org.apache.spark.sql.catalyst.expressions.{Alias, And, Attribute, Expression, NamedExpression}
+import org.apache.spark.sql.catalyst.expressions.{Alias, And, Attribute, AttributeSeq, BindReferences, Expression, NamedExpression}
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaExpressionCompiler
 import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.execution.adaptive.{QueryStageExec, TableCacheQueryStageExec}
@@ -282,6 +282,12 @@ object VarkaColumnarRule extends ColumnarRule with Logging {
    * conjuncts - the ones the compiler declined, reasons in the debug log and the Varka node's
    * EXPLAIN - stay in a row [[FilterExec]] above it, which sees only the rows the mask kernel
    * let through. Both folds keep query order.
+   *
+   * None too where the split plan would raise on a row Spark's compiled filter answers
+   * (VARKA-541): where the node's per-row fallback would evaluate a raising subexpression ahead
+   * of the conjuncts Spark evaluates first (`VarkaFilterExecBase.fallbackHoistsIntoAnAnd`), or
+   * where the residual filter would not eliminate a subexpression Spark's filter eliminates
+   * ([[residualMissesElimination]]).
    */
   private def rewriteFilter(
       condition: Expression,
@@ -290,13 +296,47 @@ object VarkaColumnarRule extends ColumnarRule with Logging {
     val session = VarkaSessionEmit.of(SQLConf.get)
     val compiled = VarkaExpressionCompiler.compilePredicate(condition, child.output,
       VarkaColumnarToRowExec.emitOptions(session), session.admission)
-    compiled.toScala.map { predicate =>
-      val residual = predicate.residualConjuncts.asScala.reduceLeftOption(And(_, _))
+    compiled.toScala.flatMap { predicate =>
+      val residuals = predicate.residualConjuncts.asScala.toSeq
+      val residual = residuals.reduceLeftOption(And(_, _))
       // With residual conjuncts split off, a batch the kernel cannot serve is refiltered with
       // the whole condition, in Spark's order (see VarkaFilterExecBase).
       val varka = mkVarka(predicate.fusedConjuncts.asScala.reduceLeft(And(_, _)), child,
         residual.map(_ => condition))
-      residual.map(FilterExec(_, varka)).getOrElse(varka)
+      val node = varka.asInstanceOf[VarkaFilterExecBase]
+      val leftToSpark = node.fallbackHoistsIntoAnAnd || (residual.isDefined &&
+        node.compiledBySpark && residualMissesElimination(condition, child, residuals, varka))
+      Option.unless(leftToSpark)(residual.map(FilterExec(_, varka)).getOrElse(varka))
+    }
+  }
+
+  /**
+   * Whether the residual `FilterExec` above a Varka node would skip a subexpression elimination
+   * Spark's compiled filter of the whole condition makes. That filter takes its CSE branch from
+   * the whole condition (`FilterExec.eliminatesSubexpressions`) and then evaluates every common
+   * subexpression, cheap ones included, before the first conjunct that references it; the
+   * residual filter decides from the residual conjuncts alone. In `year(d) > 2000 AND year(d) <
+   * 2030 AND (s = 'x' OR arr[5] > 0) AND b < 0 AND arr[5] < 10` under ANSI, the non-cheap
+   * `year(d)` opens Spark's branch, which reads `arr[5]` before the `OR` and raises on a
+   * two-element `arr`; the `year` conjuncts fuse, and the residual filter, sharing only the cheap
+   * `arr[5]`, short-circuits the `OR` and answers. So where Spark's branch is taken, the
+   * residual's is not, and a residual conjunct references one of the whole condition's common
+   * subexpressions, the filter is left to Spark (question 4 of `VARKA-541.md`).
+   */
+  private def residualMissesElimination(
+      condition: Expression,
+      child: SparkPlan,
+      residuals: Seq[Expression],
+      varka: SparkPlan): Boolean = {
+    val whole = FilterExec(condition, child)
+    val residualFilter = FilterExec(residuals.reduceLeft(And(_, _)), varka)
+    whole.eliminatesSubexpressions && !residualFilter.eliminatesSubexpressions && {
+      // Bound as the whole filter binds its common subexpressions, against its own output.
+      val shared = whole.commonSubexpressions
+      residuals.exists { conjunct =>
+        val bound = BindReferences.bindReference(conjunct, AttributeSeq(whole.output))
+        bound.exists(e => shared.exists(_.semanticEquals(e)))
+      }
     }
   }
 }

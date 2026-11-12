@@ -177,6 +177,19 @@ trait GeneratePredicateHelper extends PredicateHelper {
   protected def mayRaise(e: Expression): Boolean = !ExprUtils.canEvaluateUnconditionally(e)
 
   /**
+   * Whether the whole-stage filter takes its CSE branch for `otherPreds`, whose common
+   * subexpressions `equivalentExpressions` holds: see the comment above the test in
+   * `FilterExec.doConsume`. Varka's filter fallback reads it too, so its row-by-row predicate
+   * eliminates common subexpressions only where the compiled filter would.
+   */
+  protected def takesSubexprEliminationBranch(
+      otherPreds: Seq[Expression],
+      equivalentExpressions: EquivalentExpressions): Boolean =
+    conf.subexpressionEliminationEnabled && conf.subexpressionEliminationFilterExecEnabled &&
+      otherPreds.nonEmpty &&
+      equivalentExpressions.getCommonSubexpressions.exists(!CollapseProject.isCheap(_))
+
+  /**
    * Returns a fresh name for the flag that records a conjunct evaluated to NULL, or None if the
    * row is dropped at the first NULL conjunct (the legacy behavior), if none of `otherPreds`,
    * bound with the nullability they are generated with in `boundOtherPreds`, can be NULL, or if
@@ -432,6 +445,17 @@ case class FilterExec(condition: Expression, child: SparkPlan)
     equivalentExpressions
   }
 
+  /**
+   * Whether `doConsume` takes the CSE branch under the current conf. Varka's filter nodes ask a
+   * `FilterExec` of their whole condition, built on the driver and never executed.
+   */
+  private[sql] def eliminatesSubexpressions: Boolean =
+    takesSubexprEliminationBranch(otherPreds, otherPredsEquivalentExpressions)
+
+  // The common subexpressions of `otherPreds`, bound against `output`.
+  private[sql] def commonSubexpressions: Seq[Expression] =
+    otherPredsEquivalentExpressions.getCommonSubexpressions
+
   // Mark this as empty. We'll evaluate the input during doConsume(). We don't want to evaluate
   // all the variables at the beginning to take advantage of short circuiting.
   override def usedInputs: AttributeSet = AttributeSet.empty
@@ -512,10 +536,7 @@ case class FilterExec(condition: Expression, child: SparkPlan)
     // `subexpressionElimination.filterExec.enabled` additionally gates this path so it can be
     // turned off independently of subexpression elimination elsewhere.
     val (prologueCode, predicateCode) =
-      if (conf.subexpressionEliminationEnabled && conf.subexpressionEliminationFilterExecEnabled &&
-          otherPreds.nonEmpty &&
-          otherPredsEquivalentExpressions.getCommonSubexpressions
-            .exists(!CollapseProject.isCheap(_))) {
+      if (eliminatesSubexpressions) {
         // Pre-evaluate input variables before CSE analysis: CSE clears
         // ctx.currentVars[i].code as a side effect; without this pre-evaluation, Janino
         // fails when otherPreds reference the same input columns that CSE already

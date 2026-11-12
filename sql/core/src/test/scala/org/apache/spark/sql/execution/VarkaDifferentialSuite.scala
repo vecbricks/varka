@@ -773,4 +773,220 @@ class VarkaDifferentialSuite extends QueryTest with VarkaMaybeThrows with VarkaT
       assert(varkaMetric(plan, "numFallbackBatchesRowPath") === 0L)
     }
   }
+
+  // VARKA-541: where the per-row fallback, and the residual filter above a Varka node, evaluate a
+  // common subexpression, against Spark's filter in the same session. The tables are step 1's
+  // (`m8/results/VARKA-541-step1.txt`): one partition, the case's row (i = 1) and a row every
+  // condition keeps (i = 2), so an answer is [2]; nullability as the schema gives it, since
+  // whether a common AND is a prefix of the fallback's chain depends on the `IS NOT NULL` checks
+  // the optimizer adds.
+  private def cacheCseTables(): Unit = {
+    import org.apache.spark.sql.types._
+    def fields(nullable: Boolean, columns: (String, DataType)*) =
+      StructType(columns.map { case (n, t) => StructField(n, t, nullable) })
+    val arr = ArrayType(IntegerType, containsNull = false)
+    val wide = Seq("i" -> IntegerType, "s" -> StringType, "m" -> IntegerType, "d" -> DateType,
+      "d0" -> DateType, "d1" -> DateType, "d2" -> DateType)
+    val wideRows = Seq(
+      Row(1, "y", 13, date("2021-06-01"), date("2020-01-01"), date("2020-01-01"),
+        date("2022-01-01")),
+      Row(2, "x", 1, date("2021-06-01"), date("2020-01-01"), date("2023-01-01"),
+        date("2022-01-01")))
+    val tables = Seq(
+      ("varka_cse_388", fields(true, wide.take(5): _*),
+        wideRows.map(r => Row(r.toSeq.take(5): _*))),
+      ("varka_cse_arr", fields(true, "i" -> IntegerType, "s" -> StringType, "b" -> IntegerType,
+        "d" -> DateType, "arr" -> arr), Seq(
+        Row(1, "x", 1, date("2021-03-01"), Seq(1, 2)),
+        Row(2, "x", -1, date("2021-03-01"), Seq(1, 2, 3, 4, 5, 6)))),
+      ("varka_cse_and", fields(true, wide: _*), wideRows),
+      ("varka_cse_and_nn", fields(false, wide: _*), wideRows))
+    for ((name, schema, rows) <- tables; session <- Seq(spark, varkaSpark)) {
+      session.createDataFrame(spark.sparkContext.parallelize(rows, 1), schema)
+        .createOrReplaceTempView(name)
+      session.catalog.cacheTable(name)
+    }
+  }
+
+  private def uncacheCseTables(): Unit = for (session <- Seq(spark, varkaSpark);
+      name <- Seq("varka_cse_388", "varka_cse_arr", "varka_cse_and", "varka_cse_and_nn")) {
+    session.catalog.uncacheTable(name)
+    session.catalog.dropTempView(name)
+  }
+
+  /**
+   * Runs `query` under ANSI in the four cells, whole-stage codegen on and off and the kernel
+   * serving and declined (`setDeclineKernelForTesting`), and fails where Varka's outcome differs
+   * from Spark's in the same codegen setting. Returns Spark's outcome per codegen setting and
+   * Varka's executed plan per cell, keyed (codegen, declined).
+   */
+  private def checkFourCells(query: String, filterExecCse: Boolean = true)
+      : (Map[Boolean, VarkaMaybeThrows.Outcome], Map[(Boolean, Boolean), SparkPlan]) = {
+    val cells = withAnsi(true) {
+      withBothConf(SQLConf.SUBEXPRESSION_ELIMINATION_FILTER_EXEC_ENABLED.key,
+          filterExecCse.toString) {
+        Seq(true, false).flatMap { codegen =>
+          withBothConf(SQLConf.WHOLESTAGE_CODEGEN_ENABLED.key, codegen.toString) {
+            val onSpark = outcome(spark, query)
+            Seq(false, true).map { declined =>
+              VarkaColumnarToRowExec.setDeclineKernelForTesting(declined)
+              val (onVarka, plan) = try runOutcome(varkaSpark, query) finally {
+                VarkaColumnarToRowExec.setDeclineKernelForTesting(false)
+              }
+              val cell = s"codegen=$codegen declined=$declined filterExec=$filterExecCse"
+              VarkaMaybeThrows.difference(onSpark, onVarka)
+                .foreach(d => fail(s"$cell: $query\n$d"))
+              (codegen, declined, onSpark, plan.getOrElse(fail(s"$cell: no plan for $query")))
+            }
+          }
+        }
+      }
+    }
+    (cells.map(c => c._1 -> c._3).toMap, cells.map(c => (c._1, c._2) -> c._4).toMap)
+  }
+
+  private val answered = VarkaMaybeThrows.Answered(Seq(Row(2)))
+
+  private def raisedWith(condition: String)(o: VarkaMaybeThrows.Outcome): Boolean = o match {
+    case r: VarkaMaybeThrows.Raised => r.condition.startsWith(condition)
+    case _ => false
+  }
+
+  // varka-session-lint: allow the per-row fallback's elimination, only seen in a declined
+  // batch through the plan Spark compiles, against Spark's filter in each of the four cells
+  test("the fallback eliminates a common subexpression only where Spark's compiled filter " +
+      "would, so a short-circuited OR keeps a later conjunct's raising extract unread") {
+    cacheCseTables()
+    try {
+      // The shared make_date is first referenced by the conjunct after `s = 'x'`, which drops
+      // the row whose month is 13; the kernel declines that batch itself.
+      val (s388, p388) = checkFourCells("SELECT i FROM varka_cse_388 WHERE i > 0 AND s = 'x' " +
+        "AND make_date(2021, m, 1) < d AND make_date(2021, m, 1) > d0")
+      assert(s388.values.forall(_ == answered), s388)
+      p388.values.foreach(assertFused)
+      // `arr[5]` is cheap, so Spark's compiled filter takes no CSE branch: the OR stops at
+      // `s = 'x'`, `b < 0` drops the row, and the query answers. Without codegen Spark's
+      // `Predicate.create` reads `arr[5]` before the OR and raises (SPARK-61459).
+      val cheap = "SELECT i FROM varka_cse_arr WHERE i > 0 AND (s = 'x' OR arr[5] > 0) " +
+        "AND b < 0 AND arr[5] < 10"
+      for (filterExecCse <- Seq(true, false)) {
+        val (onSpark, plans) = checkFourCells(cheap, filterExecCse)
+        assert(onSpark(true) == answered && raisedWith("INVALID_ARRAY_INDEX")(onSpark(false)))
+        plans.values.foreach(assertFused)
+        assertKernelsRan(plans((true, false)))
+      }
+      // A non-cheap shared `arr[5] + 1` opens Spark's CSE branch with the conf on, which reads it
+      // before the OR (SPARK-60774), and with the conf off it is the cheap case again.
+      val noncheap = "SELECT i FROM varka_cse_arr WHERE i > 0 AND (s = 'x' OR arr[5] + 1 > 0) " +
+        "AND b < 0 AND arr[5] + 1 < 10"
+      for (filterExecCse <- Seq(true, false)) {
+        val (onSpark, plans) = checkFourCells(noncheap, filterExecCse)
+        assert((onSpark(true) == answered) == !filterExecCse, onSpark)
+        plans.values.foreach(assertFused)
+      }
+    } finally {
+      uncacheCseTables()
+    }
+  }
+
+  // varka-session-lint: allow a plan rule's decision, read in the plan and against Spark's
+  // answer in each of the four cells
+  test("a filter whose residual filter would skip the subexpression elimination of Spark's " +
+      "compiled filter is left to Spark, and one that would not stays fused") {
+    cacheCseTables()
+    try {
+      def query(shared: String) = "SELECT i FROM varka_cse_arr WHERE year(d) > 2000 AND " +
+        s"year(d) < 2030 AND (s = 'x' OR $shared > 0) AND b < 0 AND $shared < 10"
+      // `year(d)` opens Spark's CSE branch, which reads the cheap `arr[5]` before the OR and
+      // raises; the residual filter alone, sharing only `arr[5]`, would answer.
+      val (onSpark, plans) = checkFourCells(query("arr[5]"))
+      assert(raisedWith("INVALID_ARRAY_INDEX")(onSpark(true)), onSpark)
+      assertNotFused(plans((true, false)))
+      assertFused(plans((false, false)))
+      // With the conf off Spark's branch is closed and the filter keeps its fusion; with a
+      // non-cheap `arr[5] + 1` the residual filter opens the branch itself.
+      for ((shared, filterExecCse) <- Seq(("arr[5]", false), ("arr[5] + 1", true),
+          ("arr[5] + 1", false))) {
+        val (s, p) = checkFourCells(query(shared), filterExecCse)
+        assert((s(true) == answered) == !filterExecCse, s)
+        p.values.foreach(assertFused)
+        if (!filterExecCse) assertKernelsRan(p((true, false)))
+      }
+    } finally {
+      uncacheCseTables()
+    }
+  }
+
+  // varka-session-lint: allow a plan rule's decision, read in the plan and against Spark's
+  // answer in each of the four cells
+  test("a filter whose fallback would evaluate a common AND's subexpressions before its first " +
+      "operand is left to Spark where Spark compiles it") {
+    cacheCseTables()
+    try {
+      def query(table: String, lead: String) = s"SELECT i FROM $table WHERE $lead" +
+        "s = 'x' AND make_date(2021, m, 1) < d AND " +
+        "IF(s = 'x' AND make_date(2021, m, 1) < d, d0, d1) < d2 AND make_date(2021, m, 1) > d0"
+      // Over non-nullable columns the first two conjuncts are a prefix of the fallback's chain
+      // and the IF's condition, and make_date is common on its own: `GeneratePredicate` would
+      // call it before `s = 'x'` (SPARK-61197). Spark's compiled filter answers; without
+      // codegen it raises, as the fallback does, so there the filter keeps its fusion.
+      val (onSpark, plans) = checkFourCells(query("varka_cse_and_nn", ""))
+      assert(onSpark(true) == answered, onSpark)
+      assert(raisedWith("DATETIME_FIELD_OUT_OF_BOUNDS")(onSpark(false)), onSpark)
+      assertNotFused(plans((true, false)))
+      assertFused(plans((false, false)))
+      // Over nullable columns, or behind a leading conjunct, no AND of the chain is common.
+      for (q <- Seq(query("varka_cse_and", ""), query("varka_cse_and_nn", "i > 0 AND "))) {
+        val (s, p) = checkFourCells(q)
+        assert(s(true) == answered, s)
+        p.values.foreach(assertFused)
+      }
+    } finally {
+      uncacheCseTables()
+    }
+  }
+
+  // varka-session-lint: allow the gate read off Spark's generated code, which only a session
+  // compiles
+  test("the fallback's elimination gate is the branch Spark's compiled filter takes") {
+    import org.apache.spark.sql.execution.debug.codegenString
+    cacheCseTables()
+    // Spark's branch, read from its generated code: the CSE branch is taken exactly where the
+    // code differs from the code generated with subexpression elimination off.
+    def sparkCode(q: String, cse: Boolean): String =
+      withBothConf(SQLConf.SUBEXPRESSION_ELIMINATION_ENABLED.key, cse.toString) {
+        codegenString(spark.sql(q).queryExecution.executedPlan).replaceAll("#\\d+", "#")
+      }
+    try {
+      withAnsi(true) {
+        for {
+          where <- Seq("i > 0 AND b < 0", "i > 0 AND (s = 'x' OR arr[5] > 0) AND arr[5] < 10",
+            "i > 0 AND (s = 'x' OR arr[5] + 1 > 0) AND arr[5] + 1 < 10",
+            "year(d) > 2000 AND year(d) < 2030 AND b < 0")
+          filterExecCse <- Seq(true, false)
+        } {
+          withBothConf(SQLConf.SUBEXPRESSION_ELIMINATION_FILTER_EXEC_ENABLED.key,
+              filterExecCse.toString) {
+            val q = s"SELECT i FROM varka_cse_arr WHERE $where"
+            val sparkBranch = sparkCode(q, cse = true) != sparkCode(q, cse = false)
+            val node = collectFirst(varkaSpark.sql(q).queryExecution.executedPlan) {
+              case f: VarkaFilterExecBase => f
+            }.getOrElse(fail(s"no Varka filter for $q"))
+            // Read under Varka's session conf, as the node reads it when its plan runs.
+            val varkaGate = SQLConf.withExistingConf(varkaSpark.sessionState.conf) {
+              node.fallbackEliminatesSubexpressions
+            }
+            assert(varkaGate == sparkBranch,
+              s"filterExec=$filterExecCse, Spark's branch $sparkBranch: $q")
+          }
+        }
+        // The non-cheap case must take the branch, or the comparison above holds vacuously.
+        assert(sparkCode("SELECT i FROM varka_cse_arr WHERE year(d) > 2000 AND year(d) < 2030",
+          cse = true) != sparkCode("SELECT i FROM varka_cse_arr WHERE year(d) > 2000 AND " +
+          "year(d) < 2030", cse = false))
+      }
+    } finally {
+      uncacheCseTables()
+    }
+  }
 }
