@@ -58,7 +58,8 @@ public final class VarkaKernelPlan {
     /** A conversion this part of row 343 does not lower: from BIGINT, or to an integral lane. */
     CONVERSION,
     /**
-     * A condition root of a kernel driven at a 64-bit lane, {@code LONG} or {@code DOUBLE}, on an
+     * A condition root of a kernel driven at a 64-bit lane, {@code LONG} or {@code DOUBLE}, or a
+     * boolean output over a decimal column, on an
      * x86 host whose 64-bit species have two lanes or fewer and whose masks C2 does not lower
      * ({@link #TWO_LANE_CONDITION_REASON} names the column types): a refusal
      * of the host, not of the roots, so the compiler asks for it at admission ({@link #admit})
@@ -218,6 +219,12 @@ public final class VarkaKernelPlan {
       + "an x86 host whose 64-bit species have two lanes or fewer: C2 lowers no mask there, and "
       + "the selection would run the Vector API's Java fallback";
 
+  /** The reason a projection's boolean output records where {@link #hostRefusal} refuses it. */
+  public static final String TWO_LANE_DECIMAL_VALUE_REASON = "a condition over a DECIMAL column "
+      + "written as a BOOLEAN output, on an x86 host whose 64-bit species have two lanes or fewer: "
+      + "C2 lowers no mask or two-vector rearrange there, so the decimal slots' load and check "
+      + "and the compare would run the Vector API's Java fallback, slower than the row engine";
+
   /**
    * Whether {@code host}, read on this JVM, runs every mask of a 64-bit species as the Vector
    * API's Java fallback: {@link #twoLaneMasksFallBack(VarkaHostIsa.Reading, int)} of the reading
@@ -258,9 +265,9 @@ public final class VarkaKernelPlan {
   /**
    * Why no kernel of {@code roots} is admitted, or empty when one is: the plan's refusal, then,
    * where {@code twoLaneMasksFallBack} says the host's 64-bit masks fall back, the host's
-   * ({@link #hostRefusal}). The predicate compiler's admission asks this, with the flag the
-   * session resolved; the emitter and a compiled projection ask {@link #of}, which never refuses
-   * for the host.
+   * ({@link #hostRefusal}). The predicate compiler's admission and the projection's entry
+   * admission ask this, with the flag the session resolved; the emitter and a compiled
+   * projection ask {@link #of}, which never refuses for the host.
    */
   public static Optional<Refusal> admit(List<VarkaVectorIR> roots, VarkaEmitOptions options,
       boolean twoLaneMasksFallBack) {
@@ -309,6 +316,18 @@ public final class VarkaKernelPlan {
    * refusal gives that up for the dense body's loss. A refused conjunct leaves the rest of the
    * filter to fuse: {@code d < d2} beside it stays an int kernel, and the long conjunct is the
    * row filter's.
+   *
+   * <p>A projection's {@code BOOLEAN} output, a condition written as a value
+   * ({@link VarkaVectorIR.BoolOutput}), is refused only where its condition reads a decimal
+   * column (VARKA-596), since that is where its loss was measured. Every decimal is read from
+   * Arrow's sixteen-byte slots by two rearranges of two vectors of slots and a check of each slot,
+   * which at two long lanes run as the fallback with the compares: under
+   * {@code -XX:UseAVX=2 -XX:MaxVectorSize=16} {@code x < y} as a value ran at about 0.2X of the
+   * row path at {@code DECIMAL(9, 2)} and at 0.8X at {@code DECIMAL(38, 10)} and
+   * {@code DECIMAL(20, 2)}, on the EPYC 7763 as on the laptop, while {@code l < l2} over
+   * {@code BIGINT}, whose load is one plain vector, ran at 1.6X and more, and {@code x < x2} over
+   * {@code DOUBLE} tied ({@code m8/results/VARKA-596/}). A refused output leaves the other entries
+   * to fuse.
    */
   private static Optional<Refusal> hostRefusal(List<VarkaVectorIR> roots, VarkaKernelPlan plan) {
     if (plan.drive.bits() != 64) {
@@ -318,8 +337,30 @@ public final class VarkaKernelPlan {
       if (root instanceof VarkaVectorIR.Cond) {
         return Optional.of(new Refusal(Kind.TWO_LANE_CONDITION, TWO_LANE_CONDITION_REASON));
       }
+      if (root instanceof VarkaVectorIR.BoolOutput && readsDecimal(root, new HashSet<>())) {
+        return Optional.of(new Refusal(Kind.TWO_LANE_CONDITION, TWO_LANE_DECIMAL_VALUE_REASON));
+      }
     }
     return Optional.empty();
+  }
+
+  /**
+   * Whether {@code node}'s tree reads a decimal column, on the long lane or as the lane pair's
+   * words. {@code seen} holds the nodes already walked, so a shared subtree is walked once.
+   */
+  private static boolean readsDecimal(VarkaVectorIR node, Set<VarkaVectorIR> seen) {
+    if (node instanceof VarkaVectorIR.DecimalColumn || node instanceof VarkaVectorIR.DecimalWord) {
+      return true;
+    }
+    if (!seen.add(node)) {
+      return false;
+    }
+    for (VarkaVectorIR child : VarkaVectorIR.childrenOf(node)) {
+      if (readsDecimal(child, seen)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   // -------------------------------------------------------------------------------------------

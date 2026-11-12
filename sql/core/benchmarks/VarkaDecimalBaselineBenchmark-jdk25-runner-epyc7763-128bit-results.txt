@@ -6,22 +6,18 @@ DECIMAL(9, 2) x < w filter, w at another scale, no nulls: fuses only its null te
 DECIMAL(9, 2) <=> filter, no nulls: fuses whole on the varka on arm, so it times a kernel there, not the row path
 DECIMAL(9, 2) -x < y filter, no nulls: fuses only its null tests on the varka on arm, so it times a null-test kernel there under the row path's condition
 DECIMAL(9, 2) abs(x) < y filter, no nulls: fuses only its null tests on the varka on arm, so it times a null-test kernel there under the row path's condition
-DECIMAL(9, 2) x < y as a value, no nulls: fuses whole on the varka on arm, so it times a kernel there, not the row path
 DECIMAL(9, 2) x < w filter, w at another scale, one row in ten null: fuses only its null tests on the varka on arm, so it times a null-test kernel there under the row path's condition
 DECIMAL(9, 2) <=> filter, one row in ten null: fuses whole on the varka on arm, so it times a kernel there, not the row path
 DECIMAL(9, 2) -x < y filter, one row in ten null: fuses only its null tests on the varka on arm, so it times a null-test kernel there under the row path's condition
 DECIMAL(9, 2) abs(x) < y filter, one row in ten null: fuses only its null tests on the varka on arm, so it times a null-test kernel there under the row path's condition
-DECIMAL(9, 2) x < y as a value, one row in ten null: fuses whole on the varka on arm, so it times a kernel there, not the row path
 DECIMAL(18, 4) x < w filter, w at another scale, no nulls: fuses only its null tests on the varka on arm, so it times a null-test kernel there under the row path's condition
 DECIMAL(18, 4) <=> filter, no nulls: fuses whole on the varka on arm, so it times a kernel there, not the row path
 DECIMAL(18, 4) -x < y filter, no nulls: fuses only its null tests on the varka on arm, so it times a null-test kernel there under the row path's condition
 DECIMAL(18, 4) abs(x) < y filter, no nulls: fuses only its null tests on the varka on arm, so it times a null-test kernel there under the row path's condition
-DECIMAL(18, 4) x < y as a value, no nulls: fuses whole on the varka on arm, so it times a kernel there, not the row path
 DECIMAL(18, 4) x < w filter, w at another scale, one row in ten null: fuses only its null tests on the varka on arm, so it times a null-test kernel there under the row path's condition
 DECIMAL(18, 4) <=> filter, one row in ten null: fuses whole on the varka on arm, so it times a kernel there, not the row path
 DECIMAL(18, 4) -x < y filter, one row in ten null: fuses only its null tests on the varka on arm, so it times a null-test kernel there under the row path's condition
 DECIMAL(18, 4) abs(x) < y filter, one row in ten null: fuses only its null tests on the varka on arm, so it times a null-test kernel there under the row path's condition
-DECIMAL(18, 4) x < y as a value, one row in ten null: fuses whole on the varka on arm, so it times a kernel there, not the row path
 DECIMAL(9, 2) x + y < z filter, no nulls: fuses only its null tests on the varka on arm, so it times a null-test kernel there under the row path's condition
 DECIMAL(9, 2) x - w > 0 filter, w at another scale, no nulls: fuses only its null tests on the varka on arm, so it times a null-test kernel there under the row path's condition
 DECIMAL(9, 2) x8 * y < z filter, x8 a DECIMAL(8, 2), no nulls: fuses only its null tests on the varka on arm, so it times a null-test kernel there under the row path's condition
@@ -428,12 +424,12 @@ varka on                                                                        
 DECIMAL(38, 10) x < y as a value, no nulls
 ================================================================================================
 
-OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1017-azure
+OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1019-azure
 AMD EPYC 7763 64-Core Processor
 DECIMAL(38, 10) x < y as a value, no nulls over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ---------------------------------------------------------------------------------------------------------------------------------------------------------
-spark row path (varka off)                                                           778            795          12          2.6         389.0       1.0X
-varka on                                                                             871            886          11          2.3         435.4       0.9X
+spark row path (varka off)                                                           754            769          10          2.7         376.8       1.0X
+varka on                                                                             767            784          21          2.6         383.4       1.0X
 
 
 ================================================================================================
@@ -500,12 +496,12 @@ varka on                                                                        
 DECIMAL(38, 10) x < y as a value, one row in ten null
 ================================================================================================
 
-OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1017-azure
+OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1019-azure
 AMD EPYC 7763 64-Core Processor
 DECIMAL(38, 10) x < y as a value, one row in ten null over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------
-spark row path (varka off)                                                                      740            750           7          2.7         370.1       1.0X
-varka on                                                                                        995           1000           7          2.0         497.5       0.7X
+spark row path (varka off)                                                                      656            683          25          3.0         328.1       1.0X
+varka on                                                                                        667            688          15          3.0         333.3       1.0X
 
 
 ================================================================================================
@@ -572,12 +568,12 @@ varka on                                                                        
 DECIMAL(20, 2) x < y as a value, no nulls
 ================================================================================================
 
-OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1017-azure
+OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1019-azure
 AMD EPYC 7763 64-Core Processor
 DECIMAL(20, 2) x < y as a value, no nulls over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 --------------------------------------------------------------------------------------------------------------------------------------------------------
-spark row path (varka off)                                                          836            856          20          2.4         417.8       1.0X
-varka on                                                                            882            906          16          2.3         441.1       0.9X
+spark row path (varka off)                                                          786            807          20          2.5         393.0       1.0X
+varka on                                                                            784            810          21          2.6         392.0       1.0X
 
 
 ================================================================================================
@@ -644,12 +640,12 @@ varka on                                                                        
 DECIMAL(20, 2) x < y as a value, one row in ten null
 ================================================================================================
 
-OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1017-azure
+OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1019-azure
 AMD EPYC 7763 64-Core Processor
 DECIMAL(20, 2) x < y as a value, one row in ten null over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------
-spark row path (varka off)                                                                     779            807          28          2.6         389.5       1.0X
-varka on                                                                                      1020           1026           9          2.0         509.8       0.8X
+spark row path (varka off)                                                                     707            718          10          2.8         353.4       1.0X
+varka on                                                                                       716            730          16          2.8         358.1       1.0X
 
 
 ================================================================================================
@@ -716,12 +712,12 @@ varka on                                                                        
 DECIMAL(9, 2) x < y as a value, no nulls
 ================================================================================================
 
-OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1017-azure
+OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1019-azure
 AMD EPYC 7763 64-Core Processor
 DECIMAL(9, 2) x < y as a value, no nulls over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 -------------------------------------------------------------------------------------------------------------------------------------------------------
-spark row path (varka off)                                                         126            128           3         15.8          63.2       1.0X
-varka on                                                                           484            497           9          4.1         241.9       0.3X
+spark row path (varka off)                                                         128            131           5         15.7          63.9       1.0X
+varka on                                                                           129            130           1         15.5          64.4       1.0X
 
 
 ================================================================================================
@@ -788,12 +784,12 @@ varka on                                                                        
 DECIMAL(9, 2) x < y as a value, one row in ten null
 ================================================================================================
 
-OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1017-azure
+OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1019-azure
 AMD EPYC 7763 64-Core Processor
 DECIMAL(9, 2) x < y as a value, one row in ten null over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------
-spark row path (varka off)                                                                    124            126           2         16.2          61.9       1.0X
-varka on                                                                                      599            612          11          3.3         299.7       0.2X
+spark row path (varka off)                                                                    124            128           3         16.1          62.1       1.0X
+varka on                                                                                      124            127           2         16.1          62.1       1.0X
 
 
 ================================================================================================
@@ -860,12 +856,12 @@ varka on                                                                        
 DECIMAL(18, 4) x < y as a value, no nulls
 ================================================================================================
 
-OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1017-azure
+OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1019-azure
 AMD EPYC 7763 64-Core Processor
 DECIMAL(18, 4) x < y as a value, no nulls over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 --------------------------------------------------------------------------------------------------------------------------------------------------------
-spark row path (varka off)                                                          127            132          11         15.7          63.7       1.0X
-varka on                                                                            473            482          11          4.2         236.5       0.3X
+spark row path (varka off)                                                          128            135          13         15.7          63.8       1.0X
+varka on                                                                            127            130           2         15.7          63.6       1.0X
 
 
 ================================================================================================
@@ -932,12 +928,12 @@ varka on                                                                        
 DECIMAL(18, 4) x < y as a value, one row in ten null
 ================================================================================================
 
-OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1017-azure
+OpenJDK 64-Bit Server VM 25.0.5.0.3+1-LTS on Linux 7.0.0-1019-azure
 AMD EPYC 7763 64-Core Processor
 DECIMAL(18, 4) x < y as a value, one row in ten null over 2000000 Arrow-cached rows:  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------
-spark row path (varka off)                                                                     123            125           3         16.3          61.5       1.0X
-varka on                                                                                       599            607          10          3.3         299.7       0.2X
+spark row path (varka off)                                                                     124            127           3         16.2          61.8       1.0X
+varka on                                                                                       125            127           2         16.0          62.6       1.0X
 
 
 ================================================================================================

@@ -129,7 +129,7 @@ case class VarkaColumnarToRowExec(
   // `sql`, rather than the same pure compile once per consumer (VARKA-21's review).
   @transient private[sql] lazy val classification =
     VarkaExpressionCompiler.compilePartial(projectList, child.output,
-      VarkaColumnarToRowExec.emitOptions(sessionEmit), sessionEmit.familiesOff)
+      VarkaColumnarToRowExec.emitOptions(sessionEmit), sessionEmit.admission)
 
   // verbose EXPLAIN answers "why didn't my projection fuse?" - every entry's
   // classification, and for a residual entry the reason the compiler declined it.
