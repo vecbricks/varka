@@ -60,3 +60,71 @@ considered: a choice whose condition is a widened compare (`CAST(f AS DOUBLE) = 
 though the condition equals `f = 0.0F` for every FLOAT. A rewrite of that compare to the column's
 own lane, or a conversion arm in `coalesce` beside the narrow-column widening arm, would close
 both; it is not on `VARKA-343.md` 7's list of declines that stay, so it deserves a row of its own.
+
+*9 November 2026, correcting sections 2 and 3:* `nullifzero(f)` was not refused in a session. The
+pinned tree was the analyzed one; the optimizer's `UnwrapCastInBinaryComparison` moves a widening
+compared with a literal to the literal's side wherever the cast is an up-cast, and FLOAT to
+DOUBLE is one, so a session hands Varka `IF(f = 0.0F, NULL, f)`, on the float lane. Only
+`zeroifnull(f)` needs the conversion arm, and section 4 leaves it declined.
+
+## 4. The second part (9 November 2026, branch `varka-578-rest`)
+
+The row's status listed two pieces left: `nullifzero` and `zeroifnull` over `FLOAT`, and every
+decimal pair. Section 2 said both stay; the row's status said they were left. The conservative
+reading taken: build what needs no decision of another row, and pin the rest.
+
+**Built.**
+
+* **The decimal null value.** `VarkaDecimalCompiler.literal` compiles a null constant to the long
+  lane's `NullValue` at the constant's type, a `CASE` without an `ELSE` takes that null as its
+  `ELSE`, and `valid` answers false for it (it answered true for every constant, which was safe
+  only while a null constant declined). Nothing else was missing: coercion gives every operand of
+  `nvl`, `ifnull`, `nvl2`, `nullif`, `between` and `equal_null` the wider decimal type, whose
+  rescales, choices, comparisons and null tests row 348 built. The int zero of `nullifzero` is
+  `DECIMAL(1, 0)` (`literalPickMinimumPrecision`, on by default), so its compare stays within the
+  column's type wherever the column has an integral digit (a `DECIMAL(p, p)` compares at
+  `DECIMAL(p + 1, p)`, which a session's `UnwrapCastInBinaryComparison` moves back to the
+  column's type); that of `zeroifnull` widens as `DECIMAL(10, 0)`, so its comparison fuses to
+  scale 8, and its null test at every scale, past 18 digits as the next item says.
+* **The null tests past 18 digits** (added after the review, 10 November 2026). A null test of a
+  wide value reads its validity alone (`wideProbe`, then `valid`), and needs no words for the
+  `NULL` of `nullif` and `nullifzero` or for a missing `ELSE`: the probe passes both and `valid`
+  answers false for them, as it does within 18 digits. So `nullif(c, d) IS NULL`,
+  `nullifzero(c) IS NULL` and `CASE WHEN c < d THEN c END IS NULL` fuse over `DECIMAL(20, 2)`,
+  and under a `coalesce`, a choice or a pick too. `valid` folds a nullable constant through the
+  same guarded evaluation `literal` uses, declining where it fails, and reads a non-nullable one
+  unevaluated.
+* **Coverage rows.** `nullifzero(f)`, from the tree the optimizer hands on (the row's built tree
+  is `VarkaSqlResolve.optimizeIn` over the resolved call, and the other suites run its SQL,
+  `if(f = 0.0F, NULL, f)`); and 17 rows in a family of their own over the decimal columns,
+  under a comparison or a null test, since a decimal value is no output before 348b.
+* **Tests.** `VarkaDecimalValueSuite` holds 14 forms over `DECIMAL(9, 2)` and `DECIMAL(9, 4)`
+  columns to Spark's `eval`, over values equal after the rescale, one unit apart, zeros, the
+  precision's bounds and nulls; and pins, per form, which past 18 digits fuse and which decline
+  naming 359 or 360. `VarkaDecimalPairSuite` holds 13 null tests of the family over
+  `DECIMAL(20, 2)` beside `DECIMAL(20, 2)` and `DECIMAL(38, 2)` to Spark's `eval`, on the word
+  edges at every width.
+  `VarkaExpressionCompilerSuite` pins the unwrap of `nullifzero(f)` and keeps `zeroifnull(f)`'s
+  decline.
+* The census notes of `nullif`, `nullifzero` and `zeroifnull`, and `float` among `nullifzero`'s
+  fused types. No entry gains `dec`: the milestone's rule (`PLAN.md` 2.8) counts a decimal entry
+  fused once rows 359, 360 and 363 land.
+
+**Declines that stay.**
+
+* **`zeroifnull(f)` under ANSI**: `coalesce(CAST(f AS DOUBLE), 0.0D)`, a `DOUBLE` choice whose
+  first operand is a conversion (`AnsiTypeCoercion` takes `DOUBLE` for a float beside an int; the
+  legacy coercion keeps `FLOAT`, so there the call is `coalesce(f, 0.0F)`, the shape of the other
+  floating rows). Its null test would be the float column's, crossed to the double lane, which
+  is a crossing of one kind; `VARKA-343.md` 2.2.1 leaves those out by decision ("one kind, so not
+  crossed"), and changing that is row 343's call, not this row's. Section 3's conversion arm is
+  the way, and it stays a finding for a row of its own.
+* **A decimal past 18 digits as a compared value**: `nvl(c, d) > 0.00`, `zeroifnull(c) = d`,
+  `nullif(c, d) <=> c` and `nullif(c, d) IN (c, d)` over `DECIMAL(20, 2)`, and a null constant
+  compared at a wide type. Row 359's pair (#1413, merged) compares and null-tests columns,
+  widening casts and constants, but holds no choice and no null as a value: those are its value
+  half, part 359b. Each declines naming 359. A rescale into the wide type, as coercion gives
+  `nullif(a, e)` of a `DECIMAL(18, 2)` and a `DECIMAL(16, 9)` at `DECIMAL(25, 9)`, is row 360's
+  as well and names both.
+* **A decimal null family value as a projection's output**: row 348's part 348b.
+

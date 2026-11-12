@@ -45,7 +45,9 @@ scales wait for a rescale), which a coverage row must show, but it is not counte
 goes to census.tsv's fused_in_part column and never to fused_today, so the done-when counts and
 the need rule read it as unfused; the conformance harness lets such a form fuse without calling
 it drift (VARKA-359.md 10.5). The cast aliases'
-source types are not curated: they are the sources `legal()` allows.
+source types are not curated: they are the sources `legal()` allows. Nor are the fused types of
+the cast entries (the aliases, `cast` and `try_cast`, marked `matrix`): they are derived from
+casts_fused.tsv by matrix_fused() (VARKA-606).
 So the census is regenerated, not edited, and a registry change upstream shows up here.
 """
 
@@ -254,6 +256,10 @@ CAST_ALIASES = {
     "date": "date",
     "time": "time",
 }
+# The modes each cast entry can run in. An alias and `cast` are a Cast under the session's mode,
+# LEGACY or ANSI as spark.sql.ansi.enabled says, never TRY; `try_cast` is TRY alone.
+CAST_ENTRY_MODES = {name: ("legacy", "ansi") for name in [*CAST_ALIASES, "cast"]}
+CAST_ENTRY_MODES["try_cast"] = ("try",)
 
 
 def registry():
@@ -427,6 +433,7 @@ def build():
     implicit = parse_table(sections["implicit"], 9)
     implicit_out = parse_table(sections.get("implicit excluded", ""), 4)
     cov = coverage_index()
+    probe = casts_fused()
     classes = defined_classes()
     errors = []
     seen = set()
@@ -440,7 +447,8 @@ def build():
             if reason:
                 errors.append(f"{name}: both curated and excluded ({reason})")
             _, types, result, fused, need, rows, note = curated[name]
-            out.append(row(section, name, cls, types, result, fused, need, rows, note, cov, errors))
+            r = row(section, name, cls, types, result, fused, need, rows, note, cov, errors, probe)
+            out.append(r)
         elif reason:
             out.append([name, cls, section, "out", reason, "", "", "", "", "", "", "", ""])
         else:
@@ -451,7 +459,7 @@ def build():
     for name, cls, family, types, result, fused, need, rows, note in implicit:
         if cls not in classes:
             errors.append(f"{name}: class {cls} is not defined in the sources")
-        r = row("implicit", name, cls, types, result, fused, need, rows, note, cov, errors)
+        r = row("implicit", name, cls, types, result, fused, need, rows, note, cov, errors, probe)
         r[2] = "implicit: " + family
         out.append(r)
     for name, cls, family, reason in implicit_out:
@@ -465,18 +473,23 @@ def build():
     return out, errors
 
 
-def row(section, name, cls, types, result, fused, need, rows, note, cov, errors):
+def row(section, name, cls, types, result, fused, need, rows, note, cov, errors, probe):
     if (name in CAST_ALIASES) != (types == "legal") and section != "implicit":
         errors.append(f"{name}: a cast alias, and only one, takes its sources from legal()")
     if types == "legal":
         target = CAST_ALIASES[name]
         t = [src for src in ORDER if any(legal(src, target))]
         types = ",".join(t)
+    if (name in CAST_ENTRY_MODES) != (fused == "matrix"):
+        errors.append(f"{name}: a cast entry, and only one, takes its fused types from the matrix")
     # A type marked `!` is declined by the owner's decision: it leaves the types the entry admits
     # (and so the done-when denominator) and is recorded in the reason column instead.
     declined = expand(",".join(p[:-1] for p in types.split(",") if p.endswith("!")))
     t = expand(",".join(p for p in types.split(",") if p and not p.endswith("!")))
     res = t if result == "same" else expand(result)
+    fused_by_matrix = fused == "matrix" and name in CAST_ENTRY_MODES
+    if fused_by_matrix:
+        fused = matrix_fused(name, t, probe, cov)
     # A type marked `^` is fused in part, and kept apart from the counted ones.
     partial = expand(",".join(p[:-1] for p in fused.split(",") if p.endswith("^")))
     f = expand(",".join(p for p in fused.split(",") if p and not p.endswith("^")))
@@ -496,7 +509,9 @@ def row(section, name, cls, types, result, fused, need, rows, note, cov, errors)
     for x in f:
         if x not in t:
             errors.append(f"{name}: fused type {x} is not among its types")
-        if x in derived:
+        # An identity needs no coverage row (pair_credit); TIME and DECIMAL to themselves are not.
+        target = CAST_ALIASES.get(name)
+        if x in derived or (fused_by_matrix and target == x and cast_kind(x, x)[0] == "identity"):
             continue
         if not any(x in cov.get(c, set()) for c in check_classes):
             classes = " or ".join(check_classes)
@@ -913,6 +928,78 @@ def fused_cells(probe, src, dst):
 
 # The mode a coverage row's cast runs in, to the legal() answer that admits it.
 MODE_LEGAL = {"legacy": 0, "ansi": 1, "try": 1}
+
+
+def pair_credit(probe, cov, src, dst, modes):
+    """How far the cast src -> dst fuses under the given modes: None where it is legal in none of
+    them, "all" where every form legal in each mode that admits it fuses there and a coverage row
+    casts it, "part" where some form fuses in some such mode and a coverage row casts it, else "".
+    An identity (cast_kind's) is "all" with no fused form and no coverage row: the analyzer removes
+    it before a cast exists, so it never reaches Varka (the owner's decision, 11 November 2026). A
+    pair that fuses only inside another operator (CONTEXT_CASTS) is "".
+
+    >>> probe = {("ym", "int"): ({"legacy": 3, "ansi": 3, "try": 3},
+    ...                          {"legacy": 2, "ansi": 2, "try": 2}),
+    ...          ("bool", "byte"): ({"legacy": 1, "ansi": 1, "try": 1},
+    ...                             {"legacy": 1, "ansi": 1, "try": 1}),
+    ...          ("byte", "int"): ({"legacy": 1, "ansi": 1, "try": 1},
+    ...                            {"legacy": 1, "ansi": 0, "try": 0})}
+    >>> cov = {"#casts": {("ym", "int", "ansi"), ("bool", "byte", "ansi"), ("byte", "int", "ansi")}}
+    >>> [pair_credit(probe, cov, s, d, ("legacy", "ansi"))
+    ...  for s, d in [("bool", "byte"), ("ym", "int"), ("byte", "int"), ("bool", "bool")]]
+    ['all', 'part', 'part', 'all']
+    >>> [pair_credit(probe, {"#casts": set()}, s, d, ("legacy", "ansi"))
+    ...  for s, d in [("bool", "byte"), ("int", "int")]]
+    ['', 'all']
+    >>> pair_credit(probe, cov, "date", "int", ("try",)) is None
+    True
+    """
+    admitted = [m for m in modes if legal(src, dst)[MODE_LEGAL[m]]]
+    if not admitted:
+        return None
+    shown = any((src, dst) == (s, d) for s, d, _ in cov["#casts"])
+    if cast_kind(src, dst)[0] == "identity":
+        return "all"
+    if (src, dst) in CONTEXT_CASTS or not shown:
+        return ""
+    legal_forms, fused = probe.get((src, dst), ({}, {}))
+    if all(0 < fused.get(m, 0) == legal_forms.get(m) for m in admitted):
+        return "all"
+    return "part" if any(fused.get(m) for m in admitted) else ""
+
+
+def matrix_fused(name, sources, probe, cov):
+    """A cast entry's fused types, in the curated file's notation, derived from the compiler's
+    cast matrix (casts_fused.tsv) rather than curated, so the credit cannot drift from it
+    (VARKA-606). The entry counts by source type (m8/PLAN.md 2.1): a source counts fused when
+    every pair from it the entry can run is "all" under the modes the entry runs in
+    (CAST_ENTRY_MODES), and fused in part (`^`) when it is not but some such pair fuses at least
+    in part. An alias runs one pair from each source, to its target; `cast` and `try_cast` run
+    every legal pair from it. An identity counts fused (pair_credit), so an alias credits its own
+    type, and the identity from a source neither blocks it for `cast` and `try_cast` nor, alone,
+    marks it fused in part.
+
+    >>> matrix_fused("tinyint", ["bool", "short", "int", "bigint", "float"], {
+    ...     ("bool", "byte"): ({"legacy": 1, "ansi": 1}, {"legacy": 1, "ansi": 1}),
+    ...     ("short", "byte"): ({"legacy": 1, "ansi": 1}, {"legacy": 1, "ansi": 0})},
+    ...     {"#casts": {("bool", "byte", "ansi"), ("short", "byte", "ansi")}})
+    'bool,short^'
+    >>> matrix_fused("tinyint", ["byte"], {}, {"#casts": set()})  # its identity
+    'byte'
+    >>> matrix_fused("try_cast", ["bool"], {}, {"#casts": set()})
+    ''
+    """
+    modes = CAST_ENTRY_MODES[name]
+    dsts = [CAST_ALIASES[name]] if name in CAST_ALIASES else ORDER
+    out = []
+    for src in sources:
+        credits = {dst: pair_credit(probe, cov, src, dst, modes) for dst in dsts}
+        credits = {dst: c for dst, c in credits.items() if c is not None}
+        if credits and all(c == "all" for c in credits.values()):
+            out.append(src)
+        elif any(c for dst, c in credits.items() if cast_kind(src, dst)[0] != "identity"):
+            out.append(src + "^")
+    return ",".join(out)
 
 
 def cast_errors(cov, probe):
