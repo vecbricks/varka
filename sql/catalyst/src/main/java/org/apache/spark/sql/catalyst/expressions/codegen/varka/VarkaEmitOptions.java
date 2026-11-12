@@ -665,7 +665,9 @@ public record VarkaEmitOptions(
   /**
    * The {@code UseAVX} level at which HotSpot enables its AVX-512 paths: the lowest level whose
    * long-to-floating conversions are one instruction (see {@link #convertsFallBack()}), and the
-   * one a session asking for the host's resolves a CPU with AVX512DQ to.
+   * one a session asking for the host's resolves a CPU with AVX512DQ to, and an aarch64 host
+   * whose feature list it read, whose conversions are instructions too
+   * ({@code VarkaSessionEmit.resolve}).
    */
   public static final int AVX512_LEVEL = 3;
 
@@ -692,9 +694,11 @@ public record VarkaEmitOptions(
   }
 
   /**
-   * Whether this record names no {@code UseAVX} level: the defaults', an unset session's and an
-   * aarch64 host's ({@code VarkaSessionEmit.resolve}), where the kernel plan declines a
-   * {@code BIGINT} conversion to {@code FLOAT} or {@code DOUBLE}, as an AVX2 host's Java loop.
+   * Whether this record names no {@code UseAVX} level: the defaults', an unset session's and
+   * that of a host the session cannot vouch for, one whose feature list was not read or of
+   * another architecture than x86 and aarch64 ({@code VarkaSessionEmit.resolve}), where the
+   * kernel plan declines a {@code BIGINT} conversion to {@code FLOAT} or {@code DOUBLE}, as an
+   * AVX2 host's Java loop.
    */
   public boolean levelUnknown() {
     return useAVX == USE_AVX_UNKNOWN;

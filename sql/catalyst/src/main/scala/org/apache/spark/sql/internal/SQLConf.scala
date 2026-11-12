@@ -3302,7 +3302,8 @@ object SQLConf {
       " driver's JVM: level 2 where HotSpot's feature list lacks" +
       " AVX512DQ and the preferred LongVector species, which -XX:MaxVectorSize caps, is at" +
       " least 256 bits wide (at 128 bits the magic-number form measured slower than the" +
-      " conversions' fallback), 3 on an x86 host whose list holds AVX512DQ, and the emitter's" +
+      " conversions' fallback), 3 on an x86 host whose list holds AVX512DQ and on an aarch64" +
+      " host, whose matcher lowers both conversions to instructions, and the emitter's" +
       " default elsewhere and where the list cannot be read (it needs" +
       " --add-exports=java.base/jdk.internal.vm.vector=ALL-UNNAMED," +
       " which Spark's module options carry). The driver's host decides for the whole plan," +
