@@ -30,6 +30,7 @@ import java.util.regex.Pattern;
 
 import scala.Tuple2;
 import scala.jdk.javaapi.CollectionConverters;
+import scala.util.control.NonFatal;
 
 import org.apache.spark.sql.catalyst.expressions.Abs;
 import org.apache.spark.sql.catalyst.expressions.Add;
@@ -41,6 +42,7 @@ import org.apache.spark.sql.catalyst.expressions.Expression;
 import org.apache.spark.sql.catalyst.expressions.Greatest;
 import org.apache.spark.sql.catalyst.expressions.If;
 import org.apache.spark.sql.catalyst.expressions.Least;
+import org.apache.spark.sql.catalyst.expressions.Literal;
 import org.apache.spark.sql.catalyst.expressions.Multiply;
 import org.apache.spark.sql.catalyst.expressions.RuntimeReplaceable;
 import org.apache.spark.sql.catalyst.expressions.Subtract;
@@ -587,19 +589,24 @@ final class VarkaDecimalCompiler {
 
   /**
    * A constant wider than 18 digits as two slots of the long table, the words of its unscaled
-   * value at its type's scale, folded as {@link #literal} folds one and declining as it does.
+   * value at its type's scale, folded as {@link #literal} folds one and declining as it does,
+   * but for the null constant, which no pair holds.
    */
   private static Optional<Pair> widePairLiteral(Expression e, DecimalType type,
       DeclineSink sink) {
-    Object value;
-    try {
-      value = e.eval(null);
-    } catch (RuntimeException failed) {
-      return sink.decline("a decimal constant whose evaluation fails", e);
+    Optional<Folded> folded = folded(e, sink);
+    if (folded.isEmpty()) {
+      return Optional.empty();
+    }
+    Object value = folded.get().value();
+    if (value == null) {
+      // A pair holds no null of its own: a null test needs none (wideProbe passes the null
+      // constant, valid() answers false for it), and the value half is row 359's part 359b.
+      return sink.decline("a null decimal constant wider than " + MAX_PRECISION + " digits as a "
+          + "value is row 359's", e);
     }
     if (!(value instanceof Decimal d)) {
-      return sink.decline("a null decimal literal needs a decimal null value, rows 348 and 359's",
-          e);
+      return sink.decline("a decimal constant that is not a Decimal", e);
     }
     BigInteger unscaled;
     try {
@@ -760,16 +767,30 @@ final class VarkaDecimalCompiler {
   }
 
   /**
-   * {@link #nullTested}'s probe of a value wider than 18 digits: the forms that cannot null or
-   * fail where their leaves are valid, so their validity is {@link #valid}'s though no
-   * {@link Pair} holds them - {@link #pair}'s forms, a cast that keeps every digit, a choice and
-   * a pick, under its family's switch. Everything else declines naming its row: a sum, a product
-   * or a lowering cast can overflow, and Spark negates a wide value through Scala's
-   * {@code BigDecimal}, rounding it to 34 digits, so {@code -x} and {@code abs} can raise.
+   * {@link #nullTested}'s probe of a value wider than 18 digits: the forms that cannot fail and
+   * whose null their leaves' validity and their conditions decide, so their validity is
+   * {@link #valid}'s though no {@link Pair} holds them - {@link #pair}'s forms, the null
+   * constant, a cast that keeps every digit, a choice (a {@code CASE} without an {@code ELSE}
+   * included) and a pick, under its family's switch. Everything else declines naming its row: a
+   * sum, a product or a lowering cast can overflow, and Spark negates a wide value through
+   * Scala's {@code BigDecimal}, rounding it to 34 digits, so {@code -x} and {@code abs} can
+   * raise.
    */
   private static Optional<DecimalType> wideProbe(Expression e, VarkaSlotTable inputs,
       VarkaSlotTable literals, DeclineSink sink) {
-    if (!isWide(e) || e.foldable() || e instanceof BoundReference) {
+    // Checked before any arm, the null constant's and a choice's included, which read no pair.
+    if (e.dataType() instanceof DecimalType t && t.scale() < 0) {
+      return sink.decline("a decimal of negative scale is declined everywhere (the milestone "
+          + "plan's 2.8)", e);
+    }
+    if (isWide(e) && e.foldable()) {
+      // The null constant needs no words, its validity being valid()'s false; any other is read
+      // as its pair, which checks that its digits fit.
+      DecimalType wide = (DecimalType) e.dataType();
+      return folded(e, sink).flatMap(f -> f.value() == null ? Optional.of(wide)
+          : pair(e, inputs, literals, sink).map(Pair::type));
+    }
+    if (!isWide(e) || e instanceof BoundReference) {
       return pair(e, inputs, literals, sink).map(Pair::type);
     }
     DecimalType type = (DecimalType) e.dataType();
@@ -779,12 +800,15 @@ final class VarkaDecimalCompiler {
       case RuntimeReplaceable r -> wideProbe(r.replacement(), inputs, literals, sink);
       case If i -> VarkaNodeCompiler.inFamily(VarkaFamily.CONDITION, () -> allProbed(
           List.of(i.trueValue(), i.falseValue()), type, inputs, literals, sink), i, sink);
-      case CaseWhen c when c.elseValue().isDefined() -> {
+      // A missing ELSE is the null, which needs no words, as a null constant does not.
+      case CaseWhen c -> {
         var values = new ArrayList<Expression>();
         for (Tuple2<Expression, Expression> branch : CollectionConverters.asJava(c.branches())) {
           values.add(branch._2());
         }
-        values.add(c.elseValue().get());
+        if (c.elseValue().isDefined()) {
+          values.add(c.elseValue().get());
+        }
         yield VarkaNodeCompiler.inFamily(VarkaFamily.CONDITION,
             () -> allProbed(values, type, inputs, literals, sink), c, sink);
       }
@@ -812,15 +836,23 @@ final class VarkaDecimalCompiler {
   /**
    * Where the decimal value {@code e}, which {@link #value} compiles, is not null, as a condition
    * over its leaves: a column's validity word, through every null-intolerant form over it (a
-   * rescale, a negation, {@code abs}); always for a constant; the choice's condition picking its
-   * branches' validity for {@code If} and {@code CASE}, whose unknown condition takes the ELSE as
-   * {@link VarkaVectorIR.CondIf} does; and any child's for {@code coalesce}, {@code greatest} and
-   * {@code least}, which are null only where every child is. Every condition here is total.
+   * rescale, a negation, {@code abs}); always for a constant but the null one, never for that
+   * ({@link #nullValue}); the choice's condition picking its branches' validity for {@code If}
+   * and {@code CASE}, whose unknown condition takes the ELSE as {@link VarkaVectorIR.CondIf}
+   * does, a missing ELSE being the null; and any child's for {@code coalesce}, {@code greatest}
+   * and {@code least}, which are null only where every child is. Every condition here is total.
    */
   static Optional<Cond> valid(Expression e, VarkaSlotTable inputs, VarkaSlotTable literals,
       DeclineSink sink) {
     if (e.foldable()) {
-      return Optional.of(new CondConst(Truth.TRUE, LaneType.LONG));
+      // Every caller compiles or probes the value first, which folds each constant once; so a
+      // constant that cannot be null is valid unevaluated, and any other is folded again,
+      // declining rather than throwing where its evaluation fails.
+      if (!e.nullable()) {
+        return Optional.of(new CondConst(Truth.TRUE, LaneType.LONG));
+      }
+      return folded(e, sink).map(f ->
+          new CondConst(f.value() == null ? Truth.FALSE : Truth.TRUE, LaneType.LONG));
     }
     return switch (e) {
       // A wide column's validity is its low word's, the test visiting the leaf for the check.
@@ -835,7 +867,7 @@ final class VarkaDecimalCompiler {
           valid(i.trueValue(), inputs, literals, sink).flatMap(t ->
               valid(i.falseValue(), inputs, literals, sink)
                   .map(f -> (Cond) new VarkaVectorIR.CondIf(k, t, f))));
-      case CaseWhen c when c.elseValue().isDefined() -> {
+      case CaseWhen c -> {
         // Compiled in the order value() compiles the choice, branch by branch and the ELSE last,
         // so that the leaves take their slots in one order, and folded from the right.
         var conds = new ArrayList<Cond>();
@@ -853,7 +885,9 @@ final class VarkaDecimalCompiler {
           conds.add(k.get());
           branchesValid.add(t.get());
         }
-        Optional<Cond> otherwise = valid(c.elseValue().get(), inputs, literals, sink);
+        Optional<Cond> otherwise = c.elseValue().isDefined()
+            ? valid(c.elseValue().get(), inputs, literals, sink)
+            : Optional.of(new CondConst(Truth.FALSE, LaneType.LONG));
         if (otherwise.isEmpty()) {
           yield Optional.empty();
         }
@@ -941,10 +975,10 @@ final class VarkaDecimalCompiler {
   }
 
   /**
-   * {@code IF} and {@code CASE WHEN} with an {@code ELSE}: the right fold of
-   * {@code IfElse(cond, value, rest)} over the branches. After coercion every branch has the
-   * node's type, a branch that was cast carrying its rescale inside, so the branches are of one
-   * scale and pick as their unscaled values (see {@link #branch}).
+   * {@code IF} and {@code CASE WHEN}, a missing {@code ELSE} the null ({@link #caseWhen}): the
+   * right fold of {@code IfElse(cond, value, rest)} over the branches. After coercion every
+   * branch has the node's type, a branch that was cast carrying its rescale inside, so the
+   * branches are of one scale and pick as their unscaled values (see {@link #branch}).
    */
   private static Optional<Scaled> choice(Expression whole, List<Expression> predicates,
       List<Expression> values, Expression otherwise, DecimalType type, VarkaSlotTable inputs,
@@ -974,13 +1008,12 @@ final class VarkaDecimalCompiler {
     return Optional.of(new Scaled(folded, type));
   }
 
-  /** {@code CASE WHEN}, which needs an {@code ELSE}, as the {@link #choice} of its branches. */
+  /**
+   * {@code CASE WHEN} as the {@link #choice} of its branches, a missing {@code ELSE} being the
+   * null of the choice's type ({@code Literal(null, type)}, which {@link #literal} compiles).
+   */
   private static Optional<Scaled> caseWhen(CaseWhen c, DecimalType type, VarkaSlotTable inputs,
       VarkaSlotTable literals, DeclineSink sink) {
-    if (c.elseValue().isEmpty()) {
-      return sink.decline("a CASE without an ELSE needs a decimal null value, rows 348 and 359's",
-          c);
-    }
     List<Tuple2<Expression, Expression>> branches = CollectionConverters.asJava(c.branches());
     var predicates = new ArrayList<Expression>(branches.size());
     var values = new ArrayList<Expression>(branches.size());
@@ -988,7 +1021,9 @@ final class VarkaDecimalCompiler {
       predicates.add(branch._1());
       values.add(branch._2());
     }
-    return choice(c, predicates, values, c.elseValue().get(), type, inputs, literals, sink);
+    Expression otherwise = c.elseValue().isDefined() ? c.elseValue().get()
+        : Literal.create(null, type);
+    return choice(c, predicates, values, otherwise, type, inputs, literals, sink);
   }
 
   /**
@@ -1241,22 +1276,24 @@ final class VarkaDecimalCompiler {
    * A constant's unscaled value at its type's scale, in a slot of the long table. A literal
    * arrives folded in a real query; in a tree the analyzer alone resolved it is the literal under
    * the casts type coercion put over it, or another tree over literals alone, and is folded here
-   * by evaluating it, which Spark's constant folding does the same way. A null constant declines
-   * naming rows 348 and 359, whose decimal null value it needs: a choice keeps one in a real
-   * query, as {@code IF(c, NULL, d)}, a {@code CASE} branch of {@code NULL} and {@code nullif},
-   * which the analyzer rewrites to an {@code IF}, do. An evaluation that fails, or a value that
-   * does not fit 18 digits, declines too, and leaves the row engine to raise or answer.
+   * by evaluating it, which Spark's constant folding does the same way. A null constant is the
+   * long lane's null value ({@link #nullValue}): a choice keeps one in a real query, as
+   * {@code IF(c, NULL, d)}, a {@code CASE} branch of {@code NULL} and {@code nullif} and
+   * {@code nullifzero}, which the analyzer rewrites to an {@code IF}, do. An evaluation that
+   * fails, or a value that does not fit 18 digits, declines, and leaves the row engine to raise
+   * or answer.
    */
   private static Optional<Scaled> literal(Expression e, DecimalType type, DeclineSink sink) {
-    Object value;
-    try {
-      value = e.eval(null);
-    } catch (RuntimeException failed) {
-      return sink.decline("a decimal constant whose evaluation fails", e);
+    Optional<Folded> folded = folded(e, sink);
+    if (folded.isEmpty()) {
+      return Optional.empty();
+    }
+    Object value = folded.get().value();
+    if (value == null) {
+      return Optional.of(nullValue(type));
     }
     if (!(value instanceof Decimal d)) {
-      return sink.decline("a null decimal literal needs a decimal null value, rows 348 and 359's",
-          e);
+      return sink.decline("a decimal constant that is not a Decimal", e);
     }
     OptionalLong unscaled = exactUnscaled(d, type.scale());
     if (unscaled.isEmpty()) {
@@ -1266,6 +1303,39 @@ final class VarkaDecimalCompiler {
       return sink.decline("a decimal literal outside its type's precision", e);
     }
     return Optional.of(new Scaled(sink.longSlot(unscaled.getAsLong()), type));
+  }
+
+  /** A constant's value, {@code null} for the null constant. */
+  private record Folded(Object value) { }
+
+  /**
+   * The constant {@code e} folded: a literal's own value, any other tree over literals evaluated
+   * as Spark's constant folding evaluates it, or empty, with the reason noted, where that
+   * evaluation fails, which leaves the row engine to raise. Any throw Spark's {@code NonFatal}
+   * admits declines, a checked one out of Scala code as well, as an {@code IN} element's
+   * ({@code VarkaConditionCompiler.constantValue}); a fatal one propagates.
+   */
+  private static Optional<Folded> folded(Expression e, DeclineSink sink) {
+    if (e instanceof Literal l) {
+      return Optional.of(new Folded(l.value()));
+    }
+    try {
+      return Optional.of(new Folded(e.eval(null)));
+    } catch (Throwable failed) {
+      if (!NonFatal.apply(failed)) {
+        throw failed;
+      }
+      return sink.decline("a decimal constant whose evaluation fails", e);
+    }
+  }
+
+  /**
+   * The null of {@code type} as a value (VARKA-578): the long lane's {@code NullValue}, a zero
+   * whose validity is clear on every row, which no consumer reads as a value. Its unscaled zero is
+   * within every precision, so the record's invariant holds; {@link #valid} answers false for it.
+   */
+  private static Scaled nullValue(DecimalType type) {
+    return new Scaled(new VarkaVectorIR.NullValue(LaneType.LONG), type);
   }
 
   /**
