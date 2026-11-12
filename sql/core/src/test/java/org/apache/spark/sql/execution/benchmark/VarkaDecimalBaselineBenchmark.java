@@ -530,9 +530,9 @@ public class VarkaDecimalBaselineBenchmark extends VarkaSqlBenchmarkBase {
     // The lane pair's <=>, IS NULL and projected comparison fuse whole over the words
     // (VARKA-359). Its negation, abs and IN are 359b's, so none of them fuses: of the first two
     // only the null tests Spark infers would, and such a filter stays whole on the row path
-    // (VARKA-598), and Spark infers none from an IN. The filters decline where the session
-    // refuses a 64-bit condition, and so does the projected comparison, a boolean output over a
-    // decimal column (VARKA-596).
+    // (VARKA-598), and Spark infers none from an IN. The <=> and IS NULL filters decline where
+    // the session refuses a 64-bit condition, and so does the projected comparison, a boolean
+    // output over a decimal column (VARKA-596).
     Map<ComparisonShape, Fusion> pairFusion = Map.of(
         ComparisonShape.IN, Fusion.NONE,
         ComparisonShape.NULL_SAFE, fusedFilter,
