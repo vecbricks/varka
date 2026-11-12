@@ -47,7 +47,10 @@ import org.apache.spark.sql.internal.SQLConf;
  *     not fuse at all, as a control: both arms are the row path;
  *   <li>{@code l ^ l2} as a projection, lanewise with no mask in the loop;
  *   <li>{@code CASE WHEN l < l2 THEN l ELSE l2 END}, {@code greatest(l, l2)} and
- *     {@code if(l IS NULL, l2, l)}, the blends.
+ *     {@code if(l IS NULL, l2, l)}, the blends;
+ *   <li>{@code x < y} as a {@code BOOLEAN} output over {@code DECIMAL(9, 2)}, one compare on the
+ *     long lane, and over {@code DECIMAL(38, 10)} and {@code DECIMAL(20, 2)}, the lane pair's
+ *     compare of two words a value (VARKA-596), over the decimal baseline's columns.
  * </ul>
  * Each runs over columns with no null, where the kernel takes its dense body, and over columns
  * with one row in ten null, where it takes the masked one.
@@ -77,6 +80,15 @@ import org.apache.spark.sql.internal.SQLConf;
 public class VarkaTwoLaneLongBenchmark extends VarkaSqlBenchmarkBase {
 
   static final int NUM_ROWS = 2_000_000;
+
+  /** The decimal baseline's table, cut to the columns the decimal sections read. */
+  static final String DECIMAL_VIEW = "varka_two_lane_decimal";
+
+  /** The decimal sections' precisions: one on the long lane, then the lane pair's two. */
+  static final List<VarkaDecimalBaselineBenchmark.Precision> DECIMAL_PRECISIONS = List.of(
+      VarkaDecimalBaselineBenchmark.precision(9),
+      VarkaDecimalBaselineBenchmark.PAIR_PRECISIONS.get(0),
+      VarkaDecimalBaselineBenchmark.PAIR_PRECISIONS.get(1));
 
   /** A section: its title, its query, and whether it runs under legacy (wrapping) arithmetic. */
   record Section(String title, String query, boolean legacy) {}
@@ -108,6 +120,19 @@ public class VarkaTwoLaneLongBenchmark extends VarkaSqlBenchmarkBase {
     }
     return "select " + String.join(", ", columns) + " from (select id, "
         + String.join(", ", values) + " from range(0, " + rows + "))";
+  }
+
+  /** The query of {@link #DECIMAL_VIEW}: {@code x} and {@code y} of each decimal section. */
+  static String decimalTableSql(int rows) {
+    List<String> columns = new ArrayList<>();
+    for (VarkaDecimalBaselineBenchmark.Precision p : DECIMAL_PRECISIONS) {
+      for (String c : List.of("x", "y")) {
+        columns.add(c + p.suffix());
+        columns.add(c + p.suffix() + "n");
+      }
+    }
+    return "SELECT " + String.join(", ", columns) + " FROM ("
+        + VarkaDecimalBaselineBenchmark.tableSql(rows) + ")";
   }
 
   /** Every section, each shape with no null and then with nulls. */
@@ -149,6 +174,15 @@ public class VarkaTwoLaneLongBenchmark extends VarkaSqlBenchmarkBase {
       out.add(new Section("if(l IS NULL, l2, l) projection" + density,
           "SELECT if(" + l + " IS NULL, " + l2 + ", " + l + ") AS c FROM varka_two_lane",
           false));
+      // The decimal comparisons as values (VARKA-596), over the decimal baseline's columns: at
+      // DECIMAL(9, 2) one compare on the long lane, at DECIMAL(38, 10) and DECIMAL(20, 2) the
+      // lane pair's three word compares and two mask joins (`DecimalWords.compare`).
+      for (VarkaDecimalBaselineBenchmark.Precision p : DECIMAL_PRECISIONS) {
+        String x = "x" + p.suffix() + n;
+        String y = "y" + p.suffix() + n;
+        out.add(new Section(p.type() + " x < y boolean output projection" + density,
+            "SELECT " + x + " < " + y + " AS c FROM " + DECIMAL_VIEW, false));
+      }
     }
     return out;
   }
@@ -171,8 +205,12 @@ public class VarkaTwoLaneLongBenchmark extends VarkaSqlBenchmarkBase {
     require(baseline != varka, "the two sessions must be distinct or there is no baseline");
     try {
       for (SparkSession session : List.of(baseline, varka)) {
+        // The decimal baseline's table holds a TIME column, which needs the type switched on.
+        session.conf().set("spark.sql.timeType.enabled", "true");
         session.sql(tableSql(NUM_ROWS)).createOrReplaceTempView("varka_two_lane");
         VarkaArrowSessions.cache(session, "varka_two_lane");
+        session.sql(decimalTableSql(NUM_ROWS)).createOrReplaceTempView(DECIMAL_VIEW);
+        VarkaArrowSessions.cache(session, DECIMAL_VIEW);
       }
       for (Section s : sections()) {
         Map<String, String> settings = s.legacy()
