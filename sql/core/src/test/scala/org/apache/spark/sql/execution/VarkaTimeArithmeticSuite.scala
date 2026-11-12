@@ -245,8 +245,9 @@ class VarkaTimeArithmeticSuite extends QueryTest with VarkaMaybeThrows with Vark
         VarkaEmitOptions.USE_AVX_UNKNOWN
       }
       assert(emits.forall(_.useAVX === expected), s"$emits on a host reading $host")
-      if (host.x86()) {
-        assert(host.readable(), s"the feature query failed on x86: ${host.failure()}")
+      // On aarch64 the read alone decides level 3, so a failed one there must fail here too.
+      if (host.x86() || host.arch() == "aarch64") {
+        assert(host.readable(), s"the feature query failed on ${host.arch()}: ${host.failure()}")
       }
       for (field <- Seq("hour", "minute", "second")) checkBoth(s"$field(t)")
     }
