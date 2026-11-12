@@ -774,7 +774,9 @@ final class VarkaVectorTemplateWarmup {
         acc += (long) (a.add(b).lane(0) + a.sub(b).lane(0) + a.mul(b).lane(0) + a.div(b).lane(0)
             + a.add(2.0).lane(0) + a.sub(2.0).lane(0) + a.mul(2.0).lane(0) + a.div(2.0).lane(0)
             + a.lanewise(VectorOperators.NEG).lane(0) + a.lanewise(VectorOperators.MAX, b).lane(0)
-            + a.lanewise(VectorOperators.ADD, 2.0, m).lane(0) + a.blend(b, m).lane(0));
+            + a.lanewise(VectorOperators.ADD, 2.0, m).lane(0) + a.blend(b, m).lane(0)
+            // rint's canonical NaN, blended in with the scalar form.
+            + a.blend(Double.NaN, m).lane(0));
         for (Comparison op : DOUBLE_COMPARISONS) {
           acc += a.compare(op, b).toLong();
         }

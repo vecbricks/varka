@@ -20,3 +20,9 @@ spliced:     2026-11-10, row 359a's fourteen sections (VARKA-359.md 10.5: the DE
              https://github.com/MaxGekk/spark/actions/runs/42773203967, commit 092c60d53a6
              (varka-359a-part4), AMD EPYC 7763, extra-java-options=-XX:MaxVectorSize=16, by
              dev/varka_bench_sections.py splice; every other section is the run above
+spliced:     2026-11-11, row 596's eight x < y as a value sections (DECIMAL(38, 10), (20, 2),
+             (9, 2) and (18, 4), at both null densities), now on the row path on both arms, from
+             https://github.com/vecbricks/varka/actions/runs/42964088305, commit 703a2495b4c
+             (refs/pull/1478/head), AMD EPYC 7763, extra-java-options=-XX:MaxVectorSize=16, by
+             dev/varka_bench_sections.py splice; the preamble's four kernel notes for them dropped;
+             every other section is the runs above
