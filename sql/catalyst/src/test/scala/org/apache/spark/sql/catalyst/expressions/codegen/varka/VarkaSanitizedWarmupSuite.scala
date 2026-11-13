@@ -118,8 +118,8 @@ class VarkaSanitizedWarmupSuite extends SparkFunSuite with VarkaTestWatchdog {
     val queued = Using.resource(Arena.ofConfined()) { arena =>
       val data = arena.allocate(64 * 4L, 64)
       VarkaKernelWarmup.start(warmth, "violation0000000", violating, false,
-        Array(data.address()), Array(0L), Array(0), Array(4), false, 64, 1, Array.empty[Int],
-        Array.empty[Long])
+        Array(data.address()), Array(0L), Array(0), Array(4), false, 64, Array(8),
+        Array.empty[Int], Array.empty[Long])
     }
     assert(queued, "the warm-up was not queued")
     try {

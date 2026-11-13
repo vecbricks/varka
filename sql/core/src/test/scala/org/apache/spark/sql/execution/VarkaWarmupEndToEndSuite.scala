@@ -244,6 +244,25 @@ class VarkaWarmupEndToEndSuite extends QueryTest with VarkaSharedSessions with V
     }
   }
 
+  test("a decimal output's warm-up writes its sixteen-byte slots inside the sanitizer") {
+    // A decimal output's slot is sixteen bytes a row at every precision; a destination the
+    // warm-up registered at eight would take the kernel's store past its extent.
+    assume(VarkaMemorySanitizer.ENABLED, "run with -Dvarka.sanitizeMemory=true")
+    val checkedBefore = VarkaMemorySanitizer.checked()
+    checkWarmup("SELECT time_to_seconds(t) AS s FROM varka_times_big", { session =>
+      val rows = (0 until numRows).map { i =>
+        val t = if (i % 7 == 3) null
+          else java.time.LocalTime.ofSecondOfDay(i % 86400).withNano(i % 1000 * 1000000)
+        (t, i)
+      }
+      session.createDataFrame(rows).toDF("t", "i").createOrReplaceTempView("varka_times_big")
+      session.catalog.cacheTable("varka_times_big")
+      session.sql("SELECT count(*) FROM varka_times_big").collect()
+    })
+    assert(VarkaMemorySanitizer.checked() > checkedBefore,
+      "the warm-up and the kernel mapped nothing in a sanitizer window")
+  }
+
   test("a columnar consumer's first write takes the row path and its next one the kernel") {
     // The columnar node's row path projects each row and converts it back into vectors, so the
     // sink still receives batches; only the metrics tell the two paths apart.

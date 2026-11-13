@@ -194,7 +194,50 @@ unscoped.
 
 ## 10. Outcome
 
-Not started.
+PR 1 (`arch-list`) is built on `varka-548-lint`: the rule, its self-test cases and the five test
+lines of 0 item 6. PR 2 (`global-fault` and the floating fault's move) is separate, not started,
+and still waits on questions 2 and 3. `VarkaHostIsa.java` is untouched (B1's out of scope): the
+two loops keep their literals marked ok, and the other three call `isX86`.
+
+Results: `--selftest` `ok (60 cases)` after the review's added cases; ruff `1 file already
+formatted`, `All checks passed!`; unscoped `arch-list` over all 576 Varka sources `0`, the
+broader form of B4 step 3 that does not select on the file name, and over the canary probes `0`
+(the only unscoped finding is the known `import-root` at
+`VarkaMaskOfWordSuite.java:29`); `catalyst/Test/compile` `[success]` in 110 s;
+`dev/varka_matrix.sh` over the five suites exit 0, 50 succeeded, 0 failed, 14 canceled (all
+`VarkaAssemblySuite`'s hsdis lookups); the three generated files diff clean against
+`origin/master`.
+
+Planted faults, reverted by hand: `>= 2` as `>= 3` printed `varka_lint selftest: arch-list True:
+m/src/test/java/VarkaZSuite.java: expected True, got False` and exited 1; the old
+`arch == "amd64" || arch == "x86_64"` in `VarkaShapeCacheSuite` printed one `arch-list` line at
+`:317`, and the unscoped run was `0` after the revert.
+
+Predictions: P1 holds. P2: five cases for PR 1, though not the plan's five: `Defaults` is
+`global-fault`'s and so PR 2's, and `arch-list: ok` came in its place. P3: the push check counts
+92 hand-written lines against the plan's 150 for PR 1. Went differently from the sheet: both
+pull requests it expected open (#1461, #1478) had merged, so the branch was cut from
+`fb661840a3e`; the seven grep lines are the same, `VarkaTwoLaneConditionSuite`'s two at `:74` and
+`:89`, and the self-test still held 49 cases before the new ones. The branch is `varka-548-lint`
+in `/home/max/proj/varka-548-lint`, not the sheet's `varka-548`, so BUILD_SHEETS.md section 1
+item 2's exact-name check prints nothing; PR 2 cuts its branch from master after this one merges,
+where the rule already is.
+
+**The review.** One `/code-review high` pass found fourteen points. Fixed: the rule counted the
+os.arch names inside block comments and text blocks, where `without_comment` leaves a Javadoc's
+`* ...` lines as they are, so a comment or a message naming two architectures was reported as a
+second list; the rule now skips comment lines and a text block's delimiters and content, which
+the new self-test cases pin. The rule now also lints the `dev/varka_canary/` probes, as
+`nan-compare` does. The finding's advice is "for an x86 check call `VarkaHostIsa.isX86(arch)`,
+and mark a line that pins the names", since `isX86` answers false on aarch64. Six self-test
+cases were added - a Varka `.scala` path, the `aarch64` alternative, one name twice, a Javadoc
+line, a text block, and a canary probe - and each case's failure message now quotes its fixture.
+Left, with the reason: the `VarkaHostIsa` prefix exemption is the plan's question 1 decision; the
+rule's own copy of the three names is the sheet's design (distinct literals count, the docstring
+is the only documentation); two identical pinned lines in `VarkaTwoLaneConditionSuite` are B1's;
+matching the marker on the raw line lets a string literal contain it, which the marker's own
+comment form keeps harmless; the file-scan preamble copies `guava`'s shape, as the other rules
+do; and the per-line `without_comment` call costs about 15 ms a commit, measured by the review.
 
 ## Build sheet (11 November 2026)
 
