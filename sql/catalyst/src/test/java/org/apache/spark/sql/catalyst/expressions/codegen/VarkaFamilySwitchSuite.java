@@ -99,6 +99,14 @@ public final class VarkaFamilySwitchSuite {
 
   private static final VarkaEmitOptions OPTIONS = VarkaMatrixRuns.BASE;
 
+  /**
+   * The families whose arm fuses nothing yet, each with an expression of the family that a row of
+   * the plan will fuse: the math family declines every function by its row (VARKA-345), so no
+   * coverage row holds it, and its switch is checked on this expression instead. A family leaves
+   * this map the day a coverage row holds it, which the switch test enforces.
+   */
+  private static final Map<VarkaFamily, String> UNBUILT = Map.of(VarkaFamily.MATH, "sin(x)");
+
   /** The prefix the width census gives a shape the compiler declines at that width. */
   private static final String DECLINED = "declined: ";
 
@@ -186,6 +194,11 @@ public final class VarkaFamilySwitchSuite {
   private static boolean isConfigurationDecline(Outcome on) {
     return on.reason().filter(r -> VarkaMatrixRuns.isUnbakedWidthDecline(OPTIONS, r))
         .isPresent();
+  }
+
+  /** A projection row of {@code sql} over the coverage table's columns. */
+  private static Row probe(String sql) {
+    return new Row(sql, sql, false, VarkaSqlResolve.parse(sql, columns));
   }
 
   private Outcome compile(Row row, Set<VarkaFamily> off) {
@@ -302,6 +315,22 @@ public final class VarkaFamilySwitchSuite {
         }
       }
     }
+    for (var unbuilt : UNBUILT.entrySet()) {
+      VarkaFamily family = unbuilt.getKey();
+      if (declined.containsKey(family)) {
+        failures.add("a coverage row holds the " + family.label() + " family: take it out of "
+            + "UNBUILT");
+      }
+      Row probe = probe(unbuilt.getValue());
+      Optional<String> on = compile(probe, Set.of()).reason();
+      Optional<String> off = compile(probe, Set.of(family)).reason();
+      if (on.isEmpty() || on.equals(Optional.of(family.offReason()))
+          || !off.equals(Optional.of(family.offReason()))) {
+        failures.add("`" + probe.sql() + "` declines with " + on + " on and " + off + " off");
+      } else {
+        declined.merge(family, 1, Integer::sum);
+      }
+    }
     assertEquals(List.of(), failures);
     // Each switch is seen to work on something, or this test proves nothing about it.
     assertEquals(EnumSet.allOf(VarkaFamily.class), declined.keySet(), declined.toString());
@@ -347,7 +376,7 @@ public final class VarkaFamilySwitchSuite {
   @DisplayName("a failure inside a family's lowering names the family's switch in the error")
   void failureNamesTheSwitch() {
     for (VarkaFamily family : VarkaFamily.values()) {
-      Row row = rows.stream()
+      Row row = UNBUILT.containsKey(family) ? probe(UNBUILT.get(family)) : rows.stream()
           .filter(r -> claims(r).sure().contains(family)).findFirst().orElseThrow();
       VarkaNodeCompiler.setFailInFamilyForTesting(family);
       try {
