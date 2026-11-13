@@ -173,7 +173,8 @@ jobs:
         status=${PIPESTATUS[0]}
         {
           echo "## Coverage compositions: $COMPOSITIONS, seed $seed"
-          grep -E "Tests: succeeded|FAILED" "target/fuzz/compositions-$seed.log" || true
+          grep -E "Tests: succeeded|FAILED|coverage accounting:" \
+            "target/fuzz/compositions-$seed.log" || true
         } | tee -a "$GITHUB_STEP_SUMMARY"
         exit "$status"
     # Every small tree to size 4 in each of the eight variants of VARKA-278, one JVM per core,

@@ -28,7 +28,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.VarkaOutputSpec.{FusedO
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaCompositionCase.Entry
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LaneType
 import org.apache.spark.sql.catalyst.util.{DateTimeConstants, DateTimeUtils}
-import org.apache.spark.sql.types.{DataType, DayTimeIntervalType, DoubleType, FloatType, TimeType}
+import org.apache.spark.sql.types.{BooleanType, ByteType, DataType, DayTimeIntervalType, DecimalType, DoubleType, FloatType, ShortType, TimeType}
 
 /**
  * Random compositions of the coverage table, through the compiler to the emitter.
@@ -80,8 +80,7 @@ class VarkaCoverageCompositionFuzzSuite
   // its oracle builds int attributes, and a boolean input is a bitmap. They are held to the row
   // engine by `VarkaCoverageDifferentialSuite` and to the reference by `VarkaEmitterBoolSuite`.
   private def readsOtherColumns(executable: String): Boolean =
-    VarkaCoverageRows.readsBoolean(executable) || VarkaCoverageRows.readsNarrow(executable) ||
-      VarkaCoverageRows.readsDecimal(executable)
+    VarkaCoverageRows.compositionFilters.exists(_.reads(executable))
   private def projections =
     table.projections.filterNot(r => readsOtherColumns(r.executable) || unbakedAlone(r.executable))
   private def predicates =
@@ -100,6 +99,15 @@ class VarkaCoverageCompositionFuzzSuite
           VarkaMatrix.base).asScala.values
           .exists(d => VarkaMatrixRuns.isUnbakedWidthDecline(VarkaMatrix.base, d.reason))
       }.toSet
+
+  /**
+   * The rows `filters` leave out by a filter that names no row owing them, counted by the
+   * filter's name; each row is counted against the first filter that reads it.
+   */
+  private def unowed(rows: Seq[VarkaCoverageRows.Row],
+      filters: Seq[VarkaCoverageRows.Filter]): Map[String, Int] =
+    rows.flatMap(r => filters.find(_.reads(r.executable))).filter(_.owedBy.isEmpty)
+      .groupBy(_.name).map { case (name, hits) => name -> hits.size }
 
   private def resolve(sql: String): Expression = VarkaCoverageRows.resolve(sql, columns)
 
@@ -1391,6 +1399,46 @@ class VarkaCoverageCompositionFuzzSuite
     val unreadable = new VarkaVectorIR.IntArith(VarkaVectorIR.IntOp.ADD,
       VarkaVectorIR.Overflow.WRAP, c(0), new VarkaVectorIR.LiteralSlot(3, LaneType.FLOAT))
     assert(!zeroDivisor(unreadable, row, noNulls, long = true, Array.empty, Array.empty))
+  }
+
+  test("every coverage row is drawn or left out by a filter that names the row owing it") {
+    val rows = table.projections ++ table.predicates
+    val filters = VarkaCoverageRows.compositionFilters
+    // The oracle is the types of the columns a row's resolved expression reads, not the filters'
+    // regular expressions over its text.
+    val types = Map[String, DataType => Boolean](
+      "BOOLEAN" -> ((t: DataType) => t == BooleanType),
+      "TINYINT or SMALLINT" -> ((t: DataType) => t == ByteType || t == ShortType),
+      "DECIMAL" -> ((t: DataType) => t.isInstanceOf[DecimalType]))
+    assert(filters.map(_.name).toSet == types.keySet)
+    var untyped = 0
+    for (row <- rows) {
+      val read = VarkaCoverageRows.resolve(row.executable, table.columns).references.toSeq
+        .map(_.dataType)
+      val byType = types.collect { case (name, is) if read.exists(is) => name }.toSet
+      val byFilter = filters.filter(_.reads(row.executable)).map(_.name).toSet
+      assert(byFilter == byType, s"${row.executable}: filters $byFilter, column types $byType")
+      if (byType.isEmpty) untyped += 1
+    }
+    val leftOut = rows.groupBy(r => filters.find(_.reads(r.executable)).map(_.name))
+    val filtered = rows.size - leftOut.getOrElse(None, Nil).size
+    val drawn = projections.size + predicates.size
+    val alone = rows.count(r => !readsOtherColumns(r.executable) && unbakedAlone(r.executable))
+    // The pools the tests draw from against the oracle: every row of no filtered type, less
+    // those this configuration declines alone.
+    assert(drawn + alone == untyped, s"$drawn drawn + $alone alone, $untyped of no filtered type")
+    info(s"coverage accounting: ${rows.size} rows, $drawn drawn, $filtered left out by a filter, " +
+      s"$alone declined alone by this configuration")
+    for (f <- filters) {
+      val n = leftOut.getOrElse(Some(f.name), Nil).size
+      info(s"coverage accounting: left out, ${f.name}: $n rows, owed by " +
+        f.owedBy.getOrElse("no row"))
+    }
+    assert(unowed(rows, filters).isEmpty,
+      s"rows left out by a filter that names no owing row: ${unowed(rows, filters)}")
+    // The check above bites: a filter that owes no row and reads every row is reported for all.
+    assert(unowed(rows, Seq(VarkaCoverageRows.Filter("planted", None, _ => true))) ==
+      Map("planted" -> rows.size))
   }
 
   test("random projections of coverage rows are fused or declined in bytes, never thrown") {
