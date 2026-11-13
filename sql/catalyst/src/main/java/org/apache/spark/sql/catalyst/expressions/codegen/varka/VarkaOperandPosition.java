@@ -50,8 +50,10 @@ public enum VarkaOperandPosition {
   /**
    * The month count of {@code AddMonths}: a literal slot, a column, or int arithmetic -
    * {@code d - ym_col} is an {@code IntNeg} over the interval column, {@code CAST(i AS INTERVAL
-   * YEAR)} that column times twelve. A derived count is safe here because {@code AddMonths}
-   * guards the count's own value at run time ({@code Analysis.Refusal.MONTH_COUNT}).
+   * YEAR)} that column times twelve; or a bigint narrowed to the int lane under a guard inside
+   * the month range, {@code timestampadd(MONTH, l, ntz)}'s quantity. A derived count is safe here
+   * because {@code AddMonths} guards the count's own value at run time
+   * ({@code Analysis.Refusal.MONTH_COUNT}).
    */
   MONTH_COUNT,
 
@@ -88,6 +90,15 @@ public enum VarkaOperandPosition {
       // column at this position; the widening of anything computed is not.
       case WidenLane w -> this == DAY_OFFSET && w.target() == LaneType.INT
           && w.child() instanceof ColumnRef c && c.laneType().isNarrow();
+      // A bigint month count narrowed to the int lane (VARKA-339), the shape
+      // `timestampadd(MONTH, l, ntz)` builds: its guard declines a batch with a lane past the month
+      // range rather than nulling the lane, so the narrowing is exact on every lane it passes, and
+      // AddMonths guards the count at run time. A cast's guard spans the int range, so
+      // `timestampadd(MONTH, CAST(l AS INT), ntz)` declines in every mode.
+      case NarrowLane n -> this == MONTH_COUNT && n.target() == LaneType.INT
+          && n.child() instanceof GuardedRange g && g.mode() == Overflow.FAIL
+          && g.lo() >= VarkaChrono.MONTH_ARITH_MIN_MONTHS
+          && g.hi() <= VarkaChrono.MONTH_ARITH_MAX_MONTHS;
       case IntArith _, IntNeg _ -> switch (this) {
         case DAY_OFFSET, MONTH_COUNT -> true;
         case WEEKDAY, TRUNC_LEVEL -> false;
@@ -98,7 +109,7 @@ public enum VarkaOperandPosition {
            GuardedDay _,
            GuardedRange _,
            ConvertLane _,
-           NarrowLane _, WidenDecimal _, Year _, Month _, DayOfMonth _, Quarter _, DayOfYear _,
+           WidenDecimal _, Year _, Month _, DayOfMonth _, Quarter _, DayOfYear _,
            LastDay _,
            TruncDate _, TruncDateDynamic _, WeekOfYear _,
            Compare _, NullSafeEqual _, And _, Or _, Not _, CrossLane _, IsNotNull _, InRanges _,
@@ -110,7 +121,9 @@ public enum VarkaOperandPosition {
   /** What this position takes, for a refusal; {@link #admits} in words. */
   public String takes() {
     return switch (this) {
-      case DAY_OFFSET, MONTH_COUNT -> "a literal slot, a column or int arithmetic";
+      case DAY_OFFSET -> "a literal slot, a column or int arithmetic";
+      case MONTH_COUNT -> "a literal slot, a column, int arithmetic or a bigint narrowed "
+          + "under the month range's guard";
       case WEEKDAY -> "a literal slot or a column";
       case TRUNC_LEVEL -> "a column";
     };

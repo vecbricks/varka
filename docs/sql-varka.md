@@ -858,6 +858,23 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `ntz + dt` | `time` | `if(ntz IS NULL OR dt IS NULL, NULL, try_add(ntz, dt) IS NOT NULL)` | a value past the long raises in every mode | per-lane: compare to mask, mask logic, mask broadcast, mask test |
 | `ntz - dt` | `time` | `dt <> INTERVAL '-106751991 04:00:54.775808' DAY TO SECOND AND if(ntz IS NULL OR dt IS NULL, NULL, try_subtract(ntz, dt) IS NOT NULL)` | the interval's negation is folded into a checked subtraction; Spark negates with negateExact in every mode, so the least interval, which it raises on, is guarded | per-lane: compare to mask, mask logic, mask broadcast, mask test |
 | `ntz + INTERVAL '1' DAY` | `time` | `if(ntz IS NULL, NULL, try_add(ntz, INTERVAL '1' DAY) IS NOT NULL)` | a literal interval takes a slot in the long lane's table | per-lane: compare to mask, mask logic, mask broadcast, mask test |
+| `timestampadd(MICROSECOND, l, ntz)` | `time` | `if(ntz IS NULL OR l IS NULL, NULL, try_add(ntz, try_multiply(INTERVAL '0.000001' SECOND, l)) IS NOT NULL)` |  | per-lane: compare to mask, mask logic, mask broadcast, mask test |
+| `timestampadd(SECOND, i, ntz)` | `time`, `intArithmetic` | `if(ntz IS NULL OR i IS NULL, NULL, try_add(ntz, try_multiply(INTERVAL '1' SECOND, i)) IS NOT NULL)` |  | per-lane: compare to mask, mask logic, mask broadcast, mask test, load or store |
+| `timestampadd(HOUR, i, ntz)` | `time`, `intArithmetic` | `if(ntz IS NULL OR i IS NULL, NULL, try_add(ntz, try_multiply(INTERVAL '1' HOUR, i)) IS NOT NULL)` |  | per-lane: compare to mask, mask logic, mask broadcast, mask test, load or store |
+| `timestampadd(HOUR, l, ntz)` | `time` | `l BETWEEN -2562047788 AND 2562047788 AND if(ntz IS NULL OR l IS NULL, NULL, try_add(ntz, try_multiply(INTERVAL '1' HOUR, l)) IS NOT NULL)` |  | per-lane: compare to mask, mask logic, mask broadcast, mask test |
+| `timestampadd(DAY, i, ntz)` | `time`, `intArithmetic` | `i BETWEEN -106751991 AND 106751991 AND if(ntz IS NULL OR i IS NULL, NULL, try_add(ntz, try_multiply(INTERVAL '1' DAY, i)) IS NOT NULL)` |  | per-lane: compare to mask, mask logic, mask broadcast, mask test, load or store |
+| `timestampadd(DAY, l, ntz)` | `time` | `l BETWEEN -106751991 AND 106751991 AND if(ntz IS NULL OR l IS NULL, NULL, try_add(ntz, try_multiply(INTERVAL '1' DAY, l)) IS NOT NULL)` |  | per-lane: compare to mask, mask logic, mask broadcast, mask test |
+| `timestampadd(WEEK, i, ntz)` | `time`, `intArithmetic` | `i BETWEEN -15250284 AND 15250284 AND if(ntz IS NULL OR i IS NULL, NULL, try_add(ntz, try_multiply(INTERVAL '7' DAY, i)) IS NOT NULL)` |  | per-lane: compare to mask, mask logic, mask broadcast, mask test, load or store |
+| `timestampadd(WEEK, l, ntz)` | `time` | `l BETWEEN -15250284 AND 15250284 AND if(ntz IS NULL OR l IS NULL, NULL, try_add(ntz, try_multiply(INTERVAL '7' DAY, l)) IS NOT NULL)` |  | per-lane: compare to mask, mask logic, mask broadcast, mask test |
+| `ntz + ym` | `calendar` | `unix_date(CAST(ntz AS DATE)) BETWEEN -5394207 AND 11382643 AND ym BETWEEN INTERVAL '-2048-0' YEAR TO MONTH AND INTERVAL '2047-0' YEAR TO MONTH` | the date moved by add_months and the time of day kept | per-lane: mask logic, mask broadcast, mask test, load or store |
+| `ntz - ym` | `calendar`, `interval` | `unix_date(CAST(ntz AS DATE)) BETWEEN -5394207 AND 11382643 AND ym BETWEEN INTERVAL '-2047-0' YEAR TO MONTH AND INTERVAL '2048-0' YEAR TO MONTH` | the negated count under the range, so the bounds change sides | per-lane: mask logic, mask broadcast, mask test, load or store |
+| `ntz + INTERVAL '1' MONTH` | `calendar` | `unix_date(CAST(ntz AS DATE)) BETWEEN -5394207 AND 11382643` |  | per-lane: mask logic, mask broadcast, mask test, load or store |
+| `timestampadd(MONTH, i, ntz)` | `calendar` | `unix_date(CAST(ntz AS DATE)) BETWEEN -5394207 AND 11382643 AND i BETWEEN -24576 AND 24564` |  | per-lane: mask logic, mask broadcast, mask test, load or store |
+| `timestampadd(MONTH, l, ntz)` | `calendar` | `unix_date(CAST(ntz AS DATE)) BETWEEN -5394207 AND 11382643 AND l BETWEEN -24576 AND 24564` |  | per-lane: mask logic, compare to mask, mask broadcast, mask test, load or store |
+| `timestampadd(QUARTER, i, ntz)` | `calendar` | `unix_date(CAST(ntz AS DATE)) BETWEEN -5394207 AND 11382643 AND i BETWEEN -8192 AND 8188` |  | per-lane: mask logic, mask broadcast, mask test, load or store |
+| `timestampadd(QUARTER, l, ntz)` | `calendar` | `unix_date(CAST(ntz AS DATE)) BETWEEN -5394207 AND 11382643 AND l BETWEEN -8192 AND 8188` |  | per-lane: mask logic, compare to mask, mask broadcast, mask test, load or store |
+| `timestampadd(YEAR, i, ntz)` | `calendar` | `unix_date(CAST(ntz AS DATE)) BETWEEN -5394207 AND 11382643 AND i BETWEEN -2048 AND 2047` |  | per-lane: mask logic, mask broadcast, mask test, load or store |
+| `timestampadd(YEAR, l, ntz)` | `calendar` | `unix_date(CAST(ntz AS DATE)) BETWEEN -5394207 AND 11382643 AND l BETWEEN -2048 AND 2047` |  | per-lane: mask logic, compare to mask, mask broadcast, mask test, load or store |
 
 #### TIMESTAMP_NTZ fields
 
@@ -879,6 +896,7 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `extract(DAYOFWEEK_ISO FROM ntz)` | `calendar`, `intArithmetic` |  |  | per-lane: mask broadcast, load or store |
 | `next_day(ntz, 'MONDAY')` | `calendar`, `intArithmetic` |  |  | per-lane: mask broadcast, load or store |
 | `trunc(ntz, 'WEEK')` | `calendar`, `intArithmetic` |  |  | per-lane: mask broadcast, load or store |
+| `add_months(ntz, i)` | `calendar`, `intArithmetic` | `unix_date(CAST(ntz AS DATE)) BETWEEN -5394207 AND 11382643 AND i BETWEEN -24576 AND 24564` | the guarded date moved by a column month count | per-lane: mask logic, mask broadcast, mask test, load or store |
 | `hour(ntz)` | `time` |  | the microsecond of the day divided; never guarded | vector |
 | `minute(ntz)` | `time` |  |  | vector |
 | `second(ntz)` | `time` |  | the whole second, an int; the fraction of `extract(SECOND ...)` is a decimal | vector |
@@ -1300,19 +1318,19 @@ operands (a row counts once for each type it reads):
 <!-- BEGIN generated verification counts -->
 | Type | Rows | refinement | rendered | proof | exhaustive | owed | differential |
 | :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| `bigint` | 78 | 0 | 0 | 2 | 0 | 2 | 74 |
+| `bigint` | 92 | 0 | 0 | 2 | 0 | 2 | 88 |
 | `bool` | 38 | 0 | 0 | 0 | 13 | 0 | 25 |
 | `byte` | 54 | 0 | 0 | 0 | 0 | 8 | 46 |
-| `date` | 127 | 17 | 0 | 0 | 1 | 0 | 109 |
+| `date` | 128 | 17 | 0 | 0 | 1 | 0 | 110 |
 | `dec` | 77 | 1 | 42 | 10 | 0 | 0 | 24 |
 | `double` | 74 | 0 | 0 | 1 | 0 | 0 | 73 |
 | `dt` | 27 | 2 | 0 | 1 | 0 | 0 | 24 |
 | `float` | 60 | 0 | 0 | 0 | 0 | 0 | 60 |
-| `int` | 158 | 14 | 0 | 2 | 1 | 1 | 140 |
-| `ntz` | 57 | 0 | 0 | 7 | 0 | 0 | 50 |
+| `int` | 166 | 14 | 0 | 2 | 1 | 1 | 148 |
+| `ntz` | 75 | 0 | 0 | 7 | 0 | 0 | 68 |
 | `short` | 52 | 0 | 0 | 0 | 0 | 8 | 44 |
 | `time` | 48 | 6 | 0 | 1 | 1 | 2 | 38 |
-| `ym` | 36 | 7 | 0 | 2 | 0 | 2 | 25 |
+| `ym` | 39 | 7 | 0 | 2 | 0 | 2 | 28 |
 <!-- END generated verification counts -->
 
 ## Glossary
@@ -2175,9 +2193,9 @@ coverage table, and regenerated by the same command:
 <!-- BEGIN generated family switches -->
 | Config | Default | Covers |
 | :--- | :--- | :--- |
-| `spark.sql.codegen.varka.family.calendar.enabled` | `true` | The calendar family: day arithmetic (date_add, date_sub, datediff, unix_date, date_from_unix_date), the calendar fields (year to weekofyear), make_date, last_day, next_day, trunc, add_months and a date plus a year-month interval, and the same fields of a TIMESTAMP_NTZ through its date. |
+| `spark.sql.codegen.varka.family.calendar.enabled` | `true` | The calendar family: day arithmetic (date_add, date_sub, datediff, unix_date, date_from_unix_date), the calendar fields (year to weekofyear), make_date, last_day, next_day, trunc, add_months and a date plus a year-month interval, and the same fields and month shifts of a TIMESTAMP_NTZ through its date, its sum with a year-month interval and timestampadd of months, quarters or years. |
 | `spark.sql.codegen.varka.family.interval.enabled` | `true` | The interval family: year-month interval arithmetic, negation and abs, make_ym_interval, the year and month extractions, the multiply by an int and the casts between year-month intervals and ints. |
-| `spark.sql.codegen.varka.family.time.enabled` | `true` | The time family: the TIME functions (hour, minute, second, time_trunc, time_diff, the conversions to and from micros and millis, a time plus a day-time interval), the casts to TIME and to a day-time interval, hour, minute and second of a TIMESTAMP_NTZ, make_timestamp_ntz(date, time) and the cast of a TIME to TIMESTAMP_NTZ, and TIMESTAMP_NTZ minus TIMESTAMP_NTZ and a TIMESTAMP_NTZ plus or minus a day-time interval. |
+| `spark.sql.codegen.varka.family.time.enabled` | `true` | The time family: the TIME functions (hour, minute, second, time_trunc, time_diff, the conversions to and from micros and millis, a time plus a day-time interval), the casts to TIME and to a day-time interval, hour, minute and second of a TIMESTAMP_NTZ, make_timestamp_ntz(date, time) and the cast of a TIME to TIMESTAMP_NTZ, TIMESTAMP_NTZ minus TIMESTAMP_NTZ, a TIMESTAMP_NTZ plus or minus a day-time interval, and timestampadd of a TIMESTAMP_NTZ by a unit from a microsecond to a week. |
 | `spark.sql.codegen.varka.family.predicate.enabled` | `true` | The predicate family: the comparisons, IN over dates and year-month intervals, IS NULL and IS NOT NULL, AND, OR and NOT, wherever they sit: a filter's predicates, so that no filter fuses, and the conditions of IF and CASE WHEN. |
 | `spark.sql.codegen.varka.family.condition.enabled` | `true` | The condition family: the conditionals IF, CASE WHEN and coalesce (the comparisons in their conditions are the predicate family's). |
 | `spark.sql.codegen.varka.family.intArithmetic.enabled` | `true` | The int arithmetic family: +, -, * and unary minus over int, tinyint and smallint operands and abs over the narrow two, checked under ANSI, greatest and least, the casts between int and bigint, and a tinyint or smallint widened to int. |
