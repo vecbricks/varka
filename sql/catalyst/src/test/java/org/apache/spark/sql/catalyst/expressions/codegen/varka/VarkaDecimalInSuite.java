@@ -19,6 +19,8 @@ package org.apache.spark.sql.catalyst.expressions.codegen.varka;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.math.BigDecimal;
@@ -41,6 +43,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.CompiledVarkaPredicate;
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaConjunctSpec;
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaExpressionCompiler;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaDecimalValueSuite.Pair;
+import org.apache.spark.sql.types.DataTypes;
 import org.apache.spark.sql.types.Decimal;
 import org.apache.spark.sql.types.DecimalType;
 
@@ -128,6 +131,38 @@ public final class VarkaDecimalInSuite {
       rows.add(new Pair(-TOP18, 0L));
       check(inSet, inSet.sql(), columns, type, rows);
     }
+  }
+
+  @Test
+  @DisplayName("the coverage table's InSet rewrite is the optimizer's, for an int and a decimal "
+      + "row")
+  void inSetRewriteIsTheOptimizers() {
+    var cols = seq(List.of(VarkaSqlResolve.column("i", DataTypes.IntegerType),
+        VarkaSqlResolve.column("d18", new DecimalType(18, 2))));
+    for (String text : List.of(
+        "i IN (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11)",
+        "d18 IN (0.42, 50000000.00, -50000000.00, 1.01, 2.02, 3.03, 4.04, 5.05, 6.06, 7.07, "
+            + "8.08)")) {
+      Expression parsed = VarkaSqlResolve.parse(text, cols);
+      assertEquals(VarkaSqlResolve.optimizeIn(parsed, cols),
+          VarkaSqlResolve.inSetAsClaimed(parsed, true), text);
+      assertSame(parsed, VarkaSqlResolve.inSetAsClaimed(parsed, false), text);
+    }
+  }
+
+  @Test
+  @DisplayName("a row that claims an InSet and resolves to anything else is refused")
+  void inSetClaimIsRefused() {
+    var cols = seq(List.of(VarkaSqlResolve.column("i", DataTypes.IntegerType),
+        VarkaSqlResolve.column("d18", new DecimalType(18, 2))));
+    var comparison = assertThrows(IllegalArgumentException.class,
+        () -> VarkaSqlResolve.inSetAsClaimed(VarkaSqlResolve.parse("d18 > 0.42", cols), true));
+    assertTrue(comparison.getMessage().contains("resolved to GreaterThan"),
+        comparison.getMessage());
+    var mixed = assertThrows(IllegalArgumentException.class,
+        () -> VarkaSqlResolve.inSetAsClaimed(VarkaSqlResolve.parse("i IN (1, i)", cols), true));
+    assertTrue(mixed.getMessage().contains("resolved to In rather than an In of foldable"),
+        mixed.getMessage());
   }
 
   @Test

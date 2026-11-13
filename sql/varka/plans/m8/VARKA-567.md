@@ -155,3 +155,69 @@ Review, push, and file the third copy (`VarkaWidthAuditShapes.asCatalystClaims`)
 pull requests on the same files: #1436 (`VarkaSqlResolve.scala`, a new `replaced` method near
 `optimizeIn`), #1428 (`VarkaEmittedBytesSuite.scala`, other functions), and #1428, #1478, #1484
 (`PLAN.md`, other rows): rebase if one merged first.
+
+## Outcome
+
+Built on branch `varka-567-inset`, 13 November 2026, from origin/master `6f5786d7a4e`.
+
+**What was built.** `VarkaSqlResolve.inSetAsClaimed` makes the one rewrite of a coverage row
+into an `InSet` for the test sources: for a row the table records as an `InSet` it builds
+`OptimizeIn`'s form, folding each element with `eval` first, and it throws an
+`IllegalArgumentException` when such a row resolves to anything but an `In` of foldable
+elements; any other row comes back as it is. `VarkaEmittedBytesSuite.coverage` and
+`VarkaWarmupReach.coverageShapes` both call it, so the two copies of the rewrite are gone. The
+bytes oracle already refused a row that claims `InSet` and resolves otherwise; the reach suite,
+whose copy passed such a row through, now refuses it too, which is B8's decision. The third
+copy, `VarkaWidthAuditShapes.asCatalystClaims`, keeps its own rule as B1 says and is filed as
+row 607; only its comment changed, since it named the bytes oracle's rule, which moved here.
+
+The two tests in `VarkaDecimalInSuite`: `inSetRewriteIsTheOptimizers` parses the two coverage
+rows' `executable` spellings, the int row and the decimal row of eleven literals, and asserts
+the helper's `InSet` equals `optimizeIn`'s for each, and that a row not claiming `InSet` is
+returned as the same object; `inSetClaimIsRefused` asserts the refusal for `d18 > 0.42`, with
+"resolved to GreaterThan" in the message, and for `i IN (1, i)`, with "resolved to In rather
+than an In of foldable elements" (the wording the review's first round put in place of the
+sheet's, which said "resolved to In" for a row that is an `In`).
+
+**Results.** `catalyst/testOnly *VarkaDecimalInSuite` passed: 9 tests, 0 failed, 2.855 s of test
+time. `catalyst/testOnly *VarkaEmittedBytesSuite *VarkaWarmupReachSuite` passed: 9 passed, 2
+canceled by their own opt-in `assume` (the option and pairs audits, which cancel without their
+environment variables), 0 failed; the committed-bytes pin took 58.6 s and
+`VarkaWarmupReachSuite`'s three tests 45.0 s. `emitted_bytes.json`, `width_audit.json` and
+`coverage.json` are unchanged (`git diff --exit-code` exits 0).
+
+**Planted faults.** Both failed the test the sheet names, and each was reverted with
+`git checkout --` before the next. `InSet(value, list.toSet)`, the rewrite without the `eval`
+fold, failed `inSetRewriteIsTheOptimizers` on the int row first: `expected: <i#2 INSET 1, 10,
+11, 2, 3, 4, 5, 6, 7, 8, 9> but was: <InSet@19b4d857>`, the set holding expressions rather than
+values. Deleting the `case other if claimsInSet` arm failed `inSetClaimIsRefused` with `Expected
+java.lang.IllegalArgumentException to be thrown, but nothing was thrown.`
+
+**Predictions and differences from the sheet.** The sheet registered no numeric prediction: its
+checks are the B4 commands and B5's greps, all of which pass. Two pull requests the sheet lists
+as open, #1436 and #1478, had merged before the branch's base and are in `6f5786d7a4e`; their
+changes to `VarkaSqlResolve.scala` (the `replaced` method) and the decimal comparison rows did
+not conflict with this one, and B0's premise greps match at that base. The sheet's committed line
+count, about 90, came out at 128: the two tests are longer than the estimate, mostly the two
+rows' `executable` spellings and the two refusal assertions.
+
+**The review.** One `/code-review high` pass found six points. Fixed: the refusal message now
+says a claimed row resolved to X "rather than an In of foldable elements", where it said
+"resolved to In" for a row that is an `In` whose elements are not foldable, and the test that
+pins it follows; the width audit's comment no longer names the bytes oracle's deleted rule; and
+the helper's scaladoc says the rewrite is hand-applied, so the cast-unwrapping rule that runs
+before `OptimizeIn` in production is not applied, and names the one kind of row that would tell
+the difference. Left, with the reason:
+
+- The helper does not run that cast-unwrapping rule, so a row whose column and literals differ
+  only by a widening cast would build the cast form where the optimizer builds the unwrapped one.
+  No row in the table has that shape, and running the rule needs the columns at both call sites,
+  which the helper deliberately does not take.
+- `coverage.json`'s `catalyst` set lists every class of a row's tree, while the helper accepts a
+  root `In` only. A future row whose `InSet` sits under an `And` would be refused by this suite
+  as well as by the bytes oracle, which refused it before this change. No such row exists, and
+  rewriting nested `In`s would change what the bytes oracle pins.
+- `inSetRewriteIsTheOptimizers` pastes the two rows' spellings instead of reading
+  `sql/varka/coverage.json`, so it would not follow either row if the table changed. It is the
+  two-row test B2 specifies; reading the twelve claimed rows from the table is a change to that
+  section, not to this one.

@@ -121,7 +121,12 @@ object VarkaWidthAuditShapes {
     y1, y2, s1, s2, ntz, ntz2, x, x2, f, f2, d9, d9b, d18, d18b,
     d9s4, d16s9, d8, d19, d38, d38b, d3810)
 
-  /** The row as the optimizer would hand it to the compiler; `VarkaEmittedBytesSuite`'s rule. */
+  /**
+   * The row as the optimizer would hand it to the compiler, for a copy of the rewrite that row 607
+   * removes: unlike `VarkaSqlResolve.inSetAsClaimed`, which the other test suites call, this one
+   * matches only `Literal` elements, so a decimal row whose elements arrive under a cast reaches
+   * the width audit as an `In`.
+   */
   private def asCatalystClaims(expr: Expression, catalyst: Set[String]): Expression = expr match {
     case In(value, list) if catalyst.contains("InSet") && list.forall(_.isInstanceOf[Literal]) =>
       InSet(value, list.map(_.asInstanceOf[Literal].value).toSet)
