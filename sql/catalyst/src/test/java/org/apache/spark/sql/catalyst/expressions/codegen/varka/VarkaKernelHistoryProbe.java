@@ -22,6 +22,7 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.lang.management.ManagementFactory;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Random;
 import java.util.TreeMap;
@@ -285,9 +286,11 @@ public final class VarkaKernelHistoryProbe {
         data[c] = values.address();
         validity[c] = bits.address();
       }
+      var outWidths = new int[s.roots().size()];
+      Arrays.fill(outWidths, Long.BYTES);
       boolean queued = VarkaKernelWarmup.start(entry.warmth(), entry.shapeHash(),
           entry.newKernel(), s.longLane(), data, validity, nullCount, widths, true, ROWS,
-          s.roots().size(), s.intLits(), s.longLits());
+          outWidths, s.intLits(), s.longLits());
       if (!queued) {
         throw new IllegalStateException("the warm-up was not queued: " + label);
       }

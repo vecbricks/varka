@@ -327,14 +327,32 @@ out by a filter that names no owing row: HashMap(BOOLEAN -> 39)` (the sheet rend
 `Map` as `Map`; 39 is B0 check 7's BOOLEAN count). `"\\bb2?\\b"` as `"\\bb\\b"` failed with `NOT
 b2: filters Set(), column types Set(BOOLEAN)`, and other tests too because the row was then drawn.
 
-Predictions. B6's size is scored by `dev/varka_push_check.py`; its "adds under a second" was not
-separately instrumented, since one child JVM reports no per-test time and the test resolves the
-749 rows once.
+Predictions, scored. B6's size: 107 counted lines against the ~75 estimate, 1.43x and under the
+sheet's half-again stop. Its "adds under a second": the defaults matrix run's JUnit report times
+the new test at 0.452 s. The row's other half, the declined-alone count, is exercised where it is
+nonzero: under `validityByWidth=false` the suite printed `749 rows, 517 drawn, 226 left out by a
+filter, 6 declined alone by this configuration` (18 passed, 2 canceled), so the pools and the
+count hold together with `alone` nonzero as well.
 
 Went differently from the sheet: #1425 had merged before the build, so the branch was cut from
 `70cf029a16f`, which holds it, and no rebase was needed; the lead's local `varka-warmup-review`
 never merged. Master moved during the build: `ee801019683` (#1523, VARKA-566) landed after the cut
-touching none of this row's files, and the branch was not merged forward, so `git diff
-origin/master --stat` lists its files beside this row's five. The branch is `varka-602-fuzz`, not
+touching none of this row's files. The branch was merged forward with it before review
+(`0032f47c3ae`), so `git diff origin/master --stat` lists exactly this row's five files; this
+corrects the sentence above that said the merge had not happened.
+
+**The review.** One `/code-review high` pass found twelve points. Fixed: the fuzz workflow's step
+summary, including the four accounting lines, was unreachable on a failing night, since the
+runner's `bash -e` aborted at the `java | tee` pipeline before the summary block and its
+`exit "$status"` (the fix suspends errexit around the pipeline); the test now asserts the premise
+its per-filter counts rest on, that no row reads two filters (B7's stop condition, and the loop
+already computes each row's matching set); and `unowed` is bound once instead of twice. Left, with
+the reason: the DECIMAL filter stays owed by VARKA-352, which B8 decided and the plan row's owner
+word repeats, while `types.tsv`'s `owed:347` names the Spark-level site rather than this fuzzer's;
+`owedBy` is checked only for presence, so a stale or mistyped row would print without failing,
+which the done-when does not ask to prevent; `drawn + alone == untyped` is implied by the per-row
+filter/type assertion rather than an independent oracle, and stays because B2 registers it; and
+the duplicated filter-name map and the per-row resolution cost belong to a suite-wide refactor,
+not to this row. The branch is `varka-602-fuzz`, not
 `varka-602`, so B0 check 8's exact-name list prints it. The plan row opens **Started** with "done
 when it merges" on the lead's instruction, where the sheet said **Done**.

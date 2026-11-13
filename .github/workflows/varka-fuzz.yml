@@ -164,6 +164,10 @@ jobs:
         # sbt sets spark.test.home for its tests; a plain JVM needs it passed, or every test
         # that reads a workspace file - the coverage table here - fails before it starts. The
         # suite runs in this JVM, alone, as the IR fuzzer runs in each of its JVMs.
+        # The runner runs this step with `bash -e`, so the pipeline's failure must be caught
+        # here: under errexit the step would end before the summary below, and a failing night
+        # would lose the accounting lines it exists to show.
+        set +e
         java --add-modules jdk.incubator.vector --enable-native-access=ALL-UNNAMED \
           -Dspark.testing=1 -Dspark.test.home="$GITHUB_WORKSPACE" -Dvarka.ownJvm=true \
           -Dvarka.fuzz.compositions="$COMPOSITIONS" -Dvarka.fuzz.seed="$seed" \
@@ -171,6 +175,7 @@ jobs:
           -s org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaCoverageCompositionFuzzSuite \
           2>&1 | tee target/fuzz/compositions-$seed.log
         status=${PIPESTATUS[0]}
+        set -e
         {
           echo "## Coverage compositions: $COMPOSITIONS, seed $seed"
           grep -E "Tests: succeeded|FAILED|coverage accounting:" \

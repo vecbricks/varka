@@ -1418,6 +1418,10 @@ class VarkaCoverageCompositionFuzzSuite
       val byType = types.collect { case (name, is) if read.exists(is) => name }.toSet
       val byFilter = filters.filter(_.reads(row.executable)).map(_.name).toSet
       assert(byFilter == byType, s"${row.executable}: filters $byFilter, column types $byType")
+      // The per-filter counts below charge a row to the first filter that reads it, so they are
+      // the type counts only while a row reads at most one filtered type (m8/VARKA-602.md B7).
+      assert(byFilter.size <= 1,
+        s"${row.executable}: more than one filter reads the row: $byFilter")
       if (byType.isEmpty) untyped += 1
     }
     val leftOut = rows.groupBy(r => filters.find(_.reads(r.executable)).map(_.name))
@@ -1434,8 +1438,8 @@ class VarkaCoverageCompositionFuzzSuite
       info(s"coverage accounting: left out, ${f.name}: $n rows, owed by " +
         f.owedBy.getOrElse("no row"))
     }
-    assert(unowed(rows, filters).isEmpty,
-      s"rows left out by a filter that names no owing row: ${unowed(rows, filters)}")
+    val unowedRows = unowed(rows, filters)
+    assert(unowedRows.isEmpty, s"rows left out by a filter that names no owing row: $unowedRows")
     // The check above bites: a filter that owes no row and reads every row is reported for all.
     assert(unowed(rows, Seq(VarkaCoverageRows.Filter("planted", None, _ => true))) ==
       Map("planted" -> rows.size))
