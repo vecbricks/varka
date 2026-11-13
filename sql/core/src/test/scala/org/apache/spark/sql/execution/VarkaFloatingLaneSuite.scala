@@ -26,8 +26,8 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaEmitOptions
   VarkaSameAnswer, VarkaTestWatchdog}
 import org.apache.spark.sql.catalyst.plans.logical.Project
 import org.apache.spark.sql.internal.SQLConf
-import org.apache.spark.sql.types.{DataType, DateType, DoubleType, FloatType, IntegerType,
-  LongType, ShortType, StructField, StructType}
+import org.apache.spark.sql.types.{DataType, DateType, DayTimeIntervalType, DoubleType,
+  FloatType, IntegerType, LongType, ShortType, StructField, StructType, YearMonthIntervalType}
 
 /**
  * The floating lanes' first nodes, end to end: a `DOUBLE` or `FLOAT` column read from Varka's
@@ -146,6 +146,8 @@ class VarkaFloatingLaneSuite extends QueryTest with VarkaSharedSessions with Var
     super.beforeAll()
     cacheFixtures(spark)
     cacheFixtures(varkaSpark)
+    cacheIntervals(spark)
+    cacheIntervals(varkaSpark)
   }
 
   /** The answer's cells, floating ones as their raw bits, so a NaN's payload and a sign count. */
@@ -376,6 +378,65 @@ class VarkaFloatingLaneSuite extends QueryTest with VarkaSharedSessions with Var
       assert(e.getCondition === "DIVIDE_BY_ZERO", e.getMessage)
       // A fixture with no live zero divisor answers, fused.
       checkFusedArith("SELECT x1 / x2 AS v FROM $t WHERE x2 IS NULL OR x2 <> 0.0D", ansi = true)
+    }
+  }
+
+  // -----------------------------------------------------------------------------------------
+  // Signum over the interval types, and the interval products and quotients by a floating
+  // factor, which decline until the conversions to an integral lane exist (VARKA-342 5.2).
+  // -----------------------------------------------------------------------------------------
+
+  private val intervals = "varka_float_intervals"
+
+  /** Each interval type's ends, -1, 0 and 1, and nulls in each column, beside a factor. */
+  private def cacheIntervals(session: SparkSession): Unit = {
+    def ym(months: Int): java.time.Period = java.time.Period.ofMonths(months)
+    def dt(micros: Long): java.time.Duration =
+      java.time.Duration.of(micros, java.time.temporal.ChronoUnit.MICROS)
+    val rows = Seq(Row(ym(Int.MinValue), dt(Long.MinValue), 0.5), Row(ym(-1), dt(-1L), -1.0),
+      Row(ym(0), dt(0L), 1.5), Row(ym(1), dt(1L), 2.5),
+      Row(ym(Int.MaxValue), dt(Long.MaxValue), 0.25), Row(null, dt(0L), 1.0),
+      Row(ym(0), null, null), Row(null, null, null))
+    val schema = StructType(Seq(StructField("ym", YearMonthIntervalType()),
+      StructField("dt", DayTimeIntervalType()), StructField("x", DoubleType)))
+    session.createDataFrame(spark.sparkContext.parallelize(rows, 1), schema)
+      .createOrReplaceTempView(intervals)
+    session.catalog.cacheTable(intervals)
+  }
+
+  test("signum over both interval types fuses and answers the row engine's doubles bit for bit "
+      + "at each type's ends, at zero and on nulls, generated and interpreted alike") {
+    val q = s"SELECT signum(ym) AS a, signum(dt) AS b FROM $intervals"
+    def d(v: Double): (String, Long) = ("double", java.lang.Double.doubleToRawLongBits(v))
+    // A zero count answers +0.0, never -0.0, and a null count null.
+    val want = Seq(Seq(d(-1.0), d(-1.0)), Seq(d(-1.0), d(-1.0)), Seq(d(0.0), d(0.0)),
+      Seq(d(1.0), d(1.0)), Seq(d(1.0), d(1.0)), Seq(null, d(0.0)), Seq(d(0.0), null),
+      Seq(null, null))
+    val actual = varkaSpark.sql(q)
+    assertFused(actual.queryExecution.executedPlan)
+    assert(bits(actual) === want)
+    assertKernelsRan(actual.queryExecution.executedPlan)
+    // Spark's generated code calls Math.signum on the int or long count, which resolves to the
+    // float overload, and its interpreted path Math.signum of the count's double: the two agree
+    // because each answer is -1, +0.0 or 1, and the kernel holds to both.
+    for (interpreted <- Seq(false, true)) {
+      val confs = if (!interpreted) Nil else Seq(SQLConf.WHOLESTAGE_CODEGEN_ENABLED.key -> "false",
+        SQLConf.CODEGEN_FACTORY_MODE.key -> "NO_CODEGEN")
+      withSQLConf(confs: _*) {
+        assert(bits(spark.sql(q)) === want, s"interpreted=$interpreted")
+      }
+    }
+  }
+
+  test("an interval product or quotient by a floating factor plans no Varka node") {
+    // Planned only, not run: the fixture's ends overflow the quotients, which the row engine
+    // raises on. The compiler suite pins the reason each declines with; a literal factor
+    // declines as a column does.
+    for (e <- Seq("ym * x", "ym / x", "dt * x", "dt / x", "ym / 4.0D")) {
+      val q = s"SELECT $e AS v FROM $intervals"
+      withClue(q) {
+        assertNotFused(varkaSpark.sql(q).queryExecution.executedPlan)
+      }
     }
   }
 
