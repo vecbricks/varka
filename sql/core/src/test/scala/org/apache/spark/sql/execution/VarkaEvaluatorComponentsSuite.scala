@@ -286,6 +286,17 @@ class VarkaEvaluatorComponentsSuite extends SparkFunSuite {
     assert(VarkaSessionEmit.of(conf).apply(exactBase) === exactBase.withExactRefusalStatus(false)
       .withUseAVX(2))
     intercept[IllegalArgumentException](new VarkaSessionEmit(-2, null))
+    // The math family's opt-in mode (VARKA-345.md 2.6): unset leaves the base's, which is off,
+    // and either value set is laid over a base with the other.
+    val contractBase = base.withMathUlpContract(true)
+    assert(VarkaSessionEmit.of(conf).mathUlpContract === null)
+    assert(VarkaSessionEmit.of(conf).apply(contractBase).mathUlpContract())
+    for (set <- Seq(true, false)) {
+      conf.setConfString(SQLConf.VARKA_MATH_ULP_CONTRACT.key, set.toString)
+      assert(VarkaSessionEmit.of(conf).apply(base).mathUlpContract() === set)
+      assert(VarkaSessionEmit.of(conf).apply(contractBase).mathUlpContract() === set)
+    }
+    conf.unsetConf(SQLConf.VARKA_MATH_ULP_CONTRACT.key)
     for (set <- Seq(true, false)) {
       conf.setConfString(SQLConf.VARKA_DECLINE_TWO_LANE_CONDITIONS.key, set.toString)
       assert(VarkaSessionEmit.of(conf).declineTwoLaneConditions === set)

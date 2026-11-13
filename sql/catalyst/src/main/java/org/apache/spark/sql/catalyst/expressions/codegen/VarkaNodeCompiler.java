@@ -216,7 +216,8 @@ final class VarkaNodeCompiler {
   /**
    * The chain, in order: the date leaves, the four families, then the int arithmetic and the
    * picks, then the floating arithmetic, which claims only floating-valued nodes, then the
-   * integral casts row 28's arms do not hold. The int arithmetic comes after the calendar family
+   * floating casts, the integral casts row 28's arms do not hold, the rounding functions and
+   * last the math functions. The int arithmetic comes after the calendar family
    * so that the {@code Add(WeekDay, 1)} shape keeps its dedicated node, and its guard says so as
    * well.
    */
@@ -230,7 +231,8 @@ final class VarkaNodeCompiler {
       new Family(VarkaFamily.FLOATING_ARITHMETIC, VarkaFloatingCompiler::arm),
       new Family(VarkaFamily.FLOATING_CAST, VarkaFloatingCastCompiler::arm),
       new Family(VarkaFamily.INTEGRAL_CAST, VarkaIntegralCastCompiler::arm),
-      new Family(VarkaFamily.ROUNDING, VarkaRoundingCompiler::arm));
+      new Family(VarkaFamily.ROUNDING, VarkaRoundingCompiler::arm),
+      new Family(VarkaFamily.MATH, VarkaMathCompiler::arm));
 
   /**
    * The predicate family, which is not a link of the chain: {@code compileNode} never claims a
@@ -388,6 +390,8 @@ final class VarkaNodeCompiler {
         // The rounding family's forms (VARKA-344): rint, and floor and ceil, whose arm builds
         // the int operand's widening and declines a double or any other cast by name.
         || e instanceof Rint || e instanceof Floor || e instanceof Ceil
+        // The math family's functions (VARKA-345), each declining in its arm by its row.
+        || VarkaMathCompiler.ownerOf(e).isPresent()
         // The floating casts family's pairs (VARKA-343), by pair for the same reason.
         || (e instanceof Cast c && (VarkaFloatingCastCompiler.admits(c)
             || DataTypes.BooleanType.equals(c.dataType())))) {
