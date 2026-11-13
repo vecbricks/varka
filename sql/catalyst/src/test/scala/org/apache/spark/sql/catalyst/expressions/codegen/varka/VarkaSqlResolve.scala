@@ -19,7 +19,7 @@ package org.apache.spark.sql.catalyst.expressions.codegen.varka
 
 import org.apache.spark.sql.catalyst.analysis.{SimpleAnalyzer, UnresolvedAttribute}
 import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, AttributeReference,
-  BindReferences, Cast, Expression, Literal, NamedExpression, RuntimeReplaceable}
+  BindReferences, Cast, Expression, In, InSet, Literal, NamedExpression, RuntimeReplaceable}
 import org.apache.spark.sql.catalyst.optimizer.{ComputeCurrentTime, ConstantFolding, OptimizeIn,
   RewriteWithExpression, UnwrapCastInBinaryComparison}
 import org.apache.spark.sql.catalyst.parser.CatalystSqlParser
@@ -87,6 +87,26 @@ object VarkaSqlResolve {
       case Filter(c, _) => c
       case other => throw new IllegalStateException(s"not a filter: $other")
     }
+  }
+
+  /**
+   * `e` as the optimizer hands a coverage row to the compiler when the table records it as an
+   * `InSet` (`claimsInSet`): `OptimizeIn`'s rewrite, hand-applied, each element folded with `eval`
+   * first, as `ConstantFolding` folds the cast coercion puts over a decimal literal of another
+   * type. The cast-unwrapping rule that runs before `OptimizeIn` in production is not applied, so
+   * a row whose column and literals differ only by a widening cast resolves here to the cast form;
+   * no such row is in the table, and one would need this helper to run that rule first. A row that
+   * claims an `InSet` and is not an `In` of foldable elements throws, since the rewrite is all
+   * that stands between it and the compiler's `In` arm; any other row is returned as it is.
+   */
+  def inSetAsClaimed(e: Expression, claimsInSet: Boolean): Expression = e match {
+    case In(value, list) if claimsInSet && list.forall(_.foldable) =>
+      InSet(value, list.map(_.eval()).toSet)
+    case other if claimsInSet =>
+      throw new IllegalArgumentException("a row the table records as an InSet resolved to " +
+        s"${other.getClass.getSimpleName} rather than an In of foldable elements: the " +
+        "executable spelling and the catalyst field disagree")
+    case other => other
   }
 
   /**
