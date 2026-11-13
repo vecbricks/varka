@@ -1935,6 +1935,7 @@ jobs:
         python3 dev/varka_msg_check.py --selftest
         python3 dev/varka_matrix_shards.py --selftest
         python3 dev/varka_bench_cpu_retry.py --selftest
+        python3 dev/varka_bench_sections.py --selftest
         dev/varka_precommit.sh --selftest
         python3 dev/varka_bin_units_test.py --selftest
         python3 dev/varka_matrix_bins.py --selftest

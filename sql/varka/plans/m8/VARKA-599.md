@@ -434,3 +434,58 @@ Expected: the step prints
 `sql/core/benchmarks/VarkaDecimalBaselineBenchmark-jdk25-runner-epyc7763-128bit-results.txt: sections [...] taken from sql/core/benchmarks/VarkaDecimalBaselineBenchmark-jdk25-results.txt, the rest as committed`,
 writes the `-128bit-provenance.txt` beside it, and the artifact holds those two files and no
 plain `-jdk25-results.txt`. The agent does not dispatch.
+
+## Outcome
+
+Built 14 November 2026 on `varka-599-sections`, from master at `ee801019683`.
+
+**What was built.** `dev/varka_bench_sections.py` now derives the committed runner-named file a
+run stands for. `runner_target` reads the plain file's stem, the runner slugs whose wide or
+`-128bit` file is committed at HEAD, the CPU the probe's check passed against (`--cpu-checked`)
+and the last `-XX:MaxVectorSize` in `--java-options`: none or `32` picks the wide file, `16` the
+`-128bit` companion, any other width, an unchecked CPU or another model is refused with a message.
+`changed_results` also lists untracked results files, so the run's new plain file reaches
+`restore`, which splices it into the runner-named file and removes it (a tracked plain file goes
+back to HEAD); a class with no runner-named file keeps its committed plain name. The benchmark
+workflow passes `CPU_CHECKED` (the expected-cpu only when the probe step's `outcome` is
+`success`) and the extra JVM options, and the Build runs `--selftest` beside the other house-rule
+self-tests.
+
+**Checks.** `--selftest` prints eleven lines before `selftest passed` (the sheet's five plus the
+cases the review added), exit 0; `ruff check dev` and `ruff format --check dev` pass; `restore
+--sections b --cpu-checked "" --java-options=` in the clean tree prints `no regenerated file holds
+the sections ['b']`, exit 1; `actionlint -oneline` reports 20 lines on `benchmark.yml` and 60 on
+`build_and_test.yml`, the same counts as origin/master, and the YAML parses. Both planted faults
+(v1: `width == "16"` read as `"8"`; v2: the `ls-files` command removed) print the expected line
+and exit 1, and the self-test passes again after each revert. `dev/varka_push_check.py` exits 0
+with a counted size of 358 changed lines against `ee801019683`.
+
+**The review.** A `/code-review high` pass found ten points; nine are fixed and the tenth is left
+because the sheet says otherwise. The CPU now matches as the probe does (the expected-cpu contains
+the model's key string, case-insensitively, so the long spelling is not refused after measuring);
+`PLAIN` accepts the plain name with or without `-jdkNN`, and the `jdk` input defaults to 25, whose
+names the committed files use; `restore` validates every file (and a mistyped `--sections`) before
+removing or writing anything, and a checked run under a wildcard keeps a file that holds none of
+the titles; the provenance loop appends the committed `spliced:` blocks below the new header
+instead of truncating them; extra options naming `UseAVX` without `-XX:MaxVectorSize` are refused
+because `UseAVX=0` forces 128 bits; the legacy `-runner-7763-` spelling names the same CPU's
+files; a missing path is skipped with a message, not opened; the self-test's scratch repository
+runs with `GIT_CONFIG_GLOBAL=/dev/null` and `GIT_CONFIG_NOSYSTEM=1`; and the docstrings state the
+new behaviour. The tenth, a narrow run with no committed `-128bit` companion writing one, is not
+taken: the sheet's B1 has `runner_target` refuse a target with no committed version, its
+out-of-scope keeps a refused run's numbers out of the artifact, and the finding itself says to
+follow the sheet and record the difference. The review's "never remove a class the run did not
+splice" is applied to checked runs only: B2 test 7 removes an unchecked run's plain file holding
+none of the sections, and that is kept, though every file is now checked before any is removed, so
+a mistyped `--sections` loses nothing. The `jdk` default is the one edit outside the sheet's "only
+the Run benchmarks step", taken because a default dispatch otherwise writes a name no committed
+runner file can receive.
+
+**What differed.** B0 check 1 printed nothing: #1474 and #1425 merged (12 and 13 November) before
+the branch point, so their changes are in the base and no rebase was needed. The lead named the
+worktree and branch `varka-599-sections` rather than the sheet's `varka-599`, and directed the row
+to open **Started** with "done when it merges" rather than the sheet's **Done**; the row follows
+the lead. `actionlint`'s counts are unchanged from the sheet's reading at `c62f492fc89`. The
+counted size, 358 lines against the sheet's estimate of about 170, is over that estimate by
+more than half, which BUILD_SHEETS.md section 8 makes a stop rule; the review's ten fixes and
+their self-test cases are the growth, and the size stays under the 900-line stop.
