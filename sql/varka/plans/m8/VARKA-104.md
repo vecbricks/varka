@@ -459,3 +459,17 @@ runs, differ by that much.
   right for the filter and for ANSI negation and `abs`, and leaves a win unclaimed on the `try_`
   sums and on null-free ANSI `+` and `-`. A refusal finer than the `BIGINT` arms' is a finding for
   a row of its own, not this one's.
+
+**The option matrix.** Run 43504150236 on the head before this record failed three
+configurations: `arrowBatchSize=1` and `arrowBatchSize=3`, on the four BIGINT domain tests, and
+`driverOutputTable=false`, on one grouping composition. The BIGINT failures are the domain
+check's, not the kernel's: `VarkaDomains.check` requires every batch outside a row's recorded
+domain to be one the guards condemn, which holds only where the domain is the guard's own
+condition; `l + l2`'s domain is the operands' input range, wider than the guard's sum-overflow
+test, so a batch of outside rows that holds no overflowing row is answered, and answered
+correctly, and a smaller Arrow batch splits the rows so that such a batch exists. The grouping
+failure is the unrolled driver's size, which the same configuration's `VarkaExactGroupingSuite`
+entries already record. Five `skips.tsv` lines under those configurations carry the reasons, and
+all three configurations were re-run on the laptop over the affected suites: 2567 passed with 2
+canceled under each `arrowBatchSize`, and 1 passed with 2 canceled under the driver's, no
+failures. The domain check's over-strong direction is row 610.
