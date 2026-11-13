@@ -75,13 +75,17 @@ import org.apache.spark.sql.internal.SQLConf;
  *        emit option, for the reason the families off are not: it decides which conjuncts and
  *        entries the compiler admits, never a kernel's bytes, and it travels with the plan so
  *        that the compile at planning and the evaluator's on an executor decline alike.
+ * @param mathUlpContract whether a math function may take the vector math library within its
+ *        contracted bound ({@code spark.sql.codegen.varka.math.ulpContract.enabled},
+ *        {@code VARKA-345.md} 2.6), null to leave the base options' setting, which is off. An
+ *        emit option, since it changes the form a math node takes and so its kernel's bytes.
  */
 public record VarkaSessionEmit(
     int useAVX, @Nullable Boolean exactRefusalStatus, Set<VarkaFamily> familiesOff,
-    boolean declineTwoLaneConditions)
+    boolean declineTwoLaneConditions, @Nullable Boolean mathUlpContract)
     implements Serializable {
 
-  private static final long serialVersionUID = 3L;
+  private static final long serialVersionUID = 4L;
 
   private static final SparkLogger LOG = SparkLoggerFactory.getLogger(VarkaSessionEmit.class);
 
@@ -140,6 +144,12 @@ public record VarkaSessionEmit(
     this(useAVX, exactRefusalStatus, Set.of(), false);
   }
 
+  /** The settings with the math family's opt-in mode left to the base options. */
+  public VarkaSessionEmit(int useAVX, @Nullable Boolean exactRefusalStatus,
+      Set<VarkaFamily> familiesOff, boolean declineTwoLaneConditions) {
+    this(useAVX, exactRefusalStatus, familiesOff, declineTwoLaneConditions, null);
+  }
+
   /**
    * The settings that decide which conjuncts a predicate and which entries a projection admit, as
    * every compile of this session's plan - at planning, in EXPLAIN and in a task - passes them.
@@ -185,10 +195,12 @@ public record VarkaSessionEmit(
       }
     }
     Option<Object> twoLane = conf.varkaDeclineTwoLaneConditions();
+    Option<Object> contract = conf.varkaMathUlpContract();
     int level = conf.varkaEmitUseAVX();
     return new VarkaSessionEmit(level == USE_AVX_FROM_HOST ? resolve(host) : level,
         exact.isDefined() ? (Boolean) exact.get() : null, off,
-        twoLane.isDefined() ? (Boolean) twoLane.get() : twoLaneMasksFallBack.getAsBoolean());
+        twoLane.isDefined() ? (Boolean) twoLane.get() : twoLaneMasksFallBack.getAsBoolean(),
+        contract.isDefined() ? (Boolean) contract.get() : null);
   }
 
   /**
@@ -255,7 +267,8 @@ public record VarkaSessionEmit(
 
   /** {@code base} with the session's settings laid over it, or {@code base} when none is set. */
   public VarkaEmitOptions apply(VarkaEmitOptions base) {
-    if (useAVX == VarkaEmitOptions.USE_AVX_UNKNOWN && exactRefusalStatus == null) {
+    if (useAVX == VarkaEmitOptions.USE_AVX_UNKNOWN && exactRefusalStatus == null
+        && mathUlpContract == null) {
       return base;
     }
     var options = base.toBuilder();
@@ -264,6 +277,9 @@ public record VarkaSessionEmit(
     }
     if (exactRefusalStatus != null) {
       options.exactRefusalStatus(exactRefusalStatus);
+    }
+    if (mathUlpContract != null) {
+      options.mathUlpContract(mathUlpContract);
     }
     return options.build();
   }

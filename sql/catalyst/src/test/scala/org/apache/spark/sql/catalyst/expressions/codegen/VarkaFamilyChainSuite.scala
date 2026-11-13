@@ -73,11 +73,12 @@ class VarkaFamilyChainSuite extends SparkFunSuite with VarkaTestWatchdog {
   /**
    * Shapes beside the table's that sit on a seam between two groups: the one arm the calendar
    * family and the int arithmetic both look at, in both operand orders; the identity date cast
-   * the leaves unwrap; and arithmetic over a calendar field.
+   * the leaves unwrap; arithmetic over a calendar field; and a math function, which no row of
+   * the table reaches before the math family's rows land (VARKA-345).
    */
   private val seams = Seq(
     "weekday(d) + 1", "1 + weekday(d)", "weekday(d) + 2", "cast(d as date)",
-    "year(d) + i", "-(month(d))", "greatest(d, d2)", "d + INTERVAL 3 MONTH")
+    "year(d) + i", "-(month(d))", "greatest(d, d2)", "d + INTERVAL 3 MONTH", "sin(x)")
 
   private def bound(sql: String): Expression = BindReferences.bindReference[Expression](
     VarkaSqlResolve.resolve(CatalystSqlParser.parseExpression(sql), columns), columns)

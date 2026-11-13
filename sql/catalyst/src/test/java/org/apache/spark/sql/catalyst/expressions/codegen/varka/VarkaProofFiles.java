@@ -35,6 +35,7 @@ import java.util.function.LongBinaryOperator;
 import com.google.common.math.IntMath;
 
 import org.apache.spark.sql.catalyst.expressions.BitmapExpressionUtils;
+import org.apache.spark.sql.catalyst.expressions.codegen.VarkaIntervalCompiler;
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaRoundingCompiler;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaDivisionLowering.MulHiMagic;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaValueRange.Range;
@@ -102,6 +103,7 @@ final class VarkaProofFiles {
     files.put("decimal_scale.smt2", decimalScale());
     files.put("casts.smt2", casts());
     files.put("round_to_odd.smt2", roundToOdd());
+    files.put("fp_half_up.smt2", fpHalfUp());
     files.put("decimal128.smt2", decimal128());
     files.put("fp_round.smt2", fpRound());
     files.put("int_round.smt2", intRound());
@@ -3344,8 +3346,14 @@ final class VarkaProofFiles {
    * pushed bit-blasts the same check in a fraction of one (VARKA-343.md 3.3).
    */
   private static void fresh(StringBuilder out, String what, String expect, List<String> body) {
+    fresh(out, what, expect, RTO_DEFS, body);
+  }
+
+  /** {@link #fresh} with {@code defs} restated after the reset in place of {@link #RTO_DEFS}. */
+  private static void fresh(StringBuilder out, String what, String expect, String defs,
+      List<String> body) {
     out.append("\n(echo \"").append(what).append(": expect ").append(expect).append("\")\n");
-    out.append("(reset)\n(set-logic ALL)\n").append(RTO_DEFS).append('\n');
+    out.append("(reset)\n(set-logic ALL)\n").append(defs).append('\n');
     for (String line : body) {
       out.append(line).append('\n');
     }
@@ -3436,6 +3444,178 @@ final class VarkaProofFiles {
     String p = "(bvadd " + bv64(p52) + " (bvand " + sel + " " + bv64((long) shift << 52) + "))";
     return "((_ to_fp 8 24) RNE (fp.sub RNE (rto.bitsToDouble (bvor " + t + " " + p + ")) "
         + "(rto.bitsToDouble " + p + ")))";
+  }
+
+  // -----------------------------------------------------------------------------------------
+  // The interval products and quotients' HALF_UP by a floating factor (VARKA-342).
+  // -----------------------------------------------------------------------------------------
+
+  /** A double literal, by its bits. */
+  private static String f64(double d) {
+    return "((_ to_fp 11 53) " + bv64(Double.doubleToRawLongBits(d)) + ")";
+  }
+
+  /**
+   * Guava 33.6.0's {@code DoubleMath.roundIntermediate(p, HALF_UP)}, the value whose truncation
+   * is the answer, and the two forms of the plan at {@code w} bits: {@code t} the truncation,
+   * {@code f = p - (double) t}, the bump of the tie away from zero.
+   */
+  private static String halfUpDefs(int w) {
+    String one = "(_ bv1 " + w + ")";
+    String minusOne = "(bvneg " + one + ")";
+    return "(define-fun hu.guava ((p Float64)) Float64 (let ((z (fp.roundToIntegral RNE p)))\n"
+        + "  (ite (fp.eq (fp.abs (fp.sub RNE p z)) " + f64(0.5) + ")\n"
+        + "    (fp.add RNE p (ite (fp.isNegative p) " + f64(-0.5) + " " + f64(0.5) + ")) z)))\n"
+        + "(define-fun hu.t ((p Float64)) (_ BitVec " + w + ") ((_ fp.to_sbv " + w + ") RTZ p))\n"
+        + "(define-fun hu.f ((p Float64)) Float64 (fp.sub RNE p ((_ to_fp 11 53) RNE (hu.t p))))\n"
+        + "(define-fun hu.form ((p Float64) (strict Bool)) (_ BitVec " + w + ") (bvadd (hu.t p)\n"
+        + "  (ite (ite strict (fp.gt (hu.f p) " + f64(0.5) + ") (fp.geq (hu.f p) " + f64(0.5)
+        + ")) " + one + "\n"
+        + "    (ite (ite strict (fp.lt (hu.f p) " + f64(-0.5) + ") (fp.leq (hu.f p) "
+        + f64(-0.5) + ")) " + minusOne + " (_ bv0 " + w + ")))))\n"
+        + "(define-fun hu.answer ((p Float64)) (_ BitVec " + w + ") ((_ fp.to_sbv " + w
+        + ") RTZ (hu.guava p)))\n"
+        + "(define-fun hu.finite ((p Float64)) Bool (not (or (fp.isNaN p) (fp.isInfinite p))))";
+  }
+
+  /** The guard {@code [lo, hi]}: false at a NaN, as every IEEE compare is. */
+  private static String inGuard(String p, double lo, double hi) {
+    return "(and (fp.geq " + p + " " + f64(lo) + ") (fp.leq " + p + " " + f64(hi) + "))";
+  }
+
+  /**
+   * A pinned cell of the long: Spark's answer to the micros {@code m} times {@code x}, or null
+   * where Spark raises.
+   */
+  private record LongCell(long m, double x, Long answer) {
+  }
+
+  /**
+   * {@code fp_half_up.smt2}: the HALF_UP rounding of {@code VARKA-342.md} 2.4, by which
+   * {@code ym * x}, {@code ym / x}, {@code dt * x} and {@code dt / x} round the double product or
+   * quotient {@code p} to the interval's int or long, is Guava's {@code roundToInt} and
+   * {@code roundToLong} for every double inside each guard, and the guard holds exactly the
+   * doubles Guava answers rather than raises on, over SMT-LIB's floating-point theory.
+   */
+  static String fpHalfUp() {
+    var out = new StringBuilder(LICENSE);
+    out.append("""
+        ; The HALF_UP rounding of the interval products and quotients by a floating factor
+        ; (VARKA-342.md 2.4). Spark answers ym * x as DoubleMath.roundToInt(m * (double) x, HALF_UP)
+        ; and dt * x as roundToLong, the quotients the same over m / (double) x. Guava 33.6.0's
+        ; roundIntermediate raises on NaN and the infinities, takes z = rint(p) and, where
+        ; |p - z| = 0.5, p + copySign(0.5, p) instead; roundToInt then raises unless
+        ; z > -2^31 - 1 and z < 2^31, roundToLong unless -2^63 - z < 1 and z < 2^63, and each
+        ; answers z truncated. The plan's form, over the double p as the kernel computes it:
+        ;
+        ;   g = GuardedRange(p, lo, hi)          the batch declined where a lane is outside
+        ;   t = (int) g  or  (long) g             D2I or D2L, the truncation
+        ;   f = g - (double) t                    the fractional part
+        ;   r = t + (f >= 0.5 ? 1 : f <= -0.5 ? -1 : 0)
+        ;
+        ; with [lo, hi] inclusive: for the int nextUp(-2^31 - 0.5) to nextDown(2^31 - 0.5), for
+        ; the long -2^63 to nextDown(2^63). The claims, per type: the guard holds exactly the
+        ; doubles Guava answers, so a lane it raises on, a NaN and the infinities among them,
+        ; declines its batch; inside the guard r is Guava's answer; and f is zero wherever
+        ; |p| >= 2^52, where a double has no fraction. The sat checks: each guard one double wider
+        ; at either end, and the tie taken by > 0.5 rather than >= 0.5, are wrong. The pinned
+        ; cells are the ties and the products row 103's admission check ran against Spark
+        ; (results/VARKA-103-admission.txt, item 7): the long rounded to a double before the
+        ; multiply, and the long's ends, where MAX - 511 rounds to 2^63 and raises.
+        ;
+        ; Each check runs after a (reset), as in round_to_odd.smt2, for the same reason: Z3's
+        ; incremental core is slow on 64-bit floating point. Nothing here uses java.smt2.
+        """);
+    out.append(rendered("ALL"));
+    String p = "(declare-const p Float64)";
+    // The guards' bounds are the lowering's own, from the class that will build it.
+    double longLo = VarkaIntervalCompiler.HALF_UP_LONG_LO;
+    double longHi = VarkaIntervalCompiler.HALF_UP_LONG_HI;
+    halfUpChecks(out, "ym", 32, VarkaIntervalCompiler.HALF_UP_INT_LO,
+        VarkaIntervalCompiler.HALF_UP_INT_HI,
+        "(and (fp.gt z " + f64(-0x1p31 - 1.0) + ") (fp.lt z " + f64(0x1p31) + "))");
+    halfUpChecks(out, "dt", 64, longLo, longHi,
+        "(and (fp.lt (fp.sub RNE " + f64(-0x1p63) + " z) " + f64(1.0) + ") (fp.lt z "
+            + f64(0x1p63) + "))");
+    String defs = halfUpDefs(32);
+    // The ties and an end of the int, as values of r.
+    double[][] intCells = {{0.5, 1}, {-0.5, -1}, {2.5, 3}, {-2.5, -3},
+        {0x1p31 - 1.5, 0x1p31 - 1}, {-0x1p31 - 0.25, -0x1p31}, {0.49999999999999994, 0}};
+    for (double[] c : intCells) {
+      fresh(out, "ym: at p = " + c[0] + " the form answers " + (long) c[1], "unsat", defs,
+          List.of(p, "(assert (= p " + f64(c[0]) + "))",
+              "(assert (not (= (hu.form p false) " + bv((int) c[1]) + ")))"));
+    }
+    defs = halfUpDefs(64);
+    // Row 103's cells: the micros as Spark converts them, times the factor; a null answer is
+    // Guava's raise, so p is outside the guard.
+    long max = Long.MAX_VALUE;
+    long min = Long.MIN_VALUE;
+    long p53 = 1L << 53;
+    var longCells = List.of(new LongCell(p53 + 1, 0.5, p53 >> 1),
+        new LongCell(p53 - 1, 0.5, p53 >> 1), new LongCell(-(p53 - 1), 0.5, -(p53 >> 1)),
+        new LongCell(p53 + 1, 1.0, p53), new LongCell(5L, 0.5, 3L), new LongCell(-5L, 0.5, -3L),
+        new LongCell(min, 1.0, min), new LongCell(max, -1.0, min),
+        new LongCell(max - 512, 1.0, max - 1023), new LongCell(min, 0.5, min / 2),
+        new LongCell(max, 1.0, null), new LongCell(min, -1.0, null),
+        new LongCell(max - 511, 1.0, null));
+    String inLongGuard = inGuard("p", longLo, longHi);
+    for (LongCell c : longCells) {
+      String product = "(fp.mul RNE ((_ to_fp 11 53) RNE " + bv64(c.m()) + ") " + f64(c.x())
+          + ")";
+      String claim = c.answer() == null
+          ? "(assert " + inLongGuard + ")"
+          : "(assert (not (and " + inLongGuard + " (= (hu.form p false) " + bv64(c.answer())
+              + "))))";
+      fresh(out, "dt: " + c.m() + " * " + c.x() + (c.answer() == null ? " is outside the "
+          + "guard, where Spark raises" : " answers " + c.answer()), "unsat", defs,
+          List.of(p, "(assert (= p " + product + "))", claim));
+    }
+    return out.toString();
+  }
+
+  /** The guard and the form at {@code w} bits against Guava, {@code rangeOk} its check of z. */
+  private static void halfUpChecks(StringBuilder out, String type, int w, double lo, double hi,
+      String rangeOk) {
+    String defs = halfUpDefs(w);
+    String p = "(declare-const p Float64)";
+    String guavaAnswers = "(and (hu.finite p) (let ((z (hu.guava p))) " + rangeOk + "))";
+    fresh(out, type + ": the guard [" + lo + ", " + hi + "] holds exactly the doubles Guava "
+        + "answers rather than raises on", "unsat", defs,
+        List.of(p, "(assert (not (= " + inGuard("p", lo, hi) + " " + guavaAnswers + ")))"));
+    // Stated whole, the claim is past the per-check limit under both solvers, and so is the
+    // range past 2^52 in one check under cvc5; per binade of |p| Z3's checks take seconds, and
+    // cvc5's slowest the nightly's longer limit (VARKA-342.md 5.2).
+    String same = "(assert (not (= (hu.form p false) (hu.answer p))))";
+    String guarded = "(assert " + inGuard("p", lo, hi) + ")";
+    fresh(out, type + ": inside the guard t + bump is Guava's HALF_UP where |p| < 0.5", "unsat",
+        defs, List.of(p, guarded, "(assert (fp.lt (fp.abs p) " + f64(0.5) + "))", same));
+    for (int k = -1; k <= Math.getExponent(Math.max(-lo, hi)); k++) {
+      fresh(out, type + ": inside the guard t + bump is Guava's HALF_UP where |p| is in [2^" + k
+          + ", 2^" + (k + 1) + ")", "unsat", defs, List.of(p, guarded,
+              "(assert (fp.geq (fp.abs p) " + f64(Math.scalb(1.0, k)) + "))",
+              "(assert (fp.lt (fp.abs p) " + f64(Math.scalb(1.0, k + 1)) + "))", same));
+    }
+    // The int's guard ends below 2^52, where the check would hold vacuously.
+    if (Math.getExponent(Math.max(-lo, hi)) >= 52) {
+      fresh(out, type + ": inside the guard f is zero wherever |p| >= 2^52", "unsat", defs,
+          List.of(p, guarded,
+              "(assert (fp.geq (fp.abs p) " + f64(0x1p52) + "))",
+              "(assert (not (fp.isZero (hu.f p))))"));
+    }
+    fresh(out, type + ": the guard one double lower at its low end admits a double Guava raises "
+        + "on", "sat", defs, List.of(p,
+            "(assert (not (= " + inGuard("p", Math.nextDown(lo), hi) + " " + guavaAnswers
+                + ")))"));
+    fresh(out, type + ": the guard one double higher at its high end admits a double Guava "
+        + "raises on", "sat", defs, List.of(p,
+            "(assert (not (= " + inGuard("p", lo, Math.nextUp(hi)) + " " + guavaAnswers + ")))"));
+    // Over [2, 4), which holds the tie 2.5: cvc5 finds no witness over the whole guard of the
+    // long within the per-check limit.
+    fresh(out, type + ": with the tie taken by f > 0.5 rather than f >= 0.5 the form is wrong "
+        + "on [2, 4)", "sat", defs, List.of(p, "(assert (fp.geq p " + f64(2.0) + "))",
+            "(assert (fp.lt p " + f64(4.0) + "))",
+            "(assert (not (= (hu.form p true) (hu.answer p))))"));
   }
 
   // -----------------------------------------------------------------------------------------

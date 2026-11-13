@@ -3342,6 +3342,25 @@ object SQLConf {
       .booleanConf
       .createOptional
 
+  val VARKA_MATH_ULP_CONTRACT =
+    buildConf("spark.sql.codegen.varka.math.ulpContract.enabled")
+      .internal()
+      .doc("When true, Varka may compute a math function (sin, exp, log, pow and the rest of" +
+        " the family) with the JDK's vector math library where the function's documented bound" +
+        " is contracted for this host's library: faster, and within that many representable" +
+        " doubles of Spark's answer rather than equal to it. A value computed so and then" +
+        " grouped, joined on, sorted or written as a partition key above the kernel may fall on" +
+        " the other side of a threshold than Spark's answer. Unset or false, every math" +
+        " function Varka fuses returns Spark's answer bit for bit. No math function fuses yet," +
+        " so the setting changes no plan today. Set to true, it is part of the shape hash, so" +
+        " such a session emits and caches its own classes; false keeps the default's.")
+      .version("5.0.0")
+      // Read by the Varka rule after analysis, choosing how a kernel computes a value; nothing a
+      // view body resolves to.
+      .withBindingPolicy(ConfigBindingPolicy.NOT_APPLICABLE)
+      .booleanConf
+      .createOptional
+
   val VARKA_DECLINE_TWO_LANE_CONDITIONS =
     buildConf("spark.sql.codegen.varka.declineTwoLaneConditions")
       .internal()
@@ -10008,6 +10027,8 @@ class SQLConf extends Serializable with Logging with SqlApiConf {
   def varkaEmitUseAVX: Int = getConf(VARKA_EMIT_USE_AVX)
 
   def varkaEmitExactRefusalStatus: Option[Boolean] = getConf(VARKA_EMIT_EXACT_REFUSAL_STATUS)
+
+  def varkaMathUlpContract: Option[Boolean] = getConf(VARKA_MATH_ULP_CONTRACT)
 
   def varkaDeclineTwoLaneConditions: Option[Boolean] = getConf(VARKA_DECLINE_TWO_LANE_CONDITIONS)
 

@@ -352,12 +352,34 @@ jobs:
           target/series-narrow/
         retention-days: 30
 
+  proofs:
+    name: Nightly-only proofs
+    # The SMT proofs too slow for the pull request's linters' job, whose --lint skips them:
+    # dev/varka_prove.sh's NIGHTLY_ONLY under Z3 and cvc5, the same pinned and checked solvers
+    # that job installs, downloaded here without its Actions cache of the archives.
+    # The self-test first, so a checker of verdicts that stopped failing cannot pass them. The
+    # script runs these at its NIGHTLY_ONLY limits, two of whose runs fit the timeout.
+    # As the fuzz job: the schedule on vecbricks/varka only, a dispatch on either repository.
+    if: >-
+      github.repository != 'apache/spark'
+      && (github.event_name != 'schedule' || github.repository == 'vecbricks/varka')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v6
+    - name: Run the nightly-only proofs under both solvers
+      run: |
+        ./dev/varka_prove.sh --install both
+        ./dev/varka_prove.sh --self-test --solver both
+        ./dev/varka_prove.sh --nightly-only
+
   report-failure:
     name: Report a failed run
     # Only a scheduled run, since a person who dispatches one sees its result; only on the
     # project's own repository, where issues are on; and when a job failed or was cancelled.
     # The script lists every failed, timed-out or cancelled job, a cancelled one with a note.
-    needs: [fuzz, series]
+    needs: [fuzz, series, proofs]
     if: >-
       always() && github.event_name == 'schedule' && github.repository == 'vecbricks/varka'
       && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled'))

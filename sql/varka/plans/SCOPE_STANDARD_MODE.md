@@ -212,6 +212,17 @@ asserts bit-identical answers, the fallback's per-batch mix is the default behav
 `docs/sql-varka.md` and the user support table state the default and the switch where users look
 (`m8/PLAN.md` 2.7.1).
 
+*9 November 2026, row 345's correction as its first part built it (`m8/VARKA-345.md` 10): the
+mode is `spark.sql.codegen.varka.math.ulpContract.enabled`, unset or false by default, laid over
+the emit options as `mathUlpContract`, the one option whose reason is `CONTRACT`, a sanctioned
+departure a session opts into. The bound "measured and committed by `MathLaneProbe`" above is
+replaced: a bound is a count of representable doubles, `VarkaMathBound.steps`, which refuses a NaN
+against a number, an infinity against anything but itself and any pair of opposite signs, where
+the probe's `Math.abs` of the raw-bit difference overflows; the measured lines are row 367's, and
+the contracted value, keyed by the full JDK build, is at least every measured line it rests on
+(`m8/VARKA-345.md` 2.5). "The default is on" and the differential suites' configuration-off arm
+are the record of the 14 October decision: the second arm is the configuration-on one.*
+
 ### 3.5 NaN payloads and signs: what the oracles compare
 
 *Added 14 October 2026 from the IEEE 754 reading for milestone 8 (`m8/PLAN.md` 2.7). Not a
