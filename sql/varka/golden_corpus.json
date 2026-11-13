@@ -936,9 +936,9 @@
       "statements" : 286,
       "selects" : 285,
       "rewritten" : 218,
-      "projection_fused" : 8,
+      "projection_fused" : 14,
       "projection_partial" : 0,
-      "projection_plain" : 151,
+      "projection_plain" : 145,
       "filter_fused" : 84,
       "filter_partial" : 0,
       "errors" : 67,
@@ -3423,7 +3423,7 @@
         "kind" : "rewritten",
         "rewritten" : "SELECT signum(c0)",
         "columns" : [ "interval year" ],
-        "projection" : "PLAIN",
+        "projection" : "FUSED",
         "projection_outcome" : "agree",
         "filter" : "PLAIN",
         "filter_outcome" : "agree"
@@ -3432,7 +3432,7 @@
         "kind" : "rewritten",
         "rewritten" : "SELECT signum(c0)",
         "columns" : [ "interval month" ],
-        "projection" : "PLAIN",
+        "projection" : "FUSED",
         "projection_outcome" : "agree",
         "filter" : "PLAIN",
         "filter_outcome" : "agree"
@@ -3441,7 +3441,7 @@
         "kind" : "rewritten",
         "rewritten" : "SELECT signum(c0)",
         "columns" : [ "interval year to month" ],
-        "projection" : "PLAIN",
+        "projection" : "FUSED",
         "projection_outcome" : "agree",
         "filter" : "PLAIN",
         "filter_outcome" : "agree"
@@ -3450,7 +3450,7 @@
         "kind" : "rewritten",
         "rewritten" : "SELECT signum(c0)",
         "columns" : [ "interval day" ],
-        "projection" : "PLAIN",
+        "projection" : "FUSED",
         "projection_outcome" : "agree",
         "filter" : "PLAIN",
         "filter_outcome" : "agree"
@@ -3459,7 +3459,7 @@
         "kind" : "rewritten",
         "rewritten" : "SELECT signum(c0)",
         "columns" : [ "interval hour" ],
-        "projection" : "PLAIN",
+        "projection" : "FUSED",
         "projection_outcome" : "agree",
         "filter" : "PLAIN",
         "filter_outcome" : "agree"
@@ -3468,7 +3468,7 @@
         "kind" : "rewritten",
         "rewritten" : "SELECT signum(c0)",
         "columns" : [ "interval day to second" ],
-        "projection" : "PLAIN",
+        "projection" : "FUSED",
         "projection_outcome" : "agree",
         "filter" : "PLAIN",
         "filter_outcome" : "agree"

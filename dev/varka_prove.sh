@@ -19,9 +19,11 @@
 #
 #   dev/varka_prove.sh                          # every proof under Z3
 #   dev/varka_prove.sh --lint                   # as the linters' job runs them: CVC5_IN_LINT's under
-#                                               # cvc5, every other under Z3
+#                                               # cvc5, NIGHTLY_ONLY's skipped, every other under Z3
 #   dev/varka_prove.sh --solver both            # under Z3 and cvc5, each held to every expectation
 #   dev/varka_prove.sh --solver cvc5 int_mulhi_divide.smt2
+#   dev/varka_prove.sh --nightly-only           # NIGHTLY_ONLY's under both (or --solver's), as
+#                                               # the nightly does
 #   dev/varka_prove.sh --install z3|cvc5|both   # the pinned solvers, into target/varka-solvers/
 #   dev/varka_prove.sh --install-shared z3|cvc5|both  # the same, into the shared directory below
 #   dev/varka_prove.sh --self-test              # one planted failure of each kind, every one caught
@@ -49,7 +51,8 @@
 # shared directory every worktree of a machine can read ($VARKA_SOLVERS_DIR, by default
 # ~/.cache/varka-solvers/, laid out as target/varka-solvers/ is), else from PATH.
 # VARKA_PROVE_LIMIT_MS bounds each check (default 10000) and VARKA_PROVE_RUN_LIMIT each
-# file's run under one solver, in seconds (default 300). Exit status 0 when every proof holds.
+# file's run under one solver, in seconds (default 300); a NIGHTLY_ONLY file's defaults are 30000
+# and 600. Exit status 0 when every proof holds.
 #
 # An install downloads the archives into <solvers>/downloads/, which the linters' job caches
 # under the --cache-key line; an archive already there is used when its SHA-256 matches the pin,
@@ -88,8 +91,19 @@ in_ci() { [ -n "${GITHUB_ACTIONS:-}" ]; }
 # The proofs the linters' job runs under cvc5 rather than Z3, to keep the step inside its minute:
 # long_divide.smt2 takes Z3 59 s on the runner and cvc5 a third of that (VARKA-241.md 9.5).
 CVC5_IN_LINT=(long_divide.smt2)
+# The proofs --lint skips, and refuses when named, for the nightly's run under both solvers
+# (varka-fuzz.yml's proofs job, --nightly-only):
+# fp_half_up.smt2 takes Z3 51 to 128 s and cvc5 88 to 208 s on the laptop, by its load
+# (VARKA-342.md 5.2).
+NIGHTLY_ONLY=(fp_half_up.smt2)
 limit_ms="${VARKA_PROVE_LIMIT_MS:-10000}"
 run_limit="${VARKA_PROVE_RUN_LIMIT:-300}"
+# A NIGHTLY_ONLY file's limits where the environment sets none: cvc5 left one check of
+# fp_half_up.smt2 unknown at an 8 s limit and Z3 one past 10 s on a loaded laptop
+# (VARKA-342.md 5.2), too near the defaults for a runner. Two runs at the run limit fit the
+# nightly job's 30 minutes.
+nightly_limit_ms="${VARKA_PROVE_LIMIT_MS:-30000}"
+nightly_run_limit="${VARKA_PROVE_RUN_LIMIT:-600}"
 
 # ---------------------------------------------------------------------------------------------
 # The solvers.
@@ -353,6 +367,13 @@ run_file() {
   return "$rc"
 }
 
+# Whether FILE is one NIGHTLY_ONLY names.
+is_nightly_only() {
+  local c
+  for c in "${NIGHTLY_ONLY[@]}"; do [ "$(basename "$1")" = "$c" ] && return 0; done
+  return 1
+}
+
 # ---------------------------------------------------------------------------------------------
 # The self-test: the checker of verdicts, checked.
 # ---------------------------------------------------------------------------------------------
@@ -570,26 +591,57 @@ self_test_fetch() {
 # ---------------------------------------------------------------------------------------------
 
 mode=prove
-which=z3
+# The solver set, and whether --solver or --install gave one: a given empty value goes to usage
+# below rather than taking the default.
+which=
+which_given=0
+nightly=0
 files=()
+named=()
 while [ "$#" -gt 0 ]; do
   case "$1" in
     -h|--help) usage 0 ;;
-    --solver) which="${2:-}"; shift 2 || usage ;;
-    --install) mode=install; which="${2:-}"; solvers="$root/target/varka-solvers"
+    --solver) which="${2:-}"; which_given=1; shift 2 || usage ;;
+    --install) mode=install; which="${2:-}"; which_given=1; solvers="$root/target/varka-solvers"
       shift 2 || usage ;;
-    --install-shared) mode=install; solvers="$shared"; which="${2:-}"; shift 2 || usage ;;
+    --install-shared) mode=install; solvers="$shared"; which="${2:-}"; which_given=1
+      shift 2 || usage ;;
     --self-test) mode=self-test; shift ;;
     --self-test-fetch) self_test_fetch; exit ;;
     --cache-key)
       echo "z3-$Z3_VERSION-${Z3_WHEEL_SHA256:0:16}-cvc5-$CVC5_VERSION-${CVC5_SHA256:0:16}"
       exit 0 ;;
     --prune-downloads) prune_downloads "$root/target/varka-solvers/downloads"; exit 0 ;;
-    --lint) mode=lint; which=both; shift ;;
+    --lint) mode=lint; shift ;;
+    --nightly-only) nightly=1; files+=("${NIGHTLY_ONLY[@]}"); shift ;;
     -*) usage ;;
-    *) files+=("$1"); shift ;;
+    *) files+=("$1"); named+=("$1"); shift ;;
   esac
 done
+# --lint picks each file's solver itself; --nightly-only runs both unless --solver names one,
+# in either order.
+if [ "$mode" = lint ]; then
+  which=both
+elif [ "$which_given" = 0 ]; then
+  if [ "$nightly" = 1 ]; then which=both; else which=z3; fi
+fi
+# --lint skips every file --nightly-only names, so the two together prove nothing and would
+# still report success.
+if [ "$mode" = lint ] && [ "$nightly" = 1 ]; then
+  echo "varka_prove: --lint skips the NIGHTLY_ONLY files --nightly-only names;" \
+    "use one or the other" >&2
+  exit 2
+fi
+# A NIGHTLY_ONLY file named to --lint would only be skipped, proving nothing.
+if [ "$mode" = lint ]; then
+  for f in "${named[@]}"; do
+    if is_nightly_only "$f"; then
+      echo "varka_prove: --lint skips $(basename "$f"), a NIGHTLY_ONLY file;" \
+        "run it without --lint" >&2
+      exit 2
+    fi
+  done
+fi
 case "$which" in
   z3|cvc5) names=("$which") ;;
   both) names=(z3 cvc5) ;;
@@ -632,6 +684,10 @@ failed=0
 if [ "$mode" = lint ]; then
   for f in "${files[@]}"; do
     [ -f "$f" ] || f="$proofs/$f"
+    if is_nightly_only "$f"; then
+      printf '%-5s %-28s skipped: proven in the nightly\n' - "$(basename "$f")"
+      continue
+    fi
     name=z3
     for c in "${CVC5_IN_LINT[@]}"; do [ "$(basename "$f")" = "$c" ] && name=cvc5; done
     run_file "$name" "${paths[$name]}" "$f" || failed=$((failed + 1))
@@ -640,7 +696,12 @@ else
   for name in "${names[@]}"; do
     for f in "${files[@]}"; do
       [ -f "$f" ] || f="$proofs/$f"
-      run_file "$name" "${paths[$name]}" "$f" || failed=$((failed + 1))
+      if is_nightly_only "$f"; then
+        limit_ms="$nightly_limit_ms" run_limit="$nightly_run_limit" \
+          run_file "$name" "${paths[$name]}" "$f" || failed=$((failed + 1))
+      else
+        run_file "$name" "${paths[$name]}" "$f" || failed=$((failed + 1))
+      fi
     done
   done
 fi

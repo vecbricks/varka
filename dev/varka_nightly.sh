@@ -179,8 +179,8 @@ if [ "$sweep" -eq 1 ]; then
   fi
 fi
 # The proofs under Z3 and cvc5, each held to every expectation, so the two agree (VARKA-240); the
-# lint job runs Z3 alone. Beside the sweep step, whose multiply-high sweep checks the statement of
-# int_mulhi_divide.smt2 by running Java's own arithmetic.
+# lint job runs Z3 alone and skips NIGHTLY_ONLY. Beside the sweep step, whose multiply-high
+# sweep checks the statement of int_mulhi_divide.smt2 by running Java's own arithmetic.
 run_step prove bash -c 'dev/varka_prove.sh --install both && dev/varka_prove.sh --self-test \
   --solver both && dev/varka_prove.sh --solver both'
 # Every IR tree of the grammar to the size, one JVM per core (VARKA-269); size 5 is about twelve

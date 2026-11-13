@@ -1265,6 +1265,31 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
       Row("f * 2.5F"),
       Row("-f"),
       Row("abs(f)"))),
+    // The same forms over another type (VARKA-342 3.9): Spark's division and math functions take
+    // DOUBLE only, so type coercion casts any other numeric operand to double, which the floating
+    // casts family lowers exactly (VARKA-343); a BIGINT operand is not listed, since L2D declines
+    // below AVX512DQ. Signum over an interval answers the double of its count's sign.
+    Family("Floating arithmetic over other types", predicates = false, Seq(
+      Row("y1 / i", "both operands cast to double, then the double division; a zero divisor of "
+        + "the cast raises under ANSI and is null under the legacy mode",
+        domain = Some("CASE WHEN y1 IS NOT NULL THEN i <> 0 END")),
+      Row("s1 / i", "a short over an int, each converted exactly",
+        domain = Some("CASE WHEN s1 IS NOT NULL THEN i <> 0 END")),
+      Row("x / i", "the int divisor cast beside the double dividend",
+        domain = Some("CASE WHEN x IS NOT NULL THEN i <> 0 END")),
+      Row("f / f2", "both floats widened exactly: Spark divides floats as doubles",
+        domain = Some("CASE WHEN f IS NOT NULL THEN f2 <> 0.0F END")),
+      Row("try_divide(i, y1)", "the legacy division over the casts: null on a zero divisor"),
+      Row("sqrt(i)", "the int converted exactly, then the square root"),
+      Row("signum(i)"),
+      Row("degrees(i)"),
+      Row("sqrt(f)", "the float widened exactly, then the double square root"),
+      Row("signum(f)", "a float NaN widened keeps its payload, which signum returns"),
+      Row("radians(s1)"),
+      Row("signum(ym)", "the months' sign as a double: (m > 0) - (m < 0) on the int lane, then "
+        + "I2D, so a zero is +0.0 and a null null"),
+      Row("signum(dt)", "the microseconds' sign on the long lane, narrowed to the int lane, then "
+        + "I2D: no conversion from a long"))),
     // The rounding functions (VARKA-344): rint is the 2^52 construction, exact in every mode;
     // floor and ceil of a bigint are the operand and of an int its widening to a bigint, exact
     // in every mode; round, bround and truncate at a negative scale over the int lane are the
@@ -1947,12 +1972,13 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
   /**
    * Matched by the compiler but not expressions a reader writes: `Alias` wraps every
    * projection entry, `Attribute` is a column before binding, which the predicate compiler asks
-   * of a null test's operand (VARKA-598), `BoundReference` is what a column becomes once bound,
+   * of a null test's operand (VARKA-598), `BinaryArithmetic` is an abstract class, matched only
+   * to name a floating operand's decline, `BoundReference` is what a column becomes once bound,
    * `Literal` is a constant inside another row, and `RuntimeReplaceable` is a trait the compiler
    * unwraps.
    */
-  private val infrastructure =
-    Set("Alias", "Attribute", "BoundReference", "Literal", "RuntimeReplaceable")
+  private val infrastructure = Set(
+    "Alias", "Attribute", "BinaryArithmetic", "BoundReference", "Literal", "RuntimeReplaceable")
 
   /**
    * Expressions the compiler matches only in order to decline them with a specific reason.

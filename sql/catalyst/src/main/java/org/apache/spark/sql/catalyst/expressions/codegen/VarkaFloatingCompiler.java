@@ -34,11 +34,14 @@ import org.apache.spark.sql.catalyst.expressions.ToDegrees;
 import org.apache.spark.sql.catalyst.expressions.ToRadians;
 import org.apache.spark.sql.catalyst.expressions.UnaryMinus;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaFloatingFault;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTypeId;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTypes;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.And;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Compare;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.CompareOp;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.CondValue;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ConvertLane;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IfElse;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IntArith;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IntNeg;
@@ -46,6 +49,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Int
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LaneType;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.MathFn;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.MathUnary;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.NarrowLane;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Not;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Overflow;
 import org.apache.spark.sql.types.DataType;
@@ -55,7 +59,11 @@ import org.apache.spark.sql.types.DataType;
  * negation and {@code abs} over {@code DOUBLE} and {@code FLOAT}, and {@code /}, {@code sqrt},
  * {@code signum}, {@code degrees} and {@code radians} over {@code DOUBLE}, the only type Spark
  * gives the division and the math functions; another operand reaches them under a cast to
- * double, which declines until the floating casts exist (VARKA-343).
+ * double, which the floating casts family lowers (VARKA-343). A {@code BIGINT} one is left to the
+ * row engine at the default emit level and fuses where a session names a level (level 3 in one
+ * instruction, below it by exact AVX2 forms) or asks for the host's on one with AVX512DQ or a
+ * long species of 256 bits or more, as that family's switch says. {@code signum} also takes
+ * either interval type and answers a double.
  *
  * <p>Every form has one answer, the IEEE operation {@code java.lang.Math} or Java's operator
  * computes, so each is a lanewise operation on the operand's own lane, with the operands in
@@ -105,6 +113,11 @@ final class VarkaFloatingCompiler {
           inputs, literals, sink);
       case Signum g when l == LaneType.DOUBLE && floatingLane(g.child().dataType()).isPresent()
           -> () -> signum(g, inputs, literals, sink);
+      // Signum over an interval, its lane read once; any other operand type is not claimed.
+      case Signum g when l == LaneType.DOUBLE -> intervalLane(g.child().dataType())
+          .<VarkaFamilyArm>map(countLane -> () -> intervalSignum(g, countLane, inputs, literals,
+              sink))
+          .orElse(null);
       default -> null;
     };
   }
@@ -112,6 +125,17 @@ final class VarkaFloatingCompiler {
   /** The floating lane of {@code t}, or empty for any other type. */
   static Optional<LaneType> floatingLane(DataType t) {
     return VarkaTypes.lane(t).filter(LaneType::isFloating);
+  }
+
+  /**
+   * The lane of an interval type, as {@link VarkaTypes#lane} reads it: {@code INT} for a
+   * year-month interval's months, {@code LONG} for a day-time interval's microseconds; empty for
+   * any other type.
+   */
+  static Optional<LaneType> intervalLane(DataType t) {
+    return VarkaTypes.of(t)
+        .filter(id -> id == VarkaTypeId.YM_INTERVAL || id == VarkaTypeId.DT_INTERVAL)
+        .flatMap(id -> VarkaTypes.lane(t));
   }
 
   /**
@@ -212,6 +236,35 @@ final class VarkaFloatingCompiler {
           x, VarkaNodeCompiler.nanSlot(LaneType.DOUBLE, literals, sink))));
       return new IfElse(new Compare(CompareOp.LT, x, zero), doubleSlot(-1.0, sink),
           new IfElse(positive, doubleSlot(1.0, sink), x));
+    });
+  }
+
+  /**
+   * {@code signum(m)} over an interval's month or microsecond count {@code m}: Spark's
+   * {@code Math.signum} of the count as a double, so {@code -1.0}, {@code 0.0} or {@code 1.0},
+   * a zero count answering {@code +0.0}. Built as {@code (double) ((m > 0) - (m < 0))}: each
+   * comparison as its one or zero, a {@link CondValue} on the count's own lane, the difference
+   * there, narrowed to the int lane from the long one, then {@code I2D}, which is exact and
+   * intrinsic on every x86 host. A {@code CondValue} is null where its condition is unknown, so a
+   * null count answers null; a choice among the three doubles would take its last arm there and
+   * answer {@code 0.0}. No conversion from a long is needed, so the day-time form fuses on hosts
+   * without AVX512DQ too.
+   */
+  private static Optional<VarkaVectorIR> intervalSignum(
+      Signum g, LaneType lane, VarkaSlotTable inputs, VarkaSlotTable literals, DeclineSink sink) {
+    Optional<VarkaVectorIR> count = VarkaNodeCompiler.compileNode(g.child(), inputs, literals,
+        sink);
+    if (count.isPresent() && count.get().laneType() != lane) {
+      return sink.decline("an interval count computed on the " + count.get().laneType()
+          + " lane, not its type's " + lane + " lane", g.child());
+    }
+    return count.map(m -> {
+      VarkaVectorIR zero = VarkaNodeCompiler.bitsSlot(0, lane, literals, sink);
+      VarkaVectorIR sign = new IntArith(IntOp.SUB, Overflow.WRAP,
+          new CondValue(new Compare(CompareOp.GT, m, zero), lane),
+          new CondValue(new Compare(CompareOp.LT, m, zero), lane));
+      return new ConvertLane(lane == LaneType.LONG ? new NarrowLane(sign, LaneType.INT) : sign,
+          LaneType.DOUBLE);
     });
   }
 
