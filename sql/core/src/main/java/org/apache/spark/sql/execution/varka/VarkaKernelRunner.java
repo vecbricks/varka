@@ -141,8 +141,8 @@ public final class VarkaKernelRunner {
   public final long[] dstData;
   public final long[] dstValidity;
   /**
-   * Bytes per value of each output, set with {@link #dstData}: the vector's width for a value
-   * output, zero for a selection bitmap, whose data slot is unused, and
+   * Bytes per value of each output, set with {@link #dstData} from {@code VarkaTypes.outputWidth}
+   * of the output's type: the type's storage width for a value output, and
    * {@link VarkaReproduction.KernelCall#BIT_OUTPUT} for a boolean output, whose data is a bitmap.
    * Read by the both-bodies check and recorded in a reproduction.
    */
@@ -212,16 +212,6 @@ public final class VarkaKernelRunner {
    */
   public static int warmupWidth(BaseFixedWidthVector v) {
     return v instanceof BitVector ? VarkaKernelWarmup.BIT_WIDTH : v.getTypeWidth();
-  }
-
-  /**
-   * The width the kernel and the both-bodies check give an output written to {@code v}: its type
-   * width, or {@link VarkaReproduction.KernelCall#BIT_OUTPUT} for a boolean output's
-   * {@code BitVector}, whose type width of 0 would mean a selection bitmap with no data; its data
-   * is a bitmap of whole words (VARKA-27).
-   */
-  public static int outputWidth(BaseFixedWidthVector v) {
-    return v instanceof BitVector ? VarkaReproduction.KernelCall.BIT_OUTPUT : v.getTypeWidth();
   }
 
   /** Whether an output written to {@code v} is floating, which {@link #compareBodies} reads. */
