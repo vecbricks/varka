@@ -437,6 +437,25 @@ public final class VarkaTypes {
   }
 
   /**
+   * The width a kernel gives an output of {@code dataType}, read from the type's storage: its
+   * bytes a row for a plain value, sixteen for a decimal's slot at every precision, and
+   * {@link VarkaReproduction.KernelCall#BIT_OUTPUT} for a BOOLEAN's bitmap. The one answer the
+   * evaluator's destinations and the kernel warm-up share (VARKA-566). Allocates nothing, so a
+   * batch can ask it.
+   */
+  public static int outputWidth(DataType dataType) {
+    VarkaTypeId id = idOf(dataType);
+    if (id == null) {
+      throw VarkaErrors.illegalArgument("no Varka output is of type " + dataType);
+    }
+    return switch (info(id).storage()) {
+      case Storage.Plain p -> p.bits() / Byte.SIZE;
+      case Storage.DecimalSlot d -> d.bits() / Byte.SIZE;
+      case Storage.Bitmap b -> VarkaReproduction.KernelCall.BIT_OUTPUT;
+    };
+  }
+
+  /**
    * Whether {@code dataType} is {@code TIMESTAMP_NTZ}, the zone-free timestamp of microseconds
    * the long lane reads: the test the compiler's NTZ arms share.
    */

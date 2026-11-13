@@ -53,7 +53,8 @@ public final class VarkaWarmupGate {
   /**
    * @param anyNullableInput whether any kernel input can hold a null, so that a batch can reach
    *                         the masked driver, which the warm-up then compiles too
-   * @param outputBytes each output's bytes per row: eight, or sixteen for a decimal's slot
+   * @param outputBytes each output's width, as {@code VarkaTypes.outputWidth} gives it; a boolean
+   *                   output's {@code BIT_OUTPUT} is sized at a lane's eight bytes by the warm-up
    */
   public VarkaWarmupGate(VarkaKernelRunner runner, boolean anyNullableInput,
       InputWidths inputWidths, Supplier<String> kernelIdentity, int[] outputBytes) {

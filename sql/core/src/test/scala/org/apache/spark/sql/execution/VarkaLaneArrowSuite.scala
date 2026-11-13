@@ -24,7 +24,8 @@ import org.apache.arrow.vector.{BaseFixedWidthVector, BigIntVector, Decimal256Ve
 import org.apache.arrow.vector.types.pojo.{ArrowType, Field, FieldType}
 
 import org.apache.spark.SparkFunSuite
-import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaTypeId, VarkaTypes}
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaReproduction, VarkaTypeId,
+  VarkaTypes}
 import org.apache.spark.sql.types.{DataType, Decimal, DecimalType}
 
 /**
@@ -67,6 +68,9 @@ class VarkaLaneArrowSuite extends SparkFunSuite {
             assert(v.vectorClass().isInstance(vector), s"${form.sql}: ${vector.getClass}")
             assert(VarkaLaneArrow.reads(vector), form.sql)
             val width = vector.asInstanceOf[BaseFixedWidthVector].getTypeWidth
+            assert(VarkaTypes.outputWidth(form) ===
+              (if (outputOnly.contains(id)) VarkaReproduction.KernelCall.BIT_OUTPUT else width),
+              form.sql)
             if (outputOnly.contains(id)) {
               // A bitmap: Arrow's type width is 0 bytes for its one storage bit a row.
               assert(width === 0 && info.storageBits() === 1, form.sql)

@@ -25,7 +25,6 @@ import java.lang.management.ManagementFactory;
 import java.lang.management.MemoryPoolMXBean;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 import java.util.TreeSet;
 import java.util.concurrent.ArrayBlockingQueue;
@@ -295,20 +294,8 @@ public final class VarkaKernelWarmup {
    *        kernel's masked driver and the warm-up must compile it too.
    * @param kernel an instance of the shape's class for the warm-up's own use; kernels keep no
    *        state between calls, so it only has to be a different object from the tasks' ones.
-   */
-  public static boolean start(VarkaKernelWarmth warmth, String shapeHash, VarkaFusedKernel kernel,
-      boolean longLane, long[] srcData, long[] srcValidity, int[] srcNullCount, int[] srcWidths,
-      boolean nullable, int length, int numOutputs, int[] scalarArgs, long[] longArgs) {
-    int[] eightBytes = new int[numOutputs];
-    Arrays.fill(eightBytes, 8);
-    return start(warmth, shapeHash, kernel, longLane, srcData, srcValidity, srcNullCount,
-        srcWidths, nullable, length, eightBytes, scalarArgs, longArgs);
-  }
-
-  /**
-   * As above, for outputs of the given bytes per row: eight for a lane's value, sixteen for the
-   * slot a decimal output's store writes (VARKA-157), each warm-up output being allocated and
-   * registered at its width, so that a kernel's store is checked against its own extent.
+   * @param dstWidths each output's width, as {@link VarkaTypes#outputWidth} gives it;
+   *        {@link #destinationBytes} turns it into the bytes a row the warm-up allocates.
    */
   public static boolean start(VarkaKernelWarmth warmth, String shapeHash, VarkaFusedKernel kernel,
       boolean longLane, long[] srcData, long[] srcValidity, int[] srcNullCount, int[] srcWidths,
@@ -339,6 +326,14 @@ public final class VarkaKernelWarmup {
         job.close();
       }
     }
+  }
+
+  /**
+   * The bytes a row the warm-up allocates for an output of {@code width}: its width, and at least
+   * eight, a lane's value, which a bitmap's marker of -1 also takes.
+   */
+  static long destinationBytes(int width) {
+    return Math.max(width, Long.BYTES);
   }
 
   /**
@@ -677,7 +672,7 @@ public final class VarkaKernelWarmup {
         this.dstData = new long[numOutputs];
         this.dstValidity = new long[numOutputs];
         for (int o = 0; o < numOutputs; o++) {
-          dstData[o] = allocRows(MAX_CALL_ROWS, dstWidths[o]).address();
+          dstData[o] = allocRows(MAX_CALL_ROWS, destinationBytes(dstWidths[o])).address();
           dstValidity[o] = allocValidity(MAX_CALL_ROWS).address();
         }
         // The probe's argument sets: the dense driver's with every count at zero, the masked
@@ -700,7 +695,7 @@ public final class VarkaKernelWarmup {
         this.probeDstData = new long[numOutputs];
         this.probeDstValidity = new long[numOutputs];
         for (int o = 0; o < numOutputs; o++) {
-          probeDstData[o] = allocRows(PROBE_ROWS, dstWidths[o]).address();
+          probeDstData[o] = allocRows(PROBE_ROWS, destinationBytes(dstWidths[o])).address();
           probeDstValidity[o] = allocValidity(PROBE_ROWS).address();
         }
         // Sized for the longest call, the probe's; a warm-up call passes the same region.
