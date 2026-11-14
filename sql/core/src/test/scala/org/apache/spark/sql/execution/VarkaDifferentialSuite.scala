@@ -42,6 +42,63 @@ import org.apache.spark.sql.internal.SQLConf
  */
 class VarkaDifferentialSuite extends QueryTest with VarkaMaybeThrows with VarkaTestWatchdog {
 
+  /**
+   * Whether both sessions give every cached batch one row (VARKA-541): the effective
+   * `spark.sql.execution.arrow.maxRecordsPerBatch`, not the matrix label alone. A forked test
+   * JVM's `-D` for that key reaches `spark` through its `SparkConf` but not `varkaSpark`,
+   * whose builder sets the key from `VarkaMatrix` or its default, so a label-only test would
+   * read the pruning as on where it matters and the two sessions as one batch size when they
+   * are not. They must agree, or no premise about the cache's layout holds for a comparison
+   * between them.
+   */
+  private def oneRowBatchLayout: Boolean = {
+    val perBatch = Seq(spark, varkaSpark)
+      .map(_.conf.get(SQLConf.ARROW_EXECUTION_MAX_RECORDS_PER_BATCH.key))
+    require(perBatch.distinct.length == 1,
+      s"the sessions read different ${SQLConf.ARROW_EXECUTION_MAX_RECORDS_PER_BATCH.key} " +
+        s"values ($perBatch); set the matrix's arrowBatchSize instead, which both sessions take")
+    perBatch.head.toInt == 1
+  }
+
+  /**
+   * The sessions' `spark.sql.inMemoryColumnarStorage.partitionPruning` before [[beforeAll]]
+   * turned it off, or `None` while it is on (VARKA-541).
+   */
+  private var partitionPruningBefore: Option[Seq[Option[String]]] = None
+
+  /**
+   * With one row a batch, every cached batch's minimum and maximum are its row's own values, so
+   * a cheap conjunct such as `b < 0` or `s = 'x'` prunes the batch holding the row a test's
+   * shared raising extract is about, and neither engine's filter runs on that row. The tests
+   * then fail on Spark's missing raise rather than on a difference between the engines; worse,
+   * a test that expects no raise passes while no longer exercising its declined batch. Pruning
+   * is a fact about the cache's layout, so it is turned off for the whole suite rather than
+   * around one query, as `VarkaCoverageDifferentialSuite` reads its floating rows without it
+   * (VARKA-301). At the defaults both fixture rows share a batch and the pruning drops nothing.
+   */
+  override protected def beforeAll(): Unit = {
+    super.beforeAll()
+    if (oneRowBatchLayout) {
+      val sessions = Seq(spark, varkaSpark)
+      partitionPruningBefore = Some(
+        sessions.map(_.conf.getOption(SQLConf.IN_MEMORY_PARTITION_PRUNING.key)))
+      sessions.foreach(_.conf.set(SQLConf.IN_MEMORY_PARTITION_PRUNING.key, "false"))
+    }
+  }
+
+  override protected def afterAll(): Unit = {
+    partitionPruningBefore.foreach { before =>
+      Seq(spark, varkaSpark).zip(before).foreach {
+        case (session, Some(value)) =>
+          session.conf.set(SQLConf.IN_MEMORY_PARTITION_PRUNING.key, value)
+        case (session, None) =>
+          session.conf.unset(SQLConf.IN_MEMORY_PARTITION_PRUNING.key)
+      }
+    }
+    partitionPruningBefore = None
+    super.afterAll()
+  }
+
   private def metaspaceUsed(): Long = {
     java.lang.management.ManagementFactory.getMemoryPoolMXBeans.asScala.collect {
       case p if p.getName == "Metaspace" || p.getName == "Compressed Class Space" =>
@@ -819,7 +876,9 @@ class VarkaDifferentialSuite extends QueryTest with VarkaMaybeThrows with VarkaT
    * Runs `query` under ANSI in the four cells, whole-stage codegen on and off and the kernel
    * serving and declined (`setDeclineKernelForTesting`), and fails where Varka's outcome differs
    * from Spark's in the same codegen setting. Returns Spark's outcome per codegen setting and
-   * Varka's executed plan per cell, keyed (codegen, declined).
+   * Varka's executed plan per cell, keyed (codegen, declined). The suite reads the cache
+   * unpruned where every batch holds one row ([[beforeAll]]), so the row whose shared extract
+   * can raise reaches the filters.
    */
   private def checkFourCells(query: String, filterExecCse: Boolean = true)
       : (Map[Boolean, VarkaMaybeThrows.Outcome], Map[(Boolean, Boolean), SparkPlan]) = {
