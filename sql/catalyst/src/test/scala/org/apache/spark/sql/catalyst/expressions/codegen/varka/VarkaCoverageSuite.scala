@@ -33,7 +33,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.{CompiledVarkaPredicate
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaOutputSpec.{ForwardedOutput,
   FusedOutput, KernelOutput, ResidualOutput}
 import org.apache.spark.sql.catalyst.parser.CatalystSqlParser
-import org.apache.spark.sql.catalyst.util.DateTimeConstants.{MICROS_PER_DAY, MICROS_PER_HOUR, NANOS_PER_DAY, NANOS_PER_MICROS, NANOS_PER_MILLIS}
+import org.apache.spark.sql.catalyst.util.DateTimeConstants.{MICROS_PER_DAY, MICROS_PER_HOUR, MICROS_PER_MINUTE, MICROS_PER_SECOND, NANOS_PER_DAY, NANOS_PER_MICROS, NANOS_PER_MILLIS}
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types.{BooleanType, ByteType, DataType, DateType, DayTimeIntervalType, Decimal, DecimalType, DoubleType, FloatType, IntegerType, LongType, ShortType, TimestampNTZType, TimeType, YearMonthIntervalType}
 import org.apache.spark.util.Utils
@@ -220,14 +220,39 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
   private val ntzFieldDays = "unix_date(CAST(ntz AS DATE)) BETWEEN " +
     s"${VarkaRangeAnalysis.NTZ_MIN_DAYS} AND ${VarkaChrono.NARROW_MAX_DAYS}"
   /**
-   * The domain of an NTZ arithmetic row: unknown where an operand is null, and otherwise whether
-   * Spark's `try_` form of the row has a value, which it has exactly where the row does not
-   * raise. Spark's own arithmetic is the bound, since no SQL spells an NTZ value as its count.
-   * A row whose kernel also guards one operand alone puts that guard first, `guard AND domain`:
-   * the guard is false on that operand's value whatever the other operand holds, null included,
-   * and three-valued AND keeps it false there.
+   * The microseconds `CAST(dt AS BIGINT)` divides without a wider dividend: the cast's range
+   * guard admits `|micros| <= 2^52 - 1`, the bound of the exact-division lowering.
    */
-  private def ntzDomain(tried: String, operands: String*): String =
+  private val intervalCastMicros = VarkaVectorIR.ConstDivide.EXACT_DIVIDEND_BOUND - 1
+  /** `INTERVAL 'd hh:mm:ss.ffffff' DAY TO SECOND` for a microsecond count, sign included. */
+  private def daySecond(micros: Long): String = {
+    val magnitude = math.abs(micros)
+    val rest = magnitude % MICROS_PER_DAY
+    val sign = if (micros < 0) "-" else ""
+    f"$sign${magnitude / MICROS_PER_DAY} ${rest / MICROS_PER_HOUR}%02d:" +
+      f"${rest % MICROS_PER_HOUR / MICROS_PER_MINUTE}%02d:" +
+      f"${rest % MICROS_PER_MINUTE / MICROS_PER_SECOND}%02d." +
+      f"${rest % MICROS_PER_SECOND}%06d"
+  }
+  /**
+   * The domain of `CAST(dt AS BIGINT)` (VARKA-332): the microseconds the cast's range guard
+   * admits, which only a `DAY TO SECOND` literal states exactly (VARKA-610).
+   */
+  private val intervalCastDomain = {
+    val lower = daySecond(-intervalCastMicros)
+    val upper = daySecond(intervalCastMicros)
+    s"dt BETWEEN INTERVAL '$lower' DAY TO SECOND AND INTERVAL '$upper' DAY TO SECOND"
+  }
+  /**
+   * The domain of a row whose kernel answers exactly where the row does not raise: unknown where
+   * an operand is null, and otherwise whether Spark's `try_` form of the row has a value, which
+   * it has exactly where the guard does not fire. For an NTZ row Spark's own arithmetic is the
+   * bound, since no SQL spells an NTZ value as its count; a BIGINT sum takes Spark's `try_add` or
+   * `try_subtract` as it is. A row whose kernel also guards one operand alone puts that guard
+   * first, `guard AND domain`: the guard is false on that operand's value whatever the other
+   * operand holds, null included, and three-valued AND keeps it false there.
+   */
+  private def tryDomain(tried: String, operands: String*): String =
     s"if(${operands.map(_ + " IS NULL").mkString(" OR ")}, NULL, $tried IS NOT NULL)"
 
   /**
@@ -237,7 +262,7 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
    */
   private def timestampAddDomain(unit: String, interval: String, q: String,
       guard: Option[Long]): Row = {
-    val tried = ntzDomain(s"try_add(ntz, try_multiply($interval, $q))", "ntz", q)
+    val tried = tryDomain(s"try_add(ntz, try_multiply($interval, $q))", "ntz", q)
     Row(s"timestampadd($unit, $q, ntz)", domain = Some(guard.fold(tried)(b =>
       s"$q BETWEEN -$b AND $b AND $tried")))
   }
@@ -511,14 +536,14 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
 
     // BIGINT arithmetic (VARKA-104): the int arms' nodes on the long lane, checked at 64 bits.
     // A checked multiply over a bigint column declines, as an int one does; only a product the
-    // long lattice bounds fuses under ANSI.
+    // long lattice bounds fuses under ANSI. The sums name their guards' own conditions
+    // (VARKA-610), through the try_ form: a batch outside one holds an overflowing row however
+    // the rows are batched.
     Family("Bigint arithmetic", predicates = false, Seq(
       Row("l + l2", "checked under ANSI at 64 bits; the legacy mode wraps as Spark does",
-        domain = Some(s"l BETWEEN ${Long.MinValue / 2} AND ${Long.MaxValue / 2} " +
-          s"AND l2 BETWEEN ${Long.MinValue / 2} AND ${Long.MaxValue / 2}")),
+        domain = Some(tryDomain("try_add(l, l2)", "l", "l2"))),
       Row("l - l2", "checked subtraction at 64 bits",
-        domain = Some(s"l BETWEEN ${Long.MinValue / 2} AND ${Long.MaxValue / 2} " +
-          s"AND l2 BETWEEN ${Long.MinValue / 2} AND ${Long.MaxValue / 2}")),
+        domain = Some(tryDomain("try_subtract(l, l2)", "l", "l2"))),
       Row("l + 1", "a literal does not bound a bigint column, so the check stays",
         domain = Some(s"l < ${Long.MaxValue}")),
       Row("CAST(i AS BIGINT) * 1000L", "a widened int times a literal cannot leave the long, "
@@ -951,7 +976,7 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
       Row("CAST(dt AS BIGINT)", "the whole seconds of a DAY TO SECOND interval: a truncating "
         + "division by 10^6 under a guard of 2^52 microseconds, past which the row engine "
         + "divides; the DAY end is exact over every long",
-        domain = Some("dt > INTERVAL '-50000' DAY AND dt < INTERVAL '50000' DAY")))),
+        domain = Some(intervalCastDomain)))),
 
     Family("Integral cast predicates", predicates = true, Seq(
       Row("CAST(y1 AS BOOLEAN)", "x != 0, which cannot fail; exhaustive"),
@@ -1104,18 +1129,18 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
     // goes to the row engine, which raises.
     Family("TIMESTAMP_NTZ arithmetic", predicates = false, Seq(
       Row("ntz - ntz2", "a day-time interval in microseconds; a difference past the long " +
-        "raises in every mode", domain = Some(ntzDomain("try_subtract(ntz, ntz2)", "ntz", "ntz2"))),
+        "raises in every mode", domain = Some(tryDomain("try_subtract(ntz, ntz2)", "ntz", "ntz2"))),
       Row("ntz2 - d", "type coercion casts the date to TIMESTAMP_NTZ, its midnight, under the " +
         "cast's day guard, then subtracts it", domain = Some(s"$ntzDayBound AND " +
-          ntzDomain("try_subtract(ntz2, d)", "ntz2", "d"))),
+          tryDomain("try_subtract(ntz2, d)", "ntz2", "d"))),
       Row("ntz + dt", "a value past the long raises in every mode",
-        domain = Some(ntzDomain("try_add(ntz, dt)", "ntz", "dt"))),
+        domain = Some(tryDomain("try_add(ntz, dt)", "ntz", "dt"))),
       Row("ntz - dt", "the interval's negation is folded into a checked subtraction; Spark " +
         "negates with negateExact in every mode, so the least interval, which it raises on, is " +
         "guarded", domain = Some(s"dt <> $leastInterval AND " +
-          ntzDomain("try_subtract(ntz, dt)", "ntz", "dt"))),
+          tryDomain("try_subtract(ntz, dt)", "ntz", "dt"))),
       Row("ntz + INTERVAL '1' DAY", "a literal interval takes a slot in the long lane's table",
-        domain = Some(ntzDomain("try_add(ntz, INTERVAL '1' DAY)", "ntz"))),
+        domain = Some(tryDomain("try_add(ntz, INTERVAL '1' DAY)", "ntz"))),
       // timestampadd up to a week: the quantity times the unit, guarded to the products a long
       // holds, then the checked add; an int quantity needs no guard up to an hour. An int of
       // microseconds is no row: under 36 minutes, it overflows no NTZ value the fixtures hold.
@@ -1182,13 +1207,13 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
       // microseconds, the add checked, since Spark raises past the long in every mode.
       Row("make_timestamp_ntz(d, t)", "the date guarded to the days whose midnight is a long, " +
         "as the cast of a date is", domain = Some(s"$ntzDayBound AND " +
-          ntzDomain("try_make_timestamp_ntz(d, t)", "d", "t"))),
+          tryDomain("try_make_timestamp_ntz(d, t)", "d", "t"))),
       Row("make_timestamp_ntz(DATE'2021-06-01', t)", "a literal date is checked when the kernel " +
         "is compiled and takes a slot, so every date shares one kernel",
-        domain = Some(ntzDomain("try_make_timestamp_ntz(DATE'2021-06-01', t)", "t"))),
+        domain = Some(tryDomain("try_make_timestamp_ntz(DATE'2021-06-01', t)", "t"))),
       Row("CAST(t AS TIMESTAMP_NTZ)", "the query's current date at the time of day: the " +
         "optimizer rewrites the cast to make_timestamp_ntz of the date literal",
-        domain = Some(ntzDomain("try_make_timestamp_ntz(current_date(), t)", "t"))))),
+        domain = Some(tryDomain("try_make_timestamp_ntz(current_date(), t)", "t"))))),
 
     // The same fields as a filter's condition, where a batch the guard declines is the filter's
     // kernel declining it (VARKA-340).

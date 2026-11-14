@@ -231,6 +231,13 @@ import is gone; the fold's refusal in `coverageRows` names the coverage row's SQ
 audit's probe dies before any shape marker; the test also drives the audit's own entry point (the
 row is a `Shape` it compiles), guards its field reads as the audit's reader does, pattern-matches
 instead of assert-then-cast, and section 5's "all four tests" is corrected to the suite's five.
+*Corrected 14 November 2026, after the weekly sweeps run 43577422049 failed the AVX2-at-128 job:*
+on an x86 host whose 64-bit species have two lanes or fewer the audit declines that row for the
+two-lane condition before its shape can matter, so the test drives the entry point but accepts
+exactly that decline, and any other decline is its failure. The change is in the test alone. What
+the decline branch does not check is that the audit compiles the row on such a host: that would
+need `coverageRows` to take a `VarkaAdmission` (as `VarkaWarmupReach` does with
+`NO_HOST_REFUSAL`), a production-API change this CI fix does not make.
 Left, with the reason: a test cannot distinguish the `In` and `InSet` forms, which lower through
 the same `inArm` to identical IR (the byte-identical census is the evidence), so a revert of the
 fold is unobservable to any test of behaviour; the test inherits the suite's five-probe
