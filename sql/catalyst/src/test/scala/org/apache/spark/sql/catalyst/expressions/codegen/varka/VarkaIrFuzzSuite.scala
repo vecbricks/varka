@@ -1017,7 +1017,20 @@ class VarkaIrFuzzSuite extends SparkFunSuite with VarkaMatrixTests with VarkaOwn
     // body's emitted set now (Slots.emittedBody, VARKA-616), so the pinned draw must both
     // compare and reach PREFIX_LOADED: a draw that stops splitting the prefix fails here
     // rather than passing vacuously.
-    val c = drawInt(22330, 202611140L)
+    //
+    // The options are the ones the night recorded, parsed over the defaults, not the matrix's
+    // base: `randomOptions` draws a count only one time in five, so at this iteration the
+    // groupBudget coin misses and the base's value would rule - under the matrix's
+    // groupBudget=800 the draw groups differently and materializes no prefix, which is how the
+    // option matrix failed this test (bin b064). The flags and choices are redrawn from the
+    // case's own stream either way, so they do not depend on the base.
+    val options = VarkaMatrix.parse(
+      "neriSchneiderMonth=false,julianMap=false,validityOrFirst=false," +
+        "validityByBitmap=false,checkIntOverflow=false,division=DOUBLE_RECIP,useAVX=0," +
+        "validityByWord=true,mulHiDivide=false,narrowLanes=false,rangeSets=false," +
+        "splitConditions=false,predictGrouping=false,splitDriver=false," +
+        "severalKernels=false,groupBudgetUnderPrediction=true")
+    val c = drawInt(22330, 202611140L, options)
     assert(runChecked(c), s"draw 22330 at seed 202611140 did not pass")
     val trace = new VarkaEmitTrace
     val reach = VarkaEmitReach.attach(trace, "duplicated variant")
