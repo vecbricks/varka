@@ -746,3 +746,28 @@ committed at both widths with its predictions scored; and the PR build and the o
 
 ## 10. Outcome
 
+### The review
+
+A `/code-review high` pass over the merge resolution found ten verified items, all in comments,
+documentation, tests, proofs and generated files: the emitter and the compiler's behaviour did
+not change. `sql/varka/golden_corpus.json` was regenerated, its `interval day to second` entries
+flipping from plain to fused. The differential harness's `ymm * 3` shape is `SERVED` (the stored
+count is range-guarded, so only a far count declines a batch), and the stored-`INTERVAL DAY`
+offset test pins ANSI on: the product `extract(DAY FROM dd) * 2` declines only under ANSI, where
+the checked int multiply is a node the date offset position refuses, and wraps (and fuses) with
+ANSI off, so the test states the mode it needs. `VarkaFamily.INTERVAL.covers()`, the
+`VarkaIntervalCompiler` javadocs and their rendered docs name the day-time half; the day-offset
+decline's comment and the matching test comment say what remains true (the date arm reads its
+offsets without recursing, so admitting the extract's day quotient there is a calendar
+follow-up); the grammar's excluded `<ym> * k` states the real reason (the INT position holds only
+the column `i`, so a product would draw the declining column factor, the old bare-exception
+reason having gone); the expected-errors row names the int overflow and the interval products;
+the `dt_arith.smt2` header says the symmetric-bound check is rendered only for k = 2, -2 and
+Integer.MIN_VALUE, and the proof file is regenerated; and the coverage row's `ym * 3` bounds are
+`yearMonthProductBounds(3)`'s rather than a hand copy.
+
+Left as reviewed, with reasons: the checked day-time arms skip the session's two-lane refusal, a
+design gap like TIMESTAMP_NTZ arithmetic's, which row 503, the refusal's own row, holds;
+`abs(dt)` is hand-built as `IfElse` rather than `IntNeg(abs=true)`; `-dt` and `abs(dt)` hard-code
+`FAIL` rather than read `longNegationMode`; `dt * -1` and `ym * -1` use the guarded multiply
+rather than the checked negation; and the `d - dt` coverage row is still missing.

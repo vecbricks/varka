@@ -403,7 +403,7 @@ object VarkaSparkFuzz {
    * A query's outcome: its rows sorted as strings, or the class of what it raised. An error is the
    * first condition on its cause chain; with none, the long overflow of `Math`'s exact arithmetic
    * that Spark raises bare (a TIMESTAMP_NTZ moved past the long, VARKA-339) is named by its class,
-   * as the coverage harness names it (`VarkaAnsiForm.isExactLongOverflow`), and anything else by
+   * as the coverage harness names it (`VarkaAnsiForm.isExactOverflow`), and anything else by
    * the class of the job's failure.
    */
   type Outcome = Either[String, Seq[String]]
@@ -416,7 +416,7 @@ object VarkaSparkFuzz {
       val chain = Iterator.iterate[Throwable](e)(_.getCause).takeWhile(_ != null).toSeq
       chain.collectFirst { case t: SparkThrowable if t.getCondition != null => t.getCondition }
         .orElse(chain.collectFirst {
-          case a: ArithmeticException if VarkaAnsiForm.isExactLongOverflow(a) =>
+          case a: ArithmeticException if VarkaAnsiForm.isExactOverflow(a) =>
             a.getClass.getName
         })
         .getOrElse(e.getClass.getName)

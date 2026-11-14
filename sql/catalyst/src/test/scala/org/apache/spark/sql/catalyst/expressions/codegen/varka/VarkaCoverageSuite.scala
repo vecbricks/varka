@@ -29,7 +29,7 @@ import org.apache.spark.SparkFunSuite
 import org.apache.spark.sql.catalyst.expressions.{Add, AddMonths, Alias, And, Attribute, AttributeReference, Cast, DateAdd, Expression, ExtractANSIIntervalMonths, Greatest, InheritAnalysisRules, InSet, LastDay, Literal, NamedExpression, Rand}
 import org.apache.spark.sql.catalyst.expressions.codegen.{CompiledVarkaPredicate,
   CompiledVarkaProjection, PartialVarkaProjection, VarkaConjunctSpec, VarkaDecline,
-  VarkaExpressionCompiler, VarkaOutputSpec}
+  VarkaExpressionCompiler, VarkaIntervalCompiler, VarkaOutputSpec}
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaOutputSpec.{ForwardedOutput,
   FusedOutput, KernelOutput, ResidualOutput}
 import org.apache.spark.sql.catalyst.parser.CatalystSqlParser
@@ -192,6 +192,10 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
   private val dayLimit = VarkaChrono.INTERVAL_DAY_LIMIT_DAYS
   private val minMonths = VarkaChrono.MONTH_ARITH_MIN_MONTHS
   private val maxMonths = VarkaChrono.MONTH_ARITH_MAX_MONTHS
+
+  /** `ym * 3`'s guard, the compiler's own: the ints whose product by three is an int. */
+  private val ymTimesThree = VarkaIntervalCompiler.yearMonthProductBounds(3)
+
   /**
    * The note of a null test over an ordered comparison, which Spark's default
    * `NullDownPropagation` rewrites into null tests on the comparison's columns (VARKA-334).
@@ -404,7 +408,7 @@ class VarkaCoverageSuite extends SparkFunSuite with VarkaTestWatchdog {
       Row("ym * 3", "a stored interval column times an integral literal: the count is guarded "
         + "to the ints whose product fits, exactly, and the multiply wraps; a column factor "
         + "declines", domain = Some(
-          s"ym BETWEEN ${ymLiteral(Int.MinValue / 3)} AND ${ymLiteral(Int.MaxValue / 3)}")),
+          s"ym BETWEEN ${ymLiteral(ymTimesThree(0))} AND ${ymLiteral(ymTimesThree(1))}")),
       Row("abs(ym)", "interval arithmetic is exact in every mode: the one count whose negation "
         + "overflows declines", domain = Some(s"ym > ${ymLiteral(Int.MinValue)}")),
       Row("ym - ymm", "exact in every mode: a difference outside the month count's int declines",

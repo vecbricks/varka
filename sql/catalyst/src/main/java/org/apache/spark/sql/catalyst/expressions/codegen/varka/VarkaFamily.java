@@ -53,9 +53,9 @@ public enum VarkaFamily {
       + " and month shifts of a TIMESTAMP_NTZ through its date, its sum with a year-month interval"
       + " and timestampadd of months, quarters or years"),
   /** {@code VarkaIntervalCompiler}. */
-  INTERVAL("interval", "interval", "year-month interval arithmetic, negation and abs,"
-      + " make_ym_interval, the year and month extractions, the multiply by an int and the"
-      + " casts between year-month intervals and ints"),
+  INTERVAL("interval", "interval", "year-month and day-time interval arithmetic, negation and"
+      + " abs, make_ym_interval, the year and month extractions, extract(DAY) of a day-time"
+      + " interval, the multiply by an int and the casts between year-month intervals and ints"),
   /** {@code VarkaTimeCompiler}. */
   TIME("time", "time", "the TIME functions (hour, minute, second, time_trunc, time_diff, the"
       + " conversions to and from micros and millis, a time plus a day-time interval), the"

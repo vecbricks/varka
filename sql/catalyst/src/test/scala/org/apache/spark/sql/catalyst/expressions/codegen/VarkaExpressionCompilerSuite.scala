@@ -1876,8 +1876,9 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     }
     // `d + <non-foldable INTERVAL DAY column>` resolves to
     // DateAdd(d, ExtractANSIIntervalDays(intervalCol)) (BinaryArithmeticWithDatetimeResolver);
-    // ExtractANSIIntervalDays has no compiler arm, so this declines through the ordinary
-    // unsupported-expression path rather than needing its own guard.
+    // the extract has the interval family's long-lane arm now (VARKA-103 2.3), but the date
+    // arm reads its offsets without recursing and declines the extract as one it does not
+    // take, so this still does not fuse.
     val iv = AttributeReference("iv", DayTimeIntervalType(DayTimeIntervalType.DAY))()
     val withInterval = Seq(out(DateAdd(d, ExtractANSIIntervalDays(iv))))
     assert(VarkaExpressionCompiler.compile(withInterval, childOutput :+ iv).isEmpty)

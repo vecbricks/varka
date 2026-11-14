@@ -162,14 +162,19 @@ class VarkaDayTimeArithmeticSuite extends QueryTest with VarkaMaybeThrows with V
   test("the day count of a stored INTERVAL DAY as a date offset answers as the row engine does") {
     // `d - dd` is DateAdd(d, -extract(DAY FROM dd)), whose negated count reaches the date arm's
     // offset arithmetic as `-i` does and fuses under its day guard; `d + dd` and the product
-    // decline, the bare extract and a product of it not being offsets the arm admits.
-    for ((q, fuses) <- Seq("d - dd" -> true, "d + dd" -> false,
-        "date_add(d, extract(DAY FROM dd) * 2)" -> false)) {
-      val sql = s"SELECT $q AS a FROM varka_dta_dates"
-      val (onVarka, plan) = runOutcome(varkaSpark, sql)
-      VarkaMaybeThrows.difference(expectedOutcome(sql, plan), onVarka).foreach(d =>
-        fail(s"$sql\n$d"))
-      assert(find(plan.get)(isVarkaNode).isDefined === fuses, sql)
+    // decline, the bare extract and a product of it not being offsets the arm admits. The
+    // product declines only under ANSI, where the checked int multiply is a node the offset
+    // position refuses; with ANSI off it wraps, which that position admits, so the test pins
+    // the mode on.
+    withAnsi(true) {
+      for ((q, fuses) <- Seq("d - dd" -> true, "d + dd" -> false,
+          "date_add(d, extract(DAY FROM dd) * 2)" -> false)) {
+        val sql = s"SELECT $q AS a FROM varka_dta_dates"
+        val (onVarka, plan) = runOutcome(varkaSpark, sql)
+        VarkaMaybeThrows.difference(expectedOutcome(sql, plan), onVarka).foreach(d =>
+          fail(s"$sql\n$d"))
+        assert(find(plan.get)(isVarkaNode).isDefined === fuses, sql)
+      }
     }
   }
 

@@ -59,11 +59,14 @@ import org.apache.spark.sql.types.IntegralType;
 import org.apache.spark.sql.types.YearMonthIntervalType;
 
 /**
- * The year-month interval family of the compiler: the interval column and literal leaves, the
- * casts between an interval and an int and between two interval units, and the interval algebra -
- * add, subtract, negate, {@code abs}, {@code make_ym_interval}, the extracts and the multiply -
- * which are the int32 arithmetic nodes with an interval-typed output and every one of them
- * checked, since Spark computes them with the exact methods in every evaluation mode.
+ * The interval family of the compiler: the year-month interval's column and literal leaves, the
+ * casts between an interval and an int and between two interval units, and the year-month
+ * algebra - add, subtract, negate, {@code abs}, {@code make_ym_interval}, the extracts and the
+ * multiply - which are the int32 arithmetic nodes with an interval-typed output and every one of
+ * them checked, since Spark computes them with the exact methods in every evaluation mode. The
+ * day-time half is the same algebra on the long lane: add, subtract, negate, {@code abs}, the
+ * multiply by an integral literal and {@code extract(DAY)}, a count of microseconds under the
+ * same exact methods (VARKA-103 2.1-2.3).
  *
  * <p>{@link #arm} is the family's one entry from the chain {@code VarkaExpressionCompiler}
  * dispatches through: a {@code switch} whose cases test and deconstruct a node and return the
@@ -94,8 +97,8 @@ public final class VarkaIntervalCompiler {
   }
 
   /**
-   * The arm that claims {@code e}, or {@code null}: the year-month interval arms of
-   * {@code compileNode}, in their original order.
+   * The arm that claims {@code e}, or {@code null}: the interval arms of {@code compileNode},
+   * the year-month ones and the day-time ones, in their original order.
    */
   static VarkaFamilyArm arm(
       Expression e,
