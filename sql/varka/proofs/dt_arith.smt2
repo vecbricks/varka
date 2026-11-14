@@ -26,8 +26,8 @@
 ; true product is in the lane, and that under the guard the wrapping product is the true
 ; one; and, beside them, that a bound moved one further out admits a product past the
 ; lane, and that the symmetric bound +-(MAX / |k|) refuses one inside it - rendered only
-; for k = 2, -2 and Integer.MIN_VALUE, the factors whose product that reaches the lane's
-; least value exactly lies outside the symmetric bound.
+; for k = 2, -2, Integer.MIN_VALUE and Long.MIN_VALUE, the factors whose product that
+; reaches the lane's least value exactly lies outside the symmetric bound.
 ;
 ; Rendered by VarkaProofFiles. VarkaProofFilesSuite fails when this file differs from its
 ; rendering, and VARKA_PROOFS_REGEN=true build/sbt 'catalyst/testOnly *VarkaProofFilesSuite'
@@ -347,6 +347,13 @@
 (push 1)
 (assert (and (<= 0 x) (<= x 2)))
 (assert (not (jlong.in (* x (- 9223372036854775808)))))
+(check-sat)
+(pop 1)
+
+(echo "jlong k = -9223372036854775808: the symmetric bound +-0 refuses a product inside the lane: expect sat")
+(push 1)
+(assert (not (and (<= 0 x) (<= x 0))))
+(assert (jlong.in (* x (- 9223372036854775808))))
 (check-sat)
 (pop 1)
 

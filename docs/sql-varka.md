@@ -370,7 +370,7 @@ The *Switches* column names the family switches that keep the row off Varka, eac
 | `dt + INTERVAL '1' DAY` | `interval` | `if(dt IS NULL, NULL, try_add(dt, INTERVAL '1' DAY) IS NOT NULL)` | the literal, cast to the column's unit and folded, takes a slot in the long lane's table | per-lane: compare to mask, mask logic, mask broadcast, mask test |
 | `dt * 3` | `interval` | `if(dt IS NULL, NULL, try_multiply(dt, 3) IS NOT NULL)` | multiplyExact in every mode, a bare ArithmeticException on overflow: the operand is guarded to the longs whose product fits, exactly, and the multiply wraps; a column factor declines | per-lane: compare to mask, mask logic, mask broadcast, mask test |
 | `-2 * dt` | `interval` | `if(dt IS NULL, NULL, try_multiply(-2, dt) IS NOT NULL)` | the factor on the left is the same node; a negative factor swaps the guard's ends, which are not symmetric | per-lane: compare to mask, mask logic, mask broadcast, mask test |
-| `extract(DAY FROM dt)` | `interval` |  | Java's truncating division by a day, exact over every long and never raising; inside date_add the date arm reads it as the day offset | vector |
+| `extract(DAY FROM dt)` | `interval` |  | Java's truncating division by a day, exact over every long and never raising; inside `d + dt` over a stored `INTERVAL DAY` column it declines (`m9/SCOPE.md` item 126), inside `d - dt` it fuses as an int offset | vector |
 
 #### Integer arithmetic
 

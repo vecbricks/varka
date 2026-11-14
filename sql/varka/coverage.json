@@ -672,7 +672,7 @@
     "operands" : [ "Extract:dt", "ExtractANSIIntervalDays:dt" ],
     "switches" : [ "spark.sql.codegen.varka.family.interval.enabled" ],
     "domain" : "",
-    "note" : "Java's truncating division by a day, exact over every long and never raising; inside date_add the date arm reads it as the day offset",
+    "note" : "Java's truncating division by a day, exact over every long and never raising; inside `d + dt` over a stored `INTERVAL DAY` column it declines (`m9/SCOPE.md` item 126), inside `d - dt` it fuses as an int offset",
     "verified" : "proof: long_divide.smt2"
   }, {
     "sql" : "i + 1",
