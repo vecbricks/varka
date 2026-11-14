@@ -533,11 +533,12 @@ final class Slots {
 
   /**
    * Installs the nodes this body emits, which the arm chains of its guards are filtered by. Every
-   * lane group of one body installs the same planned set, so a set already installed is left
-   * alone and its arm chains stay computed.
+   * lane group of one body installs the same planned set, so a set equal to the one installed is
+   * left alone and its arm chains stay computed; {@link java.util.AbstractSet#equals} answers an
+   * identical instance at once, so the repeated installs stay cheap.
    */
   void setReach(Set<VarkaVectorIR> reached) {
-    if (reach == reached) {
+    if (reached.equals(reach)) {
       return;
     }
     reach = reached;
