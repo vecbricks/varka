@@ -1261,9 +1261,9 @@ final class VarkaVectorWalk {
    * {@code -128} is 128 rather than -128, so it reduces where a consumer cannot take the
    * unreduced value. A narrow {@code abs} is the same node with the lanewise {@code ABS}: the
    * same check on the same operand, and at the int lane a reduction of its own result wherever
-   * it is read ({@link Analysis#wrapAt}). A long-lane {@code abs} is a decimal's and wraps: by
-   * default a compare with zero, a negation and a blend, and the lanewise {@code ABS} under
-   * {@code decimalAbsLanewise}.
+   * it is read ({@link Analysis#wrapAt}). A long-lane {@code abs} is a decimal's, which wraps, or
+   * a bigint's, checked under ANSI by the negation's compare: by default a compare with zero, a
+   * negation and a blend, and the lanewise {@code ABS} under {@code decimalAbsLanewise}.
    */
   private static void emitIntNeg(CodeBuilder cb, IntNeg n, boolean dense, Analysis analysis,
       Slots s, Set<VarkaVectorIR> computed) {
@@ -1280,9 +1280,11 @@ final class VarkaVectorWalk {
       emitOverflowMask(cb, n.mode(), n, dense, analysis, s);
     }
     if (n.abs() && !n.laneType().isNarrow() && !n.laneType().isFloating()) {
-      if (n.laneType() != VarkaVectorIR.LaneType.LONG || n.mode() != Overflow.WRAP) {
-        throw VarkaErrors.illegalArgument("abs off the narrow and floating lanes is a "
-            + "wrapping long one, a decimal's: " + n);
+      // A long abs is a decimal's, which wraps, or a bigint's (VARKA-104), checked under ANSI
+      // by the negation's compare above. Spark has no try_abs, so NULL never reaches here.
+      if (n.laneType() != VarkaVectorIR.LaneType.LONG || n.mode() == Overflow.NULL) {
+        throw VarkaErrors.illegalArgument("abs off the narrow and floating lanes is a long one, "
+            + "wrapping or checked: " + n);
       }
       if (!analysis.options.decimalAbsLanewise()) {
         // x < 0 ? -x : x as x.blend(x.neg(), x.compare(LT, 0)): the compare and the blend are

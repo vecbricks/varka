@@ -72,7 +72,8 @@ public enum VarkaFamily {
       + " comparisons in their conditions are the predicate family's)"),
   /** The int arithmetic arm of {@code VarkaNodeCompiler}, the int-bigint casts among it. */
   INT_ARITHMETIC("int arithmetic", "intArithmetic", "+, -, * and unary minus over int,"
-      + " tinyint and smallint operands and abs over the narrow two, checked under ANSI,"
+      + " bigint, tinyint and smallint operands and abs over bigint and the narrow two, checked"
+      + " under ANSI,"
       + " greatest and least, the casts between int and bigint, and a tinyint or smallint"
       + " widened to int"),
   /** {@code VarkaFloatingCompiler}. */

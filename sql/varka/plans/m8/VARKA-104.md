@@ -382,3 +382,94 @@ EPYC runners and are committed before it merges.
 
 *To be written when the work lands, section by section as the plan's own rule
 asks. Nothing above is to be rewritten to look prescient.*
+
+### 9.1 Steps 2 and 3, and option A of step 4, 10 November 2026
+
+Built in one pull request, stacked on step 1b's baseline; not yet measured.
+
+* **The lattice's long half** (`VarkaRangeAnalysis`): the long lane is answered for `INT` with no
+  contract. A long literal is its point, read from the compiler's long table through
+  `Literals.longs`, a separate accessor from the int one (risk 2); a widened int is its child's
+  interval where that fits int32 and the int range otherwise; a long `GuardedRange` is its bounds.
+  A bigint column, a decimal word and a hull stay unknown. The saturation rule is the lattice's
+  own: an interval operation that leaves the `long` answers unknown, so at the long lane a check
+  comes off exactly where the candidate's range is bounded (`VarkaNodeCompiler.cannotOverflow`),
+  and at the int lane it is still `<= Integer.MAX_VALUE` (risk 1). The rules are proven in
+  `range_analysis.smt2`, each with the case past the long that shows the bound is needed (5.7).
+* **The arms**: `+`, `-` and `*` over `BIGINT` take the int arms' `intArith` on the long lane,
+  negation and `abs` an `IntNeg` whose mode is `FAIL` under ANSI unless the lattice rules out
+  `Long.MIN_VALUE`. `l + 1` keeps its check, `CAST(i AS BIGINT) + 1` and
+  `CAST(i AS BIGINT) * 1000` lose it (5.2, corrected by 0 item 2). The checked multiply is option A:
+  it fuses where the bound clears it and declines otherwise, so `l * 3` under ANSI stays on the
+  row path; B and C are step 4's remaining work. ANSI `abs` needed the one emitter change 0 item 5
+  predicted, at `VarkaVectorWalk.emitIntNeg`.
+* **The two-lane hosts (0 item 7)**: the width audit's construction rows at 128 bits record the
+  checked long add, `try_add` and the checked negation's overflow mask (the long compare, the mask
+  `or`/`and`, the mask test and broadcast) as not supported by C2 at two long lanes, the Java
+  fallback, while the wrapping long add and the checked int add record nothing. So under the setting row 503 keys its filter refusal on, a checked `BIGINT` operation
+  in a projection declines, and the wrapping forms stay fused; the projection compile now takes
+  `VarkaAdmission`, as the predicate compile did. The refusal is keyed on the `BIGINT` arms, not
+  on the IR, so row 339's checked `TIMESTAMP_NTZ` difference and sum, which make the same mask,
+  still fuse at two lanes unmeasured; that is a finding for a row of its own. Whether the checked
+  forms beat the row path there anyway, as 503's blends did, takes a 128-bit run of the baseline
+  benchmark with `spark.sql.codegen.varka.declineTwoLaneConditions=false`: with the refusal on,
+  every checked section is the row path on both arms.
+* **The baseline's classes** (`VarkaBigintArithmeticBaselineBenchmark`, as merged with 1b's
+  review sections): at the host's width every section is `WHOLE` but the three checked products
+  over a column (`l * 3` and `l * m` under ANSI, `try_multiply(l, m)`), which stay `NONE`. That
+  includes the filter `l + l2 > 0` under ANSI, `NULL_TESTS` in the baseline: its condition now
+  fuses, so the section the runner timed at 0.7X of the row path at 256 bits is a whole-kernel
+  filter here. On a
+  two-lane host the filter and every form that keeps its check are `NONE`; the wrapping forms and
+  the widened int's six, whose checks the lattice took off, stay `WHOLE`.
+* **The census**: `BIGINT` joins `+`, `-`, `*` (bounded only), `negative`, `abs`, `try_add` and
+  `try_subtract`; 104 is off the division lines (`div`, `%`, `mod`, `pmod`, `try_mod`), which are
+  row 30's (0 item 9).
+* **The fuzzer** draws no long-lane `abs`: the draw reshuffles the long fuzz stream, which the
+  emit cost model's committed tables are fitted on, so `VarkaEmitterLongLaneSuite` tests long `abs`
+  over the extremes instead.
+
+### 9.2 The runner measurement, 11 November 2026
+
+`VarkaBigintArithmeticBaselineBenchmark` ran on the pull request's head (`814a8346416`) on the
+EPYC 7763 runners three times: at 256 bits (vecbricks/varka run 42930745045), at 128 bits with
+`-XX:MaxVectorSize=16` (run 42930757311), and at 128 bits with
+`spark.sql.codegen.varka.declineTwoLaneConditions=false` as well (run 42930769718). The first two
+replace the runner results files whole, since every section's fusion class changed; the third is
+recorded here only. The ratios are the Varka arm's rate over the row path's, from one run each, so
+a gap of 10 to 15% between runs is noise: the wrapping forms, the same code in the two 128-bit
+runs, differ by that much.
+
+* **256 bits.** Every projection that fuses whole is 4.2x to 9.4x the row path. The filter
+  `l + l2 > 0` under ANSI, now a whole-kernel filter, is the weakest at 1.56x without nulls and
+  1.65x at one row in ten null, against the baseline's 0.74x and 0.80x with only its null tests
+  fused. The three checked products over a column (`l * 3` and `l * m` under ANSI,
+  `try_multiply(l, m)`) decline and tie at 1.00x.
+* **128 bits, as shipped.** The wrapping forms and the widened int's six fuse at 3.8x to 8.7x;
+  every form that keeps its check declines and ties (0.98x to 1.04x). One wrapping form is the
+  exception: `abs(l)` under LEGACY fuses whole but reaches only 1.32x without nulls and 1.43x with
+  them, against 7.2x and 8.4x at 256 bits. The likely reason, from the source and not yet confirmed
+  by a JIT reading: its default lowering is `x.blend(x.neg(), x.compare(LT, 0))`
+  (`VarkaVectorWalk.emitIntNeg`), a long-lane mask, the construction C2 does not lower at two
+  lanes. No section is slower than the row path.
+* **128 bits, refusal off.** The checked forms fuse and the result is mixed. `try_add(l, l2)` and
+  `try_subtract(l, l2)` reach 2.4x to 2.6x at both null densities; ANSI `l + l2` and `l - l2` 2.1x
+  and 2.2x without nulls but 1.16x and 1.17x with them; ANSI `l + 1` 1.62x and 0.96x; ANSI `-l`
+  1.43x and 0.77x; ANSI `abs(l)` 0.94x and 0.64x; and the filter 0.44x and 0.53x. So the refusal is
+  right for the filter and for ANSI negation and `abs`, and leaves a win unclaimed on the `try_`
+  sums and on null-free ANSI `+` and `-`. A refusal finer than the `BIGINT` arms' is a finding for
+  a row of its own, not this one's.
+
+**The option matrix.** Run 43504150236 on the head before this record failed three
+configurations: `arrowBatchSize=1` and `arrowBatchSize=3`, on the four BIGINT domain tests, and
+`driverOutputTable=false`, on one grouping composition. The BIGINT failures are the domain
+check's, not the kernel's: `VarkaDomains.check` requires every batch outside a row's recorded
+domain to be one the guards condemn, which holds only where the domain is the guard's own
+condition; `l + l2`'s domain is the operands' input range, wider than the guard's sum-overflow
+test, so a batch of outside rows that holds no overflowing row is answered, and answered
+correctly, and a smaller Arrow batch splits the rows so that such a batch exists. The grouping
+failure is the unrolled driver's size, which the same configuration's `VarkaExactGroupingSuite`
+entries already record. Five `skips.tsv` lines under those configurations carry the reasons, and
+all three configurations were re-run on the laptop over the affected suites: 2567 passed with 2
+canceled under each `arrowBatchSize`, and 1 passed with 2 canceled under the driver's, no
+failures. The domain check's over-strong direction is row 610.

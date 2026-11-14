@@ -164,7 +164,7 @@ public final class VarkaDomains {
    * end of the day; the narrow lanes' bounds. Then rows null in those columns, one column group at
    * a time and all at once, which the {@code IS NULL} partitions select. The other columns hold
    * the mixed fixture's first row. A bigint sits at the narrow types' bounds and one past each, for
-   * the integral casts' guards.
+   * the integral casts' guards, and at the long's own ends for its arithmetic.
    */
   static String edgesSql() {
     long dayLimit = VarkaChrono.INTERVAL_DAY_LIMIT_DAYS;
@@ -182,6 +182,13 @@ public final class VarkaDomains {
     var longs = new ArrayList<Long>(around(Byte.MIN_VALUE, Byte.MAX_VALUE));
     longs.addAll(around(Short.MIN_VALUE, Short.MAX_VALUE));
     longs.forEach(l -> rows.add(row("l", Long.toString(l))));
+    // The long's ends and one in from each, for the checked bigint arithmetic (VARKA-104): with
+    // the fixture's l2 of 1, `l + l2` and `l + 1` overflow at Long.MAX_VALUE, and `l - l2`, `-l`
+    // and `abs(l)` at Long.MIN_VALUE.
+    for (long l : List.of(Long.MIN_VALUE, Long.MIN_VALUE + 1, Long.MAX_VALUE - 1,
+        Long.MAX_VALUE)) {
+      rows.add(row("l", Long.toString(l)));
+    }
     for (long i : List.of(Integer.MAX_VALUE - 9999L, Integer.MAX_VALUE - 9998L)) {
       rows.add(row("d", "DATE'9999-12-31'", "i", Long.toString(i)));
     }

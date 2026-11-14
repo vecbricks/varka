@@ -296,8 +296,9 @@ public abstract class VarkaEvaluatorBase {
 
   /**
    * The session's settings for which entries and conjuncts the compiler admits - the families
-   * off (VARKA-318) and the two-lane refusal of conditions and boolean outputs (VARKA-503,
-   * VARKA-596) - which this evaluator's compiler call passes beside {@link #emitOptions()} so
+   * off (VARKA-318) and the two-lane refusal of conditions, boolean outputs over decimals and
+   * checked {@code BIGINT} operations (VARKA-503, VARKA-596, VARKA-104) - which this
+   * evaluator's compiler call passes beside {@link #emitOptions()} so
    * that it declines what the plan's compile declined.
    */
   protected VarkaAdmission admission() {

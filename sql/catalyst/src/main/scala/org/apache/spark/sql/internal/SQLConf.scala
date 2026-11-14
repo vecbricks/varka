@@ -3375,8 +3375,10 @@ object SQLConf {
         " EXPLAIN; VarkaFusionReport.predicateLines gives the reason under the session's" +
         " settings. Where another conjunct fuses, the Varka node's EXPLAIN gives it. A" +
         " projection's BOOLEAN entry over a DECIMAL column, such as x < y AS c, is refused" +
-        " there too, its decimal load being slower than the row engine at two lanes. A test" +
-        " that checks two-lane kernels' answers sets it false.")
+        " there too, its decimal load being slower than the row engine at two lanes. On the" +
+        " same hosts a projection's checked BIGINT +, -, *, negation or abs, one that raises or" +
+        " nulls on overflow, declines too, its overflow test being a 64-bit vector mask; the" +
+        " LEGACY forms stay fused. A test that checks two-lane kernels' answers sets it false.")
       .version("5.0.0")
       // A planning choice of which conjuncts fuse: it never changes an answer or what a view
       // body resolves to.

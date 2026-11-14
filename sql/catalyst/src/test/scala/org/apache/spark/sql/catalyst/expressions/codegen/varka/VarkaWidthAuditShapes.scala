@@ -154,8 +154,9 @@ object VarkaWidthAuditShapes {
       if (form == "predicate") {
         predicateRow(sql, resolved)
       } else {
-        // On the host's terms too: a BOOLEAN row over a decimal column is refused at two 64-bit
-        // lanes on x86 (VARKA-596), as a predicate row's 64-bit condition is.
+        // On the host's terms too: a two-lane x86 host refuses a BOOLEAN row over a decimal
+        // column (VARKA-596) and a checked BIGINT operation (VARKA-104), as a predicate row's
+        // 64-bit condition is.
         val list = Seq[NamedExpression](Alias(resolved, "c")())
         VarkaExpressionCompiler.compilePartial(list, columns, VarkaEmitOptions.DEFAULTS,
             hostAdmission).toScala
@@ -169,7 +170,7 @@ object VarkaWidthAuditShapes {
     }
   }
 
-  /** Every family on, and the two-lane refusal as this host answers it (VARKA-503). */
+  /** Every family on, and the two-lane refusals as this host answers them (VARKA-503). */
   private def hostAdmission: VarkaAdmission = new VarkaAdmission(java.util.Set.of(),
     VarkaKernelPlan.twoLaneMasksFallBack(VarkaHostIsa.host()))
 

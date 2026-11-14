@@ -74,7 +74,8 @@ class VarkaNullTypeFallbackSuite extends QueryTest with VarkaSharedSessions
   }
 
   test("a projection of a NullType column beside an output the kernel declines") {
-    same("SELECT n, date_add(d, i) AS c, l + 1 AS m FROM fz")
+    // A checked product over a bigint column declines in every mode (VARKA-104).
+    same("SELECT n, date_add(d, i) AS c, try_multiply(l, 3) AS m FROM fz")
   }
 
   test("a NullType literal output beside a fused one") {

@@ -1105,7 +1105,8 @@ public sealed interface VarkaVectorIR
    * {@code FAIL} would build is dead (VARKA-348, {@code decimal64.smt2}).
    *
    * <p>With {@code abs} set the node is {@code abs(child)} instead, on a narrow or floating lane
-   * or, wrapping, on the long lane, where only a decimal's unscaled value reaches it: Spark's
+   * or on the long lane, where a decimal's unscaled value reaches it wrapping and a bigint in
+   * either mode (VARKA-104): Spark's
    * {@code x < 0 ? -x : x}, the negation taken where the operand is negative. It shares the
    * negation's one overflowing input and its check, and its validity is the child's, so the two
    * are one node with one flag, emitted on a narrow or floating lane as one lanewise {@code ABS}

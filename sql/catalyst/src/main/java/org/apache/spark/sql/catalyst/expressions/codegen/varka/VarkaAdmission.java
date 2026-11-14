@@ -22,20 +22,23 @@ import java.util.Set;
  * The session settings that decide which conjuncts and projection entries the compiler admits,
  * as one value every predicate entry point and the session's projection compiles take: the
  * families switched off (VARKA-318) and whether a filter's condition in a kernel driven at a
- * 64-bit lane, a column of any type read on the long or the {@code DOUBLE} lane, and a
- * projection's {@code BOOLEAN} output over a decimal column (VARKA-596) are refused on an x86
- * host whose 64-bit species have two lanes or fewer (VARKA-503, {@link VarkaKernelPlan#admit}).
- * Neither
- * is an emit option - neither changes a kernel's bytes -
- * and the compile at planning, EXPLAIN and the filter evaluator's compile in a task must admit
+ * 64-bit lane (one reading a column of any type on the long or the {@code DOUBLE} lane), a
+ * projection's {@code BOOLEAN} output over a decimal column (VARKA-596) and a projection's
+ * checked {@code BIGINT} operation (VARKA-104) are refused on an x86 host whose 64-bit species
+ * have two lanes or fewer (VARKA-503, {@link VarkaKernelPlan#admit}). Neither setting is an
+ * emit option - neither changes a kernel's bytes -
+ * and the compile at planning, EXPLAIN and the evaluator's compile in a task must admit
  * alike, so both travel with the plan in sql/core's session record, whose
  * {@code VarkaSessionEmit.admission()} every production caller passes. No predicate entry point
  * defaults it: a caller says which settings it compiles under, and a compile with no session
  * says {@link #NO_HOST_REFUSAL}, as the projection's overloads without an admission do.
  *
  * @param familiesOff the expression families switched off
- * @param declineTwoLaneConditions whether a filter's 64-bit-lane condition, and a boolean output
- *        over a decimal column, are left to the row engine
+ * @param declineTwoLaneConditions whether a filter's 64-bit-lane condition, a boolean output
+ *        over a decimal column, and a projection's checked {@code BIGINT} operation, whose
+ *        overflow test is a long-lane mask that host does not lower either (VARKA-104), are left
+ *        to the row engine; the projection compile reads the last through
+ *        {@code DeclineSink.declinesTwoLaneChecks}
  */
 public record VarkaAdmission(Set<VarkaFamily> familiesOff, boolean declineTwoLaneConditions) {
 
