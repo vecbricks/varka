@@ -249,6 +249,55 @@ class VarkaVectorTemplateWarmupSuite extends SparkFunSuite with BeforeAndAfterEa
     val busyJvmci = "Current compiles:\n\nC1 compile queue:\nEmpty\n\nJVMCI compile queue:\n" +
       "   11 4  java.lang.String::hashCode (49 bytes)\n"
     assert(c2QueueLength(busyJvmci) === 1, "a JVMCI compiler's queue stands in C2's place")
+    // The "Current compiles:" section in the JVM's format: each busy compiler thread's name, two
+    // spaces and its task's short line (threads.cpp's print_threads_compiling and
+    // compileTask.cpp's print_impl). The parser reads the thread name at the line's start, so the
+    // columns only have to be a plausible task line.
+    def current(lines: String*): String =
+      "Current compiles:\n" + lines.mkString("\n") + "\n\nC1 compile queue:\nEmpty\n\n" +
+        "C2 compile queue:\nEmpty\n"
+    val c1Busy = current(
+      "C1 CompilerThread0  2071       3       java.lang.String::hashCode (49 bytes)")
+    assert(c2Compiling(c1Busy) === 0, "a C1 thread's task is not C2's")
+    val c2Busy = current("C2 CompilerThread0  2074       4       pkg.K::loopDense0 (891 bytes)")
+    assert(c2Compiling(c2Busy) === 1)
+    val bothBusy = current(
+      "C1 CompilerThread0  2071       3       java.lang.String::hashCode (49 bytes)",
+      "C2 CompilerThread0  2074       4       pkg.K::loopDense0 (891 bytes)")
+    assert(c2Compiling(bothBusy) === 1, "only the C2 thread's task counts")
+    val twoC2 = current(
+      "C2 CompilerThread0  2074       4       pkg.K::loopDense0 (891 bytes)",
+      "C2 CompilerThread1  2075       4       pkg.K::loopDense1 (891 bytes)")
+    assert(c2Compiling(twoC2) === 2)
+    val osr = current(
+      "C2 CompilerThread1  2076 %     4       pkg.K::loopDense0 @ 42 (891 bytes)")
+    assert(c2Compiling(osr) === 1, "an on-stack-replacement task is a compile in progress too")
+    val jvmciBusy = current(
+      "JVMCI CompilerThread0  2078       4       pkg.K::loopDense0 (891 bytes)")
+    assert(c2Compiling(jvmciBusy) === 1, "a JVMCI compiler's thread takes C2's place")
+    assert(c2Compiling("Current compiles:\n\nC1 compile queue:\nEmpty\n") === 0,
+      "an empty section has no compile in progress")
+    assert(c2Compiling("Current compilations: none") === 0,
+      "a format the parser does not know must not hold the warm-up")
+    // The planted case: a parser that counted every busy compiler thread would read the C1
+    // fixture as one compile, so the C1 fixture is what tells c2Compiling's filter from it.
+    def everyCompilerThread(text: String): Int = {
+      var inCurrent = false
+      var n = 0
+      for (line <- text.linesIterator) {
+        val t = line.strip
+        if (t.startsWith("Current compiles")) {
+          inCurrent = true
+        } else if (inCurrent && t.endsWith("compile queue:")) {
+          inCurrent = false
+        } else if (inCurrent && t.nonEmpty) {
+          n += 1
+        }
+      }
+      n
+    }
+    assert(everyCompilerThread(c1Busy) === 1)
+    assert(c2Compiling(c1Busy) === 0)
     assert(PROFILING_TIER_QUEUE_LIMIT >= 1)
     assert(PACE_QUEUE_TARGET >= 1 && PACE_QUEUE_TARGET <= PROFILING_TIER_QUEUE_LIMIT,
       "the pacing waits for the shorter queue at which the policy resumes profiling")

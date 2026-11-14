@@ -26,6 +26,7 @@ import java.util.Arrays;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.Set;
@@ -50,11 +51,14 @@ import org.apache.spark.sql.catalyst.expressions.codegen.VarkaGeneratedClassLoad
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaAdmission;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitOptions;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitterTestSupport;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitterTestSupport.Settle;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaEmitterTestSupport.TierState;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaFusedKernel;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaKernelPlan;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaLoopEmitter;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaReference;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaSqlResolve;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTierWitness;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.ColumnRef;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Compare;
@@ -176,7 +180,10 @@ public class VarkaNarrowEmitBenchmark extends VarkaBenchmarkBase {
   private static final int MIN_WARM_DRIVES = 8;
   private static final double STEADY_FRACTION = 0.3;
   private static final long WARM_WAIT_MILLIS = 30_000;
-  private static final long IDLE_WAIT_MILLIS = 10_000;
+
+  /** The bounds every arm's settle runs under. */
+  private static final Settle.Bounds SETTLE_BOUNDS =
+      new Settle.Bounds(MIN_WARM_DRIVES, STEADY_FRACTION, WARM_WAIT_MILLIS);
 
   private static final String ARMS_PROPERTY = "varka.narrow.emit.arms";
 
@@ -633,45 +640,42 @@ public class VarkaNarrowEmitBenchmark extends VarkaBenchmarkBase {
   }
 
   /**
-   * Drives {@code kernel} until every dense loop method of its class holds level-4 code and the
-   * drive time is steady (row 407's rule); a class with no dense loop, a TRY shape's, which can
-   * null a row of valid inputs, is read by its masked loops, the ones the drive runs. Bounded: an
-   * arm that does not settle in 30 seconds says so, with the level each loop method had, and is
-   * timed as it is.
+   * Drives {@code kernel} until every loop method of its class is C2 code as the tier witness
+   * confirms it and the drive time is steady (row 407's rule), through {@link
+   * VarkaEmitterTestSupport.Settle}; a class with no dense loop, a TRY shape's, which can null a
+   * row of valid inputs, is read by its masked loops, the ones the drive runs. Bounded: an arm
+   * that does not settle in 30 seconds says so, with the reason and the level each loop method
+   * had, and is timed as it is.
    */
   private static void driveToCompiledCode(String label, VarkaFusedKernel kernel, Shape shape,
       Invocation inv, long scratch, int reps) {
-    long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(WARM_WAIT_MILLIS);
     Class<?> kernelClass = kernel.getClass();
-    long previous = 0;
-    int drives = 0;
-    while (true) {
-      long start = System.nanoTime();
-      drive(inv, kernel, shape, scratch, reps);
-      long took = System.nanoTime() - start;
-      drives++;
-      boolean idle = VarkaEmitterTestSupport.awaitC2Idle(IDLE_WAIT_MILLIS);
-      var levels = VarkaEmitterTestSupport.loopLevels(kernelClass);
-      if (levels.isEmpty()) {
-        levels = VarkaEmitterTestSupport.loopLevels(kernelClass, false);
-      }
-      boolean topTier = VarkaEmitterTestSupport.allLoopsC2(levels);
-      boolean steady = previous > 0 && Math.abs(took - previous) <= previous * STEADY_FRACTION;
-      if (drives >= MIN_WARM_DRIVES && idle && topTier && steady) {
-        System.out.println("VarkaNarrowEmitBenchmark: " + label + " at " + inv.length()
-            + " rows settled after " + drives + " drives, loops at level 4");
-        return;
-      }
-      if (System.nanoTime() > deadline) {
-        System.out.println("VarkaNarrowEmitBenchmark: " + label + " at " + inv.length()
-            + " rows did not settle in " + WARM_WAIT_MILLIS + " ms (" + drives + " drives, the"
-            + " last " + TimeUnit.NANOSECONDS.toMicros(took) + " us after "
-            + TimeUnit.NANOSECONDS.toMicros(previous) + " us, C2 " + (idle ? "idle" : "busy")
-            + ", loop levels " + levels + "); it is timed as it is");
-        return;
-      }
-      previous = took;
+    Set<String> loops = VarkaEmitterTestSupport.loopLevels(kernelClass).keySet();
+    boolean dense = !loops.isEmpty();
+    if (!dense) {
+      loops = VarkaEmitterTestSupport.loopLevels(kernelClass, false).keySet();
     }
+    var settle = new Settle(
+        kernelClass,
+        loops,
+        Map.of(),
+        () -> drive(inv, kernel, shape, scratch, reps),
+        SETTLE_BOUNDS,
+        true);
+    TierState state = Settle.drive(settle);
+    if (state.settled()) {
+      System.out.println("VarkaNarrowEmitBenchmark: " + label + " at " + inv.length()
+          + " rows settled after " + state.drives() + " drives, loops at level 4");
+      return;
+    }
+    System.out.println("VarkaNarrowEmitBenchmark: " + label + " at " + inv.length()
+        + " rows did not settle in " + WARM_WAIT_MILLIS + " ms (" + state.drives() + " drives,"
+        + " the last " + TimeUnit.NANOSECONDS.toMicros(state.lastDriveNanos()) + " us after "
+        + TimeUnit.NANOSECONDS.toMicros(state.previousDriveNanos()) + " us, C2 "
+        + (state.c2Idle() ? "idle" : "busy")
+        + (state.reason().isEmpty() ? "" : ", " + state.reason())
+        + ", loop levels " + VarkaEmitterTestSupport.loopLevels(kernelClass, dense)
+        + "); it is timed as it is");
   }
 
   // -------------------------------------------------------------------------------------------
@@ -738,15 +742,27 @@ public class VarkaNarrowEmitBenchmark extends VarkaBenchmarkBase {
               + ", the arms' class bytes are " + (same ? "identical" : "different"));
         }
       }
-      section("emitted narrow kernels at " + bits + " bits, arms "
-          + arms.stream().map(Arm::token).toList(), () -> {
-            for (Rung rung : ladder()) {
-              runRung(rung, allShapes, arms, emitted);
-            }
-            try (Arena arena = Arena.ofConfined()) {
-              overflowProbe(arena, allShapes, arms, emitted);
-            }
-          });
+      // The witness records from before any kernel runs, so it knows every compile of each
+      // kernel class: which are on-stack replacements, and which loops C2 inlined into a caller.
+      var witness = VarkaTierWitness.get();
+      for (Optional<Emitted>[] byArm : emitted) {
+        for (Optional<Emitted> e : byArm) {
+          e.ifPresent(k -> witness.watch(k.kernel().getClass().getName()));
+        }
+      }
+      try {
+        section("emitted narrow kernels at " + bits + " bits, arms "
+            + arms.stream().map(Arm::token).toList(), () -> {
+              for (Rung rung : ladder()) {
+                runRung(rung, allShapes, arms, emitted);
+              }
+              try (Arena arena = Arena.ofConfined()) {
+                overflowProbe(arena, allShapes, arms, emitted);
+              }
+            });
+      } finally {
+        VarkaTierWitness.close();
+      }
     } finally {
       for (var loader : loaders) {
         if (loader != null) {

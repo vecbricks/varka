@@ -191,3 +191,60 @@ Size: small, as the row says.
    helper if it lands first.
 
 ## 10. Outcome
+
+Built as design 2.1 to 2.3, with the owner's answer to question 1 (yes: the narrow benchmark's
+copy moves too). Question 2 is pending the pair; nothing about it was decided here.
+
+- `VarkaEmitterTestSupport` gains `Settle`, a record holding the kernel class, the loop names
+  (dense, or masked, chosen by the caller), the extra methods to hold to C2 (the decimal
+  benchmark's `Buffers.widen`), the drive, the bounds and whether C2 is required, and
+  `TierState`, its result: settled or not, the drives, the last two drives' times, C2's idle
+  state, the per-loop and per-extra verdicts, the kernel's compiled levels, the reason and the
+  note's failure clause. `Settle.drive` is the decimal benchmark's loop unchanged: the least
+  drives, C2 idle after each, the last two drives steady, then the recording settled and the
+  code list read through `VarkaTierWitness.confirmed`. The caller starts the witness before the
+  first kernel call; the helper only reads it.
+- `loopLevels` catches an unreadable code list and returns an empty map, which `allLoopsC2`
+  reads as not C2. A reader seam (`loopLevels(class, dense, Supplier)`) makes the policy
+  testable without a JVM that lacks the command.
+- `VarkaDecimalStoreBenchmark` calls the helper. Its arms, emitted bytes and console messages
+  are unchanged; its private `Tiers` and `TierState` are gone.
+- `VarkaSharedPrefixBenchmark` emits every shape's arms first, starts the witness after the
+  last emission and before the first `driveChecked`, watches every kernel class, settles each
+  arm through the helper (its `c2Expected` arm exempt, settling on drive times alone), and
+  closes the witness in a `finally`. Its failure line keeps its form and adds the reason from
+  `TierState`.
+- `VarkaNarrowEmitBenchmark`, brought in by question 1, does the same with its dense-or-masked
+  loop choice; its pair is owed with the other two.
+- One failure policy: an unreadable code list or queue leaves an arm not settled and timed as
+  it is, with "the code list unreadable" or "the queue unreadable" in its state and its printed
+  note. A delivery timeout stays the recoverable "the tier witness's recording behind"; any
+  other witness failure propagates.
+- `VarkaVectorTemplateWarmupSuite` gains the `c2Compiling` fixtures: a C1 thread, one and two
+  C2 threads, both busy, an OSR task line, a JVMCI thread, an empty section, unknown text, and
+  a planted parser that counts every thread, which the C1 fixture tells from `c2Compiling`.
+- A new `VarkaEmitterTestSupportSuite` holds the `loopLevels` seam test: an unreadable code
+  list gives an empty map that `allLoopsC2` rejects, and a readable fixture gives the loop its
+  level, so the empty map is the policy and not a class without loops.
+- `sql/varka/skills/the-jit.md` gains the paragraph that sends a settling benchmark to the
+  helper.
+
+Checks and the pending pair are recorded below as they were run.
+
+- `build/sbt catalyst/Test/compile`: exit 0 (a first pass failed one javac call in the new
+  helper, `loops(tiers)` read as the record's own accessor; qualifying it with
+  `VarkaEmitterTestSupport.` fixed it, and the rerun compiled the whole test tree).
+- `catalyst/testOnly *VarkaEmitterTestSupportSuite *VarkaVectorTemplateWarmupSuite`: 14 tests,
+  0 failed (the warm-up suite's 12 and the new suite's 2).
+- `dev/lint-scala`: "Scalastyle checks passed. Scalafmt checks passed."
+- `dev/lint-java`: "Checkstyle checks passed."
+- `python3 dev/varka_push_check.py`: exit 0, 894 counted lines of 894 changed against
+  `4c57947acd2`, under the 1000-line cap; R4 ran the pre-commit over the range, the plan lint,
+  the quote check, the census and the size, and chose no suite, since no Varka main or generated
+  file changed.
+- The dry runs (3.3) and the pairs (3.4) were not run here: the pairs run on the benchmark
+  runner against the merge base, and no benchmark was run in this task. Question 2 (the
+  recording during timed runs) is decided after the ladder's pair: if P2 holds (no timed row
+  moves outside the committed band) it does not arise; if it fails, the owner chooses between
+  closing the witness before each timed run, which loses the OSR knowledge of earlier compiles,
+  and keeping the code list with the row's two blind spots.
