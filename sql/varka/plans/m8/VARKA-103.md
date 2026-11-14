@@ -837,3 +837,16 @@ Left, with reasons:
   `intervalArith`/`intervalOperand`. Both are deliberate for the split and are owed to 103a2
   or a tidy row.
 - The efficiency notes the review dropped are not owed here.
+
+**The baseline runs (14 November 2026).** Two runs of
+`VarkaDayTimeIntervalBaselineBenchmark` on an EPYC 7763, against this pull request's head: run
+43582841112 at the defaults (256 bits) and run 43582853857 at `-XX:MaxVectorSize=16` (128 bits).
+Their results and provenance are committed as the class's runner-named pair. At 256 bits the
+fused forms win: `dt + dt2 - dt` 48.6 -> 12.5 ns a row (3.9x), `abs(dt)` 43.8 -> 10.0 (4.4x),
+`dt * 3` 36.5 -> 8.5 (4.3x), `extract(DAY FROM dt)` 36.1 -> 9.2 (3.9x), and with one row in ten
+null 4.9x to 6.5x. Two findings are owed a row of their own. At 128 bits the same kernels are at
+parity or slower (1.0x for `dt + dt2 - dt`, 0.8x for `abs(dt)`, 0.5x to 0.7x with nulls), which
+argues for declining the day-time arms at two 64-bit lanes as the two-lane condition already
+declines filters. And `extract DAY, HOUR, MINUTE and SECOND together`, which fuses only in part,
+runs at 0.7x of the row path at both widths (66.1 against 47.2 ns a row at 256), so its blend is
+slower than not fusing it. `dt * 1.5` and `dt / 24` stay on the row path here; 103a2 owns them.
