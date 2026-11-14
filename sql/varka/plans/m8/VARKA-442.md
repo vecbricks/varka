@@ -162,9 +162,13 @@ Size: small, as the row says.
 
 ## 6. Out of this row
 
-- `VarkaNarrowEmitBenchmark`, unless question 1 brings it in.
-- `VarkaNarrowLaneBenchmark` and `VarkaDecimalPairSpikeBenchmark`, which call `awaitC2Idle`
-  alone and read no levels.
+- `VarkaNarrowEmitBenchmark`: brought in by the owner's answer to question 1, and built here.
+- `VarkaNarrowLaneBenchmark` and `VarkaDecimalPairSpikeBenchmark`. *Corrected 14 November 2026
+  (the row's review):* this entry first said they "call `awaitC2Idle` alone and read no
+  levels", which their code contradicts - each drives until its own `levelInUse` reads level 4,
+  the code-list condition this row rejects. `VarkaDecimalRemainderSpikeBenchmark`, written
+  after this plan, has the same loop and was not named at all. All three keep their own loops
+  until a row of their own.
 
 ## 7. Questions for the owner
 
@@ -224,8 +228,8 @@ copy moves too). Question 2 is pending the pair; nothing about it was decided he
   C2 threads, both busy, an OSR task line, a JVMCI thread, an empty section, unknown text, and
   a planted parser that counts every thread, which the C1 fixture tells from `c2Compiling`.
 - A new `VarkaEmitterTestSupportSuite` holds the `loopLevels` seam test: an unreadable code
-  list gives an empty map that `allLoopsC2` rejects, and a readable fixture gives the loop its
-  level, so the empty map is the policy and not a class without loops.
+  list keeps each declared loop at level 0 (the names survive and nothing reads as C2), and a
+  readable fixture gives the loop its level.
 - `sql/varka/skills/the-jit.md` gains the paragraph that sends a settling benchmark to the
   helper.
 
@@ -248,3 +252,20 @@ Checks and the pending pair are recorded below as they were run.
   moves outside the committed band) it does not arise; if it fails, the owner chooses between
   closing the witness before each timed run, which loses the OSR knowledge of earlier compiles,
   and keeping the code list with the row's two blind spots.
+
+**The review (14 November 2026).** `/code-review high` on the branch found the settle's first
+policy wrong in a way this sheet had not: `loopLevels` returned an empty map on an unreadable
+reading, and all three benchmarks take the settle's loop names from its key set, so one failed
+read made that arm unsettleable for the rest of the run while its note carried no reason. The
+fix keeps the declared names at level 0, short-circuits a settle whose code list is unreadable to
+"the code list unreadable" instead of driving out the warm bound, and `Settle.drive` now fails
+loudly when the caller has not watched the kernel class or an extra class, instead of settling
+an arm that never could. It also corrects the class documents that still named the code list as
+the settle gate, the inverted OSR sentence in `VarkaSharedPrefixBenchmark`, and the notes that
+re-read the code list instead of printing the state the settle carried; the narrow benchmark's
+"loops at level 4" line now says what the witness confirmed. Three things are left with their
+reasons in the pull request: the JFR recording now running through the two new benchmarks' timed
+cells, which the pairs this row owes measure; the arms whose diagnostics are never served still
+driving their bound before giving up when the code list was readable at the start; and the shape
+of the `Settle` API itself. This sheet's section 6 was also wrong about the three spike
+benchmarks that keep their own settle loops; they take a row of their own.

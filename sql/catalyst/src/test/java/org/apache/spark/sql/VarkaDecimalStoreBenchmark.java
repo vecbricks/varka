@@ -281,7 +281,9 @@ public class VarkaDecimalStoreBenchmark extends VarkaBenchmarkBase {
         }
       });
     } finally {
-      VarkaTierWitness.close();
+      if (!dryRun()) {
+        VarkaTierWitness.close();
+      }
       loader.release();
     }
   }
@@ -507,6 +509,7 @@ public class VarkaDecimalStoreBenchmark extends VarkaBenchmarkBase {
   private static String describe(TierState t, boolean widens) {
     return (t.settled() ? "settled" : "not settled" + t.why()) + " after " + t.drives()
         + " drives, loops C2 " + t.loopsC2() + (widens ? ", widen C2 "
-        + t.alsoC2().getOrDefault("widen", false) : "") + ", kernel code " + t.kernelLevels();
+        + (t.alsoC2().containsKey("widen") ? t.alsoC2().get("widen") : "unread")
+        : "") + ", kernel code " + t.kernelLevels();
   }
 }

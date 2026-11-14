@@ -1038,9 +1038,10 @@ batch histories and proves per compared call which tier ran it, with no diagnost
   1,024-row call allocates; an epilogue running only the remainder allocates too little to show,
   so in 32 of 39 drawn kernels an epilogue was still interpreted when the verdict fired.
 * **Settling a benchmark's arm: use the shared helper.** `VarkaEmitterTestSupport.Settle.drive`
-  is the one settling loop (VARKA-442): the caller starts the witness before the arm's first call
-  and watches every class it drives, then the helper drives at least the given number of times,
-  waits for C2 to go idle, and only then settles the recording and confirms each loop (and any
+  is the one settling loop for a benchmark that times an emitted kernel (VARKA-442); the three
+  spike benchmarks keep their own loops until their row. The caller starts the witness before
+  the arm's first call and watches every class it drives, then the helper drives at least the
+  given number of times, waits for C2 to go idle, and only then settles the recording and confirms each loop (and any
   extra method, such as a widening pass) through `VarkaTierWitness.confirmed`. Do not read
   `loopLevels` as a settling condition: it cannot tell an OSR version from a method's own or see
   a loop C2 inlined into its caller. A diagnostic command the JVM does not serve leaves the arm

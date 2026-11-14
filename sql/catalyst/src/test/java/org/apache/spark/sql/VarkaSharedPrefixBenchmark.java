@@ -121,6 +121,10 @@ public class VarkaSharedPrefixBenchmark extends VarkaBenchmarkBase {
   private record Arm(String label, boolean materialized, int groups, VarkaFusedKernel kernel,
       long scratch, boolean c2Expected) { }
 
+  /** One shape ready to run: its title, its arms, and the buffers every arm of it shares. */
+  private record ShapeRun(String title, List<Arm> arms, long[] dst, long[] dstValidity,
+      int[] literals) { }
+
   private static CompiledVarkaProjection compile(List<String> sqls) {
     var exprs = new ArrayList<NamedExpression>();
     for (int k = 0; k < sqls.size(); k++) {
@@ -192,11 +196,14 @@ public class VarkaSharedPrefixBenchmark extends VarkaBenchmarkBase {
    * stood in C1 code for as long as 37 seconds, into its timed run, at 65 to 349 ns/row against
    * 2.7. And code that has just reached level 4 can still be replaced while its drive is timed.
    *
-   * <p>The witness tells a loop C2 only for an on-stack-replacement version and sees a loop C2
-   * inlined into its caller, which the code list alone cannot. An arm whose C2 compile fails or
-   * is refused is exempt from the level condition ({@code c2Expected}) and settles on drive
-   * times alone, as the call-site budget off arm's single loop method does. An arm that does not
-   * settle within {@link #WARM_WAIT_MILLIS} returns its state, which the caller prints.
+   * <p>The witness tells a loop's own C2 compile from an on-stack-replacement version (only the
+   * former counts) and sees a loop C2 inlined into its caller, which the code list alone cannot.
+   * An arm whose C2 compile fails or is refused is exempt from the level condition
+   * ({@code c2Expected}) and settles on drive times alone, as the call-site budget off arm's
+   * single loop method does. An arm that does not settle within {@link #WARM_WAIT_MILLIS}
+   * returns its state, which the caller prints. The witness's recording runs from before the
+   * first kernel call to the end of the section, as {@link VarkaDecimalStoreBenchmark}
+   * documents.
    */
   private static TierState driveToCompiledCode(String title, Arm arm, MemorySegment data,
       long[] dst, long[] dstValidity, int[] literals) {
@@ -210,10 +217,6 @@ public class VarkaSharedPrefixBenchmark extends VarkaBenchmarkBase {
         arm.c2Expected());
     return Settle.drive(settle);
   }
-
-  /** One shape ready to run: its title, its arms, and the buffers every arm of it shares. */
-  private record ShapeRun(String title, List<Arm> arms, long[] dst, long[] dstValidity,
-      int[] literals) { }
 
   @Override
   public void runBenchmarkSuite(String[] mainArgs) {
@@ -305,9 +308,8 @@ public class VarkaSharedPrefixBenchmark extends VarkaBenchmarkBase {
                         + TimeUnit.NANOSECONDS.toMillis(state.previousDriveNanos()) + " ms, C2 "
                         + (state.c2Idle() ? "idle" : "busy")
                         + (state.reason().isEmpty() ? "" : ", " + state.reason())
-                        + ", loop levels "
-                        + VarkaEmitterTestSupport.loopLevels(arm.kernel().getClass())
-                        + "); its cell may be timed in lower-tier code");
+                        + ", loop levels " + state.kernelLevels() + ", loops C2 "
+                        + state.loopsC2() + "); its cell may be timed in lower-tier code");
                   }
                 }
                 timer.startTiming();

@@ -126,9 +126,11 @@ import org.apache.spark.sql.types.ShortType;
  *
  * <p>Harness (row 407): each arm is driven at its own turn, just before it is timed, for at least
  * eight drives and then until two consecutive drives are within 30 percent, with C2 idle after
- * each drive and every dense loop method of the kernel at level 4 in {@code Compiler.codelist}.
- * An arm that does not settle in 30 seconds says so, with the levels it had, and is timed as it
- * is.
+ * each drive and every loop of the kernel confirmed by {@link VarkaTierWitness} as C2 code of
+ * its own (an on-stack-replacement version does not count, and a loop C2 inlined into its caller
+ * does). An arm that does not settle in 30 seconds says so, with the levels it had, and is timed
+ * as it is. The witness's recording runs from before the first kernel call to the end of the
+ * section, as {@link VarkaDecimalStoreBenchmark} documents.
  *
  * <p>Run it with {@code -XX:MaxVectorSize=64}, {@code 32} and {@code 16} for the 512-, 256- and
  * 128-bit widths. {@code -Dvarka.narrow.emit.arms=widened} or {@code =native} keeps one arm's
@@ -138,7 +140,8 @@ import org.apache.spark.sql.types.ShortType;
  * arms answer every shape there too. A shape an arm declines - the kernel plan's refusal, or the
  * compiler's demotion of a checked multiply for the same reason - is printed by name, with the
  * reason, rather than timed. A {@code -XX:CompileCommand=dontinline,<generated class>::*} keeps
- * a loop method out of its driver, so that the code list has a level of its own to report.
+ * a loop method out of its driver, so that its own compile is the one the witness confirms and
+ * the code list reports.
  *
  * <pre>
  *   build/sbt "catalyst/Test/runMain org.apache.spark.sql.VarkaNarrowEmitBenchmark"
@@ -471,8 +474,8 @@ public class VarkaNarrowEmitBenchmark extends VarkaBenchmarkBase {
 
   /**
    * Emits {@code shape} under {@code arm} and loads it, or returns empty with the reason the
-   * emitter declined it. The class name carries both the shape and the arm: the settle gate reads
-   * a kernel's compile levels from the JVM's code list by class name alone
+   * emitter declined it. The class name carries both the shape and the arm: the settle's verdict
+   * read parses the JVM's code list by class name alone
    * ({@link VarkaEmitterTestSupport#loopLevels}), so two classes sharing one name would have
    * their loops' levels merged, and the WIDENED arm's level 4 could stand for a NATIVE loop still
    * at C1. The int-driven shape's byte comparison emits its own copies under one neutral name
@@ -665,7 +668,7 @@ public class VarkaNarrowEmitBenchmark extends VarkaBenchmarkBase {
     TierState state = Settle.drive(settle);
     if (state.settled()) {
       System.out.println("VarkaNarrowEmitBenchmark: " + label + " at " + inv.length()
-          + " rows settled after " + state.drives() + " drives, loops at level 4");
+          + " rows settled after " + state.drives() + " drives, every loop confirmed at C2");
       return;
     }
     System.out.println("VarkaNarrowEmitBenchmark: " + label + " at " + inv.length()
@@ -674,7 +677,7 @@ public class VarkaNarrowEmitBenchmark extends VarkaBenchmarkBase {
         + TimeUnit.NANOSECONDS.toMicros(state.previousDriveNanos()) + " us, C2 "
         + (state.c2Idle() ? "idle" : "busy")
         + (state.reason().isEmpty() ? "" : ", " + state.reason())
-        + ", loop levels " + VarkaEmitterTestSupport.loopLevels(kernelClass, dense)
+        + ", loop levels " + state.kernelLevels() + ", loops C2 " + state.loopsC2()
         + "); it is timed as it is");
   }
 

@@ -60,14 +60,16 @@ public final class VarkaEmitterTestSupportSuite {
   }
 
   @Test
-  @DisplayName("an unreadable code list leaves every loop at no level, so no arm settles on it")
+  @DisplayName("an unreadable code list keeps each loop at no level, so no arm settles on it")
   void unreadableCodeList() {
     Supplier<String> unavailable = () -> {
       throw new IllegalStateException("could not read the code list");
     };
     Map<String, Integer> levels = VarkaEmitterTestSupport.loopLevels(Probe.class, true,
         unavailable);
-    assertTrue(levels.isEmpty(), "the policy is an empty map, not a failure");
+    assertEquals(Set.of("loopDense0"), levels.keySet(),
+        "the declared loop names survive an unreadable list");
+    assertEquals(0, levels.get("loopDense0").intValue(), "no loop reads as compiled");
     assertFalse(VarkaEmitterTestSupport.allLoopsC2(levels),
         "an unreadable list must not read as C2 code");
   }

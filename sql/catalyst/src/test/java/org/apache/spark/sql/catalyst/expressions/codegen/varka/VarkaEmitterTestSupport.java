@@ -510,7 +510,9 @@ public final class VarkaEmitterTestSupport {
   /**
    * {@link #loopLevels(Class, boolean)} on a given reading of the code list. The reader is a
    * parameter so that a test can show the unavailable-command policy without a JVM that lacks
-   * the command: a reader that throws {@link IllegalStateException} leaves an empty map.
+   * the command: a reader that throws {@link IllegalStateException} leaves every declared loop
+   * of the side at level 0. The names survive, so a settle built from the key set still knows
+   * which loops it is about, and no loop reads as C2 code.
    */
   public static java.util.Map<String, Integer> loopLevels(
       Class<?> kernelClass, boolean dense, Supplier<String> codeList) {
@@ -524,9 +526,10 @@ public final class VarkaEmitterTestSupport {
     try {
       listing = codeList.get();
     } catch (IllegalStateException e) {
-      // The JVM does not serve the code list. Nothing shows these loops as C2 code, so the
-      // caller times the arm as it is, with the reason its settle state carries.
-      return Map.of();
+      // The JVM does not serve the code list. Every declared loop stays at level 0: the names
+      // survive for the settle, nothing reads as C2 code, and the caller times the arm as it
+      // is, with the reason its settle state carries.
+      return Collections.unmodifiableMap(levels);
     }
     for (VarkaTierWitness.CodeEntry e : VarkaTierWitness.parse(listing, kernelClass.getName())) {
       if (e.inUse() && levels.containsKey(e.method())) {
@@ -604,13 +607,26 @@ public final class VarkaEmitterTestSupport {
     }
 
     /**
-     * Drives {@code settle}'s arm and returns how its warm-up ended. The caller's witness must
-     * already be running: {@link VarkaTierWitness#get} here returns that one, never a new one.
+     * Drives {@code settle}'s arm and returns how its warm-up ended. The caller must have started
+     * the witness ({@link VarkaTierWitness#get}) before the arm's first call and watched the
+     * kernel class and every class named in {@code settle.alsoC2}: a compile that finishes
+     * before its class is watched is unknown to the recording, so no verdict would ever confirm
+     * it. A class that was not watched fails here rather than settling an arm that never can.
      */
     public static TierState drive(Settle settle) {
       long deadline = System.nanoTime()
           + TimeUnit.MILLISECONDS.toNanos(settle.bounds().warmWaitMillis());
       var witness = VarkaTierWitness.get();
+      if (!witness.isWatching(settle.kernelClass())) {
+        throw new IllegalStateException("the settle's kernel class " + settle.kernelClass()
+            + " is not watched: its compiles cannot be confirmed");
+      }
+      for (Class<?> extra : settle.alsoC2().keySet()) {
+        if (!witness.isWatching(extra)) {
+          throw new IllegalStateException("the settle's extra class " + extra
+              + " is not watched: its compiles cannot be confirmed");
+        }
+      }
       long previous = 0;
       int drives = 0;
       while (true) {
@@ -635,6 +651,13 @@ public final class VarkaEmitterTestSupport {
             tiers = readTiers(settle, witness);
             if (tiers != null && tiers.c2()) {
               return settled(drives, took, previous, idle, tiers);
+            }
+            if (tiers == null) {
+              // The code list is unreadable, so no loop's level can be confirmed: the arm is
+              // timed as it is now, with the reason, rather than driven to the bound.
+              return new TierState(false, drives, took, previous, idle, Map.of(), Map.of(),
+                  Map.of(), "the code list unreadable",
+                  why(settle, took, previous, idle, "the code list unreadable"));
             }
           }
         }
