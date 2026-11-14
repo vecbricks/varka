@@ -18,24 +18,30 @@
 package org.apache.spark.sql.catalyst.expressions.codegen.varka;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.function.LongBinaryOperator;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import scala.Enumeration;
 import scala.Option;
 import scala.jdk.javaapi.CollectionConverters;
 
 import org.apache.spark.sql.catalyst.expressions.Attribute;
+import org.apache.spark.sql.catalyst.expressions.Cast;
+import org.apache.spark.sql.catalyst.expressions.EvalMode;
 import org.apache.spark.sql.catalyst.expressions.Expression;
 import org.apache.spark.sql.catalyst.expressions.Literal;
 import org.apache.spark.sql.catalyst.expressions.SubtractTimestamps;
+import org.apache.spark.sql.catalyst.expressions.TimestampAdd;
 import org.apache.spark.sql.catalyst.expressions.TimestampAddInterval;
 import org.apache.spark.sql.catalyst.expressions.codegen.CompiledVarkaProjection;
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaDecline;
@@ -46,7 +52,10 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Int
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.IntOp;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LaneType;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.LiteralSlot;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.NarrowLane;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.Overflow;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR.WidenLane;
+import org.apache.spark.sql.catalyst.util.DateTimeConstants;
 import org.apache.spark.sql.catalyst.util.DateTimeUtils;
 import org.apache.spark.sql.types.DataTypes;
 import org.apache.spark.sql.types.DayTimeIntervalType;
@@ -58,6 +67,8 @@ import org.apache.spark.sql.types.DayTimeIntervalType;
  * {@code Long.MIN_VALUE}. Spark computes them through {@code java.time} at UTC, so the first test
  * holds Spark's functions to those three at the long range's ends and their neighbours, raising
  * exactly where they raise; the others pin the trees the compiler builds and the forms it declines.
+ * {@code timestampadd} up to a week is {@code t + q * f}, the product guarded and the sum checked
+ * (2.2), held to Spark's {@code timestampAdd} at the guard's bound and one past.
  */
 @VarkaSuite
 public final class VarkaTimestampNtzArithmeticSuite {
@@ -105,9 +116,11 @@ public final class VarkaTimestampNtzArithmeticSuite {
   private final Attribute ntz2 = VarkaSqlResolve.column("ntz2", DataTypes.TimestampNTZType);
   private final Attribute dt = VarkaSqlResolve.column("dt", DayTimeIntervalType.apply());
   private final Attribute ltz = VarkaSqlResolve.column("ltz", DataTypes.TimestampType);
+  private final Attribute i = VarkaSqlResolve.column("i", DataTypes.IntegerType);
+  private final Attribute l = VarkaSqlResolve.column("l", DataTypes.LongType);
 
   private scala.collection.immutable.Seq<Attribute> columns() {
-    return CollectionConverters.asScala(List.of(ntz, ntz2, dt, ltz)).toList();
+    return CollectionConverters.asScala(List.of(ntz, ntz2, dt, ltz, i, l)).toList();
   }
 
   private Optional<CompiledVarkaProjection> compile(Expression e) {
@@ -153,6 +166,124 @@ public final class VarkaTimestampNtzArithmeticSuite {
     assertTrue(p.isPresent(), () -> "ntz - INTERVAL '1' HOUR declined: " + declineOf(minusHour));
     assertEquals(new IntArith(IntOp.ADD, Overflow.FAIL, FIRST, new LiteralSlot(0, LaneType.LONG)),
         p.get().outputs().get(0));
+  }
+
+  /** The microseconds of each {@code timestampadd} unit up to a week, as Spark adds them. */
+  private static final Map<String, Long> UNITS = Map.of("MICROSECOND", 1L,
+      "MILLISECOND", DateTimeConstants.MICROS_PER_MILLIS,
+      "SECOND", DateTimeConstants.MICROS_PER_SECOND,
+      "MINUTE", DateTimeConstants.MICROS_PER_MINUTE,
+      "HOUR", DateTimeConstants.MICROS_PER_HOUR,
+      "DAY", DateTimeConstants.MICROS_PER_DAY,
+      "DAYOFYEAR", DateTimeConstants.MICROS_PER_DAY,
+      "WEEK", 7 * DateTimeConstants.MICROS_PER_DAY);
+
+  /** Spark's {@code timestampadd} at UTC, or empty where it raises. */
+  private static Optional<Long> sparkAdd(String unit, long q, long t) {
+    try {
+      return Optional.of(DateTimeUtils.timestampAdd(unit, q, t, ZoneOffset.UTC));
+    } catch (ArithmeticException e) {
+      return Optional.empty();
+    }
+  }
+
+  @Test
+  @DisplayName("timestampadd up to a week is Spark's: the sum checked under the guard on the "
+      + "quantity, every quantity past the guard of a unit up to an hour raising")
+  void timestampAddUpToAWeek() {
+    long[] quantities = {0, 1, -1, 7, -7, Integer.MAX_VALUE, Integer.MIN_VALUE, Long.MAX_VALUE,
+        Long.MIN_VALUE, 106_751_991, -106_751_991, 106_751_992, -106_751_992, 15_250_284,
+        -15_250_284, 15_250_285, -15_250_285, 306_783_378, 306_783_379};
+    int compared = 0;
+    for (Map.Entry<String, Long> unit : UNITS.entrySet()) {
+      long f = unit.getValue();
+      long bound = Long.MAX_VALUE / f;
+      for (long q0 : quantities) {
+        for (long q : new long[] {q0, bound, -bound, f == 1 ? 0 : bound + 1, -bound - 1}) {
+          for (long t : EDGES) {
+            Optional<Long> spark = sparkAdd(unit.getKey(), q, t);
+            String at = "timestampadd(" + unit.getKey() + ", " + q + ", " + t + ")";
+            if (f == 1 || (q >= -bound && q <= bound)) {
+              assertEquals(attempt(Math::addExact, t, q * f), spark, at);
+              compared++;
+            } else if (f < DateTimeConstants.MICROS_PER_DAY) {
+              // MILLISECOND to HOUR: the guard is multiplyExact's domain, so Spark raises here.
+              assertEquals(Optional.empty(), spark, at);
+            }
+          }
+        }
+      }
+    }
+    assertTrue(compared > 1000, "compared " + compared);
+  }
+
+  @Test
+  @DisplayName("timestampadd up to a week compiles to a checked add of the guarded product, an "
+      + "int quantity unguarded up to an hour, and declines NANOSECOND and a literal past the "
+      + "guard")
+  void timestampAddTrees() {
+    long hour = DateTimeConstants.MICROS_PER_HOUR;
+    long day = DateTimeConstants.MICROS_PER_DAY;
+    assertEquals(new IntArith(IntOp.ADD, Overflow.FAIL, SECOND, FIRST),
+        root("timestampadd(MICROSECOND, l, ntz)"));
+    assertEquals(new IntArith(IntOp.ADD, Overflow.FAIL, SECOND, new IntArith(IntOp.MUL,
+        Overflow.WRAP, new GuardedRange(FIRST, -Long.MAX_VALUE / hour, Long.MAX_VALUE / hour),
+        new LiteralSlot(0, LaneType.LONG))), root("timestampadd(HOUR, l, ntz)"));
+    assertEquals(new IntArith(IntOp.ADD, Overflow.FAIL, SECOND, new IntArith(IntOp.MUL,
+        Overflow.WRAP, new WidenLane(new ColumnRef(0, LaneType.INT)),
+        new LiteralSlot(0, LaneType.LONG))), root("timestampadd(hour, i, ntz)"));
+    assertEquals(new IntArith(IntOp.ADD, Overflow.FAIL, SECOND, new IntArith(IntOp.MUL,
+        Overflow.WRAP, new GuardedRange(new WidenLane(new ColumnRef(0, LaneType.INT)),
+        -Long.MAX_VALUE / day, Long.MAX_VALUE / day), new LiteralSlot(0, LaneType.LONG))),
+        root("timestampadd(DAY, i, ntz)"));
+    assertEquals(new IntArith(IntOp.ADD, Overflow.FAIL, FIRST, new LiteralSlot(0, LaneType.LONG)),
+        root("timestampadd(WEEK, 3, ntz)"));
+    // MICROSECOND forms no product, so the least long is an amount, as it is in a column.
+    assertEquals(new IntArith(IntOp.ADD, Overflow.FAIL, FIRST, new LiteralSlot(0, LaneType.LONG)),
+        root("timestampadd(MICROSECOND, -9223372036854775808L, ntz)"));
+    for (String month : List.of("timestampadd(MONTH, i, ntz)", "timestampadd(YEAR, i, ntz)",
+        "timestampadd(QUARTER, l, ntz)")) {
+      assertTrue(root(month).laneType() == LaneType.LONG, month);
+    }
+    for (String declined : List.of("timestampadd(DAY, 106751992, ntz)",
+        "timestampadd(NANOSECOND, l, ntz)", "timestampadd(HOUR, l, ltz)")) {
+      Expression e = VarkaSqlResolve.parse(declined, columns());
+      assertTrue(compile(e).isEmpty(), declined + " fused");
+    }
+  }
+
+  // `timestampadd(unit, CAST(CAST(l AS INT) AS BIGINT), ntz)`, the inner cast in `mode`.
+  private Expression castCount(String unit, Enumeration.Value mode) {
+    Expression narrowed = new Cast(l, DataTypes.IntegerType, Option.empty(), mode);
+    return new TimestampAdd(unit, new Cast(narrowed, DataTypes.LongType, Option.empty(),
+        EvalMode.LEGACY()), ntz, Option.apply("UTC"));
+  }
+
+  @Test
+  @DisplayName("timestampadd by MONTH over a bigint cast to INT declines in every mode, and "
+      + "QUARTER and YEAR guard the cast count; the month count takes a narrowing only under "
+      + "the month range's failing guard")
+  void monthUnitOverACastCount() {
+    for (Enumeration.Value mode : List.of(EvalMode.LEGACY(), EvalMode.ANSI(), EvalMode.TRY())) {
+      Expression month = castCount("MONTH", mode);
+      assertTrue(compile(month).isEmpty(), () -> mode + ": " + month + " fused");
+      assertEquals("month count that lowers to a node the month-count position does not take",
+          declineOf(month), mode.toString());
+      for (String unit : List.of("QUARTER", "YEAR")) {
+        Expression e = castCount(unit, mode);
+        assertTrue(compile(e).isPresent(), () -> mode + ": " + e + " declined: " + declineOf(e));
+      }
+    }
+    ColumnRef bigint = new ColumnRef(0, LaneType.LONG);
+    int lo = VarkaChrono.MONTH_ARITH_MIN_MONTHS;
+    int hi = VarkaChrono.MONTH_ARITH_MAX_MONTHS;
+    var position = VarkaOperandPosition.MONTH_COUNT;
+    assertTrue(position.admits(new NarrowLane(new GuardedRange(bigint, lo, hi))));
+    // A nulling guard, ANSI's over the int range, and LEGACY's bare narrowing.
+    for (VarkaVectorIR c : List.of(new GuardedRange(bigint, lo, hi, Overflow.NULL),
+        new GuardedRange(bigint, Integer.MIN_VALUE, Integer.MAX_VALUE), bigint)) {
+      assertFalse(position.admits(new NarrowLane(c)), c.toString());
+    }
   }
 
   @Test

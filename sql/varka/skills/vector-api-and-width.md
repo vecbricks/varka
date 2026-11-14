@@ -1261,3 +1261,18 @@ costs at least that accumulator's latency per lane group, whatever form it takes
 and two ORs into a mask, or a lane-wise min and max - because C2 does not reassociate the chain
 across its unrolled copies. A kernel of tens of ops a group hides it; a kernel of four does not.
 The min and the max are still the cheaper form: two ops a group against four, and no mask.
+
+## At two long lanes a decimal read loses before its compare does
+
+Measured for VARKA-596 (`m8/results/VARKA-596/two-lane-before-128bit.txt`, the laptop under
+`-XX:UseAVX=2 -XX:MaxVectorSize=16`, and the EPYC 7763's 128-bit decimal baseline). Written as a
+`BOOLEAN` output, `x < y` over `BIGINT` beat the row path at two long lanes and over `DOUBLE`
+tied it, though its compare and its mask's `toLong` are both the Java fallback there. Over
+`DECIMAL(9, 2)`, the same single long compare, it ran at about a fifth of the row path, and over
+the lane pair it lost too. The difference is the read. Arrow holds every decimal in a sixteen-byte
+slot, and both decimal leaves de-interleave two vectors of slots with two rearranges and then
+check each slot. At `vlen == 2` x86's C2 lowers neither the rearrange nor the masks. The width
+audit's constructions show it: `PrintIntrinsics` refuses two calls in `l < l2` as a boolean output
+and fourteen in `d9 < d9b`. So at two long lanes, judge a decimal kernel by its load before its
+operator. A shape that reads one decimal column pays the fallback's load whatever it computes,
+and only a heavier row-path cost, such as `BigDecimal` arithmetic, can hide it.

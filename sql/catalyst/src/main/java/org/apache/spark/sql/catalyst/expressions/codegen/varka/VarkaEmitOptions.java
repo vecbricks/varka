@@ -488,8 +488,9 @@ import com.sun.management.HotSpotDiagnosticMXBean;
  *        folds away where it is off, is right on every host and JDK; true is the losing arm, an
  *        AND a site cheaper on x86 below AVX-512, kept for the A/B and for the JDKs that fix the
  *        rule ({@code m9/SCOPE.md} item 114).
- * @param decimalAbsLanewise whether a long-lane {@code abs}, which only a decimal's unscaled value
- *        reaches (VARKA-348 2.6), is the lanewise {@code ABS}, one {@code evpabsq} where x86 has
+ * @param decimalAbsLanewise whether a long-lane {@code abs}, a decimal's unscaled value's
+ *        (VARKA-348 2.6) and a {@code BIGINT}'s alike (VARKA-104), so that the arm moves both, is
+ *        the lanewise {@code ABS}, one {@code evpabsq} where x86 has
  *        AVX-512 and the Vector API's allocating Java fallback below it, rather than a compare
  *        with zero, a negation and a blend, which every host makes intrinsic at 256 and 512
  *        bits. False, the blend, is the default; true is the arm, kept to be measured against
@@ -512,6 +513,12 @@ import com.sun.management.HotSpotDiagnosticMXBean;
  *        a decrement for the arm; true, the arm kept to be measured against it, by part 343b1's
  *        arithmetic shift, which AVX2 has no 64-bit instruction for, and its four steps. Both
  *        give {@code (float) v} ({@code round_to_odd.smt2}). No other shape reads it.
+ * @param mathUlpContract whether a math function may take the Vector API's library operator,
+ *        within its contracted bound of Spark's answer, where its binding on this host has a
+ *        contract entry ({@code spark.sql.codegen.varka.math.ulpContract.enabled},
+ *        {@code VARKA-345.md} 2.5 and 2.6). False, the default, keeps every math function bit
+ *        for bit Spark's. Read by the compiler when it chooses a math node's form, never by a
+ *        kernel; no math node is built yet, so neither value moves a byte.
  */
 public record VarkaEmitOptions(
     int groupBudget,
@@ -566,7 +573,8 @@ public record VarkaEmitOptions(
     boolean dropDecimalBound,
     DecimalStore decimalStore,
     WideConversionForm wideConversionForm,
-    boolean roundToOddByShifts) {
+    boolean roundToOddByShifts,
+    boolean mathUlpContract) {
 
   /**
    * The three mod-7 lowerings. {@link #MAGIC} is what ships: two 15-bit digit-sum folds followed
@@ -658,7 +666,9 @@ public record VarkaEmitOptions(
   /**
    * The {@code UseAVX} level at which HotSpot enables its AVX-512 paths: the lowest level whose
    * long-to-floating conversions are one instruction (see {@link #convertsFallBack()}), and the
-   * one a session asking for the host's resolves a CPU with AVX512DQ to.
+   * one a session asking for the host's resolves a CPU with AVX512DQ to, and an aarch64 host
+   * whose feature list it read, whose conversions are instructions too
+   * ({@code VarkaSessionEmit.resolve}).
    */
   public static final int AVX512_LEVEL = 3;
 
@@ -685,9 +695,11 @@ public record VarkaEmitOptions(
   }
 
   /**
-   * Whether this record names no {@code UseAVX} level: the defaults', an unset session's and an
-   * aarch64 host's ({@code VarkaSessionEmit.resolve}), where the kernel plan declines a
-   * {@code BIGINT} conversion to {@code FLOAT} or {@code DOUBLE}, as an AVX2 host's Java loop.
+   * Whether this record names no {@code UseAVX} level: the defaults', an unset session's and
+   * that of a host the session cannot vouch for, one whose feature list was not read or of
+   * another architecture than x86 and aarch64 ({@code VarkaSessionEmit.resolve}), where the
+   * kernel plan declines a {@code BIGINT} conversion to {@code FLOAT} or {@code DOUBLE}, as an
+   * AVX2 host's Java loop.
    */
   public boolean levelUnknown() {
     return useAVX == USE_AVX_UNKNOWN;
@@ -725,7 +737,8 @@ public record VarkaEmitOptions(
           true, true, true, true,
           VarkaEmitBudget.CALL_SITE_BUDGET, VarkaEmitBudget.HEAVY_GROUP_OUTPUTS,
           true, true, true, true, true, true, true, 0, 0, 0, false, false, false, 0, false,
-          false, false, DecimalStore.REARRANGE, WideConversionForm.XOR_SPLIT, false);
+          false, false, DecimalStore.REARRANGE, WideConversionForm.XOR_SPLIT, false,
+          false);
 
   public VarkaEmitOptions {
     if (groupBudget < 1) {
@@ -839,6 +852,7 @@ public record VarkaEmitOptions(
       b.decimalStore = decimalStore;
       b.wideConversionForm = wideConversionForm;
       b.roundToOddByShifts = roundToOddByShifts;
+      b.mathUlpContract = mathUlpContract;
     return b;
   }
 
@@ -897,6 +911,7 @@ public record VarkaEmitOptions(
     private DecimalStore decimalStore;
     private WideConversionForm wideConversionForm;
     private boolean roundToOddByShifts;
+    private boolean mathUlpContract;
 
     private Builder() {
     }
@@ -1166,6 +1181,11 @@ public record VarkaEmitOptions(
       return this;
     }
 
+    public Builder mathUlpContract(boolean contract) {
+      this.mathUlpContract = contract;
+      return this;
+    }
+
     public VarkaEmitOptions build() {
       return new VarkaEmitOptions(
           groupBudget, fusedCeiling, cse, shareChronoPrefix, denseValidityOnce,
@@ -1180,7 +1200,7 @@ public record VarkaEmitOptions(
           elideUnreadLocals, planSize, misdescribeDriverBytes, forceResidualAt,
           misdescribeRollback, exactRefusalStatus, groupBudgetUnderPrediction, dropStackMaps,
           misdescribeDataBytes, fromLongMasks, decimalAbsLanewise, dropDecimalBound,
-          decimalStore, wideConversionForm, roundToOddByShifts);
+          decimalStore, wideConversionForm, roundToOddByShifts, mathUlpContract);
     }
   }
 
@@ -1251,6 +1271,10 @@ public record VarkaEmitOptions(
 
   public VarkaEmitOptions withExactRefusalStatus(boolean exact) {
     return toBuilder().exactRefusalStatus(exact).build();
+  }
+
+  public VarkaEmitOptions withMathUlpContract(boolean contract) {
+    return toBuilder().mathUlpContract(contract).build();
   }
 
   public VarkaEmitOptions withDropStackMaps(boolean drop) {

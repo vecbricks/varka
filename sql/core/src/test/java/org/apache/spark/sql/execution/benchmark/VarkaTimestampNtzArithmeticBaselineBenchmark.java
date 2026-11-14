@@ -155,9 +155,9 @@ public class VarkaTimestampNtzArithmeticBaselineBenchmark extends VarkaSqlBenchm
       out.add(new Section("TIMESTAMP_NTZ plus a day-time interval column, " + density,
           "SELECT " + a + " + " + dt + from, Fusion.WHOLE));
       out.add(new Section("TIMESTAMP_NTZ plus INTERVAL '1' MONTH, " + density,
-          "SELECT " + a + " + INTERVAL '1' MONTH" + from, Fusion.NONE));
+          "SELECT " + a + " + INTERVAL '1' MONTH" + from, Fusion.WHOLE));
       out.add(new Section("TIMESTAMP_NTZ timestampadd(HOUR, q, ntz), " + density,
-          "SELECT timestampadd(HOUR, " + q + ", " + a + ")" + from, Fusion.NONE));
+          "SELECT timestampadd(HOUR, " + q + ", " + a + ")" + from, Fusion.WHOLE));
       out.add(new Section("TIMESTAMP_NTZ time_bucket at 15 minutes, " + density,
           "SELECT time_bucket(INTERVAL '15' MINUTE, " + a + ")" + from, Fusion.NONE));
       out.add(new Section("TIMESTAMP_NTZ time_bucket at one day, " + density,

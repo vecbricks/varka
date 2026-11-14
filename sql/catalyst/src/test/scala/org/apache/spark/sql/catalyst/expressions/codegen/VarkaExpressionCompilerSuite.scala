@@ -26,7 +26,7 @@ import org.apache.spark.{SparkArithmeticException, SparkFunSuite}
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.BinaryArithmeticWithDatetimeResolver
 import org.apache.spark.sql.catalyst.analysis.FunctionRegistry
-import org.apache.spark.sql.catalyst.expressions.{Abs, Add, AddMonths, Alias, And, Attribute, AttributeReference, BoundReference, BRound, CaseWhen, Cast, Ceil, Coalesce, Concat, CurrentTime, DateAdd, DateAddYMInterval, DateDiff, DateFromUnixDate, DateSub, DayOfMonth, DayOfWeek, DayOfYear, Divide, DivideYMInterval, EqualNullSafe, EqualTo, EvalMode, Expression, Extract, ExtractANSIIntervalDays, ExtractANSIIntervalMonths, ExtractANSIIntervalYears, Floor, GreaterThan, GreaterThanOrEqual, Greatest, HoursOfTime, If, In, InheritAnalysisRules, InSet, IsNotNull, IsNull, LastDay, LeafExpression, Least, LessThan, LessThanOrEqual, Literal, MakeDate, MakeTime, MakeTimestampNTZ, MakeYMInterval, MinutesOfTime, Month, Multiply, MultiplyYMInterval, NamedExpression, NextDay, Not, NumericEvalContext, Nvl, Nvl2, Or, Quarter, Rand, Remainder, Rint, Round, RuntimeReplaceable, SecondsOfTime, SecondsOfTimeWithFraction, Subtract, SubtractDates, SubtractTimes, TimeAddInterval, TimeDiff, TimeExpression, TimeFromMicros, TimeFromMillis, TimeFromSeconds, TimestampAddInterval, TimeToMicros, TimeToMillis, TimeToSeconds, TimeTrunc, ToTime, Truncate, TruncDate, UnaryMinus, UnixDate, Upper, WeekDay, WeekOfYear, Year, YearOfWeek}
+import org.apache.spark.sql.catalyst.expressions.{Abs, Add, AddMonths, Alias, And, Attribute, AttributeReference, BoundReference, BRound, CaseWhen, Cast, Ceil, Coalesce, Concat, CurrentTime, DateAdd, DateAddYMInterval, DateDiff, DateFromUnixDate, DateSub, DayOfMonth, DayOfWeek, DayOfYear, Divide, DivideDTInterval, DivideYMInterval, EqualNullSafe, EqualTo, EvalMode, Expression, Extract, ExtractANSIIntervalDays, ExtractANSIIntervalMonths, ExtractANSIIntervalYears, Floor, GreaterThan, GreaterThanOrEqual, Greatest, HoursOfTime, If, In, InheritAnalysisRules, InSet, IsNotNull, IsNull, LastDay, LeafExpression, Least, LessThan, LessThanOrEqual, Literal, MakeDate, MakeTime, MakeTimestampNTZ, MakeYMInterval, MinutesOfTime, Month, Multiply, MultiplyDTInterval, MultiplyYMInterval, NamedExpression, NextDay, Not, NumericEvalContext, Nvl, Nvl2, Or, Quarter, Rand, Remainder, Rint, Round, RuntimeReplaceable, SecondsOfTime, SecondsOfTimeWithFraction, Subtract, SubtractDates, SubtractTimes, SubtractTimestamps, TimeAddInterval, TimeDiff, TimeExpression, TimeFromMicros, TimeFromMillis, TimeFromSeconds, TimestampAddInterval, TimeToMicros, TimeToMillis, TimeToSeconds, TimeTrunc, ToTime, Truncate, TruncDate, UnaryMinus, UnixDate, Upper, WeekDay, WeekOfYear, Year, YearOfWeek}
 import org.apache.spark.sql.catalyst.expressions.codegen.VarkaOutputSpec.{ForwardedOutput, FusedOutput, KernelOutput}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaChrono, VarkaDerivedKind, VarkaEmitOptions, VarkaEmitterTestSupport, VarkaLoopEmitter, VarkaMatrix, VarkaShapeCache, VarkaVectorIR}
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.{VarkaAdmission, VarkaKernelPlan, VarkaKernelWarmup, VarkaShapeKey}
@@ -443,6 +443,36 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     assert(VarkaExpressionCompiler.compilePredicate(
       IsNotNull(Month(d)), childOutput, VarkaEmitOptions.DEFAULTS,
         VarkaAdmission.NO_HOST_REFUSAL).isEmpty)
+  }
+
+  test("IS NOT NULL tests that would fuse alone beside a residual conjunct decline with it") {
+    // VARKA-598. The int comparison of a short column mixes two lanes and declines, so of
+    // `isnotnull(i) AND sh > 5` only the null test would fuse, under a row filter holding the
+    // rest; the filter declines whole instead, at the unnamed emit level and the named ones.
+    val residual = GreaterThan(sh, Literal(5))
+    for (level <- Seq(VarkaEmitOptions.USE_AVX_UNKNOWN, 2, 3)) {
+      val options = VarkaMatrix.base.withUseAVX(level)
+      def fused(condition: Expression): Seq[Boolean] =
+        VarkaExpressionCompiler.explainPredicate(condition, childOutput, options,
+          VarkaAdmission.NO_HOST_REFUSAL).asScala.toSeq.map(_.fused)
+      withClue(s"useAVX $level") {
+        val alone = VarkaExpressionCompiler.explainAndCompilePredicate(And(IsNotNull(i), residual),
+          childOutput, options, VarkaAdmission.NO_HOST_REFUSAL)
+        assert(alone.compiled.isEmpty)
+        assert(alone.specs.asScala.toSeq.map(_.fused) === Seq(false, false))
+        val why = "only IS NOT NULL tests would fuse while another conjunct stays on the row path"
+        assert(alone.specs.get(0).decline.get.reason.startsWith(why))
+        // The residual keeps its own reason.
+        assert(!alone.specs.get(1).decline.get.reason.startsWith(why))
+        // A conjunct that reads a value keeps the split, the null test fused beside it; a null
+        // test with nothing left over is the whole filter and fuses; and IS NULL, which usually
+        // passes few rows, fuses beside the residual.
+        assert(fused(And(And(IsNotNull(i), GreaterThan(i, Literal(0))), residual)) ===
+          Seq(true, true, false))
+        assert(fused(And(IsNotNull(i), IsNotNull(d))) === Seq(true, true))
+        assert(fused(And(IsNull(i), residual)) === Seq(true, false))
+      }
+    }
   }
 
   test("a comparison over a column the lane does not hold still declines") {
@@ -1498,9 +1528,11 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     assert(declineReason(DivideYMInterval(ymm, Literal(2L)), withIntervals) ===
       "interval divisor of type bigint takes LongMath.divide, which the int lane does not " +
         "lower")
-    // A floating divisor is floating arithmetic, which every floating operand declines as.
+    // A floating divisor is rounded to the interval's integer, which waits for row
+    // 343's conversions to an integral lane.
     assert(declineReason(DivideYMInterval(ymm, Literal(2.5d)), withIntervals) ===
-      "floating arithmetic (row 342)")
+      "an interval product or quotient by a floating factor, which waits for the conversions " +
+        "to an integral lane (row 342 after part 343b2)")
     assert(declineReason(DivideYMInterval(ymm, Literal(BigDecimal("2.5"))), withIntervals) ===
       "interval divisor of type decimal(2,1) is not an integral literal")
     assert(declineReason(DivideYMInterval(ymm, i), withIntervals) ===
@@ -1554,9 +1586,20 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
       "checked int multiply whose operands do not rule out overflow")
     assert(declineReason(MultiplyYMInterval(ymm, Literal(3L)), withIntervals) ===
       "interval multiplier of type bigint is not an int32 lane")
-    // A floating factor is floating arithmetic, which every floating operand declines as.
+    // A floating factor is rounded to the interval's integer, which waits for row
+    // 343's conversions to an integral lane.
     assert(declineReason(MultiplyYMInterval(ymm, Literal(2.5d)), withIntervals) ===
-      "floating arithmetic (row 342)")
+      "an interval product or quotient by a floating factor, which waits for the conversions " +
+        "to an integral lane (row 342 after part 343b2)")
+  }
+
+  test("`dt * x` and `dt / x` by a double decline with the year-month forms' reason") {
+    // The day-time forms round to the long as the year-month ones round to the int, so they
+    // wait for the same conversions.
+    val reason = "an interval product or quotient by a floating factor, which waits for the " +
+      "conversions to an integral lane (row 342 after part 343b2)"
+    assert(declineReason(MultiplyDTInterval(dt, Literal(2.5d)), withLong) === reason)
+    assert(declineReason(DivideDTInterval(dt, Literal(2.5d)), withLong) === reason)
   }
 
   test("a literal day shift fuses at the bound and declines one day past it") {
@@ -2818,12 +2861,12 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
       Seq(out(DateAdd(d, Multiply(i, Literal(7), EvalMode.LEGACY)))), childOutput).isPresent)
   }
 
-  test("declines a long add, a divide, a modulo and a mixed operand") {
-    // All four reach the same reason, and that is the point: the arithmetic arms are guarded on
-    // the int and narrow types, so anything else never enters them and declines as the
-    // unsupported expression it is, rather than through an arithmetic-specific message.
+  test("declines a divide, a modulo and a mixed operand") {
+    // All three reach the same reason, and that is the point: the arithmetic arms are guarded on
+    // the integral types, so anything else never enters them and declines as the unsupported
+    // expression it is, rather than through an arithmetic-specific message. A bigint add fuses
+    // (VARKA-104).
     for (e <- Seq(
-        Add(Cast(i, LongType), Literal(1L), EvalMode.LEGACY),
         Divide(i, Literal(2), EvalMode.LEGACY),
         Remainder(i, Literal(7)),
         // An operand of the wrong type inside an arm the compiler does take. `intOperand` has
@@ -3126,17 +3169,15 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     assert(ntzProjection.fused.lane(VarkaEmitOptions.DEFAULTS) === LaneType.LONG)
   }
 
-  test("a month shift of a TIMESTAMP_NTZ's date declines as row 339's, though its fields fuse") {
-    // VARKA-340 guards the date of an NTZ value under a calendar field; the month forms over it
-    // are row 339's, which tests them with its guard, so they keep declining with that reason.
+  test("a month shift of a TIMESTAMP_NTZ's date fuses beside its fields, over the guarded date") {
+    // The date of an NTZ value under a calendar node is held to `ntzDay`'s range (VARKA-340), and
+    // a month shift reads it as a field does (VARKA-339): both outputs fuse.
     val date = Cast(ntz, DateType)
     for (shift <- Seq(AddMonths(date, i),
         DateAddYMInterval(date, Literal.create(2, YearMonthIntervalType())))) {
       val mixed = VarkaExpressionCompiler.compilePartial(
         Seq(out(Year(date)), out(shift)), withLong).get
-      assert(mixed.specs.asScala.toSeq === Seq(new FusedOutput(0), VarkaOutputSpec.RESIDUAL))
-      assert(mixed.declines.asScala(1).reason ===
-        "a month shift of a timestamp_ntz's date, which is row 339's (VARKA-339)")
+      assert(mixed.specs.asScala.toSeq === Seq(new FusedOutput(0), new FusedOutput(1)), shift)
     }
   }
 
@@ -3233,11 +3274,108 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
     assert(orMix.exists(_.fused.lane(VarkaEmitOptions.DEFAULTS) == LaneType.LONG))
   }
 
-  test("long arithmetic stays declined: it is VARKA-104's") {
-    val add = VarkaExpressionCompiler.compilePartial(
-      Seq(out(DateAdd(d, Literal(1))), out(Add(l, Literal(1L)))), withLong).get
-    assert(add.specs.asScala.toSeq === Seq(new FusedOutput(0), VarkaOutputSpec.RESIDUAL))
-    assert(add.declines.asScala(1).reason === "unsupported expression")
+  /** The fused outputs of `es` compiled over the long-lane columns. */
+  private def longOutputs(es: Expression*): Seq[VarkaVectorIR] =
+    VarkaExpressionCompiler.compile(es.map(out), withLong).get.outputs.asScala.toSeq
+
+  test("bigint +, - and * take Spark's three modes on the long lane (VARKA-104)") {
+    val modes = Seq(EvalMode.LEGACY -> Overflow.WRAP, EvalMode.ANSI -> Overflow.FAIL,
+      EvalMode.TRY -> Overflow.NULL)
+    for ((mode, overflow) <- modes) {
+      withClue(mode) {
+        assert(longOutputs(Add(l, l2, mode), Subtract(l, l2, mode)) === Seq(
+          new IntArith(IntOp.ADD, overflow, longCol, longCol2),
+          new IntArith(IntOp.SUB, overflow, longCol, longCol2)))
+      }
+    }
+    // A bare bigint column is unbounded, so a literal operand leaves the check where it is:
+    // `Long.MaxValue + 1` overflows.
+    assert(longOutputs(Add(l, Literal(1L), EvalMode.ANSI)) === Seq(
+      new IntArith(IntOp.ADD, Overflow.FAIL, longCol, longSlot(0))))
+    assert(longOutputs(Multiply(l, l2, EvalMode.LEGACY)) === Seq(
+      new IntArith(IntOp.MUL, Overflow.WRAP, longCol, longCol2)))
+  }
+
+  test("the long lattice takes a check off only where every leaf is bounded") {
+    // A widened int is within the int range, so a sum with a literal and a product with one
+    // below 2^32 cannot leave the long: both emit wrapping. The same sum over a bigint column
+    // keeps its check (above), and so does a product whose factor can reach 2^63.
+    val widened = new WidenLane(new ColumnRef(0))
+    assert(longOutputs(Add(Cast(i, LongType), Literal(1L), EvalMode.ANSI)) === Seq(
+      new IntArith(IntOp.ADD, Overflow.WRAP, widened, longSlot(0))))
+    assert(longOutputs(Multiply(Cast(i, LongType), Literal(1000L), EvalMode.ANSI)) === Seq(
+      new IntArith(IntOp.MUL, Overflow.WRAP, widened, longSlot(0))))
+    assert(longOutputs(Multiply(Cast(i, LongType), Cast(i, LongType), EvalMode.TRY)) === Seq(
+      new IntArith(IntOp.MUL, Overflow.WRAP, widened, widened)))
+    assert(declineReason(Multiply(Cast(i, LongType), Literal(1L << 33), EvalMode.ANSI),
+      withLong) === "checked bigint multiply whose operands do not rule out overflow (row " +
+      "104's 128-bit product, VARKA-104.md 3.3)")
+    for (mode <- Seq(EvalMode.ANSI, EvalMode.TRY)) {
+      assert(declineReason(Multiply(l, Literal(3L), mode), withLong).startsWith(
+        "checked bigint multiply"), mode)
+    }
+    // A long literal is read from the long table, not through the int one at the same index:
+    // `i + 1` takes int slot 0 for its 1, and `l2`'s product with 5000000000 is unbounded.
+    val mixed = VarkaExpressionCompiler.compilePartial(Seq(
+      out(Cast(Add(i, Literal(1), EvalMode.LEGACY), LongType)),
+      out(Multiply(Cast(i, LongType), Literal(5000000000L), EvalMode.ANSI))), withLong).get
+    assert(mixed.declines.asScala(1).reason.startsWith("checked bigint multiply"))
+  }
+
+  test("bigint negation and abs check Long.MinValue under ANSI and wrap under LEGACY") {
+    assert(longOutputs(UnaryMinus(l, failOnError = true), Abs(l, failOnError = true)) === Seq(
+      new IntNeg(Overflow.FAIL, longCol), new IntNeg(Overflow.FAIL, longCol, true)))
+    assert(longOutputs(UnaryMinus(l, failOnError = false), Abs(l, failOnError = false)) === Seq(
+      new IntNeg(Overflow.WRAP, longCol), new IntNeg(Overflow.WRAP, longCol, true)))
+    // A widened int never reaches Long.MinValue.
+    assert(longOutputs(UnaryMinus(Cast(i, LongType), failOnError = true)) === Seq(
+      new IntNeg(Overflow.WRAP, new WidenLane(new ColumnRef(0)))))
+  }
+
+  test("a checked bigint operation declines on a two-lane host, its wrapping forms fuse there") {
+    // The overflow test is a long-lane mask, which C2 does not lower at two 64-bit lanes, so on
+    // such a host (the setting row 503 keys its filter refusal on) the checked forms stay on the
+    // row path. What the lattice demoted to WRAP and every LEGACY form make no such mask.
+    val twoLane = new VarkaAdmission(java.util.Set.of(), true)
+    def reasons(e: Expression, admission: VarkaAdmission): Seq[String] =
+      VarkaExpressionCompiler.declines(Seq(out(e)), withLong, VarkaEmitOptions.DEFAULTS,
+        admission).asScala.values.map(_.reason).toSeq
+    val checked = Seq(Add(l, l2, EvalMode.ANSI), Add(l, l2, EvalMode.TRY),
+      Subtract(l, l2, EvalMode.ANSI), UnaryMinus(l, failOnError = true),
+      Abs(l, failOnError = true))
+    for (e <- checked) {
+      assert(reasons(e, twoLane) === Seq(VarkaNodeCompiler.TWO_LANE_CHECK_REASON), e)
+      assert(reasons(e, VarkaAdmission.NO_HOST_REFUSAL).isEmpty, e)
+    }
+    val wrapping = Seq(Add(l, l2, EvalMode.LEGACY), Abs(l, failOnError = false),
+      Add(Cast(i, LongType), Literal(1L), EvalMode.ANSI))
+    for (e <- wrapping) {
+      assert(reasons(e, twoLane).isEmpty, e)
+    }
+    // The scope is the BIGINT arms: TIMESTAMP_NTZ's checked difference (row 339) is untouched.
+    assert(reasons(SubtractTimestamps(ntz, ntz), twoLane).isEmpty)
+  }
+
+  test("a two-lane admission refuses a checked bigint and a decimal boolean in one projection") {
+    // The two refusals share the session's one setting but reach the projection compile by two
+    // roads: the checked operation through the entry pass's decline sink (VARKA-104), the
+    // decimal comparison as a value through the kernel plan's admission (VARKA-596). A LEGACY
+    // sum beside them makes neither mask and stays fused.
+    val p = AttributeReference("p", DecimalType(10, 2))()
+    val p2 = AttributeReference("p2", DecimalType(10, 2))()
+    val columns = withLong ++ Seq(p, p2)
+    val list = Seq(out(LessThan(p, p2)), out(Add(l, l2, EvalMode.ANSI)),
+      out(Add(l, l2, EvalMode.LEGACY)))
+    val twoLane = VarkaExpressionCompiler.declines(list, columns, VarkaEmitOptions.DEFAULTS,
+      new VarkaAdmission(java.util.Set.of(), true)).asScala.map { case (k, d) =>
+        k.intValue -> d.reason }.toMap
+    assert(twoLane === Map(0 -> VarkaKernelPlan.TWO_LANE_DECIMAL_VALUE_REASON,
+      1 -> VarkaNodeCompiler.TWO_LANE_CHECK_REASON))
+    val partial = VarkaExpressionCompiler.compilePartial(list, columns,
+      VarkaEmitOptions.DEFAULTS, new VarkaAdmission(java.util.Set.of(), true)).get
+    assert(partial.specs.get(2).isInstanceOf[FusedOutput])
+    assert(VarkaExpressionCompiler.declines(list, columns, VarkaEmitOptions.DEFAULTS,
+      VarkaAdmission.NO_HOST_REFUSAL).isEmpty)
   }
 
   test("a bigint IN beside a date comparison fuses both conjuncts at the long lane") {
@@ -3463,12 +3601,13 @@ class VarkaExpressionCompilerSuite extends SparkFunSuite with VarkaTestWatchdog 
   test("under severalKernels a projection over more columns than a kernel reads is served by " +
       "two kernels, and an entry no kernel serves keeps its own reason") {
     // MAX_INPUTS bounds a kernel's column set, a bitset in a long; past it an entry fits alone but
-    // not beside the others, which is another kernel's entry. A lane mismatch is not a size, so it
-    // stays residual whatever the option.
+    // not beside the others, which is another kernel's entry. A checked bigint product over a
+    // column is not a size, so it stays residual whatever the option.
     val columns = (0 until 70).map(c => AttributeReference(s"c$c", DateType)())
     val longCol = AttributeReference("l", LongType)()
     val output = columns :+ longCol
-    val list = columns.map(c => out(DateAdd(c, Literal(1)))) :+ out(Add(longCol, Literal(1L)))
+    val list = columns.map(c => out(DateAdd(c, Literal(1)))) :+
+      out(Multiply(longCol, Literal(3L), EvalMode.ANSI))
     val one = VarkaExpressionCompiler.compilePartial(list, output,
       VarkaMatrix.base.withSeveralKernels(false)).get
     assert(one.specs.asScala.count(_.isInstanceOf[FusedOutput]) ===

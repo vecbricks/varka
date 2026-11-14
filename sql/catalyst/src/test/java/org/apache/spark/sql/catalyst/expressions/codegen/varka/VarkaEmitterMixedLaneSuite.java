@@ -507,6 +507,32 @@ public final class VarkaEmitterMixedLaneSuite {
   }
 
   @Test
+  @DisplayName("add_months over a narrowed long day by a narrowed bigint count, each guarded, in "
+      + "a kernel of both lanes, at both widths")
+  void addMonthsOfNarrowedCount() {
+    // `timestampadd(MONTH, l, ntz)`'s date and count (VARKA-339): the count a bigint column
+    // narrowed under the month range's guard, a position MONTH_COUNT takes for that reason.
+    var count = narrow(new GuardedRange(new ColumnRef(2, LaneType.LONG),
+        VarkaChrono.MONTH_ARITH_MIN_MONTHS, VarkaChrono.MONTH_ARITH_MAX_MONTHS));
+    var shift = new AddMonths(
+        new GuardedRange(narrow(L), NTZ_MIN_DAY, VarkaChrono.NARROW_MAX_DAYS), count);
+    var spark = new VarkaKernelChecks.SparkAnswers() {
+      @Override public VarkaKernelChecks.Answer answer(int output, long[] values,
+          boolean[] isNull) {
+        return isNull[1] || isNull[2] ? new VarkaKernelChecks.Answer.Null()
+            : new VarkaKernelChecks.Answer.Value(
+                DateTimeUtils.dateAddMonths((int) values[1], (int) values[2]));
+      }
+
+      @Override public String sql(int output) {
+        return "add_months(CAST(l AS INT), CAST(m AS INT))";
+      }
+    };
+    check("add_months over a narrowed count", List.of(shift), 3, new int[0], new long[0],
+        VarkaEmitterMixedLaneSuite::monthData, false, spark);
+  }
+
+  @Test
   @DisplayName("a kernel of both lanes is driven at the long lane, and a single-lane kernel at "
       + "its own")
   void drivingLane() {

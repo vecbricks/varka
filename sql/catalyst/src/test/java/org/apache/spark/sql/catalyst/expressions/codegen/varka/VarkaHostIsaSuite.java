@@ -80,6 +80,27 @@ public final class VarkaHostIsaSuite {
   }
 
   @Test
+  @DisplayName("the 64-bit conversions are instructions on a read aarch64 list and a read x86 one "
+      + "naming avx512dq, and nowhere else")
+  void conversionsAreInstructions() {
+    // VARKA-584: the aarch64 matcher has a rule for L2D and L2F with no feature predicate, but an
+    // unread list may be a JVM without C2's vector intrinsics, so the read must have succeeded.
+    assertTrue(x86("avx2, avx512f, avx512dq").conversionsAreInstructions());
+    assertFalse(x86(AVX2_ONLY).conversionsAreInstructions());
+    assertFalse(x86("avx2, avx512dqx").conversionsAreInstructions());
+    assertFalse(x86("").conversionsAreInstructions());
+    assertFalse(new VarkaHostIsa.Reading("amd64", "avx512dq", "no export", 256)
+        .conversionsAreInstructions());
+    assertTrue(new VarkaHostIsa.Reading("aarch64", "fp, asimd", null, 128)
+        .conversionsAreInstructions());
+    assertTrue(new VarkaHostIsa.Reading("aarch64", "", null, 128).conversionsAreInstructions());
+    assertFalse(new VarkaHostIsa.Reading("aarch64", "", "no such method", 128)
+        .conversionsAreInstructions());
+    assertFalse(new VarkaHostIsa.Reading("riscv64", "rv64, v", null, 128)
+        .conversionsAreInstructions());
+  }
+
+  @Test
   @DisplayName("a reading carries the species width it was given, and the read the JVM's own")
   void longBits() {
     // The feature fact does not depend on the width: the session's resolution reads both.

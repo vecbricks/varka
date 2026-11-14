@@ -3302,7 +3302,8 @@ object SQLConf {
       " driver's JVM: level 2 where HotSpot's feature list lacks" +
       " AVX512DQ and the preferred LongVector species, which -XX:MaxVectorSize caps, is at" +
       " least 256 bits wide (at 128 bits the magic-number form measured slower than the" +
-      " conversions' fallback), 3 on an x86 host whose list holds AVX512DQ, and the emitter's" +
+      " conversions' fallback), 3 on an x86 host whose list holds AVX512DQ and on an aarch64" +
+      " host, whose matcher lowers both conversions to instructions, and the emitter's" +
       " default elsewhere and where the list cannot be read (it needs" +
       " --add-exports=java.base/jdk.internal.vm.vector=ALL-UNNAMED," +
       " which Spark's module options carry). The driver's host decides for the whole plan," +
@@ -3341,6 +3342,25 @@ object SQLConf {
       .booleanConf
       .createOptional
 
+  val VARKA_MATH_ULP_CONTRACT =
+    buildConf("spark.sql.codegen.varka.math.ulpContract.enabled")
+      .internal()
+      .doc("When true, Varka may compute a math function (sin, exp, log, pow and the rest of" +
+        " the family) with the JDK's vector math library where the function's documented bound" +
+        " is contracted for this host's library: faster, and within that many representable" +
+        " doubles of Spark's answer rather than equal to it. A value computed so and then" +
+        " grouped, joined on, sorted or written as a partition key above the kernel may fall on" +
+        " the other side of a threshold than Spark's answer. Unset or false, every math" +
+        " function Varka fuses returns Spark's answer bit for bit. No math function fuses yet," +
+        " so the setting changes no plan today. Set to true, it is part of the shape hash, so" +
+        " such a session emits and caches its own classes; false keeps the default's.")
+      .version("5.0.0")
+      // Read by the Varka rule after analysis, choosing how a kernel computes a value; nothing a
+      // view body resolves to.
+      .withBindingPolicy(ConfigBindingPolicy.NOT_APPLICABLE)
+      .booleanConf
+      .createOptional
+
   val VARKA_DECLINE_TWO_LANE_CONDITIONS =
     buildConf("spark.sql.codegen.varka.declineTwoLaneConditions")
       .internal()
@@ -3353,8 +3373,12 @@ object SQLConf {
         " refused, the IS NOT NULL Spark infers for a nullable one among them, so a filter over" +
         " such columns alone stays a plain row filter, with no Varka node and so no reason in" +
         " EXPLAIN; VarkaFusionReport.predicateLines gives the reason under the session's" +
-        " settings. Where another conjunct fuses, the Varka node's EXPLAIN gives it. A test" +
-        " that checks two-lane kernels' answers sets it false.")
+        " settings. Where another conjunct fuses, the Varka node's EXPLAIN gives it. A" +
+        " projection's BOOLEAN entry over a DECIMAL column, such as x < y AS c, is refused" +
+        " there too, its decimal load being slower than the row engine at two lanes. On the" +
+        " same hosts a projection's checked BIGINT +, -, *, negation or abs, one that raises or" +
+        " nulls on overflow, declines too, its overflow test being a 64-bit vector mask; the" +
+        " LEGACY forms stay fused. A test that checks two-lane kernels' answers sets it false.")
       .version("5.0.0")
       // A planning choice of which conjuncts fuse: it never changes an answer or what a view
       // body resolves to.
@@ -10003,6 +10027,8 @@ class SQLConf extends Serializable with Logging with SqlApiConf {
   def varkaEmitUseAVX: Int = getConf(VARKA_EMIT_USE_AVX)
 
   def varkaEmitExactRefusalStatus: Option[Boolean] = getConf(VARKA_EMIT_EXACT_REFUSAL_STATUS)
+
+  def varkaMathUlpContract: Option[Boolean] = getConf(VARKA_MATH_ULP_CONTRACT)
 
   def varkaDeclineTwoLaneConditions: Option[Boolean] = getConf(VARKA_DECLINE_TWO_LANE_CONDITIONS)
 

@@ -212,6 +212,17 @@ asserts bit-identical answers, the fallback's per-batch mix is the default behav
 `docs/sql-varka.md` and the user support table state the default and the switch where users look
 (`m8/PLAN.md` 2.7.1).
 
+*9 November 2026, row 345's correction as its first part built it (`m8/VARKA-345.md` 10): the
+mode is `spark.sql.codegen.varka.math.ulpContract.enabled`, unset or false by default, laid over
+the emit options as `mathUlpContract`, the one option whose reason is `CONTRACT`, a sanctioned
+departure a session opts into. The bound "measured and committed by `MathLaneProbe`" above is
+replaced: a bound is a count of representable doubles, `VarkaMathBound.steps`, which refuses a NaN
+against a number, an infinity against anything but itself and any pair of opposite signs, where
+the probe's `Math.abs` of the raw-bit difference overflows; the measured lines are row 367's, and
+the contracted value, keyed by the full JDK build, is at least every measured line it rests on
+(`m8/VARKA-345.md` 2.5). "The default is on" and the differential suites' configuration-off arm
+are the record of the 14 October decision: the second arm is the configuration-on one.*
+
 ### 3.5 NaN payloads and signs: what the oracles compare
 
 *Added 14 October 2026 from the IEEE 754 reading for milestone 8 (`m8/PLAN.md` 2.7). Not a
@@ -219,11 +230,14 @@ departure from Spark's answers: a rule for what "the same answer" means where th
 it open.*
 
 The standard leaves a NaN's sign and payload unspecified, and Spark's row engine does not
-normalise them: a row carries raw bits, `abs` is a bit operation, negation flips the sign, and
-Spark's own `rint(-NaN)` sign depends on the JIT tier that ran it (derived from the source;
-`m8/PLAN.md` row 344 runs the probe). So Varka's oracles compare NaN lanes **bit for bit in a
-pass-through shape** (a column or a literal delivered unchanged) and **by NaN-ness in a computed
-one** (the result of an operation whose NaN the standard leaves to the implementation), the
+normalise them: a row carries raw bits, `abs` is a bit operation and negation flips the sign.
+Spark's own `rint` is the one function that does normalise: it answers the canonical NaN,
+`0x7ff8000000000000`, for every NaN (SPARK-61175, apache/spark#60220, 9 November 2026), where
+`Math.rint` before it answered a NaN whose sign depended on the JIT tier that ran it (`m8/PLAN.md`
+row 344 ran the probe, row 593 follows the fix). So Varka's oracles compare NaN lanes **bit for
+bit in a pass-through shape** (a column or a literal delivered unchanged) and **by NaN-ness in a
+computed one** (the result of an operation whose NaN the standard leaves to the implementation).
+`rint`'s NaN is computed but fixed, the canonical one, so it is compared bit for bit. The
 fuzzers draw payload, negative and signalling NaNs, and the emitter never commutes a floating `+`
 or `*`, which are not commutative at the bit level when both operands are NaN. The rule is stated
 here so that a future reader does not mistake a payload difference in a computed NaN for a wrong

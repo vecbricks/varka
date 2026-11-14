@@ -473,6 +473,96 @@ Where the code departs from 2.1 to 2.5, and what is still owed:
   for its pair to score). It changes speed only, so it lands as an option arm with its pair
   benchmark, never as a replacement on a reading of the op counts.
 
+### 5.2 Step 4 as built, its first piece (8 November 2026)
+
+Step 4 was to follow 343's conversions, and only half of them have landed. `I2D`, `F2D` and the
+narrow loads are on master (343a3, 343a5), `L2D` only where the emit level assures AVX512DQ
+(343a4), and nothing converts a floating lane to an integral one: `VarkaKernelPlan.
+conversionRefusal` refuses every such `ConvertLane` and names part 343b2, which also owns the
+floating `GuardedRange` bounds (`VARKA-343.md` 4). 2.4's `t = toIntegral(g)` is that conversion
+and `g` that guard, so the four interval products and quotients cannot be built in this row
+without building 343's code here, which 8 rules out. By 8's rule of landing what is ready, the
+step lands in two pieces, cut between the forms that need no conversion to an integral lane and
+the ones that do:
+
+- **The cast forms fuse as they are.** `dev/varka_emit.sh` and the coverage suite on master:
+  `y1 / i`, `s1 / i`, `x / i`, `f / f2`, `try_divide(i, y1)`, `sqrt(i)`, `signum(i)`,
+  `degrees(i)`, `sqrt(f)`, `signum(f)` and `radians(s1)` each compile to one fused output, the
+  division and the functions over 343's exact conversions with no code of this step. The coverage
+  table gains the family "Floating arithmetic over other types" with the eleven, the divisions
+  under a domain that keeps the divisor non-zero, as `x / x2`'s. A `BIGINT` operand (`l / l2`,
+  `sqrt(l)`) is not a row: the coverage suite compiles at the defaults' unknown emit level, where
+  `L2D` declines. Each row is verified differentially (`differential` in `coverage.json`): the
+  conversions are exhausted by 343a5's sweeps and the double forms by this row's step 3, but no
+  test sweeps the two composed.
+- **`signum` over an interval** is built here, since it needs no conversion to an integral lane.
+  2.4's `IfElse` over the interval lane's compares answers `0.0` for a null count, as 2.3's form
+  did (5.1): a null's conditions are unknown and take the last arm, a valid literal. The built
+  form is `(double) ((m > 0) - (m < 0))`: each compare a `CondValue` on the count's own lane, null
+  where the compare is unknown, their difference there, narrowed from the long lane to the int
+  one for a day-time interval, then `I2D`. So a null count answers null, a zero `+0.0`, and no
+  `L2D` is needed: the day-time form fuses on AVX2 hosts too, where 2.4 expected the crossing.
+  Spark's generated code calls `Math.signum(float)` on the int or long count (the overload Java
+  picks) and its interpreted path `Math.signum(double)`; both give `-1`, `+0.0` or `1`, and
+  `VarkaFloatingLaneSuite` holds the kernel and both paths to the same bits at each type's ends,
+  zero, one, minus one and nulls. Two coverage rows, `signum(ym)` and `signum(dt)`, and the
+  census's `signum` fused over all three of its types, so done.
+- **The rounding's proof is built ahead of its lowering** (3.7), as 343b1 built its proofs ahead
+  of `VarkaConversionLowering`: `sql/varka/proofs/fp_half_up.smt2`, rendered by
+  `VarkaProofFiles.fpHalfUp` from the guard's bounds, which `VarkaIntervalCompiler`, the class
+  2.4's lowering is to land in (5's table), holds as public constants (`HALF_UP_INT_LO` and its
+  three kin) ahead of the lowering. It states 2.4 against Guava 33.6.0's code read from its
+  sources jar: for each of the int and the long, the inclusive guard holds exactly the doubles
+  `roundToInt` or `roundToLong` answers (so a NaN, an infinity and every double past the type
+  decline), inside it `t + bump` is Guava's answer, and for the long `f = 0` at every
+  `|p| >= 2^52`; each guard one double wider at either end and the tie taken by `f > 0.5` are
+  refuted. 2.4 holds as written: Guava tests the rounded `z`, and the plan's exclusive
+  `(-2^31 - 0.5, 2^31 - 0.5)` and `[-2^63, 2^63)` on `p` are the same test. The pinned cells are
+  the ties of 3.7 and row 103's products (PLAN.md's 30 October note,
+  `results/VARKA-103-admission.txt` item 7), each against the answer Spark gave there. Stated
+  whole, the in-guard claim ran past the 10 s per-check limit under both solvers, so it is checked
+  per binade of `|p|`: 129 checks, 80 s under Z3 and 118 s under cvc5 on the laptop
+  (`dev/varka_prove.sh --solver both`, one run), each check within the limit. Prediction 4.5
+  ("each SMT claim under 60 s") holds per check; the file as a whole is past it.
+- **The decline names its wait.** `floatingDecline` gives the four interval classes their own
+  reason, the conversions to an integral lane (row 342 after part 343b2), in place of "floating
+  arithmetic (row 342)".
+- **The width audit under AVX2.** The 13 new shapes are in `width_audit.json`'s census, taken on
+  the laptop at `UseAVX` 3. Rerun at the preferred width under `JDK_JAVA_OPTIONS=-XX:UseAVX=2`
+  (9 November 2026), the audit's invariant held: every shape is emitted, and C2 refused no Vector
+  API call in any of them beyond the 64-bit converts without AVX512DQ, which the audit admits by
+  design.
+
+**Where the proof runs, decided by the owner on 9 November 2026: the nightly only.** It runs in
+the nightly CI workflow `varka-fuzz.yml` under both solvers; PR Builds render and drift-check it
+only, `dev/varka_prove.sh`'s `NIGHTLY_ONLY` list keeping it out of `--lint`, so that the PR Build
+stays short. `dev/varka_prove.sh --lint`, the linters' job's step, which its workflow comment
+keeps "inside its minute", took 142 s on the laptop with the file and about 49 s without it:
+`fp_half_up.smt2` took Z3 62 to 115 s over four runs, each of its 129 checks within the 10 s
+limit, its slowest 3.7 s on an idle laptop core and one past the limit on a loaded one. Fixing
+the sign or grouping binades made no check cheaper.
+
+Correction, from the review of 9 November 2026: the 10 s limit holds Z3's checks, not cvc5's.
+cvc5 took 137 to 208 s over the file with one or two other solver runs beside it; at a 4 s
+per-check limit six of the `dt` HALF_UP checks answered unknown, at 6 s seven and at 8 s
+one, so its slowest check is past 8 s on a shared laptop core, too near the default limit for a
+runner. `dev/varka_prove.sh` therefore runs a `NIGHTLY_ONLY` file at 30 s a check and 600 s a
+run where the environment sets no limit, which the nightly job's 30 minutes fit twice over.
+
+Correction, from the review of 11 November 2026, to 5.2's "each check within the limit": it
+held in that run, on an idle laptop, and not under load. Over every run recorded here and in the
+pull request, the file took Z3 51 to 128 s and cvc5 88 to 208 s on the laptop, the spread being
+the laptop's load. Z3's slowest check took 3.7 s on an idle core and one ran past 10 s on a
+loaded one; cvc5's slowest ran past 8 s on a shared core. On a loaded laptop neither solver
+fits every check within 10 s, which is why the file runs in the nightly at 30 s a check.
+
+**Still owed by step 4**, after 343b2: `ym * x`, `ym / x`, `dt * x` and `dt / x` by 2.4's
+construction over `D2I` and `D2L` and the floating guard, with 3.7's pinned cells through the
+kernel, the division's `FAIL` unconditional; the `2^51` decline on AVX2 if 343b1's `D2L` is the
+bounded magic there (`VARKA-343.md` 8 makes the whole-range arms the default, so it may not
+arise); the lowering built over `VarkaIntervalCompiler`'s guard constants, which the proof
+reads; the coverage rows of the four; and the baselines' fuse lists for `ym * x` and `dt / x`.
+
 ## 6. Out of this row
 
 `%`, `pmod` and `try_mod` (346); `try_divide` and `try_multiply` over an interval, which are

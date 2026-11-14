@@ -20,6 +20,7 @@ package org.apache.spark.sql.catalyst.expressions.codegen.varka;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
+import java.util.Arrays;
 import java.util.List;
 
 import org.apache.spark.util.Utils;
@@ -222,10 +223,12 @@ public final class VarkaKernelWarmupProbe {
     try (var arena = Arena.ofConfined()) {
       var batch = dates(arena, rows, nulls);
       long validityAddress = batch.nullCount() == 0 ? 0L : batch.validity().address();
+      var outWidths = new int[numOutputs];
+      Arrays.fill(outWidths, Long.BYTES);
       boolean queued = VarkaKernelWarmup.start(entry.warmth(), entry.shapeHash(),
           entry.newKernel(), false, new long[] {batch.data().address()},
           new long[] {validityAddress}, new int[] {batch.nullCount()}, new int[] {4}, true, rows,
-          numOutputs, scalarArgs, new long[0]);
+          outWidths, scalarArgs, new long[0]);
       // The warm-up copies the batch before start returns, so the batch can go at once.
       return new Warmed(entry, queued);
     }

@@ -49,6 +49,11 @@ naming files on the command line turns that scoping off.
   nan-compare      in Varka code, two floating answers held equal by their raw bits or two NaNs
                    accepted by `isNaN(a) && isNaN(b)` outside VarkaSameAnswer and its contract
                    suites: a comparator states its NaN rule there, at a level (VARKA-556)
+  arch-list        in Varka code, a line naming two or more of the os.arch literals "amd64",
+                   "x86_64" and "aarch64" outside VarkaHostIsa and its suite: a second list of
+                   architectures drifts from the compiler's host fact; for an x86 check call
+                   VarkaHostIsa.isX86(arch), and mark a line that pins the names on purpose
+                   `arch-list: ok` (VARKA-548)
 
   dev/varka_lint.py [--cached | --working-tree | --range A..B | FILE...]
   dev/varka_lint.py --selftest
@@ -643,6 +648,40 @@ def rule_nan_compare(ch):
                 )
 
 
+ARCH_LITERAL = re.compile(r'"(amd64|x86_64|aarch64)"')
+
+
+def rule_arch_list(ch):
+    for path in ch.files:
+        if not re.search(r"\.(java|scala)$", path):
+            continue
+        # The canary probes read the host's architecture beside the Varka code nan-compare lints.
+        if not (is_varka(path) or path.startswith("dev/varka_canary/")):
+            continue
+        # VarkaHostIsa holds the list, and its suite pins the names HotSpot's os.arch uses
+        # (m8/VARKA-548.md 8, question 1).
+        if os.path.basename(path).startswith("VarkaHostIsa"):
+            continue
+        # Whether the line is inside a text block or a triple-quoted string, whose content is
+        # text a message reads rather than a list the code compares against.
+        in_text = False
+        for n, line in enumerate(read(path).splitlines(), 1):
+            starts_in_text, in_text = in_text, in_text ^ (line.count('"""') % 2 == 1)
+            # A comment line names no code, and `without_comment` leaves a block comment's
+            # middle lines (`* ...`) as they are; a text block's lines name no list either.
+            if starts_in_text or '"""' in line or re.match(r"\s*(//|\*|/\*)", line):
+                continue
+            # A line that pins the os.arch names on purpose says so, as nan-compare's do.
+            if "arch-list: ok" in line:
+                continue
+            if len(set(ARCH_LITERAL.findall(without_comment(line)))) >= 2 and ch.wrote(path, n):
+                yield (
+                    f"{path}:{n}: arch-list: a second list of os.arch names drifts from the "
+                    "compiler's host fact; for an x86 check call VarkaHostIsa.isX86(arch), and "
+                    "mark a line that pins the names `arch-list: ok` (m8/VARKA-548.md)"
+                )
+
+
 RULES = {
     "license-header": rule_license_header,
     "import-root": rule_import_root,
@@ -655,6 +694,7 @@ RULES = {
     "ci-gates": rule_ci_gates,
     "guava": rule_guava,
     "nan-compare": rule_nan_compare,
+    "arch-list": rule_arch_list,
 }
 
 
@@ -922,6 +962,59 @@ def selftest():
             (y, "ok = isNaN(a) && isNaN(b)\n    && oracle.openNaN(0, row);\n", False),
         ):
             case(f"nan-compare {flagged}: {text!r}", {path: text}, "nan-compare", flagged)
+        for path, text, flagged in (
+            (
+                "m/src/test/java/VarkaZSuite.java",
+                'for (String a : List.of("amd64", "x86_64")) {\n',
+                True,
+            ),
+            (
+                "m/src/test/java/VarkaZSuite.java",
+                'var r = new Reading("amd64", "", null, 256);\n',
+                False,
+            ),
+            (
+                "m/src/test/java/VarkaZSuite.java",
+                'List.of("amd64", "x86_64") // arch-list: ok\n',
+                False,
+            ),
+            (
+                "m/src/test/java/VarkaHostIsaSuite.java",
+                'ok = isX86("amd64") && isX86("x86_64");\n',
+                False,
+            ),
+            ("m/src/main/scala/Native.scala", 'case "amd64" | "x86_64" => "x86_64"\n', False),
+            (
+                "m/src/main/scala/VarkaNative.scala",
+                'val a = arch == "amd64" || arch == "x86_64"\n',
+                True,
+            ),
+            (
+                "m/src/test/java/VarkaZSuite.java",
+                'if (a.equals("aarch64") || a.equals("x86_64")) {\n',
+                True,
+            ),
+            # One name twice is one architecture: the rule counts the distinct literals.
+            ("m/src/test/java/VarkaZSuite.java", 'case "amd64" => 1\ncase "amd64" => 2\n', False),
+            # A comment line names no list, wherever it sits in the comment.
+            (
+                "m/src/test/java/VarkaZSuite.java",
+                ' * os.arch is "amd64" on Linux and "x86_64" on macOS\n',
+                False,
+            ),
+            # Neither does a text block, whose content is text a message reads.
+            (
+                "m/src/test/java/VarkaZSuite.java",
+                'String s = """\n  "amd64" or "x86_64"\n  """;\n',
+                False,
+            ),
+            (
+                "dev/varka_canary/MathHostProbe.java",
+                'if (a.equals("amd64") || a.equals("x86_64")) {\n',
+                True,
+            ),
+        ):
+            case(f"arch-list {flagged}: {path}: {text!r}", {path: lic + text}, "arch-list", flagged)
     if fails == 0:
         print(f"varka_lint selftest: ok ({len(cases)} cases)")
     return fails

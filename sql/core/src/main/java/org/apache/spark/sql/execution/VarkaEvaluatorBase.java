@@ -63,6 +63,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaShapeCache;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaShapeEntry;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaShapeKey;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaShapeLookup;
+import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaTypes;
 import org.apache.spark.sql.catalyst.expressions.codegen.varka.VarkaVectorIR;
 import org.apache.spark.sql.execution.metric.SQLMetric;
 import org.apache.spark.sql.execution.varka.VarkaBatchDeclined;
@@ -294,17 +295,11 @@ public abstract class VarkaEvaluatorBase {
   }
 
   /**
-   * The families the session switched off (VARKA-318), which this evaluator's compiler call
-   * passes beside {@link #emitOptions()} so that it declines what the plan's compile declined.
-   */
-  protected Set<VarkaFamily> familiesOff() {
-    return sessionEmit.familiesOff();
-  }
-
-  /**
-   * The session's settings for which conjuncts a predicate admits - the families off and the
-   * two-lane refusal (VARKA-503) - which a filter evaluator's compiler call passes so that it
-   * declines what the plan's compile declined.
+   * The session's settings for which entries and conjuncts the compiler admits - the families
+   * off (VARKA-318) and the two-lane refusal of conditions, boolean outputs over decimals and
+   * checked {@code BIGINT} operations (VARKA-503, VARKA-596, VARKA-104) - which this
+   * evaluator's compiler call passes beside {@link #emitOptions()} so
+   * that it declines what the plan's compile declined.
    */
   protected VarkaAdmission admission() {
     return sessionEmit.admission();
@@ -612,7 +607,7 @@ public abstract class VarkaEvaluatorBase {
         columns[o] = new VarkaOwnedArrowColumnVector(vector);
         owned.add(columns[o]);
         kernel.dstData[o] = vector.getDataBuffer().memoryAddress();
-        kernel.dstWidth[o] = VarkaKernelRunner.outputWidth(vector);
+        kernel.dstWidth[o] = VarkaTypes.outputWidth(outputTypes[o]);
         kernel.dstFloating[o] = VarkaKernelRunner.floatingOutput(vector);
         kernel.dstValidity[o] = vector.getValidityBuffer().memoryAddress();
         if (VarkaMemorySanitizer.ENABLED) {
@@ -896,9 +891,9 @@ public abstract class VarkaEvaluatorBase {
       var runner = fusedRunner();
       int[] outputBytes = new int[runner.dstData.length];
       for (int o = 0; o < outputBytes.length; o++) {
-        // A decimal output's slot is sixteen bytes, whatever its precision (VARKA-157); a filter
-        // has no typed outputs, its one destination being the selection.
-        outputBytes[o] = o < outputTypes.length && outputTypes[o] instanceof DecimalType ? 16 : 8;
+        // Each output's width, the type registry's, which the warm-up sizes its destination by; a
+        // boolean output's is BIT_OUTPUT, which the warm-up sizes at a lane's eight bytes.
+        outputBytes[o] = VarkaTypes.outputWidth(outputTypes[o]);
       }
       warmupGate = new VarkaWarmupGate(runner, anyNullableInput(), this::inputWidths,
           this::kernelIdentity, outputBytes);

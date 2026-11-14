@@ -203,11 +203,12 @@ class VarkaDifferentialSuite extends QueryTest with VarkaMaybeThrows with VarkaT
 
   test("a residual conjunct that can raise sees every row Spark evaluates it on, so Varka " +
       "raises where Spark raises and fuses only the conjuncts Spark evaluates before it") {
-    // VARKA-380, the mirror of the test above. BIGINT arithmetic does not fuse, so `(l + 1) > 0`
-    // stays in the row filter above the Varka node; under ANSI it raises on the row whose `l` is
-    // the largest BIGINT, and a fused date conjunct that rejects that row must not run first.
-    // Under LEGACY the sum wraps and raises nothing, so the date conjuncts fuse as before; a
-    // year-month sum overflows in both modes. One partition, so one error is raised first.
+    // VARKA-380, the mirror of the test above. Under ANSI a checked BIGINT product over a column
+    // does not fuse (VARKA-104), so `(l * 3) > 0` stays in the row filter above the Varka node;
+    // it raises on the row whose `l` is the largest BIGINT, and a fused date conjunct that
+    // rejects that row must not run first. Under LEGACY the product wraps, raises nothing and
+    // fuses with the date conjuncts; a year-month sum overflows in both modes. One partition, so
+    // one error is raised first.
     Seq(spark, varkaSpark).foreach { session =>
       session.sql(
         """SELECT * FROM VALUES
@@ -217,7 +218,7 @@ class VarkaDifferentialSuite extends QueryTest with VarkaMaybeThrows with VarkaT
           |AS t(i, l, d, ym)""".stripMargin)
         .coalesce(1).createOrReplaceTempView("varka_raising_residual")
       session.catalog.cacheTable("varka_raising_residual")
-      // The codegen order's case: `d IS NOT NULL` written first runs after `(l + 1) > 0`, which
+      // The codegen order's case: `d IS NOT NULL` written first runs after `(l * 3) > 0`, which
       // does not read `d`, so Spark raises on the row whose `d` is null.
       session.sql(
         """SELECT * FROM VALUES
@@ -241,18 +242,18 @@ class VarkaDifferentialSuite extends QueryTest with VarkaMaybeThrows with VarkaT
     try {
       withAnsi(true) {
         // Raising first: nothing Spark evaluates after it may fuse.
-        val first = s"SELECT i $t (l + 1) > 0 AND d < DATE'2021-06-01'"
+        val first = s"SELECT i $t (l * 3) > 0 AND d < DATE'2021-06-01'"
         assertNotFused(plan(first))
         checkSparkRaisesTheSame[SparkArithmeticException](first)
         // Between two fused conjuncts: the first stays fused, the overflow row passes it.
-        val between = s"SELECT i $t d > DATE'2021-02-01' AND (l + 1) > 0 AND d < DATE'2021-06-01'"
+        val between = s"SELECT i $t d > DATE'2021-02-01' AND (l * 3) > 0 AND d < DATE'2021-06-01'"
         assertFused(plan(between))
         checkSparkRaisesTheSame[SparkArithmeticException](between)
         // A fused conjunct written first rejects the overflow row before the sum runs, on both.
-        val rejected = s"SELECT i $t d < DATE'2021-06-01' AND (l + 1) > 0 AND i > 5 ORDER BY i"
+        val rejected = s"SELECT i $t d < DATE'2021-06-01' AND (l * 3) > 0 AND i > 5 ORDER BY i"
         assertFused(plan(rejected))
         assert(checkSparkAnswerMaybeThrows(rejected) == VarkaMaybeThrows.Answered(Seq(Row(7))))
-        val nullTest = "SELECT l FROM varka_raising_null_test WHERE d IS NOT NULL AND (l + 1) > 0"
+        val nullTest = "SELECT l FROM varka_raising_null_test WHERE d IS NOT NULL AND (l * 3) > 0"
         assertNotFused(plan(nullTest))
         checkSparkRaisesTheSame[SparkArithmeticException](nullTest)
         val fallback =
@@ -267,7 +268,7 @@ class VarkaDifferentialSuite extends QueryTest with VarkaMaybeThrows with VarkaT
         }
       }
       withAnsi(false) {
-        val first = s"SELECT i $t (l + 1) > 0 AND d < DATE'2021-06-01' ORDER BY i"
+        val first = s"SELECT i $t (l * 3) > 0 AND d < DATE'2021-06-01' ORDER BY i"
         assertFused(plan(first))
         assert(checkSparkAnswerMaybeThrows(first) == VarkaMaybeThrows.Answered(Seq(Row(5), Row(7))))
         val interval = s"SELECT i $t (ym + ym) > ym AND d < DATE'2021-06-01'"

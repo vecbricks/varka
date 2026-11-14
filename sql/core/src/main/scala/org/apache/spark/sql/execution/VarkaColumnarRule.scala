@@ -227,7 +227,7 @@ object VarkaColumnarRule extends ColumnarRule with Logging {
       projectList: Seq[NamedExpression], childOutput: Seq[Attribute]): Boolean = {
     val session = VarkaSessionEmit.of(SQLConf.get)
     VarkaExpressionCompiler.compilePartial(projectList, childOutput,
-      VarkaColumnarToRowExec.emitOptions(session), session.familiesOff).isPresent
+      VarkaColumnarToRowExec.emitOptions(session), session.admission).isPresent
   }
 
   /**

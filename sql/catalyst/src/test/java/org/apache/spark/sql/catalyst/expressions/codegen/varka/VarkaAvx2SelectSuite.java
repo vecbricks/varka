@@ -134,7 +134,7 @@ public final class VarkaAvx2SelectSuite {
   @DisplayName("the child runs under AVX2 where it is x86")
   void runsUnderAvx2() {
     String arch = System.getProperty("os.arch").toLowerCase(Locale.ROOT);
-    if (arch.equals("amd64") || arch.equals("x86_64")) {
+    if (VarkaHostIsa.isX86(arch)) {
       var hotspot = ManagementFactory.getPlatformMXBean(HotSpotDiagnosticMXBean.class);
       // The flag lowers UseAVX to at most 2; a host without AVX2 starts lower still, and is
       // checked all the same.

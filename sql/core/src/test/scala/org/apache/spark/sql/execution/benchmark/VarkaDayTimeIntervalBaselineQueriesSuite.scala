@@ -145,10 +145,8 @@ class VarkaDayTimeIntervalBaselineQueriesSuite extends QueryTest with VarkaShare
           .map(s => (s.title, s.fusion.toString))
       val blend = "CASE WHEN dt > dt2 THEN dt ELSE dt2 END, control, fuses at both widths"
       assert(fused(sections) === Seq(
-        ("filter extract(HOUR FROM dt) >= 12, no nulls", "NULL_TESTS"),
         ("filter dt > dt2, control, fuses today, no nulls", "WHOLE"),
         (s"$blend, no nulls", "WHOLE"),
-        ("filter extract(HOUR FROM dt) >= 12, one row in ten null", "NULL_TESTS"),
         ("filter dt > dt2, control, fuses today, one row in ten null", "WHOLE"),
         (s"$blend, one row in ten null", "WHOLE")))
       // Under the refusal only the blend control fuses, so the 128-bit run still has a WHOLE

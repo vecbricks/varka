@@ -194,3 +194,80 @@ For the agent: the commit subject is `[VARKA-566] Size Varka outputs by one widt
 Review and push. Open pull requests on the same files: #1478 and #1484 (`VarkaEvaluatorBase.java`,
 the families' javadoc near `emitOptions`, another function) and #1428, #1478, #1484 (`PLAN.md`):
 rebase if one merged first.
+
+## Outcome
+
+Built 13 November 2026 on `varka-566-width`, from master at `5c49b359f6f`.
+
+**What was built.** `VarkaTypes.outputWidth(DataType)` reads the registry's own `Storage` and is
+the one function from a type to an output's byte width: `Plain(bits)` gives `bits / 8`,
+`DecimalSlot` sixteen at every precision, and `Bitmap` `VarkaReproduction.KernelCall.BIT_OUTPUT`,
+and a type the registry does not hold throws, none reaching an output. `VarkaEvaluatorBase` asks
+it in both places: `runKernel` for each destination's `dstWidth` and `kernelReady` for the
+warm-up gate's widths, eight for a filter's one selection destination.
+`VarkaKernelRunner.outputWidth` is deleted, and so is `VarkaKernelWarmup.start`'s `int numOutputs`
+overload; its three callers
+(`VarkaKernelWarmupProbe`, `VarkaKernelHistoryProbe`, `VarkaSanitizedWarmupSuite`) build their
+widths explicitly, eight for each lane output. The warm-up keeps its sizes: `destinationBytes`,
+`Math.max(width, Long.BYTES)`, sizes each destination, sixteen for a decimal and eight for every
+other output. The `java.util.Arrays` import went with the overload; the sheet's grep printed `0`.
+
+**Tests and their results (B4).** `sql/testOnly *VarkaLaneArrowSuite`: 4 succeeded, 0 failed, 0
+canceled, 320 s (the cold compile). The sanitizer run of `*VarkaWarmupEndToEndSuite
+*VarkaKernelEvaluatorSuite *VarkaMemorySanitizerEndToEndSuite *VarkaTimeHarnessSuite`: 47 passed,
+0 failed, 0 canceled, 134 s, the new decimal warm-up test among them at 3.8 s. The sanitizer run
+of `*VarkaSanitizedWarmupSuite *VarkaKernelWarmupSuite`: 16 succeeded, 0 failed, 0 canceled, 40 s.
+`sql/testOnly *VarkaSameAnswerCoreContractSuite`: 1 passed, 0 failed, 22 s. No generated file
+moved: `git diff --exit-code` over `coverage.json`, `emitted_bytes.json` and `width_audit.json`
+exits 0. `dev/varka_push_check.py` passed: 170 counted lines of 170 changed against
+`5c49b359f6f`, under the 1000 cap, and its five R3 suites ran 35 tests with 0 failed and 3
+canceled by their own opt-in `assume`.
+
+**Predictions scored.** B2's allocator oracle held: the new `VarkaLaneArrowSuite` assertion takes
+Arrow's own `getTypeWidth` of the vector the evaluator allocates and agrees with the registry for
+every form, the decimal forms of precision 18 or less included. B2's warm-up oracle held: the
+query's output is `TimeToSeconds`'s `DECIMAL(14, 6)` (the precision the "above 18 digits 16, else
+8" rule would have sized at eight), the warm-up compiled it, both runs matched the row engine,
+and the sanitizer's checked count grew. B6's about 120 counted lines: 170 counted, 1.4x the
+estimate and under the sheet's 1.5x stop rule; the overrun is the Outcome's own record and the
+two tests.
+
+**Planted faults (B3).** With `destinationBytes` returning `Long.BYTES` always, B4's sanitizer
+command failed the new warm-up test exactly as predicted: `VarkaMemoryViolation: a mapping of 768
+bytes ... leaves every registered buffer; the nearest is warm-up memory 2, ... for 504 bytes`
+(35 succeeded, 1 failed), and the fault was reverted. With `outputWidth`'s `DecimalSlot` arm
+returning 8, `VarkaLaneArrowSuite` failed on a decimal form (`8 did not equal 16 DECIMAL(10,2)`,
+3 succeeded, 1 failed), and B4's sanitizer command failed the new warm-up test and one more from
+the same fault's kernel path (`a mapping of 160000 bytes ...; the nearest is output data 0, ... for
+80000 bytes`, 34 succeeded, 2 failed); the fault was reverted and the tree is clean at the commit.
+
+**Differently from the sheet.** Nothing in the build. B4's "then the planted faults, then
+`BUILD_SHEETS.md` section 6" and section 7's "commit the work before the first planted fault"
+order the commit against the checks differently; the commit was made after section 6's steps 1
+to 5, as section 6 requires, and before the first fault, as section 7 requires, and the faults
+were reverted with `git checkout --` and checked by rerunning the B4 command that runs the test
+each one names.
+
+**The review.** One `/code-review high` pass found eight points. Fixed: `kernelReady`'s
+`o < outputTypes.length` guard and its "a filter has no typed outputs" comment, which described a
+case no plan has - a predicate's output types are one `BooleanType` per condition root, as
+`compilePredicate` builds them, so the guard's else arm was dead and a boolean output's width is
+`BIT_OUTPUT`, which `destinationBytes` raises to a lane's eight bytes; the decimal arm now reads
+`d.bits() / Byte.SIZE` instead of the literal 16, so a slot change is one edit in the registry;
+`VarkaKernelRunner.dstWidth`'s javadoc names `VarkaTypes.outputWidth` as its source rather than
+the vector; the two probes declare their widths with `var`; and the warm-up's sizing rule is
+stated once, on `destinationBytes`. Left, with the reason:
+
+- The probes still fill every output's width with eight bytes for a shape of any roots, where a
+  decimal root would be mis-sized. No probe subject draws a decimal (`drawDecimal` is 0 in the
+  history probe, as B0 checks), and deriving the widths needs the output types, which the shape
+  key does not carry; a probe that draws one must take them from the plan.
+- `CompiledVarkaProjection`'s output-width guard still compares a root's lane store width with
+  `DataType.defaultSize()`, whose decimal rule is the "16 above 18 digits, else 8" this sheet
+  rejects for destinations. For a decimal root both sides are 8 while the destination slot is 16;
+  the guard checks the lane's store, not the destination, and moving it onto `outputWidth` is a
+  change to that check, not to this row.
+- The new warm-up test asserts `VarkaMemorySanitizer.checked()` grew, a JVM-global counter any
+  window moves, and repeats the boolean test's scaffolding; B2 asks for both. The oracles that
+  bite are `checkWarmup`'s own assertions and the violation `awaitIdle` throws, which is what the
+  planted fault produced.

@@ -266,11 +266,17 @@ public final class VarkaAnsiForm {
     for (String sql : List.of("make_date(2021, i, 1)", "add_months(d, i)", "d + ym", "d - ym",
         "ym - ymm", "ym + ym", "i + 1", "year(d) + i", "if(i < 0, i, i + 1)", "y1 + y2",
         "y1 - y2", "y1 * y2", "-y1", "abs(y1)", "s1 + s2", "s1 - s2", "s1 * s2", "-s1",
-        "abs(s1)", "x / x2", "ntz + dt", "CAST(s1 AS TINYINT)", "CAST(i AS TINYINT)",
+        "abs(s1)", "x / x2", "f / f2", "ntz + dt", "CAST(s1 AS TINYINT)", "CAST(i AS TINYINT)",
         "CAST(i AS SMALLINT)", "CAST(l AS TINYINT)", "CAST(l AS SMALLINT)",
         "CAST(i + 1 AS TINYINT)", "CAST(CAST(l AS INT) AS FLOAT)", "CAST(i AS INTERVAL YEAR)",
-        "CAST(dt AS BIGINT)", "round(i, -1)", "bround(i, -1)", "round(y1, -1)",
-        "bround(y1, -1)", "round(s1, -1)", "bround(s1, -2)")) {
+        "CAST(dt AS BIGINT)", "timestampadd(MICROSECOND, l, ntz)", "timestampadd(HOUR, l, ntz)",
+        "timestampadd(DAY, i, ntz)", "timestampadd(DAY, l, ntz)", "timestampadd(WEEK, i, ntz)",
+        "timestampadd(WEEK, l, ntz)", "ntz + ym", "ntz - ym", "timestampadd(MONTH, i, ntz)",
+        "timestampadd(MONTH, l, ntz)", "timestampadd(QUARTER, i, ntz)",
+        "timestampadd(QUARTER, l, ntz)", "timestampadd(YEAR, i, ntz)",
+        "timestampadd(YEAR, l, ntz)", "add_months(ntz, i)", "round(i, -1)", "bround(i, -1)",
+        "round(y1, -1)", "bround(y1, -1)", "round(s1, -1)", "bround(s1, -2)", "l + 1",
+        "l - l2")) {
       out.put(sql + "\t" + FALSE_AND, unqualified);
     }
     // A bigint narrowed to a narrow type as a COALESCE argument beside a narrow column: a narrow
@@ -305,6 +311,7 @@ public final class VarkaAnsiForm {
       Map.entry("BINARY_ARITHMETIC_OVERFLOW", "y1 + y2"),
       Map.entry("CAST_OVERFLOW", "d + CAST(i AS INTERVAL DAY)"),
       Map.entry("DATETIME_FIELD_OUT_OF_BOUNDS.WITHOUT_SUGGESTION", "make_date(2021, i, 1)"),
+      Map.entry("DATETIME_OVERFLOW", "timestampadd(MICROSECOND, l, ntz)"),
       Map.entry("DIVIDE_BY_ZERO", "x / x2"),
       Map.entry("INTERVAL_ARITHMETIC_OVERFLOW.WITH_SUGGESTION", "ym - ymm"),
       Map.entry("java.lang.ArithmeticException", "ntz + dt"));
