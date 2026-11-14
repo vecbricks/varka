@@ -344,6 +344,17 @@ answers. A non-cheap shared extract (`arr[b + 6]`) raises in both modes, which i
 the ticket names that overlap. Item 5 now has a measured reproduction upstream; step 1 still
 reads it through Varka's fallback.*
 
+*11 November 2026, after step 1 (`results/VARKA-541-step1.txt`): step 1 reached item 6 (a) over
+non-nullable columns, but only once `make_date` is also common on its own (its 6c and 6d
+queries; 6d is 388's reproducer with the `IF` conjunct added), and there Varka raises in the
+codegen-on cells, served and declined, where Spark answers: the kernel declines the batch
+holding `m` = 13 itself, so no hook is needed. This corrects section 1's non-goal "no Varka fix
+of SPARK-61197" for that shape: the owner chose (c), a planning check in
+`VarkaColumnarRule.rewriteFilter` that leaves to Spark a filter whose fallback would evaluate a
+common `AND`'s subexpressions before its first operand, built with 2.1 and 2.4; an upstream fix
+of SPARK-61197 is to follow, after which the check is removed. The build covers 2.1, 2.4 and
+this check; 2.2, 2.3 and test 4's reproducer files are left for a later part of the row.*
+
 1. **One copy of Spark's gate or two.** (a) Move the test into `GeneratePredicateHelper`, called
    by `FilterExec` and Varka: one copy, a few more lines in a Spark file Varka already edits. (b)
    A copy beside `VarkaFilterExec`, held to `FilterExec`'s branch by test 2. *Recommended: (a)*,
@@ -381,7 +392,75 @@ disagreement but the named known differences; no emitted byte moves.
 
 ## 9. Outcome
 
-(Written when the work lands.)
+Step 1 (laptop, 11 November 2026, `results/VARKA-541-step1.txt`) ran test 1's queries at master.
+388's reproducer agrees in all four cells, and needs no leading conjunct: its `make_date`
+conjuncts fuse, and the kernel declines the batch holding `m` = 13, so its served cell is the
+fallback too. Item 5's declined codegen-on cell raises where Spark answers, so 2.1 stays. Item
+10's served codegen-on cell answers where Spark raises, so 2.4 stays. A Varka filter is planned
+over a view with an array column, so 2.3's extract production stays. Item 6 (a) is reached over
+non-nullable columns, but not by the plan's query: `make_date` must also be common on its own,
+as in step 1's 6d; P1 scored three of its four parts (the step 1 file's own scoring).
+
+The build (12 November 2026), on master `f4c68fc5778`: 2.1, 2.4 and the owner's check of 7's
+11 November note. Decisions taken in the build, by the plan and the code:
+
+- **The gate's one copy.** `GeneratePredicateHelper.takesSubexprEliminationBranch` holds
+  `FilterExec.doConsume`'s test; `FilterExec` exposes it as `eliminatesSubexpressions`, a `def`
+  rather than 2.1's lazy value, so that it reads the conf when asked, as `doConsume` did, and
+  `commonSubexpressions` for 2.4. The Spark file's edit is 26 lines.
+- **2.1.** `VarkaFilterExecBase.fallbackEliminatesSubexpressions` resolves the gate on the
+  driver where each node builds its evaluator factory: on `fallbackCondition`'s compiled branch,
+  a `FilterExec` of the whole condition over the node's child; otherwise
+  `subexpressionElimination.enabled`, as `Predicate.create` reads it. Both factories take it as
+  their last argument, and build the fallback through `VarkaFallbackPredicate` (Java), a
+  `CodeGeneratorWithInterpretedFallback` whose generated object is `GeneratePredicate.generate
+  (bound, gate)`. `fallbackCondition`'s compiled test moved into `compiledBySpark`, unchanged.
+- **The item 6 (a) check.** `fallbackHoistsIntoAnAnd` repeats
+  `generateConjunctsWithSubexprCodes`'s analysis over the bound, canonicalized fallback fold,
+  where the fallback eliminates on the compiled branch: a conjunct of the split chain that is a
+  common `AND`, holding another common subexpression that `ExprUtils.canEvaluateUnconditionally`
+  does not clear. It declines only then, so step 1's 6a (a common `AND` with nothing eliminated
+  inside it) keeps its fusion. Without codegen Spark's own `Predicate.create` evaluates the same
+  way, so the check is not asked there.
+- **2.4.** `residualMissesElimination` in `VarkaColumnarRule`: where Spark compiles the filter,
+  `FilterExec(condition, child)`'s gate is true, `FilterExec(residual, varka)`'s is false, and a
+  residual conjunct, bound against the whole filter's output as its common subexpressions are,
+  contains one of them.
+
+Tests, all in `VarkaDifferentialSuite`, each query in the four cells against Spark in the same
+codegen setting: 388's reproducer behind `i > 0`; item 5's case with `arr[5]` and with
+`arr[5] + 1`, each under `filterExec.enabled` on and off; item 10's case likewise, with the
+plan asserted to hold no Varka node in the codegen-on cells of `arr[5]` under the conf on and a
+Varka node everywhere else; step 1's 6d over non-nullable columns, no Varka node with codegen
+on, and as controls the nullable table and the `i > 0`-led form, fused. A fourth test holds
+`fallbackEliminatesSubexpressions` to the branch read off Spark's generated code (the code
+differs from the code generated with subexpression elimination off exactly when the CSE branch
+is taken, as `WholeStageCodegenSuite`'s SPARK-56032 tests read it) on four conditions under the
+conf on and off. Planted faults, one run (`sql/testOnly`, the four tests): the gate replaced by
+`subexpressionElimination.enabled` failed the first test in its declined codegen-on cell (only
+Varka raises `INVALID_ARRAY_INDEX`) and the gate test; 2.4's check returning false failed the
+second in its served codegen-on cell (only Spark raises); the item 6 (a) check returning false
+failed the third in its served codegen-on cell (only Varka raises
+`DATETIME_FIELD_OUT_OF_BOUNDS`). P2 holds for item 5 and item 10 as registered, and item 6 (a)'s
+case, which P2 expected to still differ, agrees through the check. P5 holds by construction: no
+kernel, emitter or IR file is touched.
+
+The four tests took 1.3, 0.9, 0.8 and 0.3 s on the laptop (3.3 s, against P4's 9 to 16 s for
+the whole of section 3; P4 is scored when the rest lands). One review pass: its fixes typed the
+rule's node argument, logged a declined filter at DEBUG, set the factories' default to the
+session's `subexpressionElimination.enabled`, ran the gate test with Varka's session active
+(the `FilterExec` the gate asks takes its conf from the session active when it is built) and
+corrected `VarkaFallbackPredicate`'s comment on the interpreted path. Left by it: the planning
+checks and the node's gate read the conf at different times (planning and execution), as
+`fallbackCondition` already does; the checks decline conservatively, a raising subexpression
+in an `AND`'s first operand included; and a finding outside this row, that with codegen off and
+no residual conjunct the fallback evaluates the fused conjuncts' left fold, not Spark's tree,
+so a common `AND` of the optimizer's tree that the fold lacks hoists in Spark alone.
+
+Left of the row: 2.2's `IsNotNull`-order test, 2.3's fuzzer step and the census P3 reads, test
+4's reproducer files, and P4's time, which is scored with them. The item 6 (a) check is
+removed when an upstream fix of SPARK-61197 syncs, and 2.4's when SPARK-60774's fix makes Spark
+answer item 10's case.
 
 ## Appendix: the plan of 1 November 2026, superseded
 

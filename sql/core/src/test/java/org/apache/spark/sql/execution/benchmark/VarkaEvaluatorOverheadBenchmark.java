@@ -125,7 +125,7 @@ public class VarkaEvaluatorOverheadBenchmark extends VarkaSqlBenchmarkBase {
     return new Shape("filter " + condition.sql(), input, metrics -> new VarkaFilterEvaluatorFactory(
         condition, seq(input), false, Option.empty(),
         SQLMetrics.createMetric(sc, "rows"), SQLMetrics.createMetric(sc, "batches"), metrics,
-        VarkaSessionEmit.DEFAULTS, false, Option.empty(), false).createEvaluator());
+        VarkaSessionEmit.DEFAULTS, false, Option.empty(), false, true).createEvaluator());
   }
 
   private List<Shape> shapes() {
